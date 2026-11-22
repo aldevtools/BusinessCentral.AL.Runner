@@ -13,6 +13,18 @@ impl Session {
         if self.without_client() {
             self.clientless_page_guard(method, recv.as_deref(), args)?;
         }
+        match recv.as_deref() {
+            Some(Value::TestPage(st)) => {
+                self.request_ok_only_step(st_of(st), method, None)?;
+                self.format_procedure_step(st_of(st), method, None)?;
+            }
+            Some(Value::TestControl(c)) => {
+                let c = control_of(c);
+                self.request_ok_only_step(&c.page, method, Some(&c.target))?;
+                self.format_procedure_step(&c.page, method, Some(&c.target))?;
+            }
+            _ => {}
+        }
         // CurrPage calls from the page's own code do not count as the test code touching the page.
         if let (Some(Value::TestPage(st)), al_builtins::page_op::PageRecv::TestPage) = (recv.as_deref(), method.recv())
         {
@@ -36,7 +48,7 @@ impl Session {
         match method.method() {
             PageMethod::GoToKey => Err(error_code("The row does not exist on the TestPage.", "TestRowNotFound")),
             m => {
-                self.last_error = *e;
+                self.hold_error(*e)?;
                 Ok(match m {
                     PageMethod::Next | PageMethod::Previous | PageMethod::First | PageMethod::Last => {
                         Value::Unknown(std::sync::Arc::from(
@@ -81,6 +93,11 @@ impl Session {
             }
             None if method == PageOp::PageRunStatic || method == PageOp::PageRunModalStatic => {
                 let used = self.ret_used;
+                // The run names its page by id and hands a record (`PageRunCall::of_static`).
+                let (by_id, record_arg) = (
+                    matches!(args.first(), Some(Value::Integer(_))),
+                    matches!(args.get(1), Some(Value::Record(_))),
+                );
                 if let Some(Value::Text(name)) = args.first() {
                     // An empty name: with a record AL:MetadataNotFound like page 0, without one an uncatchable
                     // NullReferenceException on BC, refused (pages/missing-object-fqn/Y89FqnMissing.al:125, :153; :113 is no [Test]).
@@ -152,10 +169,7 @@ impl Session {
                         al_builtins::value::LibraryValue::FieldRef(..)
                             | al_builtins::value::LibraryValue::KeyFieldRef(..)
                     ) {
-                        return Err(error_code(
-                            "Microsoft.Dynamics.Nav.Runtime.NavFieldRef variable not initialized.",
-                            "NotInitialized",
-                        ));
+                        return Err(crate::refs::fieldref_not_initialized());
                     }
                 }
                 // Id 0 with a record resolves the page from the record's table LookupPageId; a
@@ -219,9 +233,8 @@ impl Session {
                 // :916 Shape_ReturnNotUsed_WalkOnly, :949 Shape_ReturnInIf_WalkOnly, :1100-1126 Shape_RunModalZero_*).
                 // Without a record the same: a statement leaves a card without its Cancel action
                 // (ui-handlers/P132TwoModalHandlers.al:466 PW_ProbeB_Statement, :508 PW_ProbeB_InIf).
-                if method == PageOp::PageRunModalStatic {
-                    st.borrow_mut().static_run_modal(used, record.is_some(), field, n == 0);
-                }
+                let modal = method == PageOp::PageRunModalStatic;
+                st.borrow_mut().static_run(modal, used, record.is_some(), field, n == 0);
                 // A record of another table than the page's is refused before anything opens, and so is a field number the table
                 // lacks (a negative one or 0 goes on; pages/parts/P106RunErrors.al: Err_WrongTableRecord,
                 // Err_FieldNoNotExisting).
@@ -249,25 +262,32 @@ impl Session {
                 {
                     return Ok(v);
                 }
+                if method != PageOp::PageRunModalStatic {
+                    self.note_page_run(&st, PageRunCall::of_static(by_id, record_arg, field, n, id));
+                }
                 self.run_page_ui_with(&st, record, method == PageOp::PageRunModalStatic, field)
             }
             Some(Value::TestPage(st)) => {
                 self.fresh_page_for_held_reopen(method, st);
                 let st = st_of(st).clone();
+                Self::note_page_code_call(&st, method);
                 self.refuse_held_part_page_method(&st, method)?;
                 self.pending_add_in_reread(&st, method.method())?;
+                self.factbox_line_call(method, &st, None, args)?;
                 if method.method() != PageMethod::New {
                     st.borrow_mut().saved_by_update = false;
                 }
                 let arg_false = matches!(args.first(), Some(Value::Boolean(false)));
+                let carried_before = st.borrow().lookup_left.move_refresh();
                 self.lookup_refresh_deferred_call(method, &st, None)?;
+                let carried = self.lookup_move_start(method, &st, carried_before)?;
                 let moved = self.code_close_client_call(method, &st, |s| {
                     s.marked_only_unshown_call(method, &st, |s| {
                         s.shown_client_call(method, &st, None, arg_false, |s| s.test_page_op_held(method, &st, args))
                     })
                 });
                 self.test_call_ended(&st, &moved);
-                let moved = moved?;
+                let moved = self.lookup_move_stopped(&st, carried, moved)?;
                 self.lookup_move_refresh_after(&st, &moved)?;
                 Ok(moved)
             }
@@ -275,6 +295,7 @@ impl Session {
                 let c = control_of(c).clone();
                 let page = c.page.clone();
                 self.pending_add_in_reread(&page, method.method())?;
+                self.factbox_line_call(method, &page, Some(&c.target), args)?;
                 page.borrow_mut().saved_by_update = false;
                 self.lookup_refresh_deferred_call(method, &page, Some(&c.target))?;
                 let result = self.code_close_client_call(method, &page, |s| {
@@ -285,6 +306,11 @@ impl Session {
                     })
                 });
                 self.test_call_ended(&page, &result);
+                Self::factbox_line_after_set_value(method, &page, &result);
+                let result = self.refuse_error_after_found_row_save(&page, result);
+                if method == PageOp::TestFieldSetValue {
+                    return self.coded_after_set_value(&page, result);
+                }
                 result
             }
             other => unsupported(format!("{method} on {}", other.describe())),
@@ -334,18 +360,18 @@ impl Session {
             self.refuse_unpinned_state(st)?;
         }
         if method.recv() == PageRecv::TestPart {
-            self.first_part_access(st, name, false)?;
+            self.first_part_access(st, name, None, false)?;
         } else if st.borrow().new_host_part_rows
             && st.borrow().host.is_none()
-            && !matches!(
+            && (!matches!(
                 name,
                 PageMethod::Close | PageMethod::New | PageMethod::OK | PageMethod::Next | PageMethod::Last
-            )
+            ) || (st.borrow().trapped_blank_part_edit && name != PageMethod::Close))
         {
             // A new host whose part shows rows of the blank key: Close and New() are pinned (PartLineBeforeHostKey.al:1944
             // QH_BlankRows_OpenNew_CloseOnly, :1909 QH_BlankRows_HostNew_ThenClose), and Next and Last, which answer No, run no
             // trigger and store nothing (pages/activate-field-blank-host-rows/Y17ActivateNewHost.al:573 QH_BlankRows_HostNext, :602
-            // QH_BlankRows_HostLast); nothing else.
+            // QH_BlankRows_HostLast); nothing else. After the SetValue of `trapped_card_blank_part.rs`, only Close.
             return unsupported(format!(
                 "TestPage.{name} on a new, unsaved host whose part shows rows of the blank key (not pinned)"
             ));
@@ -361,6 +387,7 @@ impl Session {
             ));
         }
         // The row the host stands on before a First, Last, GoToKey or GoToRecord, to tell a move from a stay (see below).
+        let new_from_row = name == PageMethod::New && st.borrow().cursor == Cursor::Row;
         let before = if matches!(
             name,
             PageMethod::First | PageMethod::Last | PageMethod::GoToKey | PageMethod::GoToRecord
@@ -373,6 +400,7 @@ impl Session {
         } else {
             None
         };
+        let journal_before = self.journal_before_move(st, name)?;
         let waiting = if st.borrow().host.is_none() && !st.borrow().parts.is_empty() {
             self.parts_waiting_refresh(st)
         } else {
@@ -395,16 +423,19 @@ impl Session {
         // empty view, the list is back on that line (`actions.rs`, empty_page_after_action). First then reads the row twice and
         // runs OnAfterGetCurrRecord with xRec on it (testpage/PnGShowRow.al:223
         // QG_EmptyList_InsertViaOtherVariable_StepLog `first_log` `List.AGR(NEW2,Created);List.AGR(NEW2,Created);
-        // List.AGCR(NEW2,NEW2)`, :56 EmptyListInsertViaOtherVariable); Close reads nothing (`close_log` empty). Other calls are not
-        // pinned.
+        // List.AGCR(NEW2,NEW2)`, :56 EmptyListInsertViaOtherVariable); Close reads nothing (`close_log` empty). OK, Next, Previous, Last and
+        // GoToKey go on in the cells `empty_list_one_row.rs` admits; other calls are not pinned.
         if method.recv() != PageRecv::Page && std::mem::take(&mut st.borrow_mut().empty_list_row_behind) {
+            let rec_left = std::mem::take(&mut st.borrow_mut().empty_list_rec_left);
+            let action_pinned = std::mem::take(&mut st.borrow_mut().empty_list_action_pinned);
             match name {
                 PageMethod::First
                     if st.borrow().open && st.borrow().cursor == Cursor::NewLine && !st.borrow().dirty =>
                 {
                     return self.first_after_empty_list_action(st);
                 }
-                PageMethod::Close => {}
+                _ if name == PageMethod::Close
+                    || self.one_row_behind_call_pinned(st, name, args, &rec_left, action_pinned)? => {}
                 _ => {
                     return unsupported(format!(
                         "TestPage.{} after an action stored a row behind the new-row line of an empty list (not pinned)",
@@ -483,31 +514,26 @@ impl Session {
         }
         // The page's own code (CurrPage in the action's trigger) is not a call of the test client: the mark stays as it is.
         let client = method.recv() != PageRecv::Page;
-        let read_after_goto = client && std::mem::take(&mut st.borrow_mut().read_after_goto);
-        let doubt = client && std::mem::take(&mut st.borrow_mut().read_after_goto_doubt);
-        let quiet = client && std::mem::take(&mut st.borrow_mut().read_after_goto_quiet);
-        let set = client && std::mem::take(&mut st.borrow_mut().read_after_goto_set);
-        let prev = client && std::mem::take(&mut st.borrow_mut().read_after_goto_prev);
-        if read_after_goto {
-            let keep = |st: &St, doubt: bool, prev: bool| {
-                let mut s = st.borrow_mut();
-                s.read_after_goto = true;
-                s.read_after_goto_doubt = doubt;
-                s.read_after_goto_quiet = quiet;
-                s.read_after_goto_set = set;
-                s.read_after_goto_prev = prev;
-            };
+        let taken = if client {
+            st.borrow_mut().after_goto.take()
+        } else {
+            None
+        };
+        if let Some(left) = taken {
+            let keep = |st: &St, left| st.borrow_mut().after_goto.keep(left);
             match name {
-                PageMethod::Invoke => keep(st, doubt, prev),
+                PageMethod::Invoke => keep(st, left),
                 // QgGoToKeyNextCall.al:406 Plain_LookupHandler_GoToKey_ThenOK, :426 _ValueRead_ThenOK (lookup-mode modal only).
-                PageMethod::OK if st.borrow().lookup => keep(st, doubt, prev),
-                PageMethod::Previous => keep(st, doubt, true),
-                PageMethod::Close if prev => {
+                PageMethod::OK if st.borrow().lookup => keep(st, left),
+                PageMethod::Previous => keep(st, left.after_previous()),
+                PageMethod::Close if left.prev() => {
                     return unsupported(
                         "TestPage.Close right after a Previous that followed a GoToKey on a list without OnAfterGetCurrRecord (what it reads is not pinned)",
                     );
                 }
-                PageMethod::Close if quiet && !set && method.recv() != PageRecv::Page && st.borrow().open => {
+                PageMethod::Close
+                    if left.quiet() && !left.set() && method.recv() != PageRecv::Page && st.borrow().open =>
+                {
                     let rec = self.page_rec(st);
                     if self.stored_row(&rec)?.is_some() {
                         self.populate_current(st)?;
@@ -520,7 +546,7 @@ impl Session {
                 | PageMethod::Caption
                 | PageMethod::Editable
                 | PageMethod::ValidationErrorCount
-                | PageMethod::GetValidationError => keep(st, true, prev),
+                | PageMethod::GetValidationError => keep(st, left.with_doubt()),
                 _ => {
                     return unsupported(format!(
                         "TestPage.{} right after a GoToKey moved a list without OnAfterGetCurrRecord (whether the row is read again is not pinned)",
@@ -591,13 +617,13 @@ impl Session {
             && !self.declares(st, "onaftergetcurrrecord")
         {
             let quiet = st.borrow().triggers_run == triggers_before;
-            let mut s = st.borrow_mut();
-            s.read_after_goto = true;
-            s.read_after_goto_quiet = quiet;
+            st.borrow_mut().after_goto.moved(quiet);
         }
         if moved && st.borrow().open {
             if st.borrow().host.is_some() {
                 self.sync_dependents_then_host_follows(st, name)?;
+            } else if self.journal_part_stays(st, name, journal_before.as_ref())? {
+                // The journal shape's part reads nothing on the measured GoToRecord that stays (`hidden_part_journal.rs`).
             } else {
                 // First and Last that move the host, Next and Previous: only the linked parts follow
                 // (`sync_parts_after_move`, pages/parts/PartReadsOpen.al:269-283, :336-379). What a First or
@@ -612,7 +638,8 @@ impl Session {
                         if name == PageMethod::Next {
                             self.restore_held_xrec_of_empty_parts(st);
                         }
-                        self.sync_parts_after_move_fn(st, name)?;
+                        self.during_host_move(HostMove::moved(name), |s| s.sync_parts_after_move_fn(st, name))?;
+                        self.journal_part_after_host_move(st, name, journal_before.as_ref())?;
                         true
                     }
                     PageMethod::First | PageMethod::Last if before.is_some() && !stayed => {
@@ -620,23 +647,17 @@ impl Session {
                         true
                     }
                     PageMethod::GoToKey | PageMethod::GoToRecord if stayed && !st.borrow().walk_synced_parts => {
-                        self.sync_parts_stayed(st)?;
+                        self.during_host_move(HostMove::stayed(name), |s| s.sync_parts_stayed(st))?;
                         false
                     }
                     PageMethod::New => {
-                        // The parts a host's New() links afresh run no OnNewRecord (see `land_on_part_open_line`).
-                        let before = std::mem::replace(&mut self.host_new_running, true);
-                        let r = self.sync_parts(st);
-                        self.host_new_running = before;
-                        r?;
+                        self.sync_parts_after_new(st, new_from_row)?;
                         false
                     }
                     _ => {
-                        let goto_record = name == PageMethod::GoToRecord;
-                        let before_goto = std::mem::replace(&mut self.host_goto_record_running, goto_record);
-                        let r = self.sync_parts_after_other_move(st, name, before.is_some() && !stayed);
-                        self.host_goto_record_running = before_goto;
-                        r?;
+                        self.during_host_move(HostMove::moved(name), |s| {
+                            s.sync_parts_after_other_move(st, name, before.is_some() && !stayed)
+                        })?;
                         false
                     }
                 };
@@ -646,9 +667,21 @@ impl Session {
         Ok(r)
     }
     /// The save of `CurrPage.Update(true)`, `CurrPage.Update()` and `CurrPage.SaveRecord()` on an open page.
+    /// The refresh `CurrPage.Update(arg)` asks for, `save` when it saves. It lands after the trigger that asked for it returns (corpus
+    /// pages/currpage/TestPageUpdate.al: ValidateBegin;ValidateEnd;HostAGCR).
+    fn ask_update_refresh(&mut self, st: &St, save: bool, arg: Option<&Value>) -> Result<(), Signal> {
+        self.refuse_update_in_action(st)?;
+        st.borrow_mut().refresh.ask_by_update(save);
+        Self::validate_view_update(st, save);
+        self.note_view_left(st)?;
+        self.note_part_update_left_view(st)?;
+        self.land_on_code_inserted_line(st, arg)
+    }
+
     fn save_from_update(&mut self, method: PageOp, st: &St) -> Result<Value, Signal> {
         if method == PageOp::PageSaveRecord {
             st.borrow_mut().save_record_called = true;
+            self.save_record_on_code_inserted_line(st)?;
         }
         // CurrPage.SaveRecord() in the OnValidate of a part's control changes neither Rec nor xRec of the stored row; a new
         // row gets its inserted key in Rec while xRec stays the blank new row
@@ -668,16 +701,17 @@ impl Session {
             if let Some(seen) = step_save_xrec {
                 self.set_xrec_fields(st, seen);
             }
-            self.save_record_now(st)?;
+            self.save_record_now(st, method)?;
             let stored = self.page_rec(st).borrow().fields.clone();
             self.set_xrec_fields(st, xrec);
             self.validate_step_saved(st, &stored);
-            st.borrow_mut().xrec_after_validate = Some(stored);
+            st.borrow_mut().xrec_after_validate = Some(stored.into_vec());
         } else {
-            self.save_record_now(st)?;
+            self.save_record_now(st, method)?;
         }
         // What `CurrPage.Update(true)` saved (al-vm pages/leave_new_line.rs, testpage/NewRowThenMove.al:73).
         st.borrow_mut().saved_by_update = method != PageOp::PageSaveRecord;
+        self.code_inserted_saved(st)?;
         Ok(Value::Null)
     }
 
@@ -729,6 +763,7 @@ impl Session {
             }
             PageMethod::OpenEdit | PageMethod::OpenView | PageMethod::OpenNew => {
                 st.borrow_mut().caught_by_trap = false;
+                st.borrow_mut().trapped_run = None;
                 let mode = match method.method() {
                     PageMethod::OpenEdit => PageMode::Edit,
                     PageMethod::OpenView => PageMode::View,
@@ -810,10 +845,7 @@ impl Session {
                 }
                 Ok(test_control(st.clone(), ControlTarget::BuiltIn(m.to_string())))
             }
-            m @ (PageMethod::Edit | PageMethod::View) => {
-                self.require_open(st)?;
-                Ok(test_control(st.clone(), ControlTarget::BuiltIn(m.to_string())))
-            }
+            m @ (PageMethod::Edit | PageMethod::View) => self.take_mode_action(st, m),
             // `ObjectId(UseNames)`: `Page <id>`, or with names (the default) `Page <Caption>`, the object name when
             // the page has no Caption. Taken from the probed report form (recordref-fieldref/PWRefusedBuiltins.al:78-107,
             // BC 27.5; the page form is pinned by pages/PRPageObjectId.al). It reads the object, so
@@ -827,7 +859,7 @@ impl Session {
                 let engine = self.engine();
                 let o = &engine.program.objects[st.borrow().object as usize];
                 if !names {
-                    return Ok(Value::Text(format!("Page {}", o.id.unwrap_or(0)).into()));
+                    return crate::object_ids::object_id_text("Page", o.id);
                 }
                 let caption = match o.properties.iter().find(|(k, _)| k.eq_ignore_ascii_case("Caption")) {
                     Some((_, v)) => match crate::recmeta::string_literal(v) {
@@ -878,7 +910,7 @@ impl Session {
                 let engine = self.engine();
                 let o = &engine.program.objects[st.borrow().object as usize];
                 if !names {
-                    return Ok(Value::Text(format!("Page {}", o.id.unwrap_or(0)).into()));
+                    return crate::object_ids::object_id_text("Page", o.id);
                 }
                 let caption = o
                     .properties
@@ -939,6 +971,8 @@ impl Session {
                     Some(v) => {
                         let on = ops::truthy(v)?;
                         if st.borrow().opening {
+                            let open_editable = st.borrow().open_editable.assigned(on);
+                            st.borrow_mut().open_editable = open_editable;
                             if !on {
                                 let mut s = st.borrow_mut();
                                 if !s.editable_off {
@@ -1065,6 +1099,7 @@ impl Session {
                 // pages/parts/SelectionFilterLinkedPartNoRow.al SetSelectionFilter_LinkedPartOnNoRow_TableHasOtherRows, _TableEmpty
                 // `rec=95656/A/0 count=0 filters=Table ID: 95656, No.: A, Line No.: 0`; issue 6964). Marks are not pinned: none is set.
                 let linked_no_row = self.linked_part_on_no_row(st, &src, dst);
+                let mut empty_modal_worksheet = false;
                 if st.borrow().cursor != Cursor::Row && !linked_no_row && !self.closed_on_handler_set_record(st) {
                     // A page on no row because its table is empty selects nothing, and the record keeps no filter
                     // (pages/run-modal/P82CurrPage.al:SetSelectionFilter_EmptyPage: `sel=0 filter=''`). A page on no row
@@ -1082,30 +1117,7 @@ impl Session {
                     // _HiddenByVariable_, _VisiblePart_): that is the blank-row path below.
                     let initial = self.initial_fields(src.borrow().table as usize);
                     let blank_rec = self.is_blank_row(&src);
-                    // The record may hold the blank-key filter of an earlier call (HiddenPartSelectionFilter.al: `rec-before=Id: 0/0`).
-                    let t = self.table(dst)?;
-                    let plain_dst = {
-                        let d = dst.borrow();
-                        d.marks.is_empty()
-                            && !d.marked_only
-                            && d.filters.iter().all(|f| {
-                                f.field == t.keys[0][0]
-                                    && t.keys[0].len() == 1
-                                    && match &f.expr {
-                                        al_builtins::filter::FilterExpr::Eq(v) => {
-                                            al_builtins::ops::compare(v, &initial[f.field]).ok()
-                                                == Some(std::cmp::Ordering::Equal)
-                                        }
-                                        al_builtins::filter::FilterExpr::Range(Some(a), Some(b)) => {
-                                            al_builtins::ops::compare(a, &initial[f.field]).ok()
-                                                == Some(std::cmp::Ordering::Equal)
-                                                && al_builtins::ops::compare(b, &initial[f.field]).ok()
-                                                    == Some(std::cmp::Ordering::Equal)
-                                        }
-                                        _ => false,
-                                    }
-                            })
-                    };
+                    let plain_dst = self.plain_no_row_selection_destination(dst, &initial)?;
                     // Pinned for the page of a part, and for a Page variable that never ran and was handed no record or view: a
                     // ListPart over a temporary Integer (`Number: 0`, count 1 of the Integer table), a List and a Card (`Id: 0`,
                     // count 0) (pages/currpage/UnopenedCurrPage.al:110, :159, :208 Never_Opened_*_TryFunction).
@@ -1114,7 +1126,12 @@ impl Session {
                         s.set_record.is_none() && !s.set_view
                     };
                     let held = blank_rec && (st.borrow().host.is_some() || unopened_var || self.on_open_new_row(st));
-                    if !(plain_dst && (held || self.on_list_new_line_blank_key(st, &src)?)) {
+                    empty_modal_worksheet =
+                        plain_dst && self.empty_modal_worksheet_selection(st, &src, dst, &initial)?;
+                    if empty_modal_worksheet {
+                        st.borrow_mut().empty_selection_given = true;
+                    }
+                    if !(plain_dst && (held || empty_modal_worksheet || self.on_list_new_line_blank_key(st, &src)?)) {
                         return unsupported(
                             "Page.SetSelectionFilter of a page on no row of a table that has rows (not pinned)",
                         );
@@ -1142,7 +1159,8 @@ impl Session {
                 // takes the filter on the blank key and keeps its marks and MarkedOnly as they were, with no mark added
                 // (pages/currpage/SelectionFilterNoRow.al:Marks_WithoutMarkedOnly, MarkedOnly_WithoutMarks,
                 // Mark_OnSelectedRow, MarkedOnly_MarkOnOtherRow: `Id: 0`, `Marked: Yes, Id: 0`, count 0).
-                let blank_row = self.is_blank_row(&src) || self.on_list_new_line_blank_key(st, &src)?;
+                let blank_row =
+                    empty_modal_worksheet || self.is_blank_row(&src) || self.on_list_new_line_blank_key(st, &src)?;
                 if !blank_row
                     && ((marked_only && !marked)
                         // A record whose only mark is the selected row (an earlier call on it left that mark) ends as it was
@@ -1212,10 +1230,7 @@ impl Session {
                 self.bg_run_page_task(st, args)
             }
             PageMethod::Run => self.run_page_var(st, false),
-            PageMethod::RunModal => {
-                st.borrow_mut().run_static = Some(false);
-                self.run_page_var(st, true)
-            }
+            PageMethod::RunModal => self.page_var_run_modal(st),
             // `CurrPage.Close()` in a procedure of a Page variable that never ran does nothing and the procedure goes on
             // (pages/currpage/ClosedPageVariableCurrPageClose.al:83-99, Close_NeverRun), and so does
             // `Close()` of a Page variable whose modal page closed: after its handler failed (ClosedPageVariableCurrPageClose.al:55
@@ -1241,7 +1256,7 @@ impl Session {
                 // LookupCancel (testpage/PnGRefresh.al:996 QN_CloseQ_Sheet_RunModal_OtherChanged_CloseInAction
                 // `run-modal-result = LookupCancel`, `row-after = A,orig A`; :1113 the List page). Pinned for that read back only.
                 if let Some(fields) = fields.filter(|_| a == "LookupCancel" && st.borrow().selection.is_none()) {
-                    st.borrow_mut().selection = Some(fields);
+                    st.borrow_mut().selection = Some(fields.into_vec());
                 }
                 Ok(r)
             }
@@ -1315,14 +1330,9 @@ impl Session {
                 self.require_open(st)?;
                 // CurrPage.Update() without an argument saves (the parameter defaults to true).
                 let save = (method == PageOp::PageSaveRecord) || !matches!(args.first(), Some(Value::Boolean(false)));
+                Self::note_currpage_save(st, method == PageOp::PageSaveRecord, save);
                 if !(method == PageOp::PageSaveRecord) {
-                    self.refuse_update_in_action(st)?;
-                    // The refresh lands after the trigger that asked for it returns (corpus
-                    // pages/currpage/TestPageUpdate.al: ValidateBegin;ValidateEnd;HostAGCR).
-                    st.borrow_mut().refresh = true;
-                    st.borrow_mut().refresh_by_update = true;
-                    st.borrow_mut().refresh_update_false = !save;
-                    self.note_view_left(st)?;
+                    self.ask_update_refresh(st, save, args.first())?;
                 }
                 if !save {
                     self.validate_step_update_false(st);
@@ -1376,20 +1386,25 @@ impl Session {
                 };
                 let table = self.table(r)?;
                 let mut key: Vec<Value> = table.primary_key(&r.borrow().fields);
-                self.page_go_to_key_captions(st, &mut key)
+                self.page_go_to_record(st, &mut key)
             }
             other => unsupported(format!("TestPage.{other}")),
         }
     }
 
     /// CurrPage.SaveRecord / Update(true): write the page's row now.
-    fn save_record_now(&mut self, st: &St) -> Result<(), Signal> {
+    fn save_record_now(&mut self, st: &St, method: PageOp) -> Result<(), Signal> {
         {
             // Page code changed Rec: SaveRecord writes it whether or not the client typed anything
             // (corpus testpage/TestPageTriggerEvents.al, ModifyRecordEvent_PageDrivenSave_*).
             // Page code that inserted the new row itself and copied it into Rec hands the page
             // that row (corpus testpage/TestPageOpenNewAfterGetCurrRecord.al:44-63).
-            if self.save_found_row_from_new_line(st)? {
+            let call = if method == PageOp::PageSaveRecord {
+                super::refresh_new_line::FoundRowSave::SaveRecord
+            } else {
+                super::refresh_new_line::FoundRowSave::UpdateTrue
+            };
+            if self.save_found_row_from_new_line(st, call)? {
                 return Ok(());
             }
             if st.borrow().draft && !st.borrow().draft_stored && {

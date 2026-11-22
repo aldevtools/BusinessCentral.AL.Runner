@@ -294,6 +294,23 @@ mod tests {
         assert_eq!(unix_millis("2026-10-15T22:00:23"), None);
     }
 
+    /// ADR-077 decision 3: the corpus gives every suite a `<properties>` child with its provenance. The reader takes the
+    /// same cases and the same clock from a suite with it as from the suite without it.
+    #[test]
+    fn a_suite_with_provenance_properties_reads_like_the_suite_without_them() {
+        let plain = "<testsuites><testsuite name=\"Codeunit 60002\" tests=\"2\" timestamp=\"2026-10-15T22:00:23Z\"><testcase classname=\"Codeunit 60002\" name=\"A\" /><testcase classname=\"Codeunit 60002\" name=\"B\"><failure message=\"x\">boom</failure></testcase></testsuite></testsuites>";
+        let props = "<properties><property name=\"source_run\" value=\"44269960088\" /><property name=\"source_attempt\" value=\"1\" /><property name=\"source_commit\" value=\"2cf60e0e5c1a6e03edfecda48b33cd935d489fcc\" /><property name=\"bc_build\" value=\"29.0.54011.55816\" /><property name=\"app\" value=\"full\" /></properties>";
+        let stamped = plain.replacen("<testcase ", &format!("{props}<testcase "), 1);
+        let (a, b) = (parse_junit(plain).unwrap(), parse_junit(&stamped).unwrap());
+        assert_eq!(a.len(), 2);
+        assert_eq!(
+            a.iter().map(|c| (c.id.clone(), c.bc_failed)).collect::<Vec<_>>(),
+            b.iter().map(|c| (c.id.clone(), c.bc_failed)).collect::<Vec<_>>()
+        );
+        assert_eq!(parse_clocks(plain).unwrap(), parse_clocks(&stamped).unwrap());
+        assert_eq!(parse_clocks(&stamped).unwrap()[&60002], 1_792_101_623_000);
+    }
+
     #[test]
     fn parses_every_testcase_with_its_codeunit() {
         let cases = parse_junit(SAMPLE).unwrap();

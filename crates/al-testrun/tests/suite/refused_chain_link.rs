@@ -120,6 +120,7 @@ fn manifest(p: &str) -> Manifest {
         translation_source: None,
         runtime: None,
         app_json_keys: Vec::new(),
+        platform_internals_visible_to: Vec::new(),
         symbols: vec![],
     }
 }
@@ -219,3 +220,64 @@ codeunit 50221 "Installs A Sequence"
     trigger OnInstallAppPerCompany() begin NumberSequence.Insert('SHARED51100'); end;
 }
 "#;
+
+// The same with the number taken in a message handler of the refused codeunit's test: the handler functions a test names
+// are part of what its tests can take (review of al-runner PR 8363).
+#[test]
+fn a_refused_codeunit_whose_test_takes_numbers_in_a_handler_holds_back_a_reader_of_number_sequences() {
+    let main = main_src(None)
+        .replace(
+            "        NumberSequence.Insert('OWN51102');\n        if NumberSequence.Next('OWN51102') <> 0 then Error('own sequence');",
+            "        Message('take');",
+        )
+        .replace(
+            "    [Test]\n    procedure ReadsTheLoginRowAndWritesRows()",
+            "    [MessageHandler] procedure Take(T: Text[1024]) begin if NumberSequence.Next('SHARED51100') < 0 then Error('shared sequence'); end;\n    [Test]\n    [HandlerFunctions('Take')]\n    procedure ReadsTheLoginRowAndWritesRows()",
+        )
+        .replace(
+            "        if not R.IsEmpty() then Error('a row is there');",
+            "        if NumberSequence.Next('SHARED51100') <> 0 then Error('a number was taken');",
+        );
+    assert!(main.contains("[HandlerFunctions('Take')]") && main.contains("Message('take')"));
+    assert!(main.contains("<> 0 then Error('a number was taken')"));
+    let dep = format!("{DEP}{}", INSTALLS);
+    let strict = RunOptions {
+        strict_order: true,
+        ..RunOptions::default()
+    };
+    let o = outcomes_with(&main, &dep, &strict);
+    assert!(
+        matches!(outcome(&o, "SeesNoRow"), Outcome::NotRun(m) if m.contains("Sees The Login")),
+        "{o:?}"
+    );
+}
+
+// Under TestIsolation = Disabled the refused codeunit's tests leave their rows too, also those a handler function of the
+// test writes: a later reader of the table is held back (review of al-runner PR 8363, probe stor2). Without the write the
+// reader runs.
+#[test]
+fn under_disabled_isolation_a_refused_codeunit_whose_handler_writes_a_table_holds_back_its_readers() {
+    let disabled = RunOptions {
+        isolation: Some(al_testrun::isolation::TestIsolation::Disabled),
+        ..RunOptions::default()
+    };
+    let own_sequence = "        NumberSequence.Insert('OWN51102');\n        if NumberSequence.Next('OWN51102') <> 0 then Error('own sequence');\n";
+    let writes_in_handler = main_src(None)
+        .replace(own_sequence, "")
+        .replace("        R.K := 'TEST'; R.Insert();", "        Message('write');")
+        .replace(
+            "    [Test]\n    procedure ReadsTheLoginRowAndWritesRows()",
+            "    [MessageHandler] procedure Write(T: Text[1024]) var R: Record \"Row\"; begin R.K := 'HANDLER'; R.Insert(); end;\n    [Test]\n    [HandlerFunctions('Write')]\n    procedure ReadsTheLoginRowAndWritesRows()",
+        );
+    assert!(
+        writes_in_handler.contains("[HandlerFunctions('Write')]") && writes_in_handler.contains("Message('write')")
+    );
+    let o = outcomes_with(&writes_in_handler, DEP, &disabled);
+    assert!(
+        matches!(outcome(&o, "SeesNoRow"), Outcome::NotRun(m) if m.contains("Sees The Login")),
+        "{o:?}"
+    );
+    let writes_nothing = writes_in_handler.replace("R.K := 'HANDLER'; R.Insert();", "");
+    let o = outcomes_with(&writes_nothing, DEP, &disabled);
+    assert_eq!(outcome(&o, "SeesNoRow"), &Outcome::Pass, "{o:?}");
+}

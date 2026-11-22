@@ -273,6 +273,7 @@ fn manifest(p: &str) -> Manifest {
         translation_source: None,
         runtime: None,
         app_json_keys: Vec::new(),
+        platform_internals_visible_to: Vec::new(),
         symbols: vec![],
     }
 }
@@ -1572,4 +1573,337 @@ fn the_base_variant_with_the_single_instance_check_matches_a_strict_order_run() 
     assert!(want.iter().any(|w| matches!(w.2, Outcome::Fail(_))), "{want:?}");
     assert_ne!(outcomes(&rts[1]), want, "the fresh variant differs");
     assert_eq!(outcomes(&rts[0]), want);
+}
+
+/// Issue 8593 shape: every codeunit a chain member (RequiredTestIsolation = Disabled). `Lane Carry Refused` is refused
+/// while it runs (the order of `æ` is not measured, issue 8195), so what it left is not known; `Lane Carry Counter`
+/// counts the rows after it and reads the flag `Lane Carry Setter` left.
+const CARRY_AFTER_REFUSED: &str = r#"
+table 60810 "Lane Carry Row" { fields { field(1; Name; Text[30]) { } } keys { key(PK; Name) { } } }
+codeunit 60810 "Lane Carry Writer"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure WritesCarryNames() var R: Record "Lane Carry Row";
+    begin R.Name := 'Alpha'; R.Insert(); R.Name := 'ærø'; R.Insert(); R.Name := 'Bravo'; R.Insert(); end;
+}
+codeunit 60811 "Lane Carry Setter"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure SetsCarryFlag() var S: Codeunit "Lane State"; begin S.SetFlag('left'); end;
+}
+codeunit 60812 "Lane Carry Refused"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure RefusedLastName() var S: Codeunit "Lane State"; R: Record "Lane Carry Row";
+    begin
+        if S.GetFlag() = '' then;
+        R.FindLast();
+        Error('last=%1', R.Name);
+    end;
+}
+codeunit 60813 "Lane Carry Counter"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure CountsCarriedRows() var S: Codeunit "Lane State"; R: Record "Lane Carry Row";
+    begin
+        if S.GetFlag() = '' then;
+        Error('count=%1 flag=%2', R.Count(), S.GetFlag());
+    end;
+}
+"#;
+
+/// Al-runner issue 8593: a chain member after a member that was refused while it ran reads what that member left, which
+/// is not known (`run.rs` `carry_disabled`): it is refused in the lane as in the walk, not run from the install baseline.
+#[test]
+fn a_lane_member_after_a_refused_member_is_refused_as_in_the_walk() {
+    let opts = RunOptions {
+        required_isolation: true,
+        strict_order: true,
+        test_suites: Some(std::sync::Arc::new(
+            al_testrun::test_suites::TestSuites::parse("S: 60810 60811 60812 60813").expect("a valid suites file"),
+        )),
+        ..Default::default()
+    };
+    let rt = runtime_opts(CARRY_AFTER_REFUSED, STATE, &opts);
+    let counter = rt
+        .results()
+        .iter()
+        .find(|r| r.test == "CountsCarriedRows")
+        .map(|r| r.outcome.clone());
+    assert!(
+        matches!(&counter, Some(Outcome::NotRun(why)) if why.contains("Lane Carry Refused") && why.contains("not pinned")),
+        "{counter:?}"
+    );
+    let lane = &rt.phases.chain.single_lane;
+    assert!(lane.rerun >= 1, "{:?}", lane);
+}
+
+/// Issue 8594 shape: a chain member (`Lane Outside Writer`, RequiredTestIsolation = Disabled) and, outside the chain,
+/// a codeunit that sets the flag and two that count the writer's rows and read the flag.
+const OUTSIDE_READERS: &str = r#"
+table 60820 "Lane Outside Row" { fields { field(1; Name; Text[30]) { } } keys { key(PK; Name) { } } }
+codeunit 60820 "Lane Outside Writer"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure WritesOutsideNames() var R: Record "Lane Outside Row";
+    begin R.Name := 'Alpha'; R.Insert(); R.Name := 'Bravo'; R.Insert(); R.Name := 'Charlie'; R.Insert(); end;
+}
+codeunit 60821 "Lane Outside Setter"
+{
+    Subtype = Test;
+    [Test] procedure SetsOutsideFlag() var S: Codeunit "Lane State"; begin S.SetFlag('left'); end;
+}
+codeunit 60822 "Lane Outside Reader A"
+{
+    Subtype = Test;
+    [Test] procedure CountsOutsideRowsA() var S: Codeunit "Lane State"; R: Record "Lane Outside Row";
+    begin
+        if S.GetFlag() = '' then;
+        Error('count=%1 flag=%2', R.Count(), S.GetFlag());
+    end;
+}
+codeunit 60823 "Lane Outside Reader B"
+{
+    Subtype = Test;
+    [Test] procedure CountsOutsideRowsB() var S: Codeunit "Lane State"; R: Record "Lane Outside Row";
+    begin
+        if S.GetFlag() = '' then;
+        Error('count=%1 flag=%2', R.Count(), S.GetFlag());
+    end;
+}
+"#;
+
+/// Al-runner issue 8594: a codeunit outside the chain that reads a table a member wrote sees the member's rows in the
+/// lane as in the re-run after the parallel part (QuCommitIsolation.al:711-760 QU_D11_NextCodeunitSees), with the flag
+/// the lane hands on.
+#[test]
+fn a_lane_reader_outside_the_chain_sees_the_rows_a_member_left() {
+    let opts = RunOptions {
+        required_isolation: true,
+        strict_order: true,
+        ..Default::default()
+    };
+    let rt = runtime_opts(OUTSIDE_READERS, STATE, &opts);
+    for t in ["CountsOutsideRowsA", "CountsOutsideRowsB"] {
+        let o = rt.results().iter().find(|r| r.test == t).map(|r| r.outcome.clone());
+        assert!(
+            matches!(&o, Some(Outcome::Fail(m)) if m == "count=3 flag=left"),
+            "{t}: {o:?}"
+        );
+    }
+}
+
+/// A member on the TestRunnerHub (`Lane Hub Writer`), then, outside the chain, a codeunit that sets the flag and one with
+/// handlers that counts the writer's rows and reads the flag. BC's CI runs a codeunit with handlers through another runner
+/// than the hub (QuCommitIsolation.al:11-13), so whether it runs before or after the member is not pinned.
+const HANDLERS_AFTER_HUB: &str = r#"
+table 60830 "Lane Hub Row" { fields { field(1; Name; Text[30]) { } } keys { key(PK; Name) { } } }
+codeunit 60830 "Lane Hub Writer"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure WritesHubNames() var R: Record "Lane Hub Row";
+    begin R.Name := 'Alpha'; R.Insert(); R.Name := 'Bravo'; R.Insert(); end;
+}
+codeunit 60831 "Lane Hub Setter"
+{
+    Subtype = Test;
+    [Test] procedure SetsHubFlag() var S: Codeunit "Lane State"; begin S.SetFlag('left'); end;
+}
+codeunit 60832 "Lane Hub Handler Reader"
+{
+    Subtype = Test;
+    [Test]
+    [HandlerFunctions('LaneHubMessage')]
+    procedure CountsWithHandler() var S: Codeunit "Lane State"; R: Record "Lane Hub Row";
+    begin
+        Message('counting');
+        if S.GetFlag() = '' then;
+        Error('count=%1 flag=%2', R.Count(), S.GetFlag());
+    end;
+    [MessageHandler] procedure LaneHubMessage(Msg: Text[1024]) begin end;
+}
+"#;
+
+/// A codeunit with handlers outside the chain that reads a table a hub member wrote is refused after the parallel part
+/// (`carry_after.rs` `After::outside_refusal`); the lane keeps that refusal instead of running it again from what the
+/// member left.
+#[test]
+fn a_lane_reader_with_handlers_after_a_hub_member_stays_refused() {
+    let opts = RunOptions {
+        required_isolation: true,
+        strict_order: true,
+        replay_every_dependent: true,
+        ..Default::default()
+    };
+    let rt = runtime_opts(HANDLERS_AFTER_HUB, STATE, &opts);
+    let o = rt
+        .results()
+        .iter()
+        .find(|r| r.test == "CountsWithHandler")
+        .map(|r| r.outcome.clone());
+    assert!(
+        matches!(&o, Some(Outcome::NotRun(why)) if why.contains("which has handlers, before or after it is not pinned")),
+        "{o:?}"
+    );
+    let lane = &rt.phases.chain.single_lane;
+    assert!(lane.rerun >= 1, "{:?}", lane);
+}
+
+/// A chain member (`Lane Storage Writer`) changes isolated storage and sets the flag; a later member reads the flag and
+/// the storage.
+const MEMBER_AFTER_STORAGE: &str = r#"
+codeunit 60840 "Lane Storage Writer"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure SetsStorageAndFlag() var S: Codeunit "Lane State";
+    begin IsolatedStorage.Set('lane-key', 'kept', DataScope::Module); S.SetFlag('left'); end;
+}
+codeunit 60841 "Lane Storage Member Reader"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure MemberReadsStorage() var S: Codeunit "Lane State"; V: Text;
+    begin
+        if S.GetFlag() = '' then;
+        if not IsolatedStorage.Get('lane-key', DataScope::Module, V) then V := '';
+        Error('storage=%1 flag=%2', V, S.GetFlag());
+    end;
+}
+"#;
+
+/// A chain member whose reach touches the isolated storage an earlier member changed is refused in the lane as in the
+/// walk (`carry_after.rs` `After::refusal`, `Carried::storage_why`), not run from what that member left.
+#[test]
+fn a_lane_member_after_a_storage_carry_that_reaches_the_storage_is_refused() {
+    let opts = RunOptions {
+        required_isolation: true,
+        strict_order: true,
+        test_suites: Some(std::sync::Arc::new(
+            al_testrun::test_suites::TestSuites::parse("S: 60840 60841").expect("a valid suites file"),
+        )),
+        ..Default::default()
+    };
+    let rt = runtime_opts(MEMBER_AFTER_STORAGE, STATE, &opts);
+    let o = rt
+        .results()
+        .iter()
+        .find(|r| r.test == "MemberReadsStorage")
+        .map(|r| r.outcome.clone());
+    assert!(
+        matches!(&o, Some(Outcome::NotRun(why)) if why.contains("changed isolated storage or a number sequence")),
+        "{o:?}"
+    );
+    let lane = &rt.phases.chain.single_lane;
+    assert!(lane.rerun >= 1, "{:?}", lane);
+}
+
+/// A chain member (`Lane Storage Row Writer`) changes isolated storage and writes a row; outside the chain a codeunit
+/// sets the flag and one, whose reach does not touch the storage, counts the rows and reads the flag.
+const OUTSIDE_AFTER_STORAGE: &str = r#"
+table 60850 "Lane Storage Row" { fields { field(1; Name; Text[30]) { } } keys { key(PK; Name) { } } }
+codeunit 60850 "Lane Storage Row Writer"
+{
+    Subtype = Test;
+    RequiredTestIsolation = Disabled;
+    [Test] procedure SetsStorageAndRow() var R: Record "Lane Storage Row";
+    begin IsolatedStorage.Set('lane-key', 'kept', DataScope::Module); R.Name := 'Alpha'; R.Insert(); end;
+}
+codeunit 60851 "Lane Storage Setter"
+{
+    Subtype = Test;
+    [Test] procedure SetsStorageFlag() var S: Codeunit "Lane State"; begin S.SetFlag('left'); end;
+}
+codeunit 60852 "Lane Storage Row Reader"
+{
+    Subtype = Test;
+    [Test] procedure CountsRowsNotStorage() var S: Codeunit "Lane State"; R: Record "Lane Storage Row";
+    begin
+        if S.GetFlag() = '' then;
+        Error('count=%1 flag=%2', R.Count(), S.GetFlag());
+    end;
+}
+"#;
+
+/// A codeunit outside the chain whose reach does not touch the isolated storage a member changed, and that reads the
+/// member's rows, runs again in the lane from what the member left (QuCommitIsolation.al:711-760
+/// QU_D11_NextCodeunitSees), as after the parallel part (`carry_after.rs` `run_in_session`).
+#[test]
+fn a_lane_reader_outside_the_chain_after_a_storage_carry_runs_again_from_it() {
+    let opts = RunOptions {
+        required_isolation: true,
+        strict_order: true,
+        ..Default::default()
+    };
+    let rt = runtime_opts(OUTSIDE_AFTER_STORAGE, STATE, &opts);
+    let o = rt
+        .results()
+        .iter()
+        .find(|r| r.test == "CountsRowsNotStorage")
+        .map(|r| r.outcome.clone());
+    assert!(
+        matches!(&o, Some(Outcome::Fail(m)) if m == "count=1 flag=left"),
+        "{o:?}"
+    );
+}
+
+/// A codeunit whose OnRun writes rows (a member on the leg of runner 130450, not the hub), then, outside the chain, a
+/// codeunit that sets the flag and one with handlers that counts the rows and reads the flag.
+const HANDLERS_OTHER_LEG: &str = r#"
+table 60860 "Lane Leg Row" { fields { field(1; Name; Text[30]) { } } keys { key(PK; Name) { } } }
+codeunit 60860 "Lane Leg Writer"
+{
+    Subtype = Test;
+    trigger OnRun() var R: Record "Lane Leg Row";
+    begin R.Name := 'Alpha'; R.Insert(); R.Name := 'Bravo'; R.Insert(); end;
+    [Test] procedure LegWriterTest() begin end;
+}
+codeunit 60861 "Lane Leg Setter"
+{
+    Subtype = Test;
+    [Test] procedure SetsLegFlag() var S: Codeunit "Lane State"; begin S.SetFlag('left'); end;
+}
+codeunit 60862 "Lane Leg Handler Reader"
+{
+    Subtype = Test;
+    [Test]
+    [HandlerFunctions('LaneLegMessage')]
+    procedure CountsLegRowsWithHandler() var S: Codeunit "Lane State"; R: Record "Lane Leg Row";
+    begin
+        Message('counting');
+        if S.GetFlag() = '' then;
+        Error('count=%1 flag=%2', R.Count(), S.GetFlag());
+    end;
+    [MessageHandler] procedure LaneLegMessage(Msg: Text[1024]) begin end;
+}
+"#;
+
+/// The refusal of a codeunit with handlers holds only after a member on the TestRunnerHub (`carry_after.rs`
+/// `handlers_unpinned`): after a member on the other leg the lane still runs it again from what the member left.
+#[test]
+fn a_lane_reader_with_handlers_on_the_other_leg_runs_again() {
+    let opts = RunOptions {
+        required_isolation: true,
+        strict_order: true,
+        replay_every_dependent: true,
+        ..Default::default()
+    };
+    let rt = runtime_opts(HANDLERS_OTHER_LEG, STATE, &opts);
+    let o = rt
+        .results()
+        .iter()
+        .find(|r| r.test == "CountsLegRowsWithHandler")
+        .map(|r| r.outcome.clone());
+    assert!(
+        matches!(&o, Some(Outcome::Fail(m)) if m == "count=2 flag=left"),
+        "{o:?}"
+    );
+    let lane = &rt.phases.chain.single_lane;
+    assert!(lane.rerun >= 1, "{:?}", lane);
 }

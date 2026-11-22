@@ -14,12 +14,17 @@ mod apps;
 
 /// The platform table Media Resources (`al_builtins::platform::REGISTRY`).
 pub(crate) const MEDIA_RESOURCES: u32 = 2_000_000_182;
-/// Table "Tenant Report Layout", whose rows are the user-defined rows of Report Layout List.
-const TENANT_REPORT_LAYOUT: u32 = 2_000_000_232;
+// Table "Tenant Report Layout" (`tenant_layouts`), whose rows are the user-defined rows of Report Layout List.
+use crate::tenant_layouts::TENANT_REPORT_LAYOUT;
 const TENANT_REPORT_LAYOUT_OVERRIDE: u32 = 2_000_000_248;
 pub(crate) mod coverage;
 mod date;
+mod ext_event_row;
 mod feature_key;
+mod field_key_lookup;
+mod field_relation;
+pub(crate) mod relation_field_no_readers;
+pub(crate) use field_key_lookup::{unmeasured_find, unmeasured_key_read};
 mod fields;
 pub(crate) use fields::user_name_system_field;
 mod host_tables;
@@ -49,6 +54,11 @@ pub(crate) use permissions::{
 };
 pub(crate) use seed::SESSION_USER_FULL_NAME;
 
+/// The platform tables Tenant Permission Set, Tenant Permission and Tenant Permission Set Rel.
+pub(crate) const TENANT_PERMISSION_SET: u32 = 2_000_000_165;
+pub(crate) const TENANT_PERMISSION: u32 = 2_000_000_166;
+pub(crate) const TENANT_PERMISSION_SET_REL: u32 = 2_000_000_253;
+
 use crate::Engine;
 use al_builtins::describe::Describe;
 use al_builtins::filter::FieldFilter;
@@ -74,16 +84,20 @@ pub(crate) struct EventStats {
     pub calls: RefCell<HashMap<(usize, usize), i64>>,
     /// Subscriber object to the number of bound instances.
     pub active: RefCell<HashMap<usize, i64>>,
-    /// The session's `GlobalLanguage` when it is not 1033 (0: 1033). The Report Layout List's Description follows it.
+    /// The session's `GlobalLanguage` (0: 1033), written only by `Session::set_language`. The Report Layout List's Description follows it.
     pub language: std::cell::Cell<i32>,
     /// What the install of an app lets the "NAV App Installed App" list show ([`InstallView`]).
     pub install_view: RefCell<InstallView>,
+    /// The value of `Session::no_client_test_session` (the test session under `--no-client`, not install code, not a page
+    /// background task worker); its one writer is `Session::sync_no_client_test_session`. A read of the Session or Active
+    /// Session table is refused while it holds ([`Providers::no_client_session_read`]).
+    pub no_client_test_session: std::cell::Cell<bool>,
 }
 
 /// The apps an install has not reached, and the app whose install runs: the "NAV App Installed App" list leaves them out
 /// (record/lt-r7142-installed-app/R7169DepInstallPublishedAs.al: during XApp A's install `install_own` is `no row`, the
 /// fixture app installed before it is listed, B and the main app are not yet).
-#[derive(Default, Clone)]
+#[derive(Default, Clone, PartialEq)]
 pub(crate) struct InstallView {
     /// Apps (indexes in `Program::apps`) not installed yet.
     pub not_installed: std::collections::BTreeSet<u32>,
@@ -330,8 +344,6 @@ impl Providers {
         }
     }
 
-    /// An Event Subscription row with "Number of Calls" (8) and "Active Manual Instances" (13) as
-    /// the session has them now.
     /// What the install in progress lets the list of installed apps show.
     pub(super) fn install_view(&self) -> InstallView {
         self.events.install_view.borrow().clone()
@@ -345,9 +357,17 @@ impl Providers {
         }
     }
 
+    /// An Event Subscription row with "Number of Calls" (8) and "Active Manual Instances" (13) as
+    /// the session has them now. A column the listing leaves unknown stays unknown, but for "Active Manual Instances",
+    /// which the listing leaves unknown only on a row whose 0 is measured with no instance of the subscriber codeunit bound
+    /// (`metadata::subscription_row`): it reads 0 while none is bound.
     fn with_event_stats(&self, t: &TableDef, row: Option<Row>) -> Option<Row> {
         let mut row = row?;
+        let unbound_only = row[pos(t, 13)].unknown().is_some();
         if self.events.calls.borrow().is_empty() && self.events.active.borrow().is_empty() {
+            if unbound_only {
+                row[pos(t, 13)] = Value::Integer(0);
+            }
             return Some(row);
         }
         let (Value::Integer(cu), Value::Text(f)) = (&row[pos(t, 1)], &row[pos(t, 2)]) else {
@@ -376,8 +396,13 @@ impl Providers {
                 })
         });
         if let Some((oi, ri)) = found {
-            row[pos(t, 8)] = Value::BigInteger(self.events.calls.borrow().get(&(oi, ri)).copied().unwrap_or(0));
-            row[pos(t, 13)] = Value::Integer(self.events.active.borrow().get(&oi).copied().unwrap_or(0) as i32);
+            if row[pos(t, 8)].unknown().is_none() {
+                row[pos(t, 8)] = Value::BigInteger(self.events.calls.borrow().get(&(oi, ri)).copied().unwrap_or(0));
+            }
+            let bound = self.events.active.borrow().get(&oi).copied().unwrap_or(0);
+            if !unbound_only || bound == 0 {
+                row[pos(t, 13)] = Value::Integer(bound as i32);
+            }
         }
         Some(row)
     }
@@ -522,10 +547,34 @@ impl Providers {
             .collect()
     }
 
+    /// The Tenant Media rows a read by key finds: the media store's, with the rows an AL Insert stored
+    /// (streams/media/Y48TenantMediaRows.al:646, a Get of the stored row).
+    fn tenant_media_listing(&self, store: &MemStore, cx: &AccessContext, t: &TableDef) -> Result<Listed, StoreError> {
+        let stored = store.stored_rows(cx, t);
+        if stored.is_empty() {
+            return self.listed(t, Virtual::TenantMedia);
+        }
+        let mut entries = self.tenant_media_rows(t);
+        entries.extend(stored.into_iter().map(mat::Entry::ok));
+        Ok(Listed::Own(Rc::new(mat::Mat::new(t, entries))))
+    }
+
+    /// The Tenant Media rows a scan or count reads: the media store's. A scan or count while a row an AL Insert stored is
+    /// there is not pinned (Y48TenantMediaRows.al:634-649 reads that row only by key).
+    fn tenant_media_scan(&self, store: &MemStore, cx: &AccessContext, t: &TableDef) -> Result<Listed, StoreError> {
+        if !store.stored_rows(cx, t).is_empty() {
+            return Err(refused(
+                "a read of Tenant Media other than a Get while a row an AL Insert stored is there (not pinned)",
+            ));
+        }
+        self.listed(t, Virtual::TenantMedia)
+    }
+
     /// The Feature Key rows: the served ones, with the rows a Modify stored (`Enabled`) over them.
     /// The session's own Active Session row and the rows an Insert added: a Get, Count and Count with a filter find them
     /// (RvActiveSessionWrites.al:42-70, :90-130, :173-204).
     fn active_session_listing(&self, store: &MemStore, cx: &AccessContext, t: &TableDef) -> Result<Listed, StoreError> {
+        self.no_client_session_read(Virtual::ActiveSession)?;
         let stored = store.stored_rows(cx, t);
         if stored.is_empty() {
             return self.listed(t, Virtual::ActiveSession);
@@ -572,7 +621,13 @@ impl Providers {
         engine.tables[oi].clone()
     }
 
+    /// The Feature Key rows for one read (a Get, a scan or a count: every read of the table comes here), with the
+    /// Enabled values a Modify stored. A read of a list that rests on an assumption marks it before it reads, also when
+    /// it finds no row ([`host_tables::feature_key_assumption`]).
     fn feature_key_listing(&self, store: &MemStore, cx: &AccessContext, t: &TableDef) -> Result<Listed, StoreError> {
+        if let Some(a) = host_tables::feature_key_assumption(&self.engine()) {
+            al_builtins::assumptions::assume(a);
+        }
         let stored = store.stored_rows(cx, t);
         if stored.is_empty() {
             return self.listed(t, Virtual::FeatureKey);
@@ -593,8 +648,30 @@ impl Providers {
         Ok(Listed::Own(Rc::new(mat::Mat::new(t, entries))))
     }
 
+    /// A read of the Session or Active Session table in the test session under `--no-client` (`EventStats::no_client_test_session`).
+    /// BC fails every read of the Session table in a web-service session, with a text the corpus does not measure (al-runner
+    /// issue 8158, the reporter's measurement on BC 28.4: IsEmpty and FindFirst, with and without the Read grant). What a read
+    /// of the Active Session table does there is not measured (BC's error on the Session read says "The Active Session does not
+    /// exist"). Both are refused; install code and a page background task worker keep their own answers, and with a client the
+    /// session's own row is listed.
+    fn no_client_session_read(&self, kind: Virtual) -> Result<(), StoreError> {
+        if !self.events.no_client_test_session.get() {
+            return Ok(());
+        }
+        match kind {
+            Virtual::Session => Err(refused(
+                "a read of the Session table in a session without a client (--no-client): BC fails it there (al-runner issue 8158), and its error is not measured",
+            )),
+            Virtual::ActiveSession => Err(refused(
+                "a read of the Active Session table in a session without a client (--no-client): what BC does there is not measured (probe wanted, docs/probes-needed.md `no-client-session`)",
+            )),
+            _ => Ok(()),
+        }
+    }
+
     /// The rows of a table that is listed in full.
     fn listed(&self, t: &TableDef, kind: Virtual) -> Result<Listed, StoreError> {
+        self.no_client_session_read(kind)?;
         // In another language than 1033 the layouts' descriptions are that language's: listed per read, not kept.
         if kind == Virtual::ReportLayoutList && self.language() != 1033 {
             return Ok(Listed::Own(Rc::new(mat::Mat::new(
@@ -738,7 +815,7 @@ impl Providers {
             Virtual::PageMetadata => pages::page_metadata_rows(self, t),
             Virtual::PageControlField => pages::page_control_field_rows(self, t),
             Virtual::Field => fields::field_rows(self, t),
-            Virtual::FeatureKey => host_tables::feature_key_rows(t, self.engine().target.as_ref()),
+            Virtual::FeatureKey => host_tables::feature_key_rows(t, &self.engine()),
             Virtual::LanguageSelection => host_tables::language_selection_rows(t),
             Virtual::Key => fields::key_rows(self, t),
             Virtual::Integer | Virtual::Date | Virtual::WindowsLanguage | Virtual::LicensePermission => {
@@ -884,8 +961,15 @@ impl VirtualTables for Providers {
     }
 
     /// Active Session keeps the rows an Insert adds (metadata/platform-tables/RvActiveSessionWrites.al, AL Runner issue 5807).
+    /// Tenant Media keeps the row of the measured Insert(false) (streams/media/Y48TenantMediaRows.al:644; the Record call is
+    /// checked in al-vm `records/tenant_media_rows.rs`).
     fn takes_inserts(&self, t: &TableDef) -> bool {
-        self.served.get(t.object as usize) == Some(&Some(Virtual::ActiveSession))
+        matches!(self.kind(t), Virtual::ActiveSession | Virtual::TenantMedia)
+    }
+
+    /// A Modify of a stored Tenant Media row is not pinned (Y48TenantMediaRows.al:634-649 makes none): only Active Session.
+    fn modifies_stored_rows(&self, t: &TableDef) -> bool {
+        matches!(self.kind(t), Virtual::ActiveSession)
     }
 
     fn write_refusal(&self, t: &TableDef) -> Option<String> {
@@ -934,8 +1018,11 @@ impl VirtualTables for Providers {
                 feature_key::get_ignoring_case(&listing, t, pk)
             }
             Virtual::ActiveSession => self.active_session_listing(store, cx, t)?.get(t, pk),
+            Virtual::TenantMedia => self.tenant_media_listing(store, cx, t)?.get(t, pk),
             Virtual::ReportLayoutList => self.report_layout_listing(store, cx, t)?.get(t, pk),
-            Virtual::Field => Ok(self.field_get_by_key(t, pk)?.map(|r| fields::field_get(t, r))),
+            Virtual::Field => Ok(self
+                .field_get_by_key(t, pk)?
+                .map(|r| field_key_lookup::key_lookup(self, t, r, false))),
             Virtual::Media => self.media_of_id(t, pk.first())?.get(t, pk),
             k => self.listed(t, k)?.get(t, pk),
         }
@@ -972,6 +1059,7 @@ impl VirtualTables for Providers {
             }
             Virtual::FeatureKey => self.feature_key_listing(store, cx, t)?.next(t, scan),
             Virtual::ActiveSession => self.active_session_listing(store, cx, t)?.next(t, scan),
+            Virtual::TenantMedia => self.tenant_media_scan(store, cx, t)?.next(t, scan),
             Virtual::ReportLayoutList => self.report_layout_listing(store, cx, t)?.next(t, scan),
             // A read in key order that chooses between two controls of a page: what the chosen row serves is decided by
             // `pages::page_control_field_chosen_in_key_order`. One read by Sequence is pinned
@@ -1003,6 +1091,7 @@ impl VirtualTables for Providers {
             Virtual::Media => self
                 .media_of_id(t, media_id_filter(t, scan.filters).as_ref())?
                 .next(t, scan),
+            Virtual::Field if field_key_lookup::key_scan(t, scan.filters).is_some() => self.field_key_scan(t, scan),
             k => self.listed(t, k)?.next(t, scan),
         }
     }
@@ -1043,6 +1132,7 @@ impl VirtualTables for Providers {
             }
             Virtual::FeatureKey => self.feature_key_listing(store, cx, t)?.count(t, filters),
             Virtual::ActiveSession => self.active_session_listing(store, cx, t)?.count(t, filters),
+            Virtual::TenantMedia => self.tenant_media_scan(store, cx, t)?.count(t, filters),
             Virtual::ReportLayoutList => self.report_layout_listing(store, cx, t)?.count(t, filters),
             Virtual::Media => self
                 .media_of_id(t, media_id_filter(t, filters).as_ref())?
@@ -1056,23 +1146,19 @@ impl Providers {
     /// Media (2000000181) read by one ID. No row has the null ID: Guided Experience Impl looks up the Logo of an app whose
     /// app.json declares none by its null MediaId and finds nothing (onprem session-system/PZPublishedApplicationColumns.al
     /// Logo_GuidedExperienceSequence_OfThisAppAndMicrosoftApps, `media row=none`). The id of an app's PNG logo finds its row
-    /// ([`apps::logo_media_rows`], onprem session-system/UsAppLogo.al). The other rows (media AL imports, other ids) are not
+    /// ([`apps::logo_media_row`], onprem session-system/UsAppLogo.al). The other rows (media AL imports, other ids) are not
     /// pinned: any other read is refused.
     fn media_of_id(&self, t: &TableDef, id: Option<&Value>) -> Result<mat::Mat, StoreError> {
         match id {
             Some(Value::Guid(g)) if *g == [0; 16] => Ok(mat::Mat::new(t, Vec::new())),
             Some(Value::Guid(g)) => {
-                let rows: Vec<_> = apps::logo_media_rows(self, t)
-                    .into_iter()
-                    .filter(|e| matches!(&e.row[pos_of(t, 1)], Value::Guid(r) if r == g))
-                    .collect();
-                if rows.is_empty() {
+                let Some(row) = apps::logo_media_row(self, t, *g) else {
                     return Err(refused(format!(
                         "{}: a read of an ID that is no app's logo (the rows of other media are not pinned)",
                         t.name
                     )));
-                }
-                Ok(mat::Mat::new(t, rows))
+                };
+                Ok(mat::Mat::new(t, vec![row]))
             }
             _ => Err(refused(format!(
                 "{}: only a read of one ID is pinned (the null ID finds nothing, an app's logo its row); the rows of other media are not",
@@ -1120,7 +1206,8 @@ pub fn field_get_by_key_pairs(engine: &Arc<Engine>, extra: &[(i32, i32)]) -> Opt
         i += 1;
     }
     keys.extend(extra.iter().map(|(a, b)| vec![Value::Integer(*a), Value::Integer(*b)]));
-    let field_get = |r: Result<Option<Row>, StoreError>| r.map(|r| r.map(|r| fields::field_get(&t, r)));
+    let field_get =
+        |r: Result<Option<Row>, StoreError>| r.map(|r| r.map(|r| field_key_lookup::key_lookup(&p, &t, r, false)));
     keys.into_iter()
         .map(|pk| {
             let by_listing = field_get(listing.get(&t, &pk));

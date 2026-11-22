@@ -28,6 +28,11 @@ on:
         required: false
         type: boolean
         default: true
+      skip_macos:
+        description: Leave out the macOS target (owner 2026-11-13, for an edge build while GitHub has no macOS runner). A numbered release never sets it.
+        required: false
+        type: boolean
+        default: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -54,19 +59,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - target: x86_64-unknown-linux-musl
-            os: ubuntu-latest
-            ext: tar.xz
-          - target: aarch64-unknown-linux-musl
-            os: ubuntu-24.04-arm
-            ext: tar.xz
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            ext: zip
-          - target: aarch64-apple-darwin
-            os: macos-15
-            ext: tar.xz
+        # With skip_macos the macOS row is left out, so the job never waits for a macOS runner.
+        include: ${{ fromJSON(inputs.skip_macos && '[{"target":"x86_64-unknown-linux-musl","os":"ubuntu-latest","ext":"tar.xz"},{"target":"aarch64-unknown-linux-musl","os":"ubuntu-24.04-arm","ext":"tar.xz"},{"target":"x86_64-pc-windows-msvc","os":"windows-latest","ext":"zip"}]' || '[{"target":"x86_64-unknown-linux-musl","os":"ubuntu-latest","ext":"tar.xz"},{"target":"aarch64-unknown-linux-musl","os":"ubuntu-24.04-arm","ext":"tar.xz"},{"target":"x86_64-pc-windows-msvc","os":"windows-latest","ext":"zip"},{"target":"aarch64-apple-darwin","os":"macos-15","ext":"tar.xz"}]') }}
     steps:
       - uses: actions/checkout@v4
         with:

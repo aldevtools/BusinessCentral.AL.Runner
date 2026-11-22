@@ -177,12 +177,15 @@ pub(super) fn event_subscription_rows(p: &Providers, t: &TableDef) -> Vec<Entry>
             key[pos(t, 2)] = Value::Text(truncate(&r.name, 250).into());
             let mut row = key.clone();
             match subscription_row(&c, o, &r.name, a, t, &mut row) {
-                Ok(None) => out.push(Entry::ok(row)),
-                Ok(Some(a)) => out.push(Entry::ok(row).assuming(a)),
+                Ok(()) => out.push(Entry::ok(row)),
                 // The columns worked out before the refusal are real: a filter on the publisher's
                 // object type rules the row out without reading the part that is not pinned.
-                Err((why, cols)) => {
-                    out.push(Entry::poisoned(row, why).with_known_cols(cols.iter().map(|c| pos(t, *c)).collect()))
+                Err(Unworked { why, known, assumed }) => {
+                    let entry = Entry::poisoned(row, why).with_known_cols(known.iter().map(|c| pos(t, *c)).collect());
+                    out.push(match assumed {
+                        Some((a, cols)) => entry.assuming_in(a, cols.iter().map(|c| pos(t, *c)).collect()),
+                        None => entry,
+                    });
                 }
             }
         }
@@ -197,7 +200,7 @@ fn subscription_row(
     a: &al_ir::Attribute,
     t: &TableDef,
     r: &mut al_data::Row,
-) -> Result<Option<al_builtins::assumptions::Assumption>, (String, Vec<u32>)> {
+) -> Result<(), Unworked> {
     let what = || format!("subscriber '{}' of codeunit '{}'", routine, o.name);
     let manual = al_ir::ObjectFacts::of_properties(&o.properties).manual_subscriber;
     // "Subscriber Instance" reads Static-Automatic or Manual, "Error Information" is blank (record/
@@ -222,7 +225,7 @@ fn subscription_row(
     let mut known = vec![10u32, 11u32, 12u32];
     let args = crate::events::split_args(&a.text);
     if args.len() < 3 {
-        return Err((
+        return Err(Unworked::new(
             format!("{}: the attribute has fewer than three arguments", what()),
             known,
         ));
@@ -230,14 +233,17 @@ fn subscription_row(
     let kind_text = crate::events::unquote(args[0].rsplit("::").next().unwrap_or("")).to_ascii_lowercase();
     let kind: al_ir::ObjKind = kind_text.parse().unwrap_or_default();
     let Some(object_type) = super::objects::object_type(kind) else {
-        return Err((format!("{}: publisher kind `{kind_text}` is not listed", what()), known));
+        return Err(Unworked::new(
+            format!("{}: publisher kind `{kind_text}` is not listed", what()),
+            known,
+        ));
     };
     r[pos(t, 4)] = option(t, 4, object_type);
     known.push(4);
     let (target, _) = crate::events::publisher_name(args[1].rsplit("::").next().unwrap_or(""));
     let publisher_id = c
         .id_of(kind, &target)
-        .map_err(|e| (format!("{}: publisher {e}", what()), known.clone()))?;
+        .map_err(|e| Unworked::new(format!("{}: publisher {e}", what()), known.clone()))?;
     r[pos(t, 5)] = Value::Integer(publisher_id as i32);
     known.push(5);
     let event = crate::events::unquote(&args[2]);
@@ -274,7 +280,7 @@ fn subscription_row(
             (format!("{event} - {element}"), 0)
         }
         None if kind == al_ir::ObjKind::Table && is_trigger_event(&event) => {
-            return Err((
+            return Err(Unworked::new(
                 format!(
                     "{}: the Published Function of `{event}` with the element `{element}` is not pinned",
                     what()
@@ -302,7 +308,7 @@ fn subscription_row(
                 ),
             };
             r[pos(t, 7)] = Value::Boolean(true);
-            return Ok(None);
+            return Ok(());
         }
         // A page trigger event's row has Event Type = Trigger and Active = Yes. A field's validate event publishes as
         // `<event> - <number>`, the number the id of the field's control as for an action (`pages::control_id` of the declaring
@@ -328,9 +334,48 @@ fn subscription_row(
                 Value::Text(truncate(&event, 250).into())
             };
             r[pos(t, 7)] = Value::Boolean(true);
-            return Ok(None);
+            return Ok(());
         }
-        None => return Err((format!("{}: the kind of event `{event}` is not known", what()), known)),
+        // An event an extension of the publisher declares, in a measured cell (`ext_event_row`; events/extension-events/
+        // ExtensionEventSubscriptionRows.al:178-281): Event Type and Published Function as declared, Active Yes and the blank
+        // Error Information worked out above. In a cell only Microsoft's tests measure, Active and Error Information alone, on
+        // assumption `extension-event-subscriber-active`.
+        None => {
+            use super::ext_event_row::Measured;
+            match publisher.and_then(|p| super::ext_event_row::measured(c.objects, o, manual, p, &event, &args)) {
+                // ExtensionEventSubscriptionRows.al never reads "Number of Calls" (8), and reads "Active Manual Instances" (13)
+                // only with no instance of the subscriber codeunit bound (:159-168, :244-252): both stay unknown here, and
+                // `Providers::with_event_stats` gives 13 its 0 only while no instance is bound.
+                Some(Measured::Row { published, event_type }) => {
+                    r[pos(t, 8)] = super::unknown(t, 8, &format!("{}, whose event an extension declares", what()));
+                    r[pos(t, 13)] =
+                        super::unknown(t, 13, &format!("{} while an instance of its codeunit is bound", what()));
+                    (published, event_type)
+                }
+                Some(Measured::ActiveOnly { extension }) => {
+                    r[pos(t, 7)] = Value::Boolean(true);
+                    known.extend([7, 9]);
+                    return Err(Unworked {
+                        why: format!(
+                            "{}: the Event Type and Published Function of `{event}`, which extension '{}' declares, are not pinned",
+                            what(),
+                            extension.name
+                        ),
+                        known,
+                        assumed: Some((
+                            al_builtins::assumptions::Assumption::ExtensionEventSubscriberActive,
+                            vec![7, 9],
+                        )),
+                    });
+                }
+                None => {
+                    return Err(Unworked::new(
+                        format!("{}: the kind of event `{event}` is not known", what()),
+                        known,
+                    ));
+                }
+            }
+        }
     };
     r[pos(t, 3)] = option(t, 3, event_type);
     r[pos(t, 4)] = option(t, 4, object_type);
@@ -338,7 +383,25 @@ fn subscription_row(
     r[pos(t, 6)] = Value::Text(truncate(&published, 250).into());
     // A statically bound subscriber that resolved is active (TestEventSubscriptionVirtualTable.al:`_Row_DescribesTheSubscription`).
     r[pos(t, 7)] = Value::Boolean(true);
-    Ok(None)
+    Ok(())
+}
+
+/// A subscriber row whose columns could not all be worked out: why, the field ids whose values are real, and the assumption
+/// with the field ids whose values rest on it (a filter on one of them marks it).
+struct Unworked {
+    why: String,
+    known: Vec<u32>,
+    assumed: Option<(al_builtins::assumptions::Assumption, Vec<u32>)>,
+}
+
+impl Unworked {
+    fn new(why: String, known: Vec<u32>) -> Unworked {
+        Unworked {
+            why,
+            known,
+            assumed: None,
+        }
+    }
 }
 
 /// A page trigger event a subscriber can name, and whether it is bound to a field (its element is a control).
@@ -584,7 +647,7 @@ pub(super) fn table_relations_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
             let mut fkey = key.clone();
             fkey[pos(t, 2)] = Value::Integer(f.id as i32);
             match field_relations(&c, o, table, f, t, &fkey) {
-                Ok(rows) => out.extend(rows.into_iter().map(Entry::ok)),
+                Ok(rows) => out.extend(rows),
                 Err(why) => out.push(Entry::poisoned_prefix(fkey, 2, why)),
             }
         }
@@ -603,6 +666,8 @@ struct Arm {
     values: Vec<Option<String>>,
     /// Each condition is a `filter(...)` (Condition Type FILTER) and not a `const(...)`.
     filters: Vec<bool>,
+    /// The assumption the Condition Value of each condition rests on (`al_ir::RelationCond::assumes`).
+    assumes: Vec<Option<al_builtins::assumptions::Assumption>>,
 }
 
 /// The first primary key field of a compiled table.
@@ -663,6 +728,7 @@ fn arms_of(c: &Catalog, table: &al_ir::Table, f: &al_ir::Field, what: &str) -> R
                 conditions,
                 values,
                 filters: Vec::new(),
+                assumes: arm.conditions.iter().map(|cond| cond.assumes).collect(),
             });
         }
         return Ok(out);
@@ -701,6 +767,7 @@ fn arms_of(c: &Catalog, table: &al_ir::Table, f: &al_ir::Field, what: &str) -> R
             conditions,
             values: arm.values.clone(),
             filters: arm.filters.clone(),
+            assumes: Vec::new(),
         });
     }
     Ok(out)
@@ -713,7 +780,7 @@ fn field_relations(
     f: &al_ir::Field,
     t: &TableDef,
     fkey: &al_data::Row,
-) -> Result<Vec<al_data::Row>, String> {
+) -> Result<Vec<Entry>, String> {
     let what = format!("field '{}' of table '{}'", f.name, o.name);
     let mut rows = Vec::new();
     // ValidateTableRelation = false is declared; a relation validates otherwise. Test Table
@@ -748,7 +815,7 @@ fn field_relations(
         if arm.conditions.is_empty() {
             row[pos(t, 4)] = Value::Integer(1);
             row[pos(t, 8)] = Value::Integer(0);
-            rows.push(row.clone());
+            rows.push(Entry::ok(row.clone()));
         }
         for (k, own) in arm.conditions.iter().enumerate() {
             let mut r = row.clone();
@@ -764,7 +831,10 @@ fn field_relations(
                 // Condition Type: CONST is the first member, FILTER the second (session-system/PWPlatformTables.al:109-123).
                 r[pos(t, 7)] = option(t, 7, 1);
             }
-            rows.push(r);
+            rows.push(match arm.assumes.get(k).copied().flatten() {
+                Some(a) => Entry::ok(r).assuming_in(a, vec![pos(t, 9)]),
+                None => Entry::ok(r),
+            });
         }
     }
     Ok(rows)

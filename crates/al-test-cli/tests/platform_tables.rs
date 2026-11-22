@@ -154,6 +154,21 @@ fn engine_with_layouts(
     layouts: Vec<(String, Vec<u8>)>,
     description: Option<&str>,
 ) -> (std::sync::Arc<Engine>, al_sema::lower::Lowered) {
+    engine_on_platform(app_id, main, dep, roots, bc, layouts, description, "1.0.0.0")
+}
+
+/// [`engine_with_layouts`] with `platform` as the version of the System app (a run's System.app has the platform build).
+#[allow(clippy::too_many_arguments)]
+fn engine_on_platform(
+    app_id: &str,
+    main: &str,
+    dep: Option<&str>,
+    roots: al_sema::check::Roots,
+    bc: &str,
+    layouts: Vec<(String, Vec<u8>)>,
+    description: Option<&str>,
+    platform: &str,
+) -> (std::sync::Arc<Engine>, al_sema::lower::Lowered) {
     use al_sema::workspace::{AppKind, AppSource};
     let app = |id: &str, name: &str, deps: &[&str], files: Vec<(String, String)>| AppSource {
         id: id.into(),
@@ -180,7 +195,12 @@ fn engine_with_layouts(
     // The two sources above carry no manifest, so no version; the app tables list an app only with one.
     let mut program = (*l.program).clone();
     for a in program.apps.iter_mut().filter(|a| a.version.is_empty()) {
-        a.version = "1.0.0.0".into();
+        a.version = if a.id == al_sema::workspace::PLATFORM_APP_ID {
+            platform
+        } else {
+            "1.0.0.0"
+        }
+        .into();
     }
     // An app id that starts with `ms-` stands for a Microsoft app (the System Application).
     for a in program
@@ -596,6 +616,43 @@ codeunit 50000 "T" { Subtype = Test;
     );
     passes(&o, "TwoNames");
     for t in ["NameOrWildcard", "WildcardOrWildcard", "NameOrCaseInsensitive"] {
+        let why = not_run(&o, t);
+        assert!(why.contains("alternative"), "{t}: {why}");
+    }
+}
+
+// al-runner issue 8462: an alternative of names and wildcards none of which matches `timestamp`, with or without regard
+// to case, cannot keep the rowversion row whether or not its lookup sees it, so the other rows are answered as on main
+// before the row existed. A part that matches `timestamp` in any case, and a part of other letters, still refuse.
+#[test]
+fn an_alternative_that_cannot_match_timestamp_answers_without_the_rowversion_row() {
+    let o = outcomes(
+        r#"table 50110 "FW Entry" { fields { field(1; "Entry No."; Integer) { } field(2; Description; Text[100]) { }
+  field(10; KeyField1; Code[50]) { } field(11; KeyField2; Code[50]) { } } keys { key(PK; "Entry No.") { Clustered = true; } } }
+codeunit 50000 "T" { Subtype = Test;
+  local procedure Rows(F: Text): Text var Fld: Record Field; R: Text; begin
+    Fld.SetRange(TableNo, Database::"FW Entry"); Fld.SetFilter(FieldName, F); Fld.SetLoadFields("No.", FieldName);
+    if Fld.FindSet() then repeat R += Fld.FieldName + ';'; until Fld.Next() = 0;
+    exit(R); end;
+  [Test] procedure ReporterShape() var Fld: Record Field; R: Text; begin
+    Fld.SetRange(TableNo, Database::"FW Entry"); Fld.SetFilter(FieldName, '%1|%2', 'Description', 'KeyField*');
+    if Fld.FindSet() then repeat R += Fld.FieldName + ';'; until Fld.Next() = 0;
+    if R <> 'Description;KeyField1;KeyField2;' then Error('got %1', R);
+    if Fld.Count() <> 3 then Error('count %1', Fld.Count()); end;
+  [Test] procedure CaseInsensitivePart() begin if Rows('Description|@keyfield*') <> 'Description;KeyField1;KeyField2;' then Error('got %1', Rows('Description|@keyfield*')); end;
+  [Test] procedure WildcardMatchesTimestamp() begin Rows('Description|*stamp'); end;
+  [Test] procedure WildcardMatchesTimestampWithoutCase() begin Rows('Description|TIME*'); end;
+  [Test] procedure NameIsTimestampWithoutCase() begin Rows('TIMESTAMP|Key*'); end;
+  [Test] procedure PartOfOtherLetters() begin Rows('Beschreibung|Schlüssel*'); end; }"#,
+    );
+    passes(&o, "ReporterShape");
+    passes(&o, "CaseInsensitivePart");
+    for t in [
+        "WildcardMatchesTimestamp",
+        "WildcardMatchesTimestampWithoutCase",
+        "NameIsTimestampWithoutCase",
+        "PartOfOtherLetters",
+    ] {
         let why = not_run(&o, t);
         assert!(why.contains("alternative"), "{t}: {why}");
     }
@@ -1370,13 +1427,50 @@ codeunit 50000 "T" { Subtype = Test;
     R.SetRange("Field No.", 5); if not R.IsEmpty() then Error('soft');
     R.SetRange("Field No.", 6); if R.Count() <> 2 then Error('cond'); R.FindSet(); if R."Relation No." <> 1 then Error('first'); if R."Condition Field No." <> 2 then Error('cond field'); R.Next(); if R."Related Table ID" <> 50002 then Error('else');
     R.SetRange("Field No.", 7); if R.Count() <> 2 then Error('two conditions %1', R.Count()); R.FindFirst(); if R."Condition Field No." <> 2 then Error('first condition'); R.Next(); if R."Condition Field No." <> 3 then Error('second condition'); end;
-  [Test] procedure FieldRelation() var F: Record "Field"; begin F.Get(50003, 7); if F.RelationTableNo <> 50001 then Error('filtered relation %1', F.RelationTableNo); if F.RelationFieldNo <> 1 then Error('related field'); end;
+  [Test] procedure FieldRelation() var F: Record "Field"; begin F.Get(50003, 7); if F.RelationTableNo <> 50001 then Error('filtered relation %1', F.RelationTableNo); end;
+  [Test] procedure FieldRelationFieldNo() var F: Record "Field"; begin F.Get(50003, 7); if F.RelationFieldNo = 0 then; end;
   [Test] procedure ConditionalRelation() var F: Record "Field"; begin F.Get(50003, 6); if (F.RelationTableNo <> 0) or (F.RelationFieldNo <> 0) then Error('conditional relation reads 0/0'); end; }"#,
     );
     passes(&o, "FieldRelation");
+    // A relation without a field that the runtime keeps only as Table Relations Metadata: metadata/platform-tables/
+    // FieldRelationFieldNo.al does not measure its RelationFieldNo, so a read refuses.
+    assert!(
+        not_run(&o, "FieldRelationFieldNo").contains("RelationFieldNo"),
+        "{:?}",
+        not_run(&o, "FieldRelationFieldNo")
+    );
     // record/TestPlatformMetadataDeclarationContracts.al:262-264.
     passes(&o, "ConditionalRelation");
     passes(&o, "Rows");
+}
+
+/// al-runner #8297: a `const(Member)` condition that a table extension sets, on an Enum field of the table whose enum the
+/// extension's file cannot name (no `using` of its namespace), rests on assumption `relation-condition-enum-of-declaring-file`
+/// (corpus PR 1437, merged, not pinned yet: table-objects/extensions/ExtRelationEnumNamespace_Tests.al:297 and :353): the Table Relations Metadata row lists the member's ordinal and the Field row
+/// RelationTableNo 0, and a read of either marks the assumption.
+#[test]
+fn the_metadata_rows_of_an_extension_condition_on_an_unnamed_enum_are_flagged() {
+    let dep = r#"namespace T.Journal;
+enum 50003 "Kinds" { value(0; " ") { } value(1; Production) { } }
+table 50002 "Line" { fields { field(1; Id; Integer) { } field(2; Kind; Enum "Kinds") { } field(3; "Order No."; Code[20]) { } }
+  keys { key(PK; Id) { Clustered = true; } } }"#;
+    let src = r#"namespace T.Mfg;
+table 50001 "Order" { fields { field(1; "No."; Code[20]) { } } keys { key(PK; "No.") { Clustered = true; } } }
+tableextension 50001 "Line Ext" extends T.Journal."Line" { fields { modify("Order No.") { TableRelation = if (Kind = const(Production)) "Order"."No."; } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Value() var M: Record "Table Relations Metadata"; begin M.SetRange("Table ID", 50002); M.SetRange("Field No.", 3);
+    M.FindFirst(); if M."Condition Value" <> '1' then Error('value %1', M."Condition Value"); end;
+  [Test] procedure FieldRow() var F: Record Field; begin F.Get(50002, 3);
+    if F.RelationTableNo <> 0 then Error('table %1', F.RelationTableNo); end; }"#;
+    let out = ext_event_hits(src, Some(dep));
+    for name in ["Value", "FieldRow"] {
+        let (_, o, ids) = out.iter().find(|(n, _, _)| n == name).expect(name);
+        assert_eq!(*o, Outcome::Pass, "{name}: {o:?}");
+        assert!(
+            ids.contains(&"relation-condition-enum-of-declaring-file"),
+            "{name}: {ids:?}"
+        );
+    }
 }
 
 /// A tableextension `modify(..) { TableRelation }` on a field whose base relation is unconditional: the Field row keeps
@@ -1395,12 +1489,20 @@ table 50003 "Base" { fields { field(1; Id; Integer) { } field(2; Kind; Option) {
 tableextension 50004 "Ext" extends "Base" { fields { modify(Uncond) { TableRelation = B; }
     modify(Else) { TableRelation = if (Kind = const(Y)) B else B; } modify(NoElse) { TableRelation = if (Kind = const(Y)) B; } modify(CondBase) { TableRelation = B; } } }
 codeunit 50000 "T" { Subtype = Test;
-  [Test] procedure Uncond() var F: Record "Field"; begin F.Get(50003, 3); if (F.RelationTableNo <> 50001) or (F.RelationFieldNo <> 1) then Error('uncond %1', F.RelationTableNo); end;
+  [Test] procedure Uncond() var F: Record "Field"; begin F.Get(50003, 3); if F.RelationTableNo <> 50001 then Error('uncond %1', F.RelationTableNo); end;
+  [Test] procedure UncondFieldNo() var F: Record "Field"; begin F.Get(50003, 3); if F.RelationFieldNo = 0 then; end;
   [Test] procedure ElseArm() var F: Record "Field"; begin F.Get(50003, 4); if F.RelationTableNo <> 50001 then Error('else %1', F.RelationTableNo); end;
   [Test] procedure NoElse() var F: Record "Field"; begin F.Get(50003, 5); if F.RelationTableNo <> 50001 then Error('noelse %1', F.RelationTableNo); end;
   [Test] procedure CondBase() var F: Record "Field"; begin F.Get(50003, 6); if (F.RelationTableNo <> 0) or (F.RelationFieldNo <> 0) then Error('condbase %1', F.RelationTableNo); end; }"#,
     );
     passes(&o, "Uncond");
+    // The RelationFieldNo of a modify-extended relation without a field is not measured (metadata/platform-tables/
+    // FieldRelationFieldNo.al): a read refuses.
+    assert!(
+        not_run(&o, "UncondFieldNo").contains("RelationFieldNo"),
+        "{:?}",
+        not_run(&o, "UncondFieldNo")
+    );
     passes(&o, "ElseArm");
     assert!(
         not_run(&o, "NoElse").contains("TableRelation"),
@@ -2149,8 +2251,9 @@ fn the_session_rows_name_the_cronus_database() {
 
 /// A table the app declares with `ObsoleteState = Moved` is not in the runtime app: AllObj has no row for it and
 /// `RecordRef.Open` fails with AL:MetadataNotFound (metadata/platform-tables/AwTests.al:413-442). Issued by the test
-/// method itself, the text names the test runner (AwTests.al:434-438, corpus bump 34); issued from a helper it is not
-/// pinned and a read of it is refused. A record operation on the table is not pinned and is refused.
+/// method itself, the text names the test runner (AwTests.al:434-438, corpus bump 34;
+/// `the_missing_object_text_carries_the_emit_version_of_the_build`); issued from a helper it is not pinned and a read of
+/// it is refused. A record operation on the table is not pinned and is refused.
 #[test]
 fn a_moved_table_has_no_all_obj_row_and_does_not_open() {
     let o = outcomes(
@@ -2158,16 +2261,58 @@ fn a_moved_table_has_no_all_obj_row_and_does_not_open() {
 codeunit 50000 "T" { Subtype = Test;
   [Test] procedure NoAllObjRow() var A: Record AllObj; begin A.SetRange("Object Type", A."Object Type"::Table); A.SetRange("Object ID", 50001); if A.Count() <> 0 then Error('rows %1', A.Count()); end;
   [Test] procedure OpenFails() var RR: RecordRef; begin asserterror RR.Open(50001); if GetLastErrorCode() <> 'AL:MetadataNotFound' then Error('code %1', GetLastErrorCode()); end;
-  [Test] procedure OpenText() var RR: RecordRef; begin asserterror RR.Open(50001); if GetLastErrorText() <> 'You tried to invoke the Table object with the ID 50001 from the object Test Runner - Mgt. An object with that ID does not exist in the current application compiled with emit version 27024.' then Error('%1', GetLastErrorText()); end;
   [Test] procedure OpenTextViaHelper() var H: Codeunit "H"; begin asserterror H.Open(50001); if GetLastErrorText() = '' then; end;
   [Test] procedure RecordUse() var M: Record "Moved"; begin if M.IsEmpty() then; end; }
 codeunit 50002 "H" { procedure Open(No: Integer) var RR: RecordRef; begin RR.Open(No); end; }"#,
     );
     passes(&o, "NoAllObjRow");
     passes(&o, "OpenFails");
-    passes(&o, "OpenText");
     assert!(not_run(&o, "OpenTextViaHelper").contains("not pinned"));
     assert!(not_run(&o, "RecordUse").contains("ObsoleteState = Moved"));
+}
+
+/// The number in the missing-object text is the emit version of the run's build (al-vm `emit_version`; assumption
+/// `missing-object-emit-version-from-artifact`), here on the moved-table shape of
+/// `a_moved_table_has_no_all_obj_row_and_does_not_open`. Without the number the error is still raised on every build: a test
+/// that reads its code passes, one that reads its text is refused.
+#[test]
+fn the_missing_object_text_carries_the_emit_version_of_the_build() {
+    let src = |n: &str| {
+        format!(
+            r#"table 50001 "Moved" {{ ObsoleteState = Moved; ObsoleteReason = 'x'; ObsoleteTag = '1.0'; MovedTo = '11111111-2222-3333-4444-555555555555'; fields {{ field(1; Id; Integer) {{ }} }} keys {{ key(PK; Id) {{ }} }} }}
+codeunit 50000 "T" {{ Subtype = Test;
+  [Test] procedure OpenCode() var RR: RecordRef; begin asserterror RR.Open(50001); if GetLastErrorCode() <> 'AL:MetadataNotFound' then Error('%1', GetLastErrorCode()); end;
+  [Test] procedure OpenText() var RR: RecordRef; begin asserterror RR.Open(50001); if GetLastErrorText() <> 'You tried to invoke the Table object with the ID 50001 from the object Test Runner - Mgt. An object with that ID does not exist in the current application compiled with emit version {n}.' then Error('%1', GetLastErrorText()); end;
+  [Test] procedure OpenTextWithStack() var RR: RecordRef; begin asserterror RR.Open(50001); if GetLastErrorText(true) = '' then; end;
+  [Test] procedure OpenUncaught() var RR: RecordRef; begin RR.Open(50001); end; }}"#
+        )
+    };
+    let run = |bc: &str, n: Option<u32>| {
+        let (mut engine, l) = engine_over("main", &src(&n.unwrap_or(0).to_string()), None, Default::default(), bc);
+        if let Some(n) = n {
+            std::sync::Arc::get_mut(&mut engine)
+                .expect("a fresh engine")
+                .emit_version = al_vm::emit_version::EmitVersion::known(n);
+        }
+        run_all(&engine, &l)
+    };
+    for (bc, n) in [("27.5.0.0", 27024), ("28.4.0.0", 28015), ("29.1.0.0", 29022)] {
+        let o = run(bc, Some(n));
+        passes(&o, "OpenCode");
+        passes(&o, "OpenText");
+    }
+    for bc in ["28.4.0.0", "29.1.0.0"] {
+        let o = run(bc, None);
+        passes(&o, "OpenCode");
+        for reads_text in ["OpenText", "OpenUncaught"] {
+            assert!(
+                not_run(&o, reads_text).contains("emit version of the run's BC build, which is not known"),
+                "{o:?}"
+            );
+        }
+        // Refused with or without the number: the flag's form of the text is not pinned for this error.
+        not_run(&o, "OpenTextWithStack");
+    }
 }
 
 /// BC 29 adds four FlowFields to every table, listed in the Field table after SystemModifiedBy: 2000000005
@@ -2780,7 +2925,7 @@ codeunit 50000 "T" { Subtype = Test;
 
 // al-runner issue 5790: Feature Key rows per minor (record/PFFeatureKeyColumns.al:41-94). 28.1 to 28.5 have one list,
 // 28.0 another (SemanticMetadataSearch All Users); 27.0 differs from 27.3 and 27.5 in the same row; a minor the corpus
-// did not measure (27.1) is refused, also for a Get.
+// did not measure (27.1, 29.2) is refused, also for a Get.
 #[test]
 fn feature_key_rows_follow_the_measured_minors() {
     let main = r#"codeunit 50000 "T" { Subtype = Test;
@@ -2801,13 +2946,137 @@ fn feature_key_rows_follow_the_measured_minors() {
         ("28.0.0.0", "SemanticAllUsers"),
         ("27.0.0.0", "SemanticNone"),
         ("27.3.0.0", "SemanticAllUsers"),
+        ("29.0.0.0", "SemanticAllUsers"),
     ] {
         let o = outcomes_bc("main", main, roots(), bc);
         assert_eq!(outcome(&o, "Concurrent"), Some(Outcome::Pass), "{bc}: {o:?}");
         assert_eq!(outcome(&o, semantic), Some(Outcome::Pass), "{bc}: {o:?}");
     }
-    let o = outcomes_bc("main", main, roots(), "27.1.0.0");
-    assert!(not_run(&o, "Concurrent").contains("Feature Key"), "{o:?}");
+    for bc in ["27.1.0.0", "29.2.0.0"] {
+        let o = outcomes_bc("main", main, roots(), bc);
+        assert!(not_run(&o, "Concurrent").contains("Feature Key"), "{bc}: {o:?}");
+    }
+}
+
+// al-runner issue 8192: the Feature Key list follows the platform build (the System app's version), not the application
+// minor. Application 29.1 on platform 29.0.57943 or 29.0.58337 serves the
+// 29.0 rows and NewNotificationBar on the assumption feature-key-rows-container-measured (corpus PR 1484,
+// record/FeatureKeyRowsReads291.al): every read of the table marks it, also one that finds no row, and the Description
+// columns of FEATURE_KEY_TEXTS are served, and the Description of all 14 keys (FeatureKeyRowsReads291.al:81). Application 29.0 on any other platform keeps main's 13 rows unflagged
+// (record/PFFeatureKeyColumns.al RowsE, measured on platform 29.0.55782); application 29.1 on any other platform build
+// is refused with a text naming the measured builds; 29.2 keeps main's refusal.
+#[test]
+fn feature_key_rows_follow_the_platform_build() {
+    let src = r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Bar() var K: Record "Feature Key"; begin
+    if not K.Get('NewNotificationBar') then Error('no row');
+    if Format(K.Enabled) <> 'All Users' then Error('enabled %1', K.Enabled);
+    if K."Mandatory By Version" <> '30.0' then Error('version %1', K."Mandatory By Version");
+    if K."Mandatory By" <> '2027 Wave 1 (from April to September 2027)' then Error(K."Mandatory By");
+    if not K."Can Try" or K."Is One Way" or K."Data Update Required" then Error('flags'); end;
+  [Test] procedure BarTexts() var K: Record "Feature Key"; begin
+    K.Get('NewNotificationBar');
+    if K.Description <> 'Feature: New notification bar' then Error(K.Description);
+    if K."Description In English" <> 'Feature: New notification bar' then Error(K."Description In English");
+    if K."Learn More Link" <> 'https://go.microsoft.com/fwlink/?LinkId=2384311' then Error(K."Learn More Link"); end;
+  [Test] procedure Concurrent() var K: Record "Feature Key"; begin
+    if not K.Get('ConcurrentInventoryPosting') then Error('no row');
+    if K."Mandatory By Version" <> '31.0' then Error('version %1', K."Mandatory By Version"); end;
+  [Test] procedure RowCount() var K: Record "Feature Key"; begin
+    if K.Count() <> 14 then Error('count %1', K.Count()); end;
+  [Test] procedure Order() var K: Record "Feature Key"; begin
+    K.SetFilter(ID, '%1|%2|%3', 'FullTextSearch', 'NewNotificationBar', 'SalesPrices');
+    K.FindSet(); if K.ID <> 'FullTextSearch' then Error(K.ID);
+    K.Next(); if K.ID <> 'NewNotificationBar' then Error(K.ID);
+    K.Next(); if K.ID <> 'SalesPrices' then Error(K.ID); end;
+  [Test] procedure MissingKey() var K: Record "Feature Key"; begin
+    if K.Get('AutomaticAccountCodes') then Error('row'); end;
+  [Test] procedure NoneCounted() var K: Record "Feature Key"; begin
+    K.SetRange("Mandatory By Version", '32.0');
+    if K.Count() <> 0 then Error('count %1', K.Count()); end;
+  [Test] procedure Texts() var K: Record "Feature Key"; begin
+    K.Get('SalesPrices');
+    if K.Description <> 'Feature Update: New sales pricing experience' then Error(K.Description); end;
+  [Test] procedure AllDescriptions() var K: Record "Feature Key"; begin
+    K.Get('AdvancedTellMe');
+    if K.Description <> 'Feature: Advanced Tell Me' then Error(K.Description);
+    K.Get('SemanticMetadataSearch');
+    if K.Description <> 'Feature: Preview semantic similarity search on application metadata.' then Error(K.Description);
+    K.Get('ConcurrentInventoryPosting');
+    if K.Description <> 'Feature Update: Enable multiple users to post item ledger entries and value entries at the same time' then Error(K.Description); end; }"#;
+    let a = al_builtins::assumptions::Assumption::FeatureKeyRowsContainerMeasured;
+    let run = |bc: &str, platform: &str| {
+        let roots = al_sema::check::Roots::default();
+        let (engine, l) = engine_on_platform("main", src, None, roots, bc, Vec::new(), None, platform);
+        let oi = l.program.objects.iter().position(|o| o.name == "T").expect("T");
+        let mut hits = Vec::new();
+        let out = al_testrun::runtime::run_codeunit_full(
+            &engine,
+            &l,
+            oi,
+            None,
+            al_testrun::isolation::TestIsolation::Disabled,
+            None,
+            &mut Vec::new(),
+            &mut Vec::new(),
+            &mut hits,
+            None,
+        );
+        (out, hits)
+    };
+    let mut wrong = Vec::new();
+    // The 14 rows, every read flagged.
+    for (bc, platform) in [("29.1.0.0", "29.0.57943.0"), ("29.1.0.0", "29.0.58337.0")] {
+        let (out, hits) = run(bc, platform);
+        assert_eq!(out.len(), 9, "{bc} on {platform}: {out:?}");
+        for (n, o) in &out {
+            let flagged = hits.iter().any(|(h, m)| h == n && m.contains(&a));
+            if *o != Outcome::Pass || !flagged {
+                wrong.push(format!("{bc} on {platform} {n}: {o:?}, flagged {flagged}"));
+            }
+        }
+    }
+    // Main's 13 rows, nothing flagged: no NewNotificationBar.
+    for platform in [
+        "29.0.55782.0",
+        "29.0.56212.0",
+        "29.0.56480.0",
+        "29.0.57943.0",
+        "29.0.61000.0",
+        "1.0.0.0",
+    ] {
+        let (out, hits) = run("29.0.0.0", platform);
+        for (n, o) in &out {
+            let ok = match n.as_str() {
+                "Bar" | "BarTexts" | "RowCount" | "Order" => matches!(o, Outcome::Fail(_)),
+                // The Description of a key BaFeatureKeyTexts.al does not pin stays refused on the 13-row list.
+                "AllDescriptions" => matches!(o, Outcome::NotRun(_) | Outcome::Fail(_)),
+                _ => *o == Outcome::Pass,
+            };
+            if !ok || hits.iter().any(|(_, m)| m.contains(&a)) {
+                wrong.push(format!("29.0 on {platform} {n}: {o:?}"));
+            }
+        }
+    }
+    // Refused: 29.1 names the measured platform builds, 29.2 keeps main's text.
+    for (bc, platform, names) in [
+        ("29.1.0.0", "29.0.56212.0", "29.0.57943, 29.0.58337"),
+        ("29.1.0.0", "29.0.55782.0", "29.0.57943, 29.0.58337"),
+        ("29.1.0.0", "29.0.56480.0", "29.0.57943, 29.0.58337"),
+        ("29.1.0.0", "29.0.61000.0", "29.0.57943, 29.0.58337"),
+        ("29.1.0.0", "1.0.0.0", "29.0.57943, 29.0.58337"),
+        ("29.2.0.0", "29.0.58337.0", "measured on only"),
+    ] {
+        let (out, hits) = run(bc, platform);
+        for (n, o) in &out {
+            if !matches!(o, Outcome::NotRun(why) if why.contains("Feature Key") && why.contains(names))
+                || hits.iter().any(|(_, m)| m.contains(&a))
+            {
+                wrong.push(format!("{bc} on {platform} {n}: {o:?}"));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
 }
 
 // al-runner issue 5786: a control with `Editable = Rec."Allow Edit"`: its row and its Visible column are served, and the
@@ -4345,6 +4614,338 @@ codeunit 50000 "T" { Subtype = Test;
     }
 }
 
+/// The objects of the Event Subscription tests of al-runner issue 8060, the shapes of corpus PR 1412
+/// (events/extension-events/ExtensionEventSubscriptionRows.al:14-94): a table, a page and a report, an extension of each that
+/// declares events, and neighbors the probe does not hold.
+const EXT_EVENT_OBJECTS: &str = r#"table 50100 "EE Row" { fields { field(1; Code; Code[10]) { } } keys { key(PK; Code) { Clustered = true; } } }
+page 50100 "EE Card" { PageType = Card; SourceTable = "EE Row"; layout { area(Content) { field(Code; Rec.Code) { } } } }
+report 50100 "EE Report" { ProcessingOnly = true; dataset { dataitem(I; Integer) { } } }
+tableextension 50100 "EE Row Ext" extends "EE Row" {
+  [IntegrationEvent(false, false)] local procedure OnTableExtEvent(Code: Code[10]) begin end;
+  [IntegrationEvent(true, false)] local procedure OnTableExtSenderEvent(Code: Code[10]) begin end;
+  [BusinessEvent(false)] local procedure OnTableExtBusinessEvent(Code: Code[10]) begin end;
+  [IntegrationEvent(false, true)] local procedure OnTableExtGlobalEvent(Code: Code[10]) begin end;
+  [BusinessEvent(true)] local procedure OnTableExtBusinessSenderEvent(Code: Code[10]) begin end;
+  [InternalEvent(false)] local procedure OnTableExtInternalEvent(Code: Code[10]) begin end; }
+pageextension 50100 "EE Card Ext" extends "EE Card" {
+  [IntegrationEvent(false, false)] local procedure OnPageExtEvent(Code: Code[10]) begin end; }
+reportextension 50100 "EE Report Ext" extends "EE Report" {
+  [IntegrationEvent(false, false)] local procedure OnReportExtEvent(Code: Code[10]) begin end; }
+"#;
+
+/// Runs test codeunit `T` of `src` and gives each test's outcome and whether it passed through any assumption.
+fn ext_event_outcomes(src: &str, dep: Option<&str>) -> Vec<(String, Outcome, bool)> {
+    ext_event_hits(src, dep)
+        .into_iter()
+        .map(|(n, o, ids)| (n, o, !ids.is_empty()))
+        .collect()
+}
+
+/// Runs test codeunit `T` of `src` and gives each test's outcome and the ids of the assumptions it passed through.
+fn ext_event_hits(src: &str, dep: Option<&str>) -> Vec<(String, Outcome, Vec<&'static str>)> {
+    let (engine, l) = engine_over("main", src, dep, al_sema::check::Roots::default(), FALLBACK_BC);
+    let oi = l.program.objects.iter().position(|o| o.name == "T").expect("T");
+    let mut hits = Vec::new();
+    let out = al_testrun::runtime::run_codeunit_full(
+        &engine,
+        &l,
+        oi,
+        None,
+        al_testrun::isolation::TestIsolation::Disabled,
+        None,
+        &mut Vec::new(),
+        &mut Vec::new(),
+        &mut hits,
+        None,
+    );
+    out.into_iter()
+        .map(|(n, o)| {
+            let ids = hits
+                .iter()
+                .filter(|(h, _)| *h == n)
+                .flat_map(|(_, m)| m.iter().map(|a| a.info().id))
+                .collect();
+            (n, o, ids)
+        })
+        .collect()
+}
+
+/// The Microsoft Tests-Misc cells (`extension_event_subscription_row_of_a_page_in_another_app` and `..._of_a_list_page_of_the_
+/// same_app`): the reads codeunit 134299 makes, a filter on Active = No and on a non-blank Error Information that rules the
+/// row out, pass through assumption `extension-event-subscriber-active`; a read that counts the row stays refused.
+fn assert_tests_misc_cell(out: &[(String, Outcome, Vec<&'static str>)]) {
+    let get = |n: &str| out.iter().find(|(x, _, _)| x == n).cloned().expect(n);
+    for n in ["Inactive", "NoErrors"] {
+        let (_, o, ids) = get(n);
+        assert_eq!(o, Outcome::Pass, "{n}");
+        assert_eq!(ids, ["extension-event-subscriber-active"], "{n} must be a flagged pass");
+    }
+    assert!(matches!(get("Counted").1, Outcome::NotRun(_)), "Counted");
+}
+
+/// The test procedure `name` that checks the row of subscriber `routine` of codeunit `id` against `want` (the columns of
+/// ExtensionEventSubscriptionRows.al:159-168 but the app name) and, when `count` is given, how many rows the codeunit has.
+fn ext_event_row_test(name: &str, id: u32, routine: &str, want: &str, count: Option<u32>) -> String {
+    let count = count.map_or(String::new(), |n| {
+        format!("E.Reset(); E.SetRange(\"Subscriber Codeunit ID\", {id}); if E.Count() <> {n} then Error('count %1', E.Count());")
+    });
+    format!(
+        "  [Test] procedure {name}() var E: Record \"Event Subscription\"; T: Text; begin E.Get({id}, '{routine}');
+    T := StrSubstNo('%1;%2;%3;%4;%5;%6;%7;%8', E.\"Event Type\", E.\"Publisher Object Type\", E.\"Publisher Object ID\", E.\"Published Function\", E.Active, E.\"Error Information\", E.\"Subscriber Instance\", E.\"Active Manual Instances\");
+    if T <> '{want}' then Error('%1', T); {count} end;\n"
+    )
+}
+
+fn assert_clean_passes(out: &[(String, Outcome, bool)]) {
+    assert!(!out.is_empty());
+    for (n, o, flagged) in out {
+        assert_eq!(*o, Outcome::Pass, "{n}");
+        assert!(!*flagged, "{n} must pass without the assumption");
+    }
+}
+
+fn assert_refused(out: &[(String, Outcome, bool)]) {
+    assert!(!out.is_empty());
+    for (n, o, _) in out {
+        assert!(matches!(o, Outcome::NotRun(_)), "{n}: {o:?}");
+    }
+}
+
+/// al-runner #8060, the cells of one app that corpus PR 1412 measures (pinned; ExtensionEventSubscriptionRows.al
+/// :178-252, identical on BC 27.5, 28.5 and 29.0): the whole row of a subscriber to an event that a table, page or report
+/// extension declares, an integration event with and without IncludeSender, a business event, a subscriber with both Skip flags
+/// true, and a manual subscriber; Count of a codeunit's rows; Active = No and a non-blank Error Information count no row
+/// (:266-281). Each passes without an assumption: the cells are pinned.
+#[test]
+fn extension_event_subscription_rows_of_one_app() {
+    let subs = r#"
+codeunit 50101 "EE Table Sub" {
+  [EventSubscriber(ObjectType::Table, Database::"EE Row", 'OnTableExtEvent', '', false, false)] local procedure OnInt(Code: Code[10]) begin end;
+  [EventSubscriber(ObjectType::Table, Database::"EE Row", 'OnTableExtSenderEvent', '', false, false)] local procedure OnSender(var Sender: Record "EE Row"; Code: Code[10]) begin end;
+  [EventSubscriber(ObjectType::Table, Database::"EE Row", 'OnTableExtBusinessEvent', '', false, false)] local procedure OnBusiness(Code: Code[10]) begin end;
+  [EventSubscriber(ObjectType::Table, Database::"EE Row", 'OnTableExtEvent', '', true, true)] local procedure OnSkip(Code: Code[10]) begin end; }
+codeunit 50102 "EE Page Sub" {
+  [EventSubscriber(ObjectType::Page, Page::"EE Card", 'OnPageExtEvent', '', false, false)] local procedure OnPage(Code: Code[10]) begin end; }
+codeunit 50103 "EE Report Sub" {
+  [EventSubscriber(ObjectType::Report, Report::"EE Report", 'OnReportExtEvent', '', false, false)] local procedure OnReport(Code: Code[10]) begin end; }
+codeunit 50104 "EE Manual Sub" { EventSubscriberInstance = Manual;
+  [EventSubscriber(ObjectType::Table, Database::"EE Row", 'OnTableExtEvent', '', false, false)] local procedure OnManual(Code: Code[10]) begin end; }
+"#;
+    let row = |kind: &str, ty: &str, id: u32, f: &str, inst: &str| format!("{kind};{ty};{id};{f};Yes;;{inst};0");
+    let tests = [
+        ext_event_row_test("TableInt", 50101, "OnInt", &row("Integration", "Table", 50100, "OnTableExtEvent", "Static-Automatic"), Some(4)),
+        ext_event_row_test("TableSender", 50101, "OnSender", &row("Integration", "Table", 50100, "OnTableExtSenderEvent", "Static-Automatic"), None),
+        ext_event_row_test("TableBusiness", 50101, "OnBusiness", &row("Business", "Table", 50100, "OnTableExtBusinessEvent", "Static-Automatic"), None),
+        ext_event_row_test("TableSkip", 50101, "OnSkip", &row("Integration", "Table", 50100, "OnTableExtEvent", "Static-Automatic"), None),
+        ext_event_row_test("Page", 50102, "OnPage", &row("Integration", "Page", 50100, "OnPageExtEvent", "Static-Automatic"), Some(1)),
+        ext_event_row_test("Report", 50103, "OnReport", &row("Integration", "Report", 50100, "OnReportExtEvent", "Static-Automatic"), Some(1)),
+        ext_event_row_test("Manual", 50104, "OnManual", &row("Integration", "Table", 50100, "OnTableExtEvent", "Manual"), None),
+        "  [Test] procedure Filters() var E: Record \"Event Subscription\"; begin E.SetRange(\"Subscriber Codeunit ID\", 50101, 50104); E.SetRange(Active, false); if E.Count() <> 0 then Error('inactive');
+    E.SetRange(Active); E.SetFilter(\"Error Information\", '<>%1', ''); if E.Count() <> 0 then Error('error'); end;\n".to_string(),
+    ]
+    .concat();
+    let src = format!("{EXT_EVENT_OBJECTS}{subs}codeunit 50000 \"T\" {{ Subtype = Test;\n{tests}}}");
+    assert_clean_passes(&ext_event_outcomes(&src, None));
+}
+
+/// al-runner #8060, the columns the session changes. Corpus PR 1412 reads "Active Manual Instances" 0 of the manual subscriber
+/// with no instance bound (ExtensionEventSubscriptionRows.al:244-252) and never reads "Number of Calls". On the row a read
+/// of "Active Manual Instances" while an instance of the subscriber codeunit is bound refuses (the rest of the row answers, and
+/// after the unbind the column reads 0 again), and so do a read of and a filter on "Number of Calls". A codeunit event's
+/// subscriber keeps main's answer.
+#[test]
+fn extension_event_subscription_row_columns_the_session_changes() {
+    let subs = r#"
+codeunit 50101 "EE Table Sub" {
+  [EventSubscriber(ObjectType::Table, Database::"EE Row", 'OnTableExtEvent', '', false, false)] local procedure OnInt(Code: Code[10]) begin end; }
+codeunit 50104 "EE Manual Sub" { EventSubscriberInstance = Manual;
+  [EventSubscriber(ObjectType::Table, Database::"EE Row", 'OnTableExtEvent', '', false, false)] local procedure OnManual(Code: Code[10]) begin end; }
+codeunit 50110 "EE Plain Pub" {
+  [IntegrationEvent(false, false)] procedure OnPlain() begin end; }
+codeunit 50111 "EE Plain Sub" {
+  [EventSubscriber(ObjectType::Codeunit, Codeunit::"EE Plain Pub", 'OnPlain', '', false, false)] local procedure OnPlainSub() begin end; }
+"#;
+    let tests = r#"
+  [Test] procedure BoundRow() var M: Codeunit "EE Manual Sub"; E: Record "Event Subscription"; begin BindSubscription(M); E.Get(50104, 'OnManual'); if E."Published Function" <> 'OnTableExtEvent' then Error('function'); end;
+  [Test] procedure BoundInstances() var M: Codeunit "EE Manual Sub"; E: Record "Event Subscription"; begin BindSubscription(M); E.Get(50104, 'OnManual'); if E."Active Manual Instances" <> 1 then Error('instances'); end;
+  [Test] procedure Unbound() var M: Codeunit "EE Manual Sub"; E: Record "Event Subscription"; begin BindSubscription(M); UnbindSubscription(M); E.Get(50104, 'OnManual'); if E."Active Manual Instances" <> 0 then Error('instances'); end;
+  [Test] procedure Calls() var E: Record "Event Subscription"; begin E.Get(50101, 'OnInt'); if E."Number of Calls" <> 0 then Error('calls'); end;
+  [Test] procedure CallsFilter() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50101); E.SetRange("Number of Calls", 0); if E.IsEmpty() then Error('calls'); end;
+  [Test] procedure PlainCalls() var E: Record "Event Subscription"; begin E.Get(50111, 'OnPlainSub'); if E."Number of Calls" <> 0 then Error('calls'); end;
+"#;
+    let src = format!("{EXT_EVENT_OBJECTS}{subs}codeunit 50000 \"T\" {{ Subtype = Test;\n{tests}}}");
+    let out = ext_event_outcomes(&src, None);
+    let get = |n: &str| out.iter().find(|(x, _, _)| x == n).cloned().expect(n);
+    assert_clean_passes(&[get("BoundRow"), get("Unbound")]);
+    assert_refused(&[get("BoundInstances"), get("Calls"), get("CallsFilter")]);
+    let plain = get("PlainCalls");
+    assert_eq!((plain.1, plain.2), (Outcome::Pass, false), "main's answer, no flag");
+}
+
+/// al-runner #8060, object facts corpus PR 1412 holds by one value each: a table of no TableType (ExtensionEventSubscriptionRows.al
+/// :14-24), a Card page (:26-29), a ProcessingOnly report (:41-44), local event procedures (:52-94), subscriber codeunits without
+/// Subtype or SingleInstance (:96-150), and the event's name as declared. A Temporary table, a Worksheet page, a report that is not
+/// ProcessingOnly, an event procedure that is not local, a SingleInstance or Test subscriber codeunit and a subscriber that
+/// writes the name in other case keep main's refusal.
+#[test]
+fn extension_event_subscription_row_of_unmeasured_objects_stays_refused() {
+    let objects = r#"
+table 50200 "EE Temp" { TableType = Temporary; fields { field(1; Code; Code[10]) { } } keys { key(PK; Code) { Clustered = true; } } }
+tableextension 50200 "EE Temp Ext" extends "EE Temp" {
+  [IntegrationEvent(false, false)] local procedure OnTempExtEvent(Code: Code[10]) begin end; }
+page 50201 "EE List" { PageType = Worksheet; SourceTable = "EE Row"; layout { area(Content) { repeater(R) { field(Code; Rec.Code) { } } } } }
+pageextension 50201 "EE List Ext" extends "EE List" {
+  [IntegrationEvent(false, false)] local procedure OnListExtEvent(Code: Code[10]) begin end; }
+report 50202 "EE Printed" { dataset { dataitem(I; Integer) { } } }
+reportextension 50202 "EE Printed Ext" extends "EE Printed" {
+  [IntegrationEvent(false, false)] local procedure OnPrintedExtEvent(Code: Code[10]) begin end; }
+tableextension 50203 "EE Row Public Ext" extends "EE Row" {
+  [IntegrationEvent(false, false)] procedure OnPublicExtEvent(Code: Code[10]) begin end; }
+codeunit 50201 "EE Temp Sub" {
+  [EventSubscriber(ObjectType::Table, Database::"EE Temp", 'OnTempExtEvent', '', false, false)] local procedure OnTemp(Code: Code[10]) begin end; }
+codeunit 50202 "EE List Sub" {
+  [EventSubscriber(ObjectType::Page, Page::"EE List", 'OnListExtEvent', '', false, false)] local procedure OnList(Code: Code[10]) begin end; }
+codeunit 50203 "EE Printed Sub" {
+  [EventSubscriber(ObjectType::Report, Report::"EE Printed", 'OnPrintedExtEvent', '', false, false)] local procedure OnPrinted(Code: Code[10]) begin end; }
+codeunit 50204 "EE Public Sub" {
+  [EventSubscriber(ObjectType::Table, Database::"EE Row", 'OnPublicExtEvent', '', false, false)] local procedure OnPublic(Code: Code[10]) begin end; }
+codeunit 50205 "EE Single Sub" { SingleInstance = true;
+  [EventSubscriber(ObjectType::Table, Database::"EE Row", 'OnTableExtEvent', '', false, false)] local procedure OnSingle(Code: Code[10]) begin end; }
+codeunit 50206 "EE Test Sub" { Subtype = Test;
+  [EventSubscriber(ObjectType::Table, Database::"EE Row", 'OnTableExtEvent', '', false, false)] local procedure OnTest(Code: Code[10]) begin end; }
+codeunit 50207 "EE Case Sub" {
+  [EventSubscriber(ObjectType::Table, Database::"EE Row", 'ontableextevent', '', false, false)] local procedure OnCase(Code: Code[10]) begin end; }
+"#;
+    let tests = (50201..=50207)
+        .map(|id| {
+            format!(
+                "  [Test] procedure Sub{id}() var E: Record \"Event Subscription\"; begin E.SetRange(\"Subscriber Codeunit ID\", {id}); E.SetRange(Active, false); if not E.IsEmpty() then Error('inactive'); end;\n"
+            )
+        })
+        .collect::<String>();
+    let src = format!("{EXT_EVENT_OBJECTS}{objects}codeunit 50000 \"T\" {{ Subtype = Test;\n{tests}}}");
+    let out = ext_event_outcomes(&src, None);
+    assert_eq!(out.len(), 7);
+    assert_refused(&out);
+}
+
+/// al-runner #8060, the reporter's shape (ExtensionEventSubscriptionRows.al:254-264): a table extension of a table of another
+/// app declares an integration event, a subscriber of the extension's app binds to the base table. Pinned, no assumption.
+#[test]
+fn extension_event_subscription_row_of_a_table_in_another_app() {
+    let dep = r#"table 50100 "EE Row" { fields { field(1; Code; Code[10]) { } } keys { key(PK; Code) { Clustered = true; } } }"#;
+    let main = format!(
+        r#"tableextension 50150 "EE Row Ext" extends "EE Row" {{
+  [IntegrationEvent(false, false)] local procedure OnTableExtEvent(Code: Code[10]) begin end; }}
+codeunit 50151 "EE Table Sub" {{
+  [EventSubscriber(ObjectType::Table, Database::"EE Row", 'OnTableExtEvent', '', false, false)] local procedure OnInt(Code: Code[10]) begin end; }}
+codeunit 50000 "T" {{ Subtype = Test;
+{}  [Test] procedure Inactive() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50151); E.SetRange(Active, false); if not E.IsEmpty() then Error('inactive'); end; }}"#,
+        ext_event_row_test(
+            "CrossApp",
+            50151,
+            "OnInt",
+            "Integration;Table;50100;OnTableExtEvent;Yes;;Static-Automatic;0",
+            Some(1)
+        )
+    );
+    assert_clean_passes(&ext_event_outcomes(&main, Some(dep)));
+}
+
+/// al-runner #8060, neighbors of the measured cells keep main's refusal, also for a filter on Active: an integration event with
+/// GlobalVarAccess, a business event with IncludeSender, an internal event, a subscriber with one Skip flag true, a manual
+/// subscriber to a page extension's event, a page extension of a page of another app with both Skip flags false, and a
+/// subscriber in another app than the extension.
+#[test]
+fn extension_event_subscription_row_outside_the_measured_cells_stays_refused() {
+    let subs = r#"
+codeunit 50101 "EE Global Sub" {
+  [EventSubscriber(ObjectType::Table, Database::"EE Row", 'OnTableExtGlobalEvent', '', false, false)] local procedure OnGlobal(Code: Code[10]) begin end; }
+codeunit 50102 "EE Business Sender Sub" {
+  [EventSubscriber(ObjectType::Table, Database::"EE Row", 'OnTableExtBusinessSenderEvent', '', false, false)] local procedure OnBusiness(var Sender: Record "EE Row"; Code: Code[10]) begin end; }
+codeunit 50103 "EE Internal Sub" {
+  [EventSubscriber(ObjectType::Table, Database::"EE Row", 'OnTableExtInternalEvent', '', false, false)] local procedure OnInternal(Code: Code[10]) begin end; }
+codeunit 50104 "EE License Sub" {
+  [EventSubscriber(ObjectType::Table, Database::"EE Row", 'OnTableExtEvent', '', true, false)] local procedure OnLicense(Code: Code[10]) begin end; }
+codeunit 50105 "EE Manual Page Sub" { EventSubscriberInstance = Manual;
+  [EventSubscriber(ObjectType::Page, Page::"EE Card", 'OnPageExtEvent', '', false, false)] local procedure OnManual(Code: Code[10]) begin end; }
+"#;
+    let tests = (50101..=50105)
+        .map(|id| {
+            format!(
+                "  [Test] procedure Sub{id}() var E: Record \"Event Subscription\"; begin E.SetRange(\"Subscriber Codeunit ID\", {id}); E.SetRange(Active, false); if not E.IsEmpty() then Error('inactive'); end;\n"
+            )
+        })
+        .collect::<String>();
+    let src = format!("{EXT_EVENT_OBJECTS}{subs}codeunit 50000 \"T\" {{ Subtype = Test;\n{tests}}}");
+    assert_refused(&ext_event_outcomes(&src, None));
+    // A page extension of a page of another app, both flags false; a subscriber in another app than the table extension (the
+    // table and its extension in the dependency).
+    let dep = r#"table 50100 "EE Row" { fields { field(1; Code; Code[10]) { } } keys { key(PK; Code) { Clustered = true; } } }
+page 50100 "EE Card" { PageType = Card; SourceTable = "EE Row"; layout { area(Content) { field(Code; Rec.Code) { } } } }
+tableextension 50120 "EE Row Ext" extends "EE Row" {
+  [IntegrationEvent(false, false)] local procedure OnTableExtEvent(Code: Code[10]) begin end; }"#;
+    let main = r#"pageextension 50150 "EE Card Ext" extends "EE Card" {
+  [IntegrationEvent(false, false)] local procedure OnPageExtEvent(Code: Code[10]) begin end; }
+codeunit 50151 "EE Other App Sub" {
+  [EventSubscriber(ObjectType::Table, Database::"EE Row", 'OnTableExtEvent', '', false, false)] local procedure OnInt(Code: Code[10]) begin end; }
+codeunit 50152 "EE Flags False Sub" {
+  [EventSubscriber(ObjectType::Page, Page::"EE Card", 'OnPageExtEvent', '', false, false)] local procedure OnPageExt(Code: Code[10]) begin end; }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure PageFlagsFalse() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50152); E.SetRange(Active, false); if not E.IsEmpty() then Error('inactive'); end;
+  [Test] procedure SubscriberInOtherApp() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50151); E.SetRange(Active, false); if not E.IsEmpty() then Error('inactive'); end; }"#;
+    assert_refused(&ext_event_outcomes(main, Some(dep)));
+}
+
+/// al-runner #8060, a cell only Microsoft's Tests-Misc measures and no probe holds: a page extension of a dependency's page
+/// declares the event, a subscriber of the same app with SkipOnMissingLicense and SkipOnMissingPermission true (Base
+/// Application's "Serv. Integration Mgt." on System Application's ListPart "Retention Policy Setup Lines"). The reads codeunit
+/// 134299 makes are flagged passes ([`assert_tests_misc_cell`]); a read that counts the row stays refused, and so do a Card
+/// page of another app and a page of the same app with both flags true, which no probe and no Microsoft test hold.
+#[test]
+fn extension_event_subscription_row_of_a_page_in_another_app() {
+    let dep = r#"table 50100 "EE Row" { fields { field(1; Code; Code[10]) { } } keys { key(PK; Code) { Clustered = true; } } }
+page 50100 "EE Card" { PageType = ListPart; SourceTable = "EE Row"; layout { area(Content) { field(Code; Rec.Code) { } } } }"#;
+    let main = r#"pageextension 50150 "EE Card Ext" extends "EE Card" {
+  [IntegrationEvent(false, false)] local procedure OnPageExtEvent(Code: Code[10]) begin end; }
+codeunit 50151 "EE Measured Sub" {
+  [EventSubscriber(ObjectType::Page, Page::"EE Card", 'OnPageExtEvent', '', true, true)] local procedure OnPageExt(Code: Code[10]) begin end; }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Inactive() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50151); E.SetRange(Active, false); if not E.IsEmpty() then Error('inactive'); end;
+  [Test] procedure NoErrors() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50151); E.SetFilter("Error Information", '<>%1', ''); if E.Count() <> 0 then Error('errors'); end;
+  [Test] procedure Counted() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50151); if E.Count() <> 1 then Error('count'); end; }"#;
+    assert_tests_misc_cell(&ext_event_hits(main, Some(dep)));
+    let card = dep.replace("PageType = ListPart", "PageType = Card");
+    assert_refused(&ext_event_outcomes(main, Some(&card))[..1]);
+    let src = format!(
+        r#"{EXT_EVENT_OBJECTS}
+codeunit 50101 "EE Page Sub" {{
+  [EventSubscriber(ObjectType::Page, Page::"EE Card", 'OnPageExtEvent', '', true, true)] local procedure OnPageExt(Code: Code[10]) begin end; }}
+codeunit 50000 "T" {{ Subtype = Test;
+  [Test] procedure OneAppFlagsTrue() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50101); E.SetRange(Active, false); if not E.IsEmpty() then Error('inactive'); end; }}"#
+    );
+    assert_refused(&ext_event_outcomes(&src, None));
+}
+
+/// al-runner #8060, the second cell only Microsoft's Tests-Misc measures and no probe holds: a page extension of a List page of
+/// the same app declares the event, a subscriber of that app with both Skip flags false (Base Application's "Check
+/// Dimensions".OnOpenRelatedRecord on "Error Messages", pageextension 705). The reads codeunit 134299 makes are flagged passes
+/// ([`assert_tests_misc_cell`]); a read that counts the row stays refused.
+#[test]
+fn extension_event_subscription_row_of_a_list_page_of_the_same_app() {
+    let src = r#"table 50100 "EE Row" { fields { field(1; Code; Code[10]) { } } keys { key(PK; Code) { Clustered = true; } } }
+page 50100 "EE List" { PageType = List; SourceTable = "EE Row"; layout { area(Content) { repeater(R) { field(Code; Rec.Code) { } } } } }
+pageextension 50150 "EE List Ext" extends "EE List" {
+  [IntegrationEvent(false, false)] local procedure OnListExtEvent(Code: Code[10]) begin end; }
+codeunit 50151 "EE List Sub" {
+  [EventSubscriber(ObjectType::Page, Page::"EE List", 'OnListExtEvent', '', false, false)] local procedure OnListExt(Code: Code[10]) begin end; }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Inactive() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50151); E.SetRange(Active, false); if not E.IsEmpty() then Error('inactive'); end;
+  [Test] procedure NoErrors() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50151); E.SetFilter("Error Information", '<>%1', ''); if E.Count() <> 0 then Error('errors'); end;
+  [Test] procedure Counted() var E: Record "Event Subscription"; begin E.SetRange("Subscriber Codeunit ID", 50151); if E.Count() <> 1 then Error('count'); end; }"#;
+    assert_tests_misc_cell(&ext_event_hits(src, None));
+}
+
 // reports/runtime/Y6TenantReportLayoutRows.al:16-89 (corpus master): Tenant Report Layout holds no row of a
 // report of the app under test on a fresh tenant; a row whose Layout is the report's own RDLC layout (Report.RdlcLayout) inserts
 // (true), keeps a blank Company Name and MIME Type and the null App ID, and a second Insert answers false. The rows a fresh
@@ -4735,6 +5336,8 @@ codeunit 50000 "T" { Subtype = Test;
 // The platform renders the layout Tenant Report Layout Selection names for the report. A Pdf save writes a placeholder only
 // while that layout is an RDLC or Word layout of the report (ADR-040 amendment "A placeholder PDF"); an Excel layout writes no
 // output on BC (reports/layouts-saveas/AMReportOutputTests.al:257 ExcelLayout_SaveAsPdf), so a selection of one refuses.
+// The report writes one dataset row: a save of a Word report with no row is a separate rule (`report_save` rows with no dataset row, refused but for
+// the pinned Html-to-stream shape), and this test is about the layout selection.
 #[test]
 fn a_pdf_save_follows_tenant_report_layout_selection_or_refuses() {
     let o = outcomes(
@@ -4743,7 +5346,8 @@ report 50002 "R Word" { UsageCategory = None; DefaultRenderingLayout = WordOne;
   dataset { dataitem(D; "R Row") { column(Id; Id) { } } }
   rendering { layout(WordOne) { Type = Word; LayoutFile = 'W.docx'; } layout(ExcelOne) { Type = Excel; LayoutFile = 'X.xlsx'; } } }
 codeunit 50000 "T" { Subtype = Test;
-  local procedure Save(Name: Text) var S: Record "Tenant Report Layout Selection"; R: Record "R Row"; Out: OutStream; begin
+  local procedure Save(Name: Text) var S: Record "Tenant Report Layout Selection"; R: Record "R Row"; Row: Record "R Row"; Out: OutStream; begin
+    Row.DeleteAll(); Row.Id := 1; Row.Insert();
     S.SetRange("Report ID", Report::"R Word"); S.DeleteAll(); S.Reset();
     S."Report ID" := Report::"R Word"; S."Layout Name" := CopyStr(Name, 1, MaxStrLen(S."Layout Name")); S.Insert();
     R.Data.CreateOutStream(Out); if not Report.SaveAs(Report::"R Word", '', ReportFormat::Pdf, Out) then Error('false'); end;
@@ -4807,4 +5411,145 @@ fn recordref_open_of_server_instance_from_an_app_that_is_not_onprem_is_refused()
         why.contains("RecordRef.Open(2000000112), an OnPrem platform table, from an app whose target is not known"),
         "{why}"
     );
+}
+
+// A Tenant Media row an AL Insert(false) stored: Get, TestField and Delete() of it are pinned (streams/media/
+// Y48TenantMediaRows.al:634-649); every other write and every read of the table while it is there is refused, as is
+// any other insert shape. A table without such a row keeps main's result.
+#[test]
+fn a_stored_tenant_media_row_allows_only_the_measured_calls() {
+    let o = outcomes(
+        r#"table 50800 "P Row" { fields { field(1; "No."; Integer) { } field(2; Pic; Media) { } field(3; Pics; MediaSet) { } }
+  keys { key(PK; "No.") { } } }
+table 50811 "P BlobT" { TableType = Temporary; fields { field(1; K; Integer) { } field(2; B; Blob) { } } keys { key(PK; K) { } } }
+codeunit 50000 "T" { Subtype = Test; TestPermissions = Disabled;
+  local procedure Ins(Id: Guid) var TM: Record "Tenant Media"; begin
+    TM.Init(); TM.ID := Id; TM.Description := 'Synthetic description'; TM.Insert(false); end;
+  local procedure SetPic(Id: Guid) var R: Record "P Row"; RR: RecordRef; begin
+    R."No." := 1; R.Insert(); RR.GetTable(R); RR.Field(R.FieldNo(Pic)).Value(Id); RR.Modify(); end;
+  local procedure Stream(var T: Record "P BlobT"; var I: InStream) var O: OutStream; begin
+    T.B.CreateOutStream(O); O.WriteText('hello'); T.B.CreateInStream(I); end;
+  [Test] procedure Measured() var TM: Record "Tenant Media"; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de01'); Clear(TM); TM.Get('eb5700b7-a069-42c4-a86e-404e2839de01');
+    TM.TestField(Description, 'Synthetic description'); TM.Delete(); end;
+  [Test] procedure ModifyAfterInsert() var TM: Record "Tenant Media"; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de02'); TM.Get('eb5700b7-a069-42c4-a86e-404e2839de02');
+    TM."Mime Type" := 'text/plain'; TM.Modify(); end;
+  [Test] procedure ModifyAllAfterInsert() var TM: Record "Tenant Media"; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de03'); TM.SetRange(ID, 'eb5700b7-a069-42c4-a86e-404e2839de03');
+    TM.ModifyAll(Description, 'changed'); end;
+  [Test] procedure RecordRefModifyAfterInsert() var TM: Record "Tenant Media"; RR: RecordRef; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de04'); TM.Get('eb5700b7-a069-42c4-a86e-404e2839de04');
+    TM.Description := 'changed'; RR.GetTable(TM); RR.Modify(); end;
+  [Test] procedure FindFirstAfterInsert() var TM: Record "Tenant Media"; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de05'); TM.SetRange(ID, 'eb5700b7-a069-42c4-a86e-404e2839de05'); TM.FindFirst(); end;
+  [Test] procedure CountAfterInsert() var TM: Record "Tenant Media"; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de06'); if TM.Count() = 0 then Error('none'); end;
+  [Test] procedure IsEmptyAfterInsert() var TM: Record "Tenant Media"; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de07'); if TM.IsEmpty() then Error('empty'); end;
+  [Test] procedure DeleteTrueAfterInsert() var TM: Record "Tenant Media"; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de08'); TM.Get('eb5700b7-a069-42c4-a86e-404e2839de08'); TM.Delete(true); end;
+  [Test] procedure CalcFieldsAfterInsert() var TM: Record "Tenant Media"; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de09'); TM.Get('eb5700b7-a069-42c4-a86e-404e2839de09'); TM.CalcFields(Content);
+    if TM.Content.HasValue() then Error('content'); end;
+  [Test] procedure InsertTwice() var TM: Record "Tenant Media"; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de10'); Ins('eb5700b7-a069-42c4-a86e-404e2839de10'); end;
+  [Test] procedure InsertWithMimeType() var TM: Record "Tenant Media"; begin
+    TM.Init(); TM.ID := 'eb5700b7-a069-42c4-a86e-404e2839de11'; TM.Description := 'd'; TM."Mime Type" := 'text/plain';
+    TM.Insert(false); end;
+  [Test] procedure InsertTrue() var TM: Record "Tenant Media"; begin
+    TM.Init(); TM.ID := 'eb5700b7-a069-42c4-a86e-404e2839de12'; TM.Description := 'd'; TM.Insert(true); end;
+  [Test] procedure InsertNoArgument() var TM: Record "Tenant Media"; begin
+    TM.Init(); TM.ID := 'eb5700b7-a069-42c4-a86e-404e2839de13'; TM.Description := 'd'; TM.Insert(); end;
+  [Test] procedure InsertReturnUsed() var TM: Record "Tenant Media"; begin
+    TM.Init(); TM.ID := 'eb5700b7-a069-42c4-a86e-404e2839de16'; TM.Description := 'd'; if not TM.Insert(false) then Error('no'); end;
+  [Test] procedure DeleteReturnUsed() var TM: Record "Tenant Media"; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de17'); TM.Get('eb5700b7-a069-42c4-a86e-404e2839de17'); if not TM.Delete() then Error('no'); end;
+  [Test] procedure RecordRefInsert() var RR: RecordRef; FR: FieldRef; begin
+    RR.Open(2000000184); RR.Init(); FR := RR.Field(1); FR.Value(CreateGuid()); FR := RR.Field(2); FR.Value('d'); RR.Insert(false); end;
+  [Test] procedure RecordRefDeleteAfterInsert() var RR: RecordRef; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de18'); RR.Open(2000000184);
+    RR.Field(1).SetRange('eb5700b7-a069-42c4-a86e-404e2839de18'); RR.FindFirst(); RR.Delete(); end;
+  [Test] procedure RecordRefGetAfterInsert() var RR: RecordRef; TM: Record "Tenant Media"; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de19'); TM.ID := 'eb5700b7-a069-42c4-a86e-404e2839de19'; RR.Open(2000000184);
+    if not RR.Get(TM.RecordId) then Error('notfound'); end;
+  [Test] procedure FindEqualsAfterInsert() var TM: Record "Tenant Media"; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de20'); TM.ID := 'eb5700b7-a069-42c4-a86e-404e2839de20'; if not TM.Find('=') then Error('notfound'); end;
+  [Test] procedure FindAfterInsert() var TM: Record "Tenant Media"; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de21'); TM.ID := 'eb5700b7-a069-42c4-a86e-404e2839de21'; if not TM.Find() then Error('notfound'); end;
+  [Test] procedure MediaSetInsertOfStoredId() var R: Record "P Row"; Id: Guid; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de22'); R."No." := 1; Id := 'eb5700b7-a069-42c4-a86e-404e2839de22'; R.Pics.Insert(Id); end;
+  [Test] procedure DeleteRowHoldingStoredId() var R: Record "P Row"; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de23'); SetPic('eb5700b7-a069-42c4-a86e-404e2839de23'); R.Get(1); R.Delete(); end;
+  [Test] procedure ModifyReplacingStoredId() var R: Record "P Row"; T: Record "P BlobT"; I: InStream; begin
+    Ins('eb5700b7-a069-42c4-a86e-404e2839de24'); SetPic('eb5700b7-a069-42c4-a86e-404e2839de24'); R.Get(1); Stream(T, I);
+    R.Pic.ImportStream(I, 'desc', 'text/plain'); R.Modify(); end;
+  [Test] procedure CountWithoutInsert() var TM: Record "Tenant Media"; begin
+    TM.SetRange(ID, 'eb5700b7-a069-42c4-a86e-404e2839de14'); if not TM.IsEmpty() then Error('rows'); end;
+  [Test] procedure DeleteAllWithoutInsert() var TM: Record "Tenant Media"; begin
+    TM.SetRange(ID, 'eb5700b7-a069-42c4-a86e-404e2839de15'); TM.DeleteAll(); end; }"#,
+    );
+    passes(&o, "Measured");
+    let refused = |t: &str| matches!(o.iter().find(|(n, _)| n == t).map(|(_, o)| o), Some(Outcome::NotRun(_)));
+    let ran: Vec<&str> = [
+        "ModifyAfterInsert",
+        "ModifyAllAfterInsert",
+        "RecordRefModifyAfterInsert",
+        "FindFirstAfterInsert",
+        "CountAfterInsert",
+        "IsEmptyAfterInsert",
+        "DeleteTrueAfterInsert",
+        "CalcFieldsAfterInsert",
+        "InsertTwice",
+        "InsertWithMimeType",
+        "InsertTrue",
+        "InsertNoArgument",
+        "InsertReturnUsed",
+        "DeleteReturnUsed",
+        "RecordRefInsert",
+        "RecordRefDeleteAfterInsert",
+        "RecordRefGetAfterInsert",
+        "FindEqualsAfterInsert",
+        "FindAfterInsert",
+        "MediaSetInsertOfStoredId",
+        "DeleteRowHoldingStoredId",
+        "ModifyReplacingStoredId",
+    ]
+    .into_iter()
+    .filter(|t| !refused(t))
+    .collect();
+    assert!(ran.is_empty(), "must be refused: {ran:?}\n{o:?}");
+    // Main's results without a stored row: an empty filtered read and DeleteAll (Y48TenantMediaRows.al:654-655).
+    passes(&o, "CountWithoutInsert");
+    passes(&o, "DeleteAllWithoutInsert");
+}
+
+/// Main's results while no AL Insert stored a Tenant Media row: MediaSet.Insert of an unknown id answers false, the Delete of
+/// the row that holds an imported media removes its Tenant Media row, a Find('=') and a RecordRef.Get of an unknown id
+/// answer false.
+#[test]
+fn without_a_stored_tenant_media_row_media_and_reads_keep_their_answers() {
+    let o = outcomes(
+        r#"table 50800 "P Row" { fields { field(1; "No."; Integer) { } field(2; Pic; Media) { } field(3; Pics; MediaSet) { } }
+  keys { key(PK; "No.") { } } }
+table 50811 "P BlobT" { TableType = Temporary; fields { field(1; K; Integer) { } field(2; B; Blob) { } } keys { key(PK; K) { } } }
+codeunit 50000 "T" { Subtype = Test; TestPermissions = Disabled;
+  [Test] procedure MediaSetInsertOfUnknownId() var R: Record "P Row"; Id: Guid; begin
+    Id := 'eb5700b7-a069-42c4-a86e-404e2839de25'; R."No." := 1; if R.Pics.Insert(Id) then Error('inserted'); end;
+  [Test] procedure DeleteRowHoldingImportedMedia() var R: Record "P Row"; TM: Record "Tenant Media"; T: Record "P BlobT"; I: InStream; O: OutStream; M: Guid; begin
+    R."No." := 1; R.Insert(); T.B.CreateOutStream(O); O.WriteText('hello'); T.B.CreateInStream(I);
+    R.Pic.ImportStream(I, 'desc', 'text/plain'); R.Modify(); M := R.Pic.MediaId(); R.Delete(); if TM.Get(M) then Error('still there'); end;
+  [Test] procedure FindEqualsOfUnknownId() var TM: Record "Tenant Media"; begin
+    TM.ID := 'eb5700b7-a069-42c4-a86e-404e2839de26'; if TM.Find('=') then Error('found'); end;
+  [Test] procedure RecordRefGetOfUnknownId() var TM: Record "Tenant Media"; RR: RecordRef; begin
+    TM.ID := 'eb5700b7-a069-42c4-a86e-404e2839de27'; RR.Open(2000000184); if RR.Get(TM.RecordId) then Error('found'); end; }"#,
+    );
+    for t in [
+        "MediaSetInsertOfUnknownId",
+        "DeleteRowHoldingImportedMedia",
+        "FindEqualsOfUnknownId",
+        "RecordRefGetOfUnknownId",
+    ] {
+        passes(&o, t);
+    }
 }

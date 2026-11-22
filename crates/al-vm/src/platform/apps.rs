@@ -173,26 +173,11 @@ pub(super) fn published_application_rows(p: &Providers, t: &TableDef) -> Vec<Ent
                 ),
             };
             // Logo (20): blank (null MediaId, no Media row) for an app whose app.json declares no logo (onprem
-            // session-system/PZPublishedApplicationColumns.al:162-163). An app whose manifest declares a PNG logo has a media with a
-            // value whose Media row holds the file's bytes ([`logo_media_rows`]; onprem session-system/UsAppLogo.al:79-148, corpus PR
-            // 816; assumption published-application-logo-is-the-logo-file until the pin includes it).
-            // A logo that is no PNG and an app whose manifest was not read are not pinned: unknown.
-            match &a.logo {
-                Some(al_ir::AppLogo::None) => {}
-                Some(al_ir::AppLogo::File(bytes)) if al_builtins::media::png_size(bytes).is_some() => {
-                    r[pos(t, 20)] = Value::Guid(ids::logo_media_id(id));
-                }
-                Some(al_ir::AppLogo::File(_)) => {
-                    let whose = format!(
-                        "app '{}', whose logo is no PNG (the Media row of another picture format is not pinned)",
-                        a.name
-                    );
-                    r[pos(t, 20)] = super::unknown(t, 20, &whose);
-                }
-                None => {
-                    let whose = format!("app '{}': its manifest's logo was not read", a.name);
-                    r[pos(t, 20)] = super::unknown(t, 20, &whose);
-                }
+            // session-system/PZPublishedApplicationColumns.al:162-163); the media id of a logo [`served_logo`] serves; else unknown.
+            match served_logo(a, assumed) {
+                Logo::None => {}
+                Logo::Picture { .. } => r[pos(t, 20)] = Value::Guid(ids::logo_media_id(id)),
+                Logo::Unknown(whose) => r[pos(t, 20)] = super::unknown(t, 20, &whose),
             }
             // The columns the row fills above, and those whose default the corpus pins for every app (13, 30, 31). The others (Brief, the links, Blob, the source and build columns of
             // Y48PublishedApplication.al) are filled for the Application row only: here unknown, a read is refused.
@@ -248,33 +233,102 @@ pub(super) fn published_application_listing(
     Ok(m)
 }
 
-/// Media (2000000181): one row per app whose manifest declares a PNG logo, under the id its Published Application Logo
-/// holds. The row holds the logo file's bytes unchanged, `image/png`, the picture's height and width, and every other
-/// column empty (Description, Company Name, Expiration Date, File Name, Security Token, Creating User; Prohibit Cache No):
-/// onprem session-system/UsAppLogo.al:110-116 (a 1 x 1 PNG of 67 bytes) and :140-145 (a 300 x 300 PNG of 90393 bytes, same SHA-256).
-pub(super) fn logo_media_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
-    let field = |name: &str| t.fields.iter().position(|f| f.name.eq_ignore_ascii_case(name));
-    p.engine()
+/// Media (2000000181): the row under `media_id`, the id the Published Application Logo of an app whose logo [`served_logo`]
+/// serves holds; `None` when no app's served logo has that id. Only that app's logo is built: an app's id gives its media id
+/// alone ([`ids::logo_media_id`]), so the other apps' logos are never copied. The row holds the logo file's bytes unchanged,
+/// `image/png`, the picture's height and width, and every other column empty (Description, Company Name, Expiration Date,
+/// File Name, Security Token, Creating User; Prohibit Cache No): onprem session-system/UsAppLogo.al:110-116 (a 1 x 1 PNG of
+/// 67 bytes) and :140-145 (a 300 x 300 PNG of 90393 bytes, same SHA-256). A JPEG logo [`served_logo`] serves has the same
+/// row, its Mime Type `image/png` before BC 29 and `image/jpeg` from BC 29 (al-language-onprem/session-system/UsAppLogoJpeg.al:113-117,
+/// an 8 x 8 JPEG of 307 bytes).
+pub(super) fn logo_media_row(p: &Providers, t: &TableDef, media_id: [u8; 16]) -> Option<Entry> {
+    let engine = p.engine();
+    let (bytes, (width, height), jpeg) = engine
         .program
         .apps
         .iter()
-        .filter_map(|a| {
-            let id = al_builtins::ops::parse_guid(&a.id)?;
-            let Some(al_ir::AppLogo::File(bytes)) = &a.logo else {
-                return None;
-            };
-            let (width, height) = al_builtins::media::png_size(bytes)?;
-            let mut r = blank(t);
-            r[pos(t, 1)] = Value::Guid(ids::logo_media_id(id));
-            let blob = al_builtins::stream::new_blob();
-            al_builtins::stream::write_bytes(&blob, bytes);
-            r[field("Content")?] = Value::Blob(blob);
-            r[field("Mime Type")?] = Value::Text("image/png".into());
-            r[field("Height")?] = Value::Integer(height);
-            r[field("Width")?] = Value::Integer(width);
-            Some(Entry::ok(r))
-        })
-        .collect()
+        .filter(|a| al_builtins::ops::parse_guid(&a.id).is_some_and(|id| ids::logo_media_id(id) == media_id))
+        .find_map(
+            |a| match served_logo(a, route(a, engine.dependencies_published_global).1) {
+                Logo::Picture { bytes, size, jpeg } => Some((bytes, size, jpeg)),
+                Logo::None | Logo::Unknown(_) => None,
+            },
+        )?;
+    let mime = if jpeg && al_version::gate_on(engine.target.as_ref(), al_version::Gate::ProbedValuesDifferFrom29) {
+        "image/jpeg"
+    } else {
+        "image/png"
+    };
+    let field = |name: &str| t.fields.iter().position(|f| f.name.eq_ignore_ascii_case(name));
+    let mut r = blank(t);
+    r[pos(t, 1)] = Value::Guid(media_id);
+    let blob = al_builtins::stream::new_blob();
+    al_builtins::stream::write_bytes(&blob, bytes);
+    #[cfg(test)]
+    LOGO_BLOBS_WRITTEN.with(|c| c.set(c.get() + 1));
+    r[field("Content")?] = Value::Blob(blob);
+    r[field("Mime Type")?] = Value::Text(mime.into());
+    r[field("Height")?] = Value::Integer(height);
+    r[field("Width")?] = Value::Integer(width);
+    Some(Entry::ok(r))
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many logo Blobs the Media rows wrote: a read of one id builds only the logo it finds.
+    static LOGO_BLOBS_WRITTEN: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// What the Published Application row of app `a` and its Media row ([`logo_media_row`]) serve of the logo its manifest
+/// declares, for a row that rests on `row_assumed`.
+enum Logo<'a> {
+    /// The manifest declares no logo.
+    None,
+    /// A picture with a media id and a Media row: its bytes, size and whether it is a JPEG.
+    Picture {
+        bytes: &'a [u8],
+        size: (i32, i32),
+        jpeg: bool,
+    },
+    /// Not pinned: why.
+    Unknown(String),
+}
+
+/// The size of the measured JPEG logo, width by height (UsAppLogoJpeg.al:113-117 `Height=8;Width=8`).
+const MEASURED_JPEG_SIZE: (i32, i32) = (8, 8);
+
+/// A PNG logo is served (onprem session-system/UsAppLogo.al:108-117 UsLogo_TinyPng_AppD, :140-146 UsLogo_BigPng_AppC). A JPEG
+/// built as the measured one ([`al_builtins::media::jfif_logo_size`]) of the measured size, 8 x 8, is served the same
+/// (UsAppLogoJpeg.al:82-120, cross-app fixture E's logo.jpg) on a row that rests on no assumption (the fixture's row rests on
+/// none). Every other logo, a JPEG on a row that rests on an assumption, and an app whose manifest was not read, are not pinned.
+fn served_logo(a: &al_ir::AppInfo, row_assumed: Option<al_builtins::assumptions::Assumption>) -> Logo<'_> {
+    let bytes = match &a.logo {
+        Some(al_ir::AppLogo::None) => return Logo::None,
+        Some(al_ir::AppLogo::File(bytes)) => bytes.as_slice(),
+        None => return Logo::Unknown(format!("app '{}': its manifest's logo was not read", a.name)),
+    };
+    let picture = |size, jpeg| Logo::Picture { bytes, size, jpeg };
+    match (
+        al_builtins::media::png_size(bytes),
+        al_builtins::media::jfif_logo_size(bytes),
+        row_assumed,
+    ) {
+        (Some(size), _, _) => picture(size, false),
+        (None, Some(MEASURED_JPEG_SIZE), None) => picture(MEASURED_JPEG_SIZE, true),
+        (None, Some((width, height)), None) => Logo::Unknown(format!(
+            "app '{}', whose JPEG logo is {width} x {height}, not the measured 8 x 8",
+            a.name
+        )),
+        (None, Some(_), Some(other)) => Logo::Unknown(format!(
+            "app '{}', whose JPEG logo is served only on a row that rests on no assumption (this row rests on '{}')",
+            a.name,
+            other.info().id
+        )),
+        (None, None, _) => Logo::Unknown(format!(
+            "app '{}', whose logo is neither a PNG nor a JPEG built as the measured one (the Media row of another picture is not pinned)",
+            a.name
+        )),
+    }
 }
 
 /// NAV App Extra: "Runtime Package ID" (1), "Tenant Visible" (2), "PerTenant Or Installed" (3). One row per listed app, both
@@ -325,4 +379,122 @@ pub(super) fn installed_application_rows(p: &Providers, t: &TableDef) -> Vec<Ent
         })
         .chain(application_runtime_row(p, t, false))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use al_builtins::assumptions::Assumption;
+
+    /// A JPEG logo on a row that rests on an assumption is not served, so neither the row's Logo nor a Media row has it; on a
+    /// row that rests on none the measured 8 x 8 one is served without an assumption, and one of another size is not served.
+    /// A file that is no picture is not served either way.
+    #[test]
+    fn a_jpeg_logo_is_served_only_on_a_row_without_an_assumption() {
+        let app = |logo: Vec<u8>| al_ir::AppInfo {
+            name: "D".into(),
+            logo: Some(al_ir::AppLogo::File(logo)),
+            ..Default::default()
+        };
+        let bytes = jfif_8x8();
+        let global = Some(Assumption::DependencyPublishedAsGlobal);
+        assert!(matches!(
+            served_logo(&app(bytes.clone()), None),
+            Logo::Picture {
+                jpeg: true,
+                size: (8, 8),
+                ..
+            }
+        ));
+        let mut wide = bytes.clone();
+        let sof = wide.windows(2).position(|w| w == [0xFF, 0xC0]).unwrap();
+        wide[sof + 8] = 16;
+        assert_eq!(al_builtins::media::jfif_logo_size(&wide), Some((16, 8)));
+        assert!(matches!(served_logo(&app(wide), None), Logo::Unknown(why) if why.contains("8 x 8")));
+        assert!(
+            matches!(served_logo(&app(bytes), global), Logo::Unknown(why) if why.contains("dependency-published-as-global"))
+        );
+        assert!(matches!(served_logo(&app(vec![1, 2, 3]), None), Logo::Unknown(_)));
+    }
+
+    /// A read of Media by one app's logo id writes that app's logo alone, not the logo of every app (issue 8608): of
+    /// three apps with PNG logos, the id of the second finds its row, a 2 x 3 picture, and one Blob is written.
+    #[test]
+    fn a_media_read_by_id_builds_only_that_apps_logo() {
+        let png = |w: u8, h: u8| {
+            let mut b = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13];
+            b.extend_from_slice(b"IHDR");
+            b.extend_from_slice(&[0, 0, 0, w, 0, 0, 0, h]);
+            b
+        };
+        let ids = [
+            "11111111-0000-0000-0000-000000000001",
+            "22222222-0000-0000-0000-000000000002",
+            "33333333-0000-0000-0000-000000000003",
+        ];
+        let program = al_ir::Program {
+            apps: ids
+                .iter()
+                .zip(1u8..)
+                .map(|(id, n)| al_ir::AppInfo {
+                    id: (*id).into(),
+                    name: format!("App {n}"),
+                    logo: Some(al_ir::AppLogo::File(png(n, n + 1))),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let engine = crate::Engine::new(program, Vec::new());
+        let p = Providers::new(
+            &engine,
+            super::super::Ident::of(&al_host::Host::default()),
+            std::rc::Rc::default(),
+            al_builtins::media::MediaStore::default(),
+        );
+        let field = |id: u32, name: &str, ty| al_data::FieldDef {
+            id,
+            name: name.into(),
+            ty,
+            stored: true,
+            code_storage: Default::default(),
+        };
+        use al_builtins::value::RtType;
+        let t = TableDef {
+            object: 2000000181,
+            name: "Media".into(),
+            fields: vec![
+                field(1, "ID", RtType::Guid),
+                field(3, "Content", RtType::Integer),
+                field(4, "Mime Type", RtType::Text(None)),
+                field(5, "Height", RtType::Integer),
+                field(6, "Width", RtType::Integer),
+            ],
+            keys: vec![vec![0]],
+            per_company: false,
+        };
+        let media_id = ids::logo_media_id(al_builtins::ops::parse_guid(ids[1]).unwrap());
+        let before = LOGO_BLOBS_WRITTEN.with(|c| c.get());
+        let found = p.media_of_id(&t, Some(&Value::Guid(media_id))).unwrap();
+        assert_eq!(LOGO_BLOBS_WRITTEN.with(|c| c.get()) - before, 1);
+        let row = found.row_at(0).unwrap();
+        assert!(matches!(row[0], Value::Guid(g) if g == media_id));
+        assert!(matches!((&row[3], &row[4]), (Value::Integer(3), Value::Integer(2))));
+        assert!(found.row_at(1).is_none());
+    }
+
+    /// The segments of the measured JPEG logo's structure, each with filler bytes, for an 8 x 8 picture.
+    fn jfif_8x8() -> Vec<u8> {
+        let mut b = vec![0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10];
+        b.extend_from_slice(b"JFIF\0");
+        b.extend_from_slice(&[0; 9]);
+        b.extend_from_slice(&[0xFF, 0xDB, 0x00, 0x04, 0, 0]);
+        b.extend_from_slice(&[0xFF, 0xC0, 0x00, 0x11, 8, 0, 8, 0, 8, 3]);
+        b.extend_from_slice(&[0; 9]);
+        b.extend_from_slice(&[0xFF, 0xC4, 0x00, 0x04, 0, 0]);
+        b.extend_from_slice(&[0xFF, 0xDA, 0x00, 0x0C, 3]);
+        b.extend_from_slice(&[0; 9]);
+        b.extend_from_slice(&[0x12, 0xFF, 0xD9]);
+        b
+    }
 }

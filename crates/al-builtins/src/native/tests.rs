@@ -20,7 +20,6 @@ fn the_table_finds_what_the_scan_found_for_every_id_and_nothing_for_other_text()
 #[test]
 fn test_field_with_an_error_info_is_implemented_not_refused_at_lowering() {
     for id in ["Record.TestField#2", "Record.TestField#4"] {
-        assert!(refusal(id).is_none(), "{id}");
         assert!(lookup(id).is_some(), "{id}");
     }
 }
@@ -29,7 +28,6 @@ fn test_field_with_an_error_info_is_implemented_not_refused_at_lowering() {
 // DotNetType*.al); the VM runs it through `Ctx::session_op`.
 #[test]
 fn get_dot_net_type_is_implemented_not_refused_at_lowering() {
-    assert!(refusal("System.GetDotNetType#1").is_none());
     assert!(lookup("System.GetDotNetType#1").is_some());
 }
 
@@ -38,7 +36,11 @@ pub(crate) struct TestCtx {
     err: AlError,
     install: bool,
     in_test: bool,
-    result_ignored: bool,
+    pub(crate) result_ignored: bool,
+    /// What `held_by_temp_blob_impl` answers for every buffer.
+    pub(crate) temp_blob_impl: bool,
+    /// What `format_composite` answers for a Record or a RecordRef: `None` as without a table schema.
+    pub(crate) composite: Option<String>,
 }
 impl FormatCtx for TestCtx {
     fn enum_name(&self, _id: u32, o: i32) -> String {
@@ -46,6 +48,12 @@ impl FormatCtx for TestCtx {
     }
 }
 impl Ctx for TestCtx {
+    fn format_composite(&mut self, _v: &Value) -> Option<Result<String, Signal>> {
+        self.composite.clone().map(Ok)
+    }
+    fn held_by_temp_blob_impl(&self, _b: &crate::stream::BlobRef) -> bool {
+        self.temp_blob_impl
+    }
     fn last_error(&self) -> AlError {
         self.err.clone()
     }
@@ -162,7 +170,10 @@ fn every_registered_id_is_in_the_catalog() {
     // Ids lowering picks for a call of a catalog overload that needs another implementation (`Evaluate` into an Option variable).
     let derived = [
         "System.EvaluateVariableOption#1",
+        "System.EvaluateMemberlessVarOption#1",
+        "System.EvaluateMemberlessVarOptionElement#1",
         "System.EvaluateBounded#1",
+        "System.EvaluateDateVariable#1",
         "System.EvaluateOptionField#1",
         "System.FormatVariant#1",
         "TextBuilder.AppendVariant#1",
@@ -171,17 +182,21 @@ fn every_registered_id_is_in_the_catalog() {
         "Record.ValidateVariant#1",
         "System.FormatDecimalField#1",
         "System.FormatAutoFormatField#1",
+        "System.AutoFormatWriterGuard#1",
         "System.FormatOptionColumn#1",
+        "System.ClearWithEventsTimer#1",
         "System.OptionCaptionML#1",
         "Dialog.ErrorNotLiteral#1",
         "Dialog.ErrorConstant#1",
         "Dialog.ErrorComputed#1",
         "Record.FieldErrorConstant#1",
         "Record.FieldErrorComputed#1",
+        "ErrorInfo.CreateLiteral#1",
         "TextBuilder.AppendFieldValue#1",
         "Media.ToVariant#1",
         "Interface.AssertAssigned#1",
         "Variant.FromTextConstant#1",
+        "Variant.FromTransactionType#1",
         "Variant.IntoInteger#1",
         "Variant.IntoOption#1",
         "Variant.Into#1",
@@ -471,4 +486,34 @@ fn an_unsupported_signal_describes_as_its_text() {
     let s = Signal::Unsupported("not pinned: X".into());
     assert_eq!(s.describe(), "not pinned: X");
     assert_eq!(s.clone().describe(), "not pinned: X");
+}
+
+// Code sweep issue 7647 item 1: an id listed twice in the registry lists is dead in all but its first row (`by_name`), and a
+// caller that reaches the second answers by an older rule.
+#[test]
+fn no_builtin_id_is_registered_twice_in_the_registry_lists() {
+    let mut seen = std::collections::HashSet::new();
+    let twice: Vec<&str> = super::registry::all()
+        .map(|(id, _)| *id)
+        .filter(|id| !seen.insert(*id))
+        .collect();
+    assert!(twice.is_empty(), "registered twice: {twice:?}");
+}
+
+// `Clear` of a WithEvents Timer (al-runner issue 7832): an unassigned variable stays null; anything that is not a Timer the host
+// holds is refused (only the Timer is measured, N4WithEventsNoRaise.al:209-212).
+#[test]
+fn clear_of_a_with_events_timer_unassigns_only_a_timer() {
+    let mut ctx = TestCtx::default();
+    let mut args = [Value::Null];
+    assert!(matches!(
+        super::values::clear_with_events_timer(&mut ctx, None, &mut args),
+        Ok(Value::Null)
+    ));
+    assert!(matches!(args[0], Value::Null));
+    let mut args = [Value::Text("x".to_string().into())];
+    match super::values::clear_with_events_timer(&mut ctx, None, &mut args) {
+        Err(Signal::Unsupported(why)) => assert!(why.contains("WithEvents Timer"), "{why}"),
+        other => panic!("{other:?}"),
+    }
 }

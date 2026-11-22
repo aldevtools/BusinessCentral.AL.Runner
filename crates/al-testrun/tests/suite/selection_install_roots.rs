@@ -341,11 +341,12 @@ fn a_selection_runs_install_code_that_runs_a_test_codeunit_through_a_dependency_
 }
 
 /// The same through a warm server (`al-runner serve`, `Warm`): a request that selects one test gets the full run's
-/// outcome too.
+/// outcome too. A warm server compiles every test codeunit whatever a request selects (al-runner issue 7978), so the
+/// request runs on the full run's compile from the start and is not redone.
 #[test]
 fn a_warm_server_request_runs_install_code_that_runs_a_test_codeunit_through_a_dependency_app() {
-    // What a client of `al-runner serve` is streamed: one `test` line per test as it finishes (docs/manual/tool-protocol.md
-    // section 4b), so a request that is redone may not stream the lines of the run it threw away.
+    // What a client of `al-runner serve` is streamed: one `test` line per selected test as it finishes
+    // (docs/manual/tool-protocol.md section 4b).
     let streamed: std::sync::Arc<std::sync::Mutex<Vec<(String, Outcome)>>> = Default::default();
     let on_test = {
         let streamed = streamed.clone();
@@ -378,13 +379,13 @@ fn a_warm_server_request_runs_install_code_that_runs_a_test_codeunit_through_a_d
         codeunit: 50410,
         name: "ReadsInstalledRow".into(),
     });
-    assert_eq!((outcome, rt.phases.full_redone), (Outcome::Pass, true));
+    assert_eq!((outcome, rt.phases.full_redone), (Outcome::Pass, false));
     assert_eq!(
         *streamed.lock().unwrap(),
         [("ReadsInstalledRow".to_string(), Outcome::Pass)],
-        "one line for the one test, from the run that counts"
+        "one line for the one selected test"
     );
-    // The request compiled the whole workspace again: the summary may not say it used a kept compile.
+    // The first request compiled the whole workspace.
     assert_eq!(used, al_testrun::runtime::WarmUse::Compiled);
 }
 

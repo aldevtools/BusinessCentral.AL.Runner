@@ -9,6 +9,7 @@
 //! (ui-handlers/TestPageQueryCloseMessageHandler_Tests.al:51).
 
 use crate::Session;
+use crate::clientless::NoClientDialog;
 use al_builtins::describe::Describe;
 use al_builtins::native::{AlError, Signal};
 use al_builtins::value::{Instance, RtType, Value};
@@ -98,6 +99,13 @@ fn typed_modal(kind: UiKind, params: usize, by_var: &[bool], p: Option<&RtType>,
         && matches!(response, Some(RtType::Option(_)) | Some(RtType::Enum(_)))
 }
 
+/// A page handler whose only parameter is a TestPage or TestRequestPage (both lower to `RtType::TestPage`).
+fn page_handler_of_test_page(kind: UiKind, params: usize, p: Option<&RtType>) -> bool {
+    matches!(kind, UiKind::Page | UiKind::ModalPage | UiKind::RequestPage)
+        && params == 1
+        && matches!(p, Some(RtType::TestPage(_)))
+}
+
 /// A `[PageHandler]` whose only parameter is `var P: Page X` (testpage/Y14PageTriage.al:383, corpus master).
 fn typed_page(kind: UiKind, params: usize, by_var: &[bool], p: Option<&RtType>) -> bool {
     kind == UiKind::Page && params == 1 && by_var == [true] && matches!(p, Some(RtType::Page(_)))
@@ -126,9 +134,23 @@ pub(crate) struct UiScope {
     handlers: Vec<UiHandler>,
     /// A handler is running: a UI call from inside it is not pinned by the corpus.
     pub(crate) in_handler: bool,
+    /// The kind and the error text of the last dialog no handler took (`dispatch_ui_returning`): which UI call an error with
+    /// the code MissingUIHandler came from, for a rule pinned for one kind (`pages/page_run_close.rs`).
+    last_unhandled: Option<(UiKind, String)>,
 }
 
 impl Session {
+    /// The (object, routine) of each handler of `kind` bound to the running test method.
+    pub(crate) fn bound_handlers(&self, kind: UiKind) -> Vec<(usize, usize)> {
+        self.ui_state.scope.as_ref().map_or_else(Vec::new, |s| {
+            s.handlers
+                .iter()
+                .filter(|h| h.kind == kind)
+                .map(|h| (h.object, h.routine))
+                .collect()
+        })
+    }
+
     /// Checks that routine `routine` of `object` has the signature BC requires
     /// of a handler of `kind`, and binds it to `instance` (the test codeunit's).
     pub fn ui_handler(
@@ -236,6 +258,12 @@ impl Session {
                 kind.label()
             ));
         }
+        // Under `--no-client` a handler whose only parameter is a TestPage or TestRequestPage may be refused before the test
+        // starts (`clientless_refuses_test_page_handler`).
+        if self.clientless_refuses_test_page_handler(kind) && page_handler_of_test_page(kind, r.params, ty(0)) {
+            let handler = format!("the {}Handler {}", kind.label(), r.name);
+            return Err(Self::clientless_test_page_handler_reason(&handler));
+        }
         // `[SendNotificationHandler(true)]` and `[RecallNotificationHandler(true)]` are optional: one that never runs does not fail
         // the test (al-language/testpage/notifications-and-control-values/CaNotificationTests.al:14-38, handlers at :61 and :70).
         let optional = matches!(kind, UiKind::SendNotification | UiKind::RecallNotification)
@@ -265,17 +293,25 @@ impl Session {
         self.ui_state.scope = Some(UiScope {
             handlers,
             in_handler: false,
+            last_unhandled: None,
         });
     }
 
     /// Ends the test method; returns the names of the declared handlers that
     /// never fired.
     pub fn end_ui_scope(&mut self) -> Vec<String> {
-        self.ui_state
+        let unfired: Vec<UiHandler> = self
+            .ui_state
             .scope
             .take()
-            .map(|s| s.handlers.into_iter().filter(|h| !h.fired).map(|h| h.name).collect())
-            .unwrap_or_default()
+            .map(|s| s.handlers.into_iter().filter(|h| !h.fired).collect())
+            .unwrap_or_default();
+        // A RequestPageHandler bound under `--no-client` is never called: that it ends in "not executed" there is the reporter's
+        // measurement (al-runner issue 8154), not a pin.
+        if self.ui_state.clientless && unfired.iter().any(|h| h.kind == UiKind::RequestPage) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NoClientSession);
+        }
+        unfired.into_iter().map(|h| h.name).collect()
     }
 
     /// Runs the handler of `kind` with `args`; returns the handler's final
@@ -291,6 +327,11 @@ impl Session {
         shown: &str,
         args: Vec<Value>,
     ) -> Result<(Value, Vec<Value>), Signal> {
+        // A dialog of a CaptionClass run is measured only where `CaptionDialogs` lets it run (record/captions/
+        // CaptionClassStateFreeCalls.al:891-914, al-runner issue 7391).
+        if let Some(why) = self.caption_dialog_refusal(kind.label(), kind == UiKind::Message) {
+            return Err(Signal::unsupported(why));
+        }
         let Some(scope) = self.ui_state.scope.as_mut() else {
             return Err(Signal::unsupported(format!(
                 "{} outside a test method (what the runner does then is not pinned)",
@@ -309,8 +350,12 @@ impl Session {
             }
             // Text and code: corpus errors/TestUnhandledUiAndDialogDefaults.al:68-107 (ONE space
             // after the kind; Confirm quotes the question, StrMenu the options only).
+            let message = format!("Unhandled UI: {} {shown}", kind.label());
+            if let Some(scope) = self.ui_state.scope.as_mut() {
+                scope.last_unhandled = Some((kind, message.clone()));
+            }
             return Err(Signal::Error(Box::new(AlError {
-                message: format!("Unhandled UI: {} {shown}", kind.label()),
+                message,
                 code: "MissingUIHandler".into(),
                 call_stack: String::new(),
                 ..Default::default()
@@ -420,6 +465,24 @@ impl Session {
         self.has_ui_handler(UiKind::HttpClient)
     }
 
+    /// Whether `e` is the error of a dialog of `kind` that no handler took (`UiScope::last_unhandled`).
+    pub(crate) fn unhandled_ui_is(&self, e: &AlError, kind: UiKind) -> bool {
+        e.code == "MissingUIHandler"
+            && self
+                .ui_state
+                .scope
+                .as_ref()
+                .is_some_and(|s| matches!(&s.last_unhandled, Some((k, m)) if *k == kind && *m == e.message))
+    }
+
+    /// Whether every handler bound to the running test is of `kind`.
+    pub(crate) fn every_ui_handler_is(&self, kind: UiKind) -> bool {
+        self.ui_state
+            .scope
+            .as_ref()
+            .is_some_and(|s| s.handlers.iter().all(|h| h.kind == kind))
+    }
+
     /// Whether a handler of `kind` is bound to the running test.
     pub(crate) fn has_ui_handler(&self, kind: UiKind) -> bool {
         self.ui_state
@@ -494,7 +557,13 @@ impl Session {
     /// handler answers false, and the sender sees what the handler changed in its `var Notification`
     /// (ui-handlers/TestNotificationSendRecallContracts.al:59-93, BC 27.5). Returns the notification
     /// as the handler left it.
+    ///
+    /// An error the handler raises reaches an unchecked `Send` (al-runner issue 8341, reporter's
+    /// HandlerErrorInsideUncheckedSend, BC 29.1). With the result used it does not reach the caller there, and what `Send`
+    /// then answers is not measured: that shape is refused.
     pub(crate) fn ui_send_notification(&mut self, notification: Value, id: [u8; 16]) -> Result<Option<Value>, Signal> {
+        let checked = self.ret_used;
+        self.no_client_dialog(NoClientDialog::SendNotification)?;
         if !self.ui_state.sent_notifications.contains(&id) {
             self.ui_state.sent_notifications.push(id);
         }
@@ -506,7 +575,14 @@ impl Session {
         if !bound {
             return Ok(None);
         }
-        let (_, mut finals) = self.dispatch_ui_returning(UiKind::SendNotification, "", vec![notification])?;
+        let (_, mut finals) = match self.dispatch_ui_returning(UiKind::SendNotification, "", vec![notification]) {
+            Err(Signal::Error(_)) if checked => {
+                return Err(Signal::unsupported(
+                    "an error raised in a [SendNotificationHandler] while the result of Notification.Send is used (what Send answers is not pinned)",
+                ));
+            }
+            other => other?,
+        };
         Ok(finals.pop())
     }
 
@@ -535,16 +611,6 @@ impl Session {
         Ok(true)
     }
 
-    /// The declared id of the object at index `object`, as BC prints it (0 when it has none).
-    pub(crate) fn object_id_of(&self, object: u32) -> u32 {
-        self.engine
-            .program
-            .objects
-            .get(object as usize)
-            .and_then(|o| o.id)
-            .unwrap_or(0)
-    }
-
     /// The bound handler of `kind` for `page`, marked as used: `Unhandled UI` when there is none
     /// (corpus testpage/TestPageModalHandler_Tests.al:105, TestPageRunHandler_Tests.al:
     /// NonModalPageRunWithoutAHandlerIsRefused). BC looks the handler up before the page opens, so
@@ -556,7 +622,7 @@ impl Session {
         kind: UiKind,
         page: u32,
     ) -> Result<(usize, usize, Rc<RefCell<Instance>>), Signal> {
-        let shown_id = self.object_id_of(page);
+        let shown_id = self.object_id_of(page)?;
         let Some(scope) = self.ui_state.scope.as_mut() else {
             return Err(Signal::unsupported(format!(
                 "{} outside a test method (what the runner does then is not pinned)",
@@ -603,8 +669,12 @@ impl Session {
     /// The refusal for a page of `kind` that the test bound no handler for. Code and text:
     /// errors/TestUnhandledUiAndDialogDefaults.al:97-104, reports/TestReportRuntimeContracts.al:425-426.
     pub(crate) fn unhandled_page(&self, kind: UiKind, object: u32) -> Signal {
+        let id = match self.object_id_of(object) {
+            Ok(id) => id,
+            Err(refusal) => return refusal,
+        };
         Signal::Error(Box::new(AlError {
-            message: format!("Unhandled UI: {} {}", kind.label(), self.object_id_of(object)),
+            message: format!("Unhandled UI: {} {id}", kind.label()),
             code: "MissingUIHandler".into(),
             call_stack: String::new(),
             ..Default::default()
@@ -669,8 +739,7 @@ impl Session {
     /// A page background task worker has no client either; its texts name the `Server` instead of `Data Services`
     /// (pages/background-tasks/BjNoGuiDialogs.al:204, EnqueueBackgroundTask_WithHandlers `completion log`).
     pub(crate) fn callback_not_allowed(&self, what: &str, named: bool) -> Signal {
-        // `--no-client` answers as the worker does (`clientless.rs`); install code keeps its own text.
-        let product = if self.pages.bg_worker.is_some() || (self.ui_state.clientless && !self.install_without_client) {
+        let product = if self.pages.bg_worker.is_some() {
             "Microsoft Dynamics 365 Business Central Server"
         } else {
             "Microsoft Dynamics 365 Business Central Data Services"
@@ -681,13 +750,13 @@ impl Session {
                 return Signal::unsupported(format!("a client callback ({what}) outside any routine (not pinned)"));
             };
             let captioned = o.properties.iter().any(|(k, _)| k.eq_ignore_ascii_case("Caption"));
-            if o.kind != al_ir::ObjKind::Codeunit || captioned || o.id.is_none() {
+            let (al_ir::ObjKind::Codeunit, false, Some(id)) = (o.kind, captioned, o.id) else {
                 return Signal::unsupported(format!(
                     "a client callback ({what}) from install code in {}: only the text for a codeunit without a Caption is pinned",
                     o.name
                 ));
-            }
-            text.push_str(&format!(" (CodeUnit {} {})", o.id.unwrap_or(0), o.name));
+            };
+            text.push_str(&format!(" (CodeUnit {id} {})", o.name));
         }
         text.push_str(&format!(". Client callbacks are not supported on {product}."));
         Signal::Error(Box::new(AlError {
@@ -725,7 +794,11 @@ impl Session {
                 Err(e) => e,
             });
         }
-        Some(self.callback_not_allowed(&format!("run page {} {}", o.id.unwrap_or(0), o.name), false))
+        let id = match crate::object_ids::declared_id(o.id) {
+            Ok(id) => id,
+            Err(refusal) => return Some(refusal),
+        };
+        Some(self.callback_not_allowed(&format!("run page {id} {}", o.name), false))
     }
 
     pub(crate) fn ui_message(&mut self, text: String) -> Result<(), Signal> {
@@ -739,11 +812,9 @@ impl Session {
         if self.pages.bg_worker.is_some() {
             return Ok(());
         }
-        // `--no-client`: the same, assumed for a web-service session (assumption `no-client-session`).
-        if self.ui_state.clientless {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NoClientSession);
-            return Ok(());
-        }
+        // `--no-client`: a web-service session hands it to the test's MessageHandler, and without one the test fails with
+        // "Unhandled UI", as with a client (al-runner issue 8154, the reporter's measurement; `no_client_dialog`).
+        self.no_client_dialog(NoClientDialog::Message)?;
         if self.ui_state.scope.is_none() && self.scratch_messages.is_some() {
             self.cap_message(&text);
             if let Some(log) = self.scratch_messages.as_mut() {
@@ -758,6 +829,7 @@ impl Session {
     /// `Hyperlink(url)`: a bound `[HyperlinkHandler]` gets the URL (ui-handlers/W3Hyperlink.al:24-63). False when no such
     /// handler is bound, for the caller's `Unhandled UI` error.
     pub(crate) fn ui_hyperlink(&mut self, url: String) -> Result<bool, Signal> {
+        self.no_client_dialog(NoClientDialog::Hyperlink)?;
         let bound = self
             .ui_state
             .scope
@@ -776,10 +848,7 @@ impl Session {
         if (self.ui_state.scope.is_none() && self.install_without_client) || self.pages.bg_worker.is_some() {
             return Err(self.callback_not_allowed(&format!("show a confirmation dialog box: {question}"), true));
         }
-        if self.ui_state.clientless {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NoClientSession);
-            return Err(self.callback_not_allowed(&format!("show a confirmation dialog box: {question}"), true));
-        }
+        self.no_client_dialog(NoClientDialog::Confirm)?;
         let finals = self.dispatch_ui(
             UiKind::Confirm,
             &question.clone(),
@@ -797,12 +866,11 @@ impl Session {
     pub(crate) fn ui_str_menu(&mut self, options: String, default: i32, instruction: String) -> Result<i32, Signal> {
         // A page background task worker raises CallbackNotAllowed with and without an instruction, and no StrMenuHandler sees
         // the call (pages/background-tasks/BjNoClientDialogs.al:185-186 `01 StrMenu with instruction`, `02 StrMenu without
-        // instruction`, :257 `handlers after the task` empty). `--no-client` answers the same, assumed for a web-service
-        // session (`no-client-session`).
-        if self.pages.bg_worker.is_some() || (self.ui_state.clientless && !self.install_without_client) {
-            self.note_no_client_answer();
+        // instruction`, :257 `handlers after the task` empty).
+        if self.pages.bg_worker.is_some() {
             return Err(self.callback_not_allowed(&format!("show a selection menu: {instruction}"), true));
         }
+        self.no_client_dialog(NoClientDialog::StrMenu)?;
         if self.ui_state.scope.is_none() && self.install_without_client {
             // Pinned with an instruction (RlInstallUi.al:219); what the text shows without one is not.
             if instruction.is_empty() {

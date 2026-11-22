@@ -162,7 +162,7 @@ fn kind(m: RecordOp) -> Kind {
 }
 
 /// Where a counter was last read.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 struct Cursor {
     read: bool,
     n: i64,
@@ -239,6 +239,25 @@ pub(crate) struct SqlCounters {
     /// The store operations right after the last database Insert seen while the counters were inactive
     /// ([`SqlCounters::pre_insert`]).
     pre_ops: u64,
+}
+
+/// What [`SqlCounters::left_inactive`] hands to a new session.
+#[derive(Clone, Debug)]
+pub(crate) struct SqlLeft {
+    found_nothing: std::collections::HashSet<(u32, u8, u64)>,
+    resets: u64,
+}
+
+impl SqlLeft {
+    /// The queries that found no row, sorted, and the resets: a line that compares across sessions (`state_facts.rs`).
+    pub(crate) fn line(&self) -> String {
+        let found: std::collections::BTreeSet<_> = self.found_nothing.iter().collect();
+        format!(
+            "found nothing {} resets {}",
+            crate::state_render::content(&found),
+            self.resets
+        )
+    }
 }
 
 /// What ran between two reads of a counter.
@@ -731,6 +750,76 @@ impl SqlCounters {
     /// Whether `m` needs its primary key noted.
     pub(crate) fn wants_key(m: RecordOp) -> bool {
         matches!(kind(m), Kind::Get | Kind::Insert | Kind::Modify | Kind::Delete)
+    }
+
+    /// What install code that never read a counter left (`install_left.rs`): `Some` when the counters stayed inactive and
+    /// the session's last Commit was the last store operation of this thread, so that a new session that takes
+    /// [`SqlLeft`] and then commits ([`SqlCounters::restore_left`]) holds what this one holds. While inactive only
+    /// `found_nothing`, `resets`, the buffer, `pre_ops`, `ops_at_commit` and `buffer_outside` move (`note_found_nothing`,
+    /// `rolled_back`, `pre_insert`, `committed`).
+    pub(crate) fn left_inactive(&self) -> Option<SqlLeft> {
+        let SqlCounters {
+            active,
+            log,
+            base,
+            commit_mark,
+            resets,
+            inside,
+            open,
+            stmt,
+            rows,
+            ops_at_commit,
+            chains,
+            buffer,
+            buffer_outside,
+            mute,
+            muted_calls,
+            muted_dirty,
+            muted_rec_ops,
+            muted_bad,
+            mute_open,
+            inserted,
+            written_since_read,
+            reads_since_write,
+            found_nothing,
+            prev_db,
+            // Read only while a row is buffered (`pre_insert`, `read`), and after a Commit none is.
+            pre_ops: _,
+        } = self;
+        let ops = al_data::memory::store_ops();
+        let left = !active
+            && log.is_empty()
+            && *base == 0
+            && commit_mark.is_none()
+            && *inside == 0
+            && *open == 0
+            && *stmt == Cursor::default()
+            && *rows == Cursor::default()
+            && *ops_at_commit == Some(ops)
+            && *chains == 0
+            && *buffer == Buffer::Empty
+            && *buffer_outside == ops
+            && *mute == 0
+            && *muted_calls == 0
+            && *muted_dirty == 0
+            && *muted_rec_ops == 0
+            && *muted_bad == 0
+            && *mute_open == 0
+            && inserted.is_empty()
+            && written_since_read.is_empty()
+            && reads_since_write.is_empty()
+            && prev_db.is_none();
+        left.then(|| SqlLeft {
+            found_nothing: found_nothing.clone(),
+            resets: *resets,
+        })
+    }
+
+    /// A new session takes what [`SqlCounters::left_inactive`] returned, as if it had made that session's last Commit now.
+    pub(crate) fn restore_left(&mut self, left: &SqlLeft) {
+        self.found_nothing = left.found_nothing.clone();
+        self.resets = left.resets;
+        self.committed();
     }
 
     /// A Commit made the data durable.

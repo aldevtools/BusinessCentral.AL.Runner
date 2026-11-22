@@ -6,7 +6,7 @@ use std::path::{Component, PathBuf};
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// The system clock, read once: 12:00:00 UTC of the day the run first asked for the time ([`run_clock_start`]).
+/// The system clock, read once: 12:34:56.789 UTC of the day the run first asked for the time ([`run_clock_start`]).
 /// Every later answer is that instant (the session adds 1 ms per read and the time `Sleep` has waited, ADR-045, and
 /// keeps system stamps strictly increasing, see `al-host`). A clock that ran with the wall would make an outcome depend
 /// on the load of the machine: `Item.OnModify` sets "Last Time Modified" to `Time`, and
@@ -22,14 +22,18 @@ static RUN_START: OnceLock<i64> = OnceLock::new();
 /// Milliseconds in a day.
 const MS_PER_DAY: i64 = 86_400_000;
 
-/// Where the run clock starts when the wall clock reads `wall` (Unix milliseconds): 12:00:00.000 UTC of that UTC day.
-/// The time of day is the same in every run, so an outcome that depends on `Time` (a generator seeded with
+/// The time of day the run clock starts at, in ms after midnight UTC: 12:34:56.789 (ADR-045 amendment, 2026-11-15). Not a
+/// round time, so a test that compares `Time` with a constant a person would write (noon) does not pass by chance.
+pub const RUN_CLOCK_TIME_OF_DAY: i64 = ((12 * 60 + 34) * 60 + 56) * 1000 + 789;
+
+/// Where the run clock starts when the wall clock reads `wall` (Unix milliseconds): [`RUN_CLOCK_TIME_OF_DAY`] of that UTC
+/// day. The time of day is the same in every run, so an outcome that depends on `Time` (a generator seeded with
 /// `Randomize(Time - 000000T)`, as `Any.SetDefaultSeed` and `LibraryRandom.Init` of Microsoft's test libraries do, or
 /// a second boundary that `Format(Time)` crosses between two reads) does not depend on when the run began, and so not
 /// on which other test codeunits a run selected (ADR-043 condition 1). The date stays the wall clock's, so `Today` is
-/// today. Noon is the deterministic host's time of day too (`al-host`, 2024-01-15T12:00:00Z).
+/// today.
 pub fn run_clock_start(wall: i64) -> i64 {
-    wall.div_euclid(MS_PER_DAY) * MS_PER_DAY + MS_PER_DAY / 2
+    wall.div_euclid(MS_PER_DAY) * MS_PER_DAY + RUN_CLOCK_TIME_OF_DAY
 }
 
 impl SystemClock {
@@ -45,7 +49,7 @@ impl SystemClock {
 
 impl Clock for SystemClock {
     fn now_utc_millis(&self) -> i64 {
-        if std::env::var_os("ALRUNNER_REAL_CLOCK").is_some() {
+        if real_clock() {
             return SystemClock::wall();
         }
         *RUN_START.get_or_init(|| run_clock_start(SystemClock::wall()))
@@ -129,8 +133,17 @@ pub fn uses_real_files() -> bool {
 }
 
 /// Whether the system host reads the wall clock as it goes (`ALRUNNER_REAL_CLOCK`) instead of standing at the instant
-/// the run began.
+/// the run began. Read from the environment once per process: the clock asks at every stamped record insert, and each
+/// environment read takes std's environment lock and scans every entry. Nothing sets the variable while a run goes.
 pub fn real_clock() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(read_real_clock_env)
+}
+
+/// The one read of `ALRUNNER_REAL_CLOCK` from the environment, for [`real_clock`].
+fn read_real_clock_env() -> bool {
+    #[cfg(test)]
+    tests::REAL_CLOCK_READS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     std::env::var_os("ALRUNNER_REAL_CLOCK").is_some()
 }
 
@@ -252,11 +265,13 @@ fn host_in_company_perturbed(start: Option<i64>, company: Option<&str>, p: &crat
 /// outside the directory the user opted into).
 pub struct DirFileSystem {
     root: PathBuf,
+    /// [`FileSystem::changed`].
+    changed: bool,
 }
 
 impl DirFileSystem {
     pub fn new(root: PathBuf) -> DirFileSystem {
-        DirFileSystem { root }
+        DirFileSystem { root, changed: false }
     }
 
     fn resolve(&self, path: &str) -> Option<PathBuf> {
@@ -280,6 +295,7 @@ impl FileSystem for DirFileSystem {
         std::fs::read(self.resolve(path)?).ok()
     }
     fn write(&mut self, path: &str, bytes: &[u8]) -> Result<(), String> {
+        self.changed = true;
         let p = self
             .resolve(path)
             .ok_or_else(|| format!("`{path}` is outside the files directory"))?;
@@ -292,7 +308,11 @@ impl FileSystem for DirFileSystem {
         self.resolve(path).is_some_and(|p| p.is_file())
     }
     fn remove(&mut self, path: &str) -> bool {
+        self.changed = true;
         self.resolve(path).is_some_and(|p| std::fs::remove_file(p).is_ok())
+    }
+    fn changed(&self) -> bool {
+        self.changed
     }
     /// A folder the user put into the files directory: File.Create and File.Open into a subfolder of TemporaryPath() that
     /// does not exist fail (al-builtins file.rs `missing_folder`).
@@ -305,17 +325,22 @@ impl FileSystem for DirFileSystem {
 mod tests {
     use super::*;
 
+    /// How often [`read_real_clock_env`] asked the environment.
+    pub(super) static REAL_CLOCK_READS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
     #[test]
-    fn the_run_clock_starts_at_noon_utc_of_the_wall_clocks_day() {
-        // 2026-10-19T12:00:00.000Z, from 2026-10-19T23:20:55.239Z and from midnight of that day.
-        let noon = 1_792_411_200_000;
-        assert_eq!(run_clock_start(1_792_452_055_239), noon);
-        assert_eq!(run_clock_start(noon - MS_PER_DAY / 2), noon);
-        assert_eq!(run_clock_start(noon + MS_PER_DAY / 2 - 1), noon);
-        // The next day starts its own noon.
-        assert_eq!(run_clock_start(noon + MS_PER_DAY / 2), noon + MS_PER_DAY);
+    fn the_run_clock_starts_at_12_34_56_789_utc_of_the_wall_clocks_day() {
+        // 2026-10-19T00:00:00.000Z, and the start 12:34:56.789 later.
+        let midnight = 1_792_368_000_000;
+        let start = midnight + 45_296_789;
+        // From 2026-10-19T23:20:55.239Z, from midnight and from the last ms of that day.
+        assert_eq!(run_clock_start(1_792_452_055_239), start);
+        assert_eq!(run_clock_start(midnight), start);
+        assert_eq!(run_clock_start(midnight + MS_PER_DAY - 1), start);
+        // The next day starts its own.
+        assert_eq!(run_clock_start(midnight + MS_PER_DAY), start + MS_PER_DAY);
         // Before 1970: the day is still the one the instant lies in.
-        assert_eq!(run_clock_start(-1), -MS_PER_DAY / 2);
+        assert_eq!(run_clock_start(-1), -MS_PER_DAY + 45_296_789);
     }
 
     #[test]
@@ -350,6 +375,19 @@ mod tests {
         let (a, b) = (c.now_utc_millis(), c.now_utc_millis());
         assert!(a > 1_704_067_200_000, "{a}");
         assert!(b >= a);
+    }
+
+    /// Red before the fix: every read of the clock (one per stamped record insert, 2.7M in one run of a large app) read
+    /// `ALRUNNER_REAL_CLOCK` from the environment, which takes std's environment lock and scans every entry.
+    #[test]
+    fn the_real_clock_switch_is_read_from_the_environment_once() {
+        let c = SystemClock;
+        for _ in 0..1_000 {
+            c.now_utc_millis();
+            real_clock();
+        }
+        let reads = REAL_CLOCK_READS.load(std::sync::atomic::Ordering::Relaxed);
+        assert!(reads <= 1, "the environment was read {reads} times");
     }
 
     /// Red before the fix: the clock followed the wall, so a run on a loaded machine saw other

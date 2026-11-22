@@ -119,7 +119,7 @@ impl Session {
             sequences: self.sequences.clone(),
             autoinc: self.autoinc.clone(),
             work_date: self.work_date,
-            language: self.global_language,
+            language: self.global_language(),
             uncommitted: self.store.has_uncommitted(),
             outer_trace,
             outer_on,
@@ -170,7 +170,7 @@ impl Session {
             || self.sequences != w.sequences
             || self.autoinc != w.autoinc
             || self.work_date != w.work_date
-            || self.global_language != w.language
+            || self.global_language() != w.language
             || (w.uncommitted && !self.store.has_uncommitted())
         {
             return Err(
@@ -205,10 +205,7 @@ impl Session {
             if obj.app == app || obj.globals.is_empty() || obj.is_kind(al_ir::ObjKind::Table) {
                 continue;
             }
-            let single = obj
-                .properties
-                .iter()
-                .any(|(k, v)| k.eq_ignore_ascii_case("SingleInstance") && v.trim().eq_ignore_ascii_case("true"));
+            let single = self.engine.object_facts[o].single_instance;
             if obj.is_kind(al_ir::ObjKind::Codeunit)
                 && !single
                 && sender.contains(&true)

@@ -82,7 +82,7 @@ pub(super) fn ident(v: &str) -> String {
 
 /// The first string literal of a property value: `'It''s'` is `It's`. A value that does not start
 /// with a literal has none.
-pub(super) fn string_lit(v: &str) -> Option<String> {
+pub(crate) fn string_lit(v: &str) -> Option<String> {
     let rest = v.trim().strip_prefix('\'')?;
     let mut out = String::new();
     let mut chars = rest.chars().peekable();
@@ -175,6 +175,8 @@ pub(crate) struct Maps {
     tables: HashMap<u32, usize>,
     /// Page id to the page extensions that extend it, in program order.
     page_extensions: HashMap<u32, Vec<usize>>,
+    /// The table extensions of a table's own app, by table id, as object indexes ([`Catalog::own_app_extensions`]).
+    own_app_extensions: std::collections::HashMap<u32, Vec<usize>>,
 }
 
 impl<'a> Catalog<'a> {
@@ -214,6 +216,18 @@ impl<'a> Catalog<'a> {
                     }
                 }
             }
+            for (i, o) in self
+                .objects
+                .iter()
+                .enumerate()
+                .filter(|(_, o)| o.kind == al_ir::ObjKind::TableExtension)
+            {
+                if let Some(base) = o.extends_id
+                    && m.tables.get(&base).is_some_and(|&t| self.objects[t].app == o.app)
+                {
+                    m.own_app_extensions.entry(base).or_default().push(i);
+                }
+            }
             m.sees = sees(self.apps);
             m
         })
@@ -223,6 +237,12 @@ impl<'a> Catalog<'a> {
     pub(super) fn page_extensions_of(&self, id: Option<u32>) -> Vec<&'a Object> {
         id.and_then(|id| self.maps().page_extensions.get(&id))
             .map_or_else(Vec::new, |v| v.iter().map(|&i| &self.full[i]).collect())
+    }
+
+    /// The table extensions of the app of table `id` (the one [`table_by_id`](Self::table_by_id) finds) that extend it, as object
+    /// indexes.
+    pub(super) fn own_app_extensions(&self, id: u32) -> &[usize] {
+        self.maps().own_app_extensions.get(&id).map_or(&[], Vec::as_slice)
     }
 
     /// The first table object with this id.
@@ -523,7 +543,7 @@ fn runtime_package_id<O: ObjectInfo + ?Sized>(c: &Catalog, o: &O) -> [u8; 16] {
 }
 
 /// The codeunits of Microsoft's Test Runner app that BC's test environment has (BaTpEnv.al:28).
-const TEST_RUNNER_CODEUNITS: std::ops::RangeInclusive<u32> = 130_450..=130_455;
+const TEST_RUNNER_APP_CODEUNITS: std::ops::RangeInclusive<u32> = 130_450..=130_455;
 
 /// A table declared `ObsoleteState = Moved`.
 fn moved(o: &ObjectHead) -> bool {
@@ -560,7 +580,7 @@ pub(super) fn all_obj_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     // lt-ba-testpermissions/BaTpEnv.al:26-28). Every run loads that app from source (ADR-013, "The test environment's
     // apps"), and its objects are rows like any other app's. A run that found no package for it (offline, no feed) has
     // no such codeunit: a read that may land on one of them is refused.
-    for id in TEST_RUNNER_CODEUNITS {
+    for id in TEST_RUNNER_APP_CODEUNITS {
         let present = c
             .objects
             .iter()

@@ -1,0 +1,3 @@
+{ "id": "8d1a2b3c-0000-4000-8000-0000000c0172", "name": "DRL Main", "publisher": "FC Partner Co", "version": "1.0.0.0",
+  "platform": "28.0.0.0", "runtime": "16.0", "idRanges": [ { "from": 61000, "to": 61019 } ],
+  "dependencies": [ { "id": "8d1a2b3c-0000-4000-8000-0000000c0171", "name": "DRL Stand-in Platform", "publisher": "Microsoft", "version": "1.0.0.0" } ] }

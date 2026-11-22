@@ -423,7 +423,7 @@ fn session_settings_init_reads_language_locale_and_time_zone_from_the_host() {
 #[test]
 fn company_name_is_the_hosts_company() {
     // session-system/TestSessionFunctions.al:25 (not empty), session-system/TestDatabase.al:74 (equals
-    // CurrentCompany); the name is the oracle's (session-system/TestEnvironmentUserTenantContracts.al:238).
+    // CurrentCompany); the name is the oracle's (session-system/TestEnvironmentUserTenantContracts.al:235).
     assert_eq!(text("", "exit(CompanyName());"), "CRONUS International Ltd.");
     assert!(truth("R: Record \"ALT T\";", "R.CurrentCompany() = CompanyName()"));
 }
@@ -555,7 +555,8 @@ fn the_client_type_members_have_the_platforms_ordinals() {
 }
 
 // ProbeSystemEnumMembers.al:94-112: a read starts the transaction; a set of Report after it reads as Update, and the
-// Commit leaves Update as the type of the next transaction, which a set changes again.
+// Commit leaves Update as the type of the next transaction, which a set changes again. A Report set before the read is
+// kept by the Commit as well (corpus pull request 1488, record/TxTypeUpdateReport.al:610-620 TxU25).
 #[test]
 fn a_set_after_a_read_and_after_a_commit() {
     assert_eq!(
@@ -569,10 +570,10 @@ fn a_set_after_a_read_and_after_a_commit() {
     assert_eq!(
         text(
             "R: Record \"ALT T\";",
-            "Database.CurrentTransactionType(TransactionType::Report); Commit(); \
+            "Database.CurrentTransactionType(TransactionType::Report); if R.FindFirst() then; Commit(); \
              exit(Format(Database.CurrentTransactionType()));"
         ),
-        "Update"
+        "Report"
     );
     assert_eq!(
         text(
@@ -601,8 +602,8 @@ fn after_a_write_a_set_is_ignored_or_refused() {
         out,
         "UpdateNoLocks|UpdateNoLocks|DB:CannotChangeTransactionType|The transaction type cannot be changed after a transaction has started.\\\\A transaction starts when the first database operation, such as FIND, NEXT, INSERT, DELETE, MODIFY, SUM, or COUNT, is run.\\\\The error occurred because the transaction type was changed from UpdateNoLocks to Update.|UpdateNoLocks"
     );
-    // A DeleteAll of no row starts it as well; after a Commit the type is Update and a set to Snapshot is ignored
-    // (TestClearAllTransactionTypeContracts.al:245-253).
+    // A DeleteAll of no row starts it as well; a Commit keeps Update (the test before that test left it), and a set to
+    // Snapshot after the write is ignored (TestClearAllTransactionTypeContracts.al:257-286).
     let out = text(
         "R: Record \"ALT T\";",
         "R.SetRange(\"No.\", -77); R.DeleteAll(); Database.CurrentTransactionType(TransactionType::Report); \
@@ -611,8 +612,8 @@ fn after_a_write_a_set_is_ignored_or_refused() {
     assert_eq!(out, "UpdateNoLocks");
     let out = text(
         "R: Record \"ALT T\";",
-        "Commit(); R.DeleteAll(); Database.CurrentTransactionType(TransactionType::Snapshot); \
-         exit(Format(Database.CurrentTransactionType()));",
+        "Database.CurrentTransactionType(TransactionType::Update); Commit(); R.DeleteAll(); \
+         Database.CurrentTransactionType(TransactionType::Snapshot); exit(Format(Database.CurrentTransactionType()));",
     );
     assert_eq!(out, "Update");
 }

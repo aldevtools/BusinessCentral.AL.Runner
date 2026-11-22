@@ -30,7 +30,7 @@ struct Inner {
     /// 0 not known yet, 1 ASCII only, 2 not. (Atomic: rows of the test data are shared between threads, and
     /// the flags are only hints that any thread computes the same way.)
     ascii: AtomicU8,
-    /// 0 not known yet, 1 holds the call-stack marker (`CALL_STACK_MARK`), 2 does not.
+    /// 0 not known yet, 1 holds a marker (`native::TEXT_MARKS`), 2 does not.
     marked: AtomicU8,
     /// The real units at the lone positions (UTF-16 index, unit), sorted; `None` for every text without a lone half.
     lone: Option<Box<[(u32, u16)]>>,
@@ -47,7 +47,7 @@ impl Clone for Inner {
     }
 }
 
-// How many times a text was scanned for the call-stack mark (the first `has_marker` of a text the flag is not known
+// How many times a text was scanned for a marker (the first `has_marker` of a text the flag is not known
 // of). A loop that builds a text must not scan the whole text each round; the test of the append counts this. Counted
 // per thread, so tests that run in parallel in one binary do not add to each other's count.
 thread_local! {
@@ -224,19 +224,14 @@ impl Txt {
         }
     }
 
-    /// Whether the text holds a marker (`CALL_STACK_MARK` of a call stack with an untracked frame, `CARRIED_TEXT_MARK`,
-    /// `SQL_COUNT_TEXT_MARK`): no text function reads such a text. Computed once for this string.
+    /// Whether the text holds a marker (one of `native::TEXT_MARKS`): no text function reads such a text. Computed once for this string.
     pub fn has_marker(&self) -> bool {
         match self.0.marked.load(Relaxed) {
             1 => true,
             2 => false,
             _ => {
                 MARKER_SCANS.with(|c| c.set(c.get() + 1));
-                let m = self.0.s.contains([
-                    crate::native::CALL_STACK_MARK,
-                    crate::native::CARRIED_TEXT_MARK,
-                    crate::native::SQL_COUNT_TEXT_MARK,
-                ]);
+                let m = self.0.s.contains(crate::native::TEXT_MARKS);
                 self.0.marked.store(if m { 1 } else { 2 }, Relaxed);
                 m
             }
@@ -297,7 +292,7 @@ impl Txt {
         let was_ascii = self.0.ascii.load(Relaxed);
         let was_marked = self.0.marked.load(Relaxed);
         let more_ascii = more.is_ascii();
-        let more_marked = more.contains(crate::native::CALL_STACK_MARK);
+        let more_marked = more.contains(crate::native::TEXT_MARKS);
         // Valid text after the lone halves leaves their positions as they are.
         let inner = Arc::make_mut(&mut self.0);
         inner.ascii.store(0, Relaxed);

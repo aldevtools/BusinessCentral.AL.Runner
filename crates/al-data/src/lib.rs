@@ -213,10 +213,16 @@ pub trait VirtualTables {
         None
     }
     /// Whether an Insert into table `t` adds a row the store keeps next to the provider's own: the provider answers the
-    /// stored rows too ([`memory::MemStore::stored_rows`]), and a Modify or Delete of such a row writes the store. The
+    /// stored rows too ([`memory::MemStore::stored_rows`]), and a Delete of such a row writes the store (a Modify when
+    /// [`VirtualTables::modifies_stored_rows`]). The
     /// provider's own rows stay read-only.
     fn takes_inserts(&self, _t: &TableDef) -> bool {
         false
+    }
+    /// Whether a Modify of a row an Insert stored in table `t` writes the store; otherwise it is refused as a write to a
+    /// computed table. By default every table that takes inserts.
+    fn modifies_stored_rows(&self, t: &TableDef) -> bool {
+        self.takes_inserts(t)
     }
     /// The ids of the columns of table `t` a Modify may change; the store keeps the changed row and the provider
     /// answers it from then on (see [`memory::MemStore::stored_rows`]). Any other change is refused. A Modify

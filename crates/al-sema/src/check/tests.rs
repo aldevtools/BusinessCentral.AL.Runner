@@ -1043,3 +1043,127 @@ fn an_enum_or_codeunit_that_implements_the_interface_takes_the_interface_overloa
     assert_eq!(at("Get(C, J)"), intf);
     assert_eq!(at("Get(R, J)"), rec);
 }
+
+// al-runner issue 8041: a Variant variable compared with an Integer literal by `=`, or with an enum value by `=` or `<>`, is
+// AL0175 (corpus tests/must-not-compile/cases/0502-variant-comparison-operators.al:1-3). Other operators with a literal, and
+// a Variant on the right of a literal, are not judged (main's result).
+#[test]
+fn a_variant_compared_with_an_integer_literal_or_an_enum_value() {
+    let e = "enum 50996 K { value(0; Zero) { } value(1; One) { } }";
+    let codes = |body: &str| -> Vec<String> {
+        diags(&[e, &cu(&format!("procedure P() var V: Variant; begin {body} end;"))])
+            .into_iter()
+            .filter(|d| d.starts_with("AL"))
+            .collect()
+    };
+    assert_eq!(
+        codes("if V = 5 then;"),
+        vec!["AL0175 Operator '=' cannot be applied to operands of type 'Variant' and 'Integer'"]
+    );
+    assert_eq!(codes("if V = K::One then;").len(), 1);
+    assert_eq!(codes("if V <> K::One then;").len(), 1);
+    assert_eq!(codes("if V <> 5 then;"), Vec::<String>::new());
+    assert_eq!(codes("if V = 'a' then;"), Vec::<String>::new());
+}
+
+// al-runner issue 8082: the members of a RecordRef or a FieldRef subject of a `with` statement are names in its body, as
+// Microsoft's AL compiler accepts them (the reporter's alc 17.0 run: warning AL0606 only). A name the type does not have
+// stays unresolved.
+#[test]
+fn with_over_a_recordref_or_a_fieldref() {
+    assert_eq!(
+        diags(&[
+            TABLE,
+            &cu("procedure P(): Integer var RecRef: RecordRef; FRef: FieldRef; begin
+                with RecRef do begin Open(Database::\"ALT Universal\"); FRef := Field(1); if FindFirst() then exit(1); Close(); end; end;")
+        ]),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        diags(&[&cu(
+            "procedure P(): Text var FRef: FieldRef; begin with FRef do exit(Name()); end;"
+        )]),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        diags(&[&cu(
+            "procedure P() var R: RecordRef; begin with R do NoSuchMember(); end;"
+        )]),
+        vec![
+            "AR1000 unresolved name `NoSuchMember`",
+            "AL0118 The name 'NoSuchMember' does not exist in the current context."
+        ]
+    );
+}
+
+/// Two apps, "a" and "b", each with one file at `path`.
+fn two_apps_same_path(path: &str, text_a: &str, text_b: &str) -> Workspace {
+    let app = |id: &str, text: &str| AppSource {
+        id: id.into(),
+        name: id.into(),
+        dependencies: vec![],
+        files: vec![(path.into(), text.into())],
+    };
+    Workspace::load(vec![app("a", text_a), app("b", text_b)], &Default::default())
+}
+
+fn cloud() -> crate::alcodes::AppContext {
+    crate::alcodes::AppContext {
+        target: crate::alcodes::AppTarget::Cloud,
+        runtime: None,
+        app_json_keys: Vec::new(),
+        bc_major: None,
+    }
+}
+
+const SCOPED: &str = "codeunit 50100 \"Scoped A\"\n{\n    [Scope('OnPrem')]\n    procedure Foo()\n    begin\n    end;\n\n    procedure Run()\n    begin\n        Foo();\n    end;\n}\n";
+
+#[test]
+fn a_scope_error_at_the_same_position_of_two_apps_files_with_the_same_path_is_reported_for_each_app() {
+    // Each app alone gets its AL0296 (must-not-compile 0981-scope-onprem-procedure-called-in-cloud-app.al:1); two apps
+    // with the same path, offset and code are two errors.
+    let w = two_apps_same_path(
+        "src/Scoped.al",
+        SCOPED,
+        &SCOPED.replace("50100 \"Scoped A\"", "50200 \"Scoped B\""),
+    );
+    let m = crate::members::build(&w);
+    let roots = Roots {
+        app_contexts: vec![("a".into(), cloud()), ("b".into(), cloud())],
+        ..Default::default()
+    };
+    let r = check_with(&w, &m, &Catalog::load(), roots);
+    let apps: Vec<usize> = r
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == "AL0296")
+        .map(|d| d.app)
+        .collect();
+    assert_eq!(apps, [0, 1], "{:?}", r.diagnostics);
+}
+
+const BROKEN_TESTS: &str = "codeunit 50101 \"Tests A\"\n{\n    Subtype = Test;\n\n    [Test]\n    procedure Broken()\n    begin\n        Missing();\n    end;\n}\n";
+
+#[test]
+fn a_left_out_test_codeunit_keeps_its_error_at_the_position_of_a_selected_ones_error_in_another_app() {
+    // App b's test codeunit is left out of the selection; its error has the path, offset and code of the error of the
+    // selected codeunit of app a, and is still an error of its own.
+    let w = two_apps_same_path(
+        "src/Tests.al",
+        BROKEN_TESTS,
+        &BROKEN_TESTS.replace("50101 \"Tests A\"", "50201 \"Tests B\""),
+    );
+    let m = crate::members::build(&w);
+    let roots = Roots {
+        only_tests: Some(vec![(0, 50101)]),
+        ..Default::default()
+    };
+    let r = check_with(&w, &m, &Catalog::load(), roots);
+    let apps: Vec<usize> = r
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == "AL0118")
+        .map(|d| d.app)
+        .collect();
+    assert_eq!(apps, [0, 1], "{:?}", r.diagnostics);
+}

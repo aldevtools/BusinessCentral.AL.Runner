@@ -13,7 +13,7 @@ Microsoft supports, for example in a Business Central container on Windows
 ## What do I need to install?
 
 Only the `al-runner` binary. It needs no Docker, no SQL Server, no service tier and
-no .NET. Tests that use the `DotNet` type need the .NET 8 SDK; see
+no .NET. Tests that use the `DotNet` type need the .NET SDK 8 or newer; see
 [What works](what-works.md#dotnet). [Getting started](getting-started.md) has the
 install steps.
 
@@ -37,6 +37,13 @@ never guesses. Each refused test has a reason. Run with `--top-refusals`, or
 Your app depends on Microsoft's System app, and by default the run restores the
 CRONUS demo company (about 520 MB). Both are kept in the cache folder. If your tests
 need no CRONUS data, add `--no-test-data`. See [Getting started](getting-started.md#the-first-run).
+
+The first HTML save that AL Runner renders (see [What works](what-works.md)) fetches two sets of files from the BC artifact of
+your build: Business Central's Word merger (about 7 MB) and its document converter (about 112 MB
+on disk). AL Runner uses only the assemblies in the BC artifact; it ships none.
+
+Without these files the HTML keeps its placeholder. Add `--require-report-renderer` to make such a save fail as not run
+instead, so a test that needs the real HTML cannot pass silently on a machine that cannot render.
 
 ## Can I use it in a build pipeline?
 

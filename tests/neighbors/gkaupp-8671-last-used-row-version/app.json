@@ -1,0 +1,14 @@
+{
+  "id": "6d1f3c20-1a2b-4c3d-9e8f-867100000001",
+  "name": "Neighbors gkaupp-8671-last-used-row-version",
+  "publisher": "AL Runner",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "OnPrem",
+  "idRanges": [
+    { "from": 69160, "to": 69160 },
+    { "from": 76600, "to": 76619 }
+  ],
+  "dependencies": []
+}

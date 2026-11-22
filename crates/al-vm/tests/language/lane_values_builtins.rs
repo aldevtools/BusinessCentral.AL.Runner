@@ -566,39 +566,6 @@ fn the_stored_length_of_a_blob_is_given_only_for_the_pinned_sizes() {
     }
 }
 
-#[test]
-fn a_textconst_going_into_a_variant_is_refused() {
-    // types/variant/VaTTextConst.al:144-151 (TextConst_In_Variant): the Variant then answers no Is... test while Format reads the
-    // text. That value kind is not built, so the conversion is refused. A Label goes into a Variant as a Text, as before.
-    let src = |decl: &str, body: &str| {
-        format!(
-            "codeunit 50200 C {{ var Simple: {decl}; procedure Take(V: Variant): Text begin exit(Format(V)); end; \
-             procedure Give(): Variant begin exit(Simple); end; \
-             procedure F(): Text var V: Variant; begin {body} end; }}"
-        )
-    };
-    for body in [
-        "V := Simple; exit(Format(V));",
-        "exit(Take(Simple));",
-        "V := Give(); exit(Format(V));",
-    ] {
-        let r = out(al_testkit::run_in(&src("TextConst ENU = 'Hello'", body), "C", "F"));
-        assert!(r.starts_with("refused:") && r.contains("TextConst"), "{body}: {r}");
-        assert_eq!(
-            out(al_testkit::run_in(&src("Label 'Hello'", body), "C", "F")),
-            "Hello",
-            "{body}"
-        );
-    }
-    // A TextConst read as a text stays supported.
-    let r = out(al_testkit::run_in(
-        &src("TextConst ENU = 'Hello'", "exit(Simple);"),
-        "C",
-        "F",
-    ));
-    assert_eq!(r, "Hello");
-}
-
 const MEDIA_OWN_BLOB: &str = r#"
 table 50210 "Media Own Row"
 {

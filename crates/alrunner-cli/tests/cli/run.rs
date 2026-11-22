@@ -308,3 +308,179 @@ fn cache_help_prints_the_cache_commands_and_exits_0() {
         assert!(!out.contains("SELECTION"), "{args:?}: {out}");
     }
 }
+
+/// al-runner issue 8243, review round 1: without `--bc-version`, the DemoTool's release is the minor of the build the
+/// Microsoft apps will come from, chosen before the DemoTool is (here the one build of the local artifacts, 28.5, for an
+/// app.json floor of 28.0). It asks for the DemoTool of 28.5, not 28.0. Neighbor: `--bc-version 28.0` matches no
+/// build there, so the release stays the one the request names, as before.
+#[test]
+fn the_demotool_release_is_the_minor_of_the_build_chosen_before_it() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path();
+    std::fs::create_dir_all(root.join("home/.bcartifacts.cache/sandbox/28.5.54151.58194/platform/Applications"))
+        .unwrap();
+    let app = root.join("app");
+    write(
+        &app,
+        "app.json",
+        r#"{"id":"11111111-0000-0000-0000-000000008433","name":"DemoTool Release","publisher":"Test","version":"1.0.0.0","platform":"28.0.0.0","application":"28.0.0.0","dependencies":[{"id":"63ca2fa4-4f03-4f2b-a480-172fef340d3f","name":"System Application","publisher":"Microsoft","version":"28.0.0.0"}]}"#,
+    );
+    write(&app, "src/Tests.al", MIXED);
+    let home = root.join("home");
+    let cache = root.join("cache");
+    let run = |extra: &[&str]| {
+        let mut args = vec![
+            "test",
+            app.to_str().unwrap(),
+            "--no-download",
+            "--cache-dir",
+            cache.to_str().unwrap(),
+            "--company-data",
+            "demotool",
+            "--experimental-company-builds",
+        ];
+        args.extend_from_slice(extra);
+        alrunner_with(&args, &[("HOME", home.to_str().unwrap())])
+    };
+    let o = run(&[]);
+    assert!(
+        text(&o).contains("the DemoTool of 28.5 is not in the cache"),
+        "{}",
+        text(&o)
+    );
+    let o = run(&["--bc-version", "28.0"]);
+    assert!(
+        text(&o).contains("the DemoTool of 28.0 is not in the cache"),
+        "{}",
+        text(&o)
+    );
+}
+
+/// al-runner issue 8243, review round 2: a Microsoft package the project carries (here an Application of 28.4 in
+/// `--dep`) sets the target's minor (`apps::choose_build`), and the DemoTool is of that minor, as on main, though the
+/// local artifacts hold 28.5. Neighbor: the test above, where no package sets it.
+#[test]
+fn a_microsoft_package_the_project_carries_sets_the_demotool_release() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path();
+    std::fs::create_dir_all(root.join("home/.bcartifacts.cache/sandbox/28.5.54151.58194/platform/Applications"))
+        .unwrap();
+    let pkg = root.join("pkg");
+    std::fs::create_dir_all(&pkg).unwrap();
+    let manifest = r#"<Package xmlns="http://schemas.microsoft.com/navx/2015/manifest">
+  <App Id="c1335042-3002-4257-bf8a-75c898ccb1b8" Name="Application" Publisher="Microsoft" Version="28.4.53241.56697" Runtime="17.0" Target="Cloud" ShowMyCode="False" />
+  <Dependencies />
+</Package>"#;
+    std::fs::write(
+        pkg.join("Microsoft_Application_28.4.53241.56697.app"),
+        super::dependencies::zip(&[("NavxManifest.xml", manifest)]),
+    )
+    .unwrap();
+    let app = root.join("app");
+    write(
+        &app,
+        "app.json",
+        r#"{"id":"11111111-0000-0000-0000-000000008434","name":"DemoTool Package Release","publisher":"Test","version":"1.0.0.0","platform":"28.0.0.0","application":"28.0.0.0","dependencies":[{"id":"63ca2fa4-4f03-4f2b-a480-172fef340d3f","name":"System Application","publisher":"Microsoft","version":"28.0.0.0"}]}"#,
+    );
+    write(&app, "src/Tests.al", MIXED);
+    let home = root.join("home");
+    let cache = root.join("cache");
+    let o = alrunner_with(
+        &[
+            "test",
+            app.to_str().unwrap(),
+            "--dep",
+            pkg.to_str().unwrap(),
+            "--no-download",
+            "--cache-dir",
+            cache.to_str().unwrap(),
+            "--company-data",
+            "demotool",
+            "--experimental-company-builds",
+        ],
+        &[("HOME", home.to_str().unwrap())],
+    );
+    assert!(
+        text(&o).contains("the DemoTool of 28.4 is not in the cache"),
+        "{}",
+        text(&o)
+    );
+}
+
+/// Al-runner issue 8492: the tests `--stop-after-first-failure` and `--skip-after-timeout` leave out count as not run, but
+/// they are not refusals, so "Top refusals" and `--refusal-detail` do not rank them; the ranking says how many it left
+/// out. A refused test is still ranked.
+#[test]
+fn top_refusals_leaves_out_the_tests_a_stop_option_left_out() {
+    let d = tempfile::tempdir().unwrap();
+    let app = one_file_app(
+        d.path(),
+        "stops",
+        "11111111-0000-0000-0000-000000008492",
+        "Stops",
+        "src/Tests.al",
+        r#"
+codeunit 50120 "Stop Tests"
+{
+    Subtype = Test;
+    [Test]
+    procedure A_Fails() begin Error('first'); end;
+    [Test]
+    procedure B_Later() begin end;
+}
+codeunit 50121 "Skip Tests"
+{
+    Subtype = Test;
+    [Test]
+    procedure C_TimesOut() begin Sleep(5000); end;
+    [Test]
+    procedure D_Later() begin end;
+}
+codeunit 50122 "Refused Tests"
+{
+    Subtype = Test;
+    [Test]
+    procedure E_Refused() begin Codeunit.Run(Codeunit::"Not There"); end;
+}
+"#,
+    );
+    let o = alrunner(&[
+        "test",
+        app.to_str().unwrap(),
+        "--no-download",
+        "--stop-after-first-failure",
+        "--skip-after-timeout",
+        "--test-timeout-secs",
+        "1",
+        "--refusal-detail",
+        "-after-",
+    ]);
+    let t = text(&o);
+    assert!(t.contains("1 failed, 4 not run"), "{t}");
+    assert!(
+        t.contains("2 not-run tests a stop option left out are not ranked"),
+        "{t}"
+    );
+    let detail = &t[t.find("containing `-after-`").unwrap_or_else(|| panic!("{t}"))..];
+    assert!(!detail.contains("B_Later") && !detail.contains("D_Later"), "{detail}");
+    let top = &t[t.find("Top refusals").unwrap_or_else(|| panic!("{t}"))..];
+    let top = &top[..top.find("Result:").unwrap_or(top.len())];
+    assert!(
+        top.contains("Not There") || top.contains("<name>"),
+        "the refused test is ranked: {top}"
+    );
+    assert!(!top.contains("stopAfterFirstFailure"), "{top}");
+    assert!(!top.contains("--skip-after-timeout"), "{top}");
+    // With only the stopped tests not run there is nothing to rank.
+    let o = alrunner(&[
+        "test",
+        app.to_str().unwrap(),
+        "--no-download",
+        "--stop-after-first-failure",
+        "--test",
+        "Codeunit50120.",
+    ]);
+    let t = text(&o);
+    assert!(t.contains("1 failed, 1 not run"), "{t}");
+    assert!(!t.contains("Top refusals"), "{t}");
+}

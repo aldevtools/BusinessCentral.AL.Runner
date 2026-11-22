@@ -91,6 +91,9 @@ impl Session {
             let r = self.arrive(st);
             self.torn_down_on_error(st, r)?;
             found = Self::same_key(&self.row_key(&rec)?, want);
+            if !found {
+                self.sync_parts_stepped(st)?;
+            }
         }
         if !found {
             if !Self::same_key(&self.row_key(&rec)?, &cur) {
@@ -135,17 +138,17 @@ impl Session {
         let rec = self.page_rec(st);
         for i in Self::WINDOW - 2..Self::WINDOW {
             let stored = st.borrow().window[i].stored.clone();
-            rec.borrow_mut().fields = stored;
+            rec.borrow_mut().fields = stored.into();
             self.populate_current(st)?;
             let shown = rec.borrow().fields.clone();
-            st.borrow_mut().window[i].shown = shown;
+            st.borrow_mut().window[i].shown = shown.into_vec();
         }
         let mut new_rows = 0;
         while self.nav_next(st, 1)? {
             let key = self.row_key(&rec)?;
-            let stored = rec.borrow().fields.clone();
+            let stored = rec.borrow().fields.to_vec();
             self.populate_current(st)?;
-            let shown = rec.borrow().fields.clone();
+            let shown = rec.borrow().fields.to_vec();
             st.borrow_mut()
                 .window
                 .push(crate::pages::WindowRow { key, stored, shown });
@@ -169,7 +172,7 @@ impl Session {
             );
         };
         let shown = st.borrow().window[at].shown.clone();
-        rec.borrow_mut().fields = shown;
+        rec.borrow_mut().fields = shown.into();
         self.set_xrec(st);
         Ok(Some(true))
     }

@@ -147,6 +147,22 @@ pub fn lower_with_workers(
     lower_core(ws, members, checked, positions, workers, None, Export::No).expect("no cache, no cache error")
 }
 
+/// The publisher of uncompiled subscriber `site` as the symbolic program names it (`piece_keys`: the key of each object).
+fn subscriber_target(
+    site: &crate::check::demand::SubscriberSite,
+    piece_keys: &[al_ir::sym::ObjKey],
+) -> al_ir::sym::SubscriberTarget {
+    use al_ir::sym::SubscriberTarget as T;
+    match (site.publisher, site.platform) {
+        (Some(p), _) => T::Object(piece_keys[p].clone()),
+        (None, ir::PlatformPublisher::CaptionClass) => T::CaptionClass,
+        (None, ir::PlatformPublisher::ReportingTriggers) => T::ReportingTriggers,
+        (None, ir::PlatformPublisher::FilterHelperTriggers) => T::FilterHelperTriggers,
+        (None, ir::PlatformPublisher::UiHelperTriggers) => T::UiHelperTriggers,
+        (None, _) => T::GlobalTriggers,
+    }
+}
+
 /// What a compile cache supplies to a run (see `provided.rs`).
 pub(crate) struct Provided<'a> {
     pub src: &'a dyn crate::provided::DepSource,
@@ -288,12 +304,10 @@ pub(crate) fn build_shared<'a>(
             }
         }
     }
-    // Extensions apply dependencies first, then by object id: when two modify one property, the
-    // later one wins (corpus pages/extensions/TestPageExtensionModifyCaption_Tests.al: a higher object id wins
-    // within an app, `Twice2Ctl`; the app that depends on the other wins whatever the ids, `FxBoth2Ctl`).
     for list in page_extensions.values_mut() {
-        list.sort_by_key(|&e| (ws.app_depth(ws.objects[e].app), ws.objects[e].id, ws.objects[e].offset));
+        list.sort_by_key(|&e| super::ext_order::page_extension_key(ws, e));
     }
+    let mut request_page_order: HashMap<usize, Vec<usize>> = HashMap::default();
     let mut page_reasons: Vec<Vec<String>> = vec![Vec::new(); ws.objects.len()];
     // The page objects each page shows as parts.
     let mut page_parts: Vec<Vec<usize>> = vec![Vec::new(); ws.objects.len()];
@@ -567,7 +581,8 @@ pub(crate) fn build_shared<'a>(
             continue;
         }
         let obj = ws.object_ast(oi);
-        let mut l = crate::reports::layout(&obj);
+        let timer_trigger = super::with_events::timer_elapsed_trigger(ws, oi);
+        let mut l = crate::reports::layout(&obj, timer_trigger.as_deref());
         // The layouts a reportextension adds refuse a run that renders output, as the report's own do.
         for &e in changing.get(&oi).into_iter().flatten() {
             if let Some(el) = ext_layouts[e].as_ref() {
@@ -586,6 +601,15 @@ pub(crate) fn build_shared<'a>(
         // The request page: its controls and the data items a handler can filter. Why the test
         // client cannot drive it yet becomes a reason on the page, not on the report: a run
         // that never opens the page (UseRequestPage = false) does not need it.
+        // The request page's extensions apply in the order of `page_extensions`; for the one shape with triggers on the
+        // extensions' request pages that the corpus pins, `ext_request_page` gives that order.
+        let changing_here = changing.get(&oi).cloned().unwrap_or_default();
+        let request_exts = page_extensions.get(&oi).cloned().unwrap_or_default();
+        let pinned = super::ext_request_page::pinned_request_page(ws, oi, &request_exts, &changing_here);
+        if let Some(order) = &pinned {
+            page_extensions.insert(oi, order.clone());
+            request_page_order.insert(oi, order.clone());
+        }
         let exts: Vec<(usize, ast::Object)> = page_extensions
             .get(&oi)
             .map(|v| v.iter().map(|&e| (e, ws.object_ast(e))).collect())
@@ -612,56 +636,17 @@ pub(crate) fn build_shared<'a>(
                     && p.value_text().trim().eq_ignore_ascii_case("true")
             })
         });
-        // A reportextension that changes the run and extends the request page binds its controls to its variables after the
-        // base items' records (`ext_slot_table`): a value the request page handler sets reaches the extension's triggers
-        // (reports/WdReportExtRequestPage.al:98 WD_ReportExt_RequestPageFieldsReachTheRun, corpus master 930653fe, al-runner issue 6302).
-        // Pinned there for fields bound to the extension's own variables on a page without SaveValues. A field of such an
-        // extension bound to a variable of the report reads apart from the report's own control (reportext/
-        // W3RpExtRequestPage.al:214 Run_ExtensionControls_ReachTheVariablesAndTheRunIsUnchanged `after ext after=6: main=[5]`),
-        // and SaveValues keeps the extension's variables (reports/AqTests.al:479 SavedExt_2_NextRunShows): neither is
-        // built, so both stay refused, as does a field bound to anything else, and a trigger on the extension's request page
-        // or its fields (none in the pin).
-        let save_values = request_section.as_ref().is_some_and(|s| {
-            s.properties().any(|p| {
-                p.name().eq_ignore_ascii_case("SaveValues") && p.value_text().trim().eq_ignore_ascii_case("true")
-            })
-        });
-        for (e, ext) in &exts {
-            if !changing.get(&oi).is_some_and(|c| c.contains(e)) {
-                continue;
-            }
-            let own: std::collections::HashSet<String> = ext
-                .var_decls()
-                .flat_map(|v| v.names())
-                .map(|n| n.to_lowercase())
-                .collect();
-            let foreign = foreign_request_control(&request, *e, &own, &obj, &l.items);
-            // Triggers on the extension's request page or its fields are not pinned with an extension that changes the run.
-            fn has_trigger(s: &ast::Section) -> bool {
-                s.triggers().next().is_some() || s.sections().any(|c| has_trigger(&c))
-            }
-            let triggers = ext
-                .sections()
-                .filter(|s| s.name().eq_ignore_ascii_case("requestpage"))
-                .any(|s| has_trigger(&s));
-            // SaveValues: the SaveAsXml and Cancel closes are pinned (al-language-onprem/reports/layouts-saveas/
-            // Y60ReportExtSaveAsXml.al); the VM refuses the other closes (`refuse_ext_save_values_close`).
-            let why = match (save_values, foreign, triggers) {
-                (true, Some(_), _) | (true, None, true) => Some("a request page with SaveValues".to_string()),
-                (false, Some(c), _) => Some(format!("field {} not bound to a variable of the extension", c.name)),
-                (false, None, true) => Some("a trigger on the extension's request page".to_string()),
-                (_, None, false) => None,
-            };
-            if let Some(why) = why {
-                page_reasons[oi].push(format!(
-                    "reportextension `{}` changes the run and extends the request page: {why} (not supported yet)",
-                    ws.objects[*e].name
-                ));
-            }
-        }
+        page_reasons[oi].extend(super::ext_request_page::reasons(
+            ws,
+            (&request, request_section.as_ref()),
+            (&obj, &l.items),
+            &exts,
+            &changing_here,
+            pinned.is_some(),
+        ));
         layouts[oi] = Some(request);
         let (exts, extension_reasons, extension_assumes) =
-            match super::ext_order::report_extension_order(ws, &changing.get(&oi).cloned().unwrap_or_default()) {
+            match super::ext_order::report_extension_order(ws, oi, &changing.get(&oi).cloned().unwrap_or_default()) {
                 Ok(order) => (order.exts, Vec::new(), order.assumes),
                 Err(why) => {
                     let mut exts = changing.get(&oi).cloned().unwrap_or_default();
@@ -681,6 +666,7 @@ pub(crate) fn build_shared<'a>(
             extension_reasons,
             extension_assumes,
             extensions: exts.clone(),
+            request_page_ok_only: pinned.is_some(),
         };
         let mut over = super::shared::over_max_length_of(ws, oi);
         for &e in &exts {
@@ -689,36 +675,15 @@ pub(crate) fn build_shared<'a>(
         report_irs[oi] = Some(crate::reports::build(&cx, &obj, over));
         report_layouts[oi] = Some(l);
     }
-    for (ei, base) in ext_base.iter().enumerate() {
-        let (Some(base), Some(layout)) = (*base, ext_layouts[ei].as_ref()) else {
-            continue;
-        };
-        let (Some(base_layout), Some(base_ir)) = (report_layouts[base].as_ref(), report_irs[base].as_ref()) else {
-            continue;
-        };
-        let cx = crate::reports::ExtContext {
-            ws,
-            members,
-            file: ws.objects[ei].file,
-            oi: ei,
-            base,
-            base_layout,
-            base_items: &base_ir.items,
-            layout,
-            routine_at: &routine_at,
-        };
-        let (ir, reasons) = crate::reports::build_ext(&cx, &ws.object_ast(ei));
-        ext_irs[ei] = Some(ir);
-        // The extension's reasons stop the report it changes.
-        let name = &ws.objects[ei].name;
-        if let Some(r) = report_irs[base].as_mut() {
-            r.unsupported.extend(
-                reasons
-                    .into_iter()
-                    .map(|why| format!("reportextension \"{name}\": {why}")),
-            );
-        }
-    }
+    lower_report_extensions(
+        ws,
+        members,
+        &report_layouts,
+        &mut report_irs,
+        &ext_layouts,
+        &mut ext_irs,
+        &routine_at,
+    );
     // Why a variable of an xmlport or report is refused, and the report extension that changes a
     // run: the cache supplies them for its objects.
     let n_objects = ws.objects.len();
@@ -726,7 +691,7 @@ pub(crate) fn build_shared<'a>(
         .map(|oi| xml_irs[oi].as_ref().and_then(|p| p.unsupported.first().cloned()))
         .collect();
     let mut report_reasons: Vec<Option<String>> = (0..n_objects)
-        .map(|oi| report_irs[oi].as_ref().and_then(|p| p.unsupported.first().cloned()))
+        .map(|oi| report_irs[oi].as_ref().and_then(crate::reports::variable_refusal))
         .collect();
     let mut report_extension: Vec<Vec<usize>> = (0..n_objects)
         .map(|oi| {
@@ -746,6 +711,7 @@ pub(crate) fn build_shared<'a>(
     }
     let driven = DrivenCtx {
         page_extensions,
+        request_page_order,
         page_parts,
         page_runs,
         runs_triggers: ws
@@ -794,9 +760,9 @@ pub(crate) fn build_shared<'a>(
         ext_base,
         export,
         parse_diags: {
-            let mut by_file: HashMap<&str, Vec<&crate::workspace::Diagnostic>> = HashMap::default();
+            let mut by_file: HashMap<(usize, &str), Vec<&crate::workspace::Diagnostic>> = HashMap::default();
             for d in ws.diagnostics.iter().filter(|d| d.code == "AR0000") {
-                by_file.entry(d.file.as_str()).or_default().push(d);
+                by_file.entry((d.app, d.file.as_str())).or_default().push(d);
             }
             by_file
         },
@@ -824,6 +790,13 @@ pub(crate) fn build_shared<'a>(
                         if seen.insert(i.name.to_lowercase()) {
                             items_before += 1;
                         }
+                    }
+                    if let Some(ext) = shared.ext_irs[e].as_ref() {
+                        items_before += ext
+                            .aliases
+                            .iter()
+                            .filter(|(item, _)| matches!(item, ir::ItemAnchor::Foreign(_)))
+                            .count();
                     }
                 }
                 for v in ws.object_ast(e).var_decls() {
@@ -854,48 +827,6 @@ pub(crate) fn build_shared<'a>(
         shared,
         uncompiled_subscribers,
     }
-}
-
-/// The first field control of reportextension `e`'s request page that is bound to none of what a reportextension that changes
-/// the run may bind (reports/extensions/W3RpExtRequestPage.al:325-490): its own variable (`own`), a variable of the base report
-/// `base`, a field of one of the report's data items `items`, or a field of its own record variable (W3RpExtRequestPage.al:1250
-/// Run_OwnRecordControls_ReachOnBeforePreDataItemAndPreReport, corpus PR 1202, al-runner issue 6924).
-fn foreign_request_control<'a>(
-    request: &'a crate::pages::Layout,
-    e: usize,
-    own: &std::collections::HashSet<String>,
-    base: &ast::Object,
-    items: &[crate::reports::RawItem],
-) -> Option<&'a crate::pages::RawControl> {
-    let base_vars: std::collections::HashSet<String> = base
-        .var_decls()
-        .flat_map(|v| v.names())
-        .map(|n| n.to_lowercase())
-        .collect();
-    request.controls.iter().find(|c| {
-        let source = c.section.args_raw().get(1).cloned();
-        let named = |names: &std::collections::HashSet<String>| {
-            source
-                .as_deref()
-                .and_then(crate::pages::plain_name)
-                .is_some_and(|n| names.contains(&n.to_lowercase()))
-        };
-        let item_field = source
-            .as_deref()
-            .and_then(crate::pages::var_and_field)
-            .is_some_and(|(i, _)| items.iter().any(|x| x.name.eq_ignore_ascii_case(&i)));
-        let own_record_field = source
-            .as_deref()
-            .and_then(crate::pages::var_and_field)
-            .is_some_and(|(v, _)| own.contains(&v.to_lowercase()));
-        c.owner == Some(e)
-            && !own_record_field
-            && c.kind == ir::ControlKind::Field
-            && !c.section.name().eq_ignore_ascii_case("label")
-            && !named(own)
-            && !named(&base_vars)
-            && !item_field
-    })
 }
 
 /// The heads, positions, drivers and (with `export`) the blocks of a cache layer, from the objects as linked
@@ -1039,6 +970,12 @@ pub(crate) fn lower_core(
             .collect(),
         uncompiled_subscribers,
         tdd_stubs: tdd_stub_list(checked, &tdd_sites),
+        // `alcodes::duplicate_ids` lets a moved table stub of a dependency's table compile (al-runner issue 7914).
+        assumes: if ws.has_moved_table_stub() {
+            vec![al_builtins::assumptions::Assumption::MovedTableStubOfDependency]
+        } else {
+            Vec::new()
+        },
         ..Default::default()
     };
     let mut out = Lowered {
@@ -1046,6 +983,7 @@ pub(crate) fn lower_core(
         program: Default::default(),
         unsupported: Default::default(),
         refusal_at: Vec::new(),
+        unresolved_calls: Vec::new(),
         calls: Default::default(),
         dependency: (0..ws.objects.len()).map(|oi| ws.is_dependency(oi)).collect(),
         provided: (0..ws.objects.len()).map(prov).collect(),
@@ -1208,15 +1146,7 @@ pub(crate) fn lower_core(
             let o = &ws.objects[site.object];
             let sub = &o.subscribers[site.index];
             subscriber_decls[site.object].push(al_ir::sym::SubscriberDecl {
-                target: match (site.publisher, site.platform) {
-                    (Some(p), _) => al_ir::sym::SubscriberTarget::Object(piece_keys[p].clone()),
-                    (None, ir::PlatformPublisher::CaptionClass) => al_ir::sym::SubscriberTarget::CaptionClass,
-                    (None, ir::PlatformPublisher::ReportingTriggers) => al_ir::sym::SubscriberTarget::ReportingTriggers,
-                    (None, ir::PlatformPublisher::FilterHelperTriggers) => {
-                        al_ir::sym::SubscriberTarget::FilterHelperTriggers
-                    }
-                    (None, _) => al_ir::sym::SubscriberTarget::GlobalTriggers,
-                },
+                target: subscriber_target(&site, &piece_keys),
                 index: site.index as u32,
                 event: sub.event.to_lowercase(),
                 element: sub.element.clone(),
@@ -1253,6 +1183,10 @@ pub(crate) fn lower_core(
     let embeds_of_all: Vec<Vec<usize>> = pieces
         .iter()
         .map(|p| p.as_ref().map_or_else(Vec::new, |p| p.embeds.clone()))
+        .collect();
+    out.unresolved_calls = pieces
+        .iter()
+        .map(|p| p.as_ref().is_some_and(|p| p.unresolved_call))
         .collect();
     for (oi, piece) in pieces.into_iter().enumerate() {
         crate::halt::check(); // The export of a cache layer grows too (`halt.rs`).
@@ -1324,14 +1258,7 @@ pub(crate) fn lower_core(
                     .get(&oi)
                     .map(|v| v.iter().map(|&p| p as u32).collect())
                     .unwrap_or_default(),
-                ext_slots: {
-                    let mut v: Vec<(String, u32)> = shared.ext_slots[oi]
-                        .iter()
-                        .map(|(n, &i)| (n.clone(), i as u32))
-                        .collect();
-                    v.sort();
-                    v
-                },
+                ext_slots: sorted_ext_slots(&shared.ext_slots[oi]),
                 routine_offsets: shared.routine_offsets[oi].iter().map(|&o| o as u32).collect(),
                 routine_roles: shared.driven.routine_roles[oi].clone(),
                 fields: piece
@@ -1391,7 +1318,11 @@ pub(crate) fn lower_core(
         let id = o.id.map_or(0, |x| x.saturating_add(1));
         match list {
             al_ir::sym::ListKind::TableExtensions => (0, 0, 0),
-            al_ir::sym::ListKind::PageExtensions => (ws.app_depth(o.app) as u32, id, o.offset as u32),
+            // A request page that `ext_request_page` admits takes the order it gave (`DrivenCtx::request_page_order`).
+            al_ir::sym::ListKind::PageExtensions => extends(e)
+                .and_then(|r| shared.driven.request_page_order.get(&r))
+                .and_then(|list| list.iter().position(|&x| x == e))
+                .map_or_else(|| super::ext_order::page_extension_key(ws, e), |p| (p as u32, 0, 0)),
             // The order `ext_order.rs` gave the extensions that change the report's run; any other by object id.
             al_ir::sym::ListKind::ReportExtensions => {
                 let at = extends(e)
@@ -1512,6 +1443,13 @@ pub(crate) fn lower_core(
     }
     out.program = std::sync::Arc::new(program);
     Ok(out)
+}
+
+/// The slots of an object's extension variables (`DepFacts::ext_slots`), by name.
+fn sorted_ext_slots<'a>(slots: impl IntoIterator<Item = (&'a String, &'a usize)>) -> Vec<(String, u32)> {
+    let mut v: Vec<(String, u32)> = slots.into_iter().map(|(n, &i)| (n.clone(), i as u32)).collect();
+    v.sort();
+    v
 }
 
 /// Keeps the routine bodies of the objects lowered here compact (`ir::Body::compact`): the lowering reads no body after
@@ -1744,11 +1682,12 @@ fn split_tables(
         }
         table.fields = kept;
         // Keys.
-        let mut base_keys = (Vec::new(), Vec::new(), Vec::new());
+        let mut base_keys = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
         let mut ext_keys: Vec<(usize, KeyDecl)> = Vec::new();
         for (i, k) in table.keys.drain(..).enumerate() {
             let unique = table.unique_keys[i];
             let props = std::mem::take(&mut table.key_props[i]);
+            let declared_in = table.key_declared_in.get(i).copied().flatten();
             match owners.get(i).copied() {
                 Some(o) if o != b => ext_keys.push((
                     o,
@@ -1762,10 +1701,11 @@ fn split_tables(
                     base_keys.0.push(k);
                     base_keys.1.push(unique);
                     base_keys.2.push(props);
+                    base_keys.3.push(declared_in);
                 }
             }
         }
-        (table.keys, table.unique_keys, table.key_props) = base_keys;
+        (table.keys, table.unique_keys, table.key_props, table.key_declared_in) = base_keys;
         // Hand it to the extensions.
         let mut touched: Vec<usize> = by_ext.iter().map(|(e, _)| *e).collect();
         touched.extend(ext_keys.iter().map(|(e, _)| *e));
@@ -1980,6 +1920,7 @@ fn split_pages(staged: &mut StagedList, provided: &(dyn Fn(usize) -> bool + Sync
         }
         for c in &mut page.controls {
             c.ext_triggers.clear();
+            c.caption_modifies.clear();
             c.ext_replaced.clear();
         }
         let area_of = |i: usize| {
@@ -2051,6 +1992,7 @@ fn split_pages(staged: &mut StagedList, provided: &(dyn Fn(usize) -> bool + Sync
                 .mods
                 .push(ControlMod {
                     target: id_of(m.control),
+                    name: m.name,
                     props: m.props,
                     triggers: m.triggers,
                 });
@@ -2475,6 +2417,9 @@ pub fn relower_objects(
         if let Some(slot) = old.refusal_at.get_mut(oi) {
             *slot = piece.refusal_at;
         }
+        if let Some(slot) = old.unresolved_calls.get_mut(oi) {
+            *slot = piece.unresolved_call;
+        }
         old.calls.replace(oi, piece.calls, piece.ndirect);
         replace.push((
             oi,
@@ -2516,18 +2461,21 @@ pub fn relower_objects(
         old.tdd_needs = crate::check::tdd_decl::needs(ws, &checked);
     }
     old.driven = Some(shared.driven.clone());
-    // The diagnostics: what the checker found in the files that did not change stays.
-    let dirty_files: std::collections::HashSet<&str> = dirty
+    // The diagnostics: what the checker found in the files that did not change stays. A file is its app and its path
+    // together (a path is relative to its app; two apps can hold the same one).
+    let dirty_files: std::collections::HashSet<(usize, &str)> = dirty
         .iter()
-        .map(|&oi| ws.files[ws.objects[oi].file].path.as_str())
+        .map(|&oi| {
+            let f = &ws.files[ws.objects[oi].file];
+            (f.app, f.path.as_str())
+        })
         .collect();
     let mut from_checker: Vec<crate::workspace::Diagnostic> = std::mem::take(&mut old.checker_diags);
-    from_checker.retain(|d| !dirty_files.contains(d.file.as_str()));
+    from_checker.retain(|d| !dirty_files.contains(&(d.app, d.file.as_str())));
     from_checker.extend(checked.from_checker.iter().cloned());
     let mut all: Vec<crate::workspace::Diagnostic> = from_checker.clone();
     all.extend(checked.from_codes.iter().cloned());
-    let order: HashMap<&str, usize> = ws.files.iter().enumerate().map(|(i, f)| (f.path.as_str(), i)).collect();
-    all.sort_by_key(|d| (order.get(d.file.as_str()).copied(), d.offset));
+    ws.file_order().sort(&mut all);
     old.al_diagnostics = all.into_iter().filter(|d| d.code.starts_with("AL")).collect();
     old.checker_diags = from_checker;
     old.skipped = checked.skipped.clone();
@@ -2559,6 +2507,8 @@ pub(crate) struct Piece {
     pub(crate) unsupported: Vec<Vec<Refusal>>,
     /// Per routine: where the statement is that gave its first reason (see `Lowered::refusal_at`).
     pub(crate) refusal_at: Vec<Option<ir::SrcPos>>,
+    /// A call of the object had no callee the checker resolved (see `Lowered::unresolved_calls`).
+    pub(crate) unresolved_call: bool,
     pub(crate) calls: Vec<Vec<(usize, usize)>>,
     /// With `Shared::export`: `calls` without what a page, report or xmlport variable drives.
     pub(crate) direct: Vec<Vec<(usize, usize)>>,
@@ -2610,6 +2560,64 @@ fn tdd_stub_list(checked: &CheckResult, sites: &[(usize, String)]) -> Vec<String
         all.dedup();
     }
     all
+}
+
+/// Lower each report's extensions in run order so dependency items are available to their consumers.
+fn lower_report_extensions(
+    ws: &Workspace,
+    members: &MemberTable<'_>,
+    report_layouts: &[Option<crate::reports::Layout>],
+    report_irs: &mut [Option<ir::Report>],
+    ext_layouts: &[Option<crate::reports::ExtLayout>],
+    ext_irs: &mut [Option<ir::ReportExt>],
+    routine_at: &RoutineAt,
+) {
+    let ordered_extensions: Vec<_> = report_irs
+        .iter()
+        .enumerate()
+        .flat_map(|(base, report)| {
+            report
+                .iter()
+                .flat_map(move |report| report.extensions.iter().map(move |&extension| (base, extension)))
+        })
+        .collect();
+    for (base, ei) in ordered_extensions {
+        let Some(layout) = ext_layouts[ei].as_ref() else {
+            continue;
+        };
+        let (Some(base_layout), Some(base_ir)) = (report_layouts[base].as_ref(), report_irs[base].as_ref()) else {
+            continue;
+        };
+        let cx = crate::reports::ExtContext {
+            ws,
+            members,
+            file: ws.objects[ei].file,
+            oi: ei,
+            base,
+            base_layout,
+            base_items: &base_ir.items,
+            layout,
+            dependencies: &crate::reports::dependency_dataset_items(ws, ei, base),
+            prior_exts: ext_irs,
+            routine_at,
+        };
+        let (ir, reasons) = crate::reports::build_ext(&cx, &ws.object_ast(ei));
+        let uses_foreign = ir
+            .modifies
+            .iter()
+            .any(|m| matches!(m.item, al_ir::ItemAnchor::Foreign(_)));
+        ext_irs[ei] = Some(ir);
+        // The extension's reasons stop the report it changes.
+        let name = &ws.objects[ei].name;
+        if let Some(r) = report_irs[base].as_mut() {
+            r.dependency_items |= uses_foreign;
+            r.unsupported.extend(
+                reasons
+                    .into_iter()
+                    .map(|why| format!("reportextension \"{name}\": {why}")),
+            );
+        }
+    }
 }
 
 /// The variables of a report extension's request page come after its own variables in its globals (`shared.rs`).

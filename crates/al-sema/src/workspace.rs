@@ -7,6 +7,21 @@ use rayon::prelude::*;
 use std::collections::BTreeSet;
 use std::sync::OnceLock;
 
+mod moved_tables;
+mod subscriber_publisher;
+
+/// Which tiers of a bare name's search `Workspace::resolve_in_scope` takes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Tiers {
+    /// The compiler's: the file's namespace, its usings, the global namespace, then a unique match in any namespace.
+    Compiler,
+    /// Only those no absent app could shadow (`Workspace::resolve_ref_certain`).
+    Certain,
+    /// The compiler's, without the match in any namespace for a file that has a namespace
+    /// (`Workspace::resolve_relation_target`).
+    Relation,
+}
+
 pub use al_ir::ObjKind;
 
 #[derive(Debug, Clone)]
@@ -85,6 +100,27 @@ pub struct Diagnostic {
     pub offset: usize,
     pub code: &'static str,
     pub message: String,
+}
+
+impl Diagnostic {
+    /// What makes two diagnostics one finding: the app, the file, the offset and the code all equal (a path is relative
+    /// to its app; two apps can hold the same one).
+    pub fn site(&self) -> (usize, &str, usize, &'static str) {
+        (self.app, self.file.as_str(), self.offset, self.code)
+    }
+}
+
+/// The position of each file in `Workspace::files` by its app and path (a path is relative to its app; two apps can hold
+/// the same one). The one order of `Workspace::diagnostics`, `CheckResult::diagnostics` and `Lowered::al_diagnostics`;
+/// the printed order of compile errors is `compile_errors`' own (al-testrun).
+pub struct FileOrder<'a>(HashMap<(usize, &'a str), usize>);
+
+impl FileOrder<'_> {
+    /// Sorts by file, then offset; a diagnostic of a file the workspace does not hold comes first; diagnostics at one
+    /// position keep their order.
+    pub fn sort(&self, diags: &mut [Diagnostic]) {
+        diags.sort_by_key(|d| (self.0.get(&(d.app, d.file.as_str())).copied(), d.offset));
+    }
 }
 
 pub struct SourceFileData {
@@ -209,9 +245,12 @@ pub struct Workspace {
     ext_target: Vec<Option<usize>>,
     /// For an extended object, its extensions in object order.
     ext_of: HashMap<usize, Vec<usize>>,
-    /// Event subscribers of scanned objects by publisher: (kind, lower-case name or id) to
-    /// (subscriber object, index in its `subscribers`).
+    /// Event subscribers of scanned objects by the publisher name as written: (kind, lower-case name or id, namespace and name
+    /// when written) to (subscriber object, index in its `subscribers`). The platform codeunits, which no app need declare, are
+    /// found here (`codeunit_subscribers`).
     subscribers_of: HashMap<(ObjKind, String), Vec<(usize, usize)>>,
+    /// Event subscribers of scanned objects by the publisher object their name names (`subscribers_of`).
+    subscribers_by_publisher: HashMap<usize, Vec<(usize, usize)>>,
     /// Scanned objects that implement an interface, by lower-case interface name.
     implementers_of: HashMap<String, Vec<usize>>,
     /// For an interface that `extends` another, the interface it extends.
@@ -237,12 +276,26 @@ pub struct Workspace {
     /// later. The default is the corpus symbol of the gate's BC major (`BC<major>PLUS`); a compile with a target sets it from the target's runtime
     /// ([`Workspace::set_user_name_fields_for`]).
     user_name_fields: bool,
+    /// The ids (lower case) of the apps the platform package's `InternalsVisibleTo` grants access to its internal
+    /// members, matched by id and publisher by the caller ([`Workspace::set_internals_granted`]).
+    internals_granted: Vec<String>,
 }
 
 /// The gate that says from which BC major every table has the user-name system FlowFields.
 const USER_NAME_FIELDS_GATE: al_version::Gate = al_version::Gate::PlatformMetadataColumnsFrom29;
 
 impl Workspace {
+    /// The order of the files, to sort diagnostics by (`FileOrder::sort`).
+    pub fn file_order(&self) -> FileOrder<'_> {
+        FileOrder(
+            self.files
+                .iter()
+                .enumerate()
+                .map(|(i, f)| ((f.app, f.path.as_str()), i))
+                .collect(),
+        )
+    }
+
     /// Whether every table has the user-name system FlowFields (SystemCreatedByUserName and the others, BC 29 and later).
     pub fn user_name_fields(&self) -> bool {
         self.user_name_fields
@@ -253,6 +306,18 @@ impl Workspace {
         if let Some(m) = bc_major {
             self.user_name_fields = m >= USER_NAME_FIELDS_GATE.since_bc();
         }
+    }
+
+    /// Sets the apps the platform package's `InternalsVisibleTo` grants (ids; issue 7853). The caller matches each grant
+    /// by app id and publisher, as alc 18.0.39.10160 does.
+    pub fn set_internals_granted(&mut self, app_ids: Vec<String>) {
+        self.internals_granted = app_ids;
+    }
+
+    /// Whether the platform package grants app `app` access to its internal members (see `set_internals_granted`).
+    pub fn internals_granted_to(&self, app: usize) -> bool {
+        let id = &self.apps[app].id;
+        self.internals_granted.iter().any(|g| g.eq_ignore_ascii_case(id))
     }
 
     /// The preprocessor symbols app `app` was parsed with.
@@ -324,6 +389,7 @@ impl Workspace {
             ext_target: Vec::new(),
             ext_of: HashMap::default(),
             subscribers_of: HashMap::default(),
+            subscribers_by_publisher: HashMap::default(),
             implementers_of: HashMap::default(),
             iface_base: HashMap::default(),
             iface_derived: HashMap::default(),
@@ -335,6 +401,7 @@ impl Workspace {
             lazy_text: Vec::new(),
             loaded_files: 0,
             user_name_fields: symbols.contains(&format!("BC{}PLUS", USER_NAME_FIELDS_GATE.since_bc())),
+            internals_granted: Vec::new(),
         };
         let all: Vec<&AppSource> = apps.iter().collect();
         ws.visible = (0..apps.len()).map(|i| visible_from(&all, i)).collect();
@@ -447,6 +514,10 @@ impl Workspace {
         self.subscribers_of.retain(|_, v| {
             v.retain(|&(o, _)| o < n_obj);
             !v.is_empty()
+        });
+        self.subscribers_by_publisher.retain(|&k, v| {
+            v.retain(|&(o, _)| o < n_obj);
+            k < n_obj && !v.is_empty()
         });
         self.loaded_files = self.files.len();
         self.compiled = OnceLock::new();
@@ -590,10 +661,8 @@ impl Workspace {
             .extend((first_object..ws.objects.len()).map(|_| OnceLock::new()));
         ws.index_extensions_and_subscribers(first_object);
         ws.resolve_references(first_object);
-        let positions: HashMap<&str, usize> = ws.files.iter().enumerate().map(|(i, f)| (f.path.as_str(), i)).collect();
-        let key = |d: &Diagnostic| (positions.get(d.file.as_str()).copied().unwrap_or(usize::MAX), d.offset);
         let mut diagnostics = std::mem::take(&mut ws.diagnostics);
-        diagnostics.sort_by_key(key);
+        ws.file_order().sort(&mut diagnostics);
         ws.diagnostics = diagnostics;
     }
 
@@ -674,15 +743,8 @@ impl Workspace {
             .collect();
         self.diagnostics.retain(|d| d.file != path || d.app != ai);
         self.diagnostics.extend(renewed);
-        let positions: HashMap<&str, usize> = self
-            .files
-            .iter()
-            .enumerate()
-            .map(|(i, f)| (f.path.as_str(), i))
-            .collect();
-        let key = |d: &Diagnostic| (positions.get(d.file.as_str()).copied().unwrap_or(usize::MAX), d.offset);
         let mut diagnostics = std::mem::take(&mut self.diagnostics);
-        diagnostics.sort_by_key(key);
+        self.file_order().sort(&mut diagnostics);
         self.diagnostics = diagnostics;
         Ok((in_file, declared))
     }
@@ -697,7 +759,7 @@ impl Workspace {
             if let (Some(kind), Some(parts)) = (o.kind.extended(), &o.extends) {
                 // Not `resolve_ref`: that would parse the target's file, and an index of
                 // thousands of extensions must not parse their targets.
-                if let Resolution::Found(t) = self.resolve_in_scope(o.file, kind, parts, false, false) {
+                if let Resolution::Found(t) = self.resolve_in_scope(o.file, kind, parts, Tiers::Compiler, false) {
                     self.ext_target[i] = Some(t);
                     self.ext_of.entry(t).or_default().push(i);
                 }
@@ -707,15 +769,21 @@ impl Workspace {
             let o = &self.objects[i];
             if let (ObjKind::Interface, Some(parts)) = (o.kind, &o.extends) {
                 // Like the extension targets above: no parse of the base interface's file.
-                if let Resolution::Found(b) = self.resolve_in_scope(o.file, ObjKind::Interface, parts, false, false) {
+                if let Resolution::Found(b) =
+                    self.resolve_in_scope(o.file, ObjKind::Interface, parts, Tiers::Compiler, false)
+                {
                     self.iface_base.insert(i, b);
                     self.iface_derived.entry(b).or_default().push(i);
                 }
             }
         }
-        for (i, o) in self.objects.iter().enumerate().skip(first) {
+        for i in first..self.objects.len() {
+            let o = &self.objects[i];
             for (si, sub) in o.subscribers.iter().enumerate() {
                 let kind = ObjKind::from_keyword(&sub.publisher_kind);
+                for p in self.scanned_subscriber_publishers(o.file, kind, &sub.publisher) {
+                    self.subscribers_by_publisher.entry(p).or_default().push((i, si));
+                }
                 let name = sub.publisher.join(".").to_lowercase();
                 self.subscribers_of.entry((kind, name)).or_default().push((i, si));
             }
@@ -768,21 +836,13 @@ impl Workspace {
         self.ext_of.get(&i).map_or(&[], Vec::as_slice)
     }
 
-    /// Subscribers (object, index in its `subscribers`) of scanned objects that name `publisher`
-    /// as their publisher, by name or by id.
+    /// Subscribers (object, index in its `subscribers`) of scanned objects that name `publisher` as their publisher (see
+    /// `scanned_subscriber_publishers`).
     pub fn subscribers_of(&self, publisher: usize) -> Vec<(usize, usize)> {
-        let o = &self.objects[publisher];
-        let mut keys = vec![o.name.to_lowercase()];
-        if let Some(id) = o.id {
-            keys.push(id.to_string());
-        }
-        // `Codeunit::Microsoft.Foo."Name"` writes the namespace; the index key is the written text.
-        if let Some(ns) = &o.namespace {
-            keys.push(format!("{ns}.{}", o.name).to_lowercase());
-        }
-        keys.into_iter()
-            .flat_map(|k| self.subscribers_of.get(&(o.kind, k)).into_iter().flatten().copied())
-            .collect()
+        self.subscribers_by_publisher
+            .get(&publisher)
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// Subscribers (object, index in its `subscribers`) of scanned objects to the platform codeunit
@@ -798,17 +858,31 @@ impl Workspace {
         self.codeunit_subscribers(&["caption class", "42"])
     }
 
-    /// Subscribers to the platform's `Reporting Triggers` codeunit, whose `CustomDocumentMergerEx` the runtime raises
-    /// when a report renders with a custom layout.
+    /// Subscribers to the platform's `Reporting Triggers` codeunit (`al_ir::REPORTING_CODEUNIT`), by name or id, whose
+    /// `CustomDocumentMergerEx` the runtime raises when a report renders with a custom layout.
     pub fn reporting_triggers_subscribers(&self) -> Vec<(usize, usize)> {
-        self.codeunit_subscribers(&["reporting triggers"])
+        self.platform_codeunit_subscribers(al_ir::REPORTING_CODEUNIT)
     }
 
-    /// Subscribers to the platform's `Filter Helper Triggers` codeunit, whose `MakeDateFilter` (and `MakeIntFilter`, `MakeTimeFilter`,
-    /// `RAISED_FILTER_EVENTS`) the runtime raises
-    /// for a Date filter text with a piece that does not read.
+    /// Subscribers to the platform's `UI Helper Triggers` codeunit (`al_ir::UI_HELPER_CODEUNIT`), by name or id, whose
+    /// `CaptionClassTranslate` the runtime raises for the `CaptionClassTranslate` statement.
+    pub fn ui_helper_triggers_subscribers(&self) -> Vec<(usize, usize)> {
+        self.platform_codeunit_subscribers(al_ir::UI_HELPER_CODEUNIT)
+    }
+
+    /// Subscribers to the platform's `Filter Helper Triggers` codeunit (`al_ir::FILTER_HELPER_CODEUNIT`), by name or id,
+    /// whose `MakeDateFilter` (and `MakeIntFilter`, `MakeTimeFilter`, `RAISED_FILTER_EVENTS`) the runtime raises for a Date
+    /// filter text with a piece that does not read.
     pub fn filter_helper_triggers_subscribers(&self) -> Vec<(usize, usize)> {
-        self.codeunit_subscribers(&["filter helper triggers"])
+        self.platform_codeunit_subscribers(al_ir::FILTER_HELPER_CODEUNIT)
+    }
+
+    /// The subscribers to platform codeunit `(id, name)` written with its name or its id (al-runner issue 8466), both forms
+    /// in one order of the subscribing objects (al-link lists them so).
+    fn platform_codeunit_subscribers(&self, (id, name): (u32, &str)) -> Vec<(usize, usize)> {
+        let mut found = self.codeunit_subscribers(&[&name.to_ascii_lowercase(), &id.to_string()]);
+        found.sort_unstable();
+        found
     }
 
     /// Subscribers to the platform's `Extension Triggers` codeunit (2000000010): its `OnInstallAppPerCompany` and
@@ -824,27 +898,15 @@ impl Workspace {
     }
 
     /// Whether object `oi` (of an app under test, whose file is parsed) declares a subscriber to a login event the test
-    /// session raises (al-testrun `login.rs`): "System Initialization" (150) `OnAfterLogin`, or "Guided Experience" (1990)
-    /// `OnRegisterAssistedSetup`, `OnRegisterManualSetup` or `OnRegisterGuidedExperienceItem`.
+    /// session raises (al-testrun `login.rs`, `al_ir::names_login_event`).
     pub fn declares_login_subscriber(&self, oi: usize) -> bool {
         if self.objects[oi].kind != ObjKind::Codeunit {
             return false;
         }
         ast::routines_in(self.object_ast(oi).syntax()).iter().any(|r| {
             r.attributes().any(|a| {
-                a.name().eq_ignore_ascii_case("EventSubscriber") && {
-                    let t = a.syntax().text().to_string().to_lowercase();
-                    [
-                        ("system initialization", "150", "onafterlogin"),
-                        ("guided experience", "1990", "onregisterassistedsetup"),
-                        ("guided experience", "1990", "onregistermanualsetup"),
-                        ("guided experience", "1990", "onregisterguidedexperienceitem"),
-                    ]
-                    .iter()
-                    .any(|(name, id, event)| {
-                        (t.contains(&format!("\"{name}\"")) || t.contains(&format!("::{id},"))) && t.contains(event)
-                    })
-                }
+                a.name().eq_ignore_ascii_case("EventSubscriber")
+                    && al_ir::names_login_event(&a.syntax().text().to_string())
             })
         })
     }
@@ -1208,7 +1270,7 @@ impl Workspace {
     /// unique match in any namespace (corpus evidence: files with neither
     /// namespace nor `using` reference namespaced Base App tables and compile).
     pub fn resolve_ref(&self, file: usize, kind: ObjKind, parts: &[String]) -> Resolution {
-        self.resolve_in_scope(file, kind, parts, false, true)
+        self.resolve_in_scope(file, kind, parts, Tiers::Compiler, true)
     }
 
     /// Whether any object of `kind` that `file` can see has the name (or id) `parts` says, whether or not
@@ -1220,20 +1282,27 @@ impl Workspace {
     /// app (see `visible_from`), so the same holds while it is not loaded (corpus must-not-compile
     /// 0740-subscribe-internal-event-get-role-center-banner.al:5 names its codeunit "System Action Triggers").
     pub fn names_object(&self, file: usize, kind: ObjKind, parts: &[String]) -> bool {
-        self.has_unloaded_dependency(self.files[file].app)
-            || !self.apps.iter().any(|a| a.id.eq_ignore_ascii_case(PLATFORM_APP_ID))
+        !self.no_app_absent(self.files[file].app)
             || !matches!(
-                self.resolve_in_scope(file, kind, parts, false, false),
+                self.resolve_in_scope(file, kind, parts, Tiers::Compiler, false),
                 Resolution::Missing
             )
     }
 
-    /// Whether a table named `name` (bare) is among the objects `file` searches before the any-namespace fallback of
-    /// [`resolve_ref`](Self::resolve_ref): those of its own namespace, of its `using`s, and those without a namespace.
-    pub fn table_in_scope_tiers(&self, file: usize, name: &str) -> bool {
+    /// Whether every app `app` could see is loaded: no dependency that `app` or an app it sees declares is missing
+    /// ([`has_unloaded_dependency`](Self::has_unloaded_dependency)), and the platform app System, an implicit dependency of
+    /// every app, is loaded. Only then is the absence of a name known.
+    pub fn no_app_absent(&self, app: usize) -> bool {
+        self.apps.iter().any(|a| a.id.eq_ignore_ascii_case(PLATFORM_APP_ID)) && !self.has_unloaded_dependency(app)
+    }
+
+    /// Whether an object of `kind` named `name` (bare) is among the objects `file` searches before the any-namespace
+    /// fallback of [`resolve_ref`](Self::resolve_ref): those of its own namespace, of its `using`s, and those without a
+    /// namespace.
+    pub fn in_scope_tiers(&self, file: usize, kind: ObjKind, name: &str) -> bool {
         let f = &self.files[file];
         self.by_name
-            .get(&(ObjKind::Table, name.to_lowercase()))
+            .get(&(kind, name.to_lowercase()))
             .into_iter()
             .flatten()
             .filter(|&&i| self.visible[f.app].contains(&self.objects[i].app))
@@ -1241,6 +1310,25 @@ impl Workspace {
                 let ns = &self.objects[i].namespace;
                 ns.is_none() || eq_ns(ns, &f.namespace) || f.usings.iter().any(|u| eq_ns(ns, &Some(u.clone())))
             })
+    }
+
+    /// The objects of `kind` named `name` (bare) among the apps `file`'s app sees, in object order.
+    pub fn named_objects_visible(&self, file: usize, kind: ObjKind, name: &str) -> Vec<usize> {
+        let app = self.files[file].app;
+        self.by_name
+            .get(&(kind, name.to_lowercase()))
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(|&i| self.visible[app].contains(&self.objects[i].app))
+            .collect()
+    }
+
+    /// Whether an object of any kind, in any namespace, among the apps `file`'s app sees is named `name` (bare).
+    pub fn names_any_visible_object(&self, file: usize, name: &str) -> bool {
+        ObjKind::ALL
+            .iter()
+            .any(|&kind| !self.named_objects_visible(file, kind, name).is_empty())
     }
 
     /// Whether `app` or an app it sees declares a dependency that is not among the loaded apps.
@@ -1262,7 +1350,7 @@ impl Workspace {
     /// The id of the platform table `parts` names when nothing provides rows for it. The id is
     /// a constant of its declaration, so `Database::"X"` can name it.
     pub fn unprovided_platform_table_id(&self, file: usize, parts: &[String]) -> Option<i32> {
-        match self.resolve_in_scope(file, ObjKind::Table, parts, false, false) {
+        match self.resolve_in_scope(file, ObjKind::Table, parts, Tiers::Compiler, false) {
             Resolution::Found(i) if self.platform_table_without_provider(i) => self.objects[i].id.map(|id| id as i32),
             _ => None,
         }
@@ -1276,12 +1364,12 @@ impl Workspace {
     /// TestRelationTargetNamespaceScope.al and TestRelationOwnNamespaceDependency.al: an
     /// imported or global workspace table must not stand in for a Base Application one).
     pub fn resolve_ref_certain(&self, file: usize, kind: ObjKind, parts: &[String]) -> Resolution {
-        self.resolve_in_scope(file, kind, parts, true, true)
+        self.resolve_in_scope(file, kind, parts, Tiers::Certain, true)
     }
 
     /// Whether Microsoft's Base Application is among the apps `app` sees. Then no app is absent that
     /// could shadow a name, and the tiers resolve as the compiler resolves them.
-    fn sees_base_application(&self, app: usize) -> bool {
+    pub(crate) fn sees_base_application(&self, app: usize) -> bool {
         self.visible[app].iter().any(|&a| {
             self.kinds[a] == AppKind::Dependency && self.apps[a].name.eq_ignore_ascii_case("Base Application")
         })
@@ -1289,11 +1377,19 @@ impl Workspace {
 
     /// A `TableRelation` target. The file of a dependency app resolves it among the apps that app
     /// saw (`visible`), as BC fixed it when the app compiled: a same-named table of a dependent app
-    /// is not a candidate (corpus recordref-fieldref/fieldref/TestRelationTargetNameCollision.al). The file of the
-    /// workspace resolves it as `resolve_ref_certain` does, unless it sees Base Application.
+    /// is not a candidate (corpus recordref-fieldref/fieldref/TestRelationTargetNameCollision.al). The file of a
+    /// workspace app resolves it the same way when no app it could see is absent: when it sees Base Application, or
+    /// when every app it could see is loaded ([`no_app_absent`](Self::no_app_absent)). The name then means what it
+    /// means to the compiler: its own namespace, its usings (TestRelationTargetNamespaceScope.al:235, a table of the app
+    /// reached through a using), the global namespace, and a unique match in any namespace only from a file without a
+    /// namespace (types/PZMisc.al:27, :31 `Field."No."` and metadata/CmInstallObjects.al:217 `AllObj."Object ID"`, a
+    /// platform table named from a file without namespace or using). A file with a namespace does not reach a table of
+    /// another namespace without a using (must-not-compile 2081-namespace-record-integer-without-using.al, AL0185).
+    /// Otherwise it resolves as `resolve_ref_certain` does.
     pub fn resolve_relation_target(&self, file: usize, kind: ObjKind, parts: &[String]) -> Resolution {
-        if self.kinds[self.files[file].app] == AppKind::Dependency || self.sees_base_application(self.files[file].app) {
-            self.resolve_ref(file, kind, parts)
+        let app = self.files[file].app;
+        if self.kinds[app] == AppKind::Dependency || self.sees_base_application(app) || self.no_app_absent(app) {
+            self.resolve_in_scope(file, kind, parts, Tiers::Relation, true)
         } else {
             self.resolve_ref_certain(file, kind, parts)
         }
@@ -1306,9 +1402,10 @@ impl Workspace {
         file: usize,
         kind: ObjKind,
         parts: &[String],
-        certain_only: bool,
+        tiers: Tiers,
         check_usable: bool,
     ) -> Resolution {
+        let certain_only = tiers == Tiers::Certain;
         let f = &self.files[file];
         let visible = |i: &usize| {
             self.visible[f.app].contains(&self.objects[*i].app)
@@ -1370,7 +1467,11 @@ impl Workspace {
             } else {
                 in_ns(&None)
             },
-            if certain_only { Vec::new() } else { cands.clone() },
+            if certain_only || (tiers == Tiers::Relation && !no_ns) {
+                Vec::new()
+            } else {
+                cands.clone()
+            },
         ];
         for tier in tiers {
             if !tier.is_empty() {
@@ -1392,16 +1493,25 @@ impl Workspace {
     /// no namespace and no `using`, `TableRelation = "Dimension Set Entry"`: Base Application's table and Power BI
     /// Report embeddings' removed table 36950 of that name).
     fn pick_real(&self, tier: Vec<usize>) -> Resolution {
+        pick(self.without_moved_stubs(tier))
+    }
+
+    /// The candidates of `tier` without the stubs that give way (see [`Self::pick_real`]): unchanged when it holds one candidate
+    /// or only stubs.
+    fn without_moved_stubs(&self, tier: Vec<usize>) -> Vec<usize> {
         let moved = |i: &usize| {
             self.objects[*i].scanned_properties.iter().any(|(n, v)| {
                 n.eq_ignore_ascii_case("ObsoleteState")
                     && (v.trim().eq_ignore_ascii_case("Moved") || v.trim().eq_ignore_ascii_case("Removed"))
             })
         };
+        // A workspace table that is the moved stub of its dependency's table gives way the same way
+        // (`moved_table_of_dependency`, assumption `moved-table-stub-of-dependency`).
+        let moved = |i: &usize| moved(i) || self.moved_table_of_dependency(*i).is_some();
         if tier.len() > 1 && tier.iter().any(|i| !moved(i)) {
-            return pick(tier.into_iter().filter(|i| !moved(i)).collect());
+            return tier.into_iter().filter(|i| !moved(i)).collect();
         }
-        pick(tier)
+        tier
     }
 
     /// Looks an object up by kind and name (case-insensitive) or by numeric id text.
@@ -1708,1202 +1818,4 @@ fn visible_from(apps: &[&AppSource], start: usize) -> BTreeSet<usize> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The search finds a word that starts, ends or sits alone in the text, and does not run past either end when the
-    /// letter it scans for is near an end.
-    #[test]
-    fn the_word_search_handles_the_ends_of_the_text() {
-        for text in [
-            "",
-            "x",
-            "xx",
-            "maxlength",
-            "MAXLENGTH",
-            "axlength",
-            "maxlengt",
-            "xmaxlength",
-            "maxlengthx",
-            "xxmaxlengthxx",
-        ] {
-            let naive = text.as_bytes().windows(9).any(|w| w.eq_ignore_ascii_case(b"maxlength"));
-            assert_eq!(names_max_length_in(text.as_bytes()), naive, "{text:?}");
-        }
-        assert!(names_access_by_permission_in(b"AccessByPermission"));
-        assert!(!names_access_by_permission_in(b"ccessByPermission"));
-        assert!(!names_access_by_permission_in(b"b"));
-    }
-
-    /// The search for `maxlength` finds it in any case and anywhere, as the plain window search did.
-    #[test]
-    fn max_length_is_found_in_any_case_anywhere() {
-        let naive = |b: &[u8]| b.windows(9).any(|w| w.eq_ignore_ascii_case(b"maxlength"));
-        for text in [
-            "",
-            "maxlength",
-            "MaxLength",
-            "MAXLENGTH",
-            "xmaxlengthx",
-            "field(1; A; Text[30]) { MaxLength = 5; }",
-            "maxlengt",
-            "maxlengthmaxlength",
-            "mmaxlength",
-            "MaxLengt",
-            "m",
-            "ma xlength",
-            "axlength",
-            "mmmmmmmmm",
-        ] {
-            assert_eq!(names_max_length_in(text.as_bytes()), naive(text.as_bytes()), "{text:?}");
-        }
-        assert!(names_max_length_in(b"aaaaaaaaaaaaaaaaaaaaaaMaXlEnGtH"));
-    }
-
-    /// The search for `accessbypermission` finds it in any case and anywhere, as the plain window search does.
-    #[test]
-    fn access_by_permission_is_found_in_any_case_anywhere() {
-        let naive = |b: &[u8]| b.windows(18).any(|w| w.eq_ignore_ascii_case(b"accessbypermission"));
-        for text in [
-            "",
-            "accessbypermission",
-            "AccessByPermission = tabledata X = R;",
-            "ACCESSBYPERMISSION",
-            "xaccessbypermissionx",
-            "accessbypermissio",
-            "aaccessbypermission",
-            "access by permission",
-            "a",
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        ] {
-            assert_eq!(
-                names_access_by_permission_in(text.as_bytes()),
-                naive(text.as_bytes()),
-                "{text:?}"
-            );
-        }
-    }
-
-    /// A parse is a function of the text. When a dependency file fails to parse, it is parsed once more
-    /// (a fresh token cache, a fresh expansion); a second result that differs is a defect somewhere (a
-    /// race, a torn read of the archive) and is reported with both texts, and the clean parse is kept.
-    #[test]
-    fn a_second_parse_that_differs_is_reported_and_the_clean_one_is_kept() {
-        let bad = Attempt {
-            green: 1,
-            problem: Some("f.al:7: expected `;` (`oAdd`)".into()),
-        };
-        let good = Attempt {
-            green: 2,
-            problem: None,
-        };
-        let (kept, flake) = settle(bad, || good);
-        assert_eq!(kept.green, 2);
-        assert!(kept.problem.is_none());
-        let flake = flake.expect("the two parses differ");
-        assert!(
-            flake.contains("oAdd") && flake.contains("parsed again") && flake.contains("clean"),
-            "{flake}"
-        );
-    }
-
-    #[test]
-    fn a_failure_that_repeats_is_the_files_own_and_is_not_a_flake() {
-        let bad = || Attempt {
-            green: 1,
-            problem: Some("f.al:7: expected `;` (`x`)".into()),
-        };
-        let (kept, flake) = settle(bad(), bad);
-        assert_eq!(kept.problem.as_deref(), Some("f.al:7: expected `;` (`x`)"));
-        assert!(flake.is_none());
-        // A clean first parse is never parsed again.
-        let (kept, flake) = settle(
-            Attempt {
-                green: 3,
-                problem: None,
-            },
-            || panic!("no second parse"),
-        );
-        assert_eq!(kept.green, 3);
-        assert!(flake.is_none());
-    }
-
-    fn app(id: &str, deps: &[&str], files: &[(&str, &str)]) -> AppSource {
-        AppSource {
-            id: id.into(),
-            name: id.into(),
-            dependencies: deps.iter().map(|d| d.to_string()).collect(),
-            files: files.iter().map(|(p, s)| (p.to_string(), s.to_string())).collect(),
-        }
-    }
-
-    fn load(apps: Vec<AppSource>) -> Workspace {
-        Workspace::load(apps, &al_version::corpus_symbols(27))
-    }
-
-    fn codes(ws: &Workspace) -> Vec<(&'static str, String)> {
-        ws.diagnostics.iter().map(|d| (d.code, d.message.clone())).collect()
-    }
-
-    #[test]
-    fn a_table_moved_to_another_app_does_not_make_its_name_ambiguous() {
-        // Base Application 27.5 keeps `table 230 "Source Code"` with `ObsoleteState = Moved` while
-        // Business Foundation declares the live one; `Record "Source Code"` in Company-Initialize
-        // names the live table.
-        let live = app(
-            "foundation",
-            &[],
-            &[(
-                "sc.al",
-                "namespace Microsoft.Foundation.AuditCodes; table 230 \"Source Code\" { fields { field(1; Code; Code[10]) { } } }",
-            )],
-        );
-        let old = app(
-            "base",
-            &["foundation"],
-            &[
-                (
-                    "sc.al",
-                    "namespace Microsoft.Foundation.AuditCodes; table 230 \"Source Code\" { ObsoleteState = Moved; MovedTo = 'f3552374'; fields { field(1; Code; Code[10]) { } } }",
-                ),
-                (
-                    "ci.al",
-                    "namespace Microsoft.Foundation.Company; using Microsoft.Foundation.AuditCodes; codeunit 2 CI { var S: Record \"Source Code\"; }",
-                ),
-            ],
-        );
-        let ws = Workspace::load_apps(
-            vec![live, old],
-            vec![AppKind::Dependency, AppKind::Dependency],
-            &al_version::corpus_symbols(27),
-        );
-        let file = ws.objects.iter().find(|o| o.name == "CI").unwrap().file;
-        match ws.resolve_ref(file, ObjKind::Table, &["Source Code".to_string()]) {
-            Resolution::Found(i) => assert_eq!(ws.apps[ws.objects[i].app].id, "foundation"),
-            other => panic!("{other:?}"),
-        }
-    }
-
-    #[test]
-    fn run_time_resolution_only_trusts_tiers_no_absent_app_could_shadow() {
-        // corpus recordref-fieldref/fieldref/TestRelationOwnNamespaceDependency.al, TestRelationTargetNamespaceScope.al:
-        // a workspace table must not stand in for a Base Application one that is not here.
-        let ws = load(vec![app(
-            "a",
-            &[],
-            &[
-                ("t.al", "namespace Imported; table 50900 \"Agent\" { }"),
-                ("g.al", "table 50901 \"Global Agent\" { }"),
-                ("own.al", "namespace Own; table 50902 \"Own Agent\" { }"),
-                ("c1.al", "namespace Own; using Imported; codeunit 60100 C1 { }"),
-                ("c2.al", "using Imported; codeunit 60101 C2 { }"),
-                ("c3.al", "codeunit 60102 C3 { }"),
-                ("c4.al", "namespace Other; codeunit 60103 C4 { }"),
-            ],
-        )]);
-        let file = |name: &str| ws.objects.iter().find(|o| o.name == name).unwrap().file;
-        let found = |r: Resolution| matches!(r, Resolution::Found(_));
-        let one = |n: &str| vec![n.to_string()];
-        // The ordinary compile-time resolution finds each of them.
-        assert!(found(ws.resolve_ref(file("C1"), ObjKind::Table, &one("Agent"))));
-        // Own namespace: certain.
-        assert!(found(ws.resolve_ref_certain(
-            file("C1"),
-            ObjKind::Table,
-            &one("Own Agent")
-        )));
-        // A `using` hit under a namespaced file could be shadowed by a Base Application table of the
-        // file's own namespace: not certain. Without a namespace of its own it is.
-        assert!(!found(ws.resolve_ref_certain(
-            file("C1"),
-            ObjKind::Table,
-            &one("Agent")
-        )));
-        assert!(found(ws.resolve_ref_certain(file("C2"), ObjKind::Table, &one("Agent"))));
-        // A global table is only certain for a file with neither namespace nor usings.
-        assert!(!found(ws.resolve_ref_certain(
-            file("C2"),
-            ObjKind::Table,
-            &one("Global Agent")
-        )));
-        assert!(found(ws.resolve_ref_certain(
-            file("C3"),
-            ObjKind::Table,
-            &one("Global Agent")
-        )));
-        assert!(!found(ws.resolve_ref_certain(
-            file("C4"),
-            ObjKind::Table,
-            &one("Global Agent")
-        )));
-        // Qualified names are exact.
-        assert!(found(ws.resolve_ref_certain(
-            file("C4"),
-            ObjKind::Table,
-            &["Imported".to_string(), "Agent".to_string()]
-        )));
-    }
-
-    #[test]
-    fn with_base_application_loaded_a_using_resolves_a_relation_target() {
-        // corpus recordref-fieldref/fieldref/TestRelationTargetNamespaceScope.al RelationScope_Usings_*: a table in a
-        // file with a namespace, naming "Shipping Agent" with `using Microsoft.Foundation.Shipping`,
-        // relates to Base Application's table 291. Base Application is here, so the tiers above the
-        // using can be told to hold nothing (the same holds for the name written in Base
-        // Application's own files, which resolve among the apps they saw).
-        let base = app(
-            "Base Application",
-            &[],
-            &[(
-                "sa.al",
-                "namespace Microsoft.Foundation.Shipping; table 291 \"Shipping Agent\" { }",
-            )],
-        );
-        let mine = app(
-            "mine",
-            &["Base Application"],
-            &[(
-                "c.al",
-                "namespace Mine.Scope; using Microsoft.Foundation.Shipping; codeunit 60100 C1 { }",
-            )],
-        );
-        let ws = Workspace::load_apps(
-            vec![base, mine],
-            vec![AppKind::Dependency, AppKind::Workspace],
-            &al_version::corpus_symbols(27),
-        );
-        let file = ws.objects.iter().find(|o| o.name == "C1").unwrap().file;
-        let name = vec!["Shipping Agent".to_string()];
-        assert!(matches!(
-            ws.resolve_relation_target(file, ObjKind::Table, &name),
-            Resolution::Found(_)
-        ));
-        // Without Base Application a hit under a using stays uncertain (the test above).
-        let alone = Workspace::load(
-            vec![app(
-                "mine",
-                &[],
-                &[
-                    (
-                        "t.al",
-                        "namespace Microsoft.Foundation.Shipping; table 291 \"Shipping Agent\" { }",
-                    ),
-                    (
-                        "c.al",
-                        "namespace Mine.Scope; using Microsoft.Foundation.Shipping; codeunit 60100 C1 { }",
-                    ),
-                ],
-            )],
-            &al_version::corpus_symbols(27),
-        );
-        let file = alone.objects.iter().find(|o| o.name == "C1").unwrap().file;
-        assert!(!matches!(
-            alone.resolve_relation_target(file, ObjKind::Table, &name),
-            Resolution::Found(_)
-        ));
-    }
-
-    /// Issue 15: one eager run of Microsoft's apps reported a parse error in a report that parsed fine in every
-    /// other run (a stray token next to a synthetic column routine). A parse is a function of the text, so
-    /// many threads parsing many files with synthetic routines must agree with one thread, every time. Not
-    /// a reproduction (the failure did not repeat in 36 runs); the guard against it.
-    #[test]
-    fn parsing_report_and_page_files_in_parallel_gives_the_same_trees_as_parsing_them_alone() {
-        let report = |i: usize| {
-            format!(
-                "report {} R{i} {{ ProcessingOnly = true; dataset {{ dataitem(A; Integer) {{ column(Num; Number) {{ }} column(Twice; Number * 2) {{ }} dataitem(B; Integer) {{ column(Inner; Number + {i}) {{ }} }} }} }} \
-                 requestpage {{ layout {{ area(Content) {{ field(F; Opt) {{ ApplicationArea = All; Visible = Opt > {i}; }} }} }} }} var Opt: Integer; }}",
-                60000 + i
-            )
-        };
-        let page = |i: usize| {
-            format!(
-                "page {} P{i} {{ PageType = Card; layout {{ area(Content) {{ field(F; Opt) {{ ApplicationArea = All; Editable = Opt > {i}; Caption = 'x'; }} }} }} var Opt: Integer; }}",
-                61000 + i
-            )
-        };
-        let files: Vec<(String, String)> = (0..120)
-            .map(|i| (format!("f{i:03}.al"), if i % 2 == 0 { report(i) } else { page(i) }))
-            .collect();
-        let dep = AppSource {
-            id: "d".into(),
-            name: "d".into(),
-            dependencies: vec![],
-            files,
-        };
-        let parse_all = |parallel: bool| {
-            let ws = Workspace::load_apps(
-                vec![dep.clone()],
-                vec![AppKind::Dependency],
-                &al_version::corpus_symbols(27),
-            );
-            let ids: Vec<usize> = (0..ws.files.len()).collect();
-            if parallel {
-                ids.par_iter().for_each(|&fi| {
-                    ws.green(fi);
-                });
-            }
-            let trees: Vec<String> = ids.iter().map(|&fi| format!("{:?}", ws.green(fi))).collect();
-            let synthetic: Vec<usize> = ids.iter().map(|&fi| ws.synthetic(fi).len()).collect();
-            assert!(ws.lazy_parse_problems().is_empty(), "{:?}", ws.lazy_parse_problems());
-            assert!(ws.parse_flakes().is_empty(), "{:?}", ws.parse_flakes());
-            (trees, synthetic)
-        };
-        let alone = parse_all(false);
-        assert!(alone.1.iter().all(|&n| n > 0), "every file has synthetic routines");
-        for round in 0..40 {
-            assert!(
-                parse_all(true) == alone,
-                "round {round}: a parallel parse differs from a serial one"
-            );
-        }
-    }
-
-    #[test]
-    fn files_objects_and_diagnostics_keep_input_order_with_parallel_parsing() {
-        // Many files so that rayon really splits the work; a parse error and a
-        // duplicate id are planted in the middle and must be reported in file order.
-        let mut files: Vec<(String, String)> = (0..200)
-            .map(|i| (format!("f{i:03}.al"), format!("codeunit {} C{i} {{ }}", 50000 + i)))
-            .collect();
-        files[100].1 = "codeunit 50100 C100 { procedure ( }".into();
-        files[150].1 = "codeunit 50007 Dup { }".into();
-        let a = AppSource {
-            id: "a".into(),
-            name: "a".into(),
-            dependencies: vec![],
-            files,
-        };
-        let b = app("b", &["a"], &[("z.al", "codeunit 60000 Z { }")]);
-        let ws = load(vec![a.clone(), b.clone()]);
-        let paths: Vec<_> = ws.files.iter().map(|f| f.path.as_str()).collect();
-        let want: Vec<String> = a.files.iter().chain(&b.files).map(|f| f.0.clone()).collect();
-        assert_eq!(paths, want.iter().map(String::as_str).collect::<Vec<_>>());
-        let names: Vec<_> = ws.objects.iter().map(|o| o.name.as_str()).collect();
-        assert_eq!(names[..3], ["C0", "C1", "C2"]);
-        assert_eq!(names.last(), Some(&"Z"));
-        let diag_files: Vec<_> = ws.diagnostics.iter().map(|d| d.file.as_str()).collect();
-        let mut sorted = diag_files.clone();
-        sorted.sort();
-        assert_eq!(diag_files, sorted, "diagnostics come in file order");
-        assert!(diag_files.contains(&"f100.al") && diag_files.contains(&"f150.al"));
-        // Loading is deterministic.
-        let again = load(vec![a, b]);
-        assert_eq!(codes(&ws), codes(&again));
-        assert_eq!(
-            ws.objects.iter().map(|o| (o.file, o.offset)).collect::<Vec<_>>(),
-            again.objects.iter().map(|o| (o.file, o.offset)).collect::<Vec<_>>()
-        );
-    }
-
-    #[test]
-    fn reference_diagnostics_keep_object_then_source_order_over_many_files() {
-        // `resolve_references` runs per object on all cores (owner decision 2026-10-15, ADR-026
-        // option 4). The list of diagnostics must be the list a serial loop gives: files in input
-        // order, within a file by offset, and several diagnostics of one object in the order of
-        // `extends`, `implements`, then type references in source order.
-        let files: Vec<(String, String)> = (0..300)
-            .map(|i| {
-                (
-                    format!("f{i:03}.al"),
-                    format!(
-                        "codeunit {} C{i} implements MissingI{i} {{ var R: Record MissingT{i}; L: List of [Codeunit MissingC{i}]; \
-                         procedure P(x: Page MissingP{i}) begin end; }}\n\
-                         tableextension {} E{i} extends MissingBase{i} {{ }}",
-                        50000 + i,
-                        70000 + i
-                    ),
-                )
-            })
-            .collect();
-        let mut want = Vec::new();
-        for i in 0..300 {
-            for (kind, name) in [
-                ("interface", format!("MissingI{i}")),
-                ("table", format!("MissingT{i}")),
-                ("codeunit", format!("MissingC{i}")),
-                ("page", format!("MissingP{i}")),
-                ("table", format!("MissingBase{i}")),
-            ] {
-                want.push(("AR0002", format!("unresolved {kind} `{name}`")));
-            }
-        }
-        let a = AppSource {
-            id: "a".into(),
-            name: "a".into(),
-            dependencies: vec![],
-            files,
-        };
-        for round in 0..10 {
-            let ws = load(vec![a.clone()]);
-            assert_eq!(codes(&ws), want, "round {round}");
-            let offsets: Vec<_> = ws.diagnostics.iter().map(|d| (d.file.clone(), d.offset)).collect();
-            let mut sorted = offsets.clone();
-            sorted.sort();
-            assert_eq!(offsets, sorted);
-        }
-    }
-
-    #[test]
-    fn finds_objects_by_name_case_insensitively_and_by_id() {
-        let ws = load(vec![app("a", &[], &[("t.al", "table 50900 \"ALT Universal\" { }")])]);
-        assert_eq!(
-            ws.find(ObjKind::Table, "alt universal"),
-            Some(("ALT Universal".into(), Some(50900)))
-        );
-        assert_eq!(
-            ws.find(ObjKind::Table, "50900"),
-            Some(("ALT Universal".into(), Some(50900)))
-        );
-        assert_eq!(ws.find(ObjKind::Codeunit, "ALT Universal"), None);
-    }
-
-    #[test]
-    fn resolved_type_references_produce_no_diagnostics() {
-        let ws = load(vec![app(
-            "a",
-            &[],
-            &[
-                ("t.al", "table 50900 \"ALT Universal\" { }"),
-                (
-                    "c.al",
-                    "codeunit 60100 T { var R: Record \"ALT Universal\"; L: List of [Integer]; procedure P(x: Codeunit T) begin end; }",
-                ),
-            ],
-        )]);
-        assert_eq!(codes(&ws), vec![]);
-    }
-
-    #[test]
-    fn unresolved_object_reference_is_diagnosed() {
-        let ws = load(vec![app(
-            "a",
-            &[],
-            &[("c.al", "codeunit 1 C { var R: Record Customer; }")],
-        )]);
-        assert_eq!(codes(&ws), vec![("AR0002", "unresolved table `Customer`".to_string())]);
-    }
-
-    #[test]
-    fn references_inside_routines_and_nested_type_args_are_checked() {
-        let ws = load(vec![app(
-            "a",
-            &[],
-            &[(
-                "c.al",
-                "codeunit 1 C { procedure P(): Record X var L: List of [Codeunit Y]; begin end; }",
-            )],
-        )]);
-        assert_eq!(
-            codes(&ws),
-            vec![
-                ("AR0002", "unresolved table `X`".to_string()),
-                ("AR0002", "unresolved codeunit `Y`".to_string())
-            ]
-        );
-    }
-
-    #[test]
-    fn objects_of_a_dependency_are_visible_but_not_the_reverse() {
-        let ws = load(vec![
-            app("base", &[], &[("t.al", "table 1 T { var C: Codeunit Top; }")]),
-            app("top", &["base"], &[("c.al", "codeunit 2 Top { var R: Record T; }")]),
-        ]);
-        assert_eq!(codes(&ws), vec![("AR0002", "unresolved codeunit `Top`".to_string())]);
-    }
-
-    #[test]
-    fn duplicate_object_ids_and_names_are_diagnosed() {
-        let ws = load(vec![app(
-            "a",
-            &[],
-            &[("x.al", "codeunit 1 A { }\ncodeunit 1 B { }\ncodeunit 2 a { }")],
-        )]);
-        assert_eq!(
-            codes(&ws),
-            vec![
-                ("AR0001", "duplicate codeunit id 1".to_string()),
-                ("AR0001", "duplicate codeunit name `a`".to_string())
-            ]
-        );
-    }
-
-    #[test]
-    fn extends_and_implements_are_resolved() {
-        let ws = load(vec![app(
-            "a",
-            &[],
-            &[(
-                "x.al",
-                "interface I { }\nenum 1 E implements I, J { }\ntableextension 2 X extends Missing { }",
-            )],
-        )]);
-        assert_eq!(
-            codes(&ws),
-            vec![
-                ("AR0002", "unresolved interface `J`".to_string()),
-                ("AR0002", "unresolved table `Missing`".to_string())
-            ]
-        );
-    }
-
-    #[test]
-    fn namespace_qualified_reference_resolves_in_that_namespace() {
-        let ws = load(vec![app(
-            "a",
-            &[],
-            &[
-                ("b.al", "namespace System.Utilities;\ncodeunit 1 \"Temp Blob\" { }"),
-                (
-                    "u.al",
-                    "codeunit 2 U { var B: Codeunit System.Utilities.\"Temp Blob\"; }",
-                ),
-            ],
-        )]);
-        assert_eq!(codes(&ws), vec![]);
-    }
-
-    #[test]
-    fn qualified_reference_does_not_fall_back_to_an_object_without_namespace() {
-        let ws = load(vec![app(
-            "a",
-            &[],
-            &[(
-                "x.al",
-                "codeunit 1 \"Temp Blob\" { }\ncodeunit 2 U { var B: Codeunit System.Utilities.\"Temp Blob\"; }",
-            )],
-        )]);
-        assert_eq!(
-            codes(&ws),
-            vec![("AR0002", "unresolved codeunit `System.Utilities.Temp Blob`".to_string())]
-        );
-    }
-
-    #[test]
-    fn namespace_qualified_reference_to_a_name_containing_a_dot() {
-        let ws = load(vec![app(
-            "a",
-            &[],
-            &[
-                ("t.al", "namespace A.B;\ntable 1 \"Config. Package Table\" { }"),
-                ("u.al", "codeunit 2 U { var R: Record A.B.\"Config. Package Table\"; }"),
-            ],
-        )]);
-        assert_eq!(codes(&ws), vec![]);
-    }
-
-    fn lazy_ws() -> Workspace {
-        let dep = app(
-            "dep",
-            &[],
-            &[
-                (
-                    "Dep/cust.al",
-                    "namespace Dep.Sales;\ntable 18 Customer { fields { field(1; \"No.\"; Code[20]) { } } }",
-                ),
-                ("Dep/item.al", "namespace Dep.Inv;\ntable 27 Item { }"),
-                (
-                    "Dep/ext.al",
-                    "namespace Dep.Sales;\ntableextension 50 \"Cust Ext\" extends Customer { }",
-                ),
-                (
-                    "Dep/sub.al",
-                    "codeunit 60 Subs { [EventSubscriber(ObjectType::Table, Database::Customer, 'OnAfterInsertEvent', '', false, false)] local procedure A() begin end; }",
-                ),
-                ("Dep/impl.al", "codeunit 61 Impl implements \"Dep I\" { }"),
-                (
-                    "Dep/broken.al",
-                    "table 70 Broken { fields { field(1; F; Integer) { } } procedure P( begin end; }",
-                ),
-            ],
-        );
-        let main = app(
-            "main",
-            &["dep"],
-            &[("m.al", "codeunit 1 M { var C: Record Customer; }")],
-        );
-        Workspace::load_apps(
-            vec![main, dep],
-            vec![AppKind::Workspace, AppKind::Dependency],
-            &["BC27PLUS".to_string()].into(),
-        )
-    }
-
-    #[test]
-    fn dependency_files_are_scanned_at_load_and_parsed_on_first_use() {
-        let ws = lazy_ws();
-        let file = |p: &str| ws.files.iter().position(|f| f.path == p).unwrap();
-        assert!(
-            ws.files[file("m.al")].green.get().is_some(),
-            "workspace files parse at load"
-        );
-        // The index knows every object, with its namespace.
-        let customer = ws.objects.iter().position(|o| o.name == "Customer").unwrap();
-        assert_eq!(ws.objects[customer].namespace.as_deref(), Some("Dep.Sales"));
-        assert_eq!(ws.objects[customer].id, Some(18));
-        // The workspace's own reference to Customer resolved without a diagnostic. That parsed
-        // the file of Customer and no other.
-        assert_eq!(ws.diagnostics, vec![]);
-        assert!(ws.files[file("Dep/cust.al")].green.get().is_some());
-        for p in [
-            "Dep/item.al",
-            "Dep/ext.al",
-            "Dep/sub.al",
-            "Dep/impl.al",
-            "Dep/broken.al",
-        ] {
-            assert!(ws.files[file(p)].green.get().is_none(), "{p} is only scanned");
-        }
-    }
-
-    /// A compile of a run that nobody edits drops the parse trees once it is lowered (al-testrun
-    /// `compile_within_limit`); what still needs a tree parses its file again and gets the same tree.
-    #[test]
-    fn dropped_trees_are_parsed_again_the_same() {
-        let mut ws = lazy_ws();
-        let all: Vec<usize> = (0..ws.files.len()).collect();
-        let trees = |ws: &Workspace| all.iter().map(|&fi| format!("{:?}", ws.green(fi))).collect::<Vec<_>>();
-        let found = |ws: &Workspace| {
-            all.iter()
-                .map(|&fi| (ws.file_problem(fi).map(str::to_string), ws.synthetic(fi).to_vec()))
-                .collect::<Vec<_>>()
-        };
-        let before = trees(&ws);
-        let found_before = found(&ws);
-        ws.drop_trees();
-        assert!(ws.files.iter().all(|f| f.green.get().is_none()), "no tree is kept");
-        // What the first parse found besides the tree is kept: reading it parses nothing.
-        assert_eq!(found(&ws), found_before);
-        assert!(
-            ws.files.iter().all(|f| f.green.get().is_none()),
-            "reading what a parse found parses nothing"
-        );
-        assert_eq!(trees(&ws), before);
-    }
-
-    #[test]
-    fn extensions_and_subscribers_are_found_from_the_index() {
-        let ws = lazy_ws();
-        let ix = |n: &str| ws.objects.iter().position(|o| o.name == n).unwrap();
-        assert_eq!(ws.extension_target(ix("Cust Ext")), Some(ix("Customer")));
-        assert_eq!(ws.extensions_of(ix("Customer")), [ix("Cust Ext")]);
-        assert_eq!(ws.extension_target(ix("Customer")), None);
-        let subs = ws.subscribers_of(ix("Customer"));
-        assert_eq!(subs.len(), 1);
-        assert_eq!(subs[0].0, ix("Subs"));
-        assert_eq!(ws.objects[subs[0].0].subscribers[subs[0].1].event, "OnAfterInsertEvent");
-        assert_eq!(ws.implementers_of("Dep I"), [ix("Impl")]);
-        assert!(ws.subscribers_of(ix("Item")).is_empty());
-    }
-
-    #[test]
-    fn a_dependency_object_whose_file_does_not_parse_is_unusable_and_says_why() {
-        let ws = lazy_ws();
-        let broken = ws.objects.iter().position(|o| o.name == "Broken").unwrap();
-        assert!(!ws.usable(broken));
-        let why = ws.unusable_reason(broken).unwrap();
-        assert!(why.contains("Dep/broken.al") && why.contains("does not parse"), "{why}");
-        // A reference to it resolves to nothing rather than to half a table.
-        let fi = ws.files.iter().position(|f| f.path == "m.al").unwrap();
-        assert_eq!(
-            ws.resolve_ref(fi, ObjKind::Table, &["Broken".to_string()]),
-            Resolution::Missing
-        );
-        assert!(ws.lazy_parse_problems().iter().any(|(p, _)| p == "Dep/broken.al"));
-        // The healthy objects are unaffected.
-        let customer = ws.objects.iter().position(|o| o.name == "Customer").unwrap();
-        assert!(ws.usable(customer));
-        assert_eq!(ws.unusable_reason(customer), None);
-    }
-
-    #[test]
-    fn clashes_between_dependency_objects_are_not_reported() {
-        let ws = Workspace::load_apps(
-            vec![app(
-                "d",
-                &[],
-                &[("a.al", "codeunit 1 A { }\ncodeunit 1 B { }\ncodeunit 2 a { }")],
-            )],
-            vec![AppKind::Dependency],
-            &Default::default(),
-        );
-        assert_eq!(ws.diagnostics, vec![]);
-    }
-
-    fn resolved(ws: &Workspace, file: &str, kind: ObjKind, parts: &[&str]) -> Option<(Option<String>, u32)> {
-        let fi = ws.files.iter().position(|f| f.path == file).unwrap();
-        let parts: Vec<String> = parts.iter().map(|p| p.to_string()).collect();
-        match ws.resolve_ref(fi, kind, &parts) {
-            Resolution::Found(i) => Some((ws.objects[i].namespace.clone(), ws.objects[i].id.unwrap())),
-            _ => None,
-        }
-    }
-
-    fn ns_app() -> Workspace {
-        load(vec![app(
-            "a",
-            &[],
-            &[
-                (
-                    "local.al",
-                    "namespace X.Local;\ntable 1 \"Ship\" { }\ntable 4 \"Only Local\" { }",
-                ),
-                ("base.al", "namespace X.Base;\ntable 2 \"Ship\" { }"),
-                ("global.al", "table 3 \"Glob\" { }"),
-                ("user_local.al", "namespace X.Local;\ncodeunit 10 A { }"),
-                ("user_using.al", "namespace X.Other;\nusing X.Base;\ncodeunit 11 B { }"),
-                ("user_none.al", "codeunit 12 C { }"),
-            ],
-        )])
-    }
-
-    #[test]
-    fn qualified_reference_resolves_only_in_the_named_namespace() {
-        let ws = ns_app();
-        assert_eq!(
-            resolved(&ws, "user_none.al", ObjKind::Table, &["X", "Base", "Ship"]),
-            Some((Some("X.Base".into()), 2))
-        );
-        assert_eq!(
-            resolved(&ws, "user_none.al", ObjKind::Table, &["X", "Local", "Ship"]),
-            Some((Some("X.Local".into()), 1))
-        );
-        assert_eq!(
-            resolved(&ws, "user_none.al", ObjKind::Table, &["X", "Base", "Only Local"]),
-            None
-        );
-    }
-
-    #[test]
-    fn unqualified_reference_prefers_the_own_namespace_then_usings() {
-        let ws = ns_app();
-        assert_eq!(
-            resolved(&ws, "user_local.al", ObjKind::Table, &["Ship"]),
-            Some((Some("X.Local".into()), 1))
-        );
-        assert_eq!(
-            resolved(&ws, "user_using.al", ObjKind::Table, &["Ship"]),
-            Some((Some("X.Base".into()), 2))
-        );
-    }
-
-    #[test]
-    fn unqualified_reference_falls_back_to_a_unique_match_anywhere() {
-        // Corpus evidence: files without namespace or using reference Base App
-        // tables such as `Record Customer` (namespace Microsoft.Sales.Customer) and compile.
-        let ws = ns_app();
-        assert_eq!(
-            resolved(&ws, "user_none.al", ObjKind::Table, &["Glob"]),
-            Some((None, 3))
-        );
-        assert_eq!(
-            resolved(&ws, "user_none.al", ObjKind::Table, &["Only Local"]),
-            Some((Some("X.Local".into()), 4))
-        );
-    }
-
-    #[test]
-    fn unqualified_reference_matching_several_namespaces_is_ambiguous() {
-        let ws = ns_app();
-        let fi = ws.files.iter().position(|f| f.path == "user_none.al").unwrap();
-        assert!(matches!(
-            ws.resolve_ref(fi, ObjKind::Table, &["Ship".to_string()]),
-            Resolution::Ambiguous(_)
-        ));
-    }
-
-    #[test]
-    fn qualified_extends_resolves_by_namespace() {
-        let ws = load(vec![app(
-            "a",
-            &[],
-            &[
-                ("p.al", "namespace N.Local;\npage 1 \"Svc\" { }"),
-                (
-                    "e.al",
-                    "pageextension 2 E1 extends N.Local.\"Svc\" { }\npageextension 3 E2 extends N.Other.\"Svc\" { }",
-                ),
-            ],
-        )]);
-        assert_eq!(
-            codes(&ws),
-            vec![("AR0002", "unresolved page `N.Other.Svc`".to_string())]
-        );
-    }
-
-    /// A table that moved between apps stays in the old app as a stub marked `ObsoleteState = Moved`
-    /// (Base Application's "No. Series", which Business Foundation now declares). Microsoft's own
-    /// test libraries compile against both apps, so the name must reach the real table. Nothing in
-    /// the corpus pins this (docs/probes-needed.md, "Probe batch 4").
-    #[test]
-    fn a_moved_stub_does_not_make_the_real_table_ambiguous() {
-        let bf = app(
-            "bf",
-            &[],
-            &[(
-                "t.al",
-                "namespace M.NoSeries; table 308 \"No. Series\" { fields { field(1; Code; Code[20]) { } } }",
-            )],
-        );
-        let base = app(
-            "base",
-            &["bf"],
-            &[(
-                "t.al",
-                "namespace M.NoSeries; table 308 \"No. Series\" { ObsoleteState = Moved; MovedTo = 'x'; \
-                 fields { field(1; Code; Code[20]) { } } }",
-            )],
-        );
-        let lib = app("lib", &["base", "bf"], &[("c.al", "codeunit 131000 \"Lib\" { }")]);
-        let ws = Workspace::load_apps(
-            vec![bf, base, lib],
-            vec![AppKind::Dependency; 3],
-            &al_version::corpus_symbols(27),
-        );
-        let file = ws.objects.iter().find(|o| o.name == "Lib").unwrap().file;
-        let name = vec!["No. Series".to_string()];
-        let Resolution::Found(t) = ws.resolve_ref(file, ObjKind::Table, &name) else {
-            panic!("the moved stub made the name ambiguous");
-        };
-        assert_eq!(ws.apps[ws.objects[t].app].name, "bf");
-        // Both stubs: nothing real to prefer, so it stays ambiguous.
-        let only_stubs = Workspace::load_apps(
-            vec![
-                app("s1", &[], &[("t.al", "table 5 T { ObsoleteState = Moved; }")]),
-                app("s2", &[], &[("t.al", "table 5 T { ObsoleteState = Moved; }")]),
-                app("lib", &["s1", "s2"], &[("c.al", "codeunit 9 \"Lib\" { }")]),
-            ],
-            vec![AppKind::Dependency; 3],
-            &al_version::corpus_symbols(27),
-        );
-        let file = only_stubs.objects.iter().find(|o| o.name == "Lib").unwrap().file;
-        assert!(matches!(
-            only_stubs.resolve_ref(file, ObjKind::Table, &["T".to_string()]),
-            Resolution::Ambiguous(_)
-        ));
-    }
-
-    /// A file with neither namespace nor `using` names a table that two visible apps declare in different
-    /// namespaces, one of them `ObsoleteState = Removed` (Subscription Billing's SubContrAnalysisEntry.Table.al:238
-    /// `TableRelation = "Dimension Set Entry"`: Base Application's table and Power BI Report embeddings' removed
-    /// table 36950 of the same name). A reference to a removed table does not compile (corpus must-not-compile
-    /// 0970-obsolete-removed-table.al, AL0433), and BC compiles the file, so the name means the table that is not
-    /// removed. Two removed candidates stay ambiguous.
-    #[test]
-    fn a_removed_table_does_not_make_the_real_table_ambiguous() {
-        let base = app(
-            "base",
-            &[],
-            &[(
-                "t.al",
-                "namespace M.Finance.Dimension; table 480 \"Dimension Set Entry\" { fields { field(1; Id; Integer) { } } }",
-            )],
-        );
-        let pbi = app(
-            "pbi",
-            &["base"],
-            &[(
-                "t.al",
-                "namespace M.PowerBIReports; table 36950 \"Dimension Set Entry\" { Access = Internal; \
-                 ObsoleteState = Removed; ObsoleteReason = 'r'; ObsoleteTag = '25.0'; fields { field(1; Id; Integer) { } } }",
-            )],
-        );
-        let sub = app(
-            "sub",
-            &["base", "pbi"],
-            &[(
-                "e.al",
-                "table 8019 \"Entry\" { fields { field(1; Id; Integer) { TableRelation = \"Dimension Set Entry\"; } } }",
-            )],
-        );
-        let ws = Workspace::load_apps(
-            vec![base, pbi, sub],
-            vec![AppKind::Dependency; 3],
-            &al_version::corpus_symbols(29),
-        );
-        let file = ws.objects.iter().find(|o| o.name == "Entry").unwrap().file;
-        let name = vec!["Dimension Set Entry".to_string()];
-        let Resolution::Found(t) = ws.resolve_relation_target(file, ObjKind::Table, &name) else {
-            panic!("the removed table made the name ambiguous");
-        };
-        assert_eq!(ws.apps[ws.objects[t].app].name, "base");
-        let only_removed = Workspace::load_apps(
-            vec![
-                app(
-                    "r1",
-                    &[],
-                    &[("t.al", "namespace A; table 5 T { ObsoleteState = Removed; }")],
-                ),
-                app(
-                    "r2",
-                    &[],
-                    &[("t.al", "namespace B; table 6 T { ObsoleteState = Removed; }")],
-                ),
-                app("lib", &["r1", "r2"], &[("c.al", "codeunit 9 \"Lib\" { }")]),
-            ],
-            vec![AppKind::Dependency; 3],
-            &al_version::corpus_symbols(29),
-        );
-        let file = only_removed.objects.iter().find(|o| o.name == "Lib").unwrap().file;
-        assert!(matches!(
-            only_removed.resolve_ref(file, ObjKind::Table, &["T".to_string()]),
-            Resolution::Ambiguous(_)
-        ));
-    }
-
-    #[test]
-    fn parse_errors_are_reported_as_diagnostics() {
-        let ws = load(vec![app("a", &[], &[("x.al", "codeunit 1 A { 42 }")])]);
-        assert_eq!(ws.diagnostics.len(), 1);
-        assert_eq!(ws.diagnostics[0].code, "AR0000");
-    }
-
-    /// Everything a load builds, as text: the maps sorted, so two workspaces compare field by field.
-    fn fingerprint(ws: &Workspace) -> String {
-        fn sorted<K: std::fmt::Debug, V: std::fmt::Debug>(m: &HashMap<K, V>) -> Vec<String> {
-            let mut v: Vec<String> = m.iter().map(|(k, v)| format!("{k:?}={v:?}")).collect();
-            v.sort();
-            v
-        }
-        let files: Vec<String> = ws
-            .files
-            .iter()
-            .map(|f| {
-                format!(
-                    "{} {} {} {} {:?} {:?}",
-                    f.path, f.app, f.file_in_app, f.lazy, f.namespace, f.usings
-                )
-            })
-            .collect();
-        let dotnet: Vec<String> = ws
-            .dotnet
-            .iter()
-            .map(|d| format!("{} {} {:?}", d.app, d.file, d.decl))
-            .collect();
-        format!(
-            "{:?}\n{files:?}\n{dotnet:?}\n{:?}\n{:?}\n{:?}\n{:?}\n{:?}\n{:?}\n{:?}\n{:?}\n{:?}\n{:?}\n{:?}\n{} {} {}",
-            ws.objects,
-            ws.diagnostics,
-            ws.kinds,
-            ws.visible,
-            ws.symbols,
-            ws.ext_target,
-            sorted(&ws.by_name),
-            sorted(&ws.by_id),
-            sorted(&ws.ext_of),
-            sorted(&ws.subscribers_of),
-            sorted(&ws.implementers_of),
-            (sorted(&ws.iface_base), sorted(&ws.iface_derived)),
-            ws.apps.len(),
-            ws.usable_cache.len(),
-            ws.lazy_text.len(),
-        )
-    }
-
-    /// ADR-022 amendment 2026-10-27, decision 2: a workspace grown by `append_apps` equals one loaded with all the apps.
-    #[test]
-    fn a_workspace_grown_by_appended_apps_equals_one_loaded_with_them_all() {
-        let base = app(
-            "base",
-            &[],
-            &[
-                ("t.al", "table 10 Cust { fields { field(1; No; Code[20]) { } } }"),
-                (
-                    "i.al",
-                    "interface IGreet { procedure Hello(): Text; } interface IMore extends IGreet { procedure More(); }",
-                ),
-                ("e.al", "enum 11 Kind { Extensible = true; value(0; None) { } }"),
-                (
-                    "c.al",
-                    "codeunit 12 Pub { [IntegrationEvent(false, false)] procedure OnThing() begin end; }",
-                ),
-            ],
-        );
-        let lib = app(
-            "lib",
-            &["base"],
-            &[(
-                "l.al",
-                "tableextension 20 LibCust extends Cust { fields { field(20; Note; Text[20]) { } } }
-                 codeunit 21 LibGreet implements IGreet { procedure Hello(): Text begin end; }
-                 codeunit 22 LibSub { [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnThing', '', false, false)] local procedure S() begin end; }",
-            )],
-        );
-        let top = app(
-            "top",
-            &["lib", "base"],
-            &[
-                (
-                    "t1.al",
-                    "tableextension 30 TopCust extends Cust { fields { field(30; Top; Text[20]) { } } }
-                     enumextension 31 TopKind extends Kind { value(1; Top) { } }
-                     interface ITop extends IMore { procedure Top(); }",
-                ),
-                (
-                    "t2.al",
-                    "codeunit 32 TopGreet implements IGreet { procedure Hello(): Text begin end; }
-                     codeunit 33 TopSub { [EventSubscriber(ObjectType::Codeunit, 12, 'OnThing', '', false, false)] local procedure S() begin end; }
-                     codeunit 34 Broken { procedure P() begin x := ; end; }",
-                ),
-            ],
-        );
-        let symbols = al_version::corpus_symbols(27);
-        let lib_symbols: BTreeSet<String> = ["LIBSYM".to_string()].into();
-        let all = vec![base.clone(), lib.clone(), top.clone()];
-        let app_symbols = vec![None, Some(lib_symbols.clone()), None];
-        let whole = Workspace::load_apps_symbols(all, vec![AppKind::Dependency; 3], &symbols, &app_symbols, Vec::new());
-        let mut grown = Workspace::load_apps_symbols(vec![base], vec![AppKind::Dependency], &symbols, &[], Vec::new());
-        // Something asked of the smaller workspace, as a layer build does, must not change the result.
-        for i in 0..grown.objects.len() {
-            grown.usable(i);
-        }
-        grown.restrict_to(vec![false; grown.objects.len()]);
-        grown.append_apps(vec![lib], &symbols, &[Some(lib_symbols)]).unwrap();
-        grown.append_apps(vec![top], &symbols, &[]).unwrap();
-        assert_eq!(grown.loaded_files(), whole.loaded_files());
-        assert_eq!(fingerprint(&grown), fingerprint(&whole));
-        assert!(grown.compiled.get().is_none());
-    }
-
-    /// ADR-063: a workspace that holds workspace apps grows by workspace and dependency apps as one loaded with them all.
-    #[test]
-    fn a_workspace_with_workspace_apps_grown_by_apps_of_both_kinds_equals_one_loaded_with_them_all() {
-        let base = app(
-            "base",
-            &[],
-            &[(
-                "b.al",
-                "table 10 Cust { fields { field(1; No; Code[20]) { } } }
-                 codeunit 12 Pub { [IntegrationEvent(false, false)] procedure OnThing() begin end; }",
-            )],
-        );
-        let main = app(
-            "main",
-            &["base"],
-            &[("m.al", "codeunit 50 M { procedure P() var C: Record Cust; begin end; }")],
-        );
-        let extra = app(
-            "extra",
-            &["base"],
-            &[(
-                "x.al",
-                "tableextension 20 XCust extends Cust { fields { field(20; Note; Text[20]) { } } }
-                 codeunit 22 XSub { [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnThing', '', false, false)] local procedure S() begin end; }",
-            )],
-        );
-        let suite = app(
-            "suite",
-            &["main", "extra", "base"],
-            &[(
-                "s.al",
-                "codeunit 60 S { procedure P() var M: Codeunit M; begin y := ; end; }",
-            )],
-        );
-        let symbols = al_version::corpus_symbols(27);
-        let kinds = vec![
-            AppKind::Workspace,
-            AppKind::Dependency,
-            AppKind::Dependency,
-            AppKind::Workspace,
-        ];
-        let whole = Workspace::load_apps_symbols(
-            vec![main.clone(), base.clone(), extra.clone(), suite.clone()],
-            kinds,
-            &symbols,
-            &[],
-            Vec::new(),
-        );
-        let mut grown = Workspace::load_apps_symbols(
-            vec![main, base],
-            vec![AppKind::Workspace, AppKind::Dependency],
-            &symbols,
-            &[],
-            Vec::new(),
-        );
-        grown.restrict_to(vec![false; grown.objects.len()]);
-        grown
-            .append_apps_of(
-                vec![extra, suite],
-                vec![AppKind::Dependency, AppKind::Workspace],
-                &symbols,
-                &[],
-            )
-            .unwrap();
-        assert_eq!(grown.kinds, whole.kinds);
-        assert_eq!(grown.loaded_files(), whole.loaded_files());
-        assert_eq!(fingerprint(&grown), fingerprint(&whole));
-        assert!(grown.compiled.get().is_none());
-    }
-
-    /// ADR-063: a workspace cut back to its first apps equals one loaded with those apps only, and grows again as one.
-    #[test]
-    fn a_workspace_cut_back_to_its_first_apps_equals_one_loaded_with_them() {
-        let base = app(
-            "base",
-            &[],
-            &[(
-                "b.al",
-                "table 10 Cust { fields { field(1; No; Code[20]) { } } }
-                 interface IGreet { procedure Hello(): Text; }
-                 codeunit 12 Pub { [IntegrationEvent(false, false)] procedure OnThing() begin end; }",
-            )],
-        );
-        let main = app(
-            "main",
-            &["base"],
-            &[("m.al", "codeunit 50 M { procedure P() var C: Record Cust; begin end; }")],
-        );
-        let suite = app(
-            "suite",
-            &["main", "base"],
-            &[(
-                "s.al",
-                "tableextension 20 SCust extends Cust { fields { field(20; Note; Text[20]) { } } }
-                 codeunit 21 SGreet implements IGreet { procedure Hello(): Text begin end; }
-                 interface IMore extends IGreet { procedure More(); }
-                 codeunit 22 SSub { [EventSubscriber(ObjectType::Codeunit, Codeunit::Pub, 'OnThing', '', false, false)] local procedure S() begin end; }
-                 dotnet { assembly(mscorlib) { type(System.Text.StringBuilder; SB) { } } }
-                 codeunit 23 Broken { procedure P() begin x := ; end; }",
-            )],
-        );
-        let symbols = al_version::corpus_symbols(27);
-        let two = vec![AppKind::Workspace, AppKind::Dependency];
-        let alone =
-            Workspace::load_apps_symbols(vec![main.clone(), base.clone()], two.clone(), &symbols, &[], Vec::new());
-        let mut cut = Workspace::load_apps_symbols(
-            vec![main.clone(), base.clone(), suite.clone()],
-            vec![AppKind::Workspace, AppKind::Dependency, AppKind::Workspace],
-            &symbols,
-            &[],
-            Vec::new(),
-        );
-        cut.restrict_to(vec![false; cut.objects.len()]);
-        let removed = cut.truncate_apps(2);
-        assert_eq!(removed.len(), 1, "the cut apps are given back");
-        assert_eq!(fingerprint(&cut), fingerprint(&alone));
-        assert!(cut.compiled.get().is_none());
-        cut.append_apps_of(vec![suite.clone()], vec![AppKind::Workspace], &symbols, &[])
-            .unwrap();
-        let whole = Workspace::load_apps_symbols(
-            vec![main, base, suite],
-            vec![AppKind::Workspace, AppKind::Dependency, AppKind::Workspace],
-            &symbols,
-            &[],
-            Vec::new(),
-        );
-        assert_eq!(fingerprint(&cut), fingerprint(&whole));
-    }
-
-    /// An app already loaded that names a dependency only an appended app provides would see more after the append
-    /// than it did: the workspace refuses to grow then, and stays as it was.
-    #[test]
-    fn an_append_that_would_change_what_a_loaded_app_sees_is_refused() {
-        let symbols = al_version::corpus_symbols(27);
-        let early = app("early", &["late"], &[("a.al", "codeunit 1 A { }")]);
-        let mut ws = Workspace::load_apps_symbols(vec![early], vec![AppKind::Dependency], &symbols, &[], Vec::new());
-        let before = fingerprint(&ws);
-        let late = app("late", &[], &[("b.al", "codeunit 2 B { }")]);
-        assert!(ws.append_apps(vec![late], &symbols, &[]).is_err());
-        assert_eq!(fingerprint(&ws), before);
-    }
-}
+mod tests;

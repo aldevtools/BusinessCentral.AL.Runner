@@ -1,0 +1,8 @@
+# key	entry
+# Main answers these on a thread that reads the install baseline back from its bytes, or from the baseline cache: that
+# store did not note the held columns. Head notes them there too, so every thread refuses, as the captured store does.
+HN AeKey FindLast::AeKeyFromBaseline_FindLast	REFUSED store error an order by the field Name of table HN Ae Key
+# HN AeDescription Sorted::AeInOtherColumnFromBaseline_FindLastByThatColumn has no row. Main's result on it depends on
+# the thread count and the baseline cache: it answers on a warm cache or with 4 threads, and refuses on CI's cold runner,
+# as head does. The row is left out to match CI. The thread and cache table in the pull request is the evidence.
+HN AeCode FindLast::AeCodeKeyFromBaseline_FindLast	REFUSED store error an order by the field No. of table HN Ae Code

@@ -77,6 +77,17 @@ impl Session {
         Ok(false)
     }
 
+    /// The rows of the page's view, counted on a copy of its record.
+    pub(super) fn view_row_count(&mut self, st: &St) -> Result<i32, Signal> {
+        let rec = self.page_rec(st);
+        let probe = Rc::new(RefCell::new(rec.borrow().clone()));
+        self.ret_used = true;
+        Ok(match self.record_op(RecordOp::Count, &probe, &mut [])? {
+            Value::Integer(n) => n,
+            _ => 0,
+        })
+    }
+
     /// The rows of the view from its start, up to `limit` of them.
     pub(super) fn view_rows(&mut self, rec: &Rec, limit: usize) -> Result<Vec<Vec<Value>>, Signal> {
         let probe = Rc::new(RefCell::new(rec.borrow().clone()));
@@ -89,7 +100,7 @@ impl Session {
             return Ok(rows);
         }
         loop {
-            rows.push(probe.borrow().fields.clone());
+            rows.push(probe.borrow().fields.to_vec());
             if rows.len() >= limit {
                 return Ok(rows);
             }
@@ -103,13 +114,13 @@ impl Session {
 
     /// Reads row `fields` with OnAfterGetRecord and gives the row the client then holds.
     pub(super) fn read_refilled_row(&mut self, st: &St, rec: &Rec, fields: &[Value]) -> Result<WindowRow, Signal> {
-        rec.borrow_mut().fields = fields.to_vec();
+        rec.borrow_mut().fields = fields.to_vec().into();
         let key = self.row_key(rec)?;
         self.populate_current(st)?;
         Ok(WindowRow {
             key,
             stored: fields.to_vec(),
-            shown: rec.borrow().fields.clone(),
+            shown: rec.borrow().fields.to_vec(),
         })
     }
 
@@ -311,10 +322,10 @@ impl Session {
             s.view_read_to_end = false;
             s.window_read_up = false;
             s.window_top_unread = false;
-            s.read_up_from_last = None;
+            s.read_up_from_last = ReadUpFromLast::Off;
             s.opened_on_moved_rec = false;
             s.settled_first_row = false;
-            s.refresh = false;
+            s.refresh.cancel();
             s.cursor = Cursor::Row;
         }
         Ok(true)
@@ -441,7 +452,7 @@ impl Session {
         // After a host's Update the walk ends without the two reads of the row; Rec is put back on it unread.
         let current = if host_update {
             let shown = held[at].shown.clone();
-            rec.borrow_mut().fields = shown;
+            rec.borrow_mut().fields = shown.into();
             held[at].clone()
         } else {
             self.read_refilled_row(st, &rec, &rows[at])?
@@ -459,10 +470,10 @@ impl Session {
             s.view_read_to_end = false;
             s.window_read_up = false;
             s.window_top_unread = false;
-            s.read_up_from_last = None;
+            s.read_up_from_last = ReadUpFromLast::Off;
             s.opened_on_moved_rec = false;
             s.settled_first_row = false;
-            s.refresh = false;
+            s.refresh.cancel();
             s.cursor = Cursor::Row;
         }
         self.current_record_trigger(st, before)
@@ -511,7 +522,7 @@ impl Session {
     /// OnFindRecord(`which`) of part `st` with Rec on `row`. Pinned for a trigger that finds the row it stands on
     /// (R7099PartFindRecordBoth.al: `exit(Rec.Find(Which))`); one that answers false or moves Rec to another row is refused.
     fn part_find_on_row(&mut self, st: &St, rec: &Rec, row: &[Value], which: &str) -> Result<(), Signal> {
-        rec.borrow_mut().fields = row.to_vec();
+        rec.borrow_mut().fields = row.to_vec().into();
         let held = self.row_key(rec)?;
         let found = self.nav_find(st, which)?;
         if !found || !Self::same_key(&self.row_key(rec)?, &held) {

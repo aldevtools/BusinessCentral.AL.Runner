@@ -141,12 +141,20 @@ impl CheckResult {
         self.skipped.get(oi).copied().unwrap_or(false)
     }
 
-    /// The first diagnostic (in `diagnostics` order) at `offset` of the file at `path` whose code is one of `codes`:
-    /// what a scan of `diagnostics` finds, without the scan (lowering asks once per call it lowers).
-    pub fn diagnostic_at(&self, path: &str, offset: usize, codes: &[&str]) -> Option<&Diagnostic> {
+    /// The first diagnostic (in `diagnostics` order) at `offset` of the file at `path` of `app` whose code is one of
+    /// `codes`: what a scan of `diagnostics` finds, without the scan (lowering asks once per call it lowers).
+    pub fn diagnostic_at(&self, app: usize, path: &str, offset: usize, codes: &[&str]) -> Option<&Diagnostic> {
         self.diag_index
             .get_or_init(|| diag_index::DiagIndex::build(&self.diagnostics))
-            .find(&self.diagnostics, path, offset, codes)
+            .find(&self.diagnostics, app, path, offset, codes)
+    }
+
+    /// The checker's note that refuses the routine spanning `range` of the file at `path` of `app`
+    /// ([`diag_index::ROUTINE_REFUSALS`]), if one lies in it.
+    pub fn routine_refusal(&self, app: usize, path: &str, range: std::ops::Range<usize>) -> Option<&Diagnostic> {
+        self.diag_index
+            .get_or_init(|| diag_index::DiagIndex::build(&self.diagnostics))
+            .routine_refusal(&self.diagnostics, app, path, range)
     }
 
     /// Whether object `oi` was left out by a lean compile (`Roots::lean`).
@@ -209,9 +217,9 @@ pub enum Res {
     DotNetMember(String),
     /// `--tdd` (ADR-051): a call of a procedure the target object does not declare, in a test app. It runs as a stub.
     TddStub(Box<tdd::TddSite>),
-    /// `X` before `::` read as enum type `object` although the implicit Rec has a field `X` of another type
-    /// (al-runner issue 6129, assumption `EnumTypeBeforeRecField`; `infer.rs` `enum_type_before_rec_field`).
-    EnumTypeBeforeRecField(usize),
+    /// `Ns.Sub."Enum"` as the receiver of `FromInteger`: enum `object` named through its namespace (al-runner issue 7920,
+    /// assumption `NamespacedEnumReceiver`; `infer.rs` `member_receiver`).
+    NamespacedEnumReceiver(usize),
     /// A bare name that the record of a `with` statement supplied (corpus events/binding-senders/
     /// WithStatementAmbiguous.al, WithStatementNested.al): `with` is the offset of the `WithStmt` node in its
     /// file, `inner` what the name resolved to as a member of that record. Lowering reads `inner` through
@@ -220,13 +228,19 @@ pub enum Res {
         with: usize,
         inner: Box<Res>,
     },
+    /// `inner`, resolved on an unprobed assumption the lowering marks when it reads the name (`Rec.Field` whose type is the
+    /// field's enum where the file names the enum's name otherwise, `check/field_enum.rs`).
+    Assumed {
+        assumption: al_builtins::assumptions::Assumption,
+        inner: Box<Res>,
+    },
 }
 
 impl Res {
-    /// What the name resolved to, without the `with` statement that supplied it.
+    /// What the name resolved to, without the `with` statement that supplied it and the assumption it rests on.
     pub fn inner(&self) -> &Res {
         match self {
-            Res::With { inner, .. } => inner,
+            Res::With { inner, .. } | Res::Assumed { inner, .. } => inner.inner(),
             r => r,
         }
     }
@@ -235,6 +249,16 @@ impl Res {
     pub fn with_stmt(&self) -> Option<usize> {
         match self {
             Res::With { with, .. } => Some(*with),
+            Res::Assumed { inner, .. } => inner.with_stmt(),
+            _ => None,
+        }
+    }
+
+    /// The unprobed assumption the resolution rests on, if any.
+    pub fn assumption(&self) -> Option<al_builtins::assumptions::Assumption> {
+        match self {
+            Res::Assumed { assumption, .. } => Some(*assumption),
+            Res::With { inner, .. } => inner.assumption(),
             _ => None,
         }
     }
@@ -246,6 +270,8 @@ pub struct Roots {
     /// The install baseline: the install codeunits of the dependency apps and Base Application's
     /// `Company-Initialize` (codeunit 2).
     pub baseline: bool,
+    /// Company Triggers raised by dependency installs in selected backup companies (ADR-046 amendment 9).
+    pub company_install_events: bool,
     /// With `baseline`: dependency codeunits (by id) whose `OnRun` the install baseline runs after `Company-Initialize`
     /// to build the company's data (`--company-data demotool`: the DemoTool's `Create Demo Data from Config`). Empty: none.
     pub company_data: Vec<u32>,
@@ -509,7 +535,7 @@ fn check_inner(
             // `login.rs`, al-runner issue 7343).
             let login = (n_old..ws.objects.len())
                 .any(|oi| !ws.is_dependency(oi) && !skip(oi) && ws.declares_login_subscriber(oi));
-            c.reach_install_events(roots.baseline, install_code, login);
+            c.reach_install_events(roots.baseline, install_code || roots.company_install_events, login);
             c.reach_test_runner(&roots.test_runners);
             c.reach_dependencies_on_workspace();
             if !roots.no_login_root {
@@ -559,7 +585,7 @@ fn check_inner(
         left_out_resolutions = resolved;
         timings.workspace += started.elapsed();
     }
-    let positions: HashMap<&str, usize> = ws.files.iter().enumerate().map(|(i, f)| (f.path.as_str(), i)).collect();
+    let positions = ws.file_order();
     let from_checker = c.diags.clone();
     // A grown check: the rules of each object and of each app ran for the kept objects and apps; their findings are kept.
     let n_old_apps = if n_old > 0 { ws.objects[n_old - 1].app + 1 } else { 0 };
@@ -597,8 +623,7 @@ fn check_inner(
         kept_codes = all;
     }
     c.diags.extend(from_codes.iter().cloned());
-    c.diags
-        .sort_by_key(|d| (positions.get(d.file.as_str()).copied(), d.offset));
+    positions.sort(&mut c.diags);
     // Without a demand state (the eager compile) every dependency object is lowered, so every one
     // needs its layout.
     if narrate {
@@ -661,7 +686,7 @@ fn resolved_scope_findings(
     contexts: &[(usize, crate::alcodes::AppContext)],
     n_old_apps: usize,
     left_out_resolutions: Option<&PosMap<Res>>,
-    positions: &HashMap<&str, usize>,
+    positions: &crate::workspace::FileOrder<'_>,
 ) {
     if contexts.is_empty() {
         return;
@@ -675,14 +700,12 @@ fn resolved_scope_findings(
             more.extend(crate::alcodes::resolved_scope(ws, *app, ctx, r));
         }
     }
-    more.sort_by_key(|d| (d.file.clone(), d.offset, d.code));
-    more.dedup_by(|a, b| a.file == b.file && a.offset == b.offset && a.code == b.code);
+    more.sort_by(|a, b| a.site().cmp(&b.site()));
+    more.dedup_by(|a, b| a.site() == b.site());
     if !more.is_empty() {
         result.from_checker.extend(more.iter().cloned());
         result.diagnostics.extend(more);
-        result
-            .diagnostics
-            .sort_by_key(|d| (positions.get(d.file.as_str()).copied(), d.offset));
+        positions.sort(&mut result.diagnostics);
     }
 }
 
@@ -726,12 +749,8 @@ fn left_out_diagnostics(
             c.take_calls();
         }
     }
-    let seen: HashSet<(&str, usize, &str)> = found.iter().map(|d| (d.file.as_str(), d.offset, d.code)).collect();
-    let diags = c
-        .diags
-        .into_iter()
-        .filter(|d| !seen.contains(&(d.file.as_str(), d.offset, d.code)))
-        .collect();
+    let seen: HashSet<_> = found.iter().map(Diagnostic::site).collect();
+    let diags = c.diags.into_iter().filter(|d| !seen.contains(&d.site())).collect();
     (diags, Some(c.resolutions))
 }
 
@@ -1195,6 +1214,9 @@ pub(crate) struct ObjCtx {
     /// The protected variables of other extensions of the same page this page extension sees, by lower-case name, with
     /// the extension that declares each (they are also in `globals`).
     ext_vars: std::rc::Rc<HashMap<String, usize>>,
+    /// In a codeunit with TableNo, the globals its procedures see: the object's own variables, without the implicit
+    /// `Rec` and `xRec` (`object_ctx`).
+    table_no_procedure_globals: Option<std::rc::Rc<posmap::FxMap<String, Ty>>>,
 }
 
 /// The `this` keyword: the object whose code is running (Microsoft Learn, "this keyword"). Only the unquoted spelling
@@ -1505,7 +1527,9 @@ pub(crate) use calls::BARE_REPORT_MEMBERS;
 mod conv;
 mod diag_index;
 mod enum_overload;
+mod field_enum;
 pub(crate) use enum_overload::EnumFit;
+pub(crate) use infer::in_request_page;
 mod fit;
 mod infer;
 mod member;

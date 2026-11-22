@@ -109,8 +109,7 @@ impl Session {
             return quiet;
         };
         let engine = self.engine.clone();
-        let key = (engine.events.global_key, EVENT.to_string());
-        let Some(subs) = engine.events.subscribers.get(&key) else {
+        let Some(subs) = engine.events.subscribers_at(engine.events.global_key, EVENT) else {
             return quiet;
         };
         for s in subs {
