@@ -14,7 +14,8 @@ pub(super) type Callees = Vec<(usize, usize)>;
 
 /// The lines of page `object`: its properties as written (`PageType = Worksheet`; SourceTable as the name of the table it
 /// resolves to, in quotes), then each control
-/// (`field Quantity in Rows = Quantity {applicationarea=All}` and a line per trigger), then each page trigger
+/// (`field Quantity in Rows = Quantity {applicationarea=All}` and a line per trigger; a part in the FactBoxes area is a
+/// `factbox part`), then each page trigger
 /// (`trigger OnOpenPage: begin ... end`). `None` for a page with an extension, an extension trigger, a refusal, a control
 /// declared by an extension, or anything else the renderer does not write.
 pub(super) fn page_lines(program: &ir::Program, object: usize, callees: &mut Callees) -> Option<Vec<String>> {
@@ -50,7 +51,7 @@ pub(super) fn page_lines(program: &ir::Program, object: usize, callees: &mut Cal
             && c.array_element.is_none()
             && !c.bare_quoted_ext_source
             && c.source_text.is_none()
-            && !c.factbox;
+            && (!c.factbox || c.kind == ir::ControlKind::Part);
         if !plain {
             return None;
         }
@@ -60,6 +61,7 @@ pub(super) fn page_lines(program: &ir::Program, object: usize, callees: &mut Cal
             ir::ControlKind::Repeater => "repeater",
             ir::ControlKind::Action => "action",
             ir::ControlKind::ActionGroup => "actiongroup",
+            ir::ControlKind::Part if c.factbox => "factbox part",
             ir::ControlKind::Part => "part",
             _ => return None,
         };
@@ -138,8 +140,9 @@ pub(super) fn page_lines(program: &ir::Program, object: usize, callees: &mut Cal
 }
 
 /// The lines of table `object`: its properties, each field (`field 2 "Line No.": Integer`), each key (`key "Batch Name",
-/// "Line No."`) and each routine (`trigger OnModify: ...`, `procedure X: ...`). `None` for a table with an extension or a
-/// refusal, or a field with an initial value or a relation.
+/// "Line No."`) and each routine (`trigger OnModify: ...`, `trigger "Name".OnValidate: ...`, `procedure X: ...`); an
+/// AutoIncrement field ends in ` AutoIncrement`.
+/// `None` for a table with an extension or a refusal, or a field with an initial value or a relation.
 pub(super) fn table_lines(program: &ir::Program, object: usize, callees: &mut Callees) -> Option<Vec<String>> {
     let o = &program.objects[object];
     let t = o.table.as_ref()?;
@@ -152,15 +155,16 @@ pub(super) fn table_lines(program: &ir::Program, object: usize, callees: &mut Ca
         if f.id >= 2_000_000_000 {
             continue;
         }
-        if f.init.is_some()
-            || f.relation_table.is_some()
-            || !f.relation_tables.is_empty()
-            || f.auto_increment
-            || !f.stored
-        {
+        if f.init.is_some() || f.relation_table.is_some() || !f.relation_tables.is_empty() || !f.stored {
             return None;
         }
-        lines.push(format!("field {} \"{}\": {}", f.id, f.name, type_text(program, &f.ty)?));
+        let auto = if f.auto_increment { " AutoIncrement" } else { "" };
+        lines.push(format!(
+            "field {} \"{}\": {}{auto}",
+            f.id,
+            f.name,
+            type_text(program, &f.ty)?
+        ));
     }
     let no_props = Vec::new();
     for (i, k) in t.keys.iter().enumerate() {
@@ -179,11 +183,16 @@ pub(super) fn table_lines(program: &ir::Program, object: usize, callees: &mut Ca
     }
     for (r, routine) in o.routines.iter().enumerate() {
         let kind = if routine.is_trigger { "trigger" } else { "procedure" };
-        lines.push(format!(
-            "{kind} {}: {}",
-            routine.name,
-            routine_text(program, object, r, callees)?
-        ));
+        // A field's trigger names its field (`trigger "Name".OnValidate`).
+        let field = t
+            .fields
+            .iter()
+            .find(|f| f.on_validate == Some((object, r)) || f.on_lookup == Some((object, r)));
+        let name = match field {
+            Some(f) => format!("\"{}\".{}", f.name, routine.name),
+            None => routine.name.clone(),
+        };
+        lines.push(format!("{kind} {name}: {}", routine_text(program, object, r, callees)?));
     }
     Some(lines)
 }
