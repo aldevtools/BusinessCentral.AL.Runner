@@ -10,30 +10,36 @@
 
 use al_vm::{Engine, Session};
 use std::collections::BTreeSet;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::sync::{Mutex, PoisonError};
 
 /// The inputs of the login and its subscribers this check keys on, when the test session opens the company: the fields
 /// below. Two sessions with the same key may share one run of the login only when they also hold the same after it
 /// ([`Check`]); a field left out of the key would let a replay hand a session the store of another input. The engine
 /// (the compiled program, its apps and their code) is not a field: the check lives on the engine (`Engine::derived`).
-/// Not yet fields, though the login can read them: the clock start (`Scratch::clock_start`), the stability
-/// perturbation (`Scratch::perturb`) and the host's company list (the test data's `known_companies`); runtime
-/// `install_once.rs` `Key` holds the first two. Here a missing field can only show as a difference (the check replays
-/// nothing); a replay adds them before it serves a session (al-runner issue 8211).
+/// Not yet fields, though the login can read them or run otherwise under them: the clock start
+/// (`Scratch::clock_start`), the stability perturbation (`Scratch::perturb`), the host's company list (the test data's
+/// `known_companies`) and the modes that follow the code a session runs (coverage, the impact trace, the observer);
+/// runtime `install_once.rs` `Key` holds the first two. Here a missing field can only show as a difference (the check
+/// replays nothing); the replay adds them before it serves a session (al-runner issue 8211).
+///
+/// The maintainer's two conditions for the replay (al-runner issue 8211): every field holds its input by content or by a
+/// SHA-256 digest ([`LinesDigest`]), never a 64-bit hash; and the test codeunit stays a field until a repeat across test
+/// codeunits is measured on a real app. Tests `every_key_field_is_content_or_a_sha256_digest` and
+/// `two_test_codeunits_never_share_a_key`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Key {
     /// Every committed row before the login: the install baseline, what install code and an earlier codeunit left.
-    database: u64,
-    /// Rows written and not committed before the login: the login reads them.
-    uncommitted: bool,
+    database: LinesDigest,
+    /// The rows the session holds now, written and not committed included, when some are not committed before the login:
+    /// the login reads them, so two sessions whose uncommitted rows differ have other keys. `None` when every row is
+    /// committed (the rows are then `database`).
+    uncommitted: Option<LinesDigest>,
     /// Who offers the rows of the tables no write reached (the test data, `MemStore::backing_identity`).
     backing: BackingKey,
     /// The session state before the login (`Session::state_lines`): language, WorkDate, number sequences, isolated
     /// storage, SingleInstance globals, manual bindings, `Random`, filter group 1, the clock offset, the Guid key and
     /// draws, row versions, AutoIncrement counters, the last error.
-    session: u64,
+    session: LinesDigest,
     /// `CompanyName()` and the company every record reads in.
     company: String,
     /// The run seed: the session clock steps by a key derived from it (`al_host::seed::clock_key`), so the same login
@@ -43,11 +49,11 @@ pub(crate) struct Key {
     /// `UserId()`.
     user: String,
     /// The test codeunit the session opens for: `login::decide` reads it, and a replay may not cross codeunits until a
-    /// probe shows no login code can tell them apart.
+    /// repeat across test codeunits is measured on a real app (the maintainer's second condition, al-runner issue 8211).
     test_codeunit: Option<usize>,
     /// The resource texts the pass reads in place of the apps' files (a serve entry's `resources`,
     /// `Engine::resource_overrides`): `NavApp.GetResource` in a subscriber reads them.
-    resources: u64,
+    resources: LinesDigest,
     /// The session has a client (BC's login code runs only then), runs without one (`--no-client`), and runs under
     /// RequiredTestIsolation = Disabled: these choose what the login does (`install::open_test_session_company`).
     client: (bool, bool, bool),
@@ -67,7 +73,7 @@ impl Key {
     pub(crate) fn of(session: &mut Session, disabled: bool, flags: crate::runtime::session_flags::SessionFlags) -> Key {
         let store = session.store_mut();
         let database = digest(&committed_rows(store));
-        let uncommitted = store.has_uncommitted();
+        let uncommitted = store.has_uncommitted().then(|| digest(&current_rows(store)));
         let backing = BackingKey::of(store.backing_identity());
         let resources = {
             let overrides = session
@@ -89,7 +95,7 @@ impl Key {
             database,
             uncommitted,
             backing,
-            session: digest(&[digest(&state.lines).to_string(), digest(&state.opaque).to_string()]),
+            session: digest(&[digest(&state.lines).hex(), digest(&state.opaque).hex()]),
             company: session.access_company().to_string(),
             seed: session.run_seed(),
             user: session.user_id(),
@@ -127,12 +133,15 @@ impl BackingKey {
 }
 
 /// What a test session holds after the raised login: every committed row (system fields included), the session state
-/// (`Session::state_lines`) and the assumption marks the login made (a replayed flagged pass stays flagged).
+/// (`Session::state_lines`), the assumption marks the login made (a replayed flagged pass stays flagged) and what the
+/// company open noted for the tests of the codeunit (`install::CompanyOpenWrites`: a later test is watched or refused by
+/// it).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LoginState {
     rows: Vec<String>,
     state: al_vm::StateLines,
     hits: al_builtins::assumptions::HitBits,
+    open: String,
 }
 
 impl LoginState {
@@ -148,19 +157,25 @@ impl LoginState {
         &self.state
     }
 
-    /// What `session` holds now, with the marks `hits` the company open made.
-    pub(crate) fn of(session: &mut Session, hits: al_builtins::assumptions::HitBits) -> LoginState {
+    /// What `session` holds now, with the marks `hits` the company open made and what it noted (`wrote`).
+    pub(crate) fn of(
+        session: &mut Session,
+        wrote: &crate::install::CompanyOpenWrites,
+        hits: al_builtins::assumptions::HitBits,
+    ) -> LoginState {
         LoginState {
             rows: committed_rows(session.store_mut()),
             state: session.state_lines(),
             hits,
+            open: format!("{wrote:?}"),
         }
     }
 }
 
 /// The kinds of difference between two sessions' states, in the order [`differences`] looks at them: a value with no
-/// comparable form (which no replay could give back), the committed rows, the session state lines, the assumption marks.
-const KINDS: [&str; 4] = ["not comparable", "rows", "session state", "marks"];
+/// comparable form (which no replay could give back), the committed rows, the session state lines, the assumption marks,
+/// what the company open noted for the tests.
+const KINDS: [&str; 5] = ["not comparable", "rows", "session state", "marks", "open writes"];
 
 /// What differs between `a` and `b`, the states of two sessions of one key: per kind of [`KINDS`] that differs, its index
 /// and its first difference. One kind does not hide another.
@@ -190,6 +205,7 @@ pub(crate) fn differences(a: &LoginState, b: &LoginState) -> Vec<(usize, String)
         lines(&a.rows, &b.rows, "row"),
         lines(&a.state.lines, &b.state.lines, "session state"),
         (a.hits != b.hits).then(|| format!("assumption marks: {:?} | {:?}", a.hits, b.hits)),
+        (a.open != b.open).then(|| format!("open writes: {} | {}", a.open, b.open)),
     ]
     .into_iter()
     .enumerate()
@@ -314,11 +330,20 @@ pub(crate) fn report(engine: &Engine) -> Option<String> {
     check(engine).line()
 }
 
-/// Every committed row of `store`, one line each: company, table object and the row with its system fields.
+/// Every committed row of `store`, one line each ([`rows`]).
 fn committed_rows(store: &al_data::memory::MemStore) -> Vec<String> {
-    let tables = store.export_committed().unwrap_or_default();
+    rows(&store.export_committed().unwrap_or_default())
+}
+
+/// Every row `store` holds now, the uncommitted changes included, one line each as [`committed_rows`] writes them.
+fn current_rows(store: &al_data::memory::MemStore) -> Vec<String> {
+    rows(&store.export_current())
+}
+
+/// The rows of `tables`, one line each: company, table object and the row with its system fields.
+fn rows(tables: &[al_data::memory::ExportedTable]) -> Vec<String> {
     let mut out = Vec::new();
-    for t in &tables {
+    for t in tables {
         for (_, row) in &t.rows {
             out.push(format!("{}|{}|{row:?}", t.company, t.object));
         }
@@ -326,11 +351,34 @@ fn committed_rows(store: &al_data::memory::MemStore) -> Vec<String> {
     out
 }
 
-/// A digest of `lines`, for a key field (compared within one process only).
-fn digest(lines: &[String]) -> u64 {
-    let mut h = DefaultHasher::new();
-    lines.hash(&mut h);
-    h.finish()
+/// A SHA-256 of lines, for a key field: two inputs that differ have other digests (no 64-bit hash collides them).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct LinesDigest([u8; 32]);
+
+impl LinesDigest {
+    /// The digest as 64 lower-case hex digits.
+    fn hex(&self) -> String {
+        self.0.iter().map(|b| format!("{b:02x}")).collect()
+    }
+}
+
+/// Written as its hex digits, so a key reads short in a failing test.
+impl std::fmt::Debug for LinesDigest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.hex())
+    }
+}
+
+/// The SHA-256 of `lines`, each line its length (8 bytes, little endian) and then its bytes, so no two lists of lines
+/// give the same bytes.
+fn digest(lines: &[String]) -> LinesDigest {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    for l in lines {
+        h.update((l.len() as u64).to_le_bytes());
+        h.update(l.as_bytes());
+    }
+    LinesDigest(h.finalize().into())
 }
 
 #[cfg(test)]
@@ -345,24 +393,92 @@ mod tests {
                 opaque: Vec::new(),
             },
             hits: Default::default(),
+            open: String::new(),
         }
     }
 
     fn key(test_codeunit: usize) -> Key {
         Key {
-            database: 1,
-            uncommitted: false,
+            database: digest(&["1".into()]),
+            uncommitted: None,
             backing: BackingKey::Known((0, 0)),
-            session: 2,
+            session: digest(&["2".into()]),
             company: "C".into(),
             seed: 0,
             user: "U".into(),
             test_codeunit: Some(test_codeunit),
-            resources: 3,
+            resources: digest(&["3".into()]),
             client: (true, false, false),
             flags: Default::default(),
             license: None,
         }
+    }
+
+    // Condition 1 of the maintainer's acceptance on al-runner issue 8211: the key compares content or a strong hash, never
+    // a 64-bit digest. Every field is named with its type, so a field added or changed does not compile until it is
+    // classified here: a SHA-256 digest of lines, or the content itself. `backing` is not a digest: two process-unique
+    // numbers (`TestData::id`, `Engine::uid`) that name who offers the rows, or, for a backing that does not say who it
+    // is, a number no other session gets (`BackingKey`). The module's own code names no 64-bit hasher.
+    #[test]
+    fn every_key_field_is_content_or_a_sha256_digest() {
+        let k = key(1);
+        let Key {
+            database,
+            uncommitted,
+            backing,
+            session,
+            company,
+            seed,
+            user,
+            test_codeunit,
+            resources,
+            client,
+            flags,
+            license,
+        } = &k;
+        let digests: [&LinesDigest; 3] = [database, session, resources];
+        let _: &Option<LinesDigest> = uncommitted;
+        let _: &BackingKey = backing;
+        let _: (&String, &i32, &String, &Option<usize>) = (company, seed, user, test_codeunit);
+        let _: &(bool, bool, bool) = client;
+        let _: &crate::runtime::session_flags::SessionFlags = flags;
+        let _: &Option<std::sync::Arc<al_host::license::License>> = license;
+        for d in digests {
+            assert_eq!(std::mem::size_of_val(&d.0), 32);
+        }
+        let code = include_str!("login_replay.rs").split("#[cfg(test)]").next().unwrap();
+        for hasher in ["DefaultHasher", "std::hash::", "FxHash", "ahash", "-> u64"] {
+            assert!(!code.contains(hasher), "{hasher}");
+        }
+    }
+
+    // Condition 2 of the maintainer's acceptance on al-runner issue 8211: the test codeunit stays in the key. Two sessions
+    // that differ only in their test codeunit have other keys, so neither is compared with (nor, later, replayed from) the
+    // other's first state; only the evidence tally across test codeunits sees them together.
+    #[test]
+    fn two_test_codeunits_never_share_a_key() {
+        assert_ne!(key(1), key(2));
+        let check = Check::default();
+        check.note(key(1), state(&["r"], &["s"]));
+        check.note(key(2), state(&["other"], &["s"]));
+        let line = check.line().unwrap();
+        assert!(
+            line.starts_with(
+                "login replay check: 2 sessions over 2 keys (a key seen before: 0 sessions, 0%), 0 compared"
+            ),
+            "{line}"
+        );
+    }
+
+    // A key field is a SHA-256 of its lines (each line its length, then its bytes), not a 64-bit hash: two inputs that
+    // differ never share a key by a collision of the digest.
+    #[test]
+    fn a_key_digest_is_the_sha256_of_its_lines() {
+        assert_eq!(
+            format!("{:?}", digest(&[])),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        assert_ne!(digest(&["ab".into()]), digest(&["a".into(), "b".into()]));
     }
 
     #[test]
@@ -412,15 +528,15 @@ mod tests {
             check.line().as_deref(),
             Some(
                 "login replay check: 3 sessions over 2 keys (a key seen before: 1 sessions, 33%), 1 compared, 0 differ; across test codeunits: 1 compared, \
-                 1 differ (not comparable 0, rows 1, session state 0, marks 0; first: row 1: r | other)"
+                 1 differ (not comparable 0, rows 1, session state 0, marks 0, open writes 0; first: row 1: r | other)"
             )
         );
         check.note(key(1), b);
         assert_eq!(
             check.line().as_deref(),
             Some(
-                "login replay check: 4 sessions over 2 keys (a key seen before: 2 sessions, 50%), 2 compared, 1 differ (not comparable 0, rows 1, session state 0, marks 0; first: row 1: r | other); across test \
-                 codeunits: 1 compared, 1 differ (not comparable 0, rows 1, session state 0, marks 0; first: row 1: r | other)"
+                "login replay check: 4 sessions over 2 keys (a key seen before: 2 sessions, 50%), 2 compared, 1 differ (not comparable 0, rows 1, session state 0, marks 0, open writes 0; first: row 1: r | other); across test \
+                 codeunits: 1 compared, 1 differ (not comparable 0, rows 1, session state 0, marks 0, open writes 0; first: row 1: r | other)"
             )
         );
     }
@@ -442,7 +558,7 @@ mod tests {
         let line = check.line().unwrap();
         assert!(
             line.contains(
-                "1 compared, 1 differ (not comparable 1, rows 1, session state 0, marks 0; first: not comparable: \
+                "1 compared, 1 differ (not comparable 1, rows 1, session state 0, marks 0, open writes 0; first: not comparable: \
                  codeunit 5 global 1: Codeunit instance)"
             ),
             "{line}"

@@ -259,13 +259,15 @@ impl Session {
     }
 
     /// What [`LeftStamp`] takes (the session language, WorkDate, number sequences, isolated storage, the SingleInstance
-    /// codeunits' globals, the manual bindings, the `Random` sequence, the group 1 filters), plus the counters code
-    /// advances (the clock, the Guid and SystemId draws and their key, the row versions) and the last error, as lines
-    /// that compare across sessions: an instance is named by its codeunit id, not by its address (al-testrun
-    /// `login_replay.rs`, al-runner issue 8211). It is not a pure read: `left_stamp` builds a fresh instance's globals to
-    /// compare with, and each temporary record among them takes a temporary table number (`Session::new_temp_id`), so
-    /// the session's counter moves on. Harmless: the number only names a temporary table's store inside the session, AL
-    /// code never sees it, and al-testrun's watched and partner logins call `left_stamp` the same way.
+    /// codeunits' globals, the manual bindings, the `Random` sequence, the group 1 filters), the state of the `Random`
+    /// sequence and its draws by origin, plus the counters code advances (the clock offset, the clock's draws, key and
+    /// last system stamp, the Guid and SystemId draws and their key, the row versions), the last error and the facts of
+    /// `state_facts.rs`, as lines that compare across sessions: an instance is named by a number by first sight, not by
+    /// its address (al-testrun `login_replay.rs`, al-runner issue 8211). It is not a pure read: `left_stamp` builds a
+    /// fresh instance's globals to compare with, and each temporary record among them takes a temporary table number
+    /// (`Session::new_temp_id`), so the session's counter moves on. Harmless: the number only names a temporary table's
+    /// store inside the session, AL code never sees it, and al-testrun's watched and partner logins call `left_stamp`
+    /// the same way.
     pub fn state_lines(&mut self) -> StateLines {
         let stamp = self.left_stamp();
         let id = |o: usize| self.engine.program.objects[o].id.unwrap_or(0);
@@ -291,21 +293,64 @@ impl Session {
                 }
             }
         }
+        // The manual bindings in the order they were made, each by the codeunit and the instance it holds (a number of the
+        // render: a binding of an instance a global holds names that global's instance).
+        let mut bound = Vec::new();
+        for (k, b) in self.events.bindings.iter().enumerate() {
+            let Some(inst) = b.instance.upgrade() else { continue };
+            let codeunit = id(inst.borrow().object as usize);
+            match render.value(&Value::Codeunit(inst), 0) {
+                Ok(text) => bound.push(format!("codeunit {codeunit} {text}")),
+                Err(why) => out.opaque.push(format!("binding {k}: {why}")),
+            }
+        }
         out.lines.append(&mut render.lines);
-        let mut bound: Vec<u32> = (self.events.bindings.iter())
-            .filter_map(|b| b.instance.upgrade().map(|i| id(i.borrow().object as usize)))
-            .collect();
-        bound.sort_unstable();
-        out.lines.push(format!("bindings {}", content(&bound)));
-        out.lines.push(format!("random {}", content(&stamp.random)));
+        out.lines.push(format!("bindings [{}]", bound.join(", ")));
+        // The sequence itself, not only how many numbers it drew: `Randomize(n)` restarts it without a draw.
+        out.lines.push(format!(
+            "random {} sequence {} unseeded base {} test reseeded {} run seeded {} inherited {} carried {}",
+            content(&stamp.random),
+            content(&self.rng),
+            self.unseeded_base,
+            self.reseeded_in_test,
+            self.run_seeded_in_test,
+            self.inherited_draws,
+            self.carried_draws
+        ));
         out.lines.push(format!("group1 {}", content(&stamp.group1)));
         out.lines.push(format!(
-            "counters clock {} guid key {} draws {} row versions {} committed {}",
-            self.waited_ms, self.guid_key, self.next_guid, self.next_row_version, self.tx.committed_row_version
+            "counters clock {} draws {} key {} last stamp {} guid key {} draws {} row versions {} committed {}",
+            self.waited_ms,
+            self.clock_draws,
+            self.clock_key,
+            self.last_stamp,
+            self.guid_key,
+            self.next_guid,
+            self.next_row_version,
+            self.tx.committed_row_version
         ));
         let autoinc: BTreeMap<&(String, u32), &i64> = self.autoinc.iter().collect();
         out.lines.push(format!("autoincrement {}", content(&autoinc)));
         out.lines.push(format!("last error {}", content(&self.last_error)));
+        self.fact_lines(&mut out.lines, &mut out.opaque);
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // The clock's draws and its last system stamp are state lines: a later stamp lands after the last one, past it by a
+    // draw of the clock key (`Session::stamp_millis`), so two sessions that differ only in them stamp differently.
+    #[test]
+    fn the_clock_draws_and_the_last_stamp_are_state_lines() {
+        let (_, l) = al_sema::lower::compile(Vec::new(), &Default::default());
+        let mut session = crate::Session::new(crate::Engine::new(l.program, Vec::new()));
+        let base = session.state_lines();
+        session.clock_draws += 1;
+        let drawn = session.state_lines();
+        assert_ne!(drawn, base);
+        session.clock_draws -= 1;
+        session.last_stamp += 1;
+        assert_ne!(session.state_lines(), base);
     }
 }

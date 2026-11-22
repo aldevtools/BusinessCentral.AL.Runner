@@ -651,3 +651,296 @@ fn the_check_off_and_on_gives_the_same_outcomes_and_marks() {
         off[0]
     );
 }
+
+/// The key of a new session on `engine` that holds, uncommitted, a "Guided Experience Item" row with id `id`.
+fn key_with_uncommitted_row(engine: &Arc<Engine>, id: i32) -> crate::login_replay::Key {
+    use al_data::Store;
+    let mut session = al_vm::Session::new(engine.clone());
+    let at = engine
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == "Guided Experience Item")
+        .unwrap();
+    let t = engine.tables[at].clone().unwrap();
+    let mut row: Vec<al_builtins::value::Value> = (t.fields.iter())
+        .map(|f| al_builtins::value::Value::default_for(&f.ty))
+        .collect();
+    row[0] = al_builtins::value::Value::Integer(id);
+    let cx = al_data::AccessContext {
+        company: session.access_company().into(),
+        user: session.user_id().into(),
+    };
+    assert!(session.store_mut().insert(&cx, &t, row).is_ok());
+    assert!(session.store_mut().has_uncommitted());
+    let flags = super::session_flags::SessionFlags::of(&RunOptions::default());
+    crate::login_replay::Key::of(&mut session, false, flags)
+}
+
+// The rows a session holds uncommitted before the login are an input of the login (it reads them): two sessions whose
+// uncommitted rows differ have other keys.
+#[test]
+fn uncommitted_rows_before_the_login_are_part_of_the_key_by_content() {
+    let (engine, _) = compiled();
+    assert_eq!(
+        key_with_uncommitted_row(&engine, 1),
+        key_with_uncommitted_row(&engine, 1)
+    );
+    assert_ne!(
+        key_with_uncommitted_row(&engine, 1),
+        key_with_uncommitted_row(&engine, 2)
+    );
+}
+
+/// A raised login whose subscriber registers one fixed row and calls `Plant` of codeunit "RPL Gap" (77462) with the length
+/// of the resource text: each test of a state the check must compare adds an "RPL Gap" that plants that state.
+const GAP: &str = r#"
+codeunit 77460 "RPL Gap Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
+    local procedure RegisterManualSetup() var G: Codeunit "Guided Experience"; Gap: Codeunit "RPL Gap";
+    begin G.InsertAssistedSetup(77460); Gap.Plant(StrLen(NavApp.GetResourceAsText('rpl.txt'))); end;
+}
+codeunit 77461 "RPL Gap Tests"
+{
+    Subtype = Test;
+    [Test]
+    procedure SeesTheRow() var I: Record "Guided Experience Item"; begin if I.IsEmpty() then Error('no row'); end;
+}
+"#;
+
+/// Runs the login of [`GAP`] with `plant` twice with the resource text `base` and once with each text of `others`. Asserts
+/// the two sessions of `base` compare equal; returns, per text of `others`, the check's line when its session is noted
+/// under the key of `base` (a planted difference: what a key that missed the text would compare) and the differences.
+fn planted(plant: &str, base: &str, others: &[&str]) -> Vec<(String, Vec<(usize, String)>)> {
+    let (engine, l) = compiled_with(&format!("{GAP}{plant}"));
+    for text in std::iter::repeat_n(base, 2).chain(others.iter().copied()) {
+        set_resource(&engine, &l, Some(text));
+        run(&engine, &l, "RPL Gap Tests");
+    }
+    let line = crate::login_replay::report(&engine).unwrap();
+    assert!(line.contains(", 1 compared, 0 differ;"), "{line}");
+    let firsts = crate::login_replay::check(&engine).firsts();
+    assert_eq!(firsts.len(), 1 + others.len());
+    (firsts[1..].iter())
+        .map(|(_, state)| {
+            let check = Check::default();
+            check.note(firsts[0].0.clone(), firsts[0].1.clone());
+            check.note(firsts[0].0.clone(), state.clone());
+            let line = check.line().unwrap();
+            (line, crate::login_replay::differences(&firsts[0].1, state))
+        })
+        .collect()
+}
+
+/// Asserts that each planted session differs from the base in the session state only, and that the first differing
+/// line starts with `what`.
+fn assert_planted_state(planted: &[(String, Vec<(usize, String)>)], what: &str) {
+    for (line, differences) in planted {
+        assert!(
+            line.contains("1 compared, 1 differ (not comparable 0, rows 0, session state 1, marks 0, open writes 0;"),
+            "{line}"
+        );
+        let state = differences.iter().find(|(kind, _)| *kind == 2);
+        assert!(
+            state.is_some_and(|(_, d)| d.split(": ").nth(1).is_some_and(|l| l.starts_with(what))),
+            "{differences:?}"
+        );
+    }
+}
+
+/// "RPL Gap" holds an instance it may call, and binds one of two instances of a manual subscriber (it calls both, so both
+/// are initialized): text length 1 binds the first, 2 also calls the held instance (it is then initialized), 3 binds the
+/// second.
+const GAP_INSTANCES: &str = r#"
+codeunit 77462 "RPL Gap"
+{
+    SingleInstance = true;
+    var Inner: Codeunit "RPL Gap Inner"; A: Codeunit "RPL Gap Bound"; B: Codeunit "RPL Gap Bound";
+    procedure Plant(N: Integer)
+    begin
+        A.Touch(); B.Touch();
+        if N = 3 then BindSubscription(B) else BindSubscription(A);
+        if N = 2 then Inner.Touch();
+    end;
+}
+codeunit 77463 "RPL Gap Inner" { procedure Touch() begin end; }
+codeunit 77464 "RPL Gap Bound"
+{
+    EventSubscriberInstance = Manual;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterAssistedSetup', '', false, false)]
+    local procedure OnAssisted() begin end;
+    procedure Touch() begin end;
+}
+"#;
+
+// Whether a held instance was initialized, and which instance a manual binding holds (not only its codeunit), are
+// compared.
+#[test]
+fn an_instance_s_own_facts_and_the_instance_a_binding_holds_are_compared() {
+    let planted = planted(GAP_INSTANCES, "a", &["ab", "abc"]);
+    assert_planted_state(&planted[..1], "instance ");
+    assert_planted_state(&planted[1..], "bindings ");
+}
+
+/// "RPL Gap" writes a row of its table; its `GetDatabaseTableTriggerSetup` subscriber enables OnDatabaseModify for the
+/// table when the text is longer than 1 (no Modify follows: only the setup BC asked differs).
+const GAP_GLOBAL_SETUPS: &str = r#"
+table 77465 "RPL Gap Row" { fields { field(1; K; Integer) { } } keys { key(PK; K) { Clustered = true; } } }
+codeunit 77462 "RPL Gap"
+{
+    procedure Plant(N: Integer) var R: Record "RPL Gap Row"; begin R.K := 1; R.Insert(); end;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'GetDatabaseTableTriggerSetup', '', false, false)]
+    local procedure Setup(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean)
+    begin
+        if TableId = Database::"RPL Gap Row" then OnDatabaseModify := StrLen(NavApp.GetResourceAsText('rpl.txt')) > 1;
+    end;
+}
+"#;
+
+// The Global Triggers setup BC asked per table (a later first write asks only for a table not asked yet) is compared.
+#[test]
+fn the_global_trigger_setups_asked_are_compared() {
+    assert_planted_state(&planted(GAP_GLOBAL_SETUPS, "a", &["ab"]), "global setups ");
+}
+
+/// "RPL Gap" raises its own event once per character of the text; a subscriber handles it.
+const GAP_EVENT_CALLS: &str = r#"
+codeunit 77462 "RPL Gap"
+{
+    procedure Plant(N: Integer) var I: Integer; begin for I := 1 to N do OnGap(); end;
+    [IntegrationEvent(false, false)] local procedure OnGap() begin end;
+}
+codeunit 77467 "RPL Gap Listener"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"RPL Gap", 'OnGap', '', false, false)]
+    local procedure Heard() begin end;
+}
+"#;
+
+// How often each subscriber was called (the Event Subscription table's "Number of Calls") is compared.
+#[test]
+fn the_event_subscriber_call_counts_are_compared() {
+    assert_planted_state(&planted(GAP_EVENT_CALLS, "a", &["ab"]), "event calls ");
+}
+
+/// "RPL Gap" imports the text's length, as text, into the Media field of a temporary record: the record is gone after,
+/// the media object stays in the session's media store.
+const GAP_MEDIA: &str = r#"
+table 77466 "RPL Gap Pic"
+{
+    fields { field(1; K; Integer) { } field(2; B; Blob) { } field(3; Pic; Media) { } }
+    keys { key(PK; K) { Clustered = true; } }
+}
+codeunit 77462 "RPL Gap"
+{
+    procedure Plant(N: Integer)
+    var T: Record "RPL Gap Pic" temporary; O: OutStream; I: InStream;
+    begin
+        T.B.CreateOutStream(O); O.WriteText(Format(N)); T.B.CreateInStream(I); T.Pic.ImportStream(I, 'x');
+    end;
+}
+"#;
+
+// The session's media objects (a row holds only the media id; the content lives in the session) are compared.
+#[test]
+fn the_media_the_login_imports_are_compared() {
+    assert_planted_state(&planted(GAP_MEDIA, "a", &["ab"]), "media ");
+}
+
+/// "RPL Gap" seeds `Random` with the text's length: no number is drawn, the sequence differs.
+const GAP_RANDOM: &str = r#"
+codeunit 77462 "RPL Gap"
+{
+    procedure Plant(N: Integer) begin Randomize(N); end;
+}
+"#;
+
+// The state of the session's `Random` sequence (not only how many numbers it drew) is compared.
+#[test]
+fn the_random_sequence_the_login_leaves_is_compared() {
+    assert_planted_state(&planted(GAP_RANDOM, "a", &["ab"]), "random ");
+}
+
+/// "RPL Gap" looks for a row of its empty table when the text is longer than 1: a find that found nothing while the SQL
+/// counters were inactive is kept for a later read of `SessionInformation.SqlStatementsExecuted`.
+const GAP_SQL: &str = r#"
+table 77465 "RPL Gap Row" { fields { field(1; K; Integer) { } } keys { key(PK; K) { Clustered = true; } } }
+codeunit 77462 "RPL Gap"
+{
+    procedure Plant(N: Integer) var R: Record "RPL Gap Row"; begin if N > 1 then if R.FindFirst() then; end;
+}
+"#;
+
+// What the SQL counters keep while inactive (a later counter read reads it) is compared.
+#[test]
+fn the_sql_counters_the_login_leaves_are_compared() {
+    assert_planted_state(&planted(GAP_SQL, "a", &["ab"]), "sql ");
+}
+
+/// "RPL Gap" reads `SessionInformation.SqlStatementsExecuted`: the counters log from then on.
+const GAP_SQL_READ: &str = r#"
+codeunit 77462 "RPL Gap"
+{
+    procedure Plant(N: Integer) var C: BigInteger; begin C := SessionInformation.SqlStatementsExecuted(); end;
+}
+"#;
+
+// SQL counters a login read have no comparable form: what a later read counts depends on the session's own log.
+#[test]
+fn sql_counters_the_login_read_are_not_comparable() {
+    let (engine, l) = compiled_with(&format!("{GAP}{GAP_SQL_READ}"));
+    for _ in 0..2 {
+        set_resource(&engine, &l, Some("a"));
+        run(&engine, &l, "RPL Gap Tests");
+    }
+    let line = crate::login_replay::report(&engine).unwrap();
+    assert!(
+        line.contains("1 differ (not comparable 1, ") && line.contains("SQL counters (read, or not at rest"),
+        "{line}"
+    );
+}
+
+/// "RPL Gap" commits when the text is longer than 1 (it wrote nothing: only the session's count of commits moves).
+const GAP_COMMIT: &str = r#"
+codeunit 77462 "RPL Gap"
+{
+    procedure Plant(N: Integer) begin if N > 1 then Commit(); end;
+}
+"#;
+
+// How often the session committed and the facts of its last commit (a later test reads them) are compared.
+#[test]
+fn the_commits_and_transaction_facts_the_login_leaves_are_compared() {
+    assert_planted_state(&planted(GAP_COMMIT, "a", &["ab"]), "transaction ");
+}
+
+/// A Company Triggers subscriber of the app under test inserts and deletes a row when the text is longer than 1: the rows
+/// are the same after, the table it wrote is noted for the tests of the codeunit (`install::CompanyOpenWrites`).
+const GAP_OPEN_WRITES: &str = r#"
+table 77465 "RPL Gap Row" { fields { field(1; K; Integer) { } } keys { key(PK; K) { Clustered = true; } } }
+codeunit 77462 "RPL Gap"
+{
+    procedure Plant(N: Integer) begin end;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Company Triggers", 'OnCompanyOpenCompleted', '', false, false)]
+    local procedure Opened() var R: Record "RPL Gap Row";
+    begin
+        if StrLen(NavApp.GetResourceAsText('rpl.txt')) > 1 then begin R.K := 1; R.Insert(); R.Delete(); end;
+    end;
+}
+"#;
+
+// What the company open noted for the tests of the codeunit (the tables its subscribers wrote) is compared, as a kind
+// of its own.
+#[test]
+fn what_the_company_open_noted_for_the_tests_is_compared() {
+    for (line, differences) in planted(GAP_OPEN_WRITES, "a", &["ab"]) {
+        assert!(line.contains(", open writes 1;"), "{line}");
+        assert!(
+            differences
+                .iter()
+                .any(|(_, d)| d.starts_with("open writes: ") && d.contains("Opened")),
+            "{differences:?}"
+        );
+    }
+}

@@ -248,6 +248,18 @@ pub(crate) struct SqlLeft {
     resets: u64,
 }
 
+impl SqlLeft {
+    /// The queries that found no row, sorted, and the resets: a line that compares across sessions (`state_facts.rs`).
+    pub(crate) fn line(&self) -> String {
+        let found: std::collections::BTreeSet<_> = self.found_nothing.iter().collect();
+        format!(
+            "found nothing {} resets {}",
+            crate::state_render::content(&found),
+            self.resets
+        )
+    }
+}
+
 /// What ran between two reads of a counter.
 enum Change {
     /// A pinned size.

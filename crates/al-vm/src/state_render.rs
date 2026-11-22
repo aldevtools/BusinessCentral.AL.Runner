@@ -186,8 +186,11 @@ impl<'a> Render<'a> {
         Ok(format!("{what} [{}]", entries.join(", ")))
     }
 
-    /// A codeunit instance: `instance <n>`, and once `instance <n> <kind> <id> globals [...]`. `Err`: why it has no
-    /// comparable form, with the path to the value that has none (`instance of codeunit <id> global <k>: ...`).
+    /// A codeunit instance: `instance <n>`, and once `instance <n> <kind> <id> globals [...]` with every other field of the
+    /// instance (whether it was initialized, the Execute check's `born`, the report rerun mark, whether a session watches it,
+    /// an xmlport's separators, the instance it extends and its extensions' instances by number). `Err`: why it has no
+    /// comparable form, with the path to the value that has none (`instance of codeunit <id> global <k>: ...`), or that
+    /// what it holds is not measured (`Instance::unmeasured`).
     fn instance(&mut self, rc: &Rc<RefCell<Instance>>, depth: u8) -> Out {
         let address = Rc::as_ptr(rc) as usize;
         if let Some(n) = self.instances.iter().position(|a| *a == address) {
@@ -205,13 +208,45 @@ impl<'a> Render<'a> {
         }
         self.instances.push(address);
         let n = self.instances.len() - 1;
-        let globals = (inst.globals.iter().enumerate())
+        let Instance {
+            object: _,
+            globals,
+            initialized,
+            rerun,
+            base,
+            exts,
+            xp_text,
+            born,
+            single,
+            unmeasured,
+            // Counts the instance as live while it exists (`instance_cycles`): no state of the instance.
+            live: _,
+        } = &*inst;
+        if unmeasured.is_some() {
+            return Err(format!("instance of {kind} {id}: what it holds is not measured"));
+        }
+        let globals = (globals.iter().enumerate())
             .map(|(k, g)| {
                 (self.value(g, depth + 1)).map_err(|why| format!("instance of {kind} {id} global {k}: {why}"))
             })
             .collect::<Result<Vec<String>, String>>()?;
-        self.lines
-            .push(format!("instance {n} {kind} {id} globals [{}]", globals.join(", ")));
+        let base = match base.as_ref().and_then(std::rc::Weak::upgrade) {
+            Some(b) => self.instance(&b, depth + 1)?,
+            None => "none".into(),
+        };
+        let mut extensions = Vec::with_capacity(exts.len());
+        for (object, ext) in exts {
+            let ext_id = self.session.engine.program.objects[*object as usize].id.unwrap_or(0);
+            extensions.push(format!("{ext_id}: {}", self.instance(ext, depth + 1)?));
+        }
+        self.lines.push(format!(
+            "instance {n} {kind} {id} globals [{}] initialized {initialized} rerun {rerun} born restricted {} single \
+             {single} xmlport separators {} base {base} extensions [{}]",
+            globals.join(", "),
+            born.0,
+            content(xp_text),
+            extensions.join(", ")
+        ));
         Ok(format!("instance {n}"))
     }
 
@@ -384,9 +419,12 @@ impl Render<'_> {
                 let record_id = self.optional(&e.record_id, depth)?;
                 let system_id = self.optional(&e.system_id, depth)?;
                 let dimensions = self.optional(&e.custom_dimensions, depth)?;
+                // A collected error's `Callstack` is kept by the cell in a side table (al-builtins errorinfo.rs).
+                let stack = al_builtins::errorinfo::callstack_of(cell);
                 Ok(format!(
-                    "ErrorInfo {} record id {record_id} system id {system_id} custom dimensions {dimensions}",
-                    content(&view)
+                    "ErrorInfo {} record id {record_id} system id {system_id} custom dimensions {dimensions} call stack {}",
+                    content(&view),
+                    content(&stack)
                 ))
             }
             L::Json(_) | L::Xml(_) => self.tree(kind, &lv, depth).map(|t| format!("{kind} {t}")),
@@ -725,5 +763,37 @@ mod tests {
         );
         let own = Value::List(Rc::new(RefCell::new(vec![Value::Integer(1)].into())));
         assert!(render.value(&own, 0).unwrap().starts_with("List of 1 elements"));
+    }
+
+    // A collected error's `Callstack` lives in a side table keyed by the ErrorInfo's cell (al-builtins errorinfo.rs
+    // `CALLSTACKS`), not in its state: two ErrorInfo values that differ only in it do not render the same.
+    #[test]
+    fn an_error_info_renders_its_call_stack() {
+        let (session, _) = session_and_records();
+        let state = || al_builtins::value::ErrorInfoState {
+            message: "m".into(),
+            title: String::new(),
+            detailed_message: String::new(),
+            control_name: String::new(),
+            verbosity: 1,
+            data_classification: 0,
+            error_type: None,
+            collectible: true,
+            table_id: 0,
+            record_id: None,
+            system_id: None,
+            field_no: 0,
+            page_no: 0,
+            custom_dimensions: None,
+            built: al_builtins::value::ErrorInfoBuilt::Other,
+        };
+        let kind = LibraryKind::from("ErrorInfo");
+        let (with, without) = (
+            library(kind.clone(), LibraryValue::ErrorInfo(state())),
+            library(kind, LibraryValue::ErrorInfo(state())),
+        );
+        al_builtins::errorinfo::set_callstack_of(&with, "\"P\"(CodeUnit 1).Collect line 5\r\n");
+        let mut render = Render::new(&session);
+        assert_ne!(render.value(&with, 0), render.value(&without, 0));
     }
 }
