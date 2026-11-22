@@ -1,0 +1,10 @@
+# key	entry
+# Not here: MainKept_* pass clean on main and head; MainRefused_* and Refused_* are not run on main and head (no new refusal).
+FLF Format Tests::Cell_IntegerShorter	ASSUMED format-length-integer-string (corpus PR 1505)
+FLF Format Tests::Cell_IntegerLongerCut	ASSUMED format-length-integer-string (corpus PR 1505)
+FLF Format Tests::Cell_IntegerNegativeLengthCut	ASSUMED format-length-integer-string (corpus PR 1505)
+FLF Format Tests::Cell_BigIntegerThousandCut	ASSUMED format-length-integer-string (corpus PR 1505)
+FLF Format Tests::Cell_EmptyString	ASSUMED format-length-integer-string (corpus PR 1505)
+FLF Format Tests::Reader_Variant	ASSUMED format-length-integer-string (corpus PR 1505)
+FLF Format Tests::Reader_RecordField	ASSUMED format-length-integer-string (corpus PR 1505)
+FLF Format Tests::Reader_FieldRefValue	ASSUMED format-length-integer-string (corpus PR 1505)

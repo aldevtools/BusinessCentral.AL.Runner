@@ -440,12 +440,16 @@ fn format_codes(
     }
     // A result longer than the length is cut to it (P86FormatDecimal.al:1091 `l4`; a Date: types/date-time/Format.al:537
     // `date len 5 custom`; a Time: Format.al:912, :918 TU_Time_Format_CodeNames). Which values may take a length at all:
-    // `format::length::with_format_string`.
-    if length > 0
-        && out.chars().count() > length as usize
-        && matches!(v, Value::Decimal(_) | Value::Date(..) | Value::Time(_))
-    {
-        return Ok(out.chars().take(length as usize).collect());
+    // `format::length::with_format_string`. An Integer or BigInteger is cut the same, and an Integer in a negative length is cut to
+    // its first |length| characters too (corpus PR 1505, FormatLengthIntegerString.al:34, :36, :39, :204; assumption
+    // `format-length-integer-string`, marked by the gate).
+    let cut = match (v, length > 0) {
+        (Value::Decimal(_) | Value::Date(..) | Value::Time(_) | Value::Integer(_) | Value::BigInteger(_), true) => true,
+        (Value::Integer(_), false) => length < 0,
+        _ => false,
+    };
+    if cut && out.chars().count() > length.unsigned_abs() as usize {
+        return Ok(out.chars().take(length.unsigned_abs() as usize).collect());
     }
     Ok(crate::format::pad(out, length))
 }
