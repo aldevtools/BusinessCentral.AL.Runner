@@ -47,7 +47,6 @@ mod codemap;
 mod consistent_guarded_run;
 mod control_add_in_calls;
 mod conversions;
-#[cfg(unix)]
 mod corpus_bump_bot;
 mod corpus_bump_combined;
 mod corpus_bump_from_pr;
@@ -148,7 +147,6 @@ mod modal_handler_error_close;
 mod modal_parts_veto;
 mod ms_top_refusals_3;
 mod native_not_reached;
-#[cfg(unix)]
 mod neighbor_diff;
 mod neighbor_rule;
 mod new_document_and_empty_worksheet;
@@ -223,7 +221,6 @@ mod rename_blank_key_page_close;
 mod report_global_blob_column;
 mod report_handler;
 mod report_object_options_rows;
-#[cfg(unix)]
 mod report_render;
 mod report_request_page_save_as_pdf;
 mod report_run_after_write;
