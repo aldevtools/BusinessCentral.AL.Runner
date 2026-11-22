@@ -88,11 +88,20 @@ fn unmeasured_one_character_literal_for_loop_bounds_are_refused() {
         ("var c: Char; s: Text;", "for c := '0' to 'a' + 1 do"),
         ("var b: BigInteger; c: Char; s: Text;", "for b := '0' to '4' do"),
         ("var d: Decimal; c: Char; s: Text;", "for d := '0' to '4' do"),
-        // A non-BMP literal is two UTF-16 units in BC (AL0122), and an Integer literal outside the measured 0, 1, 65534, 65535.
+        // A non-BMP literal is two UTF-16 units in BC (AL0122), and an Integer literal other than the measured `48 to <literal>` and `<literal> to 52` pairings.
         ("var c: Char; s: Text;", "for c := '\u{1F600}' to '\u{1F601}' do"),
         ("var c: Char; s: Text;", "for c := '0' to 70000 do"),
         ("var c: Char; s: Text;", "for c := '0' to 50 do"),
         ("var c: Char; s: Text;", "for c := 49 to 'a' do"),
+        ("var c: Char; s: Text;", "for c := 'a' to 65535 do"),
+        ("var c: Char; s: Text;", "for c := 0 to 'a' do"),
+        ("var c: Char; s: Text;", "for c := '0' downto 1 do"),
+        ("var c: Char; s: Text;", "for c := '0' to 48 do"),
+        ("var c: Char; s: Text;", "for c := 52 downto '0' do"),
+        ("var c: Char; s: Text;", "for c := '4' downto 48 do"),
+        ("var c: Char; s: Text;", "for c := 52 to '0' do"),
+        ("var c: Char; s: Text;", "for c := 48 downto '0' do"),
+        ("var c: Char; s: Text;", "for c := '4' downto 52 do"),
     ] {
         let src = format!(
             "codeunit 69862 FC\n{{\n    procedure F(): Text\n    {decl}\n    begin\n        {head} s += Format(c);\n        exit(s);\n    end;\n}}\n"

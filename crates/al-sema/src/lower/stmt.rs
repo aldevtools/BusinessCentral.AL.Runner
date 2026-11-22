@@ -1187,7 +1187,7 @@ impl Lowerer<'_> {
             ForStmt => {
                 let down = sig_tokens(n).iter().any(|t| t.text().eq_ignore_ascii_case("downto"));
                 let var = self.place(&kids[0]);
-                let (from, to) = self.for_bounds(&kids);
+                let (from, to) = self.for_bounds(&kids, down);
                 self.loops.push(false);
                 let body = self.stmt_or_empty(kids.get(3));
                 self.loops.pop();

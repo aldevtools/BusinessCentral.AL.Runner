@@ -292,4 +292,81 @@ codeunit 50100 "NB Char Loop"
     begin
         Expect(Format(CountVarParam(c)), '5');
     end;
+
+    [Test]
+    procedure CharVar_CharLiteral_To_65535()
+    var
+        c: Char;
+        n: Integer;
+    begin
+        for c := 'a' to 65535 do
+            n += 1;
+        Expect(Format(n), '0');
+    end;
+
+    [Test]
+    procedure CharVar_Zero_To_CharLiteral()
+    var
+        c: Char;
+        n: Integer;
+    begin
+        for c := 0 to 'a' do
+            n += 1;
+        Expect(Format(n), '0');
+    end;
+
+    [Test]
+    procedure CharVar_CharLiteral_DownTo_One()
+    var
+        c: Char;
+        n: Integer;
+    begin
+        for c := '4' downto 1 do
+            n += 1;
+        Expect(Format(n), '0');
+    end;
+
+    [Test]
+    procedure CharVar_CharLiteral_To_48()
+    var
+        c: Char;
+        n: Integer;
+    begin
+        for c := '0' to 48 do
+            n += 1;
+        Expect(Format(n), '0');
+    end;
+
+    [Test]
+    procedure CharVar_52_DownTo_CharLiteral()
+    var
+        c: Char;
+        n: Integer;
+    begin
+        for c := 52 downto '0' do
+            n += 1;
+        Expect(Format(n), '0');
+    end;
+
+    [Test]
+    procedure CharVar_CharLiteral_DownTo_52()
+    var
+        c: Char;
+        n: Integer;
+    begin
+        for c := '4' downto 52 do
+            n += 1;
+        Expect(Format(n), '0');
+    end;
+
+    [Test]
+    procedure CharVar_48_DownTo_CharLiteral()
+    var
+        c: Char;
+        n: Integer;
+    begin
+        for c := 48 downto '0' do
+            n += 1;
+        Expect(Format(n), '0');
+    end;
 }

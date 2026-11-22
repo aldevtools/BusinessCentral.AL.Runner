@@ -406,11 +406,11 @@ impl<'a> Lowerer<'a> {
     /// The start and end of a `for` loop. A one-character literal bound is read as that Char in the shapes
     /// language/ForCharBounds.al measured (`crate::check::for_one_char_literal_bounds`; open corpus PR 1525, assumption
     /// `for-char-literal-bounds`, al-runner issue 7872). Any other bound keeps main's lowering, which refuses a text bound.
-    pub(crate) fn for_bounds(&mut self, kids: &[SyntaxNode]) -> (L<ir::Expr>, L<ir::Expr>) {
+    pub(crate) fn for_bounds(&mut self, kids: &[SyntaxNode], down: bool) -> (L<ir::Expr>, L<ir::Expr>) {
         let mut from = self.operand(&kids[1], ir::OperandUse::Value);
         let mut to = self.operand(&kids[2], ir::OperandUse::Value);
         let local = |n: &SyntaxNode| matches!(self.res(n), Some(Res::Local(name)) if self.local_var_section_names.contains(name.as_str()));
-        let measured = crate::check::for_one_char_literal_bounds(kids, &|n| self.ty_of(n), &local);
+        let measured = crate::check::for_one_char_literal_bounds(kids, down, &|n| self.ty_of(n), &local);
         if measured {
             for (k, b) in [(&kids[1], &mut from), (&kids[2], &mut to)] {
                 if crate::check::one_char_literal(k) {
