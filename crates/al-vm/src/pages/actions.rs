@@ -2076,6 +2076,9 @@ impl Session {
         let Some(start) = filters_before else {
             return Ok(false);
         };
+        if self.validate_view_refresh(st, without_curr, without_parts)? {
+            return Ok(true);
+        }
         let shape = {
             let s = st.borrow();
             s.open && !s.dirty && (!s.draft || s.cursor == Cursor::NewLine) && s.host.is_none()

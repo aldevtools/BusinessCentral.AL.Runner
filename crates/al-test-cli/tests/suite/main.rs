@@ -287,6 +287,7 @@ mod user_name_filters;
 mod user_name_getfilter;
 mod user_reports;
 mod validate_in_validate_subscriber;
+mod validate_view_refresh_8698;
 mod values_allowed_setvalue;
 mod view_object_constant_unique;
 mod with_recordref_subject;
