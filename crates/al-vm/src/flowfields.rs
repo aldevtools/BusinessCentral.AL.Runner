@@ -684,11 +684,9 @@ impl Session {
         }
         let cx = self.cx_for(rec, &src_t)?;
         self.refuse_filter_over_rolled(&cx, &src_t, &filters)?;
-        let n = self
-            .store
-            .count(&cx, &src_t, &filters)
-            .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
-        Ok(n > 0)
+        self.store
+            .exists(&cx, &src_t, &filters)
+            .map_err(|e| Signal::unsupported(format!("store error {e}")))
     }
 
     /// The value of FlowField `pos` of `rec`.
@@ -849,7 +847,7 @@ impl Session {
             };
             {
                 let mut p = probe.borrow_mut();
-                p.fields = row.clone();
+                p.fields = row.clone().into();
                 p.company = rec.borrow().company.clone();
             }
             let mut pass = true;
@@ -1338,7 +1336,7 @@ impl Session {
         let probe = {
             let r = rec.borrow();
             let mut p = r.clone();
-            p.fields = row.to_vec();
+            p.fields = row.to_vec().into();
             p.temporary = false;
             p.auto_calc.clear();
             Rc::new(RefCell::new(p))
