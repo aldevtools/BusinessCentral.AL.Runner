@@ -11,22 +11,11 @@ codeunit 61630 "GK Fvt R61630"
     var
         FR: FieldRef;
         R: DateTime;
-
     begin
         Lib.Field(2, 1, FR);
         asserterror G := FR.Value;
         if GetLastErrorCode() = '' then
             Error('no error');
-    end;
-
-    local procedure Take(P: DateTime)
-    begin
-        G := P;
-    end;
-
-    local procedure Give(var FR: FieldRef): DateTime
-    begin
-        exit(FR.Value);
     end;
 }
 
@@ -50,16 +39,6 @@ codeunit 61631 "GK Fvt R61631"
         if GetLastErrorCode() = '' then
             Error('no error');
     end;
-
-    local procedure Take(P: DateTime)
-    begin
-        G := P;
-    end;
-
-    local procedure Give(var FR: FieldRef): DateTime
-    begin
-        exit(FR.Value);
-    end;
 }
 
 codeunit 61632 "GK Fvt R61632"
@@ -75,7 +54,6 @@ codeunit 61632 "GK Fvt R61632"
     var
         FR: FieldRef;
         R: DateTime;
-
     begin
         Lib.Field(2, 1, FR);
         asserterror Take(FR.Value);
@@ -86,11 +64,6 @@ codeunit 61632 "GK Fvt R61632"
     local procedure Take(P: DateTime)
     begin
         G := P;
-    end;
-
-    local procedure Give(var FR: FieldRef): DateTime
-    begin
-        exit(FR.Value);
     end;
 }
 
@@ -107,17 +80,11 @@ codeunit 61633 "GK Fvt R61633"
     var
         FR: FieldRef;
         R: DateTime;
-
     begin
         Lib.Field(2, 1, FR);
         asserterror R := Give(FR);
         if GetLastErrorCode() = '' then
             Error('no error');
-    end;
-
-    local procedure Take(P: DateTime)
-    begin
-        G := P;
     end;
 
     local procedure Give(var FR: FieldRef): DateTime
@@ -146,16 +113,6 @@ codeunit 61634 "GK Fvt R61634"
         if GetLastErrorCode() = '' then
             Error('no error');
     end;
-
-    local procedure Take(P: DateTime)
-    begin
-        G := P;
-    end;
-
-    local procedure Give(var FR: FieldRef): DateTime
-    begin
-        exit(FR.Value);
-    end;
 }
 
 codeunit 61635 "GK Fvt R61635"
@@ -171,22 +128,11 @@ codeunit 61635 "GK Fvt R61635"
     var
         FR: FieldRef;
         R: DateTime;
-
     begin
         Lib.Field(4, 2, FR);
         asserterror R := FR.Value;
         if GetLastErrorCode() = '' then
             Error('no error');
-    end;
-
-    local procedure Take(P: DateTime)
-    begin
-        G := P;
-    end;
-
-    local procedure Give(var FR: FieldRef): DateTime
-    begin
-        exit(FR.Value);
     end;
 }
 
@@ -203,22 +149,11 @@ codeunit 61636 "GK Fvt R61636"
     var
         FR: FieldRef;
         R: DateTime;
-
     begin
         Lib.Field(4, 1500.5, FR);
         asserterror R := FR.Value;
         if GetLastErrorCode() = '' then
             Error('no error');
-    end;
-
-    local procedure Take(P: DateTime)
-    begin
-        G := P;
-    end;
-
-    local procedure Give(var FR: FieldRef): DateTime
-    begin
-        exit(FR.Value);
     end;
 }
 
@@ -235,22 +170,11 @@ codeunit 61637 "GK Fvt R61637"
     var
         FR: FieldRef;
         R: DateTime;
-
     begin
         Lib.Field(5, 0, FR);
         asserterror R := FR.Value;
         if GetLastErrorCode() = '' then
             Error('no error');
-    end;
-
-    local procedure Take(P: DateTime)
-    begin
-        G := P;
-    end;
-
-    local procedure Give(var FR: FieldRef): DateTime
-    begin
-        exit(FR.Value);
     end;
 }
 
@@ -274,16 +198,6 @@ codeunit 61638 "GK Fvt R61638"
         if GetLastErrorCode() = '' then
             Error('no error');
     end;
-
-    local procedure Take(P: DateTime)
-    begin
-        G := P;
-    end;
-
-    local procedure Give(var FR: FieldRef): DateTime
-    begin
-        exit(FR.Value);
-    end;
 }
 
 codeunit 61639 "GK Fvt R61639"
@@ -306,16 +220,6 @@ codeunit 61639 "GK Fvt R61639"
         if GetLastErrorCode() = '' then
             Error('no error');
     end;
-
-    local procedure Take(P: DateTime)
-    begin
-        G := P;
-    end;
-
-    local procedure Give(var FR: FieldRef): DateTime
-    begin
-        exit(FR.Value);
-    end;
 }
 
 codeunit 61640 "GK Fvt R61640"
@@ -331,22 +235,125 @@ codeunit 61640 "GK Fvt R61640"
     var
         FR: FieldRef;
         R: DateTime;
-
     begin
         Lib.Field(9, 1, FR);
         asserterror R := FR.Value;
         if GetLastErrorCode() = '' then
             Error('no error');
     end;
-
-    local procedure Take(P: DateTime)
-    begin
-        G := P;
-    end;
-
-    local procedure Give(var FR: FieldRef): DateTime
-    begin
-        exit(FR.Value);
-    end;
 }
 
+codeunit 61641 "GK Fvt R61641"
+{
+    Subtype = Test;
+
+    var
+        Lib: Codeunit "GK Fvt Lib";
+
+    [Test]
+    procedure Refused_PlainLocal_DateTime()
+    var
+        FR: FieldRef;
+        R: DateTime;
+    begin
+        // The issue's own shape: a plain declared local. The probe measured only a var parameter.
+        Lib.Field(2, 1, FR);
+        asserterror R := FR.Value;
+        if GetLastErrorCode() = '' then
+            Error('no error');
+    end;
+
+    [Test]
+    procedure Refused_ValueParam_DateTime()
+    var
+        FR: FieldRef;
+        R: DateTime;
+    begin
+        Lib.Field(2, 1, FR);
+        asserterror IntoValue(FR, R);
+        if GetLastErrorCode() = '' then
+            Error('no error');
+    end;
+
+    [Test]
+    procedure Refused_NamedReturn_DateTime()
+    var
+        FR: FieldRef;
+    begin
+        Lib.Field(2, 1, FR);
+        asserterror Give(FR);
+        if GetLastErrorCode() = '' then
+            Error('no error');
+    end;
+
+    [Test]
+    procedure Refused_NegDecimal_DateTime()
+    var
+        FR: FieldRef;
+        R: DateTime;
+        Val: Decimal;
+    begin
+        Val := -0.5;
+        Lib.Field(4, Val, FR);
+        asserterror IntoVar(FR, R);
+        if GetLastErrorCode() = '' then
+            Error('no error');
+    end;
+
+    [Test]
+    procedure Refused_ManyDecimals_DateTime()
+    var
+        FR: FieldRef;
+        R: DateTime;
+        Val: Decimal;
+    begin
+        Val := 0.123456789;
+        Lib.Field(4, Val, FR);
+        asserterror IntoVar(FR, R);
+        if GetLastErrorCode() = '' then
+            Error('no error');
+    end;
+
+    [Test]
+    procedure Refused_DayDuration_DateTime()
+    var
+        FR: FieldRef;
+        R: DateTime;
+        Val: Duration;
+    begin
+        Val := 93780000;
+        Lib.Field(5, Val, FR);
+        asserterror IntoVar(FR, R);
+        if GetLastErrorCode() = '' then
+            Error('no error');
+    end;
+
+    [Test]
+    procedure Refused_MsDuration_DateTime()
+    var
+        FR: FieldRef;
+        R: DateTime;
+        Val: Duration;
+    begin
+        Val := 65001;
+        Lib.Field(5, Val, FR);
+        asserterror IntoVar(FR, R);
+        if GetLastErrorCode() = '' then
+            Error('no error');
+    end;
+
+    local procedure IntoVar(var FR: FieldRef; var R: DateTime)
+    begin
+        R := FR.Value;
+    end;
+
+    local procedure IntoValue(var FR: FieldRef; R: DateTime)
+    begin
+        R := FR.Value;
+    end;
+
+    local procedure Give(var FR: FieldRef) R: DateTime
+    begin
+        R := FR.Value;
+    end;
+}

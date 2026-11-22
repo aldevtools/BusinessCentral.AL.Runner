@@ -1,6 +1,7 @@
 // Neighbors of al-runner issue 8662: FieldRef.Value of an Integer, BigInteger, Decimal, Duration or Boolean field assigned to
 // a local DateTime, Date or Time (corpus PR 1511, assumption fieldref-value-temporal-error), and the places, values, types
-// and sources next to it, which keep main's answer or refuse. Error texts are the BC 27 one or the later one (corpus PR 1511).
+// and sources next to it, which keep main's answer or refuse. CheckError takes the BC 27 text or the later text on any major:
+// neighbor-diff runs on BC 29 only, so the version split is checked by the corpus cases of PR 1511, not here.
 table 61620 "GK Fvt Row"
 {
     fields
@@ -55,7 +56,7 @@ codeunit 61621 "GK Fvt Measured"
         Lib: Codeunit "GK Fvt Lib";
 
     [Test]
-    procedure Measured_IntLocal_DateTime()
+    procedure Measured_IntVarParam_DateTime()
     var
         FR: FieldRef;
         Val: Integer;
@@ -63,12 +64,12 @@ codeunit 61621 "GK Fvt Measured"
     begin
         Val := 1;
         Lib.Field(2, Val, FR);
-        asserterror R := FR.Value;
+        asserterror IntoDateTime(FR, R);
         Lib.CheckError('Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavInteger to System.DateTime.', 'The value "1" can''t be evaluated into type DateTime.');
     end;
 
     [Test]
-    procedure Measured_IntLocal_DateTime_Max()
+    procedure Measured_IntVarParam_DateTime_Max()
     var
         FR: FieldRef;
         Val: Integer;
@@ -76,12 +77,12 @@ codeunit 61621 "GK Fvt Measured"
     begin
         Val := 2147483647;
         Lib.Field(2, Val, FR);
-        asserterror R := FR.Value;
+        asserterror IntoDateTime(FR, R);
         Lib.CheckError('Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavInteger to System.DateTime.', 'The value "2147483647" can''t be evaluated into type DateTime.');
     end;
 
     [Test]
-    procedure Measured_BigLocal_Date()
+    procedure Measured_BigVarParam_Date()
     var
         FR: FieldRef;
         Val: BigInteger;
@@ -89,12 +90,12 @@ codeunit 61621 "GK Fvt Measured"
     begin
         Val := 3000000000L;
         Lib.Field(3, Val, FR);
-        asserterror R := FR.Value;
+        asserterror IntoDate(FR, R);
         Lib.CheckError('Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavBigInteger to System.DateTime.', 'The format of the Date ''3000000000'' does not match your device''s date settings.\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format ''yyyy-mm-dd''.');
     end;
 
     [Test]
-    procedure Measured_IntLocal_Time()
+    procedure Measured_IntVarParam_Time()
     var
         FR: FieldRef;
         Val: Integer;
@@ -102,12 +103,12 @@ codeunit 61621 "GK Fvt Measured"
     begin
         Val := 1000;
         Lib.Field(2, Val, FR);
-        asserterror R := FR.Value;
+        asserterror IntoTime(FR, R);
         Lib.CheckError('Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavInteger to System.DateTime.', 'The value "1000" can''t be evaluated into type Time.');
     end;
 
     [Test]
-    procedure Measured_DecLocal_DateTime()
+    procedure Measured_DecVarParam_DateTime()
     var
         FR: FieldRef;
         Val: Decimal;
@@ -115,12 +116,12 @@ codeunit 61621 "GK Fvt Measured"
     begin
         Val := 1.5;
         Lib.Field(4, Val, FR);
-        asserterror R := FR.Value;
+        asserterror IntoDateTime(FR, R);
         Lib.CheckError('Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavDecimal to System.DateTime.', 'The value "1.5" can''t be evaluated into type DateTime.');
     end;
 
     [Test]
-    procedure Measured_DurLocal_DateTime()
+    procedure Measured_DurVarParam_DateTime()
     var
         FR: FieldRef;
         Val: Duration;
@@ -128,12 +129,12 @@ codeunit 61621 "GK Fvt Measured"
     begin
         Val := 65000;
         Lib.Field(5, Val, FR);
-        asserterror R := FR.Value;
+        asserterror IntoDateTime(FR, R);
         Lib.CheckError('Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavDuration to System.DateTime.', 'The value "1 minute 5 seconds" can''t be evaluated into type DateTime.');
     end;
 
     [Test]
-    procedure Measured_BoolLocal_DateTime()
+    procedure Measured_BoolVarParam_DateTime()
     var
         FR: FieldRef;
         Val: Boolean;
@@ -141,36 +142,51 @@ codeunit 61621 "GK Fvt Measured"
     begin
         Val := true;
         Lib.Field(6, Val, FR);
-        asserterror R := FR.Value;
+        asserterror IntoDateTime(FR, R);
         Lib.CheckError('Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavBoolean to System.DateTime.', 'The value "Yes" can''t be evaluated into type DateTime.');
     end;
 
     [Test]
-    procedure Measured_IntLocal_DateTime_ValueCall()
+    procedure Measured_IntVarParam_DateTime_ValueCall()
     var
         FR: FieldRef;
         R: DateTime;
     begin
-        // The al-runner issue's spelling: `Value()` with parentheses.
+        // The issue's `Value()` spelling, in a helper: `R := FR.Value();`.
         Lib.Field(2, 1, FR);
-        asserterror R := FR.Value();
+        asserterror IntoDateTimeCall(FR, R);
         Lib.CheckError('Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavInteger to System.DateTime.', 'The value "1" can''t be evaluated into type DateTime.');
     end;
 
     [Test]
-    procedure Measured_IntVarParam_DateTime()
+    procedure Measured_IntVarParam_KeepsValue()
     var
         FR: FieldRef;
         R: DateTime;
     begin
         Lib.Field(2, 1, FR);
         R := CreateDateTime(20260131D, 120000T);
-        asserterror IntoVar(FR, R);
+        asserterror IntoDateTime(FR, R);
         Lib.CheckError('Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavInteger to System.DateTime.', 'The value "1" can''t be evaluated into type DateTime.');
         Lib.Check(Format(R, 0, 9), '2026-01-31T12:00:00Z');
     end;
 
-    local procedure IntoVar(var FR: FieldRef; var R: DateTime)
+    local procedure IntoDateTime(var FR: FieldRef; var R: DateTime)
+    begin
+        R := FR.Value;
+    end;
+
+    local procedure IntoDateTimeCall(var FR: FieldRef; var R: DateTime)
+    begin
+        R := FR.Value();
+    end;
+
+    local procedure IntoDate(var FR: FieldRef; var R: Date)
+    begin
+        R := FR.Value;
+    end;
+
+    local procedure IntoTime(var FR: FieldRef; var R: Time)
     begin
         R := FR.Value;
     end;
@@ -188,7 +204,7 @@ codeunit 61621 "GK Fvt Measured"
         Row.Insert();
         RR.GetTable(Row);
         FR := RR.FieldIndex(1);
-        asserterror R := FR.Value;
+        asserterror IntoDateTime(FR, R);
         Lib.CheckError('Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavInteger to System.DateTime.', 'The value "1" can''t be evaluated into type DateTime.');
     end;
 

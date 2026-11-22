@@ -93,16 +93,15 @@ pub fn fieldref_value_into_blob(
     })
 }
 
-/// A `FieldRef.Value()` of an Integer, BigInteger, Decimal, Duration or Boolean field assigned to a local DateTime, Date or
-/// Time variable or `var` parameter (al-vm `Compiler::assign`): an error, the variable keeps its value. From BC 28 (`from28`,
+/// A `FieldRef.Value()` of an Integer, BigInteger, Decimal, Duration or Boolean field assigned to a DateTime, Date or
+/// Time `var` parameter (al-vm `Compiler::assign`): an error, the variable keeps its value. From BC 28 (`from28`,
 /// the gate FieldRefTextNumberEvaluateErrorFrom28) the Evaluate error of the value's text, code Evaluate:Conversion; in BC 27
 /// `Unable to convert from Microsoft.Dynamics.Nav.Runtime.Nav<Type> to System.DateTime.`, code Conversion, for all three targets.
 /// Measured cells only (assumption fieldref-value-temporal-error, corpus PR 1511, recordref-fieldref/fieldref-value-convert/
 /// FvcIntegerField.al, FvcBigIntegerField.al, FvcOtherFields.al): an Integer or BigInteger into each target, written as its
-/// digits (`1000`, `2147483647`, `3000000000`); a Decimal (`1.5`), a Duration (`1 minute 5 seconds`) and a Boolean (`Yes`, `No`)
-/// into a DateTime. A whole Decimal, one of 1000 or more (its text may group digits) and a Duration of 0 or less are not
-/// measured. `None`:
-/// any other value or target.
+/// digits (`1000`, `2147483647`, `3000000000`); a Decimal of exactly 1.5, a Duration of exactly 65000 ms (`1 minute 5 seconds`)
+/// and a Boolean (`Yes`, `No`) into a DateTime. Every other Decimal or Duration value is not measured. `None`: any other
+/// value or target.
 pub fn fieldref_value_into_temporal(
     v: &Value,
     t: &RtType,
@@ -112,12 +111,10 @@ pub fn fieldref_value_into_temporal(
     let (nav, text) = match (v, t) {
         (Value::Integer(n), RtType::DateTime | RtType::Date | RtType::Time) => ("NavInteger", n.to_string()),
         (Value::BigInteger(n), RtType::DateTime | RtType::Date | RtType::Time) => ("NavBigInteger", n.to_string()),
-        (Value::Decimal(d), RtType::DateTime)
-            if !d.fract().is_zero() && d.abs() < rust_decimal::Decimal::from(1000) =>
-        {
+        (Value::Decimal(d), RtType::DateTime) if *d == rust_decimal::Decimal::new(15, 1) => {
             ("NavDecimal", crate::format::try_format(v, 0, 0, ctx).ok()?)
         }
-        (Value::Duration(ms), RtType::DateTime) if *ms > 0 => {
+        (Value::Duration(ms), RtType::DateTime) if *ms == 65000 => {
             ("NavDuration", crate::format::try_format(v, 0, 0, ctx).ok()?)
         }
         (Value::Boolean(_), RtType::DateTime) => ("NavBoolean", crate::format::try_format(v, 0, 0, ctx).ok()?),

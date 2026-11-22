@@ -1341,10 +1341,12 @@ impl<'a> Compiler<'a> {
             return Ok(());
         }
         match p {
-            // `FieldRef.Value` into a local Date, Time or DateTime (al-builtins `fieldref_value_into_temporal`); into any other
-            // place it converts as `Op::Convert` does.
+            // `FieldRef.Value` into a `var` parameter of type Date, Time or DateTime (al-builtins `fieldref_value_into_temporal`;
+            // the only slot the probe measured, corpus PR 1511). A by-value parameter, the named return value and a plain
+            // declared local are not measured: they convert as `Op::Convert` does, as does any other place.
             ir::Place::Local(i)
-                if let ir::Expr::Convert(t @ (RtType::Date | RtType::Time | RtType::DateTime), inner) = e
+                if self.by_var.get(*i) == Some(&true)
+                    && let ir::Expr::Convert(t @ (RtType::Date | RtType::Time | RtType::DateTime), inner) = e
                     && is_fieldref_value(inner) =>
             {
                 let i = u16::try_from(*i).map_err(|_| ())?;
