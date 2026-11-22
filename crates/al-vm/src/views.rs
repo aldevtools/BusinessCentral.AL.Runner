@@ -296,7 +296,13 @@ impl Session {
             FilterExpr::NotLike(p, ci) => format!("<>{}{p}", if *ci { "@" } else { "" }),
             // record/filters/WcInvalidFilterExpr.al:84-111: `@` and `<>@` read back as written.
             FilterExpr::AtSignAlone(negated) => if *negated { "<>@" } else { "@" }.to_string(),
-            FilterExpr::AtSignAloneCode => "@".to_string(),
+            FilterExpr::AtSignAloneCode(false) => "@".to_string(),
+            // No cell reads back `<>@` alone on a Code field.
+            FilterExpr::AtSignAloneCode(true) => {
+                return unsupported(
+                    "GetFilter of `<>@` alone on a Code field, or another read of its text (not measured)",
+                );
+            }
             FilterExpr::EmptyViewValue => "==".to_string(),
             FilterExpr::UnpinnedMatch(inner, _) => self.filter_text_with(inner, iso)?,
             FilterExpr::UnpinnedText(_) => {
@@ -982,7 +988,7 @@ fn ordinals(e: &FilterExpr) -> FilterExpr {
         FilterExpr::Like(p, ci) => FilterExpr::Like(p.clone(), *ci),
         FilterExpr::NotLike(p, ci) => FilterExpr::NotLike(p.clone(), *ci),
         FilterExpr::AtSignAlone(n) => FilterExpr::AtSignAlone(*n),
-        FilterExpr::AtSignAloneCode => FilterExpr::AtSignAloneCode,
+        FilterExpr::AtSignAloneCode(n) => FilterExpr::AtSignAloneCode(*n),
         FilterExpr::EmptyViewValue => FilterExpr::EmptyViewValue,
         FilterExpr::UnpinnedMatch(..) | FilterExpr::UnpinnedText(_) => e.clone(),
         FilterExpr::NumCode(e) => FilterExpr::NumCode(e.clone()),

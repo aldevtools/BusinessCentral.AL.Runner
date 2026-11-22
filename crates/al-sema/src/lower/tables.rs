@@ -1051,15 +1051,18 @@ impl Lowerer<'_> {
                     // wildcard. Ranges (`200..299`, `..199`, `400..`), `&`, `>=` and blanks around `|` read the same way, as the
                     // unquoted form does: on a Code or Text field the ranges compare as text (W4CalcFields.al:455
                     // RO_CalcFormula_QuotedRangesAndUnions, :508 RO_CalcFormula_QuotedUnion_Repro; al-runner issues 5575, 5745).
-                    // A content with `<=`, a lone `=`, `<` or `>`, `@` or parentheses stays refused.
+                    // A content with `<=`, a lone `=`, `<` or `>`, `@` or parentheses stays refused, but `'@'`: `@` alone, which
+                    // CalcFields reads as the filter `@` alone on a Code and a Text field (AtSignAloneReads.al:579, al-builtins
+                    // `filter_at_sign`).
                     if let Some(inner) = crate::queries::whole_literal(raw)
                         .filter(|inner| inner.contains(['|', '&', '.', '<', '>', '=', '*', '@', '(', ')', '\'']))
                     {
-                        if inner
-                            .replace("<>", "")
-                            .replace(">=", "")
-                            .replace("..", "")
-                            .contains(['.', '<', '>', '=', '@', '(', ')'])
+                        if inner != "@"
+                            && inner
+                                .replace("<>", "")
+                                .replace(">=", "")
+                                .replace("..", "")
+                                .contains(['.', '<', '>', '=', '@', '(', ')'])
                         {
                             return Err(format!(
                                 "CalcFormula filter {} is one quoted literal with filter operators in it: whether BC reads it as a filter is not pinned",

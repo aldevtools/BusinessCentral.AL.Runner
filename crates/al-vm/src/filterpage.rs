@@ -299,7 +299,7 @@ impl Session {
                     .borrow()
                     .filters
                     .iter()
-                    .any(|f| matches!(f.expr, FilterExpr::AtSignAloneCode))
+                    .any(|f| matches!(f.expr, FilterExpr::AtSignAloneCode(_)))
                 {
                     return unsupported("FilterPageBuilder.SetView with `@` alone on a Code field (not measured)");
                 }
