@@ -1,21 +1,27 @@
 //! A page background task's reads under a locking ReadIsolation of the rows the test codeunit wrote (al-runner issue 8638).
 //!
 //! The worker runs as another session (`pages/background.rs`). Under the test runner's TestIsolation = Codeunit every row the
-//! test codeunit wrote stays locked to it for the whole codeunit, also after Commit() (corpus PR 1498, open:
-//! pages/background-tasks/BgTaskReadIsolationLock.al, assumption `bg-task-readisolation-lock`):
+//! test codeunit wrote stays locked to it for the whole codeunit, also after Commit() and in a later test of the codeunit
+//! (corpus PR 1498, open: pages/background-tasks/BgTaskReadIsolationLock.al, assumption `bg-task-readisolation-lock`; a row an
+//! earlier test inserted and committed, :563; an earlier test's uncommitted write of Isolated Storage,
+//! session-system/isolated-storage/IsolatedStorageInBackgroundTask.al:322-326):
 //! - a Get under ReadCommitted, RepeatableRead or UpdLock of such a row waits and fails with NDBCS:LockTimeout: a row the test
 //!   modified (:175, :190, :205), inserted and committed (:250, :368, :380), modified and committed (:264), or inserted without
-//!   a commit (:352);
+//!   a commit (:352), from TestPage.RunPageBackgroundTask and from the page's own CurrPage.EnqueueBackgroundTask (:535);
 //! - a FindFirst and a Count under ReadCommitted filtered on a field outside the key scan the table and fail the same, also for
 //!   a group that holds no row (:294, :309, :324);
 //! - a Get under ReadCommitted of a key no row has answers not found at once (:280); under ReadUncommitted and without a
-//!   ReadIsolation the worker reads the row as it is (:220, :235, :339), which is what the reads do without this module.
+//!   ReadIsolation the worker reads the row as it is (:220, :235, :339), which is what the reads do without this module;
+//! - a row the test session's insert queue still holds (`records/insert_buffer.rs`) is not in the database and holds no lock:
+//!   the worker's ReadCommitted Count and Get read the table without it (:583, :606). The runner has no view of the store
+//!   without the queued rows, so a locking read of a table whose queue holds rows refuses.
 //!
 //! The error is measured only caught by a TryFunction of the worker, where GetLastErrorText gives each line break of the message
 //! as CR LF (the probe's `OneLine`). [`CodeunitRowLocks`] notes the rows from the codeunit's first test on
-//! ([`Session::begin_codeunit_row_locks`], called by al-testrun `run.rs`). A write or a lock of the test session whose effect is
-//! not measured makes the table's locks unknown, and every locking read of it in a worker refuses; so does every read form next
-//! to the measured ones on a table the codeunit wrote.
+//! ([`Session::begin_codeunit_row_locks`], called by al-testrun `run.rs`); before it, a locking read of a table a write in the
+//! store changed refuses. A write or a lock of the test session whose effect is not measured makes the table's locks unknown,
+//! and every locking read of it in a worker refuses; so does every read form next to the measured ones on a table the codeunit
+//! wrote.
 
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::native::{Signal, unsupported};
@@ -23,6 +29,7 @@ use al_builtins::record_op::RecordOp;
 use al_builtins::value::{RecordState, Value};
 use al_data::TableDef;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::Session;
@@ -43,8 +50,9 @@ const REFUSAL: &str = "page background task read under ReadIsolation";
 pub(crate) struct CodeunitRowLocks {
     /// `None` until the codeunit's first test, and nothing is noted; `Some(true)` under TestIsolation = Codeunit.
     codeunit_isolation: Option<bool>,
-    /// The rows (table object, company, primary key) an Insert or a Modify of the test session wrote.
-    written: Vec<(u32, Option<String>, Vec<Value>)>,
+    /// The primary keys an Insert or a Modify of the test session wrote, by table object and company, one per write: a write
+    /// is noted without a scan, and only a worker's locking read looks through the keys of its table (`holds`).
+    written: HashMap<(u32, Option<String>), Vec<Vec<Value>>>,
     /// The tables (object, in any company) whose locks are not known, with what made them so.
     unknown: Vec<(u32, &'static str)>,
 }
@@ -71,17 +79,25 @@ impl CodeunitRowLocks {
         }
     }
 
+    /// Notes the row `pk` an Insert or a Modify wrote; a row its table's last write already wrote is not noted again.
+    fn note_written(&mut self, table: u32, company: &Option<String>, pk: &[Value]) {
+        let keys = self.written.entry((table, company.clone())).or_default();
+        if keys.last().is_none_or(|k| !crate::records::same_key(k, pk)) {
+            keys.push(pk.to_vec());
+        }
+    }
+
     fn holds(&self, table: u32, company: &Option<String>, pk: &[Value]) -> bool {
         self.written
-            .iter()
-            .any(|(t, c, k)| *t == table && c == company && crate::records::same_key(k, pk))
+            .get(&(table, company.clone()))
+            .is_some_and(|keys| keys.iter().any(|k| crate::records::same_key(k, pk)))
     }
 
     fn of(&self, table: u32, company: &Option<String>) -> TableLocks {
         if let Some((_, why)) = self.unknown.iter().find(|(t, _)| *t == table) {
             return TableLocks::Unknown(why);
         }
-        if self.written.iter().any(|(t, c, _)| *t == table && c == company) {
+        if self.written.contains_key(&(table, company.clone())) {
             return TableLocks::Written;
         }
         TableLocks::Untouched
@@ -164,9 +180,7 @@ impl Session {
             _ if !codeunit => "a write under a TestIsolation other than Codeunit",
             _ if self.tx.tx_world > 0 => "a write inside a Codeunit.Run, a TestPage operation, a report or an XmlPort",
             TxWriteKind::Insert | TxWriteKind::Modify => {
-                if !self.row_locks.holds(table, company, pk) {
-                    self.row_locks.written.push((table, company.clone(), pk.to_vec()));
-                }
+                self.row_locks.note_written(table, company, pk);
                 return;
             }
             TxWriteKind::ModifyAll => return,
@@ -240,6 +254,15 @@ impl Session {
             isolation,
             ISOLATION_READ_COMMITTED | ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK
         ) {
+            // The runner lets this read send the test session's insert queue, which a worker's read does not do on BC
+            // (corpus master pages/background-tasks/BgTaskInsertQueue.al:412): which of the table's rows hold a lock is then
+            // not known.
+            if self.row_locks.codeunit_isolation.is_some() && self.queue_holds_rows(table) {
+                self.row_locks.mark_unknown(
+                    table,
+                    "a read of a page background task's worker while the test session's insert queue held rows of the table",
+                );
+            }
             return Ok(());
         }
         self.worker_locking_read(method, rec, args, isolation)
@@ -253,16 +276,30 @@ impl Session {
         args: &[Value],
         isolation: i32,
     ) -> Result<(), Signal> {
-        if self.row_locks.codeunit_isolation.is_none() {
-            return refuse("a test session whose writes are not noted");
-        }
         let (table, company, auto_calc) = {
             let s = rec.borrow();
             (s.table, s.company.clone(), !s.auto_calc.is_empty())
         };
+        let calc = auto_calc || matches!(method, RecordOp::CalcFields | RecordOp::CalcSums);
+        if self.row_locks.codeunit_isolation.is_none() {
+            // Before the test codeunit's first test nothing is noted. A table no write in the store changed holds no lock of
+            // the test session, and the read keeps its answer; one that a write changed refuses.
+            let changed = self.store.tables_changed_since(0);
+            if changed.contains(&table) || (calc && !changed.is_empty()) {
+                return refuse("a test session whose writes are not noted");
+            }
+            return Ok(());
+        }
+        // A row the insert queue holds is not in the database yet and holds no lock: the worker reads the table without it
+        // (BgTaskReadIsolationLock.al:583, :606). The runner has no view of the store without it.
+        if self.queue_holds_rows(table) {
+            return unsupported(format!(
+                "{REFUSAL} of a table the test codeunit wrote or locked: a row the test session's insert queue still holds (the worker reads the table without it, corpus PR 1498; the runner has no view of the store without the queued rows)"
+            ));
+        }
         let unnoted = self.unnoted_tables();
         let wrote = !self.row_locks.written.is_empty() || !self.row_locks.unknown.is_empty() || !unnoted.is_empty();
-        if wrote && (auto_calc || matches!(method, RecordOp::CalcFields | RecordOp::CalcSums)) {
+        if wrote && calc {
             return refuse("CalcFields, CalcSums or SetAutoCalcFields after the test codeunit wrote rows");
         }
         if unnoted.contains(&table) {
