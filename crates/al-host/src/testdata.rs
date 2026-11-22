@@ -184,17 +184,21 @@ pub enum IndexState {
     Read,
     /// The index was built and saved by this process.
     Built,
+    /// The index was built by this process, but saving it failed (a read-only cache folder): the next open builds it
+    /// again.
+    BuiltUnsaved,
     /// Nothing is kept: no folder for it, or a source that has no index to keep.
     #[default]
     Off,
 }
 
 impl IndexState {
-    /// The word of the protocol: `read`, `built` or `off`.
+    /// The word of the protocol: `read`, `built`, `built-unsaved` or `off`.
     pub fn key(self) -> &'static str {
         match self {
             IndexState::Read => "read",
             IndexState::Built => "built",
+            IndexState::BuiltUnsaved => "built-unsaved",
             IndexState::Off => "off",
         }
     }

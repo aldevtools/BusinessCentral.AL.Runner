@@ -61,14 +61,20 @@ struct FileIndexStore {
     file: PathBuf,
     /// `load` returned bytes.
     loaded: std::sync::atomic::AtomicBool,
+    /// `save` was called: the index was built.
+    built: std::sync::atomic::AtomicBool,
+    /// The index file was written and renamed into place.
     saved: std::sync::atomic::AtomicBool,
 }
 
 impl FileIndexStore {
-    /// Built = saved; Read = loaded and not saved; Off otherwise (a `.bacpac` never loads or saves).
+    /// Built = built and saved; BuiltUnsaved = built, the save failed; Read = loaded and not built; Off otherwise (a
+    /// `.bacpac` never loads or saves).
     fn state(&self) -> IndexState {
         if self.saved.load(Ordering::Relaxed) {
             IndexState::Built
+        } else if self.built.load(Ordering::Relaxed) {
+            IndexState::BuiltUnsaved
         } else if self.loaded.load(Ordering::Relaxed) {
             IndexState::Read
         } else {
@@ -114,6 +120,7 @@ impl FileIndexStore {
         FileIndexStore {
             file: dir.join(format!("{stem}-{h:016x}.pagemap")),
             loaded: false.into(),
+            built: false.into(),
             saved: false.into(),
         }
     }
@@ -129,8 +136,8 @@ impl al_bcdb::pagefile::IndexStore for FileIndexStore {
     }
 
     fn save(&self, bytes: &[u8]) {
-        self.saved.store(true, Ordering::Relaxed);
-        let _ = (|| -> std::io::Result<()> {
+        self.built.store(true, Ordering::Relaxed);
+        let written = (|| -> std::io::Result<()> {
             if let Some(dir) = self.file.parent() {
                 std::fs::create_dir_all(dir)?;
             }
@@ -139,6 +146,7 @@ impl al_bcdb::pagefile::IndexStore for FileIndexStore {
             std::fs::write(&tmp, bytes)?;
             std::fs::rename(&tmp, &self.file)
         })();
+        self.saved.store(written.is_ok(), Ordering::Relaxed);
     }
 }
 
@@ -563,6 +571,7 @@ impl TableProvider for BackupProvider {
             match c.index {
                 IndexState::Read => "kept map and catalog used",
                 IndexState::Built => "kept map and catalog built and saved",
+                IndexState::BuiltUnsaved => "kept map and catalog built, not saved",
                 IndexState::Off => "map and catalog not kept",
             },
             c.reads.load(Ordering::Relaxed),

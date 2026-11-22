@@ -45,3 +45,25 @@ fn the_index_state_is_built_then_read_and_off_without_a_directory() {
         cost(&bacpac)
     );
 }
+
+/// A cache folder the index cannot be saved in (read only) reports `built-unsaved`, not `built`: `built` says the
+/// index was built and saved (the maintainer's review of al-runner issue 8479). Each open builds it again.
+#[cfg(unix)]
+#[test]
+fn an_index_that_could_not_be_saved_is_built_unsaved() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+    let bak = fixture("typeprobe.bak");
+    let states: Vec<_> = (0..2)
+        .map(|_| {
+            let p = BackupProvider::open_with_index_dir(&bak, Some("TP"), Some(dir.path())).unwrap();
+            (p.index_state().map(IndexState::key), cost(&p))
+        })
+        .collect();
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+    for (key, cost) in &states {
+        assert_eq!(*key, Some("built-unsaved"), "{cost}");
+        assert!(cost.contains("(kept map and catalog built, not saved)"), "{cost}");
+    }
+}

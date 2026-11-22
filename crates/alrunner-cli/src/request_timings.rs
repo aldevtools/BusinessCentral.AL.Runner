@@ -24,8 +24,9 @@ pub struct RequestTimings {
     pub coverage: std::time::Duration,
     /// Per pass (one per entry of the request): the threads' baseline copy and the pass's wall time.
     pub passes: Vec<al_testrun::runtime::PassTime>,
-    /// `read`, `built` or `off` (`IndexState::key`): how the open of the test data got the backup's kept index. `None`:
-    /// no test data, or a source without an index. Describes the open this process did, so a daemon repeats it.
+    /// `read`, `built`, `built-unsaved` or `off` (`IndexState::key`): how the open of the test data got the backup's
+    /// kept index. `None`: no test data, or a source without an index. Describes the open this process did, so a daemon
+    /// repeats it.
     pub test_data_index: Option<&'static str>,
 }
 
