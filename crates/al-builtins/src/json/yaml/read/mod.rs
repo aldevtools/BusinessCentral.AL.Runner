@@ -488,7 +488,14 @@ fn tagged_scalar(v: &str, tag: &str) -> Res<Yaml> {
             )),
         },
         "float" => match v.parse::<f64>() {
-            Ok(n) if v.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-') => Ok(Yaml::Raw(format!("{n:?}"))),
+            Ok(n) if v.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-') => {
+                // A whole value keeps its `.0`, as the shortest round-trip form of the number has it.
+                let mut t = n.to_string();
+                if !t.contains('.') {
+                    t.push_str(".0");
+                }
+                Ok(Yaml::Raw(t))
+            }
             _ => Err(Fail::Refuse(
                 "ReadFromYaml of a !!float text other than a plain decimal (not measured)",
             )),
