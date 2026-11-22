@@ -1600,7 +1600,10 @@ impl Session {
                 if let Value::Unknown(why) = &v {
                     return Err(Signal::unsupported(why.to_string()));
                 }
-                if let Some(why) = self.install_row_order(r.table, r.temporary, *pos, &r.fields) {
+                if let Some(why) = self
+                    .install_row_order(r.table, r.temporary, *pos, &r.fields)
+                    .or_else(|| self.restamped_read(&r, *pos))
+                {
                     return Err(Signal::unsupported(why));
                 }
                 if r.load.partial {
