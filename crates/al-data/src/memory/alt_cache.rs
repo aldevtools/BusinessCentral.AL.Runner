@@ -1,7 +1,7 @@
 //! What `MemStore::alt_next` keeps per scan: per table and key, the last few sets of filters a scan used, each with the
 //! rows they leave in the order of the key, as of the table's stamp. The filters themselves tell the scans apart
 //! ([`same_filters`]): a lookup compares a few filters, where a key made of their text formatted every filter at every
-//! step (PERF-30).
+//! step (issue 8603).
 
 use super::*;
 
