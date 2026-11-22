@@ -12,6 +12,7 @@ const NEIGHBORS: &str = include_str!("../../../../tests/neighbors/8637-bg-cache-
 const REPRO: &str = include_str!("../../../../tests/neighbors/8637-bg-cache-filtered-reads/src/Repro.al");
 const CALC_NEIGHBORS: &str = include_str!("../../../../tests/neighbors/8677-bg-cache-calcfields/src/Neighbors.al");
 const CALC_REPRO: &str = include_str!("../../../../tests/neighbors/8677-bg-cache-calcfields/src/Repro.al");
+const CALC_PROBE: &str = include_str!("../../../../tests/neighbors/8677-bg-cache-calcfields/src/CalcProbe.al");
 
 fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
     let src = format!("{src}\n{}", include_str!("../fixtures/outside-sc/Assert.al"));
@@ -278,29 +279,19 @@ fn issue_8677_repro() {
     }
 }
 
-/// Neighbors of al-runner issue 8677 past what the cells measure (the neighbor app's header). BC answers each from the cache;
-/// the runner keeps main's answer, the values as the rows are, with no flag. A `field(filter())` of a stored field of the row
-/// set to A and then to B in one worker run computes both (the key holds the field's value, or B would answer A's sum).
-/// SetLoadFields, Get and CalcFields answer the first read as BC does (the cell :7255 measures it), flagged. (The exist
-/// over Tenant Media, Platform.al, needs the platform tables: the neighbor check runs it.)
+/// Neighbors of al-runner issue 8677 (the neighbor app's Neighbors.al), each asserting BC's answer: BC answers each from the
+/// cache, and so does the runner now, flagged, as corpus PR 1533 measures each shape (al-runner issue 8803): a negated sum,
+/// FieldRef.CalcField, a FlowFilter range, a filter on a stored field, a CalcSums with a range, a count over a sum FlowField
+/// of the row, a temporary record, a field(filter()) of a stored field set to A and then to B in one worker run (keyed by its
+/// value: 5,0 / 5,0), and SetLoadFields, Get, CalcFields (:7255). (The exist over Tenant Media, Platform.al, needs the
+/// platform tables: the neighbor check runs it.)
 #[test]
 fn issue_8677_neighbors() {
     let o = outcomes(CALC_NEIGHBORS, "BQN Tests");
     assert_eq!(o.len(), 9);
     for (name, r, marks) in &o {
-        if name.starts_with("LoadFieldsGetCalcFields") {
-            assert_eq!(*r, Outcome::Pass, "{name}");
-            assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
-            continue;
-        }
-        assert!(!marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
-        assert!(matches!(r, Outcome::Fail(_)), "{name}: {r:?}");
-        if name.starts_with("FieldFilterOfAStoredField") {
-            assert!(
-                matches!(r, Outcome::Fail(m) if m.contains("Actual:<5,0 / 5,11>")),
-                "{name}: {r:?}"
-            );
-        }
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
     }
 }
 
@@ -356,6 +347,22 @@ fn issue_8637_heavy() {
 fn issue_8677_bq13_cells() {
     let o = outcomes(PROBE, "BQ Tests 13");
     assert_eq!(o.len(), 3);
+    for (name, r, marks) in &o {
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+    }
+}
+
+/// The cells of corpus PR 1533 (BgTaskCalcCache.al, al-runner issue 8803), each green 3 of 3 on BC 29.1 and in its CI on 27.5,
+/// 28.5 and 29.0, but the two Tenant Media cells (CalcProbe.al leaves them out; Platform.al has the neighbor): a worker's
+/// repeated CalcFields and CalcSums answer the first answer for a negated sum, FieldRef.CalcField, a FlowFilter range, a filter
+/// on a stored field, a CalcSums with a range or with no filter, a count over a sum FlowField of the row, a temporary record,
+/// a field(filter()) of a stored field, a count, min, exist and lookup over a count FlowField of the row, and after
+/// SetAscending(false). All pass, flagged.
+#[test]
+fn issue_8803_cells() {
+    let o = outcomes(CALC_PROBE, "BCC Tests");
+    assert_eq!(o.len(), 15);
     for (name, r, marks) in &o {
         assert_eq!(*r, Outcome::Pass, "{name}");
         assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");

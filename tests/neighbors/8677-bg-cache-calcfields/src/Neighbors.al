@@ -1,7 +1,8 @@
 // Neighbors of al-runner issue 8677 that no cell of the corpus probe BgTaskQueryCache.al measures (BQ Tests 10, open corpus
 // PR 1495, :5833-:6290): a page background task's CalcFields and CalcSums, run twice around lines the test session inserts
-// without a commit. Each test asserts BC's answer (a local BC 29.1 container) as 'first / again'. They are past what the
-// cells measure: a negated sum, a CalcFields through a RecordRef's FieldRef, a FlowFilter range, a filter on a field that is
+// without a commit. Each test asserts BC's answer (a local BC 29.1 container) as 'first / again'. They were past what the
+// cells of BQ Tests 10 measure; open corpus PR 1533 (BgTaskCalcCache.al, al-runner issue 8803) now measures each shape, and
+// CalcProbe.al is its excerpt: a negated sum, a CalcFields through a RecordRef's FieldRef, a FlowFilter range, a filter on a field that is
 // no FlowFilter, a CalcSums with a range, a count whose field() is a sum FlowField of the row, a temporary record, and a sum
 // whose field(filter()) reads a stored field of the row, set to A and then to B in one worker run. From the review of al-runner
 // PR 8682: SetLoadFields, Get and CalcFields (the cell BgCalcFields_AfterSetLoadFields_FirstAnswer, :7255, measures it on
