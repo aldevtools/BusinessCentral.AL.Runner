@@ -839,9 +839,13 @@ codeunit 50121 "Repro Unmeasured Open Tests"
     let src = format!("{}\n{tests}", include_str!("../fixtures/outside-fb/Issue8285.al"));
     let o = issue_8186_outcomes(&src, "Repro Unmeasured Open Tests");
     assert_eq!(o.len(), 5, "{o:#?}");
+    // A write after a refused test whose reach is not fully known is marked (the type it left is not known).
+    let carry = al_builtins::assumptions::Assumption::TransactionTypeCarriesToNextTest;
     let bad: Vec<_> = o
         .iter()
-        .filter(|(_, r, marks)| !matches!(r, Outcome::NotRun(w) if w.contains(UNMEASURED_CODE)) || !marks.is_empty())
+        .filter(|(_, r, marks)| {
+            !matches!(r, Outcome::NotRun(w) if w.contains(UNMEASURED_CODE)) || marks.iter().any(|m| *m != carry)
+        })
         .collect();
     assert!(bad.is_empty(), "{bad:#?}");
 }

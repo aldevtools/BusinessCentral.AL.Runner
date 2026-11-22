@@ -41,9 +41,9 @@ fn the_probe_of_sets_after_a_database_call_passes_with_its_marks() {
         match no {
             // Pinned: UpdateNoLocks then Update and Report (ProbeSystemEnumMembers.al:114-141), Snapshot and Browse
             // (PlTDatabase.al:143-171); Update then Snapshot (TestClearAllTransactionTypeContracts.al:274-286); a set to the
-            // type the transaction has.
-            1..=5 | 7 | 8 | 11..=15 | 35 => vec![],
-            6 | 9 | 10 => vec![SET_AFTER_START],
+            // type the transaction has after a write. After a read the set to the type it has rests on the open probe.
+            1..=5 | 7 | 8 | 35 => vec![],
+            6 | 9..=15 => vec![SET_AFTER_START],
             16..=34 => vec![READ_ONLY],
             _ => panic!("{n}"),
         }

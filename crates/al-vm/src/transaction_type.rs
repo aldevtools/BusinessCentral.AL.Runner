@@ -6,6 +6,7 @@ use crate::transactions::{TxPhase, al_error_code};
 use crate::{Session, Signal};
 use al_builtins::assumptions::Assumption;
 use al_builtins::native::unsupported;
+use al_builtins::record_op::RecordOp;
 use al_builtins::value::Value;
 
 /// `TxState::transaction_type` of a session's start: the TransactionType member UpdateNoLocks
@@ -90,13 +91,15 @@ impl Session {
     ///   read at Update.
     fn set_after_start(&mut self, new: i32) -> Result<(), Signal> {
         let from = self.transaction_type_seen()?;
-        if new == from {
-            return Ok(());
-        }
         let members = type_members();
         let name = |t: i32| members.get(t as usize).cloned().unwrap_or_default();
         let decided = self.tx.phase == TxPhase::Write;
         if self.tx.phase == TxPhase::Fresh {
+            // A set to the type it has leaves the type as it is whether the test runner's transaction has started or not
+            // (corpus pull request 1488, record/TxTypeUpdateReport.al TxU00 sets UpdateNoLocks there).
+            if new == from {
+                return Ok(());
+            }
             return unsupported(format!(
                 "Database.CurrentTransactionType set to {} at the start of a test codeunit's first test method (whether the \
                  test runner's transaction has started there depends on the runner and on what ran before it: not pinned)",
@@ -104,6 +107,11 @@ impl Session {
             ));
         }
         let pinned = match (decided, from, new) {
+            // A set to the type it has after a write at UpdateNoLocks or Update: main's answer, kept (the passing tests
+            // ProbeSystemEnumMembers.al:128 and :153 make it after a write at UpdateNoLocks; TxS01 and TxS07 measure it).
+            // After a read it rests on the open probe (TxS11 to TxS15).
+            (true, TRANSACTION_TYPE_UPDATE_NO_LOCKS | UPDATE, _) if new == from => true,
+            (_, _, _) if new == from => false,
             // A set to Report after a read at the Update the test before left (ProbeSystemEnumMembers.al:93-111).
             (false, UPDATE, REPORT) => true,
             (false, ..) => {
@@ -118,9 +126,7 @@ impl Session {
             // (ProbeSystemEnumMembers.al:114-141), a set to Browse or Report has no effect and a set to Snapshot raises
             // (metadata/platform-tables/PlTDatabase.al:143-171); at Update a set to Snapshot has no effect
             // (TestClearAllTransactionTypeContracts.al:274-286).
-            (_, TRANSACTION_TYPE_UPDATE_NO_LOCKS, UPDATE | SNAPSHOT | BROWSE | REPORT) | (_, UPDATE, SNAPSHOT) => {
-                self.tx.phase == TxPhase::Write && !self.tx.open.runner_tx
-            }
+            (_, TRANSACTION_TYPE_UPDATE_NO_LOCKS, UPDATE | SNAPSHOT | BROWSE | REPORT) | (_, UPDATE, SNAPSHOT) => true,
             (_, TRANSACTION_TYPE_UPDATE_NO_LOCKS | UPDATE, _) => false,
             // A write at another type raises (`gate_read_only_type`), so it cannot have started the transaction.
             _ => {
@@ -136,7 +142,7 @@ impl Session {
             let origin = &mut self.tx.type_origin;
             origin.marks = origin.marks.with(Assumption::TransactionTypeSetAfterStart);
         }
-        if from == TRANSACTION_TYPE_UPDATE_NO_LOCKS && matches!(new, UPDATE | SNAPSHOT) {
+        if new != from && from == TRANSACTION_TYPE_UPDATE_NO_LOCKS && matches!(new, UPDATE | SNAPSHOT) {
             return Err(al_error_code(
                 &format!(
                     "The transaction type cannot be changed after a transaction has started.\\\\A transaction starts when the first database operation, such as FIND, NEXT, INSERT, DELETE, MODIFY, SUM, or COUNT, is run.\\\\The error occurred because the transaction type was changed from {} to {}.",
@@ -149,31 +155,45 @@ impl Session {
         Ok(())
     }
 
-    /// A write of a record that is not temporary (`records/op_inner.rs`), at a type that does not write: Snapshot, Browse and
-    /// Report raise DB:TransActionIsReadOnly in the code of a test for Insert, Modify, Delete, DeleteAll and ModifyAll
-    /// (record/TxTypeSetAfterCall.al TxS16 to TxS34 of the open probe, `transaction-type-read-only-writes`; the text and the
-    /// code are pinned for a report's own TransactionType, reports/W3ReportTransactions.al:207-249). Every other write
-    /// there is refused.
+    /// Before the rollback of an asserterror: whether it ends the transaction the test runner may have started before a
+    /// codeunit's first test method (`OpenTx::runner_tx`). Measured for an asserterror in the code of the test, with and
+    /// without a write in it (session-system/TxTypeFirstTestMethod.al of corpus pull request 1520); the rollback of a guarded
+    /// Codeunit.Run, of a report's world and of an XmlPort import keep it (`Session::rollback_transaction`).
+    pub(crate) fn asserterror_ends_runner_tx(&self) -> bool {
+        self.tx.open.runner_tx && self.tx.tx_world == 0 && self.tx.try_depth == 0 && self.in_test_code()
+    }
+
+    /// The rollback of an asserterror ended the test runner's transaction ([`Self::asserterror_ends_runner_tx`]).
+    pub(crate) fn runner_tx_ended_by_asserterror(&mut self) {
+        self.tx.open.runner_tx = false;
+        self.tx.runner_tx_rolled_back = true;
+    }
+
+    /// A write of a record that is not temporary (`records/op_inner.rs`, before the events and triggers of the call), at a
+    /// type that does not write: Snapshot, Browse and Report raise DB:TransActionIsReadOnly in the shapes of
+    /// record/TxTypeSetAfterCall.al TxS16 to TxS34 of corpus pull request 1520 (`transaction-type-read-only-writes`; the text
+    /// and the code are pinned for a report's own TransactionType, reports/W3ReportTransactions.al:207-249), checked by
+    /// [`Self::read_only_write_measured`]. Every other write there is refused. A write while the type a test before left is
+    /// not known is marked `transaction-type-carries-to-next-test`.
     pub(crate) fn gate_read_only_type(
         &mut self,
-        method: al_builtins::record_op::RecordOp,
-        table_id: Option<u32>,
-        crm: bool,
+        method: RecordOp,
+        t: &al_data::TableDef,
+        rec: &crate::records::Rec,
+        args: &[Value],
+        cx: &al_data::AccessContext,
     ) -> Result<(), Signal> {
-        use al_builtins::record_op::RecordOp::{Delete, DeleteAll, Insert, Modify, ModifyAll};
         // A report that entered the world of its TransactionType = Update writes there.
         if self.report.report_running.last().is_some_and(|r| r.update_world) {
             return Ok(());
         }
-        // A type a test method that did not run to its end may have changed is taken as it is, as the other session state
-        // such a test leaves (al-testrun `written.rs` counts a write as a read of the type, so a later failure is not
-        // trusted).
-        if !matches!(self.tx.transaction_type, SNAPSHOT | BROWSE | REPORT) {
+        if !self.tx.type_origin.unknown && !matches!(self.tx.transaction_type, SNAPSHOT | BROWSE | REPORT) {
             return Ok(());
         }
-        // The test runner's own steps around a test method write its results whatever type the test left: on BC the test
-        // methods after one that failed at Snapshot reported their results as usual (the measurement runs of corpus pull
-        // request 1520). Only a write under a test method is measured.
+        // The test runner's own steps around a test method write its results whatever type the test left: the test after
+        // one that ended at Browse, Snapshot or Report runs and reports as usual (corpus pull request 1488,
+        // session-system/TxTypeNextTestMethod.al:22-38, :43-56, :61-74, TxN01 to TxN06). Only a write under a test method
+        // is measured.
         if !self
             .frames
             .iter()
@@ -182,18 +202,24 @@ impl Session {
         {
             return Ok(());
         }
-        let ty = self.transaction_type_seen()?;
-        let plain = self.report.report_running.is_empty()
-            && self.tx.tx_world == 0
-            && self.tx.try_depth == 0
-            && !self.no_transaction()
-            && !crm
-            && table_id.is_none_or(|id| id < 2_000_000_000)
-            && matches!(method, Insert | Modify | Delete | DeleteAll | ModifyAll);
-        if !plain {
+        // A write while the type a test before left is not known runs at the type the runner holds and is marked: it rests
+        // on that test having left a type that writes (al-testrun `written.rs` keeps a later failure from being trusted).
+        let ty = if self.tx.type_origin.unknown {
+            al_builtins::assumptions::add_hit_bits(self.tx.type_origin.marks);
+            al_builtins::assumptions::assume(Assumption::TransactionTypeCarriesToNextTest);
+            self.tx.transaction_type
+        } else {
+            self.transaction_type_seen()?
+        };
+        if !matches!(ty, SNAPSHOT | BROWSE | REPORT) {
+            return Ok(());
+        }
+        if !self.read_only_write_measured(method, t, rec, args, cx)? {
             return unsupported(format!(
-                "{} while Database.CurrentTransactionType is {} (measured for Insert, Modify, Delete, DeleteAll and ModifyAll \
-                 of an application table in the code of a test)",
+                "{} while Database.CurrentTransactionType is {} (measured for Insert of a new key, Modify that changes a row, \
+                 Delete of a row, DeleteAll and ModifyAll of a matching row, without RunTrigger, of an application table \
+                 with no AutoIncrement field, no subscriber of its database events and no global database trigger, in the \
+                 code of a test)",
                 method.name(),
                 type_members().get(ty as usize).cloned().unwrap_or_default()
             ));
@@ -203,6 +229,95 @@ impl Session {
             "Write operations in the database (INSERT, DELETE, and MODIFY) are not allowed for the selected transaction type.",
             "DB:TransActionIsReadOnly",
         ))
+    }
+
+    /// Whether a write at a type that does not write has the shape the cells measure (TxTypeSetAfterCall.al TxS16 to TxS34): a
+    /// record variable of an application table with no AutoIncrement field, in the code of a test (not in a report, a
+    /// Codeunit.Run, a TryFunction or a page, not under TransactionModel None), the statement form, no RunTrigger, no
+    /// subscriber of the table's database events and no global database trigger, so no AL code runs for the call before
+    /// the write. Insert of a key that is not stored, Modify that changes a field of a fully loaded row that is stored,
+    /// Delete of a stored row, DeleteAll (also of no row) and ModifyAll of at least one row, with no FlowField filter.
+    fn read_only_write_measured(
+        &mut self,
+        method: RecordOp,
+        t: &al_data::TableDef,
+        rec: &crate::records::Rec,
+        args: &[Value],
+        cx: &al_data::AccessContext,
+    ) -> Result<bool, Signal> {
+        let obj = &self.engine.program.objects[t.object as usize];
+        let auto_increment = obj
+            .table
+            .as_ref()
+            .is_some_and(|s| s.fields.iter().any(|f| f.auto_increment));
+        let events: &[&str] = match method {
+            RecordOp::Insert => &["onbeforeinsertevent", "onafterinsertevent"],
+            RecordOp::Modify | RecordOp::ModifyAll => &["onbeforemodifyevent", "onaftermodifyevent"],
+            RecordOp::Delete | RecordOp::DeleteAll => &["onbeforedeleteevent", "onafterdeleteevent"],
+            _ => return Ok(false),
+        };
+        let run_at = if method == RecordOp::ModifyAll { 2 } else { 0 };
+        let run = match args.get(run_at) {
+            Some(v) => crate::ops::truthy(v)?,
+            None => false,
+        };
+        if !(self.report.report_running.is_empty()
+            && self.tx.tx_world == 0
+            && self.tx.try_depth == 0
+            && !self.no_transaction()
+            && !rec.borrow().crm
+            && !self.through_recordref
+            && !self.ret_used
+            && obj.id.is_none_or(|id| id < 2_000_000_000)
+            && !auto_increment
+            && !run
+            && !self.engine.events.has_global_triggers)
+        {
+            return Ok(false);
+        }
+        for e in events {
+            if self.listened(t, e, None)? {
+                return Ok(false);
+            }
+        }
+        let mut stored = || -> Result<Option<Vec<Value>>, Signal> {
+            let pk: Vec<Value> = {
+                let r = rec.borrow();
+                t.keys[0].iter().map(|&i| r.fields[i].clone()).collect()
+            };
+            Ok(al_data::Store::get(&*self.store_for(rec)?, cx, t, &pk)
+                .map_err(|e| Signal::unsupported(format!("store error {e}")))?
+                .map(|row| row.to_vec()))
+        };
+        Ok(match method {
+            RecordOp::Insert => stored()?.is_none(),
+            RecordOp::Delete => stored()?.is_some(),
+            RecordOp::Modify => {
+                let Some(row) = stored()? else { return Ok(false) };
+                let r = rec.borrow();
+                if r.load.partial {
+                    return Ok(false);
+                }
+                let mut changed = false;
+                for (i, _) in t.fields.iter().enumerate().filter(|(_, f)| f.id < 2_000_000_000) {
+                    let (Some(old), Some(new)) = (row.get(i), r.fields.get(i)) else {
+                        return Ok(false);
+                    };
+                    // A value the comparison cannot order (a Blob, a Media) is not measured.
+                    match crate::ops::compare(old, new) {
+                        Ok(o) => changed |= !o.is_eq(),
+                        Err(_) => return Ok(false),
+                    }
+                }
+                changed
+            }
+            _ => {
+                let (filters, flow) = self.split_filters(rec);
+                let rows = al_data::Store::count(&*self.store_for(rec)?, cx, t, &filters)
+                    .map_err(|e| Signal::unsupported(format!("{e}")))?;
+                flow.is_empty() && (method == RecordOp::DeleteAll || rows > 0)
+            }
+        })
     }
 
     /// `TxState::transaction_type` as AL code sees it, through the assumptions it rests on (`TxState::type_origin`): a type a

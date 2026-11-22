@@ -55,6 +55,58 @@ table 50003 "NB TS Other"
     }
 }
 
+table 50004 "NB TS Trigger Row"
+{
+    DataClassification = SystemMetadata;
+
+    fields
+    {
+        field(1; "Entry No."; Integer) { }
+        field(2; Flag; Boolean) { }
+    }
+
+    keys
+    {
+        key(PK; "Entry No.") { Clustered = true; }
+    }
+
+    trigger OnInsert()
+    begin
+        Flag := true;
+    end;
+}
+
+table 50005 "NB TS Subscribed Row"
+{
+    DataClassification = SystemMetadata;
+
+    fields
+    {
+        field(1; "Entry No."; Integer) { }
+    }
+
+    keys
+    {
+        key(PK; "Entry No.") { Clustered = true; }
+    }
+}
+
+codeunit 50006 "NB TS Row Subscriber"
+{
+    [EventSubscriber(ObjectType::Table, Database::"NB TS Subscribed Row", 'OnBeforeInsertEvent', '', false, false)]
+    local procedure OnBeforeInsert(var Rec: Record "NB TS Subscribed Row"; RunTrigger: Boolean)
+    begin
+    end;
+}
+
+codeunit 50007 "NB TS Failer"
+{
+    trigger OnRun()
+    begin
+        Error('The run fails.');
+    end;
+}
+
 codeunit 50002 "NB TS Writer"
 {
     trigger OnRun()
@@ -112,6 +164,7 @@ codeunit 50011 "NB TS Modify Browse"
         Commit();
         CurrentTransactionType(TransactionType::Browse);
         Row.Get(2);
+        Row.Flag := true;
         asserterror Row.Modify();
         if GetLastErrorCode() <> 'DB:TransActionIsReadOnly' then
             Error('No error, or another: %1', GetLastErrorCode());
@@ -135,6 +188,8 @@ codeunit 50012 "NB TS ModifyAll Report"
     var
         Row: Record "NB TS Row";
     begin
+        Row."Entry No." := 7;
+        Row.Insert();
         Commit();
         CurrentTransactionType(TransactionType::Report);
         asserterror Row.ModifyAll(Flag, true);
@@ -365,6 +420,75 @@ codeunit 50028 "NB TS Leaves Browse"
     end;
 }
 
+codeunit 50029 "NB TS Upd Read Report NoCommit"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure A_Nothing()
+    begin
+    end;
+
+    [Test]
+    procedure NoCommitUpdateReadReport_StaysUpdate()
+    var
+        Row: Record "NB TS Row";
+    begin
+        CurrentTransactionType(TransactionType::Update);
+        if Row.FindFirst() then;
+        CurrentTransactionType(TransactionType::Report);
+        if Format(CurrentTransactionType()) <> 'Update' then
+            Error('Type: %1', CurrentTransactionType());
+        Commit();
+        CurrentTransactionType(TransactionType::UpdateNoLocks);
+    end;
+}
+
+codeunit 50030 "NB TS First Test Write Set"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure FirstTestWriteSetSnapshot_Raises()
+    var
+        Row: Record "NB TS Row";
+    begin
+        Row."Entry No." := 10;
+        Row.Insert();
+        asserterror CurrentTransactionType(TransactionType::Snapshot);
+        if GetLastErrorCode() <> 'DB:CannotChangeTransactionType' then
+            Error('No error, or another: %1', GetLastErrorCode());
+    end;
+}
+
+codeunit 50031 "NB TS Same Type After Read"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure A_Nothing()
+    begin
+    end;
+
+    [Test]
+    procedure SnapshotReadSetSnapshot_NoEffect()
+    var
+        Row: Record "NB TS Row";
+    begin
+        Commit();
+        CurrentTransactionType(TransactionType::Snapshot);
+        if Row.FindFirst() then;
+        CurrentTransactionType(TransactionType::Snapshot);
+        if Format(CurrentTransactionType()) <> 'Snapshot' then
+            Error('Type: %1', CurrentTransactionType());
+        Commit();
+        CurrentTransactionType(TransactionType::UpdateNoLocks);
+    end;
+}
+
 codeunit 50022 "NB TS Rename Snapshot"
 {
     Subtype = Test;
@@ -502,5 +626,155 @@ codeunit 50027 "NB TS After Refused Setter"
         Other."Entry No." := 1;
         Other.Insert();
         Error('The write ran.');
+    end;
+
+    // A write of another table that passes: it rests on the type the test before left being one that writes.
+    [Test]
+    procedure C_WriteThenPass_Flagged()
+    var
+        Other: Record "NB TS Other";
+    begin
+        Other."Entry No." := 2;
+        Other.Insert();
+    end;
+}
+
+codeunit 50032 "NB TS Insert RunTrigger"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure A_Nothing()
+    begin
+    end;
+
+    [Test]
+    procedure InsertTrueAtSnapshot_Refused()
+    var
+        Row: Record "NB TS Trigger Row";
+    begin
+        Commit();
+        CurrentTransactionType(TransactionType::Snapshot);
+        Row."Entry No." := 1;
+        asserterror Row.Insert(true);
+        Commit();
+        CurrentTransactionType(TransactionType::UpdateNoLocks);
+    end;
+}
+
+codeunit 50033 "NB TS Insert Subscribed"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure A_Nothing()
+    begin
+    end;
+
+    [Test]
+    procedure InsertSubscribedAtSnapshot_Refused()
+    var
+        Row: Record "NB TS Subscribed Row";
+    begin
+        Commit();
+        CurrentTransactionType(TransactionType::Snapshot);
+        Row."Entry No." := 1;
+        asserterror Row.Insert();
+        Commit();
+        CurrentTransactionType(TransactionType::UpdateNoLocks);
+    end;
+}
+
+codeunit 50034 "NB TS Insert Duplicate"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure A_Nothing()
+    begin
+    end;
+
+    [Test]
+    procedure InsertDuplicateAtSnapshot_Refused()
+    var
+        Row: Record "NB TS Row";
+    begin
+        Row."Entry No." := 20;
+        Row.Insert();
+        Commit();
+        CurrentTransactionType(TransactionType::Snapshot);
+        asserterror Row.Insert();
+        Commit();
+        CurrentTransactionType(TransactionType::UpdateNoLocks);
+    end;
+}
+
+codeunit 50035 "NB TS Modify Unchanged"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure A_Nothing()
+    begin
+    end;
+
+    [Test]
+    procedure ModifyUnchangedAtSnapshot_Refused()
+    var
+        Row: Record "NB TS Row";
+    begin
+        Row."Entry No." := 21;
+        Row.Insert();
+        Commit();
+        CurrentTransactionType(TransactionType::Snapshot);
+        Row.Get(21);
+        asserterror Row.Modify();
+        Commit();
+        CurrentTransactionType(TransactionType::UpdateNoLocks);
+    end;
+}
+
+codeunit 50036 "NB TS ModifyAll No Row"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure A_Nothing()
+    begin
+    end;
+
+    [Test]
+    procedure ModifyAllNoRowAtSnapshot_Refused()
+    var
+        Row: Record "NB TS Row";
+    begin
+        Commit();
+        CurrentTransactionType(TransactionType::Snapshot);
+        Row.SetRange("Entry No.", -1);
+        asserterror Row.ModifyAll(Flag, true);
+        Commit();
+        CurrentTransactionType(TransactionType::UpdateNoLocks);
+    end;
+}
+
+codeunit 50037 "NB TS First Test Guarded Run"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure FailedRunThenSetBrowse_Refused()
+    begin
+        if Codeunit.Run(Codeunit::"NB TS Failer") then;
+        CurrentTransactionType(TransactionType::Browse);
+        if Format(CurrentTransactionType()) <> 'Browse' then
+            Error('Type: %1', CurrentTransactionType());
+        Commit();
+        CurrentTransactionType(TransactionType::UpdateNoLocks);
     end;
 }

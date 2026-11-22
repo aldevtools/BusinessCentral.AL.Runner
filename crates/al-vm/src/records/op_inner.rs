@@ -243,8 +243,7 @@ impl Session {
         {
             self.bg_refuse_write(t.object as usize, method.name())?;
             // At a type that does not write (Snapshot, Browse, Report) the write raises.
-            let table_id = self.engine.program.objects[t.object as usize].id;
-            self.gate_read_only_type(method, table_id, rec.borrow().crm)?;
+            self.gate_read_only_type(method, &t, rec, args, &cx)?;
             self.gate_write(method)?;
             if matches!(method, RecordOp::Insert | RecordOp::DeleteAll)
                 && let Some(e) = self.read_only_platform_table(&t, rec, method)

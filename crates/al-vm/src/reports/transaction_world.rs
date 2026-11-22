@@ -100,7 +100,7 @@ impl Session {
 
     /// The running code is a test method, or codeunit procedures without attributes that it called, with no trigger, event
     /// subscriber, handler or other routine between. The test runner's frames lie below the test method.
-    fn in_test_code(&self) -> bool {
+    pub(crate) fn in_test_code(&self) -> bool {
         let objects = &self.engine.program.objects;
         let frames = || self.frames.iter().zip(&self.call_stack);
         let Some(test) = frames().position(|(&o, f)| self.is_test_method(o, f.routine)) else {
