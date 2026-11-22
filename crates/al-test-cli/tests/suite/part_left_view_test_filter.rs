@@ -47,7 +47,11 @@ fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)
         .collect()
 }
 
-const PROBE: &str = include_str!("../fixtures/outside-fb/Issue8537Probe.al");
+/// The probe's objects and tests, from the neighbor app of al-runner PR 8542 (one copy for this test and the neighbor check).
+const PROBE: &str = concat!(
+    include_str!("../../../../tests/neighbors/fix-8537-part-refill-first/src/ProbeObjects.al"),
+    include_str!("../../../../tests/neighbors/fix-8537-part-refill-first/src/ProbeTests.al")
+);
 const REPRO: &str = include_str!("../fixtures/outside-fb/Issue8537.al");
 
 fn outcome_of<'a>(
@@ -137,6 +141,11 @@ fn issue_8537_calls_no_cell_made_after_the_tests_filter_stay_refused() {
         ("NextOnTheTriggerPart", "Next"),
         ("ValueReadOfAPlainPartField", "Value"),
         ("ValueReadBeforeFirst", "Value"),
+        // An AsDate or AsDecimal read one cell made, on another cell or of another control: right after the filter on the List
+        // host and on the trigger part, and QtyText's AsDecimal after First.
+        ("ReadWithoutMoveOnTheListHost", "AsDecimal"),
+        ("ReadWithoutMoveOnTheTriggerPart", "AsDecimal"),
+        ("QtyTextAsDecimalAfterFirst", "AsDecimal"),
     ] {
         assert_refused(&list, name, how);
     }

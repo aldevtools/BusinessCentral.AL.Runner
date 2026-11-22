@@ -241,4 +241,58 @@ codeunit 97150 "LT PR Neighbors"
         Host.Load.Filter.SetFilter("Period Start", Format(TheDay()));
         Host.Load.QtyText.Value();
     end;
+
+    // The AsDate and AsDecimal reads one cell made, made on another cell or of another control (al-runner PR 8700 review).
+
+    [Test]
+    procedure ReadWithoutMoveOnTheListHost()
+    var
+        Op: Record "LT PR Op";
+        Host: TestPage "LT PR Load List Host";
+    begin
+        Seeded(Op);
+        Host.OpenView();
+        Host.GoToRecord(Op);
+        Host.Load.Filter.SetFilter("Period Start", Format(TheDay()));
+        Host.Load.First();
+        Add(3, TheDay(), 20);
+        Host.Refresh.Invoke();
+        Host.Load.Filter.SetFilter("Period Start", Format(TheDay()));
+        Host.Load."Allocated Qty.".AsDecimal();
+    end;
+
+    [Test]
+    procedure ReadWithoutMoveOnTheTriggerPart()
+    var
+        Op: Record "LT PR Op";
+        Host: TestPage "LT PR Load Trig Host";
+    begin
+        Seeded(Op);
+        Host.OpenView();
+        Host.GoToRecord(Op);
+        Host.Load.Filter.SetFilter("Period Start", Format(TheDay()));
+        Host.Load.First();
+        Add(3, TheDay(), 20);
+        Host.Refresh.Invoke();
+        Host.Load.Filter.SetFilter("Period Start", Format(TheDay()));
+        Host.Load."Allocated Qty.".AsDecimal();
+    end;
+
+    [Test]
+    procedure QtyTextAsDecimalAfterFirst()
+    var
+        Op: Record "LT PR Op";
+        Host: TestPage "LT PR Load Trig Host";
+    begin
+        Seeded(Op);
+        Host.OpenView();
+        Host.GoToRecord(Op);
+        Host.Load.Filter.SetFilter("Period Start", Format(TheDay()));
+        Host.Load.First();
+        Add(3, TheDay(), 20);
+        Host.Refresh.Invoke();
+        Host.Load.Filter.SetFilter("Period Start", Format(TheDay()));
+        Host.Load.First();
+        Host.Load.QtyText.AsDecimal();
+    end;
 }
