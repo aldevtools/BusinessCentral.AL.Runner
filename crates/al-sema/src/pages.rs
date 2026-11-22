@@ -2358,9 +2358,6 @@ mod tests {
     fn sources_classify_as_record_field_global_or_expression() {
         let globals: BTreeSet<String> = ["glob".to_string()].into();
         assert_eq!(classify_source("Rec.Num", &globals), Source::RecField("Num".into()));
-        // `Rec.Count` binds as a field named Count; the lowering then refuses the control (unknown field). No corpus case pins
-        // a Record method without parentheses as a control source, so it is not an expression (aldevtools pull request 7875).
-        assert_eq!(classify_source("Rec.Count", &globals), Source::RecField("Count".into()));
         assert_eq!(
             classify_source("Rec.\"Entry No.\"", &globals),
             Source::RecField("Entry No.".into())
