@@ -1,6 +1,8 @@
 // al-runner issue 8580, second round: the reporter's install routine imports AI eval datasets (.yaml app resources)
 // through JsonObject.ReadFromYaml, and every dataset holds a section sign (U+00A7) in a top `>-` block scalar. The
-// dataset is the document of corpus PR 1515 (JsonYamlUtf8.al, ReadFromYaml_Utf8IssueDocument_Read).
+// dataset is the document of corpus PR 1515 (JsonYamlUtf8.al, ReadFromYaml_Utf8IssueDocument_Read). The install baseline
+// runs the import; only the <baseline> row carries the marks. No test reads the dataset table: install marks are not
+// carried to the tests that read it (issue 8636).
 table 60930 "YW Dataset"
 {
     fields
@@ -41,14 +43,10 @@ codeunit 60931 "YW Install Tests"
     Subtype = Test;
 
     [Test]
-    procedure DatasetImportedByInstall()
+    procedure DependencyRowFromInstall()
     var
-        Dataset: Record "YW Dataset";
+        Row: Record "YW Dep Row";
     begin
-        Dataset.Get('x');
-        if StrLen(Dataset.Description) <> 129 then
-            Error('Description length %1', StrLen(Dataset.Description));
-        if Dataset.Description.Substring(4, 1) <> '§' then
-            Error('Description %1', Dataset.Description);
+        Row.Get('DEP');
     end;
 }
