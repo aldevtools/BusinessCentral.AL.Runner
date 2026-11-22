@@ -375,19 +375,13 @@ fn flow_field_find<'a>(
     source: impl Fn(usize) -> Option<&'a al_ir::Table>,
 ) -> bool {
     // Each key field's filters are its one value, outside the OR group: one filter, or the same value in two groups (:5571).
-    fn value(f: &FieldFilter) -> Option<&Value> {
-        match &f.expr {
-            FilterExpr::Range(Some(a), Some(b)) if a.identical(b) => Some(a),
-            FilterExpr::Eq(a) => Some(a),
-            _ => None,
-        }
-    }
     let key = t.keys[0].iter().all(|k| {
         let on: Vec<&FieldFilter> = filters.iter().copied().filter(|f| f.field == *k).collect();
-        let first = on.first().and_then(|f| value(f));
+        let first = on.first().and_then(|f| one_value(&f.expr));
         matches!(on.len(), 1 | 2)
             && on.iter().all(|f| {
-                f.group != al_builtins::filter::OR_GROUP && value(f).zip(first).is_some_and(|(a, b)| a.identical(b))
+                f.group != al_builtins::filter::OR_GROUP
+                    && one_value(&f.expr).zip(first).is_some_and(|(a, b)| a.identical(b))
             })
     });
     let flow = |f: &FieldFilter| {
@@ -398,12 +392,12 @@ fn flow_field_find<'a>(
     matches!(form, Form::First | Form::Last) && key && flow_fields.iter().all(|f| flow(f))
 }
 
-/// One value: `SetRange(F, V)`, `SetFilter(F, V)` or a range from the value to itself.
-fn one_value(e: &FilterExpr) -> bool {
+/// The one value of `SetRange(F, V)`, `SetFilter(F, V)` or a range from the value to itself (:1834, :1850).
+fn one_value(e: &FilterExpr) -> Option<&Value> {
     match e {
-        FilterExpr::Range(Some(a), Some(b)) => a.identical(b),
-        FilterExpr::Eq(_) => true,
-        _ => false,
+        FilterExpr::Range(Some(a), Some(b)) if a.identical(b) => Some(a),
+        FilterExpr::Eq(a) => Some(a),
+        _ => None,
     }
 }
 
@@ -425,7 +419,7 @@ fn flow_filter_measured(e: &FilterExpr) -> bool {
         | F::Gt(_)
         | F::Ge(_)
         | F::EmptyViewValue => true,
-        F::Or(items) => items.iter().all(|i| one_value(i) || comparisons(i)),
+        F::Or(items) => items.iter().all(|i| one_value(i).is_some() || comparisons(i)),
         F::And(_) => comparisons(e),
         _ => false,
     }
@@ -583,15 +577,6 @@ impl Session {
         Ok(plain && !self.tx.open.locked_tables.contains(&t.object) && !self.store_for(rec)?.is_virtual(t))
     }
 
-    /// The one value `f` is set to in filter group 0, by `SetRange(F, V)` or by `SetFilter(F, V)` alike (:1834, :1850).
-    fn one_value(f: &al_builtins::filter::FieldFilter) -> Option<&Value> {
-        match &f.expr {
-            FilterExpr::Range(Some(a), Some(b)) if f.group == 0 && a.identical(b) => Some(a),
-            FilterExpr::Eq(v) if f.group == 0 => Some(v),
-            _ => None,
-        }
-    }
-
     /// The primary key a `FindFirst` of `rec` reads as a row: one value on every primary-key field and no other filter.
     fn row_filter_key(rec: &Rec, t: &TableDef) -> Option<Vec<Value>> {
         let r = rec.borrow();
@@ -603,7 +588,7 @@ impl Session {
             .map(|field| {
                 let mut on = r.filters.iter().filter(|f| f.field == *field);
                 match (on.next(), on.next()) {
-                    (Some(f), None) => Self::one_value(f).cloned(),
+                    (Some(f), None) if f.group == 0 => one_value(&f.expr).cloned(),
                     _ => None,
                 }
             })
