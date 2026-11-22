@@ -4,7 +4,7 @@
 //! - PR 1493 `tests/al-language/json/JsonYamlBlankLines.al` (codeunit 75620),
 //! - PR 1515 `tests/al-language/json/JsonYamlUtf8.al` (codeunit 75621),
 //! - PR 1519 `tests/al-language/json/JsonYamlPunctMatrix.al` (codeunit 75623),
-//! - PR 1530 `tests/al-language/json/JsonYamlRemaining.al` (codeunit 75671).
+//! - PR 1530 `tests/al-language/json/JsonYamlRemaining.al` (codeunit 79892).
 //!
 //! Cell names below (`tg4`, `ck22`, `ml13`...) are the cells of PR 1530 unless another file is named. A shape no cell
 //! measures refuses (`Fail::Refuse`).
