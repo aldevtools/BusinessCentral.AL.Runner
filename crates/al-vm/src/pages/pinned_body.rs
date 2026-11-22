@@ -70,6 +70,11 @@ pub(super) fn page_lines(program: &ir::Program, object: usize, callees: &mut Cal
         let binding = match c.binding {
             ir::Binding::None => String::new(),
             ir::Binding::Field(f) => format!(" = {}", table?.fields.get(f)?.name),
+            // A global variable of the page (`field(CurrentBatch; CurrentBatch)`), with its type.
+            ir::Binding::Var(g) => {
+                let v = o.globals.get(g)?;
+                format!(" = var {}: {}", v.name, type_text(program, &v.ty)?)
+            }
             _ => return None,
         };
         let mut props = Vec::new();
@@ -211,8 +216,8 @@ pub(super) fn routine_text(program: &ir::Program, object: usize, r: usize, calle
 }
 
 /// The names the name slots of pinned lines stand for, once bound: the same slot stands for the same name in every line of
-/// one comparison. Slots: `«T»` and `«L»` an object name (anything but a double quote), `«V»` a variable name (letters,
-/// digits, underscore).
+/// one comparison. Slots: `«V»` a variable name (letters, digits, underscore); any other letter (`«T»`, `«L»`, ...) an object
+/// name or an object id (anything but a double quote).
 #[derive(Debug, Default)]
 pub(super) struct Names(Vec<(char, String)>);
 
@@ -262,6 +267,11 @@ impl Names {
         false
     }
 
+    /// The name slot `slot` stands for, once bound.
+    pub(super) fn bound(&self, slot: char) -> Option<&str> {
+        self.0.iter().find(|(n, _)| *n == slot).map(|(_, name)| name.as_str())
+    }
+
     /// Whether `have` reads, line for line, as `want`; when not, nothing is bound.
     fn lines_are(&mut self, have: &[String], want: &[&str]) -> bool {
         let before = self.0.len();
@@ -293,6 +303,25 @@ pub(super) fn page_reads_as(
     names: &mut Names,
 ) -> bool {
     page_lines(program, object, callees).is_some_and(|have| names.lines_are(&have, want))
+}
+
+/// Whether the globals of report `object` after its data item records read, line for line, as `want`, each written
+/// `var SomeFilter: Text`: the slots between the report's hidden request page flag (`ir::Report::request_flag_slot`) and the
+/// request page's `CurrPage` (`ir::Page::curr_page_slot`), the declared globals and then the request page's own variables
+/// (al-sema `lower/shared.rs` lays them out in that order).
+pub(super) fn report_globals_are(program: &ir::Program, object: usize, want: &[&str], names: &mut Names) -> bool {
+    let o = &program.objects[object];
+    let (Some(r), Some(page)) = (o.report.as_ref(), o.page.as_ref()) else {
+        return false;
+    };
+    let Some(declared) = o.globals.get(r.request_flag_slot + 1..page.curr_page_slot) else {
+        return false;
+    };
+    let have: Option<Vec<String>> = declared
+        .iter()
+        .map(|g| Some(format!("var {}: {}", g.name, type_text(program, &g.ty)?)))
+        .collect();
+    have.is_some_and(|have| names.lines_are(&have, want))
 }
 
 /// Whether table `object` reads, line for line, as `want` (`table_lines`), and nothing subscribes to its events.
@@ -332,6 +361,9 @@ fn type_text(program: &ir::Program, ty: &RtType) -> Option<String> {
         RtType::Text(None) => "Text".into(),
         RtType::Text(Some(n)) => format!("Text[{n}]"),
         RtType::Code(Some(n)) => format!("Code[{n}]"),
+        RtType::Date => "Date".into(),
+        RtType::Option(members) => format!("Option {}", members.join(",")),
+        RtType::Dictionary(k, v) => format!("Dictionary of [{}, {}]", type_text(program, k)?, type_text(program, v)?),
         RtType::Record(t, false) => format!("Record \"{}\"", program.objects.get(*t as usize)?.name),
         RtType::Codeunit(c) => format!("Codeunit \"{}\"", program.objects.get(*c as usize)?.name),
         _ => return None,
@@ -364,6 +396,42 @@ impl Writer<'_> {
                         s += &format!(" else begin {}end", self.stmts(other, callees)?);
                     }
                     s += "; ";
+                }
+                ir::Stmt::Foreach { var, collection, body } => {
+                    s += &format!(
+                        "foreach {} in {} do begin {}end; ",
+                        self.place(var)?,
+                        self.expr(collection, callees)?,
+                        self.stmts(body, callees)?
+                    );
+                }
+                ir::Stmt::Repeat(body, until) => {
+                    s += &format!(
+                        "repeat {}until {}; ",
+                        self.stmts(body, callees)?,
+                        self.expr(until, callees)?
+                    );
+                }
+                ir::Stmt::Case {
+                    scrutinee,
+                    branches,
+                    otherwise,
+                } => {
+                    s += &format!("case {} of ", self.expr(scrutinee, callees)?);
+                    for (values, body) in branches {
+                        let values: Option<Vec<String>> = values
+                            .iter()
+                            .map(|v| match v {
+                                ir::SetElem::One(e) => self.expr(e, callees),
+                                ir::SetElem::Range(..) => None,
+                            })
+                            .collect();
+                        s += &format!("{}: begin {}end; ", values?.join(", "), self.stmts(body, callees)?);
+                    }
+                    if !otherwise.is_empty() {
+                        s += &format!("else begin {}end; ", self.stmts(otherwise, callees)?);
+                    }
+                    s += "end; ";
                 }
                 _ => return None,
             }
@@ -413,6 +481,8 @@ impl Writer<'_> {
                 ir::Const::Decimal(d) => d.clone(),
                 ir::Const::Text(t) => format!("'{}'", t.replace('\'', "''")),
                 ir::Const::FieldPos(f) => format!("field#{f}"),
+                ir::Const::Option(i, members) => format!("option#{}", members.get(usize::try_from(*i).ok()?)?),
+                ir::Const::Enum(e, v) => format!("enum#\"{}\"#{v}", self.program.objects.get(*e as usize)?.name),
                 _ => return None,
             },
             ir::Expr::Load(p) => self.place(p)?,
@@ -427,6 +497,12 @@ impl Writer<'_> {
                     ir::BinOp::IntDiv => "div",
                     ir::BinOp::Eq => "=",
                     ir::BinOp::Ne => "<>",
+                    ir::BinOp::Lt => "<",
+                    ir::BinOp::Le => "<=",
+                    ir::BinOp::Gt => ">",
+                    ir::BinOp::Ge => ">=",
+                    ir::BinOp::And => "and",
+                    ir::BinOp::Or => "or",
                     _ => return None,
                 };
                 format!("({} {op} {})", self.expr(a, callees)?, self.expr(b, callees)?)
@@ -452,6 +528,20 @@ impl Writer<'_> {
                     Some(r) => format!("{}.", self.arg(r, callees)?),
                 };
                 format!("{on}{}({})", id.method(), self.args(args, callees)?)
+            }
+            // `CurrPage.<Control>` in the page's own code.
+            ir::Expr::Control {
+                page,
+                control,
+                runtime: true,
+            } => {
+                let name = &self.program.objects[self.object]
+                    .page
+                    .as_ref()?
+                    .controls
+                    .get(*control)?
+                    .name;
+                format!("{}.{name}", self.expr(page, callees)?)
             }
             _ => return None,
         })
@@ -593,5 +683,143 @@ page 50762 "Journal Post New Row Wks"
                 "key \"Batch Name\", \"Line No.\" {Clustered=true}"
             ]
         );
+    }
+
+    #[test]
+    fn a_control_bound_to_a_variable_and_a_case_render_as_written() {
+        let src = r#"
+table 50763 "Case Line"
+{
+    fields { field(1; "No."; Integer) { } }
+    keys { key(PK; "No.") { Clustered = true; } }
+}
+page 50764 "Case Page"
+{
+    PageType = List;
+    SourceTable = "Case Line";
+    layout
+    {
+        area(Content)
+        {
+            field(Mode; Mode)
+            {
+                trigger OnValidate()
+                begin
+                    case Mode of
+                        1, 2:
+                            CurrPage.Update(true);
+                        3:
+                            Mode := 0;
+                        else
+                            Error('x');
+                    end;
+                end;
+            }
+        }
+    }
+    var
+        Mode: Integer;
+}
+"#;
+        let l = al_testkit::compile(src);
+        let p = &l.program;
+        let at = |name: &str| p.objects.iter().position(|o| o.name == name).unwrap();
+        assert_eq!(
+            page_lines(p, at("Case Page"), &mut Vec::new()).unwrap(),
+            [
+                "PageType = List",
+                "SourceTable = \"Case Line\"",
+                "field Mode in - = var Mode: Integer {}",
+                "  trigger onvalidate: begin case Mode of 1, 2: begin CurrPage.Update(true); end; 3: begin Mode := 0; end; \
+                 else begin Error('x'); end; end; end",
+            ]
+        );
+    }
+
+    #[test]
+    fn loops_comparisons_and_variable_controls_render() {
+        let src = r#"
+table 50770 "Render Line"
+{
+    TableType = Temporary;
+    fields
+    {
+        field(1; Kind; Option) { OptionMembers = Day,Week; }
+        field(2; Day; Date) { }
+        field(3; Qty; Decimal) { }
+    }
+    keys
+    {
+        key(PK; Kind, Day) { Clustered = true; }
+    }
+}
+page 50771 "Render Part"
+{
+    PageType = ListPart;
+    SourceTable = "Render Line";
+    layout
+    {
+        area(Content)
+        {
+            repeater(Lines)
+            {
+                field(Qty; Rec.Qty) { StyleExpr = Style; }
+                field(Shown; Shown) { }
+            }
+        }
+    }
+    var
+        Shown: Text;
+        Style: Text;
+        Loaded: Boolean;
+
+    procedure Fill(Values: Dictionary of [Text, Text])
+    var
+        DayKey: Text;
+    begin
+        foreach DayKey in Values.Keys() do begin
+            Rec.Kind := Rec.Kind::Week;
+            Rec.Insert();
+        end;
+        repeat
+            Loaded := Loaded and (Rec.Qty >= 2);
+        until Rec.Next() = 0;
+    end;
+}
+"#;
+        let l = al_testkit::compile(src);
+        let p = &l.program;
+        let at = |name: &str| p.objects.iter().position(|o| o.name == name).unwrap();
+        let part = at("Render Part");
+        let lines = page_lines(p, part, &mut Vec::new()).unwrap();
+        assert_eq!(
+            lines[3..],
+            [
+                "field Qty in Lines = Qty {styleexpr=Style}",
+                "field Shown in Lines = var Shown: Text {}",
+            ]
+        );
+        let fill = p.objects[part].routines.iter().position(|r| r.name == "Fill").unwrap();
+        assert_eq!(
+            routine_text(p, part, fill, &mut Vec::new()).unwrap(),
+            "var DayKey: Text; begin foreach DayKey in Values.Keys() do begin Rec.\"Kind\" := option#Week; Rec.Insert(); end; \
+             repeat Loaded := (Loaded and (Rec.\"Qty\" >= 2)); until (Rec.Next() = 0); end"
+        );
+        assert_eq!(
+            table_lines(p, at("Render Line"), &mut Vec::new()).unwrap(),
+            [
+                "TableType = Temporary",
+                "field 1 \"Kind\": Option Day,Week",
+                "field 2 \"Day\": Date",
+                "field 3 \"Qty\": Decimal",
+                "key \"Kind\", \"Day\" {Clustered=true}"
+            ]
+        );
+        let mut names = Names::default();
+        assert!(names.line_is(
+            "EnqueueBackgroundTask(Id, 97108, P)",
+            "EnqueueBackgroundTask(Id, «K», P)"
+        ));
+        assert_eq!(names.bound('K'), Some("97108"));
     }
 }

@@ -647,7 +647,7 @@ pub(super) fn table_relations_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
             let mut fkey = key.clone();
             fkey[pos(t, 2)] = Value::Integer(f.id as i32);
             match field_relations(&c, o, table, f, t, &fkey) {
-                Ok(rows) => out.extend(rows.into_iter().map(Entry::ok)),
+                Ok(rows) => out.extend(rows),
                 Err(why) => out.push(Entry::poisoned_prefix(fkey, 2, why)),
             }
         }
@@ -666,6 +666,8 @@ struct Arm {
     values: Vec<Option<String>>,
     /// Each condition is a `filter(...)` (Condition Type FILTER) and not a `const(...)`.
     filters: Vec<bool>,
+    /// The assumption the Condition Value of each condition rests on (`al_ir::RelationCond::assumes`).
+    assumes: Vec<Option<al_builtins::assumptions::Assumption>>,
 }
 
 /// The first primary key field of a compiled table.
@@ -726,6 +728,7 @@ fn arms_of(c: &Catalog, table: &al_ir::Table, f: &al_ir::Field, what: &str) -> R
                 conditions,
                 values,
                 filters: Vec::new(),
+                assumes: arm.conditions.iter().map(|cond| cond.assumes).collect(),
             });
         }
         return Ok(out);
@@ -764,6 +767,7 @@ fn arms_of(c: &Catalog, table: &al_ir::Table, f: &al_ir::Field, what: &str) -> R
             conditions,
             values: arm.values.clone(),
             filters: arm.filters.clone(),
+            assumes: Vec::new(),
         });
     }
     Ok(out)
@@ -776,7 +780,7 @@ fn field_relations(
     f: &al_ir::Field,
     t: &TableDef,
     fkey: &al_data::Row,
-) -> Result<Vec<al_data::Row>, String> {
+) -> Result<Vec<Entry>, String> {
     let what = format!("field '{}' of table '{}'", f.name, o.name);
     let mut rows = Vec::new();
     // ValidateTableRelation = false is declared; a relation validates otherwise. Test Table
@@ -811,7 +815,7 @@ fn field_relations(
         if arm.conditions.is_empty() {
             row[pos(t, 4)] = Value::Integer(1);
             row[pos(t, 8)] = Value::Integer(0);
-            rows.push(row.clone());
+            rows.push(Entry::ok(row.clone()));
         }
         for (k, own) in arm.conditions.iter().enumerate() {
             let mut r = row.clone();
@@ -827,7 +831,10 @@ fn field_relations(
                 // Condition Type: CONST is the first member, FILTER the second (session-system/PWPlatformTables.al:109-123).
                 r[pos(t, 7)] = option(t, 7, 1);
             }
-            rows.push(r);
+            rows.push(match arm.assumes.get(k).copied().flatten() {
+                Some(a) => Entry::ok(r).assuming_in(a, vec![pos(t, 9)]),
+                None => Entry::ok(r),
+            });
         }
     }
     Ok(rows)

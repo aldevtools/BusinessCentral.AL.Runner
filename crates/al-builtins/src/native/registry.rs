@@ -39,6 +39,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
         crate::evaluate::evaluate_memberless_var_option_element,
     ),
     ("System.EvaluateBounded#1", crate::evaluate::evaluate_bounded),
+    ("System.EvaluateDateVariable#1", crate::evaluate::evaluate_date_variable),
     ("System.EvaluateOptionField#1", crate::evaluate::evaluate_option_field),
     ("Blob.LengthSign#1", crate::stream::blob_length_sign),
     ("System.Abs#1", abs),
@@ -80,7 +81,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     // pins only that CreateTask returns a task id): a run that reaches the question is refused.
     // The URL of the web client depends on the server's address, which a host has not been asked for: a run that builds
     // one is refused (session-system/TestFinalCoverage.al:105-125 asks only that GetUrl does not throw).
-    // Measured on real BC: session-system/TestEnvironmentUserTenantContracts.al:237-241.
+    // Measured on real BC: session-system/TestEnvironmentUserTenantContracts.al:234-238.
     ("Session.CurrentExecutionMode#1", |_, _, _| {
         let members: std::sync::Arc<[String]> = crate::sysenum::option_members("ExecutionMode")
             .expect("a system option")
@@ -99,7 +100,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     ("ProductName.Marketing#1", |_, _, _| {
         Ok(Value::Text("Microsoft Dynamics 365 Business Central".into()))
     }),
-    // False in a test: measured on real BC by session-system/TestEnvironmentUserTenantContracts.al:238
+    // False in a test: measured on real BC by session-system/TestEnvironmentUserTenantContracts.al:235
     // (Assert.IsFalse(TaskScheduler.CanCreateTask())).
     ("TaskScheduler.CanCreateTask#1", |_, _, _| Ok(Value::Boolean(false))),
     // CreateTask, TaskExists, CancelTask and SetTaskReady keep the session's tasks: `Ctx::session_op` (al-vm tasks.rs).
@@ -261,7 +262,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     ("System.CreateGuid#1", |c, _, _| Ok(Value::Guid(c.new_guid()))),
     // `IsNull(DotNet)`: an unassigned DotNet variable, or a .NET call that returned null, holds
     // `Null` (ADR-014). Microsoft's Azure AD Tenant Impl. and Json Impl. ask it
-    // (session-system/TestEnvironmentUserTenantContracts.al:204-232 reaches them).
+    // (session-system/TestEnvironmentUserTenantContracts.al:201-229 reaches them).
     ("System.IsNull#1", |_, _, a| {
         Ok(Value::Boolean(match a.first() {
             Some(Value::Null) => true,

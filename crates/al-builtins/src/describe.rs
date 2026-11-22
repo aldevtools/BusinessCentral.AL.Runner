@@ -33,7 +33,7 @@ impl Describe for Value {
             Value::Null => "an unassigned Variant".into(),
             Value::Unknown(why) => format!("an unknown value ({why})"),
             Value::SqlCount(_) => "a SQL counter value".into(),
-            Value::PlaceholderSize(m, _) => format!("the byte size of {m}"),
+            Value::PlaceholderSize(m, _) => format!("the byte size of {}", crate::rendered_text::shown(m)),
             Value::Boolean(b) => format!("Boolean {b}"),
             Value::Integer(i) => format!("Integer {i}"),
             Value::BigInteger(i) => format!("BigInteger {i}"),
@@ -280,13 +280,13 @@ impl<T: Describe> Describe for [T] {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::value::{LibraryValue, RecordState};
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    fn record(table: u32, temporary: bool) -> Value {
+    pub(crate) fn record(table: u32, temporary: bool) -> Value {
         Value::Record(Rc::new(RefCell::new(RecordState {
             table,
             temporary,
@@ -321,10 +321,12 @@ mod tests {
             failed_insert: None,
             row_origin: None,
             own_read: Default::default(),
+            rolled_read: Default::default(),
             probed_source: Default::default(),
             globals: Default::default(),
             unpinned_buffer: None,
             view_assumption: None,
+            auto_calc_dropped: false,
             run_page_link: None,
         })))
     }

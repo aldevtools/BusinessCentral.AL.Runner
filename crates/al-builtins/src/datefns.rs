@@ -1220,13 +1220,18 @@ fn apply(terms: &[Term], from: i32) -> Result<Applied, Signal> {
     Ok(Applied::Day(day))
 }
 
-fn calcdate(ctx: &dyn Ctx, formula: &str, base: Option<&Value>, overload: range::Overload) -> Out {
+fn calcdate(ctx: &dyn Ctx, formula: &str, base: Option<&Value>, overload: range::Overload, text_value: bool) -> Out {
     // BC raises the time-unit error in the session language (al-runner issue 8200: Danish and German texts measured); only the
     // English text is pinned, and the line breaks of the others are not, so it refuses under another language.
     let parsed = parse_formula(formula);
     let unit_error = matches!(&parsed, Err(Signal::Error(e)) if e.message.contains("should include a time unit"));
     if matches!(overload, range::Overload::Text)
-        && let Some(answer) = crate::date_formula_language::calcdate_text(formula, ctx.language(), unit_error)
+        && let Some(answer) = crate::date_formula_language::calcdate_text(
+            formula,
+            ctx.language(),
+            unit_error,
+            text_value && base.is_some(),
+        )
     {
         return answer;
     }
@@ -1283,14 +1288,14 @@ fn calcdate(ctx: &dyn Ctx, formula: &str, base: Option<&Value>, overload: range:
 
 fn calcdate_text(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     match crate::native::text_of(&a[0]) {
-        Some(f) => calcdate(ctx, &f, a.get(1), range::Overload::Text),
+        Some(f) => calcdate(ctx, &f, a.get(1), range::Overload::Text, matches!(a[0], Value::Text(_))),
         None => unsupported("CalcDate with a formula that is not text"),
     }
 }
 
 fn calcdate_formula(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     match &a[0] {
-        Value::DateFormula(f) => calcdate(ctx, f, a.get(1), range::Overload::Formula),
+        Value::DateFormula(f) => calcdate(ctx, f, a.get(1), range::Overload::Formula, false),
         other => unsupported(format!("CalcDate with {}", other.describe())),
     }
 }

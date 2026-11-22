@@ -4,8 +4,8 @@ use super::call::{MEASURED_CALL, SaveCall, Stream};
 use super::layout_facts::{LayoutFacts, Relationship};
 use super::save_is_measured;
 use super::shape::{
-    BUILDS, ColumnKind, SHAPES, SaveShape, Title, build_is_measured, content_is_measured, converter_is_measured,
-    rests_on_unpinned_cells, shape_is_measured,
+    BUILDS, ColumnKind, SHAPES, SaveShape, build_is_measured, content_is_measured, converter_is_measured,
+    shape_is_measured,
 };
 use crate::report_save::Renders;
 
@@ -117,14 +117,14 @@ fn a_part_or_element_no_measured_layout_has_is_not_measured() {
     let doc = |f: &mut LayoutFacts, e: &str| {
         f.elements.get_mut("word/document.xml").unwrap().insert(e.into());
     };
-    // The font table part (styles and header parts are measured since corpus pull request 1419).
+    // The font table part (styles and header parts are measured, RxHtmlWidenTests.al:440, :568).
     let mut styles = measured();
     styles.parts.insert("word/fontTable.xml".into());
     let mut tab = measured();
     doc(&mut tab, "w:tab");
     let mut picture = measured();
     doc(&mut picture, "w:drawing");
-    // A footer part (a header part `word/header1.xml` is measured since corpus pull request 1419).
+    // A footer part (a header part `word/header1.xml` is measured, RxHtmlWidenTests.al:568).
     let mut header = measured();
     header.parts.insert("word/footer1.xml".into());
     let mut setting = measured();
@@ -165,7 +165,7 @@ fn bound_shape(rows: usize) -> SaveShape {
 fn the_four_columns_are_measured_with_one_to_three_rows_only() {
     assert!(shape_is_measured(SHAPES, &bound_shape(1)));
     assert!(shape_is_measured(SHAPES, &bound_shape(3)));
-    // Two rows: every cell of RxHtmlWidenTests.al but BlankZero_IntegerZero (corpus pull request 1419).
+    // Two rows: every cell of RxHtmlWidenTests.al but BlankZero_IntegerZero.
     assert!(shape_is_measured(SHAPES, &bound_shape(2)));
     for change in [
         // Four rows: the cells of this dataset have one, two and three.
@@ -184,7 +184,7 @@ fn the_four_columns_are_measured_with_one_to_three_rows_only() {
 
 /// The facts of the bound layout plus the part `part` with element names `names`, its relationship `rel`, the document
 /// elements `doc` and the namespace declarations `ns`, as RxWdStyles.docx, RxWdTheme.docx, RxWdNumbering.docx and
-/// RxWdHeader.docx add them to RxHashBound.docx (corpus pull request 1419, RxHtmlWidenTests.al).
+/// RxWdHeader.docx add them to RxHashBound.docx (RxHtmlWidenTests.al).
 fn with_part(part: &str, names: &[&str], rel: &str, doc: &[&str], ns: (&str, &str)) -> LayoutFacts {
     let mut f = LayoutFacts {
         parts: [
@@ -304,7 +304,7 @@ fn header() -> LayoutFacts {
 }
 
 #[test]
-fn each_part_corpus_pull_request_1419_adds_but_numbering_is_measured_with_its_elements() {
+fn each_part_rx_html_widen_tests_adds_but_numbering_is_measured_with_its_elements() {
     for f in [styles(), theme(), header()] {
         assert!(content_is_measured(&f), "{f:?}");
     }
@@ -475,49 +475,4 @@ fn an_app_with_a_translation_file_of_the_call_language_may_translate_the_caption
     std::sync::Arc::make_mut(&mut l.program).apps[app].translations = true;
     let s = session(l);
     assert!(s.app_translates_into(object, 1033));
-}
-
-/// The layout facts of RxHashBound.docx without an extra part (the bound layout of the pinned cells).
-fn bound_layout() -> LayoutFacts {
-    let mut f = header();
-    f.parts.remove("word/header1.xml");
-    f.elements.remove("word/header1.xml");
-    f.relationships.retain(|r| !r.kind.ends_with("/header"));
-    f.elements
-        .get_mut("word/document.xml")
-        .unwrap()
-        .remove("w:headerReference");
-    f
-}
-
-fn name_title() -> Title {
-    Title {
-        text: "RX Hash Bound".into(),
-        caption: false,
-    }
-}
-
-#[test]
-fn only_a_save_with_a_fact_of_corpus_pull_request_1419_rests_on_the_assumption() {
-    // The pinned cells: RxHtmlHashTests.al:192, :218 (two field columns, two rows), :395 and :433 (four columns, one and
-    // three rows), with the report name as the title and the bound layout's facts.
-    let pinned = bound_layout();
-    assert!(content_is_measured(&pinned));
-    for s in [cell_shape(), bound_shape(1), bound_shape(3)] {
-        assert!(!rests_on_unpinned_cells(SHAPES, &pinned, &s, &name_title()), "{s:?}");
-    }
-    // Each fact only RxHtmlWidenTests.al measured: two rows of the four columns (:394), a Caption as the title (:614), the
-    // styles (:440), theme (:482) and header (:568) parts.
-    assert!(rests_on_unpinned_cells(SHAPES, &pinned, &bound_shape(2), &name_title()));
-    let caption = Title {
-        text: "RX Wd Caption".into(),
-        caption: true,
-    };
-    assert!(rests_on_unpinned_cells(SHAPES, &pinned, &bound_shape(1), &caption));
-    for f in [styles(), theme(), header()] {
-        assert!(
-            rests_on_unpinned_cells(SHAPES, &f, &bound_shape(1), &name_title()),
-            "{f:?}"
-        );
-    }
 }

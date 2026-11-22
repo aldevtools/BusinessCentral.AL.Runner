@@ -234,7 +234,7 @@ impl Session {
             || self
                 .caption_translations
                 .iter()
-                .any(|(t, language, _)| t == text && *language != self.global_language)
+                .any(|(t, language, _)| t == text && *language != self.global_language())
     }
 
     /// `caption_class_translate` with the refusal of `setup_caption_refusal` returned beside the caption.
@@ -259,7 +259,7 @@ impl Session {
         // An area 3 text is kept per language: a language that has not translated it yet raises the event again
         // (Y71CaptionClassEvents.al CaptionClass_LanguageChangedBetweenOpens: `lang_1036_second|log`, `lang_1031_third|log` empty).
         if area == "3" {
-            let language = self.global_language;
+            let language = self.global_language();
             if let Some((_, _, caption)) = self
                 .caption_translations
                 .iter()
@@ -273,7 +273,7 @@ impl Session {
             return Ok((caption, None));
         }
         if let Some((_, language, caption)) = self.caption_translations.iter().find(|(t, _, _)| t == text) {
-            if *language != self.global_language {
+            if *language != self.global_language() {
                 return unsupported(
                     "CaptionClassTranslate of a text translated before GlobalLanguage changed (whether BC translates it again is not pinned)",
                 );
@@ -289,7 +289,7 @@ impl Session {
         // `area3_x3|log`, kept for the session: `area3_x3_again|log` empty).
         let caption = self.raise_resolve_caption_class(area, expr, text)?;
         self.caption_translations
-            .push((text.to_string(), self.global_language, caption.clone()));
+            .push((text.to_string(), self.global_language(), caption.clone()));
         let why = self.setup_caption_refusal(area, text, &caption);
         Ok((caption, why))
     }
@@ -307,7 +307,7 @@ impl Session {
             return Ok((String::new(), None));
         }
         if let Some((_, language, caption)) = self.caption_translations.iter().find(|(t, _, _)| t == text) {
-            if *language != self.global_language {
+            if *language != self.global_language() {
                 return unsupported(
                     "CaptionClassTranslate of a text translated before GlobalLanguage changed (whether BC translates it again is not pinned)",
                 );
@@ -316,7 +316,7 @@ impl Session {
         }
         let caption = self.raise_after_caption_class_resolve(text, text.to_string())?;
         self.caption_translations
-            .push((text.to_string(), self.global_language, caption.clone()));
+            .push((text.to_string(), self.global_language(), caption.clone()));
         Ok((caption, None))
     }
 
@@ -375,11 +375,21 @@ impl Session {
     /// Every caption class the client translates raises `CaptionClassTranslate` of the platform codeunit `UI Helper Triggers`,
     /// area 3 included (events/platform-triggers/P114GlobalTriggerEvents.al:301, :304, :323-327). The runtime does
     /// not raise it, so a translation while a subscriber listens is refused.
+    /// A subscriber of a dependency app other than the System Application's "Caption Class Impl." refuses whatever the test can
+    /// see (`receiving_dependency_subscriber`, al-runner issue 8470).
     pub(crate) fn refuse_caption_class_translate(&self) -> Result<(), Signal> {
+        let event = al_ir::CAPTION_CLASS_TRANSLATE.to_ascii_lowercase();
+        if let Some(s) =
+            self.receiving_dependency_subscriber(crate::events::UI_HELPER_TRIGGERS, &event, al_ir::CAPTION_CLASS_IMPL)
+        {
+            return unsupported(format!(
+                "a caption class is translated while the subscriber {s} of a dependency app subscribes to CaptionClassTranslate of UI Helper Triggers (what it does is not pinned)"
+            ));
+        }
         let test = self.test_object.and_then(|t| self.engine.program.objects.get(t));
-        match self.engine.events.unraised_subscriber(
-            "ui helper triggers",
-            Some("captionclasstranslate"),
+        match (self.engine.events).unraised_subscriber(
+            &crate::events::unraised_key(al_ir::UI_HELPER_CODEUNIT),
+            Some(&event),
             test,
             self.test_object,
         ) {
@@ -513,7 +523,7 @@ impl Session {
             .map(|n| n.to_string())
             .collect();
         let mut args = vec![
-            Value::Integer(self.global_language),
+            Value::Integer(self.global_language()),
             Value::Text(text.to_string().into()),
             Value::Text(caption.into()),
         ];
@@ -555,7 +565,7 @@ impl Session {
         let mut args = vec![
             Value::Text(area.to_string().into()),
             Value::Text(expr.to_string().into()),
-            Value::Integer(self.global_language),
+            Value::Integer(self.global_language()),
             Value::Text(String::new().into()),
             Value::Boolean(false),
         ];

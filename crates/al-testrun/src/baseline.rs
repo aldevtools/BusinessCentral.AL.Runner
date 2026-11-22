@@ -419,18 +419,36 @@ pub fn run_traced_halting(
             k = early_installs;
             continue;
         }
-        let app = objs[roots[k].0].app;
-        if k < toolkit_from {
-            view.apply(&mut session, app, &app_group, &held_for_apps);
-        } else if k < early_installs {
-            view.apply(&mut session, app, &toolkit_group, &held_for_toolkit);
-        } else if late_from.is_some_and(|f| k >= f) {
-            view.apply(&mut session, app, &late_group, &under_test);
-        } else {
-            // Company-Initialize and the company build: every early dependency app is installed.
-            session.set_apps_not_installed(Some(held.clone()));
-            session.set_apps_install_order_unknown(None);
+        let is_late_root = late_from.is_some_and(|f| k >= f);
+        if k < early_installs || is_late_root {
+            let group_end = if k < toolkit_from {
+                toolkit_from
+            } else if k < partner_from {
+                partner_from
+            } else if k < early_installs {
+                early_installs
+            } else {
+                roots.len()
+            };
+            let app = objs[roots[k].0].app;
+            let mut end = k + 1;
+            while end < group_end && objs[roots[end].0].app == app {
+                end += 1;
+            }
+            if k < toolkit_from {
+                view.apply(&mut session, app, &app_group, &held_for_apps);
+            } else if k < early_installs {
+                view.apply(&mut session, app, &toolkit_group, &held_for_toolkit);
+            } else {
+                view.apply(&mut session, app, &late_group, &under_test);
+            }
+            st.run_app(&mut session, &(k..end).collect::<Vec<_>>());
+            k = end;
+            continue;
         }
+        // Company-Initialize and the company build: every early dependency app is installed.
+        session.set_apps_not_installed(Some(held.clone()));
+        session.set_apps_install_order_unknown(None);
         st.run_root(&mut session, k);
         k += 1;
     }
@@ -570,7 +588,7 @@ struct RecRefWrites {
 /// bodies of everything it calls (not of event subscribers). Temporary
 /// records are left out. Writes through a `RecordRef` are counted only by [`tables_written_or_loaded`].
 pub(crate) fn tables_written(lowered: &Lowered, object: usize, routine: usize) -> BTreeSet<u32> {
-    tables_written_in(lowered, object, routine, false)
+    tables_written_in(lowered, object, routine, (false, false))
 }
 
 /// [`tables_written`] and the tables a `NavApp.LoadPackageData` with a constant table id fills (al-runner issue 7359): what
@@ -583,7 +601,14 @@ pub(crate) fn tables_written(lowered: &Lowered, object: usize, routine: usize) -
 /// did not write what came after the stop, and the static reach is all that shows it (review of al-runner PR 8119, probes
 /// n19d, n23).
 pub(crate) fn tables_written_or_loaded(lowered: &Lowered, object: usize, routine: usize) -> BTreeSet<u32> {
-    tables_written_in(lowered, object, routine, true)
+    tables_written_in(lowered, object, routine, (true, false))
+}
+
+/// [`tables_written_or_loaded`] and the tables a record variable's `Delete` or `DeleteAll` in the reach deletes from: every
+/// table whose rows the reach can change. For the mark of assumption `subscriber-publisher-by-id` on a bare-id install
+/// subscriber (`install::assume_by_id_install_tables`).
+pub(crate) fn tables_changed_or_loaded(lowered: &Lowered, object: usize, routine: usize) -> BTreeSet<u32> {
+    tables_written_in(lowered, object, routine, (true, true))
 }
 
 /// The tables the `RecordRef`s of routine `r` of `o` can open, by its own body ([`RecRefWrites::opens`]), whether or not
@@ -599,6 +624,7 @@ pub(crate) fn recordref_opens(lowered: &Lowered, o: usize, r: usize) -> Option<B
         globals: &obj.globals,
         heads: lowered.program.objects.heads(),
         loads: true,
+        deletes: false,
         out: &mut out,
         recref: &mut recref,
     }
@@ -617,6 +643,8 @@ struct WriteWalk<'a> {
     globals: &'a [al_ir::Slot],
     heads: &'a [al_ir::ObjectHead],
     loads: bool,
+    /// A record variable's `Delete` and `DeleteAll` count too ([`tables_changed_or_loaded`]).
+    deletes: bool,
     out: &'a mut BTreeSet<u32>,
     recref: &'a mut RecRefWrites,
 }
@@ -784,7 +812,9 @@ impl WriteWalk<'_> {
                 if let Some(r) = receiver {
                     if let Some(rest) = id.name().strip_prefix("Record.") {
                         let method = rest.split('#').next().unwrap_or("");
-                        if matches!(method, "Insert" | "Modify" | "Rename" | "ModifyAll") {
+                        if matches!(method, "Insert" | "Modify" | "Rename" | "ModifyAll")
+                            || (self.deletes && matches!(method, "Delete" | "DeleteAll"))
+                        {
                             let place = match &**r {
                                 Arg::Ref(p) => Some(p),
                                 Arg::Value(Expr::Load(p)) => Some(p),
@@ -861,7 +891,12 @@ impl WriteWalk<'_> {
     }
 }
 
-fn tables_written_in(lowered: &Lowered, object: usize, routine: usize, loads: bool) -> BTreeSet<u32> {
+fn tables_written_in(
+    lowered: &Lowered,
+    object: usize,
+    routine: usize,
+    (loads, deletes): (bool, bool),
+) -> BTreeSet<u32> {
     let mut out = BTreeSet::new();
     let mut recref = RecRefWrites::default();
     let mut seen = BTreeSet::new();
@@ -878,6 +913,7 @@ fn tables_written_in(lowered: &Lowered, object: usize, routine: usize, loads: bo
             globals: &obj.globals,
             heads: lowered.program.objects.heads(),
             loads,
+            deletes,
             out: &mut out,
             recref: &mut recref,
         }

@@ -127,13 +127,13 @@ impl Session {
                 s.mode,
                 s.modal,
                 s.lookup,
-                s.run_static,
+                s.modal_run,
                 s.editable_preset,
             ) {
-                (true, PageMode::View, false, false, None, None) if !blank_line => Some(41..=100),
-                (true, PageMode::Edit, false, false, None, None) if blank_line => Some(100..=100),
-                (false, PageMode::Edit, true, true, Some(false), Some(false)) if !blank_line => Some(41..=100),
-                (false, PageMode::Edit, true, true, Some(true), None) if !blank_line => Some(100..=100),
+                (true, PageMode::View, false, false, ModalRun::Other, None) if !blank_line => Some(41..=100),
+                (true, PageMode::Edit, false, false, ModalRun::Other, None) if blank_line => Some(100..=100),
+                (false, PageMode::Edit, true, true, ModalRun::Variable, Some(false)) if !blank_line => Some(41..=100),
+                (false, PageMode::Edit, true, true, ModalRun::Static, None) if !blank_line => Some(100..=100),
                 _ => None,
             }
         };

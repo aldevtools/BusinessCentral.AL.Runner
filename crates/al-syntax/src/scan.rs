@@ -421,7 +421,7 @@ fn scan_layouts(src: &str, body: &[Tok]) -> Vec<ScannedLayout> {
     out
 }
 
-/// `[EventSubscriber(ObjectType::K, K::Name, 'Event', ...)]` at `sig[at]`.
+/// `[EventSubscriber(ObjectType::K, K::Name, 'Event', ...)]` at `sig[at]`; the publisher may also be a bare id (`2000000007`).
 fn subscriber(sig: &[Tok], at: usize) -> Option<ScannedSubscriber> {
     let t = |i: usize| sig.get(at + i);
     if !t(1)?.is_kw("EventSubscriber") || t(2)?.kind != LParen {
@@ -435,12 +435,12 @@ fn subscriber(sig: &[Tok], at: usize) -> Option<ScannedSubscriber> {
     if t(6)?.kind != Comma {
         return None;
     }
-    // Kind :: name-or-id ,
-    t(7)?;
-    if t(8)?.kind != ColonColon {
+    // Kind :: name-or-id , or a bare id , (al-runner issue 8466)
+    let bare_id = t(7)?.kind == Integer && t(8)?.kind == Comma;
+    if !bare_id && t(8)?.kind != ColonColon {
         return None;
     }
-    let mut i = 9;
+    let mut i = if bare_id { 7 } else { 9 };
     let mut publisher = Vec::new();
     while let Some(n) = t(i) {
         match n.kind {
@@ -501,6 +501,29 @@ mod tests {
             ("codeunit", Some(80), "Sales-Post")
         );
         assert!(f.objects[0].offset < f.objects[1].offset);
+    }
+
+    /// A publisher written as a bare id (`EventSubscriber(ObjectType::Codeunit, 2000000007, ...)`) is scanned as one part, as
+    /// `Codeunit::2000000007` is (al-runner issue 8466).
+    #[test]
+    fn a_subscriber_whose_publisher_is_a_bare_id_is_scanned() {
+        let f = s("codeunit 50 S {\n\
+                   [EventSubscriber(ObjectType::Codeunit, 2000000007, 'MakeDateFilter', '', false, false)]\n\
+                   local procedure H(var DateFilterText: Text) begin end;\n\
+                   [EventSubscriber(ObjectType::Table, 18, OnAfterInsertEvent, '', false, false)]\n\
+                   local procedure I() begin end; }");
+        let got: Vec<(&str, Vec<String>, &str)> = f.objects[0]
+            .subscribers
+            .iter()
+            .map(|s| (s.publisher_kind.as_str(), s.publisher.clone(), s.event.as_str()))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("codeunit", vec!["2000000007".to_string()], "MakeDateFilter"),
+                ("table", vec!["18".to_string()], "OnAfterInsertEvent"),
+            ]
+        );
     }
 
     #[test]

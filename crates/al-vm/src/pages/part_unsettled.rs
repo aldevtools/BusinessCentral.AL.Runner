@@ -42,7 +42,7 @@ impl Session {
     ///
     /// `rows` is the part's view from its start.
     pub(super) fn part_update_unsettled(&self, st: &St, rows: &[Vec<Value>], at: usize) -> Result<bool, Signal> {
-        let shape = !st.borrow().refresh_update_false
+        let shape = !st.borrow().refresh.update_false()
             && rows.len() == 2
             && at == 1
             && self.unsettled_pages_pinned(st)?

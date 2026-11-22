@@ -1,14 +1,13 @@
 //! `ExcelLayoutMultipleDataSheets = true` on a report (al-runner issue 7836).
 //!
-//! The corpus probe measured that the property changes nothing in some static calls of reports declared as its reports are
-//! (assumption excel-layout-multiple-data-sheets, reports/layouts-saveas/ExcelMultipleDataSheetsReport.al, corpus pull
-//! request 1368). Such a call admits the report it asks for ([`Session::report_call`]); the instance it makes for that report
+//! reports/layouts-saveas/ExcelMultipleDataSheetsReport.al pins that the property changes nothing in some static calls of
+//! reports declared as its reports are (:206-309). Such a call admits the report it asks for ([`Session::report_call`]); the instance it makes for that report
 //! claims the admission ([`Session::claim_excel_sheets`]), and only that instance runs as the same report without the
 //! property. Every other run of such a report refuses where its schema is read ([`Session::excel_sheets_refusal`]); a
 //! variable of it is refused before the code runs (al-sema `reports::variable_refusal`).
 //!
 //! SubstituteReport: the probe ran with subscribers that leave NewReportId as it is (Base Application's ReportManagement; the
-//! corpus app's codeunit 79254, reports/layouts-saveas/AMReports.al:229-234). Run and RunModal raise it before they make the
+//! corpus app's codeunit 79254, reports/layouts-saveas/AMReports.al:229-235). Run and RunModal raise it before they make the
 //! instance (`Session::report_by_number`), so a subscriber that sets another report leaves the admission unclaimed: that report
 //! runs as it would without this module, and refuses here if it declares the property too. SaveAs of these reports raises no
 //! SubstituteReport in the runner, as for the same report without the property (docs/probes-needed.md, the row on
@@ -17,7 +16,6 @@
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
-use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::builtin_id::ids;
 use al_builtins::native::Signal;
 use al_builtins::value::{Instance, LibraryValue, Value};
@@ -109,7 +107,7 @@ impl Session {
     /// The report declaring `ExcelLayoutMultipleDataSheets = true` that the call `id` with `args` asks for as the probe
     /// measured it, by equality on each fact of the probe (ExcelMultipleDataSheetsReport.al): the call ([`measured_call`],
     /// with the answer of a SaveAs used), made in the body of a TryFunction whose caller uses its result (TrySave, TryRun
-    /// and TryRunModal, :127-146, called at :157, :198, :200, :241), and the report ([`measured_report`]).
+    /// and TryRunModal, :129-148, called at :199, :240, :242, :283), and the report ([`measured_report`]).
     fn excel_sheets_admits(&self, id: al_ir::BuiltinId, args: &[Value]) -> Option<usize> {
         let objects = &self.engine.program.objects;
         let Some(Value::Integer(n)) = args.first() else {
@@ -125,13 +123,11 @@ impl Session {
     }
 
     /// The static call made `inst`, an instance of report `object`, for the report that runs after SubstituteReport. The
-    /// first instance the call makes takes the admission: it claims it when the call admitted this report, and the run goes on
-    /// under assumption excel-layout-multiple-data-sheets.
+    /// first instance the call makes takes the admission: it claims it when the call admitted this report.
     pub(super) fn claim_excel_sheets(&mut self, object: usize, inst: &super::Inst) {
         let a = &mut self.report.excel_sheets;
         if a.pending.take() == Some(object) {
             a.claimed = Some(Rc::downgrade(inst));
-            assume(Assumption::ExcelLayoutMultipleDataSheets);
         }
     }
 
@@ -152,7 +148,7 @@ impl Session {
     }
 }
 
-/// The object properties of the probe's reports 76406 to 76408 (ExcelMultipleDataSheetsReport.al:42-45, :67-71, :97-101), by
+/// The object properties of the probe's reports 76406 to 76408 (ExcelMultipleDataSheetsReport.al:40-42, :62-65, :94-97), by
 /// name and value: `UsageCategory = None`, `UseRequestPage = false`, `ExcelLayoutMultipleDataSheets = true`, and
 /// `DefaultRenderingLayout` naming the one layout when there is one. No other property (`DefaultLayout`, `Caption`,
 /// `TransactionType`, `FormatRegion`, `ProcessingOnly`, `RDLCLayout`, ...).
@@ -176,7 +172,7 @@ fn measured_properties(o: &al_ir::Object, layout: Option<&str>) -> bool {
     props == measured
 }
 
-/// The report facts of the probe's reports 76406 to 76408 (ExcelMultipleDataSheetsReport.al:40-122), each by equality: the
+/// The report facts of the probe's reports 76406 to 76408 (ExcelMultipleDataSheetsReport.al:38-122), each by equality: the
 /// object properties ([`measured_properties`]); no layout, or one `rendering` layout of type Word or Excel that states only
 /// `Type` and `LayoutFile`; no request page, no label, no global variable, no trigger or procedure; the dataset
 /// ([`measured_dataset`]); no reportextension of it in the program.
@@ -217,10 +213,10 @@ fn only_column_routines(objects: &al_ir::Objects, object: usize, r: &al_ir::Repo
     (0..objects[object].routines.len()).all(|i| columns.contains(&i))
 }
 
-/// The dataset of the probe's reports (ExcelMultipleDataSheetsReport.al:44-54): one top-level data item or more, each
-/// stating `DataItemTableView` and no other property (:46, :52), so no link, `UseTemporary`, request filter, `MaxIteration`,
+/// The dataset of the probe's reports (ExcelMultipleDataSheetsReport.al:44-57): one top-level data item or more, each
+/// stating `DataItemTableView` and no other property (:48, :54), so no link, `UseTemporary`, request filter, `MaxIteration`,
 /// `PrintOnlyIfDetail`, `CalcFields`, page or obsolescence property, and no nested item; columns stating no property
-/// (:47-48, :53), each a field of the item (`column(Number; Number)`) or an expression of operators over constants and
+/// (:49-50, :55), each a field of the item (`column(Number; Number)`) or an expression of operators over constants and
 /// fields of the item's record (`column(Doubled; Number * 2)`), so no call. The tables are not compared.
 fn measured_dataset(objects: &al_ir::Objects, object: usize, r: &al_ir::Report) -> bool {
     let routines = &objects[object].routines;
@@ -260,8 +256,8 @@ fn operators_only(e: &al_ir::Expr) -> bool {
 /// - `Report.Run(Id, false)` and `Report.RunModal(Id, false)` with no layout or an Excel layout: ReportNoLayout and
 ///   ReportUnsupportedOperation (XMS_Run_NoRequestPage).
 ///
-/// The format is a value of the ReportFormat type (the probe passes a `ReportFormat` parameter, :129), and the answer of a
-/// SaveAs is used (`answer_used`, :134).
+/// The format is a value of the ReportFormat type (the probe passes a `ReportFormat` parameter, :130), and the answer of a
+/// SaveAs is used (`answer_used`, :135).
 fn measured_call(id: al_ir::BuiltinId, args: &[Value], kind: &str, answer_used: bool) -> bool {
     match (id, args) {
         (

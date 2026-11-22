@@ -58,7 +58,7 @@ impl Session {
         if company.as_deref().is_some_and(|c| c != &*self.cx.company) {
             return refuse("a session in another company");
         }
-        if self.in_write_transaction()? || !self.tx.locked_tables.is_empty() {
+        if self.in_write_transaction()? || !self.tx.open.locked_tables.is_empty() {
             return refuse("a start while the starting session holds an uncommitted write or a lock");
         }
         let record = match record {

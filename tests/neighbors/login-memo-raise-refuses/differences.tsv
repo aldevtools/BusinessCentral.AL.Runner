@@ -1,0 +1,10 @@
+# key	entry
+# The stand-in login code refuses after it raised the login. Main: every test of the codeunit is refused. Head: the
+# codeunit runs again with the own login subscriber alone; the memo reads are flagged, the test that reads nothing is
+# clean (the own login events, their order and session: LgnLoginChecklistTests.al:131-147). The codeunits that read
+# the row of Microsoft's login code or a memo global the measured procedures do not read keep main's refusal.
+LMR Login Memo Tests::InsertReadsIsSaaS	ASSUMED login-own-memo-alone (corpus PR 1490)
+LMR Login Memo Tests::ReadsEntitlement	ASSUMED login-own-memo-alone (corpus PR 1490)
+LMR Login Memo Tests::ReadsIsOnPrem	ASSUMED login-own-memo-alone (corpus PR 1490)
+LMR Login Memo Tests::ReadsIsSaaS	ASSUMED login-own-memo-alone (corpus PR 1490)
+LMR Login Memo Tests::ReadsNothing	PINNED tests/al-language/events/platform-triggers/LgnLoginChecklistTests.al:140
