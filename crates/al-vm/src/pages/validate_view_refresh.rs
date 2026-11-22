@@ -1,347 +1,29 @@
-//! A control's OnValidate that calls `CurrPage.Update` on a List page with OnAfterGetRecord and without OnAfterGetCurrRecord,
-//! with or without a change of the page's view (al-runner issue 8698), measured by corpus pull request 1518,
-//! tests/al-language/pages/currpage/ListValidateFilterRefresh.al (open). On BC the refresh reads the row again from the table,
-//! so a typed value is gone; then the rows after it in the view and the rows before it back to the first, and not the row
-//! again (`reread_view_from_row`). A SetValue, the action and Close read the row first when the page's last read was of
-//! another row (`validate_view_read_row`). Main kept the typed value and the rows the client held, and read nothing first.
+//! A control's OnValidate that calls `CurrPage.Update` on the measured page shapes, with or without a change of the page's
+//! view (al-runner issues 8698 and 8717), measured by corpus pull request 1518 (merged as 691b244d, not pinned yet),
+//! tests/al-language/pages/currpage/ListValidateFilterRefresh.al. On BC the refresh reads the row again from the table, so a
+//! typed value is gone. On a List with OnAfterGetRecord (`reread_view_from_row`) it then reads the rows after the row in
+//! the view and the rows before it back to the first; without OnAfterGetCurrRecord not the row again, with it the row twice
+//! and OnAfterGetCurrRecord. On a List with OnAfterGetCurrRecord only and on a Card it reads the row as main's refresh does.
+//! On a List without OnAfterGetCurrRecord a SetValue, the action and Close read the row first when the page's last read was
+//! of another row (`validate_view_read_row`). Main kept the typed value, and on a List the rows the client held.
 //!
-//! Only on the probe's page 97584 and the issue's page (the probe's page 97583 and the reporter's page, line for line), over
-//! the probe's table, as the test called them in the cells (`CELLS`, `ISSUE_CELLS`): assumption `list-validate-view-refresh`.
-//! Any other page, or calls the cells do not make before the rule changed anything, keep main's path; after it did they
-//! refuse.
+//! Only on the probe's pages, line for line (`validate_view_cells.rs`; the repros of 8698 and 8717 read as two of them), as the
+//! test called them in the cells: assumption `list-validate-view-refresh` on a List without OnAfterGetCurrRecord,
+//! `validate-update-false-rereads-row` on the other pages. Any other page, or calls the cells do not make before the rule
+//! changed anything, keep main's path; after it did they refuse.
 
 use super::pinned_body::{Callees, Names, callees_with_calls_are, page_is, table_is};
 use super::pinned_shape::TestCall;
+use super::validate_view_cells::{CellPage, Change, Ctl, Step, Tail, Upd};
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_builtins::page_op::PageMethod;
+use al_builtins::record_fields::Fields;
 use al_builtins::record_op::RecordOp;
 
-/// The probe's table 97581 "LT RFU Line" (ListValidateFilterRefresh.al:17-41), and the reporter's table: `«L»` is the log
-/// codeunit.
-const TABLE: [&str; 7] = [
-    "DataClassification = CustomerContent",
-    "field 1 \"Group Code\": Code[10]",
-    "field 2 \"Entry No.\": Integer",
-    "field 3 \"Name\": Text[30]",
-    "field 4 \"Value\": Text[30]",
-    "key \"Group Code\", \"Entry No.\" {Clustered=true}",
-    "trigger \"Name\".OnValidate: var Log: Codeunit \"«L»\"; begin Log.Add((('T.V(' + Rec.\"Name\") + ')')); end",
-];
-
-/// The issue's page: the probe's page 97583 "LT RFU Issue Lines" (:88-131) and the reporter's page 50122 read the same; `«T»`
-/// is the table.
-const ISSUE_PAGE: [&str; 10] = [
-    "PageType = List",
-    "SourceTable = \"«T»\"",
-    "ApplicationArea = All",
-    "UsageCategory = None",
-    "repeater Lines in - {}",
-    "field Name in Lines = Name {applicationarea=All}",
-    "  trigger onvalidate: begin Rec.SetRange(field#0, 'G1'); CurrPage.Update(false); end",
-    "field Value in Lines = Value {applicationarea=All}",
-    "  trigger onvalidate: begin CurrPage.Update(false); end",
-    "trigger onaftergetrecord: begin Log.Add((('P.AGR(' + Rec.\"Name\") + ')')); end",
-];
-
-/// The probe's page 97584 "LT RFU Lines" (:134-214): the Name control's OnValidate and the action run ChangeView.
-const LINES_PAGE: [&str; 13] = [
-    "PageType = List",
-    "SourceTable = \"«T»\"",
-    "ApplicationArea = All",
-    "UsageCategory = None",
-    "repeater Lines in - {}",
-    "field Name in Lines = Name {applicationarea=All}",
-    "  trigger onvalidate: begin Log.Add((('P.V(' + Rec.\"Name\") + ')')); ChangeView(); end",
-    "field Value in Lines = Value {applicationarea=All}",
-    "  trigger onvalidate: begin CurrPage.Update(false); end",
-    "action ChangeViewAction in - {applicationarea=All}",
-    "  trigger onaction: begin Log.Add((('P.A(' + Rec.\"Name\") + ')')); ChangeView(); end",
-    "area Processing: ChangeViewAction",
-    "trigger onaftergetrecord: begin Log.Add((('P.AGR(' + Rec.\"Name\") + ')')); end",
-];
-
-/// The procedures the pages and the table call: codeunit 97582 "LT RFU Log" (`«L»`, :43-84 Add, FilterStep, UpdateStep) and
-/// the page's ChangeView (`«P»`, :195-213).
-const CALLEES: [&str; 4] = [
-    "\"«L»\".Add: begin Buffer := (Buffer + (Entry + ';')); end",
-    "\"«L»\".FilterStep: begin exit(Filtering); end",
-    "\"«L»\".UpdateStep: begin exit(Updating); end",
-    "\"«P»\".ChangeView: begin case Log.FilterStep() of 1: begin Rec.SetRange(field#0, 'G1'); end; 2: begin \
-     Rec.SetFilter(field#0, 'G1'); end; 3: begin Rec.Reset(); end; 4: begin Rec.SetRange(field#0, 'G0'); end; end; case \
-     Log.UpdateStep() of 1: begin CurrPage.Update(false); end; 2: begin CurrPage.Update(true); end; end; end",
-];
-
-/// Which measured page `st` is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CellPage {
-    Issue,
-    Lines,
-}
-
-/// The control a SetValue typed into: the one bound to Name (field 3) or to Value (field 4).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Ctl {
-    Name,
-    Value,
-}
-
-/// The `CurrPage.Update` a step ran: `Update(false)`, `Update(true)`, or none.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Upd {
-    False,
-    True,
-    None,
-}
-
-/// What a step did to the page's view: nothing; a filter on one value of the first key field set where there was none, as
-/// SetRange sets it, the row the step started on still in the view (`Keep`) or not (`Drop`); the same as SetFilter sets it,
-/// the row still in the view (`KeepText`); a filter SetRange set taken off again (`Reset`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Change {
-    Same,
-    Keep,
-    KeepText,
-    Drop,
-    Reset,
-    Other,
-}
-
-/// One step of the test the cells take, reads left out.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Step {
-    Last,
-    Previous,
-    /// A SetValue, with the rows of the view after it and the index of the row its refresh settled on (`None`: no refresh).
-    Set(Ctl, Upd, Change, Option<(usize, usize)>),
-    /// A SetValue that raised an error before its control's OnValidate (a value too long for the field).
-    Fail(Ctl),
-    /// The action ChangeViewAction (the refresh after it is main's).
-    Action(Upd, Change),
-    /// A step the cells do not take.
-    Other,
-}
-
 use Change::{Drop, Keep, KeepText, Reset, Same};
-use Ctl::{Name, Value as Val};
-use Step::{Action, Fail, Last, Previous, Set};
-
-/// The calls of a cell after its steps.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Tail {
-    /// First, Next until it answers No, and Close.
-    Walk,
-    /// First, then Close.
-    FirstClose,
-    /// Close.
-    Close,
-}
-
-/// The steps of one cell and the calls after them.
-struct Cell {
-    steps: &'static [Step],
-    tail: Tail,
-}
-
-/// The cells on page 97584 (ListValidateFilterRefresh.al, the line of each test).
-const CELLS: [Cell; 20] = [
-    // :832
-    Cell {
-        steps: &[
-            Last,
-            Set(Name, Upd::False, Keep, Some((2, 1))),
-            Set(Val, Upd::False, Same, Some((2, 1))),
-        ],
-        tail: Tail::Walk,
-    },
-    // :883
-    Cell {
-        steps: &[
-            Last,
-            Set(Name, Upd::False, KeepText, Some((2, 1))),
-            Set(Val, Upd::False, Same, Some((2, 1))),
-        ],
-        tail: Tail::Walk,
-    },
-    // :849
-    Cell {
-        steps: &[
-            Last,
-            Set(Name, Upd::True, Keep, Some((2, 1))),
-            Set(Val, Upd::False, Same, Some((2, 1))),
-        ],
-        tail: Tail::Walk,
-    },
-    // :1327
-    Cell {
-        steps: &[
-            Last,
-            Set(Name, Upd::True, KeepText, Some((2, 1))),
-            Set(Val, Upd::False, Same, Some((2, 1))),
-        ],
-        tail: Tail::Walk,
-    },
-    // :866
-    Cell {
-        steps: &[
-            Last,
-            Set(Name, Upd::None, Keep, None),
-            Set(Val, Upd::False, Same, Some((2, 1))),
-        ],
-        tail: Tail::Walk,
-    },
-    // :900
-    Cell {
-        steps: &[
-            Last,
-            Set(Name, Upd::False, Drop, Some((1, 0))),
-            Set(Val, Upd::False, Same, Some((1, 0))),
-        ],
-        tail: Tail::Walk,
-    },
-    // :917
-    Cell {
-        steps: &[
-            Last,
-            Set(Name, Upd::True, Drop, Some((1, 0))),
-            Set(Val, Upd::False, Same, Some((1, 0))),
-        ],
-        tail: Tail::Walk,
-    },
-    // :951 no filter, :1345 Reset of no filter.
-    Cell {
-        steps: &[
-            Last,
-            Set(Name, Upd::False, Same, Some((3, 2))),
-            Set(Val, Upd::False, Same, Some((3, 2))),
-        ],
-        tail: Tail::Walk,
-    },
-    // :968
-    Cell {
-        steps: &[
-            Last,
-            Set(Name, Upd::True, Same, Some((3, 2))),
-            Set(Val, Upd::False, Same, Some((3, 2))),
-        ],
-        tail: Tail::Walk,
-    },
-    // :985
-    Cell {
-        steps: &[
-            Last,
-            Set(Name, Upd::False, Keep, Some((2, 1))),
-            Set(Name, Upd::False, Reset, Some((3, 2))),
-        ],
-        tail: Tail::Walk,
-    },
-    // :1003
-    Cell {
-        steps: &[
-            Last,
-            Previous,
-            Set(Name, Upd::False, Keep, Some((2, 0))),
-            Set(Val, Upd::False, Same, Some((2, 0))),
-        ],
-        tail: Tail::Walk,
-    },
-    // :1020
-    Cell {
-        steps: &[
-            Set(Name, Upd::False, Drop, Some((2, 0))),
-            Set(Val, Upd::False, Same, Some((2, 0))),
-        ],
-        tail: Tail::Walk,
-    },
-    // :1037
-    Cell {
-        steps: &[
-            Set(Name, Upd::False, Same, Some((3, 0))),
-            Set(Val, Upd::False, Same, Some((3, 0))),
-        ],
-        tail: Tail::Walk,
-    },
-    // :1054
-    Cell {
-        steps: &[Last, Action(Upd::False, Keep), Set(Val, Upd::False, Same, Some((2, 1)))],
-        tail: Tail::Walk,
-    },
-    // :1071
-    Cell {
-        steps: &[Last, Action(Upd::False, Drop), Set(Val, Upd::False, Same, Some((1, 0)))],
-        tail: Tail::Walk,
-    },
-    // :1088
-    Cell {
-        steps: &[Last, Action(Upd::None, Keep), Set(Val, Upd::False, Same, Some((2, 1)))],
-        tail: Tail::Walk,
-    },
-    // :1363
-    Cell {
-        steps: &[
-            Last,
-            Set(Name, Upd::None, Drop, None),
-            Set(Val, Upd::False, Same, Some((1, 0))),
-        ],
-        tail: Tail::Walk,
-    },
-    // :1381
-    Cell {
-        steps: &[
-            Last,
-            Set(Name, Upd::False, Keep, Some((2, 1))),
-            Set(Val, Upd::False, Same, Some((2, 1))),
-            Previous,
-        ],
-        tail: Tail::Close,
-    },
-    // :1397
-    Cell {
-        steps: &[
-            Last,
-            Set(Name, Upd::False, Keep, Some((2, 1))),
-            Set(Val, Upd::False, Same, Some((2, 1))),
-            Set(Val, Upd::False, Same, Some((2, 1))),
-        ],
-        tail: Tail::Close,
-    },
-    // :1413
-    Cell {
-        steps: &[
-            Last,
-            Fail(Name),
-            Set(Name, Upd::False, Keep, Some((2, 1))),
-            Set(Val, Upd::False, Same, Some((2, 1))),
-        ],
-        tail: Tail::Close,
-    },
-];
-
-/// The cells on the issue's page (:815; :1477 the reporter's steps, First then Close; :1444 First right after the SetValue on
-/// Name).
-const ISSUE_CELLS: [Cell; 3] = [
-    Cell {
-        steps: &[
-            Last,
-            Set(Name, Upd::False, Keep, Some((2, 1))),
-            Set(Val, Upd::False, Same, Some((2, 1))),
-        ],
-        tail: Tail::Walk,
-    },
-    Cell {
-        steps: &[
-            Last,
-            Set(Name, Upd::False, Keep, Some((2, 1))),
-            Set(Val, Upd::False, Same, Some((2, 1))),
-        ],
-        tail: Tail::FirstClose,
-    },
-    Cell {
-        steps: &[Last, Set(Name, Upd::False, Keep, Some((2, 1)))],
-        tail: Tail::Walk,
-    },
-];
+use Step::{Action, Fail, Set};
 
 /// The refusal of a call the cells do not make, after the rule ran.
 const UNMEASURED: &str = "a call on a page of ListValidateFilterRefresh.al after the page read its row or the view again as the cells measure it, which the cells do not make (not measured)";
@@ -380,8 +62,8 @@ pub(crate) struct ValidateView {
 }
 
 impl Session {
-    /// The cells' page `st` is, every fact by equality: a top-level List opened by the test with OpenEdit, no part, Rec over
-    /// the database table, and its code, its table and the procedures they call line for line as the probe's (`page_is`,
+    /// The cells' page `st` is, every fact by equality: a top-level List or Card opened by the test with OpenEdit, no part, Rec
+    /// over the database table, and its code, its table and the procedures they call line for line as the probe's (`page_is`,
     /// `table_is`, `callees_with_calls_are`; nothing subscribes to their events).
     fn validate_view_page(&mut self, st: &St) -> Option<CellPage> {
         {
@@ -390,26 +72,20 @@ impl Session {
                 return None;
             }
         }
-        if !self.is_list_page(st)
-            || !self.has_source(st)
-            || self.page_rec(st).borrow().temporary
-            || !self.declares(st, "onaftergetrecord")
-            || self.declares(st, "onaftergetcurrrecord")
+        if !(self.is_list_page(st) || self.is_card(st)) || !self.has_source(st) || self.page_rec(st).borrow().temporary
         {
             return None;
         }
         let engine = self.engine();
         let object = st.borrow().object as usize;
         let table = self.page_rec(st).borrow().table as usize;
-        [(CellPage::Issue, &ISSUE_PAGE[..]), (CellPage::Lines, &LINES_PAGE[..])]
-            .into_iter()
-            .find(|(_, want)| {
-                let (mut callees, mut names) = (Callees::new(), Names::default());
-                page_is(&engine, object, want, &mut callees, &mut names)
-                    && table_is(&engine, table, &TABLE, &mut callees, &mut names)
-                    && callees_with_calls_are(&engine, &callees, &CALLEES, &mut names)
-            })
-            .map(|(page, _)| page)
+        CellPage::ALL.into_iter().find(|page| {
+            let (want_page, want_table, want_callees) = page.code();
+            let (mut callees, mut names) = (Callees::new(), Names::default());
+            page_is(&engine, object, want_page, &mut callees, &mut names)
+                && table_is(&engine, table, want_table, &mut callees, &mut names)
+                && callees_with_calls_are(&engine, &callees, want_callees, &mut names)
+        })
     }
 
     /// The test calls `call` on `st` (`test_page_op_held`, `test_control_op_held`). On the cells' page the call joins the
@@ -458,10 +134,7 @@ impl Session {
             let step = self.validate_view_unrefreshed(st, v, &p)?;
             v.steps.push(step);
         }
-        let cells: &[Cell] = match page {
-            CellPage::Issue => &ISSUE_CELLS,
-            CellPage::Lines => &CELLS,
-        };
+        let cells = page.cells();
         if !Self::validate_view_calls_ok(st) || !cells.iter().any(|c| c.steps.starts_with(&v.steps)) {
             return Ok(false);
         }
@@ -485,12 +158,12 @@ impl Session {
                 self.validate_view_read_row(st, v)?;
                 return Ok(true);
             }
-            TestCall::Page(PageMethod::Last) => Last,
-            TestCall::Page(PageMethod::Previous) => Previous,
-            TestCall::Write(i) => match page_of(&self.engine(), st).controls[i].binding {
-                ir::Binding::Field(2) => Set(Name, Upd::None, Same, None),
-                ir::Binding::Field(3) => Set(Val, Upd::None, Same, None),
-                _ => return Ok(false),
+            TestCall::Page(PageMethod::Last) => Step::Last,
+            TestCall::Page(PageMethod::Previous) => Step::Previous,
+            TestCall::Page(PageMethod::GoToKey) => Step::GoToKey,
+            TestCall::Write(i) => match self.validate_view_ctl(st, i) {
+                Some(c) => Set(c, Upd::None, Same, None),
+                None => return Ok(false),
             },
             TestCall::Other(PageMethod::Invoke) => Action(Upd::None, Same),
             _ => return Ok(false),
@@ -518,7 +191,7 @@ impl Session {
             }
         };
         let rec = self.page_rec(st);
-        if !self.validate_view_three_rows(&rec)? {
+        if self.validate_view_table_rows(&rec)? != page.table_rows() {
             return Ok(false);
         }
         let table = self.table(&rec)?;
@@ -544,6 +217,9 @@ impl Session {
     /// before its second SetValue, whose refresh ended on B; :1037 nothing on the first row; :1413 nothing before the SetValue
     /// after the failed one, which read C; :1397 and :1413 `close` `P.AGR(C);`, :1381 `close` empty after Previous onto B).
     fn validate_view_read_row(&mut self, st: &St, v: &mut ValidateView) -> Result<(), Signal> {
+        if !v.page.is_some_and(CellPage::reads_first) {
+            return Ok(());
+        }
         let rec = self.page_rec(st);
         let shape = {
             let s = st.borrow();
@@ -690,25 +366,26 @@ impl Session {
     /// The refresh `CurrPage.Update` asked for in the OnValidate of the cells' SetValue that runs now
     /// (`refresh_after_validate_filter`). The row is read again from the table, so a typed value is gone (Update(true) saved it
     /// first); a row the new view no longer holds gives way to the next row of the view after its key, else the one before it.
-    /// Then the page reads the view from that row as after a control's OnValidate on a list without OnAfterGetCurrRecord
-    /// (`reread_view_from_row`): the row, the rows after it, back to the first row, and not the row again
+    /// On a List without OnAfterGetCurrRecord the page then reads the view from that row (`reread_view_from_row`): the row,
+    /// the rows after it, back to the first row, and not the row again
     /// (ListValidateFilterRefresh.al:832 `P.AGR(C);T.V(C2);P.V(C2);P.AGR(C);P.AGR(B);`, shows `C/`; :900 the row dropped,
     /// `...P.AGR(A);`; :1003 from the middle row `...P.AGR(B);P.AGR(C);P.AGR(B);`; :951 with no change of view
     /// `...P.AGR(C);P.AGR(B);P.AGR(A);`; :849 Update(true) `...P.AGR(C2);P.AGR(B);`, C2 saved). The reads leave no mark that
     /// ends the next refresh: the next SetValue's Update(false) reads again (:832 `setvalue` `P.AGR(C);P.AGR(C);P.AGR(B);`).
-    /// `false` when the cells do not measure this refresh and the rule changed nothing on the page yet: main's refresh runs.
+    /// `false` when main's refresh runs: on a List with OnAfterGetCurrRecord only and on a Card after the edit is dropped, and
+    /// when the cells do not measure this refresh and the rule changed nothing on the page yet.
     pub(super) fn validate_view_refresh(
         &mut self,
         st: &St,
         without_curr: bool,
         without_parts: bool,
     ) -> Result<bool, Signal> {
-        let (pending, ran) = {
+        let (pending, ran, page) = {
             let s = st.borrow();
             let v = &s.validate_view;
-            (v.pending.clone().filter(|_| !v.off), v.ran)
+            (v.pending.clone().filter(|_| !v.off), v.ran, v.page)
         };
-        let Some((p, ctl)) = pending.and_then(|p| p.ctl.map(|c| (p, c))) else {
+        let (Some((p, ctl)), Some(page)) = (pending.and_then(|p| p.ctl.map(|c| (p, c))), page) else {
             return Ok(false);
         };
         let update = match p.update {
@@ -729,12 +406,8 @@ impl Session {
         let at = self.view_index(&rec, &at_key)?;
         let mut steps = st.borrow().validate_view.steps.clone();
         steps.push(Set(ctl, update, change, at.map(|at| (rows, at))));
-        let cells: &[Cell] = match st.borrow().validate_view.page {
-            Some(CellPage::Issue) => &ISSUE_CELLS,
-            Some(CellPage::Lines) => &CELLS,
-            None => &[],
-        };
-        let measured = cells.iter().any(|c| c.steps.starts_with(&steps)) && self.validate_view_three_rows(&rec)?;
+        let measured = page.cells().iter().any(|c| c.steps.starts_with(&steps))
+            && self.validate_view_table_rows(&rec)? == page.table_rows();
         if !measured {
             if ran {
                 return unsupported(UNMEASURED);
@@ -744,32 +417,53 @@ impl Session {
             s.validate_view.pending = None;
             return Ok(false);
         }
-        assume(Assumption::ListValidateViewRefresh);
         let mut pk = key;
         self.ret_used = true;
         self.record_op(RecordOp::Get, &rec, &mut pk)?;
         if let Some(fields) = settled {
             rec.borrow_mut().fields = fields;
         }
-        self.reread_view_from_row(st, without_curr, without_parts, false)?;
-        // The note `read_list_again_from_row_as` leaves for a refresh without OnAfterGetCurrRecord would end the next one.
-        st.borrow_mut().refresh.spend_reads_done();
-        // The reads went back to the first row of the view when rows stood before the row, else they ended on the row.
-        let last_read = match at {
-            Some(0) => Some(at_key),
-            _ => self.validate_view_first_key(st)?,
+        let done = match page {
+            CellPage::Issue | CellPage::Lines => {
+                assume(Assumption::ListValidateViewRefresh);
+                self.reread_view_from_row(st, without_curr, without_parts, false)?;
+                // The note `read_list_again_from_row_as` leaves for a refresh without OnAfterGetCurrRecord would end the next
+                // one.
+                st.borrow_mut().refresh.spend_reads_done();
+                // The reads went back to the first row of the view when rows stood before the row, else they ended on the row.
+                let last_read = match at {
+                    Some(0) => Some(at_key),
+                    _ => self.validate_view_first_key(st)?,
+                };
+                st.borrow_mut().validate_view.last_read = last_read;
+                true
+            }
+            // With OnAfterGetCurrRecord the row is read twice more after the way back, then OnAfterGetCurrRecord
+            // (:1105 `T.V(C2);P.V(C2);P.AGR(C);P.AGR(B);P.AGR(C);P.AGR(C);P.AGCR(C);`, :1139 the row dropped
+            // `...P.AGR(A);P.AGR(A);P.AGCR(A);`, :1156 no change `...P.AGR(C);P.AGR(B);P.AGR(A);P.AGR(C);P.AGR(C);P.AGCR(C);`).
+            CellPage::Both => {
+                assume(Assumption::ValidateUpdateFalseRereadsRow);
+                self.reread_view_from_row(st, without_curr, without_parts, true)?;
+                true
+            }
+            // The stored row, with no edit, goes on through main's refresh: OnAfterGetRecord and OnAfterGetCurrRecord of the
+            // row (:1190 `T.V(C2);P.V(C2);P.AGCR(C);`, :1258 `T.V(C2);P.V(C2);P.AGR(C);`, shows `C/`; :1632 `AGR(Alpha);`).
+            CellPage::Curr | CellPage::Card | CellPage::EditCard => {
+                assume(Assumption::ValidateUpdateFalseRereadsRow);
+                st.borrow_mut().dirty = false;
+                false
+            }
         };
         let mut s = st.borrow_mut();
         s.validate_view.steps = steps;
         s.validate_view.pending = None;
-        s.validate_view.last_read = last_read;
         s.validate_view.ran = true;
-        Ok(true)
+        Ok(done)
     }
 
     /// The row a refresh settles on when the view no longer holds the row of `rec`: the next row of the view after its key, else
     /// the one before it (ListValidateFilterRefresh.al:1020 A to B, :900 C to A).
-    fn validate_view_settle(&mut self, rec: &Rec) -> Result<Option<al_builtins::record_fields::Fields>, Signal> {
+    fn validate_view_settle(&mut self, rec: &Rec) -> Result<Option<Fields>, Signal> {
         for step in [1, -1] {
             let probe = Rc::new(RefCell::new(rec.borrow().clone()));
             self.ret_used = true;
@@ -781,14 +475,28 @@ impl Session {
         Ok(None)
     }
 
-    /// The table of `rec` holds three rows, as in every cell (ListValidateFilterRefresh.al:563-565).
-    fn validate_view_three_rows(&mut self, rec: &Rec) -> Result<bool, Signal> {
+    /// The rows the table of `rec` holds, up to five (`CellPage::table_rows`).
+    fn validate_view_table_rows(&mut self, rec: &Rec) -> Result<usize, Signal> {
         let probe = Rc::new(RefCell::new(rec.borrow().clone()));
         {
             let mut p = probe.borrow_mut();
             p.filters.clear();
             p.marked_only = false;
         }
-        Ok(self.view_rows(&probe, 4)?.len() == 3)
+        Ok(self.view_rows(&probe, 5)?.len())
+    }
+
+    /// The control of `st` at `idx` as the cells type into it: bound to the field Name or to the field Value of Rec.
+    fn validate_view_ctl(&self, st: &St, idx: usize) -> Option<Ctl> {
+        let engine = self.engine();
+        let ir::Binding::Field(f) = page_of(&engine, st).controls[idx].binding else {
+            return None;
+        };
+        let table = self.page_rec(st).borrow().table as usize;
+        match engine.tables[table].as_ref()?.fields.get(f)?.name.as_str() {
+            "Name" => Some(Ctl::Name),
+            "Value" => Some(Ctl::Value),
+            _ => None,
+        }
     }
 }
