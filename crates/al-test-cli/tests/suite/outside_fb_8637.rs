@@ -100,7 +100,7 @@ fn issue_8637_repro() {
 fn issue_8637_neighbors() {
     let src = format!("{PROBE}\n{}", NEIGHBORS);
     let o = outcomes(&src, "BQ Gate Tests");
-    assert_eq!(o.len(), 7);
+    assert_eq!(o.len(), 6);
     for (name, r, marks) in &o {
         if name.starts_with("TestSessionGroup1") {
             assert_eq!(*r, Outcome::Pass, "{name}");
@@ -227,14 +227,15 @@ fn issue_8637_bq8b_cells() {
     }
 }
 
-/// The cells of BQ Tests 9 (corpus PR 1495, BgTaskQueryCache.al:4806-5635): up to 100000 filters, the key set twice, and
+/// The cells of BQ Tests 9 (corpus PR 1495, BgTaskQueryCache.al:4806-5635) but :5564 (`issue_8637_heavy`): up to 60000
+/// filters, the key set twice, and
 /// FindFirst and FindLast with FlowField filters of open ranges, an & inside a | and case-sensitive wildcards next to the key
 /// answer from the cache, flagged. `@` alone on a lookup FlowField (:5609) and on a Code field (:5616) stay refused, as on
 /// main: the "@ alone" pull request answers them.
 #[test]
 fn issue_8637_bq9_cells() {
     let o = outcomes(PROBE, "BQ Tests 9");
-    assert_eq!(o.len(), 8);
+    assert_eq!(o.len(), 7);
     for (name, r, marks) in &o {
         if name.contains("AtSignAlone") {
             assert!(
@@ -259,5 +260,30 @@ fn issue_8637_review_cells() {
     for (name, r, marks) in &o {
         assert_eq!(*r, Outcome::Pass, "{name}");
         assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+    }
+}
+
+/// The cell of 100000 filters (BgTaskQueryCache.al:5564) and the neighbor of 100001 filters, from the fixture
+/// Issue8637Heavy.al: main's al-runner runs each past the neighbor check's CPU limit on the CI runners. 100000 filters answer
+/// from the cache, flagged; 100001 filters read the rows as they are, as on main, with no flag (BC answers from the cache).
+#[test]
+fn issue_8637_heavy() {
+    let src = format!(
+        "{PROBE}\n{NEIGHBORS}\n{}",
+        include_str!("../fixtures/outside-fb/Issue8637Heavy.al")
+    );
+    let o = outcomes(&src, "BQ Heavy Tests");
+    assert_eq!(o.len(), 2);
+    for (name, r, marks) in &o {
+        if name.starts_with("Filters100001") {
+            assert!(!marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+            assert!(
+                matches!(r, Outcome::Fail(m) if m.contains("Actual:<-|-|0|Yes / a|a|1|No>")),
+                "{name}: {r:?}"
+            );
+        } else {
+            assert_eq!(*r, Outcome::Pass, "{name}");
+            assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+        }
     }
 }

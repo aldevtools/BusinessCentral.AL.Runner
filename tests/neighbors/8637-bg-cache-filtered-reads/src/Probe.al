@@ -1,7 +1,8 @@
 // An excerpt of the corpus probe BgTaskQueryCache.al of corpus pull requests 1457 and 1495 at 37bffb8a (al-runner issues 8467
 // and 8637): the file up to BQ Tests 9, then BQ Tests 3b, BQ Tests 11, BQ Media Row and BQ Reader 12. Left out: BQ Tests 9b and
-// 9c (the "@ alone" pull request's), BQ Tests 10 (al-runner issue 8677's), and BQ Tests 12 and BQ Version, which need Base
-// Application.
+// 9c (the "@ alone" pull request's), BQ Tests 10 (al-runner issue 8677's), BQ Tests 12 and BQ Version, which need Base
+// Application, and the cell of 100000 filters (:5564), which al-test-cli's Issue8637Heavy.al runs: main's al-runner runs it
+// past the neighbor check's 20 s CPU limit on the CI runners.
 // BC Documentation:
 //   https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/methods-auto/page/page-enqueuebackgroundtask-method
 //   https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/methods-auto/testpage/testpagetestpage-runpagebackgroundtask-method
@@ -5561,13 +5562,6 @@ codeunit 97539 "BQ Tests 9"
     begin
         Modes.AddRange('widest-26215', 'widest-60000');
         Assert.AreEqual('', Differ(Modes, '-|-|0|Yes / -|-|0|Yes'), 'the Modes that differ');
-    end;
-
-    // 100000 filters on table 97596.
-    [Test]
-    procedure BgQueryCache_Run_AllForms_100000Filters_FirstAnswer()
-    begin
-        Assert.AreEqual('-|-|0|Yes / -|-|0|Yes', Reads('widest-100000'), '100000 filters');
     end;
 
     // The key set twice to its value next to "Child Count" 1: in filter groups 0 and 2, and by SetRange then SetFilter.
