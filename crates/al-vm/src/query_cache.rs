@@ -638,18 +638,23 @@ impl Session {
         }
     }
 
-    /// The tables the FlowFields `rec` filters on read (`flow_field_find` keys a read with them).
+    /// The tables the FlowFields `rec` filters on read (`flow_field_find` keys a read with them), once each, by object id: two
+    /// reads with the same key get their commit stamps in the same order, whatever order their filters were set in.
     fn flow_field_sources(&self, rec: &Rec, t: &TableDef) -> Vec<Arc<TableDef>> {
         let Some(schema) = self.engine.program.objects[t.object as usize].table.as_ref() else {
             return Vec::new();
         };
         let r = rec.borrow();
-        r.filters
+        let mut sources: Vec<Arc<TableDef>> = r
+            .filters
             .iter()
             .filter(|f| !t.fields[f.field].stored)
             .filter_map(|f| schema.fields[f.field].calc.as_ref())
             .filter_map(|c| self.engine.tables[c.table].clone())
-            .collect()
+            .collect();
+        sources.sort_by_key(|s| s.object);
+        sources.dedup_by_key(|s| s.object);
+        sources
     }
 
     fn committed(&mut self, rec: &Rec, cx: &AccessContext, t: &TableDef, pk: &[Value]) -> Result<Committed, Signal> {
