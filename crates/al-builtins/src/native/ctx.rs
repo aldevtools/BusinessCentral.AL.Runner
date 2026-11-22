@@ -108,6 +108,11 @@ pub trait Ctx: FormatCtx {
     }
 
     fn last_error(&self) -> AlError;
+    /// The code runs in a session that started with no error and has had none since, a page background task's worker
+    /// (`GetLastErrorObject` answers null there); a context that does not know answers `false`.
+    fn session_without_error(&self) -> bool {
+        false
+    }
     fn set_last_error(&mut self, e: AlError);
     /// Whether the run has the newer behaviour of `gate` (ADR-015 3.4); a context with no target has every gate.
     fn gate(&self, _gate: al_version::Gate) -> bool {
