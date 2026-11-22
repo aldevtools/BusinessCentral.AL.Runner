@@ -1,10 +1,8 @@
 //! The SQL `decimal(38,20)` column behind a Decimal field of a database table cuts a value toward zero after 20 decimals,
-//! while the record that was written keeps its own value. Assumption `decimal-column-cuts-twenty-places` (open corpus pull request
-//! 1427, record/crud/RcAGetFind.al:749-842): only the measured field shape (a field with one secondary key of its own), the
+//! while the record that was written keeps its own value. Pinned by corpus tests/al-language/record/crud/RcAGetFind.al:749-842: only the measured field shape (a field with one secondary key of its own), the
 //! measured writers (Record.Insert(), Record.Modify()) and the measured filter reads (Record.Count() after Record.SetRange or
 //! Record.SetFilter('<%1' or '>%1')). Other writers and readers of such a field refuse; other field shapes keep the values.
 
-use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
 use al_builtins::native::Signal;
 use al_testkit::text;
 
@@ -141,17 +139,13 @@ fn refused(routine: &str) {
 // was inserted keeps its own value.
 #[test]
 fn insert_cuts_a_decimal_to_twenty_places() {
-    clear_hits();
     assert_eq!(text(run("InsertThenGet")), "Yes,Yes,No,Yes,Yes,Yes");
-    assert!(take_hits().contains(&Assumption::DecimalColumnCutsTwentyPlaces));
 }
 
 // RcAGetFind.al:780-799.
 #[test]
 fn modify_cuts_a_decimal_to_twenty_places() {
-    clear_hits();
     assert_eq!(text(run("ModifyThenGet")), "Yes");
-    assert!(take_hits().contains(&Assumption::DecimalColumnCutsTwentyPlaces));
 }
 
 // RcAGetFind.al:801-842: equal_full 1, equal_cut 1, less_full 0, greater_cut 0, range_cut_full 1.
@@ -171,8 +165,6 @@ fn unmeasured_readers_writers_and_setters_of_the_field_are_refused() {
 // Other field shapes keep the value as main did: a field without a key, a Decimal primary key.
 #[test]
 fn other_field_shapes_keep_the_value() {
-    clear_hits();
     assert_eq!(text(run("PlainFieldKeepsValue")), "Yes");
     assert_eq!(text(run("DecimalKeyKeepsValue")), "Yes");
-    assert!(!take_hits().contains(&Assumption::DecimalColumnCutsTwentyPlaces));
 }
