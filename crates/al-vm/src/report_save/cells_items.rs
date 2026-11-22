@@ -60,7 +60,10 @@ fn base(answer: AnswerForm, format: Format, kind: Kind, data_items: DataItems) -
 /// (SaeRdlcTwoTests.al:18); its Html answers false before the run (`cells::unsupported_rows`).
 pub(super) fn top_level_items_rows(t: &mut Vec<Cell>) {
     let marks = |p| Evidence::Awaiting(Assumption::ReportSaveTopLevelItemsNoRow, p);
-    for (data_items, pins) in [(DataItems::TwoTopLevel, WORD_TWO), (DataItems::ThreeTopLevel, WORD_THREE)] {
+    for (data_items, pins) in [
+        (DataItems::TwoTopLevel, WORD_TWO),
+        (DataItems::ThreeTopLevel, WORD_THREE),
+    ] {
         for format in [Format::Pdf, Format::Word, Format::Html] {
             let key = base(AnswerForm::Used, format, Kind::Word, data_items);
             t.push(cell(key, Answer::Empty, Events::NotRaised(&[]), marks(pins)));

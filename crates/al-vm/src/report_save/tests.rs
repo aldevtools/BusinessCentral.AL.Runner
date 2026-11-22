@@ -370,7 +370,11 @@ fn report_save_top_level_items_with_no_row_answer_as_the_probe_measured() {
     let after = |format, kind, data_items, answer| Facts {
         format,
         kind,
-        layout: if kind == Kind::Rdlc { Layout::Rdlc } else { Layout::NotRdlc },
+        layout: if kind == Kind::Rdlc {
+            Layout::Rdlc
+        } else {
+            Layout::NotRdlc
+        },
         data_items,
         answer,
         rows: Some(Rows::Zero),
@@ -399,17 +403,37 @@ fn report_save_top_level_items_with_no_row_answer_as_the_probe_measured() {
         after(Format::Html, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Statement),
         after(Format::Pdf, Kind::Word, DataItems::ThreeTopLevel, AnswerForm::Statement),
         after(Format::Pdf, Kind::Word, DataItems::Other, AnswerForm::Used),
-        Facts { triggers: Triggers::WithoutOnPost, ..after(Format::Pdf, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Used) },
-        Facts { decl: Decl::Legacy, ..after(Format::Pdf, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Used) },
-        Facts { extensions: Extensions::OneAddingColumns, ..after(Format::Pdf, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Used) },
-        Facts { call: Call::StaticRecordRef, ..after(Format::Pdf, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Used) },
-        Facts { call: Call::Other, ..after(Format::Pdf, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Used) },
-        Facts { target: Target::File, ..after(Format::Pdf, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Used) },
-        Facts { named: Some(true), ..after(Format::Pdf, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Used) },
+        Facts {
+            triggers: Triggers::WithoutOnPost,
+            ..after(Format::Pdf, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Used)
+        },
+        Facts {
+            decl: Decl::Legacy,
+            ..after(Format::Pdf, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Used)
+        },
+        Facts {
+            extensions: Extensions::OneAddingColumns,
+            ..after(Format::Pdf, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Used)
+        },
+        Facts {
+            call: Call::StaticRecordRef,
+            ..after(Format::Pdf, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Used)
+        },
+        Facts {
+            call: Call::Other,
+            ..after(Format::Pdf, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Used)
+        },
+        Facts {
+            target: Target::File,
+            ..after(Format::Pdf, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Used)
+        },
+        Facts {
+            named: Some(true),
+            ..after(Format::Pdf, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Used)
+        },
         after(Format::Pdf, Kind::Rdlc, DataItems::ThreeTopLevel, AnswerForm::Used),
         after(Format::Pdf, Kind::Rdlc, DataItems::TwoTopLevel, AnswerForm::Statement),
     ] {
         assert!(answer(&f).map_or(true, |(_, m)| m != marks), "{f:?}");
     }
 }
-

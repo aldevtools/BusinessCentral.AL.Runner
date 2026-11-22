@@ -302,9 +302,15 @@ fn an_rdlc_save_with_no_dataset_row_answers_true_and_writes_nothing() {
 
 #[test]
 fn the_shapes_with_no_dataset_row_the_probe_did_not_measure_refuse() {
-    for p in ["NoRowTwoItems", "TwoItemsPdf", "NoRowFile"] {
-        refused(p, "not measured on BC");
-    }
+    refused("NoRowFile", "not measured on BC");
+}
+
+/// Two top-level Word items and no row answer as the probe measured (SaeTwoItemsTests.al:18, assumption
+/// report-save-top-level-items-no-row, corpus PR 1508): false, nothing written, in Html and Pdf.
+#[test]
+fn two_top_level_word_items_with_no_row_answer_empty() {
+    assert_eq!(text("NoRowTwoItems"), "No|No");
+    assert_eq!(text("TwoItemsPdf"), "No|No|ReportResultEmpty");
 }
 
 #[test]
