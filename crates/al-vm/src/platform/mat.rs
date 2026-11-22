@@ -1325,7 +1325,7 @@ mod tests {
     }
 
     /// Whether a filter reads the column of a row only a lookup by name finds is decided from the listing's columns, not
-    /// by looking at every row on every step (al-runner PERF-32: a Field scan by TableNo looked at all its rows per Next).
+    /// by looking at every row on every step (issue 8599: a Field scan by TableNo looked at all its rows per Next).
     #[test]
     fn a_step_of_a_big_listing_does_not_look_at_every_row_for_its_name_only_columns() {
         let t = table();
