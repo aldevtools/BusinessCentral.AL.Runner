@@ -332,7 +332,7 @@ impl Session {
                         | RecordOp::Count
                         | RecordOp::CalcSums
                 ),
-            );
+            )?;
             use crate::recmeta::{ISOLATION_REPEATABLE_READ, ISOLATION_UPDLOCK};
             // The assignment of a locking isolation opened the write transaction (`RecordOp::ReadIsolation`), the read does
             // not: a Get, Find('='), IsEmpty, Count, Next or CalcFields under UpdLock or RepeatableRead set in an earlier
@@ -2083,6 +2083,8 @@ impl Session {
                             w.pk = t.primary_key(&old_fields);
                             w.before = rename_note.1;
                             w.after = self.store.change_counter();
+                            let company = rec.borrow().company.clone();
+                            self.end_row_version_write(t.object, &company);
                         }
                         // The variable's own Rename after its own Insert, in that transaction, makes the buffer's new version its own
                         // write (record/crud/SbStaleOwnModify.al:268-298). After a Get it is not pinned: the origin

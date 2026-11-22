@@ -1,6 +1,7 @@
 //! Row-version notes and the stale-record verdict (moved out of `records.rs`).
 
 use super::*;
+use al_builtins::assumptions::{Assumption, assume};
 
 /// Where `Session::note_bulk_write` put its note: the index in `OpenTx::writes` and the store's change counter then.
 #[derive(Clone, Copy)]
@@ -72,6 +73,7 @@ impl Session {
             TxWriteKind::Modify if new_versions => {
                 rv.accounted = rv.handed_out;
                 rv.sent = rv.sent.max(rv.last);
+                rv.sent_by_insert = false;
                 rv.pending_inserts.retain(|(o, c, _)| !(*o == table && c == company));
                 // A Modify grows the value while another table holds unsent inserted rows, and those stay unsent
                 // (PlTRowVersionValue.al UK_InsertThenModifyOtherTable).
@@ -86,6 +88,29 @@ impl Session {
             // session-system/TestSystemExtended.al:635-659, TestBCDatabaseContracts.al and PnBRecordMisc.al:205-235 read it after a
             // DeleteAll). A Rename or ModifyAll hands out row versions no Insert or Modify accounts for
             // (`last_used_row_version` refuses those).
+            // A Delete, DeleteAll or Truncate of the one table whose inserted rows nothing sent yet sends them first: the value grows
+            // to their row version (`row_version_after_write`). A Rename (`Other` until it turns out a plain one) or a ModifyAll of
+            // that table, or of a table the transaction inserted into and sent, grows it to the row versions it hands out
+            // (`end_row_version_write`).
+            TxWriteKind::Delete | TxWriteKind::DeleteAll | TxWriteKind::Truncate
+                if Self::row_version_after_write(rv, &self.tx.open.writes, table, company, kind) =>
+            {
+                assume(Assumption::RowVersionWriteAfterInsert);
+                if let Some((_, _, v)) = rv.pending_inserts.pop() {
+                    rv.sent = rv.sent.max(v);
+                    rv.sent_by_insert = true;
+                }
+            }
+            TxWriteKind::Other | TxWriteKind::ModifyAll
+                if Self::row_version_after_write(rv, &self.tx.open.writes, table, company, kind) =>
+            {
+                assume(Assumption::RowVersionWriteAfterInsert);
+                if let Some((_, _, v)) = rv.pending_inserts.pop() {
+                    rv.sent = rv.sent.max(v);
+                    rv.sent_by_insert = true;
+                }
+                rv.write_sends = Some((table, company.clone()));
+            }
             TxWriteKind::Delete
             | TxWriteKind::Rename
             | TxWriteKind::ModifyAll
@@ -101,6 +126,46 @@ impl Session {
         }
     }
 
+    /// Whether a write of `kind` to `table` after an Insert in the open transaction moves `Database.LastUsedRowVersion` as corpus
+    /// PR 1509 (merged, not pinned: session-system/row-version-writes/RowVersionWrites.al) measured it, through the assumption
+    /// `row-version-write-after-insert`. Delete (:147), DeleteAll (:242) and Truncate (:267): the inserted rows nothing sent yet
+    /// are exactly those of `table`. Rename (:192, `Other` when noted) and ModifyAll (:218): the same, or (:517, :544) none are
+    /// unsent and the open transaction inserted into `table`. Every other shape keeps the refusal of `note_row_versions`.
+    fn row_version_after_write(
+        rv: &crate::state::RowVersionTx,
+        writes: &[crate::state::TxWrite],
+        table: u32,
+        company: &Option<String>,
+        kind: crate::state::TxWriteKind,
+    ) -> bool {
+        use crate::state::TxWriteKind;
+        let own_unsent = matches!(rv.pending_inserts.as_slice(), [(o, c, _)] if *o == table && c == company);
+        let sent_insert = rv.pending_inserts.is_empty()
+            && writes
+                .iter()
+                .any(|w| w.kind == TxWriteKind::Insert && w.table == table && w.company == *company);
+        match kind {
+            TxWriteKind::Delete | TxWriteKind::DeleteAll | TxWriteKind::Truncate => own_unsent,
+            TxWriteKind::Other | TxWriteKind::ModifyAll => {
+                rv.write_sends.is_none() && rv.handed_out == rv.accounted && (own_unsent || sent_insert)
+            }
+            _ => false,
+        }
+    }
+
+    /// The end of a Rename or ModifyAll of `table` that `note_row_versions` let send (`RowVersionTx::write_sends`): the row
+    /// versions it handed out count, and the value grows to the last one (RowVersionWrites.al of corpus PR 1509: :192 and :517,
+    /// the renamed row's SystemRowVersion equals the value; :218 and :544 greater).
+    pub(crate) fn end_row_version_write(&mut self, table: u32, company: &Option<String>) {
+        let rv = &mut self.tx.open.row_versions;
+        if rv.write_sends.as_ref().is_some_and(|(o, c)| *o == table && c == company) {
+            rv.write_sends = None;
+            rv.accounted = rv.handed_out;
+            rv.sent = rv.sent.max(rv.last);
+            rv.sent_by_insert = false;
+        }
+    }
+
     /// A read of a database table while the open transaction holds inserted rows nothing has sent yet
     /// (`note_row_versions`). `sends` is a Get, FindFirst, FindLast, FindSet, IsEmpty, Count or CalcSums: the first one of
     /// a table sends that table's rows and grows the value, a read of another table sends nothing (Get of the one table:
@@ -109,30 +174,47 @@ impl Session {
     /// _ReadOtherThenSame, UK_InsertTwoTablesThenGetOne, UK_InsertReadInsertRead, UK_InsertThenModifyOtherTable). The rows
     /// get their row versions at the Insert here, so a read after a Modify handed out a higher one takes a new one to grow
     /// the value as BC does (UK_InsertThenModifyOtherTable `findfirst` greater). Other reads are not pinned.
-    pub(crate) fn note_read_for_row_versions(&mut self, table: u32, company: &Option<String>, sends: bool) {
+    /// A read that sends the rows of one table after the inserted rows of another table were sent with a higher row version
+    /// refuses: BC gives the rows their row version when it sends them, so theirs is then the higher one (RowVersionWrites.al
+    /// of corpus PR 1509, :392 InsertTwoTables `row/other` greater), and here they keep the one of their Insert.
+    pub(crate) fn note_read_for_row_versions(
+        &mut self,
+        table: u32,
+        company: &Option<String>,
+        sends: bool,
+    ) -> Result<(), Signal> {
         let rv = &mut self.tx.open.row_versions;
         if rv.pending_inserts.is_empty() {
-            return;
+            return Ok(());
         }
         if !sends {
             rv.unpinned = Some("a read other than Get, FindFirst, FindLast, FindSet, IsEmpty, Count or CalcSums");
-            return;
+            return Ok(());
         }
         let Some(pos) = rv
             .pending_inserts
             .iter()
             .position(|(o, c, _)| *o == table && c == company)
         else {
-            return;
+            return Ok(());
         };
-        let (_, _, v) = rv.pending_inserts.remove(pos);
         let current = self.tx.committed_row_version.max(rv.sent);
+        let v = rv.pending_inserts[pos].2;
+        if v <= current && rv.sent_by_insert {
+            return unsupported(
+                "a read that sends inserted rows after a later Insert of another table was sent (their SystemRowVersion is not \
+                 pinned)",
+            );
+        }
+        rv.pending_inserts.remove(pos);
         if v > current {
             rv.sent = v;
+            rv.sent_by_insert = true;
         } else {
             self.next_row_version += 1;
             self.tx.open.row_versions.sent = self.next_row_version;
         }
+        Ok(())
     }
 
     /// `Database.LastUsedRowVersion`: the committed value, raised by the rows the open transaction sent
@@ -150,6 +232,9 @@ impl Session {
         }
         if let Some(why) = rv.unpinned {
             return Err(why);
+        }
+        if rv.write_sends.is_some() {
+            return Err("a Rename that rewrote related rows or did not end after an Insert");
         }
         if rv.handed_out != rv.accounted {
             return Err("row versions handed out by a write other than an Insert or a Modify");

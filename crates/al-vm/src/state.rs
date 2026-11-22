@@ -216,6 +216,10 @@ pub(crate) struct RowVersionTx {
     pub(crate) accounted: u64,
     pub(crate) last: i64,
     pub(crate) unpinned: Option<&'static str>,
+    /// A Rename or ModifyAll that runs and whose row versions count when it ends (`Session::end_row_version_write`).
+    pub(crate) write_sends: Option<(u32, Option<String>)>,
+    /// The highest row version sent so far is that of inserted rows (`Session::note_read_for_row_versions`).
+    pub(crate) sent_by_insert: bool,
 }
 
 /// One Record write to the database store: the store's change counter before and after it.
