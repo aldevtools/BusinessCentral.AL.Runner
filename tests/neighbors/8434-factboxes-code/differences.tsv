@@ -24,3 +24,8 @@ LT NF Neighbor Tests::OverlongFirstSetValue	REFUSED a SetValue on a List page wi
 # the probe's line for line (code_inserted_pinned.rs coded_code): it keeps main's way, the same on both, so no row. Page 97523 is
 # page 97492 under another name with the probe's code: the page with code, flagged.
 LT NF Code Neighbor Tests::SameCode_AnotherName	ASSUMED list-new-line-coded-factboxes (corpus PR 1454, merged, not pinned yet: ListNewLineFactboxesCode.al)
+# The reporter's repro (Repro.al, a copy of corpus PR 1517's ListNewLineFactboxesRepro.al): its own objects line for line, run
+# under list-new-line-coded-factboxes-repro from the open on, up to the Value SetValue's refresh, whose background task reads the
+# change entry the test session inserted and has not committed (the query cache of al-runner PR 8490 answers that read). Main
+# refused it at the landing.
+LT NFR Line Tests::NewLine_NameThenValue_SavesTheLine	REFUSED a page background task of a List page with code and FactBoxes read a table the test session changed and has not committed

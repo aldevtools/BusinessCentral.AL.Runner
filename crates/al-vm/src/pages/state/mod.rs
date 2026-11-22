@@ -197,6 +197,46 @@ pub enum CodedLine {
     Landed,
 }
 
+/// Whose objects the page with code (`code_inserted_coded.rs`) is, line for line (`code_inserted_pinned.rs` `coded_code`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CodedObjects {
+    /// The probe's, ListNewLineFactboxesCode.al: assumption `list-new-line-coded-factboxes`.
+    #[default]
+    Probe,
+    /// The reporter's repro of al-runner issue 8434, ListNewLineFactboxesRepro.al: assumption
+    /// `list-new-line-coded-factboxes-repro`.
+    Repro,
+}
+
+impl CodedObjects {
+    /// The assumption a step of the page with code runs under.
+    pub fn assumption(self) -> al_builtins::assumptions::Assumption {
+        match self {
+            Self::Probe => al_builtins::assumptions::Assumption::ListNewLineCodedFactboxes,
+            Self::Repro => al_builtins::assumptions::Assumption::ListNewLineCodedFactboxesRepro,
+        }
+    }
+
+    /// Whether a SetValue after the landing and `steps` earlier ones is measured: up to two on the probe's page
+    /// (ListNewLineFactboxesCode.al:1407 `setvalue`, :1576 `setvalue2`), the one Value on the repro's
+    /// (ListNewLineFactboxesRepro.al:639-647).
+    pub fn later_set_value(self, steps: u8) -> bool {
+        match self {
+            Self::Probe => steps < 2,
+            Self::Repro => steps == 0,
+        }
+    }
+
+    /// Whether `OK()` after the landing and `steps` later SetValues is measured: after any of them on the probe's page (:1407
+    /// `ok=`), after the one Value on the repro's (:646).
+    pub fn ok_after(self, steps: u8) -> bool {
+        match self {
+            Self::Probe => true,
+            Self::Repro => steps == 1,
+        }
+    }
+}
+
 /// Where the test client's cursor stands on a page (ADR-012).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Cursor {
@@ -968,6 +1008,8 @@ pub struct PageState {
     pub code_inserted_save: CodeInsertedSave,
     /// Where the page with code stands before its new line lands on a row (`code_inserted_coded.rs`).
     pub coded_line: CodedLine,
+    /// Whose objects the page with code is, noted at its open (`coded_open_on_empty_view`).
+    pub coded_objects: CodedObjects,
     /// The page control's own OnValidate while it runs (`code_inserted_new_line.rs` `run_control_onvalidate`).
     pub control_onvalidate: Option<ControlOnValidate>,
     /// `CurrPage.SaveRecord()` saved the row page code found from the new-row line through assumption

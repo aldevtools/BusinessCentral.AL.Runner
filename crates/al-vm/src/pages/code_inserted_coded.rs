@@ -15,12 +15,22 @@
 //! Any other page, or other code, keeps main's way (`coded_page`). The table may have manual subscribers nobody binds
 //! (:255-274, :1592 binds one: refused). A row before the line (:1477), an error in the validation (:1499), a Value before any
 //! Name (:1553) and every other call are refused.
+//!
+//! The reporter's repro of the issue (ListNewLineFactboxesRepro.al, corpus pull request 1517, open: its own page, table,
+//! parts and codeunits, line for line, `CodedObjects::Repro`) runs the same way under the assumption
+//! `list-new-line-coded-factboxes-repro`, opened and driven only as it is measured: the open and the view above, `New()`, the
+//! Name SetValue that lands, one Value SetValue and `OK()` (:611-683).
 
 use super::pinned_shape::TestCall;
 use super::state::{CodedLine, FactboxStep};
 use super::*;
-use al_builtins::assumptions::{Assumption, assume};
+use al_builtins::assumptions::assume;
 use al_builtins::page_op::PageMethod;
+
+/// A step of the page with code `st` runs under the assumption of the objects it showed at its open (`CodedObjects`).
+pub(super) fn coded_assume(st: &St) {
+    assume(st.borrow().coded_objects.assumption());
+}
 
 impl Session {
     /// Whether page `st` is the page with code: the probe's objects line for line (`coded_code`), shown as the probe shows
@@ -48,7 +58,7 @@ impl Session {
                 return Ok(false);
             }
         }
-        Ok(self.coded_code(st))
+        Ok(self.coded_code(st).is_some())
     }
 
     /// Whether part `part` of host `st` shows its rows as the probe's parts do: over the host's table, stored, not marked,
@@ -92,7 +102,9 @@ impl Session {
         {
             return Ok(false);
         }
-        assume(Assumption::ListNewLineCodedFactboxes);
+        let objects = self.coded_code(st).unwrap_or_default();
+        st.borrow_mut().coded_objects = objects;
+        coded_assume(st);
         st.borrow_mut().coded_line = CodedLine::EmptyOpen;
         self.with_blank_landing(st, |s| s.sync_parts_at_open(st))?;
         Ok(true)
@@ -120,7 +132,7 @@ impl Session {
             };
         match call {
             _ if first_write => {
-                assume(Assumption::ListNewLineCodedFactboxes);
+                coded_assume(st);
                 st.borrow_mut().coded_line = CodedLine::LineRead;
                 self.with_blank_landing(st, |s| s.sync_parts(st))
             }

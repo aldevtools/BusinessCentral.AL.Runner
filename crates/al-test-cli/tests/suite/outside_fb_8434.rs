@@ -1,11 +1,11 @@
 //! The corpus probe of al-runner issue 8434 (corpus pull request 1454, merged, not pinned yet: tests/al-language/pages/currpage/
-//! ListNewLineFactboxesCode.al, measured on BC 29.1, 11 of 11 green) and the reporter's repro, run here until a bump pins the
-//! probe: a List page with code, control expressions, actions and four FactBoxes, whose new line the table field's OnValidate
-//! inserts before the control's OnValidate calls `CurrPage.SaveRecord()` and `CurrPage.Update(false)`
-//! (`al-vm` pages/code_inserted_coded.rs). The probe is read from its copy in the neighbor app. Delete this file when the pin
-//! is in the corpus.
+//! ListNewLineFactboxesCode.al, measured on BC 29.1, 11 of 11 green) and the reporter's repro (corpus pull request 1517, open:
+//! ListNewLineFactboxesRepro.al, 3 of 3 green), run here until a bump pins them: a List page with code, control expressions,
+//! actions and FactBoxes, whose new line the table field's OnValidate inserts before the control's OnValidate calls
+//! `CurrPage.SaveRecord()` and `CurrPage.Update(false)` (`al-vm` pages/code_inserted_coded.rs). Both are read from their copies
+//! in the neighbor app. Delete this file when the pins are in the corpus.
 
-use al_builtins::assumptions::Assumption::{self, ListNewLineCodedFactboxes};
+use al_builtins::assumptions::Assumption::{self, ListNewLineCodedFactboxes, ListNewLineCodedFactboxesRepro};
 use al_test_cli::report::Outcome;
 
 /// The corpus probe, whole, as the neighbor app holds it (its first line says so).
@@ -113,18 +113,76 @@ fn issue_8434_probe_cells() {
     }
 }
 
-/// The reporter's repro: its code is not the probe's (review of #8463, round 1, finding 1), so it keeps main's way, with no
-/// flag.
-#[test]
-fn issue_8434_repro_keeps_main() {
-    let o = outcomes(
-        include_str!("../fixtures/outside-fb/Issue8434.al"),
-        "Repro Attr Line Tests",
-    );
+/// The reporter's repro (ListNewLineFactboxesRepro.al of corpus pull request 1517, read from its copy in the neighbor app), whole.
+const REPRO: &str = include_str!("../../../../tests/neighbors/8434-factboxes-code/src/Repro.al");
+
+/// The outcome of the repro's test after `change` rewrote the repro.
+fn repro_test(change: impl Fn(&str) -> String) -> (Outcome, Vec<Assumption>) {
+    let o = outcomes(&change(REPRO), "LT NFR Line Tests");
     let [(_, r, marks)] = o.as_slice() else { panic!("{o:?}") };
+    (r.clone(), marks.clone())
+}
+
+/// The reporter's repro is its own code, line for line (`CodedObjects::Repro`): it runs under list-new-line-coded-factboxes-repro
+/// as the probe's page runs, and stops where the Value SetValue's refresh runs the background task again, whose worker reads the
+/// change entry the table field inserted and the test session has not committed (BgTaskQueryCache.al:367, :675: BC may answer it
+/// from the query cache its background sessions share; the cache is al-runner PR 8490's).
+#[test]
+fn issue_8434_repro_runs_flagged_up_to_the_worker_read() {
+    let (r, marks) = repro_test(|s| s.to_string());
     assert!(
-        matches!(r, Outcome::NotRun(w) if w.contains(MAIN_REFUSAL)) && marks.is_empty(),
+        matches!(&r, Outcome::NotRun(w) if w.contains("read a table the test session changed and has not committed"))
+            && marks.contains(&ListNewLineCodedFactboxesRepro)
+            && !marks.contains(&ListNewLineCodedFactboxes),
         "{r:?} {marks:?}"
+    );
+}
+
+/// The repro opened or driven other than as measured: a row before the line and TestPage.OpenEdit are not the measured open
+/// (main's way, no flag), OK() before the Value SetValue is not the measured call (refused at OK, after the landing ran flagged),
+/// and code that is not the repro's (the Value control's OnValidate without its read of Rec) keeps main's way with no flag.
+#[test]
+fn issue_8434_repro_opened_or_driven_otherwise() {
+    let row_before = replace(
+        "        AttrValue.Insert();\n        Commit();",
+        "        AttrValue.Insert();\n        Line.Init();\n        Line.\"Header No.\" := 'H1';\n        Line.Insert();\n        Commit();",
+    );
+    let open_edit = |s: &str| {
+        let s = replace(
+            "        Opener: Codeunit \"LT NFR Opener\";\n    begin",
+            "        Opener: Codeunit \"LT NFR Opener\";\n        Lines: TestPage \"LT NFR Lines\";\n    begin",
+        )(s);
+        replace(
+            "        Opener.Open('H1');",
+            "        Lines.OpenEdit();\n        Lines.Filter.SetFilter(\"Header No.\", 'H1');\n        AttrLinesHandler(Lines);",
+        )(&s)
+    };
+    let other_code = replace(
+        "                        CurrPage.SaveRecord();\n                        Rec.GetBySystemId(Rec.SystemId);",
+        "                        CurrPage.SaveRecord();",
+    );
+    for (name, change, why) in [
+        (
+            "a row before the line",
+            &row_before as &dyn Fn(&str) -> String,
+            MAIN_REFUSAL,
+        ),
+        ("TestPage.OpenEdit", &open_edit, MAIN_REFUSAL),
+        ("other code", &other_code, MAIN_REFUSAL),
+    ] {
+        let (r, marks) = repro_test(change);
+        assert!(
+            matches!(&r, Outcome::NotRun(w) if w.contains(why)) && marks.is_empty(),
+            "{name}: {r:?} {marks:?}"
+        );
+    }
+    let (r, marks) = repro_test(replace(
+        "        Lines.Value.SetValue('ST-07');\n        ValueShown := Lines.Value.Value();\n",
+        "",
+    ));
+    assert!(
+        matches!(&r, Outcome::NotRun(w) if w.contains(CALL_REFUSAL)) && marks.contains(&ListNewLineCodedFactboxesRepro),
+        "OK() before the Value: {r:?} {marks:?}"
     );
 }
 

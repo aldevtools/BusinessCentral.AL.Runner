@@ -1,5 +1,22 @@
-// The repro of al-runner issue 8434 (its app and test files), green on BC 29.1 (1/1).
-table 50100 "Repro Attr Header"
+// The corpus repro ListNewLineFactboxesRepro.al of corpus pull request 1517 (al-runner issue 8434, the reporter's repro as filed), whole.
+// BC Documentation: https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/methods-auto/page/page-saverecord-method
+// Scope: in-scope
+// local object: the table field's OnValidate that inserts the page's new line, and the pages, tables and codeunits of the
+//   reporter's repro, are what is under test
+// Fixtures used: own tables 97372 to 97377, part pages 97378 to 97380, background task codeunit 97381, calculation codeunit
+//   97382, page 97383, opener codeunit 97384, test codeunit 97385
+// Probe (al-runner issue 8434, the reporter's repro as filed, object names and ids changed only): ListNewLineFactboxesCode.al
+//   measures CurrPage.SaveRecord() and CurrPage.Update(false) on the new line of a List page with code and FactBoxes, on its
+//   own objects, whose code logs each step. This file keeps the repro's own objects, whose code differs: no log, no Value field
+//   of its own on the Where-Used part, a header table the calculation counts in. The page is opened with Page.RunModal on a
+//   record filtered to one header with no line; the handler starts a new line, sets the attribute name (the table field inserts
+//   the row, the control's OnValidate saves it, calculates and refreshes), reads it back, sets the value (the table field
+//   writes a change entry, the control's OnValidate saves, reads Rec again, calculates and refreshes), reads it back and
+//   invokes OK. Readings: what the page shows after each step, the line, the header's calculation count and the change entries
+//   after OK.
+//   Measured on a local BC 29.1 OnPrem w1 container.
+// BC versions: 27, 28, 29
+table 97372 "LT NFR Header"
 {
     DataClassification = CustomerContent;
 
@@ -15,7 +32,7 @@ table 50100 "Repro Attr Header"
     }
 }
 
-table 50101 "Repro Attr Setup"
+table 97373 "LT NFR Setup"
 {
     DataClassification = CustomerContent;
 
@@ -32,7 +49,7 @@ table 50101 "Repro Attr Setup"
     }
 }
 
-table 50102 "Repro Attr Kind"
+table 97374 "LT NFR Kind"
 {
     DataClassification = CustomerContent;
 
@@ -49,7 +66,7 @@ table 50102 "Repro Attr Kind"
     }
 }
 
-table 50103 "Repro Attr Line"
+table 97375 "LT NFR Line"
 {
     DataClassification = CustomerContent;
 
@@ -57,7 +74,7 @@ table 50103 "Repro Attr Line"
     {
         field(1; "Header No."; Code[20])
         {
-            TableRelation = "Repro Attr Header"."No.";
+            TableRelation = "LT NFR Header"."No.";
         }
         field(2; "Entry No."; Integer)
         {
@@ -66,7 +83,7 @@ table 50103 "Repro Attr Line"
         field(3; "Attribute Name"; Text[250])
         {
             NotBlank = true;
-            TableRelation = "Repro Attr Kind".Name where(Blocked = const(false));
+            TableRelation = "LT NFR Kind".Name where(Blocked = const(false));
             ValidateTableRelation = false;
 
             trigger OnValidate()
@@ -80,7 +97,7 @@ table 50103 "Repro Attr Line"
         {
             trigger OnValidate()
             var
-                Change: Record "Repro Attr Change";
+                Change: Record "LT NFR Change";
             begin
                 if "Attribute Value" <> xRec."Attribute Value" then begin
                     Variant := '';
@@ -116,7 +133,7 @@ table 50103 "Repro Attr Line"
 
     trigger OnInsert()
     var
-        Last: Record "Repro Attr Line";
+        Last: Record "LT NFR Line";
     begin
         Last.SetCurrentKey("Sorting");
         Last.SetRange("Header No.", "Header No.");
@@ -127,7 +144,7 @@ table 50103 "Repro Attr Line"
 
     trigger OnDelete()
     var
-        Change: Record "Repro Attr Change";
+        Change: Record "LT NFR Change";
     begin
         Change.SetRange("Header No.", "Header No.");
         Change.SetRange("Line Entry No.", "Entry No.");
@@ -136,7 +153,7 @@ table 50103 "Repro Attr Line"
 
     local procedure CopyKind()
     var
-        Kind: Record "Repro Attr Kind";
+        Kind: Record "LT NFR Kind";
     begin
         Kind.SetRange(Name, "Attribute Name");
         if Kind.FindFirst() then begin
@@ -146,7 +163,7 @@ table 50103 "Repro Attr Line"
     end;
 }
 
-table 50112 "Repro Attr Value"
+table 97376 "LT NFR Value"
 {
     DataClassification = CustomerContent;
 
@@ -163,7 +180,7 @@ table 50112 "Repro Attr Value"
     }
 }
 
-table 50104 "Repro Attr Change"
+table 97377 "LT NFR Change"
 {
     DataClassification = CustomerContent;
 
@@ -185,12 +202,12 @@ table 50104 "Repro Attr Change"
     }
 }
 
-page 50105 "Repro Attr Rules"
+page 97378 "LT NFR Rules"
 {
     Caption = ' ', Locked = true;
     Editable = false;
     PageType = CardPart;
-    SourceTable = "Repro Attr Line";
+    SourceTable = "LT NFR Line";
 
     layout
     {
@@ -206,7 +223,7 @@ page 50105 "Repro Attr Rules"
 
     trigger OnAfterGetRecord()
     var
-        Change: Record "Repro Attr Change";
+        Change: Record "LT NFR Change";
     begin
         Change.SetRange("Header No.", Rec."Header No.");
         Change.SetRange("Line Entry No.", Rec."Entry No.");
@@ -217,12 +234,12 @@ page 50105 "Repro Attr Rules"
         RulesText: Text;
 }
 
-page 50106 "Repro Attr Picture"
+page 97379 "LT NFR Picture"
 {
     Caption = 'Attribute Picture';
     Editable = false;
     PageType = CardPart;
-    SourceTable = "Repro Attr Line";
+    SourceTable = "LT NFR Line";
 
     layout
     {
@@ -237,12 +254,12 @@ page 50106 "Repro Attr Picture"
     }
 }
 
-page 50107 "Repro Attr Where-Used"
+page 97380 "LT NFR Where-Used"
 {
     Caption = 'Attribute Where-Used';
     Editable = false;
     PageType = CardPart;
-    SourceTable = "Repro Attr Line";
+    SourceTable = "LT NFR Line";
 
     layout
     {
@@ -269,7 +286,7 @@ page 50107 "Repro Attr Where-Used"
             CurrPage.CancelBackgroundTask(TaskId);
         Parameters.Add('HeaderNo', HeaderNo);
         Parameters.Add('EntryNo', Format(EntryNo));
-        CurrPage.EnqueueBackgroundTask(TaskId, Codeunit::"Repro Attr Where-Used Task", Parameters);
+        CurrPage.EnqueueBackgroundTask(TaskId, Codeunit::"LT NFR Where-Used Task", Parameters);
     end;
 
     trigger OnPageBackgroundTaskCompleted(CompletedTaskId: Integer; Results: Dictionary of [Text, Text])
@@ -293,11 +310,11 @@ page 50107 "Repro Attr Where-Used"
     end;
 }
 
-codeunit 50108 "Repro Attr Where-Used Task"
+codeunit 97381 "LT NFR Where-Used Task"
 {
     trigger OnRun()
     var
-        Change: Record "Repro Attr Change";
+        Change: Record "LT NFR Change";
         Parameters: Dictionary of [Text, Text];
         Results: Dictionary of [Text, Text];
         EntryNo: Integer;
@@ -311,11 +328,11 @@ codeunit 50108 "Repro Attr Where-Used Task"
     end;
 }
 
-codeunit 50109 "Repro Attr Change Svc"
+codeunit 97382 "LT NFR Change Svc"
 {
-    procedure CalculateAfterChange(var Line: Record "Repro Attr Line")
+    procedure CalculateAfterChange(var Line: Record "LT NFR Line")
     var
-        Header: Record "Repro Attr Header";
+        Header: Record "LT NFR Header";
     begin
         if Line.GetBySystemId(Line.SystemId) then;
         Header.Get(Line."Header No.");
@@ -325,13 +342,13 @@ codeunit 50109 "Repro Attr Change Svc"
     end;
 }
 
-page 50110 "Repro Attr Lines"
+page 97383 "LT NFR Lines"
 {
     AutoSplitKey = true;
     Caption = 'Attribute lines';
     Editable = true;
     PageType = List;
-    SourceTable = "Repro Attr Line";
+    SourceTable = "LT NFR Line";
     SourceTableView = sorting("Sorting") order(ascending);
     UsageCategory = None;
     ApplicationArea = All;
@@ -349,12 +366,12 @@ page 50110 "Repro Attr Lines"
                 {
                     ApplicationArea = Basic, Suite;
                     StyleExpr = Rec.Style;
-                    TableRelation = "Repro Attr Kind".Name where(Blocked = const(false));
+                    TableRelation = "LT NFR Kind".Name where(Blocked = const(false));
                     ToolTip = 'Specifies the attribute.';
 
                     trigger OnValidate()
                     var
-                        Kind: Record "Repro Attr Kind";
+                        Kind: Record "LT NFR Kind";
                     begin
                         if xRec."Attribute Name" <> '' then
                             if Rec."Attribute Name" <> xRec."Attribute Name" then
@@ -374,7 +391,7 @@ page 50110 "Repro Attr Lines"
                 {
                     ApplicationArea = Basic, Suite;
                     Editable = ValueEditable;
-                    TableRelation = "Repro Attr Value".Value where("Kind ID" = field("Kind ID"), Blocked = const(false));
+                    TableRelation = "LT NFR Value".Value where("Kind ID" = field("Kind ID"), Blocked = const(false));
 
                     trigger OnValidate()
                     begin
@@ -454,18 +471,18 @@ page 50110 "Repro Attr Lines"
             {
                 ApplicationArea = Basic, Suite;
             }
-            part(Rules; "Repro Attr Rules")
+            part(Rules; "LT NFR Rules")
             {
                 ApplicationArea = Basic, Suite;
                 SubPageLink = "Header No." = field("Header No."), "Entry No." = field("Entry No.");
                 UpdatePropagation = SubPart;
             }
-            part(Picture; "Repro Attr Picture")
+            part(Picture; "LT NFR Picture")
             {
                 ApplicationArea = Basic, Suite;
                 SubPageLink = "Header No." = field("Header No."), "Entry No." = field("Entry No.");
             }
-            part(WhereUsed; "Repro Attr Where-Used")
+            part(WhereUsed; "LT NFR Where-Used")
             {
                 SubPageLink = "Header No." = field("Header No."), "Entry No." = field("Entry No.");
             }
@@ -505,7 +522,7 @@ page 50110 "Repro Attr Lines"
 
     trigger OnDeleteRecord(): Boolean
     var
-        ChangeSvc: Codeunit "Repro Attr Change Svc";
+        ChangeSvc: Codeunit "LT NFR Change Svc";
     begin
         Rec.Delete(true);
         ChangeSvc.CalculateAfterChange(Rec);
@@ -542,7 +559,7 @@ page 50110 "Repro Attr Lines"
 
     local procedure CalculateAndRefresh()
     var
-        ChangeSvc: Codeunit "Repro Attr Change Svc";
+        ChangeSvc: Codeunit "LT NFR Change Svc";
     begin
         ChangeSvc.CalculateAfterChange(Rec);
         RefreshWhereUsed();
@@ -557,8 +574,8 @@ page 50110 "Repro Attr Lines"
     end;
 
     var
-        Setup: Record "Repro Attr Setup";
-        Header: Record "Repro Attr Header";
+        Setup: Record "LT NFR Setup";
+        Header: Record "LT NFR Header";
         IsOption: Boolean;
         IsSaaS: Boolean;
         ValueEditable: Boolean;
@@ -569,18 +586,18 @@ page 50110 "Repro Attr Lines"
         CustomValue: array[30] of Text[30];
 }
 
-codeunit 50111 "Repro Attr Opener"
+codeunit 97384 "LT NFR Opener"
 {
     procedure Open(HeaderNo: Code[20])
     var
-        Line: Record "Repro Attr Line";
+        Line: Record "LT NFR Line";
     begin
         Line.SetRange("Header No.", HeaderNo);
-        Page.RunModal(Page::"Repro Attr Lines", Line);
+        Page.RunModal(Page::"LT NFR Lines", Line);
     end;
 }
 
-codeunit 50120 "Repro Attr Line Tests"
+codeunit 97385 "LT NFR Line Tests"
 {
     Subtype = Test;
     TestPermissions = Disabled;
@@ -594,10 +611,10 @@ codeunit 50120 "Repro Attr Line Tests"
     [TransactionModel(TransactionModel::AutoCommit)]
     procedure NewLine_NameThenValue_SavesTheLine()
     var
-        Header: Record "Repro Attr Header";
-        Line: Record "Repro Attr Line";
-        Change: Record "Repro Attr Change";
-        Opener: Codeunit "Repro Attr Opener";
+        Header: Record "LT NFR Header";
+        Line: Record "LT NFR Line";
+        Change: Record "LT NFR Change";
+        Opener: Codeunit "LT NFR Opener";
     begin
         Initialize();
 
@@ -622,12 +639,12 @@ codeunit 50120 "Repro Attr Line Tests"
 
     local procedure Initialize()
     var
-        Header: Record "Repro Attr Header";
-        Setup: Record "Repro Attr Setup";
-        Kind: Record "Repro Attr Kind";
-        Line: Record "Repro Attr Line";
-        Change: Record "Repro Attr Change";
-        AttrValue: Record "Repro Attr Value";
+        Header: Record "LT NFR Header";
+        Setup: Record "LT NFR Setup";
+        Kind: Record "LT NFR Kind";
+        Line: Record "LT NFR Line";
+        Change: Record "LT NFR Change";
+        AttrValue: Record "LT NFR Value";
     begin
         Line.DeleteAll();
         Change.DeleteAll();
@@ -655,7 +672,7 @@ codeunit 50120 "Repro Attr Line Tests"
     end;
 
     [ModalPageHandler]
-    procedure AttrLinesHandler(var Lines: TestPage "Repro Attr Lines")
+    procedure AttrLinesHandler(var Lines: TestPage "LT NFR Lines")
     begin
         Lines.New();
         Lines."Attribute Name".SetValue('Station');
