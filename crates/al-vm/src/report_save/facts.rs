@@ -80,6 +80,10 @@ pub(crate) enum DataItems {
     One,
     /// A top-level item and one item inside it.
     ParentAndChild,
+    /// Exactly two items, both top-level (corpus pull request 1508, reports/saveas-empty-items/SaeFixtures.al, report 75460).
+    TwoTopLevel,
+    /// Exactly three items, all top-level (the same file, report 75461).
+    ThreeTopLevel,
     Other,
 }
 
@@ -285,7 +289,13 @@ describe!(Declares {
     Declares::Other => "another declaration",
 });
 describe!(LayoutFile { LayoutFile::Present => "present", LayoutFile::Missing => "missing" });
-describe!(DataItems { DataItems::One => "one", DataItems::ParentAndChild => "one inside one", DataItems::Other => "another tree" });
+describe!(DataItems {
+    DataItems::One => "one",
+    DataItems::ParentAndChild => "one inside one",
+    DataItems::TwoTopLevel => "two top-level",
+    DataItems::ThreeTopLevel => "three top-level",
+    DataItems::Other => "another tree",
+});
 describe!(Extensions {
     Extensions::None => "none",
     Extensions::OneAddingColumns => "one adding columns",

@@ -117,7 +117,7 @@ fn report_save_a_miss_names_the_fact_no_row_has_and_the_nearest_rows() {
         why.contains("Never measured: layout selection = a design-time selection (measured: "),
         "{why}"
     );
-    // A Word layout report with no dataset row and three data items: the rows with no dataset row all read the data items.
+    // A Word layout report with no dataset row and four data items: the rows with no dataset row all read the data items.
     let f = Facts {
         format: Format::Pdf,
         data_items: DataItems::Other,
@@ -129,7 +129,7 @@ fn report_save_a_miss_names_the_fact_no_row_has_and_the_nearest_rows() {
     let miss = lookup::after_run(&CELLS, &f).expect_err("a miss");
     let why = miss.reason("Report.SaveAs as Pdf of report \"X\"");
     assert!(
-        why.contains("Never measured: data items = another tree (measured: one)"),
+        why.contains("Never measured: data items = another tree (measured: one; three top-level; two top-level)"),
         "{why}"
     );
     // A `DefaultLayout = Word` report with OnPreReport saved as Pdf with no dataset row: each value is measured, not
@@ -360,3 +360,56 @@ fn report_save_a_stored_row_holds_only_the_pinned_call() {
         assert!(matches!(lookup::before_run(&CELLS, &f), Before::Miss(_)), "{f:?}");
     }
 }
+
+/// Two or three top-level data items and no dataset row (corpus pull request 1508, reports/saveas-empty-items/): a Word layout
+/// answers false with `ReportResultEmpty` as Pdf, Word and Html, an RDLC layout of two items true as Pdf and Word; each marks
+/// the assumption. The statement form is held only for Pdf of two items (al-runner issue 8668's repro).
+#[test]
+fn report_save_top_level_items_with_no_row_answer_as_the_probe_measured() {
+    use al_builtins::assumptions::Assumption;
+    let after = |format, kind, data_items, answer| Facts {
+        format,
+        kind,
+        layout: if kind == Kind::Rdlc { Layout::Rdlc } else { Layout::NotRdlc },
+        data_items,
+        answer,
+        rows: Some(Rows::Zero),
+        named: Some(false),
+        dataset_rgba: Some(false),
+        ..base()
+    };
+    let answer = |f: &Facts| lookup::after_run(&CELLS, f).map(|c| (c.answer, c.evidence.marks()));
+    let marks = Some(Assumption::ReportSaveTopLevelItemsNoRow);
+    for items in [DataItems::TwoTopLevel, DataItems::ThreeTopLevel] {
+        for format in [Format::Pdf, Format::Word, Format::Html] {
+            let f = after(format, Kind::Word, items, AnswerForm::Used);
+            assert!(matches!(lookup::before_run(&CELLS, &f), Before::Run(_)), "{f:?}");
+            assert_eq!(answer(&f).ok(), Some((Answer::Empty, marks)), "{f:?}");
+        }
+    }
+    let statement = after(Format::Pdf, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Statement);
+    assert_eq!(answer(&statement).ok(), Some((Answer::Empty, marks)));
+    for format in [Format::Pdf, Format::Word] {
+        let f = after(format, Kind::Rdlc, DataItems::TwoTopLevel, AnswerForm::Used);
+        assert_eq!(answer(&f).ok(), Some((Answer::TrueNothing, marks)), "{f:?}");
+    }
+    // Neighbors: each misses (a refusal) or keeps main's row, never the new rows.
+    for f in [
+        after(Format::Word, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Statement),
+        after(Format::Html, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Statement),
+        after(Format::Pdf, Kind::Word, DataItems::ThreeTopLevel, AnswerForm::Statement),
+        after(Format::Pdf, Kind::Word, DataItems::Other, AnswerForm::Used),
+        Facts { triggers: Triggers::WithoutOnPost, ..after(Format::Pdf, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Used) },
+        Facts { decl: Decl::Legacy, ..after(Format::Pdf, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Used) },
+        Facts { extensions: Extensions::OneAddingColumns, ..after(Format::Pdf, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Used) },
+        Facts { call: Call::StaticRecordRef, ..after(Format::Pdf, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Used) },
+        Facts { call: Call::Other, ..after(Format::Pdf, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Used) },
+        Facts { target: Target::File, ..after(Format::Pdf, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Used) },
+        Facts { named: Some(true), ..after(Format::Pdf, Kind::Word, DataItems::TwoTopLevel, AnswerForm::Used) },
+        after(Format::Pdf, Kind::Rdlc, DataItems::ThreeTopLevel, AnswerForm::Used),
+        after(Format::Pdf, Kind::Rdlc, DataItems::TwoTopLevel, AnswerForm::Statement),
+    ] {
+        assert!(answer(&f).map_or(true, |(_, m)| m != marks), "{f:?}");
+    }
+}
+

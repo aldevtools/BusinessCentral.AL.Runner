@@ -1,0 +1,15 @@
+# key	entry
+# Not here, the same on main and head: the Refused_* tests (refused on both: a statement other than Pdf of two items, four items,
+# nested items, a report trigger, DefaultLayout, a report extension, a RecordRef, request parameters) and the Main_* tests (main's
+# answer kept: RDLC with three items or as a statement writes its placeholder, rows, Excel, RDLC Html, Xml).
+SAI Tests::Measured_RdlcTwo_Empty_Pdf	ASSUMED report-save-top-level-items-no-row (corpus PR 1508)
+SAI Tests::Measured_RdlcTwo_Empty_Word	ASSUMED report-save-top-level-items-no-row (corpus PR 1508)
+SAI Tests::Measured_WordBreak_Pdf	ASSUMED report-save-top-level-items-no-row (corpus PR 1508)
+SAI Tests::Measured_WordThree_Empty_Html	ASSUMED report-save-top-level-items-no-row (corpus PR 1508)
+SAI Tests::Measured_WordThree_Empty_Pdf	ASSUMED report-save-top-level-items-no-row (corpus PR 1508)
+SAI Tests::Measured_WordThree_Empty_Word	ASSUMED report-save-top-level-items-no-row (corpus PR 1508)
+SAI Tests::Measured_WordTwo_Empty_Html	ASSUMED report-save-top-level-items-no-row (corpus PR 1508)
+SAI Tests::Measured_WordTwo_Empty_Pdf	ASSUMED report-save-top-level-items-no-row (corpus PR 1508)
+SAI Tests::Measured_WordTwo_Empty_Word	ASSUMED report-save-top-level-items-no-row (corpus PR 1508)
+SAI Tests::NotChecked_WordSkip_Pdf	ASSUMED report-save-top-level-items-no-row (corpus PR 1508)
+SAI Tests::Repro_TwoItemsNoRows_PdfStatement	ASSUMED report-save-top-level-items-no-row (corpus PR 1508)
