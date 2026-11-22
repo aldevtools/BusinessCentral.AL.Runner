@@ -239,9 +239,9 @@ impl Session {
     /// Before the User row is stored by an Insert (any RunTrigger), below the OnBefore events and
     /// triggers. Normalises the email in `rec`.
     pub(crate) fn user_before_insert(&mut self, t: &TableDef, rec: &crate::records::Rec) -> Result<(), Signal> {
-        let mut row = rec.borrow().fields.clone();
+        let mut row = rec.borrow().fields.to_vec();
         self.user_checks(t, &mut row, true)?;
-        rec.borrow_mut().fields = row;
+        rec.borrow_mut().fields = row.into();
         Ok(())
     }
 
@@ -265,12 +265,12 @@ impl Session {
 
     /// Before a Modify stores the User row, below the OnBefore events and triggers.
     pub(crate) fn user_before_modify(&mut self, t: &TableDef, rec: &crate::records::Rec) -> Result<(), Signal> {
-        let mut row = rec.borrow().fields.clone();
+        let mut row = rec.borrow().fields.to_vec();
         let before = self.store.get(&self.cx.clone(), t, &t.primary_key(&row))?;
         self.user_checks(t, &mut row, false)?;
         let email = text_of(&row[pos(t, F_EMAIL)]).to_string();
         let stored_email = before.as_ref().map(|r| text_of(&r[pos(t, F_EMAIL)]).to_string());
-        rec.borrow_mut().fields = row;
+        rec.borrow_mut().fields = row.into();
         // A changed email clears the user's Authentication Object ID (TestUserAuthEmailTrigger.al:241-272).
         let changed = stored_email.as_deref().is_some_and(|s| s != email);
         let up = self.table_def(USER_PROPERTY);

@@ -769,7 +769,7 @@ impl Session {
 
     /// The row a refresh settles on when the view no longer holds the row of `rec`: the next row of the view after its key, else
     /// the one before it (ListValidateFilterRefresh.al:1020 A to B, :900 C to A).
-    fn validate_view_settle(&mut self, rec: &Rec) -> Result<Option<Vec<Value>>, Signal> {
+    fn validate_view_settle(&mut self, rec: &Rec) -> Result<Option<al_builtins::record_fields::Fields>, Signal> {
         for step in [1, -1] {
             let probe = Rc::new(RefCell::new(rec.borrow().clone()));
             self.ret_used = true;

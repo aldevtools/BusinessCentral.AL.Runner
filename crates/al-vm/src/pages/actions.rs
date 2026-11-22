@@ -195,10 +195,10 @@ impl Session {
         };
         st.borrow_mut().refresh.cancel();
         let marked_only_before = !self.has_source(st) || self.page_rec(st).borrow().marked_only;
-        let shown_before =
-            (method == PageMethod::DrillDown && self.has_source(st)).then(|| self.page_rec(st).borrow().fields.clone());
+        let shown_before = (method == PageMethod::DrillDown && self.has_source(st))
+            .then(|| self.page_rec(st).borrow().fields.to_vec());
         let rec_before = (method == PageMethod::AssistEdit && self.has_source(st))
-            .then(|| (self.page_rec(st).borrow().fields.clone(), st.borrow().dirty));
+            .then(|| (self.page_rec(st).borrow().fields.to_vec(), st.borrow().dirty));
         let linked_key = self.seed_empty_card_part_assist_edit(st, idx, method)?;
         let result = if method == PageMethod::Lookup {
             self.on_lookup_trigger(st, idx, owner, routine)
@@ -261,8 +261,8 @@ impl Session {
         // next call (`drilldown_marked_only_refresh`).
         if let Some(shown) = pk_shown {
             let rec = self.page_rec(st);
-            let left = std::mem::replace(&mut rec.borrow_mut().fields, shown);
-            st.borrow_mut().marked_refill_in_key = Some(left);
+            let left = std::mem::replace(&mut rec.borrow_mut().fields, shown.into());
+            st.borrow_mut().marked_refill_in_key = Some(left.into_vec());
         }
         Ok(v)
     }
@@ -372,9 +372,9 @@ impl Session {
         // Pinned by pages/onopenpage-moves-rec/SuRefillKey.al UD_NameKeyWithPart_DrillDownAgainAfterRowLostFlag, UD_NameKeyWithPart_ActionAfterRowLostFlag, UD_IdKeyWithPart_DrillDownAgainAfterRowLostFlag, UD_IdKeyWithPart_ActionAfterRowLostFlag (was assumption `marked-again-with-part`).
         if in_its_key && let Some(shown) = shown_before {
             let rec = self.page_rec(st);
-            let left = std::mem::replace(&mut rec.borrow_mut().fields, shown);
+            let left = std::mem::replace(&mut rec.borrow_mut().fields, shown.into());
             let mut s = st.borrow_mut();
-            s.marked_refill_in_key = Some(left);
+            s.marked_refill_in_key = Some(left.into_vec());
             s.refresh.cancel();
             s.window.clear();
             s.window_from_start = false;
@@ -415,7 +415,7 @@ impl Session {
             if method == PageOp::TestFieldValue {
                 let shown = st.borrow().shown_until_next_call.clone().unwrap_or_default();
                 let rec = self.page_rec(st);
-                let held = std::mem::replace(&mut rec.borrow_mut().fields, shown);
+                let held = std::mem::replace(&mut rec.borrow_mut().fields, shown.into());
                 let r = f(self);
                 rec.borrow_mut().fields = held;
                 return r;
@@ -432,7 +432,7 @@ impl Session {
             // (testpage/ScDrillDownMarkedOnly.al:330 BothTriggersListAndGoTo).
             let left = st.borrow_mut().marked_refill_in_key.take();
             if let Some(left) = left {
-                self.page_rec(st).borrow_mut().fields = left;
+                self.page_rec(st).borrow_mut().fields = left.into();
             }
         }
         if st.borrow().marked_refill_in_key.is_some()
@@ -562,8 +562,8 @@ impl Session {
             let stored = probe.borrow().fields.clone();
             rows.push(crate::pages::WindowRow {
                 key: table.primary_key(&stored),
-                stored: stored.clone(),
-                shown: stored,
+                stored: stored.to_vec(),
+                shown: stored.into_vec(),
             });
             self.ret_used = true;
             more = matches!(self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(1)])?, Value::Integer(n) if n != 0);
@@ -1119,7 +1119,7 @@ impl Session {
             };
         } else if let Some(r) = page_of(&engine, st).controls[idx].trigger("onaction") {
             let before = (self.has_source(st) && st.borrow().cursor == Cursor::Row && !st.borrow().draft)
-                .then(|| self.page_rec(st).borrow().fields.clone());
+                .then(|| self.page_rec(st).borrow().fields.to_vec());
             // A card whose row was never stored (a temporary source nothing inserted into: Tasks over "RM Matrix
             // Management") has no row for the action to delete, so it stays open.
             let stored_before = !st.borrow().never_stored;
@@ -1612,7 +1612,7 @@ impl Session {
         match (by_update, update_false) {
             (true, true) if !on_first => {
                 drop_draft(st, None);
-                self.page_rec(st).borrow_mut().fields = anchor;
+                self.page_rec(st).borrow_mut().fields = anchor.into();
                 self.page_first_row_from(st, "=", true)?;
                 return Ok(true);
             }
@@ -1753,7 +1753,7 @@ impl Session {
                 self.populate_current(st)?;
             }
             let blank = self.initial_fields(table);
-            self.set_xrec_fields(st, blank);
+            self.set_xrec_fields(st, blank.into_vec());
             self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
             self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
             self.land_on_new_line(st)?;
@@ -1785,11 +1785,11 @@ impl Session {
                 self.ret_used = true;
                 self.record_op(RecordOp::FindFirst, &probe, &mut [])?;
                 let found = probe.borrow();
-                found.fields.clone()
+                found.fields.to_vec()
             }
         };
         let fields_found = fields.clone();
-        let left = std::mem::replace(&mut rec.borrow_mut().fields, fields.clone());
+        let left = std::mem::replace(&mut rec.borrow_mut().fields, fields.clone().into());
         {
             let mut s = st.borrow_mut();
             s.cursor = Cursor::Row;
@@ -1812,7 +1812,7 @@ impl Session {
         let back_to_new_line = shape == EmptyShape::EditList && own.is_none();
         if !back_to_new_line {
             let key = self.row_key(&rec)?;
-            let shown = rec.borrow().fields.clone();
+            let shown = rec.borrow().fields.to_vec();
             let mut s = st.borrow_mut();
             s.window = vec![crate::pages::WindowRow {
                 key,
@@ -1824,14 +1824,14 @@ impl Session {
         }
         if !(shape == EmptyShape::EditList && own.is_some()) {
             let blank = self.initial_fields(table);
-            self.set_xrec_fields(st, blank);
+            self.set_xrec_fields(st, blank.into_vec());
         }
         self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
         self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
         if back_to_new_line {
             self.land_on_new_line(st)?;
             let pinned = report_insert && self.one_row_action_pinned(st, &fields_found)?;
-            st.borrow_mut().set_row_behind(true, left, pinned);
+            st.borrow_mut().set_row_behind(true, left.into_vec(), pinned);
         }
         Ok(true)
     }
@@ -2218,7 +2218,7 @@ impl Session {
         }
         let view_left = match self.row_after_view_left(rec)? {
             Some(fields) => {
-                rec.borrow_mut().fields = fields;
+                rec.borrow_mut().fields = fields.into();
                 pk = self.row_key(rec)?;
                 true
             }
@@ -2237,7 +2237,7 @@ impl Session {
             self.set_xrec(st);
             // The next OnAfterGetCurrRecord sees the saved row as xRec (PnGRefresh.al:503 `P.AGCR(A,own changed x=A,own changed)`).
             let saved = self.page_rec(st).borrow().fields.clone();
-            st.borrow_mut().agcr_xrec = Some(saved);
+            st.borrow_mut().agcr_xrec = Some(saved.into_vec());
         }
         // An action left another row in Rec: that first read sees Rec as the action left it, the rows after it are read from the
         // table (testpage/PnGRefresh.al:387 `P.AGR(B,changed B);P.AGR(B,orig B)`).
@@ -2252,12 +2252,12 @@ impl Session {
         }
         let row = |this: &mut Self| -> Result<crate::pages::WindowRow, Signal> {
             let key = this.row_key(rec)?;
-            let stored = rec.borrow().fields.clone();
+            let stored = rec.borrow().fields.to_vec();
             this.populate_current(st)?;
             Ok(crate::pages::WindowRow {
                 key,
                 stored,
-                shown: rec.borrow().fields.clone(),
+                shown: rec.borrow().fields.to_vec(),
             })
         };
         rows.push(row(self)?);
@@ -2303,12 +2303,12 @@ impl Session {
             let mut block = 0;
             while self.nav_next(st, -1)? {
                 let key = self.row_key(rec)?;
-                let stored = rec.borrow().fields.clone();
+                let stored = rec.borrow().fields.to_vec();
                 self.populate_current(st)?;
                 back.push(crate::pages::WindowRow {
                     key,
                     stored,
-                    shown: rec.borrow().fields.clone(),
+                    shown: rec.borrow().fields.to_vec(),
                 });
                 block += 1;
                 if block == Self::WINDOW && !find {
@@ -2355,7 +2355,7 @@ impl Session {
                     "an action left the list's view and the row it settles on has a full window after it (not pinned)",
                 );
             }
-            rec.borrow_mut().fields = rows[0].stored.clone();
+            rec.borrow_mut().fields = rows[0].stored.clone().into();
             let mut s = st.borrow_mut();
             s.window = rows;
             s.window_from_start = true;
@@ -2711,7 +2711,7 @@ impl Session {
             // settles on (AiListOrderTests.al:301 DropCurrent_RowsAfter_FindOnly `A:done;R:R1003;F:=>=Yes`).
             if !self.declares(st, "onnextrecord") {
                 if let Some(fields) = self.row_after_view_left(&rec)? {
-                    rec.borrow_mut().fields = fields;
+                    rec.borrow_mut().fields = fields.into();
                 }
             }
             if !after_validate {
@@ -2727,19 +2727,19 @@ impl Session {
                 return unsupported("CurrPage.Update on a list whose view fills a window (not pinned)");
             }
             let key = self.row_key(&rec)?;
-            let stored = rec.borrow().fields.clone();
+            let stored = rec.borrow().fields.to_vec();
             self.populate_current(st)?;
             forward.push(crate::pages::WindowRow {
                 key,
                 stored,
-                shown: rec.borrow().fields.clone(),
+                shown: rec.borrow().fields.to_vec(),
             });
             if !self.nav_next(st, 1)? {
                 break;
             }
         }
         let first = forward[0].clone();
-        rec.borrow_mut().fields = first.stored.clone();
+        rec.borrow_mut().fields = first.stored.clone().into();
         // On the last row the client has not moved, so it puts nothing back (pages/currpage/UpdateOnFindRecord.al:
         // P168_List_UpdateOnLastRow: `Next:1;Next:-1;AGR:2`).
         if forward.len() > 1 {
@@ -2751,12 +2751,12 @@ impl Session {
                 return unsupported("CurrPage.Update on a list whose view fills a window (not pinned)");
             }
             let key = self.row_key(&rec)?;
-            let stored = rec.borrow().fields.clone();
+            let stored = rec.borrow().fields.to_vec();
             self.populate_current(st)?;
             before.push(crate::pages::WindowRow {
                 key,
                 stored,
-                shown: rec.borrow().fields.clone(),
+                shown: rec.borrow().fields.to_vec(),
             });
         }
         before.reverse();
@@ -2775,7 +2775,7 @@ impl Session {
             st.borrow_mut().settled_first_row = true;
             return self.sync_parts(st);
         }
-        rec.borrow_mut().fields = first.stored.clone();
+        rec.borrow_mut().fields = first.stored.clone().into();
         if !with_current {
             // Without OnAfterGetCurrRecord the refresh ends after the step back: no row is put back and `=` is not asked
             // (pages/list-order/AiListOrderTests.al:39 Keep_Nav, :73 Same_Nav, :170 Same_Nav_OnOpenRow).
@@ -2839,7 +2839,7 @@ impl Session {
         let close_triggers = self.declares(st, "onclosepage") || self.declares(st, "onqueryclosepage");
         if Self::same_key(&table.primary_key(&rec.borrow().fields), &key) {
             if shape && close_triggers && self.stored_row(&rec)?.is_some() {
-                rec.borrow_mut().fields = shown;
+                rec.borrow_mut().fields = shown.into();
                 st.borrow_mut().close_restored_row = true;
             }
             return Ok(());
@@ -3146,7 +3146,7 @@ impl Session {
                 ))
             })
             .collect();
-        rec.borrow_mut().fields = unknown.clone();
+        rec.borrow_mut().fields = unknown.clone().into();
         self.set_xrec_fields(st, unknown);
         self.last_error = al_builtins::native::unpinned_error();
         let mut s = st.borrow_mut();
@@ -3241,7 +3241,7 @@ impl Session {
                 if at == 0 {
                     return unsupported("a deleted first row whose OnFindRecord finds no row after it (not pinned)");
                 }
-                rec.borrow_mut().fields = window[at - 1].stored.clone();
+                rec.borrow_mut().fields = window[at - 1].stored.clone().into();
             }
             if !self.nav_find(st, "=")? {
                 return unsupported("OnFindRecord does not find the row the client settled on");
