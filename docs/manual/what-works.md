@@ -81,7 +81,7 @@ Application tests do not run yet; see [Running Microsoft's tests](microsoft-test
 | Email, SMTP and Exchange | Put the send behind an AL interface and fake it in the test. |
 | Cloud storage, Key Vault, external data connections | Fake the interface. |
 | File upload and download dialogs (a browser round trip) | Test with streams. |
-| Report layouts are not rendered. A save to PDF, Word, Excel or HTML succeeds and writes a small placeholder file of the right type. Whether the file exists and whether its length is greater than 0 answer as on Business Central; any other use of the length (the number itself, a comparison with another number) is refused. Copying its bytes works (`CopyStream`, a file, a Blob field, an e-mail attachment). Reading its content (`ReadText`, Base64, a hash, XML, Excel Buffer, Data Compression) is refused, and the test is reported as not run. A format the layout cannot give answers `false` with Business Central's `ReportUnsupportedFormat` error, for example HTML of an RDLC layout. `Report.Run`, `RunModal` and `Execute` of a report with an RDLC or Word layout run the report and write nothing; with an Excel layout they raise Business Central's `ReportUnsupportedOperation` error. A run on the system printer is refused. The XML dataset works. | Assert on the dataset. See [Writing tests](writing-tests.md#testing-reports). |
+| Report layouts are not rendered. A save to PDF, Word, Excel or HTML succeeds and writes a small placeholder file of the right type. Whether the file exists and whether its length is greater than 0 answer as on Business Central; any other use of the length (the number itself, a comparison with another number) is refused. Copying its bytes works (`CopyStream`, a file, a Blob field, an e-mail attachment). Reading its content (`ReadText`, Base64, a hash, XML, Excel Buffer, Data Compression) is refused, and the test is reported as not run. A format the layout cannot give answers `false` with Business Central's `ReportUnsupportedFormat` error, for example HTML of an RDLC layout. `Report.Run`, `RunModal` and `Execute` of a report with an RDLC or Word layout run the report and write nothing; with an Excel layout they raise Business Central's `ReportUnsupportedOperation` error. A run on the system printer is refused. The XML dataset works. One exception: the HTML of a Word layout saved into a stream is Business Central's own output, made with the Word merger and HTML converter of the BC artifact (AL Runner uses only the assemblies in the BC artifact and ships none; they are fetched with the artifact, about 7 MB plus 112 MB on disk per build). This holds only for the reports, calls and datasets a probe measured (today `Report.SaveAs(Number, '', ReportFormat::Html, OutStream)` into a new UTF-8 stream, a report with one data item, no caption, request page or trigger, and either an Integer and a Text field column with two rows, or those two with a Decimal and a Date expression and one or three rows) and for layouts made only of what the measured layouts are made of (no picture, header, footer, external link, field, tab or style part); any other HTML save keeps the placeholder. | Assert on the dataset. See [Writing tests](writing-tests.md#testing-reports). |
 | Web service endpoints (OData, SOAP, API) | Call the page or codeunit directly, or use `TestPage`. |
 | Background jobs and the job queue running tasks | Call the code the task would run. |
 | Licensing and entitlement denial paths | Use a real service tier. |
@@ -105,11 +105,12 @@ The core needs no .NET. AL code that uses the `DotNet` type is served by an opti
 `al-runner` and needs no helper: `StringBuilder`, `byte[]` access, `Encoding`, SHA
 and MD5 hashes, and Base64 conversion.
 
-Tests that reach any other `DotNet` call need the .NET 8 SDK. The binary carries the
+Tests that reach any other `DotNet` call need the .NET SDK 8 or newer. The binary carries the
 helper sources and builds the helper into the cache on first use. The helper then runs on
-the .NET runtime of the BC version's service tier: .NET 8 for BC 27 and 28, .NET 10 for
-BC 29, whose service-tier DLLs (OpenXml, `System.Drawing.Common`) are built for .NET 10 and
-do not load into .NET 8. Install that runtime too. `--dotnet-allow-roll-forward` runs the
+the .NET runtime of the BC build's service tier, as its runtime configuration names it: .NET 10
+for BC 29 and for the BC 27 and 28 builds published from 2026-11-17, .NET 8 for earlier BC 27
+and 28 builds. Service-tier DLLs built for .NET 10 (OpenXml, `System.Drawing.Common`) do not
+load into .NET 8. Install that runtime too. `--dotnet-allow-roll-forward` runs the
 helper on a newer major only when the one the BC version needs is not installed. Without .NET those
 tests are not run, with the reason, and the exit code is 8. `--require-dotnet` turns
 a missing helper into an error, for CI. Arbitrary .NET that reaches the machine

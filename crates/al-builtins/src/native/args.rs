@@ -38,6 +38,10 @@ pub fn text_of_carrying_call_stack(v: &Value) -> Option<crate::text::Txt> {
         {
             Some(s.clone())
         }
+        // Rendered content reaches a native only where `rendered_text::guard` allows it (ADR-040 amendment 2026-11-12, A5).
+        Value::Text(s) | Value::Code(s) if s.has_marker() && crate::rendered_text::carried(s.audited_str()) => {
+            Some(s.clone())
+        }
         _ => text_of(v),
     }
 }

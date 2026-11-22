@@ -12,8 +12,9 @@
 //! - the variable is in the state the cells' variables are in: no filter, no MarkedOnly and no other company, and no load
 //!   fields, the default ReadIsolation, filter group 0 and no marks (`default_variable`).
 //!
-//! `ModifyAll` on an audit field (:594-632) has no rule: two of its three observations run after the rollback of the
-//! `asserterror` before them, over a row the variable did not insert, and no case measures that state apart from the first.
+//! `ModifyAll` on an audit field (:594-631) is not a write of this module: it raises its error before it writes, whatever the
+//! buffer holds (its three observations run in three buffer and transaction states, the same error each time), see
+//! `Session::modify_all_audit_field` in `recmeta.rs`.
 
 use crate::Session;
 use crate::globaltriggers::GlobalOp;
@@ -84,7 +85,7 @@ fn same(a: &Value, b: &Value) -> bool {
     al_builtins::ops::compare(a, b).ok() == Some(std::cmp::Ordering::Equal)
 }
 
-fn non_blank(v: &Value) -> bool {
+pub(crate) fn non_blank(v: &Value) -> bool {
     matches!(crate::recmeta::is_blank(v), Ok(false))
 }
 
@@ -315,7 +316,7 @@ impl Session {
         op: GlobalOp,
         run: bool,
     ) -> AuditWrite {
-        let store_changes = self.store_for(rec).change_counter();
+        let store_changes = self.store_changes(rec);
         let r = rec.borrow();
         // Every rule needs `OwnRead` from a Get with nothing committed or written since (`own_row`): only then is it worth
         // asking for the triggers and subscribers. The Insert that started `OwnRead` must run none either; they are
@@ -367,8 +368,8 @@ impl Session {
             return Ok(RenameAudit::AsBuffer);
         }
         let w = self.audit_write(t, rec, GlobalOp::Rename, true);
-        let stored =
-            al_data::Store::get(self.store_for(rec), cx, t, old_pk).map_err(|e| Signal::unsupported(format!("{e}")))?;
+        let stored = al_data::Store::get(self.store_for(rec)?, cx, t, old_pk)
+            .map_err(|e| Signal::unsupported(format!("{e}")))?;
         Ok(rename_audit(t, stored.as_deref(), &rec.borrow().fields, &w))
     }
 
@@ -385,7 +386,7 @@ impl Session {
         if method == RecordOp::Insert {
             rec.borrow_mut().own_read = OwnRead(None);
             let plain = args.is_empty() && self.tx.insert_from_al && !self.through_recordref;
-            return plain.then(|| self.store_for(rec).change_counter());
+            return plain.then(|| self.store_changes(rec));
         }
         let mut r = rec.borrow_mut();
         let m = r.own_read.0.as_mut()?;
@@ -413,7 +414,7 @@ impl Session {
         match method {
             RecordOp::Insert => {
                 let Some(before) = inserted else { return };
-                let store_changes = self.store_for(rec).change_counter();
+                let store_changes = self.store_changes(rec);
                 if !ok || store_changes == before {
                     return;
                 }
@@ -469,7 +470,7 @@ impl Session {
         let Some(mut m) = rec.borrow_mut().own_read.0.take() else {
             return OwnRead(None);
         };
-        let store_changes = self.store_for(rec).change_counter();
+        let store_changes = self.store_changes(rec);
         let read = by_get
             && !self.through_recordref
             && !m.got
@@ -485,7 +486,7 @@ impl Session {
 
 /// The variable is in the state the cells' variables are in after `Clear` (:143) or as declared (:641): no filter, no
 /// MarkedOnly, no other company, no load fields, the default ReadIsolation, filter group 0 and no marks.
-fn default_variable(r: &al_builtins::value::RecordState) -> bool {
+pub(crate) fn default_variable(r: &al_builtins::value::RecordState) -> bool {
     r.filters.is_empty()
         && !r.marked_only
         && r.company.is_none()

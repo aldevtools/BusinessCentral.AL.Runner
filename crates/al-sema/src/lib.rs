@@ -9,6 +9,7 @@ pub mod halt;
 pub mod incremental;
 pub mod lower;
 pub mod members;
+pub(crate) mod own_named_page_methods;
 pub mod pages;
 pub mod property_values;
 pub mod provided;

@@ -42,12 +42,7 @@ impl Session {
     pub(super) fn mark_closed_by_test(&mut self, st: &St) {
         let clean = {
             let s = st.borrow();
-            s.opened_by_test
-                && !s.modal
-                && !s.close_vetoed
-                && !s.close_error
-                && !s.test_close_vetoed
-                && !s.test_closed_in_handler
+            s.opened_by_test && !s.modal && !s.close.refused_or_handled()
         };
         let by = if clean { ClosedBy::TestClose } else { ClosedBy::Other };
         self.mark_closed_as(st, by);

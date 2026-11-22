@@ -21,8 +21,11 @@ pub struct FrozenStore {
     shapes: crate::pmap::PMap<Slot, u64>,
     moves: crate::pmap::PMap<(Slot, usize), u64>,
     copies: crate::pmap::PMap<std::sync::Arc<str>, std::sync::Arc<str>>,
+    source_stamps: crate::pmap::PMap<std::sync::Arc<str>, u64>,
     emptied: crate::pmap::PMap<Slot, ()>,
     unknown_cols: std::collections::HashMap<u32, Vec<usize>>,
+    accent_cols: std::collections::HashMap<u32, Vec<usize>>,
+    ae_cols: std::collections::HashMap<u32, Vec<usize>>,
     counter: u64,
     /// The tables whose rows hold a value that is not [`shareable`], as bytes (see the module comment).
     held: Vec<Held>,
@@ -87,9 +90,9 @@ pub fn not_shareable(v: &Value) -> Option<&'static str> {
         | Value::Blob(_)
         | Value::Unknown(_) => None,
         // Not in a stored row, and `to_bytes` does not write them either (the same rule, decision 3).
-        Value::TextConst(_) => Some("TextConst"),
+        Value::TextConst(..) => Some("TextConst"),
         Value::SqlCount(_) => Some("SqlCount"),
-        Value::PlaceholderSize(_) => Some("PlaceholderSize"),
+        Value::PlaceholderSize(..) => Some("PlaceholderSize"),
         // Handles: `Rc`, bound to their thread.
         Value::List(_) => Some("List"),
         Value::Dictionary(_) => Some("Dictionary"),
@@ -199,8 +202,11 @@ impl FrozenStore {
             shapes: store.committed_shapes.clone(),
             moves: store.committed_moves.clone(),
             copies: store.committed_copies.clone(),
+            source_stamps: store.committed_source_stamps.clone(),
             emptied: store.committed_emptied.clone(),
             unknown_cols: store.unknown_cols.clone(),
+            accent_cols: store.accent_cols.clone(),
+            ae_cols: store.ae_cols.clone(),
             counter: store.counter,
         })
     }
@@ -232,9 +238,13 @@ impl FrozenStore {
             committed_moves: self.moves.clone(),
             copies: self.copies.clone(),
             committed_copies: self.copies.clone(),
+            source_stamps: self.source_stamps.clone(),
+            committed_source_stamps: self.source_stamps.clone(),
             emptied: self.emptied.clone(),
             committed_emptied: self.emptied.clone(),
             unknown_cols: self.unknown_cols.clone(),
+            accent_cols: self.accent_cols.clone(),
+            ae_cols: self.ae_cols.clone(),
             counter: self.counter,
             ..Default::default()
         }

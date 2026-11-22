@@ -8,7 +8,7 @@ rust-version.workspace = true
 [dependencies]
 al-ir.workspace = true
 al-sema.workspace = true
-flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+flate2.workspace = true
 crc32fast = "1"
 sha2 = "0.10"
 quick-xml.workspace = true

@@ -2,6 +2,7 @@
 
 - Status: Accepted (owner, 2026-10-14: build the loader in point 3). The loader is built (branch `test-data`): `alrunner test --test-data`.
 - Date: 2026-10-14
+- Amended by ADR-046 amendment 9 (2026-11-12; Accepted, owner 2026-11-12, in direction; text to be confirmed): test data from several companies of one backup. See the last section.
 - Owner decision (Stefan, 2026-10-14): test data is **on by default**. `alrunner test APP` loads the CRONUS demo
   company of the matching BC artifact; `--no-test-data` turns it off. `--test-data [PATH]` stays, to name a
   backup or to insist (a missing backup then stops the run). Built on branch `zero-config`.
@@ -173,6 +174,8 @@ runtime defects, not differences between the restored company and a freshly prep
   `--test-data` runs agree. A backup with several companies restores the demo company; any other needs
   `--test-data-company`, as v2 needs `--test-data-company`. A record in another company on a table the
   backup holds rows for is refused (the other company's rows are not modelled), as for baseline rows.
+  (Changed by ADR-046 amendment 9, 2026-11-12: a repeated `--test-data-company` selects more companies of the
+  backup, and each selected company gets its rows.)
 - **No baseline copy**: see point 3. A table nothing wrote reads from the backing; the first write copies
   the rows into the store. Per-codeunit reset, rollback and `Checkpoint` restore therefore need no
   special case, and a table that was never touched costs nothing at a reset.
@@ -363,3 +366,17 @@ The platform artifact stays the same (`System.app`, the apps no country changes)
 Compile cache cold build: w1 24.1 MB in 42.1 s, then US 25.6 MB in 43.3 s; the two share nothing. Of the 8,581 `.al`
 files of the US Base Application, 7,732 are identical to W1, 366 differ and 483 exist only in US (none only in W1); System Application and Business Foundation are identical.
 
+## Amendment (2026-11-12): several companies of one backup
+
+- Status: Accepted (owner 2026-11-12) in direction; text to be confirmed
+
+The full text is ADR-046 amendment 9. For this ADR it changes two things:
+
+1. `--test-data-company` may be repeated. The first name is the session company. Each name selects one more company
+   of the same backup. A name the backup does not hold, or a company selected twice, is a usage error.
+2. A record in another selected company is answered from that company's rows in the backup, read on first touch, per
+   company and table. The rule "a record in another company on a table the backup holds rows for is refused" ends for
+   selected companies. A company that was not selected does not exist for the run.
+
+The provider reads a per-company table for a named company (an added method; the session company is its default).
+With one company selected the read path and its cost are unchanged.

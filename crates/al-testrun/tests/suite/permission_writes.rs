@@ -754,6 +754,16 @@ pub(super) fn run_main(main: &str, opts: &RunOptions) -> CorpusRuntime {
 
 /// `main` as the workspace app on the dependency app `base` (which must hold Permissions Mock).
 pub(super) fn run_main_on(main: &str, base: &str, opts: &RunOptions) -> CorpusRuntime {
+    run_main_on_target(main, base, opts, None)
+}
+
+/// [`run_main_on`] for the BC version `target`.
+pub(super) fn run_main_on_target(
+    main: &str,
+    base: &str,
+    opts: &RunOptions,
+    target: Option<&al_version::Target>,
+) -> CorpusRuntime {
     let manifest = |p: &str| Manifest {
         publisher: p.into(),
         version: "1.0.0.0".into(),
@@ -771,6 +781,7 @@ pub(super) fn run_main_on(main: &str, base: &str, opts: &RunOptions) -> CorpusRu
         translation_source: None,
         runtime: None,
         app_json_keys: Vec::new(),
+        platform_internals_visible_to: Vec::new(),
         symbols: vec![],
     };
     CorpusRuntime::try_run_suites_with(
@@ -778,7 +789,7 @@ pub(super) fn run_main_on(main: &str, base: &str, opts: &RunOptions) -> CorpusRu
         vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
         &[manifest("Me"), manifest("Microsoft")],
         &Default::default(),
-        None,
+        target,
         al_vm::dotnet::DotNetConfig {
             host: Arc::new(HasDotNet),
             ..Default::default()

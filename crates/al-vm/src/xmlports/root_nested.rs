@@ -139,11 +139,11 @@ impl Session {
                 }
                 let t = self.table(&rec)?;
                 let cx = self.cx.clone();
-                let rows = self
-                    .store_for(&rec)
-                    .count(&cx, &t, &[])
-                    .map_err(|e| Signal::unsupported(format!("{e}")))?;
-                if rows != 0 {
+                if self
+                    .store_for(&rec)?
+                    .exists(&cx, &t, &[])
+                    .map_err(|e| Signal::unsupported(format!("{e}")))?
+                {
                     return unsupported(
                         "XmlPort import of a root table element holding a table element that fails after a row was stored in a temporary table (not pinned)",
                     );

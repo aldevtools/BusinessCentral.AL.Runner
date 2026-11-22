@@ -41,6 +41,7 @@ impl Session {
         idx: usize,
         args: &mut [Value],
     ) -> Result<Value, Signal> {
+        self.refresh_host_before_set_value(st)?;
         // Taken, so only the first SetValue after the `Next` can read.
         let noted = st.borrow_mut().next_held_row.take();
         if let Some((reached, writes)) = noted

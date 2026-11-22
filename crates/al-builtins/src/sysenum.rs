@@ -137,7 +137,7 @@ pub fn members(name: &str) -> Option<&'static [&'static str]> {
         "executioncontext" => Some(&["Normal", "Install", "", "Upgrade"]),
         // Standard and Debug only (corpus must-not-compile 0010 to 0013 and 0019: Install, Uninstall, Upgrade,
         // Report and Profile do not exist). A test run formats as `Standard`
-        // (session-system/TestEnvironmentUserTenantContracts.al:247); the ordinals are not pinned.
+        // (session-system/TestEnvironmentUserTenantContracts.al:244); the ordinals are not pinned.
         "executionmode" => Some(&["Standard", "Debug"]),
         // Only `LocalScope` is named by the corpus; the ordinals are not pinned.
         "notificationscope" => Some(&["LocalScope", "GlobalScope"]),
@@ -299,6 +299,20 @@ fn members_static(name: &str) -> &'static [&'static str] {
 /// The member names as an owned option type.
 pub fn option_members(name: &str) -> Option<Vec<String>> {
     members(name).map(|m| m.iter().map(|s| s.to_string()).collect())
+}
+
+/// The member list a value whose declared type is TransactionType carries in a Variant (`Variant.FromTransactionType`, which
+/// al-sema writes where such a value goes into a Variant): one shared list, so [`is_transaction_type`] tells it by identity from
+/// an Option with the same members (an app Option, the TransactionType field of "XmlPort Metadata").
+pub fn transaction_type_members() -> std::sync::Arc<[String]> {
+    static LIST: std::sync::OnceLock<std::sync::Arc<[String]>> = std::sync::OnceLock::new();
+    LIST.get_or_init(|| option_members("transactiontype").expect("known").into())
+        .clone()
+}
+
+/// Whether an option value with these members is a TransactionType value in a Variant (see [`transaction_type_members`]).
+pub fn is_transaction_type(members: &std::sync::Arc<[String]>) -> bool {
+    std::sync::Arc::ptr_eq(members, &transaction_type_members())
 }
 
 /// The platform enum a value of option type with these members belongs to, when it is one the `Is<Type>` tests of a Variant

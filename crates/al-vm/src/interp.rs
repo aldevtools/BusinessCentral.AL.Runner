@@ -1,4 +1,7 @@
 use super::*;
+use crate::blob_transfer::{BlobMove, FieldKind, Holder};
+use crate::var_option::Store;
+use al_builtins::builtin_id::BuiltinId;
 
 /// The start of the refusal of an index with fewer positions than the array has dimensions.
 const ROW_REFUSAL: &str = "a row of a ";
@@ -58,7 +61,7 @@ impl Session {
         }
         if class == Class::Report {
             self.ret_used = ret_used;
-            return self.report_builtin(id, recv, &values, f.instance.clone());
+            return self.report_call(id, recv, &values, f.instance.clone());
         }
         if class == Class::FilterPageBuilder {
             return self.filter_page_builder_op(id, recv, &values, ret_used);
@@ -72,6 +75,7 @@ impl Session {
     pub(crate) fn run_native(
         &mut self,
         native: al_builtins::native::NativeFn,
+        id: BuiltinId,
         class: al_builtins::builtin_id::Class,
         receiver: Option<&ir::Arg>,
         args: &[ir::Arg],
@@ -81,30 +85,90 @@ impl Session {
         f: &mut Frame,
     ) -> Result<Value, Signal> {
         self.ret_used = ret_used;
+        // The global a query method is called on, for `query_reopen`; cleared once the native returns.
+        let query_call = matches!(recv, Some(Value::Query(_)));
+        if query_call {
+            self.query_receiver = match receiver {
+                Some(ir::Arg::Ref(ir::Place::Global(g))) => Some((f.object, *g)),
+                _ => None,
+            };
+        }
+        // The variable a KeyRef method is called on, for `keyref_unassigned_measured`; cleared once the native returns.
+        let keyref_call = matches!(
+            recv,
+            Some(Value::Library(al_builtins::library_kind::LibraryKind::KeyRef, _))
+        );
+        if keyref_call {
+            self.keyref_receiver_local = self.keyref_receiver_measured(receiver, f);
+        }
         // A background task this call enqueued runs once the call wrote its arguments back; one that a call further out
         // enqueued waits for that call.
         let drain_pending = self.pages.bg_drain_after_call.is_some();
-        let ret = native(self, recv.as_mut(), &mut values)?;
-        // ADR-068 item 3: a builtin that read a text with half of a surrogate pair without an audit refuses.
-        al_builtins::text::check_unaudited()?;
-        if let (Some(ir::Arg::Ref(p)), Some(v)) = (receiver, recv) {
-            self.write_native_back(p, v, f)?;
+        let ret = native(self, recv.as_mut(), &mut values);
+        if query_call {
+            self.query_receiver = None;
         }
-        for (a, v) in args.iter().zip(values.drain(..)) {
+        if keyref_call {
+            self.keyref_receiver_local = false;
+        }
+        let ret = ret?;
+        let back = match (receiver, recv) {
+            (Some(ir::Arg::Ref(p)), Some(v)) => Some((p, v)),
+            _ => None,
+        };
+        self.builtin_write_back(id, class, back, args, &mut values, drain_pending, f)?;
+        self.return_vec(values);
+        Ok(ret)
+    }
+
+    /// What every builtin call does after its native returned: the surrogate audit (ADR-068 item 3: a builtin that read a
+    /// text with half of a surrogate pair without an audit refuses), the write-back of the receiver (`recv`, when it is by
+    /// reference) and of the by-reference operands, then the background task the call enqueued (`drain_pending` says one
+    /// further out was already waiting). Shared by `run_native` and `run_stream_builtin`.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn builtin_write_back(
+        &mut self,
+        id: BuiltinId,
+        class: al_builtins::builtin_id::Class,
+        recv: Option<(&ir::Place, Value)>,
+        args: &[ir::Arg],
+        values: &mut [Value],
+        drain_pending: bool,
+        f: &mut Frame,
+    ) -> Result<(), Signal> {
+        al_builtins::text::check_unaudited()?;
+        if let Some((p, v)) = recv {
+            self.write_native_back(p, v, f, id)?;
+        }
+        for (a, slot) in args.iter().zip(values.iter_mut()) {
             if let ir::Arg::Ref(p) = a {
-                let v = if class == al_builtins::builtin_id::Class::InStreamRead {
-                    self.fit_stream_read(p, v, f)?
-                } else {
-                    self.fit_ref_number(p, v, f)?
-                };
-                self.write_native_back(p, v, f)?;
+                let v = std::mem::replace(slot, Value::Null);
+                self.native_arg_back(p, v, id, class, f)?;
             }
         }
-        self.return_vec(values);
         if !drain_pending && self.pages.bg_drain_after_call.is_some() {
             self.bg_drain_after_call()?;
         }
-        Ok(ret)
+        Ok(())
+    }
+
+    /// The write-back of by-reference argument `p` of builtin `id` once its native left `v` there.
+    #[inline]
+    pub(crate) fn native_arg_back(
+        &mut self,
+        p: &ir::Place,
+        v: Value,
+        id: BuiltinId,
+        class: al_builtins::builtin_id::Class,
+        f: &mut Frame,
+    ) -> Result<(), Signal> {
+        let v = self.rendered_into_place(p, v, f)?;
+        let v = if class == al_builtins::builtin_id::Class::InStreamRead {
+            self.fit_stream_read(p, v, f)?
+        } else {
+            self.fit_ref_number(p, v, f)?
+        };
+        self.write_native_back(p, v, f, id)
     }
 
     /// A number a builtin stored in a by-reference argument takes the declared number type of the variable, as an assignment
@@ -146,6 +210,10 @@ impl Session {
     /// InStreamRead_Text_ReturnValueIsLength reads `toolongvalueforcode` into a Code[10] and gets
     /// `TOOLONGVAL`). A Text that is too short for the characters is not pinned.
     pub(crate) fn fit_stream_read(&mut self, p: &ir::Place, v: Value, f: &mut Frame) -> Result<Value, Signal> {
+        // Only a text is fitted; the type of the variable is not looked up for the other reads (a Byte read loop).
+        if !matches!(v, Value::Code(_) | Value::Text(_)) {
+            return Ok(v);
+        }
         match (&v, self.place_type(p, f)) {
             (Value::Code(t), RtType::Code(max)) => {
                 let up = t.to_uppercase();
@@ -527,8 +595,10 @@ impl Session {
     #[inline(always)]
     pub(crate) fn binary_op(op: ir::BinOp, l: &Value, r: &Value) -> Result<Value, Signal> {
         use ir::BinOp as B;
-        if matches!(l, Value::SqlCount(_)) || matches!(r, Value::SqlCount(_)) {
-            return Self::sql_count_op(op, l, r);
+        if matches!(l, Value::SqlCount(_) | Value::TextConst(..))
+            || matches!(r, Value::SqlCount(_) | Value::TextConst(..))
+        {
+            return Self::special_operand_op(op, l, r);
         }
         Ok(match op {
             B::Add => ops::arith(ops::Arith::Add, l, r)?,
@@ -553,6 +623,20 @@ impl Session {
             B::DotNetGt => Value::Boolean(dotnet::dotnet_order(l, r)? == Ordering::Greater),
             B::DotNetGe => Value::Boolean(dotnet::dotnet_order(l, r)? != Ordering::Less),
         })
+    }
+
+    /// An operator with a SQL counter value or a TextConstant a Variant held on either side. A TextConstant operand is read
+    /// first (`al_builtins::conv::text_constant`: a Label is its Text, a TextConst is refused).
+    #[cold]
+    #[inline(never)]
+    fn special_operand_op(op: ir::BinOp, l: &Value, r: &Value) -> Result<Value, Signal> {
+        use al_builtins::conv::text_constant::{Reader, read};
+        if matches!(l, Value::TextConst(..)) || matches!(r, Value::TextConst(..)) {
+            let l = read(l.clone(), Reader::Operator)?;
+            let r = read(r.clone(), Reader::Operator)?;
+            return Self::binary_op(op, &l, &r);
+        }
+        Self::sql_count_op(op, l, r)
     }
 
     /// An operator with a SQL counter value on either side (`al_builtins::sqlcount`).
@@ -701,8 +785,30 @@ impl Session {
                 // A table procedure runs with the record as its Rec, on the record
                 // variable's own globals (ADR-021).
                 Value::Record(rc) => {
-                    // The caller's xRec the procedure shares (`table_proc_xrec`: the page's or the field trigger's), else none.
-                    let caller_xrec = self.table_proc_xrec(object, &rc, f);
+                    // The caller's xRec the procedure shares (`table_proc_xrec`: the page's, the field trigger's or the running
+                    // call's), else none.
+                    let proc_xrec = self.table_proc_xrec(object, &rc, f);
+                    let caller_xrec = match &proc_xrec {
+                        crate::records::ProcXrec::Shared(x) | crate::records::ProcXrec::SharedReadOnly(x) => {
+                            Some(x.clone())
+                        }
+                        _ => None,
+                    };
+                    // Under a nested Validate the procedure may read the shared xRec, not change it: other values, another view
+                    // (`XrecView`: filters, marks, key, sort), or a first assignment (the `assigned` mark set where it was clear,
+                    // which `AreFieldsLoaded` reads) refuse on every way out.
+                    let read_only = match &proc_xrec {
+                        crate::records::ProcXrec::SharedReadOnly(x) => {
+                            let xs = x.borrow();
+                            Some((
+                                x.clone(),
+                                xs.fields.clone(),
+                                crate::records::XrecView::of(&xs),
+                                xs.assigned,
+                            ))
+                        }
+                        _ => None,
+                    };
                     let handle = Rc::as_ptr(&rc) as usize;
                     let (inst, saved) = self.enter_record(object, rc, caller_xrec.as_ref())?;
                     // A plain call: the procedure's xRec is the blank record `enter_record` made (`plain_proc_xrec`).
@@ -713,17 +819,35 @@ impl Session {
                             _ => None,
                         }
                     });
+                    if let (crate::records::ProcXrec::PlainUnpinned, Some(Some(x))) = (&proc_xrec, &plain) {
+                        x.borrow_mut().unpinned_buffer = Some(crate::records::XREC_OF_RUNNING_CALL);
+                    }
                     let pushed = if let Some(Some(x)) = plain {
                         self.plain_proc_xrec.push((handle, self.call_stack.len() + 1, x));
                         true
                     } else {
                         false
                     };
+                    if let Some(x) = &caller_xrec {
+                        self.shared_proc_xrec.push(x.clone());
+                    }
                     let r = self.finish_call(object, routine, inst.clone(), args, values, try_call, f);
                     if pushed {
                         self.plain_proc_xrec.pop();
                     }
+                    if caller_xrec.is_some() {
+                        self.shared_proc_xrec.pop();
+                    }
                     Self::leave_record(&inst, saved);
+                    if let Some((x, fields, view, assigned)) = read_only {
+                        let xs = x.borrow();
+                        if (xs.assigned && !assigned)
+                            || !crate::records::XrecView::of(&xs).same(&view)
+                            || !Self::same_values(&xs.fields, &fields)
+                        {
+                            return Err(Signal::unsupported(crate::records::XREC_CHANGED_UNDER_NESTED_VALIDATE));
+                        }
+                    }
                     return r;
                 }
                 // A query procedure runs with the query it was called on as its own state.
@@ -754,7 +878,7 @@ impl Session {
         };
         let result = self.finish_call(object, routine, inst, args, values, try_call, f);
         if let Some((rec, now)) = lagged {
-            rec.borrow_mut().fields = now;
+            rec.borrow_mut().fields = now.into();
         }
         result
     }
@@ -775,7 +899,12 @@ impl Session {
         // A publisher's `var` argument that is a global of the caller's instance is that variable itself for its subscribers
         // (events/binding-senders/EventVarThroughSender.al): they alias it, see `Frame::aliases`.
         let facts = self.engine.routine_facts(object, routine);
+        let mut kept = Vec::new();
+        let mut heard = Vec::new();
         if facts.publisher {
+            (kept, heard) = self.var_option_publisher_args(object, routine, args, &values, f)?;
+            self.events.raise_arg_var_param =
+                self.raise_arg_var_param((object, routine), &values, (f.object, f.routine), &f.locals);
             let by_var = &self.engine.program.objects[object].routines[routine].by_var;
             self.events.var_origins = args
                 .iter()
@@ -801,6 +930,11 @@ impl Session {
         let own_aliases = self.set_alias_live(f, false);
         // Only a routine that reads MaxStrLen of a `var` parameter, or hands one on, gets them (known at lowering), so other
         // calls pay nothing. An event's subscribers get the lengths of the publisher's arguments (`publish`).
+        // A procedure's `var` Option parameter with members learns whether its caller's variable is one the probes measure
+        // handing on to an event publisher (`var_option::option_hops_of`); not through an interface.
+        if facts.option_hops && !self.next_interface_call {
+            self.events.next_option_hops = self.option_hops_of(object, routine, args, &values, f);
+        }
         let var_lens = facts.var_lens;
         if var_lens {
             self.events.next_var_lens = self.var_lens_of(object, routine, args, f);
@@ -816,8 +950,11 @@ impl Session {
             self.watch_var_globals(object, routine, &inst, args, &values, f)
         };
         if try_call {
-            self.enter_used_try();
+            self.enter_used_try(object, routine);
         }
+        // The take below writes back only what this call's routine left as it failed (errors/TestTryFunctionContracts.al:85-95,
+        // codeunits/TestScopeIsolationContracts.al:63-77): what an earlier error left, wherever it ended, is not this call's.
+        self.error_finals = None;
         let result = self.call_with_facts(object, routine, inst, values, facts);
         if try_call {
             self.leave_used_try();
@@ -828,6 +965,9 @@ impl Session {
             // A call refused before its frame was made leaves them behind.
             self.events.next_aliases.clear();
         }
+        if facts.option_hops {
+            self.events.next_option_hops.clear();
+        }
         if var_lens {
             self.events.next_var_lens.clear();
         } else if facts.publisher {
@@ -837,6 +977,7 @@ impl Session {
             // A publisher call refused before `publish` took them leaves them behind; the next event must not alias this
             // caller's globals (al-runner issue 7615).
             self.events.var_origins.clear();
+            self.events.raise_arg_var_param = false;
         }
         for (slot, inst, g) in &f.aliases {
             f.locals[*slot] = inst.borrow().globals[*g].clone();
@@ -845,12 +986,12 @@ impl Session {
             self.set_alias_live(f, true);
         }
         if let Err(Signal::Error(_)) = &result {
+            if !heard.is_empty() {
+                self.error_finals = None;
+                return Err(crate::var_option::heard_publisher_error());
+            }
             if let Some(finals) = self.error_finals.take() {
-                for (a, v) in args.iter().zip(finals) {
-                    if let ir::Arg::Ref(p) = a {
-                        self.write(p, v, f)?;
-                    }
-                }
+                self.write_backs(args, finals.into_iter(), &kept, f)?;
             }
         }
         let (ret, finals) = match (result, try_call) {
@@ -860,18 +1001,15 @@ impl Session {
             }
             (Err(Signal::Error(mut e)), true) => {
                 self.add_top_frame(&mut e);
-                self.last_error = *e;
+                self.catch_error(*e)?;
                 return Ok(Value::Boolean(false));
             }
             (Ok((_, finals)), true) => (Value::Boolean(true), finals),
             (r, _) => r?,
         };
         let mut finals = finals;
-        for (a, v) in args.iter().zip(finals.drain(..)) {
-            if let ir::Arg::Ref(p) = a {
-                self.write_back(p, v, f)?;
-            }
-        }
+        crate::var_option::heard_finals(&heard, &finals)?;
+        self.write_backs(args, finals.drain(..), &kept, f)?;
         self.return_vec(finals);
         Ok(ret)
     }
@@ -979,12 +1117,16 @@ impl Session {
         any
     }
 
-    /// A read of global `i` of the frame's instance: the alias watch, then the single-instance notes.
+    /// The value of global `i` of the frame's instance, read by its name: the alias watch, the mark of a single instance
+    /// whose state no pin covers (`single_unmeasured.rs`: refused or assumed), then the single-instance notes.
     #[inline]
-    pub(crate) fn global_read(&mut self, i: usize, f: &Frame) -> Result<(), Signal> {
+    pub(crate) fn global_value(&mut self, i: usize, f: &Frame) -> Result<Value, Signal> {
         self.alias_access(i, f)?;
+        if let Some(mark) = &f.instance.borrow().unmeasured {
+            crate::single_unmeasured::read(mark)?;
+        }
         self.single_read(&f.instance, i);
-        Ok(())
+        Ok(f.instance.borrow().globals[i].clone())
     }
 
     /// Before a read or a write of global `i` of the frame's instance by its own name while a procedure that got the same
@@ -1063,6 +1205,25 @@ impl Session {
     /// The final value of a by-reference parameter goes back to the caller's place. An `HttpContent` the callee only worked on is the
     /// caller's own object: writing it back would store a copy (an HttpContent is a value on assignment) and cut the headers handed
     /// out before from it.
+    /// Stores the final values of a call's `var` arguments back into the caller's places, except the arguments in `kept`:
+    /// those an event publisher no subscriber hears leaves as they were (`var_option::unheard_publisher_caller`).
+    fn write_backs(
+        &mut self,
+        args: &[ir::Arg],
+        finals: impl Iterator<Item = Value>,
+        kept: &[usize],
+        f: &mut Frame,
+    ) -> Result<(), Signal> {
+        for (i, (a, v)) in args.iter().zip(finals).enumerate() {
+            if let ir::Arg::Ref(p) = a
+                && !kept.contains(&i)
+            {
+                self.write_back(p, v, f)?;
+            }
+        }
+        Ok(())
+    }
+
     fn write_back(&mut self, p: &ir::Place, v: Value, f: &mut Frame) -> Result<(), Signal> {
         if let Value::Library(n, cell) = &v {
             if n == "HttpContent" {
@@ -1073,18 +1234,24 @@ impl Session {
                 }
             }
         }
-        self.write(p, v, f)
+        // A local or global Option variable, or an array of them, has its own members again (`var_option::written_back`).
+        let v = match p {
+            ir::Place::Local(_) | ir::Place::Global(_) if matches!(v, Value::Option(..) | Value::Array(_)) => {
+                let ty = self.place_type(p, f);
+                crate::var_option::written_back(&v, &ty, || self.read(p, f).ok()).unwrap_or(v)
+            }
+            _ => v,
+        };
+        // A `var Text` parameter can stand for a variable of a declared length.
+        let v = self.rendered_into_place(p, v, f)?;
+        self.write_as(p, v, f, Store::CallBack)
     }
 
     /// The instance a call on codeunit value `i` runs on: the session's
     /// singleton for `SingleInstance = true` codeunits, `i` itself otherwise.
     pub(crate) fn shared_instance(&mut self, i: Rc<RefCell<Instance>>) -> Rc<RefCell<Instance>> {
         let object = i.borrow().object as usize;
-        let single = self.engine.program.objects[object]
-            .properties
-            .iter()
-            .any(|(k, v)| k.eq_ignore_ascii_case("SingleInstance") && v.trim().eq_ignore_ascii_case("true"));
-        if !single {
+        if !self.engine.object_facts[object].single_instance {
             return i;
         }
         if !self.singletons.contains_key(&object) {
@@ -1339,13 +1506,16 @@ impl Session {
     }
 
     pub(crate) fn read(&mut self, p: &ir::Place, f: &mut Frame) -> Result<Value, Signal> {
+        self.read_place(p, false, f)
+    }
+
+    /// The value of the place `p`. `value` is true only where an expression reads it as a value (`Op::ReadPlace`); it lets the
+    /// index of an array element convert as a value read does (`element`). An element taken by reference (a `var` argument, the
+    /// record whose field is written) reads with `value` false.
+    pub(crate) fn read_place(&mut self, p: &ir::Place, value: bool, f: &mut Frame) -> Result<Value, Signal> {
         match p {
             ir::Place::Local(i) => Ok(f.locals[*i].clone()),
-            ir::Place::Global(i) => {
-                self.alias_access(*i, f)?;
-                self.single_read(&f.instance, *i);
-                Ok(f.instance.borrow().globals[*i].clone())
-            }
+            ir::Place::Global(i) => self.global_value(*i, f),
             ir::Place::BaseGlobal(i) => {
                 let base = self.base_instance(f)?;
                 let v = base.borrow().globals.get(*i).cloned();
@@ -1362,7 +1532,7 @@ impl Session {
                 v.ok_or_else(|| base_slot_missing(*i))
             }
             ir::Place::Index(base, idx) => {
-                let (arr, flat) = match self.element(base, idx, f) {
+                let (arr, flat) = match self.element(base, idx, value, f) {
                     Ok(e) => e,
                     // A row of a two-dimensional array, as an argument.
                     Err(Signal::Unsupported(m)) if m.starts_with(ROW_REFUSAL) => {
@@ -1392,11 +1562,7 @@ impl Session {
         match record {
             Value::Record(rc) => {
                 self.connection_check(&rc)?;
-                if let Some(why) = rc
-                    .borrow()
-                    .unpinned_buffer
-                    .filter(|w| !crate::records::run_page_link_fields_read(w) && *w != crate::records::HELD_PART_REC)
-                {
+                if let Some(why) = crate::records::buffer_read_refused(&rc) {
                     if why == crate::records::RUN_PAGE_LINK_OPEN {
                         return Err(Signal::unsupported(format!("a read of a field of Rec {why}")));
                     }
@@ -1434,7 +1600,10 @@ impl Session {
                 if let Value::Unknown(why) = &v {
                     return Err(Signal::unsupported(why.to_string()));
                 }
-                if let Some(why) = self.install_row_order(r.table, r.temporary, *pos, &r.fields) {
+                if let Some(why) = self
+                    .install_row_order(r.table, r.temporary, *pos, &r.fields)
+                    .or_else(|| self.restamped_read(&r, *pos))
+                {
                     return Err(Signal::unsupported(why));
                 }
                 if r.load.partial {
@@ -1467,17 +1636,54 @@ impl Session {
     }
 
     pub(crate) fn write(&mut self, p: &ir::Place, v: Value, f: &mut Frame) -> Result<(), Signal> {
-        self.write_as(p, v, f, true)
+        self.write_as(p, v, f, Store::Assign)
     }
 
     /// The write-back of a builtin's by-reference receiver or argument (`run_native`): a Blob it hands back is stored as the
-    /// buffer it is, never copied (a stream `CreateOutStream` created on it writes there; `field_blob`).
-    fn write_native_back(&mut self, p: &ir::Place, v: Value, f: &mut Frame) -> Result<(), Signal> {
-        self.write_as(p, v, f, false)
+    /// buffer it is, never copied (a stream `CreateOutStream` created on it writes there; `blob_transfer::moved`).
+    fn write_native_back(&mut self, p: &ir::Place, v: Value, f: &mut Frame, id: BuiltinId) -> Result<(), Signal> {
+        let v = crate::var_option::cleared_array(v, || self.place_type(p, f), id);
+        self.write_as(p, v, f, Store::Builtin(id))
     }
 
-    /// [`Self::write`]; `assign` is false for a builtin's write-back.
-    fn write_as(&mut self, p: &ir::Place, v: Value, f: &mut Frame, assign: bool) -> Result<(), Signal> {
+    /// Global `i` of the running instance takes `v` as it is: the end of [`Self::write_as`] (and of a Variant's shared record,
+    /// `variant_copy.rs`). `assign` is false for a builtin's write-back.
+    pub(crate) fn put_global(&mut self, i: usize, v: Value, f: &mut Frame, assign: bool) -> Result<(), Signal> {
+        self.alias_access(i, f)?;
+        // A builtin's write-back of the value the global holds is no write (`D.ContainsKey(K)` on a global).
+        let noted = if assign {
+            self.single_wrote(&f.instance, i);
+            true
+        } else {
+            self.single_wrote_back(&f.instance, i, &v)
+        };
+        f.instance.borrow_mut().globals[i] = v;
+        if noted {
+            self.single_written(&f.instance, i);
+        }
+        self.alias_wrote(i, f);
+        Ok(())
+    }
+
+    /// [`Self::write`]; `how` names the store: a builtin's write-back is no assignment.
+    ///
+    /// A value [`stored_as_is`] allows goes into a local as [`Self::write_as_general`] would put it there, without its
+    /// checks: none of them applies to it (a builtin's write-back of a Byte read or of the stream it read from).
+    #[inline]
+    pub(crate) fn write_as(&mut self, p: &ir::Place, v: Value, f: &mut Frame, how: Store) -> Result<(), Signal> {
+        if let ir::Place::Local(i) = p
+            && stored_as_is(&v)
+        {
+            f.locals[*i] = self.option_param_store(*i, v, f);
+            return Ok(());
+        }
+        self.write_as_general(p, v, f, how)
+    }
+
+    /// [`Self::write_as`] of any value into any place.
+    #[inline(never)]
+    fn write_as_general(&mut self, p: &ir::Place, v: Value, f: &mut Frame, how: Store) -> Result<(), Signal> {
+        let assign = how.assigns();
         // A column a platform row leaves unknown never reaches a variable: every read of one is refused where it happens; this
         // catches a reader that missed it.
         if let Value::Unknown(why) = &v {
@@ -1486,13 +1692,6 @@ impl Session {
         // A counter value in a field would reach the database and every reader of the row (`al_builtins::sqlcount`).
         if let (Value::SqlCount(_), ir::Place::Field(..)) = (&v, p) {
             return Err(al_builtins::sqlcount::refusal("storing in a record field"));
-        }
-        // A placeholder's size in a field would be stored as a number (`al_builtins::placeholder_output::size`).
-        if let (Value::PlaceholderSize(m), ir::Place::Field(..)) = (&v, p) {
-            return Err(al_builtins::placeholder_output::size_refusal(
-                m,
-                "storing in a record field",
-            ));
         }
         if self.sql.active && matches!(p, ir::Place::Field(..)) && al_builtins::sqlcount::formatted(&v) {
             return Err(al_builtins::sqlcount::refusal(
@@ -1506,6 +1705,15 @@ impl Session {
                 al_builtins::library_kind::LibraryKind::FilterPageBuilder,
                 filterpage::copy_for_assignment(&cell),
             ),
+            // `:=` from a KeyRef cleared after it held a key (`recordref_closed::keyref_assigned_copy`); a builtin's write-back
+            // (`Clear` itself) keeps the handle.
+            Value::Library(al_builtins::library_kind::LibraryKind::KeyRef, cell) if assign => {
+                let copy = al_builtins::recordref_closed::keyref_assigned_copy(&cell.borrow());
+                Value::Library(
+                    al_builtins::library_kind::LibraryKind::KeyRef,
+                    copy.map_or(cell, |c| Rc::new(std::cell::RefCell::new(c))),
+                )
+            }
             v => v,
         };
         // `:=` between records copies the fields into the target record (ADR-010); the target keeps its own SecurityFiltering
@@ -1549,9 +1757,8 @@ impl Session {
                         if let ir::Place::Global(i) = p {
                             self.single_replaced(&f.instance, *i);
                         }
-                        // The source's buffer after an export under SourceTableView is not pinned (records.rs
-                        // `XP_VIEW_AFTER_EXPORT`).
-                        if let Some(why) = crate::records::xp_export_marked(src) {
+                        // A source whose buffer is not pinned and must not be copied (records.rs `copy_refused_mark`).
+                        if let Some(why) = crate::records::copy_refused_mark(src) {
                             return Err(Signal::unsupported(format!("an assignment from a record: {why}")));
                         }
                         // A copied record holds copies of its Blobs (value semantics). The corpus
@@ -1593,8 +1800,10 @@ impl Session {
                                             file: false,
                                             dotnet_view: 0,
                                             unread_content: false,
+                                            assigned_unsaved: false,
+                                            assigned_write: al_builtins::stream::AssignedWrite::No,
                                             utf16_binary: b.utf16_binary,
-                                            unicode_read: None,
+                                            ..Default::default()
                                         },
                                     )))
                                 }
@@ -1608,9 +1817,11 @@ impl Session {
                         // Y76StaleBuffers.al Y76_Part1_FindSet_Assign, `assign/*`).
                         let row_origin = src.borrow().row_origin;
                         let mut d = dst.borrow_mut();
-                        d.fields = fields;
+                        d.fields = fields.into();
                         d.row_origin = row_origin;
                         d.own_read = Default::default();
+                        d.rolled_read = Default::default();
+                        d.probed_source = crate::blob_transfer::assigned(&d, &src.borrow(), self.commits);
                         d.is_dirty_base = dirty_base;
                         // The copy holds what the source's buffer held, if that is known.
                         d.load.buffer = load.buffer;
@@ -1645,7 +1856,13 @@ impl Session {
                     if let Some(why) = r.unpinned_buffer {
                         crate::records::held_part_field_write(why)?;
                     }
-                    let v = field_blob(&r.fields[*pos], v, assign);
+                    let how = if assign {
+                        crate::blob_transfer::assign_into(&r, &v)
+                    } else {
+                        BlobMove::WriteBack
+                    };
+                    let v =
+                        crate::blob_transfer::moved(Some(&r.fields[*pos]), v, how, Holder::Other, || FieldKind::Plain)?;
                     r.before_field_write();
                     r.fields[*pos] = v;
                     r.touched = true;
@@ -1662,7 +1879,18 @@ impl Session {
         // (recordref-fieldref/recordref/PWRecordMisc.al:TempRecord_AssignedToVariantVariable and :TempRecord_VariantModifiedAfterAssign).
         let v = match &v {
             Value::Record(rc) if matches!(self.place_type(p, f), RtType::Variant) => {
-                self.record_by_value_unmeasured(rc)
+                let copy = self.record_by_value_unmeasured(rc);
+                crate::variant_copy::keep_rows_mark(&rc.borrow(), &copy);
+                // An assignment to a Variant the probes measured moves the copy's Blobs as `Session::blobs_by_value` says.
+                if let (true, Some(taker)) = (assign, crate::blob_transfer::Taker::variant_at(p)) {
+                    let (temporary, holder) = {
+                        let r = rc.borrow();
+                        (r.temporary, self.holder(&r))
+                    };
+                    self.blobs_by_value(copy, temporary, holder, taker, crate::blob_transfer::Call::Plain)?
+                } else {
+                    copy
+                }
             }
             // A RecordRef assigned to a Variant or to another RecordRef: a RecordRef of its own on the same buffer
             // (`recordref_variant.rs`). A builtin's write-back of the receiver keeps its handle.
@@ -1673,27 +1901,26 @@ impl Session {
                     _ => false,
                 } =>
             {
-                crate::recordref_variant::own_copy(h)
+                if matches!(self.place_type(p, f), RtType::Variant) {
+                    self.variant_refs.variant_copy(h)
+                } else {
+                    self.variant_refs.copy_typed_alias(h)
+                }
+            }
+            // A Blob assigned to a local Variant: the Variant holds a copy (`blob_transfer::moved`), whatever field or holder
+            // the Blob came from. A field read stored in another Variant is moved before it comes here
+            // (`blob_transfer::FieldRead`, `Op::BlobFieldRead`).
+            Value::Blob(_)
+                if assign && matches!(p, ir::Place::Local(_)) && matches!(self.place_type(p, f), RtType::Variant) =>
+            {
+                let how = BlobMove::Variant;
+                crate::blob_transfer::moved(None, v, how, Holder::Other, || FieldKind::Plain)?
             }
             _ => v,
         };
         match p {
-            ir::Place::Local(i) => f.locals[*i] = v,
-            ir::Place::Global(i) => {
-                self.alias_access(*i, f)?;
-                // A builtin's write-back of the value the global holds is no write (`D.ContainsKey(K)` on a global).
-                let noted = if assign {
-                    self.single_wrote(&f.instance, *i);
-                    true
-                } else {
-                    self.single_wrote_back(&f.instance, *i, &v)
-                };
-                f.instance.borrow_mut().globals[*i] = v;
-                if noted {
-                    self.single_written(&f.instance, *i);
-                }
-                self.alias_wrote(*i, f);
-            }
+            ir::Place::Local(i) => f.locals[*i] = self.option_param_store(*i, v, f),
+            ir::Place::Global(i) => self.put_global(*i, v, f, assign)?,
             ir::Place::BaseGlobal(i) => {
                 let base = self.base_instance(f)?;
                 let mut b = base.borrow_mut();
@@ -1723,7 +1950,7 @@ impl Session {
             }
             ir::Place::Index(base, idx) => {
                 let el_ty = self.place_type(p, f);
-                let (arr, flat) = match self.element(base, idx, f) {
+                let (arr, flat) = match self.element(base, idx, false, f) {
                     Ok(e) => e,
                     // The row a callee wrote through a `var` array parameter goes back into the row.
                     Err(Signal::Unsupported(m)) if m.starts_with(ROW_REFUSAL) => {
@@ -1740,7 +1967,8 @@ impl Session {
                     }
                     Err(e) => return Err(e),
                 };
-                arr.borrow_mut()[flat] = ops::convert(v, &el_ty)?;
+                let value = self.element_value(v, &el_ty, &arr.borrow()[flat], how, base, f)?;
+                arr.borrow_mut()[flat] = value;
             }
             ir::Place::Field(..) => unreachable!("handled above"),
         }
@@ -1808,6 +2036,9 @@ impl Session {
                 "assigning a character into a value that is no text".into(),
             ));
         };
+        if s.has_marker() {
+            Self::char_write_into_marked(s.audited_str(), i)?;
+        }
         let mut units: Vec<u16> = s.units();
         let Some(unit) = unit else {
             return Err(Signal::unsupported(format!(
@@ -1873,6 +2104,60 @@ impl Session {
         self.write(base, Value::Text(text), f)
     }
 
+    /// `T[i] := c` on the text `t` that holds a marker (`al_builtins::native::TEXT_MARKS`), `i` counted from 1. Rendered content
+    /// refuses at every position (ADR-040 amendment 2026-11-12, A3b `T[i]` write). Another marker stands for characters that
+    /// are not known, so only a position inside the known characters before the first marker is a known position: that write
+    /// goes on as for a known text. From the marker on the position is not known, and below 1 the range error would name a
+    /// length that is not known: both refuse.
+    fn char_write_into_marked(t: &str, i: i64) -> Result<(), Signal> {
+        if al_builtins::rendered_text::holds(t) {
+            return Err(al_builtins::rendered_text::refusal(
+                t,
+                "assigning a character of the text (T[i] := c)",
+            ));
+        }
+        let known: usize = t
+            .chars()
+            .take_while(|c| !al_builtins::native::TEXT_MARKS.contains(c))
+            .map(char::len_utf16)
+            .sum();
+        if usize::try_from(i).is_ok_and(|i| (1..=known).contains(&i)) {
+            return Ok(());
+        }
+        Err(Signal::unsupported(
+            "assigning a character of a text at or after characters this runtime does not know, or outside the text \
+             (the position and the length are not known)"
+                .to_string(),
+        ))
+    }
+
+    /// A text that holds rendered content, on its way into the variable `p` outside an assignment (the write-back of a
+    /// `var` argument of a builtin or a procedure, the loop variable of a `foreach`): it takes the conversion an assignment takes, which lets
+    /// it into an unbounded Text and a Variant only (`ops::convert`; ADR-040 amendment 2026-11-12, A5, loss mode L3). An array
+    /// (the destination of `CopyArray`, a `var` array parameter) gives each element that holds rendered content the conversion
+    /// to its element type (loss mode L23). Any other value is given back as it is.
+    pub(crate) fn rendered_into_place(&mut self, p: &ir::Place, v: Value, f: &mut Frame) -> Result<Value, Signal> {
+        let rendered = |v: &Value| matches!(v, Value::Text(t) | Value::Code(t) if t.has_marker() && al_builtins::rendered_text::holds(t.audited_str()));
+        match &v {
+            v2 if rendered(v2) => {
+                let ty = self.place_type(p, f);
+                ops::convert(v, &ty)
+            }
+            Value::Array(cells) if cells.borrow().iter().any(rendered) => {
+                let RtType::Array(_, el) = self.place_type(p, f) else {
+                    return Err(Signal::unsupported(
+                        "an array that holds rendered content written into a place that is no array".to_string(),
+                    ));
+                };
+                for cell in cells.borrow_mut().iter_mut().filter(|c| rendered(c)) {
+                    *cell = ops::convert(cell.clone(), &el)?;
+                }
+                Ok(v)
+            }
+            _ => Ok(v),
+        }
+    }
+
     /// The cells of row `idx` of the two-dimensional array behind `base`, as (cells, first position, length): `None` for an
     /// array of another number of dimensions or an index that is not one position. A row passed as an argument is a copy for a
     /// value parameter, and for a `var` parameter it is written back into the row when the call returns (corpus
@@ -1919,6 +2204,7 @@ impl Session {
         &mut self,
         base: &ir::Place,
         idx: &[ir::Expr],
+        value_read: bool,
         f: &mut Frame,
     ) -> Result<(Cells, usize), Signal> {
         // The dimensions of an array variable (a local or a global, the usual case) are read where they are
@@ -1966,7 +2252,19 @@ impl Session {
         };
         let mut flat = 0usize;
         for (d, e) in dims.iter().zip(idx) {
-            let i = int(&Self::index_value(e, f)?)?;
+            let at = Self::index_value(e, f)?;
+            // An element of a one-dimensional array read as a value (`R := A[D]`, collections/ListNonIntegerIndex.al:196-217 with
+            // :433-452) converts a Decimal or BigInteger index as a checked cast to System.Int32: a fraction or a value past the
+            // Int32 range raises ConversionCast. A write, an element taken by reference and an array of more dimensions keep `int`.
+            let i = match &at {
+                Value::Decimal(_) | Value::BigInteger(_) if value_read && dims.len() == 1 => {
+                    match al_builtins::conv::convert_cell(&at, &RtType::Integer) {
+                        Some(conv) => int(&conv?)?,
+                        None => int(&at)?,
+                    }
+                }
+                _ => int(&at)?,
+            };
             // A one-dimensional array is measured by the array the variable holds: a parameter declared `array[3]` takes the caller's
             // array of any length and indexes within it (types/W7VarArray.al; Tests-Bank, Tests-Cash Flow and Tests-SCM-Manufacturing
             // index a parameter within the argument's length), so the check against the length follows below.
@@ -2123,27 +2421,30 @@ pub(crate) fn date_of_key(k: i64) -> Value {
     Value::Date((k.div_euclid(2)) as i32, k.rem_euclid(2) == 1)
 }
 
-/// The Blob value a field write stores. A Blob of a record read from the database without CalcFields holds none of its
-/// content: assigned to another field it gives an empty Blob (record/flowfields/BlobCalcFieldsLength.al:404, 'target after
-/// assign' has=No|len=0, and the Modify after it stores nothing). A temporary row read back (Get, FindFirst, FindSet) without
-/// CalcFields gives the same empty copy (record/temporary/TemporaryBlobAutoCalc.al:174-310, al-runner issue 6434). Any other
-/// Blob that another holder still has (the source field, a Variant) is copied: the field gets a value of its own, which a later
-/// Clear of the source or a new write to it does not change, nor the reverse (al-runner issue 7128). The field's own buffer
-/// written back, and a builtin's write-back (`assign` false, `Session::write_native_back`: Clear, CreateOutStream), keep the buffer.
-fn field_blob(cur: &Value, v: Value, assign: bool) -> Value {
-    let Value::Blob(b) = &v else { return v };
-    if matches!(cur, Value::Blob(c) if std::sync::Arc::ptr_eq(c, b)) {
-        return v;
-    }
-    let unloaded = {
-        let buf = b.borrow();
-        (buf.db_row || buf.temp_row) && !buf.loaded
-    };
-    if unloaded {
-        Value::Blob(al_builtins::stream::new_blob())
-    } else if assign && std::sync::Arc::strong_count(b) > 1 {
-        Value::Blob(al_builtins::stream::copy_for_assignment(b))
-    } else {
-        v
-    }
+/// A value whose store into a local [`Session::write_as_general`] makes as it is, through `option_param_store` only: a
+/// scalar that owns nothing, and an InStream or OutStream handle. Every check of that function is on another kind of value
+/// (Unknown, SqlCount, a FilterPageBuilder, KeyRef or RecordRef handle, a Record, a Blob) or on another place (a field, a
+/// global, an array element).
+#[inline(always)]
+fn stored_as_is(v: &Value) -> bool {
+    matches!(
+        v,
+        Value::Null
+            | Value::Boolean(_)
+            | Value::Integer(_)
+            | Value::BigInteger(_)
+            | Value::Decimal(_)
+            | Value::Byte(_)
+            | Value::Char(_)
+            | Value::Date(..)
+            | Value::Time(_)
+            | Value::DateTime(_)
+            | Value::Duration(_)
+            | Value::Guid(_)
+            | Value::Enum(..)
+            | Value::Library(
+                al_builtins::library_kind::LibraryKind::InStream | al_builtins::library_kind::LibraryKind::OutStream,
+                _
+            )
+    )
 }

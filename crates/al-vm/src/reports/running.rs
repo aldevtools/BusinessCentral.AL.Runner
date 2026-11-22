@@ -25,14 +25,10 @@ impl Session {
     pub(super) fn report_print_runs_as_execute(&self, arg: Option<&Value>) -> bool {
         let Some(Value::Integer(n)) = arg else { return false };
         let objects = &self.engine.program.objects;
-        objects
-            .heads()
-            .iter()
-            .position(|o| o.is_kind(al_ir::ObjKind::Report) && o.id == u32::try_from(*n).ok())
-            .is_some_and(|i| {
-                objects[i].report.as_ref().is_some_and(|r| r.processing_only)
-                    && self.object_property(i, "UseSystemPrinter").is_some()
-            })
+        super::report_numbered(objects, *n).is_some_and(|i| {
+            objects[i].report.as_ref().is_some_and(|r| r.processing_only)
+                && self.object_property(i, "UseSystemPrinter").is_some()
+        })
     }
 }
 
@@ -94,7 +90,7 @@ impl Session {
         let open_page = self.pages.trigger_kinds.len() == run.page_triggers + 1
             && matches!(
                 self.pages.trigger_kinds.last(),
-                Some((_, crate::pages::TriggerKind::OpenPage))
+                Some((_, crate::pages::TriggerKind::OpenPage, _))
             )
             && !self.report.report_trigger.is_some_and(|(depth, _)| in_run(depth));
         (report_trigger || open_page).then_some(run.shows_page)

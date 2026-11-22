@@ -39,9 +39,21 @@ pub(crate) struct Shared<'a> {
     pub(crate) ext_base: Vec<Option<usize>>,
     /// Keep what a cache needs (`Lowered::exported`).
     pub(crate) export: bool,
-    /// The parse diagnostics (`AR0000`) of `ws.diagnostics` by file path, in their order: each object asks for those of
-    /// its file, and a scan of every diagnostic per object grows with the number of objects times diagnostics.
-    pub(crate) parse_diags: HashMap<&'a str, Vec<&'a crate::workspace::Diagnostic>>,
+    /// The parse diagnostics (`AR0000`) of `ws.diagnostics` by app and file path (a path is relative to its app; two apps
+    /// can hold the same one), in their order: each object asks for those of its file, and a scan of every diagnostic per
+    /// object grows with the number of objects times diagnostics.
+    pub(crate) parse_diags: HashMap<(usize, &'a str), Vec<&'a crate::workspace::Diagnostic>>,
+}
+
+impl<'a> Shared<'a> {
+    /// The parse diagnostics (`AR0000`) of the file `fi`, in their order (`parse_diags`).
+    fn parse_diags_of(&self, fi: usize) -> &[&'a crate::workspace::Diagnostic] {
+        let f = &self.ws.files[fi];
+        self.parse_diags
+            .get(&(f.app, f.path.as_str()))
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+    }
 }
 
 /// The routine nodes of the objects, built when first asked for. A syntax tree belongs to the
@@ -157,8 +169,10 @@ impl<'a> Seq<'a> {
     pub(crate) fn report(&self, oi: usize) -> Option<&crate::reports::Layout> {
         self.report[oi]
             .get_or_init(|| {
-                (self.ws.objects[oi].kind == ObjKind::Report && self.active[oi])
-                    .then(|| crate::reports::layout(&self.ws.object_ast(oi)))
+                (self.ws.objects[oi].kind == ObjKind::Report && self.active[oi]).then(|| {
+                    let timer_trigger = super::with_events::timer_elapsed_trigger(self.ws, oi);
+                    crate::reports::layout(&self.ws.object_ast(oi), timer_trigger.as_deref())
+                })
             })
             .as_ref()
     }
@@ -178,6 +192,7 @@ impl<'a> Seq<'a> {
 pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a Seq<'a>, oi: usize) -> Lowerer<'a> {
     Lowerer {
         rec_slot: None,
+        declared_rec_slot: None,
         table_of: &sh.table_of,
         ws: sh.ws,
         members: sh.members,
@@ -191,12 +206,16 @@ pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a S
         in_request_page: false,
         in_report_init_with_rec: None,
         locals: Default::default(),
+        local_char_option_byte_vars: Default::default(),
         global_labels: HashMap::default(),
         local_labels: HashMap::default(),
         global_label_xliff: HashMap::default(),
         local_label_xliff: HashMap::default(),
         global_textconsts: Default::default(),
         local_textconsts: Default::default(),
+        global_plain_text_constants: Default::default(),
+        local_plain_text_constants: Default::default(),
+        local_variant_vars: Default::default(),
         global_textconst_languages: HashMap::default(),
         local_textconst_languages: HashMap::default(),
         global_locked_labels: Default::default(),
@@ -210,6 +229,7 @@ pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a S
         with_places: HashMap::default(),
         reasons: Vec::new(),
         refusal_at: None,
+        unresolved_call: false,
         calls: Vec::new(),
         page_reasons: &sh.page_reasons,
         layouts: seq,
@@ -224,6 +244,7 @@ pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a S
         stream_scope: Vec::new(),
         loops: Vec::new(),
         var_params: Vec::new(),
+        named_ret: None,
         reads_var_max_len: false,
         ret_decl: None,
         routine_nodes: &tl.nodes,
@@ -239,7 +260,7 @@ pub(crate) fn make_lowerer<'a>(sh: &'a Shared<'a>, tl: &'a Local<'a>, seq: &'a S
         lines: None,
         emit_pos: false,
         routine_idx: 0,
-        assumed: Vec::new(),
+        assumed: Default::default(),
         tdd_marked: Default::default(),
         tdd_globals: HashMap::default(),
         tys: Vec::new(),
@@ -266,8 +287,61 @@ fn note_global_label_facts(lw: &mut Lowerer<'_>, v: &ast::VarDecl, n: &str, labe
     if v.type_ref().as_ref().is_some_and(label_locked) {
         lw.global_locked_labels.insert(key.clone());
     }
+    if v.type_ref().as_ref().is_some_and(plain_text_constant) {
+        lw.global_plain_text_constants.insert(key.clone());
+    }
     if v.type_ref().as_ref().is_some_and(label_maxlength) {
         lw.global_maxlength_labels.insert(key);
+    }
+}
+
+fn push_report_extension_item_slots(
+    seq: &Seq<'_>,
+    oi: usize,
+    extension: Option<&ir::ReportExt>,
+    lw: &mut Lowerer<'_>,
+    globals: &mut Vec<ir::Slot>,
+    global_reasons: &mut Vec<String>,
+) {
+    // A reportextension that changes a run names the base items' records first (the run points
+    // them at the report's own), then the items it adds.
+    if let (Some(base), Some(l)) = (seq.ext_base(oi), seq.ext(oi)) {
+        let base_items = seq.report(base).map_or(&[][..], |b| &b.items[..]);
+        for i in base_items.iter().chain(&l.items) {
+            let key = i.name.to_lowercase();
+            if lw.globals.contains_key(&key) {
+                continue;
+            }
+            let ty = lw.rt(&Ty::Record {
+                table: i.table.as_str().into(),
+                temporary: crate::reports::uses_temporary(&i.section),
+            });
+            lw.globals.insert(key, globals.len());
+            match ty {
+                Ok(rt) => globals.push(ir::Slot::new(i.name.clone(), rt)),
+                Err(e) => {
+                    global_reasons.push(format!("dataitem `{}`: {e}", i.name));
+                    globals.push(ir::Slot::new(i.name.clone(), RtType::Variant));
+                }
+            }
+        }
+    }
+    if let Some(ext) = extension {
+        for &(anchor, slot) in &ext.aliases {
+            let ir::ItemAnchor::Foreign(item) = anchor else {
+                continue;
+            };
+            let raw = &seq.ext(item.extension).expect("a dependency item has a layout").items[item.item];
+            let ty = lw
+                .rt(&Ty::Record {
+                    table: raw.table.as_str().into(),
+                    temporary: crate::reports::uses_temporary(&raw.section),
+                })
+                .unwrap_or(RtType::Variant);
+            debug_assert_eq!(slot, globals.len());
+            lw.globals.insert(raw.name.to_lowercase(), globals.len());
+            globals.push(ir::Slot::new(raw.name.clone(), ty));
+        }
     }
 }
 
@@ -335,10 +409,12 @@ pub(crate) fn lower_object<'a>(
                         properties: l.properties.clone(),
                     })
                     .collect(),
+                modified_fields: Vec::new(),
             },
             positions: Vec::new(),
             unsupported: Vec::new(),
             refusal_at: Vec::new(),
+            unresolved_call: false,
             calls: Vec::new(),
             direct: Vec::new(),
             ndirect: Vec::new(),
@@ -367,8 +443,7 @@ pub(crate) fn lower_object<'a>(
     let mut global_reasons = Vec::new();
     // An `#undef` of a symbol defined only in another case (the preprocessor reports it, see `al_syntax::preprocessor`):
     // which branches the file keeps is not pinned, so nothing in it runs.
-    let path = &ws.files[o.file].path;
-    let parse_diags = sh.parse_diags.get(path.as_str()).map(Vec::as_slice).unwrap_or_default();
+    let parse_diags = sh.parse_diags_of(o.file);
     if let Some(d) = parse_diags
         .iter()
         .find(|d| d.message.starts_with("#undef ") && d.message.contains("only in another case"))
@@ -378,7 +453,7 @@ pub(crate) fn lower_object<'a>(
         // Source of an app under test that our parser did not accept. It is not a compile error: the parser can reject
         // valid AL (al-runner issue 5576), so nothing in the file runs and the tests that need it are not run, with the
         // parse error as the reason (orchestrator decision 2026-10-21). A dependency app's file is handled by its load.
-        if let Some(d) = parse_diags.iter().find(|d| d.app == ws.files[o.file].app) {
+        if let Some(d) = parse_diags.first() {
             global_reasons.push(format!("the parser did not accept {}: {}", d.file, d.message));
         }
     }
@@ -454,29 +529,14 @@ pub(crate) fn lower_object<'a>(
         }
         globals.push(ir::Slot::new("__userequestpage", RtType::Integer));
     }
-    // A reportextension that changes a run names the base items' records first (the run points
-    // them at the report's own), then the items it adds.
-    if let (Some(base), Some(l)) = (seq.ext_base(oi), seq.ext(oi)) {
-        let base_items = seq.report(base).map_or(&[][..], |b| &b.items[..]);
-        for i in base_items.iter().chain(&l.items) {
-            let key = i.name.to_lowercase();
-            if lw.globals.contains_key(&key) {
-                continue;
-            }
-            let ty = lw.rt(&Ty::Record {
-                table: i.table.as_str().into(),
-                temporary: crate::reports::uses_temporary(&i.section),
-            });
-            lw.globals.insert(key, globals.len());
-            match ty {
-                Ok(rt) => globals.push(ir::Slot::new(i.name.clone(), rt)),
-                Err(e) => {
-                    global_reasons.push(format!("dataitem `{}`: {e}", i.name));
-                    globals.push(ir::Slot::new(i.name.clone(), RtType::Variant));
-                }
-            }
-        }
-    }
+    push_report_extension_item_slots(
+        seq,
+        oi,
+        ext_irs[oi].as_ref(),
+        &mut lw,
+        &mut globals,
+        &mut global_reasons,
+    );
     for v in obj.var_decls() {
         let ty = v.type_ref().map(|t| Ty::from_type_ref(&t)).unwrap_or(Ty::Unknown);
         let label = v.type_ref().as_ref().and_then(label_text);
@@ -493,8 +553,13 @@ pub(crate) fn lower_object<'a>(
         });
         for n in v.names() {
             if !attrs.is_empty() {
-                lw.global_var_attrs
-                    .insert(n.to_lowercase(), attrs_left(&attrs, &declared));
+                let mut left = attrs_left(&attrs, &declared);
+                if let Some(marker) = super::with_events::marker(lw.ws, lw.file, o.kind, &ty, &obj, &n) {
+                    for a in left.iter_mut().filter(|a| *a == "withevents") {
+                        *a = marker.into();
+                    }
+                }
+                lw.global_var_attrs.insert(n.to_lowercase(), left);
             }
             if let Some(Err(e)) = &declared {
                 global_reasons.push(format!("global `{n}`: {e}"));
@@ -534,6 +599,7 @@ pub(crate) fn lower_object<'a>(
     }
     let (mut rec_slot, mut xrec_slot) = (None, None);
     if let Some(t) = table_of[oi] {
+        global_reasons.extend(super::table_no_rec::declared_rec_refusal(&mut lw, o.kind, &obj, t));
         for (name, slot) in [("Rec", &mut rec_slot), ("xRec", &mut xrec_slot)] {
             // A codeunit has no xRec.
             if name == "xRec" && o.kind == ObjKind::Codeunit {
@@ -633,8 +699,16 @@ pub(crate) fn lower_object<'a>(
             && !ws.routine_unreached(oi, routine_offsets[oi][ri])
             && demand.is_none_or(|d| !ws.is_dependency(oi) || d.reached(oi, routine_offsets[oi][ri]));
         // A routine whose check panicked has no types and resolutions to lower from: it refuses.
+        let span = r.syntax().text_range();
+        let file = &ws.files[lw.file];
         let routine = if let Some(why) = checked.panic_of(oi, routine_offsets[oi][ri]) {
             lw.refused(r, format!("internal error while checking: {why}"))
+        } else if let Some(d) = reached
+            .then(|| checked.routine_refusal(file.app, &file.path, span.start().into()..span.end().into()))
+            .flatten()
+        {
+            // The checker refused the routine (AR1010, `check/diag_index.rs` ROUTINE_REFUSALS).
+            lw.refused(r, d.message.clone())
         } else if reached {
             lowered_routines += 1;
             // A panic lowering one routine is a bug in the compiler; the routine refuses and the
@@ -747,6 +821,7 @@ pub(crate) fn lower_object<'a>(
             Vec::new()
         },
         query: checked.queries[oi].as_ref().map(|q| q.query.clone()),
+        modified_fields: modified_fields(ws, oi),
     };
     let positions = std::mem::take(&mut lw.positions);
     // Itself, whatever the lowering read about the extensions and implementers of others, and
@@ -758,6 +833,7 @@ pub(crate) fn lower_object<'a>(
         positions,
         unsupported,
         refusal_at,
+        unresolved_call: lw.unresolved_call,
         calls,
         direct,
         ndirect,
@@ -1180,6 +1256,32 @@ pub(crate) fn label_maxlength(t: &ast::TypeRef) -> bool {
         .any(|w| w[0].text().eq_ignore_ascii_case("maxlength") && w[1].kind() == SyntaxKind::Eq)
 }
 
+/// Whether a declaration is a Label with a text that is not empty and no property (`Label 'text'`) or a TextConst with one
+/// such text, in ENU: the forms the corpus puts into a Variant as a TextConstant (`Lowerer::text_constant_into_variant`).
+pub(crate) fn plain_text_constant(t: &ast::TypeRef) -> bool {
+    let toks: Vec<_> = t
+        .syntax()
+        .descendants_with_tokens()
+        .filter_map(|e| e.into_token())
+        .filter(|k| !k.kind().is_trivia())
+        .collect();
+    match toks.as_slice() {
+        [kw, text] => kw.text().eq_ignore_ascii_case("label") && text_not_empty(text),
+        [kw, lang, eq, text] => {
+            kw.text().eq_ignore_ascii_case("textconst")
+                && lang.text().eq_ignore_ascii_case("enu")
+                && eq.kind() == SyntaxKind::Eq
+                && text_not_empty(text)
+        }
+        _ => false,
+    }
+}
+
+/// A string literal with at least one character between its quotes (every pinned text has one, `Simple` of VaTTextConst.al:13 among them; the empty text of :16 never goes into a Variant).
+fn text_not_empty(t: &al_syntax::SyntaxToken) -> bool {
+    t.kind() == SyntaxKind::StringLit && t.text().len() >= 3
+}
+
 /// Whether a declaration is of type `TextConst`.
 pub(crate) fn is_textconst(t: Option<&ast::TypeRef>) -> bool {
     t.is_some_and(|t| t.type_name().eq_ignore_ascii_case("textconst"))
@@ -1484,4 +1586,16 @@ pub(crate) fn enum_own(m: &crate::members::Members) -> super::localize::EnumOwn 
         enum_pairs(&m.enum_captions),
         enum_pairs(&m.enum_captions_ml),
     )
+}
+
+/// The `modify` blocks of table extension `oi` as the field name and the names of the properties each sets
+/// (`ir::Object::modified_fields`); none for another kind of object.
+fn modified_fields(ws: &Workspace, oi: usize) -> Vec<(String, Vec<String>)> {
+    if ws.objects[oi].kind != ObjKind::TableExtension {
+        return Vec::new();
+    }
+    crate::members::modify_properties(ws, oi)
+        .into_iter()
+        .map(|(field, props)| (field, props.into_iter().map(|(k, _)| k).collect()))
+        .collect()
 }

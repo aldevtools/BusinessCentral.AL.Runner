@@ -1,24 +1,27 @@
 //! IR to bytecode. Returns `None` only when the routine needs more registers than an instruction can name.
 
 use super::*;
+use crate::blob_transfer::FieldRead;
 use al_builtins::builtin_id::{Class, ids};
 use al_builtins::value::RtType;
 use types::{DeclaredTypes, ExprTypes, Ty, of_rt};
 
-/// Compiles `r`.
+/// Compiles routine `routine` of object `o`.
 /// `captured`: the form a value capture runs (ADR-030): statement and loop ops that tell the capture
 /// what a statement did.
-pub(crate) fn compile(r: &ir::Routine, captured: bool) -> Option<Chunk> {
-    compile_form(r, captured, false)
+pub(crate) fn compile(o: &ir::Object, routine: usize, captured: bool) -> Option<Chunk> {
+    compile_form(o, routine, captured, false)
 }
 
-/// The debug form of `r` (ADR-048): the plain form with an `Op::DbgHit` after each statement marker, where a debugger
-/// may stop. The ops between two markers are the plain form's, so a debugged test computes what it computes without one.
-pub(crate) fn compile_debug(r: &ir::Routine) -> Option<Chunk> {
-    compile_form(r, false, true)
+/// The debug form of routine `routine` of object `o` (ADR-048): the plain form with an `Op::DbgHit` after each statement
+/// marker, where a debugger may stop. The ops between two markers are the plain form's, so a debugged test computes what
+/// it computes without one.
+pub(crate) fn compile_debug(o: &ir::Object, routine: usize) -> Option<Chunk> {
+    compile_form(o, routine, false, true)
 }
 
-fn compile_form(r: &ir::Routine, captured: bool, debug: bool) -> Option<Chunk> {
+fn compile_form(o: &ir::Object, routine: usize, captured: bool, debug: bool) -> Option<Chunk> {
+    let r = &o.routines[routine];
     let nlocals = u16::try_from(r.locals.len()).ok()?;
     let mut c = Compiler {
         locals_ty: r.locals.iter().map(|l| l.ty.clone()).collect(),
@@ -42,6 +45,7 @@ fn compile_form(r: &ir::Routine, captured: bool, debug: bool) -> Option<Chunk> {
             specials: Vec::new(),
             faults: Vec::new(),
             ifaces: Vec::new(),
+            variant_copies: Vec::new(),
             nlocals,
             temps: 0,
         },
@@ -51,6 +55,8 @@ fn compile_form(r: &ir::Routine, captured: bool, debug: bool) -> Option<Chunk> {
         captured,
         cap_depth: 0,
         debug,
+        params: r.params,
+        by_var: &r.by_var,
     };
     c.block(&r.body).ok()?;
     c.chunk.temps = c.max - nlocals;
@@ -85,6 +91,10 @@ struct Compiler<'a> {
     cap_depth: u32,
     /// The debug form (ADR-048).
     debug: bool,
+    /// The number of parameters of the routine.
+    params: usize,
+    /// Which parameters are `var`.
+    by_var: &'a [bool],
 }
 
 type R<T> = Result<T, ()>;
@@ -351,7 +361,8 @@ impl<'a> Compiler<'a> {
         };
         let (g, kind) = match id {
             ids::SYSTEM_CLEAR_1 | ids::SYSTEM_CLEAR_2 | ids::SYSTEM_CLEAR_3 => {
-                (global(args.first())?, SingleWriteKind::Replace)
+                let g = global(args.first())?;
+                (g, SingleWriteKind::Replace)
             }
             ids::RECORD_GET_1
             | ids::RECORD_GETBYSYSTEMID_1
@@ -472,7 +483,7 @@ impl<'a> Compiler<'a> {
             E::Load(p) => {
                 let rp = self.rplace(p)?;
                 let p = self.place(&rp);
-                self.emit(Op::ReadPlace { d, p });
+                self.emit(Op::ReadPlace { d, p, value: true });
             }
             E::Unary(ir::UnOp::Not, a) if self.tys.expr_ty(a) == Some(Ty::Boolean) => {
                 let a = self.expr_any(a)?;
@@ -546,6 +557,7 @@ impl<'a> Compiler<'a> {
                     arg_regs,
                     args: site_args,
                     try_call: *try_call,
+                    field_reads: self.field_reads(args),
                 });
                 let s = (self.chunk.calls.len() - 1) as u32;
                 self.emit(Op::Call { s, d });
@@ -573,6 +585,8 @@ impl<'a> Compiler<'a> {
                     all.push(r);
                 }
                 all.extend(args.iter());
+                // From the operands as written: the ones `arg_reg` hands back stand for their registers.
+                let temp_blob = crate::temp_blob_share::site_check(*id, all.iter().copied(), |i| self.locals_ty.get(i));
                 for (i, a) in all.iter().enumerate() {
                     let rest_pure = all[i + 1..].iter().all(|b| arg_pure(b));
                     let (r, arg) = self.arg_reg(a, rest_pure)?;
@@ -582,6 +596,13 @@ impl<'a> Compiler<'a> {
                 let receiver_reg = if receiver.is_some() { Some(regs.remove(0)) } else { None };
                 let receiver_arg = if receiver.is_some() { Some(kept.remove(0)) } else { None };
                 let plain = plain_builtin(*id, vm, native.is_some(), receiver_arg.as_ref(), &kept);
+                let stream_local = native.and(stream_local(
+                    *id,
+                    receiver_reg,
+                    receiver_arg.as_ref(),
+                    kept.len(),
+                    |i| self.locals_ty.get(i),
+                ));
                 self.chunk.builtins.push(BuiltinSite {
                     id: *id,
                     vm_class: vm,
@@ -594,6 +615,8 @@ impl<'a> Compiler<'a> {
                     args: kept,
                     ret_used: *ret_used,
                     plain,
+                    stream_local,
+                    temp_blob,
                 });
                 let s = (self.chunk.builtins.len() - 1) as u32;
                 self.emit(Op::Builtin { s, d });
@@ -728,21 +751,9 @@ impl<'a> Compiler<'a> {
                 let a = self.expr_any(base)?;
                 self.aux(AuxSite::FieldOf { pos: *pos }, d, a);
             }
-            E::QueryColumn { query, column } => {
-                let a = self.expr_any(query)?;
-                self.aux(AuxSite::QueryColumn { column: *column }, d, a);
-            }
-            E::TddFit { max, why, inner } | E::FitOrRefuse { max, why, inner } => {
-                let a = self.expr_any(inner)?;
-                self.aux(
-                    AuxSite::Fit {
-                        max: *max,
-                        why: why.clone(),
-                    },
-                    d,
-                    a,
-                );
-            }
+            E::QueryColumn { query, column } => self.query_column(query, *column, d)?,
+            E::VarSectionValue(inner) => self.expr_into(inner, d)?,
+            E::TddFit { max, why, inner } | E::FitOrRefuse { max, why, inner } => self.fit_into(*max, why, inner, d)?,
             E::TddStub { stub, args, ty } => {
                 // The arguments run left to right for what they do, as a call's would; the stub reads none of them.
                 for a in args {
@@ -827,6 +838,25 @@ impl<'a> Compiler<'a> {
         })
     }
 
+    /// `ir::Expr::TddFit` and `ir::Expr::FitOrRefuse`: `inner`, refused when it is a text longer than `max`.
+    fn fit_into(&mut self, max: u32, why: &str, inner: &'a ir::Expr, d: u16) -> R<()> {
+        let a = self.expr_any(inner)?;
+        let why = why.to_string();
+        self.aux(AuxSite::Fit { max, why }, d, a);
+        Ok(())
+    }
+
+    /// A query column read; the site keeps the global slot when the query is a global variable (`query_reopen`).
+    fn query_column(&mut self, query: &'a ir::Expr, column: usize, d: u16) -> R<()> {
+        let a = self.expr_any(query)?;
+        let global = match query {
+            ir::Expr::Load(ir::Place::Global(g)) => Some(*g),
+            _ => None,
+        };
+        self.aux(AuxSite::QueryColumn { column, global }, d, a);
+        Ok(())
+    }
+
     fn arg_regs(&mut self, args: &'a [ir::Arg]) -> R<(Vec<u16>, Vec<ir::Arg>)> {
         let mut regs = Vec::with_capacity(args.len());
         let mut out = Vec::with_capacity(args.len());
@@ -863,7 +893,7 @@ impl<'a> Compiler<'a> {
                 let rp = self.rplace(p)?;
                 let d = self.alloc()?;
                 let pi = self.place(&rp);
-                self.emit(Op::ReadPlace { d, p: pi });
+                self.emit(Op::ReadPlace { d, p: pi, value: false });
                 Ok((d, ir::Arg::Ref(rp)))
             }
         }
@@ -1284,7 +1314,11 @@ impl<'a> Compiler<'a> {
                     // The old value is read before `x` is evaluated.
                     let old = self.alloc()?;
                     let pi = self.place(p);
-                    self.emit(Op::ReadPlace { d: old, p: pi });
+                    self.emit(Op::ReadPlace {
+                        d: old,
+                        p: pi,
+                        value: false,
+                    });
                     let a = self.expr_any(r)?;
                     self.chunk.appends.push(AppendSite {
                         place: p.clone(),
@@ -1297,16 +1331,48 @@ impl<'a> Compiler<'a> {
             }
         }
         // `G := x` where `x` is made without `G` replaces the value without using it: after a guard that read `G`, the
-        // refill (ADR-066 amendment 3, R1b; `WhenGotGLSetup := CurrentDateTime` in Get Shortcut Dimension Values).
-        if let ir::Place::Global(g) = p {
-            if free_of_global(e, *g, 0) {
-                self.emit(Op::SingleWrite {
-                    i: *g as u32,
-                    kind: SingleWriteKind::Replace,
-                });
-            }
+        // refill (ADR-066 amendment 3, R1b; `WhenGotGLSetup := CurrentDateTime` in Get Shortcut Dimension Values). The
+        // note is emitted after `x` is evaluated, just before the store: code that `x` calls may read `G` first.
+        let single = match p {
+            ir::Place::Global(g) if free_of_global(e, *g, 0) => Some((*g as u32, SingleWriteKind::Replace)),
+            _ => None,
+        };
+        if self.variant_copy(p, e, single)? {
+            return Ok(());
         }
         match p {
+            // `FieldRef.Value` into a `var` parameter of type Date, Time or DateTime (al-builtins `fieldref_value_into_temporal`;
+            // the only slot the probe measured, corpus PR 1511). A by-value parameter, the named return value and a plain
+            // declared local are not measured: they convert as `Op::Convert` does, as does any other place.
+            ir::Place::Local(i)
+                if self.by_var.get(*i) == Some(&true)
+                    && let ir::Expr::Convert(t @ (RtType::Date | RtType::Time | RtType::DateTime), inner) = e
+                    && is_fieldref_value(inner) =>
+            {
+                let i = u16::try_from(*i).map_err(|_| ())?;
+                let a = self.expr_any(inner)?;
+                self.chunk.types.push(t.clone());
+                let t = (self.chunk.types.len() - 1) as u32;
+                let d = self.alloc()?;
+                self.emit(Op::ConvertFieldValue { d, a, t });
+                let pi = self.place(p);
+                self.emit(Op::StoreLocal { i, a: d, p: pi });
+            }
+            // A `var` Option parameter declared without members may hold its caller's members: its stores go through
+            // `write_as` (`var_option::param_store`).
+            ir::Place::Local(i)
+                if self.by_var.get(*i) == Some(&true)
+                    && matches!(self.locals_ty.get(*i), Some(RtType::Option(m)) if al_builtins::option_members::memberless(m)) =>
+            {
+                self.store_place(p, e, single)?;
+            }
+            // An element of an array of memberless Options stored from a variable of the `var` section (`var_option::element_store`).
+            ir::Place::Index(..) if let ir::Expr::VarSectionValue(inner) = e => {
+                let a = self.expr_copy(inner)?;
+                let rp = self.rplace(p)?;
+                let p = self.place(&rp);
+                self.emit(Op::StoreVarSectionValue { p, a });
+            }
             // A local of a typed kind takes a proven value of that kind straight into its register.
             ir::Place::Local(i)
                 if self.locals_ty.get(*i).and_then(of_rt).is_some_and(|t| {
@@ -1324,18 +1390,97 @@ impl<'a> Compiler<'a> {
                 let pi = self.place(p);
                 self.emit(Op::StoreLocal { i, a, p: pi });
             }
-            _ => {
-                let a = if has_index(p) {
-                    self.expr_copy(e)?
-                } else {
-                    self.expr_any(e)?
-                };
-                let rp = self.rplace(p)?;
-                let pi = self.place(&rp);
-                self.emit(Op::StorePlace { p: pi, a });
-            }
+            _ => self.store_place(p, e, single)?,
         }
         Ok(())
+    }
+
+    /// `p := e` through `Op::StorePlace`, which writes through `Session::write_as`.
+    fn store_place(&mut self, p: &'a ir::Place, e: &'a ir::Expr, single: Option<(u32, SingleWriteKind)>) -> R<()> {
+        let a = if has_index(p) {
+            self.expr_copy(e)?
+        } else {
+            self.expr_any(e)?
+        };
+        let rp = self.rplace(p)?;
+        // A field read stored in a global or an array element: a Blob moves first (`blob_transfer::FieldRead`).
+        if let Some(mut read) = self.blob_field_read(e).filter(|_| FieldRead::stored_in(p)) {
+            read.global = matches!(p, ir::Place::Global(_));
+            self.emit(Op::BlobFieldRead { r: a, read });
+        }
+        let pi = self.place(&rp);
+        if let Some((i, kind)) = single {
+            self.emit(Op::SingleWrite { i, kind });
+        }
+        let fr = matches!(p, ir::Place::Field(..)) && is_fieldref_value(e);
+        self.emit(Op::StorePlace { p: pi, a, fr });
+        Ok(())
+    }
+
+    /// `p := Convert(Variant, x)` where `x` may be a Variant (`variant_copy::source_of`): a site of `variant_copy.rs`, which
+    /// decides at run time what a temporary record does there. False for every other assignment.
+    /// `single`: the `Op::SingleWrite` of a global `p`, emitted before the store.
+    fn variant_copy(&mut self, p: &'a ir::Place, e: &'a ir::Expr, single: Option<(u32, SingleWriteKind)>) -> R<bool> {
+        let ir::Expr::Convert(RtType::Variant, inner) = e else {
+            return Ok(false);
+        };
+        let Some(source) = crate::variant_copy::source_of(inner, &self.locals_ty, self.params, self.by_var) else {
+            return Ok(false);
+        };
+        if let ir::Place::Local(i) = p {
+            // A local takes `Op::StoreLocal`, as every other value it is assigned; its record goes to the site of its place.
+            let i = u16::try_from(*i).map_err(|_| ())?;
+            let a = self.expr_any(e)?;
+            let at = self.place(p);
+            self.chunk.variant_copies.push(crate::variant_copy::VariantCopySite {
+                place: p.clone(),
+                source,
+                at,
+            });
+            self.emit(Op::StoreLocal { i, a, p: at });
+            return Ok(true);
+        }
+        let a = if has_index(p) {
+            self.expr_copy(e)?
+        } else {
+            self.expr_any(e)?
+        };
+        let place = self.rplace(p)?;
+        self.chunk.variant_copies.push(crate::variant_copy::VariantCopySite {
+            place,
+            source,
+            at: u32::MAX,
+        });
+        let s = u32::try_from(self.chunk.variant_copies.len() - 1).map_err(|_| ())?;
+        if let Some((i, kind)) = single {
+            self.emit(Op::SingleWrite { i, kind });
+        }
+        self.emit(Op::StoreVariantCopy { s, a });
+        Ok(true)
+    }
+
+    /// The arguments of a call that are record field reads (`CallSite::field_reads`).
+    fn field_reads(&self, args: &'a [ir::Arg]) -> Box<[(u16, FieldRead)]> {
+        args.iter()
+            .enumerate()
+            .filter_map(|(i, a)| match a {
+                ir::Arg::Value(e) => Some((u16::try_from(i).ok()?, self.blob_field_read(e)?)),
+                ir::Arg::Ref(_) => None,
+            })
+            .collect()
+    }
+
+    /// The record field read `e` is (`blob_transfer::FieldRead`), unless lowering recorded a scalar type for it: a Blob
+    /// field's type is `Other`.
+    fn blob_field_read(&self, e: &'a ir::Expr) -> Option<FieldRead> {
+        use al_ir::types::ExprTy;
+        let inner = match e {
+            ir::Expr::Convert(RtType::Variant, x) => &**x,
+            e => e,
+        };
+        matches!(self.tys.lowered.of(inner), ExprTy::Other | ExprTy::Unknown)
+            .then(|| FieldRead::of(e, self.params))
+            .flatten()
     }
 }
 
@@ -1347,11 +1492,16 @@ fn arg_pure(a: &ir::Arg) -> bool {
     }
 }
 
-/// A conversion of `FieldRef.Value` into a Text, Code or Blob, which runs `Op::ConvertFieldValue`.
+/// A conversion of `FieldRef.Value` into a Text, Code or Blob, which runs `Op::ConvertFieldValue` (as does one into a local
+/// Date, Time or DateTime, `Compiler::assign`).
 fn is_field_value_conversion(t: &RtType, inner: &ir::Expr) -> bool {
     (matches!(t, RtType::Text(_) | RtType::Code(_))
         || matches!(t, RtType::Library(n) if n.eq_ignore_ascii_case("Blob")))
-        && matches!(inner, ir::Expr::Builtin { id, .. } if *id == al_builtins::builtin_id::ids::FIELDREF_VALUE_1)
+        && is_fieldref_value(inner)
+}
+
+fn is_fieldref_value(e: &ir::Expr) -> bool {
+    matches!(e, ir::Expr::Builtin { id, .. } if *id == al_builtins::builtin_id::ids::FIELDREF_VALUE_1)
 }
 
 /// Whether evaluating `e` surely does not read global `g` of the running instance: only shapes known not to (a constant,
@@ -1397,6 +1547,28 @@ fn place_free_of_global(p: &ir::Place, g: usize, depth: u8) -> bool {
     }
 }
 
+/// [`BuiltinSite::stream_local`]: the local register of the receiver of an `InStream.Read` or `OutStream.Write` with at most
+/// two arguments (`al_builtins::stream::keeps_receiver`), when the receiver is that local in place (`arg_reg`) and its
+/// declared type is the stream type.
+fn stream_local<'t>(
+    id: al_builtins::builtin_id::BuiltinId,
+    receiver_reg: Option<u16>,
+    receiver: Option<&ir::Arg>,
+    n_args: usize,
+    local_ty: impl Fn(usize) -> Option<&'t RtType>,
+) -> Option<u16> {
+    use al_builtins::library_kind::LibraryKind;
+    let Some(ir::Arg::Ref(ir::Place::Local(i))) = receiver else {
+        return None;
+    };
+    let stream = matches!(
+        local_ty(*i),
+        Some(RtType::Library(LibraryKind::InStream | LibraryKind::OutStream))
+    );
+    let r = u16::try_from(*i).ok()?;
+    (stream && receiver_reg == Some(r) && n_args <= 2 && al_builtins::stream::keeps_receiver(id)).then_some(r)
+}
+
 /// A registered native whose receiver and arguments are all values and that `run_builtin` does not handle itself
 /// (`BuiltinSite::plain`).
 fn plain_builtin(
@@ -1413,3 +1585,7 @@ fn plain_builtin(
         && !receiver.is_some_and(by_ref)
         && !args.iter().any(by_ref)
 }
+
+#[cfg(test)]
+#[path = "stream_local_tests.rs"]
+mod stream_local_tests;

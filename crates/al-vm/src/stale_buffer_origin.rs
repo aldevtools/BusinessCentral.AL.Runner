@@ -23,11 +23,13 @@ impl Session {
             Some(Value::BigInteger(v)) if (via_get || via_sysid || via_find) && *v > self.tx.committed_row_version => {
                 Some(RowOrigin {
                     read_in_write_tx: true,
+                    by_get: via_get,
                     ..RowOrigin::new(true, *v, self.commits)
                 })
             }
             Some(Value::BigInteger(v)) if via_get || via_find => Some(RowOrigin {
                 from_find: !via_get,
+                by_get: via_get,
                 ..RowOrigin::new(false, *v, self.commits)
             }),
             _ => None,
@@ -49,6 +51,7 @@ impl Session {
     ) -> Result<StaleVerdict, Signal> {
         let writes_row = self
             .tx
+            .open
             .writes
             .iter()
             .any(|w| w.table == t.object && w.company == *company && same_key(&w.pk, pk));
@@ -61,7 +64,7 @@ impl Session {
         if writes_row {
             return Ok(StaleVerdict::Refused);
         }
-        if touched && self.tx.writes.is_empty() {
+        if touched && self.tx.open.writes.is_empty() {
             return Ok(StaleVerdict::Written);
         }
         if !contact {

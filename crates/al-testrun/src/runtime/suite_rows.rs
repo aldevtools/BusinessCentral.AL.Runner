@@ -16,13 +16,12 @@
 
 use super::*;
 use al_builtins::value::Value;
+use al_sema::check::demand::TEST_SUITE_MGT;
 
 /// Table 130450 "Test Method Line" of Microsoft's Test Runner app.
 pub(crate) const TEST_METHOD_LINE: u32 = 130_450;
 /// Table 130451 "AL Test Suite".
 pub(crate) const AL_TEST_SUITE: u32 = 130_451;
-/// Codeunit 130456 "Test Suite Mgt.".
-pub(crate) const TEST_SUITE_MGT: u32 = 130_456;
 /// The suite BcContainerHelper uses when none is named (`Run-TestsInBcContainer -testSuite`, default `DEFAULT`).
 const SUITE: &str = "DEFAULT";
 /// Discovery numbers the lines of a new suite in steps of 10000 (`TestRunnerGetMethods.Codeunit.al:64-67`).

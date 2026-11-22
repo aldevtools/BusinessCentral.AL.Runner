@@ -142,11 +142,7 @@ fn as_condition(v: Value) -> Result<Value, Signal> {
 /// a Variant is converted here (`variant_convert`) or raises its error (`variant_error`); anything else is handed back for the
 /// conversion that follows.
 pub fn variant_into(v: Value, t: &RtType) -> Result<Value, Signal> {
-    // A TextConst taken out of a Variant is a Text (types/Y81LabelVariant.al, codeunits 94256 to 94258).
-    let v = match v {
-        Value::TextConst(s) => Value::Text(s),
-        other => other,
-    };
+    let v = super::text_constant::read(v, super::text_constant::Reader::VariantInto(t))?;
     // A RecordId, Record or RecordRef into a Code, Text, Integer or Guid (`variant_records`).
     if let Some(r) = super::variant_records::record_into_scalar(&v, t) {
         return r;

@@ -11,6 +11,12 @@ use al_builtins::page_op::PageMethod;
 /// The start of the text of an error out of OnClosePage (`page_close`, CcPageLeads.al:624-633).
 pub(super) const CLOSING_ERRORS: &str = "One or more errors occurred while closing the page.";
 
+/// The error an error of OnClosePage with the text `message` comes out as: `CLOSING_ERRORS`, two line breaks (shown as two
+/// backslashes) and the text, with the code TestWrapped (CcPageLeads.al:624-633).
+pub(in crate::pages) fn closing_error(message: &str) -> Signal {
+    error_code(format!("{CLOSING_ERRORS}\\\\{message}"), "TestWrapped")
+}
+
 /// Where the control whose `Lookup()` opened the relation's list page sits, for the places the corpus pins.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RelationOrigin {
@@ -116,6 +122,9 @@ impl Session {
                     triggers: &["onqueryclosepage", "onclosepage"],
                     control_triggers: &[],
                     properties: &["editable"],
+                    action_props: None,
+                    part_props: None,
+                    table_triggers: &[],
                 },
             )?;
         Ok((field_ok && lookup_page).then_some(origin))
@@ -218,7 +227,7 @@ impl Session {
     pub(super) fn close_relation_lookup_after_handler_error(&mut self, st: &St) -> Result<(), Signal> {
         // The handler's error is that unhandled message, raised by the close OK or Cancel asked in the handler: the close is
         // not asked again (:303 CardField_Lookup_HandlerOkFirstRow_QueryCloseError `Q-codes LookupOK;`, :332 _HandlerCancel_).
-        if st.borrow().close_error {
+        if st.borrow().close.error() {
             self.mark_closed(st);
             return Ok(());
         }
@@ -228,7 +237,7 @@ impl Session {
             // OnClosePage failed and the page closed (`relation_close_page_error`): the handler's error still comes out
             // (ListPartField_Lookup_HandlerError_ClosePageError `Q-codes LookupOK; C-codes;` `TestWrapped:Dialog`).
             Err(Signal::Error(_)) if !st.borrow().open => Ok(()),
-            Err(Signal::Error(_)) if st.borrow().close_error => {
+            Err(Signal::Error(_)) if st.borrow().close.error() => {
                 self.mark_closed(st);
                 Ok(())
             }
@@ -260,7 +269,7 @@ impl Session {
             return Err(e);
         };
         let close_page_error = e.code == "TestWrapped" && e.message.starts_with(CLOSING_ERRORS);
-        let query_message = e.code == "MissingUIHandler" && related.borrow().close_error;
+        let query_message = e.code == "MissingUIHandler" && related.borrow().close.error();
         if how == Some(RelationClose::Platform) && (query_message || close_page_error) {
             self.mark_closed(related);
             // What the last error is then is not pinned: every pin raises its own error right after the lookup. Measured on
@@ -290,6 +299,6 @@ impl Session {
             return None;
         }
         self.mark_closed(st);
-        Some(error_code(format!("{CLOSING_ERRORS}\\\\{}", e.message), "TestWrapped"))
+        Some(closing_error(&e.message))
     }
 }

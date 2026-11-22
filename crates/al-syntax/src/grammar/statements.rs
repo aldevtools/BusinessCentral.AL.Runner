@@ -232,6 +232,29 @@ mod tests {
         );
     }
 
+    /// al-runner issue 8629: in code, `local` is a name. A variable or parameter named Local is used unquoted
+    /// (`Local := 2;`, `exit(Other + Local);`); the AL compiler of every supported major compiles it.
+    #[test]
+    fn local_is_a_name_in_code() {
+        assert_eq!(s("Local := 2"), "(AssignStmt (NameRef Local) := (Literal 2))");
+        assert_eq!(s("Local += 2"), "(AssignStmt (NameRef Local) += (Literal 2))");
+        assert_eq!(
+            s("exit(Other + Local)"),
+            "(ExitStmt exit ( (BinExpr (NameRef Other) + (NameRef Local)) ))"
+        );
+        assert_eq!(
+            s("Local.Add(4)"),
+            "(ExprStmt (CallExpr (MemberExpr (NameRef Local) . (NameRef Add)) (ArgList ( (Literal 4) ))))"
+        );
+        assert_eq!(
+            errors(
+                "begin if Local = 0 then Local := 3; for local := 1 to 3 do ; end",
+                block
+            ),
+            0
+        );
+    }
+
     #[test]
     fn call_statement() {
         assert_eq!(

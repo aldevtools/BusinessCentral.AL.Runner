@@ -6,6 +6,8 @@
 //!                         /platform.tail.json   {build, url, total, length, crc}
 //!                         /apps/<file>          one entry exactly as Microsoft ships it
 //!                         /apps/<file>.json     {build, entry, url, size, crc}  (what was downloaded)
+//!                         /service/<file>       a service-tier assembly of the report render sets (`service_tier`)
+//! <root>/artifacts/render-extras/<package>.<version>/<file>   a nuget piece of the render process (`render_set`)
 //! ```
 //!
 //! A cached entry is trusted only when its sidecar exists and the file still has the recorded size

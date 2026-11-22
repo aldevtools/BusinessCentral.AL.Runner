@@ -8,7 +8,7 @@
 
 use super::*;
 
-const DEP: &str = r#"
+pub(super) const DEP: &str = r#"
 table 1990 "Guided Experience Item" { fields { field(1; "Object ID"; Integer) { } field(2; Completed; Boolean) { } } keys { key(PK; "Object ID") { Clustered = true; } } }
 table 1996 "Checklist Setup" { fields { field(1; K; Code[10]) { } field(2; Done; Boolean) { } } keys { key(PK; K) { Clustered = true; } } }
 codeunit 150 "System Initialization"
@@ -1449,6 +1449,19 @@ fn without_a_client_what_the_login_would_leave_is_refused() {
     ));
 }
 
+// A test codeunit for which the login is raised (its test reads the row an own login subscriber left): under --no-client which
+// login events a web-service session raises is not measured, so the raise itself is refused (`login::NO_CLIENT_RAISE`).
+#[test]
+fn without_a_client_a_raised_login_is_refused() {
+    let rows_only = LOGIN_LEAVES.replace("        GlobalLanguage(1055);\n", "");
+    let o = outcomes_in(&rows_only, DEP, "Q Own Event", TestIsolation::Codeunit, true);
+    assert_eq!(o.len(), 1, "{o:?}");
+    assert!(
+        matches!(&o[0].1, Outcome::NotRun(w) if w.contains(crate::login::NO_CLIENT_RAISE)),
+        "{o:?}"
+    );
+}
+
 // RequiredTestIsolation = Disabled: what the login writes would meet what an earlier codeunit left, which is not pinned
 // (the same reason a codeunit whose session raised the login is not run there, `run.rs`). The subscribers run, watched:
 // a test that touches a table they wrote is not run, one that touches none passes.
@@ -1948,4 +1961,57 @@ fn a_guided_experience_run_of_an_own_object_gets_the_login_raised() {
         TestIsolation::Codeunit,
         false,
     ));
+}
+
+// A Company Triggers subscriber that runs when the test session opens the company (before the first test), through an
+// assumption: every test of that session rests on the step, so each pass carries its id (orchestrator decision,
+// 2026-11-15, al-runner issue 8060). A mark a test makes itself stays with that test alone.
+#[test]
+fn an_assumption_the_company_open_step_relied_on_flags_every_test_of_the_session() {
+    const SRC: &str = "
+codeunit 51990 \"Open Subs\"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Company Triggers\", 'OnCompanyOpenCompleted', '', false, false)]
+    local procedure Completed() var V: Variant; I: Integer; begin V := '55'; I := V; end;
+}
+codeunit 51991 \"Open Flag Tests\"
+{
+    Subtype = Test;
+    [Test] procedure First() begin end;
+    [Test] procedure Second() var V: Variant; I: Integer; begin V := '66'; I := V; end;
+    [Test] procedure Third() begin end;
+}
+";
+    let (o, hits) = super::tests::outcomes_and_hits_of_apps(&[("main", &[], SRC)], "Open Flag Tests");
+    assert_all_pass(&o);
+    let id = "text-digits-to-integer";
+    for n in ["First", "Second", "Third"] {
+        assert!(hits.iter().any(|(t, h)| t == n && h == &vec![id]), "{n}: {hits:?}");
+    }
+}
+
+// Out of scope: a session whose company-open step made no mark keeps main's result. A mark of one test stays with it
+// alone, and the next test is a clean pass.
+#[test]
+fn without_a_company_open_mark_only_the_test_that_made_a_mark_is_flagged() {
+    const SRC: &str = "
+codeunit 51992 \"Open Subs Clean\"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Company Triggers\", 'OnCompanyOpenCompleted', '', false, false)]
+    local procedure Completed() var D: Decimal; begin D := 1; end;
+}
+codeunit 51993 \"Open Clean Tests\"
+{
+    Subtype = Test;
+    [Test] procedure Marks() var V: Variant; I: Integer; begin V := '66'; I := V; end;
+    [Test] procedure After() begin end;
+}
+";
+    let (o, hits) = super::tests::outcomes_and_hits_of_apps(&[("main", &[], SRC)], "Open Clean Tests");
+    assert_all_pass(&o);
+    assert_eq!(
+        hits,
+        vec![("Marks".to_string(), vec!["text-digits-to-integer"])],
+        "{hits:?}"
+    );
 }

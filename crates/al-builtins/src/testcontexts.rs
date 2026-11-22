@@ -74,16 +74,13 @@ fn th_empty_text_of(r: Option<&mut Value>) -> Out {
 
 // ACContexts.al:131 (codeunit 77546): `Format(Ctx.Success())` of a fresh variable is 'No'.
 fn th_success(_: &mut dyn Ctx, mut r: Option<&mut Value>, _: &mut [Value]) -> Out {
-    // BiTestHandler.al:125, BiTestHandlerDefault.al:286: Yes in the After callbacks of a passing test. In a Before callback
-    // no probe reads it.
-    match handed(&mut r, |c| c.success) {
-        Some(Some(b)) => return Ok(Value::Boolean(b)),
-        Some(None) => {
-            return Err(Signal::Unsupported(
-                "TestHandlerContext.Success in a Before callback (not pinned)".into(),
-            ));
+    // BiTestHandlerSuccess.al:116 (codeunit 81599): No in every Before callback, Yes in the After callbacks of a passing
+    // procedure or case (also BiTestHandler.al:125, BiTestHandlerDefault.al:286).
+    if let Some((b, assumed)) = handed(&mut r, |c| (c.success, c.success_assumed)) {
+        if assumed {
+            crate::assumptions::assume(crate::assumptions::Assumption::TestHandlerDefaultBeforeSuccess);
         }
-        None => {}
+        return Ok(Value::Boolean(b));
     }
     fresh(r, "TestHandlerContext")?;
     Ok(Value::Boolean(false))

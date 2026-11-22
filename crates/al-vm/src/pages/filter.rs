@@ -108,6 +108,12 @@ impl Session {
                     (RtType::Enum(_), Some(FilterExpr::Ne(Value::Enum(_, x)))) => {
                         return Ok(Value::Text(format!("<>{x}").into()));
                     }
+                    // `<>` and the first member of an Option, typed by the test, reads as `<>0` (`filter_option_ne.rs`).
+                    (RtType::Option(_), Some(FilterExpr::Ne(_)))
+                        if self.option_ne_reads_number(st, &rec, &table, first.as_ref()) =>
+                    {
+                        return Ok(Value::Text("<>0".to_string().into()));
+                    }
                     // A Boolean that a SourceTableView (group 2) or an action's RunPageView (group 3) filters with `const(true)`
                     // reads `1` (testpage/RzRunPageLinkView.al:62 RZ_Link_WhereView_I1, :112
                     // RZ_LinkAndRunPageViewWhere_DescendingView_I1). `const(false)` there is not pinned.
@@ -157,9 +163,19 @@ impl Session {
                 // SF_TestFilter_SetFilterTwoSpaces).
                 if text.trim().is_empty() {
                     rec.borrow_mut().filters.retain(|f| !(f.field == pos && f.group == 0));
+                    st.borrow_mut().note_test_filter(pos, None);
                     self.filter_changed(st, true)?;
                     return Ok(Value::Null);
                 }
+                // A text that starts with `=` sets no filter in the cells `eq_text_sets_no_filter` measured and leaves an earlier
+                // filter on the field as it was (testpage/filters/TempListOffPageBooleanFilter.al:343-348, :447; corpus PR 1392
+                // WorksheetEnumEqFilter.al:565). Where the page stands right after it is not measured (each measured case moves with
+                // First() next); the page reads its view again, as after the empty text.
+                if self.eq_text_sets_no_filter(st, &rec, &table, pos, &text)? {
+                    self.filter_changed(st, true)?;
+                    return Ok(Value::Null);
+                }
+                self.relation_field_no_page_filter(&rec, pos, self.field_page_open(st))?;
                 let expr = self
                     .parse_filter_text(&text, &ty)
                     .map_err(|e| Signal::unsupported(format!("TestFilter.SetFilter: {e}")))?;
@@ -169,6 +185,8 @@ impl Session {
                     // In place when there is one: group 0 keeps its place ahead of the groups the
                     // page wrote after it (corpus testpage/filters/TestTestFilterFilterGroups.al:4).
                     let mut r = rec.borrow_mut();
+                    st.borrow_mut()
+                        .note_test_filter(pos, Some((text.to_string(), expr.clone())));
                     match r.filters.iter().position(|f| f.field == pos && f.group == 0) {
                         Some(i) => r.filters[i].expr = expr,
                         None => r.filters.push(FieldFilter {
@@ -258,6 +276,7 @@ impl Session {
         if set_filter && self.part_filter_runs_fn_on_new_line(st) {
             self.run_fn_controls_on_new_line(st)?;
         }
+        self.note_part_rows_read_by_test_filter(st, set_filter)?;
         // A page the filter left without a row shows a blank one, its key pre-filled from a
         // single-valued filter (corpus pages/currpage/TestPageUpdateGoneRow.al:
         // Card_OpenEdit_FilterMatchesNothing_NoOpAction_StaysOpen).
@@ -282,6 +301,10 @@ impl Session {
                 } else {
                     self.land_on_new_line(st)?;
                 }
+            } else if self.part_of_top_list(st) {
+                // A part of a top-level List host: what Rec holds there has one owner, `empty_part_rec`; no landing runs here,
+                // so it is outside the List-host cells and a read of a field the filters name is refused.
+                self.empty_part_rec(st)?;
             } else {
                 let rec = self.page_rec(st);
                 let table = rec.borrow().table as usize;

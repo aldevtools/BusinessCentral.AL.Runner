@@ -26,10 +26,10 @@ use std::rc::Rc;
 
 type Rec = Rc<RefCell<RecordState>>;
 
-const TENANT_REPORT_LAYOUT: u32 = 2_000_000_232;
+pub(crate) const TENANT_REPORT_LAYOUT: u32 = 2_000_000_232;
 /// The `Layout Format` option of an RDLC layout (the System app's table: `RDLC,Word,Excel,Custom`).
 const RDLC: i32 = 0;
-const WORD: i32 = 1;
+pub(crate) const WORD: i32 = 1;
 const EXCEL: i32 = 2;
 const CUSTOM: i32 = 3;
 

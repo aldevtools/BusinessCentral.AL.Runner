@@ -27,6 +27,13 @@ impl Lowerer<'_> {
 
     /// A member of a DotNet value (ADR-014): `callee` is the member expression, `op` says what to
     /// do to it. A call named like the receiver's alias is the constructor.
+    /// Whether the member `name` is the constructor of the declared DotNet type `i`: its alias or its simple type name.
+    pub(crate) fn dotnet_ctor_name(&self, i: usize, name: &str) -> bool {
+        let decl = &self.ws.dotnet[i].decl;
+        let simple = decl.type_name.rsplit('.').next().unwrap_or("");
+        decl.alias.eq_ignore_ascii_case(name) || simple.eq_ignore_ascii_case(name)
+    }
+
     pub(crate) fn dotnet_member(
         &mut self,
         _node: &SyntaxNode,
@@ -53,6 +60,13 @@ impl Lowerer<'_> {
                 )
             })?)
         };
+        if let Some(var) = self.with_events_timer(&recv) {
+            let ctor = ty.is_some_and(|i| self.dotnet_ctor_name(i, name));
+            self.with_events_timer_member(&var, &op, ctor, args.len())?;
+        }
+        if let Some(var) = self.with_events_no_trigger(&recv) {
+            self.with_events_no_trigger_member(&var, &op)?;
+        }
         // A `[RunOnClient]` variable: BC runs its calls on the client and a test session has none, so the constructor, a
         // client feature's `Create` and a static call raise DotNetFromAlNotSupported
         // (onprem-dotnet/lt-bg-runonclient/BgRunOnClient.al:122-150 for a constructor and Environment.MachineName,

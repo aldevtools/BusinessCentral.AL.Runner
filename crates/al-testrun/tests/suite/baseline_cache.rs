@@ -89,6 +89,7 @@ fn run_full(
         translation_source: None,
         runtime: None,
         app_json_keys: Vec::new(),
+        platform_internals_visible_to: Vec::new(),
         symbols: vec![],
     };
     CorpusRuntime::try_run_suites_with(
@@ -400,6 +401,7 @@ codeunit 60103 ResourceTests
             translation_source: None,
             runtime: None,
             app_json_keys: Vec::new(),
+            platform_internals_visible_to: Vec::new(),
             symbols: vec![],
         };
         CorpusRuntime::try_run_suites_with(
@@ -485,6 +487,7 @@ fn login_run(cache: &Path) -> Outcome {
         translation_source: None,
         runtime: None,
         app_json_keys: Vec::new(),
+        platform_internals_visible_to: Vec::new(),
         symbols: vec![],
     };
     let rt = CorpusRuntime::try_run_suites_with(
@@ -585,6 +588,7 @@ fn run_apps(
         translation_source: None,
         runtime: None,
         app_json_keys: Vec::new(),
+        platform_internals_visible_to: Vec::new(),
         symbols: vec![],
     };
     CorpusRuntime::try_run_suites_with(
@@ -961,6 +965,7 @@ codeunit 60101 DataTests { Subtype = Test;
         translation_source: None,
         runtime: None,
         app_json_keys: Vec::new(),
+        platform_internals_visible_to: Vec::new(),
         symbols: vec![],
     };
     let go = || {
@@ -1132,4 +1137,135 @@ codeunit 60162 "Key Version Tests"
         "the install code stored the new version: {second:?}"
     );
     assert_eq!(files(dir.path()).len(), 2, "a baseline of its own");
+}
+
+/// The install code of al-runner issue 8073: it stores a label under GlobalLanguage 1031.
+const XLF_DEP: &str = r#"
+table 50100 "Repro Text" { fields { field(1; Code; Code[20]) { } field(2; Description; Text[100]) { } } keys { key(PK; Code) { Clustered = true; } } }
+codeunit 50100 "Repro Dep Install"
+{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany()
+    var
+        ReproText: Record "Repro Text";
+        PreviousLanguage: Integer;
+    begin
+        PreviousLanguage := GlobalLanguage();
+        GlobalLanguage(1031);
+        ReproText.Code := 'DEFAULT';
+        ReproText.Description := DefaultTextTxt;
+        ReproText.Insert();
+        GlobalLanguage(PreviousLanguage);
+    end;
+
+    var
+        DefaultTextTxt: Label 'Default text';
+}
+"#;
+
+fn xlf(target: &str) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="utf-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
+  <file datatype="xml" source-language="en-US" target-language="de-DE" original="Repro Language Dep">
+    <body>
+      <group id="body">
+        <trans-unit id="Codeunit 2174623574 - NamedType 545647386" size-unit="char" translate="yes" xml:space="preserve">
+          <source>Default text</source>
+          <target>{target}</target>
+        </trans-unit>
+      </group>
+    </body>
+  </file>
+</xliff>
+"#
+    )
+}
+
+/// A run with the dependency app read from the folder `folder` (its translation files read on demand, as the runner
+/// loads a dependency folder: `deps.rs`).
+fn run_with_dependency_folder(folder: &Path, cache: &Path) -> CorpusRuntime {
+    let main = r#"
+codeunit 60170 "Xlf Tests"
+{
+    Subtype = Test;
+    [Test] procedure InstallStoredTheGermanLabel() var T: Record "Repro Text"; begin T.Get('DEFAULT'); if T.Description <> 'Standardtext' then Error('got ' + T.Description); end;
+}
+"#;
+    let translations = folder.join("Translations").is_dir();
+    let manifests = [
+        Manifest {
+            publisher: "Me".into(),
+            version: "1.0.0.0".into(),
+            ..Default::default()
+        },
+        Manifest {
+            publisher: "Repro".into(),
+            version: "1.0.0.0".into(),
+            translations,
+            translation_source: translations.then(|| {
+                al_ir::TranslationSourceRef(Arc::new(al_deps::lazy::PackageTranslations::new(folder.to_path_buf())))
+            }),
+            ..Default::default()
+        },
+    ];
+    CorpusRuntime::try_run_suites_with(
+        vec![
+            app("main", &["dep"], main.to_string()),
+            app("dep", &[], XLF_DEP.to_string()),
+        ],
+        vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
+        &manifests,
+        &Default::default(),
+        None,
+        Default::default(),
+        &[SuiteRun::everything()],
+        &RunOptions {
+            compile_cache: Some(CompileCache {
+                dir: cache.to_path_buf(),
+                require: false,
+                rebuild: false,
+                country: String::new(),
+            }),
+            ..Default::default()
+        },
+    )
+    .expect("the run starts")
+}
+
+/// Al-runner issue 8073: the translation files of a dependency folder change what its install code stores under another
+/// language. A change of them, or their removal, is another baseline, not a read of the kept one.
+#[test]
+fn changed_translation_files_of_a_dependency_folder_get_a_baseline_of_their_own() {
+    let cache = tempfile::tempdir().unwrap();
+    let folder = tempfile::tempdir().unwrap();
+    let file = folder.path().join("Translations").join("Repro Language Dep.de-DE.xlf");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, xlf("Standardtext")).unwrap();
+    let first = outcome_of(
+        &run_with_dependency_folder(folder.path(), cache.path()),
+        "InstallStoredTheGermanLabel",
+    );
+    assert_eq!(first, Outcome::Pass);
+    assert_eq!(files(cache.path()).len(), 1, "the first run keeps its baseline");
+    std::fs::write(&file, xlf("Geaenderter Text")).unwrap();
+    let second = outcome_of(
+        &run_with_dependency_folder(folder.path(), cache.path()),
+        "InstallStoredTheGermanLabel",
+    );
+    assert!(
+        format!("{second:?}").contains("got Geaenderter Text"),
+        "the install code ran with the new translation: {second:?}"
+    );
+    assert_eq!(files(cache.path()).len(), 2, "a baseline of its own");
+    std::fs::remove_dir_all(folder.path().join("Translations")).unwrap();
+    let third = outcome_of(
+        &run_with_dependency_folder(folder.path(), cache.path()),
+        "InstallStoredTheGermanLabel",
+    );
+    assert!(
+        format!("{third:?}").contains("got Default text"),
+        "no translation: {third:?}"
+    );
+    assert_eq!(files(cache.path()).len(), 3, "a baseline of its own");
 }

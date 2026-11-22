@@ -57,7 +57,7 @@ impl Session {
                 "a failed insert of a new host that {m} of its part tried, after its triggers changed the record (what the page shows then is not pinned)"
             ));
         }
-        rec.borrow_mut().fields = fields.to_vec();
+        rec.borrow_mut().fields = fields.to_vec().into();
         let mut h = host.borrow_mut();
         h.dirty = false;
         h.part_insert_swallowed = true;

@@ -298,7 +298,7 @@ pub fn from_base64(s: &str) -> Option<Vec<u8>> {
 
 /// `Byte.ToString(format)` and `Int32.ToString(format)` for the formats D, d, X, x with an optional precision of up to
 /// two digits and no format at all. Anything else is left to .NET.
-fn format_integer(v: i64, unsigned_bits: Option<u32>, format: Option<&str>) -> Option<String> {
+fn format_integer(v: i64, format: Option<&str>) -> Option<String> {
     let Some(f) = format else {
         return Some(v.to_string());
     };
@@ -317,7 +317,6 @@ fn format_integer(v: i64, unsigned_bits: Option<u32>, format: Option<&str>) -> O
         }
         'X' | 'x' => {
             let bits = if v < 0 { v as u32 as u64 } else { v as u64 };
-            let _ = unsigned_bits;
             let s = if kind == 'X' {
                 format!("{bits:X}")
             } else {
@@ -420,8 +419,8 @@ impl InprocSession {
                     Some(_) => return None,
                 };
                 let text = match v {
-                    DotNetValue::Byte(b) => format_integer(i64::from(*b), Some(8), format)?,
-                    DotNetValue::Int32(i) => format_integer(i64::from(*i), None, format)?,
+                    DotNetValue::Byte(b) => format_integer(i64::from(*b), format)?,
+                    DotNetValue::Int32(i) => format_integer(i64::from(*i), format)?,
                     _ => return None,
                 };
                 Some(Ok(DotNetReply::value(DotNetValue::Str(text))))
@@ -722,6 +721,10 @@ impl InprocSession {
 }
 
 impl DotNetSession for InprocSession {
+    fn is_in_process_utc_zone(&self, handle: DotNetHandle) -> bool {
+        self.local(handle)
+            .is_some_and(|c| matches!(&*c.borrow(), Local::Zone { id, .. } if id.eq_ignore_ascii_case("UTC")))
+    }
     fn construct(&mut self, ty: &DotNetType, args: Vec<DotNetArg>) -> Reply {
         if ty.name == "System.Text.StringBuilder" {
             let vals: Vec<&DotNetValue> = args.iter().map(|a| &a.value).collect();
@@ -1021,6 +1024,27 @@ mod tests {
             }
         }
         assert!(seen.lock().unwrap().is_empty(), "forwarded: {:?}", seen.lock().unwrap());
+    }
+
+    /// The fact the VM's off-Windows gate of `GetUtcOffset` asks (al-vm `dotnet/zone_rules.rs`): only a zone made here
+    /// for the id `UTC` answers yes; another zone made here and a handle the stand-in does not hold answer no.
+    #[test]
+    fn only_the_utc_zone_made_in_process_is_reported_as_utc() {
+        let (mut s, _) = session();
+        let zone = |s: &mut InprocSession, id: &str| {
+            handle_of(s.invoke(
+                DotNetTarget::Static(net_type("System.TimeZoneInfo")),
+                "FindSystemTimeZoneById",
+                vec![arg(DotNetValue::Str(id.into()))],
+            ))
+        };
+        for id in ["UTC", "utc"] {
+            let h = zone(&mut s, id);
+            assert!(s.is_in_process_utc_zone(h), "{id}");
+        }
+        let other = zone(&mut s, "Greenwich Standard Time");
+        assert!(!s.is_in_process_utc_zone(other));
+        assert!(!s.is_in_process_utc_zone(7));
     }
 
     #[test]

@@ -65,16 +65,32 @@ fn fixture() -> Fixture {
     }
 }
 
-/// A fake `gh` that answers `run view` with `run` and `api .../artifacts` with `artifacts`.
+/// A zip holding one JUnit file without provenance properties (a corpus run from before ADR-077), written to
+/// `dir/plain.zip`: the fake `gh` serves it for every artifact download, since a dry run reads the files.
+fn plain_zip(dir: &Path) {
+    let src = dir.join("plain");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(src.join("junit-al-language.xml"), "<testsuites/>").unwrap();
+    let st = Command::new("zip")
+        .current_dir(&src)
+        .args(["-q", &format!("{}/plain.zip", dir.display()), "junit-al-language.xml"])
+        .status()
+        .unwrap();
+    assert!(st.success());
+}
+
+/// A fake `gh` that answers `run view` with `run`, `api .../artifacts` with `artifacts` and every artifact
+/// download with `plain.zip`.
 fn fake_gh(dir: &Path, run: &str, artifacts: &str) -> PathBuf {
     let gh = dir.join("gh");
     std::fs::write(dir.join("run.json"), run).unwrap();
     std::fs::write(dir.join("artifacts.json"), artifacts).unwrap();
+    plain_zip(dir);
     let d = dir.display();
     std::fs::write(
         &gh,
         format!(
-            "#!/bin/sh\ncase \"$*\" in\n  *\"run view\"*) cat {d}/run.json;;\n  *artifacts*) cat {d}/artifacts.json;;\n  *) echo \"unexpected gh $*\" >&2; exit 9;;\nesac\n"
+            "#!/bin/sh\ncase \"$*\" in\n  *\"run view\"*) cat {d}/run.json;;\n  */zip*) cat {d}/plain.zip;;\n  *artifacts*) cat {d}/artifacts.json;;\n  *) echo \"unexpected gh $*\" >&2; exit 9;;\nesac\n"
         ),
     )
     .unwrap();

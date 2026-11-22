@@ -4,7 +4,9 @@
 
 use crate::native::Signal;
 use crate::value::Value;
+use std::sync::Arc;
 
+pub(crate) mod length;
 mod recordid_number;
 mod region;
 pub use region::{Region, region_column};
@@ -40,11 +42,17 @@ pub trait FormatCtx {
     fn region_unpinned(&self) -> Option<String> {
         None
     }
-    /// The caption and the namespace of the table with object index `table`, for the text of a RecordId; None where the
-    /// context does not know the program (a RecordId format that names them is then refused).
+    /// The caption and the namespace of the table with object index `table`, for the text of a RecordId: the caption as the
+    /// source declares it, which no translation file changes (`Format(RecordId, 0, 1)`). None where the context does not know
+    /// the program or the caption (a RecordId format that names them is then refused).
     fn record_id_table(&self, table: u32) -> Option<(String, Option<String>)> {
         let _ = table;
         None
+    }
+    /// The namespace of the table with object index `table` (`Some(None)`: none), for `Format(RecordId, 0, 9)`, which names the
+    /// table and never shows its caption; None where the format is refused. By default the context's [`Self::record_id_table`].
+    fn record_id_namespace(&self, table: u32) -> Option<Option<String>> {
+        self.record_id_table(table).map(|(_, namespace)| namespace)
     }
     /// Whether the target BC version has the behavior of `gate` (false where the context knows no target).
     fn format_gate(&self, gate: al_version::Gate) -> bool {
@@ -94,6 +102,9 @@ impl FormatCtx for WithoutRegion<'_> {
     }
     fn record_id_table(&self, table: u32) -> Option<(String, Option<String>)> {
         self.0.record_id_table(table)
+    }
+    fn record_id_namespace(&self, table: u32) -> Option<Option<String>> {
+        self.0.record_id_namespace(table)
     }
     fn format_gate(&self, gate: al_version::Gate) -> bool {
         self.0.format_gate(gate)
@@ -194,7 +205,14 @@ fn format_in_region(
         }
         _ => return Err(refuse()),
     };
-    Ok(pad(text, length))
+    length::none_measured(
+        &format!(
+            "{} under CurrReport.FormatRegion",
+            crate::describe::Describe::describe(v)
+        ),
+        text,
+        length,
+    )
 }
 
 /// The text of a multi-language property (`ENU = 'a,b', DEU = 'x,y'`) in session language `language`: the entry of its
@@ -283,6 +301,21 @@ pub fn try_format(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) ->
     })
 }
 
+/// `Format(BigText)`: the text it holds, all of it (streams/StTBigText.al:248 ConvertTextAndBack `direct`;
+/// streams/DdStreamLeads.al:595, two AddText calls; xmlports/shapes-properties/XmlPortBigText.al: 218, 0 to 50000 characters).
+/// Only the plain Format(BigText) is pinned. Rendered content comes out with its marks in the changed form (owner decision
+/// 2026-11-12, ADR-040 amendment 2026-11-12, P3): whether BC returns a long rendered text whole is not probed.
+fn bigtext_text(l: &crate::value::LibraryValue) -> Result<String, String> {
+    match l {
+        crate::value::LibraryValue::Empty => Ok(String::new()),
+        crate::value::LibraryValue::Text(s) if crate::rendered_text::holds(s) => {
+            Ok(crate::rendered_text::to_changed(s))
+        }
+        crate::value::LibraryValue::Text(s) => Ok(s.clone()),
+        _ => Err("Format of a BigText of this kind is not pinned".to_string()),
+    }
+}
+
 /// The values `Format` does not read: a column a platform row leaves unknown (refused), and a SQL counter value.
 fn format_unread(v: &Value, length: i32, standard: i32) -> Option<Result<String, FormatFail>> {
     match v {
@@ -296,7 +329,7 @@ fn format_unread(v: &Value, length: i32, standard: i32) -> Option<Result<String,
             Some(Ok(crate::native::SQL_COUNT_TEXT_MARK.to_string()))
         }
         // A placeholder's size: its digits would be the placeholder's (`placeholder_output::size`).
-        Value::PlaceholderSize(m) => Some(Err(FormatFail::Unsupported(
+        Value::PlaceholderSize(m, _) => Some(Err(FormatFail::Unsupported(
             crate::placeholder_output::size_refusal_text(m, "Format"),
         ))),
         Value::SqlCount(_) => Some(Err(FormatFail::Unsupported(crate::sqlcount::refusal_text(
@@ -328,7 +361,7 @@ fn unnamed_member_text(members: &[String], o: i32) -> String {
 }
 
 /// The text of an Option value in a standard format (an arm of [`format_value`]).
-fn option_text(o: &i32, members: &[String], standard: i32) -> Result<String, FormatFail> {
+fn option_text(o: &i32, members: &Arc<[String]>, standard: i32) -> Result<String, FormatFail> {
     Ok(match standard {
         2 | 9 if crate::sysenum::is_field_table_type(members) => FIELD_TABLE_TYPE_ORDINALS
             .get(*o as usize)
@@ -349,7 +382,7 @@ fn option_text(o: &i32, members: &[String], standard: i32) -> Result<String, For
         2 | 9 if !crate::sysenum::ordinals_hidden(members, standard) => o.to_string(),
         // `Option` declared without members is the one empty name: it shows the number
         // (types/decimal-integer/ScT70062.al:Option_Defaults `nomembers_len`, `nomembers_3`).
-        _ if members.len() == 1 && members[0].is_empty() => o.to_string(),
+        _ if crate::option_members::memberless(members) => o.to_string(),
         // A member with a blank name shows as one space (types/decimal-integer/ScT70053.al:Option_Format `blank_len`).
         _ => match members.get(*o as usize) {
             // An unquoted empty member shows its number (text/P69OptionInText.al:Option_StrSubstNo
@@ -421,7 +454,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         // in the error text is not pinned for them.
         Value::Boolean(_) | Value::Enum(..) if standard == 10 => return Err(no_such_format_unpinned()),
         Value::Text(_)
-        | Value::TextConst(_)
+        | Value::TextConst(..)
         | Value::Code(_)
         | Value::Char(_)
         | Value::Option(..)
@@ -465,7 +498,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         // A NUL character inside a text is kept (format-evaluate/format-matrix/FMEvalText.al:141-143 and FMEvalCode3.al:141-143,
         // corpus PR 1256: `Format(V, 0, 9)` of a text holding NUL shows it). LTP89StreamText.al `nul_between` gets no NUL here:
         // `Wide[1] := 0` ends the text (interp `write_char`).
-        Value::Text(t) | Value::TextConst(t) | Value::Code(t) => t.to_string(),
+        Value::Text(t) | Value::TextConst(t, _) | Value::Code(t) => t.to_string(),
         Value::Option(o, members) => option_text(o, members, standard)?,
         // Nor for an enum, named 'Option' (the enum test Enum_FormatNumbers `blue3`).
         Value::Enum(..) if (3..=8).contains(&standard) => return Err(no_such_format(standard, "Option")),
@@ -491,22 +524,16 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         Value::Time(t) => format_time(t - 1, standard)?,
         Value::DateTime(t) => format_datetime(t - 1, standard)?,
         Value::Duration(ms) => format_duration(*ms, standard, ctx.language())?,
-        Value::DateFormula(f) => date_formula_text(f, standard, ctx.language())?,
+        Value::DateFormula(f) => date_formula_text(f, length, standard, ctx.language())?,
         // A Version reads `major.minor.build.revision` (session-system/TestBCPlatformContracts.al:120-136
         // compares the formatted AppVersion with the manifest's `1.0.0.0`).
         Value::Library(crate::library_kind::LibraryKind::Version, _) if standard == 9 => {
             // session-system/TestProbeSessionMiscContracts.al:Version_Forms.
             return Err(no_such_format(9, "Version"));
         }
-        // A BigText formats as the text it holds, all of it (streams/StTBigText.al:248 ConvertTextAndBack `direct`;
-        // streams/DdStreamLeads.al:595, two AddText calls; xmlports/shapes-properties/XmlPortBigText.al:
-        // 218, 0 to 50000 characters). Only the plain Format(BigText) is pinned.
+        // A BigText formats as the text it holds (`bigtext_text`).
         Value::Library(crate::library_kind::LibraryKind::BigText, l) if standard == 0 && length == 0 => {
-            match &*l.borrow() {
-                crate::value::LibraryValue::Empty => String::new(),
-                crate::value::LibraryValue::Text(s) => s.clone(),
-                _ => return Err("Format of a BigText of this kind is not pinned".to_string().into()),
-            }
+            bigtext_text(&l.borrow())?
         }
         Value::Library(crate::library_kind::LibraryKind::TextBuilder, l) => {
             crate::format_textbuilder::text(&l.borrow(), standard)?
@@ -625,27 +652,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
                         })
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                // Format 1 names the table by its caption (record/crud/RcBMeta.al:572, :578, also under
-                // GlobalLanguage 1031); format 9 of a table in a namespace names it `[<namespace>.<name>]`
-                // (language/namespaces/P69NsConsumers.al:214, a name with spaces; :210 format 1 of the same table
-                // gives the plain name, which is its caption), a one-word name too, and a name with a dot is quoted
-                // inside the brackets (corpus branch al-runtime-rs-staging-r6985, language/namespaces/
-                // R7003RecordIdFormat9.al: Format9_NamespacedOwnTables, Format9_BaseAppContactAndItem `[Microsoft.CRM.Contact.Contact]`;
-                // a table outside a namespace gives the plain name, Format9_TablesWithoutNamespace). The other numbers give
-                // the plain name (RcBMeta.al:570-574).
-                let shown = match standard {
-                    1 | 9 => {
-                        let Some((caption, namespace)) = ctx.record_id_table(*table) else {
-                            return Err(format!("Format of a RecordId with standard format {standard} where the table caption is not known").into());
-                        };
-                        match (standard, namespace) {
-                            (1, _) => caption,
-                            (_, Some(ns)) => format!("[{ns}.{}]", recordid_number::namespaced_name(name)?),
-                            (_, None) => name.clone(),
-                        }
-                    }
-                    _ => name.clone(),
-                };
+                let shown = recordid_number::table_shown(standard, *table, name, ctx)?;
                 // A RecordId made by Evaluate from a table name alone has no key values and reads as the name
                 // (format-evaluate/P128EvalRecordId.al:P128_Evaluate_IntoRecordId_OtherTexts `table name only`); format 9 of a
                 // table in a namespace reads as the bracketed name alone (language/namespaces/RecordIdFormat9Evaluate.al:285-286,
@@ -773,7 +780,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
     {
         return Ok(s.chars().take(length as usize).collect());
     }
-    Ok(pad(s, length))
+    length::rest(v, standard, s, length)
 }
 
 /// The value's type in a refusal text: a name, never the value's contents (a Record holds its
@@ -811,7 +818,8 @@ fn blob_text(b: &crate::stream::BlobRef, ctx: &dyn FormatCtx) -> String {
 /// print the letters of the global language, format 9 the English letters, format 2 the English letters in angle brackets (the
 /// empty formula `<>`), and formats 3 to 8 raise (format-evaluate/Y62DateFormulaFormat.al, writer Y62; see
 /// `date_formula_language`). Formats 3 to 8 in another language than 1033 and the other numbers are refused.
-fn date_formula_text(f: &str, standard: i32, language: i32) -> Result<String, FormatFail> {
+fn date_formula_text(f: &str, length: i32, standard: i32, language: i32) -> Result<String, FormatFail> {
+    date_formula_length(length)?;
     let text = crate::datefns::formula_text(f);
     match standard {
         9 => Ok(text),
@@ -823,6 +831,19 @@ fn date_formula_text(f: &str, standard: i32, language: i32) -> Result<String, Fo
             "Format of a DateFormula with standard format {n} in the language {language} (not pinned)"
         ))),
     }
+}
+
+/// The one length a DateFormula is formatted with: 0, the length of every pinned case (types/
+/// TestDateRoundFormatStringContracts.al:128, `Format(Formula)`). Every other length is refused, with a standard format number or a format
+/// string alike; al-runner issue 8198 measured a cut on BC 28.4 (`Format(DF, 4)` of `1Y+1M+1D` is `1Y+1`), which waits
+/// for a probe.
+pub(crate) fn date_formula_length(length: i32) -> Result<(), FormatFail> {
+    if length == 0 {
+        return Ok(());
+    }
+    Err(FormatFail::Unsupported(format!(
+        "Format of a DateFormula with length {length} (not pinned)"
+    )))
 }
 
 fn type_phrase(v: &Value) -> String {
@@ -859,26 +880,42 @@ pub(crate) fn pad(s: String, length: i32) -> String {
 
 /// The error of a Decimal outside +-999,999,999,999,999.99 (format-evaluate/RandomFormat.al:Format_Decimal `af191`, `af193`;
 /// a Duration converted into a Decimal: types/duration/D_Duration.al:Duration_To_Integer_BeyondRange `af126`).
+/// `Unsupported` for a value whose 18-digit form is below 1,000,000,000,000,000: no pin shows that text.
 pub(crate) fn decimal_range_error(d: &rust_decimal::Decimal) -> Option<FormatFail> {
     if d.abs() <= rust_decimal::Decimal::new(99_999_999_999_999_999, 2) {
         return None;
     }
-    // The shown value keeps 18 significant digits (types/decimal-integer/ScT70058.al:Decimal_Digits `af83`).
+    // The shown value keeps 18 significant digits: an integer (types/decimal-integer/ScT70058.al:119 `af83`,
+    // ScT70059.al:294 `af205`) and a fraction, whose decimals inside the 18 digits stay
+    // (errors/PnBDateFormat.al:581 `af422`, :583 `af425`; types/decimal-integer/DecimalDigits.al:113 `af76`;
+    // a negative read from a JSON text, json/DbJsonLeads.al:252; one decimal,
+    // types/decimal-integer/Y8BigIntegerFractionCompare.al:131). Every pin has 16 or more integer digits.
     let kept = d
         .round_sf_with_strategy(18, rust_decimal::RoundingStrategy::MidpointAwayFromZero)
-        .unwrap_or(*d);
-    let whole = kept.round().to_string();
-    let (sign, digits) = whole.strip_prefix('-').map_or(("", whole.as_str()), |r| ("-", r));
-    let mut grouped = String::new();
+        .unwrap_or(*d)
+        .normalize();
+    if kept.abs() < rust_decimal::Decimal::from(1_000_000_000_000_000_i64) {
+        return Some(FormatFail::Unsupported(format!(
+            "the range error of the Decimal {kept}, below 1,000,000,000,000,000 when kept to 18 digits (not pinned)"
+        )));
+    }
+    let kept = kept.to_string();
+    let (sign, unsigned) = kept.strip_prefix('-').map_or(("", kept.as_str()), |r| ("-", r));
+    let (digits, decimals) = unsigned.split_once('.').map_or((unsigned, ""), |(i, f)| (i, f));
+    let mut shown = String::new();
     for (i, c) in digits.chars().enumerate() {
         if i > 0 && (digits.len() - i) % 3 == 0 {
-            grouped.push(',');
+            shown.push(',');
         }
-        grouped.push(c);
+        shown.push(c);
+    }
+    if !decimals.is_empty() {
+        shown.push('.');
+        shown.push_str(decimals);
     }
     Some(FormatFail::Error {
         message: format!(
-            "The value of Decimal parameter  is outside of the permitted range. The current value is: {sign}{grouped}. The permitted range is: from -999,999,999,999,999.99 to 999,999,999,999,999.99."
+            "The value of Decimal parameter  is outside of the permitted range. The current value is: {sign}{shown}. The permitted range is: from -999,999,999,999,999.99 to 999,999,999,999,999.99."
         ),
         code: "OutsidePermittedRange".into(),
     })
@@ -1320,18 +1357,109 @@ const MONTHS_ES_SHORT: [&str; 12] = [
     "ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sept", "oct", "nov", "dic",
 ];
 
+/// Dutch month names of formats 4 and 7, the same in 1043 and 2067 (format-evaluate/MonthNamesLanguages.al:71-96 for 2067,
+/// :108-133 for 1043).
+const MONTHS_NL: [&str; 12] = [
+    "januari",
+    "februari",
+    "maart",
+    "april",
+    "mei",
+    "juni",
+    "juli",
+    "augustus",
+    "september",
+    "oktober",
+    "november",
+    "december",
+];
+const MONTHS_NL_SHORT: [&str; 12] = [
+    "jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec",
+];
+
+/// The letter of a closing date under GlobalLanguage `lang`: English `C` (types/date-time/Format.al:172-175); under 1030, 1031,
+/// 1036, 1044 and 1053 (localization/global-language/GlobalLanguageClosingDate.al:155 for 1030, :264 for 1053, and the
+/// `Format` line of each test in :177-257): `U` under 1030, 1031 and 1044, `S` under 1053, `C` under 1036. `None` for
+/// every other language.
+fn language_closing_letter(lang: i32) -> Option<char> {
+    match lang {
+        1033 | 1036 => Some('C'),
+        1030 | 1031 | 1044 => Some('U'),
+        1053 => Some('S'),
+        _ => None,
+    }
+}
+
+/// The letter that marks a closing date in standard formats 0, 1 and 2 (`standard` `Some(n)`) and in the code `<Closing>`
+/// (`None`); format 9 shows no mark and does not ask. English `C` is pinned (types/date-time/Format.al:172-175). Under another
+/// language only standard format 0 runs, with the letter of [`language_closing_letter`]; every other language, format and the
+/// code refuse.
+pub(crate) fn closing_mark(standard: Option<i32>, lang: i32) -> Result<&'static str, String> {
+    if lang == 1033 {
+        return Ok("C");
+    }
+    let letter = match (language_closing_letter(lang), standard) {
+        (Some('U'), Some(0)) => "U",
+        (Some('S'), Some(0)) => "S",
+        (Some('C'), Some(0)) => "C",
+        (_, Some(n)) => {
+            return Err(format!(
+                "Format of a closing date with standard format {n} under GlobalLanguage {lang} (the letter is not measured)"
+            ));
+        }
+        (_, None) => {
+            return Err(format!(
+                "code `<Closing>` of a closing date under GlobalLanguage {lang} (the letter is not measured)"
+            ));
+        }
+    };
+    // Standard format 0 under each language: GlobalLanguageClosingDate.al:155, :158 (1030), :264, :267 (1053) and the same
+    // lines of the 1031, 1036 and 1044 tests (:177-257).
+    Ok(letter)
+}
+
+/// A closing-date text a reader takes under GlobalLanguage `lang` (1030, 1031, 1036, 1044 or 1053; `None` for English, whose
+/// reading is pinned, types/date-time/P143Date_FieldRef.al:89-113, and for every other language): the letter C, U or S as written
+/// in either case, followed by a date of two digits, `/`, two digits, `/` and two digits, the measured form
+/// (localization/global-language/GlobalLanguageClosingDate.al:90 for Evaluate, `C12/31/23`, `u12/31/23`, `U01/05/24` and
+/// more; record/filters/FilterGlobalLanguageDateBool.al:117 and :125 for a Date filter, `C12/31/23`, `U12/31/23`, `S12/31/23`).
+/// The answer: whether the letter is the language's own, the letter as written, and the date part. The caller checks its own
+/// measured facts and answers; no mark is set here.
+pub fn closing_letter_text(text: &str, lang: i32) -> Option<(bool, char, &str)> {
+    let own = language_closing_letter(lang).filter(|_| matches!(lang, 1030 | 1031 | 1036 | 1044 | 1053))?;
+    let mut chars = text.chars();
+    let letter = chars
+        .next()
+        .filter(|c| matches!(c.to_ascii_uppercase(), 'C' | 'U' | 'S'))?;
+    let rest = chars.as_str();
+    let b = rest.as_bytes();
+    let form = b.len() == 8
+        && b.iter().enumerate().all(|(i, c)| {
+            if i == 2 || i == 5 {
+                *c == b'/'
+            } else {
+                c.is_ascii_digit()
+            }
+        });
+    form.then_some((letter.to_ascii_uppercase() == own, letter, rest))
+}
+
 /// The standard formats of a Date, en-US (types/TestFormatEvaluateTextContracts.al:Format_Date_StandardFormats):
 /// 0 and 1 `mm/dd/yy`, 2 `mmddyyD`, 3 `yy/mm/dd`, 4 `March 5, 2024`, 5 `mmddyy`, 6 `yymmdd`,
 /// 7 `Mar 5, 2024`, 9 `yyyy-mm-dd`. Number 8 does not exist
-/// (:Format_Date_Format8_DoesNotExist). A closing date is marked with `C` in the formats the corpus
-/// shows it in (0, 1 and 2); the others are not pinned for one.
+/// (:Format_Date_Format8_DoesNotExist). A closing date is marked in formats 0, 1 and 2 ([`closing_mark`]); format 9 shows
+/// no mark (types/date-time/Format.al:172-175); the others are not pinned for one.
 fn format_date(day: i32, closing: bool, standard: i32, lang: i32) -> Result<String, FormatFail> {
     let (y, m, d) = civil_from_day(day);
     let yy = y.rem_euclid(100);
-    let c = if closing { "C" } else { "" };
     if closing && !matches!(standard, 0 | 1 | 2 | 9) {
         return Err(format!("Format of a closing date with standard format {standard} (not pinned)").into());
     }
+    let c = if closing && standard != 9 {
+        closing_mark(Some(standard), lang).map_err(FormatFail::Unsupported)?
+    } else {
+        ""
+    };
     // The month names of formats 4 and 7 follow the language: English, German, French and Spanish are pinned for every month
     // (format-evaluate/AxLanguageFormats.al:52-132; P142ToTextLang.al:109,117). Another language is refused.
     let month = match (lang, standard) {
@@ -1342,9 +1470,13 @@ fn format_date(day: i32, closing: bool, standard: i32, lang: i32) -> Result<Stri
         (1036, 7) => MONTHS_FR_SHORT[m as usize - 1],
         (3082, 4) => MONTHS_ES[m as usize - 1],
         (3082, 7) => MONTHS_ES_SHORT[m as usize - 1],
-        // Danish and Dutch December, format 4 only (format-evaluate/EvalLanguageBoolean.al EL_Date_DAN_1030, EL_Date_NLD_1043,
-        // EL_Date_NLB_2067: `december 31, 2026`); the other months are not pinned.
-        (1030 | 1043 | 2067, 4) if m == 12 => "december",
+        // Danish December, format 4 only (format-evaluate/EvalLanguageBoolean.al EL_Date_DAN_1030: `december 31, 2026`); the other
+        // Danish months are not pinned. Dutch (1043, 2067) December of format 4 is pinned there too (EL_Date_NLD_1043, EL_Date_NLB_2067).
+        (1030, 4) if m == 12 => "december",
+        (1043 | 2067, 4) if m == 12 => MONTHS_NL[11],
+        // Every Dutch month of formats 4 and 7: format-evaluate/MonthNamesLanguages.al:71-96 (2067), :108-133 (1043).
+        (1043 | 2067, 4) => MONTHS_NL[m as usize - 1],
+        (1043 | 2067, 7) => MONTHS_NL_SHORT[m as usize - 1],
         (_, 4 | 7) => {
             return Err(FormatFail::Unsupported(format!(
                 "Format {standard} of a Date in language {lang}, month {m}: the month name is not pinned (docs/probes-needed.md)"
@@ -1409,6 +1541,54 @@ mod tests {
     }
     fn dec(s: &str) -> Value {
         Value::Decimal(Decimal::from_str(s).unwrap())
+    }
+
+    #[test]
+    fn dutch_month_names_of_formats_4_and_7() {
+        // format-evaluate/MonthNamesLanguages.al:71-96 (2067), :108-133 (1043).
+        let day = |m: u32, d: u32| day_from_civil(2026, m, d);
+        let long = [
+            "januari",
+            "februari",
+            "maart",
+            "april",
+            "mei",
+            "juni",
+            "juli",
+            "augustus",
+            "september",
+            "oktober",
+        ];
+        let short = [
+            "jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec",
+        ];
+        for lang in [2067, 1043] {
+            for (i, (l, s)) in long.iter().zip(short).enumerate() {
+                let d = day(i as u32 + 1, 5);
+                assert_eq!(format_date(d, false, 4, lang).unwrap(), format!("{l} 5, 2026"));
+                assert_eq!(format_date(d, false, 7, lang).unwrap(), format!("{s} 5, 2026"));
+            }
+            assert_eq!(format_date(day(11, 5), false, 4, lang).unwrap(), "november 5, 2026");
+            assert_eq!(format_date(day(12, 5), false, 7, lang).unwrap(), "dec 5, 2026");
+            assert_eq!(format_date(day(3, 15), false, 7, lang).unwrap(), "mrt 15, 2026");
+        }
+    }
+
+    /// A value above the range whose 18-digit form is below 1,000,000,000,000,000 is not pinned: every pin of the
+    /// range error's text has 16 or more integer digits (errors/PnBDateFormat.al:581, :583; json/DbJsonLeads.al:252;
+    /// types/decimal-integer/Y8BigIntegerFractionCompare.al:131). Such a value refuses; a pinned one keeps the error.
+    #[test]
+    fn a_range_error_below_sixteen_integer_digits_refuses() {
+        for s in ["999999999999999.991", "999999999999999.995", "-999999999999999.995"] {
+            let r = format_value(&dec(s), 0, 0, &Ctx);
+            assert!(matches!(r, Err(FormatFail::Unsupported(_))), "{s}: {r:?}");
+        }
+        let r = format_value(&dec("1000000000000000.5"), 0, 9, &Ctx);
+        assert!(
+            matches!(&r, Err(FormatFail::Error { message, .. }) if message.contains(": 1,000,000,000,000,000.5.")),
+            "{r:?}"
+        );
+        assert_eq!(f(dec("999999999999999.99")), "999,999,999,999,999.99");
     }
 
     #[test]

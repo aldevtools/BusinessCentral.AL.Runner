@@ -1,6 +1,6 @@
 //! Whether the outcomes of a run on a compile made for a selection are the full run's (al-runner issue 6924).
 //!
-//! A selection (`--explain`, `--codeunit`, `--test`, a warm server's request) compiles less than the full run: the test
+//! A one-shot selection (`--explain`, `--codeunit`, `--test`) compiles less than the full run: the test
 //! codeunits it does not keep and the procedures no selected test names (`al_sema::check::UNSELECTED`), and with a lean
 //! compile the workspace objects no selected test names (`al_sema::check::LEFT_OUT`). That is only safe while nothing that
 //! runs needs what was left out, and static rules cannot see every way in: install code may hand an id to a dependency
@@ -10,7 +10,8 @@
 //! every test codeunit is a root and only the selected tests run (`settle`). A dependency routine the demand did not
 //! reach (`al_sema::check::NOT_REACHED`) does not count: the full run gives the same refusal.
 //!
-//! This module is the one owner of that decision; `CorpusRuntime::try_run_suites_inner` and `Warm::run` follow it.
+//! This module is the one owner of that decision; `CorpusRuntime::try_run_suites_inner` follows it. `Warm::run` compiles
+//! without a selection (al-runner issue 7978), so its compile is `Narrowing::Full` and nothing is redone.
 
 use super::{Compiled, CorpusRuntime, RunOptions};
 use crate::Outcome;

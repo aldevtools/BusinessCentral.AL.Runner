@@ -82,7 +82,7 @@ impl Session {
                     .as_ref()
                     .is_some_and(|img| version(&img[version_field]) == mine)
         };
-        if !own_image || !self.tx.rolled_back || !self.tx.writes.is_empty() || !self.writes_all_noted() {
+        if !own_image || !self.tx.rolled_back || !self.tx.open.writes.is_empty() || !self.writes_all_noted() {
             return Ok(None);
         }
         let img = rec.borrow().last_modify.clone().expect("checked");
@@ -137,7 +137,7 @@ impl Session {
         }
         if before || after {
             let image = rec.borrow().fields.clone();
-            let xrec = Self::xrec_handle(rec, image.clone());
+            let xrec = Self::xrec_handle(rec, image.to_vec());
             self.table_event(t, "onbeforemodifyevent", rec, Some(&xrec), run, None)?;
             // What the answer is when a subscriber or the trigger changes the buffer is not measured.
             let same = |r: &Rec| r.borrow().fields.iter().zip(&image).all(|(a, b)| a.identical(b));
