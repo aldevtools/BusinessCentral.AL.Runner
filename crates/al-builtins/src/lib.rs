@@ -85,6 +85,7 @@ pub mod platform;
 pub mod platform_native;
 pub mod query_reopen_step;
 pub mod querybuiltins;
+pub mod record_fields;
 pub mod record_into_recordref;
 pub mod record_op;
 pub mod refs;

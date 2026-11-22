@@ -55,7 +55,7 @@ impl Session {
                 return Ok(Value::Null);
             }
             if let Some(fields) = self.cancelled_lookup_key_fields(st, &src)? {
-                dst.borrow_mut().fields = fields;
+                dst.borrow_mut().fields = fields.into();
                 return Ok(Value::Null);
             }
             let pinned_no_row = st.borrow().cursor == Cursor::None && self.plain_list_with_rows(st);
@@ -99,6 +99,6 @@ impl Session {
                 _ => return Ok(None),
             }
         }
-        Ok(Some(fields))
+        Ok(Some(fields.into_vec()))
     }
 }

@@ -704,7 +704,7 @@ impl Session {
             let stored = self.page_rec(st).borrow().fields.clone();
             self.set_xrec_fields(st, xrec);
             self.validate_step_saved(st, &stored);
-            st.borrow_mut().xrec_after_validate = Some(stored);
+            st.borrow_mut().xrec_after_validate = Some(stored.into_vec());
         } else {
             self.save_record_now(st, method)?;
         }
@@ -1255,7 +1255,7 @@ impl Session {
                 // LookupCancel (testpage/PnGRefresh.al:996 QN_CloseQ_Sheet_RunModal_OtherChanged_CloseInAction
                 // `run-modal-result = LookupCancel`, `row-after = A,orig A`; :1113 the List page). Pinned for that read back only.
                 if let Some(fields) = fields.filter(|_| a == "LookupCancel" && st.borrow().selection.is_none()) {
-                    st.borrow_mut().selection = Some(fields);
+                    st.borrow_mut().selection = Some(fields.into_vec());
                 }
                 Ok(r)
             }

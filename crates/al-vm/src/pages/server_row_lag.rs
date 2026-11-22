@@ -30,7 +30,7 @@ impl Session {
             && self.only_after_get_record(st);
         if lagging {
             let before = self.page_rec(st).borrow().fields.clone();
-            st.borrow_mut().server_lag = Some(before);
+            st.borrow_mut().server_lag = Some(before.into_vec());
         }
         // A trigger that runs during the move clears the lag (`page_call`).
         let moved = self.page_move_inner(st, how)?;
@@ -70,7 +70,7 @@ impl Session {
         let object = st.borrow().object as usize;
         self.engine.program.objects[object].rec_slot?;
         let rec = self.page_rec(st);
-        let now = std::mem::replace(&mut rec.borrow_mut().fields, lag);
-        Some((rec, now))
+        let now = std::mem::replace(&mut rec.borrow_mut().fields, lag.into());
+        Some((rec, now.into_vec()))
     }
 }
