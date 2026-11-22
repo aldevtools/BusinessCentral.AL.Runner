@@ -149,6 +149,14 @@ impl CheckResult {
             .find(&self.diagnostics, app, path, offset, codes)
     }
 
+    /// The checker's note that refuses the routine spanning `range` of the file at `path` of `app`
+    /// ([`diag_index::ROUTINE_REFUSALS`]), if one lies in it.
+    pub fn routine_refusal(&self, app: usize, path: &str, range: std::ops::Range<usize>) -> Option<&Diagnostic> {
+        self.diag_index
+            .get_or_init(|| diag_index::DiagIndex::build(&self.diagnostics))
+            .routine_refusal(&self.diagnostics, app, path, range)
+    }
+
     /// Whether object `oi` was left out by a lean compile (`Roots::lean`).
     pub fn is_left_out(&self, oi: usize) -> bool {
         self.left_out.get(oi).copied().unwrap_or(false)
@@ -220,13 +228,19 @@ pub enum Res {
         with: usize,
         inner: Box<Res>,
     },
+    /// `inner`, resolved on an unprobed assumption the lowering marks when it reads the name (`Rec.Field` whose type is the
+    /// field's enum where the file names the enum's name otherwise, `check/field_enum.rs`).
+    Assumed {
+        assumption: al_builtins::assumptions::Assumption,
+        inner: Box<Res>,
+    },
 }
 
 impl Res {
-    /// What the name resolved to, without the `with` statement that supplied it.
+    /// What the name resolved to, without the `with` statement that supplied it and the assumption it rests on.
     pub fn inner(&self) -> &Res {
         match self {
-            Res::With { inner, .. } => inner,
+            Res::With { inner, .. } | Res::Assumed { inner, .. } => inner.inner(),
             r => r,
         }
     }
@@ -235,6 +249,16 @@ impl Res {
     pub fn with_stmt(&self) -> Option<usize> {
         match self {
             Res::With { with, .. } => Some(*with),
+            Res::Assumed { inner, .. } => inner.with_stmt(),
+            _ => None,
+        }
+    }
+
+    /// The unprobed assumption the resolution rests on, if any.
+    pub fn assumption(&self) -> Option<al_builtins::assumptions::Assumption> {
+        match self {
+            Res::Assumed { assumption, .. } => Some(*assumption),
+            Res::With { inner, .. } => inner.assumption(),
             _ => None,
         }
     }
@@ -246,6 +270,8 @@ pub struct Roots {
     /// The install baseline: the install codeunits of the dependency apps and Base Application's
     /// `Company-Initialize` (codeunit 2).
     pub baseline: bool,
+    /// Company Triggers raised by dependency installs in selected backup companies (ADR-046 amendment 9).
+    pub company_install_events: bool,
     /// With `baseline`: dependency codeunits (by id) whose `OnRun` the install baseline runs after `Company-Initialize`
     /// to build the company's data (`--company-data demotool`: the DemoTool's `Create Demo Data from Config`). Empty: none.
     pub company_data: Vec<u32>,
@@ -509,7 +535,7 @@ fn check_inner(
             // `login.rs`, al-runner issue 7343).
             let login = (n_old..ws.objects.len())
                 .any(|oi| !ws.is_dependency(oi) && !skip(oi) && ws.declares_login_subscriber(oi));
-            c.reach_install_events(roots.baseline, install_code, login);
+            c.reach_install_events(roots.baseline, install_code || roots.company_install_events, login);
             c.reach_test_runner(&roots.test_runners);
             c.reach_dependencies_on_workspace();
             if !roots.no_login_root {
@@ -1501,6 +1527,7 @@ pub(crate) use calls::BARE_REPORT_MEMBERS;
 mod conv;
 mod diag_index;
 mod enum_overload;
+mod field_enum;
 pub(crate) use enum_overload::EnumFit;
 pub(crate) use infer::in_request_page;
 mod fit;

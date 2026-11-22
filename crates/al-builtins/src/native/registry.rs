@@ -39,6 +39,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
         crate::evaluate::evaluate_memberless_var_option_element,
     ),
     ("System.EvaluateBounded#1", crate::evaluate::evaluate_bounded),
+    ("System.EvaluateDateVariable#1", crate::evaluate::evaluate_date_variable),
     ("System.EvaluateOptionField#1", crate::evaluate::evaluate_option_field),
     ("Blob.LengthSign#1", crate::stream::blob_length_sign),
     ("System.Abs#1", abs),

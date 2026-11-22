@@ -1238,6 +1238,7 @@ impl Session {
     /// A Duration field sums too, also one in no SumIndexFields (record/flowfields/CalcSumsDuration.al
     /// CalcSums_Duration_All, _Filtered, _NotInSumIndexFields; `FieldRef.CalcSum`: FieldRefCalcSumTypes).
     pub(crate) fn calc_sums(&mut self, rec: &Rec, positions: &[usize]) -> Result<(), Signal> {
+        self.relation_field_no_calc_sum(rec, positions)?;
         let engine = self.engine.clone();
         let table = rec.borrow().table as usize;
         let t = self.engine.tables[table].clone().expect("table");
@@ -1390,6 +1391,9 @@ impl Session {
                 let mut r = rec.borrow_mut();
                 if positions.is_empty() {
                     r.auto_calc.clear();
+                    // The record now calculates nothing of its own accord: its reads no longer rest on what its caller's
+                    // set was (`RecordState::auto_calc_dropped`).
+                    r.auto_calc_dropped = false;
                 } else {
                     for p in positions {
                         if !r.auto_calc.contains(&p) {
@@ -1403,9 +1407,18 @@ impl Session {
         Ok(Value::Boolean(true))
     }
 
-    /// After a row is read into `rec`: the fields of `SetAutoCalcFields`.
+    /// After a row is read into `rec`: the fields of `SetAutoCalcFields`. A row read of a by-value copy that did not take its
+    /// caller's SetAutoCalcFields (`RecordState::auto_calc_dropped`) rests on `by-value-record-no-auto-calc`, also when the
+    /// copy set fields of its own (record/filters/ByValueAutoCalcFields.al `ByValueAutoCalc_Codeunit_CalleeAddsAutoCalc`:
+    /// only those are calculated).
     pub(crate) fn auto_calculate(&mut self, rec: &Rec) -> Result<(), Signal> {
-        let auto = rec.borrow().auto_calc.clone();
+        let (auto, dropped) = {
+            let r = rec.borrow();
+            (r.auto_calc.clone(), r.auto_calc_dropped)
+        };
+        if dropped {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ByValueRecordNoAutoCalc);
+        }
         if auto.is_empty() {
             return Ok(());
         }

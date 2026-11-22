@@ -101,7 +101,11 @@ fn run(body: &str, routine: &str) -> Result<Value, Signal> {
     if let Some(Some(r)) = blocked.get(oi).and_then(|o| o.get(ri)) {
         panic!("{routine} is blocked: {r}");
     }
-    let engine = Engine::new(l.program, blocked);
+    let mut engine = Engine::new(l.program, blocked);
+    // A run reads the emit version of its build; here a fixed one, for the missing-table text.
+    std::sync::Arc::get_mut(&mut engine)
+        .expect("a fresh engine")
+        .emit_version = al_vm::emit_version::EmitVersion::known(29022);
     let mut s = Session::new(engine);
     let inst = s.instance(oi);
     s.call(oi, ri, inst, vec![]).map(|(v, _)| v)

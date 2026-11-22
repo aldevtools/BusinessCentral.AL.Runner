@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<testsuites name="hybrid" tests="30079" failures="0" errors="0" skipped="0" time="3575.229" timestamp="2026-11-19T18:14:05Z"><testsuite name="Codeunit 50893" tests="3" failures="0" errors="0" skipped="0" time="1.642" timestamp="2026-11-19T17:47:21Z">
+<testsuites name="hybrid" tests="30079" failures="0" errors="0" skipped="0" time="3047.873" timestamp="2026-11-22T07:52:06Z"><testsuite name="Codeunit 50893" tests="3" failures="0" errors="0" skipped="0" time="1.642" timestamp="2026-11-19T17:47:21Z">
     <properties><property name="source_run" value="44570648530" /><property name="source_attempt" value="1" /><property name="source_commit" value="8fcde9a6353f2de20e58c951efd0c4862ab1e558" /><property name="bc_build" value="29.0.54011.55816" /><property name="app" value="full" /></properties><testcase classname="Codeunit 50893" name="TestField_SetValue_GroupTwoEnumMatch_AcceptsTarget" time="1.571" />
     <testcase classname="Codeunit 50893" name="TestField_SetValue_GroupTwoEnumMismatch_RejectsTarget" time="0.059" />
     <testcase classname="Codeunit 50893" name="Record_Validate_GroupTwoEnumMismatch_RejectsTarget" time="0.012" />
@@ -21343,29 +21343,20 @@
     <testcase classname="Codeunit 75241" name="FromBase64_MSDos_CodePages" time="0.013" />
     <testcase classname="Codeunit 75241" name="FromBase64_EncodingOnly_Defaults" time="0.010" />
   </testsuite>
-  <testsuite name="Codeunit 75290" tests="22" failures="0" errors="0" skipped="0" time="3.620" timestamp="2026-11-19T18:06:19Z">
-    <properties><property name="source_run" value="44570648530" /><property name="source_attempt" value="1" /><property name="source_commit" value="8fcde9a6353f2de20e58c951efd0c4862ab1e558" /><property name="bc_build" value="29.0.54011.55816" /><property name="app" value="full" /></properties><testcase classname="Codeunit 75290" name="GZipDecompress_TrailerWrong_Size0" time="0.049" />
-    <testcase classname="Codeunit 75290" name="GZipDecompress_TrailerWrong_Size1" time="0.032" />
-    <testcase classname="Codeunit 75290" name="GZipDecompress_TrailerWrong_Size40" time="0.011" />
-    <testcase classname="Codeunit 75290" name="GZipDecompress_TrailerWrong_Size83" time="0.010" />
-    <testcase classname="Codeunit 75290" name="GZipDecompress_TrailerWrong_Size8192" time="0.013" />
-    <testcase classname="Codeunit 75290" name="GZipDecompress_TrailerWrong_Size65536" time="0.030" />
-    <testcase classname="Codeunit 75290" name="GZipDecompress_TrailerWrong_Size81920" time="0.098" />
-    <testcase classname="Codeunit 75290" name="GZipDecompress_TrailerWrong_Size163840" time="0.255" />
-    <testcase classname="Codeunit 75290" name="GZipDecompress_TrailerWrong_Size1MB" time="0.793" />
-    <testcase classname="Codeunit 75290" name="GZipDecompress_TrailerWrong_MoreSizes" time="0.192" />
-    <testcase classname="Codeunit 75290" name="GZipDecompress_TrailerWrong_MoreSizes2" time="0.691" />
-    <testcase classname="Codeunit 75290" name="GZipDecompress_NoiseSizes_CrcWrong" time="0.138" />
-    <testcase classname="Codeunit 75290" name="GZipDecompress_Noise1MB_TrailerAndMiddle" time="0.838" />
-    <testcase classname="Codeunit 75290" name="GZipDecompress_Pattern1MB_MiddleCorrupt" time="0.158" />
-    <testcase classname="Codeunit 75290" name="GZipDecompress_TwoMembers_SecondCrcWrong" time="0.033" />
-    <testcase classname="Codeunit 75290" name="GZipDecompress_TwoMembers_LargeFirst_SecondCrcWrong" time="0.127" />
-    <testcase classname="Codeunit 75290" name="GZipDecompress_HeaderFields_Trailer" time="0.041" />
-    <testcase classname="Codeunit 75290" name="GZipDecompress_TrailerWrong_Size2And82" time="0.019" />
-    <testcase classname="Codeunit 75290" name="GZipDecompress_CutInsideTrailer" time="0.023" />
-    <testcase classname="Codeunit 75290" name="GZipDecompress_Method99_HeaderShapes" time="0.025" />
-    <testcase classname="Codeunit 75290" name="GZipDecompress_CorruptFirstBlock_Shapes" time="0.021" />
-    <testcase classname="Codeunit 75290" name="GZipDecompress_ThreeAndFourByteStreams" time="0.023" />
+  <testsuite name="Codeunit 75290" tests="13" failures="0" errors="0" skipped="0" time="1.457" timestamp="2026-11-22T07:37:42Z">
+    <properties><property name="source_run" value="44996706204" /><property name="source_attempt" value="1" /><property name="source_commit" value="7fa7e9e2ba70162d860599da231f8daca0fd97ed" /><property name="bc_build" value="29.0.54011.55816" /><property name="app" value="full" /></properties><testcase classname="Codeunit 75290" name="GZipDecompress_TrailerWrong_Size0" time="0.062" />
+    <testcase classname="Codeunit 75290" name="GZipDecompress_TrailerWrong_Size1" time="0.044" />
+    <testcase classname="Codeunit 75290" name="GZipDecompress_TrailerWrong_Size40" time="0.015" />
+    <testcase classname="Codeunit 75290" name="GZipDecompress_TrailerWrong_Size83" time="0.013" />
+    <testcase classname="Codeunit 75290" name="GZipDecompress_TrailerWrong_Size8192" time="0.016" />
+    <testcase classname="Codeunit 75290" name="GZipDecompress_Noise1MB_TrailerAndMiddle" time="1.060" />
+    <testcase classname="Codeunit 75290" name="GZipDecompress_TwoMembers_SecondCrcWrong" time="0.041" />
+    <testcase classname="Codeunit 75290" name="GZipDecompress_HeaderFields_Trailer" time="0.050" />
+    <testcase classname="Codeunit 75290" name="GZipDecompress_TrailerWrong_Size2And82" time="0.026" />
+    <testcase classname="Codeunit 75290" name="GZipDecompress_CutInsideTrailer" time="0.031" />
+    <testcase classname="Codeunit 75290" name="GZipDecompress_Method99_HeaderShapes" time="0.036" />
+    <testcase classname="Codeunit 75290" name="GZipDecompress_CorruptFirstBlock_Shapes" time="0.032" />
+    <testcase classname="Codeunit 75290" name="GZipDecompress_ThreeAndFourByteStreams" time="0.031" />
   </testsuite>
   <testsuite name="Codeunit 75293" tests="11" failures="0" errors="0" skipped="0" time="0.287" timestamp="2026-11-19T18:06:23Z">
     <properties><property name="source_run" value="44570648530" /><property name="source_attempt" value="1" /><property name="source_commit" value="8fcde9a6353f2de20e58c951efd0c4862ab1e558" /><property name="bc_build" value="29.0.54011.55816" /><property name="app" value="full" /></properties><testcase classname="Codeunit 75293" name="ZipInBlob_TempTable_OneRound" time="0.078" />
@@ -37568,4 +37559,17 @@
     <testcase classname="Codeunit 99962" name="Y7412_RunModal_Variants" time="0.050" />
     <testcase classname="Codeunit 99962" name="Y7412_Run0_StatementForm" time="0.046" />
   </testsuite>
-</testsuites>
+<testsuite name="Codeunit 75294" tests="4" failures="0" errors="0" skipped="0" time="1.438" timestamp="2026-11-22T07:37:44Z">
+    <properties><property name="source_run" value="44996706204" /><property name="source_attempt" value="1" /><property name="source_commit" value="7fa7e9e2ba70162d860599da231f8daca0fd97ed" /><property name="bc_build" value="29.0.54011.55816" /><property name="app" value="full" /></properties><testcase classname="Codeunit 75294" name="GZipDecompress_TrailerWrong_Size65536" time="0.096" />
+    <testcase classname="Codeunit 75294" name="GZipDecompress_TrailerWrong_Size81920" time="0.117" />
+    <testcase classname="Codeunit 75294" name="GZipDecompress_TrailerWrong_Size1MB" time="1.033" />
+    <testcase classname="Codeunit 75294" name="GZipDecompress_Pattern1MB_MiddleCorrupt" time="0.192" />
+  </testsuite>
+  <testsuite name="Codeunit 75295" tests="5" failures="0" errors="0" skipped="0" time="1.768" timestamp="2026-11-22T07:37:46Z">
+    <properties><property name="source_run" value="44996706204" /><property name="source_attempt" value="1" /><property name="source_commit" value="7fa7e9e2ba70162d860599da231f8daca0fd97ed" /><property name="bc_build" value="29.0.54011.55816" /><property name="app" value="full" /></properties><testcase classname="Codeunit 75295" name="GZipDecompress_TrailerWrong_Size163840" time="0.363" />
+    <testcase classname="Codeunit 75295" name="GZipDecompress_TrailerWrong_MoreSizes" time="0.237" />
+    <testcase classname="Codeunit 75295" name="GZipDecompress_TrailerWrong_MoreSizes2" time="0.795" />
+    <testcase classname="Codeunit 75295" name="GZipDecompress_NoiseSizes_CrcWrong" time="0.180" />
+    <testcase classname="Codeunit 75295" name="GZipDecompress_TwoMembers_LargeFirst_SecondCrcWrong" time="0.193" />
+  </testsuite>
+  </testsuites>

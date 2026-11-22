@@ -1,8 +1,9 @@
 //! Who calls the procedure a record is handed to by value, and what else the caller's record holds (al-runner issue 8248,
 //! round 2 of its review): an interface call is not measured, nor is an event subscriber outside the shape of
 //! `by_value_subscriber.rs`, a table procedure is measured only as
-//! `Row.Proc(Row)` from a codeunit, and a record whose SetLoadFields after a read, SetAutoCalcFields or ReadIsolation the
-//! probe did not hand on is refused. Each neighbor that main answered keeps main's result.
+//! `Row.Proc(Row)` from a codeunit, and a record whose SetLoadFields after a read or ReadIsolation the probe did not hand
+//! on is refused (SetAutoCalcFields in the shape of `by_value_auto_calc.rs` runs flagged). Each neighbor that main answered
+//! keeps main's result.
 
 use crate::record_copy_reports::{PASS, VIEW_REFUSED, check, run};
 
@@ -199,15 +200,17 @@ codeunit 50166 "BD Test"
         Expect(Callee.LoadedAfterFind(Line), '');
     end;
 
+    // The copy does not keep SetAutoCalcFields (corpus PR 1473, record/filters/ByValueAutoCalcFields.al:289-306 in corpus PR 1485); the
+    // refused neighbors of that rule are in `by_value_auto_calc.rs`.
     [Test]
-    procedure SetAutoCalcFields_Refused()
+    procedure SetAutoCalcFields_Flagged()
     var
         Line: Record "BD Row";
     begin
         Seed(Line);
         Line.SetAutoCalcFields(Total);
         Line.SetRange(Status, Line.Status::Posted);
-        Expect(Callee.TotalAfterFind(Line), '');
+        Expect(Callee.TotalAfterFind(Line), '0');
     end;
 
     [Test]
@@ -275,7 +278,7 @@ fn by_value_copies_outside_the_measured_calls_and_record_state_refuse_or_keep_ma
         ("Interface_NoFilter_KeepsMain", PASS, false),
         ("TemporaryToInterface_Refused", VIEW_REFUSED, false),
         ("SetLoadFields_AfterARead_Refused", VIEW_REFUSED, false),
-        ("SetAutoCalcFields_Refused", VIEW_REFUSED, false),
+        ("SetAutoCalcFields_Flagged", PASS, true),
         ("ReadIsolation_Refused", VIEW_REFUSED, false),
         ("TableProcedure_SameRecord_Pinned", PASS, false),
         ("TableProcedure_OtherVariable_Refused", VIEW_REFUSED, false),
