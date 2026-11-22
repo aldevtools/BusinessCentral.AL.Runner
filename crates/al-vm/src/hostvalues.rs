@@ -233,10 +233,19 @@ impl Session {
                     other = other.describe()
                 )),
             },
-            // SelectLatestVersion drops what CaptionClassTranslate kept (types/PSCaptionClass.al:103-115); the session reads the
-            // store as it is, so there is nothing else to refresh.
+            // SelectLatestVersion drops what CaptionClassTranslate kept (types/PSCaptionClass.al:103-115). In a page background
+            // task's worker it also ends the query cache's row entries of the table, or of every table without one
+            // (`Session::note_select_latest_version`, open corpus PR 1495, BgTaskQueryCache.al:6729-6844).
             ids::DATABASE_SELECTLATESTVERSION_1 | ids::DATABASE_SELECTLATESTVERSION_2 => {
                 self.caption_translations.clear();
+                match args.first() {
+                    Some(Value::Integer(n)) => {
+                        if let Some(t) = self.table_object(i64::from(*n)) {
+                            self.note_select_latest_version(Some(t as u32));
+                        }
+                    }
+                    _ => self.note_select_latest_version(None),
+                }
                 Ok(Value::Null)
             }
             // corpus types/PSCaptionClass.al:5-8, :58-81 (CaptionClassTranslate_Expressions).

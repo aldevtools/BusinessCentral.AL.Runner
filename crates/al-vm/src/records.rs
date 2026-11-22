@@ -2068,6 +2068,7 @@ impl Session {
             if stored.is_none() {
                 let fields = rec.borrow().fields.clone();
                 let pk = Self::exact_key(rec, &t, &fields, "a Blob read")?;
+                self.refuse_blob_of_replayed(rec, &t, &pk)?;
                 stored = self
                     .store_for(rec)?
                     .get(&cx, &t, &pk)
@@ -2482,6 +2483,7 @@ impl Session {
             tally.note_record_op(method, rec.borrow().table as usize, args.is_empty());
         }
         self.own_read_after(method, rec, inserted, matches!(r, Ok(Value::Boolean(true))));
+        self.end_record_op_for_query_cache();
         r
     }
 

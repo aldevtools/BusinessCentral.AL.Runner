@@ -18,6 +18,9 @@ pub(crate) struct TableFacts {
     pub(crate) insert_unqueued: bool,
     /// The positions of the Blob fields, ascending, each with its kind (`blob_transfer::FieldKind::of`).
     pub(crate) blob_fields: Box<[(usize, FieldKind)]>,
+    /// The table has a Media or MediaSet field: the query cache of page background tasks keeps none of its reads
+    /// (`query_cache.rs`, no cell measures one).
+    pub(crate) media_fields: bool,
 }
 
 /// The facts of each object of `heads`, by object index; an object that is no table has the default ones.
@@ -46,6 +49,17 @@ pub(crate) fn of_heads(heads: &[ir::ObjectHead]) -> Vec<TableFacts> {
             insert_unqueued: o.table.as_ref().is_none_or(|t| {
                 t.fields.iter().any(|f| {
                     f.auto_increment || matches!(f.ty, RtType::Library(al_builtins::library_kind::LibraryKind::Blob))
+                })
+            }),
+            media_fields: o.table.as_ref().is_some_and(|t| {
+                t.fields.iter().any(|f| {
+                    matches!(
+                        f.ty,
+                        RtType::Library(
+                            al_builtins::library_kind::LibraryKind::Media
+                                | al_builtins::library_kind::LibraryKind::MediaSet
+                        )
+                    )
                 })
             }),
             code_sql_type: o.table.as_ref().is_some_and(|t| {

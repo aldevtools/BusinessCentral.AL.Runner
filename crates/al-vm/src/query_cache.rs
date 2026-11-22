@@ -12,15 +12,20 @@
 //!
 //! A row entry holds until a commit writes that row (:430, :804 against :741, :762, :784; also when no commit held the row
 //! before or after, an insert and a delete each committed: open corpus pull request 1495, the same file :1207; a commit of a
-//! ModifyAll or DeleteAll of the table ends it or keeps it by the target's minor, `al_version::bulk_commit_ends_cached_row`,
-//! and elsewhere a read it would answer otherwise than the table is refused); a group entry until a commit
-//! writes the table (:823, :845, :870, :891 against :451). A rollback changes neither (:983, :1016, :1029), and a found row, a
+//! ModifyAll or DeleteAll of another row of the table ends it or keeps it by the target's minor, :7009, :7016,
+//! `al_version::bulk_commit_ends_cached_row`; after a Truncate, and on a minor no cell measured, a read it would answer
+//! otherwise than the table is refused), or until a worker's `SelectLatestVersion` of the table or of every table (:6729,
+//! :6736, :6785, :6844; another table's keeps it, :6743; the test session's changes no answer, :6770, :6777, :6806, :6825,
+//! :6862, :6879); a group entry until a commit writes the table (:823, :845, :870, :891 against :451). A rollback changes neither (:983, :1016, :1029), and a found row, a
 //! missing row and a count are all kept (:604, :624, :692). The test session's own read of a form fills the cache while that
 //! session has not written the table since its last commit (:500, :541, :938; not after it wrote the table, :959), and a
 //! worker's first read then answers what the test read; the test session's own read answers from an entry a worker filled
 //! (:983), which is refused here. The cache starts empty in every test codeunit (:1044, :1067). Every other read keeps reading
 //! the rows as they are, as on main; BC answers a repeated FindLast, IsEmpty and FindFirst after a SetFilter from the cache too
-//! (open corpus pull request 1495, :1276, :1293, :1312), which is not modelled yet.
+//! (open corpus pull request 1495, :1238, :1255, :1274), which is not modelled yet. A table with a Blob field is cached as any
+//! other (:6897), and CalcFields of a Blob of a row the cache answered with another row is refused; a table with a Media or
+//! MediaSet field is not cached (no cell). The cache keeps no notes at all in a program whose own apps run no page background
+//! task (`Session::query_cache_on`).
 
 use crate::records::Rec;
 use crate::{Session, Signal};
@@ -31,7 +36,8 @@ use al_builtins::native::unsupported;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::Value;
 use al_data::{AccessContext, Store, TableDef};
-use std::collections::HashMap;
+use al_version::BulkWrite;
+use std::collections::{HashMap, HashSet};
 use std::rc::{Rc, Weak};
 
 /// Entries by table (object, company) and a text of their key values that may be shared by other keys; the key values
@@ -44,6 +50,35 @@ type Bucket = (u32, Option<String>, String);
 impl<T> Default for Entries<T> {
     fn default() -> Self {
         Entries(HashMap::new())
+    }
+}
+
+/// Whether code of an app compiled for the run calls `CurrPage.EnqueueBackgroundTask` or `TestPage.RunPageBackgroundTask`
+/// (`Session::query_cache_on`), worked out once per engine (`Engine::derived`).
+struct BgTaskCode(bool);
+
+impl BgTaskCode {
+    fn of(program: &al_ir::Program) -> BgTaskCode {
+        let ids = [
+            al_ir::BuiltinId::of("Page.EnqueueBackgroundTask#1"),
+            al_ir::BuiltinId::of("TestPage.RunPageBackgroundTask#1"),
+        ];
+        let heads = program.objects.heads();
+        let found = heads.iter().enumerate().any(|(i, h)| {
+            !h.uncompiled
+                && h.routine_count > 0
+                && program.apps.get(h.app as usize).is_some_and(|a| !a.dependency)
+                && program.objects[i].routines.iter().any(|r| {
+                    let mut hit = false;
+                    al_ir::types::for_each_expr_post(&r.body, &mut |e| {
+                        if let al_ir::Expr::Builtin { id, .. } = e {
+                            hit |= ids.contains(&Some(*id));
+                        }
+                    });
+                    hit
+                })
+        });
+        BgTaskCode(found)
     }
 }
 
@@ -82,17 +117,29 @@ impl<T> Entries<T> {
             None => bucket.push((at.values.clone(), value)),
         }
     }
+
+    /// Inserts `value` at `at` unless an entry is there: whether it was not.
+    fn insert_new(&mut self, at: &At, value: T) -> bool {
+        let bucket = self.0.entry(at.bucket()).or_default();
+        if bucket.iter().any(|(k, _)| same_rows(k, &at.values)) {
+            return false;
+        }
+        bucket.push((at.values.clone(), value));
+        true
+    }
 }
 
 /// What a commit had left of a row when the cache took it: the row's SystemRowVersion (`None`: no committed row), the
-/// table's commit stamp, how many commits carried a ModifyAll, DeleteAll or Truncate of the table, and how many commits wrote
-/// the row itself by Insert, Modify or Delete.
+/// table's commit stamp, how many commits carried a ModifyAll, a DeleteAll and a Truncate of the table (by
+/// `BulkWrite as usize`), how many commits wrote the row itself by Insert, Modify or Delete, and how many SelectLatestVersion
+/// calls of a worker covered the table.
 #[derive(Clone, Copy, PartialEq)]
 struct Committed {
     version: Option<i64>,
     stamp: Option<u64>,
-    bulk: u64,
+    bulk: [u64; 3],
     writes: u64,
+    selects: u64,
 }
 
 /// Whether an entry taken at `then` still holds `now`.
@@ -101,27 +148,45 @@ enum Holds {
     Yes,
     No,
     /// No committed row then or now, and a commit wrote the table since: whether a commit wrote this row in between (an
-    /// insert, then a delete) is not known.
+    /// insert, then a delete) is not known; or a commit of a bulk write whose effect on the target is not measured.
     Unknown,
 }
 
-/// Whether an entry taken at `then` still holds `now`; `bulk_ends`: whether a commit of a ModifyAll of another row of the table
-/// ends it on the target (`al_version::bulk_commit_ends_cached_row`). A commit that wrote the row ends it, also when no commit
-/// held the row before or after (an insert and a delete, each committed: corpus PR 1495, BgTaskQueryCache.al:1207).
-fn holds(then: Committed, now: Committed, bulk_ends: Option<bool>) -> Holds {
-    if then.version != now.version || then.writes != now.writes {
-        Holds::No
-    } else if then.bulk != now.bulk && bulk_ends != Some(false) {
-        if bulk_ends == Some(true) {
-            Holds::No
-        } else {
-            Holds::Unknown
+/// Whether an entry taken at `then` still holds `now`; `bulk_ends`: per `BulkWrite`, whether a commit of that write of another
+/// row of the table ends it on the target (`al_version::bulk_commit_ends_cached_row`). A commit that wrote the row ends it, also
+/// when no commit held the row before or after (an insert and a delete, each committed: corpus PR 1495,
+/// BgTaskQueryCache.al:1207), and so does a worker's SelectLatestVersion of the table (:6729, :6736, :6785, :6844; another
+/// table's, :6743, does not).
+fn holds(then: Committed, now: Committed, bulk_ends: [Option<bool>; 3]) -> Holds {
+    if then.version != now.version || then.writes != now.writes || then.selects != now.selects {
+        return Holds::No;
+    }
+    let bulk = (0..3).filter(|&k| then.bulk[k] != now.bulk[k]).map(|k| bulk_ends[k]);
+    let mut unknown = false;
+    for ends in bulk {
+        match ends {
+            Some(true) => return Holds::No,
+            Some(false) => {}
+            None => unknown = true,
         }
+    }
+    if unknown {
+        Holds::Unknown
     } else if then.stamp == now.stamp || now.version.is_some() {
         Holds::Yes
     } else {
         Holds::Unknown
     }
+}
+
+/// What a commit had left of a table when the cache took a group read: the table's commit stamp, and how many SelectLatestVersion
+/// calls of a worker covered the table. A worker's SelectLatestVersion before a group read is not measured (the reads answered
+/// otherwise at two read sites, the comment at BgTaskQueryCache.al:6534); the test session's changes no group answer (:6862,
+/// :6879).
+#[derive(Clone, Copy, PartialEq)]
+struct GroupThen {
+    stamp: Option<u64>,
+    selects: u64,
 }
 
 #[derive(Clone)]
@@ -133,23 +198,33 @@ enum GroupAnswer {
 /// What the cache holds for one codeunit run (`Session::reset_query_cache` empties it).
 #[derive(Default)]
 pub(crate) struct QueryCache {
+    /// Whether the program has code that runs a page background task (`Session::query_cache_on`); `None` until asked.
+    on: Option<bool>,
     /// The rows workers read.
     rows: Entries<(Committed, Option<Vec<Value>>)>,
-    /// The groups workers read, with the table's commit stamp then.
-    groups: Entries<(Option<u64>, GroupAnswer)>,
+    /// The groups workers read.
+    groups: Entries<(GroupThen, GroupAnswer)>,
     /// The rows the test session read while it had not written their table.
     test_rows: Entries<Committed>,
-    /// The groups the test session read while it had not written their table: the table's commit stamp then.
-    test_groups: Entries<Option<u64>>,
-    /// The next load into a partial record loads a row the cache answered with another row than the table holds.
+    /// The groups the test session read while it had not written their table.
+    test_groups: Entries<GroupThen>,
+    /// The next load into a partial record loads a row the cache answered with another row than the table holds; set back
+    /// at the end of every record method (`Session::end_record_op_for_query_cache`).
     replay_load: bool,
-    /// The commits that carried a ModifyAll, DeleteAll or Truncate, by table (`Session::note_commit_for_query_cache`).
-    bulk_commits: HashMap<u32, u64>,
+    /// The commits that carried a ModifyAll, a DeleteAll or a Truncate, by table and write
+    /// (`Session::note_commit_for_query_cache`).
+    bulk_commits: HashMap<(u32, BulkWrite), u64>,
     /// The commits that wrote a row by Insert, Modify or Delete, by row (`Session::note_commit_for_query_cache`).
     row_commits: Entries<u64>,
+    /// A worker's SelectLatestVersion calls without a table, and with one, by table (`Session::note_select_latest_version`).
+    selects_all: u64,
+    selects: HashMap<u32, u64>,
     /// The rows of such loads (`Buffer::fetched`, shared by copies of the record, replaced by its next fetch): a load of a field
     /// `SetLoadFields` left out is refused (BC loads it from the cached row, :714; the runner would load it from the table).
     replayed: Vec<Weak<Vec<Value>>>,
+    /// The rows a worker's read answered with another row than the table holds: CalcFields of a Blob of one is refused there
+    /// (`Session::refuse_blob_of_replayed`).
+    replayed_rows: Entries<()>,
 }
 
 fn same_rows(a: &[Value], b: &[Value]) -> bool {
@@ -181,57 +256,97 @@ impl Session {
         self.pages.query_cache = QueryCache::default();
     }
 
+    /// Whether the cache keeps notes at all: only when code of an app compiled for the run (not a dependency app, ADR-013) calls
+    /// `CurrPage.EnqueueBackgroundTask` or `TestPage.RunPageBackgroundTask` (review of PR 8490, MED 4: no cost for a program
+    /// that runs no page background task). Dependency apps are not walked: their objects are decoded only when a run touches
+    /// them (ADR-054). Without such code, a worker of a dependency app's page reads the rows as they are, as on main.
+    fn query_cache_on(&mut self) -> bool {
+        if let Some(on) = self.pages.query_cache.on {
+            return on;
+        }
+        let program = self.engine.program.clone();
+        let on = self.engine.derived(|| BgTaskCode::of(&program)).0;
+        self.pages.query_cache.on = Some(on);
+        on
+    }
+
     /// The open transaction commits: the tables it wrote by ModifyAll, DeleteAll or Truncate count one more such commit, and so
     /// does each row it wrote by Insert, Modify or Delete.
     pub(crate) fn note_commit_for_query_cache(&mut self) {
         use crate::state::TxWriteKind as K;
+        if self.tx.open.writes.is_empty() || !self.query_cache_on() {
+            return;
+        }
         let cache = &mut self.pages.query_cache;
-        let mut tables: Vec<u32> = self
-            .tx
-            .open
-            .writes
-            .iter()
-            .filter(|w| matches!(w.kind, K::ModifyAll | K::DeleteAll | K::Truncate))
-            .map(|w| w.table)
-            .collect();
-        tables.sort_unstable();
-        tables.dedup();
-        for t in tables {
-            *cache.bulk_commits.entry(t).or_default() += 1;
-        }
-        let mut rows: Vec<At> = Vec::new();
+        let mut tables: HashSet<(u32, BulkWrite)> = HashSet::new();
+        let mut rows: Entries<()> = Entries::default();
         for w in &self.tx.open.writes {
-            let at = At {
-                table: w.table,
-                company: w.company.clone(),
-                values: w.pk.clone(),
+            let kind = match w.kind {
+                K::ModifyAll => BulkWrite::ModifyAll,
+                K::DeleteAll => BulkWrite::DeleteAll,
+                K::Truncate => BulkWrite::Truncate,
+                K::Insert | K::Modify | K::Delete => {
+                    let at = At {
+                        table: w.table,
+                        company: w.company.clone(),
+                        values: w.pk.clone(),
+                    };
+                    if rows.insert_new(&at, ()) {
+                        let n = cache.row_commits.get(&at).copied().unwrap_or(0);
+                        cache.row_commits.insert(&at, n + 1);
+                    }
+                    continue;
+                }
+                _ => continue,
             };
-            if matches!(w.kind, K::Insert | K::Modify | K::Delete)
-                && !rows
-                    .iter()
-                    .any(|r| r.table == at.table && r.company == at.company && same_rows(&r.values, &at.values))
-            {
-                rows.push(at);
+            if tables.insert((w.table, kind)) {
+                *cache.bulk_commits.entry((w.table, kind)).or_default() += 1;
             }
-        }
-        for at in rows {
-            let n = cache.row_commits.get(&at).copied().unwrap_or(0);
-            cache.row_commits.insert(&at, n + 1);
         }
     }
 
-    fn bulk_ends(&self) -> Option<bool> {
-        al_version::bulk_commit_ends_cached_row(self.engine.target.as_ref())
+    /// `Database.SelectLatestVersion` (`table`: the overload with a table number). In a worker the reads of the rows of the
+    /// table (every table without one) that follow go to the table (:6729, :6736, :6785, :6844; another table's changes nothing,
+    /// :6743). In the test session it changes no answer of a worker's read (:6770, :6777, :6806, :6825, :6862, :6879).
+    pub(crate) fn note_select_latest_version(&mut self, table: Option<u32>) {
+        if !self.in_worker() || !self.query_cache_on() {
+            return;
+        }
+        let cache = &mut self.pages.query_cache;
+        match table {
+            Some(t) => *cache.selects.entry(t).or_default() += 1,
+            None => cache.selects_all += 1,
+        }
+    }
+
+    fn selects_of(&self, table: u32) -> u64 {
+        let cache = &self.pages.query_cache;
+        cache.selects_all + cache.selects.get(&table).copied().unwrap_or(0)
+    }
+
+    fn bulk_ends(&self) -> [Option<bool>; 3] {
+        let target = self.engine.target.as_ref();
+        [BulkWrite::ModifyAll, BulkWrite::DeleteAll, BulkWrite::Truncate]
+            .map(|kind| al_version::bulk_commit_ends_cached_row(target, kind))
     }
 
     fn in_worker(&self) -> bool {
         self.pages.bg_worker.is_some()
     }
 
-    /// Whether `rec` reads as every measured read does: a database table of the session's company, the primary key,
-    /// ascending, no marks, the default ReadIsolation and SecurityFiltering, no SetAutoCalcFields, no LockTable of its table, and (with
-    /// `all_fields`) no `SetLoadFields`.
+    /// A record method ended: a load the cache's answer was for did not follow (review of PR 8490, LOW 10).
+    pub(crate) fn end_record_op_for_query_cache(&mut self) {
+        self.pages.query_cache.replay_load = false;
+    }
+
+    /// Whether `rec` reads as every measured read does: a database table of the session's company with no Media or MediaSet
+    /// field (no cell has one; a Blob field is measured, :6897), the primary key, ascending, no marks, the default ReadIsolation
+    /// and SecurityFiltering, no SetAutoCalcFields, no LockTable of its table, and (with `all_fields`) no `SetLoadFields`; and
+    /// whether the program runs page background tasks at all (`query_cache_on`).
     fn cached_form(&mut self, rec: &Rec, t: &TableDef, all_fields: bool) -> Result<bool, Signal> {
+        if !self.query_cache_on() || self.engine.table_facts[t.object as usize].media_fields {
+            return Ok(false);
+        }
         let plain = {
             let r = rec.borrow();
             !r.temporary
@@ -320,16 +435,20 @@ impl Session {
             .committed_get(cx, t, pk)
             .and_then(|row| crate::stale_rename::row_version(t, &row));
         let stamp = store.committed_stamp(cx, t);
+        let selects = self.selects_of(t.object);
         let cache = &self.pages.query_cache;
+        let bulk = [BulkWrite::ModifyAll, BulkWrite::DeleteAll, BulkWrite::Truncate]
+            .map(|kind| cache.bulk_commits.get(&(t.object, kind)).copied().unwrap_or(0));
         Ok(Committed {
             version,
             stamp,
-            bulk: cache.bulk_commits.get(&t.object).copied().unwrap_or(0),
+            bulk,
             writes: cache
                 .row_commits
                 .get(&Self::at(rec, t, pk.to_vec()))
                 .copied()
                 .unwrap_or(0),
+            selects,
         })
     }
 
@@ -396,20 +515,49 @@ impl Session {
         };
         match self.cached_group(rec, cx, t, values, GroupAnswer::First(fresh.clone()))? {
             GroupAnswer::First(row) => {
-                self.answered(&row, &fresh);
+                let at = row
+                    .as_ref()
+                    .map(|r| Self::at(rec, t, t.keys[0].iter().map(|&f| r[f].clone()).collect()));
+                self.answered(t, at.as_ref(), &row, &fresh);
                 Ok(row)
             }
             GroupAnswer::Count(_) => Ok(fresh),
         }
     }
 
-    /// A worker's read answers `answer` where the table holds `fresh`: flagged, and noted for the load that follows.
-    fn answered(&mut self, answer: &Option<Vec<Value>>, fresh: &Option<Vec<Value>>) {
+    /// A worker's read answers `answer` (a row of table `t` at `at`) where the table holds `fresh`: flagged, and noted for the
+    /// load that follows and for a CalcFields of a Blob of the row.
+    fn answered(&mut self, t: &TableDef, at: Option<&At>, answer: &Option<Vec<Value>>, fresh: &Option<Vec<Value>>) {
         let replayed = self.in_worker() && !same_row(answer, fresh);
         if replayed {
             assume(Assumption::BackgroundTaskQueryCache);
+            if let Some(at) = at
+                && !self.engine.table_facts[t.object as usize].blob_fields.is_empty()
+            {
+                self.pages.query_cache.replayed_rows.insert(at, ());
+            }
         }
         self.pages.query_cache.replay_load = replayed && answer.is_some();
+    }
+
+    /// CalcFields of a Blob of the row of `rec` with primary key `pk`, in a worker: refused when the cache answered a read of
+    /// that row with another row than the table holds (review of PR 8490, MED 2): BC's CalcFields of a Blob in a worker waits for
+    /// the rows the test codeunit wrote (the comment at BgTaskQueryCache.al:6534, not modelled), the runner would read the
+    /// table's Blob next to the cached fields.
+    pub(crate) fn refuse_blob_of_replayed(&self, rec: &Rec, t: &TableDef, pk: &[Value]) -> Result<(), Signal> {
+        if self.in_worker()
+            && self
+                .pages
+                .query_cache
+                .replayed_rows
+                .get(&Self::at(rec, t, pk.to_vec()))
+                .is_some()
+        {
+            return unsupported(
+                "CalcFields of a Blob of a row a page background task's read answered from the query cache (not modelled)",
+            );
+        }
+        Ok(())
     }
 
     /// The row with primary key `pk` that a read of `rec` found as `fresh`: what the read answers.
@@ -441,13 +589,13 @@ impl Session {
             },
         };
         self.pages.query_cache.rows.insert(&at, (now, answer.clone()));
-        self.answered(&answer, &fresh);
+        self.answered(t, Some(&at), &answer, &fresh);
         Ok(answer)
     }
 
     const UNKNOWN_ROW: &str = "a page background task's read of a row whose query cache entry a later commit of the table may \
-                               have ended (a commit of a ModifyAll or DeleteAll, or of the table when no commit held the row; \
-                               not measured)";
+                               have ended (a commit of a ModifyAll, DeleteAll or Truncate, or of the table when no commit held \
+                               the row; not measured)";
 
     /// The test session's own read of a row: it notes the row while the session has not written the table since its last
     /// commit (:500, :541, :938), and is refused where a worker's entry answers otherwise than the table (:983, not modelled).
@@ -483,28 +631,38 @@ impl Session {
         fresh: GroupAnswer,
     ) -> Result<GroupAnswer, Signal> {
         let at = Self::at(rec, t, values);
-        let stamp = self.store_for(rec)?.committed_stamp(cx, t);
+        let now = GroupThen {
+            stamp: self.store_for(rec)?.committed_stamp(cx, t),
+            selects: self.selects_of(t.object),
+        };
         let written = self.store_for(rec)?.written_since_commit(cx, t);
         let cache = &self.pages.query_cache;
         let entry = cache
             .groups
             .get(&at)
-            .filter(|(then, _)| *then == stamp)
-            .map(|(_, a)| a.clone());
+            .filter(|(then, _)| then.stamp == now.stamp)
+            .map(|(then, a)| (then.selects == now.selects, a.clone()));
         if !self.in_worker() {
             if written {
                 return Ok(fresh);
             }
-            if entry.as_ref().is_some_and(|a| !same_group(a, &fresh)) {
+            if entry.as_ref().is_some_and(|(_, a)| !same_group(a, &fresh)) {
                 return unsupported(TEST_READ_REFUSAL);
             }
-            self.pages.query_cache.test_groups.insert(&at, stamp);
+            self.pages.query_cache.test_groups.insert(&at, now);
             return Ok(fresh);
         }
         let answer = match entry {
-            Some(a) => a,
+            Some((true, a)) => a,
+            Some((false, a)) if !same_group(&a, &fresh) => {
+                return unsupported(
+                    "a group read of a page background task after its SelectLatestVersion, which the query cache would answer \
+                     otherwise than the table (not measured)",
+                );
+            }
+            Some((false, _)) => fresh.clone(),
             // The test session read the group before it wrote the table: what BC answers then is not measured.
-            None if written && cache.test_groups.get(&at) == Some(&stamp) => {
+            None if written && cache.test_groups.get(&at) == Some(&now) => {
                 return unsupported(
                     "a group read of a page background task after the test session read the group and then wrote the table (the \
                      query cache's answer is not measured, BgTaskQueryCache.al:938 measures a row)",
@@ -512,7 +670,7 @@ impl Session {
             }
             None => fresh.clone(),
         };
-        self.pages.query_cache.groups.insert(&at, (stamp, answer.clone()));
+        self.pages.query_cache.groups.insert(&at, (now, answer.clone()));
         // A FindFirst is flagged by `answered`.
         if matches!(answer, GroupAnswer::Count(_)) && !same_group(&answer, &fresh) {
             assume(Assumption::BackgroundTaskQueryCache);
