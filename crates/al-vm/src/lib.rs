@@ -15,6 +15,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 mod autoinc;
+mod bg_readisolation_lock;
 mod bgsession;
 mod blob_copy;
 mod blob_transfer;
@@ -55,7 +56,7 @@ pub use profile::{
     DbStat, PosStat, ProfFrame, ProfNode, ProfileMode, ProfileTree, reaches_database,
     routine_label as profile_routine_label,
 };
-pub use state_stamp::{LeftChange, LeftStamp, StateStamp};
+pub use state_stamp::{LeftChange, LeftStamp, StateLines, StateStamp};
 pub use test_runner_host::TestCodeunitHost;
 mod auto_format_writer;
 mod callstack;
@@ -157,6 +158,8 @@ mod sqltime;
 mod stale_buffer_origin;
 mod stale_own_modify;
 mod stale_rename;
+mod state_facts;
+mod state_render;
 mod state_stamp;
 mod table_facts;
 mod tasks;
@@ -721,9 +724,11 @@ impl Engine {
         self.codeunits.get(&id).and_then(|c| c.any)
     }
 
-    /// The value of type `T` made from this engine's program, made by `make` the first time it is asked for and shared
-    /// by every session and thread of the engine after that: for data that depends on the program alone (al-testrun's
-    /// index of the static reach). `make` must not ask the engine for derived data itself.
+    /// The value of type `T` made by `make` the first time it is asked for and shared by every session and thread of the
+    /// engine after that: for data that depends on the program alone (al-testrun's index of the static reach), and for
+    /// state that lives as long as the engine and that every session adds to, as one value (al-testrun's login replay
+    /// check, `login_replay.rs`: its tally behind a lock, across the engine's requests). `make` must not ask the engine
+    /// for derived data itself.
     pub fn derived<T: std::any::Any + Send + Sync>(&self, make: impl FnOnce() -> T) -> Arc<T> {
         let mut slots = self.derived.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let slot = slots
@@ -871,6 +876,8 @@ pub struct Session {
     pub(crate) isolated_set_in_test: std::collections::HashSet<(String, String)>,
     /// The isolated storage keys this test codeunit set, in this test or an earlier one (isolated_storage_reads.rs).
     pub(crate) isolated_written_in_codeunit: std::collections::HashSet<(String, String)>,
+    /// The rows this test codeunit wrote and the tables it locked, as a page background task's locking read meets them.
+    pub(crate) row_locks: bg_readisolation_lock::CodeunitRowLocks,
     /// What a later test of the running codeunit may not reach (`storage_checkpoint.rs`).
     unmeasured: storage_checkpoint::Unmeasured,
     /// The TaskScheduler tasks this session created (`tasks.rs`).
@@ -1022,7 +1029,8 @@ pub struct Session {
     /// (`Ctx::field_error_with_form`); `None` outside such a call.
     pub(crate) field_error_form: Option<al_builtins::native::ErrorTextForm>,
     /// The parameters of the routine that just failed with an error, as it left them:
-    /// the caller writes its `var` arguments back before it handles the error.
+    /// the caller writes its `var` arguments back before it handles the error. Each call site clears it before its call
+    /// (interp.rs), so it takes only what its own routine left; see caught_errors.rs.
     pub(crate) error_finals: Option<Vec<Value>>,
     /// The scalar globals passed by `var` to a procedure call that is still running. BC passes the argument by reference,
     /// the runtime copies it in and back; the two differ only when code reaches the global by its own name while the call
@@ -1192,6 +1200,8 @@ pub struct Session {
     /// the session company's rows as they were, so the rows install code wrote there are known
     /// (`Session::copy_company`, `Session::cx_for`).
     pub(crate) full_copies: std::collections::BTreeSet<String>,
+    /// Rows whose SystemRowVersion is the Insert's, not BC's (`crate::state::RestampedRows`).
+    pub(crate) restamped_rows: Vec<crate::state::RestampedRows>,
     /// While `Database.CopyCompany` inserts the Company row: why the `RunTrigger` of the Company's insert events is not
     /// known. The subscribers get it as an unknown value (`Session::table_event`).
     pub(crate) run_trigger_unknown: Option<&'static str>,
@@ -1382,6 +1392,7 @@ impl Session {
             backed_companies,
             company_unknown: Default::default(),
             full_copies: Default::default(),
+            restamped_rows: Vec::new(),
             run_trigger_unknown: None,
             package_load: false,
             sleep_budget: None,
@@ -1468,6 +1479,7 @@ impl Session {
             isolated_committed: Default::default(),
             isolated_set_in_test: Default::default(),
             isolated_written_in_codeunit: Default::default(),
+            row_locks: Default::default(),
             unmeasured: Default::default(),
             tasks: Default::default(),
             install_scope: false,
@@ -1591,7 +1603,9 @@ impl Session {
 
     /// Makes every change so far durable (and a Truncate of this transaction final).
     pub fn commit_transaction(&mut self) {
+        self.note_row_locks_commit();
         self.guarded_body_commit();
+        self.send_pending_inserts();
         al_data::Store::commit(&mut self.store);
         self.crm_committed();
         self.commits += 1;
@@ -1661,6 +1675,7 @@ impl Session {
     }
 
     pub fn rollback_transaction(&mut self) {
+        self.note_row_locks_rollback();
         self.note_rollback_for_stale_rule();
         al_data::Store::rollback(&mut self.store);
         self.rollbacks += 1;

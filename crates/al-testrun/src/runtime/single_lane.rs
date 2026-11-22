@@ -25,6 +25,7 @@
 //! Amendment 6: with `--test-suites` (`RunOptions::test_suites`) each listed suite is a BC session of its own, in the
 //! file's order, and a codeunit in no suite is a session of its own ([`streams`]); without it the whole run is one.
 
+use super::carry_after::After;
 use super::chain_walk::Carry as ChainCarry;
 use super::lane_starts::{Ask, Deltas, Held, Reply, Starts, carried_start};
 use super::order_hint::STRICT_FLAG;
@@ -607,16 +608,13 @@ struct Chain {
 /// Where a codeunit of a serial session starts, worked out on this thread (amendment 5). A baseline a carry-chain
 /// member left (RequiredTestIsolation = Disabled) holds `Rc`s and stays on the thread that made it, so a worker thread
 /// asks this thread for it as bytes ([`Starts`]), as the chain walk's helpers do (`chain_walk.rs`). The same choices as
-/// [`Lane::run_bound`].
+/// [`Lane::run_bound`] (`carry_after.rs` `run_in_session`).
 struct Step {
     k: usize,
-    /// A chain member starts from what the member before it left (the index of that member's carry); `None`: the
-    /// install baseline.
-    from: Option<usize>,
-    /// A codeunit that is no member and comes after one: whether it reaches session storage that member changed (then
-    /// it runs again whatever it read), and the carry it runs again from when it read a table that member wrote
-    /// (`None`: it keeps its first run).
-    again: Option<(bool, Option<usize>)>,
+    /// It is a chain member.
+    member: bool,
+    /// The carry of the last member it comes after (its index) and what of it the codeunit's run looks at.
+    after: Option<(usize, After)>,
 }
 
 /// A carried start a session needs cannot be written as bytes: the session runs on this thread from the baselines
@@ -642,31 +640,22 @@ impl Worker<'_> {
     ) -> Result<Option<UnitResult>, NoBytes> {
         let mut u = self.units[s.k].clone();
         u.watch = false;
-        let first = match s.from {
-            Some(carry) => match start(carry)? {
-                Some(b) => Some(b),
-                None => return Ok(None),
-            },
-            None => None,
+        let ci = s.after.as_ref().map(|(ci, _)| *ci);
+        let mut carried = || match ci {
+            Some(ci) => start(ci).map(|b| b.map(std::borrow::Cow::Owned)),
+            None => Ok(None),
         };
-        let mut r = run_unit(
-            self.engine,
-            self.lowered,
-            first.as_ref().or(install),
-            &u,
-            None,
-            self.limit,
-        );
-        drop(first);
-        if let Some((storage, again)) = s.again {
-            if storage || r.result.as_ref().is_ok_and(|done| done.5.leak_hit) {
-                let Some(carry) = again else { return Ok(None) };
-                let Some(from) = start(carry)? else { return Ok(None) };
-                super::run::CARRIED.with(|c| c.borrow_mut().take());
-                r = run_unit(self.engine, self.lowered, Some(&from), &u, None, self.limit);
-            }
-        }
-        Ok(Some(r))
+        let mut run = |from: Option<&al_vm::Baseline>, leak| {
+            u.leak = leak;
+            run_unit(self.engine, self.lowered, from, &u, None, self.limit)
+        };
+        super::carry_after::run_in_session(
+            s.after.as_ref().map(|(_, a)| a),
+            s.member,
+            install,
+            &mut carried,
+            &mut run,
+        )
     }
 }
 
@@ -1109,35 +1098,18 @@ impl Lane<'_> {
     fn plan(&self, order: &[usize]) -> Vec<Step> {
         order
             .iter()
-            .map(|&k| {
-                let Some(ci) = self.earlier_carry_index(k) else {
-                    return Step {
-                        k,
-                        from: None,
-                        again: None,
-                    };
-                };
-                let c = &self.carried[ci].3;
-                let start = match (&c.unfinished, &c.storage_why, &c.baseline) {
-                    (None, None, Some(_)) => Some(ci),
-                    _ => None,
-                };
-                if self.is_member(k) {
-                    return Step {
-                        k,
-                        from: start,
-                        again: None,
-                    };
-                }
-                let storage =
-                    c.everything && super::corpus::reaches_session_storage(self.engine, self.lowered, self.units[k].oi);
-                Step {
-                    k,
-                    from: None,
-                    again: Some((storage, start)),
-                }
+            .map(|&k| Step {
+                k,
+                member: self.is_member(k),
+                after: self.earlier_carry_index(k).map(|ci| (ci, self.after(ci, k))),
             })
             .collect()
+    }
+
+    /// What codeunit `k` looks at of carry `ci`.
+    fn after(&self, ci: usize, k: usize) -> After {
+        let (_, _, leg, c) = &self.carried[ci];
+        After::new(self.engine, self.lowered, c, self.units[k].oi, *leg)
     }
 
     /// The index of the last chain member's carry (RequiredTestIsolation = Disabled) that codeunit `k` comes after.
@@ -1148,42 +1120,29 @@ impl Lane<'_> {
             .rposition(|(si, id, leg, _)| (si, id) != (&u.si, &u.id) && (self.sees)(*si, *id, *leg, u))
     }
 
-    /// The last chain member's carry that codeunit `k` comes after, if any.
-    fn earlier_carry(&self, k: usize) -> Option<&ChainCarry> {
-        self.earlier_carry_index(k).map(|i| &self.carried[i])
-    }
-
-    /// Runs codeunit `k` of a session bound to this thread. `None`: it keeps its first run.
+    /// Runs codeunit `k` of a session bound to this thread. `None`: it keeps its first run. A codeunit that comes after
+    /// a member runs as `carry_after.rs` `run_in_session` says: the walk's rule for a member, and for one outside the
+    /// chain the re-run of `corpus.rs` (a default test handler that writes to a SingleInstance log for every test codeunit
+    /// puts every codeunit in the lane: corpus Y35OnRunStorage.al:453, C302_B2_TestWritesStorage).
     fn run_bound(&self, k: usize) -> Option<UnitResult> {
         let mut u = self.units[k].clone();
         u.watch = false;
-        let earlier = self.earlier_carry(k);
-        let base = match earlier {
-            Some((_, _, _, c)) if self.is_member(k) && c.unfinished.is_none() && c.storage_why.is_none() => {
-                c.baseline.as_ref().or(self.baseline)
-            }
-            _ => self.baseline,
+        let ci = self.earlier_carry_index(k);
+        let after = ci.map(|ci| self.after(ci, k));
+        let start = ci.and_then(|ci| self.carried[ci].3.baseline.as_ref());
+        let mut carried = || Ok::<_, std::convert::Infallible>(start.map(std::borrow::Cow::Borrowed));
+        let mut run = |from: Option<&al_vm::Baseline>, leak| {
+            u.leak = leak;
+            run_unit(self.engine, self.lowered, from, &u, None, self.limit)
         };
-        let mut r = run_unit(self.engine, self.lowered, base, &u, None, self.limit);
-        // A codeunit that is no chain member runs from the install baseline, and runs again from what an earlier
-        // member left when it read a table that member wrote or reaches session storage (`corpus.rs`, "run as
-        // before"). The lane does the same, or a codeunit in it loses the rows it reads (corpus Y35OnRunStorage.al:453,
-        // C302_B2_TestWritesStorage: a default test handler that writes to a SingleInstance log for every test
-        // codeunit puts every codeunit in the lane). A case `corpus.rs` refuses keeps its first run.
-        if let (false, Some((_, _, _, c))) = (self.is_member(k), earlier) {
-            let storage = c.everything && super::corpus::reaches_session_storage(self.engine, self.lowered, u.oi);
-            let hit = storage || r.result.as_ref().is_ok_and(|done| done.5.leak_hit);
-            if hit {
-                match (&c.unfinished, &c.storage_why, c.baseline.as_ref()) {
-                    (None, None, Some(from)) => {
-                        super::run::CARRIED.with(|c| c.borrow_mut().take());
-                        r = run_unit(self.engine, self.lowered, Some(from), &u, None, self.limit);
-                    }
-                    _ => return None,
-                }
-            }
-        }
-        Some(r)
+        let Ok(r) = super::carry_after::run_in_session(
+            after.as_ref(),
+            self.is_member(k),
+            self.baseline,
+            &mut carried,
+            &mut run,
+        );
+        r
     }
 
     /// ADR-066 amendment 8: chain members of session `ks` that read first a global a codeunit that is no member, earlier
