@@ -1,0 +1,3 @@
+# key	entry
+# No test differs: a DeleteAll with a filter, and one a failed Codeunit.Run rolled back, leave no emptied mark, so main
+# and head both refuse the reads, on every thread and from the cache.
