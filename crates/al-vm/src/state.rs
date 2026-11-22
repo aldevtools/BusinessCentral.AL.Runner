@@ -311,6 +311,9 @@ pub(crate) struct PageClients {
     pub(crate) scope_unpinned: Vec<Rc<RefCell<crate::pages::PageState>>>,
     /// A page background task worker is running: its parameters and the result it set.
     pub(crate) bg_worker: Option<pages::BgWorker>,
+    /// The test session's last error as a worker's end gave it back, when the worker had set one of its own: until the test
+    /// session's last error changes, a read of it differs from main's (`Session::bg_note_last_error_read`).
+    pub(crate) bg_kept_last_error: Option<al_builtins::native::AlError>,
     /// Which dialogs and errors the CaptionClass runs in progress may raise (`Session::caption_dialog_refusal`).
     pub(crate) caption_dialogs: crate::pages::CaptionDialogs,
     /// The CaptionClass expression whose own call runs now, on a page whose open ran its empty-record runs without a pinned

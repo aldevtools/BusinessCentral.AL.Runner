@@ -78,11 +78,13 @@ fn summary(first: &str) -> String {
 impl Session {
     /// Whether a collecting scope is open, so that `collect_error` keeps a collectible error.
     pub(crate) fn collect_error_if_collecting(&self) -> bool {
+        self.bg_note_worker_collection();
         !self.error_scopes.starts.is_empty()
     }
 
     /// `Error(ErrorInfo)` of a collectible error: kept when a scope is open.
     pub(crate) fn collect_error(&mut self, info: &Value) -> bool {
+        self.bg_note_worker_collection();
         if self.error_scopes.starts.is_empty() {
             return false;
         }
@@ -138,6 +140,15 @@ impl Session {
         id: al_ir::BuiltinId,
         args: &[Value],
     ) -> Option<Result<Value, Signal>> {
+        if matches!(
+            id,
+            ids::SYSTEM_ISCOLLECTINGERRORS_1
+                | ids::SYSTEM_HASCOLLECTEDERRORS_1
+                | ids::SYSTEM_CLEARCOLLECTEDERRORS_1
+                | ids::SYSTEM_GETCOLLECTEDERRORS_1
+        ) {
+            self.bg_note_worker_collection();
+        }
         Some(match id {
             ids::SYSTEM_ISCOLLECTINGERRORS_1 => Ok(Value::Boolean(!self.error_scopes.starts.is_empty())),
             // Outside a scope the platform computes 0 < 0 - (-1), which is true

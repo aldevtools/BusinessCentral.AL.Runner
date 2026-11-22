@@ -13,6 +13,11 @@ use al_builtins::value::Value as V;
 pub(crate) struct BgWorker {
     params: V,
     result: Option<V>,
+    /// The test session held a last error when the worker started: what the worker reads of its own last error differs from
+    /// main's, which shared the test session's (`Session::bg_note_last_error_read`).
+    test_had_last_error: bool,
+    /// The test session collected errors when the worker started (`Session::bg_note_worker_collection`).
+    test_collecting: bool,
 }
 
 /// The test session's state a worker's child session does not have, kept aside while it runs.
@@ -21,6 +26,9 @@ struct ChildParked {
     si_track: Option<Box<crate::single_track::Track>>,
     bindings: Vec<crate::dispatch::Binding>,
     session_id_override: Option<i32>,
+    /// The test session's last error and its collecting scopes (assumption `bg-task-worker-last-error`).
+    last_error: AlError,
+    error_scopes: crate::errorcollect::Scopes,
 }
 
 /// A new dictionary with the entries of `v` (the worker gets its own copy of the parameters).
@@ -143,7 +151,12 @@ impl Session {
         if self.pages.bg_worker.is_some() {
             return unsupported("a background task started from a background task");
         }
-        self.pages.bg_worker = Some(BgWorker { params, result: None });
+        self.pages.bg_worker = Some(BgWorker {
+            params,
+            result: None,
+            test_had_last_error: false,
+            test_collecting: false,
+        });
         self.sync_no_client_test_session();
         let parked = self.bg_enter_child_session();
         let inst = self.instance(object);
@@ -166,23 +179,61 @@ impl Session {
     /// OnPageBackgroundTaskError with ErrorCode `Dialog` (:307-332). The Completed and Error triggers run in the test
     /// session (:222, :323): the state is put back before they run. The database and the transaction stay as they were:
     /// what the worker reads and may not write is pinned by testpage/TestPageBgTaskTx_Tests.al and TestPageBgTask_Tests.al.
+    ///
+    /// Its last error and its error collection are its own (corpus PR 1516, pages/background-tasks/BgTaskWorkerLastError.al,
+    /// assumption `bg-task-worker-last-error`): it starts with no last error (:216, :230, :242, :376) and outside any
+    /// collecting scope (:359, :401, :422, :431, :460); what it catches or clears stays in it (:253, :270, :283, :344); the test
+    /// session reads its own again after the task (:253, :283, :387), in the completion and error triggers too (:309, :326).
+    /// The count of caught errors stays shared: no cell measures it.
     fn bg_enter_child_session(&mut self) -> ChildParked {
         self.sessions_started += 1;
         let id = self.session_id().saturating_add(self.sessions_started);
+        let last_error = std::mem::take(&mut self.last_error);
+        let collecting = self.collect_error_if_collecting();
+        if let Some(w) = self.pages.bg_worker.as_mut() {
+            w.test_had_last_error = last_error != AlError::default();
+            w.test_collecting = collecting;
+        }
         ChildParked {
             singletons: std::mem::take(&mut self.singletons),
             si_track: self.si_track.take(),
             bindings: std::mem::take(&mut self.events.bindings),
             session_id_override: self.session_id_override.replace(id),
+            last_error,
+            error_scopes: std::mem::take(&mut self.error_scopes),
         }
     }
 
-    /// Puts the test session's state back after a worker ran ([`Session::bg_enter_child_session`]).
+    /// Puts the test session's state back after a worker ran ([`Session::bg_enter_child_session`]). Where the worker set a
+    /// last error of its own, main's test session would read that one: the reads of the test session's own are noted.
     fn bg_leave_child_session(&mut self, parked: ChildParked) {
         self.singletons = parked.singletons;
         self.si_track = parked.si_track;
         self.events.bindings = parked.bindings;
         self.session_id_override = parked.session_id_override;
+        self.error_scopes = parked.error_scopes;
+        let worker_error = std::mem::replace(&mut self.last_error, parked.last_error);
+        if worker_error != AlError::default() && worker_error != self.last_error {
+            self.pages.bg_kept_last_error = Some(self.last_error.clone());
+        }
+    }
+
+    /// A read of the last error (GetLastErrorText, GetLastErrorCode, GetLastErrorCallStack and the rest of
+    /// `Ctx::last_error`) that the worker's own last error decides: a worker's while the test session held one, or the test
+    /// session's after a worker set its own, until it changes. It runs through the assumption.
+    pub(crate) fn bg_note_last_error_read(&self) {
+        let in_worker = self.pages.bg_worker.as_ref().is_some_and(|w| w.test_had_last_error);
+        if in_worker || self.pages.bg_kept_last_error.as_ref() == Some(&self.last_error) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BgTaskWorkerLastError);
+        }
+    }
+
+    /// An error-collection call of the worker, or a collectible error it raises, while the test session collects: the worker
+    /// is outside any collecting scope, where main shared the test session's. It runs through the assumption.
+    pub(crate) fn bg_note_worker_collection(&self) {
+        if self.pages.bg_worker.as_ref().is_some_and(|w| w.test_collecting) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BgTaskWorkerLastError);
+        }
     }
 
     /// `TestPage.RunPageBackgroundTask(CodeunitId; [var Parameters]; [RunCompletionTriggers])`: runs the
