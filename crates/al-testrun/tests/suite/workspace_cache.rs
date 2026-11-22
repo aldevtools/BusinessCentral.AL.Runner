@@ -688,3 +688,51 @@ fn an_entry_whose_lists_do_not_fit_its_compile_is_a_miss() {
         "refused and built again, with the outcomes of a run without the layer: {wrong:#?}"
     );
 }
+
+/// A dependency app given without a manifest, whose source depends on a preprocessor symbol the project defines: a
+/// dependency compiles with its own symbols (none here), never the project's (hard rule 6). The run that reads the
+/// entry gives the dependency the fresh run's symbols: the same compile (canonical dump) and the same outcomes.
+#[test]
+fn a_read_compile_gives_a_dependency_without_a_manifest_the_fresh_symbols() {
+    const SYMBOL_BASE: &str = r#"
+codeunit 50110 SymbolDep
+{
+    procedure Which(): Text
+    begin
+#if CLEAN99
+        exit('project symbol');
+#else
+        exit('own symbols');
+#endif
+    end;
+}
+"#;
+    const SYMBOL_MAIN: &str = r#"
+codeunit 60110 SymbolTests
+{
+    Subtype = Test;
+    [Test] procedure DependencyUsesItsOwnSymbols() var D: Codeunit SymbolDep; begin if D.Which() <> 'own symbols' then Error('%1', D.Which()); end;
+}
+"#;
+    let i = Inputs {
+        apps: vec![
+            app("main", &["base"], &[("src/Main.al", SYMBOL_MAIN)]),
+            app("base", &[], &[("Base.al", SYMBOL_BASE)]),
+        ],
+        kinds: vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
+        // The dependency has no manifest.
+        manifests: vec![manifest("Me")],
+        symbols: ["CLEAN99".to_string()].into_iter().collect(),
+        target: None,
+        opts: RunOptions::default(),
+    };
+    assert_read_equals_fresh(&i);
+    let dir = tempfile::tempdir().unwrap();
+    let (plain, s) = outcomes(&i, dir.path(), false);
+    assert_eq!(s, None);
+    assert!(plain.iter().all(|o| o.ends_with("Pass")), "{plain:?}");
+    let (built, s) = outcomes(&i, dir.path(), true);
+    assert_eq!((built, s), (plain.clone(), Some(WorkspaceState::Built)));
+    let (read, s) = outcomes(&i, dir.path(), true);
+    assert_eq!((read, s), (plain, Some(WorkspaceState::Read)));
+}
