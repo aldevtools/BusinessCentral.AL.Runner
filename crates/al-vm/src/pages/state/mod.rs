@@ -336,6 +336,9 @@ pub struct PageState {
     /// `Visible` of each control as it was when the page opened (the property is frozen then,
     /// corpus testpage/TestPageControlPropertyLiveness_Tests.al:56).
     pub frozen_visible: Vec<bool>,
+    /// A Card with a `Control::visible_row_field` control opened on a route no probe measured, on a major where such a
+    /// control reads Yes (`freeze_visible`): the open runs, and a Visible read of such a control is refused.
+    pub visible_route_unmeasured: bool,
     /// The session language when the page opened: OptionCaptionML shows the captions of that language, whatever
     /// `GlobalLanguage` says later (pages/controls/AaFieldProps.al:179-219, pages/extensions/
     /// ZModifyControls.al:322-360). `None` before the first open.
