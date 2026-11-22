@@ -73,12 +73,19 @@ impl<'a> Render<'a> {
             Value::PlaceholderSize(..) => {
                 Err("byte size of a placeholder report output (it answers only in the session that wrote it)".into())
             }
-            Value::DotNet(_) => match crate::single_track::fp(v, &self.session.engine) {
-                crate::single_track::Fp::Val(bytes) => Ok(content(&bytes)),
-                crate::single_track::Fp::Opaque(_) => {
-                    Err("DotNet object (an object of the .NET process: a handle of its session)".into())
-                }
-            },
+            // Numbered when shared: an object the runtime serves itself holds a state that can change.
+            Value::DotNet(d) => {
+                self.shared(
+                    Rc::as_ptr(d) as usize,
+                    Rc::strong_count(d),
+                    |s| match crate::single_track::fp(v, &s.session.engine) {
+                        crate::single_track::Fp::Val(bytes) => Ok(content(&bytes)),
+                        crate::single_track::Fp::Opaque(_) => {
+                            Err("DotNet object (an object of the .NET process: a handle of its session)".into())
+                        }
+                    },
+                )
+            }
             Value::Null
             | Value::Boolean(_)
             | Value::Integer(_)
@@ -795,5 +802,29 @@ mod tests {
         al_builtins::errorinfo::set_callstack_of(&with, "\"P\"(CodeUnit 1).Collect line 5\r\n");
         let mut render = Render::new(&session);
         assert_ne!(render.value(&with, 0), render.value(&without, 0));
+    }
+
+    // A DotNet object the runtime serves itself holds a state that can change (`DotNetKind::Internal`), so one object two
+    // globals share and two equal objects do not hold the same (issue 8211).
+    #[test]
+    fn one_shared_dotnet_object_and_two_equal_ones_render_apart() {
+        let (session, _) = session_and_records();
+        let object = || {
+            Rc::new(al_builtins::value::DotNetObject::new(
+                al_builtins::value::DotNetKind::Internal {
+                    type_name: "X.Y".into(),
+                    state: RefCell::new(vec![Value::Integer(1)]),
+                },
+            ))
+        };
+        let render = |a: Value, b: Value| {
+            let mut r = Render::new(&session);
+            let texts = (r.value(&a, 0), r.value(&b, 0));
+            (texts, r.lines)
+        };
+        let shared = object();
+        let one = render(Value::DotNet(shared.clone()), Value::DotNet(shared));
+        let two = render(Value::DotNet(object()), Value::DotNet(object()));
+        assert_ne!(one, two);
     }
 }
