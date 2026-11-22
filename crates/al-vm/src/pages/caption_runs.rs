@@ -464,7 +464,7 @@ impl Session {
                 s.field_captions.push((idx, caption, own_area));
             }
         }
-        st.borrow_mut().field_captions_row = Some(rec.borrow().fields.clone());
+        st.borrow_mut().field_captions_row = Some(rec.borrow().fields.to_vec());
         Ok(())
     }
 }

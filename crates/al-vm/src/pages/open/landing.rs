@@ -360,7 +360,7 @@ impl Session {
             if self.is_list(st) && st.borrow().host.is_none() {
                 let table = self.page_rec(st).borrow().table as usize;
                 let blank = self.initial_fields(table);
-                self.set_xrec_fields(st, blank.clone());
+                self.set_xrec_fields(st, blank.to_vec());
                 self.land_on_new_line_over_empty_view(st)?;
                 let stamped = !Self::same_values(&self.page_rec(st).borrow().fields, &blank);
                 st.borrow_mut().split_starts_low = stamped;

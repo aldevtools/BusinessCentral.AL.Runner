@@ -684,7 +684,7 @@ impl Session {
             self.record_op(al_builtins::record_op::RecordOp::Next, &probe, &mut [Value::Integer(step)])?,
             Value::Integer(n) if n == step
         );
-        Ok(moved.then(|| probe.borrow().fields.clone()))
+        Ok(moved.then(|| probe.borrow().fields.to_vec()))
     }
 }
 

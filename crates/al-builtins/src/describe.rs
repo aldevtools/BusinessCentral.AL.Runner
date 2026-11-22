@@ -294,7 +294,7 @@ pub(crate) mod tests {
             company: None,
             change_company_called: false,
             crm: false,
-            fields: Vec::new(),
+            fields: Default::default(),
             filters: Vec::new(),
             filter_group: 0,
             marks: Vec::new(),

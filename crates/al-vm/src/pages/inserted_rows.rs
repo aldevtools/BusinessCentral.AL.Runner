@@ -75,8 +75,8 @@ impl Session {
             let stored = probe.borrow().fields.clone();
             rows.push(crate::pages::WindowRow {
                 key,
-                stored: stored.clone(),
-                shown: stored,
+                stored: stored.to_vec(),
+                shown: stored.into_vec(),
             });
             self.ret_used = true;
             at = matches!(self.record_op(RecordOp::Next, &probe, &mut [Value::Integer(1)])?, Value::Integer(n) if n != 0);
@@ -154,6 +154,6 @@ impl Session {
         self.forget_rows_held_behind_a_new_first_row(st)?;
         let fields = self.page_rec(st).borrow().fields.clone();
         let s = st.borrow();
-        Ok((fields, s.cursor, s.draft))
+        Ok((fields.into_vec(), s.cursor, s.draft))
     }
 }

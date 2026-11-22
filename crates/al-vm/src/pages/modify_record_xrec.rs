@@ -80,7 +80,7 @@ impl Session {
             && e.trigger.is_some()
             && self.call_stack.last().map(|c| c.routine) == e.trigger;
         if own_trigger && e.list_plus && !with_value {
-            return Ok(Some(xrec));
+            return Ok(Some(xrec.into_vec()));
         }
         unsupported(
             "a Validate of the page's Rec while OnModifyRecord runs, other than Rec.Validate(Field) in the OnModifyRecord trigger of a \

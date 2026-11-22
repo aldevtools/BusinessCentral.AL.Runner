@@ -525,7 +525,7 @@ pub struct RecordState {
     /// (session-system/TestCrmTableNoConnectionContracts.al).
     pub crm: bool,
     /// Field values in the table's field order.
-    pub fields: Vec<Value>,
+    pub fields: crate::record_fields::Fields,
     pub filters: Vec<crate::filter::FieldFilter>,
     /// The filter group `SetRange` and `SetFilter` write to and `GetFilter` reads.
     pub filter_group: i32,
