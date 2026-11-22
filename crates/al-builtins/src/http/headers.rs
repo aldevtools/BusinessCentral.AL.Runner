@@ -185,7 +185,11 @@ pub(super) fn headers_add(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value
         }
         return header_error("Argument");
     }
-    let added = with_bag(r.as_deref(), |b| add_header(b, &name, &value, secret))?;
+    let added = with_bag(r.as_deref(), |b| {
+        // A secret value leaves the mark: the one secret header the probe added is read by `contains_empty_measured`.
+        b.edited |= !secret;
+        add_header(b, &name, &value, secret)
+    })?;
     match added {
         Ok(()) => Ok(Value::Boolean(true)),
         // A statement raises the invalid header; an Add whose result is used answers false instead, for a refused value
@@ -221,6 +225,7 @@ pub(super) fn headers_remove(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
     let removed = with_bag(r.as_deref(), |b| {
         // A content header on request, response or client headers is no header there: Remove answers false and raises nothing
         // (lt-http-header-rules/P87Matrix.al `rm=No` for every content header name of those collections).
+        b.edited = true;
         if not_here(b.kind, &name) {
             return Ok(false);
         }
@@ -249,27 +254,42 @@ pub(super) fn headers_contains(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [
     with_bag(r.as_deref(), |b| {
         restricted_lookup(b, &name)?;
         unnamed_secret_header(b, Some(&name))?;
-        // Corpus PR 1424, http/HttpHeaders.al:518 and :545.
         if name.is_empty() {
-            let ordinary_headers = b.items.is_empty()
-                || (b.kind == HeaderKind::Content
-                    && b.items.len() == 1
-                    && b.items[0].0.eq_ignore_ascii_case("Content-Type")
-                    && b.items[0].1.as_slice() == ["text/plain; charset=utf-8"]);
-            let secret_headers = b.secret.is_empty()
-                || (b.kind == HeaderKind::Request
-                    && b.items.is_empty()
-                    && b.secret.len() == 1
-                    && b.secret[0].0 == "X-Secret"
-                    && b.secret[0].1.as_slice() == ["body"]);
-            if !http_probe_measured(c) || !ordinary_headers || !secret_headers || b.set_cookies {
-                return unsupported("HttpHeaders.Contains with an empty name on an unmeasured version or header state");
+            if c.http_probe_1424_measured() && contains_empty_measured(b) {
+                assume(crate::assumptions::Assumption::HttpContainsEmptyName);
+                return header_error("Argument");
             }
-            assume(crate::assumptions::Assumption::HttpContainsEmptyName);
-            return header_error("Argument");
+            return unsupported("HttpHeaders.Contains with an empty name on an unmeasured version or header state");
         }
         Ok(Value::Boolean(find(&b.items, &name).is_some()))
     })?
+}
+
+/// The collections on which corpus PR 1424 measured `Contains('')` raising InvalidHeader:Argument (assumption
+/// http-contains-empty-name), none of them changed by a call the probe did not make (`HeaderBag::edited`):
+/// - request, response or client headers that hold nothing, and an HttpHeaders variable nothing filled, which `with_bag`
+///   makes a request collection (tests/al-language/http/HttpHeaders.al:518-542);
+/// - request headers that hold only `X-Secret` added from a SecretText of `body` (HttpHeaders.al:545-563);
+/// - content headers that hold only `Content-Type: text/plain; charset=utf-8`: a fresh content (:518-542) and request content
+///   after one WriteFrom(Text) (:566-590);
+/// - the fresh content of a response, which holds nothing (:566-590).
+fn contains_empty_measured(b: &HeaderBag) -> bool {
+    let unchanged = !b.edited && !b.set_cookies && !b.unnamed_secret_header;
+    let nothing = b.items.is_empty() && b.secret.is_empty();
+    let default_type = b.secret.is_empty()
+        && b.items.len() == 1
+        && b.items[0].0 == "Content-Type"
+        && b.items[0].1.as_slice() == ["text/plain; charset=utf-8"];
+    let probe_secret = b.items.is_empty()
+        && b.secret.len() == 1
+        && b.secret[0].0 == "X-Secret"
+        && b.secret[0].1.as_slice() == ["body"];
+    unchanged
+        && match b.kind {
+            HeaderKind::Request => nothing || probe_secret,
+            HeaderKind::Response | HeaderKind::Default => nothing,
+            HeaderKind::Content => nothing || default_type,
+        }
 }
 
 /// Refuses a read of a secret content's headers that could meet the header no test names (`HeaderBag::unnamed_secret_header`):
@@ -290,6 +310,7 @@ pub(super) fn headers_contains_secret(_: &mut dyn Ctx, r: Option<&mut Value>, a:
 
 pub(super) fn headers_clear(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     with_bag(r.as_deref(), |b| {
+        b.edited = true;
         cookie_header_guard(b, None)?;
         b.items.clear();
         b.secret.clear();
@@ -451,6 +472,7 @@ pub(super) fn headers_try_add(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [V
     let name = text(a, 0)?;
     let (value, secret) = text_or_secret(a, 1)?;
     with_bag(r.as_deref(), |b| {
+        b.edited = true;
         if name.is_empty() || name.chars().any(|c| !is_token_char(c)) {
             return Ok(Value::Boolean(false));
         }

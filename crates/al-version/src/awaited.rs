@@ -27,6 +27,14 @@ pub fn web_service_session_measured(target: Option<&Target>) -> bool {
     matches!(target.map(|t| t.bc.major), Some(28))
 }
 
+/// Whether `target` is a minor the HTTP probe of corpus PR 1424 measured: `HttpHeaders.Contains('')`
+/// (tests/al-language/http/HttpHeaders.al:518, :545, :566) and `HttpContent.WriteFrom(InStream)` after the Content-Type
+/// changed (tests/al-language/http/content/HttpContent.al:717-793). The writer ran it on local 27.5, 28.5 and 29.1 hosts
+/// and its CI passed it on the 27.5, 28.5 and 29.0 legs (runner PR 7870). Other minors and no target are not measured.
+pub fn http_probe_1424_measured(target: Option<&Target>) -> bool {
+    target.is_some_and(|t| matches!((t.bc.major, t.bc.minor), (27, 5) | (28, 5) | (29, 0) | (29, 1)))
+}
+
 /// A bulk write of a table that a commit carried (al-runner issue 8467, [`bulk_commit_ends_cached_row`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BulkWrite {
@@ -101,6 +109,17 @@ mod tests {
         for v in ["27.5", "28.5", "29.0", "29.1"] {
             assert_eq!(bulk_commit_ends_cached_row(Some(&target(v)), Truncate), None, "{v}");
         }
+    }
+
+    #[test]
+    fn the_http_probe_1424_is_measured_on_its_minors_only() {
+        for v in ["27.5", "28.5", "29.0", "29.1"] {
+            assert!(http_probe_1424_measured(Some(&target(v))), "{v}");
+        }
+        for v in ["27.4", "28.0", "28.6", "29.2", "30.0"] {
+            assert!(!http_probe_1424_measured(Some(&target(v))), "{v}");
+        }
+        assert!(!http_probe_1424_measured(None));
     }
 
     #[test]

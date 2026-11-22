@@ -9,6 +9,9 @@ pub(super) fn write_from(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]
     let t = text(a, 0)?;
     with_content(r, |s| {
         s.note(Call::WriteText);
+        if s.written {
+            s.headers.borrow_mut().edited = true;
+        }
         s.write_body(t.into_bytes(), false)
     })
     .map(|()| Value::Null)
@@ -27,6 +30,7 @@ pub(super) fn write_from_secret(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut 
         let mut bag = s.headers.borrow_mut();
         bag.items.retain(|(n, _)| !n.eq_ignore_ascii_case("Content-Type"));
         bag.unnamed_secret_header = true;
+        bag.edited = true;
     })
     .map(|()| Value::Null)
 }
@@ -52,6 +56,7 @@ pub(super) fn is_secret_content(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut 
 pub(super) fn read_as_secret(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let used = c.ret_used();
     let (data, uninit, shape) = with_content(r, |s| {
+        s.read_since_write = true;
         let shape = s.secret_read;
         s.note(if used { Call::SecretUsed } else { Call::SecretStatement });
         (s.data.clone(), s.uninitialized, shape)
@@ -101,43 +106,46 @@ pub(super) fn write_from_stream(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut 
     with_content(r, |s| {
         s.note(Call::Other);
         s.write_body(bytes, keep_type);
+        s.headers.borrow_mut().edited = true;
         s.from_stream = true;
     })
     .map(|()| Value::Null)
 }
 
-/// The changed stream-header cases in corpus PR 1424, http/content/HttpContent.al:717-793.
+/// Whether `WriteFrom(InStream)` keeps the content's Content-Type as it is (assumption
+/// http-stream-write-keeps-removed-content-type) instead of setting the default (`write_body`). A secret content, and a
+/// Content-Type of exactly `text/plain; charset=utf-8`, take the default as main did (xml/xml/P97ContentSecret.al:167;
+/// http/headers/P87ContentStream.al:44). Every other header state runs only in the states corpus PR 1424 measured
+/// (tests/al-language/http/content/HttpContent.al:717-793), on the minors it measured, else it refuses before the stream is
+/// read:
+/// - the headers hold nothing, or, after a WriteFrom, exactly `Content-Type: application/json`;
+/// - the content is initialized, no WriteFrom(InStream) and no ReadAs since the last WriteFrom or Clear, its body was not
+///   handed out as a stream, and it has no secret header;
+/// - the stream is an InStream of a Blob field, at its start, never read, assigned or handed to a content before.
 fn keep_stream_content_type(c: &dyn Ctx, s: &HttpContentState, stream: Option<&Value>) -> Result<bool, Signal> {
-    // xml/xml/P97ContentSecret.al:169-184: a stream makes secret content plain again.
     if s.secret {
         return Ok(false);
     }
     let headers = s.headers.borrow();
     let content_type = find(&headers.items, "Content-Type").map(|(_, values)| values.as_slice());
-    if content_type.is_some_and(|v| v.len() == 1 && v[0] == "text/plain; charset=utf-8") {
+    if content_type.is_some_and(|v| v == ["text/plain; charset=utf-8"]) {
         return Ok(false);
     }
-    if !http_probe_measured(c) {
-        return unsupported("HttpContent.WriteFrom(InStream) with a changed Content-Type on an unmeasured BC version");
-    }
     let measured_type = headers.items.is_empty()
-        || (s.written
-            && headers.items.len() == 1
-            && content_type.is_some_and(|v| v.len() == 1 && v[0] == "application/json"));
+        || (s.written && headers.items.len() == 1 && content_type.is_some_and(|v| v == ["application/json"]));
+    let measured_content = !s.uninitialized
+        && !s.from_stream
+        && !s.stream_taken
+        && !s.read_since_write
+        && !headers.unnamed_secret_header
+        && headers.secret.is_empty();
     let measured_stream = matches!(stream, Some(Value::Library(_, cell)) if matches!(&*cell.borrow(),
         LibraryValue::InStream(s) if s.on_blob_field && s.pos == 0 && s.uses == 0 && !s.shared_by_assign
             && !s.handed_to_content && !s.owner_gone && !s.not_initialized));
-    if s.uninitialized
-        || s.from_stream
-        || s.stream_taken
-        || headers.unnamed_secret_header
-        || !headers.secret.is_empty()
-        || !measured_type
-        || !measured_stream
-    {
-        return unsupported("HttpContent.WriteFrom(InStream) with an unmeasured Content-Type or stream state");
+    if c.http_probe_1424_measured() && measured_type && measured_content && measured_stream {
+        return Ok(true);
     }
-    Ok(true)
+    unsupported("HttpContent.WriteFrom(InStream) with a changed Content-Type in an unmeasured version, header or stream state")
 }
 
 /// `ReadAs(var Text)` gives the body back, UTF-8 decoded; a content nobody wrote to reads as an empty text and
@@ -157,6 +165,7 @@ pub(super) fn read_as(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -
     // (P97ContentSecret.al:30-38 with :83-101, :119-168). The statement form is not pinned.
     if with_content(r.as_deref_mut(), |s| {
         s.note(Call::Other);
+        s.read_since_write = true;
         s.secret
     })? {
         if c.ret_used() {
@@ -253,6 +262,7 @@ pub(super) fn read_as_stream(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
     // call answers is not pinned.
     if with_content(r.as_deref_mut(), |s| {
         s.note(Call::Other);
+        s.read_since_write = true;
         s.secret
     })? {
         return unsupported(
@@ -336,6 +346,8 @@ impl HttpContentState {
             c.items = bag.items.clone();
             c.secret = bag.secret.clone();
             c.unnamed_secret_header = bag.unnamed_secret_header;
+            // `Contains('')` on a copy is not measured (`HeaderBag::edited`).
+            c.edited = true;
         }
         HttpContentState {
             data: self.data.clone(),
@@ -348,6 +360,7 @@ impl HttpContentState {
             secret: self.secret,
             secret_read,
             untouched: false,
+            read_since_write: self.read_since_write,
         }
     }
 
@@ -361,10 +374,13 @@ impl HttpContentState {
     /// lt-http-header-rules/P87Content.al:ClearAfterAdd, ClearBeforeWrite, ClearFresh).
     fn clear_body(&mut self) {
         let headers = new_header_list(HeaderKind::Content);
-        headers
-            .borrow_mut()
-            .items
-            .push(("Content-Type".into(), vec!["text/plain; charset=utf-8".into()]));
+        {
+            let mut bag = headers.borrow_mut();
+            bag.items
+                .push(("Content-Type".into(), vec!["text/plain; charset=utf-8".into()]));
+            bag.edited = true;
+        }
+        self.read_since_write = false;
         self.data = Vec::new();
         self.headers = headers;
         self.uninitialized = false;
@@ -374,11 +390,16 @@ impl HttpContentState {
         self.secret = false;
     }
 
-    /// `WriteFrom(Text)` replaces the body and sets the Content-Type to `text/plain; charset=utf-8`
-    /// (http/headers/P87Content.al:32, :64, :179; http/headers/P87ContentType.al:38, :137).
-    /// A measured stream write keeps the current Content-Type under assumption `http-stream-write-keeps-removed-content-type`
-    /// (corpus PR 1424, http/content/HttpContent.al:717-793); fresh stream writes with the default type keep the pinned result
-    /// (http/headers/P87ContentStream.al:45 and queries/joins-links/HttpWriteFromStream.al:113).
+    /// `WriteFrom` of text or a stream replaces the body. The header collection stays the one every `HttpHeaders` handed out
+    /// shows, with its other headers kept.
+    ///
+    /// Pinned: a text write, and a stream write on headers whose Content-Type is the default, set the Content-Type to
+    /// `text/plain; charset=utf-8`, put first when it was removed (http/headers/P87Content.al:32, :64, :179;
+    /// P87ContentType.al:38, :137; P87ContentStream.al:44; queries/joins-links/HttpWriteFromStream.al:113).
+    ///
+    /// Assumed: with `keep_type` (a stream write in a state `keep_stream_content_type` admits) the Content-Type stays as it
+    /// is, absent or `application/json` (assumption http-stream-write-keeps-removed-content-type).
+    ///
     /// A Content-Length the headers already hold (see `read_as`) is not
     /// rewritten: it stays for an empty body (http/AyContentLength.al:ContentLength_SecondWriteFrom `empty`
     /// `Yes[13]`), for a body of the same length (P100_SecondWrite_ReplacesBody, 5 bytes twice) and for a longer, a shorter or a
@@ -386,6 +407,7 @@ impl HttpContentState {
     /// Pinned for a value a read put there (AyContentLength.al PY_ContentLength_*) and for one added by hand, before or after a
     /// read, with or without a body before it (AyContentLength.al:366-460, Y2_ContentLength_AddedByHand*).
     fn write_body(&mut self, data: Vec<u8>, keep_type: bool) {
+        self.read_since_write = false;
         if !keep_type {
             let mut bag = self.headers.borrow_mut();
             match bag

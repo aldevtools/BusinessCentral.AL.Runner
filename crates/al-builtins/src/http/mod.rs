@@ -26,12 +26,6 @@ fn assume(a: crate::assumptions::Assumption) {
     crate::assumptions::assume(a);
 }
 
-/// Corpus PR 1424 measured these HTTP shapes on BC 27.5, 28.5 and 29.1.
-fn http_probe_measured(c: &dyn Ctx) -> bool {
-    c.bc_version()
-        .is_some_and(|version| matches!((version.major, version.minor), (27, 5) | (28, 5) | (29, 1)))
-}
-
 fn lib(name: &str, v: LibraryValue) -> Value {
     Value::Library(name.into(), Rc::new(RefCell::new(v)))
 }
@@ -405,6 +399,26 @@ mod tests {
             panic!("expected an InStream");
         };
         assert!(matches!(&*cell.borrow(), LibraryValue::InStream(s) if !s.handed_to_content));
+    }
+
+    #[test]
+    fn a_partly_read_stream_after_a_removed_type_is_refused_and_left_untouched() {
+        let mut ctx = crate::native::tests::TestCtx::default();
+        ctx.target = Some(al_version::Target::for_bc(al_version::BcVersion::new(28, 5)));
+        let mut content = new_content();
+        with_content(Some(&mut content), |state| state.headers.borrow_mut().items.clear()).unwrap();
+        let mut stream =
+            crate::stream::InState::of_blob_field(crate::stream::new_blob(), crate::stream::Encoding::Utf8);
+        stream.pos = 3;
+        let mut args = [lib("InStream", LibraryValue::InStream(stream))];
+        assert!(matches!(
+            content::write_from_stream(&mut ctx, Some(&mut content), &mut args),
+            Err(Signal::Unsupported(_))
+        ));
+        let Value::Library(_, cell) = &args[0] else {
+            panic!("expected an InStream");
+        };
+        assert!(matches!(&*cell.borrow(), LibraryValue::InStream(s) if !s.handed_to_content && s.pos == 3));
     }
 
     #[test]

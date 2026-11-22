@@ -80,6 +80,7 @@ pub(super) fn client_settings_change(s: &mut HttpClientState, leaves_default: bo
         ));
     }
     s.default_headers = crate::value::new_header_list(crate::value::HeaderKind::Default);
+    s.default_headers.borrow_mut().edited = true;
     s.timeout_ms = HttpClientState::default().timeout_ms;
     s.base_address.clear();
     s.rebuilt = true;

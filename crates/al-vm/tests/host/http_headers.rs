@@ -1048,6 +1048,17 @@ codeunit 50196 C
 }
 "#;
 
+/// `src` compiled and run on BC `major.minor`.
+fn built_on(src: &str, major: u16, minor: u16) -> al_testkit::Built {
+    let lowered = al_testkit::compile(src);
+    let target = al_version::Target::for_bc(al_version::BcVersion::new(major, minor));
+    let engine = al_vm::Engine::with_target(lowered.program.clone(), al_testkit::blocked(&lowered), Some(target));
+    al_testkit::Built {
+        session: al_vm::Session::new(engine),
+        lowered,
+    }
+}
+
 #[test]
 fn empty_name_does_not_bypass_the_secret_content_guard() {
     let result = al_testkit::run(EMPTY_CONTAINS_SRC, "SecretContent");
@@ -1059,13 +1070,7 @@ fn empty_name_does_not_bypass_the_secret_content_guard() {
 
 #[test]
 fn empty_name_is_refused_for_unmeasured_header_states() {
-    let lowered = al_testkit::compile(EMPTY_CONTAINS_SRC);
-    let target = al_version::Target::for_bc(al_version::BcVersion::new(28, 5));
-    let engine = al_vm::Engine::with_target(lowered.program.clone(), al_testkit::blocked(&lowered), Some(target));
-    let mut built = al_testkit::Built {
-        session: al_vm::Session::new(engine),
-        lowered,
-    };
+    let mut built = built_on(EMPTY_CONTAINS_SRC, 28, 5);
     for routine in ["OtherHeader", "OtherSecretHeader"] {
         assert!(
             matches!(built.run(routine), Err(al_builtins::native::Signal::Unsupported(_))),
@@ -1075,14 +1080,8 @@ fn empty_name_is_refused_for_unmeasured_header_states() {
 }
 
 #[test]
-fn empty_name_is_refused_on_unmeasured_bc29() {
-    let lowered = al_testkit::compile(EMPTY_CONTAINS_SRC);
-    let target = al_version::Target::for_bc(al_version::BcVersion::new(29, 0));
-    let engine = al_vm::Engine::with_target(lowered.program.clone(), al_testkit::blocked(&lowered), Some(target));
-    let mut built = al_testkit::Built {
-        session: al_vm::Session::new(engine),
-        lowered,
-    };
+fn empty_name_is_refused_on_an_unmeasured_minor() {
+    let mut built = built_on(EMPTY_CONTAINS_SRC, 29, 2);
     assert!(matches!(
         built.run("Req"),
         Err(al_builtins::native::Signal::Unsupported(_))
@@ -1093,14 +1092,8 @@ fn empty_name_is_refused_on_unmeasured_bc29() {
 fn measured_versions_contains_with_empty_name_raises_invalid_header_argument() {
     use al_builtins::assumptions::{Assumption, take_hits};
 
-    for (major, minor) in [(27, 5), (28, 5), (29, 1)] {
-        let lowered = al_testkit::compile(EMPTY_CONTAINS_SRC);
-        let target = al_version::Target::for_bc(al_version::BcVersion::new(major, minor));
-        let engine = al_vm::Engine::with_target(lowered.program.clone(), al_testkit::blocked(&lowered), Some(target));
-        let mut built = al_testkit::Built {
-            session: al_vm::Session::new(engine),
-            lowered,
-        };
+    for (major, minor) in [(27, 5), (28, 5), (29, 0), (29, 1)] {
+        let mut built = built_on(EMPTY_CONTAINS_SRC, major, minor);
         for routine in ["Fresh", "Req", "Cnt", "Resp", "Cli", "SecretHeader"] {
             take_hits();
             assert_eq!(
@@ -1296,14 +1289,8 @@ codeunit 50197 C
 fn measured_versions_stream_writes_keep_the_current_content_type() {
     use al_builtins::assumptions::{Assumption, take_hits};
 
-    for (major, minor) in [(27, 5), (28, 5), (29, 1)] {
-        let lowered = al_testkit::compile(STREAM_CONTENT_TYPE_SRC);
-        let target = al_version::Target::for_bc(al_version::BcVersion::new(major, minor));
-        let engine = al_vm::Engine::with_target(lowered.program.clone(), al_testkit::blocked(&lowered), Some(target));
-        let mut built = al_testkit::Built {
-            session: al_vm::Session::new(engine),
-            lowered,
-        };
+    for (major, minor) in [(27, 5), (28, 5), (29, 0), (29, 1)] {
+        let mut built = built_on(STREAM_CONTENT_TYPE_SRC, major, minor);
         for (routine, expected) in [
             ("StreamAfterRemove", "No"),
             ("StreamOnFreshResponse", "No"),
@@ -1325,14 +1312,8 @@ fn measured_versions_stream_writes_keep_the_current_content_type() {
 }
 
 #[test]
-fn stream_with_changed_type_is_refused_on_unmeasured_bc29() {
-    let lowered = al_testkit::compile(STREAM_CONTENT_TYPE_SRC);
-    let target = al_version::Target::for_bc(al_version::BcVersion::new(29, 0));
-    let engine = al_vm::Engine::with_target(lowered.program.clone(), al_testkit::blocked(&lowered), Some(target));
-    let mut built = al_testkit::Built {
-        session: al_vm::Session::new(engine),
-        lowered,
-    };
+fn stream_with_changed_type_is_refused_on_an_unmeasured_minor() {
+    let mut built = built_on(STREAM_CONTENT_TYPE_SRC, 29, 2);
     assert!(matches!(
         built.run("StreamAfterRemove"),
         Err(al_builtins::native::Signal::Unsupported(_))
@@ -1342,13 +1323,7 @@ fn stream_with_changed_type_is_refused_on_unmeasured_bc29() {
 
 #[test]
 fn stream_with_fresh_json_content_type_is_refused_until_measured() {
-    let lowered = al_testkit::compile(STREAM_CONTENT_TYPE_SRC);
-    let target = al_version::Target::for_bc(al_version::BcVersion::new(28, 5));
-    let engine = al_vm::Engine::with_target(lowered.program.clone(), al_testkit::blocked(&lowered), Some(target));
-    let mut built = al_testkit::Built {
-        session: al_vm::Session::new(engine),
-        lowered,
-    };
+    let mut built = built_on(STREAM_CONTENT_TYPE_SRC, 28, 5);
     assert!(matches!(
         built.run("StreamAfterFreshReadd"),
         Err(al_builtins::native::Signal::Unsupported(_))
@@ -1368,15 +1343,8 @@ fn http_probe_changes_are_refused_on_unmeasured_versions() {
             ),
             "{routine} with no target"
         );
-        for (major, minor) in [(27, 4), (28, 0), (28, 4), (28, 6), (29, 0), (29, 2)] {
-            let lowered = al_testkit::compile(source);
-            let target = al_version::Target::for_bc(al_version::BcVersion::new(major, minor));
-            let engine =
-                al_vm::Engine::with_target(lowered.program.clone(), al_testkit::blocked(&lowered), Some(target));
-            let mut built = al_testkit::Built {
-                session: al_vm::Session::new(engine),
-                lowered,
-            };
+        for (major, minor) in [(27, 4), (28, 0), (28, 4), (28, 6), (29, 2)] {
+            let mut built = built_on(source, major, minor);
             assert!(
                 matches!(built.run(routine), Err(al_builtins::native::Signal::Unsupported(_))),
                 "{routine} on BC {major}.{minor}"
@@ -1389,13 +1357,7 @@ fn http_probe_changes_are_refused_on_unmeasured_versions() {
 fn stream_after_secret_content_keeps_the_pinned_plain_body() {
     // xml/xml/P97ContentSecret.al:169-184.
     for (major, minor) in [(27, 5), (28, 5), (29, 0)] {
-        let lowered = al_testkit::compile(STREAM_CONTENT_TYPE_SRC);
-        let target = al_version::Target::for_bc(al_version::BcVersion::new(major, minor));
-        let engine = al_vm::Engine::with_target(lowered.program.clone(), al_testkit::blocked(&lowered), Some(target));
-        let mut built = al_testkit::Built {
-            session: al_vm::Session::new(engine),
-            lowered,
-        };
+        let mut built = built_on(STREAM_CONTENT_TYPE_SRC, major, minor);
         assert_eq!(
             text(built.run("SecretThenStream")),
             "No|stream body",
@@ -1408,13 +1370,7 @@ fn stream_after_secret_content_keeps_the_pinned_plain_body() {
 fn stream_write_keeps_removed_content_type_but_text_write_restores_it() {
     use al_builtins::assumptions::{Assumption, take_hits};
 
-    let lowered = al_testkit::compile(STREAM_CONTENT_TYPE_SRC);
-    let target = al_version::Target::for_bc(al_version::BcVersion::new(28, 5));
-    let engine = al_vm::Engine::with_target(lowered.program.clone(), al_testkit::blocked(&lowered), Some(target));
-    let mut built = al_testkit::Built {
-        session: al_vm::Session::new(engine),
-        lowered,
-    };
+    let mut built = built_on(STREAM_CONTENT_TYPE_SRC, 28, 5);
     take_hits();
     assert_eq!(text(built.run("StreamAfterRemove")), "No");
     assert!(take_hits().contains(&Assumption::HttpStreamWriteKeepsRemovedContentType));
@@ -1422,4 +1378,179 @@ fn stream_write_keeps_removed_content_type_but_text_write_restores_it() {
     assert_eq!(text(built.run("FreshStream")), "Yes[text/plain; charset=utf-8]");
     assert!(take_hits().is_empty());
     assert_eq!(text(built.run("TextAfterRemove")), "Yes[text/plain; charset=utf-8]");
+}
+
+/// The states next to the measured cells of corpus PR 1424 that the runner refuses: a header collection changed by a call the
+/// probe did not make (`HeaderBag::edited`), and a stream write after a ReadAs or from a partly read stream.
+const UNMEASURED_STATES_SRC: &str = r#"
+table 50198 B
+{
+    TableType = Temporary;
+    fields { field(1; Id; Integer) { } field(2; Data; Blob) { } }
+    keys { key(PK; Id) { } }
+}
+
+codeunit 50198 C
+{
+    local procedure Contains(var H: HttpHeaders): Boolean
+    begin
+        exit(H.Contains(''));
+    end;
+
+    local procedure Fill(var Data: Record B temporary; var InS: InStream)
+    var
+        OutS: OutStream;
+    begin
+        Data.Data.CreateOutStream(OutS);
+        OutS.WriteText('after');
+        Data.Data.CreateInStream(InS);
+    end;
+
+    procedure AddRemove(): Boolean
+    var
+        R: HttpRequestMessage;
+        H: HttpHeaders;
+    begin
+        R.GetHeaders(H);
+        H.Add('X-A', 'v');
+        H.Remove('X-A');
+        exit(Contains(H));
+    end;
+
+    procedure ClientClear(): Boolean
+    var
+        Client: HttpClient;
+        H: HttpHeaders;
+    begin
+        H := Client.DefaultRequestHeaders();
+        H.Add('X-A', 'v');
+        H.Clear();
+        exit(Contains(H));
+    end;
+
+    procedure ContentReadd(): Boolean
+    var
+        C: HttpContent;
+        H: HttpHeaders;
+    begin
+        C.GetHeaders(H);
+        H.Remove('Content-Type');
+        H.Add('Content-Type', 'text/plain; charset=utf-8');
+        exit(Contains(H));
+    end;
+
+    procedure SecondWrite(): Boolean
+    var
+        C: HttpContent;
+        H: HttpHeaders;
+    begin
+        C.WriteFrom('one');
+        C.WriteFrom('two');
+        C.GetHeaders(H);
+        exit(Contains(H));
+    end;
+
+    procedure ContentClear(): Boolean
+    var
+        C: HttpContent;
+        H: HttpHeaders;
+    begin
+        C.WriteFrom('one');
+        C.Clear();
+        C.GetHeaders(H);
+        exit(Contains(H));
+    end;
+
+    procedure CopyContent(): Boolean
+    var
+        C: HttpContent;
+        Copy: HttpContent;
+        H: HttpHeaders;
+    begin
+        C.WriteFrom('one');
+        Copy := C;
+        Copy.GetHeaders(H);
+        exit(Contains(H));
+    end;
+
+    procedure StreamWritten(): Boolean
+    var
+        C: HttpContent;
+        H: HttpHeaders;
+        Data: Record B temporary;
+        InS: InStream;
+    begin
+        Fill(Data, InS);
+        C.WriteFrom(InS);
+        C.GetHeaders(H);
+        exit(Contains(H));
+    end;
+
+    procedure StreamAfterReadAs()
+    var
+        C: HttpContent;
+        H: HttpHeaders;
+        Data: Record B temporary;
+        InS: InStream;
+        T: Text;
+    begin
+        C.WriteFrom('x');
+        C.ReadAs(T);
+        C.GetHeaders(H);
+        H.Clear();
+        Fill(Data, InS);
+        C.WriteFrom(InS);
+    end;
+
+    procedure StreamPartlyRead()
+    var
+        C: HttpContent;
+        H: HttpHeaders;
+        Data: Record B temporary;
+        InS: InStream;
+        T: Text;
+    begin
+        C.GetHeaders(H);
+        H.Remove('Content-Type');
+        Fill(Data, InS);
+        InS.ReadText(T, 3);
+        C.WriteFrom(InS);
+    end;
+}
+"#;
+
+#[test]
+fn empty_name_is_refused_after_a_change_the_probe_did_not_make() {
+    for (major, minor) in [(27, 5), (28, 5), (29, 0), (29, 1)] {
+        let mut built = built_on(UNMEASURED_STATES_SRC, major, minor);
+        for routine in [
+            "AddRemove",
+            "ClientClear",
+            "ContentReadd",
+            "SecondWrite",
+            "ContentClear",
+            "CopyContent",
+            "StreamWritten",
+        ] {
+            let result = built.run(routine);
+            assert!(
+                matches!(&result, Err(al_builtins::native::Signal::Unsupported(why)) if why.starts_with("HttpHeaders.Contains with an empty name")),
+                "{major}.{minor} {routine}: {result:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_stream_write_after_a_read_or_from_a_partly_read_stream_is_refused() {
+    for (major, minor) in [(27, 5), (28, 5), (29, 0), (29, 1)] {
+        let mut built = built_on(UNMEASURED_STATES_SRC, major, minor);
+        for routine in ["StreamAfterReadAs", "StreamPartlyRead"] {
+            let result = built.run(routine);
+            assert!(
+                matches!(&result, Err(al_builtins::native::Signal::Unsupported(why)) if why.starts_with("HttpContent.WriteFrom(InStream) with a changed Content-Type")),
+                "{major}.{minor} {routine}: {result:?}"
+            );
+        }
+    }
 }
