@@ -28,6 +28,7 @@ impl Session {
         }
         let company = rec.borrow().company.clone();
         self.note_row_versions(t.object, &company, kind);
+        self.note_row_lock_write(t.object, &company, kind, pk);
         self.tx.open.writes.push(crate::state::TxWrite {
             table: t.object,
             company,

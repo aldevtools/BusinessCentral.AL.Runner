@@ -1,0 +1,31 @@
+# key	entry
+RL Tests::BgTaskReadIsolation_ReadCommittedGet_RowTheTestModified_WaitsOnTheLock	ASSUMED bg-task-readisolation-lock (corpus PR 1498, BgTaskReadIsolationLock.al:175)
+RL Tests::BgTaskReadIsolation_RepeatableReadGet_RowTheTestModified_WaitsOnTheLock	ASSUMED bg-task-readisolation-lock (corpus PR 1498, BgTaskReadIsolationLock.al:190)
+RL Tests::BgTaskReadIsolation_UpdLockGet_RowTheTestModified_WaitsOnTheLock	ASSUMED bg-task-readisolation-lock (corpus PR 1498, BgTaskReadIsolationLock.al:205)
+RL Tests::BgTaskReadIsolation_ReadCommittedGet_RowTheTestInsertedAndCommitted_WaitsOnTheLock	ASSUMED bg-task-readisolation-lock (corpus PR 1498, BgTaskReadIsolationLock.al:250)
+RL Tests::BgTaskReadIsolation_ReadCommittedGet_RowTheTestModifiedAndCommitted_WaitsOnTheLock	ASSUMED bg-task-readisolation-lock (corpus PR 1498, BgTaskReadIsolationLock.al:264)
+RL Tests::BgTaskReadIsolation_ReadCommittedFindFirst_GroupOfTheModifiedRow_WaitsOnTheLock	ASSUMED bg-task-readisolation-lock (corpus PR 1498, BgTaskReadIsolationLock.al:294)
+RL Tests::BgTaskReadIsolation_ReadCommittedCount_GroupOfTheModifiedRow_WaitsOnTheLock	ASSUMED bg-task-readisolation-lock (corpus PR 1498, BgTaskReadIsolationLock.al:309)
+RL Tests::BgTaskReadIsolation_ReadCommittedCount_EmptyGroup_WaitsOnTheLock	ASSUMED bg-task-readisolation-lock (corpus PR 1498, BgTaskReadIsolationLock.al:324)
+RL Tests::BgTaskReadIsolation_ReadCommittedGet_RowTheTestInsertedNotCommitted_WaitsOnTheLock	ASSUMED bg-task-readisolation-lock (corpus PR 1498, BgTaskReadIsolationLock.al:352)
+RL Tests::BgTaskReadIsolation_RepeatableReadGet_RowTheTestInsertedAndCommitted_WaitsOnTheLock	ASSUMED bg-task-readisolation-lock (corpus PR 1498, BgTaskReadIsolationLock.al:368)
+RL Tests::BgTaskReadIsolation_UpdLockGet_RowTheTestInsertedAndCommitted_WaitsOnTheLock	ASSUMED bg-task-readisolation-lock (corpus PR 1498, BgTaskReadIsolationLock.al:380)
+RL NB Caption::ReadCommittedGet_TableWithACaption	REFUSED page background task read under ReadIsolation of a table the test codeunit wrote or locked: a table with a Caption other than its name
+RL NB Delete::ReadCommittedGet_AfterTheTestDeletedAnotherRow	REFUSED page background task read under ReadIsolation of a table the test codeunit wrote or locked: the test codeunit's locks on the table are not known after a Delete
+RL NB FindSet::ReadCommittedFindSet_GroupOfTheModifiedRow	REFUSED page background task read under ReadIsolation of a table the test codeunit wrote or locked: FindSet under ReadCommitted
+RL NB IsEmpty::ReadCommittedIsEmpty_GroupOfTheModifiedRow	REFUSED page background task read under ReadIsolation of a table the test codeunit wrote or locked: IsEmpty under ReadCommitted
+RL NB KeyFilter::ReadCommittedFindFirst_FilterOnTheKey	REFUSED page background task read under ReadIsolation of a table the test codeunit wrote or locked: a filter on a key field
+RL NB LockTable::ReadCommittedGet_AfterTheTestLockedTheTable	REFUSED page background task read under ReadIsolation of a table the test codeunit wrote or locked: the test codeunit's locks on the table are not known after a LockTable of the test session
+RL NB LockingRead::ReadCommittedGet_AfterAnUpdLockReadOfTheTest	REFUSED page background task read under ReadIsolation of a table the test codeunit wrote or locked: the test codeunit's locks on the table are not known after a locking read of the test session
+RL NB RecordRef::ReadCommittedRecordRefFindFirst_GroupOfTheModifiedRow	REFUSED page background task read under ReadIsolation of a table the test codeunit wrote or locked: a read through a RecordRef
+RL NB RepeatableReadFirst::RepeatableReadFindFirst_GroupOfTheModifiedRow	REFUSED page background task read under ReadIsolation of a table the test codeunit wrote or locked: FindFirst under RepeatableRead
+RL NB RolledBack::ReadCommittedGet_AfterARolledBackInsert	REFUSED page background task read under ReadIsolation of a table the test codeunit wrote or locked: the test codeunit's locks on the table are not known after a write rolled back
+RL NB SecondaryKey::ReadCommittedFindFirst_TableWithASecondaryKey	REFUSED page background task read under ReadIsolation of a table the test codeunit wrote or locked: a table with a key other than the primary key
+RL NB StatementFirst::ReadCommittedFindFirst_AsAStatement	REFUSED page background task read under ReadIsolation of a table the test codeunit wrote or locked: FindFirst as a statement
+RL NB Uncaught::ReadCommittedGet_OutsideATryFunction	REFUSED page background task read under ReadIsolation of a table the test codeunit wrote or locked: a lock timeout that leaves the worker
+RL NB CodeunitRun::ReadCommittedGet_RowACodeunitRunModified	REFUSED page background task read under ReadIsolation of a table the test codeunit wrote or locked: the test codeunit's locks on the table are not known after a write inside a Codeunit.Run
+RL More Tests::BgTaskReadIsolation_PageEnqueued_ReadCommittedGet_RowTheTestModified_WaitsOnTheLock	ASSUMED bg-task-readisolation-lock (corpus PR 1498, BgTaskReadIsolationLock.al:535)
+RL More Tests::BgTaskReadIsolation_ReadCommittedGet_RowAnEarlierTestInsertedAndCommitted_WaitsOnTheLock	ASSUMED bg-task-readisolation-lock (corpus PR 1498, BgTaskReadIsolationLock.al:563)
+RL Queue Count Tests::BgTaskReadIsolation_QueuedInsert_OtherHostPage_ReadCommittedCount_LeavesItOut	REFUSED page background task read under ReadIsolation of a table the test codeunit wrote or locked: a row the test session's insert queue still holds
+RL Queue Get Tests::BgTaskReadIsolation_QueuedInsert_OtherHostPage_ReadCommittedGet_NotFound	REFUSED page background task read under ReadIsolation of a table the test codeunit wrote or locked: a row the test session's insert queue still holds
+RL NB OnRun Written::ReadCommittedGet_FromOnRun_RowOnRunInserted	REFUSED OnRun: page background task read under ReadIsolation of a table the test codeunit wrote or locked: a test session whose writes are not noted
