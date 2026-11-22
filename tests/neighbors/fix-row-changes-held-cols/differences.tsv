@@ -1,0 +1,7 @@
+# key	entry
+# tools/neighbor-diff.sh runs the app without --strict-order. The start this change notes (a SingleInstance lane
+# session on a worker thread, from a row delta) runs only under --isolation required --strict-order --test-suites
+# with AL_TEST_THREADS > 1, so at the default flags no test differs and this file has no row.
+# Under those flags (suite "S: 50300 50301 50310 50311", 2 or 4 threads) one test differs: main fails it with
+# "last=ærø flag=1", head refuses it as the main thread does (1 thread: refused on main and head). Its row would be:
+# Nb Reader::AeLastInKeyOrder	REFUSED store error an order by the field Name of table Nb Ae Row
