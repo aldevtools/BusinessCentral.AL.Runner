@@ -1867,13 +1867,13 @@ mod tests {
         );
     }
 
-    /// No corpus case measures an Integer shorter than a positive length under a format string: refused (al-runner issue 8389,
-    /// owner `format::length::with_format_string`).
+    /// No probe measures an Integer shorter than a positive length under `<Integer,3>`: refused through the builtin (al-runner
+    /// issue 8389, owner `format::length::with_format_string`). Under `<Integer>` it runs: corpus PR 1505, issue 8652.
     #[test]
-    fn length_under_a_format_string_of_an_integer_refuses() {
+    fn length_under_an_unmeasured_format_string_of_an_integer_refuses() {
         let r = call(
             "System.Format#2",
-            vec![Value::Integer(10), Value::Integer(5), t("<Integer>")],
+            vec![Value::Integer(10), Value::Integer(5), t("<Integer,3>")],
         );
         assert!(matches!(r, Err(Signal::Unsupported(_))), "{r:?}");
     }
