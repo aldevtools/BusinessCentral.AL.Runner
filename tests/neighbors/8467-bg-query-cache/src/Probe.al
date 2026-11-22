@@ -1,12 +1,14 @@
-// The corpus probe BgTaskQueryCache.al of corpus pull requests 1457 and 1495 (al-runner issue 8467), whole.
+// An excerpt of the corpus probe BgTaskQueryCache.al of corpus pull requests 1457 and 1495 at e1dee852 (al-runner issue 8467):
+// the file up to BQ Tests 3 and page 97519, then BQ Tests 3b and BQ Tests 11. Left out: the cells of al-runner issues 8637 and
+// 8677 between them, and BQ Tests 12 and BQ Version, which need Base Application.
 // BC Documentation:
 //   https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/methods-auto/page/page-enqueuebackgroundtask-method
 //   https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/methods-auto/testpage/testpagetestpage-runpagebackgroundtask-method
 // Scope: in-scope
 // local object: the reads of a page background task's worker and of the test session, and what the test writes, commits and
 //   rolls back between them, are what is under test
-// Fixtures used: shared Assert (60021); own tables 97500 and 97501, mode codeunit 97502, worker codeunits 97503, 97504 and 97509,
-//   pages 97505 and 97519, test codeunits 97506, 97507 and 97508 (the neighbors after 97507: see the comment there)
+// Fixtures used: Assert (60021); tables 97500, 97501, 97514, 97546, 97593, 97594, 97597, 97598; mode codeunit 97502; codeunits 97503,
+//   97504, 97509, 97517, 97590, 97591, 97595, 97597; pages 97505, 97518, 97519; test codeunits 97506-97508, 97544, 97545, 97592, 97596, 97598
 // Probe (al-runner issue 8467): a read the worker of a page background task repeats gets the answer of the first read, also after
 //   the test session changed the rows without committing. The tests read lines of table 97500 (key Group, Line No.) in the worker,
 //   either from the page's OnAfterGetCurrRecord (CurrPage.EnqueueBackgroundTask, the page shows the answer) or with
@@ -29,8 +31,8 @@
 //   - a rollback: asserterror (:983) and the end of an AutoRollback test (:1016, :1029) do not change what the next read answers;
 //     the test session's own Get answers like a worker read then, until it writes the table (:983);
 //   - another test codeunit: its read sees its own row (:1044, :1067).
-// Not pinned here: whether a commit of a ModifyAll of another row of the table ends a row's entry. BC 27.5, 28.5 and 29.0 end
-//   it, a local BC 29.1 container kept it.
+// A commit of a ModifyAll or DeleteAll of another row of the table (BQ Tests 12), SelectLatestVersion and a table with a Blob
+//   field (BQ Tests 11): the end of the file. GroupCount and PartialGet of BQ Tests 3 are in BQ Tests 3b.
 // BC versions: 29.1 (local W1 container).
 
 table 97500 "BQ Row"
@@ -1234,44 +1236,6 @@ codeunit 97508 "BQ Tests 3"
         Rows.Close();
     end;
 
-    // The test session counts the group while it has not written the table since its last commit, then inserts a line of it:
-    // the worker's first Count of the group.
-    [Test]
-    procedure BgQueryCache_Run_GroupCount_TestCountThenInsert_FirstRead()
-    var
-        Rows: TestPage "BQ Plain Rows";
-        Row: Record "BQ Row";
-        G: Code[20];
-    begin
-        G := NewGroup();
-        // Page 97519 starts no task.
-        AddRow(G, 1, 'a', '');
-        Commit();
-        OpenOn(Rows, G);
-        Row.SetRange("Group", G);
-        Assert.AreEqual(1, Row.Count(), 'the test''s Count');
-        AddRow(G, 2, 'b', '');
-        Assert.AreEqual('1', Run(Rows, Codeunit::"BQ Reader", 'count', G, 0), 'the worker''s Count');
-        Rows.Close();
-    end;
-
-    // A Get of line 1; the test changes it; a Get with SetLoadFields(Description) and a copy of that record: the fields of the copy.
-    [Test]
-    procedure BgQueryCache_Run_PartialGet_Copy_FirstAnswer()
-    var
-        Rows: TestPage "BQ Plain Rows";
-        G: Code[20];
-    begin
-        G := NewGroup();
-        // Page 97519 starts no task.
-        AddRow(G, 1, 'first', 'n1');
-        OpenOn(Rows, G);
-        Assert.AreEqual('first', Run(Rows, Codeunit::"BQ Reader", 'get', G, 1), 'Get');
-        SetRow(G, 1, 'second', 'n9');
-        Assert.AreEqual('first+n1', Run(Rows, Codeunit::"BQ Reader 3", 'copynote', G, 1), 'the copy');
-        Rows.Close();
-    end;
-
     // A FindLast on the group; the test changes the line: the same FindLast again.
     [Test]
     procedure BgQueryCache_Run_FindLast_ChangedRow_FirstAnswer()
@@ -1346,4 +1310,485 @@ page 97519 "BQ Plain Rows"
             }
         }
     }
+}
+
+// Two cells of BQ Tests 3 in a test codeunit of their own (review of al-runner PR 8490, LOW 9): the runner refuses both, and a
+// refused test stops the trust in the later failures of its codeunit, so the FindLast, IsEmpty and SetFilter cells of BQ Tests 3
+// now run before them there. Measured on a local BC 29.1 OnPrem w1 container.
+codeunit 97577 "BQ Tests 3b"
+{
+    Subtype = Test;
+
+    var
+        Assert: Codeunit Assert;
+        // No BQ Mode (a SingleInstance of BQ Tests): page 97519 starts no task of its own.
+    local procedure NewGroup(): Code[20]
+    begin
+        exit(CopyStr(DelChr(Format(CreateGuid()), '=', '{}-'), 1, 20));
+    end;
+
+    // Inserts a line, then reads the group (as AddRow of BQ Tests).
+    local procedure AddRow(Group: Code[20]; LineNo: Integer; Description: Text[50]; Note: Text[50])
+    var
+        Row: Record "BQ Row";
+    begin
+        Row."Group" := Group;
+        Row."Line No." := LineNo;
+        Row.Description := Description;
+        Row.Note := Note;
+        Row.Insert();
+        Row.SetRange("Group", Group);
+        if Row.FindFirst() then;
+    end;
+
+    local procedure SetRow(Group: Code[20]; LineNo: Integer; Description: Text[50]; Note: Text[50])
+    var
+        Row: Record "BQ Row";
+    begin
+        Row.Get(Group, LineNo);
+        Row.Description := Description;
+        Row.Note := Note;
+        Row.Modify();
+    end;
+
+    local procedure OpenOn(var Rows: TestPage "BQ Plain Rows"; Group: Code[20])
+    begin
+        Rows.OpenView();
+        Rows.Filter.SetFilter("Group", Group);
+        Rows.First();
+    end;
+
+    local procedure Run(var Rows: TestPage "BQ Plain Rows"; Worker: Integer; Mode: Text; Group: Code[20]; LineNo: Integer): Text
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Seen: Text;
+    begin
+        Parameters.Add('Group', Group);
+        Parameters.Add('Line', Format(LineNo));
+        Parameters.Add('Mode', Mode);
+        Results := Rows.RunPageBackgroundTask(Worker, Parameters, false);
+        Results.Get('Seen', Seen);
+        exit(Seen);
+    end;
+
+    // The test session counts the group while it has not written the table since its last commit, then inserts a line of it:
+    // the worker's first Count of the group.
+    [Test]
+    procedure BgQueryCache_Run_GroupCount_TestCountThenInsert_FirstRead()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        Row: Record "BQ Row";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        // Page 97519 starts no task.
+        AddRow(G, 1, 'a', '');
+        Commit();
+        OpenOn(Rows, G);
+        Row.SetRange("Group", G);
+        Assert.AreEqual(1, Row.Count(), 'the test''s Count');
+        AddRow(G, 2, 'b', '');
+        Assert.AreEqual('1', Run(Rows, Codeunit::"BQ Reader", 'count', G, 0), 'the worker''s Count');
+        Rows.Close();
+    end;
+
+    // A Get of line 1; the test changes it; a Get with SetLoadFields(Description) and a copy of that record: the fields of the copy.
+    [Test]
+    procedure BgQueryCache_Run_PartialGet_Copy_FirstAnswer()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        // Page 97519 starts no task.
+        AddRow(G, 1, 'first', 'n1');
+        OpenOn(Rows, G);
+        Assert.AreEqual('first', Run(Rows, Codeunit::"BQ Reader", 'get', G, 1), 'Get');
+        SetRow(G, 1, 'second', 'n9');
+        Assert.AreEqual('first+n1', Run(Rows, Codeunit::"BQ Reader 3", 'copynote', G, 1), 'the copy');
+        Rows.Close();
+    end;
+}
+
+// What ends a query cache entry besides a commit that wrote the row (al-runner issue 8467, review of al-runner PR 8490, findings 1
+// to 3; measured on a local BC 29.1 OnPrem w1 container, 3 runs):
+//   - Database.SelectLatestVersion in the worker, with no table or with the row's table, before its Get: the read of the row (a row
+//     it read, a Get that found nothing, a row the test session read first) goes to the table, and the next Get answers what it
+//     read; with another table it changes nothing. (A Count or a FindFirst of a group after it: with the first read in BQ Reader
+//     and the read after SelectLatestVersion in BQ Reader 11 they read the table, with all three reads in BQ Reader 11 they
+//     answered the first read; no cell.)
+//   - Database.SelectLatestVersion in the test session changes no answer of a worker read: a row, a row the test session read
+//     first (before or after its change), a Count and a FindFirst of a group.
+//   - A table with a Blob field: a repeated Get answers the first read, as on BQ Row. (CalcFields of the Blob in a worker waits
+//     for the rows the test codeunit wrote, as the locking reads of corpus PR 1498 do, so no cell reads it here.)
+//   - A commit of a ModifyAll or a DeleteAll of another row of the table, then a change of the row the test does not read: BC
+//     27.5, 28.5 and 29.0 end the row's entry (for ModifyAll: the corpus CI of PR 1457), BC 29.1 keeps it; BQ Version tells
+//     them apart. These cells are in BQ Tests 12, so BQ Tests 11 needs no Base Application. (After a Truncate of another row
+//     the local 29.1 container answered the first read when the test changed the row by Get and Modify, which the Get alone
+//     answers (:500), and waited on a lock when it changed the row by ModifyAll; no cell.)
+table 97575 "BQ Blob Row"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Description; Text[50]) { }
+        field(3; Data; Blob) { }
+    }
+
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+    }
+}
+
+// The worker of BQ Tests 11: SelectLatestVersion before a Get of BQ Row, or a Get of BQ Blob Row.
+codeunit 97575 "BQ Reader 11"
+{
+    trigger OnRun()
+    var
+        BlobRow: Record "BQ Blob Row";
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Group: Text;
+        LineText: Text;
+        LineNo: Integer;
+        Seen: Text;
+    begin
+        Parameters := Page.GetBackgroundParameters();
+        Parameters.Get('Group', Group);
+        Parameters.Get('Line', LineText);
+        Evaluate(LineNo, LineText);
+        case Parameters.Get('Mode') of
+            'slvget':
+                begin
+                    Database.SelectLatestVersion();
+                    Seen := RowSeen(Group, LineNo);
+                end;
+            'slvtableget':
+                begin
+                    Database.SelectLatestVersion(Database::"BQ Row");
+                    Seen := RowSeen(Group, LineNo);
+                end;
+            'slvotherget':
+                begin
+                    Database.SelectLatestVersion(Database::"BQ Other");
+                    Seen := RowSeen(Group, LineNo);
+                end;
+            'blobdesc':
+                if BlobRow.Get(Group) then
+                    Seen := BlobRow.Description
+                else
+                    Seen := '-';
+        end;
+        Results.Add('Seen', Seen);
+        Page.SetBackgroundTaskResult(Results);
+    end;
+
+    local procedure RowSeen(Group: Text; LineNo: Integer): Text
+    var
+        Row: Record "BQ Row";
+    begin
+        if Row.Get(Group, LineNo) then
+            exit(Row.Description);
+        exit('-');
+    end;
+}
+
+codeunit 97576 "BQ Tests 11"
+{
+    Subtype = Test;
+
+    var
+        Assert: Codeunit Assert;
+        // No BQ Mode (a SingleInstance of BQ Tests): page 97519 starts no task of its own.
+
+    local procedure NewGroup(): Code[20]
+    begin
+        exit(CopyStr(DelChr(Format(CreateGuid()), '=', '{}-'), 1, 20));
+    end;
+
+    // Inserts a line, then reads the group (as AddRow of BQ Tests).
+    local procedure AddRow(Group: Code[20]; LineNo: Integer; Description: Text[50])
+    var
+        Row: Record "BQ Row";
+    begin
+        Row."Group" := Group;
+        Row."Line No." := LineNo;
+        Row.Description := Description;
+        Row.Insert();
+        Row.SetRange("Group", Group);
+        if Row.FindFirst() then;
+    end;
+
+    // Changes the line after reading it (Get, Modify).
+    local procedure SetRow(Group: Code[20]; LineNo: Integer; Description: Text[50])
+    var
+        Row: Record "BQ Row";
+    begin
+        Row.Get(Group, LineNo);
+        Row.Description := Description;
+        Row.Modify();
+    end;
+
+    // Inserts a row of BQ Blob Row with its Blob, then reads the table (as AddRow).
+    local procedure AddBlob(No: Code[20]; Description: Text[50]; Content: Text)
+    var
+        BlobRow: Record "BQ Blob Row";
+    begin
+        BlobRow."No." := No;
+        BlobRow.Description := Description;
+        WriteBlob(BlobRow, Content);
+        BlobRow.Insert();
+        BlobRow.SetRange("No.", No);
+        if BlobRow.FindFirst() then;
+    end;
+
+    // Changes the row and its Blob after reading it (Get, Modify).
+    local procedure SetBlob(No: Code[20]; Description: Text[50]; Content: Text)
+    var
+        BlobRow: Record "BQ Blob Row";
+    begin
+        BlobRow.Get(No);
+        BlobRow.Description := Description;
+        WriteBlob(BlobRow, Content);
+        BlobRow.Modify();
+    end;
+
+    local procedure WriteBlob(var BlobRow: Record "BQ Blob Row"; Content: Text)
+    var
+        OutS: OutStream;
+    begin
+        BlobRow.Data.CreateOutStream(OutS);
+        OutS.WriteText(Content);
+    end;
+
+    local procedure OpenOn(var Rows: TestPage "BQ Plain Rows"; Group: Code[20])
+    begin
+        Rows.OpenView();
+        Rows.Filter.SetFilter("Group", Group);
+        Rows.First();
+    end;
+
+    local procedure Run(var Rows: TestPage "BQ Plain Rows"; Worker: Integer; Mode: Text; Group: Code[20]; LineNo: Integer): Text
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Seen: Text;
+    begin
+        Parameters.Add('Group', Group);
+        Parameters.Add('Line', Format(LineNo));
+        Parameters.Add('Mode', Mode);
+        Results := Rows.RunPageBackgroundTask(Worker, Parameters, false);
+        Results.Get('Seen', Seen);
+        exit(Seen);
+    end;
+
+    local procedure SelectInWorker(Mode: Text; AfterSelect: Text; AfterNext: Text)
+    var
+        Rows: TestPage "BQ Plain Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        AddRow(G, 1, 'first');
+        OpenOn(Rows, G);
+        Assert.AreEqual('first', Run(Rows, Codeunit::"BQ Reader", 'get', G, 1), 'Get');
+        SetRow(G, 1, 'second');
+        Assert.AreEqual(AfterSelect, Run(Rows, Codeunit::"BQ Reader 11", Mode, G, 1), 'Get after SelectLatestVersion');
+        SetRow(G, 1, 'third');
+        Assert.AreEqual(AfterNext, Run(Rows, Codeunit::"BQ Reader", 'get', G, 1), 'the next Get');
+        Rows.Close();
+    end;
+
+    // A Get of line 1; the test changes it; the worker calls SelectLatestVersion, then Get: it reads the table; the test changes
+    // the line again: the next Get answers what the Get after SelectLatestVersion read.
+    [Test]
+    procedure BgQueryCache_Run_SelectLatestVersion_InWorker_ThenGet()
+    begin
+        SelectInWorker('slvget', 'second', 'second');
+    end;
+
+    // As above, SelectLatestVersion with the table of the row.
+    [Test]
+    procedure BgQueryCache_Run_SelectLatestVersionTable_InWorker_ThenGet()
+    begin
+        SelectInWorker('slvtableget', 'second', 'second');
+    end;
+
+    // As above, SelectLatestVersion with another table: every Get answers the first read.
+    [Test]
+    procedure BgQueryCache_Run_SelectLatestVersionOtherTable_InWorker_ThenGet()
+    begin
+        SelectInWorker('slvotherget', 'first', 'first');
+    end;
+
+    local procedure SelectInTest(Table: Integer)
+    var
+        Rows: TestPage "BQ Plain Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        AddRow(G, 1, 'first');
+        OpenOn(Rows, G);
+        Assert.AreEqual('first', Run(Rows, Codeunit::"BQ Reader", 'get', G, 1), 'Get');
+        SetRow(G, 1, 'second');
+        if Table = 0 then
+            Database.SelectLatestVersion()
+        else
+            Database.SelectLatestVersion(Table);
+        Assert.AreEqual('first', Run(Rows, Codeunit::"BQ Reader", 'get', G, 1), 'Get after SelectLatestVersion');
+        SetRow(G, 1, 'third');
+        Assert.AreEqual('first', Run(Rows, Codeunit::"BQ Reader", 'get', G, 1), 'the next Get');
+        Rows.Close();
+    end;
+
+    // A Get of line 1; the test changes it and calls SelectLatestVersion: the worker's Get answers the first read.
+    [Test]
+    procedure BgQueryCache_Run_SelectLatestVersion_InTest_ThenWorkerGet()
+    begin
+        SelectInTest(0);
+    end;
+
+    // As above, SelectLatestVersion with the table of the row.
+    [Test]
+    procedure BgQueryCache_Run_SelectLatestVersionTable_InTest_ThenWorkerGet()
+    begin
+        SelectInTest(Database::"BQ Row");
+    end;
+
+    // The test reads line 1 after a commit and changes it; the worker calls SelectLatestVersion, then Get: it reads the table,
+    // and the next Get answers what it read.
+    [Test]
+    procedure BgQueryCache_Run_TestReadFirst_SelectLatestVersionInWorker_ReadsTheTable()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        Row: Record "BQ Row";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        AddRow(G, 1, 'first');
+        Commit();
+        Row.Get(G, 1);
+        SetRow(G, 1, 'second');
+        OpenOn(Rows, G);
+        Assert.AreEqual('second', Run(Rows, Codeunit::"BQ Reader 11", 'slvget', G, 1), 'Get after SelectLatestVersion');
+        SetRow(G, 1, 'third');
+        Assert.AreEqual('second', Run(Rows, Codeunit::"BQ Reader", 'get', G, 1), 'the next Get');
+        Rows.Close();
+    end;
+
+    // The test reads line 1 after a commit, changes it and calls SelectLatestVersion: the worker's first Get answers what the test
+    // read.
+    [Test]
+    procedure BgQueryCache_Run_TestReadFirst_SelectLatestVersionInTest_FirstReadAnswersIt()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        Row: Record "BQ Row";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        AddRow(G, 1, 'first');
+        Commit();
+        Row.Get(G, 1);
+        SetRow(G, 1, 'second');
+        Database.SelectLatestVersion();
+        OpenOn(Rows, G);
+        Assert.AreEqual('first', Run(Rows, Codeunit::"BQ Reader", 'get', G, 1), 'first Get');
+        Rows.Close();
+    end;
+
+    // As above, SelectLatestVersion before the change.
+    [Test]
+    procedure BgQueryCache_Run_TestReadFirst_SelectLatestVersionInTestBeforeChange_FirstReadAnswersIt()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        Row: Record "BQ Row";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        AddRow(G, 1, 'first');
+        Commit();
+        Row.Get(G, 1);
+        Database.SelectLatestVersion();
+        SetRow(G, 1, 'second');
+        OpenOn(Rows, G);
+        Assert.AreEqual('first', Run(Rows, Codeunit::"BQ Reader", 'get', G, 1), 'first Get');
+        Rows.Close();
+    end;
+
+    // A Get of a line that is not there; the test inserts it; the worker calls SelectLatestVersion, then Get: it finds the line.
+    [Test]
+    procedure BgQueryCache_Run_GetMissing_SelectLatestVersionInWorker_SeesTheInsert()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        G: Code[20];
+        H: Code[20];
+    begin
+        G := NewGroup();
+        H := NewGroup();
+        AddRow(H, 1, 'h');
+        OpenOn(Rows, H);
+        Assert.AreEqual('-', Run(Rows, Codeunit::"BQ Reader", 'get', G, 1), 'Get');
+        AddRow(G, 1, 'new');
+        Assert.AreEqual('new', Run(Rows, Codeunit::"BQ Reader 11", 'slvget', G, 1), 'Get after SelectLatestVersion');
+        Rows.Close();
+    end;
+
+    // Count of the group; the test inserts a line of it and calls SelectLatestVersion: Count answers the first read.
+    [Test]
+    procedure BgQueryCache_Run_GroupCount_SelectLatestVersionInTest_FirstAnswer()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        AddRow(G, 1, 'a');
+        OpenOn(Rows, G);
+        Assert.AreEqual('1', Run(Rows, Codeunit::"BQ Reader", 'count', G, 0), 'Count');
+        AddRow(G, 2, 'b');
+        Database.SelectLatestVersion();
+        Assert.AreEqual('1', Run(Rows, Codeunit::"BQ Reader", 'count', G, 0), 'Count after SelectLatestVersion');
+        Rows.Close();
+    end;
+
+    // FindFirst of the group; the test changes its first line and calls SelectLatestVersion: FindFirst answers the first read.
+    [Test]
+    procedure BgQueryCache_Run_GroupFindFirst_SelectLatestVersionInTest_FirstAnswer()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        G: Code[20];
+    begin
+        G := NewGroup();
+        AddRow(G, 1, 'a');
+        OpenOn(Rows, G);
+        Assert.AreEqual('1/a', Run(Rows, Codeunit::"BQ Reader", 'groupfirst', G, 0), 'FindFirst');
+        SetRow(G, 1, 'b');
+        Database.SelectLatestVersion();
+        Assert.AreEqual('1/a', Run(Rows, Codeunit::"BQ Reader", 'groupfirst', G, 0), 'FindFirst after SelectLatestVersion');
+        Rows.Close();
+    end;
+
+    // A committed row of a table with a Blob field; a Get of it; the test changes the row and its Blob: the same Get answers the
+    // first read.
+    [Test]
+    procedure BgQueryCache_Run_BlobTable_GetAgain_AfterChange()
+    var
+        Rows: TestPage "BQ Plain Rows";
+        G: Code[20];
+        K: Code[20];
+    begin
+        G := NewGroup();
+        K := NewGroup();
+        AddRow(G, 1, 'h');
+        AddBlob(K, 'first', 'b1');
+        Commit();
+        OpenOn(Rows, G);
+        Assert.AreEqual('first', Run(Rows, Codeunit::"BQ Reader 11", 'blobdesc', K, 0), 'Get');
+        SetBlob(K, 'second', 'b2');
+        Assert.AreEqual('first', Run(Rows, Codeunit::"BQ Reader 11", 'blobdesc', K, 0), 'Get again');
+        Rows.Close();
+    end;
 }

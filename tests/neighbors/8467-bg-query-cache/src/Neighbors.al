@@ -1,51 +1,31 @@
-// Neighbors of al-runner issue 8467 the probe does not measure, on the probe's table and page. Refused: a group read of a
+// Neighbors of al-runner issue 8467 the probe does not measure, on the probe's tables and page. Refused: a group read of a
 // worker after the test session read that group and then wrote the table; a field load into a copy of a record the cache
-// answered. A row read again after commits that wrote it while no commit held it before or after reads the table (corpus PR
-// 1495, BgTaskQueryCache.al:1207). A row read again after a commit of a ModifyAll of another row follows the BC version (the
-// probe's cell for it differs between versions; refused where none is measured). Read as on main, from the rows as they are
-// (no flag): FindLast, IsEmpty, a SetFilter to one value, a ReadIsolation read. BC differs there: it answers FindLast, IsEmpty
-// and FindFirst after a SetFilter from the cache (corpus PR 1495, :1276, :1293, :1312), and a ReadIsolation read waits on the
-// test session's write (a local BC 29.1 container); neither is modelled. Two filter values with the same first characters keep
-// their own entries; a field load after a fetch of another row is not refused.
+// answered; CalcFields of a Blob of a row the cache answered with another row (BC's CalcFields of a Blob in a worker waits on
+// the rows the test codeunit wrote, the comment at corpus PR 1495 BgTaskQueryCache.al:6534). A row read again after commits
+// that wrote it while no commit held it before or after reads the table (BgTaskQueryCache.al:1207). A row read again after a
+// commit of a ModifyAll or a DeleteAll of another row follows the BC version (the cells of BQ Tests 12, :7009 and :7016, need
+// Base Application to tell the versions apart, so they are not in Probe.al; these assert the answer of BC 27.5, 28.5 and
+// 29.0), and is refused where no version is measured; after a Truncate (no cell) it is refused. A table with a Media field
+// reads its rows as they are, as on main (no cell has one). Read as on main, from the rows as they are (no flag): a
+// ReadIsolation read (BC waits on the test session's write, corpus PR 1498, not modelled here). Two filter values with the
+// same first characters keep their own entries; a field load after a fetch of another row is not refused.
 
-codeunit 97510 "BQ Other Reader"
+table 97520 "BQ Media Row"
 {
-    trigger OnRun()
-    var
-        Row: Record "BQ Row";
-        Parameters: Dictionary of [Text, Text];
-        Results: Dictionary of [Text, Text];
-        Group: Text;
-        Seen: Text;
-    begin
-        Parameters := Page.GetBackgroundParameters();
-        Parameters.Get('Group', Group);
-        case Parameters.Get('Mode') of
-            'last':
-                begin
-                    Row.SetRange("Group", Group);
-                    if Row.FindLast() then
-                        Seen := Row.Description
-                    else
-                        Seen := '-';
-                end;
-            'empty':
-                begin
-                    Row.SetRange("Group", Group);
-                    Seen := Format(Row.IsEmpty());
-                end;
-            'setfilter':
-                begin
-                    Row.SetFilter("Group", Group);
-                    if Row.FindFirst() then
-                        Seen := Row.Description
-                    else
-                        Seen := '-';
-                end;
-        end;
-        Results.Add('Seen', Seen);
-        Page.SetBackgroundTaskResult(Results);
-    end;
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Description; Text[50]) { }
+        field(3; Picture; Media) { }
+    }
+
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+    }
 }
 
 codeunit 97512 "BQ Neighbor Reader"
@@ -54,6 +34,10 @@ codeunit 97512 "BQ Neighbor Reader"
     var
         Row: Record "BQ Row";
         Copy: Record "BQ Row";
+        BlobRow: Record "BQ Blob Row";
+        MediaRow: Record "BQ Media Row";
+        InS: InStream;
+        Content: Text;
         Parameters: Dictionary of [Text, Text];
         Results: Dictionary of [Text, Text];
         Group: Text;
@@ -81,6 +65,19 @@ codeunit 97512 "BQ Neighbor Reader"
                     Row.ReadIsolation := IsolationLevel::ReadCommitted;
                     Row.Get(Group, 1);
                     Seen := Row.Description;
+                end;
+            'blobread':
+                begin
+                    BlobRow.Get(Group);
+                    BlobRow.CalcFields(Data);
+                    BlobRow.Data.CreateInStream(InS);
+                    InS.ReadText(Content);
+                    Seen := BlobRow.Description + '/' + Content;
+                end;
+            'mediaget':
+                begin
+                    MediaRow.Get(Group);
+                    Seen := MediaRow.Description;
                 end;
         end;
         Results.Add('Seen', Seen);
@@ -275,33 +272,70 @@ codeunit 97511 "BQ Neighbor Tests"
         Rows.Close();
     end;
 
+    local procedure AddBlob(No: Code[20]; Description: Text[50]; Content: Text)
+    var
+        BlobRow: Record "BQ Blob Row";
+        OutS: OutStream;
+    begin
+        BlobRow."No." := No;
+        BlobRow.Description := Description;
+        BlobRow.Data.CreateOutStream(OutS);
+        OutS.WriteText(Content);
+        BlobRow.Insert();
+    end;
+
+    local procedure SetBlob(No: Code[20]; Description: Text[50]; Content: Text)
+    var
+        BlobRow: Record "BQ Blob Row";
+        OutS: OutStream;
+    begin
+        BlobRow.Get(No);
+        BlobRow.Description := Description;
+        BlobRow.Data.CreateOutStream(OutS);
+        OutS.WriteText(Content);
+        BlobRow.Modify();
+    end;
+
     [Test]
-    procedure OtherForms_ReadTheRows()
+    procedure BlobTable_ReadAgain_AfterChange()
     var
         Rows: TestPage "BQ Rows";
-        Row: Record "BQ Row";
-        Other: Integer;
     begin
         BqMode.Set('');
-        Other := Codeunit::"BQ Other Reader";
-        AddRow('NB2', 1, 'a');
-        OpenOn(Rows, 'NB2');
-        Assert.AreEqual('a', Run(Rows, Other, 'last', 'NB2'), 'FindLast');
-        Assert.AreEqual('Yes', Run(Rows, Other, 'empty', 'NB3'), 'IsEmpty');
-        Assert.AreEqual('a', Run(Rows, Other, 'setfilter', 'NB2'), 'SetFilter FindFirst');
-        Row.Get('NB2', 1);
-        Row.Description := 'b';
-        Row.Modify();
-        AddRow('NB3', 1, 'c');
-        Assert.AreEqual('b', Run(Rows, Other, 'last', 'NB2'), 'FindLast again');
-        Assert.AreEqual('No', Run(Rows, Other, 'empty', 'NB3'), 'IsEmpty again');
-        Assert.AreEqual('b', Run(Rows, Other, 'setfilter', 'NB2'), 'SetFilter FindFirst again');
+        AddRow('NBB', 1, 'h');
+        AddBlob('NBB1', 'first', 'b1');
+        Commit();
+        OpenOn(Rows, 'NBB');
+        Assert.AreEqual('first/b1', Run(Rows, Codeunit::"BQ Neighbor Reader", 'blobread', 'NBB1'), 'Get and CalcFields');
+        SetBlob('NBB1', 'second', 'b2');
+        Assert.AreEqual('first/b1', Run(Rows, Codeunit::"BQ Neighbor Reader", 'blobread', 'NBB1'), 'Get and CalcFields again');
+        Rows.Close();
+    end;
+
+    [Test]
+    procedure MediaTable_GetAgain_ReadsTheRows()
+    var
+        Rows: TestPage "BQ Rows";
+        MediaRow: Record "BQ Media Row";
+    begin
+        BqMode.Set('');
+        AddRow('NBM', 1, 'h');
+        MediaRow."No." := 'NBM1';
+        MediaRow.Description := 'first';
+        MediaRow.Insert();
+        Commit();
+        OpenOn(Rows, 'NBM');
+        Assert.AreEqual('first', Run(Rows, Codeunit::"BQ Neighbor Reader", 'mediaget', 'NBM1'), 'Get');
+        MediaRow.Get('NBM1');
+        MediaRow.Description := 'second';
+        MediaRow.Modify();
+        Assert.AreEqual('second', Run(Rows, Codeunit::"BQ Neighbor Reader", 'mediaget', 'NBM1'), 'Get again');
         Rows.Close();
     end;
 }
 
-// The test a refusal earlier in the codeunit would stop from running (a test codeunit the runner refused a test of runs no
-// further test), in a codeunit of its own.
+// The tests a refusal earlier in the codeunit would stop from running (a test codeunit the runner refused a test of runs no
+// further test), in a codeunit of their own.
 codeunit 97513 "BQ Neighbor Tests 2"
 {
     Subtype = Test;
@@ -376,27 +410,52 @@ codeunit 97513 "BQ Neighbor Tests 2"
         exit(Seen);
     end;
 
-    [Test]
-    procedure OtherRowModifyAllCommitted_ThenChanged()
+    local procedure OtherRowBulkCommitted(Group: Code[20]; Bulk: Text)
     var
         Rows: TestPage "BQ Rows";
         Row: Record "BQ Row";
     begin
         BqMode.Set('');
-        AddNoted('NB9', 1, 'first', '');
-        AddNoted('NB9', 2, 'other', '');
+        AddNoted(Group, 1, 'first', '');
+        AddNoted(Group, 2, 'other', '');
         Commit();
-        OpenOn(Rows, 'NB9');
-        Assert.AreEqual('first', RunGet(Rows, 'NB9'), 'Get');
-        Row.SetRange("Group", 'NB9');
+        OpenOn(Rows, Group);
+        Assert.AreEqual('first', RunGet(Rows, Group), 'Get');
+        Row.SetRange("Group", Group);
         Row.SetRange("Line No.", 2);
-        Row.ModifyAll(Description, 'other2');
+        case Bulk of
+            'modifyall':
+                Row.ModifyAll(Description, 'other2');
+            'deleteall':
+                Row.DeleteAll();
+            'truncate':
+                Row.Truncate();
+        end;
         Commit();
         Row.SetRange("Line No.", 1);
         Row.ModifyAll(Description, 'second');
-        // On BC 27.5, 28.5 and 29.0 the commit of the ModifyAll of line 2 ended the entry of line 1 (the CI of corpus PR 1457;
-        // a local BC 29.1 kept it: al_version::bulk_commit_ends_cached_row).
-        Assert.AreEqual('second', RunGet(Rows, 'NB9'), 'Get after the commit');
+        // BC 27.5, 28.5 and 29.0 end the entry of line 1 at the commit of a ModifyAll or a DeleteAll (BgTaskQueryCache.al:7009,
+        // :7016), a local BC 29.1 keeps it (al_version::bulk_commit_ends_cached_row); no cell has the Truncate.
+        Assert.AreEqual('second', RunGet(Rows, Group), 'Get after the commit');
         Rows.Close();
+    end;
+
+    [Test]
+    procedure OtherRowModifyAllCommitted_ThenChanged()
+    begin
+        OtherRowBulkCommitted('NB9', 'modifyall');
+    end;
+
+    [Test]
+    procedure OtherRowDeleteAllCommitted_ThenChanged()
+    begin
+        OtherRowBulkCommitted('NB10', 'deleteall');
+    end;
+
+    // Last: a Truncate keeps its table locked to a worker's reads for the rest of the test codeunit on BC.
+    [Test]
+    procedure OtherRowTruncateCommitted_ThenChanged()
+    begin
+        OtherRowBulkCommitted('NB11', 'truncate');
     end;
 }
