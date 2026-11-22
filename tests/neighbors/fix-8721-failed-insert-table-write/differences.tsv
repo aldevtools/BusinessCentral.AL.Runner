@@ -10,8 +10,8 @@ NB Upsert Tests::SameTableWritten_ThenFindFirst_Written	ASSUMED failed-insert-af
 NB Upsert Tests::SameTableLocked_ThenGet_Written	ASSUMED failed-insert-after-table-write (corpus PR 1523, TestRecordFailedInsertMovedKey.al:621 R1)
 NB Upsert Tests::SameTableRowDeleted_ThenGet_Written	ASSUMED failed-insert-after-table-write (corpus PR 1523, TestRecordFailedInsertMovedKey.al:712 R4)
 NB Upsert Tests::UncommittedSeed_SameKey_ChangedElsewhere_Written	ASSUMED failed-insert-after-table-write (corpus PR 1523, TestRecordFailedInsertMovedKey.al:784 R6)
-NB Upsert Tests::UncommittedSeed_MovedKey_TargetModifiedAfterInsert_Written	ASSUMED failed-insert-after-table-write (al-runner issue 8721, cell 6 of the reporter's BC 29 table)
-NB Upsert Tests::UncommittedSeed_SourceModifiedBetweenCalls_Written	ASSUMED failed-insert-after-table-write (al-runner issue 8721, cell 7 of the reporter's BC 29 table)
+NB Upsert Tests::UncommittedSeed_MovedKey_TargetModifiedAfterInsert_Written	ASSUMED failed-insert-after-table-write (corpus PR 1523, TestRecordFailedInsertMovedKey.al:1225 Q8)
+NB Upsert Tests::UncommittedSeed_SourceModifiedBetweenCalls_Written	ASSUMED failed-insert-after-table-write (corpus PR 1523, TestRecordFailedInsertMovedKey.al:1250 Q9)
 NB Upsert Tests::OwnInsertThenOwnDelete	REFUSED Modify after a failed Insert of a NB Upsert
 NB Upsert Tests::UncommittedSeed_Get_TwoCommitsAfterRead	REFUSED Modify after a failed Insert of a NB Upsert
 NB Upsert Tests::OwnInsertRolledBack	REFUSED Modify after a failed Insert of a NB Upsert
@@ -20,3 +20,10 @@ NB Upsert Tests::UncommittedSeed_ModifyAllAfterRead	REFUSED Modify after a faile
 NB Upsert Tests::UncommittedSeed_FailedInsertTwice	REFUSED Modify after a failed Insert of a NB Upsert
 NB Upsert Tests::UncommittedSeed_GuardedModify	REFUSED Modify after a failed Insert of a NB Upsert
 NB Upsert Tests::UncommittedSeed_TableWithOnModifyTrigger	REFUSED Modify after a failed Insert of a NB Upsert
+NB Upsert Tests::RecordRefLockTable_ThenGet	REFUSED Modify after a failed Insert of a NB Upsert
+NB Upsert Tests::UncommittedSeed_IsolatedStorageSetAfterRead	REFUSED Modify after a failed Insert of a NB Upsert
+NB Upsert Tests::DeleteAllOfNoRowOnly_ThenGet	REFUSED Modify after a failed Insert of a NB Upsert
+NB Upsert Tests::ModifyAllOfNoRowOnly_ThenGet	REFUSED Modify after a failed Insert of a NB Upsert
+NB Upsert Tests::UncommittedSeed_CommitAfterTargetInsert	REFUSED Modify after a failed Insert of a NB Upsert
+NB Upsert Tests::UncommittedSeed_SameKeyDeletedAndInsertedAgain	REFUSED Modify after a failed Insert of a NB Upsert
+NB Upsert Tests::TableWritten_ThenGet_TwoRollbacks	REFUSED Modify after a failed Insert of a NB Upsert

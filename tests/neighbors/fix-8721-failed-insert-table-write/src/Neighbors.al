@@ -593,4 +593,194 @@ codeunit 97722 "NB Upsert Tests"
         Assert.AreEqual('DB:RecordChanged', Outcome(), 'a version TransferFields copied with the key');
         Clean();
     end;
+
+    // The own-Modify rule (al-runner issue 7798) on copies of the buffer: written, as on main.
+    local procedure UpsertByValue(R: Record "NB Upsert Row")
+    begin
+        R.Code := 'B';
+        if not R.Insert() then
+            R.Modify();
+    end;
+
+    local procedure OwnModifyOfA(var R: Record "NB Upsert Row")
+    var
+        Other: Record "NB Upsert Row";
+    begin
+        Clean();
+        AddRow('A', 'a');
+        Commit();
+        R.Get('A');
+        R.Name := 'own';
+        R.Modify();
+        Other.Code := 'B';
+        Other.Insert();
+    end;
+
+    [Test]
+    procedure OwnModifyOfA_ByValueUpsertOntoB_Written()
+    var
+        R: Record "NB Upsert Row";
+    begin
+        OwnModifyOfA(R);
+        asserterror begin
+            UpsertByValue(R);
+            Error(NoErrorTxt);
+        end;
+        Assert.AreEqual('written', Outcome(), 'an own-Modify version passed by value');
+        Clean();
+    end;
+
+    [Test]
+    procedure OwnModifyOfA_RecordRefUpsertOntoB_Written()
+    var
+        R: Record "NB Upsert Row";
+        Ref: RecordRef;
+    begin
+        OwnModifyOfA(R);
+        asserterror begin
+            Ref.GetTable(R);
+            Ref.Field(1).Value := 'B';
+            if not Ref.Insert() then
+                Ref.Modify();
+            Error(NoErrorTxt);
+        end;
+        Assert.AreEqual('written', Outcome(), 'an own-Modify version through a RecordRef');
+        Clean();
+    end;
+
+    [Test]
+    procedure OwnModifyOfA_OwnDeleteOfA_UpsertOntoB_Written()
+    var
+        R: Record "NB Upsert Row";
+    begin
+        OwnModifyOfA(R);
+        R.Delete();
+        asserterror begin
+            R.Code := 'B';
+            if not R.Insert() then
+                R.Modify();
+            Error(NoErrorTxt);
+        end;
+        Assert.AreEqual('written', Outcome(), 'an own-Modify version after an own Delete');
+        Clean();
+    end;
+
+    [Test]
+    procedure RecordRefLockTable_ThenGet()
+    var
+        Src: Record "NB Upsert Row";
+        Ref: RecordRef;
+    begin
+        Clean();
+        AddRow('SOURCE', 'new');
+        Commit();
+        Ref.Open(Database::"NB Upsert Row");
+        Ref.LockTable();
+        Src.Get('SOURCE');
+        CopyTo(Src, 'TARGET');
+        Assert.AreEqual('DB:RecordChanged', SecondUpsert(Src), 'a LockTable through a RecordRef');
+        Clean();
+    end;
+
+    [Test]
+    procedure UncommittedSeed_IsolatedStorageSetAfterRead()
+    var
+        Src: Record "NB Upsert Row";
+    begin
+        Clean();
+        AddRow('SOURCE', 'new');
+        Src.Get('SOURCE');
+        CopyTo(Src, 'TARGET');
+        IsolatedStorage.Set('nb-upsert', 'v');
+        Assert.AreEqual('DB:RecordChanged', SecondUpsert(Src), 'an IsolatedStorage write after the read');
+        Clean();
+    end;
+
+    [Test]
+    procedure DeleteAllOfNoRowOnly_ThenGet()
+    var
+        Src: Record "NB Upsert Row";
+        Other: Record "NB Upsert Row";
+    begin
+        Clean();
+        AddRow('SOURCE', 'new');
+        Commit();
+        Other.SetRange(Code, 'NONE');
+        Other.DeleteAll();
+        Src.Get('SOURCE');
+        CopyTo(Src, 'TARGET');
+        Assert.AreEqual('DB:RecordChanged', SecondUpsert(Src), 'only a DeleteAll that matched no row before the read');
+        Clean();
+    end;
+
+    [Test]
+    procedure ModifyAllOfNoRowOnly_ThenGet()
+    var
+        Src: Record "NB Upsert Row";
+        Other: Record "NB Upsert Row";
+    begin
+        Clean();
+        AddRow('SOURCE', 'new');
+        Commit();
+        Other.SetRange(Code, 'NONE');
+        Other.ModifyAll(Name, 'all');
+        Src.Get('SOURCE');
+        CopyTo(Src, 'TARGET');
+        Assert.AreEqual('DB:RecordChanged', SecondUpsert(Src), 'only a ModifyAll that matched no row before the read');
+        Clean();
+    end;
+
+    [Test]
+    procedure UncommittedSeed_CommitAfterTargetInsert()
+    var
+        Src: Record "NB Upsert Row";
+    begin
+        Clean();
+        AddRow('SOURCE', 'new');
+        Src.Get('SOURCE');
+        CopyTo(Src, 'TARGET');
+        Commit();
+        Assert.AreEqual('DB:RecordChanged', SecondUpsert(Src), 'a Commit after the TARGET Insert');
+        Clean();
+    end;
+
+    [Test]
+    procedure UncommittedSeed_SameKeyDeletedAndInsertedAgain()
+    var
+        R: Record "NB Upsert Row";
+        Other: Record "NB Upsert Row";
+    begin
+        Clean();
+        AddRow('SOURCE', 'new');
+        R.Get('SOURCE');
+        Other.Get('SOURCE');
+        Other.Delete();
+        AddRow('SOURCE', 'again');
+        R.Name := 'mine';
+        asserterror begin
+            if not R.Insert() then
+                R.Modify();
+            Error(NoErrorTxt);
+        end;
+        Assert.AreEqual('DB:RecordChanged', Outcome(), 'the same key deleted and inserted again after the read');
+        Clean();
+    end;
+
+    [Test]
+    procedure TableWritten_ThenGet_TwoRollbacks()
+    var
+        Src: Record "NB Upsert Row";
+    begin
+        Clean();
+        AddRow('SOURCE', 'new');
+        Commit();
+        AddRow('X', 'x');
+        Src.Get('SOURCE');
+        asserterror Error('NB_ROLLBACK_1');
+        asserterror Error('NB_ROLLBACK_2');
+        ClearLastError();
+        CopyTo(Src, 'TARGET');
+        Assert.AreEqual('DB:RecordChanged', SecondUpsert(Src), 'two rollbacks after the read');
+        Clean();
+    end;
 }
