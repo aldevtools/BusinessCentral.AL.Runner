@@ -1,6 +1,7 @@
-//! Round 2 MED R2-1: a process that makes several runs (one side after the other of an impact or `--affected-from`
-//! run, the lanes of a recipe) writes the workspace layer entry of each run when that run ends, so the compiled objects
-//! a queued write holds do not live on into the next run.
+//! The workspace layer of the compile cache (al-runner issue 8143, ADR-022 amendment 2026-11-15): a process that makes
+//! several runs (one side after the other of an impact or `--affected-from` run, the lanes of a recipe) writes the
+//! workspace layer entry of each run when that run ends, so the compiled objects a queued write holds do not live on
+//! into the next run.
 
 /// A run of `test_collect` over a small app leaves no write queued, and its entry is in the cache folder.
 #[test]
