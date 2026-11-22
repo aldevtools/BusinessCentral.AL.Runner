@@ -376,11 +376,6 @@ fn order_refusal(t: &TableDef, key: usize, a: &[Value], b: &[Value], normal_reco
     })
 }
 
-/// Whether two filter lists are the same filters in the same order ([`FieldFilter::identical`]).
-fn same_filters(a: &[FieldFilter], b: &[FieldFilter]) -> bool {
-    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.identical(y))
-}
-
 /// How many verdicts of [`MemStore::collation_read`] one table keeps, the one used last first.
 const VERDICTS_PER_TABLE: usize = 8;
 

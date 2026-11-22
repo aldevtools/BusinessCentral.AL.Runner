@@ -101,7 +101,7 @@ impl Session {
         rec.borrow_mut().fields = start.clone();
         self.populate_current(st)?;
         let shown = rec.borrow().fields.clone();
-        below[0].shown = shown.clone();
+        below[0].shown = shown.to_vec();
         rec.borrow_mut().fields = start.clone();
         let mut above = Vec::new();
         while self.nav_next(st, -1)? {
@@ -115,7 +115,7 @@ impl Session {
         above.reverse();
         above.extend(below);
         rec.borrow_mut().fields = shown;
-        self.set_xrec_fields(st, start);
+        self.set_xrec_fields(st, start.into_vec());
         {
             let mut s = st.borrow_mut();
             s.window = above;
@@ -133,9 +133,9 @@ impl Session {
     fn read_window_row(&mut self, st: &St) -> Result<crate::pages::WindowRow, Signal> {
         let rec = self.page_rec(st);
         let key = self.row_key(&rec)?;
-        let stored = rec.borrow().fields.clone();
+        let stored = rec.borrow().fields.to_vec();
         self.populate_current(st)?;
-        let shown = std::mem::replace(&mut rec.borrow_mut().fields, stored.clone());
+        let shown = std::mem::replace(&mut rec.borrow_mut().fields, stored.clone().into()).into_vec();
         Ok(crate::pages::WindowRow { key, stored, shown })
     }
 
@@ -236,8 +236,8 @@ impl Session {
         }
         rec.borrow_mut().fields = start.clone();
         self.populate_current(st)?;
-        rows[0].shown = rec.borrow().fields.clone();
-        self.set_xrec_fields(st, start);
+        rows[0].shown = rec.borrow().fields.to_vec();
+        self.set_xrec_fields(st, start.into_vec());
         {
             let mut s = st.borrow_mut();
             s.window = rows;

@@ -141,7 +141,7 @@ impl Session {
             site: entry.1,
             depth: self.call_stack.len(),
             xrec: xrec.clone(),
-            entered: rec.borrow().fields.clone(),
+            entered: rec.borrow().fields.to_vec(),
             touched: false,
         });
         let r = hooks(self);
@@ -360,12 +360,12 @@ impl Session {
         {
             let x = x.2.borrow();
             let mark = (x.unpinned_buffer == Some(XREC_OF_RUNNING_CALL)).then_some(XREC_OF_RUNNING_CALL);
-            return Ok((x.fields.clone(), mark));
+            return Ok((x.fields.to_vec(), mark));
         }
         let before = rec.borrow().fields.clone();
         let image = self
             .modify_record_validate_xrec(handle, &before, with_value)?
-            .unwrap_or(before);
+            .unwrap_or(before.into_vec());
         Ok((image, None))
     }
 }

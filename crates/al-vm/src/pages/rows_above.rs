@@ -39,12 +39,12 @@ impl Session {
                 break;
             }
             let key = self.row_key(&rec)?;
-            let stored = rec.borrow().fields.clone();
+            let stored = rec.borrow().fields.to_vec();
             self.populate_current(st)?;
             above.push(crate::pages::WindowRow {
                 key,
                 stored,
-                shown: rec.borrow().fields.clone(),
+                shown: rec.borrow().fields.to_vec(),
             });
         }
         if above.is_empty() {
@@ -67,8 +67,8 @@ impl Session {
         above.reverse();
         let mut s = st.borrow_mut();
         if let Some(row) = s.window.first_mut() {
-            row.stored = stored;
-            row.shown = shown;
+            row.stored = stored.into_vec();
+            row.shown = shown.into_vec();
         }
         let forward = std::mem::take(&mut s.window);
         above.extend(forward);

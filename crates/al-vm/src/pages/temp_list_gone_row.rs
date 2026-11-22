@@ -46,7 +46,7 @@ impl Session {
             );
         }
         if let Some(fields) = before {
-            rec.borrow_mut().fields = fields;
+            rec.borrow_mut().fields = fields.into();
         }
         let r = self.arrive_after_gone_row(st);
         self.torn_down_on_error(st, r)?;

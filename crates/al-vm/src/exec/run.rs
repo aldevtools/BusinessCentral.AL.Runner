@@ -92,9 +92,7 @@ impl Session {
     #[cold]
     fn option_fieldref_assignment(&self, place: &ir::Place, v: Value, f: &Frame) -> Result<Value, Signal> {
         let ty = self.place_type(place, f);
-        if !matches!(ty, RtType::Text(_) | RtType::Code(_))
-            || !matches!(self.engine.target.as_ref().map_or(29, |t| t.bc.major), 27..=29)
-        {
+        if !matches!(ty, RtType::Text(_) | RtType::Code(_)) || !self.supported_major() {
             return Ok(v);
         }
         match al_builtins::fieldref_value_text::fieldref_value_into_text(&v, &ty, self) {
@@ -1158,11 +1156,23 @@ impl Session {
         self.builtin_guards(site, recv, values)
     }
 
-    /// `FieldRef.Value` into a Text, Code or Blob. A number is its Format text and an Enum its caption, checked against the
+    /// Whether the run's BC major is one the assumption entries of this file measured (each supported major).
+    fn supported_major(&self) -> bool {
+        matches!(self.engine.target.as_ref().map_or(29, |t| t.bc.major), 27..=29)
+    }
+
+    /// `FieldRef.Value` into a Text, Code or Blob, or into a local Date, Time or DateTime. A number is its Format text and an Enum its caption, checked against the
     /// variable's or parameter's length (recordref-fieldref/Y13FieldRefValueToText.al:96-153;
     /// text/text-methods/Y49FieldRefIntoText.al:207-353).
     fn convert_field_value(&self, v: Value, ty: &al_builtins::value::RtType) -> Result<Value, Signal> {
         let from28 = self.has(al_version::Gate::FieldRefTextNumberEvaluateErrorFrom28);
+        if matches!(ty, RtType::Date | RtType::Time | RtType::DateTime) {
+            let cell = self
+                .supported_major()
+                .then(|| al_builtins::fieldref_value_text::fieldref_value_into_temporal(&v, ty, from28, self))
+                .flatten();
+            return cell.unwrap_or_else(|| ops::convert_plain(v, ty));
+        }
         match al_builtins::fieldref_value_text::fieldref_value_into_text(&v, ty, self)
             .or_else(|| al_builtins::fieldref_value_text::fieldref_value_into_blob(&v, ty, self, from28))
         {
