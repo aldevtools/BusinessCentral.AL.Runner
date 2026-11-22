@@ -142,7 +142,10 @@ codeunit 50130 "Refill Probe Part Reads"
 
 /// The corpus probe of issue 8186 (tests/al-language/pages/currpage/ListNewLineCodeInsertUpdate.al) with a stand-in for the
 /// corpus's Assert, and the reporter's repro: each test's outcome and the assumptions it ran through.
-fn issue_8186_outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<al_builtins::assumptions::Assumption>)> {
+pub(super) fn issue_8186_outcomes(
+    src: &str,
+    codeunit: &str,
+) -> Vec<(String, Outcome, Vec<al_builtins::assumptions::Assumption>)> {
     let src = format!("{src}\n{}", include_str!("../fixtures/outside-sc/Assert.al"));
     let outcomes = al_testkit::outcomes_and_marks_in(&src, codeunit);
     assert!(!outcomes.is_empty());

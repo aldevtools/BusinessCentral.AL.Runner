@@ -137,7 +137,8 @@ impl RefreshRequest {
     }
 
     /// The refresh that runs now made the reads `note_reads_done` noted itself: the note is spent and does not end the next
-    /// refresh (`code_inserted_coded.rs` `coded_refresh`, the page with code only).
+    /// refresh (`code_inserted_coded.rs` `coded_refresh`, the page with code only; `validate_view_refresh.rs`
+    /// `validate_view_refresh`, the pages of ListValidateFilterRefresh.al only).
     pub fn spend_reads_done(&mut self) {
         self.next.reads_done = false;
     }
