@@ -371,6 +371,7 @@ fn before_29_a_testpage_open_raises_the_client_compile_error() {
 const ROUTES: &str = r##"
 table 50130 "Repro Route Row"
 {
+    LookupPageId = "Repro Route Card";
     fields
     {
         field(1; Id; Integer) { }
@@ -502,6 +503,26 @@ codeunit 50136 "Repro Route Tests"
     begin
         InsertRow(Row);
         if Page.RunModal(Page::"Repro Route Card", Row) = Action::LookupOK then;
+    end;
+
+    [Test]
+    [HandlerFunctions('ModalHandler')]
+    procedure ModalField()
+    var
+        Row: Record "Repro Route Row";
+    begin
+        InsertRow(Row);
+        Page.RunModal(Page::"Repro Route Card", Row, Row.FieldNo(Amount));
+    end;
+
+    [Test]
+    [HandlerFunctions('ModalHandler')]
+    procedure ModalTableLookupPage()
+    var
+        Row: Record "Repro Route Row";
+    begin
+        InsertRow(Row);
+        Page.RunModal(0, Row);
     end;
 
     [Test]
@@ -690,6 +711,8 @@ fn from_bc_29_every_measured_route_and_shape_reads_yes_flagged() {
         ("TrapRun", "Pass", true),
         ("Modal", "Pass", true),
         ("ModalLookup", "Refused", false),
+        ("ModalField", "Refused", false),
+        ("ModalTableLookupPage", "Refused", false),
         ("BoundElsewhere", "Pass", true),
         ("BoundFirst", "Pass", true),
         ("NamesKey", "Pass", true),

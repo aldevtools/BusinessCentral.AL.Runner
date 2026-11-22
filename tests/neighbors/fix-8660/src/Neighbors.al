@@ -3,9 +3,12 @@
 // source table, and Visible expressions that name no field. A BC 29.1 container gave these values.
 // After them, the shapes and routes of the al-runner PR 8667 review, which read Yes on BC 29 and differ from main (corpus
 // PR 1504, VisibleExpressionSource.al): another control binding the named field, the primary key, an `and` with one field
-// bound, OpenView, and a Trap of Page.Run.
+// bound, OpenView, and a Trap of Page.Run. Last, two modal runs no probe measured, refused here: a field argument, and the
+// table's lookup page (Page.RunModal(0, Rec)).
 table 50000 "NB TV Row"
 {
+    LookupPageId = "NB TV Shapes Card";
+
     fields
     {
         field(1; Id; Integer) { }
@@ -70,6 +73,9 @@ codeunit 50002 "NB TV Tests"
 {
     Subtype = Test;
     TestPermissions = Disabled;
+
+    var
+        ModalVisible: Text;
 
     [Test]
     procedure FieldSource_VisibleNamingItsField_OpenTimeNo()
@@ -176,6 +182,38 @@ codeunit 50002 "NB TV Tests"
         Card.Trap();
         Page.Run(Page::"NB TV Shapes Card", Row);
         Check(Card.Total.Visible(), true);
+    end;
+
+    [Test]
+    [HandlerFunctions('ReadVisibleHandler')]
+    procedure Refused_ModalWithFieldArgument()
+    var
+        Row: Record "NB TV Row";
+    begin
+        InsertRow(Row);
+        ModalVisible := 'not run';
+        Page.RunModal(Page::"NB TV Shapes Card", Row, Row.FieldNo(Amount));
+        if ModalVisible <> 'Yes' then
+            Error('Visible in the handler is %1, expected Yes.', ModalVisible);
+    end;
+
+    [Test]
+    [HandlerFunctions('ReadVisibleHandler')]
+    procedure Refused_ModalTableLookupPage()
+    var
+        Row: Record "NB TV Row";
+    begin
+        InsertRow(Row);
+        ModalVisible := 'not run';
+        Page.RunModal(0, Row);
+        if ModalVisible <> 'Yes' then
+            Error('Visible in the handler is %1, expected Yes.', ModalVisible);
+    end;
+
+    [ModalPageHandler]
+    procedure ReadVisibleHandler(var Card: TestPage "NB TV Shapes Card")
+    begin
+        ModalVisible := Format(Card.Total.Visible());
     end;
 
     local procedure OpenShapes(var Card: TestPage "NB TV Shapes Card")
