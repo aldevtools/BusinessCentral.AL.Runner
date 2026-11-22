@@ -441,6 +441,13 @@ codeunit 70963 G
         exit(RR.Name());
     end;
 
+    procedure RefRecordIdAfterFindFirst(): Text
+    var RR: RecordRef;
+    begin
+        Seed(); SetTag(); RR.Open(Database::"LT G1 Plain"); RR.FindFirst();
+        exit(Format(RR.RecordId()));
+    end;
+
     procedure SetInsideFindSetLoop(): Integer
     var B: Record "LT G1 Plain";
     begin
@@ -576,4 +583,15 @@ fn a_record_ref_call_the_probe_did_not_measure_keeps_main_s_refusal() {
         let why = unsupported(b.run_in("G", p));
         assert!(why.contains(call) && why.contains("filter group 1"), "{p}: {why}");
     }
+}
+
+// RecordId is measured on a RecordRef that has read no row; after a FindFirst the probe did not measure it.
+#[test]
+fn a_record_ref_record_id_after_a_read_keeps_main_s_refusal() {
+    let mut b = Built::from_source(OTHER);
+    let why = unsupported(b.run_in("G", "RefRecordIdAfterFindFirst"));
+    assert!(
+        why.contains("RecordRef.RecordId") && why.contains("filter group 1"),
+        "{why}"
+    );
 }

@@ -237,4 +237,27 @@ codeunit 50100 "NB Glob Tests"
         Expect(Format(RR.ReadPermission()), 'Yes');
         Expect(Format(RR.SecurityFiltering()), 'Validated');
     end;
+
+    [Test]
+    procedure RefRecordId_AfterFindFirst()
+    var
+        RR: RecordRef;
+    begin
+        SetGlobal();
+        RR.Open(50100);
+        RR.FindFirst();
+        Expect(Format(RR.RecordId()), 'NB Glob Row: 1');
+    end;
+
+    [Test]
+    procedure RefName_AfterClose()
+    var
+        RR: RecordRef;
+        s: Text;
+    begin
+        SetGlobal();
+        RR.Open(50100);
+        RR.Close();
+        s := RR.Name();
+    end;
 }

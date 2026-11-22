@@ -14,3 +14,5 @@ NB Glob Tests::RefName_WithFilterOfItsOwn	ASSUMED recordref-metadata-global-filt
 NB Glob Tests::RefNumber	ASSUMED recordref-metadata-global-filter
 NB Glob Tests::RefReadPermission_Measured	ASSUMED recordref-metadata-global-filter
 NB Glob Tests::RefRecordId_BufferOnly	ASSUMED recordref-metadata-global-filter
+NB Glob Tests::RefName_AfterClose	ASSUMED recordref-metadata-global-filter
+NB Glob Tests::RefRecordId_AfterFindFirst	ASSUMED recordref-metadata-global-filter

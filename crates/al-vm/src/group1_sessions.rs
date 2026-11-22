@@ -378,6 +378,12 @@ fn rr_probe_args_measured(op: Group1Op, args: &[Value]) -> bool {
     }
 }
 
+/// The state of the RecordRef the calls were measured on: RecordId was asked before any read, so a RecordRef that has read a
+/// row (FindFirst) keeps the refusal. Other calls pass.
+fn rr_probe_state_measured(op: Group1Op, r: &RecordState) -> bool {
+    !matches!(op, Group1Op::RecordRef("RecordId")) || r.position.is_none()
+}
+
 /// The view every measured reader had: no filter in any group, the primary key ascending, no marks, the session company
 /// (each reader of FilterGroupOtherVariable.al is a fresh variable, or one after Reset or Clear: :611-621, :733, :745).
 fn reader_view_measured(r: &RecordState) -> bool {
@@ -586,6 +592,7 @@ impl Session {
             && (entry.setter.zip(reader)).is_some_and(|(s, r)| measured_read(s, r, op, group, args.len()))
             && (step != LoopStep::Next || in_loop())
             && rr_probe_args_measured(op, args)
+            && rr_probe_state_measured(op, &rec.borrow())
             && self.entry_pinned(rec, entry)
             && self.shared_write_runs_no_code(rec, op);
         if shared {
