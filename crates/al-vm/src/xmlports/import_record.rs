@@ -541,12 +541,12 @@ impl Session {
                 .open
                 .deferred_insert
                 .as_ref()
-                .is_some_and(|(o, _)| *o == t.object as usize)
+                .is_some_and(|d| d.table == t.object as usize)
         {
             // The insert of a row whose key already existed fails after the row's child rows and before its second
             // OnBeforeModifyRecord, with the table's "already exists" error (XmlPortTriggerFlow.al:468
             // NoAutoReplace_ExistingParentWithChild: trace ends at `C.ai=10`, then DB:RecordExists).
-            let (_, e) = self.tx.open.deferred_insert.take().expect("checked");
+            let e = self.tx.open.deferred_insert.take().expect("checked").error;
             self.tx.deferred_raised += 1;
             return Err(Signal::Error(Box::new(e)));
         }

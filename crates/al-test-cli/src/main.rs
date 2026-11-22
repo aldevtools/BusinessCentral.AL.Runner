@@ -43,6 +43,8 @@ fn write_permission_shadow() {
 }
 
 fn main() -> ExitCode {
+    // Keep the executable open from the start: the build hash of the compile cache is made later (issue 8691).
+    let _ = al_testrun::compile_cache::pin_running_executable();
     // A crash (SIGSEGV and the like) names the test it hit instead of ending the run without a word.
     al_testrun::crash::install();
     // An AL call nests native frames of the bytecode loop; give the runner thread room.
@@ -906,6 +908,21 @@ fn build_facts(
     Ok((license, emit_version))
 }
 
+/// The ten slowest tests of a run that took any time, slowest first (`report::Timings::slowest_tests`).
+fn slowest_tests(results: &[al_testrun::runtime::TestResult]) -> Vec<report::SlowTest> {
+    let mut all: Vec<&al_testrun::runtime::TestResult> = results.iter().collect();
+    all.sort_by_key(|r| std::cmp::Reverse(r.time));
+    all.into_iter()
+        .take(10)
+        .filter(|r| !r.time.is_zero())
+        .map(|r| report::SlowTest {
+            codeunit: r.codeunit,
+            name: r.test.clone(),
+            seconds: r.time.as_secs_f64(),
+        })
+        .collect()
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_version_inner(
     args: &Args,
@@ -1313,6 +1330,7 @@ fn run_version_inner(
         allow_write_in_try_functions: pass.settings.allow_write_in_try_functions,
         // `dev_endpoint_ui` stays off: the corpus runs as Microsoft's Test Runner app does, so unhandled UI is an error.
         private_baseline: std::env::var_os("AL_PRIVATE_BASELINE").is_some(), // ADR-069 decision 11
+        login_replay_check: std::env::var_os("ALRUNNER_LOGIN_REPLAY_CHECK").is_some(), // issue 8211, internal
         // Internal, for the ADR-070 step 2 comparison: the whole corpus in BC's order (`AL_STRICT_ORDER_ALL`), and the
         // sequential strict run (`AL_STRICT_SEQUENTIAL`).
         strict_order: std::env::var_os("AL_STRICT_ORDER_ALL").is_some(),
@@ -1351,6 +1369,7 @@ fn run_version_inner(
     // Nothing waits for the drop of the runtime after the report is written.
     let rt = runtime::Retiring::new(rt);
     let p = &rt.phases;
+    p.login_replay.iter().for_each(|l| eprintln!("{l}")); // ALRUNNER_LOGIN_REPLAY_CHECK (issue 8211)
     let sidecar_stats = sidecar_host.stats();
     sidecar_host.shutdown();
     let timings = report::Timings {
@@ -1371,19 +1390,7 @@ fn run_version_inner(
                 tests_s: d.as_secs_f64(),
             })
             .collect(),
-        slowest_tests: {
-            let mut all: Vec<&al_testrun::runtime::TestResult> = rt.results().iter().collect();
-            all.sort_by_key(|r| std::cmp::Reverse(r.time));
-            all.into_iter()
-                .take(10)
-                .filter(|r| !r.time.is_zero())
-                .map(|r| report::SlowTest {
-                    codeunit: r.codeunit,
-                    name: r.test.clone(),
-                    seconds: r.time.as_secs_f64(),
-                })
-                .collect()
-        },
+        slowest_tests: slowest_tests(rt.results()),
     };
     if args.timings {
         eprintln!(

@@ -6,7 +6,10 @@
 mod awaited;
 mod choose;
 mod gates;
-pub use awaited::{journal_temp_part_reads_after_refresh, web_service_session_measured};
+pub use awaited::{
+    BulkWrite, bulk_commit_ends_cached_row, journal_temp_part_reads_after_refresh, visible_names_row_field_reads_yes,
+    web_service_session_measured,
+};
 pub use choose::{AppVersions, Chosen, TargetError, choose_target};
 pub use gates::{
     Evidence, FeatureKeyRows, Gate, dev_endpoint_answers_unhandled_ui, feature_key_refusal, feature_key_rows,

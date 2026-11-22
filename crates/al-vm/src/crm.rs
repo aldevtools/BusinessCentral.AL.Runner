@@ -27,7 +27,6 @@ use al_data::memory::MemStore;
 pub(crate) const CRM_KIND: i32 = 0;
 
 /// The rows of one registered CRM table connection.
-#[derive(Default)]
 pub(crate) struct CrmStore {
     pub(crate) store: MemStore,
     /// A write since the last commit.
@@ -36,6 +35,17 @@ pub(crate) struct CrmStore {
     written: bool,
     /// A rollback came after a write: whether it took the write back is not pinned.
     after_rollback: bool,
+}
+
+impl Default for CrmStore {
+    fn default() -> Self {
+        CrmStore {
+            store: MemStore::default().as_table_connection(),
+            uncommitted: false,
+            written: false,
+            after_rollback: false,
+        }
+    }
 }
 
 const MUST_REGISTER: &str = "Table connection  for table type CRM must be registered using RegisterTableConnection or cmdlet New-NAVTableConnection before it can be used.";

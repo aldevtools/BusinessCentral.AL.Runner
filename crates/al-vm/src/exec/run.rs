@@ -92,9 +92,7 @@ impl Session {
     #[cold]
     fn option_fieldref_assignment(&self, place: &ir::Place, v: Value, f: &Frame) -> Result<Value, Signal> {
         let ty = self.place_type(place, f);
-        if !matches!(ty, RtType::Text(_) | RtType::Code(_))
-            || !matches!(self.engine.target.as_ref().map_or(29, |t| t.bc.major), 27..=29)
-        {
+        if !matches!(ty, RtType::Text(_) | RtType::Code(_)) || !self.supported_major() {
             return Ok(v);
         }
         match al_builtins::fieldref_value_text::fieldref_value_into_text(&v, &ty, self) {
@@ -897,29 +895,43 @@ impl Session {
         Ok(())
     }
 
-    #[inline(never)]
+    /// The counter of the loop takes its next value: an Integer local here, any other counter in [`Self::for_set_general`].
+    #[inline]
     fn for_set(&mut self, site: &ForSite, f: &mut Frame) -> Result<(), Signal> {
-        let Value::BigInteger(i) = f.locals[site.i as usize] else {
-            return Err(Signal::Unsupported("a for loop counter that is not set".into()));
-        };
-        if let (Some(v), Ok(n)) = (site.int_local, i32::try_from(i)) {
+        if let (Some(v), Value::BigInteger(i)) = (site.int_local, &f.locals[site.i as usize])
+            && let Ok(n) = i32::try_from(*i)
+        {
             set(&mut f.locals[v as usize], Value::Integer(n));
             return Ok(());
         }
+        self.for_set_general(site, f)
+    }
+
+    #[inline(never)]
+    fn for_set_general(&mut self, site: &ForSite, f: &mut Frame) -> Result<(), Signal> {
+        let Value::BigInteger(i) = f.locals[site.i as usize] else {
+            return Err(Signal::Unsupported("a for loop counter that is not set".into()));
+        };
         let slot_ty = self.place_type(&site.var, f);
         let kind = crate::interp::ForKind::of(&slot_ty);
         let counter = Self::for_counter(kind, i, &slot_ty)?;
         self.write(&site.var, counter, f)
     }
 
-    #[inline(never)]
+    /// The step of the loop: from an Integer local here, from any other counter in [`Self::for_next_general`].
+    #[inline]
     fn for_next(&mut self, site: &ForSite, f: &mut Frame) -> Result<(), Signal> {
-        if let Some(v) = site.int_local {
-            if let Value::Integer(n) = f.locals[v as usize] {
-                f.locals[site.i as usize] = Value::BigInteger(i64::from(n) + if site.down { -1 } else { 1 });
-                return Ok(());
-            }
+        if let Some(v) = site.int_local
+            && let Value::Integer(n) = f.locals[v as usize]
+        {
+            f.locals[site.i as usize] = Value::BigInteger(i64::from(n) + if site.down { -1 } else { 1 });
+            return Ok(());
         }
+        self.for_next_general(site, f)
+    }
+
+    #[inline(never)]
+    fn for_next_general(&mut self, site: &ForSite, f: &mut Frame) -> Result<(), Signal> {
         let back = Self::for_bound(self.read(&site.var, f)?);
         if let Value::Date(_, closing) = back {
             return self.for_next_date(site, f, back, closing);
@@ -1158,11 +1170,23 @@ impl Session {
         self.builtin_guards(site, recv, values)
     }
 
-    /// `FieldRef.Value` into a Text, Code or Blob. A number is its Format text and an Enum its caption, checked against the
+    /// Whether the run's BC major is one the assumption entries of this file measured (each supported major).
+    fn supported_major(&self) -> bool {
+        matches!(self.engine.target.as_ref().map_or(29, |t| t.bc.major), 27..=29)
+    }
+
+    /// `FieldRef.Value` into a Text, Code or Blob, or into a local Date, Time or DateTime. A number is its Format text and an Enum its caption, checked against the
     /// variable's or parameter's length (recordref-fieldref/Y13FieldRefValueToText.al:96-153;
     /// text/text-methods/Y49FieldRefIntoText.al:207-353).
     fn convert_field_value(&self, v: Value, ty: &al_builtins::value::RtType) -> Result<Value, Signal> {
         let from28 = self.has(al_version::Gate::FieldRefTextNumberEvaluateErrorFrom28);
+        if matches!(ty, RtType::Date | RtType::Time | RtType::DateTime) {
+            let cell = self
+                .supported_major()
+                .then(|| al_builtins::fieldref_value_text::fieldref_value_into_temporal(&v, ty, from28, self))
+                .flatten();
+            return cell.unwrap_or_else(|| ops::convert_plain(v, ty));
+        }
         match al_builtins::fieldref_value_text::fieldref_value_into_text(&v, ty, self)
             .or_else(|| al_builtins::fieldref_value_text::fieldref_value_into_blob(&v, ty, self, from28))
         {

@@ -25,7 +25,7 @@ pub struct InstallLeft {
     /// what it rests on when no case pins it (`TxState::type_origin`): code that reads it before the first test method starts
     /// sees both.
     transaction_type: i32,
-    type_origin: crate::transactions::TypeOrigin,
+    type_origin: crate::transaction_type::TypeOrigin,
     /// What the SQL counters it never read noted (`SqlCounters::left_inactive`).
     sql: crate::sqlcount::SqlLeft,
     /// `EventState::caption_context_revision`: moved by a GlobalLanguage change and a binding; compared only with the value a
@@ -239,6 +239,7 @@ impl Session {
             // Carried: the Baseline.
             company_unknown: _,
             full_copies: _,
+            restamped_rows: _,
             run_trigger_unknown: _,
             package_load: _,
             // Carried in InstallLeft.
@@ -456,6 +457,7 @@ impl Session {
             // Carried in InstallLeft.
             type_origin: _,
             test_ended,
+            runner_tx_rolled_back,
             lock_timeout,
             lock_timeout_duration,
             committed_row_version: _,
@@ -471,6 +473,8 @@ impl Session {
             get_from_al,
             write_of_al,
             deferred_by,
+            queue_pending,
+            queue_counted,
             deferred_raised,
             immediate_errors,
             try_depth,
@@ -483,6 +487,7 @@ impl Session {
         let fresh = crate::state::TxState::fresh();
         *tx_world == fresh.tx_world
             && !test_ended
+            && !runner_tx_rolled_back
             && *commit_behavior == fresh.commit_behavior
             && *phase == fresh.phase
             && *lock_timeout == fresh.lock_timeout
@@ -497,6 +502,8 @@ impl Session {
             && !get_from_al
             && write_of_al.is_none()
             && deferred_by.is_none()
+            && queue_pending.is_none()
+            && queue_counted.is_empty()
             && *deferred_raised == 0
             && !immediate_errors
             && *try_depth == 0

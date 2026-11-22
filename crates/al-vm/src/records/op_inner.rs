@@ -126,17 +126,19 @@ impl Session {
         }
         // The next access of the table raises a deferred duplicate-key Insert, an Insert of another row not (the buffered inserts
         // stay buffered: record/P146TableExtProtected.al:P146_Triggers_BaseThenExtension, where
-        // `R2.Insert(true)` succeeds and the next Modify raises it).
+        // `R2.Insert(true)` succeeds and the next Modify raises it). A Get of a page background task's worker in the measured
+        // shapes raises nothing (`worker_get_past_deferred`); its other reads are refused before (`hide_queued_from_worker`).
         if insert_buffer::sends_queue(method)
             && !rec.borrow().temporary
+            && !self.worker_get_past_deferred(method, t.object)
             && self
                 .tx
                 .open
                 .deferred_insert
                 .as_ref()
-                .is_some_and(|(o, _)| *o == t.object as usize)
+                .is_some_and(|d| d.table == t.object as usize)
         {
-            let (_, e) = self.tx.open.deferred_insert.take().expect("checked");
+            let e = self.tx.open.deferred_insert.take().expect("checked").error;
             self.tx.deferred_raised += 1;
             return Err(Signal::Error(Box::new(e)));
         }
@@ -242,6 +244,8 @@ impl Session {
         ) && !rec.borrow().temporary
         {
             self.bg_refuse_write(t.object as usize, method.name())?;
+            // At a type that does not write (Snapshot, Browse, Report) the write raises.
+            self.gate_read_only_type(method, &t, rec, args, &cx)?;
             self.gate_write(method)?;
             if matches!(method, RecordOp::Insert | RecordOp::DeleteAll)
                 && let Some(e) = self.read_only_platform_table(&t, rec, method)
@@ -299,7 +303,7 @@ impl Session {
                 .row_versions
                 .pending_inserts
                 .iter()
-                .any(|(o, c, _)| *o == t.object && *c == company);
+                .any(|(o, c, _, _)| *o == t.object && *c == company);
             let find_form = match args.first() {
                 Some(Value::Text(w)) => Some(w.as_str()),
                 _ => None,
@@ -335,6 +339,7 @@ impl Session {
                         | RecordOp::CalcSums
                 ),
             );
+            self.restamped_find(&cx, &t, &rec.borrow(), method)?;
             use crate::recmeta::{ISOLATION_REPEATABLE_READ, ISOLATION_UPDLOCK};
             // The assignment of a locking isolation opened the write transaction (`RecordOp::ReadIsolation`), the read does
             // not: a Get, Find('='), IsEmpty, Count, Next or CalcFields under UpdLock or RepeatableRead set in an earlier
@@ -387,7 +392,7 @@ impl Session {
                     }
                     let old = std::mem::replace(&mut r.fields, fresh);
                     r.is_dirty_base = al_builtins::value::DirtyBase::Row {
-                        base: old,
+                        base: old.into_vec(),
                         alt: None,
                         dirty_only: false,
                         stale_store: false,
@@ -604,6 +609,7 @@ impl Session {
                             self.sql.pre_inserted(al_data::memory::store_ops());
                         }
                         self.note_insert(rec, &t, before);
+                        self.queue_stored_row(rec, &t);
                         Self::note_empty_blob_insert(rec, &t, empty_blob);
                         Self::clear_blob_written(rec);
                         rec.borrow_mut().inserted = true;
@@ -696,7 +702,7 @@ impl Session {
                         {
                             match self.fail(&t, &row, true) {
                                 Err(Signal::Error(e)) => {
-                                    self.defer_insert(rec, t.object, *e);
+                                    self.defer_insert(rec, t.object, *e, insert_buffer::DeferredKind::DuplicateKey);
                                 }
                                 // A key whose format is not pinned stays a refusal.
                                 Err(other) => return Err(other),
@@ -736,7 +742,7 @@ impl Session {
                                 .open
                                 .deferred_insert
                                 .as_ref()
-                                .is_some_and(|(o, _)| *o == t.object as usize)
+                                .is_some_and(|d| d.table == t.object as usize)
                         {
                             let same_key = format!(
                                 "The record in table {} already exists. Identification fields and values: {}",
@@ -748,11 +754,10 @@ impl Session {
                                 .open
                                 .deferred_insert
                                 .as_ref()
-                                .is_some_and(|(_, e)| e.message == same_key)
+                                .is_some_and(|d| d.error.message == same_key)
                             {
                                 // GetLastErrorText then gives the duplicate's text (`guarded`).
-                                let (_, e) = self.tx.open.deferred_insert.take().expect("checked");
-                                self.last_error = e;
+                                self.last_error = self.tx.open.deferred_insert.take().expect("checked").error;
                             }
                         }
                         // The flag hides the key of a duplicate Insert into a table with a Blob field (error-handling/
@@ -831,7 +836,7 @@ impl Session {
                     .pages
                     .page_xrec
                     .take()
-                    .unwrap_or_else(|| rec.borrow().fields.clone());
+                    .unwrap_or_else(|| rec.borrow().fields.to_vec());
                 let xrec = Some(Self::xrec_handle(rec, before_image));
                 self.table_event(&t, "onbeforemodifyevent", rec, xrec.as_ref(), run, None)?;
                 if run {
@@ -917,7 +922,7 @@ impl Session {
                             rec.borrow_mut().fields[i] = old[i].clone();
                         }
                         if !rec.borrow().temporary {
-                            let image = rec.borrow().fields.clone();
+                            let image = rec.borrow().fields.to_vec();
                             rec.borrow_mut().last_modify = Some(image);
                             // The variable's own Modify (false or true, the first or a later one) after its own Insert or Get, in that
                             // transaction, makes the buffer's new version its own write (record/crud/SbStaleOwnModify.al:
@@ -1004,7 +1009,7 @@ impl Session {
                 self.delete_one(&cx, &t, rec, run)
             }
             RecordOp::DeleteAll => {
-                let at = self.note_bulk_write(rec, &t, crate::state::TxWriteKind::DeleteAll);
+                let at = self.note_bulk_write(rec, &t, crate::state::TxWriteKind::DeleteAll, &[]);
                 let r = arg_bool(args, 0).and_then(|run| self.delete_all(&t, rec, &cx, run));
                 self.note_bulk_end(at);
                 r
@@ -1067,11 +1072,7 @@ impl Session {
                     }
                     pk = crate::sqltime::rounded_key(&pk);
                 }
-                match self
-                    .store_for(rec)?
-                    .get(&cx, &t, &pk)
-                    .map_err(|e| Signal::unsupported(format!("{e}")))?
-                {
+                match self.cached_get(rec, &cx, &t, &pk, args.len(), from_id.is_none() && !get_rounds)? {
                     Some(row) => {
                         self.get_load = true;
                         let loaded = self.load(rec, row);
@@ -1086,7 +1087,7 @@ impl Session {
                     None => {
                         // A row that is there: record/TestSetAutoCalcFieldsOnGet.Codeunit.al:68-79; a row that is not: the
                         // error of Get(key) (record/crud/GetRecordId.al: P98_Get_RecordId_Missing_*).
-                        let held = rec.borrow().fields.clone();
+                        let held = rec.borrow().fields.to_vec();
                         let ident = self.get_not_found_ident(&t, args, &key, held)?;
                         // GetLastErrorObject.al:232-255: the exception of a Get without a row.
                         self.fail(&t, &ident, false).map_err(|s| match s {
@@ -1203,6 +1204,7 @@ impl Session {
                     other => return unsupported(format!("Find('{other}')")),
                 };
                 crate::platform::unmeasured_find(&self.engine, &t, &mut found, method, &which, args);
+                found = self.cached_find(rec, &cx, &t, method, found)?;
                 match found {
                     Some(row) => {
                         // Every form of Find gives the origin FindFirst gives (record/stale-find/Y89StaleFind.al:256-480,
@@ -1251,11 +1253,10 @@ impl Session {
                         // combinations are not pinned.
                         let empty_table = filters.is_empty()
                             && method == RecordOp::Find
-                            && self
+                            && !self
                                 .store_for(rec)?
-                                .count(&cx, &t, &[])
-                                .map_err(|e| Signal::unsupported(format!("{e}")))?
-                                == 0;
+                                .exists(&cx, &t, &[])
+                                .map_err(|e| Signal::unsupported(format!("{e}")))?;
                         // A set filtered down to nothing says the same (recordref-fieldref/Y81EmptySetFinds.al:224-:520
                         // Y81_RecRef_FilteredOut_Unused: `=`, `>` and `<` on a RecordRef and a temporary Record; needs corpus bump).
                         let filtered_miss = !filters.is_empty() && matches!(which.as_str(), "=" | ">" | "<");
@@ -1388,8 +1389,10 @@ impl Session {
             RecordOp::Count | RecordOp::IsEmpty => {
                 let (filters, flow_field_filters) = self.split_filters(rec);
                 let n = if flow_field_filters.is_empty() && !rec.borrow().marked_only {
+                    // IsEmpty needs one row: the store stops at it.
+                    let limit = if method == RecordOp::IsEmpty { 1 } else { usize::MAX };
                     self.store_for(rec)?
-                        .count(&cx, &t, &filters)
+                        .count_up_to(&cx, &t, &filters, limit)
                         .map_err(|e| Signal::unsupported(format!("{e}")))?
                 } else {
                     // Rows are tested one by one against the calculated FlowFields.
@@ -1404,6 +1407,7 @@ impl Session {
                     }
                     n
                 };
+                let n = self.cached_count(rec, &cx, &t, method, flow_field_filters.is_empty(), n)?;
                 Ok(if method == RecordOp::Count {
                     Value::Integer(n as i32)
                 } else {
@@ -1451,7 +1455,7 @@ impl Session {
                 let date_ctx = self.date_filter_context_for(&text);
                 let parse = |text: &str| {
                     al_builtins::filter::with_date_context(date_ctx, || {
-                        al_builtins::filter::parse_filter_with(text, &args[2..], &ty, &enums)
+                        al_builtins::filter::parse_filter_at_sign_measured(text, &args[2..], &ty, &enums)
                     })
                 };
                 // A RecordId text (`Format(RecordId)`, alone or after `<>`): see `record_id_filter_text`.
@@ -1870,7 +1874,7 @@ impl Session {
                 let outer = self.outer_validate_before(handle, t.object as usize);
                 let before = self.validate_before_image(handle, outer.clone(), rec, args.get(1).is_some())?;
                 let old_value = rec.borrow().fields[pos].clone();
-                let snapshot = rec.borrow().fields.clone();
+                let snapshot = rec.borrow().fields.to_vec();
                 let new_value = match args.get(1) {
                     // Validate of an Option field with a BigInteger beyond Integer raises Overflow, where an assignment raises
                     // ConversionCast (types/operators-expressions/P79BigOption.al:284-302 Field_ValidateBigToOption). An Enum
@@ -1915,7 +1919,8 @@ impl Session {
             RecordOp::Rename => {
                 let from_al = std::mem::take(&mut self.tx.rename_from_al);
                 let rename_note = (self.tx.open.writes.len(), self.store.change_counter());
-                self.note_bulk_write(rec, &t, crate::state::TxWriteKind::Other);
+                let old_key = Self::sql_key(rec, &t, &rec.borrow().fields);
+                self.note_bulk_write(rec, &t, crate::state::TxWriteKind::Other, &old_key);
                 if !rec.borrow().temporary {
                     self.rename_jit_gone(rec)?;
                 }
@@ -1925,7 +1930,7 @@ impl Session {
                 } else {
                     self.rename_references(&t)?
                 };
-                let old = rec.borrow().fields.clone();
+                let old = rec.borrow().fields.to_vec();
                 let mut new = old.clone();
                 // A temporary record's Blob reads empty through a stream right after a Rename, whether the write was
                 // persisted or not (streams/TestProbeStreamContracts.al:TempRename_UnpersistedBlobWrite,
@@ -2007,7 +2012,7 @@ impl Session {
                 // Rec carries the new key and xRec the old row in the events and the trigger
                 // (record/TestTableEventDispatch.al:TableEvent_OnAfterRename_Subscriber_FiresWithOldAndNewKeys).
                 let old_fields = old.clone();
-                rec.borrow_mut().fields = new.clone();
+                rec.borrow_mut().fields = new.clone().into();
                 let xrec = Self::xrec_handle(rec, old.clone());
                 // Rename always runs the trigger; RunTrigger is true (docs/probes-needed.md).
                 self.table_event(&t, "onbeforerenameevent", rec, Some(&xrec), true, None)?;
@@ -2022,7 +2027,7 @@ impl Session {
                 let _ = self.stamp_rename(&t, rec);
                 let row = audit.row(&rec.borrow().fields);
                 if let Some(unique_key) = self.unique_violation(rec, &t, &row, Some(&old_pk))? {
-                    rec.borrow_mut().fields = old.clone();
+                    rec.borrow_mut().fields = old.clone().into();
                     return self.fail_unique(&t, unique_key, &row);
                 }
                 // A temporary row whose Insert stored a FlowFilter value (`flow_filter_positions`): what a Rename keeps is not pinned.
@@ -2085,6 +2090,8 @@ impl Session {
                             w.pk = t.primary_key(&old_fields);
                             w.before = rename_note.1;
                             w.after = self.store.change_counter();
+                            let company = rec.borrow().company.clone();
+                            self.end_row_version_write(t.object, &company);
                         }
                         // The variable's own Rename after its own Insert, in that transaction, makes the buffer's new version its own
                         // write (record/crud/SbStaleOwnModify.al:268-298). After a Get it is not pinned: the origin
@@ -2166,19 +2173,19 @@ impl Session {
                         if new_rounds
                             || (!rec.borrow().temporary && crate::sqltime::key_rounds(&t.primary_key(&old))) =>
                     {
-                        rec.borrow_mut().fields = old.clone();
+                        rec.borrow_mut().fields = old.clone().into();
                         unsupported(
                             "a failed Rename of a record whose Time or DateTime key value the SQL column rounds (its error is not pinned)",
                         )
                     }
                     RenameOutcome::NotFound => {
-                        rec.borrow_mut().fields = old.clone();
+                        rec.borrow_mut().fields = old.clone().into();
                         self.fail(&t, &old, false)
                     }
                     // A rename that cannot be done raises whether or not the Boolean is used (RfTWrite.al:Rename_Variants
                     // `rename_existing`: `B := RecRef.Rename('D2')`).
                     RenameOutcome::AlreadyExists => {
-                        rec.borrow_mut().fields = old;
+                        rec.borrow_mut().fields = old.into();
                         self.ret_used = false;
                         self.fail(&t, &row, true)
                     }
@@ -2198,7 +2205,7 @@ impl Session {
 
     /// The fields `Init` gives `rec`: the initial values, except that Init of a temporary record keeps the SQLTimestamp fields
     /// and SystemRowVersion (record/temporary/QrTempTimestamp.al:221-226, `shared copy insert`).
-    fn init_fields(&mut self, t: &TableDef, rec: &Rec) -> Vec<Value> {
+    fn init_fields(&mut self, t: &TableDef, rec: &Rec) -> al_builtins::record_fields::Fields {
         let mut fresh = self.initial_fields(t.object as usize);
         if self.temp_never_stamps(t, rec) {
             let r = rec.borrow();

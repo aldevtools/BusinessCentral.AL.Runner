@@ -325,6 +325,7 @@ impl Session {
             s.never_stored = false;
             s.dirty = false;
             s.frozen_visible = Vec::new();
+            s.visible_route_unmeasured = false;
             s.forget_captions_at_open();
             s.moving_next = false;
             s.window = Vec::new();
@@ -611,12 +612,7 @@ impl Session {
                 }
             }
             st.borrow_mut().new_line = new_line;
-            // Visible is evaluated once, at open.
-            let mut frozen = Vec::new();
-            for i in 0..page.controls.len() {
-                frozen.push(self.prop_bool_now(st, i, "visible", true)?);
-            }
-            st.borrow_mut().frozen_visible = frozen;
+            self.freeze_visible(st)?;
             // The parts open right after the host's own OnOpenPage, before its first row is read
             // (corpus testpage/TestPagePartAgcr_Tests.al:PartFiresOnHostOpen_NoTouch).
             self.open_parts(st)?;

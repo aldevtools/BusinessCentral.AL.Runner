@@ -2019,7 +2019,8 @@ impl Session {
             return unsupported("GetBySystemId on a table without SystemId");
         };
         if !rec.borrow().temporary {
-            self.refuse_unmeasured_read_while_deferred(t.object as usize, "GetBySystemId")?;
+            let company = rec.borrow().company.clone();
+            self.refuse_unmeasured_read_while_deferred(t.object as usize, company.as_deref(), "GetBySystemId")?;
         }
         // A Text argument binds to the Guid parameter as a Text assigns to a Guid
         // (PXEnumRecordRef.al:232 passes the null Guid as a text literal).
@@ -2117,7 +2118,7 @@ impl Session {
     /// (corpus record/TestRecordModify.al:87-170, TestTriggerContracts.al:123-146).
     fn modify_all(&mut self, rec: &Rec, t: &TableDef, args: &[Value]) -> Result<Value, Signal> {
         let of_al = self.take_write_of_al(crate::state::WriteOfAl::ModifyAll);
-        let at = self.note_bulk_write(rec, t, crate::state::TxWriteKind::ModifyAll);
+        let at = self.note_bulk_write(rec, t, crate::state::TxWriteKind::ModifyAll, &[]);
         let r = self.modify_all_noted(rec, t, args, of_al);
         self.note_bulk_end(at);
         r
@@ -2292,7 +2293,7 @@ impl Session {
             let copy = {
                 let r = rec.borrow();
                 RecordState {
-                    fields: row,
+                    fields: row.into(),
                     // The caller's filters and current key stay: the Rec and xRec of the modify events show them (corpus
                     // record/events/Y7408XRecInModifyEvent.al:310 `ModifyAll(true) under a filter`, al-runner issue 7408).
                     filters: r.filters.clone(),

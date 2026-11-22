@@ -1,0 +1,7 @@
+# key	entry
+# The three cells this pull request runs, against #8720's gate, which refused them: Update(true) after SaveRecord (:476),
+# the cell under TestPage.OpenEdit with a filter (:372), and a write through another record before the save (:443). The
+# other cells and neighbors of this folder are #8720's (its copy of this file).
+LT NE Tests::NewLine_SaveRecordModifyThroughAnotherRecordThenUpdateTrue_SaveWritesRecOverIt	ASSUMED list-new-line-extra-code (corpus PR 1521, open: ListNewLineExtraCode.al)
+LT NE Tests::NewLine_SaveRecordThenModifyThroughAnotherRecord_OpenEdit_ShowsAndSavesIt	ASSUMED list-new-line-extra-code (corpus PR 1521, open: ListNewLineExtraCode.al)
+LT NE Tests::NewLine_ModifyThroughAnotherRecordBeforeSaveRecord_SaveWritesRecOverIt	ASSUMED list-new-line-extra-code (corpus PR 1521, open: ListNewLineExtraCode.al)

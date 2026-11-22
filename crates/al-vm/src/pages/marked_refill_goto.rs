@@ -31,7 +31,7 @@ impl Session {
         let in_key = self.still_reads_once_more(st);
         let before = self.xrec_before_move(st);
         let rec = self.page_rec(st);
-        rec.borrow_mut().fields = left;
+        rec.borrow_mut().fields = left.into();
         let outside = self.marked_refill_outside(st, &rec)?;
         let left_key = self.row_key(&rec)?;
         let of_recs_row = Self::same_key(want, &left_key);
@@ -73,9 +73,9 @@ impl Session {
             // (`marked_refill_outside`).
             let read = match &outside {
                 Some(left) if i == 0 && in_key => left.clone(),
-                _ => stored.clone(),
+                _ => stored.to_vec(),
             };
-            rec.borrow_mut().fields = read;
+            rec.borrow_mut().fields = read.into();
             self.populate_current(st)?;
         }
         let mut held = Vec::new();
@@ -84,8 +84,8 @@ impl Session {
             self.populate_current(st)?;
             held.push(crate::pages::WindowRow {
                 key: k.clone(),
-                stored: f.clone(),
-                shown: rec.borrow().fields.clone(),
+                stored: f.to_vec(),
+                shown: rec.borrow().fields.to_vec(),
             });
         }
         held.reverse();
@@ -101,10 +101,10 @@ impl Session {
             rec.borrow_mut().fields = stored.clone();
             self.populate_current(st)?;
         }
-        let shown = rec.borrow().fields.clone();
+        let shown = rec.borrow().fields.to_vec();
         held.push(crate::pages::WindowRow {
             key,
-            stored: stored.clone(),
+            stored: stored.to_vec(),
             shown,
         });
         {
@@ -118,7 +118,7 @@ impl Session {
             s.draft = false;
             s.stale = false;
         }
-        self.set_xrec_fields(st, stored);
+        self.set_xrec_fields(st, stored.into_vec());
         let r = self.current_record_trigger(st, before);
         self.torn_down_on_error(st, r)?;
         if of_recs_row {
@@ -181,6 +181,6 @@ impl Session {
             return refuse("with Rec left outside the marked rows, after no marked row");
         }
         let nearest = probe.borrow().fields.clone();
-        Ok(Some(std::mem::replace(&mut rec.borrow_mut().fields, nearest)))
+        Ok(Some(std::mem::replace(&mut rec.borrow_mut().fields, nearest).into()))
     }
 }

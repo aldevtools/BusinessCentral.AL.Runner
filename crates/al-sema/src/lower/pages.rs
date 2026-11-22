@@ -11,7 +11,7 @@ impl Lowerer<'_> {
         &self,
         table: Option<usize>,
         name: &str,
-        in_extension: bool,
+        (in_extension, own_rec_methods): (bool, bool),
         source: impl FnOnce() -> Option<usize>,
     ) -> Option<ir::Binding> {
         let t = table?;
@@ -27,7 +27,33 @@ impl Lowerer<'_> {
             .get(t)
             .iter()
             .any(|r| !r.is_trigger() && r.name().eq_ignore_ascii_case(name) && r.params().next().is_none());
-        (in_extension && method).then(source).flatten().map(ir::Binding::Expr)
+        // On the page's own layout (List or Card), `Rec.Count` and the five other Record methods language pages/controls/RecCountControl.al
+        // measured (open corpus PR 1525, assumption `page-control-rec-method-source`, issue 7875), when the table declares no
+        // procedure of that name.
+        let rec_method = own_rec_methods
+            && crate::pages::rec_method::measured_name(name)
+            && !self
+                .routine_nodes
+                .get(t)
+                .iter()
+                .any(|r| r.name().eq_ignore_ascii_case(name));
+        ((in_extension && method) || rec_method)
+            .then(source)
+            .flatten()
+            .map(ir::Binding::Expr)
+    }
+
+    /// `Rec.Count()` or a bare `Count` as a control source of the page `oi` over `table`, where no routine of the page or the table is
+    /// named Count: the Record method (RecCountControl.al `CountParens_List`, `BareCount_List`, `CountFieldParens_TableHasFieldNamedCount`).
+    fn rec_count_call(&self, src: &str, oi: usize, table: Option<usize>) -> bool {
+        let t = src.trim().to_ascii_lowercase();
+        let named = |o: usize| {
+            self.routine_nodes
+                .get(o)
+                .iter()
+                .any(|r| r.name().eq_ignore_ascii_case("count"))
+        };
+        (t == "rec.count()" || t == "count") && !named(oi) && !table.is_some_and(named)
     }
 
     /// The control tree of page `oi` with its extensions merged in, with bindings and routine
@@ -44,6 +70,7 @@ impl Lowerer<'_> {
         let (mut unsupported, mut big_integer_expressions) = (reasons.to_vec(), Vec::new());
         let ext_assumes = std::cell::RefCell::new(layout.assumes.clone());
         let table = self.table_of[oi];
+        let own_rec_methods = request_section.is_none() && crate::pages::rec_method::measured_page(obj);
         let extensions: Vec<usize> = self.page_extensions.get(&oi).cloned().unwrap_or_default();
         unsupported.extend(super::shared::over_max_length_of(self.ws, oi));
         for &e in &extensions {
@@ -269,6 +296,7 @@ impl Lowerer<'_> {
             let mut expr_source = None;
             let mut expr_row_unordered = false;
             let mut expr_call = false;
+            let mut rec_method_source = false;
             let mut array_element = None;
             let mut bare_quoted_ext_source = false;
             if raw.kind == ir::ControlKind::Field && sec.name().eq_ignore_ascii_case("label") {
@@ -282,8 +310,19 @@ impl Lowerer<'_> {
                     Some(crate::pages::Source::RecField(f)) => {
                         let off = usize::from(sec.syntax().text_range().start()) - ow.base;
                         let source = || routine_named(&ow, &crate::pages::synthetic_name("source", off));
-                        match self.rec_name_binding(table, &f, raw.owner.is_some(), source) {
-                            Some(b) => binding = b,
+                        match self.rec_name_binding(
+                            table,
+                            &f,
+                            (raw.owner.is_some(), raw.owner.is_none() && own_rec_methods),
+                            source,
+                        ) {
+                            Some(b) => {
+                                rec_method_source = own_rec_methods
+                                    && raw.owner.is_none()
+                                    && matches!(b, ir::Binding::Expr(_))
+                                    && crate::pages::rec_method::measured_name(&f);
+                                binding = b;
+                            }
                             None => unsupported.push(format!("control {} is bound to unknown field {f}", raw.name)),
                         }
                     }
@@ -359,6 +398,9 @@ impl Lowerer<'_> {
                         match routine_named(&ow, &crate::pages::synthetic_name("source", off)) {
                             Some(r) => {
                                 binding = ir::Binding::Expr(r);
+                                rec_method_source = own_rec_methods
+                                    && raw.owner.is_none()
+                                    && args.get(1).is_some_and(|a| self.rec_count_call(a, oi, table));
                                 // A field of a record variable of the page itself: the runtime formats the control from
                                 // that field's properties (al-runner issue 5822).
                                 if raw.owner.is_none() {
@@ -374,18 +416,7 @@ impl Lowerer<'_> {
                                     // branch al-runtime-rs-staging-y5, testpage/Y5PartArrayElementControl.al). Only a
                                     // page's own control (owner None, this block): `globals` are the page's variables, not
                                     // those of a pageextension that adds the control.
-                                    array_element = args.get(1).and_then(|a| crate::pages::array_element(a)).and_then(
-                                        |(v, text)| {
-                                            let index: usize =
-                                                text.split_once('[')?.1.strip_suffix(']')?.trim().parse().ok()?;
-                                            let slot = globals.iter().position(|g| g.name.eq_ignore_ascii_case(&v))?;
-                                            let RtType::Array(dims, _) = &globals[slot].ty else {
-                                                return None;
-                                            };
-                                            (dims.len() == 1 && index >= 1 && index <= dims[0] as usize)
-                                                .then_some((slot, index - 1))
-                                        },
-                                    );
+                                    array_element = args.get(1).and_then(|a| page_array_element(a, globals));
                                     expr_source =
                                         args.get(1).and_then(|a| own_expr_source(a, globals, found.is_some()));
                                 }
@@ -465,6 +496,13 @@ impl Lowerer<'_> {
             if matches!(binding, ir::Binding::BaseVar(_)) && self.in_run_changing_report_ext(raw.owner) {
                 props.push((ir::EXT_MIRROR_PROPERTY.to_string(), ir::PropVal::Lit("true".into())));
             }
+            // Not measured: a field of a record variable, an array element, a call (`[` or `(` in the source as written).
+            let other_source = var_field.is_some()
+                || array_element.is_some()
+                || array_element_field.is_some()
+                || expr_call
+                || sec.args_raw().get(1).is_some_and(|a| a.contains(['[', '(']));
+            let visible_row_field = self.visible_row_field(oi, raw, &binding, other_source, &props);
             controls.push(ir::Control {
                 name: raw.name.clone(),
                 kind: raw.kind.clone(),
@@ -492,8 +530,10 @@ impl Lowerer<'_> {
                 expr_source,
                 expr_row_unordered,
                 expr_call,
+                rec_method_source,
                 array_element,
                 bare_quoted_ext_source,
+                visible_row_field,
                 factbox: raw.factbox,
             });
         }
@@ -947,8 +987,10 @@ fn data_item_control(name: &str, binding: ir::Binding) -> ir::Control {
         expr_source: None,
         expr_row_unordered: false,
         expr_call: false,
+        rec_method_source: false,
         array_element: None,
         bare_quoted_ext_source: false,
+        visible_row_field: None,
         source_text: None,
         factbox: false,
     }
@@ -966,4 +1008,16 @@ fn owner_names(obj: &ast::Object, is_extension: bool) -> std::collections::BTree
         );
     }
     names
+}
+
+/// The slot of the page array and the 0-based position of `ElementText[2]`, an element of a one-dimensional array with a number
+/// index in its bounds (al-runner issue 6379; testpage/Y5PartArrayElementControl.al).
+fn page_array_element(src: &str, globals: &[ir::Slot]) -> Option<(usize, usize)> {
+    let (v, text) = crate::pages::array_element(src)?;
+    let index: usize = text.split_once('[')?.1.strip_suffix(']')?.trim().parse().ok()?;
+    let slot = globals.iter().position(|g| g.name.eq_ignore_ascii_case(&v))?;
+    let RtType::Array(dims, _) = &globals[slot].ty else {
+        return None;
+    };
+    (dims.len() == 1 && index >= 1 && index <= dims[0] as usize).then_some((slot, index - 1))
 }

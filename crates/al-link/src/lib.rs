@@ -1890,9 +1890,11 @@ mod tests {
             expr_source: None,
             expr_row_unordered: false,
             expr_call: false,
+            rec_method_source: false,
             array_element: None,
             source_text: None,
             bare_quoted_ext_source: false,
+            visible_row_field: None,
             factbox: false,
         }
     }

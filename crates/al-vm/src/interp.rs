@@ -162,6 +162,16 @@ impl Session {
         class: al_builtins::builtin_id::Class,
         f: &mut Frame,
     ) -> Result<(), Signal> {
+        // A value `stored_as_is` that `InStream.Read` left for a local (a Byte read loop) goes in as it is: it is no rendered
+        // text, `fit_stream_read` fits only a text, `cleared_array` changes only an array and `write_as` stores it as it is
+        // (an Option is not `stored_as_is`).
+        if class == al_builtins::builtin_id::Class::InStreamRead
+            && let ir::Place::Local(i) = p
+            && stored_as_is(&v)
+        {
+            f.locals[*i] = v;
+            return Ok(());
+        }
         let v = self.rendered_into_place(p, v, f)?;
         let v = if class == al_builtins::builtin_id::Class::InStreamRead {
             self.fit_stream_read(p, v, f)?
@@ -878,7 +888,7 @@ impl Session {
         };
         let result = self.finish_call(object, routine, inst, args, values, try_call, f);
         if let Some((rec, now)) = lagged {
-            rec.borrow_mut().fields = now;
+            rec.borrow_mut().fields = now.into();
         }
         result
     }
@@ -1600,7 +1610,10 @@ impl Session {
                 if let Value::Unknown(why) = &v {
                     return Err(Signal::unsupported(why.to_string()));
                 }
-                if let Some(why) = self.install_row_order(r.table, r.temporary, *pos, &r.fields) {
+                if let Some(why) = self
+                    .install_row_order(r.table, r.temporary, *pos, &r.fields)
+                    .or_else(|| self.restamped_read(&r, *pos))
+                {
                     return Err(Signal::unsupported(why));
                 }
                 if r.load.partial {
@@ -1814,7 +1827,7 @@ impl Session {
                         // Y76StaleBuffers.al Y76_Part1_FindSet_Assign, `assign/*`).
                         let row_origin = src.borrow().row_origin;
                         let mut d = dst.borrow_mut();
-                        d.fields = fields;
+                        d.fields = fields.into();
                         d.row_origin = row_origin;
                         d.own_read = Default::default();
                         d.rolled_read = Default::default();

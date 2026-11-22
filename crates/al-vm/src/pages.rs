@@ -257,6 +257,7 @@ mod clear_test_page;
 mod close_save_failed;
 mod code_close_veto;
 mod code_inserted_coded;
+mod code_inserted_extra;
 mod code_inserted_new_line;
 mod code_inserted_pinned;
 mod modal_close_save_error;
@@ -361,6 +362,8 @@ mod temp_list_gone_row;
 mod temp_list_refill;
 mod test_end;
 mod typed_handler_temp;
+mod validate_view_cells;
+mod validate_view_refresh;
 mod walk_parts;
 pub(crate) mod ws_trigger_order;
 pub(crate) use shown::ShownNote;
@@ -547,7 +550,7 @@ impl Session {
         };
         if declared && name == "onaftergetcurrrecord" && stored_row && self.has_source(st) {
             let started = self.page_rec(st).borrow().fields.clone();
-            st.borrow_mut().agcr_started = Some(started);
+            st.borrow_mut().agcr_started = Some(started.into_vec());
         }
         // OnAfterGetCurrRecord changes what the current row shows only for the variables it sets.
         let vars_before = (declared && name == "onaftergetcurrrecord" && stored_row).then(|| self.row_var_values(st));
@@ -592,9 +595,9 @@ impl Session {
             let now = self.page_rec(st).borrow().fields.clone();
             let mut s = st.borrow_mut();
             if name == "onaftergetrecord" {
-                s.agr_xrec = Some(now);
+                s.agr_xrec = Some(now.into_vec());
             } else {
-                s.agcr_xrec = Some(now);
+                s.agcr_xrec = Some(now.into_vec());
             }
         }
         self.end_page_call(st);
@@ -794,7 +797,7 @@ impl Session {
                 }
             }
         }
-        Ok(fields)
+        Ok(fields.into_vec())
     }
 
     /// The instance that runs the code of `owner`: the page itself, or one of its extensions.

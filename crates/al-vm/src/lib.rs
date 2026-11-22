@@ -56,7 +56,7 @@ pub use profile::{
     DbStat, PosStat, ProfFrame, ProfNode, ProfileMode, ProfileTree, reaches_database,
     routine_label as profile_routine_label,
 };
-pub use state_stamp::{LeftChange, LeftStamp, StateStamp};
+pub use state_stamp::{LeftChange, LeftStamp, StateLines, StateStamp};
 pub use test_runner_host::TestCodeunitHost;
 mod auto_format_writer;
 mod callstack;
@@ -122,6 +122,7 @@ mod permissions;
 mod platform;
 mod profile;
 mod queries;
+mod query_cache;
 mod query_date_filter;
 mod query_reopen;
 mod query_save_as;
@@ -158,6 +159,8 @@ mod sqltime;
 mod stale_buffer_origin;
 mod stale_own_modify;
 mod stale_rename;
+mod state_facts;
+mod state_render;
 mod state_stamp;
 mod table_facts;
 mod tasks;
@@ -169,6 +172,7 @@ mod tenant_set_delete;
 mod test_rows;
 mod test_runner_host;
 mod testdata;
+mod transaction_type;
 mod transactions;
 mod translations;
 mod ui;
@@ -722,9 +726,11 @@ impl Engine {
         self.codeunits.get(&id).and_then(|c| c.any)
     }
 
-    /// The value of type `T` made from this engine's program, made by `make` the first time it is asked for and shared
-    /// by every session and thread of the engine after that: for data that depends on the program alone (al-testrun's
-    /// index of the static reach). `make` must not ask the engine for derived data itself.
+    /// The value of type `T` made by `make` the first time it is asked for and shared by every session and thread of the
+    /// engine after that: for data that depends on the program alone (al-testrun's index of the static reach), and for
+    /// state that lives as long as the engine and that every session adds to, as one value (al-testrun's login replay
+    /// check, `login_replay.rs`: its tally behind a lock, across the engine's requests). `make` must not ask the engine
+    /// for derived data itself.
     pub fn derived<T: std::any::Any + Send + Sync>(&self, make: impl FnOnce() -> T) -> Arc<T> {
         let mut slots = self.derived.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let slot = slots
@@ -1196,6 +1202,8 @@ pub struct Session {
     /// the session company's rows as they were, so the rows install code wrote there are known
     /// (`Session::copy_company`, `Session::cx_for`).
     pub(crate) full_copies: std::collections::BTreeSet<String>,
+    /// Rows whose SystemRowVersion is the Insert's, not BC's (`crate::state::RestampedRows`).
+    pub(crate) restamped_rows: Vec<crate::state::RestampedRows>,
     /// While `Database.CopyCompany` inserts the Company row: why the `RunTrigger` of the Company's insert events is not
     /// known. The subscribers get it as an unknown value (`Session::table_event`).
     pub(crate) run_trigger_unknown: Option<&'static str>,
@@ -1386,6 +1394,7 @@ impl Session {
             backed_companies,
             company_unknown: Default::default(),
             full_copies: Default::default(),
+            restamped_rows: Vec::new(),
             run_trigger_unknown: None,
             package_load: false,
             sleep_budget: None,
@@ -1566,7 +1575,7 @@ impl Session {
     }
 
     /// What the AL test runner does before each test method: every application area on, and the transaction type of the
-    /// method's start (`start_test_transaction_type`: UpdateNoLocks for the first one of a codeunit, the type the one before
+    /// method's start (`start_test_transaction`: UpdateNoLocks for the first one of a codeunit, the type the one before
     /// left for a later one). What an earlier test wrote to a demo table does not count for this one: the corpus
     /// tests that write setup rows put the demo values back afterwards (record/QkSetupRows.al), which leaves the
     /// runtime with the install-code row (record/captions/QdCaptionClassAreas.al:798 QF_GLSetup_CorpusRow).
@@ -1585,37 +1594,8 @@ impl Session {
         self.isolated_set_in_test.clear();
         self.demo_written.clear();
         self.gl_setup_written = false;
-        self.start_test_transaction_type();
-        self.tx.phase = crate::transactions::TxPhase::Fresh;
-        self.tx.open.locks = Default::default();
-        self.tx.open.moment = Some(crate::reports::transaction_world::Moment::at(
-            crate::reports::transaction_world::MomentStart::TestStart,
-        ));
+        self.start_test_transaction();
         self.pages.test_methods_started += 1;
-    }
-
-    /// Makes every change so far durable (and a Truncate of this transaction final).
-    pub fn commit_transaction(&mut self) {
-        self.note_row_locks_commit();
-        self.guarded_body_commit();
-        al_data::Store::commit(&mut self.store);
-        self.crm_committed();
-        self.commits += 1;
-        self.sql.committed();
-        self.truncate_undo.clear();
-        // Rows at or below this rowversion are durable: a buffer older than one of them is stale.
-        self.tx.committed_row_version = self.next_row_version;
-        // A transaction a lock opened counts as one that wrote: MinimumActiveRowVersion after it is not pinned.
-        self.tx.last_commit_wrote = self.tx.phase == crate::transactions::TxPhase::Write || self.tx.open.locks.lock_tx;
-        self.end_open_transaction();
-        self.tx.rolled_back = false;
-        self.tx.rollback_unpinned = None;
-        self.tx.rollback_kind = None;
-        self.isolated_committed = self.isolated_storage.clone();
-        self.pages.saved_values_committed = self.pages.saved_values.clone();
-        self.tasks.commit();
-        let removed = std::mem::take(&mut self.media_removed.0);
-        self.media_removed.1.extend(removed);
     }
 
     /// The test runner took a checkpoint of the committed data: what was removed before it stays removed.
@@ -1673,7 +1653,9 @@ impl Session {
         self.rollbacks += 1;
         self.crm_rolled_back();
         self.sql.rolled_back();
+        let runner_tx = self.tx.open.runner_tx;
         self.end_open_transaction();
+        self.tx.open.runner_tx = runner_tx;
         self.tx.rolled_back = true;
         self.isolated_storage = self.isolated_committed.clone();
         // What SaveValues pages stored is kept in the database: a rollback takes back what was stored since the last commit. An
@@ -2031,6 +2013,7 @@ impl Session {
 
     pub fn mark_install_end(&mut self) {
         self.install_row_version = self.next_row_version;
+        self.reset_query_cache();
     }
 
     /// The `SessionId()` this session answers: an install session's own id, else the host's.
@@ -2734,7 +2717,7 @@ impl Session {
             if e.call_stack.is_empty() {
                 self.error_raised_in = Some(object);
             }
-            self.add_frame(e, object, top);
+            self.add_leaving_frame(e, object, top);
         }
         self.profile_leave();
         self.call_stack.pop();

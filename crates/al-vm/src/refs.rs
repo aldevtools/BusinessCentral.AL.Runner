@@ -810,7 +810,7 @@ impl Session {
                         crate::sqltime::read_back(&mut row);
                         row
                     }
-                    None => self.initial_fields(t.object as usize),
+                    None => self.initial_fields(t.object as usize).into_vec(),
                 }
             }
         };
@@ -940,7 +940,7 @@ impl Session {
         if let Some(keep) = snapshot {
             if let LibraryValue::RecordRef(rec) = &*lib.borrow() {
                 let mut s = rec.borrow_mut();
-                s.dirty_base = keep.then(|| s.fields.clone());
+                s.dirty_base = keep.then(|| s.fields.to_vec());
             }
         }
         r
@@ -1565,6 +1565,7 @@ impl Session {
                     let order = {
                         let r = rec.borrow();
                         self.install_row_order(r.table, r.temporary, pos, &r.fields)
+                            .or_else(|| self.restamped_read(&r, pos))
                     };
                     if let Some(why) = order {
                         return unsupported(why);

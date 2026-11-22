@@ -92,7 +92,7 @@ impl Session {
             .any(|c| c.kind == ir::ControlKind::Repeater);
         if var_bound && on_row && (!has_repeater || self.in_repeater(st, idx)) && self.has_source(st) {
             let fields = self.page_rec(st).borrow().fields.clone();
-            st.borrow_mut().rec_before_var_validate = Some(fields);
+            st.borrow_mut().rec_before_var_validate = Some(fields.into_vec());
         }
         Ok(())
     }
@@ -288,6 +288,7 @@ impl Session {
         self.end_read_at_test_call(st, call);
         Self::end_deferred_host_reread(st, call, method.method());
         self.refuse_after_pinned_end(st, call, None)?;
+        self.validate_view_call(st, call, None)?;
         self.refuse_off_factbox_row(st, call)?;
         self.coded_line_before_set_value(st, call)?;
         Self::refuse_ws_trigger_order_step(st, call)?;
@@ -380,6 +381,7 @@ impl Session {
         self.end_read_at_test_call(st, call);
         Self::end_deferred_host_reread(st, call, method.method());
         self.refuse_after_pinned_end(st, call, Some(&c.target))?;
+        self.validate_view_call(st, call, Some(&c.target))?;
         self.refuse_off_factbox_row(st, call)?;
         self.coded_line_before_set_value(st, call)?;
         let control = match c.target {

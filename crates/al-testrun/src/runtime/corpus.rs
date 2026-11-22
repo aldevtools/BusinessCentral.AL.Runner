@@ -1815,6 +1815,7 @@ impl CorpusRuntime {
             });
         }
         let install_runs = super::install_once::end_run(&engine, &installs);
+        let login_replay = crate::login_replay::report(&engine);
         let tests_time = tests_started.elapsed();
         memory.pool().unwatch();
         if let (Some((key, _)), Some(cc), Some((origin, read))) = (
@@ -1885,30 +1886,9 @@ impl CorpusRuntime {
                 passes: pass_times,
                 install_snapshot: snapshot_once.line(&lowered.program),
                 engine_kept,
+                login_replay,
                 decoded_on_touch: lowered.cached_objects.as_ref().map(|c| c.decoded()),
-                work: RunWork {
-                    compiles: *compiles,
-                    lower: lowered.work,
-                    dependency_apps: ws.kinds.iter().filter(|k| **k == al_sema::AppKind::Dependency).count(),
-                    // The dependency apps a compile cache supplied (objects a kept compile supplied are counted apart,
-                    // `LowerWork::objects_from_kept`).
-                    dependency_apps_from_cache: {
-                        let mut apps: Vec<usize> = (0..lowered.provided.len())
-                            .filter(|&oi| lowered.provided[oi] && lowered.work.objects_from_kept == 0)
-                            .map(|oi| ws.objects[oi].app)
-                            .collect();
-                        apps.dedup();
-                        apps.len()
-                    },
-                    cache_layers_hit: cache_report
-                        .as_ref()
-                        .map_or(0, |c| c.layers.iter().filter(|l| l.hit).count()),
-                    cache_layers_built: cache_report
-                        .as_ref()
-                        .map_or(0, |c| c.layers.iter().filter(|l| l.built).count()),
-                    baseline_rows,
-                    tests_run: list.iter().filter(|r| !matches!(r.outcome, Outcome::NotRun(_))).count(),
-                },
+                work: run_work(*compiles, lowered, ws, cache_report.as_ref(), baseline_rows, &list),
                 // Not redone, not warm: the caller sets them.
                 ..Default::default()
             },
@@ -1936,6 +1916,36 @@ fn set_run_options(e: &mut Engine, opts: &RunOptions) {
     e.write_in_try_allowed = opts.allow_write_in_try_functions;
     e.dependencies_published_global = opts.dependencies_published_global;
     e.skipped_apps = opts.skipped_dependencies.clone();
+}
+
+/// What the run did, counted (`Phases::work`, the work ratchet of `al-test-cli`).
+fn run_work(
+    compiles: usize,
+    lowered: &Lowered,
+    ws: &al_sema::Workspace,
+    cache_report: Option<&crate::compile_cache::CacheReport>,
+    baseline_rows: Option<usize>,
+    list: &[TestResult],
+) -> RunWork {
+    RunWork {
+        compiles,
+        lower: lowered.work,
+        dependency_apps: ws.kinds.iter().filter(|k| **k == al_sema::AppKind::Dependency).count(),
+        // The dependency apps a compile cache supplied (objects a kept compile supplied are counted apart,
+        // `LowerWork::objects_from_kept`).
+        dependency_apps_from_cache: {
+            let mut apps: Vec<usize> = (0..lowered.provided.len())
+                .filter(|&oi| lowered.provided[oi] && lowered.work.objects_from_kept == 0)
+                .map(|oi| ws.objects[oi].app)
+                .collect();
+            apps.dedup();
+            apps.len()
+        },
+        cache_layers_hit: cache_report.map_or(0, |c| c.layers.iter().filter(|l| l.hit).count()),
+        cache_layers_built: cache_report.map_or(0, |c| c.layers.iter().filter(|l| l.built).count()),
+        baseline_rows,
+        tests_run: list.iter().filter(|r| !matches!(r.outcome, Outcome::NotRun(_))).count(),
+    }
 }
 
 /// The tests' engine (with several test threads): it shares what `make_engine` worked out from the program with the

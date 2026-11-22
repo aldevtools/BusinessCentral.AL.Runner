@@ -36,15 +36,15 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ),
     (
         "AL0104",
-        "a parameter named begin, procedure or trigger without `var` (the first diagnostic, at the name); alc's full list for a file of two codeunits whose procedures take `<keyword>: Integer` and `var <keyword>: Integer` (cases 2016-2039), and for a variable \"If\" used unquoted (case 2040); a variable named by a keyword (alcodes/keyword_variable_names.rs; the first diagnostic, `'}' expected`, `'begin' expected` or `'procedure' expected`, at the name; case 0334 and issue 8539)",
+        "a parameter named begin, procedure or trigger without `var` (the first diagnostic, at the name); alc's full list for a file of two codeunits whose procedures take `<keyword>: Integer` and `var <keyword>: Integer` (cases 2016-2039), and for a variable \"If\" used unquoted (case 2040); a variable named by a keyword (alcodes/keyword_variable_names.rs; the first diagnostic, `'}' expected`, `'begin' expected` or `'procedure' expected`, at the name; case 0334 and issue 8539); `end`, `begin` or `var` as an option member, `O: Option Zero,End;` (alcodes/keyword_option_members.rs; the first diagnostic, `';' expected`, `')' expected` or `'end' expected`, at the word or the comma after it; issue 8657)",
     ),
     (
         "AL0105",
-        "a parameter named by one of 20 other keywords without `var` (the first diagnostic, at the name); alc's full list for the two-codeunit keyword-parameter file (cases 2016-2039)",
+        "a parameter named by one of 20 other keywords without `var` (the first diagnostic, at the name); alc's full list for the two-codeunit keyword-parameter file (cases 2016-2039); an option member named by one of 21 of the 24 parameter-name keywords, `O: Option Zero,Key;`, or by one of seven words in a field's OptionMembers (alcodes/keyword_option_members.rs; the first diagnostic, at the word; issue 8657)",
     ),
     (
         "AL0107",
-        "a parameter named by one of 24 keywords after `var` (the first diagnostic, at the name); alc's full list for the two-codeunit keyword-parameter file (cases 2016-2039); two commas after the text of a Label declaration (case 2332); the keyword `in`, unquoted, after `::` in code (issue 7803; the first diagnostic only, not in a property expression); a variable named by one of the same 24 keywords after a comma, or named `event` (alcodes/keyword_variable_names.rs; the first diagnostic; issue 8539); a section named, unquoted, by one of the same 24 keywords: a table or table extension field (issue 8630), and the page, page extension, enum, enum extension, report, report extension, query, xmlport, table and table extension sections alcodes/keyword_section_names.rs lists (issue 8634; the first diagnostic, at the name)",
+        "a parameter named by one of 24 keywords after `var` (the first diagnostic, at the name); alc's full list for the two-codeunit keyword-parameter file (cases 2016-2039); two commas after the text of a Label declaration (case 2332); a variable named by one of the same 24 keywords after a comma, or named `event` (alcodes/keyword_variable_names.rs; the first diagnostic; issue 8539); a section named, unquoted, by one of the same 24 keywords: a table or table extension field (issue 8630), and the page, page extension, enum, enum extension, report, report extension, query, xmlport, table and table extension sections alcodes/keyword_section_names.rs lists (issue 8634; the first diagnostic, at the name); one of 32 keywords, unquoted, after `.` or `::` in the code of a procedure or trigger and in the property and source expressions alcodes/keyword_member_names.rs lists (`EXPRESSIONS`; issues 8635, 8649, 8650 and, for `::In`, 7803; the first diagnostic, at the word)",
     ),
     (
         "AL0301",
@@ -148,7 +148,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
 pub const NOT_CHECKED: &[(&str, &str)] = &[
     (
         "AL0519",
-        "reported only for a variable named by a keyword (alcodes/keyword_variable_names.rs, the first diagnostic at the name; issue 8539); an `end` or other word where alc expects a value (case 0331) is not judged.",
+        "reported only for a variable named by a keyword (alcodes/keyword_variable_names.rs, the first diagnostic at the name; issue 8539) and for `end` or `var` as a member of an option return type (alcodes/keyword_option_members.rs, the first diagnostic, at the word or the comma after it; issue 8657); an `end` or other word where alc expects a value elsewhere (case 0331) is not judged.",
     ),
     (
         "AL0303",
@@ -547,7 +547,7 @@ pub fn check_workspace_parts(ws: &Workspace, first: usize) -> (Vec<Diagnostic>, 
     duplicate_ids(ws, &mut out);
     long_object_names(ws, &mut out);
     event_subscriptions(ws, &mut out);
-    // The files the parser did not accept (`parameter_names` and `keyword_variable_names` skip them).
+    // The files the parser did not accept (`parameter_names`, `keyword_variable_names` and `keyword_option_members` skip them).
     let unparsed: std::collections::HashSet<(usize, &str)> = ws
         .diagnostics
         .iter()
@@ -585,7 +585,9 @@ pub fn check_workspace_parts(ws: &Workspace, first: usize) -> (Vec<Diagnostic>, 
         keyword_section_names::check(ws, oi, &obj, &mut out);
         if parsed {
             keyword_variable_names::check(ws, oi, &decls, &mut out);
+            keyword_option_members::check(ws, oi, &obj, &types, &mut out);
         }
+        keyword_member_names::check(ws, oi, &obj, &mut out);
         match o.kind {
             ObjKind::XmlPort => xmlport_elements(ws, o.file, obj.sections(), &mut out),
             ObjKind::PageExtension => {
@@ -1495,7 +1497,9 @@ fn object_triggers(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<D
 /// - table and table extension field names (`alcodes/keyword_section_names.rs`, al-runner issue 8630): every word as a
 ///   table field name, corpus PR 1496;
 /// - the names of the other sections of its `NAMED` table (`alcodes/keyword_section_names.rs`, al-runner issue 8634):
-///   every word as the name of each section, corpus PR 1497.
+///   every word as the name of each section, corpus PR 1497;
+/// - members of an option type (`alcodes/keyword_option_members.rs`, al-runner issue 8657): every word as a member in each
+///   place, and Begin, End and Var in each position, corpus PR 1502 (the OptionMembers property has a list of its own).
 ///
 /// A change to the list must be measured again for each rule that reads it.
 const PARAM_NAME_KEYWORDS: &[&str] = &[
@@ -2568,6 +2572,8 @@ mod control_visible;
 mod count_flowfield;
 mod enum_variables;
 mod field_types;
+mod keyword_member_names;
+mod keyword_option_members;
 mod keyword_section_names;
 mod keyword_variable_names;
 mod permissions_property;

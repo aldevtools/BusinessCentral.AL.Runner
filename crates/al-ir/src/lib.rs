@@ -1466,6 +1466,10 @@ pub struct Control {
     /// record/X3PageControlCalls.al, al-runner issue 6368).
     #[serde(default)]
     pub expr_call: bool,
+    /// For a page's own control whose source is a Record method written without parentheses (`Rec.Count`): the methods
+    /// language pages/controls/RecCountControl.al measured (assumption `page-control-rec-method-source`, issue 7875).
+    #[serde(default)]
+    pub rec_method_source: bool,
     /// For a page's own control bound to an element of a one-dimensional page array variable with a number index
     /// (`ElementText[2]`): the slot of the array among the page's globals and the element's 0-based position. It shows
     /// what a control bound to a plain page variable shows (testpage/Y5PartArrayElementControl.al on corpus branch
@@ -1476,6 +1480,13 @@ pub struct Control {
     /// (`field("LT WD Profile"; "LT WD Profile Code")`): from BC 28 a TestPage cannot read it (testpage/WdBareQuotedField.al:185).
     #[serde(default)]
     pub bare_quoted_ext_source: bool,
+    /// For a page's own field control whose source is no field of the source table (a page variable, or an arithmetic or
+    /// constant expression) and whose own Visible is an expression that names a field of the source record (`Rec.Amount >
+    /// 0`, `Rec.Flag`, a bare field name): the first field it names, as written. On a Card, a TestPage reads its Visible as
+    /// Yes whatever the row holds, or opening it raises "The identifier '<field>' could not be found." (al-runner issue
+    /// 8660, `al_version::visible_names_row_field_reads_yes`, assumption `visible-names-row-field-reads-yes`).
+    #[serde(default)]
+    pub visible_row_field: Option<String>,
     /// For a report's own request page control bound to an expression: the source as written, trimmed (`BufArr[1].Name`).
     /// `Report.RunRequestPage` names the control's parameter by it (reports/request-page/R6960RequestParamBindings.al).
     #[serde(default)]

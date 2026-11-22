@@ -1,0 +1,15 @@
+# key	entry
+# Against main with the query cache of al-runner PR 8656 (merged): the cells whose answer the "@ alone" pull request (8716)
+# changes. The rows of PR 8656 against the main before it are gone: main now answers them as the head does.
+# A worker's reads with the Text filters @ alone or <>@ alone on table 97500 now also run through at-sign-alone-database-blank,
+# beside the cache (BQ Tests 6 :2673-:2770, BQ Tests 7 :3421, :3482-:3514). <>@ alone as the only form of its filter (:3421) is
+# keyed by the cache now: after the insert of a line that is not empty, a read of the database would keep it
+# (AtSignAloneReads.al:698), and BC answers the first answer.
+BQ Tests 6::BgQueryCache_Run_AllForms_OtherFilterKinds_FirstAnswer	ASSUMED at-sign-alone-database-blank,background-task-query-cache (open corpus PR 1495)
+BQ Tests 6::BgQueryCache_Run_TestReadsFirst_EveryShape_FirstReadsAnswerThem	ASSUMED at-sign-alone-database-blank,background-task-query-cache (open corpus PR 1495)
+BQ Tests 7::BgQueryCache_Run_AllForms_NotAtSignAlone_KeepsNoLine	ASSUMED at-sign-alone-database-blank,background-task-query-cache,bg-task-worker-filter-group-one (open corpus PR 1495: BgTaskQueryCache.al:3421)
+BQ Tests 7::BgQueryCache_Run_TestReadsFirst_GroupShapes_FirstReadsAnswerThem	ASSUMED at-sign-alone-database-blank,background-task-query-cache,bg-task-worker-filter-group-one (open corpus PR 1495)
+# The two @ alone cells of BQ Tests 9 (:5609, :5616): main refuses @ alone on a Code field; the head runs them through the rule
+# of @ alone (a worker's FindFirst and FindLast check the row, its Count and IsEmpty read the database).
+BQ Tests 9::AtSignAlone_CodeField_KeepsTheEmptyValues	ASSUMED at-sign-alone-database-blank (open corpus PR 1495: BgTaskQueryCache.al:5616)
+BQ Tests 9::BgQueryCache_Run_FlowFieldAtSignAlone_FindsFirstAnswer	ASSUMED at-sign-alone-database-blank (open corpus PR 1495: BgTaskQueryCache.al:5609)

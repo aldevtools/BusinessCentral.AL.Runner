@@ -8,7 +8,7 @@
 
 use crate::Session;
 use al_builtins::describe::Describe;
-use al_builtins::filter::{FieldFilter, FilterExpr, parse_filter_with};
+use al_builtins::filter::{FieldFilter, FilterExpr, parse_filter_at_sign_measured, parse_filter_with};
 use al_builtins::native::{AlError, Signal, text_of, unsupported};
 use al_builtins::ops;
 use al_builtins::record_op::RecordOp;
@@ -684,11 +684,9 @@ impl Session {
         }
         let cx = self.cx_for(rec, &src_t)?;
         self.refuse_filter_over_rolled(&cx, &src_t, &filters)?;
-        let n = self
-            .store
-            .count(&cx, &src_t, &filters)
-            .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
-        Ok(n > 0)
+        self.store
+            .exists(&cx, &src_t, &filters)
+            .map_err(|e| Signal::unsupported(format!("store error {e}")))
     }
 
     /// The value of FlowField `pos` of `rec`.
@@ -745,7 +743,8 @@ impl Session {
         self.note_indirect_read(src_t.object);
         self.unseeded_read(&src_t, rec.borrow().temporary, "a FlowField")?;
         // A CalcFields of the source table's own record raised a deferred Insert error before this (`record_op_inner`).
-        self.refuse_unmeasured_read_while_deferred(calc.table, "a FlowField read")?;
+        self.refuse_read_while_deferred(calc.table, "a FlowField read")?;
+        self.note_indirect_read_of_queue(calc.table, rec.borrow().company.as_deref(), true, "a FlowField read")?;
         // ADR-062: a FlowField reads its source table indirectly (CpPermLeads.al:29-63).
         if self.permission_checks() {
             self.permission_gate_flowfield(rec, calc.table, stack)?;
@@ -757,12 +756,16 @@ impl Session {
             .iter()
             .cloned()
             .partition(|c| src_fields[c.field].stored || src_fields[c.field].flow_filter);
+        // A page background task's worker does not see the rows the test session's insert queue holds (records/insert_buffer.rs).
+        let company = rec.borrow().company.clone();
+        let hidden = self.hide_queued_in_view(&[(&src_t, company, cx.clone())], "a FlowField read")?;
         let tally = if flow.is_empty() {
-            self.tally_stored(&cx, &src_t, &filters, calc)?
+            self.tally_stored(&cx, &src_t, &filters, calc)
         } else {
-            self.tally_source_rows(rec, &cx, &src_t, &stored, &flow, calc, stack)?
+            self.tally_source_rows(rec, &cx, &src_t, &stored, &flow, calc, stack)
         };
-        self.aggregate(f, calc, tally, !flow.is_empty())
+        self.show_queued_to_test_session(hidden);
+        self.aggregate(f, calc, tally?, !flow.is_empty())
     }
 
     /// The rows of the source table that pass `filters`, read from the store: a count and an exist ask the store, a lookup reads
@@ -849,7 +852,7 @@ impl Session {
             };
             {
                 let mut p = probe.borrow_mut();
-                p.fields = row.clone();
+                p.fields = row.clone().into();
                 p.company = rec.borrow().company.clone();
             }
             let mut pass = true;
@@ -1009,9 +1012,15 @@ impl Session {
         let src = &engine.program.objects[calc.table].table.as_ref().expect("table").fields;
         let language = al_builtins::format::FormatCtx::language(self);
         let enums = |id: u32| crate::views::enum_filter_members(&engine.program.objects[id as usize], language);
-        let parse = |text: &str, ty: &RtType| {
-            parse_filter_with(text, &[], ty, &enums)
-                .map_err(|e| Signal::unsupported(format!("CalcFormula filter: {e}")))
+        // `@` alone on a Code field is measured in a CalcFormula's field(filter()) of a normal field (`filter_at_sign`); a quoted
+        // `filter('@')` is refused by the lowering, and the unquoted form is not measured.
+        let parse = |text: &str, ty: &RtType, at_sign: bool| {
+            let parsed = if at_sign {
+                parse_filter_at_sign_measured(text, &[], ty, &enums)
+            } else {
+                parse_filter_with(text, &[], ty, &enums)
+            };
+            parsed.map_err(|e| Signal::unsupported(format!("CalcFormula filter: {e}")))
         };
         // The flow filter the caller set on field `q`, if any.
         let flow = |q: usize| {
@@ -1029,7 +1038,7 @@ impl Session {
                 ir::CalcValue::Const(k) => {
                     parts.push((c.field, FilterExpr::Eq(ops::convert(crate::constant(k), sty)?), false));
                 }
-                ir::CalcValue::Filter(text) => parts.push((c.field, parse(text, sty)?, false)),
+                ir::CalcValue::Filter(text) => parts.push((c.field, parse(text, sty, false)?, false)),
                 ir::CalcValue::Field(q) => {
                     let pf = &own[*q];
                     if pf.flow_filter {
@@ -1163,11 +1172,11 @@ impl Session {
                         let expr = match sty {
                             // A Text field over a Date source field: the earlier reading, then the pinned forms it refused
                             // (`calc_text_date_filter`). A Code field keeps the earlier reading only.
-                            RtType::Date if matches!(own[*q].ty, RtType::Text(_)) => match parse(&text, sty) {
+                            RtType::Date if matches!(own[*q].ty, RtType::Text(_)) => match parse(&text, sty, true) {
                                 Ok(e) => e,
                                 Err(refusal) => self.calc_text_date_filter(&text, &enums, refusal)?,
                             },
-                            _ => parse(&text, sty)?,
+                            _ => parse(&text, sty, true)?,
                         };
                         parts.push((c.field, expr, true));
                     }
@@ -1335,15 +1344,39 @@ impl Session {
         filters: &[FieldFilter],
     ) -> Result<bool, Signal> {
         let table = rec.borrow().table as usize;
+        let def = self.engine.tables[table].clone().expect("table");
+        // `@` alone on a FlowField as BC reads the rows for the Record call that is running (al-data
+        // `MemStore::at_sign_alone_read`): Count and IsEmpty read the database (BgTaskQueryCache.al:5809, AtSignAloneReads.al:366,
+        // :730); Find, FindFirst, FindLast, FindSet and Next check each row (AtSignAloneReads.al:366, :730). Any other reader keeps
+        // the filters: a Code field refuses.
+        let call = |m: RecordOp| self.is_al_record_call(m, rec);
+        let row_check = if call(RecordOp::Count) || call(RecordOp::IsEmpty) {
+            Some(false)
+        } else {
+            [
+                RecordOp::Find,
+                RecordOp::FindFirst,
+                RecordOp::FindLast,
+                RecordOp::FindSet,
+                RecordOp::Next,
+            ]
+            .into_iter()
+            .any(call)
+            .then_some(true)
+        };
+        let filters = match row_check {
+            Some(row_check) => self.store_for(rec)?.at_sign_alone_read(&def, filters, row_check),
+            None => std::borrow::Cow::Borrowed(filters),
+        };
         let probe = {
             let r = rec.borrow();
             let mut p = r.clone();
-            p.fields = row.to_vec();
+            p.fields = row.to_vec().into();
             p.temporary = false;
             p.auto_calc.clear();
             Rc::new(RefCell::new(p))
         };
-        for f in filters {
+        for f in filters.iter() {
             self.check_calc_field(table, f.field)?;
             let v = self.calc_value_in(&probe, f.field, &mut Vec::new(), Asked::RecordFilter)?;
             if !f.expr.matches(&v)? {
