@@ -7,7 +7,8 @@
 //! the load read (`AppInput::outside_reads`), changed, came or went. Anything under the folder counts, also what a run
 //! writes there (an output file, a local cache): the next request then reads the app again, which costs time and
 //! never a result. A kept app is the app a fresh read gives. An app is kept only where its stamps carry a change time
-//! (unix today, [`unchanged`]); elsewhere it is read on every request.
+//! (unix today, [`unchanged`]); elsewhere it is read on every request, and its files are not walked
+//! (`KeptApps::change_times`).
 
 use crate::apps::{self, AppInput};
 use std::collections::BTreeSet;
@@ -149,8 +150,13 @@ struct Kept {
 #[derive(Default)]
 pub struct KeptApps {
     apps: Vec<Kept>,
+    /// Whether this platform's stamps carry a change time, decided once from a real stamp of an app folder (`None`
+    /// until one was stamped). Without one no app is kept ([`unchanged`]), so its files are not walked either.
+    change_times: Option<bool>,
     /// How many apps were read from their files (tests).
     pub(crate) reads: usize,
+    /// How many apps had their files walked and stamped (tests).
+    walks: usize,
 }
 
 impl KeptApps {
@@ -162,8 +168,24 @@ impl KeptApps {
 
     /// [`KeptApps::load`] with the files stamped at the moment `now`.
     fn load_at(&mut self, paths: &[PathBuf], build: Option<&str>, now: SystemTime) -> Result<Vec<AppInput>, String> {
+        // Whether a stamp has a change time is a property of the platform's metadata (`stamp`), not of one file, so one
+        // real stamp decides it for every file; a probe per request would cost a metadata call per app and say the same.
+        if self.change_times.is_none() {
+            self.change_times = paths.iter().find_map(|p| stamp(p, now)).map(|s| s.unix.is_some());
+        }
+        if self.change_times == Some(false) {
+            self.apps.clear();
+            let inputs = paths
+                .iter()
+                .map(|p| apps::load(p, build))
+                .collect::<Result<Vec<_>, _>>()?;
+            self.reads += inputs.len();
+            inputs.iter().for_each(|i| _ = i.test_codeunits());
+            return Ok(inputs);
+        }
         let mut kept = Vec::with_capacity(paths.len());
         for path in paths {
+            self.walks += 1;
             let known = (self.apps.iter())
                 .position(|k| k.path == *path && k.build.as_deref() == build)
                 .map(|i| self.apps.swap_remove(i));
@@ -250,6 +272,33 @@ mod tests {
 
     fn once(k: &mut KeptApps, app: &Path) -> String {
         format!("{:?}", k.load_at(&[app.to_path_buf()], None, later()).unwrap()[0])
+    }
+
+    // Stamps without a change time never keep an app (`unchanged`), so where they have none (off unix today) a request
+    // reads the apps and neither walks their files nor keeps them.
+    #[test]
+    fn without_change_times_the_apps_are_read_and_neither_walked_nor_kept() {
+        let d = tempfile::tempdir().unwrap();
+        let app = workspace(d.path());
+        let mut k = KeptApps {
+            change_times: Some(false),
+            ..KeptApps::default()
+        };
+        assert_eq!(once(&mut k, &app), fresh(&app));
+        assert_eq!(once(&mut k, &app), fresh(&app));
+        assert_eq!(k.reads, 2, "read on every request");
+        assert_eq!(k.walks, 0, "no files walked");
+        assert!(k.apps.is_empty(), "nothing kept");
+    }
+
+    // Whether stamps carry a change time is decided from the first app folder stamped: on unix they do.
+    #[test]
+    fn the_change_time_is_decided_from_a_real_stamp() {
+        let d = tempfile::tempdir().unwrap();
+        let app = workspace(d.path());
+        let mut k = KeptApps::default();
+        once(&mut k, &app);
+        assert_eq!(k.change_times, Some(cfg!(unix)));
     }
 
     // Kept only with stamps that carry a change time (`unchanged`): unix today.
