@@ -1240,6 +1240,8 @@ mod corpus;
 mod data_driven;
 #[cfg(test)]
 mod diagnostics_tests;
+#[cfg(test)]
+mod disabled_login_memo_tests;
 mod discovery;
 #[cfg(test)]
 mod group1_sessions_tests;

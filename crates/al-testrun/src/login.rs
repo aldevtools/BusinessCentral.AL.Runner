@@ -439,6 +439,9 @@ pub(crate) fn decide(
             f.globals_read.extend(facts.globals_read);
             f.globals_written.extend(facts.globals_written);
             f.state_writes |= facts.state_writes;
+            if f.unknown.is_none() {
+                f.unknown = facts.unknown;
+            }
             // The codeunits whose state the subscriber keeps: its own, and those its codeunit holds in a variable (the
             // SingleInstance codeunit of LgnLoginChecklistTests.al:87-89), of the apps under test.
             left.state.insert(o);
@@ -609,13 +612,22 @@ pub(crate) fn ask_test_reach<T>(
 /// can see, in a watched session (review of al-runner issue 7717, round three, probe p7): a manual subscriber they bind
 /// (any event can reach it), a `Random` sequence they reseed (it goes on past the run seed's restart of each test,
 /// ADR-061), code the analysis does not follow (`state::OTHER`), or a global of a SingleInstance codeunit they write that
-/// the test codeunit reads (also through a helper codeunit).
+/// the test codeunit reads (also through a helper codeunit). A `DotNet` member that only answers (`state::SERVER_ANSWER`,
+/// the service tier calls of System Application's login memos) leaves nothing and is not one: what the memos keep is a
+/// SingleInstance global, asked by the last clause.
 fn watched_state(lowered: &Lowered, left: &ReachFacts, mine: &JoinedReach) -> Option<&'static str> {
+    // SERVER_ANSWER is ignored only for a reach that is fully known and changes no other session state (WorkDate, the
+    // language, isolated storage, ...); a reach that has either keeps main's refusal as `OTHER`. A reach without
+    // SERVER_ANSWER is read as on main.
+    let answers_only = left.state_writes & state::SERVER_ANSWER != 0
+        && left.unknown.is_none()
+        && left.state_writes & !state::SERVER_ANSWER == 0;
+    let may_leave = if answers_only { state::OTHER } else { state::MAY_LEAVE };
     if left.state_writes & state::BINDING != 0 {
         Some("bind a manual event subscriber")
     } else if left.state_writes & state::RANDOM_SEED != 0 {
         Some("reseed the Random sequence")
-    } else if left.state_writes & state::OTHER != 0 {
+    } else if left.state_writes & may_leave != 0 {
         Some(
             "run code the analysis does not follow (a .NET object, a background session or task, an unclassified builtin)",
         )
