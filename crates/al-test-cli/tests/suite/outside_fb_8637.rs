@@ -3,7 +3,7 @@
 //! background tasks through the query cache (`al-vm` query_cache.rs). The AL is the neighbor app's
 //! (tests/neighbors/8637-bg-cache-filtered-reads), one copy. Delete this file when the pin is in the corpus.
 
-use al_builtins::assumptions::Assumption::{self, BackgroundTaskQueryCache};
+use al_builtins::assumptions::Assumption::{self, BackgroundTaskQueryCache, BgTaskWorkerFilterGroupOne};
 use al_test_cli::report::Outcome;
 
 const PROBE: &str = include_str!("../../../../tests/neighbors/8637-bg-cache-filtered-reads/src/Probe.al");
@@ -93,20 +93,29 @@ fn issue_8637_repro() {
 /// next to the key set to its value in three filter groups, the FlowField filters @k, <>K* and K*|X, a sum whose field() is a
 /// FlowField of the row, and a worker's fresh Record and RecordRef Count while the test session holds a filter in filter
 /// group 1 (:3391 measures the worker's own record setting it while the test session holds none). BC answers them from the
-/// cache but @k, which reads the rows as they are; the runner keeps main's answer, the rows as they are, with no flag.
+/// cache but @k, which reads the rows as they are; the runner keeps main's answer, the rows as they are, with no flag. The
+/// worker's Count runs without the test session's group 1 (assumption `bg-task-worker-filter-group-one`), so it reads with
+/// no filter, a measured shape, and answers from the cache as BC does, through both entries.
 #[test]
 fn issue_8637_neighbors() {
     let src = format!("{PROBE}\n{}", NEIGHBORS);
     let o = outcomes(&src, "BQ Gate Tests");
     assert_eq!(o.len(), 7);
     for (name, r, marks) in &o {
+        if name.starts_with("TestSessionGroup1") {
+            assert_eq!(*r, Outcome::Pass, "{name}");
+            assert!(
+                marks.contains(&BackgroundTaskQueryCache) && marks.contains(&BgTaskWorkerFilterGroupOne),
+                "{name}: {marks:?}"
+            );
+            continue;
+        }
         assert!(!marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
         let main = match name.as_str() {
             n if n.starts_with("FlowFieldCaseInsensitiveValue") => {
                 assert_eq!(*r, Outcome::Pass, "{name}");
                 continue;
             }
-            n if n.starts_with("TestSessionGroup1") => "Actual:<1,1>",
             n if n.starts_with("FlowFieldPatternNotMatched") => "Actual:<a|a|1|No / -|-|0|Yes>",
             _ => "Actual:<-|-|0|Yes / a|a|1|No>",
         };
@@ -116,25 +125,22 @@ fn issue_8637_neighbors() {
 
 /// The cells of BQ Tests 6 (corpus PR 1495, BgTaskQueryCache.al:2587-2810): five and eight filters, filter groups 3, 5 and
 /// 7, the OR group, compound filters, @ alone, an empty FILTER() of a view, a pattern not matched with @ and no filter answer from the cache, as do the
-/// test session's reads first in every shape, flagged; Count and IsEmpty after SetLoadFields read the table, clean.
+/// test session's reads first in every shape, flagged; Count and IsEmpty after SetLoadFields read the table, flagged too
+/// (the entry's open probe measures that read).
 #[test]
 fn issue_8637_more_cells() {
     let o = outcomes(PROBE, "BQ Tests 6");
     assert_eq!(o.len(), 11);
     for (name, r, marks) in &o {
         assert_eq!(*r, Outcome::Pass, "{name}");
-        assert_eq!(
-            marks.contains(&BackgroundTaskQueryCache),
-            !name.contains("LoadFields"),
-            "{name}: {marks:?}"
-        );
+        assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
     }
 }
 
 /// The cells of BQ Tests 7 (corpus PR 1495, BgTaskQueryCache.al:2812-3567): 9 to 7650 filters, filter groups 1 and 8-255,
 /// FindFirst and FindLast with a FlowField filter next to the key, and a FlowFilter filter answer from the cache, as do the test
-/// session's reads first, flagged. A worker's filter in filter group 1 ends with it (:3400): every later read of its table,
-/// the test page's included, is flagged too. A FlowField filter alone or without the key reads the table, and <>@ alone keeps
+/// session's reads first, flagged. A worker's filter in filter group 1 ends with it (:3400): the later reads of its table run
+/// through main's `bg-task-worker-filter-group-one`, and those the cache does not answer through it alone. A FlowField filter alone or without the key reads the table, and <>@ alone keeps
 /// no line, as on main.
 #[test]
 fn issue_8637_bq7_cells() {
@@ -142,7 +148,10 @@ fn issue_8637_bq7_cells() {
     assert_eq!(o.len(), 17);
     for (name, r, marks) in &o {
         assert_eq!(*r, Outcome::Pass, "{name}");
-        assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+        assert!(
+            marks.contains(&BackgroundTaskQueryCache) || marks.contains(&BgTaskWorkerFilterGroupOne),
+            "{name}: {marks:?}"
+        );
     }
 }
 
@@ -166,18 +175,23 @@ fn issue_8637_indirect_flowfields() {
 /// The cells of BQ Tests 8 (corpus PR 1495, BgTaskQueryCache.al:3568-4273): up to 26214 filters, and FindFirst and FindLast
 /// with FlowField filters of any kind, group and method next to one value on each key field in any filter group but the OR
 /// group, answer from the cache, flagged. The key in the OR group or as two values, and a commit of the counted table, read
-/// the table; after the worker's key filter in filter group 1 (:4226) the later reads of its table are flagged too.
+/// the table; after the worker's key filter in filter group 1 (:4226) a later read of its table runs through main's
+/// `bg-task-worker-filter-group-one`.
 #[test]
 fn issue_8637_bq8_cells() {
     let o = outcomes(PROBE, "BQ Tests 8");
     assert_eq!(o.len(), 9);
     for (name, r, marks) in &o {
         assert_eq!(*r, Outcome::Pass, "{name}");
-        assert_eq!(
-            marks.contains(&BackgroundTaskQueryCache),
-            !name.ends_with("FlowFieldMin_CommitOfTheLine_SeesTheChange"),
-            "{name}: {marks:?}"
-        );
+        let flagged = match name.as_str() {
+            "BgQueryCache_Run_FlowFieldMin_CommitOfTheLine_SeesTheChange" => false,
+            "BgQueryCache_Run_FlowFieldWithoutOneKeyValue_SeesTheChange" => {
+                assert!(marks.contains(&BgTaskWorkerFilterGroupOne), "{name}: {marks:?}");
+                false
+            }
+            _ => true,
+        };
+        assert_eq!(marks.contains(&BackgroundTaskQueryCache), flagged, "{name}: {marks:?}");
     }
 }
 
