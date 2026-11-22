@@ -15,6 +15,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 mod autoinc;
+mod bg_readisolation_lock;
 mod bgsession;
 mod blob_copy;
 mod blob_transfer;
@@ -871,6 +872,8 @@ pub struct Session {
     pub(crate) isolated_set_in_test: std::collections::HashSet<(String, String)>,
     /// The isolated storage keys this test codeunit set, in this test or an earlier one (isolated_storage_reads.rs).
     pub(crate) isolated_written_in_codeunit: std::collections::HashSet<(String, String)>,
+    /// The rows this test codeunit wrote and the tables it locked, as a page background task's locking read meets them.
+    pub(crate) row_locks: bg_readisolation_lock::CodeunitRowLocks,
     /// What a later test of the running codeunit may not reach (`storage_checkpoint.rs`).
     unmeasured: storage_checkpoint::Unmeasured,
     /// The TaskScheduler tasks this session created (`tasks.rs`).
@@ -1469,6 +1472,7 @@ impl Session {
             isolated_committed: Default::default(),
             isolated_set_in_test: Default::default(),
             isolated_written_in_codeunit: Default::default(),
+            row_locks: Default::default(),
             unmeasured: Default::default(),
             tasks: Default::default(),
             install_scope: false,
@@ -1592,6 +1596,7 @@ impl Session {
 
     /// Makes every change so far durable (and a Truncate of this transaction final).
     pub fn commit_transaction(&mut self) {
+        self.note_row_locks_commit();
         self.guarded_body_commit();
         al_data::Store::commit(&mut self.store);
         self.crm_committed();
@@ -1662,6 +1667,7 @@ impl Session {
     }
 
     pub fn rollback_transaction(&mut self) {
+        self.note_row_locks_rollback();
         self.note_rollback_for_stale_rule();
         al_data::Store::rollback(&mut self.store);
         self.rollbacks += 1;
