@@ -710,3 +710,56 @@ codeunit 97571 "RL NB OnRun Written"
         Assert.AreEqual('error: NDBCS:LockTimeout', Seen, 'Get from OnRun of the row OnRun inserted');
     end;
 }
+
+// A row the test session's insert queue still holds, read under RepeatableRead: refused (corpus PR 1498 measures ReadCommitted,
+// :583 and :606, al-runner pull request 8498). Its id comes before RL NB OnRun Written, whose refusal leaves the later
+// codeunits not run.
+codeunit 97538 "RL NB Queued RepeatableRead"
+{
+    Subtype = Test;
+
+    var
+        Assert: Codeunit Assert;
+        Lib: Codeunit "RL More Lib";
+
+    [Test]
+    procedure QueuedInsert_RepeatableReadGet()
+    var
+        Host: TestPage "RL Task Host";
+        Parameters: Dictionary of [Text, Text];
+        A: Code[20];
+    begin
+        A := Lib.NewKey();
+        Lib.Queue(A, '', 'queued');
+        Host.OpenView();
+        Parameters := Lib.Parameters('repeatableread', 'get', A);
+        Assert.AreEqual('-', Lib.Seen(Host.RunPageBackgroundTask(Codeunit::"RL Reader", Parameters, false)), 'QueuedInsert_RepeatableReadGet');
+    end;
+}
+
+// A row the queue still holds next to a row the test inserted and committed: the table holds the codeunit's lock on the
+// committed row, so the ReadCommitted Get of the queued row is refused (no cell has both).
+codeunit 97539 "RL NB Queued And Committed"
+{
+    Subtype = Test;
+
+    var
+        Assert: Codeunit Assert;
+        Lib: Codeunit "RL More Lib";
+
+    [Test]
+    procedure QueuedInsert_NextToACommittedRow_ReadCommittedGet()
+    var
+        Host: TestPage "RL Task Host";
+        Parameters: Dictionary of [Text, Text];
+        A: Code[20];
+    begin
+        Lib.Queue(Lib.NewKey(), '', 'committed');
+        Commit();
+        A := Lib.NewKey();
+        Lib.Queue(A, '', 'queued');
+        Host.OpenView();
+        Parameters := Lib.Parameters('readcommitted', 'get', A);
+        Assert.AreEqual('-', Lib.Seen(Host.RunPageBackgroundTask(Codeunit::"RL Reader", Parameters, false)), 'QueuedInsert_NextToACommittedRow_ReadCommittedGet');
+    end;
+}
