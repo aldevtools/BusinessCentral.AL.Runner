@@ -88,17 +88,19 @@ impl Session {
         })
     }
 
-    /// The test calls `call` on `st` (`test_page_op_held`, `test_control_op_held`). On the cells' page the call joins the
-    /// steps (`validate_view_step`); a call the cells do not make turns the rule off, or refuses once the rule ran.
+    /// The test calls `call` on `st` (`test_page_op_held`, `test_control_op_held`). A call that only reads (a value, the filter,
+    /// a property: `read_only_call`) passes as the cells' `Value()` reads do. On the cells' page any other call joins the steps
+    /// (`validate_view_step`); a call the cells do not make turns the rule off, or refuses once the rule ran.
     pub(super) fn validate_view_call(&mut self, st: &St, call: Option<TestCall>) -> Result<(), Signal> {
         let Some(call) = call else {
             return Ok(());
         };
-        if matches!(
-            call,
-            TestCall::Read | TestCall::Page(PageMethod::Filter) | TestCall::Other(PageMethod::GetFilter)
-        ) || st.borrow().validate_view.off
-        {
+        let reads = match call {
+            TestCall::Read | TestCall::Page(PageMethod::Filter) | TestCall::Other(PageMethod::GetFilter) => true,
+            TestCall::Page(m) | TestCall::Other(m) => Self::read_only_call(m),
+            TestCall::Write(_) => false,
+        };
+        if reads || st.borrow().validate_view.off {
             return Ok(());
         }
         let mut v = std::mem::take(&mut st.borrow_mut().validate_view);

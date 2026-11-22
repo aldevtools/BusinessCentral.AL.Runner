@@ -87,11 +87,12 @@ fn probe_cells_pass_on_the_measured_pages() {
 }
 
 /// Past the cells: four or two rows, on the List and on the Card, and a page whose OnValidate calls Update(true), keep main's
-/// path; Next or the action after the cell's steps, and a second SetValue on the Card of issue 8717, refuse.
+/// path; Next or the action after the cell's steps, and a second SetValue on the Card of issue 8717, refuse; AssertEquals and
+/// Editable() after the cell's steps only read, and the cell's First and walk follow.
 #[test]
 fn neighbors_keep_main_or_refuse() {
     let o = outcomes(&format!("{PROBE}\n{NEIGHBORS}"), "LT RFU Neighbor Tests");
-    assert_eq!(o.len(), 8);
+    assert_eq!(o.len(), 9);
     for (n, r, marks) in &o {
         match n.as_str() {
             "Lines_NextAfterSetValues"
@@ -102,6 +103,9 @@ fn neighbors_keep_main_or_refuse() {
                     matches!(r, Outcome::NotRun(why) if why.starts_with(UNMEASURED)),
                     "{n}: {r:?}"
                 )
+            }
+            "Lines_ReadOnlyCallsAfterSetValues" => {
+                assert!(*r == Outcome::Pass && *marks == [ListValidateViewRefresh], "{n}: {r:?}")
             }
             _ => assert!(marks.is_empty() && *r != Outcome::Pass, "{n}: {r:?}"),
         }
