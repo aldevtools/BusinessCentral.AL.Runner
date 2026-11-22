@@ -126,11 +126,7 @@ pub(super) fn baseline_key(
     let report = compiled.cache_report.as_ref()?;
     let uncovered = compiled.uncovered.as_deref()?;
     opts.compile_cache.as_ref()?;
-    if opts.trace
-        || opts.execute
-        || suites.iter().any(|s| s.runner.is_some())
-        || crate::host::uses_real_files()
-    {
+    if opts.trace || opts.execute || suites.iter().any(|s| s.runner.is_some()) || crate::host::uses_real_files() {
         return None;
     }
     // A run on the wall clock (`ALRUNNER_REAL_CLOCK`) keeps nothing: its rows carry no fixed instant.
