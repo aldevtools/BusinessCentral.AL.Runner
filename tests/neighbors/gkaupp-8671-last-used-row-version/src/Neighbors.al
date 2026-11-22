@@ -16,7 +16,7 @@ table 76604 "RVW Child"
     }
 }
 
-// RowVersionWrites.al InsertTwoTables of corpus PR 1509 on its own: BC gives Row its row version when Row.Get sends it, after Other's.
+// RowVersionWrites.al InsertTwoTables of corpus PR 1509 on its own: BC gives Row its row version when Row.Get sends it, after Other's. Main and this change both give Row the one of its Insert (fails; open follow-up).
 codeunit 76606 "RVW N 76606"
 {
     Subtype = Test;

@@ -219,8 +219,6 @@ pub(crate) struct RowVersionTx {
     /// A Rename (`TxWriteKind::Other`) whose row version counts when it ends as a plain one (`Session::end_row_version_write`), or
     /// a ModifyAll whose first modified row ends it (`Session::note_row_versions`). Set: `last_used_row_version` refuses.
     pub(crate) write_sends: Option<(u32, Option<String>, TxWriteKind)>,
-    /// The highest row version sent so far is that of inserted rows (`Session::note_read_for_row_versions`).
-    pub(crate) sent_by_insert: bool,
     /// The value moved by a write after an Insert through the assumption `row-version-write-after-insert`
     /// (`Session::note_row_versions`); `Session::last_used_row_version` marks the answer.
     pub(crate) assumed_write: bool,

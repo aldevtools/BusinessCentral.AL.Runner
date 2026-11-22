@@ -332,7 +332,7 @@ impl Session {
                         | RecordOp::Count
                         | RecordOp::CalcSums
                 ),
-            )?;
+            );
             use crate::recmeta::{ISOLATION_REPEATABLE_READ, ISOLATION_UPDLOCK};
             // The assignment of a locking isolation opened the write transaction (`RecordOp::ReadIsolation`), the read does
             // not: a Get, Find('='), IsEmpty, Count, Next or CalcFields under UpdLock or RepeatableRead set in an earlier

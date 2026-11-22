@@ -81,7 +81,6 @@ impl Session {
                 }
                 rv.accounted = rv.handed_out;
                 rv.sent = rv.sent.max(rv.last);
-                rv.sent_by_insert = false;
                 rv.pending_inserts.retain(|(o, c, _)| !(*o == table && c == company));
                 // A Modify grows the value while another table holds unsent inserted rows, and those stay unsent
                 // (PlTRowVersionValue.al UK_InsertThenModifyOtherTable).
@@ -107,7 +106,6 @@ impl Session {
                 rv.assumed_write = true;
                 if let Some((_, _, v)) = rv.pending_inserts.pop() {
                     rv.sent = rv.sent.max(v);
-                    rv.sent_by_insert = true;
                 }
                 if matches!(kind, TxWriteKind::ModifyAll | TxWriteKind::Other) {
                     rv.write_sends = Some((table, company.clone(), kind));
@@ -173,7 +171,6 @@ impl Session {
             rv.write_sends = None;
             rv.accounted = rv.handed_out;
             rv.sent = rv.sent.max(rv.last);
-            rv.sent_by_insert = false;
         }
     }
 
@@ -185,47 +182,30 @@ impl Session {
     /// _ReadOtherThenSame, UK_InsertTwoTablesThenGetOne, UK_InsertReadInsertRead, UK_InsertThenModifyOtherTable). The rows
     /// get their row versions at the Insert here, so a read after a Modify handed out a higher one takes a new one to grow
     /// the value as BC does (UK_InsertThenModifyOtherTable `findfirst` greater). Other reads are not pinned.
-    /// A read that sends the rows of one table after the inserted rows of another table were sent with a higher row version
-    /// refuses: BC gives the rows their row version when it sends them, so theirs is then the higher one (RowVersionWrites.al
-    /// of corpus PR 1509, :392 InsertTwoTables `row/other` greater), and here they keep the one of their Insert.
-    pub(crate) fn note_read_for_row_versions(
-        &mut self,
-        table: u32,
-        company: &Option<String>,
-        sends: bool,
-    ) -> Result<(), Signal> {
+    pub(crate) fn note_read_for_row_versions(&mut self, table: u32, company: &Option<String>, sends: bool) {
         let rv = &mut self.tx.open.row_versions;
         if rv.pending_inserts.is_empty() {
-            return Ok(());
+            return;
         }
         if !sends {
             rv.unpinned = Some("a read other than Get, FindFirst, FindLast, FindSet, IsEmpty, Count or CalcSums");
-            return Ok(());
+            return;
         }
         let Some(pos) = rv
             .pending_inserts
             .iter()
             .position(|(o, c, _)| *o == table && c == company)
         else {
-            return Ok(());
+            return;
         };
+        let (_, _, v) = rv.pending_inserts.remove(pos);
         let current = self.tx.committed_row_version.max(rv.sent);
-        let v = rv.pending_inserts[pos].2;
-        if v <= current && rv.sent_by_insert {
-            return unsupported(
-                "a read that sends inserted rows after a later Insert of another table was sent (their SystemRowVersion is not \
-                 pinned)",
-            );
-        }
-        rv.pending_inserts.remove(pos);
         if v > current {
             rv.sent = v;
-            rv.sent_by_insert = true;
         } else {
             self.next_row_version += 1;
             self.tx.open.row_versions.sent = self.next_row_version;
         }
-        Ok(())
     }
 
     /// `Database.LastUsedRowVersion`: the committed value, raised by the rows the open transaction sent
