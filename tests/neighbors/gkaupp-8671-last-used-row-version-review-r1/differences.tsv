@@ -1,1 +1,6 @@
 # key	entry
+RVR N 76625::WatermarkFilterAfterTwoTables	REFUSED a find filtered or sorted on SystemRowVersion of a table (RVR Row)
+RVR N 76627::TwoTablesRowVersionThroughFieldRef	REFUSED SystemRowVersion of a row of RVR Row that the open transaction inserted before a row version sent ahead of it
+RVR N 76628::InterleavedInsertsSentAfterOtherTable	REFUSED SystemRowVersion of a row of RVR Row that the open transaction inserted before a row version sent ahead of it
+RVR N 76629::TwoTablesFindSortedOnRowVersion	REFUSED a find filtered or sorted on SystemRowVersion of a table (RVR Row)
+RVR N 76630::InstallRowsRowVersionRead	REFUSED SystemRowVersion of a row of RVR Inst A that the open transaction inserted before a row version sent ahead of it

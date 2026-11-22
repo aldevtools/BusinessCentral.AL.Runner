@@ -1565,6 +1565,7 @@ impl Session {
                     let order = {
                         let r = rec.borrow();
                         self.install_row_order(r.table, r.temporary, pos, &r.fields)
+                            .or_else(|| self.restamped_read(&r, pos))
                     };
                     if let Some(why) = order {
                         return unsupported(why);

@@ -118,11 +118,11 @@ fn minimum_active_row_version_stays_at_the_codeunit_start_under_codeunit_isolati
     for t in ["AfterInsertAndRead", "AfterModify", "InsertHereModifyThere"] {
         assert!(matches!(of(t), Outcome::Pass), "{t}: {:?}", of(t));
     }
-    // A Delete of the one table whose inserted rows nothing sent yet: answered through the assumption
-    // row-version-write-after-insert (corpus PR 1509, RowVersionWrites.al DeleteAfterInsert).
-    assert!(
-        matches!(of("DeleteOfInsertedTable"), Outcome::Pass),
-        "{:?}",
-        of("DeleteOfInsertedTable")
-    );
+    {
+        let t = "DeleteOfInsertedTable";
+        match of(t) {
+            Outcome::NotRun(r) => assert!(r.contains("Database.LastUsedRowVersion after"), "{t}: {r}"),
+            other => panic!("{t}: {other:?}"),
+        }
+    }
 }

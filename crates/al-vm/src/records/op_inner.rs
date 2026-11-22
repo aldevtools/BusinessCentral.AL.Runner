@@ -297,7 +297,7 @@ impl Session {
                 .row_versions
                 .pending_inserts
                 .iter()
-                .any(|(o, c, _)| *o == t.object && *c == company);
+                .any(|(o, c, _, _)| *o == t.object && *c == company);
             let find_form = match args.first() {
                 Some(Value::Text(w)) => Some(w.as_str()),
                 _ => None,
@@ -333,6 +333,7 @@ impl Session {
                         | RecordOp::CalcSums
                 ),
             );
+            self.restamped_find(&cx, &t, &rec.borrow(), method)?;
             use crate::recmeta::{ISOLATION_REPEATABLE_READ, ISOLATION_UPDLOCK};
             // The assignment of a locking isolation opened the write transaction (`RecordOp::ReadIsolation`), the read does
             // not: a Get, Find('='), IsEmpty, Count, Next or CalcFields under UpdLock or RepeatableRead set in an earlier
@@ -1002,7 +1003,7 @@ impl Session {
                 self.delete_one(&cx, &t, rec, run)
             }
             RecordOp::DeleteAll => {
-                let at = self.note_bulk_write(rec, &t, crate::state::TxWriteKind::DeleteAll);
+                let at = self.note_bulk_write(rec, &t, crate::state::TxWriteKind::DeleteAll, &[]);
                 let r = arg_bool(args, 0).and_then(|run| self.delete_all(&t, rec, &cx, run));
                 self.note_bulk_end(at);
                 r
@@ -1913,7 +1914,8 @@ impl Session {
             RecordOp::Rename => {
                 let from_al = std::mem::take(&mut self.tx.rename_from_al);
                 let rename_note = (self.tx.open.writes.len(), self.store.change_counter());
-                self.note_bulk_write(rec, &t, crate::state::TxWriteKind::Other);
+                let old_key = Self::sql_key(rec, &t, &rec.borrow().fields);
+                self.note_bulk_write(rec, &t, crate::state::TxWriteKind::Other, &old_key);
                 if !rec.borrow().temporary {
                     self.rename_jit_gone(rec)?;
                 }

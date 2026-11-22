@@ -205,5 +205,9 @@ fn row_versions_of_rows_sent_after_another_table_are_refused_where_they_show() {
         refused(t, "a Delete, Rename, DeleteAll, ModifyAll or Truncate after an Insert");
     }
     // A Delete of the inserted row itself: the assumption row-version-write-after-insert (RowVersionWrites.al:147).
-    assert!(matches!(of("DeleteInsertedRow"), Outcome::Pass), "{:?}", of("DeleteInsertedRow"));
+    assert!(
+        matches!(of("DeleteInsertedRow"), Outcome::Pass),
+        "{:?}",
+        of("DeleteInsertedRow")
+    );
 }

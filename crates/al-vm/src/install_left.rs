@@ -233,6 +233,7 @@ impl Session {
             // Carried: the Baseline.
             company_unknown: _,
             full_copies: _,
+            restamped_rows: _,
             run_trigger_unknown: _,
             package_load: _,
             // Carried in InstallLeft.
