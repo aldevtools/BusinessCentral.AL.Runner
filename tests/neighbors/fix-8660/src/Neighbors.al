@@ -3,8 +3,9 @@
 // source table, and Visible expressions that name no field. A BC 29.1 container gave these values.
 // After them, the shapes and routes of the al-runner PR 8667 review, which read Yes on BC 29 and differ from main (corpus
 // PR 1504, VisibleExpressionSource.al): another control binding the named field, the primary key, an `and` with one field
-// bound, OpenView, and a Trap of Page.Run. Last, two modal runs no probe measured, refused here: a field argument, and the
-// table's lookup page (Page.RunModal(0, Rec)).
+// bound, OpenView, a Trap of Page.Run, and the modal routes of round 2 (a field argument, Page.RunModal(0, Rec) through the
+// table's lookup page). Then a Page variable's RunModal, a route no probe measured: it runs when the handler reads no such
+// Visible, and the read is refused (last, refused on main too).
 table 50000 "NB TV Row"
 {
     LookupPageId = "NB TV Shapes Card";
@@ -186,7 +187,7 @@ codeunit 50002 "NB TV Tests"
 
     [Test]
     [HandlerFunctions('ReadVisibleHandler')]
-    procedure Refused_ModalWithFieldArgument()
+    procedure ExprSource_ModalFieldArgument_Yes()
     var
         Row: Record "NB TV Row";
     begin
@@ -199,7 +200,7 @@ codeunit 50002 "NB TV Tests"
 
     [Test]
     [HandlerFunctions('ReadVisibleHandler')]
-    procedure Refused_ModalTableLookupPage()
+    procedure ExprSource_ModalTableLookupPage_Yes()
     var
         Row: Record "NB TV Row";
     begin
@@ -208,6 +209,36 @@ codeunit 50002 "NB TV Tests"
         Page.RunModal(0, Row);
         if ModalVisible <> 'Yes' then
             Error('Visible in the handler is %1, expected Yes.', ModalVisible);
+    end;
+
+    [Test]
+    [HandlerFunctions('NoReadHandler')]
+    procedure PageVarModal_HandlerReadsNoVisible_Runs()
+    var
+        Row: Record "NB TV Row";
+        Card: Page "NB TV Shapes Card";
+    begin
+        InsertRow(Row);
+        Card.SetRecord(Row);
+        Card.RunModal();
+    end;
+
+    [Test]
+    [HandlerFunctions('ReadVisibleHandler')]
+    procedure Refused_PageVarModalReadsVisible()
+    var
+        Row: Record "NB TV Row";
+        Card: Page "NB TV Shapes Card";
+    begin
+        InsertRow(Row);
+        ModalVisible := 'not run';
+        Card.SetRecord(Row);
+        Card.RunModal();
+    end;
+
+    [ModalPageHandler]
+    procedure NoReadHandler(var Card: TestPage "NB TV Shapes Card")
+    begin
     end;
 
     [ModalPageHandler]

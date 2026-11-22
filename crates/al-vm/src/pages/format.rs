@@ -1874,19 +1874,21 @@ impl Session {
 
     /// Whether this open of a Card with a `Control::visible_row_field` control is one the probe measured, on a major where
     /// the control reads Yes (`reads_yes`) or the open raises (pages/controls/VisibleExpressionSource.al): a TestPage's own
-    /// OpenEdit, OpenView or OpenNew, and a `Trap` of `Page.Run(Id, Rec)`, on every major; a static `Page.RunModal(Id, Rec)`
-    /// statement answered by a ModalPageHandler where it reads Yes: the page by its own id (not 0, the table's lookup page)
-    /// and no field argument, as measured. Where the open raises, that modal run raises the same error before
+    /// OpenEdit, OpenView or OpenNew, and a `Trap` of `Page.Run(Id, Rec)`, on every major; where it reads Yes, a static
+    /// `Page.RunModal(Id, Rec)` answered by a ModalPageHandler, as a statement, with a field argument
+    /// (`Page.RunModal(Id, Rec, Field)`), through the table's lookup page (`Page.RunModal(0, Rec)`) or with its return value
+    /// used, each alone (VisibleExpressionSource.al round 2); a mix of two of those is not measured. Where the open raises, that modal run raises the same error before
     /// the handler runs (corpus PR 1504's observe run), but no test can pin it: its handler never runs.
     fn visible_route_measured(&self, st: &St, reads_yes: bool) -> bool {
         let s = st.borrow();
         let trapped = s.caught_by_trap && s.trapped_run == Some(super::page_run_close::PageRunCall::StaticWithRecord);
+        let field = s.static_run_record && !s.static_run_record_only;
+        let used = s.lookup_kind == LookupKind::StaticRunModal;
         let modal = s.modal
             && s.modal_run == ModalRun::Static
-            && s.statement_run
-            && s.static_run_record_only
-            && !s.lookup_page_from_table
-            && !s.lookup;
+            && s.static_run_record
+            && (s.lookup == used)
+            && u8::from(field) + u8::from(used) + u8::from(s.lookup_page_from_table) <= 1;
         s.opened_by_test || trapped || (reads_yes && modal)
     }
 

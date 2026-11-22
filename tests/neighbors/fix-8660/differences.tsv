@@ -2,12 +2,14 @@
 # The first six tests are field controls next to the new rule that keep the value their Visible had at open, on BC and on
 # main: controls bound to a field of the source table, and Visible expressions that name only a page variable or a
 # constant. No test of those differs. The last five are the review's shapes and routes: Yes on BC 29 and here, the value
-# at open (No) on main. The two Refused_ tests are modal runs no probe measured (a field argument, the table's lookup
-# page): refused here, run on main (review of #8667, round 2).
+# at open (No) on main. The two modal routes of round 2 read Yes here and are refused on main. A Page variable's RunModal
+# whose handler reads no such Visible runs here and is refused at the open on main; the one whose handler reads it is
+# refused on both (another refusal text is no difference).
 NB TV Tests::ExprSource_FieldBoundByAnotherControl_Yes	ASSUMED visible-names-row-field-reads-yes (corpus PR 1504)
 NB TV Tests::ExprSource_NamesPrimaryKey_Yes	ASSUMED visible-names-row-field-reads-yes (corpus PR 1504)
 NB TV Tests::ExprSource_AndWithOneFieldBound_Yes	ASSUMED visible-names-row-field-reads-yes (corpus PR 1504)
 NB TV Tests::ExprSource_OpenView_Yes	ASSUMED visible-names-row-field-reads-yes (corpus PR 1504)
 NB TV Tests::ExprSource_TrapPageRun_Yes	ASSUMED visible-names-row-field-reads-yes (corpus PR 1504)
-NB TV Tests::Refused_ModalWithFieldArgument	REFUSED a Card with a field control bound to no field whose Visible names a field of the record, opened in a way the probe did not measure
-NB TV Tests::Refused_ModalTableLookupPage	REFUSED a Card with a field control bound to no field whose Visible names a field of the record, opened in a way the probe did not measure
+NB TV Tests::ExprSource_ModalFieldArgument_Yes	ASSUMED visible-names-row-field-reads-yes (corpus PR 1504)
+NB TV Tests::ExprSource_ModalTableLookupPage_Yes	ASSUMED visible-names-row-field-reads-yes (corpus PR 1504)
+NB TV Tests::PageVarModal_HandlerReadsNoVisible_Runs	PINNED tests/al-language/pages/controls/W2PageVariableInit.al:97
