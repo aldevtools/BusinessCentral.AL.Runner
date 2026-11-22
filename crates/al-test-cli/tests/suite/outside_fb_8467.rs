@@ -592,6 +592,23 @@ fn issue_8637_bq7_cells() {
     }
 }
 
+/// FlowFields that read more tables than their CalcFormula's own: a count whose condition is a FlowField of the lines, and a
+/// sum whose `field()` is a FlowField of the row. A worker's FindFirst with a filter on one next to its key, after the test
+/// session committed a row only that other FlowField reads: no cell measures whether the commit ends the query cache's
+/// entry, so the runner reads the rows as they are, as on main, with no flag.
+#[test]
+fn issue_8637_indirect_flowfields() {
+    let o = outcomes(
+        include_str!("../fixtures/outside-fb/Issue8637IndirectFlowField.al"),
+        "IX Tests",
+    );
+    assert_eq!(o.len(), 2);
+    for (name, r, marks) in &o {
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert!(!marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+    }
+}
+
 /// The cells of BQ Tests 5 (corpus PR 1495, BgTaskQueryCache.al:2229-2409). A test page's read of a line fills the row cache,
 /// as the test session's Get does, through filters on every key field (:2300, :2322) and through a filter on the group alone
 /// (:2355; the page reads its line by the full key). The test session's four reads first answer the worker's first four reads

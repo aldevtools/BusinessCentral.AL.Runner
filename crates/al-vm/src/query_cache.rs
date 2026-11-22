@@ -284,13 +284,15 @@ enum Nesting {
 /// and FlowFilter filters, nothing else (:3475, :3485). The entry also ends with a commit of the table the FlowField counts or
 /// sums (`Session::flow_field_sources`, :3503). Count and IsEmpty read the rows as they are (:3475, :3552; `cached_count`'s
 /// `plain`), and so do all four with the FlowField filter alone (:3466, :3552), next to a range on the key, a filter outside
-/// the key or a part of a two-field key (:3494).
-fn flow_field_find(
+/// the key or a part of a two-field key (:3494), and through a FlowField that reads more tables than its own
+/// (`calc_reads_one_table`). `source`: a table's schema by object index.
+fn flow_field_find<'a>(
     schema: &al_ir::Table,
     t: &TableDef,
     filters: &[&FieldFilter],
     flow_fields: &[&FieldFilter],
     form: Form,
+    source: impl Fn(usize) -> Option<&'a al_ir::Table>,
 ) -> bool {
     let one_value = |e: &FilterExpr| match e {
         FilterExpr::Range(Some(a), Some(b)) => a.identical(b),
@@ -300,10 +302,11 @@ fn flow_field_find(
     let [flow] = flow_fields else {
         return false;
     };
-    let counts_or_sums = schema.fields[flow.field]
-        .calc
-        .as_ref()
-        .is_some_and(|c| matches!(c.method, CalcMethod::Count | CalcMethod::Sum) && !c.negate);
+    let counts_or_sums = schema.fields[flow.field].calc.as_ref().is_some_and(|c| {
+        matches!(c.method, CalcMethod::Count | CalcMethod::Sum)
+            && !c.negate
+            && calc_reads_one_table(schema, source(c.table), c)
+    });
     let pk = &t.keys[0];
     let key = pk.iter().all(|k| {
         let mut on = filters.iter().filter(|f| f.field == *k);
@@ -318,6 +321,27 @@ fn flow_field_find(
         && one_value(&flow.expr)
         && key
         && others
+}
+
+/// Whether FlowField `calc` of a row of `row` reads only its source table: it aggregates no FlowField of the source and has
+/// no condition on one (`tally_source_rows` computes those per source row), and no `field()` condition names a FlowField of
+/// the row (`calc_filters` computes it first). Such a FlowField reads tables the entry's commit stamps do not hold, and no
+/// cell measures whether a commit of them ends the entry, so its reads keep main's answer.
+fn calc_reads_one_table(row: &al_ir::Table, source: Option<&al_ir::Table>, calc: &al_ir::CalcFormula) -> bool {
+    let flow_field = |t: &al_ir::Table, f: usize| t.fields.get(f).is_none_or(|d| !d.stored && !d.flow_filter);
+    let Some(source) = source else {
+        return false;
+    };
+    calc.field.is_none_or(|f| !flow_field(source, f))
+        && calc.conds.iter().all(|c| {
+            !flow_field(source, c.field)
+                && match c.value {
+                    al_ir::CalcValue::Field(x) | al_ir::CalcValue::UpperLimit(x) | al_ir::CalcValue::FieldFilter(x) => {
+                        !flow_field(row, x)
+                    }
+                    _ => true,
+                }
+        })
 }
 
 const TEST_READ_REFUSAL: &str = "a read of the test session that a page background task's earlier read answers from the query \
@@ -468,7 +492,8 @@ impl Session {
             values.extend([Value::Integer(f.group), Value::Integer(f.field as i32)]);
             encode_filter(&f.expr, Nesting::Top, &mut values)?;
         }
-        if !flow_fields.is_empty() && !flow_field_find(schema, t, &filters, &flow_fields, form) {
+        let source = |i: usize| self.engine.program.objects[i].table.as_ref();
+        if !flow_fields.is_empty() && !flow_field_find(schema, t, &filters, &flow_fields, form, source) {
             return None;
         }
         Some(values)
