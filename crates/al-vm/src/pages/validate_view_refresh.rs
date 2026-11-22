@@ -97,6 +97,7 @@ impl Session {
         st: &St,
         call: Option<TestCall>,
         target: Option<&ControlTarget>,
+        args: &[Value],
     ) -> Result<(), Signal> {
         let Some(call) = call else {
             return Ok(());
@@ -109,7 +110,7 @@ impl Session {
             return Ok(());
         }
         let mut v = std::mem::take(&mut st.borrow_mut().validate_view);
-        let r = self.validate_view_step(st, &mut v, call, target);
+        let r = self.validate_view_step(st, &mut v, (call, target, args));
         let measured = matches!(r, Ok(true));
         v.off = !measured && !v.ran;
         let refuse = !measured && v.ran;
@@ -128,8 +129,7 @@ impl Session {
         &mut self,
         st: &St,
         v: &mut ValidateView,
-        call: TestCall,
-        target: Option<&ControlTarget>,
+        (call, target, args): (TestCall, Option<&ControlTarget>, &[Value]),
     ) -> Result<bool, Signal> {
         let page = match v.page {
             Some(page) => page,
@@ -179,7 +179,7 @@ impl Session {
                 None => return Ok(false),
             },
             TestCall::Other(PageMethod::Invoke) => Action(Upd::None, Same),
-            _ if self.validate_view_reads(st, page, call, target) => match v.steps.last() {
+            _ if self.validate_view_reads(st, page, call, target, args) => match v.steps.last() {
                 // Read-only calls in a row are one step; after First they are no step of a cell.
                 Some(Step::Reads) if !v.walked => return Ok(true),
                 _ => Step::Reads,
@@ -264,17 +264,30 @@ impl Session {
         Ok(())
     }
 
-    /// `call` is one of the read-only calls the read cells measure on `page` between its steps (`Step::Reads`,
-    /// `CellPage::read_calls`): on a control bound to a field, or on the page. They log nothing, and the cell reads on as
-    /// without them.
-    fn validate_view_reads(&self, st: &St, page: CellPage, call: TestCall, target: Option<&ControlTarget>) -> bool {
+    /// `call` with `args` is one of the read-only calls the read cells measure on `page` between its steps (`Step::Reads`,
+    /// `CellPage::read_calls`): on a control bound to a field of the type the read was measured on (`CellPage::read_fits`),
+    /// or on the page. They log nothing, and the cell reads on as without them.
+    fn validate_view_reads(
+        &self,
+        st: &St,
+        page: CellPage,
+        call: TestCall,
+        target: Option<&ControlTarget>,
+        args: &[Value],
+    ) -> bool {
         let (control, on_page) = page.read_calls();
-        match call {
-            TestCall::Page(m) => on_page.contains(&m),
-            TestCall::Other(m) => {
-                control.contains(&m)
-                    && matches!(target, Some(ControlTarget::Control(i))
-                        if matches!(page_of(&self.engine(), st).controls[*i].binding, ir::Binding::Field(_)))
+        match (call, target) {
+            (TestCall::Page(m), _) => on_page.contains(&m),
+            (TestCall::Other(m), Some(ControlTarget::Control(i))) if control.contains(&m) => {
+                let engine = self.engine();
+                let ir::Binding::Field(f) = page_of(&engine, st).controls[*i].binding else {
+                    return false;
+                };
+                let table = self.page_rec(st).borrow().table as usize;
+                engine.tables[table]
+                    .as_ref()
+                    .and_then(|t| t.fields.get(f))
+                    .is_some_and(|field| page.read_fits(m, &field.ty, args))
             }
             _ => false,
         }

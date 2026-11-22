@@ -12,3 +12,7 @@ LT RVR Tests::Lines_OptionsAndTree_BetweenSteps	ASSUMED list-validate-view-refre
 LT RVR Tests::Lines_OptionsAndTree_AfterSteps	ASSUMED list-validate-view-refresh (corpus PR 1535, open: ListValidateViewReads.al)
 LT RVR Tests::Lines_GetFieldById_BetweenSteps	REFUSED a call on a page of ListValidateFilterRefresh.al after the page read its row or the view again
 LT RVR Tests::Lines_GetFieldById_AfterSteps	REFUSED a call on a page of ListValidateFilterRefresh.al after the page read its row or the view again
+# AsInteger on the Text control and AsBoolean on the Decimal one between the SetValues: BC raises Invalid Conversion; the
+# head refuses a read on another type than the read cells measure; the base ran main's refresh and failed earlier.
+LT RFU Neighbor Tests::Wide_AsIntegerOnText_BetweenSteps	REFUSED a call on a page of ListValidateFilterRefresh.al after the page read its row or the view again
+LT RFU Neighbor Tests::Wide_AsBooleanOnDecimal_BetweenSteps	REFUSED a call on a page of ListValidateFilterRefresh.al after the page read its row or the view again

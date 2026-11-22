@@ -261,6 +261,29 @@ impl CellPage {
         matches!(self, CellPage::Issue | CellPage::Wide | CellPage::Lines)
     }
 
+    /// Whether control read `m` with `args` on a field of type `ty` is one the read cells of the page measure. On page 97498
+    /// each As* read is measured on its own type only, OptionCount and GetOption on the Option field only, and GetOption with
+    /// index 1 and 3 only (ListValidateViewReads.al :496-:581); on another type BC raises `Invalid Conversion. Source: String,
+    /// Destination: NavInteger.` (AsInteger on Text) or a CLR exception (GetOption on Decimal, GetOption(4)), which the
+    /// neighbors Wide_AsIntegerOnText_BetweenSteps and the others measure. The reads of #1529 on the other pages take any
+    /// field.
+    pub(crate) fn read_fits(self, m: PageMethod, ty: &RtType, args: &[Value]) -> bool {
+        if self != CellPage::Wide {
+            return true;
+        }
+        match m {
+            PageMethod::AsBoolean => matches!(ty, RtType::Boolean),
+            PageMethod::AsDate => matches!(ty, RtType::Date),
+            PageMethod::AsDateTime => matches!(ty, RtType::DateTime),
+            PageMethod::AsDecimal => matches!(ty, RtType::Decimal),
+            PageMethod::AsInteger => matches!(ty, RtType::Integer),
+            PageMethod::AsTime => matches!(ty, RtType::Time),
+            PageMethod::OptionCount => matches!(ty, RtType::Option(_)),
+            PageMethod::GetOption => matches!(ty, RtType::Option(_)) && matches!(args, [Value::Integer(1 | 3)]),
+            _ => false,
+        }
+    }
+
     /// The read-only calls the read cells measure on the page (`Step::Reads`): on a control bound to a field, and on the page.
     pub(crate) fn read_calls(self) -> (&'static [PageMethod], &'static [PageMethod]) {
         match self {
@@ -370,6 +393,7 @@ use Change::{Drop, Keep, KeepText, Reset, Same};
 use Ctl::{Name, Value as Val};
 use Step::{Action, Fail, GoToKey, Last, Previous, Reads, Set};
 use al_builtins::page_op::PageMethod;
+use al_builtins::value::{RtType, Value};
 
 const fn walk(steps: &'static [Step]) -> Cell {
     Cell {
