@@ -222,6 +222,24 @@ fn issue_8434_large_table_is_refused() {
     );
 }
 
+/// A worker of the page with code that reads a table the test session changed and has not committed is refused: BC may answer
+/// it from the query cache its background sessions share (BgTaskQueryCache.al:367, :500, :675; corpus pull request 1457). Here
+/// the test inserts a kind before the Value SetValue, whose refresh runs the task again.
+#[test]
+fn issue_8434_worker_read_of_a_changed_table_is_refused() {
+    let (r, marks) = probe_test(
+        "SecondaryKey_EmptyView_ReadsTheRowTwice",
+        replace(
+            "        Lines.Value.SetValue(NewValue);",
+            "        AddKind(9, 'New', false);\n        Lines.Value.SetValue(NewValue);",
+        ),
+    );
+    assert!(
+        matches!(&r, Outcome::NotRun(w) if w.contains("read a table the test session changed and has not committed")),
+        "{r:?} {marks:?}"
+    );
+}
+
 /// Code that is not the probe's, on page 97492, its parts, its table or what they call, keeps main's way with no flag (review of
 /// #8463, round 1, finding 1; `code_inserted_pinned.rs` `coded_code`): the review's shapes (a) a part's
 /// OnPageBackgroundTaskCompleted that ends with `CurrPage.Update(false)`, (b) `CurrPage.Update(false)` without

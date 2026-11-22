@@ -13,8 +13,8 @@ use al_builtins::value::Value as V;
 pub(crate) struct BgWorker {
     params: V,
     result: Option<V>,
-    /// The worker runs for a part of the page with code (`code_inserted_coded.rs`): a read that repeats an earlier worker's
-    /// read with another answer is refused (`bg_read_done`).
+    /// The worker runs for a part of the page with code (`code_inserted_coded.rs`), whose worker is the probe's line for line: a
+    /// read of a table the test session changed and has not committed is refused (`bg_watched_read`).
     watch: bool,
 }
 
@@ -439,73 +439,44 @@ impl Session {
         Ok(())
     }
 
-    /// What a read of a page background task's worker asks (`record_op` calls it before the read): its table and company, the
-    /// method and its arguments, the filters, key, order and marks of the record, and the record's key where the read starts
-    /// from it (Next, Find, CalcFields, Get without a key). `None` outside a worker, for a temporary record and for a method that
-    /// reads no row.
-    pub(crate) fn bg_read_question(
-        &self,
-        method: al_builtins::record_op::RecordOp,
-        rec: &Rec,
-        args: &[Value],
-    ) -> Option<String> {
+    /// A read of a page background task's worker on the page with code (`BgWorker::watch`), before it runs. BC answers a worker's
+    /// read from a query cache its background sessions share: the same read after the test session changed the table without
+    /// committing gets the earlier answer (pages/background-tasks/BgTaskQueryCache.al:367 Get, :641 and :658 FindFirst, :675
+    /// Count), also when only the test session read it before its change (:500); with no change of the table since the last
+    /// commit it reads the rows as they are, since a commit of a change ends the entry (:430, :823, :845). Corpus pull request
+    /// 1457, merged, not pinned yet. The runtime reads the rows as they are, so a read of a table that changed in the open
+    /// transaction is refused (also a first read, which BC answers as it is, :411); every other read runs.
+    pub(crate) fn bg_watched_read(&self, method: al_builtins::record_op::RecordOp, rec: &Rec) -> Result<(), Signal> {
         use al_builtins::record_op::RecordOp as R;
-        self.pages.bg_worker.as_ref()?;
-        let from_position = match method {
-            R::Next | R::Find | R::CalcFields => true,
-            R::Get | R::GetBySystemId => args.is_empty(),
-            R::CalcSums | R::Count | R::CountApprox | R::FindFirst | R::FindLast | R::FindSet | R::IsEmpty => false,
-            _ => return None,
-        };
-        let r = rec.borrow();
-        if r.temporary {
-            return None;
-        }
-        let key = from_position.then(|| self.table(rec).ok().map(|t| t.primary_key(&r.fields)));
-        let marks = r.marked_only.then_some(&r.marks);
-        Some(format!(
-            "{}|{:?}|{method:?}|{args:?}|{:?}|{}|{}|{:?}|{}|{}|{marks:?}|{key:?}",
-            r.table, r.company, r.filters, r.filter_group, r.key, r.adhoc, r.ascending, r.field_descending
-        ))
-    }
-
-    /// The answer of a worker's read: the value it returned, and the record's fields where the method loads a row (`bg_read_done`).
-    fn bg_read_answer(method: al_builtins::record_op::RecordOp, rec: &Rec, value: &Value) -> String {
-        use al_builtins::record_op::RecordOp as R;
-        match method {
-            R::Count | R::CountApprox | R::IsEmpty => format!("{value:?}"),
-            _ => format!("{value:?}|{:?}", rec.borrow().fields),
-        }
-    }
-
-    /// A worker's read asked `question` and answered `result`. A worker of the page with code (`BgWorker::watch`) whose read
-    /// repeats the question of an earlier worker's read of this run, with another answer, is refused: BC answers such a read
-    /// from a query cache its background sessions share, the earlier answer, also after the test session changed the rows
-    /// (measured for al-runner issue 8434 on Business Central 29.1; the corpus pins only reads no worker made before, with keys of
-    /// their own per test: testpage/TestPageBgTaskTx_Tests.al:82). Every first answer is kept for the run.
-    pub(crate) fn bg_read_done(
-        &mut self,
-        question: String,
-        method: al_builtins::record_op::RecordOp,
-        rec: &Rec,
-        result: &Result<Value, Signal>,
-    ) -> Result<(), Signal> {
-        let Ok(value) = result else {
+        if !self.pages.bg_worker.as_ref().is_some_and(|w| w.watch) || rec.borrow().temporary {
             return Ok(());
-        };
-        let answer = Self::bg_read_answer(method, rec, value);
-        let watch = self.pages.bg_worker.as_ref().is_some_and(|w| w.watch);
-        match self.pages.bg_reads.get(&question) {
-            Some(first) if watch && *first != answer => unsupported(
-                "a page background task of a List page with code and FactBoxes read again what a background task of this run read \
-                 before, and the rows changed since: BC answers it from the query cache its background sessions share (not \
-                 pinned)",
-            ),
-            Some(_) => Ok(()),
-            None => {
-                self.pages.bg_reads.insert(question, answer);
-                Ok(())
-            }
         }
+        let reads = matches!(
+            method,
+            R::Next
+                | R::Find
+                | R::CalcFields
+                | R::Get
+                | R::GetBySystemId
+                | R::CalcSums
+                | R::Count
+                | R::CountApprox
+                | R::FindFirst
+                | R::FindLast
+                | R::FindSet
+                | R::IsEmpty
+        );
+        if !reads {
+            return Ok(());
+        }
+        let table = self.table(rec)?;
+        let cx = self.cx_for(rec, &table)?;
+        if self.store.table_changed(&cx, &table) {
+            return unsupported(
+                "a page background task of a List page with code and FactBoxes read a table the test session changed and has not \
+                 committed: BC may answer it from the query cache its background sessions share (not pinned)",
+            );
+        }
+        Ok(())
     }
 }
