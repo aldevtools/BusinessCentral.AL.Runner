@@ -40,10 +40,11 @@ fn the_probe_of_sets_after_a_database_call_passes_with_its_marks() {
     let want = |n: &str| -> Vec<&str> {
         let no: u32 = n[3..5].parse().unwrap();
         match no {
-            // Pinned: UpdateNoLocks then Update (ProbeSystemEnumMembers.al:114-141), and Report; Update then Snapshot
-            // (TestClearAllTransactionTypeContracts.al:274-286); a set to the type the transaction has.
-            1 | 2 | 5 | 7 | 8 | 11..=15 | 35 => vec![],
-            3 | 4 | 6 | 9 | 10 => vec![SET_AFTER_START],
+            // Pinned: UpdateNoLocks then Update and Report (ProbeSystemEnumMembers.al:114-141), Snapshot and Browse
+            // (PlTDatabase.al:143-171); Update then Snapshot (TestClearAllTransactionTypeContracts.al:274-286); a set to the
+            // type the transaction has.
+            1..=5 | 7 | 8 | 11..=15 | 35 => vec![],
+            6 | 9 | 10 => vec![SET_AFTER_START],
             16..=34 => vec![READ_ONLY],
             _ => panic!("{n}"),
         }

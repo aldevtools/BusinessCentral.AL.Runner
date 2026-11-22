@@ -114,9 +114,11 @@ impl Session {
                     name(from)
                 ));
             }
-            // After a write: a set to Update raises and a set to Report has no effect (ProbeSystemEnumMembers.al:114-141);
-            // at Update a set to Snapshot has no effect (TestClearAllTransactionTypeContracts.al:274-286).
-            (_, TRANSACTION_TYPE_UPDATE_NO_LOCKS, UPDATE | REPORT) | (_, UPDATE, SNAPSHOT) => {
+            // After a write at UpdateNoLocks: a set to Update raises and a set to Report has no effect
+            // (ProbeSystemEnumMembers.al:114-141), a set to Browse or Report has no effect and a set to Snapshot raises
+            // (metadata/platform-tables/PlTDatabase.al:143-171); at Update a set to Snapshot has no effect
+            // (TestClearAllTransactionTypeContracts.al:274-286).
+            (_, TRANSACTION_TYPE_UPDATE_NO_LOCKS, UPDATE | SNAPSHOT | BROWSE | REPORT) | (_, UPDATE, SNAPSHOT) => {
                 self.tx.phase == TxPhase::Write && !self.tx.open.runner_tx
             }
             (_, TRANSACTION_TYPE_UPDATE_NO_LOCKS | UPDATE, _) => false,

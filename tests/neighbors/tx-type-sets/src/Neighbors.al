@@ -210,7 +210,6 @@ codeunit 50015 "NB TS Snapshot After Write"
     var
         Row: Record "NB TS Row";
     begin
-        Commit();
         Row."Entry No." := 3;
         Row.Insert();
         asserterror CurrentTransactionType(TransactionType::Snapshot);
@@ -234,7 +233,6 @@ codeunit 50016 "NB TS Browse After Write"
     var
         Row: Record "NB TS Row";
     begin
-        Commit();
         Row."Entry No." := 4;
         Row.Insert();
         CurrentTransactionType(TransactionType::Browse);

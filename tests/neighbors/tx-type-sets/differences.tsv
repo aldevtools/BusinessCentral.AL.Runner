@@ -3,12 +3,11 @@
 NB TS Insert Snapshot::InsertAtSnapshot_Raises	ASSUMED transaction-type-read-only-writes (corpus PR 1520, TxS16)
 NB TS Modify Browse::ModifyAtBrowse_Raises	ASSUMED transaction-type-read-only-writes (corpus PR 1520, TxS22)
 NB TS ModifyAll Report::ModifyAllAtReport_Raises	ASSUMED transaction-type-read-only-writes (corpus PR 1520, TxS30)
-NB TS Snapshot After Write::NoLocksWriteSetSnapshot_Raises	ASSUMED transaction-type-set-after-start (corpus PR 1520, TxS03)
-NB TS Browse After Write::NoLocksWriteSetBrowse_NoEffect	ASSUMED transaction-type-set-after-start (corpus PR 1520, TxS04)
 NB TS NoLocks After Upd Write::UpdateWriteSetNoLocks_NoEffect	ASSUMED transaction-type-set-after-start (corpus PR 1520, TxS06)
-NB TS First Test Snapshot::FirstTestSetSnapshot_Raises	ASSUMED transaction-type-set-after-start (corpus PR 1520, TxTypeFirstTestMethod.al A_None_SetSnapshot)
-NB TS First Test Browse::FirstTestSetBrowse_NoEffect	ASSUMED transaction-type-set-after-start (corpus PR 1520, TxTypeFirstTestMethod.al A_None_SetBrowse)
 NB TS First Test Rollback::FirstTestRollbackSetBrowse_TakesEffect	ASSUMED first-test-rollback-ends-runner-transaction (corpus PR 1520, TxTypeFirstTestMethod.al A_AssertError_SetBrowse)
+# Pinned by the corpus; main ignored the Snapshot set and refused the Browse one.
+NB TS Snapshot After Write::NoLocksWriteSetSnapshot_Raises	PINNED tests/al-language/metadata/platform-tables/PlTDatabase.al:159
+NB TS Browse After Write::NoLocksWriteSetBrowse_NoEffect	PINNED tests/al-language/metadata/platform-tables/PlTDatabase.al:155
 # Refused on purpose. Main answered each; the first gave Update where BC gives UpdateNoLocks or Report (issue 8709).
 NB TS NoLocks Read Report::NoLocksReadSetReport_Refused	REFUSED Database.CurrentTransactionType set to Report after a read call while the type is UpdateNoLocks
 NB TS Rename Snapshot::RenameAtSnapshot_Refused	REFUSED Rename while Database.CurrentTransactionType is Snapshot
@@ -16,4 +15,5 @@ NB TS Codeunit Run Snapshot::CodeunitRunInsertAtSnapshot_Refused	REFUSED Insert 
 # A write reads the type a refused test may have left: a later failure is not trusted.
 NB TS After Refused Setter::B_WriteThenFail_NotTrusted	REFUSED an earlier test of this codeunit was refused while it ran
 # Not here: the temporary Insert, the Update report world at Snapshot and the Report after a read at Update pass clean on both;
-# a set to Browse after a read and a set at a first test method under AutoRollback are refused on both.
+# a set to Browse after a read and a set at a first test method's start (Snapshot, Browse, under AutoRollback) are refused
+# on both.
