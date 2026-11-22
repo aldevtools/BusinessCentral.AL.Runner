@@ -1,0 +1,12 @@
+# key	entry
+# The probe's measured cells: the base refused them at the save (UNMEASURED_CODE); the effect gate runs them. A write before
+# the insert (:438) and a delete (:450) keep the refusal, and so do the 5 neighbors, the same on both.
+LT NW Tests::NewLine_TableFieldWritesAnotherTableBeforeSaveRecord_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1527, open: ListNewLineWritesOtherTable.al)
+LT NW Tests::NewLine_TableFieldWritesAnotherTableBeforeSaveRecord_RowBefore_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1527, open: ListNewLineWritesOtherTable.al)
+LT NW Tests::NewLine_ControlWritesAnotherTableBeforeSaveRecord_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1527, open: ListNewLineWritesOtherTable.al)
+LT NW Tests::NewLine_ControlWritesAnotherTableBeforeSaveRecord_RowBefore_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1527, open: ListNewLineWritesOtherTable.al)
+LT NW Tests::NewLine_TableFieldWritesAnotherTableThenUpdateTrue_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1527, open: ListNewLineWritesOtherTable.al)
+LT NW Tests::NewLine_TableFieldModifiesAnotherTableBeforeSaveRecord_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1527, open: ListNewLineWritesOtherTable.al)
+LT NW Tests::NewLine_TableFieldModifiesAnotherTableBeforeSaveRecord_RowBefore_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1527, open: ListNewLineWritesOtherTable.al)
+LT NW Tests::NewLine_ControlModifiesAnotherTableBeforeSaveRecord_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1527, open: ListNewLineWritesOtherTable.al)
+LT NW Tests::NewLine_AnotherTableAndTheLineWrittenBeforeSaveRecord_SaveWritesRecOverTheLine	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1527, open: ListNewLineWritesOtherTable.al)
