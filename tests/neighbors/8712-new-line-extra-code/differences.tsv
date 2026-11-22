@@ -18,5 +18,11 @@ LT NE Tests::NewLine_SaveRecordModifyThroughAnotherRecordThenUpdateTrue_SaveWrit
 LT NN Tests::NewLine_RowAndRecChangeAfterSaveRecord_UpdateFalseReadsTheRow	REFUSED the page's record, its view or the table changed between CurrPage.SaveRecord
 LT NN Tests::NewLine_AnotherRowChangesAfterSaveRecord_ShowsTheNewLine	REFUSED the page's record, its view or the table changed between CurrPage.SaveRecord
 LT NN Tests::NewLine_SetRangeAfterSaveRecord_ShowsTheRow	REFUSED the page's record, its view or the table changed between CurrPage.SaveRecord
+# Code after the Update (review of #8720, point 1): refused at the end of the validation. Main refused each at the save.
+LT NN Tests::NewLine_ModifyThroughAnotherRecordAfterUpdateFalse_ShowsTheStoredRow	REFUSED the validation changed the page's record, the table or the store after CurrPage.Update
+LT NN Tests::NewLine_FieldSetAfterUpdateFalse_ReadsTheStoredRow	REFUSED the validation changed the page's record, the table or the store after CurrPage.Update
+LT NN Tests::NewLine_ModifyThroughAnotherRecordAfterUpdateTrue_ShowsTheStoredRow	REFUSED the validation changed the page's record, the table or the store after CurrPage.Update
+# The row and Rec both changed through Rec.Modify() between the save and Update(false) (review of #8720, point 2).
+LT NN Tests::NewLine_RecModifyAfterSaveRecord_ShowsTheModifiedRow	REFUSED the page's record, its view or the table changed between CurrPage.SaveRecord
 # A write before the save (by the table field or the control, :442), Update(true) with a row before, the cell under OpenEdit
 # with a filter, and the page with a trigger keep main's refusal, the same on both: no row.

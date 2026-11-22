@@ -127,6 +127,31 @@ page 97403 "LT NN Lines"
                                     Rec.Note := 'Resolved';
                                     CurrPage.Update(true);
                                 end;
+                            7:
+                                begin
+                                    CurrPage.SaveRecord();
+                                    CurrPage.Update(false);
+                                    StampRow(Rec."Group Code", Rec."Entry No.");
+                                end;
+                            8:
+                                begin
+                                    CurrPage.SaveRecord();
+                                    CurrPage.Update(false);
+                                    Rec.Note := 'Late';
+                                end;
+                            9:
+                                begin
+                                    Rec.Note := 'Resolved';
+                                    CurrPage.Update(true);
+                                    StampRow(Rec."Group Code", Rec."Entry No.");
+                                end;
+                            10:
+                                begin
+                                    CurrPage.SaveRecord();
+                                    Rec.Note := 'X';
+                                    Rec.Modify();
+                                    CurrPage.Update(false);
+                                end;
                         end;
                     end;
                 }
@@ -305,6 +330,46 @@ codeunit 97407 "LT NN Tests"
         Check('shown after the Name SetValue', 'A/Resolved/', ShownAfterName);
         Check('shown after the Value SetValue', 'A/Resolved/V', ShownAfterValue);
         Check('rows', 'B//;A/Resolved/V;', Rows());
+    end;
+
+    // Code after the Update: SaveRecord, Update(false), then a modify of the row through another record.
+    [Test]
+    [HandlerFunctions('LinesHandler')]
+    procedure NewLine_ModifyThroughAnotherRecordAfterUpdateFalse_ShowsTheStoredRow()
+    begin
+        Initialize();
+        RunMode(7);
+        Check('shown and rows', 'A/Stamped/|A/Stamped/V|A/Stamped/V;', ShownAfterName + '|' + ShownAfterValue + '|' + Rows());
+    end;
+
+    // Code after the Update: SaveRecord, Update(false), then a field of Rec set.
+    [Test]
+    [HandlerFunctions('LinesHandler')]
+    procedure NewLine_FieldSetAfterUpdateFalse_ReadsTheStoredRow()
+    begin
+        Initialize();
+        RunMode(8);
+        Check('shown and rows', 'A//|A//V|A//V;', ShownAfterName + '|' + ShownAfterValue + '|' + Rows());
+    end;
+
+    // Code after the Update: a field set, Update(true), then a modify of the row through another record.
+    [Test]
+    [HandlerFunctions('LinesHandler')]
+    procedure NewLine_ModifyThroughAnotherRecordAfterUpdateTrue_ShowsTheStoredRow()
+    begin
+        Initialize();
+        RunMode(9);
+        Check('shown and rows', 'A/Stamped/|A/Stamped/V|A/Stamped/V;', ShownAfterName + '|' + ShownAfterValue + '|' + Rows());
+    end;
+
+    // The row and Rec both changed between the save and Update(false), through Rec.Modify().
+    [Test]
+    [HandlerFunctions('LinesHandler')]
+    procedure NewLine_RecModifyAfterSaveRecord_ShowsTheModifiedRow()
+    begin
+        Initialize();
+        RunMode(10);
+        Check('shown and rows', 'A/X/|A/X/V|A/X/V;', ShownAfterName + '|' + ShownAfterValue + '|' + Rows());
     end;
 
     // The probe's field set before the save, on a page with OnAfterGetRecord.

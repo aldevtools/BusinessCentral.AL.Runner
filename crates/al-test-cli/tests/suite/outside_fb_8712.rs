@@ -87,13 +87,18 @@ fn issue_8712_probe_cells() {
 }
 
 /// Code just past the cells is refused, also where BC's answer follows the same rule: the row and Rec both changed between the
-/// save and `Update(false)`, another row of the page's table changed, Rec's view changed, a write of another table before the
-/// save (by the table field or the control), `Update(true)` with a row before, and a page with a trigger.
+/// save and `Update(false)` (through another record, or through `Rec.Modify()`), another row of the page's table changed, Rec's
+/// view changed, a write of another table before the save (by the table field or the control), `Update(true)` with a row before,
+/// a page with a trigger, and code after the `CurrPage.Update` (a modify through another record after `Update(false)` or
+/// `Update(true)`, a field set after `Update(false)`; review of #8720, points 1 and 2).
 #[test]
 fn issue_8712_neighbors_are_refused() {
     let o = outcomes(NEIGHBORS, "LT NN Tests");
-    assert_eq!(o.len(), 7);
-    for (name, r, _) in &o {
-        assert!(matches!(r, Outcome::NotRun(_)), "{name}: {r:?}");
-    }
+    assert_eq!(o.len(), 11);
+    let ran: Vec<_> = o
+        .iter()
+        .filter(|(_, r, _)| !matches!(r, Outcome::NotRun(_)))
+        .map(|(name, r, _)| format!("{name}: {r:?}"))
+        .collect();
+    assert!(ran.is_empty(), "{ran:#?}");
 }
