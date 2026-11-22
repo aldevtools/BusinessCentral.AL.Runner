@@ -44,7 +44,7 @@ impl Session {
                 .expect("Record Link field")
         };
         let old = std::rc::Rc::new(std::cell::RefCell::new(rec.borrow().clone()));
-        old.borrow_mut().fields = old_fields.to_vec();
+        old.borrow_mut().fields = old_fields.to_vec().into();
         let old_rid = self.record_op(RecordOp::RecordId, &old, &mut [])?;
         let new_rid = self.record_op(RecordOp::RecordId, rec, &mut [])?;
         let Value::Record(link) = self.default_value(&RtType::Record(link_obj as u32, false)) else {

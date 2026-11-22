@@ -878,7 +878,7 @@ impl Session {
         };
         let result = self.finish_call(object, routine, inst, args, values, try_call, f);
         if let Some((rec, now)) = lagged {
-            rec.borrow_mut().fields = now;
+            rec.borrow_mut().fields = now.into();
         }
         result
     }
@@ -1817,7 +1817,7 @@ impl Session {
                         // Y76StaleBuffers.al Y76_Part1_FindSet_Assign, `assign/*`).
                         let row_origin = src.borrow().row_origin;
                         let mut d = dst.borrow_mut();
-                        d.fields = fields;
+                        d.fields = fields.into();
                         d.row_origin = row_origin;
                         d.own_read = Default::default();
                         d.rolled_read = Default::default();

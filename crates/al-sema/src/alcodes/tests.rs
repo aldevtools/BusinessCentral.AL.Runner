@@ -2662,6 +2662,7 @@ fn a_table_field_of_type_char_or_byte_is_al0156() {
 
 mod internals_grant;
 mod keyword_member_names;
+mod keyword_option_members;
 mod keyword_section_names;
 mod keyword_variable_names;
 mod scope;

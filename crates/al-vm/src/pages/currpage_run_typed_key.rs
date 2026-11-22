@@ -34,7 +34,7 @@ impl Session {
             return Ok(false);
         }
         let rec = self.page_rec(st);
-        rec.borrow_mut().fields = self.page_xrec_fields(st);
+        rec.borrow_mut().fields = self.page_xrec_fields(st).into();
         let mut s = st.borrow_mut();
         s.dirty = false;
         s.typed_key_dropped = true;
@@ -109,7 +109,7 @@ impl Session {
             return Ok(false);
         }
         let probe = Rc::new(RefCell::new(rec.borrow().clone()));
-        probe.borrow_mut().fields = held;
+        probe.borrow_mut().fields = held.into();
         if self.stored_row(&probe)?.is_none() {
             return Ok(false);
         }
