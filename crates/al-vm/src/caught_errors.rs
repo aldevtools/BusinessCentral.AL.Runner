@@ -4,11 +4,12 @@
 //! raised (pages/document_handler_error.rs `close_document_after_handler_error`), whose pinned handler catches nothing
 //! (pages/close-errors/CemDocumentTests.al:925-975 `CemDocModal`).
 //!
-//! An error that ends here also ends the write-back of the routine it left (`Session::error_finals`): the parameters a
-//! failing routine leaves are for the AL call site the error reaches next (errors/TestTryFunctionContracts.al:85-95,
-//! codeunits/TestScopeIsolationContracts.al:63-77). Where nothing took them (an Isolated event's subscriber, a trigger or
-//! table event under a builtin), a later call that fails before its routine starts would write them into its own `var`
-//! arguments (al-vm tests/language/error_finals_after_catch.rs).
+//! The write-back of a failed routine (`Session::error_finals`) is for the AL call site the error reaches next
+//! (errors/TestTryFunctionContracts.al:85-95, codeunits/TestScopeIsolationContracts.al:63-77). Its owner is that call
+//! site: it clears the field before each call (interp.rs, before `call_with_facts`), so it writes back only what its own
+//! routine left. The catches here clear it too, so that a session whose last error was caught here is at rest again
+//! (install_left.rs `at_rest`). Page, report and xmlport paths that write `last_error` themselves leave it set until the
+//! next call (al-vm tests/language/error_finals_after_catch.rs).
 
 use al_builtins::native::{AlError, ExceptionKind, Signal};
 

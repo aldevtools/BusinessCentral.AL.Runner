@@ -1019,8 +1019,8 @@ pub struct Session {
     /// (`Ctx::field_error_with_form`); `None` outside such a call.
     pub(crate) field_error_form: Option<al_builtins::native::ErrorTextForm>,
     /// The parameters of the routine that just failed with an error, as it left them:
-    /// the caller writes its `var` arguments back before it handles the error. Where the error ends without such a caller
-    /// (caught or held), `caught_errors.rs` clears it.
+    /// the caller writes its `var` arguments back before it handles the error. Each call site clears it before its call
+    /// (interp.rs), so it takes only what its own routine left; see caught_errors.rs.
     pub(crate) error_finals: Option<Vec<Value>>,
     /// The scalar globals passed by `var` to a procedure call that is still running. BC passes the argument by reference,
     /// the runtime copies it in and back; the two differ only when code reaches the global by its own name while the call

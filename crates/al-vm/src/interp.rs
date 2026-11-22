@@ -926,6 +926,9 @@ impl Session {
         if try_call {
             self.enter_used_try(object, routine);
         }
+        // The take below writes back only what this call's routine left as it failed (errors/TestTryFunctionContracts.al:85-95,
+        // codeunits/TestScopeIsolationContracts.al:63-77): what an earlier error left, wherever it ended, is not this call's.
+        self.error_finals = None;
         let result = self.call_with_facts(object, routine, inst, values, facts);
         if try_call {
             self.leave_used_try();
