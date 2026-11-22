@@ -736,6 +736,53 @@ mod tests {
         assert!(ordered_read_refused(&shared.store.as_database()), "the shared baseline");
     }
 
+    /// The rows `--test-data` backs table `Names` with in company `C`: `Alpha`, `ærø` and `Bravo`.
+    struct NameRows;
+
+    impl al_data::memory::Backing for NameRows {
+        fn company(&self) -> &str {
+            "C"
+        }
+        fn rows(&self, company: &str, object: u32) -> Option<al_data::memory::Rows> {
+            let rows = [("Alpha", "A"), ("ærø", "B"), ("Bravo", "C")].map(|(n, c)| {
+                vec![
+                    al_builtins::value::Value::Text(n.into()),
+                    al_builtins::value::Value::Code(c.into()),
+                ]
+            });
+            (company == "C" && object == 11)
+                .then(|| al_data::memory::Rows::from_rows(&names(), rows.to_vec()).ok())
+                .flatten()
+        }
+    }
+
+    // Review of PR 8517 (issue 8516): install code that writes to a table test data backs copies the backing's rows into
+    // the store (`table_mut`). The captured baseline, the one read back from its bytes and the thawed shared one hold the
+    // same rows, so they give the same answer to an ordered read of a text key holding `æ` (al-data collation_read_tests.rs
+    // `an_ordered_read_of_a_text_key_holding_a_small_ae_refuses`): all three refuse it.
+    #[test]
+    fn a_backed_baseline_refuses_alike_captured_read_back_and_thawed() {
+        use al_data::Store;
+        let backing: std::rc::Rc<dyn al_data::memory::Backing> = std::rc::Rc::new(NameRows);
+        let mut store = al_data::memory::MemStore::default()
+            .as_database()
+            .with_backing(backing.clone());
+        let row = vec![
+            al_builtins::value::Value::Text("Alpha".into()),
+            al_builtins::value::Value::Code("Z".into()),
+        ];
+        store.modify(&al_data::contract::cx("C"), &names(), row).unwrap();
+        store.commit();
+        let mut b = sample();
+        b.store = store;
+        let back = Baseline::from_bytes(&b.to_bytes().unwrap()).unwrap();
+        let read_back = back.store.as_database().with_backing(backing.clone());
+        let thawed = b.freeze().unwrap().thaw(None).store.as_database().with_backing(backing);
+        assert!(ordered_read_refused(&b.store), "the captured baseline");
+        assert!(ordered_read_refused(&read_back), "read back from its bytes");
+        assert!(ordered_read_refused(&thawed), "the shared baseline");
+    }
+
     // corpus record/TestSystemFieldStampsContracts.al:Insert_StampsBothFieldsWithTheUtcClock_SystemIdIsSetBeforeOnInsert:
     // the install ran on a clock its Sleep calls had moved forward; a session restored from its baseline stamps on the real clock.
     #[test]
