@@ -212,8 +212,8 @@ impl Session {
             let f = probe.borrow().fields.clone();
             rest.push(crate::pages::WindowRow {
                 key: self.table(&probe)?.primary_key(&f),
-                stored: f.clone(),
-                shown: f,
+                stored: f.to_vec(),
+                shown: f.into_vec(),
             });
             if rest.len() >= Self::WINDOW {
                 return unsupported(
@@ -225,11 +225,11 @@ impl Session {
         self.populate_current(st)?;
         let key = self.row_key(&rec)?;
         {
-            let shown = rec.borrow().fields.clone();
+            let shown = rec.borrow().fields.to_vec();
             let mut s = st.borrow_mut();
             s.window = vec![crate::pages::WindowRow {
                 key,
-                stored: fields,
+                stored: fields.into_vec(),
                 shown,
             }];
             s.window_from_start = true;

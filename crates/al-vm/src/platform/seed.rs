@@ -286,11 +286,11 @@ impl Session {
                 eq(3, super::option(&t, 3, object_type)),
                 eq(6, Value::Integer(object_id)),
             ];
-            let n = self
+            if self
                 .store
-                .count(&self.cx, &t, &filters)
-                .map_err(|e| al_builtins::native::Signal::unsupported(format!("{e}")))?;
-            if n > 0 {
+                .exists(&self.cx, &t, &filters)
+                .map_err(|e| al_builtins::native::Signal::unsupported(format!("{e}")))?
+            {
                 return Ok(true);
             }
         }

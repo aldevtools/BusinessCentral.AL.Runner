@@ -26,6 +26,7 @@ profile: `key_cmp` and `ops::compare` 18 %, `Vec<Value>` clones 9 %, `malloc` an
    `im::OrdMap<KeyBytes, Row>`.
 2. **Shared rows.** `Row = Rc<[Value]>` in the store (`Arc` where test data is shared between threads); a read
    shares the row, and the record buffer copies on its first write.
+   Built (issue 8570): the record buffer is `al_builtins::record_fields::Fields`, shared until its first write.
 3. **Company by id** (`CompanyId` from ADR-032); `AccessContext` holds ids.
 4. **Table facts precomputed** in `TableDef`: has an unevaluable `InitValue`, temporary, CRM, the key list including
    an ad-hoc key slot (no clone).
