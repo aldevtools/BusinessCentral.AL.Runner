@@ -186,6 +186,21 @@ fn issue_8467_unmeasured_neighbors() {
     }
 }
 
+/// A worker's Get and CalcFields of a Blob after the test committed its change of a row the cache answered: BC still waits for
+/// the row the test codeunit wrote (BQ Neighbor Tests 3, a local BC 29.1 container, 3 runs), so the runner keeps refusing the
+/// CalcFields of a row it answered with another row, also once a later read took the row from the table (review of PR 8490,
+/// point 3).
+#[test]
+fn issue_8467_blob_after_commit_neighbor() {
+    let src = format!("{PROBE}\n{NEIGHBORS}");
+    let o = outcomes(&src, "BQ Neighbor Tests 3");
+    assert_refused(
+        &o,
+        "BlobTable_ChangeCommitted_CalcFieldsWaits",
+        "CalcFields of a Blob of a row",
+    );
+}
+
 /// A commit of a ModifyAll, a DeleteAll or a Truncate of another row, then a change of the row: the neighbors assert the
 /// answer of BC 27.5, 28.5 and 29.0 for the first two (the cache entry ended, BgTaskQueryCache.al:7035, :7042). On 29.0 the
 /// head reads the table, clean; on 29.1 it answers the first read (so the neighbors fail there); with no target, or on a minor
