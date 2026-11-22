@@ -135,21 +135,11 @@ fn table_of<'a>(c: &'a Catalog, i: usize) -> Option<(&'a Object, &'a al_ir::Tabl
     o.table.as_ref().map(|t| (o, t))
 }
 
-/// A `Get` of a Field row of a table of the app under test gives null App Package ID and App Runtime Package ID; a `Get` of a
-/// Base Application table, and FindFirst and Next of either, give the AllObj ones
-/// (metadata/platform-tables/PlatformMetadataColumnValues.al:287-311). The app under test is the app whose two
-/// ids are equal (`ids::runtime_package_id`).
-pub(super) fn field_get(t: &TableDef, mut r: al_data::Row) -> al_data::Row {
-    let col = |name: &str| t.fields.iter().position(|x| x.name == name);
-    if let (Some(p), Some(rt)) = (col("App Package ID"), col("App Runtime Package ID")) {
-        if let (Value::Guid(a), Value::Guid(b)) = (&r[p], &r[rt]) {
-            if a == b {
-                r[p] = Value::Guid([0; 16]);
-                r[rt] = Value::Guid([0; 16]);
-            }
-        }
-    }
-    r
+/// The table extension that declares field `f`, when one does (`al_ir::Field::declared_in`).
+pub(super) fn declaring_extension<'a>(c: &Catalog<'a>, table: &Object, f: &Field) -> Option<&'a Object> {
+    c.objects
+        .get(f.declared_in? as usize)
+        .filter(|o| o.kind == al_ir::ObjKind::TableExtension && o.app != table.app)
 }
 
 pub(super) fn field_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
@@ -228,7 +218,8 @@ fn table_entries(
         }));
         return;
     };
-    // The package columns are the table's: worked out once per table, not per field.
+    // The package columns are the table's: worked out once per table, not per field. A field a table extension adds has
+    // the extension's (`extension_packages`).
     let packages = package_columns(c, o, t);
     for f in &schema.fields {
         if only.is_some_and(|n| n != f.id as i32) {
@@ -264,8 +255,15 @@ fn table_entries(
             let in_key = idx.is_some_and(|i| schema.keys.first().is_some_and(|k| k.contains(&i)));
             r[col] = Value::Boolean(in_key);
         }
-        match field_row(c, o, f, t, blank, &packages, &mut r) {
-            Ok(()) => out.push(Entry::ok(r)),
+        let extension = extension_packages(c, o, f, t);
+        let row_packages = extension.as_deref().unwrap_or(&packages[..]);
+        match field_row(c, o, f, t, blank, row_packages, &mut r) {
+            // RelationTableNo and RelationFieldNo of a relation whose condition rests on an assumption carry its flag
+            // (corpus PR 1437, merged, not pinned yet: table-objects/extensions/ExtRelationEnumNamespace_Tests.al:353).
+            Ok(()) => out.push(match f.relation_condition_assumption() {
+                Some(a) => Entry::ok(r).assuming_in(a, vec![pos(t, 21), pos(t, 22)]),
+                None => Entry::ok(r),
+            }),
             Err(why) => {
                 let mut k = blank.row();
                 k[pos(t, 1)] = Value::Integer(tid as i32);
@@ -304,6 +302,45 @@ fn package_columns(c: &Catalog, table: &Object, t: &TableDef) -> Vec<(usize, Val
         }
     }
     out
+}
+
+/// App Package ID and App Runtime Package ID of the Field row of field `f` of `table` when a table extension adds it: the
+/// extension's AllObj ones, not the table's, after Get, FindFirst on the key and in a scan, and a filter on App Package ID <> the
+/// table's keeps only such fields (al-runner issue 8051; tests/al-language/metadata/platform-tables/
+/// PlatformMetadataColumnValues.al:360-376 FieldTable_AppPackageIds_OfTableExtensionField_AreTheExtensionApps and :388-405
+/// FieldTable_FilterAppPackageIdNotTheTables_KeepsOnlyExtensionFields), in the measured shape: an extension of an app under
+/// test on a table of an app under test or of Base Application. Any other extension (of a dependency app, on another
+/// dependency app's table or on a platform table) leaves both columns unknown. `None` for a field the table declares itself,
+/// and for a system field. An extension in the table's own app has the app's ids, which are the table's.
+fn extension_packages(c: &Catalog, table: &Object, f: &Field, t: &TableDef) -> Option<Vec<(usize, Value)>> {
+    let ext = declaring_extension(c, table, f)?;
+
+    let from_package = |o: &Object| c.apps.get(o.app as usize).is_some_and(|a| a.dependency);
+    let base_application = c
+        .apps
+        .get(table.app as usize)
+        .is_some_and(|a| a.id.eq_ignore_ascii_case(al_ir::BASE_APPLICATION_APP_ID));
+    let measured =
+        !from_package(ext) && !super::objects::platform_object(table) && (!from_package(table) || base_application);
+    let ids = measured.then(|| super::objects::package_ids(c, ext));
+    let mut out = Vec::new();
+    for (name, which) in [("App Package ID", 0), ("App Runtime Package ID", 1)] {
+        if let Some(col) = t.fields.iter().position(|x| x.name == name) {
+            let v = match ids {
+                Some(ids) => Value::Guid(if which == 0 { ids.0 } else { ids.1 }),
+                None => super::unknown(
+                    t,
+                    t.fields[col].id,
+                    &format!(
+                        "field '{}' of table '{}', which table extension '{}' adds (measured only for an extension of an app under test on a table of an app under test or of Base Application)",
+                        f.name, table.name, ext.name
+                    ),
+                ),
+            };
+            out.push((col, v));
+        }
+    }
+    Some(out)
 }
 
 /// The Field row of the rowversion: No. 0, FieldName `timestamp`, Type BigInteger, Class Normal, Len 8, Enabled. Only a
@@ -539,7 +576,8 @@ fn field_row(
     } else {
         f.name.chars().take(30).collect::<String>().into()
     });
-    // App Package ID and App Runtime Package ID: the table's ([`package_columns`]).
+    // App Package ID and App Runtime Package ID: the table's ([`package_columns`]), or the extension's that adds the field
+    // ([`extension_packages`]).
     for (col, v) in packages {
         r[*col] = v.clone();
     }
@@ -662,74 +700,7 @@ fn field_row(
         },
     };
     r[pos(t, 27)] = blank.option(t, 27, dc);
-    // RelationTableNo and RelationFieldNo (TestFieldDataClassificationVirtualTable.al:50-72).
-    // The one related table of a relation: from the arms the runtime understands, or, for a relation
-    // with a `filter(...)` condition, from the tables and fields the compile kept (`relation_meta`).
-    // A relation a tableextension's `modify(..) { TableRelation }` extended (one property per object, the base's
-    // first): a conditional base relation reads 0 whatever the extension adds (tableextension/
-    // TestTableExtFieldTableRelation.al:368, :409, :450, :491). An unconditional base relation keeps its table when
-    // the extension's relation ends in an unconditional arm (an unconditional relation :266, an else arm :532); an
-    // extension relation that ends in a condition is not pinned.
-    let relations: Vec<&str> = f.relation_texts.iter().map(String::as_str).collect();
-    if relations.len() > 1 {
-        if relation_starts_with_if(relations[0]) {
-            return Ok(());
-        }
-        if !relations[1..].iter().all(|t| relation_ends_unconditional(t)) {
-            return Err(format!(
-                "{}: the TableRelation a tableextension adds ends in a condition; the Field row of such a relation is not pinned",
-                what()
-            ));
-        }
-    }
-    let single: Option<(Option<usize>, Option<usize>, String)> =
-        match (f.relation_arms.as_slice(), f.relation_meta.as_slice()) {
-            (arms, _) if relations.len() > 1 && !arms.is_empty() => {
-                Some((arms[0].table, arms[0].field, arms[0].table_name.clone()))
-            }
-            (_, metas) if relations.len() > 1 && !metas.is_empty() => {
-                let m = &metas[0];
-                Some((Some(m.table), m.field, c.objects[m.table].name.clone()))
-            }
-            ([], []) if f.relation => return Err(format!("{}: the TableRelation is not understood", what())),
-            ([], []) => None,
-            // A relation whose only arm has an `if` condition is conditional too: 0 and 0
-            // (metadata/platform-tables/ProbeObjectMetadataTables.al:FieldTable_RelationTableNo_OfConditionalRelations,
-            // EnumConditionRef; a `where(...)` clause does not make a relation conditional, :FilterConditionRef).
-            ([arm], _) if !arm.conditions.is_empty() => return Ok(()),
-            ([arm], _) => Some((arm.table, arm.field, arm.table_name.clone())),
-            ([], [m]) => Some((Some(m.table), m.field, c.objects[m.table].name.clone())),
-            // A conditional relation (if ... else if ...) reads 0 and 0 (record/
-            // TestPlatformMetadataDeclarationContracts.al:262-264).
-            _ => return Ok(()),
-        };
-    // Created By and Modified By relate to the User table's field 0 (record/
-    // TestPlatformMetadataDeclarationContracts.al:240-241).
-    if matches!(f.id, 2_000_000_002 | 2_000_000_004) {
-        r[pos(t, 21)] = Value::Integer(2_000_000_120);
-        r[pos(t, 22)] = Value::Integer(0);
-        return Ok(());
-    }
-    if let Some((table_index, field, table_name)) = single {
-        let Some(rt) = table_index else {
-            return Err(format!("{}: the related table `{table_name}` is not compiled", what()));
-        };
-        let related = &c.objects[rt];
-        let Some(related_schema) = &related.table else {
-            return Err(format!("{}: the related table `{table_name}` is not compiled", what()));
-        };
-        let field_pos = field.unwrap_or_else(|| {
-            related_schema
-                .keys
-                .first()
-                .and_then(|k| k.first())
-                .copied()
-                .unwrap_or(0)
-        });
-        r[pos(t, 21)] = Value::Integer(related.id.unwrap_or(0) as i32);
-        r[pos(t, 22)] = Value::Integer(related_schema.fields.get(field_pos).map_or(0, |x| x.id) as i32);
-    }
-    Ok(())
+    super::field_relation::relation_columns(c, table, f, t, r)
 }
 
 pub(super) fn key_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
@@ -817,49 +788,4 @@ pub(super) fn key_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
         out.push(Entry::ok(r));
     }
     out
-}
-
-/// Whether a `TableRelation` text starts with an `if` condition.
-fn relation_starts_with_if(text: &str) -> bool {
-    let t = text.trim_start();
-    t.get(..2).is_some_and(|s| s.eq_ignore_ascii_case("if"))
-        && !t[2..].starts_with(|c: char| c.is_alphanumeric() || c == '_' || c == '"')
-}
-
-/// Whether a `TableRelation` text's last arm has no condition: it has no `if`, or its last `else` is not an
-/// `else if`. Words inside quotes or `where(..)` texts are not told apart; a name with the word `else` in it
-/// reads as an else arm only when quoted, so quoted parts are skipped.
-fn relation_ends_unconditional(text: &str) -> bool {
-    if !relation_starts_with_if(text) {
-        return true;
-    }
-    let mut words = Vec::new();
-    let mut cur = String::new();
-    let mut quote: Option<char> = None;
-    for c in text.chars() {
-        match quote {
-            Some(q) if c == q => quote = None,
-            Some(_) => {}
-            None if c == '"' || c == '\'' => {
-                quote = Some(c);
-                if !cur.is_empty() {
-                    words.push(std::mem::take(&mut cur));
-                }
-                words.push(String::from("\u{0}"));
-            }
-            None if c.is_alphanumeric() || c == '_' => cur.push(c.to_ascii_lowercase()),
-            None => {
-                if !cur.is_empty() {
-                    words.push(std::mem::take(&mut cur));
-                }
-            }
-        }
-    }
-    if !cur.is_empty() {
-        words.push(cur);
-    }
-    match words.iter().rposition(|w| w == "else") {
-        Some(i) => words.get(i + 1).is_some_and(|w| w != "if"),
-        None => false,
-    }
 }

@@ -31,7 +31,7 @@ al-version.workspace = true
 al-vm.workspace = true
 serde_json.workspace = true
 sha2 = "0.10"
-flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+flate2.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -42,5 +42,6 @@ libc = "0.2"
 mimalloc = { version = "0.1", optional = true, features = ["v2"] }
 
 [dev-dependencies]
+al-testfiles.workspace = true
 al-testkit.workspace = true
 tempfile = "3"

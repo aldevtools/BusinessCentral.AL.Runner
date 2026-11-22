@@ -193,7 +193,8 @@ impl Session {
             ids::SYSTEM_GUIALLOWED_1 if self.install_without_client => Ok(Value::Boolean(false)),
             // A page background task worker has no client (pages/background-tasks/BjNoGuiDialogs.al:204 `gui=No`).
             ids::SYSTEM_GUIALLOWED_1 if self.pages.bg_worker.is_some() => Ok(Value::Boolean(false)),
-            // `--no-client`: the test session has no client (pages/background-tasks/BjNoGuiDialogs.al:8, as the worker above).
+            // `--no-client`: a web-service session answers false (al-runner issue 8028, the reporter's measurement on BC: GuiAllowed
+            // false, ClientType ODataV4; `clientless.rs`).
             ids::SYSTEM_GUIALLOWED_1 if self.ui_state.clientless => {
                 al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NoClientSession);
                 Ok(Value::Boolean(false))
@@ -208,7 +209,7 @@ impl Session {
             ids::SYSTEM_TEMPORARYPATH_1 => Ok(Value::Text("\\TEMP\\".into())),
             ids::SYSTEM_WINDOWSLANGUAGE_1 => Ok(Value::Integer(self.host.identity.windows_language())),
             ids::SYSTEM_GLOBALLANGUAGE_1 => match args.first() {
-                None => Ok(Value::Integer(self.global_language)),
+                None => Ok(Value::Integer(self.global_language())),
                 // These ids raise NotSupportedLanguage and leave the language as it was
                 // (metadata/platform-tables/PlTSession.al:245-266, GlobalLanguage_InvalidIds: 0, -1, 99999;
                 // :326-360, GlobalLanguage_PositiveIds: 1000, 4096, 8192, 9999, 32767, 65535). Other ids are set as before.
@@ -221,11 +222,10 @@ impl Session {
                     ))
                 }
                 Some(Value::Integer(n)) if *n > 0 => {
-                    self.global_language = *n;
-                    self.events.event_stats.language.set(*n);
-                    // A Code assignment under Turkish or Azerbaijani upper-cases `i` to `İ` (CaseConv.Codeunit.al:280-310).
-                    al_builtins::ops::set_turkic_code(al_builtins::native::is_turkic_language(*n));
-                    al_builtins::filter::set_filter_language(*n);
+                    if self.global_language() != *n {
+                        self.events.caption_context_revision += 1;
+                    }
+                    self.set_language(*n);
                     Ok(Value::Null)
                 }
                 other => unsupported(format!(
@@ -233,10 +233,19 @@ impl Session {
                     other = other.describe()
                 )),
             },
-            // SelectLatestVersion drops what CaptionClassTranslate kept (types/PSCaptionClass.al:103-115); the session reads the
-            // store as it is, so there is nothing else to refresh.
+            // SelectLatestVersion drops what CaptionClassTranslate kept (types/PSCaptionClass.al:103-115). In a page background
+            // task's worker it also ends the query cache's row entries of the table, or of every table without one
+            // (`Session::note_select_latest_version`, open corpus PR 1495, BgTaskQueryCache.al:6730-6845).
             ids::DATABASE_SELECTLATESTVERSION_1 | ids::DATABASE_SELECTLATESTVERSION_2 => {
                 self.caption_translations.clear();
+                match args.first() {
+                    Some(Value::Integer(n)) => {
+                        if let Some(t) = self.table_object(i64::from(*n)) {
+                            self.note_select_latest_version(Some(t as u32));
+                        }
+                    }
+                    _ => self.note_select_latest_version(None),
+                }
                 Ok(Value::Null)
             }
             // corpus types/PSCaptionClass.al:5-8, :58-81 (CaptionClassTranslate_Expressions).
@@ -253,6 +262,12 @@ impl Session {
             // Install code runs in a SOAP session on the corpus CI's publish path, the same on BC 27.5, 28.5 and 29.0
             // (errors/RlInstallUi.al:211).
             ids::SESSION_CURRENTCLIENTTYPE_1 if self.install_without_client => Ok(client_type_named("SOAP")),
+            // `--no-client`: a web-service session called over OData answers ODataV4 in a test method on the measured major, else
+            // refused (al-runner issue 8028, the reporter's measurement on BC; `clientless.rs`). A page background task worker
+            // refuses it before here (`clientless_guard`).
+            ids::SESSION_CURRENTCLIENTTYPE_1 if self.no_client_test_session() => {
+                self.no_client_client_type().map(|()| client_type_named("ODataV4"))
+            }
             ids::SESSION_CURRENTCLIENTTYPE_1 => Ok(client_type(self.host.identity.current_client_type())),
             ids::SESSION_DEFAULTCLIENTTYPE_1 => Ok(client_type(self.host.identity.default_client_type())),
             _ => return None,

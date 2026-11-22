@@ -21,6 +21,7 @@ mod strings;
 pub(crate) mod tests;
 mod unpinned;
 mod values;
+mod variant_is;
 
 use crate::describe::Describe;
 use crate::format::{FormatCtx, FormatFail, format_value, try_format};
@@ -41,4 +42,5 @@ pub use registry::*;
 use session_fns::*;
 pub use strings::*;
 pub use unpinned::*;
+pub use values::blob_clears_in_place;
 pub(crate) use values::*;

@@ -10,6 +10,11 @@ use std::path::{Path, PathBuf};
 /// `(file suffix, the trimmed source line, why the debug format is fine here)`.
 const KEPT: &[(&str, &str, &str)] = &[
     (
+        "al-sema/src/lower/tests/namespaced_receiver.rs",
+        r#"format!("{:?}", l.program.objects).contains("Assume(NamespacedEnumReceiver)")"#,
+        "a test helper that searches the lowered program's dump for the assumption mark, not a message",
+    ),
+    (
         "al-vm/src/permission_shadow.rs",
         r#"other => self.shadow_note("unknown", site, &format!("{other:?}")),"#,
         "a line of the shadow report (a developer diagnostic of the permission switch, off by default), not a message of a test",
@@ -43,6 +48,31 @@ const KEPT: &[(&str, &str, &str)] = &[
         "al-testrun/src/dotnet.rs",
         r#""dotnet {} runtimes {} on {} sidecar {} {:?} roll-forward {} assembly dirs {:?}","#,
         "the .NET host's identity in the key of the cached install state, hashed, never shown",
+    ),
+    (
+        "al-vm/src/state_render.rs",
+        r#"format!("{x:?}")"#,
+        "the content of a session's state for the login replay check (ALRUNNER_LOGIN_REPLAY_CHECK), compared across sessions and shown only in the check's report line",
+    ),
+    (
+        "al-testrun/src/login_replay.rs",
+        r#".map(|(app, files)| format!("{app} {files:?}"))"#,
+        "the resource texts in the login replay check's key, hashed, never shown",
+    ),
+    (
+        "al-testrun/src/login_replay.rs",
+        r#"(a.hits != b.hits).then(|| format!("assumption marks: {:?} | {:?}", a.hits, b.hits)),"#,
+        "the assumption marks two sessions differ in, in the login replay check's report line (ALRUNNER_LOGIN_REPLAY_CHECK), not a message of a test",
+    ),
+    (
+        "al-testrun/src/login_replay.rs",
+        r#"open: format!("{wrote:?}"),"#,
+        "what the company open noted for the tests, compared across sessions by the login replay check (ALRUNNER_LOGIN_REPLAY_CHECK) and shown only in its report line",
+    ),
+    (
+        "al-testrun/src/runtime/baseline_key.rs",
+        r#"format!("{platform_internals_visible_to:?}").as_bytes(),"#,
+        "a cache key text, not a message",
     ),
     (
         "al-testrun/src/runtime/baseline_key.rs",
@@ -95,7 +125,7 @@ const KEPT: &[(&str, &str, &str)] = &[
         "a cache key text, not a message",
     ),
     (
-        "al-vm/src/records.rs",
+        "al-vm/src/group1_sessions.rs",
         r#".map(|f| format!("{}={:?}", f.field, f.expr))"#,
         "the filter group 1 filters of a record, compared for equality with the session's, never shown",
     ),
@@ -113,6 +143,21 @@ const KEPT: &[(&str, &str, &str)] = &[
         "alrunner-cli/src/run.rs",
         r#""{project:?} {workspace:?} {search:?} {:?} {} {:?} {:?} {:?} {:?} {lazy_sources}","#,
         "the key of the dependencies kept between serve requests, compared for equality, never shown",
+    ),
+    (
+        "al-vm/src/pages/background.rs",
+        r#""{}|{:?}|{method:?}|{args:?}|{:?}|{}|{}|{:?}|{}|{}|{marks:?}|{key:?}","#,
+        "the question of a background worker's read, compared for equality with the run's earlier reads, never shown",
+    ),
+    (
+        "al-vm/src/pages/background.rs",
+        r#"R::Count | R::CountApprox | R::IsEmpty => format!("{value:?}"),"#,
+        "the answer of a background worker's read, compared for equality with the first answer, never shown",
+    ),
+    (
+        "al-vm/src/pages/background.rs",
+        r#"_ => format!("{value:?}|{:?}", rec.borrow().fields),"#,
+        "the answer of a background worker's read, compared for equality with the first answer, never shown",
     ),
     (
         "al-vm/src/pages/open/page_open.rs",
@@ -198,11 +243,6 @@ const KEPT: &[(&str, &str, &str)] = &[
         "al-data/src/contract.rs",
         r#"other => panic!("{other:?}"),"#,
         "the conformance suite asserts on a store outcome; a failing test prints it",
-    ),
-    (
-        "al-host/src/testdata.rs",
-        r#"let key = format!("{}|{:?}|{}", table.name.to_lowercase(), table.app_id, table.per_company);"#,
-        "a cache key, never shown",
     ),
     (
         "al-sema/src/queries.rs",
@@ -297,8 +337,9 @@ fn no_message_formats_a_value_with_the_debug_format() {
     let mut found = Vec::new();
     for f in &files {
         let rel = f.strip_prefix(root()).unwrap().to_string_lossy().replace('\\', "/");
+        // Unit test modules (`tests.rs`, `src/**/tests/`) print values for a failing test.
         // `al-testkit` is a dev-dependency: its messages are what a failing test prints about a value.
-        if rel.ends_with("tests.rs") || rel.starts_with("crates/al-testkit/") {
+        if rel.ends_with("tests.rs") || rel.contains("/tests/") || rel.starts_with("crates/al-testkit/") {
             continue;
         }
         let text = std::fs::read_to_string(f).unwrap();

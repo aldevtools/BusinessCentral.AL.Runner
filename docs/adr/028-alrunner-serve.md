@@ -23,8 +23,9 @@ The owner chose the warm design.
    the loaded test-data tables and the post-install database snapshot source.
 3. **Reuse rule.** A key hashes the workspace sources, the manifests of the workspace apps (`app.json`, the files of the resource folders and the layout files; issue 5604), the dependency identities and the symbols. Same key:
    the compiled workspace is reused (`cached:true` in the summary). Changed source: the workspace and the
-   dependencies are compiled again (see Limits). A request that selects tests outside the compiled selection
-   recompiles for the union of both selections, so later requests of either kind hit.
+   dependencies are compiled again (see Limits). ~~A request that selects tests outside the compiled selection
+   recompiles for the union of both selections, so later requests of either kind hit.~~ Replaced by the amendment of
+   2026-11-13: the compile holds every test codeunit, and the selection only picks what runs.
 4. **No state leaks.** Every run starts from a fresh database built from the same post-install snapshot, and the
    opened backup is kept read-only between requests. Test: a test that writes runs in three requests with the
    same result.
@@ -69,6 +70,31 @@ The owner chose the warm design.
    is an `error` (it was ignored, and every test ran); two entries with the same `id` are an `error`; each
    `entrySummary` has its own `exitCode`, and an entry whose selection matches no test has exit code 6 and the reason
    in `warnings`, the request's `warnings` name it and the request's exit code is 6.
+
+## Amendment 2026-11-13: the kept compile holds every test codeunit (al-runner issue 7978)
+
+Accepted by the owner 2026-11-13. Changes decision 3.
+
+**Why.** A client that ran a suite one codeunit per request (`test` set to another codeunit each time) compiled again
+on every request: the union rule of decision 3 grew the compile one codeunit at a time, and each growth was a full
+compile.
+
+**Decision.** The warm compile (`Warm::run`) is made without a selection: every test codeunit of the sources is a root,
+as in the full run. The request's `test` and `excludeTests` only pick which tests run. Its outcomes are the full run's
+from the start, so nothing is redone (`narrowing.rs`: the compile is `Narrowing::Full`). A recipe lane
+(`--recipe microsoft`, `test-microsoft`) runs through the same path, so each lane compiles every test codeunit of its
+test app, also those of other lanes.
+
+**Measured** (release, BC 27.5, Tests-ERM with 276 test codeunits, CPU time, under load):
+
+| | main | this amendment |
+|---|---|---|
+| first request, one codeunit | 9.4 s, 1229 MB | 11.0 s, 1316 MB |
+| a later request with another `test` filter | 8.8 s, not cached | 1.8 s, `cached: true` |
+| first request, one data-free codeunit | 32 s | 8.7 s |
+| `test-microsoft --app "E-Document Core Tests"` (9 of 34 codeunits in the lane) | 5.9 s, 919 MB | 5.0 s, 921 MB |
+
+**Cost.** The first request of a server that only ever runs one codeunit pays about 17 % more CPU and 87 MB more.
 
 ## Measurements (release, 4 threads, 2026-10-15)
 

@@ -9,34 +9,29 @@ pub(crate) struct TxState {
     pub(crate) tx_world: usize,
     /// The `[CommitBehavior]` of the innermost procedure that declares one.
     pub(crate) commit_behavior: transactions::CommitBehavior,
-    /// How far the transaction has started since the test method began or the last `Commit()`:
-    /// `TX_FRESH` (nothing yet), `TX_READ` (a read call) or `TX_WRITE` (a write call, also a DeleteAll that
-    /// finds no row). `CurrentTransactionType` depends on it (`sessionops.rs`).
-    pub(crate) tx_phase: u8,
-    /// `Database.CurrentTransactionType`: a member index of the TransactionType option; a test
-    /// method starts at 0, UpdateNoLocks (`start_test_method`).
+    /// How far the transaction has started since the test method began or the last `Commit()`: nothing yet, a read call or a
+    /// write call (also a DeleteAll that finds no row). `CurrentTransactionType` depends on it (`transactions.rs`). A Commit or
+    /// a rollback ends a write phase (`Session::end_open_transaction`); a read phase stays.
+    pub(crate) phase: transactions::TxPhase,
+    /// `Database.CurrentTransactionType`: a member index of the TransactionType option. A session starts at 0, UpdateNoLocks,
+    /// and so does the first test method of a codeunit; a later test method starts with the type the one before it left
+    /// (`start_test_method`), and a Commit keeps it.
     pub(crate) transaction_type: i32,
+    /// What `transaction_type` rests on when no corpus case pins it (`Session::transaction_type_seen`): the assumptions it
+    /// went through (a Commit kept it, al-runner issue 8605; a test method before left it, 8606), or that it is not known (a
+    /// test method before it did not run to its end and could set it). A set that takes effect clears it.
+    pub(crate) type_origin: crate::transactions::TypeOrigin,
+    /// A test method of this codeunit has ended (`Session::test_method_ended`): the next one starts with the type it left.
+    pub(crate) test_ended: bool,
     /// `Database.LockTimeout`: whether a lock wait ends in a timeout error.
     pub(crate) lock_timeout: bool,
     /// `Database.LockTimeoutDuration` in milliseconds.
     pub(crate) lock_timeout_duration: i64,
     /// The highest rowversion handed out when the last `Commit` ran: rows at or below it are durable.
     pub(crate) committed_row_version: i64,
-    /// The rows (table object, company, primary key) a Record Modify wrote, or a Get read while its table was locked by
-    /// `LockTable`, since the last Commit or rollback: a stale buffer from the Insert of the transaction before may then be
-    /// written (record/TestRecordStaleBufferWrite.al:495-584, `Session::stale_verdict`).
-    pub(crate) rows_touched: Vec<(u32, Option<String>, Vec<Value>)>,
-    /// The tables (table object, company) a Record Insert wrote a row of since the last Commit or rollback (`Session::stale_verdict`).
-    pub(crate) tables_inserted: Vec<(u32, Option<String>)>,
-    /// The tables a `Record.LockTable` locked since the last Commit or rollback.
-    pub(crate) locked_tables: Vec<u32>,
     /// The database store's change counter when the last Commit or rollback ran: with `writes` it tells whether every write
     /// since was a Record Insert, Modify or Delete (`Session::stale_verdict`, al-runner issue 6028).
     pub(crate) commit_counter: u64,
-    /// The Record writes to the database store since the last Commit or rollback, in order (`Session::stale_verdict`).
-    pub(crate) writes: Vec<TxWrite>,
-    /// A locking ReadIsolation (a FindFirst under RepeatableRead or UpdLock) set `lock_tx` in the open transaction.
-    pub(crate) isolation_lock: bool,
     /// A rollback ran since the last Commit.
     pub(crate) rolled_back: bool,
     /// Why a rollback since the last Commit is not one the stale-buffer rule knows (`Session::note_rollback_for_stale_rule`);
@@ -45,22 +40,28 @@ pub(crate) struct TxState {
     /// What trapped the rollbacks since the last Commit, while they are all of one kind the stale-buffer rule knows
     /// (`Session::trapped_error_rollback`).
     pub(crate) rollback_kind: Option<crate::records::TrappedRollback>,
-    /// The database reads (table object, company, the key a Get named; `None` for any other read) since the last rollback, while
-    /// the transaction then open began at it (`Session::note_read_after_rollback`).
-    pub(crate) reads_after_rollback: Vec<(u32, Option<String>, Option<Vec<Value>>)>,
     /// The last `Commit` made writes durable (the transaction it ended had written): `MinimumActiveRowVersion` is then not pinned.
     pub(crate) last_commit_wrote: bool,
-    /// A duplicate-key Insert into a table without a Blob field does not fail where it is
-    /// called: the table (object index) and the error come out at the next access to the table
-    /// or at Commit (corpus record/TestRecordRuntimeTextsAndViews.al:
-    /// Record_Insert_DuplicateKey_WithoutBlobField_IsDeferred_AndSurfacesAtTheNextAccess).
-    pub(crate) deferred_insert: Option<(usize, AlError)>,
-    /// The rows each table's insert queue holds since it was last sent (`Session::note_insert_buffer`).
-    pub(crate) insert_buffer: Vec<crate::records::InsertQueue>,
+    /// What ends with the open transaction: a Commit and a rollback put it back to its default (`Session::end_open_transaction`).
+    pub(crate) open: OpenTx,
+    /// The record of the last Rename that raised the SQL range error of its new key (`records/sql_range.rs`): what it holds
+    /// afterwards is not measured, so catching that error while the record still lives is refused (`catch_error`).
+    pub(crate) failed_sql_rename: Option<std::rc::Weak<std::cell::RefCell<al_builtins::value::RecordState>>>,
     /// Set by an Insert that AL code calls on a Record or a RecordRef, taken by the record method it starts
     /// (`Session::record_op_unprofiled`): only such an Insert goes into the insert queue. The platform's own inserts (an XmlPort
     /// import, a page's new row, a FlowField's row, a record link) are not measured and stay out of it.
     pub(crate) insert_from_al: bool,
+    /// Set by a Rename that AL code calls on a Record or a RecordRef, taken by the Rename arm of `record_op_inner`: only such
+    /// a Rename is in a measured cell of `rename_blank_key.rs`. The page client's rename at close clears it.
+    pub(crate) rename_from_al: bool,
+    /// Set by a Get that AL code calls on a Record variable (not a RecordRef), taken by the load it starts
+    /// (`Session::rolled_read_of_load`) and cleared when the call returns.
+    pub(crate) get_from_al: bool,
+    /// Which write statement of AL code on a Record variable (not a RecordRef) is starting: set by `record_op_of_al`, and by
+    /// ModifyAll(.., true) of such a statement for each row it modifies; taken by the arm it starts (`Session::take_write_of_al`)
+    /// and cleared when the call returns. Only such a write is in the measured cells of `records/sql_range.rs`. A page's save
+    /// and the platform's own writes do not set it.
+    pub(crate) write_of_al: Option<WriteOfAl>,
     /// The record (its address) whose Insert was the last to leave a duplicate key pending: the insert queue asks whether the
     /// Insert that sends it was itself a duplicate (`Session::note_insert_buffer`).
     pub(crate) deferred_by: Option<usize>,
@@ -72,6 +73,8 @@ pub(crate) struct TxState {
     pub(crate) immediate_errors: bool,
     /// Try functions on the call stack (Truncate is refused inside them).
     pub(crate) try_depth: usize,
+    /// `asserterror` statements whose body is running.
+    pub(crate) assert_depth: usize,
     /// The TryFunction calls on the call stack whose result is used, innermost last: a write inside one fails with
     /// TryFunctionWrite (`transactions::try_write_error`).
     pub(crate) used_tries: Vec<transactions::UsedTry>,
@@ -79,26 +82,72 @@ pub(crate) struct TxState {
     pub(crate) guarded_runs: Vec<usize>,
     /// For each guarded `Codeunit.Run` running: how far its body got along the pinned steps (`records/guarded_run_body.rs`).
     pub(crate) guarded_bodies: Vec<crate::records::GuardedBody>,
+    /// The transaction world of an XmlPort export started inside a TryFunction whose result is used: its triggers' Insert and
+    /// Modify are not writes of the try (xmlports/shapes-properties/YXmlPortProps.al:861); other writes there are refused.
+    pub(crate) xp_export_try_world: Option<usize>,
+}
+
+/// What ends with the open transaction: every field goes back to its default at a Commit and at a rollback
+/// (`Session::end_open_transaction`). A field that must outlive one of them does not belong here.
+#[derive(Default)]
+pub(crate) struct OpenTx {
+    /// The rows (table object, company, primary key) a Record Modify wrote, or a Get read while its table was locked by
+    /// `LockTable`, since the last Commit or rollback: a stale buffer from the Insert of the transaction before may then be
+    /// written (record/TestRecordStaleBufferWrite.al:495-584, `Session::stale_verdict`).
+    pub(crate) rows_touched: Vec<(u32, Option<String>, Vec<Value>)>,
+    /// The tables (table object, company) a Record Insert wrote a row of since the last Commit or rollback (`Session::stale_verdict`).
+    pub(crate) tables_inserted: Vec<(u32, Option<String>)>,
+    /// The tables a `Record.LockTable` locked since the last Commit or rollback.
+    pub(crate) locked_tables: Vec<u32>,
+    /// The Record writes to the database store since the last Commit or rollback, in order (`Session::stale_verdict`).
+    pub(crate) writes: Vec<TxWrite>,
+    /// The database reads (table object, company, the key a Get named; `None` for any other read) since the last rollback, while
+    /// the transaction then open began at it (`Session::note_read_after_rollback`).
+    pub(crate) reads_after_rollback: Vec<(u32, Option<String>, Option<Vec<Value>>)>,
+    /// A duplicate-key Insert into a table without a Blob field does not fail where it is
+    /// called: the table (object index) and the error come out at the next access to the table
+    /// or at Commit (corpus record/TestRecordRuntimeTextsAndViews.al:
+    /// Record_Insert_DuplicateKey_WithoutBlobField_IsDeferred_AndSurfacesAtTheNextAccess).
+    pub(crate) deferred_insert: Option<(usize, AlError)>,
+    /// The rows each table's insert queue holds since it was last sent (`Session::note_insert_buffer`).
+    pub(crate) insert_buffer: Vec<crate::records::InsertQueue>,
     /// What `Database.LastUsedRowVersion` reports inside the open transaction (`Session::last_used_row_version`): the
     /// database tables an Insert wrote rows of that nothing has sent to the database yet (table, company, highest row
     /// version), the highest row version a sent write holds, how many database row versions were handed out and how
     /// many of them an Insert or Modify accounts for, and why the value is not pinned.
     pub(crate) row_versions: RowVersionTx,
-    /// The transaction world of an XmlPort export started inside a TryFunction whose result is used: its triggers' Insert and
-    /// Modify are not writes of the try (xmlports/shapes-properties/YXmlPortProps.al:861); other writes there are refused.
-    pub(crate) xp_export_try_world: Option<usize>,
     /// The tables (object indexes) `Consistent(false)` marked in the open transaction: `Commit` fails while one is marked.
-    pub(crate) inconsistent: Vec<u32>,
+    pub(crate) inconsistent: Vec<crate::consistent_marks::ConsistentMark>,
+    /// The locks the open transaction holds and the locking reads it ran; a test method also starts without them
+    /// (`Session::start_test_method`).
+    pub(crate) locks: TxLocks,
+    /// Where the open transaction began (the test method's start, an AL Commit) and which measured steps ran in it since: the
+    /// moments the TransactionType term of an Update report is measured at (`reports/transaction_world.rs`). Set by
+    /// `Session::start_test_method` and the AL Commit of test code; a database call (`records/op_inner.rs`) and a
+    /// CurrentTransactionType set (`transactions.rs`) are noted in it or end it, a Codeunit.Run (`transactions.rs`) and a
+    /// report run end it, and so does the end of the transaction.
+    pub(crate) moment: Option<crate::reports::transaction_world::Moment>,
+    /// The open transaction is the one the test runner started before the first test method of the codeunit: a
+    /// CurrentTransactionType set to another type has no effect there on BC (corpus pull request 1488,
+    /// session-system/TxTypeNextTestMethod.al TxN01's comment), which no case pins.
+    pub(crate) runner_tx: bool,
+}
+
+/// The locks of the open transaction (`OpenTx::locks`).
+#[derive(Default)]
+pub(crate) struct TxLocks {
     /// A lock started the open write transaction: `LockTable` on a database table, `ReadIsolation := UpdLock`, or a FindFirst
     /// under RepeatableRead or UpdLock (codeunits/TestCodeunitRunWriteTransaction.al:211-278). A Commit ends it.
     pub(crate) lock_tx: bool,
     /// A lock whose effect on the write transaction is not pinned ran since the last Commit (a RecordRef.LockTable, a
     /// RepeatableRead set without a read, another read than FindFirst under a locking ReadIsolation): while no pinned write
     /// or lock opened the transaction, what depends on it is refused (`Session::in_write_transaction`).
-    pub(crate) lock_unpinned: Option<&'static str>,
+    pub(crate) lock_unpinned: Option<UnpinnedLock>,
     /// A `RecordRef.LockTable` on a database table ran since the last Commit: the write transaction is open
     /// (recordref-fieldref/WcRecordRefLockTable.al:28-51), while what else it changes stays refused through `lock_unpinned`.
     pub(crate) recref_lock_tx: bool,
+    /// A locking ReadIsolation (a FindFirst under RepeatableRead or UpdLock) set `lock_tx` in the open transaction.
+    pub(crate) isolation_lock: bool,
     /// The tables (object index, company) a locking ReadIsolation locked since the last Commit: UpdLock set on a database
     /// table, or a read under RepeatableRead or UpdLock.
     pub(crate) isolation_lock_tables: Vec<(u32, Option<String>)>,
@@ -112,6 +161,35 @@ pub(crate) struct TxState {
     pub(crate) locking_read_tx_unpinned: bool,
 }
 
+/// Why a lock's effect on the write transaction is not pinned (`TxLocks::lock_unpinned`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum UnpinnedLock {
+    /// A FindFirst, FindSet, FindLast or another Find under a ReadIsolation RepeatableRead or UpdLock set in an earlier transaction.
+    LockingRead,
+    /// Any other cause, by its refusal text.
+    Other(&'static str),
+}
+
+impl UnpinnedLock {
+    /// The cause, as refusal texts name it.
+    pub(crate) fn text(self) -> &'static str {
+        match self {
+            UnpinnedLock::LockingRead => crate::records::UNPINNED_LOCKING_READ,
+            UnpinnedLock::Other(what) => what,
+        }
+    }
+}
+
+/// A write statement of AL code on a Record variable (`TxState::write_of_al`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum WriteOfAl {
+    Insert,
+    Modify,
+    ModifyAll,
+    /// The Modify of one row by ModifyAll(.., true) of such a statement.
+    ModifyAllRow,
+}
+
 /// What kind of Record write a [`TxWrite`] was.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TxWriteKind {
@@ -121,7 +199,7 @@ pub(crate) enum TxWriteKind {
     /// A Rename of a row to another key, with no trigger write before it and no field that relates to the table (`pk` is the
     /// old key).
     Rename,
-    /// A ModifyAll: the Modifies of its rows follow it in `TxState::writes` (`TxWrite::bulk`).
+    /// A ModifyAll: the Modifies of its rows follow it in `OpenTx::writes` (`TxWrite::bulk`).
     ModifyAll,
     /// A DeleteAll: the Deletes of its rows follow it, or the store deleted them in one step (`TxWrite::bulk`).
     DeleteAll,
@@ -134,21 +212,39 @@ pub(crate) enum TxWriteKind {
 /// How a ModifyAll or DeleteAll ended (`TxWrite::bulk`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct BulkEnd {
-    /// How many entries of `TxState::writes` its rows (and the triggers they ran) added after it.
+    /// How many entries of `OpenTx::writes` its rows (and the triggers they ran) added after it.
     pub(crate) entries: usize,
     /// The store's change counter when it ended.
     pub(crate) counter: u64,
 }
 
-/// The row versions of the open transaction as `Database.LastUsedRowVersion` sees them (`TxState::row_versions`).
+/// The row versions of the open transaction as `Database.LastUsedRowVersion` sees them (`OpenTx::row_versions`).
 #[derive(Clone, Debug, Default)]
 pub(crate) struct RowVersionTx {
-    pub(crate) pending_inserts: Vec<(u32, Option<String>, i64)>,
+    /// (table, company, first, last): the row versions the Inserts of rows of that table that nothing sent yet handed out.
+    pub(crate) pending_inserts: Vec<(u32, Option<String>, i64, i64)>,
     pub(crate) sent: i64,
     pub(crate) handed_out: u64,
     pub(crate) accounted: u64,
     pub(crate) last: i64,
     pub(crate) unpinned: Option<&'static str>,
+    /// A Rename (`TxWriteKind::Other`) whose row version counts when it ends as a plain one (`Session::end_row_version_write`), or
+    /// a ModifyAll whose first modified row ends it (`Session::note_row_versions`). Set: `last_used_row_version` refuses.
+    pub(crate) write_sends: Option<(u32, Option<String>, TxWriteKind)>,
+    /// The value moved by a write after an Insert through the assumption `row-version-write-after-insert`
+    /// (`Session::note_row_versions`); `Session::last_used_row_version` marks the answer.
+    pub(crate) assumed_write: bool,
+}
+
+/// The rows of `table` whose SystemRowVersion lies in (`from`, `to`], in any company: the open transaction inserted them, and a row
+/// version sent before them was at or above theirs (`Session::send_pending_insert`). BC gives them their row version when it
+/// sends them (RowVersionWrites.al:392 of corpus PR 1509, merged, not pinned: InsertTwoTables `row/other` greater); this
+/// runtime keeps the Insert's, so what shows it is refused (`records/restamped.rs`). Kept until the session's data is replaced.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RestampedRows {
+    pub(crate) table: u32,
+    pub(crate) from: i64,
+    pub(crate) to: i64,
 }
 
 /// One Record write to the database store: the store's change counter before and after it.
@@ -163,6 +259,8 @@ pub(crate) struct TxWrite {
     /// A ModifyAll or DeleteAll that ended: what it wrote (`Session::note_bulk_end`). `None` for other writes and for one that
     /// stopped with an error.
     pub(crate) bulk: Option<BulkEnd>,
+    /// The write ran through a RecordRef (`Session::through_recordref`).
+    pub(crate) through_recordref: bool,
 }
 
 impl TxState {
@@ -171,42 +269,33 @@ impl TxState {
         TxState {
             tx_world: 0,
             commit_behavior: Default::default(),
-            tx_phase: crate::transactions::TX_FRESH,
+            phase: crate::transactions::TxPhase::Fresh,
             transaction_type: 0,
+            type_origin: Default::default(),
+            test_ended: false,
             lock_timeout: true,
             lock_timeout_duration: 10,
             committed_row_version: 0,
-            rows_touched: Vec::new(),
-            tables_inserted: Vec::new(),
-            locked_tables: Vec::new(),
             commit_counter: 0,
-            writes: Vec::new(),
-            isolation_lock: false,
             rolled_back: false,
-            reads_after_rollback: Vec::new(),
             rollback_unpinned: None,
             rollback_kind: None,
             last_commit_wrote: false,
-            deferred_insert: None,
-            insert_buffer: Vec::new(),
+            open: OpenTx::default(),
+            failed_sql_rename: None,
             insert_from_al: false,
+            rename_from_al: false,
+            get_from_al: false,
+            write_of_al: None,
             deferred_by: None,
             deferred_raised: 0,
             immediate_errors: false,
             try_depth: 0,
+            assert_depth: 0,
             used_tries: Vec::new(),
             guarded_runs: Vec::new(),
             guarded_bodies: Vec::new(),
-            row_versions: RowVersionTx::default(),
             xp_export_try_world: None,
-            inconsistent: Vec::new(),
-            lock_tx: false,
-            lock_unpinned: None,
-            recref_lock_tx: false,
-            isolation_lock_tables: Vec::new(),
-            locking_reads: Vec::new(),
-            db_reads: 0,
-            locking_read_tx_unpinned: false,
         }
     }
 }
@@ -231,6 +320,8 @@ pub(crate) struct UiState {
 /// What the TestPage client keeps between calls.
 #[derive(Default)]
 pub(crate) struct PageClients {
+    /// What the action running now did (`pages/action_tally.rs`); armed only around an action of an empty List on its new-row line.
+    pub(crate) action_tally: Option<crate::pages::action_tally::ActionTally>,
     /// The TestPage variables whose `Trap()` waits for the next plain `Page.Run` of their page (ADR-012). Several wait at
     /// once, one per page: a test traps the preview page and, inside it, the entries page its action opens.
     /// The variable-bound control values each SaveValues page stored when it closed: (owner, global slot, value), the owner
@@ -238,12 +329,26 @@ pub(crate) struct PageClients {
     pub(crate) saved_values: std::collections::HashMap<u32, Vec<(Option<usize>, usize, Value)>>,
     /// `saved_values` at the last commit: a rollback goes back to it (`Session::rollback_transaction`).
     pub(crate) saved_values_committed: std::collections::HashMap<u32, Vec<(Option<usize>, usize, Value)>>,
+    /// For each report whose request page stored values while the program has the Object Options table: whether those
+    /// values stand in a row this runtime wrote (`pages/open/saved_row.rs`). A rollback keeps it: a row is written only just
+    /// before its run commits.
+    pub(crate) saved_rows: std::collections::HashMap<u32, crate::pages::SavedRow>,
+    /// The rows OKs of request pages ask for, until their runs return, innermost last: (report object, the transaction
+    /// world of the run, the store's change counter at the save).
+    pub(crate) saved_row_pending: Vec<(u32, usize, u64)>,
     pub(crate) traps: Vec<Rc<RefCell<crate::pages::PageState>>>,
     /// Open TestPages in a state whose end of scope is not pinned (what BC saves when the variable goes away): a routine
     /// whose local holds the last reference to one is refused when it returns.
     pub(crate) scope_unpinned: Vec<Rc<RefCell<crate::pages::PageState>>>,
     /// A page background task worker is running: its parameters and the result it set.
     pub(crate) bg_worker: Option<pages::BgWorker>,
+    /// The query cache page background tasks and the test session read through (`query_cache.rs`).
+    pub(crate) query_cache: crate::query_cache::QueryCache,
+    /// Which dialogs and errors the CaptionClass runs in progress may raise (`Session::caption_dialog_refusal`).
+    pub(crate) caption_dialogs: crate::pages::CaptionDialogs,
+    /// The CaptionClass expression whose own call runs now, on a page whose open ran its empty-record runs without a pinned
+    /// number (`Session::caption_write_refusal`).
+    pub(crate) caption_write_guard: Option<crate::pages::CaptionWriteGuard>,
     /// The page whose enqueued background tasks run once the `EnqueueBackgroundTask` call that queued them has
     /// written its by-reference task id back (see `Session::bg_enqueue`).
     pub(crate) bg_drain_after_call: Option<Rc<RefCell<crate::pages::PageState>>>,
@@ -269,8 +374,16 @@ pub(crate) struct PageClients {
     pub(crate) ext_answers: Vec<bool>,
     /// The last `page_trigger_answer` was a veto by a page extension's trigger.
     pub(crate) ext_vetoed: bool,
+    /// The page's own trigger of the last `page_trigger` call ended by running `exit(value)`.
+    pub(crate) own_exited: bool,
+    /// The last `page_trigger_answer` was the page's own OnInsertRecord vetoing by its named return value
+    /// (pages/record_trigger_answer.rs); taken by `insert_draft`.
+    pub(crate) named_false_insert: bool,
     /// The open that starts next is a TestPage's own OpenEdit, OpenView or OpenNew (taken by `open_page_as`).
     pub(crate) test_open: bool,
+    /// How many test methods the runner started in this session (`Session::start_test_method`): a page records it at each open
+    /// (`PageState::opened_in_test_method`).
+    pub(crate) test_methods_started: u32,
     /// Set by a FindFirst or FindLast that found a row on Rec in the OnOpenPage of a page an action opened through
     /// RunPageLink (`records.rs`); taken by `open_page_as` into `PageState::run_page_link_open_moved`.
     pub(crate) run_page_link_open_moved: bool,
@@ -289,20 +402,32 @@ pub(crate) struct PageClients {
     pub(crate) shown_frames: Vec<(*const RefCell<crate::pages::PageState>, Vec<crate::pages::ShownNote>)>,
     /// Per page object, the expression controls whose value the page keeps between refreshes (`pages/shown.rs`).
     pub(crate) shown_controls: std::collections::HashMap<u32, Rc<Vec<usize>>>,
-    /// The page triggers running now, innermost last, with their page (`pages/code_close_veto.rs`).
-    pub(crate) trigger_kinds: Vec<(*const RefCell<crate::pages::PageState>, crate::pages::TriggerKind)>,
+    /// The page triggers running now, innermost last, with their page and, for the OnOpenPage of a page the test opened with
+    /// `TestPage.OpenView`, its page object (`pages/code_close_veto.rs`, read by
+    /// `permissions/permission_probed/extension_code.rs`).
+    pub(crate) trigger_kinds: Vec<(
+        *const RefCell<crate::pages::PageState>,
+        crate::pages::TriggerKind,
+        Option<usize>,
+    )>,
     /// How many TestPage calls run now, nested (`pages/code_close_veto.rs`).
     pub(crate) client_depth: u32,
     /// Vetoed `CurrPage.Close()` calls waiting for the end of their TestPage call (`pages/code_close_veto.rs`).
     pub(crate) code_close_vetoes: Vec<crate::pages::CodeCloseVeto>,
     /// Pages whose close, requested by OnAfterGetCurrRecord at OpenView, OnQueryClosePage refused twice (`pages/code_close_veto.rs`).
     pub(crate) open_vetoed: Vec<std::rc::Weak<RefCell<crate::pages::PageState>>>,
+    /// The pages whose control OnValidate runs now, innermost last (`Session::run_control_onvalidate`): page code's record calls
+    /// on their Rec are recorded in that OnValidate (`Session::note_page_rec_call`).
+    pub(crate) onvalidate_pages: Vec<Rc<RefCell<crate::pages::PageState>>>,
 }
 
 /// Event subscriptions and what the Event Subscription table reports.
+#[derive(Default)]
 pub(crate) struct EventState {
     /// Manual event subscriptions made by `BindSubscription`.
     pub(crate) bindings: Vec<dispatch::Binding>,
+    /// Successful binding and language changes invalidate literal field caption reuse.
+    pub(crate) caption_context_revision: u64,
     /// Manual bindings whose bound instance the globals of a page reached when they were made (`page_held_bindings.rs`,
     /// al-runner issue 6924).
     pub(crate) page_held: Vec<crate::page_held_bindings::PageHeld>,
@@ -326,12 +451,29 @@ pub(crate) struct EventState {
     pub(crate) next_aliases: Vec<(usize, Rc<RefCell<crate::Instance>>, usize)>,
     /// Set just before a subscriber is called, taken by its frame: the call is an event subscriber dispatch.
     pub(crate) next_is_subscriber: bool,
+    /// Set by `publish` just before the raise: the publisher routine (object, routine) and the answer of
+    /// `Session::raise_arg_var_param` it took from `raise_arg_var_param`; taken by `raise_to_subscribers` for
+    /// `Session::event_publisher`.
+    pub(crate) by_value_publisher: Option<(usize, usize, bool)>,
+    /// Set by `finish_call` for a publisher call, taken by `publish`, cleared after the call: `Session::raise_arg_var_param`.
+    pub(crate) raise_arg_var_param: bool,
+    /// Set just before a subscriber is called, taken by its frame (`records::ByValueCall`), cleared after the call: per
+    /// subscriber parameter, what `Session::event_args` says of it.
+    pub(crate) next_event_args: Vec<crate::records::EventArg>,
+    /// Set by `publish` for a publisher `blob_transfer::measured_publisher` names and by `table_event` for an event
+    /// `blob_transfer::measured_table_event` names, just before the raise; taken by `raise_to_subscribers`.
+    pub(crate) blob_publisher: Option<crate::blob_transfer::BlobEvent>,
+    /// Set just before a subscriber is called, taken by its frame, cleared after the call: the raise of a `blob_publisher`
+    /// event to a subscriber `blob_transfer::measured_subscriber` names (`blob_transfer::Argument::measured_call`).
+    pub(crate) next_blob_event: bool,
     /// The event subscriber calls on the stack, innermost last: (publisher object, subscriber object, subscriber routine) for
     /// the shapes whose event recursion error text is pinned, `None` for another (the call-depth error names event
     /// recursion when any is on the stack).
     pub(crate) subscriber_stack: Vec<Option<(usize, usize, usize)>>,
     /// Set by `finish_call` just before the call, taken by the callee's frame (`Frame::var_lens`).
     pub(crate) next_var_lens: Vec<Option<i32>>,
+    /// Set by `finish_call` just before the call, taken by the callee's frame (`Frame::option_hops`).
+    pub(crate) next_option_hops: Vec<bool>,
     /// The declared lengths of a publisher's `var` Text and Code arguments (`var_lens_of`), set by `finish_call` just before
     /// the publisher runs and taken by `publish`, which hands them to the subscribers that read them.
     pub(crate) publisher_var_lens: Vec<Option<i32>>,
@@ -359,6 +501,9 @@ pub(crate) struct EventState {
     /// subscribers of `order_unknown_apps` that leave every flag unchanged for it (setup_no_op.rs), or do nothing for it
     /// (db_event_no_op.rs), which the raise leaves out instead of refusing.
     pub(crate) setup_no_ops: std::collections::BTreeSet<(usize, usize)>,
+    /// While the subscribers of `GetDatabaseTableTriggerSetup` answer for one table: that table (object index), for the read
+    /// they make under a restricted set (permission_trigger_setup.rs).
+    pub(crate) db_setup_table: Option<usize>,
     /// The trial runs of subscribers whose install order is not known (order_trial.rs).
     pub(crate) trial: crate::order_trial::TrialState,
     /// What the subscribers of `Global Triggers` answered, per table object (globaltriggers.rs).
@@ -442,6 +587,12 @@ pub(crate) struct ReportState {
     /// Report variables whose `RunModal` ran to its end: a second `RunModal` and a `RunRequestPage` on one raise
     /// ObjectHasAlreadyBeenRun (see `reports.rs`, `REPORT_RUN_1 | REPORT_RUNMODAL_1`).
     pub(crate) report_run_modal_done: Vec<std::rc::Weak<RefCell<Instance>>>,
+    /// Report variables whose `UseRequestPage(false)`, as their first use, ran an OnInitReport that quit: their next Run or
+    /// RunModal runs nothing (`reports/quit_in_init.rs`).
+    pub(crate) report_quit_deferred: Vec<std::rc::Weak<RefCell<Instance>>>,
+    /// The `ExcelLayoutMultipleDataSheets = true` admission of the running report call (`reports/excel_sheets.rs`: set and
+    /// restored around each report call that runs a report or reads its layout).
+    pub(crate) excel_sheets: crate::reports::ExcelSheetsAdmission,
     /// Report instances whose Run, RunModal or Execute is running now, innermost last (`RunningReport`).
     pub(crate) report_running: Vec<RunningReport>,
     /// `RequestOptionsPage.Caption` set by the code of a report outside its request page's OnOpenPage, by report instance: the
@@ -468,6 +619,9 @@ pub(crate) struct ReportState {
     pub(crate) report_preview_pinned: Vec<ReportStart>,
     /// The report running now was started by `RunModal` (its request page's Preview and Print are not pinned).
     pub(crate) run_modal: bool,
+    /// The report running now was started by the static `Report.Run` or `Report.RunModal` with the report id as its only
+    /// argument and not swapped by SubstituteReport (`run_started_as`): not on a report variable, not another overload.
+    pub(crate) run_bare: bool,
     /// The report running now was started with SystemPrinter `true` (`Report.Run(Id, .., true)`): a run that renders would
     /// print (`report_placeholder::run`).
     pub(crate) system_printer: bool,
@@ -531,12 +685,93 @@ pub(crate) enum ReportStart {
     RequestOnly,
 }
 
-impl TxState {
+impl OpenTx {
+    /// Holds what a new session holds (`install_left.rs`). Every field is named: a new one does not compile here until it is
+    /// decided.
+    pub(crate) fn is_clear(&self) -> bool {
+        let OpenTx {
+            rows_touched,
+            tables_inserted,
+            locked_tables,
+            writes,
+            reads_after_rollback,
+            deferred_insert,
+            insert_buffer,
+            row_versions,
+            inconsistent,
+            locks:
+                TxLocks {
+                    lock_tx,
+                    lock_unpinned,
+                    recref_lock_tx,
+                    isolation_lock,
+                    isolation_lock_tables,
+                    locking_reads,
+                    db_reads,
+                    locking_read_tx_unpinned,
+                },
+            // `Session::start_test_method` sets them before any test code runs.
+            moment: _,
+            runner_tx: _,
+        } = self;
+        rows_touched.is_empty()
+            && tables_inserted.is_empty()
+            && locked_tables.is_empty()
+            && writes.is_empty()
+            && reads_after_rollback.is_empty()
+            && deferred_insert.is_none()
+            && insert_buffer.is_empty()
+            && row_versions.pending_inserts.is_empty()
+            && row_versions.sent == 0
+            && row_versions.handed_out == 0
+            && row_versions.accounted == 0
+            && row_versions.last == 0
+            && row_versions.unpinned.is_none()
+            && inconsistent.is_empty()
+            && !lock_tx
+            && lock_unpinned.is_none()
+            && !recref_lock_tx
+            && !isolation_lock
+            && isolation_lock_tables.is_empty()
+            && locking_reads.is_empty()
+            && *db_reads == 0
+            && !locking_read_tx_unpinned
+    }
+}
+
+impl TxLocks {
+    /// A lock opened the write transaction, or a lock whose effect on it is not pinned ran.
+    pub(crate) fn any(&self) -> bool {
+        self.lock_tx || self.lock_unpinned.is_some()
+    }
+
     /// Notes a table a locking ReadIsolation locked (`isolation_lock_tables`).
     pub(crate) fn note_isolation_lock(&mut self, table: u32, company: Option<String>) {
         let key = (table, company);
         if !self.isolation_lock_tables.contains(&key) {
             self.isolation_lock_tables.push(key);
         }
+    }
+}
+
+#[cfg(test)]
+mod open_tx_tests {
+    use super::{TxState, UnpinnedLock};
+
+    #[test]
+    fn a_new_session_holds_no_open_transaction_and_a_reset_clears_one() {
+        let mut tx = TxState::fresh();
+        assert!(tx.open.is_clear());
+        tx.open.locked_tables.push(7);
+        tx.open.locks.lock_unpinned = Some(UnpinnedLock::LockingRead);
+        assert!(!tx.open.is_clear());
+        tx.open = Default::default();
+        assert!(tx.open.is_clear());
+    }
+
+    #[test]
+    fn an_unpinned_lock_names_its_cause() {
+        assert_eq!(UnpinnedLock::LockingRead.text(), crate::records::UNPINNED_LOCKING_READ);
+        assert_eq!(UnpinnedLock::Other("a lock").text(), "a lock");
     }
 }

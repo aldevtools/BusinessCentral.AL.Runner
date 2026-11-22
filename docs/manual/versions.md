@@ -48,7 +48,7 @@ tests](writing-tests.md) has the details.
 - macOS arm64
 
 There are no builds for other platforms. The core needs no .NET. Tests that use the
-`DotNet` type need the .NET 8 SDK; see [What works and what is refused](what-works.md).
+`DotNet` type need the .NET SDK 8 or newer; see [What works and what is refused](what-works.md).
 
 ## Release channels
 

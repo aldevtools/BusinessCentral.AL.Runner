@@ -33,7 +33,7 @@ impl MemStore {
             return;
         }
         let Some(table) = self.tables.get(&sl) else { return };
-        let to_shape = self.shapes.get(&sl).copied().unwrap_or(0);
+        let to_shape = self.stamp_of(&sl, &self.shapes);
         for j in 1..t.keys.len() {
             let moved = self.moves.get(&(sl.clone(), j)).copied().unwrap_or(0);
             self.carry_order(&sl, j, t, table, key, change, (from_shape, moved), (to_shape, moved));
@@ -43,7 +43,7 @@ impl MemStore {
     /// After a Modify moved the row `key` (it held `old`) in key `j`, whose move stamp was `from_moved` before it.
     pub(super) fn carry_moved(&self, sl: &Slot, j: usize, t: &TableDef, key: &Key, old: &Row, from_moved: u64) {
         let Some(table) = self.tables.get(sl) else { return };
-        let shape = self.shapes.get(sl).copied().unwrap_or(0);
+        let shape = self.stamp_of(sl, &self.shapes);
         let to_moved = self.moves.get(&(sl.clone(), j)).copied().unwrap_or(0);
         self.carry_order(
             sl,

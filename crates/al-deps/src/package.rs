@@ -23,6 +23,18 @@ pub struct Manifest {
     pub preprocessor_symbols: Vec<String>,
     /// `Description` of `NavxManifest.xml`, `description` of an `app.json`.
     pub description: String,
+    /// The modules `<InternalsVisibleTo>` of `NavxManifest.xml` names (`<Module Id=".." Publisher=".."/>`); empty for an
+    /// `app.json`, whose `internalsVisibleTo` is not read.
+    pub internals_visible_to: Vec<InternalsGrant>,
+}
+
+/// One `<Module>` of a manifest's `<InternalsVisibleTo>`: the app id (lower case) and publisher it grants access to the
+/// package's internal members. alc 18.0.39.10160 accepts a subscriber of an internal event of System.app only from an
+/// app whose id and publisher both match one (any case); the app's name is not compared (`ivt-*` probe apps, issue 7853).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InternalsGrant {
+    pub id: String,
+    pub publisher: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,6 +92,8 @@ pub fn parse_manifest(xml: &str) -> Result<Manifest, PackageError> {
     let mut dependencies = Vec::new();
     let mut in_symbols = false;
     let mut symbols = Vec::new();
+    let mut in_internals = false;
+    let mut internals = Vec::new();
     loop {
         match reader.read_event() {
             Err(e) => return Err(bad(e.to_string())),
@@ -98,6 +112,7 @@ pub fn parse_manifest(xml: &str) -> Result<Manifest, PackageError> {
                         dependencies: Vec::new(),
                         preprocessor_symbols: Vec::new(),
                         description: get(&a, "Description").unwrap_or_default(),
+                        internals_visible_to: Vec::new(),
                     });
                 }
                 b"Dependencies" => in_dependencies = true,
@@ -117,9 +132,18 @@ pub fn parse_manifest(xml: &str) -> Result<Manifest, PackageError> {
                         symbols.push(n);
                     }
                 }
+                b"InternalsVisibleTo" => in_internals = true,
+                b"Module" if in_internals => {
+                    let a = attrs(&e)?;
+                    internals.push(InternalsGrant {
+                        id: get(&a, "Id").unwrap_or_default().to_ascii_lowercase(),
+                        publisher: get(&a, "Publisher").unwrap_or_default(),
+                    });
+                }
                 _ => {}
             },
             Ok(Event::End(e)) if e.name().as_ref() == b"Dependencies" => in_dependencies = false,
+            Ok(Event::End(e)) if e.name().as_ref() == b"InternalsVisibleTo" => in_internals = false,
             Ok(Event::End(e)) if e.name().as_ref() == b"PreprocessorSymbols" => in_symbols = false,
             Ok(_) => {}
         }
@@ -127,6 +151,7 @@ pub fn parse_manifest(xml: &str) -> Result<Manifest, PackageError> {
     let mut m = manifest.ok_or_else(|| bad("no <App> element".into()))?;
     m.dependencies = dependencies;
     m.preprocessor_symbols = symbols;
+    m.internals_visible_to = internals;
     Ok(m)
 }
 
@@ -227,6 +252,7 @@ pub(crate) fn manifest_of_source_zip(app_json: &str, vars: &Vars) -> Result<Mani
             .ok()
             .and_then(|v| v["description"].as_str().map(str::to_string))
             .unwrap_or_default(),
+        internals_visible_to: Vec::new(),
     })
 }
 
@@ -523,6 +549,18 @@ mod tests {
         );
         // Modules that may see internals are not dependencies.
         assert!(m.dependencies.iter().all(|d| d.name != "Other"));
+    }
+
+    #[test]
+    fn the_manifest_gives_the_modules_that_may_see_internals() {
+        let m = parse_manifest(MANIFEST).unwrap();
+        assert_eq!(
+            m.internals_visible_to,
+            [InternalsGrant {
+                id: "6992416f-3f39-4d3c-8242-3fff61350bea".into(),
+                publisher: "Microsoft".into()
+            }]
+        );
     }
 
     #[test]

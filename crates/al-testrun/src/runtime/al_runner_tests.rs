@@ -11,6 +11,17 @@ fn outcomes_through(src: &str, test: u32, runner: Option<u32>) -> Vec<(String, O
 
 /// [`outcomes_through`] on BC `bc` (a version such as "28.5"); `None` is the newest behavior.
 fn outcomes_through_on(src: &str, test: u32, runner: Option<u32>, bc: Option<&str>) -> Vec<(String, Outcome)> {
+    outcomes_through_isolated(src, test, runner, bc, TestIsolation::Codeunit)
+}
+
+/// [`outcomes_through_on`] under the runner's TestIsolation `isolation`.
+fn outcomes_through_isolated(
+    src: &str,
+    test: u32,
+    runner: Option<u32>,
+    bc: Option<&str>,
+    isolation: TestIsolation,
+) -> Vec<(String, Outcome)> {
     let (ws, l) = al_sema::lower::compile(
         vec![AppSource {
             id: "a".into(),
@@ -39,7 +50,7 @@ fn outcomes_through_on(src: &str, test: u32, runner: Option<u32>, bc: Option<&st
         &l,
         index(test),
         None,
-        TestIsolation::Codeunit,
+        isolation,
         None,
         &mut Vec::new(),
         &mut Vec::new(),
@@ -539,5 +550,72 @@ fn on_after_test_run_of_a_failed_method_reads_the_failure_as_the_last_error() {
             ("A_Passes".to_string(), Outcome::Pass),
             ("B_Fails".to_string(), Outcome::Fail("B fails".into())),
         ]
+    );
+}
+
+// A runner trigger that reaches an isolated storage key an earlier test changed under TestIsolation = Function is refused at
+// that call, as a test is (al-runner issue 8002): OnBeforeTestRun leaves its test not run; a refused OnAfterTestRun keeps the
+// result of its test, and a later failure is not trusted.
+#[test]
+fn a_runner_trigger_that_reaches_a_changed_key_is_refused() {
+    let src = r#"
+codeunit 60340 "Key Runner"
+{
+    Subtype = TestRunner;
+    TestIsolation = Function;
+    trigger OnRun() begin Codeunit.Run(60341); end;
+    trigger OnBeforeTestRun(CodeunitId: Integer; CodeunitName: Text; FunctionName: Text; FunctionTestPermissions: TestPermissions): Boolean
+    var V: Text;
+    begin
+        if FunctionName = 'B_BeforeReads' then
+            if IsolatedStorage.Get('HK', DataScope::Module, V) then;
+        exit(true);
+    end;
+    trigger OnAfterTestRun(CodeunitId: Integer; CodeunitName: Text; FunctionName: Text; FunctionTestPermissions: TestPermissions; IsSuccess: Boolean)
+    var V: Text;
+    begin
+        if FunctionName = 'C_AfterReads' then
+            if IsolatedStorage.Get('HK', DataScope::Module, V) then;
+    end;
+}
+codeunit 60341 "Key Tests"
+{
+    Subtype = Test;
+    trigger OnRun() begin IsolatedStorage.Set('HK', 'before', DataScope::Module); end;
+    [Test] procedure A_Changes() begin IsolatedStorage.Set('HK', 'changed', DataScope::Module); end;
+    [Test] procedure B_BeforeReads() begin end;
+    [Test] procedure C_AfterReads() begin end;
+    [Test] procedure D_Fails() begin Error('D fails'); end;
+}
+"#;
+    let got = outcomes_through_isolated(src, 60341, Some(60340), None, TestIsolation::Function);
+    let of = |t: &str| {
+        &got.iter()
+            .find(|(n, _)| n == t)
+            .unwrap_or_else(|| panic!("{t}: {got:?}"))
+            .1
+    };
+    assert_eq!(of("A_Changes"), &Outcome::Pass, "{got:?}");
+    assert!(
+        matches!(of("B_BeforeReads"), Outcome::NotRun(m) if m.contains("OnBeforeTestRun") && m.contains("isolated storage key 'HK'")),
+        "{got:?}"
+    );
+    // Without the OnBeforeTestRun read, the refused OnAfterTestRun of C_AfterReads is what D_Fails' failure is not trusted on.
+    let src = src.replace(
+        "if FunctionName = 'B_BeforeReads' then",
+        "if FunctionName = 'nothing' then",
+    );
+    let got = outcomes_through_isolated(&src, 60341, Some(60340), None, TestIsolation::Function);
+    let of = |t: &str| {
+        &got.iter()
+            .find(|(n, _)| n == t)
+            .unwrap_or_else(|| panic!("{t}: {got:?}"))
+            .1
+    };
+    assert_eq!(of("B_BeforeReads"), &Outcome::Pass, "{got:?}");
+    assert_eq!(of("C_AfterReads"), &Outcome::Pass, "{got:?}");
+    assert!(
+        matches!(of("D_Fails"), Outcome::NotRun(m) if m.contains("C_AfterReads") && m.contains("OnAfterTestRun") && m.contains("this failure is not trusted")),
+        "{got:?}"
     );
 }

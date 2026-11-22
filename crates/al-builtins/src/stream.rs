@@ -19,6 +19,25 @@ use crate::value::{LibraryValue, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
 
+/// The assignment a Blob buffer came from (`BlobBuf::assigned_write`). `CalcFields` of a database record never inserted reads
+/// it (al-vm `Session::load_blobs`).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum AssignedWrite {
+    /// Not an assigned copy, or saved, fetched or written since.
+    #[default]
+    No,
+    /// An assigned copy outside the two shapes below (no content a stream wrote in memory): `CalcFields` as for any buffer.
+    Other,
+    /// The pinned shape: another record's content one stream WriteText wrote in memory, into the fresh Blob of a record that is
+    /// not temporary and has no write. `CalcFields` of the record without filters then reads it empty
+    /// (streams/BlobCopyNeighbors.al:3102-3134, :3311-3316); with a filter it refuses.
+    NeverInsertedEmpties,
+    /// Content a stream wrote in memory, in a shape no cell measures (a chained or repeated assignment, a target with a write,
+    /// a temporary target, a source filled otherwise than by one WriteText, a field of the same record, a copy by
+    /// TransferFields or a RecordRef, a failed write of the record since): `CalcFields` of the record never inserted refuses.
+    Unmeasured,
+}
+
 /// What a Blob field holds.
 #[derive(Debug, Default, Clone)]
 pub struct BlobBuf {
@@ -78,6 +97,13 @@ pub struct BlobBuf {
     /// The id of the `DotNet` System.IO.Stream an `OutStream` on this buffer was given to (al-vm `dotnet/blob_stream.rs`), or 0.
     /// `CreateOutStream` and `Import` set it back to 0: what the .NET stream does after that is not pinned.
     pub dotnet_view: u32,
+    /// The buffer is the copy `Target.Field := Source.Blob` stored, in the measured cell (al-vm
+    /// `blob_transfer::assigned_copy`, al-runner issue 7961, tests/al-language/streams/BlobAssignThenCalcFields.al:244-256 (Assign_Ins_FromTmpIns)), and nothing saved, fetched or wrote it since:
+    /// `CalcFields` keeps it as it keeps an unsaved stream write (al-vm `Session::load_blobs`). A copy does not keep it.
+    pub assigned_unsaved: bool,
+    /// Whether the buffer is a copy `Target.Field := Source.Blob` stored, and in which shape (al-vm
+    /// `blob_transfer::assigned_copy`), while nothing saved, fetched or wrote it since. Copies of the buffer keep it.
+    pub assigned_write: AssignedWrite,
     /// The empty Blob `FieldRef.Value` hands out for a stored row's Blob that holds content and was not read with CalcFields
     /// ([`unread_content_blob`]): `Format` shows `*` (text/text-methods/Y49FieldRefIntoText.al:383) and a comparison
     /// sees a Blob with content (`blob_compare`). A copy does not keep it.
@@ -91,6 +117,12 @@ pub struct BlobBuf {
     /// last written, while a stream write is not saved or fetched yet (`written`). A later `ReadText` through a stream of the other of the two encodings does not decode as that stream
     /// says, and what it does is not pinned (`refuse_unicode_switch`). A copy does not keep it.
     pub unicode_read: Option<Encoding>,
+    /// Counts the changes of the bytes of this buffer (a stream write, an `Import`, a `CalcFields` load, a `Clear` in place)
+    /// and each `CreateOutStream` on it: an `InStream` remembers it at its creation, so `line_break_source` sees a buffer
+    /// written or opened for writing after the stream was created.
+    pub content_edits: u32,
+    /// The streams opened and used on this buffer since it was made or cleared (`stream_line_breaks`).
+    pub line_breaks: crate::stream_line_breaks::LineBreakHistory,
 }
 
 thread_local! {
@@ -109,9 +141,9 @@ pub const MEDIA_REENCODED: &str = "Media.ExportStream";
 /// 29; al-builtins media.rs `set_export_file`): the file exists, its bytes are not pinned.
 pub const MEDIA_SET_FILE_REENCODED: &str = "MediaSet.ExportFile";
 
-/// The mark a .docx `Media.ImportFile` puts on its media from BC 29, whose Linux tier stores a re-zipped package the corpus
-/// does not pin (`Gate::DocxMediaRezippedFrom29`).
-pub const MEDIA_DOCX_REZIPPED: &str = "Media.ImportFile of a .docx";
+/// The mark on a Word package imported as a Word document: BC stores it re-zipped on every major, with bytes that depend on the
+/// host (al-builtins `media_word_package`).
+pub const MEDIA_DOCX_REZIPPED: &str = "a Word package in a Media";
 
 /// The mark on the Layout media of a Tenant Report Layout row of format RDLC, Word or Excel: BC rewrites the stored bytes
 /// (reports/runtime/TrlResourceRows.al `length equals the file` No for all three, version-dependent lengths), so any look at
@@ -140,6 +172,17 @@ pub const UNLOADED_THEN_LOADED: &str = "Blob.CreateOutStream without CalcFields,
 /// it leaves in the Blob is not pinned (al-vm `dotnet/blob_stream.rs`).
 pub const DOTNET_WRITE_AFTER_CLOSE: &str = "System.IO.Stream write after Close";
 
+/// The mark a `DotNet` call puts on the Blob behind an `OutStream` argument when .NET wrote over bytes it had already handed back
+/// to the Blob after an earlier call, or set the stream's length below them: the call succeeds
+/// (tests/al-language-onprem-dotnet/dotnet/zip-create/Y44ZipCreateMode.al, Zip_OpenTemporaryNoCopy_SecondCreate), what the Blob
+/// then holds is not pinned (al-runner issue 7947; the bridge is in tools/dotnet-sidecar/Marshal.cs).
+pub const DOTNET_BRIDGE_OVERWRITTEN: &str = "a DotNet write over bytes an OutStream had handed back";
+
+/// Whether a mark says a .NET stream left bytes in the Blob that no later `CreateOutStream` makes known.
+fn dotnet_bytes_unknown(mark: Option<&str>) -> bool {
+    matches!(mark, Some(DOTNET_WRITE_AFTER_CLOSE | DOTNET_BRIDGE_OVERWRITTEN))
+}
+
 /// The mark on the Metadata Blob of a query's Application Object Metadata row: the bytes hold only the query's id, for
 /// Microsoft's `QueryMetadataReader.FromStream` (al-vm `dotnet/query_metadata.rs`). What BC stores there is not pinned, so
 /// every other look at the Blob is refused; `HasValue` is Yes (ODataUtility.GetTenantWebServiceMetadata reads it before
@@ -151,8 +194,8 @@ pub const QUERY_METADATA: &str = "Application Object Metadata.Metadata of a quer
 /// and 108 on the Linux image for a 1x1 PNG: windows-check-results 2026-10-23 RJ item B) moves through File.Exists, File.Open
 /// and CreateInStream, CopyStream, a Blob field (Config. Media Buffer) and the package export as an opaque value. Any read of
 /// its bytes, length, hash or text is still refused with the mark. Only the company build (`Ctx::company_build`) carries it.
-/// Also the .docx a Media.ExportStream re-zips (`MEDIA_DOCX_REZIPPED`: Windows BC of the newest major re-zips it too, probe cu
-/// 61288 case DX) and a file .NET saved with such content in it (`PACKAGE_CARRIED`).
+/// Also the .docx a Media.ExportStream re-zips (`MEDIA_DOCX_REZIPPED`: Windows BC re-zips it on every major, probe cu 61288 case
+/// DX and corpus PR 1469) and a file .NET saved with such content in it (`PACKAGE_CARRIED`).
 pub fn is_carried_mark(what: &str) -> bool {
     what == MEDIA_SET_FILE_REENCODED || what == MEDIA_DOCX_REZIPPED || what == PACKAGE_CARRIED
 }
@@ -175,6 +218,11 @@ fn base64_impl_asks(ctx: &dyn Ctx) -> bool {
             .calling_object()
             .is_some_and(|(app, object)| app == "System Application" && object == "Base64 Convert Impl.")
 }
+
+/// The mark on the Option Data of the Object Options row the runtime writes for the values a SaveValues request page's OK
+/// confirmed (al-vm `pages/open/saved_row.rs`): only that it holds the value as UTF-8 text is pinned
+/// (reports/ReportObjectOptionsSaveValues.al:197), not the text, so every look at it is refused.
+pub const SAVED_OPTION_DATA: &str = "the Option Data of an Object Options row of saved request page values";
 
 /// Makes `blob` an opaque copy of content behind `mark`: no bytes, and any look refused with the mark.
 pub fn mark_carried(blob: &BlobRef, mark: std::sync::Arc<str>) {
@@ -254,6 +302,13 @@ pub fn render_pending_error(report: &str) -> Signal {
                 .into(),
         );
     }
+    if report == DOTNET_BRIDGE_OVERWRITTEN {
+        return Signal::Unsupported(
+            "a Blob whose bytes a DotNet call wrote over after it had handed them back (the call succeeds; what the Blob holds \
+             then is not pinned)"
+                .into(),
+        );
+    }
     if report == DOTNET_WRITE_AFTER_CLOSE {
         return Signal::Unsupported(
             "a Blob a DotNet System.IO.Stream wrote to after Close or Dispose (the write succeeds; what the Blob holds then is not \
@@ -275,8 +330,15 @@ pub fn render_pending_error(report: &str) -> Signal {
     }
     if report == MEDIA_DOCX_REZIPPED {
         return Signal::Unsupported(
-            "the Tenant Media row and the exported bytes of a .docx Media.ImportFile on this major (a re-zipped package on the Linux \
-             tier, not pinned: MediaFiles.al:505-509)"
+            "the Tenant Media row and the exported bytes of a Word package (.docx, .dotx, .docm) imported into a Media or MediaSet \
+             (BC stores a re-zipped package whose bytes depend on the host: corpus PR 1469, MediaDocxRezip.al)"
+                .into(),
+        );
+    }
+    if report == SAVED_OPTION_DATA {
+        return Signal::Unsupported(
+            "the Option Data of the Object Options row a SaveValues request page's OK wrote (only that it holds the value is \
+             pinned, not its text)"
                 .into(),
         );
     }
@@ -318,6 +380,11 @@ impl BlobBuf {
             Some(report) => Err(render_pending_error(report)),
             None => Ok(()),
         }
+    }
+
+    /// The bytes a stream on the buffer sees when no render is pending: none while the content was not loaded.
+    fn visible(&self) -> &[u8] {
+        if self.loaded { &self.bytes } else { &[] }
     }
 }
 
@@ -373,8 +440,12 @@ pub fn new_blob() -> BlobRef {
         file: false,
         dotnet_view: 0,
         unread_content: false,
+        assigned_unsaved: false,
+        assigned_write: AssignedWrite::No,
         utf16_binary: false,
         unicode_read: None,
+        content_edits: 0,
+        line_breaks: Default::default(),
     }))
 }
 
@@ -415,8 +486,12 @@ pub fn copy_blob(b: &BlobRef, loaded: bool) -> BlobRef {
         file: false,
         dotnet_view: 0,
         unread_content: false,
+        assigned_unsaved: false,
+        assigned_write: AssignedWrite::No,
         utf16_binary: b.utf16_binary,
         unicode_read: None,
+        content_edits: 0,
+        line_breaks: Default::default(),
     }))
 }
 
@@ -429,6 +504,8 @@ pub fn copy_for_assignment(b: &BlobRef) -> BlobRef {
     let mut copy = b.borrow().clone();
     copy.dotnet_view = 0;
     copy.temp_inserted = false;
+    copy.assigned_unsaved = false;
+    copy.line_breaks = crate::stream_line_breaks::LineBreakHistory::cleared(copy.content_edits);
     std::sync::Arc::new(BlobCell::new(copy))
 }
 
@@ -451,8 +528,17 @@ pub fn copy_blob_db_row_of(b: &BlobRef, uncompressed: bool) -> BlobRef {
 /// Writes `bytes` at the buffer's write position (over what is there, then past the end) and
 /// moves the position on.
 pub fn write_bytes(b: &BlobRef, bytes: &[u8]) {
+    write_bytes_at(b, bytes);
+}
+
+/// [`write_bytes`]; answers whether the write started at the end of what the buffer held (an append). A write that is no
+/// append into a buffer a marked text was written to leaves bytes that no longer stand for what BC holds: the buffer's mark
+/// becomes `rendered_text::WRITTEN_OVER_KIND` (ADR-040 amendment 2026-11-12, A4).
+fn write_bytes_at(b: &BlobRef, bytes: &[u8]) -> bool {
     let mut buf = b.borrow_mut();
     buf.unicode_read = None;
+    buf.assigned_unsaved = false;
+    buf.assigned_write = AssignedWrite::No;
     if !buf.written {
         buf.written_base = Some(buf.bytes.clone());
     }
@@ -468,9 +554,21 @@ pub fn write_bytes(b: &BlobRef, bytes: &[u8]) {
         }
     }
     let at = buf.write_pos.min(buf.bytes.len());
+    let appended = at == buf.bytes.len();
+    if !appended
+        && !bytes.is_empty()
+        && let Some(over) = buf
+            .render_pending
+            .as_deref()
+            .filter(|m| crate::rendered_text::is_written(m))
+            .map(crate::rendered_text::written_over)
+    {
+        buf.render_pending = Some(over);
+    }
     let overlap = bytes.len().min(buf.bytes.len() - at);
     buf.bytes[at..at + overlap].copy_from_slice(&bytes[..overlap]);
     buf.bytes.extend_from_slice(&bytes[overlap..]);
+    buf.content_edits = buf.content_edits.wrapping_add(1);
     buf.write_pos = at + bytes.len();
     buf.loaded = true;
     buf.refetch = false;
@@ -480,6 +578,7 @@ pub fn write_bytes(b: &BlobRef, bytes: &[u8]) {
     if buf.write_pos == buf.bytes.len() && buf.render_pending.as_deref() == Some(UNLOADED_WRITE) {
         buf.render_pending = None;
     }
+    appended
 }
 
 /// How text becomes bytes in a stream. MSDos is code page 437 and the default (streams/TestStreamsRuntimeContracts.al:
@@ -495,7 +594,7 @@ pub enum Encoding {
 }
 
 /// Unicode of the code page 437 bytes 0x80..=0xFF.
-const CP437_HIGH: [char; 128] = [
+pub(crate) const CP437_HIGH: [char; 128] = [
     'Ç', 'ü', 'é', 'â', 'ä', 'à', 'å', 'ç', 'ê', 'ë', 'è', 'ï', 'î', 'ì', 'Ä', 'Å', 'É', 'æ', 'Æ', 'ô', 'ö', 'ò', 'û',
     'ù', 'ÿ', 'Ö', 'Ü', '¢', '£', '¥', '₧', 'ƒ', 'á', 'í', 'ó', 'ú', 'ñ', 'Ñ', 'ª', 'º', '¿', '⌐', '¬', '½', '¼', '¡',
     '«', '»', '░', '▒', '▓', '│', '┤', '╡', '╢', '╖', '╕', '╣', '║', '╗', '╝', '╜', '╛', '┐', '└', '┴', '┬', '├', '─',
@@ -786,6 +885,22 @@ pub struct InState {
     /// A ReadText returned the mark of untracked call stack frames: where the stream stands now is not known
     /// (`stream_call_stack::position_unknown`). Moving the position clears it.
     pub past_call_stack_mark: bool,
+    /// `Base64Convert.ToBase64(InStream, true[, OutStream])` ran on the stream: where it stands now is not measured, so every
+    /// use is refused, `ResetPosition` and `Position := n` too (see `stream_line_breaks`).
+    pub after_line_break_call: bool,
+    /// `Blob.CreateInStream` made the stream, on a record's Blob field (see [`InState::of_blob_field`]).
+    pub on_blob_field: bool,
+    /// The buffer's [`BlobBuf::content_edits`] when the stream was created.
+    pub created_edits: u32,
+    /// Where `ReadText(Text, Length)` calls alone moved the stream from 0: equal to `pos` while no other read moved it
+    /// (`in_read_text`).
+    pub text_len_pos: usize,
+    /// The `ReadText(Text, Length)` calls on the stream.
+    pub text_len_reads: u32,
+    /// The uses of the stream: every call that reaches it through `with_in_core`.
+    pub uses: u32,
+    /// A `:=` gave the stream to another variable, which shares it (al-vm `exec/run.rs` `mark_assigned_stream`).
+    pub shared_by_assign: bool,
 }
 
 impl InState {
@@ -800,6 +915,23 @@ impl InState {
             not_initialized: false,
             len0_over_mark: false,
             past_call_stack_mark: false,
+            after_line_break_call: false,
+            on_blob_field: false,
+            created_edits: 0,
+            text_len_pos: 0,
+            text_len_reads: 0,
+            uses: 0,
+            shared_by_assign: false,
+        }
+    }
+
+    /// The stream `Blob.CreateInStream` makes on a record's Blob field.
+    pub fn of_blob_field(blob: BlobRef, enc: Encoding) -> InState {
+        let created_edits = blob.borrow().content_edits;
+        InState {
+            on_blob_field: true,
+            created_edits,
+            ..InState::live(blob, enc)
         }
     }
 
@@ -814,6 +946,13 @@ impl InState {
             not_initialized: false,
             len0_over_mark: false,
             past_call_stack_mark: false,
+            after_line_break_call: false,
+            on_blob_field: false,
+            created_edits: 0,
+            text_len_pos: 0,
+            text_len_reads: 0,
+            uses: 0,
+            shared_by_assign: false,
         }
     }
 
@@ -859,7 +998,7 @@ impl InState {
                     note_pending_observation(report);
                     return f(&[]);
                 }
-                f(if buf.loaded { &buf.bytes } else { &[] })
+                f(buf.visible())
             }
         }
     }
@@ -951,6 +1090,21 @@ fn blob_of(r: Option<&mut Value>) -> Result<BlobRef, Signal> {
     }
 }
 
+/// What the VM kept when `Blob.CreateOutStream` opened a stream on a Blob field of a temporary record (al-vm
+/// `temp_blob_share.rs`): a later call that takes the stream is checked against it, as the record may have moved to another
+/// key or a row may have come to hold the buffer since.
+#[derive(Debug)]
+pub struct OutOpen {
+    /// The record whose field the stream was opened on.
+    pub record: std::rc::Weak<std::cell::RefCell<crate::value::RecordState>>,
+    /// The position of the Blob field in the record.
+    pub field: usize,
+    /// The record's primary key when the stream was opened.
+    pub key: Vec<Value>,
+    /// The stream writes to the buffer the VM gave the record at the open (al-vm `temp_blob_share.rs`).
+    pub detached: bool,
+}
+
 pub(crate) fn set_stream(slot: &Value, content: LibraryValue) -> Result<(), Signal> {
     match slot {
         Value::Library(_, h) => {
@@ -983,6 +1137,10 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
         // The content stays (:BlobField_CreateOutStream_DoesNotEmptyExistingData).
         let mut buf = b.borrow_mut();
         buf.dotnet_view = 0;
+        // An InStream created before reads a buffer a new OutStream may write over (`stream_line_breaks`).
+        buf.content_edits = buf.content_edits.wrapping_add(1);
+        let empty = buf.bytes.is_empty();
+        buf.line_breaks.note_out_open(enc, empty);
         if !buf.loaded && buf.db_row {
             // A record read from the database without CalcFields: the stream replaces the stored content at its first
             // write, and leaves it while nothing is written (BlobCalcFieldsLength.al:222, :350). The Blob stays unloaded
@@ -991,7 +1149,7 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
             buf.write_pos = 0;
             buf.refetch = false;
             drop(buf);
-            set_stream(&a[0], LibraryValue::OutStream(b, enc))?;
+            set_stream(&a[0], LibraryValue::OutStream(b, enc, None))?;
             return Ok(Value::Null);
         }
         // That case writes over content the record holds. Another unloaded Blob (a temporary record's, a copy of an unloaded
@@ -1001,11 +1159,11 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
         buf.dotnet_view = 0;
         if unloaded_content || buf.render_pending.as_deref().is_some_and(is_unloaded_write_mark) {
             buf.render_pending = Some(UNLOADED_WRITE.into());
-        } else if buf.render_pending.as_deref() != Some(DOTNET_WRITE_AFTER_CLOSE)
-            && crate::placeholder_output::of(&buf).is_none()
+        } else if !dotnet_bytes_unknown(buf.render_pending.as_deref()) && crate::placeholder_output::of(&buf).is_none()
         {
-            // The bytes a .NET stream wrote after Close stay unknown: the new stream writes over the content. So do a
-            // placeholder report output's: the stream writes over its first bytes and the rest stays (`placeholder_output`).
+            // The bytes a .NET stream wrote after Close or over handed-back bytes stay unknown: the new stream writes over
+            // the content, so the mark stays and a later read still refuses. So do a placeholder report output's: the stream
+            // writes over its first bytes and the rest stays (`placeholder_output`).
             buf.render_pending = None;
         }
         buf.write_pos = 0;
@@ -1013,7 +1171,7 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
         buf.refetch = false;
         buf.persisted = false;
     }
-    set_stream(&a[0], LibraryValue::OutStream(b, enc))?;
+    set_stream(&a[0], LibraryValue::OutStream(b, enc, None))?;
     Ok(Value::Null)
 }
 
@@ -1031,7 +1189,8 @@ fn blob_create_in(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> 
     if pending.as_deref() != Some(QUERY_METADATA) && !carried && !placeholder {
         b.borrow().observe()?;
     }
-    set_stream(&a[0], LibraryValue::InStream(InState::live(b, enc)))?;
+    b.borrow_mut().line_breaks.in_creates += 1;
+    set_stream(&a[0], LibraryValue::InStream(InState::of_blob_field(b, enc)))?;
     Ok(Value::Null)
 }
 
@@ -1057,8 +1216,12 @@ pub(crate) fn create_empty_in_stream(a: &mut [Value]) -> Result<(), Signal> {
         file: false,
         dotnet_view: 0,
         unread_content: false,
+        assigned_unsaved: false,
+        assigned_write: AssignedWrite::No,
         utf16_binary: false,
         unicode_read: None,
+        content_edits: 0,
+        line_breaks: Default::default(),
     });
     set_stream(
         &a[0],
@@ -1115,6 +1278,7 @@ fn blob_import(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
     let b = blob_of(r)?;
     let mut buf = b.borrow_mut();
     buf.bytes = bytes;
+    buf.content_edits = buf.content_edits.wrapping_add(1);
     buf.write_pos = 0;
     buf.dotnet_view = 0;
     buf.loaded = true;
@@ -1375,22 +1539,116 @@ fn with_in_of<T>(
     handed_ok: bool,
     f: impl FnOnce(&mut InState) -> Result<T, Signal>,
 ) -> Result<T, Signal> {
+    with_in_core(r, handed_ok, false, f)
+}
+
+/// A use that may reach a stream whose position a `ToBase64(InStream, true ...)` call left unknown: the call itself, and
+/// `ResetPosition` and `Position := n`, which then refuse with their own reason (`stream_line_breaks::refuse_move_after_call`).
+pub(crate) fn with_in_unknown_ok<T>(
+    r: Option<&mut Value>,
+    f: impl FnOnce(&mut InState) -> Result<T, Signal>,
+) -> Result<T, Signal> {
+    with_in_core(r, false, true, f)
+}
+
+fn with_in_core<T>(
+    r: Option<&mut Value>,
+    handed_ok: bool,
+    unknown_ok: bool,
+    f: impl FnOnce(&mut InState) -> Result<T, Signal>,
+) -> Result<T, Signal> {
     let mut g = in_state(r)?;
     match &mut *g {
         LibraryValue::InStream(s) => {
-            if let Some(report) = s.render_pending() {
-                return Err(render_pending_error(&report));
+            // One borrow of the buffer for the pending render and the use count.
+            if let Source::Live(b) = &s.source {
+                let mut buf = b.borrow_mut();
+                if let Some(report) = &buf.render_pending {
+                    return Err(render_pending_error(report));
+                }
+                buf.line_breaks.in_uses += 1;
             }
-            if s.handed_to_content && !handed_ok {
-                return unsupported("use of an InStream after HttpContent.WriteFrom took it (only EOS is pinned)");
-            }
-            if s.not_initialized {
-                return unsupported("use of an InStream a Report layout call left uncreated (only EOS is pinned)");
-            }
+            s.uses += 1;
+            refuse_use(s, handed_ok, unknown_ok)?;
             f(s)
         }
         _ => unsupported("use of an InStream that was never created"),
     }
+}
+
+/// The refusals of a use of the stream, after its use counts went up (`with_in_core`, [`read_fixed`]).
+fn refuse_use(s: &InState, handed_ok: bool, unknown_ok: bool) -> Result<(), Signal> {
+    if s.handed_to_content && !handed_ok {
+        return unsupported("use of an InStream after HttpContent.WriteFrom took it (only EOS is pinned)");
+    }
+    if s.not_initialized {
+        return unsupported("use of an InStream a Report layout call left uncreated (only EOS is pinned)");
+    }
+    if !unknown_ok && s.after_line_break_call {
+        return unsupported(
+            "use of an InStream after Base64Convert.ToBase64(InStream, true ...) (where it stands is not measured)",
+        );
+    }
+    Ok(())
+}
+
+/// `Read` into a type `width` bytes wide (not a Char) with the buffer borrowed once (every Read of a byte passes here). It
+/// does what the end check and the read of `in_read`'s general path do, each a use of the stream through `with_in`: the use
+/// counts go up once for a first read at the end, which answers `None`, and twice for a read, which answers the bytes.
+/// `None` outside: a value that is no created InStream, or a buffer with a pending render or a placeholder, which
+/// the general path answers.
+fn read_fixed(r: Option<&mut Value>, width: usize) -> Option<Result<Option<[u8; 16]>, Signal>> {
+    let Some(Value::Library(_, h)) = r else {
+        return None;
+    };
+    let mut g = h.borrow_mut();
+    let LibraryValue::InStream(s) = &mut *g else {
+        return None;
+    };
+    let mut live = match &s.source {
+        Source::Live(b) => Some(b.borrow_mut()).filter(|buf| buf.render_pending.is_none())?.into(),
+        Source::Snapshot(_) => None,
+    };
+    let count_use = |live: &mut Option<std::sync::RwLockWriteGuard<'_, BlobBuf>>, uses: &mut u32| {
+        if let Some(buf) = live {
+            buf.line_breaks.in_uses += 1;
+        }
+        *uses += 1;
+    };
+    // The end check.
+    count_use(&mut live, &mut s.uses);
+    if let Err(e) = refuse_use(s, false, false) {
+        return Some(Err(e));
+    }
+    let len = match (&live, &s.source) {
+        (Some(buf), _) => buf.visible().len(),
+        (None, Source::Snapshot(d)) => d.len(),
+        (None, Source::Live(_)) => unreachable!("a live source is borrowed"),
+    };
+    // An empty stream is at its end like any other; the first read there answers 0, one after it raises (see `in_read`).
+    let at = s.pos >= len;
+    let first = at && !s.hit_end;
+    if at {
+        s.hit_end = true;
+    }
+    if first {
+        return Some(Ok(None));
+    }
+    // The read.
+    count_use(&mut live, &mut s.uses);
+    let data = match (&live, &s.source) {
+        (Some(buf), _) => buf.visible(),
+        (None, Source::Snapshot(d)) => d.as_slice(),
+        (None, Source::Live(_)) => unreachable!("a live source is borrowed"),
+    };
+    let pos = s.pos;
+    let Some(got) = data.get(pos..pos + width) else {
+        return Some(Err(crate::stream_read_len::invalid_data()));
+    };
+    let mut buf = [0u8; 16];
+    buf[..width].copy_from_slice(got);
+    s.pos += width;
+    Some(Ok(Some(buf)))
 }
 
 /// `BigText.Read(InStream)`: the rest of the stream as text, in the stream's encoding, and the stream
@@ -1416,14 +1674,7 @@ pub(crate) fn read_all_text(stream: &mut Value) -> Result<String, Signal> {
         match enc {
             // Bytes that are no UTF-8 raise the stream data error, as ReadText does (corpus pages/pages-xmlports-upload-members/
             // P112XpXml.al:P112_Export_TriggerOrder, af379: the UTF-16 bytes of an export read through a UTF-8 stream).
-            Encoding::Utf8 if std::str::from_utf8(body).is_err() => {
-                Err(Signal::Error(Box::new(crate::native::AlError {
-                    message: "Invalid data encountered in stream, unable to read text.".into(),
-                    code: "InvalidStreamData".into(),
-                    call_stack: String::new(),
-                    ..Default::default()
-                })))
-            }
+            Encoding::Utf8 if std::str::from_utf8(body).is_err() => Err(crate::stream_read_len::invalid_data()),
             Encoding::Utf16 if body.len() % 2 != 0 => {
                 unsupported("BigText.Read of a UTF-16 stream with an odd number of bytes (not pinned)")
             }
@@ -1466,8 +1717,10 @@ fn in_eos_plain(r: Option<&mut Value>, _: &mut [Value]) -> NResult {
     })
 }
 
-fn in_reset(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
-    with_in(r, |s| {
+fn in_reset(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+    crate::stream_cleared::reset_uncreated(r.as_deref(), c.ret_used())?;
+    with_in_unknown_ok(r, |s| {
+        crate::stream_line_breaks::refuse_move_after_call(s, "ResetPosition")?;
         s.pos = 0;
         s.past_call_stack_mark = false;
         Ok(Value::Boolean(true))
@@ -1514,7 +1767,8 @@ fn in_position(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
             Value::BigInteger(n) => *n,
             other => return unsupported(format!("InStream.Position := {}", other.describe())),
         };
-        return with_in(r, |s| {
+        return with_in_unknown_ok(r, |s| {
+            crate::stream_line_breaks::refuse_move_after_call(s, "Position :=")?;
             let len = s.len() as i64;
             if p < 1 || p > len {
                 return crate::native::raise(
@@ -1664,14 +1918,15 @@ fn in_read_text(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
             );
         }
         if invalid_utf8 {
-            return Err(Signal::Error(Box::new(crate::native::AlError {
-                message: "Invalid data encountered in stream, unable to read text.".into(),
-                code: "InvalidStreamData".into(),
-                call_stack: String::new(),
-                ..Default::default()
-            })));
+            return Err(crate::stream_read_len::invalid_data());
         }
         s.pos = pos + consumed;
+        if max_chars != usize::MAX {
+            s.text_len_reads += 1;
+            if s.text_len_pos == pos {
+                s.text_len_pos = s.pos;
+            }
+        }
         // The line holds the mark of untracked call stack frames, which may hold line breaks: where the line ends in BC is not
         // known (a JSON text of a call stack has none and reads back equal, WdCallStackWriteText.al:530).
         s.past_call_stack_mark |= crate::stream_call_stack::holds_mark(&text);
@@ -1705,6 +1960,23 @@ fn is_unit(u: &[u8], c: u8) -> bool {
 /// InOutStream_Write_Integer_ReadInteger) or a Byte (one byte: the HexOf helper of
 /// streams/TestStreamsRuntimeContracts.al reads a stream byte by byte). Other types are not pinned.
 fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    // A type of fixed width other than a Char, on a plain stream: the end check and the read below under one borrow.
+    if let [v] = &mut *a
+        && !matches!(v, Value::Char(_))
+        && let Ok(width) = crate::stream_read_typed::width_of(v)
+        && let Some(read) = read_fixed(r.as_deref_mut(), width)
+    {
+        return match read? {
+            None => {
+                *v = crate::stream_read_typed::default_after_end(v);
+                Ok(Value::Integer(0))
+            }
+            Some(bytes) => {
+                *v = crate::stream_read_typed::decode(v, &bytes[..width])?;
+                Ok(Value::Integer(width as i32))
+            }
+        };
+    }
     // A Byte or Char of the PDF placeholder answers inside its pinned prefix (`placeholder_output::pdf_read`).
     if a.len() == 1
         && let Some(answer) =
@@ -1721,6 +1993,14 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
         && with_in(r.as_deref_mut(), |s| Ok(s.enc == Encoding::default()))?
     {
         a[1] = Value::Integer(n);
+    }
+    // A whole text read of rendered report content gives its mark (ADR-040 amendment 2026-11-12, A2; `rendered_text`).
+    if a.len() == 1
+        && matches!(a[0], Value::Text(_))
+        && let Some(read) = crate::rendered_text::read_in(r.as_deref(), c.ret_used(), "InStream.Read")
+    {
+        a[0] = Value::Text(read?.into());
+        return Ok(Value::Null);
     }
     // Read(Text) of a stream that holds none raises (StreamUncreatedUse.al:UncreatedInStream_EveryMethod `in_read`).
     if a.len() == 1 && matches!(a[0], Value::Text(_) | Value::Code(_)) {
@@ -1854,21 +2134,7 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
         };
         return Ok(Value::Integer(count as i32));
     }
-    let width = match a[0] {
-        // An Option is its ordinal in 4 bytes (streams/instream-outstream/StreamLengthOthers.al:Option_WriteReadLength_1 `nb_rd`).
-        Value::Integer(_) | Value::Boolean(_) | Value::Date(..) | Value::Option(..) => 4,
-        Value::Byte(_) | Value::Char(_) => 1,
-        Value::BigInteger(_) => 8,
-        Value::Guid(_) => 16,
-        // streams/TestStreamsBinaryDateDecimalContracts.al:117-123.
-        Value::Decimal(_) => 12,
-        _ => {
-            return unsupported(format!(
-                "InStream.Read into {} (only Integer, Byte and Decimal are pinned)",
-                a[0].describe()
-            ));
-        }
-    };
+    let width = crate::stream_read_typed::width_of(&a[0])?;
     // At the end of a stream that holds data nothing is read: the result is 0 and the variable takes its default value
     // (streams/media/P102ReadTyped.al: every `pastend_*`). A stream without any data keeps the error below.
     let at_end = with_in(r.as_deref_mut(), |s| {
@@ -1883,18 +2149,7 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
         Ok(first)
     })?;
     if at_end {
-        a[0] = Value::default_for(&match &a[0] {
-            Value::Integer(_) => crate::value::RtType::Integer,
-            Value::Boolean(_) => crate::value::RtType::Boolean,
-            Value::Date(..) => crate::value::RtType::Date,
-            Value::Byte(_) => crate::value::RtType::Byte,
-            Value::Char(_) => crate::value::RtType::Char,
-            Value::BigInteger(_) => crate::value::RtType::BigInteger,
-            Value::Guid(_) => crate::value::RtType::Guid,
-            // The first member (StreamLengthOthers.al:Option_WriteReadLength_1 `nb_rd2` is A).
-            Value::Option(_, names) => crate::value::RtType::Option(names.clone()),
-            _ => crate::value::RtType::Decimal,
-        });
+        a[0] = crate::stream_read_typed::default_after_end(&a[0]);
         return Ok(Value::Integer(0));
     }
     // A Char: the default and MS-DOS encodings read one byte through the Byte to Char table, Windows reads it as it is, and UTF-8 and
@@ -1911,12 +2166,7 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
             let got = got.unwrap_or_default();
             // Nothing left after an earlier read hit the end: the stream data error of every other type (StTStreams.al:235 ReadPastEnd).
             if got.is_empty() {
-                return Err(Signal::Error(Box::new(crate::native::AlError {
-                    message: "Invalid data encountered in stream, unable to read text.".into(),
-                    code: "InvalidStreamData".into(),
-                    call_stack: String::new(),
-                    ..Default::default()
-                })));
+                return Err(crate::stream_read_len::invalid_data());
             }
             s.pos += got.len();
             let ch = match (s.enc, got.as_slice()) {
@@ -1931,72 +2181,31 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
         a[0] = Value::Char(ch);
         return Ok(Value::Integer(count as i32));
     }
-    let bytes = with_in(r, |s| {
+    // Every width above is at most 16 bytes: the read copies into a fixed buffer, with no allocation per call.
+    let read = with_in(r, |s| {
         let pos = s.pos;
         // Fewer bytes than the type needs, also none at all: the stream data error (streams/TestProbeStreamContracts.al:
         // Read_IntoTypes, a BigInteger or a Decimal read from 4 bytes; types/PRFileUpload.al:ReadFromUnfilledStream, a Byte).
         let got = s
-            .with_data(|d| d.get(pos..pos + width).map(<[u8]>::to_vec))
-            .ok_or_else(|| {
-                Signal::Error(Box::new(crate::native::AlError {
-                    message: "Invalid data encountered in stream, unable to read text.".into(),
-                    code: "InvalidStreamData".into(),
-                    call_stack: String::new(),
-                    ..Default::default()
-                }))
-            })?;
+            .with_data(|d| {
+                d.get(pos..pos + width).map(|b| {
+                    let mut buf = [0u8; 16];
+                    buf[..width].copy_from_slice(b);
+                    buf
+                })
+            })
+            .ok_or_else(crate::stream_read_len::invalid_data)?;
         s.pos += width;
         Ok(got)
     })?;
-    a[0] = match a[0] {
-        Value::Byte(_) => Value::Byte(bytes[0]),
-        Value::Char(_) => Value::Char(u16::from(bytes[0])),
-        Value::Boolean(_) => Value::Boolean(bytes.iter().any(|b| *b != 0)),
-        Value::BigInteger(_) => Value::BigInteger(i64::from_le_bytes(bytes[..8].try_into().expect("8 bytes"))),
-        Value::Guid(_) => {
-            let mut g: [u8; 16] = bytes[..16].try_into().expect("16 bytes");
-            g[0..4].reverse();
-            g[4..6].reverse();
-            g[6..8].reverse();
-            Value::Guid(g)
-        }
-        Value::Date(..) => {
-            // The inverse of `date_bytes`: twice the day number plus 731, plus 1 for a closing date.
-            let n = i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-            if n == 0 {
-                Value::Date(0, false)
-            } else {
-                let closing = (n - 731) % 2 != 0;
-                let day = (n - 731 - i32::from(closing)) / 2;
-                // Bytes that are no date raise (streams/PnAStreamReadMisc.al:Read_Types_A `op5`).
-                if !(1..=3_652_059).contains(&day) {
-                    return Err(Signal::Error(Box::new(crate::native::AlError {
-                        message: "The date is not valid.".into(),
-                        code: "DateInvalid".into(),
-                        call_stack: String::new(),
-                        ..Default::default()
-                    })));
-                }
-                Value::Date(day, closing)
-            }
-        }
-        Value::Decimal(_) => Value::Decimal(decimal_from_bytes(&bytes)?),
-        Value::Option(_, ref names) => {
-            let n = i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-            if usize::try_from(n).map_or(true, |i| i >= names.len()) {
-                return unsupported("InStream.Read into an Option of an ordinal that is no member (not pinned)");
-            }
-            Value::Option(n, names.clone())
-        }
-        _ => Value::Integer(i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])),
-    };
+    a[0] = crate::stream_read_typed::decode(&a[0], &read[..width])?;
     Ok(Value::Integer(width as i32))
 }
 
-fn out_buf(r: Option<&mut Value>) -> Result<(BlobRef, Encoding), Signal> {
+pub(crate) fn out_buf(r: Option<&mut Value>) -> Result<(BlobRef, Encoding), Signal> {
     match r {
         Some(Value::Library(_, h)) => match &*h.borrow() {
-            LibraryValue::OutStream(b, e) => Ok((b.clone(), *e)),
+            LibraryValue::OutStream(b, e, ..) => Ok((b.clone(), *e)),
             _ => unsupported("use of an OutStream that was never created"),
         },
         other => unsupported(format!("OutStream method on {}", other.describe())),
@@ -2030,6 +2239,15 @@ pub(crate) fn write_serialised_text(stream: &mut Value, text: &str) -> Result<()
 /// `84 B1 3F` for a-umlaut, euro sign and the Cyrillic zhe, for Windows `E4 80 3F`, for UTF-8 and UTF-16 the plain encoding of
 /// the same three (BigTextWriteEdges.al:Write_NonAscii_*). A character beyond those and the characters the other stream writes
 /// pin (`Encoding::encode_pinned`) is refused.
+/// Writes the bytes of `text` to `b`: a text that holds rendered content marks the buffer (ADR-040 amendment 2026-11-12, P7 and
+/// A4; `rendered_text::mark_written`).
+fn write_text_bytes(b: &BlobRef, bytes: &[u8], text: &str) {
+    let appended = write_bytes_at(b, bytes);
+    if crate::rendered_text::holds(text) {
+        crate::rendered_text::mark_written(&mut b.borrow_mut(), crate::rendered_text::written_mark(text), appended);
+    }
+}
+
 pub(crate) fn write_bigtext(stream: &mut Value, text: &str) -> Result<(), Signal> {
     let (b, enc) = out_buf(Some(stream))?;
     // The characters `OutStream.Write(Text)` pins are written the same way, best fit included: é, ß, “, Ω, 中, a surrogate pair
@@ -2039,7 +2257,7 @@ pub(crate) fn write_bigtext(stream: &mut Value, text: &str) -> Result<(), Signal
     if !enc.write_text_pinned(&text) {
         return unsupported("BigText.Write of a character whose bytes in this encoding are not pinned");
     }
-    write_bytes(&b, &enc.encode(&text));
+    write_text_bytes(&b, &enc.encode(&text), &text);
     Ok(())
 }
 
@@ -2170,7 +2388,10 @@ fn out_write_text(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
         None => text,
     };
     let bytes = enc.encode(&text);
-    write_bytes(&b, &bytes);
+    write_text_bytes(&b, &bytes, &text);
+    if a.len() == 1 {
+        b.borrow_mut().line_breaks.note_text_write(enc);
+    }
     Ok(Value::Integer(bytes.len() as i32))
 }
 
@@ -2217,33 +2438,6 @@ fn decimal_bytes(d: &rust_decimal::Decimal) -> Result<Vec<u8>, Signal> {
         out[at] |= if i % 2 == 0 { v << 4 } else { v };
     }
     Ok(out)
-}
-
-/// The inverse of [`decimal_bytes`].
-fn decimal_from_bytes(b: &[u8]) -> Result<rust_decimal::Decimal, Signal> {
-    if b.iter().all(|&x| x == 0) {
-        return Ok(rust_decimal::Decimal::ZERO);
-    }
-    let exponent = i32::from(b[0] & 0x7F) - 0x40;
-    let mut mantissa: i128 = 0;
-    for i in 0..18 {
-        let byte = b[9 - i / 2];
-        let v = if i % 2 == 0 { byte >> 4 } else { byte & 0xF };
-        mantissa = mantissa * 10 + i128::from(v);
-    }
-    let scale = 17 - exponent;
-    let bad = || Signal::Unsupported("InStream.Read of a Decimal out of range (not pinned)".into());
-    let mut d = if scale >= 0 {
-        rust_decimal::Decimal::try_from_i128_with_scale(mantissa, scale as u32).map_err(|_| bad())?
-    } else {
-        let m = mantissa.checked_mul(10i128.pow((-scale) as u32)).ok_or_else(bad)?;
-        rust_decimal::Decimal::try_from_i128_with_scale(m, 0).map_err(|_| bad())?
-    };
-    d.normalize_assign();
-    if b[0] & 0x80 != 0 {
-        d.set_sign_negative(true);
-    }
-    Ok(d)
 }
 
 /// `Write(Value)`: Integer and Boolean take 4 bytes, BigInteger 8, a Time 4 (its value, which is the
@@ -2403,7 +2597,10 @@ fn out_write(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NRe
     if enc == Encoding::Utf16 && !matches!(a[0], Value::Text(_) | Value::Code(_)) {
         b.borrow_mut().utf16_binary = true;
     }
-    write_bytes(&b, &bytes);
+    match &a[0] {
+        Value::Text(t) | Value::Code(t) => write_text_bytes(&b, &bytes, t.as_str()),
+        _ => write_bytes(&b, &bytes),
+    }
     Ok(Value::Integer(bytes.len() as i32))
 }
 
@@ -2467,7 +2664,7 @@ fn copy_stream(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NRe
         crate::stream_cleared::never_created(Some(&a[0])),
         crate::stream_cleared::never_created(Some(&a[1])),
     ) {
-        (true, true) => return unsupported("CopyStream between two streams that were never created (not pinned)"),
+        (true, true) => return crate::stream_cleared::copy_both_uncreated(ctx.ret_used()),
         (true, false) => {
             return crate::stream_cleared::uncreated_result(ctx.ret_used(), "OutStream", Value::Boolean(false));
         }
@@ -2492,10 +2689,13 @@ fn copy_stream(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NRe
             LibraryValue::InStream(s) => s.drain_placeholder(),
             _ => unreachable!("of_in found an InStream"),
         };
-        write_bytes(&out, &bytes);
+        let appended = write_bytes_at(&out, &bytes);
         // Another mark the target holds refuses more than this one and stays.
         let mut buf = out.borrow_mut();
-        if buf.render_pending.is_none() {
+        if crate::rendered_text::is_written(&mark) {
+            // A copy of a text with rendered content is that text only when it was appended (`rendered_text::mark_written`).
+            crate::rendered_text::mark_written(&mut buf, mark, appended);
+        } else if buf.render_pending.is_none() {
             buf.render_pending = Some(mark);
         }
         return Ok(Value::Boolean(true));
@@ -2645,6 +2845,17 @@ pub fn native_for(sig: &Signature) -> Option<NativeFn> {
     };
     Some(f)
 }
+
+/// Builtin `id` runs `in_read` or `out_write` (the `InStream.Read` and `OutStream.Write` arms of [`native_for`]): a native
+/// that changes the stream behind its receiver and never puts another value in the receiver itself.
+pub fn keeps_receiver(id: crate::builtin_id::BuiltinId) -> bool {
+    let receiver = id.name().split_once('.').map_or("", |(r, _)| r);
+    matches!((receiver, id.method()), ("InStream", "Read") | ("OutStream", "Write"))
+}
+
+#[cfg(test)]
+#[path = "stream_read_fixed_tests.rs"]
+mod read_fixed_tests;
 
 #[cfg(test)]
 mod blob_cell_tests {

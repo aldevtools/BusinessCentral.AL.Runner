@@ -3,6 +3,8 @@
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
+use al_host::testdata::{Cell, TableError, TableProvider, TableRequest, TableRows, TestData};
+use std::sync::Arc;
 
 const TABLES: &str = r#"
 table 50910 "CC Row"
@@ -30,9 +32,20 @@ table 50913 "CC Parent"
     }
     keys { key(PK; Id) { } }
 }
+table 50916 "CC Shared Parent"
+{
+    DataPerCompany = false;
+    fields { field(1; Id; Integer) { } }
+    keys { key(PK; Id) { } }
+}
 table 50914 "CC Child"
 {
-    fields { field(1; Id; Integer) { } field(2; ParentId; Integer) { } }
+    fields { field(1; Id; Integer) { } field(2; ParentId; Integer) { TableRelation = "CC Shared Parent".Id; } }
+    keys { key(PK; Id) { } }
+}
+table 50915 "CC Bad"
+{
+    fields { field(1; Id; Integer) { } }
     keys { key(PK; Id) { } }
 }
 table 2000000006 Company
@@ -70,8 +83,214 @@ fn text(vars: &str, body: &str) -> String {
     }
 }
 
+struct SelectedBackup;
+
+impl TableProvider for SelectedBackup {
+    fn company(&self) -> &str {
+        "Main"
+    }
+
+    fn companies(&self) -> Vec<String> {
+        vec!["Main".into(), "Other".into(), "Unselected".into()]
+    }
+
+    fn known_companies(&self) -> Option<Vec<String>> {
+        Some(vec!["Main".into(), "Other".into()])
+    }
+
+    fn source(&self) -> String {
+        "selected backup".into()
+    }
+
+    fn read(&self, table: &TableRequest) -> Result<Arc<TableRows>, TableError> {
+        self.read_for_company("Main", table)
+    }
+
+    fn read_for_company(&self, company: &str, table: &TableRequest) -> Result<Arc<TableRows>, TableError> {
+        match table.name.as_str() {
+            "Company" if !table.per_company => Ok(Arc::new(TableRows {
+                columns: vec!["Name".into()],
+                rows: ["Main", "Other", "Unselected"]
+                    .into_iter()
+                    .map(|name| vec![Cell::Text(name.into())])
+                    .collect(),
+            })),
+            "CC Row" if table.per_company => {
+                assert_ne!(company, "Unselected", "an unselected company's rows were requested");
+                let value = if company == "Main" { 11 } else { 22 };
+                Ok(Arc::new(TableRows {
+                    columns: vec!["Id".into(), "V".into()],
+                    rows: vec![vec![Cell::Int(1), Cell::Int(value)]],
+                }))
+            }
+            "CC Child" if table.per_company && company == "Other" => Ok(Arc::new(TableRows {
+                columns: vec!["Id".into(), "ParentId".into()],
+                rows: vec![vec![Cell::Int(1), Cell::Int(1)]],
+            })),
+            "CC Bad" if table.per_company && company == "Main" => Ok(Arc::new(TableRows {
+                columns: vec!["Id".into()],
+                rows: Vec::new(),
+            })),
+            "CC Bad" if table.per_company && company == "Other" => {
+                Err(TableError::Reader("selected company read failed".into()))
+            }
+            _ => Err(TableError::Absent),
+        }
+    }
+}
+
+fn run_with_selected_backup_data(body: &str) -> (Result<Value, Signal>, TestData) {
+    run_with_backup_data_and_companies(
+        body,
+        al_host::Companies::List(vec!["Main".into(), "Other".into()]),
+        None,
+    )
+}
+
+fn run_with_backup_data_and_companies(
+    body: &str,
+    companies: al_host::Companies,
+    unseeded: Option<usize>,
+) -> (Result<Value, Signal>, TestData) {
+    let src = format!(
+        "{TABLES}\ncodeunit 50100 C {{ procedure F(): Integer var R: Record \"CC Row\"; P: Record \"CC Shared Parent\"; Co: Record Company; Bad: Record \"CC Bad\"; N: Integer; begin {body} end; }}"
+    );
+    let lowered = al_testkit::compile(&src);
+    let mut engine = al_vm::Engine::new(lowered.program.clone(), al_testkit::blocked(&lowered));
+    let data = TestData::new(Arc::new(SelectedBackup));
+    {
+        let engine = Arc::get_mut(&mut engine).expect("engine is not shared");
+        engine.test_data = Some(data.clone());
+        if let Some(id) = unseeded {
+            let object = lowered
+                .program
+                .objects
+                .iter()
+                .position(|object| object.id == Some(id as u32))
+                .expect("table object exists");
+            engine.unseeded.insert(object, "not installed".into());
+        }
+    }
+    let host = al_host::Host::default().with_companies(companies);
+    let mut session = al_vm::Session::with_host(engine, host);
+    let oi = lowered
+        .program
+        .objects
+        .iter()
+        .position(|o| o.name == "C")
+        .expect("codeunit exists");
+    let ri = lowered.program.objects[oi]
+        .routines
+        .iter()
+        .position(|r| r.name == "F")
+        .expect("procedure exists");
+    let instance = session.instance(oi);
+    (session.call(oi, ri, instance, vec![]).map(|(value, _)| value), data)
+}
+
+fn run_with_selected_backup(body: &str) -> Result<Value, Signal> {
+    run_with_selected_backup_data(body).0
+}
+
 const NEW_CO: &str = "Co: Record Company;";
 const MAKE_CO: &str = "Co.Name := 'OTHER'; Co.Insert(); Commit();";
+
+#[test]
+fn selected_backup_companies_expose_their_company_rows() {
+    let result = run_with_selected_backup(
+        "if not R.ChangeCompany('Other') then exit(-1); if R.Get(1) then exit(R.V); exit(-2);",
+    );
+    assert!(matches!(result, Ok(Value::Integer(22))), "{result:?}");
+}
+
+#[test]
+fn backup_companies_are_not_added_when_the_host_declares_one_company() {
+    let (result, _) = run_with_backup_data_and_companies("N := Co.Count(); exit(N);", al_host::Companies::One, None);
+    assert!(matches!(result, Ok(Value::Integer(1))), "{result:?}");
+}
+
+#[test]
+fn an_unseeded_table_stays_refused_in_a_selected_backup_company() {
+    let (result, _) = run_with_backup_data_and_companies(
+        "R.ChangeCompany('Other'); exit(R.Count());",
+        al_host::Companies::List(vec!["Main".into(), "Other".into()]),
+        Some(50910),
+    );
+    assert!(
+        matches!(&result, Err(Signal::Unsupported(reason))
+            if reason.contains("CC Row") && reason.contains("because not installed")),
+        "{result:?}"
+    );
+}
+
+#[test]
+fn selected_backup_company_rows_exclude_unselected_companies() {
+    let (result, data) = run_with_selected_backup_data(
+        "N := Co.Count(); if Co.Get('Unselected') then exit(-1); R.Get(1); R.ChangeCompany('Other'); R.Get(1); if R.ChangeCompany('Unselected') then exit(-2); exit(N);",
+    );
+    assert!(matches!(result, Ok(Value::Integer(2))), "{result:?}");
+    assert_eq!(data.stats.summary().rows, 2);
+}
+
+#[test]
+fn selected_backup_writes_are_isolated_by_company_and_rollback_restores_rows() {
+    let result = run_with_selected_backup(
+        "R.ChangeCompany('Other'); R.Get(1); R.V := 99; R.Modify(); R.Id := 2; R.Insert(); R.Get(1); R.Delete(); R.ChangeCompany('Main'); R.Get(1); if R.V <> 11 then exit(-1); R.ChangeCompany('Other'); if R.Get(1) then exit(-2); if not R.Get(2) then exit(-3); ClearLastError(); asserterror Error('rollback'); R.Get(1); if R.V <> 22 then exit(-4); if R.Get(2) then exit(-5); exit(1);",
+    );
+    assert!(matches!(result, Ok(Value::Integer(1))), "{result:?}");
+}
+
+#[test]
+fn selected_backup_rows_block_renaming_a_shared_parent() {
+    // record/TestRenamePropagationCompany.al:5-8.
+    let result = run_with_selected_backup("P.Id := 1; P.Insert(); Commit(); P.Get(1); P.Rename(2); exit(1);");
+    assert!(matches!(result, Err(Signal::Unsupported(_))), "{result:?}");
+}
+
+#[test]
+fn renaming_a_selected_backup_company_is_refused_with_its_name() {
+    let result = run_with_selected_backup("Co.Get('Other'); Co.Rename('Renamed'); exit(1);");
+    assert!(
+        matches!(&result, Err(Signal::Unsupported(reason)) if reason.contains("Other")),
+        "{result:?}"
+    );
+}
+
+#[test]
+fn deleting_and_recreating_a_selected_backup_company_starts_empty() {
+    // record/TestChangeCompanyFiltersCopyDeleteContracts.al:204-212.
+    let result = run_with_selected_backup(
+        "Co.Get('Other'); Co.Delete(true); Commit(); Co.Name := 'Other'; Co.Insert(); Commit(); R.ChangeCompany('Other'); exit(R.Count());",
+    );
+    assert!(matches!(result, Ok(Value::Integer(0))), "{result:?}");
+}
+
+#[test]
+fn rolling_back_company_deletion_restores_selected_backup_rows() {
+    let result = run_with_selected_backup(
+        "Co.Get('Other'); Co.Delete(true); ClearLastError(); asserterror Error('rollback'); R.ChangeCompany('Other'); exit(R.Count());",
+    );
+    assert!(matches!(result, Ok(Value::Integer(1))), "{result:?}");
+}
+
+#[test]
+fn selected_company_loads_are_counted_and_later_exclusions_are_named() {
+    let (result, data) = run_with_selected_backup_data(
+        "R.Get(1); R.ChangeCompany('Other'); R.Get(1); N := Bad.Count(); Bad.ChangeCompany('Other'); N := Bad.Count(); exit(R.V);",
+    );
+    assert!(matches!(result, Ok(Value::Integer(22))), "{result:?}");
+    let summary = data.stats.summary();
+    assert_eq!(summary.rows, 2, "{summary:?}");
+    assert_eq!(summary.empty, 1, "{summary:?}");
+    assert_eq!(summary.reader.len(), 1, "{summary:?}");
+    let refusals = summary.refusals();
+    assert!(
+        refusals
+            .iter()
+            .any(|r| r.contains("Other") && r.contains("selected company read failed")),
+        "{refusals:?}"
+    );
+}
 
 #[test]
 fn change_company_to_the_empty_name_is_the_current_company() {
@@ -866,4 +1085,24 @@ fn a_copy_made_by_install_code_stays_a_copy_through_the_baseline_bytes() {
     let mut fresh = baseline_built();
     fresh.session.restore_baseline(&baseline);
     assert_eq!(al_testkit::text(fresh.run_in("C", "ReadCopy")), "1");
+}
+
+// CompanyProperty.DisplayName is non-empty (session-system/TestBCPlatformContracts.al:CompanyProperty_DisplayName_NonEmpty); for a
+// company whose row states a Display Name the answer is not pinned: refused. Without one it keeps main's answer.
+#[test]
+fn display_name_of_a_company_with_a_display_name_is_refused() {
+    let body = "if not Co.Get(CompanyName()) then begin Co.Name := CompanyName(); Co.Insert(); end;";
+    let r = run_with(
+        TABLES,
+        NEW_CO,
+        &format!("{body} Co.\"Display Name\" := 'Disp'; Co.Modify(); exit(CompanyProperty.DisplayName());"),
+    );
+    assert!(
+        matches!(&r, Err(Signal::Unsupported(w)) if w.contains("DisplayName")),
+        "{r:?}"
+    );
+    assert_ne!(
+        text(NEW_CO, &format!("{body} exit(CompanyProperty.DisplayName());")),
+        ""
+    );
 }

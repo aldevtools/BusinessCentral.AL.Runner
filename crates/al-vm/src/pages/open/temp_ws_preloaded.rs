@@ -30,6 +30,9 @@ impl Session {
             triggers: &["onaftergetrecord"],
             control_triggers: &["onvalidate"],
             properties: &["sourcetabletemporary", "sourcetableview", "insertallowed"],
+            action_props: None,
+            part_props: None,
+            table_triggers: &[],
         };
         let rec = self.page_rec(st);
         let opened = {
@@ -38,7 +41,7 @@ impl Session {
                 && !s.lookup
                 && !s.opened_by_test
                 && !s.run_by_currpage
-                && s.run_static != Some(true)
+                && s.modal_run != ModalRun::Static
                 && s.set_record.is_none()
                 && s.test_calls.is_empty()
         };
@@ -98,7 +101,7 @@ impl Session {
         rec.borrow_mut().fields = start.clone();
         self.populate_current(st)?;
         let shown = rec.borrow().fields.clone();
-        below[0].shown = shown.clone();
+        below[0].shown = shown.to_vec();
         rec.borrow_mut().fields = start.clone();
         let mut above = Vec::new();
         while self.nav_next(st, -1)? {
@@ -112,7 +115,7 @@ impl Session {
         above.reverse();
         above.extend(below);
         rec.borrow_mut().fields = shown;
-        self.set_xrec_fields(st, start);
+        self.set_xrec_fields(st, start.into_vec());
         {
             let mut s = st.borrow_mut();
             s.window = above;
@@ -130,9 +133,9 @@ impl Session {
     fn read_window_row(&mut self, st: &St) -> Result<crate::pages::WindowRow, Signal> {
         let rec = self.page_rec(st);
         let key = self.row_key(&rec)?;
-        let stored = rec.borrow().fields.clone();
+        let stored = rec.borrow().fields.to_vec();
         self.populate_current(st)?;
-        let shown = std::mem::replace(&mut rec.borrow_mut().fields, stored.clone());
+        let shown = std::mem::replace(&mut rec.borrow_mut().fields, stored.clone().into()).into_vec();
         Ok(crate::pages::WindowRow { key, stored, shown })
     }
 
@@ -197,7 +200,7 @@ impl Session {
             match s.temp_ws_edit {
                 Some((moves, edit))
                     if s.temp_ws_preloaded
-                        && s.refresh_update_false
+                        && s.refresh.update_false()
                         && moves == Self::moves_and_writes(&s.test_calls) =>
                 {
                     edit
@@ -233,12 +236,12 @@ impl Session {
         }
         rec.borrow_mut().fields = start.clone();
         self.populate_current(st)?;
-        rows[0].shown = rec.borrow().fields.clone();
-        self.set_xrec_fields(st, start);
+        rows[0].shown = rec.borrow().fields.to_vec();
+        self.set_xrec_fields(st, start.into_vec());
         {
             let mut s = st.borrow_mut();
             s.window = rows;
-            s.refresh = false;
+            s.refresh.cancel();
         }
         self.current_record_trigger(st, None)?;
         Ok(true)

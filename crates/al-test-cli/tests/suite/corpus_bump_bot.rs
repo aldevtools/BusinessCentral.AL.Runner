@@ -210,15 +210,43 @@ fn full_artifacts() -> String {
     format!(r#"{{"artifacts":[{}]}}"#, a.join(","))
 }
 
-/// A fake `gh`: `run list` answers the green runs (newest first), `run view ID` and `api .../runs/ID/artifacts`
-/// answer per run.
+/// A zip holding one JUnit file without provenance properties (a corpus run from before ADR-077), written to
+/// `dir/plain.zip`: the fake `gh` serves it for every artifact download, since a dry run reads the files.
+fn plain_zip(dir: &Path) {
+    let src = dir.join("plain");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(src.join("junit-al-language.xml"), "<testsuites/>").unwrap();
+    let st = Command::new("zip")
+        .current_dir(&src)
+        .args(["-q", &format!("{}/plain.zip", dir.display()), "junit-al-language.xml"])
+        .status()
+        .unwrap();
+    assert!(st.success());
+}
+
+/// A fake `gh` whose green runs are push runs only.
 fn fake_gh(dir: &Path, runs: &[(u64, &str, bool)]) -> PathBuf {
-    let list: Vec<String> = runs
-        .iter()
-        .map(|(id, sha, _)| format!(r#"{{"databaseId":{id},"headSha":"{sha}"}}"#))
-        .collect();
-    std::fs::write(dir.join("list.json"), format!("[{}]", list.join(","))).unwrap();
-    for (id, sha, complete) in runs {
+    fake_gh_by_event(dir, runs, &[])
+}
+
+/// A fake `gh`: `run list --event push` answers the green push runs and `run list --event schedule` the green
+/// nightly runs (each newest first; a run's `createdAt` grows with its id), `run view ID` and
+/// `api .../runs/ID/artifacts` answer per run, every artifact download `plain.zip`. Each `run list` call is
+/// appended to `list-args`.
+fn fake_gh_by_event(dir: &Path, push: &[(u64, &str, bool)], schedule: &[(u64, &str, bool)]) -> PathBuf {
+    for (event, runs) in [("push", push), ("schedule", schedule)] {
+        let list: Vec<String> = runs
+            .iter()
+            .map(|(id, sha, _)| {
+                format!(
+                    r#"{{"databaseId":{id},"headSha":"{sha}","createdAt":"2026-11-18T{:02}:00:00Z"}}"#,
+                    id % 24
+                )
+            })
+            .collect();
+        std::fs::write(dir.join(format!("list-{event}.json")), format!("[{}]", list.join(","))).unwrap();
+    }
+    for (id, sha, complete) in push.iter().chain(schedule) {
         std::fs::write(
             dir.join(format!("view-{id}.json")),
             format!(r#"{{"status":"completed","conclusion":"success","headSha":"{sha}"}}"#),
@@ -231,6 +259,7 @@ fn fake_gh(dir: &Path, runs: &[(u64, &str, bool)]) -> PathBuf {
         };
         std::fs::write(dir.join(format!("arts-{id}.json")), arts).unwrap();
     }
+    plain_zip(dir);
     let d = dir.display();
     let gh = dir.join("gh");
     std::fs::write(
@@ -238,8 +267,10 @@ fn fake_gh(dir: &Path, runs: &[(u64, &str, bool)]) -> PathBuf {
         format!(
             r#"#!/bin/bash
 case "$*" in
-  *"run list"*) echo "$*" > {d}/list-args; cat {d}/list.json ;;
+  *"run list"*"--event push"*) echo "$*" >> {d}/list-args; cat {d}/list-push.json ;;
+  *"run list"*"--event schedule"*) echo "$*" >> {d}/list-args; cat {d}/list-schedule.json ;;
   *"run view"*) cat {d}/view-$3.json ;;
+  */zip*) cat {d}/plain.zip ;;
   *"/artifacts?"*) id=${{2#*runs/}}; cat {d}/arts-${{id%%/*}}.json ;;
   *) echo "unexpected gh $*" >&2; exit 9 ;;
 esac
@@ -276,18 +307,87 @@ fn find_picks_the_newest_green_run_after_the_pin() {
 }
 
 /// A pull request run of the corpus tests only the changed files (run 41182315237: 27 cases where the oracle
-/// has 19831), and its commit can be on master with the files of the merge. Only push runs on master are full.
+/// has 19831), and its commit can be on master with the files of the merge. The bot lists the green push runs and
+/// the green nightly (schedule) runs on master (owner, 2026-11-18), nothing else.
 #[test]
-fn find_asks_only_for_push_runs_on_master() {
+fn find_asks_only_for_push_and_schedule_runs_on_master() {
     let c = corpus();
     let g = tempfile::tempdir().unwrap();
     let gh = fake_gh(g.path(), &[(2, &c.b, true)]);
     let o = find(&c, &gh);
     assert!(o.status.success(), "{}", text(&o));
     let args = std::fs::read_to_string(g.path().join("list-args")).unwrap();
-    assert!(args.contains("--event push"), "{args}");
-    assert!(args.contains("--branch master"), "{args}");
-    assert!(args.contains("--status success"), "{args}");
+    let calls: Vec<&str> = args.lines().collect();
+    assert_eq!(calls.len(), 2, "{args}");
+    for call in &calls {
+        assert!(call.contains("--branch master"), "{args}");
+        assert!(call.contains("--status success"), "{args}");
+    }
+    assert!(calls.iter().any(|l| l.contains("--event push")), "{args}");
+    assert!(calls.iter().any(|l| l.contains("--event schedule")), "{args}");
+}
+
+/// When master does not move after a run the bump checks refuse, the nightly on master is the only run left to bump
+/// from: the bot takes a green nightly that is newer than every green push run.
+#[test]
+fn find_picks_a_green_nightly_newer_than_the_push_runs() {
+    let c = corpus();
+    let g = tempfile::tempdir().unwrap();
+    let gh = fake_gh_by_event(g.path(), &[(2, &c.b, true)], &[(3, &c.c, true), (1, &c.pin, true)]);
+    let o = find(&c, &gh);
+    assert!(o.status.success(), "{}", text(&o));
+    assert_eq!(
+        String::from_utf8_lossy(&o.stdout),
+        format!("run=3\nsha={}\n", c.c),
+        "{}",
+        text(&o)
+    );
+}
+
+/// Push and nightly runs are tried newest first, whatever their event: a newer push run wins over an older nightly,
+/// and a nightly the bump checks refuse falls back to the next older run.
+#[test]
+fn find_tries_push_and_nightly_runs_newest_first() {
+    let c = corpus();
+    let g = tempfile::tempdir().unwrap();
+    let gh = fake_gh_by_event(g.path(), &[(4, &c.c, true)], &[(3, &c.b, true)]);
+    let o = find(&c, &gh);
+    assert!(o.status.success(), "{}", text(&o));
+    assert_eq!(
+        String::from_utf8_lossy(&o.stdout),
+        format!("run=4\nsha={}\n", c.c),
+        "{}",
+        text(&o)
+    );
+
+    let g = tempfile::tempdir().unwrap();
+    // Nightly 5 lacks its artifacts; push run 4 is the newest acceptable one.
+    let gh = fake_gh_by_event(g.path(), &[(4, &c.c, true)], &[(5, &c.c, false), (3, &c.b, true)]);
+    let o = find(&c, &gh);
+    assert!(o.status.success(), "{}", text(&o));
+    assert_eq!(
+        String::from_utf8_lossy(&o.stdout),
+        format!("run=4\nsha={}\n", c.c),
+        "{}",
+        text(&o)
+    );
+    assert!(text(&o).contains("run 5: refused by the bump checks"), "{}", text(&o));
+}
+
+/// A nightly whose commit master lacks is skipped like such a push run.
+#[test]
+fn find_skips_a_nightly_off_master() {
+    let c = corpus();
+    let g = tempfile::tempdir().unwrap();
+    let gh = fake_gh_by_event(g.path(), &[(2, &c.b, true)], &[(3, &c.side, true)]);
+    let o = find(&c, &gh);
+    assert!(o.status.success(), "{}", text(&o));
+    assert_eq!(
+        String::from_utf8_lossy(&o.stdout),
+        format!("run=2\nsha={}\n", c.b),
+        "{}",
+        text(&o)
+    );
 }
 
 #[test]

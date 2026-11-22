@@ -26,6 +26,43 @@ const MEDIA_FIELDREF_FILTER_ARGUMENT_EVIDENCE: &[Evidence] = &[Evidence {
     lines: "258,296,336,397,434",
 }];
 
+/// Evidence of [`Gate::ThreeLineLeavesKeyOnceFrom28`] and [`Gate::ThreeLineLeavesKeyTwiceAgainFrom29`]: two journal lines
+/// posted from a worksheet opened with Page.Run log one OnNewRecord and OnAfterGetCurrRecord pair less on BC 28
+/// (testpage/R7821JournalPostVariants.al:421 TPV7821_TwoLines_PageRun).
+const THREE_LINE_LEAVES_KEY_EVIDENCE: &[Evidence] = &[
+    Evidence {
+        file: "pages/RtFilteredGoneRow.al",
+        lines: "662,685",
+    },
+    Evidence {
+        file: "testpage/Y1WorksheetPostLog.al",
+        lines: "165,181",
+    },
+    Evidence {
+        file: "testpage/R7821JournalPostVariants.al",
+        lines: "421",
+    },
+];
+
+/// Evidence of [`Gate::Base64TextIsWindows1252From28`]: also `Base64Convert.FromBase64` with `TextEncoding::Windows` and code
+/// page 0 (streams/Base64LineBreaks.al:506 FromBase64_Windows_CodePages).
+const BASE64_TEXT_IS_WINDOWS_1252_EVIDENCE: &[Evidence] = &[
+    Evidence {
+        file: "types/PVBase64.al",
+        lines: "83,88,231",
+    },
+    Evidence {
+        file: "streams/Base64LineBreaks.al",
+        lines: "506",
+    },
+];
+
+/// Evidence of [`Gate::ExtensionCodeWithoutBaseTableGrantFrom29`].
+const EXTENSION_CODE_WITHOUT_BASE_TABLE_GRANT_EVIDENCE: &[Evidence] = &[Evidence {
+    file: "permissions/testpermissions/Y19PermExtAndCompose.al",
+    lines: "318,333,339,349,364,370",
+}];
+
 /// Evidence of [`Gate::RecordRefIsDirtyFrom28`].
 const RECORD_REF_IS_DIRTY_EVIDENCE: &[Evidence] = &[
     Evidence {
@@ -165,10 +202,6 @@ pub enum Gate {
     /// null-App-ID row. Before, the lookup keys on the App ID. Not consumed yet: the
     /// permission provider is not implemented.
     SuperPermissionSetIgnoresAppId,
-    /// `Environment Information.IsSaaSInfrastructure` is false. Before, it is true (the oracle
-    /// runs of 27.5 and 28.5 answer true, the 29.0 run false, on the same container setup). It is
-    /// `NavUserAccountHelper.IsAzure()` in the server-class registry.
-    NotSaaSInfrastructure,
     /// The header of the dataset XML that `Report.SaveAs(..., ReportFormat::Xml, ...)` writes has a
     /// `ReportCaption` element after `ReportName` and, after `Minute`, the company information
     /// block. Before, it has neither.
@@ -227,6 +260,8 @@ pub enum Gate {
     /// (code Evaluate:Format) from BC 28, `The type Nav<Type> is unknown.` (NotSupportedType) before. The split of the same
     /// error for an Option field is pinned (record/table-properties/UTableCdsOrdinals.al:170,175); for numbers it is
     /// pinned by recordref-fieldref/fieldref/TestFieldRefValue.al:202 FieldRef_Value_TextIntoInteger_ErrorText and :229 FieldRef_Value_TextIntoNumberTypes.
+    /// Also consumed by `fieldref_value_into_temporal` (al-builtins): a `FieldRef.Value` of a number field read into a Date, Time or
+    /// DateTime `var` parameter gives the Evaluate error of its text from BC 28 (assumption fieldref-value-temporal-error, corpus PR 1511).
     FieldRefTextNumberEvaluateErrorFrom28,
     /// `Evaluate(FieldRef, Text)` into a Guid field with its result used, on a text that is no Guid: it answers false and leaves
     /// the field on every version; BC 28 and 29 also clear the last error, BC 27 keeps the InvalidGuidFormat error
@@ -353,7 +388,10 @@ pub enum Gate {
     /// its evidence row is added when the corpus pin holds the file). The texts of the format regions en-GB, da-DK, nl-NL, es-ES,
     /// sv-SE and nb-NO (a one-digit day, a Time, an hour below 10, a negative amount, the long date) are asserted from BC 29 only;
     /// BC 27 and 28 hold `Observer.Discard()` (reports/runtime/BdRegionTests.al:143-398; consumed by al-builtins
-    /// format/region.rs).
+    /// format/region.rs). The Media row of an app's baseline JPEG logo has the Mime Type `image/jpeg` from BC 29 and `image/png`
+    /// on BC 27.5 and 28.5 (al-language-onprem/session-system/UsAppLogoJpeg.al:111-115; consumed by al-vm platform/apps.rs).
+    /// The Html a Word layout converts to names the converter's version: Aspose.Words 26.10.0 on BC 27.5 and 28.5, 26.8.0 on
+    /// BC 29 (reports/html-email-body/RxHtmlWidenTests.al:17-18); the runtime does not consume that fact.
     ProbedValuesDifferFrom29,
     /// `Base64Convert.ToBase64` of a Text with `TextEncoding::Windows` or `MSDos` and no code page gives the code page 1252
     /// bytes from BC 28 (`äöü` is `5Pb8`); before, the UTF-8 bytes (`w6TDtsO8`) (types/PVBase64.al, corpus bump 13).
@@ -412,11 +450,6 @@ pub enum Gate {
     /// Pages 2000000002 and 2000000004 narrow the same way from BC 28 (metadata/platform-tables/LicensePermissionRows.al:443,
     /// :448).
     LicensePermissionTopRangePageFrom28,
-    /// `Media.ImportFile` of a .docx file keeps the file's bytes as Tenant Media content and gives them back on export on BC 27
-    /// and 28; BC 29 on the Linux CI tier stores a re-zipped package (same parts, 919 bytes against 911), a Linux suspect the
-    /// corpus ignores (al-language-onprem/streams/media/MediaFiles.al:505-513, RD_Media_ImportFile_Docx; corpus bump 57). Consumed by
-    /// `al-builtins` media.rs: from 29 a look at the row or the export is refused.
-    DocxMediaRezippedFrom29,
     /// A page control bound to an Option field of another record variable of the page shows the field's OptionCaption from BC 29
     /// (Windows and the Linux CI legs); BC 27 and 28 show the member names on the Linux CI legs only, a Linux suspect whose Windows
     /// check is queued (pages/controls/SaOtherRecordControl.al:13-15, the BC29PLUS guards). Consumed by `al-vm`
@@ -453,8 +486,9 @@ pub enum Gate {
     /// RtFilteredGoneRow.al:662 TD_LeavesKey_Line1WithUpdate_ThreeLines, guarded `#if BC28PLUS and not BC29PLUS`; two lines:
     /// the same file's :685 TD_LeavesKey_Line1WithUpdate_TwoLines and testpage/Y1WorksheetPostLog.al:165,181,
     /// al-runner issue 6292). BC 28
-    /// only: [`Gate::ThreeLineLeavesKeyTwiceAgainFrom29`] ends it. Consumed by `al-vm` pages/actions.rs (the `rec_moved_other`
-    /// settle of a list action).
+    /// only: [`Gate::ThreeLineLeavesKeyTwiceAgainFrom29`] ends it. Consumed by `al-vm` pages/post_left_new_line.rs (the
+    /// `rec_moved_other` settle of a list action; there also for two rows on the new-row line,
+    /// testpage/R7821JournalPostVariants.al:416).
     ThreeLineLeavesKeyOnceFrom28,
     /// A move (Next, Previous, First, Last, GoToKey) of a plain list onto a row that a deletion by code took from the table
     /// since the list read it: BC 27 re-reads the rows around the row the cursor stands on and stays there; BC 28 answers the
@@ -501,6 +535,11 @@ pub enum Gate {
     /// field 1 (metadata/platform-tables/FieldRowSystemId.al:56-169, guarded `#if BC28PLUS`). Consumed by `al-vm`
     /// platform/fields.rs.
     FieldRowSystemIdFrom28,
+    /// From BC 29 the `Permissions` property of a table is no object grant of the code of its table extensions (the OnInsert
+    /// trigger, a procedure of the extension); on BC 27 and 28 it is (permissions/testpermissions/Y19PermExtAndCompose.al:318,
+    /// 333, 339, 349, 364, 370, the `#if BC29PLUS` guards of PC_B_ExtensionCode for b13, b14, b17, b18, b23, b24, b27 and b28). Consumed by `al-vm`
+    /// permissions/permission_probed/extension_code.rs.
+    ExtensionCodeWithoutBaseTableGrantFrom29,
 }
 
 impl Gate {
@@ -513,7 +552,6 @@ impl Gate {
         Gate::FlowFieldSumIntegerIntoBigInteger,
         Gate::FlowFieldMinMaxOverRowVersionRefused,
         Gate::SuperPermissionSetIgnoresAppId,
-        Gate::NotSaaSInfrastructure,
         Gate::ReportSaveAsXmlHeaderHasCompanyBlock,
         Gate::ReportSaveAsDataItemIdentity,
         Gate::FeatureKeyListChangedFrom28,
@@ -578,13 +616,13 @@ impl Gate {
         Gate::QueryReadCommittedFrom29,
         Gate::TestRunnerHubRequiredIsolationFrom28,
         Gate::LicensePermissionTopRangePageFrom28,
-        Gate::DocxMediaRezippedFrom29,
         Gate::OtherRecordOptionCaptionFrom29,
         Gate::JpegMediaSetKeptFrom29,
         Gate::ExceptionTraceValueTaskFrameFrom29,
         Gate::DotNetRuntime10From29,
         Gate::LegacyStatisticsActionGoneFrom29,
         Gate::NoCodeunitAfterTestRunAfterFailedOnRunFrom29,
+        Gate::ExtensionCodeWithoutBaseTableGrantFrom29,
     ];
 
     /// The first BC major with the new behaviour.
@@ -593,7 +631,6 @@ impl Gate {
             Gate::FlowFieldSumIntegerIntoBigInteger
             | Gate::FlowFieldMinMaxOverRowVersionRefused
             | Gate::SuperPermissionSetIgnoresAppId
-            | Gate::NotSaaSInfrastructure
             | Gate::ReportSaveAsXmlHeaderHasCompanyBlock
             | Gate::PermissionObjectNameLongerFrom29
             | Gate::QueryAggregateOverBigInteger
@@ -618,7 +655,6 @@ impl Gate {
             | Gate::CaseTimeZeroLabelFrom29
             | Gate::FlowFieldCountFilterBigIntegerFromIntegerFrom29
             | Gate::HttpBlankHeaderNameIsFormatFrom29
-            | Gate::DocxMediaRezippedFrom29
             | Gate::OtherRecordOptionCaptionFrom29
             | Gate::JpegMediaSetKeptFrom29
             | Gate::ThreeLineLeavesKeyTwiceAgainFrom29
@@ -628,7 +664,8 @@ impl Gate {
             | Gate::ExceptionTraceValueTaskFrameFrom29
             | Gate::DotNetRuntime10From29
             | Gate::LegacyStatisticsActionGoneFrom29
-            | Gate::NoCodeunitAfterTestRunAfterFailedOnRunFrom29 => 29,
+            | Gate::NoCodeunitAfterTestRunAfterFailedOnRunFrom29
+            | Gate::ExtensionCodeWithoutBaseTableGrantFrom29 => 29,
             Gate::ReportSaveAsDataItemIdentity
             | Gate::FeatureKeyListChangedFrom28
             | Gate::FromBase64InvalidTextRaises
@@ -685,7 +722,6 @@ impl Gate {
             | Gate::JsonSelectTokensListFrom28
             | Gate::EnvironmentPreviewRingsFrom28
             | Gate::FieldClassKeyFieldReferenceFrom28
-            | Gate::DocxMediaRezippedFrom29
             | Gate::MovedOntoDeletedStaysFrom28
             | Gate::MovedOntoDeletedRefreshesAgainFrom29
             | Gate::PlatformMetadataColumnsFrom29
@@ -759,10 +795,6 @@ impl Gate {
                 file: "permissions/TestMetadataPermissionSet.al",
                 lines: "98,106",
             }],
-            Gate::NotSaaSInfrastructure => &[Evidence {
-                file: "session-system/TestEnvironmentUserTenantContracts.al",
-                lines: "169",
-            }],
             Gate::PermissionObjectNameLongerFrom29 => &[Evidence {
                 file: "permissions/W6PermissionColumns.al",
                 lines: "122",
@@ -830,16 +862,9 @@ impl Gate {
                 file: "testpage/Y15ReapplyMarksSecondaryKey.al",
                 lines: "336",
             }],
-            Gate::ThreeLineLeavesKeyOnceFrom28 | Gate::ThreeLineLeavesKeyTwiceAgainFrom29 => &[
-                Evidence {
-                    file: "pages/RtFilteredGoneRow.al",
-                    lines: "662,685",
-                },
-                Evidence {
-                    file: "testpage/Y1WorksheetPostLog.al",
-                    lines: "165,181",
-                },
-            ],
+            Gate::ThreeLineLeavesKeyOnceFrom28 | Gate::ThreeLineLeavesKeyTwiceAgainFrom29 => {
+                THREE_LINE_LEAVES_KEY_EVIDENCE
+            }
             Gate::BracketedRecordIdNameWithoutNamespaceFrom28 => BRACKETED_RECORD_ID_NAME_EVIDENCE,
             Gate::MediaFieldRefFilterArgumentEvaluateErrorFrom28 => MEDIA_FIELDREF_FILTER_ARGUMENT_EVIDENCE,
             Gate::RecordRefIsDirtyFrom28 => RECORD_REF_IS_DIRTY_EVIDENCE,
@@ -906,6 +931,7 @@ impl Gate {
             Gate::ReportSaveAsInherentPermissionsFrom29 => REPORT_SAVE_AS_INHERENT_PERMISSIONS_EVIDENCE,
             Gate::LegacyStatisticsActionGoneFrom29 => LEGACY_STATISTICS_EVIDENCE,
             Gate::NoCodeunitAfterTestRunAfterFailedOnRunFrom29 => NO_CODEUNIT_AFTER_TEST_RUN_EVIDENCE,
+            Gate::ExtensionCodeWithoutBaseTableGrantFrom29 => EXTENSION_CODE_WITHOUT_BASE_TABLE_GRANT_EVIDENCE,
             Gate::ObsoleteRequiredPendingAttributeFrom29 => &[Evidence {
                 file: "reports/runtime/ACAttributes.al",
                 lines: "146",
@@ -1018,10 +1044,7 @@ impl Gate {
             }],
             Gate::ProbedValuesDifferFrom28 => PROBED_VALUES_DIFFER_FROM_28,
             Gate::ProbedValuesDifferFrom29 => PROBED_VALUES_DIFFER_FROM_29,
-            Gate::Base64TextIsWindows1252From28 => &[Evidence {
-                file: "types/PVBase64.al",
-                lines: "83,88,231",
-            }],
+            Gate::Base64TextIsWindows1252From28 => BASE64_TEXT_IS_WINDOWS_1252_EVIDENCE,
             Gate::TestFieldTypedValueTexts => &[
                 Evidence {
                     file: "record/testfield/AsTestFieldTexts.al",
@@ -1248,10 +1271,6 @@ impl Gate {
                     lines: "122,127",
                 },
             ],
-            Gate::DocxMediaRezippedFrom29 => &[Evidence {
-                file: "../al-language-onprem/streams/media/MediaFiles.al",
-                lines: "506,511",
-            }],
             Gate::DotNetRuntime10From29 => &[Evidence {
                 file: "../al-language-onprem-dotnet/dotnet/runonclient/BgRunOnClient.al",
                 lines: "443",
@@ -1365,7 +1384,8 @@ pub fn has(target: Option<&Target>, gate: Gate) -> bool {
 
 /// Which list of Feature Key rows a target has (record/PFFeatureKeyColumns.al:41-94 keys them on the version of the
 /// application): 27.0 (`RowsA`), 27.3 and 27.5 (`RowsB`), 28.0 (`RowsC`), 28.1 to 28.5 (`RowsD`, al-runner issue 5790) and
-/// 29.0 (`RowsE`). The minors the corpus did not measure (27.1, 27.2, 27.4, 28.6 and on, 29.1 and on) are not served.
+/// 29.0 (`RowsE`). The minors not measured (27.1, 27.2, 27.4, 28.6 and on, 29.1 and on) are not served, except on the
+/// platform builds of [`NOTIFICATION_BAR_PLATFORMS`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FeatureKeyRows {
     Bc27_0,
@@ -1373,10 +1393,19 @@ pub enum FeatureKeyRows {
     Bc28_0,
     Bc28,
     Bc29,
+    /// The 29.0 list and NewNotificationBar ([`NOTIFICATION_BAR_PLATFORMS`]).
+    Bc29NotificationBar,
 }
 
-pub fn feature_key_rows(target: Option<&Target>) -> Option<FeatureKeyRows> {
-    match target.map(|t| (t.bc.major, t.bc.minor))? {
+/// `platform`: the version of the platform's System app the run loaded, which is the platform build (the System.app of
+/// the 29.0.54011.55816 artifacts is version 29.0.55782.0, the platform the corpus file FeatureKeyRowsReads290.al names
+/// for that build); `None` when the run loaded none.
+pub fn feature_key_rows(target: Option<&Target>, platform: Option<&str>) -> Option<FeatureKeyRows> {
+    let t = target?;
+    if has_new_notification_bar(t, platform) {
+        return Some(FeatureKeyRows::Bc29NotificationBar);
+    }
+    match (t.bc.major, t.bc.minor) {
         (27, 0) => Some(FeatureKeyRows::Bc27_0),
         (27, 3 | 5) => Some(FeatureKeyRows::Bc27),
         (28, 0) => Some(FeatureKeyRows::Bc28_0),
@@ -1384,6 +1413,49 @@ pub fn feature_key_rows(target: Option<&Target>) -> Option<FeatureKeyRows> {
         (29, 0) => Some(FeatureKeyRows::Bc29),
         _ => None,
     }
+}
+
+/// The 14-row list follows the platform build, not the application minor (corpus PR 1484, assumption
+/// feature-key-rows-container-measured). Served only on the (application minor, platform build) pairs PR 1484 measured:
+/// application 29.1 on platforms 29.0.57943 and 29.0.58337, W1 and DE (FeatureKeyRowsReads291.al:45-79), and
+/// Application 29.0 on every platform build keeps the 13 rows (FeatureKeyRowsReads290.al:41, platform 29.0.55782; the
+/// other builds are not measured, al-runner issue 8618).
+const NOTIFICATION_BAR_PLATFORMS: &[(u16, u32)] = &[(1, 57943), (1, 58337)];
+
+fn has_new_notification_bar(t: &Target, platform: Option<&str>) -> bool {
+    let Some(build) = platform_build_29_0(platform) else {
+        return false;
+    };
+    t.bc.major == 29 && NOTIFICATION_BAR_PLATFORMS.contains(&(t.bc.minor, build))
+}
+
+/// The build part N of a platform version "29.0.N.x".
+fn platform_build_29_0(platform: Option<&str>) -> Option<u32> {
+    let parts: Vec<&str> = platform?.split('.').collect();
+    match parts[..] {
+        ["29", "0", build, _] => build.parse::<u32>().ok(),
+        _ => None,
+    }
+}
+
+/// Why a read of the Feature Key table is refused where [`feature_key_rows`] serves no list. Application 29.1 names the
+/// platform builds of [`NOTIFICATION_BAR_PLATFORMS`] it was measured on and the run's own platform.
+pub fn feature_key_refusal(target: Option<&Target>, platform: Option<&str>) -> String {
+    let Some(t) = target.filter(|t| (t.bc.major, t.bc.minor) == (29, 1)) else {
+        return "Feature Key: its rows are served for the minors they were measured on only (docs/probes-needed.md)"
+            .into();
+    };
+    let measured: Vec<String> = NOTIFICATION_BAR_PLATFORMS
+        .iter()
+        .filter(|(minor, _)| *minor == t.bc.minor)
+        .map(|(_, build)| format!("29.0.{build}"))
+        .collect();
+    format!(
+        "the rows of application 29.1 are served on the platform builds they were measured on only ({}; \
+         docs/probes-needed.md), this run's platform is {}",
+        measured.join(", "),
+        platform.unwrap_or("not known (no System app loaded)")
+    )
 }
 
 /// The name of the test runner's outermost method, which the TryFunctionWrite error names when the test method itself uses
@@ -1535,9 +1607,39 @@ const PROBED_VALUES_DIFFER_FROM_29: &[Evidence] = &[
         file: "testpage/F3ValidationAddinFilter.al",
         lines: "409,447",
     },
+    // Corpus bump to 2c02f723: the Html a Word layout converts to carries the converter's version (Aspose.Words 26.8.0 on
+    // BC 29, 26.10.0 on 27 and 28), so its char count and hash differ from BC 29 (RxHtmlHashTests.al:10-13).
+    Evidence {
+        file: "reports/html-email-body/RxHtmlHashTests.al",
+        lines: "156,181,203,230,266,277,285,306,327,348,370,407,422,445,460,484,495",
+    },
+    // Corpus bump to 8fcde9a6: the Html of Word layouts with a styles, theme, numbering or header part, a caption and a BlankZero
+    // column carries the converter's version too (Aspose.Words 26.8.0 on BC 29, 26.10.0 on 27 and 28; RxHtmlWidenTests.al:20-21).
+    Evidence {
+        file: "reports/html-email-body/RxHtmlWidenTests.al",
+        lines: "411,416,421,426,452,457,462,467,494,499,504,509,537,542,547,552,582,587,592,597,628,633,638,643,655,682,687,692,697",
+    },
+    // Corpus bump to 2c02f723: on BC 29 a temporary ListPart of a Document reads its rows a third time after an action and runs
+    // OnAfterGetCurrRecord on its empty rows after Next (HiddenPartJournalShape.al:20-22).
+    Evidence {
+        file: "testpage/parts/HiddenPartJournalShape.al",
+        lines: "557,591,625,659,697",
+    },
+    // Corpus bump to 2c02f723: the Media row of an app's baseline JPEG logo has the Mime Type image/jpeg from BC 29.
+    Evidence {
+        file: "../al-language-onprem/session-system/UsAppLogoJpeg.al",
+        lines: "111",
+    },
 ];
 
 const PROBED_VALUES_DIFFER_FROM_28: &[Evidence] = &[
+    // `Base64Convert.ToBase64(InStream, true)` after a part of the stream was read, and a second call on the same InStream
+    // (streams/Base64LineBreaks.al:200,212 ToBase64_InStream_EmptyPartReadAndSecondCall); the OutStream line-break tests
+    // exist from BC 28 only (:255-405).
+    Evidence {
+        file: "streams/Base64LineBreaks.al",
+        lines: "200,212,255",
+    },
     Evidence {
         file: "format-evaluate/format-matrix/FMOptionBlankField.al",
         lines: "254,519,784",
@@ -1707,6 +1809,79 @@ mod tests {
         assert_eq!(test_runner_root_scope(Some(&target("29.0"))), Some("RootMethodScope"));
         assert_eq!(test_runner_root_scope(None), Some("RootMethodScope"));
         assert_eq!(test_runner_root_scope(Some(&target("30.0"))), None);
+    }
+
+    /// The Feature Key list of a 29 target follows the platform build (the version of the System app the run loaded):
+    /// app 29.1 on platform 29.0.57943 or 29.0.58337 have NewNotificationBar
+    /// (assumption feature-key-rows-container-measured, corpus PR 1484). Every other shape keeps main's answer: 29.0
+    /// the 13 rows (record/PFFeatureKeyColumns.al RowsE, measured on platform 29.0.55782), 29.1 and 29.2 none.
+    #[test]
+    fn the_feature_key_list_of_29_follows_the_platform_build() {
+        let rows = |bc: &str, platform: Option<&str>| feature_key_rows(Some(&target(bc)), platform);
+        let bar = Some(FeatureKeyRows::Bc29NotificationBar);
+        for (bc, platform) in [
+            ("29.1", "29.0.57943.0"),
+            ("29.1", "29.0.58337.0"),
+            ("29.1.57326.58379", "29.0.58337.0"),
+        ] {
+            assert_eq!(rows(bc, Some(platform)), bar, "{bc} on {platform}");
+        }
+        // Main's answer: the 13 rows of 29.0 on every other platform, or with none known.
+        for platform in [
+            Some("29.0.55782.0"),
+            Some("29.0.56212.0"),
+            Some("29.0.56479.0"),
+            Some("29.0.50000.0"),
+            Some("29.0.56480.0"),
+            Some("29.0.56481.0"),
+            Some("29.0.57943.0"),
+            Some("29.0.61000.0"),
+            None,
+        ] {
+            assert_eq!(rows("29.0", platform), Some(FeatureKeyRows::Bc29), "{platform:?}");
+        }
+        // Main's answer: none for 29.1 on a platform build not measured or with no platform known, for another platform
+        // minor or major, a platform text that is no four-part build, and for 29.2.
+        for (bc, platform) in [
+            ("29.1", None),
+            ("29.1", Some("29.0.55782.0")),
+            ("29.1", Some("29.0.56212.0")),
+            ("29.1", Some("29.0.56480.0")),
+            ("29.1", Some("29.0.57944.0")),
+            ("29.1", Some("29.0.61000.0")),
+            ("29.1", Some("29.1.58337.0")),
+            ("29.1", Some("30.0.58337.0")),
+            ("29.1", Some("29.0.58337")),
+            ("29.1", Some("1.0.0.0")),
+            ("29.2", Some("29.0.58337.0")),
+            ("29.2", None),
+        ] {
+            assert_eq!(rows(bc, platform), None, "{bc} on {platform:?}");
+        }
+        // Other majors ignore the platform.
+        assert_eq!(rows("28.4", Some("29.0.58337.0")), Some(FeatureKeyRows::Bc28));
+        assert_eq!(rows("27.0", Some("29.0.58337.0")), Some(FeatureKeyRows::Bc27_0));
+        assert_eq!(feature_key_rows(None, Some("29.0.58337.0")), None);
+    }
+
+    /// The refusal of an unserved Feature Key list: application 29.1 names the platform builds its list was measured on
+    /// and the run's own; every other target keeps main's text.
+    #[test]
+    fn the_feature_key_refusal_of_29_1_names_the_measured_platform_builds() {
+        let t = target("29.1");
+        let why = feature_key_refusal(Some(&t), Some("29.0.61000.0"));
+        assert!(why.contains("29.0.57943") && why.contains("29.0.58337"), "{why}");
+        assert!(why.contains("29.0.61000.0"), "{why}");
+        assert!(feature_key_refusal(Some(&t), None).contains("29.0.57943"));
+        let main = "Feature Key: its rows are served for the minors they were measured on only (docs/probes-needed.md)";
+        for bc in ["29.2", "27.1", "28.6"] {
+            assert_eq!(
+                feature_key_refusal(Some(&target(bc)), Some("29.0.61000.0")),
+                main,
+                "{bc}"
+            );
+        }
+        assert_eq!(feature_key_refusal(None, None), main);
     }
 
     #[test]

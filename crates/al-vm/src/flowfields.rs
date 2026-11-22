@@ -23,12 +23,28 @@ use std::rc::Rc;
 
 type Rec = Rc<RefCell<RecordState>>;
 
-/// A FlowField being calculated: its table and field, and whether a source row's condition FlowField asked for it.
+/// A FlowField being calculated: its table and field, whether its record is temporary, and who asked for it.
 #[derive(Debug, Clone, Copy)]
-struct CalcFrame {
-    table: usize,
-    field: usize,
-    via_source_row: bool,
+pub(crate) struct CalcFrame {
+    pub(crate) table: usize,
+    pub(crate) field: usize,
+    pub(crate) temporary: bool,
+    pub(crate) asked: Asked,
+}
+
+/// Who asked for the value of a FlowField.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Asked {
+    /// The AL call `Record.CalcFields` of one field on a Record variable, by codeunit code (`Session::flow_op`). Other callers of `Session::calc_fields` (SetAutoCalcFields, pages,
+    /// reports, xmlports, table relations) pass `Other`.
+    CalcFields,
+    /// A source row's condition on a FlowField of its own table.
+    SourceRow,
+    /// A filter on the FlowField that a row is checked against (`Session::passes_flow_field_filters`: the scan of a read,
+    /// `CalcSums`, a table relation).
+    RecordFilter,
+    /// Any other caller: a query, a page, a field(..) condition, a FlowField key.
+    Other,
 }
 
 /// The FlowFields being calculated, outermost first: the recursion guard of `Session::calc_value_in`.
@@ -48,6 +64,9 @@ impl Tally {
     fn add(&mut self, calc: &ir::CalcFormula, row: &[Value]) -> Result<(), Signal> {
         use ir::CalcMethod as M;
         self.n += 1;
+        if let Some(at) = calc.field {
+            al_builtins::placeholder_output::size_read(&row[at], "a FlowField over a record field holding the value")?;
+        }
         match calc.method {
             M::Count | M::Exist => {}
             M::Sum | M::Average => {
@@ -61,6 +80,13 @@ impl Tally {
             }
             M::Min | M::Max => {
                 let v = &row[calc.field.expect("field")];
+                if let Value::Text(t) | Value::Code(t) = v
+                    && al_builtins::collation::holds_ae(t)
+                {
+                    return unsupported(
+                        "a min or max FlowField over a text with the letter `Æ` or `æ`: its order is not measured (al-runner issue 8195)",
+                    );
+                }
                 self.best = match self.best.take() {
                     None => Some(v.clone()),
                     Some(b) => match (calc.method, ops::compare(v, &b)?) {
@@ -368,6 +394,11 @@ impl Session {
     /// record/TestCalcFormulaValidationTests.Codeunit.al:211,
     /// record/TestCalcFieldsFieldClass.Codeunit.al:204).
     pub(crate) fn calc_fields(&mut self, rec: &Rec, all: &[usize]) -> Result<(), Signal> {
+        self.calc_fields_asked(rec, all, Asked::Other)
+    }
+
+    /// [`Session::calc_fields`] for the caller `asked`: `Record.CalcFields` passes [`Asked::CalcFields`].
+    fn calc_fields_asked(&mut self, rec: &Rec, all: &[usize], asked: Asked) -> Result<(), Signal> {
         let table = rec.borrow().table as usize;
         // Blob fields are not FlowFields: CalcFields loads their content (streams/TestBlob.al).
         let is_blob = |p: usize| {
@@ -382,7 +413,7 @@ impl Session {
         self.load_blobs(rec, &blobs)?;
         let mut out = Vec::new();
         for &p in positions {
-            out.push((p, self.calc_value(rec, p)?));
+            out.push((p, self.calc_value_in(rec, p, &mut Vec::new(), asked)?));
         }
         // A FlowField on a temporary record reads the persistent source table (corpus
         // record/TestCalcFieldsTruncateUniqueContracts.al:CalcFields_OnATemporaryRecord_ReadsThePersistentSourceTable).
@@ -647,36 +678,29 @@ impl Session {
         }
         let filters = self.calc_filters(rec, calc, &mut Vec::new())?;
         let src_t = self.engine.tables[calc.table].clone().expect("table");
+        self.crm_source_refused(&src_t, "a FlowField")?;
         if self.permission_checks() {
-            self.permission_gate_flowfield(rec, calc.table)?;
+            self.permission_gate_flowfield(rec, calc.table, &[])?;
         }
         let cx = self.cx_for(rec, &src_t)?;
-        let n = self
-            .store
-            .count(&cx, &src_t, &filters)
-            .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
-        Ok(n > 0)
+        self.refuse_filter_over_rolled(&cx, &src_t, &filters)?;
+        self.store
+            .exists(&cx, &src_t, &filters)
+            .map_err(|e| Signal::unsupported(format!("store error {e}")))
     }
 
     /// The value of FlowField `pos` of `rec`.
     pub(crate) fn calc_value(&mut self, rec: &Rec, pos: usize) -> Result<Value, Signal> {
-        self.calc_value_in(rec, pos, &mut Vec::new(), false)
+        self.calc_value_in(rec, pos, &mut Vec::new(), Asked::Other)
     }
 
-    /// The value of FlowField `pos` of `rec` while the FlowFields on `stack` are being calculated; `via_source_row` when a source
-    /// row's condition FlowField asks for it.
-    fn calc_value_in(
-        &mut self,
-        rec: &Rec,
-        pos: usize,
-        stack: &mut CalcStack,
-        via_source_row: bool,
-    ) -> Result<Value, Signal> {
+    /// The value of FlowField `pos` of `rec` while the FlowFields on `stack` are being calculated; `asked` says who asks for it.
+    fn calc_value_in(&mut self, rec: &Rec, pos: usize, stack: &mut CalcStack, asked: Asked) -> Result<Value, Signal> {
         let table = rec.borrow().table as usize;
         if let Some(at) = stack.iter().position(|f| f.table == table && f.field == pos) {
             // A cycle through the condition FlowField of a source row (the same table or another one) has no pinned error: it
             // used to recurse until the native stack overflowed (al-runner issue 7623).
-            if via_source_row || stack[at + 1..].iter().any(|f| f.via_source_row) {
+            if asked == Asked::SourceRow || stack[at + 1..].iter().any(|f| f.asked == Asked::SourceRow) {
                 return unsupported(
                     "a FlowField that needs itself through the condition FlowField of a source row (BC's error is not pinned)",
                 );
@@ -692,7 +716,8 @@ impl Session {
         stack.push(CalcFrame {
             table,
             field: pos,
-            via_source_row,
+            temporary: rec.borrow().temporary,
+            asked,
         });
         let r = self.calc_value_inner(rec, pos, stack);
         stack.pop();
@@ -713,14 +738,18 @@ impl Session {
         let calc = f.calc.as_ref().expect("checked by check_calc_field");
         let filters = self.calc_filters(rec, calc, stack)?;
         let src_t = self.engine.tables[calc.table].clone().expect("table");
+        self.crm_source_refused(&src_t, "a FlowField")?;
         // The source table is read even when the record holding the FlowField is temporary.
         self.note_indirect_read(src_t.object);
         self.unseeded_read(&src_t, rec.borrow().temporary, "a FlowField")?;
+        // A CalcFields of the source table's own record raised a deferred Insert error before this (`record_op_inner`).
+        self.refuse_unmeasured_read_while_deferred(calc.table, "a FlowField read")?;
         // ADR-062: a FlowField reads its source table indirectly (CpPermLeads.al:29-63).
         if self.permission_checks() {
-            self.permission_gate_flowfield(rec, calc.table)?;
+            self.permission_gate_flowfield(rec, calc.table, stack)?;
         }
         let cx = self.cx_for(rec, &src_t)?;
+        self.refuse_filter_over_rolled(&cx, &src_t, &filters)?;
         let src_fields = &engine.program.objects[calc.table].table.as_ref().expect("table").fields;
         let (stored, flow): (Vec<FieldFilter>, Vec<FieldFilter>) = filters
             .iter()
@@ -818,13 +847,13 @@ impl Session {
             };
             {
                 let mut p = probe.borrow_mut();
-                p.fields = row.clone();
+                p.fields = row.clone().into();
                 p.company = rec.borrow().company.clone();
             }
             let mut pass = true;
             for c in flow {
                 self.check_calc_field(calc.table, c.field)?;
-                let v = self.calc_value_in(&probe, c.field, stack, true)?;
+                let v = self.calc_value_in(&probe, c.field, stack, Asked::SourceRow)?;
                 if !c.expr.matches(&v)? {
                     pass = false;
                     break;
@@ -904,9 +933,10 @@ impl Session {
                     }
                     return Ok(tally.best.unwrap_or_else(|| self.default_value(&src_ty)));
                 }
-                // Nothing matched: the type default (corpus record/TestCalcFormulaMinMaxAvgTests.Codeunit.al:250).
+                // Nothing matched: the type default (corpus record/TestCalcFormulaMinMaxAvgTests.Codeunit.al:250). A Time held past
+                // the day reads 00:00:00 (`sqltime::read_back`).
                 match tally.best {
-                    Some(v) => v,
+                    Some(v) => crate::sqltime::read_back_value(v),
                     None => self.default_value(&f.ty),
                 }
             }
@@ -1013,7 +1043,7 @@ impl Session {
                         // Corpus record/TestCalcFormulaFlowFieldValueTests.Codeunit.al:112: a
                         // FlowField on the other side is calculated first, not read from the buffer.
                         self.check_calc_field(table, *q)?;
-                        let v = self.calc_value_in(rec, *q, stack, false)?;
+                        let v = self.calc_value_in(rec, *q, stack, Asked::Other)?;
                         parts.push((c.field, FilterExpr::Eq(ops::convert(v, sty)?), false));
                     } else {
                         let v = rec.borrow().fields[*q].clone();
@@ -1179,7 +1209,7 @@ impl Session {
         let mut after: Option<Vec<Value>> = None;
         loop {
             let store = match rec {
-                Some(r) => self.store_for(r),
+                Some(r) => self.store_for(r)?,
                 None => &mut self.store,
             };
             let next = store
@@ -1206,6 +1236,7 @@ impl Session {
     /// A Duration field sums too, also one in no SumIndexFields (record/flowfields/CalcSumsDuration.al
     /// CalcSums_Duration_All, _Filtered, _NotInSumIndexFields; `FieldRef.CalcSum`: FieldRefCalcSumTypes).
     pub(crate) fn calc_sums(&mut self, rec: &Rec, positions: &[usize]) -> Result<(), Signal> {
+        self.relation_field_no_calc_sum(rec, positions)?;
         let engine = self.engine.clone();
         let table = rec.borrow().table as usize;
         let t = self.engine.tables[table].clone().expect("table");
@@ -1226,6 +1257,7 @@ impl Session {
         let cx = self.cx_for(rec, &t)?;
         let mut add = |row: &[Value]| -> Result<(), Signal> {
             for (s, &p) in sums.iter_mut().zip(positions) {
+                al_builtins::placeholder_output::size_read(&row[p], "CalcSums of a record field holding the value")?;
                 *s += number(&row[p]).ok_or_else(|| non_number(&row[p]))?;
             }
             Ok(())
@@ -1281,8 +1313,11 @@ impl Session {
         // A database table compares its Time and DateTime columns with the filter values rounded as the columns hold them
         // (record/filters/P130DateFilters.al:206-227).
         if !r.temporary {
-            if let Some(t) = self.engine.tables[r.table as usize].as_ref() {
-                crate::sqltime::round_filters(t, &mut stored);
+            if let (Some(t), Some(schema)) = (
+                self.engine.tables[r.table as usize].as_ref(),
+                self.engine.program.objects[r.table as usize].table.as_ref(),
+            ) {
+                crate::sqltime::round_filters(t, schema, &mut stored);
             }
         }
         (stored, flow_fields)
@@ -1301,14 +1336,14 @@ impl Session {
         let probe = {
             let r = rec.borrow();
             let mut p = r.clone();
-            p.fields = row.to_vec();
+            p.fields = row.to_vec().into();
             p.temporary = false;
             p.auto_calc.clear();
             Rc::new(RefCell::new(p))
         };
         for f in filters {
             self.check_calc_field(table, f.field)?;
-            let v = self.calc_value(&probe, f.field)?;
+            let v = self.calc_value_in(&probe, f.field, &mut Vec::new(), Asked::RecordFilter)?;
             if !f.expr.matches(&v)? {
                 return Ok(false);
             }
@@ -1316,7 +1351,14 @@ impl Session {
         Ok(true)
     }
 
-    pub(crate) fn flow_op(&mut self, method: RecordOp, rec: &Rec, args: &[Value]) -> Result<Value, Signal> {
+    /// `CalcFields`, `CalcSums` and `SetAutoCalcFields`; `asked` is the caller a `CalcFields` calculates for.
+    pub(crate) fn flow_op_asked(
+        &mut self,
+        method: RecordOp,
+        rec: &Rec,
+        args: &[Value],
+        asked: Asked,
+    ) -> Result<Value, Signal> {
         let positions: Vec<usize> = args
             .iter()
             .map(|a| match a {
@@ -1326,7 +1368,7 @@ impl Session {
             .collect::<Result<_, _>>()?;
         match method {
             RecordOp::CalcFields => {
-                self.calc_fields(rec, &positions)?;
+                self.calc_fields_asked(rec, &positions, asked)?;
             }
             RecordOp::CalcSums => {
                 self.calc_sums(rec, &positions)?;
@@ -1347,6 +1389,9 @@ impl Session {
                 let mut r = rec.borrow_mut();
                 if positions.is_empty() {
                     r.auto_calc.clear();
+                    // The record now calculates nothing of its own accord: its reads no longer rest on what its caller's
+                    // set was (`RecordState::auto_calc_dropped`).
+                    r.auto_calc_dropped = false;
                 } else {
                     for p in positions {
                         if !r.auto_calc.contains(&p) {
@@ -1360,9 +1405,18 @@ impl Session {
         Ok(Value::Boolean(true))
     }
 
-    /// After a row is read into `rec`: the fields of `SetAutoCalcFields`.
+    /// After a row is read into `rec`: the fields of `SetAutoCalcFields`. A row read of a by-value copy that did not take its
+    /// caller's SetAutoCalcFields (`RecordState::auto_calc_dropped`) rests on `by-value-record-no-auto-calc`, also when the
+    /// copy set fields of its own (record/filters/ByValueAutoCalcFields.al `ByValueAutoCalc_Codeunit_CalleeAddsAutoCalc`:
+    /// only those are calculated).
     pub(crate) fn auto_calculate(&mut self, rec: &Rec) -> Result<(), Signal> {
-        let auto = rec.borrow().auto_calc.clone();
+        let (auto, dropped) = {
+            let r = rec.borrow();
+            (r.auto_calc.clone(), r.auto_calc_dropped)
+        };
+        if dropped {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ByValueRecordNoAutoCalc);
+        }
         if auto.is_empty() {
             return Ok(());
         }

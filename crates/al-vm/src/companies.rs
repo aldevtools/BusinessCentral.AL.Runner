@@ -12,15 +12,13 @@ use al_builtins::native::{Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::value::Value;
 use al_data::{AccessContext, Store, TableDef};
+use al_ir::BASE_APPLICATION_APP_ID;
 
 /// The object id of the platform's Company table.
 pub(crate) const COMPANY_TABLE: u32 = 2_000_000_006;
 
 /// The company of the corpus CI database other than the session company (record/BfInstallTests.al:47-64).
 const CORPUS_OTHER_COMPANY: &str = "My Company";
-
-/// Base Application's app id.
-const BASE_APPLICATION_APP_ID: &str = "437dbf0e-84ff-417a-965d-ed2bb9650972";
 
 /// Base Application's Company Information table.
 const COMPANY_INFORMATION: u32 = 79;
@@ -43,9 +41,60 @@ impl Session {
         self.engine.tables[oi].clone()
     }
 
+    /// CompanyProperty.DisplayName: non-empty (session-system/TestBCPlatformContracts.al:CompanyProperty_DisplayName_NonEmpty).
+    /// That it is the company's name when no display name is set is an assumption (docs/probes-needed.md); a company whose row
+    /// states a display name is not pinned: refused.
+    pub(crate) fn company_display_name(&self) -> Result<Value, Signal> {
+        if self.company_display_name_set() {
+            return al_builtins::native::unsupported(
+                "CompanyProperty.DisplayName of a company whose Display Name is set (not pinned)",
+            );
+        }
+        Ok(Value::Text(self.cx.company.clone().into()))
+    }
+
+    /// Whether the session company's row of the Company table states a Display Name.
+    fn company_display_name_set(&self) -> bool {
+        let Some(t) = self.company_table() else {
+            return false;
+        };
+        let (Ok(key), Some(at)) = (
+            ops::convert(Value::Text(self.cx.company.to_string().into()), &t.fields[0].ty),
+            t.fields.iter().position(|f| f.name == "Display Name"),
+        ) else {
+            return false;
+        };
+        matches!(al_data::Store::get(&self.store, &self.cx, &t, &[key]), Ok(Some(row))
+            if matches!(&row[at], Value::Text(s) if !s.is_empty()))
+    }
+
     /// Whether `t` is the Company table.
     pub(crate) fn is_company_table(&self, t: &TableDef) -> bool {
         self.engine.program.objects[t.object as usize].id == Some(COMPANY_TABLE)
+    }
+
+    /// A Rename of the Company row of a company `--companies` selected is refused (ADR-046).
+    pub(crate) fn refuse_selected_company_rename(
+        &self,
+        temporary: bool,
+        t: &TableDef,
+        old: &[Value],
+        new: &[Value],
+    ) -> Result<(), Signal> {
+        if !temporary
+            && self.is_company_table(t)
+            && let (Some(from), Some(to)) = (
+                old.first().and_then(al_builtins::native::text_of),
+                new.first().and_then(al_builtins::native::text_of),
+            )
+            && from != to
+            && self.companies.iter().any(|company| company == &from)
+        {
+            return unsupported(format!(
+                "renaming selected company {from} under --companies is not supported (ADR-046)"
+            ));
+        }
+        Ok(())
     }
 
     /// The name of the company `name` refers to, as the Company table spells it. The session
@@ -85,13 +134,12 @@ impl Session {
     /// baseline made for the session company, since a company BC creates holds such rows too.
     pub(crate) fn cx_for(&self, rec: &Rec, t: &TableDef) -> Result<AccessContext, Signal> {
         let r = rec.borrow();
+        let company = r.company.as_deref().unwrap_or(&self.cx.company);
+        let backed_company = self.backed_companies.iter().any(|known| known == company);
         // ADR-046 decision 5, under the `--companies` opt-in: in a declared company other than the session company only
-        // the per-company tables of the apps under test are answered (new at that app's install, so they hold what install
-        // code and tests wrote there). What a dependency app, Company-Initialize or the platform put into a per-company
-        // table of that company is not known: record/BfInstallTests.al:74-95 counts rows there that
-        // the runtime does not make (P3).
+        // the per-company tables of the apps under test are answered, unless the backup was explicitly selected to supply
+        // that company's rows.
         if !self.companies.is_empty() && t.per_company && !r.temporary {
-            let company = r.company.as_deref().unwrap_or(&self.cx.company);
             if let Some(why) = self.company_unknown.get(&(company.to_string(), t.object)) {
                 return unsupported(format!("{} in company {company}: {why}", t.name));
             }
@@ -103,6 +151,7 @@ impl Session {
                     .install_facts
                     .get()
                     .is_some_and(|f| f.under_test_tables.contains(&(t.object as usize)))
+                && !backed_company
             {
                 if self.starts_empty_in(company, t) {
                     return Ok(AccessContext {
@@ -117,7 +166,7 @@ impl Session {
             }
             if r.company.is_some()
                 && self.companies.iter().any(|c| c == company)
-                && !self.engine.unseeded.contains(&(t.object as usize))
+                && !self.engine.unseeded.contains_key(&(t.object as usize))
             {
                 return Ok(AccessContext {
                     company: company.into(),
@@ -136,7 +185,7 @@ impl Session {
         let full_copy = self.full_copies.contains(company.as_str());
         if t.per_company
             && !r.temporary
-            && (self.engine.unseeded.contains(&(t.object as usize))
+            && (self.engine.unseeded.contains_key(&(t.object as usize))
                 || ((self.baseline_rows.contains(&t.object) || self.backs_rows(t.object))
                     && !full_copy
                     && !self.starts_empty_in_made(company, t)))
@@ -248,6 +297,7 @@ impl Session {
         // The filters, the current key and the marks stay (a mark is a primary key), and a
         // temporary record keeps its rows (:25-30).
         let mut r = rec.borrow_mut();
+        r.change_company_called = true;
         if r.company == target {
             return Ok(Value::Boolean(true));
         }

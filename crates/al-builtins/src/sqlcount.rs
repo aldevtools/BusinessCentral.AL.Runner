@@ -131,6 +131,20 @@ pub fn into_number(c: SqlCount, ty: SqlType) -> Value {
     Value::SqlCount(SqlCount { ty, ..c })
 }
 
+/// A counter value `v` (holding `c`) converted for a slot of type `t`: it stays tainted in a Variant and in a number slot, with
+/// the slot's type (SqlCounters.al P6924_Counters_StoredInInteger_NotNegative, P6924_Counters_StoredInDecimal_NotNegativeAndWhole);
+/// any other type would show its number, so it is refused.
+pub fn convert(c: SqlCount, v: Value, t: &crate::value::RtType) -> Result<Value, Signal> {
+    use crate::value::RtType as T;
+    match t {
+        T::Variant => Ok(v),
+        T::BigInteger => Ok(into_number(c, SqlType::BigInteger)),
+        T::Integer => Ok(into_number(c, SqlType::Integer)),
+        T::Decimal => Ok(into_number(c, SqlType::Decimal)),
+        _ => Err(refusal("a conversion to another type")),
+    }
+}
+
 /// `Round(x, 1)` of a counter value: a count is whole, so it rounds to itself, a Decimal (SqlCounters.al
 /// P6924_Counters_StoredInDecimal_NotNegativeAndWhole `Stmt = Round(Stmt, 1)`). `None` for any other precision.
 pub fn round_whole(v: &Value, precision: Option<&Value>) -> Option<Value> {

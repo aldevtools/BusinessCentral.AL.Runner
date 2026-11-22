@@ -30,7 +30,7 @@ impl Session {
     /// Called by a Run, RunModal or Execute of a report that renders (`ir::Report::output` not empty) once its request page
     /// closed with OK or was not shown: `Ok` goes on with the triggers and writes nothing; otherwise the pinned error or a
     /// refusal naming `why` (the first reason the report renders).
-    pub(crate) fn run_without_output(&self, schema: &Schema, why: &str) -> Result<(), Signal> {
+    pub(crate) fn run_without_output(&mut self, schema: &Schema, why: &str) -> Result<(), Signal> {
         let report = schema.report();
         let refused = || {
             unsupported(format!(
@@ -44,7 +44,7 @@ impl Session {
         if !matches!(report.default_layout_kind.as_str(), "rdlc" | "word" | "excel") {
             return refused();
         }
-        self.refuse_unraised_layout_events(schema, "a run", &["substitutereport"])?;
+        self.refuse_run_layout_events(schema)?;
         if let Some(who) = self.run_event_subscriber() {
             return unsupported(format!(
                 "a run of report \"{}\" with {who} (BC raises the printer and download events around a render; this runtime \
@@ -76,19 +76,23 @@ impl Session {
         }
     }
 
-    /// Runs `run` as a report started by `RunModal` (`modal`) and with the SystemPrinter argument `printer`, and restores the
-    /// state of the run around it afterwards (a report run from a trigger of another).
+    /// Runs `run` as a report started by `RunModal` (`modal`), with the SystemPrinter argument `printer`, and by the static
+    /// call with only the report id and no substitution (`bare`), and restores the state of the run around it afterwards (a
+    /// report run from a trigger of another).
     pub(crate) fn run_started_as(
         &mut self,
         modal: bool,
         printer: Option<&Value>,
+        bare: bool,
         run: impl FnOnce(&mut Self) -> Result<(), Signal>,
     ) -> Result<(), Signal> {
         let outer = std::mem::replace(&mut self.report.run_modal, modal);
+        let outer_bare = std::mem::replace(&mut self.report.run_bare, bare);
         let printer = matches!(printer, Some(Value::Boolean(true)));
         let outer_printer = std::mem::replace(&mut self.report.system_printer, printer);
         let ran = run(self);
         (self.report.run_modal, self.report.system_printer) = (outer, outer_printer);
+        self.report.run_bare = outer_bare;
         ran
     }
 
@@ -99,7 +103,12 @@ impl Session {
         RUN_EVENTS.iter().find_map(|e| {
             self.engine
                 .events
-                .unraised_subscriber("reporting triggers", Some(e), test, self.test_object)
+                .unraised_subscriber(
+                    &crate::events::unraised_key(al_ir::REPORTING_CODEUNIT),
+                    Some(e),
+                    test,
+                    self.test_object,
+                )
                 .map(|(_, sub)| format!("a subscriber to {e} ({sub})"))
         })
     }

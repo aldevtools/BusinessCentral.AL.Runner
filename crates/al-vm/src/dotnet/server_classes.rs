@@ -27,6 +27,30 @@ use std::rc::Rc;
 
 type Args<'a> = &'a [Value];
 
+/// The members, (CLR type, member), whose implementation here only answers: from the session's host identity or a
+/// constant, or with a new object of its own type that holds nothing ([`is_sandbox`], [`al_config_instance`], the
+/// `ALConfigSettings.IsSaaS` flag). A call of one leaves nothing in the session, the store or another object, so the
+/// static reach analysis (al-testrun `written.rs`) counts it apart from code it does not follow. These are the members
+/// System Application's login memos call (Environment Information Impl.`IsSandbox`, Server Setting
+/// Impl.`GetEnableMembershipEntitlement`); a member is added only with the same reading of its implementation.
+pub const ANSWERS_ONLY: &[(&str, &str)] = &[
+    (TENANT_SETTINGS_HELPER, "IsSandbox"),
+    (AL_CONFIG_SETTINGS, "Instance"),
+    (AL_CONFIG_SETTINGS, "IsSaaS"),
+];
+
+/// Whether `member` of the declared CLR type `clr_type` is one of [`ANSWERS_ONLY`] (both without regard to case, as the
+/// registry matches them).
+pub fn answers_only(clr_type: &str, member: &str) -> bool {
+    (ANSWERS_ONLY.iter()).any(|(t, m)| t.eq_ignore_ascii_case(clr_type) && m.eq_ignore_ascii_case(member))
+}
+
+/// Whether a variable of the declared CLR type `clr_type` can only hold an object of a class served here whose members
+/// include one of [`ANSWERS_ONLY`]: the variable itself changes nothing; each member called on it counts on its own.
+pub fn holds_answering_class(clr_type: &str) -> bool {
+    (ANSWERS_ONLY.iter()).any(|(t, _)| t.eq_ignore_ascii_case(clr_type))
+}
+
 fn no_args(args: Args, what: &str) -> Result<(), Signal> {
     if args.is_empty() {
         Ok(())
@@ -54,6 +78,7 @@ macro_rules! config_flag {
     };
 }
 
+// Listed in ANSWERS_ONLY: must stay read-only; a write here must remove it from the list.
 fn al_config_instance(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "ALConfigSettings.Instance")?;
     Ok(Value::DotNet(Rc::new(DotNetObject::new(DotNetKind::Internal {
@@ -118,6 +143,7 @@ config_flag!(
     "ALConfigSettings.UsePermissionsFromExtensions",
     Value::Boolean(true)
 );
+// Listed in ANSWERS_ONLY: must stay read-only; a write here must remove it from the list.
 config_flag!(membership_entitlement, "ALConfigSettings.IsSaaS", Value::Boolean(false));
 
 /// Whether the tenant is a sandbox. The SaaS environment is the oracle tier (probe: `IsSandbox`
@@ -131,6 +157,7 @@ fn tenant_is_sandbox(s: &Session) -> bool {
     s.host.identity.environment() == al_host::Environment::Saas
 }
 
+// Listed in ANSWERS_ONLY: must stay read-only; a write here must remove it from the list.
 fn is_sandbox(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "NavTenantSettingsHelper.IsSandbox")?;
     Ok(Value::Boolean(tenant_is_sandbox(s)))
@@ -187,7 +214,7 @@ fn environment_name(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -
 /// `TryGetStringTenantSetting(name, out value)`: the three settings System Application reads, with
 /// the values the oracle tenant answers through the wrappers `Tenant Information.GetTenantId` and
 /// `GetTenantDisplayName` and `Azure AD Tenant.GetAadTenantId`
-/// (session-system/TestEnvironmentUserTenantContracts.al:TenantAndAzureAd_Answers, :209-212). The
+/// (session-system/TestEnvironmentUserTenantContracts.al:TenantAndAzureAd_Answers, :206-209). The
 /// wrappers return the out value as it is; `GetAadTenantId` returns it when it is not a Guid, so
 /// the setting itself is `common`. The names are matched without regard to case. Any other name (`DatabaseServer`,
 /// `DatabaseName`, `DefaultCompany`, the other Mount-NAVTenant settings, the empty name, an unknown one) is not found: false,
@@ -293,16 +320,11 @@ fn environment_application_setting(_: &mut Session, _: Option<&Rc<DotNetObject>>
 }
 
 /// `!NavEnvironment.Topology.IsServiceRunningInLocalEnvironment`, which is
-/// `Environment Information.IsSaaSInfrastructure`. The oracle answers true on BC 27.5 and 28.5 and
-/// false on 29.0 (`Gate::NotSaaSInfrastructure`; corpus
-/// `session-system/TestEnvironmentUserTenantContracts.al:164-174`). AL Runner's `StandardServiceTopology`
-/// answers false throughout; the probe wins where it says true.
-fn is_azure(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
+/// `Environment Information.IsSaaSInfrastructure`: false on every supported major (corpus
+/// `session-system/TestEnvironmentUserTenantContracts.al:185`).
+fn is_azure(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "NavUserAccountHelper.IsAzure")?;
-    Ok(Value::Boolean(!al_version::gate_on(
-        s.engine.target.as_ref(),
-        al_version::Gate::NotSaaSInfrastructure,
-    )))
+    Ok(Value::Boolean(false))
 }
 
 /// `NavUserAccountHelper.IsUserDelegatedAdmin()`: false in a test session on every supported major (corpus
@@ -713,7 +735,7 @@ fn graph_tenant_detail(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args
 
 /// Microsoft's Azure AD Tenant Impl. raises "Failed to retrieve ..." for a null TenantInfo, and the corpus test
 /// expects '' from `GetAadTenantDomainName`, `GetCountryLetterCode` and `GetPreferredLanguage`.
-const TENANT_INFO_PIN: &str = "session-system/TestEnvironmentUserTenantContracts.al:213-232 (GetAadTenantDomainName, GetCountryLetterCode and GetPreferredLanguage answer '' without an error)";
+const TENANT_INFO_PIN: &str = "session-system/TestEnvironmentUserTenantContracts.al:210-229 (GetAadTenantDomainName, GetCountryLetterCode and GetPreferredLanguage answer '' without an error)";
 
 fn tenant_info_empty_text(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "TenantInfo member")?;
@@ -1056,7 +1078,7 @@ fn user_account_helper() -> RegistryType {
         members: vec![
             member(
                 "IsAzure",
-                probe("164-174 (IsSaaSInfrastructure true on 27 and 28, false from 29)"),
+                probe("185 (IsSaaSInfrastructure false on every major)"),
                 is_azure,
             ),
             member(

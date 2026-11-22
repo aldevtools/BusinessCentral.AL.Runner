@@ -7,6 +7,7 @@ use al_deps::artifact::{Cdn, HttpCdn};
 use al_deps::service_tier::ServiceTier;
 use al_host::dotnet::*;
 use al_test_cli::dotnet::{AssemblyFetch, SidecarConfig, SidecarHost};
+use al_testrun::dotnet_runtime::ServiceRuntime;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -46,6 +47,8 @@ fn workbook_writer_create_loads_from_the_fetched_service_tier_assemblies() {
         source_root: Some(root()),
         cache_dir: Some(Path::new(env!("CARGO_TARGET_TMPDIR")).join("dotnet-sidecar-cache")),
         assembly_dirs: vec![tier.dir()],
+        // As `alrunner-cli`'s `dotnet_dirs` does: the fetched tier names the .NET major the sidecar runs on.
+        service_runtime: Some(ServiceRuntime::of_tier(tier.clone())),
         fetch_assembly: Some(AssemblyFetch(Arc::new(move |name: &str| {
             b.fetch_add(t.ensure(name)?.bytes, Ordering::Relaxed);
             Ok(())

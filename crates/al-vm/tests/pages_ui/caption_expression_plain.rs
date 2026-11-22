@@ -1,6 +1,6 @@
 //! The caption of a field whose CaptionClass expression gives a text with no comma, or with an area that is not a number
 //! (al-runner issue 7382). The captions are pinned by corpus record/captions/CaptionExpressionPlainText.al (BC 27.5, 28.5 and
-//! 29.0), which is their test; here are the two shapes that stay refused, which the corpus cannot reach.
+//! 29.0), which is their test; here are shapes the corpus cannot reach.
 
 use al_builtins::native::Signal;
 use al_testkit::text;
@@ -57,10 +57,11 @@ codeunit 42 "Caption Class"
 }
 "#;
 
-/// What an expression in an area a subscriber resolves reads is not pinned (al-runner issue 7431): refused. An area no
-/// subscriber resolves stays as written (the corpus run has such subscribers, record/captions/R6985FieldCaptionArea.al:61).
+/// FieldCaption of an expression in an area a subscriber resolves gives the subscriber's caption (record/captions/
+/// CaptionClassOwnArea.al:359-379, al-runner issue 7431; it was refused while unpinned). An area no subscriber resolves stays
+/// as written (the corpus run has such subscribers, record/captions/R6985FieldCaptionArea.al:61).
 #[test]
-fn an_expression_in_an_area_a_subscriber_resolves_is_refused() {
+fn an_expression_in_an_area_a_subscriber_resolves_gives_its_caption() {
     let sub = |area: &str| {
         format!(
             "{OBJECTS}{SUBSCRIBERS}
@@ -76,11 +77,7 @@ codeunit 50789 T {{ procedure F(): Text var R: Record Row; begin exit(R.FieldCap
         )
     };
     assert_eq!(text(al_testkit::run_in(&sub("Other"), "T", "F")), "Zed,some text");
-    let r = al_testkit::run_in(&sub("Zed"), "T", "F");
-    assert!(
-        matches!(&r, Err(Signal::Unsupported(w)) if w.contains("which a subscriber resolves")),
-        "{r:?}"
-    );
+    assert_eq!(text(al_testkit::run_in(&sub("Zed"), "T", "F")), "claimed");
 }
 
 /// A text with no comma that a subscriber of OnAfterCaptionClassResolve changes is pinned for a literal only
@@ -110,10 +107,11 @@ codeunit 50789 T {{ procedure F(): Text var R: Record Row; begin exit(R.FieldCap
 }
 
 /// `Enum.AsInteger` in the table's own CaptionClass expression leaves nothing behind (al-runner issue 7379; the corpus cases
-/// CaptionExpressionPlainText.al:296-398 are the test). The same call inside a codeunit the expression calls is not pinned yet:
-/// the page open stays refused where the number of empty-record runs is not pinned (two expressions with different texts).
+/// CaptionExpressionPlainText.al:296-398 are the test). So does the same call inside a codeunit the expression calls, now pinned
+/// (record/captions/CaptionClassStateFreeCalls.al:111-114 KindNumber, :188 HelperCc): the page open runs where the number of
+/// empty-record runs is not pinned (two expressions with different texts), as a flagged pass.
 #[test]
-fn as_integer_in_a_codeunit_the_caption_expression_calls_is_still_refused() {
+fn as_integer_in_a_codeunit_the_caption_expression_calls_runs() {
     let src = r#"
 enum 50790 Kind { value(0; Item) { } value(1; Resource) { } }
 codeunit 50791 Helper { procedure Number(K: Enum Kind): Integer begin exit(K.AsInteger()); end; }
@@ -127,9 +125,5 @@ table 50790 Row
 page 50792 RowCard { PageType = Card; SourceTable = Row; layout { area(Content) { field(Amount; Rec.Amount) { } } } }
 codeunit 50793 T { procedure F(): Text var P: TestPage RowCard; begin P.OpenView(); exit(P.Amount.Caption()); end; }
 "#;
-    let r = al_testkit::run_in(src, "T", "F");
-    assert!(
-        matches!(&r, Err(Signal::Unsupported(w)) if w.contains("calls Enum.AsInteger")),
-        "{r:?}"
-    );
+    assert_eq!(text(al_testkit::run_in(src, "T", "F")), "All");
 }

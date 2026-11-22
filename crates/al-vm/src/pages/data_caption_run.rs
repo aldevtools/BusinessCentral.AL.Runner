@@ -6,13 +6,9 @@ impl Session {
     /// Whether the page is a card with a source table and a DataCaptionExpression of its own (a list, a part and an
     /// expression a page extension sets are not pinned, they keep the evaluation at read).
     pub(super) fn card_with_data_caption_expression(&self, st: &St) -> bool {
-        let engine = self.engine();
         let object = st.borrow().object as usize;
-        engine.program.objects[object].is_kind(al_ir::ObjKind::Page)
-            && engine.program.objects[object]
-                .properties
-                .iter()
-                .any(|(k, _)| k.eq_ignore_ascii_case("DataCaptionExpression"))
+        self.engine().program.objects[object].is_kind(al_ir::ObjKind::Page)
+            && self.has_own_data_caption_expression(st)
             && self.has_source(st)
             && !self.is_list(st)
             && st.borrow().host.is_none()
@@ -61,6 +57,12 @@ impl Session {
         if st.borrow().mode == PageMode::New {
             return Ok(());
         }
+        self.run_data_caption_held_back(st)
+    }
+
+    /// Runs the page's DataCaptionExpression, keeps what it returned and holds back the plain globals it assigned until the
+    /// next row arrives (`apply_data_caption_globals`).
+    pub(super) fn run_data_caption_held_back(&mut self, st: &St) -> Result<(), Signal> {
         let inst = st.borrow().instance.clone().expect("open page");
         let before = inst.borrow().globals.clone();
         let value = self.data_caption_expression_value(st);

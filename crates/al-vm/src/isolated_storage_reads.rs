@@ -108,10 +108,7 @@ impl Session {
 
     /// The lock timeout of a worker's Get of a key behind the test session's lock (see the module comment).
     pub(crate) fn isolated_storage_locked() -> Signal {
-        crate::transactions::al_error_code(
-            "We can't save your changes right now, because a record in table 'Isolated Storage' is being updated in a transaction done by another session.\\\\You'll have to wait until the other transaction has completed, which may take a while. Please try again later.",
-            "NDBCS:LockTimeout",
-        )
+        crate::bg_readisolation_lock::lock_timeout("Isolated Storage", "\\")
     }
 }
 

@@ -1,4 +1,4 @@
-use super::{declared_separator, split_variable_marked};
+use super::text::{split_variable_marked, text_separator};
 
 // xmlports/TestXmlPortTextFormatsContracts.al:VariableText_Import_QuotedUnquotedAndBlankValues
 #[test]
@@ -22,12 +22,17 @@ fn a_variable_text_record_splits_into_its_values() {
     );
 }
 
-// metadata/session-system/P94XpDelim.al:Getters_* (escaped alike); xmlports/shapes-properties/Y88XmlPortProbes.al:Y88_VariableText_DeclaredSeparatorGetters (real characters)
+// metadata/session-system/P94XpDelim.al:Getters_* (escaped alike); xmlports/shapes-properties/Y88XmlPortProbes.al:Y88_VariableText_DeclaredSeparatorGetters (real characters);
+// xmlports/shapes-properties/XpSeparatorGetterTokens.al:105-118 (lower-case tokens and <> are text, tokens inside a longer text are read)
 #[test]
 fn a_declared_separator_reads_back_as_its_characters() {
-    assert_eq!(declared_separator("<CR/LF>").unwrap(), "\r\n");
-    assert_eq!(declared_separator("<LF>").unwrap(), "\n");
-    assert_eq!(declared_separator("<None>").unwrap(), "");
-    assert_eq!(declared_separator(";").unwrap(), ";");
-    assert!(declared_separator("<Space>").is_err());
+    let read = |v: &str| text_separator(Some(v), ",");
+    assert_eq!(read("<CR/LF>").unwrap(), "\r\n");
+    assert_eq!(read("<LF>").unwrap(), "\n");
+    assert_eq!(read("<None>").unwrap(), "");
+    assert_eq!(read(";").unwrap(), ";");
+    assert_eq!(read("<tab>").unwrap(), "<tab>");
+    assert_eq!(read("<>").unwrap(), "<>");
+    assert_eq!(read(";<TAB>").unwrap(), ";\t");
+    assert!(read("<Space>").is_err());
 }

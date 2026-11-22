@@ -3,7 +3,7 @@
 #[test]
 fn the_extension_name_of_the_header_names_the_publisher() {
     assert_eq!(
-        super::header_extension_name("AL Language Coverage Tests", "AL Language"),
+        super::dataset_header::header_extension_name("AL Language Coverage Tests", "AL Language"),
         "AL Language Coverage Tests by AL Language"
     );
 }
