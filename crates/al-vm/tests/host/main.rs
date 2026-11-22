@@ -29,6 +29,7 @@ mod outstream_char_high_duration_filter;
 mod outstream_write_text_unicode;
 mod platform_members;
 mod server_helpers;
+mod stream_call_path;
 mod streams;
 mod task_scheduler;
 mod task_scheduler_after_commit;

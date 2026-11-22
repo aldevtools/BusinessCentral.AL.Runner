@@ -154,6 +154,21 @@ fn engine_with_layouts(
     layouts: Vec<(String, Vec<u8>)>,
     description: Option<&str>,
 ) -> (std::sync::Arc<Engine>, al_sema::lower::Lowered) {
+    engine_on_platform(app_id, main, dep, roots, bc, layouts, description, "1.0.0.0")
+}
+
+/// [`engine_with_layouts`] with `platform` as the version of the System app (a run's System.app has the platform build).
+#[allow(clippy::too_many_arguments)]
+fn engine_on_platform(
+    app_id: &str,
+    main: &str,
+    dep: Option<&str>,
+    roots: al_sema::check::Roots,
+    bc: &str,
+    layouts: Vec<(String, Vec<u8>)>,
+    description: Option<&str>,
+    platform: &str,
+) -> (std::sync::Arc<Engine>, al_sema::lower::Lowered) {
     use al_sema::workspace::{AppKind, AppSource};
     let app = |id: &str, name: &str, deps: &[&str], files: Vec<(String, String)>| AppSource {
         id: id.into(),
@@ -180,7 +195,12 @@ fn engine_with_layouts(
     // The two sources above carry no manifest, so no version; the app tables list an app only with one.
     let mut program = (*l.program).clone();
     for a in program.apps.iter_mut().filter(|a| a.version.is_empty()) {
-        a.version = "1.0.0.0".into();
+        a.version = if a.id == al_sema::workspace::PLATFORM_APP_ID {
+            platform
+        } else {
+            "1.0.0.0"
+        }
+        .into();
     }
     // An app id that starts with `ms-` stands for a Microsoft app (the System Application).
     for a in program
@@ -596,6 +616,43 @@ codeunit 50000 "T" { Subtype = Test;
     );
     passes(&o, "TwoNames");
     for t in ["NameOrWildcard", "WildcardOrWildcard", "NameOrCaseInsensitive"] {
+        let why = not_run(&o, t);
+        assert!(why.contains("alternative"), "{t}: {why}");
+    }
+}
+
+// al-runner issue 8462: an alternative of names and wildcards none of which matches `timestamp`, with or without regard
+// to case, cannot keep the rowversion row whether or not its lookup sees it, so the other rows are answered as on main
+// before the row existed. A part that matches `timestamp` in any case, and a part of other letters, still refuse.
+#[test]
+fn an_alternative_that_cannot_match_timestamp_answers_without_the_rowversion_row() {
+    let o = outcomes(
+        r#"table 50110 "FW Entry" { fields { field(1; "Entry No."; Integer) { } field(2; Description; Text[100]) { }
+  field(10; KeyField1; Code[50]) { } field(11; KeyField2; Code[50]) { } } keys { key(PK; "Entry No.") { Clustered = true; } } }
+codeunit 50000 "T" { Subtype = Test;
+  local procedure Rows(F: Text): Text var Fld: Record Field; R: Text; begin
+    Fld.SetRange(TableNo, Database::"FW Entry"); Fld.SetFilter(FieldName, F); Fld.SetLoadFields("No.", FieldName);
+    if Fld.FindSet() then repeat R += Fld.FieldName + ';'; until Fld.Next() = 0;
+    exit(R); end;
+  [Test] procedure ReporterShape() var Fld: Record Field; R: Text; begin
+    Fld.SetRange(TableNo, Database::"FW Entry"); Fld.SetFilter(FieldName, '%1|%2', 'Description', 'KeyField*');
+    if Fld.FindSet() then repeat R += Fld.FieldName + ';'; until Fld.Next() = 0;
+    if R <> 'Description;KeyField1;KeyField2;' then Error('got %1', R);
+    if Fld.Count() <> 3 then Error('count %1', Fld.Count()); end;
+  [Test] procedure CaseInsensitivePart() begin if Rows('Description|@keyfield*') <> 'Description;KeyField1;KeyField2;' then Error('got %1', Rows('Description|@keyfield*')); end;
+  [Test] procedure WildcardMatchesTimestamp() begin Rows('Description|*stamp'); end;
+  [Test] procedure WildcardMatchesTimestampWithoutCase() begin Rows('Description|TIME*'); end;
+  [Test] procedure NameIsTimestampWithoutCase() begin Rows('TIMESTAMP|Key*'); end;
+  [Test] procedure PartOfOtherLetters() begin Rows('Beschreibung|Schlüssel*'); end; }"#,
+    );
+    passes(&o, "ReporterShape");
+    passes(&o, "CaseInsensitivePart");
+    for t in [
+        "WildcardMatchesTimestamp",
+        "WildcardMatchesTimestampWithoutCase",
+        "NameIsTimestampWithoutCase",
+        "PartOfOtherLetters",
+    ] {
         let why = not_run(&o, t);
         assert!(why.contains("alternative"), "{t}: {why}");
     }
@@ -2868,7 +2925,7 @@ codeunit 50000 "T" { Subtype = Test;
 
 // al-runner issue 5790: Feature Key rows per minor (record/PFFeatureKeyColumns.al:41-94). 28.1 to 28.5 have one list,
 // 28.0 another (SemanticMetadataSearch All Users); 27.0 differs from 27.3 and 27.5 in the same row; a minor the corpus
-// did not measure (27.1) is refused, also for a Get.
+// did not measure (27.1, 29.2) is refused, also for a Get.
 #[test]
 fn feature_key_rows_follow_the_measured_minors() {
     let main = r#"codeunit 50000 "T" { Subtype = Test;
@@ -2889,13 +2946,137 @@ fn feature_key_rows_follow_the_measured_minors() {
         ("28.0.0.0", "SemanticAllUsers"),
         ("27.0.0.0", "SemanticNone"),
         ("27.3.0.0", "SemanticAllUsers"),
+        ("29.0.0.0", "SemanticAllUsers"),
     ] {
         let o = outcomes_bc("main", main, roots(), bc);
         assert_eq!(outcome(&o, "Concurrent"), Some(Outcome::Pass), "{bc}: {o:?}");
         assert_eq!(outcome(&o, semantic), Some(Outcome::Pass), "{bc}: {o:?}");
     }
-    let o = outcomes_bc("main", main, roots(), "27.1.0.0");
-    assert!(not_run(&o, "Concurrent").contains("Feature Key"), "{o:?}");
+    for bc in ["27.1.0.0", "29.2.0.0"] {
+        let o = outcomes_bc("main", main, roots(), bc);
+        assert!(not_run(&o, "Concurrent").contains("Feature Key"), "{bc}: {o:?}");
+    }
+}
+
+// al-runner issue 8192: the Feature Key list follows the platform build (the System app's version), not the application
+// minor. Application 29.1 on platform 29.0.57943 or 29.0.58337 serves the
+// 29.0 rows and NewNotificationBar on the assumption feature-key-rows-container-measured (corpus PR 1484,
+// record/FeatureKeyRowsReads291.al): every read of the table marks it, also one that finds no row, and the Description
+// columns of FEATURE_KEY_TEXTS are served, and the Description of all 14 keys (FeatureKeyRowsReads291.al:81). Application 29.0 on any other platform keeps main's 13 rows unflagged
+// (record/PFFeatureKeyColumns.al RowsE, measured on platform 29.0.55782); application 29.1 on any other platform build
+// is refused with a text naming the measured builds; 29.2 keeps main's refusal.
+#[test]
+fn feature_key_rows_follow_the_platform_build() {
+    let src = r#"codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure Bar() var K: Record "Feature Key"; begin
+    if not K.Get('NewNotificationBar') then Error('no row');
+    if Format(K.Enabled) <> 'All Users' then Error('enabled %1', K.Enabled);
+    if K."Mandatory By Version" <> '30.0' then Error('version %1', K."Mandatory By Version");
+    if K."Mandatory By" <> '2027 Wave 1 (from April to September 2027)' then Error(K."Mandatory By");
+    if not K."Can Try" or K."Is One Way" or K."Data Update Required" then Error('flags'); end;
+  [Test] procedure BarTexts() var K: Record "Feature Key"; begin
+    K.Get('NewNotificationBar');
+    if K.Description <> 'Feature: New notification bar' then Error(K.Description);
+    if K."Description In English" <> 'Feature: New notification bar' then Error(K."Description In English");
+    if K."Learn More Link" <> 'https://go.microsoft.com/fwlink/?LinkId=2384311' then Error(K."Learn More Link"); end;
+  [Test] procedure Concurrent() var K: Record "Feature Key"; begin
+    if not K.Get('ConcurrentInventoryPosting') then Error('no row');
+    if K."Mandatory By Version" <> '31.0' then Error('version %1', K."Mandatory By Version"); end;
+  [Test] procedure RowCount() var K: Record "Feature Key"; begin
+    if K.Count() <> 14 then Error('count %1', K.Count()); end;
+  [Test] procedure Order() var K: Record "Feature Key"; begin
+    K.SetFilter(ID, '%1|%2|%3', 'FullTextSearch', 'NewNotificationBar', 'SalesPrices');
+    K.FindSet(); if K.ID <> 'FullTextSearch' then Error(K.ID);
+    K.Next(); if K.ID <> 'NewNotificationBar' then Error(K.ID);
+    K.Next(); if K.ID <> 'SalesPrices' then Error(K.ID); end;
+  [Test] procedure MissingKey() var K: Record "Feature Key"; begin
+    if K.Get('AutomaticAccountCodes') then Error('row'); end;
+  [Test] procedure NoneCounted() var K: Record "Feature Key"; begin
+    K.SetRange("Mandatory By Version", '32.0');
+    if K.Count() <> 0 then Error('count %1', K.Count()); end;
+  [Test] procedure Texts() var K: Record "Feature Key"; begin
+    K.Get('SalesPrices');
+    if K.Description <> 'Feature Update: New sales pricing experience' then Error(K.Description); end;
+  [Test] procedure AllDescriptions() var K: Record "Feature Key"; begin
+    K.Get('AdvancedTellMe');
+    if K.Description <> 'Feature: Advanced Tell Me' then Error(K.Description);
+    K.Get('SemanticMetadataSearch');
+    if K.Description <> 'Feature: Preview semantic similarity search on application metadata.' then Error(K.Description);
+    K.Get('ConcurrentInventoryPosting');
+    if K.Description <> 'Feature Update: Enable multiple users to post item ledger entries and value entries at the same time' then Error(K.Description); end; }"#;
+    let a = al_builtins::assumptions::Assumption::FeatureKeyRowsContainerMeasured;
+    let run = |bc: &str, platform: &str| {
+        let roots = al_sema::check::Roots::default();
+        let (engine, l) = engine_on_platform("main", src, None, roots, bc, Vec::new(), None, platform);
+        let oi = l.program.objects.iter().position(|o| o.name == "T").expect("T");
+        let mut hits = Vec::new();
+        let out = al_testrun::runtime::run_codeunit_full(
+            &engine,
+            &l,
+            oi,
+            None,
+            al_testrun::isolation::TestIsolation::Disabled,
+            None,
+            &mut Vec::new(),
+            &mut Vec::new(),
+            &mut hits,
+            None,
+        );
+        (out, hits)
+    };
+    let mut wrong = Vec::new();
+    // The 14 rows, every read flagged.
+    for (bc, platform) in [("29.1.0.0", "29.0.57943.0"), ("29.1.0.0", "29.0.58337.0")] {
+        let (out, hits) = run(bc, platform);
+        assert_eq!(out.len(), 9, "{bc} on {platform}: {out:?}");
+        for (n, o) in &out {
+            let flagged = hits.iter().any(|(h, m)| h == n && m.contains(&a));
+            if *o != Outcome::Pass || !flagged {
+                wrong.push(format!("{bc} on {platform} {n}: {o:?}, flagged {flagged}"));
+            }
+        }
+    }
+    // Main's 13 rows, nothing flagged: no NewNotificationBar.
+    for platform in [
+        "29.0.55782.0",
+        "29.0.56212.0",
+        "29.0.56480.0",
+        "29.0.57943.0",
+        "29.0.61000.0",
+        "1.0.0.0",
+    ] {
+        let (out, hits) = run("29.0.0.0", platform);
+        for (n, o) in &out {
+            let ok = match n.as_str() {
+                "Bar" | "BarTexts" | "RowCount" | "Order" => matches!(o, Outcome::Fail(_)),
+                // The Description of a key BaFeatureKeyTexts.al does not pin stays refused on the 13-row list.
+                "AllDescriptions" => matches!(o, Outcome::NotRun(_) | Outcome::Fail(_)),
+                _ => *o == Outcome::Pass,
+            };
+            if !ok || hits.iter().any(|(_, m)| m.contains(&a)) {
+                wrong.push(format!("29.0 on {platform} {n}: {o:?}"));
+            }
+        }
+    }
+    // Refused: 29.1 names the measured platform builds, 29.2 keeps main's text.
+    for (bc, platform, names) in [
+        ("29.1.0.0", "29.0.56212.0", "29.0.57943, 29.0.58337"),
+        ("29.1.0.0", "29.0.55782.0", "29.0.57943, 29.0.58337"),
+        ("29.1.0.0", "29.0.56480.0", "29.0.57943, 29.0.58337"),
+        ("29.1.0.0", "29.0.61000.0", "29.0.57943, 29.0.58337"),
+        ("29.1.0.0", "1.0.0.0", "29.0.57943, 29.0.58337"),
+        ("29.2.0.0", "29.0.58337.0", "measured on only"),
+    ] {
+        let (out, hits) = run(bc, platform);
+        for (n, o) in &out {
+            if !matches!(o, Outcome::NotRun(why) if why.contains("Feature Key") && why.contains(names))
+                || hits.iter().any(|(_, m)| m.contains(&a))
+            {
+                wrong.push(format!("{bc} on {platform} {n}: {o:?}"));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
 }
 
 // al-runner issue 5786: a control with `Editable = Rec."Allow Edit"`: its row and its Visible column are served, and the

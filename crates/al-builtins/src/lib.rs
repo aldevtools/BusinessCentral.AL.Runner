@@ -16,6 +16,7 @@ mod stream_call_stack;
 pub mod stream_cleared;
 pub mod stream_line_breaks;
 mod stream_read_len;
+mod stream_read_typed;
 pub mod testcontexts;
 pub mod text;
 pub mod textfns;

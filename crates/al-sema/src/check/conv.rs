@@ -158,11 +158,15 @@ impl Operand {
         }
     }
 
-    /// The type as alc names it in a message.
+    /// The type as alc names it in a message: a namespaced enum as `Enum Ns.Sub."Name"` (corpus must-not-compile 3291 to
+    /// 3293).
     fn name(&self) -> String {
         match &self.name {
             Name::Fixed(n) => (*n).to_string(),
-            Name::Of(Ty::Enum(n)) => format!("Enum \"{n}\""),
+            Name::Of(Ty::Enum(n)) => match n.rsplit_once(crate::types::QUAL_SEP) {
+                Some((ns, last)) => format!("Enum {}.\"{last}\"", crate::types::display_name(ns)),
+                None => format!("Enum \"{n}\""),
+            },
             Name::Of(Ty::Object(ObjKind::Interface, n)) => format!("Interface \"{n}\""),
             Name::Of(Ty::Label) => "Label".into(),
             Name::Of(_) if matches!(self.shape, Shape::Str(1)) => "Char".into(),
