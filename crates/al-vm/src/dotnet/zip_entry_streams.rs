@@ -99,17 +99,8 @@ impl Session {
                 ));
             }
         };
-        // Closing the entry writes its bytes through the archive into the AL stream behind it.
-        for (id, bytes) in &reply.streams.written {
-            match self.dotnet.bridges.get(id) {
-                Some(blob) => al_builtins::stream::write_bytes(blob, bytes),
-                None => {
-                    return unsupported(format!(
-                        "DotNet {clr_type}.Dispose: bytes for an unknown stream bridge {id}"
-                    ));
-                }
-            }
-        }
-        Ok(())
+        // Closing the entry writes its bytes through the archive into the AL stream behind it, and writes the entry's header
+        // again over bytes the Blob may already hold.
+        self.apply_stream_effects(&reply.streams, &format!("{clr_type}.Dispose"))
     }
 }

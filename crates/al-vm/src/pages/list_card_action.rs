@@ -53,7 +53,7 @@ impl Session {
             link: None,
             unsupported: None,
         };
-        st.borrow_mut().refresh = false;
+        st.borrow_mut().refresh.cancel();
         let card = self.run_object_page(st, &ro)?;
         if new_line_card {
             self.read_only_list_follows_card(st, &card)?;

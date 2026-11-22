@@ -53,9 +53,9 @@ impl Session {
                 None
             }
         };
-        let held = std::mem::replace(&mut rec.borrow_mut().fields, new.clone());
+        let held = std::mem::replace(&mut rec.borrow_mut().fields, new.clone().into());
         let checked = self.check_code_storage(t, rec, false);
-        *new = std::mem::replace(&mut rec.borrow_mut().fields, held);
+        *new = std::mem::replace(&mut rec.borrow_mut().fields, held).into_vec();
         checked.map(|()| deferred)
     }
 
@@ -76,12 +76,12 @@ impl Session {
             return Ok(());
         };
         let exists = self
-            .store_for(rec)
+            .store_for(rec)?
             .get(cx, t, old_pk)
             .map_err(|e| Signal::unsupported(format!("{e}")))?
             .is_some();
         if exists {
-            rec.borrow_mut().fields = old.to_vec();
+            rec.borrow_mut().fields = old.to_vec().into();
             return Err(refusal);
         }
         Ok(())

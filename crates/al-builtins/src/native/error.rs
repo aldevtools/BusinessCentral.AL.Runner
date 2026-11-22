@@ -29,6 +29,9 @@ pub enum ExceptionKind {
     DivideByZero,
     /// Set by `ClearLastError`: no error, as opposed to the default of a session where no error has happened yet.
     Cleared,
+    /// A .NET exception of a DotNet call whose text is pinned: NavNCLDotNetInvokeException, the .NET exception as its inner
+    /// exception (al-vm `dotnet/invoke_exception.rs`).
+    DotNetInvoke,
 }
 
 /// How the text of `Error(Text, ...)` or `FieldError(Field, Text)` is written in the code: the text `GetLastErrorText(true)`
@@ -106,6 +109,20 @@ pub fn with_origin<T>(r: Result<T, Signal>, origin: ErrorOrigin) -> Result<T, Si
 /// free text (key `legacy`) or a keyed refusal: `unsupported(refuse!(keys::NAME, "text {}", value))`.
 pub fn unsupported<T>(what: impl Into<Refusal>) -> Result<T, Signal> {
     Err(Signal::unsupported(what))
+}
+
+/// Raises "The date is not valid." (code DateInvalid). Each caller cites the pin of its raise site.
+pub(crate) fn date_invalid<T>() -> Result<T, Signal> {
+    raise("The date is not valid.", "DateInvalid")
+}
+
+/// Raises "The operation cannot be performed on a closing date value." (code ClosingDateOperation; the text and code of a
+/// for loop over a closing date, language/ControlFlow.al:607). Each caller cites the pin of its raise site.
+pub fn closing_date_operation<T>() -> Result<T, Signal> {
+    raise(
+        "The operation cannot be performed on a closing date value.",
+        "ClosingDateOperation",
+    )
 }
 
 /// Raises an AL error with a pinned text and code.

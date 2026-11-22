@@ -21,6 +21,8 @@ use read_string::StringAt;
 mod text_number;
 mod used_return;
 mod walk;
+mod yaml;
+use yaml::{read_from_yaml, write_to_yaml};
 
 pub type Handle = Rc<RefCell<LibraryValue>>;
 
@@ -982,11 +984,11 @@ fn decimal_from_text(t: &str) -> Result<Value, Signal> {
     match text_number::decimal_text(t) {
         TextNumber::Number(value) => {
             // Beyond the Decimal range: the range error (JsonValueGetters.al Y65_DecimalShapedText_AsDecimal_2, writer Y65).
-            if let Some(crate::format::FormatFail::Error { message, code }) = crate::format::decimal_range_error(&value)
-            {
-                return Err(error(message, &code));
+            match crate::format::decimal_range_error(&value) {
+                Some(crate::format::FormatFail::Error { message, code }) => Err(error(message, &code)),
+                Some(crate::format::FormatFail::Unsupported(why)) => unsupported(why),
+                None => Ok(Value::Decimal(value)),
             }
-            Ok(Value::Decimal(value))
         }
         TextNumber::NotANumber => Err(conversion(NAV_JSON_VALUE, "Microsoft.Dynamics.Nav.Runtime.Decimal18")),
         TextNumber::Unpinned => unsupported(format!("reading Text '{t}' as Decimal (conversion not pinned yet)")),
@@ -1112,6 +1114,9 @@ fn as_date(s: &Scalar) -> Result<Value, Signal> {
 fn as_datetime(s: &Scalar) -> Result<Value, Signal> {
     match s {
         Scalar::Val(Value::DateTime(d)) => Ok(Value::DateTime(*d)),
+        // The exact string of the minimum UTC DateTime reads as 0DT, on a temporary record and through a stored field
+        // (record/crud/TestMinimumUtcDateTimeStorage.al:46-51; al-runner issue 7907, from draft PR 7913).
+        Scalar::Val(Value::Text(t)) if t.as_ref() == "0001-01-01T00:00:00Z" => Ok(Value::DateTime(0)),
         Scalar::Val(Value::Text(t)) => match crate::iso::parse_datetime(t) {
             Some(d) => Ok(Value::DateTime(d)),
             None => Err(conversion(NAV_JSON_VALUE, "Microsoft.Dynamics.Nav.Runtime.NavDateTime")),
@@ -1968,119 +1973,6 @@ fn write_to_stream(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> R
     write(&h, &mut out)?;
     crate::stream::write_serialised_text(&mut a[0], &out)?;
     Ok(Value::Boolean(true))
-}
-
-// ------------------------------------------------------------------- YAML
-
-/// The YAML forms the corpus pins (json/TestJsonRuntimeContracts.al:JsonObject_Yaml_RoundTripsOnThisTier,
-/// json/TestProbeJsonContracts.al:Yaml_WriteNested, Yaml_Read): `key: value` lines, a nested object as `key:` and its
-/// members indented by two spaces, an array as `key:` and `- item` lines at the key's own indent. A text is quoted with
-/// single quotes (doubled inside) when it is empty, starts with `:` or holds `: ` or ` #`; `123` and `true` as texts stay
-/// bare. Keys other than letters, digits and `_`, and an object inside an array, are refused.
-fn plain_yaml_key(k: &str) -> bool {
-    !k.is_empty() && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-}
-
-fn yaml_text(t: &str) -> String {
-    if t.is_empty() || t.starts_with(':') || t.contains(": ") || t.contains(" #") {
-        format!("'{}'", t.replace('\'', "''"))
-    } else {
-        t.to_string()
-    }
-}
-
-fn yaml_scalar(c: &Handle) -> Result<String, Signal> {
-    let scalar = with_node(c, |n| match n {
-        JsonNode::Scalar(Scalar::Val(v)) => Some(v.clone()),
-        _ => None,
-    });
-    match scalar {
-        Some(Value::Text(t) | Value::Code(t)) => Ok(yaml_text(&t)),
-        Some(Value::Integer(_) | Value::BigInteger(_) | Value::Boolean(_) | Value::Decimal(_)) => {
-            let mut t = String::new();
-            write(c, &mut t)?;
-            Ok(t)
-        }
-        _ => unsupported(
-            "WriteToYaml of a value that is not a number, a Boolean or a text (the YAML form is not pinned)",
-        ),
-    }
-}
-
-fn yaml_members(kids: &[(String, Handle)], indent: usize, out: &mut String) -> Result<(), Signal> {
-    let pad = " ".repeat(indent);
-    for (k, c) in kids {
-        if !plain_yaml_key(k) {
-            return unsupported(format!("WriteToYaml with the key `{k}` (quoting is not pinned)"));
-        }
-        enum Kind {
-            Obj(Vec<(String, Handle)>),
-            Arr(Vec<Handle>),
-            Other,
-        }
-        let kind = with_node(c, |n| match n {
-            JsonNode::Object(k) => Kind::Obj(k.clone()),
-            JsonNode::Array(k) => Kind::Arr(k.clone()),
-            _ => Kind::Other,
-        });
-        match kind {
-            Kind::Obj(inner) => {
-                out.push_str(&format!("{pad}{k}:\r\n"));
-                yaml_members(&inner, indent + 2, out)?;
-            }
-            Kind::Arr(items) => {
-                out.push_str(&format!("{pad}{k}:\r\n"));
-                for item in items {
-                    if with_node(&item, |n| !matches!(n, JsonNode::Scalar(_))) {
-                        return unsupported("WriteToYaml of an object or an array inside an array (not pinned)");
-                    }
-                    out.push_str(&format!("{pad}- {}\r\n", yaml_scalar(&item)?));
-                }
-            }
-            Kind::Other => out.push_str(&format!("{pad}{k}: {}\r\n", yaml_scalar(c)?)),
-        }
-    }
-    Ok(())
-}
-
-fn write_to_yaml(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
-    let h = recv(r)?;
-    let kids = with_node(&h, |n| match n {
-        JsonNode::Object(k) => Ok(k.clone()),
-        _ => unsupported("WriteToYaml of something that is not a JsonObject"),
-    })?;
-    let mut out = String::new();
-    yaml_members(&kids, 0, &mut out)?;
-    a[0] = Value::Text(out.into());
-    Ok(Value::Boolean(true))
-}
-
-/// `ReadFromYaml`: `key: value` lines; every value reads as a text, and a value that holds `: ` again is no YAML
-/// (json/TestProbeJsonContracts.al:Yaml_Read: `a: 1\nb: text` written on one line raises YamlBadFormat, and
-/// `a:\n  b: 1` on one line reads as the key `a:\n  b` with the text `1`). Nested YAML on separate lines is not pinned.
-fn read_from_yaml(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
-    let Some(text) = crate::native::text_of(&a[0]) else {
-        return unsupported("ReadFromYaml with an argument that is not text");
-    };
-    let mut members: Vec<String> = Vec::new();
-    for line in text.lines().filter(|l| !l.trim().is_empty()) {
-        if line.starts_with(' ') || line.starts_with('-') {
-            return unsupported("ReadFromYaml of a nested or list line (the YAML form is not pinned)");
-        }
-        let Some((k, v)) = line.split_once(": ") else {
-            return unsupported("ReadFromYaml of a line that is not `key: value` (the YAML form is not pinned)");
-        };
-        if v.contains(": ") {
-            return Err(error("The data does not represent valid YAML.", "YamlBadFormat"));
-        }
-        let mut key = String::new();
-        write_string(&mut key, k);
-        let mut value = String::new();
-        write_string(&mut value, v);
-        members.push(format!("{key}:{value}"));
-    }
-    let json = format!("{{{}}}", members.join(","));
-    read_from(c, r, &mut [Value::Text(json.into())], Some("object"))
 }
 
 fn as_token(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Result<Value, Signal> {
@@ -2947,6 +2839,17 @@ mod tests {
             "{r:?}"
         );
         assert!(parse("{\"a\":\"\\ud83d\\ude00\"}").is_ok());
+    }
+
+    /// A text above the Decimal range whose 18-digit form is below 1,000,000,000,000,000 refuses (not pinned); the
+    /// pinned negative of 16 integer digits keeps the range error (json/DbJsonLeads.al:252).
+    #[test]
+    fn a_decimal_text_just_above_the_range_refuses() {
+        let r = decimal_from_text("999999999999999.9900001");
+        assert!(matches!(&r, Err(Signal::Unsupported(_))), "{r:?}");
+        let r = decimal_from_text("-9999999999999999.99");
+        assert!(r.is_err() && !matches!(&r, Err(Signal::Unsupported(_))), "{r:?}");
+        assert!(matches!(decimal_from_text("999999999999999.99"), Ok(Value::Decimal(_))));
     }
 
     /// Np4FormatJson.al NP4_JsonValue_AsInteger_SetValueDecimal (corpus master, corpus PR 871).

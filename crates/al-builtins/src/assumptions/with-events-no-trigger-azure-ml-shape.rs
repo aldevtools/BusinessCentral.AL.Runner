@@ -1,0 +1,11 @@
+WithEventsNoTriggerAzureMlShape => {
+    id: "with-events-no-trigger-azure-ml-shape",
+    assumed: "A global [WithEvents] DotNet variable of type Microsoft.Dynamics.Nav.AzureMLWrapper.AzureMLRequest, AzureMLInputBuilder or AzureMLParametersBuilder, in a codeunit that declares no `trigger Variable::Event` for it, runs as a plain DotNet variable (no AL code runs on its events) in the uses Base Application's codeunit 2001 \"Azure ML Connector\" makes: IsNull of it, the assignment `V := V.<constructor>(...)` from its own constructor, a method call on it, and the variable as an argument of a method call on such a variable of the same codeunit. A constructor or method call then goes through the DotNet policy like any variable's call (it refuses these server classes today). Every other use (a property read or write, Clear, ClearAll in the codeunit, an assignment to or from another variable, an argument of an AL procedure or of another variable's member), a trigger declared for the variable, a local variable, another object type and every other DotNet type stay refused.",
+    tests: "Microsoft's Sales and Inventory Forecast Tests, codeunit 139540 \"Sales Forecast Tests\" (source of the newest pinned build): src/SalesForecastTests.Codeunit.al:279-303 TestMissingApiUriOpenSetup reaches the codeunit through \"Time Series Management\", and :306-330 TestTimeout runs its Initialize (Base Application System/AI/AzureMLConnector.Codeunit.al:17-22 the variables, :42-56 the constructors, member calls and arguments, :61 IsNull); both pass on real BC. al-runner issue 7832 (an outside report).",
+    probe: "Not written yet: onprem-dotnet dotnet/ac/N4WithEventsNoTriggerOtherType.al, next to N4WithEventsNoRaise.al (which pins the Timer): a codeunit's WithEvents variable of a type that raises events (System.IO.FileSystemWatcher or System.Diagnostics.Process) with no trigger, constructed with and without arguments, members called, passed to a member of a second such variable, IsNull before and after; whether any AL code runs and what the codeunit's globals hold afterwards.",
+    awaiting: Awaiting {
+        issues: &[7832],
+        files: &["tests/al-language-onprem-dotnet/dotnet/ac/N4WithEventsNoTriggerOtherType.al"],
+        since: "2026-11-15",
+    },
+}

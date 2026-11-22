@@ -32,7 +32,7 @@ public sealed class Marshaller
     public sealed class InArg { public int Index; public MemoryStream Stream = null!; }
     public readonly List<InArg> Ins = new();
     public readonly List<(int Index, long Bridge)> NewBridges = new();
-    readonly Dictionary<long, (MemoryStream Stream, int Drained)> bridges = new();
+    readonly Dictionary<long, Bridge> bridges = new();
     long nextBridge = 1;
 
     public Marshaller(Func<string, Type> resolveType) { this.resolveType = resolveType; }
@@ -68,19 +68,48 @@ public sealed class Marshaller
     /// back its last bytes now and is then dropped: nothing can write into a closed MemoryStream any more.
     public JsonArray DrainBridges()
     {
+        TakeOverwritten();
         var arr = new JsonArray();
         foreach (var id in bridges.Keys.ToList())
         {
             var b = bridges[id];
-            if (!b.Stream.TryGetBuffer(out var buf)) buf = new ArraySegment<byte>(b.Stream.ToArray());
+            if (!b.TryGetBuffer(out var buf)) buf = new ArraySegment<byte>(b.ToArray());
             if (buf.Count > b.Drained)
             {
                 arr.Add(new JsonArray(id, Convert.ToBase64String(buf.Array!, buf.Offset + b.Drained, buf.Count - b.Drained)));
-                bridges[id] = (b.Stream, buf.Count);
+                b.Drained = buf.Count;
             }
-            if (!b.Stream.CanRead) bridges.Remove(id);
+            if (!b.CanRead) bridges.Remove(id);
         }
         return arr;
+    }
+
+    /// The ids of the bridges a write went over bytes they had handed back ([Bridge.Overwritten]) since the last call. It runs
+    /// first in [DrainBridges], before a closed bridge is dropped.
+    public JsonArray Overwritten { get; } = new();
+
+    void TakeOverwritten()
+    {
+        Overwritten.Clear();
+        foreach (var (id, b) in bridges)
+        {
+            if (!b.Overwritten) continue;
+            Overwritten.Add(id);
+            b.Overwritten = false;
+        }
+    }
+
+    /// No bridge holds bytes [DrainBridges] has not handed back yet. A failed request sends no bytes (only [Done] drains), so
+    /// a failure the host may show as an AL error must have written into no bridge: else the bytes would reach the Blob only
+    /// with a later reply, after AL went on.
+    public bool BridgesUnwritten()
+    {
+        foreach (var b in bridges.Values)
+        {
+            if (!b.TryGetBuffer(out var buf)) buf = new ArraySegment<byte>(b.ToArray());
+            if (buf.Count != b.Drained || b.Overwritten) return false;
+        }
+        return true;
     }
 
     // ---- wire to .NET ----
@@ -118,9 +147,9 @@ public sealed class Marshaller
                 // An OutStream over bytes AL already wrote: BC hands .NET the Blob's own stream, which reads, writes and
                 // seeks, standing at the end of the bytes (al-runner issue 6317, corpus dotnet/dotnet/WdZipArchiveOverOutStream.al).
                 var seed = o["v"] is JsonNode sv ? Convert.FromBase64String(sv.GetValue<string>()) : Array.Empty<byte>();
-                var ms = seed.Length == 0 ? new MemoryStream() : new SeededBridge(seed);
+                var ms = new Bridge(seed);
                 long id = nextBridge++;
-                bridges[id] = (ms, seed.Length);
+                bridges[id] = ms;
                 NewBridges.Add((index, id));
                 return ms;
             }
@@ -187,22 +216,30 @@ public sealed class Marshaller
 
 /// A request this process cannot serve: type or member not found, no matching overload. It is
 /// reported as a refusal, not as an exception of the code under test (ADR-014 section 7).
-/// A bridge that starts with the bytes the AL Blob holds, positioned at their end. The host appends only what is written after
-/// them, so a write over them (or a shorter length) is refused: what BC's Blob then holds is not pinned.
-public sealed class SeededBridge : MemoryStream
+/// The stream .NET gets for an AL OutStream. It may start with the bytes the AL Blob holds, positioned at their end. [Drained]
+/// counts the bytes the Blob already has: the seed, then what [Marshaller.DrainBridges] handed back after each call. The host
+/// appends only what is written after them. A write over the seed (or a length below it) is refused (al-runner issue 6317). A
+/// write over bytes handed back later, or a length below them, sets [Overwritten]: the call goes on, as in BC
+/// (tests/al-language-onprem-dotnet/dotnet/zip-create/Y44ZipCreateMode.al, Zip_OpenTemporaryNoCopy_SecondCreate), and the host
+/// marks the Blob, as what it then holds is not pinned (al-runner issue 7947).
+public sealed class Bridge : MemoryStream
 {
     readonly int seeded;
+    public int Drained;
+    public bool Overwritten;
 
-    public SeededBridge(byte[] seed)
+    public Bridge(byte[] seed)
     {
-        base.Write(seed, 0, seed.Length);
+        if (seed.Length > 0) base.Write(seed, 0, seed.Length);
         seeded = seed.Length;
+        Drained = seed.Length;
     }
 
     void Check(long at)
     {
         if (at < seeded)
             throw new Refusal("a .NET write over the bytes an AL OutStream held before the call (what the Blob then holds is not pinned)");
+        if (at < Drained) Overwritten = true;
     }
 
     public override void Write(byte[] buffer, int offset, int count) { if (count > 0) Check(Position); base.Write(buffer, offset, count); }

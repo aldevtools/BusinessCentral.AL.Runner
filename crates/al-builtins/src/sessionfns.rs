@@ -18,7 +18,6 @@ pub const REGISTRY: &[(&str, NativeFn)] = via_session![
     "NumberSequence.Range#1",
     "NumberSequence.Range#2",
     "NumberSequence.Restart#1",
-    "Database.IsInWriteTransaction#1",
     "Database.CompanyName#1",
     "Database.CopyCompany#1",
     "CompanyProperty.DisplayName#1",

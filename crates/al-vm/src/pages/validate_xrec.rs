@@ -203,20 +203,25 @@ impl Session {
 
     /// The step ended with `result`: on success see `validate_step_end`; after an error nothing of the step stays, and the page
     /// holds its xRec again (so a later save or Close still writes an earlier unsaved edit, as before this rule; a row a save
-    /// of the step stored becomes xRec in `after_validate_rows`).
+    /// of the step stored becomes xRec in `after_validate_rows`). An error after the page left its new line for the row the table
+    /// field inserted is refused (`refuse_error_after_landing`).
     pub(super) fn validate_step_close(
         &mut self,
         st: &St,
         result: Result<(), Signal>,
     ) -> Result<Option<Vec<Value>>, Signal> {
         match result {
-            Ok(()) => self.validate_step_end(st),
+            Ok(()) => {
+                let end = self.validate_step_end(st);
+                self.code_inserted_step_end(st)?;
+                end
+            }
             Err(e) => {
                 let step = st.borrow_mut().validate_step.take();
                 if let Some(step) = step.filter(|s| s.pinned) {
                     self.set_xrec_fields(st, step.held);
                 }
-                Err(e)
+                Err(self.refuse_error_after_landing(st, e))
             }
         }
     }
@@ -232,7 +237,7 @@ impl Session {
     ) -> Result<(), Signal> {
         if rec_bound && !st.borrow().draft && st.borrow().cursor == Cursor::Row {
             let typed = self.page_rec(st).borrow().fields.clone();
-            st.borrow_mut().agcr_xrec = Some(typed);
+            st.borrow_mut().agcr_xrec = Some(typed.into_vec());
         }
         match discard {
             Some(row) => self.validate_step_discard(st, row),
@@ -271,11 +276,9 @@ impl Session {
             // SetValue lands on that row, which holds no edit).
             let mut s = st.borrow_mut();
             s.dirty = false;
-            s.refresh = false;
-            s.refresh_by_update = false;
-            s.refresh_update_false = false;
+            s.refresh.cancel_update();
         }
-        rec.borrow_mut().fields = row;
+        rec.borrow_mut().fields = row.into();
         Ok(())
     }
 

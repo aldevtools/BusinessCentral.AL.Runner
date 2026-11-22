@@ -961,7 +961,8 @@ dependency order, every `OnInstallAppPerCompany`, then every `OnInstallAppPerDat
 per-company table is refused there, a `DataPerCompany = false` table works); then `Company-Initialize`; then
 `Session::capture_baseline` (rows, system id, row version and AutoIncrement counters, isolated storage, number
 sequences). Every test codeunit's session starts with `restore_baseline` (the persistent store makes both O(1));
-the project's own install codeunits still run per test codeunit, as before. A root that stops (Unsupported or an AL
+the project's own install codeunits still run per test codeunit, as before (without a baseline, since ADR-046's
+amendment of 2026-11-15, once per run when that gives each codeunit the same session). A root that stops (Unsupported or an AL
 error) is reported on stderr: `Company-Initialize` keeps the rows it wrote before, an install trigger is rolled back.
 The tables such a root writes rows to (a record variable's `Insert`, `Modify`, `Rename` or `ModifyAll` in its static
 closure; rows that event subscribers add and `RecordRef` writes are not found), minus the tables that hold a row in the
@@ -1532,7 +1533,8 @@ corpus front end passes one entry less.
 
 Not a seam change; it changes when a selection compiles a second time.
 
-**Why.** A compile for a selection (`--explain`, `--codeunit`, `--test`, a warm server's request) leaves out the test
+**Why.** A compile for a selection (`--explain`, `--codeunit`, `--test`, and until ADR-028's amendment of 2026-11-13 a
+warm server's request, which now compiles every test codeunit) leaves out the test
 codeunits it does not keep and the procedures no selected test names. Install code of an app under test runs before
 every test and can reach one of them by an id no workspace text shows, for example through a dependency app's code
 that runs a codeunit by an id from a table, as Microsoft's Test Runner app does. The selection then gave another outcome

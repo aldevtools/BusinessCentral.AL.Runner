@@ -33,7 +33,7 @@ impl MemStore {
         let mut keyed: Vec<(Key, Row)> = Vec::with_capacity(rows.len());
         for row in rows {
             bump();
-            self.note_unknown(t, &row);
+            let row = self.kept(t, row);
             keyed.push((Key::of(t, t.primary_key(&row)), row));
         }
         // The first row with a key wins (a stable sort keeps the input order among equal keys).

@@ -5,8 +5,6 @@
 use crate::Session;
 use al_builtins::native::Signal;
 use al_builtins::value::Instance;
-use std::cell::RefCell;
-use std::rc::Rc;
 
 impl Session {
     /// Calls the parameterless publisher routine `routine` of `object`, its event reaching only `subscribers`
@@ -16,14 +14,28 @@ impl Session {
         if r.params != 0 {
             return Err(Signal::unsupported(format!("event {} declares parameters", r.name)));
         }
-        let fresh = Rc::new(RefCell::new(Instance {
+        let fresh = al_builtins::instance_cycles::shared(Instance {
             object: object as u32,
             ..Default::default()
-        }));
+        });
         let inst = self.shared_instance(fresh);
         self.events.only_targets = Some(subscribers.to_vec());
         let raised = self.call(object, routine, inst, Vec::new()).map(|_| ());
         self.events.only_targets = None;
         raised
+    }
+
+    /// Of `subscribers` (object, routine) of event `event` (lower case) of `object`, the ones the event reaches now, in the
+    /// order a raise to them runs them (the event code's order, `dispatch.rs`).
+    pub fn subscriber_order(
+        &mut self,
+        object: usize,
+        event: &str,
+        subscribers: &[(usize, usize)],
+    ) -> Result<Vec<(usize, usize)>, Signal> {
+        self.events.only_targets = Some(subscribers.to_vec());
+        let order = self.event_subscribers(object, event);
+        self.events.only_targets = None;
+        Ok(order?.into_iter().map(|s| (s.object, s.routine)).collect())
     }
 }

@@ -38,6 +38,11 @@ fn is_microsoft(lowered: &Lowered, app: u32) -> bool {
     })
 }
 
+/// Whether app `app` is a partner app: its manifest names a publisher, and it is not Microsoft ([`is_microsoft`]).
+pub(crate) fn is_partner(lowered: &Lowered, app: u32) -> bool {
+    !is_microsoft(lowered, app)
+}
+
 /// Splits `group` into (Microsoft's side, partner side). An app is on the partner side when its publisher is known and not
 /// Microsoft and no Microsoft app of `group` depends on it (a dependency of a Microsoft app installs before it).
 pub(crate) fn split_microsoft(

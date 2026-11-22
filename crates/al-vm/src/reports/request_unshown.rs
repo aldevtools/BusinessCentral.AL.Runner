@@ -1,9 +1,50 @@
-//! The request page triggers of a run that does not show its page: OnInit, and for an Execute with parameters OnOpenPage and
-//! OnClosePage.
+//! The request page triggers that run while its page is not shown: OnInit when a procedure first uses the report and in a
+//! run that does not show the page, and for an Execute with parameters OnOpenPage and OnClosePage.
 
 use super::*;
 
+/// Refuses the OnInit a reportextension adds to the request page `page` of report `report`: when it runs there, and in which
+/// order with the report's own, is not pinned. `when` says what runs it.
+fn refuse_ext_on_init(page: &ir::Page, report: &str, when: &str) -> Result<(), Signal> {
+    if page.ext_triggers.iter().any(|(n, _, _)| n == "oninit") {
+        return unsupported(format!(
+            "the OnInit a reportextension adds to the request page of report \"{report}\", {when} (not pinned)"
+        ));
+    }
+    Ok(())
+}
+
 impl Session {
+    /// The request page's OnInit of a report that a procedure uses first (see `first_use`): it runs right after OnInitReport and
+    /// before the procedure's body, and the run does not run it again, with or without the request page
+    /// (reports/request-page/RequestPageOnInitFirstUse.al:104-185). Refused: an OnInit a reportextension adds, also when no
+    /// run follows the call.
+    pub(super) fn request_page_init_at_first_use(&mut self, inst: &Inst) -> Result<(), Signal> {
+        let object = inst.borrow().object as usize;
+        let engine = self.engine.clone();
+        let o = &engine.program.objects[object];
+        if o.report.is_none() {
+            return Ok(());
+        }
+        let Some(page) = o.page.as_ref() else {
+            return Ok(());
+        };
+        refuse_ext_on_init(page, &o.name, "when a procedure first uses the report")?;
+        let Some(r) = page.triggers.iter().find(|(n, _)| n == "oninit").map(|(_, r)| *r) else {
+            return Ok(());
+        };
+        self.report.rp_init_done.push(Rc::downgrade(inst));
+        self.call(object, r, inst.clone(), Vec::new()).map(|_| ())
+    }
+
+    /// Whether the request page's OnInit of `inst` already ran at a procedure's first use.
+    pub(crate) fn request_page_init_done(&self, inst: &Inst) -> bool {
+        self.report
+            .rp_init_done
+            .iter()
+            .any(|w| w.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)))
+    }
+
     /// The request page's `OnInit` runs although the page is not shown, after OnInitReport and before OnPreReport, and
     /// OnOpenPage does not: a SaveAs (text/PnBReportSaveAs.al:348 TriggerOrder, :262 Rows_SkipAndBreak),
     /// an Execute and a Run with UseRequestPage(false) (reports/reporthandler/AeReportHandler.al:85, :121). The values of
@@ -16,12 +57,7 @@ impl Session {
         let Some(page) = engine.program.objects[schema.object].page.as_ref() else {
             return Ok(false);
         };
-        if page.ext_triggers.iter().any(|(n, _, _)| n == "oninit") {
-            return unsupported(format!(
-                "the OnInit a reportextension adds to the request page of report \"{}\", which runs without its page (not pinned)",
-                schema.name()
-            ));
-        }
+        refuse_ext_on_init(page, schema.name(), "which runs without its page")?;
         let Some(r) = page.triggers.iter().find(|(n, _)| n == "oninit").map(|(_, r)| *r) else {
             return Ok(false);
         };
@@ -81,7 +117,7 @@ impl Session {
                     "onopenpage" => crate::pages::TriggerKind::OpenPage,
                     _ => crate::pages::TriggerKind::Other,
                 };
-                self.pages.trigger_kinds.push((std::ptr::null(), kind));
+                self.pages.trigger_kinds.push((std::ptr::null(), kind, None));
                 let called = self.call(schema.object, r, inst.clone(), Vec::new());
                 self.pages.trigger_kinds.pop();
                 called?;

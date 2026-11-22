@@ -8,6 +8,7 @@
 //! `Signal::Unsupported`; the open questions are in docs/probes-needed.md.
 
 use crate::Session;
+use crate::query_reopen::ReopenCall;
 use al_builtins::collation;
 use al_builtins::describe::Describe;
 use al_builtins::filter::{FieldFilter, FilterExpr};
@@ -16,6 +17,9 @@ use al_builtins::ops;
 use al_builtins::value::{QueryRow, QueryRun, QueryState, RtType, Value};
 use al_data::TableDef;
 use al_ir as ir;
+
+/// The refusal of a query over the Field table other than `Query.Open` of one Field data item and no trigger.
+const FIELD_TABLE_QUERY_REFUSAL: &str = "a query over the Field table other than Query.Open of one Field data item and no trigger (not measured; docs/probes-needed.md, relation-field-no-readers)";
 use rust_decimal::Decimal;
 use std::cell::RefCell;
 use std::cmp::Ordering;
@@ -131,6 +135,29 @@ struct Plan {
 /// The row of a dataitem with no match under a left outer join.
 const NO_MATCH: Vec<Value> = Vec::new();
 
+/// The query object a run reads, and whether a static `Query.SaveAsCsv` or `Query.SaveAsXml` runs it (`Session::query_rows`).
+#[derive(Clone, Copy)]
+struct QueryReader {
+    object: usize,
+    static_save: bool,
+}
+
+impl QueryReader {
+    fn instance(object: usize) -> Self {
+        QueryReader {
+            object,
+            static_save: false,
+        }
+    }
+
+    fn static_save(object: usize) -> Self {
+        QueryReader {
+            object,
+            static_save: true,
+        }
+    }
+}
+
 impl Session {
     /// An instance of query `object` whose hidden `__query` slot holds `q`, so a procedure's
     /// unqualified `SetRange` and the like act on the query the caller holds
@@ -159,6 +186,8 @@ impl Session {
         recv: Option<&mut Value>,
         args: &mut [Value],
     ) -> Result<Value, Signal> {
+        // The global the call goes through, when `run_native` saw one (`query_reopen`).
+        let receiver = self.query_receiver.take();
         if method == "SaveAsCsvStatic" {
             return self.query_save_csv_static(args);
         }
@@ -171,10 +200,12 @@ impl Session {
         };
         let engine = self.engine.clone();
         let object = qs.borrow().object as usize;
-        self.query_object = object;
         let def = engine.program.objects[object].query.as_ref().expect("a query object");
         for a in &def.assumes {
             al_builtins::assumptions::assume(*a);
+        }
+        if matches!(method, "Open" | "Read" | "SaveAsXml" | "SaveAsJson" | "SaveAsCsv") {
+            self.refuse_query_read_while_deferred(def, method)?;
         }
         if qs.borrow().in_before_open {
             match method {
@@ -206,22 +237,23 @@ impl Session {
                 _ => {}
             }
         }
+        if self.query_reopen_step(def, &qs, ReopenCall::Method(method, args), receiver)? {
+            return Ok(Value::Boolean(true));
+        }
         match method {
+            "Open" if self.field_table_query_open(def, object) => {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::RelationFieldNoReaders);
+                Err(crate::transactions::al_error_code(
+                    "A query cannot be based on a virtual table. Please contact your system administrator.",
+                    "DB:Ok",
+                ))
+            }
+            "Open" if self.field_table_query(def) => unsupported(FIELD_TABLE_QUERY_REFUSAL),
             "Open" => {
                 // Opening an open query is not an error (queries/TestQueryRuntimeContracts.al:
                 // Query_StateMisuse_DoesNotThrow); once rows were read what it does is not pinned.
                 if qs.borrow().run.as_ref().is_some_and(|r| r.started) {
-                    // After a filter changed mid-read it runs again with the new filters
-                    // (queries/read-lifecycle/PnAQueryOpenRead.al:125-170, SetRangeAndOpenAfterRead: `next-entry` 4).
-                    // After the last row (with or without a SetRange or SetFilter since) it runs again too,
-                    // with the new filters (queries/read-lifecycle/QueryReadToEnd.al:88,130,172:
-                    // SetRange_AfterLastRow_ThenOpenAndRead, SetFilter_AfterLastRow_ThenOpenAndRead,
-                    // Open_Twice_AfterLastRow).
-                    let filters_changed = qs.borrow().run.as_ref().is_some_and(|r| r.filters_changed);
-                    if !Self::query_read_to_the_end(&qs) && !filters_changed {
-                        return unsupported("Open on a query that is already open and was read from (not pinned)");
-                    }
-                    qs.borrow_mut().run = None;
+                    Self::query_open_started(&qs)?;
                 }
                 // OnBeforeOpen runs inside Open, after the filters set so far, and a filter it sets
                 // applies to this read (queries/TestQueryOnBeforeOpenVariablesContracts.al:104-140).
@@ -238,16 +270,7 @@ impl Session {
                 }
                 // Open does not run the query; the first Read does.
                 qs.borrow_mut().closed = false;
-                qs.borrow_mut().run = Some(QueryRun {
-                    started: false,
-                    filters_changed: false,
-                    rows: Vec::new(),
-                    next: 0,
-                    current: None,
-                    last_key: None,
-                    returned: 0,
-                    stamps: Vec::new(),
-                });
+                qs.borrow_mut().run = Some(QueryRun::opened());
                 Ok(Value::Boolean(true))
             }
             "Read" => self.query_read(def, &qs),
@@ -326,6 +349,14 @@ impl Session {
                 let col = arg_col(args, 0)?;
                 let q = qs.borrow();
                 Self::refuse_plain_static_filter(&def.columns[col], "GetFilter")?;
+                // The corpus reads such a filter back only through GetFilters (queries/flowfields-filters/
+                // QueryOuterFlowBelowJoin.al:381), which names it by another field.
+                if def.columns[col].flow_below_join {
+                    return unsupported(format!(
+                        "GetFilter of query column {} over a FlowField of a dataitem below the top dataitem's child (not pinned)",
+                        def.columns[col].name
+                    ));
+                }
                 match q.filters.iter().find(|(c, _)| *c == col) {
                     Some((_, e)) => self.filter_text(e).map(|s| Value::Text(s.into())),
                     // The static ColumnFilter of an aggregated column reads back as its filter text
@@ -359,6 +390,11 @@ impl Session {
             "ColumnNo" => column_no(&def.columns[arg_col(args, 0)?].name).map(Value::Integer),
             "TopNumberOfRows" => match args.first() {
                 None => Ok(Value::Integer(qs.borrow().top.unwrap_or(def.top))),
+                // A filter on such a column runs after the join (`Plan::post`); the probe set no top
+                // (queries/flowfields-filters/QueryOuterFlowBelowJoin.al:99-281).
+                Some(_) if def.columns.iter().any(|c| c.flow_below_join) => unsupported(
+                    "TopNumberOfRows on a query with a column over a FlowField of a dataitem below the top dataitem's child (not pinned)",
+                ),
                 Some(n) => {
                     let n = match n {
                         Value::Integer(n) => *n,
@@ -422,7 +458,7 @@ impl Session {
             "SaveAsCsv" => {
                 let filters = qs.borrow().filters.clone();
                 let top = qs.borrow().top.unwrap_or(def.top);
-                self.query_save_csv(def, &filters, top, args)
+                self.query_save_csv(QueryReader::instance(object), def, &filters, top, args)
             }
             other => unsupported(format!("Query.{other}")),
         }
@@ -434,11 +470,13 @@ impl Session {
     fn query_save_as(&mut self, def: &ir::Query, qs: &Qs, method: &str, args: &[Value]) -> Result<Value, Signal> {
         let filters = qs.borrow().filters.clone();
         let top = qs.borrow().top.unwrap_or(def.top);
-        self.query_save_as_with(def, &filters, top, method, args.first())
+        let object = qs.borrow().object as usize;
+        self.query_save_as_with(QueryReader::instance(object), def, &filters, top, method, args.first())
     }
 
     fn query_save_as_with(
         &mut self,
+        run: QueryReader,
         def: &ir::Query,
         filters: &[(usize, FilterExpr)],
         top: i32,
@@ -449,7 +487,7 @@ impl Session {
             return unsupported(format!("{method} with {}", stream.describe()));
         };
         let blob = match &*h.borrow() {
-            al_builtins::value::LibraryValue::OutStream(blob, _) => blob.clone(),
+            al_builtins::value::LibraryValue::OutStream(blob, ..) => blob.clone(),
             _ => return unsupported(format!("{method} to something that is not an OutStream")),
         };
         let cols: Vec<usize> = (0..def.columns.len())
@@ -459,7 +497,7 @@ impl Session {
             .iter()
             .map(|&c| (def.columns[c].name.as_str(), &def.columns[c].ty))
             .collect();
-        let (rows, _) = self.query_rows(def, filters)?;
+        let (rows, _) = self.query_rows(run, def, filters)?;
         let rows: Vec<Vec<&Value>> = rows
             .iter()
             .take(if top > 0 { top as usize } else { usize::MAX })
@@ -470,56 +508,62 @@ impl Session {
         Ok(Value::Boolean(true))
     }
 
-    /// `Query.SaveAsXml(Number, OutStream)` of an id no query has: No, and nothing raises
-    /// (reports/request-page/P105QryXml.al:163-177). With the answer dropped it raises MetadataNotFound
-    /// (queries/CgQueryLeads.al:656-690), which is not built: refused.
-    fn query_save_xml_static_op(&mut self, args: &[Value]) -> Result<Value, Signal> {
-        let known = match args.first() {
-            Some(Value::Integer(id)) => self
-                .engine
-                .program
-                .objects
-                .heads()
-                .iter()
-                .any(|o| o.is_kind(al_ir::ObjKind::Query) && o.id == u32::try_from(*id).ok()),
-            _ => return unsupported("Query.SaveAsXml with an id that is not an integer"),
-        };
-        // Of a query: the file of the instance call with no filters, and Yes
-        // (reports/request-page/P105QryXmlContentSM.al:115-131 SaveAsXml_Static_Content).
-        if known {
-            return self.query_save_xml_static(args);
-        }
-        if !self.ret_used {
-            return unsupported(
-                "Query.SaveAsXml(Number, OutStream) of an unknown id with the answer dropped (not pinned)",
-            );
-        }
-        if let Some(Value::Integer(id)) = args.first()
-            && let Some(why) = self.missing_may_be_skipped("Query", i64::from(*id))
+    /// The query object of a static `Query.SaveAsXml` or `Query.SaveAsCsv` with the id `id`: `Some` for a compiled query,
+    /// `None` for an id no loaded app declares. A query of a dependency app that was not compiled, and an id that may belong
+    /// to a dependency app the run skipped, are refused: BC finds that query, writes its file and answers Yes.
+    fn query_static_object(&self, method: &str, id: i64) -> Result<Option<usize>, Signal> {
+        let heads = self.engine.program.objects.heads();
+        let want = u32::try_from(id).ok();
+        if let Some(object) = heads
+            .iter()
+            .position(|o| o.is_kind(al_ir::ObjKind::Query) && o.id == want)
         {
+            return Ok(Some(object));
+        }
+        if heads
+            .iter()
+            .any(|o| o.is_shell_of(al_ir::ObjKind::Query) && o.id == want)
+        {
+            return unsupported(format!(
+                "Query.{method} of query {id}, which belongs to a dependency app and was not compiled (no code the workspace reaches uses it)"
+            ));
+        }
+        if let Some(why) = self.missing_may_be_skipped("Query", id) {
             return unsupported(why);
         }
-        Ok(Value::Boolean(false))
+        Ok(None)
     }
 
-    /// `Query.SaveAsXml(Number, OutStream)` of a query object.
-    fn query_save_xml_static(&mut self, args: &[Value]) -> Result<Value, Signal> {
+    /// `Query.SaveAsXml(Number, OutStream)`. Of a query: the file of the instance call with no filters, and Yes
+    /// (reports/request-page/P105QryXmlContentSM.al:115-131 SaveAsXml_Static_Content). Of an id no query has: No, and
+    /// nothing raises (reports/request-page/P105QryXml.al:163-177). With the answer dropped that raises MetadataNotFound
+    /// (queries/CgQueryLeads.al:656-690), which is not built: refused.
+    fn query_save_xml_static_op(&mut self, args: &[Value]) -> Result<Value, Signal> {
         let Some(Value::Integer(id)) = args.first() else {
             return unsupported("Query.SaveAsXml with an id that is not an integer");
         };
+        let Some(object) = self.query_static_object("SaveAsXml", i64::from(*id))? else {
+            if !self.ret_used {
+                return unsupported(
+                    "Query.SaveAsXml(Number, OutStream) of an unknown id with the answer dropped (not pinned)",
+                );
+            }
+            return Ok(Value::Boolean(false));
+        };
         let engine = self.engine.clone();
-        let def = engine
-            .program
-            .objects
-            .heads()
-            .iter()
-            .position(|o| o.is_kind(al_ir::ObjKind::Query) && o.id == u32::try_from(*id).ok())
-            .and_then(|o| engine.program.objects[o].query.as_ref())
-            .expect("a known query");
+        let def = engine.program.objects[object].query.as_ref().expect("a query object");
         for a in &def.assumes {
             al_builtins::assumptions::assume(*a);
         }
-        self.query_save_as_with(def, &[], def.top, "SaveAsXml", args.get(1))
+        self.refuse_query_read_while_deferred(def, "SaveAsXml")?;
+        self.query_save_as_with(
+            QueryReader::static_save(object),
+            def,
+            &[],
+            def.top,
+            "SaveAsXml",
+            args.get(1),
+        )
     }
 
     /// `Query.SaveAsCsv(Number, OutStream)`: the query of that id with no filters. An id no query has writes nothing and
@@ -529,21 +573,25 @@ impl Session {
             Some(Value::Integer(n)) => *n,
             other => return unsupported(format!("Query.SaveAsCsv with {}", other.describe())),
         };
-        let engine = self.engine.clone();
-        let Some(object) = engine
-            .program
-            .objects
-            .heads()
-            .iter()
-            .position(|o| o.is_kind(al_ir::ObjKind::Query) && o.id == u32::try_from(id).ok())
-        else {
+        let Some(object) = self.query_static_object("SaveAsCsv", i64::from(id))? else {
             return Ok(Value::Boolean(false));
         };
+        let engine = self.engine.clone();
         let def = engine.program.objects[object].query.as_ref().expect("a query object");
         for a in &def.assumes {
             al_builtins::assumptions::assume(*a);
         }
-        self.query_save_csv(def, &[], def.top, &args[1..])
+        self.refuse_query_read_while_deferred(def, "SaveAsCsv")?;
+        self.query_save_csv(QueryReader::static_save(object), def, &[], def.top, &args[1..])
+    }
+
+    /// A read of query `def` by `method` (Open, Read, SaveAsXml, SaveAsJson or SaveAsCsv, of an instance or static) while an
+    /// Insert error into one of its tables is deferred: refused (`records/insert_buffer.rs`, al-runner issue 8288).
+    fn refuse_query_read_while_deferred(&self, def: &ir::Query, method: &str) -> Result<(), Signal> {
+        for item in &def.items {
+            self.refuse_unmeasured_read_while_deferred(item.table, &format!("Query.{method}"))?;
+        }
+        Ok(())
     }
 
     /// The rows of a query as CSV: the column names, then a row per line, each line ended by a line feed. A text with a comma or a
@@ -551,6 +599,7 @@ impl Session {
     /// Other column types are not pinned.
     fn query_save_csv(
         &mut self,
+        run: QueryReader,
         def: &ir::Query,
         filters: &[(usize, FilterExpr)],
         top: i32,
@@ -575,7 +624,7 @@ impl Session {
             return unsupported(format!("Query.SaveAsCsv with {}", args.first().describe()));
         };
         let blob = match &*h.borrow() {
-            al_builtins::value::LibraryValue::OutStream(blob, _) => blob.clone(),
+            al_builtins::value::LibraryValue::OutStream(blob, ..) => blob.clone(),
             _ => return unsupported("Query.SaveAsCsv to something that is not an OutStream"),
         };
         let cols: Vec<usize> = (0..def.columns.len())
@@ -598,7 +647,7 @@ impl Session {
                 ));
             }
         }
-        let (rows, _) = self.query_rows(def, filters)?;
+        let (rows, _) = self.query_rows(run, def, filters)?;
         // The file of queries/W7QueryLifecycle.al:SaveAsCsv_NonIntegerColumns (a Date column and a text with an accent) is 83 bytes
         // where this writes 81; which of the two accounts for the difference is not pinned, so neither is written.
         if rows.iter().any(|r| {
@@ -676,15 +725,23 @@ impl Session {
     }
 
     /// The value of column `column` in the row `Read` returned last.
-    pub(crate) fn query_column(&mut self, q: Value, column: usize) -> Result<Value, Signal> {
+    /// `global` is the global variable the read goes through (object index of the routine, slot), if it is one.
+    pub(crate) fn query_column(
+        &mut self,
+        q: Value,
+        column: usize,
+        global: Option<(usize, usize)>,
+    ) -> Result<Value, Signal> {
         let Value::Query(qs) = q else {
             return unsupported(format!("a query column of {}", q.describe()));
         };
-        let qs = qs.borrow();
-        let def = self.engine.program.objects[qs.object as usize]
+        let engine = self.engine.clone();
+        let def = engine.program.objects[qs.borrow().object as usize]
             .query
             .as_ref()
             .expect("a query object");
+        self.query_reopen_step(def, &qs, ReopenCall::Column(column), global)?;
+        let qs = qs.borrow();
         if def.columns[column].filter_element {
             // A filter() element read before Open, or after Open without a Read, raises as a column read without a
             // row does (corpus branch al-runtime-rs-staging-uh ab6c6eb2, PR 799: errors/lt-ms-refusals-131/
@@ -724,6 +781,16 @@ impl Session {
     /// `ColumnCaption`: the `Caption` property, else the caption of the source field.
     fn column_caption(&self, def: &ir::Query, col: usize) -> Result<String, Signal> {
         let c = &def.columns[col];
+        // GetFilters names a filter on such a FlowField by another field's caption (`Name`, `Line No.` and `timestamp` for the
+        // Lookup, Count and Exist FlowFields of queries/flowfields-filters/QueryOuterFlowBelowJoin.al:648-685); which field is
+        // not known, so the caption is refused, with or without a Caption property.
+        if c.flow_below_join {
+            return unsupported(format!(
+                "the caption of query column {} over a FlowField of a dataitem below the top dataitem's child (BC prints \
+                 another field's caption; not pinned)",
+                c.name
+            ));
+        }
         if let Some(caption) = &c.caption {
             return Ok(caption.clone());
         }
@@ -823,6 +890,21 @@ impl Session {
         Ok(placed.into_iter().map(|i| filters[i].clone()).collect())
     }
 
+    /// `Open` on a query that was read from. After a filter changed mid-read it runs again with the new filters
+    /// (queries/read-lifecycle/PnAQueryOpenRead.al:125-170, SetRangeAndOpenAfterRead: `next-entry` 4). After the last row
+    /// (with or without a SetRange or SetFilter since) it runs again too, with the new filters
+    /// (queries/read-lifecycle/QueryReadToEnd.al:88,130,172: SetRange_AfterLastRow_ThenOpenAndRead,
+    /// SetFilter_AfterLastRow_ThenOpenAndRead, Open_Twice_AfterLastRow). The one pinned Open while rows are left is
+    /// `query_reopen`'s; any other is not pinned.
+    fn query_open_started(qs: &Qs) -> Result<(), Signal> {
+        let filters_changed = qs.borrow().run.as_ref().is_some_and(|r| r.filters_changed);
+        if !Self::query_read_to_the_end(qs) && !filters_changed {
+            return unsupported("Open on a query that is already open and was read from (not pinned)");
+        }
+        qs.borrow_mut().run = None;
+        Ok(())
+    }
+
     /// Whether the query was read to its last row (its last Read returned false).
     fn query_read_to_the_end(qs: &Qs) -> bool {
         qs.borrow()
@@ -856,7 +938,7 @@ impl Session {
         }
         if !qs.borrow().run.as_ref().expect("open").started {
             let filters = qs.borrow().filters.clone();
-            let (rows, stamps) = self.query_rows(def, &filters)?;
+            let (rows, stamps) = self.query_rows(QueryReader::instance(qs.borrow().object as usize), def, &filters)?;
             let mut q = qs.borrow_mut();
             let run = q.run.as_mut().expect("open");
             run.rows = rows;
@@ -868,11 +950,12 @@ impl Session {
         // (corpus queries/TestQueryReadAfterWrite.al:102-179).
         let now = self.query_stamps(def);
         if qs.borrow().run.as_ref().expect("open").stamps != now {
-            if def.columns.iter().any(|c| c.method.is_some()) {
+            if def.columns.iter().any(|c| c.method.is_some()) && !self.aggregated_reread_pinned(def, qs) {
                 return unsupported("a write to a table an open aggregated query reads (the re-read is not pinned)");
             }
             let filters = qs.borrow().filters.clone();
-            let (mut rows, stamps) = self.query_rows(def, &filters)?;
+            let (mut rows, stamps) =
+                self.query_rows(QueryReader::instance(qs.borrow().object as usize), def, &filters)?;
             let dirs: Vec<bool> = def.order_by.iter().map(|(_, asc)| *asc).collect();
             let mut q = qs.borrow_mut();
             let run = q.run.as_mut().expect("open");
@@ -906,8 +989,56 @@ impl Session {
         Ok(Value::Boolean(true))
     }
 
+    /// The aggregated queries whose Read after a write is pinned: Read reads the groups again with the table as it is now and
+    /// goes on after the last group it returned, in the query's order, as a plain query does. Pinned facts, each required:
+    /// - one dataitem with no DataItemTableFilter (queries/read-lifecycle/QueryAggregatedWriteInLoop.al:41-84,
+    ///   queries/read-lifecycle/QueryLiveWrite.al:22-36);
+    /// - every column a column of a normal field of type Code or Integer (a group column), or a Count column, or a Sum over a
+    ///   normal Integer or Decimal field; no filter element, ColumnFilter or ReverseSign (the same lines);
+    /// - no TopNumberOfRows and no SecurityFiltering call;
+    /// - the Read before returned a row (every write of the probes sits after a Read that returned one; a Read at the end after
+    ///   DeleteAll did not see a write, QueryLiveWrite.al:144-159);
+    /// - the group columns, the run-time filters and the OrderBy form one of the measured cells (`aggregated_reread_cell`).
+    ///
+    /// The re-read reads the table as it is, so the kind of write is not a fact of the gate; the probes wrote with Insert, Modify,
+    /// Delete, ModifyAll and DeleteAll (QueryAggregatedWriteInLoop.al:166-236 and :373-416, QueryLiveWrite.al:90-163). Expected
+    /// rows: QueryAggregatedWriteInLoop.al:254-433, QueryLiveWrite.al:108-159.
+    fn aggregated_reread_pinned(&self, def: &ir::Query, qs: &Qs) -> bool {
+        use ir::QueryMethod as M;
+        let [item] = def.items.as_slice() else {
+            return false;
+        };
+        let Some(table) = self.engine.tables[item.table].as_ref() else {
+            return false;
+        };
+        let normal = |pos: usize| table.fields.get(pos).is_some_and(|f| f.stored);
+        let group = |c: &ir::QueryColumn| {
+            c.method.is_none() && c.field.is_some_and(normal) && matches!(c.ty, RtType::Code(_) | RtType::Integer)
+        };
+        let column = |c: &ir::QueryColumn| {
+            !c.filter_element
+                && !c.reverse_sign
+                && c.static_filter.is_none()
+                && (group(c)
+                    || (c.method == Some(M::Count) && c.field.is_none())
+                    || (c.method == Some(M::Sum)
+                        && c.field.is_some_and(normal)
+                        && matches!(c.ty, RtType::Integer | RtType::Decimal)))
+        };
+        let groups: Vec<usize> = (0..def.columns.len()).filter(|&i| group(&def.columns[i])).collect();
+        let s = qs.borrow();
+        item.parent.is_none()
+            && item.table_filter.is_empty()
+            && def.columns.iter().all(column)
+            && def.top == 0
+            && s.top.is_none()
+            && s.security_filtering.is_none()
+            && s.run.as_ref().is_some_and(|r| r.current.is_some())
+            && aggregated_reread_cell(def, table, &groups, &s.filters)
+    }
+
     /// The version of every table the query reads.
-    fn query_stamps(&self, def: &ir::Query) -> Stamps {
+    pub(crate) fn query_stamps(&self, def: &ir::Query) -> Stamps {
         let mut out = Stamps::new();
         for item in &def.items {
             let t = self.engine.tables[item.table].as_ref().expect("table");
@@ -918,15 +1049,53 @@ impl Session {
         out
     }
 
-    /// Runs the query: its rows in order, and the table versions they were read at.
+    /// Runs the query: its rows in order, and the table versions they were read at. `run.object`: the query object, whose
+    /// Execute permission and table reads are checked (the check of Query.Open, Y24PermExecute.al:62-63). What a static
+    /// SaveAs of a query the set denies raises is not pinned: refused (docs/probes-needed.md, "Static Query.SaveAs under a
+    /// set that denies the query").
+    /// Whether table object `table` is the Field table.
+    fn field_table_object(&self, table: usize) -> bool {
+        self.engine.program.objects[table].id == Some(crate::platform::relation_field_no_readers::FIELD_TABLE)
+    }
+
+    /// Whether a data item of query `def` is the Field table.
+    fn field_table_query(&self, def: &ir::Query) -> bool {
+        def.items.iter().any(|i| self.field_table_object(i.table))
+    }
+
+    /// `Query.Open` of query object `object` raises 'A query cannot be based on a virtual table. ...' (code DB:Ok) when its one
+    /// data item is the Field table and it has no trigger: plain columns, a run-time filter on RelationFieldNo, a
+    /// DataItemTableFilter and a ColumnFilter on it alike (corpus PR 1477, FieldRelationFieldNoReaders.al:27-73, :327-353; assumption
+    /// relation-field-no-readers). Every other query over the Field table is refused at Open and in `query_rows`.
+    fn field_table_query_open(&self, def: &ir::Query, object: usize) -> bool {
+        let one_field_item = matches!(def.items.as_slice(), [item] if self.field_table_object(item.table));
+        let triggers = self.engine.program.objects[object]
+            .routines
+            .iter()
+            .filter(|r| r.is_trigger)
+            .count();
+        one_field_item && triggers == 0
+    }
+
     fn query_rows(
         &mut self,
+        run: QueryReader,
         def: &ir::Query,
         runtime: &[(usize, FilterExpr)],
     ) -> Result<(Vec<QueryRow>, Stamps), Signal> {
         if self.permission_checks() {
             let tables: Vec<usize> = def.items.iter().map(|i| i.table).collect();
-            self.permission_gate_object_read(self.query_object, &tables)?;
+            let gate = self.permission_gate_object_read(run.object, &tables);
+            if run.static_save && matches!(gate, Err(Signal::Error(_))) {
+                return unsupported(
+                    "a static Query.SaveAsCsv or Query.SaveAsXml of a query the permission set denies (its error is not pinned)",
+                );
+            }
+            gate?;
+        }
+        // A query over the Field table that Open did not refuse (`field_table_query_open`): not measured.
+        if self.field_table_query(def) {
+            return unsupported(FIELD_TABLE_QUERY_REFUSAL);
         }
         let stamps = self.query_stamps(def);
         for (table, _) in &stamps {
@@ -991,6 +1160,7 @@ impl Session {
 
     /// Sorts every filter of the query to the place it applies.
     fn query_plan(&mut self, def: &ir::Query, runtime: &[(usize, FilterExpr)]) -> Result<Plan, Signal> {
+        self.restamped_query(def)?;
         let engine = self.engine.clone();
         let mut plan = Plan {
             scan: vec![Vec::new(); def.items.len()],
@@ -1083,6 +1253,13 @@ impl Session {
                 let outer_child = item.left_outer && item.parent.is_some_and(|p| def.items[p].parent.is_none());
                 let below_outer = std::iter::successors(Some(c.item), |&i| def.items[i].parent)
                     .any(|i| def.items[i].left_outer && def.items[i].parent.is_some());
+                // One level deeper, in the shape the compile pinned (`ir::QueryColumn::flow_below_join`), a filter() element and a
+                // filter on the column both filter the joined rows by the value calculated per row, the default for a row without
+                // a match (queries/flowfields-filters/QueryOuterFlowBelowJoin.al:695-812, al-runner issue 7401).
+                if c.flow_below_join {
+                    plan.post.push((ci, expr));
+                    continue;
+                }
                 if c.filter_element && ((below_outer && !outer_child) || has_right) {
                     return unsupported(
                         "a filter() element over a FlowField of a joined data item, or in a query with a right or full outer join (not pinned)",
@@ -1208,7 +1385,12 @@ impl Session {
         let mut rows: Vec<Vec<Value>> = Vec::new();
         if !parent_missing {
             let cx = self.cx.clone();
+            self.refuse_filter_over_rolled(&cx, &t, &filters)?;
             self.each_row(&cx, &t, &filters, |row| {
+                // A query over a Time a database column holds past the day: its value and order are not probed (`sqltime`).
+                if row.iter().any(crate::sqltime::is_rolled) {
+                    return unsupported("a query over a Time stored as 23:59:59.999 (not probed)");
+                }
                 rows.push(row.to_vec());
                 Ok(())
             })?;
@@ -1248,7 +1430,12 @@ impl Session {
         let ct: Arc<TableDef> = self.engine.tables[item.table].clone().expect("table");
         let cx = self.cx.clone();
         let mut children: Vec<Vec<Value>> = Vec::new();
+        self.refuse_filter_over_rolled(&cx, &ct, &plan.scan[level])?;
         self.each_row(&cx, &ct, &plan.scan[level], |row| {
+            // A query over a Time a database column holds past the day: its value and order are not probed (`sqltime`).
+            if row.iter().any(crate::sqltime::is_rolled) {
+                return unsupported("a query over a Time stored as 23:59:59.999 (not probed)");
+            }
             children.push(row.to_vec());
             Ok(())
         })?;
@@ -1344,7 +1531,7 @@ impl Session {
         };
         {
             let mut r = rc.borrow_mut();
-            r.fields = row.to_vec();
+            r.fields = row.to_vec().into();
             r.filters = flow.to_vec();
             r.temporary = false;
             r.temp_id = None;
@@ -1598,6 +1785,54 @@ fn sum_fits_column(ty: &RtType, sum: Decimal) -> bool {
         RtType::Integer => i32::try_from(whole).is_ok(),
         RtType::BigInteger | RtType::Duration => i64::try_from(whole).is_ok(),
         _ => true,
+    }
+}
+
+/// The group columns (`groups`, positions in `def.columns`), run-time filters and OrderBy of an aggregated query whose re-read
+/// after a write is measured:
+/// - one group column, no run-time filter, no OrderBy (queries/read-lifecycle/QueryAggregatedWriteInLoop.al:75-84, :357-433) or
+///   OrderBy ascending on it (queries/read-lifecycle/QueryLiveWrite.al:22-36);
+/// - every group column but the last two filtered by a SetRange to one value, no OrderBy (QueryAggregatedWriteInLoop.al:41-54,
+///   :139-146);
+/// - every group column but the last filtered by a SetRange to one value, OrderBy descending on the last
+///   (QueryAggregatedWriteInLoop.al:57-72, :318-328).
+///
+/// In the two filtered cells the filtered columns and the first free one hold every field of the table's primary key, so no
+/// two groups tie on what the re-read resumes after (the probe's key is Header No., Line No., :34).
+fn aggregated_reread_cell(
+    def: &ir::Query,
+    table: &al_data::TableDef,
+    groups: &[usize],
+    filters: &[(usize, al_builtins::filter::FilterExpr)],
+) -> bool {
+    use al_builtins::filter::FilterExpr;
+    let one_value = |f: &FilterExpr| {
+        matches!(f, FilterExpr::Range(Some(a), Some(b))
+            if al_builtins::ops::compare_key_value(a, b).is_ok_and(|o| o == Ordering::Equal))
+    };
+    if !filters.iter().all(|(c, f)| groups.contains(c) && one_value(f)) {
+        return false;
+    }
+    let free: Vec<usize> = groups
+        .iter()
+        .copied()
+        .filter(|g| filters.iter().all(|(c, _)| c != g))
+        .collect();
+    let key_held = |first_free: usize| {
+        table.keys.first().is_some_and(|pk| {
+            pk.iter().all(|&pos| {
+                let held = |ci: usize| def.columns[ci].field == Some(pos);
+                held(first_free) || filters.iter().any(|(c, _)| held(*c))
+            })
+        })
+    };
+    let n = groups.len();
+    match (free.as_slice(), def.order_by.as_slice()) {
+        ([f], []) if n == 1 => groups[0] == *f,
+        ([f], [(o, true)]) if n == 1 => groups[0] == *f && *o == *f,
+        ([a, b], []) if n > 2 => groups[n - 2..] == [*a, *b] && key_held(*a),
+        ([a], [(o, false)]) if n > 1 => groups[n - 1] == *a && *o == *a && key_held(*a),
+        _ => false,
     }
 }
 

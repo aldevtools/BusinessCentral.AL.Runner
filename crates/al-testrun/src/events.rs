@@ -48,6 +48,8 @@ pub struct TestEvent {
     pub ui_answered: Vec<String>,
     /// The entry of the run the test ran for (`RunOptions::entries`), as the caller's hook sets it; `None` otherwise.
     pub entry: Option<usize>,
+    /// The unprobed assumptions the test ran through (`TestResult::assumptions`).
+    pub assumptions: Vec<al_builtins::assumptions::Assumption>,
 }
 
 impl TestEvent {
@@ -66,6 +68,7 @@ impl TestEvent {
             stubs: Vec::new(),
             ui_answered: Vec::new(),
             entry: None,
+            assumptions: Vec::new(),
         }
     }
 }
@@ -180,8 +183,8 @@ pub(crate) fn cancelled() -> bool {
 }
 
 /// The reason of the tests not reached once the run stopped for its hard memory limit (`Hooks::halt`); `None` while
-/// it runs on.
-pub(crate) fn halted() -> Option<String> {
+/// it runs on. On a test's thread only (a hook reads it there).
+pub fn halted() -> Option<String> {
     CURRENT.with(|c| {
         c.borrow()
             .0

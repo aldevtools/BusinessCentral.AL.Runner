@@ -397,3 +397,29 @@
 27 3109-calcformula-option-value-not-defined
 28 3109-calcformula-option-value-not-defined
 29 3109-calcformula-option-value-not-defined
+# corpus bump to 56ca92b3 (corpus run 43671109504): new cases the front end does not decide yet (an unquoted Option or Enum member)
+27 3158-option-field-unquoted-in-member
+27 3159-option-variable-unquoted-in-member
+27 3160-enum-type-unquoted-in-value
+28 3158-option-field-unquoted-in-member
+28 3159-option-variable-unquoted-in-member
+28 3160-enum-type-unquoted-in-value
+29 3158-option-field-unquoted-in-member
+29 3159-option-variable-unquoted-in-member
+29 3160-enum-type-unquoted-in-value
+# corpus bump to 8fcde9a6 (runner pull request 8515, issue 8530): new cases al-sema accepts and BC rejects
+27 3173-subscriber-plain-twin-name-namespace-without-using
+27 3211-currpage-caption-read-beside-own-integer
+27 3212-currpage-caption-parens-read-beside-own-integer
+27 3214-unqualified-caption-calls-own-integer
+27 3215-page-variable-caption-own-no-return
+28 3173-subscriber-plain-twin-name-namespace-without-using
+28 3211-currpage-caption-read-beside-own-integer
+28 3212-currpage-caption-parens-read-beside-own-integer
+28 3214-unqualified-caption-calls-own-integer
+28 3215-page-variable-caption-own-no-return
+29 3173-subscriber-plain-twin-name-namespace-without-using
+29 3211-currpage-caption-read-beside-own-integer
+29 3212-currpage-caption-parens-read-beside-own-integer
+29 3214-unqualified-caption-calls-own-integer
+29 3215-page-variable-caption-own-no-return

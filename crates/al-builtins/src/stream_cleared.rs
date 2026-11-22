@@ -2,7 +2,7 @@
 //! (`LibraryValue::ClearedStream`, `Clear` in native/values.rs). The corpus measured more uses of the first than of the second.
 
 use crate::native::Signal;
-use crate::value::{LibraryValue, Value};
+use crate::value::{LibraryValue, RecordState, Value};
 
 /// Whether a stream handle holds no stream, never created or cleared.
 pub(crate) fn holds_no_stream(l: &LibraryValue) -> bool {
@@ -51,4 +51,67 @@ pub(crate) fn uncreated_result(used: bool, nav: &str, answer: Value) -> Result<V
     } else {
         Err(crate::xml::uninitialized(nav))
     }
+}
+
+/// `InStream.ResetPosition()` as a statement on an InStream never created raises NotInitialized naming NavInStream
+/// (tests/al-language/streams/instream-outstream/UhUntouchedStreams.al:88 `Untouched_InStream_ResetPosition`, step `inreset`
+/// :44-48). Other forms and a cleared stream go on (and refuse there).
+pub(crate) fn reset_uncreated(r: Option<&Value>, used: bool) -> Result<(), Signal> {
+    if !used && never_created(r) {
+        return Err(crate::xml::uninitialized("InStream"));
+    }
+    Ok(())
+}
+
+/// `CopyStream(OutStream, InStream)` with both streams never created: as a statement it raises NotInitialized naming NavInStream,
+/// with the result used it answers false (tests/al-language/streams/instream-outstream/UhUntouchedStreams.al:108
+/// `Untouched_CopyStream_BothUntouched_Statement`, :118 `_Value`; steps `copy_stmt`, `copy_value` :51-56).
+pub(crate) fn copy_both_uncreated(used: bool) -> Result<Value, Signal> {
+    uncreated_result(used, "InStream", Value::Boolean(false))
+}
+
+/// The `RecordState::unpinned_buffer` reason of a record after [`import_from_uncreated`] answered: what the record holds after
+/// the import is not implemented (UhUntouchedStreamsAfter.al codeunit 66995 measures it), so its field, a write of it to the store and a copy of it refuse (al-vm `records.rs`
+/// `unpinned_buffer_op` and `copy_refused_mark`, `interp.rs` `read_record_field`, `refs.rs` `gettable_record_copy`, `recmeta.rs`
+/// `format_composite_value`) until a read fills the buffer again. A `Clear` of the variable keeps it.
+pub const UNCREATED_IMPORT_BUFFER: &str = "a record after Media or MediaSet ImportStream from an InStream never created: what its field holds afterwards is not implemented (streams/instream-outstream/UhUntouchedStreamsAfter.al, codeunit 66995)";
+
+/// `Media.ImportStream` and `MediaSet.ImportStream` with the result used, from an InStream never created into a field that holds
+/// no media, with the arguments the probe passed, on the record the probe used: `Some` with the empty Guid
+/// (tests/al-language/streams/instream-outstream/UhUntouchedStreams.al:128 `Untouched_InStream_Media_ImportStream`, :138
+/// `_MediaSet_ImportStream`, :148 `_Media_ImportStream_NoName`; steps :58-72 `media_import` (InS, 'icon'), `media_import2` (InS,
+/// 'icon', 'image/png'), `mediaset_import` (InS, 'icon')). The record (`receiver`, the record that holds
+/// the field, from the call site in al-vm `exec/run.rs`) must be in the state of the probe's `Pic` (:37-40, :58-72), as
+/// [`measured_receiver`] lists it (the key field the probe assigned is not checked). The record then
+/// carries [`UNCREATED_IMPORT_BUFFER`]. `set`: a MediaSet. `None` to go on (the builtin
+/// refuses an InStream never created).
+pub fn import_from_uncreated(
+    used: bool,
+    set: bool,
+    field_blank: bool,
+    receiver: &mut RecordState,
+    a: &[Value],
+) -> Option<Value> {
+    let text = |v: &Value, t: &str| matches!(v, Value::Text(s) if s.as_str() == t);
+    let args_measured = match a {
+        [s, d] => never_created(Some(s)) && text(d, "icon"),
+        [s, d, m] if !set => never_created(Some(s)) && text(d, "icon") && text(m, "image/png"),
+        _ => false,
+    };
+    if !(used && field_blank && args_measured && measured_receiver(receiver)) {
+        return None;
+    }
+    receiver.unpinned_buffer = Some(UNCREATED_IMPORT_BUFFER);
+    Some(Value::Guid([0; 16]))
+}
+
+/// The probe's `Pic` (UhUntouchedStreams.al:37-40): a record of a stored table that no Insert, Get or Find reached, in the
+/// session's company, with no other unpinned buffer.
+fn measured_receiver(r: &RecordState) -> bool {
+    !r.temporary
+        && !r.inserted
+        && r.row_origin.is_none()
+        && r.position.is_none()
+        && r.company.is_none()
+        && r.unpinned_buffer.is_none()
 }

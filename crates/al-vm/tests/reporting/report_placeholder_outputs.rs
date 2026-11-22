@@ -466,8 +466,10 @@ table 50978 "RPO Attachment"
 codeunit 50979 "RPO Attachment Tests"
 {
     local procedure Attach(var A: Record "RPO Attachment")
-    var Tmp: Record "RPO Row" temporary; Out: OutStream; I: InStream; TenantMedia: Record "Tenant Media"; MediaId: Guid;
+    var R: Record "RPO Row"; Tmp: Record "RPO Row" temporary; Out: OutStream; I: InStream; TenantMedia: Record "Tenant Media"; MediaId: Guid;
     begin
+        // A run with a row: one with none writes no Html (report_html_no_row.rs).
+        R.DeleteAll(); R.Id := 1; R.Insert();
         Tmp.Data.CreateOutStream(Out);
         Report.SaveAs(Report::"RPO Word", '', ReportFormat::Html, Out);
         Tmp.Data.CreateInStream(I);
@@ -581,17 +583,17 @@ fn report_placeholder_the_files_are_of_the_right_kind() {
 
 #[test]
 fn report_placeholder_every_read_of_the_content_is_refused() {
+    // A whole text read of the Html (`ReadIntoText`, `BigTextRead`) gives the rendered content's mark since the ADR-040
+    // amendment 2026-11-12 (A2), and what may be done with it is tested in `rendered_text.rs`.
     for p in [
         "ReadText",
         "ReadChar",
-        "ReadIntoText",
         "Eos",
         "StreamLength",
         "CopyCount",
         "XmlReadFrom",
         "JsonReadFrom",
         "Base64",
-        "BigTextRead",
         "GZipDecompress",
         "ReadOfTheCopy",
         "ReadOfTheStoredBlob",
@@ -638,11 +640,16 @@ fn report_placeholder_the_size_answers_only_against_0() {
     }
 }
 
-// Email Message Impl. stores the attachment's Content.Length in a field: the number is refused.
+// Email Message Impl. stores the attachment's Content.Length in a field: the field keeps the size, which answers only against 0
+// (ADR-040 amendment 2026-11-12b; every other read of the field: report_placeholder_size_field.rs).
 #[test]
 fn report_placeholder_an_e_mail_attachment_takes_the_bytes_and_keeps_the_content_refused() {
     let src = format!("{SRC}{ATTACHMENT}");
-    refused(run_in(&src, "RPO Attachment Tests", "AttachmentLength"), SIZE);
+    assert!(al_testkit::boolean(run_in(
+        &src,
+        "RPO Attachment Tests",
+        "AttachmentLength"
+    )));
     refused(run_in(&src, "RPO Attachment Tests", "ReadOfTheAttachment"), CONTENT);
 }
 
@@ -671,15 +678,15 @@ fn report_placeholder_a_layout_selection_refuses_the_save_and_the_run() {
     let src = format!("{SRC}{SELECTION}");
     refused(
         run_in(&src, "RPO Selection Tests", "HtmlWithSelection"),
-        "Report Layout Selection",
+        "layout selection",
     );
     refused(
         run_in(&src, "RPO Selection Tests", "RunWithSelection"),
-        "Report Layout Selection",
+        "layout selection",
     );
     refused(
         run_in(&src, "RPO Selection Tests", "RunExcelWithSelection"),
-        "Report Layout Selection",
+        "layout selection",
     );
 }
 

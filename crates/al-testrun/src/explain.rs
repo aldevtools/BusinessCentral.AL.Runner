@@ -95,6 +95,27 @@ fn describe_at(
     StackLine { who, at }
 }
 
+/// The marker of [`site_suffix`].
+const SITE_OPEN: &str = " [in ";
+
+/// ` [in <routine> at <app: file:line:col>]`: the innermost routine of `site` (outermost first) and the statement it was
+/// running, for the reason of code that runs outside a test (install code, the test session's company open), so that the
+/// reason names where it stopped (al-runner issue 8142). Empty when nothing was recorded.
+pub fn site_suffix(program: &ir::Program, site: &[FaultFrame]) -> String {
+    site.last().map_or(String::new(), |f| {
+        let at = describe(program, f.object, f.routine, f.pos);
+        format!("{SITE_OPEN}{} at {}]", at.who, at.at)
+    })
+}
+
+/// `reason` without its [`site_suffix`], so that reasons that differ only in where they stopped group together.
+pub fn without_site_suffix(reason: &str) -> &str {
+    match reason.rfind(SITE_OPEN) {
+        Some(i) if reason.ends_with(']') && reason[i..].contains(" at ") => &reason[..i],
+        _ => reason,
+    }
+}
+
 /// The detail of a test that has just ended: `site` is the runtime's record of where the error or
 /// the refusal left from (outermost first).
 pub fn detail(program: &ir::Program, site: &[FaultFrame], error: Option<ErrorInfo>) -> TestDetail {

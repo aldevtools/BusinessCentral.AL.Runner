@@ -63,10 +63,10 @@ impl Session {
         let pk = Self::sql_key(rec, &t, &fields);
         let cx = self.cx.clone();
         let stored = self
-            .store_for(rec)
+            .store_for(rec)?
             .get(&cx, &t, &pk)
             .map_err(|e| Signal::unsupported(format!("{e}")))?;
-        Ok(stored.is_none().then_some((t, fields, have)))
+        Ok(stored.is_none().then_some((t, fields.into_vec(), have)))
     }
 
     /// A Validate of a field that is not loaded, on a partial record whose row is gone: the JIT error naming that field
