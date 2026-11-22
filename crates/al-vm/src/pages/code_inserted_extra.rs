@@ -67,7 +67,6 @@ impl Session {
         let line = st.borrow().new_line_writes;
         let only_the_insert = line.is_some_and(|(mark, deletes)| self.write_mark() == (mark + 1, deletes));
         // The row the control's OnValidate wrote once through another record before the save (`Inserted::Rewritten`): measured
-        // The row the control's OnValidate wrote once through another record before the save (`Inserted::Rewritten`): measured
         // under Page.RunModal on an empty group, where nothing but the table field's insert wrote the store before the control's
         // OnValidate began (:443).
         let insert_before_control = {
