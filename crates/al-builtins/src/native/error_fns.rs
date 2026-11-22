@@ -48,7 +48,8 @@ pub const EXC_CODE: usize = 2;
 /// `GetLastErrorObject()`: the last error as the .NET exception BC holds, or null when there is none.
 /// Pinned by tests/al-language-onprem-dotnet/dotnet/dotnet-interop/GetLastErrorObject.al for `Error('literal', args)`
 /// (:138-230), `Get` without a row (:232-255) and a division by zero (:257-280); null after `ClearLastError`
-/// (:283-301). Any other error is refused, naming its code.
+/// (:283-301), and in a page background task's worker before an error of its own (corpus PR 1516,
+/// BgTaskWorkerLastErrorObject.al:91, :103). Any other error is refused, naming its code.
 pub(super) fn get_last_error_object(
     ctx: &mut dyn Ctx,
     _: Option<&mut Value>,
@@ -61,7 +62,7 @@ pub(super) fn get_last_error_object(
     let e = ctx.last_error();
     refuse_unpinned(&e, "GetLastErrorObject")?;
     if e.message.is_empty() && e.code.is_empty() {
-        if e.exception != ExceptionKind::Cleared {
+        if e.exception != ExceptionKind::Cleared && !ctx.session_without_error() {
             return unsupported(
                 "GetLastErrorObject before any error happened in the session (what BC answers is not pinned; only the answer after ClearLastError is)",
             );

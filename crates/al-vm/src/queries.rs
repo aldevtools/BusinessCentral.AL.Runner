@@ -587,9 +587,9 @@ impl Session {
 
     /// A read of query `def` by `method` (Open, Read, SaveAsXml, SaveAsJson or SaveAsCsv, of an instance or static) while an
     /// Insert error into one of its tables is deferred: refused (`records/insert_buffer.rs`, al-runner issue 8288).
-    fn refuse_query_read_while_deferred(&self, def: &ir::Query, method: &str) -> Result<(), Signal> {
+    fn refuse_query_read_while_deferred(&mut self, def: &ir::Query, method: &str) -> Result<(), Signal> {
         for item in &def.items {
-            self.refuse_unmeasured_read_while_deferred(item.table, &format!("Query.{method}"))?;
+            self.refuse_unmeasured_read_while_deferred(item.table, None, &format!("Query.{method}"))?;
         }
         Ok(())
     }
@@ -1101,6 +1101,15 @@ impl Session {
         for (table, _) in &stamps {
             self.note_indirect_read(*table);
         }
+        // A page background task's worker does not see the rows the test session's insert queue holds (records/insert_buffer.rs).
+        let hidden = self.hide_queued_from_query(def)?;
+        let rows = self.query_rows_read(def, runtime);
+        self.show_queued_to_test_session(hidden);
+        Ok((rows?, stamps))
+    }
+
+    /// The rows of query `def` read from the store (`query_rows`).
+    fn query_rows_read(&mut self, def: &ir::Query, runtime: &[(usize, FilterExpr)]) -> Result<Vec<QueryRow>, Signal> {
         let plan = self.query_plan(def, runtime)?;
         // The joined rows: one row of each dataitem's table.
         let mut joined: Vec<JoinedRow> = Vec::new();
@@ -1155,7 +1164,7 @@ impl Session {
         // (queries/TestQueryOuterJoinDescendingSaveAsContracts.al, corpus: .
         // Groups of an aggregated query that tie on every OrderBy column stay in the order of their grouping columns, which
         // `group_rows` produced and the stable sort kept (queries/AzQueryTests.al:526-572, SG_OrderByTies_*).
-        Ok((rows, stamps))
+        Ok(rows)
     }
 
     /// Sorts every filter of the query to the place it applies.

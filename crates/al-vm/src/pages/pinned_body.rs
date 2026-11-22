@@ -460,15 +460,35 @@ pub(super) fn table_is(
 pub(super) fn callees_are(engine: &crate::Engine, callees: &Callees, want: &[&str], names: &mut Names) -> bool {
     callees.iter().all(|&(o, r)| {
         let mut inner = Vec::new();
-        let Some(body) = routine_text(&engine.program, o, r, &mut inner) else {
-            return false;
-        };
-        let text = format!(
-            "\"{}\".{}: {body}",
-            engine.program.objects[o].name, engine.program.objects[o].routines[r].name
-        );
-        inner.is_empty() && !engine.events.any_subscriber_of(o) && want.iter().any(|w| names.line_is(&text, w))
+        callee_text(engine, o, r, &mut inner).is_some_and(|text| {
+            inner.is_empty() && !engine.events.any_subscriber_of(o) && want.iter().any(|w| names.line_is(&text, w))
+        })
     })
+}
+
+/// As `callees_are`, and a procedure may call others that read as one of `want` and call nothing themselves (the page's
+/// ChangeView of pages/currpage/ListValidateFilterRefresh.al calls the log codeunit's FilterStep and UpdateStep).
+pub(super) fn callees_with_calls_are(
+    engine: &crate::Engine,
+    callees: &Callees,
+    want: &[&str],
+    names: &mut Names,
+) -> bool {
+    callees.iter().all(|&(o, r)| {
+        let mut inner = Vec::new();
+        callee_text(engine, o, r, &mut inner)
+            .is_some_and(|text| !engine.events.any_subscriber_of(o) && want.iter().any(|w| names.line_is(&text, w)))
+            && callees_are(engine, &inner, want, names)
+    })
+}
+
+/// Routine `r` of `o` written `"<object>".<procedure>: <body>`; the procedures it calls go to `inner`.
+fn callee_text(engine: &crate::Engine, o: usize, r: usize, inner: &mut Callees) -> Option<String> {
+    let body = routine_text(&engine.program, o, r, inner)?;
+    Some(format!(
+        "\"{}\".{}: {body}",
+        engine.program.objects[o].name, engine.program.objects[o].routines[r].name
+    ))
 }
 
 /// A type as a declaration writes it; `None` for one the pins do not use.

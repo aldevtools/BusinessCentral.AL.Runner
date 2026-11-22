@@ -362,6 +362,8 @@ mod temp_list_gone_row;
 mod temp_list_refill;
 mod test_end;
 mod typed_handler_temp;
+mod validate_view_cells;
+mod validate_view_refresh;
 mod walk_parts;
 pub(crate) mod ws_trigger_order;
 pub(crate) use shown::ShownNote;

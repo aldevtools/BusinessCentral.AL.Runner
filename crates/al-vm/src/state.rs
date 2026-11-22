@@ -65,6 +65,11 @@ pub(crate) struct TxState {
     /// The record (its address) whose Insert was the last to leave a duplicate key pending: the insert queue asks whether the
     /// Insert that sends it was itself a duplicate (`Session::note_insert_buffer`).
     pub(crate) deferred_by: Option<usize>,
+    /// The record (its address) whose queued Insert runs now, until it writes the store (`Session::queue_stored_row`).
+    pub(crate) queue_pending: Option<usize>,
+    /// The records (their addresses) whose queued Insert put its row into the queue at the store write, before its After
+    /// event ran; taken by `Session::note_insert_buffer`.
+    pub(crate) queue_counted: Vec<usize>,
     /// How many deferred duplicate-key Inserts have come out so far (a TestPage action wraps the code of one its own
     /// Insert left, `action_invoke`).
     pub(crate) deferred_raised: u32,
@@ -107,8 +112,9 @@ pub(crate) struct OpenTx {
     /// A duplicate-key Insert into a table without a Blob field does not fail where it is
     /// called: the table (object index) and the error come out at the next access to the table
     /// or at Commit (corpus record/TestRecordRuntimeTextsAndViews.al:
-    /// Record_Insert_DuplicateKey_WithoutBlobField_IsDeferred_AndSurfacesAtTheNextAccess).
-    pub(crate) deferred_insert: Option<(usize, AlError)>,
+    /// Record_Insert_DuplicateKey_WithoutBlobField_IsDeferred_AndSurfacesAtTheNextAccess). An Insert of a Date or DateTime its
+    /// SQL column cannot hold is deferred the same way (`records/sql_range.rs`).
+    pub(crate) deferred_insert: Option<crate::records::DeferredInsert>,
     /// The rows each table's insert queue holds since it was last sent (`Session::note_insert_buffer`).
     pub(crate) insert_buffer: Vec<crate::records::InsertQueue>,
     /// What `Database.LastUsedRowVersion` reports inside the open transaction (`Session::last_used_row_version`): the
@@ -288,6 +294,8 @@ impl TxState {
             get_from_al: false,
             write_of_al: None,
             deferred_by: None,
+            queue_pending: None,
+            queue_counted: Vec::new(),
             deferred_raised: 0,
             immediate_errors: false,
             try_depth: 0,
@@ -342,6 +350,13 @@ pub(crate) struct PageClients {
     pub(crate) scope_unpinned: Vec<Rc<RefCell<crate::pages::PageState>>>,
     /// A page background task worker is running: its parameters and the result it set.
     pub(crate) bg_worker: Option<pages::BgWorker>,
+    /// The test session's last error as a worker's end gave it back, when the worker had set one of its own: until the first
+    /// read of another last error, a read of it differs from the answer before issue 8697, which gave the worker's
+    /// (`Session::bg_note_last_error_read`, which ends it).
+    pub(crate) bg_kept_last_error: std::cell::RefCell<Option<al_builtins::native::AlError>>,
+    /// A failing worker's error left `TestPage.RunPageBackgroundTask` and has not left a routine of the test session yet: an
+    /// asserterror around the call itself keeps the last error (`Session::bg_catch_keeps_last_error`).
+    pub(crate) bg_task_error_unrecorded: bool,
     /// The query cache page background tasks and the test session read through (`query_cache.rs`).
     pub(crate) query_cache: crate::query_cache::QueryCache,
     /// Which dialogs and errors the CaptionClass runs in progress may raise (`Session::caption_dialog_refusal`).
