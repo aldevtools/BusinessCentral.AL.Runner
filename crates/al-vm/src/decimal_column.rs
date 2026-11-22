@@ -1,14 +1,16 @@
 //! What the SQL `decimal(38,20)` column behind a Decimal field of a database table does to its values: it holds 20
-//! decimals and cuts the rest toward zero. Pinned by corpus tests/al-language/record/crud/RcAGetFind.al:749-842, and only for
-//! the field shape, writers and readers that probe measures. A temporary table, and every other field shape, keep the values as they are.
+//! decimals and cuts the rest toward zero. Not pinned yet: every cut runs through the assumption entry
+//! `decimal-column-cuts-twenty-places` (measured in open corpus pull request 1427, RcAGetFind.al:749-842 there), and only for the field
+//! shape, writers and readers that probe measures. A temporary table, and every other field shape, keep the values as they are.
 
+use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_builtins::native::Signal;
 use al_builtins::value::{RtType, Value};
 use al_data::TableDef;
 use rust_decimal::{Decimal, RoundingStrategy};
 
-/// `d` as the column holds it, when that differs from `d`: cut toward zero after the 20th decimal (RcAGetFind.al:749-778,
+/// `d` as the column holds it, when that differs from `d`: cut toward zero after the 20th decimal (RcAGetFind.al:749-778 in open corpus PR 1427,
 /// 1000 / 3600000 reads back as 0.00027777777777777777, 0.000000000000000000019 as 0.00000000000000000001). A value with at
 /// most 20 decimals costs one compare.
 fn cut(d: &Decimal) -> Option<Decimal> {
@@ -63,7 +65,7 @@ pub(crate) enum Write {
 
 /// Cuts the Decimal values of `row` (a database table's) as the columns hold them, for the measured field shape only. The
 /// probe measures an `Insert()` and a `Modify()` that AL code calls on a Record variable (`by_al`), without the trigger
-/// (RcAGetFind.al:749-778, :780-799); any other write of a value the column cuts into such a field is refused.
+/// (RcAGetFind.al:749-778, :780-799 in open corpus PR 1427); any other write of a value the column cuts into such a field is refused.
 pub(crate) fn store(
     t: &TableDef,
     schema: &al_ir::Table,
@@ -84,6 +86,7 @@ pub(crate) fn store(
                 t.fields[i].name, t.name
             )));
         }
+        assume(Assumption::DecimalColumnCutsTwentyPlaces);
         row[i] = Value::Decimal(c);
     }
     Ok(())
@@ -117,7 +120,7 @@ fn cut_expr(e: &FilterExpr) -> Option<FilterExpr> {
     }
 }
 
-/// Whether a filter just set is one the probe measures (RcAGetFind.al:801-842): a database table's measured field, set by
+/// Whether a filter just set is one the probe measures (RcAGetFind.al:801-842 in open corpus PR 1427): a database table's measured field, set by
 /// AL code on the Record variable (`by_al`) with `SetRange` (`text` is `None`) and one or two Decimal values, or with
 /// `SetFilter` of the text `<%1` or `>%1` and one Decimal value, holding a value the column cuts. `values` are the arguments
 /// after the field (SetRange) or after the text (SetFilter).
@@ -159,7 +162,8 @@ pub(crate) fn read_filters(
             .any(|m| m.field == f.field && m.group == f.group && m.expr.identical(&f.expr));
         match cut_expr(&f.expr) {
             Some(cut) if count_by_al && marked => {
-                        f.expr = cut;
+                assume(Assumption::DecimalColumnCutsTwentyPlaces);
+                f.expr = cut;
             }
             _ => {
                 return Err(Signal::unsupported(format!(
