@@ -16,6 +16,11 @@
 //! table (:107-123, table 98485). An OnAfterLogin subscriber sets it again in each session (:87-105). Only an entry set
 //! in that shape ends; every other entry stays, and a record without it reads it only for the calls
 //! [`Session::group1_use`] allows.
+//!
+//! A page background task's worker (corpus PR 1507, tests/al-language/pages/background-tasks/BgTaskWorkerFilterGroup1.al,
+//! assumption `bg-task-worker-filter-group-one`): it runs in a session of its own, which starts with none of the test
+//! session's entries (:322-:471) and whose own entries end with it (:489, :506, :556); the test session's entries are back
+//! as they were after the task (:489, :521) ([`Group1Filters::enter_worker`], [`Group1Filters::leave_worker`]).
 
 use super::*;
 use crate::globaltriggers::GlobalOp;
@@ -94,7 +99,8 @@ impl VarKind {
     }
 }
 
-/// The group 1 filters of one session; StartSession parks them (bgsession.rs).
+/// The group 1 filters of one session; StartSession and a page background task's worker park them (bgsession.rs,
+/// [`Group1Filters::enter_worker`]).
 #[derive(Default)]
 pub(crate) struct Filters {
     by_table: HashMap<u32, Entry>,
@@ -105,6 +111,13 @@ pub(crate) struct Filters {
 pub(crate) struct Group1Filters {
     pub(crate) filters: Filters,
     shape: Group1InstallShape,
+    /// The tables of the test session's entries a page background task's worker runs without (`enter_worker`).
+    worker_kept_aside: Vec<u32>,
+    /// Of those, the tables on which the worker set or took back a filter in group 1 (`note_worker_filter`).
+    worker_filtered: Vec<u32>,
+    /// The tables whose group 1 filter a page background task's worker set or took back, ended with the worker
+    /// (`leave_worker`).
+    worker_ended: Vec<u32>,
 }
 
 impl Group1Filters {
@@ -113,9 +126,48 @@ impl Group1Filters {
         self.filters.by_table.values().all(|e| e.signature.is_empty())
     }
 
-    /// Some table holds a group 1 filter, or had one another record took back.
+    /// Some table holds a group 1 filter, or had one another record took back, or a worker runs without the test session's
+    /// or set one that ended with it.
     pub(crate) fn has_tables(&self) -> bool {
-        !self.filters.by_table.is_empty()
+        !self.filters.by_table.is_empty() || !self.worker_kept_aside.is_empty() || !self.worker_ended.is_empty()
+    }
+
+    /// A page background task's worker starts in a session of its own: with none of the test session's group 1 filters,
+    /// which it returns for [`Self::leave_worker`] (BgTaskWorkerFilterGroup1.al:322-:471, corpus PR 1507).
+    pub(crate) fn enter_worker(&mut self) -> Filters {
+        let parked = std::mem::take(&mut self.filters);
+        self.worker_kept_aside = parked.by_table.keys().copied().collect();
+        parked
+    }
+
+    /// The worker ended: what it set in group 1 ends with it (:506, :556), and the test session's filters are back as they
+    /// were (:489, :521), also where the worker took them back in its session (tests/neighbors/8670-bg-worker-filter-group1,
+    /// "G1N Worker Clears", Business Central 29.1). Later calls on those tables run through the assumption.
+    pub(crate) fn leave_worker(&mut self, parked: Filters) {
+        self.worker_kept_aside.clear();
+        let worker = std::mem::replace(&mut self.filters, parked);
+        let filtered = std::mem::take(&mut self.worker_filtered);
+        for table in worker.by_table.into_keys().chain(filtered) {
+            if !self.worker_ended.contains(&table) {
+                self.worker_ended.push(table);
+            }
+        }
+    }
+
+    /// A worker sets or takes back a filter in group 1 of table `table`: where the test session's entry is kept aside, the
+    /// entry it gets back differs from main's ([`Self::leave_worker`]).
+    fn note_worker_filter(&mut self, table: u32) {
+        if self.worker_kept_aside.contains(&table) && !self.worker_filtered.contains(&table) {
+            self.worker_filtered.push(table);
+        }
+    }
+
+    /// A call on table `table` in group 1 that the worker's session of its own decides: a worker's on a table whose test
+    /// session entry it runs without, or a later one on a table whose filter a worker set. It runs through the assumption.
+    fn note_worker_session(&self, table: u32) {
+        if self.worker_kept_aside.contains(&table) || self.worker_ended.contains(&table) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BgTaskWorkerFilterGroupOne);
+        }
     }
 
     /// The group 1 filters of every table that holds some, as text to compare (al-vm `state_stamp.rs`).
@@ -320,6 +372,8 @@ impl Session {
         method: RecordOp,
         args: &mut [Value],
     ) -> Result<Value, Signal> {
+        self.global_group1.note_worker_session(table);
+        self.global_group1.note_worker_filter(table);
         let set = self.group1_set(rec, table, method, args)?;
         let by_record = self.is_al_record_call(method, rec);
         let r = self.record_op(method, rec, args)?;
@@ -417,6 +471,7 @@ impl Session {
     /// a record with no group 1 filter reads its own (:762-763, :797); one that still holds some is refused. Every other
     /// shape is refused.
     pub(crate) fn group1_use(&self, rec: &Rec, table: u32, op: Group1Op, args: &[Value]) -> Result<Group1Use, Signal> {
+        self.global_group1.note_worker_session(table);
         let Some(entry) = self.global_group1.filters.by_table.get(&table) else {
             return Ok(Group1Use::Own);
         };
