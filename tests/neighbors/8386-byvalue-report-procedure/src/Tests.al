@@ -84,6 +84,11 @@ report 50102 "NB BR Report"
             begin
                 if Done or (Mode = 3) then
                     exit;
+                if Mode = 4 then begin
+                    Done := true;
+                    Outcome := KeyLoadFromTrigger();
+                    exit;
+                end;
                 Done := true;
                 case Mode of
                     1:
@@ -143,6 +148,15 @@ report 50102 "NB BR Report"
     begin
         R.FindFirst();
         exit('key=' + R.CurrentKey() + ' amount loaded=' + Format(R.AreFieldsLoaded(R.Amount)));
+    end;
+
+    local procedure KeyLoadFromTrigger(): Text
+    var
+        Local2: Record "NB BR Row";
+    begin
+        Local2.SetLoadFields(Name);
+        Local2.SetCurrentKey(Total);
+        exit(KeyAndLoad(Local2));
     end;
 }
 
@@ -234,16 +248,77 @@ page 50105 "NB BR Page"
                     Error('%1', Rep.Describe(Row));
                 end;
             }
+            action(KeyLoadToReport)
+            {
+                ApplicationArea = All;
+
+                trigger OnAction()
+                var
+                    Row: Record "NB BR Row";
+                    Rep: Report "NB BR Report";
+                begin
+                    Row.SetLoadFields(Name);
+                    Row.SetCurrentKey(Total);
+                    Error('%1', Rep.KeyAndLoad(Row));
+                end;
+            }
         }
     }
+
+    procedure KeyAndLoad(R: Record "NB BR Row"): Text
+    begin
+        R.FindFirst();
+        exit('key=' + R.CurrentKey() + ' amount loaded=' + Format(R.AreFieldsLoaded(R.Amount)));
+    end;
 }
 
-codeunit 50106 "NB BR Codeunit Callee"
+interface "NB BR IKeyAndLoad"
+{
+    procedure KeyAndLoad(R: Record "NB BR Row"): Text;
+}
+
+xmlport 50108 "NB BR XmlPort"
+{
+    schema
+    {
+        textelement(Root) { }
+    }
+
+    procedure KeyAndLoad(R: Record "NB BR Row"): Text
+    begin
+        R.FindFirst();
+        exit('key=' + R.CurrentKey() + ' amount loaded=' + Format(R.AreFieldsLoaded(R.Amount)));
+    end;
+}
+
+query 50109 "NB BR Query"
+{
+    elements
+    {
+        dataitem(Row; "NB BR Row")
+        {
+            column(Id; Id) { }
+        }
+    }
+
+    procedure KeyAndLoad(R: Record "NB BR Row"): Text
+    begin
+        R.FindFirst();
+        exit('key=' + R.CurrentKey() + ' amount loaded=' + Format(R.AreFieldsLoaded(R.Amount)));
+    end;
+}
+
+codeunit 50106 "NB BR Codeunit Callee" implements "NB BR IKeyAndLoad"
 {
     procedure KeyAndLoad(R: Record "NB BR Row"): Text
     begin
         R.FindFirst();
         exit('key=' + R.CurrentKey() + ' amount loaded=' + Format(R.AreFieldsLoaded(R.Amount)));
+    end;
+
+    procedure Describe(R: Record "NB BR Row"): Text
+    begin
+        exit('f={' + R.GetFilters() + '} key=' + R.CurrentKey());
     end;
 }
 
@@ -646,5 +721,184 @@ codeunit 50130 "NB BR Test 50130"
     begin
         Lib.Seed();
         Lib.Expect(Lib.RunReport(3), 'f={} n=3');
+    end;
+}
+
+codeunit 50131 "NB BR Test 50131"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure FlowFieldKeyAndFilter_ToReport()
+    var
+        Lib: Codeunit "NB BR Lib";
+        Row: Record "NB BR Row";
+        Rep: Report "NB BR Report";
+    begin
+        Lib.Seed();
+        Row.SetCurrentKey(Total);
+        Row.SetRange(Status, Row.Status::Open);
+        Lib.Expect(Rep.Describe(Row), 'f={} n=3 key=Id');
+    end;
+}
+
+codeunit 50132 "NB BR Test 50132"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure FlowFieldKeyDescending_ToReport()
+    var
+        Lib: Codeunit "NB BR Lib";
+        Row: Record "NB BR Row";
+        Rep: Report "NB BR Report";
+    begin
+        Lib.Seed();
+        Row.SetCurrentKey(Total);
+        Row.Ascending(false);
+        Lib.Expect(Rep.Describe(Row), 'f={} n=3 key=Id');
+    end;
+}
+
+codeunit 50133 "NB BR Test 50133"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure FlowFieldKeyMarks_ToReport()
+    var
+        Lib: Codeunit "NB BR Lib";
+        Row: Record "NB BR Row";
+        Rep: Report "NB BR Report";
+    begin
+        Lib.Seed();
+        Row.Get(2);
+        Row.Mark(true);
+        Row.SetCurrentKey(Total);
+        Lib.Expect(Rep.Describe(Row), 'f={} n=3 key=Id');
+    end;
+}
+
+codeunit 50134 "NB BR Test 50134"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure FlowFieldKeyAndFilter_ToCodeunit()
+    var
+        Lib: Codeunit "NB BR Lib";
+        Row: Record "NB BR Row";
+        Callee: Codeunit "NB BR Codeunit Callee";
+    begin
+        Lib.Seed();
+        Row.SetCurrentKey(Total);
+        Row.SetRange(Status, Row.Status::Open);
+        Lib.Expect(Callee.Describe(Row), 'f={} key=Id');
+    end;
+}
+
+codeunit 50135 "NB BR Test 50135"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure FlowFieldKeyLoadFields_FromPageAction()
+    var
+        Lib: Codeunit "NB BR Lib";
+        Rows: TestPage "NB BR Page";
+    begin
+        Lib.Seed();
+        Rows.OpenView();
+        asserterror Rows.KeyLoadToReport.Invoke();
+        Rows.Close();
+        Lib.Expect(GetLastErrorText(), 'key=Id amount loaded=Yes');
+    end;
+}
+
+codeunit 50136 "NB BR Test 50136"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure FlowFieldKeyLoadFields_FromReportTrigger()
+    var
+        Lib: Codeunit "NB BR Lib";
+    begin
+        Lib.Seed();
+        Lib.Expect(Lib.RunReport(4), 'key=Id amount loaded=Yes');
+    end;
+}
+
+codeunit 50137 "NB BR Test 50137"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure FlowFieldKeyLoadFields_ToPageProcedure()
+    var
+        Lib: Codeunit "NB BR Lib";
+        Row: Record "NB BR Row";
+        RowsPage: Page "NB BR Page";
+    begin
+        Lib.Seed();
+        Row.SetLoadFields(Name);
+        Row.SetCurrentKey(Total);
+        Lib.Expect(RowsPage.KeyAndLoad(Row), 'key=Id amount loaded=Yes');
+    end;
+}
+
+codeunit 50138 "NB BR Test 50138"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure FlowFieldKeyLoadFields_ToXmlPortProcedure()
+    var
+        Lib: Codeunit "NB BR Lib";
+        Row: Record "NB BR Row";
+        Port: XmlPort "NB BR XmlPort";
+    begin
+        Lib.Seed();
+        Row.SetLoadFields(Name);
+        Row.SetCurrentKey(Total);
+        Lib.Expect(Port.KeyAndLoad(Row), 'key=Id amount loaded=Yes');
+    end;
+}
+
+codeunit 50139 "NB BR Test 50139"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure FlowFieldKeyLoadFields_ToQueryProcedure()
+    var
+        Lib: Codeunit "NB BR Lib";
+        Row: Record "NB BR Row";
+        Q: Query "NB BR Query";
+    begin
+        Lib.Seed();
+        Row.SetLoadFields(Name);
+        Row.SetCurrentKey(Total);
+        Lib.Expect(Q.KeyAndLoad(Row), 'key=Id amount loaded=Yes');
+    end;
+}
+
+codeunit 50140 "NB BR Test 50140"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure FlowFieldKeyLoadFields_ThroughInterface()
+    var
+        Lib: Codeunit "NB BR Lib";
+        Row: Record "NB BR Row";
+        Callee: Codeunit "NB BR Codeunit Callee";
+        KeyAndLoad: Interface "NB BR IKeyAndLoad";
+    begin
+        Lib.Seed();
+        Row.SetLoadFields(Name);
+        Row.SetCurrentKey(Total);
+        KeyAndLoad := Callee;
+        Lib.Expect(KeyAndLoad.KeyAndLoad(Row), 'key=Id amount loaded=Yes');
     end;
 }

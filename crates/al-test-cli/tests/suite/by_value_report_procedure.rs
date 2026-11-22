@@ -415,8 +415,47 @@ page 50185 "BR Page"
                     Error('%1', Rep.Describe(Row));
                 end;
             }
+            action(KeyLoadToReport)
+            {
+                ApplicationArea = All;
+
+                trigger OnAction()
+                var
+                    Row: Record "BR Row";
+                    Rep: Report "BR Report";
+                begin
+                    Row.SetLoadFields(Name);
+                    Row.SetCurrentKey(Total);
+                    Error('%1', Rep.KeyAndLoad(Row));
+                end;
+            }
         }
     }
+
+    procedure KeyAndLoad(R: Record "BR Row"): Text
+    begin
+        R.FindFirst();
+        exit('key=' + R.CurrentKey() + ' amount loaded=' + Format(R.AreFieldsLoaded(R.Amount)));
+    end;
+}
+
+interface "BR IKeyAndLoad"
+{
+    procedure KeyAndLoad(R: Record "BR Row"): Text;
+}
+
+codeunit 50188 "BR Codeunit Callee" implements "BR IKeyAndLoad"
+{
+    procedure KeyAndLoad(R: Record "BR Row"): Text
+    begin
+        R.FindFirst();
+        exit('key=' + R.CurrentKey() + ' amount loaded=' + Format(R.AreFieldsLoaded(R.Amount)));
+    end;
+
+    procedure Describe(R: Record "BR Row"): Text
+    begin
+        exit('f={' + R.GetFilters() + '} key=' + R.CurrentKey());
+    end;
 }
 
 codeunit 50186 "BR Test"
@@ -563,6 +602,80 @@ codeunit 50186 "BR Test"
     procedure RequestHandler(var RequestPage: TestRequestPage "BR Request Report")
     begin
         RequestPage.OK().Invoke();
+    end;
+
+    [Test]
+    procedure FlowFieldKeyAndFilter_ToReport_Refused()
+    var
+        Row: Record "BR Row";
+        Rep: Report "BR Report";
+    begin
+        Seed();
+        Row.SetCurrentKey(Total);
+        Row.SetRange(Status, Row.Status::Open);
+        Expect(Rep.Describe(Row), '');
+    end;
+
+    [Test]
+    procedure FlowFieldKeyDescending_ToReport_Refused()
+    var
+        Row: Record "BR Row";
+        Rep: Report "BR Report";
+    begin
+        Seed();
+        Row.SetCurrentKey(Total);
+        Row.Ascending(false);
+        Expect(Rep.Describe(Row), '');
+    end;
+
+    [Test]
+    procedure FlowFieldKeyAndFilter_ToCodeunit_Refused()
+    var
+        Row: Record "BR Row";
+        Callee: Codeunit "BR Codeunit Callee";
+    begin
+        Seed();
+        Row.SetCurrentKey(Total);
+        Row.SetRange(Status, Row.Status::Open);
+        Expect(Callee.Describe(Row), '');
+    end;
+
+    [Test]
+    procedure FlowFieldKeyLoadFields_FromPageAction_Refused()
+    var
+        Rows: TestPage "BR Page";
+    begin
+        Seed();
+        Rows.OpenView();
+        asserterror Rows.KeyLoadToReport.Invoke();
+        Rows.Close();
+        Expect(GetLastErrorText(), '');
+    end;
+
+    [Test]
+    procedure FlowFieldKeyLoadFields_ToPageProcedure_Refused()
+    var
+        Row: Record "BR Row";
+        RowsPage: Page "BR Page";
+    begin
+        Seed();
+        Row.SetLoadFields(Name);
+        Row.SetCurrentKey(Total);
+        Expect(RowsPage.KeyAndLoad(Row), '');
+    end;
+
+    [Test]
+    procedure FlowFieldKeyLoadFields_ThroughInterface_Refused()
+    var
+        Row: Record "BR Row";
+        Callee: Codeunit "BR Codeunit Callee";
+        KeyAndLoad: Interface "BR IKeyAndLoad";
+    begin
+        Seed();
+        Row.SetLoadFields(Name);
+        Row.SetCurrentKey(Total);
+        KeyAndLoad := Callee;
+        Expect(KeyAndLoad.KeyAndLoad(Row), '');
     end;
 
     [Test]
@@ -716,6 +829,15 @@ fn by_value_report_procedure_neighbors_are_flagged_where_measured_and_refused_el
         ("TableProcedure_FlowFieldKeyAndLoadFields_Refused", VIEW_REFUSED, false),
         // ByValue_ReportProcedure_FromRequestPage.
         ("FromRequestPageTrigger_Flagged", PASS, true),
+        // A FlowField key with a filter or another order: no cell (main kept the caller's view; BC hands a fresh one in
+        // every cell). A FlowField key with a SetLoadFields from a page or to a page procedure or an interface: the cells
+        // hand it from a codeunit to a codeunit or a report procedure only.
+        ("FlowFieldKeyAndFilter_ToReport_Refused", VIEW_REFUSED, false),
+        ("FlowFieldKeyDescending_ToReport_Refused", VIEW_REFUSED, false),
+        ("FlowFieldKeyAndFilter_ToCodeunit_Refused", VIEW_REFUSED, false),
+        ("FlowFieldKeyLoadFields_FromPageAction_Refused", VIEW_REFUSED, false),
+        ("FlowFieldKeyLoadFields_ToPageProcedure_Refused", VIEW_REFUSED, false),
+        ("FlowFieldKeyLoadFields_ThroughInterface_Refused", VIEW_REFUSED, false),
         ("FromCodeunit_FilterGroup3_Refused", VIEW_REFUSED, false),
         // ByValue_ReportProcedure_FromPageAction.
         ("FromPageAction_Flagged", PASS, true),
