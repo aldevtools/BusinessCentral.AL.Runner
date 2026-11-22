@@ -4,8 +4,8 @@
 // Scope: in-scope
 // local object: the reads of a page background task's worker and of the test session, and what the test writes, commits and
 //   rolls back between them, are what is under test
-// Fixtures used: Assert (60021); tables 97500, 97501, 97514, 97546, 97593, 97594; mode codeunit 97502; codeunits 97503, 97504, 97509, 97517,
-//   97590, 97591, 97595; pages 97505, 97518, 97519; test codeunits 97506-97508, 97544, 97545, 97592, 97596 (neighbors after 97507: see comments)
+// Fixtures used: Assert (60021); tables 97500, 97501, 97514, 97546, 97593, 97594, 97597, 97598; mode codeunit 97502; codeunits 97503,
+//   97504, 97509, 97517, 97590, 97591, 97595, 97597; pages 97505, 97518, 97519; test codeunits 97506-97508, 97544, 97545, 97592, 97596, 97598
 // Probe (al-runner issue 8467): a read the worker of a page background task repeats gets the answer of the first read, also after
 //   the test session changed the rows without committing. The tests read lines of table 97500 (key Group, Line No.) in the worker,
 //   either from the page's OnAfterGetCurrRecord (CurrPage.EnqueueBackgroundTask, the page shows the answer) or with
@@ -3601,5 +3601,1242 @@ codeunit 97596 "BQ Tests 7"
         Seen := Run(Rows, Mode, G);
         Rows.Close();
         exit(Seen = TestSeen);
+    end;
+}
+
+// BQ Tests 8 (al-runner issue 8637, the shapes past BQ Tests 7; measured on a local BC 29.1 OnPrem w1 container): FindFirst,
+// FindLast, Count and IsEmpty in one worker run, read again after the test session changed the rows without committing. The
+// cache answers all four with no limit on the number of filters found: 7651 and 7710 filters (every field of table 97593
+// in filter groups 0, 2-255, -1 and 1), 2000, 2200 and 7650 filters of values of their own, and 10000 and 26214 filters on
+// table 97598 (102 fields in every filter group). With a filter on a FlowField, FindFirst and FindLast answer from the cache
+// whenever every primary-key field has one filter of one value, in any filter group but the OR group: next to a filter
+// outside the key, with the FlowField filter a range, >, <> or |, with two FlowField filters, with the FlowField filter in
+// filter group 2 or 5, with the key in filter groups 1, 3, 5, 7, 8, 100 or 255, the key as a range to itself, descending,
+// and for FlowFields that count, sum, take the minimum, maximum or average, check existence, look up a value, sum negated
+// or count with a const condition (table 97597); Count and IsEmpty read the rows as they are. With the key in the OR group,
+// or as a filter of two values, all four read the rows as they are. A commit of the table a FlowField takes the minimum of
+// ends the answer. The test session's four reads first answer the worker's first FindFirst and FindLast for such shapes.
+
+table 97597 "BQ Calc"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Description; Text[50]) { }
+        field(3; "Line Count"; Integer)
+        {
+            FieldClass = FlowField;
+            CalcFormula = count("BQ Child" where(Parent = field("No.")));
+        }
+        field(4; "Amount Sum"; Decimal)
+        {
+            FieldClass = FlowField;
+            CalcFormula = sum("BQ Child".Amount where(Parent = field("No.")));
+        }
+        field(5; "Amount Min"; Decimal)
+        {
+            FieldClass = FlowField;
+            CalcFormula = min("BQ Child".Amount where(Parent = field("No.")));
+        }
+        field(6; "Amount Max"; Decimal)
+        {
+            FieldClass = FlowField;
+            CalcFormula = max("BQ Child".Amount where(Parent = field("No.")));
+        }
+        field(7; "Amount Average"; Decimal)
+        {
+            FieldClass = FlowField;
+            CalcFormula = average("BQ Child".Amount where(Parent = field("No.")));
+        }
+        field(8; "Has Lines"; Boolean)
+        {
+            FieldClass = FlowField;
+            CalcFormula = exist("BQ Child" where(Parent = field("No.")));
+        }
+        field(9; "Line Kind"; Code[10])
+        {
+            FieldClass = FlowField;
+            CalcFormula = lookup("BQ Child".Kind where(Parent = field("No.")));
+        }
+        field(10; "Negative Sum"; Decimal)
+        {
+            FieldClass = FlowField;
+            CalcFormula = - sum("BQ Child".Amount where(Parent = field("No.")));
+        }
+        field(11; "K Count"; Integer)
+        {
+            FieldClass = FlowField;
+            CalcFormula = count("BQ Child" where(Parent = field("No."), Kind = const('K')));
+        }
+    }
+
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+    }
+}
+
+table 97598 "BQ Wider"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Description; Text[50]) { }
+        field(3; F3; Integer) { }
+        field(4; F4; Integer) { }
+        field(5; F5; Integer) { }
+        field(6; F6; Integer) { }
+        field(7; F7; Integer) { }
+        field(8; F8; Integer) { }
+        field(9; F9; Integer) { }
+        field(10; F10; Integer) { }
+        field(11; F11; Integer) { }
+        field(12; F12; Integer) { }
+        field(13; F13; Integer) { }
+        field(14; F14; Integer) { }
+        field(15; F15; Integer) { }
+        field(16; F16; Integer) { }
+        field(17; F17; Integer) { }
+        field(18; F18; Integer) { }
+        field(19; F19; Integer) { }
+        field(20; F20; Integer) { }
+        field(21; F21; Integer) { }
+        field(22; F22; Integer) { }
+        field(23; F23; Integer) { }
+        field(24; F24; Integer) { }
+        field(25; F25; Integer) { }
+        field(26; F26; Integer) { }
+        field(27; F27; Integer) { }
+        field(28; F28; Integer) { }
+        field(29; F29; Integer) { }
+        field(30; F30; Integer) { }
+        field(31; F31; Integer) { }
+        field(32; F32; Integer) { }
+        field(33; F33; Integer) { }
+        field(34; F34; Integer) { }
+        field(35; F35; Integer) { }
+        field(36; F36; Integer) { }
+        field(37; F37; Integer) { }
+        field(38; F38; Integer) { }
+        field(39; F39; Integer) { }
+        field(40; F40; Integer) { }
+        field(41; F41; Integer) { }
+        field(42; F42; Integer) { }
+        field(43; F43; Integer) { }
+        field(44; F44; Integer) { }
+        field(45; F45; Integer) { }
+        field(46; F46; Integer) { }
+        field(47; F47; Integer) { }
+        field(48; F48; Integer) { }
+        field(49; F49; Integer) { }
+        field(50; F50; Integer) { }
+        field(51; F51; Integer) { }
+        field(52; F52; Integer) { }
+        field(53; F53; Integer) { }
+        field(54; F54; Integer) { }
+        field(55; F55; Integer) { }
+        field(56; F56; Integer) { }
+        field(57; F57; Integer) { }
+        field(58; F58; Integer) { }
+        field(59; F59; Integer) { }
+        field(60; F60; Integer) { }
+        field(61; F61; Integer) { }
+        field(62; F62; Integer) { }
+        field(63; F63; Integer) { }
+        field(64; F64; Integer) { }
+        field(65; F65; Integer) { }
+        field(66; F66; Integer) { }
+        field(67; F67; Integer) { }
+        field(68; F68; Integer) { }
+        field(69; F69; Integer) { }
+        field(70; F70; Integer) { }
+        field(71; F71; Integer) { }
+        field(72; F72; Integer) { }
+        field(73; F73; Integer) { }
+        field(74; F74; Integer) { }
+        field(75; F75; Integer) { }
+        field(76; F76; Integer) { }
+        field(77; F77; Integer) { }
+        field(78; F78; Integer) { }
+        field(79; F79; Integer) { }
+        field(80; F80; Integer) { }
+        field(81; F81; Integer) { }
+        field(82; F82; Integer) { }
+        field(83; F83; Integer) { }
+        field(84; F84; Integer) { }
+        field(85; F85; Integer) { }
+        field(86; F86; Integer) { }
+        field(87; F87; Integer) { }
+        field(88; F88; Integer) { }
+        field(89; F89; Integer) { }
+        field(90; F90; Integer) { }
+        field(91; F91; Integer) { }
+        field(92; F92; Integer) { }
+        field(93; F93; Integer) { }
+        field(94; F94; Integer) { }
+        field(95; F95; Integer) { }
+        field(96; F96; Integer) { }
+        field(97; F97; Integer) { }
+        field(98; F98; Integer) { }
+        field(99; F99; Integer) { }
+        field(100; F100; Integer) { }
+        field(101; F101; Integer) { }
+        field(102; F102; Integer) { }
+    }
+
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+    }
+}
+
+// The worker of BQ Tests 8: the four reads of the filters a Mode names: 'many' on table 97593 or 97598 (`SetMany`), a
+// FlowField shape on table 97593 (`SetFlow`) or on table 97597 (`SetCalc`).
+codeunit 97597 "BQ Reader 8"
+{
+    trigger OnRun()
+    var
+        Wide: Record "BQ Wide";
+        Calc: Record "BQ Calc";
+        Ref: RecordRef;
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Group: Text;
+        Mode: Text;
+    begin
+        Parameters := Page.GetBackgroundParameters();
+        Parameters.Get('Group', Group);
+        Parameters.Get('Mode', Mode);
+        case true of
+            Mode.StartsWith('many'):
+                begin
+                    SetMany(Ref, Mode, Group);
+                    Results.Add('Seen', RefForms(Ref));
+                end;
+            Mode.StartsWith('calc'):
+                begin
+                    SetCalc(Calc, Mode, Group);
+                    Results.Add('Seen', CalcForms(Calc));
+                end;
+            else begin
+                SetFlow(Wide, Mode, Group);
+                Results.Add('Seen', FlowForms(Wide));
+            end;
+        end;
+        Page.SetBackgroundTaskResult(Results);
+    end;
+
+    // 'many-<table>-<filters>-<values>', table wide (97593, 30 fields) or wider (97598, 102 fields): one filter on each field in
+    // field order, in filter groups 0, 2-255, -1 and 1 in turn. Values 'same': "No." the group, Description <>zz, the Integer
+    // fields 0. Values 'diff': "No." the group in filter group 0, then every filter <> a value of its own.
+    procedure SetMany(var Ref: RecordRef; Mode: Text; Group: Text)
+    var
+        Parts: List of [Text];
+        Groups: List of [Integer];
+        K: Integer;
+        N: Integer;
+        Fields: Integer;
+        FieldNo: Integer;
+        G: Integer;
+        Diff: Boolean;
+    begin
+        Parts := Mode.Split('-');
+        if Parts.Get(2) = 'wide' then begin
+            Ref.Open(Database::"BQ Wide");
+            Fields := 30;
+        end else begin
+            Ref.Open(Database::"BQ Wider");
+            Fields := 102;
+        end;
+        Evaluate(N, Parts.Get(3));
+        Diff := Parts.Get(4) = 'diff';
+        Groups.Add(0);
+        for G := 2 to 255 do
+            Groups.Add(G);
+        Groups.Add(-1);
+        Groups.Add(1);
+        for K := 0 to N - 1 do begin
+            FieldNo := K mod Fields + 1;
+            Ref.FilterGroup(Groups.Get(K div Fields + 1));
+            case true of
+                FieldNo = 1:
+                    if Diff and (K > 0) then
+                        Ref.Field(1).SetFilter('<>X' + Format(K))
+                    else
+                        Ref.Field(1).SetRange(Group);
+                FieldNo = 2:
+                    if Diff then
+                        Ref.Field(2).SetFilter('<>z' + Format(K))
+                    else
+                        Ref.Field(2).SetFilter('<>zz');
+                else
+                    if Diff then
+                        Ref.Field(FieldNo).SetFilter('<>' + Format(K + 1))
+                    else
+                        Ref.Field(FieldNo).SetRange(0);
+            end;
+        end;
+        Ref.FilterGroup(0);
+    end;
+
+    procedure RefForms(var Ref: RecordRef): Text
+    var
+        First: Text;
+        Last: Text;
+    begin
+        First := '-';
+        Last := '-';
+        if Ref.FindFirst() then
+            First := Format(Ref.Field(2).Value());
+        if Ref.FindLast() then
+            Last := Format(Ref.Field(2).Value());
+        exit(First + '|' + Last + '|' + Format(Ref.Count()) + '|' + Format(Ref.IsEmpty()));
+    end;
+
+    // The FlowField shapes of table 97593: "Child Count" 1 next to "No." the group and Description a (in filter group 0 or 2)
+    // or F3 0; "Child Count" 1..5, >0, <>0 or 1|2 next to "No." the group; "Child Count" 1 and "Child Sum" 5 with "Kind
+    // Filter" K; "Child Count" 1 in filter group 2 or 5; "No." the group in filter group 1, 3, 5, 7, 8, 100, 255 or -1; both
+    // in filter group 5; "No." a range from the group to itself, or the group | NOROW; descending.
+    procedure SetFlow(var Wide: Record "BQ Wide"; Mode: Text; Group: Text)
+    var
+        G: Integer;
+    begin
+        case Mode of
+            'keydesc':
+                begin
+                    Wide.SetRange("No.", Group);
+                    Wide.SetRange(Description, 'a');
+                    Wide.SetRange("Child Count", 1);
+                end;
+            'keyf3':
+                begin
+                    Wide.SetRange("No.", Group);
+                    Wide.SetRange(F3, 0);
+                    Wide.SetRange("Child Count", 1);
+                end;
+            'keydescgroup2':
+                begin
+                    Wide.SetRange("No.", Group);
+                    Wide.FilterGroup(2);
+                    Wide.SetRange(Description, 'a');
+                    Wide.FilterGroup(0);
+                    Wide.SetRange("Child Count", 1);
+                end;
+            'flowrange':
+                begin
+                    Wide.SetRange("No.", Group);
+                    Wide.SetRange("Child Count", 1, 5);
+                end;
+            'flowgt', 'flowne', 'flowor':
+                begin
+                    Wide.SetRange("No.", Group);
+                    case Mode of
+                        'flowgt':
+                            Wide.SetFilter("Child Count", '>0');
+                        'flowne':
+                            Wide.SetFilter("Child Count", '<>0');
+                        'flowor':
+                            Wide.SetFilter("Child Count", '1|2');
+                    end;
+                end;
+            'twoflow':
+                begin
+                    Wide.SetRange("No.", Group);
+                    Wide.SetRange("Kind Filter", 'K');
+                    Wide.SetRange("Child Count", 1);
+                    Wide.SetRange("Child Sum", 5);
+                end;
+            'flowgroup2', 'flowgroup5':
+                begin
+                    Wide.SetRange("No.", Group);
+                    Evaluate(G, CopyStr(Mode, 10));
+                    Wide.FilterGroup(G);
+                    Wide.SetRange("Child Count", 1);
+                    Wide.FilterGroup(0);
+                end;
+            'keygroup1', 'keygroup3', 'keygroup5', 'keygroup7', 'keygroup8', 'keygroup100', 'keygroup255', 'keygroup-1':
+                begin
+                    Evaluate(G, CopyStr(Mode, 9));
+                    Wide.FilterGroup(G);
+                    Wide.SetRange("No.", Group);
+                    Wide.FilterGroup(0);
+                    Wide.SetRange("Child Count", 1);
+                end;
+            'bothgroup5':
+                begin
+                    Wide.FilterGroup(5);
+                    Wide.SetRange("No.", Group);
+                    Wide.SetRange("Child Count", 1);
+                    Wide.FilterGroup(0);
+                end;
+            'keyrange':
+                begin
+                    Wide.SetRange("No.", Group, Group);
+                    Wide.SetRange("Child Count", 1);
+                end;
+            'keyor':
+                begin
+                    Wide.SetFilter("No.", '%1|%2', Group, 'NOROW');
+                    Wide.SetRange("Child Count", 1);
+                end;
+            'descending':
+                begin
+                    Wide.Ascending(false);
+                    Wide.SetRange("No.", Group);
+                    Wide.SetRange("Child Count", 1);
+                end;
+        end;
+    end;
+
+    procedure FlowForms(var Wide: Record "BQ Wide"): Text
+    var
+        First: Text;
+        Last: Text;
+    begin
+        First := '-';
+        Last := '-';
+        if Wide.FindFirst() then
+            First := Wide.Description;
+        if Wide.FindLast() then
+            Last := Wide.Description;
+        exit(First + '|' + Last + '|' + Format(Wide.Count()) + '|' + Format(Wide.IsEmpty()));
+    end;
+
+    // "No." the group and one FlowField of table 97597 set to what one line of Amount 5 and Kind K gives it.
+    procedure SetCalc(var Calc: Record "BQ Calc"; Mode: Text; Group: Text)
+    begin
+        Calc.SetRange("No.", Group);
+        case Mode of
+            'calccount':
+                Calc.SetRange("Line Count", 1);
+            'calcsum':
+                Calc.SetRange("Amount Sum", 5);
+            'calcmin':
+                Calc.SetRange("Amount Min", 5);
+            'calcmax':
+                Calc.SetRange("Amount Max", 5);
+            'calcaverage':
+                Calc.SetRange("Amount Average", 5);
+            'calcexist':
+                Calc.SetRange("Has Lines", true);
+            'calclookup':
+                Calc.SetRange("Line Kind", 'K');
+            'calcnegsum':
+                Calc.SetRange("Negative Sum", -5);
+            'calcconst':
+                Calc.SetRange("K Count", 1);
+        end;
+    end;
+
+    procedure CalcForms(var Calc: Record "BQ Calc"): Text
+    var
+        First: Text;
+        Last: Text;
+    begin
+        First := '-';
+        Last := '-';
+        if Calc.FindFirst() then
+            First := Calc.Description;
+        if Calc.FindLast() then
+            Last := Calc.Description;
+        exit(First + '|' + Last + '|' + Format(Calc.Count()) + '|' + Format(Calc.IsEmpty()));
+    end;
+}
+
+codeunit 97598 "BQ Tests 8"
+{
+    Subtype = Test;
+
+    var
+        Assert: Codeunit Assert;
+
+    local procedure NewGroup(): Code[20]
+    begin
+        exit(CopyStr(DelChr(Format(CreateGuid()), '=', '{}-'), 1, 18));
+    end;
+
+    local procedure Run(var Rows: TestPage "BQ Plain Rows"; Mode: Text; Group: Code[20]): Text
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Seen: Text;
+    begin
+        Parameters.Add('Group', Group);
+        Parameters.Add('Mode', Mode);
+        Results := Rows.RunPageBackgroundTask(Codeunit::"BQ Reader 8", Parameters, false);
+        Results.Get('Seen', Seen);
+        exit(Seen);
+    end;
+
+    // Inserts a row of table 97593, 97597 or 97598 (Description a, the Integer fields 0), then reads it.
+    local procedure AddRow(Mode: Text; No: Code[20])
+    var
+        Wide: Record "BQ Wide";
+        Calc: Record "BQ Calc";
+        Wider: Record "BQ Wider";
+    begin
+        case true of
+            Mode.StartsWith('calc'):
+                begin
+                    Calc."No." := No;
+                    Calc.Description := 'a';
+                    Calc.Insert();
+                    Calc.SetRange("No.", No);
+                    if Calc.FindFirst() then;
+                end;
+            Mode.Contains('-wider-'):
+                begin
+                    Wider."No." := No;
+                    Wider.Description := 'a';
+                    Wider.Insert();
+                    Wider.SetRange("No.", No);
+                    if Wider.FindFirst() then;
+                end;
+            else begin
+                Wide."No." := No;
+                Wide.Description := 'a';
+                Wide.Insert();
+                Wide.SetRange("No.", No);
+                if Wide.FindFirst() then;
+            end;
+        end;
+    end;
+
+    // Sets the Description of the row of table 97593 or 97597 to b.
+    local procedure SetDescription(Mode: Text; No: Code[20])
+    var
+        Wide: Record "BQ Wide";
+        Calc: Record "BQ Calc";
+    begin
+        if Mode.StartsWith('calc') then begin
+            Calc.Get(No);
+            Calc.Description := 'b';
+            Calc.Modify();
+        end else begin
+            Wide.Get(No);
+            Wide.Description := 'b';
+            Wide.Modify();
+        end;
+    end;
+
+    // Inserts a line of table 97594 (Kind K, Amount 5), then reads the parent's lines.
+    local procedure AddChild(Parent: Code[20]; LineNo: Integer)
+    var
+        Child: Record "BQ Child";
+    begin
+        Child.Parent := Parent;
+        Child."Line No." := LineNo;
+        Child.Kind := 'K';
+        Child.Amount := 5;
+        Child.Insert();
+        Child.SetRange(Parent, Parent);
+        if Child.FindFirst() then;
+    end;
+
+    // The four reads of a 'many' Mode on an empty set; the test inserts a row the filters keep; the four reads again: both
+    // answers, as 'first / again'.
+    local procedure ManyReads(Mode: Text): Text
+    var
+        Rows: TestPage "BQ Plain Rows";
+        G: Code[20];
+        Seen: Text;
+    begin
+        G := NewGroup();
+        Rows.OpenView();
+        Seen := Run(Rows, Mode, G);
+        AddRow(Mode, G);
+        Seen += ' / ' + Run(Rows, Mode, G);
+        Rows.Close();
+        exit(Seen);
+    end;
+
+    // The row of a FlowField Mode committed (Description a, no line); the four reads; the test inserts its line (with 'commit':
+    // and commits); the four reads again: both answers, as 'first / again'.
+    local procedure FlowReads(Mode: Text; Change: Text): Text
+    var
+        Rows: TestPage "BQ Plain Rows";
+        G: Code[20];
+        Seen: Text;
+    begin
+        G := NewGroup();
+        AddRow(Mode, G);
+        Commit();
+        Rows.OpenView();
+        Seen := Run(Rows, Mode, G);
+        AddChild(G, 1);
+        if Change = 'commit' then
+            Commit();
+        Seen += ' / ' + Run(Rows, Mode, G);
+        Rows.Close();
+        exit(Seen);
+    end;
+
+    // The FlowField Modes whose FlowReads answer is not Expected.
+    local procedure FlowDiffer(Modes: List of [Text]; Expected: Text): Text
+    var
+        Mode: Text;
+        Seen: Text;
+        Differ: Text;
+    begin
+        foreach Mode in Modes do begin
+            Seen := FlowReads(Mode, '');
+            if Seen <> Expected then
+                Differ += ' ' + Mode + ': ' + Seen;
+        end;
+        exit(Differ);
+    end;
+
+    // The row of a FlowField Mode and its line committed; the test session's four reads; its Description set to b; the
+    // worker's first four reads: both answers, as 'test / worker'.
+    local procedure FlowTestReadsFirst(Mode: Text): Text
+    var
+        Rows: TestPage "BQ Plain Rows";
+        Wide: Record "BQ Wide";
+        Calc: Record "BQ Calc";
+        Reader: Codeunit "BQ Reader 8";
+        G: Code[20];
+        Seen: Text;
+    begin
+        G := NewGroup();
+        AddRow(Mode, G);
+        AddChild(G, 1);
+        Commit();
+        if Mode.StartsWith('calc') then begin
+            Reader.SetCalc(Calc, Mode, G);
+            Seen := Reader.CalcForms(Calc);
+        end else begin
+            Reader.SetFlow(Wide, Mode, G);
+            Seen := Reader.FlowForms(Wide);
+        end;
+        SetDescription(Mode, G);
+        Rows.OpenView();
+        Seen += ' / ' + Run(Rows, Mode, G);
+        Rows.Close();
+        exit(Seen);
+    end;
+
+    // 7651 filters (one more in the OR group) and 7710 (every field of table 97593 in filter groups 0, 2-255, -1 and 1).
+    [Test]
+    procedure BgQueryCache_Run_AllForms_MoreThan7650Filters_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes / -|-|0|Yes', ManyReads('many-wide-7651-same'), '7651 filters');
+        Assert.AreEqual('-|-|0|Yes / -|-|0|Yes', ManyReads('many-wide-7710-same'), '7710 filters');
+    end;
+
+    // Filters of values of their own: 2000, 2200 and 7650.
+    [Test]
+    procedure BgQueryCache_Run_AllForms_FiltersOfTheirOwnValues_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes / -|-|0|Yes', ManyReads('many-wide-2000-diff'), '2000 filters');
+        Assert.AreEqual('-|-|0|Yes / -|-|0|Yes', ManyReads('many-wide-2200-diff'), '2200 filters');
+        Assert.AreEqual('-|-|0|Yes / -|-|0|Yes', ManyReads('many-wide-7650-diff'), '7650 filters');
+    end;
+
+    // Table 97598 (102 fields): 10000 filters, and 26214 (every field in every filter group), alike and of their own values.
+    [Test]
+    procedure BgQueryCache_Run_AllForms_WiderTable_FirstAnswer()
+    begin
+        Assert.AreEqual('-|-|0|Yes / -|-|0|Yes', ManyReads('many-wider-10000-same'), '10000 filters');
+        Assert.AreEqual('-|-|0|Yes / -|-|0|Yes', ManyReads('many-wider-26214-same'), '26214 filters');
+        Assert.AreEqual('-|-|0|Yes / -|-|0|Yes', ManyReads('many-wider-26214-diff'), '26214 filters of their own values');
+    end;
+
+    // Next to the key: a filter outside the key (Description in filter group 0 or 2, F3), the FlowField filter as a range, >,
+    // <> or |, two FlowField filters. FindFirst and FindLast answer the first answer, Count and IsEmpty see the line.
+    [Test]
+    procedure BgQueryCache_Run_FlowFieldWithKey_OtherFilters_FindsFirstAnswer()
+    var
+        Modes: List of [Text];
+    begin
+        Modes.AddRange('keydesc', 'keyf3', 'keydescgroup2', 'flowrange', 'flowgt', 'flowne', 'flowor', 'twoflow');
+        Assert.AreEqual('', FlowDiffer(Modes, '-|-|0|Yes / -|-|1|No'), 'the Modes that differ');
+    end;
+
+    // The FlowField filter in filter group 2 or 5, the key in filter group 1, 3, 5, 7, 8, 100 or 255, both in filter group 5,
+    // the key as a range to itself, a descending sort.
+    [Test]
+    procedure BgQueryCache_Run_FlowFieldWithKey_OtherGroups_FindsFirstAnswer()
+    var
+        Modes: List of [Text];
+    begin
+        Modes.AddRange('flowgroup2', 'flowgroup5', 'keygroup1', 'keygroup3', 'keygroup5', 'keygroup7', 'keygroup8');
+        Modes.AddRange('keygroup100', 'keygroup255', 'bothgroup5', 'keyrange', 'descending');
+        Assert.AreEqual('', FlowDiffer(Modes, '-|-|0|Yes / -|-|1|No'), 'the Modes that differ');
+    end;
+
+    // The key in the OR group, or as a filter of two values: all four see the line.
+    [Test]
+    procedure BgQueryCache_Run_FlowFieldWithoutOneKeyValue_SeesTheChange()
+    var
+        Modes: List of [Text];
+    begin
+        Modes.AddRange('keygroup-1', 'keyor');
+        Assert.AreEqual('', FlowDiffer(Modes, '-|-|0|Yes / a|a|1|No'), 'the Modes that differ');
+    end;
+
+    // FlowFields of table 97597 that count, sum, take the minimum, maximum or average, check existence, look up a value, sum
+    // negated or count with a const condition.
+    [Test]
+    procedure BgQueryCache_Run_FlowFieldMethods_FindsFirstAnswer()
+    var
+        Modes: List of [Text];
+    begin
+        Modes.AddRange('calccount', 'calcsum', 'calcmin', 'calcmax', 'calcaverage', 'calcexist', 'calclookup');
+        Modes.AddRange('calcnegsum', 'calcconst');
+        Assert.AreEqual('', FlowDiffer(Modes, '-|-|0|Yes / -|-|1|No'), 'the Modes that differ');
+    end;
+
+    // A commit of the line after the first reads of a FlowField that takes the minimum: all four see it.
+    [Test]
+    procedure BgQueryCache_Run_FlowFieldMin_CommitOfTheLine_SeesTheChange()
+    begin
+        Assert.AreEqual('-|-|0|Yes / a|a|1|No', FlowReads('calcmin', 'commit'), 'after the commit');
+    end;
+
+    // The test session's reads first: the worker's FindFirst and FindLast answer the test's, Count and IsEmpty read the rows
+    // as they are, for a filter outside the key, the FlowField filter in filter group 5 and a FlowField that takes the minimum.
+    [Test]
+    procedure BgQueryCache_Run_TestReadsFirst_FlowFieldShapes_FindsAnswerThem()
+    begin
+        Assert.AreEqual('a|a|1|No / a|a|0|Yes', FlowTestReadsFirst('keydesc'), 'Description a');
+        Assert.AreEqual('a|a|1|No / a|a|1|No', FlowTestReadsFirst('flowgroup5'), 'filter group 5');
+        Assert.AreEqual('a|a|1|No / a|a|1|No', FlowTestReadsFirst('calcmin'), 'Amount Min');
+    end;
+}
+
+// BQ Tests 8b (al-runner issue 8637, the FlowField shapes past BQ Tests 8; measured on a local BC 29.1 OnPrem w1 container):
+// FindFirst, FindLast, Count and IsEmpty in one worker run with a filter on a FlowField next to one value on each key field,
+// read again after the test session changed the rows without committing. FindFirst and FindLast answer the first answer and
+// Count and IsEmpty see the change with a two-field key split across filter groups, with the FlowField filter >=, &, < or <=,
+// in filter group 1, 7, 100 or 255, next to a filter outside the key in the OR group, filter group 1 or 255, for a lookup
+// FlowField filtered on its own FlowFilter (table 97590) and for a FlowField a table extension declares. A wildcard on the
+// FlowField reads the rows as they are, and so does a FlowField whose condition is a FlowField of its source table (tables
+// 97591, 97592, 97595), after an insert committed or not. An empty FILTER() of a view on the FlowField, and a FlowField filter
+// in the OR group, keep the row: FindFirst and FindLast answer the first answer after a change of the row.
+// Fixtures (the header's Fixtures used lines have no room): tables 97590, 97591, 97592, 97595, table extension 97590 of table
+// 97593, worker codeunit 97599, test codeunit 97547.
+table 97590 "BQ Calc 2"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Description; Text[50]) { }
+        field(3; "Kind Filter"; Code[10])
+        {
+            FieldClass = FlowFilter;
+        }
+        field(4; "Filtered Kind"; Code[10])
+        {
+            FieldClass = FlowField;
+            CalcFormula = lookup("BQ Child".Kind where(Parent = field("No."), Kind = field("Kind Filter")));
+        }
+    }
+
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+    }
+}
+
+table 97591 "BQ Busy"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Description; Text[50]) { }
+        field(3; "Busy Lines"; Integer)
+        {
+            FieldClass = FlowField;
+            CalcFormula = count("BQ Noted Line" where(Parent = field("No."), "Has Notes" = const(true)));
+        }
+        field(4; "Note Count"; Integer)
+        {
+            FieldClass = FlowField;
+            CalcFormula = count("BQ Note" where(Parent = field("No.")));
+        }
+        field(5; "Amount At Note Count"; Decimal)
+        {
+            FieldClass = FlowField;
+            CalcFormula = sum("BQ Noted Line".Amount where(Parent = field("No."), "Line No." = field("Note Count")));
+        }
+    }
+
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+    }
+}
+
+table 97592 "BQ Noted Line"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+
+    fields
+    {
+        field(1; Parent; Code[20]) { }
+        field(2; "Line No."; Integer) { }
+        field(3; Amount; Decimal) { }
+        field(4; "Has Notes"; Boolean)
+        {
+            FieldClass = FlowField;
+            CalcFormula = exist("BQ Note" where(Parent = field(Parent), "Line No." = field("Line No.")));
+        }
+    }
+
+    keys
+    {
+        key(PK; Parent, "Line No.") { Clustered = true; }
+    }
+}
+
+table 97595 "BQ Note"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+
+    fields
+    {
+        field(1; Parent; Code[20]) { }
+        field(2; "Line No."; Integer) { }
+    }
+
+    keys
+    {
+        key(PK; Parent, "Line No.") { Clustered = true; }
+    }
+}
+
+tableextension 97590 "BQ Wide Ext" extends "BQ Wide"
+{
+    fields
+    {
+        field(97590; "Ext Child Count"; Integer)
+        {
+            FieldClass = FlowField;
+            CalcFormula = count("BQ Child" where(Parent = field("No.")));
+        }
+    }
+}
+
+// The worker of BQ Tests 8b: the four reads of the filters a Mode names, on table 97593, 97594, 97597, 97590 or 97591.
+codeunit 97599 "BQ Reader 8b"
+{
+    trigger OnRun()
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Group: Text;
+        Mode: Text;
+    begin
+        Parameters := Page.GetBackgroundParameters();
+        Parameters.Get('Group', Group);
+        Parameters.Get('Mode', Mode);
+        Results.Add('Seen', Forms(Mode, Group));
+        Page.SetBackgroundTaskResult(Results);
+    end;
+
+    procedure Forms(Mode: Text; Group: Text): Text
+    var
+        Wide: Record "BQ Wide";
+        Child: Record "BQ Child";
+        Calc: Record "BQ Calc";
+        Calc2: Record "BQ Calc 2";
+        Busy: Record "BQ Busy";
+        First: Text;
+        Last: Text;
+    begin
+        First := '-';
+        Last := '-';
+        case true of
+            Mode.StartsWith('child'):
+                begin
+                    SetChild(Child, Mode, Group);
+                    if Child.FindFirst() then
+                        First := Format(Child."Line No.");
+                    if Child.FindLast() then
+                        Last := Format(Child."Line No.");
+                    exit(First + '|' + Last + '|' + Format(Child.Count()) + '|' + Format(Child.IsEmpty()));
+                end;
+            Mode.StartsWith('calc2'):
+                begin
+                    Calc2.SetRange("No.", Group);
+                    Calc2.SetRange("Kind Filter", 'K');
+                    Calc2.SetRange("Filtered Kind", 'K');
+                    if Calc2.FindFirst() then
+                        First := Calc2.Description;
+                    if Calc2.FindLast() then
+                        Last := Calc2.Description;
+                    exit(First + '|' + Last + '|' + Format(Calc2.Count()) + '|' + Format(Calc2.IsEmpty()));
+                end;
+            Mode.StartsWith('calc'):
+                begin
+                    SetCalc(Calc, Mode, Group);
+                    if Calc.FindFirst() then
+                        First := Calc.Description;
+                    if Calc.FindLast() then
+                        Last := Calc.Description;
+                    exit(First + '|' + Last + '|' + Format(Calc.Count()) + '|' + Format(Calc.IsEmpty()));
+                end;
+            Mode.StartsWith('busy'), Mode.StartsWith('amount'):
+                begin
+                    Busy.SetRange("No.", Group);
+                    if Mode.StartsWith('busy') then
+                        Busy.SetRange("Busy Lines", 1)
+                    else
+                        Busy.SetRange("Amount At Note Count", 5);
+                    if Busy.FindFirst() then
+                        First := Busy.Description;
+                    if Busy.FindLast() then
+                        Last := Busy.Description;
+                    exit(First + '|' + Last + '|' + Format(Busy.Count()) + '|' + Format(Busy.IsEmpty()));
+                end;
+            else begin
+                SetWide(Wide, Mode, Group);
+                if Wide.FindFirst() then
+                    First := Wide.Description;
+                if Wide.FindLast() then
+                    Last := Wide.Description;
+                exit(First + '|' + Last + '|' + Format(Wide.Count()) + '|' + Format(Wide.IsEmpty()));
+            end;
+        end;
+    end;
+
+    local procedure SetChild(var Child: Record "BQ Child"; Mode: Text; Group: Text)
+    begin
+        case Mode of
+            'childsplit05':
+                begin
+                    Child.SetRange(Parent, Group);
+                    Child.FilterGroup(5);
+                    Child.SetRange("Line No.", 1);
+                    Child.FilterGroup(0);
+                end;
+            'childsplit22':
+                begin
+                    Child.FilterGroup(2);
+                    Child.SetRange(Parent, Group);
+                    Child.SetRange("Line No.", 1);
+                    Child.FilterGroup(0);
+                end;
+            'childsplit50':
+                begin
+                    Child.FilterGroup(5);
+                    Child.SetRange(Parent, Group);
+                    Child.FilterGroup(0);
+                    Child.SetRange("Line No.", 1);
+                end;
+            'childboth0':
+                begin
+                    Child.SetRange(Parent, Group);
+                    Child.SetRange("Line No.", 1);
+                end;
+        end;
+        Child.SetRange("Sibling Count", 2);
+    end;
+
+    local procedure SetCalc(var Calc: Record "BQ Calc"; Mode: Text; Group: Text)
+    begin
+        case Mode of
+            'calcwild':
+                begin
+                    Calc.SetRange("No.", Group);
+                    Calc.SetFilter("Line Kind", '@k*');
+                end;
+            'calcat':
+                begin
+                    Calc.SetRange("No.", Group);
+                    Calc.SetFilter("Line Kind", '@');
+                end;
+            'calcempty':
+                Calc.SetView(StrSubstNo('WHERE("No."=FILTER(%1),"Line Kind"=FILTER())', Group));
+        end;
+    end;
+
+    local procedure SetWide(var Wide: Record "BQ Wide"; Mode: Text; Group: Text)
+    var
+        G: Integer;
+    begin
+        Wide.SetRange("No.", Group);
+        case Mode of
+            'kindlt':
+                Wide.SetFilter("Child Count", '<1');
+            'kindle':
+                Wide.SetFilter("Child Count", '<=0');
+            'kindge':
+                Wide.SetFilter("Child Count", '>=1');
+            'kindand':
+                Wide.SetFilter("Child Count", '>0&<5');
+            'flowor', 'flowg1', 'flowg7', 'flowg100', 'flowg255':
+                begin
+                    if Mode = 'flowor' then
+                        Wide.FilterGroup(-1)
+                    else begin
+                        Evaluate(G, CopyStr(Mode, 6));
+                        Wide.FilterGroup(G);
+                    end;
+                    Wide.SetRange("Child Count", 1);
+                    Wide.FilterGroup(0);
+                end;
+            'descor', 'descg1', 'descg255':
+                begin
+                    if Mode = 'descor' then
+                        Wide.FilterGroup(-1)
+                    else begin
+                        Evaluate(G, CopyStr(Mode, 6));
+                        Wide.FilterGroup(G);
+                    end;
+                    Wide.SetRange(Description, 'a');
+                    Wide.FilterGroup(0);
+                    Wide.SetRange("Child Count", 1);
+                end;
+            'extcount':
+                Wide.SetRange("Ext Child Count", 1);
+        end;
+    end;
+}
+
+codeunit 97547 "BQ Tests 8b"
+{
+    Subtype = Test;
+
+    var
+        Assert: Codeunit Assert;
+
+    local procedure NewGroup(): Code[20]
+    begin
+        exit(CopyStr(DelChr(Format(CreateGuid()), '=', '{}-'), 1, 18));
+    end;
+
+    local procedure Run(var Rows: TestPage "BQ Plain Rows"; Mode: Text; Group: Code[20]): Text
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Seen: Text;
+    begin
+        Parameters.Add('Group', Group);
+        Parameters.Add('Mode', Mode);
+        Results := Rows.RunPageBackgroundTask(Codeunit::"BQ Reader 8b", Parameters, false);
+        Results.Get('Seen', Seen);
+        exit(Seen);
+    end;
+
+    local procedure AddChild(Parent: Code[20]; LineNo: Integer)
+    var
+        Child: Record "BQ Child";
+    begin
+        Child.Parent := Parent;
+        Child."Line No." := LineNo;
+        Child.Kind := 'K';
+        Child.Amount := 5;
+        Child.Insert();
+        Child.SetRange(Parent, Parent);
+        if Child.FindFirst() then;
+    end;
+
+    local procedure AddNote(Parent: Code[20])
+    var
+        Note: Record "BQ Note";
+    begin
+        Note.Parent := Parent;
+        Note."Line No." := 1;
+        Note.Insert();
+        Note.SetRange(Parent, Parent);
+        if Note.FindFirst() then;
+    end;
+
+    local procedure SetDescription(Mode: Text; G: Code[20])
+    var
+        Wide: Record "BQ Wide";
+        Calc: Record "BQ Calc";
+    begin
+        if Mode.StartsWith('calc') then begin
+            Calc.Get(G);
+            Calc.Description := 'b';
+            Calc.Modify();
+        end else begin
+            Wide.Get(G);
+            Wide.Description := 'b';
+            Wide.Modify();
+        end;
+    end;
+
+    local procedure SetUp(Mode: Text; G: Code[20])
+    var
+        Wide: Record "BQ Wide";
+        Calc: Record "BQ Calc";
+        Calc2: Record "BQ Calc 2";
+        Busy: Record "BQ Busy";
+        Line: Record "BQ Noted Line";
+    begin
+        case true of
+            Mode.StartsWith('calc2'):
+                begin
+                    Calc2."No." := G;
+                    Calc2.Description := 'a';
+                    Calc2.Insert();
+                end;
+            Mode.StartsWith('calc'):
+                begin
+                    Calc."No." := G;
+                    Calc.Description := 'a';
+                    Calc.Insert();
+                end;
+            Mode.StartsWith('busy'), Mode.StartsWith('amount'):
+                begin
+                    Busy."No." := G;
+                    Busy.Description := 'a';
+                    Busy.Insert();
+                    Line.Parent := G;
+                    Line."Line No." := 1;
+                    Line.Amount := 5;
+                    Line.Insert();
+                end;
+            else begin
+                Wide."No." := G;
+                Wide.Description := 'a';
+                Wide.Insert();
+                if Mode.StartsWith('child') then
+                    AddChild(G, 1);
+            end;
+        end;
+        Commit();
+    end;
+
+    // The rows a Mode reads committed (the row, Description a; for 'child' Modes also its line 1; for 'busy' its line 1 of
+    // table 97592); the four reads; the test's Change: 'line' inserts a line of table 97594 (line 2 for 'child' Modes), 'desc'
+    // sets the row's Description to b, 'note' inserts a note of table 97595 for line 1, 'notecommit' does so and commits; the
+    // four reads again: both answers, as 'first / again'.
+    local procedure Reads(Mode: Text; Change: Text): Text
+    var
+        Rows: TestPage "BQ Plain Rows";
+        G: Code[20];
+        Seen: Text;
+    begin
+        G := NewGroup();
+        SetUp(Mode, G);
+        Rows.OpenView();
+        Seen := Run(Rows, Mode, G);
+        case Change of
+            'line':
+                if Mode.StartsWith('child') then
+                    AddChild(G, 2)
+                else
+                    AddChild(G, 1);
+            'desc':
+                SetDescription(Mode, G);
+            'note':
+                AddNote(G);
+            'notecommit':
+                begin
+                    AddNote(G);
+                    Commit();
+                end;
+        end;
+        Seen += ' / ' + Run(Rows, Mode, G);
+        Rows.Close();
+        exit(Seen);
+    end;
+
+    // The Modes whose Reads answer after Change is not Expected, with their answers.
+    local procedure Differ(Modes: List of [Text]; Change: Text; Expected: Text): Text
+    var
+        Mode: Text;
+        Seen: Text;
+        Found: Text;
+    begin
+        foreach Mode in Modes do begin
+            Seen := Reads(Mode, Change);
+            if Seen <> Expected then
+                Found += ' ' + Mode + ': ' + Seen;
+        end;
+        exit(Found);
+    end;
+
+    // A two-field key with Parent in filter group 0 and "Line No." in 5, Parent in 5 and "Line No." in 0, both in 2; next to
+    // "Sibling Count" 2: FindFirst and FindLast answer the first answer, Count and IsEmpty see the second line.
+    [Test]
+    procedure BgQueryCache_Run_FlowFieldKeyAcrossGroups_FindsFirstAnswer()
+    var
+        Modes: List of [Text];
+    begin
+        Modes.AddRange('childsplit05', 'childsplit50', 'childsplit22');
+        Assert.AreEqual('', Differ(Modes, 'line', '-|-|0|Yes / -|-|1|No'), 'the Modes that differ');
+    end;
+
+    // "Child Count" >=1 and >0&<5, then <1 and <=0, next to the key: FindFirst and FindLast answer the first answer.
+    [Test]
+    procedure BgQueryCache_Run_FlowFieldFilterKinds_FindsFirstAnswer()
+    var
+        Modes: List of [Text];
+    begin
+        Modes.AddRange('kindge', 'kindand');
+        Assert.AreEqual('', Differ(Modes, 'line', '-|-|0|Yes / -|-|1|No'), '>=1 and >0&<5');
+        Clear(Modes);
+        Modes.AddRange('kindlt', 'kindle');
+        Assert.AreEqual('', Differ(Modes, 'line', 'a|a|1|No / a|a|0|Yes'), '<1 and <=0');
+    end;
+
+    // "Line Kind" (a lookup) @k* next to the key: all four see the line.
+    [Test]
+    procedure BgQueryCache_Run_FlowFieldWildcard_SeesTheChange()
+    begin
+        Assert.AreEqual('-|-|0|Yes / a|a|1|No', Reads('calcwild', 'line'), '@k*');
+    end;
+
+    // "Child Count" 1 in the OR group next to the key; the test sets the Description to b.
+    [Test]
+    procedure BgQueryCache_Run_FlowFieldInOrGroup_DescriptionChanged()
+    begin
+        Assert.AreEqual('a|a|1|No / a|a|1|No', Reads('flowor', 'desc'), 'the OR group');
+    end;
+
+    // "Child Count" 1 in filter group 1, 7, 100 or 255 next to the key; Description a in the OR group, filter group 1 or 255
+    // next to the key and "Child Count" 1.
+    [Test]
+    procedure BgQueryCache_Run_FlowFieldAndOtherFilterGroups_FindsFirstAnswer()
+    var
+        Modes: List of [Text];
+    begin
+        Modes.AddRange('flowg1', 'flowg7', 'flowg100', 'flowg255', 'descor', 'descg1', 'descg255');
+        Assert.AreEqual('', Differ(Modes, 'line', '-|-|0|Yes / -|-|1|No'), 'the Modes that differ');
+    end;
+
+    // A lookup FlowField filtered on its own FlowFilter (table 97590), and a FlowField a table extension declares.
+    [Test]
+    procedure BgQueryCache_Run_FlowFieldFlowFilterAndExtension_FindsFirstAnswer()
+    var
+        Modes: List of [Text];
+    begin
+        Modes.AddRange('calc2lookup', 'extcount');
+        Assert.AreEqual('', Differ(Modes, 'line', '-|-|0|Yes / -|-|1|No'), 'the Modes that differ');
+    end;
+
+    // "Busy Lines" counts the lines whose "Has Notes" (an exist FlowField over table 97595) is true: after a note, committed
+    // or not, all four see it.
+    [Test]
+    procedure BgQueryCache_Run_FlowFieldOverAFlowField_SeesTheChange()
+    begin
+        Assert.AreEqual('-|-|0|Yes / a|a|1|No', Reads('busy', 'note'), 'the note');
+        Assert.AreEqual('-|-|0|Yes / a|a|1|No', Reads('busy', 'notecommit'), 'the note committed');
+    end;
+
+    // "Line Kind" FILTER() of a view next to the key; the test sets the Description to b.
+    [Test]
+    procedure BgQueryCache_Run_FlowFieldEmptyFilter_DescriptionChanged()
+    begin
+        Assert.AreEqual('a|a|1|No / a|a|1|No', Reads('calcempty', 'desc'), 'FILTER()');
     end;
 }

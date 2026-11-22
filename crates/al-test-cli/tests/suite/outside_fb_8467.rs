@@ -537,11 +537,12 @@ fn issue_8637_repro() {
     }
 }
 
-/// Neighbors of al-runner issue 8637 past what the cells measure (the fixture's header): 7651 filters, and a FlowField filter
-/// next to the key with a filter outside the key, as a range, or with the key in filter group 5; and a worker's fresh Record
-/// and RecordRef Count while the test session holds a filter in filter group 1 (:3429 measures the worker's own record
-/// setting it while the test session holds none). BC answers them from the cache; the runner keeps main's answer, the rows as
-/// they are, with no flag.
+/// Neighbors of al-runner issue 8637 past what the cells measure (the fixture's header): 26215 filters, a FlowField filter
+/// next to the key set to its value twice, a worker's fresh Record and RecordRef Count while the test session holds a filter
+/// in filter group 1 (:3429 measures the worker's own record setting it while the test session holds none), and FlowField
+/// filters of an open range, an & inside a |, a case-sensitive wildcard and @ alone, and a sum whose field() is a FlowField of
+/// the row. BC answers them (all but the last from the cache); the runner keeps main's answer, the rows as they are, with no
+/// flag, and refuses @ alone on a Code field as main does.
 #[test]
 fn issue_8637_neighbors() {
     let src = format!(
@@ -549,8 +550,15 @@ fn issue_8637_neighbors() {
         include_str!("../fixtures/outside-fb/Issue8637Neighbors.al")
     );
     let o = outcomes(&src, "BQ Gate Tests");
-    assert_eq!(o.len(), 5);
+    assert_eq!(o.len(), 8);
     for (name, r, marks) in &o {
+        if name.starts_with("FlowFieldAtSignAlone") {
+            assert!(
+                matches!(r, Outcome::NotRun(w) if w.contains("value expected after @")),
+                "{name}: {r:?}"
+            );
+            continue;
+        }
         let main = if name.starts_with("TestSessionGroup1") {
             "Actual:<1,1>"
         } else {
@@ -606,6 +614,56 @@ fn issue_8637_indirect_flowfields() {
     for (name, r, marks) in &o {
         assert_eq!(*r, Outcome::Pass, "{name}");
         assert!(!marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+    }
+}
+
+/// The cells of BQ Tests 8 (corpus PR 1495, BgTaskQueryCache.al:3606-4311): up to 26214 filters, and FindFirst and FindLast
+/// with FlowField filters of any kind, group and method next to one value on each key field in any filter group but the OR
+/// group, answer from the cache, flagged. The key in the OR group or as two values, and a commit of the counted table, read
+/// the table; after the worker's key filter in filter group 1 (:4264) the later reads of its table are flagged too.
+#[test]
+fn issue_8637_bq8_cells() {
+    let o = outcomes(PROBE, "BQ Tests 8");
+    assert_eq!(o.len(), 9);
+    for (name, r, marks) in &o {
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert_eq!(
+            marks.contains(&BackgroundTaskQueryCache),
+            !name.ends_with("FlowFieldMin_CommitOfTheLine_SeesTheChange"),
+            "{name}: {marks:?}"
+        );
+    }
+}
+
+/// The cells of BQ Tests 8b (corpus PR 1495, BgTaskQueryCache.al:4313-4842): FindFirst and FindLast with a FlowField filter
+/// next to the key split across filter groups, of the kinds >=, &, < and <=, in filter groups 1-255, next to a filter outside
+/// the key in the OR group or filter group 1 or 255, on a lookup filtered on its own FlowFilter or a FlowField of a table
+/// extension, or in the OR group, answer from the cache, flagged. A wildcard on the FlowField, and a FlowField whose condition
+/// is a FlowField of its source table, read the table, clean. An empty FILTER() of a view on a Code field is refused before
+/// any read, on main too (:4838).
+#[test]
+fn issue_8637_bq8b_cells() {
+    let o = outcomes(PROBE, "BQ Tests 8b");
+    assert_eq!(o.len(), 8);
+    let clean = [
+        "FlowFieldWildcard_SeesTheChange",
+        "FlowFieldOverAFlowField_SeesTheChange",
+    ];
+    for (name, r, marks) in &o {
+        let short = name.trim_start_matches("BgQueryCache_Run_");
+        if short == "FlowFieldEmptyFilter_DescriptionChanged" {
+            assert!(
+                matches!(r, Outcome::NotRun(w) if w.contains("empty filter term")),
+                "{name}: {r:?}"
+            );
+            continue;
+        }
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert_eq!(
+            marks.contains(&BackgroundTaskQueryCache),
+            !clean.contains(&short),
+            "{name}: {marks:?}"
+        );
     }
 }
 

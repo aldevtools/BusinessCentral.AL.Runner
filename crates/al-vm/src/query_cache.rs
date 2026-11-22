@@ -9,10 +9,11 @@
 //! - a group: `FindFirst`, `FindLast`, `Count` and `IsEmpty` of AL code (a Record or a RecordRef; not a page's own read,
 //!   :2137), keyed by the read, the sort direction and every filter (`group_key`): the group alone (:641, :658, :675, :692),
 //!   a field outside the key and two fields (:870, :891), and in PR 1495 FindLast, IsEmpty and FindFirst after `SetFilter`
-//!   (:1276, :1293, :1312) and all four reads of every shape of :1718-:1832, :2711-:2775 and :3394-:3422 (no filter or up to
-//!   7650, filter groups 0 to 255 and the OR group, filter group 1 in a worker, a descending sort, ranges, `SetFilter` of
-//!   values, wildcards, the comparison operators, `@` alone, an empty `FILTER()`, an `&` inside an `|`, a FlowFilter field,
-//!   :3510), and FindFirst and FindLast with a FlowField filter next to the key (:3475, :3485). One value set by `SetRange`,
+//!   (:1276, :1293, :1312) and all four reads of every shape of :1718-:1832, :2711-:2775, :3394-:3422 and :4226-:4243 (no
+//!   filter or up to 26214, filter groups 0 to 255 and the OR group, filter group 1 in a worker, a descending sort, ranges,
+//!   `SetFilter` of values, wildcards, the comparison operators, `@` alone, an empty `FILTER()`, an `&` inside an `|`, a
+//!   FlowFilter field, :3510), and FindFirst and FindLast with FlowField filters next to one value on the key (:3475, :3485,
+//!   :4253-:4286). One value set by `SetRange`,
 //!   by `SetFilter`, by a range from the value to itself or by `FieldRef.SetRange` is one filter (:917, :1840, :1856).
 //!   `Find('+')`, `Find('-')`, `FindSet`, and any of the four after `SetLoadFields`, read the rows as they are (:2037-:2121,
 //!   :2760).
@@ -21,7 +22,7 @@
 //! before or after, an insert and a delete each committed: PR 1495 :1207; a commit of a ModifyAll or DeleteAll of the table
 //! ends it or keeps it by the target's minor, `al_version::bulk_commit_ends_cached_row`, and elsewhere a read it would answer
 //! otherwise than the table is refused); a group entry until a commit writes the table (:823, :845, :870, :891 against :451;
-//! :1945, :1962, :2018), or the table its FlowField filter counts or sums (:3503). A rollback changes neither (:983, :1016,
+//! :1945, :1962, :2018), or a table its FlowField filters read (:3503, :4297). A rollback changes neither (:983, :1016,
 //! :1029), and a found row, a missing row and a count are all
 //! kept (:604, :624, :692). The test session's own read fills the cache while that session has not written the table since
 //! its last commit (:500, :541, :938; a test page's read of a line too, :2300, :2322, :2355; a group read in every shape but
@@ -40,7 +41,6 @@ use al_builtins::native::unsupported;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::Value;
 use al_data::{AccessContext, Store, TableDef};
-use al_ir::CalcMethod;
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
@@ -173,9 +173,9 @@ fn cached_filter_group(group: i32, own_group1: bool) -> bool {
     group == al_builtins::filter::OR_GROUP || matches!(group, 0 | 2..=255) || group == 1 && own_group1
 }
 
-/// The most filters a cell's group read had: one on each of 30 fields in filter groups 0 and 2-255 (:3408); no filter at all is
-/// measured too (:2775).
-const MAX_CACHED_FILTERS: usize = 7650;
+/// The most filters a cell's group read had: one on each of 102 fields in every filter group (:4243; 7650 at :3408, 7710 and
+/// values of their own at :4226 and :4234, no limit found); no filter at all is measured too (:2775).
+const MAX_CACHED_FILTERS: usize = 26214;
 
 /// What the cache holds for one codeunit run (`Session::reset_query_cache` empties it).
 #[derive(Default)]
@@ -183,7 +183,7 @@ pub(crate) struct QueryCache {
     /// The rows workers read.
     rows: Entries<(Committed, Option<Vec<Value>>)>,
     /// The groups workers and the test session read, with the commit stamps then of the table and of the tables its FlowField
-    /// filter counts or sums.
+    /// filters read.
     groups: Entries<(Vec<Option<u64>>, GroupAnswer)>,
     /// The rows the test session read while it had not written their table.
     test_rows: Entries<Committed>,
@@ -278,14 +278,18 @@ enum Nesting {
     Simple,
 }
 
-/// Whether a group read with a filter on a FlowField (`flow_fields`, of its `filters`) is keyed: a FindFirst or FindLast whose
-/// one FlowField filter, of one value in filter group 0 on a FlowField that counts or sums, stands next to one value on each
-/// primary-key field (in filter group 0, by SetRange or SetFilter, or in filter group 2; a key of one field and of two fields)
-/// and FlowFilter filters, nothing else (:3475, :3485). The entry also ends with a commit of the table the FlowField counts or
-/// sums (`Session::flow_field_sources`, :3503). Count and IsEmpty read the rows as they are (:3475, :3552; `cached_count`'s
-/// `plain`), and so do all four with the FlowField filter alone (:3466, :3552), next to a range on the key, a filter outside
-/// the key or a part of a two-field key (:3494), and through a FlowField that reads more tables than its own
-/// (`calc_reads_one_table`). `source`: a table's schema by object index.
+/// Whether a group read with filters on FlowFields (`flow_fields`, of its `filters`) is keyed: a FindFirst or FindLast whose
+/// filters set each primary-key field to one value by one filter, by SetRange, SetFilter or a range to itself, in a filter
+/// group other than the OR group (:3475, :3485; 1, 3, 5, 7, 8, 100 and 255 at :4264), the fields of a two-field key in one
+/// group or in two (:4771). Its other filters may be anything `group_key` takes (:4253, :4264, :4809). Each FlowField filter
+/// is on a FlowField whose CalcFormula reads its own source table alone (`calc_reads_one_table`), whatever its method (:4286,
+/// a lookup filtered on its own FlowFilter and one a table extension declares :4819), of a kind `flow_filter_measured`
+/// takes, in a filter group other than the OR group (0, 2 and 5 at :4264, 1, 7, 100 and 255 at :4809). The entry also ends
+/// with a commit of the tables the FlowFields read (`Session::flow_field_sources`, :3503, :4297). Count and IsEmpty read the
+/// rows as they are (:3475, :3552, :4253; `cached_count`'s `plain`), and so do all four with the FlowField filter alone
+/// (:3466, :3552), next to a range on the key, a filter outside the key, a part of a two-field key (:3494), the key in the OR
+/// group or a key filter of two values (:4275), a wildcard on the FlowField (:4794), and a FlowField whose condition is a
+/// FlowField of its source table (:4830). `source`: a table's schema by object index.
 fn flow_field_find<'a>(
     schema: &al_ir::Table,
     t: &TableDef,
@@ -294,33 +298,48 @@ fn flow_field_find<'a>(
     form: Form,
     source: impl Fn(usize) -> Option<&'a al_ir::Table>,
 ) -> bool {
-    let one_value = |e: &FilterExpr| match e {
+    let key = t.keys[0].iter().all(|k| {
+        let mut on = filters.iter().filter(|f| f.field == *k);
+        matches!((on.next(), on.next()), (Some(f), None)
+            if f.group != al_builtins::filter::OR_GROUP && one_value(&f.expr))
+    });
+    let flow = |f: &FieldFilter| {
+        f.group != al_builtins::filter::OR_GROUP
+            && flow_filter_measured(&f.expr)
+            && (schema.fields[f.field].calc.as_ref()).is_some_and(|c| calc_reads_one_table(schema, source(c.table), c))
+    };
+    matches!(form, Form::First | Form::Last) && key && flow_fields.iter().all(|f| flow(f))
+}
+
+/// One value: `SetRange(F, V)`, `SetFilter(F, V)` or a range from the value to itself.
+fn one_value(e: &FilterExpr) -> bool {
+    match e {
         FilterExpr::Range(Some(a), Some(b)) => a.identical(b),
         FilterExpr::Eq(_) => true,
         _ => false,
-    };
-    let [flow] = flow_fields else {
-        return false;
-    };
-    let counts_or_sums = schema.fields[flow.field].calc.as_ref().is_some_and(|c| {
-        matches!(c.method, CalcMethod::Count | CalcMethod::Sum)
-            && !c.negate
-            && calc_reads_one_table(schema, source(c.table), c)
-    });
-    let pk = &t.keys[0];
-    let key = pk.iter().all(|k| {
-        let mut on = filters.iter().filter(|f| f.field == *k);
-        matches!((on.next(), on.next()), (Some(f), None) if matches!(f.group, 0 | 2) && one_value(&f.expr))
-    });
-    let others = filters
-        .iter()
-        .all(|f| f.field == flow.field || pk.contains(&f.field) || schema.fields[f.field].flow_filter && f.group == 0);
-    matches!(form, Form::First | Form::Last)
-        && counts_or_sums
-        && flow.group == 0
-        && one_value(&flow.expr)
-        && key
-        && others
+    }
+}
+
+/// The kinds of a FlowField filter the cells measure: one value, a range, `>`, `<>` and a `|` of values (:4253), `>=`, `<`,
+/// `<=` and an `&` of comparisons (:4781), and an empty `FILTER()` of a view (:4838). A wildcard reads the rows as they are
+/// (:4794); `@` alone, open ranges and other compounds are not measured.
+fn flow_filter_measured(e: &FilterExpr) -> bool {
+    use FilterExpr as F;
+    match e {
+        F::Eq(_)
+        | F::Range(Some(_), Some(_))
+        | F::Ne(_)
+        | F::Lt(_)
+        | F::Le(_)
+        | F::Gt(_)
+        | F::Ge(_)
+        | F::EmptyViewValue => true,
+        F::Or(items) => items.iter().all(one_value),
+        F::And(items) => items
+            .iter()
+            .all(|i| matches!(i, F::Lt(_) | F::Le(_) | F::Gt(_) | F::Ge(_))),
+        _ => false,
+    }
 }
 
 /// Whether FlowField `calc` of a row of `row` reads only its source table: it aggregates no FlowField of the source and has
@@ -507,7 +526,7 @@ impl Session {
         }
     }
 
-    /// The tables the FlowFields `rec` filters on count or sum (`flow_field_find` keys a read with one).
+    /// The tables the FlowFields `rec` filters on read (`flow_field_find` keys a read with them).
     fn flow_field_sources(&self, rec: &Rec, t: &TableDef) -> Vec<Arc<TableDef>> {
         let Some(schema) = self.engine.program.objects[t.object as usize].table.as_ref() else {
             return Vec::new();
@@ -703,7 +722,7 @@ impl Session {
     }
 
     /// A group read of `rec` for `values` that the table answers with `fresh`: what the read answers. An entry holds while no
-    /// commit wrote the table (:823, :845, :1945, :2018), nor the table its FlowField filter counts or sums (:3503; a commit of
+    /// commit wrote the table (:823, :845, :1945, :2018), nor a table its FlowField filters read (:3503, :4297; a commit of
     /// another table keeps it). The test session's read fills it while that session has not written those tables since its last
     /// commit, in every shape `group_key` takes (:1239, :1904, :1924, :2375-:2405, :2789, :2808, :3520-:3552), and after it wrote
     /// the table reads the table (:1982, :2101).
