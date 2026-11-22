@@ -59,6 +59,7 @@ pub fn refusal(mark: &str) -> Signal {
     } else {
         ""
     };
+    let mark = crate::rendered_text::shown(mark);
     Signal::unsupported(format!(
         "a read of the content of {mark} (the runtime writes a placeholder, not BC's rendering: only that the output \
          exists and is not empty{pinned} matches BC; a test that reads the content tests the layout renderer)"
@@ -123,6 +124,10 @@ pub fn pdf_read(v: &Value, read: PdfRead) -> Option<Result<PdfAnswer, Signal>> {
     let crate::value::LibraryValue::InStream(s) = &mut *g else {
         return None;
     };
+    // Most streams hold no mark: they are answered before the buffer handle is cloned (every Read of a byte passes here).
+    if !of(&s.live_blob()?.borrow()).is_some_and(|m| is_pdf(m)) {
+        return None;
+    }
     let blob = s.live_blob()?.clone();
     let buf = blob.borrow();
     let mark = of(&buf).filter(|m| is_pdf(m))?.clone();
@@ -224,6 +229,7 @@ pub fn size_refusal(mark: &str, what: &str) -> Signal {
 
 /// The text of [`size_refusal`].
 pub fn size_refusal_text(mark: &str, what: &str) -> String {
+    let mark = crate::rendered_text::shown(mark);
     format!(
         "{what} of the byte size of {mark} (BC's rendering is only known not to be empty: only a comparison of the size with 0 \
          answers)"
