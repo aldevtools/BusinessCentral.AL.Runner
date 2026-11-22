@@ -206,6 +206,8 @@ pub(super) fn read_from_yaml(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
         let empty = with_node(&h, |n| matches!(n, JsonNode::Object(k) if k.is_empty()));
         return match doc {
             Err(Signal::Error(e)) if c.ret_used() && empty => {
+                assume(Assumption::ReadFromYamlBlankLinesAndBlocks);
+                assume(Assumption::ReadFromYamlNonAsciiText);
                 c.set_last_error(*e);
                 Ok(Value::Boolean(false))
             }
@@ -239,8 +241,8 @@ pub(super) fn read_from_yaml(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
 }
 
 /// A measured read (`measured::document`), marked: every read it answers runs through
-/// `read-from-yaml-blank-lines-and-blocks`, and one that took a character only corpus PR 1515 measured (or gave its YAML
-/// error) also through `read-from-yaml-non-ascii-text`.
+/// `read-from-yaml-blank-lines-and-blocks`, and one that took a character only corpus PR 1515 measured also through
+/// `read-from-yaml-non-ascii-text`.
 fn read_measured(text: &str) -> Result<Yaml, Signal> {
     let read = measured::document(text);
     match &read {
@@ -250,10 +252,7 @@ fn read_measured(text: &str) -> Result<Yaml, Signal> {
                 assume(Assumption::ReadFromYamlNonAsciiText);
             }
         }
-        Err(Signal::Error(_)) => {
-            assume(Assumption::ReadFromYamlBlankLinesAndBlocks);
-            assume(Assumption::ReadFromYamlNonAsciiText);
-        }
+        // Its YAML error is marked only where `read_from_yaml` answers it.
         Err(_) => {}
     }
     read.map(|m| m.tree)

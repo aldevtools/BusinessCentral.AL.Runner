@@ -170,15 +170,11 @@ fn bad_breaks_answer_false_with_the_yaml_error() {
             assert_eq!(r.json, "{}");
             assert_eq!(r.last_error, BAD_YAML);
             assert!(r.marks.contains(&UTF8), "{text:?}");
-            // The statement form and a receiver with members are not measured.
-            assert!(
-                matches!(read(&text, false).answer, Err(Signal::Unsupported(_))),
-                "{text:?}"
-            );
-            assert!(
-                matches!(read_into(&text, true, r#"{"z":1}"#).answer, Err(Signal::Unsupported(_))),
-                "{text:?}"
-            );
+            // The statement form and a receiver with members are not measured: refused, with no mark.
+            for refused in [read(&text, false), read_into(&text, true, r#"{"z":1}"#)] {
+                assert!(matches!(refused.answer, Err(Signal::Unsupported(_))), "{text:?}");
+                assert!(refused.marks.is_empty(), "{text:?} marks {:?}", refused.marks);
+            }
         }
     }
 }
