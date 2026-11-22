@@ -49,7 +49,7 @@ impl SystemClock {
 
 impl Clock for SystemClock {
     fn now_utc_millis(&self) -> i64 {
-        if std::env::var_os("ALRUNNER_REAL_CLOCK").is_some() {
+        if real_clock() {
             return SystemClock::wall();
         }
         *RUN_START.get_or_init(|| run_clock_start(SystemClock::wall()))
@@ -133,8 +133,17 @@ pub fn uses_real_files() -> bool {
 }
 
 /// Whether the system host reads the wall clock as it goes (`ALRUNNER_REAL_CLOCK`) instead of standing at the instant
-/// the run began.
+/// the run began. Read from the environment once per process: the clock asks at every stamped record insert, and each
+/// environment read takes std's environment lock and scans every entry. Nothing sets the variable while a run goes.
 pub fn real_clock() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(read_real_clock_env)
+}
+
+/// The one read of `ALRUNNER_REAL_CLOCK` from the environment, for [`real_clock`].
+fn read_real_clock_env() -> bool {
+    #[cfg(test)]
+    tests::REAL_CLOCK_READS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     std::env::var_os("ALRUNNER_REAL_CLOCK").is_some()
 }
 
@@ -316,6 +325,9 @@ impl FileSystem for DirFileSystem {
 mod tests {
     use super::*;
 
+    /// How often [`read_real_clock_env`] asked the environment.
+    pub(super) static REAL_CLOCK_READS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
     #[test]
     fn the_run_clock_starts_at_12_34_56_789_utc_of_the_wall_clocks_day() {
         // 2026-10-19T00:00:00.000Z, and the start 12:34:56.789 later.
@@ -363,6 +375,19 @@ mod tests {
         let (a, b) = (c.now_utc_millis(), c.now_utc_millis());
         assert!(a > 1_704_067_200_000, "{a}");
         assert!(b >= a);
+    }
+
+    /// Red before the fix: every read of the clock (one per stamped record insert, 2.7M in one run of a large app) read
+    /// `ALRUNNER_REAL_CLOCK` from the environment, which takes std's environment lock and scans every entry.
+    #[test]
+    fn the_real_clock_switch_is_read_from_the_environment_once() {
+        let c = SystemClock;
+        for _ in 0..1_000 {
+            c.now_utc_millis();
+            real_clock();
+        }
+        let reads = REAL_CLOCK_READS.load(std::sync::atomic::Ordering::Relaxed);
+        assert!(reads <= 1, "the environment was read {reads} times");
     }
 
     /// Red before the fix: the clock followed the wall, so a run on a loaded machine saw other

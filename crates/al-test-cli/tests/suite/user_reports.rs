@@ -4342,3 +4342,22 @@ fn dependency_report_extension_refuses_an_indirect_owner() {
         assert!(matches!(&outcomes[0].1, Outcome::NotRun(_)), "{outcomes:?}");
     }
 }
+
+/// Issue 8539: a local variable named `Key`, unquoted, does not compile (alc: AL0519 `'Key' is not valid value in this
+/// context.`; assumption `keyword-variable-names`, `al_sema::alcodes::keyword_variable_names`). Quoted, it compiles and runs.
+#[test]
+fn issue_8539_a_variable_named_key_does_not_compile() {
+    let repro = |name: &str| {
+        format!(
+            "codeunit 50100 \"Repro Key Variable\" {{ procedure Double(Value: Integer): Integer var {name}: Integer; begin {name} := Value * 2; exit({name}); end; }}
+codeunit 50120 T {{ Subtype = Test; [Test] procedure DoubleReturnsTwiceTheValue() var R: Codeunit \"Repro Key Variable\"; begin
+    if R.Double(21) <> 42 then Error('Double(21) returned %1, expected 42.', R.Double(21)); end; }}"
+        )
+    };
+    let (codes, outcomes) = codes_and_outcomes(&[], &repro("Key"));
+    assert_eq!(codes, vec!["AL0519"]);
+    assert!(outcomes.is_empty());
+    let (codes, outcomes) = codes_and_outcomes(&[], &repro("\"Key\""));
+    assert!(codes.is_empty(), "{codes:?}");
+    all_pass(outcomes);
+}

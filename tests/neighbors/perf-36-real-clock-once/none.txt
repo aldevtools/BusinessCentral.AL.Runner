@@ -1,0 +1,1 @@
+No neighbor shapes to probe: speed only, no AL code sees it. ALRUNNER_REAL_CLOCK is read from the environment once per process (al-testrun host.rs real_clock) instead of on every read of the system clock; nothing sets the variable while a process runs, so every clock read answers as on main, with the variable set or unset.
