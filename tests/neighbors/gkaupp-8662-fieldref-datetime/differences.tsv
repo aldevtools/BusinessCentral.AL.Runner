@@ -12,3 +12,4 @@ GK Fvt Measured::Measured_DurLocal_DateTime	ASSUMED fieldref-value-temporal-erro
 GK Fvt Measured::Measured_BoolLocal_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1511)
 GK Fvt Measured::Measured_IntVarParam_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1511)
 GK Fvt Measured::Measured_PkFieldIndex_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1511)
+GK Fvt Measured::Measured_IntLocal_DateTime_ValueCall	ASSUMED fieldref-value-temporal-error (corpus PR 1511)

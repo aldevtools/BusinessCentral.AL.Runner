@@ -146,6 +146,18 @@ codeunit 61621 "GK Fvt Measured"
     end;
 
     [Test]
+    procedure Measured_IntLocal_DateTime_ValueCall()
+    var
+        FR: FieldRef;
+        R: DateTime;
+    begin
+        // The al-runner issue's spelling: `Value()` with parentheses.
+        Lib.Field(2, 1, FR);
+        asserterror R := FR.Value();
+        Lib.CheckError('Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavInteger to System.DateTime.', 'The value "1" can''t be evaluated into type DateTime.');
+    end;
+
+    [Test]
     procedure Measured_IntVarParam_DateTime()
     var
         FR: FieldRef;
