@@ -1,0 +1,39 @@
+# key	entry
+# Main refuses every read of xRec through a subscriber or a codeunit called from the trigger; head runs the pinned chains
+# (XRecTableProcThroughSubscriber.al) and, flagged, the callers and subscribers of XRecTableProcCallers.al (corpus PR 1482,
+# merged at 5ad2970e, not pinned yet). The Refused_ tests refuse on both sides. Sub_UnqualifiedProcInSharedProc: the
+# unqualified call from table extension code reads the caller's xRec (XRecTableProcCalls.al:274), here the shared one (:528).
+XS Tests::Codeunit_Assign	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:780
+XS Tests::Codeunit_BaseProc	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:764
+XS Tests::Codeunit_ExtProc	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:647
+XS Tests::Codeunit_TryFunction	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:1176
+XS Tests::Nested_AfterGet	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:705
+XS Tests::Nested_AssignedAndRestored	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:750
+XS Tests::Nested_FoundThenInitNewLine	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:832
+XS Tests::Nested_FreshRecord	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:1126
+XS Tests::Nested_NoProcedure	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:663
+XS Tests::Nested_OneArgumentValidate	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:1098
+XS Tests::Nested_OneProcedure	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:691
+XS Tests::Nested_ReadByFindLast	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:813
+XS Tests::Nested_RecDotProcedure	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:1084
+XS Tests::Nested_Temporary	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:1112
+XS Tests::Nested_ThreeProcedures	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:677
+XS Tests::Nested_TwoProcedures	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:590
+XS Tests::Sub_AfterGet	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:542
+XS Tests::Sub_AfterInsert	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:528
+XS Tests::Sub_Assign	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:736
+XS Tests::Sub_FreshRecord	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:559
+XS Tests::Sub_ReadByFindFirst	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:886
+XS Tests::Sub_Temporary	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:576
+XS Tests::Sub_TemporaryNeverInserted	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:1143
+XS Tests::Sub_TwoVarParams	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:722
+XS Tests::Sub_UnqualifiedProcInSharedProc	PINNED tests/al-language/record/validate/XRecTableProcCalls.al:274
+XS Tests::Assumed_Codeunit_FromCodeunitProcedure	ASSUMED xrec-table-proc-callers-subscribers (corpus PR 1482, merged at 5ad2970e)
+XS Tests::Assumed_Nested_FromReportThroughCodeunitRun	ASSUMED xrec-table-proc-callers-subscribers (corpus PR 1482, merged at 5ad2970e)
+XS Tests::Assumed_Nested_FromReportThroughGuardedCodeunitRun	ASSUMED xrec-table-proc-callers-subscribers (corpus PR 1482, merged at 5ad2970e)
+XS Tests::Assumed_Sub_FromCodeunitProcedure	ASSUMED xrec-table-proc-callers-subscribers (corpus PR 1482, merged at 5ad2970e)
+XS Tests::Assumed_Sub_FromCodeunitRun	ASSUMED xrec-table-proc-callers-subscribers (corpus PR 1482, merged at 5ad2970e)
+XS Tests::Assumed_Sub_FromTryFunction	ASSUMED xrec-table-proc-callers-subscribers (corpus PR 1482, merged at 5ad2970e)
+XS Tests::Assumed_Sub_FromTryFunctionStatement	ASSUMED xrec-table-proc-callers-subscribers (corpus PR 1482, merged at 5ad2970e)
+XS Tests::Assumed_Sub_TwoSubscribers	ASSUMED xrec-table-proc-callers-subscribers (corpus PR 1482, merged at 5ad2970e)
+XS Tests::Assumed_Sub_TwoSubscribersOneDeclaringOnlyTheRecord	ASSUMED xrec-table-proc-callers-subscribers (corpus PR 1482, merged at 5ad2970e)
