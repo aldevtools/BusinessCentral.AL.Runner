@@ -821,6 +821,101 @@ codeunit 97526 "IQ Tests"
         Assert.AreEqual('yes', Reached, 'the statement after the worker');
         Assert.IsTrue(StrPos(GetLastErrorText(), 'already exists') > 0, GetLastErrorText());
     end;
+
+    // The cells from here on (al-runner pull request 8498, review round 2). Readings as at :800.
+    // - The same as :800, but the worker reads A, the key the duplicate Insert holds (:830), and the same without row B, so that
+    //   the queue holds only the duplicate (:855).
+    // - An Insert of the Date 1753-06-15, which its SQL column cannot hold (its error is deferred, record/filters/
+    //   SqlDateFloor1753.al), and the worker reads that row, a queued row and a row the test read (:879).
+    [Test]
+    procedure BgTaskInsertQueue_DuplicateInsertDeferred_TaskFindsTheDuplicatedKey_CommitRaises()
+    var
+        Host: TestPage "IQ Host";
+        Row: Record "IQ Row";
+        K: Code[20];
+        Seen: Text;
+        Reached: Text;
+    begin
+        K := NewKey();
+        Host.OpenView();
+        asserterror begin
+            AddRow(K + 'A', 'a');
+            Row.Get(K + 'A');
+            AddRow(K + 'B', 'b');
+            AddRow(K + 'A', 'a2');
+            Seen := Run(Host, 'get', K + 'A');
+            Reached := 'yes';
+            Commit();
+        end;
+        Assert.AreEqual('a', Seen, 'the worker''s Get of A');
+        Assert.AreEqual('yes', Reached, 'the statement after the worker');
+        Assert.IsTrue(StrPos(GetLastErrorText(), 'already exists') > 0, GetLastErrorText());
+    end;
+
+    [Test]
+    procedure BgTaskInsertQueue_OnlyDuplicateInsertDeferred_TaskFindsTheKey_CommitRaises()
+    var
+        Host: TestPage "IQ Host";
+        Row: Record "IQ Row";
+        K: Code[20];
+        Seen: Text;
+        Reached: Text;
+    begin
+        K := NewKey();
+        Host.OpenView();
+        asserterror begin
+            AddRow(K + 'A', 'a');
+            Row.Get(K + 'A');
+            AddRow(K + 'A', 'a2');
+            Seen := Run(Host, 'get', K + 'A');
+            Reached := 'yes';
+            Commit();
+        end;
+        Assert.AreEqual('a', Seen, 'the worker''s Get of A');
+        Assert.AreEqual('yes', Reached, 'the statement after the worker');
+        Assert.IsTrue(StrPos(GetLastErrorText(), 'already exists') > 0, GetLastErrorText());
+    end;
+
+    [Test]
+    procedure BgTaskInsertQueue_DateInsertDeferred_TaskGets_CommitRaises()
+    var
+        Host: TestPage "IQ Host";
+        DateRow: Record "IQ Date Row";
+        K: Code[20];
+        SeenD: Text;
+        SeenB: Text;
+        SeenA: Text;
+        Reached: Text;
+    begin
+        K := NewKey();
+        Host.OpenView();
+        asserterror begin
+            AddDateRow(K + 'A', 'a', 20240101D);
+            DateRow.Get(K + 'A');
+            AddDateRow(K + 'B', 'b', 20240101D);
+            AddDateRow(K + 'D', 'd', 17530615D);
+            SeenD := RunMore(Host, 'getdate', K + 'D');
+            SeenB := RunMore(Host, 'getdate', K + 'B');
+            SeenA := RunMore(Host, 'getdate', K + 'A');
+            Reached := 'yes';
+            Commit();
+        end;
+        Assert.AreEqual('-', SeenD, 'the worker''s Get of D');
+        Assert.AreEqual('-', SeenB, 'the worker''s Get of B');
+        Assert.AreEqual('a', SeenA, 'the worker''s Get of A');
+        Assert.AreEqual('yes', Reached, 'the statement after the worker');
+        Assert.IsTrue(StrPos(GetLastErrorText(), 'Cannot write the value 06/15/1753 to the field Day in the table IQ Date Row') > 0, GetLastErrorText());
+    end;
+
+    local procedure AddDateRow(No: Code[20]; Description: Text[50]; Day: Date)
+    var
+        DateRow: Record "IQ Date Row";
+    begin
+        DateRow."No." := No;
+        DateRow.Description := Description;
+        DateRow.Day := Day;
+        DateRow.Insert();
+    end;
 }
 
 // The objects of the cells from :548 on (al-runner pull request 8498, review round 1).
@@ -978,7 +1073,7 @@ codeunit 97529 "IQ Mode"
 }
 
 // The worker of the reads from :548 on: FindLast, Find('-') with Next, SetLoadFields with Get, RecordRef.Count, CountApprox,
-// GetBySystemId, a Query, CalcSums, a Sum FlowField, and a Get of IQ Sub Row.
+// GetBySystemId, a Query, CalcSums, a Sum FlowField, a Get of IQ Sub Row, and a Get of IQ Date Row.
 codeunit 97537 "IQ Reader More"
 {
     trigger OnRun()
@@ -987,6 +1082,7 @@ codeunit 97537 "IQ Reader More"
         AmountRow: Record "IQ Amount Row";
         SumCounter: Record "IQ Sum Counter";
         SubRow: Record "IQ Sub Row";
+        DateRow: Record "IQ Date Row";
         IqRows: Query "IQ Rows";
         RecRef: RecordRef;
         FRef: FieldRef;
@@ -1066,6 +1162,9 @@ codeunit 97537 "IQ Reader More"
             'getsub':
                 if SubRow.Get(No) then
                     Seen := SubRow.Description;
+            'getdate':
+                if DateRow.Get(No) then
+                    Seen := DateRow.Description;
         end;
         Results.Add('Seen', Seen);
         Page.SetBackgroundTaskResult(Results);
@@ -1113,4 +1212,23 @@ page 97528 "IQ Task Host"
 
     var
         Seen: Text[50];
+}
+
+// The table of the cell at :879: a Date field, no trigger, no Blob or AutoIncrement field.
+table 97535 "IQ Date Row"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Description; Text[50]) { }
+        field(3; Day; Date) { }
+    }
+
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+    }
 }
