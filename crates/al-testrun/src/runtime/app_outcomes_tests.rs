@@ -33,6 +33,7 @@ pub(super) fn outcomes_and_hits_with(
         &mut Vec::new(),
         &mut hits,
         None,
+        crate::host::RunClock::begin(),
     );
     let hits = hits
         .into_iter()
@@ -107,8 +108,9 @@ pub(super) fn outcomes_on_dependency_baseline(dep: &str, main: &str) -> Outcomes
     );
     assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
     let engine = Engine::new(l.program.clone(), Vec::new());
-    let base =
-        crate::baseline::run(&engine, &l, None, Default::default()).expect("the dependency app has install code");
+    // One clock for the baseline and the tests over it, as in a run.
+    let clock = crate::host::RunClock::begin();
+    let base = crate::baseline::run(&engine, &l, None, clock).expect("the dependency app has install code");
     // The baseline as the cache keeps it.
     let back = al_vm::Baseline::from_bytes(&base.baseline.to_bytes().expect("plain rows")).expect("read back");
     // The tests run on an engine that knows the tables the baseline could not seed, as `corpus.rs` gives them.
@@ -127,6 +129,7 @@ pub(super) fn outcomes_on_dependency_baseline(dep: &str, main: &str) -> Outcomes
         &mut Vec::new(),
         &mut hits,
         None,
+        clock,
     );
     let hits = hits
         .into_iter()

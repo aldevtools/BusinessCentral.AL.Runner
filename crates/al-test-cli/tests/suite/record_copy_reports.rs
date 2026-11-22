@@ -29,6 +29,7 @@ pub(crate) fn run(src: &str, codeunit: &str) -> Vec<(String, String, bool)> {
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     o.into_iter()
         .map(|(name, outcome)| {

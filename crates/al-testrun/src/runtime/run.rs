@@ -63,7 +63,8 @@ impl<'a> Observed<'a> {
 pub type Observer<'a> = dyn FnMut(&str, &Outcome, &Observed) + 'a;
 
 /// [`run_codeunit_isolated`] that tells `observe` how each test ended and turns on the session's
-/// fault tracing for it (`--explain`).
+/// fault tracing for it (`--explain`). The call is a run of its own: it begins its clock. A caller whose baseline was
+/// made at another clock passes that one to [`run_codeunit_full`].
 pub fn run_codeunit_observed(
     engine: &Arc<Engine>,
     lowered: &Lowered,
@@ -83,10 +84,12 @@ pub fn run_codeunit_observed(
         &mut Vec::new(),
         &mut Vec::new(),
         None,
+        crate::host::RunClock::begin(),
     )
 }
 
-/// [`run_codeunit_isolated`] where a test that runs longer than `limit` is stopped and not run.
+/// [`run_codeunit_isolated`] where a test that runs longer than `limit` is stopped and not run. A run of its own, as
+/// [`run_codeunit_observed`].
 pub fn run_codeunit_limited(
     engine: &Arc<Engine>,
     lowered: &Lowered,
@@ -106,6 +109,7 @@ pub fn run_codeunit_limited(
         &mut Vec::new(),
         &mut Vec::new(),
         limit,
+        crate::host::RunClock::begin(),
     )
 }
 
@@ -158,7 +162,8 @@ pub(crate) fn runner_frames(program: &al_ir::Program, engine: &Engine, hub_leg: 
 }
 
 /// [`run_codeunit_observed`] that also collects, for each test that failed with an AL error, the AL
-/// call stack of that error as `(test name, stack)` (`GetLastErrorCallStack` form, innermost first).
+/// call stack of that error as `(test name, stack)` (`GetLastErrorCallStack` form, innermost first). The sessions read
+/// `clock`, the clock of the run `baseline` belongs to (ADR-045, amendment of 2026-11-22).
 #[allow(clippy::too_many_arguments)]
 pub fn run_codeunit_full(
     engine: &Arc<Engine>,
@@ -171,6 +176,7 @@ pub fn run_codeunit_full(
     times: &mut Vec<(String, std::time::Duration)>,
     hits: &mut Vec<(String, Vec<Assumption>)>,
     limit: Option<std::time::Duration>,
+    clock: crate::host::RunClock,
 ) -> Vec<(String, Outcome)> {
     run_codeunit_core(
         engine,
@@ -182,7 +188,7 @@ pub fn run_codeunit_full(
         stacks,
         times,
         hits,
-        &mut Scratch::default(),
+        &mut Scratch::new(clock),
         limit,
         false,
     )

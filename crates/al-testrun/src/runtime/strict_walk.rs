@@ -252,7 +252,7 @@ mod tests {
     fn scratch(past_stop: bool, refused_mid_run: bool, test_panicked: bool) -> Scratch {
         let mut s = Scratch {
             singles_past_stop: past_stop,
-            ..Default::default()
+            ..Scratch::new(crate::host::RunClock::begin())
         };
         s.note_ended(Ends {
             unfinished_after_start: refused_mid_run || test_panicked,

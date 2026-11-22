@@ -164,6 +164,7 @@ fn issue_8186_outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<a
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     assert!(!outcomes.is_empty());
     outcomes

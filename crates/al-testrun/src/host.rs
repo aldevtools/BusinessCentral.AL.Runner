@@ -82,13 +82,6 @@ impl RunClock {
     }
 }
 
-/// A scratch made outside any run (a unit test's) gets the clock of a run that begins when it is made.
-impl Default for RunClock {
-    fn default() -> Self {
-        RunClock::begin()
-    }
-}
-
 /// A clock that stands still at one instant.
 pub struct FixedClock(pub i64);
 

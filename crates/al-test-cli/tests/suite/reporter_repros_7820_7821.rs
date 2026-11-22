@@ -566,6 +566,7 @@ pub(super) fn outcome_and_marks(
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     let o = outcomes
         .into_iter()

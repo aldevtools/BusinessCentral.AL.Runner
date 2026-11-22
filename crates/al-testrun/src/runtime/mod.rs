@@ -727,8 +727,8 @@ pub(crate) struct Unit {
     installs: Arc<install_once::RunInstalls>,
 }
 
-/// What a scratch run or a capture leaves besides outcomes, per test.
-#[derive(Default)]
+/// What a scratch run or a capture leaves besides outcomes, per test. Made with [`Scratch::new`], which takes the run's
+/// clock: there is no default clock, so a scratch never begins one of its own (ADR-045, amendment of 2026-11-22).
 pub(crate) struct Scratch {
     /// What to capture (`RunOptions::capture`).
     capture: al_vm::CaptureConfig,
@@ -836,6 +836,52 @@ pub(crate) struct Ends {
 }
 
 impl Scratch {
+    /// A scratch whose sessions read `clock`, the clock of the run it belongs to; every other part starts empty.
+    pub(crate) fn new(clock: crate::host::RunClock) -> Scratch {
+        Scratch {
+            clock,
+            capture: Default::default(),
+            order: Default::default(),
+            messages: Default::default(),
+            captured: Default::default(),
+            trace: Default::default(),
+            traces: Default::default(),
+            stubbed: Default::default(),
+            ui_answered: Default::default(),
+            cells: Default::default(),
+            slept: Default::default(),
+            skipped: Default::default(),
+            entered: Default::default(),
+            run_only: Default::default(),
+            hub: Default::default(),
+            hub_leg: Default::default(),
+            leak: Default::default(),
+            leak_hit: Default::default(),
+            onrun_carry: Default::default(),
+            driver: Default::default(),
+            read_tables: Default::default(),
+            discovery: Default::default(),
+            on_run_rows: Default::default(),
+            flags: Default::default(),
+            installs: Default::default(),
+            report_unpinned_errors: Default::default(),
+            skip_after_timeout: Default::default(),
+            stop_after_first_failure: Default::default(),
+            perturb: Default::default(),
+            run_seed: Default::default(),
+            runner: Default::default(),
+            watch: Default::default(),
+            singles_past_stop: Default::default(),
+            numbers_unmeasured: Default::default(),
+            singles_out: Default::default(),
+            unfinished_after_start: Default::default(),
+            refused_mid_run: Default::default(),
+            test_panicked: Default::default(),
+            unfinished_at: Default::default(),
+            order_hints: Default::default(),
+        }
+    }
+
     /// Adds the tables `touched` used to `read_tables` under [`TestDriver::watches_reads`], and gives `touched` back.
     pub(crate) fn note_reads(&mut self, touched: al_vm::impact::Touches) -> al_vm::impact::Touches {
         if self.driver.watches_reads() {
@@ -931,7 +977,7 @@ fn run_unit(
             Vec::new(),
             Vec::new(),
             Vec::new(),
-            Scratch::default(),
+            Scratch::new(clock),
         );
         let result = Ok(not_reached(lowered, u, empty));
         crate::events::uninstall();
@@ -951,7 +997,6 @@ fn run_unit(
         let mut scratch = Scratch {
             capture: u.capture,
             order: u.order.clone(),
-            clock,
             trace: u.impact,
             run_only: u.run_only.clone(),
             hub: u.hub,
@@ -972,7 +1017,7 @@ fn run_unit(
             singles_past_stop: u.singles_past_stop,
             numbers_unmeasured: u.numbers_unmeasured.clone(),
             installs: u.installs.clone(),
-            ..Default::default()
+            ..Scratch::new(clock)
         };
         if u.coverage {
             crate::coverage::begin();
@@ -1273,6 +1318,8 @@ mod order_hint;
 #[cfg(test)]
 mod partner_login_tests;
 mod run;
+#[cfg(test)]
+mod run_clock_tests;
 #[cfg(test)]
 mod run_on_client_reach_tests;
 #[cfg(test)]
