@@ -320,59 +320,7 @@ impl Session {
                     i32::try_from(self.tx.lock_timeout_duration).unwrap_or(i32::MAX),
                 ));
             }
-            // The type of the transaction (session-system/ProbeSystemEnumMembers.al:60-161, BC 27.5;
-            // TestClearAllTransactionTypeContracts.al:224-253):
-            // - a test starts as UpdateNoLocks, and a set before any database call takes effect;
-            // - after a Commit() the next transaction's type is Update, and a set takes effect again;
-            // - once a write call has run (also a DeleteAll that finds no row) the type stays as it was: a
-            //   set to Report or Snapshot, or to the type it has, goes through without effect, and a set
-            //   to Update raises DB:CannotChangeTransactionType;
-            // - once a read call has run, a set of Report reads back as Update.
-            // Every other set after the transaction has started is not pinned and refused.
-            ids::DATABASE_CURRENTTRANSACTIONTYPE_1 => {
-                use crate::transactions::TxPhase;
-                let members: std::sync::Arc<[String]> = al_builtins::sysenum::option_members("TransactionType")
-                    .expect("a system option")
-                    .into();
-                let new = match args.first() {
-                    None | Some(Value::Null) => return Ok(Value::Option(self.tx.transaction_type, members)),
-                    Some(Value::Option(t, _)) => *t,
-                    Some(other) => return unsupported(format!("CurrentTransactionType set to {}", other.describe())),
-                };
-                // A set ends the moment the Update report term is measured at (`OpenTx::at_test_start`).
-                self.tx.open.at_test_start = false;
-                let (update, snapshot, report) = (1, 2, 4);
-                // After a lock (codeunits/TestCodeunitRunWriteTransaction.al:211-278) the set is not pinned.
-                if self.tx.phase != TxPhase::Write && self.tx.open.locks.any() {
-                    return unsupported(
-                        "Database.CurrentTransactionType set after a LockTable or a locking ReadIsolation (not pinned)",
-                    );
-                }
-                match self.tx.phase {
-                    TxPhase::Fresh => self.tx.transaction_type = new,
-                    TxPhase::Write if new == self.tx.transaction_type => {}
-                    TxPhase::Write if new == snapshot || new == report => {}
-                    TxPhase::Write if new == update => {
-                        let name = |t: i32| members.get(t as usize).cloned().unwrap_or_default();
-                        return Err(crate::transactions::al_error_code(
-                            &format!(
-                                "The transaction type cannot be changed after a transaction has started.\\\\A transaction starts when the first database operation, such as FIND, NEXT, INSERT, DELETE, MODIFY, SUM, or COUNT, is run.\\\\The error occurred because the transaction type was changed from {} to {}.",
-                                name(self.tx.transaction_type),
-                                name(new)
-                            ),
-                            "DB:CannotChangeTransactionType",
-                        ));
-                    }
-                    TxPhase::Read if new == report => self.tx.transaction_type = update,
-                    _ => {
-                        return unsupported(format!(
-                            "Database.CurrentTransactionType set to {} after a database call (not pinned)",
-                            members.get(new as usize).cloned().unwrap_or_default()
-                        ));
-                    }
-                }
-                return Ok(Value::Null);
-            }
+            ids::DATABASE_CURRENTTRANSACTIONTYPE_1 => return self.current_transaction_type(args),
             _ => {}
         }
         if id == ids::SYSTEM_CODECOVERAGELOG_1 {

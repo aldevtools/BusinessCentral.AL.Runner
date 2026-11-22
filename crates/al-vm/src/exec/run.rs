@@ -744,9 +744,12 @@ impl Session {
         for &r in &site.arg_regs {
             values.push(take(f, r, nl));
         }
-        // Taken by the callee's frame; cleared here too when the call ends before its frame (a refused or blocked call).
+        // Taken by the callee's frame; cleared here too when the call ends before its frame (a refused or blocked call). The
+        // frame's index stays noted in `iface_frames` while the call runs (records/running_call_xrec.rs reads it).
         self.next_interface_call = true;
+        self.iface_frames.push(self.call_stack.len());
         let result = self.finish_call(object, routine, inst, &site.args, values, false, f);
+        self.iface_frames.pop();
         self.next_interface_call = false;
         result
     }

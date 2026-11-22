@@ -614,7 +614,7 @@ pub struct RecordState {
     /// `Page.RunModal(Id, Rec)` called as a statement, see `hand_back_selection`).
     pub unpinned_buffer: Option<&'static str>,
     /// A by-value copy whose filters were dropped on an assumption (`by-value-table-proc-other-table`,
-    /// al-vm `records/by_value_view.rs`): a read of its view marks it. Clones of the state
+    /// `by-value-report-procedure`, al-vm `records/by_value_view.rs`): a read of its view marks it. Clones of the state
     /// keep it; `Reset`, `SetView` and `Clear` end it.
     pub view_assumption: Option<crate::assumptions::Assumption>,
     /// A by-value copy that did not take its caller's SetAutoCalcFields (al-vm `records/by_value_view.rs`

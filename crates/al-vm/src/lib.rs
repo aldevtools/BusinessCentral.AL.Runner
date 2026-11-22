@@ -1005,6 +1005,9 @@ pub struct Session {
     /// The xRecs of the table procedures that run on a record with an xRec they share with their caller or a running call
     /// (`ProcXrec::Shared` and `ProcXrec::SharedReadOnly`), innermost last.
     pub(crate) shared_proc_xrec: Vec<crate::records::Rec>,
+    /// The `call_stack` index of each frame an interface method call entered (`run_iface`), innermost last: the codeunit
+    /// procedure is reached through an interface (records/running_call_xrec.rs tells the chains apart by it).
+    pub(crate) iface_frames: Vec<usize>,
     pub(crate) cx: al_data::AccessContext,
     /// The tables that held a row when the install baseline was captured (none without one).
     pub(crate) baseline_rows: std::collections::BTreeSet<u32>,
@@ -1444,6 +1447,7 @@ impl Session {
             validate_sites: Vec::new(),
             plain_proc_xrec: Vec::new(),
             shared_proc_xrec: Vec::new(),
+            iface_frames: Vec::new(),
             cx: al_data::AccessContext {
                 company: company.into(),
                 user: user.into(),
@@ -1561,8 +1565,9 @@ impl Session {
         session
     }
 
-    /// What the AL test runner does before each test method: every application area on, and the
-    /// transaction type back at UpdateNoLocks. What an earlier test wrote to a demo table does not count for this one: the corpus
+    /// What the AL test runner does before each test method: every application area on, and the transaction type of the
+    /// method's start (`start_test_transaction_type`: UpdateNoLocks for the first one of a codeunit, the type the one before
+    /// left for a later one). What an earlier test wrote to a demo table does not count for this one: the corpus
     /// tests that write setup rows put the demo values back afterwards (record/QkSetupRows.al), which leaves the
     /// runtime with the install-code row (record/captions/QdCaptionClassAreas.al:798 QF_GLSetup_CorpusRow).
     pub fn start_test_method(&mut self) {
@@ -1580,10 +1585,12 @@ impl Session {
         self.isolated_set_in_test.clear();
         self.demo_written.clear();
         self.gl_setup_written = false;
-        self.tx.transaction_type = crate::transactions::TRANSACTION_TYPE_UPDATE_NO_LOCKS;
+        self.start_test_transaction_type();
         self.tx.phase = crate::transactions::TxPhase::Fresh;
         self.tx.open.locks = Default::default();
-        self.tx.open.at_test_start = true;
+        self.tx.open.moment = Some(crate::reports::transaction_world::Moment::at(
+            crate::reports::transaction_world::MomentStart::TestStart,
+        ));
         self.pages.test_methods_started += 1;
     }
 
