@@ -1334,7 +1334,10 @@ impl Session {
         row: &[Value],
         filters: &[FieldFilter],
     ) -> Result<bool, Signal> {
-        let table = rec.borrow().table as usize;
+        let (table, database) = {
+            let r = rec.borrow();
+            (r.table as usize, !r.temporary)
+        };
         let probe = {
             let r = rec.borrow();
             let mut p = r.clone();
@@ -1346,7 +1349,12 @@ impl Session {
         for f in filters {
             self.check_calc_field(table, f.field)?;
             let v = self.calc_value_in(&probe, f.field, &mut Vec::new(), Asked::RecordFilter)?;
-            if !f.expr.matches(&v)? {
+            // `@` alone as the record's rows are read (al-builtins `filter_at_sign`; BgTaskQueryCache.al:5847).
+            let at_sign = f.expr.at_sign_alone_read(database, || {
+                let t = self.engine.tables[table].as_ref().expect("table");
+                Value::default_for(&t.fields[f.field].ty)
+            });
+            if !at_sign.as_ref().unwrap_or(&f.expr).matches(&v)? {
                 return Ok(false);
             }
         }

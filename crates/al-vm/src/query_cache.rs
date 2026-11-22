@@ -9,11 +9,11 @@
 //! - a group: `FindFirst`, `FindLast`, `Count` and `IsEmpty` of AL code (a Record or a RecordRef; not a page's own read,
 //!   :2137), keyed by the read, the sort direction and every filter (`group_key`): the group alone (:641, :658, :675, :692),
 //!   a field outside the key and two fields (:870, :891), and in PR 1495 FindLast, IsEmpty and FindFirst after `SetFilter`
-//!   (:1276, :1293, :1312) and all four reads of every shape of :1718-:1832, :2711-:2775, :3394-:3422 and :4226-:4243 (no
-//!   filter or up to 26214, filter groups 0 to 255 and the OR group, filter group 1 in a worker, a descending sort, ranges,
-//!   `SetFilter` of values, wildcards, the comparison operators, `@` alone, an empty `FILTER()`, an `&` inside an `|`, a
-//!   FlowFilter field, :3510), and FindFirst and FindLast with FlowField filters next to one value on the key (:3475, :3485,
-//!   :4253-:4286). One value set by `SetRange`,
+//!   (:1276, :1293, :1312) and all four reads of every shape of :1718-:1832, :2711-:2775, :3394-:3422, :4226-:4243,
+//!   :5592 and :5602 (no filter or up to 100000, the key set twice :5619, filter groups 0 to 255 and the OR group, filter
+//!   group 1 in a worker, a descending sort, ranges, `SetFilter` of values, wildcards, the comparison operators, `@` alone,
+//!   an empty `FILTER()`, an `&` inside an `|`, a FlowFilter field, :3510), and FindFirst and FindLast with FlowField
+//!   filters next to one value on the key (:3475, :3485, :4253-:4286, :5609-:5647). One value set by `SetRange`,
 //!   by `SetFilter`, by a range from the value to itself or by `FieldRef.SetRange` is one filter (:917, :1840, :1856).
 //!   `Find('+')`, `Find('-')`, `FindSet`, and any of the four after `SetLoadFields`, read the rows as they are (:2037-:2121,
 //!   :2760).
@@ -173,9 +173,10 @@ fn cached_filter_group(group: i32, own_group1: bool) -> bool {
     group == al_builtins::filter::OR_GROUP || matches!(group, 0 | 2..=255) || group == 1 && own_group1
 }
 
-/// The most filters a cell's group read had: one on each of 102 fields in every filter group (:4243; 7650 at :3408, 7710 and
-/// values of their own at :4226 and :4234, no limit found); no filter at all is measured too (:2775).
-const MAX_CACHED_FILTERS: usize = 26214;
+/// The most filters a cell's group read had: one on each of 502 fields in filter groups 0, 2 and on (:5602; 26215 and 60000
+/// at :5592, 7650 at :3408, 7710 and values of their own at :4226 and :4234, 26214 at :4243, no limit found); no filter
+/// at all is measured too (:2775).
+const MAX_CACHED_FILTERS: usize = 100000;
 
 /// What the cache holds for one codeunit run (`Session::reset_query_cache` empties it).
 #[derive(Default)]
@@ -250,7 +251,7 @@ fn encode_filter(expr: &FilterExpr, level: Nesting, out: &mut Vec<Value>) -> Opt
         F::Ge(v) => out.extend([tag(">="), v.clone()]),
         F::Like(p, ci) => out.extend([tag("like"), Value::Text(p.as_str().into()), Value::Boolean(*ci)]),
         F::NotLike(p, ci) => out.extend([tag("not like"), Value::Text(p.as_str().into()), Value::Boolean(*ci)]),
-        F::AtSignAlone(false) => out.push(tag("@")),
+        F::AtSignAlone(false) | F::AtSignAloneCode => out.push(tag("@")),
         F::EmptyViewValue => out.push(tag("empty view value")),
         F::Or(items) | F::And(items) => {
             let or = matches!(expr, F::Or(_));
@@ -279,16 +280,17 @@ enum Nesting {
 }
 
 /// Whether a group read with filters on FlowFields (`flow_fields`, of its `filters`) is keyed: a FindFirst or FindLast whose
-/// filters set each primary-key field to one value by one filter, by SetRange, SetFilter or a range to itself, in a filter
-/// group other than the OR group (:3475, :3485; 1, 3, 5, 7, 8, 100 and 255 at :4264), the fields of a two-field key in one
-/// group or in two (:4771). Its other filters may be anything `group_key` takes (:4253, :4264, :4809). Each FlowField filter
+/// filters set each primary-key field to one value by one filter, or by two of that value in one group or in two (:5609), by
+/// SetRange, SetFilter or a range to itself, in a filter group other than the OR group (:3475, :3485; 1, 3, 5, 7, 8, 100 and
+/// 255 at :4264), the fields of a two-field key in one group or in two (:4771). Its other filters may be anything `group_key`
+/// takes (:4253, :4264, :4809). Each FlowField filter
 /// is on a FlowField whose CalcFormula reads its own source table alone (`calc_reads_one_table`), whatever its method (:4286,
 /// a lookup filtered on its own FlowFilter and one a table extension declares :4819), of a kind `flow_filter_measured`
 /// takes, in a filter group other than the OR group (0, 2 and 5 at :4264, 1, 7, 100 and 255 at :4809). The entry also ends
 /// with a commit of the tables the FlowFields read (`Session::flow_field_sources`, :3503, :4297). Count and IsEmpty read the
 /// rows as they are (:3475, :3552, :4253; `cached_count`'s `plain`), and so do all four with the FlowField filter alone
 /// (:3466, :3552), next to a range on the key, a filter outside the key, a part of a two-field key (:3494), the key in the OR
-/// group or a key filter of two values (:4275), a wildcard on the FlowField (:4794), and a FlowField whose condition is a
+/// group or a key filter of two values (:4275), a case-insensitive wildcard on the FlowField (:4794), and a FlowField whose condition is a
 /// FlowField of its source table (:4830). `source`: a table's schema by object index.
 fn flow_field_find<'a>(
     schema: &al_ir::Table,
@@ -298,10 +300,21 @@ fn flow_field_find<'a>(
     form: Form,
     source: impl Fn(usize) -> Option<&'a al_ir::Table>,
 ) -> bool {
+    // Each key field's filters are its one value, outside the OR group: one filter, or the same value in two groups (:5609).
+    fn value(f: &FieldFilter) -> Option<&Value> {
+        match &f.expr {
+            FilterExpr::Range(Some(a), Some(b)) if a.identical(b) => Some(a),
+            FilterExpr::Eq(a) => Some(a),
+            _ => None,
+        }
+    }
     let key = t.keys[0].iter().all(|k| {
-        let mut on = filters.iter().filter(|f| f.field == *k);
-        matches!((on.next(), on.next()), (Some(f), None)
-            if f.group != al_builtins::filter::OR_GROUP && one_value(&f.expr))
+        let on: Vec<&FieldFilter> = filters.iter().copied().filter(|f| f.field == *k).collect();
+        let first = on.first().and_then(|f| value(f));
+        matches!(on.len(), 1 | 2)
+            && on.iter().all(|f| {
+                f.group != al_builtins::filter::OR_GROUP && value(f).zip(first).is_some_and(|(a, b)| a.identical(b))
+            })
     });
     let flow = |f: &FieldFilter| {
         f.group != al_builtins::filter::OR_GROUP
@@ -321,23 +334,26 @@ fn one_value(e: &FilterExpr) -> bool {
 }
 
 /// The kinds of a FlowField filter the cells measure: one value, a range, `>`, `<>` and a `|` of values (:4253), `>=`, `<`,
-/// `<=` and an `&` of comparisons (:4781), and an empty `FILTER()` of a view (:4838). A wildcard reads the rows as they are
-/// (:4794); `@` alone, open ranges and other compounds are not measured.
+/// `<=` and an `&` of comparisons (:4781), an empty `FILTER()` of a view (:4838), open ranges and an `&` inside a `|`
+/// (:5626), a case-sensitive wildcard (:5637) and `@` alone (:5647). A case-insensitive wildcard reads the rows as they are
+/// (:4794); other compounds and patterns not matched are not measured.
 fn flow_filter_measured(e: &FilterExpr) -> bool {
     use FilterExpr as F;
+    let comparisons = |e: &FilterExpr| matches!(e, F::And(items) if items.iter().all(|i| matches!(i, F::Lt(_) | F::Le(_) | F::Gt(_) | F::Ge(_))));
     match e {
         F::Eq(_)
-        | F::Range(Some(_), Some(_))
+        | F::Range(..)
+        | F::Like(_, false)
+        | F::AtSignAlone(false)
+        | F::AtSignAloneCode
         | F::Ne(_)
         | F::Lt(_)
         | F::Le(_)
         | F::Gt(_)
         | F::Ge(_)
         | F::EmptyViewValue => true,
-        F::Or(items) => items.iter().all(one_value),
-        F::And(items) => items
-            .iter()
-            .all(|i| matches!(i, F::Lt(_) | F::Le(_) | F::Gt(_) | F::Ge(_))),
+        F::Or(items) => items.iter().all(|i| one_value(i) || comparisons(i)),
+        F::And(_) => comparisons(e),
         _ => false,
     }
 }

@@ -537,12 +537,12 @@ fn issue_8637_repro() {
     }
 }
 
-/// Neighbors of al-runner issue 8637 past what the cells measure (the fixture's header): 26215 filters, a FlowField filter
-/// next to the key set to its value twice, a worker's fresh Record and RecordRef Count while the test session holds a filter
-/// in filter group 1 (:3429 measures the worker's own record setting it while the test session holds none), and FlowField
-/// filters of an open range, an & inside a |, a case-sensitive wildcard and @ alone, and a sum whose field() is a FlowField of
-/// the row. BC answers them (all but the last from the cache); the runner keeps main's answer, the rows as they are, with no
-/// flag, and refuses @ alone on a Code field as main does.
+/// Neighbors of al-runner issue 8637 past what the cells measure (the fixture's header): 100001 filters, a FlowField filter
+/// next to the key set to its value in three filter groups, the FlowField filters @k, <>K* and K*|X, a sum whose field() is a
+/// FlowField of the row, and a worker's fresh Record and RecordRef Count while the test session holds a filter in filter
+/// group 1 (:3429 measures the worker's own record setting it while the test session holds none). BC answers them from the
+/// cache but @k, which reads the rows as they are; the runner keeps main's answer, the rows as they are, with no flag. And
+/// <>@ alone on a Code field and @ alone on a query's columns (past BQ Tests 9b): refused, as on main.
 #[test]
 fn issue_8637_neighbors() {
     let src = format!(
@@ -552,20 +552,21 @@ fn issue_8637_neighbors() {
     let o = outcomes(&src, "BQ Gate Tests");
     assert_eq!(o.len(), 8);
     for (name, r, marks) in &o {
-        if name.starts_with("FlowFieldAtSignAlone") {
-            assert!(
-                matches!(r, Outcome::NotRun(w) if w.contains("value expected after @")),
-                "{name}: {r:?}"
-            );
-            continue;
-        }
-        let main = if name.starts_with("TestSessionGroup1") {
-            "Actual:<1,1>"
-        } else {
-            "Actual:<-|-|0|Yes / a|a|1|No>"
+        assert!(!marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+        let main = match name.as_str() {
+            n if n.starts_with("FlowFieldCaseInsensitiveValue") => {
+                assert_eq!(*r, Outcome::Pass, "{name}");
+                continue;
+            }
+            n if n.starts_with("AtSignAloneNegated") => {
+                assert!(matches!(r, Outcome::NotRun(w) if w.contains("`<>@`")), "{name}: {r:?}");
+                continue;
+            }
+            n if n.starts_with("TestSessionGroup1") => "Actual:<1,1>",
+            n if n.starts_with("FlowFieldPatternNotMatched") => "Actual:<a|a|1|No / -|-|0|Yes>",
+            _ => "Actual:<-|-|0|Yes / a|a|1|No>",
         };
         assert!(matches!(r, Outcome::Fail(m) if m.contains(main)), "{name}: {r:?}");
-        assert!(!marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
     }
 }
 
@@ -662,6 +663,40 @@ fn issue_8637_bq8b_cells() {
         assert_eq!(
             marks.contains(&BackgroundTaskQueryCache),
             !clean.contains(&short),
+            "{name}: {marks:?}"
+        );
+    }
+}
+
+/// The cells of BQ Tests 9 (corpus PR 1495, BgTaskQueryCache.al:4844-5673): up to 100000 filters, the key set twice, and
+/// FindFirst and FindLast with FlowField filters of open ranges, an & inside a |, case-sensitive wildcards and @ alone next to
+/// the key answer from the cache, flagged. @ alone on a Code field keeps the empty values (:5654), clean.
+#[test]
+fn issue_8637_bq9_cells() {
+    let o = outcomes(PROBE, "BQ Tests 9");
+    assert_eq!(o.len(), 8);
+    for (name, r, marks) in &o {
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert_eq!(
+            marks.contains(&BackgroundTaskQueryCache),
+            name.starts_with("BgQueryCache_"),
+            "{name}: {marks:?}"
+        );
+    }
+}
+
+/// The cells of BQ Tests 9b (corpus PR 1495, BgTaskQueryCache.al:5675-5869): @ alone keeps the empty values when the database
+/// reads the rows, whatever the field's type (a FlowFilter of either type applied by CalcFields to a source field of either
+/// type :5791, :5805; the source's own fields :5818; a lookup FlowField of a host in the database :5847), and every value of a
+/// temporary record (:5818, :5847). All flagged.
+#[test]
+fn issue_8637_bq9b_cells() {
+    let o = outcomes(PROBE, "BQ Tests 9b");
+    assert_eq!(o.len(), 4);
+    for (name, r, marks) in &o {
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert!(
+            marks.contains(&Assumption::AtSignAloneDatabaseBlank),
             "{name}: {marks:?}"
         );
     }

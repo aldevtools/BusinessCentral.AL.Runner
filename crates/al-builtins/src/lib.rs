@@ -51,6 +51,7 @@ pub mod fieldref_value_text;
 pub mod fieldref_variant_cells;
 pub mod file;
 pub mod filter;
+mod filter_at_sign;
 pub mod filter_blob;
 pub mod filter_boolean_words;
 mod filter_collation;

@@ -1817,6 +1817,8 @@ impl Session {
     fn row_passes(&mut self, rec: &Rec, t: &TableDef, row: &[Value]) -> Result<bool, Signal> {
         let (filters, flow_field_filters) = self.split_filters(rec);
         let normal_record = self.store_of(rec).0.holds_normal_records();
+        let filters =
+            al_builtins::filter::at_sign_alone_read(&filters, normal_record, |i| Value::default_for(&t.fields[i].ty));
         if !al_builtins::filter::all_match_on(&filters, row, normal_record)? {
             return Ok(false);
         }
