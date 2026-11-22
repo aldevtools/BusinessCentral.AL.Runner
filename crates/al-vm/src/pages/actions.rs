@@ -861,7 +861,6 @@ impl Session {
                 if let Some(own) = e.code.strip_prefix("TestWrapped:") {
                     e.code = own.to_string();
                 }
-                self.error_finals = None;
                 self.hold_error(*e)?;
                 Ok(Value::Null)
             }
