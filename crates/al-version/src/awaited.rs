@@ -40,6 +40,29 @@ pub fn visible_names_row_field_reads_yes(target: Option<&Target>) -> Option<bool
     }
 }
 
+/// A bulk write of a table that a commit carried (al-runner issue 8467, [`bulk_commit_ends_cached_row`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum BulkWrite {
+    ModifyAll,
+    DeleteAll,
+    Truncate,
+}
+
+/// Whether a commit of a `kind` write of another row of a table ends the query cache entry of a row a page background task read,
+/// when the test then changes the row without reading it (al-runner issue 8467, open corpus PR 1495, tests/al-language/pages/
+/// background-tasks/BgTaskQueryCache.al:7035 ModifyAll, :7042 DeleteAll; the cells tell the minors apart at run time, which the
+/// preprocessor cannot): `Some(true)` on 27.5, 28.5 and 29.0 (the corpus CI), `Some(false)` on 29.1 (a local container). A
+/// Truncate has no cell (after it, a ModifyAll of the row made the worker's read wait on a lock on the local container): `None`.
+/// On every other minor, and with no target, `None`.
+pub fn bulk_commit_ends_cached_row(target: Option<&Target>, kind: BulkWrite) -> Option<bool> {
+    match (target.map(|t| (t.bc.major, t.bc.minor)), kind) {
+        (_, BulkWrite::Truncate) => None,
+        (Some((27, 5) | (28, 5) | (29, 0)), _) => Some(true),
+        (Some((29, 1)), _) => Some(false),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -61,6 +84,36 @@ mod tests {
         assert_eq!(journal_temp_part_reads_after_refresh(Some(&target("29.0"))), Some(true));
         assert_eq!(journal_temp_part_reads_after_refresh(None), Some(true));
         assert_eq!(journal_temp_part_reads_after_refresh(Some(&target("30.0"))), None);
+    }
+
+    #[test]
+    fn the_bulk_commit_of_the_query_cache_follows_the_measured_minors() {
+        use BulkWrite::*;
+        for kind in [ModifyAll, DeleteAll] {
+            for v in ["27.5", "28.5", "29.0"] {
+                assert_eq!(
+                    bulk_commit_ends_cached_row(Some(&target(v)), kind),
+                    Some(true),
+                    "{v} {kind:?}"
+                );
+            }
+            assert_eq!(
+                bulk_commit_ends_cached_row(Some(&target("29.1")), kind),
+                Some(false),
+                "{kind:?}"
+            );
+            for v in ["27.0", "28.4", "29.2", "30.0"] {
+                assert_eq!(
+                    bulk_commit_ends_cached_row(Some(&target(v)), kind),
+                    None,
+                    "{v} {kind:?}"
+                );
+            }
+            assert_eq!(bulk_commit_ends_cached_row(None, kind), None);
+        }
+        for v in ["27.5", "28.5", "29.0", "29.1"] {
+            assert_eq!(bulk_commit_ends_cached_row(Some(&target(v)), Truncate), None, "{v}");
+        }
     }
 
     #[test]

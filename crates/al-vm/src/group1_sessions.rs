@@ -16,6 +16,14 @@
 //! table (:107-123, table 98485). An OnAfterLogin subscriber sets it again in each session (:87-105). Only an entry set
 //! in that shape ends; every other entry stays, and a record without it reads it only for the calls
 //! [`Session::group1_use`] allows.
+//!
+//! A page background task's worker (corpus PR 1507, tests/al-language/pages/background-tasks/BgTaskWorkerFilterGroup1.al,
+//! assumption `bg-task-worker-filter-group-one`): it runs in a session of its own, which starts with none of the test
+//! session's entries (:322-:471) and whose own entries end with it (:489, :506, :556); the test session's entries are back
+//! as they were after the task (:489, :521) ([`Group1Filters::enter_worker`], [`Group1Filters::leave_worker`]). What the
+//! worker may do on a table whose entry it runs without is in `worker.rs`.
+
+mod worker;
 
 use super::*;
 use crate::globaltriggers::GlobalOp;
@@ -23,9 +31,11 @@ use crate::records::Rec;
 use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_builtins::native::unsupported;
 use al_builtins::record_op::RecordOp;
+use al_data::TableDef;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Weak;
+use worker::WorkerReads;
 
 /// The place in an app's install session that the session runs now, of the two the probe measured; set by the runner
 /// around the per-company part in the session company.
@@ -67,6 +77,8 @@ struct Entry {
     /// The readers whose FindSet read the filters and found a row, and whose Next calls since then found one: only such a
     /// reader's Next reads the filters (`Fresh*`, FilterGroupOtherVariable.al:169-172).
     find_set_readers: Vec<Weak<RefCell<RecordState>>>,
+    /// What a page background task's worker may do on the table while it runs without this entry.
+    worker: WorkerReads,
 }
 
 /// The kinds of variable FilterGroupOtherVariable.al set a group 1 filter with and read it through, each with its own
@@ -94,7 +106,8 @@ impl VarKind {
     }
 }
 
-/// The group 1 filters of one session; StartSession parks them (bgsession.rs).
+/// The group 1 filters of one session; StartSession and a page background task's worker park them (bgsession.rs,
+/// [`Group1Filters::enter_worker`]).
 #[derive(Default)]
 pub(crate) struct Filters {
     by_table: HashMap<u32, Entry>,
@@ -105,6 +118,14 @@ pub(crate) struct Filters {
 pub(crate) struct Group1Filters {
     pub(crate) filters: Filters,
     shape: Group1InstallShape,
+    /// The tables of the test session's entries a page background task's worker runs without, with what it may do on each
+    /// (`enter_worker`).
+    worker_kept_aside: Vec<(u32, WorkerReads)>,
+    /// Of those, the tables on which the worker set or took back a filter in group 1 (`note_worker_filter`).
+    worker_filtered: Vec<u32>,
+    /// The tables whose group 1 filter a page background task's worker set or took back, ended with the worker
+    /// (`leave_worker`).
+    worker_ended: Vec<u32>,
 }
 
 impl Group1Filters {
@@ -113,9 +134,60 @@ impl Group1Filters {
         self.filters.by_table.values().all(|e| e.signature.is_empty())
     }
 
-    /// Some table holds a group 1 filter, or had one another record took back.
+    /// Some table holds a group 1 filter, or had one another record took back, or a worker runs without the test session's
+    /// or set one that ended with it.
     pub(crate) fn has_tables(&self) -> bool {
-        !self.filters.by_table.is_empty()
+        !self.filters.by_table.is_empty() || !self.worker_kept_aside.is_empty() || !self.worker_ended.is_empty()
+    }
+
+    /// A page background task's worker starts in a session of its own: with none of the test session's group 1 filters,
+    /// which it returns for [`Self::leave_worker`] (BgTaskWorkerFilterGroup1.al:322-:471, corpus PR 1507). It notes, per
+    /// table whose entry holds a filter, what the cells measured the worker doing there ([`WorkerReads`]); an entry another
+    /// record took back holds none, and the worker runs there as on a table with no entry, as main does.
+    pub(crate) fn enter_worker(&mut self) -> Filters {
+        let parked = std::mem::take(&mut self.filters);
+        self.worker_kept_aside = (parked.by_table.iter())
+            .filter(|(_, e)| !e.signature.is_empty())
+            .map(|(&t, e)| (t, e.worker))
+            .collect();
+        parked
+    }
+
+    /// The worker ended: what it set in group 1 ends with it (:506, :556), and the test session's filters are back as they
+    /// were (:489, :521), also where the worker took them back in its session (tests/neighbors/8670-bg-worker-filter-group1,
+    /// "G1N Worker Clears", Business Central 29.1). Later calls on those tables run through the assumption.
+    pub(crate) fn leave_worker(&mut self, parked: Filters) {
+        self.worker_kept_aside.clear();
+        let worker = std::mem::replace(&mut self.filters, parked);
+        let filtered = std::mem::take(&mut self.worker_filtered);
+        for table in worker.by_table.into_keys().chain(filtered) {
+            if !self.worker_ended.contains(&table) {
+                self.worker_ended.push(table);
+            }
+        }
+    }
+
+    /// What the worker may do on table `table`, when the worker runs without the test session's entry of it.
+    fn kept_aside(&self, table: u32) -> Option<WorkerReads> {
+        (self.worker_kept_aside.iter())
+            .find(|(t, _)| *t == table)
+            .map(|(_, r)| *r)
+    }
+
+    /// A worker sets or takes back a filter in group 1 of table `table`: where the test session's entry is kept aside, the
+    /// entry it gets back differs from main's ([`Self::leave_worker`]).
+    fn note_worker_filter(&mut self, table: u32) {
+        if self.kept_aside(table).is_some() && !self.worker_filtered.contains(&table) {
+            self.worker_filtered.push(table);
+        }
+    }
+
+    /// A call on table `table` in group 1 that the worker's session of its own decides: a worker's on a table whose test
+    /// session entry it runs without, or a later one on a table whose filter a worker set. It runs through the assumption.
+    fn note_worker_session(&self, table: u32) {
+        if self.kept_aside(table).is_some() || self.worker_ended.contains(&table) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BgTaskWorkerFilterGroupOne);
+        }
     }
 
     /// The group 1 filters of every table that holds some, as text to compare (al-vm `state_stamp.rs`).
@@ -136,7 +208,7 @@ impl Session {
             self.global_group1.filters.by_table.remove(&table);
             return;
         }
-        let filters = rec.borrow().filters.iter().filter(|f| f.group == 1).cloned().collect();
+        let filters: Vec<FieldFilter> = rec.borrow().filters.iter().filter(|f| f.group == 1).cloned().collect();
         let setter = VarKind::of(by_record, rec.borrow().temporary);
         // The innermost AL frame: the routine whose body sets the filter.
         let innermost = (self.frames.last())
@@ -149,6 +221,7 @@ impl Session {
                 Group1InstallShape::Login(subscribers) => subscribers.contains(&r),
             });
         let entry = Entry {
+            worker: self.worker_reads(rec, &filters, setter),
             signature,
             filters,
             ends: if in_shape { Ends::AwaitsRoutine } else { Ends::Never },
@@ -265,14 +338,35 @@ fn measured_read(setter: VarKind, reader: VarKind, op: Group1Op, group: i32, arg
 /// The view every measured reader had: no filter in any group, the primary key ascending, no marks, the session company
 /// (each reader of FilterGroupOtherVariable.al is a fresh variable, or one after Reset or Clear: :611-621, :733, :745).
 fn reader_view_measured(r: &RecordState) -> bool {
-    r.filters.is_empty()
-        && r.key == 0
+    r.filters.is_empty() && reader_order_measured(r)
+}
+
+/// The view of a measured reader apart from its filters: the primary key ascending, no marks, the session company.
+fn reader_order_measured(r: &RecordState) -> bool {
+    r.key == 0
         && r.adhoc.is_none()
         && r.ascending
         && r.field_descending == 0
         && r.marks.is_empty()
         && !r.marked_only
         && r.company.is_none()
+}
+
+/// Field `field` is not in the primary key of `t`.
+fn outside_key(t: &TableDef, field: usize) -> bool {
+    t.keys.first().is_some_and(|pk| !pk.contains(&field))
+}
+
+/// SetRange of one Integer value on an Integer field outside the primary key (SetRange(Tag, 1) at
+/// FilterGroupOtherVariable.al:193, :604, :823, :855, :893; SetRange(Tag, 7) at BgTaskWorkerFilterGroup1.al:290-295; Tag is no
+/// key field of the tables).
+fn one_integer_outside_key(t: &TableDef, f: &FieldFilter) -> bool {
+    let one_integer = match &f.expr {
+        FilterExpr::Range(Some(Value::Integer(a)), Some(Value::Integer(b))) => a == b,
+        FilterExpr::Eq(Value::Integer(_)) => true,
+        _ => false,
+    };
+    one_integer && outside_key(t, f.field) && t.fields.get(f.field).is_some_and(|d| d.ty == RtType::Integer)
 }
 
 /// The step of a FindSet loop a shared call is ([`Entry::find_set_readers`]).
@@ -320,6 +414,9 @@ impl Session {
         method: RecordOp,
         args: &mut [Value],
     ) -> Result<Value, Signal> {
+        self.worker_set_measured(rec, table, method, args)?;
+        self.global_group1.note_worker_session(table);
+        self.global_group1.note_worker_filter(table);
         let set = self.group1_set(rec, table, method, args)?;
         let by_record = self.is_al_record_call(method, rec);
         let r = self.record_op(method, rec, args)?;
@@ -374,21 +471,12 @@ impl Session {
     }
 
     /// The entry form FilterGroupOtherVariable.al measured: one filter, SetRange of one Integer value on an Integer field
-    /// outside the primary key (SetRange(Tag, 1) at :193, :604, :823, :855, :893; Tag is no key field of the tables).
+    /// outside the primary key ([`one_integer_outside_key`]).
     fn entry_pinned(&self, rec: &Rec, e: &Entry) -> bool {
         let Ok(t) = self.table(rec) else {
             return false;
         };
-        let [f] = &e.filters[..] else {
-            return false;
-        };
-        let one_integer = match &f.expr {
-            FilterExpr::Range(Some(Value::Integer(a)), Some(Value::Integer(b))) => a == b,
-            FilterExpr::Eq(Value::Integer(_)) => true,
-            _ => false,
-        };
-        let outside_primary_key = t.keys.first().is_some_and(|pk| !pk.contains(&f.field));
-        one_integer && outside_primary_key && t.fields.get(f.field).is_some_and(|d| d.ty == RtType::Integer)
+        matches!(&e.filters[..], [f] if one_integer_outside_key(&t, f))
     }
 
     /// A shared write runs no code: no event subscriber of the table, and its global trigger known to be off (the tables of
@@ -417,6 +505,10 @@ impl Session {
     /// a record with no group 1 filter reads its own (:762-763, :797); one that still holds some is refused. Every other
     /// shape is refused.
     pub(crate) fn group1_use(&self, rec: &Rec, table: u32, op: Group1Op, args: &[Value]) -> Result<Group1Use, Signal> {
+        self.worker_call_measured(rec, table, op, args)?;
+        if !op.is_filter_group() {
+            self.global_group1.note_worker_session(table);
+        }
         let Some(entry) = self.global_group1.filters.by_table.get(&table) else {
             return Ok(Group1Use::Own);
         };

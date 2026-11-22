@@ -50,7 +50,7 @@ impl Session {
         let rec = self.page_rec(st);
         let before_key = {
             let probe = Rc::new(RefCell::new(rec.borrow().clone()));
-            probe.borrow_mut().fields = self.page_xrec_fields(st);
+            probe.borrow_mut().fields = self.page_xrec_fields(st).into();
             self.row_key(&probe)?
         };
         let now_key = self.row_key(&rec)?;
