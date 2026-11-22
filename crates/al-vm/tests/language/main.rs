@@ -62,6 +62,7 @@ mod enum_overload_choice;
 mod erm_builtins;
 mod erm_builtins_2;
 mod erm_defects;
+mod error_finals_after_catch;
 mod errorcollect;
 mod errorcollect_internal;
 mod errorcollect_testfield;
