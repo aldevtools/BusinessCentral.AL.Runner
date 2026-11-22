@@ -7,3 +7,25 @@ Repro Calc Worker Tests::WorkerCalcFieldsAgain_AfterAnUncommittedInsert_AnswersT
 # cache; past what the cells measure, the head keeps main's answer, so they fail on both alike.
 # SetLoadFields, Get and CalcFields (review of PR 8682): BC answers the first read, as the cell :7255 measures; main computes it again.
 BQN Tests::LoadFieldsGetCalcFields_LinesAfterFirstRead	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:7255)
+# The cells of corpus PR 1533 (al-runner issue 8803) whose answer changes: main computes the worker's second CalcFields or
+# CalcSums again; the head answers the first answer, as BC does. The cells of a CalcSums with no filter and of a count, min,
+# exist and lookup over a count FlowField of the row answer from the cache on both; the Tenant Media cells are not in the excerpt.
+BCC Tests::BgCalcCache_NegatedSum_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1533: BgTaskCalcCache.al:385)
+BCC Tests::BgCalcCache_RecordRefCalcField_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1533: BgTaskCalcCache.al:391)
+BCC Tests::BgCalcCache_FlowFilterRange_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1533: BgTaskCalcCache.al:397)
+BCC Tests::BgCalcCache_FilterOnAStoredField_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1533: BgTaskCalcCache.al:403)
+BCC Tests::BgCalcCache_CalcSumsRange_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1533: BgTaskCalcCache.al:409)
+BCC Tests::BgCalcCache_CountAtASumOfTheRow_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1533: BgTaskCalcCache.al:428)
+BCC Tests::BgCalcCache_TemporaryRecord_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1533: BgTaskCalcCache.al:434)
+BCC Tests::BgCalcCache_FieldFilterOfAStoredField_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1533: BgTaskCalcCache.al:440)
+BCC Tests::BgCalcCache_CalcFieldsAfterSetAscendingFalse_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1533: BgTaskCalcCache.al:482)
+BCC Tests::BgCalcCache_CalcSumsAfterSetAscendingFalse_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1533: BgTaskCalcCache.al:488)
+# The BQN neighbors of the same shapes, measured on BC as each cell is.
+BQN Tests::NegatedSum_LinesAfterFirstRead	ASSUMED background-task-query-cache (open corpus PR 1533: BgTaskCalcCache.al:385)
+BQN Tests::RecordRefCalcField_LinesAfterFirstRead	ASSUMED background-task-query-cache (open corpus PR 1533: BgTaskCalcCache.al:391)
+BQN Tests::FlowFilterRange_LinesAfterFirstRead	ASSUMED background-task-query-cache (open corpus PR 1533: BgTaskCalcCache.al:397)
+BQN Tests::FilterOnAStoredField_LinesAfterFirstRead	ASSUMED background-task-query-cache (open corpus PR 1533: BgTaskCalcCache.al:403)
+BQN Tests::CalcSumsRange_LinesAfterFirstRead	ASSUMED background-task-query-cache (open corpus PR 1533: BgTaskCalcCache.al:409)
+BQN Tests::CountAtASumOfTheRow_LinesAfterFirstRead	ASSUMED background-task-query-cache (open corpus PR 1533: BgTaskCalcCache.al:428)
+BQN Tests::TemporaryRecord_LinesAfterFirstRead	ASSUMED background-task-query-cache (open corpus PR 1533: BgTaskCalcCache.al:434)
+BQN Tests::FieldFilterOfAStoredField_LinesAfterFirstRead	ASSUMED background-task-query-cache (open corpus PR 1533: BgTaskCalcCache.al:440)
