@@ -1420,9 +1420,6 @@ impl Session {
                 let ty = t.fields[pos].ty.clone();
                 let or_flowfield = self.is_flowfield(&t, pos);
                 self.blob_setrange_check(&ty, &args[1..])?;
-                let by_al = self.is_al_record_call(RecordOp::SetRange, rec);
-                let engine = self.engine.clone();
-                let schema = engine.program.objects[t.object as usize].table.as_ref();
                 let mut r = rec.borrow_mut();
                 r.position = None;
                 let group = r.filter_group;
@@ -1435,13 +1432,7 @@ impl Session {
                 }
                 if let Some(range) = super::setrange_filter::setrange_filter(&ty, &args[1..])? {
                     let filter = FieldFilter::new(pos, range, group);
-                    if !r.temporary
-                        && schema.is_some_and(|s| {
-                            crate::decimal_column::measured_setter(&t, s, &filter, by_al, None, &args[1..])
-                        })
-                    {
-                        r.decimal_cut_filters.push(filter.clone());
-                    }
+                    self.mark_decimal_cut_filter(rec, &mut r, &t, (RecordOp::SetRange, &filter), None, args);
                     r.filters.push(filter);
                 }
                 Ok(Value::Null)
@@ -1618,9 +1609,6 @@ impl Session {
                     Err(e) => return Err(Signal::unsupported(format!("SetFilter: {e}"))),
                 };
                 let or_flowfield = self.is_flowfield(&t, pos);
-                let by_al = self.is_al_record_call(RecordOp::SetFilter, rec);
-                let engine = self.engine.clone();
-                let schema = engine.program.objects[t.object as usize].table.as_ref();
                 let mut r = rec.borrow_mut();
                 let group = r.filter_group;
                 r.filters.retain(|f| !(f.field == pos && f.group == group));
@@ -1635,14 +1623,7 @@ impl Session {
                     expr,
                     group,
                 };
-                if !r.temporary
-                    && schema.is_some_and(|s| {
-                        let values = args.get(2..).unwrap_or_default();
-                        crate::decimal_column::measured_setter(&t, s, &filter, by_al, Some(text.trim()), values)
-                    })
-                {
-                    r.decimal_cut_filters.push(filter.clone());
-                }
+                self.mark_decimal_cut_filter(rec, &mut r, &t, (RecordOp::SetFilter, &filter), Some(text.trim()), args);
                 r.filters.push(filter);
                 Ok(Value::Null)
             }

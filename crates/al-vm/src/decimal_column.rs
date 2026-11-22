@@ -190,3 +190,26 @@ mod tests {
         assert_eq!(cut(&d("0.00000000000000000001")), None);
     }
 }
+
+impl crate::Session {
+    /// Marks the filter `set` (the record op that set it and the filter) on `r` when it is a measured setter
+    /// ([`measured_setter`]; `args` are the arguments of the record op): the mark [`read_filters`] reads. A temporary table keeps no mark.
+    pub(crate) fn mark_decimal_cut_filter(
+        &self,
+        rec: &crate::records::Rec,
+        r: &mut al_builtins::value::RecordState,
+        t: &TableDef,
+        set: (al_builtins::record_op::RecordOp, &FieldFilter),
+        text: Option<&str>,
+        args: &[Value],
+    ) {
+        let (op, filter) = set;
+        // The values after the field (SetRange) or after the text (SetFilter).
+        let values = args.get(if text.is_none() { 1 } else { 2 }..).unwrap_or_default();
+        let by_al = self.is_al_record_call(op, rec);
+        let schema = self.engine.program.objects[t.object as usize].table.as_ref();
+        if !r.temporary && schema.is_some_and(|s| measured_setter(t, s, filter, by_al, text, values)) {
+            r.decimal_cut_filters.push(filter.clone());
+        }
+    }
+}
