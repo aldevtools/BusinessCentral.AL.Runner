@@ -132,6 +132,44 @@ impl BackingKey {
     }
 }
 
+impl Key {
+    /// The fields in which this key differs from `other`, by name, in the order they are declared.
+    /// Every field is named, so a field added to [`Key`] does not compile until it is listed here.
+    pub(crate) fn differs_in(&self, other: &Key) -> Vec<&'static str> {
+        let Key {
+            database,
+            uncommitted,
+            backing,
+            session,
+            company,
+            seed,
+            user,
+            test_codeunit,
+            resources,
+            client,
+            flags,
+            license,
+        } = self;
+        [
+            (*database != other.database, "database"),
+            (*uncommitted != other.uncommitted, "uncommitted"),
+            (*backing != other.backing, "backing"),
+            (*session != other.session, "session"),
+            (*company != other.company, "company"),
+            (*seed != other.seed, "seed"),
+            (*user != other.user, "user"),
+            (*test_codeunit != other.test_codeunit, "test_codeunit"),
+            (*resources != other.resources, "resources"),
+            (*client != other.client, "client"),
+            (*flags != other.flags, "flags"),
+            (*license != other.license, "license"),
+        ]
+        .into_iter()
+        .filter_map(|(differs, name)| differs.then_some(name))
+        .collect()
+    }
+}
+
 /// What a test session holds after the raised login: every committed row (system fields included), the session state
 /// (`Session::state_lines`), the assumption marks the login made (a replayed flagged pass stays flagged) and what the
 /// company open noted for the tests of the codeunit (`install::CompanyOpenWrites`: a later test is watched or refused by
@@ -241,12 +279,19 @@ struct Tally {
     /// Per kind of [`KINDS`], the compared sessions that differ in it.
     differ_by: [u64; KINDS.len()],
     first_difference: Option<String>,
+    /// Per set of key fields (joined by `+`), the new keys after the first that differ from their nearest earlier key in
+    /// exactly those fields ([`Key::differs_in`]).
+    new_keys_by: std::collections::BTreeMap<String, u64>,
 }
 
 impl Tally {
     /// Compares `state` with the first state of `key`, or keeps it as that. `true`: the key was new.
     fn note(&mut self, key: Key, state: LoginState) -> bool {
         let Some((_, first)) = self.firsts.iter().find(|(k, _)| *k == key) else {
+            let nearest = self.firsts.iter().map(|(k, _)| key.differs_in(k)).min_by_key(Vec::len);
+            if let Some(fields) = nearest {
+                *self.new_keys_by.entry(fields.join("+")).or_default() += 1;
+            }
             self.firsts.push((key, state));
             return true;
         };
@@ -301,6 +346,27 @@ impl Check {
             .clone()
     }
 
+    /// The keys line: `None` before any session was noted.
+    /// Why the keys differ: each new key after the first, by the fields in which it differs from its nearest earlier key.
+    pub(crate) fn keys_line(&self) -> Option<String> {
+        let s = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        let keys = s.exact.firsts.len();
+        if keys == 0 {
+            return None;
+        }
+        let by: Vec<String> = s
+            .exact
+            .new_keys_by
+            .iter()
+            .map(|(fields, n)| format!("{fields} {n}"))
+            .collect();
+        Some(format!(
+            "login replay keys: {keys} keys, {} new after the first; each differs from its nearest earlier key in: {}",
+            keys - 1,
+            if by.is_empty() { "-".to_string() } else { by.join(", ") }
+        ))
+    }
+
     /// The report line: `None` before any session was noted.
     pub(crate) fn line(&self) -> Option<String> {
         let s = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
@@ -325,9 +391,16 @@ pub(crate) fn check(engine: &Engine) -> std::sync::Arc<Check> {
     engine.derived(Check::default)
 }
 
-/// The report line of `engine`'s check: `None` when no session raised the login under the check.
+/// The report of `engine`'s check, the check line then the keys line: `None` when no session raised the login under the
+/// check.
 pub(crate) fn report(engine: &Engine) -> Option<String> {
-    check(engine).line()
+    let check = check(engine);
+    let line = check.line()?;
+    // The keys line comes after the check line, which keeps its place as the first line.
+    Some(match check.keys_line() {
+        Some(keys) => format!("{line}\n{keys}"),
+        None => line,
+    })
 }
 
 /// Every committed row of `store`, one line each ([`rows`]).
@@ -563,5 +636,30 @@ mod tests {
             ),
             "{line}"
         );
+    }
+
+    // Why the keys of a run differ (issue 8211): each new key after the first is named by the key fields in which it
+    // differs from the nearest earlier key (the one it differs from in the fewest fields), counted per set of fields.
+    #[test]
+    fn a_new_key_names_the_fields_it_differs_in_from_the_nearest_earlier_key() {
+        let check = Check::default();
+        let s = state(&["r"], &["s"]);
+        check.note(key(1), s.clone());
+        check.note(key(1), s.clone());
+        check.note(key(2), s.clone());
+        let other_rows = Key {
+            database: digest(&["9".into()]),
+            session: digest(&["8".into()]),
+            ..key(1)
+        };
+        check.note(other_rows, s);
+        assert_eq!(
+            check.keys_line().as_deref(),
+            Some(
+                "login replay keys: 3 keys, 2 new after the first; each differs from its nearest earlier key in: database+session 1, test_codeunit 1"
+            )
+        );
+        assert_eq!(key(1).differs_in(&key(1)), Vec::<&str>::new());
+        assert_eq!(Check::default().keys_line(), None);
     }
 }
