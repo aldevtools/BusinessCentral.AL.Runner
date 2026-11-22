@@ -1,6 +1,9 @@
 // Controls next to al-runner issue 8660 (a field control bound to no field whose Visible names a field of the record reads
 // Yes) that keep the value their Visible had when the page opened, before its first row: controls bound to a field of the
 // source table, and Visible expressions that name no field. A BC 29.1 container gave these values.
+// After them, the shapes and routes of the al-runner PR 8667 review, which read Yes on BC 29 and differ from main (corpus
+// PR 1504, VisibleExpressionSource.al): another control binding the named field, the primary key, an `and` with one field
+// bound, OpenView, and a Trap of Page.Run.
 table 50000 "NB TV Row"
 {
     fields
@@ -44,6 +47,23 @@ page 50001 "NB TV Card"
         ShowIt := Rec.Amount > 0;
         Doubled := Rec.Amount * 2;
     end;
+}
+
+page 50003 "NB TV Shapes Card"
+{
+    PageType = Card;
+    SourceTable = "NB TV Row";
+
+    layout
+    {
+        area(Content)
+        {
+            field(AmountCtl; Rec.Amount) { }
+            field(Total; Rec.Amount + 1) { Visible = Rec.Amount > 0; }
+            field(KeyNamed; Rec.Amount + 1) { Visible = Rec.Id > 0; }
+            field(OneBound; Rec.Amount + 1) { Visible = (Rec.Amount > 0) and Rec.Flag; }
+        }
+    }
 }
 
 codeunit 50002 "NB TV Tests"
@@ -107,15 +127,80 @@ codeunit 50002 "NB TV Tests"
         Check(Card.VarVariable.Visible(), false);
     end;
 
-    local procedure Open(var Card: TestPage "NB TV Card")
+    [Test]
+    procedure ExprSource_FieldBoundByAnotherControl_Yes()
+    var
+        Card: TestPage "NB TV Shapes Card";
+    begin
+        OpenShapes(Card);
+        Check(Card.Total.Visible(), true);
+    end;
+
+    [Test]
+    procedure ExprSource_NamesPrimaryKey_Yes()
+    var
+        Card: TestPage "NB TV Shapes Card";
+    begin
+        OpenShapes(Card);
+        Check(Card.KeyNamed.Visible(), true);
+    end;
+
+    [Test]
+    procedure ExprSource_AndWithOneFieldBound_Yes()
+    var
+        Card: TestPage "NB TV Shapes Card";
+    begin
+        OpenShapes(Card);
+        Check(Card.OneBound.Visible(), true);
+    end;
+
+    [Test]
+    procedure ExprSource_OpenView_Yes()
     var
         Row: Record "NB TV Row";
+        Card: TestPage "NB TV Shapes Card";
+    begin
+        InsertRow(Row);
+        Card.OpenView();
+        Card.GoToRecord(Row);
+        Check(Card.Total.Visible(), true);
+    end;
+
+    [Test]
+    procedure ExprSource_TrapPageRun_Yes()
+    var
+        Row: Record "NB TV Row";
+        Card: TestPage "NB TV Shapes Card";
+    begin
+        InsertRow(Row);
+        Card.Trap();
+        Page.Run(Page::"NB TV Shapes Card", Row);
+        Check(Card.Total.Visible(), true);
+    end;
+
+    local procedure OpenShapes(var Card: TestPage "NB TV Shapes Card")
+    var
+        Row: Record "NB TV Row";
+    begin
+        InsertRow(Row);
+        Card.OpenEdit();
+        Card.GoToRecord(Row);
+    end;
+
+    local procedure InsertRow(var Row: Record "NB TV Row")
     begin
         Row.DeleteAll();
         Row.Id := 1;
         Row.Amount := 1;
         Row.Flag := false;
         Row.Insert();
+    end;
+
+    local procedure Open(var Card: TestPage "NB TV Card")
+    var
+        Row: Record "NB TV Row";
+    begin
+        InsertRow(Row);
         Card.OpenEdit();
         Card.GoToRecord(Row);
     end;

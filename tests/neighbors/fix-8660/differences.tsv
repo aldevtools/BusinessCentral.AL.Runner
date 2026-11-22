@@ -1,4 +1,10 @@
 # key	entry
-# Every test is a field control next to the new rule that keeps the value its Visible had at open, on BC and on main:
-# controls bound to a field of the source table, and Visible expressions that name only a page variable or a constant.
-# No test differs.
+# The first six tests are field controls next to the new rule that keep the value their Visible had at open, on BC and on
+# main: controls bound to a field of the source table, and Visible expressions that name only a page variable or a
+# constant. No test of those differs. The last five are the review's shapes and routes: Yes on BC 29 and here, the value
+# at open (No) on main.
+NB TV Tests::ExprSource_FieldBoundByAnotherControl_Yes	ASSUMED visible-names-row-field-reads-yes (corpus PR 1504)
+NB TV Tests::ExprSource_NamesPrimaryKey_Yes	ASSUMED visible-names-row-field-reads-yes (corpus PR 1504)
+NB TV Tests::ExprSource_AndWithOneFieldBound_Yes	ASSUMED visible-names-row-field-reads-yes (corpus PR 1504)
+NB TV Tests::ExprSource_OpenView_Yes	ASSUMED visible-names-row-field-reads-yes (corpus PR 1504)
+NB TV Tests::ExprSource_TrapPageRun_Yes	ASSUMED visible-names-row-field-reads-yes (corpus PR 1504)

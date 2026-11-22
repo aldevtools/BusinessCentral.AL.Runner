@@ -228,7 +228,8 @@ fn shapes_the_rule_does_not_cover_keep_the_value_at_open() {
 
 /// Before BC 29, a TestPage's open of such a Card raises "The identifier '<field>' could not be found." (code
 /// Expression:Argument) for the first such control's field, after OnOpenPage and before OnAfterGetRecord (corpus PR 1504,
-/// the BC 27.5 and 28.5 CI of VisibleExpressionSource.al).
+/// the BC 27.5 and 28.5 CI of VisibleExpressionSource.al). `Plain`, bound to a field, comes first and does not count: on
+/// page 75708 a field-bound control with `Visible = Rec.Flag` comes first, and BC names the next control's field.
 const BEFORE_29: &str = r##"
 table 50120 "Repro Old Row"
 {
@@ -360,5 +361,361 @@ fn before_29_a_testpage_open_raises_the_client_compile_error() {
             ],
             "{v}"
         );
+    }
+}
+
+/// The routes to such a Card and the shapes next to the rule, as corpus PR 1504 measured them (al-runner PR 8667 review,
+/// VisibleExpressionSource.al pages 75707-75710 and its route tests): another control binding the named field (`BoundElsewhere`,
+/// `OneBound`) and the primary key (`NamesKey`) change nothing; a field-bound control's own Visible (`IdCtl`) keeps its value
+/// at open; every route the probe measured reads Yes on BC 29 and raises at the open before it.
+const ROUTES: &str = r##"
+table 50130 "Repro Route Row"
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; Amount; Integer) { }
+        field(3; Flag; Boolean) { }
+    }
+    keys { key(PK; Id) { Clustered = true; } }
+}
+
+page 50131 "Repro Route Card"
+{
+    PageType = Card;
+    SourceTable = "Repro Route Row";
+    layout { area(Content) { field(AmountPlusOne; Rec.Amount + 1) { Visible = Rec.Amount > 0; } } }
+}
+
+page 50132 "Repro Bound Elsewhere"
+{
+    PageType = Card;
+    SourceTable = "Repro Route Row";
+    layout
+    {
+        area(Content)
+        {
+            field(AmountCtl; Rec.Amount) { }
+            field(Total; Rec.Amount + 1) { Visible = Rec.Amount > 0; }
+        }
+    }
+}
+
+page 50133 "Repro Bound First"
+{
+    PageType = Card;
+    SourceTable = "Repro Route Row";
+    layout
+    {
+        area(Content)
+        {
+            field(IdCtl; Rec.Id) { Visible = Rec.Flag; }
+            field(Total; Rec.Amount + 1) { Visible = Rec.Amount > 0; }
+        }
+    }
+}
+
+page 50134 "Repro Names Key"
+{
+    PageType = Card;
+    SourceTable = "Repro Route Row";
+    layout { area(Content) { field(Total; Rec.Amount + 1) { Visible = Rec.Id > 0; } } }
+}
+
+page 50135 "Repro One Bound"
+{
+    PageType = Card;
+    SourceTable = "Repro Route Row";
+    layout
+    {
+        area(Content)
+        {
+            field(AmountCtl; Rec.Amount) { }
+            field(Total; Rec.Amount + 1) { Visible = (Rec.Amount > 0) and Rec.Flag; }
+        }
+    }
+}
+
+codeunit 50136 "Repro Route Tests"
+{
+    Subtype = Test;
+
+    var
+        ModalVisible: Text;
+
+    [Test]
+    procedure OpenView()
+    var
+        Row: Record "Repro Route Row";
+        Card: TestPage "Repro Route Card";
+    begin
+        InsertRow(Row);
+        Card.OpenView();
+        Card.GoToRecord(Row);
+        Check(Card.AmountPlusOne.Visible(), true);
+        Card.Close();
+    end;
+
+    [Test]
+    procedure OpenNew()
+    var
+        Row: Record "Repro Route Row";
+        Card: TestPage "Repro Route Card";
+    begin
+        InsertRow(Row);
+        Card.OpenNew();
+        Check(Card.AmountPlusOne.Visible(), true);
+        Card.Close();
+    end;
+
+    [Test]
+    procedure TrapRun()
+    var
+        Row: Record "Repro Route Row";
+        Card: TestPage "Repro Route Card";
+    begin
+        InsertRow(Row);
+        Card.Trap();
+        Page.Run(Page::"Repro Route Card", Row);
+        Check(Card.AmountPlusOne.Visible(), true);
+        Card.Close();
+    end;
+
+    [Test]
+    [HandlerFunctions('ModalHandler')]
+    procedure Modal()
+    var
+        Row: Record "Repro Route Row";
+    begin
+        InsertRow(Row);
+        ModalVisible := 'not run';
+        Page.RunModal(Page::"Repro Route Card", Row);
+        if ModalVisible <> 'Yes' then
+            Error('in handler: %1', ModalVisible);
+    end;
+
+    [Test]
+    [HandlerFunctions('ModalHandler')]
+    procedure ModalLookup()
+    var
+        Row: Record "Repro Route Row";
+    begin
+        InsertRow(Row);
+        if Page.RunModal(Page::"Repro Route Card", Row) = Action::LookupOK then;
+    end;
+
+    [Test]
+    procedure BoundElsewhere()
+    var
+        Row: Record "Repro Route Row";
+        Card: TestPage "Repro Bound Elsewhere";
+    begin
+        InsertRow(Row);
+        Card.OpenEdit();
+        Card.GoToRecord(Row);
+        Check(Card.Total.Visible(), true);
+        Card.Close();
+    end;
+
+    [Test]
+    procedure BoundFirst()
+    var
+        Row: Record "Repro Route Row";
+        Card: TestPage "Repro Bound First";
+    begin
+        InsertRow(Row);
+        Card.OpenEdit();
+        Card.GoToRecord(Row);
+        Check(Card.IdCtl.Visible(), false);
+        Check(Card.Total.Visible(), true);
+        Card.Close();
+    end;
+
+    [Test]
+    procedure NamesKey()
+    var
+        Row: Record "Repro Route Row";
+        Card: TestPage "Repro Names Key";
+    begin
+        InsertRow(Row);
+        Card.OpenEdit();
+        Card.GoToRecord(Row);
+        Check(Card.Total.Visible(), true);
+        Card.Close();
+    end;
+
+    [Test]
+    procedure OneBound()
+    var
+        Row: Record "Repro Route Row";
+        Card: TestPage "Repro One Bound";
+    begin
+        InsertRow(Row);
+        Card.OpenEdit();
+        Card.GoToRecord(Row);
+        Check(Card.Total.Visible(), true);
+        Card.Close();
+    end;
+
+    [ModalPageHandler]
+    procedure ModalHandler(var Card: TestPage "Repro Route Card")
+    begin
+        ModalVisible := Format(Card.AmountPlusOne.Visible());
+    end;
+
+    local procedure InsertRow(var Row: Record "Repro Route Row")
+    begin
+        Row.DeleteAll();
+        Row.Id := 1;
+        Row.Amount := 1;
+        Row.Flag := false;
+        Row.Insert();
+    end;
+
+    local procedure Check(Actual: Boolean; Expected: Boolean)
+    begin
+        if Actual <> Expected then
+            Error('visible: %1, expected %2', Actual, Expected);
+    end;
+}
+
+codeunit 50137 "Repro Route Old Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure TrapRun()
+    var
+        Row: Record "Repro Route Row";
+        Card: TestPage "Repro Route Card";
+    begin
+        InsertRow(Row);
+        Card.Trap();
+        asserterror Page.Run(Page::"Repro Route Card", Row);
+        Check('Amount');
+    end;
+
+    [Test]
+    [HandlerFunctions('ModalHandler')]
+    procedure Modal()
+    var
+        Row: Record "Repro Route Row";
+    begin
+        InsertRow(Row);
+        Page.RunModal(Page::"Repro Route Card", Row);
+    end;
+
+    [Test]
+    procedure BoundElsewhere()
+    var
+        Card: TestPage "Repro Bound Elsewhere";
+    begin
+        asserterror Card.OpenEdit();
+        Check('Amount');
+    end;
+
+    [Test]
+    procedure BoundFirst()
+    var
+        Card: TestPage "Repro Bound First";
+    begin
+        asserterror Card.OpenEdit();
+        Check('Amount');
+    end;
+
+    [Test]
+    procedure NamesKey()
+    var
+        Card: TestPage "Repro Names Key";
+    begin
+        asserterror Card.OpenEdit();
+        Check('Id');
+    end;
+
+    [Test]
+    procedure OneBound()
+    var
+        Card: TestPage "Repro One Bound";
+    begin
+        asserterror Card.OpenEdit();
+        Check('Amount');
+    end;
+
+    [ModalPageHandler]
+    procedure ModalHandler(var Card: TestPage "Repro Route Card")
+    begin
+    end;
+
+    local procedure InsertRow(var Row: Record "Repro Route Row")
+    begin
+        Row.DeleteAll();
+        Row.Id := 1;
+        Row.Insert();
+    end;
+
+    local procedure Check(Field: Text)
+    begin
+        if (GetLastErrorText() <> StrSubstNo('The identifier ''%1'' could not be found.', Field)) or (GetLastErrorCode() <> 'Expression:Argument') then
+            Error('got %1 (%2)', GetLastErrorText(), GetLastErrorCode());
+    end;
+}
+"##;
+
+const REFUSED: &str = "opened in a way the probe did not measure";
+
+/// Each test's outcome, as `Pass` (flagged or not) or `NotRun` when refused for an unmeasured route, on BC version `v`.
+fn route_outcomes(codeunit: &str, v: &str) -> Vec<(String, &'static str, bool)> {
+    let target = al_version::Target::for_bc(al_version::BcVersion::parse(v).unwrap());
+    crate::record_copy_reports::run_with(ROUTES, codeunit, |e| e.target = Some(target))
+        .into_iter()
+        .map(|(name, outcome, flagged)| {
+            let kind = if outcome.starts_with("Pass") {
+                "Pass"
+            } else if outcome.starts_with("NotRun") && outcome.contains(REFUSED) {
+                "Refused"
+            } else {
+                panic!("{name} on {v}: {outcome}")
+            };
+            (name, kind, flagged)
+        })
+        .collect()
+}
+
+#[test]
+fn from_bc_29_every_measured_route_and_shape_reads_yes_flagged() {
+    let got = route_outcomes("Repro Route Tests", "29.0");
+    let want: Vec<(String, &str, bool)> = [
+        ("OpenView", "Pass", true),
+        ("OpenNew", "Pass", true),
+        ("TrapRun", "Pass", true),
+        ("Modal", "Pass", true),
+        ("ModalLookup", "Refused", false),
+        ("BoundElsewhere", "Pass", true),
+        ("BoundFirst", "Pass", true),
+        ("NamesKey", "Pass", true),
+        ("OneBound", "Pass", true),
+    ]
+    .into_iter()
+    .map(|(n, k, f)| (n.to_string(), k, f))
+    .collect();
+    assert_eq!(got, want);
+}
+
+#[test]
+fn before_29_every_measured_route_and_shape_raises_at_the_open_flagged() {
+    for v in ["27.5", "28.5"] {
+        let got = route_outcomes("Repro Route Old Tests", v);
+        let want: Vec<(String, &str, bool)> = [
+            ("TrapRun", "Pass", true),
+            ("Modal", "Refused", false),
+            ("BoundElsewhere", "Pass", true),
+            ("BoundFirst", "Pass", true),
+            ("NamesKey", "Pass", true),
+            ("OneBound", "Pass", true),
+        ]
+        .into_iter()
+        .map(|(n, k, f)| (n.to_string(), k, f))
+        .collect();
+        assert_eq!(got, want, "{v}");
     }
 }

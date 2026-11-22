@@ -1836,18 +1836,20 @@ impl Session {
     /// OnAfterGetRecord. A Card with a control that `Control::visible_row_field` marks: where
     /// `al_version::visible_names_row_field_reads_yes` answers `Some(false)`, a TestPage's OpenEdit, OpenView or OpenNew raises
     /// "The identifier '<field>' could not be found." (code Expression:Argument) for the first such control's field
-    /// (pages/controls/VisibleExpressionSource.al, al-runner issue 8660); another way to open it there, and a major the probe
-    /// did not measure, is refused.
+    /// (pages/controls/VisibleExpressionSource.al, al-runner issue 8660); where it answers `Some(true)` the control reads Yes
+    /// (`visible_reads_row`). Another way to open it, and a major the probe did not measure, is refused
+    /// (`visible_route_measured`).
     pub(super) fn freeze_visible(&mut self, st: &St) -> Result<(), Signal> {
         let engine = self.engine();
         let page = page_of(&engine, st);
         let first = (0..page.controls.len()).find_map(|i| self.visible_row_field_on_card(st, i));
-        match (
-            first,
-            al_version::visible_names_row_field_reads_yes(self.engine.target.as_ref()),
-        ) {
-            (None, _) | (Some(_), Some(true)) => {}
-            (Some(field), Some(false)) if st.borrow().opened_by_test => {
+        let reads_yes = al_version::visible_names_row_field_reads_yes(self.engine.target.as_ref());
+        match (first, reads_yes) {
+            (None, _) => {}
+            (Some(_), Some(true)) if self.visible_route_measured(st, true) => {}
+            (Some(field), Some(false)) if self.visible_route_measured(st, false) => {
+                // Not pinned yet: the probe's open PR is the only evidence, so a test that expects this error is a flagged pass.
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::VisibleNamesRowFieldReadsYes);
                 return Err(error_code(
                     format!("The identifier '{field}' could not be found."),
                     "Expression:Argument",
@@ -1855,7 +1857,7 @@ impl Session {
             }
             (Some(_), _) => {
                 return unsupported(
-                    "a Card with a field control bound to no field whose Visible names a field of the record, opened other than by a TestPage's OpenEdit, OpenView or OpenNew, or on a BC version the probe did not measure (al-runner issue 8660)",
+                    "a Card with a field control bound to no field whose Visible names a field of the record, opened in a way the probe did not measure (a TestPage's OpenEdit, OpenView or OpenNew, a Trap of Page.Run(Id, Rec), and from BC 29 a static Page.RunModal(Id, Rec) statement answered by a ModalPageHandler), or on a BC version the probe did not measure (al-runner issue 8660)",
                 );
             }
         }
@@ -1865,6 +1867,18 @@ impl Session {
         }
         st.borrow_mut().frozen_visible = frozen;
         Ok(())
+    }
+
+    /// Whether this open of a Card with a `Control::visible_row_field` control is one the probe measured, on a major where
+    /// the control reads Yes (`reads_yes`) or the open raises (pages/controls/VisibleExpressionSource.al): a TestPage's own
+    /// OpenEdit, OpenView or OpenNew, and a `Trap` of `Page.Run(Id, Rec)`, on every major; a static `Page.RunModal(Id, Rec)`
+    /// statement answered by a ModalPageHandler where it reads Yes. Before BC 29 that modal run raises the same error before
+    /// the handler runs (corpus PR 1504's observe run), but no test can pin it: its handler never runs.
+    fn visible_route_measured(&self, st: &St, reads_yes: bool) -> bool {
+        let s = st.borrow();
+        let trapped = s.caught_by_trap && s.trapped_run == Some(super::page_run_close::PageRunCall::StaticWithRecord);
+        let modal = s.modal && s.modal_run == ModalRun::Static && s.statement_run && !s.lookup;
+        s.opened_by_test || trapped || (reads_yes && modal)
     }
 
     /// Whether control `idx` reads Yes by `Control::visible_row_field` on this page and BC major.
