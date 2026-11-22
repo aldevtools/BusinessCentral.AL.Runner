@@ -191,11 +191,7 @@ fn issue_8467_unmeasured_neighbors() {
     assert_refused(&o, "CopyOfReplayed_LoadsOmittedField", "a field SetLoadFields left out");
     assert_refused(&o, "BlobTable_ReadAgain_AfterChange", "CalcFields of a Blob of a row");
     assert_pass(&o, "FetchAfterReplay_LoadsOmittedField", true);
-    for name in [
-        "ReadIsolation_ReadsTheRows",
-        "LongFilterValues_KeepTheirOwnEntries",
-        "RowGoneAgain_AfterCommits",
-    ] {
+    for name in ["LongFilterValues_KeepTheirOwnEntries", "RowGoneAgain_AfterCommits"] {
         assert_pass(&o, name, false);
     }
 }

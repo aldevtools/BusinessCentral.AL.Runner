@@ -5,10 +5,9 @@
 // that wrote it while no commit held it before or after reads the table (BgTaskQueryCache.al:1207). A row read again after a
 // commit of a ModifyAll or a DeleteAll of another row follows the BC version (the cells of BQ Tests 12, :7035 and :7042, need
 // Base Application to tell the versions apart, so they are not in Probe.al; these assert the answer of BC 27.5, 28.5 and
-// 29.0), and is refused where no version is measured; after a Truncate (no cell) it is refused. Read as on main, from the rows
-// as they are (no flag): a ReadIsolation read (BC waits on the test session's write, corpus PR 1498, not modelled here). Two
-// filter values with the same first characters keep their own entries; a field load after a fetch of another row is not
-// refused.
+// 29.0), and is refused where no version is measured; after a Truncate (no cell) it is refused. A read with another
+// ReadIsolation is not cached; what it answers is #8648's (corpus PR 1498). Two filter values with the same first characters
+// keep their own entries; a field load after a fetch of another row is not refused.
 
 codeunit 97512 "BQ Neighbor Reader"
 {
@@ -40,12 +39,6 @@ codeunit 97512 "BQ Neighbor Reader"
                     Row.Get(Group, 1);
                     Row.Get(Group, 2);
                     Seen := Row.Note;
-                end;
-            'readcommitted':
-                begin
-                    Row.ReadIsolation := IsolationLevel::ReadCommitted;
-                    Row.Get(Group, 1);
-                    Seen := Row.Description;
                 end;
             'blobread':
                 begin
@@ -161,20 +154,6 @@ codeunit 97511 "BQ Neighbor Tests"
         Assert.AreEqual('first', RunGet(Rows, 'NB5'), 'Get');
         Change('NB5');
         Assert.AreEqual('n2', Run(Rows, Codeunit::"BQ Neighbor Reader", 'refetchnote', 'NB5'), 'Note of line 2');
-        Rows.Close();
-    end;
-
-    [Test]
-    procedure ReadIsolation_ReadsTheRows()
-    var
-        Rows: TestPage "BQ Rows";
-    begin
-        BqMode.Set('');
-        AddNoted('NB6', 1, 'first', 'n1');
-        OpenOn(Rows, 'NB6');
-        Assert.AreEqual('first', RunGet(Rows, 'NB6'), 'Get');
-        Change('NB6');
-        Assert.AreEqual('second', Run(Rows, Codeunit::"BQ Neighbor Reader", 'readcommitted', 'NB6'), 'ReadCommitted Get');
         Rows.Close();
     end;
 
