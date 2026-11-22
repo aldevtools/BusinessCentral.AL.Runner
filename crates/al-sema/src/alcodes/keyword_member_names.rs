@@ -67,6 +67,8 @@ enum Place {
 /// the place. The AL compilers of the BC artifacts of every supported major give AL0107 at the word for each of the 32
 /// words, after `.` and after `::`, in each (issue 8650; the control Visible, Editable, Enabled and CaptionClass, the action
 /// Visible, the page DataCaptionExpression, the page control source and the report column source also in a BC container).
+/// A page `group` is a layout group or a group in the actions area (corpus PR 1501, cases 3541 and 3552); a page extension's
+/// `modify` may name any target, which the parser does not bind before it rejects the word (cases 3544 and 3553-3556).
 const EXPRESSIONS: &[(ObjKind, &str, Place)] = {
     use ObjKind::*;
     use Place::*;

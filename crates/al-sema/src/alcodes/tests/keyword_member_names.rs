@@ -266,7 +266,7 @@ fn quoted_names_and_other_words_after_the_scope_operator_compile() {
 /// al-runner issue 8650: the same words after `.` or `::` in the expressions the AL compilers parse from properties and section
 /// arguments. `#` is the expression under test (`Rec.@` or `Rec.Opt::@`); the table declares `@` quoted.
 const PROPERTY_TABLE: &str = "table 50100 \"R\" { fields { field(1; \"No.\"; Code[20]) { } field(2; \"@\"; Integer) { } field(3; Opt; Option) { OptionMembers = Zero,\"@\"; } } keys { key(PK; \"No.\") { Clustered = true; } } }\npage 50105 \"Part\" { PageType = ListPart; SourceTable = \"R\"; layout { area(Content) { repeater(L) { field(\"No.\"; Rec.\"No.\") { } } } } }\n";
-const PROPERTY_SHAPES: [(&str, &str); 20] = [
+const PROPERTY_SHAPES: [(&str, &str); 24] = [
     (
         "control Visible",
         "page 50101 \"P\" { PageType = Card; SourceTable = \"R\"; layout { area(Content) { field(\"No.\"; Rec.\"No.\") { Visible = # > 0; } } } }",
@@ -346,6 +346,22 @@ const PROPERTY_SHAPES: [(&str, &str); 20] = [
     (
         "control Visible in a repeater",
         "page 50101 \"P\" { PageType = List; SourceTable = \"R\"; layout { area(Content) { repeater(L) { field(\"No.\"; Rec.\"No.\") { Visible = # > 0; } } } } }",
+    ),
+    (
+        "action-area group Visible",
+        "page 50101 \"P\" { PageType = Card; SourceTable = \"R\"; actions { area(Processing) { group(AG) { Visible = # > 0; action(Act) { trigger OnAction() begin end; } } } } }",
+    ),
+    (
+        "page extension modify of an action, Visible",
+        "page 50106 \"Q\" { PageType = Card; SourceTable = \"R\"; layout { area(Content) { group(General) { field(\"No.\"; Rec.\"No.\") { } } part(Lines; \"Part\") { } } } actions { area(Processing) { group(AG) { action(Act) { trigger OnAction() begin end; } } } } }\npageextension 50107 \"QX\" extends \"Q\" { actions { modify(Act) { Visible = # > 0; } } }",
+    ),
+    (
+        "page extension modify of a group, Visible",
+        "page 50106 \"Q\" { PageType = Card; SourceTable = \"R\"; layout { area(Content) { group(General) { field(\"No.\"; Rec.\"No.\") { } } part(Lines; \"Part\") { } } } actions { area(Processing) { group(AG) { action(Act) { trigger OnAction() begin end; } } } } }\npageextension 50107 \"QX\" extends \"Q\" { layout { modify(General) { Visible = # > 0; } } }",
+    ),
+    (
+        "page extension modify of a part, Visible",
+        "page 50106 \"Q\" { PageType = Card; SourceTable = \"R\"; layout { area(Content) { group(General) { field(\"No.\"; Rec.\"No.\") { } } part(Lines; \"Part\") { } } } actions { area(Processing) { group(AG) { action(Act) { trigger OnAction() begin end; } } } } }\npageextension 50107 \"QX\" extends \"Q\" { layout { modify(Lines) { Visible = # > 0; } } }",
     ),
 ];
 /// The objects a shape extends, when it does not declare them: a card page and a report.
