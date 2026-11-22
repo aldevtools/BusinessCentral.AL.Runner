@@ -7,20 +7,25 @@
 //!   no table code;
 //! - before the save nothing but the table field's insert wrote the store; the save then writes Rec with every field it holds,
 //!   set by the control (:401, :414) or by the table field (:454, :512), also through `CurrPage.Update(true)` (:465);
-//! - between the save and `CurrPage.Update(false)` the code modified the row through another record (:342, :355), or set a
+//! - between the save and `CurrPage.Update(false)` the code modified the row through another record (:342, :355; :372 under
+//!   TestPage.OpenEdit with a filter on the group, `Opened::OpenEditOneGroup`), or set a
 //!   field of Rec (:487, :524), or wrote another table (:498, :536), and `Update(false)` reads the row as stored: the page
 //!   shows the other record's write and drops Rec's (`extra_code_kept`). Every other row of the page's table is as the save
 //!   left it, and so is Rec's view (`view_kept`);
 //! - the Update is the validation's last statement: Rec, the table's rows and the store's write mark stay as they were at the
 //!   Update until the validation ends (`extra_code_unchanged`).
 //!
-//! Measured but refused: a modify of the row through another record before the save (:443, the save writes Rec over it),
-//! `Update(true)` after `SaveRecord` (:476), and the cell under TestPage.OpenEdit with a filter (:372), which keeps main's way:
-//! no pinned open has a filter (`code_inserted_open`). Every other open, view and page keeps main's refusal
-//! (`UNMEASURED_CODE`).
+//! - `CurrPage.Update(true)` after the save writes Rec again, over what another record wrote since (:476), then refreshes as
+//!   `Update(false)` does (`extra_code_update_true`).
+//!
+//! - a modify of the row through another record before the save, its only write since the control's OnValidate began, when only
+//!   the table field's insert wrote the store before, is written over by the save (:443 `A//`, `Inserted::Rewritten`, measured
+//!   under Page.RunModal on an empty group).
+//!
+//! Every other open, view and page keeps main's refusal (`UNMEASURED_CODE`).
 
 use super::code_inserted_new_line::{Leave, Opened, UNMEASURED_CODE, View};
-use super::state::SavedView;
+use super::state::{CodeInsertedSave, SavedView};
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
 
@@ -34,14 +39,15 @@ impl Session {
     /// code that is not a pinned page's. It runs under the effect gate when the open and the view are measured (Page.RunModal on
     /// one group, empty or with one row before the line, each effect measured both ways, :342, :355, :401, :414, :454, :512,
     /// :487, :524, :498, :536; Update(true) on an empty group, :465), its table declares no
-    /// record trigger (`no_record_trigger`), and nothing but the table field's insert wrote the store since the line began;
-    /// otherwise refused.
+    /// record trigger (`no_record_trigger`), and nothing but the table field's insert wrote the store since the line began (or,
+    /// `rewritten`, that row once more inside the control's OnValidate, :443); otherwise refused.
     pub(super) fn extra_code_cell(
         &mut self,
         st: &St,
         opened: Opened,
         view: Option<View>,
         leave: Leave,
+        rewritten: bool,
     ) -> Result<(), Signal> {
         let measured = matches!(
             (leave, opened, view),
@@ -49,12 +55,33 @@ impl Session {
                 Leave::SaveRecord,
                 Opened::RunModalOneGroup,
                 Some(View::Alone | View::AfterRow)
-            ) | (Leave::UpdateTrue, Opened::RunModalOneGroup, Some(View::Alone))
+            ) | (Leave::SaveRecord, Opened::OpenEditOneGroup, Some(View::Alone))
+                | (Leave::UpdateTrue, Opened::RunModalOneGroup, Some(View::Alone))
         );
         let line = st.borrow().new_line_writes;
         let only_the_insert = line.is_some_and(|(mark, deletes)| self.write_mark() == (mark + 1, deletes));
-        if !(measured && only_the_insert && self.no_record_trigger(st)) {
+        // The row the control's OnValidate wrote once through another record before the save (`Inserted::Rewritten`): measured
+        // under Page.RunModal on an empty group, where nothing but the table field's insert wrote the store before the control's
+        // OnValidate began (:443).
+        let insert_before_control = {
+            let s = st.borrow();
+            matches!((line, s.control_onvalidate.as_ref()), (Some((mark, deletes)), Some(c)) if c.writes == (mark + 1, deletes))
+        };
+        let rewritten_measured =
+            rewritten && insert_before_control && opened == Opened::RunModalOneGroup && view == Some(View::Alone);
+        if !(measured && (only_the_insert || rewritten_measured) && self.no_record_trigger(st)) {
             return Err(Signal::unsupported(UNMEASURED_CODE));
+        }
+        if rewritten {
+            // The save writes Rec over what the other record wrote (:443 `A//`); the table has no OnModify, so the write is the
+            // page's whole save, and the save after it finds Rec as stored.
+            let rec = self.page_rec(st);
+            if self
+                .stored_row(&rec)?
+                .is_some_and(|stored| !Self::same_values(&rec.borrow().fields, &stored))
+            {
+                self.record_op(al_builtins::record_op::RecordOp::Modify, &rec, &mut [])?;
+            }
         }
         extra_code_assume();
         st.borrow_mut().code_inserted_extra = true;
@@ -73,6 +100,52 @@ impl Session {
                     .iter()
                     .any(|n| r.name.eq_ignore_ascii_case(n))
         })
+    }
+
+    /// `CurrPage.Update(true)` after the save, when the code since kept what `Update(false)` needs kept (`view_kept`): the page
+    /// saves Rec again, over the row another record wrote (:476 `A//V`), and asks the refresh; the save after it notes a new
+    /// view (`code_inserted_saved`). Otherwise not measured, and refused.
+    pub(super) fn extra_code_update_true(&mut self, st: &St, view: &SavedView) -> Result<(), Signal> {
+        if !self.view_kept(st, view)? {
+            st.borrow_mut().forget_code_inserted_line();
+            return unsupported(
+                "the page's record, its view or the table changed between CurrPage.SaveRecord, which moved the page from its new \
+                 line onto the row the table field inserted, and the CurrPage.Update(true) after it (not measured)",
+            );
+        }
+        extra_code_assume();
+        // The page writes Rec over the row as stored (:476); the table has no OnModify (`no_record_trigger`), so the write is
+        // the page's whole save. Rec and xRec are then the same, and the save that follows writes nothing more.
+        let rec = self.page_rec(st);
+        if self
+            .stored_row(&rec)?
+            .is_some_and(|stored| !Self::same_values(&rec.borrow().fields, &stored))
+        {
+            self.record_op(al_builtins::record_op::RecordOp::Modify, &rec, &mut [])?;
+        }
+        {
+            let mut s = st.borrow_mut();
+            s.code_inserted_save = CodeInsertedSave::Pending { asked: true };
+            s.code_inserted_extra = true;
+        }
+        self.ask_code_inserted_refresh(st)
+    }
+
+    /// On the page's new line, the SystemRowVersion of the stored row Rec is, if any: what a control's OnValidate begins with
+    /// (`ControlOnValidate::row_version`, read by `inserted_by_table_field`). `None` off the new line and where the row cannot
+    /// be read.
+    pub(super) fn new_line_row_version(&mut self, st: &St) -> Option<i64> {
+        let on_line = {
+            let s = st.borrow();
+            s.cursor == Cursor::NewLine && s.draft
+        };
+        if !on_line || !self.has_source(st) {
+            return None;
+        }
+        let rec = self.page_rec(st);
+        let table = self.table(&rec).ok()?;
+        let stored = self.stored_row(&rec).ok()??;
+        crate::stale_rename::row_version(&table, &stored)
     }
 
     /// Every stored row of the page's table after the save, which the code before `CurrPage.Update(false)` must leave as it is

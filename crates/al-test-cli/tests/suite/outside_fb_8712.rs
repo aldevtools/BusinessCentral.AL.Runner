@@ -69,20 +69,13 @@ fn issue_8712_probe_cells() {
         "NewLine_TableFieldSetsFieldBeforeSaveRecord_RowBefore_ShowsAndSavesIt",
         "NewLine_FieldSetAfterSaveRecord_RowBefore_UpdateFalseReadsTheStoredRow",
         "NewLine_SaveRecordThenWriteAnotherTable_RowBefore_ShowsAndSavesTheRow",
+        "NewLine_SaveRecordModifyThroughAnotherRecordThenUpdateTrue_SaveWritesRecOverIt",
+        "NewLine_SaveRecordThenModifyThroughAnotherRecord_OpenEdit_ShowsAndSavesIt",
+        "NewLine_ModifyThroughAnotherRecordBeforeSaveRecord_SaveWritesRecOverIt",
     ] {
         let (_, r, marks) = o.iter().find(|(n, _, _)| n == name).expect("the test");
         assert_eq!(*r, Outcome::Pass, "{name}");
         assert!(marks.contains(&ListNewLineExtraCode), "{name}: {marks:?}");
-    }
-    // A write of the row through another record before the save, and Update(true) after the save, are measured (the save
-    // writes Rec over the other record's write) but not run: refused. So is OpenEdit with a filter, which no pinned cell opens.
-    for name in [
-        "NewLine_SaveRecordThenModifyThroughAnotherRecord_OpenEdit_ShowsAndSavesIt",
-        "NewLine_ModifyThroughAnotherRecordBeforeSaveRecord_SaveWritesRecOverIt",
-        "NewLine_SaveRecordModifyThroughAnotherRecordThenUpdateTrue_SaveWritesRecOverIt",
-    ] {
-        let (_, r, _) = o.iter().find(|(n, _, _)| n == name).expect("the test");
-        assert!(matches!(r, Outcome::NotRun(_)), "{name}: {r:?}");
     }
 }
 
@@ -101,4 +94,91 @@ fn issue_8712_neighbors_are_refused() {
         .map(|(name, r, _)| format!("{name}: {r:?}"))
         .collect();
     assert!(ran.is_empty(), "{ran:#?}");
+}
+
+/// A write through another record before the save is measured only where nothing but the table field's insert wrote the store
+/// before the control's OnValidate began (ListNewLineExtraCode.al:443): a table field that also inserts a row of another table
+/// first keeps main's refusal.
+#[test]
+fn issue_8712_rewrite_after_another_tables_write_is_refused() {
+    const SRC: &str = r#"
+table 97651 "LT RW Line"
+{
+    fields
+    {
+        field(1; "Group Code"; Code[10]) { }
+        field(2; "Entry No."; Integer) { AutoIncrement = true; }
+        field(3; Name; Text[30])
+        {
+            trigger OnValidate()
+            var
+                Detail: Record "LT RW Detail";
+            begin
+                if "Entry No." = 0 then
+                    Insert(true);
+                Detail.Init();
+                Detail.Insert();
+            end;
+        }
+        field(4; Note; Text[30]) { }
+    }
+    keys { key(PK; "Group Code", "Entry No.") { Clustered = true; } }
+}
+table 97652 "LT RW Detail"
+{
+    fields { field(1; "Entry No."; Integer) { AutoIncrement = true; } }
+    keys { key(PK; "Entry No.") { Clustered = true; } }
+}
+page 97653 "LT RW Lines"
+{
+    PageType = List;
+    SourceTable = "LT RW Line";
+    AutoSplitKey = true;
+    layout
+    {
+        area(Content)
+        {
+            repeater(Lines)
+            {
+                field(Name; Rec.Name)
+                {
+                    trigger OnValidate()
+                    var
+                        Other: Record "LT RW Line";
+                    begin
+                        Other.Get(Rec."Group Code", Rec."Entry No.");
+                        Other.Note := 'Stamped';
+                        Other.Modify();
+                        CurrPage.SaveRecord();
+                        CurrPage.Update(false);
+                    end;
+                }
+                field(Note; Rec.Note) { }
+            }
+        }
+    }
+}
+codeunit 97654 "LT RW Tests"
+{
+    Subtype = Test;
+    [Test]
+    [HandlerFunctions('Handler')]
+    procedure RewriteAfterAnotherTablesWrite()
+    var
+        Line: Record "LT RW Line";
+    begin
+        Line.SetRange("Group Code", 'G1');
+        Page.RunModal(Page::"LT RW Lines", Line);
+    end;
+    [ModalPageHandler]
+    procedure Handler(var Lines: TestPage "LT RW Lines")
+    begin
+        Lines.New();
+        Lines.Name.SetValue('A');
+        Lines.OK().Invoke();
+    end;
+}
+"#;
+    let o = outcomes(SRC, "LT RW Tests");
+    assert!(matches!(o[0].1, Outcome::NotRun(_)), "{:?}", o[0]);
 }

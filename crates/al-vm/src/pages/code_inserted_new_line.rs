@@ -49,6 +49,9 @@ pub(super) enum Opened {
     /// (the opener) with a row of another group outside the view. The repro of al-runner issue 8186 (`CurrPage.Update()` on the
     /// page without triggers opened so) is refused (`code_inserted_cell`).
     RunModalOneGroup,
+    /// The test's `TestPage.OpenEdit()`, then a filter of the test on the key's first field to the line's value (`TestPage.Filter.
+    /// SetFilter`): measured only for code that is not a pinned page's (ListNewLineExtraCode.al:372, `code_inserted_extra.rs`).
+    OpenEditOneGroup,
 }
 
 /// The refusal of a SaveRecord or Update(true) cell whose code is not the measured code (`code_inserted_pinned.rs`), and not
@@ -64,6 +67,15 @@ pub(super) enum View {
     Alone,
     /// The row last, after one row of its group.
     AfterRow,
+}
+
+/// How the row Rec is came to be (`inserted_by_table_field`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Inserted {
+    /// The table field's OnValidate inserted it before the control's OnValidate began.
+    ByTableField,
+    /// The same, then the control's OnValidate wrote it once through another record, and nothing else.
+    Rewritten,
 }
 
 /// The page call that leaves the line, as the control's OnValidate makes it.
@@ -201,6 +213,8 @@ impl Session {
                 )
                 // ListNewLineSaveRecordUpdate.al, page 97474: :677-737, :784-874.
                 | (Triggers::FactboxHost, true, Opened::OpenEdit | Opened::RunModalOneGroup, Leave::SaveRecord)
+                // ListNewLineExtraCode.al:372, for code that is not a pinned page's only (`code_inserted_extra.rs`).
+                | (Triggers::Quiet, true, Opened::OpenEditOneGroup, Leave::SaveRecord)
         );
         // The repro of issue 8186: page 97039's shape opened by a RunModal filtered to one group. The corpus opens that page
         // with OpenEdit only for Update() (ListNewLineCodeInsertUpdate.al:783-810), and main's way is the result the issue
@@ -221,10 +235,18 @@ impl Session {
             return Ok(false);
         }
         let page_object = st.borrow().object as usize;
-        let view = if self.code_inserted_line(st) && self.inserted_by_table_field(st, coded)? {
-            self.code_inserted_view(st, coded)?
-        } else {
-            None
+        let inserted = match self.code_inserted_line(st, opened == Opened::OpenEditOneGroup) {
+            true => self.inserted_by_table_field(st, coded)?,
+            false => None,
+        };
+        // Only the effect gate takes a row the control's OnValidate wrote once before the save (`code_inserted_extra.rs`).
+        let rewritten = inserted == Some(Inserted::Rewritten);
+        let view = match inserted {
+            Some(Inserted::ByTableField) => self.code_inserted_view(st, coded)?,
+            Some(Inserted::Rewritten) if matches!(triggers, Triggers::Quiet) && leave == Leave::SaveRecord => {
+                self.code_inserted_view(st, coded)?
+            }
+            _ => None,
         };
         let shape = view.is_some() && (!coded || self.no_active_subscriber(page_object));
         if shape && coded {
@@ -240,15 +262,19 @@ impl Session {
         // The SaveRecord and Update(true) cells run only the code that was measured (`code_inserted_pinned.rs`).
         if shape && cell && matches!(leave, Leave::UpdateTrue | Leave::SaveRecord) {
             match self.code_inserted_code(st)? {
-                Some(PinnedCode::Probe) => {}
+                Some(PinnedCode::Probe) if opened != Opened::OpenEditOneGroup && !rewritten => {}
                 // The repro is measured only when Page.RunModal opens it on one group with one row before the new line
                 // (Issue8285.al:146-211); OpenEdit and an empty group are not (review of #8305, round 4).
-                Some(PinnedCode::Repro) if opened == Opened::RunModalOneGroup && view == Some(View::AfterRow) => {
+                Some(PinnedCode::Repro)
+                    if opened == Opened::RunModalOneGroup && view == Some(View::AfterRow) && !rewritten =>
+                {
                     al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ListNewLineSaveRecordRepro)
                 }
                 // Other code on the page without triggers: the effect gate of the cells of al-runner issues 8712 and 8713.
-                None if matches!(triggers, Triggers::Quiet) => self.extra_code_cell(st, opened, view, leave)?,
-                Some(PinnedCode::Repro) | None => return Err(Signal::unsupported(UNMEASURED_CODE)),
+                None if matches!(triggers, Triggers::Quiet) => {
+                    self.extra_code_cell(st, opened, view, leave, rewritten)?
+                }
+                Some(PinnedCode::Probe | PinnedCode::Repro) | None => return Err(Signal::unsupported(UNMEASURED_CODE)),
             }
         }
         Ok(shape)
@@ -392,8 +418,16 @@ impl Session {
                 && matches!(&f.expr, FilterExpr::Range(Some(a), Some(b))
                     if Self::same_values(std::slice::from_ref(a), line) && Self::same_values(std::slice::from_ref(b), line))
         };
+        // The test's `Filter.SetFilter(Field, Value)` on the key's first field to the line's value (ListNewLineExtraCode.al:376).
+        let test_one_group = |f: &al_builtins::filter::FieldFilter| {
+            let line = &r.fields[f.field..=f.field];
+            f.group == 0
+                && table.keys[0].first() == Some(&f.field)
+                && matches!(&f.expr, FilterExpr::Eq(v) if Self::same_values(std::slice::from_ref(v), line))
+        };
         let opened = match (open_edit, run_modal, r.filters.as_slice()) {
             (true, false, []) => Opened::OpenEdit,
+            (true, false, [f]) if test_one_group(f) => Opened::OpenEditOneGroup,
             (false, true, []) => Opened::RunModal,
             (false, true, [f]) if one_group(f) => Opened::RunModalOneGroup,
             _ => return Ok(None),
@@ -418,8 +452,9 @@ impl Session {
 
     /// The page stands on the line `New()` started, editable, inside a control's validation, and the test made exactly the
     /// measured calls on it since the open: `New()`, then the SetValue that runs now (:477-479, :697-698;
-    /// ListNewLineSaveRecordUpdate.al:354-356, :397-399).
-    fn code_inserted_line(&self, st: &St) -> bool {
+    /// ListNewLineSaveRecordUpdate.al:354-356, :397-399); `filtered` (`Opened::OpenEditOneGroup`), first the test's
+    /// `Filter`, then `SetFilter` (ListNewLineExtraCode.al:375-376).
+    fn code_inserted_line(&self, st: &St, filtered: bool) -> bool {
         let line = {
             let s = st.borrow();
             s.open
@@ -438,11 +473,20 @@ impl Session {
             let s = st.borrow();
             !s.tree_calls_unknown && s.tree_calls.iter().all(|c| c.part.is_none())
         };
-        line && no_part_calls
-            && matches!(
-                Self::test_calls(st).as_deref(),
-                Some([TestCall::Page(PageMethod::New), TestCall::Write(_)])
-            )
+        let calls = Self::test_calls(st);
+        let measured = match calls.as_deref() {
+            Some([TestCall::Page(PageMethod::New), TestCall::Write(_)]) => !filtered,
+            Some(
+                [
+                    TestCall::Page(PageMethod::Filter),
+                    TestCall::Other(PageMethod::SetFilter),
+                    TestCall::Page(PageMethod::New),
+                    TestCall::Write(_),
+                ],
+            ) => filtered,
+            _ => false,
+        };
+        line && no_part_calls && measured
     }
 
     /// Whether Rec is the row the table field's OnValidate inserted from the line before the control's OnValidate began (:30-37):
@@ -451,27 +495,25 @@ impl Session {
     /// before the control's own OnValidate began (its SystemRowVersion above the store's mark when the line started,
     /// `new_line_writes`, and not above the mark when the control's OnValidate began, `control_onvalidate`). The table has
     /// no table extension and no event subscriber; with `manual_unbound` (the page with code), manual subscribers nobody binds
-    /// are allowed (ListNewLineFactboxesCode.al:255-275).
-    fn inserted_by_table_field(&mut self, st: &St, manual_unbound: bool) -> Result<bool, Signal> {
-        let (Some(start), Some((line_mark, _)), Some((control_mark, _))) = ({
+    /// are allowed (ListNewLineFactboxesCode.al:255-275). `Inserted::Rewritten` for that row when the control's OnValidate then
+    /// wrote it once, and nothing else (`code_inserted_extra.rs`, ListNewLineExtraCode.al:443).
+    fn inserted_by_table_field(&mut self, st: &St, manual_unbound: bool) -> Result<Option<Inserted>, Signal> {
+        let (Some(start), Some((line_mark, _)), Some(control)) = ({
             let s = st.borrow();
-            (
-                s.draft_start.clone(),
-                s.new_line_writes,
-                s.control_onvalidate.as_ref().map(|v| v.writes),
-            )
+            (s.draft_start.clone(), s.new_line_writes, s.control_onvalidate.clone())
         }) else {
-            return Ok(false);
+            return Ok(None);
         };
+        let (control_mark, control_deletes) = control.writes;
         let rec = self.page_rec(st);
         let table = self.table(&rec)?;
         let engine = self.engine();
         let object = table.object as usize;
         let Some(schema) = engine.program.objects[object].table.as_ref() else {
-            return Ok(false);
+            return Ok(None);
         };
         let [code, auto] = table.keys[0][..] else {
-            return Ok(false);
+            return Ok(None);
         };
         let key_shape = matches!(schema.fields[code].ty, al_builtins::value::RtType::Code(_))
             && matches!(schema.fields[auto].ty, al_builtins::value::RtType::Integer)
@@ -485,13 +527,23 @@ impl Session {
         let from_line = matches!(start.get(auto), Some(Value::Integer(0)))
             && Self::same_values(&rec.borrow().fields[code..=code], &start[code..=code]);
         if !(key_shape && plain_table && from_line) {
-            return Ok(false);
+            return Ok(None);
         }
         let Some(stored) = self.stored_row(&rec)? else {
-            return Ok(false);
+            return Ok(None);
         };
-        Ok(crate::stale_rename::row_version(&table, &stored)
-            .is_some_and(|v| (line_mark + 1..=control_mark).contains(&v)))
+        let by_table_field = |v: i64| (line_mark + 1..=control_mark).contains(&v);
+        let Some(version) = crate::stale_rename::row_version(&table, &stored) else {
+            return Ok(None);
+        };
+        if by_table_field(version) {
+            return Ok(Some(Inserted::ByTableField));
+        }
+        // The row the table field inserted when the control's OnValidate began, written once since, and nothing else written.
+        let rewritten = control.row_version.is_some_and(by_table_field)
+            && version == control_mark + 1
+            && self.write_mark() == (control_mark + 1, control_deletes);
+        Ok(rewritten.then_some(Inserted::Rewritten))
     }
 
     /// Which measured view holds the inserted row last: alone, or after one row with the same value in the key's first field
@@ -522,10 +574,9 @@ impl Session {
     /// The page control's own OnValidate trigger `r` of control `idx`, recorded in `PageState::control_onvalidate` while it runs
     /// (`inserted_by_table_field` and `refresh_new_line.rs` `found_row_cell` read it).
     pub(super) fn run_control_onvalidate(&mut self, st: &St, idx: usize, r: usize) -> Result<Value, Signal> {
-        let start = Some(crate::pages::state::ControlOnValidate::new(
-            self.write_mark(),
-            self.store.change_counter(),
-        ));
+        let mut begun = crate::pages::state::ControlOnValidate::new(self.write_mark(), self.store.change_counter());
+        begun.row_version = self.new_line_row_version(st);
+        let start = Some(begun);
         let outer = std::mem::replace(&mut st.borrow_mut().control_onvalidate, start);
         self.pages.onvalidate_pages.push(st.clone());
         let result = self.control_routine(st, idx, r);
@@ -753,6 +804,9 @@ impl Session {
         arg: Option<&Value>,
         view: &SavedView,
     ) -> Result<(), Signal> {
+        if view.extra && matches!(arg, Some(Value::Boolean(true))) {
+            return self.extra_code_update_true(st, view);
+        }
         if !matches!(arg, Some(Value::Boolean(false))) {
             st.borrow_mut().forget_code_inserted_line();
             return unsupported(
@@ -798,7 +852,7 @@ impl Session {
 
     /// The refresh about to run lands on the row the page left its line for (`code_inserted_refresh_due`), and the next move
     /// starts from it (`previous_on_code_inserted_row`).
-    fn ask_code_inserted_refresh(&mut self, st: &St) -> Result<(), Signal> {
+    pub(super) fn ask_code_inserted_refresh(&mut self, st: &St) -> Result<(), Signal> {
         let key = self.row_key(&self.page_rec(st))?;
         let mut s = st.borrow_mut();
         s.refresh.land_on_code_inserted_line();

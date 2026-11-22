@@ -1,0 +1,11 @@
+{
+  "id": "abb60e73-1eda-42c7-a533-dcd8e4c13860",
+  "name": "Neighbors transaction type sets and read-only writes",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "29.0.0.0",
+  "runtime": "18.0",
+  "target": "Cloud",
+  "idRanges": [{ "from": 50000, "to": 50049 }],
+  "dependencies": []
+}

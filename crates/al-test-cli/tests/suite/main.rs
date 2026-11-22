@@ -283,6 +283,7 @@ mod testpage_action_without_parentheses;
 mod testpage_visible_non_field_source;
 mod this_in_objects;
 mod trigger_setup_read_permission;
+mod tx_type_sets;
 mod typed_handler_set_up_variable;
 mod typed_handler_temp_stored_source;
 mod unpinned_error_result;

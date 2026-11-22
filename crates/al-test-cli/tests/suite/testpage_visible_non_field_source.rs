@@ -502,7 +502,11 @@ codeunit 50136 "Repro Route Tests"
         Row: Record "Repro Route Row";
     begin
         InsertRow(Row);
-        if Page.RunModal(Page::"Repro Route Card", Row) = Action::LookupOK then;
+        ModalVisible := 'not run';
+        if Page.RunModal(Page::"Repro Route Card", Row) <> Action::LookupCancel then
+            Error('not LookupCancel');
+        if ModalVisible <> 'Yes' then
+            Error('in handler: %1', ModalVisible);
     end;
 
     [Test]
@@ -512,7 +516,10 @@ codeunit 50136 "Repro Route Tests"
         Row: Record "Repro Route Row";
     begin
         InsertRow(Row);
+        ModalVisible := 'not run';
         Page.RunModal(Page::"Repro Route Card", Row, Row.FieldNo(Amount));
+        if ModalVisible <> 'Yes' then
+            Error('in handler: %1', ModalVisible);
     end;
 
     [Test]
@@ -522,7 +529,10 @@ codeunit 50136 "Repro Route Tests"
         Row: Record "Repro Route Row";
     begin
         InsertRow(Row);
+        ModalVisible := 'not run';
         Page.RunModal(0, Row);
+        if ModalVisible <> 'Yes' then
+            Error('in handler: %1', ModalVisible);
     end;
 
     [Test]
@@ -576,6 +586,35 @@ codeunit 50136 "Repro Route Tests"
         Card.GoToRecord(Row);
         Check(Card.Total.Visible(), true);
         Card.Close();
+    end;
+
+    [Test]
+    [HandlerFunctions('NoReadHandler')]
+    procedure VarModalNoRead()
+    var
+        Row: Record "Repro Route Row";
+        Card: Page "Repro Route Card";
+    begin
+        InsertRow(Row);
+        Card.SetRecord(Row);
+        Card.RunModal();
+    end;
+
+    [Test]
+    [HandlerFunctions('ModalHandler')]
+    procedure VarModalRead()
+    var
+        Row: Record "Repro Route Row";
+        Card: Page "Repro Route Card";
+    begin
+        InsertRow(Row);
+        Card.SetRecord(Row);
+        Card.RunModal();
+    end;
+
+    [ModalPageHandler]
+    procedure NoReadHandler(var Card: TestPage "Repro Route Card")
+    begin
     end;
 
     [ModalPageHandler]
@@ -662,6 +701,23 @@ codeunit 50137 "Repro Route Old Tests"
         Check('Amount');
     end;
 
+    [Test]
+    [HandlerFunctions('NoReadHandler')]
+    procedure VarModalNoRead()
+    var
+        Row: Record "Repro Route Row";
+        Card: Page "Repro Route Card";
+    begin
+        InsertRow(Row);
+        Card.SetRecord(Row);
+        Card.RunModal();
+    end;
+
+    [ModalPageHandler]
+    procedure NoReadHandler(var Card: TestPage "Repro Route Card")
+    begin
+    end;
+
     [ModalPageHandler]
     procedure ModalHandler(var Card: TestPage "Repro Route Card")
     begin
@@ -681,6 +737,50 @@ codeunit 50137 "Repro Route Old Tests"
     end;
 }
 "##;
+
+/// Each modal shape with no handler: "Unhandled UI: ModalPage <id>" (code MissingUIHandler) on every major, before the Visible
+/// rule (VisibleExpressionSource.al round 2, `VisibleSource_ModalNoHandler_UnhandledUi`).
+const NO_HANDLER: &str = r##"
+codeunit 50138 "Repro Route No Handler Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure NoHandler()
+    var
+        Row: Record "Repro Route Row";
+    begin
+        Row.DeleteAll();
+        Row.Id := 1;
+        Row.Amount := 1;
+        Row.Insert();
+        asserterror Page.RunModal(Page::"Repro Route Card", Row);
+        Check();
+        asserterror Page.RunModal(Page::"Repro Route Card", Row, Row.FieldNo(Amount));
+        Check();
+        asserterror Page.RunModal(0, Row);
+        Check();
+    end;
+
+    local procedure Check()
+    begin
+        if (GetLastErrorText() <> 'Unhandled UI: ModalPage 50131') or (GetLastErrorCode() <> 'MissingUIHandler') then
+            Error('got %1 (%2)', GetLastErrorText(), GetLastErrorCode());
+    end;
+}
+"##;
+
+#[test]
+fn with_no_handler_each_modal_shape_is_unhandled_ui_on_every_major() {
+    let src = format!("{ROUTES}{NO_HANDLER}");
+    for v in ["27.5", "28.5", "29.0"] {
+        let target = al_version::Target::for_bc(al_version::BcVersion::parse(v).unwrap());
+        let got =
+            crate::record_copy_reports::run_with(&src, "Repro Route No Handler Tests", |e| e.target = Some(target));
+        assert_eq!(got.len(), 1, "{v}");
+        assert!(got[0].1.starts_with("Pass"), "{v}: {}", got[0].1);
+    }
+}
 
 const REFUSED: &str = "opened in a way the probe did not measure";
 
@@ -710,13 +810,16 @@ fn from_bc_29_every_measured_route_and_shape_reads_yes_flagged() {
         ("OpenNew", "Pass", true),
         ("TrapRun", "Pass", true),
         ("Modal", "Pass", true),
-        ("ModalLookup", "Refused", false),
-        ("ModalField", "Refused", false),
-        ("ModalTableLookupPage", "Refused", false),
+        ("ModalLookup", "Pass", true),
+        ("ModalField", "Pass", true),
+        ("ModalTableLookupPage", "Pass", true),
         ("BoundElsewhere", "Pass", true),
         ("BoundFirst", "Pass", true),
         ("NamesKey", "Pass", true),
         ("OneBound", "Pass", true),
+        // A route no probe measured: the open runs, and only the Visible read of such a control is refused.
+        ("VarModalNoRead", "Pass", false),
+        ("VarModalRead", "Refused", false),
     ]
     .into_iter()
     .map(|(n, k, f)| (n.to_string(), k, f))
@@ -735,6 +838,8 @@ fn before_29_every_measured_route_and_shape_raises_at_the_open_flagged() {
             ("BoundFirst", "Pass", true),
             ("NamesKey", "Pass", true),
             ("OneBound", "Pass", true),
+            // Before 29 an unmeasured route stays refused at the open: BC raises at every open it measured.
+            ("VarModalNoRead", "Refused", false),
         ]
         .into_iter()
         .map(|(n, k, f)| (n.to_string(), k, f))
