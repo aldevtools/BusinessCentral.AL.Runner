@@ -257,6 +257,7 @@ mod clear_test_page;
 mod close_save_failed;
 mod code_close_veto;
 mod code_inserted_new_line;
+mod code_inserted_pinned;
 mod modal_close_save_error;
 mod own_area_caption;
 mod triggerless_action;

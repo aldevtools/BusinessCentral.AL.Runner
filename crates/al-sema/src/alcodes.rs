@@ -44,7 +44,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ),
     (
         "AL0107",
-        "a parameter named by one of 24 keywords after `var` (the first diagnostic, at the name); alc's full list for the two-codeunit keyword-parameter file (cases 2016-2039); two commas after the text of a Label declaration (case 2332); a variable named by one of the same 24 keywords after a comma, or named `event` (alcodes/keyword_variable_names.rs; the first diagnostic; issue 8539); one of 32 keywords, unquoted, after `.` or `::` in the code of a procedure or trigger and in the property and source expressions alcodes/keyword_member_names.rs lists (`EXPRESSIONS`; issues 8635, 8649, 8650 and, for `::In`, 7803; the first diagnostic, at the word)",
+        "a parameter named by one of 24 keywords after `var` (the first diagnostic, at the name); alc's full list for the two-codeunit keyword-parameter file (cases 2016-2039); two commas after the text of a Label declaration (case 2332); a variable named by one of the same 24 keywords after a comma, or named `event` (alcodes/keyword_variable_names.rs; the first diagnostic; issue 8539); a table or table extension field named, unquoted, by one of the same 24 keywords (alcodes/keyword_field_names.rs; the first diagnostic, at the name; issue 8630); one of 32 keywords, unquoted, after `.` or `::` in the code of a procedure or trigger and in the property and source expressions alcodes/keyword_member_names.rs lists (`EXPRESSIONS`; issues 8635, 8649, 8650 and, for `::In`, 7803; the first diagnostic, at the word)",
     ),
     (
         "AL0301",
@@ -606,7 +606,9 @@ pub fn check_workspace_parts(ws: &Workspace, first: usize) -> (Vec<Diagnostic>, 
             ObjKind::Table => {
                 count_flowfield::check(ws, oi, &obj, &mut out);
                 field_types::check(ws, oi, &obj, &mut out);
+                keyword_field_names::check(ws, oi, &obj, &mut out);
             }
+            ObjKind::TableExtension => keyword_field_names::check(ws, oi, &obj, &mut out),
             ObjKind::Report => {
                 let globals = report_variable_columns(ws, o.file, &obj);
                 report_columns(ws, o.file, obj.sections(), &globals, &mut out)
@@ -1487,6 +1489,15 @@ fn object_triggers(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<D
 /// measured 2026-10-22 with one probe file per word of the compiler's keyword table (`procedure P1(<word>: Integer)`
 /// and `procedure P1(var <word>: Integer)`). Every other keyword compiles as a parameter name (`local`, `if`, `fields`,
 /// `keys`, `layout`, ...), and so does any quoted name. Test: `check::tests::keywords_alc_rejects_as_parameter_names`.
+///
+/// Rules that read this list, each with the measurement it rests on:
+/// - parameter names (`parameter_names`): the probe above, must-not-compile 2016-2039;
+/// - variable names (`alcodes/keyword_variable_names.rs`, al-runner issue 8539): every word as a variable name in each
+///   section, corpus PR 1476;
+/// - table and table extension field names (`alcodes/keyword_field_names.rs`, al-runner issue 8630): every word as a
+///   table field name, corpus PR 1496.
+///
+/// A change to the list must be measured again for each rule that reads it.
 const PARAM_NAME_KEYWORDS: &[&str] = &[
     "actions",
     "area",
@@ -2557,6 +2568,7 @@ mod control_visible;
 mod count_flowfield;
 mod enum_variables;
 mod field_types;
+mod keyword_field_names;
 mod keyword_member_names;
 mod keyword_variable_names;
 mod permissions_property;
