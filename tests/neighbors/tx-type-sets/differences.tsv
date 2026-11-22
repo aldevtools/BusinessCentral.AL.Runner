@@ -19,6 +19,7 @@ NB TS Insert RunTrigger::InsertTrueAtSnapshot_Refused	REFUSED Insert while Datab
 NB TS Insert Subscribed::InsertSubscribedAtSnapshot_Refused	REFUSED Insert while Database.CurrentTransactionType is Snapshot
 NB TS Modify Unchanged::ModifyUnchangedAtSnapshot_Refused	REFUSED Modify while Database.CurrentTransactionType is Snapshot
 NB TS ModifyAll No Row::ModifyAllNoRowAtSnapshot_Refused	REFUSED ModifyAll while Database.CurrentTransactionType is Snapshot
+NB TS Modify After CalcFields::CalcFieldsModifyAtSnapshot_Refused	REFUSED Modify while Database.CurrentTransactionType is Snapshot
 NB TS First Test Guarded Run::FailedRunThenSetBrowse_Refused	REFUSED Database.CurrentTransactionType set to Browse at the start of a test codeunit's first test method
 # A write at the type a refused test may have left is marked (it rests on that test having left a type that writes), and a
 # later failure is not trusted: main ran both clean.

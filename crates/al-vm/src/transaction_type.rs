@@ -56,7 +56,8 @@ impl Session {
             );
         }
         // At the start of a codeunit's first test method the test runner's transaction may have started (the description of
-        // corpus pull request 1520): until a Commit or a rollback ends it, a set is one after the start.
+        // corpus pull request 1520): until a Commit or the rollback of an asserterror in the code of the test ends it, a set is
+        // one after the start.
         let fresh = self.tx.phase == TxPhase::Fresh && !self.tx.open.runner_tx;
         // The set is a step of the moment an Update report is measured at (`OpenTx::moment`).
         self.moment_type_set(
@@ -299,7 +300,13 @@ impl Session {
                     return Ok(false);
                 }
                 let mut changed = false;
-                for (i, _) in t.fields.iter().enumerate().filter(|(_, f)| f.id < 2_000_000_000) {
+                // Stored fields only: a FlowField CalcFields filled is no change of the row.
+                for (i, _) in t
+                    .fields
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, f)| f.stored && f.id < 2_000_000_000)
+                {
                     let (Some(old), Some(new)) = (row.get(i), r.fields.get(i)) else {
                         return Ok(false);
                     };

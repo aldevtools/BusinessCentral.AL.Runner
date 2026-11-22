@@ -55,6 +55,26 @@ table 50003 "NB TS Other"
     }
 }
 
+table 50008 "NB TS Flow Row"
+{
+    DataClassification = SystemMetadata;
+
+    fields
+    {
+        field(1; "Entry No."; Integer) { }
+        field(2; "Row Total"; Integer)
+        {
+            FieldClass = FlowField;
+            CalcFormula = sum("NB TS Row"."Entry No.");
+        }
+    }
+
+    keys
+    {
+        key(PK; "Entry No.") { Clustered = true; }
+    }
+}
+
 table 50004 "NB TS Trigger Row"
 {
     DataClassification = SystemMetadata;
@@ -774,6 +794,39 @@ codeunit 50037 "NB TS First Test Guarded Run"
         CurrentTransactionType(TransactionType::Browse);
         if Format(CurrentTransactionType()) <> 'Browse' then
             Error('Type: %1', CurrentTransactionType());
+        Commit();
+        CurrentTransactionType(TransactionType::UpdateNoLocks);
+    end;
+}
+
+codeunit 50038 "NB TS Modify After CalcFields"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure A_Nothing()
+    begin
+    end;
+
+    // A FlowField CalcFields filled is no stored change: the Modify changes nothing.
+    [Test]
+    procedure CalcFieldsModifyAtSnapshot_Refused()
+    var
+        Row: Record "NB TS Row";
+        FlowRow: Record "NB TS Flow Row";
+    begin
+        Row."Entry No." := 30;
+        Row.Insert();
+        FlowRow."Entry No." := 1;
+        FlowRow.Insert();
+        Commit();
+        CurrentTransactionType(TransactionType::Snapshot);
+        FlowRow.Get(1);
+        FlowRow.CalcFields("Row Total");
+        if FlowRow."Row Total" = 0 then
+            Error('The FlowField is zero.');
+        asserterror FlowRow.Modify();
         Commit();
         CurrentTransactionType(TransactionType::UpdateNoLocks);
     end;
