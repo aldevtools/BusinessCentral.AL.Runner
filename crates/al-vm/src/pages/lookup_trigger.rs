@@ -79,7 +79,6 @@ impl Session {
                 if let Some(own) = e.code.strip_prefix("TestWrapped:") {
                     e.code = own.to_string();
                 }
-                self.error_finals = None;
                 if let Err(s) = self.hold_error(*e) {
                     return Some(Err(s));
                 }

@@ -2472,6 +2472,7 @@ impl Session {
         self.probed_source_before(method, rec, args);
         Self::rolled_read_before(method, rec);
         let inserted = self.own_read_before(method, rec, args);
+        self.bg_watched_read(method, rec)?;
         let r = if self.coverage.profiler.is_some() {
             self.record_op_profiled(method, rec, args)
         } else {
@@ -2518,6 +2519,8 @@ impl Session {
             RecordOp::Insert if !self.ret_used && self.insert_is_queued(rec) => InsertKind::Queued,
             _ => InsertKind::Other,
         };
+        // A page background task's locking read of a row the test codeunit wrote (bg_readisolation_lock.rs).
+        self.row_locks_read(method, rec, args)?;
         self.note_read_after_rollback(method, rec, args);
         if self.sql.active {
             let r = self.record_op_counted(method, rec, args);

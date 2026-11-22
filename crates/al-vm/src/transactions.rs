@@ -951,7 +951,6 @@ impl Session {
                     if self.pages.bg_worker.is_none() {
                         self.rollback_transaction();
                     }
-                    self.error_finals = None;
                     self.catch_error(*e)?;
                     if let Some(c) = caller_rec.take() {
                     c.restore();
@@ -992,7 +991,6 @@ impl Session {
                 if self.pages.bg_worker.is_none() {
                     self.guarded_run_rollback(&e, body)?;
                 }
-                self.error_finals = None;
                 self.catch_error(*e)?;
                 if let Some(c) = caller_rec.take() {
                     c.restore();

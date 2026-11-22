@@ -1,4 +1,5 @@
 //! `CorpusRuntime`: compiling suites of apps and running them.
+use super::carry_after::After;
 use super::narrowing::{Met, Narrowing};
 use super::*;
 
@@ -1628,28 +1629,10 @@ impl CorpusRuntime {
                     .iter()
                     .rev()
                     .find(|(si, id, leg, _)| sees(*si, *id, *leg, &units[k]));
-                let storage = before
-                    .is_some_and(|(_, _, _, c)| c.everything && reaches_session_storage(&engine, lowered, units[k].oi));
-                let hit = r.result.as_ref().is_ok_and(|done| done.5.leak_hit) || storage;
-                if let (true, Some((_, _, leg, c))) = (hit, before) {
-                    let o = &lowered.program.objects[units[k].oi];
-                    let handlers = o.routines.iter().any(|r| {
-                        r.attributes
-                            .iter()
-                            .any(|a| a.name.eq_ignore_ascii_case("HandlerFunctions"))
-                    });
-                    let unfinished = if storage { c.storage_why.as_ref() } else { None }.or(c.unfinished.as_ref());
-                    let refused = match unfinished {
-                        Some(why) => Some(why.clone()),
-                        // BC's CI runs a codeunit with handlers through another runner than the TestRunnerHub
-                        // (QuCommitIsolation.al:11-13): whether it runs before or after the Disabled codeunit is not pinned.
-                        None if handlers && *leg == 0 => Some(
-                            "an earlier codeunit with RequiredTestIsolation = Disabled wrote a table this test reads, and \
-                             whether BC runs this codeunit, which has handlers, before or after it is not pinned"
-                                .to_string(),
-                        ),
-                        None => None,
-                    };
+                let after = before.map(|(_, _, leg, c)| (After::new(&engine, lowered, c, units[k].oi, *leg), c));
+                if let Some((after, c)) = after.filter(|(a, _)| a.read(&r)) {
+                    let storage = after.reaches_storage();
+                    let refused = after.outside_refusal(&r).cloned();
                     match refused {
                         Some(why) => {
                             if let Ok(done) = &mut r.result {
@@ -1657,7 +1640,6 @@ impl CorpusRuntime {
                             }
                         }
                         None => {
-                            units[k].leak = None;
                             // The run again is the one reported, so `--explain` names its site.
                             let (si, id) = (units[k].si, units[k].id);
                             let mut observe = |name: &str, _: &Outcome, seen: &Observed| {
@@ -2577,7 +2559,7 @@ fn note_leaks(units: &mut [Unit], carried: &[super::chain_walk::Carry], sees: &d
     for u in units.iter_mut() {
         if let Some((_, _, _, c)) = carried.iter().rev().find(|(si, id, leg, _)| sees(*si, *id, *leg, u)) {
             if u.leak.is_none() {
-                u.leak = Some(Arc::new(c.tables.clone()));
+                u.leak = super::carry_after::leak(Some(c));
             }
         }
     }
