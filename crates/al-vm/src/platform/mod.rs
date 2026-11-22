@@ -22,6 +22,8 @@ mod date;
 mod ext_event_row;
 mod feature_key;
 mod field_key_lookup;
+mod field_relation;
+pub(crate) mod relation_field_no_readers;
 pub(crate) use field_key_lookup::{unmeasured_find, unmeasured_key_read};
 mod fields;
 pub(crate) use fields::user_name_system_field;
@@ -82,7 +84,7 @@ pub(crate) struct EventStats {
     pub calls: RefCell<HashMap<(usize, usize), i64>>,
     /// Subscriber object to the number of bound instances.
     pub active: RefCell<HashMap<usize, i64>>,
-    /// The session's `GlobalLanguage` when it is not 1033 (0: 1033). The Report Layout List's Description follows it.
+    /// The session's `GlobalLanguage` (0: 1033), written only by `Session::set_language`. The Report Layout List's Description follows it.
     pub language: std::cell::Cell<i32>,
     /// What the install of an app lets the "NAV App Installed App" list show ([`InstallView`]).
     pub install_view: RefCell<InstallView>,
@@ -619,7 +621,13 @@ impl Providers {
         engine.tables[oi].clone()
     }
 
+    /// The Feature Key rows for one read (a Get, a scan or a count: every read of the table comes here), with the
+    /// Enabled values a Modify stored. A read of a list that rests on an assumption marks it before it reads, also when
+    /// it finds no row ([`host_tables::feature_key_assumption`]).
     fn feature_key_listing(&self, store: &MemStore, cx: &AccessContext, t: &TableDef) -> Result<Listed, StoreError> {
+        if let Some(a) = host_tables::feature_key_assumption(&self.engine()) {
+            al_builtins::assumptions::assume(a);
+        }
         let stored = store.stored_rows(cx, t);
         if stored.is_empty() {
             return self.listed(t, Virtual::FeatureKey);
@@ -807,7 +815,7 @@ impl Providers {
             Virtual::PageMetadata => pages::page_metadata_rows(self, t),
             Virtual::PageControlField => pages::page_control_field_rows(self, t),
             Virtual::Field => fields::field_rows(self, t),
-            Virtual::FeatureKey => host_tables::feature_key_rows(t, self.engine().target.as_ref()),
+            Virtual::FeatureKey => host_tables::feature_key_rows(t, &self.engine()),
             Virtual::LanguageSelection => host_tables::language_selection_rows(t),
             Virtual::Key => fields::key_rows(self, t),
             Virtual::Integer | Virtual::Date | Virtual::WindowsLanguage | Virtual::LicensePermission => {

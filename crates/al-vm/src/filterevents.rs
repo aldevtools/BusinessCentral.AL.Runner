@@ -38,23 +38,12 @@ impl Session {
             sender: None,
         };
         // A subscriber of a dependency app other than Microsoft's Filter Tokens has an effect no case pins: refuse.
-        let engine = self.engine.clone();
-        if let Some(subs) = engine
-            .events
-            .subscribers
-            .get(&(crate::events::FILTER_HELPER_TRIGGERS, event.to_string()))
-        {
-            for s in subs {
-                let o = &engine.program.objects[s.object];
-                let dependency = engine.program.apps.get(o.app as usize).is_some_and(|a| a.dependency);
-                if dependency && !o.name.eq_ignore_ascii_case("Filter Tokens Impl.") {
-                    return unpinned(&format!(
-                        "the subscriber {} \"{}\" of a dependency app",
-                        o.kind.label(),
-                        o.name
-                    ));
-                }
-            }
+        if let Some(s) = self.receiving_dependency_subscriber(
+            crate::events::FILTER_HELPER_TRIGGERS,
+            event,
+            al_ir::FILTER_TOKENS_IMPL,
+        ) {
+            return unpinned(&format!("the subscriber {s} of a dependency app"));
         }
         // Microsoft's own subscriber (System Application "Filter Tokens") is not run: it reads date formulas, which are not
         // pinned, and running it turned a passing corpus case into a refusal (record/filters/
@@ -121,7 +110,7 @@ impl Session {
             }
             return Ok(None);
         }
-        if self.global_language == 1033 {
+        if self.global_language() == 1033 {
             return self.repair_date_filter_text(text, reads);
         }
         Ok(None)

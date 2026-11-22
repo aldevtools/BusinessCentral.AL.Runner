@@ -172,16 +172,8 @@ const CLOSING_ERROR: &str = "error:The operation cannot be performed on a closin
 
 #[test]
 fn a_closing_date_plus_or_minus_one_raises() {
-    gives(
-        "PlusOne",
-        CLOSING_ERROR,
-        Some(Assumption::ClosingDatePlusMinusOneRaises),
-    );
-    gives(
-        "MinusOne",
-        CLOSING_ERROR,
-        Some(Assumption::ClosingDatePlusMinusOneRaises),
-    );
+    gives("PlusOne", CLOSING_ERROR, None);
+    gives("MinusOne", CLOSING_ERROR, None);
     refused("PlusTwo");
     refused("PlusBigOne");
     refused("DanishPlusOne");
@@ -192,16 +184,8 @@ fn a_closing_date_plus_or_minus_one_raises() {
 
 #[test]
 fn a_danish_letter_with_format_number_nine_is_rejected_under_1030() {
-    gives(
-        "Nine1U",
-        "false|1Y",
-        Some(Assumption::DateFormulaDanishLetterNumberNine),
-    );
-    gives(
-        "Nine1Aa",
-        "false|1Y",
-        Some(Assumption::DateFormulaDanishLetterNumberNine),
-    );
+    gives("Nine1U", "false|1Y", None);
+    gives("Nine1Aa", "false|1Y", None);
     refused("NineLower1u");
     refused("NineMinus1U");
     refused("NineStatement");
@@ -214,7 +198,7 @@ fn the_option_filter_minus_one_raises_the_not_an_option_error() {
     gives(
         "MinusOneFilter",
         "error:The filter \"-1\" is not valid for the Kind field on the NM Row table. '-1' is not an option. The existing options are: Alpha,Beta,Gamma|Filter:CSide",
-        Some(Assumption::OptionFilterNegativeOneError),
+        None,
     );
     for r in [
         "MinusTwoFilter",

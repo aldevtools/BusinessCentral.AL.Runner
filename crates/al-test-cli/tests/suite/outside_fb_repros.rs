@@ -140,9 +140,8 @@ codeunit 50130 "Refill Probe Part Reads"
 }
 "#;
 
-/// The corpus probe of issue 8186 (corpus pull request 1425, merged, not pinned yet: tests/al-language/pages/currpage/ListNewLineCodeInsertUpdate.al,
-/// measured on BC 29.1) with a stand-in for the corpus's Assert, and the reporter's repro: each test's outcome and the assumptions
-/// it ran through.
+/// The corpus probe of issue 8186 (tests/al-language/pages/currpage/ListNewLineCodeInsertUpdate.al) with a stand-in for the
+/// corpus's Assert, and the reporter's repro: each test's outcome and the assumptions it ran through.
 fn issue_8186_outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<al_builtins::assumptions::Assumption>)> {
     let src = format!("{src}\n{}", include_str!("../fixtures/outside-sc/Assert.al"));
     let l = al_testkit::compile_apps(vec![al_testkit::app(&src)]);
@@ -182,27 +181,61 @@ fn issue_8186_outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<a
 
 const ISSUE_8186_PROBE: &str = include_str!("../fixtures/outside-fb/Issue8186Probe.al");
 
-/// Every test passes, flagged by the assumption list-new-line-code-insert-update, except those on the host with CardPart
-/// FactBoxes: its parts read at steps the runner does not model (at the open and at `New()` already, on main too), so the new path
-/// does not take them.
+/// Every test of the probe passes with no assumption, except those on the host with two CardPart FactBoxes: its parts read at
+/// steps the runner does not model (at the open and at `New()` already), so its open refuses (ListNewLineCodeInsertUpdate.al:718,
+/// :736). The reporter's repro, a RunModal filtered to one group on the page without triggers, is no pinned cell: refused.
 #[test]
 fn issue_8186_code_inserted_new_line_lands_on_the_row() {
-    use al_builtins::assumptions::Assumption::ListNewLineCodeInsertUpdate;
-    for (src, codeunit) in [
-        (ISSUE_8186_PROBE, "LT NI Tests"),
+    let bad: Vec<_> = issue_8186_outcomes(ISSUE_8186_PROBE, "LT NI Tests")
+        .into_iter()
+        .filter(|(n, o, marks)| match n.contains("PartsHost") {
+            true => !matches!(o, Outcome::NotRun(why) if why.contains("two CardPart FactBoxes")),
+            false => *o != Outcome::Pass || !marks.is_empty(),
+        })
+        .collect();
+    assert!(bad.is_empty(), "{bad:#?}");
+    let repro = issue_8186_outcomes(
+        include_str!("../fixtures/outside-fb/Issue8186.al"),
+        "Repro Update New Line Tests",
+    );
+    let bad: Vec<_> = repro
+        .iter()
+        .filter(|(_, o, _)| !matches!(o, Outcome::NotRun(why) if why.contains("pins OpenEdit only")))
+        .collect();
+    assert!(!repro.is_empty() && bad.is_empty(), "{bad:#?}");
+}
+
+/// The parts host with one fact flipped (a SubPageLink of the key's first field only; a third page property) keeps main's open:
+/// none of its tests carries the refusal of the pinned host.
+#[test]
+fn issue_8186_parts_host_neighbors_keep_main_open() {
+    let (before, host) = ISSUE_8186_PROBE.split_once("page 97036 ").expect("the parts host");
+    for (what, src) in [
         (
-            include_str!("../fixtures/outside-fb/Issue8186.al"),
-            "Repro Update New Line Tests",
+            "Editable",
+            format!(
+                "{before}page 97036 {}",
+                host.replacen("PageType = List;", "PageType = List;\n    Editable = true;", 1)
+            ),
+        ),
+        (
+            "one link entry",
+            ISSUE_8186_PROBE.replacen(
+                "SubPageLink = \"Group Code\" = field(\"Group Code\"), \"Entry No.\" = field(\"Entry No.\");",
+                "SubPageLink = \"Group Code\" = field(\"Group Code\");",
+                1,
+            ),
         ),
     ] {
-        let bad: Vec<_> = issue_8186_outcomes(src, codeunit)
-            .into_iter()
-            .filter(|(n, o, marks)| match n.contains("PartsHost") {
-                true => *o == Outcome::Pass || marks.contains(&ListNewLineCodeInsertUpdate),
-                false => *o != Outcome::Pass || !marks.contains(&ListNewLineCodeInsertUpdate),
-            })
+        assert!(src != ISSUE_8186_PROBE, "{what}: the variant changes the probe");
+        let o = issue_8186_outcomes(&src, "LT NI Tests");
+        let hosts: Vec<_> = o.iter().filter(|(n, _, _)| n.contains("PartsHost")).collect();
+        assert!(!hosts.is_empty(), "{what}");
+        let refused: Vec<_> = hosts
+            .iter()
+            .filter(|(_, r, _)| matches!(r, Outcome::NotRun(why) if why.contains("two CardPart FactBoxes")))
             .collect();
-        assert!(bad.is_empty(), "{codeunit}: {bad:#?}");
+        assert!(refused.is_empty(), "{what}: {refused:#?}");
     }
 }
 
@@ -248,11 +281,11 @@ fn issue_8186_unmeasured_neighbors_stay_refused() {
     }
 }
 
-/// `Previous()` on the landed row answers through the assumption: the step marks list-new-line-code-insert-update on its own,
-/// apart from the landing before it (a SingleInstance codeunit keeps the page open between the two calls from Rust).
+/// `Previous()` on the landed row answers as pinned, apart from the landing before it, with no assumption (a SingleInstance
+/// codeunit keeps the page open between the two calls from Rust).
 #[test]
-fn issue_8186_previous_on_the_landed_row_marks_the_assumption() {
-    use al_builtins::assumptions::{Assumption::ListNewLineCodeInsertUpdate, clear_hits, take_hits};
+fn issue_8186_previous_on_the_landed_row_answers_false() {
+    use al_builtins::assumptions::{clear_hits, take_hits};
     let steps = r#"
 codeunit 97098 "LT NI Steps"
 {
@@ -305,10 +338,10 @@ codeunit 97099 "LT NI Driver"
     let mut b = al_testkit::Built::from_source(&src);
     clear_hits();
     assert_eq!(al_testkit::text(b.run_in("LT NI Driver", "Land")), "X/V");
-    assert!(take_hits().contains(&ListNewLineCodeInsertUpdate), "the landing");
+    assert!(take_hits().is_empty(), "the landing");
     // ListNewLineCodeInsertUpdate.al:463-464: false, no trigger.
     assert_eq!(al_testkit::text(b.run_in("LT NI Driver", "Prev")), "F/");
-    assert_eq!(take_hits(), vec![ListNewLineCodeInsertUpdate]);
+    assert!(take_hits().is_empty(), "the Previous");
 }
 
 const ISSUE_8186_NEIGHBORS: &str = include_str!("../fixtures/outside-fb/Issue8186Neighbors.al");
@@ -344,7 +377,6 @@ fn issue_8186_error_after_the_landing_is_refused() {
 /// keeps main's answer.
 #[test]
 fn issue_8186_unmeasured_views_and_opens_keep_main_refusal() {
-    use al_builtins::assumptions::Assumption::ListNewLineCodeInsertUpdate;
     let o = issue_8186_neighbor_outcomes(&["LT NI Neighbor Tests", "LT NI Neighbor Tests 2"]);
     for name in [
         "FilterExcludesTheLine",
@@ -357,8 +389,7 @@ fn issue_8186_unmeasured_views_and_opens_keep_main_refusal() {
     ] {
         let (_, r, marks) = o.iter().find(|(n, _, _)| n == name).expect("the test");
         assert!(
-            matches!(r, Outcome::NotRun(why) if why.contains(MAIN_8186_REFUSAL))
-                && !marks.contains(&ListNewLineCodeInsertUpdate),
+            matches!(r, Outcome::NotRun(why) if why.contains(MAIN_8186_REFUSAL)) && marks.is_empty(),
             "{name}: {r:?} {marks:?}"
         );
     }
@@ -368,8 +399,7 @@ fn issue_8186_unmeasured_views_and_opens_keep_main_refusal() {
         .find(|(n, _, _)| n == "NoAutoSplitKey_UpdateFalse")
         .expect("the test");
     assert!(
-        matches!(r, Outcome::Fail(why) if why.contains("already exists"))
-            && !marks.contains(&ListNewLineCodeInsertUpdate),
+        matches!(r, Outcome::Fail(why) if why.contains("already exists")) && marks.is_empty(),
         "{r:?} {marks:?}"
     );
 }
@@ -378,7 +408,6 @@ fn issue_8186_unmeasured_views_and_opens_keep_main_refusal() {
 /// descending SourceTableView, a primary key of the AutoIncrement field alone.
 #[test]
 fn issue_8186_unmeasured_page_and_key_keep_main_refusal() {
-    use al_builtins::assumptions::Assumption::ListNewLineCodeInsertUpdate;
     for (what, src) in [
         (
             "ModifyAllowed",
@@ -398,7 +427,7 @@ fn issue_8186_unmeasured_page_and_key_keep_main_refusal() {
     ] {
         let bad: Vec<_> = issue_8186_outcomes(&src, "LT NI Tests")
             .into_iter()
-            .filter(|(_, r, marks)| !matches!(r, Outcome::NotRun(_)) || marks.contains(&ListNewLineCodeInsertUpdate))
+            .filter(|(_, r, marks)| !matches!(r, Outcome::NotRun(_)) || !marks.is_empty())
             .collect();
         assert!(bad.is_empty(), "{what}: {bad:#?}");
     }

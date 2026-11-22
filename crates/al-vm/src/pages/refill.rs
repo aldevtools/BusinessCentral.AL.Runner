@@ -325,7 +325,7 @@ impl Session {
             s.read_up_from_last = ReadUpFromLast::Off;
             s.opened_on_moved_rec = false;
             s.settled_first_row = false;
-            s.refresh = false;
+            s.refresh.cancel();
             s.cursor = Cursor::Row;
         }
         Ok(true)
@@ -473,7 +473,7 @@ impl Session {
             s.read_up_from_last = ReadUpFromLast::Off;
             s.opened_on_moved_rec = false;
             s.settled_first_row = false;
-            s.refresh = false;
+            s.refresh.cancel();
             s.cursor = Cursor::Row;
         }
         self.current_record_trigger(st, before)

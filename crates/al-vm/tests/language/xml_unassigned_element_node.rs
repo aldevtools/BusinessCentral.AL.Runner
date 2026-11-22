@@ -1,5 +1,5 @@
 //! `XmlElement.AsXmlNode()` on an XmlElement nothing assigned (al-runner issue 8157): it returns, `IsXmlElement` of the node
-//! answers Yes (corpus PR 1421) and `WriteTo(Text)` of it raises (xml/UhUnassignedXmlElement.al:134). Every other use of that
+//! answers Yes (xml/xml/UhAsXmlNodeUnassignedElement.al:95-101) and `WriteTo(Text)` of it raises (xml/UhUnassignedXmlElement.al:134). Every other use of that
 //! node is refused. Neighbors keep main's outcome.
 
 use al_builtins::native::Signal;
@@ -23,15 +23,14 @@ fn run(vars: &str, body: &str) -> (String, Vec<&'static str>) {
     (out, hits)
 }
 
-const ID: &str = "xml-element-unassigned-as-xml-node";
 const NOT_INIT: &str = "error:Microsoft.Dynamics.Nav.Runtime.NavXmlNode variable not initialized.|NotInitialized";
 
-/// The reporter's repro: `N := E.AsXmlNode()` returns, through the assumption.
+/// The reporter's repro: `N := E.AsXmlNode()` returns, with no assumption.
 #[test]
 fn as_xml_node_of_an_unassigned_element_returns() {
     let (out, hits) = run("E: XmlElement; N: XmlNode;", "N := E.AsXmlNode(); exit('done');");
     assert_eq!(out, "ok:done");
-    assert!(hits.contains(&ID), "{hits:?}");
+    assert!(hits.is_empty(), "{hits:?}");
 }
 
 /// A cleared element is an unassigned one (xml/xml/UlClearXmlRef.al:90-102).
@@ -42,7 +41,7 @@ fn as_xml_node_of_a_cleared_element_returns() {
         "E := XmlElement.Create('a'); Clear(E); N := E.AsXmlNode(); exit('done');",
     );
     assert_eq!(out, "ok:done");
-    assert!(hits.contains(&ID), "{hits:?}");
+    assert!(hits.is_empty(), "{hits:?}");
 }
 
 /// The probe's step: WriteTo(Text) on the node raises (xml/UhUnassignedXmlElement.al:134), also on a copy of it.
@@ -79,8 +78,8 @@ fn other_uses_of_the_node_are_refused() {
     }
 }
 
-/// `N.IsXmlElement()` with its result used answers Yes on the node (corpus PR 1421,
-/// xml/xml/UhAsXmlNodeUnassignedElement.al:33-37, test :95-101), through the assumption; also on a copy.
+/// `N.IsXmlElement()` with its result used answers Yes on the node (xml/xml/UhAsXmlNodeUnassignedElement.al:33-37, test
+/// :95-101), with no assumption; also on a copy.
 #[test]
 fn is_xml_element_of_the_node_answers_yes() {
     let (out, hits) = run(
@@ -88,7 +87,7 @@ fn is_xml_element_of_the_node_answers_yes() {
         "N := E.AsXmlNode(); exit(Format(N.IsXmlElement()));",
     );
     assert_eq!(out, "ok:Yes");
-    assert!(hits.contains(&ID), "{hits:?}");
+    assert!(hits.is_empty(), "{hits:?}");
     let (out, _) = run(
         "E: XmlElement; N: XmlNode; N2: XmlNode;",
         "N := E.AsXmlNode(); N2 := N; exit(Format(N2.IsXmlElement()));",
@@ -143,10 +142,10 @@ fn neighbors_keep_mains_outcome() {
         "E := XmlElement.Create('a'); N := E.AsXmlNode(); N.WriteTo(T); exit(T);",
     );
     assert_eq!(out, "ok:<a />");
-    assert!(!hits.contains(&ID), "{hits:?}");
+    assert!(hits.is_empty(), "{hits:?}");
     let (out, hits) = run("E: XmlElement;", "E.AsXmlNode(); exit('done');");
     assert!(out.starts_with("refused:"), "{out}");
-    assert!(!hits.contains(&ID), "{hits:?}");
+    assert!(hits.is_empty(), "{hits:?}");
     let (out, _) = run("N: XmlNode;", "exit(Format(N.IsXmlElement()));");
     assert_eq!(out, "ok:No");
     let (out, hits) = run(
@@ -154,7 +153,7 @@ fn neighbors_keep_mains_outcome() {
         "N := D.AsXmlNode(); N.WriteTo(T); exit(T);",
     );
     assert_eq!(out, NOT_INIT);
-    assert!(!hits.contains(&ID), "{hits:?}");
+    assert!(hits.is_empty(), "{hits:?}");
     // A Variant holding an unassigned XmlNode and a list search of Integers keep main's answers.
     let (out, _) = run("N: XmlNode; V: Variant;", "V := N; exit(Format(V.IsXmlNode()));");
     assert_eq!(out, "ok:Yes");
@@ -178,7 +177,7 @@ fn variant_holding_the_node_into_an_xml_element_is_refused() {
         "E := XmlElement.Create('a'); N := E.AsXmlNode(); V := N; E2 := V; E2.WriteTo(T); exit(T);",
     );
     assert_eq!(out, "ok:<a />");
-    assert!(!hits.contains(&ID), "{hits:?}");
+    assert!(hits.is_empty(), "{hits:?}");
     let (out, _) = run(
         "E2: XmlElement; N: XmlNode; V: Variant; T: Text;",
         "V := N; E2 := V; E2.WriteTo(T); exit(T);",

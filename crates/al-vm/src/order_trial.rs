@@ -119,7 +119,7 @@ impl Session {
             sequences: self.sequences.clone(),
             autoinc: self.autoinc.clone(),
             work_date: self.work_date,
-            language: self.global_language,
+            language: self.global_language(),
             uncommitted: self.store.has_uncommitted(),
             outer_trace,
             outer_on,
@@ -170,7 +170,7 @@ impl Session {
             || self.sequences != w.sequences
             || self.autoinc != w.autoinc
             || self.work_date != w.work_date
-            || self.global_language != w.language
+            || self.global_language() != w.language
             || (w.uncommitted && !self.store.has_uncommitted())
         {
             return Err(
