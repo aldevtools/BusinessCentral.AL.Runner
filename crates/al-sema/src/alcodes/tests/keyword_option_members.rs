@@ -151,11 +151,14 @@ const PLACES: [(&str, &str); 5] = [
 /// The positions of the cell table below; `W` is the word.
 const POSITIONS: [(&str, &str); 3] = [("first", "W,Zero"), ("middle", "Zero,W,One"), ("last", "Zero,W")];
 
+/// A cell's first diagnostic: (code, message, at the comma after the word rather than the word).
+type Cell = Option<(&'static str, &'static str, bool)>;
+
 /// Every cell of Begin, End and Var in an option type that the AL compilers of every supported major measured the same,
 /// each a must-not-compile case of corpus PR 1502: (word, place, position, first diagnostic as (code, message, at the
 /// comma after the word rather than the word)). `None` is an internal error of the AL compiler (AL0999 at the start of the
 /// file), not judged. Begin and Var as the last member are left out: they stop this parser already.
-const CELLS: [(&str, &str, &str, Option<(&str, &str, bool)>); 35] = [
+const CELLS: [(&str, &str, &str, Cell); 35] = [
     (
         "Begin",
         "local",
