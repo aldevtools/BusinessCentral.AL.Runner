@@ -723,6 +723,9 @@ impl Session {
         plain: bool,
         fresh: usize,
     ) -> Result<usize, Signal> {
+        if !self.query_cache_on() {
+            return Ok(fresh);
+        }
         let (form, answer) = match method {
             RecordOp::Count => (Form::Count, GroupAnswer::Count(fresh)),
             RecordOp::IsEmpty => (Form::Empty, GroupAnswer::Empty(fresh == 0)),
@@ -755,6 +758,9 @@ impl Session {
         method: RecordOp,
         fresh: Option<Vec<Value>>,
     ) -> Result<Option<Vec<Value>>, Signal> {
+        if !self.query_cache_on() {
+            return Ok(fresh);
+        }
         let form = match method {
             RecordOp::FindFirst => Form::First,
             RecordOp::FindLast => Form::Last,
