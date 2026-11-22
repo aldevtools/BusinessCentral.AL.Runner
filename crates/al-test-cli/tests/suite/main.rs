@@ -163,6 +163,7 @@ mod openview_no_row_part_curr_record;
 mod option_enum_bigtext;
 mod or_group_page_rec;
 mod outside_fb_8434;
+mod outside_fb_8467;
 mod outside_fb_8491;
 mod outside_fb_8638;
 mod outside_fb_8670;
