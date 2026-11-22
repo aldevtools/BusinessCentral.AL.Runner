@@ -895,29 +895,43 @@ impl Session {
         Ok(())
     }
 
-    #[inline(never)]
+    /// The counter of the loop takes its next value: an Integer local here, any other counter in [`Self::for_set_general`].
+    #[inline]
     fn for_set(&mut self, site: &ForSite, f: &mut Frame) -> Result<(), Signal> {
-        let Value::BigInteger(i) = f.locals[site.i as usize] else {
-            return Err(Signal::Unsupported("a for loop counter that is not set".into()));
-        };
-        if let (Some(v), Ok(n)) = (site.int_local, i32::try_from(i)) {
+        if let (Some(v), Value::BigInteger(i)) = (site.int_local, &f.locals[site.i as usize])
+            && let Ok(n) = i32::try_from(*i)
+        {
             set(&mut f.locals[v as usize], Value::Integer(n));
             return Ok(());
         }
+        self.for_set_general(site, f)
+    }
+
+    #[inline(never)]
+    fn for_set_general(&mut self, site: &ForSite, f: &mut Frame) -> Result<(), Signal> {
+        let Value::BigInteger(i) = f.locals[site.i as usize] else {
+            return Err(Signal::Unsupported("a for loop counter that is not set".into()));
+        };
         let slot_ty = self.place_type(&site.var, f);
         let kind = crate::interp::ForKind::of(&slot_ty);
         let counter = Self::for_counter(kind, i, &slot_ty)?;
         self.write(&site.var, counter, f)
     }
 
-    #[inline(never)]
+    /// The step of the loop: from an Integer local here, from any other counter in [`Self::for_next_general`].
+    #[inline]
     fn for_next(&mut self, site: &ForSite, f: &mut Frame) -> Result<(), Signal> {
-        if let Some(v) = site.int_local {
-            if let Value::Integer(n) = f.locals[v as usize] {
-                f.locals[site.i as usize] = Value::BigInteger(i64::from(n) + if site.down { -1 } else { 1 });
-                return Ok(());
-            }
+        if let Some(v) = site.int_local
+            && let Value::Integer(n) = f.locals[v as usize]
+        {
+            f.locals[site.i as usize] = Value::BigInteger(i64::from(n) + if site.down { -1 } else { 1 });
+            return Ok(());
         }
+        self.for_next_general(site, f)
+    }
+
+    #[inline(never)]
+    fn for_next_general(&mut self, site: &ForSite, f: &mut Frame) -> Result<(), Signal> {
         let back = Self::for_bound(self.read(&site.var, f)?);
         if let Value::Date(_, closing) = back {
             return self.for_next_date(site, f, back, closing);

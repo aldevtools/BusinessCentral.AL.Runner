@@ -284,8 +284,16 @@ impl Session {
             let Value::Library(LibraryKind::OutStream, h) = v else {
                 continue;
             };
+            // Every write through such a stream passes here: what main's path needs is read under the borrow, and the
+            // stream's open (its key) is copied only for the checks past it.
             let (b, open) = match &*h.borrow() {
-                LibraryValue::OutStream(b, _, Some(open)) => (b.clone(), open.clone()),
+                LibraryValue::OutStream(b, _, Some(open)) => {
+                    let b = b.clone();
+                    if own_holders_only(&b, open) {
+                        continue;
+                    }
+                    (b, open.clone())
+                }
                 _ => continue,
             };
             self.check_temp_out_stream(measured_write && recv.is_some() && i == 0, &b, &open)?;
@@ -300,6 +308,13 @@ impl Session {
     /// it as the receiver (`measured_write`, [`measured_detached_write`]), while the record is on the key it had at the open.
     /// Everything else refuses: the record moved to another key, or a row under another key holds the buffer, since the open.
     fn check_temp_out_stream(&mut self, measured_write: bool, b: &BlobRef, open: &OutOpen) -> Result<(), Signal> {
+        // Before the table lookup, with main's error order kept: `self.table(&rc)?` fails only on the record's table (no schema, or
+        // an unsupported table) and the engine, both fixed for the life of the record (`Session::table`), and the open of this stream
+        // already ran `self.table(&rc)?` for this same record before it kept an `OutOpen` ([`Session::temp_blob_share_guard`]). A
+        // record whose lookup fails never has a stream here.
+        if own_holders_only(b, open) {
+            return Ok(());
+        }
         let Some(rc) = open.record.upgrade() else {
             // `b` and the stream.
             if Arc::strong_count(b) <= 2 {
@@ -317,11 +332,7 @@ impl Session {
             }
             return Err(refusal(&t, open.field));
         }
-        // `b`, the stream and the field.
-        let counted = 2 + rc.borrow().blob_copies_of(open.field, b);
-        if Arc::strong_count(b) <= counted {
-            return Ok(());
-        }
+        let counted = own_holders(b, open);
         let h = self.blob_holders(&rc, &t, open.field, b, counted)?;
         let same_key = same_key(&t, &rc, open);
         let rows = h.at_key || h.elsewhere > 0;
@@ -494,6 +505,21 @@ fn same_key(t: &TableDef, rc: &Rc<RefCell<RecordState>>, open: &OutOpen) -> bool
             .zip(&open.key)
             .enumerate()
             .all(|(i, (a, k))| t.cmp_key_field(t.keys[0][i], a, k).is_eq())
+}
+
+/// The holders of buffer `b` the stream's open accounts for without a look at the rows: `b` and the stream, and the record's own
+/// copies of the field while the record lives (`RecordState::blob_copies_of`).
+fn own_holders(b: &BlobRef, open: &OutOpen) -> usize {
+    2 + open
+        .record
+        .upgrade()
+        .map_or(0, |rc| rc.borrow().blob_copies_of(open.field, b))
+}
+
+/// Main's path for a write through a stream the measured detach did not open: no value besides [`own_holders`] holds the
+/// buffer, so no row can share it. Checked on every write through such a stream ([`Session::check_temp_out_streams`]).
+fn own_holders_only(b: &BlobRef, open: &OutOpen) -> bool {
+    !open.detached && Arc::strong_count(b) <= own_holders(b, open)
 }
 
 #[cfg(test)]
