@@ -170,6 +170,15 @@ impl Manifest {
 
 /// The manifest fields `NavApp.GetCurrentModuleInfo` reports, from `dir/app.json`.
 pub fn load_manifest(dir: &std::path::Path) -> Result<Manifest, String> {
+    load_manifest_reading(dir).map(|(m, _)| m)
+}
+
+/// [`load_manifest`], with the files and folders outside `dir` it read or looked for: resource folders and the logo (a
+/// layout file outside `dir` is never read, `layout_file_at`); a warm server keeps the app while they are unchanged
+/// (alrunner-cli `kept_apps.rs`).
+pub fn load_manifest_reading(dir: &std::path::Path) -> Result<(Manifest, Vec<std::path::PathBuf>), String> {
+    let mut outside = Vec::new();
+    let is_outside = |p: &std::path::Path| !lexical(p).starts_with(&lexical(dir));
     let manifest: serde_json::Value = serde_json::from_str(&al_deps::load::read_text(&dir.join("app.json"))?)
         .map_err(|e| format!("{}/app.json: {e}", dir.display()))?;
     let s = |k: &str| manifest[k].as_str().unwrap_or_default().to_string();
@@ -181,6 +190,9 @@ pub fn load_manifest(dir: &std::path::Path) -> Result<Manifest, String> {
         .filter_map(|f| f.as_str())
     {
         let root = dir.join(folder);
+        if is_outside(&root) {
+            outside.push(root.clone());
+        }
         let mut stack = vec![root.clone()];
         while let Some(d) = stack.pop() {
             let Ok(entries) = std::fs::read_dir(&d) else { continue };
@@ -196,7 +208,10 @@ pub fn load_manifest(dir: &std::path::Path) -> Result<Manifest, String> {
         }
     }
     resources.sort();
-    Ok(Manifest {
+    if let Some(logo) = manifest["logo"].as_str().map(|l| dir.join(l)).filter(|l| is_outside(l)) {
+        outside.push(logo);
+    }
+    let manifest = Manifest {
         publisher: s("publisher"),
         version: s("version"),
         resources,
@@ -234,7 +249,8 @@ pub fn load_manifest(dir: &std::path::Path) -> Result<Manifest, String> {
             .unwrap_or_default(),
         // An app folder is never the platform package here: its `internalsVisibleTo` is not read.
         platform_internals_visible_to: Vec::new(),
-    })
+    };
+    Ok((manifest, outside))
 }
 
 /// Every corpus test's outcome on this runtime, keyed by (codeunit id, procedure).
@@ -383,6 +399,9 @@ pub struct TestResult {
     pub order_hint: Option<OrderHint>,
     /// With `RunOptions::cell_tap`: the `Expect` cells the test matched (`al_vm::observer_tap`); `None` when it did not use the fixture.
     pub cells: Option<al_vm::observer_tap::CellRecord>,
+    /// The test was not run because `RunOptions::stop_after_first_failure` or `RunOptions::skip_after_timeout` left it
+    /// out after an earlier test (al-runner issue 8492): a choice of the run, not a refusal.
+    pub skipped_by_option: bool,
 }
 
 impl TestResult {
@@ -416,6 +435,27 @@ impl TestResult {
             dotnet: false,
             order_hint: None,
             cells: None,
+            skipped_by_option: false,
+        }
+    }
+
+    /// `o` in place of the test's outcome; `skipped_by_option` stays only when `o` is the outcome it was set with.
+    pub(crate) fn take_outcome(&mut self, o: Outcome) {
+        self.skipped_by_option &= self.outcome == o;
+        self.outcome = o;
+    }
+
+    /// Whether the test is a refusal: not run, and not left out by a stop option (`skipped_by_option`). What "Top
+    /// refusals" and `--refusal-detail` rank.
+    pub fn is_refusal(&self) -> bool {
+        matches!(self.outcome, Outcome::NotRun(_)) && !self.skipped_by_option
+    }
+
+    /// The result with `skipped_by_option` set to `skip`.
+    pub(crate) fn skipped(self, skip: bool) -> Self {
+        TestResult {
+            skipped_by_option: skip,
+            ..self
         }
     }
 }
@@ -660,6 +700,8 @@ pub(crate) struct Unit {
     report_unpinned_errors: bool,
     /// See `RunOptions::skip_after_timeout`.
     skip_after_timeout: bool,
+    /// See `RunOptions::stop_after_first_failure`.
+    stop_after_first_failure: bool,
     /// See `RunOptions::perturb`.
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
@@ -711,6 +753,9 @@ pub(crate) struct Scratch {
     cells: Vec<(String, al_vm::observer_tap::CellRecord)>,
     /// The time each test that slept asked `Sleep` for (`TestResult::slept_ms`).
     slept: Vec<(String, u64)>,
+    /// The tests `skip_after_timeout` or `stop_after_first_failure` left out, with the reason they were given
+    /// (`TestResult::skipped_by_option`).
+    skipped: Vec<(String, String)>,
     /// With `trace`: the workspace objects each test entered and whether it ran DotNet (`TestResult::entered`).
     entered: Vec<(String, Vec<String>, bool)>,
     /// See `RunOptions::run_only`.
@@ -744,6 +789,8 @@ pub(crate) struct Scratch {
     report_unpinned_errors: bool,
     /// See `RunOptions::skip_after_timeout`.
     skip_after_timeout: bool,
+    /// See `RunOptions::stop_after_first_failure`.
+    stop_after_first_failure: bool,
     /// See `RunOptions::perturb`.
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
@@ -917,6 +964,7 @@ fn run_unit(
             flags: u.flags,
             report_unpinned_errors: u.report_unpinned_errors,
             skip_after_timeout: u.skip_after_timeout,
+            stop_after_first_failure: u.stop_after_first_failure,
             perturb: u.perturb.clone(),
             run_seed: u.run_seed,
             runner: u.runner,
@@ -1057,6 +1105,7 @@ fn scratch_unit(
         flags: Default::default(),
         report_unpinned_errors: false,
         skip_after_timeout: false,
+        stop_after_first_failure: false,
         perturb: Default::default(),
         run_seed: opts.run_seed,
         runner: None,
@@ -1193,6 +1242,8 @@ mod corpus;
 mod data_driven;
 #[cfg(test)]
 mod diagnostics_tests;
+#[cfg(test)]
+mod disabled_login_memo_tests;
 mod discovery;
 #[cfg(test)]
 mod group1_sessions_tests;
@@ -1208,6 +1259,8 @@ mod internals_grant;
 mod lane_starts;
 #[cfg(test)]
 mod login_explain_tests;
+#[cfg(test)]
+mod login_memo_tests;
 #[cfg(test)]
 mod login_tests;
 pub mod memory;

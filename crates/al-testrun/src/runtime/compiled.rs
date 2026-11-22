@@ -87,6 +87,9 @@ pub struct RunOptions {
     /// The BC license of the run (ADR-060): the artifacts' license or `--license FILE`, parsed by the command line.
     /// `None`: no license; License Permission serves only the pinned rows.
     pub license: Option<std::sync::Arc<al_host::license::License>>,
+    /// The emit version of the run's build, which the missing-object error names (`crate::emit_version`). Default: none
+    /// known, and that error's text is not read.
+    pub emit_version: al_vm::emit_version::EmitVersion,
     /// Use the compile cache of the dependency apps (ADR-022). `None`: the demand-driven compile
     /// of every run, which is the reference path.
     pub compile_cache: Option<crate::compile_cache::CompileCache>,
@@ -193,6 +196,11 @@ pub struct RunOptions {
     /// `--skip-after-timeout` (al-runner issue 7517, opt-in, tooling): once a test is stopped at the time limit, the later tests
     /// of its codeunit are not run and end as not run, naming that test. Default `false`: a later pass is still reported.
     pub skip_after_timeout: bool,
+    /// `--stop-after-first-failure` and serve's `stopAfterFirstFailure` (al-runner issue 8210, opt-in, tooling): once a
+    /// test fails, the later tests of its codeunit and every later entry (`entries`) are not run and end as not run,
+    /// naming that test (`run::stopped_after_failure`). Each test codeunit stops on its own; every other test
+    /// codeunit of the same entry (or of a request without entries) still runs, also with one thread. Default `false`: every test runs.
+    pub stop_after_first_failure: bool,
     /// `al-runner test --permissions off` (ADR-062 section 5): no access kind is enforced, whatever stages are on by
     /// default. While no stage is on (today) it changes nothing.
     pub permissions_off: bool,
@@ -599,11 +607,12 @@ impl Compiled {
         }
         let t_replace = t_replace.elapsed();
         if declared {
-            // A declaration changed: the objects that name the changed ones may have read it, so they are
-            // checked and lowered again with them (ADR-033 step 5).
+            // A declaration changed: the objects that name or call the changed ones may have read it, so they are
+            // checked and lowered again with them (ADR-033 step 5). One with a call or member that did not resolve
+            // before is an error (`incremental::readers`): the caller compiles everything again.
             al_sema::incremental::eligible_for_declarations(ws, &dirty)?;
             let limit = ws.objects.len() / 5 + 20;
-            let readers = al_sema::incremental::readers(ws, &dirty, limit)?;
+            let readers = al_sema::incremental::readers(ws, lowered, &dirty, limit)?;
             dirty.extend(readers);
             dirty.sort_unstable();
         } else {

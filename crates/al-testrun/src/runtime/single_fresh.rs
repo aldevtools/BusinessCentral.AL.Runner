@@ -175,7 +175,7 @@ impl super::CorpusRuntime {
                     .iter_mut()
                     .filter(|r| r.suite == c.suite && r.codeunit == c.codeunit && r.test.eq_ignore_ascii_case(test))
                 {
-                    r.outcome = o.clone();
+                    r.take_outcome(o.clone());
                 }
                 if let Some(slot) = outcomes.get_mut(&(c.suite, c.codeunit, test.to_lowercase())) {
                     *slot = o.clone();

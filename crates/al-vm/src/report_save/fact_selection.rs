@@ -106,8 +106,8 @@ pub(super) struct SelectionFacts {
 }
 
 impl Session {
-    fn report_id(&self, schema: &Schema) -> i32 {
-        self.object_id_of(schema.object as u32) as i32
+    fn report_id(&self, schema: &Schema) -> Result<i32, Signal> {
+        Ok(self.object_id_of(schema.object as u32)? as i32)
     }
 
     /// The layout selection BC follows for `schema`. `save`: the save reaches the layout selection, so SelectReportLayoutCode
@@ -213,7 +213,7 @@ impl Session {
 
     /// The worst class of the Tenant Report Layout Selection rows of the report; `None` when there is none.
     fn tenant_selection_class(&self, schema: &Schema) -> Result<Option<RowClass>, Signal> {
-        let id = self.report_id(schema);
+        let id = self.report_id(schema)?;
         let cx = self.cx.clone();
         let mut worst = None;
         if let Some(t) = self.table_def(TENANT_REPORT_LAYOUT_SELECTION)
@@ -245,7 +245,7 @@ impl Session {
                 .without_report_management(schema, "SelectedBuiltinLayoutType")
                 .map(|_| NONE);
         };
-        let id = Value::Integer(self.report_id(schema));
+        let id = Value::Integer(self.report_id(schema)?);
         let mut args = [id, layout_type(NONE)];
         self.raise_to_report_management("selectedbuiltinlayouttype", to, &["ObjectID", "LayoutType"], &mut args)?;
         ordinal(&args[1])
@@ -260,7 +260,7 @@ impl Session {
                 .without_report_management(schema, "SelectReportLayoutCode")
                 .map(|_| Select::Nothing);
         };
-        let id = Value::Integer(self.report_id(schema));
+        let id = Value::Integer(self.report_id(schema)?);
         let mut args = [id, Value::Text("".into()), layout_type(NONE), Value::Boolean(false)];
         let names = ["ObjectId", "LayoutCode", "LayoutType", "Success"];
         self.raise_to_report_management("selectreportlayoutcode", to, &names, &mut args)?;
@@ -345,7 +345,7 @@ impl Session {
     /// Report Layout row of the report with that name (no other row or declared layout whose name differs only in case),
     /// Layout Format Word, a blank Company Name and the null App ID (HtRenderedTextTests.al:494; RxdDeclLayoutTests.al:313).
     fn user_word_layout(&self, schema: &Schema, name: &str) -> Result<bool, Signal> {
-        let id = self.report_id(schema);
+        let id = self.report_id(schema)?;
         let cx = self.cx.clone();
         let Some(t) = self.table_def(TENANT_REPORT_LAYOUT) else {
             return Ok(false);

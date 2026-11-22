@@ -11,6 +11,7 @@ mod enum_text;
 use duration::duration;
 mod option_text;
 mod platform_options;
+mod short_us_date;
 use crate::describe::Describe;
 use crate::format::day_from_civil;
 use crate::native::{Ctx, Signal, unsupported};
@@ -67,6 +68,14 @@ enum Parsed {
     RejectedLastError(String, &'static str),
     /// Rejected; with the result used a last error is left whose text is not pinned, so that form is refused with this reason.
     RejectedUsedRefused(String),
+    /// Rejected; with the result used a last error of this code is left whose text is not measured, the statement form raises the
+    /// type's own error (`short_us_date`).
+    RejectedUsedCode(&'static str),
+}
+
+/// The DateTime at the start of the day `d` (UTC, one millisecond into it as the readers answer a date).
+fn date_start(d: i32) -> Value {
+    Value::DateTime((i64::from(d) - 1) * 86_400_000 + 1)
 }
 
 /// A whole number as `Evaluate` reads it into an Integer. Spaces around it are dropped, one sign is allowed and the
@@ -1299,7 +1308,7 @@ fn datetime(text: &str, number: i64, today: Option<i32>) -> Result<Parsed, Signa
     if number == 9 {
         if t.len() == 10 && t.as_bytes()[4] == b'-' {
             return Ok(match crate::iso::parse_date(t) {
-                Some(d) => Parsed::Value(Value::DateTime((i64::from(d) - 1) * 86_400_000 + 1)),
+                Some(d) => Parsed::Value(date_start(d)),
                 None => Parsed::Rejected,
             });
         }
@@ -1422,13 +1431,15 @@ pub fn read_text(ty: &crate::value::RtType, text: &str) -> Option<Value> {
         Parsed::Rejected
         | Parsed::RejectedWith(..)
         | Parsed::RejectedLastError(..)
-        | Parsed::RejectedUsedRefused(_) => None,
+        | Parsed::RejectedUsedRefused(_)
+        | Parsed::RejectedUsedCode(_) => None,
     }
 }
 
 /// `Evaluate(Date, Text)` of a closing-date text of [`crate::format::closing_letter_text`] (the letter and mm/dd/yy) under a
-/// language whose letter is measured, `number` the format number when one is given. Measured (assumption
-/// `closing-date-letter-by-language`, corpus PR 1428 GlobalLanguageClosingDate.al:39-42 TryEvaluate, :123-284 at 04e1fa0a):
+/// language whose letter is measured, `number` the format number when one is given. Pinned by
+/// localization/global-language/GlobalLanguageClosingDate.al:40 (`Ok := Evaluate(D, Txt)`) of the texts at :90, asserted at
+/// :166-172 (1030), :275-281 (1053) and the `Evaluate` lines of :177-257 (1031, 1036, 1044):
 /// without a format number, with the result used, C and U in either case and upper-case S: `Some(Ok(Some(date)))` for the
 /// language's letter, `Some(Ok(None))` (false, the variable unchanged) for another language's letter. Format number 9 keeps its
 /// own rule, and so does a date part that does not read (`None`); the statement form, another number and a lower-case s refuse.
@@ -1452,7 +1463,6 @@ fn closing_in_language(c: &dyn Ctx, text: &str, number: Option<i64>) -> Option<R
     if letter == 's' {
         return refused("a lower-case s");
     }
-    crate::assumptions::assume(crate::assumptions::Assumption::ClosingDateLetterByLanguage);
     Some(Ok(own.then_some(Value::Date(d, true))))
 }
 
@@ -1472,6 +1482,11 @@ fn letters_date_text(text: &str, number: i64) -> bool {
 
 pub fn evaluate(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
     evaluate_with(c, a, false)
+}
+
+/// `Evaluate` into a Date or DateTime local variable or parameter: the shapes of `short_us_date`, else [`evaluate`].
+pub fn evaluate_date_variable(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
+    evaluate_with_max(c, a, false, None, false, true)
 }
 
 /// `Evaluate` into an Option variable, which has no OptionCaption to name a member by.
@@ -1597,11 +1612,11 @@ pub fn evaluate_bounded(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value])
         return unsupported("Evaluate into a bounded text without its length");
     };
     let max = u32::try_from(max).ok();
-    evaluate_with_max(c, &mut a[..3], false, max, false)
+    evaluate_with_max(c, &mut a[..3], false, max, false, false)
 }
 
 fn evaluate_with(c: &mut dyn Ctx, a: &mut [Value], variable_option: bool) -> Result<Value, Signal> {
-    evaluate_with_max(c, a, variable_option, None, false)
+    evaluate_with_max(c, a, variable_option, None, false, false)
 }
 
 /// `Evaluate` into a Text or a Code (corpus recordref-fieldref/P128EvalBasic.al:P128_Evaluate_IntoText,
@@ -1674,7 +1689,7 @@ pub fn evaluate_typed(
         Value::Integer(number as i32),
     ];
     // The caller says the result is used: a rejected text is `false`, not an error.
-    Ok(match evaluate_with_max(c, &mut tmp, false, max, false)? {
+    Ok(match evaluate_with_max(c, &mut tmp, false, max, false, false)? {
         Value::Boolean(true) => Some(tmp.swap_remove(0)),
         _ => None,
     })
@@ -2186,7 +2201,7 @@ fn into_field_ref(c: &mut dyn Ctx, a: &mut [Value], number: i64) -> Result<Value
     }
     let mut tmp = vec![current, a[1].clone(), Value::Integer(number as i32)];
     // A Date field names any text in the date error, letters too (N582EvalFieldRefUnused.al:92, `abc`).
-    let ok = evaluate_with_max(c, &mut tmp, !target.option_caption, max, true)?;
+    let ok = evaluate_with_max(c, &mut tmp, !target.option_caption, max, true, false)?;
     if matches!(ok, Value::Boolean(true)) {
         let v = crate::ops::convert(tmp.swap_remove(0), &target.ty)?;
         target.rec.borrow_mut().fields[target.pos] = v;
@@ -2214,7 +2229,7 @@ pub fn evaluate_key_part(c: &mut dyn Ctx, ty: &crate::value::RtType, text: &str,
         Value::Text(text.to_string().into()),
         Value::Integer(number as i32),
     ];
-    match evaluate_with_max(c, &mut tmp, false, max, true)? {
+    match evaluate_with_max(c, &mut tmp, false, max, true, false)? {
         Value::Boolean(true) => Ok(tmp.swap_remove(0)),
         _ => unsupported(format!(
             "Evaluate of the key part `{text}` into {} (not pinned)",
@@ -2255,6 +2270,7 @@ fn evaluate_with_max(
     variable_option: bool,
     max: Option<u32>,
     any_date_text: bool,
+    date_variable: bool,
 ) -> Result<Value, Signal> {
     // A Guid source reads as its text `{XXXXXXXX-...}`: into a Text, a Code and a Guid (types/duration/
     // E_Guid.al:224-311). Other sources that are not text are not pinned.
@@ -2303,6 +2319,13 @@ fn evaluate_with_max(
         });
     }
     let parsed = match &a[0] {
+        Value::Date(..) | Value::DateTime(_)
+            if date_variable
+                && matches!(a.get(2), None | Some(Value::Integer(0)))
+                && short_us_date::measured(c, matches!(a[0], Value::DateTime(_)), &text) =>
+        {
+            short_us_date::read(c, matches!(a[0], Value::DateTime(_)), &text)?
+        }
         Value::Text(_) | Value::Code(_) => text_or_code(c, &a[0], &text, number, max)?,
         Value::Integer(_) => integer(&text, number)?,
         Value::BigInteger(_) => big_integer(&text, number)?,
@@ -2402,6 +2425,13 @@ fn evaluate_with_max(
             Ok(Value::Boolean(true))
         }
         Parsed::Rejected | Parsed::RejectedWith(..) if c.ret_used() => Ok(Value::Boolean(false)),
+        Parsed::RejectedUsedCode(code) if c.ret_used() => {
+            c.set_last_error(crate::native::unpinned_text_error(
+                code,
+                "the last error text of a rejected Evaluate (corpus PR 1503)",
+            ));
+            Ok(Value::Boolean(false))
+        }
         Parsed::RejectedWith(message, code) => crate::native::raise(message, code),
         Parsed::RejectedLastError(message, code) => match crate::native::raise::<Value>(&message, code) {
             Err(Signal::Error(e)) if c.ret_used() => {
@@ -2412,7 +2442,7 @@ fn evaluate_with_max(
         },
         // The error of a failed statement form (session-system/TestProbeSessionMiscContracts.al:Arithmetic_ErrorTexts,
         // `evaluate_int_overflow_statement`; types/TestProbeScalarContracts.al:Evaluate_BooleanFailureError).
-        Parsed::Rejected | Parsed::RejectedUsedRefused(_)
+        Parsed::Rejected | Parsed::RejectedUsedRefused(_) | Parsed::RejectedUsedCode(_)
             if matches!(
                 a[0],
                 Value::Integer(_)
@@ -2458,8 +2488,8 @@ fn evaluate_with_max(
                 // format-evaluate/EvalLanguageBoolean.al EL_Errors_NLB_2067, _NLD_1043, _FRA_1036, _DAN_1030 (the quotes of the
                 // French text are « and » with a no-break space inside).
                 (Some(n @ (1030 | 1036 | 1043 | 2067)), "Boolean") => raise_boolean_error(n, &text),
-                // Under 1044 and 1053 only the form with the result used is measured (assumption
-                // `boolean-words-norwegian-swedish`); the error text of the statement form is not.
+                // Under 1044 and 1053 only the form with the result used is pinned (localization/global-language/
+                // GlobalLanguageBoolean.al:217-274); the error text of the statement form is not.
                 (Some(n @ (1044 | 1053)), "Boolean") if number == 0 => unsupported(format!(
                     "the error of Evaluate into a Boolean under GlobalLanguage {n} (not measured)"
                 )),
@@ -2480,7 +2510,7 @@ fn evaluate_with_max(
         // text as a date filter gives, SetFilter on a Date).
         // In English every text gives this error (format-evaluate/Y49EvaluateDateBlanks.al:79-205: blanks,
         // `,`, `_`, `!`, with and without number 9).
-        Parsed::Rejected | Parsed::RejectedUsedRefused(_)
+        Parsed::Rejected | Parsed::RejectedUsedRefused(_) | Parsed::RejectedUsedCode(_)
             if matches!(a[0], Value::Date(..))
                 && (any_date_text
                     || c.language() == 1033
@@ -2535,7 +2565,7 @@ fn evaluate_with_max(
             "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.",
             "InvalidGuidFormat",
         ),
-        Parsed::Rejected | Parsed::RejectedUsedRefused(_) => unsupported(format!(
+        Parsed::Rejected | Parsed::RejectedUsedRefused(_) | Parsed::RejectedUsedCode(_) => unsupported(format!(
             "Evaluate of `{text}` failed with the result unused (error text not pinned yet)"
         )),
     }

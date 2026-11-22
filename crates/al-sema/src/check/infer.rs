@@ -659,7 +659,7 @@ impl<'a> Checker<'a> {
     /// The target of `Proc := value` where `Proc` is a procedure of the workspace that takes one parameter and none takes
     /// none: AL reads it as the call `Proc(value)` (Base Application's Service Statistics writes
     /// `CurrPage.SubForm.PAGE.SetParentControl := PAGE::"Service Statistics"`). The call is picked with the value's type
-    /// and recorded on the target; the type of the target is unknown. Assumption `procedure-assign-is-call`.
+    /// and recorded on the target; the type of the target is unknown (pinned by codeunits/procedures/AssignIsCallRule.al).
     ///
     /// `plain` is false for a compound assignment (`X.M += v`), which only reports AL0129 for a builtin method `M`.
     pub(crate) fn assign_target_ty(
@@ -770,6 +770,37 @@ impl<'a> Checker<'a> {
             }
         }
         self.ty_of_inferred(sc, target, e)
+    }
+
+    /// `Caption` on a page variable or `CurrPage` of a page that declares procedures named Caption: the platform method
+    /// where BC names it (`own_named_page_methods::caption_names_platform`). `node` is the member, `recv` its receiver.
+    fn own_named_caption_member(
+        &mut self,
+        sc: &Scope,
+        node: &SyntaxNode,
+        recv: &SyntaxNode,
+        base_ty: &Ty,
+        mname: &str,
+    ) -> Option<E> {
+        use crate::own_named_page_methods::{CaptionReceiver, caption_names_platform, own_captions};
+        let Ty::Object(ObjKind::Page, page) = base_ty else {
+            return None;
+        };
+        if !mname.eq_ignore_ascii_case("Caption") || recv.kind() != SyntaxKind::NameRef {
+            return None;
+        }
+        let page = self.resolve(sc, ObjKind::Page, page)?;
+        let own = own_captions(self.ws, page);
+        let receiver = if is_currpage(sc, recv) {
+            CaptionReceiver::CurrPage
+        } else {
+            CaptionReceiver::PageVariable
+        };
+        let call_args = crate::own_named_page_methods::call_args(node);
+        if own.is_empty() || !caption_names_platform(self.ws, receiver, call_args, &own, sc.oi) {
+            return None;
+        }
+        Some(E::Callable(self.catalog_cands("Page", "Caption", true, base_ty)))
     }
 
     /// The compile error of the assignment form `X.M := v` of the builtin method `M` (the candidates `visible`), where alc
@@ -1219,21 +1250,14 @@ impl<'a> Checker<'a> {
             // control is not called. Real BC compiles that code; no corpus test names a control like a method.
             Ty::Object(ObjKind::Page, page) => self.resolve(sc, ObjKind::Page, page).is_some_and(|oi| {
                 self.named_section(oi, mname).is_some()
-                        // AutoSplitSaveRecord.al: an explicit CurrPage.SaveRecord() calls
-                        // the platform method. A call through CurrPage.Part.Page calls
-                        // the internal procedure with that name.
-                        || (oi == sc.oi
-                            && mname.eq_ignore_ascii_case("SaveRecord")
-                            && node.children().next().is_some_and(|receiver| {
-                                receiver.kind() == SyntaxKind::NameRef
-                                    && name_of(&receiver).eq_ignore_ascii_case("CurrPage")
-                            })
-                            && !sc.vars.iter().any(|frame| frame.contains_key("currpage"))
-                            && node.parent().is_some_and(|call| {
-                                call.children().find(|n| n.kind() == SyntaxKind::ArgList)
-                                    .is_none_or(|args| args.children().next().is_none())
-                            })
-                            && crate::members::has_internal_parameterless_save_record(self.ws, oi))
+                    || crate::own_named_page_methods::save_record_names_platform(
+                        self.ws,
+                        oi,
+                        sc.oi,
+                        mname,
+                        node,
+                        node.children().next().is_some_and(|r| is_currpage(sc, &r)),
+                    )
             }),
             // `Q.Open()` is the query's method even when the query has a column named Open (Base
             // Application's "Summarized Stock By Item Trkg." has one): a column is not called.
@@ -1595,7 +1619,7 @@ impl<'a> Checker<'a> {
                     )
                 {
                     if let Some(e) = kids.get(1).and_then(|m| self.this_member(sc, node, m)) {
-                        return e;
+                        return self.field_member_type(sc, node, e);
                     }
                 }
                 // `CurrPage.<protected var of the base page>` in a page extension: the base page's variable, as the plain name
@@ -1674,6 +1698,9 @@ impl<'a> Checker<'a> {
                 if let Some(e) = self.called_builtin_over_member(sc, node, &base_ty, &mname) {
                     return e;
                 }
+                if let Some(e) = self.own_named_caption_member(sc, node, &kids[0], &base_ty, &mname) {
+                    return e;
+                }
                 if let Some(r) = self.field_res(sc, &base_ty, &mname) {
                     self.record(sc, node, r);
                 }
@@ -1690,7 +1717,7 @@ impl<'a> Checker<'a> {
                 self.currreport_request_options_page(sc, node, &kids[0], &base_ty, &mname);
                 self.al_codeunit_access(sc, node, &base_ty, &mname);
                 match self.member(sc, &base_ty, &mname) {
-                    Some(e) => e,
+                    Some(e) => self.field_member_type(sc, node, e),
                     None if self.tdd_member(sc, node, &kids[0], &base_ty, &mname) => E::Val(Ty::Unknown),
                     None if self.tdd_field(sc, node, &kids[0], &base_ty, &mname) => E::Val(Ty::Unknown),
                     None => {
@@ -1707,7 +1734,8 @@ impl<'a> Checker<'a> {
                 self.al_unquoted_in_after_scope(sc, kids.get(1));
                 let base = if kids[0].kind() == NameRef {
                     match self.lookup_name(sc, &kids[0]) {
-                        Some(e) => e,
+                        // A bare field name of the current record: its enum as `Rec.Field` reads it (`field_enum.rs`).
+                        Some(e) => self.field_member_type(sc, &kids[0], e),
                         None => {
                             // `"Some Enum"::Value` where the enum is outside the workspace.
                             self.diag(sc, node, "AR0002", format!("unresolved enum `{}`", name_of(&kids[0])));
@@ -1791,7 +1819,7 @@ impl<'a> Checker<'a> {
                     // (Base Application's "Find Record Management"). Its type is the option's.
                     E::Callable(c) => {
                         let t = self.pick(sc, &kids[0], &c, &[], &rhs);
-                        self.scope_member(sc, node, &t, &rhs);
+                        self.scope_member(sc, node, None, &t, &rhs);
                         E::Val(t)
                     }
                 }
@@ -1873,18 +1901,39 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// `T::Member` where `T` is the type of the left side: records the enum value or option member.
-    pub(crate) fn scope_member(&mut self, sc: &mut Scope, node: &SyntaxNode, t: &Ty, rhs: &str) {
+    /// `T::Member` where `T` is the type of the left side `left`: records the enum value or option member. A left side that is
+    /// a record field names a member of the field's own enum where the file reads the enum's name otherwise
+    /// ([`Self::field_enum_reading`]).
+    pub(crate) fn scope_member(
+        &mut self,
+        sc: &mut Scope,
+        node: &SyntaxNode,
+        left: Option<&SyntaxNode>,
+        t: &Ty,
+        rhs: &str,
+    ) {
         match t {
             Ty::Enum(name) => {
-                if let Some(ei) = self.resolve(sc, ObjKind::Enum, name) {
+                let reading = left.and_then(|l| self.field_enum_reading(sc, l));
+                let enum_index = match &reading {
+                    Some(super::field_enum::FieldEnumReading::Field(own)) => {
+                        self.touch(*own);
+                        Some(*own)
+                    }
+                    // A shape no probe measured: `field_member_type` noted AR1010 on the field, which refuses the routine.
+                    Some(super::field_enum::FieldEnumReading::Unmeasured(_)) => return,
+                    None => self.resolve(sc, ObjKind::Enum, name),
+                };
+                let assumed = reading.is_some();
+                if let Some(ei) = enum_index {
                     if let Some((v, _)) = self.members[ei]
                         .enum_values
                         .iter()
                         .find(|(_, n)| n.eq_ignore_ascii_case(rhs))
                     {
                         let value = *v as i32;
-                        self.record(sc, node, Res::EnumValue { object: ei, value });
+                        let res = Res::EnumValue { object: ei, value };
+                        self.record(sc, node, Self::assumed_if(assumed, res));
                     } else if self.tdd_enum_value(sc, node, ei, rhs) {
                         // `--tdd` (ADR-051 decision 10): the next compile declares the value.
                     } else if !self.ws.is_dependency(sc.oi) && !self.ws.is_dependency(ei) {
@@ -1932,7 +1981,7 @@ impl<'a> Checker<'a> {
 
     pub(crate) fn name(&mut self, sc: &mut Scope, node: &SyntaxNode) -> E {
         match self.lookup_name(sc, node) {
-            Some(e) => e,
+            Some(e) => self.field_member_type(sc, node, e),
             None if self.tdd_bare(sc, node) => E::Val(Ty::Unknown),
             None if self.tdd_bare_field(sc, node) => E::Val(Ty::Unknown),
             None => {
@@ -2116,6 +2165,13 @@ fn alc_param_type(t: &Ty) -> Option<String> {
 
 /// Whether `node` is inside the `requestpage` section of a report: its control, action and page triggers and its
 /// procedures.
+/// Whether `recv` is the bare name `CurrPage` and no variable of that name hides it.
+fn is_currpage(sc: &Scope, recv: &SyntaxNode) -> bool {
+    recv.kind() == SyntaxKind::NameRef
+        && name_of(recv).eq_ignore_ascii_case("CurrPage")
+        && !sc.vars.iter().any(|frame| frame.contains_key("currpage"))
+}
+
 pub(crate) fn in_request_page(node: &SyntaxNode) -> bool {
     node.ancestors().any(|a| {
         a.kind() == SyntaxKind::Section

@@ -613,6 +613,12 @@ impl CorpusRuntime {
         // with the compile cache keeps a baseline.
         let uncovered = use_cache.then(|| super::baseline_key::uncovered_apps(manifests, &identities, n_cached));
         let any_lazy = lazy.iter().any(Option::is_some);
+        let company_install_events = opts.test_data.is_some()
+            && match crate::host::companies() {
+                al_host::Companies::One => false,
+                al_host::Companies::List(companies) => companies.len() > 1,
+                al_host::Companies::All => true,
+            };
         let fill_all = |apps: &mut Vec<al_sema::workspace::AppSource>| {
             for (a, l) in apps.iter_mut().zip(&lazy) {
                 if let Some(l) = l {
@@ -622,6 +628,7 @@ impl CorpusRuntime {
         };
         let roots = al_sema::check::Roots {
             baseline: baseline_wanted,
+            company_install_events,
             company_data: opts
                 .company_data
                 .iter()
@@ -1084,11 +1091,7 @@ impl CorpusRuntime {
             );
             global_triggers_find_unavailable(&mut engine, lowered);
             if let Some(e) = Arc::get_mut(&mut engine) {
-                (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
-                e.license = opts.license.clone();
-                e.write_in_try_allowed = opts.allow_write_in_try_functions;
-                e.dependencies_published_global = opts.dependencies_published_global;
-                e.skipped_apps = opts.skipped_dependencies.clone();
+                set_run_options(e, opts);
             }
             engine
         };
@@ -1403,11 +1406,7 @@ impl CorpusRuntime {
             // Writing the snapshot the test threads read (the first pass on several threads does it).
             let mut encode_time = std::time::Duration::ZERO;
             super::install_once::begin_pass(&engine, &pass.resources);
-            // The install code read resource files, and this entry has resource files of its own: its install baseline
-            // would be another one, which is not made per entry.
-            let refused = (install_read_resources && !pass.resources.is_empty()).then(|| {
-            "the install code read a resource file, and an entry with resource files of its own would need an install baseline of its own (al-runner issue 5635)".to_string()
-        });
+            let (refused, skip) = pass_refused(install_read_resources, pass, opts, &list);
             let (opts_only, limit) = (&pass.only, pass.limit);
             // The test codeunits to run, in the order the report lists them.
             let mut units: Vec<Unit> = Vec::new();
@@ -1459,6 +1458,7 @@ impl CorpusRuntime {
                             flags: super::session_flags::SessionFlags::of(opts),
                             report_unpinned_errors: opts.report_unpinned_errors,
                             skip_after_timeout: opts.skip_after_timeout,
+                            stop_after_first_failure: opts.stop_after_first_failure,
                             perturb: opts.perturb.clone(),
                             run_seed: opts.run_seed,
                             runner: *runner,
@@ -1483,7 +1483,7 @@ impl CorpusRuntime {
                                 outcomes.insert((si, id, r.name.to_lowercase()), Outcome::NotRun(why.clone()));
                                 let not_run = Outcome::NotRun(why.clone());
                                 let (app, name) = (order[o.app as usize], o.name.clone());
-                                list.push(TestResult::bare(si, app, id, name, r.name.clone(), not_run));
+                                list.push(TestResult::bare(si, app, id, name, r.name.clone(), not_run).skipped(skip));
                             }
                         }
                     }
@@ -1732,6 +1732,7 @@ impl CorpusRuntime {
                         dotnet: false,
                         order_hint: None,
                         cells: None,
+                        skipped_by_option: false,
                     })
                 };
                 match r.result {
@@ -1950,16 +1951,23 @@ impl CorpusRuntime {
     }
 }
 
+/// What a run sets on an engine on top of what `Engine::with_config` makes: the one list for a new engine, a sibling and a
+/// kept engine.
+fn set_run_options(e: &mut Engine, opts: &RunOptions) {
+    (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
+    e.license = opts.license.clone();
+    e.emit_version = opts.emit_version.clone();
+    e.write_in_try_allowed = opts.allow_write_in_try_functions;
+    e.dependencies_published_global = opts.dependencies_published_global;
+    e.skipped_apps = opts.skipped_dependencies.clone();
+}
+
 /// The tests' engine (with several test threads): it shares what `make_engine` worked out from the program with the
 /// install baseline's engine (`Engine::sibling`); what `make_engine` sets on top is set again.
 fn sibling_of(engine: &Arc<Engine>, opts: &RunOptions) -> Arc<Engine> {
     let mut sibling = engine.sibling();
     if let Some(e) = Arc::get_mut(&mut sibling) {
-        (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
-        e.license = opts.license.clone();
-        e.write_in_try_allowed = opts.allow_write_in_try_functions;
-        e.dependencies_published_global = opts.dependencies_published_global;
-        e.skipped_apps = opts.skipped_dependencies.clone();
+        set_run_options(e, opts);
     }
     sibling
 }
@@ -2236,11 +2244,7 @@ fn take_kept_engines(
         // Every field a run sets, back to what `Engine::with_config` makes; then what `make_engine` sets.
         e.reset_run_state();
         e.dotnet = dotnet.clone();
-        (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
-        e.license = opts.license.clone();
-        e.write_in_try_allowed = opts.allow_write_in_try_functions;
-        e.dependencies_published_global = opts.dependencies_published_global;
-        e.skipped_apps = opts.skipped_dependencies.clone();
+        set_run_options(e, opts);
         Some(engine)
     };
     let install = reset(k.install);
@@ -2312,6 +2316,33 @@ fn run_serially<'a>(
 /// (ADR-074).
 fn hub_path(suite: &SuiteRun, opts: &RunOptions, driver: super::TestDriver) -> bool {
     suite.runner.is_none() && opts.required_isolation && opts.isolation.is_none() && driver.has_hub()
+}
+
+/// Why no test of `pass` runs, given the rows of the earlier passes (`earlier`), and whether that is the stop of an
+/// option rather than a refusal (`TestResult::skipped_by_option`, al-runner issue 8492): the install code read resource
+/// files and this entry has resource files of its own, so its install baseline would be another one, which is not made
+/// per entry; or `RunOptions::stop_after_first_failure` (al-runner issue 8210) and an earlier pass has a failed test.
+/// Every test of the pass gets the reason (`suite_isolation`).
+fn pass_refused(
+    install_read_resources: bool,
+    pass: &Pass,
+    opts: &RunOptions,
+    earlier: &[TestResult],
+) -> (Option<String>, bool) {
+    if install_read_resources && !pass.resources.is_empty() {
+        return (Some("the install code read a resource file, and an entry with resource files of its own would need an install baseline of its own (al-runner issue 5635)".to_string()), false);
+    }
+    let stopped = pass_stopped(opts, earlier);
+    let skipped = stopped.is_some();
+    (stopped, skipped)
+}
+
+/// `RunOptions::stop_after_first_failure` and an earlier pass (`earlier`) has a failed test: the reason.
+fn pass_stopped(opts: &RunOptions, earlier: &[TestResult]) -> Option<String> {
+    let failed = earlier.iter().find(|r| matches!(r.outcome, Outcome::Fail(_)));
+    failed
+        .filter(|_| opts.stop_after_first_failure)
+        .map(|r| super::run::stopped_after_failure(r.codeunit, &r.test))
 }
 
 /// The isolation of the runner the test codeunits of `suite` run under, or why none of them runs (`refused`). With
@@ -2403,7 +2434,7 @@ fn check_baseline_rule(lowered: &Lowered, units: &mut [Unit]) {
 pub(super) fn reaches_session_storage(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> bool {
     use super::written::{ReachIndex, state, union_reach_has};
     let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
-    let bits = state::ISOLATED_STORAGE | state::NUMBER_SEQUENCE | state::OTHER;
+    let bits = state::ISOLATED_STORAGE | state::NUMBER_SEQUENCE | state::MAY_LEAVE;
     let roots = super::handlers::unit_roots(lowered, oi, true);
     union_reach_has(&engine.events, lowered, &index, &roots, &|f| {
         f.unknown.is_some() || (f.state_reads | f.state_writes) & bits != 0

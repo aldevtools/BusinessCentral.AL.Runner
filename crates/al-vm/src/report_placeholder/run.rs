@@ -76,19 +76,23 @@ impl Session {
         }
     }
 
-    /// Runs `run` as a report started by `RunModal` (`modal`) and with the SystemPrinter argument `printer`, and restores the
-    /// state of the run around it afterwards (a report run from a trigger of another).
+    /// Runs `run` as a report started by `RunModal` (`modal`), with the SystemPrinter argument `printer`, and by the static
+    /// call with only the report id and no substitution (`bare`), and restores the state of the run around it afterwards (a
+    /// report run from a trigger of another).
     pub(crate) fn run_started_as(
         &mut self,
         modal: bool,
         printer: Option<&Value>,
+        bare: bool,
         run: impl FnOnce(&mut Self) -> Result<(), Signal>,
     ) -> Result<(), Signal> {
         let outer = std::mem::replace(&mut self.report.run_modal, modal);
+        let outer_bare = std::mem::replace(&mut self.report.run_bare, bare);
         let printer = matches!(printer, Some(Value::Boolean(true)));
         let outer_printer = std::mem::replace(&mut self.report.system_printer, printer);
         let ran = run(self);
         (self.report.run_modal, self.report.system_printer) = (outer, outer_printer);
+        self.report.run_bare = outer_bare;
         ran
     }
 
@@ -99,7 +103,12 @@ impl Session {
         RUN_EVENTS.iter().find_map(|e| {
             self.engine
                 .events
-                .unraised_subscriber("reporting triggers", Some(e), test, self.test_object)
+                .unraised_subscriber(
+                    &crate::events::unraised_key(al_ir::REPORTING_CODEUNIT),
+                    Some(e),
+                    test,
+                    self.test_object,
+                )
                 .map(|(_, sub)| format!("a subscriber to {e} ({sub})"))
         })
     }

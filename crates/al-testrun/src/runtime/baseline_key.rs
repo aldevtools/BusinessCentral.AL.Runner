@@ -128,7 +128,6 @@ pub(super) fn baseline_key(
     opts.compile_cache.as_ref()?;
     if opts.trace
         || opts.execute
-        || opts.coverage
         || suites.iter().any(|s| s.runner.is_some())
         || crate::host::uses_real_files()
     {

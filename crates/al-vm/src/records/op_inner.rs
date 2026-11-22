@@ -1,9 +1,28 @@
 //! `record_op_inner`: the dispatch of every Record method (moved out of `records.rs`).
 
 use super::*;
-use crate::state::WriteOfAl;
+use crate::state::{UnpinnedLock, WriteOfAl};
 
 impl Session {
+    /// The record methods that read the database: a call of one on a database record starts the transaction when nothing has
+    /// yet (`TxPhase::Read`).
+    fn is_read_call(method: RecordOp) -> bool {
+        matches!(
+            method,
+            RecordOp::Get
+                | RecordOp::GetBySystemId
+                | RecordOp::Find
+                | RecordOp::FindFirst
+                | RecordOp::FindLast
+                | RecordOp::FindSet
+                | RecordOp::Next
+                | RecordOp::Count
+                | RecordOp::IsEmpty
+                | RecordOp::CalcFields
+                | RecordOp::CalcSums
+        )
+    }
+
     pub(crate) fn record_op_inner(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
         self.connection_check(rec)?;
         if rec.borrow().unpinned_buffer.is_some() && !self.by_value_view_runs(method, rec)? {
@@ -112,11 +131,12 @@ impl Session {
             && !rec.borrow().temporary
             && self
                 .tx
+                .open
                 .deferred_insert
                 .as_ref()
                 .is_some_and(|(o, _)| *o == t.object as usize)
         {
-            let (_, e) = self.tx.deferred_insert.take().expect("checked");
+            let (_, e) = self.tx.open.deferred_insert.take().expect("checked");
             self.tx.deferred_raised += 1;
             return Err(Signal::Error(Box::new(e)));
         }
@@ -251,43 +271,17 @@ impl Session {
             // A write call starts the transaction, also a DeleteAll that finds no row
             // (session-system/ProbeSystemEnumMembers.al:143-161, session-system/TestDatabaseExtended.al:
             // Database_CurrentTransactionType_SetAfterWriteOp_Throws over fixture DeleteAlls).
-            self.tx.tx_phase = crate::transactions::TX_WRITE;
-        } else if self.tx.tx_phase == crate::transactions::TX_FRESH
+            self.tx.phase = crate::transactions::TxPhase::Write;
+        } else if self.tx.phase == crate::transactions::TxPhase::Fresh
             && !rec.borrow().temporary
-            && matches!(
-                method,
-                RecordOp::Get
-                    | RecordOp::GetBySystemId
-                    | RecordOp::Find
-                    | RecordOp::FindFirst
-                    | RecordOp::FindLast
-                    | RecordOp::FindSet
-                    | RecordOp::Next
-                    | RecordOp::Count
-                    | RecordOp::IsEmpty
-                    | RecordOp::CalcFields
-                    | RecordOp::CalcSums
-            )
+            && Self::is_read_call(method)
         {
             // A read call starts it too (session-system/ProbeSystemEnumMembers.al:94-112).
-            self.tx.tx_phase = crate::transactions::TX_READ;
+            self.tx.phase = crate::transactions::TxPhase::Read;
         }
-        if !rec.borrow().temporary
-            && matches!(
-                method,
-                RecordOp::Get
-                    | RecordOp::GetBySystemId
-                    | RecordOp::Find
-                    | RecordOp::FindFirst
-                    | RecordOp::FindLast
-                    | RecordOp::FindSet
-                    | RecordOp::Next
-                    | RecordOp::Count
-                    | RecordOp::IsEmpty
-                    | RecordOp::CalcFields
-                    | RecordOp::CalcSums
-            )
-        {
+        if !rec.borrow().temporary && Self::is_read_call(method) {
+            // A read call ends the moment the Update report rule is pinned at (`OpenTx::at_test_start`).
+            self.tx.open.at_test_start = false;
             // What LastUsedRowVersion reports after a read of a table the open transaction inserted into.
             let company = rec.borrow().company.clone();
             // GetBySystemId, Find('='), Find('-'), Find('+') and a CalcFields of a record whose own table holds inserted rows
@@ -299,6 +293,7 @@ impl Session {
             // table holds none, Next or Find('<') of the inserted table, Next(N) and other Find forms stay unpinned.
             let own_pending = self
                 .tx
+                .open
                 .row_versions
                 .pending_inserts
                 .iter()
@@ -351,24 +346,25 @@ impl Session {
                 RecordOp::Find => matches!(args.first(), Some(Value::Text(w)) if w.as_str() == "="),
                 _ => false,
             };
-            self.tx.db_reads += 1;
+            self.tx.open.locks.db_reads += 1;
+            let locks = &mut self.tx.open.locks;
             match rec.borrow().read_isolation {
                 ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK
-                    if self.tx.lock_tx && matches!(method, RecordOp::FindFirst | RecordOp::FindSet) =>
+                    if locks.lock_tx && matches!(method, RecordOp::FindFirst | RecordOp::FindSet) =>
                 {
-                    self.tx.isolation_lock = true;
-                    self.tx.note_isolation_lock(t.object, rec.borrow().company.clone());
+                    locks.isolation_lock = true;
+                    locks.note_isolation_lock(t.object, rec.borrow().company.clone());
                 }
                 ISOLATION_REPEATABLE_READ | ISOLATION_UPDLOCK => {
-                    if !self.tx.lock_tx && !pinned_read {
-                        self.tx.locking_read_tx_unpinned = true;
+                    if !locks.lock_tx && !pinned_read {
+                        locks.locking_read_tx_unpinned = true;
                     }
                     // Another cause already recorded is kept: `lock_unpinned` names this read only while such reads are its
                     // only cause (see `read_of_others_only` in the stale-buffer decision).
-                    if self.tx.lock_unpinned.is_none_or(|w| w == UNPINNED_LOCKING_READ) {
-                        self.tx.lock_unpinned = Some(UNPINNED_LOCKING_READ);
+                    if locks.lock_unpinned.is_none_or(|w| w == UnpinnedLock::LockingRead) {
+                        locks.lock_unpinned = Some(UnpinnedLock::LockingRead);
                     }
-                    self.tx.note_isolation_lock(t.object, rec.borrow().company.clone());
+                    locks.note_isolation_lock(t.object, rec.borrow().company.clone());
                 }
                 _ => {}
             }
@@ -613,11 +609,12 @@ impl Session {
                             let company = rec.borrow().company.clone();
                             if !self
                                 .tx
+                                .open
                                 .tables_inserted
                                 .iter()
                                 .any(|(o, c)| *o == t.object && *c == company)
                             {
-                                self.tx.tables_inserted.push((t.object, company));
+                                self.tx.open.tables_inserted.push((t.object, company));
                             }
                         }
                         let version = t
@@ -734,6 +731,7 @@ impl Session {
                             && matches!(r, Ok(Value::Boolean(false)))
                             && self
                                 .tx
+                                .open
                                 .deferred_insert
                                 .as_ref()
                                 .is_some_and(|(o, _)| *o == t.object as usize)
@@ -745,12 +743,13 @@ impl Session {
                             );
                             if self
                                 .tx
+                                .open
                                 .deferred_insert
                                 .as_ref()
                                 .is_some_and(|(_, e)| e.message == same_key)
                             {
                                 // GetLastErrorText then gives the duplicate's text (`guarded`).
-                                let (_, e) = self.tx.deferred_insert.take().expect("checked");
+                                let (_, e) = self.tx.open.deferred_insert.take().expect("checked");
                                 self.last_error = e;
                             }
                         }
@@ -770,6 +769,7 @@ impl Session {
             RecordOp::Modify => {
                 let run = arg_bool(args, 0)?;
                 let caller = self.take_modify_caller();
+                let read_rolled = Self::modify_read_the_rolled_row(rec, &t, caller);
                 self.tenant_license_state_refuses(&t, "modify")?;
                 self.document_service_trigger_refused(&t, rec, run, "Modify")?;
                 // A key value the column rounds finds the rounded row (P130DateFilters.al:635-637, `modify var`).
@@ -809,6 +809,7 @@ impl Session {
                 });
                 if let Some(old) = &stored {
                     self.check_modify_auto_increment(&t, rec, old, run)?;
+                    self.refuse_rolled_modify_with_code(&t, old, run)?;
                 }
                 // A Modify loads every field of a partially loaded record: the subscribers' Rec and xRec and the caller's record
                 // report all fields loaded afterwards, for Modify(true) and Modify(false)
@@ -842,29 +843,10 @@ impl Session {
                 if self.is_user_row(&t, rec.borrow().temporary) {
                     self.user_before_modify(&t, rec)?;
                 }
-                // A Modify that changes no field leaves the row version as it is: Microsoft's tests Modify a record after a refresh report
-                // modified its row without a change (Create Prod. Order Lines.Copy) and pass, which a bumped version would make a
-                // stale write (record/PriorityAssumptions.al:143-244, real BC: after a Modify that changes nothing and a Commit, the
-                // other variable's Modify of a changed field is accepted, while a Modify that changed a field makes it fail with DB:RecordChanged).
                 self.check_code_storage(&t, rec, true)?;
                 self.check_failed_insert_stale(&t, rec, stored_row.as_deref())?;
                 self.sql_timestamp_before(&t, rec, stored_row.as_deref())?;
-                // A bulk ModifyAll(.., false) without subscribers stamps SystemModifiedAt of a row that has the value already
-                // (RcBTriggers.al:ModifyAll_Equal_Value_Rows_BQ) and gives it a new row version, with or without an OnModify
-                // trigger (record/crud/ModifyWithoutChange.al:375-448, `row1_version_changed = Yes`).
-                let unchanged = match stored_row.as_deref() {
-                    Some(old) if !rec.borrow().temporary && Session::modify_changes_nothing(&t, old, rec) => Some(old),
-                    _ => None,
-                };
-                let old_version = match unchanged {
-                    Some(old) if !self.bulk_modify => {
-                        if let Some(i) = t.fields.iter().position(|f| f.id == 2_000_000_005) {
-                            rec.borrow_mut().fields[i] = old[i].clone();
-                        }
-                        None
-                    }
-                    _ => self.bump_row_version(&t, rec),
-                };
+                let old_version = self.modify_row_version(&t, rec, stored_row.as_deref());
                 self.sql_timestamp_after(&t, rec);
                 let keeps_assigned = stored_row.as_deref().is_some_and(|s| {
                     crate::assigned_audit::modify_keeps_assigned_modified(&t, s, &rec.borrow().fields, &audit)
@@ -902,6 +884,9 @@ impl Session {
                     }
                 }
                 let mut stored = Self::to_store(rec, view);
+                if let (false, Some(old)) = (rec.borrow().temporary, stored_row.as_deref()) {
+                    crate::sqltime::keep_rolled(old, &mut stored, read_rolled)?;
+                }
                 if let Some(bad) = self.sql_columns(rec, &t, &mut stored)? {
                     let shape = (caller, stored_row.is_some(), run);
                     return self.fail_modify_sql_range(rec, &t, bad, shape, (old_version, stamped));
@@ -955,7 +940,7 @@ impl Session {
                                 }
                             }
                             let company = rec.borrow().company.clone();
-                            self.tx.rows_touched.push((t.object, company, pk.clone()));
+                            self.tx.open.rows_touched.push((t.object, company, pk.clone()));
                         }
                         if let (Some(old), false) = (stored_row.as_deref(), rec.borrow().temporary) {
                             self.release_replaced_media(&cx, &t, old, &row)?;
@@ -1474,7 +1459,12 @@ impl Session {
                     }
                     _ => None,
                 };
-                let shape = super::measured_setfilter::MeasuredSetFilter::of(from_al, &rec.borrow(), &text, args.len());
+                let shape = super::measured_setfilter::MeasuredSetFilter::of(
+                    from_al,
+                    &rec.borrow(),
+                    &text,
+                    args.get(2..).unwrap_or_default(),
+                );
                 let mut parsed = match record_id {
                     Some(p) => p,
                     None => match self.measured_language_filter(shape.as_ref(), &t, pos)? {
@@ -1485,16 +1475,9 @@ impl Session {
                 // A Date text with a piece no filter reads asks `MakeDateFilter` subscribers first.
                 if matches!(&parsed, Err(e) if e.starts_with(al_builtins::filter::INVALID_DATE))
                     && matches!(ty, RtType::Date)
-                    && self
-                        .engine
-                        .events
-                        .is_subscribed(crate::events::FILTER_HELPER_TRIGGERS, "makedatefilter")
                 {
-                    // Outside the pinned shape (an English session, no placeholders) the event is not raised, as before.
-                    if self.global_language == 1033 && args.len() <= 2 {
-                        if let Some(fixed) = self.repair_date_filter_text(&text, &|t| parse(t).is_ok())? {
-                            parsed = parse(&fixed);
-                        }
+                    if let Some(fixed) = self.date_filter_before_error(&text, args.len() > 2, &|t| parse(t).is_ok())? {
+                        parsed = parse(&fixed);
                     }
                 }
                 // An Integer or Time text of letters asks `MakeIntFilter` / `MakeTimeFilter` subscribers first (PtObserve.al:Bad_Int,
@@ -1522,7 +1505,7 @@ impl Session {
                                     text.trim()
                                 ));
                             }
-                            if self.global_language == 1033 && args.len() <= 2 {
+                            if self.global_language() == 1033 && args.len() <= 2 {
                                 let failing = parsed
                                     .as_ref()
                                     .err()
@@ -1541,7 +1524,7 @@ impl Session {
                                 return unsupported(format!(
                                     "SetFilter of `{}` with {event} subscribers in session language {} or with placeholders (not pinned)",
                                     text.trim(),
-                                    self.global_language
+                                    self.global_language()
                                 ));
                             }
                         }
@@ -1551,7 +1534,7 @@ impl Session {
                     Ok(e) => e,
                     // record/crud/RcAFilters.al:SetFilter_Integer_Invalid, events/platform-triggers/PtObserve.al:Bad_Int,
                     // Bad_Decimal, Bad_Time, Bad_DateTime m0.
-                    Err(e) if e.starts_with(al_builtins::filter::NOT_EVALUATED) && self.global_language == 1033 => {
+                    Err(e) if e.starts_with(al_builtins::filter::NOT_EVALUATED) && self.global_language() == 1033 => {
                         let (type_name, value) = e[al_builtins::filter::NOT_EVALUATED.len()..]
                             .split_once('\t')
                             .expect("type and value");
@@ -1562,14 +1545,14 @@ impl Session {
                     // (record/filters/W4Filters.al:694 `num_star_after`).
                     Err(e)
                         if e.starts_with(al_builtins::filter::VARIABLE_NOT_UNDERSTOOD)
-                            && self.global_language == 1033 =>
+                            && self.global_language() == 1033 =>
                     {
                         let value = &e[al_builtins::filter::VARIABLE_NOT_UNDERSTOOD.len()..];
                         let reason = format!("The variable \"{value}\" was not understood.");
                         return Err(self.filter_error(&t, pos, text.trim(), &reason));
                     }
                     // The German error of a date no Date filter reads (P143Date_DePlain.al, _DeRanges.al, _DeFormulas.al).
-                    Err(e) if e.starts_with(al_builtins::filter::INVALID_DATE) && self.global_language == 1033 => {
+                    Err(e) if e.starts_with(al_builtins::filter::INVALID_DATE) && self.global_language() == 1033 => {
                         // P81DateFilters.al:SetFilter_Date_InvalidTexts.
                         let bad = &e[al_builtins::filter::INVALID_DATE.len()..];
                         let reason = format!(
@@ -1577,7 +1560,7 @@ impl Session {
                         );
                         return Err(self.filter_error(&t, pos, text.trim(), &reason));
                     }
-                    Err(e) if e.starts_with(al_builtins::filter::FILTER_SYNTAX) && self.global_language == 1033 => {
+                    Err(e) if e.starts_with(al_builtins::filter::FILTER_SYNTAX) && self.global_language() == 1033 => {
                         let inner = &e[al_builtins::filter::FILTER_SYNTAX.len()..];
                         let (shown, inner) = match inner.strip_prefix(al_builtins::filter::AS_WRITTEN) {
                             Some(i) => (text.as_str(), i),
@@ -1919,7 +1902,9 @@ impl Session {
                 }
                 let xrec = Self::validate_xrec_handle(rec, &before);
                 let outermost = outer.is_none().then_some(before);
-                self.while_validating(entry, outermost, |s| s.validate_hooks(&t, rec, &xrec, field, snapshot))?;
+                self.while_validating(entry, rec, outermost, |s| {
+                    s.validate_hooks(&t, rec, &xrec, field, snapshot)
+                })?;
                 if sum_flowfield {
                     self.finish_flowfield_validate(rec, &t, pos, flowfield_error, args.get(1).cloned(), old_value)?;
                 }
@@ -1927,7 +1912,7 @@ impl Session {
             }
             RecordOp::Rename => {
                 let from_al = std::mem::take(&mut self.tx.rename_from_al);
-                let rename_note = (self.tx.writes.len(), self.store.change_counter());
+                let rename_note = (self.tx.open.writes.len(), self.store.change_counter());
                 self.note_bulk_write(rec, &t, crate::state::TxWriteKind::Other);
                 if !rec.borrow().temporary {
                     self.rename_jit_gone(rec)?;
@@ -1986,6 +1971,7 @@ impl Session {
                         new[field] = ops::convert(v.clone(), &ty)?;
                     }
                 }
+                self.refuse_selected_company_rename(rec.borrow().temporary, &t, &old, &new)?;
                 let auto_increment_refusal = self.check_rename_values(rec, &t, &old, &mut new)?;
                 if self.is_profile_row(&t, rec.borrow().temporary) {
                     self.profile_before_rename(&t, &old, &new)?;
@@ -1998,6 +1984,16 @@ impl Session {
                 // The row is found under the key the column holds (P130DateFilters.al:641-648: the record holds 10:00:00 after
                 // Get('A', 10:00:00.001) and its Rename to 12:00:00.001 is found under 12:00:00).
                 let old_pk = Self::sql_key(rec, &t, &old);
+                // A Rename of a row that holds a Time past the day: whether the row keeps it is not probed.
+                if !rec.borrow().temporary
+                    && self
+                        .store_for(rec)?
+                        .get(&cx, &t, &old_pk)
+                        .map_err(|e| Signal::unsupported(format!("{e}")))?
+                        .is_some_and(|r| r.iter().any(crate::sqltime::is_rolled))
+                {
+                    return unsupported("a Rename of a row that holds a Time stored as 23:59:59.999 (not probed)");
+                }
                 // Read before the triggers, on the buffer the test left (`assigned_audit::rename_audit`).
                 let audit = self.rename_audit(&cx, &t, rec, &old_pk)?;
                 let new_rounds = !rec.borrow().temporary && crate::sqltime::key_rounds(&t.primary_key(&new));
@@ -2051,6 +2047,7 @@ impl Session {
                 if let Some(bad) = self.sql_columns(rec, &t, &mut stored)? {
                     return self.fail_rename_sql_range(rec, &t, bad, (from_al, refs.is_empty()), &old);
                 }
+                Self::refuse_rename_writing_rolled(&stored)?;
                 // A rename to the key the row has succeeds and writes the row again, which is what
                 // stamps it (record/TestRecordSystemId.al:752-775).
                 let same_key = ops::compare_keys(&old_pk, &Self::sql_key(rec, &t, &row))?;
@@ -2078,8 +2075,8 @@ impl Session {
                         // write nobody notes, which `writes_all_noted` sees.
                         if !same_key
                             && before_store == rename_note.1
-                            && self.tx.writes.len() == rename_note.0 + 1
-                            && let Some(w) = self.tx.writes.last_mut()
+                            && self.tx.open.writes.len() == rename_note.0 + 1
+                            && let Some(w) = self.tx.open.writes.last_mut()
                             && w.kind == crate::state::TxWriteKind::Other
                         {
                             w.kind = crate::state::TxWriteKind::Rename;

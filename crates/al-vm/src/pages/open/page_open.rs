@@ -202,6 +202,10 @@ impl Session {
         let handed_record = record.as_ref().map(|r| r.borrow().clone());
         let handler = self.open_page_as(st, mode, record, bind, false)?;
         self.note_open_end(st, handed_record);
+        // A view the open left filtered or ordered on the Field table's RelationFieldNo is not measured.
+        if self.has_source(st) {
+            self.relation_field_no_page_view(&self.page_rec(st))?;
+        }
         let trapped = bind.is_none() && st.borrow().caught_by_trap;
         if handler.is_some() || trapped {
             self.data_caption_at_handled_open(st, bind, handed)?;
@@ -305,7 +309,7 @@ impl Session {
         {
             let mut s = st.borrow_mut();
             let first_run = !s.ran;
-            forget_flags_at_reopen(&mut s, first_run, (test_open, mode), &self.engine);
+            self.forget_flags_at_reopen(&mut s, first_run, (test_open, mode));
             s.open = true;
             s.open_language = Some(language);
             s.ran = true;
@@ -545,7 +549,7 @@ impl Session {
                 self.refuse_seeded_view_after_init(&inst, object, &xml)?;
                 self.apply_request_parameters(&inst, &exts, object, &xml, crate::pages::ParamsCall::RunRequestPage)?;
             }
-            self.restore_page_values(st);
+            self.restore_page_values(st)?;
             self.check_page_events(st)?;
             // A temporary source: Rec as it stands before OnOpenPage, to tell a row set before the open from one OnOpenPage set.
             let before_open = if has_source { self.temp_rec_position(st)? } else { None };
@@ -1418,7 +1422,7 @@ impl Session {
             && !rec.borrow().temporary
             && st.borrow().modal
             && !st.borrow().lookup
-            && st.borrow().run_static == Some(false)
+            && st.borrow().modal_run == ModalRun::Variable
             && !self.declares(st, "onnextrecord");
         if dialog_run_modal {
             return Ok(true);
@@ -1567,8 +1571,7 @@ fn reset_row_line_flags(s: &mut crate::pages::PageState) {
     s.gone_blank_no_new_line = false;
     s.gone_blank_shows_line = false;
     s.gone_view_list = false;
-    s.list_view_switched = false;
-    s.list_edit_back = false;
+    s.list_view.reset();
 }
 
 /// The flags a new host row, a first part access and New() on a request
@@ -1586,19 +1589,29 @@ fn reset_host_row_flags(s: &mut crate::pages::PageState) {
     s.request_new_blank = false;
 }
 
-/// Before page `s` takes the open `now` (opened by the test, mode): on a second open (`!first_run`), clears the flags of the
-/// first open that `forget_earlier_open_flags` names.
-fn forget_flags_at_reopen(s: &mut crate::pages::PageState, first_run: bool, now: (bool, PageMode), engine: &Engine) {
-    if first_run {
-        return;
+impl Session {
+    /// Before page `s` takes the open `now` (opened by the test, mode): on a second open (`!first_run`), binds the built-in View and
+    /// Edit actions taken on the earlier open to it (`ModeActions::page_reopens`, with the mode and the close it left and the test
+    /// method it opened in) and clears the flags of the first open that `forget_earlier_open_flags` names. Every open records the
+    /// test method it opens in (`PageState::opened_in_test_method`).
+    fn forget_flags_at_reopen(&self, s: &mut crate::pages::PageState, first_run: bool, now: (bool, PageMode)) {
+        let earlier_test_method = std::mem::replace(&mut s.opened_in_test_method, self.pages.test_methods_started);
+        if first_run {
+            return;
+        }
+        s.mode_actions.page_reopens(crate::pages::state::EarlierOpen {
+            mode: s.mode,
+            test_close: s.closed_by == Some(crate::pages::ClosedBy::TestClose),
+            test_method: earlier_test_method,
+        });
+        let page_type = self.engine.object_facts[s.object as usize].page_type.clone();
+        let reopen = Reopen {
+            earlier: (s.opened_by_test, s.mode),
+            now,
+            page_type,
+        };
+        forget_earlier_open_flags(s, &reopen);
     }
-    let page_type = engine.object_facts[s.object as usize].page_type.clone();
-    let reopen = Reopen {
-        earlier: (s.opened_by_test, s.mode),
-        now,
-        page_type,
-    };
-    forget_earlier_open_flags(s, &reopen);
 }
 
 /// A second open of a TestPage variable: how the test opened it before and now, and the page's type.

@@ -1,5 +1,6 @@
 use super::pinned_shape::TestCall;
 use super::*;
+use crate::platform::relation_field_no_readers::ControlRead;
 use crate::records::ValidateSite;
 use al_builtins::page_op::{PageMethod, PageOp};
 
@@ -12,8 +13,11 @@ impl Session {
         if st.borrow().request_new_blank {
             return unsupported("SetValue on a request page after New() (only Close, OK and Cancel are pinned)");
         }
+        if let Some(v) = args.first() {
+            self.refuse_text_entry_with_relation(st, idx, v)?;
+        }
         if st.borrow().lookup_setting_value {
-            st.borrow_mut().lookup_value_set = true;
+            st.borrow_mut().lookup_left.value_written();
         }
         // A filter field (a page variable) whose OnValidate refills a temporary Worksheet: the client reads the new rows
         // (`reread_after_refill_by_validate`, RmTempRefill.al:215-:320), on a collapsed tree too (al-runner issue 6550).
@@ -35,7 +39,7 @@ impl Session {
         st.borrow_mut().row_before_write = held_row;
         let r = self.control_set_value_now(st, idx, args);
         if let (Ok(_), Some(held)) = (&r, refill_held) {
-            if !st.borrow().refresh && self.temp_refill_shape_or_tree(st) && self.held_rows_changed(st)? {
+            if !st.borrow().refresh.asked() && self.temp_refill_shape_or_tree(st) && self.held_rows_changed(st)? {
                 self.reread_after_refill_by_validate(st, &held, expanded)?;
             }
         }
@@ -273,7 +277,7 @@ impl Session {
         }
         activated?;
         // Only an Update() requested by this call's triggers refreshes at its end.
-        st.borrow_mut().refresh = false;
+        st.borrow_mut().refresh.cancel();
         let engine = self.engine();
         let page = page_of(&engine, st);
         let ctl = &page.controls[idx];
@@ -985,7 +989,7 @@ impl Session {
             if let Some(r) = ctl.trigger("onvalidate") {
                 if self.has_source(st) {
                     let filters = self.page_rec(st).borrow().filters.clone();
-                    st.borrow_mut().filters_before_validate = Some(filters);
+                    st.borrow_mut().filters_before_validate = Some(crate::pages::state::ValidateStart::new(filters));
                 }
                 if let Err(e) = self.run_control_onvalidate(st, idx, r) {
                     from_page_trigger.set(true);
@@ -1011,7 +1015,7 @@ impl Session {
                 self.validated_row_typed(st, rec_bound, discard)?;
                 clear_refused_entries(st, idx);
                 let saved = std::mem::take(&mut st.borrow_mut().save_record_called);
-                let update_asked = st.borrow().refresh;
+                let update_asked = st.borrow().refresh.asked();
                 if update_asked && st.borrow().lookup_setting_value {
                     self.defer_lookup_refresh(st);
                 }
@@ -1025,7 +1029,7 @@ impl Session {
                 Ok(Value::Null)
             }
             Err(Signal::Error(e)) => {
-                st.borrow_mut().refresh = false;
+                st.borrow_mut().refresh.cancel();
                 st.borrow_mut().dirty = was_dirty;
                 // The refused edit does not stay (corpus testpage/TestPageBooleanSpelling_Tests.al,
                 // SetValue_TrueFalseSpelling_IsRefused: the stored value is untouched).
@@ -1303,7 +1307,7 @@ impl Session {
         // tests). The other field reads (properties, `As*`) read nothing more either (not pinned; kept for baseline cases 78862
         // Paging_GoToKey_Nav and 68164 TestPage_Control_Texts_GuidDurationAndBlankNumbers), and an action after them is refused
         // (`actions.rs`). Any other control call is refused.
-        if m != PageMethod::Invoke && st.borrow().read_after_goto {
+        if m != PageMethod::Invoke && st.borrow().after_goto.active() {
             // AsBoolean and AsInteger of a field, Visible, Editable and Caption of a field and Enabled of an action read
             // nothing either, and the action after them reads the row twice as after a Value read (pages/lt-wd/
             // WdGoToKeyTypedReads.al:124-247, corpus branch al-runtime-rs-staging-1030c, al-runner issue 6304). Pinned on a
@@ -1327,7 +1331,7 @@ impl Session {
             match m {
                 PageMethod::Value => {}
                 _ if pinned_read && !st.borrow().lookup => {}
-                PageMethod::SetValue => st.borrow_mut().read_after_goto_set = true,
+                PageMethod::SetValue => st.borrow_mut().after_goto.set_value_between(),
                 PageMethod::AsBoolean
                 | PageMethod::AsDate
                 | PageMethod::AsDateTime
@@ -1338,7 +1342,7 @@ impl Session {
                 | PageMethod::Visible
                 | PageMethod::Editable
                 | PageMethod::Enabled
-                | PageMethod::Caption => st.borrow_mut().read_after_goto_doubt = true,
+                | PageMethod::Caption => st.borrow_mut().after_goto.unpinned_call_between(),
                 _ => {
                     return unsupported(format!(
                         "TestField.{m} right after a GoToKey moved a list without OnAfterGetCurrRecord (whether the row is read again is not pinned)"
@@ -1377,61 +1381,7 @@ impl Session {
         let idx = match &c.target {
             ControlTarget::Control(i) => *i,
             ControlTarget::BuiltIn(name) if matches!(name.as_str(), "Edit" | "View") => {
-                // On a card the built-in Edit and View switch the open page's mode in place; both stay
-                // visible, and only the one the current mode does not already have is enabled (corpus
-                // testpage/TestPageModeSwitchAction_Tests.al:Claim 1 and 2). A list opens its card
-                // instead, like a RunObject action with RunPageOnRec, answered by a page handler (corpus
-                // testpage/TestPageListViewEditAction_Tests.al:ListViewActionOpensTheCardOnTheListsCurrentRowReadOnly,
-                // ListEditActionOpensTheCardOnTheListsCurrentRowEditable). Whether the action is visible or
-                // enabled on a list is not pinned.
-                if self.is_list(st) {
-                    // Both actions are visible on a list whether or not it names a card; View is
-                    // enabled, Edit only when the list names a card that can be edited; a disabled
-                    // action does nothing, and so does View on a list with no card (corpus
-                    // testpage/TestPageModeSwitchAction_Tests.al:
-                    // PlainListWithoutCardPageIdOffersBothActionsAndEnablesOnlyView,
-                    // ListWhoseCardIsReadOnlyLeavesTheEditActionVisibleButNotEnabled,
-                    // ListWithAnEditableCardPageIdEnablesBothActions).
-                    let edit = name == "Edit";
-                    let card = self.list_card_page(st)?;
-                    // A list without a card switches the mode of its own page, as a card does: opened for view,
-                    // Edit is enabled and View is not; opened for edit, the other way round. A list that names a
-                    // card with no row to open it for has both disabled (testpage/W2ListActions.al:NoCard_WithRows,
-                    // List_NoRows, BC 27.5 and 29.0).
-                    let no_rows = st.borrow().cursor == Cursor::None;
-                    let editable = st.borrow().mode != PageMode::View;
-                    let enabled = match (edit, card) {
-                        (_, None) => edit == !editable,
-                        (_, Some(_)) if no_rows => false,
-                        (false, _) => true,
-                        (true, Some(target)) => self.card_allows_edit(target)?,
-                    };
-                    return match m {
-                        PageMethod::Visible => Ok(Value::Boolean(true)),
-                        PageMethod::Enabled => Ok(Value::Boolean(enabled)),
-                        // A list without a card switches its own mode (testpage/R6977ListViewNext.al, R6977ListAfterView.al).
-                        PageMethod::Invoke if enabled && card.is_none() => self.switch_list_without_card(st, edit),
-                        PageMethod::Invoke if !enabled || card.is_none() => Ok(Value::Null),
-                        PageMethod::Invoke => self.list_card_action(st, edit),
-                        other => unsupported(format!(
-                            "TestAction.{other} of the built-in {name} action of a list page"
-                        )),
-                    };
-                }
-                let editable = st.borrow().mode != PageMode::View;
-                let applies = (name == "Edit") == !editable;
-                return match m {
-                    PageMethod::Visible => Ok(Value::Boolean(true)),
-                    PageMethod::Enabled => Ok(Value::Boolean(applies)),
-                    PageMethod::Invoke => {
-                        if applies {
-                            let mode = if name == "Edit" { PageMode::Edit } else { PageMode::View };
-                            return self.switch_mode(st, mode);
-                        }
-                        Ok(Value::Null)
-                    }
-                    other => unsupported(format!("TestAction.{other}")),
-                };
+                return self.builtin_mode_action(st, name, m);
             }
             ControlTarget::Filter => {
                 return self.test_filter_op(m, st, args);
@@ -1441,14 +1391,9 @@ impl Session {
                 // also after a Value read between them (pages/list-order/QgGoToKeyNextCall.al:404
                 // Plain_LookupHandler_GoToKey_ThenOK `H:goto;R:R1003;H:ok`, :426 Plain_LookupHandler_GoToKey_ValueRead_ThenOK, :629 Nav_LookupHandler_GoToKey_ThenOK).
                 // Other built-in actions after it are not pinned.
-                if std::mem::take(&mut st.borrow_mut().read_after_goto) {
-                    let doubt = {
-                        let mut s = st.borrow_mut();
-                        s.read_after_goto_quiet = false;
-                        s.read_after_goto_set = false;
-                        s.read_after_goto_prev = false;
-                        std::mem::take(&mut s.read_after_goto_doubt)
-                    };
+                let taken = st.borrow_mut().after_goto.take();
+                if let Some(left) = taken {
+                    let doubt = left.doubt();
                     if name != "OK" || !st.borrow().lookup || doubt {
                         return unsupported(format!(
                             "TestAction {name} after a GoToKey moved a list without OnAfterGetCurrRecord (whether the row is read again is not pinned)"
@@ -1545,7 +1490,7 @@ impl Session {
             let ctl_name = ctl.name.clone();
             let owner = ctl.owner;
             let object = st.borrow().object as usize;
-            let declaring = self.object_id_of(owner.unwrap_or(object) as u32);
+            let declaring = self.object_id_of(owner.unwrap_or(object) as u32)?;
             let id = control_id(declaring, &ctl_name);
             return Err(match what {
                 "action" => error_code(
@@ -1600,7 +1545,7 @@ impl Session {
                 if self.value_reads_blank(st, idx) || self.reads_blank_without_row(st, idx) {
                     return Ok(Value::Text(String::new().into()));
                 }
-                let v = self.control_value(st, idx)?;
+                let v = self.control_value_read(st, idx, ControlRead::Value)?;
                 // A Text control in a cuegroup with CuegroupLayout = Wide reads '0' (pages/properties/ABLayouts.al:68,
                 // :70, also written `wide`); a Decimal one reads its value (pages/controls/AaControls.al:422). Other
                 // types there are not pinned.

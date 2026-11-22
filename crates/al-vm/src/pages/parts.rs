@@ -51,6 +51,7 @@ impl Session {
         st.borrow_mut().ws_trigger_order = None;
         st.borrow_mut().factbox_line = Default::default();
         st.borrow_mut().factbox_blank_landing = false;
+        st.borrow_mut().left_view_test_filter = Default::default();
         st.borrow_mut().forget_code_inserted_line();
         self.prune_page_held();
         let parts = std::mem::take(&mut st.borrow_mut().parts);
@@ -449,7 +450,7 @@ impl Session {
                 // `control_id` of the declaring object and the part's name (testpage/parts/TestTestPart.al:233).
                 let engine = self.engine();
                 let ctl = &page_of(&engine, st).controls[control];
-                let declaring = self.object_id_of(ctl.owner.unwrap_or(st.borrow().object as usize) as u32);
+                let declaring = self.object_id_of(ctl.owner.unwrap_or(st.borrow().object as usize) as u32)?;
                 Err(error_code(
                     format!(
                         "The part with ID = {} was not found on the page.",
@@ -629,7 +630,9 @@ impl Session {
                     // A FactBox part of a Provider chain does not read again when the host it stands on is inserted by the first
                     // call on a part (ProviderLinkedPartsMatrix.al Provider_PartsAddedByPageExtensionInFactBoxes_OpenNew `new`
                     // ends at `detail-row()`, the read follows with the key: `keyed` `lines-row(0)`).
-                    if matches!(how, Sync::Plain | Sync::GoToKeyMoved) && child.borrow().chain_refill == 1 {
+                    if matches!(how, Sync::Plain | Sync::GoToKeyMoved)
+                        && child.borrow().chain_refill == ChainRefill::Skipped
+                    {
                         continue;
                     }
                     if matches!(how, Sync::Plain | Sync::GoToKeyMoved) && self.chain_part_back_walk(st, *i, child) {
@@ -842,7 +845,7 @@ impl Session {
         s.parts
             .iter()
             .chain(s.hidden_parts.iter())
-            .filter(|(_, c)| c.borrow().open && c.borrow().refresh)
+            .filter(|(_, c)| c.borrow().open && c.borrow().refresh.asked())
             .cloned()
             .collect()
     }
@@ -893,12 +896,12 @@ impl Session {
                 // host move that left a shown part without a link alone, that part fills again, as every move made it do
                 // before (crates/al-test-cli/tests/suite/list_read_order.rs, Microsoft's ERM Base Calendar 134233).
                 if skipped_unlinked && !hidden && !linked {
-                    child.borrow_mut().refresh = false;
+                    child.borrow_mut().refresh.cancel();
                     self.sync_part(st, i, &child)?;
                 }
                 continue;
             }
-            child.borrow_mut().refresh = false;
+            child.borrow_mut().refresh.cancel();
             self.sync_part(st, i, &child)?;
         }
         Ok(())
@@ -1798,7 +1801,7 @@ impl Session {
         let kept = self.tree_part_keeps_typed_row(st, both)?;
         {
             let mut p = st.borrow_mut();
-            p.refresh = false;
+            p.refresh.cancel();
             p.dirty = false;
         }
         let later = if both { self.both_later_row(st)? } else { None };
@@ -1815,15 +1818,12 @@ impl Session {
     /// reads its row again, its triggers seeing the row read before as xRec (QjPartPropagation.al QL_Both_NewPartRow_PartModifiesHost,
     /// QN_Both_NewPartRow_PartUpdate_HostRowUnchanged).
     fn new_part_row_update_both(&mut self, st: &St, host: &St) -> Result<bool, Signal> {
-        st.borrow_mut().refresh = false;
+        st.borrow_mut().refresh.cancel();
         let mut h = host.borrow_mut();
-        h.refresh = true;
-        h.refresh_by_update = false;
-        h.refresh_without_parts = true;
-        h.read_keeps_xrec = true;
+        h.refresh.ask_host_reread(true);
         drop(h);
         let r = self.run_refresh(host);
-        host.borrow_mut().read_keeps_xrec = false;
+        host.borrow_mut().refresh.host_reread_done();
         r?;
         self.set_xrec(host);
         Ok(true)
@@ -1880,7 +1880,7 @@ impl Session {
         let kept = self.tree_part_keeps_typed_row(st, both)?;
         {
             let mut p = st.borrow_mut();
-            p.refresh = false;
+            p.refresh.cancel();
             p.dirty = false;
         }
         let later = if both { self.both_later_row(st)? } else { None };
@@ -1945,15 +1945,13 @@ impl Session {
         kept: Option<Vec<Value>>,
     ) -> Result<(), Signal> {
         let mut h = host.borrow_mut();
-        h.refresh = true;
-        h.refresh_by_update = false;
         // A tree part that keeps its typed row reads its rows after the host, here, on its first row too
         // (pages/parts/R6889RealShape.al:1400 PG6889RS_Step4_ `log type` `TV;TY.V;TY.V.end;HR;HC;SE;M10:Resource/N10;R10;...`).
-        h.refresh_without_parts = without_parts || later.is_some() || kept.is_some();
-        h.read_keeps_xrec = true;
+        h.refresh
+            .ask_host_reread(without_parts || later.is_some() || kept.is_some());
         drop(h);
         let r = self.run_refresh(host);
-        host.borrow_mut().read_keeps_xrec = false;
+        host.borrow_mut().refresh.host_reread_done();
         r?;
         let later = match (later, kept) {
             // The typed row of a tree part is saved after the host read, before the part reads its rows (`part_tree_typed.rs`).
@@ -2074,7 +2072,7 @@ impl Session {
         let set_up = self.page_xrec_fields(st);
         {
             let mut p = st.borrow_mut();
-            p.refresh = false;
+            p.refresh.cancel();
             p.draft = false;
             p.dirty = false;
             p.cursor = Cursor::Row;
@@ -2094,13 +2092,10 @@ impl Session {
             return Ok(true);
         }
         let mut h = host.borrow_mut();
-        h.refresh = true;
-        h.refresh_by_update = false;
-        h.refresh_without_parts = true;
-        h.read_keeps_xrec = true;
+        h.refresh.ask_host_reread(true);
         drop(h);
         let r = self.run_refresh(host);
-        host.borrow_mut().read_keeps_xrec = false;
+        host.borrow_mut().refresh.host_reread_done();
         r?;
         self.set_xrec(host);
         Ok(true)
@@ -2370,7 +2365,7 @@ impl Session {
         target: Option<&ControlTarget>,
         field_read: bool,
     ) -> Result<(), Signal> {
-        self.refuse_row_access_on_part_left_by_its_view(child, m, target)?;
+        self.refuse_row_access_on_part_left_by_its_view(child, m, target, field_read)?;
         let Some(host) = child.borrow().host.as_ref().and_then(|(h, _)| h.upgrade()) else {
             return Ok(());
         };
