@@ -14,13 +14,15 @@
 //! - the Update is the validation's last statement: Rec, the table's rows and the store's write mark stay as they were at the
 //!   Update until the validation ends (`extra_code_unchanged`).
 //!
-//! Measured but refused: a modify of the row through another record before the save (:443, the save writes Rec over it),
-//! `Update(true)` after `SaveRecord` (:476), and the cell under TestPage.OpenEdit with a filter (:372), which keeps main's way:
-//! no pinned open has a filter (`code_inserted_open`). Every other open, view and page keeps main's refusal
-//! (`UNMEASURED_CODE`).
+//! - `CurrPage.Update(true)` after the save writes Rec again, over what another record wrote since (:476), then refreshes as
+//!   `Update(false)` does (`extra_code_update_true`).
+//!
+//! Measured but refused: a modify of the row through another record before the save (:443, the save writes Rec over it) and
+//! the cell under TestPage.OpenEdit with a filter (:372), which keeps main's way: no pinned open has a filter
+//! (`code_inserted_open`). Every other open, view and page keeps main's refusal (`UNMEASURED_CODE`).
 
 use super::code_inserted_new_line::{Leave, Opened, UNMEASURED_CODE, View};
-use super::state::SavedView;
+use super::state::{CodeInsertedSave, SavedView};
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
 
@@ -73,6 +75,35 @@ impl Session {
                     .iter()
                     .any(|n| r.name.eq_ignore_ascii_case(n))
         })
+    }
+
+    /// `CurrPage.Update(true)` after the save, when the code since kept what `Update(false)` needs kept (`view_kept`): the page
+    /// saves Rec again, over the row another record wrote (:476 `A//V`), and asks the refresh; the save after it notes a new
+    /// view (`code_inserted_saved`). Otherwise not measured, and refused.
+    pub(super) fn extra_code_update_true(&mut self, st: &St, view: &SavedView) -> Result<(), Signal> {
+        if !self.view_kept(st, view)? {
+            st.borrow_mut().forget_code_inserted_line();
+            return unsupported(
+                "the page's record, its view or the table changed between CurrPage.SaveRecord, which moved the page from its new \
+                 line onto the row the table field inserted, and the CurrPage.Update(true) after it (not measured)",
+            );
+        }
+        extra_code_assume();
+        // The page writes Rec over the row as stored (:476); the table has no OnModify (`no_record_trigger`), so the write is
+        // the page's whole save. Rec and xRec are then the same, and the save that follows writes nothing more.
+        let rec = self.page_rec(st);
+        if self
+            .stored_row(&rec)?
+            .is_some_and(|stored| !Self::same_values(&rec.borrow().fields, &stored))
+        {
+            self.record_op(al_builtins::record_op::RecordOp::Modify, &rec, &mut [])?;
+        }
+        {
+            let mut s = st.borrow_mut();
+            s.code_inserted_save = CodeInsertedSave::Pending { asked: true };
+            s.code_inserted_extra = true;
+        }
+        self.ask_code_inserted_refresh(st)
     }
 
     /// Every stored row of the page's table after the save, which the code before `CurrPage.Update(false)` must leave as it is

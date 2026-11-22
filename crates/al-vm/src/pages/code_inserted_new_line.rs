@@ -753,6 +753,9 @@ impl Session {
         arg: Option<&Value>,
         view: &SavedView,
     ) -> Result<(), Signal> {
+        if view.extra && matches!(arg, Some(Value::Boolean(true))) {
+            return self.extra_code_update_true(st, view);
+        }
         if !matches!(arg, Some(Value::Boolean(false))) {
             st.borrow_mut().forget_code_inserted_line();
             return unsupported(
@@ -798,7 +801,7 @@ impl Session {
 
     /// The refresh about to run lands on the row the page left its line for (`code_inserted_refresh_due`), and the next move
     /// starts from it (`previous_on_code_inserted_row`).
-    fn ask_code_inserted_refresh(&mut self, st: &St) -> Result<(), Signal> {
+    pub(super) fn ask_code_inserted_refresh(&mut self, st: &St) -> Result<(), Signal> {
         let key = self.row_key(&self.page_rec(st))?;
         let mut s = st.borrow_mut();
         s.refresh.land_on_code_inserted_line();

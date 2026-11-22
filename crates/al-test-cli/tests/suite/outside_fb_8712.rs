@@ -69,17 +69,17 @@ fn issue_8712_probe_cells() {
         "NewLine_TableFieldSetsFieldBeforeSaveRecord_RowBefore_ShowsAndSavesIt",
         "NewLine_FieldSetAfterSaveRecord_RowBefore_UpdateFalseReadsTheStoredRow",
         "NewLine_SaveRecordThenWriteAnotherTable_RowBefore_ShowsAndSavesTheRow",
+        "NewLine_SaveRecordModifyThroughAnotherRecordThenUpdateTrue_SaveWritesRecOverIt",
     ] {
         let (_, r, marks) = o.iter().find(|(n, _, _)| n == name).expect("the test");
         assert_eq!(*r, Outcome::Pass, "{name}");
         assert!(marks.contains(&ListNewLineExtraCode), "{name}: {marks:?}");
     }
-    // A write of the row through another record before the save, and Update(true) after the save, are measured (the save
-    // writes Rec over the other record's write) but not run: refused. So is OpenEdit with a filter, which no pinned cell opens.
+    // A write of the row through another record before the save is measured (the save writes Rec over it) but not run: refused.
+    // So is OpenEdit with a filter, which no pinned cell opens.
     for name in [
         "NewLine_SaveRecordThenModifyThroughAnotherRecord_OpenEdit_ShowsAndSavesIt",
         "NewLine_ModifyThroughAnotherRecordBeforeSaveRecord_SaveWritesRecOverIt",
-        "NewLine_SaveRecordModifyThroughAnotherRecordThenUpdateTrue_SaveWritesRecOverIt",
     ] {
         let (_, r, _) = o.iter().find(|(n, _, _)| n == name).expect("the test");
         assert!(matches!(r, Outcome::NotRun(_)), "{name}: {r:?}");
