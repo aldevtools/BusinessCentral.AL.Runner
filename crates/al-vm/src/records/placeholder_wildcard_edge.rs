@@ -27,11 +27,12 @@ fn with_edge_blank(s: &str) -> Option<&str> {
 impl Session {
     /// The filter of the measured cells, before the parser; `Ok(None)`: the parser reads the text. GlobalLanguage 1033 (the
     /// probe's session, `Settings_OfTheSession`), field `pos` a Code[n] or Text[n]:
-    /// - a measured pattern with one blank at one end, of n characters or fewer: on a Code field the pattern without the blank
+    /// - a measured pattern with one blank at one end, the whole value (blank included) of n characters or fewer (a longer one
+    ///   is not measured: BC may raise the length error first): on a Code field the pattern without the blank
     ///   is the filter (`<>XYZ-*`, Code_NotEqualPlaceholder_StarSuffixValues `ne XYZ-* blank after`, `blank before`); on a Text
     ///   field the pattern keeps the blank, reads back in quotes (`<>'XYZ-* '`, views.rs) and keeps every measured row
     ///   (Text_NotEqualPlaceholder_StarSuffixValues; the row `XYZ-*` is kept, so it is no equality, which ignores trailing
-    ///   blanks). A value with a blank at that end is not measured; it is read as the pattern.
+    ///   blanks). A row with a blank at that end is not measured; a read meets it and refuses (`FilterExpr::compare_error`).
     /// - a measured pattern longer than the n of a Code field: the length error of the value (Code_OtherForms_StarSuffixValue
     ///   `ne long 21`, `ne long 25`, `ne long 35` on a Code[20]).
     pub(super) fn placeholder_wildcard_edge(
@@ -50,7 +51,7 @@ impl Session {
         };
         let s = v.as_str();
         let measured_session = self.global_language() == 1033;
-        if let Some(p) = with_edge_blank(s).filter(|p| measured_session && p.len() <= n as usize) {
+        if let Some(p) = with_edge_blank(s).filter(|_| measured_session && s.len() <= n as usize) {
             assume(Assumption::FilterPlaceholderWildcardEdges);
             let pattern = if code { p } else { s };
             return Ok(Some(FilterExpr::NotLike(pattern.to_string(), false)));

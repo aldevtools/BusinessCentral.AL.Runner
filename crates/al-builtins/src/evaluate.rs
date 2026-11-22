@@ -68,6 +68,14 @@ enum Parsed {
     RejectedLastError(String, &'static str),
     /// Rejected; with the result used a last error is left whose text is not pinned, so that form is refused with this reason.
     RejectedUsedRefused(String),
+    /// Rejected; with the result used a last error of this code is left whose text is not measured, the statement form raises the
+    /// type's own error (`short_us_date`).
+    RejectedUsedCode(&'static str),
+}
+
+/// The DateTime at the start of the day `d` (UTC, one millisecond into it as the readers answer a date).
+fn date_start(d: i32) -> Value {
+    Value::DateTime((i64::from(d) - 1) * 86_400_000 + 1)
 }
 
 /// A whole number as `Evaluate` reads it into an Integer. Spaces around it are dropped, one sign is allowed and the
@@ -1300,7 +1308,7 @@ fn datetime(text: &str, number: i64, today: Option<i32>) -> Result<Parsed, Signa
     if number == 9 {
         if t.len() == 10 && t.as_bytes()[4] == b'-' {
             return Ok(match crate::iso::parse_date(t) {
-                Some(d) => Parsed::Value(Value::DateTime((i64::from(d) - 1) * 86_400_000 + 1)),
+                Some(d) => Parsed::Value(date_start(d)),
                 None => Parsed::Rejected,
             });
         }
@@ -1423,7 +1431,8 @@ pub fn read_text(ty: &crate::value::RtType, text: &str) -> Option<Value> {
         Parsed::Rejected
         | Parsed::RejectedWith(..)
         | Parsed::RejectedLastError(..)
-        | Parsed::RejectedUsedRefused(_) => None,
+        | Parsed::RejectedUsedRefused(_)
+        | Parsed::RejectedUsedCode(_) => None,
     }
 }
 
@@ -2416,6 +2425,13 @@ fn evaluate_with_max(
             Ok(Value::Boolean(true))
         }
         Parsed::Rejected | Parsed::RejectedWith(..) if c.ret_used() => Ok(Value::Boolean(false)),
+        Parsed::RejectedUsedCode(code) if c.ret_used() => {
+            c.set_last_error(crate::native::unpinned_text_error(
+                code,
+                "the last error text of a rejected Evaluate (corpus PR 1503)",
+            ));
+            Ok(Value::Boolean(false))
+        }
         Parsed::RejectedWith(message, code) => crate::native::raise(message, code),
         Parsed::RejectedLastError(message, code) => match crate::native::raise::<Value>(&message, code) {
             Err(Signal::Error(e)) if c.ret_used() => {
@@ -2426,7 +2442,7 @@ fn evaluate_with_max(
         },
         // The error of a failed statement form (session-system/TestProbeSessionMiscContracts.al:Arithmetic_ErrorTexts,
         // `evaluate_int_overflow_statement`; types/TestProbeScalarContracts.al:Evaluate_BooleanFailureError).
-        Parsed::Rejected | Parsed::RejectedUsedRefused(_)
+        Parsed::Rejected | Parsed::RejectedUsedRefused(_) | Parsed::RejectedUsedCode(_)
             if matches!(
                 a[0],
                 Value::Integer(_)
@@ -2494,7 +2510,7 @@ fn evaluate_with_max(
         // text as a date filter gives, SetFilter on a Date).
         // In English every text gives this error (format-evaluate/Y49EvaluateDateBlanks.al:79-205: blanks,
         // `,`, `_`, `!`, with and without number 9).
-        Parsed::Rejected | Parsed::RejectedUsedRefused(_)
+        Parsed::Rejected | Parsed::RejectedUsedRefused(_) | Parsed::RejectedUsedCode(_)
             if matches!(a[0], Value::Date(..))
                 && (any_date_text
                     || c.language() == 1033
@@ -2549,7 +2565,7 @@ fn evaluate_with_max(
             "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.",
             "InvalidGuidFormat",
         ),
-        Parsed::Rejected | Parsed::RejectedUsedRefused(_) => unsupported(format!(
+        Parsed::Rejected | Parsed::RejectedUsedRefused(_) | Parsed::RejectedUsedCode(_) => unsupported(format!(
             "Evaluate of `{text}` failed with the result unused (error text not pinned yet)"
         )),
     }

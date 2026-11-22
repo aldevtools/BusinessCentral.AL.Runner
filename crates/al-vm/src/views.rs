@@ -263,10 +263,13 @@ impl Session {
             // `@''` reads back as written (corpus master record/crud/RcAFilters.al:1011, :1026 `at two apos`).
             FilterExpr::Like(p, true) if p.is_empty() => "@''".to_string(),
             FilterExpr::Like(p, ci) => format!("{}{p}", if *ci { "@" } else { "" }),
-            // A pattern with a blank at one end comes only from `placeholder_wildcard_edge` on a Text field (the parser refuses
-            // it elsewhere): it reads back in quotes, `<>'XYZ-* '` (corpus PR 1503, open: record/filters/
-            // PlaceholderWildcardSuffix.al Text_NotEqualPlaceholder_StarSuffixValues; assumption `filter-placeholder-wildcard-edges`).
-            FilterExpr::NotLike(p, false) if p.starts_with(' ') || p.ends_with(' ') => format!("<>'{p}'"),
+            // A pattern with a blank at one end comes only from `placeholder_wildcard_edge` on a Text field (the parser refuses it
+            // elsewhere). Only `GetFilter` of the field reads it (`field_filter_text`); GetFilters, GetView and the like are not measured.
+            e if let Some(p) = e.edge_blank_not_like() => {
+                return unsupported(format!(
+                    "a read of the filter `<>%1` with the wildcard text `{p}` with a blank at one end other than GetFilter of the field (not measured)"
+                ));
+            }
             // record/filters/WildcardGetFilter.al:125-171: `<>*`, `<>A*`, `<>@a*` read back as written.
             FilterExpr::NotLike(p, ci) => format!("<>{}{p}", if *ci { "@" } else { "" }),
             // record/filters/WcInvalidFilterExpr.al:84-111: `@` and `<>@` read back as written.
@@ -335,6 +338,11 @@ impl Session {
             .filter(|f| f.field == pos && f.group == r.filter_group)
             .map(|f| {
                 self.enum_ml_filter_check(&table, f)?;
+                // `<>'XYZ-* '`: corpus PR 1503 (open) record/filters/PlaceholderWildcardSuffix.al Text_NotEqualPlaceholder_StarSuffixValues;
+                // assumption `filter-placeholder-wildcard-edges`.
+                if let Some(p) = f.expr.edge_blank_not_like() {
+                    return Ok(format!("<>'{p}'"));
+                }
                 self.filter_text(&self.with_option_captions(&table, pos, &f.expr))
             })
             .collect::<Result<Vec<_>, _>>()?;

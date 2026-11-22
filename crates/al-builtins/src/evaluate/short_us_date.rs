@@ -7,77 +7,62 @@
 
 use super::{Parsed, date};
 use crate::assumptions::{Assumption, assume};
-use crate::native::{AlError, Ctx, Signal, unpinned_text_error, unsupported};
+use crate::native::{Ctx, Signal, unsupported};
 use crate::value::Value;
 
-/// What follows the date part of a measured text.
+/// What follows the date part of a measured text: exactly the tails the probe measured, each one text (a blank before it,
+/// except `T12:00`).
 #[derive(Clone, Copy, PartialEq)]
 enum Tail {
     /// Nothing.
     None,
-    /// One blank, `h:mm` or `hh:mm`, a blank and `AM` or `PM` (`01/04/25 12:00 PM`, `1/4/25 1:20 AM`); `hour` as written.
-    Clock12 { hour: u32 },
-    /// Two blanks before such a clock (`01/04/25  12:00 PM`).
-    Clock12TwoBlanks,
-    /// One blank and `hh:mm:ss` (`01/04/25 23:59:59`).
-    ClockSeconds,
-    /// One blank and `hh:mm` (`01/04/25 25:00`); `hour` as written.
-    Clock24 { hour: u32 },
-    /// One blank and `noon`.
+    /// ` 12:00 PM`.
+    Pm1200,
+    /// ` 12:00 AM`.
+    Am1200,
+    /// ` 1:20 AM`.
+    Am0120,
+    /// ` 13:00 PM`.
+    Pm1300,
+    /// `  12:00 PM` (two blanks).
+    TwoBlanksPm1200,
+    /// ` 23:59:59`.
+    Seconds2359,
+    /// ` 25:00`.
+    H2500,
+    /// ` noon`.
     Noon,
-    /// `T` and `hh:mm` (`01/04/25T12:00`).
-    TClock,
+    /// `T12:00`.
+    T1200,
 }
 
-/// A measured text: the date part (`m/d/yy`, `mm/dd/yy` or `mm/dd/yyyy`), whether it is `mm/dd/yy`, and its tail.
+/// A measured text: the date part, its digit lengths and its tail. `bad`: `mm/dd/yy` names no day in the measured way (below).
 struct Shape<'a> {
     date: &'a str,
-    two_digit: bool,
+    /// `m/d/yy` or `mm/dd/yyyy`.
+    other_parts: bool,
+    bad: bool,
     tail: Tail,
 }
 
-fn digits(s: &str, n: std::ops::RangeInclusive<usize>) -> bool {
-    n.contains(&s.len()) && s.bytes().all(|b| b.is_ascii_digit())
-}
-
-/// `h:mm` (one or two digits for the hour) as the hour, `None` for another text.
-fn hour_minute(s: &str, hour_digits: std::ops::RangeInclusive<usize>) -> Option<u32> {
-    let (h, m) = s.split_once(':')?;
-    (digits(h, hour_digits) && digits(m, 2..=2)).then(|| h.parse().ok())?
+fn digits(s: &str, n: usize) -> bool {
+    s.len() == n && s.bytes().all(|b| b.is_ascii_digit())
 }
 
 fn tail_of(rest: &str) -> Option<Tail> {
-    if rest.is_empty() {
-        return Some(Tail::None);
-    }
-    if rest == " noon" {
-        return Some(Tail::Noon);
-    }
-    if let Some(clock) = rest.strip_prefix('T') {
-        return hour_minute(clock, 2..=2).map(|_| Tail::TClock);
-    }
-    let twelve = |s: &str| {
-        let c = s.strip_suffix(" AM").or_else(|| s.strip_suffix(" PM"))?;
-        hour_minute(c, 1..=2)
-    };
-    if let Some(s) = rest.strip_prefix("  ") {
-        return twelve(s).map(|_| Tail::Clock12TwoBlanks);
-    }
-    let s = rest.strip_prefix(' ')?;
-    if let Some(hour) = twelve(s) {
-        return Some(Tail::Clock12 { hour });
-    }
-    if let Some(hour) = hour_minute(s, 2..=2) {
-        return Some(Tail::Clock24 { hour });
-    }
-    let b = s.as_bytes();
-    (b.len() == 8
-        && b[2] == b':'
-        && b[5] == b':'
-        && digits(&s[..2], 2..=2)
-        && digits(&s[3..5], 2..=2)
-        && digits(&s[6..], 2..=2))
-    .then_some(Tail::ClockSeconds)
+    Some(match rest {
+        "" => Tail::None,
+        " 12:00 PM" => Tail::Pm1200,
+        " 12:00 AM" => Tail::Am1200,
+        " 1:20 AM" => Tail::Am0120,
+        " 13:00 PM" => Tail::Pm1300,
+        "  12:00 PM" => Tail::TwoBlanksPm1200,
+        " 23:59:59" => Tail::Seconds2359,
+        " 25:00" => Tail::H2500,
+        " noon" => Tail::Noon,
+        "T12:00" => Tail::T1200,
+        _ => return None,
+    })
 }
 
 fn shape(text: &str) -> Option<Shape<'_>> {
@@ -87,29 +72,33 @@ fn shape(text: &str) -> Option<Shape<'_>> {
     let [m, d, y] = p.as_slice() else {
         return None;
     };
-    if !(digits(m, 1..=2) && digits(d, 1..=2) && (digits(y, 2..=2) || digits(y, 4..=4))) {
+    let lens = (m.len(), d.len(), y.len());
+    if !(digits(m, lens.0) && digits(d, lens.1) && digits(y, lens.2)) {
         return None;
     }
-    let two_digit = m.len() == 2 && d.len() == 2 && y.len() == 2;
+    let two_digit = lens == (2, 2, 2);
+    let other_parts = matches!(lens, (1, 1, 2) | (2, 2, 4));
+    if !(two_digit || other_parts) {
+        return None;
+    }
     Some(Shape {
         date,
-        two_digit,
+        other_parts,
+        bad: two_digit && not_a_day(date),
         tail: tail_of(rest)?,
     })
 }
 
-/// Whether `mm/dd/yy` names no day in the measured way: month 0 or past 12 (`00/01/25`, `13/01/25`), or a day from 1 to 31 past
-/// the end of its month (`02/30/25`). Day 0 and days past 31 are not measured.
+/// Whether `mm/dd/yy` names no day in the measured way: the Date reader of `evaluate.rs` (which owns the two-digit year and the
+/// month lengths) rejects it, and the day is from 1 to 31 (`13/01/25`, `00/01/25`, `02/30/25`). Day 0 and days past 31 are not
+/// measured.
 fn not_a_day(date: &str) -> bool {
-    let p: Vec<u32> = date.split('/').filter_map(|s| s.parse().ok()).collect();
-    let [m, d, y] = p.as_slice() else {
-        return false;
-    };
-    if *m == 0 || *m > 12 {
-        return (1..=31).contains(d);
-    }
-    let y = if *y < 50 { 2000 + *y as i32 } else { 1900 + *y as i32 };
-    (1..=31).contains(d) && *d > crate::iso::days_in_month(y, *m)
+    let day_measured = date
+        .split('/')
+        .nth(1)
+        .and_then(|d| d.parse::<u32>().ok())
+        .is_some_and(|d| (1..=31).contains(&d));
+    day_measured && matches!(super::date(date, 0, None, None, true), Ok(Parsed::Rejected))
 }
 
 /// What a measured text does; `None`: the readers of `evaluate.rs` answer it.
@@ -126,11 +115,14 @@ enum Cell {
 }
 
 fn cell(datetime: bool, ret_used: bool, s: &Shape) -> Option<Cell> {
-    let bad = s.two_digit && not_a_day(s.date);
+    // The date parts `m/d/yy` and `mm/dd/yyyy` are measured into a Date with `12:00 PM` and `1:20 AM` only.
+    if s.other_parts && (datetime || !matches!(s.tail, Tail::Pm1200 | Tail::Am0120)) {
+        return None;
+    }
     match (datetime, s.tail) {
         // EvalShortUsDate.al Date_ShortDate_*_Return `13/01/25`, `02/30/25`, `00/01/25` (lasterr=Evaluate) and DateTime_ShortDate_*;
         // the statement form is pinned already (Date_Statement_*, DateTime_Statement_* answer as main does).
-        (_, Tail::None) if bad && ret_used => Some(Cell::LastError {
+        (_, Tail::None) if s.bad && ret_used => Some(Cell::LastError {
             code: "Evaluate",
             statement_measured: true,
             time_dropped: false,
@@ -138,54 +130,48 @@ fn cell(datetime: bool, ret_used: bool, s: &Shape) -> Option<Cell> {
         (_, Tail::None) => None,
         // Date_WithTime_*_Return `13/04/25 12:00 PM` (lasterr=Evaluate), Date_Statement_* (the Date error with the whole text);
         // DateTime_WithTime_* and DateTime_Statement_* (the DateTime error).
-        (_, Tail::Clock12 { hour: 1..=12 }) if bad => Some(Cell::LastError {
+        (_, Tail::Pm1200) if s.bad => Some(Cell::LastError {
             code: "Evaluate",
             statement_measured: true,
             time_dropped: !datetime,
         }),
         // A day that does not exist with another tail is not measured.
-        _ if bad => None,
+        _ if s.bad => None,
         // DateTime_WithTime_*_Return `01/04/25 13:00 PM`: lasterr=DateInvalid; the statement form is not measured.
-        (true, Tail::Clock12 { hour: 13..=23 }) => Some(Cell::LastError {
+        (true, Tail::Pm1300) => Some(Cell::LastError {
             code: "DateInvalid",
             statement_measured: false,
             time_dropped: false,
         }),
         // DateTime_WithTime_*_Return `01/04/25 25:00` (lasterr=Evaluate), DateTime_Statement_* (the DateTime error).
-        (true, Tail::Clock24 { hour: 24..=99 }) => Some(Cell::LastError {
+        (true, Tail::H2500) => Some(Cell::LastError {
             code: "Evaluate",
             statement_measured: true,
             time_dropped: false,
         }),
         // DateTime_WithTime_* `01/04/25T12:00`: midnight.
-        (true, Tail::TClock) => Some(Cell::DateOnly),
+        (true, Tail::T1200) => Some(Cell::DateOnly),
         (true, _) => None,
-        // Date_WithTime_* and Date_Statement_*: `12:00 PM`, `12:00 AM`, `13:00 PM`, two blanks, `23:59:59`, `noon`, `T12:00`.
-        // `hh:mm` after a blank is pinned (date_forms `dropped_suffix`, FMEvalDate.al:338).
-        (false, Tail::Clock24 { .. }) => None,
-        (
-            false,
-            Tail::Clock12 { hour: 1..=13 } | Tail::Clock12TwoBlanks | Tail::ClockSeconds | Tail::Noon | Tail::TClock,
-        ) => Some(Cell::DateOnly),
-        // An hour of 0 or past 13 before `AM` or `PM` is not measured.
-        (false, Tail::Clock12 { .. }) => None,
+        // Date_WithTime_* and Date_Statement_*: `12:00 PM`, `12:00 AM`, `1:20 AM`, `13:00 PM`, two blanks, `23:59:59`, `noon`,
+        // `T12:00`. `hh:mm` after a blank (`25:00`) is pinned (date_forms `dropped_suffix`, FMEvalDate.al:338).
+        (false, Tail::H2500) => None,
+        (false, _) => Some(Cell::DateOnly),
     }
 }
 
-/// The date parts `1/4/25` and `01/04/2025` are measured with a 12-hour clock only (`1:20 AM`, `12:00 PM`); with another tail
-/// the text keeps the readers of `evaluate.rs`.
 fn measured_cell(datetime: bool, ret_used: bool, text: &str) -> Option<(Shape<'_>, Cell)> {
     let s = shape(text)?;
-    if !s.two_digit && !matches!(s.tail, Tail::Clock12 { hour: 1..=12 }) {
-        return None;
-    }
     let c = cell(datetime, ret_used, &s)?;
     Some((s, c))
 }
 
-/// Whether `text` is a measured cell for a target of this kind (`datetime`: a DateTime, else a Date).
+/// Whether `text` is a measured cell for a target of this kind (`datetime`: a DateTime, else a Date), in the en-US session of the
+/// probe: GlobalLanguage 1033 and no `CurrReport.FormatRegion` set in a report (every date cell depends on the region).
 pub(super) fn measured(c: &dyn Ctx, datetime: bool, text: &str) -> bool {
-    c.language() == 1033 && measured_cell(datetime, c.ret_used(), text).is_some()
+    c.language() == 1033
+        && c.region().is_none()
+        && c.region_unpinned().is_none()
+        && measured_cell(datetime, c.ret_used(), text).is_some()
 }
 
 /// The reading of a text [`measured`] took.
@@ -198,9 +184,7 @@ pub(super) fn read(c: &mut dyn Ctx, datetime: bool, text: &str) -> Result<Parsed
         Cell::DateOnly => {
             assume(Assumption::EvaluateDateVariableTimeDropped);
             match date(s.date, 0, c.today_day(), c.work_date_day(), true)? {
-                Parsed::Value(Value::Date(d, false)) if datetime => {
-                    Ok(Parsed::Value(Value::DateTime((i64::from(d) - 1) * 86_400_000 + 1)))
-                }
+                Parsed::Value(Value::Date(d, false)) if datetime => Ok(Parsed::Value(super::date_start(d))),
                 p @ Parsed::Value(Value::Date(_, false)) => Ok(p),
                 _ => unsupported(format!("Evaluate of `{text}`: a date part not measured")),
             }
@@ -215,15 +199,83 @@ pub(super) fn read(c: &mut dyn Ctx, datetime: bool, text: &str) -> Result<Parsed
             }
             assume(Assumption::EvaluateShortDateRejectedLastError);
             if ret_used {
-                let e: AlError =
-                    unpinned_text_error(code, "the last error text of a rejected Evaluate (corpus PR 1503)");
-                c.set_last_error(e);
-            } else if !statement_measured {
+                return Ok(Parsed::RejectedUsedCode(code));
+            }
+            if !statement_measured {
                 return unsupported(format!(
                     "the error of the statement Evaluate of `{text}` into a DateTime (not measured)"
                 ));
             }
             Ok(Parsed::Rejected)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::native::tests::TestCtx;
+
+    fn is_measured(datetime: bool, text: &str) -> bool {
+        measured(&TestCtx::default(), datetime, text)
+    }
+
+    /// Each cell is one measured text: the neighbors keep the readers of `evaluate.rs`.
+    #[test]
+    fn only_the_measured_texts_are_cells() {
+        for (datetime, text) in [
+            (true, "01/04/25 13:00 PM"),
+            (true, "01/04/25 25:00"),
+            (true, "01/04/25T12:00"),
+            (false, "01/04/25 12:00 PM"),
+            (false, "01/04/25 1:20 AM"),
+            (false, "1/4/25 12:00 PM"),
+            (false, "01/04/2025 1:20 AM"),
+            (false, "13/04/25 12:00 PM"),
+        ] {
+            assert!(is_measured(datetime, text), "{text}");
+        }
+        for (datetime, text) in [
+            (true, "01/04/25 24:00"),
+            (true, "01/04/25 23:00 PM"),
+            (true, "01/04/25 13:30 PM"),
+            (true, "01/04/25 25:30"),
+            (true, "01/04/25T25:00"),
+            (true, "01/04/25T11:00"),
+            (false, "1/04/2025 11:59 PM"),
+            (false, "01/4/2025 12:00 PM"),
+            (false, "1/4/25 11:59 PM"),
+            (false, "01/04/2025 12:00 AM"),
+            (false, "01/04/25 11:59 PM"),
+            (false, "01/04/25 13:00 AM"),
+            (false, "13/04/25 1:20 AM"),
+        ] {
+            assert!(!is_measured(datetime, text), "{text}");
+        }
+    }
+
+    /// The statement form of `13:00 PM` into a DateTime is not measured; the form with the result used leaves `DateInvalid`.
+    #[test]
+    fn the_statement_form_of_13_pm_into_a_datetime_refuses() {
+        let mut ctx = TestCtx::default();
+        assert!(matches!(
+            read(&mut ctx, true, "01/04/25 13:00 PM"),
+            Ok(Parsed::RejectedUsedCode("DateInvalid"))
+        ));
+        ctx.result_ignored = true;
+        assert!(matches!(
+            read(&mut ctx, true, "01/04/25 13:00 PM"),
+            Err(Signal::Unsupported(_))
+        ));
+    }
+
+    /// A text outside the cells is refused by `read` as well (a caller that skipped `measured`).
+    #[test]
+    fn read_refuses_a_text_that_is_not_a_cell() {
+        let mut ctx = TestCtx::default();
+        assert!(matches!(
+            read(&mut ctx, true, "01/04/25 24:00"),
+            Err(Signal::Unsupported(_))
+        ));
     }
 }
