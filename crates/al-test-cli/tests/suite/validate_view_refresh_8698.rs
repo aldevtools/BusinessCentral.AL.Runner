@@ -4,7 +4,7 @@
 //! repros, the cells of corpus pull request 1518 (pages/currpage/ListValidateFilterRefresh.al) and the neighbors past them, as
 //! the neighbor app tests/neighbors/8698-refresh-filter-update-false holds them.
 
-use super::outside_fb_repros::issue_8186_outcomes as outcomes;
+use super::outside_fb_repros::assert_stub_outcomes as outcomes;
 use al_builtins::assumptions::Assumption::{ListValidateViewRefresh, ValidateUpdateFalseRereadsRow};
 use al_test_cli::report::Outcome;
 
