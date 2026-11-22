@@ -1,0 +1,13 @@
+# Own evaluation dataset in the shape of issue 8580
+name: Demo dataset
+tests:
+  - name: First case
+    question: |
+      Line one
+      Line two
+    "Expected Amount": 10
+
+  - name: Second case
+    question: >-
+      Only line
+    "Expected Amount": 0
