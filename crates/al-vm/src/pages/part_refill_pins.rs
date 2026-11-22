@@ -8,9 +8,12 @@
 
 use super::pinned_body::{Callees, Names, callees_are, page_is, routine_text, table_is};
 use super::*;
+use al_builtins::page_op::PageMethod;
 
-/// One measured combination of objects, and the position of the part's key field the test's filter is on.
-struct Cell {
+/// One measured combination of objects, the position of the part's key field the test's filter is on, and the moves and reads
+/// its tests made after that filter (`part_update_left_view.rs` `measured_step_after_test_filter`).
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Cell {
     host: &'static [&'static str],
     host_table: &'static [&'static str],
     part: &'static [&'static str],
@@ -19,8 +22,24 @@ struct Cell {
     callees: &'static [&'static str],
     /// The `OnRun` of the background task's codeunit, for the host that fills the part from a page background task.
     task: Option<&'static str>,
-    filter_field: usize,
+    pub(super) filter_field: usize,
+    /// `Last()` right after the filter.
+    pub(super) last: bool,
+    /// `Next()` after `First()`, then `Previous()`.
+    pub(super) next_previous: bool,
+    /// The controls whose `Value` the tests read after `First()`.
+    pub(super) value_reads: &'static [&'static str],
+    /// The AsDate and AsDecimal reads the tests made after each move: (control, method).
+    pub(super) fact_reads: &'static [(&'static str, PageMethod)],
+    /// Those reads right after the filter, before any move.
+    pub(super) read_without_move: bool,
 }
+
+/// The reads of every probe cell after each move (the `Fact` of PartRefillTestFilter.al).
+const PROBE_READS: &[(&str, PageMethod)] = &[
+    ("Period Start", PageMethod::AsDate),
+    ("Allocated Qty.", PageMethod::AsDecimal),
+];
 
 /// The host's code that fills the part in its own OnAfterGetCurrRecord (:152 "LT PR Load Host", :200, :403, PR 1475's
 /// "LT PR Typed Trig Host", and the repro's host).
@@ -240,7 +259,8 @@ const TYPED_PART_CALLEES: &[&str] = &[
 
 /// The measured cells, with the corpus lines of the tests that ran them.
 const CELLS: &[Cell] = &[
-    // :512, :537, :561, :590 (and :615, :643, which never reach the steps).
+    // :512, :537 (a read right after the filter), :561 (First, Next, Previous), :590 (Last) (and :615, :643, which never
+    // reach the steps).
     Cell {
         host: WORKSHEET_HOST,
         host_table: OP_TABLE,
@@ -250,6 +270,11 @@ const CELLS: &[Cell] = &[
         callees: PART_CALLEES,
         task: None,
         filter_field: 0,
+        last: true,
+        next_previous: true,
+        value_reads: &[],
+        fact_reads: PROBE_READS,
+        read_without_move: true,
     },
     // :671 PartRefill_ListActionThenFilterFirst_FindsRefilledRow.
     Cell {
@@ -261,6 +286,11 @@ const CELLS: &[Cell] = &[
         callees: PART_CALLEES,
         task: None,
         filter_field: 0,
+        last: false,
+        next_previous: false,
+        value_reads: &[],
+        fact_reads: PROBE_READS,
+        read_without_move: false,
     },
     // :696 PartRefill_BackgroundTaskActionThenFilterFirst_FindsRefilledRow.
     Cell {
@@ -272,8 +302,13 @@ const CELLS: &[Cell] = &[
         callees: PART_CALLEES,
         task: Some(BACKGROUND_TASK),
         filter_field: 0,
+        last: false,
+        next_previous: false,
+        value_reads: &[],
+        fact_reads: PROBE_READS,
+        read_without_move: false,
     },
-    // :723 PartRefill_TriggerPartActionThenFilterFirst_FindsRefilledRow.
+    // :723 PartRefill_TriggerPartActionThenFilterFirst_FindsRefilledRow: Value of QtyText and Scope after First.
     Cell {
         host: WORKSHEET_HOST,
         host_table: OP_TABLE,
@@ -283,8 +318,14 @@ const CELLS: &[Cell] = &[
         callees: PART_CALLEES,
         task: None,
         filter_field: 0,
+        last: false,
+        next_previous: false,
+        value_reads: &["QtyText", "Scope"],
+        fact_reads: PROBE_READS,
+        read_without_move: false,
     },
-    // PR 1475 PartRefill_TypedKeyTriggerPartActionThenFilterFirst_FindsRefilledRow: the filter on the key's second field.
+    // PR 1475 PartRefill_TypedKeyTriggerPartActionThenFilterFirst_FindsRefilledRow: the filter on the key's second field; Value of
+    // QtyText and Scope after First.
     Cell {
         host: WORKSHEET_HOST,
         host_table: OP_TABLE,
@@ -294,8 +335,13 @@ const CELLS: &[Cell] = &[
         callees: TYPED_PART_CALLEES,
         task: None,
         filter_field: 1,
+        last: false,
+        next_previous: false,
+        value_reads: &["QtyText", "Scope"],
+        fact_reads: PROBE_READS,
+        read_without_move: false,
     },
-    // The reporter's repro (issue 8537, green on Business Central 29.1).
+    // The reporter's repro (issue 8537, green on Business Central 29.1): only the AsDecimal of Allocated Qty.
     Cell {
         host: REPRO_HOST,
         host_table: REPRO_OP_TABLE,
@@ -305,13 +351,18 @@ const CELLS: &[Cell] = &[
         callees: PART_CALLEES,
         task: None,
         filter_field: 0,
+        last: false,
+        next_previous: false,
+        value_reads: &[],
+        fact_reads: &[("Allocated Qty.", PageMethod::AsDecimal)],
+        read_without_move: false,
     },
 ];
 
 impl Session {
-    /// The position of the part's key field the test's filter must be on, when host `host`, part `part`, their tables, the table
-    /// the calculation reads and every procedure their code calls read as one of `CELLS`; `None` otherwise.
-    pub(super) fn refill_cell(&self, host: &St, part: &St) -> Option<usize> {
+    /// The cell of `CELLS` host `host`, part `part`, their tables, the table the calculation reads and every procedure their code
+    /// calls read as; `None` otherwise.
+    pub(super) fn refill_cell(&self, host: &St, part: &St) -> Option<&'static Cell> {
         let engine = self.engine();
         let host_object = host.borrow().object as usize;
         let part_object = part.borrow().object as usize;
@@ -324,7 +375,7 @@ impl Session {
         if !one_part {
             return None;
         }
-        CELLS.iter().find_map(|cell| {
+        CELLS.iter().find(|cell| {
             let mut callees = Callees::new();
             let names = &mut Names::default();
             let read = page_is(&engine, host_object, cell.host, &mut callees, names)
@@ -338,8 +389,7 @@ impl Session {
             let booking = read
                 .then(|| object_named(&engine.program, names.bound('B')?, ir::ObjKind::Table))
                 .flatten();
-            let all = booking.is_some_and(|b| table_is(&engine, b, cell.booking_table, &mut Callees::new(), names));
-            all.then_some(cell.filter_field)
+            booking.is_some_and(|b| table_is(&engine, b, cell.booking_table, &mut Callees::new(), names))
         })
     }
 }

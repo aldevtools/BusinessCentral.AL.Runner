@@ -134,7 +134,7 @@ impl Session {
             } else {
                 // The second run sees the table's blank record as xRec, not the line as stamped (QjPartPropagation.al:3501
                 // QT_ValPartSplit_Empty_Last `log-openedit`: the second `V.NEW(H1 0 x= 0 below=Yes)`).
-                self.set_xrec_fields(st, table_blank.clone());
+                self.set_xrec_fields(st, table_blank.to_vec());
             }
             if validate {
                 // Each run starts from a fresh record: an OnValidate of a link field that appends to another field leaves
@@ -411,7 +411,7 @@ impl Session {
     pub(in crate::pages) fn blank_held_xrec(&mut self, st: &St, held: &[Value]) -> Option<Vec<Value>> {
         let table = self.page_rec(st).borrow().table as usize;
         let fresh = self.initial_fields(table);
-        Self::same_values(held, &fresh).then_some(fresh)
+        Self::same_values(held, &fresh).then_some(fresh.into_vec())
     }
 
     /// AutoSplitKey: the last field of the primary key of a new line is numbered from its

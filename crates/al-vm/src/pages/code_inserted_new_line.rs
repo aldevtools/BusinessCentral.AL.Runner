@@ -919,7 +919,7 @@ impl Session {
         let Some(stored) = self.stored_row(&rec)? else {
             return unsupported(MOVE_OFF_FACTBOX_ROW);
         };
-        let typed = std::mem::replace(&mut rec.borrow_mut().fields, stored.clone());
+        let typed = std::mem::replace(&mut rec.borrow_mut().fields, stored.clone().into());
         let read = self.page_trigger(st, "onaftergetrecord", vec![]);
         let unchanged = Self::same_values(&rec.borrow().fields, &stored);
         rec.borrow_mut().fields = typed;

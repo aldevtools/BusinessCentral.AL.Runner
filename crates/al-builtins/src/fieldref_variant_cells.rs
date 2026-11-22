@@ -28,6 +28,14 @@ fn err(message: String, code: &str) -> Option<Result<Value, Signal>> {
     }))))
 }
 
+/// The Evaluate error of a text that is no Date (Y67FieldRefValidateVariant.al:585 `biginteger`; fieldref-value-convert in
+/// `fieldref_value_text::fieldref_value_into_temporal`).
+pub(crate) fn date_settings_error(f: &str) -> String {
+    format!(
+        "The format of the Date '{f}' does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'."
+    )
+}
+
 /// The target types this module answers for, with the name an Evaluate error and a `Nav<Type>` text give them.
 fn target_names(t: &RtType) -> Option<(&'static str, &'static str)> {
     Some(match t {
@@ -131,12 +139,7 @@ pub fn variant_into_field(v: &Value, t: &RtType, from28: bool, ctx: &dyn FormatC
     let evaluate_error = |kind: &str| -> Option<Result<Value, Signal>> {
         let f = text()?;
         if matches!(t, RtType::Date) {
-            return err(
-                format!(
-                    "The format of the Date '{f}' does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'."
-                ),
-                "Evaluate:Conversion",
-            );
+            return err(date_settings_error(&f), "Evaluate:Conversion");
         }
         err(
             format!("The value \"{f}\" can't be evaluated into type {eval_name}."),
