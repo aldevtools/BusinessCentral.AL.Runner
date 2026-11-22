@@ -1,16 +1,27 @@
 # key	entry
 # Not here, the same on main and head: the MainKept_* tests (a Date and a DateTime field into a DateTime, an Integer through a
-# Variant, an Integer field into an Integer) and the Refused_* tests (a plain local, a by-value parameter, a named return value,
-# a global, a field, an argument, an exit value, an array element, a whole Decimal, a Decimal of 1000 or more, a negative or
-# long Decimal, a Duration of 0, with days or with milliseconds, a Decimal into a Date, a Boolean into a Time, an Option
-# field), refused on both.
-GK Fvt Measured::Measured_IntVarParam_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1511)
-GK Fvt Measured::Measured_IntVarParam_DateTime_Max	ASSUMED fieldref-value-temporal-error (corpus PR 1511)
-GK Fvt Measured::Measured_BigVarParam_Date	ASSUMED fieldref-value-temporal-error (corpus PR 1511)
-GK Fvt Measured::Measured_IntVarParam_Time	ASSUMED fieldref-value-temporal-error (corpus PR 1511)
-GK Fvt Measured::Measured_DecVarParam_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1511)
-GK Fvt Measured::Measured_DurVarParam_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1511)
-GK Fvt Measured::Measured_BoolVarParam_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1511)
-GK Fvt Measured::Measured_IntVarParam_KeepsValue	ASSUMED fieldref-value-temporal-error (corpus PR 1511)
-GK Fvt Measured::Measured_PkFieldIndex_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1511)
-GK Fvt Measured::Measured_IntVarParam_DateTime_ValueCall	ASSUMED fieldref-value-temporal-error (corpus PR 1511)
+# Variant, an Integer field into an Integer) and the Refused_* tests (a global, a field, an argument, an exit value, an array
+# element, a plain local of a trigger, a by-value parameter or a named return value of a Date or Time, a BigInteger or Boolean
+# into a Date, values and digit strings the probes did not list, a Boolean into a Time, an Option field, another language),
+# refused on both.
+GK Fvt Slots::Measured_IntLocal_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1522)
+GK Fvt Slots::Measured_IntValueParam_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1522)
+GK Fvt Slots::Measured_IntNamedReturn_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1522)
+GK Fvt Slots::Measured_IntLocal_Date	ASSUMED fieldref-value-temporal-error (corpus PR 1522)
+GK Fvt Slots::Measured_BigNamedReturn_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1522)
+GK Fvt Slots::Measured_NegDecVarParam_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1522)
+GK Fvt Slots::Measured_ManyDecLocal_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1522)
+GK Fvt Slots::Measured_LargeDecValueParam_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1522)
+GK Fvt Slots::Measured_ZeroDecNamedReturn_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1522)
+GK Fvt Slots::Measured_DecLocal_Date	ASSUMED fieldref-value-temporal-error (corpus PR 1522)
+GK Fvt Slots::Measured_DecVarParam_Time	ASSUMED fieldref-value-temporal-error (corpus PR 1522)
+GK Fvt Slots::Measured_DayDurVarParam_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1522)
+GK Fvt Slots::Measured_MsDurVarParam_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1522)
+GK Fvt Slots::Measured_ZeroDurVarParam_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1522)
+GK Fvt Slots::Measured_DurLocal_Time	ASSUMED fieldref-value-temporal-error (corpus PR 1522)
+GK Fvt Slots::Measured_BoolNamedReturn_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1522)
+GK Fvt Slots::Measured_TextLocal_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1522)
+GK Fvt Slots::Measured_TextValueParam_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1522)
+GK Fvt Slots::Measured_TextLocal_Date	ASSUMED fieldref-value-temporal-error (corpus PR 1522)
+GK Fvt Slots::Measured_CodeVarParam_Time	ASSUMED fieldref-value-temporal-error (corpus PR 1522)
+GK Fvt Slots::Measured_CodeNamedReturn_DateTime	ASSUMED fieldref-value-temporal-error (corpus PR 1522)

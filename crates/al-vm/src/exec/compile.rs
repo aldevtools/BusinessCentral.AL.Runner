@@ -57,6 +57,8 @@ fn compile_form(o: &ir::Object, routine: usize, captured: bool, debug: bool) -> 
         debug,
         params: r.params,
         by_var: &r.by_var,
+        ret_local: r.ret_local,
+        trigger: r.is_trigger,
     };
     c.block(&r.body).ok()?;
     c.chunk.temps = c.max - nlocals;
@@ -95,6 +97,10 @@ struct Compiler<'a> {
     params: usize,
     /// Which parameters are `var`.
     by_var: &'a [bool],
+    /// The local of the named return value.
+    ret_local: Option<usize>,
+    /// The routine is a trigger.
+    trigger: bool,
 }
 
 type R<T> = Result<T, ()>;
@@ -518,7 +524,7 @@ impl<'a> Compiler<'a> {
                 self.chunk.types.push(t.clone());
                 let t = (self.chunk.types.len() - 1) as u32;
                 if field_value {
-                    self.emit(Op::ConvertFieldValue { d, a, t });
+                    self.emit(Op::ConvertFieldValue { d, a, t, slot: None });
                 } else {
                     self.emit(Op::Convert { d, a, t });
                 }
@@ -1341,20 +1347,25 @@ impl<'a> Compiler<'a> {
             return Ok(());
         }
         match p {
-            // `FieldRef.Value` into a `var` parameter of type Date, Time or DateTime (al-builtins `fieldref_value_into_temporal`;
-            // the only slot the probe measured, corpus PR 1511). A by-value parameter, the named return value and a plain
-            // declared local are not measured: they convert as `Op::Convert` does, as does any other place.
+            // `FieldRef.Value` into a local, parameter or named return value of type Date, Time or DateTime (al-builtins
+            // `fieldref_value_temporal`, which owns the measured cells and refuses the rest). A global, a field, an array element,
+            // an argument and an exit value convert as `Op::Convert` does.
             ir::Place::Local(i)
-                if self.by_var.get(*i) == Some(&true)
-                    && let ir::Expr::Convert(t @ (RtType::Date | RtType::Time | RtType::DateTime), inner) = e
-                    && is_fieldref_value(inner) =>
+                if let ir::Expr::Convert(t @ (RtType::Date | RtType::Time | RtType::DateTime), inner) = e
+                    && is_fieldref_value(inner)
+                    && let Some(slot) = self.temporal_slot(*i) =>
             {
                 let i = u16::try_from(*i).map_err(|_| ())?;
                 let a = self.expr_any(inner)?;
                 self.chunk.types.push(t.clone());
                 let t = (self.chunk.types.len() - 1) as u32;
                 let d = self.alloc()?;
-                self.emit(Op::ConvertFieldValue { d, a, t });
+                self.emit(Op::ConvertFieldValue {
+                    d,
+                    a,
+                    t,
+                    slot: Some(slot),
+                });
                 let pi = self.place(p);
                 self.emit(Op::StoreLocal { i, a: d, p: pi });
             }
@@ -1393,6 +1404,27 @@ impl<'a> Compiler<'a> {
             _ => self.store_place(p, e, single)?,
         }
         Ok(())
+    }
+
+    /// The slot of local `i` for `fieldref_value_temporal`: a parameter (`var` or by value), the named return value, or a local
+    /// declared in a procedure. A trigger's locals are not measured.
+    fn temporal_slot(&self, i: usize) -> Option<al_builtins::fieldref_value_temporal::TemporalSlot> {
+        use al_builtins::fieldref_value_temporal::TemporalSlot as S;
+        if i < self.params {
+            return Some(if self.by_var.get(i) == Some(&true) {
+                S::VarParam
+            } else {
+                S::ByValueParam
+            });
+        }
+        if self.trigger {
+            return None;
+        }
+        Some(if self.ret_local == Some(i) {
+            S::NamedReturn
+        } else {
+            S::PlainLocal
+        })
     }
 
     /// `p := e` through `Op::StorePlace`, which writes through `Session::write_as`.

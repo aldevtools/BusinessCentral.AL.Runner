@@ -15,6 +15,8 @@ table 61620 "GK Fvt Row"
         field(7; DateF; Date) { }
         field(8; DtF; DateTime) { }
         field(9; OptF; Option) { OptionMembers = A,B; }
+        field(10; TextF; Text[30]) { }
+        field(11; CodeF; Code[30]) { }
     }
     keys { key(PK; Id) { Clustered = true; } }
 }

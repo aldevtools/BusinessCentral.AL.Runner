@@ -29,7 +29,7 @@ fn err(message: String, code: &str) -> Option<Result<Value, Signal>> {
 }
 
 /// The Evaluate error of a text that is no Date (Y67FieldRefValidateVariant.al:585 `biginteger`; fieldref-value-convert in
-/// `fieldref_value_text::fieldref_value_into_temporal`).
+/// `fieldref_value_temporal::fieldref_value_into_temporal`).
 pub(crate) fn date_settings_error(f: &str) -> String {
     format!(
         "The format of the Date '{f}' does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'."
