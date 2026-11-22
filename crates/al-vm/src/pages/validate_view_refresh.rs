@@ -191,7 +191,10 @@ impl Session {
             }
         };
         let rec = self.page_rec(st);
-        if self.validate_view_table_rows(&rec)? != page.table_rows() {
+        // Every cell's first SetValue or action runs with no filter on Rec in any group; the gate checks it here instead of
+        // taking it from the calls alone (a filter that keeps the three rows would otherwise match the no-change cells).
+        let first = !v.steps.iter().any(|s| matches!(s, Set(..) | Fail(_) | Action(..)));
+        if (first && !rec.borrow().filters.is_empty()) || self.validate_view_table_rows(&rec)? != page.table_rows() {
             return Ok(false);
         }
         let table = self.table(&rec)?;
