@@ -470,3 +470,255 @@ codeunit 50027 "NB UR Pinned Test Start"
             Error('The report did not commit its marker: no transaction world.');
     end;
 }
+
+// Review of pull request 8607, round one. A set at the start of a codeunit's first test method: BC ignores it there.
+codeunit 50028 "NB UR Type After Commit 2"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure A_Nothing()
+    begin
+    end;
+
+    [Test]
+    procedure B_SetReportReadCommit_ReadsReport()
+    var
+        Row: Record "NB UR Row";
+        AfterCommit: Text;
+    begin
+        CurrentTransactionType(TransactionType::Report);
+        if Row.FindFirst() then;
+        Commit();
+        AfterCommit := Format(CurrentTransactionType());
+        CurrentTransactionType(TransactionType::UpdateNoLocks);
+        if AfterCommit <> 'Report' then
+            Error('Type after the Commit: %1', AfterCommit);
+    end;
+}
+
+codeunit 50029 "NB UR First Test Set Update"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure SetUpdateAtFirstTestStart_Refused()
+    var
+        Row: Record "NB UR Row";
+        UpdateReport: Report "NB UR Update";
+    begin
+        CurrentTransactionType(TransactionType::Update);
+        UpdateReport.SetMarker(1);
+        UpdateReport.Run();
+        asserterror Error('trapped');
+        if not Row.Get(1) then
+            Error('The report did not commit its marker: no transaction world.');
+    end;
+}
+
+// A carried Update, and a carried Snapshot a Commit kept: each rests on every assumption it went through.
+codeunit 50030 "NB UR Carry Update Read"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure A_LeavesUpdate()
+    begin
+        Commit();
+        CurrentTransactionType(TransactionType::Update);
+    end;
+
+    [Test]
+    procedure B_ReadsUpdate()
+    var
+        AtStart: Text;
+    begin
+        AtStart := Format(CurrentTransactionType());
+        Commit();
+        CurrentTransactionType(TransactionType::UpdateNoLocks);
+        if AtStart <> 'Update' then
+            Error('Type at the start: %1', AtStart);
+    end;
+}
+
+codeunit 50031 "NB UR Carry Kept Snapshot"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure A_LeavesTheSnapshotACommitKept()
+    begin
+        Commit();
+        CurrentTransactionType(TransactionType::Snapshot);
+        Commit();
+    end;
+
+    [Test]
+    procedure B_ReadsSnapshot()
+    var
+        AtStart: Text;
+    begin
+        AtStart := Format(CurrentTransactionType());
+        Commit();
+        CurrentTransactionType(TransactionType::UpdateNoLocks);
+        if AtStart <> 'Snapshot' then
+            Error('Type at the start: %1', AtStart);
+    end;
+}
+
+// A test the runner refuses before it starts, whose reach sets the type: the next test's type is not known.
+codeunit 50032 "NB UR Refused Before Start"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure A_AssignmentForm()
+    begin
+        Commit();
+        CurrentTransactionType := TransactionType::Update;
+    end;
+
+    [Test]
+    procedure B_ReadsTheType_Refused()
+    begin
+        if Format(CurrentTransactionType()) <> 'Update' then
+            Error('Type at the start: %1', CurrentTransactionType());
+    end;
+}
+
+// A test the runner refuses while it runs, whose reach sets no type: the next test starts at UpdateNoLocks.
+codeunit 50033 "NB UR Refused No Set"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure A_ReadBeforeRun()
+    var
+        Row: Record "NB UR Row";
+        UpdateReport: Report "NB UR Update";
+    begin
+        if Row.FindFirst() then;
+        UpdateReport.SetMarker(1);
+        UpdateReport.Run();
+    end;
+
+    [Test]
+    procedure B_ReadsUpdateNoLocks()
+    begin
+        if Format(CurrentTransactionType()) <> 'UpdateNoLocks' then
+            Error('Type at the start: %1', CurrentTransactionType());
+    end;
+}
+
+// An isolated storage write between the set and the run starts the transaction outside the calls the probe makes.
+codeunit 50034 "NB UR Isolated Storage"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure CommitSetUpdateIsolatedStorageRun_Refused()
+    var
+        UpdateReport: Report "NB UR Update";
+    begin
+        Commit();
+        CurrentTransactionType(TransactionType::Update);
+        IsolatedStorage.Set('k', 'v', DataScope::Module);
+        UpdateReport.SetMarker(1);
+        UpdateReport.Run();
+    end;
+}
+
+// The Commit, the set and the run in an event subscriber, and in a handler: not the code of the test.
+codeunit 50035 "NB UR Publisher"
+{
+    procedure Raise()
+    begin
+        OnCommitPoint();
+    end;
+
+    [IntegrationEvent(false, false)]
+    local procedure OnCommitPoint()
+    begin
+    end;
+}
+
+codeunit 50036 "NB UR Subscriber"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"NB UR Publisher", 'OnCommitPoint', '', false, false)]
+    local procedure CommitSetUpdateAndRun()
+    var
+        UpdateReport: Report "NB UR Update";
+    begin
+        Commit();
+        CurrentTransactionType(TransactionType::Update);
+        UpdateReport.SetMarker(1);
+        UpdateReport.Run();
+    end;
+}
+
+codeunit 50037 "NB UR Subscriber Commits"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure CommitSetUpdateRunInASubscriber_Refused()
+    var
+        Publisher: Codeunit "NB UR Publisher";
+    begin
+        Publisher.Raise();
+    end;
+}
+
+codeunit 50038 "NB UR Handler Commits"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    [HandlerFunctions('ConfirmYes')]
+    procedure CommitSetUpdateRunInAHandler_Refused()
+    begin
+        if Confirm('Go on?') then;
+    end;
+
+    [ConfirmHandler]
+    procedure ConfirmYes(Question: Text[1024]; var Reply: Boolean)
+    var
+        UpdateReport: Report "NB UR Update";
+    begin
+        Commit();
+        CurrentTransactionType(TransactionType::Update);
+        UpdateReport.SetMarker(1);
+        UpdateReport.Run();
+        Reply := true;
+    end;
+}
+
+// A set to Update after a write at Snapshot: DB:CannotChangeTransactionType is measured from UpdateNoLocks only.
+codeunit 50039 "NB UR Set After Snapshot Write"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure CommitSetSnapshotWriteSetUpdate_Refused()
+    var
+        Row: Record "NB UR Row";
+    begin
+        Commit();
+        CurrentTransactionType(TransactionType::Snapshot);
+        Row."Entry No." := 1;
+        Row.Insert();
+        asserterror CurrentTransactionType(TransactionType::Update);
+        if GetLastErrorCode() <> 'DB:CannotChangeTransactionType' then
+            Error('No error, or another: %1 %2', GetLastErrorCode(), GetLastErrorText());
+    end;
+}

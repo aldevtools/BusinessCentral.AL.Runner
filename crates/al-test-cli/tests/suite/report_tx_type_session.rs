@@ -64,9 +64,42 @@ codeunit 50304 "Repro Committer"
     end;
 }
 
+codeunit 50305 "Repro Publisher"
+{
+    procedure Raise()
+    begin
+        OnCommitPoint();
+    end;
+
+    [IntegrationEvent(false, false)]
+    local procedure OnCommitPoint()
+    begin
+    end;
+}
+
+codeunit 50306 "Repro Subscriber"
+{
+    // A Commit, a set and the run in an event subscriber.
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Repro Publisher", 'OnCommitPoint', '', false, false)]
+    local procedure CommitSetUpdateAndRun()
+    var
+        ReproUpdateReport: Report "Repro Update Report";
+    begin
+        Commit();
+        CurrentTransactionType(TransactionType::Update);
+        ReproUpdateReport.Run();
+    end;
+}
+
 codeunit 50302 "Repro Report Tx Tests"
 {
     Subtype = Test;
+
+    // A test method before the shape: a codeunit's first test method starts in the test runner's transaction.
+    [Test]
+    procedure Nothing()
+    begin
+    end;
 
     [Test]
     procedure UpdateReportAfterTypeSetToUpdate()
@@ -470,6 +503,52 @@ codeunit 50302 "Repro Report Tx Tests"
         CurrentTransactionType(TransactionType::Update);
     end;
 
+    // An isolated storage write after the Commit: it starts the transaction outside the calls the probe makes.
+    [Test]
+    procedure CommitIsolatedStorageRun()
+    var
+        ReproUpdateReport: Report "Repro Update Report";
+    begin
+        Commit();
+        IsolatedStorage.Set('k', 'v', DataScope::Module);
+        ReproUpdateReport.Run();
+    end;
+
+    // The same after the set to Update.
+    [Test]
+    procedure CommitSetUpdateIsolatedStorageRun()
+    var
+        ReproUpdateReport: Report "Repro Update Report";
+    begin
+        Commit();
+        CurrentTransactionType(TransactionType::Update);
+        IsolatedStorage.Set('k', 'v', DataScope::Module);
+        ReproUpdateReport.Run();
+    end;
+
+    // The Commit, the set and the run in an event subscriber the test raises.
+    [Test]
+    procedure CommitSetUpdateRunInASubscriber()
+    var
+        ReproPublisher: Codeunit "Repro Publisher";
+    begin
+        ReproPublisher.Raise();
+    end;
+
+    // A set to Update after a write at the Snapshot a set after the Commit gave: the error text is measured from
+    // UpdateNoLocks only.
+    [Test]
+    procedure CommitSetSnapshotInsertSetUpdate()
+    var
+        ReproRow: Record "Repro Row";
+    begin
+        Commit();
+        CurrentTransactionType(TransactionType::Snapshot);
+        ReproRow."Entry No." := 15;
+        ReproRow.Insert();
+        CurrentTransactionType(TransactionType::Update);
+    end;
+
     [RequestPageHandler]
     procedure RP(var Page: TestRequestPage "Repro Update Report")
     begin
@@ -491,9 +570,15 @@ fn procedure_of(name: &str) -> &'static str {
     &SRC[start..end]
 }
 
-/// Each of `names`, in this order, in one test codeunit of its own with SRC's objects, helpers and handler; the outcome
-/// of the last one. A codeunit runs in a session of its own, so the type an earlier shape leaves reaches no other shape.
+/// Each of `names`, in this order, after the test `Nothing`, in one test codeunit of its own with SRC's objects, helpers
+/// and handler; the outcome of the last one. A codeunit runs in a session of its own, so the type an earlier shape leaves
+/// reaches no other shape.
 fn run_alone(names: &[&str]) -> Outcome {
+    run_in_order(&[&["Nothing"], names].concat())
+}
+
+/// [`run_alone`] without the test `Nothing` first: `names[0]` is the codeunit's first test method.
+fn run_in_order(names: &[&str]) -> Outcome {
     let objects = &SRC[..SRC.find("codeunit 50302").expect("the test codeunit")];
     let helpers: String = [
         "local procedure TryRun()",
@@ -548,6 +633,9 @@ fn an_update_report_without_its_page_runs_at_the_measured_moments_and_is_refused
         "CommitSetUpdateRunInsertRun",
         "CodeunitRunCommitsAndSetsUpdate",
         "CommitAndSetInAProcedure",
+        "CommitIsolatedStorageRun",
+        "CommitSetUpdateIsolatedStorageRun",
+        "CommitSetUpdateRunInASubscriber",
     ] {
         match run_alone(&[t]) {
             Outcome::NotRun(r) if r.starts_with("TransactionType = Update report") && r.contains(UNMEASURED) => {}
@@ -577,11 +665,35 @@ fn an_update_report_without_its_page_runs_at_the_measured_moments_and_is_refused
             "AfterCommitWithoutWrite after Update: expected its own refusal, got {other:?}"
         )),
     }
-    // A test refused while it ran leaves a type that is not known: the next test's pinned shape refuses.
+    // A test refused while it ran whose reach sets the type leaves a type that is not known: the next test's pinned shape
+    // refuses. One whose reach sets none leaves the type it had.
     match run_alone(&["SetSnapshotAtTestStart", "AtTestStartWithoutWrite"]) {
-        Outcome::NotRun(r) if r.starts_with("TransactionType = Update report") && r.contains(UNMEASURED) => {}
+        Outcome::NotRun(r) if r.contains("did not run to its end and could set it") => {}
         other => wrong.push(format!(
-            "AtTestStartWithoutWrite after a refused test: expected a refusal, got {other:?}"
+            "AtTestStartWithoutWrite after a refused test that sets the type: expected a refusal, got {other:?}"
+        )),
+    }
+    let o = run_alone(&["ReadBeforeRun", "AtTestStartWithoutWrite"]);
+    if o != Outcome::Pass {
+        wrong.push(format!(
+            "AtTestStartWithoutWrite after a refused test that sets no type: expected a pass, got {o:?}"
+        ));
+    }
+    // A set to another type at the start of a codeunit's first test method: BC ignores it there (TxTypeNextTestMethod.al
+    // TxN01's comment), not pinned.
+    for t in ["SetSnapshotAtTestStart", "AutoRollbackSetUpdateAtStart"] {
+        match run_in_order(&[t]) {
+            Outcome::NotRun(r) if r.contains("at the start of a test codeunit's first test method") => {}
+            other => wrong.push(format!(
+                "{t} first: expected the first test method's refusal, got {other:?}"
+            )),
+        }
+    }
+    // A set to Update after a write at another type than UpdateNoLocks: refused, not DB:CannotChangeTransactionType.
+    match run_alone(&["CommitSetSnapshotInsertSetUpdate"]) {
+        Outcome::NotRun(r) if r.contains("after a database call while the type is Snapshot") => {}
+        other => wrong.push(format!(
+            "CommitSetSnapshotInsertSetUpdate: expected a refusal, got {other:?}"
         )),
     }
     assert!(wrong.is_empty(), "{wrong:#?}");
@@ -655,13 +767,15 @@ fn the_probe_of_issue_8606_carries_the_type_into_the_next_test_method() {
     let o = crate::field_extension_package_ids::run(&[(PROBE_APP_ID, AppKind::Workspace, &src)]);
     let carries = al_builtins::assumptions::by_id("transaction-type-carries-to-next-test").expect("the entry");
     let report = al_builtins::assumptions::by_id("update-report-by-session-type").expect("the entry");
+    let commit = al_builtins::assumptions::by_id("commit-keeps-transaction-type").expect("the entry");
     let want = |n: &str| match n {
         "TxN02_StartsWithThePreviousTestsType"
         | "TxN04_StartsWithSnapshot"
         | "TxN06_StartsWithReport"
-        | "TxN08_StartsWithBrowseAfterARead"
-        | "TxN10_StartsWithTheSnapshotACommitKept" => vec![carries],
-        "TxN12_StartsWithUpdateAndAnUpdateReportJoinsTheTransaction" => vec![report],
+        | "TxN08_StartsWithBrowseAfterARead" => vec![carries],
+        // A carried type rests on every assumption it went through: the Snapshot a Commit kept, and the carried Update.
+        "TxN10_StartsWithTheSnapshotACommitKept" => vec![commit, carries],
+        "TxN12_StartsWithUpdateAndAnUpdateReportJoinsTheTransaction" => vec![carries, report],
         _ => vec![],
     };
     let wrong: Vec<_> = o

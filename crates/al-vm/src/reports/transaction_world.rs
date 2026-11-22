@@ -15,8 +15,9 @@ const REPORT: i32 = 4;
 
 /// Where the open transaction began, and which of the steps the corpus cells vary have run in it since: the moment an
 /// Update report without its request page runs at (`OpenTx::moment`). The start of a test method and an AL `Commit` in the
-/// code of a test (not in a Codeunit.Run, a report, a TryFunction or a page) open it; a step no cell has ends it, and so do a
-/// Codeunit.Run, a report run that enters a world and the end of the transaction.
+/// code of a test (the test method and codeunit procedures it calls: not a trigger, a subscriber, a handler, a TryFunction, a
+/// Codeunit.Run or a report) open it; a step no cell has ends it, and so do a Codeunit.Run, a report run that enters a world
+/// and the end of the transaction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Moment {
     start: MomentStart,
@@ -31,6 +32,9 @@ pub(crate) struct Moment {
     runs: u8,
     /// Nothing but the set ran before the first of them.
     first_run_clean: bool,
+    /// The phase the kept steps gave the transaction: a call that changed it otherwise (an isolated storage write, say) is a
+    /// step no cell has.
+    phase: TxPhase,
 }
 
 /// What began a [`Moment`].
@@ -49,6 +53,7 @@ impl Moment {
             read: false,
             runs: 0,
             first_run_clean: false,
+            phase: TxPhase::Fresh,
         }
     }
 
@@ -71,17 +76,40 @@ impl Session {
         *m.depth.get_or_insert(self.depth) == self.depth
     }
 
-    /// An AL `Commit` ran (`transactions.rs`): it opens a moment in the code of a test, outside a Codeunit.Run (its OnRun
-    /// is deeper than the code the report later runs in), a report, a TryFunction and a page operation.
+    /// An AL `Commit` ran (`transactions.rs`): it opens a moment in the code of a test, as the cells commit: in the test
+    /// method or a codeunit procedure it calls (TxTypeUpdateReport.al TxU01's library codeunit), with nothing between them but
+    /// such procedures, so not in a trigger, an event subscriber, a handler, a TryFunction, a Codeunit.Run, a report or a page
+    /// operation.
     pub(crate) fn moment_after_commit(&mut self) {
         let plain = self.report.report_running.is_empty()
             && self.tx.tx_world == 0
             && self.tx.try_depth == 0
-            && self.tx.guarded_runs.is_empty();
+            && self.tx.guarded_runs.is_empty()
+            && self.in_test_code();
         self.tx.open.moment = plain.then(|| Moment {
             depth: Some(self.depth),
             ..Moment::at(MomentStart::Commit)
         });
+    }
+
+    /// The running code is a test method, or codeunit procedures without attributes that it called, with no trigger, event
+    /// subscriber, handler or other routine between. The test runner's frames lie below the test method.
+    fn in_test_code(&self) -> bool {
+        let objects = &self.engine.program.objects;
+        let frames = || self.frames.iter().zip(&self.call_stack);
+        let Some(test) = frames().position(|(&o, f)| self.is_test_method(o, f.routine)) else {
+            return false;
+        };
+        self.frames.len() == self.call_stack.len()
+            && frames().skip(test + 1).all(|(&o, f)| {
+                let obj = &objects[o];
+                !f.event
+                    && obj.kind == al_ir::ObjKind::Codeunit
+                    && obj
+                        .routines
+                        .get(f.routine)
+                        .is_some_and(|r| !r.is_trigger && r.attributes.is_empty())
+            })
     }
 
     /// A database call of AL code on a record that is not temporary (`records/op_inner.rs`), before a write sets the phase.
@@ -122,6 +150,8 @@ impl Session {
                 }
         };
         m.read |= !write;
+        // A write sets the phase after this call (`records/op_inner.rs`); a read has set it already.
+        m.phase = if write { TxPhase::Write } else { self.tx.phase };
         self.tx.open.moment = kept.then_some(m);
     }
 
@@ -177,6 +207,8 @@ impl Session {
             return Ok(false);
         }
         if update_report && !shows_page {
+            // The decision reads the session's type: a type that is not known refuses with that reason.
+            self.transaction_type_seen()?;
             match self.update_report_cell(moment, variable_run) {
                 None => {
                     return unsupported(format!(
@@ -243,7 +275,7 @@ impl Session {
             && self.tx.guarded_runs.is_empty()
             && !self.tx.open.locks.any()
             && self.moment_depth(&mut m);
-        if !plain || (m.runs > 0 && !m.first_run_clean) {
+        if !plain || (m.runs > 0 && !m.first_run_clean) || (m.runs == 0 && self.tx.phase != m.phase) {
             return None;
         }
         let cell = match (m.start, m.set, self.tx.phase, m.read, m.runs) {
