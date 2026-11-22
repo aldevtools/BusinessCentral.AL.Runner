@@ -36,14 +36,17 @@ mod sql_range_code;
 pub(crate) use insert_buffer::{InsertKind, InsertQueue};
 use sql_range::InsertShape;
 mod nested_validate;
+mod running_call_xrec;
 mod validate_event_xrec;
 pub(crate) use nested_validate::{BeforeImage, ProcXrec, ValidateRun, ValidateSite, XREC_OF_RUNNING_CALL};
+pub(crate) use running_call_xrec::{XREC_CHANGED_UNDER_NESTED_VALIDATE, XrecView};
 pub(crate) use validate_event_xrec::ValidateEvent;
 mod by_value_view;
 pub(crate) use by_value_view::{ByValueCall, EventArg, by_value_mark, primary_view};
 mod op_inner;
 mod own_rolled_back_modify;
 mod platform_rows;
+mod restamped;
 mod stale;
 mod stale_rule;
 mod tenant_media_rows;
@@ -2470,6 +2473,7 @@ impl Session {
         self.probed_source_before(method, rec, args);
         Self::rolled_read_before(method, rec);
         let inserted = self.own_read_before(method, rec, args);
+        self.bg_watched_read(method, rec)?;
         let r = if self.coverage.profiler.is_some() {
             self.record_op_profiled(method, rec, args)
         } else {
@@ -2516,6 +2520,8 @@ impl Session {
             RecordOp::Insert if !self.ret_used && self.insert_is_queued(rec) => InsertKind::Queued,
             _ => InsertKind::Other,
         };
+        // A page background task's locking read of a row the test codeunit wrote (bg_readisolation_lock.rs).
+        self.row_locks_read(method, rec, args)?;
         self.note_read_after_rollback(method, rec, args);
         if self.sql.active {
             let r = self.record_op_counted(method, rec, args);

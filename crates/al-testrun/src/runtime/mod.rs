@@ -533,6 +533,8 @@ pub struct Phases {
     pub install_snapshot: Option<String>,
     /// A warm server ran the request on the engines an earlier request over the same compile kept.
     pub engine_kept: bool,
+    /// `RunOptions::login_replay_check`: the check's report line (`login_replay.rs`), counted over every request the engine ran.
+    pub login_replay: Option<String>,
     /// What the run did, counted (the work ratchet of `al-test-cli`).
     pub work: RunWork,
 }
@@ -1231,6 +1233,7 @@ mod apply_manifests;
 mod baseline_key;
 mod blocked;
 mod cache;
+mod carry_after;
 mod case_lookup;
 mod chain;
 mod chain_walk;
@@ -1260,6 +1263,8 @@ mod login_explain_tests;
 #[cfg(test)]
 mod login_memo_tests;
 #[cfg(test)]
+mod login_replay_tests;
+#[cfg(test)]
 mod login_tests;
 pub mod memory;
 #[cfg(test)]
@@ -1276,7 +1281,7 @@ mod run_on_client_reach_tests;
 #[cfg(test)]
 mod runner_frames_tests;
 mod runner_reset;
-mod session_flags;
+pub(crate) mod session_flags;
 mod single_fresh;
 mod single_lane;
 mod strict_taint;

@@ -307,7 +307,11 @@ impl Session {
                 });
                 self.test_call_ended(&page, &result);
                 Self::factbox_line_after_set_value(method, &page, &result);
-                self.refuse_error_after_found_row_save(&page, result)
+                let result = self.refuse_error_after_found_row_save(&page, result);
+                if method == PageOp::TestFieldSetValue {
+                    return self.coded_after_set_value(&page, result);
+                }
+                result
             }
             other => unsupported(format!("{method} on {}", other.describe())),
         }
@@ -706,7 +710,7 @@ impl Session {
         }
         // What `CurrPage.Update(true)` saved (al-vm pages/leave_new_line.rs, testpage/NewRowThenMove.al:73).
         st.borrow_mut().saved_by_update = method != PageOp::PageSaveRecord;
-        self.code_inserted_saved(st);
+        self.code_inserted_saved(st)?;
         Ok(Value::Null)
     }
 

@@ -21,8 +21,11 @@ pub struct InstallLeft {
     isolated_written: std::collections::HashSet<(String, String)>,
     /// Its last Commit made writes durable (`TxState::last_commit_wrote`, min_row_version.rs).
     last_commit_wrote: bool,
-    /// `Database.CurrentTransactionType` after its last Commit (`TxState::transaction_type`; an AL `Commit` sets it).
+    /// `Database.CurrentTransactionType` after its last Commit (`TxState::transaction_type`; an AL `Commit` keeps it), and
+    /// what it rests on when no case pins it (`TxState::type_origin`): code that reads it before the first test method starts
+    /// sees both.
     transaction_type: i32,
+    type_origin: crate::transactions::TypeOrigin,
     /// What the SQL counters it never read noted (`SqlCounters::left_inactive`).
     sql: crate::sqlcount::SqlLeft,
     /// `EventState::caption_context_revision`: moved by a GlobalLanguage change and a binding; compared only with the value a
@@ -72,6 +75,8 @@ impl Session {
             isolated_set_in_test: _,
             // Carried in InstallLeft.
             isolated_written_in_codeunit: _,
+            // Checked (`holds_as_new`): nothing is noted before a test codeunit's first test (`begin_codeunit_row_locks`).
+            row_locks: _,
             unmeasured: _,
             tasks: _,
             install_scope: _,
@@ -146,6 +151,7 @@ impl Session {
             validate_sites: _,
             plain_proc_xrec: _,
             shared_proc_xrec: _,
+            iface_frames: _,
             cx: _,
             // Carried: `Baseline::install_rows` (the session has no baseline, so it is empty).
             baseline_rows: _,
@@ -233,6 +239,7 @@ impl Session {
             // Carried: the Baseline.
             company_unknown: _,
             full_copies: _,
+            restamped_rows: _,
             run_trigger_unknown: _,
             package_load: _,
             // Carried in InstallLeft.
@@ -283,6 +290,7 @@ impl Session {
             isolated_written: self.isolated_written_in_codeunit.clone(),
             last_commit_wrote: self.tx.last_commit_wrote,
             transaction_type: self.tx.transaction_type,
+            type_origin: self.tx.type_origin,
             sql: self.sql.left_inactive()?,
             caption_context_revision: self.events.caption_context_revision,
             subscriber_calls: self.events.event_stats.calls.borrow().clone(),
@@ -312,6 +320,7 @@ impl Session {
             && self.validate_sites.is_empty()
             && self.plain_proc_xrec.is_empty()
             && self.shared_proc_xrec.is_empty()
+            && self.iface_frames.is_empty()
             && self.field_error_form.is_none()
             && self.error_finals.is_none()
             && self.var_alias_watch.is_empty()
@@ -355,6 +364,7 @@ impl Session {
         self.last_error == al_builtins::native::AlError::default()
             && self.isolated_committed == self.isolated_storage
             && self.isolated_set_in_test.is_empty()
+            && self.row_locks.as_new()
             && self.unmeasured.as_new()
             && self.tasks.as_new()
             && self.sessions_started == 0
@@ -436,7 +446,7 @@ impl Session {
 
     /// The transaction state after the install's last Commit, field by field: what a new session holds, except what the
     /// Commit sets (`committed_row_version`, carried in the Baseline; `commit_counter`, the store's change counter, which
-    /// [`Session::restore_install_left`] sets again; `last_commit_wrote` and `transaction_type`, carried).
+    /// [`Session::restore_install_left`] sets again; `last_commit_wrote`, `transaction_type` and `type_origin`, carried).
     fn tx_left_as_after_commit(&self) -> bool {
         let crate::state::TxState {
             tx_world,
@@ -444,6 +454,9 @@ impl Session {
             phase,
             // Carried in InstallLeft.
             transaction_type: _,
+            // Carried in InstallLeft.
+            type_origin: _,
+            test_ended,
             lock_timeout,
             lock_timeout_duration,
             committed_row_version: _,
@@ -470,6 +483,7 @@ impl Session {
         } = &self.tx;
         let fresh = crate::state::TxState::fresh();
         *tx_world == fresh.tx_world
+            && !test_ended
             && *commit_behavior == fresh.commit_behavior
             && *phase == fresh.phase
             && *lock_timeout == fresh.lock_timeout
@@ -507,6 +521,7 @@ impl Session {
         self.isolated_written_in_codeunit = left.isolated_written.clone();
         self.tx.last_commit_wrote = left.last_commit_wrote;
         self.tx.transaction_type = left.transaction_type;
+        self.tx.type_origin = left.type_origin;
         self.tx.commit_counter = self.store.change_counter();
         self.sql.restore_left(&left.sql);
         self.events.caption_context_revision = left.caption_context_revision;
