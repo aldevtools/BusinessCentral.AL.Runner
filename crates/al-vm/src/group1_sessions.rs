@@ -126,6 +126,11 @@ pub(crate) struct Group1Filters {
     /// The tables whose group 1 filter a page background task's worker set or took back, ended with the worker
     /// (`leave_worker`).
     worker_ended: Vec<u32>,
+    /// A worker runs and the test session held no group 1 entry when it started (`enter_worker`): what is in group 1 now is
+    /// the worker's.
+    worker_alone: bool,
+    /// A record reads with group 1 filters another record set (`Session::with_group1`), not its own.
+    sharing: bool,
 }
 
 impl Group1Filters {
@@ -146,6 +151,7 @@ impl Group1Filters {
     /// record took back holds none, and the worker runs there as on a table with no entry, as main does.
     pub(crate) fn enter_worker(&mut self) -> Filters {
         let parked = std::mem::take(&mut self.filters);
+        self.worker_alone = parked.by_table.is_empty();
         self.worker_kept_aside = (parked.by_table.iter())
             .filter(|(_, e)| !e.signature.is_empty())
             .map(|(&t, e)| (t, e.worker))
@@ -157,6 +163,7 @@ impl Group1Filters {
     /// were (:489, :521), also where the worker took them back in its session (tests/neighbors/8670-bg-worker-filter-group1,
     /// "G1N Worker Clears", Business Central 29.1). Later calls on those tables run through the assumption.
     pub(crate) fn leave_worker(&mut self, parked: Filters) {
+        self.worker_alone = false;
         self.worker_kept_aside.clear();
         let worker = std::mem::replace(&mut self.filters, parked);
         let filtered = std::mem::take(&mut self.worker_filtered);
@@ -165,6 +172,13 @@ impl Group1Filters {
                 self.worker_ended.push(table);
             }
         }
+    }
+
+    /// The read running is a worker's, on a record whose group 1 filters it set itself while the test session held no group 1
+    /// entry: the shape BgTaskQueryCache.al:3391 measures (open corpus PR 1495). Not a record that reads another record's
+    /// filters.
+    pub(crate) fn worker_owns_group1(&self) -> bool {
+        self.worker_alone && !self.sharing
     }
 
     /// What the worker may do on table `table`, when the worker runs without the test session's entry of it.
@@ -581,7 +595,9 @@ impl Session {
             return f(self);
         };
         rec.borrow_mut().filters.extend(filters);
+        let sharing = std::mem::replace(&mut self.global_group1.sharing, true);
         let r = f(self);
+        self.global_group1.sharing = sharing;
         rec.borrow_mut().filters.retain(|f| f.group != 1);
         let found = match (step, &r) {
             (LoopStep::FindSet, Ok(Value::Boolean(true))) => true,

@@ -1,0 +1,3 @@
+{ "id": "8d1a2b3c-0000-4000-8000-000000048580", "name": "YW Yaml Utf8 Install", "publisher": "YN Neighbors", "version": "1.0.0.0",
+  "platform": "27.0.0.0", "runtime": "15.0", "idRanges": [ { "from": 60930, "to": 60934 } ], "resourceFolders": [ "res" ],
+  "dependencies": [ { "id": "8d1a2b3c-0000-4000-8000-000000068580", "name": "YW Dependency", "publisher": "YN Neighbors", "version": "1.0.0.0" } ] }
