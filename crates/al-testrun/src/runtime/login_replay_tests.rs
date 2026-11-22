@@ -94,29 +94,53 @@ fn run(engine: &Arc<Engine>, l: &al_sema::lower::Lowered, name: &str) {
 
 /// [`run`] with the session flags of `opts` (`SessionFlags::of`).
 fn run_with(engine: &Arc<Engine>, l: &al_sema::lower::Lowered, name: &str, opts: RunOptions) {
-    let mut scratch = Scratch {
-        flags: super::session_flags::SessionFlags::of(&RunOptions {
+    let o = run_as(
+        engine,
+        l,
+        name,
+        RunOptions {
             login_replay_check: true,
             ..opts
-        }),
+        },
+    );
+    assert_eq!(o.outcomes, vec![("SeesTheRow".to_string(), Outcome::Pass)]);
+}
+
+/// What a run of a test codeunit gives: each test's outcome, its error stack and its assumption marks.
+#[derive(Debug, PartialEq)]
+struct Ran {
+    outcomes: Vec<(String, Outcome)>,
+    stacks: Vec<(String, String)>,
+    marks: Vec<(String, Vec<Assumption>)>,
+}
+
+/// Runs test codeunit `name` once on `engine` under the session flags of `opts`, the check on or off as `opts` says.
+fn run_as(engine: &Arc<Engine>, l: &al_sema::lower::Lowered, name: &str, opts: RunOptions) -> Ran {
+    let mut scratch = Scratch {
+        flags: super::session_flags::SessionFlags::of(&opts),
         ..Default::default()
     };
     let oi = l.program.objects.iter().position(|o| o.name == name).unwrap();
-    let o = run_codeunit_core(
+    let (mut stacks, mut marks) = (Vec::new(), Vec::new());
+    let outcomes = run_codeunit_core(
         engine,
         l,
         oi,
         None,
         TestIsolation::Codeunit,
         None,
+        &mut stacks,
         &mut Vec::new(),
-        &mut Vec::new(),
-        &mut Vec::new(),
+        &mut marks,
         &mut scratch,
         None,
         false,
     );
-    assert_eq!(o, vec![("SeesTheRow".to_string(), Outcome::Pass)]);
+    Ran {
+        outcomes,
+        stacks,
+        marks,
+    }
 }
 
 /// The text `rpl.txt` of the main app reads as in this pass (a serve entry's `resources`, `Engine::resource_overrides`).
@@ -545,4 +569,85 @@ fn two_backings_that_do_not_say_who_they_are_are_never_one_key() {
         crate::login_replay::Key::of(&mut s, false, Default::default())
     };
     assert_ne!(key(), key());
+}
+
+// The check measures only: the same codeunit, with the switch off and on, gives the same outcomes, error stacks and
+// assumption marks (maintainer's review of al-runner PR 8447). Two shapes: the raised login, which the check compares
+// (only the run with the switch on reports a line), with a passing and a failing test; and the apps under test's own
+// login alone (`Login::Own`), which the check keys and does not compare, whose tests carry the mark
+// `login-own-registration-reads-alone` (`login_tests.rs` shows the mark on this shape).
+const FAILS_AFTER_LOGIN: &str = r#"
+codeunit 77404 "RPL Tests C"
+{
+    Subtype = Test;
+    [Test]
+    procedure SeesTheRow() var I: Record "Guided Experience Item"; begin if I.IsEmpty() then Error('no row'); end;
+    [Test]
+    procedure FailsOnTheRow() var I: Record "Guided Experience Item"; begin if not I.IsEmpty() then Error('a row'); end;
+}
+"#;
+
+const OWN_LOGIN: &str = r#"
+codeunit 77408 "RPL Own Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterAssistedSetup', '', false, false)]
+    local procedure RegisterAssistedSetup()
+    var G: Codeunit "Guided Experience";
+    begin
+        G.InsertAssistedSetup(77408);
+    end;
+}
+codeunit 77409 "RPL Own Tests"
+{
+    Subtype = Test;
+    [Test]
+    procedure ReadsTheRowOfTheLogin()
+    var G: Codeunit "Guided Experience";
+    begin
+        if not G.AssistedSetupExistsAndIsNotComplete(77408) then Error('no row');
+    end;
+    [Test]
+    procedure InsertsTheKeyOfTheLoginRow()
+    var G: Codeunit "Guided Experience";
+    begin
+        G.InsertAssistedSetup(77408);
+    end;
+}
+"#;
+
+#[test]
+fn the_check_off_and_on_gives_the_same_outcomes_and_marks() {
+    let raised = format!("{MAIN}{FAILS_AFTER_LOGIN}");
+    // Two runs of codeunit `name` of app `main` on one engine, with the check on or off, and the check's line.
+    let ran = |main: &str, name: &str, check: bool| {
+        let (engine, l) = compiled_with(main);
+        let opts = RunOptions {
+            login_replay_check: check,
+            ..Default::default()
+        };
+        let ran = (0..2)
+            .map(|_| run_as(&engine, &l, name, opts.clone()))
+            .collect::<Vec<_>>();
+        (ran, crate::login_replay::report(&engine))
+    };
+    let (off, off_line) = ran(&raised, "RPL Tests C", false);
+    let (on, on_line) = ran(&raised, "RPL Tests C", true);
+    assert_eq!(off, on);
+    let passed: Vec<_> = (off[0].outcomes.iter())
+        .map(|(t, o)| (t.as_str(), matches!(o, Outcome::Pass)))
+        .collect();
+    assert_eq!(passed, [("SeesTheRow", true), ("FailsOnTheRow", false)], "{:?}", off[0]);
+    assert_eq!(off_line, None);
+    assert!(on_line.is_some_and(|l| l.starts_with("login replay check: 2 sessions over 1 keys")));
+
+    let (off, _) = ran(OWN_LOGIN, "RPL Own Tests", false);
+    let (on, on_line) = ran(OWN_LOGIN, "RPL Own Tests", true);
+    assert_eq!(off, on);
+    assert_eq!(on_line, None, "the own login alone is not raised: nothing compared");
+    let marked = al_builtins::assumptions::by_id("login-own-registration-reads-alone").unwrap();
+    assert!(
+        off[0].marks.len() == 2 && off[0].marks.iter().all(|(_, m)| m.contains(&marked)),
+        "{:?}",
+        off[0]
+    );
 }
