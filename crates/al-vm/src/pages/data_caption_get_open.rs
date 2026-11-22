@@ -128,7 +128,7 @@ impl Session {
         let mut first = None;
         let mut ran = Ok(());
         for row in rows {
-            rec.borrow_mut().fields = row.clone();
+            rec.borrow_mut().fields = row.clone().into();
             ran = self.run_data_caption_held_back(st);
             if ran.is_err() {
                 break;
@@ -224,7 +224,7 @@ impl Session {
         self.ret_used = true;
         let mut found = self.record_op(RecordOp::FindSet, &probe, &mut [])?;
         while matches!(found, Value::Boolean(true)) && rows.len() <= MOST_ROWS {
-            rows.push(probe.borrow().fields.clone());
+            rows.push(probe.borrow().fields.to_vec());
             self.ret_used = true;
             found = match self.record_op(RecordOp::Next, &probe, &mut [])? {
                 Value::Integer(n) => Value::Boolean(n != 0),

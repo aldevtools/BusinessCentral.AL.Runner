@@ -235,12 +235,12 @@ impl Session {
     fn read_row_on_switch(&mut self, st: &St, stored: Vec<Value>) -> Result<(), Signal> {
         let rec = self.page_rec(st);
         let key = self.row_key(&rec)?;
-        rec.borrow_mut().fields = stored.clone();
+        rec.borrow_mut().fields = stored.clone().into();
         self.populate_current(st)?;
         let shown = rec.borrow().fields.clone();
         if let Some(w) = st.borrow_mut().window.iter_mut().find(|w| Self::same_key(&w.key, &key)) {
             w.stored = stored;
-            w.shown = shown;
+            w.shown = shown.into_vec();
         }
         self.current_record_trigger(st, None)
     }
