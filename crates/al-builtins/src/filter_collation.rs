@@ -12,6 +12,16 @@ impl FilterExpr {
     /// `@` filter whose answer changes when the accents are ignored ([`at_refusal`]). `normal_record`: the value is of a normal
     /// record, the only kind either measurement covers.
     pub fn collation_refusal(&self, v: &Value, normal_record: bool) -> Option<String> {
+        // `<>'XYZ-* '` of a Text field (al-vm `placeholder_wildcard_edge`) is measured on rows without a blank at either end (corpus
+        // PR 1503 rows `XYZ-1 `, ` XYZ-1` are not in its table), so it is read before `blank_if_spaces` trims the row.
+        if let (Some(_), Value::Text(row)) = (self.edge_blank_not_like(), v)
+            && edge_blank(row)
+        {
+            return Some(format!(
+                "a row '{}' with a blank at one end under the filter `<>%1` with a wildcard text with a blank at one end (not measured)",
+                row.as_str()
+            ));
+        }
         let v = &*blank_if_spaces(v);
         let (Value::Text(t) | Value::Code(t)) = v else {
             return None;
@@ -55,6 +65,15 @@ impl FilterExpr {
         }
     }
 
+    /// The pattern of `<>` before a wildcard text with a blank at one end: the filter al-vm `placeholder_wildcard_edge` builds for a
+    /// Text field (the parser builds none), whose rows and readers are measured in part only.
+    pub fn edge_blank_not_like(&self) -> Option<&str> {
+        match self {
+            FilterExpr::NotLike(p, false) if edge_blank(p) => Some(p),
+            _ => None,
+        }
+    }
+
     /// Whether [`FilterExpr::collation_refusal`] can refuse some value: an equality only when its value can tie with another text
     /// ([`crate::collation::ae_equality_reachable`]), an ordered comparison and an `@` filter always. A store checks no row for the
     /// other filters.
@@ -71,6 +90,7 @@ impl FilterExpr {
             | FilterExpr::Ge(_)
             | FilterExpr::Like(_, true)
             | FilterExpr::NotLike(_, true) => true,
+            FilterExpr::NotLike(..) => self.edge_blank_not_like().is_some(),
             FilterExpr::Or(xs) | FilterExpr::And(xs) => xs.iter().any(FilterExpr::collation_open),
             FilterExpr::NumCode(inner) | FilterExpr::UnpinnedText(inner) => inner.collation_open(),
             _ => false,
@@ -128,6 +148,11 @@ impl FilterExpr {
             _ => None,
         }
     }
+}
+
+/// A blank at either end.
+fn edge_blank(s: &str) -> bool {
+    s.starts_with(' ') || s.ends_with(' ')
 }
 
 /// Two text values of the same characters.

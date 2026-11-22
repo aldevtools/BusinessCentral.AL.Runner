@@ -23,7 +23,7 @@ const CODE: PinnedCode = PinnedCode {
 };
 
 /// The virtual table `Field` the repro's page shows.
-const FIELD_TABLE: u32 = 2_000_000_041;
+use crate::platform::relation_field_no_readers::FIELD_TABLE;
 
 impl Session {
     /// `TestField.Enabled()` and `TestAction.Enabled()`: a field of a part also answers what its part control says

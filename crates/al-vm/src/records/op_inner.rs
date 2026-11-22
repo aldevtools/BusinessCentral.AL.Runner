@@ -4,6 +4,25 @@ use super::*;
 use crate::state::{UnpinnedLock, WriteOfAl};
 
 impl Session {
+    /// The record methods that read the database: a call of one on a database record starts the transaction when nothing has
+    /// yet (`TxPhase::Read`).
+    fn is_read_call(method: RecordOp) -> bool {
+        matches!(
+            method,
+            RecordOp::Get
+                | RecordOp::GetBySystemId
+                | RecordOp::Find
+                | RecordOp::FindFirst
+                | RecordOp::FindLast
+                | RecordOp::FindSet
+                | RecordOp::Next
+                | RecordOp::Count
+                | RecordOp::IsEmpty
+                | RecordOp::CalcFields
+                | RecordOp::CalcSums
+        )
+    }
+
     pub(crate) fn record_op_inner(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
         self.connection_check(rec)?;
         if rec.borrow().unpinned_buffer.is_some() && !self.by_value_view_runs(method, rec)? {
@@ -255,40 +274,14 @@ impl Session {
             self.tx.phase = crate::transactions::TxPhase::Write;
         } else if self.tx.phase == crate::transactions::TxPhase::Fresh
             && !rec.borrow().temporary
-            && matches!(
-                method,
-                RecordOp::Get
-                    | RecordOp::GetBySystemId
-                    | RecordOp::Find
-                    | RecordOp::FindFirst
-                    | RecordOp::FindLast
-                    | RecordOp::FindSet
-                    | RecordOp::Next
-                    | RecordOp::Count
-                    | RecordOp::IsEmpty
-                    | RecordOp::CalcFields
-                    | RecordOp::CalcSums
-            )
+            && Self::is_read_call(method)
         {
             // A read call starts it too (session-system/ProbeSystemEnumMembers.al:94-112).
             self.tx.phase = crate::transactions::TxPhase::Read;
         }
-        if !rec.borrow().temporary
-            && matches!(
-                method,
-                RecordOp::Get
-                    | RecordOp::GetBySystemId
-                    | RecordOp::Find
-                    | RecordOp::FindFirst
-                    | RecordOp::FindLast
-                    | RecordOp::FindSet
-                    | RecordOp::Next
-                    | RecordOp::Count
-                    | RecordOp::IsEmpty
-                    | RecordOp::CalcFields
-                    | RecordOp::CalcSums
-            )
-        {
+        if !rec.borrow().temporary && Self::is_read_call(method) {
+            // A read call ends the moment the Update report rule is pinned at (`OpenTx::at_test_start`).
+            self.tx.open.at_test_start = false;
             // What LastUsedRowVersion reports after a read of a table the open transaction inserted into.
             let company = rec.borrow().company.clone();
             // GetBySystemId, Find('='), Find('-'), Find('+') and a CalcFields of a record whose own table holds inserted rows
@@ -1466,7 +1459,12 @@ impl Session {
                     }
                     _ => None,
                 };
-                let shape = super::measured_setfilter::MeasuredSetFilter::of(from_al, &rec.borrow(), &text, args.len());
+                let shape = super::measured_setfilter::MeasuredSetFilter::of(
+                    from_al,
+                    &rec.borrow(),
+                    &text,
+                    args.get(2..).unwrap_or_default(),
+                );
                 let mut parsed = match record_id {
                     Some(p) => p,
                     None => match self.measured_language_filter(shape.as_ref(), &t, pos)? {
@@ -1904,7 +1902,9 @@ impl Session {
                 }
                 let xrec = Self::validate_xrec_handle(rec, &before);
                 let outermost = outer.is_none().then_some(before);
-                self.while_validating(entry, outermost, |s| s.validate_hooks(&t, rec, &xrec, field, snapshot))?;
+                self.while_validating(entry, rec, outermost, |s| {
+                    s.validate_hooks(&t, rec, &xrec, field, snapshot)
+                })?;
                 if sum_flowfield {
                     self.finish_flowfield_validate(rec, &t, pos, flowfield_error, args.get(1).cloned(), old_value)?;
                 }

@@ -1084,11 +1084,7 @@ impl CorpusRuntime {
             );
             global_triggers_find_unavailable(&mut engine, lowered);
             if let Some(e) = Arc::get_mut(&mut engine) {
-                (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
-                e.license = opts.license.clone();
-                e.write_in_try_allowed = opts.allow_write_in_try_functions;
-                e.dependencies_published_global = opts.dependencies_published_global;
-                e.skipped_apps = opts.skipped_dependencies.clone();
+                set_run_options(e, opts);
             }
             engine
         };
@@ -1949,16 +1945,23 @@ impl CorpusRuntime {
     }
 }
 
+/// What a run sets on an engine on top of what `Engine::with_config` makes: the one list for a new engine, a sibling and a
+/// kept engine.
+fn set_run_options(e: &mut Engine, opts: &RunOptions) {
+    (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
+    e.license = opts.license.clone();
+    e.emit_version = opts.emit_version.clone();
+    e.write_in_try_allowed = opts.allow_write_in_try_functions;
+    e.dependencies_published_global = opts.dependencies_published_global;
+    e.skipped_apps = opts.skipped_dependencies.clone();
+}
+
 /// The tests' engine (with several test threads): it shares what `make_engine` worked out from the program with the
 /// install baseline's engine (`Engine::sibling`); what `make_engine` sets on top is set again.
 fn sibling_of(engine: &Arc<Engine>, opts: &RunOptions) -> Arc<Engine> {
     let mut sibling = engine.sibling();
     if let Some(e) = Arc::get_mut(&mut sibling) {
-        (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
-        e.license = opts.license.clone();
-        e.write_in_try_allowed = opts.allow_write_in_try_functions;
-        e.dependencies_published_global = opts.dependencies_published_global;
-        e.skipped_apps = opts.skipped_dependencies.clone();
+        set_run_options(e, opts);
     }
     sibling
 }
@@ -2235,11 +2238,7 @@ fn take_kept_engines(
         // Every field a run sets, back to what `Engine::with_config` makes; then what `make_engine` sets.
         e.reset_run_state();
         e.dotnet = dotnet.clone();
-        (e.test_data, e.private_test_rows) = (opts.test_data.clone(), opts.private_baseline);
-        e.license = opts.license.clone();
-        e.write_in_try_allowed = opts.allow_write_in_try_functions;
-        e.dependencies_published_global = opts.dependencies_published_global;
-        e.skipped_apps = opts.skipped_dependencies.clone();
+        set_run_options(e, opts);
         Some(engine)
     };
     let install = reset(k.install);
@@ -2429,7 +2428,7 @@ fn check_baseline_rule(lowered: &Lowered, units: &mut [Unit]) {
 pub(super) fn reaches_session_storage(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> bool {
     use super::written::{ReachIndex, state, union_reach_has};
     let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
-    let bits = state::ISOLATED_STORAGE | state::NUMBER_SEQUENCE | state::OTHER;
+    let bits = state::ISOLATED_STORAGE | state::NUMBER_SEQUENCE | state::MAY_LEAVE;
     let roots = super::handlers::unit_roots(lowered, oi, true);
     union_reach_has(&engine.events, lowered, &index, &roots, &|f| {
         f.unknown.is_some() || (f.state_reads | f.state_writes) & bits != 0

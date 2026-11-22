@@ -112,27 +112,63 @@ impl Session {
             self.keyref_receiver_local = false;
         }
         let ret = ret?;
-        // ADR-068 item 3: a builtin that read a text with half of a surrogate pair without an audit refuses.
+        let back = match (receiver, recv) {
+            (Some(ir::Arg::Ref(p)), Some(v)) => Some((p, v)),
+            _ => None,
+        };
+        self.builtin_write_back(id, class, back, args, &mut values, drain_pending, f)?;
+        self.return_vec(values);
+        Ok(ret)
+    }
+
+    /// What every builtin call does after its native returned: the surrogate audit (ADR-068 item 3: a builtin that read a
+    /// text with half of a surrogate pair without an audit refuses), the write-back of the receiver (`recv`, when it is by
+    /// reference) and of the by-reference operands, then the background task the call enqueued (`drain_pending` says one
+    /// further out was already waiting). Shared by `run_native` and `run_stream_builtin`.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn builtin_write_back(
+        &mut self,
+        id: BuiltinId,
+        class: al_builtins::builtin_id::Class,
+        recv: Option<(&ir::Place, Value)>,
+        args: &[ir::Arg],
+        values: &mut [Value],
+        drain_pending: bool,
+        f: &mut Frame,
+    ) -> Result<(), Signal> {
         al_builtins::text::check_unaudited()?;
-        if let (Some(ir::Arg::Ref(p)), Some(v)) = (receiver, recv) {
+        if let Some((p, v)) = recv {
             self.write_native_back(p, v, f, id)?;
         }
-        for (a, v) in args.iter().zip(values.drain(..)) {
+        for (a, slot) in args.iter().zip(values.iter_mut()) {
             if let ir::Arg::Ref(p) = a {
-                let v = self.rendered_into_place(p, v, f)?;
-                let v = if class == al_builtins::builtin_id::Class::InStreamRead {
-                    self.fit_stream_read(p, v, f)?
-                } else {
-                    self.fit_ref_number(p, v, f)?
-                };
-                self.write_native_back(p, v, f, id)?;
+                let v = std::mem::replace(slot, Value::Null);
+                self.native_arg_back(p, v, id, class, f)?;
             }
         }
-        self.return_vec(values);
         if !drain_pending && self.pages.bg_drain_after_call.is_some() {
             self.bg_drain_after_call()?;
         }
-        Ok(ret)
+        Ok(())
+    }
+
+    /// The write-back of by-reference argument `p` of builtin `id` once its native left `v` there.
+    #[inline]
+    pub(crate) fn native_arg_back(
+        &mut self,
+        p: &ir::Place,
+        v: Value,
+        id: BuiltinId,
+        class: al_builtins::builtin_id::Class,
+        f: &mut Frame,
+    ) -> Result<(), Signal> {
+        let v = self.rendered_into_place(p, v, f)?;
+        let v = if class == al_builtins::builtin_id::Class::InStreamRead {
+            self.fit_stream_read(p, v, f)?
+        } else {
+            self.fit_ref_number(p, v, f)?
+        };
+        self.write_native_back(p, v, f, id)
     }
 
     /// A number a builtin stored in a by-reference argument takes the declared number type of the variable, as an assignment
@@ -174,6 +210,10 @@ impl Session {
     /// InStreamRead_Text_ReturnValueIsLength reads `toolongvalueforcode` into a Code[10] and gets
     /// `TOOLONGVAL`). A Text that is too short for the characters is not pinned.
     pub(crate) fn fit_stream_read(&mut self, p: &ir::Place, v: Value, f: &mut Frame) -> Result<Value, Signal> {
+        // Only a text is fitted; the type of the variable is not looked up for the other reads (a Byte read loop).
+        if !matches!(v, Value::Code(_) | Value::Text(_)) {
+            return Ok(v);
+        }
         match (&v, self.place_type(p, f)) {
             (Value::Code(t), RtType::Code(max)) => {
                 let up = t.to_uppercase();
@@ -771,9 +811,15 @@ impl Session {
                     } else {
                         false
                     };
+                    if let Some(x) = &caller_xrec {
+                        self.shared_proc_xrec.push(x.clone());
+                    }
                     let r = self.finish_call(object, routine, inst.clone(), args, values, try_call, f);
                     if pushed {
                         self.plain_proc_xrec.pop();
+                    }
+                    if caller_xrec.is_some() {
+                        self.shared_proc_xrec.pop();
                     }
                     Self::leave_record(&inst, saved);
                     return r;
@@ -1042,13 +1088,13 @@ impl Session {
         any
     }
 
-    /// The value of global `i` of the frame's instance, read by its name: the alias watch, the refusal of a single instance
-    /// whose value is not known (`single_unmeasured.rs`), then the single-instance notes.
+    /// The value of global `i` of the frame's instance, read by its name: the alias watch, the mark of a single instance
+    /// whose state no pin covers (`single_unmeasured.rs`: refused or assumed), then the single-instance notes.
     #[inline]
     pub(crate) fn global_value(&mut self, i: usize, f: &Frame) -> Result<Value, Signal> {
         self.alias_access(i, f)?;
-        if let Some(why) = &f.instance.borrow().unmeasured {
-            return Err(crate::single_unmeasured::read_refused(why));
+        if let Some(mark) = &f.instance.borrow().unmeasured {
+            crate::single_unmeasured::read(mark)?;
         }
         self.single_read(&f.instance, i);
         Ok(f.instance.borrow().globals[i].clone())
@@ -1564,7 +1610,7 @@ impl Session {
     /// The write-back of a builtin's by-reference receiver or argument (`run_native`): a Blob it hands back is stored as the
     /// buffer it is, never copied (a stream `CreateOutStream` created on it writes there; `blob_transfer::moved`).
     fn write_native_back(&mut self, p: &ir::Place, v: Value, f: &mut Frame, id: BuiltinId) -> Result<(), Signal> {
-        let v = crate::var_option::cleared_array(v, &self.place_type(p, f), id);
+        let v = crate::var_option::cleared_array(v, || self.place_type(p, f), id);
         self.write_as(p, v, f, Store::Builtin(id))
     }
 
@@ -1588,7 +1634,23 @@ impl Session {
     }
 
     /// [`Self::write`]; `how` names the store: a builtin's write-back is no assignment.
+    ///
+    /// A value [`stored_as_is`] allows goes into a local as [`Self::write_as_general`] would put it there, without its
+    /// checks: none of them applies to it (a builtin's write-back of a Byte read or of the stream it read from).
+    #[inline]
     pub(crate) fn write_as(&mut self, p: &ir::Place, v: Value, f: &mut Frame, how: Store) -> Result<(), Signal> {
+        if let ir::Place::Local(i) = p
+            && stored_as_is(&v)
+        {
+            f.locals[*i] = self.option_param_store(*i, v, f);
+            return Ok(());
+        }
+        self.write_as_general(p, v, f, how)
+    }
+
+    /// [`Self::write_as`] of any value into any place.
+    #[inline(never)]
+    fn write_as_general(&mut self, p: &ir::Place, v: Value, f: &mut Frame, how: Store) -> Result<(), Signal> {
         let assign = how.assigns();
         // A column a platform row leaves unknown never reaches a variable: every read of one is refused where it happens; this
         // catches a reader that missed it.
@@ -2325,4 +2387,32 @@ pub(crate) fn date_key(v: &Value) -> i64 {
 /// The Date a [`date_key`] stands for.
 pub(crate) fn date_of_key(k: i64) -> Value {
     Value::Date((k.div_euclid(2)) as i32, k.rem_euclid(2) == 1)
+}
+
+/// A value whose store into a local [`Session::write_as_general`] makes as it is, through `option_param_store` only: a
+/// scalar that owns nothing, and an InStream or OutStream handle. Every check of that function is on another kind of value
+/// (Unknown, SqlCount, a FilterPageBuilder, KeyRef or RecordRef handle, a Record, a Blob) or on another place (a field, a
+/// global, an array element).
+#[inline(always)]
+fn stored_as_is(v: &Value) -> bool {
+    matches!(
+        v,
+        Value::Null
+            | Value::Boolean(_)
+            | Value::Integer(_)
+            | Value::BigInteger(_)
+            | Value::Decimal(_)
+            | Value::Byte(_)
+            | Value::Char(_)
+            | Value::Date(..)
+            | Value::Time(_)
+            | Value::DateTime(_)
+            | Value::Duration(_)
+            | Value::Guid(_)
+            | Value::Enum(..)
+            | Value::Library(
+                al_builtins::library_kind::LibraryKind::InStream | al_builtins::library_kind::LibraryKind::OutStream,
+                _
+            )
+    )
 }

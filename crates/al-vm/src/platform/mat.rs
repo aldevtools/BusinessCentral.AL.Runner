@@ -116,6 +116,25 @@ pub(crate) fn single_value(e: &al_builtins::filter::FilterExpr) -> bool {
     }
 }
 
+/// Whether the alternative `alts` of a name filter can match `name` in no way: every part is a name or a wildcard
+/// pattern (with or without `@`) of ASCII characters, and none matches `name` even without regard to case. A row a
+/// lookup by name finds is still kept only when it passes the filter (`passes` at the end of
+/// [`Mat::found_by_name`]), so such an alternative leaves the row out whether or not its lookup sees the row, which
+/// is pinned only for an alternative of names (metadata/platform-tables/FieldTimestampRowTableTypes.al:103). A part
+/// of other characters, or of another kind, is not decided here (al-runner issue 8462).
+fn misses_the_name(alts: &[al_builtins::filter::FilterExpr], name: &Value) -> bool {
+    use al_builtins::filter::FilterExpr;
+    let Some(text) = al_builtins::native::text_of(name).filter(|t| t.as_str().is_ascii()) else {
+        return false;
+    };
+    alts.iter().all(|a| match a {
+        FilterExpr::Eq(v) => al_builtins::native::text_of(v)
+            .is_some_and(|t| t.as_str().is_ascii() && !t.as_str().eq_ignore_ascii_case(text.as_str())),
+        FilterExpr::Like(p, _) => p.is_ascii() && !FilterExpr::Like(p.clone(), true).matches_checked(name),
+        _ => false,
+    })
+}
+
 /// The value a filter of a single value ([`single_value`]) keeps; `None` for any other filter.
 pub(crate) fn single_value_of(e: &al_builtins::filter::FilterExpr) -> Option<Value> {
     use al_builtins::filter::FilterExpr;
@@ -677,7 +696,8 @@ impl Mat {
     /// SG_FieldTable_RowVersion_NameWithOtherFilters, :733-748 _NameAlone; Data Type Management.FindFieldByName
     /// :750-772). A case-insensitive (`@TIMESTAMP`), wildcard (`times*`) or alternative (`timestamp|No.`) filter on
     /// the name does not see it (:712-717), nor does a not-equal, an `&` of not-equals, a comparison or a range
-    /// (metadata/FieldNameNotEqualFilter.al:57-120); another form of name filter, and a filter in the OR group, refuse.
+    /// (metadata/FieldNameNotEqualFilter.al:57-120). An alternative with a wildcard that cannot match the row's name
+    /// leaves it out ([`misses_the_name`]); another form of name filter, and a filter in the OR group, refuse.
     fn found_by_name(&self, t: &TableDef, i: usize, filters: &[FieldFilter], key: usize) -> Result<bool, StoreError> {
         super::refuse_unpinned(filters)?;
         use al_builtins::filter::FilterExpr;
@@ -709,8 +729,11 @@ impl Mat {
                     FilterExpr::Like(..) => true,
                     // An alternative of names does not see it (types/AjMisc.al:712-717; metadata/platform-tables/
                     // FieldTimestampRowTableTypes.al:103 with :164 on every probed kind of table). An alternative with a
-                    // wildcard or a case-insensitive part is not pinned and refuses.
+                    // wildcard or a case-insensitive part refuses unless no part can match the row's name (next arm).
                     FilterExpr::Or(alts) if alts.iter().all(|a| matches!(a, FilterExpr::Eq(_))) => true,
+                    // An alternative none of whose parts can match the row's name keeps it out whether or not the
+                    // lookup sees it (al-runner issue 8462; [`misses_the_name`]).
+                    FilterExpr::Or(alts) if misses_the_name(alts, &r[col]) => true,
                     FilterExpr::Or(_) => {
                         return Err(refusal(
                             t,

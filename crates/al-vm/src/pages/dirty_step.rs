@@ -283,6 +283,7 @@ impl Session {
     /// `TestPage.*` with the rules above in front. The page notes the call (`note_test_call`), so a rule pinned for one
     /// scenario knows what the test did since the page opened.
     pub(super) fn test_page_op_held(&mut self, method: PageOp, st: &St, args: &mut [Value]) -> Result<Value, Signal> {
+        self.end_test_filter_steps_elsewhere(st, method);
         let call = self.note_test_call(st, method, None, args.len());
         self.end_read_at_test_call(st, call);
         Self::end_deferred_host_reread(st, call, method.method());
@@ -372,6 +373,7 @@ impl Session {
         args: &mut [Value],
     ) -> Result<Value, Signal> {
         let st = &c.page;
+        self.end_test_filter_steps_elsewhere(st, method);
         let call = self.note_test_call(st, method, Some(&c.target), args.len());
         self.end_read_at_test_call(st, call);
         Self::end_deferred_host_reread(st, call, method.method());

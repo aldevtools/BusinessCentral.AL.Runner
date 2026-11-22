@@ -13,7 +13,6 @@ use al_deps::load::WorkspaceApp;
 use al_host::dotnet::DotNetHost;
 use al_host::testdata::TestData;
 use al_testrun::deps::{self, Provision};
-use al_testrun::discover;
 use al_testrun::dotnet::SidecarHost;
 use al_testrun::runtime::{CorpusRuntime, RunOptions, SuiteRun, TestResult};
 use al_testrun::{CaseId, Outcome, target};
@@ -539,43 +538,23 @@ pub struct WarmCtx {
     pub used: Option<al_testrun::runtime::WarmUse>,
     /// Where the last run spent its time (the `timings` of the serve summary, al-runner issue 5856).
     pub timings: Option<RequestTimings>,
+    /// The apps under test of the last request, read again only where a file changed (al-runner issue 8205).
+    pub apps: crate::kept_apps::KeptApps,
     /// The dependency apps of the last request, for the next one that would read the same (al-runner issue 5856).
     pub dependencies: Option<KeptDependencies>,
     /// The license of the BC artifacts a request used, by build, held in memory only (ADR-060: never written anywhere).
     pub license: Option<(String, al_testrun::license::LicenseUse)>,
+    /// The emit version of the build a request used, by build (`run_emit_version`).
+    pub emit_version: Option<(String, al_vm::emit_version::EmitVersion)>,
 }
 
 /// The dependency apps a warm server read for a request ([`WarmCtx::dependencies`]).
 pub struct KeptDependencies {
     /// The request's apps and options that chose them.
     key: String,
-    /// The files they were chosen from and read from, as they were then ([`file_stamps`]).
-    stamps: Vec<(PathBuf, Option<(u64, std::time::SystemTime)>)>,
+    /// The files they were chosen from and read from, as they were then (`kept_apps::stamps`).
+    stamps: crate::kept_apps::Stamps,
     deps: Arc<deps::Dependencies>,
-}
-
-/// The length and modification time of each entry of the folders `search` and of each file of `read`: another
-/// package in a folder, or a package changed, changes them.
-fn file_stamps(search: &[PathBuf], read: &[PathBuf]) -> Vec<(PathBuf, Option<(u64, std::time::SystemTime)>)> {
-    let stamp = |p: &Path| {
-        std::fs::metadata(p)
-            .ok()
-            .and_then(|m| Some((m.len(), m.modified().ok()?)))
-    };
-    let mut out: Vec<(PathBuf, Option<(u64, std::time::SystemTime)>)> = Vec::new();
-    for dir in search {
-        out.push((dir.clone(), stamp(dir)));
-        if let Ok(rd) = std::fs::read_dir(dir) {
-            let mut entries: Vec<PathBuf> = rd.filter_map(|e| e.ok().map(|e| e.path())).collect();
-            entries.sort();
-            out.extend(entries.into_iter().map(|p| {
-                let s = stamp(&p);
-                (p, s)
-            }));
-        }
-    }
-    out.extend(read.iter().map(|p| (p.clone(), stamp(p))));
-    out
 }
 
 /// Where a server request spent its time, by phase (al-runner issue 5856).
@@ -859,6 +838,36 @@ fn run_license(
     Ok(l)
 }
 
+/// The emit version of the build the run uses (`al_testrun::emit_version`), read when the missing-object error first needs
+/// it; a server keeps it for its next request of that build. No build: none.
+fn run_emit_version(
+    a: &TestArgs,
+    warm: Option<&mut WarmCtx>,
+    dependencies: &deps::Dependencies,
+) -> al_vm::emit_version::EmitVersion {
+    let Some(u) = &dependencies.build else {
+        return Default::default();
+    };
+    let build = u.build.to_string();
+    if let Some((_, v)) = warm
+        .as_deref()
+        .and_then(|w| w.emit_version.as_ref())
+        .filter(|(b, _)| *b == build)
+    {
+        return v.clone();
+    }
+    let v = al_testrun::emit_version::of_build(
+        &u.build,
+        &al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()),
+        !a.no_download,
+        al_deps::cache::bcartifacts_sandbox_from_env().as_deref(),
+    );
+    if let Some(w) = warm {
+        w.emit_version = Some((build, v.clone()));
+    }
+    v
+}
+
 /// The runs of a server request's entries (al-runner issue 5635): each entry's test codeunits, its selected tests when
 /// it runs only those, its hooks (its test lines carry its index) and its resource texts.
 fn entry_runs(
@@ -1031,11 +1040,9 @@ fn test_inner(
     };
     laps.lap(Part::TestData);
     let mut data_notes: Vec<String> = Vec::new();
-    let inputs = a
-        .apps
-        .iter()
-        .map(|p| apps::load(p, a.bc_version.as_deref()))
-        .collect::<Result<Vec<AppInput>, String>>()?;
+    // A warm server reads again only the apps whose files changed (al-runner issue 8205).
+    let kept_apps = warm.as_deref_mut().map(|w| &mut w.apps);
+    let inputs = crate::kept_apps::load(&a.apps, a.bc_version.as_deref(), kept_apps)?;
     apps::distinct_ids(&inputs)?;
     laps.lap(Part::Sources);
 
@@ -1046,10 +1053,12 @@ fn test_inner(
         if a.test_apps.is_some_and(|n| i >= n) {
             continue;
         }
-        for (_, text) in &app.source.files {
-            for (id, tests) in discover::test_codeunits(text) {
-                found.push(Found { app: i, id, tests });
-            }
+        for (id, tests) in app.test_codeunits() {
+            found.push(Found {
+                app: i,
+                id: *id,
+                tests: tests.clone(),
+            });
         }
     }
     let disabled = load_disabled(a)?;
@@ -1259,7 +1268,7 @@ fn test_inner(
     let kept_deps = warm
         .as_deref()
         .and_then(|w| w.dependencies.as_ref())
-        .filter(|k| Some(&k.key) == deps_key.as_ref() && k.stamps == file_stamps(&search, &k.deps.paths))
+        .filter(|k| Some(&k.key) == deps_key.as_ref() && k.stamps == crate::kept_apps::stamps(&search, &k.deps.paths))
         .map(|k| k.deps.clone());
     let dependencies: Arc<deps::Dependencies> = match kept_deps {
         Some(d) => d,
@@ -1276,7 +1285,7 @@ fn test_inner(
             if let (Some(w), Some(key)) = (warm.as_deref_mut(), deps_key) {
                 w.dependencies = Some(KeptDependencies {
                     key,
-                    stamps: file_stamps(&search, &d.paths),
+                    stamps: crate::kept_apps::stamps(&search, &d.paths),
                     deps: d.clone(),
                 });
             }
@@ -1329,20 +1338,13 @@ fn test_inner(
                 downloadable.push(b);
             }
         }
-        {
-            let chosen_data = choose_test_data(
-                a,
-                &builds,
-                &downloadable,
-                chosen.target.bc.major,
-                Some(chosen.target.bc.minor),
-            )?;
-            test_data = chosen_data.data;
-            data_notes = chosen_data.notes;
-        }
+        let bc = &chosen.target.bc;
+        let chosen_data = choose_test_data(a, &builds, &downloadable, bc.major, Some(bc.minor))?;
+        (test_data, data_notes) = (chosen_data.data, chosen_data.notes);
     }
     laps.lap(Part::TestData);
     let license = run_license(a, warm.as_deref_mut(), &dependencies, &chosen, floor_versions, &country)?;
+    let emit_version = run_emit_version(a, warm.as_deref_mut(), &dependencies);
     laps.lap(Part::License);
     // The resolver repeats a note on each round of the artifact feed; say each once.
     let mut seen = BTreeSet::new();
@@ -1607,6 +1609,7 @@ fn test_inner(
     let mut opts = RunOptions {
         run_seed,
         license: license.license.clone(),
+        emit_version,
         only: opts_only,
         lazy: std::iter::repeat_n(None, inputs.len())
             .chain(dependencies.lazy.iter().cloned())

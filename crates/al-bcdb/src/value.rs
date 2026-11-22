@@ -291,17 +291,6 @@ fn push_time(out: &mut String, units: i64, scale: u8) {
     }
 }
 
-pub fn format_binary(b: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789ABCDEF";
-    let mut s = String::with_capacity(2 + b.len() * 2);
-    s.push_str("0x");
-    for &x in b {
-        s.push(HEX[(x >> 4) as usize] as char);
-        s.push(HEX[(x & 15) as usize] as char);
-    }
-    s
-}
-
 /// .NET `Guid(byte[16]).ToString().ToUpperInvariant()`: the first three groups are
 /// little-endian in storage.
 pub fn format_guid(b: &[u8; 16]) -> String {

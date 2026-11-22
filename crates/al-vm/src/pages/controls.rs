@@ -1,5 +1,6 @@
 use super::pinned_shape::TestCall;
 use super::*;
+use crate::platform::relation_field_no_readers::ControlRead;
 use crate::records::ValidateSite;
 use al_builtins::page_op::{PageMethod, PageOp};
 
@@ -1544,7 +1545,7 @@ impl Session {
                 if self.value_reads_blank(st, idx) || self.reads_blank_without_row(st, idx) {
                     return Ok(Value::Text(String::new().into()));
                 }
-                let v = self.control_value(st, idx)?;
+                let v = self.control_value_read(st, idx, ControlRead::Value)?;
                 // A Text control in a cuegroup with CuegroupLayout = Wide reads '0' (pages/properties/ABLayouts.al:68,
                 // :70, also written `wide`); a Decimal one reads its value (pages/controls/AaControls.al:422). Other
                 // types there are not pinned.
