@@ -514,17 +514,22 @@ pub fn shown_in_length_error(s: &str) -> String {
     }
 }
 
+/// The error of a text `s` longer than `max` characters (types/TestProbeScalarContracts.al:CodeAssign_UpperAndTrim, `too_long_11`:
+/// a Code[10] given 11 characters).
+pub fn string_length_error<T>(s: &str, max: u32) -> Result<T, Signal> {
+    crate::native::raise(
+        format!(
+            "The length of the string is {}, but it must be less than or equal to {max} characters. Value: {}",
+            Value::text_len(s),
+            shown_in_length_error(s)
+        ),
+        "StringLengthExceeded",
+    )
+}
+
 fn fit(s: String, max: Option<u32>) -> Result<String, Signal> {
     match max {
-        // types/TestProbeScalarContracts.al:CodeAssign_UpperAndTrim, `too_long_11` (a Code[10] given 11 characters).
-        Some(m) if Value::text_len(&s) > m as usize => crate::native::raise(
-            format!(
-                "The length of the string is {}, but it must be less than or equal to {m} characters. Value: {}",
-                Value::text_len(&s),
-                shown_in_length_error(&s)
-            ),
-            "StringLengthExceeded",
-        ),
+        Some(m) if Value::text_len(&s) > m as usize => string_length_error(&s, m),
         _ => Ok(s),
     }
 }
@@ -1554,6 +1559,8 @@ pub fn compare(l: &Value, r: &Value) -> Result<Ordering, Signal> {
         (V::Integer(a), V::BigInteger(b)) => return Ok(i64::from(*a).cmp(b)),
         (V::BigInteger(a), V::Integer(b)) => return Ok(a.cmp(&i64::from(*b))),
         (V::Decimal(a), V::Decimal(b)) => return Ok(a.cmp(b)),
+        // Two Bytes compare as numbers (`as_decimal` below): a byte read loop compares one pair per byte.
+        (V::Byte(a), V::Byte(b)) => return Ok(a.cmp(b)),
         (V::Boolean(a), V::Boolean(b)) => return Ok(a.cmp(b)),
         (V::Date(a, ca), V::Date(b, cb)) => return Ok((a, ca).cmp(&(b, cb))),
         (V::Time(a), V::Time(b)) | (V::DateTime(a), V::DateTime(b)) | (V::Duration(a), V::Duration(b)) => {
@@ -1822,6 +1829,16 @@ pub fn truthy(v: &Value) -> Result<bool, Signal> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn two_bytes_compare_as_the_general_path_compares_them() {
+        for a in 0..=u8::MAX {
+            for b in [0, 1, 127, 128, 254, 255, a] {
+                let (l, r) = (Value::Byte(a), Value::Byte(b));
+                assert_eq!(super::compare(&l, &r).ok(), super::compare_general(&l, &r).ok());
+            }
+        }
+    }
+
     #[test]
     fn a_dotnet_enum_converts_to_its_number_in_an_integer_and_a_biginteger() {
         // tests/al-language-onprem-dotnet/dotnet/dotnet/SgDotNetEnumToInteger.al:42-88 SG_DotNetEnum_IntoInteger.
