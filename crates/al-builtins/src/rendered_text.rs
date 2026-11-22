@@ -87,6 +87,7 @@ struct Renders {
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 
 /// Whether a marked text may exist in this process (see [`ACTIVE`]).
+#[inline]
 pub fn active() -> bool {
     ACTIVE.load(Ordering::Relaxed)
 }

@@ -20,9 +20,13 @@ pub(crate) struct TxState {
     /// What `transaction_type` rests on when no corpus case pins it (`Session::transaction_type_seen`): the assumptions it
     /// went through (a Commit kept it, al-runner issue 8605; a test method before left it, 8606), or that it is not known (a
     /// test method before it did not run to its end and could set it). A set that takes effect clears it.
-    pub(crate) type_origin: crate::transactions::TypeOrigin,
+    pub(crate) type_origin: crate::transaction_type::TypeOrigin,
     /// A test method of this codeunit has ended (`Session::test_method_ended`): the next one starts with the type it left.
     pub(crate) test_ended: bool,
+    /// The rollback of an asserterror in the code of the test ended the test runner's transaction in a codeunit's first test
+    /// method (`OpenTx::runner_tx`) and no Commit came after it: a set of the type then rests on
+    /// `first-test-rollback-ends-runner-transaction`.
+    pub(crate) runner_tx_rolled_back: bool,
     /// `Database.LockTimeout`: whether a lock wait ends in a timeout error.
     pub(crate) lock_timeout: bool,
     /// `Database.LockTimeoutDuration` in milliseconds.
@@ -133,9 +137,10 @@ pub(crate) struct OpenTx {
     /// CurrentTransactionType set (`transactions.rs`) are noted in it or end it, a Codeunit.Run (`transactions.rs`) and a
     /// report run end it, and so does the end of the transaction.
     pub(crate) moment: Option<crate::reports::transaction_world::Moment>,
-    /// The open transaction is the one the test runner started before the first test method of the codeunit: a
-    /// CurrentTransactionType set to another type has no effect there on BC (corpus pull request 1488,
-    /// session-system/TxTypeNextTestMethod.al TxN01's comment), which no case pins.
+    /// The open transaction may be one the test runner started before the first test method of the codeunit: whether a
+    /// CurrentTransactionType set to another type takes effect there depends on the runner and on what ran before (the
+    /// description of corpus pull request 1520), so such a set is refused. A Commit and the rollback of an asserterror in the
+    /// code of the test end it (`transaction_type.rs`); every other rollback keeps it.
     pub(crate) runner_tx: bool,
 }
 
@@ -279,6 +284,7 @@ impl TxState {
             transaction_type: 0,
             type_origin: Default::default(),
             test_ended: false,
+            runner_tx_rolled_back: false,
             lock_timeout: true,
             lock_timeout_duration: 10,
             committed_row_version: 0,
@@ -681,6 +687,9 @@ pub(crate) struct RunningReport {
     /// one page trigger above them belong to this run (`running_page_answer`).
     pub(crate) depth: usize,
     pub(crate) page_triggers: usize,
+    /// The run entered a transaction world of a TransactionType = Update report: its writes run in that world's
+    /// transaction, whatever the session's type (record/TxTypeUpdateReport.al TxU13 to TxU15 of corpus pull request 1488).
+    pub(crate) update_world: bool,
 }
 
 /// How a running report body was started (`report_preview_pinned`).

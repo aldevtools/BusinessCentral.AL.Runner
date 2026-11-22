@@ -106,8 +106,8 @@ codeunit 97591 "LT RFU Neighbor Tests"
         Assert.AreEqual(Expected, Seen.Get(What), What);
     end;
 
-    // The cell's steps on page 97584 (Last, SetValue on Name, SetValue on Value); `Then` is the call after them: 0 Previous,
-    // 1 a third SetValue on Value, 2 First and the walk.
+    // The cell's steps on page 97584 (Last, SetValue on Name, SetValue on Value); `Then` is the call after them: 0 Next, 1 the
+    // action, 2 First and the walk, 3 AssertEquals and Editable() on the Name control, then First and the walk.
     local procedure RunLines(After: Integer)
     var
         Lines: TestPage "LT RFU Lines";
@@ -131,6 +131,17 @@ codeunit 97591 "LT RFU Neighbor Tests"
                 begin
                     Lines.ChangeViewAction.Invoke();
                     Note('then', Lines.Name.Value() + '/' + Lines.Value.Value() + ':' + Log.Take());
+                end;
+            3:
+                begin
+                    Lines.Name.AssertEquals('C');
+                    Note('reads', Format(Lines.Name.Editable()) + ':' + Log.Take());
+                    Lines.First();
+                    Note('then', Lines.Name.Value() + ':' + Log.Take());
+                    repeat
+                        Walk += Lines.Name.Value() + ',';
+                    until not Lines.Next();
+                    Note('walk', Walk);
                 end;
             2:
                 begin
@@ -267,6 +278,24 @@ codeunit 97591 "LT RFU Neighbor Tests"
         Expect('setvalue', 'P.AGR(C);P.AGR(C);P.AGR(B);');
         Expect('shown2', 'C/');
         Expect('then', 'C/:P.AGR(C);P.AGR(C);P.A(C);P.AGR(C);P.AGR(C);P.AGR(B);');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    // The steps of ListValidateFilterRefresh.al:832 with AssertEquals and Editable() on the Name control between the SetValues
+    // and First: the reads read no row, and First and the walk read as the cell's.
+    [Test]
+    procedure Lines_ReadOnlyCallsAfterSetValues()
+    begin
+        Initialize(1, 1, 3);
+        RunLines(3);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('setname', 'P.AGR(C);T.V(C2);P.V(C2);P.AGR(C);P.AGR(B);');
+        Expect('shown', 'C/');
+        Expect('setvalue', 'P.AGR(C);P.AGR(C);P.AGR(B);');
+        Expect('shown2', 'C/');
+        Expect('reads', 'Yes:');
+        Expect('then', 'B:');
+        Expect('walk', 'B,C,,');
         Expect('stored', 'A/,B/,C/,');
     end;
 

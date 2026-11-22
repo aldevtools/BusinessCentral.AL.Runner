@@ -162,6 +162,16 @@ impl Session {
         class: al_builtins::builtin_id::Class,
         f: &mut Frame,
     ) -> Result<(), Signal> {
+        // A value `stored_as_is` that `InStream.Read` left for a local (a Byte read loop) goes in as it is: it is no rendered
+        // text, `fit_stream_read` fits only a text, `cleared_array` changes only an array and `write_as` stores it as it is
+        // (an Option is not `stored_as_is`).
+        if class == al_builtins::builtin_id::Class::InStreamRead
+            && let ir::Place::Local(i) = p
+            && stored_as_is(&v)
+        {
+            f.locals[*i] = v;
+            return Ok(());
+        }
         let v = self.rendered_into_place(p, v, f)?;
         let v = if class == al_builtins::builtin_id::Class::InStreamRead {
             self.fit_stream_read(p, v, f)?

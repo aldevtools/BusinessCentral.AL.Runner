@@ -960,7 +960,6 @@
 74206 CallerModuleInfo_Direct
 74206 Version_CreateAndCompare
 74206 Version_NegativeParts
-74208 CurrentTransactionType_ReadsWorkInBrowseAndReport
 74244 P114_CaptionClassOnPage
 74244 PW_CaptionClassTranslate_SubscriberSetsTranslation
 74244 PW_CaptionClassTranslate_SubscriberSetsTranslation_OnPage
