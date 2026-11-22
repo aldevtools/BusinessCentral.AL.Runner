@@ -44,7 +44,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ),
     (
         "AL0107",
-        "a parameter named by one of 24 keywords after `var` (the first diagnostic, at the name); alc's full list for the two-codeunit keyword-parameter file (cases 2016-2039); two commas after the text of a Label declaration (case 2332); the keyword `in`, unquoted, after `::` in code (issue 7803; the first diagnostic only, not in a property expression); a variable named by one of the same 24 keywords after a comma, or named `event` (alcodes/keyword_variable_names.rs; the first diagnostic; issue 8539)",
+        "a parameter named by one of 24 keywords after `var` (the first diagnostic, at the name); alc's full list for the two-codeunit keyword-parameter file (cases 2016-2039); two commas after the text of a Label declaration (case 2332); the keyword `in`, unquoted, after `::` in code (issue 7803; the first diagnostic only, not in a property expression); a variable named by one of the same 24 keywords after a comma, or named `event` (alcodes/keyword_variable_names.rs; the first diagnostic; issue 8539); a table or table extension field named, unquoted, by one of the same 24 keywords (alcodes/keyword_field_names.rs; the first diagnostic, at the name; issue 8630)",
     ),
     (
         "AL0301",
@@ -606,7 +606,9 @@ pub fn check_workspace_parts(ws: &Workspace, first: usize) -> (Vec<Diagnostic>, 
             ObjKind::Table => {
                 count_flowfield::check(ws, oi, &obj, &mut out);
                 field_types::check(ws, oi, &obj, &mut out);
+                keyword_field_names::check(ws, oi, &obj, &mut out);
             }
+            ObjKind::TableExtension => keyword_field_names::check(ws, oi, &obj, &mut out),
             ObjKind::Report => {
                 let globals = report_variable_columns(ws, o.file, &obj);
                 report_columns(ws, o.file, obj.sections(), &globals, &mut out)
@@ -1492,6 +1494,8 @@ fn object_triggers(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<D
 /// - parameter names (`parameter_names`): the probe above, must-not-compile 2016-2039;
 /// - variable names (`alcodes/keyword_variable_names.rs`, al-runner issue 8539): every word as a variable name in each
 ///   section, corpus PR 1476;
+/// - table and table extension field names (`alcodes/keyword_field_names.rs`, al-runner issue 8630): every word as a
+///   table field name, corpus PR 1496;
 /// - members of an option type (`alcodes/keyword_option_members.rs`, al-runner issue 8657): every word as a member in each
 ///   place, and Begin, End and Var in each position, corpus PR 1502 (the OptionMembers property has a list of its own).
 ///
@@ -2566,6 +2570,7 @@ mod control_visible;
 mod count_flowfield;
 mod enum_variables;
 mod field_types;
+mod keyword_field_names;
 mod keyword_option_members;
 mod keyword_variable_names;
 mod permissions_property;
