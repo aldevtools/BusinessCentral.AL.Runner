@@ -39,30 +39,41 @@ pub(super) fn page_lines(program: &ir::Program, object: usize, callees: &mut Cal
         })
         .collect();
     for c in &page.controls {
+        // A control bound to an expression (`CustomValue[1]`, `TempKind.Name`), and a property written as an expression, are
+        // written as the routine the lowering made of them (al-runner issue 8434).
+        let expr_bound = matches!(c.binding, ir::Binding::Expr(_));
+        let routine_props = c.prop_texts.iter().all(|(k, _)| {
+            c.props
+                .iter()
+                .any(|(pk, v)| pk == k && matches!(v, ir::PropVal::Routine(_)))
+        });
         let plain = c.owner.is_none()
             && c.ext_triggers.is_empty()
             && c.run_object.is_none()
-            && c.action_ref.is_none()
-            && c.prop_texts.is_empty()
-            && c.var_field.is_none()
-            && c.var_slot.is_none()
-            && c.expr_source.is_none()
+            && routine_props
+            && (expr_bound
+                || (c.var_field.is_none()
+                    && c.var_slot.is_none()
+                    && c.expr_source.is_none()
+                    && c.array_element.is_none()
+                    && c.source_text.is_none()))
             && !c.expr_call
-            && c.array_element.is_none()
             && !c.bare_quoted_ext_source
-            && c.source_text.is_none()
             && (!c.factbox || c.kind == ir::ControlKind::Part);
         if !plain {
             return None;
         }
-        let kind = match c.kind {
-            ir::ControlKind::Field => "field",
-            ir::ControlKind::Group => "group",
-            ir::ControlKind::Repeater => "repeater",
-            ir::ControlKind::Action => "action",
-            ir::ControlKind::ActionGroup => "actiongroup",
-            ir::ControlKind::Part if c.factbox => "factbox part",
-            ir::ControlKind::Part => "part",
+        let kind = match (&c.kind, &c.action_ref) {
+            (_, Some(ir::ActionRef::Target(_))) => "actionref",
+            (_, Some(ir::ActionRef::Unresolved(_))) => return None,
+            (ir::ControlKind::Field, None) => "field",
+            (ir::ControlKind::Group, None) => "group",
+            (ir::ControlKind::Repeater, None) => "repeater",
+            (ir::ControlKind::Action, None) => "action",
+            (ir::ControlKind::ActionGroup, None) => "actiongroup",
+            (ir::ControlKind::CueGroup, None) => "cuegroup",
+            (ir::ControlKind::Part, None) if c.factbox => "factbox part",
+            (ir::ControlKind::Part, None) => "part",
             _ => return None,
         };
         let parent = match c.parent {
@@ -70,19 +81,28 @@ pub(super) fn page_lines(program: &ir::Program, object: usize, callees: &mut Cal
             Some(p) => page.controls.get(p)?.name.clone(),
         };
         let binding = match c.binding {
-            ir::Binding::None => String::new(),
+            ir::Binding::None => match &c.action_ref {
+                Some(ir::ActionRef::Target(t)) => format!(" -> {}", page.controls.get(*t)?.name),
+                _ => String::new(),
+            },
             ir::Binding::Field(f) => format!(" = {}", table?.fields.get(f)?.name),
             // A global variable of the page (`field(CurrentBatch; CurrentBatch)`), with its type.
             ir::Binding::Var(g) => {
                 let v = o.globals.get(g)?;
                 format!(" = var {}: {}", v.name, type_text(program, &v.ty)?)
             }
+            ir::Binding::Expr(r) => format!(" = expr {}", routine_text(program, object, r, callees)?),
             _ => return None,
         };
         let mut props = Vec::new();
         for (k, v) in &c.props {
-            let ir::PropVal::Lit(v) = v else { return None };
-            props.push(format!("{k}={v}"));
+            match v {
+                ir::PropVal::Lit(v) => props.push(format!("{k}={v}")),
+                ir::PropVal::Routine(r) => {
+                    props.push(format!("{k}=expr {}", routine_text(program, object, *r, callees)?))
+                }
+                ir::PropVal::Ext(..) => return None,
+            }
         }
         let part =
             match (c.part_page, &c.part_link) {
@@ -141,8 +161,8 @@ pub(super) fn page_lines(program: &ir::Program, object: usize, callees: &mut Cal
 
 /// The lines of table `object`: its properties, each field (`field 2 "Line No.": Integer`), each key (`key "Batch Name",
 /// "Line No."`) and each routine (`trigger OnModify: ...`, `trigger "Name".OnValidate: ...`, `procedure X: ...`); an
-/// AutoIncrement field ends in ` AutoIncrement`.
-/// `None` for a table with an extension or a refusal, or a field with an initial value or a relation.
+/// AutoIncrement field ends in ` AutoIncrement`, a field with a TableRelation in its properties (`{NotBlank=true; ...}`).
+/// `None` for a table with an extension or a refusal, or a field with an initial value.
 pub(super) fn table_lines(program: &ir::Program, object: usize, callees: &mut Callees) -> Option<Vec<String>> {
     let o = &program.objects[object];
     let t = o.table.as_ref()?;
@@ -155,12 +175,25 @@ pub(super) fn table_lines(program: &ir::Program, object: usize, callees: &mut Ca
         if f.id >= 2_000_000_000 {
             continue;
         }
-        if f.init.is_some() || f.relation_table.is_some() || !f.relation_tables.is_empty() || !f.stored {
+        if f.init.is_some() || !f.stored {
             return None;
         }
         let auto = if f.auto_increment { " AutoIncrement" } else { "" };
+        // A field with a TableRelation is written with its properties as written (al-runner issue 8434).
+        let relation = f.relation || f.relation_table.is_some() || !f.relation_tables.is_empty();
+        let props = if relation {
+            let props: Vec<String> = f
+                .properties
+                .iter()
+                .filter(|(k, _)| !k.eq_ignore_ascii_case("autoincrement"))
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect();
+            format!(" {{{}}}", props.join("; "))
+        } else {
+            String::new()
+        };
         lines.push(format!(
-            "field {} \"{}\": {}{auto}",
+            "field {} \"{}\": {}{auto}{props}",
             f.id,
             f.name,
             type_text(program, &f.ty)?
@@ -195,6 +228,83 @@ pub(super) fn table_lines(program: &ir::Program, object: usize, callees: &mut Ca
         lines.push(format!("{kind} {name}: {}", routine_text(program, object, r, callees)?));
     }
     Some(lines)
+}
+
+/// The lines of the object-level code of page, table or codeunit `object` that `page_lines` and `table_lines` leave out
+/// (al-runner issue 8434): each global variable but Rec, xRec and CurrPage (`var Setup: Record "LT NF Setup"`), then each
+/// procedure with its signature (`local procedure RefreshUsage(): begin ... end`, `procedure Add(Entry: Text): ...`); for
+/// a codeunit, also its properties first and its triggers (`trigger OnRun: ...`). The routines the lowering makes of
+/// control expressions (`__editable_..`) are written with their controls (`page_lines`), and a table's and page's
+/// triggers by `table_lines` and `page_lines`. `None` for anything the renderer does not write.
+pub(super) fn object_code_lines(program: &ir::Program, object: usize, callees: &mut Callees) -> Option<Vec<String>> {
+    let o = &program.objects[object];
+    let codeunit = o.table.is_none() && o.page.is_none();
+    let mut lines: Vec<String> = if codeunit {
+        o.properties.iter().map(|(k, v)| format!("{k} = {v}")).collect()
+    } else {
+        Vec::new()
+    };
+    let curr_page = o.page.as_ref().map(|p| p.curr_page_slot);
+    for (g, slot) in o.globals.iter().enumerate() {
+        if Some(g) == o.rec_slot || Some(g) == o.xrec_slot || Some(g) == curr_page {
+            continue;
+        }
+        lines.push(format!("var {}: {}", slot.name, type_text(program, &slot.ty)?));
+    }
+    for (r, routine) in o.routines.iter().enumerate() {
+        if routine.name.starts_with("__") || (routine.is_trigger && !codeunit) || o.table.is_some() {
+            continue;
+        }
+        let kind = match (routine.is_trigger, routine.local) {
+            (true, _) => "trigger",
+            (false, true) => "local procedure",
+            (false, false) => "procedure",
+        };
+        let params: Option<Vec<String>> = (0..routine.params)
+            .map(|i| {
+                let p = routine.locals.get(i)?;
+                let var = if routine.by_var.get(i).copied().unwrap_or(false) {
+                    "var "
+                } else {
+                    ""
+                };
+                Some(format!("{var}{}: {}", p.name, type_text(program, &p.ty)?))
+            })
+            .collect();
+        let ret = match &routine.ret {
+            None => String::new(),
+            Some(t) => format!(": {}", type_text(program, t)?),
+        };
+        lines.push(format!(
+            "{kind} {}({}){ret}: {}",
+            routine.name,
+            params?.join("; "),
+            routine_text(program, object, r, callees)?
+        ));
+    }
+    Some(lines)
+}
+
+/// Whether table `object` reads, line for line, as `want` (`table_lines`); its subscribers are the caller's to check.
+pub(super) fn table_reads_as(
+    program: &ir::Program,
+    object: usize,
+    want: &[&str],
+    callees: &mut Callees,
+    names: &mut Names,
+) -> bool {
+    table_lines(program, object, callees).is_some_and(|have| names.lines_are(&have, want))
+}
+
+/// Whether the object-level code of `object` reads, line for line, as `want` (`object_code_lines`).
+pub(super) fn object_code_reads_as(
+    program: &ir::Program,
+    object: usize,
+    want: &[&str],
+    callees: &mut Callees,
+    names: &mut Names,
+) -> bool {
+    object_code_lines(program, object, callees).is_some_and(|have| names.lines_are(&have, want))
 }
 
 /// The body of routine `r` of `object`: `var Posted: Record "Journal Post Line"; begin Posted.Copy(Rec); end`, every
@@ -374,7 +484,14 @@ fn type_text(program: &ir::Program, ty: &RtType) -> Option<String> {
         RtType::Option(members) => format!("Option {}", members.join(",")),
         RtType::Dictionary(k, v) => format!("Dictionary of [{}, {}]", type_text(program, k)?, type_text(program, v)?),
         RtType::Record(t, false) => format!("Record \"{}\"", program.objects.get(*t as usize)?.name),
+        RtType::Record(t, true) => format!("Record \"{}\" temporary", program.objects.get(*t as usize)?.name),
         RtType::Codeunit(c) => format!("Codeunit \"{}\"", program.objects.get(*c as usize)?.name),
+        RtType::Variant => "Variant".into(),
+        RtType::Library(k) => k.name().to_string(),
+        RtType::Array(dims, t) => {
+            let dims: Vec<String> = dims.iter().map(u32::to_string).collect();
+            format!("array[{}] of {}", dims.join(", "), type_text(program, t)?)
+        }
         _ => return None,
     })
 }
@@ -466,6 +583,17 @@ impl Writer<'_> {
                 let table = self.program.objects.get(t as usize)?.table.as_ref()?;
                 Some(format!("{}.\"{}\"", self.place(base)?, table.fields.get(*f)?.name))
             }
+            // An array element at a constant index (`CustomValue[1]`).
+            ir::Place::Index(base, at) => {
+                let at: Option<Vec<String>> = at
+                    .iter()
+                    .map(|e| match e {
+                        ir::Expr::Const(ir::Const::Integer(i)) => Some(i.to_string()),
+                        _ => None,
+                    })
+                    .collect();
+                Some(format!("{}[{}]", self.place(base)?, at?.join(", ")))
+            }
             _ => None,
         }
     }
@@ -498,6 +626,7 @@ impl Writer<'_> {
             // A conversion the compiler inserts to the type a parameter or an operator wants.
             ir::Expr::Convert(_, inner) => self.expr(inner, callees)?,
             ir::Expr::Unary(ir::UnOp::Not, x) => format!("(not {})", self.expr(x, callees)?),
+            ir::Expr::Unary(ir::UnOp::Neg, x) => format!("(- {})", self.expr(x, callees)?),
             ir::Expr::Binary(op, a, b) => {
                 let op = match op {
                     ir::BinOp::Add => "+",
@@ -506,6 +635,9 @@ impl Writer<'_> {
                     ir::BinOp::IntDiv => "div",
                     ir::BinOp::Eq => "=",
                     ir::BinOp::Ne => "<>",
+                    ir::BinOp::Div => "/",
+                    ir::BinOp::Mod => "mod",
+                    ir::BinOp::Xor => "xor",
                     ir::BinOp::Lt => "<",
                     ir::BinOp::Le => "<=",
                     ir::BinOp::Gt => ">",
@@ -516,6 +648,14 @@ impl Writer<'_> {
                 };
                 format!("({} {op} {})", self.expr(a, callees)?, self.expr(b, callees)?)
             }
+            // The error a control's setter raises for a value of another kind (the lowering writes it).
+            ir::Expr::Fail { message, code } => format!("fail('{message}', '{code}')"),
+            ir::Expr::Ternary(c, a, b) => format!(
+                "({} ? {} : {})",
+                self.expr(c, callees)?,
+                self.expr(a, callees)?,
+                self.expr(b, callees)?
+            ),
             ir::Expr::Call {
                 object,
                 routine,

@@ -13,6 +13,7 @@
 //! tests pass on BC and need the body to move): `report-html-rendered-text` when a read gives a marked text, and
 //! `email-body-rgba-replace-keeps-content` for the one `Regex.Replace` of [`DOTNET_ALLOWED`].
 
+use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -40,7 +41,7 @@ pub enum Form {
 }
 
 /// One render: what a refusal names.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Render {
     pub report: String,
     pub format: String,
@@ -51,7 +52,7 @@ pub struct Render {
 }
 
 /// The rgba column of the save's row.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RgbaReplace {
     Measured,
     /// Not measured, with the reason for the refusal (the facts that differ from the nearest measured rows).
@@ -65,9 +66,21 @@ impl Default for RgbaReplace {
     }
 }
 
-/// The renders of the process. A marked text can outlive the session that read it (a SingleInstance global, a stored row, the
-/// strict order mode), so the numbers are never per session and an entry is never reused (loss mode L15).
-static RENDERS: Mutex<Vec<Render>> = Mutex::new(Vec::new());
+/// The renders of the process, one entry per distinct [`Render`]. A marked text can outlive the session and the serve request
+/// that read it (a SingleInstance global, a stored row, the strict order mode, the kept install baseline, a file under
+/// `--files-dir`), so the numbers are never per session or per request and an entry is never reused or removed (loss mode L15).
+/// Every use of a number reads only its entry, so two saves with equal entries share one number, and the list grows with
+/// the distinct renders of the process, not with its saves (al-runner issue 8458).
+static RENDERS: Mutex<Renders> = Mutex::new(Renders {
+    list: Vec::new(),
+    numbers: BTreeMap::new(),
+});
+
+/// The entries of [`RENDERS`] by number, and the number of each.
+struct Renders {
+    list: Vec<Render>,
+    numbers: BTreeMap<Render, u32>,
+}
 
 /// Set by the first [`read_whole`] that gives a marked text and never cleared, for the same reason: from then on the VM runs
 /// [`guard`] on every builtin call.
@@ -83,16 +96,22 @@ pub fn register(report: &str, format: &str, layout: &str) -> Option<u32> {
     register_with(report, format, layout, RgbaReplace::default())
 }
 
-/// Registers a render and gives its number, `None` once the numbers are used up (the read then refuses).
+/// Registers a render and gives its number: the number of an equal entry when the process has one ([`RENDERS`]), else a new
+/// one; `None` once the process has as many distinct renders as a number character can name (the read then refuses).
 pub fn register_with(report: &str, format: &str, layout: &str, rgba_replace: RgbaReplace) -> Option<u32> {
-    let mut list = RENDERS.lock().unwrap_or_else(|e| e.into_inner());
-    let n = u32::try_from(list.len()).ok().filter(|n| *n < MAX_RENDERS)?;
-    list.push(Render {
+    let render = Render {
         report: report.to_string(),
         format: format.to_string(),
         layout: layout.to_string(),
         rgba_replace,
-    });
+    };
+    let mut renders = RENDERS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(n) = renders.numbers.get(&render) {
+        return Some(*n);
+    }
+    let n = u32::try_from(renders.list.len()).ok().filter(|n| *n < MAX_RENDERS)?;
+    renders.list.push(render.clone());
+    renders.numbers.insert(render, n);
     Some(n)
 }
 
@@ -101,6 +120,7 @@ pub fn render(n: u32) -> Option<Render> {
     RENDERS
         .lock()
         .unwrap_or_else(|e| e.into_inner())
+        .list
         .get(n as usize)
         .cloned()
 }
