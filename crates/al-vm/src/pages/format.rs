@@ -1908,7 +1908,7 @@ impl Session {
 }
 /// The refusal of a Card with a `Control::visible_row_field` control on a route or a major no probe measured (`freeze_visible`,
 /// `control_visible`).
-const UNMEASURED_ROUTE: &str = "a Card with a field control bound to no field whose Visible names a field of the record, opened in a way the probe did not measure (a TestPage's OpenEdit, OpenView or OpenNew, a Trap of Page.Run(Id, Rec), and where the control reads Yes a static Page.RunModal(Id, Rec) statement answered by a ModalPageHandler), or on a BC version the probe did not measure (al-runner issue 8660)";
+const UNMEASURED_ROUTE: &str = "a Card with a field control bound to no field whose Visible names a field of the record, opened in a way the probe did not measure (a TestPage's OpenEdit, OpenView or OpenNew, a Trap of Page.Run(Id, Rec), and where the control reads Yes a static Page.RunModal(Id, Rec) answered by a ModalPageHandler, as a statement, with a field argument, through the table's lookup page or with its return value used, one of these at a time), or on a BC version the probe did not measure (al-runner issue 8660)";
 
 /// The text of the `ENU = '...'` entry of a `...ML` property value.
 /// The class text goes to OnResolveCaptionClass (see `caption_class_text`): not area 3, not a numeric or empty area, and with a comma.
