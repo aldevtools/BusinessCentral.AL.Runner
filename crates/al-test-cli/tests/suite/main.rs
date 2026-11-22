@@ -217,6 +217,7 @@ mod relation_lookup_close_places;
 mod relation_lookup_close_shape;
 mod rename_blank_key_page_close;
 mod report_global_blob_column;
+mod restamped_row_version;
 mod report_handler;
 mod report_object_options_rows;
 mod report_render;
