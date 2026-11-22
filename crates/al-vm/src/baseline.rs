@@ -562,6 +562,9 @@ impl Session {
 }
 
 #[cfg(test)]
+mod blob_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use al_data::memory::ExportedTable;
