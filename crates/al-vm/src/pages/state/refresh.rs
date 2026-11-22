@@ -137,7 +137,7 @@ impl RefreshRequest {
     }
 
     /// The refresh that runs now made the reads `note_reads_done` noted itself: the note is spent and does not end the next
-    /// refresh (`refresh_new_line.rs` `reread_view_from_row`).
+    /// refresh (`code_inserted_coded.rs` `coded_refresh`, the page with code only).
     pub fn spend_reads_done(&mut self) {
         self.next.reads_done = false;
     }

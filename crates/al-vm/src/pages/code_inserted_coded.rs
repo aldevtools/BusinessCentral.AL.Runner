@@ -439,6 +439,11 @@ impl Session {
             self.populate_current(st)?;
         }
         self.reread_view_from_row(st, without_curr, without_parts, false)?;
+        // The refresh's reads are its own: on this page without OnAfterGetCurrRecord the mark they leave for the refresh
+        // (`note_reads_done`) is spent here, so it does not skip the refresh of the next SetValue (:1407 `setvalue`). Only here,
+        // under the assumption: what the mark does on the other callers of `reread_view_from_row` is not measured (review of
+        // al-runner PR 8463, round 1, finding 3).
+        st.borrow_mut().refresh.spend_reads_done();
         let rec = self.page_rec(st);
         let stored = self.stored_row(&rec)?;
         let rows_kept = match (rows, self.coded_rows(st)?) {
