@@ -92,3 +92,21 @@ fn issue_8697_worker_collectible_testfield() {
     assert_eq!(*r, Outcome::Pass, "{name}");
     assert!(marks.contains(&BgTaskWorkerLastError), "{name}: {marks:?}");
 }
+
+/// A PageHandler whose worker caught an error closes the page as one that caught none: the worker's count of caught errors
+/// is its own (corpus PR 1516, BgTaskWorkerSessionShapes.al:191, :198, :205; a Document's ModalPageHandler and a card from a
+/// Page variable next to them, NeighborsMore.al).
+#[test]
+fn issue_8697_worker_caught_errors_in_a_page_handler() {
+    let cells = outcomes("LWS Handler Tests");
+    let neighbors = outcomes("LEN More Tests");
+    let mut seen = 0;
+    for (name, r, marks) in cells.iter().chain(&neighbors) {
+        if name.contains("_WorkerCaughtItsError_") {
+            seen += 1;
+            assert_eq!(*r, Outcome::Pass, "{name}");
+            assert!(marks.contains(&BgTaskWorkerLastError), "{name}: {marks:?}");
+        }
+    }
+    assert_eq!(seen, 5);
+}

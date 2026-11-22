@@ -32,6 +32,8 @@ struct ChildParked {
     /// The test session's last error and its collecting scopes (assumption `bg-task-worker-last-error`).
     last_error: AlError,
     error_scopes: crate::errorcollect::Scopes,
+    /// The test session's count of caught errors (`caught_errors.rs`): what the worker catches is not counted there.
+    caught_errors: u64,
     /// The test session's group 1 filters, kept aside while the worker runs (`Group1Filters::enter_worker`).
     group1: crate::group1_sessions::Filters,
 }
@@ -191,7 +193,8 @@ impl Session {
     /// assumption `bg-task-worker-last-error`): it starts with no last error (:266, :280, :292, :426) and outside any
     /// collecting scope (:409, :451, :472, :481, :510); what it catches or clears stays in it (:303, :320, :333, :394); the test
     /// session reads its own again after the task (:303, :333, :437), in the completion and error triggers too (:359, :376).
-    /// The count of caught errors stays shared: no cell measures it.
+    /// Its count of caught errors is its own too: a PageHandler whose worker caught an error closes the page as one that
+    /// caught nothing (BgTaskWorkerSessionShapes.al:191, :198, :205).
     fn bg_enter_child_session(&mut self) -> ChildParked {
         self.sessions_started += 1;
         let id = self.session_id().saturating_add(self.sessions_started);
@@ -208,6 +211,7 @@ impl Session {
             session_id_override: self.session_id_override.replace(id),
             last_error,
             error_scopes: std::mem::take(&mut self.error_scopes),
+            caught_errors: std::mem::take(&mut self.caught_errors),
             group1: self.global_group1.enter_worker(),
         }
     }
@@ -221,6 +225,12 @@ impl Session {
         self.session_id_override = parked.session_id_override;
         self.global_group1.leave_worker(parked.group1);
         self.error_scopes = parked.error_scopes;
+        // A handler's close compares the count from before the handler ran (`caught_errors.rs`); where the worker caught an
+        // error, it takes the cell of a handler that caught none, where the shared count took another path.
+        if std::mem::replace(&mut self.caught_errors, parked.caught_errors) > 0 && self.ui_state.page_handler_depth > 0
+        {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BgTaskWorkerLastError);
+        }
         let worker_error = std::mem::replace(&mut self.last_error, parked.last_error);
         if worker_error != AlError::default() && worker_error != self.last_error {
             self.pages.bg_kept_last_error = Some(self.last_error.clone());
