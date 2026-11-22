@@ -283,13 +283,16 @@ impl Session {
             }
             return Ok(());
         }
+        let unnoted = self.unnoted_tables();
         // A row the insert queue holds is not in the database yet and holds no lock: when every row the codeunit wrote of the
         // table is still queued, a Get and a Count under ReadCommitted read the view of the store without them
         // (`hide_queued_from_worker`): Count leaves them out (BgTaskReadIsolationLock.al:583), Get does not find them (:606).
+        // A write of the table the runtime does not note (`unnoted_tables`) may hold a lock: refused below.
         if self.queue_holds_rows(table) {
             let only_queued = isolation == ISOLATION_READ_COMMITTED
                 && matches!(method, RecordOp::Get | RecordOp::Count)
                 && !calc
+                && !unnoted.contains(&table)
                 && !self.row_locks.unknown.iter().any(|(t, _)| *t == table)
                 && self
                     .row_locks
@@ -310,7 +313,6 @@ impl Session {
                 "{REFUSAL} of a table the test codeunit wrote or locked: a row the test session's insert queue still holds, in a form no cell measures (corpus PR 1498 measures a ReadCommitted Get and Count while every row the codeunit wrote of the table is queued)"
             ));
         }
-        let unnoted = self.unnoted_tables();
         let wrote = !self.row_locks.written.is_empty() || !self.row_locks.unknown.is_empty() || !unnoted.is_empty();
         if wrote && calc {
             return refuse("CalcFields, CalcSums or SetAutoCalcFields after the test codeunit wrote rows");

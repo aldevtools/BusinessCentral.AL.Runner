@@ -991,7 +991,9 @@ impl MemStore {
 
     /// A copy of the store without the rows of table `t` under `keys`, for a reader that must not see them (al-vm
     /// `records/insert_buffer.rs`). Taking it is no read or write: no access, write or store operation is counted, the watch
-    /// sees nothing and no restored change is written down.
+    /// sees nothing, no restored change is written down, and the change counter stays where it was, so a reader that chains the
+    /// session's noted writes to it (al-vm `writes_all_noted`) finds them all. The deleted rows' table gets a new version, so a
+    /// result cached by its stamp is not taken for the full table's.
     pub fn without_rows(&self, cx: &AccessContext, t: &TableDef, keys: &[Vec<Value>]) -> Result<MemStore, StoreError> {
         let (ops, accesses, writes) = (store_ops(), self.accesses(), self.writes());
         let mut view = self.clone();
@@ -1000,6 +1002,7 @@ impl MemStore {
             .iter()
             .try_for_each(|k| Store::delete(&mut view, cx, t, k).map(|_| ()));
         (view.watch, view.restored_log) = (watch, log);
+        view.counter = self.counter;
         STORE_OPS.with(|c| c.set(ops));
         self.counts.accesses.set(accesses);
         self.counts.writes.set(writes);

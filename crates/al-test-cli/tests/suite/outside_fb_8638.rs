@@ -199,3 +199,105 @@ fn issue_8638_queued_insert_reads_the_view() {
         );
     }
 }
+
+/// A write the runtime does not note (the User Property row the platform stores after an Insert of a User, `usertable.rs`), then
+/// a queued Insert: the worker's ReadCommitted Get and Count of the table are refused, as the tables changed since the last
+/// Commit then hold locks the runtime does not know (`unnoted_tables`). No AL code writes a row of the queued table itself
+/// without the runtime noting it.
+const UNNOTED_THEN_QUEUED: &str = r#"
+codeunit 97577 "RL Unnoted Then Queued"
+{
+    Subtype = Test;
+
+    var
+        Lib: Codeunit "RL More Lib";
+
+    [Test]
+    procedure UserRowThenQueuedInsert_ReadCommittedGet()
+    begin
+        Run('get');
+    end;
+
+    [Test]
+    procedure UserRowThenQueuedInsert_ReadCommittedCount()
+    begin
+        Run('count');
+    end;
+
+    local procedure Run(Method: Text)
+    var
+        User: Record User;
+        Host: TestPage "RL Task Host";
+        Parameters: Dictionary of [Text, Text];
+        A: Code[20];
+        G: Code[20];
+        Seen: Text;
+    begin
+        G := Lib.NewKey();
+        User."User Security ID" := CreateGuid();
+        User."User Name" := Lib.NewKey();
+        User.Insert();
+        A := Lib.NewKey();
+        Lib.Queue(A, G, 'queued');
+        Host.OpenView();
+        if Method = 'get' then
+            Parameters := Lib.Parameters('readcommitted', 'get', A)
+        else
+            Parameters := Lib.Parameters('readcommitted', 'count', G);
+        Seen := Lib.Seen(Host.RunPageBackgroundTask(Codeunit::"RL Reader", Parameters, false));
+        Error('The worker saw %1.', Seen);
+    end;
+}
+
+table 2000000120 User
+{
+    fields
+    {
+        field(1; "User Security ID"; Guid) { }
+        field(2; "User Name"; Code[50]) { }
+        field(3; "Full Name"; Text[80]) { }
+        field(4; State; Option) { OptionMembers = Enabled,Disabled; }
+        field(5; "Expiry Date"; DateTime) { }
+        field(7; "Windows Security ID"; Text[119]) { }
+        field(8; "Change Password"; Boolean) { }
+        field(10; "License Type"; Option) { OptionMembers = "Full User","Limited User","Device Only User","Windows Group","External User"; }
+        field(11; "Authentication Email"; Text[250]) { }
+        field(14; "Contact Email"; Text[250]) { }
+        field(15; "Exchange Identifier"; Text[250]) { }
+    }
+    keys
+    {
+        key(PK; "User Security ID") { Clustered = true; }
+    }
+}
+
+table 2000000121 "User Property"
+{
+    fields
+    {
+        field(1; "User Security ID"; Guid) { }
+        field(10; "Telemetry User ID"; Guid) { }
+    }
+    keys
+    {
+        key(PK; "User Security ID") { Clustered = true; }
+    }
+}
+"#;
+
+#[test]
+fn issue_8638_unnoted_write_then_queued_insert_refused() {
+    let o = outcomes(
+        &format!("{PROBE}\n{UNNOTED_THEN_QUEUED}"),
+        "RL Unnoted Then Queued",
+        TestIsolation::Codeunit,
+    );
+    assert_eq!(o.len(), 2);
+    for (name, r, _) in &o {
+        assert!(
+            matches!(r, Outcome::NotRun(w) if w.starts_with("page background task read under ReadIsolation")
+                && w.contains("a row the test session's insert queue still holds")),
+            "{name}: {r:?}"
+        );
+    }
+}
