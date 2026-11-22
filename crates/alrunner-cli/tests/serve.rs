@@ -2850,7 +2850,7 @@ fn a_coverage_request_after_one_without_coverage_gives_the_coverage_of_a_first_r
     assert_eq!(s.line(), json!({"status": "shutting down"}));
 }
 
-// ---- PERF-18: per-entry `stopGroup` for `stopAfterFirstFailure` ----
+// ---- Issue 8210: per-entry `stopGroup` for `stopAfterFirstFailure` ----
 
 /// #8484's reason for a test after a failure when no entry has a `stopGroup`, byte for byte.
 const UPSTREAM_STOP_TEXT: &str = "the test Codeunit50110.FailsFirst failed before it, and stopAfterFirstFailure (--stop-after-first-failure) runs no test of its codeunit or of a later entry after a failure";

@@ -566,7 +566,7 @@ fn id_key(v: &Value) -> String {
     v.as_str().map_or_else(|| v.to_string(), String::from)
 }
 
-/// The `stopGroup` of an entry (PERF-18): a text or a number, keyed as `id_key`; absent or `null`: none.
+/// The `stopGroup` of an entry (issue 8210): a text or a number, keyed as `id_key`; absent or `null`: none.
 fn stop_group(e: &Map<String, Value>) -> Result<Option<String>, String> {
     match e.get("stopGroup") {
         None | Some(Value::Null) => Ok(None),
@@ -575,10 +575,11 @@ fn stop_group(e: &Map<String, Value>) -> Result<Option<String>, String> {
     }
 }
 
-/// The `stopGroup`s of `entries` are all or none (PERF-18): a mix is refused, as an entry without a group has more than
-/// one plausible reading there, and a refusal can be lifted later. Groups need the stop after a failure (`stop`: the
-/// request's field, or the server's `--stop-after-first-failure` when it is absent): without the stop a group changes
-/// nothing, so it is refused as a likely client mistake. The mix is checked first: it is wrong whatever the stop.
+/// The `stopGroup`s of `entries` are all or none (issue 8210): a mix is refused, as an entry without a group has more
+/// than one plausible reading there, and a refusal can be lifted later. Groups need the stop after a failure (`stop`:
+/// the request's field, or the server's `--stop-after-first-failure` when it is absent): without the stop a group
+/// changes nothing, so it is refused as a likely client mistake. The mix is checked first: it is wrong whatever the
+/// stop.
 fn stop_groups_checked(entries: &[run::Entry], stop: bool) -> Result<(), String> {
     let grouped = entries.iter().filter(|e| e.stop_group.is_some()).count();
     if grouped > 0 && grouped < entries.len() {
@@ -1408,7 +1409,8 @@ mod tests {
         assert_eq!(l["durationMs"], 3);
     }
 
-    /// PERF-18: the `stopGroup` of an entry is a text or a number; a number and the text that reads alike are one group.
+    /// Issue 8210: the `stopGroup` of an entry is a text or a number; a number and the text that reads alike are one
+    /// group.
     #[test]
     fn an_entry_may_name_its_stop_group() {
         let group = |v: Value| {
@@ -1430,7 +1432,7 @@ mod tests {
         assert_eq!(e[0].stop_group, None);
     }
 
-    /// PERF-18: groups are all or none, and need the stop.
+    /// Issue 8210: groups are all or none, and need the stop.
     #[test]
     fn stop_groups_are_all_or_none_and_need_the_stop() {
         let entry = |g: Option<&str>| run::Entry {

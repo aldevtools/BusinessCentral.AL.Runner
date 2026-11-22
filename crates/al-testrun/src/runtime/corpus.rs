@@ -2332,7 +2332,7 @@ fn pass_refused(
 }
 
 /// The reason `RunOptions::stop_after_first_failure` (al-runner issue 8210) runs no test of `pass`: an earlier pass
-/// with the same stop scope (`Pass::stop`; PERF-18 groups) has a failed test, the first in `list` order. The entries
+/// with the same stop scope (`Pass::stop`; issue 8210) has a failed test, the first in `list` order. The entries
 /// without a group share one scope (the serve protocol refuses a mix of entries with and without one). `ranges[k]` holds the rows of `passes[k]` in
 /// `list`, one range per finished pass, so the `zip` ends at the current pass. With no entries `ranges` is empty, and
 /// the single pass has no earlier rows.

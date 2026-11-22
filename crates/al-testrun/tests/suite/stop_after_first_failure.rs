@@ -122,7 +122,7 @@ fn with_the_stop_the_entries_after_a_failing_one_are_not_run() {
     for later in &rows[2..] {
         assert!(!later.is_empty() && later.iter().all(|(_, o)| stopped(o)), "{rows:?}");
     }
-    // Upstream #8484's text, byte for byte: with no `stop_group` on any entry the reason is unchanged (PERF-18 T7).
+    // Upstream #8484's text, byte for byte: with no `stop_group` on any entry the reason is unchanged (issue 8210).
     let upstream = "the test Codeunit50710.B_Fails failed before it, and stopAfterFirstFailure (--stop-after-first-failure) runs no test of its codeunit or of a later entry after a failure";
     for (_, o) in rows[1][2..].iter().chain(rows[2..].iter().flatten()) {
         assert_eq!(o, &Outcome::NotRun(upstream.to_string()));
@@ -258,9 +258,9 @@ fn an_entry_with_several_failing_codeunits_stops_each_at_its_own_failure() {
     assert!(stopped(&rows[1][0].1), "{rows:?}");
 }
 
-// PERF-18: `EntryRun::stop_group` scopes the stop. With the stop on and some entry grouped, a failure skips the later
-// entries of its own group (and the rest of its codeunit); an entry without a group neither triggers a stop nor is
-// stopped.
+// Issue 8210: `EntryRun::stop_group` scopes the stop. With the stop on and some entry grouped, a failure skips the
+// later entries of its own group (and the rest of its codeunit); an entry without a group neither triggers a stop nor
+// is stopped.
 
 fn grouped(id: u32, g: Option<&str>) -> EntryRun {
     EntryRun {

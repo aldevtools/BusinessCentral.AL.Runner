@@ -1837,7 +1837,7 @@ fn not_run_reason(r: Refusal) -> String {
     }
 }
 
-/// The scope of `RunOptions::stop_after_first_failure` for one pass (PERF-18); a pass without the stop has none.
+/// The scope of `RunOptions::stop_after_first_failure` for one pass (issue 8210); a pass without the stop has none.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum StopAfterFailure {
     /// The entry has no `stop_group` (or there are no entries): a failure stops every later entry without one (al-runner
