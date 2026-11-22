@@ -764,6 +764,118 @@ fn issue_8285_other_code_is_refused() {
     }
 }
 
+/// The reporter's repro pages, opened other than as list-new-line-save-record-repro measured them (Page.RunModal on one group
+/// with one row before the new line, Issue8285.al:146-211): by `TestPage.OpenEdit`, and by Page.RunModal on an empty group. Each
+/// is refused at its SaveRecord or Update(true), without the mark (review of #8305, round 4). Main refuses each too.
+#[test]
+fn issue_8285_repro_opened_otherwise_is_refused() {
+    let tests = r#"
+codeunit 50121 "Repro Unmeasured Open Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure SaveUpdate_OpenEdit_RowBefore()
+    var
+        Lines: TestPage "Repro Lines Save Update";
+    begin
+        AddRowA();
+        Lines.OpenEdit();
+        Lines.New();
+        Lines.Name.SetValue('X');
+        Lines.Value.SetValue('V');
+        Lines.Close();
+    end;
+
+    [Test]
+    procedure UpdateTrue_OpenEdit_RowBefore()
+    var
+        Lines: TestPage "Repro Lines Update True";
+    begin
+        AddRowA();
+        Lines.OpenEdit();
+        Lines.New();
+        Lines.Name.SetValue('X');
+        Lines.Value.SetValue('V');
+        Lines.Close();
+    end;
+
+    [Test]
+    procedure SaveUpdate_OpenEdit_Empty()
+    var
+        ReproLine: Record "Repro Line";
+        Lines: TestPage "Repro Lines Save Update";
+    begin
+        ReproLine.DeleteAll();
+        Lines.OpenEdit();
+        Lines.New();
+        Lines.Name.SetValue('X');
+        Lines.Value.SetValue('V');
+        Lines.Close();
+    end;
+
+    [Test]
+    [HandlerFunctions('SaveUpdateHandler')]
+    procedure SaveUpdate_RunModal_EmptyGroup()
+    var
+        ReproLine: Record "Repro Line";
+        Opener: Codeunit "Repro Line Opener";
+    begin
+        ReproLine.DeleteAll();
+        Opener.Open(Page::"Repro Lines Save Update", 'G2');
+    end;
+
+    [Test]
+    [HandlerFunctions('WithFactBoxHandler')]
+    procedure WithFactBox_RunModal_EmptyGroup()
+    var
+        ReproLine: Record "Repro Line";
+        Opener: Codeunit "Repro Line Opener";
+    begin
+        ReproLine.DeleteAll();
+        Opener.Open(Page::"Repro Lines With FactBox", 'G1');
+    end;
+
+    local procedure AddRowA()
+    var
+        ReproLine: Record "Repro Line";
+    begin
+        ReproLine.DeleteAll();
+        ReproLine.Init();
+        ReproLine.Name := 'A';
+        ReproLine.Insert(true);
+    end;
+
+    [ModalPageHandler]
+    procedure SaveUpdateHandler(var Lines: TestPage "Repro Lines Save Update")
+    begin
+        Lines.New();
+        Lines.Name.SetValue('X');
+        Lines.Value.SetValue('V');
+        Lines.OK().Invoke();
+    end;
+
+    [ModalPageHandler]
+    procedure WithFactBoxHandler(var Lines: TestPage "Repro Lines With FactBox")
+    begin
+        Lines.New();
+        Lines.Name.SetValue('X');
+        Lines.Value.SetValue('V');
+        Lines.OK().Invoke();
+    end;
+}
+"#;
+    let src = format!("{}\n{tests}", include_str!("../fixtures/outside-fb/Issue8285.al"));
+    let o = issue_8186_outcomes(&src, "Repro Unmeasured Open Tests");
+    assert_eq!(o.len(), 5, "{o:#?}");
+    let bad: Vec<_> = o
+        .iter()
+        .filter(|(_, r, marks)| !matches!(r, Outcome::NotRun(w) if w.contains(UNMEASURED_CODE)) || !marks.is_empty())
+        .collect();
+    assert!(bad.is_empty(), "{bad:#?}");
+}
+
 /// An OnAfterGetRecord on the FactBox host that changes Rec: not the probe's code, so the SaveRecord is refused.
 #[test]
 fn issue_8285_factbox_host_trigger_that_changes_rec_is_refused() {

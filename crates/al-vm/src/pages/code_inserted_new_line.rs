@@ -33,7 +33,7 @@ enum Triggers {
 }
 
 /// How the page was opened, with the view it shows.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Opened {
     /// The test's `TestPage.OpenEdit()`, no filter (:520, :532, :544, :556, :568, :580, :790, :805).
     OpenEdit,
@@ -50,6 +50,15 @@ enum Opened {
 const UNMEASURED_CODE: &str = "CurrPage.SaveRecord or Update(true) on the new line whose table field inserted it, on a page \
      whose code, or the code of its table, its part or what they call, is not the code ListNewLineSaveRecordUpdate.al or the \
      repro of al-runner issue 8285 runs (not measured)";
+
+/// The measured view the inserted row stands in (`code_inserted_view`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum View {
+    /// The row alone.
+    Alone,
+    /// The row last, after one row of its group.
+    AfterRow,
+}
 
 /// The page call that leaves the line, as the control's OnValidate makes it.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -192,7 +201,12 @@ impl Session {
         if !(cell || repro) {
             return Ok(false);
         }
-        let shape = self.code_inserted_line(st) && self.inserted_by_table_field(st)? && self.code_inserted_view(st)?;
+        let view = if self.code_inserted_line(st) && self.inserted_by_table_field(st)? {
+            self.code_inserted_view(st)?
+        } else {
+            None
+        };
+        let shape = view.is_some();
         if shape && repro {
             return Err(Signal::unsupported(
                 "CurrPage.Update on the new line whose table field inserted it, on a List page without triggers opened by \
@@ -203,10 +217,12 @@ impl Session {
         if shape && cell && matches!(leave, Leave::UpdateTrue | Leave::SaveRecord) {
             match self.code_inserted_code(st)? {
                 Some(PinnedCode::Probe) => {}
-                Some(PinnedCode::Repro) => {
+                // The repro is measured only when Page.RunModal opens it on one group with one row before the new line
+                // (Issue8285.al:146-211); OpenEdit and an empty group are not (review of #8305, round 4).
+                Some(PinnedCode::Repro) if opened == Opened::RunModalOneGroup && view == Some(View::AfterRow) => {
                     al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ListNewLineSaveRecordRepro)
                 }
-                None => return Err(Signal::unsupported(UNMEASURED_CODE)),
+                Some(PinnedCode::Repro) | None => return Err(Signal::unsupported(UNMEASURED_CODE)),
             }
         }
         Ok(shape)
@@ -429,23 +445,25 @@ impl Session {
             .is_some_and(|v| (line_mark + 1..=control_mark).contains(&v)))
     }
 
-    /// Whether the view holds the inserted row last, alone or after one row with the same value in the key's first field: the
-    /// measured views (an empty view, or row 'A' before the line, :386-398, :620-641). Two rows before it,
-    /// or a row after it, are not measured.
-    fn code_inserted_view(&mut self, st: &St) -> Result<bool, Signal> {
+    /// Which measured view holds the inserted row last: alone, or after one row with the same value in the key's first field
+    /// (an empty view, or row 'A' before the line, :386-398, :620-641). `None` for two rows before it, or a row after it: not
+    /// measured.
+    fn code_inserted_view(&mut self, st: &St) -> Result<Option<View>, Signal> {
         let rec = self.page_rec(st);
         let table = self.table(&rec)?;
         let Some(&code) = table.keys[0].first() else {
-            return Ok(false);
+            return Ok(None);
         };
         let row = table.primary_key(&rec.borrow().fields);
         let is_row = |fields: &[Value]| Self::same_key(&table.primary_key(fields), &row);
         Ok(match self.view_rows(&rec, 3)?.as_slice() {
-            [only] => is_row(only),
-            [before, last] => {
-                is_row(last) && Self::same_values(&before[code..=code], &rec.borrow().fields[code..=code])
+            [only] if is_row(only) => Some(View::Alone),
+            [before, last]
+                if is_row(last) && Self::same_values(&before[code..=code], &rec.borrow().fields[code..=code]) =>
+            {
+                Some(View::AfterRow)
             }
-            _ => false,
+            _ => None,
         })
     }
 
