@@ -26,4 +26,7 @@ libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
+# The versions al-cache uses: a test rewrites the extra section of a workspace entry (`tests/suite/workspace_cache.rs`).
+postcard = { version = "1", features = ["use-std"] }
+zstd = "0.13"
 al-testfiles.workspace = true

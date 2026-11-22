@@ -275,6 +275,12 @@ pub fn restore(
     if lists.iter().any(|&l| l != n) {
         return Err("the per-object lists do not have one entry per object".into());
     }
+    // One entry per object, or (for the lists a compile fills only with a selection or `--affected`) none.
+    let per_object = [unresolved_calls.len(), left_out.len()];
+    let per_object_or_none = [skipped.len(), object_hashes.len()];
+    if per_object.iter().any(|&l| l != n) || per_object_or_none.iter().any(|&l| l != n && l != 0) {
+        return Err("the per-object lists do not have one entry per object".into());
+    }
     let supplied = provided.iter().filter(|p| **p).count();
     // A supplied object is one the layers hold.
     let layer_objects = src.as_ref().map_or(0, |s| s.len());

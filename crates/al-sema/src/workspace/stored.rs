@@ -190,6 +190,16 @@ impl Workspace {
             ws.restrict_to(c);
         }
         if let Some(u) = unreached {
+            // A routine left out as unreached is one of a workspace object, at an offset in its file.
+            let fits = |&(oi, offset): &(usize, usize)| {
+                ws.objects
+                    .get(oi)
+                    .is_some_and(|o| !ws.is_dependency(oi) && offset < ws.text(o.file).len())
+            };
+            if !u.iter().all(fits) {
+                let why = "an unreached routine of the entry is in no object of the workspace".to_string();
+                return Err((std::mem::take(&mut ws.apps), why));
+            }
             ws.set_unreached(u.into_iter().collect());
         }
         // The parse problems the compile found in lazily parsed files: the run says them (`lazy_parse_problems`), and a

@@ -621,3 +621,70 @@ fn a_compile_the_memory_limit_stops_after_its_last_check_stores_no_entry() {
         "a stopped compile writes no entry, and the next run compiles fresh"
     );
 }
+
+/// Rewrites the extra section of the workspace entry at `path` with `change` applied, and makes its hashes again
+/// (`al_cache::build_workspace`'s layout): an entry that passes every check of the file but holds lists that do not fit
+/// its own compile.
+fn rewrite_extra(path: &Path, change: impl FnOnce(&mut wc::WorkspaceExtra)) {
+    const HEADER: usize = 8 + 4 + 32 + 8 + 8 + 8 + 32 + 32;
+    let b = std::fs::read(path).unwrap();
+    let word = |at: usize| u64::from_le_bytes(b[at..at + 8].try_into().unwrap()) as usize;
+    let at = HEADER + word(44);
+    let raw = zstd::bulk::decompress(&b[at..], word(60)).unwrap();
+    let mut extra: wc::WorkspaceExtra = postcard::from_bytes(&raw).unwrap();
+    change(&mut extra);
+    let raw = postcard::to_stdvec(&extra).unwrap();
+    let packed = zstd::bulk::compress(&raw, 3).unwrap();
+    let mut out = b[..at].to_vec();
+    out[52..60].copy_from_slice(&(packed.len() as u64).to_le_bytes());
+    out[60..68].copy_from_slice(&(raw.len() as u64).to_le_bytes());
+    out[68..100].copy_from_slice(&al_cache::digest::sha(&packed));
+    let header_hash = al_cache::digest::sha(&out[..HEADER - 32]);
+    out[HEADER - 32..HEADER].copy_from_slice(&header_hash);
+    out.extend_from_slice(&packed);
+    std::fs::write(path, out).unwrap();
+}
+
+/// Decision 10: an entry whose per-object lists do not fit its compile (one entry too few or too many, or a routine
+/// left out as unreached in no object of the workspace) is refused at read, removed and built again, even when every
+/// check of the file holds; the run's outcomes are those of a run without the layer.
+#[test]
+fn an_entry_whose_lists_do_not_fit_its_compile_is_a_miss() {
+    let i = with_dependency();
+    let (plain, _) = outcomes(&i, tempfile::tempdir().unwrap().path(), false);
+    type Change = fn(&mut wc::WorkspaceExtra);
+    let changes: Vec<(&str, Change)> = vec![
+        ("unresolved_calls one short", |e| {
+            e.lowered.unresolved_calls.pop();
+        }),
+        ("skipped of one object", |e| e.lowered.skipped = vec![false]),
+        ("left_out one short", |e| {
+            e.lowered.left_out.pop();
+        }),
+        ("object_hashes of one object", |e| e.lowered.object_hashes = vec![None]),
+        ("an unreached routine of no object", |e| {
+            e.workspace.unreached = Some(vec![(1 << 30, 0)])
+        }),
+        ("an unreached routine past its file", |e| {
+            e.workspace.unreached = Some(vec![(0, 1 << 30)])
+        }),
+    ];
+    let mut wrong = Vec::new();
+    for (what, change) in changes {
+        let dir = tempfile::tempdir().unwrap();
+        let (first, s) = outcomes(&i, dir.path(), true);
+        assert_eq!((first, s), (plain.clone(), Some(WorkspaceState::Built)), "{what}");
+        let file = entries(dir.path()).pop().unwrap();
+        rewrite_extra(&file, change);
+        let after = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| outcomes(&i, dir.path(), true)));
+        match after {
+            Ok((after, Some(WorkspaceState::Built))) if after == plain => {}
+            Ok((after, s)) => wrong.push(format!("{what}: {s:?}, outcomes equal {}", after == plain)),
+            Err(_) => wrong.push(format!("{what}: the run panicked")),
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "refused and built again, with the outcomes of a run without the layer: {wrong:#?}"
+    );
+}
