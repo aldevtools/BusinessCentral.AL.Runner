@@ -186,6 +186,7 @@ mod part_after_modal_close;
 mod part_after_self_close;
 mod part_array_element_control;
 mod part_filter_find_shape;
+mod part_left_view_test_filter;
 mod part_unsettled_reread;
 mod part_update_left_view;
 mod part_view_host_new;
