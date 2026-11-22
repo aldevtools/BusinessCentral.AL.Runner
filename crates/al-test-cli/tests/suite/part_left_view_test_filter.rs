@@ -100,176 +100,10 @@ fn issue_8537_reporters_repro_passes_flagged() {
     assert_flagged_pass(&list, "RefreshRefillsPartThenFirstFindsFilteredRow");
 }
 
-/// Calls the probe did not make after the test's filter, on the probe's objects. Each one sets up the measured shape (the
-/// action refilled the part, then the test's own filter) and then makes one call no cell made.
-const NEIGHBORS: &str = r#"
-codeunit 97150 "LT PR Neighbors"
-{
-    Subtype = Test;
-
-    local procedure Refilled(var Host: TestPage "LT PR Load Host")
-    var
-        Op: Record "LT PR Op";
-        Booking: Record "LT PR Booking";
-    begin
-        Op.DeleteAll();
-        Booking.DeleteAll();
-        Op."No." := 'OP1';
-        Op."Resource No." := 'R1';
-        Op.Insert();
-        Add(1, TheDay(), 10);
-        Add(2, TheDay() + 1, 5);
-        Host.OpenView();
-        Host.GoToRecord(Op);
-        Host.Load.Filter.SetFilter("Period Start", Format(TheDay()));
-        Host.Load.First();
-        Add(3, TheDay(), 20);
-        Host.Refresh.Invoke();
-        Host.Load.Filter.SetFilter("Period Start", Format(TheDay()));
-    end;
-
-    local procedure Add(EntryNo: Integer; Day: Date; Qty: Decimal)
-    var
-        Booking: Record "LT PR Booking";
-    begin
-        Booking."Entry No." := EntryNo;
-        Booking."Resource No." := 'R1';
-        Booking.Day := Day;
-        Booking.Qty := Qty;
-        Booking.Insert();
-    end;
-
-    local procedure TheDay(): Date
-    begin
-        exit(DMY2Date(15, 6, 2026));
-    end;
-
-    [Test]
-    procedure NextRightAfterTheFilter()
-    var
-        Host: TestPage "LT PR Load Host";
-    begin
-        Refilled(Host);
-        Host.Load.Next();
-    end;
-
-    [Test]
-    procedure PreviousRightAfterFirst()
-    var
-        Host: TestPage "LT PR Load Host";
-    begin
-        Refilled(Host);
-        Host.Load.First();
-        Host.Load.Previous();
-    end;
-
-    [Test]
-    procedure NextAfterLast()
-    var
-        Host: TestPage "LT PR Load Host";
-    begin
-        Refilled(Host);
-        Host.Load.Last();
-        Host.Load.Next();
-    end;
-
-    [Test]
-    procedure GoToKeyAfterTheFilter()
-    var
-        Host: TestPage "LT PR Load Host";
-    begin
-        Refilled(Host);
-        Host.Load.GoToKey(TheDay());
-    end;
-
-    [Test]
-    procedure AssertEqualsAfterTheFilter()
-    var
-        Host: TestPage "LT PR Load Host";
-    begin
-        Refilled(Host);
-        Host.Load."Allocated Qty.".AssertEquals(30);
-    end;
-
-    [Test]
-    procedure AscendingAfterTheFilter()
-    var
-        Host: TestPage "LT PR Load Host";
-    begin
-        Refilled(Host);
-        Host.Load.Filter.Ascending(false);
-        Host.Load.First();
-    end;
-
-    [Test]
-    procedure RangeFilter()
-    var
-        Op: Record "LT PR Op";
-        Booking: Record "LT PR Booking";
-        Host: TestPage "LT PR Load Host";
-    begin
-        Op.DeleteAll();
-        Booking.DeleteAll();
-        Op."No." := 'OP1';
-        Op."Resource No." := 'R1';
-        Op.Insert();
-        Add(1, TheDay(), 10);
-        Add(2, TheDay() + 1, 5);
-        Host.OpenView();
-        Host.GoToRecord(Op);
-        Host.Load.Filter.SetFilter("Period Start", Format(TheDay()) + '..' + Format(TheDay() + 1));
-        Host.Load.First();
-        Add(3, TheDay(), 20);
-        Host.Refresh.Invoke();
-        Host.Load.Filter.SetFilter("Period Start", Format(TheDay()) + '..' + Format(TheDay() + 1));
-        Host.Load.First();
-    end;
-
-    [Test]
-    procedure HostReadBetweenFilterAndFirst()
-    var
-        Host: TestPage "LT PR Load Host";
-    begin
-        Refilled(Host);
-        Host."Resource No.".Value();
-        Host.Load.First();
-    end;
-
-    [Test]
-    procedure OtherPageBetweenFilterAndFirst()
-    var
-        Host: TestPage "LT PR Load Host";
-        Other: TestPage "LT PR Load List Host";
-    begin
-        Refilled(Host);
-        Other.OpenView();
-        Other.Close();
-        Host.Load.First();
-    end;
-
-    [Test]
-    procedure HostReadBetweenFirstAndARead()
-    var
-        Host: TestPage "LT PR Load Host";
-    begin
-        Refilled(Host);
-        Host.Load.First();
-        Host."No.".Value();
-        Host.Load."Allocated Qty.".AsDecimal();
-    end;
-
-    [Test]
-    procedure FirstAfterReopen()
-    var
-        Host: TestPage "LT PR Load Host";
-    begin
-        Refilled(Host);
-        Host.Close();
-        Host.OpenView();
-        Host.Load.First();
-    end;
-}
-"#;
+/// Calls the probe did not make after the test's filter, on the probe's objects: the neighbor app of al-runner PR 8542, one
+/// copy for this test and the neighbor check. Each one sets up the measured shape (the action refilled the part, then the
+/// test's own filter) and then makes one call no cell made, or a move or read one cell measured on another cell.
+const NEIGHBORS: &str = include_str!("../../../../tests/neighbors/fix-8537-part-refill-first/src/CallNeighbors.al");
 
 fn assert_refused(list: &[(String, Outcome, Vec<Assumption>)], name: &str, how: &str) {
     match &outcome_of(list, name).1 {
@@ -297,6 +131,12 @@ fn issue_8537_calls_no_cell_made_after_the_tests_filter_stay_refused() {
         ("HostReadBetweenFilterAndFirst", "First"),
         ("OtherPageBetweenFilterAndFirst", "First"),
         ("HostReadBetweenFirstAndARead", "AsDecimal"),
+        // A move or read one cell measured, on a cell that did not: Last on the List host, Next on the trigger part, a Value read
+        // on the plain part, and a Value read of the trigger part's QtyText before First.
+        ("LastOnTheListHost", "Last"),
+        ("NextOnTheTriggerPart", "Next"),
+        ("ValueReadOfAPlainPartField", "Value"),
+        ("ValueReadBeforeFirst", "Value"),
     ] {
         assert_refused(&list, name, how);
     }

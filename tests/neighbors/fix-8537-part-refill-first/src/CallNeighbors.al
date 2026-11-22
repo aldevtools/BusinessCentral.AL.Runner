@@ -164,4 +164,81 @@ codeunit 97150 "LT PR Neighbors"
         Host.OpenView();
         Host.Load.First();
     end;
+
+    // The moves and reads one cell measured, made on another cell (al-runner PR 8542 review, LOW 1 and 2).
+
+    local procedure Seeded(var Op: Record "LT PR Op")
+    var
+        Booking: Record "LT PR Booking";
+    begin
+        Op.DeleteAll();
+        Booking.DeleteAll();
+        Op."No." := 'OP1';
+        Op."Resource No." := 'R1';
+        Op.Insert();
+        Add(1, TheDay(), 10);
+        Add(2, TheDay() + 1, 5);
+    end;
+
+    [Test]
+    procedure LastOnTheListHost()
+    var
+        Op: Record "LT PR Op";
+        Host: TestPage "LT PR Load List Host";
+    begin
+        Seeded(Op);
+        Host.OpenView();
+        Host.GoToRecord(Op);
+        Host.Load.Filter.SetFilter("Period Start", Format(TheDay()));
+        Host.Load.First();
+        Add(3, TheDay(), 20);
+        Host.Refresh.Invoke();
+        Host.Load.Filter.SetFilter("Period Start", Format(TheDay()));
+        Host.Load.Last();
+    end;
+
+    [Test]
+    procedure NextOnTheTriggerPart()
+    var
+        Op: Record "LT PR Op";
+        Host: TestPage "LT PR Load Trig Host";
+    begin
+        Seeded(Op);
+        Host.OpenView();
+        Host.GoToRecord(Op);
+        Host.Load.Filter.SetFilter("Period Start", Format(TheDay()));
+        Host.Load.First();
+        Add(3, TheDay(), 20);
+        Host.Refresh.Invoke();
+        Host.Load.Filter.SetFilter("Period Start", Format(TheDay()));
+        Host.Load.First();
+        Host.Load.Next();
+    end;
+
+    [Test]
+    procedure ValueReadOfAPlainPartField()
+    var
+        Host: TestPage "LT PR Load Host";
+    begin
+        Refilled(Host);
+        Host.Load.First();
+        Host.Load."Allocated Qty.".Value();
+    end;
+
+    [Test]
+    procedure ValueReadBeforeFirst()
+    var
+        Op: Record "LT PR Op";
+        Host: TestPage "LT PR Load Trig Host";
+    begin
+        Seeded(Op);
+        Host.OpenView();
+        Host.GoToRecord(Op);
+        Host.Load.Filter.SetFilter("Period Start", Format(TheDay()));
+        Host.Load.First();
+        Add(3, TheDay(), 20);
+        Host.Refresh.Invoke();
+        Host.Load.Filter.SetFilter("Period Start", Format(TheDay()));
+        Host.Load.QtyText.Value();
+    end;
 }

@@ -1,14 +1,6 @@
 # key	entry
-# The probe's cells (corpus PR 1474, merged; the two-field key cell in corpus PR 1475, open): main refuses them, the head runs them through the assumption.
-LT PR Tests::PartRefill_WorksheetActionThenFilterFirst_FindsRefilledRow	ASSUMED part-left-view-test-filter (corpus PR 1474, pages/parts/PartRefillTestFilter.al:512)
-LT PR Tests::PartRefill_WorksheetActionThenFilterRead_ShowsRefilledRow	ASSUMED part-left-view-test-filter (corpus PR 1474, pages/parts/PartRefillTestFilter.al:537)
-LT PR Tests::PartRefill_WorksheetActionThenFilterFirstNextPrevious_StayOnRefilledRow	ASSUMED part-left-view-test-filter (corpus PR 1474, pages/parts/PartRefillTestFilter.al:561)
-LT PR Tests::PartRefill_WorksheetActionThenFilterLast_FindsRefilledRow	ASSUMED part-left-view-test-filter (corpus PR 1474, pages/parts/PartRefillTestFilter.al:590)
-LT PR Tests::PartRefill_ListActionThenFilterFirst_FindsRefilledRow	ASSUMED part-left-view-test-filter (corpus PR 1474, pages/parts/PartRefillTestFilter.al:671)
-LT PR Tests::PartRefill_BackgroundTaskActionThenFilterFirst_FindsRefilledRow	ASSUMED part-left-view-test-filter (corpus PR 1474, pages/parts/PartRefillTestFilter.al:696)
-LT PR Tests::PartRefill_TriggerPartActionThenFilterFirst_FindsRefilledRow	ASSUMED part-left-view-test-filter (corpus PR 1474, pages/parts/PartRefillTestFilter.al:723)
-LT PR Tests::PartRefill_TypedKeyTriggerPartActionThenFilterFirst_FindsRefilledRow	ASSUMED part-left-view-test-filter (corpus PR 1475, the two-field key cell)
-# The calls no cell made: the cell's own steps before them run through the assumption, and the call itself stays refused.
-LT PR Neighbors::PreviousRightAfterFirst	REFUSED Previous() on a part whose view no longer started with the rows it holds when its own CurrPage.Update was asked
-LT PR Neighbors::NextAfterLast	REFUSED Next() on a part whose view no longer started with the rows it holds when its own CurrPage.Update was asked
-LT PR Neighbors::HostReadBetweenFirstAndARead	REFUSED AsDecimal() on a part whose view no longer started with the rows it holds when its own CurrPage.Update was asked
+# Against main with PR 8542: the moves and reads one cell measured, made on a cell that did not, now stay refused (PR 8542 review, LOW 1 and 2).
+LT PR Neighbors::LastOnTheListHost	REFUSED Last() on a part whose view no longer started with the rows it holds when its own CurrPage.Update was asked
+LT PR Neighbors::NextOnTheTriggerPart	REFUSED Next() on a part whose view no longer started with the rows it holds when its own CurrPage.Update was asked
+LT PR Neighbors::ValueReadOfAPlainPartField	REFUSED Value() on a part whose view no longer started with the rows it holds when its own CurrPage.Update was asked
+LT PR Neighbors::ValueReadBeforeFirst	REFUSED Value() on a part whose view no longer started with the rows it holds when its own CurrPage.Update was asked
