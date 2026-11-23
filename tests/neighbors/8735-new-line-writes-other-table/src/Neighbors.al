@@ -36,6 +36,12 @@ table 97661 "LT NX Line"
         }
         field(4; Note; Text[30]) { }
         field(5; Value; Text[30]) { }
+        // A FlowField over the table the table field writes (review of the runner pull request 8806).
+        field(6; "Detail Count"; Integer)
+        {
+            FieldClass = FlowField;
+            CalcFormula = count("LT NX Detail");
+        }
     }
 
     keys
@@ -118,6 +124,12 @@ page 97664 "LT NX Lines"
                                     CurrPage.SaveRecord();
                                     CurrPage.Update(false);
                                 end;
+                            8:
+                                begin
+                                    AddDetail('ByPage');
+                                    CurrPage.SaveRecord();
+                                    CurrPage.Update(false);
+                                end;
                             else begin
                                 CurrPage.SaveRecord();
                                 CurrPage.Update(false);
@@ -127,9 +139,19 @@ page 97664 "LT NX Lines"
                 }
                 field(Note; Rec.Note) { ApplicationArea = All; }
                 field(Value; Rec.Value) { ApplicationArea = All; }
+                field("Detail Count"; Rec."Detail Count") { ApplicationArea = All; }
             }
         }
     }
+
+    local procedure AddDetail(NewText: Text[30])
+    var
+        Detail: Record "LT NX Detail";
+    begin
+        Detail.Init();
+        Detail.Text := NewText;
+        Detail.Insert();
+    end;
 
     local procedure StampRow(GroupCode: Code[10]; EntryNo: Integer)
     var
@@ -237,6 +259,44 @@ codeunit 97666 "LT NX Tests"
         Check('shown after the Value SetValue', 'A/Twice/V', ShownAfterValue);
         Check('rows', 'A/Twice/V;', Rows());
         Check('details', 'A;', Details());
+    end;
+
+    // The table field and the control both write another table before the save (review of the runner pull request 8806).
+    [Test]
+    [HandlerFunctions('LinesHandler')]
+    procedure NewLine_TableFieldAndControlWriteAnotherTable_ShowsAndSavesTheRow()
+    begin
+        Initialize();
+        RunMode(8);
+        Check('shown after the Name SetValue', 'A//', ShownAfterName);
+        Check('shown after the Value SetValue', 'A//V', ShownAfterValue);
+        Check('rows', 'A//V;', Rows());
+        Check('details', 'A;ByPage;', Details());
+    end;
+
+    // A FlowField of the page's table counts the rows the table field writes; the page shows it (review of the runner pull
+    // request 8806).
+    [Test]
+    [HandlerFunctions('CountHandler')]
+    procedure NewLine_FlowFieldOverTheWrittenTable_ShowsTheCount()
+    begin
+        Initialize();
+        RunMode(7);
+        Check('shown after the Name SetValue', 'A//1', ShownAfterName);
+        Check('shown after the Value SetValue', 'A//V/1', ShownAfterValue);
+        Check('rows', 'A//V;', Rows());
+        Check('details', 'A;', Details());
+    end;
+
+    [ModalPageHandler]
+    procedure CountHandler(var Lines: TestPage "LT NX Lines")
+    begin
+        Lines.New();
+        Lines.Name.SetValue('A');
+        ShownAfterName := Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines."Detail Count".Value();
+        Lines.Value.SetValue('V');
+        ShownAfterValue := Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Value.Value() + '/' + Lines."Detail Count".Value();
+        Lines.OK().Invoke();
     end;
 
     [ModalPageHandler]

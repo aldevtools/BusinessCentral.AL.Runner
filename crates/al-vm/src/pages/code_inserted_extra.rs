@@ -24,8 +24,8 @@
 //!
 //! - writes of other tables before the save, after the table field's insert, by the table field or the control (inserts and
 //!   modifies, no delete), leave the save and the Update as they are, also before the rewritten row (ListNewLineWritesOtherTable.al,
-//!   corpus pull request 1527, open, 11 of 11 green on BC 29.1 in 3 runs, under the assumption `list-new-line-writes-other-table`,
-//!   `only_other_tables_written`).
+//!   corpus pull requests 1527, merged, and 1536, open, 17 of 17 green on BC 29.1 in 3 runs, under the assumption
+//!   `list-new-line-writes-other-table`, `only_other_tables_written`).
 //!
 //! - on a List page with OnAfterGetRecord, OnAfterGetCurrRecord and one CardPart FactBox (`Triggers::FactboxExtra`), the same
 //!   gate for SaveRecord under Page.RunModal on one group, with nothing but the insert written before the save
@@ -101,7 +101,9 @@ impl Session {
         let rewritten_measured =
             rewritten && insert_before_control && opened == Opened::RunModalOneGroup && view == Some(View::Alone);
         // Writes of other tables before the save, or before the control's OnValidate began for the rewritten row (on an empty
-        // group only): measured under Page.RunModal (ListNewLineWritesOtherTable.al, `only_other_tables_written`).
+        // group only): measured under Page.RunModal (ListNewLineWritesOtherTable.al, `only_other_tables_written`). The rewritten
+        // row is the control's only write (`Inserted::Rewritten`): a control that also writes another table is refused, in
+        // either order (:630, :654, review of #8806, point 2).
         let other_tables = !only_the_insert
             && !rewritten_measured
             && opened == Opened::RunModalOneGroup
@@ -223,10 +225,12 @@ impl Session {
     /// first one handed out after the line's mark (`new_line_writes`), every other row of the page's table is older than the
     /// mark, and the delete count is the mark's. For the `rewritten` row (`Inserted::Rewritten`) the line's version is the one
     /// the control's OnValidate began with (`ControlOnValidate::row_version`). ListNewLineWritesOtherTable.al (corpus pull
-    /// request 1527, open) measures it under Page.RunModal: the table field inserts rows of another table (:328, :342), the control
-    /// does (:361, :373), the table field does before Update(true) (:386), the table field or the control modifies them (:398,
-    /// :411, :425), and the table field does before the rewritten row (:463). A write before the insert (:438) and a delete
-    /// (:450) are measured too, and refused: the store does not tell which table a delete or an earlier write went to.
+    /// request 1527, merged, and 1536, open) measures it under Page.RunModal: the table field inserts rows of another table (:328,
+    /// :342), the control does (:361, :373), both do (:642), the table field does before Update(true) (:386), and so does the
+    /// control (:605), the table field or the control modifies them (:398, :411, :425), the table field before Update(true)
+    /// (:617), the table field does before the rewritten row (:463), and a FlowField of the page's table counts them (:666). A
+    /// write before the insert (:438) and a delete (:450) are measured too, and refused: the store does not tell which table a
+    /// delete or an earlier write went to.
     fn only_other_tables_written(&mut self, st: &St, rewritten: bool) -> Result<bool, Signal> {
         let (Some((mark, deletes)), began) = ({
             let s = st.borrow();
