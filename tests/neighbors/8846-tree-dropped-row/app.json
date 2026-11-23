@@ -1,0 +1,13 @@
+{
+  "id": "b1c6f7a2-5d3e-4f80-9a1b-884600000001",
+  "name": "Neighbors 8846 a filter in a control's OnValidate that drops the tree's row",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "idRanges": [
+    { "from": 50146, "to": 50149 },
+    { "from": 97670, "to": 97679 }
+  ],
+  "dependencies": []
+}
