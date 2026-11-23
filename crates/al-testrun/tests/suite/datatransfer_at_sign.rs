@@ -18,7 +18,7 @@ codeunit 50598 "DTA Install"
         S."Code" := 'A'; S.Kind := 'K'; S.Insert();
         S."Code" := 'B'; S.Kind := ''; S.Insert();
         DT.SetTables(Database::"DTA Src", Database::"DTA Dst");
-        DT.AddSourceFilter(S.FieldNo(Kind), '@');
+        DT.AddSourceFilter(S.FieldNo(Kind), 'FILTER_TEXT');
         DT.AddFieldValue(S.FieldNo("Code"), D.FieldNo("Code"));
         DT.CopyRows();
     end;
@@ -37,27 +37,29 @@ codeunit 50599 "DTA Test"
 
 #[test]
 fn datatransfer_at_sign_alone_code_filter_refused() {
-    let rt = CorpusRuntime::run_suites_with(
-        vec![AppSource {
-            id: "main".into(),
-            name: "main".into(),
-            dependencies: vec![],
-            files: vec![("main.al".into(), SRC.into())],
-        }],
-        vec![al_sema::AppKind::Workspace],
-        &[],
-        &Default::default(),
-        None,
-        Default::default(),
-        &[SuiteRun::everything()],
-        &RunOptions::default(),
-    );
-    let o = rt.first_outcome(&CaseId {
-        codeunit: 50599,
-        name: "TheCopyRan".into(),
-    });
-    assert!(
-        matches!(&o, Outcome::NotRun(w) if w.contains("DataTransfer with `@` alone on a Code field as a filter")),
-        "{o:?}"
-    );
+    for (filter, named) in [("@", "`@` alone"), ("<>@", "`<>@` alone")] {
+        let rt = CorpusRuntime::run_suites_with(
+            vec![AppSource {
+                id: "main".into(),
+                name: "main".into(),
+                dependencies: vec![],
+                files: vec![("main.al".into(), SRC.replace("FILTER_TEXT", filter))],
+            }],
+            vec![al_sema::AppKind::Workspace],
+            &[],
+            &Default::default(),
+            None,
+            Default::default(),
+            &[SuiteRun::everything()],
+            &RunOptions::default(),
+        );
+        let o = rt.first_outcome(&CaseId {
+            codeunit: 50599,
+            name: "TheCopyRan".into(),
+        });
+        assert!(
+            matches!(&o, Outcome::NotRun(w) if w.contains(&format!("DataTransfer with {named} on a Code field as a filter"))),
+            "{filter}: {o:?}"
+        );
+    }
 }

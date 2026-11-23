@@ -14,6 +14,7 @@ const CALC_NEIGHBORS: &str = include_str!("../../../../tests/neighbors/8677-bg-c
 const CALC_REPRO: &str = include_str!("../../../../tests/neighbors/8677-bg-cache-calcfields/src/Repro.al");
 const CALC_PROBE: &str = include_str!("../../../../tests/neighbors/8677-bg-cache-calcfields/src/CalcProbe.al");
 const MORE: &str = include_str!("../../../../tests/neighbors/8637-bg-cache-filtered-reads/src/MoreNeighbors.al");
+const EDGES: &str = include_str!("../../../../tests/neighbors/8677-bg-cache-calcfields/src/EdgesProbe.al");
 
 fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
     let src = format!("{src}\n{}", include_str!("../fixtures/outside-sc/Assert.al"));
@@ -404,22 +405,271 @@ fn issue_8637_more_neighbors() {
 /// Neighbors from the review of al-runner PR 8808 (al-runner issue 8879; MoreNeighbors.al, "BQ More Follow-up Tests", a local BC
 /// 29.1 container, 3 runs). A FindFirst with filters on two FlowFields of different source tables answers the first answer,
 /// flagged, with the filters set in the same order and in the other order (`flow_field_sources` sorts the tables). A worker's
-/// SelectLatestVersion with an Option, a Char, a Byte or an Enum is refused: BC answers the first read when its value names no
-/// table, but no cell measures one that names the cached table.
+/// SelectLatestVersion with an Option, a Char, a Byte or an Enum of value 0, which names no table, keeps the row entry, as on
+/// BC: the Get answers the first read, flagged.
 #[test]
 fn issue_8879_follow_up_neighbors() {
     let src = format!("{PROBE}\n{MORE}");
     let o = outcomes(&src, "BQ More Follow-up Tests");
     assert_eq!(o.len(), 6);
     for (name, r, marks) in &o {
-        if name.starts_with("SelectLatestVersionOf") {
-            assert!(
-                matches!(r, Outcome::NotRun(w) if w.starts_with("SelectLatestVersion(Table) in a page background task")),
-                "{name}: {r:?}"
-            );
-        } else {
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+    }
+}
+
+/// The cells of corpus PR 1558 (BgTaskCacheEdges.al, corpus issue 1555), each green 3 of 3 on BC 29.1. The worker answers its
+/// first answer for a CalcFields, a CalcSums and a Count descending first and ascending again (:374-:386) and the test
+/// session's answer after the test session read first (:392, :398); for a count at an inner count with field(filter()) of a
+/// stored field (:404), a CalcSums with a `>` on another field and with two (:410, :416), FieldRef.CalcField of a temporary
+/// RecordRef (:422), a CalcFields after a commit of another row of its row's table or of the row itself, of a temporary record
+/// too (:428-:446), and two FlowField filters in either order (:458, :464). SelectLatestVersion with an Enum whose value is
+/// the cached table's id ends the row entry (:452): the Get reads the table. From the review of al-runner PR 8897 (BCE Commit
+/// Tests): a commit of a ModifyAll, a DeleteAll or a Delete of another row of the row's table keeps a CalcFields entry (:639,
+/// :645, :651), so does the test session's CalcFields first, then a commit, then the lines (:657), and FieldRef.CalcField of a
+/// database RecordRef after a commit (:681); SelectLatestVersion with an Option, a Char, a Byte or an Enum of value 0 keeps the
+/// row entry (:687-:705). All flagged.
+#[test]
+fn issue_1555_cells() {
+    for (codeunit, n) in [("BCE Tests", 16), ("BCE Commit Tests", 9)] {
+        let o = outcomes(EDGES, codeunit);
+        assert_eq!(o.len(), n, "{codeunit}");
+        for (name, r, marks) in &o {
             assert_eq!(*r, Outcome::Pass, "{name}");
             assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
         }
     }
+}
+
+/// Neighbors from the review of al-runner PR 8897 (Neighbors.al, "BQN Commit Tests", a local BC 29.1 container, 3 runs): the
+/// cells' commits of the row's table and FieldRef.CalcField after one keep the entry, flagged; a FlowField whose formula reads
+/// the row's own table ends with a commit of it and reads the table, clean.
+#[test]
+fn issue_1555_neighbors() {
+    let o = outcomes(CALC_NEIGHBORS, "BQN Commit Tests");
+    assert_eq!(o.len(), 6);
+    for (name, r, marks) in &o {
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        let own_table = name.starts_with("FlowFieldOverItsOwnTable");
+        assert_eq!(
+            marks.contains(&BackgroundTaskQueryCache),
+            !own_table,
+            "{name}: {marks:?}"
+        );
+    }
+}
+
+/// A worker's SelectLatestVersion with a Char, a Byte or an Option that names the cached table (table 200) is refused: no cell
+/// measures one (an Enum that does is :452 of BgTaskCacheEdges.al; each of the four of value 0, :687-:705, keeps the entry).
+#[test]
+fn issue_1555_char_byte_option_naming_a_table_are_refused() {
+    const SRC: &str = r#"
+table 200 "SLV Small Row"
+{
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Description; Text[50]) { }
+    }
+    keys { key(PK; "No.") { } }
+}
+
+page 50141 "SLV Small Rows"
+{
+    PageType = List;
+    SourceTable = "SLV Small Row";
+    layout { area(Content) { repeater(Rows) { field("No."; Rec."No.") { } } } }
+}
+
+codeunit 50142 "SLV Small Reader"
+{
+    trigger OnRun()
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Row: Record "SLV Small Row";
+        C: Char;
+        B: Byte;
+        O: Option A,B;
+    begin
+        Parameters := Page.GetBackgroundParameters();
+        case Parameters.Get('Mode') of
+            'char':
+                begin
+                    C := 200;
+                    Database.SelectLatestVersion(C);
+                end;
+            'byte':
+                begin
+                    B := 200;
+                    Database.SelectLatestVersion(B);
+                end;
+            'option':
+                begin
+                    O := 200;
+                    Database.SelectLatestVersion(O);
+                end;
+        end;
+        Row.Get('A');
+        Results.Add('Seen', Row.Description);
+        Page.SetBackgroundTaskResult(Results);
+    end;
+}
+
+codeunit 50143 "SLV Small Tests"
+{
+    Subtype = Test;
+
+    local procedure Run(var Rows: TestPage "SLV Small Rows"; Mode: Text): Text
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+    begin
+        Parameters.Add('Mode', Mode);
+        Results := Rows.RunPageBackgroundTask(Codeunit::"SLV Small Reader", Parameters, false);
+        exit(Results.Get('Seen'));
+    end;
+
+    local procedure Select(Mode: Text)
+    var
+        Rows: TestPage "SLV Small Rows";
+        Row: Record "SLV Small Row";
+    begin
+        Row."No." := 'A';
+        Row.Description := 'first';
+        if not Row.Insert() then
+            Row.Modify();
+        Commit();
+        Rows.OpenView();
+        Run(Rows, 'get');
+        Row.Get('A');
+        Row.Description := 'second';
+        Row.Modify();
+        Run(Rows, Mode);
+    end;
+
+    [Test]
+    procedure CharNamingTheTable()
+    begin
+        Select('char');
+    end;
+
+    [Test]
+    procedure ByteNamingTheTable()
+    begin
+        Select('byte');
+    end;
+
+    [Test]
+    procedure OptionNamingTheTable()
+    begin
+        Select('option');
+    end;
+}
+"#;
+    let o = outcomes(SRC, "SLV Small Tests");
+    assert_eq!(o.len(), 3);
+    for (name, r, _) in &o {
+        assert!(
+            matches!(r, Outcome::NotRun(w) if w.starts_with("SelectLatestVersion(Table) in a page background task with a Char")),
+            "{name}: {r:?}"
+        );
+    }
+}
+
+/// A worker's CalcFields after a commit of a Truncate of its row's table, where the entry would answer otherwise than the
+/// table, is refused: no cell measures one (a commit of a ModifyAll, a DeleteAll or a Delete keeps the entry, :639-:651).
+#[test]
+fn issue_1555_calc_fields_after_a_truncate_is_refused() {
+    const SRC: &str = r#"
+table 50144 "TRC Parent"
+{
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; "Line Count"; Integer)
+        {
+            FieldClass = FlowField;
+            CalcFormula = count("TRC Line" where(Parent = field("No.")));
+        }
+    }
+    keys { key(PK; "No.") { } }
+}
+
+table 50145 "TRC Line"
+{
+    fields
+    {
+        field(1; Parent; Code[20]) { }
+        field(2; "Line No."; Integer) { }
+    }
+    keys { key(PK; Parent, "Line No.") { } }
+}
+
+page 50146 "TRC Lines"
+{
+    PageType = List;
+    SourceTable = "TRC Line";
+    layout { area(Content) { repeater(Rows) { field(Parent; Rec.Parent) { } } } }
+}
+
+codeunit 50147 "TRC Reader"
+{
+    trigger OnRun()
+    var
+        Results: Dictionary of [Text, Text];
+        Parent: Record "TRC Parent";
+    begin
+        Parent."No." := 'P';
+        Parent.CalcFields("Line Count");
+        Results.Add('Seen', Format(Parent."Line Count"));
+        Page.SetBackgroundTaskResult(Results);
+    end;
+}
+
+codeunit 50148 "TRC Tests"
+{
+    Subtype = Test;
+
+    local procedure Run(var Lines: TestPage "TRC Lines"): Text
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+    begin
+        Results := Lines.RunPageBackgroundTask(Codeunit::"TRC Reader", Parameters, false);
+        exit(Results.Get('Seen'));
+    end;
+
+    [Test]
+    procedure TruncateThenLines()
+    var
+        Lines: TestPage "TRC Lines";
+        Parent: Record "TRC Parent";
+        Line: Record "TRC Line";
+    begin
+        Parent."No." := 'P';
+        Parent.Insert();
+        Line.Parent := 'P';
+        Line."Line No." := 1;
+        Line.Insert();
+        Commit();
+        Lines.OpenView();
+        Run(Lines);
+        Parent.Truncate();
+        Commit();
+        Line."Line No." := 2;
+        Line.Insert();
+        Line.SetRange(Parent, 'P');
+        if Line.FindFirst() then;
+        Run(Lines);
+    end;
+}
+"#;
+    let o = outcomes(SRC, "TRC Tests");
+    assert_eq!(o.len(), 1);
+    let (name, r, _) = &o[0];
+    assert!(
+        matches!(r, Outcome::NotRun(w) if w.starts_with("a CalcFields of a page background task after a commit of a Truncate")),
+        "{name}: {r:?}"
+    );
 }

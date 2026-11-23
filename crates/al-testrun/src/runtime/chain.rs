@@ -135,12 +135,9 @@ impl ChainReport {
         self.numbers_order.iter().map(|n| n.line()).collect()
     }
 
-    /// The order lines the run output prints with or without `--timings`: the skipped re-runs (ADR-066 amendment 7,
-    /// option 2) and the numbers list.
+    /// The order lines the run output prints with or without `--timings`: the numbers list.
     pub fn run_output_lines(&self) -> Vec<String> {
-        let mut out = self.single_lane.skipped_lines();
-        out.extend(self.numbers_summary());
-        out
+        self.numbers_summary()
     }
 
     /// The numbers list for the run output: one line per codeunit up to [`NUMBERS_LINES_MAX`], else one summary line
@@ -277,14 +274,6 @@ pub(super) fn member_why(isolation: TestIsolation, carry: Option<ChainWhy>) -> C
         Some(why) if isolation != TestIsolation::Disabled => why,
         _ => ChainWhy::Disabled,
     }
-}
-
-/// Whether a chain member with isolation `isolation` and carry `carry` is in the chain only for the numbers its tests
-/// take ([`ChainWhy::TestsTakeNumbers`]). ADR-066 amendment 11, option 1: such a member runs with fresh single instances
-/// in the walk, and its SingleInstance order dependence is handled as for codeunits outside the chain
-/// (amendments 4, 5 and 7). A member with Disabled isolation or an OnRun that writes keeps amendment 8.
-pub(super) fn numbers_only(isolation: TestIsolation, carry: Option<ChainWhy>) -> bool {
-    isolation != TestIsolation::Disabled && carry == Some(ChainWhy::TestsTakeNumbers)
 }
 
 /// Whether the `OnRun` trigger of test codeunit `oi` can write a table ([`ChainWhy::OnRunWritesTable`]) or isolated

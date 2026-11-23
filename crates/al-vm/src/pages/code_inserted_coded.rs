@@ -42,15 +42,20 @@
 //!
 //! A page of their shape with other code (`coded_extra_shape`, `CodedObjects::Extra`; al-runner issue 8826) takes the same
 //! steps under the assumption `list-new-line-extra-code-coded` (ListNewLineExtraCodeCodedPage.al, corpus pull request 1537,
-//! open, 7 of 7 green on BC 29.1 in 3 runs): its SaveRecord under the effect gate (`extra_code_coded_cell`), its refresh
-//! reading the row as stored first and refusing a trigger that writes (:773), its worker's reads through the query cache
-//! (`bg_drain`), then one SetValue of a control without code and `OK()` (`refuse_off_factbox_row`). A row before the line
-//! (:821) and a table with record triggers (:839) keep main's way.
+//! open, 7 of 7 green on BC 29.1 in 3 runs). Its page, controls, actions and three parts equal the cells' in every fact but
+//! their code (`coded_extra_shape`, `coded_extra_parts`); an OnOpenPage that wrote keeps main's way, a part that writes at
+//! the open is refused (`coded_open_on_empty_view`); only a first SetValue whose control saves and whose table field inserts
+//! takes the steps (`coded_write_may_land`). Then its SaveRecord under the effect gate (`extra_code_coded_cell`), nothing
+//! between the save and the Update but a modify of the row through another record (`extra_coded_between_kept`), its
+//! refresh reading the row as stored first and refusing a trigger that writes (:773), its worker's reads through the query
+//! cache (`bg_drain`), then one SetValue of a control without code and `OK()` (`FactboxStep::ExtraTyped`). A row before the
+//! line (:821) and a table with record triggers (:839) keep main's way.
 
 use super::pinned_shape::TestCall;
 use super::state::{CodedLine, FactboxStep};
 use super::*;
 use al_builtins::assumptions::assume;
+use al_builtins::builtin_id::ids;
 use al_builtins::page_op::PageMethod;
 
 /// A step of the page with code `st` runs under the assumption of the objects it showed at its open (`CodedObjects`).
@@ -87,55 +92,135 @@ impl Session {
         Ok(self.coded_code(st).is_some() || self.coded_extra_shape(st)?)
     }
 
-    /// Whether host `st`, whose code is not the probe's or the repro's, has their shape as ListNewLineExtraCodeCodedPage.al
-    /// measures it (`CodedObjects::Extra`): a List page with AutoSplitKey, no page extension and no subscriber, whose triggers
-    /// are among OnOpenPage, OnAfterGetRecord and OnDeleteRecord; a table without OnModify and OnRename (`no_save_trigger`;
-    /// OnInsert and OnDelete measured by ListNewLineExtraCodeCodedTableTriggers.al); three CardPart FactBoxes, each linked by a
-    /// SubPageLink of each field of the primary key to itself, no SubPageView and no Provider, whose triggers are among
-    /// OnAfterGetRecord, OnAfterGetCurrRecord, OnPageBackgroundTaskCompleted and OnPageBackgroundTaskError (measured by
-    /// ListNewLineExtraCodeCodedTaskError.al).
+    /// Whether host `st`, whose code is not the probe's or the repro's, has the shape of the pages of
+    /// ListNewLineExtraCodeCodedPage.al's cells (`CodedObjects::Extra`), every fact by equality with them (review of al-runner
+    /// PR 8834, 21:06Z; the repro page :300-409 and the logging page :481-604):
+    /// - the page: a List page with no page extension and no subscriber, that declares only PageType, SourceTable,
+    ///   AutoSplitKey (as true), ApplicationArea and UsageCategory (`pinned_property`: no SourceTableView, so the view is in
+    ///   the primary key), and exactly the triggers OnOpenPage, OnAfterGetRecord and OnDeleteRecord; a table without OnModify
+    ///   and OnRename (`no_save_trigger`; OnInsert and OnDelete measured by ListNewLineExtraCodeCodedTableTriggers.al);
+    /// - its controls: a repeater without a property; fields of Rec or of a variable with no property but ApplicationArea and
+    ///   Editable as false, and no trigger but OnValidate; actions with no property but ApplicationArea and no trigger but
+    ///   OnAction; three part controls (`coded_extra_parts`).
     fn coded_extra_shape(&self, st: &St) -> Result<bool, Signal> {
         if !(self.is_list_page(st) && self.unextended_unsubscribed(st) && self.no_save_trigger(st)) {
             return Ok(false);
         }
-        let key = self.table(&self.page_rec(st))?.keys[0].clone();
         let engine = self.engine();
         let object = st.borrow().object as usize;
-        let split = engine.program.objects[object]
-            .properties
+        let properties = &engine.program.objects[object].properties;
+        let split = properties
             .iter()
             .any(|(n, v)| n.eq_ignore_ascii_case("AutoSplitKey") && v.trim().eq_ignore_ascii_case("true"));
         let page = page_of(&engine, st);
-        let host_triggers = page
-            .triggers
-            .iter()
-            .all(|(n, _)| ["onopenpage", "onaftergetrecord", "ondeleterecord"].contains(&n.as_str()));
-        let parts = st.borrow().parts.clone();
-        let parts_ok = parts.iter().all(|(idx, part)| {
-            let control = &page.controls[*idx];
-            let link = control.part_link.as_ref().is_some_and(|l| {
-                l.provider.is_none()
-                    && l.view.is_none()
-                    && l.entries.len() == key.len()
-                    && l.entries
-                        .iter()
-                        .zip(&key)
-                        .all(|(e, k)| matches!(e, ir::LinkEntry::Field(pf, hf) if pf == k && hf == k))
-            });
-            let part_object = part.borrow().object as usize;
-            let card_part = engine.object_facts[part_object].page_type == Some(ir::PageType::Other("cardpart".into()));
-            let triggers = page_of(&engine, part).triggers.iter().all(|(n, _)| {
-                [
-                    "onaftergetrecord",
-                    "onaftergetcurrrecord",
-                    "onpagebackgroundtaskcompleted",
-                    "onpagebackgroundtaskerror",
-                ]
-                .contains(&n.as_str())
-            });
-            control.factbox && link && card_part && triggers
+        let mut triggers: Vec<&str> = page.triggers.iter().map(|(n, _)| n.as_str()).collect();
+        triggers.sort_unstable();
+        let host_triggers = triggers == ["onaftergetrecord", "ondeleterecord", "onopenpage"];
+        let controls = page.controls.iter().all(|c| {
+            let props = |allowed: &[&str]| {
+                c.props
+                    .iter()
+                    .all(|(k, v)| allowed.contains(&k.as_str()) && Self::plain_prop(k, v))
+            };
+            let triggers = |allowed: &str| c.triggers.iter().all(|(n, _)| n == allowed);
+            let own =
+                c.owner.is_none() && c.ext_triggers.is_empty() && c.run_object.is_none() && c.action_ref.is_none();
+            own && match c.kind {
+                ir::ControlKind::Repeater => c.props.is_empty() && c.triggers.is_empty(),
+                ir::ControlKind::Field => {
+                    matches!(c.binding, ir::Binding::Field(_) | ir::Binding::Var(_))
+                        && props(&["applicationarea", "editable"])
+                        && triggers("onvalidate")
+                }
+                ir::ControlKind::Action => props(&["applicationarea"]) && triggers("onaction"),
+                ir::ControlKind::Part => c.triggers.is_empty(),
+                _ => false,
+            }
         });
-        Ok(split && host_triggers && parts_ok)
+        let pinned = properties.iter().all(super::code_inserted_new_line::pinned_property);
+        drop(engine);
+        Ok(split && pinned && host_triggers && controls && self.coded_extra_parts(st)?)
+    }
+
+    /// Whether `value` of property `name` of a control is as the cells write it: ApplicationArea and a SubPageLink as written,
+    /// Editable only as the literal false (the Kind column, ListNewLineExtraCodeCodedPage.al:329).
+    fn plain_prop(name: &str, value: &ir::PropVal) -> bool {
+        match name {
+            "editable" => matches!(value, ir::PropVal::Lit(v) if v.trim().eq_ignore_ascii_case("false")),
+            _ => matches!(value, ir::PropVal::Lit(_)),
+        }
+    }
+
+    /// Whether the three parts of host `st` are the cells' three FactBoxes in their order (ListNewLineExtraCodeCodedPage.al
+    /// :207-298, :411-479): each part control in the FactBoxes area with no property but ApplicationArea and a SubPageLink
+    /// that links each field of the primary key to itself (`Session::part_linked_on_key`); each part a CardPart that declares
+    /// only PageType and SourceTable, whose controls are fields with no property but ApplicationArea and no trigger, and
+    /// actions with no property but ApplicationArea and no trigger but OnAction; the first part's only trigger
+    /// OnAfterGetRecord, the second none, the third OnAfterGetCurrRecord, which enqueues a page background task, and
+    /// OnPageBackgroundTaskCompleted, and OnPageBackgroundTaskError as well (ListNewLineExtraCodeCodedTaskError.al:135-192).
+    fn coded_extra_parts(&self, st: &St) -> Result<bool, Signal> {
+        let key = self.table(&self.page_rec(st))?.keys[0].clone();
+        let parts = st.borrow().parts.clone();
+        let engine = self.engine();
+        let page = page_of(&engine, st);
+        let wanted: [&[&str]; 3] = [
+            &["onaftergetrecord"],
+            &[],
+            &["onaftergetcurrrecord", "onpagebackgroundtaskcompleted"],
+        ];
+        if parts.len() != wanted.len() {
+            return Ok(false);
+        }
+        for ((idx, part), want) in parts.iter().zip(wanted) {
+            let control = &page.controls[*idx];
+            let control_ok = Self::part_linked_on_key(control, &key)
+                && control
+                    .props
+                    .iter()
+                    .all(|(k, v)| matches!(k.as_str(), "applicationarea" | "subpagelink") && Self::plain_prop(k, v));
+            let part_object = part.borrow().object as usize;
+            let part_page = page_of(&engine, part);
+            let mut names: Vec<&str> = part_page.triggers.iter().map(|(n, _)| n.as_str()).collect();
+            names.sort_unstable();
+            let part_controls = part_page.controls.iter().all(|c| {
+                let props = c
+                    .props
+                    .iter()
+                    .all(|(k, v)| k == "applicationarea" && Self::plain_prop(k, v));
+                let own =
+                    c.owner.is_none() && c.ext_triggers.is_empty() && c.run_object.is_none() && c.action_ref.is_none();
+                own && props
+                    && match c.kind {
+                        ir::ControlKind::Field => {
+                            matches!(c.binding, ir::Binding::Field(_) | ir::Binding::Var(_)) && c.triggers.is_empty()
+                        }
+                        ir::ControlKind::Action => c.triggers.iter().all(|(n, _)| n == "onaction"),
+                        _ => false,
+                    }
+            });
+            let properties = engine.program.objects[part_object]
+                .properties
+                .iter()
+                .all(|(k, _)| matches!(k.to_ascii_lowercase().as_str(), "pagetype" | "sourcetable"));
+            let enqueues = !want.contains(&"onaftergetcurrrecord")
+                || part_page
+                    .triggers
+                    .iter()
+                    .find(|(n, _)| n == "onaftergetcurrrecord")
+                    .is_some_and(|&(_, r)| {
+                        Self::routine_calls(&engine, part_object, r, &[ids::PAGE_ENQUEUEBACKGROUNDTASK_1])
+                    });
+            if !(control_ok
+                && Self::is_card_part(&engine, part_object)
+                && properties
+                && part_controls
+                && (names == want || (want.len() == 2 && names == [want[0], want[1], "onpagebackgroundtaskerror"]))
+                && enqueues)
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     /// Whether part `part` of host `st` shows its rows as the probe's parts do: over the host's table, stored, not marked,
@@ -180,10 +265,26 @@ impl Session {
             return Ok(false);
         }
         let objects = self.coded_code(st).unwrap_or(super::state::CodedObjects::Extra);
+        let extra = objects == super::state::CodedObjects::Extra;
+        // On a page of the shape of the page with code, the cells' OnOpenPage and parts write nothing at the open
+        // (ListNewLineExtraCodeCodedPage.al:379-382, :773 `OPEN;U.AGCR();`): a page whose OnOpenPage wrote keeps main's way,
+        // and a part that writes while it reads the blank record is not measured, and refused (review of al-runner PR 8834,
+        // 21:06Z).
+        if extra && self.store.change_counter() != st.borrow().open_changes {
+            return Ok(false);
+        }
         st.borrow_mut().coded_objects = objects;
         coded_assume(st);
         st.borrow_mut().coded_line = CodedLine::EmptyOpen;
+        let before = self.store.change_counter();
         self.with_blank_landing(st, |s| s.sync_parts_at_open(st))?;
+        if extra && self.store.change_counter() != before {
+            st.borrow_mut().coded_line = CodedLine::Off;
+            return unsupported(
+                "a part of a List page of the shape of the page with code wrote the store when it read the blank record at the \
+                 open (not measured)",
+            );
+        }
         Ok(true)
     }
 
@@ -215,6 +316,14 @@ impl Session {
                 s.cursor == Cursor::NewLine && s.draft && !s.dirty && !s.draft_stored && s.new_by_call
             };
         match call {
+            // On a page of the shape of the page with code, only a write whose validation can land as the cells' do takes the
+            // steps: the control's OnValidate calls CurrPage.SaveRecord() and its table field's OnValidate inserts
+            // (ListNewLineExtraCodeCodedPage.al:31-36, :318-324). Every other first write keeps main's way (review of al-runner
+            // PR 8834, 21:06Z, point 1).
+            TestCall::Write(i) if first_write && !self.coded_write_may_land(st, i) => {
+                st.borrow_mut().coded_line = CodedLine::Off;
+                Ok(())
+            }
             _ if first_write => {
                 coded_assume(st);
                 st.borrow_mut().coded_line = CodedLine::LineRead;
@@ -226,6 +335,62 @@ impl Session {
                 Ok(())
             }
         }
+    }
+
+    /// Whether the first write of control `idx` of host `st` may land as the cells' does: on the probe's and the repro's pages
+    /// always (their code is compared line for line); on a page of their shape (`CodedObjects::Extra`) when the control's
+    /// OnValidate calls `CurrPage.SaveRecord()` itself and the OnValidate of the table field it shows calls Insert itself
+    /// (`routine_calls`).
+    fn coded_write_may_land(&self, st: &St, idx: usize) -> bool {
+        if st.borrow().coded_objects != super::state::CodedObjects::Extra {
+            return true;
+        }
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        let Some(control) = page_of(&engine, st).controls.get(idx) else {
+            return false;
+        };
+        let ir::Binding::Field(field) = control.binding else {
+            return false;
+        };
+        let saves = control
+            .triggers
+            .iter()
+            .find(|(n, _)| n == "onvalidate")
+            .is_some_and(|&(_, r)| Self::routine_calls(&engine, object, r, &[ids::PAGE_SAVERECORD_1]));
+        let table = self.page_rec(st).borrow().table as usize;
+        let inserts = engine.program.objects[table]
+            .table
+            .as_ref()
+            .and_then(|t| t.fields.get(field))
+            .and_then(|f| f.on_validate)
+            .is_some_and(|(o, r)| {
+                Self::routine_calls(
+                    &engine,
+                    o,
+                    r,
+                    &[ids::RECORD_INSERT_1, ids::RECORD_INSERT_2, ids::RECORD_INSERT_3],
+                )
+            });
+        saves && inserts
+    }
+
+    /// Whether routine `routine` of object `object` calls one of the builtins `wanted` itself, in any statement or expression
+    /// (`for_each_expr_post`); a call in a procedure it calls does not count.
+    fn routine_calls(
+        engine: &crate::Engine,
+        object: usize,
+        routine: usize,
+        wanted: &[al_builtins::builtin_id::BuiltinId],
+    ) -> bool {
+        let mut found = false;
+        al_ir::types::for_each_expr_post(
+            engine.program.objects[object].routines[routine].body.stmts(),
+            &mut |e| {
+                found |= matches!(e, ir::Expr::Builtin { id, .. } if wanted.contains(id));
+            },
+        );
+        found
     }
 
     /// Whether the validation of the SetValue that let the parts read the new line has landed on its row: before the landing an
