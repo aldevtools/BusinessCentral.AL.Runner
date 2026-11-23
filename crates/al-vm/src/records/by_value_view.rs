@@ -10,6 +10,7 @@
 use crate::Session;
 use crate::events::{EventKind, Subscriber};
 use crate::records::{FLOWFIELD_KEY, Rec};
+use crate::reports::ITEM_VIEW_GROUP;
 use al_builtins::assumptions::{self, Assumption};
 use al_builtins::native::{Signal, unsupported};
 use al_builtins::record_op::RecordOp;
@@ -162,8 +163,13 @@ fn reads_no_view(method: RecordOp) -> bool {
 /// record of the table in the session (`ByValue_Group1Filter_OtherInstance`), which the runtime does not model.
 /// `state_dropped`: what else the caller's record holds is a state the copy drops, a SetAutoCalcFields
 /// [`Session::measured_auto_calc`] names or a SetLoadFields and a read `load_read` in [`Session::by_value_view`] names.
-fn measured_view(s: &RecordState, state_dropped: bool) -> bool {
-    s.filters.iter().all(|f| matches!(f.group, -1 | 0 | 2 | 4))
+/// `item_view`: the filters in group [`ITEM_VIEW_GROUP`] are the data item's own `DataItemTableView`, handed from its
+/// `OnAfterGetRecord` (`Session::own_item_view_handed`), which BC does not hand either (corpus PR 1450,
+/// record/filters/ByValueRecordView.al:1675 and :1690; al-runner issue 8838).
+fn measured_view(s: &RecordState, state_dropped: bool, item_view: bool) -> bool {
+    s.filters
+        .iter()
+        .all(|f| matches!(f.group, -1 | 0 | 2 | 4) || (item_view && f.group == ITEM_VIEW_GROUP))
         && matches!(s.filter_group, 0 | 2)
         && s.field_descending == 0
         && (measured_state(s) || state_dropped)
@@ -479,12 +485,30 @@ impl Session {
             return;
         }
         let measured = self.measured_callee(call, param, source);
+        let callee_kind = self.engine.program.objects[call.callee].kind;
+        // A data item that still holds its DataItemTableView, handed from its OnAfterGetRecord to a codeunit's procedure or to
+        // its report's own procedure: BC hands none of those filters (corpus PR 1450, record/filters/ByValueRecordView.al
+        // :1675 `ByValue_ReportProcedure_DataItemView` and :1690 `_DataItemViewToCodeunit`: `callee f={} n=3 key=Id asc=Yes
+        // grp=0`), also read descending on the primary or a secondary key and to a codeunit whose table procedure reads
+        // ReadIsolation (corpus PR 1544, open, record/filters/ByValueDataItemView.al:220, :234 and :248, al-runner issue
+        // 8838: `f={} n=4 key=Id asc=Yes grp=0 ... iso before=Default`), a child data item that also holds its DataItemLink
+        // filter in group 4 (:476 and :490: `f={} n=5 key=RowId,Id asc=Yes`), and a procedure of another instance of the
+        // same report as the callee (:504: `other instance id=4 f={} n=4 key=Id asc=Yes`). Not pinned yet, so the copy holds
+        // `by-value-report-procedure`, also for a codeunit callee, whose other cells are pinned.
+        let item_view = measured.is_some()
+            && matches!(callee_kind, ObjKind::Codeunit | ObjKind::Report)
+            && s.filters.iter().any(|f| f.group == ITEM_VIEW_GROUP)
+            && self.own_item_view_handed(source);
+        let measured = if item_view {
+            Some(Evidence::Assumed(Assumption::ByValueReportProcedure))
+        } else {
+            measured
+        };
         let plain_view =
             s.filter_group == 0 && s.ascending && s.field_descending == 0 && s.marks.is_empty() && !s.marked_only;
         let no_filter = s.filters.is_empty();
         let pinned_key = s.key == 0 || s.adhoc.as_ref().is_some_and(|(k, _)| *k == s.key);
         let load_pending = s.load.request.is_some() && s.load.buffer.is_none();
-        let callee_kind = self.engine.program.objects[call.callee].kind;
         // A report procedure from a caller no cell measured: its copy keeps main's view only where that is a fresh record's.
         let unmeasured_report = callee_kind == ObjKind::Report && measured.is_none();
         // The cells call from a codeunit, and `Buffer.Proc(Head)` also from a third table's OnInsert trigger
@@ -550,7 +574,7 @@ impl Session {
                 c.load.request = None;
                 c.view_assumption = Some(Assumption::ByValueReportProcedure);
             }
-            None if measured.is_some() && measured_view(&s, auto_calc_dropped || load_read) => {
+            None if measured.is_some() && measured_view(&s, auto_calc_dropped || load_read, item_view) => {
                 primary_view(&mut c);
                 if load_dropped {
                     c.load.request = None;
