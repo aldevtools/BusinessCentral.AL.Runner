@@ -397,19 +397,13 @@ fn flow_field_find<'a>(
     source: impl Fn(usize) -> Option<&'a al_ir::Table>,
 ) -> bool {
     // Each key field's filters are its one value, outside the OR group: one filter, or the same value in two groups (:5571).
-    fn value(f: &FieldFilter) -> Option<&Value> {
-        match &f.expr {
-            FilterExpr::Range(Some(a), Some(b)) if a.identical(b) => Some(a),
-            FilterExpr::Eq(a) => Some(a),
-            _ => None,
-        }
-    }
     let key = t.keys[0].iter().all(|k| {
         let on: Vec<&FieldFilter> = filters.iter().copied().filter(|f| f.field == *k).collect();
-        let first = on.first().and_then(|f| value(f));
+        let first = on.first().and_then(|f| one_value(&f.expr));
         matches!(on.len(), 1 | 2)
             && on.iter().all(|f| {
-                f.group != al_builtins::filter::OR_GROUP && value(f).zip(first).is_some_and(|(a, b)| a.identical(b))
+                f.group != al_builtins::filter::OR_GROUP
+                    && one_value(&f.expr).zip(first).is_some_and(|(a, b)| a.identical(b))
             })
     });
     let flow = |f: &FieldFilter| {
@@ -420,12 +414,12 @@ fn flow_field_find<'a>(
     matches!(form, Form::First | Form::Last) && key && flow_fields.iter().all(|f| flow(f))
 }
 
-/// One value: `SetRange(F, V)`, `SetFilter(F, V)` or a range from the value to itself.
-fn one_value(e: &FilterExpr) -> bool {
+/// The one value of `SetRange(F, V)`, `SetFilter(F, V)` or a range from the value to itself (:1834, :1850).
+fn one_value(e: &FilterExpr) -> Option<&Value> {
     match e {
-        FilterExpr::Range(Some(a), Some(b)) => a.identical(b),
-        FilterExpr::Eq(_) => true,
-        _ => false,
+        FilterExpr::Range(Some(a), Some(b)) if a.identical(b) => Some(a),
+        FilterExpr::Eq(a) => Some(a),
+        _ => None,
     }
 }
 
@@ -447,7 +441,7 @@ fn flow_filter_measured(e: &FilterExpr) -> bool {
         | F::Gt(_)
         | F::Ge(_)
         | F::EmptyViewValue => true,
-        F::Or(items) => items.iter().all(|i| one_value(i) || comparisons(i)),
+        F::Or(items) => items.iter().all(|i| one_value(i).is_some() || comparisons(i)),
         F::And(_) => comparisons(e),
         _ => false,
     }
@@ -456,8 +450,8 @@ fn flow_filter_measured(e: &FilterExpr) -> bool {
 /// One value or a `|` of values: the filters a measured `CalcFields` or `CalcSums` has (:6219, :6285).
 fn values_only(e: &FilterExpr) -> bool {
     match e {
-        FilterExpr::Or(items) => items.iter().all(one_value),
-        e => one_value(e),
+        FilterExpr::Or(items) => items.iter().all(|i| one_value(i).is_some()),
+        e => one_value(e).is_some(),
     }
 }
 
@@ -666,15 +660,6 @@ impl Session {
         Ok(plain && !self.tx.open.locked_tables.contains(&t.object) && !self.store_for(rec)?.is_virtual(t))
     }
 
-    /// The one value `f` is set to in filter group 0, by `SetRange(F, V)` or by `SetFilter(F, V)` alike (:1834, :1850).
-    fn one_value(f: &al_builtins::filter::FieldFilter) -> Option<&Value> {
-        match &f.expr {
-            FilterExpr::Range(Some(a), Some(b)) if f.group == 0 && a.identical(b) => Some(a),
-            FilterExpr::Eq(v) if f.group == 0 => Some(v),
-            _ => None,
-        }
-    }
-
     /// The primary key a `FindFirst` of `rec` reads as a row: one value on every primary-key field and no other filter.
     fn row_filter_key(rec: &Rec, t: &TableDef) -> Option<Vec<Value>> {
         let r = rec.borrow();
@@ -686,7 +671,7 @@ impl Session {
             .map(|field| {
                 let mut on = r.filters.iter().filter(|f| f.field == *field);
                 match (on.next(), on.next()) {
-                    (Some(f), None) => Self::one_value(f).cloned(),
+                    (Some(f), None) if f.group == 0 => one_value(&f.expr).cloned(),
                     _ => None,
                 }
             })
@@ -736,18 +721,23 @@ impl Session {
         }
     }
 
-    /// The tables the FlowFields `rec` filters on read (`flow_field_find` keys a read with them).
+    /// The tables the FlowFields `rec` filters on read (`flow_field_find` keys a read with them), once each, by object id: two
+    /// reads with the same key get their commit stamps in the same order, whatever order their filters were set in.
     fn flow_field_sources(&self, rec: &Rec, t: &TableDef) -> Vec<Arc<TableDef>> {
         let Some(schema) = self.engine.program.objects[t.object as usize].table.as_ref() else {
             return Vec::new();
         };
         let r = rec.borrow();
-        r.filters
+        let mut sources: Vec<Arc<TableDef>> = r
+            .filters
             .iter()
             .filter(|f| !t.fields[f.field].stored)
             .filter_map(|f| schema.fields[f.field].calc.as_ref())
             .filter_map(|c| self.engine.tables[c.table].clone())
-            .collect()
+            .collect();
+        sources.sort_by_key(|s| s.object);
+        sources.dedup_by_key(|s| s.object);
+        sources
     }
 
     fn committed(&mut self, rec: &Rec, cx: &AccessContext, t: &TableDef, pk: &[Value]) -> Result<Committed, Signal> {
@@ -806,6 +796,9 @@ impl Session {
         plain: bool,
         fresh: usize,
     ) -> Result<usize, Signal> {
+        if !self.query_cache_on() {
+            return Ok(fresh);
+        }
         let (form, answer) = match method {
             RecordOp::Count => (Form::Count, GroupAnswer::Count(fresh)),
             RecordOp::IsEmpty => (Form::Empty, GroupAnswer::Empty(fresh == 0)),
@@ -839,6 +832,9 @@ impl Session {
         method: RecordOp,
         fresh: Option<Vec<Value>>,
     ) -> Result<Option<Vec<Value>>, Signal> {
+        if !self.query_cache_on() {
+            return Ok(fresh);
+        }
         let form = match method {
             RecordOp::FindFirst => Form::First,
             RecordOp::FindLast => Form::Last,
