@@ -1152,13 +1152,14 @@ impl Session {
                 FactboxStep::CodedOk
             }
             (FactboxStep::CodedOk, TestCall::Other(PageMethod::Invoke), None) => step,
-            // A page of the shape of the page with code: one SetValue of a control without code, then as on the FactBox host
-            // (ListNewLineExtraCodeCodedPage.al).
+            // A page of the shape of the page with code: one SetValue of a control without code, then reads and OK only
+            // (ListNewLineExtraCodeCodedPage.al:762-809; review of al-runner PR 8834, 21:06Z: not the FactBox host's
+            // Previous and Close).
             (FactboxStep::Coded { steps: 0 }, TestCall::Write(i), None)
                 if root.borrow().coded_objects == super::state::CodedObjects::Extra
                     && self.control_without_code(&root, i) =>
             {
-                FactboxStep::Typed
+                FactboxStep::ExtraTyped
             }
             _ => {
                 root.borrow_mut().forget_code_inserted_line();
