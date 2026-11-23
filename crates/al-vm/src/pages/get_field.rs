@@ -51,10 +51,11 @@ impl Session {
         if self.is_request_page(st) {
             return not_found();
         }
-        self.get_field_page_measured(st)?;
+        // The page kind matters only for a control that has the id (`get_field_missing`).
         let Some(idx) = self.own_control_by_id(st, id)? else {
             return self.get_extension_field_by_id(st, id);
         };
+        self.get_field_page_measured(st)?;
         let engine = self.engine();
         let page = page_of(&engine, st);
         let ctl = &page.controls[idx];
@@ -74,8 +75,9 @@ impl Session {
         Ok(test_control_by_id(st.clone(), idx, by_id))
     }
 
-    /// The page kinds the cells call GetField on: a Card, a List, a Document (:1168), a CardPart and a ListPart opened as a
-    /// TestPage of their own (:856, :923), and a ListPart a TestPart shows (:611, :630). Every other one refuses.
+    /// The page kinds the cells find a control on by its id: a Card, a List, a Document (:1168), a CardPart and a ListPart
+    /// opened as a TestPage of their own (:856, :923), and a ListPart a TestPart shows (:611, :630). On every other one a
+    /// control's id refuses (an id no control has is not found there, `get_field_by_id`).
     fn get_field_page_measured(&self, st: &St) -> Result<(), Signal> {
         let engine = self.engine();
         let kind = engine.object_facts[st.borrow().object as usize].page_type.clone();
@@ -95,6 +97,39 @@ impl Session {
         unsupported("TestPage.GetField by a control id on a page kind no cell opens (not measured)")
     }
 
+    /// `GetField(id)` where no control of the page or of an extension has the id: not found on every page kind the cells open
+    /// (al-runner issue 8887; GetFieldByControlId.al:1631 a Worksheet, :1648 a ListPlus, :1665 a CardPart a TestPart shows,
+    /// :1682 a page without PageType, :1729 a RoleCenter, :1746 a NavigatePage, :1763 a StandardDialog, :1780 a
+    /// ConfirmationDialog, :1797 a HeadlinePart), under the entry where only those cells measure it; any other page kind
+    /// refuses.
+    fn get_field_missing(&self, st: &St) -> Result<(), Signal> {
+        if self.get_field_page_measured(st).is_ok() {
+            return Ok(());
+        }
+        let engine = self.engine();
+        let kind = engine.object_facts[st.borrow().object as usize].page_type.clone();
+        let other = |k: &str| matches!(&kind, Some(al_ir::PageType::Other(o)) if o == k);
+        let host = st.borrow().host.is_some();
+        let measured = match &kind {
+            Some(
+                al_ir::PageType::Worksheet
+                | al_ir::PageType::ListPlus
+                | al_ir::PageType::NavigatePage
+                | al_ir::PageType::StandardDialog
+                | al_ir::PageType::ConfirmationDialog,
+            ) => !host,
+            None => !host,
+            _ => (other("rolecenter") || other("headlinepart")) && !host || other("cardpart") && host,
+        };
+        if !measured {
+            return unsupported(
+                "TestPage.GetField with an id no control has, on a page kind no cell opens (not measured)",
+            );
+        }
+        assume(Assumption::TestPageGetFieldControlId);
+        Ok(())
+    }
+
     /// `GetField(id)` where no control of the page itself has the id: a field a page extension adds, by the extension's id and
     /// its name, is found on BC 27 and not found from BC 28 (`al_version::getfield_finds_extension_fields`;
     /// GetFieldByControlId.al:589, where BC 27 measured its Value only); any other id is not found.
@@ -112,6 +147,11 @@ impl Session {
             }
         }
         drop(engine);
+        if found.is_some() {
+            self.get_field_page_measured(st)?;
+        } else {
+            self.get_field_missing(st)?;
+        }
         let major = self.engine.target.as_ref().map_or(29, |t| t.bc.major);
         match (found, al_version::getfield_finds_extension_fields(major)) {
             (None, _) | (Some(_), Some(false)) => Err(error_code(

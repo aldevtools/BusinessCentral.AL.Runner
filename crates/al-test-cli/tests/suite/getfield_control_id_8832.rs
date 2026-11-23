@@ -53,18 +53,35 @@ fn probe_cells_pass_where_measured() {
 }
 
 /// The neighbors past the cells: Activate on what GetField found, which no cell calls, refuses, and so does Caption of what the
-/// Card's part control id gives, and GetField on a Worksheet page (BC finds the field there; no cell opens a Worksheet).
+/// Card's part control id gives, and GetField by a control's own id on a Worksheet, a ListPlus and a CardPart behind a TestPart
+/// (BC finds the field there; no cell finds a control on those page kinds).
 #[test]
 fn neighbors_past_the_cells_refuse() {
     let o = outcomes(&format!("{PROBE}\n{NEIGHBORS}"), "LT GFN Tests");
     let bad: Vec<_> = o
         .iter()
         .filter(|(n, r, _)| match n.as_str() {
-            "WorksheetGetField" => {
+            "WorksheetGetField" | "ListPlusOwnId" | "CardPartOwnId" => {
                 !matches!(r, Outcome::NotRun(why) if why.starts_with("TestPage.GetField by a control id on a page kind"))
             }
             _ => !matches!(r, Outcome::NotRun(why) if why.contains("on what TestPage.GetField found by a control id")),
         })
         .collect();
-    assert!(o.len() == 3 && bad.is_empty(), "{o:#?}");
+    assert!(o.len() == 5 && bad.is_empty(), "{o:#?}");
+}
+
+/// Al-runner issue 8887: an id no control has is not found on every page kind the cells open, a Worksheet, a ListPlus, a
+/// CardPart behind a TestPart, a page without PageType, a RoleCenter, a NavigatePage, a StandardDialog, a ConfirmationDialog
+/// and a HeadlinePart (:1631-:1797), and so is the id of another page's control on a Worksheet (the neighbor). Main refused
+/// them: it checked the page kind before the lookup.
+#[test]
+fn an_id_no_control_has_is_not_found_on_every_page_kind_measured() {
+    let src = format!("{PROBE}\n{NEIGHBORS}");
+    let mut o = outcomes(&src, "LT GFI Missing Tests");
+    o.extend(outcomes(&src, "LT GFN Missing Tests"));
+    let bad: Vec<_> = o
+        .iter()
+        .filter(|(_, r, marks)| *r != Outcome::Pass || *marks != [TestPageGetFieldControlId])
+        .collect();
+    assert!(o.len() == 10 && bad.is_empty(), "{o:#?}");
 }
