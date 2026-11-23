@@ -19,6 +19,8 @@
 //! is the one for Rename (the corpus answers 15, every bit; the bits 16 to 128 alone raise nothing); that the setup is asked once per table
 //! and session (AL Runner reads that in BC's `GetTriggersOnTable`); that `Insert(false)` and the
 //! other `RunTrigger = false` writes raise the database events too.
+//!
+//! Entry points: `global_setup`, `global_enabled`, `global_trigger`.
 
 use crate::Session;
 use crate::dispatch::EventCall;

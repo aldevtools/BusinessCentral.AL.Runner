@@ -4,6 +4,11 @@
 //! ([`crate::code_storage::pk_storage`]). Every key of a table carries the same storage, so two keys of one table always
 //! compare the same way. A key is made only from a table definition ([`Key::of`]) or from the storage a table already
 //! has ([`Key::in_table`], which an import takes from the exported table): no key is made without its table's order.
+//!
+//! The primary-key tuple `Key` and its table's order: every key of a table carries the storage of the
+//! primary key fields (`PkStorage`, Code stored as a number orders by number), and an export, freeze
+//! or row delta carries it with the rows (al-runner issue 7618). Entry points: `Key::of`,
+//! `Key::in_table`, `table_storage`. Unit tests: `memory/tests.rs`.
 
 use crate::{CodeStorage, TableDef, Value};
 use al_builtins::filter::key_cmp;

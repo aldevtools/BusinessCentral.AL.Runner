@@ -2,6 +2,8 @@
 //! `.bacpac` (Open Packaging) and a NAVX `.app` payload. Stored and deflated entries,
 //! zip64 sizes and offsets. Sizes come from the central directory only, so entries
 //! written with a trailing data descriptor read the same.
+//!
+//! Entry points: `ZipEntry`, `ZipIndex`.
 
 use crate::error::{Error, Result};
 use crate::io::{ByteSource, le};

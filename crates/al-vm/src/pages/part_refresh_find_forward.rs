@@ -1,6 +1,14 @@
 //! A ListPart that serves its rows from OnFindRecord reads its rows again from its first row after its own
 //! `CurrPage.Update(true)` in a control's OnValidate (al-runner issue 7820): the client asks OnFindRecord `=>`, not the `=><`
 //! of an open read.
+//!
+//! A ListPart with OnFindRecord on its first row read again after its own `CurrPage.Update(true)` in
+//! a field's OnValidate (al-runner issue 7820): the read asks `=>`, not the open read's `=><`
+//! (`PageState::part_refind_forward`, taken by `page_first_row`). Only for the reporter's repro: its
+//! pages, tables and trigger bodies line for line (`pinned_body.rs`), its calls, a changed value
+//! (`PageState::row_before_write`) and one or five rows, under the assumption `part-update-first-row-
+//! find-forward`; after it only reads and Close (`PinnedEnd`). Entry points:
+//! `part_reread_from_first_row` (by `part_update_host_unchanged` in `parts.rs`).
 
 use super::pinned_body::{Callees, Names, callees_are, page_is, table_is};
 use super::pinned_shape::{NextEnd, PartStep, PinnedEnd, PinnedPart, Reads, TestCall};

@@ -5,6 +5,10 @@
 //! - metadata/platform-tables/GetUrlCompany.al:67-77 and session-system/session/GetUrlShape.al:121-130 (company),
 //! - GetUrlObjects.al:62-91 and GetUrlShape.al:152-163 (object type and id),
 //! - GetUrlBookmarkFilter.al (bookmark of the key, filter text, UseFilters), GetUrlRecord.al, GetUrlRecordLayout.al.
+//!
+//! `GetUrl` for `ClientType::Web`, Default, Windows, Phone, Tablet, Desktop, Background, Management,
+//! NAS, SOAP, OData, ODataV4 and Api with a company, an object, a record bookmark or filters
+//! (ADR-042).
 
 use crate::Session;
 use crate::records::Rec;

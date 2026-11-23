@@ -1,4 +1,7 @@
 //! The key of a cache entry: every input of the compile of the dependency set.
+//!
+//! The key of an entry: every input of the compile of the dependency set, hashed without `..`. Entry
+//! points: `Key`, `Key::digest`, `AppKey`, `FORMAT`.
 
 use sha2::{Digest, Sha256};
 

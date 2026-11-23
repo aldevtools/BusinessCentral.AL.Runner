@@ -20,6 +20,9 @@
 //!   session-wide instance, so it is never gone.
 //! - Isolated events: each subscriber is its own transaction when nothing is
 //!   pending (codeunits/TestIsolatedEventSubscriberError.al).
+//!
+//! Event dispatch: publishers run their subscribers; EventCall; isolated events. Entry points:
+//! `publish`, `raise`, `event_targets`, `has_listeners`, `subscription`.
 
 use crate::Session;
 use al_builtins::describe::Describe;

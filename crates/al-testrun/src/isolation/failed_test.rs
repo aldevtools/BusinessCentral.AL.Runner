@@ -10,6 +10,15 @@
 //!
 //! Corpus PR 1465 (merged, not yet pinned; assumption `sequence-after-failed-test`) measured more under the runners of
 //! [`failed_test_runner_measured`]: what a failed test reached of the tables decides ([`CodeunitSequences::measured_leaves`]).
+//!
+//! What a failed test under TestIsolation = Codeunit leaves of the number sequences:
+//! `CodeunitSequences` (begun after OnRun, fed per test body by `noting_body` with its commits, its
+//! table access, al-vm `Session::data_access`, and whether it raised), main's rule, and the cells of
+//! corpus PR 1465 and the RecordRef cells of corpus PR 1468 under the runners of
+//! `failed_test_runner_measured` (assumption `sequence-after-failed-test`). The bindings a failed
+//! test leaves on a global of the test codeunit are kept in `runtime/run.rs` `left_bindings`
+//! (assumption `binding-after-failed-test`). Entry points: `CodeunitSequences`, `noting_body`,
+//! `failed_test_runner_measured`.
 
 use al_builtins::native::Signal;
 use al_vm::{DataAccess, SequenceStart, Session, TxModel};

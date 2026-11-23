@@ -1,3 +1,4 @@
+//! Control navigation, lookups, invoking actions, refresh after an action.
 use super::*;
 use al_builtins::page_op::PageMethod;
 use al_builtins::record_op::RecordOp;

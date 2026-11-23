@@ -1,6 +1,8 @@
 //! `Format(Value [, Length] [, FormatNumber])`. Every rule cites the corpus
 //! test or the doc table ("Formatting values, dates, and time") that pins it;
 //! where the two disagree the corpus wins (it runs on real BC).
+//!
+//! Entry points: `FormatCtx`, `FormatFail`, `try_format`, `format_value`.
 
 use crate::native::Signal;
 use crate::value::Value;

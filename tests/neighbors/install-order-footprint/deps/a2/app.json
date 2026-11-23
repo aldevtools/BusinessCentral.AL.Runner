@@ -1,0 +1,3 @@
+{ "id": "8d1a2b3c-0000-4000-8000-000000038056", "name": "Order Probe A2", "publisher": "Order Probe Co", "version": "1.0.0.0",
+  "platform": "27.0.0.0", "runtime": "15.0", "idRanges": [ { "from": 50940, "to": 50949 } ],
+  "dependencies": [ { "id": "8d1a2b3c-0000-4000-8000-000000018056", "name": "Order Probe P", "publisher": "Order Probe Co", "version": "1.0.0.0" } ] }

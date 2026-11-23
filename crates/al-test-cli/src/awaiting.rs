@@ -5,6 +5,15 @@
 //! files and fails with one message per assumption, "the pin landed: remove the assumption" when the pin agrees
 //! with the runtime, or "the pin contradicts the assumption: fix the code" when an awaited test fails. Some files
 //! present is a warning. `--summary` prints one line for a status report, the oldest entry first.
+//!
+//! `--awaiting-assumptions [--summary]`: the assumptions that wait for a corpus pin (`Info::awaiting`
+//! in `al-builtins/src/assumptions.rs`; one entry per file in `al-builtins/src/assumptions/<id>.rs`)
+//! against the pinned corpus. Every awaited file present: `main.rs` `awaiting_assumptions` runs those
+//! files and fails with "the pin landed: remove the assumption" or "the pin contradicts the
+//! assumption: fix the code"; some present is a warning. `tools/corpus_bump.sh` prints it after the
+//! baselines; `tests/awaiting_assumptions.rs` runs it in the normal suite (`AL_AWAITING_EXTRA`
+//! injects entries for its tests). Entry points: `with_extra`, `presence`, `verdict`, `message`,
+//! `summary`.
 
 use std::path::Path;
 

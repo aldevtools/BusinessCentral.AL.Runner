@@ -1,4 +1,6 @@
 //! Lowering of routines and statements.
+//!
+//! Entry points: `routine`, `stmt`, `assign`, `place`.
 use super::*;
 use al_syntax::ast::NodeText;
 

@@ -3,6 +3,12 @@
 //! Report Layout List's Description follows it), the thread-local Turkish `i` rule of Code conversions
 //! (`al_builtins::ops::set_turkic_code`, CaseConv.Codeunit.al:280-310) and the language a new field filter records
 //! (`al_builtins::filter::set_filter_language`). The value can only be made here, so every change keeps the copies in step.
+//!
+//! The session language (`GlobalLanguage`) and its one writer `Session::set_language`, which keeps
+//! the copies in step: `EventStats::language`, the thread-local Turkish `i` rule
+//! (`al_builtins::ops::set_turkic_code`) and the field filter language
+//! (`al_builtins::filter::set_filter_language`). `SessionLanguage` can only be made there; read it
+//! with `Session::global_language` (al-runner issue 7659).
 
 use crate::Session;
 

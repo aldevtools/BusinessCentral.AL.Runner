@@ -1,4 +1,6 @@
 //! Semantic model: a workspace of apps, their objects, and resolution.
+//!
+//! Crate root of the semantic model.
 
 pub mod alcodes;
 pub mod base_access;

@@ -7,6 +7,8 @@
 //!
 //! This crate turns values into bytes and back. It reads no files and runs no processes
 //! (ADR-006); the caller reads, writes and renames the file.
+//!
+//! Crate root of the compile cache format (ADR-022). Core crate: no OS access.
 
 mod format;
 mod index;

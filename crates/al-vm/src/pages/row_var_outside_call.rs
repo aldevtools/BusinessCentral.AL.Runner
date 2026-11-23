@@ -4,6 +4,11 @@
 //! row, and the part's control shows the value of its last read (testpage/parts/PartFilterExpressionControl.al:392
 //! Periods_ReadBeforeFilter_ThenFilter_ThenFirst `before` `item=I1` after the host moved to I2, :450
 //! Periods_FilterOneDay_HostMovesToNextItem `I3 no move` `item=I2` after the host moved to I3).
+//!
+//! A repeater's page-variable control after another page's code called a procedure of the page
+//! (`CurrPage.<part>.Page.X` in the host's OnAfterGetRecord): it shows what the row's last read
+//! noted. Entry points: `note_outside_page_call` (by `interp.rs` `call_site`), `row_var_shows_noted`
+//! (by `control_value`).
 
 use super::*;
 

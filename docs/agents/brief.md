@@ -13,7 +13,7 @@ finding goes into `docs/agents/recurring-findings.md` (and its examples file), n
    In the worktree: `git submodule update --init`.
 2. Run nothing in the main checkout. Every build, test and script runs in your worktree.
    Logs and scratch files go to your session's scratch folder, never into the repository.
-3. Read `docs/codemap.md` for your crates and the ADR your task names. Do not read all docs.
+3. Read `docs/codemap.md` (one line per module) for your crates and the ADR your task names. Before you change a file, read its `//!` header: it holds the detail the map leaves out. Do not read all docs.
    In a worktree, search with `grep -rn` on a real folder (`crates/`) and read with line ranges: the LSP tool's
    rust-analyzer indexes only the main checkout, so `findReferences` and call queries return nothing or wrong results
    in a worktree (measured 2026-11-11). Read-only work in the main checkout may use the LSP tool (`documentSymbol`,

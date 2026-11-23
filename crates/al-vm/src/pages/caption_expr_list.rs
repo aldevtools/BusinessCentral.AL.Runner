@@ -1,4 +1,7 @@
 //! The caption a TestPage shows for a List, Worksheet or ListPart with `DataCaptionExpression` (gap G5-18).
+//!
+//! The caption of a List, Worksheet or ListPart with DataCaptionExpression (gap G5-18). Entry points:
+//! `list_data_caption_expression_caption`, `data_caption_expression_value`.
 
 use super::*;
 

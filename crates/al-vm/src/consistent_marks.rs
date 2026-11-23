@@ -4,6 +4,10 @@
 //! (errors/CuCommitTests.al:393-401, :422-433). `Consistent(true)` on another variable of the table does not: a guarded
 //! `Codeunit.Run` after it still raises the inconsistency error (errors/ConsistentGuardedRun.al:272-289). What a Commit
 //! does after that is not pinned, nor is any other call on a mark by another variable.
+//!
+//! the tables `Record.Consistent(false)` marks, per record variable, and the inconsistency error a
+//! guarded `Codeunit.Run` raises as it ends. Entry points: `Session::set_consistent`,
+//! `guarded_run_end_marks`.
 
 use crate::Session;
 use crate::records::Rec;

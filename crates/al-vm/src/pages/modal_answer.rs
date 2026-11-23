@@ -1,5 +1,8 @@
 //! The `Action` a modal page reports: the built-in action a close asks for, mapped for lookup mode, and what a page reports when its
 //! handler invoked nothing (moved out of `rows.rs`).
+//!
+//! The `Action` a modal page reports: `close_action` (the built-in action a close asks for, mapped
+//! for lookup mode) and `unattended_action` (a handler that invoked nothing).
 
 use super::*;
 

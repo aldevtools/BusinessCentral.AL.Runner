@@ -8,6 +8,8 @@
 //! `<Hours12,2>`, `<Minutes,2>`, `<Seconds,2>` and `<AM/PM>` on dates and times
 //! (types/TestDateRoundFormatStringContracts.al:Format_PictureCodes; testpage/TestPageTemporalSetValue_Page.al:47-65).
 //! Any other code, or one of these on another type or in another width, is refused.
+//!
+//! Entry points: `format_with_string`.
 
 mod second_dec;
 mod separators;

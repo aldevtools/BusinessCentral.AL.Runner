@@ -4,6 +4,19 @@
 //! `registry` (the id tables and lookup), `unpinned` (the marks of error texts no test pins), `args` (argument
 //! readers), and the builtins themselves by area (`format_fns`, `error_fns`, `messages`, `strings`, `session_fns`,
 //! `enum_fns`, `values`). Every public item is re-exported here, so callers use `native::name`.
+//!
+//! Native builtin implementations, registered by catalog overload id (ADR-008); re-exports every
+//! public item, so callers use `native::name`. Submodules: `error` (`AlError`, `Signal`, `raise`,
+//! `unsupported`: the one refusal helper, ADR-071; `raise_same_text`, `with_origin`: the
+//! `ErrorOrigin` a measured raise site sets for GetLastErrorText(true)), `ctx` (the `Ctx` trait),
+//! `registry` (id tables, `lookup`, `by_id`), `unpinned` (marks of unpinned error texts), `args`
+//! (`text_of`, `int_arg`), `error_fns` (GetLastError*, Error), `messages` (Message, Confirm,
+//! `substitute`), `format_fns` (Format), `strings` (StrLen, CopyStr, StrSubstNo, case), `session_fns`
+//! (StartSession, LogMessage, ExecutionContext), `enum_fns`, `values` (Abs, Clear, ToText), `dialog`,
+//! `variant_is` (Variant.IsTransactionType, IsDataClassificationType, IsSecurityFiltering, IsOption
+//! and `Variant.FromTransactionType`: a value whose declared type is TransactionType carries
+//! `sysenum::transaction_type_members`, compared by identity; pinned by
+//! types/variant/VariantIsMatrix.al), `tests`.
 
 mod args;
 mod ctx;

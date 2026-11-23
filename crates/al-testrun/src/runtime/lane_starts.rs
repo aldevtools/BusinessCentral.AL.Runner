@@ -18,6 +18,14 @@
 //!   from its own copy of the install baseline. It holds one carried start at a time (the memory rule of issue 6924).
 //! - A start whose delta cannot be made (a row that is not a plain value, other company copies) goes as whole bytes,
 //!   as before ([`Starts`]).
+//!
+//! the carried starts of the serial sessions on worker threads (ADR-066 amendment 5, decision 5;
+//! issue 6924). `Deltas` makes each carry's start once on the main thread as an `al_vm::RowDelta`
+//! from the carry before it (within `DELTA_BUDGET`); `carried_start` on a worker walks forward from
+//! the start it holds (`Held`) or its install copy; `Starts` writes a start whole as bytes when it
+//! has no delta. Row diff and apply: `al_vm` `baseline/row_delta.rs` (`Baseline::row_delta_from`,
+//! `with_row_delta`, `empty`) over `al_data` `memory/row_changes.rs`
+//! (`MemStore::committed_row_changes_from`, `with_committed_row_changes`).
 
 use super::chain_walk::Carry as ChainCarry;
 use super::*;

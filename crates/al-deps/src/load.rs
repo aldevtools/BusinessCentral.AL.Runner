@@ -3,6 +3,8 @@
 //! The pool of packages is the project's `.alpackages` first, then any extra
 //! directories (`--deps`). Downloading from the artifact feed is a later
 //! fallback and is not here yet.
+//!
+//! Entry points: `parse_app_json`, `read_package_at`, `scan_dir`.
 
 use crate::package::{
     Manifest, PackageError, Sources, Vars, manifest_of_source_zip, read_info_with, read_package_with,

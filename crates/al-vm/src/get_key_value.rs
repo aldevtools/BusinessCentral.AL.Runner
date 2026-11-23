@@ -1,6 +1,11 @@
 //! The primary key `Record.Get` looks for: each value handed to it, converted to the type of its key field, and the value of
 //! each key field it omits. Also the key values the not-found error names. The Get arm of `records/op_inner.rs` and the
 //! permission check of `permissions.rs` build the key here and nowhere else.
+//!
+//! The primary key a `Record.Get` looks for (each given value converted to its key field's type; an
+//! omitted key field is its InitValue for an Integer, else the blank of a pinned type, other shapes
+//! refuse) and the key values its not-found error names. Used by the Get arm of `records/op_inner.rs`
+//! and by `permissions.rs`. Entry points: `get_key`, `get_not_found_ident`, `get_key_value`.
 
 use crate::Session;
 use al_builtins::native::{Signal, unsupported};

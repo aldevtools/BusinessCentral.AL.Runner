@@ -1,5 +1,8 @@
 //! Members of objects: table fields (with extensions merged), enum values
 //! (with extensions merged), and procedure signatures.
+//!
+//! Members of objects: table fields (extensions merged), enum values, procedure signatures. Entry
+//! points: `MemberTable`, `build`, `FieldInfo`, `ProcSig`.
 
 use crate::types::Ty;
 use crate::workspace::{ObjKind, Workspace};
