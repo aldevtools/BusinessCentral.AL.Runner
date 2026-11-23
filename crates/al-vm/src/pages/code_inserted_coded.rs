@@ -70,12 +70,13 @@ impl Session {
 
     /// Whether host `st`, whose code is not the probe's or the repro's, has their shape as ListNewLineExtraCodeCodedPage.al
     /// measures it (`CodedObjects::Extra`): a List page with AutoSplitKey, no page extension and no subscriber, whose triggers
-    /// are among OnOpenPage, OnAfterGetRecord and OnDeleteRecord; a table without OnInsert, OnModify, OnDelete and OnRename
-    /// (`no_record_trigger`); three CardPart FactBoxes, each linked by a SubPageLink of each field of the primary key to
-    /// itself, no SubPageView and no Provider, whose triggers are among OnAfterGetRecord, OnAfterGetCurrRecord and
-    /// OnPageBackgroundTaskCompleted.
+    /// are among OnOpenPage, OnAfterGetRecord and OnDeleteRecord; a table without OnModify and OnRename (`no_save_trigger`;
+    /// OnInsert and OnDelete measured by ListNewLineExtraCodeCodedTableTriggers.al); three CardPart FactBoxes, each linked by a
+    /// SubPageLink of each field of the primary key to itself, no SubPageView and no Provider, whose triggers are among
+    /// OnAfterGetRecord, OnAfterGetCurrRecord, OnPageBackgroundTaskCompleted and OnPageBackgroundTaskError (measured by
+    /// ListNewLineExtraCodeCodedTaskError.al).
     fn coded_extra_shape(&self, st: &St) -> Result<bool, Signal> {
-        if !(self.is_list_page(st) && self.unextended_unsubscribed(st) && self.no_record_trigger(st)) {
+        if !(self.is_list_page(st) && self.unextended_unsubscribed(st) && self.no_save_trigger(st)) {
             return Ok(false);
         }
         let key = self.table(&self.page_rec(st))?.keys[0].clone();
@@ -109,6 +110,7 @@ impl Session {
                     "onaftergetrecord",
                     "onaftergetcurrrecord",
                     "onpagebackgroundtaskcompleted",
+                    "onpagebackgroundtaskerror",
                 ]
                 .contains(&n.as_str())
             });
@@ -169,8 +171,15 @@ impl Session {
     /// The test's `call` on host `st`, before it runs. After the open of `coded_open_on_empty_view`, the first SetValue of a
     /// control of the host after `New()` lets the parts read the new line first, OnAfterGetCurrRecord on the blank record (:1407
     /// `setname=W.AGCR();T.VN(Station);...`), and the validation must then land (`coded_must_have_landed`); any other call
-    /// ends the steps.
+    /// ends the steps. After a validation error before the landing (`CodedLine::Failed`) every call on the page or its parts is
+    /// refused: the cell's error leaves the handler (ListNewLineExtraCodeCodedTableTriggers.al:746).
     pub(super) fn coded_line_before_set_value(&mut self, st: &St, call: Option<TestCall>) -> Result<(), Signal> {
+        if call.is_some() && Self::tree_root(st).0.borrow().coded_line == CodedLine::Failed {
+            return unsupported(
+                "a call on a List page with code and FactBoxes after the validation of its first SetValue raised an error before \
+                 the landing (not measured)",
+            );
+        }
         if st.borrow().coded_line != CodedLine::EmptyOpen {
             return Ok(());
         }

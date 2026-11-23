@@ -198,6 +198,9 @@ pub enum CodedLine {
     LineRead,
     /// It landed: `code_inserted_row` holds the steps after it, until the page closes.
     Landed,
+    /// The first SetValue's validation raised an error before the landing (`CodedObjects::Extra`): the error reaches the test,
+    /// and any later call on the page is refused.
+    Failed,
 }
 
 /// Whose objects the page with code (`code_inserted_coded.rs`) is, line for line (`code_inserted_pinned.rs` `coded_code`).

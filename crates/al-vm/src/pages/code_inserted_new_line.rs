@@ -631,6 +631,18 @@ impl Session {
                     Some(FactboxStep::CodedTyped { .. })
                 )
         };
+        // On a page of the page-with-code shape with other code, an error before the landing (OnInsert's, at the table field's
+        // insert) reaches the test, and leaves the handler (ListNewLineExtraCodeCodedTableTriggers.al:746): a later call on
+        // the page is refused (`coded_line_before_set_value`).
+        let extra_line_read = {
+            let s = st.borrow();
+            s.coded_line == CodedLine::LineRead && s.coded_objects == super::state::CodedObjects::Extra
+        };
+        if matches!(e, Signal::Error(_)) && extra_line_read {
+            st.borrow_mut().forget_code_inserted_line();
+            st.borrow_mut().coded_line = CodedLine::Failed;
+            return e;
+        }
         if matches!(e, Signal::Error(_))
             && let Err(refused) = self.coded_must_have_landed(st)
         {

@@ -43,16 +43,21 @@ fn issue_8826_probe_cells() {
 }
 
 /// Code just past the cells keeps a refusal: a page that also declares OnAfterGetCurrRecord, a part whose OnAfterGetRecord
-/// writes another table, a control that writes another table before the save, and a part that declares
-/// OnPageBackgroundTaskError. The neighbors use the probe's table and parts, so they compile with it.
+/// writes another table, and a control that writes another table before the save. A part that declares
+/// OnPageBackgroundTaskError runs, flagged, with BC's answer (ListNewLineExtraCodeCodedTaskError.al measures the trigger). The
+/// neighbors use the probe's table and parts, so they compile with it.
 #[test]
-fn issue_8826_neighbors_are_refused() {
+fn issue_8826_neighbors() {
     let o = super::outside_fb_8712::outcomes(&format!("{PROBE}\n{NEIGHBORS}"), "LT NG2 Tests");
     assert_eq!(o.len(), 4);
     let ran: Vec<_> = o
         .iter()
         .filter(|(_, r, _)| !matches!(r, Outcome::NotRun(_)))
-        .map(|(name, r, _)| format!("{name}: {r:?}"))
+        .map(|(name, r, marks)| format!("{name}: {r:?} {}", marks.contains(&ListNewLineExtraCodeCoded)))
         .collect();
-    assert!(ran.is_empty(), "{ran:#?}");
+    assert_eq!(
+        ran,
+        ["NewLine_PartWithBackgroundTaskError_ShowsAndSavesTheRow: Pass true"],
+        "{ran:#?}"
+    );
 }

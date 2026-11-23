@@ -384,6 +384,13 @@ impl Session {
         Ok(())
     }
 
+    /// Whether page `st` belongs to a page of the page-with-code shape with other code (`CodedObjects::Extra`) on its steps.
+    fn coded_extra_task(&self, st: &St) -> bool {
+        let (root, _) = Self::tree_root(st);
+        let r = root.borrow();
+        r.coded_line != super::state::CodedLine::Off && r.coded_objects == super::state::CodedObjects::Extra
+    }
+
     /// Runs the tasks the page enqueued, oldest first, each to its end: the completion trigger gets the
     /// worker's result, the error trigger its error. An error nobody marks as handled in
     /// `OnPageBackgroundTaskError` tears the page down, and what the caller sees is the closed page,
@@ -404,9 +411,12 @@ impl Session {
             // worker counts the rows the table field wrote and BC answers them (`U.DONE(2)`).
             let watch = {
                 let (root, _) = Self::tree_root(st);
-                let r = root.borrow();
-                r.coded_line != super::state::CodedLine::Off && r.coded_objects != super::state::CodedObjects::Extra
-            };
+                root.borrow().coded_line != super::state::CodedLine::Off
+            } && !self.coded_extra_task(st);
+            // On that page the cells' completion and error triggers set what the part shows, and ask no refresh
+            // (ListNewLineExtraCodeCodedTaskError.al:567, :578): a trigger that calls CurrPage.Update is not measured.
+            let extra = self.coded_extra_task(st);
+            let asked = st.borrow().refresh.asked_by_update();
             match self.bg_run_worker(codeunit, params, watch)? {
                 Ok(results) => {
                     let r = self.bg_completed(st, id, &results);
@@ -442,12 +452,25 @@ impl Session {
                         e.code = format!("{}:TargetInvocation", e.code);
                         return Err(Signal::Error(Box::new(e)));
                     }
+                    if !handled && self.coded_extra_task(st) {
+                        // A page of the page-with-code shape whose part leaves its task's error unhandled: the worker's own text
+                        // reaches the test (ListNewLineExtraCodeCodedTaskError.al, `Task failed`).
+                        st.borrow_mut().bg_tasks.clear();
+                        return Err(Signal::Error(Box::new(e)));
+                    }
                     if !handled {
                         st.borrow_mut().bg_tasks.clear();
                         self.mark_closed(st);
                         return Err(error(NOT_OPEN));
                     }
                 }
+            }
+            if extra && !asked && st.borrow().refresh.asked_by_update() {
+                st.borrow_mut().forget_code_inserted_line();
+                return unsupported(
+                    "a page background task's completion or error trigger called CurrPage.Update on a List page of the page-with-code \
+                     shape (not measured)",
+                );
             }
         }
     }
