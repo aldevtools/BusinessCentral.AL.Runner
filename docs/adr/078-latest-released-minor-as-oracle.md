@@ -1,6 +1,6 @@
 # ADR-078: The oracle is the latest released minor of each major; minor-level preprocessor symbols
 
-- Status: Proposed
+- Status: Accepted (owner, 2026-11-23, with the answers recorded in the decision)
 - Date: 2026-11-23
 - Related: [ADR-007](007-oracle-and-ratchet.md) (oracle and ratchet), [ADR-015](015-version-independent-runtime.md)
   (one runtime for every BC major: Q1 "newest minor", 3.4 gates, 3.9 `corpus_symbols`),
@@ -39,7 +39,10 @@ Code that already tells minors apart today does it without the preprocessor: `al
 
 ## Decision
 
-The owner decided points 1 and 2 on 2026-11-23. Points 3 to 5 are the proposals that follow from them.
+The owner decided points 1 and 2 on 2026-11-23 and accepted points 3 to 5 the same day, with four answers: minor
+symbols come from one list of released minors (point 3); each oracle leg pins one exact build, and the sweep runs
+the newest builds (points 2 and 5); a minor bump waits until the runner matches every behavior change (consequence
+item 3); the runner does not run the sweep minors for now (point 2).
 
 ### 1. The oracle leg of a major is its latest released minor
 
@@ -64,7 +67,11 @@ The owner decided points 1 and 2 on 2026-11-23. Points 3 to 5 are the proposals 
 - The sweep is not the oracle. It never blocks a merge, a bump or a pull request. Its results are not copied into
   `oracle/`.
 - Its results may be published in the public corpus repo, insider results included (owner, 2026-11-23).
+- It always runs the newest build of every minor and of each insider build (owner: "the point of the weekly is to
+  always run the latest"). The oracle legs pin one build each (point 5); the sweep does not.
 - It replaces the drift check of ADR-015 Q1 (the other minors compared with the oracle leg of their major).
+- The runner does not run the sweep's minors for now (owner, 2026-11-23). The corpus sweep is the only check of
+  older minors.
 - It shows the next minor's differences before the release, so the minor bump pull request can be prepared early.
 
 ### 3. Minor-level preprocessor symbols: `BC<major>_<minor>PLUS`
@@ -78,31 +85,39 @@ reads the name as one symbol.
 
 **No `_0` form.** `BC29PLUS` already means 29.0 or later. One name per version.
 
+**One list of released minors** (owner, 2026-11-23). The corpus keeps one data file that lists every released
+minor from 27.0 (today: 27.0 to 27.5, 28.0 to 28.5, 29.0 and 29.1). The minor bump pull request adds the new minor
+to it. Nothing else lists minors: the CI matrix, the sweep and the symbols are all derived from it.
+
 **Which symbols a version gets.** All symbols of versions at or below it, in plain version order:
 
 - `BC<n>PLUS` for every major `n` from 27 to the version's major (unchanged);
-- `BC<n>_<m>PLUS` for the version's own major `n` and every minor `m` from 1 to the version's minor;
-- `BC<n>_<m>PLUS` for every older major `n` from 27 and every minor `m` from 1 to 9.
+- `BC<n>_<m>PLUS` for every released minor `n.m` with `m` of at least 1 that is at or below the version;
+- for a version not in the list (an insider build), also its own `BC<n>_<m>PLUS` when its minor is at least 1.
 
-Examples:
+Examples, with today's list:
 
 | Version | Symbols |
 |---|---|
 | 27.0 | `BC27PLUS` |
 | 27.5 | `BC27PLUS`, `BC27_1PLUS` … `BC27_5PLUS` |
-| 29.0 | `BC27PLUS` … `BC29PLUS`, `BC27_1PLUS` … `BC27_9PLUS`, `BC28_1PLUS` … `BC28_9PLUS` |
+| 29.0 | `BC27PLUS` … `BC29PLUS`, `BC27_1PLUS` … `BC27_5PLUS`, `BC28_1PLUS` … `BC28_5PLUS` |
 | 29.1 | as 29.0, plus `BC29_1PLUS` |
-| 30.0 (insider) | as 29.0, plus `BC29_1PLUS` … `BC29_9PLUS` and `BC30PLUS` |
+| 29.2 (insider) | as 29.1, plus `BC29_2PLUS` |
+| 30.0 (insider) | as 29.1, plus `BC30PLUS` |
 
-Why older majors get all minors up to 9: 30.0 is later than 29.1, so `BC29_1PLUS` must hold on 30.0. Otherwise the
-common shape "29.0 changed it, 29.1 reverted it", written `#if BC29PLUS and not BC29_1PLUS`, would select the 29.0
-values on 30.0. Nine is the upper bound of a minor for this rule. A version whose minor is above 9 is refused by
-`corpus_symbols` (an error, not a guess) until the bound is raised.
+Why version order across majors: 30.0 is later than 29.1, so `BC29_1PLUS` must hold on 30.0. Otherwise the common
+shape "29.0 changed it, 29.1 reverted it", written `#if BC29PLUS and not BC29_1PLUS`, would select the 29.0 values on
+30.0. An older major that gets a later minor (a 28.6 released after 29.0) adds `BC28_6PLUS` to the list, and from
+then on every 29 and 30 version gets it too.
 
 **Where the rule lives.**
 
-- `al_version::corpus_symbols` takes a `BcVersion` (major and minor) instead of a major. It stays the one runner
-  function for the rule (ADR-015 3.9). Every caller passes the run's target version. A third-party app still gets
+- `al_version::corpus_symbols` takes a `BcVersion` (major and minor) and the list of released minors instead of a
+  major. It stays the one runner function for the rule (ADR-015 3.9) and stays pure (ADR-006). Every caller passes
+  the run's target version.
+- The runner keeps no list of its own. The corpus results manifest (ADR-077 decision 4) records the list. The bump
+  copies it into `oracle/oracle.toml` (`released_minors`), and `al-test-cli` passes it to `corpus_symbols`. A third-party app still gets
   only its own `preprocessorSymbols` and `--define`; AL Runner defines no symbol for it (ADR-052 3.4).
 - The corpus computes the symbols in one script that both `ci.yml` (job `prepare`, both the default matrix and the
   `bc_version` override, which today loops over 27 to 29) and `nightly-windows.yml` call. Today three places type or
@@ -119,12 +134,12 @@ reverted is two gates, or a gate with an end version. `gate_completeness` learns
 minor symbol must be cited by a gate of that minor. Today it skips such a name without failing, because it expects
 `PLUS` right after the digits. The `no_version_literals` test learns the new form too.
 
-### 4. Version-neutral required check names in the corpus (recommendation)
+### 4. Version-neutral required check names in the corpus
 
 The corpus master ruleset requires the checks "BC 29.0 / test", "BC OnPrem 29.0 / test" and the other legs by their
 minor (corpus `bc-leg.yml` header). Every minor bump would then need a ruleset change by the owner at merge time.
 
-Recommendation: name the CI jobs by major ("BC 29 / test", "BC OnPrem 29 / test", "BC OnPrem DotNet 29 / test",
+Decision: name the CI jobs by major ("BC 29 / test", "BC OnPrem 29 / test", "BC OnPrem DotNet 29 / test",
 "BC TestLibraries 29 / test", "BC TryWrites 29 / test"). The job name uses a `major` field of the matrix entry; the
 minor stays in the matrix and in the job's log and artifact. The ruleset changes once. A minor bump then needs no
 ruleset change.
@@ -135,14 +150,14 @@ therefore takes each leg's minor from the run's manifest, not from a list in the
 ### 5. One pinned build per oracle leg
 
 ADR-077 found that the corpus pins the build for 29.0 only, and 27.5 and 28.5 take the newest build of the minor.
-Proposal: the corpus pins one build per oracle leg (`provenance.py`, `PINNED`, one entry per leg), and the minor bump
-pull request moves the pin. A new build inside a minor moves the pin through a corpus pull request of its own. The
-oracle then changes only on purpose. The weekly sweep runs the newest build of each minor and shows when a new build
-differs. (Open question 2.)
+Decision (owner, 2026-11-23): each oracle leg pins one exact build (`provenance.py`, `PINNED`, one entry per leg).
+Only a bump pull request moves a pin: the minor bump pull request, or a corpus pull request that moves a leg to a
+newer build of the same minor. The oracle then changes only on purpose. The weekly sweep always runs the newest
+build (point 2), so it shows when a newer build differs from the pinned one.
 
 ## Runner-side consequences (named, not built here)
 
-Each item is its own pull request after this ADR is accepted. Nothing changes before the corpus switch.
+Each item is its own pull request. Nothing changes before the corpus switch.
 
 1. **`tools/corpus_bump.sh`**: `legs="27.5 28.5 29.0"` (line 46), the `*_id[29.0]` lines near 408-411 and the header
    (line 8) go. The legs come from the manifest by major (point 4). `tools/corpus_bump_pr.py` `LEGS` (line 32) and
@@ -154,8 +169,10 @@ Each item is its own pull request after this ADR is accepted. Nothing changes be
 3. **Metrics re-baseline under ADR-065 and hard rule 2**: `metrics/29/not-passing*.txt` and `work.json` are
    re-recorded by the bump. A case that passed against the 29.0 oracle must not be added to a not-passing list because
    29.1 changed it. For class 1 the corpus rewrite removes the pinned value, so the runner needs no change. For classes
-   2 and 3 the runner change that serves the 29.1 result lands before or with the bump. If it cannot, the switch waits.
-   (Open question 3.)
+   2 and 3 the runner change that serves the 29.1 result lands before or with the bump. Until the runner matches every
+   behavior change, the minor bump waits. There are no not-passing exceptions for a minor bump (owner, 2026-11-23;
+   hard rule 2 stays whole). The sweep's insider results give the lead time to do the runner work before the
+   release.
 4. **`crates/al-version`**:
    - `corpus_symbols(major)` becomes `corpus_symbols(&BcVersion)`; callers in `al-test-cli` (`main.rs:1104`,
      `mnc.rs`, `windows_language.rs`, `coverage.rs`), the examples and the `al-sema` tests follow.
@@ -175,8 +192,8 @@ Each item is its own pull request after this ADR is accepted. Nothing changes be
 7. **The local observation host** that serves probes for major 29 runs 29.1, so new probes measure the oracle minor.
 
 The order of the switch: (1) the 63 corpus tests are fixed with guards or rewrites, as corpus pull requests;
-(2) the runner changes of item 3 land; (3) this ADR is accepted; (4) the corpus switches `ci.yml` to 29.1 and renames
-the required checks (point 4); (5) the runner bumps to the first green 29.1 master run. ADR-077 needs no change for
+(2) the runner changes of item 3 land; (3) the corpus switches `ci.yml` to 29.1 and renames
+the required checks (point 4); (4) the runner bumps to the first green 29.1 master run. ADR-077 needs no change for
 this: the first master run on a new build is a full run, so no result of 29.0 is reused for 29.1.
 
 ## Options considered
@@ -196,10 +213,12 @@ this: the first master run on a new build is a full run, so no result of 29.0 is
 - The runner follows the BC version users run, one minor after Microsoft releases it.
 - Every minor release costs one corpus pull request and the runner work for its class 2 and 3 differences. The weekly
   sweep's insider results let that work start before the release.
+- The corpus pull request that adds a released minor to the list changes the symbol set of every later version. The
+  bump check of the manifest catches a runner that has not taken the new list.
 - Behavior of an older minor (for example 29.0's page part refresh) stays in the corpus as the guarded branch, cited
   by a gate, but no oracle checks it after the switch. The weekly sweep is the only check. A runner user who runs
   `--bc-version 29.0` gets that behavior from a pin that the oracle no longer checks.
-- The symbol set grows by nine names per older major. 29.1 gets 22 symbols. The compile time cost is a set lookup per
+- The symbol set grows by one name per released minor. 29.1 gets 14 symbols. The compile time cost is a set lookup per
   `#if`.
 - `corpus_symbols` and `Gate` change their signature. Every caller changes in one pull request.
 - A minor bump with an unfinished runner change blocks the switch (consequence item 3). This is the price of keeping
@@ -207,32 +226,21 @@ this: the first master run on a new build is a full run, so no result of 29.0 is
 
 ## Conformance
 
-- `al-version` unit tests: `corpus_symbols` for 27.0, 27.5, 29.0, 29.1 and 30.0 give the sets in the table of point 3;
-  a minor of 10 is refused.
+- `al-version` unit tests: `corpus_symbols` with today's list gives, for 27.0, 27.5, 29.0, 29.1, 29.2 and 30.0, the
+  sets in the table of point 3; a 28.6 added to the list appears on 29.0 and 30.0.
 - `gate_completeness.rs`: a fixture with `#if BC29_1PLUS` and no gate of 29.1 fails; with the gate it passes.
 - `corpus_bump_combined.rs` (or a new `corpus_bump_minor.rs`, with the fake `gh`): a manifest whose symbols differ from
   `corpus_symbols` is refused; a bump whose manifest names 29.1 while `bc_build` stays 29.0 is refused; the legs are
   read from the manifest.
 - `tools/tests/test_compile_legs.py`: the symbols come from `al-test-cli --print-symbols`.
 
-## Open questions for the owner
-
-1. **Upper bound of a minor.** This ADR defines older-major minor symbols up to 9. Is 9 right, or should it follow a
-   list of released minors kept in `al-version`?
-2. **Build pin per leg.** Pin one build per oracle leg (point 5), or take the newest build of the minor as 27.5 and
-   28.5 do today? Pinning keeps the oracle stable between bumps; the newest build follows Microsoft's hotfixes sooner.
-3. **A minor bump with an unfinished runner change.** May the minor bump add not-passing lines for class 3 cases, with
-   the owner's OK each time and a follow-up issue, or does the switch always wait (the default in this ADR)?
-4. **The runner's own weekly run.** Should the runner also run the sweep's minors weekly and report differences, as
-   information only, so behavior of older minors keeps a check?
-
 ## Amendment notes for other ADRs
 
-Each line is added to the named ADR when this ADR is accepted.
+Each line is added to the named ADR in a follow-up pull request.
 
 - **ADR-052**: "Amended by ADR-078 (2026-11-23): the matrix examples name 29.1 for the 29 leg, and Microsoft's run
   and the recipe artifact are both 29.1 after the switch."
 - **ADR-077**: "Amended by ADR-078 (2026-11-23): the corpus pins one build per oracle leg (27.5, 28.5, 29.1), not 29.0
-  only, and the results manifest records the preprocessor symbols of each version."
+  only, and the results manifest records the preprocessor symbols of each version and the list of released minors."
 - **ADR-015**: "Amended by ADR-078 (2026-11-23): 3.9 `corpus_symbols` takes a version and adds `BC<n>_<m>PLUS`; 3.4
   gates may key on a minor; the drift check of Q1 is the corpus's weekly sweep."
