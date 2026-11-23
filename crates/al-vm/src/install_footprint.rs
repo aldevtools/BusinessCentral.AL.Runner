@@ -13,8 +13,10 @@
 //!   files, StartSession, TaskScheduler and so a Job Queue run, DataTransfer, XMLports), a table served by a provider
 //!   (the store), a whole-store read or a company change (the store), an impact trace that was already on.
 //!
-//! Not yet recorded, so no verdict may rest on a footprint until each counts as a conflict (ADR-079 migration step 1):
-//! a read of the SystemRowVersion field, and a write the recorder missed (the safety-net diff of the stores).
+//! - the row version read by the SystemRowVersion field: the routines the session ran (`install_footprint_row_version.rs`).
+//!
+//! Not yet recorded, so no verdict may rest on a footprint until it counts as a conflict (ADR-079 migration step 1):
+//! a write the recorder missed (the safety-net diff of the stores).
 
 use al_data::memory::{Resource, StoreFootprint};
 use std::collections::BTreeSet;
@@ -191,9 +193,7 @@ const KEPT_RECEIVERS: &[&str] = &[
 /// Whether builtin `name` (`Receiver.Method#n`) touches everything while an install session is recorded
 /// ([`KEPT_RECEIVERS`]). Of `NavApp`, the module info reads are kept (`GetModuleInfo` notes the app it reads); of
 /// `Session`, every method but the ones that start, stop or look at another session.
-fn builtin_touches_everything(name: &str) -> bool {
-    let (receiver, method) = name.split_once('.').unwrap_or((name, ""));
-    let method = method.split('#').next().unwrap_or(method);
+fn builtin_touches_everything(receiver: &str, method: &str) -> bool {
     match receiver {
         "NavApp" => !matches!(method, "GetModuleInfo" | "GetCurrentModuleInfo" | "GetCallerModuleInfo"),
         "Session" => matches!(
@@ -222,10 +222,12 @@ impl crate::Session {
         }
         self.store.footprint_start();
         *self.coverage.install_footprint.borrow_mut() = Some(Box::new(Recording { fp }));
+        self.coverage.footprint_on = true;
     }
 
     /// Stops recording and gives the footprint (`None` when none was recorded).
     pub fn install_footprint_take(&mut self) -> Option<InstallFootprint> {
+        self.coverage.footprint_on = false;
         let rec = self.coverage.install_footprint.borrow_mut().take()?;
         let mut fp = rec.fp;
         if let Some(s) = self.store.footprint_take() {
@@ -237,6 +239,10 @@ impl crate::Session {
             let objects = &self.engine.program.objects;
             fp.apps_met
                 .extend(t.entered.iter().filter_map(|o| objects.get(*o).map(|o| o.app)));
+            let routines = t.routines.iter().copied();
+            if crate::install_footprint_row_version::routines_read(&self.engine, routines) {
+                fp.reads.insert(Lasting::RowVersion);
+            }
             if t.dotnet {
                 fp.everything.insert("a .NET call".into());
             }
@@ -256,11 +262,21 @@ impl crate::Session {
         }
     }
 
-    /// A builtin call while the impact trace is on (`exec/run.rs` `run_builtin`): one that touches everything marks it.
+    /// A builtin call while a footprint is recorded (`exec/run.rs` `run_builtin`): one that touches everything marks it.
     pub(crate) fn note_footprint_builtin(&self, id: al_builtins::builtin_id::BuiltinId) {
-        if builtin_touches_everything(id.name()) {
+        let name = id.name();
+        let (receiver, method) = name.split_once('.').unwrap_or((name, ""));
+        let method = method.split('#').next().unwrap_or(method);
+        let all = builtin_touches_everything(receiver, method);
+        let row_version = crate::install_footprint_row_version::reads_dynamically(receiver, method);
+        if all || row_version {
             self.note_footprint(|fp| {
-                fp.everything.insert(format!("builtin {}", id.name()));
+                if all {
+                    fp.everything.insert(format!("builtin {name}"));
+                }
+                if row_version {
+                    fp.reads.insert(Lasting::RowVersion);
+                }
             });
         }
     }

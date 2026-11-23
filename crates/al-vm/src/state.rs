@@ -556,6 +556,8 @@ pub(crate) struct CoverageState {
     pub(crate) profiler: Option<Box<crate::profile::Profiler>>,
     /// The footprint of a partner app's install session while one is recorded (`install_footprint.rs`). `None` when off.
     pub(crate) install_footprint: std::cell::RefCell<Option<Box<crate::install_footprint::Recording>>>,
+    /// `install_footprint` is `Some`: the one branch a builtin call costs when no footprint is recorded.
+    pub(crate) footprint_on: bool,
 }
 
 /// `Language` and `FormatRegion` set on a report variable outside a run.

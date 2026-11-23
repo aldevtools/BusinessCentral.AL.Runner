@@ -118,7 +118,10 @@ fn store_resources_keep_the_store_rules() {
 
 #[test]
 fn builtins_outside_the_kept_receivers_touch_everything() {
-    use super::builtin_touches_everything as all;
+    let all = |name: &str| {
+        let (r, m) = name.split_once('.').unwrap_or((name, ""));
+        super::builtin_touches_everything(r, m.split('#').next().unwrap_or(m))
+    };
     for kept in [
         "Record.Insert#2",
         "Text.StrSubstNo",
@@ -156,4 +159,71 @@ fn a_builtin_that_touches_everything_marks_the_session() {
     let _ = s.call(0, 0, inst, vec![]);
     let fp = s.install_footprint_take().unwrap();
     assert!(fp.everything.iter().any(|w| w.contains("HttpClient")), "{fp:?}");
+}
+
+const ROW_VERSION_SRC: &str = r#"
+table 50100 "Versioned" { fields { field(1; Id; Integer) { } field(2; Name; Text[20]) { } field(3; MaxVersion; Integer) { FieldClass = FlowField; CalcFormula = count("Versioned" where(SystemRowVersion = filter(>0))); } } keys { key(PK; Id) { } } }
+codeunit 50100 Probe
+{
+    procedure FieldRead(): BigInteger
+    var R: Record "Versioned";
+    begin
+        if R.FindFirst() then;
+        exit(R.SystemRowVersion);
+    end;
+    procedure FilterOn()
+    var R: Record "Versioned";
+    begin
+        R.SetFilter(SystemRowVersion, '>%1', 5);
+        if R.IsEmpty() then;
+    end;
+    procedure Dynamic()
+    var R: RecordRef; F: FieldRef;
+    begin
+        R.Open(50100);
+        F := R.Field(1);
+    end;
+    procedure FlowField()
+    var R: Record "Versioned";
+    begin
+        R.CalcFields(MaxVersion);
+    end;
+    procedure OtherField(): Text
+    var R: Record "Versioned";
+    begin
+        if R.FindFirst() then;
+        exit(R.Name);
+    end;
+}
+"#;
+
+fn run_src(src: &str, routine: &str) -> InstallFootprint {
+    let l = al_testkit::compile(src);
+    let engine = Engine::new(l.program.clone(), al_testkit::blocked(&l));
+    let probe = (engine.program.objects.iter())
+        .position(|o| o.name == "Probe")
+        .expect("Probe");
+    let mut s = Session::new(engine);
+    let ri = (s.engine.program.objects[probe].routines.iter())
+        .position(|r| r.name == routine)
+        .expect("routine");
+    s.install_footprint_start();
+    let inst = s.codeunit_instance(probe);
+    s.call(probe, ri, inst, vec![])
+        .unwrap_or_else(|e| panic!("{routine}: {e:?}"));
+    s.install_footprint_take().expect("recorded")
+}
+
+#[test]
+fn every_read_of_the_system_row_version_field_reads_the_row_version() {
+    for routine in ["FieldRead", "FilterOn", "Dynamic", "FlowField"] {
+        let fp = run_src(ROW_VERSION_SRC, routine);
+        assert!(fp.reads.contains(&Lasting::RowVersion), "{routine}: {fp:?}");
+    }
+}
+
+#[test]
+fn a_read_of_another_field_does_not_read_the_row_version() {
+    let fp = run_src(ROW_VERSION_SRC, "OtherField");
+    assert!(!fp.reads.contains(&Lasting::RowVersion), "{fp:?}");
 }

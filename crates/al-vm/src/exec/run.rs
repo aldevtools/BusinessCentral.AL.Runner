@@ -1348,7 +1348,7 @@ impl Session {
             values.push(take(f, r, nl));
         }
         self.builtin_prologue(site, recv.as_ref(), &mut values)?;
-        if self.coverage.impact_on {
+        if self.coverage.footprint_on {
             self.note_footprint_builtin(site.id);
         }
         let open = match site.temp_blob {

@@ -103,6 +103,7 @@ mod hostvalues;
 mod http;
 pub mod impact;
 pub mod install_footprint;
+mod install_footprint_row_version;
 mod install_left;
 mod interfaces;
 mod isdirty;
