@@ -301,6 +301,16 @@ impl Session {
     ) -> bool {
         let (control, on_page) = page.read_calls();
         match (call, target) {
+            // GetField by the Name control's id, then its Value, which passes as any Value read (ListValidateViewReads.al
+            // `ReadsLines` block 3, :598, :615, :632 on page 97498; `get_field.rs` finds the control by the compiler's id).
+            (TestCall::Page(PageMethod::GetField), _) => {
+                page == CellPage::Wide
+                    && matches!(args, [Value::Integer(id)] if self
+                        .own_control_by_id(st, *id)
+                        .ok()
+                        .flatten()
+                        .is_some_and(|i| self.validate_view_ctl(st, i) == Some(Ctl::Name)))
+            }
             (TestCall::Page(m), _) => on_page.contains(&m),
             (TestCall::Other(m), Some(ControlTarget::Control(i))) if control.contains(&m) => {
                 let engine = self.engine();

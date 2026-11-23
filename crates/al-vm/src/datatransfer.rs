@@ -217,7 +217,7 @@ impl Session {
             .borrow()
             .filters
             .iter()
-            .any(|f| matches!(f.expr, al_builtins::filter::FilterExpr::AtSignAloneCode))
+            .any(|f| matches!(f.expr, al_builtins::filter::FilterExpr::AtSignAloneCode(_)))
         {
             return refuse("DataTransfer with `@` alone on a Code field as a filter (not measured)");
         }

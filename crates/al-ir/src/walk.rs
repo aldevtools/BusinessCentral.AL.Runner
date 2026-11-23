@@ -931,6 +931,7 @@ fn walk_control<V: RefVisitor>(
         visible_row_field: _,
         source_text: _,
         factbox: _,
+        fixed_or_grid: _,
     } = c;
     for (table, field) in [var_field, array_element_field].into_iter().flatten() {
         fld(v, field, TableOf::object(Some(*table)));
