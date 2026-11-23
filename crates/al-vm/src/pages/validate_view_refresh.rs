@@ -97,6 +97,7 @@ impl Session {
         st: &St,
         call: Option<TestCall>,
         target: Option<&ControlTarget>,
+        args: &[Value],
     ) -> Result<(), Signal> {
         let Some(call) = call else {
             return Ok(());
@@ -109,7 +110,7 @@ impl Session {
             return Ok(());
         }
         let mut v = std::mem::take(&mut st.borrow_mut().validate_view);
-        let r = self.validate_view_step(st, &mut v, call, target);
+        let r = self.validate_view_step(st, &mut v, (call, target, args));
         let measured = matches!(r, Ok(true));
         v.off = !measured && !v.ran;
         let refuse = !measured && v.ran;
@@ -128,8 +129,7 @@ impl Session {
         &mut self,
         st: &St,
         v: &mut ValidateView,
-        call: TestCall,
-        target: Option<&ControlTarget>,
+        (call, target, args): (TestCall, Option<&ControlTarget>, &[Value]),
     ) -> Result<bool, Signal> {
         let page = match v.page {
             Some(page) => page,
@@ -148,7 +148,7 @@ impl Session {
             v.steps.push(step);
         }
         let cells = page.cells();
-        if !Self::validate_view_calls_ok(st) || !cells.iter().any(|c| c.steps.starts_with(&v.steps)) {
+        if !Self::validate_view_calls_ok(st, page) || !cells.iter().any(|c| c.steps.starts_with(&v.steps)) {
             return Ok(false);
         }
         let tail = |t: Tail| cells.iter().any(|c| c.steps == v.steps.as_slice() && c.tail == t);
@@ -179,7 +179,7 @@ impl Session {
                 None => return Ok(false),
             },
             TestCall::Other(PageMethod::Invoke) => Action(Upd::None, Same),
-            _ if self.validate_view_reads(st, call, target) => match v.steps.last() {
+            _ if self.validate_view_reads(st, page, call, target, args) => match v.steps.last() {
                 // Read-only calls in a row are one step; after First they are no step of a cell.
                 Some(Step::Reads) if !v.walked => return Ok(true),
                 _ => Step::Reads,
@@ -264,38 +264,33 @@ impl Session {
         Ok(())
     }
 
-    /// `call` is one of the read-only calls the cells make between their steps (`Step::Reads`): AssertEquals, Caption,
-    /// Editable, Enabled, HideValue, ShowMandatory, ValidationErrorCount or Visible on a control bound to a field, or Caption,
-    /// Editable or ValidationErrorCount on the page (ListValidateFilterRefresh.al of corpus pull request 1529, `ReadsLines`
-    /// and the others: they log nothing, and the cell reads on as without them).
-    fn validate_view_reads(&self, st: &St, call: TestCall, target: Option<&ControlTarget>) -> bool {
-        match call {
-            TestCall::Page(m) => matches!(
-                m,
-                PageMethod::Caption | PageMethod::Editable | PageMethod::ValidationErrorCount
-            ),
-            TestCall::Other(m) => {
-                Self::validate_view_read_method(m)
-                    && matches!(target, Some(ControlTarget::Control(i))
-                        if matches!(page_of(&self.engine(), st).controls[*i].binding, ir::Binding::Field(_)))
+    /// `call` with `args` is one of the read-only calls the read cells measure on `page` between its steps (`Step::Reads`,
+    /// `CellPage::read_calls`): on a control bound to a field of the type the read was measured on (`CellPage::read_fits`),
+    /// or on the page. They log nothing, and the cell reads on as without them.
+    fn validate_view_reads(
+        &self,
+        st: &St,
+        page: CellPage,
+        call: TestCall,
+        target: Option<&ControlTarget>,
+        args: &[Value],
+    ) -> bool {
+        let (control, on_page) = page.read_calls();
+        match (call, target) {
+            (TestCall::Page(m), _) => on_page.contains(&m),
+            (TestCall::Other(m), Some(ControlTarget::Control(i))) if control.contains(&m) => {
+                let engine = self.engine();
+                let ir::Binding::Field(f) = page_of(&engine, st).controls[*i].binding else {
+                    return false;
+                };
+                let table = self.page_rec(st).borrow().table as usize;
+                engine.tables[table]
+                    .as_ref()
+                    .and_then(|t| t.fields.get(f))
+                    .is_some_and(|field| page.read_fits(m, &field.ty, args))
             }
             _ => false,
         }
-    }
-
-    /// A control method among the cells' read-only calls (`validate_view_reads`).
-    fn validate_view_read_method(m: PageMethod) -> bool {
-        matches!(
-            m,
-            PageMethod::AssertEquals
-                | PageMethod::Caption
-                | PageMethod::Editable
-                | PageMethod::Enabled
-                | PageMethod::HideValue
-                | PageMethod::ShowMandatory
-                | PageMethod::ValidationErrorCount
-                | PageMethod::Visible
-        )
     }
 
     /// The primary key of the first row of the page's view.
@@ -305,10 +300,10 @@ impl Session {
         Ok(self.view_rows(&rec, 1)?.first().map(|r| table.primary_key(r)))
     }
 
-    /// Every call the test made on `st` since it opened ended as the cells' calls do: an error only from a SetValue, No only
-    /// from a Next or a read-only call (HideValue(), ShowMandatory()); the test wrote nothing to the store between two calls
-    /// (`tree_calls_unknown`).
-    fn validate_view_calls_ok(st: &St) -> bool {
+    /// Every call the test made on `st`, a page of kind `page`, since it opened ended as the cells' calls do: an error only
+    /// from a SetValue, No only from a Next or one of the page's own read-only calls (`CellPage::read_calls`: HideValue(),
+    /// ShowMandatory(), IsExpanded()); the test wrote nothing to the store between two calls (`tree_calls_unknown`).
+    fn validate_view_calls_ok(st: &St, page: CellPage) -> bool {
         let s = st.borrow();
         if s.host.is_some() || s.tree_calls_unknown {
             return false;
@@ -321,8 +316,11 @@ impl Session {
                 (!c.failed || matches!(c.call, TestCall::Write(_)))
                     && (!c.no
                         || c.call == TestCall::Page(PageMethod::Next)
-                        || matches!(c.call, TestCall::Other(m) if Self::validate_view_read_method(m))
-                        || matches!(c.call, TestCall::Page(PageMethod::Editable)))
+                        || match c.call {
+                            TestCall::Other(m) => page.read_calls().0.contains(&m),
+                            TestCall::Page(m) => page.read_calls().1.contains(&m),
+                            _ => false,
+                        })
             })
     }
 
@@ -487,7 +485,7 @@ impl Session {
             rec.borrow_mut().fields = fields;
         }
         let done = match page {
-            CellPage::Issue | CellPage::Lines => {
+            CellPage::Issue | CellPage::Wide | CellPage::Lines => {
                 assume(Assumption::ListValidateViewRefresh);
                 self.reread_view_from_row(st, without_curr, without_parts, false)?;
                 // The note `read_list_again_from_row_as` leaves for a refresh without OnAfterGetCurrRecord would end the next
