@@ -655,6 +655,9 @@ pub(crate) struct ReportState {
     /// later record can get the address of one that is gone and read its view (al-runner CI flake of reports/request-page/
     /// RptFilters.al:510 RequestFilterFields_Handler_SetsFilters). The entries of dropped records go on each new SetTableView.
     pub(crate) set_view_filters: Vec<(std::rc::Weak<RefCell<RecordState>>, Vec<ViewFilterKey>)>,
+    /// The filters each `DataItemTableView` gave the record of a data item of the report's own, by record
+    /// (`reports/item_view.rs`).
+    pub(crate) item_views: Vec<crate::reports::item_view::ItemView>,
     /// The dataset a `Report.SaveAs(.., Xml, ..)` run is writing (al-vm reports.rs).
     pub(crate) dataset: Option<crate::dataset::Dataset>,
 }

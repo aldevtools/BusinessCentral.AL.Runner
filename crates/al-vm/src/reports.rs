@@ -1584,63 +1584,7 @@ impl Session {
             dataset: false,
         };
         for r in run.all_items() {
-            let Some(view) = run.item(r).view.as_deref().map(crate::views::property_view) else {
-                continue;
-            };
-            let rec = self.report_item_record(&run, r)?;
-            let t = self.table(&rec)?;
-            let blank_dates = crate::views::blank_date_conditions(&t, &view);
-            if !blank_dates.is_empty() {
-                // `where(Date field = const(0D))` compiles, but the run fails before OnPreReport and before any data item
-                // trigger: Evaluate of the date '' (streams/CjDataset.al:190-211,
-                // ZeroDateView_ConstZeroDate_SaveAsXml; record/P136Report.al:331-351,
-                // BN3_Report_DataItemTableViewConstZeroDate). Pinned for a report with no request page and no
-                // OnInitReport; where the error falls against those, and `filter(0D)`, are not pinned.
-                if blank_dates.iter().any(|(_, kind)| kind != "CONST") {
-                    return unsupported("DataItemTableView filter(0D) on a Date field (not pinned)");
-                }
-                if !zero_date_pinned || self.report_has_init_or_request_page(&run) {
-                    return unsupported(
-                        "DataItemTableView const(0D) on a Date field in a report with a request page or OnInitReport (where the error falls is not pinned)",
-                    );
-                }
-                self.report.zero_date_view_failed = true;
-                return Err(Signal::Error(Box::new(al_builtins::native::AlError {
-                    message: "The format of the Date '''' does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'.".into(),
-                    code: "Evaluate".into(),
-                    ..Default::default()
-                })));
-            }
-            // A view that only sorts leaves the filters a SetTableView gave the item in force
-            // (reports/TestReportRuntimeContracts.al:393-410).
-            let kept = Some(rec.borrow().filters.clone());
-            let clauses = crate::views::view_clauses(&view);
-            // A view that only filters keeps the key and direction a SetTableView gave the item (corpus
-            // reports/dataset/ReportSetTableViewOverWhere.al:P163_SetTableView_OverWhere_KeyOfTheView: key Txt, 4|3|2).
-            let kept_order = {
-                let r = rec.borrow();
-                (r.key, r.adhoc.clone(), r.ascending, r.field_descending)
-            };
-            // The filters of a DataItemTableView are the report's, not the record's: GetFilters does not show them, in
-            // OnPostReport either (reports/TestProbeReportContracts.al:TriggerOrder_NestedAndSecondItem).
-            self.set_view_in(&rec, &t, &view, Some(ITEM_VIEW_GROUP), false, false, false)?;
-            if !clauses.sorting {
-                let mut r = rec.borrow_mut();
-                (r.key, r.adhoc, r.ascending, r.field_descending) = kept_order;
-            }
-            if let Some(mut filters) = kept {
-                // A view that filters adds its own filters to the ones a SetTableView gave the item.
-                if clauses.filters {
-                    filters.extend(
-                        rec.borrow()
-                            .filters
-                            .iter()
-                            .filter(|f| f.group == ITEM_VIEW_GROUP)
-                            .cloned(),
-                    );
-                }
-                rec.borrow_mut().filters = filters;
-            }
+            self.apply_item_view(&run, r, zero_date_pinned)?;
         }
         Ok(run)
     }
@@ -3873,6 +3817,7 @@ pub(crate) mod format_region;
 #[cfg(test)]
 mod header_tests;
 mod html_record;
+pub(crate) mod item_view;
 mod property_gates;
 mod quit_in_init;
 pub(crate) use excel_sheets::Admission as ExcelSheetsAdmission;

@@ -2,8 +2,9 @@
 //! flagged under `by-value-report-procedure` (corpus PR 1450, record/filters/ByValueRecordView.al, the
 //! `ByValue_ReportProcedure_*` and `ByValue_FlowFieldKeyLoadFields_*` tests of codeunit 78731, :1252-1703). Measured callers: the report itself (a data item trigger, a local procedure), a
 //! codeunit and a page. Every other caller (also with no filter on the record, when it has a secondary key or a SetLoadFields
-//! before a read), a report extension procedure, and a data item that still holds its DataItemTableView filters refuse a
-//! read of the copy's view.
+//! before a read) and a report extension procedure refuse a read of the copy's view. A data item that still holds its
+//! DataItemTableView filters, handed from its OnAfterGetRecord to a codeunit's or its report's procedure, gets the fresh view
+//! (`_DataItemView` :1675, `_DataItemViewToCodeunit` :1690; al-runner issue 8838, corpus PR 1544).
 
 use crate::record_copy_reports::{PASS, VIEW_REFUSED, check, run};
 
@@ -126,6 +127,159 @@ codeunit 50120 "Repro ByValue Key Tests"
 fn issue_8386_reporter_repro_report_procedure_copy_is_flagged() {
     let o = run(ISSUE_8386, "Repro ByValue Key Tests");
     check(&o, &[("ReportProcedureSetCurrentKeyOnDataItemCopy", PASS, true)]);
+}
+
+/// al-runner issue 8838, the reporter's repro as written, with Library Assert's AreEqual, IsFalse and IsTrue as `Error` calls
+/// (report 7300 "Calculate Bin Replenishment" into codeunit 7308 "Replenishment".ReplenishBin and table 7302 "Bin Content"
+/// .NeedToReplenish). The reporter ran it green on BC 29.0.
+const ISSUE_8838: &str = r##"
+table 50901 "Repro Isolation Row"
+{
+    DataClassification = CustomerContent;
+
+    fields
+    {
+        field(1; "No."; Code[20]) { DataClassification = CustomerContent; }
+        field(2; "Sorting Sequence No."; Integer) { DataClassification = CustomerContent; }
+        field(3; Quantity; Decimal) { DataClassification = CustomerContent; }
+        field(4; Fixed; Boolean) { DataClassification = CustomerContent; }
+    }
+
+    keys
+    {
+        key(PK; "No.", "Sorting Sequence No.") { Clustered = true; }
+    }
+
+    procedure NeedToReplenish(ExcludeQty: Decimal): Boolean
+    begin
+        if Rec.ReadIsolation() <> IsolationLevel::UpdLock then
+            Rec.ReadIsolation(IsolationLevel::ReadCommitted);
+
+        exit(Rec.Quantity > ExcludeQty);
+    end;
+}
+
+table 50902 "Repro Isolation Result"
+{
+    DataClassification = CustomerContent;
+
+    fields
+    {
+        field(1; "Entry No."; Integer) { DataClassification = CustomerContent; }
+        field(2; "Source No."; Code[20]) { DataClassification = CustomerContent; }
+        field(3; "Source Sorting Sequence No."; Integer) { DataClassification = CustomerContent; }
+        field(4; Replenish; Boolean) { DataClassification = CustomerContent; }
+    }
+
+    keys
+    {
+        key(PK; "Entry No.") { Clustered = true; }
+    }
+}
+
+codeunit 50903 "Repro Isolation Caller"
+{
+    procedure ReplenishBin(ToReproIsolationRow: Record "Repro Isolation Row"): Boolean
+    begin
+        exit(ToReproIsolationRow.NeedToReplenish(0));
+    end;
+}
+
+report 50904 "Repro Isolation Descending"
+{
+    ProcessingOnly = true;
+    UsageCategory = None;
+    ApplicationArea = All;
+
+    dataset
+    {
+        dataitem(ReproIsolationRow; "Repro Isolation Row")
+        {
+            DataItemTableView = sorting("No.", "Sorting Sequence No.") order(descending) where(Fixed = filter(true));
+
+            trigger OnAfterGetRecord()
+            begin
+                NextEntryNo += 1;
+                ReproIsolationResult.Init();
+                ReproIsolationResult."Entry No." := NextEntryNo;
+                ReproIsolationResult."Source No." := ReproIsolationRow."No.";
+                ReproIsolationResult."Source Sorting Sequence No." := ReproIsolationRow."Sorting Sequence No.";
+                ReproIsolationResult.Replenish := ReproIsolationCaller.ReplenishBin(ReproIsolationRow);
+                ReproIsolationResult.Insert();
+            end;
+        }
+    }
+
+    var
+        ReproIsolationResult: Record "Repro Isolation Result";
+        ReproIsolationCaller: Codeunit "Repro Isolation Caller";
+        NextEntryNo: Integer;
+}
+
+codeunit 50911 "Repro Isolation Report Test"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure ADescendingReportHandsItsRowToACodeunitWhoseTableProcedureReadsTheIsolationLevel()
+    var
+        ReproIsolationResult: Record "Repro Isolation Result";
+    begin
+        DeleteRows();
+        InsertRow('R1', 10000, 5);
+        InsertRow('R1', 20000, 0);
+
+        Report.Run(Report::"Repro Isolation Descending", false, false);
+
+        if ReproIsolationResult.Count() <> 2 then
+            Error('The rows the report processed: %1', ReproIsolationResult.Count());
+
+        ReproIsolationResult.Get(1);
+        if ReproIsolationResult."Source Sorting Sequence No." <> 20000 then
+            Error('The sorting sequence number of the row the report read first, reading descending: %1', ReproIsolationResult."Source Sorting Sequence No.");
+        if ReproIsolationResult.Replenish then
+            Error('Whether the row the report read first, the one with no quantity, needs replenishment');
+
+        ReproIsolationResult.Get(2);
+        if not ReproIsolationResult.Replenish then
+            Error('Whether the row the report read second, the one with a quantity, needs replenishment');
+    end;
+
+    local procedure DeleteRows()
+    var
+        ReproIsolationRow: Record "Repro Isolation Row";
+        ReproIsolationResult: Record "Repro Isolation Result";
+    begin
+        ReproIsolationRow.DeleteAll(false);
+        ReproIsolationResult.DeleteAll(false);
+    end;
+
+    local procedure InsertRow(DocumentNo: Code[20]; SortingSequenceNo: Integer; Quantity: Decimal)
+    var
+        ReproIsolationRow: Record "Repro Isolation Row";
+    begin
+        ReproIsolationRow.Init();
+        ReproIsolationRow."No." := DocumentNo;
+        ReproIsolationRow."Sorting Sequence No." := SortingSequenceNo;
+        ReproIsolationRow.Quantity := Quantity;
+        ReproIsolationRow.Fixed := true;
+        ReproIsolationRow.Insert(false);
+    end;
+}
+"##;
+
+#[test]
+fn issue_8838_reporter_repro_descending_data_item_to_codeunit_is_flagged() {
+    let o = run(ISSUE_8838, "Repro Isolation Report Test");
+    check(
+        &o,
+        &[(
+            "ADescendingReportHandsItsRowToACodeunitWhoseTableProcedureReadsTheIsolationLevel",
+            PASS,
+            true,
+        )],
+    );
 }
 
 /// The neighbors of the probe's cells, each with the value BC gave in the cell (record/filters/ByValueRecordView.al of corpus
@@ -782,10 +936,10 @@ codeunit 50186 "BR Test"
     end;
 
     [Test]
-    procedure DataItemWithItsView_Refused()
+    procedure DataItemWithItsView_Flagged()
     begin
         Seed();
-        Expect(RunReport(1), '');
+        Expect(RunReport(1), 'f={} n=3 key=Id');
     end;
 
     [Test]
@@ -856,9 +1010,9 @@ fn by_value_report_procedure_neighbors_are_flagged_where_measured_and_refused_el
         ("FromAnotherReport_SecondaryKeyNoFilter_Refused", VIEW_REFUSED, false),
         ("FromTable_LoadFieldsNoFilter_Refused", VIEW_REFUSED, false),
         ("ReportExtensionProcedure_Refused", VIEW_REFUSED, false),
-        // BC hands no DataItemTableView filter (ByValue_ReportProcedure_DataItemView); the runtime keeps them in a filter
-        // group of its own, which no rule admits.
-        ("DataItemWithItsView_Refused", VIEW_REFUSED, false),
+        // BC hands no DataItemTableView filter (ByValue_ReportProcedure_DataItemView :1675, `callee f={} n=3 key=Id`): the
+        // runtime admits the data item's own view in its filter group (al-runner issue 8838).
+        ("DataItemWithItsView_Flagged", PASS, true),
         // ByValue_ReportProcedure_DataItemNested and _ChildDataItemLink.
         ("DataItemRecursion_Flagged", PASS, true),
         ("ChildDataItemLink_Flagged", PASS, true),
