@@ -319,7 +319,7 @@ impl Session {
                 changed
             }
             _ => {
-                let (filters, flow) = self.split_filters(rec);
+                let (filters, flow) = self.split_filters(rec)?;
                 let rows = al_data::Store::count(&*self.store_for(rec)?, cx, t, &filters)
                     .map_err(|e| Signal::unsupported(format!("{e}")))?;
                 flow.is_empty() && (method == RecordOp::DeleteAll || rows > 0)
