@@ -1,7 +1,6 @@
 # key	entry
-# The three cells this pull request runs, against #8720's gate, which refused them: Update(true) after SaveRecord (:476),
-# the cell under TestPage.OpenEdit with a filter (:372), and a write through another record before the save (:443). The
-# other cells and neighbors of this folder are #8720's (its copy of this file).
-LT NE Tests::NewLine_SaveRecordModifyThroughAnotherRecordThenUpdateTrue_SaveWritesRecOverIt	ASSUMED list-new-line-extra-code (corpus PR 1521, open: ListNewLineExtraCode.al)
-LT NE Tests::NewLine_SaveRecordThenModifyThroughAnotherRecord_OpenEdit_ShowsAndSavesIt	ASSUMED list-new-line-extra-code (corpus PR 1521, open: ListNewLineExtraCode.al)
-LT NE Tests::NewLine_ModifyThroughAnotherRecordBeforeSaveRecord_SaveWritesRecOverIt	ASSUMED list-new-line-extra-code (corpus PR 1521, open: ListNewLineExtraCode.al)
+# The two neighbors this pull request runs, against #8731's gate, which refused them: a write of another table before the
+# save, by the table field or by the control (ListNewLineWritesOtherTable.al:328, :361). The other cells and neighbors of
+# this folder are #8720's and #8731's.
+LT NN Tests::NewLine_TableFieldWritesAnotherTable_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1527, open: ListNewLineWritesOtherTable.al)
+LT NN Tests::NewLine_WriteAnotherTableBeforeSaveRecord_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1527, open: ListNewLineWritesOtherTable.al)
