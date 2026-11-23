@@ -1928,13 +1928,11 @@ pub enum LinkRhs {
     /// `const("Enum Name"::Member)`: a value of the named enum (testpage/UjSubPageLink.al, corpus branch
     /// al-runtime-rs-staging-uj 1dc037a8). The names are unquoted.
     EnumValue(String, String),
-    /// `filter(<> '')` or `filter(<>'')`, the term "not blank" (`NOT_BLANK_TERMS`). It holds the text the term lowers to
-    /// where the lowering does not take it as "not blank": what `Filter` held for it before.
+    /// A term of `NOT_BLANK_TERMS`, with the text `Filter` held for it before (kept on a field other than Code or Text).
     NotBlank(String),
 }
 
-/// The `filter(...)` terms of a `SubPageLink` or `RunPageLink` that the corpus probe of al-runner issue 8873 measures
-/// as "not blank" (assumption `link-filter-not-blank`).
+/// The `filter(...)` link terms "not blank" (assumption `link-filter-not-blank`, corpus PR 1548, al-runner issue 8873).
 const NOT_BLANK_TERMS: [&str; 2] = ["<> ''", "<>''"];
 
 /// `"Enum Name"::Member` or `Enum::"Member"`: the enum and member names, unquoted; `None` for any other text.
