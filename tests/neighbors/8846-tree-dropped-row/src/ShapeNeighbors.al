@@ -1,7 +1,9 @@
 // Page 97720 of TreeValidateFilterRefresh.al (corpus pull request 1539) line for line, with its table and its log codeunit,
 // under other names: the data shapes of the review of the 8846 pull request, where the filter of the Name control's OnValidate
-// leaves the row out and keeps one row whose place the drop cells did not measure at first (cells of 1539 since :1424-:1460), and
-// Close after the failed SetValue. Each test asserts what Business Central 29.1 answered (3 runs).
+// leaves the row out and keeps one row whose place the drop cells did not measure at first (cells of 1539 since :1424-:1460, and
+// :1472-:1484 from the last row with SetRange on G0, also on page 97727 under other names), the value and Close after the failed
+// SetValue, and a later test that saves the row a page left behind stands on. Each test asserts what Business Central 29.1
+// answered (3 runs).
 
 table 97675 "LT TDN Line"
 {
@@ -284,6 +286,51 @@ codeunit 97678 "LT TDN Shape Tests"
         Expect('setname', 'P.AGR(B);P.V(X2);P.AGR(C);');
         Expect('stored', 'C/,A/,X2/,');
     end;
+
+    // From the last row C over the flat rows A (G0), B (G1) and C (G2), SetRange on G0 keeps only A, with B between.
+    [Test]
+    procedure FlatLastRowG0Drops()
+    begin
+        Initialize('G0', 'G1', 'G2', 0, 0, 0);
+        RunTreeDrop(2, 4);
+        Expect('open', 'C:P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('error', 'TestValidation: Validation error for Field: ,  Message = ''The view is filtered, and the entry is outside the filter. Some actions may not work.''');
+        Expect('setname', 'P.AGR(C);P.V(X2);P.AGR(A);');
+        Expect('stored', 'A/,B/,X2/,');
+    end;
+
+    // The same on the List 97681 (page 97720 without ShowAsTree): no error; the SetValue on Value, First, the walk and Close.
+    [Test]
+    procedure ListFlatLastRowG0Drops()
+    var
+        Lines: TestPage "LT TDN Lines";
+        Walk: Text;
+    begin
+        Initialize('G0', 'G1', 'G2', 0, 0, 0);
+        Log.Setup(4, 1);
+        Lines.OpenEdit();
+        Lines.Last();
+        Note('open', Lines.Name.Value() + ':' + Log.Take());
+        Lines.Name.SetValue('X2');
+        Note('setname', Log.Take());
+        Lines.Value.SetValue('V');
+        Note('setvalue', Log.Take());
+        Lines.First();
+        repeat
+            Walk += Lines.Name.Value() + ',';
+        until not Lines.Next();
+        Note('walk', Walk);
+        Log.Take();
+        Lines.Close();
+        Note('close', Log.Take());
+        Note('stored', StoredLines());
+        Expect('open', 'C:P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('setname', 'P.AGR(C);P.V(X2);P.AGR(A);');
+        Expect('setvalue', 'P.AGR(A);');
+        Expect('walk', 'A,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
 }
 
 // The value the page shows and Close after the SetValue whose filter left the row out: in a codeunit of its own, as the runner
@@ -378,5 +425,213 @@ codeunit 97679 "LT TDN Close Tests"
         Expect('shown', 'B:');
         Expect('close', '');
         Expect('stored', 'X2/,B/,C/,');
+    end;
+}
+
+// A page a failed SetValue leaves behind, and a later test that saves the row it stands on (question of the review of the 8846
+// pull request): test 1 leaves page 97677 on B after the filter left A out; test 2, in the same codeunit, saves B from a new
+// page. Each test asserts what Business Central 29.1 answered (3 runs).
+codeunit 97680 "LT TDN Left Page Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    var
+        Assert: Codeunit Assert;
+        Log: Codeunit "LT TDN Shape Log";
+        Seen: Dictionary of [Text, Text];
+
+    // Rows A, B and C (entries 1, 2 and 3) in the groups and with the Indentation given.
+    local procedure Initialize(GroupA: Code[10]; GroupB: Code[10]; GroupC: Code[10]; IndentA: Integer; IndentB: Integer; IndentC: Integer)
+    var
+        Line: Record "LT TDN Line";
+    begin
+        Line.DeleteAll();
+        AddLine(GroupA, 1, 'A', IndentA);
+        AddLine(GroupB, 2, 'B', IndentB);
+        AddLine(GroupC, 3, 'C', IndentC);
+        Commit();
+        Log.Setup(0, 0);
+        Clear(Seen);
+    end;
+
+    local procedure AddLine(GroupCode: Code[10]; EntryNo: Integer; Name: Text[30]; Indentation: Integer)
+    var
+        Line: Record "LT TDN Line";
+    begin
+        Line."Group Code" := GroupCode;
+        Line."Entry No." := EntryNo;
+        Line.Name := Name;
+        Line.Indentation := Indentation;
+        Line.Insert();
+    end;
+
+    local procedure StoredLines(): Text
+    var
+        Line: Record "LT TDN Line";
+        Result: Text;
+    begin
+        if Line.FindSet() then
+            repeat
+                Result += Line.Name + '/' + Line.Value + ',';
+            until Line.Next() = 0;
+        exit(Result);
+    end;
+
+    local procedure Note(What: Text; Actual: Text)
+    begin
+        Seen.Set(What, Actual);
+    end;
+
+    local procedure Expect(What: Text; Expected: Text)
+    begin
+        Assert.AreEqual(Expected, Seen.Get(What), What);
+    end;
+
+    [TryFunction]
+    local procedure TrySetName(var Lines: TestPage "LT TDN Tree"; NewName: Text)
+    begin
+        Lines.Name.SetValue(NewName);
+    end;
+
+    // The flat rows A (G0), B (G1) and C (G2): from the first row A, SetRange on G1 leaves A out; the page stays behind on B.
+    [Test]
+    procedure LeftPage1_FirstRowDrops()
+    var
+        Lines: TestPage "LT TDN Tree";
+    begin
+        Initialize('G0', 'G1', 'G2', 0, 0, 0);
+        Log.Setup(1, 1);
+        Lines.OpenEdit();
+        Log.Take();
+        ClearLastError();
+        if TrySetName(Lines, 'X2') then
+            Note('error', 'none')
+        else
+            Note('error', GetLastErrorCode() + ': ' + GetLastErrorText());
+        Note('setname', Log.Take());
+        Note('stored', StoredLines());
+        Expect('error', 'TestValidation: Validation error for Field: ,  Message = ''The view is filtered, and the entry is outside the filter. Some actions may not work.''');
+        Expect('setname', 'P.V(X2);P.AGR(B);');
+        Expect('stored', 'X2/,B/,C/,');
+    end;
+
+    // Then the tree's rows A (G0), B and C (G1), C under B: a new page, Last on B, the SetValue on Name keeping B, which saves it,
+    // the SetValue on Value, First, the walk and Close (the cell of TreeValidateFilterRefresh.al:794); the log holds what every
+    // page read.
+    [Test]
+    procedure LeftPage2_KeepSavesTheRow()
+    var
+        Lines: TestPage "LT TDN Tree";
+        Walk: Text;
+    begin
+        Initialize('G0', 'G1', 'G1', 0, 0, 1);
+        Log.Setup(1, 1);
+        Lines.OpenEdit();
+        Lines.Last();
+        Note('open', Lines.Name.Value() + ':' + Log.Take());
+        Lines.Name.SetValue('C2');
+        Note('setname', Log.Take());
+        Note('stored1', StoredLines());
+        Lines.Value.SetValue('V');
+        Note('setvalue', Log.Take());
+        Lines.First();
+        repeat
+            Walk += Lines.Name.Value() + ',';
+        until not Lines.Next();
+        Note('walk', Walk);
+        Log.Take();
+        Lines.Close();
+        Note('close', Log.Take());
+        Note('stored', StoredLines());
+        Expect('open', 'B:P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('setname', 'P.AGR(B);P.V(C2);P.AGR(C2);P.AGR(C);P.AGR(C2);');
+        Expect('stored1', 'A/,C2/,C/,');
+        Expect('setvalue', 'P.AGR(C2);P.AGR(C);P.AGR(C2);');
+        Expect('walk', 'C2,');
+        Expect('close', '');
+        Expect('stored', 'A/,C2/V,C/,');
+    end;
+}
+
+// Page 97727 of TreeValidateFilterRefresh.al line for line under other names: page 97677 without ShowAsTree.
+page 97681 "LT TDN Lines"
+{
+    PageType = List;
+    SourceTable = "LT TDN Line";
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Lines)
+            {
+                field(Name; Rec.Name)
+                {
+                    ApplicationArea = All;
+
+                    trigger OnValidate()
+                    begin
+                        Log.Add('P.V(' + Rec.Name + ')');
+                        ChangeView();
+                    end;
+                }
+                field(Value; Rec.Value)
+                {
+                    ApplicationArea = All;
+
+                    trigger OnValidate()
+                    begin
+                        CurrPage.Update(false);
+                    end;
+                }
+            }
+        }
+    }
+
+    actions
+    {
+        area(Processing)
+        {
+            action(ChangeViewAction)
+            {
+                ApplicationArea = All;
+
+                trigger OnAction()
+                begin
+                    Log.Add('P.A(' + Rec.Name + ')');
+                    ChangeView();
+                end;
+            }
+        }
+    }
+
+    trigger OnAfterGetRecord()
+    begin
+        Log.Add('P.AGR(' + Rec.Name + ')');
+    end;
+
+    var
+        Log: Codeunit "LT TDN Shape Log";
+
+    local procedure ChangeView()
+    begin
+        case Log.FilterStep() of
+            1:
+                Rec.SetRange("Group Code", 'G1');
+            2:
+                Rec.SetFilter("Group Code", 'G1');
+            3:
+                Rec.Reset();
+            4:
+                Rec.SetRange("Group Code", 'G0');
+        end;
+        case Log.UpdateStep() of
+            1:
+                CurrPage.Update(false);
+            2:
+                CurrPage.Update(true);
+        end;
     end;
 }
