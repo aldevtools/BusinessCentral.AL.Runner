@@ -4,13 +4,13 @@
 //!
 //! 1. Microsoft's apps install before partner apps ([`split_microsoft`]): a container's database comes from the BC
 //!    artifact with Microsoft's apps installed, and a pipeline publishes and installs the partner apps into it afterwards.
-//! 2. Partner apps whose install code may interact are installed in every order and the databases are compared
-//!    ([`install_partner_apps`]): the same database, the run goes on; different rows, the tests that touch a table that
-//!    differs are not run, with both apps and the table named. With more than [`MAX_INTERACTING`] interacting apps, or a
-//!    difference outside the tables, the runner refuses as before.
-//!
-//! The install code runs more than once only for apps whose install code met an app of the other kind of refusal
-//! (`Session::take_order_unknown_hits`); a run without such apps installs every app once, as before.
+//! 2. Partner apps of one group that may interact install once, each app's install session recorded (its footprint,
+//!    al-vm `install_footprint.rs`). When no install reads from or collides with another's (`install_proof.rs`), that
+//!    install stands. Else the install is proven independent of the order by subset runs (ADR-079,
+//!    `install_subsets.rs`): the same database in every subset and order, the run goes on; different rows, the tests that
+//!    touch a table that differs are not run, with the apps and the table named. Beyond the limits of ADR-079 decision 5
+//!    ([`MAX_INTERACTING`] apps in a tangle, [`MAX_INPUTS`] inputs of a unit), or a difference outside the tables, the
+//!    runner refuses as before.
 
 use crate::install::InstallView;
 use crate::install_proof::{Footprints, Graph};
