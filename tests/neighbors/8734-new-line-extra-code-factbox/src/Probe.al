@@ -607,7 +607,8 @@ page 96743 "LT NK More Lines"
                             3:
                                 Other.DeleteAll();
                         end;
-                        CurrPage.Update(false);
+                        if Log.GetMode() <> 4 then
+                            CurrPage.Update(false);
                     end;
                 }
                 field(Note; Rec.Note) { ApplicationArea = All; }
@@ -696,6 +697,71 @@ codeunit 96745 "LT NK More Tests"
         Check('others', '', Others());
     end;
 
+    [Test]
+    [HandlerFunctions('MoreHandler')]
+    procedure NewLine_SaveRecordWithoutUpdateOnPageWithTriggersAndFactBox_LogsTheTriggers()
+    begin
+        Initialize();
+        RunMore(4);
+        Check('shown', 'name=A/Resolved// part=Resolved//A value=A/Resolved//V part=Resolved//A ', Shown);
+        Check('log', 'AGCR(//);AGCR(//);|open;AGCR(//);|new;|name;|read;|value;|read;|ok;', Log());
+        Check('rows', 'A/Resolved//V;', Rows());
+        Check('others', '', Others());
+    end;
+
+    [Test]
+    [HandlerFunctions('MoreHandler')]
+    procedure NewLine_SaveRecordWithoutUpdateOnPageWithTriggersAndFactBox_RowBefore_LogsTheTriggers()
+    begin
+        Initialize();
+        AddRow('B');
+        RunMore(4);
+        Check('shown', 'name=A/Resolved// part=Resolved//A value=A/Resolved//V part=Resolved//A ', Shown);
+        Check('log', 'AGR(B//);AGR(B//);AGCR(B//);|open;AGCR(//);|new;|name;|read;|value;|read;|ok;', Log());
+        Check('rows', 'B///;A/Resolved//V;', Rows());
+        Check('others', '', Others());
+    end;
+
+    [Test]
+    [HandlerFunctions('MoreHandler')]
+    procedure NewLine_FieldOfRecSetAfterSaveRecordOnPageWithTriggersAndFactBox_RowBefore_LogsTheTriggers()
+    begin
+        Initialize();
+        AddRow('B');
+        RunMore(1);
+        Check('shown', 'name=A/Resolved// part=Resolved//A value=A/Resolved//V part=Resolved//A ', Shown);
+        Check('log', 'AGR(B//);AGR(B//);AGCR(B//);|open;AGCR(//);|new;AGR(A/Resolved/);AGR(B//);AGR(A/Resolved/);AGR(A/Resolved/);AGCR(A/Resolved/);|name;|read;|value;|read;|ok;', Log());
+        Check('rows', 'B///;A/Resolved//V;', Rows());
+        Check('others', '', Others());
+    end;
+
+    [Test]
+    [HandlerFunctions('MoreHandler')]
+    procedure NewLine_AnotherTableWrittenAfterSaveRecordOnPageWithTriggersAndFactBox_RowBefore_LogsTheTriggers()
+    begin
+        Initialize();
+        AddRow('B');
+        RunMore(2);
+        Check('shown', 'name=A/Resolved// part=Resolved//A value=A/Resolved//V part=Resolved//A ', Shown);
+        Check('log', 'AGR(B//);AGR(B//);AGCR(B//);|open;AGCR(//);|new;AGR(A/Resolved/);AGR(B//);AGR(A/Resolved/);AGR(A/Resolved/);AGCR(A/Resolved/);|name;|read;|value;|read;|ok;', Log());
+        Check('rows', 'B///;A/Resolved//V;', Rows());
+        Check('others', 'After;', Others());
+    end;
+
+    [Test]
+    [HandlerFunctions('MoreHandler')]
+    procedure NewLine_AnotherTablesRowDeletedAfterSaveRecordOnPageWithTriggersAndFactBox_RowBefore_LogsTheTriggers()
+    begin
+        Initialize();
+        AddRow('B');
+        AddOther('Old');
+        RunMore(3);
+        Check('shown', 'name=A/Resolved// part=Resolved//A value=A/Resolved//V part=Resolved//A ', Shown);
+        Check('log', 'AGR(B//);AGR(B//);AGCR(B//);|open;AGCR(//);|new;AGR(A/Resolved/);AGR(B//);AGR(A/Resolved/);AGR(A/Resolved/);AGCR(A/Resolved/);|name;|read;|value;|read;|ok;', Log());
+        Check('rows', 'B///;A/Resolved//V;', Rows());
+        Check('others', '', Others());
+    end;
+
     [ModalPageHandler]
     procedure MoreHandler(var Lines: TestPage "LT NK More Lines")
     var
@@ -729,6 +795,16 @@ codeunit 96745 "LT NK More Tests"
         LogCu.Reset(0);
         Commit();
         Shown := '';
+    end;
+
+    local procedure AddRow(Name: Text[30])
+    var
+        Line: Record "LT NK Line";
+    begin
+        Line."Group Code" := 'G1';
+        Line.Name := Name;
+        Line.Insert();
+        Commit();
     end;
 
     local procedure AddOther(NewText: Text[30])

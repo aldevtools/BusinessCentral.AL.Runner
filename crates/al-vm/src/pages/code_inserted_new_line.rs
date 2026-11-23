@@ -666,6 +666,15 @@ impl Session {
                  new line onto the row the table field inserted, under code that is not a pinned page's (not measured)"
             }
             CodeInsertedSave::Asked(view) if self.view_kept(st, &view)? => return Ok(()),
+            // CurrPage.SaveRecord() as the validation's last statement on the page with triggers and a FactBox: BC refreshes
+            // nothing and the page stays on the saved row (ListNewLineExtraCodeFactbox.al:701, :713).
+            CodeInsertedSave::Saved(view)
+                if view.extra
+                    && matches!(self.code_inserted_page(st)?, Some((Triggers::FactboxExtra, _)))
+                    && self.extra_code_unchanged(st, &view)? =>
+            {
+                return Ok(());
+            }
             CodeInsertedSave::Asked(_) => {
                 "the validation changed the page's record, its view or the table after CurrPage.SaveRecord or Update(true) moved the \
                  page from its new line onto the row the table field inserted (not measured)"
@@ -711,15 +720,18 @@ impl Session {
                     })
             }
         };
-        let (r, v) = (rec.borrow(), &view.rec);
-        Ok(fields_kept
-            && crate::records::same_filters(&r.filters, &v.filters)
+        Ok(fields_kept && Self::same_view(&rec.borrow(), &view.rec))
+    }
+
+    /// Whether records `r` and `v` have the same view: filters, filter group, key, sort order and MarkedOnly.
+    pub(super) fn same_view(r: &RecordState, v: &RecordState) -> bool {
+        crate::records::same_filters(&r.filters, &v.filters)
             && r.filter_group == v.filter_group
             && r.key == v.key
             && r.adhoc == v.adhoc
             && r.ascending == v.ascending
             && r.field_descending == v.field_descending
-            && r.marked_only == v.marked_only)
+            && r.marked_only == v.marked_only
     }
 
     /// The save of `CurrPage.SaveRecord` or `CurrPage.Update(true)` that left the new line (`save_from_update`) is done: the page's
@@ -832,7 +844,8 @@ impl Session {
         view: &SavedView,
     ) -> Result<(), Signal> {
         // Update(true) after the save is measured on the page without triggers only (ListNewLineExtraCode.al:476); on the page
-        // with triggers and a FactBox it stays refused (review of al-runner PR 8820).
+        // with triggers and a FactBox it stays refused: BC's answer there is measured 3 of 3 on BC 29.1 only by the neighbor
+        // app's tests/neighbors/8734-new-line-extra-code-factbox/src/Neighbors.al:478, which no corpus cell pins.
         if view.extra
             && matches!(arg, Some(Value::Boolean(true)))
             && matches!(self.code_inserted_page(st)?, Some((Triggers::Quiet, _)))

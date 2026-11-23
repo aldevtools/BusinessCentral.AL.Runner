@@ -95,6 +95,8 @@ fn no_crate_outside_al_version_spells_a_bc_version() {
 #[test]
 fn the_scanner_finds_what_it_should() {
     assert!(offence("let s = \"BC27PLUS\";").is_some());
+    // A minor symbol (ADR-078 point 3) spells a version too.
+    assert!(offence("let s = \"BC29_1PLUS\";").is_some());
     assert!(offence("x == \"BC 29\"").is_some());
     assert!(offence("if v.major >= 29 {").is_some());
     assert!(offence("let v = \"27.5\";").is_some());
