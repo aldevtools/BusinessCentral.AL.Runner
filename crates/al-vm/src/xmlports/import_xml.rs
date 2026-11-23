@@ -990,18 +990,8 @@ impl Session {
     }
 
     /// `xp_assign_field` for the text of the element `ce`: with PreserveWhiteSpace a CDATA section of white space only is kept.
+    /// Returns the field's position and what `OnAfterAssignField` asked for.
     pub(super) fn xp_assign_field_elem(
-        &mut self,
-        inst: &Inst,
-        schema: &Schema,
-        node: usize,
-        ce: &Elem,
-    ) -> Result<usize, Signal> {
-        Ok(self.xp_assign_field_elem_flow(inst, schema, node, ce)?.0)
-    }
-
-    /// `xp_assign_field_elem`, and what `OnAfterAssignField` asked for.
-    pub(super) fn xp_assign_field_elem_flow(
         &mut self,
         inst: &Inst,
         schema: &Schema,

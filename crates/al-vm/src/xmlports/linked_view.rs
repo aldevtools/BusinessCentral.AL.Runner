@@ -10,6 +10,7 @@
 
 use super::*;
 
+const LINKED_VIEW_FLOW: &str = "XmlPort import of a linked table element whose SourceTableView has a const filter, skipped by its trigger (not pinned)";
 const LINKED_VIEW_OTHER_VALUE: &str = "XmlPort import of a linked table element whose SourceTableView const filter's field holds another value at the save (not pinned)";
 
 /// The field position and value of the one `const` filter of the SourceTableView of `node`, when the element is in the
@@ -43,18 +44,22 @@ impl Session {
             return Ok(None);
         }
         // The cell holds one row of the element under its parent: a later row is not measured.
-        let measured = if first_of_node {
-            self.xp_linked_view_const(inst, schema, node)?
-        } else {
-            None
-        };
-        match measured {
-            Some(c) => Ok(Some(c)),
-            None => unsupported(format!(
-                "XmlPort import: sourcetableview with a filter on the linked tableelement {} is not pinned",
-                n.name
-            )),
+        if first_of_node && let Some(c) = self.xp_linked_view_const(inst, schema, node)? {
+            return Ok(Some(c));
         }
+        unsupported(format!(
+            "XmlPort import: sourcetableview with a filter on the linked tableelement {} is not pinned",
+            n.name
+        ))
+    }
+
+    /// Refuses when the measured element's OnAfterInitRecord asked for Skip, Break or BreakUnbound. Checked right after
+    /// that trigger: the site of the first field attribute would take the request.
+    pub(super) fn xp_linked_view_after_init(inst: &Inst, view_const: &Option<LinkedViewConst>) -> Result<(), Signal> {
+        if view_const.is_some() && Self::xp_flow(inst).is_some() {
+            return unsupported(LINKED_VIEW_FLOW);
+        }
+        Ok(())
     }
 
     /// Saves the record of the measured element: the row holds the filter's value at its save, and keeps it.
@@ -66,18 +71,13 @@ impl Session {
         c: &LinkedViewConst,
         assigned: &[usize],
     ) -> Result<(), Signal> {
-        if !self.xp_holds_view_const(inst, schema, node, c)? {
-            return unsupported(LINKED_VIEW_OTHER_VALUE);
-        }
+        self.xp_holds_view_const(inst, schema, node, c)?;
         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportLinkedViewConst);
         self.xp_save_record(inst, schema, node, assigned, Save::Once)?;
-        if !self.xp_holds_view_const(inst, schema, node, c)? {
-            return unsupported(LINKED_VIEW_OTHER_VALUE);
-        }
-        Ok(())
+        self.xp_holds_view_const(inst, schema, node, c)
     }
 
-    pub(super) fn xp_linked_view_const(
+    fn xp_linked_view_const(
         &mut self,
         inst: &Inst,
         schema: &Schema,
@@ -95,12 +95,7 @@ impl Session {
         // UseTemporary.
         let parent_measured = n.parent.is_some_and(|p| {
             let pn = schema.node(p);
-            pn.kind == ir::XmlNodeKind::Table
-                && below_root(schema, p)
-                && pn.auto_save
-                && !pn.auto_update
-                && !pn.auto_replace
-                && !pn.use_temporary
+            pn.kind == ir::XmlNodeKind::Table && below_root(schema, p) && plain_autosave(pn)
         });
         let field_attrs_only = schema.children(node).iter().all(|&c| {
             let cn = schema.node(c);
@@ -114,10 +109,7 @@ impl Session {
             && n.link_node == n.parent
             && n.link_fields.len() == 1
             && n.min_zero
-            && n.auto_save
-            && !n.auto_update
-            && !n.auto_replace
-            && !n.use_temporary
+            && plain_autosave(n)
             && field_attrs_only
             && n.triggers
                 .iter()
@@ -163,18 +155,22 @@ impl Session {
         }))
     }
 
-    /// Whether the record of `node` holds the filter's value in the filtered field: the measured row, before and after its
-    /// save.
+    /// Refuses unless the record of `node` holds the filter's value in the filtered field: the measured row, before and
+    /// after its save.
     fn xp_holds_view_const(
         &mut self,
         inst: &Inst,
         schema: &Schema,
         node: usize,
         c: &LinkedViewConst,
-    ) -> Result<bool, Signal> {
+    ) -> Result<(), Signal> {
         let rec = self.xp_record(inst, schema.node(node))?;
         let r = rec.borrow();
-        Ok(ops::compare(&r.fields[c.field], &c.value)? == std::cmp::Ordering::Equal)
+        if ops::compare(&r.fields[c.field], &c.value)? == std::cmp::Ordering::Equal {
+            Ok(())
+        } else {
+            unsupported(LINKED_VIEW_OTHER_VALUE)
+        }
     }
 }
 

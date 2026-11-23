@@ -104,14 +104,7 @@ impl Session {
             Self::xp_stop_import(inst);
             return Ok(());
         }
-        // The measured element's OnAfterInitRecord, its only trigger, does not skip (`linked_view`). Checked here: the site of
-        // the first field attribute would take the request.
-        if view_const.is_some() {
-            match Self::xp_flow(inst) {
-                None => {}
-                _ => return unsupported(LINKED_VIEW_FLOW),
-            }
-        }
+        Self::xp_linked_view_after_init(inst, &view_const)?;
         // Whether a trigger of a field attribute or field element asked for Skip, Break or BreakUnbound, which the import does
         // not act on there: read by the second save of a row stored before its linked child rows (`Save::Again`).
         let mut field_flow = self.xp_import_attrs(inst, schema, node, elem, Some(&mut assigned))?;
@@ -156,7 +149,7 @@ impl Session {
             };
             match schema.node(child).kind {
                 ir::XmlNodeKind::Field => {
-                    let (pos, flow) = self.xp_assign_field_elem_flow(inst, schema, child, ce)?;
+                    let (pos, flow) = self.xp_assign_field_elem(inst, schema, child, ce)?;
                     field_flow |= flow.is_some();
                     // A field element of a table element further up assigns that record, not this one (Y60XpTextInTable.al
                     // TextWrap_TempTable_Inner_Import `Outer.Name` inside `Inner`: `outer ins H1 name=n2`).
@@ -381,7 +374,7 @@ impl Session {
                 // An empty `<tier />` runs its OnAfterAssignVariable twice here (QrXpContainerOccurs.al TQ_Response_Import_Shapes
                 // `optional leaves absent`, `tier=;tier=;`; TR_EmptyLeaf_Import `inner=[];inner=[];`, `<inner></inner>` once).
                 match schema.node(child).kind {
-                    ir::XmlNodeKind::Field => assigned.push(self.xp_assign_field_elem(inst, schema, child, ce)?),
+                    ir::XmlNodeKind::Field => assigned.push(self.xp_assign_field_elem(inst, schema, child, ce)?.0),
                     _ => self.xp_assign_leaf_text(inst, schema, child, ce)?,
                 }
             }
@@ -501,7 +494,7 @@ impl Session {
                 continue;
             };
             match schema.node(child).kind {
-                ir::XmlNodeKind::Field => assigned.push(self.xp_assign_field_elem(inst, schema, child, ce)?),
+                ir::XmlNodeKind::Field => assigned.push(self.xp_assign_field_elem(inst, schema, child, ce)?.0),
                 ir::XmlNodeKind::Text => {
                     Self::xp_refuse_self_closed_leaf(schema, child, ce)?;
                     self.xp_assign_variable(inst, schema, child, ce.text())?
@@ -541,13 +534,14 @@ impl Session {
         let temporary = rec.borrow().temporary;
         let again = matches!(save, Save::Again { .. });
         let has_assign_trigger = schema.children(node).iter().any(|&c| assign_trigger(schema.node(c)));
+        let stored_again = stored_again_assigned(schema, node, again, temporary);
         // A row whose first save stored nothing (Skip, Break or BreakUnbound) is not stored again: corpus PR 1550,
         // XpAutoUpdateAssign.al:1062-1076 Suite_SameAppSameHash_Skips, trace `bi:A/db///Yes/0` without `bm:A`, row `SA/da/...`.
         // Measured with a Skip in OnBeforeInsertRecord after one in the key attribute's trigger, the child rows skipped by
         // theirs; what follows otherwise, and after a request of a field trigger the import does not act on, is not pinned.
         if let Save::Again { first_stored: false } = save
             && has_assign_trigger
-            && stored_again_assigned(schema, node, again, temporary)
+            && stored_again
         {
             return unsupported(
                 "XmlPort import of a table element stored again after its linked child rows, whose first save stored no row or followed a Skip, Break or BreakUnbound of a field trigger, with triggers that assign fields (not pinned)",
@@ -611,24 +605,28 @@ impl Session {
         let has_init_trigger = n.trigger("onafterinitrecord").is_some();
         // A field the document does not carry; system fields keep the stored row's values on every path.
         let uncarried_skip = |p: usize| assigned.contains(&p) || t.fields[p].id >= 2_000_000_000;
-        let init_differs = has_init_trigger
-            && stored
-                .as_ref()
-                .is_some_and(|old| !same_fields(old, &rec.borrow().fields, uncarried_skip));
+        let init_differs = || {
+            has_init_trigger
+                && stored
+                    .as_ref()
+                    .is_some_and(|old| !same_fields(old, &rec.borrow().fields, uncarried_skip))
+        };
         // AutoUpdate of an existing row whose triggers assign fields, or whose OnAfterInitRecord left a field the document does
         // not carry other than the stored row holds (the two shapes main refused): the save takes the stored row with the
         // fields the document carries, as the record holds them, before OnBeforeModifyRecord, which sees that row (corpus PR
         // 1550, XpAutoUpdateAssign.al KeyTrig_Existing_NameCarried, _NameAbsent, FieldTrig_Existing, TextTrig_Existing,
         // InitTrig_Existing_NameCarried, _NameAbsent: what the triggers assign to a field the document does not carry is
         // dropped). Assumption `xmlport-autoupdate-assign-triggers` until the probe is pinned.
-        let merged =
-            if modify && (has_assign_trigger || init_differs) && autoupdate_assigned(schema, node, again, temporary) {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportAutoupdateAssignTriggers);
-                self.xp_take_stored_row(&rec, &pk, assigned)?;
-                Some(rec.borrow().fields.clone())
-            } else {
-                None
-            };
+        let merged = if modify
+            && autoupdate_assigned(schema, node, again, temporary)
+            && (has_assign_trigger || init_differs())
+        {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportAutoupdateAssignTriggers);
+            self.xp_take_stored_row(&rec, &pk, assigned)?;
+            Some(rec.borrow().fields.clone())
+        } else {
+            None
+        };
         // Skip and BreakUnbound leave this record out (no insert, no after trigger), Break leaves it out and ends the import
         // (P112_Import_Skip, _Break, _BreakUnbound at beforeIns2).
         match self.xp_site(inst, schema, node, before)? {
@@ -649,7 +647,6 @@ impl Session {
                 }
             } else if modify && !n.auto_replace {
                 // AutoUpdate changes only the fields the document carries.
-                let stored_again = stored_again_assigned(schema, node, again, temporary);
                 if has_assign_trigger && !stored_again {
                     return unsupported("AutoUpdate with triggers that assign fields (which values win is not pinned)");
                 }
@@ -729,8 +726,6 @@ pub(super) enum Save {
     Again { first_stored: bool },
 }
 
-const LINKED_VIEW_FLOW: &str = "XmlPort import of a linked table element whose SourceTableView has a const filter, skipped by its trigger (not pinned)";
-
 /// The save of `xp_save_record` in which triggers that assign fields of the row may run: a table element right below the
 /// root text element, AutoSave without AutoUpdate or AutoReplace, a real table, stored before its linked child rows and
 /// stored again after them (`again`), whose children are field attributes, text attributes, table elements and field
@@ -748,14 +743,7 @@ fn stored_again_assigned(schema: &Schema, node: usize, again: bool, temporary: b
             ir::XmlNodeKind::FieldAttr | ir::XmlNodeKind::TextAttr | ir::XmlNodeKind::Table
         ) || (cn.kind == ir::XmlNodeKind::Field && schema.children(c).is_empty())
     });
-    again
-        && below_root(schema, node)
-        && measured_children
-        && n.auto_save
-        && !n.auto_update
-        && !n.auto_replace
-        && !n.use_temporary
-        && !temporary
+    again && below_root(schema, node) && measured_children && plain_autosave(n) && !temporary
 }
 
 /// The AutoUpdate save in which triggers that assign fields of an existing row may run: a table element right below the root
