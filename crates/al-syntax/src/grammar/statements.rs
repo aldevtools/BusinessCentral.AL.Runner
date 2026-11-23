@@ -1,4 +1,6 @@
 //! Statements and code blocks.
+//!
+//! Entry points: `block`, `stmt`.
 
 use super::expressions::{at_expr_start, expr, range_or_expr};
 use crate::SyntaxKind::*;

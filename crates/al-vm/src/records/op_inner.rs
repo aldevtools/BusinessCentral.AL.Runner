@@ -1,4 +1,7 @@
 //! `record_op_inner`: the dispatch of every Record method (moved out of `records.rs`).
+//!
+//! `record_op_inner`, the dispatch of every Record method (moved out of `records.rs`), and
+//! `clear_record` (`Clear` of a record).
 
 use super::*;
 use crate::state::{UnpinnedLock, WriteOfAl};

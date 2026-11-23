@@ -5,6 +5,15 @@
 //! types: Card, List, Worksheet, ListPlus, StandardDialog, NavigatePage, CardPart and ListPart; every other page type (a Role
 //! Center among them) is refused at the open. Each further rule below names the page types and the shape its pins cover; a
 //! neighbor keeps the earlier behavior or is refused.
+//!
+//! Pages without a source table as events/page-events/NoSourcePageEvents.al pins them (al-runner
+//! issue 7430): the four platform events such a page raises, OpenNew by page type, the refresh after
+//! an action, New/Next/Previous/First/Last, Cancel in lookup mode, the close after a handler error,
+//! CurrPage.Close in OnOpenPage, the part close order of a host Card, Processing actions of a
+//! StandardDialog. Each rule is limited to the page types and shape its pins cover; "opened with
+//! OpenEdit" is `PageState::test_open_edit` (the test's own OpenEdit, top level, not modal, not a
+//! trapped run). A Role Center is refused. Entry points: `no_source_page_event` (by `page_event`),
+//! `no_source_event_refusal`, `no_source_move` (by `page_move`), `no_source_open_new`.
 
 use super::*;
 use al_builtins::page_op::PageMethod;

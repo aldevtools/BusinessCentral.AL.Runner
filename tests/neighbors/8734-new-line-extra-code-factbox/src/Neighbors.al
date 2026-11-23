@@ -70,6 +70,15 @@ codeunit 97703 "LT NG Mode"
         Other.Insert();
     end;
 
+    procedure ChangeOther(NewText: Text[30])
+    var
+        Other: Record "LT NG Other";
+    begin
+        Other.FindFirst();
+        Other.Text := NewText;
+        Other.Modify();
+    end;
+
     procedure StampMark(Line: Record "LT NG Line")
     var
         Other: Record "LT NG Line";
@@ -140,7 +149,19 @@ page 97705 "LT NG Lines"
                         CurrPage.SaveRecord();
                         if Mode.Get() in [0, 1, 2] then
                             Mode.StampMark(Rec);
-                        if Mode.Get() <> 8 then
+                        case Mode.Get() of
+                            10, 12:
+                                Rec."Entry No." += 100;
+                            11:
+                                Rec.Next(-1);
+                            13:
+                                Rec.Find('=');
+                        end;
+                        if Mode.Get() = 12 then
+                            Mode.AddOther('ByPage');
+                        if Mode.Get() = 14 then
+                            Mode.ChangeOther('ByPage');
+                        if not (Mode.Get() in [8, 10, 11, 12, 13, 14]) then
                             CurrPage.Update(false);
                     end;
                 }
@@ -805,6 +826,354 @@ codeunit 97712 "LT NG Close Tests"
             repeat
                 Result += Line.Name + '/' + Line.Note + '/' + Line.Mark + '/' + Line.Value + ';';
             until Line.Next() = 0;
+    end;
+
+    local procedure Check(What: Text; Expected: Text; Actual: Text)
+    begin
+        if Expected <> Actual then
+            Error('%1: expected <%2>, found <%3>.', What, Expected, Actual);
+    end;
+}
+
+// The save, then Rec read again by its key (Rec.Find('=')), with no Update: the saved key kept. Its own codeunit, so that no earlier refused test hides its result.
+codeunit 97713 "LT NG Key Kept Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        Shown: Text;
+
+    [Test]
+    [HandlerFunctions('KeyHandler')]
+    procedure NewLine_RecFoundAgainAfterSaveRecordWithoutUpdate_KeepsTheRow()
+    var
+        Line: Record "LT NG Line";
+        Other: Record "LT NG Other";
+        Mode: Codeunit "LT NG Mode";
+        Opener: Codeunit "LT NG Opener";
+    begin
+        Line.DeleteAll();
+        Other.DeleteAll();
+        Mode.Set(13);
+        Commit();
+        Shown := '';
+        Opener.Open('G1', Page::"LT NG Lines");
+        Mode.Set(0);
+        Check('shown', 'name=A/Resolved// value=A/Resolved//V ', Shown);
+        Check('rows', 'A/Resolved//V;', Rows());
+        Check('others', '', Others());
+    end;
+
+    [ModalPageHandler]
+    procedure KeyHandler(var Lines: TestPage "LT NG Lines")
+    begin
+        Lines.New();
+        Lines.Name.SetValue('A');
+        Shown += 'name=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + ' ';
+        Lines.Value.SetValue('V');
+        Shown += 'value=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + ' ';
+        Lines.OK().Invoke();
+    end;
+
+    local procedure Rows() Result: Text
+    var
+        Line: Record "LT NG Line";
+    begin
+        Line.SetRange("Group Code", 'G1');
+        if Line.FindSet() then
+            repeat
+                Result += Line.Name + '/' + Line.Note + '/' + Line.Mark + '/' + Line.Value + ';';
+            until Line.Next() = 0;
+    end;
+
+    local procedure Others() Result: Text
+    var
+        Other: Record "LT NG Other";
+    begin
+        if Other.FindSet() then
+            repeat
+                Result += Other.Text + ';';
+            until Other.Next() = 0;
+    end;
+
+    local procedure Check(What: Text; Expected: Text; Actual: Text)
+    begin
+        if Expected <> Actual then
+            Error('%1: expected <%2>, found <%3>.', What, Expected, Actual);
+    end;
+}
+
+// The save, then a primary-key field of Rec set, with no Update. Its own codeunit, so that no earlier refused test hides its result.
+codeunit 97714 "LT NG Key Set Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        Shown: Text;
+
+    [Test]
+    [HandlerFunctions('KeyHandler')]
+    procedure NewLine_KeyFieldSetAfterSaveRecordWithoutUpdate_ChangesTheKey()
+    var
+        Line: Record "LT NG Line";
+        Other: Record "LT NG Other";
+        Mode: Codeunit "LT NG Mode";
+        Opener: Codeunit "LT NG Opener";
+    begin
+        Line.DeleteAll();
+        Other.DeleteAll();
+        Mode.Set(10);
+        Commit();
+        Shown := '';
+        Opener.Open('G1', Page::"LT NG Lines");
+        Mode.Set(0);
+        Check('shown', 'name=A/Resolved// value=A/Resolved//V ', Shown);
+        Check('rows', 'A/Resolved//;', Rows());
+        Check('others', '', Others());
+    end;
+
+    [ModalPageHandler]
+    procedure KeyHandler(var Lines: TestPage "LT NG Lines")
+    begin
+        Lines.New();
+        Lines.Name.SetValue('A');
+        Shown += 'name=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + ' ';
+        Lines.Value.SetValue('V');
+        Shown += 'value=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + ' ';
+        Lines.OK().Invoke();
+    end;
+
+    local procedure Rows() Result: Text
+    var
+        Line: Record "LT NG Line";
+    begin
+        Line.SetRange("Group Code", 'G1');
+        if Line.FindSet() then
+            repeat
+                Result += Line.Name + '/' + Line.Note + '/' + Line.Mark + '/' + Line.Value + ';';
+            until Line.Next() = 0;
+    end;
+
+    local procedure Others() Result: Text
+    var
+        Other: Record "LT NG Other";
+    begin
+        if Other.FindSet() then
+            repeat
+                Result += Other.Text + ';';
+            until Other.Next() = 0;
+    end;
+
+    local procedure Check(What: Text; Expected: Text; Actual: Text)
+    begin
+        if Expected <> Actual then
+            Error('%1: expected <%2>, found <%3>.', What, Expected, Actual);
+    end;
+}
+
+// The save, then Rec moved to the row before (Rec.Next(-1)), with no Update. Its own codeunit, so that no earlier refused test hides its result.
+codeunit 97715 "LT NG Key Moved Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        Shown: Text;
+
+    [Test]
+    [HandlerFunctions('KeyHandler')]
+    procedure NewLine_RecMovedAfterSaveRecordWithoutUpdate_RowBefore_ChangesTheRow()
+    var
+        Line: Record "LT NG Line";
+        Other: Record "LT NG Other";
+        Mode: Codeunit "LT NG Mode";
+        Opener: Codeunit "LT NG Opener";
+    begin
+        Line.DeleteAll();
+        Other.DeleteAll();
+        Line."Group Code" := 'G1';
+        Line.Name := 'B';
+        Line.Insert();
+        Mode.Set(11);
+        Commit();
+        Shown := '';
+        Opener.Open('G1', Page::"LT NG Lines");
+        Mode.Set(0);
+        Check('shown', 'name=A/// value=A///V ', Shown);
+        Check('rows', 'B///;A/Resolved//;A///V;', Rows());
+        Check('others', '', Others());
+    end;
+
+    [ModalPageHandler]
+    procedure KeyHandler(var Lines: TestPage "LT NG Lines")
+    begin
+        Lines.New();
+        Lines.Name.SetValue('A');
+        Shown += 'name=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + ' ';
+        Lines.Value.SetValue('V');
+        Shown += 'value=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + ' ';
+        Lines.OK().Invoke();
+    end;
+
+    local procedure Rows() Result: Text
+    var
+        Line: Record "LT NG Line";
+    begin
+        Line.SetRange("Group Code", 'G1');
+        if Line.FindSet() then
+            repeat
+                Result += Line.Name + '/' + Line.Note + '/' + Line.Mark + '/' + Line.Value + ';';
+            until Line.Next() = 0;
+    end;
+
+    local procedure Others() Result: Text
+    var
+        Other: Record "LT NG Other";
+    begin
+        if Other.FindSet() then
+            repeat
+                Result += Other.Text + ';';
+            until Other.Next() = 0;
+    end;
+
+    local procedure Check(What: Text; Expected: Text; Actual: Text)
+    begin
+        if Expected <> Actual then
+            Error('%1: expected <%2>, found <%3>.', What, Expected, Actual);
+    end;
+}
+
+// The save, then a primary-key field of Rec set and a row of another table inserted, with no Update. Its own codeunit, so that no earlier refused test hides its result.
+codeunit 97716 "LT NG Key Other Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        Shown: Text;
+
+    [Test]
+    [HandlerFunctions('KeyHandler')]
+    procedure NewLine_KeyFieldSetAndAnotherTableWrittenAfterSaveRecordWithoutUpdate_ChangesTheKey()
+    var
+        Line: Record "LT NG Line";
+        Other: Record "LT NG Other";
+        Mode: Codeunit "LT NG Mode";
+        Opener: Codeunit "LT NG Opener";
+    begin
+        Line.DeleteAll();
+        Other.DeleteAll();
+        Mode.Set(12);
+        Commit();
+        Shown := '';
+        Opener.Open('G1', Page::"LT NG Lines");
+        Mode.Set(0);
+        Check('shown', 'name=A/Resolved// value=A/Resolved//V ', Shown);
+        Check('rows', 'A/Resolved//;', Rows());
+        Check('others', 'ByPage;', Others());
+    end;
+
+    [ModalPageHandler]
+    procedure KeyHandler(var Lines: TestPage "LT NG Lines")
+    begin
+        Lines.New();
+        Lines.Name.SetValue('A');
+        Shown += 'name=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + ' ';
+        Lines.Value.SetValue('V');
+        Shown += 'value=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + ' ';
+        Lines.OK().Invoke();
+    end;
+
+    local procedure Rows() Result: Text
+    var
+        Line: Record "LT NG Line";
+    begin
+        Line.SetRange("Group Code", 'G1');
+        if Line.FindSet() then
+            repeat
+                Result += Line.Name + '/' + Line.Note + '/' + Line.Mark + '/' + Line.Value + ';';
+            until Line.Next() = 0;
+    end;
+
+    local procedure Others() Result: Text
+    var
+        Other: Record "LT NG Other";
+    begin
+        if Other.FindSet() then
+            repeat
+                Result += Other.Text + ';';
+            until Other.Next() = 0;
+    end;
+
+    local procedure Check(What: Text; Expected: Text; Actual: Text)
+    begin
+        if Expected <> Actual then
+            Error('%1: expected <%2>, found <%3>.', What, Expected, Actual);
+    end;
+}
+// The save, then a row of another table modified, with no Update. Its own codeunit, so that no earlier refused test hides its result.
+codeunit 97717 "LT NG Other Modified Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        Shown: Text;
+
+    [Test]
+    [HandlerFunctions('KeyHandler')]
+    procedure NewLine_AnotherTableModifiedAfterSaveRecordWithoutUpdate_ShowsAndSavesTheRow()
+    var
+        Line: Record "LT NG Line";
+        Other: Record "LT NG Other";
+        Mode: Codeunit "LT NG Mode";
+        Opener: Codeunit "LT NG Opener";
+    begin
+        Line.DeleteAll();
+        Other.DeleteAll();
+        Mode.AddOther('Before');
+        Mode.Set(14);
+        Commit();
+        Shown := '';
+        Opener.Open('G1', Page::"LT NG Lines");
+        Mode.Set(0);
+        Check('shown', 'name=A/Resolved// value=A/Resolved//V ', Shown);
+        Check('rows', 'A/Resolved//V;', Rows());
+        Check('others', 'ByPage;', Others());
+    end;
+
+    [ModalPageHandler]
+    procedure KeyHandler(var Lines: TestPage "LT NG Lines")
+    begin
+        Lines.New();
+        Lines.Name.SetValue('A');
+        Shown += 'name=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + ' ';
+        Lines.Value.SetValue('V');
+        Shown += 'value=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + ' ';
+        Lines.OK().Invoke();
+    end;
+
+    local procedure Rows() Result: Text
+    var
+        Line: Record "LT NG Line";
+    begin
+        Line.SetRange("Group Code", 'G1');
+        if Line.FindSet() then
+            repeat
+                Result += Line.Name + '/' + Line.Note + '/' + Line.Mark + '/' + Line.Value + ';';
+            until Line.Next() = 0;
+    end;
+
+    local procedure Others() Result: Text
+    var
+        Other: Record "LT NG Other";
+    begin
+        if Other.FindSet() then
+            repeat
+                Result += Other.Text + ';';
+            until Other.Next() = 0;
     end;
 
     local procedure Check(What: Text; Expected: Text; Actual: Text)

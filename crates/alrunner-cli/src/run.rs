@@ -1,4 +1,14 @@
 //! `al-runner test`: load the APPs and their dependencies, compile, run, report.
+//!
+//! `al-runner test`: load APPs, select test codeunits, resolve dependencies, compile, run, print.
+//! `run/test_data.rs`: finding and opening the test data (backup kept between `serve` requests,
+//! package, DemoTool fetch, `resolved_companies` for the companies a run reads from a backup, the
+//! demo backup choice). Entry points: `open_backup`, `choose_test_data`, `resolved_companies`.
+//! `run/rankings.rs`: the rankings at the end of the report ("Top refusals", "Top failures",
+//! `--refusal-detail`); a refusal is `TestResult::is_refusal` (not run, not left out by a stop
+//! option). A serve request keeps the dependency apps it read (`WarmCtx::dependencies`, checked by
+//! `kept_apps::stamps`) and the apps under test (`WarmCtx::apps`, `kept_apps.rs`) and says where its
+//! time went (`RequestTimings`, the summary's `timings`). Entry: `test`.
 
 use crate::apps::{self, AppInput};
 use crate::args::{DEFAULT_TOP, TestArgs};

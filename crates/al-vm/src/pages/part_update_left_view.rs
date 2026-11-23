@@ -27,6 +27,21 @@
 //! PartRefill_TypedKeyTriggerPartActionThenFilterFirst_FindsRefilledRow is in corpus PR 1475, merged; the styled part of al-runner
 //! issue 8704 in corpus PR 1534, open): `TestFilterReread` admits
 //! each in turn (`measured_step_after_test_filter`), until a test call on another page. Every other call keeps the refusal.
+//!
+//! A part whose own `CurrPage.Update` was asked while its view no longer started with the rows the
+//! client holds (al-runner issue 8328): decided once at the ask and kept in
+//! `RefreshRequest::update_left_view` (`state/refresh.rs`); while that refresh waits every test call
+//! that reads or writes a row of the part (field reads, SetValue, actions, New, the moves, GoToKey,
+//! GoToRecord, Find*Field, TestPart Editable, and a control's Caption, Visible, Editable or Enabled
+//! when the property it reads is an expression: `reads_no_row`) is refused, which rows BC shows is
+//! not pinned; a part with OnFindRecord or OnNextRecord is not compared. After the test's own
+//! `Filter.SetFilter` read the part's rows again (al-runner issue 8537), the calls a probe cell made
+//! take main's answer under assumption `part-left-view-test-filter`, one `TestFilterReread` step at a
+//! time (`PageState::left_view_test_filter`, set by `filter.rs` `filter_changed` in the cells of
+//! `part_refill_pins.rs`, ended by a test call on another page through `Session::test_filter_steps`
+//! in `dirty_step.rs`). Entry points: `note_part_update_left_view` (by `ask_update_refresh`),
+//! `refuse_row_access_on_part_left_by_its_view` (by `first_part_access`, which every test call on a
+//! part passes), `note_part_rows_read_by_test_filter`, `end_test_filter_steps_elsewhere`.
 
 use super::part_refill_pins::Cell;
 use super::*;

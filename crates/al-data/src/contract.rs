@@ -1,5 +1,7 @@
 //! The conformance suite every `Store` must pass (ADR-003). Each function
 //! takes a fresh, empty store.
+//!
+//! Entry points: `table`, `cx`, `row`, `scan_all`.
 
 use crate::*;
 use al_builtins::filter::{FieldFilter, FilterExpr};

@@ -7,6 +7,8 @@
 //! NAVX header), or the runtime wrapper `.app` Microsoft ships in BC artifacts (a zip whose
 //! payload contains the inner NAVX `.app`). Tables and table extensions may be nested in
 //! namespaces (AL namespaces, BC 24+); the loader walks them recursively.
+//!
+//! Entry points: `AlField`, `AlTable`, `AlTableExtension`, `SymbolStore`.
 
 use crate::error::{Error, Result};
 use crate::zip::ZipIndex;

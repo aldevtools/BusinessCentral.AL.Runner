@@ -1,4 +1,6 @@
 //! Reads the version fields of an app.json (ADR-015 step 4).
+//!
+//! Entry points: `build_query`, `read_app_versions`, `app_versions_from_json`.
 
 use al_deps::build::BuildQuery;
 use al_version::{AppVersions, Chosen};

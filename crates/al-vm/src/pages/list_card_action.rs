@@ -1,5 +1,10 @@
 //! The built-in Edit and View actions of a list page (moved out of `actions.rs`), and of a read-only List standing on the line
 //! `New()` started (al-runner issue 7477).
+//!
+//! The built-in Edit/View action of a list page (`list_card_action`, `card_allows_edit`); on a read-
+//! only List on the line New() started it opens the card without a record, and the list follows the
+//! card's row (al-runner issue 7477). Entry points: `list_card_action`,
+//! `read_only_list_new_line_card`, `read_only_list_follows_card`.
 
 use super::*;
 

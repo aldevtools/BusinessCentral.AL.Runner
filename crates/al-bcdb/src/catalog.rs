@@ -11,6 +11,8 @@
 //! root_page are measurably stale in real files, so tables are read through their IAM
 //! chain, never through those pointers. The clustered-index descent is used only for
 //! catalog lookups and falls back to a scan whenever the index has an underived shape.
+//!
+//! `to_index_bytes`/`from_index_bytes`. Entry points: `PagePtr`, `AllocUnit`, `RowSet`, `SysObject`.
 
 use crate::error::{Error, Result};
 use crate::io::le;

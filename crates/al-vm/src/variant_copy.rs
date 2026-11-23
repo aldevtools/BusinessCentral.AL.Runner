@@ -14,6 +14,17 @@
 //! empty table of its own, and that table is marked (`TempId::mark_rows_unmeasured`): its field values read as on main, every read of its rows and every write
 //! refuses (`Session::store_for`, which every read of rows and every write passes). Anything that is not a temporary
 //! record keeps main's store (C8 is a stored record).
+//!
+//! A temporary record going from a Variant into a Variant (`V := W`, al-runner issue 8070):
+//! `exec/compile.rs` registers a `VariantCopySite` when the right-hand side may be a Variant (a local
+//! target keeps `Op::StoreLocal`, whose record branch finds the site by its place; any other target
+//! gets `Op::StoreVariantCopy`; `source_of`: a Variant local or parameter, a global or element, a
+//! procedure call, a ternary of these, an interface method); `Session::store_variant_copy` shares the
+//! table in the cells of types/variant/VariantFromVariantTempRecord.al (`is_cell`,
+//! `Session::measured`), and gives every other temporary record main's by-value copy with its rows
+//! marked (`TempId::mark_rows_unmeasured`, al-builtins `value.rs`): `Session::store_for` refuses a
+//! read of its rows or a write, `keep_rows_mark` carries the mark to a copy into another Variant.
+//! Entry points: `source_of`, `VariantCopySite`, `Session::store_variant_copy`, `rows_refusal`.
 
 use crate::{Frame, Session};
 use al_builtins::filter::FilterExpr;

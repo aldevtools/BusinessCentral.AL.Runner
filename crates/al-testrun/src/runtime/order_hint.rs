@@ -17,6 +17,23 @@
 //! Under `--strict-order` the numbers chain as on BC, except under TestIsolation = Function, where what a later codeunit
 //! sees of them is not measured: [`mark_unmeasured_numbers`] refuses every NumberSequence call of the later codeunits
 //! (al-runner issue 8152).
+//!
+//! ADR-066 amendment 12, the default run (no `--strict-order`): every test codeunit starts with fresh
+//! SingleInstance state and the install baseline's NumberSequence values (`corpus.rs` drops
+//! `ChainWhy::TestsTakeNumbers` from `Unit::carry` and notes `Unit::takes_numbers`; the walk keeps no
+//! single instances), and `single_lane.rs` `Lane::run` with `Lane::bc_order` false flags and re-runs
+//! nothing. `OrderHint` (`hints_for`, called by `Lane::hint`): a failed test that read first a global
+//! of `Found::changed` gets the SingleInstance codeunit, app, global and last writer
+//! (`TestResult::order_hint`, through `Scratch::order_hints`); `NumbersOrder` (`numbers_order`):
+//! codeunits that can take numbers, or only read them, after another one that can take some in their
+//! BC session (`ChainReport::numbers_order`, `numbers_lines`, `numbers_text`); under `--strict-order`
+//! with TestIsolation = Function `mark_unmeasured_numbers` marks every later codeunit
+//! (`Unit::numbers_unmeasured`) so that each NumberSequence call of its session is refused (al-vm
+//! `storage_checkpoint.rs`; al-runner issue 8152). Front end: `alrunner-cli` `output.rs`
+//! `order_properties` (JUnit `orderHint`, `numberSequenceOrder`), `json_tdd` (`orderHint`), `run.rs`
+//! (the `order hint:` and `number order:` lines). `RunOptions::strict_order` turns all of it off and
+//! the amendments 4 to 11 on; `RunOptions::replay_every_dependent` (stability base variant with
+//! `isolation.singleInstance`) replays every dependent codeunit.
 
 use super::single_fresh::CarriedRead;
 use al_vm::single_track::GlobalKey;

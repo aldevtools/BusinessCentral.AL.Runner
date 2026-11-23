@@ -12,6 +12,13 @@
 //! The exceptions whose text an older pin covers are raised by `pinned_exceptions::signal` first; this module answers what is
 //! left, only for the calls in `MEASURED_CALLS` and `CERTIFICATE_CONSTRUCTOR`, sent with no stream. Everything else keeps the
 //! refusal of the caller.
+//!
+//! A .NET exception of a DotNet method, property get or constructor the host ran becomes an AL error
+//! (al-runner issue 7924): the pinned text and code only for the pinned calls (`MEASURED_CALLS`), an
+//! error with an unpinned text for ArgumentException of the X509Certificate2 constructor
+//! (`CERTIFICATE_CONSTRUCTOR`), only for a call that sent no stream, and the
+//! NavNCLDotNetInvokeException `GetLastErrorObject` answers. Entry points: `signal`, `outer_type`,
+//! `inner_type`.
 
 use super::Target;
 use super::last_error::{get_type, member, message};

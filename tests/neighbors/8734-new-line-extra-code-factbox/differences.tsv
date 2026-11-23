@@ -22,11 +22,21 @@ LT NK More Tests::NewLine_AnotherTablesRowDeletedAfterSaveRecordOnPageWithTrigge
 LT NK More Tests::NewLine_SaveRecordWithoutUpdateOnPageWithTriggersAndFactBox_LogsTheTriggers	ASSUMED list-new-line-extra-code,list-new-line-extra-code-factbox (corpus PR 1532, open: ListNewLineExtraCodeFactbox.al)
 LT NK More Tests::NewLine_SaveRecordWithoutUpdateOnPageWithTriggersAndFactBox_RowBefore_LogsTheTriggers	ASSUMED list-new-line-extra-code,list-new-line-extra-code-factbox (corpus PR 1532, open: ListNewLineExtraCodeFactbox.al)
 LT NG Tests::NewLine_SaveRecordWithoutUpdate_RowBefore_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-extra-code-factbox (corpus PR 1532, open: ListNewLineExtraCodeFactbox.al)
-# The save, then a field of Rec set or a row of another table inserted, with no Update: the same.
+# The save, then a field of Rec set or a row of another table inserted or modified, with no Update: the same.
 LT NK More Tests::NewLine_FieldOfRecSetAfterSaveRecordWithoutUpdateOnPageWithTriggersAndFactBox_LogsTheTriggers	ASSUMED list-new-line-extra-code,list-new-line-extra-code-factbox (corpus PR 1532, open: ListNewLineExtraCodeFactbox.al)
 LT NK More Tests::NewLine_FieldOfRecSetAfterSaveRecordWithoutUpdateOnPageWithTriggersAndFactBox_RowBefore_LogsTheTriggers	ASSUMED list-new-line-extra-code,list-new-line-extra-code-factbox (corpus PR 1532, open: ListNewLineExtraCodeFactbox.al)
 LT NK More Tests::NewLine_AnotherTableWrittenAfterSaveRecordWithoutUpdateOnPageWithTriggersAndFactBox_LogsTheTriggers	ASSUMED list-new-line-extra-code,list-new-line-extra-code-factbox (corpus PR 1532, open: ListNewLineExtraCodeFactbox.al)
 LT NK More Tests::NewLine_AnotherTableWrittenAfterSaveRecordWithoutUpdateOnPageWithTriggersAndFactBox_RowBefore_LogsTheTriggers	ASSUMED list-new-line-extra-code,list-new-line-extra-code-factbox (corpus PR 1532, open: ListNewLineExtraCodeFactbox.al)
+LT NK More Tests::NewLine_AnotherTableModifiedAfterSaveRecordWithoutUpdateOnPageWithTriggersAndFactBox_LogsTheTriggers	ASSUMED list-new-line-extra-code,list-new-line-extra-code-factbox (corpus PR 1532, open: ListNewLineExtraCodeFactbox.al)
+LT NK More Tests::NewLine_AnotherTableModifiedAfterSaveRecordWithoutUpdateOnPageWithTriggersAndFactBox_RowBefore_LogsTheTriggers	ASSUMED list-new-line-extra-code,list-new-line-extra-code-factbox (corpus PR 1532, open: ListNewLineExtraCodeFactbox.al)
+# After a save without Update, each in its own codeunit: Rec read again by its key (main answers it wrong) and a row of
+# another table modified run; a key field set, Rec moved to another row (main answers it wrong), and a key field set with a
+# write of another table are taken at the save, then refused at the validation end.
+LT NG Key Kept Tests::NewLine_RecFoundAgainAfterSaveRecordWithoutUpdate_KeepsTheRow	ASSUMED list-new-line-extra-code,list-new-line-extra-code-factbox (corpus PR 1532, open: ListNewLineExtraCodeFactbox.al)
+LT NG Other Modified Tests::NewLine_AnotherTableModifiedAfterSaveRecordWithoutUpdate_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-extra-code-factbox (corpus PR 1532, open: ListNewLineExtraCodeFactbox.al)
+LT NG Key Set Tests::NewLine_KeyFieldSetAfterSaveRecordWithoutUpdate_ChangesTheKey	REFUSED CurrPage.SaveRecord moved the page from its new line onto the row the table field inserted, and the validation ended without
+LT NG Key Moved Tests::NewLine_RecMovedAfterSaveRecordWithoutUpdate_RowBefore_ChangesTheRow	REFUSED CurrPage.SaveRecord moved the page from its new line onto the row the table field inserted, and the validation ended without
+LT NG Key Other Tests::NewLine_KeyFieldSetAndAnotherTableWrittenAfterSaveRecordWithoutUpdate_ChangesTheKey	REFUSED CurrPage.SaveRecord moved the page from its new line onto the row the table field inserted, and the validation ended without
 # Triggers that do more than read, or set a filter on Rec: the gate takes the save, then refuses in the refresh. The base
 # refused them at the Update.
 LT NG Tests::NewLine_PageTriggerSetsAField_ShowsIt	REFUSED a trigger of a List page with a FactBox, or of its part, wrote the store or changed its record

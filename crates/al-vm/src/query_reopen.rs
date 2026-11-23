@@ -9,6 +9,10 @@
 //! and `Open` as a statement (:170) read the rows of the new filter (:171, :179). Each call moves the variable one
 //! `ReopenStep` on. A call that is not the next step before the second `Open` leaves the sequence: it and every later call
 //! take the usual path. After the second `Open` such a call refuses, until the pinned `Open` ends the sequence.
+//!
+//! the pinned second Query.Open while rows are left (al-runner issue 7827): every call on a query
+//! variable moves its `ReopenStep` (al-builtins `query_reopen_step.rs`) along the pinned call
+//! sequence; after the second Open only the pinned end runs. Entry points: `query_reopen_step`.
 
 use crate::Session;
 use al_builtins::native::{Signal, unsupported};

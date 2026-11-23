@@ -20,6 +20,8 @@
 //!    `[u32 cumulative size][6-byte page ptr][u16 slot]`.
 //!  * 8 NULL: the value is SQL NULL. Updating a legacy text/image value to NULL keeps the
 //!    in-row text pointer and turns the root record into this type. Only valid as the root.
+//!
+//! Entry points: `LobReader`.
 
 use crate::error::Result;
 use crate::io::le;

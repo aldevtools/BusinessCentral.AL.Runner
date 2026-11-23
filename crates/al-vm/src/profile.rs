@@ -15,6 +15,17 @@
 //! CalcFields, ...) per node and table: the "Database (in memory)" nodes of the file.
 //!
 //! Cost when off: one `Option` test per statement, per call entry and exit, per builtin return and per record method.
+//!
+//! The AL profiler's call tree (`al-runner test --profile`). `Session::start_profiler(ProfileMode)`
+//! puts a `Profiler` in `CoverageState::profiler`; `profile_enter`/`profile_leave` (around the frame
+//! push and pop in `Session::call` and an event publisher in `dispatch.rs`), `profile_statement`
+//! (`interp.rs` `at_pos`), `profile_builtin` (`exec/run.rs` `op_builtin`) and `record_op_profiled`
+//! (`records.rs` `record_op`; the operations `reaches_database` names, per table, temporary apart,
+//! their own time without the triggers they run) feed it. Instrumentation reads an `Instant` per call
+//! (and per statement with statement times); sampling takes the front end's tick flag.
+//! `Session::take_profile` returns a `ProfileTree` of plain indexes. `frame_name`/`routine_label`
+//! name a frame. No OS access, no clock thread. Entry points: `ProfileMode`, `ProfileTree`,
+//! `Session::take_profile`.
 
 use crate::Session;
 use al_builtins::record_op::RecordOp;

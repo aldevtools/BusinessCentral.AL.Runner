@@ -16,6 +16,20 @@
 //! [`MEASURED_PAIRS`]); any other shape keeps the earlier path (a GoToRecord, a move of a page outside the shape or between
 //! two hidden states) or is refused (a turn by an action, a step after it, a move between other states of the part, and every
 //! step of a page that has each fact but calls a codeunit procedure that does more than log: `journal_tree`).
+//!
+//! The journal shape of a hidden part (al-runner issue 7922): a Worksheet or List host opened with
+//! OpenView, one unlinked ListPart hidden by a Visible expression that the host fills through a part
+//! procedure, as testpage/parts/HiddenPartJournalShape.al pins it. The host and part allowlists
+//! (`journal_host_miss`, `journal_part_miss`, on `pinned_shape.rs` `page_code_is`), the turn by an
+//! action after one GoToRecord (`journal_turn_host_miss`, `journal_turn`, which also requires that
+//! the body did not commit and changed exactly one stored table, not the host's; its entry is
+//! `provider_hidden.rs`), the check and the read after the refresh that follows it
+//! (`journal_part_after_action_refresh`, per major through al-version
+//! `journal_temp_part_reads_after_refresh`), the calls let through after the turn (`TURN_END`,
+//! `journal_next_after_turn`), a GoToRecord that stays as the first call (`journal_before_move`,
+//! `journal_part_stays`), Next and Previous by host type, part source and the part's state before and
+//! after (`journal_part_after_host_move`); the measured pairs of host type and part source
+//! (`MEASURED_PAIRS`).
 
 use super::hidden_part_journal_code::{Calls, host_bodies_are, part_procedure_is, visible_variable};
 use super::pinned_shape::{NextEnd, PinnedCode, PinnedEnd, Reads, TestCall, code_stmts, codeunit_var_call};

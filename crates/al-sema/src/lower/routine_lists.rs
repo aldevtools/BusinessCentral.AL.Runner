@@ -1,6 +1,10 @@
 //! What `Lowered` holds per object and routine: why a routine is refused and which routines it calls. For an object a
 //! compile cache supplies, both are read from the facts the cache stored (ADR-054), not copied into the compile: a run
 //! on Base Application takes about ten thousand objects from the cache and reads the lists of a few.
+//!
+//! What `Lowered` holds per object and routine, read from the cached facts for an object the compile
+//! cache supplies: `Refusals` (per routine, the `Refusal`s that keep it from running) and `Calls`.
+//! Entry points: `Refusals`, `Calls`.
 
 use crate::provided::DepSource;
 use al_builtins::refusal::Refusal;

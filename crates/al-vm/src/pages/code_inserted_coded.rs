@@ -21,6 +21,25 @@
 //! `list-new-line-coded-factboxes-repro`, opened and driven only as it is measured: the open and the view above, `New()`, the
 //! Name SetValue that lands, one Value SetValue and `OK()` (:611-683).
 //!
+//! The page with code of al-runner issue 8434 (assumption `list-new-line-coded-factboxes`, corpus
+//! pull request 1454, merged, not pinned yet): the probe's pages 97492/97493, their table, three
+//! CardPart FactBoxes (one enqueues a page background task), the tables they read and the codeunits
+//! they call, line for line (`coded_code` in `code_inserted_pinned.rs`), opened by a Page.RunModal
+//! statement on an empty view; or the reporter's repro's page with its objects
+//! (`CodedObjects::Repro`, assumption `list-new-line-coded-factboxes-repro`, noted at the open with
+//! the assumption every step runs under, `coded_assume`), driven only by the calls its test makes
+//! (one later SetValue, then OK). Its facts are `coded_page` (`Triggers::Coded` of
+//! `code_inserted_new_line.rs`, which owns the landing and the calls after it); the open lets the
+//! parts read the blank record (`coded_open_on_empty_view`, by `sync_parts_at_list_open`), the first
+//! SetValue after `New()` lets them read the new line before the validation
+//! (`coded_line_before_set_value`, by `test_page_op_held` and `test_control_op_held`), which must
+//! then land (`coded_must_have_landed`); the refresh after the landing and after up to two later
+//! SetValues reads the row once more in another key than the primary key and spends the reads-done
+//! mark (`coded_refresh`, by `code_inserted_refresh`), and the code between the save and the update
+//! may write other tables and the row itself (`coded_rows`, read by `view_kept`). A read of a page
+//! background task of its parts on a table the test session changed and has not committed is refused
+//! (`bg_watched_read` in `background.rs`, by `record_op`).
+//!
 //! A page of their shape with other code (`coded_extra_shape`, `CodedObjects::Extra`; al-runner issue 8826) takes the same
 //! steps under the assumption `list-new-line-extra-code-coded` (ListNewLineExtraCodeCodedPage.al, corpus pull request 1537,
 //! open, 7 of 7 green on BC 29.1 in 3 runs): its SaveRecord under the effect gate (`extra_code_coded_cell`), its refresh
@@ -29,6 +48,11 @@
 //! control with code of its own (`extra_value_control`) that saves and updates under the effect gate
 //! (`extra_code_typed_save`, ListNewLineExtraCodeCodedSecondSetValue.al, corpus pull request 1541) and `OK()`. A row before the line
 //! (:821) and a table with record triggers (:839) keep main's way.
+//! Its page may have manual subscribers none of which is bound (issue 8842, corpus pull request 1541); a test call while
+//! one is bound is refused (`coded_line_before_set_value`).
+//! After the landing, one SetValue of a control with code of its own (`extra_value_control`, issue 8843) saves and updates
+//! as the probe's Value does (`FactboxStep::CodedTyped`), its save under the effect gate (`extra_code_typed_save` in
+//! `code_inserted_extra.rs`).
 
 use super::pinned_shape::TestCall;
 use super::state::{CodedLine, FactboxStep};

@@ -1,4 +1,8 @@
 //! Which media `Media.ExportStream` gives back byte for byte.
+//!
+//! Which media `Media.ExportStream` gives back byte for byte (non-picture content, a Word package
+//! imported as `application/zip`). Entry points: `exports_unchanged`,
+//! `zip_package_exports_unchanged`.
 
 use crate::media::{MediaObject, StreamCall};
 

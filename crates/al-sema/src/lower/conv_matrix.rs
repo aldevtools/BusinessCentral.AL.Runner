@@ -1,5 +1,7 @@
 //! The cells of the run matrix of implicit conversions (`al_builtins::conv`) seen from the lowering: which pairs of types
 //! a conversion the matrix pins joins.
+//!
+//! The run matrix cells (`al_builtins::conv`) in the lowering: the false branch of `?:` converts to
 
 use crate::types::Ty;
 use al_builtins::conv::{Family, Kind, verdict};

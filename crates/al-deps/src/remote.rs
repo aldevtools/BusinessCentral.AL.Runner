@@ -4,6 +4,8 @@
 //! The ranges come from a [`RangeSource`]: an HTTP server that honours `Range` (Microsoft's
 //! artifact CDN does) or a local file (the tests' fixture). Every entry is checked against the
 //! CRC-32 and size in the central directory, exactly as for a local archive.
+//!
+//! Entry points: `RemoteError`, `RangeSource`, `FileSource`, `HttpSource`.
 
 use crate::zip::{self, Entry, ZipError};
 use std::fmt;

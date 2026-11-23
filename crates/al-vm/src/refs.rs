@@ -5,6 +5,8 @@
 //! methods in `records.rs` (triggers included). `FieldRef` and `KeyRef` point
 //! into that buffer by field position and key index. Behaviour the corpus
 //! does not pin raises `Signal::Unsupported` instead of guessing.
+//!
+//! Entry points: `record_ref_value`.
 
 use crate::Session;
 use crate::blob_transfer::{BlobMove, Holder};

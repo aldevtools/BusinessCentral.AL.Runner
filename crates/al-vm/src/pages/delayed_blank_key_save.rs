@@ -8,6 +8,14 @@
 //! measured. Such a save is refused before it inserts only when nothing can fill the key on the way to the write (see
 //! `key_can_be_filled_on_insert`); with insert-time code the save keeps main's behavior (not measured either,
 //! docs/probes-needed.md row "TestPage, DelayedInsert new row").
+//!
+//! Refuses every save of a new row on a DelayedInsert page while a primary key field with NotBlank =
+//! true is blank and no insert code (page OnInsertRecord, a subscriber to the page's
+//! OnInsertRecordEvent, AutoSplitKey, AutoIncrement, table or table-extension insert triggers, insert
+//! event subscribers, the database insert trigger) can fill it (al-runner issue 6924; the reporter's
+//! BC run shows a validation error after Next, not measured by the corpus; docs/probes-needed.md row
+//! "TestPage, DelayedInsert new row"). Entry points: `refuse_delayed_blank_not_blank_key` (by
+//! `insert_draft`).
 
 use super::*;
 use crate::globaltriggers::GlobalOp;

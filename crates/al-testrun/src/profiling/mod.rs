@@ -8,6 +8,18 @@
 //!
 //! Sampling: one ticker thread for the process sets the tick flag of every registered session each interval, so every
 //! thread is sampled on every tick (al-runner issue 6924: the old `AL_PROFILE` took one thread per tick).
+//!
+//! , `alcpuprofile.rs`, `summary.rs`, `write.rs` (~1100 with tests): the run side of the profiler
+//! (`--profile`, serve `profile`, the deprecated `AL_PROFILE`). `start`/`finish` hold the process's
+//! state and the sampling ticker (one thread sets every session's tick flag each interval);
+//! `runtime/run.rs` `new_session` calls `begin`, the end of `run_codeunit_inner` calls `end`, which
+//! resolves the tree against the program (names, BC object types, apps, 0-based entry positions; the
+//! runner's lines and columns start at 1) into a `CodeunitProfile` (last run of a codeunit wins).
+//! `alcpuprofile` writes BC's JSON (instrumentation: no `kind`, `sampleExecutionTimes`; sampling:
+//! `kind`, distinct `samples`, `timeDeltas` = self time), the `Database (in memory)` nodes and the
+//! `alRunner` block; `merged_file` nests run, threads, codeunits. `summary` is the text
+//! (`summary.txt`, the `AL_PROFILE` file). `write` writes a folder or one merged file. Entry points:
+//! `start`, `finish`, `alcpuprofile::codeunit_file`, `write::write`.
 
 pub mod alcpuprofile;
 pub mod prune;
