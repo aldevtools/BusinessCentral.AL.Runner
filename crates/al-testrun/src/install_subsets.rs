@@ -48,6 +48,12 @@ pub(crate) struct Unproven {
 }
 
 /// What proving one unit gave.
+/// The graph of one round of the proof and its units.
+struct Round<'r> {
+    graph: &'r Graph,
+    units: &'r [Vec<u32>],
+}
+
 enum UnitProof {
     /// The unit's orders and subsets were compared.
     Done,
@@ -84,8 +90,12 @@ impl<'p, 'g> Proof<'p, 'g> {
                 ..Default::default()
             };
             let mut grew = false;
+            let round = Round {
+                graph: &graph,
+                units: &units,
+            };
             for unit in &units {
-                if let UnitProof::Grew = self.prove_unit(session, inst, rewind, &graph, &units, unit, &mut out)? {
+                if let UnitProof::Grew = self.prove_unit(session, inst, rewind, &round, unit, &mut out)? {
                     grew = true;
                     break;
                 }
@@ -116,17 +126,16 @@ impl<'p, 'g> Proof<'p, 'g> {
         orders(self.g, &set).into_iter().next().unwrap_or_else(|| unit.to_vec())
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn prove_unit<I: AppInstalls>(
         &mut self,
         session: &mut Session,
         inst: &mut I,
         rewind: &impl Fn(&mut Session, &mut I),
-        graph: &Graph,
-        units: &[Vec<u32>],
+        round: &Round,
         unit: &[u32],
         out: &mut Settled,
     ) -> Result<UnitProof, Unproven> {
+        let Round { graph, units } = *round;
         let inputs = graph.inputs(units, unit);
         if unit.len() == 1 && inputs.is_empty() {
             return Ok(UnitProof::Done);
