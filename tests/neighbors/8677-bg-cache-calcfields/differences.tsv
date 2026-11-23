@@ -1,8 +1,8 @@
 # key	entry
-# Against the base, al-runner PR 8885 (the query cache of al-runner PRs 8490, 8656, 8682, 8808 and 8872): the cells of corpus PR
+# Against main (the query cache of al-runner PRs 8490, 8656, 8682, 8808, 8872 and 8885): the cells of corpus PR
 # 1558 at c8c3bc81 (corpus issue 1555) whose answer changes. A CalcFields entry, of a temporary record too, holds through a commit
-# of another row of its row's table or of the row itself; the base read the table. SelectLatestVersion with an Enum whose value
-# is the cached table's id ends the row entry; the base refused it.
+# of another row of its row's table or of the row itself; main read the table. SelectLatestVersion with an Enum whose value
+# is the cached table's id ends the row entry; main refused it.
 BCE Tests::BgCacheEdges_CalcFieldsAfterACommitOfItsRow_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1558: BgTaskCacheEdges.al:440)
 BCE Tests::BgCacheEdges_CalcFieldsAfterACommitOfItsTable_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1558: BgTaskCacheEdges.al:434)
 BCE Tests::BgCacheEdges_SelectLatestVersionOfAnEnumNamingTheTable_ReadsTheTable	ASSUMED background-task-query-cache (open corpus PR 1558: BgTaskCacheEdges.al:452)
