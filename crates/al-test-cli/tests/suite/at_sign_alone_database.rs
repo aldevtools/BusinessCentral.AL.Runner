@@ -151,12 +151,20 @@ fn at_sign_alone_reads_cells() {
 /// The cells of AtSignAloneMethods.al (corpus PR 1495): `<>@` alone read by DeleteAll, ModifyAll, CalcSums, FindLast, a report and
 /// a page (:215, :244, :279, :312, :345), a CalcFormula's `filter('@')` and `filter('<>@')` with every method (:376), and its sum over
 /// a Date source field (:395) and over an Integer, Decimal, Option or Boolean one, with the error's text and code (:430, :454),
-/// flagged.
+/// `<>@` alone in filter groups 1 and 2 (:489) and `<>@` alone and `@` alone set on a min or max FlowField (:552), flagged. Filter
+/// group 1 of a temporary record (:507) keeps the runner's refusal of any SetFilter there, which is not about `@`.
 #[test]
 fn at_sign_alone_methods_cells() {
     let o = outcomes(METHODS, "AM Kind Tests");
-    assert_eq!(o.len(), 9);
+    assert_eq!(o.len(), 12);
     for (name, r, marks) in &o {
+        if name == "AtSignAloneNegated_FilterGroupOne_Temporary" {
+            assert!(
+                matches!(r, Outcome::NotRun(w) if w.contains("filter group 1 (the global group) on a temporary record")),
+                "{name}: {r:?}"
+            );
+            continue;
+        }
         assert_eq!(*r, Outcome::Pass, "{name}");
         assert!(
             marks.contains(&Assumption::AtSignAloneDatabaseBlank),
@@ -166,14 +174,14 @@ fn at_sign_alone_methods_cells() {
 }
 
 /// A CalcFormula's `filter('@')` past the cells of AtSignAloneMethods.al: a count over a Date source field, a sum over an Option
-/// field with an OptionCaption and over a Time field. No cell measures them, so they keep main's refusal.
+/// field with an OptionCaption and over a Time field. No cell measures them, so the lowering refuses them before the test runs.
 #[test]
 fn at_sign_alone_other_source_neighbors_refused() {
     let o = outcomes(SOURCES, "AN Source Neighbor Tests");
     assert_eq!(o.len(), 3);
     for (name, r, _) in &o {
         assert!(
-            matches!(r, Outcome::NotRun(w) if w.contains("value expected after @")),
+            matches!(r, Outcome::NotRun(w) if w.contains("CalcFormula filter '@' over a") && w.contains("(not measured)")),
             "{name}: {r:?}"
         );
     }
@@ -217,13 +225,16 @@ fn at_sign_alone_crm_table_refused() {
     );
 }
 
-/// FilterPageBuilder.SetView with `@` alone on a Code field: no cell measures a filter page's view.
+/// FilterPageBuilder.SetView with `@` alone or `<>@` alone on a Code field: no cell measures a filter page's view, and the refusal
+/// names the filter it got.
 #[test]
 fn at_sign_alone_filter_page_view_refused() {
-    let src = r#"
-table 97590 "AS Fp Row" { fields { field(1; "No."; Code[20]) { } field(2; Kind; Code[20]) { } } keys { key(PK; "No.") { Clustered = true; } } }
+    for (filter, named) in [("@", "`@` alone"), ("<>@", "`<>@` alone")] {
+        let src = format!(
+            r#"
+table 97590 "AS Fp Row" {{ fields {{ field(1; "No."; Code[20]) {{ }} field(2; Kind; Code[20]) {{ }} }} keys {{ key(PK; "No.") {{ Clustered = true; }} }} }}
 codeunit 97591 "AS Fp Tests"
-{
+{{
     Subtype = Test;
     [Test]
     procedure FilterPageView_AtSignAlone()
@@ -232,14 +243,16 @@ codeunit 97591 "AS Fp Tests"
         Builder: FilterPageBuilder;
     begin
         Builder.AddRecord('Rows', Row);
-        Builder.SetView('Rows', 'WHERE(Kind=FILTER(@))');
+        Builder.SetView('Rows', 'WHERE(Kind=FILTER({filter}))');
     end;
-}
-"#;
-    let o = outcomes(src, "AS Fp Tests");
-    let [(_, r, _)] = o.as_slice() else { panic!("{o:?}") };
-    assert!(
-        matches!(r, Outcome::NotRun(w) if w.starts_with("FilterPageBuilder.SetView with `@` alone on a Code field")),
-        "{r:?}"
-    );
+}}
+"#
+        );
+        let o = outcomes(&src, "AS Fp Tests");
+        let [(_, r, _)] = o.as_slice() else { panic!("{o:?}") };
+        assert!(
+            matches!(r, Outcome::NotRun(w) if w.starts_with(&format!("FilterPageBuilder.SetView with {named} on a Code field"))),
+            "{filter}: {r:?}"
+        );
+    }
 }

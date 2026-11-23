@@ -1,4 +1,4 @@
-// A copy of the corpus probe record/filters/AtSignAloneMethods.al of corpus pull request 1495 at ab0f8548 (its lines are the probe's
+// A copy of the corpus probe record/filters/AtSignAloneMethods.al of corpus pull request 1495 at d0667c7f (its lines are the probe's
 // lines plus two).
 // BC Documentation: https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/properties/devenv-calcformula-property
 // Scope: in-scope
@@ -470,4 +470,124 @@ codeunit 97501 "AM Kind Tests"
             'InvalidFilterExpression:Evaluate,InvalidFilterExpression:Evaluate',
             Seen, 'integer, decimal, option, boolean; @ and <>@');
     end;
+
+    // <>@ alone set in filter group Group, read in filter group 0: Count and the rows FindSet goes through. Filter group 1 is
+    // reset at the end, as it is the session's.
+    local procedure GroupNotAt(var R: Record "AM Kind Row"; Group: Integer; FieldNo: Integer): Text
+    var
+        Seen: Text;
+    begin
+        R.FilterGroup(Group);
+        SetNotAt(R, FieldNo);
+        R.FilterGroup(0);
+        Seen := Format(R.Count()) + ':' + Ids(R);
+        R.FilterGroup(Group);
+        ClearKinds(R);
+        R.FilterGroup(0);
+        exit(Seen);
+    end;
+
+    [Test]
+    procedure AtSignAloneNegated_FilterGroupsOneAndTwo()
+    var
+        R: Record "AM Kind Row";
+        Temp: Record "AM Kind Row" temporary;
+        G: Code[20];
+        Seen: Text;
+    begin
+        G := NewGroup();
+        CopyGroup(G, Temp);
+        R.SetRange("Group", G);
+        Seen := GroupNotAt(R, 1, R.FieldNo("Code Kind")) + '|' + GroupNotAt(R, 1, R.FieldNo("Text Kind"));
+        Seen += '|' + GroupNotAt(R, 2, R.FieldNo("Code Kind")) + '|' + GroupNotAt(R, 2, R.FieldNo("Text Kind"));
+        Seen += '|' + GroupNotAt(Temp, 2, Temp.FieldNo("Code Kind")) + '|' + GroupNotAt(Temp, 2, Temp.FieldNo("Text Kind"));
+        Assert.AreEqual('1:1,|1:1,|1:1,|1:1,|0:|0:', Seen, 'database group 1 code, text, group 2 code, text; temporary group 2 code, text');
+    end;
+
+    // The same in filter group 1 of a temporary record.
+    [Test]
+    procedure AtSignAloneNegated_FilterGroupOne_Temporary()
+    var
+        Temp: Record "AM Kind Row" temporary;
+        Seen: Text;
+    begin
+        CopyGroup(NewGroup(), Temp);
+        Seen := GroupNotAt(Temp, 1, Temp.FieldNo("Code Kind")) + '|' + GroupNotAt(Temp, 1, Temp.FieldNo("Text Kind"));
+        Assert.AreEqual('0:|0:', Seen, 'temporary group 1 code, text');
+    end;
+
+    // <>@ alone and @ alone set on a min and on a max FlowField of Code and of Text type (table 97511): Count, IsEmpty and
+    // FindFirst, of a host in the database and of a temporary host. The min of the group is the empty value, the max is K.
+    local procedure MinMaxReads(var Host: Record "AM Min Max Host"; FieldNo: Integer; Filter: Text): Text
+    begin
+        Host.SetRange("Min Code");
+        Host.SetRange("Max Code");
+        Host.SetRange("Min Text");
+        Host.SetRange("Max Text");
+        case FieldNo of
+            Host.FieldNo("Min Code"):
+                Host.SetFilter("Min Code", Filter);
+            Host.FieldNo("Max Code"):
+                Host.SetFilter("Max Code", Filter);
+            Host.FieldNo("Min Text"):
+                Host.SetFilter("Min Text", Filter);
+            Host.FieldNo("Max Text"):
+                Host.SetFilter("Max Text", Filter);
+        end;
+        exit(Format(Host.Count()) + ',' + Format(Host.IsEmpty()) + ',' + Format(Host.FindFirst()));
+    end;
+
+    local procedure MinMaxAll(var Host: Record "AM Min Max Host"): Text
+    var
+        Seen: Text;
+        No: Integer;
+    begin
+        for No := 2 to 5 do begin
+            Seen += MinMaxReads(Host, No, '<>@') + ';' + MinMaxReads(Host, No, '@');
+            if No < 5 then
+                Seen += '|';
+        end;
+        exit(Seen);
+    end;
+
+    [Test]
+    procedure AtSignAloneNegated_MinMaxFlowFieldFilter()
+    var
+        Host: Record "AM Min Max Host";
+        TempHost: Record "AM Min Max Host" temporary;
+        Seen: Text;
+    begin
+        Host."No." := NewGroup();
+        Host.Insert();
+        TempHost := Host;
+        TempHost.Insert();
+        Host.SetRange("No.", Host."No.");
+        TempHost.SetRange("No.", Host."No.");
+        Seen := MinMaxAll(Host) + ' / ' + MinMaxAll(TempHost);
+        Assert.AreEqual(
+            '0,Yes,No;1,No,Yes|1,No,Yes;0,Yes,Yes|0,Yes,No;1,No,Yes|1,No,Yes;0,Yes,Yes / ' +
+            '0,Yes,No;1,No,Yes|0,Yes,No;1,No,Yes|0,Yes,No;1,No,Yes|0,Yes,No;1,No,Yes',
+            Seen, 'min code, max code, min text, max text: <>@;@; database / temporary');
+    end;
+}
+
+// The FlowFields of AtSignAloneNegated_MinMaxFlowFieldFilter: the min and the max of the Code and of the Text field of a group.
+table 97511 "AM Min Max Host"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; "Min Code"; Code[20]) { FieldClass = FlowField; CalcFormula = min("AM Kind Row"."Code Kind" where("Group" = field("No."))); }
+        field(3; "Max Code"; Code[20]) { FieldClass = FlowField; CalcFormula = max("AM Kind Row"."Code Kind" where("Group" = field("No."))); }
+        field(4; "Min Text"; Text[50]) { FieldClass = FlowField; CalcFormula = min("AM Kind Row"."Text Kind" where("Group" = field("No."))); }
+        field(5; "Max Text"; Text[50]) { FieldClass = FlowField; CalcFormula = max("AM Kind Row"."Text Kind" where("Group" = field("No."))); }
+    }
+
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+    }
 }
