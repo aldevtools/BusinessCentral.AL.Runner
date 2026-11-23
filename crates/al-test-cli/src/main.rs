@@ -43,6 +43,8 @@ fn write_permission_shadow() {
 }
 
 fn main() -> ExitCode {
+    // Keep the executable open from the start: the build hash of the compile cache is made later (issue 8691).
+    let _ = al_testrun::compile_cache::pin_running_executable();
     // A crash (SIGSEGV and the like) names the test it hit instead of ending the run without a word.
     al_testrun::crash::install();
     // An AL call nests native frames of the bytecode loop; give the runner thread room.

@@ -1148,11 +1148,16 @@ impl<'a> Walk<'a> {
             _ if !self.facts => {}
             Some(t) => {
                 self.out.writes.insert(t);
+                // A write raises at a transaction type that does not write (al-vm `gate_read_only_type`).
+                self.out.state_reads |= state::TRANSACTION_TYPE;
                 if insert {
                     self.out.inserts.insert(t);
                 }
             }
-            None => self.out.writes_any = true,
+            None => {
+                self.out.writes_any = true;
+                self.out.state_reads |= state::TRANSACTION_TYPE;
+            }
         }
         // The `Global Triggers` database events fire on writes.
         if !self.global_triggers && !self.calls_only {

@@ -301,8 +301,9 @@ fn same_group(a: &GroupAnswer, b: &GroupAnswer) -> bool {
 /// open one (:1710, :1780), `<>`, `<`, `<=`, `>`, `>=` and a pattern not matched, with and without `@` (:1780, :2713), a
 /// pattern with and without `@` (:1741), `@` alone and an empty `FILTER()` of a view (:2713), `|` and `&` of those (:1735,
 /// :1780), and an `&` inside an `|` (:2705). A wildcard written as a value (`=a*`) is an error on BC, not a read. `<>@` alone
-/// keeps no row before and after a change (:3421), so whether BC answers it from the cache cannot be seen: it reads the rows as
-/// they are. Other nestings are not measured.
+/// on its own (:3421): its first reads keep no row, and after an insert of a line whose value is not empty, which a read of the
+/// database keeps (al-builtins `filter_at_sign`, AtSignAloneReads.al:698), the worker still answers the first answer. Other
+/// nestings are not measured.
 fn encode_filter(expr: &FilterExpr, level: Nesting, out: &mut Vec<Value>) -> Option<()> {
     use FilterExpr as F;
     let tag = |t: &str| Value::Text(t.into());
@@ -326,6 +327,7 @@ fn encode_filter(expr: &FilterExpr, level: Nesting, out: &mut Vec<Value>) -> Opt
         F::Like(p, ci) => out.extend([tag("like"), Value::Text(p.as_str().into()), Value::Boolean(*ci)]),
         F::NotLike(p, ci) => out.extend([tag("not like"), Value::Text(p.as_str().into()), Value::Boolean(*ci)]),
         F::AtSignAlone(false) => out.push(tag("@")),
+        F::AtSignAlone(true) if matches!(level, Nesting::Top) => out.push(tag("<>@")),
         F::EmptyViewValue => out.push(tag("empty view value")),
         F::Or(items) | F::And(items) => {
             let or = matches!(expr, F::Or(_));

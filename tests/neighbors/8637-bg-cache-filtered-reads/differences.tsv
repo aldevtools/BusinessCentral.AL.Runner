@@ -1,3 +1,3 @@
 # key	entry
-# Against main with the query cache of al-runner PRs 8490 and 8656, no test differs: this pull request changes no answer of
-# the cells and neighbors (the reviews' small points, and the new cells and neighbors, read as on main).
+# Against main (the query cache of al-runner PRs 8490 and 8656, and the "@ alone" PR 8716), no test differs: this pull
+# request changes no answer of the cells and neighbors (the reviews' small points, and the new cells and neighbors, read as on main).

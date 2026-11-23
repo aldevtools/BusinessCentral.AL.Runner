@@ -156,9 +156,13 @@ fn map_expr(e: &E, field: &str, variant: bool) -> Result<E, StoreError> {
                 .collect::<Result<_, _>>()?,
         ),
         // Wildcards read the text, which the cell is.
-        E::Like(..) | E::NotLike(..) | E::AtSignAlone(_) | E::EmptyViewValue | E::NumCode(_) | E::UnpinnedMatch(..) => {
-            e.clone()
-        }
+        E::Like(..)
+        | E::NotLike(..)
+        | E::AtSignAlone(_)
+        | E::AtSignAloneCode
+        | E::EmptyViewValue
+        | E::NumCode(_)
+        | E::UnpinnedMatch(..) => e.clone(),
     })
 }
 
@@ -167,7 +171,12 @@ fn compares_numbers(e: &E) -> bool {
     match e {
         E::Or(xs) | E::And(xs) => xs.iter().any(compares_numbers),
         E::UnpinnedText(inner) => compares_numbers(inner),
-        E::Like(..) | E::NotLike(..) | E::AtSignAlone(_) | E::EmptyViewValue | E::UnpinnedMatch(..) => false,
+        E::Like(..)
+        | E::NotLike(..)
+        | E::AtSignAlone(_)
+        | E::AtSignAloneCode
+        | E::EmptyViewValue
+        | E::UnpinnedMatch(..) => false,
         _ => true,
     }
 }

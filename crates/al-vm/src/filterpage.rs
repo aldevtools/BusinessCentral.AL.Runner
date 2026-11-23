@@ -6,7 +6,7 @@
 use crate::Session;
 use al_builtins::builtin_id::ids;
 use al_builtins::describe::Describe;
-use al_builtins::filter::FieldFilter;
+use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::value::{FilterControl, FilterPageState, LibraryValue, RtType, Value};
@@ -293,6 +293,16 @@ impl Session {
                 }
                 let t = self.table(&control.record)?;
                 self.set_view(&control.record, &t, &view)?;
+                // No cell measures `@` alone on a Code field in a filter page's view (al-builtins `filter_at_sign`).
+                if control
+                    .record
+                    .borrow()
+                    .filters
+                    .iter()
+                    .any(|f| matches!(f.expr, FilterExpr::AtSignAloneCode))
+                {
+                    return unsupported("FilterPageBuilder.SetView with `@` alone on a Code field (not measured)");
+                }
                 Ok(Value::Boolean(true))
             }
             ids::FILTERPAGEBUILDER_RUNMODAL_1 => {

@@ -231,22 +231,21 @@ fn issue_8637_bq8b_cells() {
 /// The cells of BQ Tests 9 (corpus PR 1495, BgTaskQueryCache.al:4806-5635) but :5564 (`issue_8637_heavy`): up to 60000
 /// filters, the key set twice, and
 /// FindFirst and FindLast with FlowField filters of open ranges, an & inside a | and case-sensitive wildcards next to the key
-/// answer from the cache, flagged. `@` alone on a lookup FlowField (:5609) and on a Code field (:5616) stay refused, as on
-/// main: the "@ alone" pull request answers them.
+/// answer from the cache, flagged. `@` alone on a lookup FlowField (:5609) and on a Code field (:5616) run through the "@ alone"
+/// rule (al-builtins `filter_at_sign`), flagged by its assumption: the worker's FindFirst and FindLast check the row, its Count
+/// and IsEmpty read the database.
 #[test]
 fn issue_8637_bq9_cells() {
     let o = outcomes(PROBE, "BQ Tests 9");
     assert_eq!(o.len(), 7);
     for (name, r, marks) in &o {
-        if name.contains("AtSignAlone") {
-            assert!(
-                matches!(r, Outcome::NotRun(w) if w.contains("value expected after @")),
-                "{name}: {r:?}"
-            );
-            continue;
-        }
         assert_eq!(*r, Outcome::Pass, "{name}");
-        assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+        let mark = if name.contains("AtSignAlone") {
+            al_builtins::assumptions::Assumption::AtSignAloneDatabaseBlank
+        } else {
+            BackgroundTaskQueryCache
+        };
+        assert!(marks.contains(&mark), "{name}: {marks:?}");
     }
 }
 
