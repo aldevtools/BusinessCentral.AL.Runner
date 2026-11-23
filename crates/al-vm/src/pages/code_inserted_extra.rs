@@ -28,6 +28,23 @@
 //!   `list-new-line-writes-other-table`, `only_other_tables_written`).
 //!
 //! Every other open, view and page keeps main's refusal (`UNMEASURED_CODE`).
+//!
+//! Code that is not a pinned page's around `CurrPage.SaveRecord()` and `CurrPage.Update` on the page
+//! without triggers of `code_inserted_new_line.rs` (al-runner issues 8712 and 8713; assumption `list-
+//! new-line-extra-code`, corpus pull request 1521): the gate is what the code did, not its lines.
+//! Before the save only the table field's insert wrote the store (`extra_code_cell`, by
+//! `code_inserted_cell` when `code_inserted_code` finds no pin); the save writes Rec as it is;
+//! between the save and `Update(false)` the row may change through another record or Rec may change,
+//! not both (`extra_code_kept`, read by `view_kept` through `SavedView::extra`), and every other row
+//! of the page's table stays as the save left it (`extra_code_rows`); nothing changes after the
+//! Update (`extra_code_unchanged`). `Update(true)` after the save writes Rec over the row again
+//! (`extra_code_update_true`); TestPage.OpenEdit with a filter of the test is the open
+//! `Opened::OpenEditOneGroup`; a row the control's OnValidate wrote once before the save is
+//! `Inserted::Rewritten`, which a control's OnValidate tells by the row version it began with
+//! (`ControlOnValidate::row_version`, `new_line_row_version`). Writes of other tables before the save
+//! (al-runner issue 8735; assumption `list-new-line-writes-other-table`, corpus pull request 1527)
+//! pass when the line's insert was the store's first write and the page's table's only one, with no
+//! delete (`only_other_tables_written`).
 
 use super::code_inserted_new_line::{Leave, Opened, UNMEASURED_CODE, View};
 use super::state::{CodeInsertedSave, SavedView};

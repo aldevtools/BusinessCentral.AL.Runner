@@ -8,6 +8,9 @@
 //! database persists from one test of a codeunit to the next, so a test run alone could see a
 //! different state than the oracle's run did. The selected codeunits run whole; the report keeps
 //! only the selected cases.
+//!
+//! Test selection: --codeunit, --test, --area, --file (union). Entry points: `Selection`, `matches`,
+//! `filter`.
 
 use crate::corpus::CorpusIndex;
 use crate::oracle::{CaseId, OracleCase};

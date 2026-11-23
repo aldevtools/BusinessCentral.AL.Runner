@@ -4,6 +4,11 @@
 //!
 //! A RecordRef find goes through the Record's find; `recordref_record_op` marks it (`Session::find_through_recordref`), and the
 //! find takes the mark at its start (`FindVia::take`), so a find nested inside it is a Record's again.
+//!
+//! what `GetLastErrorText(true)` answers after a find on an empty set (DB:TableIsEmpty,
+//! DB:NothingInsideFilter, DB:RecordNotFound), for a Record and a RecordRef, each by its own measured
+//! cells; the RecordRef find is marked by `recordref_record_op`. Entry points: `recordref_record_op`,
+//! `table_is_empty_origin`, `nothing_inside_filter_origin`, `record_not_found_origin`.
 
 use super::*;
 use al_builtins::native::ErrorOrigin;

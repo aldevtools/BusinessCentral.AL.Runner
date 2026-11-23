@@ -10,6 +10,11 @@
 //!   page client all go through), and whether the operation writes;
 //! - a page whose instance is made (`pages::page_instance`: a `TestPage`, a `Page` variable, a part);
 //! - a report whose layout and data items a use reads (`reports::report_schema`).
+//!
+//! The per-test record for the impact index (`Session::enable_impact_trace`, `take_impact_trace`,
+//! `Touches`): events raised (also with no subscriber), tables used and written, pages and reports
+//! used. Noted in `dispatch::publish`, `records::table_event`, `records::record_op`, the page events,
+//! `pages::page_instance`, `reports::report_schema`.
 
 use std::collections::HashSet;
 
@@ -46,6 +51,20 @@ pub struct Touches {
 }
 
 impl Touches {
+    /// Adds what `other` noted: the trace of a stretch of code noted apart, as if it had been noted here.
+    pub fn extend(&mut self, other: &Touches) {
+        self.events.extend(other.events.iter().cloned());
+        self.tables.extend(&other.tables);
+        self.writes.extend(&other.writes);
+        self.pages.extend(&other.pages);
+        self.reports.extend(&other.reports);
+        self.enums.extend(&other.enums);
+        self.entered.extend(&other.entered);
+        self.dotnet |= other.dotnet;
+        self.routines.extend(&other.routines);
+        self.indirect_reads.extend(&other.indirect_reads);
+    }
+
     pub fn is_empty(&self) -> bool {
         self.events.is_empty()
             && self.tables.is_empty()

@@ -1,3 +1,4 @@
+//! The al-bcdb commands. Entry points: `run`.
 use crate::opts;
 use al_bcdb::bacpac::BacpacSource;
 use al_bcdb::bak::BakSource;

@@ -23,6 +23,23 @@
 //! store changed refuses. A write or a lock of the test session whose effect is not measured makes the table's locks unknown,
 //! and every locking read of it in a worker refuses; so does every read form next to the measured ones on a table the codeunit
 //! wrote.
+//!
+//! a page background task's record read under ReadIsolation ReadCommitted, RepeatableRead or UpdLock
+//! of the rows the test codeunit wrote (al-runner issue 8638, corpus PR 1498
+//! BgTaskReadIsolationLock.al, assumption `bg-task-readisolation-lock`): under TestIsolation =
+//! Codeunit the measured Get, FindFirst and Count wait on the test session's lock and fail with
+//! NDBCS:LockTimeout inside the worker's TryFunction; a Get of a key the codeunit did not write keeps
+//! its answer; a Get and a Count under ReadCommitted of a table whose every written row is still in
+//! the test session's insert queue read the view without the queued rows (`records/insert_buffer.rs`
+//! `queue_holds_rows`, `queued_in_store`; :583, :606); every other form, every other read of a table
+//! whose insert queue still holds rows, and every table whose locks a write or lock of the test
+//! session left unknown, refuses. `CodeunitRowLocks` (`Session::row_locks`) holds the rows by table
+//! (a write is noted without a scan) and the unknown tables, begun after OnRun
+//! (`Session::begin_codeunit_row_locks`, by al-testrun `run.rs`) and fed by `records/stale.rs`
+//! `note_write` (`note_row_lock_write`), the LockTable arm of `recmeta.rs` (`note_row_lock_table`),
+//! Commit and rollback (`note_row_locks_commit`, `note_row_locks_rollback`). Also the lock timeout
+//! text (`lock_timeout`, which `isolated_storage_reads.rs` uses). Entry points:
+//! `Session::row_locks_read`, called from `records.rs` `record_op_gated`.
 
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::native::{Signal, unsupported};

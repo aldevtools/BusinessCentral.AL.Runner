@@ -20,6 +20,11 @@
 //! format is not known for (an object type that has not been measured, a routine
 //! with no source) puts `UNTRACKED_CALL_STACK` in the stack, and no text function reads a text
 //! that holds it.
+//!
+//! The AL call stack of an error (`GetLastErrorCallStack`) and the live stack
+//! (`SessionInformation.Callstack`). Entry points: `add_frame`, `add_leaving_frame` (an error leaving
+//! a routine, by `Session::call_inner`), `add_top_frame`, `live_call_stack`, `set_runner_frames`,
+//! `frame_line`.
 
 use crate::{CallFrame, Session};
 use al_builtins::native::{AlError, UNTRACKED_CALL_STACK};

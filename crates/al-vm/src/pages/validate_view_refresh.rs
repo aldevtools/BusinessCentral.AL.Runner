@@ -18,6 +18,19 @@
 //! them), as the test called them in the cells: assumption `list-validate-view-refresh` on a List without
 //! OnAfterGetCurrRecord, `tree-validate-view-refresh` on a tree, `validate-update-false-rereads-row` on the other pages. Any
 //! other page, or calls the cells do not make before the rule changed anything, keep main's path; after it did they refuse.
+//!
+//! A control's OnValidate that calls `CurrPage.Update` on the pages of `validate_view_cells.rs` (al-
+//! runner issues 8698 and 8717): the refresh reads the row again from the table, so a typed value is
+//! gone. On a List with OnAfterGetRecord it then reads the view from the row (`reread_view_from_row`;
+//! assumption `list-validate-view-refresh` without OnAfterGetCurrRecord, where a SetValue, the action
+//! and Close also read the row first when the page's last read was of another row); on the other
+//! pages main's refresh reads the stored row (assumption `validate-update-false-rereads-row`). On a
+//! tree (al-runner issue 8833, assumption `tree-validate-view-refresh`) Update(false) saves the row,
+//! and the refresh reads as on the List of the same row triggers over the tree's hidden rows too
+//! (`validate_view_tree_refresh`). Only on those pages, line for line (`pinned_body.rs`), and only
+//! along the cells' test calls. Entry points: `validate_view_call` (each test call, `dirty_step.rs`),
+//! `validate_view_refresh` (from `refresh_after_validate_filter`), `validate_view_update`
+//! (`CurrPage.Update`).
 
 use super::draft::view_filtered_error;
 use super::open::TREE_GROUP;

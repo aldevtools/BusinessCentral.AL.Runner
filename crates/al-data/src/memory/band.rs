@@ -1,5 +1,12 @@
 //! Which rows of a table a read looks at: the band of the key the filters narrow most (ADR-035), shared by a scan
 //! (`MemStore::alt_next`) and by a count or an existence check, which stops at the first rows that pass.
+//!
+//! Which rows of a table a read looks at: the narrowest band of a key the filters bound
+//! (`narrowest_band`, `band_of`; ADR-035), shared by a scan (`alt_next`) and by `count_up_to`, which
+//! counts the rows that pass up to a limit (`Store::count` has none; `exists` stops at the first).
+//! Callers that only test for a row (IsEmpty, a unique key, a TableRelation check, a FlowField's
+//! source rows) use `exists` or a limit. Entry points: `exists`, `count_up_to`, `narrowest_band`.
+//! Unit tests: `memory/tests/count_tests.rs`.
 
 use super::*;
 
@@ -27,6 +34,7 @@ impl MemStore {
         limit: usize,
     ) -> Result<usize, StoreError> {
         bump();
+        let _fp = self.footprint_note(cx, t, None, super::footprint::Touch::ReadExtent);
         if let Some(v) = self.virtual_of(t) {
             return Ok(v.count(self, cx, t, filters)?.min(limit));
         }

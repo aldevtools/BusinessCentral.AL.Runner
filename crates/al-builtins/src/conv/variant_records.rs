@@ -4,6 +4,10 @@
 //! follows, and a conversion the measurement shows to work (a RecordId into a RecordId, a Record or RecordRef into a Record,
 //! a RecordRef into a RecordRef) goes on too. types/variant/VaTConvert.al pins the same texts for an Integer and a Record in a
 //! Variant (`int_to_record`, `record_to_recordref`, `record_to_int`, `record_to_text`).
+//!
+//! A Variant holding a RecordId, Record or RecordRef, or going into a RecordId, Record or RecordRef
+//! slot: the errors of types/variant/VariantRecordIdConversions.al. Entry points: `record_slot_code`,
+//! `into_record_slot` (assignment only, `AT_ASSIGNMENT`), `record_into_scalar`.
 
 use crate::library_kind::LibraryKind;
 use crate::native::{Signal, raise};

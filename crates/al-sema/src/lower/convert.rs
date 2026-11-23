@@ -1,4 +1,7 @@
 //! Name resolution helpers, runtime types and the conversion of a value to a target type.
+//!
+//! Name resolution helpers, runtime types, conversion of a value to a target type. Entry points:
+//! `rt`, `convert_to`.
 use super::*;
 
 impl<'a> Lowerer<'a> {

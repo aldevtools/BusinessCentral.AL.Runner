@@ -1,6 +1,9 @@
 //! The body of an action with an OnAction trigger, between what the client saves before it and the refresh after it: the
 //! action's events and extension triggers around OnAction (events/platform-triggers/P114PageActionEvents.al), and the read of a
 //! part a Visible expression hid that the body made visible (`provider_hidden.rs`).
+//!
+//! The body of an action with OnAction: its events and extension triggers around the trigger, then
+//! `read_hidden_parts_the_action_showed`. Entry points: `run_action_body` (by `action_invoke_body`).
 
 use super::*;
 

@@ -92,7 +92,18 @@ impl Session {
     }
 
     /// `Database.MinimumActiveRowVersion`.
+    /// `Database.LastUsedRowVersion`: what the database holds committed, raised by the rows the open transaction sent
+    /// (`Session::last_used_row_version`).
+    pub(crate) fn last_used_row_version_native(&mut self) -> Result<Value, Signal> {
+        self.note_footprint_row_version();
+        match self.last_used_row_version() {
+            Ok(v) => Ok(Value::BigInteger(v)),
+            Err(why) => unsupported(format!("Database.LastUsedRowVersion after {why} (not pinned)")),
+        }
+    }
+
     pub(crate) fn minimum_active_row_version(&mut self) -> Result<Value, Signal> {
+        self.note_footprint_row_version();
         if let Some(min) = self.iso_min.value {
             // LastUsedRowVersion() counts committed rows only. After an Insert and a read of its table it grows on BC
             // (PlTRowVersionValue.al:157-172, `insert open last > start last`), and after a Modify too (PlTDatabase.al:

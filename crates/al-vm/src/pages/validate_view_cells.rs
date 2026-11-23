@@ -2,6 +2,16 @@
 //! read cells of corpus pull requests 1529 (the same file) and 1535 (ListValidateViewReads.al, open), and of corpus pull
 //! request 1539, TreeValidateFilterRefresh.al (open), that `validate_view_refresh.rs` runs: the code of each measured page
 //! line for line (`pinned_body.rs`), and the test's steps on it, each cell with the line of its test.
+//!
+//! The probe objects of corpus pull request 1518 (ListValidateFilterRefresh.al) line for line, one
+//! `CellPage` per page shape (the List without OnAfterGetCurrRecord, the issue's List, the List with
+//! both row triggers, the List with OnAfterGetCurrRecord only, the Card, the Card of issue 8717; and
+//! the trees of corpus pull request 1539, TreeValidateFilterRefresh.al: the issue's tree of 8833 and
+//! the trees with OnAfterGetRecord, both row triggers, OnAfterGetCurrRecord and CollapseAll), and the
+//! cells' test calls on each (`Cell`, `Step`; the test's read-only calls at the points corpus pull
+//! requests 1529 and 1535 measure are one `Step::Reads`, the calls of each page in
+//! `CellPage::read_calls`). Page 97498 of ListValidateViewReads.al (`CellPage::Wide`) is the issue's
+//! page with controls of every type. Data only; `validate_view_refresh.rs` reads it.
 
 use al_builtins::assumptions::Assumption;
 

@@ -1,5 +1,7 @@
 //! Filters on one integer-like field as a sorted set of closed intervals, for the generated
 //! tables (Integer, Date), whose rows cannot be listed before a filter bounds them.
+//!
+//! Entry points: `Iv`, `Set`, `intersect`, `of_expr`.
 
 use al_builtins::describe::Describe;
 use al_builtins::filter::{FieldFilter, FilterExpr};

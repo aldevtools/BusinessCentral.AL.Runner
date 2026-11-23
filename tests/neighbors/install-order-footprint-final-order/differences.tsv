@@ -1,0 +1,6 @@
+# key	entry
+# Review round 4 of PR 8865, the final install (low finding L14, the path was reachable): B's install raises OnOne and
+# writes a constant row; C answers OnOne; A depends on B and comes before C in the list of units. Main: BRowIsConst
+# passes (2 orders, same database). Head before the fix (434755925): not run, the final install requested A, C, B and
+# A needs B first. Head: the final install puts a unit after the units its apps depend on (ADR-079 decision 3,
+# clarification of 2026-11-23, review round 4). No difference.

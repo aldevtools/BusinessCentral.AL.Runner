@@ -1,4 +1,7 @@
 //! Running the test codeunits of one compiled program, each test on a session of its own.
+//!
+//! Entry points: `run_codeunit`, `run_codeunit_isolated`, `run_codeunit_observed`,
+//! `run_codeunit_core`.
 use super::al_runner::run_unit;
 use super::written::{
     self, ReachFacts, ReachIndex, remainder_reach_facts, settled_flags, test_reach_facts, unfinished_reach_facts,

@@ -1,6 +1,14 @@
 //! The field values of a fresh record (`Session::initial_fields`): each field's `InitValue` where declared, else its type's
 //! default, worked out once per table and session (`InitialFields`), and a record state built around given field values
 //! (`state_with_fields`).
+//!
+//! the field values of a fresh record (moved out of `records.rs`): each field's `InitValue` where
+//! declared, else its type's default, worked out once per table and session (`InitialFields`,
+//! `Session::initial_cache`; a shared object such as a Blob is built fresh for each record, and a
+//! table without one hands out the cached values as a shared `Fields`), with the InitValue of a table
+//! extension field of an app not installed yet cleared (Y8InstallOrderTests.al:88-110). Also
+//! `state_with_fields`, a copy of a record's state around given field values. Entry points:
+//! `Session::initial_fields`, `state_with_fields`.
 
 use super::Rec;
 use crate::Session;

@@ -12,6 +12,11 @@
 //! `'Subtype' is not available in runtime version '` (0803-layout-subtype-bc27-28.al:1),
 //! `'TestHandlerContext' is not available in runtime version '16.0'. The supported runtime versions are: '18.0' or
 //! greater.` (0996-testhandlercontext-runtime-16.al:1). The quoted name and the versions part are alc's own (the table).
+//!
+//! AL0666 for a property, data type, attribute or object type the app's runtime lacks (al-builtins
+//! `features`), keyed by element kind (`page/layout/field`, `pageextension/layout/modify:part`). Run
+//! by `check_with` next to `alcodes::check_workspace`. Entry points: `check`. `for_each_property`
+//! walks every property with its element kind (also used by `property_values.rs`).
 use crate::workspace::{Diagnostic, ObjKind, Workspace};
 use al_builtins::catalog::Catalog;
 use al_builtins::features::{FeatureKind, al0666_at, feature};

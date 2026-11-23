@@ -1,3 +1,4 @@
+//! The `TestPage.*` and `TestField.*` methods. Entry points: `page_op`, `test_page_op`.
 use super::*;
 use al_builtins::page_op::{PageMethod, PageOp, PageRecv};
 use al_builtins::record_op::RecordOp;

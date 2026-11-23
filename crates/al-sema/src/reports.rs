@@ -4,6 +4,9 @@
 //! The runtime runs only processing: no layout, no request page, no output. Every property,
 //! trigger or section it does not understand becomes a reason on the report, so a variable of
 //! that report is refused statically (hard rule 4) instead of running with a guessed behaviour.
+//!
+//! Report objects: dataset walk, columns, and the IR it lowers to. Entry points: `layout`,
+//! `request_layout`, `build`, `build_ext`.
 
 use crate::check::posmap::FxMap as HashMap;
 use crate::workspace::{ObjKind, Resolution, Workspace};

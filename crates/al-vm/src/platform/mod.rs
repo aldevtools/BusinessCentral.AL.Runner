@@ -8,6 +8,8 @@
 //!
 //! A provider reads the compiled program, never the OS (ADR-006). Every observable rule carries
 //! the corpus line that pins it; a column or a shape nothing pins is refused, not guessed.
+//!
+//! Entry points: `Ident`, `Providers`, `pos`, `blank`.
 
 mod application_row;
 mod apps;

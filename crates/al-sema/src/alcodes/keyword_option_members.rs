@@ -8,6 +8,11 @@
 //!   diagnostic of their own per place (`type_diagnostic`).
 //! - The OptionMembers property of a table or table extension field (`OptionMembers = Zero,If;`): the seven words of
 //!   [`OPTION_MEMBERS_KEYWORDS`], AL0105. `Key` and the rest of the 24 compile there.
+//!
+//! AL0105 for an option member named unquoted by one of the 24 parameter-name keywords in an option
+//! type (`O: Option Zero,Key;`; `end`, `begin` and `var` take AL0104 or AL0519 by place,
+//! `type_diagnostic`), or by one of seven words in a field's OptionMembers, at the word (al-runner
+//! issue 8657, assumption `keyword-option-members`). Skips files the parser did not accept.
 
 use super::{PARAM_NAME_KEYWORDS, push};
 use crate::workspace::{Diagnostic, ObjKind, Workspace};
