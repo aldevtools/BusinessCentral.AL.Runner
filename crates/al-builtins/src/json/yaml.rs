@@ -232,6 +232,15 @@ const TOO_DEEP: std::ops::RangeInclusive<usize> = 101..=301;
 /// InvalidJsonData (`flowseq-depth100`).
 pub(super) fn read_from_yaml(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
     let (text, stream) = if matches!(&a[0], Value::Library(..)) {
+        // Measured: a stream of the default encoding and of UTF-8 (JsonYamlUtf8.al, JsonYamlRemaining.al).
+        if !matches!(
+            crate::stream::in_stream_encoding(&mut a[0])?,
+            crate::stream::Encoding::MsDos | crate::stream::Encoding::Utf8
+        ) {
+            return unsupported(
+                "ReadFromYaml of an InStream that is not of the default or the UTF-8 encoding (not measured)",
+            );
+        }
         (crate::stream::read_serialised_text(&mut a[0])?, true)
     } else {
         let Some(text) = crate::native::text_of(&a[0]) else {
@@ -393,6 +402,141 @@ mod tests {
         for text in ["a: 2", "a: 1\n\n", "a:\n   b: 1"] {
             assert!(read(text, false).3, "{text:?}");
         }
+    }
+
+    fn refused_read(text: &str) -> bool {
+        matches!(read(text, true).0, Err(Signal::Unsupported(_)))
+    }
+
+    /// Every shape below is read by no cell of the corpus probes; each refuses (round 1 review of PR 8824).
+    #[test]
+    fn unmeasured_shapes_refuse() {
+        let long_key = format!("{}: 1", "k".repeat(1500));
+        let wide_key = format!("{}: 1", "\u{1F600}".repeat(600));
+        let mut laughs = String::from("a: &a0 [x, x, x, x, x, x, x, x, x, x]\n");
+        for n in 1..9 {
+            laughs.push_str(&format!(
+                "a{n}: &a{n} [{}]\n",
+                vec![format!("*a{}", n - 1); 10].join(", ")
+            ));
+        }
+        let mut unrefused = Vec::new();
+        for text in [
+            // a core tag on the wrong kind of node
+            "q: !!int [a]",
+            "q: !!bool {a: 1}",
+            "q: !!float [1]",
+            "q: !!timestamp {a: 1}",
+            "q: !!map x",
+            "q: !!foo x",
+            "q: !!omap [a]",
+            "q: ! [a]",
+            "q: !!map",
+            "q: !custom [a]",
+            "q: !!str \"\"",
+            // other texts of a core tag
+            "q: !!int 007",
+            "q: !!int -1",
+            "q: !!int 9999999999",
+            "q: !!int yes",
+            "q: !!float 1.5",
+            "q: !!float -0",
+            "q: !!float 100000000000000000000",
+            "q: !!bool no",
+            "q: !!bool true",
+            "q: !!bool false",
+            "q: !!timestamp 2001-12-15",
+            "q: ! x",
+            // tagged keys, tagged top scalars
+            "!!int 1: a",
+            "!!bool yes: a",
+            "!!str : a",
+            "!!str x",
+            "!!int 1",
+            // directives
+            "%TAG !e! tag:yaml.org,2002:\n---\nq: !e!int \"1\"",
+            "%TAG ! tag:x,2000:\n---\nq: a",
+            "%TAG !! tag:x,2000:\n---\nq: a",
+            "%TAG !e! tag:x,2000:\n---\nq: a",
+            "%YAML 1.2\n%YAML 1.2\n---\nq: a",
+            "%YAML 2.0\n---\nq: a",
+            "%YAML 1\n---\nq: a",
+            // tabs
+            "  \tq: a",
+            "q: [a,\n\tb]",
+            "q: [a,\n  \tb]",
+            // names
+            "a: &a.b 1",
+            "a: &\u{e9} 1",
+            "a: *a.b",
+            "a: !\u{e9} x",
+            // key length
+            long_key.as_str(),
+            wide_key.as_str(),
+            // expansion
+            laughs.as_str(),
+        ] {
+            if !refused_read(text) {
+                unrefused.push(format!(
+                    "{:?}: {:?}",
+                    text.chars().take(40).collect::<String>(),
+                    read(text, true).0
+                ));
+            }
+        }
+        assert!(unrefused.is_empty(), "read, not refused:\n{}", unrefused.join("\n"));
+    }
+
+    /// The measured forms of the same families still read (tg1-tg24, ck28, dc7-dc9, dc17 of corpus PR 1530).
+    #[test]
+    fn measured_tag_and_directive_cells_still_read() {
+        for (text, json) in [
+            ("q: !!int \"1\"", r#"{"q":1}"#),
+            ("q: !!float 1", r#"{"q":1.0}"#),
+            ("q: !!bool yes", r#"{"q":true}"#),
+            ("q: !!str 123", r#"{"q":"123"}"#),
+            ("q: !!map {a: 1}", r#"{"q":{"a":"1"}}"#),
+            ("q: !!str", r#"{"q":null}"#),
+            ("!!str q: 1", r#"{"q":"1"}"#),
+            ("q: !!timestamp 2001-12-14", r#"{"q":"2001-12-14T00:00:00"}"#),
+            ("%YAML 1.1\n---\nq: a", r#"{"q":"a"}"#),
+            ("%YAML 1.3\n---\nq: a", r#"{"q":"a"}"#),
+            ("--- !!map\nq: a", r#"{"q":"a"}"#),
+            ("a: &x 1\nb: *x", r#"{"a":"1","b":"1"}"#),
+        ] {
+            let (answer, out, _, _) = read(text, true);
+            assert!(matches!(answer, Ok(Value::Boolean(true))), "{text:?}: {answer:?}");
+            assert_eq!(out, json, "{text:?}");
+        }
+        for text in [
+            "q: !!int abc",
+            "q: !!null \"\"",
+            "q: !!null",
+            "q: !!seq [a]",
+            "q: !!binary aGk=",
+            "q: !!set {a, b}",
+            "q: !custom x",
+            "q: !",
+            "%TAG !e! tag:x,2000:\n---\nq: !e!foo x",
+        ] {
+            let (answer, _, last, _) = read(text, true);
+            assert!(matches!(answer, Ok(Value::Boolean(false))), "{text:?}: {answer:?}");
+            assert_eq!(last, "YamlBadFormat", "{text:?}");
+        }
+    }
+
+    /// A key of 3000 characters is the YAML error and a long value reads (`long-key`, `longvalue-100000`).
+    #[test]
+    fn long_keys_and_values() {
+        let key = format!("{}: 1", "k".repeat(3000));
+        assert_eq!(read(&key, true).2, "YamlBadFormat");
+        let value = format!("q: {}", "v".repeat(100_000));
+        assert!(matches!(read(&value, true).0, Ok(Value::Boolean(true))));
+        assert!(matches!(
+            read(&format!("q: {}", "v".repeat(2000)), true).0,
+            Ok(Value::Boolean(true))
+        ));
+        assert!(matches!(read("q: x\n\ta: 1", true).0, Ok(Value::Boolean(false))));
     }
 
     /// The pinned results (P88:225-239, PnA:156-179, Dc:204-207, Probe:575-576).

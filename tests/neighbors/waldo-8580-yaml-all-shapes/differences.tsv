@@ -12,8 +12,10 @@ YA Yaml All Shapes Tests::Read_TopListResultUsed	ASSUMED read-from-yaml-probed-s
 YA Yaml All Shapes Tests::Read_YamlErrorResultUsed	ASSUMED read-from-yaml-probed-shapes (corpus PR 1530)
 YA Yaml All Shapes Tests::Refused_DeeperThanMeasured	REFUSED ReadFromYaml of a document nested deeper than the probes measured
 YA Yaml All Shapes Tests::Refused_DepthBetweenMeasured	REFUSED ReadFromYaml of a document nested deeper than the probes measured
-YA Yaml All Shapes Tests::Refused_TaggedTopScalar	REFUSED ReadFromYaml of a document that is a tagged number or Boolean (not measured)
 YA Yaml All Shapes Tests::Refused_TooDeepStatement	REFUSED ReadFromYaml of a document nested too deep, as a statement (not measured)
 YA Yaml All Shapes Tests::Refused_TopListIntoFilledObjectResultUsed	REFUSED ReadFromYaml of a document that is no mapping, into an object with members (not measured)
 YA Yaml All Shapes Tests::Refused_UnmeasuredCharacter	REFUSED ReadFromYaml of a character that no probe measures
 YA Yaml All Shapes Tests::Refused_YamlErrorIntoFilledObject	REFUSED ReadFromYaml that fails into an object with members (not measured)
+YA Yaml All Shapes Tests::Read_TaggedFloatBoolStrKey	ASSUMED read-from-yaml-probed-shapes (corpus PR 1530)
+YA Yaml All Shapes Tests::Read_Utf8InStream	ASSUMED read-from-yaml-probed-shapes (corpus PR 1530)
+YA Yaml All Shapes Tests::Refused_Key1500Chars	REFUSED ReadFromYaml of a key or text of 1025 to 2999 characters (not measured)

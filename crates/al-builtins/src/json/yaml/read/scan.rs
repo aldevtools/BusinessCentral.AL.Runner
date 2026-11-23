@@ -56,6 +56,7 @@ struct Scanner {
     allowed: bool,
     flow: usize,
     keys: Vec<Option<SimpleKey>>,
+    yaml_directives: usize,
 }
 
 type Res<T> = Result<T, Fail>;
@@ -73,6 +74,7 @@ pub(super) fn tokens(text: &[char]) -> Res<Vec<Tok>> {
         allowed: true,
         flow: 0,
         keys: vec![None],
+        yaml_directives: 0,
     };
     loop {
         sc.next_token()?;
@@ -222,15 +224,21 @@ impl Scanner {
             if c == ' ' {
                 self.adv();
             } else if c == '\t' {
-                // A tab inside a line is white space. A tab that opens a line after the first is an error
-                // (corpus PR 1530 BomTabsSpaces bt8, bt11); after spaces it is not measured.
+                // A tab inside a line is white space. A tab at column 0 of a line after the first is an error in block
+                // context (corpus PR 1530 BomTabsSpaces bt8, bt11, cm26 for the first line); after spaces, on any line,
+                // and at the start of a line inside a flow form it is not measured.
                 let only_spaces = self.s[self.i - self.col..self.i].iter().all(|&p| p == ' ');
-                if self.flow == 0 && self.line > 0 && only_spaces {
-                    return if self.col == 0 {
+                if only_spaces && self.col > 0 {
+                    return Err(Fail::Refuse(
+                        "ReadFromYaml of a tab after the spaces of an indentation (not measured)",
+                    ));
+                }
+                if only_spaces && self.line > 0 {
+                    return if self.flow == 0 {
                         Err(Fail::Bad)
                     } else {
                         Err(Fail::Refuse(
-                            "ReadFromYaml of a tab after the spaces of an indentation (not measured)",
+                            "ReadFromYaml of a tab that opens a line inside a flow form (not measured)",
                         ))
                     };
                 }
@@ -253,7 +261,15 @@ impl Scanner {
     fn stale_keys(&mut self) -> Res<()> {
         for k in self.keys.iter_mut() {
             if let Some(sk) = *k {
-                if sk.line < self.line || sk.pos + 1024 < self.i {
+                let long = sk.line == self.line && sk.pos + 1024 < self.i;
+                if sk.line < self.line || long {
+                    // Only a key of 3000 characters is measured as too long (`long-key`).
+                    let value_follows = self.s.get(self.i) == Some(&':');
+                    if long && self.i - sk.pos < 3000 && (sk.required || value_follows) {
+                        return Err(Fail::Refuse(
+                            "ReadFromYaml of a key or text of 1025 to 2999 characters (not measured)",
+                        ));
+                    }
                     if sk.required {
                         return Err(Fail::Bad);
                     }
@@ -365,6 +381,13 @@ impl Scanner {
     fn value(&mut self) -> Res<()> {
         let sk = self.keys.last().copied().flatten();
         if let Some(sk) = sk {
+            // BC counts UTF-16 units: a key of up to 1024 characters can be longer there.
+            let span = &self.s[sk.pos..self.i];
+            if span.len() > 512 && span.iter().map(|c| c.len_utf16()).sum::<usize>() > 1024 {
+                return Err(Fail::Refuse(
+                    "ReadFromYaml of a key longer than 1024 UTF-16 units (not measured)",
+                ));
+            }
             self.toks.insert(sk.tok, Tok::Key);
             let col = self.i_col_of(sk);
             self.roll(col, Some(sk.tok), Tok::BlockMapStart);
@@ -399,8 +422,11 @@ impl Scanner {
             name.push(self.adv());
         }
         let c = self.at(0);
+        // A name that stops at another character (`a.b`, a non-ASCII letter) is not measured.
         if name.is_empty() || !(self.blankz(0) || "?:,]}%@`".contains(c)) {
-            return Err(Fail::Bad);
+            return Err(Fail::Refuse(
+                "ReadFromYaml of an anchor or alias name with other than letters, digits, - and _",
+            ));
         }
         self.toks.push(if alias { Tok::Alias(name) } else { Tok::Anchor(name) });
         Ok(())
@@ -422,7 +448,9 @@ impl Scanner {
                 uri.push(self.adv());
             }
             if self.at(0) != '>' {
-                return Err(Fail::Bad);
+                return Err(Fail::Refuse(
+                    "ReadFromYaml of a verbatim tag with other characters (not measured)",
+                ));
             }
             self.adv();
             handle = String::new();
@@ -462,7 +490,9 @@ impl Scanner {
         }
         let c = self.at(0);
         if !(self.blankz(0) || (self.flow > 0 && ",]}".contains(c))) {
-            return Err(Fail::Bad);
+            return Err(Fail::Refuse(
+                "ReadFromYaml of a tag with other characters than a URI (not measured)",
+            ));
         }
         self.toks.push(Tok::Tag(handle, suffix));
         Ok(())
@@ -489,8 +519,12 @@ impl Scanner {
                 while self.at(0).is_ascii_digit() || self.at(0) == '.' {
                     ver.push(self.adv());
                 }
-                if ver.split('.').next() != Some("1") || !ver.contains('.') {
-                    return Err(Fail::Bad);
+                // Measured: one directive, version 1.1, 1.2 or 1.3 (`dc7`-`dc9`).
+                self.yaml_directives += 1;
+                if self.yaml_directives > 1 || !["1.1", "1.2", "1.3"].contains(&ver.as_str()) {
+                    return Err(Fail::Refuse(
+                        "ReadFromYaml of a %YAML directive other than one of version 1.1, 1.2 or 1.3",
+                    ));
                 }
                 Tok::Version
             }

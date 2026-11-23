@@ -216,4 +216,168 @@ codeunit 61310 "YA Yaml All Shapes Tests"
         JO.ReadFrom('{"z":1}');
         Ok := JO.ReadFromYaml(Doc('- 1~- 2'));
     end;
+
+    [Test]
+    procedure Refused_IntTagOnList()
+    begin
+        ReadRet('q: !!int [a]');
+    end;
+
+    [Test]
+    procedure Refused_MapTagOnScalar()
+    begin
+        ReadRet('q: !!map x');
+    end;
+
+    [Test]
+    procedure Refused_BangTagOnList()
+    begin
+        ReadRet('q: ! [a]');
+    end;
+
+    [Test]
+    procedure Refused_EmptyMapTag()
+    begin
+        ReadRet('q: !!map');
+    end;
+
+    [Test]
+    procedure Refused_IntLeadingZero()
+    begin
+        ReadRet('q: !!int 007');
+    end;
+
+    [Test]
+    procedure Refused_FloatLarge()
+    begin
+        ReadRet('q: !!float 100000000000000000000');
+    end;
+
+    [Test]
+    procedure Refused_BoolNo()
+    begin
+        ReadRet('q: !!bool no');
+    end;
+
+    [Test]
+    procedure Refused_TaggedIntKey()
+    begin
+        ReadRet('!!int 1: a');
+    end;
+
+    [Test]
+    procedure Refused_TaggedTopStr()
+    begin
+        ReadRet('!!str x');
+    end;
+
+    [Test]
+    procedure Refused_TagDirectiveToCore()
+    begin
+        ReadRet('%TAG !e! tag:yaml.org,2002:~---~q: !e!int "1"');
+    end;
+
+    [Test]
+    procedure Refused_TwoYamlDirectives()
+    begin
+        ReadRet('%YAML 1.2~%YAML 1.2~---~q: a');
+    end;
+
+    [Test]
+    procedure Refused_YamlVersion2()
+    begin
+        ReadRet('%YAML 2.0~---~q: a');
+    end;
+
+    [Test]
+    procedure Refused_TabAfterSpacesFirstLine()
+    begin
+        ReadRet('  {T}q: a');
+    end;
+
+    [Test]
+    procedure Refused_TabInFlowLine()
+    begin
+        ReadRet('q: [a,~{T}b]');
+    end;
+
+    [Test]
+    procedure Refused_AnchorWithDot()
+    begin
+        ReadRet('a: &a.b 1');
+    end;
+
+    [Test]
+    procedure Refused_Key1500Chars()
+    begin
+        ReadRet(Rep('k', 1500) + ': 1');
+    end;
+
+    [Test]
+    procedure Refused_AliasExpansionBomb()
+    var
+        Src: Text;
+        i: Integer;
+    begin
+        Src := 'a0: &a0 [x, x, x, x, x, x, x, x, x, x]~';
+        for i := 1 to 8 do
+            Src += 'a' + Format(i) + ': &a' + Format(i) + ' [' + Rep('*a' + Format(i - 1) + ', ', 9) + '*a' + Format(i - 1) + ']~';
+        ReadRet(Src);
+    end;
+
+    [Test]
+    procedure Refused_Utf16InStream()
+    begin
+        ReadStream('q: a', TextEncoding::UTF16);
+    end;
+
+    [Test]
+    procedure Refused_WindowsInStream()
+    begin
+        ReadStream('q: a', TextEncoding::Windows);
+    end;
+
+    // Neighbors that keep reading: the measured forms of the same families.
+    [Test]
+    procedure Read_TaggedFloatBoolStrKey()
+    begin
+        Check('Yes|{"f":1.0,"b":true,"s":"1"}', ReadRet('f: !!float 1~b: !!bool yes~!!str s: 1'));
+    end;
+
+    [Test]
+    procedure Read_Utf8InStream()
+    begin
+        ReadStream('q: a', TextEncoding::UTF8);
+    end;
+
+    local procedure ReadStream(Src: Text; Enc: TextEncoding)
+    var
+        Store: Record "YA Stream Store" temporary;
+        OutS: OutStream;
+        InS: InStream;
+    begin
+        Store.Id := 1;
+        Store.Data.CreateOutStream(OutS, TextEncoding::UTF8);
+        OutS.WriteText(Src);
+        Store.Insert();
+        Store.Data.CreateInStream(InS, Enc);
+        Clear(JO);
+        Ok := JO.ReadFromYaml(InS);
+    end;
+}
+
+table 61311 "YA Stream Store"
+{
+    TableType = Temporary;
+
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; Data; Blob) { }
+    }
+
+    keys
+    {
+        key(PK; Id) { Clustered = true; }
+    }
 }
