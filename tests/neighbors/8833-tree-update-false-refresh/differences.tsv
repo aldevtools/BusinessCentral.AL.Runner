@@ -15,3 +15,5 @@ LT TVF Tests::FlatTree_GroupsG5G1G0_MiddleRowSetRangeDropsUpdateFalse_Fails	ASSU
 LT TVF Tests::FlatTree_GroupsG0G2G1_FirstRowSetRangeDropsUpdateFalse_Fails	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1436)
 LT TVF Tests::FlatTree_GroupsG1G0G2_LastRowSetRangeDropsUpdateFalse_Fails	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1448)
 LT TVF Tests::Tree_ChildInG0_LastRowSetRangeDropsUpdateFalse_Fails	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1460)
+LT TVF Tests::FlatTree_LastRowSetRangeG0DropsUpdateFalse_Fails	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1472)
+LT TVF Tests::List_LastRowSetRangeG0DropsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1484)

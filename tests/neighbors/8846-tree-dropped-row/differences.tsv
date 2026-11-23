@@ -11,3 +11,9 @@ LT TDN Shape Tests::GroupsG0G2G1_FirstRowDrops	ASSUMED tree-validate-view-refres
 LT TDN Shape Tests::GroupsG1G0G2_LastRowDrops	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1448)
 LT TDN Shape Tests::ChildInG0_LastRowDrops	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1460)
 LT TDN Close Tests::FirstRowDrops_ThenValueAndClose	REFUSED a tree page of TreeValidateFilterRefresh.al after a SetValue whose filter left the row out of the view
+# SetRange on G0 from the last row over the flat rows, on the tree and on the List (cells of corpus PR 1539 :1472, :1484), and a
+# page a failed SetValue leaves behind: main raised no error on the tree and read only the typed row; the head reads, saves and
+# raises as BC does. The keep cell after the page left behind does not differ: main has it since 8833.
+LT TDN Shape Tests::FlatLastRowG0Drops	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1472)
+LT TDN Shape Tests::ListFlatLastRowG0Drops	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1484)
+LT TDN Left Page Tests::LeftPage1_FirstRowDrops	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1300)
