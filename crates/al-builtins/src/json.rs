@@ -2750,7 +2750,7 @@ pub fn native_for(sig: &Signature) -> Option<NativeFn> {
         ("JsonObject.GetObject", _) => obj_get_object,
         ("JsonObject.GetArray", _) => obj_get_array,
         ("JsonObject.ReadFrom", ["Text" | "InStream"]) => object_read_from,
-        ("JsonObject.ReadFromYaml", ["Text"]) => read_from_yaml,
+        ("JsonObject.ReadFromYaml", ["Text" | "InStream"]) => read_from_yaml,
         ("JsonObject.WriteToYaml", ["Text"]) if first_by_var => write_to_yaml,
         ("JsonObject.WriteTo", ["Text"]) if first_by_var => write_to_text,
         ("JsonObject.WriteTo", ["OutStream"]) => write_to_stream,

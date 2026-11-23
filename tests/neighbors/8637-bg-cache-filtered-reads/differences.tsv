@@ -1,15 +1,23 @@
 # key	entry
-# Against main with the query cache of al-runner PR 8656 (merged): the cells whose answer the "@ alone" pull request (8716)
-# changes. The rows of PR 8656 against the main before it are gone: main now answers them as the head does.
-# A worker's reads with the Text filters @ alone or <>@ alone on table 97500 now also run through at-sign-alone-database-blank,
-# beside the cache (BQ Tests 6 :2673-:2770, BQ Tests 7 :3421, :3482-:3514). <>@ alone as the only form of its filter (:3421) is
-# keyed by the cache now: after the insert of a line that is not empty, a read of the database would keep it
-# (AtSignAloneReads.al:698), and BC answers the first answer.
-BQ Tests 6::BgQueryCache_Run_AllForms_OtherFilterKinds_FirstAnswer	ASSUMED at-sign-alone-database-blank,background-task-query-cache (open corpus PR 1495)
-BQ Tests 6::BgQueryCache_Run_TestReadsFirst_EveryShape_FirstReadsAnswerThem	ASSUMED at-sign-alone-database-blank,background-task-query-cache (open corpus PR 1495)
-BQ Tests 7::BgQueryCache_Run_AllForms_NotAtSignAlone_KeepsNoLine	ASSUMED at-sign-alone-database-blank,background-task-query-cache,bg-task-worker-filter-group-one (open corpus PR 1495: BgTaskQueryCache.al:3421)
-BQ Tests 7::BgQueryCache_Run_TestReadsFirst_GroupShapes_FirstReadsAnswerThem	ASSUMED at-sign-alone-database-blank,background-task-query-cache,bg-task-worker-filter-group-one (open corpus PR 1495)
-# The two @ alone cells of BQ Tests 9 (:5609, :5616): main refuses @ alone on a Code field; the head runs them through the rule
-# of @ alone (a worker's FindFirst and FindLast check the row, its Count and IsEmpty read the database).
-BQ Tests 9::AtSignAlone_CodeField_KeepsTheEmptyValues	ASSUMED at-sign-alone-database-blank (open corpus PR 1495: BgTaskQueryCache.al:5616)
-BQ Tests 9::BgQueryCache_Run_FlowFieldAtSignAlone_FindsFirstAnswer	ASSUMED at-sign-alone-database-blank (open corpus PR 1495: BgTaskQueryCache.al:5609)
+# Against main with the query cache of al-runner PRs 8490 and 8656: the cells whose answer this pull request (al-runner issue
+# 8677, a page background task's CalcFields and CalcSums) changes. The other cells and neighbors answer alike on both.
+# BQ Tests 10 (corpus PR 1495 at d0497714): main computes a worker's second CalcFields and CalcSums from the rows as they
+# are; the head answers the first answer. The cells that read the table pass on both.
+BQ Tests 10::BgCalcFields_Count_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6147)
+BQ Tests 10::BgCalcFields_Sum_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6153)
+BQ Tests 10::BgCalcFields_Min_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6159)
+BQ Tests 10::BgCalcFields_Max_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6165)
+BQ Tests 10::BgCalcFields_Average_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6171)
+BQ Tests 10::BgCalcFields_Exist_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6177)
+BQ Tests 10::BgCalcFields_Lookup_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6183)
+BQ Tests 10::BgCalcFields_Several_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6189)
+BQ Tests 10::BgCalcFields_FlowFilter_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6219)
+BQ Tests 10::BgCalcFields_TestCalcFieldsFirst_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6237)
+BQ Tests 10::BgCalcFields_CountOfNotes_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6249)
+BQ Tests 10::BgCalcFields_SumAtAFlowFieldOfTheRow_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6255)
+BQ Tests 10::BgCalcSums_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6273)
+BQ Tests 10::BgCalcSums_TwoFields_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6279)
+BQ Tests 10::BgCalcSums_FilterOutsideTheKey_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:6285)
+# BQ Tests 13: a worker's CalcFields after SetLoadFields and Get answers its first answer; main computes it again. The cells
+# of SelectLatestVersion in one worker codeunit and of a MediaSet table pass on both.
+BQ Tests 13::BgCalcFields_AfterSetLoadFields_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1495: BgTaskQueryCache.al:7255)

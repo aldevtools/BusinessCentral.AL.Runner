@@ -9,7 +9,8 @@
 //! - what the handler did and how the close was asked (`handler_calls`, `CloseBy`);
 //! - the row when the close starts (`RowAtClose`), and that the close saved a typed value before the trigger that failed;
 //! - the error and where it came from (`close_error_of`, `CloseError`);
-//! - no write to the database since the run started but that save, no Commit, and no error the handler caught.
+//! - no write to the database since the run started but that save, and no Commit. An error the session caught since the
+//!   run started changes no cell (assumption `page-handler-caught-error-close`, `page_run_cell`).
 //!
 //! Not facts, taken as the pins' data: the body of the codeunit procedure each page trigger calls (only that the call hands
 //! values, `hands_values`) and the bodies of the table's OnInsert and OnModify (only that the table declares exactly
@@ -598,9 +599,15 @@ impl Session {
     /// THE decision of this module: the cell of the matrix that the close `c` of page `st` is in, now that `failure` was
     /// raised (`None`: nothing was). Every fact of the cell is proved here or in `page_run_close`, which built `c`:
     /// - the error and its source (`close_error_of`);
-    /// - the handler caught no error and nothing committed since the run started (no pin commits after `Setup`,
-    ///   CemFixtures.al:549), and the test binds no handler but PageHandlers (every test of CemPageHandlerTests.al binds only
-    ///   its PageHandler);
+    /// - nothing committed since the run started (no pin commits after `Setup`, CemFixtures.al:549), and the test binds no
+    ///   handler but PageHandlers (every test of CemPageHandlerTests.al binds only its PageHandler);
+    /// - an error caught before the close changes no cell: every test of CemPageHandlerTests.al gives its answer again with
+    ///   a handler that first catches an error (corpus PR 1531, CemPageHandlerCaughtTests.al; asserterror, a TryFunction
+    ///   and four more ways of catching, CemHandlerCaughtErrors.al:150-:234 on the card, CemRunCaughtWaysTests.al on the
+    ///   wizard, the card from a Page variable and the list). The flag does not tell who caught it: any
+    ///   error the session caught since the run started counts (`PageRunClose::caught`, caught_errors.rs), the handler's,
+    ///   a page trigger's or the code they call, and only the handler's catches are measured. Such a close runs through
+    ///   the assumption `page-handler-caught-error-close`;
     /// - a typed value was saved by this close before a close trigger failed: the page holds nothing unsaved, and the only
     ///   write since the run started is that one modify of a row of the page's table (CemPageHandlerTests.al:386 `M-card EDIT; T-mod R1
     ///   EDIT; Q-card OK;`); in every other cell nothing was written since the run started.
@@ -628,11 +635,14 @@ impl Session {
         } else {
             mark == c.writes && store.change_counter() == c.changes
         };
-        let same = self.caught_errors() == c.caught && self.commits == c.commits;
-        if !writes || !same || !self.every_ui_handler_is(UiKind::Page) {
+        if !writes || self.commits != c.commits || !self.every_ui_handler_is(UiKind::Page) {
             return None;
         }
-        cell(c.run, c.by, c.row, error).map(|cell| (cell, error))
+        let cell = cell(c.run, c.by, c.row, error)?;
+        if cell == Cell::Runs && self.caught_errors() != c.caught {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageHandlerCaughtErrorClose);
+        }
+        Some((cell, error))
     }
 
     /// An error `e` of OnQueryClosePage in the close `c`. At the platform's close the page closes without OnClosePage and

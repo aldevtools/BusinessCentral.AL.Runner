@@ -1,7 +1,7 @@
 //! The objects of the cells that measured a part's calls after the test's own filter read its refilled rows (al-runner issue
 //! 8537, `part_update_left_view.rs`), line for line as `pinned_body.rs` renders them: the probe's (pages/parts/
-//! PartRefillTestFilter.al, corpus PR 1474, merged, not pinned yet, and the two-field key part of corpus PR 1475) and the
-//! reporter's repro in issue 8537. Name slots: `«T»` the host's table, `«P»` the part page, `«L»` the part's table, `«C»` the
+//! PartRefillTestFilter.al, corpus PRs 1474 and 1475, merged, not pinned yet, and the styled part of corpus PR 1534, open) and
+//! the reporters' repros in issues 8537 and 8704. Name slots: `«T»` the host's table, `«P»` the part page, `«L»` the part's table, `«C»` the
 //! codeunit that calculates the rows, `«B»` the table it reads, `«K»` the id of the background task's codeunit.
 //!
 //! A cell is one host with one part, as measured: another combination of a host and a part from different cells is no cell.
@@ -137,6 +137,24 @@ const PLAIN_PART: &[&str] = &[
     "field Allocated Qty. in Lines = Allocated Qty. {applicationarea=All}",
 ];
 
+/// Corpus PR 1534's "LT PR Styled Part" (al-runner issue 8704): the plain part with StyleExpr on Allocated Qty. set in its
+/// OnAfterGetRecord.
+const STYLED_PART: &[&str] = &[
+    "PageType = ListPart",
+    "SourceTable = \"«L»\"",
+    "SourceTableTemporary = true",
+    "InsertAllowed = false",
+    "DeleteAllowed = false",
+    "Editable = false",
+    "ApplicationArea = All",
+    "UsageCategory = None",
+    "repeater Lines in - {}",
+    "field Period Start in Lines = Period Start {applicationarea=All}",
+    "field Allocated Qty. in Lines = Allocated Qty. {applicationarea=All; styleexpr=LoadStyle}",
+    "trigger onaftergetrecord: begin LoadStyle := 'Standard'; if (Rec.\"Allocated Qty.\" > 20) then begin LoadStyle := \
+     'Unfavorable'; end; end",
+];
+
 /// :323 "LT PR Load Trig Part" and PR 1475's "LT PR Typed Trig Part": OnOpenPage and OnAfterGetRecord.
 const TRIGGER_PART: &[&str] = &[
     "PageType = ListPart",
@@ -170,6 +188,24 @@ const REPRO_PART: &[&str] = &[
     "repeater Lines in - {}",
     "field Period Start in Lines = Period Start {}",
     "field Allocated Qty. in Lines = Allocated Qty. {}",
+];
+
+/// The part of the repro of al-runner issue 8704: the repro's part of issue 8537 with StyleExpr on Allocated Qty. set in its
+/// OnAfterGetRecord.
+const REPRO_STYLED_PART: &[&str] = &[
+    "PageType = ListPart",
+    "SourceTable = \"«L»\"",
+    "SourceTableTemporary = true",
+    "InsertAllowed = false",
+    "DeleteAllowed = false",
+    "Editable = false",
+    "ApplicationArea = All",
+    "UsageCategory = None",
+    "repeater Lines in - {}",
+    "field Period Start in Lines = Period Start {}",
+    "field Allocated Qty. in Lines = Allocated Qty. {styleexpr=LoadStyle}",
+    "trigger onaftergetrecord: begin LoadStyle := 'Standard'; if (Rec.\"Allocated Qty.\" > 20) then begin LoadStyle := \
+     'Unfavorable'; end; end",
 ];
 
 /// :18 "LT PR Op", :34 "LT PR Booking", :52 "LT PR Load Line", PR 1475's "LT PR Load Line Typed".
@@ -346,6 +382,38 @@ const CELLS: &[Cell] = &[
         host: REPRO_HOST,
         host_table: REPRO_OP_TABLE,
         part: REPRO_PART,
+        part_table: REPRO_LINE_TABLE,
+        booking_table: REPRO_BOOKING_TABLE,
+        callees: PART_CALLEES,
+        task: None,
+        filter_field: 0,
+        last: false,
+        next_previous: false,
+        value_reads: &[],
+        fact_reads: &[("Allocated Qty.", PageMethod::AsDecimal)],
+        read_without_move: false,
+    },
+    // Corpus PR 1534 PartRefill_StyledPartActionThenFilterFirst_FindsRefilledRow (al-runner issue 8704).
+    Cell {
+        host: WORKSHEET_HOST,
+        host_table: OP_TABLE,
+        part: STYLED_PART,
+        part_table: LINE_TABLE,
+        booking_table: BOOKING_TABLE,
+        callees: PART_CALLEES,
+        task: None,
+        filter_field: 0,
+        last: false,
+        next_previous: false,
+        value_reads: &[],
+        fact_reads: PROBE_READS,
+        read_without_move: false,
+    },
+    // The reporter's repro of issue 8704 (green on Business Central 29.1): only the AsDecimal of Allocated Qty.
+    Cell {
+        host: REPRO_HOST,
+        host_table: REPRO_OP_TABLE,
+        part: REPRO_STYLED_PART,
         part_table: REPRO_LINE_TABLE,
         booking_table: REPRO_BOOKING_TABLE,
         callees: PART_CALLEES,
