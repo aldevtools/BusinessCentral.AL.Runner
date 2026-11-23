@@ -46,7 +46,13 @@ pub fn corpus() -> Workspace {
         root.join("al-language/app.json").exists(),
         "corpus submodule not checked out"
     );
-    Workspace::load(corpus_apps(&root), &al_version::corpus_symbols(27))
+    Workspace::load(
+        corpus_apps(&root),
+        &al_version::corpus_symbols(
+            &al_version::BcVersion::new(27, 0),
+            &al_version::ReleasedMinors::NotRecorded,
+        ),
+    )
 }
 
 /// `al-language` and the corpus apps it depends on (the internals fixture and the cross-app fixtures), dependencies
