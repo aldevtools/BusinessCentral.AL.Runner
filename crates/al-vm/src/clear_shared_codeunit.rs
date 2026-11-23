@@ -6,6 +6,7 @@
 //! `Session::clear_all_in_place` (from `clear_all`).
 
 use super::*;
+use std::rc::Weak;
 
 impl Session {
     /// Whether object `object` is a codeunit that is not SingleInstance: a variable of it holds an instance of its own,
@@ -108,13 +109,15 @@ impl Session {
                 if !rc.borrow().initialized && self.plain_codeunit(rc.borrow().object as usize) =>
             {
                 let place = self.clear_place(p, f);
-                if Rc::strong_count(rc) <= place.own_copies() {
+                let own = place.own_copies(rc, f);
+                if Rc::strong_count(rc) <= own.unwrap_or(2) {
                     return Ok(());
                 }
-                if place == ClearPlace::Other {
+                if place == ClearPlace::Other || own.is_none() {
                     return Err(Signal::unsupported(
                         "Clear of a codeunit variable that nothing used yet and another variable shares, in a place \
-                         the corpus does not pin (a by-value parameter, an array element)",
+                         the corpus does not pin (a by-value parameter, an array element, a var parameter whose \
+                         caller's global was assigned since)",
                     ));
                 }
                 al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ClearSharedCodeunit);
@@ -145,7 +148,7 @@ impl Session {
         match p {
             ir::Place::Local(slot) if Some(*slot) == r.ret_local => ClearPlace::Other,
             ir::Place::Local(slot) if *slot < r.params => match r.by_var.get(*slot) {
-                Some(true) => ClearPlace::VarParameter,
+                Some(true) => ClearPlace::VarParameter(*slot),
                 _ => ClearPlace::Other,
             },
             ir::Place::Local(_) | ir::Place::Global(_) => ClearPlace::Measured,
@@ -159,16 +162,114 @@ impl Session {
 enum ClearPlace {
     /// A declared local or a global (ClearSharedCodeunit.al Clear_LocalUnusedIface, Clear_GlobalUnusedIface).
     Measured,
-    /// A var parameter (Clear_LocalUnusedAliasClearedThroughVarParam, ClearVar).
-    VarParameter,
+    /// The var parameter in this slot (Clear_LocalUnusedAliasClearedThroughVarParam, ClearVar).
+    VarParameter(usize),
     /// A by-value parameter, an element, the named return value or any other place.
     Other,
 }
 
 impl ClearPlace {
-    /// How many holders of the instance are copies of the variable itself: the variable and the copy `Clear` takes of it
-    /// (the VM evaluates its argument), and for a var parameter the copy the parameter's slot keeps of the caller's variable.
-    fn own_copies(self) -> usize {
-        2 + usize::from(self == ClearPlace::VarParameter)
+    /// How many holders of `rc`, the instance the place holds in frame `f`, are copies of the variable itself: the variable
+    /// and the copy `Clear` takes of it (the VM evaluates its argument); for a var parameter, instead of the variable, the
+    /// slots of the var parameter chain that still hold `rc` ([`VarCodeunit`]). A var parameter whose caller is not an AL
+    /// call (an event subscriber, a routine the platform calls) counts its slot and one caller variable. `None`: the chain
+    /// starts at a global that was assigned another instance since, which the parameter does not follow (not measured).
+    fn own_copies(self, rc: &Rc<RefCell<Instance>>, f: &Frame) -> Option<usize> {
+        match self {
+            ClearPlace::VarParameter(slot) => match f.var_codeunits.get(slot).and_then(Option::as_ref) {
+                Some(got) => Some(got.copies(rc)? + 1),
+                None => Some(3),
+            },
+            _ => Some(2),
+        }
+    }
+}
+
+/// What a `var` Codeunit parameter got from its caller (`Frame::var_codeunits`): the instance handed in and how many slots of
+/// the var parameter chain held it then (the caller's variable, each var parameter that handed it on, this slot). A frame
+/// does not run while a routine it called runs, so its slots keep what they held; a global at the start of the chain can
+/// be assigned by its name meanwhile, and is checked again.
+#[derive(Clone)]
+pub(crate) struct VarCodeunit {
+    handed: Weak<RefCell<Instance>>,
+    chain: usize,
+    origin: Option<(Weak<RefCell<Instance>>, usize)>,
+}
+
+impl VarCodeunit {
+    /// The slots of the chain that hold `rc` now: none but this one when the parameter was assigned another instance since
+    /// (its slot holds `rc` like a local variable). `None` when the global the chain starts at holds another instance now.
+    fn copies(&self, rc: &Rc<RefCell<Instance>>) -> Option<usize> {
+        if !std::ptr::eq(self.handed.as_ptr(), Rc::as_ptr(rc)) {
+            return Some(1);
+        }
+        let origin_holds = self.origin.as_ref().is_none_or(|(owner, g)| {
+            owner
+                .upgrade()
+                .is_some_and(|o| matches!(o.borrow().globals.get(*g), Some(Value::Codeunit(x)) if Rc::ptr_eq(x, rc)))
+        });
+        origin_holds.then_some(self.chain)
+    }
+}
+
+impl Session {
+    /// For each `var` Codeunit parameter of routine `routine` of `object` that a call from frame `f` with `args` hands
+    /// `values`: what it got ([`VarCodeunit`]). A variable of `f` starts a chain of two (it and the parameter); a var
+    /// parameter of `f` that still holds what it got hands it on one longer, one assigned another instance since starts a
+    /// chain of two; one whose chain starts at a global assigned since hands that on. Any other argument, and a var
+    /// parameter of `f` with no record, gives none.
+    pub(crate) fn var_codeunits_of(
+        &self,
+        object: usize,
+        routine: usize,
+        args: &[ir::Arg],
+        values: &[Value],
+        f: &Frame,
+    ) -> Vec<Option<VarCodeunit>> {
+        let r = &self.engine.program.objects[object].routines[routine];
+        let caller = &self.engine.program.objects[f.object].routines[f.routine];
+        let fresh = |rc: &Rc<RefCell<Instance>>, origin| {
+            Some(VarCodeunit {
+                handed: Rc::downgrade(rc),
+                chain: 2,
+                origin,
+            })
+        };
+        (0..r.params.min(args.len()))
+            .map(|i| {
+                let Some(Value::Codeunit(rc)) = values.get(i) else {
+                    return None;
+                };
+                if r.by_var.get(i) != Some(&true) || !matches!(r.locals[i].ty, RtType::Codeunit(_)) {
+                    return None;
+                }
+                match &args[i] {
+                    ir::Arg::Ref(ir::Place::Local(j)) if *j < caller.params && caller.by_var.get(*j) == Some(&true) => {
+                        let got = f.var_codeunits.get(*j).and_then(Option::as_ref)?;
+                        match got.copies(rc) {
+                            Some(1) => fresh(rc, None),
+                            n => Some(VarCodeunit {
+                                handed: Rc::downgrade(rc),
+                                chain: n.unwrap_or(got.chain) + 1,
+                                origin: got.origin.clone(),
+                            }),
+                        }
+                    }
+                    ir::Arg::Ref(ir::Place::Local(_)) => fresh(rc, None),
+                    ir::Arg::Ref(ir::Place::Global(g)) => fresh(rc, Some((Rc::downgrade(&f.instance), *g))),
+                    _ => None,
+                }
+            })
+            .collect()
+    }
+
+    /// The records `finish_call` left for the frame of a routine with `var` Codeunit parameters (`var_codeunits_of`); empty
+    /// for any other routine.
+    pub(crate) fn take_var_codeunits(&mut self, wanted: bool) -> Vec<Option<VarCodeunit>> {
+        if wanted {
+            std::mem::take(&mut self.events.next_var_codeunits)
+        } else {
+            Vec::new()
+        }
     }
 }

@@ -213,10 +213,22 @@ codeunit 50825 ArrHolder { var A: array[2] of Codeunit Store;
     procedure ShareIface(var I: Interface IStore) begin I := A[1]; end;
     procedure ClearA() begin Clear(A); end;
     procedure ClearAllGlobals() begin ClearAll(); end; }
+codeunit 50827 GlobalChain { var X: Codeunit Store;
+    local procedure Reassign(var P: Codeunit Store): Integer var Z: Codeunit Store; begin X := Z; Clear(P); exit(0); end;
+    local procedure Keep(var P: Codeunit Store): Integer begin Clear(P); P.Set(5); exit(0); end;
+    procedure ReassignedShared(): Text var Y: Codeunit Store; begin Y := X; exit(Format(Reassign(X))); end;
+    procedure KeptShared(): Text var Y: Codeunit Store; begin Y := X; Keep(X); exit(Format(X.Get()) + '|' + Format(Y.Get())); end;
+    procedure KeptUnshared(): Text begin Keep(X); exit(Format(X.Get())); end; }
 codeunit 50826 T {
     local procedure ClearVal(P: Codeunit Store; Q: Codeunit Store): Integer begin Clear(P); P.Set(5); exit(Q.Get()); end;
     local procedure ClearVar(var P: Codeunit Store) begin Clear(P); end;
     local procedure ClearVarVar(var P: Codeunit Store) begin ClearVar(P); end;
+    local procedure AssignClear(var P: Codeunit Store): Integer var Y: Codeunit Store;
+    begin P := Y; Clear(P); P.Set(5); exit(Y.Get()); end;
+    local procedure AssignClearVar(var P: Codeunit Store): Integer var Y: Codeunit Store;
+    begin P := Y; ClearVar(P); P.Set(5); exit(Y.Get()); end;
+    procedure ClearVarAssignedShared(): Text var X: Codeunit Store; begin exit(Format(AssignClear(X))); end;
+    procedure ClearVarVarAssignedShared(): Text var X: Codeunit Store; begin exit(Format(AssignClearVar(X))); end;
     procedure ClearLocalUnshared(): Text var X: Codeunit Store; begin Clear(X); X.Set(5); exit(Format(X.Get())); end;
     procedure ClearVarUnshared(): Text var X: Codeunit Store; begin ClearVar(X); X.Set(5); exit(Format(X.Get())); end;
     procedure ClearVarVarUnshared(): Text var X: Codeunit Store; begin ClearVarVar(X); X.Set(5); exit(Format(X.Get())); end;
@@ -247,7 +259,8 @@ fn shape(cell: &str, track: bool) -> (String, bool) {
     if track {
         b.session.track_single_instances();
     }
-    let got = match b.run_in("T", cell) {
+    let (owner, cell) = cell.split_once('.').unwrap_or(("T", cell));
+    let got = match b.run_in(owner, cell) {
         Err(al_builtins::native::Signal::Unsupported(why)) => format!("refused: {why}"),
         other => al_testkit::text(other),
     };
@@ -317,13 +330,36 @@ fn a_shared_instance_in_a_shape_the_probe_does_not_measure_refuses() {
 
 // BindSubscription makes the instance (al-vm `dispatch.rs`, `ensure_initialized` before the binding), so a bound X is never
 // unused: Clear takes main's arm for a used X, with no mark.
-// A var parameter handed on as a var parameter keeps one more copy of the caller's variable: it counts as shared, so the
-// Clear is marked even when nothing else holds the instance (the value is main's either way); one another holder shares
-// gets the measured fresh instance.
+// A var parameter handed on as a var parameter keeps one more copy of the caller's variable, which is not another holder: a
+// Clear nothing else shares keeps main's answer with no mark, as Microsoft's facades hand a var parameter to their
+// implementation (Data Compression to Data Compression Impl., corpus streams/blob-tempblob/ZipBlobFieldUpdate.al); one
+// another holder shares gets the measured fresh instance.
 #[test]
-fn a_var_parameter_of_a_var_parameter_counts_its_copies_as_holders() {
-    assert_eq!(shape("ClearVarVarUnshared", false), ("5".to_string(), true));
+fn a_var_parameter_handed_on_counts_only_other_holders() {
+    assert_eq!(shape("ClearVarVarUnshared", false), ("5".to_string(), false));
     assert_eq!(shape("ClearVarVarShared", false), ("0|5".to_string(), true));
+}
+
+// A var parameter handed a global: the global counts as the chain's own while it holds the instance. Assigned another
+// instance by its name while the routine runs, the parameter no longer follows it, which the probe does not measure: refused
+// when another holder shares the instance.
+#[test]
+fn a_var_parameter_of_a_global_counts_the_global_while_it_holds_the_instance() {
+    assert_eq!(shape("GlobalChain.KeptShared", false), ("5|0".to_string(), true));
+    assert_eq!(shape("GlobalChain.KeptUnshared", false), ("5".to_string(), false));
+    let got = shape("GlobalChain.ReassignedShared", false).0;
+    assert!(
+        got.starts_with("refused: Clear of a codeunit variable that nothing used yet"),
+        "{got}"
+    );
+}
+
+// A var parameter that an assignment made share another variable's instance is shared like a local
+// (ClearSharedCodeunit.al Clear_LocalUnusedAlias): Clear gives it a fresh instance and the other variable keeps the old one.
+#[test]
+fn a_var_parameter_assigned_another_instance_counts_that_holder() {
+    assert_eq!(shape("ClearVarAssignedShared", false), ("0".to_string(), true));
+    assert_eq!(shape("ClearVarVarAssignedShared", false), ("0".to_string(), true));
 }
 
 #[test]

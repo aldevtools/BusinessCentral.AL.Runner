@@ -498,6 +498,8 @@ pub(crate) struct EventState {
     pub(crate) subscriber_stack: Vec<Option<(usize, usize, usize)>>,
     /// Set by `finish_call` just before the call, taken by the callee's frame (`Frame::var_lens`).
     pub(crate) next_var_lens: Vec<Option<i32>>,
+    /// Set by `finish_call` just before the call, taken by the callee's frame (`Frame::var_codeunits`).
+    pub(crate) next_var_codeunits: Vec<Option<crate::clear_shared_codeunit::VarCodeunit>>,
     /// Set by `finish_call` just before the call, taken by the callee's frame (`Frame::option_hops`).
     pub(crate) next_option_hops: Vec<bool>,
     /// The declared lengths of a publisher's `var` Text and Code arguments (`var_lens_of`), set by `finish_call` just before

@@ -208,6 +208,59 @@ codeunit 50111 "NB CS Publisher"
     end;
 }
 
+codeunit 50112 "NB CS Var Publisher"
+{
+    procedure Raise(var S: Codeunit "NB CS Store") begin OnClear(S); end;
+
+    [IntegrationEvent(false, false)]
+    local procedure OnClear(var S: Codeunit "NB CS Store")
+    begin
+    end;
+}
+
+codeunit 50113 "NB CS Var Subscriber"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"NB CS Var Publisher", 'OnClear', '', false, false)]
+    local procedure OnClear(var S: Codeunit "NB CS Store")
+    begin
+        Clear(S);
+    end;
+}
+
+interface "NB CS IClearer"
+{
+    procedure ClearIt(var S: Codeunit "NB CS Store");
+}
+
+codeunit 50114 "NB CS Clearer" implements "NB CS IClearer"
+{
+    procedure ClearIt(var S: Codeunit "NB CS Store") begin Clear(S); end;
+}
+
+codeunit 50115 "NB CS Global Chain"
+{
+    var
+        X: Codeunit "NB CS Store";
+
+    local procedure ReassignThenClear(var P: Codeunit "NB CS Store")
+    var
+        Z: Codeunit "NB CS Store";
+    begin
+        X := Z;
+        Clear(P);
+    end;
+
+    procedure Run(): Text
+    var
+        Y: Codeunit "NB CS Store";
+    begin
+        Y := X;
+        ReassignThenClear(X);
+        Y.Set(5);
+        exit(Format(X.Get()) + '|' + Format(Y.Get()));
+    end;
+}
+
 codeunit 50120 "NB CS Tests"
 {
     Subtype = Test;
@@ -447,8 +500,7 @@ codeunit 50120 "NB CS Tests"
         Check(R(H.GetX(), 0), '0|0');
     end;
 
-    // Clear of an unused X nothing else holds, through a var parameter: the parameter's copy counts as a holder, so it is
-    // flagged; the value is the same as main's.
+    // Clear of an unused X nothing else holds, through a var parameter: main's answer, unflagged.
     [Test]
     procedure Clear_LocalUnused_ThroughVarParam_NoHolder()
     var
@@ -483,8 +535,8 @@ codeunit 50120 "NB CS Tests"
         Check(R(H.GetArr(), Y.Get()), '5|5');
     end;
 
-    // Clear of an unused X nothing else holds, through a var parameter handed on as a var parameter: each slot's copy
-    // counts as a holder, so it is flagged; the value is the same as main's.
+    // Clear of an unused X nothing else holds, through a var parameter handed on as a var parameter (a facade handing it to
+    // its implementation): the slots of the chain are not other holders, main's answer, unflagged.
     [Test]
     procedure Clear_LocalUnused_ThroughNestedVarParam_NoHolder()
     var
@@ -508,6 +560,62 @@ codeunit 50120 "NB CS Tests"
         Clear(I);
         Y.Set(5);
         Check(R(X.Get(), Y.Get()), '5|5');
+    end;
+
+    // The measured cell through a var parameter assigned another variable's instance (Clear_LocalUnusedAlias): the
+    // parameter gets a fresh instance, Y keeps the old one.
+    [Test]
+    procedure Clear_VarParamAssigned_Shared()
+    var
+        X: Codeunit "NB CS Store";
+    begin
+        Check(R(AssignThenClear(X), 0), '0|0');
+    end;
+
+    // Clear of an unused X nothing else holds, in an event subscriber's var parameter: the platform's call keeps no record of
+    // the chain, so the publisher's copy counts as a holder and it is flagged; the value is the same as main's.
+    [Test]
+    procedure Clear_SubscriberVarParam_NoHolder()
+    var
+        X: Codeunit "NB CS Store";
+        P: Codeunit "NB CS Var Publisher";
+    begin
+        P.Raise(X);
+        X.Set(5);
+        Check(R(X.Get(), 0), '5|0');
+    end;
+
+    // Clear of an unused X nothing else holds, in an interface method's var parameter: main's answer, unflagged.
+    [Test]
+    procedure Clear_InterfaceVarParam_NoHolder()
+    var
+        X: Codeunit "NB CS Store";
+        C: Codeunit "NB CS Clearer";
+        I: Interface "NB CS IClearer";
+    begin
+        I := C;
+        I.ClearIt(X);
+        X.Set(5);
+        Check(R(X.Get(), 0), '5|0');
+    end;
+
+    // Refused: Clear of a var parameter whose caller's global was assigned another instance while the routine runs.
+    [Test]
+    procedure Clear_VarParamOfReassignedGlobal_Shared()
+    var
+        G: Codeunit "NB CS Global Chain";
+    begin
+        Check(G.Run(), '0|5');
+    end;
+
+    local procedure AssignThenClear(var P: Codeunit "NB CS Store"): Integer
+    var
+        Y: Codeunit "NB CS Store";
+    begin
+        P := Y;
+        Clear(P);
+        P.Set(5);
+        exit(Y.Get());
     end;
 
     local procedure ClearByVar(var P: Codeunit "NB CS Store")

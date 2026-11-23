@@ -950,6 +950,9 @@ impl Session {
         if facts.option_hops && !self.next_interface_call {
             self.events.next_option_hops = self.option_hops_of(object, routine, args, &values, f);
         }
+        if facts.var_codeunits {
+            self.events.next_var_codeunits = self.var_codeunits_of(object, routine, args, &values, f);
+        }
         let var_lens = facts.var_lens;
         if var_lens {
             self.events.next_var_lens = self.var_lens_of(object, routine, args, f);
@@ -982,6 +985,9 @@ impl Session {
         }
         if facts.option_hops {
             self.events.next_option_hops.clear();
+        }
+        if facts.var_codeunits {
+            self.events.next_var_codeunits.clear();
         }
         if var_lens {
             self.events.next_var_lens.clear();
