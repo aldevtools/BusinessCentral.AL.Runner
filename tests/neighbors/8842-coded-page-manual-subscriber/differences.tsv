@@ -1,0 +1,8 @@
+# key	entry
+# A manual page subscriber that is not bound when the page opens: the base refused the page at the Update (any page
+# subscriber kept it from the page-with-code shape); the head runs it.
+LT NU4 Tests::NewLine_ExtraCodeOnPageWithCodeAndUnboundPageSubscriber_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1541, open: ListNewLineExtraCodeCodedPageSubscriber.al)
+LT NU4 Tests::NewLine_PageSubscriberBoundAndUnboundBeforeTheOpen_RunsNothing	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1541, open: ListNewLineExtraCodeCodedPageSubscriber.al)
+LT NU5 Tests::NewLine_UnboundSubscriberToAnotherPageEvent_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1541, open: ListNewLineExtraCodeCodedPageSubscriber.al)
+# One bound in the handler after the open: refused on both, at the next call on the head.
+LT NU5 Tests::NewLine_SubscriberBoundInTheHandlerAfterTheOpen_RunsFromThere	REFUSED a call on a List page of the page-with-code shape while a subscriber of the page is bound
