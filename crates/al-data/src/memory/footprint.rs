@@ -9,7 +9,7 @@
 //! Which reads see which writes ([`Resource::read_sees_write`]) and which writes collide is decided here, the one owner
 //! of those rules; al-vm `install_footprint.rs` builds the rest of the footprint on them.
 
-use super::MemStore;
+use super::{Key, MemStore};
 use crate::{AccessContext, TableDef};
 use al_builtins::value::Value;
 use std::cell::{Cell, RefCell};
@@ -17,11 +17,25 @@ use std::collections::BTreeSet;
 use std::rc::Rc;
 use std::sync::Arc;
 
+/// The primary key of a [`Resource::Row`]: two keys are one when the store finds one row by both, so it compares as
+/// the store compares the keys of the table (`memory/key.rs`; trailing blanks of a text key do not count,
+/// `collation::text_key_order`). Not hashable: equal keys may differ in their values.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct RowKey(Key);
+
+impl RowKey {
+    /// The key of the primary key values `pk` of table `t`.
+    pub fn of(t: &TableDef, pk: Vec<Value>) -> RowKey {
+        RowKey(Key::of(t, pk))
+    }
+}
+
 /// A lasting resource of the store.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Resource {
-    /// One row: company (empty for `DataPerCompany = false`), table object, encoded primary key.
-    Row(Arc<str>, u32, Vec<u8>),
+    /// One row: company (empty for `DataPerCompany = false`), table object, primary key. Rows of one table object carry
+    /// keys of one order, so the derived order compares two keys only when they belong to the same table.
+    Row(Arc<str>, u32, RowKey),
     /// Which rows a table holds, and through a filtered read what they hold: company, table object.
     Extent(Arc<str>, u32),
     /// Every row of a table object in every company: what a read or write the store cannot place more precisely touches.
@@ -127,11 +141,6 @@ pub(super) enum Touch {
 }
 
 impl MemStore {
-    /// The key of row `pk` in a [`Resource::Row`].
-    pub fn footprint_key(&self, pk: &[Value]) -> Vec<u8> {
-        encoded(pk)
-    }
-
     /// The safety net of a footprint (ADR-079 step 1): `Ok` when every committed row this store holds apart from
     /// `before` (new, changed or gone) is covered by a write of `writes`: a write of that row, of its table's extent in its
     /// company, or of the whole table. Else the reason, which counts as touching everything: the recorder missed a write.
@@ -161,7 +170,8 @@ impl MemStore {
                 .map(|(k, _)| k.as_slice())
                 .chain(t.gone.iter().map(Vec::as_slice));
             for k in keys {
-                if !writes.contains(&Resource::Row(t.company.as_str().into(), t.object, encoded(k))) {
+                let key = RowKey(Key::in_table(k.to_vec(), &t.pk_storage));
+                if !writes.contains(&Resource::Row(t.company.as_str().into(), t.object, key)) {
                     return Err("a row changed that no recorded write names");
                 }
             }
@@ -171,15 +181,6 @@ impl MemStore {
         }
         Ok(())
     }
-}
-
-fn encoded(pk: &[Value]) -> Vec<u8> {
-    let mut out = Vec::new();
-    if !al_builtins::value_codec::encode_row(pk, &mut out) {
-        // A key value with no encoding: its debug form still tells two keys apart.
-        out = format!("{pk:?}").into_bytes();
-    }
-    out
 }
 
 impl MemStore {
@@ -222,7 +223,7 @@ impl MemStore {
         }
         let company = super::slot(cx, t).0;
         let extent = Resource::Extent(company.clone(), t.object);
-        let row = pk.map(|pk| Resource::Row(company, t.object, encoded(pk)));
+        let row = pk.map(|pk| Resource::Row(company, t.object, RowKey::of(t, pk.to_vec())));
         match (touch, row) {
             (Touch::ReadRow, Some(r)) => {
                 f.reads.insert(r);
@@ -340,9 +341,10 @@ mod tests {
 
     #[test]
     fn an_extent_read_sees_every_write_of_its_table_and_a_row_read_only_its_row_or_the_extent() {
-        let row = |k: u8| Resource::Row("C".into(), 7, vec![k]);
-        let extent = Resource::Extent("C".into(), 7);
-        let other = Resource::Extent("C".into(), 8);
+        let t = crate::contract::table();
+        let row = |k: i32| Resource::Row("C".into(), t.object, RowKey::of(&t, vec![Value::Integer(k)]));
+        let extent = Resource::Extent("C".into(), t.object);
+        let other = Resource::Extent("C".into(), t.object + 1);
         assert!(
             extent.read_sees_write(&row(1)),
             "a Modify changes what a filtered read returns"

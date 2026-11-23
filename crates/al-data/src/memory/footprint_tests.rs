@@ -2,7 +2,7 @@
 //! note (ADR-079 decision 1, "every gap a conflict").
 
 use super::MemStore;
-use super::footprint::{Resource, StoreFootprint};
+use super::footprint::{Resource, RowKey, StoreFootprint};
 use crate::contract::{cx, row, table};
 use crate::{SnapshotStore, Store};
 
@@ -268,11 +268,12 @@ fn reads_of_changes_count_only_the_session_s_own_writes() {
 
 #[test]
 fn a_whole_table_resource_meets_every_resource_of_its_table() {
-    let row = Resource::Row("C".into(), 7, vec![1]);
+    let key = || RowKey::of(&table(), vec![row("B", 1, 1)[0].clone()]);
+    let row = Resource::Row("C".into(), 7, key());
     assert!(whole().writes_collide(&row) && row.writes_collide(&whole()));
     assert!(whole().read_sees_write(&row) && row.read_sees_write(&whole()));
     assert!(extent().read_sees_write(&whole()));
-    assert!(!whole().writes_collide(&Resource::Row("C".into(), 8, vec![1])));
+    assert!(!whole().writes_collide(&Resource::Row("C".into(), 8, key())));
     assert!(
         !Resource::Extent("D".into(), 7).read_sees_write(&extent()),
         "another company"
@@ -297,7 +298,7 @@ fn the_safety_net_finds_a_committed_row_change_no_write_covers() {
     after.modify(&cx("C"), &table(), row("B", 2, 1)).unwrap();
     after.insert(&cx("C"), &table(), row("D", 1, 1)).unwrap();
     after.commit();
-    let key = |k: &str| after.footprint_key(&[row(k, 1, 1)[0].clone()]);
+    let key = |k: &str| RowKey::of(&table(), vec![row(k, 1, 1)[0].clone()]);
     let object = table().object;
     let row_of = |k: &str| Resource::Row("C".into(), object, key(k));
     // Nothing recorded: both rows are unrecorded writes.
@@ -312,4 +313,47 @@ fn the_safety_net_finds_a_committed_row_change_no_write_covers() {
     assert_eq!(after.unrecorded_writes(&before, &all), Ok(()));
     // No change: nothing to cover.
     assert_eq!(before.unrecorded_writes(&before.clone(), &Default::default()), Ok(()));
+}
+
+/// A table like `table()` whose primary key is a Text field.
+fn text_key_table() -> crate::TableDef {
+    let mut t = table();
+    t.fields[0].ty = al_builtins::value::RtType::Text(Some(20));
+    t
+}
+
+#[test]
+fn a_row_is_keyed_as_the_store_compares_text_keys() {
+    // The store finds the row stored as 'ABC' by Get('ABC '): trailing blanks do not count in a text key
+    // (`collation::text_key_order`). A write of one and a read of the other name one row, so the read sees the write.
+    let (c, t) = (cx("C"), text_key_table());
+    let text = |s: &str| crate::Value::Text(s.into());
+    let mut s = MemStore::default();
+    s.footprint_start();
+    s.insert(
+        &c,
+        &t,
+        vec![text("ABC"), row("B", 1, 1)[1].clone(), row("B", 1, 1)[2].clone()],
+    )
+    .unwrap();
+    s.commit();
+    let wrote = take(&mut s);
+    s.footprint_start();
+    assert!(
+        s.get(&c, &t, &[text("ABC ")]).unwrap().is_some(),
+        "the store finds 'ABC' by 'ABC '"
+    );
+    let read = take(&mut s);
+    let row_read = read
+        .reads
+        .iter()
+        .find(|r| matches!(r, Resource::Row(..)))
+        .expect("a row read");
+    let row_write = wrote
+        .writes
+        .iter()
+        .find(|r| matches!(r, Resource::Row(..)))
+        .expect("a row write");
+    assert!(row_read.read_sees_write(row_write), "{row_read:?} / {row_write:?}");
+    assert!(row_write.writes_collide(row_read));
 }
