@@ -938,4 +938,108 @@ fn a_read_order_against_the_dependency_order_is_refused() {
             rt.phases.baseline_line().unwrap_or_default()
         ),
     }
+    let note = rt.phases.baseline_line().unwrap_or_default();
+    assert!(note.contains("an order their dependencies rule out"), "{note}");
+}
+
+/// P's install raises `OnOne` and logs a constant: what it answered does not reach the database.
+const ASKS_ONE_CONST: &str = r#"
+codeunit 77500 "P Install"
+{
+    Subtype = Install;
+
+    trigger OnInstallAppPerCompany()
+    var
+        A: Codeunit "Asking";
+        M: Codeunit "Marks";
+    begin
+        if A.AskOne() then;
+        M.Log('P CONST');
+    end;
+}
+"#;
+
+/// The apps of review round 4 (R1): P's install is `p_install`; L and X answer `OnOne`, and X depends on L (a base app
+/// and its extension). L and X are two inputs of P with a dependency path between them.
+fn dependent_inputs(p_install: &str) -> CorpusRuntime {
+    run(vec![
+        base(),
+        (PE_ID, "Partner E", "Partner", vec![BASE_ID], ASKING.into()),
+        (PA_ID, "Partner P", "Partner", vec![BASE_ID, PE_ID], p_install.into()),
+        (
+            PB_ID,
+            "Partner L",
+            "Partner",
+            vec![BASE_ID, PE_ID],
+            answering(77600, "L", "OnOne"),
+        ),
+        (
+            PC_ID,
+            "Partner X",
+            "Partner",
+            vec![BASE_ID, PE_ID, PB_ID],
+            answering(77700, "X", "OnOne"),
+        ),
+    ])
+}
+
+/// ADR-079 decision 3, clarification of 2026-11-23 (review round 4, R1): the subset "X before P, L after P" is no real
+/// order, since X needs L first. The proof skips it; the other subsets cover every real order and leave the same log.
+#[test]
+fn an_install_whose_inputs_depend_on_each_other_runs() {
+    let rt = dependent_inputs(ASKS_ONE_CONST);
+    assert_eq!(
+        outcome(&rt, "ReadsTheLog"),
+        Outcome::Pass,
+        "{}",
+        rt.phases.baseline_line().unwrap_or_default()
+    );
+}
+
+/// The same apps, with P logging what `OnOne` answered: L before P gives "P SEEN", L after P "P EMPTY".
+#[test]
+fn an_install_whose_dependent_inputs_change_its_rows_is_refused() {
+    let rt = dependent_inputs(ASKS_ONE);
+    match outcome(&rt, "ReadsTheLog") {
+        Outcome::NotRun(why) => assert!(why.contains("Order Log"), "{why}"),
+        other => panic!("expected not run, got {other:?}"),
+    }
+}
+
+/// ADR-079 decision 3, clarification of 2026-11-23 (review round 4, the final install): B's install meets C; A depends
+/// on B and comes before C in the list of units. The final install puts A after B, so no order the dependencies rule
+/// out is requested.
+#[test]
+fn the_final_install_puts_an_app_after_the_install_it_depends_on() {
+    let rt = run(vec![
+        base(),
+        (PE_ID, "Partner E", "Partner", vec![BASE_ID], ASKING.into()),
+        (
+            PA_ID,
+            "Partner B",
+            "Partner",
+            vec![BASE_ID, PE_ID],
+            ASKS_ONE_CONST.into(),
+        ),
+        (
+            PB_ID,
+            "Partner A",
+            "Partner",
+            vec![BASE_ID, PE_ID, PA_ID],
+            answering(77800, "A", "OnTwo"),
+        ),
+        (
+            PC_ID,
+            "Partner C",
+            "Partner",
+            vec![BASE_ID, PE_ID],
+            answering(77900, "C", "OnOne"),
+        ),
+    ]);
+    assert_eq!(
+        outcome(&rt, "ReadsTheLog"),
+        Outcome::Pass,
+        "{}",
+        rt.phases.baseline_line().unwrap_or_default()
+    );
 }

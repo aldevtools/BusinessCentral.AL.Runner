@@ -113,7 +113,10 @@ impl<'p, 'g> Proof<'p, 'g> {
                 }
             }
             rewind(session, inst);
-            let fixed: Vec<u32> = units.iter().flat_map(|u| self.first_order(u)).collect();
+            let fixed: Vec<u32> = (final_units(&units, |u| graph.inputs(&units, u), |a, b| self.g.view.needs(a, b)))
+                .into_iter()
+                .flat_map(|u| self.first_order(u))
+                .collect();
             // The view and the run take the same order (ADR-079 decision 3, clarification of 2026-11-23, round 3).
             let fixed = self.order(&fixed)?;
             let hit = (self.g).recorded_run(
@@ -229,6 +232,9 @@ impl<'p, 'g> Proof<'p, 'g> {
             .collect();
         let mut ends = Vec::new();
         for mask in 0..1usize << inputs.len() {
+            if no_real_order(&inputs, mask, |a, b| self.g.view.needs(a, b)) {
+                continue;
+            }
             let chosen = |k: usize| mask & (1 << k) != 0;
             for order in orders(self.g, &own) {
                 let mut fixed = before.clone();
@@ -413,6 +419,47 @@ impl Unproven {
         }
         refuse_tainted(lowered, g, &proof.fp, &sources, inst);
     }
+}
+
+/// ADR-079 decision 3, clarification of 2026-11-23 (review round 4): the units in the order of the final install. A unit
+/// goes after its inputs and after the units with an app one of its apps depends on (`needs(a, b)`: a depends on b);
+/// among the units free to go, the first of `units`. Two units with neither tie keep no order the proof measured, so
+/// the final install takes one the dependencies allow, where the plain order of `units` could put an app before an app
+/// it depends on with a third app between them (neighbor app `install-order-footprint-final-order`). When no unit is
+/// free (the installs read against the dependency order), the rest keep the order of `units` and
+/// [`PartnerGroup::order`] names the cycle: the proof stops.
+pub(crate) fn final_units<'u>(
+    units: &'u [Vec<u32>],
+    inputs: impl Fn(&[u32]) -> Vec<&'u Vec<u32>>,
+    needs: impl Fn(u32, u32) -> bool,
+) -> Vec<&'u Vec<u32>> {
+    let mut left: Vec<&Vec<u32>> = units.iter().collect();
+    let mut out: Vec<&Vec<u32>> = Vec::new();
+    while !left.is_empty() {
+        let waits = |u: &Vec<u32>, v: &Vec<u32>| {
+            u != v && (inputs(u).contains(&v) || u.iter().any(|&a| v.iter().any(|&b| needs(a, b))))
+        };
+        let k = (0..left.len())
+            .find(|&i| !left.iter().any(|v| waits(left[i], v)))
+            .unwrap_or(0);
+        out.push(left.remove(k));
+    }
+    out
+}
+
+/// ADR-079 decision 3, clarification of 2026-11-23 (review round 4): whether the subset `mask` of `inputs` (bit `k` set:
+/// input `k` installs before the unit) is no real order. That holds when a chosen input of one app depends on an
+/// unchosen input of one app (`needs(a, b)`: a depends on b): b installs before a on BC, so "a before the unit, b after
+/// it" never happens, and the proof skips the subset. Every other order the dependencies rule out stops the proof
+/// ([`Proof::order`]). In the measured shape (a base app and its extension both answer an event P's install raises)
+/// main passes (neighbor app `install-order-footprint-dependent-inputs`).
+pub(crate) fn no_real_order(inputs: &[&Vec<u32>], mask: usize, needs: impl Fn(u32, u32) -> bool) -> bool {
+    let single = |chosen: bool| {
+        (inputs.iter().enumerate())
+            .filter(move |(k, v)| (mask & (1 << k) != 0) == chosen && v.len() == 1)
+            .map(|(_, v)| v[0])
+    };
+    single(true).any(|a| single(false).any(|b| needs(a, b)))
 }
 
 /// Whether the proof starts another round after a run: `after`, the graph with the run's footprints, has an edge

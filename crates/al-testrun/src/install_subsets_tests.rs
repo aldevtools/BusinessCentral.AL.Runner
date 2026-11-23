@@ -1,6 +1,6 @@
 //! The end of a round of the proof and the closure of the tables that differ (ADR-079 decisions 3 and 4).
 
-use super::{next_round, tainted};
+use super::{final_units, next_round, no_real_order, tainted};
 use crate::install_proof::{Footprints, Graph};
 use al_data::memory::Resource;
 use al_vm::install_footprint::{InstallFootprint, Lasting};
@@ -100,4 +100,49 @@ fn an_app_of_the_unit_that_measured_the_difference_is_not_tainted_by_it() {
     // 1 is not of the unit: tainted, and 2 then reads the rows 1 wrote.
     let (readers, _) = tainted(&fp, &[(BTreeSet::from([10]), BTreeSet::from([2]))], |_, _| false);
     assert!(readers.contains(&1), "{readers:?}");
+}
+
+/// Inputs 2 and 3 of one app each; 3 depends on 2 (review round 4, R1).
+fn three_needs_two(a: u32, b: u32) -> bool {
+    (a, b) == (3, 2)
+}
+
+#[test]
+fn a_subset_that_puts_an_input_before_the_input_it_depends_on_is_skipped() {
+    let (two, three) = (vec![2], vec![3]);
+    let inputs = [&two, &three];
+    // Bit k: input k installs before the unit. Only "3 before, 2 after" is no real order.
+    assert!(no_real_order(&inputs, 0b10, three_needs_two));
+    for mask in [0b00, 0b01, 0b11] {
+        assert!(!no_real_order(&inputs, mask, three_needs_two), "{mask:b}");
+    }
+}
+
+/// A multi-app input keeps the stop of [`super::Proof::order`]: the skip reads only inputs of one app.
+#[test]
+fn a_subset_with_a_multi_app_input_is_not_skipped() {
+    let (two, three) = (vec![2, 4], vec![3]);
+    assert!(!no_real_order(&[&two, &three], 0b10, three_needs_two));
+}
+
+/// Units in input order: A (1), C (3), B (2), B reads from C. A depends on B (review round 4, the final install).
+#[test]
+fn the_final_install_puts_a_unit_after_the_units_it_depends_on() {
+    let units = vec![vec![1], vec![3], vec![2]];
+    let inputs = |u: &[u32]| {
+        units
+            .iter()
+            .filter(|v| u == [2] && v.as_slice() == [3])
+            .collect::<Vec<_>>()
+    };
+    let order = final_units(&units, inputs, |a, b| (a, b) == (1, 2));
+    assert_eq!(order, [&vec![3], &vec![2], &vec![1]]);
+}
+
+/// No dependency between the units: the order of `units` stays.
+#[test]
+fn the_final_install_keeps_the_order_of_the_units_without_a_dependency() {
+    let units = vec![vec![1], vec![3], vec![2]];
+    let order = final_units(&units, |_| Vec::new(), |_, _| false);
+    assert_eq!(order, [&vec![1], &vec![3], &vec![2]]);
 }

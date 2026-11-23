@@ -200,6 +200,15 @@ least as strict as the text it clarifies.
   that run never happened and the comparison found nothing. The final install passes the same order to the view and
   to the run. In the measured shape P's row held SEEN where BC gives EMPTY when P installs before G (neighbor app
   `install-order-footprint-dependency-against-read`).
+  Review round 4: a subset of a unit's inputs that no real order gives is skipped, not run and not counted. That is a
+  subset where an input of one app installs before the unit and an input of one app it depends on installs after it:
+  on BC the second installs first. Neighbor app `install-order-footprint-dependent-inputs` (a base app and its
+  extension both answer an event P's install raises; main passes). Every other order the dependencies rule out still
+  stops the proof (a multi-app input, an ancestor placed first, the order of the unit's own apps). The final install
+  orders the units so that a unit comes after its inputs and after the units with an app one of its apps depends on;
+  units with neither tie keep the order of the list. Before, the list order could request an app before the app it
+  depends on with a third app between them, and the proof stopped (neighbor app `install-order-footprint-final-order`;
+  main passes).
 - **Decision 3, when the proof ends.** A run that adds an edge starts the proof again on the grown graph. Footprints
   only grow, so the rounds end. A run that meets an app of unknown order and adds no edge stops the proof: the group is
   not proven, and the note names that pair.
