@@ -288,7 +288,7 @@ pub fn replay(a: &TestArgs, cell: &str) -> Result<Option<Variant>, String> {
 }
 
 /// `Codeunit<id>.<test>`: how the report names a test.
-fn name(r: &TestResult) -> String {
+pub(crate) fn name(r: &TestResult) -> String {
     format!("Codeunit{}.{}", r.codeunit, r.test)
 }
 

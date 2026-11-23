@@ -286,8 +286,7 @@ impl StrictRun<'_> {
         order.sort_by_key(|&g| std::cmp::Reverse(groups[g].0.len()));
         // The closure captures only what threads may share (a baseline stays on its thread).
         let w = &self.walk;
-        let (engine, lowered, units, trace, limit, pool, fresh_check) =
-            (w.engine, w.lowered, w.units, w.trace, w.limit, w.pool, w.fresh_check);
+        let (engine, lowered, units, trace, limit, pool) = (w.engine, w.lowered, w.units, w.trace, w.limit, w.pool);
         let run = |b: Option<&al_vm::Baseline>, i: usize| -> WalkOut {
             let mut out = WalkOut::default();
             let walk = ChainWalk {
@@ -298,7 +297,6 @@ impl StrictRun<'_> {
                 trace,
                 limit,
                 pool,
-                fresh_check,
                 sequential: true,
                 unpinned: Some(&groups[order[i]].1),
             };

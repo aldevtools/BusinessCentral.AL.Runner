@@ -1709,7 +1709,7 @@ fn test_inner(
             rebuild: a.rebuild_compile_cache,
             country: country.clone(),
         }),
-        // Left at their defaults: `single_fresh_check` (set per variant in stability mode, ADR-058 amendment 1), `perturb`, `check_baseline_rule`.
+        // Left at their defaults: `perturb` (set per variant in stability mode), `check_baseline_rule`.
         ..Default::default()
     };
     laps.lap(Part::Prepare);
@@ -1911,7 +1911,7 @@ fn test_inner(
         let mut out = crate::stability::compare(plan, &seen);
         // ADR-058 amendment 1: order dependence through SingleInstance state, from the base variant's tracking.
         let own: Vec<String> = inputs.iter().map(|i| i.json.id.clone()).collect();
-        let si = crate::stability_si::SiReport::new(rt.single_carried(), &own, plan);
+        let si = crate::stability_si::SiReport::new(rt.single_carried(), &own, plan).with_fresh_runs(plan, &per_variant, &seen);
         out.with_single_instance(plan, si, &seen[0]);
         (plan, per_variant, seen, out)
     });

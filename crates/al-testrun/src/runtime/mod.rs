@@ -443,12 +443,6 @@ impl TestResult {
         }
     }
 
-    /// `o` in place of the test's outcome; `skipped_by_option` stays only when `o` is the outcome it was set with.
-    pub(crate) fn take_outcome(&mut self, o: Outcome) {
-        self.skipped_by_option &= self.outcome == o;
-        self.outcome = o;
-    }
-
     /// Whether the test is a refusal: not run, and not left out by a stop option (`skipped_by_option`). What "Top
     /// refusals" and `--refusal-detail` rank.
     pub fn is_refusal(&self) -> bool {

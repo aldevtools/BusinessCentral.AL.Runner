@@ -48,9 +48,6 @@ pub(super) struct ChainWalk<'a> {
     pub limit: Option<std::time::Duration>,
     /// The run's test threads and their memory (`memory.rs`): the walk's own run counts as a running codeunit.
     pub pool: &'a super::memory::Pool,
-    /// ADR-058 amendment 1, decision 2 (`RunOptions::single_fresh_check`): a member that read a carried
-    /// SingleInstance value runs once more with fresh single instances, from the same database start.
-    pub fresh_check: bool,
     /// ADR-070 step 2: this is the walk of one BC session of the sequential strict run (`strict_walk.rs`); see the head of
     /// the file. The caller runs it on a thread of its own that already counts as a running codeunit.
     pub sequential: bool,
@@ -209,7 +206,9 @@ impl ChainWalk<'_> {
                         Vec::new()
                     };
                     if !reads.is_empty() {
-                        self.suspect(k, &reads, start, before.map(|(_, _, _, c)| c), &r, report);
+                        // ADR-058 amendment 1: noted for the stability report and `--timings`.
+                        let c = super::single_fresh::carried_codeunit(self.lowered, self.units, k, true, &reads);
+                        report.carried.push(c);
                     }
                     report.members.push(super::ChainEntry {
                         id,
@@ -342,26 +341,6 @@ impl ChainWalk<'_> {
         }
     }
 
-    /// Member `k` read carried SingleInstance values (`reads`): noted in `report.carried`, and under `fresh_check` run
-    /// once more from `start` with fresh single instances (ADR-058 amendment 1, decision 2; the run hands nothing on).
-    fn suspect(
-        &self,
-        k: usize,
-        reads: &[(al_vm::single_track::GlobalKey, usize)],
-        start: Option<&al_vm::Baseline>,
-        before: Option<&super::run::Carried>,
-        r: &UnitResult,
-        report: &mut super::ChainReport,
-    ) {
-        let mut c = super::single_fresh::carried_codeunit(self.lowered, self.units, k, true, reads);
-        if self.fresh_check && r.result.is_ok() {
-            let mut u = self.units[k].clone();
-            u.leak = super::carry_after::leak(before);
-            let fresh = super::single_fresh::rerun_fresh(self.engine, self.lowered, start, &u, self.limit, self.pool);
-            c.fresh = Some(super::single_fresh::outcomes_of(&fresh));
-        }
-        report.carried.push(c);
-    }
 }
 
 #[cfg(test)]

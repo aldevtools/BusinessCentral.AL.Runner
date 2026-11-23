@@ -1,7 +1,8 @@
 //! ADR-066 amendment 12 (owner, 2026-11-09): by default every test codeunit starts with fresh SingleInstance state and
 //! from the install baseline's NumberSequence values; nothing runs again in BC's order. A failed test that read a
 //! SingleInstance global an earlier codeunit would have set on BC gets a hint (the SingleInstance codeunit, its app,
-//! the global, the writer and the flag), and the tests that take numbers after another codeunit took some are listed.
+//! the global, the writer and the flag); a failed test that took numbers from a sequence an earlier codeunit of its
+//! session also took from gets a numbers hint (ADR-070 decision 3, which dropped amendment 12's static numbers list).
 //! `--strict-order` (`RunOptions::strict_order`) restores the carry, the chain and the re-run in BC's
 //! order. BC runs all test codeunits in one session: codeunits/TestCuP7ASetter.al:24-58 against TestCuP7BReader.al:24-37.
 
@@ -184,22 +185,33 @@ fn with_strict_order_the_reader_runs_in_bcs_order_and_passes() {
     assert!(!order_flagged(reader) && reader.order_hint.is_none(), "{reader:?}");
 }
 
-/// Test plan 2 and owner answer 1: a reader that passes with fresh state gets no hint and is not flagged.
+/// Test plan 2 and owner answer 1: a reader that passes with fresh state gets no hint and is not flagged. ADR-070
+/// decision 4: it keeps the globals it read (the JUnit property `singleInstanceCarried` and the summary line; the
+/// console and JSON show no hint on a pass), and nothing else.
 #[test]
 fn a_reader_that_passes_with_fresh_state_gets_no_hint() {
     let rt = run(LENIENT, &RunOptions::default());
     let reader = result(&rt, "ReadsAnyFlag");
     assert_eq!(reader.outcome, Outcome::Pass);
+    let hint = reader.order_hint.as_ref().expect("decision 4: the reads");
     assert!(
-        reader.order_hint.is_none() && reader.assumptions.is_empty(),
+        hint.numbers.is_empty() && hint.reads.len() == 1 && reader.assumptions.is_empty(),
         "{reader:?}"
     );
+    assert_eq!(rt.phases.chain.single_lane.passing_read_carried, 1);
+}
+
+/// The numbers hint of a test (ADR-070 decision 3): the sequences and the earlier taker of each.
+fn numbers_hint(rt: &CorpusRuntime, test: &str) -> Vec<(String, u32)> {
+    let hint = result(rt, test).order_hint.as_ref();
+    hint.map(|h| h.numbers.iter().map(|n| (n.sequence.clone(), n.after.0)).collect())
+        .unwrap_or_default()
 }
 
 /// Test plan 3: by default each codeunit starts from the install baseline's sequence value (no carry chain), and the
-/// codeunit that takes numbers after another taker is listed.
+/// failed test that took numbers after another codeunit took some gets the numbers hint (ADR-070 decision 3).
 #[test]
-fn by_default_each_codeunit_takes_numbers_from_the_baseline_and_the_later_taker_is_listed() {
+fn by_default_each_codeunit_takes_numbers_from_the_baseline_and_the_later_taker_gets_a_hint() {
     let rt = run(NUMBERS, &RunOptions::default());
     assert_eq!(result(&rt, "TakesOne").outcome, Outcome::Pass);
     assert!(
@@ -213,15 +225,11 @@ fn by_default_each_codeunit_takes_numbers_from_the_baseline_and_the_later_taker_
         "no carry chain for numbers: {:?}",
         chain.members
     );
-    let listed: Vec<u32> = chain.numbers_order.iter().map(|n| n.codeunit).collect();
-    assert_eq!(listed, vec![60476], "{:?}", chain.numbers_order);
-    assert_eq!(chain.numbers_order[0].after, (60475, "Order First Taker".to_string()));
-    assert!(
-        chain
-            .lines()
-            .iter()
-            .any(|l| l.contains("Order Second Taker") && l.contains("--strict-order"))
-    );
+    assert_eq!(numbers_hint(&rt, "TakesTwo"), vec![("ORDERSEQ".to_string(), 60475)]);
+    let hint = result(&rt, "TakesTwo").order_hint.as_ref().unwrap();
+    assert_eq!(hint.numbers[0].after, (60475, "Order First Taker".to_string()));
+    assert!(hint.text().contains("--strict-order"), "{}", hint.text());
+    assert!(result(&rt, "TakesOne").order_hint.is_none());
 }
 
 /// Test plan 3: with `--strict-order` the numbers chain as on BC.
@@ -235,7 +243,7 @@ fn with_strict_order_the_numbers_chain_as_on_bc() {
         "{:?}",
         result(&rt, "TakesTwo")
     );
-    assert!(rt.phases.chain.numbers_order.is_empty());
+    assert!(result(&rt, "TakesTwo").order_hint.is_none());
     assert!(!rt.phases.chain.members.is_empty());
 }
 
@@ -295,22 +303,18 @@ fn with_hidden_readers() -> String {
     format!("{NUMBERS}{readers}{HIDDEN_READERS}")
 }
 
-/// al-runner issue 8152: by default a codeunit that only reads the sequence after a codeunit that takes numbers is listed
-/// too; one that reads before every taker, or reads nothing, is not.
+/// ADR-070 decision 3: the numbers hint goes to a failed test that took numbers. A test that only reads the sequence
+/// after the takers fails without one (the hint is for takers); the later taker gets it after the first.
 #[test]
-fn by_default_a_codeunit_that_only_reads_numbers_after_a_taker_is_listed() {
+fn by_default_only_a_later_taker_gets_the_numbers_hint_and_a_reader_does_not() {
     let rt = run(&with_readers(), &RunOptions::default());
-    let chain = &rt.phases.chain;
-    let listed: Vec<u32> = chain.numbers_order.iter().map(|n| n.codeunit).collect();
-    assert_eq!(listed, vec![60476, 60478], "{:?}", chain.numbers_order);
-    let reader = &chain.numbers_order[1];
-    assert_eq!(reader.after, (60476, "Order Second Taker".to_string()));
-    assert!(reader.text().contains("read"), "{}", reader.text());
     assert!(
-        !chain.numbers_order[0].text().contains("only read"),
-        "{}",
-        chain.numbers_order[0].text()
+        matches!(&result(&rt, "ReadsCurrent").outcome, Outcome::Fail(m) if m.contains("current 1")),
+        "{:?}",
+        result(&rt, "ReadsCurrent")
     );
+    assert!(numbers_hint(&rt, "ReadsCurrent").is_empty());
+    assert_eq!(numbers_hint(&rt, "TakesTwo"), vec![("ORDERSEQ".to_string(), 60475)]);
 }
 
 /// al-runner issue 8152: under `--strict-order` with TestIsolation = Function (`--isolation test`) what a later codeunit
@@ -406,17 +410,12 @@ fn strict_order_chains_the_numbers_to_a_handler_and_a_recordref_reader() {
             result(&rt, test)
         );
     }
-    // The default run lists the handler reader after the taker too; a codeunit that reads nothing stays out.
-    let rt = run(&with_hidden_readers(), &RunOptions::default());
-    let listed: Vec<u32> = rt.phases.chain.numbers_order.iter().map(|n| n.codeunit).collect();
-    assert!(listed.contains(&60479), "{listed:?}");
-    assert!(!listed.contains(&60477), "{listed:?}");
 }
 
 /// Review of al-runner PR 8363 (probe roots): a codeunit that takes numbers in a message handler, and one that reads them in
 /// a confirm handler, join the chain as the takers and readers of a test body do: under `--strict-order` the handler taker
-/// draws 3 after the two takers and the confirm reader sees it; the default run lists both after the takers. A routine a
-/// test names in [HandlerFunctions] that is no handler function never runs (the test is refused), so it lists nothing.
+/// draws 3 after the two takers and the confirm reader sees it. By default the handler taker fails with the numbers hint
+/// (it took numbers in its handler after the takers, ADR-070 decision 3); the confirm reader only reads, so it gets none.
 const HANDLER_TAKERS: &str = r#"
 codeunit 60485 "Order Handler Taker"
 {
@@ -459,7 +458,7 @@ fn a_taker_and_a_reader_in_handlers_join_the_chain_and_a_named_plain_routine_doe
         );
     }
     let rt = run(&src, &RunOptions::default());
-    let listed: Vec<u32> = rt.phases.chain.numbers_order.iter().map(|n| n.codeunit).collect();
-    assert!(listed.contains(&60485) && listed.contains(&60486), "{listed:?}");
-    assert!(!listed.contains(&60487), "{listed:?}");
+    assert_eq!(numbers_hint(&rt, "TakesInHandler"), vec![("ORDERSEQ".to_string(), 60476)]);
+    assert!(numbers_hint(&rt, "ReadsInConfirm").is_empty());
+    assert!(numbers_hint(&rt, "NamesAPlainRoutine").is_empty());
 }

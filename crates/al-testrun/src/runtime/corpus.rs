@@ -342,24 +342,16 @@ impl CorpusRuntime {
             Err(stopped) => return Ok(vec![stopped]), // A hard memory limit stopped the compile (`compile_halt.rs`).
         };
         let mut out: Vec<CorpusRuntime> = Vec::with_capacity(perturbs.len());
-        // ADR-058 amendment 1: a `fresh` variant is formed from its carried twin's run.
-        let (from, check) = super::single_fresh::fresh_plan(perturbs);
         for (i, p) in perturbs.iter().enumerate() {
             each(i);
-            if let Some(j) = from[i].filter(|&j| j < i) {
-                let rt = out[j].fresh_variant();
-                out.push(rt);
-                continue;
-            }
             let o = RunOptions {
                 perturb: crate::stability::Perturb {
                     single_fresh: false,
                     ..p.clone()
                 },
-                single_fresh_check: check[i],
-                // ADR-066 amendment 12, "What changes in code": a stability run keeps its variants in BC's order (it
-                // implies `--strict-order`, ADR-070's sequential run).
-                strict_order: true,
+                // ADR-070 decision 7: two plain runs. A variant of the dimension `isolation.singleInstance = fresh` is
+                // the default isolated run; every other variant runs in BC's order (`--strict-order`).
+                strict_order: !p.single_fresh,
                 process_ends_after: false,
                 hooks: if i == 0 { opts.hooks.clone() } else { Default::default() },
                 ..opts.clone()
@@ -368,9 +360,6 @@ impl CorpusRuntime {
             if i > 0 {
                 // The compile counts once, for the base variant.
                 rt.phases.compile = std::time::Duration::ZERO;
-            }
-            if from[i] == Some(i) {
-                rt = rt.fresh_variant();
             }
             out.push(rt);
         }
@@ -1569,9 +1558,7 @@ impl CorpusRuntime {
                 si == u.si && place(si, id) < place(u.si, u.id) && (leg == 0 || !u.hub_leg)
             };
             chain_report.single_lane.watched = super::single_lane::assign_watches(&mut units, &place, opts);
-            if opts.strict_order {
-                super::order_hint::mark_unmeasured_numbers(lowered, &mut units, &place, opts);
-            }
+            super::order_hint::mark_unmeasured_numbers(lowered, &mut units, &place, opts);
             let mut slots: Vec<Option<UnitResult>> = (0..units.len()).map(|_| None).collect();
             chain_report.units += units.len() + chain.iter().filter(|c| matches!(c.3, Link::Refused(..))).count();
             let first_origin = baseline.as_ref().map(al_vm::Baseline::origin);
@@ -1594,7 +1581,7 @@ impl CorpusRuntime {
             // and the lane's analysis to do. By default the walk takes the carry chain only, each member with fresh single
             // instances.
             #[rustfmt::skip]
-            let carried = { let walk = super::chain_walk::ChainWalk { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, trace: opts.trace, limit, pool: memory.pool(), fresh_check: opts.single_fresh_check, sequential: opts.strict_order, unpinned: None }; if opts.strict_order { super::strict_walk::StrictRun { walk, place: &place, suites: opts.test_suites.as_deref(), refused: &refused_disabled, discovery: &discovery, workers, copies: baseline.is_none() || baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline }.run(&mut slots, &mut details, &mut chain_report); Vec::new() } else { walk.walk(chain, &mut |k, r| slots[k] = Some(r), &mut details, &mut chain_report) } };
+            let carried = { let walk = super::chain_walk::ChainWalk { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, trace: opts.trace, limit, pool: memory.pool(), sequential: opts.strict_order, unpinned: None }; if opts.strict_order { super::strict_walk::StrictRun { walk, place: &place, suites: opts.test_suites.as_deref(), refused: &refused_disabled, discovery: &discovery, workers, copies: baseline.is_none() || baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline }.run(&mut slots, &mut details, &mut chain_report); Vec::new() } else { walk.walk(chain, &mut |k, r| slots[k] = Some(r), &mut details, &mut chain_report) } };
             // The other codeunits run as before; one that comes after a Disabled codeunit notes whether it reads a table that
             // codeunit left rows in, and then runs again below, from what it left.
             note_leaks(&mut units, &carried, &sees);

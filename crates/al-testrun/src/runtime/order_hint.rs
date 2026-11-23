@@ -172,13 +172,17 @@ pub(super) fn numbers_unchained(units: &mut [super::Unit], strict: bool) {
 /// codeunit after a codeunit of its BC session that is in the carry chain for the numbers its tests take
 /// (`ChainWhy::TestsTakeNumbers`) is refused, from any code of its session (`Unit::numbers_unmeasured`, al-vm
 /// `storage_checkpoint.rs`). Only runner 130450's Codeunit isolation is measured to leave the taken numbers to the later
-/// codeunits (Y35OnRunStorage.al:30-31); under Function BC's answer is not measured.
+/// codeunits (Y35OnRunStorage.al:30-31); under Function BC's answer is not measured. By default (no `--strict-order`)
+/// nothing is marked: each codeunit starts from the install baseline's sequence values.
 pub(super) fn mark_unmeasured_numbers(
     lowered: &al_sema::lower::Lowered,
     units: &mut [super::Unit],
     place: &dyn Fn(usize, u32) -> u32,
     opts: &super::RunOptions,
 ) {
+    if !opts.strict_order {
+        return;
+    }
     let function_taker = |u: &super::Unit| {
         u.isolation == super::TestIsolation::Function && u.carry == Some(super::chain::ChainWhy::TestsTakeNumbers)
     };
