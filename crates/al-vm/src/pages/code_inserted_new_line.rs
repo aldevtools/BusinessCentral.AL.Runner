@@ -664,7 +664,7 @@ impl Session {
             CodeInsertedSave::Asked(view) if self.view_kept(st, &view)? => return Ok(()),
             // CurrPage.SaveRecord() with no Update after it on the page with triggers and a FactBox: BC refreshes nothing and the
             // page stays on the saved row (ListNewLineExtraCodeFactbox.al:701, :713), also after a field of Rec set or a row of
-            // another table inserted (:766-803, `extra_code_save_kept`).
+            // another table inserted or modified (:766-837, `extra_code_save_kept`).
             CodeInsertedSave::Saved(view)
                 if view.extra
                     && matches!(self.code_inserted_page(st)?, Some((Triggers::FactboxExtra, _)))
