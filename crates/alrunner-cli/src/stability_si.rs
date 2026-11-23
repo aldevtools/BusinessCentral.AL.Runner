@@ -124,16 +124,7 @@ impl SiReport {
                 let Some(hint) = r.order_hint.as_ref().filter(|h| !h.numbers.is_empty()) else {
                     continue;
                 };
-                let text: Vec<String> = hint
-                    .numbers
-                    .iter()
-                    .map(|n| {
-                        format!(
-                            "took numbers from sequence {} after test codeunit {} \"{}\"",
-                            n.sequence, n.after.0, n.after.1
-                        )
-                    })
-                    .collect();
+                let text: Vec<String> = hint.numbers.iter().map(|n| n.text()).collect();
                 self.numbers.insert((v, crate::stability::name(r)), text.join("; "));
             }
         }

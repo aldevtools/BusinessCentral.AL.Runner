@@ -292,7 +292,9 @@ impl Session {
 
     /// `NumberSequence.Next` or `Range` took numbers from the sequence `key` ([`Session::take_numbers_taken`]).
     pub(crate) fn note_numbers_taken(&mut self, key: &Key) {
-        self.access_notes.taken.insert(key.clone());
+        if !self.access_notes.taken.contains(key) {
+            self.access_notes.taken.insert(key.clone());
+        }
     }
 
     /// The sequences (company, name) the session took numbers from since the last call, and starts the next count.

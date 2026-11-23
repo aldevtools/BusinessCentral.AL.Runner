@@ -43,6 +43,11 @@ impl Check {
     }
 }
 
+/// The regression text of a case that fails with `why`.
+pub fn fail_reason(why: &str) -> String {
+    format!("fail: {}", clip(why, 120))
+}
+
 /// Applies the rule. `selected` is the run's selection over the oracle (`all`): only the selected
 /// cases ran. `recorded` is the outcome the run recorded for a case, `None` when it recorded none.
 pub fn check(
@@ -68,9 +73,7 @@ pub fn check(
             (Outcome::Pass, false) => {}
             (_, true) => c.listed.push(case.id.clone()),
             (Outcome::NotRun(why), false) if why.contains(DOTNET_UNAVAILABLE) => c.skipped.push((case.id.clone(), why)),
-            (Outcome::Fail(why), false) => c
-                .regressions
-                .push((case.id.clone(), format!("fail: {}", clip(&why, 120)))),
+            (Outcome::Fail(why), false) => c.regressions.push((case.id.clone(), fail_reason(&why))),
             (Outcome::NotRun(why), false) => c
                 .regressions
                 .push((case.id.clone(), format!("not run: {}", clip(&why, 120)))),

@@ -120,7 +120,10 @@ Small PRs, each red/green. Outcomes do not change in steps 1 to 3 except where t
 4. **Reports.** The run-time numbers hint (decision 3), the summary line and JUnit property (decision 4), `orderMode`
    in the header, JUnit and JSON, the flagged pass after a refused or time-stopped test of a strict session, two plain
    runs for stability (decision 7), the nightly full-corpus `--strict-order` job (decision 5), and manual and `--help`
-   text (`--test-suites` only changes hints in the default mode).
+   text (`--test-suites` only changes hints in the default mode). (Done, 2026-11-23. The nightly run fails on a case on
+   no list that does not pass there; `metrics/<major>/strict-order-not-run.txt` lists the cases it does not run yet
+   and only shrinks. Decision 5's second rule, a file on `metrics/strict-order-files.txt` whose cases pass in both
+   modes, has no check yet: runner issue 8943.)
 5. **Memory ADR** after the ADR-069 re-measure (decision 6).
 
 ## Consequences

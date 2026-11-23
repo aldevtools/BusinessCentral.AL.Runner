@@ -18,7 +18,6 @@
 use crate::not_passing::{self, Check};
 use crate::oracle::{CaseId, OracleCase};
 use crate::report::Outcome;
-use al_testrun::refusals::clip;
 use std::collections::BTreeSet;
 
 /// The strict list of BC major `major`, relative to the repository root.
@@ -48,13 +47,10 @@ pub fn check(
     let default_passing = c.stale_passing.iter().filter(|x| list.contains(x)).cloned().collect();
     c.stale_passing.retain(|x| strict.contains(x));
     c.stale_gone.retain(|x| strict.contains(x));
-    let (failing, listed): (Vec<_>, Vec<_>) = std::mem::take(&mut c.listed)
-        .into_iter()
-        .partition(|x| !list.contains(x) && matches!(recorded(x), Some(Outcome::Fail(_))));
-    c.listed = listed;
-    for x in failing {
-        if let Some(Outcome::Fail(why)) = recorded(&x) {
-            c.regressions.push((x, format!("fail: {}", clip(&why, 120))));
+    for x in std::mem::take(&mut c.listed) {
+        match recorded(&x) {
+            Some(Outcome::Fail(why)) if !list.contains(&x) => c.regressions.push((x, not_passing::fail_reason(&why))),
+            _ => c.listed.push(x),
         }
     }
     StrictCheck {

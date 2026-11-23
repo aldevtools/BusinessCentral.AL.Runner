@@ -345,10 +345,7 @@ impl CorpusRuntime {
         for (i, p) in perturbs.iter().enumerate() {
             each(i);
             let o = RunOptions {
-                perturb: crate::stability::Perturb {
-                    single_fresh: false,
-                    ..p.clone()
-                },
+                perturb: p.clone(),
                 // ADR-070 decision 7: two plain runs. A variant of the dimension `isolation.singleInstance = fresh` is
                 // the default isolated run; every other variant runs in BC's order (`--strict-order`).
                 strict_order: !p.single_fresh,

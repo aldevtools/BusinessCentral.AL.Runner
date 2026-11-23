@@ -20,7 +20,7 @@
 
 # not run: Clear of a TestPage that is open, trapping or a part (not pinned). The SingleInstance "LT HS Shape Subs"
 # still holds the open host page of the test before it, which was refused mid-run (an action on a new row whose key was
-# typed, on a page with parts).
+# typed, on a page with parts; runner issue 8942).
 99630 HS08_ShapeHiddenTry_OpenEditThenClose
 99631 HS10_ShapeVisibleRaw_OpenEditThenClose
 99632 HS12_ShapeVisibleTry_OpenEditThenClose

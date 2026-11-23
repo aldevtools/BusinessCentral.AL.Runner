@@ -299,12 +299,7 @@ fn list_changes(args: &Args, root: &Path, rev: &str) -> Result<ExitCode, String>
         let lists =
             std::iter::once((None, &v.baseline)).chain(v.suites.iter().map(|s| (Some(s.name.as_str()), &s.baseline)));
         for (suite, rel) in lists {
-            let path = root.join(rel);
-            let now = if path.exists() {
-                not_passing::parse(&read(&path)?).map_err(|e| format!("{}: {e}", path.display()))?
-            } else {
-                Default::default()
-            };
+            let now = read_list(&root.join(rel))?;
             let ids = base.oracle_ids(v.major, suite)?;
             changes.push(not_passing::list_change(rel, &now, &base.list(rel)?, &ids));
         }
@@ -314,16 +309,8 @@ fn list_changes(args: &Args, root: &Path, rev: &str) -> Result<ExitCode, String>
     let mut grown = false;
     for v in &cfg.versions {
         let rel = al_test_cli::strict_not_run::path(v.major);
-        let path = root.join(&rel);
-        let now = if path.exists() {
-            not_passing::parse(&read(&path)?).map_err(|e| format!("{}: {e}", path.display()))?
-        } else {
-            Default::default()
-        };
-        let base_list = match base.show(&rel)? {
-            Some(text) => Some(not_passing::parse(&text).map_err(|e| format!("{rev}:{rel}: {e}"))?),
-            None => None,
-        };
+        let now = read_list(&root.join(&rel))?;
+        let base_list = base.list_opt(&rel)?;
         let added = al_test_cli::strict_not_run::added(base_list.as_ref(), &now);
         if !added.is_empty() {
             grown = true;
@@ -336,6 +323,14 @@ fn list_changes(args: &Args, root: &Path, rev: &str) -> Result<ExitCode, String>
     }
     let accepted = changes.iter().any(|c| !c.accepted_regressions.is_empty());
     Ok(ExitCode::from(if grown { 3 } else { u8::from(accepted) }))
+}
+
+/// The not-passing list at `path`, empty when the file does not exist.
+fn read_list(path: &Path) -> Result<std::collections::BTreeSet<oracle::CaseId>, String> {
+    if !path.exists() {
+        return Ok(Default::default());
+    }
+    not_passing::parse(&read(path)?).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 fn coverage_map(root: &Path, dir: Option<&Path>) -> Result<ExitCode, String> {
@@ -1854,7 +1849,7 @@ fn check_lists(args: &Args, root: &Path, targets: &[Target]) -> Result<u8, Strin
         if args.baseline_diff {
             println!(
                 "\n{}",
-                not_passing::render_diff(&format!("BC {}", t.label), &c, &*t.area_of)
+                not_passing::render_diff(&format!("BC {}", t.label), c, &*t.area_of)
             );
         }
         if args.no_ratchet {
@@ -1871,43 +1866,37 @@ fn check_lists(args: &Args, root: &Path, targets: &[Target]) -> Result<u8, Strin
             }
         }
         let stale: Vec<_> = c.stale().cloned().collect();
+        // In BC's order only the strict list is pruned and reported against; the default list is the base.
+        let prune_path = strict.as_ref().map_or(path.as_path(), |s| s.path.as_path());
         if let Some(s) = &strict {
             s.report_default_passing(t);
-            if args.prune_not_passing && !stale.is_empty() {
-                let note = format!(
-                    "BC {}: {} stale line(s) deleted from {}",
-                    t.label,
-                    stale.len(),
-                    s.path.display()
-                );
-                writes.push((s.path.clone(), s.pruned(&stale), vec![note]));
-            }
-        } else if args.prune_not_passing && !stale.is_empty() {
-            notes.push(format!(
+        }
+        if args.prune_not_passing && !stale.is_empty() {
+            let note = format!(
                 "BC {}: {} stale line(s) deleted from {}",
                 t.label,
                 stale.len(),
-                path.display()
-            ));
-            for s in &stale {
-                list.remove(s);
+                prune_path.display()
+            );
+            match &strict {
+                Some(s) => writes.push((s.path.clone(), s.pruned(&stale), vec![note])),
+                None => {
+                    notes.push(note);
+                    stale.iter().for_each(|x| {
+                        list.remove(x);
+                    });
+                }
             }
         }
         if !notes.is_empty() {
             writes.push((path.clone(), not_passing::format(&list), notes));
         }
-        match &strict {
-            Some(s) => report_check(
-                t,
-                &s.lists(path),
-                &s.path,
-                &c,
-                args.prune_not_passing,
-                "AL_STRICT_ORDER_ALL=1 ",
-            ),
-            None => report_check(t, &path.display().to_string(), path, &c, args.prune_not_passing, ""),
-        }
-        match not_passing::decide(&c, args.prune_not_passing, args.require_dotnet) {
+        let (lists, prefix) = match &strict {
+            Some(s) => (s.lists(path), "AL_STRICT_ORDER_ALL=1 "),
+            None => (path.display().to_string(), ""),
+        };
+        report_check(t, &lists, prune_path, c, args.prune_not_passing, prefix);
+        match not_passing::decide(c, args.prune_not_passing, args.require_dotnet) {
             not_passing::Decision::Ok => {}
             not_passing::Decision::Setup(why) => return Err(why),
             not_passing::Decision::Fail => failed = true,

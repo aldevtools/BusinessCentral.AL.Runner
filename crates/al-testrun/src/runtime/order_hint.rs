@@ -45,6 +45,17 @@ pub struct NumbersTaken {
     pub after: (u32, String),
 }
 
+impl NumbersTaken {
+    /// `took numbers from sequence S after test codeunit N "Name"`: the core of the console hint and of the cause of a
+    /// stability flip (`alrunner-cli` `stability_si.rs`).
+    pub fn text(&self) -> String {
+        format!(
+            "took numbers from sequence {} after test codeunit {} \"{}\"",
+            self.sequence, self.after.0, self.after.1
+        )
+    }
+}
+
 impl OrderHint {
     /// The text the console, the JUnit property `orderHint`, JSON and `serve` show.
     pub fn text(&self) -> String {
@@ -57,9 +68,9 @@ impl OrderHint {
         }
         for n in &self.numbers {
             parts.push(format!(
-                "this test took numbers from sequence {} after test codeunit {} \"{}\" took some on BC; each test codeunit \
-                 starts from the install baseline's NumberSequence values here",
-                n.sequence, n.after.0, n.after.1
+                "this test {} took some on BC; each test codeunit starts from the install baseline's NumberSequence \
+                 values here",
+                n.text()
             ));
         }
         parts.push(format!("{STRICT_FLAG} runs the test codeunits in BC's order"));
@@ -155,7 +166,7 @@ pub(super) fn hints_for(
                     test.clone(),
                     OrderHint {
                         reads,
-                        numbers: Vec::new(),
+                        ..Default::default()
                     },
                 )
             })
@@ -245,8 +256,8 @@ pub(super) fn hint_numbers(
                         done.5.order_hints.push((
                             test,
                             OrderHint {
-                                reads: Vec::new(),
                                 numbers,
+                                ..Default::default()
                             },
                         ));
                         n += 1;
