@@ -1589,7 +1589,7 @@ impl CorpusRuntime {
             // and the lane's analysis to do. By default the walk takes the carry chain only, each member with fresh single
             // instances.
             #[rustfmt::skip]
-            let carried = { let walk = super::chain_walk::ChainWalk { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, trace: opts.trace, limit, pool: memory.pool(), keep_singles: opts.strict_order, fresh_check: opts.single_fresh_check, sequential: opts.strict_order }; if opts.strict_order { super::strict_walk::StrictRun { walk, place: &place, suites: opts.test_suites.as_deref(), refused: &refused_disabled, discovery: &discovery, workers, copies: baseline.is_none() || baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline }.run(&mut slots, &mut details, &mut chain_report); Vec::new() } else { walk.walk(chain, &mut |k, r| slots[k] = Some(r), &mut details, &mut chain_report) } };
+            let carried = { let walk = super::chain_walk::ChainWalk { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, trace: opts.trace, limit, pool: memory.pool(), fresh_check: opts.single_fresh_check, sequential: opts.strict_order }; if opts.strict_order { super::strict_walk::StrictRun { walk, place: &place, suites: opts.test_suites.as_deref(), refused: &refused_disabled, discovery: &discovery, workers, copies: baseline.is_none() || baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline }.run(&mut slots, &mut details, &mut chain_report); Vec::new() } else { walk.walk(chain, &mut |k, r| slots[k] = Some(r), &mut details, &mut chain_report) } };
             // The other codeunits run as before; one that comes after a Disabled codeunit notes whether it reads a table that
             // codeunit left rows in, and then runs again below, from what it left.
             note_leaks(&mut units, &carried, &sees);
@@ -2263,11 +2263,7 @@ fn hub_isolation(lowered: &Lowered, oi: usize) -> Result<Option<TestIsolation>, 
     };
     // A codeunit with handlers runs under runner 130450 whatever its RequiredTestIsolation says: Codeunit isolation, and
     // StartSession fails as there (RqIsolationModes.al:9-15, :673-839 RQ_WF and RQ_WD, every version).
-    if o.routines.iter().any(|r| {
-        r.attributes
-            .iter()
-            .any(|a| a.name.eq_ignore_ascii_case("HandlerFunctions"))
-    }) {
+    if super::carry_after::has_handlers(lowered, oi) {
         return Ok(None);
     }
     // An OnRun trigger runs once, before the first test, with no write open; under Function its writes are part of the
@@ -2386,11 +2382,7 @@ fn unit_runner(
 fn on_hub(lowered: &Lowered, oi: usize, hub: bool, hub_path: bool) -> bool {
     let o = &lowered.program.objects[oi];
     hub || (hub_path
-        && !o.routines.iter().any(|r| {
-            r.attributes
-                .iter()
-                .any(|a| a.name.eq_ignore_ascii_case("HandlerFunctions"))
-        })
+        && !super::carry_after::has_handlers(lowered, oi)
         && o.properties
             .iter()
             .any(|(k, v)| k.eq_ignore_ascii_case("TestPermissions") && v.trim().eq_ignore_ascii_case("Disabled")))

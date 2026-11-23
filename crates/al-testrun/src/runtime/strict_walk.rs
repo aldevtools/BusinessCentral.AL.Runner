@@ -173,7 +173,7 @@ pub(super) fn groups(
             if let Some(last) = last_writer {
                 for (p, item) in &mut g.rest {
                     if let Link::Run(k) = item.3
-                        && (handlers(units[k].oi) || *p < last)
+                        && (*p < last || handlers(units[k].oi))
                     {
                         item.1 = LEG_UNPINNED;
                     }
@@ -223,7 +223,7 @@ impl StrictRun<'_> {
         let mut groups = groups(self.walk.units, &handlers, self.place, self.suites, self.refused);
         for g in &mut groups {
             if let Some(d) = g.first().and_then(|f| self.discovery.iter().find(|d| d.0 == f.0)) {
-                g.insert(0, (d.0, d.1, d.2, d.3.clone()));
+                g.insert(0, d.clone());
             }
         }
         // The longest walks first: the wall time is then close to the longest session's.
@@ -243,14 +243,13 @@ impl StrictRun<'_> {
                 trace,
                 limit,
                 pool,
-                keep_singles: true,
                 fresh_check,
                 sequential: true,
             };
             let mut take = |k: usize, r: UnitResult| out.done.push((k, r));
             let mut local = ChainReport::default();
             let mut det = std::collections::HashMap::new();
-            walk.walk(clone_items(&groups[order[i]]), &mut take, &mut det, &mut local);
+            walk.walk(groups[order[i]].clone(), &mut take, &mut det, &mut local);
             out.details = det;
             out.report = local;
             out
@@ -280,10 +279,6 @@ impl StrictRun<'_> {
     }
 }
 
-fn clone_items(items: &[Item]) -> Vec<Item> {
-    items.iter().map(|(a, b, c, l)| (*a, *b, *c, l.clone())).collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::super::{Ends, Scratch};
@@ -307,7 +302,7 @@ mod tests {
     fn a_panic_in_a_test_drops_the_single_instances_in_the_sequential_walk() {
         assert!(!scratch(true, true, false).hands_on_none(), "a refusal: they move on");
         assert!(scratch(true, true, true).hands_on_none(), "a panic: they are dropped");
-        assert!(scratch(false, true, false).hands_on_none(), "the lane, R3");
+        assert!(scratch(false, true, false).hands_on_none(), "not past a stop (R3)");
         assert!(!scratch(true, false, false).hands_on_none());
     }
 }
