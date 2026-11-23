@@ -1,3 +1,5 @@
 # key	entry
-# Against main (the query cache of al-runner PRs 8490, 8656 and 8682, and the "@ alone" PR 8716), no test differs: this pull
-# request changes no answer of the cells and neighbors (the reviews' small points, and the new cells and neighbors, read as on main).
+# Against main (the query cache of al-runner PRs 8490, 8656, 8682 and 8808, and the "@ alone" PR 8716): a worker's
+# SelectLatestVersion with an Option, which main ignored, is refused (al-runner issue 8879). The two FlowField filters set in
+# the other order answer from the cache on main and here alike, as BC does.
+BQ More Follow-up Tests::SelectLatestVersionOfAnOption_DescriptionAfterFirstRead	REFUSED SelectLatestVersion(Table) in a page background task with a value that is no Integer

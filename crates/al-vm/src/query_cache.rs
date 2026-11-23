@@ -599,6 +599,26 @@ impl Session {
         }
     }
 
+    /// `SelectLatestVersion(Table)` with the argument `arg`: an Integer that names a table ends that table's entries, one that
+    /// names no table ends none (another table's changes nothing, :6744). A Char, a Byte, an Option or an Enum, which the
+    /// compiler takes for the Integer (an Enum with warning AL0603) and which reaches here as itself (al-runner issue 8879), is
+    /// refused in a worker: no cell measures which table it names.
+    pub(crate) fn note_select_latest_version_of(&mut self, arg: Option<&Value>) -> Result<(), Signal> {
+        match arg {
+            Some(Value::Integer(n)) => {
+                if let Some(t) = self.table_object(i64::from(*n)) {
+                    self.note_select_latest_version(Some(t as u32));
+                }
+                Ok(())
+            }
+            _ if !self.in_worker() || !self.query_cache_on() => Ok(()),
+            _ => unsupported(
+                "SelectLatestVersion(Table) in a page background task with a value that is no Integer (a Char, a Byte, an \
+                 Option or an Enum; not measured)",
+            ),
+        }
+    }
+
     fn selects_of(&self, table: u32) -> u64 {
         let cache = &self.pages.query_cache;
         cache.selects_all + cache.selects.get(&table).copied().unwrap_or(0)
