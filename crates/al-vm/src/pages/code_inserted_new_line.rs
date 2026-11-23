@@ -840,7 +840,8 @@ impl Session {
         view: &SavedView,
     ) -> Result<(), Signal> {
         // Update(true) after the save is measured on the page without triggers only (ListNewLineExtraCode.al:476); on the page
-        // with triggers and a FactBox it stays refused (review of al-runner PR 8820).
+        // with triggers and a FactBox it stays refused: BC's answer there is measured 3 of 3 on BC 29.1 only by the neighbor
+        // app's tests/neighbors/8734-new-line-extra-code-factbox/src/Neighbors.al:478, which no corpus cell pins.
         if view.extra
             && matches!(arg, Some(Value::Boolean(true)))
             && matches!(self.code_inserted_page(st)?, Some((Triggers::Quiet, _)))
