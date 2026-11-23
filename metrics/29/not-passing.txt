@@ -2622,7 +2622,6 @@
 96380 DefinedDate_Length
 96380 DefinedDate_Length_Number
 96380 Field_Forms
-96380 FormatString_Year4_Length
 96380 Literal_And_Field_Forms
 96382 BigInteger_Length
 96382 BigInteger_Length_Number
@@ -2687,10 +2686,6 @@
 96391 StandardFormat0_EqualLength_Numbers
 96391 StandardFormat0_EqualLength_Others
 96391 Text_TextCode_Length
-96391 Time_StandardFormat0_Length
-96391 Time_StandardFormat0_Length_Field
-96391 Time_StandardFormat0_Length_Milliseconds
-96391 Time_StandardFormat0_Length_SingleDigitHour
 96410 AssignCall_TryFunction
 96410 AssignCall_VarParameter_Bare
 96460 Get_AssignmentForm_OneValueOfTwo
