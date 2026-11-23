@@ -195,6 +195,41 @@ page 97744 "LT GFN Doc Host"
     }
 }
 
+// Just past the cells of :3015 and :3035 (the review of #8902 at 22:31Z): an actionref a second page extension adds to the
+// Worksheet 97749, and a field a second page extension adds to the Card 97688, read through its CardPart, each by its extension's id.
+pageextension 97741 "LT GFN Ext Sheet Ext2" extends "LT GFI Ext Sheet"
+{
+    actions
+    {
+        addlast(Processing)
+        {
+            action(NbAct)
+            {
+                ApplicationArea = All;
+
+                trigger OnAction()
+                begin
+                end;
+            }
+        }
+        addlast(Promoted)
+        {
+            actionref(NbActRef; NbAct) { }
+        }
+    }
+}
+
+pageextension 97742 "LT GFN Part Host Ext2" extends "LT GFI Part Host"
+{
+    layout
+    {
+        addlast(General)
+        {
+            field(NbHostExt; Rec.Name) { ApplicationArea = All; }
+        }
+    }
+}
+
 codeunit 97745 "LT GFN Kind Tests"
 {
     Subtype = Test;
@@ -237,6 +272,36 @@ codeunit 97745 "LT GFN Kind Tests"
         Pg.OpenEdit();
         asserterror Shown := Pg.Part.GetField(1).Value();
         if GetLastErrorText() <> 'The field with ID = 1 is not found on the page.' then
+            Error('error: found <%1>.', GetLastErrorText());
+        Pg.Close();
+    end;
+
+    // An actionref of the second extension on the Worksheet 97749, by its extension's id.
+    [Test]
+    procedure WorksheetExtActionRefId()
+    var
+        Pg: TestPage "LT GFI Ext Sheet";
+        Shown: Text;
+    begin
+        Initialize();
+        Pg.OpenEdit();
+        Shown := Pg.GetField(399114906).Value();
+        Pg.Close();
+        if Shown <> '' then
+            Error('found <%1>.', Shown);
+    end;
+
+    // A field of the second extension on the Card 97688, by its extension's id, through the CardPart's TestPart.
+    [Test]
+    procedure CardPartHostExtFieldId()
+    var
+        Pg: TestPage "LT GFI Part Host";
+        Shown: Text;
+    begin
+        Initialize();
+        Pg.OpenEdit();
+        asserterror Shown := Pg.Part.GetField(1319895369).Value();
+        if GetLastErrorText() <> 'The field with ID = 1319895369 is not found on the page.' then
             Error('error: found <%1>.', GetLastErrorText());
         Pg.Close();
     end;
