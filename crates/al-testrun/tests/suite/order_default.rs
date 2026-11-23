@@ -458,7 +458,10 @@ fn a_taker_and_a_reader_in_handlers_join_the_chain_and_a_named_plain_routine_doe
         );
     }
     let rt = run(&src, &RunOptions::default());
-    assert_eq!(numbers_hint(&rt, "TakesInHandler"), vec![("ORDERSEQ".to_string(), 60476)]);
+    assert_eq!(
+        numbers_hint(&rt, "TakesInHandler"),
+        vec![("ORDERSEQ".to_string(), 60476)]
+    );
     assert!(numbers_hint(&rt, "ReadsInConfirm").is_empty());
     assert!(numbers_hint(&rt, "NamesAPlainRoutine").is_empty());
 }

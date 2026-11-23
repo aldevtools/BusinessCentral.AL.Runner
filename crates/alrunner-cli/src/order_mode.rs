@@ -46,7 +46,10 @@ impl OrderMode {
 
     /// `<property name="orderMode" value="..." />` on every `testsuite` of a JUnit file.
     pub fn junit(self, xml: &str) -> String {
-        crate::seed::with_properties(xml, &format!("<property name=\"orderMode\" value=\"{}\" />", self.text()))
+        crate::seed::with_properties(
+            xml,
+            &format!("<property name=\"orderMode\" value=\"{}\" />", self.text()),
+        )
     }
 }
 
@@ -58,7 +61,12 @@ mod tests {
     fn the_mode_goes_into_json_and_every_testsuite() {
         let j: serde_json::Value = serde_json::from_str(&OrderMode::Bc.json("{\"a\":1}".into())).unwrap();
         assert_eq!(j["orderMode"], "bc");
-        let x = OrderMode::Isolated.junit("<testsuites><testsuite name=\"a\"></testsuite><testsuite name=\"b\"/></testsuites>");
-        assert_eq!(x.matches("<property name=\"orderMode\" value=\"isolated\" />").count(), 2, "{x}");
+        let x = OrderMode::Isolated
+            .junit("<testsuites><testsuite name=\"a\"></testsuite><testsuite name=\"b\"/></testsuites>");
+        assert_eq!(
+            x.matches("<property name=\"orderMode\" value=\"isolated\" />").count(),
+            2,
+            "{x}"
+        );
     }
 }

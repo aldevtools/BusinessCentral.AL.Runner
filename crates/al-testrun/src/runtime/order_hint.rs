@@ -151,7 +151,13 @@ pub(super) fn hints_for(
                 .collect();
             (!seen.is_empty()).then(|| {
                 let reads = super::single_fresh::name_reads(lowered, units, &seen);
-                (test.clone(), OrderHint { reads, numbers: Vec::new() })
+                (
+                    test.clone(),
+                    OrderHint {
+                        reads,
+                        numbers: Vec::new(),
+                    },
+                )
             })
         })
         .collect()
@@ -236,7 +242,13 @@ pub(super) fn hint_numbers(
                 match done.5.order_hints.iter_mut().find(|(t, _)| *t == test) {
                     Some((_, h)) => h.numbers = numbers,
                     None => {
-                        done.5.order_hints.push((test, OrderHint { reads: Vec::new(), numbers }));
+                        done.5.order_hints.push((
+                            test,
+                            OrderHint {
+                                reads: Vec::new(),
+                                numbers,
+                            },
+                        ));
                         n += 1;
                     }
                 }

@@ -212,7 +212,11 @@ fn passing_tests_that_read_carried_single_instance_state_get_a_summary_line_and_
     assert!(!junit_case(&x, "SetsTheFlag").contains("singleInstanceCarried"), "{x}");
     // In BC's order the state is BC's: no line.
     let (o, _, _) = reports_run(&["--strict-order"]);
-    assert!(!text(&o).contains("passing tests read SingleInstance state"), "{}", text(&o));
+    assert!(
+        !text(&o).contains("passing tests read SingleInstance state"),
+        "{}",
+        text(&o)
+    );
 }
 
 #[test]
@@ -305,7 +309,10 @@ fn stability_compares_two_plain_runs_and_names_the_cause_of_each_flip() {
     let reader = reason("Codeunit50987.ReadsTheCurrent");
     assert_eq!(reader["cause"], "cause not known", "{reader}");
     assert!(out.contains("Other flips in the default isolated run:"), "{out}");
-    assert!(out.contains(&format!("Codeunit50986.TakesTheSecond: {numbers}")), "{out}");
+    assert!(
+        out.contains(&format!("Codeunit50986.TakesTheSecond: {numbers}")),
+        "{out}"
+    );
     let x = std::fs::read_to_string(&junit).unwrap();
     assert!(x.contains("(cause not known)"), "{x}");
 }

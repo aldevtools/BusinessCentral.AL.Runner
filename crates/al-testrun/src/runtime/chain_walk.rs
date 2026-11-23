@@ -340,7 +340,6 @@ impl ChainWalk<'_> {
             (None, Ok(_)) => super::discovery::not_known("it was refused before it ran"),
         }
     }
-
 }
 
 #[cfg(test)]
