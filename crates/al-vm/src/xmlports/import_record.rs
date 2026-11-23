@@ -120,6 +120,14 @@ impl Session {
             Self::xp_stop_import(inst);
             return Ok(());
         }
+        // The measured element's OnAfterInitRecord, its only trigger, does not skip (`linked_view`). Checked here: the site of
+        // the first field attribute would take the request.
+        if view_const.is_some() {
+            match Self::xp_flow(inst) {
+                None => {}
+                _ => return unsupported(LINKED_VIEW_FLOW),
+            }
+        }
         self.xp_import_attrs(inst, schema, node, elem, Some(&mut assigned))?;
         if sibling {
             self.xp_sibling_link_conflict(schema, node, &rec, &links)?;
@@ -293,11 +301,7 @@ impl Session {
         }
         seq.finish(schema)?;
         if let Some(c) = &view_const {
-            // The measured row is not skipped, holds the filter's value at its save, and keeps it (`linked_view`).
-            match Self::xp_flow(inst) {
-                None => {}
-                _ => return unsupported(LINKED_VIEW_FLOW),
-            }
+            // The measured row holds the filter's value at its save, and keeps it (`linked_view`).
             if !self.xp_holds_view_const(inst, schema, node, c)? {
                 return unsupported(LINKED_VIEW_OTHER_VALUE);
             }
@@ -720,8 +724,7 @@ impl Session {
     // ------------------------------------------------- VariableText, FixedText
 }
 
-const LINKED_VIEW_FLOW: &str =
-    "XmlPort import of a linked table element whose SourceTableView has a const filter, skipped by its trigger (not pinned)";
+const LINKED_VIEW_FLOW: &str = "XmlPort import of a linked table element whose SourceTableView has a const filter, skipped by its trigger (not pinned)";
 const LINKED_VIEW_OTHER_VALUE: &str = "XmlPort import of a linked table element whose SourceTableView const filter's field holds another value at the save (not pinned)";
 
 /// The save of `xp_save_record` in which triggers that assign fields of the row may run: a table element right below the

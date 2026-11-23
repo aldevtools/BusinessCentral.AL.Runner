@@ -54,8 +54,7 @@ impl Session {
             && !n.auto_replace
             && !n.use_temporary
             && field_attrs_only
-            && n
-                .triggers
+            && n.triggers
                 .iter()
                 .all(|(name, r)| name == "onafterinitrecord" && trigger_leaves_record(schema, *r, n.slot));
         if !shape {

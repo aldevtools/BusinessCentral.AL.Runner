@@ -89,7 +89,6 @@ codeunit 50120 "NB XAU Tests"
 
     local procedure WipeSuites()
     var
-        EvalIns: Record "NB XAU EvalIns";
         Suite: Record "NB XAU Suite";
         Lang: Record "NB XAU Lang";
         Line: Record "NB XAU Line";
@@ -99,7 +98,6 @@ codeunit 50120 "NB XAU Tests"
         Lang.DeleteAll();
         Line.DeleteAll();
         Eval.DeleteAll();
-        EvalIns.DeleteAll();
     end;
 
     local procedure AreEqual(Expected: Text; Actual: Text)
@@ -303,6 +301,70 @@ codeunit 50120 "NB XAU Tests"
         RunPort(Xmlport::"NB XAU UpdAttr", '<Root><P Id="1" Name="new"/></Root>');
         AreEqual('1/new/s0/e0', ParRow(1));
     end;
+}
+
+// The neighbors of the linked element with a SourceTableView const filter (rule `xmlport-linked-view-const`), in a codeunit of
+// their own so that a refusal in the suite tests above does not reach them. Tests refused mid-run come last.
+codeunit 50121 "NB XAU View Tests"
+{
+    Subtype = Test;
+
+    local procedure RunPort(XmlportId: Integer; Xml: Text)
+    var
+        Src: Record "NB XAU Src";
+        InS: InStream;
+        OutS: OutStream;
+    begin
+        Src.DeleteAll();
+        Src.Id := 1;
+        Src.Data.CreateOutStream(OutS, TextEncoding::UTF8);
+        OutS.WriteText(Xml);
+        Src.Insert();
+        Src.CalcFields(Data);
+        Src.Data.CreateInStream(InS, TextEncoding::UTF8);
+        Xmlport.Import(XmlportId, InS);
+    end;
+
+    local procedure WipeSuites()
+    var
+        Suite: Record "NB XAU Suite";
+        Line: Record "NB XAU Line";
+        Eval: Record "NB XAU Eval";
+        EvalIns: Record "NB XAU EvalIns";
+    begin
+        Suite.DeleteAll();
+        Line.DeleteAll();
+        Eval.DeleteAll();
+        EvalIns.DeleteAll();
+    end;
+
+    local procedure SuiteRows(): Text
+    var
+        Suite: Record "NB XAU Suite";
+        Line: Record "NB XAU Line";
+        Eval: Record "NB XAU Eval";
+        Txt: Text;
+    begin
+        if Suite.FindSet() then
+            repeat
+                Txt += 'S' + Suite.Code + '/' + Suite.Description + '/' + Suite.AppId + '/' + Suite.Hash + '/' + Format(Suite.Validation) + '/' + Format(Suite.Runner) + ';';
+            until Suite.Next() = 0;
+        if Line.FindSet() then
+            repeat
+                Txt += 'N' + Line.SuiteCode + '/' + Format(Line.LineNo) + '/' + Format(Line.Cu) + ';';
+            until Line.Next() = 0;
+        if Eval.FindSet() then
+            repeat
+                Txt += 'E' + Eval.SuiteCode + '/' + Format(Eval.LineNo) + '/' + Eval.Name + ';';
+            until Eval.Next() = 0;
+        exit(Txt);
+    end;
+
+    local procedure AreEqual(Expected: Text; Actual: Text)
+    begin
+        if Expected <> Actual then
+            Error('expected <%1>, got <%2>', Expected, Actual);
+    end;
 
     local procedure EvalInsRows(): Text
     var
@@ -322,15 +384,6 @@ codeunit 50120 "NB XAU Tests"
     begin
         WipeSuites();
         RunPort(50130, '<Root><Suite Code="A"><Evaluator Name="e0"/></Suite></Root>');
-        AreEqual('SA////No/7;EA/0/e0;', SuiteRows());
-    end;
-
-    // The filter value differs from the field's initial value: the row holds 0 at the save.
-    [Test]
-    procedure ViewConst_OtherConst()
-    begin
-        WipeSuites();
-        RunPort(50131, '<Root><Suite Code="A"><Evaluator Name="e0"/></Suite></Root>');
         AreEqual('SA////No/7;EA/0/e0;', SuiteRows());
     end;
 
@@ -424,25 +477,6 @@ codeunit 50120 "NB XAU Tests"
         AreEqual('SA////No/7;', SuiteRows());
     end;
 
-    // OnAfterInitRecord skips the row.
-    [Test]
-    procedure ViewConst_Skip()
-    begin
-        WipeSuites();
-        RunPort(50142, '<Root><Suite Code="A"><Evaluator Name="e0"/></Suite></Root>');
-        AreEqual('SA////No/7;', SuiteRows());
-    end;
-
-    // The table's OnInsert sets the filtered field to another value.
-    [Test]
-    procedure ViewConst_OnInsertChangesField()
-    begin
-        WipeSuites();
-        RunPort(50143, '<Root><Suite Code="A"><Evaluator Name="e0"/></Suite></Root>');
-        AreEqual('SA////No/7;', SuiteRows());
-        AreEqual('A/7/e0;', EvalInsRows());
-    end;
-
     // OnAfterInitRecord calls a procedure of the port.
     [Test]
     procedure ViewConst_TriggerCallsPortProc()
@@ -459,5 +493,56 @@ codeunit 50120 "NB XAU Tests"
         WipeSuites();
         RunPort(50145, '<Root><Suite Code="A"><Line No="10000" Cu="5"><Evaluator Name="e0"/></Line></Suite></Root>');
         AreEqual('SA////No/7;NA/10000/5;EA/0/e0;', SuiteRows());
+    end;
+
+    // The filter value differs from the field's initial value: the row holds 0 at the save.
+    [Test]
+    procedure ViewConst_OtherConst()
+    begin
+        WipeSuites();
+        RunPort(50131, '<Root><Suite Code="A"><Evaluator Name="e0"/></Suite></Root>');
+        AreEqual('SA////No/7;EA/0/e0;', SuiteRows());
+    end;
+
+    // The table's OnInsert sets the filtered field to another value.
+    [Test]
+    procedure ViewConst_OnInsertChangesField()
+    begin
+        WipeSuites();
+        RunPort(50143, '<Root><Suite Code="A"><Evaluator Name="e0"/></Suite></Root>');
+        AreEqual('SA////No/7;', SuiteRows());
+        AreEqual('A/7/e0;', EvalInsRows());
+    end;
+}
+
+// ViewConst_Skip alone: a test refused while it ran makes the later tests of its codeunit untrusted.
+codeunit 50122 "NB XAU View Skip Tests"
+{
+    Subtype = Test;
+
+    // OnAfterInitRecord skips the row.
+    [Test]
+    procedure ViewConst_Skip()
+    var
+        Suite: Record "NB XAU Suite";
+        Eval: Record "NB XAU Eval";
+        Src: Record "NB XAU Src";
+        InS: InStream;
+        OutS: OutStream;
+    begin
+        Src.DeleteAll();
+        Suite.DeleteAll();
+        Eval.DeleteAll();
+        Src.Id := 1;
+        Src.Data.CreateOutStream(OutS, TextEncoding::UTF8);
+        OutS.WriteText('<Root><Suite Code="A"><Evaluator Name="e0"/></Suite></Root>');
+        Src.Insert();
+        Src.CalcFields(Data);
+        Src.Data.CreateInStream(InS, TextEncoding::UTF8);
+        Xmlport.Import(50142, InS);
+        if not Suite.Get('A') then
+            Error('suite A missing');
+        if not Eval.IsEmpty() then
+            Error('evaluator stored');
     end;
 }
