@@ -10,15 +10,32 @@ LT NK Tests::NewLine_SaveRecordThenModifyThroughAnotherRecordOnPageWithTriggersA
 LT NK Tests::NewLine_SaveRecordThenModifyThroughAnotherRecordOnPageWithTriggersAndFactBox_RowBefore_LogsTheTriggers	ASSUMED list-new-line-extra-code,list-new-line-extra-code-factbox (corpus PR 1532, open: ListNewLineExtraCodeFactbox.al)
 LT NK Tests::NewLine_FieldSetBeforeSaveRecordOnPageWithTriggersAndFactBox_LogsTheTriggers	ASSUMED list-new-line-extra-code,list-new-line-extra-code-factbox (corpus PR 1532, open: ListNewLineExtraCodeFactbox.al)
 LT NK Tests::NewLine_FieldSetBeforeSaveRecordOnPageWithTriggersAndFactBox_RowBefore_LogsTheTriggers	ASSUMED list-new-line-extra-code,list-new-line-extra-code-factbox (corpus PR 1532, open: ListNewLineExtraCodeFactbox.al)
-# The review's cells (after the tests): after the save a field of Rec set, a row of another table inserted or deleted.
+# The reviews' cells (after the tests): after the save a field of Rec set, a row of another table inserted or deleted,
+# each also with a row before.
 LT NK More Tests::NewLine_FieldOfRecSetAfterSaveRecordOnPageWithTriggersAndFactBox_LogsTheTriggers	ASSUMED list-new-line-extra-code,list-new-line-extra-code-factbox (corpus PR 1532, open: ListNewLineExtraCodeFactbox.al)
 LT NK More Tests::NewLine_AnotherTableWrittenAfterSaveRecordOnPageWithTriggersAndFactBox_LogsTheTriggers	ASSUMED list-new-line-extra-code,list-new-line-extra-code-factbox (corpus PR 1532, open: ListNewLineExtraCodeFactbox.al)
 LT NK More Tests::NewLine_AnotherTablesRowDeletedAfterSaveRecordOnPageWithTriggersAndFactBox_LogsTheTriggers	ASSUMED list-new-line-extra-code,list-new-line-extra-code-factbox (corpus PR 1532, open: ListNewLineExtraCodeFactbox.al)
-# Triggers that do more than read: the gate takes the save, then refuses in the refresh. The base refused both at the Update.
+LT NK More Tests::NewLine_FieldOfRecSetAfterSaveRecordOnPageWithTriggersAndFactBox_RowBefore_LogsTheTriggers	ASSUMED list-new-line-extra-code,list-new-line-extra-code-factbox (corpus PR 1532, open: ListNewLineExtraCodeFactbox.al)
+LT NK More Tests::NewLine_AnotherTableWrittenAfterSaveRecordOnPageWithTriggersAndFactBox_RowBefore_LogsTheTriggers	ASSUMED list-new-line-extra-code,list-new-line-extra-code-factbox (corpus PR 1532, open: ListNewLineExtraCodeFactbox.al)
+LT NK More Tests::NewLine_AnotherTablesRowDeletedAfterSaveRecordOnPageWithTriggersAndFactBox_RowBefore_LogsTheTriggers	ASSUMED list-new-line-extra-code,list-new-line-extra-code-factbox (corpus PR 1532, open: ListNewLineExtraCodeFactbox.al)
+# The save without an Update after it: main refused an earlier test of the codeunit while it ran; the step end takes it.
+LT NK More Tests::NewLine_SaveRecordWithoutUpdateOnPageWithTriggersAndFactBox_LogsTheTriggers	ASSUMED list-new-line-extra-code,list-new-line-extra-code-factbox (corpus PR 1532, open: ListNewLineExtraCodeFactbox.al)
+LT NK More Tests::NewLine_SaveRecordWithoutUpdateOnPageWithTriggersAndFactBox_RowBefore_LogsTheTriggers	ASSUMED list-new-line-extra-code,list-new-line-extra-code-factbox (corpus PR 1532, open: ListNewLineExtraCodeFactbox.al)
+LT NG Tests::NewLine_SaveRecordWithoutUpdate_RowBefore_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-extra-code-factbox (corpus PR 1532, open: ListNewLineExtraCodeFactbox.al)
+# Triggers that do more than read, or set a filter on Rec: the gate takes the save, then refuses in the refresh. The base
+# refused them at the Update.
 LT NG Tests::NewLine_PageTriggerSetsAField_ShowsIt	REFUSED a trigger of a List page with a FactBox, or of its part, wrote the store or changed its record
 LT NG Tests::NewLine_PartTriggerWritesAnotherTable_ShowsAndSavesTheRow	REFUSED a trigger of a List page with a FactBox, or of its part, wrote the store or changed its record
+LT NG Tests::NewLine_CurrRecordTriggerFiltersRec_RowBefore_ShowsAndSavesTheRow	REFUSED a trigger of a List page with a FactBox, or of its part, wrote the store or changed its record
+# Previous() or Next() after the landing, Previous() or Close() after a SetValue: the page lands, then refuses the call. The
+# base refused them at the Update.
+LT NG Tests::NewLine_PreviousAfterTheLanding_StaysOnTheRow	REFUSED a call on a List page with a CardPart FactBox, on the row its new line became
+LT NG Tests::NewLine_PreviousAfterASetValue_SavesTheRow	REFUSED a call on a List page with a CardPart FactBox, on the row its new line became
+LT NG Tests::NewLine_NextAfterTheLanding_MovesToTheNewLine	REFUSED a call on a List page with a CardPart FactBox, on the row its new line became
+LT NG Tests::NewLine_CloseAfterTheLanding_RunModalFails	REFUSED a call on a List page with a CardPart FactBox, on the row its new line became
 # Update(true) after the save: the gate takes the save, then refuses the Update(true) (measured on the page without triggers
 # only). The base refused it at the Update.
 LT NG Tests::NewLine_SaveRecordThenUpdateTrue_ShowsAndSavesTheRow	REFUSED CurrPage.Update() or Update(true) after CurrPage.SaveRecord
-# A write through another record or of another table before the save, the page without OnAfterGetCurrRecord, and Update(true)
-# or Update() without a save keep the base's refusal, the same on both.
+# A write through another record or of another table before the save, the page without OnAfterGetCurrRecord, Update(true)
+# or Update() without a save, and OnAfterGetCurrRecord setting a field of the new line at New() keep the base's refusal, the
+# same on both.

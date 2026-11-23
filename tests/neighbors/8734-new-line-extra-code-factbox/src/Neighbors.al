@@ -140,7 +140,8 @@ page 97705 "LT NG Lines"
                         CurrPage.SaveRecord();
                         if Mode.Get() in [0, 1, 2] then
                             Mode.StampMark(Rec);
-                        CurrPage.Update(false);
+                        if Mode.Get() <> 8 then
+                            CurrPage.Update(false);
                     end;
                 }
                 field(Note; Rec.Note) { ApplicationArea = All; }
@@ -167,8 +168,12 @@ page 97705 "LT NG Lines"
     end;
 
     trigger OnAfterGetCurrRecord()
+    var
+        Mode: Codeunit "LT NG Mode";
     begin
         CurrentName := Rec.Name;
+        if (Mode.Get() = 9) and (Rec.Name = 'A') then
+            Rec.SetRange(Name, 'A');
     end;
 
     var
@@ -291,6 +296,76 @@ page 97709 "LT NG Upd Lines"
     trigger OnAfterGetCurrRecord()
     begin
         CurrentName := Rec.Name;
+    end;
+
+    var
+        CurrentName: Text;
+}
+
+// The same page whose OnAfterGetCurrRecord sets a field of Rec on the new line.
+page 97710 "LT NG Curr Lines"
+{
+    PageType = List;
+    SourceTable = "LT NG Line";
+    AutoSplitKey = true;
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Lines)
+            {
+                field(Name; Rec.Name)
+                {
+                    ApplicationArea = All;
+
+                    trigger OnValidate()
+                    var
+                        Mode: Codeunit "LT NG Mode";
+                    begin
+                        case Mode.Get() of
+                            3:
+                                Mode.StampMark(Rec);
+                            4:
+                                Mode.AddOther('ByPage');
+                        end;
+                        Rec.Note := 'Resolved';
+                        CurrPage.SaveRecord();
+                        if Mode.Get() in [0, 1, 2] then
+                            Mode.StampMark(Rec);
+                        CurrPage.Update(false);
+                    end;
+                }
+                field(Note; Rec.Note) { ApplicationArea = All; }
+                field(Mark; Rec.Mark) { ApplicationArea = All; }
+                field(Value; Rec.Value) { ApplicationArea = All; }
+            }
+        }
+        area(FactBoxes)
+        {
+            part(Info; "LT NG Info")
+            {
+                ApplicationArea = All;
+                SubPageLink = "Group Code" = field("Group Code"), "Entry No." = field("Entry No.");
+            }
+        }
+    }
+
+    trigger OnAfterGetRecord()
+    var
+        Mode: Codeunit "LT NG Mode";
+    begin
+        if (Mode.Get() = 1) and (Rec.Name <> '') then
+            Rec.Value := 'Got';
+    end;
+
+    trigger OnAfterGetCurrRecord()
+    begin
+        CurrentName := Rec.Name;
+        if Rec."Entry No." = 0 then
+            Rec.Value := 'Init';
     end;
 
     var
@@ -421,6 +496,136 @@ codeunit 97708 "LT NG Tests"
         Lines.OK().Invoke();
     end;
 
+    // The control sets a field of Rec and saves, with no Update after it, with a row before the new line.
+    [Test]
+    [HandlerFunctions('LinesHandler')]
+    procedure NewLine_SaveRecordWithoutUpdate_RowBefore_ShowsAndSavesTheRow()
+    begin
+        Initialize();
+        AddRow('B');
+        RunMode(8, Page::"LT NG Lines");
+        Check('shown', 'name=A/Resolved// part=Resolved//A value=A/Resolved//V part=Resolved//A ', Shown);
+        Check('rows', 'B///;A/Resolved//V;', Rows());
+    end;
+
+    // The page's OnAfterGetCurrRecord sets a filter on Rec in the refresh of the Update, with a row before.
+    [Test]
+    [HandlerFunctions('LinesHandler')]
+    procedure NewLine_CurrRecordTriggerFiltersRec_RowBefore_ShowsAndSavesTheRow()
+    begin
+        Initialize();
+        AddRow('B');
+        RunMode(9, Page::"LT NG Lines");
+        Check('shown', 'name=A/Resolved// part=Resolved//A value=A/Resolved//V part=Resolved//A ', Shown);
+        Check('rows', 'B///;A/Resolved//V;', Rows());
+    end;
+
+    // After the landing: Previous(), Next(), or Close() instead of OK.
+    [Test]
+    [HandlerFunctions('PreviousHandler')]
+    procedure NewLine_PreviousAfterTheLanding_StaysOnTheRow()
+    begin
+        Initialize();
+        RunMode(0, Page::"LT NG Lines");
+        Check('shown', 'name=A/Resolved/Stamped/ previous=No then=A/Resolved/Stamped/ ', Shown);
+        Check('rows', 'A/Resolved/Stamped/;', Rows());
+    end;
+
+    [Test]
+    [HandlerFunctions('PreviousTypedHandler')]
+    procedure NewLine_PreviousAfterASetValue_SavesTheRow()
+    begin
+        Initialize();
+        RunMode(0, Page::"LT NG Lines");
+        Check('shown', 'value=A/Resolved/Stamped/V previous=No then=A/Resolved/Stamped/V ', Shown);
+        Check('rows', 'A/Resolved/Stamped/V;', Rows());
+    end;
+
+    [Test]
+    [HandlerFunctions('NextHandler')]
+    procedure NewLine_NextAfterTheLanding_MovesToTheNewLine()
+    begin
+        Initialize();
+        RunMode(0, Page::"LT NG Lines");
+        Check('shown', 'name=A/Resolved/Stamped/ next=Yes then=/// ', Shown);
+        Check('rows', 'A/Resolved/Stamped/;', Rows());
+    end;
+
+    [Test]
+    [HandlerFunctions('CloseHandler')]
+    procedure NewLine_CloseAfterTheLanding_RunModalFails()
+    begin
+        Initialize();
+        asserterror RunMode(0, Page::"LT NG Lines");
+        Check('error', 'The RunModal procedure could not close the page 97705 as it has already been closed.', GetLastErrorText());
+    end;
+
+    // The page's OnAfterGetCurrRecord sets a field of Rec on the new line at New().
+    [Test]
+    [HandlerFunctions('CurrHandler')]
+    procedure NewLine_CurrRecordTriggerSetsAFieldOfTheNewLine_ShowsAndSavesTheRow()
+    begin
+        Initialize();
+        RunMode(0, Page::"LT NG Curr Lines");
+        Check('shown', 'new=/Init name=A/Resolved/Stamped/Init part=Resolved/Stamped/A ', Shown);
+        Check('rows', 'A/Resolved/Stamped/Init;', Rows());
+    end;
+
+    [ModalPageHandler]
+    procedure PreviousHandler(var Lines: TestPage "LT NG Lines")
+    begin
+        Lines.New();
+        Lines.Name.SetValue('A');
+        Shown += 'name=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + ' ';
+        Shown += 'previous=' + Format(Lines.Previous()) + ' ';
+        Shown += 'then=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + ' ';
+        Lines.OK().Invoke();
+    end;
+
+    [ModalPageHandler]
+    procedure PreviousTypedHandler(var Lines: TestPage "LT NG Lines")
+    begin
+        Lines.New();
+        Lines.Name.SetValue('A');
+        Lines.Value.SetValue('V');
+        Shown += 'value=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + ' ';
+        Shown += 'previous=' + Format(Lines.Previous()) + ' ';
+        Shown += 'then=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + ' ';
+        Lines.OK().Invoke();
+    end;
+
+    [ModalPageHandler]
+    procedure NextHandler(var Lines: TestPage "LT NG Lines")
+    begin
+        Lines.New();
+        Lines.Name.SetValue('A');
+        Shown += 'name=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + ' ';
+        Shown += 'next=' + Format(Lines.Next()) + ' ';
+        Shown += 'then=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + ' ';
+        Lines.OK().Invoke();
+    end;
+
+    [ModalPageHandler]
+    procedure CloseHandler(var Lines: TestPage "LT NG Lines")
+    begin
+        Lines.New();
+        Lines.Name.SetValue('A');
+        Lines.Value.SetValue('V');
+        Shown += 'value=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + ' ';
+        Lines.Close();
+    end;
+
+    [ModalPageHandler]
+    procedure CurrHandler(var Lines: TestPage "LT NG Curr Lines")
+    begin
+        Lines.New();
+        Shown += 'new=' + Lines.Name.Value() + '/' + Lines.Value.Value() + ' ';
+        Lines.Name.SetValue('A');
+        Shown += 'name=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value();
+        Shown += ' part=' + Lines.Info.Note.Value() + '/' + Lines.Info.Mark.Value() + '/' + Lines.Info.Info.Value() + ' ';
+        Lines.OK().Invoke();
+    end;
+
     [ModalPageHandler]
     procedure LinesHandler(var Lines: TestPage "LT NG Lines")
     begin
@@ -458,6 +663,16 @@ codeunit 97708 "LT NG Tests"
         Mode.Set(0);
         Commit();
         Shown := '';
+    end;
+
+    local procedure AddRow(Name: Text[30])
+    var
+        Line: Record "LT NG Line";
+    begin
+        Line."Group Code" := 'G1';
+        Line.Name := Name;
+        Line.Insert();
+        Commit();
     end;
 
     local procedure RunMode(M: Integer; PageId: Integer)

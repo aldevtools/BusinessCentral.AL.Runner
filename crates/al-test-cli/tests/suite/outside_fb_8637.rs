@@ -12,6 +12,7 @@ const NEIGHBORS: &str = include_str!("../../../../tests/neighbors/8637-bg-cache-
 const REPRO: &str = include_str!("../../../../tests/neighbors/8637-bg-cache-filtered-reads/src/Repro.al");
 const CALC_NEIGHBORS: &str = include_str!("../../../../tests/neighbors/8677-bg-cache-calcfields/src/Neighbors.al");
 const CALC_REPRO: &str = include_str!("../../../../tests/neighbors/8677-bg-cache-calcfields/src/Repro.al");
+const MORE: &str = include_str!("../../../../tests/neighbors/8637-bg-cache-filtered-reads/src/MoreNeighbors.al");
 
 fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
     let src = format!("{src}\n{}", include_str!("../fixtures/outside-sc/Assert.al"));
@@ -358,5 +359,27 @@ fn issue_8677_bq13_cells() {
     for (name, r, marks) in &o {
         assert_eq!(*r, Outcome::Pass, "{name}");
         assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+    }
+}
+
+/// Neighbors from the reviews of al-runner PRs 8656 and 8682 (MoreNeighbors.al; BC answers each from the cache, a local BC
+/// 29.1 container, 3 runs). With #8682 a worker's Count ascending twice, a count and an exist over a count FlowField of the row
+/// and a CalcSums with no filter answer from the cache, flagged. A Count ascending then descending (keyed by the sort
+/// direction) and a CalcFields and a CalcSums after SetAscending(false) compute again, as on main; al-runner issue 8803 pins
+/// and caches them.
+#[test]
+fn issue_8637_more_neighbors() {
+    let src = format!("{PROBE}\n{MORE}");
+    let o = outcomes(&src, "BQ More Tests");
+    assert_eq!(o.len(), 7);
+    for (name, r, marks) in &o {
+        let cached = !name.starts_with("CountAscendingThenDescending") && !name.contains("SetAscendingFalse");
+        if cached {
+            assert_eq!(*r, Outcome::Pass, "{name}");
+            assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+        } else {
+            assert!(matches!(r, Outcome::Fail(_)), "{name}: {r:?}");
+            assert!(!marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+        }
     }
 }

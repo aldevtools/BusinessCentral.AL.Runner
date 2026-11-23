@@ -326,16 +326,7 @@ impl Session {
             (Some(a), Some(b)) => a.len() == b.len() && a.iter().zip(&b).all(|(x, y)| Self::same_values(x, y)),
             _ => false,
         };
-        let view_kept = {
-            let r = rec.borrow();
-            crate::records::same_filters(&r.filters, &view.filters)
-                && r.filter_group == view.filter_group
-                && r.key == view.key
-                && r.adhoc == view.adhoc
-                && r.ascending == view.ascending
-                && r.field_descending == view.field_descending
-                && r.marked_only == view.marked_only
-        };
+        let view_kept = Self::same_view(&rec.borrow(), &view);
         // On a page of the probe's shape with other code the triggers only read: one that wrote the store (a part's write of
         // another table) is not measured either.
         let quiet = !extra || self.store.change_counter() == changes;
