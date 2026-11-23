@@ -1,6 +1,6 @@
 //! The end of a round of the proof and the closure of the tables that differ (ADR-079 decisions 3 and 4).
 
-use super::{final_units, next_round, no_real_order, tainted};
+use super::{next_round, no_real_order, tainted};
 use crate::install_proof::{Footprints, Graph};
 use al_data::memory::Resource;
 use al_vm::install_footprint::{InstallFootprint, Lasting};
@@ -123,26 +123,4 @@ fn a_subset_that_puts_an_input_before_the_input_it_depends_on_is_skipped() {
 fn a_subset_with_a_multi_app_input_is_not_skipped() {
     let (two, three) = (vec![2, 4], vec![3]);
     assert!(!no_real_order(&[&two, &three], 0b10, three_needs_two));
-}
-
-/// Units in input order: A (1), C (3), B (2), B reads from C. A depends on B (review round 4, the final install).
-#[test]
-fn the_final_install_puts_a_unit_after_the_units_it_depends_on() {
-    let units = vec![vec![1], vec![3], vec![2]];
-    let inputs = |u: &[u32]| {
-        units
-            .iter()
-            .filter(|v| u == [2] && v.as_slice() == [3])
-            .collect::<Vec<_>>()
-    };
-    let order = final_units(&units, inputs, |a, b| (a, b) == (1, 2));
-    assert_eq!(order, [&vec![3], &vec![2], &vec![1]]);
-}
-
-/// No dependency between the units: the order of `units` stays.
-#[test]
-fn the_final_install_keeps_the_order_of_the_units_without_a_dependency() {
-    let units = vec![vec![1], vec![3], vec![2]];
-    let order = final_units(&units, |_| Vec::new(), |_, _| false);
-    assert_eq!(order, [&vec![1], &vec![3], &vec![2]]);
 }

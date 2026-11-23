@@ -97,7 +97,7 @@ impl<'p, 'g> Proof<'p, 'g> {
     ) -> Result<Settled, Unproven> {
         'round: loop {
             let graph = self.g.graph(&self.fp);
-            let units = graph.units(&self.g.group);
+            let units = graph.units(&self.g.group, |a, b| self.g.view.needs(a, b));
             let mut out = Settled {
                 units: units.len(),
                 tangles: units.iter().filter(|u| u.len() > 1).count(),
@@ -113,10 +113,7 @@ impl<'p, 'g> Proof<'p, 'g> {
                 }
             }
             rewind(session, inst);
-            let fixed: Vec<u32> = (final_units(&units, |u| graph.inputs(&units, u), |a, b| self.g.view.needs(a, b)))
-                .into_iter()
-                .flat_map(|u| self.first_order(u))
-                .collect();
+            let fixed: Vec<u32> = units.iter().flat_map(|u| self.first_order(u)).collect();
             // The view and the run take the same order (ADR-079 decision 3, clarification of 2026-11-23, round 3).
             let fixed = self.order(&fixed)?;
             let hit = (self.g).recorded_run(
@@ -419,38 +416,6 @@ impl Unproven {
         }
         refuse_tainted(lowered, g, &proof.fp, &sources, inst);
     }
-}
-
-/// ADR-079 decision 3, clarification of 2026-11-23 (review round 4): the units in the order of the final install. A unit
-/// goes after its inputs and after the units with an app one of its apps depends on (`needs(a, b)`: a depends on b);
-/// among the units free to go, the first of `units`. Two units with neither tie keep no order the proof measured, so
-/// the final install takes one the dependencies allow, where the plain order of `units` could put an app before an app
-/// it depends on with a third app between them (neighbor app `install-order-footprint-final-order`). When no unit is
-/// free (the installs read against the dependency order), the rest keep the order of `units` and
-/// [`PartnerGroup::order`] names the cycle: the proof stops.
-pub(crate) fn final_units<'u>(
-    units: &'u [Vec<u32>],
-    inputs: impl Fn(&[u32]) -> Vec<&'u Vec<u32>>,
-    needs: impl Fn(u32, u32) -> bool,
-) -> Vec<&'u Vec<u32>> {
-    // waits[i][j]: unit i goes after unit j.
-    let waits: Vec<Vec<bool>> = (units.iter())
-        .map(|u| {
-            let ins = inputs(u);
-            (units.iter())
-                .map(|v| u != v && (ins.contains(&v) || u.iter().any(|&a| v.iter().any(|&b| needs(a, b)))))
-                .collect()
-        })
-        .collect();
-    let mut left: Vec<usize> = (0..units.len()).collect();
-    let mut out = Vec::new();
-    while !left.is_empty() {
-        let k = (0..left.len())
-            .find(|&i| !left.iter().any(|&j| waits[left[i]][j]))
-            .unwrap_or(0);
-        out.push(&units[left.remove(k)]);
-    }
-    out
 }
 
 /// ADR-079 decision 3, clarification of 2026-11-23 (review round 4): whether the subset `mask` of `inputs` (bit `k` set:

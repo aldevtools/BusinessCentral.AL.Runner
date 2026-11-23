@@ -204,11 +204,12 @@ least as strict as the text it clarifies.
   subset where an input of one app installs before the unit and an input of one app it depends on installs after it:
   on BC the second installs first. Neighbor app `install-order-footprint-dependent-inputs` (a base app and its
   extension both answer an event P's install raises; main passes). Every other order the dependencies rule out still
-  stops the proof (a multi-app input, an ancestor placed first, the order of the unit's own apps). The final install
-  orders the units so that a unit comes after its inputs and after the units with an app one of its apps depends on;
-  units with neither tie keep the order of the list. Before, the list order could request an app before the app it
-  depends on with a third app between them, and the proof stopped (neighbor app `install-order-footprint-final-order`;
-  main passes).
+  stops the proof (a multi-app input, an ancestor placed first, the order of the unit's own apps). The list of
+  units (`Graph::units`) puts a unit after its inputs and after the units with an app one of its apps depends on; units
+  with neither tie keep their order. Every order the proof builds from the list (the subset runs and the final install)
+  then keeps the dependencies unless the reads run against them, and only then does the proof stop. Before, the list
+  order could request an app before the app it depends on with a third app between them, and the proof stopped
+  (neighbor app `install-order-footprint-final-order`; main passes).
 - **Decision 3, when the proof ends.** A run that adds an edge starts the proof again on the grown graph. Footprints
   only grow, so the rounds end. A run that meets an app of unknown order and adds no edge stops the proof: the group is
   not proven, and the note names that pair.
