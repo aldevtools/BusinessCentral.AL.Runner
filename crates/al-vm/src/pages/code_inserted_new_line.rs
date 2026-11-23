@@ -662,6 +662,15 @@ impl Session {
                  new line onto the row the table field inserted, under code that is not a pinned page's (not measured)"
             }
             CodeInsertedSave::Asked(view) if self.view_kept(st, &view)? => return Ok(()),
+            // CurrPage.SaveRecord() as the validation's last statement on the page with triggers and a FactBox: BC refreshes
+            // nothing and the page stays on the saved row (ListNewLineExtraCodeFactbox.al:701, :713).
+            CodeInsertedSave::Saved(view)
+                if view.extra
+                    && matches!(self.code_inserted_page(st)?, Some((Triggers::FactboxExtra, _)))
+                    && self.extra_code_unchanged(st, &view)? =>
+            {
+                return Ok(());
+            }
             CodeInsertedSave::Asked(_) => {
                 "the validation changed the page's record, its view or the table after CurrPage.SaveRecord or Update(true) moved the \
                  page from its new line onto the row the table field inserted (not measured)"

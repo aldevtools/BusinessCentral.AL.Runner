@@ -1,5 +1,5 @@
 //! The corpus probe of al-runner issue 8734 (corpus pull request 1532, open: tests/al-language/pages/currpage/
-//! ListNewLineExtraCodeFactbox.al, measured on BC 29.1, 10 of 10 green in 3 runs), run here until a bump pins it: extra code
+//! ListNewLineExtraCodeFactbox.al, measured on BC 29.1, 18 of 18 green in 3 runs), run here until a bump pins it: extra code
 //! around `CurrPage.SaveRecord()` and `CurrPage.Update(false)` on the new line the table field's OnValidate inserted, on a List
 //! page with OnAfterGetRecord, OnAfterGetCurrRecord and a CardPart FactBox (`al-vm` pages/code_inserted_new_line.rs,
 //! `Triggers::FactboxExtra`). The probe is read from its copy in the neighbor app. Delete this file when the pin is in the
@@ -17,13 +17,14 @@ const NEIGHBORS: &str = include_str!("../../../../tests/neighbors/8734-new-line-
 /// Every cell passes, flagged by both assumptions: the repro of 8734 on an empty group and with a row before, and the logging
 /// page (the page's and the part's triggers, step by step) with the repro's code, only the save, a modify through another record
 /// after the save and a field set before it, each on an empty group and with a row before; and after the save, a field of Rec
-/// set, a row of another table inserted or one deleted (the review of al-runner PR 8820, the codeunit after the tests).
+/// set, a row of another table inserted or one deleted, each on an empty group and with a row before, and the save without an
+/// Update after it, on an empty group and with a row before (the codeunit after the tests, :664-762).
 #[test]
 fn issue_8734_probe_cells() {
     let mut o = super::outside_fb_8712::outcomes(PROBE, "LT NK Tests");
     assert_eq!(o.len(), 10);
     let more = super::outside_fb_8712::outcomes(PROBE, "LT NK More Tests");
-    assert_eq!(more.len(), 3);
+    assert_eq!(more.len(), 8);
     o.extend(more);
     for (name, r, marks) in &o {
         assert_eq!(*r, Outcome::Pass, "{name}");

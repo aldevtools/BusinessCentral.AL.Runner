@@ -28,9 +28,10 @@
 //!   `list-new-line-writes-other-table`, `only_other_tables_written`).
 //!
 //! - on a List page with OnAfterGetRecord, OnAfterGetCurrRecord and one CardPart FactBox (`Triggers::FactboxExtra`), the same
-//!   gate for SaveRecord under Page.RunModal on one group, with nothing but the insert written before the save
-//!   (ListNewLineExtraCodeFactbox.al, corpus pull request 1532, open, 10 of 10 green on BC 29.1 in 3 runs, under the assumption
-//!   `list-new-line-extra-code-factbox`); the refresh of the Update and its triggers are `code_inserted_refresh`'s.
+//!   gate for SaveRecord under Page.RunModal on one group, with nothing but the insert written before the save, and the save
+//!   alone as the validation's last statement (ListNewLineExtraCodeFactbox.al, corpus pull request 1532, open, 18 of 18 green
+//!   on BC 29.1 in 3 runs, under the assumption `list-new-line-extra-code-factbox`); the refresh of the Update and its triggers
+//!   are `code_inserted_refresh`'s.
 //!
 //! Every other open, view and page keeps main's refusal (`UNMEASURED_CODE`).
 
