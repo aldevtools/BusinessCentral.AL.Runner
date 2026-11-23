@@ -242,7 +242,7 @@ pub struct LaneReport {
     /// ADR-058 amendment 1: the dependent codeunits, with what they read.
     pub carried: Vec<super::CarriedCodeunit>,
     /// ADR-070 decision 7: `CorpusRuntime::numbers_taken_after` (`order_hint::hint_numbers`).
-    pub numbers_taken_after: Vec<(u32, String, Vec<super::NumbersTaken>)>,
+    pub numbers_taken_after: Vec<super::TakenAfter>,
 }
 
 impl LaneReport {

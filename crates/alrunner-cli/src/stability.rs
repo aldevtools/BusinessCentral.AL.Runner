@@ -289,12 +289,7 @@ pub fn replay(a: &TestArgs, cell: &str) -> Result<Option<Variant>, String> {
 
 /// `Codeunit<id>.<test>`: how the report names a test.
 pub(crate) fn name(r: &TestResult) -> String {
-    test_name(r.codeunit, &r.test)
-}
-
-/// [`name`] of test `test` of codeunit `codeunit`.
-pub(crate) fn test_name(codeunit: u32, test: &str) -> String {
-    format!("Codeunit{codeunit}.{test}")
+    crate::run::qualified(r.codeunit, &r.test)
 }
 
 /// What the report compares of each selected result of one variant.

@@ -1310,7 +1310,7 @@ pub use self::discovery::TestDriver;
 use self::grow::{Grow, GrowKept};
 pub use self::grow::{KeptCompile, fresh_pass_compile};
 use self::handlers::*;
-pub use self::order_hint::{NumbersTaken, OrderHint};
+pub use self::order_hint::{NumbersTaken, OrderHint, TakenAfter};
 pub use self::run::*;
 pub use self::single_fresh::{CarriedCodeunit, CarriedRead};
 pub use self::single_lane::LaneReport;

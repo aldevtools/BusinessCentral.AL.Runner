@@ -15,7 +15,7 @@
 //! (`lines`), `flips[].reason` (`reason`), `readsCarried` (`reads_carried`), the JUnit reason line
 //! and the property `singleInstanceCarried`. Wired in by `stability::Outcome::with_single_instance`.
 
-use al_testrun::runtime::{CarriedCodeunit, NumbersTaken};
+use al_testrun::runtime::{CarriedCodeunit, NumbersTaken, TakenAfter};
 use al_testrun::stability::{Change, Kind, Seen};
 use std::collections::BTreeMap;
 
@@ -114,7 +114,7 @@ impl SiReport {
     pub fn with_fresh_runs(
         mut self,
         plan: &crate::stability::Plan,
-        taken_after: &[&[(u32, String, Vec<NumbersTaken>)]],
+        taken_after: &[&[TakenAfter]],
         seen: &[Vec<Seen>],
     ) -> SiReport {
         let fresh: Vec<usize> = (0..taken_after.len())
@@ -124,7 +124,7 @@ impl SiReport {
             for (codeunit, test, numbers) in taken_after[v] {
                 let text: Vec<String> = numbers.iter().map(NumbersTaken::text).collect();
                 self.numbers
-                    .insert((v, crate::stability::test_name(*codeunit, test)), text.join("; "));
+                    .insert((v, crate::run::qualified(*codeunit, test)), text.join("; "));
             }
         }
         if let Some(s) = fresh.first().and_then(|&v| seen.get(v)) {

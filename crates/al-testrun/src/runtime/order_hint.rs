@@ -35,6 +35,10 @@ pub struct OrderHint {
     pub numbers: Vec<NumbersTaken>,
 }
 
+/// One test's numbers taken after an earlier test codeunit (codeunit id, test, numbers): `hint_numbers` writes one per
+/// test that took any, whatever its outcome (decision 7).
+pub type TakenAfter = (u32, String, Vec<NumbersTaken>);
+
 /// A number sequence a failed test took numbers from that an earlier test codeunit of its BC session also took from
 /// (decision 3).
 #[derive(Debug, Clone, PartialEq)]
@@ -245,7 +249,7 @@ pub(super) fn hint_numbers(
     ks: &[usize],
     numbered: &mut BTreeSet<usize>,
     slots: &mut [Option<super::UnitResult>],
-    taken_after: &mut Vec<(u32, String, Vec<NumbersTaken>)>,
+    taken_after: &mut Vec<TakenAfter>,
 ) -> usize {
     // Per sequence, each earlier codeunit that took from it, in order: (unit index, `Scratch::carry_at`).
     type Takers = Vec<(usize, Option<usize>)>;
@@ -315,7 +319,7 @@ impl super::CorpusRuntime {
     /// ADR-070 decision 7: per test (codeunit id, name), the numbers it took after an earlier codeunit of its BC session
     /// took from the same sequence in this default run, whatever its outcome ([`hint_numbers`]). Empty under
     /// `--strict-order`.
-    pub fn numbers_taken_after(&self) -> &[(u32, String, Vec<NumbersTaken>)] {
+    pub fn numbers_taken_after(&self) -> &[TakenAfter] {
         &self.phases.chain.single_lane.numbers_taken_after
     }
 }

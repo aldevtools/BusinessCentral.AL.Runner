@@ -79,7 +79,7 @@ fn fold(s: &str) -> String {
 }
 
 /// `Codeunit<ID>.<Method>`, the name AL Runner v2 reports and accepts.
-fn qualified(codeunit: u32, test: &str) -> String {
+pub(crate) fn qualified(codeunit: u32, test: &str) -> String {
     format!("Codeunit{codeunit}.{test}")
 }
 
