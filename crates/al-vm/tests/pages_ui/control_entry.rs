@@ -277,10 +277,10 @@ fn an_empty_entry_on_an_enum_control_after_a_refusal_is_the_ordinal() {
     );
 }
 
-/// pages/properties/ABLayouts.al:68, :70: a Text control in a cuegroup with CuegroupLayout = Wide reads '0', and in a cuegroup
-/// without it too (testpage/ABTests.al:747); pages/controls/AaControls.al:422 a Decimal one reads its value, and an Integer one
-/// too (corpus pull request 1538, testpage/GetFieldByControlId.al:742, assumption cuegroup-field-value; al-vm
-/// pages/cue_value.rs).
+/// pages/properties/ABLayouts.al:68, :70: a Text control in a cuegroup with CuegroupLayout = Wide on a Card reads '0';
+/// pages/controls/AaControls.al:422 a Decimal one reads its value. In a cuegroup without it on a Card a Text reads '0', and in a
+/// wide one an Integer its value (corpus pull request 1538, testpage/GetFieldByControlId.al:742 `TextWord` `0|0` and
+/// `WideIntValue` `5|5`, assumption cuegroup-field-value; al-vm pages/cue_value.rs).
 #[test]
 fn a_text_control_in_a_wide_cue_group_reads_zero() {
     let src = r#"
