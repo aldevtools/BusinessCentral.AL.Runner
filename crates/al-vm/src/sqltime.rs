@@ -150,7 +150,7 @@ fn round_expr(e: &FilterExpr, rolls_over: bool) -> FilterExpr {
         F::Like(..)
         | F::NotLike(..)
         | F::AtSignAlone(_)
-        | F::AtSignAloneCode
+        | F::AtSignAloneCode(_)
         | F::EmptyViewValue
         | F::NumCode(_)
         | F::UnpinnedMatch(..) => e.clone(),

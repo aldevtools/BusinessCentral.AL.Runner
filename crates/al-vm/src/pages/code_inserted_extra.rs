@@ -137,7 +137,8 @@ impl Session {
     /// another record after the save (ListNewLineExtraCodeFactbox.al:344 `AGR(A/Resolved/Stamped)`); then the view from the row,
     /// the row twice more, OnAfterGetCurrRecord and the part's OnAfterGetRecord (:344; :355 with a row before). The cells'
     /// triggers only read: one that wrote the store, or left the page's or the part's record other than stored, or Rec's view
-    /// other than it was, is not measured, and refused. The calls after it are those of the FactBox host (`FactboxStep`).
+    /// other than it was, is not measured, and refused. After it the cells only read controls, set one control without code and
+    /// call OK (`FactboxStep::ExtraLanded`); the FactBox host's Previous, Next and Close are not measured here.
     pub(super) fn extra_code_factbox_refresh(
         &mut self,
         st: &St,
@@ -169,7 +170,7 @@ impl Session {
         // FactBox host, it does not read the row again before it leaves it.
         if let Some(row) = st.borrow_mut().code_inserted_row.as_mut() {
             row.read_before_leave = false;
-            row.factbox = super::state::FactboxStep::Landed;
+            row.factbox = super::state::FactboxStep::ExtraLanded;
         }
         Ok(())
     }
@@ -363,6 +364,27 @@ impl Session {
         let unchanged =
             self.write_mark() == at.writes && same_rows && Self::same_values(&rec.borrow().fields, &at.rec.fields);
         Ok(unchanged && self.view_kept(st, at)?)
+    }
+
+    /// Whether the validation that ended with `CurrPage.SaveRecord()` and no Update after it, on the page with triggers and a
+    /// FactBox, did after the save no more than the cells measure: nothing (ListNewLineExtraCodeFactbox.al:701, :713), a field
+    /// of Rec set (:766, :778: Rec keeps it, the part shows the row as saved, and OK writes it), or a row of another table
+    /// inserted (:791, :803). Every row of the page's table and Rec's view stay as the save left them, nothing is deleted, and
+    /// Rec and the store do not both change. The store does not tell an insert of another table from a modify of one.
+    pub(super) fn extra_code_save_kept(&mut self, st: &St, at: &SavedView) -> Result<bool, Signal> {
+        let rec = self.page_rec(st);
+        let same_rows = match (self.coded_rows(st)?, &at.rows) {
+            (Some(now), Some(then)) => {
+                now.len() == then.len() && now.iter().zip(then).all(|(a, b)| Self::same_values(a, b))
+            }
+            _ => false,
+        };
+        let (mark, rec_kept) = (
+            self.write_mark(),
+            Self::same_values(&rec.borrow().fields, &at.rec.fields),
+        );
+        let one_effect = mark == at.writes || (rec_kept && mark.1 == at.writes.1);
+        Ok(same_rows && one_effect && Self::same_view(&rec.borrow(), &at.rec))
     }
 
     /// Whether Rec's fields `rec` and the stored row `stored` changed since the save left both as `saved` as measured: the row

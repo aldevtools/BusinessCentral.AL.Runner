@@ -596,9 +596,9 @@ page 96743 "LT NK More Lines"
                         Rec.Note := 'Resolved';
                         CurrPage.SaveRecord();
                         case Log.GetMode() of
-                            1:
+                            1, 5:
                                 Rec.Mark := 'Late';
-                            2:
+                            2, 6:
                                 begin
                                     Other.Init();
                                     Other.Text := 'After';
@@ -607,7 +607,7 @@ page 96743 "LT NK More Lines"
                             3:
                                 Other.DeleteAll();
                         end;
-                        if Log.GetMode() <> 4 then
+                        if not (Log.GetMode() in [4, 5, 6]) then
                             CurrPage.Update(false);
                     end;
                 }
@@ -760,6 +760,56 @@ codeunit 96745 "LT NK More Tests"
         Check('log', 'AGR(B//);AGR(B//);AGCR(B//);|open;AGCR(//);|new;AGR(A/Resolved/);AGR(B//);AGR(A/Resolved/);AGR(A/Resolved/);AGCR(A/Resolved/);|name;|read;|value;|read;|ok;', Log());
         Check('rows', 'B///;A/Resolved//V;', Rows());
         Check('others', '', Others());
+    end;
+
+    [Test]
+    [HandlerFunctions('MoreHandler')]
+    procedure NewLine_FieldOfRecSetAfterSaveRecordWithoutUpdateOnPageWithTriggersAndFactBox_LogsTheTriggers()
+    begin
+        Initialize();
+        RunMore(5);
+        Check('shown', 'name=A/Resolved/Late/ part=Resolved//A value=A/Resolved/Late/V part=Resolved//A ', Shown);
+        Check('log', 'AGCR(//);AGCR(//);|open;AGCR(//);|new;|name;|read;|value;|read;|ok;', Log());
+        Check('rows', 'A/Resolved/Late/V;', Rows());
+        Check('others', '', Others());
+    end;
+
+    [Test]
+    [HandlerFunctions('MoreHandler')]
+    procedure NewLine_FieldOfRecSetAfterSaveRecordWithoutUpdateOnPageWithTriggersAndFactBox_RowBefore_LogsTheTriggers()
+    begin
+        Initialize();
+        AddRow('B');
+        RunMore(5);
+        Check('shown', 'name=A/Resolved/Late/ part=Resolved//A value=A/Resolved/Late/V part=Resolved//A ', Shown);
+        Check('log', 'AGR(B//);AGR(B//);AGCR(B//);|open;AGCR(//);|new;|name;|read;|value;|read;|ok;', Log());
+        Check('rows', 'B///;A/Resolved/Late/V;', Rows());
+        Check('others', '', Others());
+    end;
+
+    [Test]
+    [HandlerFunctions('MoreHandler')]
+    procedure NewLine_AnotherTableWrittenAfterSaveRecordWithoutUpdateOnPageWithTriggersAndFactBox_LogsTheTriggers()
+    begin
+        Initialize();
+        RunMore(6);
+        Check('shown', 'name=A/Resolved// part=Resolved//A value=A/Resolved//V part=Resolved//A ', Shown);
+        Check('log', 'AGCR(//);AGCR(//);|open;AGCR(//);|new;|name;|read;|value;|read;|ok;', Log());
+        Check('rows', 'A/Resolved//V;', Rows());
+        Check('others', 'After;', Others());
+    end;
+
+    [Test]
+    [HandlerFunctions('MoreHandler')]
+    procedure NewLine_AnotherTableWrittenAfterSaveRecordWithoutUpdateOnPageWithTriggersAndFactBox_RowBefore_LogsTheTriggers()
+    begin
+        Initialize();
+        AddRow('B');
+        RunMore(6);
+        Check('shown', 'name=A/Resolved// part=Resolved//A value=A/Resolved//V part=Resolved//A ', Shown);
+        Check('log', 'AGR(B//);AGR(B//);AGCR(B//);|open;AGCR(//);|new;|name;|read;|value;|read;|ok;', Log());
+        Check('rows', 'B///;A/Resolved//V;', Rows());
+        Check('others', 'After;', Others());
     end;
 
     [ModalPageHandler]
