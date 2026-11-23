@@ -1296,6 +1296,49 @@ pub(crate) fn one_char_literal(node: &SyntaxNode) -> bool {
         .is_some_and(|inner| inner.replace("''", "'").chars().count() == 1)
 }
 
+/// The `for` loops over a Char or an Integer variable whose bounds are one-character literals, the shapes language/ForCharBounds.al
+/// measured (open corpus PR 1525, assumption `for-char-literal-bounds`): a local Char loop variable with bounds (literal, literal)
+/// `to` and `downto`; with `to` only (literal, local Char variable), (local Char variable, literal) (Char_LiteralStart_CharVariableEnd,
+/// Char_CharVariableStart_LiteralEnd), (literal, 52)
+/// (Char_LiteralStart_IntegerEnd, `'0' to 52`) and (48, literal) (Char_IntegerStart_LiteralEnd, `48 to '4'`); a local Integer
+/// loop variable with (literal, literal). `kids` are the loop variable, the start and the end. Every other loop variable, bound
+/// kind, integer value, position and pair is not measured and keeps its refusal.
+pub(crate) fn for_one_char_literal_bounds(
+    kids: &[SyntaxNode],
+    down: bool,
+    ty: &dyn Fn(&SyntaxNode) -> Ty,
+    local_variable: &dyn Fn(&SyntaxNode) -> bool,
+) -> bool {
+    let [var, from, to, ..] = kids else {
+        return false;
+    };
+    if var.kind() != SyntaxKind::NameRef || !local_variable(var) {
+        return false;
+    }
+    // A literal is measured only inside the Basic Multilingual Plane (BC counts UTF-16 units; a non-BMP literal is a
+    // two-character text, AL0122).
+    let bmp_char =
+        |n: &SyntaxNode| one_char_literal(n) && literal_text(n).is_some_and(|t| t.chars().all(|c| c as u32 <= 0xFFFF));
+    let int_literal = |n: &SyntaxNode, value: &str| {
+        n.kind() == SyntaxKind::Literal
+            && matches!(literal_ty(n), Ty::Integer)
+            && literal_text(n).is_some_and(|t| t == value)
+    };
+    let (lit_from, lit_to) = (bmp_char(from), bmp_char(to));
+    let char_var = |n: &SyntaxNode| n.kind() == SyntaxKind::NameRef && matches!(ty(n), Ty::Char) && local_variable(n);
+    match ty(var) {
+        Ty::Char => {
+            (lit_from && lit_to)
+                || (!down && lit_from && char_var(to))
+                || (!down && char_var(from) && lit_to)
+                || (!down && lit_from && int_literal(to, "52"))
+                || (!down && int_literal(from, "48") && lit_to)
+        }
+        Ty::Integer => lit_from && lit_to,
+        _ => false,
+    }
+}
+
 /// `Ch + 'X'`, `'X' - Ch` and the like: a Char variable and a one-character literal under `+` or `-` ([`one_char_literal`];
 /// AfCharLiteralArithmetic.al:22-43). A character taken by index from a Text or Code variable counts too (`S[1] - '0'`,
 /// `'A' + C[1]`: format-evaluate/AtTextCharLiteral.al:15-112), and so does such a sum or difference followed by
@@ -1373,6 +1416,13 @@ fn member_name(node: &SyntaxNode) -> String {
         }
         _ => name_of(node),
     }
+}
+
+/// The source text of a literal's first token.
+fn literal_text(node: &SyntaxNode) -> Option<String> {
+    al_syntax::ast::significant_green_tokens(node)
+        .find(|t| !t.kind().is_trivia())
+        .map(|t| t.text().to_string())
 }
 
 fn literal_ty(node: &SyntaxNode) -> Ty {

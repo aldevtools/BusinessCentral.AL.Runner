@@ -185,7 +185,7 @@ impl Session {
                 "Truncate is not supported when the OnBeforeDelete and/or OnAfterDelete event is subscribed. Please remove the events subscriptions or use DeleteAll.",
             );
         }
-        let (filters, flow_field_filters) = self.split_filters(rec);
+        let (filters, flow_field_filters) = self.split_filters(rec)?;
         // With OnDatabaseDelete enabled through GetDatabaseTableTriggerSetup, an unfiltered Truncate whose result is not used
         // deletes every row and raises no database or global delete event (corpus events/W4GlobalTriggers.al:397-410
         // Truncate_WithDatabaseDeleteEnabled, on BC 27.5, 28.5 and 29). A filter or a used result is not pinned there.
