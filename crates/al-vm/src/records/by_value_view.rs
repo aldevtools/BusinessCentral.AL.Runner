@@ -191,7 +191,7 @@ fn load_after_read(s: &RecordState) -> bool {
 /// ascending, with no field sorted descending, no marks and MarkedOnly off. The view of every cell of
 /// record/filters/ByValueLoadFieldsAfterRead.al (corpus PR 1543): no filter, `SetRange(Status, Posted)`, and the
 /// secondary key (Status, Doc) with `SetRange(Doc, ..)` after the read (`ByValueLoad_SecondaryKeyNarrowedThenFindSet`, :282).
-fn load_read_view(s: &RecordState) -> bool {
+fn group0_declared_view(s: &RecordState) -> bool {
     s.filters.iter().all(|f| f.group == 0)
         && s.filter_group == 0
         && s.adhoc.is_none()
@@ -201,12 +201,12 @@ fn load_read_view(s: &RecordState) -> bool {
         && !s.marked_only
 }
 
-/// Whether `s` has the view [`load_read_view`] names on the primary key, no SetLoadFields, and the state
+/// Whether `s` has the view [`group0_declared_view`] names on the primary key, no SetLoadFields, and the state
 /// [`measured_state`] names. The caller's record of `ByValue_EventSubscriberParameter`
 /// (record/filters/ByValueRecordView.al:967-972, `SetRange(Status, Posted)` on a fresh record) and of
 /// `ByValue_TemporaryToPlainParameter` (:984-995).
 fn group0_view(s: &RecordState) -> bool {
-    load_read_view(s) && s.key == 0 && s.load.request.is_none() && measured_state(s)
+    group0_declared_view(s) && s.key == 0 && s.load.request.is_none() && measured_state(s)
 }
 
 /// Whether `s` has the view of a fresh record ([`primary_view`]) and no SetLoadFields: a by-value copy of it has no filter,
@@ -433,7 +433,7 @@ impl Session {
     /// - A callee [`Session::measured_callee`] names, no mark on `source`, a view [`measured_view`] names: the view of
     ///   [`primary_view`], and a SetLoadFields of a caller that read no row is dropped (`ByValue_SetLoadFields`
     ///   `amount loaded=Yes`). So is a SetLoadFields of a caller that read a row, handed from a codeunit to a codeunit's
-    ///   procedure with the view [`load_read_view`] names, the copy keeping the fields the row loaded (assumption
+    ///   procedure with the view [`group0_declared_view`] names, the copy keeping the fields the row loaded (assumption
     ///   `by-value-load-fields-after-read`, corpus PR 1543); with no filter this replaces the first case. Under
     ///   [`Evidence::Assumed`] or that assumption the copy is marked (`RecordState::view_assumption`) so that a read of its
     ///   view marks the assumption (`by_value_view_read`, `by_value_view_handed`).
@@ -487,7 +487,7 @@ impl Session {
             && s.unpinned_buffer.is_none()
             && load_after_read(&s)
             && plain_state(&s)
-            && load_read_view(&s);
+            && group0_declared_view(&s);
         let load_dropped = (measured.is_some() && load_pending) || load_read;
         let auto_calc_caller = from_codeunit
             || (measured == Some(Evidence::Assumed(Assumption::ByValueTableProcOtherTable)) && from_third_table_insert);
