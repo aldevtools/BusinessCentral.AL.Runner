@@ -17,7 +17,7 @@ use std::rc::Rc;
 
 type Rec = Rc<RefCell<RecordState>>;
 
-/// `filter::parse_filter_with` or `filter::parse_filter_at_sign_measured`.
+/// `filter::parse_filter_with`, `filter::parse_filter_at_sign_measured` or `filter::parse_filter_both_at_signs_measured`.
 type ParseFilter =
     fn(&str, &[Value], &RtType, &dyn Fn(u32) -> Result<Vec<(i32, String)>, String>) -> Result<FilterExpr, String>;
 
@@ -53,6 +53,16 @@ impl Session {
         ty: &al_builtins::value::RtType,
     ) -> Result<FilterExpr, String> {
         self.parse_filter_text_by(al_builtins::filter::parse_filter_at_sign_measured, text, ty)
+    }
+
+    /// [`Self::parse_filter_text`] where the cells measure `@` alone and `<>@` alone on a Code field
+    /// (`filter::parse_filter_both_at_signs_measured`).
+    pub(crate) fn parse_filter_text_both_at_signs_measured(
+        &self,
+        text: &str,
+        ty: &al_builtins::value::RtType,
+    ) -> Result<FilterExpr, String> {
+        self.parse_filter_text_by(al_builtins::filter::parse_filter_both_at_signs_measured, text, ty)
     }
 
     fn parse_filter_text_by(
@@ -296,7 +306,11 @@ impl Session {
             FilterExpr::NotLike(p, ci) => format!("<>{}{p}", if *ci { "@" } else { "" }),
             // record/filters/WcInvalidFilterExpr.al:84-111: `@` and `<>@` read back as written.
             FilterExpr::AtSignAlone(negated) => if *negated { "<>@" } else { "@" }.to_string(),
-            FilterExpr::AtSignAloneCode => "@".to_string(),
+            // GetFilter, GetFilters and GetView write `@` and `<>@` alone on a Code field as written (AtSignAloneReads.al:823).
+            FilterExpr::AtSignAloneCode(negated) => {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::AtSignAloneDatabaseBlank);
+                if *negated { "<>@" } else { "@" }.to_string()
+            }
             FilterExpr::EmptyViewValue => "==".to_string(),
             FilterExpr::UnpinnedMatch(inner, _) => self.filter_text_with(inner, iso)?,
             FilterExpr::UnpinnedText(_) => {
@@ -797,9 +811,10 @@ impl Session {
                         let expr = match empty {
                             Some(e) => e,
                             None => {
-                                // `@` alone on a Code field is measured in a view SetView gets, not in an object property.
+                                // `@` alone and `<>@` alone on a Code field are measured in a view SetView gets, not in an
+                                // object property.
                                 let parse = if runtime {
-                                    Self::parse_filter_text_at_sign_measured
+                                    Self::parse_filter_text_both_at_signs_measured
                                 } else {
                                     Self::parse_filter_text
                                 };
@@ -982,7 +997,7 @@ fn ordinals(e: &FilterExpr) -> FilterExpr {
         FilterExpr::Like(p, ci) => FilterExpr::Like(p.clone(), *ci),
         FilterExpr::NotLike(p, ci) => FilterExpr::NotLike(p.clone(), *ci),
         FilterExpr::AtSignAlone(n) => FilterExpr::AtSignAlone(*n),
-        FilterExpr::AtSignAloneCode => FilterExpr::AtSignAloneCode,
+        FilterExpr::AtSignAloneCode(n) => FilterExpr::AtSignAloneCode(*n),
         FilterExpr::EmptyViewValue => FilterExpr::EmptyViewValue,
         FilterExpr::UnpinnedMatch(..) | FilterExpr::UnpinnedText(_) => e.clone(),
         FilterExpr::NumCode(e) => FilterExpr::NumCode(e.clone()),
