@@ -1,5 +1,7 @@
-// Neighbors of al-runner issue 8832 just past the cells of GetFieldByControlId.al (corpus pull request 1538): a call on what
-// GetField found that no cell measures, Caption of what a part control's id gives, and GetField on a Worksheet page. Each test asserts what Business Central 29.1 answered (3 runs).
+// Neighbors of al-runner issues 8832 and 8887 just past the cells of GetFieldByControlId.al (corpus pull request 1538): a call on
+// what GetField found that no cell measures, Caption of what a part control's id gives, GetField by a control's own id on a
+// Worksheet, a ListPlus and a CardPart behind a TestPart, and on a Worksheet the id of another page's control. Each test asserts
+// what Business Central 29.1 answered (3 runs).
 
 codeunit 97711 "LT GFN Tests"
 {
@@ -49,7 +51,7 @@ codeunit 97711 "LT GFN Tests"
         Card.Close();
     end;
 
-    // GetField by the id of the Name control of a Worksheet page (97685): no cell opens a Worksheet.
+    // GetField by the id of the Name control of a Worksheet page (97692): no cell finds a control on a Worksheet.
     [Test]
     procedure WorksheetGetField()
     var
@@ -58,12 +60,63 @@ codeunit 97711 "LT GFN Tests"
         Initialize();
         Sheet.OpenView();
         Sheet.First();
-        Check('value', 'Alpha', Sheet.GetField(2044414625).Value());
+        Check('value', 'Alpha', Sheet.GetField(525577793).Value());
+        Sheet.Close();
+    end;
+
+    // GetField by the id of the ListPlus page's own Name control (97686, GetFieldByControlId.al:1648 the missing id there).
+    [Test]
+    procedure ListPlusOwnId()
+    var
+        Pg: TestPage "LT GFI ListPlus";
+    begin
+        Initialize();
+        Pg.OpenEdit();
+        Check('value', 'Alpha', Pg.GetField(1633031500).Value());
+        Pg.Close();
+    end;
+
+    // GetField on the host's TestPart by the id of the CardPart's own Name control (97687, :1665 the missing id there).
+    [Test]
+    procedure CardPartOwnId()
+    var
+        Pg: TestPage "LT GFI Part Host";
+    begin
+        Initialize();
+        Pg.OpenEdit();
+        Check('value', 'Alpha', Pg.Part.GetField(1480767443).Value());
+        Pg.Close();
+    end;
+}
+
+// GetField on a Worksheet by the id of another page's control: in a codeunit of its own, as the tests above refuse.
+codeunit 97693 "LT GFN Missing Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    // The id of the Name control of the List 97702 on the Worksheet 97685 (:1631 an id on no page).
+    [Test]
+    procedure WorksheetOtherPageId()
+    var
+        Row: Record "LT GFI Row";
+        Sheet: TestPage "LT GFI Worksheet";
+        Shown: Text;
+    begin
+        Row.DeleteAll();
+        Row."No." := 'R1';
+        Row.Name := 'Alpha';
+        Row.Insert();
+        Commit();
+        Sheet.OpenEdit();
+        asserterror Shown := Sheet.GetField(2021824417).Value();
+        if GetLastErrorText() <> 'The field with ID = 2021824417 is not found on the page.' then
+            Error('error: found <%1>.', GetLastErrorText());
         Sheet.Close();
     end;
 }
 
-page 97685 "LT GFN Sheet"
+page 97692 "LT GFN Sheet"
 {
     PageType = Worksheet;
     SourceTable = "LT GFI Row";
