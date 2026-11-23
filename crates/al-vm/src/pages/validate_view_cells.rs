@@ -214,7 +214,7 @@ const TREE_ISSUE_PAGE: [&str; 8] = [
     "trigger onaftergetrecord: begin Log.Add((('AGR(' + Rec.\"Name\") + ')')); end",
 ];
 
-/// Page 97714 "LT TVF Drop Tree" (:1490-1519): the issue's tree page without OnAfterGetRecord; the page of al-runner issue
+/// Page 97714 "LT TVF Drop Tree" (:1555-1584): the issue's tree page without OnAfterGetRecord; the page of al-runner issue
 /// 8846's repro reads the same.
 const TREE_DROP_PAGE: [&str; 7] = [
     TREE_ISSUE_PAGE[0],
@@ -401,7 +401,7 @@ impl CellPage {
         }
     }
 
-    /// The rows the table held in every cell on the page (:563-565 three; :1622 one).
+    /// The rows the table held in every cell on a page other than the tree pages and their List (:563-565 three; :1622 one).
     pub(crate) fn table_rows(self) -> usize {
         match self {
             CellPage::EditCard => 1,
@@ -425,11 +425,10 @@ impl CellPage {
         )
     }
 
-    /// The Indentation of each row of the table, in the key, that `cell` on the page had: on a tree page and on the List over
-    /// the tree's table A and B at the top, C under B (TreeValidateFilterRefresh.al:507 `Initialize`, :514-:519), or none
-    /// indented for a flat cell (:1167 `InitializeFlat`); `None` elsewhere.
-    pub(crate) fn indentations(self, cell: &Cell) -> Option<&'static [i32]> {
-        (self.tree() || self == CellPage::TreeLines).then_some(if cell.flat { &[0, 0, 0] } else { &[0, 0, 1] })
+    /// The rows of the table, in the key, that `cell` on the page had (`Cell::rows`): on a tree page and on the List over the
+    /// tree's table; `None` elsewhere.
+    pub(crate) fn tree_rows(self, cell: &Cell) -> Option<&'static [Row]> {
+        (self.tree() || self == CellPage::TreeLines).then_some(cell.rows)
     }
 
     /// A tree page of TreeValidateFilterRefresh.al (assumption `tree-validate-view-refresh`).
@@ -584,12 +583,23 @@ pub(crate) enum Tail {
     End,
 }
 
+/// One row of the table a cell on a tree page had, in the key: its Group Code and its Indentation.
+pub(crate) type Row = (&'static str, i32);
+
+/// The rows of the tree cells: A (G0) and B (G1) at the top, C (G1) under B (TreeValidateFilterRefresh.al:507 `Initialize`,
+/// :514-:519).
+const TREE_ROWS: [Row; 3] = [("G0", 0), ("G1", 0), ("G1", 1)];
+
+/// The rows of the flat cells: A (G0), B (G1) and C (G2), none indented (:1167 `InitializeFlat`); the same groups in the key
+/// over other entry numbers (:1436, :1448 `InitializeShape`).
+const FLAT_ROWS: [Row; 3] = [("G0", 0), ("G1", 0), ("G2", 0)];
+
 /// The steps of one cell and the calls after them.
 pub(crate) struct Cell {
     pub(crate) steps: &'static [Step],
     pub(crate) tail: Tail,
-    /// Over rows none indented (`CellPage::indentations`).
-    pub(crate) flat: bool,
+    /// On a tree page and on the List over the tree's table, the rows the table held (`CellPage::tree_rows`).
+    pub(crate) rows: &'static [Row],
 }
 
 use Change::{Drop, Keep, KeepText, Reset, Same};
@@ -602,7 +612,7 @@ const fn walk(steps: &'static [Step]) -> Cell {
     Cell {
         steps,
         tail: Tail::Walk,
-        flat: false,
+        rows: &TREE_ROWS,
     }
 }
 
@@ -610,7 +620,7 @@ const fn close(steps: &'static [Step]) -> Cell {
     Cell {
         steps,
         tail: Tail::Close,
-        flat: false,
+        rows: &TREE_ROWS,
     }
 }
 
@@ -618,13 +628,18 @@ const fn end(steps: &'static [Step]) -> Cell {
     Cell {
         steps,
         tail: Tail::End,
-        flat: false,
+        rows: &TREE_ROWS,
     }
 }
 
 /// `cell` over rows none indented.
 const fn flat(cell: Cell) -> Cell {
-    Cell { flat: true, ..cell }
+    over(&FLAT_ROWS, cell)
+}
+
+/// `cell` over `rows`.
+const fn over(rows: &'static [Row], cell: Cell) -> Cell {
+    Cell { rows, ..cell }
 }
 
 /// Last, a SetValue on Name with `update` and `change` whose refresh settled on row `at` of a view of `rows`, then a SetValue on
@@ -736,7 +751,7 @@ const ISSUE_CELLS: [Cell; 6] = [
     Cell {
         steps: &KEEP_F,
         tail: Tail::FirstClose,
-        flat: false,
+        rows: &TREE_ROWS,
     },
     walk(&[Last, Set(Name, Upd::False, Keep, Some((2, 1)))]),
 ];
@@ -817,7 +832,7 @@ const TREE_ISSUE_CELLS: [Cell; 3] = [
 /// under asserterror (:1390).
 const TREE_DROP_CELLS: [Cell; 1] = [end(&[Set(Name, Upd::False, Drop, Some((2, 0)))])];
 
-/// The cells on page 97727, over the rows of `TREE_CELLS`' last three: the SetValue on Name from the first, the middle and
+/// The cells on page 97727, over the flat rows (`FLAT_ROWS`): the SetValue on Name from the first, the middle and
 /// the last row, the filter leaving the row out; then the SetValue on Value, First, the walk and Close (:1246, :1264, :1282).
 const TREE_LINES_CELLS: [Cell; 3] = [
     flat(walk(&[DROP_TO_FIRST, Set(Val, Upd::False, Same, Some((1, 0)))])),
@@ -833,10 +848,12 @@ const TREE_LINES_CELLS: [Cell; 3] = [
 /// A SetValue on Name, Update(false), whose filter leaves the row out of a view of `rows`, the refresh settling on the first.
 const DROP_TO_FIRST: Step = Set(Name, Upd::False, Drop, Some((1, 0)));
 
-/// The cells on page 97720 (the line of each test). The last three: a filter that leaves the row out over the rows A (G0), B
-/// (G1) and C (G2), none indented, from the first, the middle and the last row; the last one also over the tree's rows, where
-/// Last stands on B and SetRange on G0 leaves it out (:1146).
-const TREE_CELLS: [Cell; 12] = [
+/// The cells on page 97720 (the line of each test). Then a filter that leaves the row out over the rows A (G0), B (G1) and C
+/// (G2), none indented, from the first, the middle and the last row, the same groups over other entries in the key from the
+/// first and the last row; from the middle row over the groups G0, G1 and G5; over the tree's rows, where Last stands on B and
+/// SetRange on G0 leaves it out (:1146); and over a child in G0 before two top-level rows in G1, where Last stands on the
+/// last of them and SetRange on G0 keeps only the child (:1460).
+const TREE_CELLS: [Cell; 14] = [
     walk(&TREE_KEEP_F),      // :794
     walk(&TREE_KEEP_TEXT_F), // :812
     walk(&TREE_KEEP_T),      // :830
@@ -849,10 +866,15 @@ const TREE_CELLS: [Cell; 12] = [
     walk(&TREE_EXPANDED_F),  // :902
     walk(&[Last, Action(Upd::False, Keep), Set(Val, Upd::False, Same, Some((2, 0)))]), // :921
     walk(&[Last, Set(Val, Upd::False, Same, Some((3, 1)))]), // :1129
-    flat(end(&[DROP_TO_FIRST])), // :1300
+    flat(end(&[DROP_TO_FIRST])), // :1300, :1436
     flat(end(&[Last, Previous, DROP_TO_FIRST])), // :1312
-    flat(end(&[Last, DROP_TO_FIRST])), // :1324
+    flat(end(&[Last, DROP_TO_FIRST])), // :1324, :1448
     end(&[Last, DROP_TO_FIRST]), // :1146
+    over(
+        &[("G0", 0), ("G1", 0), ("G5", 0)],
+        end(&[Last, Previous, DROP_TO_FIRST]),
+    ), // :1424
+    over(&[("G0", 1), ("G1", 0), ("G1", 0)], end(&[Last, DROP_TO_FIRST])), // :1460
 ];
 
 /// The cells on page 97721, both row triggers (:939, :957, :975, :993).

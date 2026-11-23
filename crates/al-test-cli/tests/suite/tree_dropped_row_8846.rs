@@ -10,8 +10,8 @@ use al_test_cli::report::Outcome;
 
 const PROBE: &str = include_str!("../../../../tests/neighbors/8833-tree-update-false-refresh/src/Probe.al");
 
-/// The probe's tests of a filter that leaves the row out (:1146, :1246-:1324, :1347-:1390).
-pub(super) const DROP_CELLS: [&str; 10] = [
+/// The probe's tests of a filter that leaves the row out (:1146, :1246-:1324, :1347-:1390, :1424-:1460).
+pub(super) const DROP_CELLS: [&str; 14] = [
     "Tree_SetRangeDropsUpdateFalse_Fails",
     "List_FirstRowSetRangeDropsUpdateFalse",
     "List_MiddleRowSetRangeDropsUpdateFalse",
@@ -22,6 +22,10 @@ pub(super) const DROP_CELLS: [&str; 10] = [
     "IssueTree_FirstRowSetRangeDropsUpdateFalse_Fails",
     "DropTree_FirstRowSetRangeDropsUpdateFalse_Fails",
     "DropTree_FirstRowSetRangeDropsUpdateFalse_AssertError",
+    "FlatTree_GroupsG5G1G0_MiddleRowSetRangeDropsUpdateFalse_Fails",
+    "FlatTree_GroupsG0G2G1_FirstRowSetRangeDropsUpdateFalse_Fails",
+    "FlatTree_GroupsG1G0G2_LastRowSetRangeDropsUpdateFalse_Fails",
+    "Tree_ChildInG0_LastRowSetRangeDropsUpdateFalse_Fails",
 ];
 
 /// The reporter's test passes: the SetValue on the tree's first row raises the filtered-view error, and the typed row stays
@@ -79,4 +83,44 @@ fn neighbors_past_the_cells_keep_mains_path() {
         })
         .collect();
     assert!(o.len() == 4 && bad.is_empty(), "{o:#?}");
+}
+
+/// The data shapes of the review on page 97720 under other names, each measured on BC: the rows of the drop cells in other
+/// groups and the child in G0 run under the entry, as the cells of :1424-:1460 measure them; the value the page shows after
+/// the failed SetValue refuses (BC shows the row the view settled on, then Close reads nothing).
+#[test]
+fn shape_neighbors() {
+    let src = include_str!("../../../../tests/neighbors/8846-tree-dropped-row/src/ShapeNeighbors.al");
+    let shapes = outcomes(src, "LT TDN Shape Tests");
+    assert!(
+        shapes.len() == 4
+            && shapes
+                .iter()
+                .all(|(_, r, marks)| *r == Outcome::Pass && *marks == [TreeValidateViewRefresh]),
+        "{shapes:#?}"
+    );
+    let after = outcomes(src, "LT TDN Close Tests");
+    assert!(
+        after.len() == 1
+            && matches!(&after[0].1, Outcome::NotRun(why) if why.starts_with("a tree page of TreeValidateFilterRefresh.al after a SetValue whose filter left the row out")),
+        "{after:#?}"
+    );
+}
+
+/// The group of each row is part of a cell, by equality: the middle-row shape over the groups G0, G1 and G7, which no cell
+/// measures, keeps main's path (no error, no entry), where G5 runs under the entry.
+#[test]
+fn rows_in_groups_no_cell_holds_keep_mains_path() {
+    let src = include_str!("../../../../tests/neighbors/8846-tree-dropped-row/src/ShapeNeighbors.al");
+    let other = src.replace(
+        "Initialize('G5', 'G1', 'G0', 0, 0, 0);",
+        "Initialize('G7', 'G1', 'G0', 0, 0, 0);",
+    );
+    assert_ne!(other, src);
+    let o = outcomes(&other, "LT TDN Shape Tests");
+    let middle = o.iter().find(|(n, ..)| n == "GroupsG5G1G0_MiddleRowDrops");
+    assert!(
+        matches!(middle, Some((_, Outcome::Fail(_), marks)) if marks.is_empty()),
+        "{o:#?}"
+    );
 }

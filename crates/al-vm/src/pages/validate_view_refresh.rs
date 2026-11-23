@@ -23,7 +23,7 @@ use super::draft::view_filtered_error;
 use super::open::TREE_GROUP;
 use super::pinned_body::{Callees, Names, callees_with_calls_are, page_is, table_is};
 use super::pinned_shape::TestCall;
-use super::validate_view_cells::{CellPage, Change, Ctl, Step, Tail, Upd};
+use super::validate_view_cells::{CellPage, Change, Ctl, Row, Step, Tail, Upd};
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::filter::{FieldFilter, FilterExpr};
@@ -702,9 +702,9 @@ impl Session {
         Ok(None)
     }
 
-    /// A cell of `page` whose steps begin with `steps` held the rows the table of `rec` holds: their number
-    /// (`CellPage::table_rows`) and, on the pages of TreeValidateFilterRefresh.al, the Indentation of each row in the key, by
-    /// equality (`CellPage::indentations`).
+    /// A cell of `page` whose steps begin with `steps` held the rows the table of `rec` holds: on the pages of
+    /// TreeValidateFilterRefresh.al the Group Code and the Indentation of each row in the key, by equality
+    /// (`CellPage::tree_rows`), elsewhere their number (`CellPage::table_rows`).
     fn validate_view_table_fits(&mut self, rec: &Rec, page: CellPage, steps: &[Step]) -> Result<bool, Signal> {
         let probe = Rc::new(RefCell::new(rec.borrow().clone()));
         {
@@ -713,27 +713,27 @@ impl Session {
             p.marked_only = false;
         }
         let rows = self.view_rows(&probe, 5)?;
-        if rows.len() != page.table_rows() {
-            return Ok(false);
-        }
         let level = self
             .table(rec)?
             .fields
             .iter()
             .position(|f| f.name.eq_ignore_ascii_case("Indentation"));
-        let indented = |want: &[i32]| {
+        let held = |want: &[Row]| {
             level.is_some_and(|l| {
                 rows.len() == want.len()
-                    && rows
-                        .iter()
-                        .zip(want)
-                        .all(|(r, i)| matches!(r.get(l), Some(Value::Integer(n)) if n == i))
+                    && rows.iter().zip(want).all(|(r, (group, indent))| {
+                        matches!(r.first(), Some(Value::Code(g)) if g == group)
+                            && matches!(r.get(l), Some(Value::Integer(n)) if n == indent)
+                    })
             })
         };
-        Ok(page
-            .cells()
-            .iter()
-            .any(|c| c.steps.starts_with(steps) && page.indentations(c).is_none_or(indented)))
+        Ok(page.cells().iter().any(|c| {
+            c.steps.starts_with(steps)
+                && match page.tree_rows(c) {
+                    Some(want) => held(want),
+                    None => rows.len() == page.table_rows(),
+                }
+        }))
     }
 
     /// The control of `st` at `idx` as the cells type into it: bound to the field Name or to the field Value of Rec.

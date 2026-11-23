@@ -3,3 +3,11 @@
 # the filtered-view error, as BC does. The neighbors (Update(true), CollapseAll, OnAfterGetCurrRecord, a view left without
 # rows) keep main's path and do not differ.
 Repro Tree Drop Tests::FirstRowSetRangeDropsRow_RaisesValidationError	ASSUMED tree-validate-view-refresh (corpus PR 1539, the issue's shape at :1370)
+# The data shapes of the review on a copy of page 97720 (ShapeNeighbors.al): main raised no error and saved nothing; the head
+# saves the row and raises the filtered-view error, as BC does and as the cells of corpus PR 1539 :1424-:1460 measure. After
+# the error the value the page shows refuses (BC shows the row the view settled on); main read the typed row.
+LT TDN Shape Tests::GroupsG5G1G0_MiddleRowDrops	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1424)
+LT TDN Shape Tests::GroupsG0G2G1_FirstRowDrops	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1436)
+LT TDN Shape Tests::GroupsG1G0G2_LastRowDrops	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1448)
+LT TDN Shape Tests::ChildInG0_LastRowDrops	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1460)
+LT TDN Close Tests::FirstRowDrops_ThenValueAndClose	REFUSED a tree page of TreeValidateFilterRefresh.al after a SetValue whose filter left the row out of the view

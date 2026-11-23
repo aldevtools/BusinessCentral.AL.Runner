@@ -2,18 +2,18 @@
 // Scope: in-scope
 // local object: the control's OnValidate and the action that change a tree page's view, and the page triggers that log, are what is under test
 // Fixtures used: shared Assert (60021); own tables 97716, 97719, log codeunit 97717, pages 97714, 97718, 97720-97723, 97727, tests 97724
-// Probe (al-runner issue 8833): a tree page (ShowAsTree over Indentation, C indented under B) stands on its last top-level row B of
-//   three rows A (group G0), B and C (group G1), opened with OpenEdit. SetValue on Name runs the control's OnValidate, which sets a
-//   filter on Rec and calls CurrPage.Update; on the configurable pages a SetValue on Value, whose OnValidate calls
-//   CurrPage.Update(false), follows. Then First() and a walk with Next(), Close, and the rows the table holds. Readings: the page
-//   triggers each step runs, in order; the Name and Value the page shows; the row First lands on and the rows the walk reaches; the
-//   stored rows. Cells: the issue's page (97718, line for line the page of the issue's repro), also with B expanded first; on the
-//   configurable pages Update(false), Update(true) and no Update, a filter that keeps the row (SetRange or SetFilter on G1), one that drops it
-//   (SetRange on G0), no filter change and Reset of no filter, the same from an action, B expanded first (Expand(true)), and the
-//   SetValue on Value alone; a tree with
-//   OnAfterGetRecord only (97720), with OnAfterGetRecord and OnAfterGetCurrRecord (97721), with OnAfterGetCurrRecord only (97722), and
-//   with TreeInitialState = CollapseAll (97723). No test leaves a page open: a page that a failed SetValue leaves behind reads its
-//   row again when another page saves it.
+// Probe (al-runner issues 8833, 8846): a tree page (ShowAsTree over Indentation, C indented under B) stands on its last top-level
+//   row B of three rows A (group G0), B and C (G1), opened with OpenEdit. SetValue on Name runs the control's OnValidate, which sets
+//   a filter on Rec and calls CurrPage.Update; on the configurable pages a SetValue on Value (CurrPage.Update(false)) follows. Then
+//   First(), a walk with Next(), Close, and the rows the table holds. Readings: the page triggers each step runs, in order; the
+//   values the page shows; the rows First and the walk reach; the stored rows. Cells: the issue's page (97718, the repro's page),
+//   also with B expanded first; on the configurable pages Update(false), Update(true) and no Update, a filter that keeps the row
+//   (SetRange or SetFilter on G1), no filter change and Reset of no filter, the same from an action, B expanded first, and the
+//   SetValue on Value alone, on a tree with OnAfterGetRecord only (97720), with both row triggers (97721), with
+//   OnAfterGetCurrRecord only (97722), and with TreeInitialState = CollapseAll (97723); a filter that leaves the row out, from the
+//   first, middle and last row, on 97720 over the tree's rows, over rows none indented and in other groups, on the List 97727
+//   (97720 without ShowAsTree), on 97718 and on 97714 (97718 without OnAfterGetRecord, the page of issue 8846's repro). The cells
+//   whose SetValue raises the filtered-view error leave their tree page behind, so they run after the other cells.
 // BC versions: 27, 28, 29
 
 table 97716 "LT TVF Row"
@@ -1400,6 +1400,71 @@ codeunit 97724 "LT TVF Tests"
         Expect('open', 'A');
         Expect('error', 'TestValidation: Validation error for Field: ,  Message = ''The view is filtered, and the entry is outside the filter. Some actions may not work.''');
         Expect('stored', 'A,B,C,');
+    end;
+
+    // The tree 97720 over rows A, B and C (entries 1, 2 and 3) in the groups and with the Indentation given: the rows the drop
+    // cells hold in other data.
+    local procedure InitializeShape(GroupA: Code[10]; GroupB: Code[10]; GroupC: Code[10]; IndentA: Integer; IndentB: Integer; IndentC: Integer)
+    var
+        Row: Record "LT TVF Row";
+        Line: Record "LT TVF Line";
+    begin
+        Row.DeleteAll();
+        Line.DeleteAll();
+        AddLine(GroupA, 1, 'A', IndentA);
+        AddLine(GroupB, 2, 'B', IndentB);
+        AddLine(GroupC, 3, 'C', IndentC);
+        Commit();
+        Log.Setup(0, 0);
+        Clear(Seen);
+    end;
+
+    // A in G5, B in G1, C in G0, none indented (in the key C, B, A): from the middle row B, SetRange on G0 keeps only C.
+    [Test]
+    procedure FlatTree_GroupsG5G1G0_MiddleRowSetRangeDropsUpdateFalse_Fails()
+    begin
+        InitializeShape('G5', 'G1', 'G0', 0, 0, 0);
+        RunTreeDrop(1, 4);
+        Expect('open', 'B:P.AGR(C);P.AGR(B);P.AGR(A);P.AGR(C);');
+        Expect('error', 'TestValidation: Validation error for Field: ,  Message = ''The view is filtered, and the entry is outside the filter. Some actions may not work.''');
+        Expect('setname', 'P.AGR(B);P.V(X2);P.AGR(C);');
+        Expect('stored', 'C/,X2/,A/,');
+    end;
+
+    // A in G0, B in G2, C in G1, none indented (in the key A, C, B): from the first row A, SetRange on G1 keeps only C.
+    [Test]
+    procedure FlatTree_GroupsG0G2G1_FirstRowSetRangeDropsUpdateFalse_Fails()
+    begin
+        InitializeShape('G0', 'G2', 'G1', 0, 0, 0);
+        RunTreeDrop(0, 1);
+        Expect('open', 'A:P.AGR(A);P.AGR(C);P.AGR(B);P.AGR(A);');
+        Expect('error', 'TestValidation: Validation error for Field: ,  Message = ''The view is filtered, and the entry is outside the filter. Some actions may not work.''');
+        Expect('setname', 'P.V(X2);P.AGR(C);');
+        Expect('stored', 'X2/,C/,B/,');
+    end;
+
+    // A in G1, B in G0, C in G2, none indented (in the key B, A, C): from the last row C, SetRange on G1 keeps only A.
+    [Test]
+    procedure FlatTree_GroupsG1G0G2_LastRowSetRangeDropsUpdateFalse_Fails()
+    begin
+        InitializeShape('G1', 'G0', 'G2', 0, 0, 0);
+        RunTreeDrop(2, 1);
+        Expect('open', 'C:P.AGR(B);P.AGR(A);P.AGR(C);P.AGR(B);');
+        Expect('error', 'TestValidation: Validation error for Field: ,  Message = ''The view is filtered, and the entry is outside the filter. Some actions may not work.''');
+        Expect('setname', 'P.AGR(C);P.V(X2);P.AGR(A);');
+        Expect('stored', 'B/,A/,X2/,');
+    end;
+
+    // A and B in G1, C in G0 indented 1 (in the key C, A, B): from Last, SetRange on G0 keeps only C.
+    [Test]
+    procedure Tree_ChildInG0_LastRowSetRangeDropsUpdateFalse_Fails()
+    begin
+        InitializeShape('G1', 'G1', 'G0', 0, 0, 1);
+        RunTreeDrop(2, 4);
+        Expect('open', 'B:P.AGR(C);P.AGR(A);P.AGR(B);P.AGR(C);');
+        Expect('error', 'TestValidation: Validation error for Field: ,  Message = ''The view is filtered, and the entry is outside the filter. Some actions may not work.''');
+        Expect('setname', 'P.AGR(B);P.V(X2);P.AGR(C);');
+        Expect('stored', 'C/,A/,X2/,');
     end;
 }
 
