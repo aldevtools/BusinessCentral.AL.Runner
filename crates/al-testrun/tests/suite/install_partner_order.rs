@@ -754,3 +754,131 @@ fn installs_whose_orders_differ_in_isolated_storage_are_refused() {
     let line = rt.phases.baseline_line().unwrap_or_default();
     assert!(line.contains("more than table rows"), "{line}");
 }
+
+/// Review round 2 of ADR-079, finding N1: the events app of the hidden-meet shape. `AskOne` and `AskTwo` raise an event
+/// and give what its subscribers answered.
+const ASKING: &str = r#"
+codeunit 76500 "Asking"
+{
+    procedure AskOne(): Boolean
+    var
+        Seen: Boolean;
+    begin
+        OnOne(Seen);
+        exit(Seen);
+    end;
+
+    procedure AskTwo(): Boolean
+    var
+        Seen: Boolean;
+    begin
+        OnTwo(Seen);
+        exit(Seen);
+    end;
+
+    [IntegrationEvent(false, false)]
+    local procedure OnOne(var Seen: Boolean)
+    begin
+    end;
+
+    [IntegrationEvent(false, false)]
+    local procedure OnTwo(var Seen: Boolean)
+    begin
+    end;
+}
+"#;
+
+/// D's install raises `OnTwo` and marks that it ran.
+const ASKS_TWO: &str = r#"
+codeunit 76600 "D Install"
+{
+    Subtype = Install;
+
+    trigger OnInstallAppPerCompany()
+    var
+        A: Codeunit "Asking";
+        M: Codeunit "Marks";
+    begin
+        if A.AskTwo() then;
+        M.Mark('D');
+    end;
+}
+"#;
+
+/// X's install raises `OnOne`, then logs what `OnTwo` answered.
+const ASKS_BOTH: &str = r#"
+codeunit 76700 "X Install"
+{
+    Subtype = Install;
+
+    trigger OnInstallAppPerCompany()
+    var
+        A: Codeunit "Asking";
+        M: Codeunit "Marks";
+    begin
+        if A.AskOne() then;
+        if A.AskTwo() then
+            M.Log('X SEEN')
+        else
+            M.Log('X EMPTY');
+    end;
+}
+"#;
+
+/// A subscriber to `event` of "Asking" that answers true.
+fn answering(object: u32, name: &str, event: &str) -> String {
+    format!(
+        r#"
+codeunit {object} "{name} Answer"
+{{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Asking", '{event}', '', false, false)]
+    local procedure Answer(var Seen: Boolean)
+    begin
+        Seen := true;
+    end;
+}}
+"#
+    )
+}
+
+/// ADR-079 decision 3, clarification of 2026-11-23 (review round 2, N1): X depends on D. D's install meets Z (`OnTwo`);
+/// X's install meets B (`OnOne`) first, then Z, and logs Z's answer. Z is in X's run set because D reads from it, and the
+/// plan places it after X. With Z installed before X the log holds "X SEEN", after X "X EMPTY". The graph has no edge
+/// "X reads from Z" before X's runs, so Z placed after X stays of unknown order: the meet is noted, and the subset runs
+/// measure the difference.
+#[test]
+fn a_meet_with_an_app_placed_after_the_install_is_noted() {
+    let rt = run(vec![
+        base(),
+        (PE_ID, "Partner E", "Partner", vec![BASE_ID], ASKING.into()),
+        (PD_ID, "Partner D", "Partner", vec![BASE_ID, PE_ID], ASKS_TWO.into()),
+        (
+            PC_ID,
+            "Partner X",
+            "Partner",
+            vec![BASE_ID, PE_ID, PD_ID],
+            ASKS_BOTH.into(),
+        ),
+        (
+            PB_ID,
+            "Partner B",
+            "Partner",
+            vec![BASE_ID, PE_ID],
+            answering(76800, "B", "OnOne"),
+        ),
+        (
+            PA_ID,
+            "Partner Z",
+            "Partner",
+            vec![BASE_ID, PE_ID],
+            answering(76900, "Z", "OnTwo"),
+        ),
+    ]);
+    match outcome(&rt, "ReadsTheLog") {
+        Outcome::NotRun(why) => assert!(why.contains("Order Log"), "{why}"),
+        other => panic!(
+            "expected not run, got {other:?}; {}",
+            rt.phases.baseline_line().unwrap_or_default()
+        ),
+    }
+}

@@ -20,7 +20,7 @@ fn a_round_starts_again_only_when_the_graph_grew() {
     assert_eq!(next_round(&before, &before, None), Ok(false));
 }
 
-/// A meet of an app the run did not install that adds no edge would repeat in every round: the proof stops and names
+/// A meet of an app of unknown order that adds no edge would repeat in every round: the proof stops and names
 /// the pair (the review of PR 8865, finding H2).
 #[test]
 fn a_meet_that_adds_no_edge_stops_the_proof_with_the_pair() {

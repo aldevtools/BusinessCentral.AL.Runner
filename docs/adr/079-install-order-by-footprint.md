@@ -181,11 +181,21 @@ least as strict as the text it clarifies.
   the run's order, and the run gives every app it installs a view in which all the others have a known place. Apps
   outside the run set stay of unknown order; a meet with one is noted. The units that X reads from through others are
   installed before every subset run of X.
+- **Decision 3, the run set: a place after the installing app (2026-11-23, orchestrator, review round 2).** This
+  narrows "all the others have a known place" above. While app A installs, in a subset run or in the final install, an
+  app G of the run with no dependency path to A counts as installed when it is placed before A. When it is placed after
+  A, it counts as not installed only when the round's graph already has the edge "A reads from G". Then G is an input
+  of A's unit or in its tangle, and A's own unit proof runs A with G installed first. Every other G stays of unknown
+  order for A, so a meet with it is noted and adds the edge. Reason: G can be in the run only because a dependency
+  predecessor of A reads from it, and the plan may place it after A in every run. Then A never runs with G installed
+  first, and a meet of A with G is never seen. In the measured shape A's row held EMPTY where BC gives SEEN when G
+  installs before A (neighbor app `install-order-footprint-hidden-meet`). The chain shape keeps its known place: the
+  edge from the dependency predecessor to the app it meets is in the graph after the first run.
 - **Decision 3, when the proof ends.** A run that adds an edge starts the proof again on the grown graph. Footprints
   only grow, so the rounds end. A run that meets an app of unknown order and adds no edge stops the proof: the group is
   not proven, and the note names that pair.
 - **Decision 3, the final install.** After every unit is proven, the whole group installs once in an order of the
-  units, every app at a fixed place. Its footprints are checked like those of a subset run.
+  units, every app at a fixed place, with the view rule of the run set above. Its footprints are checked like those of a subset run.
 - **Decision 3, a group the proof cannot cover.** The install runs once more with the order not known. Refused besides:
   every difference measured before the proof stopped, and the tables written by every install that reads what another
   unordered install wrote or writes what another writes (every table when one of them touches everything or writes a

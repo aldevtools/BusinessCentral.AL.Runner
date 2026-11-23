@@ -4,9 +4,11 @@
 //! or three apps, installs once per subset S of its inputs and per order of its apps: from the database before the
 //! group, the units it reads from through others first, then S, then the unit, then the inputs not in S, each in a fixed
 //! order. The run also installs the dependency predecessors of these apps and the units those read from (the run set,
-//! [`Proof::run_set`]), each at its place in the fixed order, so every app the run installs sees every other at a known
-//! place (ADR-079 decision 3, clarification of 2026-11-23). The other apps of the group are not part of the run and
-//! stay of unknown order, so a meet with one is refused and noted. The end databases are compared with
+//! [`Proof::run_set`]), each at its place in the fixed order (ADR-079 decision 3, clarification of 2026-11-23). While an
+//! app installs, an app of the run placed before it is installed; one placed after it is not installed only when the
+//! round's graph has the edge "the installing app reads from it" (`InstallView::of_ordered`), else it stays of unknown
+//! order. The other apps of the group are not part of the run and stay of unknown order. A meet with an app of unknown
+//! order is refused and noted. The end databases are compared with
 //! `Baseline::install_order_differences` (ADR-046 amendments 7 and 8; the orchestrator's clarification of decision 3
 //! in ADR-079: the whole database, a superset of what the unit leaves). Every run's footprints count for the graph: a
 //! run that adds an edge starts the proof again on the grown graph; a meet that adds none stops it ([`next_round`]).
@@ -112,9 +114,14 @@ impl<'p, 'g> Proof<'p, 'g> {
             }
             rewind(session, inst);
             let fixed: Vec<u32> = units.iter().flat_map(|u| self.first_order(u)).collect();
-            let hit = self
-                .g
-                .recorded_run(session, inst, &self.g.sequence(&fixed), &fixed, &mut self.fp);
+            let hit = self.g.recorded_run(
+                session,
+                inst,
+                &self.g.sequence(&fixed),
+                &fixed,
+                &graph.reads,
+                &mut self.fp,
+            );
             if self.grew(&graph, hit)? {
                 continue;
             }
@@ -129,7 +136,7 @@ impl<'p, 'g> Proof<'p, 'g> {
         next_round(graph, &self.g.graph(&self.fp), hit).map_err(|(x, y)| Unproven {
             apps: BTreeSet::from([x, y]),
             why: format!(
-                "the install of {} met {}, which the run did not install, although the proof counted that meet \
+                "the install of {} met {}, whose order the run left unknown, although the proof counted that meet \
                  already",
                 self.name(x),
                 self.name(y)
@@ -224,7 +231,7 @@ impl<'p, 'g> Proof<'p, 'g> {
                 let run = self.run_set(round, &fixed);
                 let fixed: Vec<u32> = (self.g.order(&fixed).into_iter()).filter(|a| run.contains(a)).collect();
                 let sequence: Vec<u32> = (fixed.iter().copied()).filter(|a| self.g.apps.contains(a)).collect();
-                let hit = self.g.recorded_run(session, inst, &sequence, &fixed, &mut self.fp);
+                let hit = (self.g).recorded_run(session, inst, &sequence, &fixed, &graph.reads, &mut self.fp);
                 self.runs += 1;
                 if self.grew(graph, hit)? {
                     return Ok(UnitProof::Grew);
@@ -395,7 +402,7 @@ impl Unproven {
 }
 
 /// Whether the proof starts another round after a run: `after`, the graph with the run's footprints, has an edge
-/// `before` lacks. A meet of an app the run did not install (`hit`) that added no edge cannot change in another round
+/// `before` lacks. A meet of an app of unknown order (`hit`) that added no edge cannot change in another round
 /// (the same graph gives the same runs): `Err` with that pair, the proof stops.
 pub(crate) fn next_round(before: &Graph, after: &Graph, hit: Option<(u32, u32)>) -> Result<bool, (u32, u32)> {
     if after != before {

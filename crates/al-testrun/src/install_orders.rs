@@ -96,9 +96,9 @@ impl PartnerGroup<'_> {
         !self.view.listed() && a != b && !self.view.needs(a, b) && !self.view.needs(b, a)
     }
 
-    fn run(&self, session: &mut Session, inst: &mut impl AppInstalls, sequence: &[u32], fixed: &[u32]) {
+    fn run(&self, session: &mut Session, inst: &mut impl AppInstalls, sequence: &[u32]) {
         for &app in sequence {
-            self.view.apply_ordered(session, app, &self.group, &self.held, fixed);
+            self.view.apply(session, app, &self.group, &self.held);
             inst.install(session, app);
         }
     }
@@ -112,11 +112,13 @@ impl PartnerGroup<'_> {
         inst: &mut impl AppInstalls,
         sequence: &[u32],
         fixed: &[u32],
+        reads: &BTreeSet<(u32, u32)>,
         fp: &mut Footprints,
     ) -> Option<(u32, u32)> {
         let mut hit = None;
         for &app in sequence {
-            self.view.apply_ordered(session, app, &self.group, &self.held, fixed);
+            self.view
+                .apply_ordered(session, app, &self.group, &self.held, fixed, reads);
             session.install_footprint_start();
             inst.install(session, app);
             // The install session ends; the safety net of the footprint compares committed rows.
@@ -216,7 +218,7 @@ pub(crate) fn install_partner_apps<I: AppInstalls>(
 ) {
     let may_interact = g.apps.iter().any(|&a| g.group.iter().any(|&b| g.unordered(a, b)));
     if !may_interact {
-        g.run(session, inst, &g.apps, &[]);
+        g.run(session, inst, &g.apps);
         return;
     }
     let start = session.capture_baseline();
@@ -225,7 +227,7 @@ pub(crate) fn install_partner_apps<I: AppInstalls>(
     let mark = inst.mark();
     session.take_order_unknown_hits();
     let mut fp = Footprints::new();
-    let hit = g.recorded_run(session, inst, &g.apps, &[], &mut fp);
+    let hit = g.recorded_run(session, inst, &g.apps, &[], &BTreeSet::new(), &mut fp);
     if hit.is_none() && g.graph(&fp) == Graph::default() {
         return;
     }
@@ -242,7 +244,7 @@ pub(crate) fn install_partner_apps<I: AppInstalls>(
         Err(unproven) => {
             // Once more with the order not known, as before: a meet stays refused where it is reached.
             rewind(session, inst);
-            g.run(session, inst, &g.apps, &[]);
+            g.run(session, inst, &g.apps);
             session.take_order_unknown_hits();
             unproven.apply(lowered, g, &proof, inst);
         }
