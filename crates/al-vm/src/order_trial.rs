@@ -143,7 +143,7 @@ impl Session {
         let touched = std::mem::replace(&mut *self.coverage.impact.borrow_mut(), w.outer_trace).unwrap_or_default();
         self.coverage.impact_on = w.outer_on;
         if let Some(outer) = self.coverage.impact.borrow_mut().as_mut() {
-            merge(outer, &touched);
+            outer.extend(&touched);
         }
         self.events.trial.depth -= 1;
         let objects = &self.engine.program.objects;
@@ -276,14 +276,20 @@ impl Session {
     }
 }
 
-fn merge(outer: &mut Touches, t: &Touches) {
-    outer.events.extend(t.events.iter().cloned());
-    outer.tables.extend(&t.tables);
-    outer.writes.extend(&t.writes);
-    outer.pages.extend(&t.pages);
-    outer.reports.extend(&t.reports);
-    outer.enums.extend(&t.enums);
-    outer.entered.extend(&t.entered);
-    outer.dotnet |= t.dotnet;
-    outer.routines.extend(&t.routines);
+#[cfg(test)]
+mod tests {
+    use crate::{Engine, Session};
+
+    /// What a trial noted joins the trace that was on before it, the tables read without a record operation included
+    /// (`Touches::extend`, the review of PR 8865, finding L5).
+    #[test]
+    fn a_trial_hands_its_indirect_reads_to_the_outer_trace() {
+        let l = al_testkit::compile("codeunit 50100 Probe { }");
+        let mut s = Session::new(Engine::new(l.program.clone(), al_testkit::blocked(&l)));
+        s.enable_impact_trace();
+        let w = s.trial_start();
+        s.note_indirect_read(7);
+        let _ = s.trial_end(w, 0, &[], None, &[], &[], 0);
+        assert!(s.take_impact_trace().indirect_reads.contains(&7));
+    }
 }

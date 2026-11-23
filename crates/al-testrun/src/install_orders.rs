@@ -220,6 +220,7 @@ pub(crate) fn install_partner_apps<I: AppInstalls>(
         return;
     }
     let start = session.capture_baseline();
+    let state = session.install_session_state();
     let clock = session.clock_offset_ms();
     let mark = inst.mark();
     session.take_order_unknown_hits();
@@ -230,6 +231,7 @@ pub(crate) fn install_partner_apps<I: AppInstalls>(
     }
     let rewind = |session: &mut Session, inst: &mut I| {
         session.rewind_install(&start);
+        session.set_install_session_state(&state);
         session.set_clock_offset_ms(clock);
         inst.rewind(&mark);
         session.reset_single_instances();

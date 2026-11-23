@@ -88,6 +88,65 @@ impl Resource {
     }
 }
 
+/// The writes of one footprint, indexed for [`Resource::read_sees_write`] and [`Resource::writes_collide`]: a lookup per
+/// read or write instead of a scan of every write (the review of PR 8865, finding L7). It answers what the two rules
+/// answer against every write of the set; `an_index_answers_what_the_rules_answer` checks that on every pair of kinds.
+#[derive(Debug, Default)]
+pub struct WriteIndex<'a> {
+    rows: BTreeSet<&'a Resource>,
+    /// (company, table) of every row or extent write.
+    in_company: BTreeSet<(&'a str, u32)>,
+    /// (company, table) of every extent write.
+    extents: BTreeSet<(&'a str, u32)>,
+    /// Tables written as a whole ([`Resource::Table`]).
+    whole: BTreeSet<u32>,
+    /// Tables of every write.
+    objects: BTreeSet<u32>,
+}
+
+impl<'a> WriteIndex<'a> {
+    pub fn of(writes: impl IntoIterator<Item = &'a Resource>) -> WriteIndex<'a> {
+        let mut x = WriteIndex::default();
+        for w in writes {
+            x.objects.insert(w.object());
+            match w {
+                Resource::Row(c, t, _) => {
+                    x.rows.insert(w);
+                    x.in_company.insert((c, *t));
+                }
+                Resource::Extent(c, t) => {
+                    x.in_company.insert((c, *t));
+                    x.extents.insert((c, *t));
+                }
+                Resource::Table(t) => {
+                    x.whole.insert(*t);
+                }
+            }
+        }
+        x
+    }
+
+    /// Whether the read `r` sees one of the writes ([`Resource::read_sees_write`]).
+    pub fn seen_by(&self, r: &Resource) -> bool {
+        match r {
+            Resource::Row(c, t, _) => {
+                self.rows.contains(r) || self.extents.contains(&(&**c, *t)) || self.whole.contains(t)
+            }
+            Resource::Extent(c, t) => self.in_company.contains(&(&**c, *t)) || self.whole.contains(t),
+            Resource::Table(t) => self.objects.contains(t),
+        }
+    }
+
+    /// Whether the write `w` collides with one of the writes ([`Resource::writes_collide`]).
+    pub fn collides_with(&self, w: &Resource) -> bool {
+        match w {
+            Resource::Row(_, t, _) => self.rows.contains(w) || self.whole.contains(t),
+            Resource::Extent(_, t) => self.whole.contains(t),
+            Resource::Table(t) => self.objects.contains(t),
+        }
+    }
+}
+
 /// What the store read and wrote while a footprint was recorded.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct StoreFootprint {
@@ -360,5 +419,39 @@ mod tests {
         assert!(!extent.read_sees_write(&other));
         assert!(row(1).writes_collide(&row(1)));
         assert!(!extent.writes_collide(&extent), "two inserts of different keys commute");
+    }
+
+    #[test]
+    fn an_index_answers_what_the_rules_answer() {
+        let t = crate::contract::table();
+        let row = |c: &str, o: u32, k: i32| Resource::Row(c.into(), o, RowKey::of(&t, vec![Value::Integer(k)]));
+        let all = [
+            row("C", 1, 1),
+            row("C", 1, 2),
+            row("D", 1, 1),
+            row("C", 2, 1),
+            Resource::Extent("C".into(), 1),
+            Resource::Extent("D".into(), 1),
+            Resource::Extent("C".into(), 2),
+            Resource::Table(1),
+            Resource::Table(2),
+        ];
+        // Every write set of up to two resources, against every read and write.
+        let mut sets: Vec<Vec<&Resource>> = vec![vec![]];
+        for (i, a) in all.iter().enumerate() {
+            sets.push(vec![a]);
+            for b in &all[i + 1..] {
+                sets.push(vec![a, b]);
+            }
+        }
+        for set in &sets {
+            let x = WriteIndex::of(set.iter().copied());
+            for r in &all {
+                let seen = set.iter().any(|w| r.read_sees_write(w));
+                assert_eq!(x.seen_by(r), seen, "read {r:?} of {set:?}");
+                let collide = set.iter().any(|w| r.writes_collide(w));
+                assert_eq!(x.collides_with(r), collide, "write {r:?} of {set:?}");
+            }
+        }
     }
 }

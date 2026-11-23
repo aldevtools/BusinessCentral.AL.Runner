@@ -77,6 +77,32 @@ impl Lasting {
     }
 }
 
+/// The writes of one session, indexed: what [`Lasting::read_sees_write`] and [`Lasting::writes_collide`] answer against
+/// every write, with a lookup per resource (the store's rows through al-data `WriteIndex`).
+pub(crate) struct Written<'a> {
+    store: al_data::memory::WriteIndex<'a>,
+    all: &'a BTreeSet<Lasting>,
+}
+
+impl Written<'_> {
+    pub(crate) fn any_seen_by(&self, reads: &BTreeSet<Lasting>) -> bool {
+        let any_row_write = || self.all.iter().any(|w| matches!(w, Lasting::Store(_) | Lasting::RowVersion));
+        reads.iter().any(|r| match r {
+            Lasting::Store(r) => self.store.seen_by(r),
+            Lasting::RowVersion => any_row_write(),
+            r => self.all.contains(r),
+        })
+    }
+
+    pub(crate) fn any_collides_with(&self, writes: &BTreeSet<Lasting>) -> bool {
+        writes.iter().any(|w| match w {
+            Lasting::Store(w) => self.store.collides_with(w),
+            Lasting::RowVersion => false,
+            w => self.all.contains(w),
+        })
+    }
+}
+
 /// What one install session read and wrote.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct InstallFootprint {
@@ -116,20 +142,26 @@ impl InstallFootprint {
         self.touches_everything()
             || other.touches_everything()
             || self.meets(other_app)
-            || self
-                .reads
-                .iter()
-                .any(|r| other.writes.iter().any(|w| r.read_sees_write(w)))
+            || other.written().any_seen_by(&self.reads)
     }
 
     /// Whether this session and `other` write the same resource, or one of them touches everything.
     pub fn collides(&self, other: &InstallFootprint) -> bool {
         self.touches_everything()
             || other.touches_everything()
-            || self
-                .writes
-                .iter()
-                .any(|a| other.writes.iter().any(|b| a.writes_collide(b)))
+            || other.written().any_collides_with(&self.writes)
+    }
+
+    /// The writes of this session, indexed ([`Written`]).
+    pub(crate) fn written(&self) -> Written<'_> {
+        let store = self.writes.iter().filter_map(|w| match w {
+            Lasting::Store(r) => Some(r),
+            _ => None,
+        });
+        Written {
+            store: al_data::memory::WriteIndex::of(store),
+            all: &self.writes,
+        }
     }
 
     /// Adds what `other` recorded (the footprint of an app over all its install sessions).
@@ -175,17 +207,16 @@ const APP_TABLES: &[al_builtins::platform::Virtual] = &[
 /// The builtin receivers whose calls touch no lasting resource, or one the recorder notes at its own site: values of the
 /// session (text, numbers, collections, JSON, XML, streams, errors), the store's readers and writers (recorded by the
 /// store), the isolated storage, number sequence and row version natives (noted in `sessionops.rs`), and code run
-/// (`Codeunit`: its objects are entered, so its apps are met). Every other builtin counts as touching everything: HTTP,
-/// files, pages, reports, XMLports, request pages, TaskScheduler, DataTransfer, Media, CompanyProperty, the test page
-/// types and every receiver not named here (a new one included).
+/// (`Codeunit`: its objects are entered, so its apps are met). `System`, `Database`, `Blob` and `Query` are kept by
+/// method ([`KEPT_METHODS`]). Every other builtin counts as touching everything: HTTP, files, pages, reports, XMLports,
+/// request pages, TaskScheduler, DataTransfer, Media, CompanyProperty, the test page types and every receiver not named
+/// here (a new one included).
 const KEPT_RECEIVERS: &[&str] = &[
     "BigInteger",
     "BigText",
-    "Blob",
     "Boolean",
     "Byte",
     "Codeunit",
-    "Database",
     "Date",
     "DateTime",
     "Decimal",
@@ -217,13 +248,11 @@ const KEPT_RECEIVERS: &[&str] = &[
     "NumberSequence",
     "OutStream",
     "ProductName",
-    "Query",
     "Record",
     "RecordId",
     "RecordRef",
     "SecretText",
     "SessionInformation",
-    "System",
     "Text",
     "TextBuilder",
     "TextConst",
@@ -248,9 +277,127 @@ const KEPT_RECEIVERS: &[&str] = &[
     "XmlWriteOptions",
 ];
 
+/// The methods kept of the receivers kept by method: each reads or writes only values of the session or rows the store
+/// records. Every other method of these receivers touches everything (ADR-079 decision 1, "a resource the footprint
+/// recorder does not classify"): the encryption key and its eight methods, ImportObjects, ExportObjects,
+/// ImportStreamWithUrlAccess, the CodeCoverage methods, Hyperlink, GetDotNetType, CanLoadType; of `Database` the key,
+/// data file, license, password, company copy and table connection methods; `Blob` Import and Export; the `Query`
+/// SaveAs methods; and every method not named here (a new one included).
+const KEPT_METHODS: &[(&str, &[&str])] = &[
+    ("Blob", &["CreateInStream", "CreateOutStream", "HasValue", "Length", "LengthSign"]),
+    (
+        "Database",
+        &[
+            "Commit",
+            "CompanyName",
+            "CurrentTransactionType",
+            "IsInWriteTransaction",
+            "LastUsedRowVersion",
+            "LockTimeout",
+            "LockTimeoutDuration",
+            "MinimumActiveRowVersion",
+            "SelectLatestVersion",
+            "SerialNumber",
+            "ServiceInstanceId",
+            "SessionId",
+            "SID",
+            "TenantId",
+            "UserId",
+            "UserSecurityId",
+        ],
+    ),
+    (
+        "Query",
+        &[
+            "Close",
+            "ColumnCaption",
+            "ColumnName",
+            "ColumnNo",
+            "GetFilter",
+            "GetFilters",
+            "Open",
+            "Read",
+            "SecurityFiltering",
+            "SetFilter",
+            "SetRange",
+            "TopNumberOfRows",
+        ],
+    ),
+    (
+        "System",
+        &[
+            "Abs",
+            "ApplicationPath",
+            "ArrayLen",
+            "AutoFormatWriterGuard",
+            "CalcDate",
+            "CaptionClassTranslate",
+            "Clear",
+            "ClearAll",
+            "ClearCollectedErrors",
+            "ClearLastError",
+            "ClearWithEventsTimer",
+            "ClosingDate",
+            "CompressArray",
+            "CopyArray",
+            "CopyStream",
+            "CreateDateTime",
+            "CreateGuid",
+            "CurrentDateTime",
+            "Date",
+            "DaTi",
+            "DMY",
+            "DT",
+            "DWY",
+            "Evaluate",
+            "EvaluateBounded",
+            "EvaluateDateVariable",
+            "EvaluateMemberlessVarOption",
+            "EvaluateMemberlessVarOptionElement",
+            "EvaluateOptionField",
+            "EvaluateVariableOption",
+            "Format",
+            "FormatAutoFormatField",
+            "FormatDecimalField",
+            "FormatOptionColumn",
+            "FormatVariant",
+            "GetCollectedErrors",
+            "GetDocumentUrl",
+            "GetLastErrorCallStack",
+            "GetLastErrorCode",
+            "GetLastErrorObject",
+            "GetLastErrorText",
+            "GetUrl",
+            "GlobalLanguage",
+            "GuiAllowed",
+            "HasCollectedErrors",
+            "IsCollectingErrors",
+            "IsNull",
+            "IsNullGuid",
+            "IsServiceTier",
+            "NormalDate",
+            "OptionCaptionML",
+            "Power",
+            "Random",
+            "Randomize",
+            "Round",
+            "RoundDateTime",
+            "Sleep",
+            "TemporaryPath",
+            "TextConstText",
+            "Time",
+            "Today",
+            "TranslatedText",
+            "Variant",
+            "WindowsLanguage",
+            "WorkDate",
+        ],
+    ),
+];
+
 /// Whether builtin `name` (`Receiver.Method#n`) touches everything while an install session is recorded
-/// ([`KEPT_RECEIVERS`]). Of `NavApp`, the module info reads are kept (`GetModuleInfo` notes the app it reads); of
-/// `Session`, every method but the ones that start, stop or look at another session.
+/// ([`KEPT_RECEIVERS`], [`KEPT_METHODS`]). Of `NavApp`, the module info reads are kept (`GetModuleInfo` notes the app it
+/// reads); of `Session`, every method but the ones that start, stop or look at another session.
 fn builtin_touches_everything(receiver: &str, method: &str) -> bool {
     match receiver {
         "NavApp" => !matches!(method, "GetModuleInfo" | "GetCurrentModuleInfo" | "GetCallerModuleInfo"),
@@ -258,7 +405,10 @@ fn builtin_touches_everything(receiver: &str, method: &str) -> bool {
             method,
             "StartSession" | "StopSession" | "IsSessionActive" | "IsSessionLoggedIn"
         ),
-        r => !KEPT_RECEIVERS.contains(&r),
+        r => match KEPT_METHODS.iter().find(|(k, _)| *k == r) {
+            Some((_, kept)) => !kept.contains(&method),
+            None => !KEPT_RECEIVERS.contains(&r),
+        },
     }
 }
 

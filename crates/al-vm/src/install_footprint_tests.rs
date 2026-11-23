@@ -8,6 +8,14 @@ const SRC: &str = r#"
 table 50100 "Auto Row" { fields { field(1; Id; Integer) { AutoIncrement = true; } field(2; Name; Text[20]) { } } keys { key(PK; Id) { } } }
 codeunit 50100 Probe
 {
+    procedure DeleteKey()
+    begin
+        DeleteEncryptionKey();
+    end;
+    procedure KeyExists(): Boolean
+    begin
+        exit(EncryptionKeyExists());
+    end;
     procedure Sequence()
     var N: BigInteger;
     begin
@@ -384,4 +392,63 @@ fn a_store_whose_record_was_lost_touches_everything() {
     let _ = s.store.footprint_take();
     let fp = s.install_footprint_take().unwrap();
     assert!(fp.touches_everything(), "{fp:?}");
+}
+
+/// The encryption key is session state the baseline capture does not hold: a subset run that deleted it must not leave it
+/// deleted for the next run (`Session::set_install_session_state`, the review of PR 8865, finding M2).
+#[test]
+fn the_install_session_state_puts_the_encryption_key_back() {
+    let l = al_testkit::compile(SRC);
+    let engine = Engine::new(l.program.clone(), al_testkit::blocked(&l));
+    let probe = (engine.program.objects.iter())
+        .position(|o| o.name == "Probe")
+        .expect("Probe");
+    let mut s = Session::new(engine);
+    let ri = |s: &Session, n: &str| {
+        (s.engine.program.objects[probe].routines.iter())
+            .position(|r| r.name == n)
+            .unwrap()
+    };
+    let state = s.install_session_state();
+    let inst = s.codeunit_instance(probe);
+    let (delete, exists) = (ri(&s, "DeleteKey"), ri(&s, "KeyExists"));
+    s.call(probe, delete, inst.clone(), vec![]).unwrap();
+    s.set_install_session_state(&state);
+    let (v, _) = s.call(probe, exists, inst, vec![]).unwrap();
+    assert_eq!(format!("{v:?}"), "Boolean(true)");
+}
+
+/// The indexed writes answer what [`Lasting::read_sees_write`] and [`Lasting::writes_collide`] answer against every write
+/// (the review of PR 8865, finding L7).
+#[test]
+fn indexed_writes_answer_what_the_rules_answer() {
+    let all = [
+        Lasting::Store(Resource::Extent("C".into(), 1)),
+        Lasting::Store(Resource::Table(2)),
+        Lasting::AutoIncrement("C".into(), 1),
+        Lasting::Sequence("C".into(), "S".into()),
+        Lasting::IsolatedStorage("M".into(), "K".into()),
+        Lasting::RowVersion,
+    ];
+    let mut sets: Vec<std::collections::BTreeSet<Lasting>> = vec![Default::default()];
+    for (i, a) in all.iter().enumerate() {
+        sets.push([a.clone()].into());
+        for b in &all[i + 1..] {
+            sets.push([a.clone(), b.clone()].into());
+        }
+    }
+    for set in &sets {
+        let fp = InstallFootprint {
+            writes: set.clone(),
+            ..Default::default()
+        };
+        let x = fp.written();
+        for r in &all {
+            let one: std::collections::BTreeSet<Lasting> = [r.clone()].into();
+            let seen = set.iter().any(|w| r.read_sees_write(w));
+            assert_eq!(x.any_seen_by(&one), seen, "read {r:?} of {set:?}");
+            let collide = set.iter().any(|w| r.writes_collide(w));
+            assert_eq!(x.any_collides_with(&one), collide, "write {r:?} of {set:?}");
+        }
+    }
 }

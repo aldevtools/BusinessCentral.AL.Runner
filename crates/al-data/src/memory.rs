@@ -17,7 +17,7 @@ mod collation_read_tests;
 mod footprint;
 #[cfg(test)]
 mod footprint_tests;
-pub use footprint::{Resource, RowKey, StoreFootprint};
+pub use footprint::{Resource, RowKey, StoreFootprint, WriteIndex};
 mod frozen;
 mod held_cols;
 mod key;

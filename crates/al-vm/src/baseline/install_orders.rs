@@ -52,6 +52,29 @@ impl Session {
     }
 }
 
+/// The session state an install may change that a [`Baseline`] capture does not hold: the encryption key and the values
+/// encrypted with it ([`Session::install_session_state`]).
+pub struct InstallSessionState {
+    encryption_key: crate::EncryptionKey,
+    encrypted: std::collections::HashMap<String, String>,
+}
+
+impl Session {
+    /// The session state of [`InstallSessionState`] now, for a rewind between two install runs.
+    pub fn install_session_state(&self) -> InstallSessionState {
+        InstallSessionState {
+            encryption_key: self.encryption_key,
+            encrypted: self.encrypted.clone(),
+        }
+    }
+
+    /// Puts back the state `s` that [`Session::install_session_state`] took.
+    pub fn set_install_session_state(&mut self, s: &InstallSessionState) {
+        self.encryption_key = s.encryption_key;
+        self.encrypted = s.encrypted.clone();
+    }
+}
+
 /// The clock readings around one install order: the first before its install code ran and the last after, in
 /// milliseconds since the Unix epoch (`Session::clock_now_millis`).
 pub type ClockWindow = (i64, i64);
