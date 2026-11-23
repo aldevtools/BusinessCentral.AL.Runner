@@ -25,6 +25,9 @@ pub struct ControlOnValidate {
     /// The last record call of page code since it began that loaded a row into the page's Rec or moved it
     /// (`Session::note_page_rec_call`), `None` before the first.
     pub positioned: Option<RecCall>,
+    /// On the page's new line: the SystemRowVersion of the row the table field stored for it when the OnValidate began
+    /// (`code_inserted_extra.rs` `extra_code_row_rewritten`).
+    pub row_version: Option<i64>,
 }
 
 /// A record call on the page's Rec: the method and, for `Find`, its argument (`None` for `Find()`).
@@ -42,6 +45,7 @@ impl ControlOnValidate {
             changes,
             saves: Vec::new(),
             positioned: None,
+            row_version: None,
         }
     }
 }

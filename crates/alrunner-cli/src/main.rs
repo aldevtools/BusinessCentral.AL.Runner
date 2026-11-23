@@ -56,6 +56,8 @@ fn write_permission_shadow(path: &std::ffi::OsStr) {
 }
 
 fn main() -> ExitCode {
+    // Keep the executable open from the start: the build hash of the compile cache is made later (issue 8691).
+    let _ = al_testrun::compile_cache::pin_running_executable();
     let shadow = std::env::var_os("AL_PERMISSION_SHADOW");
     if shadow.is_some() {
         al_builtins::permission_shadow::enable();
