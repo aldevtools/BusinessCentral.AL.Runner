@@ -120,7 +120,7 @@ codeunit 61361 "YN Yaml Review R1 Tests"
     [Test]
     procedure Refused_Escape_OtherMark()
     begin
-        ReadRet('q: "﷑"');
+        ReadRet('q: "\uFDD1"');
     end;
 
     [Test]
