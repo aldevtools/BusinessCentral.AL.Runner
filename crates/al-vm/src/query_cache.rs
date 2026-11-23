@@ -16,7 +16,10 @@
 //!   filters next to one value on the key (:3437, :3447, :4215-:4248, :5571-:5609). One value set by `SetRange`,
 //!   by `SetFilter`, by a range from the value to itself or by `FieldRef.SetRange` is one filter (:917, :1802, :1818).
 //!   `Find('+')`, `Find('-')`, `FindSet`, and any of the four after `SetLoadFields`, read the rows as they are (:1999-:2083,
-//!   :2722).
+//!   :2722);
+//! - a calculation (al-runner issue 8677): `CalcFields` of a Record, keyed by its fields in their order, the row and the
+//!   record's FlowFilters (`calc_key`, :6147-:6255), and `CalcSums` of a Record, keyed like a group read and by its fields
+//!   (:6273-:6285).
 //!
 //! A row entry holds until a commit writes that row (:430, :804 against :741, :762, :784; also when no commit held the row
 //! before or after, an insert and a delete each committed: PR 1495 :1207; a commit of a ModifyAll or DeleteAll of another row
@@ -206,6 +209,8 @@ enum GroupAnswer {
     Count(usize),
     /// Whether IsEmpty found the group empty.
     Empty(bool),
+    /// The values a CalcFields or a CalcSums calculated, in the order of its fields.
+    Values(Vec<Value>),
 }
 
 /// A group read: the method that reads (PR 1495 :1680-:1794 read all four).
@@ -215,6 +220,8 @@ enum Form {
     Last,
     Count,
     Empty,
+    /// CalcSums (:6273-:6285).
+    Sums,
 }
 
 impl Form {
@@ -224,6 +231,18 @@ impl Form {
             Form::Last => "last",
             Form::Count => "count",
             Form::Empty => "empty",
+            Form::Sums => "sums",
+        }
+    }
+
+    /// The AL method that reads as this form.
+    fn method(self) -> RecordOp {
+        match self {
+            Form::First => RecordOp::FindFirst,
+            Form::Last => RecordOp::FindLast,
+            Form::Count => RecordOp::Count,
+            Form::Empty => RecordOp::IsEmpty,
+            Form::Sums => RecordOp::CalcSums,
         }
     }
 }
@@ -254,8 +273,8 @@ pub(crate) struct QueryCache {
     groups: Entries<(GroupThen, GroupAnswer)>,
     /// The rows the test session read while it had not written their table.
     test_rows: Entries<Committed>,
-    /// The read running is AL code's (`mark_al_record_read`): only it reads a group through the cache.
-    pub(crate) al_record_read: bool,
+    /// The read of AL code running (`mark_al_record_read`): only it reads a group or a calculation through the cache.
+    pub(crate) al_record_read: Option<RecordOp>,
     /// The next load into a partial record loads a row the cache answered with another row than the table holds; set back
     /// at the end of every record method (`Session::end_record_op_for_query_cache`).
     replay_load: bool,
@@ -292,6 +311,7 @@ fn same_group(a: &GroupAnswer, b: &GroupAnswer) -> bool {
         (GroupAnswer::Row(x), GroupAnswer::Row(y)) => same_row(x, y),
         (GroupAnswer::Count(x), GroupAnswer::Count(y)) => x == y,
         (GroupAnswer::Empty(x), GroupAnswer::Empty(y)) => x == y,
+        (GroupAnswer::Values(x), GroupAnswer::Values(y)) => same_rows(x, y),
         _ => false,
     }
 }
@@ -433,12 +453,71 @@ fn flow_filter_measured(e: &FilterExpr) -> bool {
     }
 }
 
+/// One value or a `|` of values: the filters a measured `CalcFields` or `CalcSums` has (:6219, :6285).
+fn values_only(e: &FilterExpr) -> bool {
+    match e {
+        FilterExpr::Or(items) => items.iter().all(one_value),
+        e => one_value(e),
+    }
+}
+
+/// The formulas a `CalcFields` of the FlowField `calc` of a row of `row` reads, when the cells measure it: `calc` of any method
+/// but negated (count, sum, min, max, average, exist, lookup, :6147-:6183), reading its source table with no FlowField of
+/// the source (a condition on one reads the table, :6267), and with a `field()` condition on a count FlowField of the row
+/// that reads its own source table alone, whose formula follows (:6255, :6261). Its other conditions, and the inner formula's,
+/// are constants, filters, `field()` of a stored field or of a FlowFilter, and `field(filter())` of a FlowFilter (:6219).
+/// `field(filter())` of a stored field, the row's value read as a filter text, is not measured (code review of c00e40f2f;
+/// BC keys it by the text, the neighbor app 8677-bg-cache-calcfields): it keeps main's answer.
+fn calc_formulas<'a>(
+    row: &'a al_ir::Table,
+    calc: &'a al_ir::CalcFormula,
+    source: impl Fn(usize) -> Option<&'a al_ir::Table>,
+) -> Option<Vec<&'a al_ir::CalcFormula>> {
+    let src = source(calc.table)?;
+    if calc.negate || calc.field.is_some_and(|f| flow_field(src, f)) {
+        return None;
+    }
+    let flow_filter = |x: usize| row.fields.get(x).is_some_and(|d| d.flow_filter);
+    let plain = |v: &al_ir::CalcValue| match *v {
+        al_ir::CalcValue::Const(_) | al_ir::CalcValue::Filter(_) => true,
+        al_ir::CalcValue::Field(x) => !flow_field(row, x),
+        al_ir::CalcValue::FieldFilter(x) => flow_filter(x),
+        al_ir::CalcValue::UpperLimit(_) => false,
+    };
+    let mut formulas = vec![calc];
+    for c in &calc.conds {
+        if flow_field(src, c.field) {
+            return None;
+        }
+        match c.value {
+            ref v if plain(v) => {}
+            al_ir::CalcValue::Field(x) => {
+                let inner = row.fields.get(x)?.calc.as_ref()?;
+                let one = inner.method == al_ir::CalcMethod::Count && !inner.negate;
+                if !one
+                    || !calc_reads_one_table(row, source(inner.table), inner)
+                    || !inner.conds.iter().all(|c| plain(&c.value))
+                {
+                    return None;
+                }
+                formulas.push(inner);
+            }
+            _ => return None,
+        }
+    }
+    Some(formulas)
+}
+
+/// Whether field `f` of `t` is a FlowField (neither stored nor a FlowFilter), or not a field of `t`.
+fn flow_field(t: &al_ir::Table, f: usize) -> bool {
+    t.fields.get(f).is_none_or(|d| !d.stored && !d.flow_filter)
+}
+
 /// Whether FlowField `calc` of a row of `row` reads only its source table: it aggregates no FlowField of the source and has
 /// no condition on one (`tally_source_rows` computes those per source row), and no `field()` condition names a FlowField of
 /// the row (`calc_filters` computes it first). Such a FlowField reads tables the entry's commit stamps do not hold, and no
 /// cell measures whether a commit of them ends the entry, so its reads keep main's answer.
 fn calc_reads_one_table(row: &al_ir::Table, source: Option<&al_ir::Table>, calc: &al_ir::CalcFormula) -> bool {
-    let flow_field = |t: &al_ir::Table, f: usize| t.fields.get(f).is_none_or(|d| !d.stored && !d.flow_filter);
     let Some(source) = source else {
         return false;
     };
@@ -532,12 +611,14 @@ impl Session {
     }
 
     /// AL code calls `method` on a Record or a RecordRef: marks a FindFirst, FindLast, Count or IsEmpty as AL code's read
-    /// (`group_key`; a page's own reads are not, :2099); returns the mark to set back when the call returns.
-    pub(crate) fn mark_al_record_read(&mut self, method: RecordOp) -> bool {
-        let read = matches!(
-            method,
-            RecordOp::FindFirst | RecordOp::FindLast | RecordOp::Count | RecordOp::IsEmpty
-        );
+    /// (`group_key`; a page's own reads are not, :2099), and a Record's CalcFields and CalcSums (a RecordRef's are not
+    /// measured); returns the mark to set back when the call returns.
+    pub(crate) fn mark_al_record_read(&mut self, method: RecordOp) -> Option<RecordOp> {
+        let read = match method {
+            RecordOp::FindFirst | RecordOp::FindLast | RecordOp::Count | RecordOp::IsEmpty => Some(method),
+            RecordOp::CalcFields | RecordOp::CalcSums if !self.through_recordref => Some(method),
+            _ => None,
+        };
         std::mem::replace(&mut self.pages.query_cache.al_record_read, read)
     }
 
@@ -618,7 +699,7 @@ impl Session {
     /// fields (:3472), with a FlowField filter only as `flow_field_find` allows. `None`: another read, which reads the rows as
     /// they are.
     fn group_key(&self, rec: &Rec, t: &TableDef, form: Form) -> Option<Vec<Value>> {
-        if !self.pages.query_cache.al_record_read {
+        if self.pages.query_cache.al_record_read != Some(form.method()) {
             return None;
         }
         let r = rec.borrow();
@@ -740,7 +821,8 @@ impl Session {
             }
             return Ok(fresh);
         }
-        Ok(match self.cached_group(rec, cx, t, values, answer)? {
+        let sources = self.flow_field_sources(rec, t);
+        Ok(match self.cached_group(rec, cx, t, values, &sources, answer)? {
             GroupAnswer::Count(n) => n,
             GroupAnswer::Empty(empty) if empty != (fresh == 0) => usize::from(!empty),
             _ => fresh,
@@ -779,7 +861,8 @@ impl Session {
         let Some(values) = group else {
             return Ok(fresh);
         };
-        match self.cached_group(rec, cx, t, values, GroupAnswer::Row(fresh.clone()))? {
+        let sources = self.flow_field_sources(rec, t);
+        match self.cached_group(rec, cx, t, values, &sources, GroupAnswer::Row(fresh.clone()))? {
             GroupAnswer::Row(row) => {
                 let at = row
                     .as_ref()
@@ -789,6 +872,108 @@ impl Session {
             }
             _ => Ok(fresh),
         }
+    }
+
+    /// What AL code's `CalcSums` of `positions` on `rec`, which summed `fresh`, answers: through the cache when its filters are
+    /// ones the cells measure, filter group 0 on stored fields, each one value or a `|` of values (:6273, :6279, :6285).
+    pub(crate) fn cached_calc_sums(
+        &mut self,
+        rec: &Rec,
+        cx: &AccessContext,
+        t: &TableDef,
+        positions: &[usize],
+        fresh: Vec<Value>,
+    ) -> Result<Vec<Value>, Signal> {
+        if !self.query_cache_on() {
+            return Ok(fresh);
+        }
+        let Some(mut values) = self.group_key(rec, t, Form::Sums) else {
+            return Ok(fresh);
+        };
+        let measured = rec
+            .borrow()
+            .filters
+            .iter()
+            .all(|f| f.group == 0 && t.fields[f.field].stored && values_only(&f.expr));
+        if !measured || !self.cached_form(rec, t, true)? {
+            return Ok(fresh);
+        }
+        values.extend(positions.iter().map(|&p| Value::Integer(p as i32)));
+        match self.cached_group(rec, cx, t, values, &[], GroupAnswer::Values(fresh.clone()))? {
+            GroupAnswer::Values(v) => Ok(v),
+            _ => Ok(fresh),
+        }
+    }
+
+    /// What AL code's `CalcFields` of `positions` on `rec`, which calculated `fresh`, answers: through the cache when
+    /// `calc_key` keys it and no table its formulas read is virtual (its entry ends only with commits of stored tables; the
+    /// neighbor app 8677-bg-cache-calcfields, Platform.al). A worker's repeated call answers its first answer (:6147-:6189,
+    /// :6219, :6249, :6255), also after SetLoadFields and Get (:7255); the test session's call fills the entry before it
+    /// writes (:6237, :6243).
+    pub(crate) fn cached_calc_fields(
+        &mut self,
+        rec: &Rec,
+        positions: &[usize],
+        fresh: Vec<Value>,
+    ) -> Result<Vec<Value>, Signal> {
+        if self.pages.query_cache.al_record_read != Some(RecordOp::CalcFields) || positions.is_empty() {
+            return Ok(fresh);
+        }
+        let table = rec.borrow().table as usize;
+        let Some(t) = self.engine.tables[table].clone() else {
+            return Ok(fresh);
+        };
+        if !self.cached_form(rec, &t, false)? {
+            return Ok(fresh);
+        }
+        let Some((values, sources)) = self.calc_key(rec, &t, positions) else {
+            return Ok(fresh);
+        };
+        let store = self.store_for(rec)?;
+        if sources.iter().any(|s| store.is_virtual(s)) {
+            return Ok(fresh);
+        }
+        let cx = self.cx_for(rec, &t)?;
+        match self.cached_group(rec, &cx, &t, values, &sources, GroupAnswer::Values(fresh.clone()))? {
+            GroupAnswer::Values(v) => Ok(v),
+            _ => Ok(fresh),
+        }
+    }
+
+    /// The key of a `CalcFields` of `positions` on `rec` and the tables it reads, when the cells measure it: the number of
+    /// fields and the fields in their order (another order, a field more or less read the table, :6195-:6207), the row's
+    /// primary key and the values of the row its formulas read by `field()`, and the record's filters, each on a FlowFilter in filter group 0, one value or a
+    /// `|` of values (another value reads the table, :6219, :6225). Each FlowField is one `calc_formulas` takes.
+    fn calc_key(&self, rec: &Rec, t: &TableDef, positions: &[usize]) -> Option<(Vec<Value>, Vec<Arc<TableDef>>)> {
+        let schema = self.engine.program.objects[t.object as usize].table.as_ref()?;
+        let source = |i: usize| self.engine.program.objects[i].table.as_ref();
+        let r = rec.borrow();
+        let mut values = vec![Value::Text("calcfields".into()), Value::Integer(positions.len() as i32)];
+        values.extend(positions.iter().map(|&p| Value::Integer(p as i32)));
+        values.extend(t.keys[0].iter().map(|&k| r.fields[k].clone()));
+        let mut filters: Vec<_> = r.filters.iter().collect();
+        filters.sort_by_key(|f| (f.group, f.field));
+        for f in filters {
+            if f.group != 0 || !schema.fields.get(f.field)?.flow_filter || !values_only(&f.expr) {
+                return None;
+            }
+            values.push(Value::Integer(f.field as i32));
+            encode_filter(&f.expr, Nesting::Top, &mut values)?;
+        }
+        let mut sources = Vec::new();
+        for &p in positions {
+            for calc in calc_formulas(schema, schema.fields.get(p)?.calc.as_ref()?, source)? {
+                sources.push(self.engine.tables[calc.table].clone()?);
+                for c in &calc.conds {
+                    if let al_ir::CalcValue::Field(x) = c.value
+                        && schema.fields.get(x)?.stored
+                    {
+                        values.push(r.fields[x].clone());
+                    }
+                }
+            }
+        }
+        Some((values, sources))
     }
 
     /// A worker's read answers `answer` (a row of table `t` at `at`) where the table holds `fresh`: flagged, and noted for the
@@ -888,8 +1073,8 @@ impl Session {
     }
 
     /// A group read of `rec` for `values` that the table answers with `fresh`: what the read answers. An entry holds while no
-    /// commit wrote the table (:823, :845, :1907, :1980), nor a table its FlowField filters read (:3465, :4259; a commit of
-    /// another table keeps it). The test session's read fills it while that session has not written those tables since its last
+    /// commit wrote the table (:823, :845, :1907, :1980), nor a table of `sources` (the tables its FlowField filters
+    /// read, :3465, :4259; the tables a calculation reads, :6231, :6261; a commit of another table keeps it). The test session's read fills it while that session has not written those tables since its last
     /// commit, in every shape `group_key` takes (:6498, :1866, :1886, :2337-:2367, :2751, :2770, :3482-:3514), and after it wrote
     /// the table reads the table (:1944, :2063).
     fn cached_group(
@@ -898,10 +1083,10 @@ impl Session {
         cx: &AccessContext,
         t: &TableDef,
         values: Vec<Value>,
+        sources: &[Arc<TableDef>],
         fresh: GroupAnswer,
     ) -> Result<GroupAnswer, Signal> {
         let at = Self::at(rec, t, values);
-        let sources = self.flow_field_sources(rec, t);
         let selects = self.selects_of(t.object);
         let store = self.store_for(rec)?;
         let stamps: Vec<Option<u64>> = std::iter::once(t)
