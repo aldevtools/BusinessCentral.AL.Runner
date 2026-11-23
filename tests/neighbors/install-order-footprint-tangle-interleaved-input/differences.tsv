@@ -1,0 +1,6 @@
+# key	entry
+# Issue 8907, ADR-079 decision 4 with a tangle: T1 and T2 both flip row X when I answers their event (OnOne, OnTwo); X
+# starts at 0. No dependency between the three. With I wholly before or after the tangle, X ends 0 (main's four runs).
+# On BC, T1,I,T2 and T2,I,T1 leave X = 1. Main before ADR-079: not run (6 orders, different rows). Main: pass, a wrong
+# result. Head: I is placed between T1 and T2 as well, the orders differ, table "RQ ti Row" is refused.
+RQ ti Tests::XIsZero	REFUSED the install order of apps RQ ti I, RQ ti T1, RQ ti T2 is not known
