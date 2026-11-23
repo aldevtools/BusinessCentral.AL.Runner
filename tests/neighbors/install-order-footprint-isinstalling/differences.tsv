@@ -1,0 +1,4 @@
+# key	entry
+# Review of PR 8865, finding H3: one install calls NavApp.IsInstalling (touches everything, not pinned); three other
+# unordered apps have no install code. Main passes; head passes (a tie needs an install session, ADR-079 clarification
+# of decision 1). No row.

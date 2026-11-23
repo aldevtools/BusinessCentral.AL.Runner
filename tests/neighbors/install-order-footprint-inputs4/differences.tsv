@@ -1,3 +1,3 @@
 # key	entry
 # Main installs once and passes; one install reads from four apps (ADR-079 decision 5).
-FP inputs4 Tests::ReaderRowExists	REFUSED install order: FP Inputs X, FP Inputs Y1, FP Inputs Y2, FP Inputs Y3, FP Inputs Y4: no dependency path between them, and the runner cannot prove that every install order leaves the same database: the install of FP Inputs X reads from 4 apps or groups of apps
+FP inputs4 Tests::ReaderRowExists	REFUSED install order: FP Inputs X, FP Inputs Y1, FP Inputs Y2, FP Inputs Y3, FP Inputs Y4: the runner cannot prove that every order of the apps with no dependency path between them leaves the same database: the install of FP Inputs X reads from 4 apps

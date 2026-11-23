@@ -643,6 +643,48 @@ fn one_install_that_touches_everything_next_to_apps_without_install_code_runs() 
     assert_eq!(outcome(&rt, "PartnerInstallRan"), Outcome::Pass);
 }
 
+/// A partner install that writes its own JQ Entry row (`no`): no other app writes it.
+fn own_row(object: u32, name: &str, no: u32) -> String {
+    format!(
+        r#"
+codeunit {object} "{name} Install"
+{{
+    Subtype = Install;
+
+    trigger OnInstallAppPerCompany()
+    var
+        E: Record "JQ Entry";
+    begin
+        E."No." := {no};
+        if E.Insert() then;
+    end;
+}}
+"#
+    )
+}
+
+/// ADR-079 decisions 1 and 5: an install that touches everything (`NavApp.IsInstalling`, not pinned) ties every other
+/// app with an install session; four of them are more than the three whose orders the runner tries, so the group is
+/// refused, though the three others write disjoint rows (main installs them once and passes; the review of PR 8865,
+/// the neighbor shape "everything4").
+#[test]
+fn an_install_that_touches_everything_next_to_three_other_installs_is_refused() {
+    let rt = run(vec![
+        base(),
+        (PA_ID, "Partner N1", "Partner", vec![BASE_ID], UNATTRIBUTED.into()),
+        (PB_ID, "Partner N2", "Partner", vec![BASE_ID], own_row(74000, "N2", 2)),
+        (PC_ID, "Partner N3", "Partner", vec![BASE_ID], own_row(75000, "N3", 3)),
+        (PD_ID, "Partner N4", "Partner", vec![BASE_ID], own_row(76000, "N4", 4)),
+    ]);
+    match outcome(&rt, "PartnerInstallRan") {
+        Outcome::NotRun(why) => assert!(
+            why.contains("4 apps tied by their installs") && why.contains("touches everything"),
+            "{why}"
+        ),
+        other => panic!("expected not run, got {other:?}"),
+    }
+}
+
 /// A partner install that writes JQ Entry 9 with its own note: four of them write the same row.
 fn colliding(object: u32, name: &str) -> String {
     format!(

@@ -86,7 +86,11 @@ pub(crate) struct Written<'a> {
 
 impl Written<'_> {
     pub(crate) fn any_seen_by(&self, reads: &BTreeSet<Lasting>) -> bool {
-        let any_row_write = || self.all.iter().any(|w| matches!(w, Lasting::Store(_) | Lasting::RowVersion));
+        let any_row_write = || {
+            self.all
+                .iter()
+                .any(|w| matches!(w, Lasting::Store(_) | Lasting::RowVersion))
+        };
         reads.iter().any(|r| match r {
             Lasting::Store(r) => self.store.seen_by(r),
             Lasting::RowVersion => any_row_write(),
@@ -147,9 +151,7 @@ impl InstallFootprint {
 
     /// Whether this session and `other` write the same resource, or one of them touches everything.
     pub fn collides(&self, other: &InstallFootprint) -> bool {
-        self.touches_everything()
-            || other.touches_everything()
-            || other.written().any_collides_with(&self.writes)
+        self.touches_everything() || other.touches_everything() || other.written().any_collides_with(&self.writes)
     }
 
     /// The writes of this session, indexed ([`Written`]).
@@ -284,7 +286,10 @@ const KEPT_RECEIVERS: &[&str] = &[
 /// data file, license, password, company copy and table connection methods; `Blob` Import and Export; the `Query`
 /// SaveAs methods; and every method not named here (a new one included).
 const KEPT_METHODS: &[(&str, &[&str])] = &[
-    ("Blob", &["CreateInStream", "CreateOutStream", "HasValue", "Length", "LengthSign"]),
+    (
+        "Blob",
+        &["CreateInStream", "CreateOutStream", "HasValue", "Length", "LengthSign"],
+    ),
     (
         "Database",
         &[
