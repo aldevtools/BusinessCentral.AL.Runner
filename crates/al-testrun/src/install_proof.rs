@@ -57,8 +57,9 @@ impl Graph {
     /// The units of `apps`: the strongly connected components of "reads from" plus "collide", each sorted, the units
     /// listed so that a unit comes after every unit it reads from and after every unit with an app one of its apps
     /// depends on (`needs(a, b)`: a depends on b). Every order the proof builds from this list then keeps the
-    /// dependencies, unless the reads run against them (ADR-079 decision 3, clarification of 2026-11-23, review
-    /// round 4; neighbor app `install-order-footprint-final-order`).
+    /// dependencies, unless the reads run against them or the dependencies of two units cross (ADR-079 decision 3,
+    /// clarification of 2026-11-23, review round 4; neighbor app `install-order-footprint-final-order`). Then the final
+    /// install takes the plan order (`PartnerGroup::final_order`).
     pub(crate) fn units(&self, apps: &BTreeSet<u32>, needs: impl Fn(u32, u32) -> bool) -> Vec<Vec<u32>> {
         let reach = self.reach(apps);
         let reaches = |x: u32, y: u32| x == y || reach.contains(&(x, y));
@@ -75,8 +76,8 @@ impl Graph {
             );
         }
         // Inputs and dependencies first: a unit that reaches another reads from it (directly or through others; two
-        // units never reach each other, else they would be one). When the reads run against the dependencies no unit is
-        // free; the list order stays and `PartnerGroup::order` stops the proof.
+        // units never reach each other, else they would be one). When the reads run against the dependencies, or the
+        // dependencies of two units cross, no unit is free and the list order stays.
         let after =
             |u: &[u32], v: &[u32]| reach.contains(&(u[0], v[0])) || u.iter().any(|&a| v.iter().any(|&b| needs(a, b)));
         let mut ordered = Vec::new();

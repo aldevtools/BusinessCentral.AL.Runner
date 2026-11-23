@@ -1,0 +1,7 @@
+# key	entry
+# Issue 8907, the tangle of three: T1 meets T2, T2 meets T3, T3 meets T1 and I; I depends on T2; each install writes a
+# constant row. Main: not run (the run "I before the tangle" asked for I < T1 < T2 < I and the proof stopped; skipping it
+# would leave T1,T2,I,T3 unrun). Head: the plan places I right after T2 (before its reader T3) and after T3. Pass.
+RQ t3 Tests::T1RowIsConst	PINNED tests/al-language/install-upgrade/install-order/InstallOrderSubscriberTests.al:70
+RQ t3 Tests::T2RowIsConst	PINNED tests/al-language/install-upgrade/install-order/InstallOrderSubscriberTests.al:70
+RQ t3 Tests::T3RowIsConst	PINNED tests/al-language/install-upgrade/install-order/InstallOrderSubscriberTests.al:70
