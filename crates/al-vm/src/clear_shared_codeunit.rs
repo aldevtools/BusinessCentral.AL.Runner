@@ -56,6 +56,31 @@ impl Session {
                     }
                     kept.push(i);
                 }
+                // Nothing else holds the instance and its temporary table holds rows: BC resets a store of 1561's shape in
+                // place and keeps the rows (`keep_rows_in_place`); main's fresh instance would lose them.
+                Value::Codeunit(rc)
+                    if self.plain_codeunit(rc.borrow().object as usize) && self.holds_temp_rows(v, 0) =>
+                {
+                    let object = rc.borrow().object as usize;
+                    if !(self.keeps_rows_in_place(owner)
+                        && self.temp_ref_store(object)
+                        && !self.frames.contains(&object))
+                    {
+                        return Err(temp_rows_refusal());
+                    }
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ClearSharedCodeunit);
+                    let engine = self.engine.clone();
+                    let fresh = self.slot_defaults(&engine.program.objects[object].globals);
+                    let mut inst = rc.borrow_mut();
+                    for (old, new) in inst.globals.iter().zip(&fresh) {
+                        crate::interp::keep_temp_table(old, new);
+                    }
+                    inst.globals = fresh;
+                    kept.push(i);
+                }
+                Value::Array(items) if items.borrow().iter().any(|e| self.holds_temp_rows(e, 0)) => {
+                    return Err(temp_rows_refusal());
+                }
                 Value::Array(items) if items.borrow().iter().any(|e| self.shared_element(e)) => {
                     return Err(Signal::unsupported(
                         "ClearAll of a global array whose codeunit element another variable shares (not pinned)",
@@ -65,6 +90,45 @@ impl Session {
             }
         }
         Ok(kept)
+    }
+
+    /// Whether `v` is or holds, through the globals of an instance of a codeunit that is not SingleInstance and through
+    /// arrays, a temporary record whose table was written (its change counter moved).
+    fn holds_temp_rows(&self, v: &Value, depth: u8) -> bool {
+        match v {
+            _ if depth > 8 => true,
+            Value::Record(r) => {
+                let r = r.borrow();
+                r.temporary
+                    && (r.temp_id.as_ref())
+                        .is_some_and(|t| self.temps.get(&t.id()).is_some_and(|s| s.change_counter() > 0))
+            }
+            Value::Codeunit(rc) if self.plain_codeunit(rc.borrow().object as usize) => {
+                let globals = rc.borrow().globals.clone();
+                globals.iter().any(|g| self.holds_temp_rows(g, depth + 1))
+            }
+            Value::Array(items) => items.borrow().iter().any(|e| self.holds_temp_rows(e, depth + 1)),
+            _ => false,
+        }
+    }
+
+    /// Whether `ClearAll()` in `owner` may reset a store of 1561's shape whose temporary table holds rows in place: `owner`
+    /// is a codeunit with no TableNo that states no Subtype, SingleInstance or not ("CLS SI Owner A3", ClearSharedCodeunitSIOwner.al
+    /// A3_Step3_ClearAllInOwner; "CLB Holder", ClearSharedCodeunitTempRef.al ClearAll_GlobalWritten_NoAlias :1362), or
+    /// states `Subtype = Test` ("CLS TG ClearAll 6", ClearAll_TestGlobalWritten_NoAlias).
+    fn keeps_rows_in_place(&self, owner: usize) -> bool {
+        let o = &self.engine.program.objects[owner];
+        let subtypes: Vec<&str> = (o.properties.iter())
+            .filter(|(k, _)| k.eq_ignore_ascii_case("Subtype"))
+            .map(|(_, v)| v.as_str())
+            .collect();
+        o.kind == al_ir::ObjKind::Codeunit
+            && o.rec_slot.is_none()
+            && match subtypes.as_slice() {
+                [] => true,
+                [v] => v.eq_ignore_ascii_case("Test"),
+                _ => false,
+            }
     }
 
     /// Whether array element `e` holds an instance of a codeunit that is not SingleInstance that another holder shares (the
@@ -283,4 +347,12 @@ impl Session {
             Vec::new()
         }
     }
+}
+
+/// The refusal of a `ClearAll` that would give a fresh instance to a global codeunit variable whose instance holds
+/// temporary rows, in a shape open corpus PR 1561 does not measure.
+fn temp_rows_refusal() -> Signal {
+    Signal::unsupported(
+        "ClearAll of a global codeunit variable whose instance holds temporary rows, in a shape the corpus does not pin",
+    )
 }

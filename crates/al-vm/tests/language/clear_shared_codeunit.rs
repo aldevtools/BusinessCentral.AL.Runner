@@ -366,3 +366,103 @@ fn a_var_parameter_assigned_another_instance_counts_that_holder() {
 fn a_bound_codeunit_variable_is_never_unused() {
     assert_eq!(shape("ClearBoundNeverCalled", false), ("0|5".to_string(), false));
 }
+
+/// The store of open corpus pull request 1561 (ClearSharedCodeunitTempRef.al:55-104, "CLB Store": a temporary record, an
+/// array of RecordRef of two dimensions, an array of Integer) and its owners: a SingleInstance codeunit
+/// (ClearSharedCodeunitSIOwner.al "CLS SI Owner A3"), a plain holder ("CLB Holder") and a test codeunit ("CLS TG ClearAll
+/// 6"). Next to them the shapes 1561 does not measure: a store with one more global, a store inside a codeunit the owner
+/// holds, an array of stores, a report and a codeunit with a Subtype other than Test as the owner.
+const TEMP_STORE: &str = "
+table 50830 Row { fields { field(1; No; Integer) { } } keys { key(PK; No) { } } }
+codeunit 50831 TStore { var Rows: Record Row temporary; Refs: array[2, 3] of RecordRef; Ints: array[3] of Integer;
+    procedure Write(V: Integer) begin Rows.Init(); Rows.No := V; Rows.Insert();
+        if Refs[1, 1].Number = 0 then Refs[1, 1].Open(50830, true);
+        Refs[1, 1].Init(); Refs[1, 1].Field(1).Value := V; Refs[1, 1].Insert(); Ints[1] := V; end;
+    procedure SetInt(V: Integer) begin Ints[1] := V; end;
+    procedure State(): Text var RefRows: Text;
+    begin RefRows := '-'; if Refs[1, 1].Number <> 0 then RefRows := Format(Refs[1, 1].Count());
+        exit(StrSubstNo('rows=%1 ref11=%2 refrows=%3 int1=%4', Rows.Count(), Refs[1, 1].Number, RefRows, Ints[1])); end; }
+codeunit 50832 TStoreExtra { var Rows: Record Row temporary; Refs: array[2, 3] of RecordRef; Ints: array[3] of Integer; N: Integer;
+    procedure Write(V: Integer) begin Rows.No := V; Rows.Insert(); end; }
+codeunit 50833 TWrap { var Inner: Codeunit TStore; procedure Write(V: Integer) begin Inner.Write(V); end; }
+codeunit 50834 TOwner { SingleInstance = true; var X: Codeunit TStore; Cnt: Integer;
+    procedure WriteX(V: Integer) begin X.Write(V); end;
+    procedure StateX(): Text begin exit(X.State() + ' cnt=' + Format(Cnt)); end;
+    procedure SetCnt(V: Integer) begin Cnt := V; end;
+    procedure ClearAllGlobals() begin ClearAll(); end; }
+codeunit 50835 THolder { var X: Codeunit TStore; Count: Integer; E: Codeunit TStoreExtra; W: Codeunit TWrap; A: array[2] of Codeunit TStore;
+    procedure WriteX(V: Integer) begin X.Write(V); end;
+    procedure SetIntX(V: Integer) begin X.SetInt(V); end;
+    procedure WriteE() begin E.Write(1); end;
+    procedure WriteW() begin W.Write(1); end;
+    procedure WriteA() begin A[1].Write(1); end;
+    procedure StateX(): Text begin exit(X.State() + ' count=' + Format(Count)); end;
+    procedure SetCount(V: Integer) begin Count := V; end;
+    procedure ClearAllGlobals() begin ClearAll(); end; }
+codeunit 50836 TTest { Subtype = Test; var GX: Codeunit TStore;
+    procedure GlobalWritten(): Text begin GX.Write(3); ClearAll(); exit(GX.State()); end; }
+codeunit 50837 TNormal { Subtype = Normal; var GX: Codeunit TStore;
+    procedure GlobalWritten(): Text begin GX.Write(3); ClearAll(); exit(GX.State()); end; }
+report 50838 TRep { ProcessingOnly = true; var GX: Codeunit TStore;
+    procedure GlobalWritten(): Text begin GX.Write(3); ClearAll(); exit(GX.State()); end; }
+codeunit 50839 T {
+    procedure SiOwner(): Text var S: Codeunit TOwner;
+    begin S.WriteX(5); S.SetCnt(4); S.ClearAllGlobals(); exit(S.StateX()); end;
+    procedure SiOwnerThenWrites(): Text var S: Codeunit TOwner;
+    begin S.WriteX(5); S.ClearAllGlobals(); S.WriteX(6); exit(S.StateX()); end;
+    procedure Holder(): Text var H: Codeunit THolder;
+    begin H.WriteX(3); H.SetCount(4); H.ClearAllGlobals(); exit(H.StateX()); end;
+    procedure HolderTempNotWritten(): Text var H: Codeunit THolder;
+    begin H.SetIntX(3); H.ClearAllGlobals(); exit(H.StateX()); end;
+    procedure TestOwner(): Text var C: Codeunit TTest; begin exit(C.GlobalWritten()); end;
+    procedure NormalOwner(): Text var C: Codeunit TNormal; begin exit(C.GlobalWritten()); end;
+    procedure ReportOwner(): Text var R: Report TRep; begin exit(R.GlobalWritten()); end;
+    procedure ExtraStore(): Text var H: Codeunit THolder; begin H.WriteE(); H.ClearAllGlobals(); exit('done'); end;
+    procedure WrappedStore(): Text var H: Codeunit THolder; begin H.WriteW(); H.ClearAllGlobals(); exit('done'); end;
+    procedure StoreArray(): Text var H: Codeunit THolder; begin H.WriteA(); H.ClearAllGlobals(); exit('done'); end;
+}
+";
+
+/// What `cell` of [`TEMP_STORE`] gives (its text, or `refused: ...`) and whether it ran a path of assumption
+/// `clear-shared-codeunit`.
+fn temp_store(cell: &str) -> (String, bool) {
+    take_hits();
+    let got = match al_testkit::Built::from_source(TEMP_STORE).run_in("T", cell) {
+        Err(al_builtins::native::Signal::Unsupported(why)) => format!("refused: {why}"),
+        other => al_testkit::text(other),
+    };
+    (got, take_hits().contains(&Assumption::ClearSharedCodeunit))
+}
+
+// ClearAll in the owner of a store whose temporary table holds rows, nothing sharing the store: BC resets the store in
+// place and keeps the rows, closes the RecordRef and sets the Integers to 0 (ClearSharedCodeunitSIOwner.al
+// A3_Step3_ClearAllInOwner and A3_Step5_WriteAgain, ClearAll_TestGlobalWritten_NoAlias; ClearSharedCodeunitTempRef.al
+// ClearAll_GlobalWritten_NoAlias :1362). Main gave the store a fresh instance, which lost the rows.
+#[test]
+fn clear_all_of_a_temp_store_keeps_its_rows() {
+    for (cell, want) in [
+        ("SiOwner", "rows=1 ref11=0 refrows=- int1=0 cnt=0"),
+        ("SiOwnerThenWrites", "rows=2 ref11=50830 refrows=1 int1=6 cnt=0"),
+        ("Holder", "rows=1 ref11=0 refrows=- int1=0 count=0"),
+        ("TestOwner", "rows=1 ref11=0 refrows=- int1=0"),
+    ] {
+        assert_eq!(temp_store(cell), (want.to_string(), true), "{cell}");
+    }
+    // A temporary table nothing wrote: a fresh store reads the same, main's answer with no mark.
+    assert_eq!(
+        temp_store("HolderTempNotWritten"),
+        ("rows=0 ref11=0 refrows=- int1=0 count=0".to_string(), false)
+    );
+}
+
+// The shapes 1561 does not measure, whose temporary rows main's fresh instance would lose, refuse.
+#[test]
+fn clear_all_of_an_unmeasured_store_with_rows_refuses() {
+    for cell in ["NormalOwner", "ReportOwner", "ExtraStore", "WrappedStore", "StoreArray"] {
+        let got = temp_store(cell).0;
+        assert!(
+            got.starts_with("refused: ClearAll of a global codeunit variable whose instance holds temporary rows"),
+            "{cell}: {got}"
+        );
+    }
+}

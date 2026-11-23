@@ -340,17 +340,7 @@ impl Session {
         let mut inst = f.instance.borrow_mut();
         for (i, v) in fresh.into_iter().enumerate() {
             if !keep.contains(&i) {
-                // A global temporary record keeps its rows, as Clear leaves them
-                // (types/ProbeTypeFormsAndFilters.al:Clear_TemporaryRecordWithRows_ThenCount); ClearAll does the same: real BC 29
-                // keeps both rows of a codeunit's global temporary record and drops its filter, called directly and through
-                // Codeunit.Run (record/PriorityAssumptions.al:247-281, ClearAll_TemporaryGlobalRecord_*).
-                // Pinned for a codeunit's global; the same for a report, a page or a record shared through Copy is not.
-                if let (Value::Record(old), Value::Record(new)) = (&inst.globals[i], &v) {
-                    let id = old.borrow().temp_id.clone();
-                    if id.is_some() && old.borrow().temporary {
-                        new.borrow_mut().temp_id = id;
-                    }
-                }
+                keep_temp_table(&inst.globals[i], &v);
                 inst.globals[i] = v;
             }
         }
@@ -2468,4 +2458,19 @@ fn stored_as_is(v: &Value) -> bool {
                 _
             )
     )
+}
+
+/// `ClearAll` gives global `new`, the fresh value that replaces `old`, the temporary table of `old` when `old` is a
+/// temporary record: a global temporary record keeps its rows, as Clear leaves them
+/// (types/ProbeTypeFormsAndFilters.al:Clear_TemporaryRecordWithRows_ThenCount); ClearAll does the same: real BC 29 keeps both
+/// rows of a codeunit's global temporary record and drops its filter, called directly and through Codeunit.Run
+/// (record/PriorityAssumptions.al:247-281, ClearAll_TemporaryGlobalRecord_*). Pinned for a codeunit's global; the same for a
+/// report, a page or a record shared through Copy is not.
+pub(crate) fn keep_temp_table(old: &Value, new: &Value) {
+    if let (Value::Record(old), Value::Record(new)) = (old, new) {
+        let id = old.borrow().temp_id.clone();
+        if id.is_some() && old.borrow().temporary {
+            new.borrow_mut().temp_id = id;
+        }
+    }
 }
