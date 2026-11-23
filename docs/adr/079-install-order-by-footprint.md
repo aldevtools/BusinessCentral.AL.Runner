@@ -191,6 +191,15 @@ least as strict as the text it clarifies.
   first, and a meet of A with G is never seen. In the measured shape A's row held EMPTY where BC gives SEEN when G
   installs before A (neighbor app `install-order-footprint-hidden-meet`). The chain shape keeps its known place: the
   edge from the dependency predecessor to the app it meets is in the graph after the first run.
+- **Decision 3, the run set: an order the dependencies rule out (2026-11-23, orchestrator, review round 3).** A run
+  counts only when its requested order can be built. For two apps with a dependency path the dependency decides, and
+  the requested place is ignored. For every other pair the requested place is a hard constraint. When no app of the
+  run is free to go next, the requested order cannot be built: no run is made, and the proof stops, naming the apps
+  of that cycle. Reason: when the read order runs against the dependency order (A depends on P, P reads from G, G
+  reads from A), the run "G before P" cannot be built. Before, the runner then took the first app by plan rank, so
+  that run never happened and the comparison found nothing. The final install passes the same order to the view and
+  to the run. In the measured shape P's row held SEEN where BC gives EMPTY when P installs before G (neighbor app
+  `install-order-footprint-dependency-against-read`).
 - **Decision 3, when the proof ends.** A run that adds an edge starts the proof again on the grown graph. Footprints
   only grow, so the rounds end. A run that meets an app of unknown order and adds no edge stops the proof: the group is
   not proven, and the note names that pair.

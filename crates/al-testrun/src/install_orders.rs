@@ -149,32 +149,56 @@ impl PartnerGroup<'_> {
             .collect()
     }
 
-    /// The order of the group in which the apps of `fixed` install in that order: dependency order, else the plan's.
-    pub(crate) fn order(&self, fixed: &[u32]) -> Vec<u32> {
-        let rank = |a: u32| (self.apps.iter().position(|&x| x == a).unwrap_or(usize::MAX), a);
-        let before = |x: u32, y: u32| {
-            self.view.needs(y, x)
-                || matches!((fixed.iter().position(|&f| f == x), fixed.iter().position(|&f| f == y)), (Some(i), Some(j)) if i < j)
-        };
-        let mut left: Vec<u32> = self.group.iter().copied().collect();
-        left.sort_by_key(|&a| rank(a));
-        let mut out = Vec::new();
-        while !left.is_empty() {
-            let k = left
-                .iter()
-                .position(|&a| !left.iter().any(|&b| b != a && before(b, a)))
-                .unwrap_or(0);
-            out.push(left.remove(k));
-        }
-        out
+    /// The order of the group in which the apps of `fixed` install in that order ([`order_of`]), or the apps whose
+    /// requested order their dependencies rule out.
+    pub(crate) fn order(&self, fixed: &[u32]) -> Result<Vec<u32>, BTreeSet<u32>> {
+        let mut ranked: Vec<u32> = self.group.iter().copied().collect();
+        ranked.sort_by_key(|&a| (self.apps.iter().position(|&x| x == a).unwrap_or(usize::MAX), a));
+        order_of(&ranked, |a, b| self.view.needs(a, b), fixed)
     }
 
-    /// [`PartnerGroup::order`] of the apps with install code: the apps a run installs.
-    pub(crate) fn sequence(&self, fixed: &[u32]) -> Vec<u32> {
-        let mut out = self.order(fixed);
-        out.retain(|a| self.apps.contains(a));
-        out
+    /// The apps of `order` with install code: the apps a run in that order installs.
+    pub(crate) fn sequence(&self, order: &[u32]) -> Vec<u32> {
+        (order.iter().copied()).filter(|a| self.apps.contains(a)).collect()
     }
+}
+
+/// ADR-079 decision 3, clarification of 2026-11-23 (review round 3): the apps of `ranked` (plan order) in an order where
+/// an app installs after the apps it depends on (`needs(a, b)`: a depends on b), and two apps of `fixed` with no
+/// dependency path between them install in their order in `fixed`. For two apps with a dependency path the dependency
+/// decides. Among the apps free to go next, the first of `ranked`. When no app is free, the requested order cannot be
+/// built: `Err` with the apps of one cycle of the constraints, and no run measures it.
+pub(crate) fn order_of(
+    ranked: &[u32],
+    needs: impl Fn(u32, u32) -> bool,
+    fixed: &[u32],
+) -> Result<Vec<u32>, BTreeSet<u32>> {
+    let at = |a: u32| fixed.iter().position(|&f| f == a);
+    let before = |x: u32, y: u32| match (needs(y, x), needs(x, y), at(x), at(y)) {
+        (true, _, _, _) => true,
+        (false, false, Some(i), Some(j)) => i < j,
+        _ => false,
+    };
+    let mut left = ranked.to_vec();
+    let mut out = Vec::new();
+    while !left.is_empty() {
+        let Some(k) = left.iter().position(|&a| !left.iter().any(|&b| b != a && before(b, a))) else {
+            // Every app left has one that must go before it: follow those back until one repeats.
+            let mut path = vec![left[0]];
+            loop {
+                let a = path[path.len() - 1];
+                let Some(&b) = left.iter().find(|&&b| b != a && before(b, a)) else {
+                    unreachable!("no app of `left` is free");
+                };
+                if let Some(p) = path.iter().position(|&x| x == b) {
+                    return Err(path[p..].iter().copied().collect());
+                }
+                path.push(b);
+            }
+        };
+        out.push(left.remove(k));
+    }
+    Ok(out)
 }
 
 /// The orders of `apps` that no dependency path rules out.
@@ -250,3 +274,7 @@ pub(crate) fn install_partner_apps<I: AppInstalls>(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "install_orders_tests.rs"]
+mod tests;

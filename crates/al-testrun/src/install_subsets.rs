@@ -114,7 +114,9 @@ impl<'p, 'g> Proof<'p, 'g> {
             }
             rewind(session, inst);
             let fixed: Vec<u32> = units.iter().flat_map(|u| self.first_order(u)).collect();
-            let hit = self.g.recorded_run(
+            // The view and the run take the same order (ADR-079 decision 3, clarification of 2026-11-23, round 3).
+            let fixed = self.order(&fixed)?;
+            let hit = (self.g).recorded_run(
                 session,
                 inst,
                 &self.g.sequence(&fixed),
@@ -159,6 +161,18 @@ impl<'p, 'g> Proof<'p, 'g> {
             }
             set = more;
         }
+    }
+
+    /// [`PartnerGroup::order`] of `fixed`. An order the dependencies rule out is not run, so the proof stops there
+    /// (ADR-079 decision 3, clarification of 2026-11-23, review round 3).
+    fn order(&self, fixed: &[u32]) -> Result<Vec<u32>, Unproven> {
+        self.g.order(fixed).map_err(|apps| Unproven {
+            why: format!(
+                "the proof needs {} installed in an order their dependencies rule out",
+                names(self.lowered, &apps)
+            ),
+            apps,
+        })
     }
 
     /// The first order of `unit`'s apps that no dependency path rules out.
@@ -229,7 +243,7 @@ impl<'p, 'g> Proof<'p, 'g> {
                 // The clock readings around this run: a value inside them was read from the clock (amendment 8).
                 let from = session.clock_now_millis();
                 let run = self.run_set(round, &fixed);
-                let fixed: Vec<u32> = (self.g.order(&fixed).into_iter()).filter(|a| run.contains(a)).collect();
+                let fixed: Vec<u32> = (self.order(&fixed)?.into_iter()).filter(|a| run.contains(a)).collect();
                 let sequence: Vec<u32> = (fixed.iter().copied()).filter(|a| self.g.apps.contains(a)).collect();
                 let hit = (self.g).recorded_run(session, inst, &sequence, &fixed, &graph.reads, &mut self.fp);
                 self.runs += 1;

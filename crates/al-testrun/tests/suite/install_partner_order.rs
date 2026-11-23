@@ -882,3 +882,60 @@ fn a_meet_with_an_app_placed_after_the_install_is_noted() {
         ),
     }
 }
+
+/// P's install raises `OnOne` and logs what it answered.
+const ASKS_ONE: &str = r#"
+codeunit 77100 "P Install"
+{
+    Subtype = Install;
+
+    trigger OnInstallAppPerCompany()
+    var
+        A: Codeunit "Asking";
+        M: Codeunit "Marks";
+    begin
+        if A.AskOne() then
+            M.Log('P SEEN')
+        else
+            M.Log('P EMPTY');
+    end;
+}
+"#;
+
+/// ADR-079 decision 3, clarification of 2026-11-23 (review round 3, N2): A depends on P. P's install meets G (`OnOne`)
+/// and logs G's answer; G's install meets A (`OnTwo`). G and P have no dependency path, and P comes first in the plan.
+/// With G installed before P the log holds "P SEEN", after P "P EMPTY". The read order (A, G, P) runs against the
+/// dependency order (P before A), so the run with G before P cannot be built: the proof stops and the log stays refused.
+#[test]
+fn a_read_order_against_the_dependency_order_is_refused() {
+    let rt = run(vec![
+        base(),
+        (PE_ID, "Partner E", "Partner", vec![BASE_ID], ASKING.into()),
+        (PA_ID, "Partner P", "Partner", vec![BASE_ID, PE_ID], ASKS_ONE.into()),
+        (
+            PB_ID,
+            "Partner G",
+            "Partner",
+            vec![BASE_ID, PE_ID],
+            format!(
+                "{}{}",
+                ASKS_TWO.replace("76600 \"D Install\"", "77200 \"G Install\""),
+                answering(77300, "G", "OnOne")
+            ),
+        ),
+        (
+            PC_ID,
+            "Partner Q",
+            "Partner",
+            vec![BASE_ID, PE_ID, PA_ID],
+            answering(77400, "Q", "OnTwo"),
+        ),
+    ]);
+    match outcome(&rt, "ReadsTheLog") {
+        Outcome::NotRun(why) => assert!(why.contains("Order Log"), "{why}"),
+        other => panic!(
+            "expected not run, got {other:?}; {}",
+            rt.phases.baseline_line().unwrap_or_default()
+        ),
+    }
+}
