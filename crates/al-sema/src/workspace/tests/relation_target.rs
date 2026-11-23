@@ -88,7 +88,10 @@ fn with_base_application_loaded_a_using_resolves_a_relation_target() {
     let ws = Workspace::load_apps(
         vec![base, mine],
         vec![AppKind::Dependency, AppKind::Workspace],
-        &al_version::corpus_symbols(27),
+        &al_version::corpus_symbols(
+            &al_version::BcVersion::new(27, 0),
+            &al_version::ReleasedMinors::NotRecorded,
+        ),
     );
     let file = ws.objects.iter().find(|o| o.name == "C1").unwrap().file;
     let name = vec!["Shipping Agent".to_string()];
@@ -113,7 +116,10 @@ fn with_base_application_loaded_a_using_resolves_a_relation_target() {
                 ),
             ],
         )],
-        &al_version::corpus_symbols(27),
+        &al_version::corpus_symbols(
+            &al_version::BcVersion::new(27, 0),
+            &al_version::ReleasedMinors::NotRecorded,
+        ),
     );
     let file = alone.objects.iter().find(|o| o.name == "C1").unwrap().file;
     assert!(!matches!(
