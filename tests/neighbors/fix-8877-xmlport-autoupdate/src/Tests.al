@@ -89,6 +89,7 @@ codeunit 50120 "NB XAU Tests"
 
     local procedure WipeSuites()
     var
+        EvalIns: Record "NB XAU EvalIns";
         Suite: Record "NB XAU Suite";
         Lang: Record "NB XAU Lang";
         Line: Record "NB XAU Line";
@@ -98,6 +99,7 @@ codeunit 50120 "NB XAU Tests"
         Lang.DeleteAll();
         Line.DeleteAll();
         Eval.DeleteAll();
+        EvalIns.DeleteAll();
     end;
 
     local procedure AreEqual(Expected: Text; Actual: Text)
@@ -154,7 +156,7 @@ codeunit 50120 "NB XAU Tests"
         AreEqual('Suite A belongs to another app.', GetLastErrorText());
     end;
 
-    // A linked child with a SourceTableView: refused on main and head (not this change).
+    // The reporter's suite-level Evaluator: a linked child with a SourceTableView const filter (head runs it).
     [Test]
     procedure Suite_SuiteEvaluator()
     begin
@@ -300,5 +302,162 @@ codeunit 50120 "NB XAU Tests"
         SeedPar();
         RunPort(Xmlport::"NB XAU UpdAttr", '<Root><P Id="1" Name="new"/></Root>');
         AreEqual('1/new/s0/e0', ParRow(1));
+    end;
+
+    local procedure EvalInsRows(): Text
+    var
+        EvalIns: Record "NB XAU EvalIns";
+        Txt: Text;
+    begin
+        if EvalIns.FindSet() then
+            repeat
+                Txt += EvalIns.SuiteCode + '/' + Format(EvalIns.LineNo) + '/' + EvalIns.Name + ';';
+            until EvalIns.Next() = 0;
+        exit(Txt);
+    end;
+
+    // The measured element without its OnAfterInitRecord.
+    [Test]
+    procedure ViewConst_NoTrigger()
+    begin
+        WipeSuites();
+        RunPort(50130, '<Root><Suite Code="A"><Evaluator Name="e0"/></Suite></Root>');
+        AreEqual('SA////No/7;EA/0/e0;', SuiteRows());
+    end;
+
+    // The filter value differs from the field's initial value: the row holds 0 at the save.
+    [Test]
+    procedure ViewConst_OtherConst()
+    begin
+        WipeSuites();
+        RunPort(50131, '<Root><Suite Code="A"><Evaluator Name="e0"/></Suite></Root>');
+        AreEqual('SA////No/7;EA/0/e0;', SuiteRows());
+    end;
+
+    // A fieldelement instead of the fieldattribute.
+    [Test]
+    procedure ViewConst_FieldElement()
+    begin
+        WipeSuites();
+        RunPort(50132, '<Root><Suite Code="A"><Evaluator Name="e0"/></Suite></Root>');
+        AreEqual('SA////No/7;EA/0/e0;', SuiteRows());
+    end;
+
+    // The document carries the filtered field.
+    [Test]
+    procedure ViewConst_CarriedField()
+    begin
+        WipeSuites();
+        RunPort(50133, '<Root><Suite Code="A"><Evaluator Name="e0"/></Suite></Root>');
+        AreEqual('SA////No/7;EA/0/e0;', SuiteRows());
+    end;
+
+    // The filter is on the link field.
+    [Test]
+    procedure ViewConst_LinkFieldFilter()
+    begin
+        WipeSuites();
+        RunPort(50134, '<Root><Suite Code="A"><Evaluator Name="e0"/></Suite></Root>');
+        AreEqual('SA////No/7;EA/0/e0;', SuiteRows());
+    end;
+
+    // Two const filters.
+    [Test]
+    procedure ViewConst_TwoFilters()
+    begin
+        WipeSuites();
+        RunPort(50135, '<Root><Suite Code="A"><Evaluator Name="e0"/></Suite></Root>');
+        AreEqual('SA////No/7;EA/0/e0;', SuiteRows());
+    end;
+
+    // A range filter instead of const.
+    [Test]
+    procedure ViewConst_RangeFilter()
+    begin
+        WipeSuites();
+        RunPort(50136, '<Root><Suite Code="A"><Evaluator Name="e0"/></Suite></Root>');
+        AreEqual('SA////No/7;EA/0/e0;', SuiteRows());
+    end;
+
+    // A view with SORTING.
+    [Test]
+    procedure ViewConst_Sorting()
+    begin
+        WipeSuites();
+        RunPort(50137, '<Root><Suite Code="A"><Evaluator Name="e0"/></Suite></Root>');
+        AreEqual('SA////No/7;EA/0/e0;', SuiteRows());
+    end;
+
+    // OnAfterInitRecord reads the record's filters.
+    [Test]
+    procedure ViewConst_TriggerReadsFilters()
+    begin
+        WipeSuites();
+        RunPort(50138, '<Root><Suite Code="A"><Evaluator Name="e0"/></Suite></Root>');
+        AreEqual('SA////No/7;EA/0/e0;', SuiteRows());
+    end;
+
+    // An OnBeforeInsertRecord that does not name the record.
+    [Test]
+    procedure ViewConst_BeforeInsertTrigger()
+    begin
+        WipeSuites();
+        RunPort(50139, '<Root><Suite Code="A"><Evaluator Name="e0"/></Suite></Root>');
+        AreEqual('SA////No/7;EA/0/e0;', SuiteRows());
+    end;
+
+    // AutoUpdate on the element.
+    [Test]
+    procedure ViewConst_AutoUpdate()
+    begin
+        WipeSuites();
+        RunPort(50140, '<Root><Suite Code="A"><Evaluator Name="e0"/></Suite></Root>');
+        AreEqual('SA////No/7;EA/0/e0;', SuiteRows());
+    end;
+
+    // UseTemporary on the element.
+    [Test]
+    procedure ViewConst_Temporary()
+    begin
+        WipeSuites();
+        RunPort(50141, '<Root><Suite Code="A"><Evaluator Name="e0"/></Suite></Root>');
+        AreEqual('SA////No/7;', SuiteRows());
+    end;
+
+    // OnAfterInitRecord skips the row.
+    [Test]
+    procedure ViewConst_Skip()
+    begin
+        WipeSuites();
+        RunPort(50142, '<Root><Suite Code="A"><Evaluator Name="e0"/></Suite></Root>');
+        AreEqual('SA////No/7;', SuiteRows());
+    end;
+
+    // The table's OnInsert sets the filtered field to another value.
+    [Test]
+    procedure ViewConst_OnInsertChangesField()
+    begin
+        WipeSuites();
+        RunPort(50143, '<Root><Suite Code="A"><Evaluator Name="e0"/></Suite></Root>');
+        AreEqual('SA////No/7;', SuiteRows());
+        AreEqual('A/7/e0;', EvalInsRows());
+    end;
+
+    // OnAfterInitRecord calls a procedure of the port.
+    [Test]
+    procedure ViewConst_TriggerCallsPortProc()
+    begin
+        WipeSuites();
+        RunPort(50144, '<Root><Suite Code="A"><Evaluator Name="e0"/></Suite></Root>');
+        AreEqual('SA////No/7;EA/0/e0;', SuiteRows());
+    end;
+
+    // The element is linked to a table element one level deeper than the root's child.
+    [Test]
+    procedure ViewConst_BelowLine()
+    begin
+        WipeSuites();
+        RunPort(50145, '<Root><Suite Code="A"><Line No="10000" Cu="5"><Evaluator Name="e0"/></Line></Suite></Root>');
+        AreEqual('SA////No/7;NA/10000/5;EA/0/e0;', SuiteRows());
     end;
 }

@@ -115,9 +115,30 @@ table 50106 "NB XAU Eval"
         field(1; SuiteCode; Code[20]) { }
         field(2; LineNo; Integer) { }
         field(3; Name; Text[30]) { }
+        field(4; Kind; Integer) { }
     }
 
     keys { key(PK; SuiteCode, LineNo, Name) { Clustered = true; } }
+}
+
+// The Eval row with a table trigger that changes the field the element's view filters.
+table 50108 "NB XAU EvalIns"
+{
+    DataClassification = SystemMetadata;
+
+    fields
+    {
+        field(1; SuiteCode; Code[20]) { }
+        field(2; LineNo; Integer) { }
+        field(3; Name; Text[30]) { }
+    }
+
+    keys { key(PK; SuiteCode, LineNo, Name) { Clustered = true; } }
+
+    trigger OnInsert()
+    begin
+        LineNo := 7;
+    end;
 }
 
 table 50107 "NB XAU Src"
@@ -724,6 +745,586 @@ xmlport 50123 "NB XAU UpdAttr"
                     end;
                 }
                 fieldattribute(Name; Par.Name) { Occurrence = Optional; }
+            }
+        }
+    }
+}
+
+// Neighbor ViewConst_NoTrigger: The measured element without its OnAfterInitRecord.
+xmlport 50130 "NB XAU NoTrigger"
+{
+    Direction = Import;
+    Format = Xml;
+    Encoding = UTF8;
+    UseRequestPage = false;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Suite; "NB XAU Suite")
+            {
+                XmlName = 'Suite';
+
+                fieldattribute(Code; Suite.Code) { Occurrence = Required; }
+                tableelement(SuiteEval; "NB XAU Eval")
+                {
+                    LinkTable = Suite;
+                    LinkFields = SuiteCode = field(Code);
+                    MinOccurs = Zero;
+                    XmlName = 'Evaluator';
+                    SourceTableView = where(LineNo = const(0));
+                    fieldattribute(Name; SuiteEval.Name) { Occurrence = Required; }
+                }
+            }
+        }
+    }
+
+    var
+        Seen: Text;
+}
+
+// Neighbor ViewConst_OtherConst: The filter value differs from the field's initial value: the row holds 0 at the save.
+xmlport 50131 "NB XAU OtherConst"
+{
+    Direction = Import;
+    Format = Xml;
+    Encoding = UTF8;
+    UseRequestPage = false;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Suite; "NB XAU Suite")
+            {
+                XmlName = 'Suite';
+
+                fieldattribute(Code; Suite.Code) { Occurrence = Required; }
+                tableelement(SuiteEval; "NB XAU Eval")
+                {
+                    LinkTable = Suite;
+                    LinkFields = SuiteCode = field(Code);
+                    MinOccurs = Zero;
+                    XmlName = 'Evaluator';
+                    SourceTableView = where(LineNo = const(5));
+                    fieldattribute(Name; SuiteEval.Name) { Occurrence = Required; }
+                }
+            }
+        }
+    }
+
+    var
+        Seen: Text;
+}
+
+// Neighbor ViewConst_FieldElement: A fieldelement instead of the fieldattribute.
+xmlport 50132 "NB XAU FieldElement"
+{
+    Direction = Import;
+    Format = Xml;
+    Encoding = UTF8;
+    UseRequestPage = false;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Suite; "NB XAU Suite")
+            {
+                XmlName = 'Suite';
+
+                fieldattribute(Code; Suite.Code) { Occurrence = Required; }
+                tableelement(SuiteEval; "NB XAU Eval")
+                {
+                    LinkTable = Suite;
+                    LinkFields = SuiteCode = field(Code);
+                    MinOccurs = Zero;
+                    XmlName = 'Evaluator';
+                    SourceTableView = where(LineNo = const(0));
+                    fieldelement(Name; SuiteEval.Name) { }
+                }
+            }
+        }
+    }
+
+    var
+        Seen: Text;
+}
+
+// Neighbor ViewConst_CarriedField: The document carries the filtered field.
+xmlport 50133 "NB XAU CarriedField"
+{
+    Direction = Import;
+    Format = Xml;
+    Encoding = UTF8;
+    UseRequestPage = false;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Suite; "NB XAU Suite")
+            {
+                XmlName = 'Suite';
+
+                fieldattribute(Code; Suite.Code) { Occurrence = Required; }
+                tableelement(SuiteEval; "NB XAU Eval")
+                {
+                    LinkTable = Suite;
+                    LinkFields = SuiteCode = field(Code);
+                    MinOccurs = Zero;
+                    XmlName = 'Evaluator';
+                    SourceTableView = where(LineNo = const(0));
+                    fieldattribute(Name; SuiteEval.Name) { Occurrence = Required; }
+                    fieldattribute(No; SuiteEval.LineNo) { Occurrence = Optional; }
+                }
+            }
+        }
+    }
+
+    var
+        Seen: Text;
+}
+
+// Neighbor ViewConst_LinkFieldFilter: The filter is on the link field.
+xmlport 50134 "NB XAU LinkFieldFilter"
+{
+    Direction = Import;
+    Format = Xml;
+    Encoding = UTF8;
+    UseRequestPage = false;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Suite; "NB XAU Suite")
+            {
+                XmlName = 'Suite';
+
+                fieldattribute(Code; Suite.Code) { Occurrence = Required; }
+                tableelement(SuiteEval; "NB XAU Eval")
+                {
+                    LinkTable = Suite;
+                    LinkFields = SuiteCode = field(Code);
+                    MinOccurs = Zero;
+                    XmlName = 'Evaluator';
+                    SourceTableView = where(SuiteCode = const('A'));
+                    fieldattribute(Name; SuiteEval.Name) { Occurrence = Required; }
+                }
+            }
+        }
+    }
+
+    var
+        Seen: Text;
+}
+
+// Neighbor ViewConst_TwoFilters: Two const filters.
+xmlport 50135 "NB XAU TwoFilters"
+{
+    Direction = Import;
+    Format = Xml;
+    Encoding = UTF8;
+    UseRequestPage = false;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Suite; "NB XAU Suite")
+            {
+                XmlName = 'Suite';
+
+                fieldattribute(Code; Suite.Code) { Occurrence = Required; }
+                tableelement(SuiteEval; "NB XAU Eval")
+                {
+                    LinkTable = Suite;
+                    LinkFields = SuiteCode = field(Code);
+                    MinOccurs = Zero;
+                    XmlName = 'Evaluator';
+                    SourceTableView = where(LineNo = const(0), Kind = const(0));
+                    fieldattribute(Name; SuiteEval.Name) { Occurrence = Required; }
+                }
+            }
+        }
+    }
+
+    var
+        Seen: Text;
+}
+
+// Neighbor ViewConst_RangeFilter: A range filter instead of const.
+xmlport 50136 "NB XAU RangeFilter"
+{
+    Direction = Import;
+    Format = Xml;
+    Encoding = UTF8;
+    UseRequestPage = false;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Suite; "NB XAU Suite")
+            {
+                XmlName = 'Suite';
+
+                fieldattribute(Code; Suite.Code) { Occurrence = Required; }
+                tableelement(SuiteEval; "NB XAU Eval")
+                {
+                    LinkTable = Suite;
+                    LinkFields = SuiteCode = field(Code);
+                    MinOccurs = Zero;
+                    XmlName = 'Evaluator';
+                    SourceTableView = where(LineNo = filter(0 .. 5));
+                    fieldattribute(Name; SuiteEval.Name) { Occurrence = Required; }
+                }
+            }
+        }
+    }
+
+    var
+        Seen: Text;
+}
+
+// Neighbor ViewConst_Sorting: A view with SORTING.
+xmlport 50137 "NB XAU Sorting"
+{
+    Direction = Import;
+    Format = Xml;
+    Encoding = UTF8;
+    UseRequestPage = false;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Suite; "NB XAU Suite")
+            {
+                XmlName = 'Suite';
+
+                fieldattribute(Code; Suite.Code) { Occurrence = Required; }
+                tableelement(SuiteEval; "NB XAU Eval")
+                {
+                    LinkTable = Suite;
+                    LinkFields = SuiteCode = field(Code);
+                    MinOccurs = Zero;
+                    XmlName = 'Evaluator';
+                    SourceTableView = sorting(Name) where(LineNo = const(0));
+                    fieldattribute(Name; SuiteEval.Name) { Occurrence = Required; }
+                }
+            }
+        }
+    }
+
+    var
+        Seen: Text;
+}
+
+// Neighbor ViewConst_TriggerReadsFilters: OnAfterInitRecord reads the record's filters.
+xmlport 50138 "NB XAU TriggerReadsFilters"
+{
+    Direction = Import;
+    Format = Xml;
+    Encoding = UTF8;
+    UseRequestPage = false;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Suite; "NB XAU Suite")
+            {
+                XmlName = 'Suite';
+
+                fieldattribute(Code; Suite.Code) { Occurrence = Required; }
+                tableelement(SuiteEval; "NB XAU Eval")
+                {
+                    LinkTable = Suite;
+                    LinkFields = SuiteCode = field(Code);
+                    MinOccurs = Zero;
+                    XmlName = 'Evaluator';
+                    SourceTableView = where(LineNo = const(0));
+                    fieldattribute(Name; SuiteEval.Name) { Occurrence = Required; }
+
+                    trigger OnAfterInitRecord()
+                    begin
+                        Seen := SuiteEval.GetFilters();
+                    end;
+                }
+            }
+        }
+    }
+
+    var
+        Seen: Text;
+}
+
+// Neighbor ViewConst_BeforeInsertTrigger: An OnBeforeInsertRecord that does not name the record.
+xmlport 50139 "NB XAU BeforeInsertTrigger"
+{
+    Direction = Import;
+    Format = Xml;
+    Encoding = UTF8;
+    UseRequestPage = false;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Suite; "NB XAU Suite")
+            {
+                XmlName = 'Suite';
+
+                fieldattribute(Code; Suite.Code) { Occurrence = Required; }
+                tableelement(SuiteEval; "NB XAU Eval")
+                {
+                    LinkTable = Suite;
+                    LinkFields = SuiteCode = field(Code);
+                    MinOccurs = Zero;
+                    XmlName = 'Evaluator';
+                    SourceTableView = where(LineNo = const(0));
+                    fieldattribute(Name; SuiteEval.Name) { Occurrence = Required; }
+
+                    trigger OnBeforeInsertRecord()
+                    begin
+                        Seen := 'bi';
+                    end;
+                }
+            }
+        }
+    }
+
+    var
+        Seen: Text;
+}
+
+// Neighbor ViewConst_AutoUpdate: AutoUpdate on the element.
+xmlport 50140 "NB XAU AutoUpdate"
+{
+    Direction = Import;
+    Format = Xml;
+    Encoding = UTF8;
+    UseRequestPage = false;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Suite; "NB XAU Suite")
+            {
+                XmlName = 'Suite';
+
+                fieldattribute(Code; Suite.Code) { Occurrence = Required; }
+                tableelement(SuiteEval; "NB XAU Eval")
+                {
+                    LinkTable = Suite;
+                    LinkFields = SuiteCode = field(Code);
+                    MinOccurs = Zero;
+                    XmlName = 'Evaluator';
+                    SourceTableView = where(LineNo = const(0));
+                    AutoUpdate = true;
+                    fieldattribute(Name; SuiteEval.Name) { Occurrence = Required; }
+                }
+            }
+        }
+    }
+
+    var
+        Seen: Text;
+}
+
+// Neighbor ViewConst_Temporary: UseTemporary on the element.
+xmlport 50141 "NB XAU Temporary"
+{
+    Direction = Import;
+    Format = Xml;
+    Encoding = UTF8;
+    UseRequestPage = false;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Suite; "NB XAU Suite")
+            {
+                XmlName = 'Suite';
+
+                fieldattribute(Code; Suite.Code) { Occurrence = Required; }
+                tableelement(SuiteEval; "NB XAU Eval")
+                {
+                    LinkTable = Suite;
+                    LinkFields = SuiteCode = field(Code);
+                    MinOccurs = Zero;
+                    XmlName = 'Evaluator';
+                    SourceTableView = where(LineNo = const(0));
+                    UseTemporary = true;
+                    fieldattribute(Name; SuiteEval.Name) { Occurrence = Required; }
+                }
+            }
+        }
+    }
+
+    var
+        Seen: Text;
+}
+
+// Neighbor ViewConst_Skip: OnAfterInitRecord skips the row.
+xmlport 50142 "NB XAU Skip"
+{
+    Direction = Import;
+    Format = Xml;
+    Encoding = UTF8;
+    UseRequestPage = false;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Suite; "NB XAU Suite")
+            {
+                XmlName = 'Suite';
+
+                fieldattribute(Code; Suite.Code) { Occurrence = Required; }
+                tableelement(SuiteEval; "NB XAU Eval")
+                {
+                    LinkTable = Suite;
+                    LinkFields = SuiteCode = field(Code);
+                    MinOccurs = Zero;
+                    XmlName = 'Evaluator';
+                    SourceTableView = where(LineNo = const(0));
+                    fieldattribute(Name; SuiteEval.Name) { Occurrence = Required; }
+
+                    trigger OnAfterInitRecord()
+                    begin
+                        currXMLport.Skip();
+                    end;
+                }
+            }
+        }
+    }
+
+    var
+        Seen: Text;
+}
+
+// Neighbor ViewConst_OnInsertChangesField: The table's OnInsert sets the filtered field to another value.
+xmlport 50143 "NB XAU OnInsertChangesField"
+{
+    Direction = Import;
+    Format = Xml;
+    Encoding = UTF8;
+    UseRequestPage = false;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Suite; "NB XAU Suite")
+            {
+                XmlName = 'Suite';
+
+                fieldattribute(Code; Suite.Code) { Occurrence = Required; }
+                tableelement(SuiteEval; "NB XAU EvalIns")
+                {
+                    LinkTable = Suite;
+                    LinkFields = SuiteCode = field(Code);
+                    MinOccurs = Zero;
+                    XmlName = 'Evaluator';
+                    SourceTableView = where(LineNo = const(0));
+                    fieldattribute(Name; SuiteEval.Name) { Occurrence = Required; }
+                }
+            }
+        }
+    }
+
+    var
+        Seen: Text;
+}
+
+// Neighbor ViewConst_TriggerCallsPortProc: OnAfterInitRecord calls a procedure of the port.
+xmlport 50144 "NB XAU TriggerCallsPortProc"
+{
+    Direction = Import;
+    Format = Xml;
+    Encoding = UTF8;
+    UseRequestPage = false;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Suite; "NB XAU Suite")
+            {
+                XmlName = 'Suite';
+
+                fieldattribute(Code; Suite.Code) { Occurrence = Required; }
+                tableelement(SuiteEval; "NB XAU Eval")
+                {
+                    LinkTable = Suite;
+                    LinkFields = SuiteCode = field(Code);
+                    MinOccurs = Zero;
+                    XmlName = 'Evaluator';
+                    SourceTableView = where(LineNo = const(0));
+                    fieldattribute(Name; SuiteEval.Name) { Occurrence = Required; }
+
+                    trigger OnAfterInitRecord()
+                    begin
+                        Note();
+                    end;
+                }
+            }
+        }
+    }
+
+    local procedure Note()
+    begin
+        Seen := 'n';
+    end;
+
+    var
+        Seen: Text;
+}
+
+// Neighbor ViewConst_BelowLine: the element is linked to a table element one level deeper than the root's child.
+xmlport 50145 "NB XAU BelowLine"
+{
+    Direction = Import;
+    Format = Xml;
+    Encoding = UTF8;
+    UseRequestPage = false;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Suite; "NB XAU Suite")
+            {
+                XmlName = 'Suite';
+
+                fieldattribute(Code; Suite.Code) { Occurrence = Required; }
+                tableelement(Line; "NB XAU Line")
+                {
+                    LinkTable = Suite;
+                    LinkFields = SuiteCode = field(Code);
+                    MinOccurs = Zero;
+                    XmlName = 'Line';
+
+                    fieldattribute(No; Line.LineNo) { Occurrence = Required; }
+                    fieldattribute(Cu; Line.Cu) { Occurrence = Required; }
+                    tableelement(SuiteEval; "NB XAU Eval")
+                    {
+                        LinkTable = Line;
+                        LinkFields = SuiteCode = field(SuiteCode);
+                        MinOccurs = Zero;
+                        XmlName = 'Evaluator';
+                        SourceTableView = where(LineNo = const(0));
+
+                        fieldattribute(Name; SuiteEval.Name) { Occurrence = Required; }
+                    }
+                }
             }
         }
     }

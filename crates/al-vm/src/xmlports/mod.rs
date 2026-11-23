@@ -34,6 +34,7 @@ mod import_record;
 mod import_view;
 mod import_xml;
 mod legacy_guid;
+mod linked_view;
 mod pass;
 mod plain_tree;
 mod root_nested;

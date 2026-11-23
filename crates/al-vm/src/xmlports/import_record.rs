@@ -32,15 +32,20 @@ impl Session {
                 "XmlPort import of a table element with MaxOccurs = Once below another table element (not pinned)",
             );
         }
+        // A linked element whose SourceTableView filters: only the measured `const` shape runs (`linked_view`).
+        let mut view_const = None;
         if n.link_node.is_some()
             && n.source_view
                 .as_deref()
                 .is_some_and(|v| crate::views::view_clauses(v).filters)
         {
-            return unsupported(format!(
-                "XmlPort import: sourcetableview with a filter on the linked tableelement {} is not pinned",
-                n.name
-            ));
+            view_const = self.xp_linked_view_const(inst, schema, node)?;
+            if view_const.is_none() {
+                return unsupported(format!(
+                    "XmlPort import: sourcetableview with a filter on the linked tableelement {} is not pinned",
+                    n.name
+                ));
+            }
         }
         if !first_of_node {
             self.xp_after_assign_second_row(inst, schema, node, elem)?;
@@ -287,7 +292,21 @@ impl Session {
             }
         }
         seq.finish(schema)?;
-        if !saved {
+        if let Some(c) = &view_const {
+            // The measured row is not skipped, holds the filter's value at its save, and keeps it (`linked_view`).
+            match Self::xp_flow(inst) {
+                None => {}
+                _ => return unsupported(LINKED_VIEW_FLOW),
+            }
+            if !self.xp_holds_view_const(inst, schema, node, c)? {
+                return unsupported(LINKED_VIEW_OTHER_VALUE);
+            }
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportLinkedViewConst);
+            self.xp_save_record(inst, schema, node, &assigned, false)?;
+            if !self.xp_holds_view_const(inst, schema, node, c)? {
+                return unsupported(LINKED_VIEW_OTHER_VALUE);
+            }
+        } else if !saved {
             self.xp_save_record(inst, schema, node, &assigned, false)?;
         } else if saved_before_tables {
             // A parent stored before its linked child rows is modified again after them, with its OnBefore/OnAfterModifyRecord and
@@ -700,6 +719,10 @@ impl Session {
 
     // ------------------------------------------------- VariableText, FixedText
 }
+
+const LINKED_VIEW_FLOW: &str =
+    "XmlPort import of a linked table element whose SourceTableView has a const filter, skipped by its trigger (not pinned)";
+const LINKED_VIEW_OTHER_VALUE: &str = "XmlPort import of a linked table element whose SourceTableView const filter's field holds another value at the save (not pinned)";
 
 /// The save of `xp_save_record` in which triggers that assign fields of the row may run: a table element right below the
 /// root text element, AutoSave without AutoUpdate or AutoReplace, a real table, stored before its linked child rows and
