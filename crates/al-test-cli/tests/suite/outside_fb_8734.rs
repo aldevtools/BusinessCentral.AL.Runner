@@ -38,14 +38,20 @@ fn issue_8734_probe_cells() {
 /// Code just past the cells keeps a refusal: the page's OnAfterGetRecord sets a field of Rec, the part's OnAfterGetRecord
 /// writes another table, a modify of the row through another record before the save, a write of another table before the save,
 /// a page without OnAfterGetCurrRecord, CurrPage.Update(true) or Update() without a save or Update(true) after it (only the
-/// page without triggers measures Update(true) after the save, ListNewLineExtraCode.al:476), Previous() or Next() after
-/// the landing, Previous() or Close() after a SetValue, OnAfterGetCurrRecord setting a field of the new line at New(), and OnAfterGetCurrRecord setting a filter on
-/// Rec in the refresh. The save without an Update after it,
-/// with a row before, runs as the cells :701 and :713 measure it, flagged.
+/// page without triggers measures Update(true) after the save, ListNewLineExtraCode.al:476), Previous() or Next() after the
+/// landing, Previous(), Previous() then Next(), or Close() after a SetValue, Close() right after the landing,
+/// OnAfterGetCurrRecord setting a field of the new line at New(), and OnAfterGetCurrRecord setting a filter on Rec in the
+/// refresh. The save without an Update after it, with a row before, runs as the cells :701 and :713 measure it, flagged.
 #[test]
 fn issue_8734_neighbors_are_refused() {
-    let o = super::outside_fb_8712::outcomes(NEIGHBORS, "LT NG Tests");
+    let mut o = super::outside_fb_8712::outcomes(NEIGHBORS, "LT NG Tests");
     assert_eq!(o.len(), 15);
+    // Each in its own codeunit, so that no earlier refused test hides its result.
+    for cu in ["LT NG Prev Next Tests", "LT NG Close Tests"] {
+        let one = super::outside_fb_8712::outcomes(NEIGHBORS, cu);
+        assert_eq!(one.len(), 1, "{cu}");
+        o.extend(one);
+    }
     let ran: Vec<_> = o
         .iter()
         .filter(|(name, r, marks)| match name.as_str() {

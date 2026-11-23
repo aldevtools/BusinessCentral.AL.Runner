@@ -137,7 +137,8 @@ impl Session {
     /// another record after the save (ListNewLineExtraCodeFactbox.al:344 `AGR(A/Resolved/Stamped)`); then the view from the row,
     /// the row twice more, OnAfterGetCurrRecord and the part's OnAfterGetRecord (:344; :355 with a row before). The cells'
     /// triggers only read: one that wrote the store, or left the page's or the part's record other than stored, or Rec's view
-    /// other than it was, is not measured, and refused. The calls after it are those of the FactBox host (`FactboxStep`).
+    /// other than it was, is not measured, and refused. After it the cells only read controls, set one control without code and
+    /// call OK (`FactboxStep::ExtraLanded`); the FactBox host's Previous, Next and Close are not measured here.
     pub(super) fn extra_code_factbox_refresh(
         &mut self,
         st: &St,
@@ -169,7 +170,7 @@ impl Session {
         // FactBox host, it does not read the row again before it leaves it.
         if let Some(row) = st.borrow_mut().code_inserted_row.as_mut() {
             row.read_before_leave = false;
-            row.factbox = super::state::FactboxStep::Landed;
+            row.factbox = super::state::FactboxStep::ExtraLanded;
         }
         Ok(())
     }
