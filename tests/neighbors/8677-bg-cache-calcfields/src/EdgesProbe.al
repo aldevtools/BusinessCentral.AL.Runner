@@ -1,4 +1,4 @@
-// A copy of the corpus probe BgTaskCacheEdges.al of corpus pull request 1558 at c8c3bc81 (corpus issue 1555), run here until a
+// A copy of the corpus probe BgTaskCacheEdges.al of corpus pull request 1558 at aedde991 (corpus issue 1555), run here until a
 // bump pins it. Citations of BgTaskCacheEdges.al name the corpus file's lines (this copy has two lines more).
 // BC Documentation:
 //   https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/methods-auto/testpage/testpagetestpage-runpagebackgroundtask-method
@@ -466,5 +466,246 @@ codeunit 97709 "BCE Tests"
     procedure BgCacheEdges_TwoFlowFieldFiltersSwapped_FirstAnswer()
     begin
         Assert.AreEqual('Yes / Yes', Reads('linesnotes', 'noteslines', 'note'), 'Line Count, Note Count, then the other order');
+    end;
+}
+
+// From the review of al-runner PR 8897: what ends a worker's CalcFields entry among commits of its row's table, and
+// SelectLatestVersion with a value 0 of each type the compiler takes for the table number. Each cell commits a parent of table
+// 97706 (description 'first') with line 1 and opens page 97706; the worker reads; the test session commits a ModifyAll, a
+// DeleteAll or a Delete of another row of table 97706, then inserts lines 0 and 3 without a commit; the worker reads again.
+codeunit 97710 "BCE Commit Reader"
+{
+    trigger OnRun()
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+    begin
+        Parameters := Page.GetBackgroundParameters();
+        Results.Add('Seen', Read(Parameters.Get('Mode'), Parameters.Get('Group')));
+        Page.SetBackgroundTaskResult(Results);
+    end;
+
+    local procedure Read(Mode: Text; Group: Text): Text
+    var
+        Parent: Record "BCE Parent";
+        Ref: RecordRef;
+        FRef: FieldRef;
+        Kind: Option First,Second;
+        C: Char;
+        B: Byte;
+        Which: Enum "BCE Table";
+    begin
+        case Mode of
+            'linecount':
+                begin
+                    Parent.Get(Group);
+                    Parent.CalcFields("Line Count");
+                    exit(Format(Parent."Line Count"));
+                end;
+            'recordref':
+                begin
+                    Ref.Open(Database::"BCE Parent");
+                    Ref.Field(1).SetRange(Group);
+                    Ref.FindFirst();
+                    FRef := Ref.Field(4);
+                    FRef.CalcField();
+                    exit(Format(FRef.Value()));
+                end;
+            'description', 'optionselect', 'charselect', 'byteselect', 'enumselect':
+                begin
+                    // Each value is 0, which names no table (the Enum with warning AL0603).
+                    case Mode of
+                        'optionselect':
+                            Database.SelectLatestVersion(Kind);
+                        'charselect':
+                            Database.SelectLatestVersion(C);
+                        'byteselect':
+                            Database.SelectLatestVersion(B);
+                        'enumselect':
+                            begin
+                                Which := Which::None;
+                                Database.SelectLatestVersion(Which);
+                            end;
+                    end;
+                    Parent.Get(Group);
+                    exit(Parent.Description);
+                end;
+        end;
+        Error('Mode %1', Mode);
+    end;
+}
+
+codeunit 97711 "BCE Commit Tests"
+{
+    Subtype = Test;
+
+    var
+        Assert: Codeunit Assert;
+
+    local procedure Run(var Lines: TestPage "BCE Lines"; Mode: Text; Group: Code[20]): Text
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Seen: Text;
+    begin
+        Parameters.Add('Group', Group);
+        Parameters.Add('Mode', Mode);
+        Results := Lines.RunPageBackgroundTask(Codeunit::"BCE Commit Reader", Parameters, false);
+        Results.Get('Seen', Seen);
+        exit(Seen);
+    end;
+
+    local procedure AddLine(Parent: Code[20]; LineNo: Integer; Amount: Decimal)
+    var
+        Line: Record "BCE Line";
+    begin
+        Line.Parent := Parent;
+        Line."Line No." := LineNo;
+        Line.Kind := 'K';
+        Line.Amount := Amount;
+        Line.Qty := 1;
+        Line.Insert();
+        Line.SetRange(Parent, Parent);
+        if Line.FindFirst() then;
+    end;
+
+    local procedure NewParent(): Code[20]
+    var
+        Parent: Record "BCE Parent";
+    begin
+        Parent."No." := CopyStr(DelChr(Format(CreateGuid()), '=', '{}-'), 1, 18);
+        Parent.Description := 'first';
+        Parent.Insert();
+        exit(Parent."No.");
+    end;
+
+    // What: a commit of table 97706 ('modifyall', 'deleteall' and 'delete' of another parent), then
+    // lines 0 and 3 without a commit; or 'description', the parent's description changed without a commit.
+    local procedure Change(G: Code[20]; What: Text)
+    var
+        Parent: Record "BCE Parent";
+        Other: Code[20];
+    begin
+        if What = 'description' then begin
+            Parent.Get(G);
+            Parent.Description := 'second';
+            Parent.Modify();
+            exit;
+        end;
+        case What of
+            'modifyall':
+                begin
+                    Other := NewParent();
+                    Commit();
+                    Parent.SetRange("No.", Other);
+                    Parent.ModifyAll(Description, 'other');
+                end;
+            'deleteall':
+                begin
+                    Other := NewParent();
+                    Commit();
+                    Parent.SetRange("No.", Other);
+                    Parent.DeleteAll();
+                end;
+            'delete':
+                begin
+                    Other := NewParent();
+                    Commit();
+                    Parent.Get(Other);
+                    Parent.Delete();
+                end;
+        end;
+        Commit();
+        AddLine(G, 0, 2);
+        AddLine(G, 3, 11);
+    end;
+
+    local procedure Reads(First: Text; Again: Text; What: Text): Text
+    var
+        Lines: TestPage "BCE Lines";
+        G: Code[20];
+        Seen: Text;
+    begin
+        G := NewParent();
+        AddLine(G, 1, 5);
+        Commit();
+        Lines.OpenView();
+        Seen := Run(Lines, First, G);
+        Change(G, What);
+        Seen += ' / ' + Run(Lines, Again, G);
+        Lines.Close();
+        exit(Seen);
+    end;
+
+    [Test]
+    procedure BgCacheEdges_CalcFieldsAfterACommitOfAModifyAll_FirstAnswer()
+    begin
+        Assert.AreEqual('1 / 1', Reads('linecount', 'linecount', 'modifyall'), 'CalcFields after a commit of a ModifyAll of table 97706');
+    end;
+
+    [Test]
+    procedure BgCacheEdges_CalcFieldsAfterACommitOfADeleteAll_FirstAnswer()
+    begin
+        Assert.AreEqual('1 / 1', Reads('linecount', 'linecount', 'deleteall'), 'CalcFields after a commit of a DeleteAll of table 97706');
+    end;
+
+    [Test]
+    procedure BgCacheEdges_CalcFieldsAfterACommitOfADelete_FirstAnswer()
+    begin
+        Assert.AreEqual('1 / 1', Reads('linecount', 'linecount', 'delete'), 'CalcFields after a commit of a Delete of another row');
+    end;
+
+    [Test]
+    procedure BgCacheEdges_TestCalcFieldsFirstThenACommit_TestsAnswer()
+    var
+        Lines: TestPage "BCE Lines";
+        Parent: Record "BCE Parent";
+        G: Code[20];
+        Seen: Text;
+    begin
+        G := NewParent();
+        AddLine(G, 1, 5);
+        Commit();
+        Lines.OpenView();
+        Parent.Get(G);
+        Parent.CalcFields("Line Count");
+        Seen := Format(Parent."Line Count");
+        NewParent();
+        Commit();
+        AddLine(G, 0, 2);
+        AddLine(G, 3, 11);
+        Seen += ' / ' + Run(Lines, 'linecount', G);
+        Lines.Close();
+        Assert.AreEqual('1 / 1', Seen, 'the test session''s CalcFields, a commit of table 97706, then the worker''s');
+    end;
+
+    [Test]
+    procedure BgCacheEdges_RecordRefCalcFieldAfterACommitOfItsTable_FirstAnswer()
+    begin
+        Assert.AreEqual('1 / 1', Reads('recordref', 'recordref', 'delete'), 'FieldRef.CalcField of a database RecordRef after a commit of table 97706');
+    end;
+
+    [Test]
+    procedure BgCacheEdges_SelectLatestVersionOfAnOptionZero_FirstAnswer()
+    begin
+        Assert.AreEqual('first / first', Reads('description', 'optionselect', 'description'), 'SelectLatestVersion(Option of 0)');
+    end;
+
+    [Test]
+    procedure BgCacheEdges_SelectLatestVersionOfACharZero_FirstAnswer()
+    begin
+        Assert.AreEqual('first / first', Reads('description', 'charselect', 'description'), 'SelectLatestVersion(Char of 0)');
+    end;
+
+    [Test]
+    procedure BgCacheEdges_SelectLatestVersionOfAByteZero_FirstAnswer()
+    begin
+        Assert.AreEqual('first / first', Reads('description', 'byteselect', 'description'), 'SelectLatestVersion(Byte of 0)');
+    end;
+
+    [Test]
+    procedure BgCacheEdges_SelectLatestVersionOfAnEnumZero_FirstAnswer()
+    begin
+        Assert.AreEqual('first / first', Reads('description', 'enumselect', 'description'), 'SelectLatestVersion(Enum of 0)');
     end;
 }

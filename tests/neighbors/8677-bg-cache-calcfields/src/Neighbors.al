@@ -58,6 +58,11 @@ table 50120 "BQN Parent"
             FieldClass = FlowField;
             CalcFormula = count("BQN Line" where(Parent = field("No."), Amount = field("Kind Text Sum")));
         }
+        field(12; "Same Description Count"; Integer)
+        {
+            FieldClass = FlowField;
+            CalcFormula = count("BQN Parent" where(Description = field(Description)));
+        }
     }
 
     keys
@@ -216,6 +221,12 @@ codeunit 50123 "BQN Reader"
                     Parent.Get(Group);
                     Parent.CalcFields("Line Count");
                     exit(Format(Parent."Line Count"));
+                end;
+            'samedescription':
+                begin
+                    Parent.Get(Group);
+                    Parent.CalcFields("Same Description Count");
+                    exit(Format(Parent."Same Description Count"));
                 end;
             'descendingcalc':
                 begin
@@ -404,5 +415,173 @@ codeunit 50124 "BQN Tests"
     procedure VariantCopiedTemporaryRecord_LinesAfterFirstRead()
     begin
         Assert.AreEqual('1 / 1', Reads('variantcopy'), 'a temporary record a Variant got from another Variant');
+    end;
+}
+
+// From the review of al-runner PR 8897: a worker's CalcFields of the parent's Line Count, then the test session commits a
+// ModifyAll, a DeleteAll or a Delete of another parent, and inserts lines 0 and 2 without a
+// commit, and the worker reads again (the cells of BgTaskCacheEdges.al, BCE Commit Tests, measure each); the test session's
+// CalcFields first, then a commit of table 50120 and the lines; FieldRef.CalcField of a database RecordRef after a commit of
+// table 50120; and a FlowField whose formula reads the row's own table (Same Description Count), with another parent of that
+// description committed between the reads. BC's answers, a local BC 29.1 container, 3 runs.
+codeunit 50128 "BQN Commit Tests"
+{
+    Subtype = Test;
+
+    var
+        Assert: Codeunit Assert;
+
+    local procedure Run(var Lines: TestPage "BQN Lines"; Mode: Text; Group: Code[20]): Text
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Seen: Text;
+    begin
+        Parameters.Add('Group', Group);
+        Parameters.Add('Mode', Mode);
+        Results := Lines.RunPageBackgroundTask(Codeunit::"BQN Reader", Parameters, false);
+        Results.Get('Seen', Seen);
+        exit(Seen);
+    end;
+
+    local procedure AddLine(Parent: Code[20]; LineNo: Integer; Amount: Decimal)
+    var
+        Line: Record "BQN Line";
+    begin
+        Line.Parent := Parent;
+        Line."Line No." := LineNo;
+        Line.Kind := 'K';
+        Line.Amount := Amount;
+        Line.Insert();
+        Line.SetRange(Parent, Parent);
+        if Line.FindFirst() then;
+    end;
+
+    local procedure NewParent(Description: Text[50]): Code[20]
+    var
+        Parent: Record "BQN Parent";
+    begin
+        Parent."No." := CopyStr(DelChr(Format(CreateGuid()), '=', '{}-'), 1, 18);
+        Parent.Description := Description;
+        Parent.Insert();
+        exit(Parent."No.");
+    end;
+
+    local procedure Change(G: Code[20]; What: Text)
+    var
+        Parent: Record "BQN Parent";
+        Other: Code[20];
+    begin
+        case What of
+            'modifyall':
+                begin
+                    Other := NewParent('');
+                    Commit();
+                    Parent.SetRange("No.", Other);
+                    Parent.ModifyAll(Description, 'other');
+                end;
+            'deleteall':
+                begin
+                    Other := NewParent('');
+                    Commit();
+                    Parent.SetRange("No.", Other);
+                    Parent.DeleteAll();
+                end;
+            'delete':
+                begin
+                    Other := NewParent('');
+                    Commit();
+                    Parent.Get(Other);
+                    Parent.Delete();
+                end;
+            'samedescription':
+                NewParent(G);
+        end;
+        Commit();
+        AddLine(G, 0, 2);
+        AddLine(G, 2, 11);
+    end;
+
+    // A parent with description G and line 1, committed; the worker (First); the change; the worker again (Again).
+    local procedure Reads(First: Text; Again: Text; What: Text): Text
+    var
+        Lines: TestPage "BQN Lines";
+        G: Code[20];
+        Seen: Text;
+    begin
+        G := CopyStr(DelChr(Format(CreateGuid()), '=', '{}-'), 1, 18);
+        NewParentNo(G);
+        AddLine(G, 1, 5);
+        Commit();
+        Lines.OpenView();
+        Seen := Run(Lines, First, G);
+        Change(G, What);
+        Seen += ' / ' + Run(Lines, Again, G);
+        Lines.Close();
+        exit(Seen);
+    end;
+
+    local procedure NewParentNo(G: Code[20])
+    var
+        Parent: Record "BQN Parent";
+    begin
+        Parent."No." := G;
+        Parent.Description := G;
+        Parent.Insert();
+    end;
+
+    [Test]
+    procedure ModifyAllCommitted_LinesAfterFirstRead()
+    begin
+        Assert.AreEqual('1 / 1', Reads('linecount', 'linecount', 'modifyall'), 'a ModifyAll of another parent committed');
+    end;
+
+    [Test]
+    procedure DeleteAllCommitted_LinesAfterFirstRead()
+    begin
+        Assert.AreEqual('1 / 1', Reads('linecount', 'linecount', 'deleteall'), 'a DeleteAll of another parent committed');
+    end;
+
+    [Test]
+    procedure DeleteCommitted_LinesAfterFirstRead()
+    begin
+        Assert.AreEqual('1 / 1', Reads('linecount', 'linecount', 'delete'), 'a Delete of another parent committed');
+    end;
+
+    [Test]
+    procedure TestCalcFieldsFirstThenCommit_LinesAfterIt()
+    var
+        Lines: TestPage "BQN Lines";
+        Parent: Record "BQN Parent";
+        G: Code[20];
+        Seen: Text;
+    begin
+        G := CopyStr(DelChr(Format(CreateGuid()), '=', '{}-'), 1, 18);
+        NewParentNo(G);
+        AddLine(G, 1, 5);
+        Commit();
+        Lines.OpenView();
+        Parent.Get(G);
+        Parent.CalcFields("Line Count");
+        Seen := Format(Parent."Line Count");
+        NewParent('');
+        Commit();
+        AddLine(G, 0, 2);
+        AddLine(G, 2, 11);
+        Seen += ' / ' + Run(Lines, 'linecount', G);
+        Lines.Close();
+        Assert.AreEqual('1 / 1', Seen, 'the test session''s CalcFields, a commit, then the worker''s');
+    end;
+
+    [Test]
+    procedure RecordRefCalcFieldAfterACommit_LinesAfterFirstRead()
+    begin
+        Assert.AreEqual('1 / 1', Reads('recordref', 'recordref', 'delete'), 'FieldRef.CalcField after a Delete of another parent committed');
+    end;
+
+    [Test]
+    procedure FlowFieldOverItsOwnTable_ParentCommitted()
+    begin
+        Assert.AreEqual('1 / 2', Reads('samedescription', 'samedescription', 'samedescription'), 'a count of parents of the same description');
     end;
 }
