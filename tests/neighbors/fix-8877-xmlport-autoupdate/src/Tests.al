@@ -208,13 +208,47 @@ codeunit 50120 "NB XAU Tests"
         AreEqual('2/two/trig/', ParRow(2));
     end;
 
-    // AutoUpdate with an assign trigger on an existing row: still refused.
+    // AutoUpdate with an assign trigger on an existing row: the stored row with the carried fields, the trigger's Stamp
+    // dropped (corpus PR 1550, KeyTrig_Existing_NameCarried).
     [Test]
     procedure KeyTrig_AutoUpdate_Existing()
     begin
         SeedPar();
         RunPort(Xmlport::"NB XAU KeyTrig", '<Root><P><Id>1</Id><Name>new</Name></P></Root>');
-        AreEqual('1/new/trig/e0', ParRow(1));
+        AreEqual('1/new/s0/e0', ParRow(1));
+    end;
+
+    // The same with an OnBeforeModifyRecord that changes a field: refused on head.
+    [Test]
+    procedure UpdBm_ChangesRow()
+    begin
+        SeedPar();
+        RunPort(Xmlport::"NB XAU UpdBm", '<Root><P><Id>1</Id><Name>new</Name></P></Root>');
+        AreEqual('1/new/s0/bm', ParRow(1));
+    end;
+
+    // AutoUpdate with only an OnAfterInitRecord that assigns an uncarried field (corpus PR 1550, InitTrig_Existing_NameCarried).
+    [Test]
+    procedure UpdInit_Existing()
+    begin
+        SeedPar();
+        RunPort(Xmlport::"NB XAU UpdInit", '<Root><P><Id>1</Id><Name>new</Name></P></Root>');
+        AreEqual('1/new/s0/e0', ParRow(1));
+    end;
+
+    // AutoUpdate on a temporary table element whose second element meets the row of the first: still refused.
+    [Test]
+    procedure UpdTemp_SameKeyTwice()
+    var
+        Imp: XmlPort "NB XAU UpdTemp";
+        Src: Record "NB XAU Src";
+        InS: InStream;
+    begin
+        SeedPar();
+        Source('<Root><P><Id>1</Id><Name>a</Name></P><P><Id>1</Id><Name>b</Name></P></Root>', Src, InS);
+        Imp.SetSource(InS);
+        Imp.Import();
+        AreEqual('1/b/trig;', Imp.Rows());
     end;
 
     // AutoUpdate with an assign trigger, a new row: inserted (main's path).
@@ -248,5 +282,23 @@ codeunit 50120 "NB XAU Tests"
         Imp.SetSource(InS);
         Imp.Import();
         AreEqual('2/two/trig;', Imp.Rows());
+    end;
+
+    // The KeyTrig shape in a VariableText port, an existing row: still refused.
+    [Test]
+    procedure UpdVarText_Existing()
+    begin
+        SeedPar();
+        RunPort(Xmlport::"NB XAU UpdVarText", '1,new');
+        AreEqual('1/new/s0/e0', ParRow(1));
+    end;
+
+    // The KeyTrig shape with field attributes, an existing row: still refused.
+    [Test]
+    procedure UpdAttr_Existing()
+    begin
+        SeedPar();
+        RunPort(Xmlport::"NB XAU UpdAttr", '<Root><P Id="1" Name="new"/></Root>');
+        AreEqual('1/new/s0/e0', ParRow(1));
     end;
 }

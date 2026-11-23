@@ -1,7 +1,8 @@
 // Neighbors of al-runner issue 8877 (corpus PR probe-xmlport-autoupdate-8877, XpAutoUpdateAssign.al): an XmlPort import
 // whose parent table element is stored before its linked child rows and stored again after them (no AutoUpdate or
 // AutoReplace), where triggers of the parent's attributes assign fields of the parent. The suite xmlport is a stand-in
-// for the shape of an AI test suite import; the other xmlports flip one fact each.
+// for the shape of an AI test suite import; the other xmlports flip one fact each. The UpdBm, UpdInit, UpdTemp and KeyTrig
+// xmlports are the neighbors of the AutoUpdate save with triggers that assign fields (same issue, same probe).
 table 50100 "NB XAU Par"
 {
     DataClassification = SystemMetadata;
@@ -558,6 +559,171 @@ xmlport 50117 "NB XAU Again"
 
                     fieldelement(CId; Chi.Id) { }
                 }
+            }
+        }
+    }
+}
+
+// AutoUpdate, an OnAfterAssignField of the key and an OnBeforeModifyRecord that changes a field of the row.
+xmlport 50118 "NB XAU UpdBm"
+{
+    Direction = Import;
+    Format = Xml;
+    Encoding = UTF8;
+    UseRequestPage = false;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Par; "NB XAU Par")
+            {
+                XmlName = 'P';
+                AutoUpdate = true;
+
+                fieldelement(Id; Par.Id)
+                {
+                    trigger OnAfterAssignField()
+                    begin
+                        Par.Stamp := 'trig';
+                    end;
+                }
+                fieldelement(Name; Par.Name) { MinOccurs = Zero; }
+
+                trigger OnBeforeModifyRecord()
+                begin
+                    Par.Extra := 'bm';
+                end;
+            }
+        }
+    }
+}
+
+// AutoUpdate, an OnAfterInitRecord that assigns a field the document does not carry, no assign trigger.
+xmlport 50119 "NB XAU UpdInit"
+{
+    Direction = Import;
+    Format = Xml;
+    Encoding = UTF8;
+    UseRequestPage = false;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Par; "NB XAU Par")
+            {
+                XmlName = 'P';
+                AutoUpdate = true;
+
+                fieldelement(Id; Par.Id) { }
+                fieldelement(Name; Par.Name) { MinOccurs = Zero; }
+
+                trigger OnAfterInitRecord()
+                begin
+                    Par.Extra := 'init';
+                end;
+            }
+        }
+    }
+}
+
+// AutoUpdate on a temporary table element with an OnAfterAssignField of the key: the second element of the same key
+// meets the row the first one stored.
+xmlport 50121 "NB XAU UpdTemp"
+{
+    Direction = Import;
+    Format = Xml;
+    Encoding = UTF8;
+    UseRequestPage = false;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Par; "NB XAU Par")
+            {
+                XmlName = 'P';
+                AutoUpdate = true;
+                UseTemporary = true;
+
+                fieldelement(Id; Par.Id)
+                {
+                    trigger OnAfterAssignField()
+                    begin
+                        Par.Stamp := 'trig';
+                    end;
+                }
+                fieldelement(Name; Par.Name) { MinOccurs = Zero; }
+            }
+        }
+    }
+
+    procedure Rows(): Text
+    var
+        Txt: Text;
+    begin
+        if Par.FindSet() then
+            repeat
+                Txt += Format(Par.Id) + '/' + Par.Name + '/' + Par.Stamp + ';';
+            until Par.Next() = 0;
+        exit(Txt);
+    end;
+}
+
+// The KeyTrig shape in a VariableText port: the second line of the same key meets the row of the first.
+xmlport 50122 "NB XAU UpdVarText"
+{
+    Direction = Import;
+    Format = VariableText;
+    UseRequestPage = false;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Par; "NB XAU Par")
+            {
+                AutoUpdate = true;
+
+                fieldelement(Id; Par.Id)
+                {
+                    trigger OnAfterAssignField()
+                    begin
+                        Par.Stamp := 'trig';
+                    end;
+                }
+                fieldelement(Name; Par.Name) { }
+            }
+        }
+    }
+}
+
+// The KeyTrig shape with the key as a field attribute.
+xmlport 50123 "NB XAU UpdAttr"
+{
+    Direction = Import;
+    Format = Xml;
+    Encoding = UTF8;
+    UseRequestPage = false;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Par; "NB XAU Par")
+            {
+                XmlName = 'P';
+                AutoUpdate = true;
+
+                fieldattribute(Id; Par.Id)
+                {
+                    trigger OnAfterAssignField()
+                    begin
+                        Par.Stamp := 'trig';
+                    end;
+                }
+                fieldattribute(Name; Par.Name) { Occurrence = Optional; }
             }
         }
     }
