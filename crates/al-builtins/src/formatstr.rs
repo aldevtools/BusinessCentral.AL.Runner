@@ -214,7 +214,7 @@ pub fn format_with_field_places(
             gate?;
         } else {
             let bare = format_codes(v, 0, template, places, ctx)?;
-            crate::format::length::with_format_string(v, length, template, bare.chars().count())?;
+            crate::format::length::with_format_string(v, length, template, bare.chars().count(), ctx)?;
         }
     }
     Ok(out)
