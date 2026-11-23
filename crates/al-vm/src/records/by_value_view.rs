@@ -19,7 +19,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 /// The `RecordState::unpinned_buffer` reason of a by-value copy whose view [`Session::by_value_view`] does not decide.
-pub(crate) const BY_VALUE_VIEW: &str = "a record handed by value whose view the probe did not measure (a filter in filter group 1 or in a group other than -1, 0, 2 and 4, the caller standing in a group other than 0 and 2, a field sorted descending by SetAscending, a SetLoadFields and a read before the hand-off other than from a codeunit to a codeunit's procedure with every filter in group 0, ascending and without marks or an ad hoc key, a SetAutoCalcFields outside the measured shape or ReadIsolation on the record, a call through an interface, a parameter of an object other than a codeunit, of a report procedure called from other than the report, a codeunit or a page, a key on a FlowField with a filter, another order, marks, or a SetLoadFields before a read other than handed from a codeunit to a codeunit's or a report's procedure, or of a table procedure other than Row.Proc(Row) or Buffer.Proc(Entry) of another table from a codeunit or a third table, or an event subscriber's parameter whose publisher parameter is a by-value Record, other than in the one cell record/filters/ByValueRecordView.al:286-308 and :964-978 measures): what the copy's view holds is not pinned";
+pub(crate) const BY_VALUE_VIEW: &str = "a record handed by value whose view the probe did not measure (a filter in filter group 1 or in a group other than -1, 0, 2 and 4, the caller standing in a group other than 0 and 2, a field sorted descending by SetAscending, a SetLoadFields and a read before the hand-off other than from a codeunit to a codeunit's procedure with every filter in group 0, ascending and without marks or an ad hoc key, or with the row cleared, initialized or changed since the read, a SetAutoCalcFields outside the measured shape or ReadIsolation on the record, a call through an interface, a parameter of an object other than a codeunit, of a report procedure called from other than the report, a codeunit or a page, a key on a FlowField with a filter, another order, marks, or a SetLoadFields before a read other than handed from a codeunit to a codeunit's or a report's procedure, or of a table procedure other than Row.Proc(Row) or Buffer.Proc(Entry) of another table from a codeunit or a third table, or an event subscriber's parameter whose publisher parameter is a by-value Record, other than in the one cell record/filters/ByValueRecordView.al:286-308 and :964-978 measures): what the copy's view holds is not pinned";
 
 /// The `RecordState::unpinned_buffer` reason of the copy an event subscriber's parameter gets in the cell
 /// record/filters/ByValueRecordView.al:286-308 measures ([`subscriber_view`]): the subscriber reads GetFilters and Count of it
@@ -182,9 +182,29 @@ fn plain_state(s: &RecordState) -> bool {
     s.auto_calc.is_empty() && s.read_isolation == 0
 }
 
-/// Whether `s` holds a SetLoadFields and a row it read (`load.buffer` is set by a read), whichever came first.
+/// Whether `s` holds a SetLoadFields and a buffer (`load.buffer` is set by a read and kept by `Clear`), whichever came
+/// first.
 fn load_after_read(s: &RecordState) -> bool {
     s.load.request.is_some() && s.load.buffer.is_some()
+}
+
+/// Whether the buffer of `s` holds the row a read fetched, as the read left it: not kept by `Clear` (`Buffer::cleared`), no
+/// `Init` since the fetch (`Buffer::init`), no field assigned while not loaded (`Buffer::assigned`), and every field that
+/// is not loaded still holding its fetched value (`Buffer::fetched`; the test `partial.rs` reads before a SetLoadFields).
+/// Every cell of record/filters/ByValueLoadFieldsAfterRead.al (corpus PR 1543) hands such a row.
+fn fetched_row(s: &RecordState) -> bool {
+    let Some(b) = &s.load.buffer else {
+        return false;
+    };
+    let as_fetched = |p: usize| {
+        b.have.contains(p)
+            || b.fetched
+                .0
+                .as_deref()
+                .and_then(|f| f.get(p))
+                .is_some_and(|f| matches!(f, Value::Blob(_)) || s.fields.get(p).is_some_and(|v| f.identical(v)))
+    };
+    !b.cleared && !b.init && b.assigned.is_empty() && (0..s.fields.len()).all(as_fetched)
 }
 
 /// Whether every filter of `s` is in filter group 0, `s` stands in group 0 on the primary or a declared key (no ad hoc key),
@@ -432,8 +452,8 @@ impl Session {
     ///   A FlowField key with a filter, another order or marks is marked [`BY_VALUE_VIEW`] for every callee: no cell has it.
     /// - A callee [`Session::measured_callee`] names, no mark on `source`, a view [`measured_view`] names: the view of
     ///   [`primary_view`], and a SetLoadFields of a caller that read no row is dropped (`ByValue_SetLoadFields`
-    ///   `amount loaded=Yes`). So is a SetLoadFields of a caller that read a row, handed from a codeunit to a codeunit's
-    ///   procedure with the view [`group0_declared_view`] names, the copy keeping the fields the row loaded (assumption
+    ///   `amount loaded=Yes`). So is a SetLoadFields of a caller that holds the row a read left ([`fetched_row`]), handed from
+    ///   a codeunit to a codeunit's procedure with the view [`group0_declared_view`] names, the copy keeping the fields the row loaded (assumption
     ///   `by-value-load-fields-after-read`, corpus PR 1543); with no filter this replaces the first case. Under
     ///   [`Evidence::Assumed`] or that assumption the copy is marked (`RecordState::view_assumption`) so that a read of its
     ///   view marks the assumption (`by_value_view_read`, `by_value_view_handed`).
@@ -477,15 +497,17 @@ impl Session {
             let r = &objects[o].routines[f.routine];
             objects[o].kind == ObjKind::Table && r.is_trigger && r.name.eq_ignore_ascii_case("OnInsert")
         });
-        // A SetLoadFields and a read, handed from a codeunit to a codeunit's procedure (`measured_callee` pins every codeunit
-        // callee called by name): the copy keeps the fields the caller's row loaded and drops the request (assumption
-        // `by-value-load-fields-after-read`, corpus PR 1543, record/filters/ByValueLoadFieldsAfterRead.al:175-342, every cell:
-        // `name loaded=Yes amount loaded=No` as handed, `amount loaded=Yes` after the copy's own FindSet; :186).
+        // A SetLoadFields and a fetched row, handed from a codeunit to a codeunit's procedure (`measured_callee` pins every
+        // codeunit callee called by name): the copy keeps the fields the caller's row loaded and drops the request
+        // (assumption `by-value-load-fields-after-read`, corpus PR 1543, record/filters/ByValueLoadFieldsAfterRead.al: as handed,
+        // the copy's loaded fields are the caller's, `name loaded=Yes amount loaded=No` after SetLoadFields(Name) and a read
+        // (:186) and every field after a read first (:240); after the copy's own FindSet every field is loaded in every cell).
         let load_read = measured == Some(Evidence::Pinned)
             && callee_kind == ObjKind::Codeunit
             && from_codeunit
             && s.unpinned_buffer.is_none()
             && load_after_read(&s)
+            && fetched_row(&s)
             && plain_state(&s)
             && group0_declared_view(&s);
         let load_dropped = (measured.is_some() && load_pending) || load_read;

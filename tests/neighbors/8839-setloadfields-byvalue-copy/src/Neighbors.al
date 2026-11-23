@@ -289,6 +289,27 @@ codeunit 50014 "NB LR Get"
     end;
 }
 
+codeunit 50016 "NB LR Read Unloaded"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure CallerReadsUnloadedFieldFirst_Flagged()
+    var
+        Row: Record "NB LR Row";
+        Seed: Codeunit "NB LR Seed";
+        Callee: Codeunit "NB LR Callee";
+    begin
+        Seed.Seed();
+        Row.SetRange(Status, Row.Status::Posted);
+        Row.SetLoadFields(Name);
+        Row.FindFirst();
+        if Row.Amount <> 20 then
+            Error('caller amount %1', Row.Amount);
+        Seed.Expect(Callee.Describe(Row), 'loaded=Yes f={} key=Id after=Yes amount=20');
+    end;
+}
+
 codeunit 50020 "NB LR Group 2"
 {
     Subtype = Test;
@@ -459,6 +480,67 @@ codeunit 50028 "NB LR Read Isolation"
         Row.SetRange(Status, Row.Status::Posted);
         Row.SetLoadFields(Name);
         Row.FindFirst();
+        Seed.Expect(Callee.Describe(Row), 'loaded=No f={} key=Id after=Yes amount=20');
+    end;
+}
+
+// The buffer no longer holds the row as a read left it: no cell of the probe hands such a record.
+codeunit 50029 "NB LR Clear"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure ClearThenLoadFields_Refused()
+    var
+        Row: Record "NB LR Row";
+        Seed: Codeunit "NB LR Seed";
+        Callee: Codeunit "NB LR Callee";
+    begin
+        Seed.Seed();
+        Row.Get(2);
+        Clear(Row);
+        Row.SetRange(Status, Row.Status::Posted);
+        Row.SetLoadFields(Name);
+        Seed.Expect(Callee.Describe(Row), 'loaded=No f={} key=Id after=Yes amount=20');
+    end;
+}
+
+codeunit 50030 "NB LR Init"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure InitAfterTheRead_Refused()
+    var
+        Row: Record "NB LR Row";
+        Seed: Codeunit "NB LR Seed";
+        Callee: Codeunit "NB LR Callee";
+    begin
+        Seed.Seed();
+        Row.SetRange(Status, Row.Status::Posted);
+        Row.SetLoadFields(Name);
+        Row.FindFirst();
+        Row.Init();
+        Seed.Expect(Callee.Describe(Row), 'loaded=No f={} key=Id after=Yes amount=20');
+    end;
+}
+
+codeunit 50031 "NB LR Assigned"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure UnloadedFieldAssigned_Refused()
+    var
+        Row: Record "NB LR Row";
+        Seed: Codeunit "NB LR Seed";
+        Callee: Codeunit "NB LR Callee";
+    begin
+        Seed.Seed();
+        Row.SetRange(Status, Row.Status::Posted);
+        Row.SetLoadFields(Name);
+        Row.FindFirst();
+        Row.Amount := 99;
         Seed.Expect(Callee.Describe(Row), 'loaded=No f={} key=Id after=Yes amount=20');
     end;
 }
