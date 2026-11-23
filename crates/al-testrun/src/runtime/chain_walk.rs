@@ -235,16 +235,13 @@ impl ChainWalk<'_> {
                     if let Some(l) = left.as_mut().filter(|l| l.baseline.is_none()) {
                         l.baseline = start.cloned();
                     }
-                    if let Some((_, _, leg, b)) = before {
-                        // A plain codeunit (in the walk only for `--strict-order`) keeps the refusals main gave it outside
-                        // the chain: with handlers after a member on the TestRunnerHub its place is not pinned.
-                        let after = After::new(engine, lowered, b, units[k].oi, *leg);
-                        let why = if plain {
-                            after.outside_refusal(&r)
-                        } else {
-                            after.refusal(&r)
-                        }
-                        .cloned();
+                    if let Some((_, _, before_leg, b)) = before {
+                        let after = After::new(engine, lowered, b, units[k].oi, *before_leg);
+                        // Sequential: a 130450 codeunit whose place against the hub leg's writers is not pinned
+                        // (`strict_walk.rs` `groups`) is refused when it read what the walk carried.
+                        let unpinned = (leg == super::strict_walk::LEG_UNPINNED && after.read(&r))
+                            .then(|| super::carry_after::place_unpinned(lowered, units[k].oi));
+                        let why = after.refusal(&r).cloned().or(unpinned);
                         if let (Some(why), Ok(done)) = (why, &mut r.result) {
                             refuse_all(&mut done.0, &why);
                         }

@@ -146,11 +146,17 @@ codeunit 50624 "Unrelated"
 }
 "#;
 
+// `B0` runs under runner 130450 (no TestPermissions = Disabled) and comes before DA and DB in id order. Whether BC runs the
+// 130450 leg before or after the hub leg is not measured by a corpus case (RqIsolationModes.al:12 states it in the header
+// only), so a 130450 codeunit placed before a hub codeunit that can leave rows, and that reads them, is not run.
 #[test]
 fn disabled_isolation_from_the_property_keeps_everything_for_the_later_codeunits() {
     let o = run(DISABLED, true);
+    assert!(
+        not_run(outcome(&o, "B0_SeesNone"), "before or after it is not pinned"),
+        "{o:?}"
+    );
     for t in [
-        "B0_SeesNone",
         "D1_NoCommit",
         "D2_CommitThenWrite",
         "D3_SeesThree",
@@ -160,6 +166,20 @@ fn disabled_isolation_from_the_property_keeps_everything_for_the_later_codeunits
     ] {
         assert_eq!(outcome(&o, t), &Outcome::Pass, "{t}: {o:?}");
     }
+}
+
+// The refusal of `B0` above needs a read of what the hub leg left: a 130450 codeunit before DA that reads no table of it runs.
+#[test]
+fn a_codeunit_before_the_hub_writers_that_reads_nothing_of_them_runs() {
+    let src = format!(
+        "{DISABLED}\ncodeunit 50619 \"Early\" {{ Subtype = Test; [Test] procedure E0_ReadsNothing() begin end; }}"
+    );
+    let o = run(&src, true);
+    assert_eq!(outcome(&o, "E0_ReadsNothing"), &Outcome::Pass, "{o:?}");
+    assert!(
+        not_run(outcome(&o, "B0_SeesNone"), "before or after it is not pinned"),
+        "{o:?}"
+    );
 }
 
 #[test]

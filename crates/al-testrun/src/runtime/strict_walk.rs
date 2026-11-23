@@ -19,8 +19,13 @@ use super::*;
 use al_builtins::assumptions::Assumption;
 
 /// One member of a walk, as `ChainWalk::walk` takes it: (suite, leg, codeunit id, what to do). The leg is the carry chain's
-/// (`corpus.rs`): 0 on the TestRunnerHub, 1 under runner 130450 (`carry_after.rs` `handlers_unpinned` reads it).
+/// (`corpus.rs`): 0 on the TestRunnerHub, 1 under runner 130450, or [`LEG_UNPINNED`].
 pub(super) type Item = (usize, u8, u32, Link);
+
+/// The leg of a codeunit under runner 130450 whose place against the hub leg is not pinned: the hub leg of its BC session has
+/// a codeunit that can leave rows ([`leaves_nothing`] is false, or it is not run), and this codeunit has handlers or comes
+/// before that one in its suite (`carry_after.rs` `place_unpinned`).
+pub(super) const LEG_UNPINNED: u8 = 2;
 
 /// A unit that leaves nothing for the later codeunits: its isolation rolls its tests back and its OnRun cannot write
 /// (`Unit::carry` is the static analysis of that, `chain::carry_why`).
@@ -98,6 +103,7 @@ pub(super) fn after_run(
 /// RequiredTestIsolation = Disabled that are not run (`Link::Refused`), at their place in the hub leg of their suite.
 pub(super) fn groups(
     units: &[Unit],
+    handlers: &dyn Fn(usize) -> bool,
     place: &dyn Fn(usize, u32) -> u32,
     suites: Option<&crate::test_suites::TestSuites>,
     refused: &[(usize, u32, usize, String)],
@@ -154,6 +160,25 @@ pub(super) fn groups(
     out.into_iter()
         .map(|mut g| {
             g.hub.sort_by_key(|(p, _)| *p);
+            let last_writer = g
+                .hub
+                .iter()
+                .filter(|(_, item)| match &item.3 {
+                    Link::Run(k) => !leaves_nothing(&units[*k]),
+                    Link::Refused(..) => true,
+                    Link::Discovery(_) => false,
+                })
+                .map(|(p, _)| *p)
+                .max();
+            if let Some(last) = last_writer {
+                for (p, item) in &mut g.rest {
+                    if let Link::Run(k) = item.3
+                        && (handlers(units[k].oi) || *p < last)
+                    {
+                        item.1 = LEG_UNPINNED;
+                    }
+                }
+            }
             g.hub.into_iter().chain(g.rest).map(|(_, item)| item).collect()
         })
         .collect()
@@ -193,7 +218,9 @@ impl StrictRun<'_> {
         details: &mut std::collections::HashMap<(usize, u32, String), explain::TestDetail>,
         report: &mut ChainReport,
     ) {
-        let mut groups = groups(self.walk.units, self.place, self.suites, self.refused);
+        let lowered = self.walk.lowered;
+        let handlers = |oi: usize| super::carry_after::has_handlers(lowered, oi);
+        let mut groups = groups(self.walk.units, &handlers, self.place, self.suites, self.refused);
         for g in &mut groups {
             if let Some(d) = g.first().and_then(|f| self.discovery.iter().find(|d| d.0 == f.0)) {
                 g.insert(0, (d.0, d.1, d.2, d.3.clone()));

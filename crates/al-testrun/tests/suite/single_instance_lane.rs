@@ -657,7 +657,7 @@ codeunit 60813 "Lane Carry Counter"
 "#;
 
 /// Al-runner issue 8593: a chain member after a member that was refused while it ran reads what that member left, which
-/// is not known (`run.rs` `carry_disabled`): it is refused in the lane as in the walk, not run from the install baseline.
+/// is not known (`run.rs` `carry_disabled`): it is refused in the `--strict-order` walk as in the default walk, not run from the install baseline.
 #[test]
 fn a_lane_member_after_a_refused_member_is_refused_as_in_the_walk() {
     let opts = RunOptions {
@@ -717,8 +717,8 @@ codeunit 60823 "Lane Outside Reader B"
 "#;
 
 /// Al-runner issue 8594: a codeunit outside the chain that reads a table a member wrote sees the member's rows in the
-/// lane as in the re-run after the parallel part (QuCommitIsolation.al:711-760 QU_D11_NextCodeunitSees), with the flag
-/// the lane hands on.
+/// `--strict-order` walk as in the re-run after the parallel part (QuCommitIsolation.al:711-760 QU_D11_NextCodeunitSees),
+/// with the flag the walk hands on.
 #[test]
 fn a_lane_reader_outside_the_chain_sees_the_rows_a_member_left() {
     let opts = RunOptions {
@@ -768,9 +768,9 @@ codeunit 60832 "Lane Hub Handler Reader"
 }
 "#;
 
-/// A codeunit with handlers outside the chain that reads a table a hub member wrote is refused after the parallel part
-/// (`carry_after.rs` `After::outside_refusal`); the lane keeps that refusal instead of running it again from what the
-/// member left.
+/// A codeunit with handlers that reads a table a hub member wrote is refused: under `--strict-order` the walk marks it
+/// (`strict_walk.rs` `LEG_UNPINNED`, `carry_after.rs` `place_unpinned`), with the text main's default run gives it
+/// (`After::outside_refusal`), even when a plain codeunit runs between the hub member and it.
 #[test]
 fn a_lane_reader_with_handlers_after_a_hub_member_stays_refused() {
     let opts = RunOptions {
@@ -813,8 +813,8 @@ codeunit 60841 "Lane Storage Member Reader"
 }
 "#;
 
-/// A chain member whose reach touches the isolated storage an earlier member changed is refused in the lane as in the
-/// walk (`carry_after.rs` `After::refusal`, `Carried::storage_why`), not run from what that member left.
+/// A chain member whose reach touches the isolated storage an earlier member changed is refused in the `--strict-order`
+/// walk as in the default walk (`carry_after.rs` `After::refusal`, `Carried::storage_why`), not run from what that member left.
 #[test]
 fn a_lane_member_after_a_storage_carry_that_reaches_the_storage_is_refused() {
     let opts = RunOptions {
@@ -865,8 +865,8 @@ codeunit 60852 "Lane Storage Row Reader"
 "#;
 
 /// A codeunit outside the chain whose reach does not touch the isolated storage a member changed, and that reads the
-/// member's rows, runs again in the lane from what the member left (QuCommitIsolation.al:711-760
-/// QU_D11_NextCodeunitSees), as after the parallel part (`carry_after.rs` `run_in_session`).
+/// member's rows, runs in the `--strict-order` walk from what the member left (QuCommitIsolation.al:711-760
+/// QU_D11_NextCodeunitSees), as after the parallel part.
 #[test]
 fn a_lane_reader_outside_the_chain_after_a_storage_carry_runs_again_from_it() {
     let opts = RunOptions {
@@ -918,7 +918,7 @@ codeunit 60862 "Lane Leg Handler Reader"
 "#;
 
 /// The refusal of a codeunit with handlers holds only after a member on the TestRunnerHub (`carry_after.rs`
-/// `handlers_unpinned`): after a member on the other leg the lane still runs it again from what the member left.
+/// `handlers_unpinned`, `strict_walk.rs` `LEG_UNPINNED`): after a member on the other leg it runs from what the member left.
 #[test]
 fn a_lane_reader_with_handlers_on_the_other_leg_runs_again() {
     let opts = RunOptions {

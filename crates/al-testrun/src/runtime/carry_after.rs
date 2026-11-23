@@ -70,15 +70,33 @@ pub(super) fn leak(carry: Option<&Carried>) -> Leak {
 /// runs a codeunit with handlers through another runner than the TestRunnerHub (QuCommitIsolation.al:11-13), so whether
 /// it runs before or after the member is not pinned.
 fn handlers_unpinned(lowered: &Lowered, oi: usize, leg: u8) -> Option<String> {
-    let o = &lowered.program.objects[oi];
-    let handlers = o.routines.iter().any(|r| {
+    (leg == 0 && has_handlers(lowered, oi)).then(|| HANDLERS_UNPINNED.to_string())
+}
+
+const HANDLERS_UNPINNED: &str = "an earlier codeunit with RequiredTestIsolation = Disabled wrote a table this test reads, \
+     and whether BC runs this codeunit, which has handlers, before or after it is not pinned";
+
+/// Whether codeunit `oi` has a method with handler functions: BC's CI runs it under runner 130450, not on the
+/// TestRunnerHub (QuCommitIsolation.al:11-13).
+pub(super) fn has_handlers(lowered: &Lowered, oi: usize) -> bool {
+    lowered.program.objects[oi].routines.iter().any(|r| {
         r.attributes
             .iter()
             .any(|a| a.name.eq_ignore_ascii_case("HandlerFunctions"))
-    });
-    (handlers && leg == 0).then(|| {
-        "an earlier codeunit with RequiredTestIsolation = Disabled wrote a table this test reads, and whether BC runs \
-         this codeunit, which has handlers, before or after it is not pinned"
-            .to_string()
     })
+}
+
+/// The sequential strict walk (`strict_walk.rs` `groups`, leg [`super::strict_walk::LEG_UNPINNED`]): codeunit `oi` runs
+/// under runner 130450 after the hub leg of its BC session, which has a codeunit that can leave rows, and it has handlers
+/// or comes before that codeunit in its suite. No corpus case measures whether BC runs the 130450 leg before or after the
+/// hub leg (RqIsolationModes.al:12 states it in the header only), so a run that read what the walk carried is refused,
+/// with main's text when it has handlers ([`handlers_unpinned`]).
+pub(super) fn place_unpinned(lowered: &Lowered, oi: usize) -> String {
+    if has_handlers(lowered, oi) {
+        HANDLERS_UNPINNED.to_string()
+    } else {
+        "a codeunit with RequiredTestIsolation = Disabled that comes after this codeunit in its suite may have written a table this \
+         test reads, and whether BC runs this codeunit before or after it is not pinned"
+            .to_string()
+    }
 }
