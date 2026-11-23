@@ -579,7 +579,14 @@ impl Session {
                 st.borrow_mut().dirty = false;
                 false
             }
-            _ => unreachable!("a tree page refreshes in validate_view_tree_refresh"),
+            // Named one by one, so that a new page kind must choose its arm here.
+            CellPage::TreeIssue
+            | CellPage::Tree
+            | CellPage::TreeBoth
+            | CellPage::TreeCurr
+            | CellPage::TreeCollapsed => {
+                unreachable!("a tree page refreshes in validate_view_tree_refresh")
+            }
         };
         let mut s = st.borrow_mut();
         s.validate_view.steps = steps;
