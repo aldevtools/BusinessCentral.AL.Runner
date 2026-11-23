@@ -424,6 +424,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `choose.rs` (238): How the target of a run is chosen (ADR-015 3.2, 3.8). Entry: `AppVersions` 10, `TargetError` 58, `Chosen` 84, `choose_target` 98.
 - `gates.rs` (115): Behaviour that differs between BC versions, as named facts in one table (ADR-015 3.4). Entry: `Evidence` 12, `Gate` 18, `has` 69.
 - `lib.rs` (~330): BC versions and the run target (ADR-015). `BcVersion::resolved_to` makes the target the build the Microsoft apps came from (minor and build string; both CLIs call it, al-runner issue 8209). Entry: `VersionError` 21, `BcVersion` 42, `Runtime` 50, `Target` 56.
+- `symbols.rs` (157): The preprocessor symbols the corpus CI defines for a BC version (ADR-015 3.9, ADR-078 point 3): `BC<n>PLUS` per major from 27, and `BC<n>_<m>PLUS` per released minor at or below the version once `oracle.toml` records `released_minors`. Its callers are al-test-cli's corpus paths (`--print-symbols`, the corpus run, the coverage maps); a must-not-compile case takes the major symbols only (`mnc::case_symbols`). Entry: `ReleasedMinors` 8, `corpus_symbols` 43.
 
 ### al-vm
 

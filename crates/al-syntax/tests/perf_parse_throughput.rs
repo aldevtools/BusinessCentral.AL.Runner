@@ -76,7 +76,10 @@ fn parser_throughput_over_the_corpus_meets_the_floor() {
     }
     let sources = corpus_sources();
     let bytes: usize = sources.iter().map(String::len).sum();
-    let syms = al_version::corpus_symbols(27);
+    let syms = al_version::corpus_symbols(
+        &al_version::BcVersion::new(27, 0),
+        &al_version::ReleasedMinors::NotRecorded,
+    );
     let mut best = f64::MAX;
     for _ in 0..PASSES {
         // The trees are kept until after the clock stops: a loader keeps them,

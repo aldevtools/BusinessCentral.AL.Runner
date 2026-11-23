@@ -237,14 +237,8 @@ pub fn corpus_dependencies_in(
     source_dirs: &[std::path::PathBuf],
     cache_dir: Option<&std::path::Path>,
 ) -> Result<crate::deps::Dependencies, String> {
-    let path = root.join("oracle/oracle.toml");
-    let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let oracle = crate::config::OracleFile::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
-    let version = oracle
-        .versions
-        .iter()
-        .find(|v| v.major == al_version::MIN_BC_MAJOR)
-        .ok_or_else(|| format!("{}: no version with major {}", path.display(), al_version::MIN_BC_MAJOR))?;
+    let (oracle, path) = floor_oracle(root)?;
+    let version = floor_leg(&oracle, &path)?;
     let build = version
         .bc_build
         .as_deref()
@@ -278,6 +272,35 @@ pub fn corpus_dependencies_in(
     Ok(dependencies)
 }
 
+/// The oracle table of `root` and its path.
+fn floor_oracle(root: &std::path::Path) -> Result<(crate::config::OracleFile, std::path::PathBuf), String> {
+    let path = root.join("oracle/oracle.toml");
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let oracle = crate::config::OracleFile::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok((oracle, path))
+}
+
+/// The floor leg (BC 27) of the oracle table: the coverage maps check the corpus as that leg compiles it.
+fn floor_leg<'a>(
+    oracle: &'a crate::config::OracleFile,
+    path: &std::path::Path,
+) -> Result<&'a crate::config::VersionEntry, String> {
+    oracle
+        .versions
+        .iter()
+        .find(|v| v.major == al_version::MIN_BC_MAJOR)
+        .ok_or_else(|| format!("{}: no version with major {}", path.display(), al_version::MIN_BC_MAJOR))
+}
+
+/// The corpus preprocessor symbols of the floor leg (`al_version::corpus_symbols`, ADR-078 point 3).
+fn floor_symbols(root: &std::path::Path) -> Result<std::collections::BTreeSet<String>, String> {
+    let (oracle, path) = floor_oracle(root)?;
+    Ok(al_version::corpus_symbols(
+        &floor_leg(&oracle, &path)?.bc(),
+        &oracle.released(),
+    ))
+}
+
 /// The workspace both coverage maps check: the corpus apps `al-language` depends on (the fixture and the cross-app
 /// fixtures, in dependency order) and every app of `CORPUS_TEST_APPS` as workspace apps, then the Microsoft apps of
 /// the pinned build ([`corpus_dependencies`]; an error when they are not in the artifact cache).
@@ -295,16 +318,12 @@ pub fn corpus_workspace(root: &std::path::Path) -> Result<Workspace, String> {
     let dependencies = corpus_dependencies(root, &corpus_deps)?;
     kinds.extend(dependencies.apps.iter().map(|_| al_sema::AppKind::Dependency));
     apps.extend(dependencies.apps);
-    Ok(Workspace::load_apps(
-        apps,
-        kinds,
-        &al_version::corpus_symbols(al_version::MIN_BC_MAJOR),
-    ))
+    Ok(Workspace::load_apps(apps, kinds, &floor_symbols(root)?))
 }
 
 /// The map of the pinned corpus under `root` (the repository root): the corpus's test apps
 /// and the fixture, with the Microsoft apps of the pinned build so that calls on Microsoft's
-/// types resolve, checked with the preprocessor symbol of BC 27 and the whole catalog.
+/// types resolve, checked with the preprocessor symbols of the BC 27 leg and the whole catalog.
 pub fn corpus_coverage(root: &std::path::Path, corpus_commit: &str) -> Result<Coverage, String> {
     let ws = corpus_workspace(root)?;
     let members = al_sema::members::build(&ws);
