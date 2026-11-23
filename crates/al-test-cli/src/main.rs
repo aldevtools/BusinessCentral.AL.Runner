@@ -354,19 +354,16 @@ fn must_not_compile(args: &Args, root: &Path, dir: Option<&Path>) -> Result<Exit
     let dir = dir
         .map(Path::to_path_buf)
         .unwrap_or_else(|| root.join("corpus/tests/must-not-compile"));
-    let version = match &args.bc_version {
-        Some(v) => {
-            al_version::BcVersion::parse(v).map_err(|e| format!("--bc-version `{v}` is not a BC version: {e}"))?
-        }
-        None => al_version::BcVersion::new(29, 0),
+    let major: u16 = match &args.bc_version {
+        Some(v) => v
+            .split('.')
+            .next()
+            .and_then(|m| m.parse().ok())
+            .ok_or_else(|| format!("--bc-version `{v}` is not a BC version"))?,
+        None => 29,
     };
-    let major = version.major;
-    let symbols = al_version::corpus_symbols(&version, &released_minors(args, root)?);
     let cases = al_test_cli::mnc::read_cases(&dir)?;
-    let outcomes: Vec<_> = cases
-        .iter()
-        .map(|c| al_test_cli::mnc::run_case(c, major, &symbols))
-        .collect();
+    let outcomes: Vec<_> = cases.iter().map(|c| al_test_cli::mnc::run_case(c, major)).collect();
     print!("{}", al_test_cli::mnc::render(&outcomes, major));
     let bad = al_test_cli::mnc::Summary::of(&outcomes).mismatched;
     Ok(ExitCode::from(u8::from(bad > 0)))
@@ -384,7 +381,7 @@ fn print_symbols(args: &Args, root: &Path, version: &str) -> Result<ExitCode, St
     Ok(ExitCode::SUCCESS)
 }
 
-/// The released minors of `--released-minors LIST` (comma-separated, may be empty), else those the oracle table records.
+/// The released minors of `--released-minors LIST` (comma-separated, not empty), else those the oracle table records.
 fn released_minors(args: &Args, root: &Path) -> Result<al_version::ReleasedMinors, String> {
     if let Some(list) = &args.released_minors {
         let entries: Vec<&str> = list.split(',').map(str::trim).filter(|e| !e.is_empty()).collect();

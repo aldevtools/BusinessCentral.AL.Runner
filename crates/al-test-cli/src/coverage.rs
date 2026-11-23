@@ -333,9 +333,8 @@ pub fn corpus_coverage(root: &std::path::Path, corpus_commit: &str) -> Result<Co
     // A must-not-compile case pins the calls its expected diagnostics name (`mnc::pinned_calls`).
     let mnc = root.join("corpus/tests/must-not-compile");
     if mnc.is_dir() {
-        let symbols = floor_symbols(root)?;
         for case in crate::mnc::read_cases(&mnc)? {
-            calls.extend(crate::mnc::pinned_calls(&case, &catalog, &symbols));
+            calls.extend(crate::mnc::pinned_calls(&case, &catalog));
         }
         calls.sort();
         calls.dedup();

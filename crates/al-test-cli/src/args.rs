@@ -90,8 +90,8 @@ pub struct Args {
     pub print_builds: bool,
     /// `--print-symbols VERSION`: print the corpus preprocessor symbols of a BC version and stop (ADR-078 point 3).
     pub print_symbols: Option<String>,
-    /// `--released-minors LIST`: the released minors `--print-symbols` and `--must-not-compile` compute the symbols
-    /// from, instead of `released_minors` of the oracle table.
+    /// `--released-minors LIST` (with `--print-symbols` only): the released minors the symbols are computed from,
+    /// instead of `released_minors` of the oracle table.
     pub released_minors: Option<String>,
     /// `--project DIR` (with `--fetch-deps`): any AL project, not the corpus. The BC build comes
     /// from `--bc-version`, else from the app.json floor (ADR-013 Layer A, ADR-015 3.2).
@@ -372,6 +372,9 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
             return Err(format!("{flag} cannot be combined with --no-ratchet"));
         }
     }
+    if a.released_minors.is_some() && a.print_symbols.is_none() {
+        return Err("--released-minors goes with --print-symbols only".into());
+    }
     if a.fetch_render_pieces && (!a.fetch_deps || a.project.is_some() || a.no_deps) {
         return Err(
             "--fetch-render-pieces goes with --fetch-deps of the corpus, without --project or --no-deps".into(),
@@ -515,7 +518,7 @@ DEPENDENCY TOOLING
   --project DIR               with --fetch-deps: any AL project, not the corpus
   --print-builds              print the newest published build of each version, then stop
   --print-symbols VERSION     print the corpus preprocessor symbols of a BC version (29.1), then stop
-  --released-minors LIST      with --print-symbols or --must-not-compile: the released minors (27.0,...,29.1)
+  --released-minors LIST      with --print-symbols only: the released minors (27.0,...,29.1)
                               the symbols come from, instead of released_minors of the oracle table
 
   -h, --help                  this text

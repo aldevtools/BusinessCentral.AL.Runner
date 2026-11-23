@@ -749,11 +749,7 @@ table 50002 \"MNC UB Rec\" { fields { field(1; Id; Integer) { } field(2; \"MNC U
         };
         let text = format!("// @expect AL0132 | '\"MNC UB X\"' does not contain a definition for '{member}'\n{body}");
         let parsed = al_test_cli::mnc::parse_case("issue-6129.al", &text).unwrap();
-        let symbols = al_version::corpus_symbols(
-            &al_version::BcVersion::new(29, 0),
-            &al_version::ReleasedMinors::NotRecorded,
-        );
-        let out = al_test_cli::mnc::run_case(&parsed, 29, &symbols);
+        let out = al_test_cli::mnc::run_case(&parsed, 29);
         if out.verdict != al_test_cli::mnc::Verdict::Match {
             wrong.push(format!("{case}: {:?} {:?}", out.verdict, out.got));
         }

@@ -200,7 +200,7 @@ pub fn to_rust(tables: &BTreeMap<u16, BTreeMap<i32, String>>, files: &[String]) 
 mod tests {
     use super::*;
 
-    /// The legs of `majors` with the symbols of the pinned corpus (it records no released minors).
+    /// The legs of `majors` with the major symbols only: inline fixtures, no list of released minors.
     fn legs(majors: &[u16]) -> Vec<(u16, BTreeSet<String>)> {
         let none = al_version::ReleasedMinors::NotRecorded;
         majors

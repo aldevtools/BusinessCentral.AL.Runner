@@ -14,8 +14,12 @@ pub enum ReleasedMinors {
 }
 
 impl ReleasedMinors {
-    /// The list from its entries (`27.0`, `29.1`). An entry must name exactly a major and a minor.
+    /// The list from its entries (`27.0`, `29.1`). An entry must name exactly a major and a minor; an empty list is
+    /// an error, as in the corpus (`.github/scripts/ci-legs.py:61` on the corpus branch ci-bc-29-1).
     pub fn parse<S: AsRef<str>>(entries: &[S]) -> Result<ReleasedMinors, VersionError> {
+        if entries.is_empty() {
+            return Err(VersionError::Empty);
+        }
         let mut list = Vec::with_capacity(entries.len());
         for e in entries {
             let e = e.as_ref();
@@ -92,6 +96,12 @@ mod tests {
         assert_eq!(at("29.0", &none), s(&["BC27PLUS", "BC28PLUS", "BC29PLUS"]));
         assert_eq!(at("29.1", &none), s(&["BC27PLUS", "BC28PLUS", "BC29PLUS"]));
         assert!(at("30.0", &none).contains("BC30PLUS"));
+    }
+
+    /// An empty list is refused (`ReleasedMinors::parse`); no list is `NotRecorded`.
+    #[test]
+    fn an_empty_list_is_refused() {
+        assert_eq!(ReleasedMinors::parse::<&str>(&[]), Err(VersionError::Empty));
     }
 
     #[test]
