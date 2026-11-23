@@ -12,6 +12,7 @@ const NEIGHBORS: &str = include_str!("../../../../tests/neighbors/8637-bg-cache-
 const REPRO: &str = include_str!("../../../../tests/neighbors/8637-bg-cache-filtered-reads/src/Repro.al");
 const CALC_NEIGHBORS: &str = include_str!("../../../../tests/neighbors/8677-bg-cache-calcfields/src/Neighbors.al");
 const CALC_REPRO: &str = include_str!("../../../../tests/neighbors/8677-bg-cache-calcfields/src/Repro.al");
+const CALC_PROBE: &str = include_str!("../../../../tests/neighbors/8677-bg-cache-calcfields/src/CalcProbe.al");
 const MORE: &str = include_str!("../../../../tests/neighbors/8637-bg-cache-filtered-reads/src/MoreNeighbors.al");
 
 fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
@@ -278,29 +279,23 @@ fn issue_8677_repro() {
     }
 }
 
-/// Neighbors of al-runner issue 8677 past what the cells measure (the neighbor app's header). BC answers each from the cache;
-/// the runner keeps main's answer, the values as the rows are, with no flag. A `field(filter())` of a stored field of the row
-/// set to A and then to B in one worker run computes both (the key holds the field's value, or B would answer A's sum).
-/// SetLoadFields, Get and CalcFields answer the first read as BC does (the cell :7255 measures it), flagged. (The exist
-/// over Tenant Media, Platform.al, needs the platform tables: the neighbor check runs it.)
+/// Neighbors of al-runner issue 8677 (the neighbor app's Neighbors.al), each asserting BC's answer: BC answers each from the
+/// cache, and so does the runner now, flagged, as corpus PR 1533 measures each shape (al-runner issue 8803): a negated sum,
+/// FieldRef.CalcField, a FlowFilter range, a filter on a stored field, a CalcSums with a `>`, a count over a sum FlowField
+/// of the row, a temporary record, a field(filter()) of a stored field set to A and then to B in one worker run (keyed by its
+/// value: 5,0 / 5,0), and SetLoadFields, Get, CalcFields (:7255). From the review of al-runner PR 8872, one per fact the cache
+/// took past the first cells: a `|` of values on a stored field (BgTaskCalcCache.al:534), a CalcFields and a CalcSums ascending
+/// first and descending again (:540, :546), a count at a sum whose field(filter()) reads a stored field (:552), and a
+/// CalcFields of a temporary record a Variant got from another Variant (its table's rows are marked not measured; main and
+/// BC answer, the runner refused it before it read such a CalcFields through the database store). (The exist over Tenant
+/// Media, Platform.al, needs the platform tables: the neighbor check runs it.)
 #[test]
 fn issue_8677_neighbors() {
     let o = outcomes(CALC_NEIGHBORS, "BQN Tests");
-    assert_eq!(o.len(), 9);
+    assert_eq!(o.len(), 14);
     for (name, r, marks) in &o {
-        if name.starts_with("LoadFieldsGetCalcFields") {
-            assert_eq!(*r, Outcome::Pass, "{name}");
-            assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
-            continue;
-        }
-        assert!(!marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
-        assert!(matches!(r, Outcome::Fail(_)), "{name}: {r:?}");
-        if name.starts_with("FieldFilterOfAStoredField") {
-            assert!(
-                matches!(r, Outcome::Fail(m) if m.contains("Actual:<5,0 / 5,11>")),
-                "{name}: {r:?}"
-            );
-        }
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
     }
 }
 
@@ -362,24 +357,46 @@ fn issue_8677_bq13_cells() {
     }
 }
 
+/// The cells of corpus PR 1533 (BgTaskCalcCache.al at fe7a324c, al-runner issue 8803), each green 3 of 3 on BC 29.1, but the
+/// two Tenant Media cells (CalcProbe.al leaves them out; Platform.al has the neighbor): a worker's repeated CalcFields and
+/// CalcSums answer the first answer for a negated sum, FieldRef.CalcField, a FlowFilter range, a filter on a stored field, a
+/// CalcSums with a `>` or with no filter, a count over a sum FlowField of the row, a temporary record, a field(filter()) of a
+/// stored field, a count, min, exist and lookup over a count FlowField of the row, after SetAscending(false), a `|` of values
+/// on a stored field (:534), a CalcFields and a CalcSums ascending first and descending again (:540, :546), and a count over a
+/// sum FlowField whose field(filter()) reads a stored field (:552). All pass, flagged.
+#[test]
+fn issue_8803_cells() {
+    let o = outcomes(CALC_PROBE, "BCC Tests");
+    assert_eq!(o.len(), 19);
+    for (name, r, marks) in &o {
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+    }
+}
+
+/// The Count of a group read ascending and then descending (corpus PR 1533, BgTaskCalcCache.al:613, green 3 of 3 on BC 29.1):
+/// BC answers the first answer, one entry for both sort directions, and so does the runner, flagged.
+#[test]
+fn issue_8803_count_both_directions() {
+    let o = outcomes(CALC_PROBE, "BCC Count Tests");
+    assert_eq!(o.len(), 1);
+    for (name, r, marks) in &o {
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+    }
+}
+
 /// Neighbors from the reviews of al-runner PRs 8656 and 8682 (MoreNeighbors.al; BC answers each from the cache, a local BC
-/// 29.1 container, 3 runs). With #8682 a worker's Count ascending twice, a count and an exist over a count FlowField of the row
-/// and a CalcSums with no filter answer from the cache, flagged. A Count ascending then descending (keyed by the sort
-/// direction) and a CalcFields and a CalcSums after SetAscending(false) compute again, as on main; al-runner issue 8803 pins
-/// and caches them.
+/// 29.1 container, 3 runs). Each answers from the cache, flagged: a worker's Count ascending twice, a count and an exist over a
+/// count FlowField of the row and a CalcSums with no filter (with #8682), and a Count ascending then descending and a
+/// CalcFields and a CalcSums after SetAscending(false) (BgTaskCalcCache.al:613, :522, :528, open corpus PR 1533).
 #[test]
 fn issue_8637_more_neighbors() {
     let src = format!("{PROBE}\n{MORE}");
     let o = outcomes(&src, "BQ More Tests");
     assert_eq!(o.len(), 7);
     for (name, r, marks) in &o {
-        let cached = !name.starts_with("CountAscendingThenDescending") && !name.contains("SetAscendingFalse");
-        if cached {
-            assert_eq!(*r, Outcome::Pass, "{name}");
-            assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
-        } else {
-            assert!(matches!(r, Outcome::Fail(_)), "{name}: {r:?}");
-            assert!(!marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
-        }
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
     }
 }
