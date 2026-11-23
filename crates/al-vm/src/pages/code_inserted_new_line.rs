@@ -678,12 +678,13 @@ impl Session {
                  new line onto the row the table field inserted, under code that is not a pinned page's (not measured)"
             }
             CodeInsertedSave::Asked(view) if self.view_kept(st, &view)? => return Ok(()),
-            // CurrPage.SaveRecord() as the validation's last statement on the page with triggers and a FactBox: BC refreshes
-            // nothing and the page stays on the saved row (ListNewLineExtraCodeFactbox.al:701, :713).
+            // CurrPage.SaveRecord() with no Update after it on the page with triggers and a FactBox: BC refreshes nothing and the
+            // page stays on the saved row (ListNewLineExtraCodeFactbox.al:701, :713), also after a field of Rec set or a row of
+            // another table inserted (:766-803, `extra_code_save_kept`).
             CodeInsertedSave::Saved(view)
                 if view.extra
                     && matches!(self.code_inserted_page(st)?, Some((Triggers::FactboxExtra, _)))
-                    && self.extra_code_unchanged(st, &view)? =>
+                    && self.extra_code_save_kept(st, &view)? =>
             {
                 return Ok(());
             }
@@ -1118,6 +1119,11 @@ impl Session {
             (FactboxStep::Typed, TestCall::Page(PageMethod::Previous | PageMethod::Close), None) => step,
             (FactboxStep::Typed, TestCall::Page(PageMethod::OK), None) => FactboxStep::OkAsked,
             (FactboxStep::OkAsked, TestCall::Other(PageMethod::Invoke), None) => step,
+            // The page with triggers and a FactBox: the cells measure reads, one SetValue and OK only (`ExtraLanded`).
+            (FactboxStep::ExtraLanded, TestCall::Write(i), None) if self.control_without_code(&root, i) => {
+                FactboxStep::ExtraTyped
+            }
+            (FactboxStep::ExtraTyped, TestCall::Page(PageMethod::OK), None) => FactboxStep::OkAsked,
             (FactboxStep::PreviousNo, TestCall::Page(PageMethod::Next), None) => step,
             // The page with code: the SetValues of the measured control (`coded_value_control`) its objects are measured with
             // (`CodedObjects::later_set_value`, ListNewLineFactboxesCode.al:1407 and :1576 `setvalue2`), then OK() and its Invoke
@@ -1143,7 +1149,10 @@ impl Session {
             }
             _ => {
                 root.borrow_mut().forget_code_inserted_line();
-                return unsupported(MOVE_OFF_FACTBOX_ROW);
+                return unsupported(match step {
+                    FactboxStep::ExtraLanded | FactboxStep::ExtraTyped => MOVE_OFF_EXTRA_ROW,
+                    _ => MOVE_OFF_FACTBOX_ROW,
+                });
             }
         };
         if let Some(row) = root.borrow_mut().code_inserted_row.as_mut() {
@@ -1186,3 +1195,7 @@ impl Session {
 /// The refusal of a call that leaves the FactBox host's row other than as measured.
 const MOVE_OFF_FACTBOX_ROW: &str = "a call on a List page with a CardPart FactBox, on the row its new line became, other than control \
                                     reads, one SetValue, then Previous(), Close() or OK() (not measured)";
+
+/// The refusal of a call that leaves the row of the page with triggers and a FactBox other than as measured.
+const MOVE_OFF_EXTRA_ROW: &str = "a call on a List page with page triggers and a FactBox, on the row its new line became, other \
+                                  than control reads, one SetValue, then OK() (not measured)";

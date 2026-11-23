@@ -1,3 +1,6 @@
 # key	entry
-# Against main (the query cache of al-runner PRs 8490, 8656 and 8682, and the "@ alone" PR 8716), no test differs: this pull
-# request changes no answer of the cells and neighbors (the reviews' small points, and the new cells and neighbors, read as on main).
+# Against main (the query cache of al-runner PRs 8490, 8656, 8682 and 8808, and the "@ alone" PR 8716): three neighbors of
+# MoreNeighbors.al that main computes again answer from the cache here, as BC does (open corpus PR 1533 measures each shape).
+BQ More Tests::CalcFieldsAfterSetAscendingFalse_LinesAfterFirstRead	ASSUMED background-task-query-cache (open corpus PR 1533: BgTaskCalcCache.al:522)
+BQ More Tests::CalcSumsAfterSetAscendingFalse_LinesAfterFirstRead	ASSUMED background-task-query-cache (open corpus PR 1533: BgTaskCalcCache.al:528)
+BQ More Tests::CountAscendingThenDescending_RowAfterFirstRead	ASSUMED background-task-query-cache (open corpus PR 1533: BgTaskCalcCache.al:613)

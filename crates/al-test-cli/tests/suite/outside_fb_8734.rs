@@ -17,14 +17,15 @@ const NEIGHBORS: &str = include_str!("../../../../tests/neighbors/8734-new-line-
 /// Every cell passes, flagged by both assumptions: the repro of 8734 on an empty group and with a row before, and the logging
 /// page (the page's and the part's triggers, step by step) with the repro's code, only the save, a modify through another record
 /// after the save and a field set before it, each on an empty group and with a row before; and after the save, a field of Rec
-/// set, a row of another table inserted or one deleted, each on an empty group and with a row before, and the save without an
-/// Update after it, on an empty group and with a row before (the codeunit after the tests, :664-762).
+/// set, a row of another table inserted or one deleted, each on an empty group and with a row before; and the save without an
+/// Update after it, alone, followed by a field of Rec set or by a row of another table inserted, each on an empty group and
+/// with a row before (the codeunit after the tests, :664-812).
 #[test]
 fn issue_8734_probe_cells() {
     let mut o = super::outside_fb_8712::outcomes(PROBE, "LT NK Tests");
     assert_eq!(o.len(), 10);
     let more = super::outside_fb_8712::outcomes(PROBE, "LT NK More Tests");
-    assert_eq!(more.len(), 8);
+    assert_eq!(more.len(), 12);
     o.extend(more);
     for (name, r, marks) in &o {
         assert_eq!(*r, Outcome::Pass, "{name}");
@@ -38,14 +39,20 @@ fn issue_8734_probe_cells() {
 /// Code just past the cells keeps a refusal: the page's OnAfterGetRecord sets a field of Rec, the part's OnAfterGetRecord
 /// writes another table, a modify of the row through another record before the save, a write of another table before the save,
 /// a page without OnAfterGetCurrRecord, CurrPage.Update(true) or Update() without a save or Update(true) after it (only the
-/// page without triggers measures Update(true) after the save, ListNewLineExtraCode.al:476), Previous() or Next() after
-/// the landing, Previous() or Close() after a SetValue, OnAfterGetCurrRecord setting a field of the new line at New(), and OnAfterGetCurrRecord setting a filter on
-/// Rec in the refresh. The save without an Update after it,
-/// with a row before, runs as the cells :701 and :713 measure it, flagged.
+/// page without triggers measures Update(true) after the save, ListNewLineExtraCode.al:476), Previous() or Next() after the
+/// landing, Previous(), Previous() then Next(), or Close() after a SetValue, Close() right after the landing,
+/// OnAfterGetCurrRecord setting a field of the new line at New(), and OnAfterGetCurrRecord setting a filter on Rec in the
+/// refresh. The save without an Update after it, with a row before, runs as the cells :701 and :713 measure it, flagged.
 #[test]
 fn issue_8734_neighbors_are_refused() {
-    let o = super::outside_fb_8712::outcomes(NEIGHBORS, "LT NG Tests");
+    let mut o = super::outside_fb_8712::outcomes(NEIGHBORS, "LT NG Tests");
     assert_eq!(o.len(), 15);
+    // Each in its own codeunit, so that no earlier refused test hides its result.
+    for cu in ["LT NG Prev Next Tests", "LT NG Close Tests"] {
+        let one = super::outside_fb_8712::outcomes(NEIGHBORS, cu);
+        assert_eq!(one.len(), 1, "{cu}");
+        o.extend(one);
+    }
     let ran: Vec<_> = o
         .iter()
         .filter(|(name, r, marks)| match name.as_str() {

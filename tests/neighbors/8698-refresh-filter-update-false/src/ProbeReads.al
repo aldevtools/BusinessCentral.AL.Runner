@@ -796,8 +796,8 @@ codeunit 97574 "LT RVR Tests"
         Expect('stored', 'A/,C2/V,C/,');
     end;
 
-    // Last in this copy of the probe (the corpus file has them after Lines_GetFieldById_BeforeFirstStep): the head refuses
-    // them, and a refusal makes the runner distrust every later failure of the codeunit (tests/neighbors/README.md).
+    // Last in this copy of the probe (the corpus file has them after Lines_GetFieldById_BeforeFirstStep), where a refusal of
+    // theirs cannot make the runner distrust a later failure of the codeunit (tests/neighbors/README.md).
     [Test]
     procedure Lines_GetFieldById_BetweenSteps()
     begin
