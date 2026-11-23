@@ -13,6 +13,8 @@
 //! `CellPage::read_calls`). Page 97498 of ListValidateViewReads.al (`CellPage::Wide`) is the issue's
 //! page with controls of every type. Data only; `validate_view_refresh.rs` reads it.
 
+use al_builtins::assumptions::Assumption;
+
 /// The probe's table 97581 "LT RFU Line" (ListValidateFilterRefresh.al:17-41), and the table of al-runner issue 8698's repro:
 /// `«L»` is the log codeunit.
 const TABLE: [&str; 7] = [
@@ -222,6 +224,18 @@ const TREE_ISSUE_PAGE: [&str; 8] = [
     "trigger onaftergetrecord: begin Log.Add((('AGR(' + Rec.\"Name\") + ')')); end",
 ];
 
+/// Page 97714 "LT TVF Drop Tree" (:1585-1614): the issue's tree page without OnAfterGetRecord; the page of al-runner issue
+/// 8846's repro reads the same.
+const TREE_DROP_PAGE: [&str; 7] = [
+    TREE_ISSUE_PAGE[0],
+    TREE_ISSUE_PAGE[1],
+    TREE_ISSUE_PAGE[2],
+    TREE_ISSUE_PAGE[3],
+    TREE_ISSUE_PAGE[4],
+    TREE_ISSUE_PAGE[5],
+    TREE_ISSUE_PAGE[6],
+];
+
 /// Table 97719 "LT TVF Line" (:121-138) of the configurable tree pages, whose ChangeView and log codeunit 97717 read as
 /// `CALLEES`.
 const TREE_TABLE: [&str; 7] = [
@@ -299,7 +313,8 @@ const TREE_COLLAPSED_PAGE: [&str; 13] = [
     AGR,
 ];
 
-/// Which measured page a page is.
+/// Which measured page a page is (the line numbers of TreeValidateFilterRefresh.al are those of corpus pull request 1539's head
+/// 7eab6eba).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CellPage {
     /// Page 97583, the issue's page of 8698: a List with OnAfterGetRecord only.
@@ -326,10 +341,14 @@ pub(crate) enum CellPage {
     TreeCurr,
     /// Page 97723: the tree of 97720 with TreeInitialState CollapseAll.
     TreeCollapsed,
+    /// Page 97714, the tree of issue 8846: the issue's tree of 8833 without OnAfterGetRecord.
+    TreeDrop,
+    /// Page 97727: the List over the tree's table, 97720 without ShowAsTree.
+    TreeLines,
 }
 
 impl CellPage {
-    pub(crate) const ALL: [CellPage; 12] = [
+    pub(crate) const ALL: [CellPage; 14] = [
         CellPage::Issue,
         CellPage::Lines,
         CellPage::Both,
@@ -342,6 +361,8 @@ impl CellPage {
         CellPage::TreeBoth,
         CellPage::TreeCurr,
         CellPage::TreeCollapsed,
+        CellPage::TreeDrop,
+        CellPage::TreeLines,
     ];
 
     /// The lines of the page, of its table and of the procedures they call.
@@ -365,6 +386,8 @@ impl CellPage {
             CellPage::TreeBoth => (&TREE_BOTH_PAGE, &TREE_TABLE, &CALLEES),
             CellPage::TreeCurr => (&TREE_CURR_PAGE, &TREE_TABLE, &CALLEES),
             CellPage::TreeCollapsed => (&TREE_COLLAPSED_PAGE, &TREE_TABLE, &CALLEES),
+            CellPage::TreeDrop => (&TREE_DROP_PAGE, &TREE_ISSUE_TABLE, &[]),
+            CellPage::TreeLines => (&LINES_PAGE, &TREE_TABLE, &CALLEES),
         }
     }
 
@@ -383,10 +406,12 @@ impl CellPage {
             CellPage::TreeBoth => &TREE_BOTH_CELLS,
             CellPage::TreeCurr => &TREE_CURR_CELLS,
             CellPage::TreeCollapsed => &TREE_COLLAPSED_CELLS,
+            CellPage::TreeDrop => &TREE_DROP_CELLS,
+            CellPage::TreeLines => &TREE_LINES_CELLS,
         }
     }
 
-    /// The rows the table held in every cell on the page (:563-565 three; :1622 one).
+    /// The rows the table held in every cell on a page other than the tree pages and their List (:563-565 three; :1622 one).
     pub(crate) fn table_rows(self) -> usize {
         match self {
             CellPage::EditCard => 1,
@@ -406,21 +431,50 @@ impl CellPage {
                 | CellPage::TreeIssue
                 | CellPage::Tree
                 | CellPage::TreeCollapsed
+                | CellPage::TreeLines
         )
     }
 
-    /// The Indentation of each row of the table, in the key, that every cell on the page had: on a tree page A and B at the top,
-    /// C under B (TreeValidateFilterRefresh.al:507 `Initialize`, :514-:519); `None` elsewhere.
-    pub(crate) fn indentations(self) -> Option<&'static [i32]> {
-        self.tree().then_some(&[0, 0, 1])
+    /// The rows of the table, in the key, that `cell` on the page had (`Cell::rows`): on a tree page and on the List over the
+    /// tree's table; `None` elsewhere.
+    pub(crate) fn tree_rows(self, cell: &Cell) -> Option<&'static [Row]> {
+        if self.tree() || self == CellPage::TreeLines {
+            // Every cell of these pages names its rows; one that does not would hold none.
+            return Some(cell.rows.unwrap_or(&[]));
+        }
+        None
     }
 
     /// A tree page of TreeValidateFilterRefresh.al (assumption `tree-validate-view-refresh`).
     pub(crate) fn tree(self) -> bool {
         matches!(
             self,
-            CellPage::TreeIssue | CellPage::Tree | CellPage::TreeBoth | CellPage::TreeCurr | CellPage::TreeCollapsed
+            CellPage::TreeIssue
+                | CellPage::Tree
+                | CellPage::TreeBoth
+                | CellPage::TreeCurr
+                | CellPage::TreeCollapsed
+                | CellPage::TreeDrop
         )
+    }
+
+    /// The entry the rule runs under on the page: the pages of TreeValidateFilterRefresh.al, the List 97727 too, run under
+    /// `tree-validate-view-refresh`; the Lists without OnAfterGetCurrRecord of ListValidateFilterRefresh.al under
+    /// `list-validate-view-refresh`; the other pages under `validate-update-false-rereads-row`.
+    pub(crate) fn assumption(self) -> Assumption {
+        match self {
+            CellPage::Issue | CellPage::Wide | CellPage::Lines => Assumption::ListValidateViewRefresh,
+            CellPage::Both | CellPage::Curr | CellPage::Card | CellPage::EditCard => {
+                Assumption::ValidateUpdateFalseRereadsRow
+            }
+            CellPage::TreeIssue
+            | CellPage::Tree
+            | CellPage::TreeBoth
+            | CellPage::TreeCurr
+            | CellPage::TreeCollapsed
+            | CellPage::TreeDrop
+            | CellPage::TreeLines => Assumption::TreeValidateViewRefresh,
+        }
     }
 
     /// Whether control read `m` with `args` on a field of type `ty` is one the read cells of the page measure. On page 97498
@@ -545,12 +599,28 @@ pub(crate) enum Tail {
     FirstClose,
     /// Close.
     Close,
+    /// No call: the last SetValue raised the filtered-view error, and every later call on the page refuses.
+    End,
 }
+
+/// One row of the table a cell on a tree page had, in the key: its Group Code and its Indentation.
+pub(crate) type Row = (&'static str, i32);
+
+/// The rows of the tree cells: A (G0) and B (G1) at the top, C (G1) under B (TreeValidateFilterRefresh.al:507 `Initialize`,
+/// :514-:519).
+const TREE_ROWS: [Row; 3] = [("G0", 0), ("G1", 0), ("G1", 1)];
+
+/// The rows of the flat cells: A (G0), B (G1) and C (G2), none indented (:1167 `InitializeFlat`); the same groups in the key
+/// over other entry numbers (:1436, :1448 `InitializeShape`).
+const FLAT_ROWS: [Row; 3] = [("G0", 0), ("G1", 0), ("G2", 0)];
 
 /// The steps of one cell and the calls after them.
 pub(crate) struct Cell {
     pub(crate) steps: &'static [Step],
     pub(crate) tail: Tail,
+    /// On a tree page and on the List over the tree's table, the rows the table held (`CellPage::tree_rows`); `None` on the
+    /// other pages, whose cells hold the number of rows only (`CellPage::table_rows`).
+    pub(crate) rows: Option<&'static [Row]>,
 }
 
 use Change::{Drop, Keep, KeepText, Reset, Same};
@@ -563,6 +633,7 @@ const fn walk(steps: &'static [Step]) -> Cell {
     Cell {
         steps,
         tail: Tail::Walk,
+        rows: None,
     }
 }
 
@@ -570,7 +641,38 @@ const fn close(steps: &'static [Step]) -> Cell {
     Cell {
         steps,
         tail: Tail::Close,
+        rows: None,
     }
+}
+
+const fn end(steps: &'static [Step]) -> Cell {
+    Cell {
+        steps,
+        tail: Tail::End,
+        rows: None,
+    }
+}
+
+/// `cell` over rows none indented.
+const fn flat(cell: Cell) -> Cell {
+    over(&FLAT_ROWS, cell)
+}
+
+/// `cell` over `rows`.
+const fn over(rows: &'static [Row], cell: Cell) -> Cell {
+    Cell {
+        rows: Some(rows),
+        ..cell
+    }
+}
+
+/// `walk(steps)` and `end(steps)` over the tree cells' rows.
+const fn tree_walk(steps: &'static [Step]) -> Cell {
+    over(&TREE_ROWS, walk(steps))
+}
+
+const fn tree_end(steps: &'static [Step]) -> Cell {
+    over(&TREE_ROWS, end(steps))
 }
 
 /// Last, a SetValue on Name with `update` and `change` whose refresh settled on row `at` of a view of `rows`, then a SetValue on
@@ -682,6 +784,7 @@ const ISSUE_CELLS: [Cell; 6] = [
     Cell {
         steps: &KEEP_F,
         tail: Tail::FirstClose,
+        rows: None,
     },
     walk(&[Last, Set(Name, Upd::False, Keep, Some((2, 1)))]),
 ];
@@ -750,38 +853,77 @@ const TREE_SAME_F: [Step; 3] = name_then_value(Upd::False, Same, 3, 1);
 const TREE_EXPANDED_F: [Step; 4] = [Last, Expand, TREE_KEEP_F[1], TREE_KEEP_F[2]];
 
 /// The cells on the issue's tree page 97718 and the repro's test: Last, the SetValue on Name, then First, the walk and Close
-/// (:761); the same with Expand(true) on B after Last (:777).
-const TREE_ISSUE_CELLS: [Cell; 2] = [
-    walk(&[Last, Set(Name, Upd::False, Keep, Some((2, 0)))]),
-    walk(&[Last, Expand, Set(Name, Upd::False, Keep, Some((2, 0)))]),
+/// (:761); the same with Expand(true) on B after Last (:777); the SetValue on the first row A, whose filter leaves it out of
+/// the view of B and C (:1347).
+const TREE_ISSUE_CELLS: [Cell; 3] = [
+    tree_walk(&[Last, Set(Name, Upd::False, Keep, Some((2, 0)))]),
+    tree_walk(&[Last, Expand, Set(Name, Upd::False, Keep, Some((2, 0)))]),
+    tree_end(&[Set(Name, Upd::False, Drop, Some((2, 0)))]),
 ];
 
-/// The cells on page 97720 (the line of each test).
-const TREE_CELLS: [Cell; 8] = [
-    walk(&TREE_KEEP_F),      // :794
-    walk(&TREE_KEEP_TEXT_F), // :812
-    walk(&TREE_KEEP_T),      // :830
-    walk(&[
+/// The cell on page 97714 and the repro's test of issue 8846: the SetValue on the first row A, in a TryFunction (:1370) or
+/// under asserterror (:1390).
+const TREE_DROP_CELLS: [Cell; 1] = [tree_end(&[Set(Name, Upd::False, Drop, Some((2, 0)))])];
+
+/// The cells on page 97727, over the flat rows (`FLAT_ROWS`): the SetValue on Name from the first, the middle and
+/// the last row, the filter leaving the row out; then the SetValue on Value, First, the walk and Close (:1246, :1264, :1282).
+const TREE_LINES_CELLS: [Cell; 3] = [
+    flat(walk(&[DROP_TO_FIRST, Set(Val, Upd::False, Same, Some((1, 0)))])),
+    flat(walk(&[
+        Last,
+        Previous,
+        DROP_TO_FIRST,
+        Set(Val, Upd::False, Same, Some((1, 0))),
+    ])),
+    flat(walk(&DROP_F)), // :1282, and :1484 SetRange on G0 with B between
+];
+
+/// A SetValue on Name, Update(false), whose filter leaves the row out of a view of `rows`, the refresh settling on the first.
+const DROP_TO_FIRST: Step = Set(Name, Upd::False, Drop, Some((1, 0)));
+
+/// The cells on page 97720 (the line of each test). Then a filter that leaves the row out over the rows A (G0), B (G1) and C
+/// (G2), none indented, from the first, the middle and the last row, the same groups over other entries in the key from the
+/// first and the last row; from the middle row over the groups G0, G1 and G5; over the tree's rows, where Last stands on B and
+/// SetRange on G0 leaves it out (:1146); and over a child in G0 before two top-level rows in G1, where Last stands on the
+/// last of them and SetRange on G0 keeps only the child (:1460).
+const TREE_CELLS: [Cell; 14] = [
+    tree_walk(&TREE_KEEP_F),      // :794
+    tree_walk(&TREE_KEEP_TEXT_F), // :812
+    tree_walk(&TREE_KEEP_T),      // :830
+    tree_walk(&[
         Last,
         Set(Name, Upd::None, Keep, None),
         Set(Val, Upd::False, Same, Some((2, 0))),
     ]), // :848
-    walk(&TREE_SAME_F),      // :866, and :884 (Reset of no filter)
-    walk(&TREE_EXPANDED_F),  // :902
-    walk(&[Last, Action(Upd::False, Keep), Set(Val, Upd::False, Same, Some((2, 0)))]), // :921
-    walk(&[Last, Set(Val, Upd::False, Same, Some((3, 1)))]), // :1129
+    tree_walk(&TREE_SAME_F),      // :866, and :884 (Reset of no filter)
+    tree_walk(&TREE_EXPANDED_F),  // :902
+    tree_walk(&[Last, Action(Upd::False, Keep), Set(Val, Upd::False, Same, Some((2, 0)))]), // :921
+    tree_walk(&[Last, Set(Val, Upd::False, Same, Some((3, 1)))]), // :1129
+    flat(tree_end(&[DROP_TO_FIRST])), // :1300, :1436
+    flat(tree_end(&[Last, Previous, DROP_TO_FIRST])), // :1312
+    flat(tree_end(&[Last, DROP_TO_FIRST])), // :1324, :1448, and :1472 SetRange on G0 with B between
+    tree_end(&[Last, DROP_TO_FIRST]), // :1146
+    over(
+        &[("G0", 0), ("G1", 0), ("G5", 0)],
+        tree_end(&[Last, Previous, DROP_TO_FIRST]),
+    ), // :1424
+    over(&[("G0", 1), ("G1", 0), ("G1", 0)], tree_end(&[Last, DROP_TO_FIRST])), // :1460
 ];
 
 /// The cells on page 97721, both row triggers (:939, :957, :975, :993).
 const TREE_BOTH_CELLS: [Cell; 4] = [
-    walk(&TREE_KEEP_F),
-    walk(&TREE_KEEP_T),
-    walk(&TREE_SAME_F),
-    walk(&TREE_EXPANDED_F),
+    tree_walk(&TREE_KEEP_F),
+    tree_walk(&TREE_KEEP_T),
+    tree_walk(&TREE_SAME_F),
+    tree_walk(&TREE_EXPANDED_F),
 ];
 
 /// The cells on page 97722, OnAfterGetCurrRecord only (:1012, :1030).
-const TREE_CURR_CELLS: [Cell; 2] = [walk(&TREE_KEEP_F), walk(&TREE_SAME_F)];
+const TREE_CURR_CELLS: [Cell; 2] = [tree_walk(&TREE_KEEP_F), tree_walk(&TREE_SAME_F)];
 
 /// The cells on page 97723, CollapseAll (:1048, :1066, :1084).
-const TREE_COLLAPSED_CELLS: [Cell; 3] = [walk(&TREE_KEEP_F), walk(&TREE_SAME_F), walk(&TREE_EXPANDED_F)];
+const TREE_COLLAPSED_CELLS: [Cell; 3] = [
+    tree_walk(&TREE_KEEP_F),
+    tree_walk(&TREE_SAME_F),
+    tree_walk(&TREE_EXPANDED_F),
+];

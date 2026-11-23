@@ -11,9 +11,7 @@
 use crate::Session;
 
 mod install_orders;
-mod row_delta;
 mod shared;
-pub use row_delta::RowDelta;
 pub use shared::{NotShared, SharedBaseline};
 
 /// What a session keeps of the baseline run; see the module comment.

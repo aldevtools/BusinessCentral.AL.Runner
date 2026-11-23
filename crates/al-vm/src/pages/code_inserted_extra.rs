@@ -410,6 +410,27 @@ impl Session {
         Ok(same_key && same_rows && one_effect && Self::same_view(&rec.borrow(), &at.rec))
     }
 
+    /// Whether, between the save and `CurrPage.Update(false)` on a page of the shape of the page with code
+    /// (`CodedObjects::Extra`), the validation did only what the cells do there: nothing (ListNewLineExtraCodeCodedPage.al:785)
+    /// or one modify of the row through another record (:773, :797). Rec stays as the save left it, and the store took no
+    /// write, or one that gave the row its row version, and no delete. A field of Rec set, or another table written, there is
+    /// not measured (review of al-runner PR 8834, 21:06Z).
+    pub(super) fn extra_coded_between_kept(&mut self, st: &St, at: &SavedView) -> Result<bool, Signal> {
+        let rec = self.page_rec(st);
+        if !Self::same_values(&rec.borrow().fields, &at.rec.fields) {
+            return Ok(false);
+        }
+        let mark = self.write_mark();
+        if mark == at.writes {
+            return Ok(true);
+        }
+        let Some(stored) = self.stored_row(&rec)? else {
+            return Ok(false);
+        };
+        let table = self.table(&rec)?;
+        Ok(mark == (at.writes.0 + 1, at.writes.1) && crate::stale_rename::row_version(&table, &stored) == Some(mark.0))
+    }
+
     /// Whether Rec's fields `rec` and the stored row `stored` changed since the save left both as `saved` as measured: the row
     /// through another record only (:342), or Rec only (:487); `CurrPage.Update(false)` then reads the stored row.
     pub(super) fn extra_code_kept(rec: &[Value], stored: &[Value], saved: &[Value]) -> bool {

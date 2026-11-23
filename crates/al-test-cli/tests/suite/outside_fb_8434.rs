@@ -5,9 +5,7 @@
 //! `CurrPage.SaveRecord()` and `CurrPage.Update(false)` (`al-vm` pages/code_inserted_coded.rs). Both are read from their copies
 //! in the neighbor app. Delete this file when the pins are in the corpus.
 
-use al_builtins::assumptions::Assumption::{
-    self, ListNewLineCodedFactboxes, ListNewLineCodedFactboxesRepro, ListNewLineExtraCodeCoded,
-};
+use al_builtins::assumptions::Assumption::{self, ListNewLineCodedFactboxes, ListNewLineCodedFactboxesRepro};
 use al_test_cli::report::Outcome;
 
 /// The corpus probe, whole, as the neighbor app holds it (its first line says so).
@@ -142,9 +140,7 @@ fn issue_8434_repro_runs_flagged_up_to_the_worker_read() {
 
 /// The repro opened or driven other than as measured: a row before the line and TestPage.OpenEdit are not the measured open
 /// (main's way, no flag), OK() before the Value SetValue is not the measured call (refused at OK, after the landing ran flagged),
-/// and code that is not the repro's (the Value control's OnValidate without its read of Rec) takes the page-with-code shape of
-/// ListNewLineExtraCodeCodedPage.al, whose table with OnInsert and OnDelete ListNewLineExtraCodeCodedTableTriggers.al measures:
-/// it runs flagged up to the Value SetValue, a second SetValue the shape does not measure, and is refused there.
+/// and code that is not the repro's (the Value control's OnValidate without its read of Rec) keeps main's way with no flag.
 #[test]
 fn issue_8434_repro_opened_or_driven_otherwise() {
     let row_before = replace(
@@ -172,6 +168,7 @@ fn issue_8434_repro_opened_or_driven_otherwise() {
             MAIN_REFUSAL,
         ),
         ("TestPage.OpenEdit", &open_edit, MAIN_REFUSAL),
+        ("other code", &other_code, MAIN_REFUSAL),
     ] {
         let (r, marks) = repro_test(change);
         assert!(
@@ -179,13 +176,6 @@ fn issue_8434_repro_opened_or_driven_otherwise() {
             "{name}: {r:?} {marks:?}"
         );
     }
-    let (r, marks) = repro_test(other_code);
-    assert!(
-        matches!(&r, Outcome::NotRun(w) if w.contains(CALL_REFUSAL))
-            && marks.contains(&ListNewLineExtraCodeCoded)
-            && !marks.contains(&ListNewLineCodedFactboxesRepro),
-        "other code: {r:?} {marks:?}"
-    );
     let (r, marks) = repro_test(replace(
         "        Lines.Value.SetValue('ST-07');\n        ValueShown := Lines.Value.Value();\n",
         "",

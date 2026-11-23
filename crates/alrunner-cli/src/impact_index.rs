@@ -613,7 +613,7 @@ mod tests {
         let file = dir.join("file.txt");
         std::fs::write(&file, "text").unwrap();
         type Change = fn(&mut TestArgs, &Path);
-        let options: [(&str, Change); 14] = [
+        let options: [(&str, Change); 13] = [
             ("test_runner", |a, _| {
                 a.test_runner = Some(al_testrun::runtime::TestRunner::Builtin)
             }),
@@ -633,7 +633,6 @@ mod tests {
             ("skip_after_timeout", |a, _| a.skip_after_timeout = true),
             ("stop_after_first_failure", |a, _| a.stop_after_first_failure = true),
             ("test_suites", |a, f| a.test_suites = Some(f.to_path_buf())),
-            ("max_replay", |a, _| a.max_replay = Some(3)),
         ];
         let plain = key(&TestArgs::default()).unwrap();
         assert_eq!(plain, key(&TestArgs::default()).unwrap());

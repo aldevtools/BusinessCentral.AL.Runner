@@ -31,24 +31,23 @@ fn issue_8833_repro_passes() {
     );
 }
 
-/// Every cell of the probe passes under the entry. The SetValue whose filter drops the row raises a validation error on BC
-/// (:1146): it refuses once the rule read the row.
+/// Every cell of the probe passes under the entry; the cells whose filter drops the row are al-runner issue 8846's
+/// (`tree_dropped_row_8846.rs`).
 #[test]
 fn probe_cells_pass_on_the_tree_pages() {
     let o = outcomes(PROBE, "LT TVF Tests");
-    assert_eq!(o.len(), 21);
+    assert_eq!(o.len(), 36);
     let bad: Vec<_> = o
         .iter()
-        .filter(|(n, r, marks)| match n.as_str() {
-            "Tree_SetRangeDropsUpdateFalse_Fails" => !matches!(r, Outcome::NotRun(why) if why.starts_with(UNMEASURED)),
-            _ => *r != Outcome::Pass || *marks != [TreeValidateViewRefresh],
-        })
+        .filter(|(n, ..)| !super::tree_dropped_row_8846::DROP_CELLS.contains(&n.as_str()))
+        .filter(|(_, r, marks)| *r != Outcome::Pass || *marks != [TreeValidateViewRefresh])
         .collect();
     assert!(bad.is_empty(), "{bad:#?}");
 }
 
 /// The neighbors past the cells: a second SetValue on Name, which no cell makes, refuses once the rule ran; a SetValue on Name
-/// from the first row, which no cell starts with, keeps main's path (BC raises a validation error, main raises none).
+/// from the first row over the tree's rows, which no cell of page 97720 measures (its drop cell from the first row has rows none
+/// indented, :1300), keeps main's path (BC raises a validation error, main raises none).
 #[test]
 fn neighbors_past_the_cells() {
     let src = format!("{PROBE}\n{NEIGHBORS}");
