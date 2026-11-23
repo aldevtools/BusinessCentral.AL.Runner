@@ -18,6 +18,11 @@
 //! not pinned, ADR-060 decision 6), a mask whose meaning is not pinned (`al_host::license`), an access where an inherent
 //! permission meets a license level below Yes (whether it lifts the license is not measured). Not checked: system
 //! objects (2000000000 and up; BC overrides the license for some of them) and Execute (calls, page opens, reports).
+//!
+//! The license as a ceiling of the permission check (ADR-062 amendment 1 point 5, stage 5 part 1):
+//! TableData below the system range; Indirect needs the code's `Permissions` property, blank refuses.
+//! `Engine::license_caps` says whether an unrestricted session must check at all. Entry points:
+//! `Session::license_verdict`, `Session::permission_checks`.
 use crate::permissions::{Access, PERMISSIONS_MOCK, SetModel, Verdict};
 use crate::{Engine, Session};
 use al_host::license::Level;

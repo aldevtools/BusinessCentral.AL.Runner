@@ -7,6 +7,9 @@
 //! condition, `Ascending(false)`, `SetCurrentKey(Cnt, Id)`). An exist is pinned by PwFlowFieldKeyRule.al:172; a Decimal average, min
 //! and max and a lookup of a Text or Decimal field by record/flowfields/FfmOperations.al:930-1092. Other FlowField kinds, a
 //! FlowField after another key field and a second FlowField in the key are refused.
+//!
+//! the rows of a record keyed on a row-dependent sum or count FlowField, sorted by its value. Entry
+//! points: `runs`, `scan_flowfield_key`.
 
 use super::*;
 

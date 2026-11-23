@@ -34,6 +34,23 @@
 //!   are `code_inserted_refresh`'s.
 //!
 //! Every other open, view and page keeps main's refusal (`UNMEASURED_CODE`).
+//!
+//! Code that is not a pinned page's around `CurrPage.SaveRecord()` and `CurrPage.Update` on the page
+//! without triggers of `code_inserted_new_line.rs` (al-runner issues 8712 and 8713; assumption `list-
+//! new-line-extra-code`, corpus pull request 1521): the gate is what the code did, not its lines.
+//! Before the save only the table field's insert wrote the store (`extra_code_cell`, by
+//! `code_inserted_cell` when `code_inserted_code` finds no pin); the save writes Rec as it is;
+//! between the save and `Update(false)` the row may change through another record or Rec may change,
+//! not both (`extra_code_kept`, read by `view_kept` through `SavedView::extra`), and every other row
+//! of the page's table stays as the save left it (`extra_code_rows`); nothing changes after the
+//! Update (`extra_code_unchanged`). `Update(true)` after the save writes Rec over the row again
+//! (`extra_code_update_true`); TestPage.OpenEdit with a filter of the test is the open
+//! `Opened::OpenEditOneGroup`; a row the control's OnValidate wrote once before the save is
+//! `Inserted::Rewritten`, which a control's OnValidate tells by the row version it began with
+//! (`ControlOnValidate::row_version`, `new_line_row_version`). Writes of other tables before the save
+//! (al-runner issue 8735; assumption `list-new-line-writes-other-table`, corpus pull request 1527)
+//! pass when the line's insert was the store's first write and the page's table's only one, with no
+//! delete (`only_other_tables_written`).
 
 use super::code_inserted_new_line::{Leave, Opened, UNMEASURED_CODE, View};
 use super::state::{CodeInsertedSave, SavedView};
@@ -368,11 +385,17 @@ impl Session {
 
     /// Whether the validation that ended with `CurrPage.SaveRecord()` and no Update after it, on the page with triggers and a
     /// FactBox, did after the save no more than the cells measure: nothing (ListNewLineExtraCodeFactbox.al:701, :713), a field
-    /// of Rec set (:766, :778: Rec keeps it, the part shows the row as saved, and OK writes it), or a row of another table
-    /// inserted (:791, :803). Every row of the page's table and Rec's view stay as the save left them, nothing is deleted, and
-    /// Rec and the store do not both change. The store does not tell an insert of another table from a modify of one.
+    /// of Rec outside its primary key set (:766, :778: Rec keeps it, the part shows the row as saved, and OK writes it), or a
+    /// row of another table inserted (:791, :803) or modified (:816, :826). Rec stands on the saved row (its primary key as
+    /// saved), every row of the page's table and Rec's view stay as the save left them, nothing is deleted, and Rec and the
+    /// store do not both change.
     pub(super) fn extra_code_save_kept(&mut self, st: &St, at: &SavedView) -> Result<bool, Signal> {
         let rec = self.page_rec(st);
+        let table = self.table(&rec)?;
+        let same_key = Self::same_key(
+            &table.primary_key(&rec.borrow().fields),
+            &table.primary_key(&at.rec.fields),
+        );
         let same_rows = match (self.coded_rows(st)?, &at.rows) {
             (Some(now), Some(then)) => {
                 now.len() == then.len() && now.iter().zip(then).all(|(a, b)| Self::same_values(a, b))
@@ -384,7 +407,7 @@ impl Session {
             Self::same_values(&rec.borrow().fields, &at.rec.fields),
         );
         let one_effect = mark == at.writes || (rec_kept && mark.1 == at.writes.1);
-        Ok(same_rows && one_effect && Self::same_view(&rec.borrow(), &at.rec))
+        Ok(same_key && same_rows && one_effect && Self::same_view(&rec.borrow(), &at.rec))
     }
 
     /// Whether Rec's fields `rec` and the stored row `stored` changed since the save left both as `saved` as measured: the row

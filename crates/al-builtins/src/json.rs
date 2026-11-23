@@ -6,6 +6,8 @@
 //! containers hold their children as such handles, so a token obtained with
 //! `Get` shares the child. Behaviour the corpus does not pin (error texts,
 //! duplicate keys, out-of-range indexes) raises `Signal::Unsupported`.
+//!
+//! Entry points: `Handle`, `JsonCell`, `JsonNode`, `Scalar`.
 
 use crate::describe::Describe;
 use crate::native::{Ctx, NativeFn, Signal, unsupported};

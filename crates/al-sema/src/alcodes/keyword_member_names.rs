@@ -11,6 +11,12 @@
 //! the same way, from their own tokens (issue 8650): the workspace turns them into synthetic routines, which the walk of
 //! routines skips. Other properties keep compiling: StyleExpr, and TableRelation and CalcFormula, which reject only some
 //! of the words after `.`.
+//!
+//! AL0107 for one of 32 keywords, unquoted, after `.` or `::` in the code of a procedure or trigger
+//! (`Row.If := 1;`, `K := K::Exit;`) and in the measured property and source expressions
+//! (`EXPRESSIONS`: `Visible = Rec.If > 0;`), at the word (al-runner issues 8635, 8649 and 8650,
+//! assumptions `keyword-member-names`, `keyword-scope-names` and `keyword-property-members`; `::In`
+//! pinned, issue 7803); type references and other properties are not judged
 
 use super::{IDENTIFIER_EXPECTED, push};
 use crate::workspace::{Diagnostic, ObjKind, Workspace};

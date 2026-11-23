@@ -5,6 +5,8 @@
 //! lines 1068-1230), with the adaptation ADR-013 names: there is no engine, so the default is
 //! the major of the app.json floor. Everything here is a pure function over values: no file,
 //! no network (ADR-006 spirit; this crate may touch the OS, this module does not).
+//!
+//! Entry points: `BuildId`, `parse_index`, `BuildQuery`, `Origin`.
 
 use std::cmp::Ordering;
 use std::fmt;

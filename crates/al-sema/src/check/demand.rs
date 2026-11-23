@@ -20,6 +20,13 @@
 //! Anything the analysis does not reach is not compiled. The workspace then stops
 //! resolving it (`Workspace::restrict_to`), so code that needs it after all is
 //! refused with "outside the workspace" instead of running half-present (hard rule 4).
+//!
+//! Demand-driven checking of dependency apps (ADR-013 decision 6): what a test reaches is compiled,
+//! the rest is not. `uncompiled_subscriber_sites` lists the subscribers nothing compiled, a
+//! dependency `CaptionClassTranslate` subscriber of UI Helper Triggers whatever is reached (but the
+//! System Application's Caption Class Impl.). Tests in `check/demand/tests.rs`. Entry points:
+//! `Demand`, `run_demand`, `reach`, `reach_baseline`, `activate`, `activate_table`, `activate_ops`,
+//! `activate_global`.
 
 use super::posmap::FxSet as HashSet;
 use super::*;

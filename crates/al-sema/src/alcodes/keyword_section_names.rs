@@ -6,6 +6,12 @@
 //! each listed section; alc's recovery after it is not reproduced. A quoted name compiles, and so do the other words (`Local`,
 //! `If`, `Exit`, `Keys`). Sections [`NAMED`] does not list (a page extension's repeater, cue group, label or view, a request page
 //! group, a user control, an anchor such as `addafter(Key)`) are not judged.
+//!
+//! AL0107 for a section named, unquoted, by one of the keywords alc rejects as a parameter name, at
+//! the name: a table or table extension field (`field(2; Integer)`, al-runner issue 8630, assumption
+//! `keyword-field-names`) and the page, page extension, enum, report, query, xmlport, key and field
+//! group sections its `NAMED` table lists (`field(Key; Rec.Key)`, issue 8634, assumption `keyword-
+//! section-names`)
 
 use super::{IDENTIFIER_EXPECTED, PARAM_NAME_KEYWORDS, push};
 use crate::workspace::{Diagnostic, ObjKind, Workspace};

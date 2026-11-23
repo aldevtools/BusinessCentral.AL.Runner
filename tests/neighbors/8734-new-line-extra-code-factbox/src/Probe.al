@@ -604,10 +604,10 @@ page 96743 "LT NK More Lines"
                                     Other.Text := 'After';
                                     Other.Insert();
                                 end;
-                            3:
-                                Other.DeleteAll();
+                            3, 7:
+                                if Log.GetMode() = 3 then Other.DeleteAll() else if Other.FindFirst() then begin Other.Text := 'Changed'; Other.Modify(); end;
                         end;
-                        if not (Log.GetMode() in [4, 5, 6]) then
+                        if not (Log.GetMode() in [4, 5, 6, 7]) then
                             CurrPage.Update(false);
                     end;
                 }
@@ -810,6 +810,33 @@ codeunit 96745 "LT NK More Tests"
         Check('log', 'AGR(B//);AGR(B//);AGCR(B//);|open;AGCR(//);|new;|name;|read;|value;|read;|ok;', Log());
         Check('rows', 'B///;A/Resolved//V;', Rows());
         Check('others', 'After;', Others());
+    end;
+
+    [Test]
+    [HandlerFunctions('MoreHandler')]
+    procedure NewLine_AnotherTableModifiedAfterSaveRecordWithoutUpdateOnPageWithTriggersAndFactBox_LogsTheTriggers()
+    begin
+        Initialize();
+        AddOther('Before');
+        RunMore(7);
+        Check('shown', 'name=A/Resolved// part=Resolved//A value=A/Resolved//V part=Resolved//A ', Shown);
+        Check('log', 'AGCR(//);AGCR(//);|open;AGCR(//);|new;|name;|read;|value;|read;|ok;', Log());
+        Check('rows', 'A/Resolved//V;', Rows());
+        Check('others', 'Changed;', Others());
+    end;
+
+    [Test]
+    [HandlerFunctions('MoreHandler')]
+    procedure NewLine_AnotherTableModifiedAfterSaveRecordWithoutUpdateOnPageWithTriggersAndFactBox_RowBefore_LogsTheTriggers()
+    begin
+        Initialize();
+        AddRow('B');
+        AddOther('Before');
+        RunMore(7);
+        Check('shown', 'name=A/Resolved// part=Resolved//A value=A/Resolved//V part=Resolved//A ', Shown);
+        Check('log', 'AGR(B//);AGR(B//);AGCR(B//);|open;AGCR(//);|new;|name;|read;|value;|read;|ok;', Log());
+        Check('rows', 'B///;A/Resolved//V;', Rows());
+        Check('others', 'Changed;', Others());
     end;
 
     [ModalPageHandler]

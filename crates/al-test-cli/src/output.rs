@@ -1,5 +1,7 @@
 //! Renders a report as Markdown (CI step summary) and the runtime's outcomes as
 //! JUnit in the same shape the corpus CI emits, so the two diff line for line.
+//!
+//! Entry points: `markdown`, `junit`.
 
 use crate::oracle::{CaseId, OracleCase};
 use crate::report::{Outcome, Report, Timings};

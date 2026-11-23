@@ -3,6 +3,13 @@
 //! A routine's registers are its locals followed by temporaries. Instructions call the shared helpers of the VM. Every statement and expression of the IR has instructions: the
 //! compiler returns `None` only when a routine needs more registers than an instruction can name. A value capture runs
 //! the captured form (`compile(.., true)`), which adds the statement and loop instructions of ADR-030.
+//!
+//! , `exec/compile.rs`, `exec/run.rs`, `exec/types.rs`: The executable form (ADR-034), the only
+//! executor. `compile` turns a routine of the IR into a `Chunk` of register instructions
+//! (`compile(.., true)` is the captured form that value capture runs, ADR-030; `compile_debug` is the
+//! debug form, one `Op::DbgHit` after each `Op::Pos`, ADR-048); `run_range` is the loop; `types.rs`
+//! is the interface the typed instructions get their static types from. Entry points:
+//! `ExecProgram::chunk`, `captured_chunk`, `debug_chunk`, `compile`, `Session::run_chunk`.
 
 mod compile;
 mod run;

@@ -1,4 +1,6 @@
 //! The member list of an Option declared without members.
+//!
+//! The one test for an Option member list declared without members (`memberless`).
 
 /// Whether `m` is the member list of an Option declared without members: `Option` and `Option ""` both read as one nameless
 /// member (al-sema `ast::TypeRef::option_members`).

@@ -24,6 +24,40 @@
 //!
 //! Amendment 6: with `--test-suites` (`RunOptions::test_suites`) each listed suite is a BC session of its own, in the
 //! file's order, and a codeunit in no suite is a session of its own ([`streams`]); without it the whole run is one.
+//!
+//! SingleInstance state across test codeunits (ADR-066 amendments 2 to 6). `assign_watches` picks the
+//! SingleInstance codeunits to watch; `analyse` (pure) finds, per BC session in run order, the
+//! codeunits that read first a global an earlier one left with another value (a lazy cache refilled
+//! with the same value is no dependence; amendment 3: a guard then the refill is no link, flagged
+//! `SingleInstanceRefill` when the value differs; a refused writer is no change); `Lane::run` runs
+//! those and, per global, the last writer they need in one serial session (`run::LANE_SINGLES` moves
+//! the single instances from codeunit to codeunit) and flags the tests with
+//! `Assumption::SingleInstanceOrder`. Amendment 4: every dependent codeunit is flagged and keeps its
+//! parallel run; only one with a failed or not-run test (`needs_serial_run`), or every one under
+//! `--strict-order` (`RunOptions::strict_order`, `Lane::strict`), runs again, with the chain
+//! `Found::lane_for` gives. `LaneReport` counts `dependent` and `rerun` for `--timings`. Amendment 5:
+//! a test refused before it started does not count for `needs_serial_run`
+//! (`Scratch::unfinished_after_start`); `Found::sessions` makes one serial session per chosen
+//! codeunit's chain (a shared writer runs in each; a chosen codeunit whose chain starts another's is
+//! reported from that session); `Lane::run_chains` runs them in parallel on worker threads with
+//! `Lane::thread_baseline` (`Lane::plan` works out each codeunit's start, `Step`; a baseline a
+//! Disabled carry member left goes to the worker through `lane_starts.rs`; a session whose baseline
+//! has no bytes runs on the main thread, `run_bound`); `LaneReport` adds `chains` and `longest`.
+//! Amendment 6: `streams` takes `RunOptions::test_suites` (`--test-suites`): each listed suite (per
+//! app and hub leg) is a stream in the file's order, a codeunit in two suites is in both
+//! (`Lane::chains` counts, flags and re-runs it once, from the first suite where it is dependent),
+//! one in no suite is a stream of its own. Amendment 7: a dependent codeunit with a failure runs
+//! again only when a failed or unfinished test, or one before it, read first a global of
+//! `Found::changed` (`failure_saw_change`, from `SingleOut::read_in` and `Scratch::unfinished_at`;
+//! otherwise `LaneReport::kept`); with `--max-replay N` (`RunOptions::max_replay`,
+//! `Lane::max_replay`; off by default) a chosen codeunit whose own chain is over `N` is not replayed
+//! (`Found::within_limit`), keeps its parallel run, is flagged
+//! `Assumption::SingleInstanceRerunSkipped` and listed in `LaneReport::skipped`
+//! (`rerun_skipped_text`, `skipped_lines`, the JUnit property `singleInstanceRerun`); not under
+//! `--strict-order`. Amendment 8: with `Lane::kept_chain` (the walk kept the single instances) a
+//! chain member (`Lane::is_member`) is never dependent, flagged or re-run; it still counts as a
+//! writer for the other codeunits; `LaneReport::chain_missed` counts members that read first a global
+//! a codeunit outside the chain wrote before them (`missed_by_walk`).
 
 use super::carry_after::After;
 use super::chain_walk::Carry as ChainCarry;

@@ -3,6 +3,8 @@
 //! into one `DisabledText` trivia token, so the output still covers the source
 //! byte for byte. `#define` / `#undef` change the symbol set from that point on.
 //! `#region`, `#endregion` and `#pragma` are left as plain directives.
+//!
+//! Token-level preprocessor (#if and friends).
 
 use crate::{SyntaxKind, Token};
 use std::collections::BTreeSet;

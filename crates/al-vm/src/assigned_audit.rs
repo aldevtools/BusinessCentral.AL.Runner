@@ -15,6 +15,19 @@
 //! `ModifyAll` on an audit field (:594-631) is not a write of this module: it raises its error before it writes, whatever the
 //! buffer holds (its three observations run in three buffer and transaction states, the same error each time), see
 //! `Session::modify_all_audit_field` in `recmeta.rs`.
+//!
+//! what a Modify and a Rename write after AL code assigned an audit field (AssignedAuditFields.al,
+//! al-runner issue 5207). ModifyAll of an audit field is not here: `Session::modify_all_audit_field`
+//! in `recmeta.rs` raises the measured "cannot change" error (:594-631) or refuses, and reads this
+//! module's `default_variable`, `non_blank` and `audit_write_plain`. Three rules, each one allowlist
+//! predicate on its measured cell (`modify_keeps_assigned_modified`,
+//! `temporary_modify_writes_created_at`, `rename_audit`); every other write keeps the row of
+//! `hostvalues.rs`. All three require the variable's own Insert and Get
+//! (`al_builtins::value::OwnRead`), followed over every record method by `own_read_before`,
+//! `own_read_after` (called from `records::record_op`) and `own_read_after_load`, and ended by any
+//! builtin given the variable as an operand but `Clear` (`own_read_end_for_operands`, called from
+//! `exec/run.rs`). Facts of a write: `Session::audit_write`, `audit_write_plain`; a RecordRef method
+//! is marked by `Session::through_recordref`.
 
 use crate::Session;
 use crate::globaltriggers::GlobalOp;

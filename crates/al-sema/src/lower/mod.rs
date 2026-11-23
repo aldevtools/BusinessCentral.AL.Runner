@@ -1,6 +1,10 @@
 //! Lowering resolved syntax to the typed IR (ADR-011). Anything the IR or the
 //! builtins registry cannot express yet becomes a reason on the routine
 //! (`Routine::unsupported` in `Lowered`), never a guess.
+//!
+//! Lowers resolved syntax to the typed IR (ADR-011). Anything inexpressible becomes a refusal reason
+//! on the routine. Holds `Lowered`, the `Lowerer` state and the module list. Entry points: `Lowered`,
+//! `Lowerer`.
 
 use crate::check::posmap::FxMap as HashMap;
 use crate::check::{CheckResult, Res};

@@ -1,4 +1,6 @@
 //! Record filters as data (shared by the VM and the store).
+//!
+//! Entry points: `FilterExpr`, `parse_filter`, `parse_filter_with`, `FieldFilter`.
 
 use crate::describe::Describe;
 use crate::native::Signal;

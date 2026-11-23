@@ -2,6 +2,11 @@
 //! (`crate::pages::client_expression`): refuse what the client compile fails on, set aside a BigInteger literal, check
 //! the types behind a qualified value through a member (`E.Mode::Beta`), and find the first field of the page's record it
 //! names (`visible_row_field`).
+//!
+//! the client-compile check of a Boolean control expression (refused forms, BigInteger literal, the
+//! typed check of a qualified value through a member), and whether a field control's own Visible
+//! names a field of the page's record (`visible_row_field`, `first_source_field`; al-runner issue 8660).
+//! Entry points: `client_expr_reasons`, `visible_row_field`.
 use super::*;
 use al_builtins::assumptions::Assumption;
 use std::cell::RefCell;

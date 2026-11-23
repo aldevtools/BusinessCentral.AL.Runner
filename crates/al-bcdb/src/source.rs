@@ -5,6 +5,8 @@
 //!
 //! The abstraction is "enumerate rows and column metadata for a table", not pages: a
 //! `.bacpac` has no pages, no compression and no LOB indirection.
+//!
+//! Entry points: `SourceTable`, `BcSource`, `read_all`, `is_bacpac`.
 
 use crate::error::Result;
 use crate::io::ByteSource;

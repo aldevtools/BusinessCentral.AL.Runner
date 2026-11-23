@@ -2,6 +2,16 @@
 //! platform's error, and when. The cells of Insert, Modify, ModifyAll and Rename that record/filters/SqlDateFloor1753.al
 //! pins run; every other write of such a value is refused. The Insert of the values record/filters/P130DateFilters.al:255-293
 //! pins runs as well.
+//!
+//! which statement raises the error of a Date or DateTime the SQL column cannot hold, and when
+//! (`sqltime::bad_field` decides which values and their error text;
+//! record/filters/SqlDateFloor1753.al, al-runner issues 8006 and 7834). A record whose Rename raised
+//! that error is marked in `TxState::failed_sql_rename`; `catch_error` refuses while it still lives.
+//! Entries: `insert_sql_range`, `fail_modify_sql_range`, `fail_rename_sql_range` (by Insert, Modify
+//! and Rename in `op_inner.rs`), `modify_all_sql_range` (by `modify_all` in `recmeta.rs`). The write
+//! statement of AL code is marked in `TxState::write_of_al`. `records/sql_range_code.rs`: the
+//! measured trigger and subscriber bodies a table of those cells may have (`own_trigger_measured`,
+//! `own_trigger_logs`, `own_trigger_sets_date`, `one_log_subscriber`, `one_reader_subscriber`).
 
 use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::{RtType, Value};

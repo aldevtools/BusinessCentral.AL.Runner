@@ -1,4 +1,6 @@
 //! Generating the signature catalog from the docs scrape (ADR-008).
+//!
+//! Entry points: `Catalog`, `load`, `for_target`, `generate`.
 
 use crate::signature::{DocEntry, Signature};
 use al_version::{Runtime, Target};

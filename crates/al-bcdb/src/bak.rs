@@ -6,6 +6,8 @@
 //! demo database was shrunk after load, which relocates pages without rewriting either).
 //! The IAM bitmap is what SQL Server itself trusts and matched
 //! sys.dm_db_database_page_allocations exactly (bcdb PROVENANCE.md "IAM pages").
+//!
+//! `open_indexed` keeps the page map and catalog between runs.
 
 use crate::catalog::{AllocUnit, Catalog, PhysColumn, read_page_ptr};
 use crate::error::{Error, Result};

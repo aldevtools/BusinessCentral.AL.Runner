@@ -6,6 +6,12 @@
 //! (reports/extensions/IndependentAppsReportExtensions.al:73-81 `ObserveRequestPage`, :103-111, :133-141, handlers :143-153).
 //! Every other call that opens the page, every other handler step, every other close and every error raised while the page
 //! is open is refused here, each at its own step.
+//!
+//! The request page `ir::Report::request_page_ok_only` marks runs only for the measured call (static
+//! `Report.RunRequestPage(id)`, handler calls OK only); every other call, handler step, close and
+//! error on it is refused. Entry points: `request_ok_only_call` (reports.rs), `request_ok_only_open`
+//! (`run_request_page`), `request_ok_only_step` (`page_op`), `request_ok_only_control`
+//! (`page_control`).
 
 use super::request::RequestClosed;
 use super::*;

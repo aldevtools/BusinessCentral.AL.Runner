@@ -4,6 +4,9 @@
 //! the tree's text is the source by construction. Trivia is attached to the
 //! innermost node open when the next significant token arrives; nodes start
 //! *after* pending trivia, so leading comments belong to the parent.
+//!
+//! Parser infrastructure and the parse entry points. Entry points: `parse`, `parse_with_cache`,
+//! `Parse`.
 
 use crate::builder::{Checkpoint, TreeBuilder, TreeCache};
 use crate::preprocessor::preprocess;

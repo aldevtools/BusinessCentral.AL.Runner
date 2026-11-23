@@ -5,6 +5,8 @@
 //! Here tokens are interned in a direct-mapped table (a cheap hash, one compare,
 //! no probing), and nodes are not deduplicated at all. The trees are the same
 //! as far as any reader can tell: same kinds, same text, same shape.
+//!
+//! Entry points: `TreeCache`, `Checkpoint`, `TreeBuilder`.
 
 use crate::SyntaxKind;
 use rowan::{GreenNode, GreenToken, NodeOrToken};

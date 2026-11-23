@@ -6,6 +6,10 @@
 //! The format is the corpus's `tests/must-not-compile/README.md`. A case is compiled alone, in a
 //! one-app workspace. The dependencies it names (Base Application, System Application) are not
 //! loaded: a verdict that needs them is "not checked", never a guess.
+//!
+//! The must-not-compile corpus (`--must-not-compile [DIR]`): parse a case header, compile it alone,
+//! compare the ALnnnn codes, report match / mismatch / not checked / skipped. Entry points:
+//! `parse_case`, `read_cases`, `run_case`, `render`.
 
 use al_sema::alcodes::{self, AppContext, AppTarget};
 use al_sema::workspace::{AppSource, Diagnostic, Workspace};
