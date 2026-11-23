@@ -13,6 +13,15 @@
 //!   wrong. A named return value with an `exit(value)` that did not run keeps the earlier answer, the value it ends with (not
 //!   measured with such an exit).
 //! - A named return value that is never assigned keeps the earlier answer (no veto): not measured either way.
+//!
+//! what the client reads from the page's own Boolean OnInsertRecord and OnModifyRecord (al-runner
+//! issue 7628): an `exit(value)` that ran (`Session::exited_with_value`, noted per page call in
+//! `PageClients::own_exited`), no exit at all, a named return value; an `exit(false)` that did not
+//! run saves and a named value assigned false vetoes only in the probe's Card cells, and the exit not
+//! run also in the cell of corpus testpage/CcFixtures.al:244 (RecordTriggerReturnValue.al G6,
+//! CcPageLeads.al:341); other shapes of those two refuse. Entry points: `own_record_trigger_answer`
+//! (from `page_trigger_answer`); `insert_draft` raises the filtered-view error for the insert veto
+//! (`named_false_insert`).
 
 use super::pinned_shape::{
     PinnedCode, TestCall, code_stmts, rec_text_log_call, text_log_routine, unconverted, without_pos,

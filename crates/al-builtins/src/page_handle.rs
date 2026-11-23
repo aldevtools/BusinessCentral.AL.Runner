@@ -11,6 +11,12 @@
 //! cell). An `Rc` and not a `Box`, because dropping a `Value` is on the interpreter's hot path: the drop of an `Rc` is a
 //! counter and one call that is never inlined, as the drop of the `Rc<RefCell<PageState>>` was. With a `Box` the code
 //! that drops any `Value` grew, and the VM benchmarks (`perf_vm`) used 1 to 3 % more instructions.
+//!
+//! The opaque handles `Value::TestPage` and `Value::TestControl` hold (ADR-072 decision 3). The page
+//! state itself is in al-vm (`pages/state/mod.rs`); this crate stores, clones, drops and prints the
+//! handle, and never adds a reference to the page. Entry points: `PageHandle` (`new`, `get`,
+//! `into_inner`, `closed`), `ControlHandle`, `set_closed_page` (al-vm registers how a closed page is
+//! built, for `Value::default_for`).
 
 use std::any::Any;
 use std::fmt;

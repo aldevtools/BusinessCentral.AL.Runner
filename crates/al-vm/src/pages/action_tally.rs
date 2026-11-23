@@ -2,6 +2,12 @@
 //! (`empty_list_one_row.rs`): an action on a List that stood on its new-row line over an empty view. The tally only counts;
 //! it decides nothing. It is armed around that action's trigger (`actions.rs`), and the session's hooks (`record_op`,
 //! `commit_builtin`, `codeunit_run`, `report_run`) add to it while it is armed.
+//!
+//! Counts what the AL code of one action on an empty List did (writes by table and method, Commit,
+//! Codeunit.Run, report runs with or without request page, a nested action); armed around the trigger
+//! by `begin_action_tally`/`end_action_tally`, added to by `record_op`, `commit_builtin`,
+//! `codeunit_run` and `report_run_entered`. `ActionTally::is_one_report_insert` is the one predicate
+//! read (by `empty_list_one_row.rs`).
 
 use al_builtins::record_op::RecordOp;
 

@@ -1,6 +1,11 @@
 //! Where a filter's answer for a text value rests on an order or a match of letters no measurement covers (al-runner issues
 //! 8195 and 8196, review of al-runner PR 8220): the letters `Æ` and `æ` in an order or an equality, accented letters under `@`.
 //! A reader refuses such a value; every other value keeps the answer of [`FilterExpr::matches_checked`].
+//!
+//! Where a filter's answer for a text rests on `Æ`/`æ` or on accents under `@` that no measurement
+//! covers (`FilterExpr::collation_refusal`, `collation_open`), and the row checks built on it
+//! (`row_passes_collation` for the store, `all_match_on` for a record's own filters). Entry points:
+//! `collation_refusal`.
 
 use crate::filter::{FieldFilter, FilterExpr, OR_GROUP, blank_if_spaces, like};
 use crate::value::Value;

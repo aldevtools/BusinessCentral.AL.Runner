@@ -1,4 +1,7 @@
 //! FilterGroup(-1) (the OR group) on a page's Rec (gap G5-21).
+//!
+//! FilterGroup(-1) on a page's Rec: dropped from a handed record before OnOpenPage, and after it (gap
+//! G5-21). Entry points: `drop_handed_or_group`, `or_group_drop_pinned`, `cut_rec_after_onopenpage`.
 
 use super::*;
 

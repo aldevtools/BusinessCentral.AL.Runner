@@ -1,5 +1,10 @@
 //! The cell report (`--cell-report FILE`, JUnit properties): per test that uses the observer fixture, how many `Expect` cells
 //! matched (`al_vm::observer_tap`). Report only: it reads the run's results and changes no outcome or list.
+//!
+//! The cell report (`--cell-report FILE`, JUnit properties `cellsExpected`, `cellsMatched`,
+//! `firstMismatch`): per test that uses the observer fixture, the `Expect` cells matched, wrong and
+//! never reached, from `TestResult::cells`; the `cells:` summary line. Entry points: `build`,
+//! `CellReport::summary`, `properties`, `index`.
 use crate::oracle::CaseId;
 use crate::report::Outcome;
 use al_testrun::runtime::TestResult;

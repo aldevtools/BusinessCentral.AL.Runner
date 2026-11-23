@@ -7,6 +7,14 @@
 //! record/filters/ByValueDataItemView.al:220-261 and :476-517, al-runner issue 8838). A filter
 //! that code sets in that group by number, the view of an XmlPort (the same group number) and a copy of the record are not
 //! that shape, so the question needs this record of what the run set, not the group number.
+//!
+//! a data item's `DataItemTableView`: puts it in force on the item's record in filter group
+//! `ITEM_VIEW_GROUP` and notes the filters it gave a data item of the report's own
+//! (`ReportState::item_views`); answers whether a record handed by value is that data item, handed
+//! from its own `OnAfterGetRecord` while its run is the innermost one, with exactly those filters
+//! (al-runner issue 8838; a filter code sets in that group, an XmlPort view and a copy are not).
+//! Entry points: `apply_item_view` (by `report_prepare`), `own_item_view_handed` (by
+//! `records/by_value_view.rs` `by_value_view`).
 
 use super::*;
 use al_builtins::filter::FieldFilter;

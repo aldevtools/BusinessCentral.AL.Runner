@@ -1,3 +1,5 @@
+//! Writing a control and the `TestField` methods. Entry points: `control_set_value`,
+//! `test_control_op`.
 use super::pinned_shape::TestCall;
 use super::*;
 use crate::platform::relation_field_no_readers::ControlRead;

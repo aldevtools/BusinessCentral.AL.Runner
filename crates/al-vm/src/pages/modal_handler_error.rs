@@ -1,5 +1,9 @@
 //! A modal page its ModalPageHandler left open by raising an error, and a modal close the page's OnQueryClosePage refused
 //! (moved out of `rows.rs`). Owns the close the platform still asks after the handler's error (`close_modal_after_handler_error`).
+//!
+//! A modal page its ModalPageHandler left open by raising an error, and a modal close its
+//! OnQueryClosePage refused (moved out of `rows.rs`). Entry points:
+//! `close_modal_after_handler_error`, `refuse_unpinned_modal_veto` (both by `answer_page`).
 
 use super::*;
 

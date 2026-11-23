@@ -2,6 +2,11 @@
 //! rows they leave in the order of the key, as of the table's stamp. The filters themselves tell the scans apart
 //! ([`same_filters`]): a lookup compares a few filters, where a key made of their text formatted every filter at every
 //! step (issue 8603).
+//!
+//! What `alt_next` keeps per scan: per table and key, the last `ALT_SCANS_PER_KEY` sets of filters,
+//! told apart by `same_filters` (the filters themselves, not their text; issue 8603), each with the
+//! rows they leave in the order of the key as of the table's stamp. Entry points: `alt_step`,
+//! `alt_keep`. Unit tests: `memory/alt_cache_tests.rs`.
 
 use super::*;
 

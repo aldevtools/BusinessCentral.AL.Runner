@@ -2,6 +2,10 @@
 //! smallest of the machine's free memory (`MemAvailable`), the `memory.max` of the process's cgroup and its parents
 //! (cgroup v2: a container or a `systemd-run` scope), and `--max-memory`. Reading them is the front end's job
 //! (ADR-006): the run gets the number and a way to read the resident memory.
+//!
+//! `--max-memory` and serve `maxMemory` (ADR-066 amendment 9): `parse_size`, `budget` (smallest of
+//! `MemAvailable`, the cgroup v2 `memory.max` of the process and its parents, and the flag), resident
+//! memory from `/proc/self/status`, the stop with exit code 2. Entry points: `budget`, `parse_size`.
 
 use std::sync::Arc;
 

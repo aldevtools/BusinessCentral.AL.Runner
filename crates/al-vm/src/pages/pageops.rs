@@ -1,3 +1,4 @@
+//! The `TestPage.*` and `TestField.*` methods. Entry points: `page_op`, `test_page_op`.
 use super::*;
 use al_builtins::page_op::{PageMethod, PageOp, PageRecv};
 use al_builtins::record_op::RecordOp;
@@ -677,7 +678,7 @@ impl Session {
     fn ask_update_refresh(&mut self, st: &St, save: bool, arg: Option<&Value>) -> Result<(), Signal> {
         self.refuse_update_in_action(st)?;
         st.borrow_mut().refresh.ask_by_update(save);
-        Self::validate_view_update(st, save);
+        self.validate_view_update(st, save);
         self.note_view_left(st)?;
         self.note_part_update_left_view(st)?;
         self.land_on_code_inserted_line(st, arg)

@@ -11,6 +11,14 @@
 //! repository, `Test/Contract Renewal/ContractRenewalTest.Codeunit.al` and `App/Contract Renewal/Pages/
 //! ContractRenewalSelection.Page.al` of Subscription Billing). Every other shape keeps the earlier behavior, no read
 //! (al-runner PR 7787 reviews).
+//!
+//! A SetValue on a Worksheet row that Next moved onto without reading it reads the row first (al-
+//! runner issue 7783, assumption `next-held-row-read-before-set-value`); only in the shape of
+//! Microsoft's test, which `held_row_read_pinned` lists condition by condition (a Worksheet the test
+//! opened with OpenEdit, a Next that moved, the first SetValue right after it, the stored row
+//! unchanged since); everything else keeps the earlier behavior. Entry points: `note_next_held_row`
+//! (by `page_move_noting_server_row`), `set_value_reading_held_row` (by the SetValue arm of
+//! `test_control_op`).
 
 use super::*;
 

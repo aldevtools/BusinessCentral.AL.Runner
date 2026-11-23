@@ -1,8 +1,8 @@
-// A copy of the corpus probe record/filters/AtSignAloneReads.al of corpus pull request 1495 at ca3a9942 (its lines are the probe's
+// A copy of the corpus probe record/filters/AtSignAloneReads.al of corpus pull request 1495 at baff70cc (its lines are the probe's
 // lines plus two).
 // BC Documentation: https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/methods-auto/record/record-setfilter-method
 // Scope: in-scope
-// Fixtures used: Assert (60021); own tables 97502, 97503 and 97505, report 97500, page 97500 and test codeunit 97500
+// Fixtures used: Assert (60021); own tables 97502, 97503, 97505, report 97500, page 97500, queries 97500-97502, test codeunit 97500
 // Probe (al-runner issue 8637, review of al-runner PR 8716): `@` alone and `<>@` alone on a Code and a Text field, read from the
 //   database and from a temporary record. pages/background-tasks/BgTaskQueryCache.al (BQ Tests 9b, 9c) measures SetFilter read by
 //   Count, a FlowFilter that CalcFields applies, a lookup FlowField's filter read by Count and a query's filters; this file
@@ -838,6 +838,108 @@ codeunit 97500 "AS Kind Tests"
             '<>@ # Text Kind: <>@ # VERSION(1) SORTING(Group,Id) WHERE(Text Kind=FILTER(<>@))',
             Seen, 'code @, code <>@, text @, text <>@');
     end;
+
+    // <>@ alone keeps the rows that are not empty in a query's SetFilter, a query's DataItemTableFilter and a FlowFilter that
+    // CalcFields applies, the last for a host in the database and a temporary host alike. The query's SetFilter on the Code and on
+    // the Text column (query 97500):
+    local procedure QueryNotAt(G: Code[20]; OnCode: Boolean): Text
+    var
+        Columns: Query "AS Kind Columns";
+        Seen: Text;
+    begin
+        Columns.SetRange(KindGroup, G);
+        if OnCode then
+            Columns.SetFilter(CodeKind, '<>@')
+        else
+            Columns.SetFilter(TextKind, '<>@');
+        Columns.Open();
+        while Columns.Read() do
+            Seen += Format(Columns.Id) + ',';
+        Columns.Close();
+        exit(Seen);
+    end;
+
+    [Test]
+    procedure AtSignAloneNegated_QuerySetFilter()
+    var
+        G: Code[20];
+    begin
+        G := NewGroup(true);
+        Assert.AreEqual('1,|1,', QueryNotAt(G, true) + '|' + QueryNotAt(G, false), 'code column, text column');
+    end;
+
+    // A DataItemTableFilter filter('<>@') on the Code field (query 97501) and on the Text field (query 97502).
+    [Test]
+    procedure AtSignAloneNegated_QueryDataItemTableFilter()
+    var
+        CodeNotAt: Query "AS Kind Code Not At";
+        TextNotAt: Query "AS Kind Text Not At";
+        G: Code[20];
+        Seen: Text;
+    begin
+        G := NewGroup(true);
+        CodeNotAt.SetRange(KindGroup, G);
+        CodeNotAt.Open();
+        while CodeNotAt.Read() do
+            Seen += Format(CodeNotAt.Id) + ',';
+        CodeNotAt.Close();
+        Seen += '|';
+        TextNotAt.SetRange(KindGroup, G);
+        TextNotAt.Open();
+        while TextNotAt.Read() do
+            Seen += Format(TextNotAt.Id) + ',';
+        TextNotAt.Close();
+        Assert.AreEqual('1,|1,', Seen, 'code field, text field');
+    end;
+
+    // <>@ alone as a FlowFilter that CalcFields applies through field(filter()), on the Code and on the Text FlowFilter, of a host
+    // in the database and of a temporary host.
+    local procedure FlowNotAt(var Host: Record "AS Kind Host"): Text
+    begin
+        Host.SetFilter("Code Filter", '<>@');
+        Host.SetFilter("Text Filter", '<>@');
+        Host.CalcFields("Code By Code Filter", "Text By Text Filter");
+        exit(Format(Host."Code By Code Filter") + ',' + Format(Host."Text By Text Filter"));
+    end;
+
+    [Test]
+    procedure AtSignAloneNegated_FlowFilter()
+    var
+        Host: Record "AS Kind Host";
+        TempHost: Record "AS Kind Host" temporary;
+        Seen: Text;
+    begin
+        Host."No." := NewGroup(true);
+        Host.Insert();
+        TempHost := Host;
+        TempHost.Insert();
+        Seen := FlowNotAt(Host) + '|' + FlowNotAt(TempHost);
+        Assert.AreEqual('10,10|10,10', Seen, 'database host, temporary host');
+    end;
+
+    // The same FlowFilters read through field() without filter() (table 97505).
+    local procedure FlowFieldNotAt(var Host: Record "AS Kind Filter Host"): Text
+    begin
+        Host.SetFilter("Code Filter", '<>@');
+        Host.SetFilter("Text Filter", '<>@');
+        Host.CalcFields("Code By Code Filter", "Text By Text Filter");
+        exit(Format(Host."Code By Code Filter") + ',' + Format(Host."Text By Text Filter"));
+    end;
+
+    [Test]
+    procedure AtSignAloneNegated_FlowFilterThroughField()
+    var
+        Host: Record "AS Kind Filter Host";
+        TempHost: Record "AS Kind Filter Host" temporary;
+        Seen: Text;
+    begin
+        Host."No." := NewGroup(true);
+        Host.Insert();
+        TempHost := Host;
+        TempHost.Insert();
+        Seen := FlowFieldNotAt(Host) + '|' + FlowFieldNotAt(TempHost);
+        Assert.AreEqual('10,10|10,10', Seen, 'database host, temporary host');
+    end;
 }
 
 // The CalcFormulas of AtSignAloneNegated_CalcFormulaQuotedFilter: a quoted filter('<>@').
@@ -859,10 +961,71 @@ table 97505 "AS Kind Filter Host"
             FieldClass = FlowField;
             CalcFormula = sum("AS Kind Row".Amount where("Group" = field("No."), "Text Kind" = filter('<>@')));
         }
+        // The FlowFilters of AtSignAloneNegated_FlowFilterThroughField, read through field() without filter().
+        field(4; "Code Filter"; Code[20]) { FieldClass = FlowFilter; }
+        field(5; "Text Filter"; Text[50]) { FieldClass = FlowFilter; }
+        field(6; "Code By Code Filter"; Decimal)
+        {
+            FieldClass = FlowField;
+            CalcFormula = sum("AS Kind Row".Amount where("Group" = field("No."), "Code Kind" = field("Code Filter")));
+        }
+        field(7; "Text By Text Filter"; Decimal)
+        {
+            FieldClass = FlowField;
+            CalcFormula = sum("AS Kind Row".Amount where("Group" = field("No."), "Text Kind" = field("Text Filter")));
+        }
     }
 
     keys
     {
         key(PK; "No.") { Clustered = true; }
+    }
+}
+
+// The query of AtSignAloneNegated_QuerySetFilter.
+query 97500 "AS Kind Columns"
+{
+    QueryType = Normal;
+
+    elements
+    {
+        dataitem(Row; "AS Kind Row")
+        {
+            column(KindGroup; "Group") { }
+            column(Id; Id) { }
+            column(CodeKind; "Code Kind") { }
+            column(TextKind; "Text Kind") { }
+        }
+    }
+}
+
+// The queries of AtSignAloneNegated_QueryDataItemTableFilter: a DataItemTableFilter filter('<>@').
+query 97501 "AS Kind Code Not At"
+{
+    QueryType = Normal;
+
+    elements
+    {
+        dataitem(Row; "AS Kind Row")
+        {
+            DataItemTableFilter = "Code Kind" = filter('<>@');
+            column(KindGroup; "Group") { }
+            column(Id; Id) { }
+        }
+    }
+}
+
+query 97502 "AS Kind Text Not At"
+{
+    QueryType = Normal;
+
+    elements
+    {
+        dataitem(Row; "AS Kind Row")
+        {
+            DataItemTableFilter = "Text Kind" = filter('<>@');
+            column(KindGroup; "Group") { }
+            column(Id; Id) { }
+        }
     }
 }

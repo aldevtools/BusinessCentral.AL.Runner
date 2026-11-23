@@ -1,5 +1,12 @@
 //! What a length does in `Format`, after the type rules of `format_value` and the format strings of `formatstr`: only the
 //! shapes the corpus measured run, every other value and length refuses (al-runner issue 8389).
+//!
+//! What a length does in `Format`: after the type rules of `format.rs` (`rest`, by type, standard
+//! format, sign and fit), under a format string (`with_format_string`, and `lone_standard_format` for
+//! a string that is one `<Standard Format,N>`, both called by `formatstr.rs`), and where no case
+//! measures one (`none_measured`: `CurrReport.FormatRegion`, a Decimal field with places, a Record or
+//! RecordRef in `native/format_fns.rs`). Every unmeasured tuple refuses (issue 8389), except the
+//! cells of an open probe, which run through the `format-length-*` assumption entries.
 
 use super::{FormatCtx, FormatFail, format_value, pad};
 use crate::describe::Describe;

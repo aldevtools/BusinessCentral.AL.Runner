@@ -38,6 +38,24 @@
 //! Media field is cached as any other (:6898, :6918), and CalcFields of a Blob of a row the cache answered with another row
 //! is refused. The cache keeps no notes at all in a program whose own apps run no page background task
 //! (`Session::query_cache_on`). Every other read keeps reading the rows as they are, as on main.
+//!
+//! The query cache page background tasks and the test session read through (al-runner issue 8467,
+//! assumption `background-task-query-cache`, corpus pull request 1457, merged, not pinned yet): a
+//! worker's `Get` and full-key `FindFirst` (a row), and `FindFirst`, `FindLast`, `Count` and
+//! `IsEmpty` of AL code keyed by the read, the sort direction and every filter (`group_key`; the
+//! filter shapes of open corpus PR 1495, al-runner issue 8637), and a Record's `CalcFields` (keyed by
+//! its fields in order, the row and its FlowFilters, `calc_key`) and `CalcSums` (al-runner issue 8677)
+//! answer their first answer until a commit writes the row (or, for the group reads and
+//! calculations, the table, or a table its FlowField filters or formulas read); the test session's
+//! reads fill it while it has not written the table; emptied per test codeunit. Entry points:
+//! `cached_get`, `cached_find`, `cached_count` (called from `records/op_inner.rs`),
+//! `cached_calc_fields`, `cached_calc_sums` (called from `flowfields.rs`), `mark_al_record_read`
+//! (`record_op_of_al`), `note_commit_for_query_cache` (`commit_transaction`), `note_replayed_load`
+//! (`load`), `refuse_load_of_replayed` (`partial.rs`), `reset_query_cache` (`mark_install_end`),
+//! `note_select_latest_version` (`hostvalues.rs`), `refuse_blob_of_replayed` (`load_blobs`),
+//! `end_record_op_for_query_cache` (`record_op`); the minors a committed ModifyAll or DeleteAll ends
+//! an entry on: `al_version::bulk_commit_ends_cached_row`; nothing is noted unless the program's own
+//! apps run a page background task (`query_cache_on`).
 
 use crate::records::Rec;
 use crate::{Session, Signal};
@@ -200,6 +218,8 @@ fn holds(then: Committed, now: Committed, bulk_ends: [Option<bool>; 3]) -> Holds
 struct GroupThen {
     stamps: Vec<Option<u64>>,
     selects: u64,
+    /// For a CalcFields (`Ends::Sources`), the commits of a Truncate of its row's table: no cell measures one.
+    truncates: u64,
 }
 
 #[derive(Clone)]
@@ -256,6 +276,19 @@ enum Shape {
     CalcSums,
     /// CalcFields: of a temporary record too, descending too.
     CalcFields,
+}
+
+/// The tables whose commits end a group entry ([`Session::cached_group`]).
+#[derive(Clone, Copy)]
+enum Ends<'a> {
+    /// The read's own table and these: a group read and its FlowField filters' tables (:823, :1907, :3465, :4259), a CalcSums.
+    TableAnd(&'a [Arc<TableDef>]),
+    /// Only these, the tables a CalcFields' formulas read (:6231, :6261): its entry holds through a commit of its row's table,
+    /// of an insert of another row or a change of the row, of a temporary record too (BgTaskCacheEdges.al:428-:446, open corpus
+    /// PR 1558), of a ModifyAll (:639), a DeleteAll (:645) or a Delete of another row (:651), after the test session's
+    /// CalcFields first (:657), and for FieldRef.CalcField of a database RecordRef (:681). A commit of a Truncate of it is not
+    /// measured (`GroupThen::truncates`).
+    Sources(&'a [Arc<TableDef>]),
 }
 
 /// Whether `rec` is temporary: declared so, or over a temporary table.
@@ -618,6 +651,39 @@ impl Session {
         }
     }
 
+    /// `SelectLatestVersion(Table)` with the argument `arg`, which the compiler takes for the Integer also as a Char, a Byte, an
+    /// Option or an Enum (the Enum with warning AL0603), each reaching here as itself. An Integer or an Enum that names a table
+    /// ends that table's entries and no other table's (another table's number changes nothing, BgTaskQueryCache.al:6744; an
+    /// Enum whose value is the cached table's id ends its row entry, BgTaskCacheEdges.al:452, open corpus PR 1558); one that
+    /// names no table ends none (a Char, a Byte, an Option and an Enum of value 0, :687-:705). A Char, a Byte or an Option
+    /// that names a table is refused in a worker: no cell measures one.
+    pub(crate) fn note_select_latest_version_of(&mut self, arg: Option<&Value>) -> Result<(), Signal> {
+        let (n, measured) = match arg {
+            Some(Value::Integer(n)) => (i64::from(*n), true),
+            Some(Value::Enum(_, n)) => (i64::from(*n), true),
+            Some(Value::Option(n, _)) => (i64::from(*n), false),
+            Some(Value::Char(n)) => (i64::from(*n), false),
+            Some(Value::Byte(n)) => (i64::from(*n), false),
+            _ => return Ok(()),
+        };
+        let Some(t) = self.table_object(n) else {
+            return Ok(());
+        };
+        let noted = self.in_worker() && self.query_cache_on();
+        if noted && matches!(arg, Some(Value::Enum(..))) {
+            // Runs through the entry until the open probe is pinned.
+            assume(Assumption::BackgroundTaskQueryCache);
+        }
+        if !measured && noted {
+            return unsupported(
+                "SelectLatestVersion(Table) in a page background task with a Char, a Byte or an Option that names a table \
+                 (not measured)",
+            );
+        }
+        self.note_select_latest_version(Some(t as u32));
+        Ok(())
+    }
+
     fn selects_of(&self, table: u32) -> u64 {
         let cache = &self.pages.query_cache;
         cache.selects_all + cache.selects.get(&table).copied().unwrap_or(0)
@@ -773,7 +839,8 @@ impl Session {
     }
 
     /// The tables the FlowFields `rec` filters on read (`flow_field_find` keys a read with them), once each, by object id: two
-    /// reads with the same key get their commit stamps in the same order, whatever order their filters were set in.
+    /// reads with the same key get their commit stamps in the same order, whatever order their filters were set in, as BC
+    /// shares the entry (BgTaskCacheEdges.al:458, :464, open corpus PR 1558).
     fn flow_field_sources(&self, rec: &Rec, t: &TableDef) -> Vec<Arc<TableDef>> {
         let Some(schema) = self.engine.program.objects[t.object as usize].table.as_ref() else {
             return Vec::new();
@@ -866,11 +933,13 @@ impl Session {
             return Ok(fresh);
         }
         let sources = self.flow_field_sources(rec, t);
-        Ok(match self.cached_group(rec, cx, t, values, &sources, answer)? {
-            GroupAnswer::Count(n) => n,
-            GroupAnswer::Empty(empty) if empty != (fresh == 0) => usize::from(!empty),
-            _ => fresh,
-        })
+        Ok(
+            match self.cached_group(rec, cx, t, values, Ends::TableAnd(&sources), answer)? {
+                GroupAnswer::Count(n) => n,
+                GroupAnswer::Empty(empty) if empty != (fresh == 0) => usize::from(!empty),
+                _ => fresh,
+            },
+        )
     }
 
     /// What a `FindFirst` or `FindLast` of `rec` that found `fresh` answers: through the cache as a row or a group read, when
@@ -909,7 +978,14 @@ impl Session {
             return Ok(fresh);
         };
         let sources = self.flow_field_sources(rec, t);
-        match self.cached_group(rec, cx, t, values, &sources, GroupAnswer::Row(fresh.clone()))? {
+        match self.cached_group(
+            rec,
+            cx,
+            t,
+            values,
+            Ends::TableAnd(&sources),
+            GroupAnswer::Row(fresh.clone()),
+        )? {
             GroupAnswer::Row(row) => {
                 let at = row
                     .as_ref()
@@ -946,7 +1022,14 @@ impl Session {
             return Ok(fresh);
         }
         values.extend(positions.iter().map(|&p| Value::Integer(p as i32)));
-        match self.cached_group(rec, cx, t, values, &[], GroupAnswer::Values(fresh.clone()))? {
+        match self.cached_group(
+            rec,
+            cx,
+            t,
+            values,
+            Ends::TableAnd(&[]),
+            GroupAnswer::Values(fresh.clone()),
+        )? {
             GroupAnswer::Values(v) => Ok(v),
             _ => Ok(fresh),
         }
@@ -986,7 +1069,14 @@ impl Session {
             return Ok(fresh);
         }
         let cx = self.cx_for(rec, &t)?;
-        match self.cached_group(rec, &cx, &t, values, &sources, GroupAnswer::Values(fresh.clone()))? {
+        match self.cached_group(
+            rec,
+            &cx,
+            &t,
+            values,
+            Ends::Sources(&sources),
+            GroupAnswer::Values(fresh.clone()),
+        )? {
             GroupAnswer::Values(v) => Ok(v),
             _ => Ok(fresh),
         }
@@ -1130,8 +1220,9 @@ impl Session {
     }
 
     /// A group read of `rec` for `values` that the table answers with `fresh`: what the read answers. An entry holds while no
-    /// commit wrote the table (:823, :845, :1907, :1980), nor a table of `sources` (the tables its FlowField filters
-    /// read, :3465, :4259; the tables a calculation reads, :6231, :6261; a commit of another table keeps it). The test session's read fills it while that session has not written those tables since its last
+    /// commit wrote a table of `ends` (the table, :823, :845, :1907, :1980, and the tables its FlowField filters read, :3465,
+    /// :4259; for a CalcFields only the tables its formulas read, :6231, :6261; a commit of another table keeps it). The test
+    /// session's read fills it while that session has not written the read's table nor those tables since its last
     /// commit, in every shape `group_key` takes (:6498, :1866, :1886, :2337-:2367, :2751, :2770, :3482-:3514), and after it wrote
     /// the table reads the table (:1944, :2063).
     fn cached_group(
@@ -1140,46 +1231,68 @@ impl Session {
         cx: &AccessContext,
         t: &TableDef,
         values: Vec<Value>,
-        sources: &[Arc<TableDef>],
+        ends: Ends<'_>,
         fresh: GroupAnswer,
     ) -> Result<GroupAnswer, Signal> {
         let at = Self::at(rec, t, values);
         let selects = self.selects_of(t.object);
         let store = self.view_store(rec)?;
-        let stamps: Vec<Option<u64>> = std::iter::once(t)
+        let (own, sources) = match ends {
+            Ends::TableAnd(s) => (Some(t), s),
+            Ends::Sources(s) => (None, s),
+        };
+        let stamps: Vec<Option<u64>> = own
+            .into_iter()
             .chain(sources.iter().map(|s| &**s))
             .map(|table| store.committed_stamp(cx, table))
             .collect();
         let written = std::iter::once(t)
             .chain(sources.iter().map(|s| &**s))
             .any(|table| store.written_since_commit(cx, table));
-        let now = GroupThen { stamps, selects };
+        let truncates = match ends {
+            Ends::TableAnd(_) => 0,
+            Ends::Sources(_) => {
+                let bulk = &self.pages.query_cache.bulk_commits;
+                bulk.get(&(t.object, BulkWrite::Truncate)).copied().unwrap_or(0)
+            }
+        };
+        let now = GroupThen {
+            stamps,
+            selects,
+            truncates,
+        };
         let entry = self
             .pages
             .query_cache
             .groups
             .get(&at)
             .filter(|(then, _)| then.stamps == now.stamps)
-            .map(|(then, a)| (then.selects == now.selects, a.clone()));
+            .map(|(then, a)| (then.selects == now.selects, then.truncates == now.truncates, a.clone()));
         if !self.in_worker() {
             if written {
                 return Ok(fresh);
             }
-            if entry.as_ref().is_some_and(|(_, a)| !same_group(a, &fresh)) {
+            if entry.as_ref().is_some_and(|(_, _, a)| !same_group(a, &fresh)) {
                 return unsupported(TEST_READ_REFUSAL);
             }
             self.pages.query_cache.groups.insert(&at, (now, fresh.clone()));
             return Ok(fresh);
         }
         let answer = match entry {
-            Some((true, a)) => a,
-            Some((false, a)) if !same_group(&a, &fresh) => {
+            Some((true, true, a)) => a,
+            Some((false, _, a)) if !same_group(&a, &fresh) => {
                 return unsupported(
                     "a group read of a page background task after its SelectLatestVersion, which the query cache would answer \
                      otherwise than the table (not measured)",
                 );
             }
-            Some((false, _)) | None => fresh.clone(),
+            Some((_, false, a)) if !same_group(&a, &fresh) => {
+                return unsupported(
+                    "a CalcFields of a page background task after a commit of a Truncate of its row's table, which the query \
+                     cache would answer otherwise than the table (not measured)",
+                );
+            }
+            Some(_) | None => fresh.clone(),
         };
         self.pages.query_cache.groups.insert(&at, (now, answer.clone()));
         // A FindFirst or FindLast is flagged by `answered`.

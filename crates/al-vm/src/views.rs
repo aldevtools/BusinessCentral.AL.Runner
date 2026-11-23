@@ -5,6 +5,13 @@
 //! grammar through the strings it feeds to `SetView`
 //! (`'SORTING(Entry No.) WHERE(Entry No.=FILTER(1..3))'`:
 //! recordref-fieldref/recordref/TestRecordRefFilter.al:23). Anything else is refused.
+//!
+//! Filter and view text: SetView, GetFilters, filter group text, AL property views (`property_view`),
+//! the one reader of a view's parts (`view_parts`, `view_clauses`: which of SORTING, ORDER, WHERE a
+//! view has). Entry points: `parse_filter_text`, `filter_text`, `get_filters`, `property_view`,
+//! `view_clauses`. `get_filters_order`: the order of a FlowField filter and a FlowFilter filter in
+//! GetFilters, RecordRef.GetFilters and a Find error text (the one shape
+//! record/filters/ByValueRecordView.al:575-582 pins; every shape outside it refuses).
 
 use crate::Session;
 use al_builtins::describe::Describe;
@@ -17,7 +24,7 @@ use std::rc::Rc;
 
 type Rec = Rc<RefCell<RecordState>>;
 
-/// `filter::parse_filter_with`, `filter::parse_filter_at_sign_measured` or `filter::parse_filter_both_at_signs_measured`.
+/// `filter::parse_filter_with` or `filter::parse_filter_both_at_signs_measured`.
 type ParseFilter =
     fn(&str, &[Value], &RtType, &dyn Fn(u32) -> Result<Vec<(i32, String)>, String>) -> Result<FilterExpr, String>;
 
@@ -44,15 +51,6 @@ impl Session {
     /// A filter expression over a field of type `ty`, enum members by name included.
     pub(crate) fn parse_filter_text(&self, text: &str, ty: &al_builtins::value::RtType) -> Result<FilterExpr, String> {
         self.parse_filter_text_by(al_builtins::filter::parse_filter_with, text, ty)
-    }
-
-    /// [`Self::parse_filter_text`] where the cells measure `@` alone on a Code field (`filter::parse_filter_at_sign_measured`).
-    pub(crate) fn parse_filter_text_at_sign_measured(
-        &self,
-        text: &str,
-        ty: &al_builtins::value::RtType,
-    ) -> Result<FilterExpr, String> {
-        self.parse_filter_text_by(al_builtins::filter::parse_filter_at_sign_measured, text, ty)
     }
 
     /// [`Self::parse_filter_text`] where the cells measure `@` alone and `<>@` alone on a Code field

@@ -3,6 +3,13 @@
 //! two namespaces of two apps; one app may not declare it twice, AL0197), the subscriber's file decides, by the shapes
 //! events/subscriber-namespace/ pins (SnUsingTests.al:28-55 a `using` and the qualified names, SnOwnNamespaceTests.al:25-53 the
 //! file's own namespace, SnOwnOverUsingTests.al:26-54 the own namespace over a `using`); every other shape names none of them.
+//!
+//! the object an `[EventSubscriber]` names as its publisher, resolved in the subscriber's file (al-
+//! runner issue 8171): one visible object of the name, or among several the twin a qualified name,
+//! the file's own namespace or exactly one `using` names (events/subscriber-namespace/), else none
+//! (`ir::PublisherRef`, which lowering puts on `ir::Attribute::publisher` and al-vm `events.rs` binds
+//! by); `scanned_subscriber_publishers` fills the index of `subscribers_of` from it. Entry points:
+//! `subscriber_publisher`, `pick_twin`.
 
 use super::{ObjKind, Workspace, eq_ns};
 use al_ir::PublisherRef;

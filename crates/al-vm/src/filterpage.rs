@@ -2,11 +2,13 @@
 //! Everything up to `RunModal` is an object-graph operation (corpus
 //! pages/filterpagebuilder/TestFilterPageBuilder.al); `RunModal` goes to a bound `[FilterPageHandler]`
 //! (`Session::ui_filter_page`).
+//!
+//! Entry points: `filter_page_builder_op`.
 
 use crate::Session;
 use al_builtins::builtin_id::ids;
 use al_builtins::describe::Describe;
-use al_builtins::filter::{FieldFilter, FilterExpr};
+use al_builtins::filter::FieldFilter;
 use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::value::{FilterControl, FilterPageState, LibraryValue, RtType, Value};
@@ -293,15 +295,12 @@ impl Session {
                 }
                 let t = self.table(&control.record)?;
                 self.set_view(&control.record, &t, &view)?;
-                // No cell measures `@` alone on a Code field in a filter page's view (al-builtins `filter_at_sign`).
-                if control
-                    .record
-                    .borrow()
-                    .filters
-                    .iter()
-                    .any(|f| matches!(f.expr, FilterExpr::AtSignAloneCode(_)))
-                {
-                    return unsupported("FilterPageBuilder.SetView with `@` alone on a Code field (not measured)");
+                // No cell measures `@` alone or `<>@` alone on a Code field in a filter page's view (al-builtins `filter_at_sign`).
+                let named = al_builtins::filter::code_at_sign_alone_named(&control.record.borrow().filters);
+                if let Some(named) = named {
+                    return unsupported(format!(
+                        "FilterPageBuilder.SetView with {named} on a Code field (not measured)"
+                    ));
                 }
                 Ok(Value::Boolean(true))
             }

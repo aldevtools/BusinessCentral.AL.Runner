@@ -1,4 +1,8 @@
 //! The quotient `/` of two numbers: one rule for a Decimal, an Integer, a BigInteger and a Duration's milliseconds.
+//!
+//! The one quotient rule of `/` (18 significant digits, normalized) for a Decimal, an Integer, a
+//! BigInteger and a Duration; a quotient that depends on whether a 19-digit BigInteger or Duration is
+//! first kept to 18 digits refuses (issues 8349, 8423). Entry points: `whole_quotient`.
 
 use super::keep_18_digits;
 use crate::describe::Describe;

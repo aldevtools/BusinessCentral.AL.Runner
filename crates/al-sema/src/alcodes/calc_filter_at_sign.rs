@@ -4,6 +4,11 @@
 //! (record/filters/AtSignAloneReads.al:579, :752). Blanks anywhere in the unquoted forms change nothing (cases 3807 and 3808).
 //! Only `@` alone and `<>@` alone are measured; other unquoted texts with `@`
 //! and table extension fields are left alone (the lowering refuses an unquoted `@` alone or `<>@` alone wherever it is).
+//!
+//! AL0870 and AL0224 for a table FlowField whose CalcFormula filters by an unquoted `filter(@)`,
+//! AL0726, AL0104 and AL0870 for an unquoted `filter(<>@)` (cases 3805 and 3806 on corpus PR 1495; blanks in them change
+//! nothing, cases 3807 and 3808);
+//! `unquoted_at_sign` also makes the lowering refuse both on any other object. Entry points: `check`.
 
 use super::{offset_of, push};
 use crate::calcformula::{CondValue, parse};

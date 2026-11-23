@@ -3,6 +3,8 @@
 //! A case that one version has and another lacks is a difference to look at: in the
 //! oracle it is drift between corpus legs, in the runtime it is a behaviour that
 //! needs a version gate or is already gated.
+//!
+//! Entry points: `differences`, `common`, `restrict`, `table`.
 
 use crate::oracle::CaseId;
 use std::collections::BTreeSet;

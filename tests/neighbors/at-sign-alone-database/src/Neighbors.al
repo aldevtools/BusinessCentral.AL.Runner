@@ -131,9 +131,8 @@ codeunit 97534 "BQ At Neighbor Tests"
     end;
 }
 
-// Neighbors of <>@ alone on a Code field past the cells (AtSignAloneReads.al:698, :730, :752, :792 measure Record.SetFilter,
-// FieldRef.SetFilter, SetView, RecordRef.SetView and a CalcFormula's filter('<>@')): a query's SetFilter and DataItemTableFilter
-// and a FlowFilter that CalcFields applies, which no cell measures and the runner refuses as main does.
+// Neighbors of <>@ alone on a Code field: a query's SetFilter and DataItemTableFilter and a FlowFilter that CalcFields applies
+// through field(), which the cells measure (AtSignAloneReads.al:861, :871, :928) and the runner runs under the assumption.
 query 97563 "BQ Kind Code Not At"
 {
     QueryType = Normal;

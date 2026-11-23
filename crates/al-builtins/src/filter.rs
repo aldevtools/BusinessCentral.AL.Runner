@@ -1,4 +1,6 @@
 //! Record filters as data (shared by the VM and the store).
+//!
+//! Entry points: `FilterExpr`, `parse_filter`, `parse_filter_with`, `FieldFilter`.
 
 use crate::describe::Describe;
 use crate::native::Signal;
@@ -1945,7 +1947,9 @@ pub fn all_match(filters: &[FieldFilter], row: &[Value]) -> Result<bool, Signal>
 }
 
 pub use crate::filter_at_sign::{
-    AtSignRows, at_sign_alone_read, parse_filter_at_sign_measured, parse_filter_both_at_signs_measured,
+    AtSignRows, OtherSourceAtSign, at_sign_alone_read, calc_formula_at_sign_measured,
+    calc_formula_at_sign_other_source, code_at_sign_alone_named, parse_filter_at_sign_measured,
+    parse_filter_both_at_signs_measured, shows_member_names,
 };
 pub use crate::filter_collation::{all_match_on, row_passes_collation};
 

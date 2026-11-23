@@ -11,6 +11,13 @@
 //! or of the part's page (:468 :484 :545 :611 :705; testpage/TestPageRuntimeContracts.al:274-275 the code).
 //! On the other page kinds the cells measure an id no control has, a Worksheet's action ids and a field's Value by its own id
 //! (al-runner issue 8887, :1631-:2695; `get_field_kind`, `get_field_missing`).
+//!
+//! `TestPage.GetField(Id)` / `TestPart.GetField(Id)` by the compiler's control id
+//! (`pages::control_id`; al-runner issues 8832 and 8887, assumption `testpage-getfield-control-id`): the page's
+//! own field control (a hidden one is not found), or an empty field for a part, a cuegroup, a fixed
+//! or a grid, on the page kinds the cells open (`get_field_kind`); any other id is not found where
+//! the cells measure it (`get_field_missing`). Entries: `get_field_by_id`, `by_id_call` (the calls on
+//! what it found, by `pageops.rs`).
 
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};

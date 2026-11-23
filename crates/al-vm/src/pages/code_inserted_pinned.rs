@@ -8,6 +8,17 @@
 //! table, its three FactBox parts, the tables they read and the codeunits they call (`coded_code`, review of al-runner PR 8463,
 //! round 1); or the reporter's repro's, under an assumption of its own (`CodedObjects::Repro`). Any other page keeps main's way:
 //! it is not refused (partner tests open such pages and pass on main).
+//!
+//! The code the SaveRecord and Update(true) cells of `code_inserted_new_line.rs` run, line for line
+//! (`pinned_body.rs`): the pages, table, FactBox part and log procedures of
+//! pages/currpage/ListNewLineSaveRecordUpdate.al (pinned), and the reporter's repro of al-runner
+//! issue 8285 (assumption `list-new-line-save-record-repro`, corpus pull request 1481). Entry points:
+//! `code_inserted_code` (by `code_inserted_cell`); any other code refuses the cell. Also the page
+//! with code of al-runner issue 8434: pages 97492/97493 of ListNewLineFactboxesCode.al, or the
+//! reporter's repro's page 97383 of ListNewLineFactboxesRepro.al (assumption `list-new-line-coded-
+//! factboxes-repro`, corpus pull request 1517), with their table, parts, the tables they read and the
+//! codeunits they call (`CODED_SETS`; `coded_code`, by `coded_page`); any other code keeps main's
+//! way.
 
 use super::pinned_body::{
     Callees, Names, callees_are, object_code_reads_as, page_is, page_reads_as, table_is, table_reads_as,

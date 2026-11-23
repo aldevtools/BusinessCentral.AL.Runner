@@ -1,0 +1,3 @@
+{ "id": "8d1a2b3c-0000-4000-8000-000000068056", "name": "Order Probe T", "publisher": "Order Probe Co", "version": "1.0.0.0",
+  "platform": "27.0.0.0", "runtime": "15.0", "idRanges": [ { "from": 50930, "to": 50939 } ],
+  "dependencies": [ { "id": "8d1a2b3c-0000-4000-8000-000000028056", "name": "Order Probe A", "publisher": "Order Probe Co", "version": "1.0.0.0" }, { "id": "8d1a2b3c-0000-4000-8000-000000038056", "name": "Order Probe A2", "publisher": "Order Probe Co", "version": "1.0.0.0" }, { "id": "8d1a2b3c-0000-4000-8000-000000048056", "name": "Order Probe B", "publisher": "Order Probe Co", "version": "1.0.0.0" }, { "id": "8d1a2b3c-0000-4000-8000-000000058056", "name": "Order Probe B2", "publisher": "Order Probe Co", "version": "1.0.0.0" } ] }

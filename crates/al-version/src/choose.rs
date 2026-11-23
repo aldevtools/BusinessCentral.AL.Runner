@@ -1,6 +1,8 @@
 //! How the target of a run is chosen (ADR-015 3.2, 3.8).
 //!
 //! Pure: callers read `--bc-version` and app.json and pass the values in.
+//!
+//! Entry points: `AppVersions`, `TargetError`, `Chosen`, `choose_target`.
 
 use crate::{BcVersion, MIN_BC_MAJOR, Runtime, Target, VersionError};
 use std::fmt;

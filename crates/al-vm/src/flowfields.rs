@@ -5,11 +5,16 @@
 //! refused with `Signal::Unsupported`; the open questions are listed in
 //! docs/probes-needed.md. Aggregates are computed over the store's scan API
 //! (ADR-003): a FlowField reads the persistent table, one row at a time.
+//!
+//! A FlowField's value: `calc_value` (recursion guard by table and field, `CalcStack`), the rows from
+//! the store (`tally_stored`) or through the condition FlowFields of source rows
+//! (`tally_source_rows`), then one `aggregate` and `finish_value` (the pinned value exceptions).
 
 use crate::Session;
 use al_builtins::describe::Describe;
 use al_builtins::filter::{
-    FieldFilter, FilterExpr, parse_filter_at_sign_measured, parse_filter_both_at_signs_measured,
+    FieldFilter, FilterExpr, OtherSourceAtSign, calc_formula_at_sign_other_source, parse_filter_at_sign_measured,
+    parse_filter_both_at_signs_measured,
 };
 use al_builtins::native::{AlError, Signal, text_of, unsupported};
 use al_builtins::ops;
@@ -1030,19 +1035,14 @@ impl Session {
             };
             parsed.map_err(|e| Signal::unsupported(format!("CalcFormula filter: {e}")))
         };
-        // The flow filter the caller set on field `q`, if any. No cell measures a FlowFilter's `<>@` alone on a Code field.
+        // The flow filter the caller set on field `q`, if any. `@` alone and `<>@` alone in it are measured through field() and
+        // through field(filter()) (BgTaskQueryCache.al:5753, :5767; AtSignAloneReads.al:598, :904, :928).
         let flow = |q: usize| {
             rec.borrow()
                 .filters
                 .iter()
                 .find(|x| x.field == q)
                 .map(|x| x.expr.clone())
-        };
-        let measured_flow = |e: &FilterExpr| match e {
-            FilterExpr::AtSignAloneCode(true) => {
-                unsupported("a FlowFilter of `<>@` alone on a Code field (not measured)")
-            }
-            _ => Ok(()),
         };
         // (source field, filter, replaces other conditions on that field)
         let mut parts: Vec<(usize, FilterExpr, bool)> = Vec::new();
@@ -1052,7 +1052,24 @@ impl Session {
                 ir::CalcValue::Const(k) => {
                     parts.push((c.field, FilterExpr::Eq(ops::convert(crate::constant(k), sty)?), false));
                 }
-                ir::CalcValue::Filter(text) => parts.push((c.field, parse(text, sty, true)?, false)),
+                ir::CalcValue::Filter(text) => {
+                    // `filter('@')` or `filter('<>@')` over a Date, Integer, Decimal, Boolean or name-showing Option source field
+                    // answers as BC does (al-builtins `filter_at_sign::calc_formula_at_sign_other_source`); the lowering admits
+                    // it only in a sum.
+                    let names_shown = al_builtins::filter::shows_member_names(&src[c.field].properties);
+                    let language = self.global_language();
+                    match calc_formula_at_sign_other_source(text, sty, names_shown, language) {
+                        Some(Err(refusal)) => return unsupported(refusal),
+                        Some(Ok(OtherSourceAtSign::Rows(true))) => {}
+                        Some(Ok(OtherSourceAtSign::Rows(false))) => {
+                            parts.push((c.field, FilterExpr::Or(Vec::new()), false))
+                        }
+                        Some(Ok(OtherSourceAtSign::Error { message, code })) => {
+                            return Err(crate::transactions::al_error_code(&message, code));
+                        }
+                        None => parts.push((c.field, parse(text, sty, true)?, false)),
+                    }
+                }
                 ir::CalcValue::Field(q) => {
                     let pf = &own[*q];
                     if pf.flow_filter {
@@ -1062,7 +1079,6 @@ impl Session {
                             if !same_kind(&pf.ty, sty) {
                                 return unsupported("a flow filter of another type than the source field");
                             }
-                            measured_flow(&e)?;
                             parts.push((c.field, e, false));
                         }
                     } else if !pf.stored {
@@ -1152,7 +1168,6 @@ impl Session {
                                     "field(filter()) of a FlowFilter beside another condition on the same field (not pinned)",
                                 );
                             }
-                            measured_flow(&e)?;
                             parts.push((c.field, e, false));
                         }
                         (other, Some(_)) => {
