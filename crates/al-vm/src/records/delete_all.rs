@@ -64,7 +64,7 @@ impl Session {
         cx: &al_data::AccessContext,
         run: bool,
     ) -> Result<Value, Signal> {
-        let (filters, flow_field_filters) = self.split_filters(rec);
+        let (filters, flow_field_filters) = self.split_filters(rec)?;
         if !flow_field_filters.is_empty() {
             return self.delete_all_flow_filtered(t, rec, run);
         }

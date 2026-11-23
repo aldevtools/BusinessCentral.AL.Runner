@@ -411,14 +411,20 @@ impl Session {
             self.check_calc_field(table, p)?;
         }
         self.load_blobs(rec, &blobs)?;
-        let mut out = Vec::new();
+        let mut fresh = Vec::new();
         for &p in positions {
-            out.push((p, self.calc_value_in(rec, p, &mut Vec::new(), asked)?));
+            fresh.push(self.calc_value_in(rec, p, &mut Vec::new(), asked)?);
         }
+        // A page background task's repeated CalcFields answers its first answer (query_cache.rs).
+        let out = if blobs.is_empty() {
+            self.cached_calc_fields(rec, positions, fresh)?
+        } else {
+            fresh
+        };
         // A FlowField on a temporary record reads the persistent source table (corpus
         // record/TestCalcFieldsTruncateUniqueContracts.al:CalcFields_OnATemporaryRecord_ReadsThePersistentSourceTable).
         let mut r = rec.borrow_mut();
-        for (p, v) in out {
+        for (&p, v) in positions.iter().zip(out) {
             r.fields[p] = v;
         }
         Ok(())
@@ -1263,7 +1269,7 @@ impl Session {
                 ));
             }
         }
-        let (filters, flow_field_filters) = self.split_filters(rec);
+        let (filters, flow_field_filters) = self.split_filters(rec)?;
         let mut sums = vec![Decimal::ZERO; positions.len()];
         let cx = self.cx_for(rec, &t)?;
         let mut add = |row: &[Value]| -> Result<(), Signal> {
@@ -1289,13 +1295,15 @@ impl Session {
                 }
             }
         }
-        // The sums land in the record's fields only once all are known.
-        let mut out = Vec::new();
+        // The sums land in the record's fields only once all are known; a page background task's repeated CalcSums answers its
+        // first answer (query_cache.rs).
+        let mut fresh = Vec::new();
         for (s, &p) in sums.into_iter().zip(positions) {
-            out.push((p, to_number(s, &fields[p].ty, false)?));
+            fresh.push(to_number(s, &fields[p].ty, false)?);
         }
+        let out = self.cached_calc_sums(rec, &cx, &t, positions, fresh)?;
         let mut r = rec.borrow_mut();
-        for (p, v) in out {
+        for (&p, v) in positions.iter().zip(out) {
             r.fields[p] = v;
         }
         Ok(())
@@ -1305,7 +1313,17 @@ impl Session {
     /// fields) and those on FlowFields. Filters on FlowFilter fields are
     /// dropped: they hold no data and never constrain their own table (corpus
     /// record/TestCalcFormulaFlowFiltersTests.Codeunit.al:258).
-    pub(crate) fn split_filters(&self, rec: &Rec) -> (Vec<FieldFilter>, Vec<FieldFilter>) {
+    pub(crate) fn split_filters(&self, rec: &Rec) -> Result<(Vec<FieldFilter>, Vec<FieldFilter>), Signal> {
+        self.split_filters_read(rec, false)
+    }
+
+    /// [`Self::split_filters`] for a read that is a `Count()` AL code called on the Record variable (`count_by_al`): the one
+    /// read that compares a filter value a Decimal column cuts (`decimal_column::read_filters`).
+    pub(crate) fn split_filters_read(
+        &self,
+        rec: &Rec,
+        count_by_al: bool,
+    ) -> Result<(Vec<FieldFilter>, Vec<FieldFilter>), Signal> {
         let r = rec.borrow();
         let fields = &self.engine.program.objects[r.table as usize]
             .table
@@ -1329,9 +1347,10 @@ impl Session {
                 self.engine.program.objects[r.table as usize].table.as_ref(),
             ) {
                 crate::sqltime::round_filters(t, schema, &mut stored);
+                crate::decimal_column::read_filters(t, schema, &mut stored, &r.decimal_cut_filters, count_by_al)?;
             }
         }
-        (stored, flow_fields)
+        Ok((stored, flow_fields))
     }
 
     /// Whether a row passes the filters set on FlowFields: each is checked
