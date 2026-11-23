@@ -16,6 +16,7 @@ use crate::install::InstallView;
 use crate::install_proof::{Footprints, Graph};
 use al_sema::lower::Lowered;
 use al_vm::Session;
+use al_vm::install_footprint::InstallFootprint;
 use std::collections::BTreeSet;
 
 /// The most partner apps of one tangle whose every order the runner tries (3! = 6 orders). Beyond it, it refuses as
@@ -120,7 +121,9 @@ impl PartnerGroup<'_> {
             inst.install(session, app);
             // The install session ends; the safety net of the footprint compares committed rows.
             session.commit_transaction();
-            let mut f = session.install_footprint_take().unwrap_or_default();
+            let mut f = session.install_footprint_take().unwrap_or_else(|| {
+                InstallFootprint::touching_everything("no footprint was recorded for the install session")
+            });
             for (_, other) in session.take_order_unknown_hits() {
                 if self.group.contains(&other) {
                     f.apps_met.insert(other);

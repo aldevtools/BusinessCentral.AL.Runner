@@ -331,3 +331,16 @@ fn an_impact_trace_that_was_on_keeps_running_and_the_session_is_recorded_all_the
         "the insert of the recorded session: {outer:?}"
     );
 }
+
+/// A store that lost its recorder while the install ran (a store put in place of the recorded one) leaves no record of
+/// its rows: that counts as touching everything, never as an empty footprint.
+#[test]
+fn a_store_whose_record_was_lost_touches_everything() {
+    let l = al_testkit::compile(SRC);
+    let engine = Engine::new(l.program.clone(), al_testkit::blocked(&l));
+    let mut s = Session::new(engine);
+    s.install_footprint_start();
+    let _ = s.store.footprint_take();
+    let fp = s.install_footprint_take().unwrap();
+    assert!(fp.touches_everything(), "{fp:?}");
+}

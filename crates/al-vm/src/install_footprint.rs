@@ -92,6 +92,15 @@ pub struct InstallFootprint {
 }
 
 impl InstallFootprint {
+    /// A footprint that touches everything, for `why`: what an install session whose footprint was not recorded
+    /// counts as.
+    pub fn touching_everything(why: &str) -> InstallFootprint {
+        InstallFootprint {
+            everything: BTreeSet::from([why.to_string()]),
+            ..Default::default()
+        }
+    }
+
     pub fn touches_everything(&self) -> bool {
         !self.everything.is_empty()
     }
@@ -346,8 +355,12 @@ impl crate::Session {
         self.coverage.footprint_on = false;
         let rec = self.coverage.install_footprint.borrow_mut().take()?;
         let mut fp = rec.fp;
-        if let Some(s) = self.store.footprint_take() {
-            fp.add_store(s, &self.engine);
+        match self.store.footprint_take() {
+            Some(s) => fp.add_store(s, &self.engine),
+            None => {
+                fp.everything
+                    .insert("the store's record of the install session was lost".into());
+            }
         }
         self.footprint_check(&rec.before, &mut fp);
         let t = self.take_impact_trace();
