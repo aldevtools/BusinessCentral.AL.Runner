@@ -144,7 +144,11 @@ fn is_break(c: char) -> bool {
 
 /// The UTF-16 units of `s`; only counted past `KEY_UNITS / 2` characters.
 fn units(s: &[char]) -> usize {
-    if s.len() <= KEY_UNITS / 2 { s.len() } else { s.iter().map(|c| c.len_utf16()).sum() }
+    if s.len() <= KEY_UNITS / 2 {
+        s.len()
+    } else {
+        s.iter().map(|c| c.len_utf16()).sum()
+    }
 }
 
 fn is_blank(c: char) -> bool {
@@ -292,7 +296,10 @@ impl Scanner {
             return Ok(());
         }
         let first_node = self.toks.iter().all(|t| {
-            matches!(t, Tok::StreamStart | Tok::Version(_) | Tok::TagDirective(..) | Tok::DocStart)
+            matches!(
+                t,
+                Tok::StreamStart | Tok::Version(_) | Tok::TagDirective(..) | Tok::DocStart
+            )
         });
         let after_value = self.col > 0 && self.toks.last() == Some(&Tok::Value);
         if self.flow > 0 || first_node || after_value {
@@ -308,6 +315,7 @@ impl Scanner {
     }
 
     fn stale_keys(&mut self) -> Res<()> {
+        let colon_next = self.at(0) == ':';
         for k in self.keys.iter_mut() {
             if let Some(sk) = *k {
                 // In block context a key longer than `KEY_UNITS` goes stale: a required one is the YAML error, a `:`
@@ -316,6 +324,17 @@ impl Scanner {
                 let long = sk.line == self.line && self.flow == 0 && units(&self.s[sk.pos..self.i]) > KEY_UNITS;
                 if long {
                     self.marked = true;
+                    // The long keys measured before their `:` start with a letter, a non-ASCII character or a quote
+                    // (`plain-*`, `single-*`, `double-*`, `emoji-key-*`, `auml-key-*`); a key of a flow collection, an
+                    // anchor, a tag or an alias is not measured that long. A long flow mapping with no `:` after it
+                    // reads (`flow-1025`).
+                    let c = self.s[sk.pos];
+                    let measured = c.is_alphanumeric() || u32::from(c) > 0x7F || matches!(c, '\'' | '"');
+                    if colon_next && !measured {
+                        return Err(Fail::Refuse(
+                            "ReadFromYaml of a key longer than 1024 UTF-16 units that starts with a flow collection, an anchor, a tag or an alias (not measured)",
+                        ));
+                    }
                 }
                 if sk.line < self.line || long {
                     if sk.required {

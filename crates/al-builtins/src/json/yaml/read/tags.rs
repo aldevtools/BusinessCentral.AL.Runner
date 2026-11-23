@@ -19,7 +19,9 @@ pub(super) fn unescape(uri: &str) -> Res<String> {
     let mut i = 0;
     while i < b.len() {
         if b[i] == b'%' {
-            let hex = uri.get(i + 1..i + 3).filter(|h| h.bytes().all(|c| c.is_ascii_hexdigit()));
+            let hex = uri
+                .get(i + 1..i + 3)
+                .filter(|h| h.bytes().all(|c| c.is_ascii_hexdigit()));
             let byte = hex.and_then(|h| u8::from_str_radix(h, 16).ok()).ok_or(Fail::Bad)?;
             out.push(byte);
             i += 3;
@@ -126,7 +128,11 @@ pub(super) fn scalar(kind: Kind, v: &str, style: Style, version: Version) -> Res
             Kind::Local if v.is_empty() => return Err(Fail::Bad),
             _ => false,
         };
-        return if measured_null { Ok(Typed::Null) } else { Err(Fail::Refuse(UNMEASURED)) };
+        return if measured_null {
+            Ok(Typed::Null)
+        } else {
+            Err(Fail::Refuse(UNMEASURED))
+        };
     }
     if style == Style::Block && kind != Kind::Str {
         return Err(Fail::Refuse(UNMEASURED));
@@ -188,7 +194,9 @@ fn int(v: &str) -> Res<i64> {
         }
         if body.contains('_') {
             let groups: Vec<&str> = body.split('_').collect();
-            let digit_groups = groups.iter().all(|g| !g.is_empty() && g.bytes().all(|c| c.is_ascii_digit()));
+            let digit_groups = groups
+                .iter()
+                .all(|g| !g.is_empty() && g.bytes().all(|c| c.is_ascii_digit()));
             if !digit_groups {
                 return refuse();
             }
@@ -216,11 +224,18 @@ fn int(v: &str) -> Res<i64> {
 fn int11(v: &str) -> Res<i64> {
     let body = v.strip_prefix('+').unwrap_or(v);
     if body.len() > 1 && body.starts_with('0') && body.bytes().all(|c| matches!(c, b'0'..=b'7')) {
-        return i64::from_str_radix(body, 8).ok().filter(|n| *n <= 2_147_483_647).ok_or(Fail::Refuse(UNMEASURED));
+        return i64::from_str_radix(body, 8)
+            .ok()
+            .filter(|n| *n <= 2_147_483_647)
+            .ok_or(Fail::Refuse(UNMEASURED));
     }
     let measured = (body.starts_with("0x") && body.len() > 2 && body[2..].bytes().all(|c| c.is_ascii_hexdigit()))
         || (!body.starts_with('0') && !body.is_empty() && body.bytes().all(|c| c.is_ascii_digit()));
-    if measured && !v.starts_with('-') { int(v) } else { Err(Fail::Refuse(UNMEASURED)) }
+    if measured && !v.starts_with('-') {
+        int(v)
+    } else {
+        Err(Fail::Refuse(UNMEASURED))
+    }
 }
 
 /// `!!float`: a decimal number with `.`, an exponent or `_` (`Float1_*`-`Float3_*`), `.inf` and `.nan` in the measured
@@ -237,19 +252,35 @@ fn float(v: &str) -> Res<f64> {
         return Ok(if neg { f64::NEG_INFINITY } else { f64::INFINITY });
     }
     if matches!(body, ".nan" | ".NaN" | ".NAN") {
-        return if body.len() == v.len() { Ok(f64::NAN) } else { Err(Fail::Refuse(UNMEASURED)) };
+        return if body.len() == v.len() {
+            Ok(f64::NAN)
+        } else {
+            Err(Fail::Refuse(UNMEASURED))
+        };
     }
-    let number = body.bytes().all(|c| c.is_ascii_digit() || matches!(c, b'.' | b'e' | b'E' | b'+' | b'-' | b'_'))
+    let number = body
+        .bytes()
+        .all(|c| c.is_ascii_digit() || matches!(c, b'.' | b'e' | b'E' | b'+' | b'-' | b'_'))
         && body.bytes().any(|c| c.is_ascii_digit());
     if !number {
         return Err(Fail::Bad);
     }
-    if body.contains('_') && !(body.bytes().all(|c| c.is_ascii_digit() || c == b'_') && !body.starts_with('_') && !body.ends_with('_') && !body.contains("__")) {
+    if body.contains('_')
+        && !(body.bytes().all(|c| c.is_ascii_digit() || c == b'_')
+            && !body.starts_with('_')
+            && !body.ends_with('_')
+            && !body.contains("__"))
+    {
         return Err(Fail::Refuse(UNMEASURED));
     }
     let clean: String = body.chars().filter(|&c| c != '_').collect();
     let x: f64 = clean.parse().map_err(|_| Fail::Refuse(UNMEASURED))?;
-    let mantissa_zero = clean.split(['e', 'E']).next().unwrap_or("").bytes().all(|c| !matches!(c, b'1'..=b'9'));
+    let mantissa_zero = clean
+        .split(['e', 'E'])
+        .next()
+        .unwrap_or("")
+        .bytes()
+        .all(|c| !matches!(c, b'1'..=b'9'));
     if (x == 0.0 && !mantissa_zero) || (x.is_infinite() && neg) {
         return Err(Fail::Refuse(UNMEASURED));
     }
@@ -260,8 +291,16 @@ fn float(v: &str) -> Res<f64> {
 /// `Bool2_13`, `Bool2_14`); `1`, `0`, `t`, `f`, `1.0` and words are the YAML error (`Bool2_9`, `Bool2_10`, `Bool2_12`,
 /// `Bool3_1`-`Bool3_3`). Other mixed cases of the words are not measured.
 fn boolean(v: &str) -> Res<bool> {
-    const WORDS: [(&str, bool); 8] =
-        [("yes", true), ("no", false), ("on", true), ("off", false), ("y", true), ("n", false), ("true", true), ("false", false)];
+    const WORDS: [(&str, bool); 8] = [
+        ("yes", true),
+        ("no", false),
+        ("on", true),
+        ("off", false),
+        ("y", true),
+        ("n", false),
+        ("true", true),
+        ("false", false),
+    ];
     let lower = v.to_ascii_lowercase();
     let Some(&(_, b)) = WORDS.iter().find(|(w, _)| *w == lower) else {
         return Err(Fail::Bad);
@@ -319,12 +358,18 @@ pub(super) fn float_json(x: f64) -> Res<super::Yaml> {
         return Ok(Yaml::Raw(if t.contains('.') { t } else { format!("{t}.0") }));
     }
     if e <= -5 || e >= 17 {
-        let m = if d.len() > 1 { format!("{}.{}", &d[..1], &d[1..]) } else { d };
+        let m = if d.len() > 1 {
+            format!("{}.{}", &d[..1], &d[1..])
+        } else {
+            d
+        };
         let es = if e < 0 { '-' } else { '+' };
         return Ok(Yaml::Raw(format!("{sign}{m}E{es}{:02}", e.abs())));
     }
     let _ = sign;
-    Err(Fail::Refuse("ReadFromYaml of a !!float whose JSON form no probe measured"))
+    Err(Fail::Refuse(
+        "ReadFromYaml of a !!float whose JSON form no probe measured",
+    ))
 }
 
 /// The text a tagged scalar key is written as: the value in .NET's text form (`Keys1_1`, `Keys1_2`, `Keys1_7`, `Keys1_8`,
@@ -340,9 +385,13 @@ pub(super) fn key(kind: Kind, v: &str, style: Style, version: Version) -> Res<St
             _ => Ok(v.to_string()),
         };
     }
-    if matches!(kind, Kind::Timestamp | Kind::Map | Kind::Seq | Kind::Set | Kind::Binary | Kind::UnknownCore | Kind::Other)
-    {
-        return Err(Fail::Refuse("ReadFromYaml of a scalar key under a tag no probe measured"));
+    if matches!(
+        kind,
+        Kind::Timestamp | Kind::Map | Kind::Seq | Kind::Set | Kind::Binary | Kind::UnknownCore | Kind::Other
+    ) {
+        return Err(Fail::Refuse(
+            "ReadFromYaml of a scalar key under a tag no probe measured",
+        ));
     }
     match scalar(kind, v, style, version)? {
         Typed::Int(i) => Ok(i.to_string()),

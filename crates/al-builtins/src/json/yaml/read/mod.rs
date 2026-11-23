@@ -212,7 +212,8 @@ struct Parser {
     t: Vec<Tok>,
     i: usize,
     anchors: HashMap<String, (Node, usize, usize)>,
-    tags: HashMap<String, String>,
+    /// The `%TAG` handles with their prefix and whether a tag of the document used it.
+    tags: HashMap<String, (String, bool)>,
     version: Version,
     depth: usize,
     /// The anchored nodes with the nodes they hold and their depth, to bound what the aliases expand to.
@@ -234,14 +235,14 @@ pub(crate) fn document(text: &str) -> Read {
         return Read { doc, marked: false };
     }
     let scan = scan::tokens(&chars);
-    let mut marked = scan.marked || chars.iter().any(|&c| !measured_char(c));
-    let doc = scan.toks.and_then(|t| tree(&chars, t, scan.unicode_breaks, &mut marked));
+    let marked = scan.marked || chars.iter().any(|&c| !measured_char(c));
+    let doc = scan.toks.and_then(|t| tree(&chars, t, scan.unicode_breaks));
     Read { doc, marked }
 }
 
 /// The tokens `t` of `chars` as a YAML tree; `unicode_breaks` is the number of U+0085, U+2028 and U+2029 the scanner
 /// read where corpus PR 1549 measured them.
-fn tree(chars: &[char], t: Vec<Tok>, unicode_breaks: usize, marked: &mut bool) -> Res<Yaml> {
+fn tree(chars: &[char], t: Vec<Tok>, unicode_breaks: usize) -> Res<Yaml> {
     let mut p = Parser {
         t,
         i: 1,
@@ -251,16 +252,14 @@ fn tree(chars: &[char], t: Vec<Tok>, unicode_breaks: usize, marked: &mut bool) -
         depth: 0,
         expanded: 0,
     };
-    let root = p.stream();
-    *marked |= p.expanded > MEASURED_EXPANDED;
-    let root = root?;
+    let root = p.stream()?;
     // A tagged scalar as the document: `!!int`, `!!bool` and `!!str` with a value are measured (corpus PR 1549
     // JsonYamlFinalTags.al `Top1_1`-`Top1_3`, `Top1_8`); they read as a number, a Boolean or a text, which is no object.
     // An empty `!!null` document is the YAML error, as `!!null` is everywhere (`Top1_10`).
     if let Some(Node::Scalar { v, tag: Some(t), .. }) = &root {
         let kind = tags::kind(t);
-        let measured =
-            (matches!(kind, Kind::Int | Kind::Bool | Kind::Str) && !v.is_empty()) || (kind == Kind::Null && v.is_empty());
+        let measured = (matches!(kind, Kind::Int | Kind::Bool | Kind::Str) && !v.is_empty())
+            || (kind == Kind::Null && v.is_empty());
         if !measured || p.version != Version::None {
             return Err(Fail::Refuse(
                 "ReadFromYaml of a document that is a tagged scalar no probe measured",
@@ -328,7 +327,7 @@ impl Parser {
                         ));
                     }
                     let p = tags::unescape(&p)?;
-                    self.tags.insert(h, p);
+                    self.tags.insert(h, (p, false));
                     self.i += 1;
                 }
                 _ => break,
@@ -347,6 +346,13 @@ impl Parser {
         if *self.peek() == Tok::DocEnd {
             self.i += 1;
         }
+        // A directive no tag uses is measured with the core prefix only (`Directives1_22`); every directive with another
+        // prefix was measured with a tag that uses it (`Directives1_18`-`Directives1_20`, `Directives1_25`, `Escapes1_3`).
+        if self.tags.values().any(|(p, used)| !(*used || p == CORE)) {
+            return Err(Fail::Refuse(
+                "ReadFromYaml of a %TAG directive with a prefix other than the core one that no tag uses (not measured)",
+            ));
+        }
         // Only one document is read (`dc2`, `dc3`, `dc15`, `dc18`, `dc22`).
         if *self.peek() != Tok::StreamEnd {
             return Err(Fail::Bad);
@@ -357,12 +363,13 @@ impl Parser {
     /// The tag a handle and suffix name, the suffix's escapes decoded (corpus PR 1549 JsonYamlFinalTags.al
     /// `Escapes1_*`, `Escapes2_*`). A handle a `%TAG` directive names uses its prefix (`Directives1_13`,
     /// `Directives1_17`, `Directives1_18`); an undefined named handle is the YAML error (`Directives1_23`, `Directives1_24`).
-    fn resolve(&self, handle: &str, suffix: &str) -> Res<String> {
+    fn resolve(&mut self, handle: &str, suffix: &str) -> Res<String> {
         let suffix = tags::unescape(suffix)?;
         if handle.is_empty() {
             return Ok(suffix);
         }
-        if let Some(p) = self.tags.get(handle) {
+        if let Some((p, used)) = self.tags.get_mut(handle) {
+            *used = true;
             return Ok(format!("{p}{suffix}"));
         }
         match handle {
@@ -616,11 +623,9 @@ const CORE: &str = "tag:yaml.org,2002:";
 
 /// The nesting a text may have (the parser refuses deeper ones).
 const MAX_DEPTH: usize = 600;
-/// The nodes the aliases of a text may expand to in all: the billion-laughs text of depth 5 (corpus PR 1549
-/// JsonYamlFinalStructure.al `lol5`, :355: 9 aliases per level, 672588 nodes) reads. A larger expansion is not measured.
-const MAX_EXPANDED: usize = 672_588;
-/// The expansion PR 1530 read before (`keys2000`: 4000 nodes, allowed up to here); a larger one is a rule of PR 1549.
-const MEASURED_EXPANDED: usize = 200_000;
+/// The nodes the aliases of a text may expand to in all, above the measured sizes (PR 1530 `keys2000`: 4000 nodes; corpus
+/// PR 1549 JsonYamlFinalStructure.al:355 `lol5`, 9 aliases per level: 74718 nodes).
+const MAX_EXPANDED: usize = 200_000;
 
 /// The nodes in a node and its depth.
 fn measure(n: &Node) -> (usize, usize) {
@@ -691,7 +696,9 @@ fn convert(n: &Node, version: Version) -> Res<Yaml> {
         }
         Node::Seq { items, tag } => {
             collection_tag(tag.as_deref(), false)?;
-            Ok(Yaml::Seq(items.iter().map(|i| convert(i, version)).collect::<Res<_>>()?))
+            Ok(Yaml::Seq(
+                items.iter().map(|i| convert(i, version)).collect::<Res<_>>()?,
+            ))
         }
         Node::Map { pairs, tag } => {
             collection_tag(tag.as_deref(), true)?;

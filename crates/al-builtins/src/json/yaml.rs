@@ -356,15 +356,21 @@ mod tests {
 
     /// One read into a fresh object: the answer, the object as JSON, the last error code and whether it was marked.
     fn read(text: &str, used: bool) -> (Result<Value, Signal>, String, String, bool) {
+        let (answer, json, last, hits) = read_hits(text, used);
+        (answer, json, last, hits.contains(&Assumption::ReadFromYamlProbedShapes))
+    }
+
+    /// One read into a fresh object with the assumptions it went through.
+    fn read_hits(text: &str, used: bool) -> (Result<Value, Signal>, String, String, Vec<Assumption>) {
         let mut obj = tagged("JsonObject", new_handle(JsonNode::Object(Vec::new())));
         let mut ctx = TestCtx::default();
         ctx.result_ignored = !used;
         crate::assumptions::clear_hits();
         let answer = read_from_yaml(&mut ctx, Some(&mut obj), &mut [Value::Text(text.into())]);
-        let marked = crate::assumptions::take_hits().contains(&Assumption::ReadFromYamlProbedShapes);
+        let hits = crate::assumptions::take_hits().into_iter().collect();
         let mut json = String::new();
         write(&recv(Some(&mut obj)).expect("object"), &mut json).expect("write");
-        (answer, json, ctx.last_error().code, marked)
+        (answer, json, ctx.last_error().code, hits)
     }
 
     fn raised(answer: &Result<Value, Signal>, code: &str) -> bool {
@@ -409,26 +415,29 @@ mod tests {
         format!("q: {}x{}", "[".repeat(depth), "]".repeat(depth))
     }
 
-    /// 51 containers read and 101 to 301 answer InvalidJsonData with the result used (`flowseq-depth50`,
-    /// `flowseq-depth100`, `flowseq-depth300` of corpus PR 1530); the statement form and the depths between are not measured.
+    /// With the result used, 64 containers read and 65 to 401 answer InvalidJsonData (corpus PR 1549
+    /// JsonYamlFinalStructure.al:700 `flowseq-40to110`, :716 `flowseq-150` to `flowseq-400`; PR 1530 `flowseq-depth50`,
+    /// `flowseq-depth100`, `flowseq-depth300`). Depths that PR 1530 did not measure run through `read-from-yaml-final-shapes`;
+    /// the statement form of a too deep document and anything deeper than 401 are not measured.
     #[test]
     fn deep_documents() {
-        assert!(matches!(read(&nested(50), true).0, Ok(Value::Boolean(true))));
-        for depth in [100, 300] {
-            let (answer, json, last, _) = read(&nested(depth), true);
-            assert!(matches!(answer, Ok(Value::Boolean(false))), "{depth}: {answer:?}");
-            assert_eq!((json.as_str(), last.as_str()), ("{}", "InvalidJsonData"));
-            assert!(
-                matches!(read(&nested(depth), false).0, Err(Signal::Unsupported(_))),
-                "{depth}"
-            );
+        for n in [40, 50, 62, 63] {
+            let (answer, _, _, hits) = read_hits(&nested(n), true);
+            assert!(matches!(answer, Ok(Value::Boolean(true))), "{n}: {answer:?}");
+            assert_eq!(hits.contains(&Assumption::ReadFromYamlFinalShapes), n > 50, "{n}");
         }
-        for depth in [51, 99, 301] {
-            assert!(
-                matches!(read(&nested(depth), true).0, Err(Signal::Unsupported(_))),
-                "{depth}"
+        for n in [64, 100, 110, 150, 300, 400] {
+            let (answer, json, last, hits) = read_hits(&nested(n), true);
+            assert!(matches!(answer, Ok(Value::Boolean(false))), "{n}: {answer:?}");
+            assert_eq!((json.as_str(), last.as_str()), ("{}", "InvalidJsonData"), "{n}");
+            assert_eq!(
+                hits.contains(&Assumption::ReadFromYamlFinalShapes),
+                !(100..=300).contains(&n),
+                "{n}"
             );
+            assert!(matches!(read(&nested(n), false).0, Err(Signal::Unsupported(_))), "{n}");
         }
+        assert!(matches!(read(&nested(401), true).0, Err(Signal::Unsupported(_))));
     }
 
     /// A pinned text read as a statement is a clean read; with the result used, or any other text, it is marked.
@@ -448,11 +457,9 @@ mod tests {
         matches!(read(text, true).0, Err(Signal::Unsupported(_)))
     }
 
-    /// Every shape below is read by no cell of the corpus probes; each refuses (round 1 review of PR 8824).
+    /// Every shape below is read by no cell of the corpus probes; each refuses.
     #[test]
     fn unmeasured_shapes_refuse() {
-        let long_key = format!("{}: 1", "k".repeat(1500));
-        let wide_key = format!("{}: 1", "\u{1F600}".repeat(600));
         let deep = format!("{}{}", "[".repeat(601), "]".repeat(601));
         let flow_key = format!("[{}b]: 1", "a, ".repeat(500));
         let mut laughs = String::from("a: &a0 [x, x, x, x, x, x, x, x, x, x]\n");
@@ -464,64 +471,16 @@ mod tests {
         }
         let mut unrefused = Vec::new();
         for text in [
-            // a core tag on the wrong kind of node
-            "q: !!int [a]",
-            "q: !!bool {a: 1}",
-            "q: !!float [1]",
-            "q: !!timestamp {a: 1}",
-            "q: !!map x",
-            "q: !!foo x",
-            "q: !!omap [a]",
-            "q: ! [a]",
-            "q: !!map",
-            "q: !custom [a]",
-            "q: !!str \"\"",
-            // other texts of a core tag
-            "q: !!int 007",
-            "q: !!int -1",
-            "q: !!int 9999999999",
-            "q: !!int yes",
-            "q: !!float 1.5",
-            "q: !!float -0",
-            "q: !!float 100000000000000000000",
-            "q: !!bool no",
-            "q: !!bool true",
-            "q: !!bool false",
-            "q: !!timestamp 2001-12-15",
-            "q: ! x",
-            // tagged keys, tagged top scalars
-            "!!int 1: a",
-            "!!bool yes: a",
-            "!!str : a",
-            "!!str x",
-            "!!int 1",
-            // directives
-            "%TAG !e! tag:yaml.org,2002:\n---\nq: !e!int \"1\"",
+            // a %TAG directive with a prefix other than the core one that no tag uses
             "%TAG ! tag:x,2000:\n---\nq: a",
             "%TAG !! tag:x,2000:\n---\nq: a",
             "%TAG !e! tag:x,2000:\n---\nq: a",
-            "%TAG !e! tag:yaml.org,200\n---\nq: !e!2:int \"1\"",
-            "%TAG !e! tag:yaml.org,200\n---\nq: !e!2:str x",
-            "%YAML 1.2\n%YAML 1.2\n---\nq: a",
-            "%YAML 2.0\n---\nq: a",
-            "%YAML 1\n---\nq: a",
-            // tabs
-            "  \tq: a",
-            "q: [a,\n\tb]",
-            "q: [a,\n  \tb]",
-            // names
-            "a: &a.b 1",
-            "a: &\u{e9} 1",
-            "a: *a.b",
+            // a tag with a character outside a URI, a date tag with a date no cell reads
             "a: !\u{e9} x",
-            // key length
-            long_key.as_str(),
-            wide_key.as_str(),
+            "q: !!timestamp 2001-12-15",
+            // a flow collection as a key longer than 1024 units, nesting past the measured depth, expansion
             flow_key.as_str(),
-            // escapes, nesting
-            "q: \"\\U00110000\"",
             deep.as_str(),
-            // expansion
             laughs.as_str(),
         ] {
             if !refused_read(text) {
@@ -533,6 +492,74 @@ mod tests {
             }
         }
         assert!(unrefused.is_empty(), "read, not refused:\n{}", unrefused.join("\n"));
+    }
+
+    /// Shapes that round 1 of PR 8824 refused, now measured by corpus PR 1549 (`JsonYamlFinalTags.al` T,
+    /// `JsonYamlFinalStructure.al` S): each reads as its cell through `read-from-yaml-final-shapes`. `Err` is the error
+    /// code of a read that answers false.
+    #[test]
+    fn final_shapes_read_as_measured() {
+        let long_key = format!("{}: 1", "k".repeat(1500));
+        let wide_key = format!("{}: 1", "\u{1F600}".repeat(600));
+        let bad = Err("YamlBadFormat");
+        for (text, want) in [
+            ("q: !!int [a]", bad),                                                   // T:385 WrongNode1_1
+            ("q: !!bool {a: 1}", bad),                                               // T:386 WrongNode1_2
+            ("q: !!float [1]", bad),                                                 // T:387 WrongNode1_3
+            ("q: !!timestamp {a: 1}", bad),                                          // T:388 WrongNode1_4
+            ("q: !!map x", bad),                    // T:389 WrongNode1_5, T:329 Other1_15
+            ("q: !!foo x", bad),                    // T:324 Other1_10
+            ("q: !!omap [a]", bad),                 // T:391 WrongNode1_7
+            ("q: ! [a]", bad),                      // T:393 WrongNode1_9
+            ("q: !!map", Ok(r#"{"q":null}"#)),      // T:394 WrongNode1_10
+            ("q: !custom [a]", bad),                // T:439 WrongNode2_12 (`!x [a]`)
+            ("q: !!str \"\"", Ok(r#"{"q":""}"#)),   // T:266 Str1_8
+            ("q: !!int 007", Ok(r#"{"q":7}"#)),     // T:47 Int1_2
+            ("q: !!int -1", Ok(r#"{"q":-1}"#)),     // T:50 Int1_5 (`-5`)
+            ("q: !!int 9999999999", bad),           // T:56 Int1_11 (past Int32)
+            ("q: !!int yes", bad),                  // T:73 Int2_4
+            ("q: !!float 1.5", Ok(r#"{"q":1.5}"#)), // T:106 Float1_2
+            ("q: !!float -0", Ok(r#"{"q":-0.0}"#)), // T:133 Float2_5
+            ("q: !!float 100000000000000000000", Ok(r#"{"q":1E+20}"#)), // T:110 Float1_6
+            ("q: !!bool no", Ok(r#"{"q":false}"#)), // T:176 Bool1_2
+            ("q: !!bool true", Ok(r#"{"q":true}"#)), // T:179 Bool1_5
+            ("q: !!bool false", Ok(r#"{"q":false}"#)), // T:180 Bool1_6
+            ("q: ! x", bad),                        // T:334 Other1_20 (`! 1`)
+            ("!!int 1: a", Ok(r#"{"1":"a"}"#)),     // T:688 Keys1_2
+            ("!!bool yes: a", Ok(r#"{"True":"a"}"#)), // T:687 Keys1_1
+            ("!!str : a", bad),                     // T:689 Keys1_3
+            ("!!str x", Err("InvalidJsonType")),    // T:553 Top1_3
+            ("!!int 1", Err("InvalidJsonType")),    // T:551 Top1_1
+            ("%TAG !e! tag:yaml.org,2002:\n---\nq: !e!int \"1\"", Ok(r#"{"q":1}"#)), // S:130 Directives1_14
+            ("%TAG !e! tag:yaml.org,200\n---\nq: !e!2:int \"1\"", Ok(r#"{"q":1}"#)), // T:610 Escapes1_3
+            ("%TAG !e! tag:yaml.org,200\n---\nq: !e!2:str x", Ok(r#"{"q":"x"}"#)), // T:610, S:131 Directives1_15
+            ("%YAML 1.2\n%YAML 1.2\n---\nq: a", bad), // S:119 Directives1_3
+            ("%YAML 2.0\n---\nq: a", bad),          // S:122 Directives1_6
+            ("%YAML 1\n---\nq: a", bad),            // S:123 Directives1_7
+            ("  \tq: a", Ok(r#"{"q":"a"}"#)),       // S:505 Tabs1_1
+            ("q: [a,\n\tb]", Ok(r#"{"q":["a","b"]}"#)), // S:511 Tabs1_7
+            ("q: [a,\n  \tb]", Ok(r#"{"q":["a","b"]}"#)), // S:512 Tabs1_8
+            ("a: &a.b 1", Ok(r#"{"a":"1"}"#)),      // S:218 AnchorNames1_1
+            ("a: &\u{e9} 1", Ok(r#"{"a":"1"}"#)),   // S:219 AnchorNames1_2
+            ("a: *a.b", bad),                       // S:305 Aliases1_3 (`*zz`), S:218
+            (long_key.as_str(), bad),               // S:395 plain-1500
+            (wide_key.as_str(), bad),               // S:478 emoji-key-600
+            ("q: \"\\U00110000\"", bad),            // S:617 EscapeSurrogates1_10
+        ] {
+            let (answer, json, last, hits) = read_hits(text, true);
+            let short = text.chars().take(40).collect::<String>();
+            match want {
+                Ok(want) => {
+                    assert!(matches!(answer, Ok(Value::Boolean(true))), "{short:?}: {answer:?}");
+                    assert_eq!(json, want, "{short:?}");
+                }
+                Err(code) => {
+                    assert!(matches!(answer, Ok(Value::Boolean(false))), "{short:?}: {answer:?}");
+                    assert_eq!((json.as_str(), last.as_str()), ("{}", code), "{short:?}");
+                }
+            }
+            assert!(hits.contains(&Assumption::ReadFromYamlFinalShapes), "{short:?}");
+        }
     }
 
     /// The measured forms of the same families still read (tg1-tg24, ck28, dc7-dc9, dc17 of corpus PR 1530).
