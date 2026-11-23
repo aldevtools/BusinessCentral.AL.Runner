@@ -150,7 +150,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `contract.rs`: The conformance suite every `Store` must pass. Entry: `table`.
 - `lib.rs`: The Store trait and table definitions. Entry: `Store`.
 - `memory.rs`: In-memory store on persistent maps. Entry: `MemStore`.
-- `memory/` (6 files): In-memory store on persistent maps. Entry: `MemStore`. Files: `key.rs`, `held_cols.rs`, `alt_cache.rs`, `band.rs`, `order_carry.rs`, `source_stamps.rs`
+- `memory/` (7 files): In-memory store on persistent maps. Entry: `MemStore`. Files: `key.rs`, `held_cols.rs`, `alt_cache.rs`, `band.rs`, `footprint.rs`, `order_carry.rs`, `source_stamps.rs`
 
 ### al-deps
 
@@ -282,7 +282,9 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `host.rs`: The host the command line gives a session (ADR-006). Entry: `SystemClock`.
 - `impact_trace.rs`: The impact index's keys, their numbering. Entry: `keys`.
 - `install.rs`: The install code of each app. Entry: `plan`.
-- `install_orders.rs`: The install order of apps with no dependency path… Entry: `split_microsoft`.
+- `install_orders.rs`: The install order of apps with no dependency path: Microsoft's first, partner groups recorded and proven. Entry: `split_microsoft`, `install_partner_apps`.
+- `install_proof.rs`: The influence graph of a partner group's installs and its units. Entry: `Graph::of`.
+- `install_subsets.rs`: The subset runs that prove a group's install independent of order. Entry: `Proof::settle`.
 - `impact_static.rs`: Static selection: the graph of routines, objects. Entry: `Graph`.
 - `login.rs`: The test session's login. Entry: `decide`.
 - `login_replay.rs`: The check that a replay of the raised login would… Entry: `Key::of`.
@@ -347,6 +349,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `autoinc.rs`: AutoIncrement fields: taking the next value, explicit keys. Entry: `auto_increment_field`.
 - `baseline.rs`: The install baseline, with the install routines… Entry: `Baseline`.
 - `baseline/install_orders.rs`: What installing partner apps in several orders needs. Entry: `install_order_differences`.
+- `install_footprint.rs`: The footprint of a partner app's install session. Entry: `Session::install_footprint_start`.
 - `order_trial.rs`: A subscriber whose install order is not known runs… Entry: `trial_start`.
 - `callstack.rs`: The AL call stack of an error and the live stack. Entry: `add_frame`.
 - `caught_errors.rs`: The count of errors AL code caught: asserterror. Entry: `catch_error`.
