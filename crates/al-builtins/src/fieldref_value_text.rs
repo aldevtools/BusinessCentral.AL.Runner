@@ -121,16 +121,5 @@ pub fn fieldref_value_into_temporal(
         _ => return None,
     };
     crate::assumptions::assume(crate::assumptions::Assumption::FieldRefValueTemporalError);
-    if !from28 {
-        return Some(crate::native::raise(
-            format!("Unable to convert from Microsoft.Dynamics.Nav.Runtime.{nav} to System.DateTime."),
-            "Conversion",
-        ));
-    }
-    let message = match t {
-        RtType::Date => crate::fieldref_variant_cells::date_settings_error(&text),
-        RtType::Time => format!("The value \"{text}\" can't be evaluated into type Time."),
-        _ => format!("The value \"{text}\" can't be evaluated into type DateTime."),
-    };
-    Some(crate::native::raise(message, "Evaluate:Conversion"))
+    Some(Err(crate::fieldref_variant_cells::temporal_value_error(nav, &text, t, from28)))
 }

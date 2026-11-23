@@ -7,55 +7,6 @@ fn is_currpage_name(r: &SyntaxNode) -> bool {
     r.kind() == SyntaxKind::NameRef && r.text_string().trim().eq_ignore_ascii_case("CurrPage")
 }
 
-/// How the arguments of a `FieldRef.SetRange` call are written ([`Lowerer::setrange_args_written`]).
-enum SetRangeArgs {
-    /// No argument, or every argument has a plain value type (a number, Boolean, text, date, time, Guid, Duration, Option or
-    /// Enum): the catalog id stays.
-    Plain,
-    /// Every argument is a Variant variable or expression (not a `FieldRef.Value()` call).
-    Variant,
-    /// Anything else: a mix, a `FieldRef.Value()` call, a FieldRef, a Label or a type not known.
-    Other,
-}
-
-impl Lowerer<'_> {
-    /// How the arguments of a `FieldRef.SetRange` call are written: al-vm `fieldref_setrange_convert` converts a value of
-    /// another type than the field's by this.
-    fn setrange_args_written(&self, args: &[SyntaxNode]) -> SetRangeArgs {
-        let fieldref_value = |a: &SyntaxNode| matches!(self.res(a), Some(Res::Builtin(i)) if i == "FieldRef.Value#1");
-        let tys: Vec<Ty> = args.iter().map(|a| self.ty_of(a)).collect();
-        if args.iter().any(fieldref_value) {
-            return SetRangeArgs::Other;
-        }
-        if !tys.is_empty() && tys.iter().all(|t| matches!(t, Ty::Variant)) {
-            return SetRangeArgs::Variant;
-        }
-        let plain = |t: &Ty| {
-            matches!(
-                t,
-                Ty::Integer
-                    | Ty::BigInteger
-                    | Ty::Decimal
-                    | Ty::Boolean
-                    | Ty::Text(_)
-                    | Ty::Code(_)
-                    | Ty::Date
-                    | Ty::Time
-                    | Ty::DateTime
-                    | Ty::Duration
-                    | Ty::Guid
-                    | Ty::Option(_)
-                    | Ty::Enum(_)
-            )
-        };
-        if tys.iter().all(plain) {
-            SetRangeArgs::Plain
-        } else {
-            SetRangeArgs::Other
-        }
-    }
-}
-
 impl Lowerer<'_> {
     fn prepare_call_resolution(
         &mut self,
@@ -397,13 +348,8 @@ impl Lowerer<'_> {
             // A Text inside a Variant goes by ordinal digits on an Enum or Option control
             // (pages/enum-setvalue-blank/BeEnumSetValueBlank.al:532-597).
             "TestField.SetValue#1" if variant(0) => Some("TestField.SetValueVariant#1"),
-            // BC converts a value of another type than the field's apart when it is written as a Variant (al-vm
-            // `fieldref_setrange_convert`): every argument a Variant, or one that is neither a Variant nor a plain value.
-            "FieldRef.SetRange#1" => match self.setrange_args_written(args) {
-                SetRangeArgs::Plain => None,
-                SetRangeArgs::Variant => Some("FieldRef.SetRangeVariant#1"),
-                SetRangeArgs::Other => Some("FieldRef.SetRangeUntyped#1"),
-            },
+            // A value of another type than the field's converts by how it is written (al-vm `setrange_convert`).
+            "FieldRef.SetRange#1" | "FieldRef.SetFilter#1" | "Record.SetRange#1" => self.setrange_written_id(id, args),
             _ => None,
         }
     }

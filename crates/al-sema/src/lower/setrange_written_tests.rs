@@ -1,5 +1,6 @@
-//! `setrange_args_written`: the id lowering gives a `FieldRef.SetRange` call by how its arguments are written (al-vm
-//! `fieldref_setrange_convert` converts a value of another type than the field's by it, al-runner issue 8857).
+//! `setrange_written_id`: the id lowering gives a `FieldRef.SetRange`, `FieldRef.SetFilter` or `Record.SetRange` call by how
+//! its values are written (al-vm `setrange_convert` converts a value of another type than the field's by it, al-runner
+//! issue 8857).
 
 use crate::workspace::{AppSource, Workspace};
 use al_ir as ir;
@@ -8,7 +9,7 @@ use al_ir as ir;
 fn first_call_id(vars: &str, body: &str) -> String {
     let src = format!(
         "table 50100 T {{ fields {{ field(1; Id; Integer) {{ }} field(2; D; Date) {{ }} }} }}
-codeunit 50100 C {{ procedure P() var R: RecordRef; F: FieldRef; F2: FieldRef; {vars} begin {body} end; }}"
+codeunit 50100 C {{ procedure P() var R: RecordRef; F: FieldRef; F2: FieldRef; Rec: Record T; {vars} begin {body} end; }}"
     );
     let ws = Workspace::load(
         vec![AppSource {
@@ -36,38 +37,49 @@ codeunit 50100 C {{ procedure P() var R: RecordRef; F: FieldRef; F2: FieldRef; {
 }
 
 #[test]
-fn plain_value_arguments_keep_the_catalog_id() {
+fn typed_values_take_the_typed_id() {
     for (vars, body) in [
-        ("", "F.SetRange();"),
         ("", "F.SetRange(20240101);"),
         ("X: Integer;", "F.SetRange(X, X);"),
         ("X: Text;", "F.SetRange(X);"),
         ("X: Date;", "F.SetRange(X, 20240101D);"),
     ] {
-        assert_eq!(first_call_id(vars, body), "FieldRef.SetRange#1", "{body}");
+        assert_eq!(first_call_id(vars, body), "FieldRef.SetRangeTyped#1", "{body}");
+    }
+    assert_eq!(first_call_id("X: Code[20];", "F.SetFilter('%1', X);"), "FieldRef.SetFilterTyped#1");
+}
+
+#[test]
+fn variant_values_take_the_variant_id() {
+    for body in ["F.SetRange(V);", "F.SetRange(V, V);"] {
+        assert_eq!(first_call_id("V: Variant;", body), "FieldRef.SetRangeVariant#1", "{body}");
+    }
+    assert_eq!(first_call_id("V: Variant;", "F.SetFilter('%1', V);"), "FieldRef.SetFilterVariant#1");
+    assert_eq!(first_call_id("V: Variant;", "Rec.SetRange(D, V);"), "Record.SetRangeVariant#1");
+}
+
+#[test]
+fn a_variant_and_a_typed_value_take_the_mixed_id() {
+    for body in ["F.SetRange(V, 20240101);", "F.SetRange(20240101, V);"] {
+        assert_eq!(first_call_id("V: Variant;", body), "FieldRef.SetRangeMixed#1", "{body}");
     }
 }
 
 #[test]
-fn variant_arguments_take_the_variant_id() {
-    assert_eq!(
-        first_call_id("V: Variant;", "F.SetRange(V);"),
-        "FieldRef.SetRangeVariant#1"
-    );
-    assert_eq!(
-        first_call_id("V: Variant;", "F.SetRange(V, V);"),
-        "FieldRef.SetRangeVariant#1"
-    );
-}
-
-#[test]
-fn a_mix_or_a_fieldref_value_takes_the_untyped_id() {
-    for (vars, body) in [
-        ("V: Variant;", "F.SetRange(V, 20240101);"),
-        ("V: Variant;", "F.SetRange(20240101, V);"),
-        ("", "F.SetRange(F2.Value());"),
-        ("", "F.SetRange(F2.Value);"),
+fn every_other_shape_keeps_the_catalog_id() {
+    for (vars, body, id) in [
+        ("", "F.SetRange();", "FieldRef.SetRange#1"),
+        ("", "F.SetRange(F2.Value());", "FieldRef.SetRange#1"),
+        ("", "F.SetRange(F2.Value);", "FieldRef.SetRange#1"),
+        ("V: Variant;", "F.SetRange(V, F2.Value());", "FieldRef.SetRange#1"),
+        ("", "F.SetRange(F2);", "FieldRef.SetRange#1"),
+        ("V: Variant;", "F.SetFilter('%1|%2', V, V);", "FieldRef.SetFilter#1"),
+        ("", "F.SetFilter('%1', F2.Value());", "FieldRef.SetFilter#1"),
+        ("", "F.SetFilter('a');", "FieldRef.SetFilter#1"),
+        ("X: Date;", "Rec.SetRange(D, X);", "Record.SetRange#1"),
+        ("V: Variant;", "Rec.SetRange(D, V, V);", "Record.SetRange#1"),
+        ("", "Rec.SetRange(D);", "Record.SetRange#1"),
     ] {
-        assert_eq!(first_call_id(vars, body), "FieldRef.SetRangeUntyped#1", "{body}");
+        assert_eq!(first_call_id(vars, body), id, "{body}");
     }
 }

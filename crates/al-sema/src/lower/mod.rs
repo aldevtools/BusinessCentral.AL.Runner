@@ -628,6 +628,7 @@ mod assemble;
 mod bare_report_name;
 mod blob_length_sign;
 mod call;
+mod setrange_written;
 mod compile;
 mod conv_matrix;
 mod convert;

@@ -1,0 +1,12 @@
+{
+  "id": "b1c6f7a2-5d3e-4f80-9a1b-885700000002",
+  "name": "Neighbors fix-8857 SetRange and SetFilter convert",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "OnPrem",
+  "idRanges": [ { "from": 57400, "to": 57411 }, { "from": 69160, "to": 69160 } ],
+  "dependencies": [],
+  "preprocessorSymbols": [ "BC28PLUS" ]
+}

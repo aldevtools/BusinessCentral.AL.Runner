@@ -90,7 +90,7 @@ mod ext_validate_order;
 mod faultsite;
 mod fieldref_length;
 mod fieldref_media_filter;
-mod fieldref_setrange_convert;
+mod setrange_convert;
 mod fieldref_validate;
 mod fieldref_value_into;
 mod filter_text_arg;

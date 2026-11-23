@@ -285,6 +285,13 @@ impl al_builtins::native::Ctx for Session {
             other => Err(Signal::unsupported(format!("Record.Validate on {}", other.describe()))),
         }
     }
+    fn record_setrange_variant(&mut self, rec: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
+        if let Some(Value::Record(rc)) = rec.as_deref() {
+            let rc = rc.clone();
+            self.record_setrange_variant_convert(&rc, args)?;
+        }
+        self.record(al_builtins::record_op::RecordOp::SetRange, rec, args)
+    }
     fn page(
         &mut self,
         method: al_builtins::page_op::PageOp,

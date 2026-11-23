@@ -265,7 +265,7 @@ impl Session {
         } else {
             id
         };
-        let (id, setrange) = crate::fieldref_setrange_convert::catalog_id(id);
+        let (id, setrange) = crate::setrange_convert::catalog_id(id);
         let Some(sig) = catalog().by_id(id) else {
             return unsupported(format!("builtin {id}"));
         };
@@ -283,7 +283,7 @@ impl Session {
             }
             "FieldRef" => {
                 if let Some(written) = setrange {
-                    self.fieldref_setrange_written(&lib, args, written)?;
+                    self.fieldref_setrange_convert(&sig.name, &lib, args, written)?;
                 }
                 self.fieldref_arg_values(&sig.name, &lib, args)?;
                 self.fieldref_op(&sig.name, &lib, args)
