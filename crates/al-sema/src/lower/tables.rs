@@ -1078,6 +1078,24 @@ impl Lowerer<'_> {
                                 raw.trim()
                             ));
                         }
+                        // `'@'` and `'<>@'` run only where the cells measure them (al-builtins
+                        // `filter_at_sign::calc_formula_at_sign_measured`); everything else is refused here, not at run time.
+                        if inner == "@" || inner == "<>@" {
+                            let field = &src_fields[pos];
+                            let names_shown = !field.properties.iter().any(|(k, _)| {
+                                k.eq_ignore_ascii_case("OptionCaption") || k.eq_ignore_ascii_case("OptionCaptionML")
+                            });
+                            let rt = self.field_rt(src, field);
+                            let sum = f.method == ir::CalcMethod::Sum;
+                            if !al_builtins::filter::calc_formula_at_sign_measured(&rt, sum, names_shown) {
+                                use al_builtins::describe::Describe;
+                                return Err(format!(
+                                    "CalcFormula filter '{inner}' over a {} field with {:?} (not measured)",
+                                    rt.describe(),
+                                    f.method
+                                ));
+                            }
+                        }
                         conds.push(ir::CalcCond {
                             field: pos,
                             value: ir::CalcValue::Filter(inner),

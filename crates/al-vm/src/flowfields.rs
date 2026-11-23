@@ -1049,17 +1049,13 @@ impl Session {
                     parts.push((c.field, FilterExpr::Eq(ops::convert(crate::constant(k), sty)?), false));
                 }
                 ir::CalcValue::Filter(text) => {
-                    // A sum's `filter('@')` or `filter('<>@')` over a Date, Integer, Decimal, Boolean or name-showing Option
-                    // source field answers as BC does (al-builtins `filter_at_sign::calc_formula_at_sign_other_source`).
-                    let names_shown = || {
-                        !src[c.field].properties.iter().any(|(k, _)| {
-                            k.eq_ignore_ascii_case("OptionCaption") || k.eq_ignore_ascii_case("OptionCaptionML")
-                        })
-                    };
-                    let other = (calc.method == ir::CalcMethod::Sum)
-                        .then(|| calc_formula_at_sign_other_source(text, sty, names_shown()))
-                        .flatten();
-                    match other {
+                    // `filter('@')` or `filter('<>@')` over a Date, Integer, Decimal, Boolean or name-showing Option source field
+                    // answers as BC does (al-builtins `filter_at_sign::calc_formula_at_sign_other_source`); the lowering admits
+                    // it only in a sum.
+                    let names_shown = !src[c.field].properties.iter().any(|(k, _)| {
+                        k.eq_ignore_ascii_case("OptionCaption") || k.eq_ignore_ascii_case("OptionCaptionML")
+                    });
+                    match calc_formula_at_sign_other_source(text, sty, names_shown) {
                         Some(OtherSourceAtSign::Rows(true)) => {}
                         Some(OtherSourceAtSign::Rows(false)) => {
                             parts.push((c.field, FilterExpr::Or(Vec::new()), false))

@@ -20,12 +20,12 @@ pub enum AtSignRows {
     /// Find('+'), Find('<'), Count, IsEmpty, CalcSums, DeleteAll and ModifyAll (AtSignAloneReads.al:229, :265, :314, :399, :429,
     /// :698; BgTaskQueryCache.al:5780), a report's data item and a page (AtSignAloneReads.al:625, :658), CalcFields of a sum or a
     /// count (BgTaskQueryCache.al:5753, :5767; AtSignAloneReads.al:558, :598, :904, :928), a query (BgTaskQueryCache.al:6369-:6419;
-    /// AtSignAloneReads.al:861, :871), and Count and IsEmpty with the filter on a lookup FlowField (BgTaskQueryCache.al:5809;
-    /// AtSignAloneReads.al:366, :730).
+    /// AtSignAloneReads.al:861, :871), and Count and IsEmpty with the filter on a lookup, min or max FlowField
+    /// (BgTaskQueryCache.al:5809; AtSignAloneReads.al:366, :730; AtSignAloneMethods.al:552).
     Database,
     /// A row of the database BC checks against the filter itself: `@` keeps every row, `<>@` the values that are not empty.
-    /// Find('=') (AtSignAloneReads.al:314, :698), and Find, FindFirst, FindLast, FindSet and Next with the filter on a lookup
-    /// FlowField (:366, :730).
+    /// Find('=') (AtSignAloneReads.al:314, :698), and Find, FindFirst, FindLast, FindSet and Next with the filter on a lookup, min
+    /// or max FlowField (:366, :730; AtSignAloneMethods.al:552).
     DatabaseRowCheck,
     /// A temporary record: `@` keeps every row, `<>@` none (AtSignAloneReads.al:247, :265, :314, :366, :698, :730).
     Temporary,
@@ -45,8 +45,9 @@ pub fn parse_filter_at_sign_measured(
 }
 
 /// The places a filter comes from where the cells measure both `@` alone and `<>@` alone on a Code field: Record.SetFilter in
-/// filter groups 0, 1 and 2 and FieldRef.SetFilter, on stored fields, on a lookup FlowField and on a FlowFilter that CalcFields
-/// applies (AtSignAloneReads.al:457, :475, :538, :698, :730, :792, :904, :928; BgTaskQueryCache.al:5753, :5809), SetView and
+/// filter groups 0, 1 and 2 and FieldRef.SetFilter, on stored fields, on a lookup, min or max FlowField and on a FlowFilter that
+/// CalcFields applies (AtSignAloneReads.al:457, :475, :538, :698, :730, :792, :904, :928; AtSignAloneMethods.al:489, :552;
+/// BgTaskQueryCache.al:5753, :5809), SetView and
 /// RecordRef.SetView (AtSignAloneReads.al:497, :538, :792), a CalcFormula's `filter('@')` and `filter('<>@')` (:579, :752), a
 /// query's SetFilter and its DataItemTableFilter (BgTaskQueryCache.al:6369, :6403; AtSignAloneReads.al:861, :871).
 pub fn parse_filter_both_at_signs_measured(
@@ -71,6 +72,15 @@ pub(crate) fn refused_where_not_measured(e: FilterExpr, at_sign: bool) -> Result
     }
 }
 
+/// How a refusal names the `@` alone or `<>@` alone on a Code field among `filters`, if one is there: "`@` alone" or "`<>@` alone"
+/// (the readers no cell measures, such as DataTransfer and FilterPageBuilder.SetView).
+pub fn code_at_sign_alone_named(filters: &[FieldFilter]) -> Option<&'static str> {
+    filters.iter().find_map(|f| match f.expr {
+        FilterExpr::AtSignAloneCode(negated) => Some(if negated { "`<>@` alone" } else { "`@` alone" }),
+        _ => None,
+    })
+}
+
 /// What BC answers for a CalcFormula's sum with a quoted `filter('@')` or `filter('<>@')` (`text`, as the lowering passes it) over
 /// a source field of type `ty` that is neither Code nor Text (AtSignAloneMethods.al:395, :430, :454).
 #[derive(Debug, PartialEq, Eq)]
@@ -83,23 +93,37 @@ pub enum OtherSourceAtSign {
 
 /// [`OtherSourceAtSign`] for `text` over `ty`, or None when the text is not `@` alone or `<>@` alone or no cell measures the type:
 /// Date, Integer, Decimal, Boolean, and an Option field that shows its member names (`names_shown`: no OptionCaption or
-/// OptionCaptionML). The filter parser reads every other case as before.
+/// OptionCaptionML). The lowering admits the text only where [`calc_formula_at_sign_measured`] holds.
 pub fn calc_formula_at_sign_other_source(
     text: &str,
     ty: &crate::value::RtType,
     names_shown: bool,
 ) -> Option<OtherSourceAtSign> {
-    use crate::value::RtType;
     let negated = match text {
         "@" => false,
         "<>@" => true,
         _ => return None,
     };
+    let answer = other_source_answer(negated, ty, names_shown)?;
+    assume(Assumption::AtSignAloneDatabaseBlank);
+    Some(answer)
+}
+
+/// Whether the cells measure a CalcFormula's quoted `filter('@')` or `filter('<>@')` over a source field of type `ty`: a Code or
+/// a Text field with any method (AtSignAloneReads.al:579, :752; AtSignAloneMethods.al:376), the types of
+/// [`calc_formula_at_sign_other_source`] with a sum (`sum`; AtSignAloneMethods.al:395, :430, :454). The lowering refuses the rest.
+pub fn calc_formula_at_sign_measured(ty: &crate::value::RtType, sum: bool, names_shown: bool) -> bool {
+    use crate::value::RtType;
+    matches!(ty, RtType::Code(_) | RtType::Text(_)) || (sum && other_source_answer(false, ty, names_shown).is_some())
+}
+
+fn other_source_answer(negated: bool, ty: &crate::value::RtType, names_shown: bool) -> Option<OtherSourceAtSign> {
+    use crate::value::RtType;
     let evaluate = |type_name: &str| OtherSourceAtSign::Error {
         message: format!("The value \"@\" can't be evaluated into type {type_name}."),
         code: "InvalidFilterExpression:Evaluate",
     };
-    let answer = match ty {
+    Some(match ty {
         RtType::Date => OtherSourceAtSign::Rows(negated),
         RtType::Integer => evaluate("Integer"),
         RtType::Decimal => evaluate("Decimal"),
@@ -109,9 +133,7 @@ pub fn calc_formula_at_sign_other_source(
             code: "InvalidFilterExpression:InvalidOptionString",
         },
         _ => return None,
-    };
-    assume(Assumption::AtSignAloneDatabaseBlank);
-    Some(answer)
+    })
 }
 
 impl FilterExpr {
