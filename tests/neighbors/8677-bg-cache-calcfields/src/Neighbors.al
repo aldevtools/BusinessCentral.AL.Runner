@@ -1,11 +1,17 @@
 // Neighbors of al-runner issue 8677 that no cell of the corpus probe BgTaskQueryCache.al measures (BQ Tests 10, open corpus
 // PR 1495, :5833-:6290): a page background task's CalcFields and CalcSums, run twice around lines the test session inserts
-// without a commit. Each test asserts BC's answer (a local BC 29.1 container) as 'first / again'. They are past what the
-// cells measure: a negated sum, a CalcFields through a RecordRef's FieldRef, a FlowFilter range, a filter on a field that is
-// no FlowFilter, a CalcSums with a range, a count whose field() is a sum FlowField of the row, a temporary record, and a sum
+// without a commit. Each test asserts BC's answer (a local BC 29.1 container) as 'first / again'. They were past what the
+// cells of BQ Tests 10 measure; open corpus PR 1533 (BgTaskCalcCache.al, al-runner issue 8803) now measures each shape, and
+// CalcProbe.al is its excerpt: a negated sum, a CalcFields through a RecordRef's FieldRef, a FlowFilter range, a filter on a field that is
+// no FlowFilter, a CalcSums with a > filter, a count whose field() is a sum FlowField of the row, a temporary record, and a sum
 // whose field(filter()) reads a stored field of the row, set to A and then to B in one worker run. From the review of al-runner
 // PR 8682: SetLoadFields, Get and CalcFields (the cell BgCalcFields_AfterSetLoadFields_FirstAnswer, :7255, measures it on
-// table 97597; BC answers the first read). The exist over Tenant Media is in Platform.al.
+// table 97597; BC answers the first read). The exist over Tenant Media is in Platform.al. From the review of al-runner PR 8872,
+// one test per fact the cache took past the first cells: a | of values on a field that is no FlowFilter, a CalcFields and a
+// CalcSums ascending first and descending again, a count at a sum whose field(filter()) reads a stored field of the row (the
+// cells of BgTaskCalcCache.al measure each), and a FieldRef.CalcField through RecordRef.GetTable of a temporary record a
+// Variant got from another Variant, whose table the runner marks "rows not measured" (BC answers the first answer in each, a
+// local BC 29.1 container, 3 runs).
 
 table 50120 "BQN Parent"
 {
@@ -46,6 +52,11 @@ table 50120 "BQN Parent"
         {
             FieldClass = FlowField;
             CalcFormula = sum("BQN Line".Amount where(Parent = field("No."), Kind = field(filter("Kind Text"))));
+        }
+        field(11; "Lines At Kind Text Sum"; Integer)
+        {
+            FieldClass = FlowField;
+            CalcFormula = count("BQN Line" where(Parent = field("No."), Amount = field("Kind Text Sum")));
         }
     }
 
@@ -121,6 +132,8 @@ codeunit 50123 "BQN Reader"
         Line: Record "BQN Line";
         Ref: RecordRef;
         FRef: FieldRef;
+        V1: Variant;
+        V2: Variant;
         Seen: Text;
     begin
         case Mode of
@@ -153,7 +166,7 @@ codeunit 50123 "BQN Reader"
                     Parent.CalcFields("Line Count");
                     exit(Format(Parent."Line Count"));
                 end;
-            'calcsumsrange':
+            'calcsumsgt':
                 begin
                     Line.SetRange(Parent, Group);
                     Line.SetFilter(Amount, '>0');
@@ -190,6 +203,58 @@ codeunit 50123 "BQN Reader"
                     Temp.Insert();
                     Temp.CalcFields("Line Count");
                     exit(Format(Temp."Line Count"));
+                end;
+            'otherfilteror':
+                begin
+                    Parent.Get(Group);
+                    Parent.SetFilter(Description, '%1|%2', '', 'X');
+                    Parent.CalcFields("Line Count");
+                    exit(Format(Parent."Line Count"));
+                end;
+            'linecount':
+                begin
+                    Parent.Get(Group);
+                    Parent.CalcFields("Line Count");
+                    exit(Format(Parent."Line Count"));
+                end;
+            'descendingcalc':
+                begin
+                    Parent.SetAscending("No.", false);
+                    Parent.Get(Group);
+                    Parent.CalcFields("Line Count");
+                    exit(Format(Parent."Line Count"));
+                end;
+            'sums':
+                begin
+                    Line.SetRange(Parent, Group);
+                    Line.CalcSums(Amount);
+                    exit(D(Line.Amount));
+                end;
+            'descendingsums':
+                begin
+                    Line.SetAscending("Line No.", false);
+                    Line.SetRange(Parent, Group);
+                    Line.CalcSums(Amount);
+                    exit(D(Line.Amount));
+                end;
+            'innerfieldfilter':
+                begin
+                    Parent.Get(Group);
+                    Parent."Kind Text" := 'A|K';
+                    Parent.CalcFields("Lines At Kind Text Sum");
+                    exit(Format(Parent."Lines At Kind Text Sum"));
+                end;
+            'variantcopy':
+                begin
+                    Parent.Get(Group);
+                    Temp := Parent;
+                    Temp.Insert();
+                    V1 := Temp;
+                    V2 := V1;
+                    Ref.GetTable(V2);
+                    FRef := Ref.Field(4);
+                    FRef.CalcField();
+                    exit(Format(FRef.Value()));
                 end;
         end;
         Error('Mode %1', Mode);
@@ -229,9 +294,14 @@ codeunit 50124 "BQN Tests"
         if Line.FindFirst() then;
     end;
 
-    // A parent with line 1 (Kind A, Amount 5), committed; the worker; lines 0 (Kind K, Amount 2) and 2 (Kind B, Amount 11)
-    // without a commit; the worker again.
     local procedure Reads(Mode: Text): Text
+    begin
+        exit(ReadsAcross(Mode, Mode));
+    end;
+
+    // A parent with line 1 (Kind A, Amount 5), committed; the worker (First); lines 0 (Kind K, Amount 2) and 2 (Kind B,
+    // Amount 11) without a commit; the worker again (Again).
+    local procedure ReadsAcross(First: Text; Again: Text): Text
     var
         Lines: TestPage "BQN Lines";
         Parent: Record "BQN Parent";
@@ -244,10 +314,10 @@ codeunit 50124 "BQN Tests"
         AddLine(G, 1, 'A', 5);
         Commit();
         Lines.OpenView();
-        Seen := Run(Lines, Mode, G);
+        Seen := Run(Lines, First, G);
         AddLine(G, 0, 'K', 2);
         AddLine(G, 2, 'B', 11);
-        Seen += ' / ' + Run(Lines, Mode, G);
+        Seen += ' / ' + Run(Lines, Again, G);
         Lines.Close();
         exit(Seen);
     end;
@@ -277,9 +347,9 @@ codeunit 50124 "BQN Tests"
     end;
 
     [Test]
-    procedure CalcSumsRange_LinesAfterFirstRead()
+    procedure CalcSumsGreaterThan_LinesAfterFirstRead()
     begin
-        Assert.AreEqual('5 / 5', Reads('calcsumsrange'), 'CalcSums with a range');
+        Assert.AreEqual('5 / 5', Reads('calcsumsgt'), 'CalcSums with a > filter');
     end;
 
     [Test]
@@ -304,5 +374,35 @@ codeunit 50124 "BQN Tests"
     procedure LoadFieldsGetCalcFields_LinesAfterFirstRead()
     begin
         Assert.AreEqual('1 / 1', Reads('loadfields'), 'SetLoadFields, Get, CalcFields');
+    end;
+
+    [Test]
+    procedure OrOfValuesOnAStoredField_LinesAfterFirstRead()
+    begin
+        Assert.AreEqual('1 / 1', Reads('otherfilteror'), 'a | of values on Description');
+    end;
+
+    [Test]
+    procedure CalcFieldsAscendingThenDescending_LinesAfterFirstRead()
+    begin
+        Assert.AreEqual('1 / 1', ReadsAcross('linecount', 'descendingcalc'), 'CalcFields, then after SetAscending(false)');
+    end;
+
+    [Test]
+    procedure CalcSumsAscendingThenDescending_LinesAfterFirstRead()
+    begin
+        Assert.AreEqual('5 / 5', ReadsAcross('sums', 'descendingsums'), 'CalcSums, then after SetAscending(false)');
+    end;
+
+    [Test]
+    procedure CountAtASumWithAFieldFilterOfTheRow_LinesAfterFirstRead()
+    begin
+        Assert.AreEqual('1 / 1', Reads('innerfieldfilter'), 'field() of a sum whose field(filter()) reads Kind Text');
+    end;
+
+    [Test]
+    procedure VariantCopiedTemporaryRecord_LinesAfterFirstRead()
+    begin
+        Assert.AreEqual('1 / 1', Reads('variantcopy'), 'a temporary record a Variant got from another Variant');
     end;
 }

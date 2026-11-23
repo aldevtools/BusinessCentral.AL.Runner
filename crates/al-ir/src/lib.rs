@@ -1494,6 +1494,10 @@ pub struct Control {
     /// Declared in the layout's `area(FactBoxes)`.
     #[serde(default)]
     pub factbox: bool,
+    /// A `fixed` or a `grid`, which lower as a group: `TestPage.GetField` with its control id gives a field whose Value is
+    /// empty, where a group's id finds nothing (corpus pull request 1538, testpage/GetFieldByControlId.al:545, :630).
+    #[serde(default)]
+    pub fixed_or_grid: bool,
 }
 
 /// The action an `actionref` delegates to.
@@ -1557,6 +1561,11 @@ pub struct PartLink {
     /// The `SubPageLink` entries (indices into `entries`) written as a qualified enum value, `const("Enum"::Member)`.
     #[serde(default)]
     pub enum_values: Vec<usize>,
+    /// The entries (indices into `entries`) written `filter(<> '')` on a measured shape (al-sema `not_blank_measured`),
+    /// lowered to the filter `<>''`.
+    /// Applying one runs through the assumption `link-filter-not-blank`.
+    #[serde(default)]
+    pub not_blank: Vec<usize>,
 }
 
 /// One `PartField = field(HostField)` / `const(..)` / `filter(..)` entry of a `SubPageLink`.
