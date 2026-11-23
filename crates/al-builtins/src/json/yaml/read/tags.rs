@@ -132,8 +132,9 @@ pub(super) fn scalar(kind: Kind, v: &str, style: Style, version: Version) -> Res
         return Err(Fail::Refuse(UNMEASURED));
     }
     match kind {
-        // `Str1_*`, `Str2_1`, `Str2_2`, `Position1_19`, `Position2_4`; a quoted null word is not measured.
-        Kind::Str if !plain && plain_null(v) => Err(Fail::Refuse(UNMEASURED)),
+        // `Str1_*`, `Str2_1`, `Str2_2`, `Position1_19`, `Position2_4`: an empty quoted or block text stays a text
+        // (`Str1_8`, `Str2_2`); a quoted null word is not measured.
+        Kind::Str if !plain && !v.is_empty() && plain_null(v) => Err(Fail::Refuse(UNMEASURED)),
         Kind::Str => Ok(Typed::Text(v.to_string())),
         Kind::Int if version == Version::V11 => int11(v).map(Typed::Int),
         Kind::Int => int(v).map(Typed::Int),

@@ -1,7 +1,9 @@
 //! `JsonObject.WriteToYaml` and `JsonObject.ReadFromYaml`. Citations are relative to `corpus/tests/al-language/json/`:
 //! P88 `json/P88ObjectPathYaml.al`, PnA `PnAJsonYaml.al`, Dc `DcJsonLeads.al`, Probe `TestProbeJsonContracts.al`.
 
-use super::{Handle, JsonNode, Reader, Scalar, invalid_json, read_from, read_text_into, recv, with_node, write};
+use super::{
+    Handle, JsonNode, Reader, Scalar, invalid_json, new_handle, read_from, read_text_into, recv, with_node, write,
+};
 use crate::assumptions::{Assumption, assume};
 use crate::native::{Ctx, Signal, unsupported};
 use crate::value::Value;
@@ -219,43 +221,39 @@ const PINNED: [&str; 24] = [
     "a:\\n  b: 1",
 ];
 
-/// The deepest JSON a read gives that the probes measured as read (`flowseq-depth50`, `flowmap-depth50`, `seq-depth50`,
-/// `map-depth50`: 51 containers with the top mapping) and the range they measured as InvalidJsonData (`flowseq-depth100`
-/// to `flowseq-depth300`, `map-depth100`, `map-depth200`: 101 to 301 containers).
-const DEEPEST_READ: usize = 51;
-const TOO_DEEP: std::ops::RangeInclusive<usize> = 101..=301;
+/// The deepest JSON a read gives: 64 containers with the top mapping read, 65 to 401 are InvalidJsonData, in flow and block
+/// lists and mappings and both mixed (corpus PR 1549 JsonYamlFinalStructure.al:700 `*-40to110`, :716 `*-150` to
+/// `flowseq-400`). PR 1530 measured 51 as read and 101 to 301 as too deep (`flowseq-depth50`, `flowseq-depth100` to
+/// `flowseq-depth300`); every other depth is a rule of PR 1549.
+const DEEPEST_READ: usize = 64;
+const TOO_DEEP: std::ops::RangeInclusive<usize> = 65..=401;
+const PR1530_DEPTHS: [std::ops::RangeInclusive<usize>; 2] = [0..=51, 101..=301];
 
 /// `ReadFromYaml(Text)` and `ReadFromYaml(InStream)`: the text is read into a YAML tree (`read::document`), written as
-/// JSON and read like `ReadFrom` into the object. A stream is read as UTF-8 text without a byte order mark (`bt1`,
-/// `bt4`). A document that is no mapping fails with ReadFrom's InvalidJsonType error (P88:225, 228-229; PnA:173-176;
-/// `tl2`-`tl19`), a text that is no YAML with the YAML error (P88:238, PnA:177-178), a mapping nested too deep with
-/// InvalidJsonData (`flowseq-depth100`).
+/// JSON and read like `ReadFrom` into the object. A document that is no mapping fails with ReadFrom's InvalidJsonType
+/// error (P88:225, 228-229; PnA:173-176; `tl2`-`tl19`), a text that is no YAML with the YAML error (P88:238,
+/// PnA:177-178), a mapping nested too deep with InvalidJsonData (`flowseq-depth100`).
 pub(super) fn read_from_yaml(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
-    let (text, stream) = if matches!(&a[0], Value::Library(..)) {
-        // Measured: a stream of the default encoding and of UTF-8 (JsonYamlUtf8.al, JsonYamlRemaining.al).
-        if !matches!(
-            crate::stream::in_stream_encoding(&mut a[0])?,
-            crate::stream::Encoding::MsDos | crate::stream::Encoding::Utf8
-        ) {
-            return unsupported(
-                "ReadFromYaml of an InStream that is not of the default or the UTF-8 encoding (not measured)",
-            );
+    let stream = matches!(&a[0], Value::Library(..));
+    let text = if stream {
+        match stream_text(&mut a[0])? {
+            Some(text) => text,
+            None => return failed(c, r, read::bad_yaml(), true),
         }
-        (crate::stream::read_serialised_text(&mut a[0])?, true)
     } else {
         let Some(text) = crate::native::text_of(&a[0]) else {
             return unsupported("ReadFromYaml with an argument that is not text");
         };
-        (text.to_string(), false)
+        text.to_string()
     };
-    let doc = read::document(&text);
-    if read::tag_or_directive(&text) {
+    let read = read::document(&text);
+    if read.marked {
         assume(Assumption::ReadFromYamlFinalShapes);
     }
-    if matches!(doc, Err(Fail::Refuse(_))) {
-        let Err(Fail::Refuse(why)) = doc else { unreachable!() };
-        return unsupported(why);
-    }
+    let doc = match read.doc {
+        Err(Fail::Refuse(why)) => return unsupported(why),
+        doc => doc,
+    };
     if stream || c.ret_used() || !PINNED.contains(&text.as_str()) {
         assume(Assumption::ReadFromYamlProbedShapes);
     }
@@ -264,6 +262,9 @@ pub(super) fn read_from_yaml(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
         Err(_) => return failed(c, r, read::bad_yaml(), true),
     };
     let depth = doc.depth();
+    if !PR1530_DEPTHS.iter().any(|d| d.contains(&depth)) && depth <= *TOO_DEEP.end() {
+        assume(Assumption::ReadFromYamlFinalShapes);
+    }
     if TOO_DEEP.contains(&depth) && matches!(doc, Yaml::Map(_)) {
         // The cells read with the result used; the statement form is not measured.
         return failed(c, r, invalid_json(), false);
@@ -273,15 +274,53 @@ pub(super) fn read_from_yaml(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
     }
     let mut json = String::new();
     doc.write_json(&mut json);
+    if json.contains(crate::native::CALL_STACK_MARK) {
+        // `\uFDD0` reads as U+FDD0 (corpus PR 1549 JsonYamlFinalStructure.al `EscapeSurrogates1_17`), which this runtime
+        // holds as its mark of untracked call stack frames.
+        return unsupported("ReadFromYaml of a text that reads as U+FDD0, this runtime's call stack mark");
+    }
     if matches!(doc, Yaml::Map(_)) {
         return read_from(c, r, &mut [Value::Text(json.into())], Some("object"));
     }
-    let mut r = r;
-    let empty = receiver_empty(r.as_deref_mut())?;
-    match read_text_into(false, r.as_deref_mut(), &json, Some("object"), Reader::ReadFromText) {
-        Err(e @ Signal::Error(_)) if empty || !c.ret_used() => failed(c, r, e, true),
-        _ => unsupported("ReadFromYaml of a document that is no mapping, into an object with members (not measured)"),
+    // A document that is no mapping: ReadFrom's error, read into a new object so that the receiver stays as it was.
+    let mut scratch = Value::Library("JsonObject".into(), new_handle(JsonNode::Object(Vec::new())));
+    match read_text_into(false, Some(&mut scratch), &json, Some("object"), Reader::ReadFromText) {
+        Err(e @ Signal::Error(_)) => failed(c, r, e, true),
+        _ => unsupported("ReadFromYaml of a document that is no mapping and reads (not measured)"),
     }
+}
+
+/// The text of an `InStream` argument, `None` for the YAML error. The bytes from the stream's position on are read as
+/// UTF-8 whatever the stream's encoding, a byte that is no UTF-8 as U+FFFD, and the stream does not move (corpus PR
+/// 1549 JsonYamlFinalStreams.al:49-95, :118); bytes a UTF-16 stream wrote are the YAML error (`*-16-*`). A stream of
+/// the default or the UTF-8 encoding with UTF-8 bytes is PR 1515's (JsonYamlUtf8.al `bt1`, `bt4`: no byte order mark).
+fn stream_text(stream: &mut Value) -> Result<Option<String>, Signal> {
+    use crate::stream::Encoding;
+    let enc = crate::stream::in_stream_encoding(stream)?;
+    let bytes = crate::stream::in_stream_rest(stream)?;
+    if utf16_written(&bytes) {
+        assume(Assumption::ReadFromYamlFinalShapes);
+        return Ok(None);
+    }
+    let text = String::from_utf8_lossy(&bytes);
+    if text.contains('\0') {
+        return unsupported("ReadFromYaml of an InStream with NUL bytes that no UTF-16 stream wrote (not measured)");
+    }
+    if !matches!(enc, Encoding::MsDos | Encoding::Utf8) || text.contains('\u{FFFD}') {
+        assume(Assumption::ReadFromYamlFinalShapes);
+    }
+    Ok(Some(text.strip_prefix('\u{FEFF}').unwrap_or(&text).to_string()))
+}
+
+/// Whether `bytes` are the UTF-16 bytes of a text of printable ASCII, line breaks and Latin-1 or BMP letters, the
+/// documents a UTF-16 stream wrote in corpus PR 1549 JsonYamlFinalStreams.al:49-95 (`ascii-16-*`, `text-16-*`,
+/// `sect-16-*`): every second byte of an ASCII character is NUL.
+fn utf16_written(bytes: &[u8]) -> bool {
+    if bytes.len() % 2 != 0 || !bytes.contains(&0) {
+        return false;
+    }
+    let units: Vec<u16> = bytes.chunks(2).map(|p| u16::from_le_bytes([p[0], p[1]])).collect();
+    char::decode_utf16(units).all(|c| matches!(c, Ok(c) if c != '\0' && (c == '\n' || (' '..='~').contains(&c) || matches!(c, '\u{a7}' | '\u{df}' | '\u{e4}' | '\u{f1}' | '\u{20ac}'))))
 }
 
 fn receiver_empty(r: Option<&mut Value>) -> Result<bool, Signal> {
@@ -289,9 +328,10 @@ fn receiver_empty(r: Option<&mut Value>) -> Result<bool, Signal> {
     Ok(with_node(&h, |n| matches!(n, JsonNode::Object(k) if k.is_empty())))
 }
 
-/// A read that fails with `e`. With the result used, into an empty object (every cell `Clear`s it first): false, `e` left
-/// as the last error, the object as it was. As a statement it raises `e` where a pin shows it (`statement`: the YAML
-/// error, P88:223,238 and PnA:155,177; InvalidJsonType, P88:210,225 and PnA:154,173).
+/// A read that fails with `e`. With the result used: false, `e` left as the last error, the object as it was (an
+/// empty one: every PR 1530 cell `Clear`s it first; one with members: corpus PR 1549 JsonYamlFinalStructure.al:662
+/// `invalid-flow` to `bad-escape`). As a statement it raises `e` where a pin shows it (`statement`: the YAML error,
+/// P88:223,238 and PnA:155,177; InvalidJsonType, P88:210,225 and PnA:154,173).
 fn failed(c: &mut dyn Ctx, r: Option<&mut Value>, e: Signal, statement: bool) -> Result<Value, Signal> {
     if !c.ret_used() {
         return if statement {
@@ -301,7 +341,7 @@ fn failed(c: &mut dyn Ctx, r: Option<&mut Value>, e: Signal, statement: bool) ->
         };
     }
     if !receiver_empty(r)? {
-        return unsupported("ReadFromYaml that fails into an object with members (not measured)");
+        assume(Assumption::ReadFromYamlFinalShapes);
     }
     let Signal::Error(e) = e else { return Err(e) };
     c.set_last_error(*e);

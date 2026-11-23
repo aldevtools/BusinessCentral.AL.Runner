@@ -109,6 +109,81 @@ fn measured_char(c: char) -> bool {
     )
 }
 
+/// The characters corpus PR 1549 measured beyond `measured_char` (JsonYamlFinalChars.al :45-275, every one `ok` in all
+/// twelve forms but U+0085, U+2028 and U+2029): Latin-1 and Latin Extended letters, other scripts, typographic
+/// punctuation, characters outside the Basic Multilingual Plane, C0 and C1 controls, format characters, private use and
+/// noncharacters. U+FDD0 (`:263`) is this runtime's mark of untracked call stack frames (`native::CALL_STACK_MARK`) and
+/// refuses.
+fn final_char(c: char) -> bool {
+    matches!(
+        c,
+        '\u{1}'
+            | '\u{2}'
+            // U+0015: what `§` written on an MS-DOS stream reads as (JsonYamlFinalStreams.al:95 `sect-m-*`).
+            | '\u{15}'
+            | '\u{8}'
+            | '\u{b}'
+            | '\u{c}'
+            | '\u{e}'
+            | '\u{1f}'
+            | '\u{7f}'
+            | '\u{81}'
+            | '\u{90}'
+            | '\u{9f}'
+            | '\u{a1}'
+            | '\u{ad}'
+            | '\u{b5}'
+            | '\u{c0}'
+            | '\u{d7}'
+            | '\u{df}'
+            | '\u{e4}'
+            | '\u{f1}'
+            | '\u{f6}'
+            | '\u{ff}'
+            | '\u{100}'
+            | '\u{152}'
+            | '\u{17f}'
+            | '\u{416}'
+            | '\u{5d0}'
+            | '\u{627}'
+            | '\u{e01}'
+            | '\u{1e9e}'
+            | '\u{200b}'
+            | '\u{200d}'
+            | '\u{2010}'
+            | '\u{2013}'
+            | '\u{2014}'
+            | '\u{2018}'
+            | '\u{2019}'
+            | '\u{201c}'
+            | '\u{201d}'
+            | '\u{2022}'
+            | '\u{2026}'
+            | '\u{202e}'
+            | '\u{2060}'
+            | '\u{2122}'
+            | '\u{2190}'
+            | '\u{2603}'
+            | '\u{3042}'
+            | '\u{30a2}'
+            | '\u{4e2d}'
+            | '\u{ac00}'
+            | '\u{d7ff}'
+            | '\u{e000}'
+            | '\u{f8ff}'
+            | '\u{fdef}'
+            | '\u{ff21}'
+            | '\u{fffd}'
+            | '\u{fffe}'
+            | '\u{ffff}'
+            | '\u{10000}'
+            | '\u{1f389}'
+            | '\u{1f468}'
+            | '\u{1f4bb}'
+            | '\u{10ffff}'
+    )
+}
+
 /// U+0085, U+2028 and U+2029 break a line, as LF does: every place JsonYamlUtf8.al of corpus PR 1515 put one (a plain
 /// value `sp-N`, a `>-` line `sf-N`, double quotes `sd-N`, :735-798) answers the YAML error. A text with one that reads
 /// is not measured.
@@ -144,19 +219,31 @@ struct Parser {
     expanded: usize,
 }
 
-/// Whether a text may hold a tag or a directive, the shapes the rules of corpus PR 1549 decide (`tags`).
-pub(crate) fn tag_or_directive(text: &str) -> bool {
-    text.contains(['!', '%'])
+/// A text read as a YAML tree, and whether a rule of corpus PR 1549 decided it: then the read runs through the
+/// assumption `read-from-yaml-final-shapes`.
+pub(crate) struct Read {
+    pub(crate) doc: Res<Yaml>,
+    pub(crate) marked: bool,
 }
 
 /// The text read as a YAML tree.
-pub(crate) fn document(text: &str) -> Res<Yaml> {
+pub(crate) fn document(text: &str) -> Read {
     let chars: Vec<char> = text.chars().filter(|&c| c != '\0').collect();
-    if !chars.iter().all(|&c| measured_char(c)) {
-        return Err(Fail::Refuse("ReadFromYaml of a character that no probe measures"));
+    if !chars.iter().all(|&c| measured_char(c) || final_char(c)) {
+        let doc = Err(Fail::Refuse("ReadFromYaml of a character that no probe measures"));
+        return Read { doc, marked: false };
     }
+    let scan = scan::tokens(&chars);
+    let mut marked = scan.marked || chars.iter().any(|&c| !measured_char(c));
+    let doc = scan.toks.and_then(|t| tree(&chars, t, scan.unicode_breaks, &mut marked));
+    Read { doc, marked }
+}
+
+/// The tokens `t` of `chars` as a YAML tree; `unicode_breaks` is the number of U+0085, U+2028 and U+2029 the scanner
+/// read where corpus PR 1549 measured them.
+fn tree(chars: &[char], t: Vec<Tok>, unicode_breaks: usize, marked: &mut bool) -> Res<Yaml> {
     let mut p = Parser {
-        t: scan::tokens(&chars)?,
+        t,
         i: 1,
         anchors: HashMap::new(),
         tags: HashMap::new(),
@@ -164,11 +251,16 @@ pub(crate) fn document(text: &str) -> Res<Yaml> {
         depth: 0,
         expanded: 0,
     };
-    let root = p.stream()?;
+    let root = p.stream();
+    *marked |= p.expanded > MEASURED_EXPANDED;
+    let root = root?;
     // A tagged scalar as the document: `!!int`, `!!bool` and `!!str` with a value are measured (corpus PR 1549
     // JsonYamlFinalTags.al `Top1_1`-`Top1_3`, `Top1_8`); they read as a number, a Boolean or a text, which is no object.
+    // An empty `!!null` document is the YAML error, as `!!null` is everywhere (`Top1_10`).
     if let Some(Node::Scalar { v, tag: Some(t), .. }) = &root {
-        let measured = matches!(tags::kind(t), Kind::Int | Kind::Bool | Kind::Str) && !v.is_empty();
+        let kind = tags::kind(t);
+        let measured =
+            (matches!(kind, Kind::Int | Kind::Bool | Kind::Str) && !v.is_empty()) || (kind == Kind::Null && v.is_empty());
         if !measured || p.version != Version::None {
             return Err(Fail::Refuse(
                 "ReadFromYaml of a document that is a tagged scalar no probe measured",
@@ -179,7 +271,7 @@ pub(crate) fn document(text: &str) -> Res<Yaml> {
         None => Yaml::Null,
         Some(n) => convert(&n, p.version)?,
     };
-    if chars.iter().any(|&c| unicode_break(c)) {
+    if chars.iter().filter(|&&c| unicode_break(c)).count() != unicode_breaks {
         return Err(Fail::Refuse(
             "ReadFromYaml of a text with U+0085, U+2028 or U+2029 that reads (not measured)",
         ));
@@ -522,10 +614,13 @@ impl Parser {
 
 const CORE: &str = "tag:yaml.org,2002:";
 
-/// The nesting a text may have (the parser refuses deeper ones) and the nodes its aliases may expand to in all, far
-/// above the measured sizes (`keys2000`: 4000 nodes).
+/// The nesting a text may have (the parser refuses deeper ones).
 const MAX_DEPTH: usize = 600;
-const MAX_EXPANDED: usize = 200_000;
+/// The nodes the aliases of a text may expand to in all: the billion-laughs text of depth 5 (corpus PR 1549
+/// JsonYamlFinalStructure.al `lol5`, :355: 9 aliases per level, 672588 nodes) reads. A larger expansion is not measured.
+const MAX_EXPANDED: usize = 672_588;
+/// The expansion PR 1530 read before (`keys2000`: 4000 nodes, allowed up to here); a larger one is a rule of PR 1549.
+const MEASURED_EXPANDED: usize = 200_000;
 
 /// The nodes in a node and its depth.
 fn measure(n: &Node) -> (usize, usize) {

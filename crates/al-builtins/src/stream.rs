@@ -667,6 +667,12 @@ impl Encoding {
                     // (streams/instream-outstream/StreamLengthOthers.al Char_WriteReadLength_High_1, _2, Text_WriteLength_NonAscii,
                     // corpus PR 1248; al-runner issue 7387).
                     '\u{B6}' => vec![0x14],
+                    // `§` is the code page's 0x15: read back as UTF-8 it is U+0015 (corpus PR 1549
+                    // JsonYamlFinalStreams.al:95 `sect-m-*`, through the assumption `read-from-yaml-final-shapes`).
+                    '\u{A7}' => {
+                        crate::assumptions::assume(crate::assumptions::Assumption::ReadFromYamlFinalShapes);
+                        vec![0x15]
+                    }
                     '\u{80}' => vec![b'?'],
                     '\u{100}' => vec![b'A'],
                     // The call stack mark, kept as for a Windows stream (`CALL_STACK_MARK_BYTES`). It stands for untracked
@@ -2318,6 +2324,12 @@ pub(crate) fn read_serialised_text(stream: &mut Value) -> Result<String, Signal>
         // ReadFrom_RestOfStream, `eosAfter` = No), as for `XmlDocument.ReadFrom`.
         Ok(text.strip_prefix('\u{FEFF}').map(str::to_owned).unwrap_or(text))
     })
+}
+
+/// The bytes of an `InStream` from its position on; the stream does not move (`ReadFromYaml`, corpus PR 1549
+/// JsonYamlFinalStreams.al:118 `whole-pos`, `whole-second-pos`).
+pub(crate) fn in_stream_rest(stream: &mut Value) -> Result<Vec<u8>, Signal> {
+    with_in(Some(stream), |st| Ok(st.rest()))
 }
 
 /// The encoding of an `InStream` argument (`ReadFromYaml` reads only the default and the UTF-8 ones).
