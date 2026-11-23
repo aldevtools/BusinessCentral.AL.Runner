@@ -2204,7 +2204,7 @@ fn record_method(method: &str) -> RecordOp {
 fn variant_record_into_ref(lib: &Lib, src: &Rc<RefCell<RecordState>>) -> Result<Value, Signal> {
     let mut copy = gettable_record_copy(src)?;
     // Through a Variant the row version's entry is not measured (`check_failed_insert_stale`).
-    copy.version_entry = copy.version_entry.carried(al_builtins::value::VersionVia::Cloned);
+    copy.version_entry.now_via(al_builtins::value::VersionVia::Cloned);
     match copy.unpinned_buffer {
         Some(crate::records::RUN_PAGE_LINK_VARIANT) => copy.unpinned_buffer = None,
         Some(w @ (crate::records::RUN_PAGE_LINK_COPY | crate::records::RUN_PAGE_LINK_OPEN_COPY)) => {
@@ -2226,12 +2226,9 @@ pub(crate) fn gettable_record_copy(src: &Rc<RefCell<RecordState>>) -> Result<Rec
     }
     crate::Session::by_value_view_handed(src, || "RecordRef.GetTable of a record".into())?;
     let mut copy = al_builtins::record_into_recordref::recordref_copy(&src.borrow());
-    // The ref takes the version as the record had it (corpus PR 1523, record/crud/TestRecordFailedInsertMovedKey.al:907
-    // R10).
-    copy.version_entry = src
-        .borrow()
-        .version_entry
-        .carried(al_builtins::value::VersionVia::GetTable);
+    // The ref takes the version as the record had it, carried by the clone (corpus PR 1523,
+    // record/crud/TestRecordFailedInsertMovedKey.al:907 R10).
+    copy.version_entry.now_via(al_builtins::value::VersionVia::GetTable);
     Ok(copy)
 }
 

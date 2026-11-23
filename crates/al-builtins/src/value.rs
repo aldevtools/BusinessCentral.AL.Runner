@@ -702,7 +702,7 @@ pub struct OwnReadAt {
 /// ([`VersionEntry::carried`]). Empty when no read or write of the buffer gave it its version (a TransferFields with
 /// the key copies one: the buffer neither read nor wrote that row).
 #[derive(Debug, Default)]
-pub struct VersionEntry(pub Option<VersionSource>);
+pub struct VersionEntry(pub Option<HeldVersion>);
 
 impl Clone for VersionEntry {
     fn clone(&self) -> Self {
@@ -711,18 +711,49 @@ impl Clone for VersionEntry {
 }
 
 impl VersionEntry {
-    /// The entry a copy of the buffer takes, made by `via`: no failed Insert of its own yet.
+    /// The entry of a version `source` just gave the variable itself.
+    pub fn own(source: VersionSource) -> VersionEntry {
+        VersionEntry(Some(HeldVersion {
+            source: Rc::new(source),
+            via: VersionVia::Own,
+            failed_inserts: 0,
+            deleted: false,
+        }))
+    }
+
+    /// The entry a copy of the buffer takes, made by `via`: the same source, no failed Insert of its own yet.
     pub fn carried(&self, via: VersionVia) -> VersionEntry {
-        VersionEntry(self.0.clone().map(|s| VersionSource {
+        VersionEntry(self.0.as_ref().map(|h| HeldVersion {
+            source: Rc::clone(&h.source),
             via,
             failed_inserts: 0,
-            ..s
+            deleted: h.deleted,
         }))
+    }
+
+    /// This copy came by `via`: what [`VersionEntry::carried`] gives a copy that is already a clone of the buffer.
+    pub fn now_via(&mut self, via: VersionVia) {
+        if let Some(h) = self.0.as_mut() {
+            h.via = via;
+        }
     }
 }
 
-/// One [`VersionEntry`]: the version, how it reached the buffer, and the open transaction at that moment.
+/// One copy's hold of a [`VersionSource`]. The source is what the read or write stamped and every copy shares it; the
+/// rest is the copy's own.
 #[derive(Debug, Clone)]
+pub struct HeldVersion {
+    pub source: Rc<VersionSource>,
+    /// Which copy holds it.
+    pub via: VersionVia,
+    /// The guarded Inserts of this copy at this version that answered false.
+    pub failed_inserts: u32,
+    /// The variable deleted its row since.
+    pub deleted: bool,
+}
+
+/// One [`VersionEntry`]'s source: the version, how it reached the buffer, and the open transaction at that moment.
+#[derive(Debug)]
 pub struct VersionSource {
     /// The row version.
     pub version: i64,
@@ -730,8 +761,6 @@ pub struct VersionSource {
     pub key: Vec<Value>,
     /// The read or the write that gave it.
     pub how: VersionHow,
-    /// Which copy holds it.
-    pub via: VersionVia,
     /// What the open transaction had written to the table then (the buffer's own write included).
     pub table_written: TableWritten,
     /// The buffer's company then (`None`: the session's own).
@@ -745,10 +774,6 @@ pub struct VersionSource {
     pub writes: [u64; 3],
     /// The length of the open transaction's write log then (al-vm `OpenTx::writes`).
     pub log: usize,
-    /// The guarded Inserts at this version that answered false.
-    pub failed_inserts: u32,
-    /// The variable deleted its row since.
-    pub deleted: bool,
 }
 
 /// The read or write that gave a buffer its row version ([`VersionSource::how`]).
@@ -2239,5 +2264,54 @@ mod identical_tests {
         let x = vec![Value::Integer(1), Value::Text(t("a"))];
         assert!(Value::all_identical(&x, &x.clone()));
         assert!(!Value::all_identical(&x, &x[..1]));
+    }
+}
+
+#[cfg(test)]
+mod version_entry_tests {
+    use super::*;
+
+    /// The entry the variable's own Get gave it, with a failed Insert and a Delete of its own.
+    fn own_entry(key: Vec<Value>) -> VersionEntry {
+        let mut e = VersionEntry::own(VersionSource {
+            version: 7,
+            key,
+            how: VersionHow::Get,
+            table_written: TableWritten::Written,
+            company: Some("CRONUS".into()),
+            tests: 1,
+            commits: 2,
+            rollbacks: 3,
+            writes: [4, 5, 6],
+            log: 8,
+        });
+        let h = e.0.as_mut().expect("an entry");
+        (h.failed_inserts, h.deleted) = (1, true);
+        e
+    }
+
+    /// Where the entry's key lives, and what the copy holding it has of its own: how it came, its failed Inserts and
+    /// whether it deleted its row.
+    fn key_at(e: &VersionEntry) -> *const Value {
+        e.0.as_ref().expect("an entry").source.key.as_ptr()
+    }
+    fn per_copy(e: &VersionEntry) -> (VersionVia, u32, bool) {
+        let s = e.0.as_ref().expect("an entry");
+        (s.via, s.failed_inserts, s.deleted)
+    }
+
+    /// A copy of a record (a clone of its state, `:=`, Record.Copy, a by-value parameter, GetTable) shares the source of
+    /// its row version instead of copying its key and company: a by-value Record argument made two copies of both per
+    /// call. What a copy holds of its own is still its own: how it came, no failed Insert yet, and the Delete carried.
+    #[test]
+    fn a_copy_shares_the_row_version_source() {
+        let own = own_entry(vec![Value::Integer(1), Value::Text("K".into())]);
+        let cloned = own.clone();
+        let by_value = own.carried(VersionVia::ByValue);
+        assert_eq!(key_at(&cloned), key_at(&own));
+        assert_eq!(key_at(&by_value), key_at(&own));
+        assert_eq!(per_copy(&own), (VersionVia::Own, 1, true));
+        assert_eq!(per_copy(&cloned), (VersionVia::Cloned, 0, true));
+        assert_eq!(per_copy(&by_value), (VersionVia::ByValue, 0, true));
     }
 }

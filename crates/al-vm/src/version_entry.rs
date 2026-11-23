@@ -15,7 +15,9 @@ use crate::globaltriggers::GlobalOp;
 use crate::records::same_key;
 use crate::state::TxWriteKind;
 use al_builtins::native::Signal;
-use al_builtins::value::{RecordState, TableWritten, Value, VersionEntry, VersionHow, VersionSource, VersionVia};
+use al_builtins::value::{
+    HeldVersion, RecordState, TableWritten, Value, VersionEntry, VersionHow, VersionSource, VersionVia,
+};
 use al_data::TableDef;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -102,7 +104,6 @@ impl Session {
             version,
             key,
             how,
-            via: VersionVia::Own,
             table_written,
             company: company.clone(),
             tests: self.pages.test_methods_started,
@@ -110,8 +111,6 @@ impl Session {
             rollbacks: self.rollbacks,
             writes: self.tx.write_counts.now(table, company),
             log: self.tx.open.writes.len(),
-            failed_inserts: 0,
-            deleted: false,
         }
     }
 
@@ -139,7 +138,7 @@ impl Session {
             _ => VersionHow::OtherRead,
         };
         let written = self.tx.open.table_writes.of(t.object, &r.company);
-        VersionEntry(Some(self.stamp(t.object, &r.company, (*v, pk.to_vec()), how, written)))
+        VersionEntry::own(self.stamp(t.object, &r.company, (*v, pk.to_vec()), how, written))
     }
 
     /// Stamps the version the variable's own write `how` just gave `rec`. `before`: the table's verdict before the
@@ -167,7 +166,7 @@ impl Session {
             None => self.tx.open.table_writes.of(t.object, &company),
         };
         let key = t.primary_key(&r.fields);
-        r.version_entry = VersionEntry(Some(self.stamp(t.object, &company, (v, key), how, written)));
+        r.version_entry = VersionEntry::own(self.stamp(t.object, &company, (v, key), how, written));
     }
 
     /// The variable's own Modify of `rec` was written: the row it wrote (`last_modify`) and its version's entry.
@@ -201,10 +200,10 @@ impl Session {
     pub(crate) fn version_after_table_write(&mut self, t: &TableDef, rec: &Rec, mine: i64) -> Result<bool, Signal> {
         let (e, moved, company) = {
             let r = rec.borrow();
-            let Some(e) = r.version_entry.0.clone().filter(|e| e.version == mine) else {
+            let Some(e) = r.version_entry.0.clone().filter(|e| e.source.version == mine) else {
                 return Ok(false);
             };
-            let moved = !same_key(&e.key, &t.primary_key(&r.fields));
+            let moved = !same_key(&e.source.key, &t.primary_key(&r.fields));
             (e, moved, r.company.clone())
         };
         // A version from the buffer's own Modify of another row: written
@@ -215,11 +214,11 @@ impl Session {
             e.via,
             VersionVia::Own | VersionVia::ByValue | VersionVia::GetTable | VersionVia::Cloned
         );
-        if e.how == VersionHow::OwnModify && own_modify_copy && moved {
+        if e.source.how == VersionHow::OwnModify && own_modify_copy && moved {
             return Ok(true);
         }
         // Read before any write or lock of its table: raised (see the module comment). An own write always writes it.
-        if e.table_written == TableWritten::No {
+        if e.source.table_written == TableWritten::No {
             return Ok(false);
         }
         if self.measured_after_table_write(t, &e, moved, &company)? {
@@ -255,14 +254,15 @@ impl Session {
     fn measured_after_table_write(
         &mut self,
         t: &TableDef,
-        e: &VersionSource,
+        held: &HeldVersion,
         moved: bool,
         company: &Option<String>,
     ) -> Result<bool, Signal> {
+        let e = &*held.source;
         use VersionHow::{Find, Get, OwnInsert, OwnRename};
         use VersionVia::{Assigned, ByValue, Copied, GetTable, Own};
         let source = matches!(
-            (e.how, e.via, moved),
+            (e.how, held.via, moved),
             (Get, Own | Assigned | Copied | ByValue | GetTable, true)
                 | (Get, Own, false)
                 | (Find, Assigned, true)
@@ -276,7 +276,7 @@ impl Session {
         let rollback = self.rollbacks == e.rollbacks || (read && self.rollbacks == e.rollbacks + 1);
         let shape = source
             && e.table_written == TableWritten::Written
-            && !e.deleted
+            && !held.deleted
             && e.company.is_none()
             && company.is_none()
             && e.tests == self.pages.test_methods_started
@@ -285,8 +285,8 @@ impl Session {
             && (moved || self.key_only_modified(t, e, company))
             && unmeasured == e.writes[1]
             && all - e.writes[0] == of_table - e.writes[2]
-            && e.failed_inserts == 1
-            && (e.via == GetTable) == self.through_recordref
+            && held.failed_inserts == 1
+            && (held.via == GetTable) == self.through_recordref
             && !self.ret_used
             && self.stale_writes_noted();
         Ok(shape && !self.write_hooks(t)?)

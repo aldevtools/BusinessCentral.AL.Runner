@@ -89,7 +89,7 @@ impl Session {
             let mut b = rec.borrow_mut();
             let v = if let Value::BigInteger(n) = &b.fields[i] { *n } else { 0 };
             b.failed_insert = Some(v);
-            if let Some(e) = b.version_entry.0.as_mut().filter(|e| e.version == v) {
+            if let Some(e) = b.version_entry.0.as_mut().filter(|e| e.source.version == v) {
                 e.failed_inserts += 1;
             }
         }
