@@ -1081,25 +1081,14 @@ impl Lowerer<'_> {
                             ));
                         }
                         // `'@'` and `'<>@'` run only where the cells measure them (al-builtins
-                        // `filter_at_sign::calc_formula_at_sign_measured`); everything else is refused here, not at run time.
+                        // `filter_at_sign::calc_formula_at_sign_measured`), with any method; everything else is refused here, not
+                        // at run time.
                         if inner == "@" || inner == "<>@" {
-                            let field = &src_fields[pos];
-                            let names_shown = al_builtins::filter::shows_member_names(&field.properties);
-                            let rt = self.field_rt(src, field);
-                            let sum = f.method == ir::CalcMethod::Sum;
-                            if !al_builtins::filter::calc_formula_at_sign_measured(&rt, sum, names_shown) {
+                            let rt = self.field_rt(src, &src_fields[pos]);
+                            if !al_builtins::filter::calc_formula_at_sign_measured(&rt) {
                                 use al_builtins::describe::Describe;
-                                let method = match f.method {
-                                    ir::CalcMethod::Sum => "sum",
-                                    ir::CalcMethod::Count => "count",
-                                    ir::CalcMethod::Average => "average",
-                                    ir::CalcMethod::Min => "min",
-                                    ir::CalcMethod::Max => "max",
-                                    ir::CalcMethod::Exist => "exist",
-                                    ir::CalcMethod::Lookup => "lookup",
-                                };
                                 return Err(format!(
-                                    "CalcFormula filter '{inner}' over a {} field in a {method} (not measured)",
+                                    "CalcFormula filter '{inner}' over a {} field (not measured)",
                                     rt.describe()
                                 ));
                             }

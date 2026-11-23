@@ -13,8 +13,7 @@
 use crate::Session;
 use al_builtins::describe::Describe;
 use al_builtins::filter::{
-    FieldFilter, FilterExpr, OtherSourceAtSign, calc_formula_at_sign_other_source, parse_filter_at_sign_measured,
-    parse_filter_both_at_signs_measured,
+    FieldFilter, FilterExpr, OtherSourceAtSign, calc_formula_at_sign_other_source, parse_filter_both_at_signs_measured,
 };
 use al_builtins::native::{AlError, Signal, text_of, unsupported};
 use al_builtins::ops;
@@ -1025,15 +1024,11 @@ impl Session {
         let src = &engine.program.objects[calc.table].table.as_ref().expect("table").fields;
         let language = al_builtins::format::FormatCtx::language(self);
         let enums = |id: u32| crate::views::enum_filter_members(&engine.program.objects[id as usize], language);
-        // `@` alone on a Code field is measured in a CalcFormula's field(filter()) of a normal field and in its filter('@'), and `<>@`
-        // alone in its filter('<>@') (`filter_at_sign`, AtSignAloneReads.al:558, :579, :752).
-        let parse = |text: &str, ty: &RtType, negated_measured: bool| {
-            let parsed = if negated_measured {
-                parse_filter_both_at_signs_measured(text, &[], ty, &enums)
-            } else {
-                parse_filter_at_sign_measured(text, &[], ty, &enums)
-            };
-            parsed.map_err(|e| Signal::unsupported(format!("CalcFormula filter: {e}")))
+        // `@` alone and `<>@` alone on a Code field are measured in a CalcFormula's filter('@') and filter('<>@') and in its
+        // field(filter()) of a normal field (`filter_at_sign`, AtSignAloneReads.al:558, :579, :752; AtSignAloneTypes.al:1027, :1041).
+        let parse = |text: &str, ty: &RtType| {
+            parse_filter_both_at_signs_measured(text, &[], ty, &enums)
+                .map_err(|e| Signal::unsupported(format!("CalcFormula filter: {e}")))
         };
         // The flow filter the caller set on field `q`, if any. `@` alone and `<>@` alone in it are measured through field() and
         // through field(filter()) (BgTaskQueryCache.al:5753, :5767; AtSignAloneReads.al:598, :904, :928).
@@ -1053,21 +1048,41 @@ impl Session {
                     parts.push((c.field, FilterExpr::Eq(ops::convert(crate::constant(k), sty)?), false));
                 }
                 ir::CalcValue::Filter(text) => {
-                    // `filter('@')` or `filter('<>@')` over a Date, Integer, Decimal, Boolean or name-showing Option source field
-                    // answers as BC does (al-builtins `filter_at_sign::calc_formula_at_sign_other_source`); the lowering admits
-                    // it only in a sum.
-                    let names_shown = al_builtins::filter::shows_member_names(&src[c.field].properties);
-                    let language = self.global_language();
-                    match calc_formula_at_sign_other_source(text, sty, names_shown, language) {
-                        Some(Err(refusal)) => return unsupported(refusal),
-                        Some(Ok(OtherSourceAtSign::Rows(true))) => {}
-                        Some(Ok(OtherSourceAtSign::Rows(false))) => {
+                    // `filter('@')` or `filter('<>@')` over a source field that is neither Code nor Text answers as BC does
+                    // (al-builtins `filter_at_sign::calc_formula_at_sign_other_source`); an Option or Enum field's error lists
+                    // the captions TestField shows (`members_of_field`, which refuses translated ones).
+                    let captions = || {
+                        // No cell measures an enum that an enumextension extends.
+                        if let RtType::Enum(id) = sty {
+                            let base = engine.program.objects[*id as usize].id;
+                            let heads = engine.program.objects.heads();
+                            if heads
+                                .iter()
+                                .any(|o| o.kind == ir::ObjKind::EnumExtension && o.extends_id == base)
+                            {
+                                return unsupported(format!(
+                                    "the error of a CalcFormula filter '{text}' over an Enum field whose enum an enumextension extends (not measured)"
+                                ));
+                            }
+                        }
+                        let def = engine.tables[calc.table].clone();
+                        let members = match def {
+                            Some(t) => self.members_of_field(&t, c.field)?,
+                            None => None,
+                        };
+                        Ok(members
+                            .map(|(_, m)| m.into_iter().map(|(_, _, caption)| caption).collect())
+                            .unwrap_or_default())
+                    };
+                    match calc_formula_at_sign_other_source(text, sty, self.global_language(), captions)? {
+                        Some(OtherSourceAtSign::Rows(true)) => {}
+                        Some(OtherSourceAtSign::Rows(false)) => {
                             parts.push((c.field, FilterExpr::Or(Vec::new()), false))
                         }
-                        Some(Ok(OtherSourceAtSign::Error { message, code })) => {
+                        Some(OtherSourceAtSign::Error { message, code }) => {
                             return Err(crate::transactions::al_error_code(&message, code));
                         }
-                        None => parts.push((c.field, parse(text, sty, true)?, false)),
+                        None => parts.push((c.field, parse(text, sty)?, false)),
                     }
                 }
                 ir::CalcValue::Field(q) => {
@@ -1203,11 +1218,11 @@ impl Session {
                         let expr = match sty {
                             // A Text field over a Date source field: the earlier reading, then the pinned forms it refused
                             // (`calc_text_date_filter`). A Code field keeps the earlier reading only.
-                            RtType::Date if matches!(own[*q].ty, RtType::Text(_)) => match parse(&text, sty, false) {
+                            RtType::Date if matches!(own[*q].ty, RtType::Text(_)) => match parse(&text, sty) {
                                 Ok(e) => e,
                                 Err(refusal) => self.calc_text_date_filter(&text, &enums, refusal)?,
                             },
-                            _ => parse(&text, sty, false)?,
+                            _ => parse(&text, sty)?,
                         };
                         parts.push((c.field, expr, true));
                     }

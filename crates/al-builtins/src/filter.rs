@@ -761,15 +761,15 @@ pub fn set_filter_text_error(text: &str, ty: &crate::value::RtType) -> Option<&'
     }
 }
 
-/// [`parse_filter_any`] for every place a filter comes from except those [`parse_filter_at_sign_measured`] lists: `@` alone on a
-/// Code field refuses there, as it did before `filter_at_sign` answered it.
+/// [`parse_filter_any`] for every place a filter comes from except those [`parse_filter_both_at_signs_measured`] lists: `@` alone
+/// and `<>@` alone on a Code field refuse there, as they did before `filter_at_sign` answered them.
 pub fn parse_filter_with(
     text: &str,
     args: &[crate::value::Value],
     ty: &crate::value::RtType,
     enums: &dyn Fn(u32) -> Result<Vec<(i32, String)>, String>,
 ) -> Result<FilterExpr, String> {
-    crate::filter_at_sign::refused_where_not_measured(parse_filter_any(text, args, ty, enums)?, false)
+    crate::filter_at_sign::refused_where_not_measured(parse_filter_any(text, args, ty, enums)?)
 }
 
 /// The filter `text` of a field of type `ty`, `@` alone on a Code field included ([`FilterExpr::AtSignAloneCode`]).
@@ -1948,8 +1948,7 @@ pub fn all_match(filters: &[FieldFilter], row: &[Value]) -> Result<bool, Signal>
 
 pub use crate::filter_at_sign::{
     AtSignRows, OtherSourceAtSign, at_sign_alone_read, calc_formula_at_sign_measured,
-    calc_formula_at_sign_other_source, code_at_sign_alone_named, parse_filter_at_sign_measured,
-    parse_filter_both_at_signs_measured, shows_member_names,
+    calc_formula_at_sign_other_source, code_at_sign_alone_named, parse_filter_both_at_signs_measured,
 };
 pub use crate::filter_collation::{all_match_on, row_passes_collation};
 
