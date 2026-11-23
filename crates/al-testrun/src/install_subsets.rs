@@ -18,8 +18,8 @@
 //! install that read one may have written other rows from it.
 
 use crate::install_orders::{
-    AppInstalls, INSTALL_ORDER_DIFFERENCE_NOTE, INSTALL_ORDERS_NOTE, MAX_INPUTS, MAX_INTERACTING, PartnerGroup,
-    SHOWN_DIFFERENCES, names, orders,
+    AppInstalls, INSTALL_ORDER_DIFFERENCE_NOTE, INSTALL_ORDERS_NOTE, MAX_INPUTS, MAX_INTERACTING, MAX_UNIT_RUNS,
+    PartnerGroup, SHOWN_DIFFERENCES, names, orders,
 };
 use crate::install_proof::{Footprints, Graph, tie};
 use al_sema::lower::Lowered;
@@ -252,9 +252,9 @@ impl<'p, 'g> Proof<'p, 'g> {
         let runs = plan(&orders(self.g, &own), &placed, reads, |a, b| self.g.view.needs(a, b))
             .map_err(|n| self.too_many(n, &own, &who))?;
         let mut ends = Vec::new();
-        for placed in runs {
+        for planned in runs {
             let mut fixed = before.clone();
-            fixed.extend(placed);
+            fixed.extend(planned);
             rewind(session, inst);
             // The clock readings around this run: a value inside them was read from the clock (amendment 8).
             let from = session.clock_now_millis();
@@ -430,10 +430,6 @@ impl Unproven {
     }
 }
 
-/// The most runs of one unit: every order of a tangle of [`MAX_INTERACTING`] apps times every subset of [`MAX_INPUTS`]
-/// inputs (ADR-079 decision 5: 3! x 2^3 = 48).
-pub(crate) const MAX_UNIT_RUNS: usize = 6 << MAX_INPUTS;
-
 /// ADR-079 decision 3, clarification of 2026-11-23 (issue 8907): the runs of a unit with inputs, as orders of the unit's
 /// apps with each app of its inputs (`inputs`, in install order) placed among them. Per order of the unit's apps
 /// (`orders`), an input app's place counts only relative to the apps of the unit that read from it (`reads(a, y)`):
@@ -477,9 +473,11 @@ pub(crate) fn plan(
                 }
             }
             for _ in 0..k {
-                for (i, j) in (0..k).flat_map(|i| (0..k).map(move |j| (i, j))) {
-                    if needs(inputs[i], inputs[j]) {
-                        lo[i] = lo[i].max(lo[j]);
+                for i in 0..k {
+                    for j in 0..k {
+                        if needs(inputs[i], inputs[j]) {
+                            lo[i] = lo[i].max(lo[j]);
+                        }
                     }
                 }
             }

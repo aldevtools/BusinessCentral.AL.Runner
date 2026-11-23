@@ -35,6 +35,17 @@ pub(crate) const MAX_INTERACTING: usize = 3;
 /// decision 5). Beyond it, it refuses as before.
 pub(crate) const MAX_INPUTS: usize = 3;
 
+/// The most runs of one unit: every order of a tangle of [`MAX_INTERACTING`] apps times every subset of [`MAX_INPUTS`]
+/// inputs (ADR-079 decision 5: 3! x 2^3 = 48). The input plan (`install_subsets.rs` `plan`) refuses beyond it.
+pub(crate) const MAX_UNIT_RUNS: usize = {
+    let (mut n, mut f) = (MAX_INTERACTING, 1);
+    while n > 1 {
+        f *= n;
+        n -= 1;
+    }
+    f << MAX_INPUTS
+};
+
 /// The start of the baseline note that says which partner apps were installed in several orders (`--timings`).
 pub const INSTALL_ORDERS_NOTE: &str = "install order: ";
 

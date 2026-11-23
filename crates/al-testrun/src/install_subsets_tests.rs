@@ -102,21 +102,16 @@ fn an_app_of_the_unit_that_measured_the_difference_is_not_tainted_by_it() {
     assert!(readers.contains(&1), "{readers:?}");
 }
 
-/// `needs` from a list of (app, app it depends on).
-fn deps(pairs: &'static [(u32, u32)]) -> impl Fn(u32, u32) -> bool {
+/// A relation from a list of pairs: `needs` (app, app it depends on) or `reads` (unit app, input app it reads from).
+fn pairs(pairs: &'static [(u32, u32)]) -> impl Fn(u32, u32) -> bool {
     move |a, b| pairs.contains(&(a, b))
-}
-
-/// `reads` from a list of (unit app, input app it reads from).
-fn reads(pairs: &'static [(u32, u32)]) -> impl Fn(u32, u32) -> bool {
-    move |a, y| pairs.contains(&(a, y))
 }
 
 /// Inputs 2 and 3 of one app each; 3 depends on 2 (review round 4, R1). The subset "3 before the unit, 2 after it" is no
 /// real order and is skipped; the other three run.
 #[test]
 fn a_subset_that_puts_an_input_before_the_input_it_depends_on_is_skipped() {
-    let runs = plan(&[vec![1]], &[2, 3], reads(&[(1, 2), (1, 3)]), deps(&[(3, 2)]));
+    let runs = plan(&[vec![1]], &[2, 3], pairs(&[(1, 2), (1, 3)]), pairs(&[(3, 2)]));
     assert_eq!(runs.ok(), Some(vec![vec![1, 2, 3], vec![2, 1, 3], vec![2, 3, 1]]));
 }
 
@@ -127,8 +122,8 @@ fn the_apps_of_a_multi_app_input_are_placed_one_by_one() {
     let runs = plan(
         &[vec![1]],
         &[2, 4, 3],
-        reads(&[(1, 2), (1, 4), (1, 3)]),
-        deps(&[(3, 2)]),
+        pairs(&[(1, 2), (1, 4), (1, 3)]),
+        pairs(&[(3, 2)]),
     );
     let runs = runs.ok().unwrap_or_default();
     assert_eq!(runs.len(), 6, "{runs:?}");
@@ -148,21 +143,21 @@ fn the_apps_of_a_multi_app_input_are_placed_one_by_one() {
 /// in the tangle order 2, 1 is no real order and is skipped.
 #[test]
 fn a_tangle_whose_input_depends_on_a_member_runs_every_real_order() {
-    let runs = plan(&[vec![1, 2], vec![2, 1]], &[3], reads(&[(2, 3)]), deps(&[(3, 1)]));
+    let runs = plan(&[vec![1, 2], vec![2, 1]], &[3], pairs(&[(2, 3)]), pairs(&[(3, 1)]));
     assert_eq!(runs.ok(), Some(vec![vec![1, 2, 3], vec![1, 3, 2], vec![2, 1, 3]]));
 }
 
 /// Issue 8907, the tangle of three: 1, 2, 3 with input 4 depending on 2 and read by 3. The order 1, 2, 4, 3 runs.
 #[test]
 fn a_tangle_of_three_places_its_input_after_the_member_it_depends_on() {
-    let runs = plan(&[vec![1, 2, 3]], &[4], reads(&[(3, 4)]), deps(&[(4, 2)]));
+    let runs = plan(&[vec![1, 2, 3]], &[4], pairs(&[(3, 4)]), pairs(&[(4, 2)]));
     assert_eq!(runs.ok(), Some(vec![vec![1, 2, 3, 4], vec![1, 2, 4, 3]]));
 }
 
 /// An input both tangle apps read from also runs between them: T1, I, T2 gives T1 without I and T2 with it.
 #[test]
 fn an_input_two_members_read_from_also_installs_between_them() {
-    let runs = plan(&[vec![1, 2], vec![2, 1]], &[3], reads(&[(1, 3), (2, 3)]), deps(&[]));
+    let runs = plan(&[vec![1, 2], vec![2, 1]], &[3], pairs(&[(1, 3), (2, 3)]), pairs(&[]));
     let want = vec![
         vec![1, 2, 3],
         vec![1, 3, 2],
@@ -177,7 +172,7 @@ fn an_input_two_members_read_from_also_installs_between_them() {
 /// A member that depends on the input: 2 depends on 3, 1 reads from 3. The runs are the three real orders.
 #[test]
 fn a_member_that_depends_on_the_input_keeps_it_before() {
-    let runs = plan(&[vec![1, 2], vec![2, 1]], &[3], reads(&[(1, 3)]), deps(&[(2, 3)]));
+    let runs = plan(&[vec![1, 2], vec![2, 1]], &[3], pairs(&[(1, 3)]), pairs(&[(2, 3)]));
     assert_eq!(runs.ok(), Some(vec![vec![1, 3, 2], vec![3, 1, 2], vec![3, 2, 1]]));
 }
 
@@ -193,6 +188,6 @@ fn a_plan_beyond_the_runs_of_decision_5_is_refused() {
         vec![3, 2, 1],
     ];
     let both = &[(1, 4), (2, 4), (1, 5), (2, 5), (1, 6), (2, 6)];
-    let runs = plan(&orders, &[4, 5, 6], reads(both), deps(&[]));
+    let runs = plan(&orders, &[4, 5, 6], pairs(both), pairs(&[]));
     assert_eq!(runs, Err(162));
 }
