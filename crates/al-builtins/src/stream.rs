@@ -2320,6 +2320,17 @@ pub(crate) fn read_serialised_text(stream: &mut Value) -> Result<String, Signal>
     })
 }
 
+/// The bytes of an `InStream` from its position on; the stream does not move (`ReadFromYaml`, corpus PR 1549
+/// JsonYamlFinalStreams.al:118 `whole-pos`, `whole-second-pos`).
+pub(crate) fn in_stream_rest(stream: &mut Value) -> Result<Vec<u8>, Signal> {
+    with_in(Some(stream), |st| Ok(st.rest()))
+}
+
+/// The read position of an `InStream` argument, 0 at its start.
+pub(crate) fn in_stream_pos(stream: &mut Value) -> Result<usize, Signal> {
+    with_in(Some(stream), |st| Ok(st.pos))
+}
+
 /// The encoding of an `InStream` argument (`ReadFromYaml` reads only the default and the UTF-8 ones).
 pub(crate) fn in_stream_encoding(stream: &mut Value) -> Result<Encoding, Signal> {
     with_in(Some(stream), |st| Ok(st.enc))
@@ -2396,7 +2407,17 @@ fn out_write_text(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
         Some(n) => text.chars().take(n).collect(),
         None => text,
     };
-    let bytes = enc.encode(&text);
+    let bytes = if enc == Encoding::MsDos && text.contains('\u{A7}') {
+        // `OutStream.WriteText` writes `§` to an MS-DOS stream as the code page's 0x15 (corpus PR 1549
+        // JsonYamlFinalStreams.al:95 `sect-m-*`, read back by ReadFromYaml as U+0015). Only this writer is measured.
+        crate::assumptions::assume(crate::assumptions::Assumption::ReadFromYamlFinalShapes);
+        text.split('\u{A7}')
+            .map(|part| enc.encode(part))
+            .collect::<Vec<_>>()
+            .join(&0x15)
+    } else {
+        enc.encode(&text)
+    };
     write_text_bytes(&b, &bytes, &text);
     if a.len() == 1 {
         b.borrow_mut().line_breaks.note_text_write(enc);
@@ -2919,6 +2940,14 @@ mod blob_cell_tests {
         for (b, c) in CP437_AS_READ {
             assert_eq!(Encoding::MsDos.decode(&[b]), c.to_string(), "{b:#x}");
         }
+    }
+
+    /// `§` as 0x15 is measured for `OutStream.WriteText` only (`out_write_text`); the shared encoder that File.Write, the
+    /// XMLport writer and the Char-to-Byte conversion use keeps main's byte.
+    #[test]
+    fn the_section_sign_rule_stays_out_of_the_shared_encoder() {
+        assert_eq!(Encoding::MsDos.encode("a\u{A7}b"), b"a?b".to_vec());
+        assert!(!Encoding::MsDos.encode_pinned("\u{A7}"));
     }
 
     // CrossEncodingUtf8ToOthers: the default encoding is code page 437.
