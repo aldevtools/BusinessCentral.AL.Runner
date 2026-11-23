@@ -607,7 +607,7 @@ mod tests {
         let file = dir.join("file.txt");
         std::fs::write(&file, "text").unwrap();
         type Change = fn(&mut TestArgs, &Path);
-        let options: [(&str, Change); 14] = [
+        let options: [(&str, Change); 13] = [
             ("test_runner", |a, _| {
                 a.test_runner = Some(al_testrun::runtime::TestRunner::Builtin)
             }),
