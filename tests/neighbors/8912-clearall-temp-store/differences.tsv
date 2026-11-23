@@ -1,0 +1,13 @@
+# key	entry
+# Not here, the same on main and head: TempTableNeverWritten (a fresh store reads the same, main's answer with no mark).
+# Main lost the temporary rows in every row below (a fresh instance or fresh tables); BC keeps them in the measured shapes.
+CT ClearAll Tests::SiOwnerKeepsRows	ASSUMED clear-shared-codeunit (corpus PR 1561)
+CT ClearAll Tests::PlainHolderKeepsRows	ASSUMED clear-shared-codeunit (corpus PR 1561)
+CT ClearAll Tests::TestCodeunitOwnerKeepsRows	ASSUMED clear-shared-codeunit (corpus PR 1561)
+CT ClearAll Tests::ArrayOfTempRecordsInPlainCodeunit	ASSUMED clear-shared-codeunit (corpus PR 1561)
+CT ClearAll Tests::ArrayOfTempRecordsInReport	REFUSED ClearAll of a global array of temporary records whose table holds rows
+CT ClearAll Tests::NormalSubtypeOwner	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows
+CT ClearAll Tests::ReportOwner	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows
+CT ClearAll Tests::StoreWithOneMoreGlobal	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows
+CT ClearAll Tests::StoreOneLevelDeeper	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows
+CT ClearAll Tests::ArrayOfStores	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows

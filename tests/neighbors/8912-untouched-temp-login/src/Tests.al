@@ -94,6 +94,54 @@ codeunit 61856 "UT Login Tests"
     end;
 
     [Test]
+    procedure LabelStoreMadeByFirstCall()
+    var
+        M: Codeunit "UT Label Store Owner";
+    begin
+        Check(M.Count(), 0);
+    end;
+
+    [Test]
+    procedure ExtraGlobalStoreMadeByFirstCall()
+    var
+        M: Codeunit "UT Extra Store Owner";
+    begin
+        Check(M.Count(), 0);
+    end;
+
+    [Test]
+    procedure SwappedStoreMadeByFirstCall()
+    var
+        M: Codeunit "UT Swapped Store Owner";
+    begin
+        Check(M.Count(), 0);
+    end;
+
+    [Test]
+    procedure TempArrayStoreMadeByFirstCall()
+    var
+        M: Codeunit "UT Arr Store Owner";
+    begin
+        Check(M.Count(), 0);
+    end;
+
+    [Test]
+    procedure StoreOneLevelDeeper()
+    var
+        M: Codeunit "UT Wrapped Store Owner";
+    begin
+        Check(M.Count(), 0);
+    end;
+
+    [Test]
+    procedure StoreRowWrittenAtLogin()
+    var
+        M: Codeunit "UT Store Row Owner";
+    begin
+        Check(M.Count(), 1);
+    end;
+
+    [Test]
     procedure ReadsNothing()
     begin
     end;

@@ -261,7 +261,19 @@ codeunit 61849 "UT Lib Login"
         TempArray: Codeunit "UT Temp Array";
         Aliased: Codeunit "UT Aliased Store";
         RefKept: Codeunit "UT Ref Kept";
+        LabelOwner: Codeunit "UT Label Store Owner";
+        ExtraOwner: Codeunit "UT Extra Store Owner";
+        SwappedOwner: Codeunit "UT Swapped Store Owner";
+        ArrOwner: Codeunit "UT Arr Store Owner";
+        WrapOwner: Codeunit "UT Wrapped Store Owner";
+        RowOwner: Codeunit "UT Store Row Owner";
     begin
+        LabelOwner.Use();
+        ExtraOwner.Use();
+        SwappedOwner.Use();
+        ArrOwner.Use();
+        WrapOwner.Use();
+        RowOwner.Use();
         TempArray.Touch();
         Aliased.Share();
         RefKept.Keep();
@@ -291,3 +303,224 @@ codeunit 61863 "UT Plain Store"
         N += 1;
     end;
 }
+
+// Neighbors of the store shape of corpus PR 1561 (a temporary record, an array of RecordRef of two dimensions, an array of
+// Integer): the store with a Label besides (Backup Storage has one), with one more global, with the globals in another
+// order, with an array of temporary records, held one level deeper, and written by the login.
+codeunit 61864 "UT Label Store"
+{
+    var
+        Rows: Record "UT Row" temporary;
+        Backups: array[2, 3] of RecordRef;
+        Indices: array[2] of Integer;
+        NotFoundErr: Label 'Could not find %1.';
+
+    procedure Get(): Integer
+    begin
+        exit(Indices[1]);
+    end;
+
+    procedure Count(): Integer
+    begin
+        exit(Rows.Count() + Indices[1] + Backups[1, 1].Number);
+    end;
+}
+
+codeunit 61865 "UT Extra Store"
+{
+    var
+        Rows: Record "UT Row" temporary;
+        Backups: array[2, 3] of RecordRef;
+        Indices: array[2] of Integer;
+        Extra: Integer;
+
+    procedure Get(): Integer
+    begin
+        exit(Indices[1] + Extra);
+    end;
+
+    procedure Count(): Integer
+    begin
+        exit(Rows.Count() + Indices[1] + Backups[1, 1].Number);
+    end;
+}
+
+codeunit 61866 "UT Swapped Store"
+{
+    var
+        Backups: array[2, 3] of RecordRef;
+        Rows: Record "UT Row" temporary;
+        Indices: array[2] of Integer;
+
+    procedure Get(): Integer
+    begin
+        exit(Indices[1]);
+    end;
+
+    procedure Count(): Integer
+    begin
+        exit(Rows.Count() + Indices[1] + Backups[1, 1].Number);
+    end;
+}
+
+codeunit 61867 "UT Arr Store"
+{
+    var
+        Rows: array[2] of Record "UT Row" temporary;
+        Backups: array[2, 3] of RecordRef;
+        Indices: array[2] of Integer;
+
+    procedure Get(): Integer
+    begin
+        exit(Indices[1]);
+    end;
+
+    procedure Count(): Integer
+    begin
+        exit(Rows[1].Count() + Indices[1] + Backups[1, 1].Number);
+    end;
+}
+
+codeunit 61868 "UT Store Wrap"
+{
+    var
+        Inner: Codeunit "UT Store";
+
+    procedure Get(): Integer
+    begin
+        exit(Inner.Get());
+    end;
+
+    procedure Count(): Integer
+    begin
+        exit(Inner.Count());
+    end;
+}
+
+codeunit 61869 "UT Label Store Owner"
+{
+    SingleInstance = true;
+
+    var
+        Store: Codeunit "UT Label Store";
+
+    procedure Use()
+    begin
+        Store.Get();
+    end;
+
+    procedure Count(): Integer
+    begin
+        exit(Store.Count());
+    end;
+}
+
+codeunit 61870 "UT Extra Store Owner"
+{
+    SingleInstance = true;
+
+    var
+        Store: Codeunit "UT Extra Store";
+
+    procedure Use()
+    begin
+        Store.Get();
+    end;
+
+    procedure Count(): Integer
+    begin
+        exit(Store.Count());
+    end;
+}
+
+codeunit 61871 "UT Swapped Store Owner"
+{
+    SingleInstance = true;
+
+    var
+        Store: Codeunit "UT Swapped Store";
+
+    procedure Use()
+    begin
+        Store.Get();
+    end;
+
+    procedure Count(): Integer
+    begin
+        exit(Store.Count());
+    end;
+}
+
+codeunit 61872 "UT Arr Store Owner"
+{
+    SingleInstance = true;
+
+    var
+        Store: Codeunit "UT Arr Store";
+
+    procedure Use()
+    begin
+        Store.Get();
+    end;
+
+    procedure Count(): Integer
+    begin
+        exit(Store.Count());
+    end;
+}
+
+codeunit 61873 "UT Wrapped Store Owner"
+{
+    SingleInstance = true;
+
+    var
+        Wrap: Codeunit "UT Store Wrap";
+
+    procedure Use()
+    begin
+        Wrap.Get();
+    end;
+
+    procedure Count(): Integer
+    begin
+        exit(Wrap.Count());
+    end;
+}
+
+codeunit 61874 "UT Row Store"
+{
+    var
+        Rows: Record "UT Row" temporary;
+        Backups: array[2, 3] of RecordRef;
+        Indices: array[2] of Integer;
+
+    procedure Insert()
+    begin
+        Rows.Id := 1;
+        Rows.Insert();
+    end;
+
+    procedure Count(): Integer
+    begin
+        exit(Rows.Count() + Indices[1] + Backups[1, 1].Number);
+    end;
+}
+
+codeunit 61875 "UT Store Row Owner"
+{
+    SingleInstance = true;
+
+    var
+        Store: Codeunit "UT Row Store";
+
+    procedure Use()
+    begin
+        Store.Insert();
+    end;
+
+    procedure Count(): Integer
+    begin
+        exit(Store.Count());
+    end;
+}
+
