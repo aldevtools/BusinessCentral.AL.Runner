@@ -22,7 +22,17 @@ LT TVF Tests::Collapsed_SetRangeKeepsUpdateFalse	ASSUMED tree-validate-view-refr
 LT TVF Tests::Collapsed_NoChangeUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1066)
 LT TVF Tests::Collapsed_SetRangeKeepsUpdateFalse_Expanded	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1084)
 LT TVF Tests::Tree_ValueOnlyUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1129)
-# BC raises a validation error when the filter drops the row (:1146), and no cell makes a second SetValue on Name: both refuse
-# once the rule read the row.
-LT TVF Tests::Tree_SetRangeDropsUpdateFalse_Fails	REFUSED a call on a tree page of TreeValidateFilterRefresh.al after the page read its row or the view again
+# No cell makes a second SetValue on Name: it refuses once the rule read the row.
 LT TVN Tests::Tree_NameTwiceUpdateFalse	REFUSED a call on a tree page of TreeValidateFilterRefresh.al after the page read its row or the view again
+# A filter that leaves the row out (al-runner issue 8846): main raised no error on the tree and read only the typed row on
+# the List; the head saves and reads as BC does, then raises the filtered-view error on the tree.
+LT TVF Tests::Tree_SetRangeDropsUpdateFalse_Fails	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1146)
+LT TVF Tests::List_FirstRowSetRangeDropsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1246)
+LT TVF Tests::List_MiddleRowSetRangeDropsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1264)
+LT TVF Tests::List_LastRowSetRangeDropsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1282)
+LT TVF Tests::FlatTree_FirstRowSetRangeDropsUpdateFalse_Fails	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1300)
+LT TVF Tests::FlatTree_MiddleRowSetRangeDropsUpdateFalse_Fails	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1312)
+LT TVF Tests::FlatTree_LastRowSetRangeDropsUpdateFalse_Fails	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1324)
+LT TVF Tests::IssueTree_FirstRowSetRangeDropsUpdateFalse_Fails	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1347)
+LT TVF Tests::DropTree_FirstRowSetRangeDropsUpdateFalse_Fails	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1370)
+LT TVF Tests::DropTree_FirstRowSetRangeDropsUpdateFalse_AssertError	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1390)

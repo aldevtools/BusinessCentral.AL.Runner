@@ -1239,8 +1239,9 @@ impl Session {
 }
 
 /// The error of an insert whose row the page cannot find in its view (corpus testpage/AoTests.al:467-487,
-/// pages/triggers/RecordTriggerReturnValue.al:365).
-fn view_filtered_error() -> Signal {
+/// pages/triggers/RecordTriggerReturnValue.al:365), and of a tree's refresh whose filter left the row out
+/// (`validate_view_refresh.rs`).
+pub(super) fn view_filtered_error() -> Signal {
     error_code(
         "Validation error for Field: ,  Message = 'The view is filtered, and the entry is outside the filter. Some actions may not work.'",
         "TestValidation",

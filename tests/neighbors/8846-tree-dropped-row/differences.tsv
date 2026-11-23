@@ -1,1 +1,5 @@
 # key	entry
+# The reporter's repro: main raised no error when the filter left the tree's first row out; the head saves the row and raises
+# the filtered-view error, as BC does. The neighbors (Update(true), CollapseAll, OnAfterGetCurrRecord, a view left without
+# rows) keep main's path and do not differ.
+Repro Tree Drop Tests::FirstRowSetRangeDropsRow_RaisesValidationError	ASSUMED tree-validate-view-refresh (corpus PR 1539, the issue's shape at :1370)

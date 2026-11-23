@@ -10,13 +10,16 @@
 //! On a tree (ShowAsTree; al-runner issue 8833, corpus pull request 1539, tests/al-language/pages/currpage/
 //! TreeValidateFilterRefresh.al, open) Update(false) saves the row as Update(true) does, and the refresh reads as on the List
 //! of the same row triggers, over the tree's hidden rows too; then the tree shows the rows of the new view
-//! (`validate_view_tree_refresh`). Main read only the typed row and saved nothing.
+//! (`validate_view_tree_refresh`). Main read only the typed row and saved nothing. When the filter leaves the row out of the
+//! view (al-runner issue 8846, the same file), the tree reads and saves as when it keeps it, then the SetValue raises the
+//! filtered-view error; the List of the same code raises none. Main raised none on the tree.
 //!
 //! Only on the probe's pages, line for line (`validate_view_cells.rs`; the repros of 8698, 8717 and 8833 read as three of
 //! them), as the test called them in the cells: assumption `list-validate-view-refresh` on a List without
 //! OnAfterGetCurrRecord, `tree-validate-view-refresh` on a tree, `validate-update-false-rereads-row` on the other pages. Any
 //! other page, or calls the cells do not make before the rule changed anything, keep main's path; after it did they refuse.
 
+use super::draft::view_filtered_error;
 use super::open::TREE_GROUP;
 use super::pinned_body::{Callees, Names, callees_with_calls_are, page_is, table_is};
 use super::pinned_shape::TestCall;
@@ -54,6 +57,8 @@ pub(crate) struct Pending {
     key: Vec<Value>,
     /// The last `CurrPage.Update(save)` in it.
     update: Option<bool>,
+    /// Rec as `CurrPage.Update(false)` found it: the typed row.
+    typed: Option<Fields>,
     /// Its place in the page's calls (`PageState::tree_calls`).
     call: usize,
 }
@@ -250,6 +255,7 @@ impl Session {
             filters,
             key,
             update: None,
+            typed: None,
             call,
         });
         Ok(true)
@@ -278,10 +284,9 @@ impl Session {
         if v.last_read.as_ref().is_some_and(|k| Self::same_key(k, &key)) {
             return Ok(());
         }
-        assume(match v.page {
-            Some(page) if page.tree() => Assumption::TreeValidateViewRefresh,
-            _ => Assumption::ListValidateViewRefresh,
-        });
+        if let Some(page) = v.page {
+            assume(page.assumption());
+        }
         v.ran = true;
         self.populate_current(st)?;
         v.last_read = Some(key);
@@ -479,9 +484,14 @@ impl Session {
     }
 
     /// `CurrPage.Update(save)` ran in the SetValue or action of the cells that runs now.
-    pub(super) fn validate_view_update(st: &St, save: bool) {
+    pub(super) fn validate_view_update(&self, st: &St, save: bool) {
+        if st.borrow().validate_view.pending.is_none() {
+            return;
+        }
+        let typed = (!save).then(|| self.page_rec(st).borrow().fields.clone());
         if let Some(p) = st.borrow_mut().validate_view.pending.as_mut() {
             p.update = Some(save);
+            p.typed = typed;
         }
     }
 
@@ -540,9 +550,14 @@ impl Session {
             return Ok(false);
         }
         // On a tree Update(false) saves the row too, before the refresh reads it (TreeValidateFilterRefresh.al:794 `stored1`
-        // `A/,C2/,C/,`; the List of ListValidateFilterRefresh.al:832 keeps `A/,B/,C/,`).
-        if page.tree() && update == Upd::False && st.borrow().dirty {
-            self.save_row(st)?;
+        // `A/,C2/,C/,`; the List of ListValidateFilterRefresh.al:832 keeps `A/,B/,C/,`). On a page without page triggers the
+        // validation step dropped the edit already (`validate_step_update_false`); the tree saves the typed row all the same
+        // (:1370 `stored` `A2,B,C,` on page 97714).
+        if page.tree() && update == Upd::False {
+            self.validate_view_hold_typed(st, &rec, p.typed)?;
+            if st.borrow().dirty {
+                self.save_row(st)?;
+            }
         }
         let mut pk = key;
         self.ret_used = true;
@@ -556,11 +571,24 @@ impl Session {
             s.validate_view.steps = steps;
             s.validate_view.pending = None;
             s.validate_view.ran = true;
+            if change == Drop {
+                // The row the filter left out, saved and read again, then the error (TreeValidateFilterRefresh.al:1300
+                // `stored` `X2/,B/,C/,`, :1312, :1324, :1347; :1370 in a TryFunction `A2,B,C,`, :1390 under asserterror
+                // `A,B,C,` and :1146, which roll the save back). What the page holds then is not measured: every later call
+                // on it, Close too, refuses; its end of scope is the cells' (:1300 the page goes out of scope, its test
+                // reads the table).
+                s.unpinned_state = Some(
+                    "a tree page of TreeValidateFilterRefresh.al after a SetValue whose filter left the row out of the view (not measured)"
+                        .into(),
+                );
+                s.unpinned_close = true;
+                return Err(view_filtered_error());
+            }
             return Ok(done);
         }
         let done = match page {
-            CellPage::Issue | CellPage::Wide | CellPage::Lines => {
-                assume(Assumption::ListValidateViewRefresh);
+            CellPage::Issue | CellPage::Wide | CellPage::Lines | CellPage::TreeLines => {
+                assume(page.assumption());
                 self.reread_view_from_row(st, without_curr, without_parts, false)?;
                 // The note `read_list_again_from_row_as` leaves for a refresh without OnAfterGetCurrRecord would end the next
                 // one.
@@ -593,7 +621,8 @@ impl Session {
             | CellPage::Tree
             | CellPage::TreeBoth
             | CellPage::TreeCurr
-            | CellPage::TreeCollapsed => {
+            | CellPage::TreeCollapsed
+            | CellPage::TreeDrop => {
                 unreachable!("a tree page refreshes in validate_view_tree_refresh")
             }
         };
@@ -643,6 +672,21 @@ impl Session {
             st.borrow_mut().validate_view.last_read = last_read;
         }
         Ok(true)
+    }
+
+    /// Rec holds the typed row `typed` again when the validation step dropped it and the table holds another row.
+    fn validate_view_hold_typed(&mut self, st: &St, rec: &Rec, typed: Option<Fields>) -> Result<(), Signal> {
+        let Some(typed) = typed.filter(|_| !st.borrow().dirty) else {
+            return Ok(());
+        };
+        if self
+            .stored_row(rec)?
+            .is_some_and(|stored| !Self::same_values(&stored, &typed))
+        {
+            rec.borrow_mut().fields = typed;
+            st.borrow_mut().dirty = true;
+        }
+        Ok(())
     }
 
     /// The row a refresh settles on when the view no longer holds the row of `rec`: the next row of the view after its key, else
