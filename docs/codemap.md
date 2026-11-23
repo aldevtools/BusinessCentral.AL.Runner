@@ -284,7 +284,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `install.rs`: The install code of each app. Entry: `plan`.
 - `install_orders.rs`: The install order of apps with no dependency path: Microsoft's first, partner groups recorded and proven. Entry: `split_microsoft`, `install_partner_apps`.
 - `install_proof.rs`: The influence graph of a partner group's installs and its units. Entry: `Graph::of`.
-- `install_subsets.rs`: The subset runs that prove a group's install independent of order. Entry: `Proof::settle`.
+- `install_subsets.rs`: The runs that prove a group's install independent of order: per order of a unit's apps and per place of its inputs among them. Entry: `Proof::settle`.
 - `impact_static.rs`: Static selection: the graph of routines, objects. Entry: `Graph`.
 - `login.rs`: The test session's login. Entry: `decide`.
 - `login_replay.rs`: The check that a replay of the raised login would… Entry: `Key::of`.
@@ -302,7 +302,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `stability.rs`: Stability mode: the config (`parse_config`. Entry: `parse_config`.
 - `stopped_state.rs`: What code the runner stopped leaves of the session… Entry: `roll_back_refused_test`.
 - `test_suites.rs`: The `--test-suites` file. Entry: `TestSuites`.
-- `runtime/` (29 files): Runs test codeunits the way BC's test runner does. Entry: `CorpusRuntime`. Files: `mod.rs`, `compiled.rs`, `baseline_key.rs`, `grow.rs`, `corpus.rs`, `chain.rs`, `carry_after.rs`, `discovery.rs`, `chain_walk.rs`, `strict_walk.rs`, `single_lane.rs`, `narrowing.rs`, `not_run_link.rs`, `single_fresh.rs`, `order_hint.rs`, `memory.rs`, `compile_halt.rs`, `threads.rs`, `lane_starts.rs`, `install_once.rs`, `cache.rs`, `run.rs`, `data_driven.rs`, `test_handlers.rs`, `written.rs`, `runner_reset.rs`, `handlers.rs`, `blocked.rs`, `table_reads.rs`
+- `runtime/` (28 files): Runs test codeunits the way BC's test runner does. Entry: `CorpusRuntime`. Files: `mod.rs`, `compiled.rs`, `baseline_key.rs`, `grow.rs`, `corpus.rs`, `chain.rs`, `carry_after.rs`, `discovery.rs`, `chain_walk.rs`, `strict_walk.rs`, `single_lane.rs`, `narrowing.rs`, `not_run_link.rs`, `single_fresh.rs`, `order_hint.rs`, `memory.rs`, `compile_halt.rs`, `threads.rs`, `install_once.rs`, `cache.rs`, `run.rs`, `data_driven.rs`, `test_handlers.rs`, `written.rs`, `runner_reset.rs`, `handlers.rs`, `blocked.rs`, `table_reads.rs`
 - `target.rs`: Reads the version fields of an app.json. Entry: `build_query`.
 
 ### alrunner-cli
