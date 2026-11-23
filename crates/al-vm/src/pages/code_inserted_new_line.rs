@@ -707,15 +707,18 @@ impl Session {
                     })
             }
         };
-        let (r, v) = (rec.borrow(), &view.rec);
-        Ok(fields_kept
-            && crate::records::same_filters(&r.filters, &v.filters)
+        Ok(fields_kept && Self::same_view(&rec.borrow(), &view.rec))
+    }
+
+    /// Whether records `r` and `v` have the same view: filters, filter group, key, sort order and MarkedOnly.
+    pub(super) fn same_view(r: &RecordState, v: &RecordState) -> bool {
+        crate::records::same_filters(&r.filters, &v.filters)
             && r.filter_group == v.filter_group
             && r.key == v.key
             && r.adhoc == v.adhoc
             && r.ascending == v.ascending
             && r.field_descending == v.field_descending
-            && r.marked_only == v.marked_only)
+            && r.marked_only == v.marked_only
     }
 
     /// The save of `CurrPage.SaveRecord` or `CurrPage.Update(true)` that left the new line (`save_from_update`) is done: the page's
