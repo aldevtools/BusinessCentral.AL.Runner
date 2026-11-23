@@ -265,6 +265,7 @@ mod own_area_caption;
 mod triggerless_action;
 pub(crate) use code_close_veto::{CodeCloseVeto, TriggerKind};
 mod controls;
+mod cue_value;
 mod currpage_run_typed_key;
 mod data_caption_get_body;
 mod data_caption_get_open;

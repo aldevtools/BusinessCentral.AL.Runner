@@ -52,6 +52,7 @@ mod corpus_bump_bot;
 mod corpus_bump_combined;
 mod corpus_bump_from_pr;
 mod corpus_bump_script;
+mod cue_field_value_8845;
 mod data_caption_expression;
 mod data_caption_get_open;
 mod data_caption_kept_open;
