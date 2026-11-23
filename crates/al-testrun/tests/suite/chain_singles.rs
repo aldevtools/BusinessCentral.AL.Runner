@@ -143,7 +143,7 @@ fn a_chain_whose_members_use_single_instance_state_keeps_it_from_member_to_membe
 /// the numbers their tests take keep the walk's single instances like every other codeunit of the strict walk, and none
 /// is flagged (P7: codeunits/TestCuP7BReader.al:24-37 against TestCuP7ASetter.al:24-58).
 #[test]
-fn numbers_only_members_keep_the_single_instances_in_the_strict_walk() {
+fn members_that_take_numbers_keep_the_single_instances_in_the_strict_walk() {
     let rt = run(
         &source(false),
         &RunOptions {
@@ -170,11 +170,11 @@ fn numbers_only_members_keep_the_single_instances_in_the_strict_walk() {
     assert_eq!(chain.singles_kept, MEMBERS as usize, "{chain:?}");
 }
 
-/// ADR-066 amendment 11, option 1, with amendment 4, decision 2: a numbers-only member that fails with fresh
-/// SingleInstance state because it needs what an earlier member left (P7: codeunits/TestCuP7BReader.al:24-37 against
-/// TestCuP7ASetter.al:24-58) runs again in the lane in BC's order, passes and is flagged.
+/// ADR-070: a member that takes numbers and needs the SingleInstance state an earlier member left (P7:
+/// codeunits/TestCuP7BReader.al:24-37 against TestCuP7ASetter.al:24-58) runs once, in BC's order, and passes unflagged
+/// in the strict walk.
 #[test]
-fn a_numbers_only_member_that_needs_an_earlier_members_single_instance_state_runs_again_and_passes_flagged() {
+fn a_member_that_takes_numbers_and_needs_an_earlier_members_state_passes_unflagged_in_the_strict_walk() {
     let src = r#"
 codeunit 60300 "Numbers Setter"
 {
