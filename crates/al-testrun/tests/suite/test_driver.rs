@@ -49,7 +49,6 @@ fn run(src: &str, driver: Option<TestDriver>, strict: bool) -> Vec<(u32, String,
     let opts = RunOptions {
         test_driver: driver.unwrap_or_default(),
         strict_order: strict,
-        strict_sequential: strict,
         ..Default::default()
     };
     let rt = CorpusRuntime::run_suites_with(
@@ -225,7 +224,6 @@ fn bcch(strict: bool) -> RunOptions {
     RunOptions {
         test_driver: TestDriver::BcContainerHelper,
         strict_order: strict,
-        strict_sequential: strict,
         ..Default::default()
     }
 }

@@ -193,21 +193,12 @@ How to read it:
   dependence through SingleInstance state").
   Their result depends on whether Business Central runs their codeunit alone or after
   the codeunit that left the state. A stability run always runs in Business Central's
-  order, as `--strict-order` does (ADR-066 amendment 12): they keep their parallel run
-  (fresh state) and run again in order only after a failure or a test refused while it
-  ran (not one refused before it starts). Each such run is a serial
-  session of the codeunit and the codeunits it depends on; the sessions run in parallel.
-  A failure triggers the run again only when the failed test, or a test before it, read
-  a value an earlier codeunit left otherwise. With `--max-replay N`, a re-run whose
-  chain holds more than `N` codeunits is skipped: those tests are listed again under
-  "Tests whose serial re-run was skipped", also in `--output-json` as `rerunSkipped`.
+  order, as `--strict-order` does (ADR-070): each Business Central session runs its test
+  codeunits one after the other, with the state carried.
   With `--test-suites FILE` only a dependence within one suite counts: a codeunit that
   relies on state a codeunit of another suite left is not listed.
-  With `order.codeunits` they are the ones most likely to flip. A codeunit of the chain
-  that runs one after the other (`RequiredTestIsolation = Disabled`, or an `OnRun` that
-  writes data, or tests that take numbers) is never listed: it already runs with the
-  state the codeunits before it left (ADR-066 amendment 8). See "Flagged: relies on
-  SingleInstance state another test codeunit left" in the results chapter.
+  With `order.codeunits` they are the ones most likely to flip. See "Business Central's
+  order" in the results chapter.
 - A flip that only happens where an unprobed assumption ran is marked "relies on an
   unprobed assumption". The runtime may be wrong there, not the test.
 
