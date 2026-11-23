@@ -509,7 +509,14 @@ impl Session {
         let set_range = method == RecordOp::SetRange;
         let set = match entry {
             // No entry (or one taken back, by a record that holds no group 1 filter).
-            None => (!temporary || set_range && self.integer_value(rec, args)).then_some(Group1Set::Setter),
+            None if !temporary || set_range && self.integer_value(rec, args) => Some(Group1Set::Setter),
+            // A temporary record clears a field (SetRange(Field)) or sets `<>@` alone on a Code or Text field in group 1:
+            // AtSignAloneMethods.al:507.
+            None if set_range && args.len() == 1 || self.not_at_sign_set(rec, method, args) => {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::AtSignAloneDatabaseBlank);
+                Some(Group1Set::Setter)
+            }
+            None => None,
             Some(e) if e.signature.is_empty() && own.is_empty() => {
                 (!temporary || set_range && self.integer_value(rec, args)).then_some(Group1Set::Setter)
             }
@@ -545,6 +552,19 @@ impl Session {
             if usize::try_from(*p).ok().and_then(|p| t.fields.get(p)).is_some_and(|f| f.ty == RtType::Integer))
     }
 
+    /// SetFilter(Field, '<>@') on a Code or a Text field: the filter a temporary record set in group 1 at
+    /// AtSignAloneMethods.al:507.
+    fn not_at_sign_set(&self, rec: &Rec, method: RecordOp, args: &[Value]) -> bool {
+        let Ok(t) = self.table(rec) else {
+            return false;
+        };
+        method == RecordOp::SetFilter
+            && matches!(args, [Value::Integer(p), v]
+                if al_builtins::native::text_of(v).as_deref() == Some("<>@")
+                    && usize::try_from(*p).ok().and_then(|p| t.fields.get(p))
+                        .is_some_and(|f| matches!(f.ty, RtType::Code(_) | RtType::Text(_))))
+    }
+
     /// The entry form FilterGroupOtherVariable.al measured: one filter, SetRange of one Integer value on an Integer field
     /// outside the primary key ([`one_integer_outside_key`]).
     fn entry_pinned(&self, rec: &Rec, e: &Entry) -> bool {
@@ -572,7 +592,8 @@ impl Session {
 
     /// What `rec`, of table `table`, reads for the call `op` while group 1 of the table holds an entry. A record that holds
     /// the entry's filters (the setter, or a copy of it such as the record of Page.Run(Page, Rec), P145PageRunView.al:232-235)
-    /// reads its own, on a database table; on a temporary one only Count is measured (FilterGroupOtherVariable.al:825). A
+    /// reads its own, on a database table; on a temporary one Count is measured (FilterGroupOtherVariable.al:825), and FindSet for
+    /// `<>@` alone (AtSignAloneMethods.al:507). A
     /// record that holds no group 1 filter reads the entry's filters as well for the calls [`measured_read`] lists, with the
     /// view every measured reader had ([`reader_view_measured`]), a Next only inside the reader's FindSet loop, a write only
     /// when it runs no code ([`Self::shared_write_runs_no_code`]), and the entry in the measured form
@@ -603,7 +624,28 @@ impl Session {
         if taken_back && own.is_empty() {
             return Ok(Group1Use::Own);
         }
-        if !taken_back && own == entry.signature && (!temporary || matches!(op, Group1Op::Record(RecordOp::Count))) {
+        // A temporary record reads its own group 1 filter with Count (FilterGroupOtherVariable.al:825), and its `<>@` alone with
+        // FindSet too (AtSignAloneMethods.al:507, assumption `at-sign-alone-database-blank`).
+        let own_read = !temporary
+            || match op {
+                Group1Op::Record(RecordOp::Count) => true,
+                Group1Op::Record(RecordOp::FindSet) => {
+                    let not_at = (entry.filters.iter()).all(|f| {
+                        matches!(
+                            f.expr,
+                            FilterExpr::AtSignAlone(true) | FilterExpr::AtSignAloneCode(true)
+                        )
+                    });
+                    if not_at {
+                        al_builtins::assumptions::assume(
+                            al_builtins::assumptions::Assumption::AtSignAloneDatabaseBlank,
+                        );
+                    }
+                    not_at
+                }
+                _ => false,
+            };
+        if !taken_back && own == entry.signature && own_read {
             return Ok(Group1Use::Own);
         }
         let reader = VarKind::of(matches!(op, Group1Op::Record(_)), temporary);
