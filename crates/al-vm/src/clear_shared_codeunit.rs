@@ -95,6 +95,28 @@ impl Session {
             && !self.frames.contains(&object)
     }
 
+    /// Whether `object` is a codeunit of the store shape of open corpus PR 1561 (ClearSharedCodeunitTempRef.al:55-59, codeunit
+    /// 75587 "CLB Store"): not SingleInstance, no TableNo, and its globals, in this order, one temporary record, one array of
+    /// RecordRef of two dimensions and one array of Integer of one dimension. The sizes of the arrays and the table are not
+    /// read. A global Label or TextConst ([`ir::Slot::label`]) may stand anywhere among them: AL code cannot assign it, and
+    /// 1561's store has none.
+    pub(crate) fn temp_ref_store(&self, object: usize) -> bool {
+        let o = &self.engine.program.objects[object];
+        let kinds: Vec<&RtType> = (o.globals.iter()).filter(|g| !g.label).map(|g| &g.ty).collect();
+        let lib = |t: &RtType, k| matches!(t, RtType::Library(x) if *x == k);
+        self.plain_codeunit(object)
+            && o.rec_slot.is_none()
+            && match kinds.as_slice() {
+                [RtType::Record(_, true), RtType::Array(d2, r), RtType::Array(d1, i)] => {
+                    d2.len() == 2
+                        && lib(r, al_builtins::library_kind::LibraryKind::RecordRef)
+                        && d1.len() == 1
+                        && matches!(**i, RtType::Integer)
+                }
+                _ => false,
+            }
+    }
+
     /// `Clear` of place `p`, whose value `v` the native clears next (al-builtins `native/values.rs`, which keeps an unused
     /// codeunit variable as it is). For a Codeunit variable that holds an instance nothing used yet, of a codeunit that is
     /// not SingleInstance, that another holder shares, `v` becomes a fresh instance first: the variable gets it and the

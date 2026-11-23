@@ -582,6 +582,7 @@ pub(crate) fn lower_object<'a>(
                     let mut slot = ir::Slot::new(n, rt);
                     slot.security_filtering = declared.clone().and_then(Result::ok);
                     slot.security_filtering_not_kept = security_filtering_not_kept(&attrs, &declared);
+                    slot.label = matches!(ty, Ty::Label);
                     globals.push(slot);
                 }
                 Err(e) => global_reasons.push(format!("global `{n}`: {e}")),

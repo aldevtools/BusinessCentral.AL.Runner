@@ -259,7 +259,8 @@ impl Session {
     /// blob copy sources (`blob_transfer::new_variable`). The instance counts so only while no other variable holds it (one
     /// that does sees what is written through it later), and only when its globals hold their declared values by a
     /// fingerprint: the probe's codeunits hold an Integer, so a temporary record or a RecordRef (`made`) in an instance a
-    /// call made counts as changed.
+    /// call made counts as changed, except in a store of the shape of open corpus PR 1561 (`Session::temp_ref_store`) that
+    /// the SingleInstance codeunit holds directly (the same assumption).
     fn at_declared(&mut self, v: &Value, fresh: &Value, depth: u8, made: bool) -> bool {
         if depth > 8 {
             return false;
@@ -291,7 +292,12 @@ impl Session {
                     if Rc::strong_count(rc) != 2 {
                         return false;
                     }
-                    inner_made = true;
+                    // A store of the shape of open corpus PR 1561 held directly by the SingleInstance codeunit: made by
+                    // calls that wrote nothing, it reads as one never made through the owner, in the same test and the
+                    // next ones (ClearSharedCodeunitSIOwner.al:5-21, A2_Step1_MadeByCallsThatWriteNothing :370 and
+                    // A2_Step2_ReadX :385 against A1_Step2_FirstReadOfX :346). Any other holder or shape keeps `made`.
+                    let measured_store = depth == 0 && self.temp_ref_store(object);
+                    inner_made = !measured_store;
                     self.slot_defaults(&engine.program.objects[object].globals)
                 } else {
                     b.globals.clone()
@@ -684,6 +690,7 @@ codeunit 50111 TempStore
         Rows: Record Row temporary;
         Backups: array[2, 3] of RecordRef;
         Indices: array[2] of Integer;
+        NotFound: Label 'Could not find %1.';
 
     procedure Get(): Integer
     begin
@@ -706,6 +713,57 @@ codeunit 50111 TempStore
     end;
 }
 
+codeunit 50114 TempArrStore
+{
+    var
+        Rows: array[2] of Record Row temporary;
+        Backups: array[2, 3] of RecordRef;
+        Indices: array[2] of Integer;
+
+    procedure Get(): Integer
+    begin
+        exit(Indices[1]);
+    end;
+}
+
+codeunit 50115 TempStoreExtra
+{
+    var
+        Rows: Record Row temporary;
+        Backups: array[2, 3] of RecordRef;
+        Indices: array[2] of Integer;
+        Name: Text;
+
+    procedure Get(): Integer
+    begin
+        exit(Indices[1]);
+    end;
+}
+
+codeunit 50116 TempStoreSwapped
+{
+    var
+        Backups: array[2, 3] of RecordRef;
+        Rows: Record Row temporary;
+        Indices: array[2] of Integer;
+
+    procedure Get(): Integer
+    begin
+        exit(Indices[1]);
+    end;
+}
+
+codeunit 50117 TempWrap
+{
+    var
+        Inner: Codeunit TempStore;
+
+    procedure Get(): Integer
+    begin
+        exit(Inner.Get());
+    end;
+}
+
 codeunit 50112 TempMemo
 {
     SingleInstance = true;
@@ -715,6 +773,37 @@ codeunit 50112 TempMemo
         Store: Codeunit TempStore;
         Other: Record Row temporary;
         Ref: RecordRef;
+        ArrStore: Codeunit TempArrStore;
+        Extra: Codeunit TempStoreExtra;
+        Swapped: Codeunit TempStoreSwapped;
+        Wrap: Codeunit TempWrap;
+        StoreAlias: Codeunit TempStore;
+
+    procedure UseArrStore()
+    begin
+        ArrStore.Get();
+    end;
+
+    procedure UseExtra()
+    begin
+        Extra.Get();
+    end;
+
+    procedure UseSwapped()
+    begin
+        Swapped.Get();
+    end;
+
+    procedure UseWrap()
+    begin
+        Wrap.Get();
+    end;
+
+    procedure ShareStore()
+    begin
+        StoreAlias := Store;
+        Store.Get();
+    end;
 
     procedure Touch()
     begin
@@ -818,6 +907,11 @@ codeunit 50113 TempDriver
     procedure Security() var M: Codeunit TempMemo; begin M.Security(); end;
     procedure StoreShareRef() var M: Codeunit TempMemo; begin M.StoreShareRef(); end;
     procedure StoreInsertRow() var M: Codeunit TempMemo; begin M.StoreInsertRow(); end;
+    procedure UseArrStore() var M: Codeunit TempMemo; begin M.UseArrStore(); end;
+    procedure UseExtra() var M: Codeunit TempMemo; begin M.UseExtra(); end;
+    procedure UseSwapped() var M: Codeunit TempMemo; begin M.UseSwapped(); end;
+    procedure UseWrap() var M: Codeunit TempMemo; begin M.UseWrap(); end;
+    procedure ShareStore() var M: Codeunit TempMemo; begin M.ShareStore(); end;
 }
 "#;
 
@@ -882,19 +976,44 @@ codeunit 50113 TempDriver
         }
     }
 
-    // In a codeunit global made by its first call, a temporary record and a RecordRef are a change, untouched or not: the
-    // probe of assumption clear-shared-codeunit measures codeunits that hold an Integer. Nothing counts through the declared
-    // form.
+    // A store of the shape of open corpus PR 1561 (a temporary record, an array of RecordRef of two dimensions, an array of
+    // Integer, here with a Label besides) that the SingleInstance codeunit holds and a call made while writing nothing reads
+    // as one never made (ClearSharedCodeunitSIOwner.al A2_Step2_ReadX): no change, counted through its declared form, so
+    // its reads carry assumption clear-shared-codeunit.
     #[test]
-    fn a_temporary_record_or_record_ref_in_a_codeunit_global_made_by_a_call_is_a_change() {
+    fn a_temp_ref_store_made_by_a_call_that_wrote_nothing_is_no_change() {
         for made in [true, false] {
-            for routine in ["UseStore", "StoreOpenRef", "StoreShareRef", "StoreInsertRow"] {
+            assert_eq!(
+                temp_memo_left("UseStore", made),
+                (Default::default(), 1),
+                "made before: {made}"
+            );
+        }
+    }
+
+    // In a codeunit global made by its first call, an opened or shared RecordRef or a written temporary table is a change.
+    // So is the made store of any shape or holder 1561 does not measure: an array of temporary records, one more global,
+    // another order of the globals, a store inside a codeunit the SingleInstance codeunit holds, and a store another
+    // global shares. Nothing counts through the declared form.
+    #[test]
+    fn a_written_or_unmeasured_store_made_by_a_call_is_a_change() {
+        for made in [true, false] {
+            for (routine, global) in [
+                ("StoreOpenRef", 1),
+                ("StoreShareRef", 1),
+                ("StoreInsertRow", 1),
+                ("UseArrStore", 4),
+                ("UseExtra", 5),
+                ("UseSwapped", 6),
+                ("UseWrap", 7),
+            ] {
                 assert_eq!(
                     temp_memo_left(routine, made),
-                    ([1].into(), 0),
+                    ([global].into(), 0),
                     "{routine}, made before: {made}"
                 );
             }
+            assert!(temp_memo_left("ShareStore", made).0.contains(&1), "made before: {made}");
         }
     }
 

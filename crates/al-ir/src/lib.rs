@@ -1857,6 +1857,10 @@ pub struct Slot {
     /// `Lowerer::security_filtering_read_refusal`).
     #[serde(default)]
     pub security_filtering_not_kept: bool,
+    /// A global declared `Label` or `TextConst`: its reads lower to its text (al-sema `Lowerer::global_labels`) and AL code
+    /// cannot assign it, so the slot holds its default for the life of the instance.
+    #[serde(default)]
+    pub label: bool,
 }
 
 impl Slot {
@@ -1867,6 +1871,7 @@ impl Slot {
             ty,
             security_filtering: None,
             security_filtering_not_kept: false,
+            label: false,
         }
     }
 }
