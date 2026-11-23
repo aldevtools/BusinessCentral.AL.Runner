@@ -114,29 +114,29 @@ fn at_sign_alone_neighbors() {
     }
 }
 
-/// `<>@` alone on a Code field from a query's SetFilter and DataItemTableFilter and as a FlowFilter CalcFields applies: no cell
-/// measures them (a local Business Central 29.1 container keeps the K row, and sums 10), so they refuse as on main.
+/// `<>@` alone on a Code field from a query's SetFilter and DataItemTableFilter and as a FlowFilter CalcFields applies through
+/// field(): the cells (AtSignAloneReads.al:861, :871, :928) keep the K row and sum 10, and so do these neighbors, flagged.
 #[test]
-fn not_at_sign_alone_code_neighbors_refused() {
+fn not_at_sign_alone_code_neighbors() {
     let src = format!("{PROBE}\n{NEIGHBORS}");
     let o = outcomes(&src, "BQ Not At Neighbor Tests");
     assert_eq!(o.len(), 3);
-    for (name, r, _) in &o {
-        let why = match name.as_str() {
-            "NotAtSignAlone_CodeField_FlowFilter" => "a FlowFilter of `<>@` alone on a Code field (not measured)",
-            _ => "`<>@` alone on a Code field from a place no cell measures",
-        };
-        assert!(matches!(r, Outcome::NotRun(w) if w.contains(why)), "{name}: {r:?}");
+    for (name, r, marks) in &o {
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert!(
+            marks.contains(&Assumption::AtSignAloneDatabaseBlank),
+            "{name}: {marks:?}"
+        );
     }
 }
 
 /// The cells of AtSignAloneReads.al (corpus PR 1495): every read method and place a filter comes from, `<>@` alone on a Code field
-/// (:698, :730, :792), the CalcFormula's quoted `filter('@')` and `filter('<>@')` (:579, :752) and the read-back of both (:823)
-/// included, flagged.
+/// (:698, :730, :792, :861, :871, :904, :928), the CalcFormula's quoted `filter('@')` and `filter('<>@')` (:579, :752) and the
+/// read-back of both (:823) included, flagged.
 #[test]
 fn at_sign_alone_reads_cells() {
     let o = outcomes(ROUTES, "AS Kind Tests");
-    assert_eq!(o.len(), 21);
+    assert_eq!(o.len(), 25);
     for (name, r, marks) in &o {
         assert_eq!(*r, Outcome::Pass, "{name}");
         assert!(
