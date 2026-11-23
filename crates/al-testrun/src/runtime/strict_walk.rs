@@ -1,4 +1,4 @@
-//! The plain sequential strict run (ADR-070, migration step 2; `RunOptions::strict_sequential` with `strict_order`).
+//! The plain sequential strict run (ADR-070; `RunOptions::strict_order`, `--strict-order`).
 //!
 //! BC runs all test codeunits of a run in one session, in order. Here each BC session ([`super::single_lane::keyed_streams`]:
 //! the suite and its hub leg, or each line of `--test-suites`) runs its test codeunits one after the other on one thread,
@@ -18,7 +18,8 @@ use super::single_lane::{Stream, keyed_streams};
 use super::*;
 use al_builtins::assumptions::Assumption;
 
-/// One member of a walk, as `ChainWalk::walk` takes it: (suite, hub leg as 0 or 1, codeunit id, what to do).
+/// One member of a walk, as `ChainWalk::walk` takes it: (suite, leg, codeunit id, what to do). The leg is the carry chain's
+/// (`corpus.rs`): 0 on the TestRunnerHub, 1 under runner 130450 (`carry_after.rs` `handlers_unpinned` reads it).
 pub(super) type Item = (usize, u8, u32, Link);
 
 /// A unit that leaves nothing for the later codeunits: its isolation rolls its tests back and its OnRun cannot write
@@ -43,7 +44,17 @@ pub(super) fn stops_session(r: &UnitResult) -> bool {
 /// Marks every test of the unit's run: it started from state that is not BC's.
 pub(super) fn flag_after_refused(r: &mut UnitResult) {
     if let Ok(done) = &mut r.result {
-        super::single_lane::flag_all(done, Assumption::StrictAfterRefused);
+        for (test, _) in &done.0 {
+            match done.3.iter_mut().find(|(t, _)| t == test) {
+                Some((_, hits)) => {
+                    if !hits.contains(&Assumption::StrictAfterRefused) {
+                        hits.push(Assumption::StrictAfterRefused);
+                        hits.sort();
+                    }
+                }
+                None => done.3.push((test.clone(), vec![Assumption::StrictAfterRefused])),
+            }
+        }
     }
 }
 
@@ -117,7 +128,7 @@ pub(super) fn groups(
         let g = out.last_mut().expect("a group");
         let items = members
             .into_iter()
-            .map(|(p, k)| (p, (units[k].si, u8::from(hub_leg), units[k].id, Link::Run(k))));
+            .map(|(p, k)| (p, (units[k].si, u8::from(!hub_leg), units[k].id, Link::Run(k))));
         if hub_leg {
             g.hub.extend(items)
         } else {
@@ -136,7 +147,7 @@ pub(super) fn groups(
         };
         for (suite, p) in places {
             if let Some(g) = out.iter_mut().find(|g| (g.suite, g.si) == (suite, *si)) {
-                g.hub.push((p, (*si, 1, *id, Link::Refused(*oi, why.clone()))));
+                g.hub.push((p, (*si, 0, *id, Link::Refused(*oi, why.clone()))));
             }
         }
     }
@@ -193,7 +204,8 @@ impl StrictRun<'_> {
         order.sort_by_key(|&g| std::cmp::Reverse(groups[g].len()));
         // The closure captures only what threads may share (a baseline stays on its thread).
         let w = &self.walk;
-        let (engine, lowered, units, trace, limit, pool) = (w.engine, w.lowered, w.units, w.trace, w.limit, w.pool);
+        let (engine, lowered, units, trace, limit, pool, fresh_check) =
+            (w.engine, w.lowered, w.units, w.trace, w.limit, w.pool, w.fresh_check);
         let run = |b: Option<&al_vm::Baseline>, i: usize| -> WalkOut {
             let mut out = WalkOut::default();
             let walk = ChainWalk {
@@ -205,7 +217,7 @@ impl StrictRun<'_> {
                 limit,
                 pool,
                 keep_singles: true,
-                fresh_check: false,
+                fresh_check,
                 sequential: true,
             };
             let mut take = |k: usize, r: UnitResult| out.done.push((k, r));
@@ -263,7 +275,7 @@ mod tests {
     }
 
     /// Second review of the draft (finding B): in the sequential walk the single instances move on past a refusal or a
-    /// time-limit stop, but not past a panic in a test method; the lane hands nothing on after either.
+    /// time-limit stop, but not past a panic in a test method.
     #[test]
     fn a_panic_in_a_test_drops_the_single_instances_in_the_sequential_walk() {
         assert!(!scratch(true, true, false).hands_on_none(), "a refusal: they move on");

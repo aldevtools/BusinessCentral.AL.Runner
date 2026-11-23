@@ -136,14 +136,10 @@ pub struct TestArgs {
     /// `--permissions off` (ADR-062 section 5): no access kind is enforced, whatever stage is on by default. `on`,
     /// the default, enforces the stages that are on; none is yet.
     pub permissions_off: bool,
-    /// `--strict-order` (ADR-066 amendment 12, decision 4): run the test codeunits in BC's order (SingleInstance state
-    /// and NumberSequence numbers carry; an order-dependent codeunit runs again serially after a failure, amendments 4
-    /// to 7). Default: fresh SingleInstance state and the baseline's numbers per codeunit, no re-run, hints.
+    /// `--strict-order` (ADR-070): run the test codeunits of each BC session one after the other in BC's order
+    /// (SingleInstance state, rows, NumberSequence numbers and storage carry). Default: fresh SingleInstance state and
+    /// the baseline's numbers per codeunit, in parallel, no re-run, hints.
     pub strict_order: bool,
-    /// `--max-replay N` (ADR-066 amendment 7, option 2, opt-in since the owner's change of 2026-11-08): a serial
-    /// re-run whose chain holds more than `N` test codeunits is skipped and flagged. Default: no cap. Only has an
-    /// effect with `--strict-order` (ADR-066 amendment 12, decision 4).
-    pub max_replay: Option<usize>,
     /// `--test-suites FILE` (ADR-066 amendment 6): each suite of the file is a BC session of its own for order dependence.
     pub test_suites: Option<PathBuf>,
     /// `--max-memory SIZE` (ADR-066 amendment 9): the most memory the run may use, in bytes; the run then uses
@@ -1037,20 +1033,11 @@ ISOLATION
                          Under --isolation test what a later codeunit sees of the numbers an
                          earlier codeunit's tests took is not measured: each NumberSequence call
                          there is refused, and its test is reported as not run.
-                         A test codeunit that reads SingleInstance state an earlier one left keeps
-                         its parallel result, flagged `single-instance-order`, and runs again in
-                         order with the codeunits it depends on when one of its tests failed or was
-                         refused while it ran and that test, or one before it, read such a value.
+                         Each Business Central session (the run, or each suite of --test-suites)
+                         then runs its test codeunits one after the other on one thread; the
+                         sessions run in parallel with each other.
                          Within one test codeunit the order is always Business Central's.
                          In `serve`: the runTests field `strictOrder`.
-    --max-replay N       With --strict-order: skip a re-run of an order-dependent test codeunit
-                         whose chain holds more than N test codeunits. The codeunit keeps its
-                         parallel result, flagged `single-instance-rerun-skipped`, and the run
-                         prints `re-run skipped (chain of M codeunits over the limit of N)`. A test
-                         that passes only in the full order then fails here. Use it when long
-                         chains cost too much time; default: no limit, every re-run is replayed
-                         in full. Without --strict-order it has no effect.
-                         In `serve`: the runTests field `maxReplay`.
     --max-memory SIZE    The most memory the run may use, such as 6G or 800M. AL Runner runs fewer
                          test codeunits at once to stay under it, down to one at a time, and stops
                          with exit code 2 when not even one fits. Without it the limit is the free
@@ -1471,7 +1458,6 @@ fn parse_serve(args: Vec<String>) -> Result<Command, String> {
         || t.no_client
         || t.allow_write_in_try_functions
         || t.strict_order
-        || t.max_replay.is_some()
         || t.test_suites.is_some()
         || t.dependencies_published_global
         || t.permissions_off
@@ -1790,7 +1776,6 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--no-client" => a.no_client = true,
             "--allow-write-in-try-functions" => a.allow_write_in_try_functions = true,
             "--strict-order" => a.strict_order = true,
-            "--max-replay" => a.max_replay = Some(number(&flag, &text()?)?),
             "--test-suites" => a.test_suites = Some(text()?.into()),
             "--max-memory" => a.max_memory = Some(crate::memory_budget::parse_size(&text()?)?),
             "--dependencies-published-global" => a.dependencies_published_global = true,

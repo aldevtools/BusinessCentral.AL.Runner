@@ -627,7 +627,6 @@ mod tests {
             ("skip_after_timeout", |a, _| a.skip_after_timeout = true),
             ("stop_after_first_failure", |a, _| a.stop_after_first_failure = true),
             ("test_suites", |a, f| a.test_suites = Some(f.to_path_buf())),
-            ("max_replay", |a, _| a.max_replay = Some(3)),
         ];
         let plain = key(&TestArgs::default()).unwrap();
         assert_eq!(plain, key(&TestArgs::default()).unwrap());

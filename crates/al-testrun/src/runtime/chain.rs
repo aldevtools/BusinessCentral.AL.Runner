@@ -131,12 +131,9 @@ impl ChainReport {
         self.numbers_order.iter().map(|n| n.line()).collect()
     }
 
-    /// The order lines the run output prints with or without `--timings`: the skipped re-runs (ADR-066 amendment 7,
-    /// option 2) and the numbers list.
+    /// The order lines the run output prints with or without `--timings`: the numbers list.
     pub fn run_output_lines(&self) -> Vec<String> {
-        let mut out = self.single_lane.skipped_lines();
-        out.extend(self.numbers_summary());
-        out
+        self.numbers_summary()
     }
 
     /// The numbers list for the run output: one line per codeunit up to [`NUMBERS_LINES_MAX`], else one summary line

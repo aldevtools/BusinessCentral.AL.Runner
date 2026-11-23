@@ -1331,11 +1331,6 @@ pub struct Seen {
     pub kind: Kind,
     pub message: String,
     pub assumption: bool,
-    /// The test relies on SingleInstance state an earlier test codeunit left (`Assumption::SingleInstanceOrder`).
-    pub order: bool,
-    /// Its codeunit's serial re-run was skipped for the length of its chain (`Assumption::SingleInstanceRerunSkipped`,
-    /// ADR-066 amendment 7).
-    pub rerun_skipped: bool,
 }
 
 /// The changes of each variant against the base variant (`per_variant[0]`). A test missing from a variant is not
@@ -1675,8 +1670,6 @@ mod tests {
             kind: k,
             message: String::new(),
             assumption: a,
-            order: false,
-            rerun_skipped: false,
         };
         let runs = vec![
             vec![

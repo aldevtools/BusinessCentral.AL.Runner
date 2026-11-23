@@ -236,7 +236,15 @@ impl ChainWalk<'_> {
                         l.baseline = start.cloned();
                     }
                     if let Some((_, _, leg, b)) = before {
-                        let why = After::new(engine, lowered, b, units[k].oi, *leg).refusal(&r).cloned();
+                        // A plain codeunit (in the walk only for `--strict-order`) keeps the refusals main gave it outside
+                        // the chain: with handlers after a member on the TestRunnerHub its place is not pinned.
+                        let after = After::new(engine, lowered, b, units[k].oi, *leg);
+                        let why = if plain {
+                            after.outside_refusal(&r)
+                        } else {
+                            after.refusal(&r)
+                        }
+                        .cloned();
                         if let (Some(why), Ok(done)) = (why, &mut r.result) {
                             refuse_all(&mut done.0, &why);
                         }

@@ -354,10 +354,8 @@ impl CorpusRuntime {
                 },
                 single_fresh_check: check[i],
                 // ADR-066 amendment 12, "What changes in code": a stability run keeps its variants in BC's order (it
-                // implies `--strict-order`); with `isolation.singleInstance` the base variant replays every dependent
-                // codeunit (ADR-058 amendment 1, decision 3).
+                // implies `--strict-order`, ADR-070's sequential run).
                 strict_order: true,
-                replay_every_dependent: opts.replay_every_dependent || check[i],
                 process_ends_after: false,
                 hooks: if i == 0 { opts.hooks.clone() } else { Default::default() },
                 ..opts.clone()
@@ -1586,16 +1584,12 @@ impl CorpusRuntime {
                 reset_ns.fetch_max(took, std::sync::atomic::Ordering::Relaxed);
                 own
             };
-            // ADR-066 amendment 8: the walk keeps the SingleInstance state along each BC session's members.
-            // `--test-suites` orders a session by the file, not by the walk's id order: there the walk keeps fresh
-            // state per member and the lane handles the members as before (amendment 8, decision 6).
-            // ADR-066 amendment 12, decision 1: by default every test codeunit starts with fresh single instances; the walk
-            // keeps them only under `--strict-order`.
-            let keep_singles = opts.strict_order && chain_report.single_lane.watched > 0 && opts.test_suites.is_none();
-            // ADR-070 step 2 (`RunOptions::strict_sequential`): the sequential strict run walks every BC session on a thread of its
-            // own (`strict_walk.rs`) and leaves nothing for `note_leaks`, the parallel part and the lane to do.
+            // ADR-070: under `--strict-order` every BC session is one sequential walk on a thread of its own
+            // (`strict_walk.rs`), the single instances moving along, and leaves nothing for `note_leaks`, the parallel part
+            // and the lane's analysis to do. By default the walk takes the carry chain only, each member with fresh single
+            // instances.
             #[rustfmt::skip]
-            let carried = { let walk = super::chain_walk::ChainWalk { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, trace: opts.trace, limit, pool: memory.pool(), keep_singles: keep_singles || opts.sequential_strict(), fresh_check: opts.single_fresh_check && !opts.sequential_strict(), sequential: opts.sequential_strict() }; if opts.sequential_strict() { super::strict_walk::StrictRun { walk, place: &place, suites: opts.test_suites.as_deref(), refused: &refused_disabled, discovery: &discovery, workers, copies: baseline.is_none() || baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline }.run(&mut slots, &mut details, &mut chain_report); Vec::new() } else { walk.walk(chain, &mut |k, r| slots[k] = Some(r), &mut details, &mut chain_report) } };
+            let carried = { let walk = super::chain_walk::ChainWalk { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, trace: opts.trace, limit, pool: memory.pool(), keep_singles: opts.strict_order, fresh_check: opts.single_fresh_check, sequential: opts.strict_order }; if opts.strict_order { super::strict_walk::StrictRun { walk, place: &place, suites: opts.test_suites.as_deref(), refused: &refused_disabled, discovery: &discovery, workers, copies: baseline.is_none() || baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline }.run(&mut slots, &mut details, &mut chain_report); Vec::new() } else { walk.walk(chain, &mut |k, r| slots[k] = Some(r), &mut details, &mut chain_report) } };
             // The other codeunits run as before; one that comes after a Disabled codeunit notes whether it reads a table that
             // codeunit left rows in, and then runs again below, from what it left.
             note_leaks(&mut units, &carried, &sees);
@@ -1663,9 +1657,15 @@ impl CorpusRuntime {
                 }
                 slots[k] = Some(r);
             }
-            #[rustfmt::skip]
-            let lane = super::single_lane::Lane { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, carried: &carried, sees: &sees, place: &place, limit, bc_order: opts.strict_order, strict: opts.replay_every_dependent, max_replay: opts.max_replay, suites: opts.test_suites.as_deref(), workers, install_copies: baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline, kept_chain: keep_singles, pool: memory.pool(), fresh_check: opts.single_fresh_check };
-            (!opts.sequential_strict()).then(|| lane.run(&mut slots, &mut chain_report.single_lane));
+            if !opts.strict_order {
+                super::single_lane::Lane {
+                    lowered,
+                    units: &units,
+                    place: &place,
+                    suites: opts.test_suites.as_deref(),
+                }
+                .run(&mut slots, &mut chain_report.single_lane);
+            }
             super::discovery::refuse_after_pass(&mut slots, &chain_report, &engine, lowered, opts.strict_order);
             let results: Vec<UnitResult> = slots.into_iter().flatten().collect();
             for r in results {

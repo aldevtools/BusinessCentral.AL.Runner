@@ -168,8 +168,6 @@ impl Plan {
             Some("BcContainerHelper's discovery pass over the test codeunits of several apps in one BC session: not pinned".to_string())
         } else if opts.test_suites.is_some() {
             Some("BcContainerHelper's discovery pass with test suites (--test-suites): which test codeunits each suite's discovery pass runs is not pinned".to_string())
-        } else if opts.strict_order && !opts.strict_sequential {
-            Some("BcContainerHelper's discovery pass under --strict-order needs each BC session run in one walk (strict_sequential)".to_string())
         } else {
             None
         };
