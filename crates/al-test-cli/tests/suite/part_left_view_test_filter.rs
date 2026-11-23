@@ -1,7 +1,8 @@
 //! al-runner issue 8537: a ListPart on a temporary table that the host's OnAfterGetCurrRecord clears and refills, each step ending
 //! with the part's own `CurrPage.Update(false)`, then the test's own `Filter.SetFilter` on the part and a move or a read. The
 //! corpus probe (tests/al-language/pages/parts/PartRefillTestFilter.al: corpus pull request 1474, merged, not pinned yet, plus
-//! the two-field key cell of corpus pull request 1475, open; green 10/10 on a local Business Central 29.1) with a stand-in for
+//! the two-field key cell of corpus pull request 1475, merged, and the styled part of corpus pull request 1534, open, for al-runner
+//! issue 8704; green 11/11 on a local Business Central 29.1) with a stand-in for
 //! the corpus's Assert, and the reporter's repro (green on Business Central 29.1).
 //! The calls the probe did not make after the test's filter keep the refusal of `part_update_left_view.rs`. When the probe is
 //! pinned, delete the probe's test and read the objects from the corpus file.
@@ -86,6 +87,8 @@ fn issue_8537_the_tests_filter_reads_the_refilled_rows() {
         "PartRefill_BackgroundTaskActionThenFilterFirst_FindsRefilledRow",
         "PartRefill_TriggerPartActionThenFilterFirst_FindsRefilledRow",
         "PartRefill_TypedKeyTriggerPartActionThenFilterFirst_FindsRefilledRow",
+        // Corpus PR 1534 (al-runner issue 8704): the plain part with StyleExpr set in its OnAfterGetRecord.
+        "PartRefill_StyledPartActionThenFilterFirst_FindsRefilledRow",
     ] {
         assert_flagged_pass(&list, name);
     }
@@ -102,6 +105,48 @@ fn issue_8537_the_tests_filter_reads_the_refilled_rows() {
 fn issue_8537_reporters_repro_passes_flagged() {
     let list = outcomes(REPRO, "Repro Part Refill Tests");
     assert_flagged_pass(&list, "RefreshRefillsPartThenFirstFindsFilteredRow");
+}
+
+/// The repro of al-runner issue 8704 (green on Business Central 29.1): the repro of issue 8537 with `StyleExpr = LoadStyle` on
+/// Allocated Qty. and a part OnAfterGetRecord that sets it.
+fn repro_8704() -> String {
+    let mut src = REPRO.to_string();
+    for (from, to) in [
+        (
+            "field(\"Allocated Qty.\"; Rec.\"Allocated Qty.\") { }",
+            "field(\"Allocated Qty.\"; Rec.\"Allocated Qty.\") { StyleExpr = LoadStyle; }",
+        ),
+        (
+            "    var\n        ResourceNo: Code[20];\n        LinesLoaded: Boolean;\n",
+            "    trigger OnAfterGetRecord()\n    begin\n        LoadStyle := 'Standard';\n        if Rec.\"Allocated Qty.\" > 20 then\n            LoadStyle := 'Unfavorable';\n    end;\n\n    var\n        ResourceNo: Code[20];\n        LinesLoaded: Boolean;\n        LoadStyle: Text;\n",
+        ),
+        (
+            "procedure RefreshRefillsPartThenFirstFindsFilteredRow()",
+            "procedure RefreshRefillsStyledPartThenFirstFindsFilteredRow()",
+        ),
+    ] {
+        assert_eq!(src.matches(from).count(), 1, "{from}");
+        src = src.replacen(from, to, 1);
+    }
+    src
+}
+
+#[test]
+fn issue_8704_reporters_repro_passes_flagged() {
+    let list = outcomes(&repro_8704(), "Repro Part Refill Tests");
+    assert_flagged_pass(&list, "RefreshRefillsStyledPartThenFirstFindsFilteredRow");
+}
+
+/// The styled part of corpus PR 1534 with its style computed with another threshold, or with the StyleExpr on Period Start
+/// instead of Allocated Qty. (no cell had either; `ObjectNeighbors.al` of the neighbor app) keeps the refusal at its First.
+#[test]
+fn issue_8704_a_styled_part_with_other_code_stays_refused() {
+    const OBJECT_NEIGHBORS: &str =
+        include_str!("../../../../tests/neighbors/fix-8537-part-refill-first/src/ObjectNeighbors.al");
+    let list = outcomes(&format!("{PROBE}\n{OBJECT_NEIGHBORS}"), "LT PR NB Object Neighbors");
+    for name in ["StyledPart_OtherThreshold_First", "StyledPart_StyleOnPeriodStart_First"] {
+        assert_refused(&list, name, "First");
+    }
 }
 
 /// Calls the probe did not make after the test's filter, on the probe's objects: the neighbor app of al-runner PR 8542, one

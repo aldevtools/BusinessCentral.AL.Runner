@@ -16,6 +16,7 @@ fn outcomes(codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
         include_str!("../../../../tests/neighbors/8729-handler-caught-error-close/src/ProbeObserver.al"),
         include_str!("../../../../tests/neighbors/8729-handler-caught-error-close/src/ProbePageHandlerCaught.al"),
         include_str!("../../../../tests/neighbors/8729-handler-caught-error-close/src/ProbeDocumentCaught.al"),
+        include_str!("../../../../tests/neighbors/8729-handler-caught-error-close/src/ProbeRunCaughtWays.al"),
     ]
     .join("\n");
     let l = al_testkit::compile_apps(vec![al_testkit::app(&src)]);
@@ -79,6 +80,18 @@ fn issue_8729_page_run_cells() {
 fn issue_8729_document_run_modal_cells() {
     let o = outcomes("CEM Caught RunModal Tests");
     for (name, r, marks) in o.iter().filter(|(n, ..)| n.starts_with("DocumentStaticRunModal_")) {
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert!(marks.contains(&PageHandlerCaughtErrorClose), "{name}: {marks:?}");
+    }
+}
+
+/// The wizard, the card from a Page variable and the list after the six other ways of catching (corpus PR 1531,
+/// CemRunCaughtWaysTests.al): each close of the pinned matrix gives its pinned answer, flagged.
+#[test]
+fn issue_8729_wizard_page_variable_and_list_after_each_way_of_catching() {
+    let o = outcomes("CEM Caught Ways Run Tests");
+    assert_eq!(o.len(), 36);
+    for (name, r, marks) in &o {
         assert_eq!(*r, Outcome::Pass, "{name}");
         assert!(marks.contains(&PageHandlerCaughtErrorClose), "{name}: {marks:?}");
     }

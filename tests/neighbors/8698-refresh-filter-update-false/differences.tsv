@@ -1,56 +1,18 @@
 # key	entry
-# The read cells of corpus PR 1529: the test's read-only calls at three points of the cells, on every page shape of
-# ListValidateFilterRefresh.al. The base refused them, or turned the rule off and failed; the head reads them as BC does.
-# The other tests read as on the base, so no row.
-LT RFU Tests::Card_Action_ReadsCaptionsAndValues_AfterSteps	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::Card_Action_ReadsCaptionsAndValues_BeforeFirstStep	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::Card_Action_ReadsCaptionsAndValues_BetweenSteps	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::Card_Action_ReadsControlState_AfterSteps	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::Card_Action_ReadsControlState_BeforeFirstStep	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::Card_Action_ReadsControlState_BetweenSteps	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::Card_ReadsCaptionsAndValues_AfterSteps	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::Card_ReadsCaptionsAndValues_BeforeFirstStep	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::Card_ReadsCaptionsAndValues_BetweenSteps	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::Card_ReadsControlState_AfterSteps	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::Card_ReadsControlState_BeforeFirstStep	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::Card_ReadsControlState_BetweenSteps	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Edit Tests::EditCard_ReadsCaptionsAndValues_AfterGoToKey	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Edit Tests::EditCard_ReadsCaptionsAndValues_AfterSetValue	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Edit Tests::EditCard_ReadsControlState_AfterGoToKey	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Edit Tests::EditCard_ReadsControlState_AfterSetValue	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::IssueList_ReadsCaptionsAndValues_AfterSteps	ASSUMED list-validate-view-refresh (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::IssueList_ReadsCaptionsAndValues_BeforeFirstStep	ASSUMED list-validate-view-refresh (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::IssueList_ReadsCaptionsAndValues_BetweenSteps	ASSUMED list-validate-view-refresh (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::IssueList_ReadsControlState_AfterSteps	ASSUMED list-validate-view-refresh (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::IssueList_ReadsControlState_BeforeFirstStep	ASSUMED list-validate-view-refresh (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::IssueList_ReadsControlState_BetweenSteps	ASSUMED list-validate-view-refresh (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::ListBoth_Action_ReadsCaptionsAndValues_AfterSteps	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::ListBoth_Action_ReadsCaptionsAndValues_BeforeFirstStep	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::ListBoth_Action_ReadsCaptionsAndValues_BetweenSteps	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::ListBoth_Action_ReadsControlState_AfterSteps	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::ListBoth_Action_ReadsControlState_BeforeFirstStep	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::ListBoth_Action_ReadsControlState_BetweenSteps	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::ListBoth_ReadsCaptionsAndValues_AfterSteps	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::ListBoth_ReadsCaptionsAndValues_BeforeFirstStep	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::ListBoth_ReadsCaptionsAndValues_BetweenSteps	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::ListBoth_ReadsControlState_AfterSteps	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::ListBoth_ReadsControlState_BeforeFirstStep	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::ListBoth_ReadsControlState_BetweenSteps	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::ListCurr_ReadsCaptionsAndValues_AfterSteps	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::ListCurr_ReadsCaptionsAndValues_BeforeFirstStep	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::ListCurr_ReadsCaptionsAndValues_BetweenSteps	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::ListCurr_ReadsControlState_AfterSteps	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::ListCurr_ReadsControlState_BeforeFirstStep	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::ListCurr_ReadsControlState_BetweenSteps	ASSUMED validate-update-false-rereads-row (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::List_Action_ReadsCaptionsAndValues_AfterSteps	ASSUMED list-validate-view-refresh (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::List_Action_ReadsCaptionsAndValues_BeforeFirstStep	ASSUMED list-validate-view-refresh (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::List_Action_ReadsCaptionsAndValues_BetweenSteps	ASSUMED list-validate-view-refresh (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::List_Action_ReadsControlState_AfterSteps	ASSUMED list-validate-view-refresh (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::List_Action_ReadsControlState_BeforeFirstStep	ASSUMED list-validate-view-refresh (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::List_Action_ReadsControlState_BetweenSteps	ASSUMED list-validate-view-refresh (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::List_ReadsCaptionsAndValues_AfterSteps	ASSUMED list-validate-view-refresh (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::List_ReadsCaptionsAndValues_BeforeFirstStep	ASSUMED list-validate-view-refresh (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::List_ReadsCaptionsAndValues_BetweenSteps	ASSUMED list-validate-view-refresh (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::List_ReadsControlState_AfterSteps	ASSUMED list-validate-view-refresh (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::List_ReadsControlState_BeforeFirstStep	ASSUMED list-validate-view-refresh (corpus PR 1529, open: ListValidateFilterRefresh.al)
-LT RFU Tests::List_ReadsControlState_BetweenSteps	ASSUMED list-validate-view-refresh (corpus PR 1529, open: ListValidateFilterRefresh.al)
+# Page 97498 of corpus PR 1535 (ListValidateViewReads.al), the issue's page with controls of every type: the base ran main's
+# refresh; the head reads the issue's cell and the As* reads, OptionCount, GetOption and IsExpanded at its points as BC does.
+# GetField by a control id after the rule ran refuses (the runner does not know the compiler's control ids); before it, and
+# the tree page 97499, keep main's answer on both, so no row.
+LT RVR Tests::Lines_SetRangeUpdateFalse_ReadsStoredRowAndAppliesFilter	ASSUMED list-validate-view-refresh (corpus PR 1535, open: ListValidateViewReads.al)
+LT RVR Tests::Lines_AsReads_BeforeFirstStep	ASSUMED list-validate-view-refresh (corpus PR 1535, open: ListValidateViewReads.al)
+LT RVR Tests::Lines_AsReads_BetweenSteps	ASSUMED list-validate-view-refresh (corpus PR 1535, open: ListValidateViewReads.al)
+LT RVR Tests::Lines_AsReads_AfterSteps	ASSUMED list-validate-view-refresh (corpus PR 1535, open: ListValidateViewReads.al)
+LT RVR Tests::Lines_OptionsAndTree_BeforeFirstStep	ASSUMED list-validate-view-refresh (corpus PR 1535, open: ListValidateViewReads.al)
+LT RVR Tests::Lines_OptionsAndTree_BetweenSteps	ASSUMED list-validate-view-refresh (corpus PR 1535, open: ListValidateViewReads.al)
+LT RVR Tests::Lines_OptionsAndTree_AfterSteps	ASSUMED list-validate-view-refresh (corpus PR 1535, open: ListValidateViewReads.al)
+LT RVR Tests::Lines_GetFieldById_BetweenSteps	REFUSED a call on a page of ListValidateFilterRefresh.al after the page read its row or the view again
+LT RVR Tests::Lines_GetFieldById_AfterSteps	REFUSED a call on a page of ListValidateFilterRefresh.al after the page read its row or the view again
+# AsInteger on the Text control and AsBoolean on the Decimal one between the SetValues: BC raises Invalid Conversion; the
+# head refuses a read on another type than the read cells measure; the base ran main's refresh and failed earlier.
+LT RFU Neighbor Tests::Wide_AsIntegerOnText_BetweenSteps	REFUSED a call on a page of ListValidateFilterRefresh.al after the page read its row or the view again
+LT RFU Neighbor Tests::Wide_AsBooleanOnDecimal_BetweenSteps	REFUSED a call on a page of ListValidateFilterRefresh.al after the page read its row or the view again
