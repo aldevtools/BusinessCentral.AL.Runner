@@ -127,7 +127,13 @@ impl Graph {
 
 /// What ties apps `x` and `y` in the graph, for the note of a refusal: the reason one touches everything, a meet, or a
 /// resource one reads or both write.
-pub(crate) fn tie(fp: &Footprints, x: u32, y: u32, name: impl Fn(u32) -> String) -> String {
+pub(crate) fn tie(
+    fp: &Footprints,
+    x: u32,
+    y: u32,
+    name: impl Fn(u32) -> String,
+    table: impl Fn(u32) -> String,
+) -> String {
     let none = InstallFootprint::default();
     let (a, b) = (fp.get(&x).unwrap_or(&none), fp.get(&y).unwrap_or(&none));
     if let Some(why) = a.everything.first().or(b.everything.first()) {
@@ -138,11 +144,12 @@ pub(crate) fn tie(fp: &Footprints, x: u32, y: u32, name: impl Fn(u32) -> String)
     }
     let read = (a.reads.iter()).find_map(|r| b.writes.iter().find(|w| r.read_sees_write(w)).map(|w| (r, w)));
     if let Some((r, w)) = read {
-        return format!("{} reads {r:?}, which {} writes ({w:?})", name(x), name(y));
+        let (r, w) = (r.describe(&table), w.describe(&table));
+        return format!("{} reads {r}, which {} writes ({w})", name(x), name(y));
     }
     let both = (a.writes.iter()).find(|w| b.writes.iter().any(|v| w.writes_collide(v)));
     match both {
-        Some(w) => format!("{} and {} both write {w:?}", name(x), name(y)),
+        Some(w) => format!("{} and {} both write {}", name(x), name(y), w.describe(&table)),
         None => format!("{} reads from {}", name(x), name(y)),
     }
 }

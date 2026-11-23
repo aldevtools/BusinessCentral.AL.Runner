@@ -153,7 +153,7 @@ impl<'p, 'g> Proof<'p, 'g> {
                     "{} apps whose installs read from each other or write the same resource ({}), more than the \
                      {MAX_INTERACTING} whose every order the runner tries",
                     unit.len(),
-                    tie(&self.fp, x, y, |a| self.name(a))
+                    tie(&self.fp, x, y, |a| self.name(a), |t| self.table_name(t))
                 ),
             });
         }
@@ -228,13 +228,7 @@ impl<'p, 'g> Proof<'p, 'g> {
             }
         }
         let differ: BTreeSet<u32> = lines.keys().copied().collect();
-        let table_name = |t: u32| {
-            self.lowered
-                .program
-                .objects
-                .get(t as usize)
-                .map_or("?", |o| o.name.as_str())
-        };
+        let table_name = |t: u32| self.table_name(t);
         // Every difference by table, key and field (`--verbose` prints the baseline notes; al-runner issue 6644 b).
         let mut detail = Vec::new();
         for (t, ls) in &lines {
@@ -285,6 +279,10 @@ impl<'p, 'g> Proof<'p, 'g> {
             ));
         }
         Ok(())
+    }
+
+    fn table_name(&self, t: u32) -> String {
+        (self.lowered.program.objects.get(t as usize)).map_or_else(|| "?".into(), |o| o.name.clone())
     }
 
     fn name(&self, app: u32) -> String {

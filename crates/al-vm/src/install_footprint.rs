@@ -38,6 +38,26 @@ pub enum Lasting {
 }
 
 impl Lasting {
+    /// The resource in words, for a baseline note; `table` names a table object.
+    pub fn describe(&self, table: impl Fn(u32) -> String) -> String {
+        let company = |c: &str| {
+            if c.is_empty() {
+                String::new()
+            } else {
+                format!(" in company {c}")
+            }
+        };
+        match self {
+            Lasting::Store(Resource::Row(c, t, _)) => format!("a row of table {}{}", table(*t), company(c)),
+            Lasting::Store(Resource::Extent(c, t)) => format!("the rows of table {}{}", table(*t), company(c)),
+            Lasting::Store(Resource::Table(t)) => format!("table {} in every company", table(*t)),
+            Lasting::AutoIncrement(c, t) => format!("the AutoIncrement counter of table {}{}", table(*t), company(c)),
+            Lasting::Sequence(c, name) => format!("number sequence {name}{}", company(c)),
+            Lasting::IsolatedStorage(scope, key) => format!("isolated storage key {key} ({scope})"),
+            Lasting::RowVersion => "the row version of the database".into(),
+        }
+    }
+
     /// Whether a read of `self` may see the write `w`.
     pub fn read_sees_write(&self, w: &Lasting) -> bool {
         match (self, w) {

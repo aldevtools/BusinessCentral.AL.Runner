@@ -46,7 +46,7 @@ fn two_installs_that_write_the_same_key_are_one_unit() {
     let apps = all(&[1, 2, 3]);
     let units = Graph::of(&apps, &fp, |x, y| x != y).units(&apps);
     assert!(units.contains(&vec![1, 2]) && units.contains(&vec![3]), "{units:?}");
-    assert!(tie(&fp, 1, 2, |a| a.to_string()).contains("both write"));
+    assert!(tie(&fp, 1, 2, |a| a.to_string(), |t| t.to_string()).contains("both write"));
 }
 
 #[test]
@@ -71,7 +71,7 @@ fn an_install_that_touches_everything_ties_every_unordered_app() {
     let fp: Footprints = [(1, page), (2, InstallFootprint::default())].into_iter().collect();
     let apps = all(&[1, 2, 3]);
     assert_eq!(Graph::of(&apps, &fp, |x, y| x != y).units(&apps), vec![vec![1, 2, 3]]);
-    assert!(tie(&fp, 2, 1, |a| a.to_string()).contains("a page"));
+    assert!(tie(&fp, 2, 1, |a| a.to_string(), |t| t.to_string()).contains("a page"));
 }
 
 #[test]
@@ -84,4 +84,33 @@ fn ancestors_follow_inputs_of_inputs() {
     assert_eq!(units, vec![vec![3], vec![2], vec![1]]);
     let anc: Vec<_> = g.ancestors(&units, &[1]).into_iter().cloned().collect();
     assert_eq!(anc, vec![vec![3], vec![2]]);
+}
+
+#[test]
+fn the_tie_names_the_table_and_the_kind_of_resource_not_its_debug_form() {
+    use al_data::memory::Resource;
+    let extent = Lasting::Store(Resource::Extent("C".into(), 7));
+    let fp: Footprints = [
+        (
+            1,
+            InstallFootprint {
+                reads: [extent.clone()].into_iter().collect(),
+                ..Default::default()
+            },
+        ),
+        (
+            2,
+            InstallFootprint {
+                writes: [Lasting::AutoIncrement("C".into(), 7), extent].into_iter().collect(),
+                ..Default::default()
+            },
+        ),
+    ]
+    .into_iter()
+    .collect();
+    let t = tie(&fp, 1, 2, |a| format!("app {a}"), |t| format!("T{t}"));
+    assert!(t.contains("the rows of table T7 in company C"), "{t}");
+    assert!(!t.contains("Extent("), "{t}");
+    let both = tie(&fp, 2, 2, |a| format!("app {a}"), |t| format!("T{t}"));
+    assert!(both.contains("the AutoIncrement counter of table T7"), "{both}");
 }
