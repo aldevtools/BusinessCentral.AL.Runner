@@ -147,7 +147,11 @@ impl InstallFootprint {
             match id.and_then(al_builtins::platform::virtual_table) {
                 Some(v) if APP_TABLES.contains(&v) => self.apps_all = true,
                 _ => {
-                    self.everything.insert(format!("a table served by a provider ({id:?})"));
+                    let what = match id {
+                        Some(n) => format!("a table served by a provider (table {n})"),
+                        None => "a table served by a provider".to_string(),
+                    };
+                    self.everything.insert(what);
                 }
             }
         }
@@ -252,6 +256,13 @@ fn builtin_touches_everything(receiver: &str, method: &str) -> bool {
         ),
         r => !KEPT_RECEIVERS.contains(&r),
     }
+}
+
+/// Object ids of a page or report note, ascending, comma separated.
+fn id_list(ids: &std::collections::HashSet<u32>) -> String {
+    let mut v: Vec<u32> = ids.iter().copied().collect();
+    v.sort_unstable();
+    v.iter().map(u32::to_string).collect::<Vec<_>>().join(", ")
 }
 
 /// The recording in progress (`CoverageState::install_footprint`).
@@ -382,10 +393,10 @@ impl crate::Session {
             fp.everything.insert("a .NET call".into());
         }
         if !t.pages.is_empty() {
-            fp.everything.insert(format!("a page ({:?})", t.pages));
+            fp.everything.insert(format!("a page ({})", id_list(&t.pages)));
         }
         if !t.reports.is_empty() {
-            fp.everything.insert(format!("a report ({:?})", t.reports));
+            fp.everything.insert(format!("a report ({})", id_list(&t.reports)));
         }
         Some(fp)
     }
