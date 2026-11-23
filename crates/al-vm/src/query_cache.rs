@@ -265,8 +265,10 @@ enum Shape {
 enum Ends<'a> {
     /// The read's own table and these: a group read and its FlowField filters' tables (:823, :1907, :3465, :4259), a CalcSums.
     TableAnd(&'a [Arc<TableDef>]),
-    /// Only these, the tables a CalcFields' formulas read (:6231, :6261): its entry holds through a commit of another row of its
-    /// row's table or of the row itself, of a temporary record too (BgTaskCacheEdges.al:428-:446, open corpus PR 1558).
+    /// Only these, the tables a CalcFields' formulas read (:6231, :6261): its entry holds through a commit of its row's table, of
+    /// an insert or a delete of another row, a change of the row, a ModifyAll or a DeleteAll, of a temporary record too, after
+    /// the test session's CalcFields first too, and for FieldRef.CalcField (BgTaskCacheEdges.al:428-:446, :639-:681, open
+    /// corpus PR 1558). A commit of a Truncate of it is not measured (`GroupThen::truncates`).
     Sources(&'a [Arc<TableDef>]),
 }
 
@@ -634,8 +636,8 @@ impl Session {
     /// Option or an Enum (the Enum with warning AL0603), each reaching here as itself. An Integer or an Enum that names a table
     /// ends that table's entries and no other table's (another table's number changes nothing, BgTaskQueryCache.al:6744; an
     /// Enum whose value is the cached table's id ends its row entry, BgTaskCacheEdges.al:452, open corpus PR 1558); one that
-    /// names no table ends none (the neighbors of MoreNeighbors.al, a Char, a Byte, an Option and an Enum of value 0). A Char,
-    /// a Byte or an Option that names a table is refused in a worker: no cell measures one.
+    /// names no table ends none (a Char, a Byte, an Option and an Enum of value 0, :687-:705). A Char, a Byte or an Option
+    /// that names a table is refused in a worker: no cell measures one.
     pub(crate) fn note_select_latest_version_of(&mut self, arg: Option<&Value>) -> Result<(), Signal> {
         let (n, measured) = match arg {
             Some(Value::Integer(n)) => (i64::from(*n), true),
