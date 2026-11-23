@@ -525,6 +525,9 @@ mod tests {
             "q: \"\\uD83D\\U0000DE00\"",
             "q: \"\\uD83D \"",
             "q: \"\\uDE00a\"",
+            // a low surrogate before a `\u` escape that is not a high surrogate (review round 2)
+            "q: \"\\uDE00\\u0041\"",
+            "q: \"\\uDE00\\uDE00\"",
             // !!bool under %YAML 1.1 other than a plain `yes`
             "%YAML 1.1\n---\nq: !!bool On",
             "%YAML 1.1\n---\nq: !!bool \"yes\"",
@@ -543,6 +546,10 @@ mod tests {
             "!!int ~",
             "!!float 1",
             "%YAML 1.2\n---\n!!int 1",
+            // a quoted empty tagged scalar as the document (the cells have a value; review round 2)
+            "!!str \"\"",
+            "!!str ''",
+            "!!int \"\"",
             // a tab after the indentation of the line after `:` before a list item
             "k:\n  \t- a",
             // a collection under an unknown core tag, a line separator in single quotes before a blank
@@ -550,8 +557,6 @@ mod tests {
             "q: 'a\u{2028} b'",
             // U+FDD0 and the other marks of this runtime as escapes
             "q: \"\\uFDD0\"",
-            "q: \"\\uFDD1\"",
-            "q: \"\\uFDD3\"",
             // main answered these without a cell
             "q: [!!str, a]",
             "a: &x 1\n*x: 2",
@@ -563,6 +568,18 @@ mod tests {
             }
         }
         assert!(unrefused.is_empty(), "read, not refused:\n{}", unrefused.join("\n"));
+    }
+
+    /// The marks next to U+FDD0 refuse for the mark, not for another reason (review round 2 of PR 8881).
+    #[test]
+    fn the_other_marks_refuse_as_marks() {
+        for text in ["q: \"\\uFDD1\"", "q: \"\\uFDD3\""] {
+            let got = format!("{:?}", read(text, true).0);
+            assert!(
+                got.contains("ReadFromYaml of a text that reads as a noncharacter this runtime uses as a mark"),
+                "{text:?}: {got}"
+            );
+        }
     }
 
     /// A good read into an object with members runs through `read-from-yaml-final-shapes` (corpus PR 1549

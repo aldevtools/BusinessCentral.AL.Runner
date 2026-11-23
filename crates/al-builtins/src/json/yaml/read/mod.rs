@@ -267,8 +267,8 @@ fn tree(chars: &[char], t: Vec<Tok>, unicode_breaks: usize) -> Res<Yaml> {
     if let Some(Node::Scalar { v, style, tag: Some(t) }) = &root {
         let kind = tags::kind(t);
         let null_word = *style == Style::Plain && tags::plain_null(v);
-        let measured =
-            (matches!(kind, Kind::Int | Kind::Bool | Kind::Str) && !null_word) || (kind == Kind::Null && v.is_empty());
+        let measured = (matches!(kind, Kind::Int | Kind::Bool | Kind::Str) && !null_word && !v.is_empty())
+            || (kind == Kind::Null && v.is_empty());
         if !measured || p.version != Version::None {
             return Err(Fail::Refuse(
                 "ReadFromYaml of a document that is a tagged scalar no probe measured",

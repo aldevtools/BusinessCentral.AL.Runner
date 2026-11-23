@@ -898,11 +898,15 @@ impl Scanner {
         // JsonYamlFinalStructure.al `EscapeSurrogates1_1`-`EscapeSurrogates1_4`, `EscapeSurrogates1_6`-`EscapeSurrogates1_8`,
         // `EscapeSurrogates1_10`, `EscapeSurrogates1_12`, `EscapeSurrogates2_1`-`EscapeSurrogates2_3`).
         // The surrogate cells end the text after it (`"`), go on with `x` after a high one or put a low one before a high
-        // one (`\uDE00\uD83D`); a surrogate before any other character is not measured.
+        // one (`\uDE00\uD83D`); a surrogate before any other character or escape is not measured.
         let high = (0xD800..0xDC00).contains(&v);
         let low = (0xDC00..0xE000).contains(&v);
         let next = (self.at(0), self.at(1));
-        let measured_next = next.0 == '"' || (high && next.0 == 'x') || (low && next == ('\\', 'u'));
+        let high_next = next == ('\\', 'u')
+            && (2..6)
+                .try_fold(0u32, |a, k| self.at(k).to_digit(16).map(|d| a * 16 + d))
+                .is_some_and(|h| (0xD800..0xDC00).contains(&h));
+        let measured_next = next.0 == '"' || (high && next.0 == 'x') || (low && high_next);
         if (high || low) && !measured_next {
             self.marked = true;
             return Err(Fail::Refuse(

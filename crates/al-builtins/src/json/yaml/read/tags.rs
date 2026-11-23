@@ -406,7 +406,7 @@ pub(super) fn key(kind: Kind, v: &str, style: Style, version: Version) -> Res<St
     if kind == Kind::Str {
         return match (v, style) {
             ("", Style::Plain) => Err(Fail::Bad),
-            ("null" | "Null" | "NULL", _) => Err(Fail::Refuse(UNMEASURED)),
+            (w, _) if !matches!(w, "" | "~") && plain_null(w) => Err(Fail::Refuse(UNMEASURED)),
             _ if style == Style::Block => Err(Fail::Refuse(UNMEASURED)),
             _ => Ok(v.to_string()),
         };
