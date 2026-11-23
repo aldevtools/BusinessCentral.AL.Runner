@@ -5,6 +5,8 @@
   branch `al-runtime-rs` was fast-forwarded into it, and work on the old AL runner on this corpus has stopped.
   Where this ADR says `al-runtime-rs` branch or "never touches the corpus `master`", read `master`. The flow
   (staging, bump pull request, merge commit) is in `docs/agents/corpus-writer.md`, "How a bump lands on master".
+- Amended by [ADR-078](078-latest-released-minor-as-oracle.md) (2026-11-23): 3.9 `corpus_symbols` takes a version and adds `BC<n>_<m>PLUS`; 3.4
+  gates may key on a minor; the drift check of Q1 is the corpus's weekly sweep.
 - Date: 2026-10-13
 - Amends: ADR-007 (one oracle, one baseline, BC 27.5 only), ADR-008
   (catalog has no version data), ADR-013 (Layer A, floor below BC 27)
