@@ -16,6 +16,30 @@
 //! table there, with errors the corpus does not measure: refused (`clientless_test_page_reason`, `platform`
 //! `no_client_session_read`, which refuses a read of Active Session too). Every other dialog or call shape is refused in both
 //! sessions (hard rules 3 and 4); the worker's answers do not stand in for the web-service session.
+//!
+//! what a dialog does in a session without a client (`Session::without_client`): a page background
+//! task worker, where the answers are pinned (BjNoGuiDialogs.al, BjNoClientDialogs.al), and the test
+//! session under `--no-client` (`Session::no_client_test_session`, `set_clientless_session`), a web-
+//! service session as a user measured it on BC 28.4 (al-runner issues 8154, 8158, 8028; assumption
+//! `no-client-session`, written probe corpus PR 1420; `no_client_measured` limits its answers to that
+//! major, al-version `web_service_session_measured`); what neither covers is refused.
+//! `clientless_guard` (called from `exec/run.rs`) answers or refuses the dialog builtins in the
+//! worker, `no_client_test_session_guard` in the test session; `no_client_dialog` (called from
+//! `ui.rs` with a `NoClientDialog`) sends Confirm, StrMenu, Message, Hyperlink and Notification.Send
+//! to the test's handlers and refuses the unmeasured unhandled ones; `no_client_client_type` (from
+//! `hostvalues.rs`) answers CurrentClientType in a test method; `clientless_page_guard`
+//! (`pages/pageops.rs`) and `clientless_page_ui_guard` (`pages/rows.rs`) Page.Run and RunModal and
+//! every TestPage call; `clientless_report` (`reports.rs`, the static runs: CallbackNotAllowed in the
+//! worker; in the test session the skipped request page of `measured_skip_report`, the source shape
+//! al-sema `reports::bare_processing_report` puts in `ir::Report::bare_processing_only`, and the
+//! cells of `measured_report_run`) and `clientless_request_page_guard` the request page of a report;
+//! `clientless_xmlport_window_guard` (`xmlports/run_request.rs`). GuiAllowed is in `hostvalues.rs`;
+//! the Session and Active Session read refusal in `platform/mod.rs`
+//! (`Providers::no_client_session_read`, through `EventStats::no_client_test_session`, kept in step
+//! by `sync_no_client_test_session`); `clientless_refuses_test_page_handler` decides which handlers
+//! that take a TestPage `ui.rs` `ui_handler` refuses, a bound RequestPageHandler that never ran marks
+//! the assumption in `end_ui_scope`; a read of the WorkDate the skipped login code would have set
+//! (al-testrun `install::login_work_date`) marks it too.
 use crate::Session;
 use crate::reports::Schema;
 use crate::ui::UiKind;

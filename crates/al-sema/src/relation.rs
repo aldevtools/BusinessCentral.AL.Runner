@@ -8,6 +8,8 @@
 //!
 //! Only these shapes are understood; anything else makes the whole relation
 //! `None`, so the runtime refuses it instead of guessing (docs/probes-needed.md).
+//!
+//! Entry points: `ParsedArm`, `ParsedWhere`, `parse`.
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedArm {

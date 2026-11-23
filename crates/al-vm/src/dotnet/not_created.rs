@@ -1,4 +1,7 @@
 //! The error of a member of a DotNet variable that holds no object (code `DotNetVariableNotCreated`), where it is pinned.
+//!
+//! The pinned error of a member of a `DotNet` variable that holds no object
+//! (`DotNetVariableNotCreated`). Entry points: `Session::not_created`.
 
 use super::registry::MemberKind;
 use super::system_environment;

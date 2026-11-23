@@ -4,6 +4,11 @@
 //! channel receive in the command line's implementation.
 //!
 //! Without a debugger the session runs the plain form, which has no `Op::DbgHit`: a run without one pays nothing.
+//!
+//! The debugger seam (ADR-048): `DebugHook` (called before each statement of the debug form, returns
+//! `Resume`), `DebugView` (position, top frame's locals live, outer frames rendered),
+//! `Session::attach_debugger`/`detach_debugger`; `Session::form` picks the plain, captured or debug
+//! chunk in `Session::call`. Entry points: `DebugHook`, `DebugView`, `Session::debug_hit`.
 
 use crate::capture::Rendered;
 use crate::{Form, Session, Value, ir};

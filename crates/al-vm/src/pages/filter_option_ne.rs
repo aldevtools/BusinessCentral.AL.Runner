@@ -2,6 +2,10 @@
 //! Central reads the member's number, `<>0` (tests/al-language/testpage/filters/WorksheetEnumEqFilter.al:442
 //! TempWorksheet_Option_Texts, :450 and :456; :598 TempList_Option_OtherValues, :606 and :611). Only that shape takes this
 //! path; every other Option filter keeps the text `filter.rs` gives it.
+//!
+//! `TestFilter.GetFilter` of an Option filtered `<>` its first member reads `<>0` when the test typed
+//! that filter (testpage/filters/WorksheetEnumEqFilter.al:442, :598). Entry points:
+//! `option_ne_reads_number` (by `filter.rs`).
 
 use super::*;
 use al_builtins::filter::{FieldFilter, FilterExpr};

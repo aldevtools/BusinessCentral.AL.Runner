@@ -7,6 +7,12 @@
 //! runs afterwards reads the row again (`page_call` clears the lag), and so do the rows a refresh loads. The runtime keeps its own
 //! Rec on the moved row; only a procedure called through a `Page` variable sees the row the server still has. Other moves and
 //! other reads of the held page are not pinned and are not lagged.
+//!
+//! The row a list page's server-side Rec keeps while the test client moves with `Next` over rows it
+//! holds and no read trigger runs (al-runner issue 6924; PageExtensionSender.al List_SenderPerRow,
+//! Document_HeaderAndLinesSenders): a procedure called through a held `Page` variable reads that row.
+//! Entry points: `page_move_noting_server_row` (called by the move), `enter_server_row` (by
+//! `call_site`); `page_call` clears the lag.
 
 use super::*;
 use al_builtins::page_op::PageMethod;

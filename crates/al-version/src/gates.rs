@@ -4,6 +4,8 @@
 //! `#if BCnnPLUS` guard for it). Code asks [`Target::has`]; it never compares a version.
 //! A target newer than every gate gets every behaviour: a new major inherits the newest
 //! known behaviour until an oracle case says otherwise.
+//!
+//! Entry points: `Evidence`, `Gate`, `has`.
 
 use crate::Target;
 

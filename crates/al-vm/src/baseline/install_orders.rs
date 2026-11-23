@@ -1,6 +1,13 @@
 //! What the runner needs to install two partner apps in both orders and compare the result (ADR-046 amendment 7, owner
 //! 2026-11-08, al-runner issue 6644): which pairs of apps with no known install order the install code reached, a rewind
 //! to the database before the apps installed, and the comparison of the databases two orders leave.
+//!
+//! What installing partner apps in several orders needs (ADR-046 amendment 7): the pairs the install-
+//! order refusals met (`Session::note_order_unknown_hit`, `take_order_unknown_hits`),
+//! `Session::rewind_install`, `Session::set_clock_offset_ms`, and
+//! `Baseline::install_order_differences` (tables whose rows differ, by table, key and field; system
+//! fields and values read from the clock in each order's clock window left out, amendment 8). Entry
+//! points: `install_order_differences`.
 
 use super::Baseline;
 use crate::Session;

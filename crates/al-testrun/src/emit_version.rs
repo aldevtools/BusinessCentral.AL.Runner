@@ -1,6 +1,9 @@
 //! The emit version a run's engine names in the missing-object error (al-vm `emit_version`): read from the run build's own
 //! extracted artifact when BcContainerHelper's cache holds it, else from its platform artifact through the artifact cache
 //! (`al_deps::emit_version`). Never from another build of the major: the number differs between builds of one minor.
+//!
+//! The emit version of the run's build for al-vm `emit_version`: the extracted service tier first,
+//! then the artifact (al-deps `emit_version`). Entry points: `of_build`.
 use al_deps::artifact::{Cdn, HttpCdn};
 use al_deps::build::BuildId;
 use al_deps::service_tier::ServiceTier;

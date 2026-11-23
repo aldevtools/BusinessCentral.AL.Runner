@@ -2,6 +2,10 @@
 //! partition II, sections 24 and 22). [`crate::service_tier`] follows them to fetch only the service-tier
 //! assemblies a declared one needs; [`literal_i32`] reads a `const int` of a type. Pure: it reads a byte slice and never loads
 //! the assembly.
+//!
+//! The `AssemblyRef` names of a .NET assembly, read from its PE metadata (ECMA-335); pure. Entry
+//! points: `assembly_refs`, `assembly_version` (the assembly's own version), `literal_i32` (an Int32
+//! constant field of a type).
 
 /// The simple names in `bytes`' `AssemblyRef` table, in table order. `None` when `bytes` is not a .NET assembly
 /// this reader understands (no CLI header, a damaged table stream); the caller then follows no references.

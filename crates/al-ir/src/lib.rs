@@ -1,5 +1,8 @@
 //! Typed IR (ADR-011): every name resolved, every node typed, conversions
 //! explicit. Plain data, serde-serialisable, no syntax nodes.
+//!
+//! The typed IR (ADR-011): Program, Object, Routine, Stmt, Expr. Plain serde data, no syntax nodes.
+//! Entry points: `Program`, `Object`, `Routine`, `Stmt`, `Expr`, `SrcPos`, `NO_POS`.
 
 pub use al_builtins::builtin_id::BuiltinId;
 use al_builtins::value::RtType;

@@ -1,4 +1,6 @@
 //! App versions: four numeric parts, compared part by part.
+//!
+//! App version numbers.
 
 use std::fmt;
 use std::str::FromStr;

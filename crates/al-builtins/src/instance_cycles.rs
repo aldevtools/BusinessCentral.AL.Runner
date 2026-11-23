@@ -14,6 +14,19 @@
 //! shared record, list or page counts as one from outside, so the instance stays). An instance with more references
 //! than those is reachable from outside, and so is everything it reaches; the rest is garbage, and its globals are
 //! cleared, which ends the cycle.
+//!
+//! Frees the object instances only a reference cycle of AL code keeps (al-runner issue 7975; a warm
+//! server grew per request). Every `Instance` is made through `shared`, which notes it per thread and
+//! drops the entries of dropped instances when the registry reaches twice the entries left by the
+//! last pruning or `collect` (at least 1024; `noted` reads its length); `collect` (called by al-
+//! testrun `run.rs` `run_codeunit_core` after each test codeunit's session) counts the references
+//! noted instances hold to each other through values they own alone and clears the globals of those
+//! nothing else reaches. `RunEnd` (held by the thread a run starts on for the run, al-testrun
+//! `corpus.rs` `run_compiled_kept`, and by each worker thread for its life, `threads.rs` and
+//! `single_lane.rs`) clears, when it drops, the globals of every instance its thread made that is
+//! still alive, also those in a cycle `collect` cannot see, so the next variant of a stability run
+//! starts with none (al-runner issue 6924). `live` counts live instances (tests read it). Page values
+//! are walked through al-vm `pages/state/mod.rs` `page_instance`.
 
 use crate::page_handle::PageHandle;
 use crate::value::{Instance, Value};

@@ -1,6 +1,14 @@
 //! Record builtins that read table metadata or guard on session state:
 //! `TestField`, `Truncate`, `FieldCaption`, `FieldName`, `FieldNo`,
 //! `TableCaption`, `TableName`.
+//!
+//! Entry points: `string_literal`, `mentions_table`, `is_blank`. `field_caption_class_value` runs a
+//! table field's CaptionClass expression for every reader (FieldCaption, FieldRef.Caption, the page
+//! runs of `pages/caption_runs.rs`) and refuses a read of the field's caption while its own
+//! expression is on the call stack (al-runner issue 8329). TransferFields: `transfer_fields` walks
+//! the target's fields; `transfer_field` decides a field declared ObsoleteState = Removed on either
+//! side (`removed_pair_measured`, assumption `transferfields-removed-field`, corpus PR 1486) and
+//! `move_field` moves a live field.
 
 use crate::Session;
 use crate::blob_transfer::BlobMove;

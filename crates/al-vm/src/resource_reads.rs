@@ -1,6 +1,11 @@
 //! The resource files of the apps that AL code of a session read (`NavApp.GetResource*`, `NavApp.ListResources`), and
 //! the texts it got. al-testrun `install_once.rs` compares them: install code that ran for one entry of a run serves
 //! another entry only when that entry's texts of the files it read are the same (ADR-028 decision 11).
+//!
+//! The resource files of the apps AL code of a session read (`Ctx::app_resource` notes one file,
+//! `Ctx::app_resources` the whole app) and the run's texts of them (`ResourceReads::texts`), which
+//! al-testrun `install_once.rs` compares between entries. Entry points: `Session::resource_reads`,
+//! `ResourceReads`.
 
 use crate::{ResourceOverrides, Session};
 use std::collections::{BTreeMap, BTreeSet};

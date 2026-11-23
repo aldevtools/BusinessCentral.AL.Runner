@@ -2,6 +2,12 @@
 //! passes, and a pass after the main one adds its test apps and dependency apps to the main pass's compile instead of
 //! compiling everything again. Each pass keeps its own engine, store, install baseline and sessions; only the compile is
 //! shared. `AL_FRESH_PASS_COMPILE=1` turns it off: every pass compiles from source.
+//!
+//! ADR-063 in the runner: `KeptCompile` (the workspace and the `Growable` of a run, for a later run
+//! of the same process), `Grow` (how `compile_suites_once` takes part: off, keep with the apps the
+//! later run shares first, grow a kept compile), `KeptCompile::order_for` (the kept apps first, each
+//! the same as before), `fresh_pass_compile`. Entry points: `CorpusRuntime::try_run_suites_growable`
+//! and `try_run_suites_grown` in corpus.rs.
 use super::*;
 
 /// The compile of a run, kept for a later run of the same process that adds apps to it

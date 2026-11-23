@@ -13,6 +13,16 @@
 //! Only the probe's two pages take the cells (`ws_open_cell`), and after the open only the probe's calls (`STEPS`). A page of the
 //! same shape outside the cells refuses at the open where main's order is known to differ (`ws_open_neighbor`); every other page
 //! keeps main's path.
+//!
+//! The row triggers and the DataCaptionExpression runs of the probe's Worksheet the test opens with
+//! OpenEdit or OpenView (al-runner issue 8109, pages/properties/WorksheetTriggersOpen.al): the
+//! expression after the window's row reads, after the current-row reads, OnNewRecord and
+//! OnAfterGetCurrRecord; OpenView of an empty view lands on the new line twice; the caption shows the
+//! last value; only the probe's calls follow (`STEPS`). The same shape outside the cells refuses at
+//! the open where main's order differs (`ws_open_neighbor`). Entry points: `offers_new_line_at_open`
+//! (by `open_page_as_inner`), `ws_caption_before_trigger` and `ws_caption_after_trigger` (by
+//! `page_trigger`), `populate_window_row` (the window loop of `rows.rs`), `ws_trigger_caption` (by
+//! `caption_expr_list.rs`), `refuse_ws_trigger_order_step` (by `dirty_step.rs`).
 
 use super::pinned_body::{Callees, Names, callees_are, page_is, routine_text, table_is};
 use super::pinned_shape::TestCall;

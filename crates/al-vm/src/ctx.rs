@@ -1,3 +1,5 @@
+//! `Session` as the context natives call back into: `FormatCtx` and `Ctx` (`record`, `page`,
+//! `session_op`, files, module lookups).
 use super::*;
 use crate::state::ReportStart;
 

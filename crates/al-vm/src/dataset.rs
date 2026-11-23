@@ -7,6 +7,9 @@
 //! test pins is listed in docs/probes-needed.md ("Report.SaveAs dataset").
 //!
 //! Core code: no OS access (ADR-006). The writer builds a string; the caller writes the bytes.
+//!
+//! The dataset XML `Report.SaveAs(.., Xml, ..)` writes: header, `DataItem` rows, name and text
+//! escaping. Entry points: `dataset_name`, `Header`, `Dataset`.
 
 use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::Value;

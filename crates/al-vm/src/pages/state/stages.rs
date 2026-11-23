@@ -1,3 +1,5 @@
+//! Stage numbers and three-state options of a page as typed values: `ModalRun` (how the modal run
+//! started), `ChainRefill`, `ActionSaveCaptions`, `ReadUpFromLast`, `UnreadEdges` (al-runner issue 7685).
 #![deny(clippy::wildcard_enum_match_arm)]
 //! Stage numbers and three-state options of a page, each one typed value. The rules that read them stay at their callers,
 //! with their corpus citations; each type here names its states.

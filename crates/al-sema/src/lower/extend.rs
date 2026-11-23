@@ -9,6 +9,14 @@
 //! all the apps from the start gives, except that it may compile more of the kept apps than that one needs (what the
 //! kept compile's roots reached): code the tests of the grown compile do not reach, which runs the same either way, as
 //! in the eager compile (ADR-013).
+//!
+//! A compile that grows by apps (ADR-063): `compile_loaded_growable` keeps the check, the demand
+//! state, the member table and the facts of every object (`Export::Facts`) as a `Growable`;
+//! `Growable::truncate` cuts it back to its first apps; `grow` appends apps
+//! (`Workspace::append_apps_of`), continues the check (`check::check_grown`, `Checker::refire` in
+//! check/demand.rs) and lowers with the unchanged objects supplied from the kept program
+//! (`KeptProgram`, a `provided::DepSource`). Tests: a grown compile equals a fresh compile of all its
+//! apps. Entry points: `compile_loaded_growable`, `grow`, `Growable::truncate`.
 
 use super::*;
 use crate::provided::{DepBlock, DepFacts, DepSource};

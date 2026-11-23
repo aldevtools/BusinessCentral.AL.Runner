@@ -1,6 +1,10 @@
 //! Raising an event to some of its subscribers only (al-testrun `login.rs`: the login events raised to the apps under
 //! test's own subscribers). The event code runs them, so what holds for the event holds for them: an isolated event
 //! rolls back a subscriber's error and goes on (codeunits/TestIsolatedEventSubscriberError.al).
+//!
+//! `Session::raise_to`, an event raised to some of its subscribers only, through the event code (al-
+//! testrun `login.rs`: the login events to the apps under test's own subscribers; an isolated event
+//! stays isolated). The filter is `EventState::only_targets`, taken by the first `event_targets`.
 
 use crate::Session;
 use al_builtins::native::Signal;

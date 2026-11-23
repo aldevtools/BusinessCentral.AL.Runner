@@ -1,4 +1,6 @@
 //! The checker's object context, name resolution, and the walk over an object's routines.
+//!
+//! Entry points: `object_ctx`, `check_object`, `check_routine_in`, `walk`.
 use super::*;
 
 impl<'a> Checker<'a> {

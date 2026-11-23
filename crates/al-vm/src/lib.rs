@@ -1,5 +1,9 @@
 //! Tree-walking interpreter over the typed IR (ADR-011). `Engine` is the
 //! immutable program (ADR-001); `Session` holds all mutable state.
+//!
+//! Engine (immutable program) and Session (mutable state, grouped into the sub-states of `state.rs`),
+//! construction and the transaction entry points. The executor is the bytecode in `exec/`;
+//! `interp.rs` holds what both it and the rest of the VM use.
 
 use al_builtins::describe::Describe;
 use al_builtins::native::{AlError, Signal};

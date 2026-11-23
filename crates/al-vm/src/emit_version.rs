@@ -2,6 +2,10 @@
 //! missing object (`transactions.rs` `missing_object_from`). The front end reads it from the build's platform artifact
 //! (`al_deps::emit_version`) and hands the reader in: a core crate does no OS access (ADR-006). The reader runs the first
 //! time the number is asked for, so a run that raises no such error never fetches the file it is read from.
+//!
+//! The emit version of the run's build that the missing-object error prints (`transactions.rs`
+//! `missing_object_from`), read once on first ask through a reader the front end hands in. Entry
+//! points: `EmitVersion` (`Engine::emit_version`).
 use std::sync::{Arc, OnceLock};
 
 /// Reads the number, or says why it cannot.

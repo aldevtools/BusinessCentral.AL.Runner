@@ -1,4 +1,7 @@
 //! Runtime values (ADR-010).
+//!
+//! The state of a page is not here (ADR-072: al-vm `pages/state/mod.rs`). Entry points: `Value`,
+//! `RtType`, `RecordState`, `Instance`, `DotNetObject`.
 
 pub use crate::page_handle::{ControlHandle, PageHandle};
 use rust_decimal::Decimal;

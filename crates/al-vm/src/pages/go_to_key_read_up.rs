@@ -1,5 +1,10 @@
 //! GoToKey on a list that opened on the last row of its descending view in a key other than the primary key, the rows above it
 //! read up (`read_rows_up_from_the_landed_last_row`; al-runner issues 6363 and 8172).
+//!
+//! GoToKey on a list that opened on the last row of its descending view in a secondary key, the rows
+//! above it read up (al-runner issues 6363, 8172): runs only in the cells of rows held and rows above
+//! that WdModalGoToKeyDescSecondary.al measures (`MEASURED_HELD_ABOVE`). Entry points:
+//! `go_to_key_from_the_last_row_read_up` (from `page_go_to_key`).
 
 use super::*;
 use al_builtins::record_op::RecordOp;

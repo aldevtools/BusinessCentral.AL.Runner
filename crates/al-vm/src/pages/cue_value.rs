@@ -9,6 +9,12 @@
 //! field there, by its name or its id (:1076): refused for every type. A Decimal, and an Integer outside a wide cuegroup, read
 //! as anywhere else on the other page kinds and in a part too (pinned); an Integer in a wide cuegroup only on the measured
 //! pages (:742 `WideIntValue`, under the entry), and every other type there refuses, as main refused the wide Integer.
+//!
+//! The Value a TestPage reads from a field control in a cuegroup, by its name or through GetField
+//! (al-runner issue 8845, assumption `cuegroup-field-value`): an Integer or a Decimal its value, an
+//! Option or an Enum its ordinal, the other measured types `0`, on a Card, a CardPart, a ListPart or
+//! a List opened on its own; a RoleCenter refuses. Entry points: `cue_value_shown` (by
+//! `controls.rs`).
 
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};

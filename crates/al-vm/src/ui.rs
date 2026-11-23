@@ -7,6 +7,8 @@
 //! none bound it raises "Unhandled UI" (ui-handlers/TestConfirmNoHandler.al); a
 //! declared handler that never fired fails the test
 //! (ui-handlers/TestPageQueryCloseMessageHandler_Tests.al:51).
+//!
+//! Entry points: `UiKind`, `UiHandler`, `dispatch_ui`, `dispatch_ui_returning`.
 
 use crate::Session;
 use crate::clientless::NoClientDialog;
