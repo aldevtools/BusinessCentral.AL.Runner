@@ -256,6 +256,16 @@ codeunit 50987 "Order Rpt Current Reader"
 }
 "#;
 
+/// A codeunit that expects the first number of the sequence the takers took from: it passes in the default run and fails
+/// in BC's order, where it takes the third (review of PR 8947, MED-1).
+const FIRST_AFTER_TAKERS: &str = r#"
+codeunit 50988 "Order Rpt First After Takers"
+{
+    Subtype = Test;
+    [Test] procedure TakesTheFirstAfterATaker() begin if NumberSequence.Next('ORDERRPT') <> 1 then Error('took a later number'); end;
+}
+"#;
+
 /// ADR-070 decision 7: the stability dimension `isolation.singleInstance` compares two plain runs (the default isolated
 /// run against BC's order). A flip whose codeunit read no carried globals gets "took numbers ... after test codeunit X"
 /// when the fresh run gave the test a numbers hint, else "cause not known"; a flip of a reader of carried globals keeps
@@ -269,7 +279,7 @@ fn stability_compares_two_plain_runs_and_names_the_cause_of_each_flip() {
         "11111111-0000-0000-0000-000000007508",
         "OrderStab",
         "src/Tests.al",
-        &format!("{REPORTS}{CURRENT_READER}"),
+        &format!("{REPORTS}{CURRENT_READER}{FIRST_AFTER_TAKERS}"),
     );
     let cfg = d.path().join("si.json");
     std::fs::write(
@@ -308,6 +318,13 @@ fn stability_compares_two_plain_runs_and_names_the_cause_of_each_flip() {
     assert_eq!(si["reads"][0]["global"], "Flag", "{si}");
     let reader = reason("Codeunit50987.ReadsTheCurrent");
     assert_eq!(reader["cause"], "cause not known", "{reader}");
+    // The other direction (decision 7): the test passes isolated and fails in BC's order; numbers are the cause.
+    let first = reason("Codeunit50988.TakesTheFirstAfterATaker");
+    assert_eq!(first["kind"], "failsOnlyAfterEarlierCodeunits", "{first}");
+    assert_eq!(
+        first["cause"], "took numbers from sequence ORDERRPT after test codeunit 50986 \"Order Rpt Second Taker\"",
+        "{first}"
+    );
     assert!(out.contains("Other flips in the default isolated run:"), "{out}");
     assert!(
         out.contains(&format!("Codeunit50986.TakesTheSecond: {numbers}")),

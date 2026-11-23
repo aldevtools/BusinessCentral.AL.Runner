@@ -237,6 +237,9 @@ impl ChainWalk<'_> {
                             refuse_all(&mut done.0, &why);
                         }
                     }
+                    if !self.sequential {
+                        r.note_carry(carried.iter().rposition(|c| c.0 == si), Some(carried.len()));
+                    }
                     slots(k, r);
                     left.unwrap_or_else(|| {
                         not_run_link(

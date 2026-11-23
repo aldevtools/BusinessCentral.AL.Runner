@@ -465,3 +465,58 @@ fn a_taker_and_a_reader_in_handlers_join_the_chain_and_a_named_plain_routine_doe
     assert!(numbers_hint(&rt, "ReadsInConfirm").is_empty());
     assert!(numbers_hint(&rt, "NamesAPlainRoutine").is_empty());
 }
+
+/// Two codeunits whose OnRun writes a row (so they are carry-chain members under runner 130450: each hands on the numbers
+/// its tests took, `numbers_taken.rs`) and a codeunit outside the chain after them that takes numbers (run again from the
+/// chain's carry, `carry_after.rs`). With [`NUMBERS`] before them.
+const CARRY_TAKERS: &str = r#"
+table 60478 "Order Carry Row" { fields { field(1; Id; Integer) { } } }
+codeunit 60479 "Order Carry First"
+{
+    Subtype = Test;
+    trigger OnRun() var R: Record "Order Carry Row"; begin R.Id := 1; R.Insert(); end;
+    [Test] procedure CarryTakesOne() var N: BigInteger; begin N := NumberSequence.Next('ORDERSEQ'); end;
+}
+codeunit 60480 "Order Carry Second"
+{
+    Subtype = Test;
+    trigger OnRun() var R: Record "Order Carry Row"; begin R.Id := 2; R.Insert(); end;
+    [Test] procedure CarryTakesAndFails() var N: BigInteger; begin N := NumberSequence.Next('ORDERSEQ'); Error('unrelated %1', N); end;
+}
+codeunit 60481 "Order Carry Free"
+{
+    Subtype = Test;
+    [Test] procedure FreeTakesAndFails() var N: BigInteger; begin N := NumberSequence.Next('ORDERSEQ'); Error('unrelated %1', N); end;
+}
+"#;
+
+/// Review of al-runner PR 8947, LOW-1: the numbers hint names only an earlier taker whose numbers did not reach the test
+/// here. The second chain member starts from the first's carry and the codeunit outside the chain runs again from it, so
+/// both saw what the chain members took; the last earlier taker they did not see is the free codeunit 60476. MED-1: the
+/// passing chain member's numbers are kept for the stability cause (`numbers_taken_after`), not as a hint.
+#[test]
+fn the_numbers_hint_leaves_out_a_chain_member_whose_numbers_reached_the_test() {
+    let rt = run(&format!("{NUMBERS}{CARRY_TAKERS}"), &RunOptions::default());
+    let members: Vec<u32> = rt.phases.chain.members.iter().map(|m| m.id).collect();
+    assert_eq!(members, vec![60479, 60480], "{:?}", rt.phases.chain.members);
+    assert!(
+        rt.phases.chain.reruns.iter().any(|e| e.id == 60481),
+        "{:?}",
+        rt.phases.chain.reruns
+    );
+    for test in ["CarryTakesAndFails", "FreeTakesAndFails"] {
+        assert!(
+            matches!(&result(&rt, test).outcome, Outcome::Fail(m) if m.contains("unrelated")),
+            "{:?}",
+            result(&rt, test)
+        );
+        assert_eq!(numbers_hint(&rt, test), vec![("ORDERSEQ".to_string(), 60476)], "{test}");
+    }
+    assert!(result(&rt, "CarryTakesOne").order_hint.is_none());
+    let after: Vec<(u32, &str, u32)> = rt
+        .numbers_taken_after()
+        .iter()
+        .flat_map(|(cu, t, ns)| ns.iter().map(move |n| (*cu, t.as_str(), n.after.0)))
+        .collect();
+    assert!(after.contains(&(60479, "CarryTakesOne", 60476)), "{after:?}");
+}

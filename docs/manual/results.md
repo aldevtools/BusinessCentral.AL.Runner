@@ -114,8 +114,9 @@ else in the default mode.
 
 `--strict-order` (in `serve`: the `runTests` field `strictOrder`) runs the test
 codeunits in Business Central's order: the state and the numbers carry (see
-"Business Central's order" below). `--stability` always runs in Business Central's
-order.
+"Business Central's order" below). A `--stability` run's base variant runs in
+Business Central's order; the `fresh` value of `isolation.singleInstance` runs the
+default isolated order.
 
 ### Business Central's order (`--strict-order`)
 

@@ -82,7 +82,10 @@ Two modes. No speculation in either.
    visible without a flag on each result. `--stability` still lists them.
 5. **`metrics/strict-order-files.txt` stays honest.** Keep the list. Add a nightly job that runs the whole corpus with
    `--strict-order`: every case must pass there, and a case that passes in both modes may not be on the list. The corpus
-   is the oracle for BC, and BC is strict order, so the full strict run must stay green somewhere.
+   is the oracle for BC, and BC is strict order, so the full strict run must stay green somewhere. Exception
+   (orchestrator call, 2026-11-23, for the owner to confirm): a case the strict run does not run yet may stay on
+   `metrics/<major>/strict-order-not-run.txt`, with its cause; that list only shrinks, and a case on it that fails
+   still fails the job (migration step 4).
 6. **Memory.** Amendments 9 and 10 stay as they are until ADR-069 is built. Then re-measure and reduce to: a budget, a
    learned cost per codeunit, admission before a codeunit starts, and a hard stop with exit code 2. The hard limit
    (`--max-memory`) and exit code 2 stay in every case. This goes into its own ADR (step 5), not here.

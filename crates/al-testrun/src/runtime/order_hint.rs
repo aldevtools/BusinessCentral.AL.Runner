@@ -107,18 +107,18 @@ pub(super) fn note_taken(scratch: &mut super::Scratch, session: &mut al_vm::Sess
     }
 }
 
-/// Decision 3: the numbers hint of each failed test of a codeunit (`failed`) whose tests took numbers (`taken`, per
-/// test) from a sequence that an earlier codeunit of its BC session took from (`before`: per sequence, the unit index
-/// of the last earlier codeunit that took from it).
+/// Decision 3: the numbers each of `tests` of a codeunit took (`taken`, per test) from a sequence that an earlier codeunit
+/// of its BC session took from (`before`: per sequence, the unit index of the last earlier codeunit that took from it
+/// and whose numbers did not reach this codeunit, [`hint_numbers`]).
 pub(super) fn numbers_hints(
     lowered: &al_sema::lower::Lowered,
     units: &[super::Unit],
     taken: &[(String, BTreeSet<(String, String)>)],
     before: &BTreeMap<(String, String), usize>,
-    failed: &[String],
+    tests: &[String],
 ) -> Vec<(String, Vec<NumbersTaken>)> {
     let name = |k: usize| (units[k].id, lowered.program.objects[units[k].oi].name.clone());
-    failed
+    tests
         .iter()
         .filter_map(|test| {
             let numbers: Vec<NumbersTaken> = taken
@@ -226,30 +226,56 @@ pub(super) fn mark_unmeasured_numbers(
     }
 }
 
-/// Decision 3: gives each failed test of BC session `ks` (unit indices in BC's order) the numbers hint
-/// ([`numbers_hints`]), adding it to the test's SingleInstance hint when it has one. A codeunit in two sessions
-/// (`--test-suites`) is hinted in the first only (`numbered`). Returns how many tests got a hint they did not have.
+/// Whether the numbers a codeunit took that left the carry at place `at` of the default walk reached a run that started
+/// from the carry at place `from` (`Scratch::carry_at`, `Scratch::carry_from`): the walk's carries of a suite build on
+/// each other, so a run started from a carry sees every carry before it.
+fn reached(at: Option<usize>, from: Option<usize>) -> bool {
+    matches!((at, from), (Some(a), Some(f)) if a <= f)
+}
+
+/// Decision 3: the numbers each test of BC session `ks` (unit indices in BC's order) took from a sequence that an earlier
+/// codeunit of the session took from, when that codeunit's numbers did not reach it here ([`reached`]; a codeunit outside
+/// the carry chain never hands them on). Every test, whatever its outcome, goes into `taken_after` (codeunit id, test,
+/// numbers: the cause of a stability flip, decision 7, never printed); each failed test also gets the numbers hint
+/// ([`numbers_hints`]), added to its SingleInstance hint when it has one. A codeunit in two sessions (`--test-suites`) is
+/// hinted in the first only (`numbered`). Returns how many failed tests got a hint they did not have.
 pub(super) fn hint_numbers(
     lowered: &al_sema::lower::Lowered,
     units: &[super::Unit],
     ks: &[usize],
     numbered: &mut BTreeSet<usize>,
     slots: &mut [Option<super::UnitResult>],
+    taken_after: &mut Vec<(u32, String, Vec<NumbersTaken>)>,
 ) -> usize {
-    let mut before: BTreeMap<(String, String), usize> = BTreeMap::new();
+    // Per sequence, each earlier codeunit that took from it, in order: (unit index, `Scratch::carry_at`).
+    type Takers = Vec<(usize, Option<usize>)>;
+    let mut before: BTreeMap<(String, String), Takers> = BTreeMap::new();
     let mut n = 0;
     for &k in ks {
         let Some(Ok(done)) = slots[k].as_mut().map(|r| &mut r.result) else {
             continue;
         };
         if !before.is_empty() && numbered.insert(k) {
-            let failed: Vec<String> = done
+            let from = done.5.carry_from;
+            let unseen: BTreeMap<(String, String), usize> = before
+                .iter()
+                .filter_map(|(key, ws)| {
+                    let w = ws.iter().rev().find(|(_, at)| !reached(*at, from))?;
+                    Some((key.clone(), w.0))
+                })
+                .collect();
+            let tests: Vec<String> = done.0.iter().map(|(t, _)| t.clone()).collect();
+            let failed: BTreeSet<String> = done
                 .0
                 .iter()
                 .filter(|(_, o)| matches!(o, crate::Outcome::Fail(_)))
                 .map(|(t, _)| t.clone())
                 .collect();
-            for (test, numbers) in numbers_hints(lowered, units, &done.5.numbers_taken, &before, &failed) {
+            for (test, numbers) in numbers_hints(lowered, units, &done.5.numbers_taken, &unseen, &tests) {
+                taken_after.push((units[k].id, test.clone(), numbers.clone()));
+                if !failed.contains(&test) {
+                    continue;
+                }
                 match done.5.order_hints.iter_mut().find(|(t, _)| *t == test) {
                     Some((_, h)) => h.numbers = numbers,
                     None => {
@@ -266,8 +292,30 @@ pub(super) fn hint_numbers(
             }
         }
         for (_, keys) in &done.5.numbers_taken {
-            before.extend(keys.iter().map(|key| (key.clone(), k)));
+            for key in keys {
+                before.entry(key.clone()).or_default().push((k, done.5.carry_at));
+            }
         }
     }
     n
+}
+
+impl super::UnitResult {
+    /// The default walk's places of the carry this run started from and of the carry it left (`Scratch::carry_from`,
+    /// `Scratch::carry_at`): set by the walk for a member and by the run again from a carry (`corpus.rs`).
+    pub(super) fn note_carry(&mut self, from: Option<usize>, at: Option<usize>) {
+        if let Ok(done) = &mut self.result {
+            done.5.carry_from = from;
+            done.5.carry_at = at;
+        }
+    }
+}
+
+impl super::CorpusRuntime {
+    /// ADR-070 decision 7: per test (codeunit id, name), the numbers it took after an earlier codeunit of its BC session
+    /// took from the same sequence in this default run, whatever its outcome ([`hint_numbers`]). Empty under
+    /// `--strict-order`.
+    pub fn numbers_taken_after(&self) -> &[(u32, String, Vec<NumbersTaken>)] {
+        &self.phases.chain.single_lane.numbers_taken_after
+    }
 }

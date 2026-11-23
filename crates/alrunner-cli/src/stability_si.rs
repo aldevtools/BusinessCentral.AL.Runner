@@ -6,8 +6,8 @@
 //!
 //! ADR-070 decision 7: the `fresh` variant is a plain default (isolated) run and the base variant a plain run in BC's
 //! order, so a flip under the dimension can have any cause. Its reason names the globals read (a codeunit of the list
-//! above), else "took numbers from sequence S after test codeunit X" (the numbers hint the fresh run gave the test,
-//! `TestResult::order_hint`), else "cause not known" ([`SiReport::with_fresh_runs`]).
+//! above), else "took numbers from sequence S after test codeunit X" (what the fresh run noted of the test, whatever its
+//! outcome there: `CorpusRuntime::numbers_taken_after`), else "cause not known" ([`SiReport::with_fresh_runs`]).
 //!
 //! the order dependence part of a stability report (ADR-058 amendment 1, decisions 4 to 6):
 //! `SiReport::new` from the base variant's `CorpusRuntime::single_carried` (dependency apps marked
@@ -15,7 +15,7 @@
 //! (`lines`), `flips[].reason` (`reason`), `readsCarried` (`reads_carried`), the JUnit reason line
 //! and the property `singleInstanceCarried`. Wired in by `stability::Outcome::with_single_instance`.
 
-use al_testrun::runtime::{CarriedCodeunit, TestResult};
+use al_testrun::runtime::{CarriedCodeunit, NumbersTaken};
 use al_testrun::stability::{Change, Kind, Seen};
 use std::collections::BTreeMap;
 
@@ -41,7 +41,7 @@ pub struct SiReport {
     /// The run had an `isolation.singleInstance = fresh` variant.
     pub checked: bool,
     /// ADR-070 decision 7: per `fresh` variant (its index) and test (`Codeunit<id>.<test>`), the numbers the test took
-    /// after an earlier codeunit took some, from the fresh run's numbers hint (`OrderHint::numbers`).
+    /// after an earlier codeunit took some, from the fresh run (`CorpusRuntime::numbers_taken_after`).
     pub numbers: BTreeMap<(usize, String), String>,
     /// The outcomes of the first `fresh` variant, for the notes of `readsCarried`.
     pub fresh: Vec<Seen>,
@@ -108,24 +108,23 @@ impl SiReport {
         }
     }
 
-    /// ADR-070 decision 7: what the `fresh` variants' own runs tell: the numbers hint of each of their tests, and the
-    /// outcomes of the first. `per_variant` and `seen` hold every variant's results, in the plan's order.
+    /// ADR-070 decision 7: what the `fresh` variants' own runs tell: the numbers each of their tests took after an
+    /// earlier codeunit took some, and the outcomes of the first. `taken_after` and `seen` hold every variant's, in the
+    /// plan's order.
     pub fn with_fresh_runs(
         mut self,
         plan: &crate::stability::Plan,
-        per_variant: &[Vec<&TestResult>],
+        taken_after: &[&[(u32, String, Vec<NumbersTaken>)]],
         seen: &[Vec<Seen>],
     ) -> SiReport {
-        let fresh: Vec<usize> = (0..per_variant.len())
+        let fresh: Vec<usize> = (0..taken_after.len())
             .filter(|&v| plan.variants.get(v).is_some_and(|x| x.perturb.single_fresh))
             .collect();
         for &v in &fresh {
-            for r in &per_variant[v] {
-                let Some(hint) = r.order_hint.as_ref().filter(|h| !h.numbers.is_empty()) else {
-                    continue;
-                };
-                let text: Vec<String> = hint.numbers.iter().map(|n| n.text()).collect();
-                self.numbers.insert((v, crate::stability::name(r)), text.join("; "));
+            for (codeunit, test, numbers) in taken_after[v] {
+                let text: Vec<String> = numbers.iter().map(NumbersTaken::text).collect();
+                self.numbers
+                    .insert((v, crate::stability::test_name(*codeunit, test)), text.join("; "));
             }
         }
         if let Some(s) = fresh.first().and_then(|&v| seen.get(v)) {

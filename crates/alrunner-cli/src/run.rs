@@ -1413,8 +1413,10 @@ fn test_inner(
             .has(al_version::Gate::TestRunnerHubRequiredIsolationFrom28);
     // ADR-074: BcContainerHelper runs every test codeunit through the runner codeunit; it has no TestRunnerHub.
     let driver = a.test_driver.unwrap_or_default();
+    // `--strict-order` (ADR-070); BcContainerHelper runs in one session (`TestDriver::one_session`).
+    let bc_order = a.strict_order || driver.one_session();
     // ADR-070: the mode the run states; a stability run's base variant runs in BC's order.
-    let order_mode = crate::order_mode::OrderMode::of(a.strict_order || driver.one_session() || a.stability.is_some());
+    let order_mode = crate::order_mode::OrderMode::of(bc_order || a.stability.is_some());
     if a.required_isolation && driver == al_testrun::runtime::TestDriver::BcContainerHelper {
         return Err("--isolation required follows the TestRunnerHub of the bc-linux driver; --test-driver bccontainerhelper has no hub".into());
     }
@@ -1690,8 +1692,7 @@ fn test_inner(
         no_client: a.no_client,             // issue 7564
         allow_write_in_try_functions: a.allow_write_in_try_functions, // issue 7143
         dependencies_published_global: a.dependencies_published_global, // issue 7169
-        // `--strict-order` (ADR-070); BcContainerHelper runs in one session (`TestDriver::one_session`).
-        strict_order: a.strict_order || driver.one_session(),
+        strict_order: bc_order,
         test_suites, // `--test-suites FILE` (ADR-066 amendment 6)
         memory: crate::memory_budget::budget(a.max_memory, warm.is_none() && debug.is_none()), // `--max-memory`
         private_baseline: std::env::var_os("AL_PRIVATE_BASELINE").is_some(), // ADR-069 decision 11
@@ -1911,11 +1912,12 @@ fn test_inner(
         let mut out = crate::stability::compare(plan, &seen);
         // ADR-058 amendment 1: order dependence through SingleInstance state, from the base variant's tracking.
         let own: Vec<String> = inputs.iter().map(|i| i.json.id.clone()).collect();
-        let si = crate::stability_si::SiReport::new(rt.single_carried(), &own, plan).with_fresh_runs(
-            plan,
-            &per_variant,
-            &seen,
-        );
+        let taken: Vec<_> = std::iter::once(&rt)
+            .chain(&variant_rts)
+            .map(|r| r.numbers_taken_after())
+            .collect();
+        let si =
+            crate::stability_si::SiReport::new(rt.single_carried(), &own, plan).with_fresh_runs(plan, &taken, &seen);
         out.with_single_instance(plan, si, &seen[0]);
         (plan, per_variant, seen, out)
     });

@@ -1608,10 +1608,8 @@ impl CorpusRuntime {
                 super::threads::run_parallel(memory.pool(), rest.len(), baseline.as_ref(), &own, &run)
             };
             for (k, mut r) in rest.into_iter().zip(results) {
-                let before = carried
-                    .iter()
-                    .rev()
-                    .find(|(si, id, leg, _)| sees(*si, *id, *leg, &units[k]));
+                let at = carried.iter().rposition(|c| sees(c.0, c.1, c.2, &units[k]));
+                let before = at.map(|i| &carried[i]);
                 let after = before.map(|(_, _, leg, c)| (After::new(&engine, lowered, c, units[k].oi, *leg), c));
                 if let Some((after, c)) = after.filter(|(a, _)| a.read(&r)) {
                     let storage = after.reaches_storage();
@@ -1630,6 +1628,7 @@ impl CorpusRuntime {
                             };
                             let trace: Option<&mut Observer> = opts.trace.then_some(&mut observe);
                             r = run_unit(&engine, lowered, c.baseline.as_ref(), &units[k], trace, limit);
+                            r.note_carry(at, None);
                             chain_report.reruns.push(super::ChainEntry {
                                 id,
                                 name: lowered.program.objects[units[k].oi].name.clone(),

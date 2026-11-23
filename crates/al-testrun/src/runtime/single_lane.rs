@@ -241,6 +241,8 @@ pub struct LaneReport {
     pub passing_read_carried: usize,
     /// ADR-058 amendment 1: the dependent codeunits, with what they read.
     pub carried: Vec<super::CarriedCodeunit>,
+    /// ADR-070 decision 7: `CorpusRuntime::numbers_taken_after` (`order_hint::hint_numbers`).
+    pub numbers_taken_after: Vec<(u32, String, Vec<super::NumbersTaken>)>,
 }
 
 impl LaneReport {
@@ -310,7 +312,9 @@ impl Lane<'_> {
                 report.passing_read_carried += passing;
             }
             // ADR-070 decision 3, after the SingleInstance hints: a test with both gets one hint.
-            report.hinted += super::order_hint::hint_numbers(self.lowered, self.units, &ks, &mut numbered, slots);
+            let after = &mut report.numbers_taken_after;
+            report.hinted +=
+                super::order_hint::hint_numbers(self.lowered, self.units, &ks, &mut numbered, slots, after);
         }
     }
 

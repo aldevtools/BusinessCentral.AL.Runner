@@ -823,6 +823,13 @@ pub(crate) struct Scratch {
     /// ADR-070 decision 3: the number sequences (company, name) each test took numbers from (`""`: OnRun and the
     /// runner steps outside a test), for the numbers hint (`order_hint::note_taken`).
     pub(crate) numbers_taken: Vec<(String, BTreeSet<(String, String)>)>,
+    /// ADR-070 decision 3, the default carry chain's walk (`chain_walk.rs`): the place in the walk's list of carries of
+    /// the carry this run started from (a member: the member before it in its suite; a codeunit outside the chain run
+    /// again from a carry: that carry, `corpus.rs`), and of the carry this member left. The numbers a member took reach
+    /// every run started from its carry or a later one of its suite (`numbers_taken.rs`), so the numbers hint leaves
+    /// such a pair out (`order_hint::hint_numbers`).
+    pub(crate) carry_from: Option<usize>,
+    pub(crate) carry_at: Option<usize>,
     /// Each test that began, with the number `Session::single_test_begins` gave it (watched codeunits only; ADR-070
     /// decision 4: which SingleInstance reads count for a passing test).
     pub(crate) test_numbers: Vec<(u32, String)>,
