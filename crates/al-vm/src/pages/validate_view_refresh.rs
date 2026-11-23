@@ -14,7 +14,7 @@
 
 use super::pinned_body::{Callees, Names, callees_with_calls_are, page_is, table_is};
 use super::pinned_shape::TestCall;
-use super::validate_view_cells::{CellPage, Change, Ctl, READ_ONLY_AT, Step, Tail, Upd};
+use super::validate_view_cells::{CellPage, Change, Ctl, Step, Tail, Upd};
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::filter::{FieldFilter, FilterExpr};
@@ -89,9 +89,9 @@ impl Session {
     }
 
     /// The test calls `call` on `st`, on `target` when it is a control's call (`test_page_op_held`, `test_control_op_held`).
-    /// A control's `Value()` read and the page's filter pass, as do AssertEquals and Editable() on the Name control where they
-    /// were measured (`validate_view_measured_read`). On the cells' page any other call joins the steps (`validate_view_step`);
-    /// a call the cells do not make turns the rule off, or refuses once the rule ran.
+    /// A control's `Value()` read and the page's filter pass. On the cells' page any other call joins the steps
+    /// (`validate_view_step`), the other read-only calls as `Step::Reads` where the cells measure them; a call the cells do
+    /// not make turns the rule off, or refuses once the rule ran.
     pub(super) fn validate_view_call(
         &mut self,
         st: &St,
@@ -101,15 +101,15 @@ impl Session {
         let Some(call) = call else {
             return Ok(());
         };
-        let reads = matches!(
+        if matches!(
             call,
             TestCall::Read | TestCall::Page(PageMethod::Filter) | TestCall::Other(PageMethod::GetFilter)
-        ) || self.validate_view_measured_read(st, call, target);
-        if reads || st.borrow().validate_view.off {
+        ) || st.borrow().validate_view.off
+        {
             return Ok(());
         }
         let mut v = std::mem::take(&mut st.borrow_mut().validate_view);
-        let r = self.validate_view_step(st, &mut v, call);
+        let r = self.validate_view_step(st, &mut v, call, target);
         let measured = matches!(r, Ok(true));
         v.off = !measured && !v.ran;
         let refuse = !measured && v.ran;
@@ -121,27 +121,16 @@ impl Session {
         Ok(())
     }
 
-    /// AssertEquals or Editable() on the Name control at `READ_ONLY_AT`, the only position they were measured in. Elsewhere,
-    /// and every other read-only call (Caption, Enabled, Visible, ...), keeps main's path or refuses (not measured).
-    fn validate_view_measured_read(&self, st: &St, call: TestCall, target: Option<&ControlTarget>) -> bool {
-        let (Some(ControlTarget::Control(idx)), TestCall::Other(PageMethod::AssertEquals | PageMethod::Editable)) =
-            (target, call)
-        else {
-            return false;
-        };
-        let (page, steps) = READ_ONLY_AT;
-        let at = {
-            let s = st.borrow();
-            let v = &s.validate_view;
-            !v.off && v.page == Some(page) && v.steps == steps && v.pending.is_none() && !v.walked
-        };
-        at && self.validate_view_ctl(st, *idx) == Some(Ctl::Name)
-    }
-
     /// `validate_view_call` on the taken state: `false` when the call is not one the cells make. A SetValue or the action reads
     /// the page's row first, and Close reads it, when the page holds no edit and its last read was of another row
     /// (`validate_view_read_row`).
-    fn validate_view_step(&mut self, st: &St, v: &mut ValidateView, call: TestCall) -> Result<bool, Signal> {
+    fn validate_view_step(
+        &mut self,
+        st: &St,
+        v: &mut ValidateView,
+        call: TestCall,
+        target: Option<&ControlTarget>,
+    ) -> Result<bool, Signal> {
         let page = match v.page {
             Some(page) => page,
             None => match self.validate_view_page(st) {
@@ -190,6 +179,11 @@ impl Session {
                 None => return Ok(false),
             },
             TestCall::Other(PageMethod::Invoke) => Action(Upd::None, Same),
+            _ if self.validate_view_reads(st, call, target) => match v.steps.last() {
+                // Read-only calls in a row are one step; after First they are no step of a cell.
+                Some(Step::Reads) if !v.walked => return Ok(true),
+                _ => Step::Reads,
+            },
             _ => return Ok(false),
         };
         // The kind of a SetValue or of the action is known once its code ran (`validate_view_refresh`,
@@ -270,6 +264,40 @@ impl Session {
         Ok(())
     }
 
+    /// `call` is one of the read-only calls the cells make between their steps (`Step::Reads`): AssertEquals, Caption,
+    /// Editable, Enabled, HideValue, ShowMandatory, ValidationErrorCount or Visible on a control bound to a field, or Caption,
+    /// Editable or ValidationErrorCount on the page (ListValidateFilterRefresh.al of corpus pull request 1529, `ReadsLines`
+    /// and the others: they log nothing, and the cell reads on as without them).
+    fn validate_view_reads(&self, st: &St, call: TestCall, target: Option<&ControlTarget>) -> bool {
+        match call {
+            TestCall::Page(m) => matches!(
+                m,
+                PageMethod::Caption | PageMethod::Editable | PageMethod::ValidationErrorCount
+            ),
+            TestCall::Other(m) => {
+                Self::validate_view_read_method(m)
+                    && matches!(target, Some(ControlTarget::Control(i))
+                        if matches!(page_of(&self.engine(), st).controls[*i].binding, ir::Binding::Field(_)))
+            }
+            _ => false,
+        }
+    }
+
+    /// A control method among the cells' read-only calls (`validate_view_reads`).
+    fn validate_view_read_method(m: PageMethod) -> bool {
+        matches!(
+            m,
+            PageMethod::AssertEquals
+                | PageMethod::Caption
+                | PageMethod::Editable
+                | PageMethod::Enabled
+                | PageMethod::HideValue
+                | PageMethod::ShowMandatory
+                | PageMethod::ValidationErrorCount
+                | PageMethod::Visible
+        )
+    }
+
     /// The primary key of the first row of the page's view.
     fn validate_view_first_key(&mut self, st: &St) -> Result<Option<Vec<Value>>, Signal> {
         let rec = self.page_rec(st);
@@ -278,7 +306,8 @@ impl Session {
     }
 
     /// Every call the test made on `st` since it opened ended as the cells' calls do: an error only from a SetValue, No only
-    /// from a Next; the test wrote nothing to the store between two calls (`tree_calls_unknown`).
+    /// from a Next or a read-only call (HideValue(), ShowMandatory()); the test wrote nothing to the store between two calls
+    /// (`tree_calls_unknown`).
     fn validate_view_calls_ok(st: &St) -> bool {
         let s = st.borrow();
         if s.host.is_some() || s.tree_calls_unknown {
@@ -290,7 +319,10 @@ impl Session {
         s.tree_calls.iter().all(|c| c.part.is_none())
             && earlier.iter().all(|c| {
                 (!c.failed || matches!(c.call, TestCall::Write(_)))
-                    && (!c.no || c.call == TestCall::Page(PageMethod::Next))
+                    && (!c.no
+                        || c.call == TestCall::Page(PageMethod::Next)
+                        || matches!(c.call, TestCall::Other(m) if Self::validate_view_read_method(m))
+                        || matches!(c.call, TestCall::Page(PageMethod::Editable)))
             })
     }
 
