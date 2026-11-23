@@ -351,6 +351,127 @@ impl Session {
 
 #[cfg(test)]
 mod tests {
+    use al_testkit::Built;
+
+    const MEMO: &str = r#"
+codeunit 50100 Store
+{
+    var
+        Name: Text;
+        Inner: Codeunit Inner;
+
+    procedure Get(): Text
+    begin
+        exit(Name);
+    end;
+
+    procedure Set()
+    begin
+        Name := 'x';
+    end;
+
+    procedure GetInner(): Integer
+    begin
+        exit(Inner.Get());
+    end;
+}
+
+codeunit 50101 Inner
+{
+    var
+        N: Integer;
+
+    procedure Get(): Integer
+    begin
+        exit(N);
+    end;
+}
+
+report 50103 Rep
+{
+    ProcessingOnly = true;
+
+    var
+        N: Integer;
+
+    procedure Get(): Integer
+    begin
+        exit(N);
+    end;
+}
+
+codeunit 50102 Memo
+{
+    SingleInstance = true;
+
+    var
+        Storage: Codeunit Store;
+        R: Report Rep;
+
+    procedure Touch()
+    begin
+    end;
+
+    procedure Read()
+    begin
+        Storage.Get();
+    end;
+
+    procedure ReadInner()
+    begin
+        Storage.GetInner();
+    end;
+
+    procedure Write()
+    begin
+        Storage.Set();
+    end;
+
+    procedure ReadReport()
+    begin
+        R.Get();
+    end;
+}
+"#;
+
+    /// The globals of codeunit Memo that changed between its first use (`Touch`) and a call of `routine`, on an instance
+    /// made before (`made`) or by the call itself.
+    fn memo_change(routine: &str, made: bool) -> std::collections::BTreeSet<usize> {
+        let mut b = Built::from_source(MEMO);
+        if made {
+            b.run_in("Memo", "Touch").unwrap();
+        }
+        let before = b.session.left_stamp();
+        b.run_in("Memo", routine).unwrap();
+        let change = before.changed(&b.session.left_stamp());
+        change.singles.into_values().next().unwrap_or_default()
+    }
+
+    // al-runner issue 8912: the first call on a codeunit variable makes its instance; while every global of it holds its
+    // declared value, nothing AL code reads differs, so it is no change, for a new single instance and a known one alike.
+    #[test]
+    fn a_codeunit_global_first_used_with_its_declared_globals_is_no_change() {
+        for made in [true, false] {
+            assert!(memo_change("Read", made).is_empty(), "made before: {made}");
+            assert!(memo_change("ReadInner", made).is_empty(), "made before: {made}");
+        }
+    }
+
+    // A report variable's first call runs OnInitReport (reports/TestProbeReportContracts.al:ReportVariable_RunTwice_GlobalsReset),
+    // so its first use stays a change.
+    #[test]
+    fn a_report_global_first_used_is_a_change() {
+        for made in [true, false] {
+            assert_eq!(memo_change("ReadReport", made), [1].into(), "made before: {made}");
+        }
+    }
+
+    #[test]
+    fn a_codeunit_global_whose_global_was_set_is_a_change() {
+        for made in [true, false] {
+            assert_eq!(memo_change("Write", made), [0].into(), "made before: {made}");
+        }
+    }
     // The clock's draws and its last system stamp are state lines: a later stamp lands after the last one, past it by a
     // draw of the clock key (`Session::stamp_millis`), so two sessions that differ only in them stamp differently.
     #[test]
