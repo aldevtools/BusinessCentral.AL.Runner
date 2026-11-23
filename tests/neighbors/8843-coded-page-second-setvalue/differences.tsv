@@ -1,0 +1,9 @@
+# key	entry
+# The later SetValue on a control with code of its own, which saves and updates under the effect gate: the base refused it
+# (only a control without code took a SetValue after the landing); the head runs it.
+LT NV3 Tests::NewLine_SecondSetValueWithCodeOnPageWithCodeAndFactBoxes_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1541, open: ListNewLineExtraCodeCodedSecondSetValue.al)
+LT NV3 Tests::NewLine_SecondSetValueSavesAndUpdates_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1541, open: ListNewLineExtraCodeCodedSecondSetValue.al)
+LT NV3 Tests::NewLine_SecondSetValueWritesAnotherTableBeforeTheSave_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1541, open: ListNewLineExtraCodeCodedSecondSetValue.al)
+LT NV3 Tests::NewLine_SecondSetValueModifiesTheRowThroughAnotherRecordAfterTheSave_ShowsTheOtherWrite	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1541, open: ListNewLineExtraCodeCodedSecondSetValue.al)
+LT NV3 Tests::NewLine_SecondSetValueSavesThenUpdateTrue_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1541, open: ListNewLineExtraCodeCodedSecondSetValue.al)
+LT NV3 Tests::NewLine_SecondSetValueOnAControlWithATableRelation_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1541, open: ListNewLineExtraCodeCodedSecondSetValue.al)
