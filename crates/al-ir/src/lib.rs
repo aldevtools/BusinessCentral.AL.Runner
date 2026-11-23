@@ -1557,7 +1557,8 @@ pub struct PartLink {
     /// The `SubPageLink` entries (indices into `entries`) written as a qualified enum value, `const("Enum"::Member)`.
     #[serde(default)]
     pub enum_values: Vec<usize>,
-    /// The entries (indices into `entries`) written `filter(<> '')` on a Code or Text field, lowered to the filter `<>''`.
+    /// The entries (indices into `entries`) written `filter(<> '')` on a measured shape (al-sema `not_blank_measured`),
+    /// lowered to the filter `<>''`.
     /// Applying one runs through the assumption `link-filter-not-blank`.
     #[serde(default)]
     pub not_blank: Vec<usize>,

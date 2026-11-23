@@ -653,9 +653,16 @@ impl Lowerer<'_> {
             };
             if let Some(link) = link {
                 let entries = (|| {
-                    let target_table = self.table_of[out.object.expect("resolved")]
-                        .ok_or("RunPageLink on a target page without a source table")?;
-                    self.link_entries("RunPageLink", &link, file, self.table_of[oi], target_table)
+                    let target_page = out.object.expect("resolved");
+                    let target_table =
+                        self.table_of[target_page].ok_or("RunPageLink on a target page without a source table")?;
+                    self.link_entries(
+                        "RunPageLink",
+                        &link,
+                        file,
+                        self.table_of[oi],
+                        (target_page, target_table),
+                    )
                 })();
                 pl.consts = crate::pages::parse_run_page_link_kinds(&link)
                     .map(|k| k.iter().enumerate().filter(|(_, e)| e.2).map(|(i, _)| i).collect())
@@ -671,15 +678,15 @@ impl Lowerer<'_> {
     }
 
     /// The entries of a `SubPageLink` or `RunPageLink` text: `what` names the property in errors,
-    /// `host_table` is the table `field(...)` entries read, `target_table` the linked page's. With them, the indices
-    /// of the entries lowered as "not blank" (`ir::PartLink::not_blank`).
+    /// `host_table` is the table `field(...)` entries read, `linked_page` the linked page and `target_table` its table. With
+    /// them, the indices of the entries lowered as "not blank" (`ir::PartLink::not_blank`).
     pub(crate) fn link_entries(
         &self,
         what: &str,
         text: &str,
         file: usize,
         host_table: Option<usize>,
-        target_table: usize,
+        (linked_page, target_table): (usize, usize),
     ) -> L<(Vec<ir::LinkEntry>, Vec<usize>)> {
         use crate::pages::LinkRhs;
         let field_pos = |t: usize, name: &str| {
@@ -735,10 +742,11 @@ impl Lowerer<'_> {
                     ir::LinkEntry::Filter(pf, super::rewrite_quotes(&t))
                 }
                 LinkRhs::Filter(t) => ir::LinkEntry::Filter(pf, t),
-                // `filter(<> '')` on a Code or a Text field: the rows whose field is not blank, the filter `<>''` (assumption
-                // link-filter-not-blank, al-runner issue 8873). On any other type the term keeps the text it lowered to before.
+                // `filter(<> '')` on a measured shape (`not_blank_measured`): the rows whose field is not blank, the filter
+                // `<>''` (assumption link-filter-not-blank, al-runner issue 8873). Any other shape keeps the text it lowered
+                // to before.
                 LinkRhs::NotBlank(t) => {
-                    if matches!(self.members[target_table].fields[pf].ty, Ty::Code(_) | Ty::Text(_)) {
+                    if self.not_blank_measured(what, linked_page, &self.members[target_table].fields[pf]) {
                         not_blank.push(entries.len());
                         ir::LinkEntry::Filter(pf, "<>''".to_string())
                     } else {
@@ -786,6 +794,25 @@ impl Lowerer<'_> {
             });
         }
         Ok((entries, not_blank))
+    }
+
+    /// Whether a `filter(<> '')` term of `what` on `field`, linking page `linked_page`, is a shape corpus PR 1548 measured
+    /// (assumption link-filter-not-blank, tests/al-language/pages/subpagelink-empty-term/SubPageLinkNotBlank.al): a Normal
+    /// Code or Text field (:30, :31), a SubPageLink of a ListPart (:39) or a RunPageLink of a List (:114).
+    fn not_blank_measured(&self, what: &str, linked_page: usize, field: &crate::members::FieldInfo) -> bool {
+        let measured_page = match what {
+            "SubPageLink" => "ListPart",
+            "RunPageLink" => "List",
+            _ => return false,
+        };
+        let page_type = self
+            .ws
+            .object_ast(linked_page)
+            .properties()
+            .find(|p| p.name().eq_ignore_ascii_case("PageType"));
+        page_type.is_some_and(|p| p.value_text().trim().eq_ignore_ascii_case(measured_page))
+            && field.class == crate::members::FieldClass::Normal
+            && matches!(field.ty, Ty::Code(_) | Ty::Text(_))
     }
 
     /// The `filter(...)` value `text` of a link entry on field `pf` of `table` with each qualified operand resolved: a member of the
@@ -862,7 +889,8 @@ impl Lowerer<'_> {
             None => self.table_of[oi],
         };
         let part_table = self.table_of[part_page].ok_or("the part page has no source table to link")?;
-        (link.entries, link.not_blank) = self.link_entries("SubPageLink", &text, file, host_table, part_table)?;
+        (link.entries, link.not_blank) =
+            self.link_entries("SubPageLink", &text, file, host_table, (part_page, part_table))?;
         link.consts = crate::pages::parse_sub_page_link_kinds(&text)
             .map(|k| k.iter().enumerate().filter(|(_, e)| e.2).map(|(i, _)| i).collect())
             .unwrap_or_default();

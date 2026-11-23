@@ -46,6 +46,15 @@ codeunit 50110 "NB SPNB Tests"
         Card.GoToRecord(H);
     end;
 
+    local procedure OpenOn(var Card: TestPage "NB SPNB Run Card"; HeaderNo: Code[10])
+    var
+        H: Record "Repro Header";
+    begin
+        H.Get(HeaderNo);
+        Card.OpenView();
+        Card.GoToRecord(H);
+    end;
+
     local procedure OpenOn(var Card: TestPage "NB SPNB IntRun Card"; HeaderNo: Code[10])
     var
         H: Record "Repro Header";
@@ -187,7 +196,7 @@ codeunit 50110 "NB SPNB Tests"
     [Test]
     procedure RunPageLink_Code_Rows()
     var
-        Card: TestPage "NB SPNB Card";
+        Card: TestPage "NB SPNB Run Card";
         List: TestPage "NB SPNB List";
         Result: Text;
     begin
@@ -208,7 +217,7 @@ codeunit 50110 "NB SPNB Tests"
     [Test]
     procedure RunPageLink_Text_Rows()
     var
-        Card: TestPage "NB SPNB Card";
+        Card: TestPage "NB SPNB Run Card";
         List: TestPage "NB SPNB List";
         Result: Text;
     begin

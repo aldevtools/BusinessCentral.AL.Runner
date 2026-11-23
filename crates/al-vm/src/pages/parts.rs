@@ -1396,11 +1396,12 @@ impl Session {
                         }
                     }
                     ir::LinkEntry::Filter(pf, text) => {
-                        // An empty term selects the rows whose field is blank (testpage/AoTests.al:513-560 RunPageLink, :845-887
-                        // SubPageLink).
+                        // Not blank (assumption link-filter-not-blank, corpus PR 1548).
                         if link.not_blank.contains(&at) {
                             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LinkFilterNotBlank);
                         }
+                        // An empty term selects the rows whose field is blank (testpage/AoTests.al:513-560 RunPageLink, :845-887
+                        // SubPageLink).
                         fields.push(*pf);
                         let ty = table.fields[*pf].ty.clone();
                         let expr = match blank_record_id_link(text, &ty) {

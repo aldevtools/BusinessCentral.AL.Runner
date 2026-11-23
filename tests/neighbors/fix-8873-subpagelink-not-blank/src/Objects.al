@@ -74,24 +74,6 @@ page 50112 "NB SPNB Card"
             }
         }
     }
-    actions
-    {
-        area(Processing)
-        {
-            action(RunCode)
-            {
-                ApplicationArea = All;
-                RunObject = page "NB SPNB List";
-                RunPageLink = "Arrival No." = filter(<> '');
-            }
-            action(RunText)
-            {
-                ApplicationArea = All;
-                RunObject = page "NB SPNB List";
-                RunPageLink = Note = filter(<> '');
-            }
-        }
-    }
 }
 
 page 50113 "NB SPNB Int Card"
@@ -204,6 +186,38 @@ page 50118 "NB SPNB IntRun Card"
                 ApplicationArea = All;
                 RunObject = page "NB SPNB List";
                 RunPageLink = Qty = filter(<> '');
+            }
+        }
+    }
+}
+
+// The RunPageLink actions on a card without parts, so main's result is its RunPageLink result.
+page 50119 "NB SPNB Run Card"
+{
+    PageType = Card;
+    SourceTable = "Repro Header";
+    layout
+    {
+        area(Content)
+        {
+            field("No."; Rec."No.") { ApplicationArea = All; }
+        }
+    }
+    actions
+    {
+        area(Processing)
+        {
+            action(RunCode)
+            {
+                ApplicationArea = All;
+                RunObject = page "NB SPNB List";
+                RunPageLink = "Arrival No." = filter(<> '');
+            }
+            action(RunText)
+            {
+                ApplicationArea = All;
+                RunObject = page "NB SPNB List";
+                RunPageLink = Note = filter(<> '');
             }
         }
     }
