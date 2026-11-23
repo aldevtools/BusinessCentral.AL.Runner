@@ -224,6 +224,9 @@ codeunit 50826 T {
     begin Y := X; ClearVarVar(X); Y.Set(5); exit(Format(X.Get()) + '|' + Format(Y.Get())); end;
     procedure ClearValueParam(): Text var X: Codeunit Store; begin exit(Format(ClearVal(X, X))); end;
     procedure ClearValueParamUsed(): Text var X: Codeunit Store; begin X.Get(); exit(Format(ClearVal(X, X))); end;
+    procedure ClearElementShared(): Text var A: array[2] of Codeunit Store; I: Interface IStore; begin I := A[1]; Clear(A[1]); exit('done'); end;
+    procedure ClearInterfaceShared(): Text var X: Codeunit Store; I: Interface IStore; begin I := X; Clear(I); X.Set(5); exit(Format(X.Get())); end;
+    procedure ClearVariantShared(): Text var X: Codeunit Store; V: Variant; begin V := X; Clear(V); X.Set(5); exit(Format(X.Get())); end;
     procedure ClearArrayShared(): Text var H: Codeunit ArrHolder; I: Interface IStore; begin H.ShareIface(I); H.ClearA(); exit('done'); end;
     procedure ClearArrayUnshared(): Text var H: Codeunit ArrHolder; begin H.ClearA(); exit('done'); end;
     procedure ClearAllArrayShared(): Text var H: Codeunit ArrHolder; I: Interface IStore; begin H.ShareIface(I); H.ClearAllGlobals(); exit('done'); end;
@@ -257,6 +260,8 @@ fn an_instance_nothing_shares_keeps_main_with_no_mark() {
     for track in [false, true] {
         for (cell, want) in [
             ("ClearLocalUnshared", "5"),
+            ("ClearInterfaceShared", "5"),
+            ("ClearVariantShared", "5"),
             ("ClearVarUnshared", "5"),
             ("ClearArrayUnshared", "done"),
             ("ClearAllTwoGlobalsUnshared", "done"),
@@ -278,7 +283,14 @@ fn an_instance_nothing_shares_keeps_main_with_no_mark() {
 #[test]
 fn a_shared_instance_in_a_shape_the_probe_does_not_measure_refuses() {
     for (cell, why) in [
-        ("ClearValueParam", "Clear of a by-value codeunit parameter"),
+        (
+            "ClearValueParam",
+            "Clear of a codeunit variable that nothing used yet and another variable shares",
+        ),
+        (
+            "ClearElementShared",
+            "Clear of a codeunit variable that nothing used yet and another variable shares",
+        ),
         ("ClearArrayShared", "Clear of an array whose unused codeunit element"),
         (
             "ClearAllArrayShared",

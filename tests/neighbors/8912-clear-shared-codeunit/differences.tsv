@@ -10,4 +10,4 @@ NB CS Tests::ClearAll_TableNoHolder	REFUSED ClearAll of a global codeunit variab
 NB CS Tests::ClearAll_TestCodeunit	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
 NB CS Tests::ClearAll_WhileStoreRuns	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
 NB CS Tests::Clear_ArrayElementUnusedShared	REFUSED Clear of an array whose unused codeunit element another variable shares
-NB CS Tests::Clear_ValueParamItself	REFUSED Clear of a by-value codeunit parameter that nothing used yet
+NB CS Tests::Clear_ValueParamItself	REFUSED Clear of a codeunit variable that nothing used yet and another variable shares

@@ -94,24 +94,27 @@ impl Session {
     }
 
     /// `Clear` of place `p`, whose value `v` the native clears next (al-builtins `native/values.rs`, which keeps an unused
-    /// codeunit variable as it is). For an instance nothing used yet, of a codeunit that is not SingleInstance, that another
-    /// holder shares, `v` becomes a fresh instance first: the variable gets it and the holder keeps the old one
-    /// (ClearSharedCodeunit.al Clear_LocalUnusedIface, Clear_GlobalUnusedAlias, Clear_LocalUnusedAliasClearedThroughVarParam,
-    /// Clear_GlobalUnusedValueParam: X reads 0, the holder 5). Refused for such an instance in a by-value parameter (the
-    /// probe clears the caller's variable and a var parameter, never a by-value parameter itself, ClearThenSet) and for an
-    /// array whose unused element another holder shares. An instance nothing else holds keeps main's answer with no mark:
-    /// a fresh unused instance reads the same.
+    /// codeunit variable as it is). For a Codeunit variable that holds an instance nothing used yet, of a codeunit that is
+    /// not SingleInstance, that another holder shares, `v` becomes a fresh instance first: the variable gets it and the
+    /// holder keeps the old one (ClearSharedCodeunit.al Clear_LocalUnusedIface, Clear_GlobalUnusedAlias,
+    /// Clear_LocalUnusedAliasClearedThroughVarParam, Clear_GlobalUnusedValueParam: X reads 0, the holder 5). Measured for a
+    /// declared local, a global and a var parameter ([`ClearPlace::Measured`]); any other place refuses, a by-value
+    /// parameter among them (the probe never clears one itself, ClearThenSet clears the caller's variable). So does an array
+    /// of codeunits whose unused element another holder shares. An instance nothing else holds keeps main's answer with no
+    /// mark: a fresh unused instance reads the same. An Interface or Variant place keeps its own path (`exec/run.rs`).
     pub(crate) fn clear_shared_codeunit(&mut self, p: &ir::Place, v: &mut Value, f: &Frame) -> Result<(), Signal> {
-        match v {
-            Value::Codeunit(rc)
-                if !rc.borrow().initialized
-                    && self.plain_codeunit(rc.borrow().object as usize)
-                    && Rc::strong_count(rc) > self.own_copies(p, f) =>
+        match (self.place_type(p, f), &*v) {
+            (RtType::Codeunit(_), Value::Codeunit(rc))
+                if !rc.borrow().initialized && self.plain_codeunit(rc.borrow().object as usize) =>
             {
-                if self.param_by_var(p, f) == Some(false) {
+                let place = self.clear_place(p, f);
+                if Rc::strong_count(rc) <= place.own_copies() {
+                    return Ok(());
+                }
+                if place == ClearPlace::Other {
                     return Err(Signal::unsupported(
-                        "Clear of a by-value codeunit parameter that nothing used yet and the caller's variable shares \
-                         (not pinned)",
+                        "Clear of a codeunit variable that nothing used yet and another variable shares, in a place \
+                         the corpus does not pin (a by-value parameter, an array element)",
                     ));
                 }
                 al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ClearSharedCodeunit);
@@ -122,10 +125,11 @@ impl Session {
                 }));
                 Ok(())
             }
-            Value::Array(items)
-                if items.borrow().iter().any(|e| {
-                    self.shared_element(e) && matches!(e, Value::Codeunit(rc) if !rc.borrow().initialized)
-                }) =>
+            (RtType::Array(_, el), Value::Array(items))
+                if matches!(*el, RtType::Codeunit(_))
+                    && items.borrow().iter().any(|e| {
+                        self.shared_element(e) && matches!(e, Value::Codeunit(rc) if !rc.borrow().initialized)
+                    }) =>
             {
                 Err(Signal::unsupported(
                     "Clear of an array whose unused codeunit element another variable shares (not pinned)",
@@ -135,19 +139,36 @@ impl Session {
         }
     }
 
-    /// How many holders of the instance in place `p` are copies of the variable itself: the variable and the copy `Clear`
-    /// takes of it (the VM evaluates its argument), and for a var parameter the copy the parameter's slot keeps of the
-    /// caller's variable.
-    fn own_copies(&self, p: &ir::Place, f: &Frame) -> usize {
-        2 + usize::from(self.param_by_var(p, f) == Some(true))
-    }
-
-    /// For a parameter slot of the routine `f` runs: whether it is a var parameter. `None` for any other place.
-    fn param_by_var(&self, p: &ir::Place, f: &Frame) -> Option<bool> {
+    /// The kind of place `p` a `Clear` names, in the routine `f` runs.
+    fn clear_place(&self, p: &ir::Place, f: &Frame) -> ClearPlace {
         let r = &self.engine.program.objects[f.object].routines[f.routine];
         match p {
-            ir::Place::Local(slot) if *slot < r.params => r.by_var.get(*slot).copied(),
-            _ => None,
+            ir::Place::Local(slot) if Some(*slot) == r.ret_local => ClearPlace::Other,
+            ir::Place::Local(slot) if *slot < r.params => match r.by_var.get(*slot) {
+                Some(true) => ClearPlace::VarParameter,
+                _ => ClearPlace::Other,
+            },
+            ir::Place::Local(_) | ir::Place::Global(_) => ClearPlace::Measured,
+            _ => ClearPlace::Other,
         }
+    }
+}
+
+/// The kind of place a `Clear` of a codeunit variable names ([`Session::clear_shared_codeunit`]).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ClearPlace {
+    /// A declared local or a global (ClearSharedCodeunit.al Clear_LocalUnusedIface, Clear_GlobalUnusedIface).
+    Measured,
+    /// A var parameter (Clear_LocalUnusedAliasClearedThroughVarParam, ClearVar).
+    VarParameter,
+    /// A by-value parameter, an element, the named return value or any other place.
+    Other,
+}
+
+impl ClearPlace {
+    /// How many holders of the instance are copies of the variable itself: the variable and the copy `Clear` takes of it
+    /// (the VM evaluates its argument), and for a var parameter the copy the parameter's slot keeps of the caller's variable.
+    fn own_copies(self) -> usize {
+        2 + usize::from(self == ClearPlace::VarParameter)
     }
 }
