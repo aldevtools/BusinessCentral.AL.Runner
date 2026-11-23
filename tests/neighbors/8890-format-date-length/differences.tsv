@@ -1,1 +1,16 @@
 # key	entry
+Repro Date Writer Test::CompactDateWithLength8	ASSUMED format-length-date-string (corpus PR 1557)
+Date String Neighbors::ClosingDate_Compact_AsLong	ASSUMED format-length-date-string (corpus PR 1557)
+Date String Neighbors::DateTime_Compact_Cut	ASSUMED format-length-date-string (corpus PR 1557)
+Date String Neighbors::Date_Compact_LongerPositive	ASSUMED format-length-date-string (corpus PR 1557)
+Date String Neighbors::Date_Compact_NegativeCut	ASSUMED format-length-date-string (corpus PR 1557)
+Date String Neighbors::Date_Compact_NegativeLonger	ASSUMED format-length-date-string (corpus PR 1557)
+Date String Neighbors::Date_Dots_Cut	ASSUMED format-length-date-string (corpus PR 1557)
+Date String Neighbors::Date_Iso_NegativeCut	ASSUMED format-length-date-string (corpus PR 1557)
+Date String Neighbors::Field_Date_Compact	ASSUMED format-length-date-string (corpus PR 1557)
+Date String Neighbors::Time_Compact_NegativeCut	ASSUMED format-length-date-string (corpus PR 1557)
+Date String Neighbors::UndefinedDateTime_Compact_Negative	ASSUMED format-length-date-string (corpus PR 1557)
+Date String Neighbors::UndefinedDate_Compact_Positive	ASSUMED format-length-date-string (corpus PR 1557)
+Date String Neighbors::UndefinedTime_Compact_Cut	ASSUMED format-length-date-string (corpus PR 1557)
+Date String Neighbors::Variant_Date_Compact	ASSUMED format-length-date-string (corpus PR 1557)
+Date String Neighbors::StandardFormat0_Date_NegativeCut	PINNED tests/al-language/format-evaluate/format-length/FormatLengthNeighbors.al:312

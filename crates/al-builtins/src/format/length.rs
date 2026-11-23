@@ -123,6 +123,10 @@ pub(crate) fn with_format_string(v: &Value, length: i32, template: &str, chars: 
         crate::assumptions::assume(crate::assumptions::Assumption::FormatLengthIntegerString);
         return Ok(());
     }
+    if date_string_cell(v, template, length > 0, fit) {
+        crate::assumptions::assume(crate::assumptions::Assumption::FormatLengthDateString);
+        return Ok(());
+    }
     Err(format!(
         "Format of {} with length {length} and a format string (not pinned)",
         v.describe()
@@ -178,15 +182,125 @@ const INTEGER_STRING_CELLS: &[(bool, &str, bool, Ordering)] = {
     ]
 };
 
-/// Whether a result longer than `length` is cut to it, by the value type of `with_format_string`: a Decimal, Date, Time, Integer
-/// or BigInteger in a positive length, and an Integer in a negative one (the `INTEGER_STRING_CELLS` rule). Read by
-/// `formatstr::format_codes`; the gate decides separately whether the call runs.
+/// Whether a result longer than `length` is cut to it, by the value type of `with_format_string`: a Decimal or BigInteger in a
+/// positive length; an Integer (the `INTEGER_STRING_CELLS` rule), a Date, a Time and a DateTime (the `DATE_STRING_CELLS` rule) in
+/// a positive or a negative one. A negative length cuts a Date and a Time under a lone `<Standard Format,0>` too
+/// (format-evaluate/format-length/FormatLengthNeighbors.al:312, :369-370). Read by `formatstr::format_codes`; the gate decides
+/// separately whether the call runs.
 pub(crate) fn cuts_to_length(v: &Value, length: i32) -> bool {
     match v {
-        Value::Decimal(_) | Value::Date(..) | Value::Time(_) | Value::BigInteger(_) => length > 0,
-        Value::Integer(_) => length != 0,
+        Value::Decimal(_) | Value::BigInteger(_) => length > 0,
+        Value::Integer(_) | Value::Date(..) | Value::Time(_) | Value::DateTime(_) => length != 0,
         _ => false,
     }
+}
+
+/// The kind of a Date, Time or DateTime that the cells of `DATE_STRING_CELLS` name.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Temporal {
+    Date,
+    ClosingDate,
+    UndefinedDate,
+    Time,
+    UndefinedTime,
+    DateTime,
+    UndefinedDateTime,
+}
+
+fn temporal_kind(v: &Value) -> Option<Temporal> {
+    Some(match v {
+        Value::Date(0, false) => Temporal::UndefinedDate,
+        Value::Date(_, false) => Temporal::Date,
+        Value::Date(0, true) => return None,
+        Value::Date(_, true) => Temporal::ClosingDate,
+        Value::Time(0) => Temporal::UndefinedTime,
+        Value::Time(_) => Temporal::Time,
+        Value::DateTime(0) => Temporal::UndefinedDateTime,
+        Value::DateTime(_) => Temporal::DateTime,
+        _ => return None,
+    })
+}
+
+const DATE_COMPACT: &str = "<Year4><Month,2><Day,2>";
+const DATE_DOTS: &str = "<Day,2>.<Month,2>.<Year4>";
+const DATE_YEAR2: &str = "<Year><Month,2><Day,2>";
+const TIME_COMPACT: &str = "<Hours24,2><Minutes,2><Seconds,2>";
+const TIME_HOURS_MINUTES: &str = "<Hours24,2>:<Minutes,2>";
+const DATETIME_COMPACT: &str = "<Year4><Month,2><Day,2><Hours24,2><Minutes,2><Seconds,2>";
+const DATETIME_SEPARATED: &str = "<Year4>-<Month,2>-<Day,2> <Hours24,2>:<Minutes,2>";
+
+/// The cells of corpus PR 1557 (open; format-evaluate/format-length/FormatLengthDateString.al, assumption
+/// `format-length-date-string`): the kind of value, the exact format string, a positive length or not, and how the text without
+/// a length compares with it. The probe lines of each cell follow it. A length shorter than the text cuts it (either sign), a
+/// longer positive length pads it on the left, a longer negative length keeps it (the cut: `cuts_to_length`).
+const DATE_STRING_CELLS: &[(Temporal, &str, bool, Ordering)] = {
+    use Ordering::{Equal, Greater, Less};
+    use Temporal::*;
+    &[
+        (Date, DATE_COMPACT, true, Equal),                  // :27, :55
+        (Date, DATE_COMPACT, true, Greater),                // :29, :56-58
+        (Date, DATE_COMPACT, true, Less),                   // :30, :59-61
+        (Date, DATE_COMPACT, false, Equal),                 // :31, :62
+        (Date, DATE_COMPACT, false, Greater),               // :32, :63-65
+        (Date, DATE_COMPACT, false, Less),                  // :33, :66-68
+        (ClosingDate, DATE_COMPACT, true, Equal),           // :69
+        (ClosingDate, DATE_COMPACT, true, Less),            // :70
+        (ClosingDate, DATE_COMPACT, false, Equal),          // :71
+        (UndefinedDate, DATE_COMPACT, true, Less),          // :73-75
+        (UndefinedDate, DATE_COMPACT, false, Less),         // :76-77
+        (Date, DATE_DOTS, true, Equal),                     // :117
+        (Date, DATE_DOTS, true, Greater),                   // :118-119
+        (Date, DATE_DOTS, true, Less),                      // :120
+        (Date, DATE_DOTS, false, Equal),                    // :121
+        (Date, DATE_DOTS, false, Greater),                  // :122
+        (Date, DATE_DOTS, false, Less),                     // :123
+        (Date, DATE_YEAR2, true, Equal),                    // :126
+        (Date, DATE_YEAR2, true, Greater),                  // :127
+        (Date, DATE_YEAR2, true, Less),                     // :128
+        (Date, DATE_YEAR2, false, Equal),                   // :129
+        (Date, DATE_YEAR2, false, Greater),                 // :130
+        (Date, DATE_YEAR2, false, Less),                    // :131
+        (Date, YEAR4_MONTH_DAY, true, Greater),             // :133
+        (Date, YEAR4_MONTH_DAY, true, Less),                // :134
+        (Date, YEAR4_MONTH_DAY, false, Greater),            // :135-137
+        (Date, YEAR4_MONTH_DAY, false, Less),               // :138-139
+        (Time, TIME_COMPACT, true, Equal),                  // :176
+        (Time, TIME_COMPACT, true, Greater),                // :177-178
+        (Time, TIME_COMPACT, true, Less),                   // :179-180
+        (Time, TIME_COMPACT, false, Equal),                 // :181
+        (Time, TIME_COMPACT, false, Greater),               // :182
+        (Time, TIME_COMPACT, false, Less),                  // :183
+        (UndefinedTime, TIME_COMPACT, true, Equal),         // :185
+        (UndefinedTime, TIME_COMPACT, true, Greater),       // :186
+        (UndefinedTime, TIME_COMPACT, true, Less),          // :187
+        (UndefinedTime, TIME_COMPACT, false, Equal),        // :188
+        (UndefinedTime, TIME_COMPACT, false, Less),         // :189
+        (Time, TIME_HOURS_MINUTES, true, Equal),            // :192
+        (Time, TIME_HOURS_MINUTES, true, Greater),          // :193
+        (Time, TIME_HOURS_MINUTES, true, Less),             // :194
+        (Time, TIME_HOURS_MINUTES, false, Equal),           // :195
+        (Time, TIME_HOURS_MINUTES, false, Greater),         // :196
+        (Time, TIME_HOURS_MINUTES, false, Less),            // :197
+        (DateTime, DATETIME_COMPACT, true, Equal),          // :234
+        (DateTime, DATETIME_COMPACT, true, Greater),        // :235-236
+        (DateTime, DATETIME_COMPACT, true, Less),           // :237-238
+        (DateTime, DATETIME_COMPACT, false, Equal),         // :239
+        (DateTime, DATETIME_COMPACT, false, Greater),       // :240
+        (DateTime, DATETIME_COMPACT, false, Less),          // :241
+        (UndefinedDateTime, DATETIME_COMPACT, true, Less),  // :243-245
+        (UndefinedDateTime, DATETIME_COMPACT, false, Less), // :246-247
+        (DateTime, DATETIME_SEPARATED, true, Equal),        // :277
+        (DateTime, DATETIME_SEPARATED, true, Greater),      // :278
+        (DateTime, DATETIME_SEPARATED, true, Less),         // :279
+        (DateTime, DATETIME_SEPARATED, false, Equal),       // :280
+        (DateTime, DATETIME_SEPARATED, false, Greater),     // :281
+        (DateTime, DATETIME_SEPARATED, false, Less),        // :282
+    ]
+};
+
+/// Whether `Format(v, length, template)` of a Date, Time or DateTime is a cell of `DATE_STRING_CELLS`.
+fn date_string_cell(v: &Value, template: &str, positive: bool, fit: Ordering) -> bool {
+    temporal_kind(v).is_some_and(|kind| DATE_STRING_CELLS.contains(&(kind, template, positive, fit)))
 }
 
 /// Whether `Format(v, length, template)` of an Integer or BigInteger is a cell of `INTEGER_STRING_CELLS`.
@@ -487,6 +601,12 @@ mod tests {
             fmt_string_hits(&dec, 3, "<Standard Format,0>"),
             (Ok("1,2".to_string()), vec![])
         );
+        // A negative length cuts a longer Date as `Format(v, -3, 0)` does (FormatLengthNeighbors.al:312), no mark.
+        let date = Value::Date(day_from_civil(2024, 1, 15), false);
+        assert_eq!(
+            fmt_string_hits(&date, -3, "<Standard Format,0>"),
+            (Ok("01/".to_string()), vec![])
+        );
         // Only the measured lengths: `Format(42, 5, 0)` runs, the string at 5 does not; at 10 it runs (FormatLengthNeighbors.al:452).
         assert_eq!(fmt(&Value::Integer(42), 5, 0).unwrap(), "   42");
         let r = fmt_string(&Value::Integer(42), 5, "<Standard Format,0>");
@@ -678,9 +798,6 @@ mod tests {
             );
         }
         for (v, length, template) in [
-            (&date, -8, "<Year4>-<Month,2>-<Day,2>"),
-            (&date, -11, "<Year4>-<Month,2>-<Day,2>"),
-            (&date, 13, "<Year4>-<Month,2>-<Day,2>"),
             (
                 &Value::Date(day_from_civil(2024, 1, 15), true),
                 10,
@@ -692,6 +809,132 @@ mod tests {
         ] {
             let r = fmt_string(v, length, template);
             assert!(refused_by_string(&r), "{v:?} {length} {template}: {r:?}");
+        }
+    }
+
+    /// Issue 8890: the cells of corpus PR 1557 (FormatLengthDateString.al) give the probe's text through the assumption, the
+    /// cut by a negative length included; the pinned cells of the same strings stay unmarked.
+    #[test]
+    fn the_date_string_cells_run_flagged() {
+        let date = Value::Date(day_from_civil(2024, 1, 5), false);
+        let closing = Value::Date(day_from_civil(2024, 1, 5), true);
+        let time = Value::Time((9 * 3600 + 30 * 60 + 5) * 1000 + 1);
+        const C: &str = "<Year4><Month,2><Day,2>";
+        const HMS: &str = "<Hours24,2><Minutes,2><Seconds,2>";
+        for (v, length, template, want) in [
+            (&date, 8, C, "20240105"),                                                  // :55
+            (&date, 7, C, "2024010"),                                                   // :56
+            (&date, 10, C, "  20240105"),                                               // :60
+            (&date, -8, C, "20240105"),                                                 // :62
+            (&date, -3, C, "202"),                                                      // :64
+            (&date, -10, C, "20240105"),                                                // :67
+            (&closing, 8, C, "20240105"),                                               // :69
+            (&closing, 10, C, "  20240105"),                                            // :70
+            (&closing, -8, C, "20240105"),                                              // :71
+            (&Value::Date(0, false), 8, C, "        "),                                 // :73
+            (&Value::Date(0, false), -10, C, ""),                                       // :77
+            (&date, 8, "<Day,2>.<Month,2>.<Year4>", "05.01.20"),                        // :118
+            (&date, -12, "<Day,2>.<Month,2>.<Year4>", "05.01.2024"),                    // :123
+            (&date, -4, "<Year><Month,2><Day,2>", "2401"),                              // :130
+            (&date, 8, "<Year><Month,2><Day,2>", "  240105"),                           // :128
+            (&date, 1, "<Year4>-<Month,2>-<Day,2>", "2"),                               // :133
+            (&date, 30, "<Year4>-<Month,2>-<Day,2>", "                    2024-01-05"), // :134
+            (&date, -9, "<Year4>-<Month,2>-<Day,2>", "2024-01-0"),                      // :137
+            (&date, -11, "<Year4>-<Month,2>-<Day,2>", "2024-01-05"),                    // :138
+            (&time, -6, HMS, " 93005"),                                                 // :181
+            (&time, -4, HMS, " 930"),                                                   // :182
+            (&time, -8, HMS, " 93005"),                                                 // :183
+            (&Value::Time(0), 6, HMS, " 00000"),                                        // :185
+            (&Value::Time(0), 3, HMS, " 00"),                                           // :186
+            (&Value::Time(0), 8, HMS, "   00000"),                                      // :187
+            (&Value::Time(0), -8, HMS, " 00000"),                                       // :189
+            (&time, -3, "<Hours24,2>:<Minutes,2>", " 9:"),                              // :196
+            (&time, -7, "<Hours24,2>:<Minutes,2>", " 9:30"),                            // :197
+        ] {
+            let (r, hits) = fmt_string_hits(v, length, template);
+            assert_eq!(r.as_deref(), Ok(want), "{v:?} {length} {template}");
+            assert_eq!(
+                hits,
+                [crate::assumptions::Assumption::FormatLengthDateString],
+                "{v:?} {length} {template}"
+            );
+        }
+        // The cells a cited line pins keep running unmarked (FormatLengthDates.al:206-214; Format.al:873, :885).
+        assert_eq!(
+            fmt_string_hits(&date, 10, "<Year4>-<Month,2>-<Day,2>"),
+            (Ok("2024-01-05".to_string()), vec![])
+        );
+        assert_eq!(fmt_string_hits(&time, 4, HMS), (Ok(" 930".to_string()), vec![]));
+    }
+
+    /// `CreateDateTime(20240105D, 093005T)`: a DateTime holds its milliseconds plus one (`datefns::create_datetime`).
+    fn datetime() -> Value {
+        let day = i64::from(day_from_civil(2024, 1, 5)) - 1;
+        Value::DateTime(day * 86_400_000 + (9 * 3600 + 30 * 60 + 5) * 1000 + 1)
+    }
+
+    /// Issue 8890: the DateTime cells of corpus PR 1557 (FormatLengthDateString.al:233-282) run flagged.
+    #[test]
+    fn the_datetime_string_cells_run_flagged() {
+        const DTC: &str = "<Year4><Month,2><Day,2><Hours24,2><Minutes,2><Seconds,2>";
+        const DTS: &str = "<Year4>-<Month,2>-<Day,2> <Hours24,2>:<Minutes,2>";
+        let bare = fmt_string(&datetime(), 0, DTC).unwrap();
+        assert_eq!(bare, "20240105093005");
+        for (v, length, template, want) in [
+            (datetime(), 14, DTC, "20240105093005"),         // :234
+            (datetime(), 8, DTC, "20240105"),                // :235
+            (datetime(), 16, DTC, "  20240105093005"),       // :237
+            (datetime(), -14, DTC, "20240105093005"),        // :239
+            (datetime(), -8, DTC, "20240105"),               // :240
+            (datetime(), -16, DTC, "20240105093005"),        // :241
+            (Value::DateTime(0), 14, DTC, "              "), // :243
+            (Value::DateTime(0), -3, DTC, ""),               // :247
+            (datetime(), 16, DTS, "2024-01-05 09:30"),       // :277
+            (datetime(), 10, DTS, "2024-01-05"),             // :278
+            (datetime(), 18, DTS, "  2024-01-05 09:30"),     // :279
+            (datetime(), -10, DTS, "2024-01-05"),            // :281
+            (datetime(), -18, DTS, "2024-01-05 09:30"),      // :282
+        ] {
+            let (r, hits) = fmt_string_hits(&v, length, template);
+            assert_eq!(r.as_deref(), Ok(want), "{v:?} {length} {template}");
+            assert_eq!(
+                hits,
+                [crate::assumptions::Assumption::FormatLengthDateString],
+                "{v:?} {length} {template}"
+            );
+        }
+    }
+
+    /// Issue 8890: the neighbors of the date string cells refuse: an unmeasured string, an unmeasured fit or sign of a
+    /// measured string, and a value kind the probe did not measure under that string.
+    #[test]
+    fn the_neighbors_of_the_date_string_cells_refuse() {
+        let date = Value::Date(day_from_civil(2024, 1, 5), false);
+        let closing = Value::Date(day_from_civil(2024, 1, 5), true);
+        let time = Value::Time((9 * 3600 + 30 * 60 + 5) * 1000 + 1);
+        for (v, length, template) in [
+            (date.clone(), 8, "<Day,2><Month,2><Year4>"),
+            (date.clone(), 3, "<Year4>"),
+            (closing.clone(), 3, "<Year4><Month,2><Day,2>"),
+            (closing.clone(), -10, "<Year4><Month,2><Day,2>"),
+            (closing.clone(), -3, "<Year4><Month,2><Day,2>"),
+            (Value::Date(0, false), 8, "<Day,2>.<Month,2>.<Year4>"),
+            (Value::Date(0, false), 8, "<Year4>-<Month,2>-<Day,2>"),
+            (Value::Time(0), -3, "<Hours24,2><Minutes,2><Seconds,2>"),
+            (Value::Time(0), -5, "<Hours24,2>:<Minutes,2>"),
+            (time.clone(), -3, "<Hours24,2>:<Minutes,2>:<Seconds,2>"),
+            (time.clone(), -3, "<Year4><Month,2><Day,2>"),
+            (datetime(), 8, "<Year4><Month,2><Day,2>"),
+            (datetime(), -3, "<Hours24,2><Minutes,2><Seconds,2>"),
+            (
+                Value::DateTime(0),
+                3,
+                "<Year4>-<Month,2>-<Day,2> <Hours24,2>:<Minutes,2>",
+            ),
+        ] {
+            let (r, hits) = fmt_string_hits(&v, length, template);
+            assert!(refused_by_string(&r), "{v:?} {length} {template}: {r:?}");
+            assert!(hits.is_empty(), "{v:?} {length} {template}");
         }
     }
 

@@ -442,7 +442,8 @@ fn format_codes(
     // `date len 5 custom`; a Time: Format.al:912, :918 TU_Time_Format_CodeNames). Which values take a length: `format::length`
     // (`cuts_to_length`, the gate's own type list). An Integer or BigInteger is cut the same, and an Integer in a negative length
     // is cut to its first |length| characters too (corpus PR 1505, FormatLengthIntegerString.al:34, :36, :39, :204; assumption
-    // `format-length-integer-string`, marked by the gate). The cut also reaches the lone `<Standard Format,0>` gate
+    // `format-length-integer-string`, marked by the gate), as are a Date, a Time and a DateTime in either sign (corpus PR 1557,
+    // FormatLengthDateString.al:56-58, :63-65, :182, :235-236, :240; assumption `format-length-date-string`). The cut also reaches the lone `<Standard Format,0>` gate
     // (`lone_standard_format`): an Integer or BigInteger longer than a positive length now passes clean, pinned at
     // format-evaluate/format-length/FormatLengthNeighbors.al:413 (BigInteger) and :453 (Integer).
     let cut = crate::format::length::cuts_to_length(v, length);
