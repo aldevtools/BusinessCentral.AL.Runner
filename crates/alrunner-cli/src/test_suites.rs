@@ -1,6 +1,10 @@
 //! `--test-suites FILE` (ADR-066 amendment 6, al-runner issue 6924): reads the suites file and warns about listed
 //! codeunits that are no test codeunit of the apps under test. The format and what a suite means are in
 //! `al_testrun::test_suites`; reading the file is the front end's job (ADR-006).
+//!
+//! `--test-suites FILE` and serve `testSuites` (ADR-066 amendment 6): reads the file, parses it with
+//! `al_testrun::test_suites`, and warns on stderr about listed ids that are no test codeunit of the
+//! apps under test (`unknown`). Entry points: `load`.
 
 use al_testrun::test_suites::TestSuites;
 use std::path::Path;

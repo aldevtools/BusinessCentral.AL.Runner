@@ -4,6 +4,15 @@
 //!
 //! A variant is a set of perturbations ([`Perturb`]) the runner applies to the host values and to its own steps
 //! around each test. The base variant ([`Perturb::default`]) is a normal run.
+//!
+//! Stability mode (ADR-058): the config (`parse_config`, preset `microsoft`; its matrix axes
+//! `MatrixAxes`), the registry of dimensions with their class (`DIMENSIONS`: safe, pin first, never;
+//! built or not), the variants of a config (`variants`: oneAtATime, matrix, sample, under a master
+//! seed), replay (`replay`, `parse_values_text`), what a variant changes for the runner (`Perturb`:
+//! method and codeunit order, alone, library seed, work date, clock date and time of day, clock step,
+//! host and Guid seeds, identity, company; `RunOptions::perturb`; `Perturb::host_key` keys the
+//! install baseline; `Perturb::environment` is the cell of the `environment` axis) and the comparison
+//! with the base variant (`changes`). Entry points: `parse_config`, `variants`, `Perturb`, `changes`.
 
 use serde_json::Value as Json;
 

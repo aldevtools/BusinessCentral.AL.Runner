@@ -3,6 +3,17 @@
 //! on the page or not (corpus testpage/filters/TempListOffPageBooleanFilter.al; al-runner issue 6924). Only the measured shapes take
 //! this path (`eq_text_sets_no_filter`). Another text that starts with `=` (also after blanks) on a Boolean, Enum or Option field
 //! of a List or Worksheet refuses; a text on another page type or field type keeps the filter `filter.rs` parses.
+//!
+//! A `TestPage.Filter.SetFilter` text that starts with `=` sets no filter and keeps an earlier one,
+//! only in the measured cells (a List or Worksheet the test opened with OpenView, or a temporary
+//! Worksheet it opened with OpenEdit with `=0` or `=1` on a Boolean field,
+//! testpage/filters/WorksheetOpenEditTemp.al, `eq_text_open_edit_cell`; a Boolean word, an Enum or
+//! Option member or a measured ordinal after the `=`; al-runner issue 6924, corpus
+//! testpage/filters/TempListOffPageBooleanFilter.al and WorksheetEnumEqFilter.al); the cells are
+//! `eq_text_cell`; an earlier filter counts only when the test typed it
+//! (`PageState::test_typed_filter`); another `=` text on a Boolean, Enum or Option field of a List or
+//! Worksheet refuses (`eq_text_measured` names the missed fact); other page and field types keep the
+//! parsed filter. Entry points: `eq_text_sets_no_filter` (by `filter.rs`).
 
 use super::pinned_shape::{NextEnd, PinnedEnd, Reads, TestCall};
 use super::*;

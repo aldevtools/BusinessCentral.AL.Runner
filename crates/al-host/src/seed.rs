@@ -1,6 +1,9 @@
 //! The run seed (ADR-061): every `al-runner` run has one, and it derives, per test method, the seed of the session's
 //! `Random`, the key of its Guids and (opt in) the seed of `Library - Random`. The caller picks the run seed (the CLI
 //! from the OS, `al-test-cli` the fixed 1); this module only derives from it, so it does no OS access (ADR-006).
+//!
+//! the run seed's derivations per test method (ADR-061): `derive` (v2's FNV-1a), `derive_library`,
+//! `guid_key`.
 
 /// The run seed of `al-test-cli`, the corpus ratchet and a host nobody gave one (ADR-061 section 5).
 pub const FIXED_RUN_SEED: i32 = 1;

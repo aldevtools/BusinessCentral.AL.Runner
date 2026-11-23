@@ -13,6 +13,25 @@
 //! `empty_list_part_rec_widened_cells_neighbors_refuse`, `empty_list_part_rec_tied_to_its_landing`). Rec holds the values of a
 //! cell only while a read the cell measured runs (`Session::reading_empty_list_rec`). The facts no probe object varies are named
 //! in the entry's text.
+//!
+//! The List-host cells of `empty_part_rec.rs`, pinned by pages/parts/EmptyPartRecLinkList.al: an
+//! allowlist of the host (top-level List opened by TestPage.OpenEdit/OpenView, its properties and
+//! trigger sets, no extension or subscriber), the landing (open, GoToRecord that left or stayed,
+//! Next), the part control and its link, and the part page (properties, trigger sets, no extension or
+//! subscriber), every field control of host and part bound to a field of Rec; and `FORM_CELLS`, the
+//! host forms measured only in their own open forms and landings (UpdatePropagation = Both, a part
+//! control Caption, a host Editable = false or CardPageId; GoToRecord to the last or the only row as
+//! the first call since the open on a host without a filter, `form_landing`; the part in the
+//! FactBoxes, a host without triggers, a `const(..)` link, `form_cell_facts`). A host with the page
+//! triggers of corpus pull request 1378 takes only the first form and the reporter's form, at the
+//! landings and host row counts of `FIRST_FORM_TRIGGER_LANDINGS` and `REPORTER_TRIGGER_LANDINGS`
+//! (`first_form_trigger_cell`, `trigger_landing_cell`; the reporter's form also with
+//! `form_cell_facts`), including the second row a GoToRecord to the third passes
+//! (`trigger_cell_walk`, `passed_row_cell`); in those cells the part's OnAfterGetCurrRecord runs with
+//! the link values at an edit-mode landing and after the measured Invoke (`empty_part_rec.rs`). Entry
+//! points: `list_host_cell` (the first fact outside the cells, the text of the refusal; or the
+//! `ListCell` it measured), `part_of_top_list` (by `filter.rs`, which hands such a part to
+//! `empty_part_rec`).
 
 use super::pinned_shape::{PartStep, TestCall};
 use super::*;

@@ -9,6 +9,12 @@
 //! found: a group, a repeater, an action, an action group, an area, a field a page extension adds (by either object's id; from
 //! BC 28, :589: BC 27 finds it by the extension's id, `al_version::getfield_finds_extension_fields`), a control of another page
 //! or of the part's page (:468 :484 :545 :611 :705; testpage/TestPageRuntimeContracts.al:274-275 the code).
+//!
+//! `TestPage.GetField(Id)` / `TestPart.GetField(Id)` by the compiler's control id
+//! (`pages::control_id`; al-runner issue 8832, assumption `testpage-getfield-control-id`): the page's
+//! own field control (a hidden one is not found), or an empty field for a part, a cuegroup, a fixed
+//! or a grid, on the page kinds the cells open (`get_field_page_measured`); any other id is not
+//! found. Entries: `get_field_by_id`, `by_id_call` (the calls on what it found, by `pageops.rs`).
 
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};

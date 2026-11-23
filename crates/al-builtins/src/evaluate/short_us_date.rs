@@ -4,6 +4,12 @@
 //! mark them: `evaluate-date-variable-time-dropped` (a time after a date) and `evaluate-short-date-rejected-last-error` (the
 //! last error a rejected text leaves when the result is used). Every other text, target, number and language keeps the readers
 //! of `evaluate.rs`.
+//!
+//! `Evaluate` into a Date or DateTime local or parameter (`System.EvaluateDateVariable#1`, lowered in
+//! al-sema `lower/evaluate_id.rs`), no number or 0, en-US: the `mm/dd/yy` texts with a time after the
+//! date and the rejected texts corpus PR 1503 measured (assumptions `evaluate-date-variable-time-
+//! dropped`, `evaluate-short-date-rejected-last-error`); every other text keeps the readers of
+//! `evaluate.rs`. Entry points: `measured`, `read` (by `evaluate_with_max`).
 
 use super::{Parsed, date};
 use crate::assumptions::{Assumption, assume};

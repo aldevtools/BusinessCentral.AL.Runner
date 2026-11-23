@@ -1,6 +1,14 @@
 //! The Record.SetFilter shape the GlobalLanguage filter cells measured, and the filter texts read only in that shape: the Danish
 //! Boolean words (`danish_boolean_filter`) and the closing-date letter of a Date filter; the `<>%1` placeholder cells
 //! (`placeholder_wildcard_edge`).
+//!
+//! `MeasuredSetFilter`, the Record.SetFilter call shape the GlobalLanguage filter probe measured (AL
+//! code, not temporary, filter group 0; no placeholder argument, except `<>%1` with one Text
+//! argument), built once in the SetFilter arm of `records/op_inner.rs`; the entries that read a
+//! filter text only in that shape take it as an argument. `measured_language_filter` runs before the
+//! parser: the Danish Boolean texts and the closing-date letter of a Date filter
+//! (FilterGlobalLanguageDateBool.al). Entry points: `MeasuredSetFilter::of`,
+//! `measured_language_filter`.
 
 use super::*;
 

@@ -38,6 +38,24 @@
 //! Media field is cached as any other (:6898, :6918), and CalcFields of a Blob of a row the cache answered with another row
 //! is refused. The cache keeps no notes at all in a program whose own apps run no page background task
 //! (`Session::query_cache_on`). Every other read keeps reading the rows as they are, as on main.
+//!
+//! The query cache page background tasks and the test session read through (al-runner issue 8467,
+//! assumption `background-task-query-cache`, corpus pull request 1457, merged, not pinned yet): a
+//! worker's `Get` and full-key `FindFirst` (a row), and `FindFirst`, `FindLast`, `Count` and
+//! `IsEmpty` of AL code keyed by the read, the sort direction and every filter (`group_key`; the
+//! filter shapes of open corpus PR 1495, al-runner issue 8637), and a Record's `CalcFields` (keyed by
+//! its fields in order, the row and its FlowFilters, `calc_key`) and `CalcSums` (al-runner issue 8677)
+//! answer their first answer until a commit writes the row (or, for the group reads and
+//! calculations, the table, or a table its FlowField filters or formulas read); the test session's
+//! reads fill it while it has not written the table; emptied per test codeunit. Entry points:
+//! `cached_get`, `cached_find`, `cached_count` (called from `records/op_inner.rs`),
+//! `cached_calc_fields`, `cached_calc_sums` (called from `flowfields.rs`), `mark_al_record_read`
+//! (`record_op_of_al`), `note_commit_for_query_cache` (`commit_transaction`), `note_replayed_load`
+//! (`load`), `refuse_load_of_replayed` (`partial.rs`), `reset_query_cache` (`mark_install_end`),
+//! `note_select_latest_version` (`hostvalues.rs`), `refuse_blob_of_replayed` (`load_blobs`),
+//! `end_record_op_for_query_cache` (`record_op`); the minors a committed ModifyAll or DeleteAll ends
+//! an entry on: `al_version::bulk_commit_ends_cached_row`; nothing is noted unless the program's own
+//! apps run a page background task (`query_cache_on`).
 
 use crate::records::Rec;
 use crate::{Session, Signal};
@@ -618,6 +636,27 @@ impl Session {
         }
     }
 
+    /// `SelectLatestVersion(Table)` with the argument `arg`: an Integer that names a table ends that table's entries and no
+    /// other table's (another table's number changes nothing, :6744); one that names no table ends none. A Char, a Byte, an
+    /// Option or an Enum, which the compiler takes for the Integer (an Enum with warning AL0603) and which reaches here as
+    /// itself (al-runner issue 8879), is refused in a worker: no cell measures which table it names (the neighbors of
+    /// MoreNeighbors.al measure each of the four with value 0, which names no table).
+    pub(crate) fn note_select_latest_version_of(&mut self, arg: Option<&Value>) -> Result<(), Signal> {
+        match arg {
+            Some(Value::Integer(n)) => {
+                if let Some(t) = self.table_object(i64::from(*n)) {
+                    self.note_select_latest_version(Some(t as u32));
+                }
+                Ok(())
+            }
+            _ if !self.in_worker() || !self.query_cache_on() => Ok(()),
+            _ => unsupported(
+                "SelectLatestVersion(Table) in a page background task with a value that is no Integer (a Char, a Byte, an \
+                 Option or an Enum; not measured)",
+            ),
+        }
+    }
+
     fn selects_of(&self, table: u32) -> u64 {
         let cache = &self.pages.query_cache;
         cache.selects_all + cache.selects.get(&table).copied().unwrap_or(0)
@@ -773,7 +812,8 @@ impl Session {
     }
 
     /// The tables the FlowFields `rec` filters on read (`flow_field_find` keys a read with them), once each, by object id: two
-    /// reads with the same key get their commit stamps in the same order, whatever order their filters were set in.
+    /// reads with the same key get their commit stamps in the same order, whatever order their filters were set in, as BC
+    /// shares the entry (the neighbor TwoFlowFieldFiltersSwapped_NoteAfterFirstRead, MoreNeighbors.al, al-runner issue 8879).
     fn flow_field_sources(&self, rec: &Rec, t: &TableDef) -> Vec<Arc<TableDef>> {
         let Some(schema) = self.engine.program.objects[t.object as usize].table.as_ref() else {
             return Vec::new();

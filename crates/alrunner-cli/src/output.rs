@@ -1,4 +1,10 @@
 //! What a run prints and writes: the summary, the lines per test, JUnit XML.
+//!
+//! Counts, exit codes (0, 1, 6, 7), the summary line, the one-line warnings shown by default
+//! (`baseline_warning`, `dependency_line_is_problem`; the rest is `--verbose`), JUnit XML of a run,
+//! and the `--output-json` document; `test_row` is the one builder of a test's JSON row, for the
+//! document and for serve's `test` lines (al-runner issue 7954). Entry points: `exit_code`, `junit`,
+//! `json_tdd`, `test_row`.
 
 use al_testrun::Outcome;
 use al_testrun::runtime::TestResult;

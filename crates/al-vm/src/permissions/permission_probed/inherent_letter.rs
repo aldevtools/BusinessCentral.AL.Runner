@@ -4,6 +4,10 @@
 //! Y19InherentAttrIndirect.al:153-185 (IA_LowerCaseAttribute) pins that `'i'` and `'r'` give the indirect level for the call and the calls it makes, which the code's `Permissions` property turns
 //! into an allowed access (ops 1, 4, 5) and which without it is denied as `Insert` (ops 11, 13). The measured shape is an allowlist of its facts here; every other indirect letter
 //! stays refused.
+//!
+//! A lower-case letter of an `[InherentPermissions]` attribute and the `IndirectRead` text of a read
+//! under one, in the shapes permissions/testpermissions/Y19InherentAttrIndirect.al pins. Entry
+//! points: `Session::inherent_letter_measured`, `Session::indirect_read_measured`.
 use crate::Session;
 use crate::permissions::{Access, Levels, Op, SetModel};
 

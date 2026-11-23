@@ -5,6 +5,13 @@
 //! grammar through the strings it feeds to `SetView`
 //! (`'SORTING(Entry No.) WHERE(Entry No.=FILTER(1..3))'`:
 //! recordref-fieldref/recordref/TestRecordRefFilter.al:23). Anything else is refused.
+//!
+//! Filter and view text: SetView, GetFilters, filter group text, AL property views (`property_view`),
+//! the one reader of a view's parts (`view_parts`, `view_clauses`: which of SORTING, ORDER, WHERE a
+//! view has). Entry points: `parse_filter_text`, `filter_text`, `get_filters`, `property_view`,
+//! `view_clauses`. `get_filters_order`: the order of a FlowField filter and a FlowFilter filter in
+//! GetFilters, RecordRef.GetFilters and a Find error text (the one shape
+//! record/filters/ByValueRecordView.al:575-582 pins; every shape outside it refuses).
 
 use crate::Session;
 use al_builtins::describe::Describe;

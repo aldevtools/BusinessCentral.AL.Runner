@@ -3,6 +3,16 @@
 //! with the subscriber's xRec parameter. No trigger of the record runs at that moment, so `running_call_xrec` finds no call
 //! whose xRec it could share. `validate_events` notes the event while its subscribers run (`validate_event`, by
 //! `validate_hooks` in `records.rs`); `validate_event_xrec` takes it (by `table_proc_xrec` in `nested_validate.rs`).
+//!
+//! The xRec of a procedure of a table or of its table extensions that a subscriber of the
+//! OnBeforeValidateEvent or OnAfterValidateEvent of a Validate calls on its Rec: the xRec the
+//! Validate hands the event, shared in the facts the pinned cells share (the subscriber, the field,
+//! the Validate's caller, the record untouched since the Validate started: `ValidateRun::touched`,
+//! noted by `record_op`) (al-runner issue 8306, record/validate/XRecTableProcThroughSubscriber.al);
+//! any other procedure called on the record while the event is raised refuses a read of xRec. Entry
+//! points: `validate_event` (by `validate_hooks` in `records.rs`, notes `Session::validate_events`),
+//! `validate_event_xrec` (by `table_proc_xrec`), `raised_validate_event_xrec` (by
+//! `running_call_xrec`).
 
 use crate::records::{Rec, ValidateRun, ValidateSite};
 use crate::{Frame, Session};

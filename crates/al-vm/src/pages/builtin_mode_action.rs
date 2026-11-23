@@ -1,6 +1,11 @@
 //! The built-in View and Edit actions of a TestPage (`P.View()`, `P.Edit()`): taking one from the variable, and what Visible,
 //! Enabled and Invoke of it answer. A list without a card switches its own mode (`list_view_switch.rs`); an action the variable
 //! handed out on an earlier open stays bound to it (`state/mode_actions.rs`).
+//!
+//! The built-in View and Edit actions of a TestPage: taking one from the variable
+//! (`take_mode_action`, by `pageops.rs`), Visible, Enabled and Invoke on a card and on a list
+//! (`builtin_mode_action`, by `test_control_op`), and an action bound to an earlier open of the
+//! variable (`bound_mode_action`, assumption `mode-actions-bound-to-earlier-open`).
 
 use super::state::EarlierOpen;
 use super::*;

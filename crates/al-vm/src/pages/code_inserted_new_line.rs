@@ -12,6 +12,31 @@
 //! (`refuse_error_after_landing`), and so is one whose SaveRecord left the line without the `Update(false)` after it
 //! (`code_inserted_step_end`), and the host with two CardPart FactBoxes (ListNewLineCodeInsertUpdate.al:249-299) at its open
 //! (`refuse_code_inserted_parts_host`): BC's part triggers there (:718, :736) are not the runner's.
+//!
+//! A List page's `New()` line that the table field's OnValidate inserted itself, then
+//! `CurrPage.Update()`, `Update(false)`, `Update(true)` or `SaveRecord()` then `Update(false)` in the
+//! control's OnValidate: the page lands on the stored row (Update(), Update(true) and SaveRecord
+//! modify it), the refresh reads the view from its first row, and `Previous()` on the view's only row
+//! answers false without a save (al-runner issues 8186 and 8285, pinned by
+//! pages/currpage/ListNewLineCodeInsertUpdate.al and ListNewLineSaveRecordUpdate.al). On a host with
+//! one CardPart FactBox (SaveRecord then Update(false)) the refresh leaves out the last read of the
+//! row, and with a row before, Previous() and Close/OK read the row again before they save it; any
+//! other call that leaves the row there is refused. Only the pinned cells take it
+//! (`code_inserted_cell`: page properties and triggers, the FactBox (`code_inserted_factbox`), open,
+//! calls, key, view); issue 8186's `Update()` under a RunModal filtered to one group is refused
+//! there, every other shape keeps the earlier behavior, a validation that ends with an error after
+//! the move, or whose SaveRecord is not followed by Update(false), is refused
+//! (`refuse_error_after_landing`, `code_inserted_step_end`), and the open of the probe's host with
+//! two CardPart FactBoxes is refused (`refuse_code_inserted_parts_host`, by
+//! `sync_parts_at_list_open`). Entry points: `land_on_code_inserted_line` (by `CurrPage.Update`),
+//! `save_record_on_code_inserted_line` (by `CurrPage.SaveRecord`), `code_inserted_saved` (by
+//! `save_from_update`: notes Rec, its view and the store after the save, which the later calls must
+//! keep), `run_control_onvalidate`, `refuse_error_after_landing` and `code_inserted_step_end` (by the
+//! SetValue's validation), `code_inserted_refresh_due` and `code_inserted_refresh` (by
+//! `run_refresh`), `previous_on_code_inserted_row` (by `end_move_without_read`),
+//! `code_inserted_row_at_close` (by `close_with`), `refuse_off_factbox_row` (by `test_page_op_held`
+//! and `test_control_op_held`: on the FactBox host only reads, one SetValue of a control without
+//! code, then Previous, Close or OK); the refresh is `reread_view_from_row` in `refresh_new_line.rs`.
 
 use super::code_inserted_pinned::PinnedCode;
 use super::pinned_shape::TestCall;
@@ -668,7 +693,7 @@ impl Session {
             CodeInsertedSave::Asked(view) if self.view_kept(st, &view)? => return Ok(()),
             // CurrPage.SaveRecord() with no Update after it on the page with triggers and a FactBox: BC refreshes nothing and the
             // page stays on the saved row (ListNewLineExtraCodeFactbox.al:701, :713), also after a field of Rec set or a row of
-            // another table inserted (:766-803, `extra_code_save_kept`).
+            // another table inserted or modified (:766-837, `extra_code_save_kept`).
             CodeInsertedSave::Saved(view)
                 if view.extra
                     && matches!(self.code_inserted_page(st)?, Some((Triggers::FactboxExtra, _)))

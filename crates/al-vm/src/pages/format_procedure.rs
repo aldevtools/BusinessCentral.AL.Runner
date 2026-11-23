@@ -20,6 +20,11 @@
 //! testpage/TestPageVariableControlCaption_Tests.al:131, testpage/TestPageActionRunObjectKindsPrecompiled_Tests.al:101,
 //! pages/client-features/BgClientFeatures.al:46). On a page whose open ran it every TestPage step outside the probe's refuses
 //! before it runs ([`Session::format_procedure_step`]).
+//!
+//! a table field's AutoFormatExpression that calls a procedure: run at the fetches
+//! pages/controls/AutoFormatProcedureControl.al pins; after such an open every other step refused;
+//! other fetches run nothing, as before. Entries: `fill_format_procedures`, `format_procedure_step`,
+//! `format_procedure_text`.
 
 use super::state::FormatProcedureStep;
 use super::*;

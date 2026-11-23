@@ -30,6 +30,11 @@
 //!
 //! Every other use (another number, the digits of the text, a record field, a key, `*`, `/`) would show the model's number,
 //! which nothing pins: it is refused.
+//!
+//! The taint of `Value::SqlCount` (SessionInformation SQL counters, issues 5580, 5761, 5861): which
+//! arithmetic and comparisons the pins answer, a plain number for the difference of two reads of one
+//! chain (pinned sizes only), a lower bound (`SqlForm::AtLeast`) across a change only its bound is
+//! pinned for, the refusal for every other use. Entry points: `arith`, `compare`, `order`, `refusal`.
 
 use crate::native::Signal;
 use crate::ops::Arith;

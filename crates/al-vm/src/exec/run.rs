@@ -1120,10 +1120,14 @@ impl Session {
         Ok(ret)
     }
 
-    /// The steps every builtin call takes on its evaluated operands before the guards: the audits, the record and Blob
-    /// bookkeeping and the TextConstant arguments. Shared by `run_builtin`, `run_plain_builtin` and `run_stream_builtin`.
+    /// The steps every builtin call takes on its evaluated operands before the guards: the install footprint note, the
+    /// audits, the record and Blob bookkeeping and the TextConstant arguments. Shared by `run_builtin`, `run_plain_builtin`
+    /// and `run_stream_builtin`.
     #[inline]
     fn builtin_prologue(&self, site: &BuiltinSite, recv: Option<&Value>, values: &mut [Value]) -> Result<(), Signal> {
+        if self.coverage.footprint_on {
+            self.note_footprint_builtin(site.id);
+        }
         crate::assigned_audit::own_read_end_for_operands(site.id, values);
         crate::records::rolled_read_end_for_operands(values);
         crate::blob_transfer::records_into_builtin(self.blob_sources, site.id, recv, values);

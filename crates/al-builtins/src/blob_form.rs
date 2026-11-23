@@ -4,6 +4,13 @@
 //! of a buffer stays exact. The bytes form used to keep only the bytes, the write position and eight flags: a row the
 //! install code wrote with a mark that `copy_blob` hands on (`utf16_binary`, `render_pending`, `inserted`) lost it on a worker
 //! thread and on a run that read the baseline from the cache (al-vm `baseline/blob_tests.rs`).
+//!
+//! Every field of a Blob buffer (`BlobBuf`) in one place: its bytes form (`value_codec` tag 17: the
+//! install baseline on disk and between threads, ADR-069) and `BlobBuf::differing_fields`, the
+//! comparison that names the fields two buffers differ in (and `BlobBuf`'s `PartialEq`). Tests: here
+//! and al-vm `baseline/blob_tests.rs`. Each destructures the whole buffer, so a new field does not
+//! compile until it is carried and compared. Entry points: `put`, `read`,
+//! `BlobBuf::differing_fields`.
 
 use crate::stream::{AssignedWrite, BlobBuf, Encoding};
 use crate::stream_line_breaks::LineBreakHistory;

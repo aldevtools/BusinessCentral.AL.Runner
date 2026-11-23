@@ -15,6 +15,8 @@
 //! A Code column is `xs:string` like a Code column of a report data file (data_file_types.rs `declared`); its values are
 //! pinned by streams/ChQueryLeads.al:350-389 (`<Grp>B</Grp>`). Every other type, a closing date, and a text with a
 //! control character or (in JSON) a backslash are refused: how .NET writes them there is not pinned.
+//!
+//! the bytes Query.SaveAsXml (a .NET DataSet) and SaveAsJson write. Entry points: `render`.
 
 use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::{RtType, Value};

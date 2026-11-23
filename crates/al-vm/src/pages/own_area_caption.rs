@@ -13,6 +13,17 @@
 //!
 //! Each path requires every fact of its pin by equality (`own_area_pinned_page`, `own_area_session_pinned`,
 //! `own_area_calls_pinned`).
+//!
+//! Own-area CaptionClass texts on the pages record/captions/CaptionClassOwnArea.al pins, each gate an
+//! allowlist of the pin's facts (page shape `own_area_pinned_page`, session
+//! `own_area_session_pinned`, test calls `own_area_calls_pinned`). The literal of every source table
+//! field resolved at the open of the pinned Card (al-runner issue 7410), and `Caption()` reading the
+//! session's translation afterwards; every other page resolves at the first read
+//! (`read_literal_field_caption` in `caption_class.rs`). The subscriber's caption of an expression on
+//! the pinned Card and List (al-runner issue 7431). Entry points:
+//! `resolve_literal_field_classes_at_open` (by `populate_expressions`),
+//! `literal_field_caption_after_open` and `refuse_own_area_expression_read` (by
+//! `control_caption_plain`), `own_area_control_caption_pinned` (by `control_expression_caption`).
 
 use super::pinned_shape::TestCall;
 use super::*;

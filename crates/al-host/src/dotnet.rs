@@ -2,6 +2,8 @@
 //!
 //! Plain data and two traits. Nothing here touches the OS: a front end that can start a
 //! process (`al-test-cli`) implements [`DotNetHost`]; the VM only sees the trait.
+//!
+//! Entry points: `DotNetType`, `DotNetHandle`, `DotNetValue`, `DotNetArg`.
 
 use std::fmt;
 

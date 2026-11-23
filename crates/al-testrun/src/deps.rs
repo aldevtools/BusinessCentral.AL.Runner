@@ -2,6 +2,9 @@
 //! directories, then the artifact cache of the chosen Microsoft build ([`load_with`]). A corpus run does not look in
 //! the corpus tree's `.alpackages` (ADR-013 amendment of 2026-11-10, [`load_corpus`]): its Microsoft apps come only
 //! from the build `oracle/oracle.toml` pins.
+//!
+//! Dependency apps for a corpus run (ADR-013). Entry points: `Dependencies`, `Provision`, `load`,
+//! `load_with`.
 
 use al_deps::artifact::{ArtifactUse, Fetch, HttpCdn, load_with_artifacts, pick_build};
 use al_deps::build::BuildQuery;

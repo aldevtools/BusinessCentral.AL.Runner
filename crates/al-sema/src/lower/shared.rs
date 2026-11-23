@@ -1,5 +1,9 @@
 //! What the lowering of an object reads (plain data built once) and the per-object, per-thread state,
 //! with the constants and literal helpers the lowerer uses.
+//!
+//! What the lowering of an object reads (`Shared`) and the per-object state (`Nodes`, `Local`,
+//! `Seq`), `lower_object`, the constants and literal helpers. Entry points: `Shared`, `make_lowerer`,
+//! `lower_object`.
 use super::*;
 
 /// What the lowering of an object reads that is plain data, built once and read by every thread.

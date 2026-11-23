@@ -19,6 +19,12 @@
 //! AL0132, AL0161 and AL0398 (and AL0175 for Char - Text, AL0172 for unary minus on an Enum, Option or Duration; AL0126, AL0129 and AL0133 for the assignment form of a builtin method); they are listed in [`IMPLEMENTED`] or, where only some shapes are decided, [`NOT_CHECKED`].
 //! The implicit-conversion rules of `check/conv.rs` add AL0129, AL0130, AL0133, AL0174, AL0175, AL0369, AL0698 and AL0777
 //! for the shapes the compile matrix measured; those are listed in [`NOT_CHECKED`], with what is decided.
+//!
+//! Compile errors with the AL compiler's own codes (must-not-compile corpus): `IMPLEMENTED`,
+//! `NOT_CHECKED`, `check_workspace` (source-only checks, run by `check_with`), `check_context`
+//! (target and app.json checks, the caller supplies the `AppContext`). The typed ones (AL0118,
+//! AL0122, AL0132, AL0161) are in `check.rs` (`al_unresolved_name`, `al_enum_assignment`,
+//! `ABSENT_ENUM_MEMBERS`).
 
 use crate::workspace::{AppKind, Diagnostic, ObjKind, Resolution, Workspace};
 use al_syntax::ast::NodeText;
