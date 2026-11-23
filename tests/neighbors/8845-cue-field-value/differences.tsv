@@ -1,5 +1,5 @@
 # key	entry
 # The reporter's repro: main read the Text field's own text in the cuegroup; the head shows 0, as BC does.
-Repro Cue Tests::CueTextField_ShowsZero	PINNED tests/al-language/testpage/ABTests.al:747
+Repro Cue Tests::CueTextField_ShowsZero	ASSUMED cuegroup-field-value (corpus PR 1538 :742, a Text field on a Card by its name)
 # Just past the cells: a DateFormula field in a cuegroup is not in the probe, so it refuses (BC shows 0, measured 3/3 here).
 LT CFN Tests::CueDateFormula_Value	REFUSED Value of a field control in a cuegroup holding DateFormula

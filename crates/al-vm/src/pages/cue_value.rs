@@ -1,25 +1,62 @@
-//! The Value a TestPage reads from a field control in a cuegroup (al-runner issue 8845): an Integer or a Decimal field shows its
-//! value as anywhere else, an Option or an Enum field its ordinal, and a field of any other type `0`, by its name and through
-//! `TestPage.GetField` (a Text pinned by testpage/ABTests.al:747, a List page's cuegroups with and without ShowAsTree; corpus pull request 1538, testpage/GetFieldByControlId.al:742 for Text, a Text holding a number, Code, a
-//! Code holding a number, Integer, Decimal, Boolean, Date, BigInteger, Option, Time, DateTime, Guid, Enum and Duration; :653;
-//! assumption `cuegroup-field-value`). In a cuegroup with `CuegroupLayout = Wide` the same for Text (pages/properties/
-//! ABLayouts.al:68, :70, also written `wide`), Decimal (pages/controls/AaControls.al:422), and Code and Integer (:742). Any
-//! other type refuses there.
+//! The Value a TestPage reads from a field control in a cuegroup (al-runner issue 8845), by its name and through
+//! `TestPage.GetField`: an Integer or a Decimal field shows its value as anywhere else, an Option or an Enum field its ordinal,
+//! and a field of any other measured type `0`. Corpus pull request 1538, testpage/GetFieldByControlId.al (assumption
+//! `cuegroup-field-value`): on a Card :742 (Text, a Text holding a number, Code, a Code holding a number, Integer, Decimal,
+//! Boolean, Date, BigInteger, Option, Time, DateTime, Guid, Enum and Duration; in a cuegroup with `CuegroupLayout = Wide`
+//! Code and Integer) and :653 (Text), and the same on a CardPart :856, a ListPart :923 and a List :990, each opened as a
+//! TestPage of its own. Pinned without the entry: a Text on a List (testpage/ABTests.al:747, cuegroups with and without
+//! ShowAsTree) and a Text in a wide cuegroup on a Card (pages/properties/ABLayouts.al:68, :70). On a RoleCenter BC finds no
+//! field there, by its name or its id (:1076): refused for every type. An Integer and a Decimal read as anywhere else on the
+//! other page kinds and in a part too (pinned); every other type there refuses, as every other type on the measured pages.
 
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
 
+/// The page kinds the cue cells open, as `object_facts` names them.
+fn measured_kind(kind: Option<&al_ir::PageType>) -> Option<&'static str> {
+    match kind {
+        Some(al_ir::PageType::Card) => Some("card"),
+        Some(al_ir::PageType::List) => Some("list"),
+        Some(al_ir::PageType::Other(o)) if o == "cardpart" => Some("cardpart"),
+        Some(al_ir::PageType::Other(o)) if o == "listpart" => Some("listpart"),
+        _ => None,
+    }
+}
+
 impl Session {
     /// The Value control `idx` shows when it sits inside a cuegroup and its value `v` reads otherwise than the control's own
-    /// text; `None` when it reads as anywhere else (not in a cuegroup, or an Integer or a Decimal).
+    /// text; `None` when it reads as anywhere else (not in a cuegroup, or an Integer or a Decimal outside a RoleCenter).
     pub(super) fn cue_value_shown(&self, st: &St, idx: usize, v: &Value) -> Result<Option<Value>, Signal> {
         if !self.in_cue_group(st, idx) {
             return Ok(None);
         }
         let wide = self.in_wide_cue_group(st, idx);
+        let (kind, role_center) = {
+            let engine = self.engine();
+            let page_type = engine.object_facts[st.borrow().object as usize].page_type.clone();
+            let role_center = matches!(&page_type, Some(al_ir::PageType::Other(o)) if o == "rolecenter");
+            (measured_kind(page_type.as_ref()), role_center)
+        };
+        if role_center {
+            return unsupported(
+                "Value of a field control in a cuegroup on a RoleCenter page (BC finds no such field, GetFieldByControlId.al:1076)",
+            );
+        }
+        // An Integer or a Decimal reads as anywhere else, also in a part (pages/properties/P119Cues.al:68 `level-value` `9`,
+        // testpage/TestPageCueGroupFixedGridContracts.al:355 `11`).
+        if matches!(v, Value::Integer(_) | Value::Decimal(_)) {
+            return Ok(None);
+        }
+        let Some(kind) = kind.filter(|_| st.borrow().host.is_none()) else {
+            return unsupported(
+                "Value of a field control in a cuegroup outside a Card, a CardPart, a ListPart or a List opened as a TestPage of \
+                 its own (not measured)",
+            );
+        };
         let measured = match v {
-            Value::Integer(_) | Value::Decimal(_) => return Ok(None),
-            Value::Text(_) | Value::Code(_) => true,
+            // A Text in a wide cuegroup is pinned on a Card only (ABLayouts.al:68).
+            Value::Text(_) => !wide || kind == "card",
+            Value::Code(_) => true,
             Value::Boolean(_)
             | Value::Date(..)
             | Value::BigInteger(_)
@@ -38,9 +75,8 @@ impl Session {
                 v.describe()
             ));
         }
-        // The Text is pinned (testpage/ABTests.al:747 in two cuegroups of a List page, ABLayouts.al:68 in a wide one); the rest
-        // comes from the open probe.
-        if !matches!(v, Value::Text(_)) {
+        let pinned = matches!(v, Value::Text(_)) && (kind == "list" && !wide || kind == "card" && wide);
+        if !pinned {
             assume(Assumption::CuegroupFieldValue);
         }
         Ok(Some(Value::Text(
