@@ -822,6 +822,9 @@ impl Session {
             .is_some_and(|r| matches!(r.factbox, FactboxStep::CodedTyped { .. }));
         if typed {
             super::code_inserted_coded::coded_assume(st);
+            if st.borrow().coded_objects == super::state::CodedObjects::Extra {
+                self.extra_code_typed_save(st)?;
+            }
             st.borrow_mut().code_inserted_save = CodeInsertedSave::Pending { asked: false };
             return Ok(());
         }
@@ -1101,11 +1104,12 @@ impl Session {
             (FactboxStep::Typed, TestCall::Page(PageMethod::OK), None) => FactboxStep::OkAsked,
             (FactboxStep::OkAsked, TestCall::Other(PageMethod::Invoke), None) => step,
             (FactboxStep::PreviousNo, TestCall::Page(PageMethod::Next), None) => step,
-            // The page with code: the SetValues of the measured control (`coded_value_control`) its objects are measured with
-            // (`CodedObjects::later_set_value`, ListNewLineFactboxesCode.al:1407 and :1576 `setvalue2`), then OK() and its Invoke
-            // (:1407 `ok=`, `CodedObjects::ok_after`).
+            // The page with code: the SetValues of the measured control (`coded_later_control`) its objects are measured with
+            // (`CodedObjects::later_set_value`, ListNewLineFactboxesCode.al:1407 and :1576 `setvalue2`; on a page of its shape
+            // with other code, ListNewLineExtraCodeCodedSecondSetValue.al:746), then OK() and its Invoke (:1407 `ok=`,
+            // `CodedObjects::ok_after`).
             (FactboxStep::Coded { steps }, TestCall::Write(i), None)
-                if root.borrow().coded_objects.later_set_value(steps) && self.coded_value_control(&root, i) =>
+                if root.borrow().coded_objects.later_set_value(steps) && self.coded_later_control(&root, i) =>
             {
                 FactboxStep::CodedTyped { steps }
             }

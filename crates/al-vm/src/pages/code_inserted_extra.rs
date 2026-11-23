@@ -269,6 +269,48 @@ impl Session {
         }))
     }
 
+    /// `CurrPage.SaveRecord()` in the OnValidate of the later SetValue on a page of the page-with-code shape with other code
+    /// (`FactboxStep::CodedTyped`, `CodedObjects::Extra`), on the row its new line became: measured when Rec is that row and
+    /// the control wrote no row of the page's table since its OnValidate began, other tables only
+    /// (ListNewLineExtraCodeCodedSecondSetValue.al:771); the Update after it and the step end then run under the effect gate
+    /// (`SavedView::extra`: :746, :760, :782 run; a filter set, :793, and a write after the Update, :837, are refused).
+    pub(super) fn extra_code_typed_save(&mut self, st: &St) -> Result<(), Signal> {
+        let began = st.borrow().control_onvalidate.as_ref().map(|c| c.writes);
+        let rec = self.page_rec(st);
+        let key = self.row_key(&rec)?;
+        let landed = st
+            .borrow()
+            .code_inserted_row
+            .as_ref()
+            .is_some_and(|row| Self::same_key(&row.key, &key));
+        let kept = match began {
+            Some(mark) if landed => self.page_table_kept_since(st, mark)?,
+            _ => false,
+        };
+        if !kept {
+            st.borrow_mut().forget_code_inserted_line();
+            return Err(Signal::unsupported(UNMEASURED_CODE));
+        }
+        extra_code_assume();
+        st.borrow_mut().code_inserted_extra = true;
+        Ok(())
+    }
+
+    /// Whether no row of the page's table was written or deleted since the store's write mark was `(mark, deletes)`: every
+    /// stored row's SystemRowVersion is at most the mark, and the delete count is the mark's (`only_other_tables_written`).
+    fn page_table_kept_since(&mut self, st: &St, (mark, deletes): (i64, u64)) -> Result<bool, Signal> {
+        if self.write_mark().1 != deletes {
+            return Ok(false);
+        }
+        let Some(rows) = self.coded_rows(st)? else {
+            return Ok(false);
+        };
+        let table = self.table(&self.page_rec(st))?;
+        Ok(rows
+            .iter()
+            .all(|row| crate::stale_rename::row_version(&table, row).is_some_and(|v| v <= mark)))
+    }
+
     /// `CurrPage.Update(true)` after the save, when the code since kept what `Update(false)` needs kept (`view_kept`): the page
     /// saves Rec again, over the row another record wrote (:476 `A//V`), and asks the refresh; the save after it notes a new
     /// view (`code_inserted_saved`). Otherwise not measured, and refused.

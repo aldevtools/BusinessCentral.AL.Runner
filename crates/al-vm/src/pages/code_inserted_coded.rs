@@ -25,7 +25,9 @@
 //! steps under the assumption `list-new-line-extra-code-coded` (ListNewLineExtraCodeCodedPage.al, corpus pull request 1537,
 //! open, 7 of 7 green on BC 29.1 in 3 runs): its SaveRecord under the effect gate (`extra_code_coded_cell`), its refresh
 //! reading the row as stored first and refusing a trigger that writes (:773), its worker's reads through the query cache
-//! (`bg_drain`), then one SetValue of a control without code and `OK()` (`refuse_off_factbox_row`). A row before the line
+//! (`bg_drain`), then one SetValue of a control without code and `OK()` (`refuse_off_factbox_row`), or one SetValue of a
+//! control with code of its own (`extra_value_control`) that saves and updates under the effect gate
+//! (`extra_code_typed_save`, ListNewLineExtraCodeCodedSecondSetValue.al, corpus pull request 1541) and `OK()`. A row before the line
 //! (:821) and a table with record triggers (:839) keep main's way.
 
 use super::pinned_shape::TestCall;
@@ -266,6 +268,51 @@ impl Session {
             }
             r => r,
         }
+    }
+
+    /// Whether control `idx` of host `st` takes the later SetValue its objects are measured with: the probe's and the repro's
+    /// Value control (`coded_value_control`), or on a page of their shape with other code a control with code of its own
+    /// (`extra_value_control`).
+    pub(super) fn coded_later_control(&self, st: &St, idx: usize) -> bool {
+        match st.borrow().coded_objects {
+            super::state::CodedObjects::Extra => self.extra_value_control(st, idx),
+            _ => self.coded_value_control(st, idx),
+        }
+    }
+
+    /// Whether control `idx` of host `st`, a page of the page-with-code shape with other code, takes the later SetValue
+    /// ListNewLineExtraCodeCodedSecondSetValue.al measures (:746; :859 with a TableRelation on the control): a field control
+    /// over Rec outside the primary key, other than the control whose SetValue landed, with an OnValidate of its own and no
+    /// extension trigger, over a table field with no OnValidate and no TableRelation.
+    fn extra_value_control(&self, st: &St, idx: usize) -> bool {
+        let landing = match Self::test_calls(st).as_deref() {
+            Some([TestCall::Page(PageMethod::New), TestCall::Write(landing), ..]) => *landing,
+            _ => return false,
+        };
+        let engine = self.engine();
+        let Some(control) = page_of(&engine, st).controls.get(idx) else {
+            return false;
+        };
+        let ir::Binding::Field(f) = control.binding else {
+            return false;
+        };
+        let Ok(table) = self.table(&self.page_rec(st)) else {
+            return false;
+        };
+        let field = engine.program.objects[table.object as usize]
+            .table
+            .as_ref()
+            .and_then(|t| t.fields.get(f));
+        idx != landing
+            && control.trigger("onvalidate").is_some()
+            && control.ext_triggers.is_empty()
+            && !table.keys[0].contains(&f)
+            && field.is_some_and(|d| {
+                d.on_validate.is_none()
+                    && d.ext_before_validate.is_empty()
+                    && d.ext_after_validate.is_empty()
+                    && !d.relation
+            })
     }
 
     /// Whether control `idx` of host `st` takes a SetValue on the row its new line became (ListNewLineFactboxesCode.al:1407

@@ -1,0 +1,13 @@
+{
+  "id": "8c3f1885-0b3d-422c-8a83-bca3e51c1f17",
+  "name": "Neighbors 8843 a page with code with a second SetValue with code",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "OnPrem",
+  "idRanges": [
+    { "from": 96560, "to": 96578 }
+  ],
+  "dependencies": []
+}

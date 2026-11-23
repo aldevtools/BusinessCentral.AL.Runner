@@ -229,24 +229,22 @@ impl CodedObjects {
 
     /// Whether a SetValue after the landing and `steps` earlier ones is measured: up to two on the probe's page
     /// (ListNewLineFactboxesCode.al:1407 `setvalue`, :1576 `setvalue2`), the one Value on the repro's
-    /// (ListNewLineFactboxesRepro.al:639-647); on a page of their shape the one SetValue of a control without code instead
-    /// (`refuse_off_factbox_row`).
+    /// (ListNewLineFactboxesRepro.al:639-647); on a page of their shape one SetValue of a control with code of its own
+    /// (ListNewLineExtraCodeCodedSecondSetValue.al:746), or of a control without code (`refuse_off_factbox_row`).
     pub fn later_set_value(self, steps: u8) -> bool {
         match self {
             Self::Probe => steps < 2,
-            Self::Repro => steps == 0,
-            Self::Extra => false,
+            Self::Repro | Self::Extra => steps == 0,
         }
     }
 
     /// Whether `OK()` after the landing and `steps` later SetValues is measured: after any of them on the probe's page (:1407
-    /// `ok=`), after the one Value on the repro's (:646); on a page of their shape only after the SetValue of a control without
-    /// code (`FactboxStep::Typed`).
+    /// `ok=`), after the one Value on the repro's (:646); on a page of their shape after the one SetValue of a control with
+    /// code (ListNewLineExtraCodeCodedSecondSetValue.al:746), or of a control without code (`FactboxStep::Typed`).
     pub fn ok_after(self, steps: u8) -> bool {
         match self {
             Self::Probe => true,
-            Self::Repro => steps == 1,
-            Self::Extra => false,
+            Self::Repro | Self::Extra => steps == 1,
         }
     }
 }
