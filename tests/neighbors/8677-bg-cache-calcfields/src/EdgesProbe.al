@@ -1,4 +1,4 @@
-// A copy of the corpus probe BgTaskCacheEdges.al of corpus pull request 1558 at aedde991 (corpus issue 1555), run here until a
+// A copy of the corpus probe BgTaskCacheEdges.al of corpus pull request 1558 at d413e8b7 (corpus issue 1555), run here until a
 // bump pins it. Citations of BgTaskCacheEdges.al name the corpus file's lines (this copy has two lines more).
 // BC Documentation:
 //   https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/methods-auto/testpage/testpagetestpage-runpagebackgroundtask-method
@@ -707,5 +707,258 @@ codeunit 97711 "BCE Commit Tests"
     procedure BgCacheEdges_SelectLatestVersionOfAnEnumZero_FirstAnswer()
     begin
         Assert.AreEqual('first / first', Reads('description', 'enumselect', 'description'), 'SelectLatestVersion(Enum of 0)');
+    end;
+}
+
+// From the review of al-runner PR 8897, the shapes it left without a cell: a commit of a ModifyAll, a DeleteAll or a Delete
+// that reaches the row of a worker's CalcFields; a commit of a Truncate of the row's table (table 97709, which no other cell
+// uses); and SelectLatestVersion with an Option, a Char, a Byte or an Enum of value 2, which names no table. Each cell
+// commits a parent with line 1 and opens page 97706; the worker reads; the test session commits the change, then inserts
+// lines 0 and 3 without a commit (or changes the parent's description without a commit); the worker reads again.
+table 97709 "BCE Truncated Parent"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(4; "Line Count"; Integer)
+        {
+            FieldClass = FlowField;
+            CalcFormula = count("BCE Line" where(Parent = field("No.")));
+        }
+    }
+
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+    }
+}
+
+// Value 2, which names no table, for SelectLatestVersion with an Enum.
+enum 97707 "BCE No Table"
+{
+    Extensible = false;
+
+    value(2; Two) { }
+}
+
+codeunit 97712 "BCE Row Commit Reader"
+{
+    trigger OnRun()
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+    begin
+        Parameters := Page.GetBackgroundParameters();
+        Results.Add('Seen', Read(Parameters.Get('Mode'), Parameters.Get('Group')));
+        Page.SetBackgroundTaskResult(Results);
+    end;
+
+    local procedure Read(Mode: Text; Group: Text): Text
+    var
+        Parent: Record "BCE Parent";
+        Truncated: Record "BCE Truncated Parent";
+        Kind: Option A,B,C;
+        C: Char;
+        B: Byte;
+        Which: Enum "BCE No Table";
+    begin
+        case Mode of
+            'linecount':
+                begin
+                    Parent.Get(Group);
+                    Parent.CalcFields("Line Count");
+                    exit(Format(Parent."Line Count"));
+                end;
+            // The key set without a Get, so the read works after the row is gone.
+            'linecountkey':
+                begin
+                    Parent."No." := CopyStr(Group, 1, MaxStrLen(Parent."No."));
+                    Parent.CalcFields("Line Count");
+                    exit(Format(Parent."Line Count"));
+                end;
+            'truncatedkey':
+                begin
+                    Truncated."No." := CopyStr(Group, 1, MaxStrLen(Truncated."No."));
+                    Truncated.CalcFields("Line Count");
+                    exit(Format(Truncated."Line Count"));
+                end;
+            'description', 'optionselect', 'charselect', 'byteselect', 'enumselect':
+                begin
+                    // Each value is 2, which names no table (the Enum with warning AL0603).
+                    case Mode of
+                        'optionselect':
+                            begin
+                                Kind := Kind::C;
+                                Database.SelectLatestVersion(Kind);
+                            end;
+                        'charselect':
+                            begin
+                                C := 2;
+                                Database.SelectLatestVersion(C);
+                            end;
+                        'byteselect':
+                            begin
+                                B := 2;
+                                Database.SelectLatestVersion(B);
+                            end;
+                        'enumselect':
+                            begin
+                                Which := Which::Two;
+                                Database.SelectLatestVersion(Which);
+                            end;
+                    end;
+                    Parent.Get(Group);
+                    exit(Parent.Description);
+                end;
+        end;
+        Error('Mode %1', Mode);
+    end;
+}
+
+codeunit 97713 "BCE Row Commit Tests"
+{
+    Subtype = Test;
+
+    var
+        Assert: Codeunit Assert;
+
+    local procedure Run(var Lines: TestPage "BCE Lines"; Mode: Text; Group: Code[20]): Text
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Seen: Text;
+    begin
+        Parameters.Add('Group', Group);
+        Parameters.Add('Mode', Mode);
+        Results := Lines.RunPageBackgroundTask(Codeunit::"BCE Row Commit Reader", Parameters, false);
+        Results.Get('Seen', Seen);
+        exit(Seen);
+    end;
+
+    local procedure AddLine(Parent: Code[20]; LineNo: Integer; Amount: Decimal)
+    var
+        Line: Record "BCE Line";
+    begin
+        Line.Parent := Parent;
+        Line."Line No." := LineNo;
+        Line.Kind := 'K';
+        Line.Amount := Amount;
+        Line.Qty := 1;
+        Line.Insert();
+        Line.SetRange(Parent, Parent);
+        if Line.FindFirst() then;
+    end;
+
+    // What: 'modifyall', 'deleteall' or 'delete' of the parent itself, or 'truncate' of table 97709, committed, then lines 0 and
+    // 3 without a commit; or 'description', the parent's description changed without a commit.
+    local procedure Change(G: Code[20]; What: Text)
+    var
+        Parent: Record "BCE Parent";
+        Truncated: Record "BCE Truncated Parent";
+    begin
+        if What = 'description' then begin
+            Parent.Get(G);
+            Parent.Description := 'second';
+            Parent.Modify();
+            exit;
+        end;
+        case What of
+            'modifyall':
+                begin
+                    Parent.SetRange("No.", G);
+                    Parent.ModifyAll(Description, 'changed');
+                end;
+            'deleteall':
+                begin
+                    Parent.SetRange("No.", G);
+                    Parent.DeleteAll();
+                end;
+            'delete':
+                begin
+                    Parent.Get(G);
+                    Parent.Delete();
+                end;
+            'truncate':
+                Truncated.Truncate();
+        end;
+        Commit();
+        AddLine(G, 0, 2);
+        AddLine(G, 3, 11);
+    end;
+
+    local procedure Reads(First: Text; Again: Text; What: Text): Text
+    var
+        Lines: TestPage "BCE Lines";
+        Parent: Record "BCE Parent";
+        Truncated: Record "BCE Truncated Parent";
+        G: Code[20];
+        Seen: Text;
+    begin
+        G := CopyStr(DelChr(Format(CreateGuid()), '=', '{}-'), 1, 18);
+        Parent."No." := G;
+        Parent.Description := 'first';
+        Parent.Insert();
+        Truncated."No." := G;
+        Truncated.Insert();
+        AddLine(G, 1, 5);
+        Commit();
+        Lines.OpenView();
+        Seen := Run(Lines, First, G);
+        Change(G, What);
+        Seen += ' / ' + Run(Lines, Again, G);
+        Lines.Close();
+        exit(Seen);
+    end;
+
+    [Test]
+    procedure BgCacheEdges_CalcFieldsAfterACommitOfAModifyAllOfItsRow_FirstAnswer()
+    begin
+        Assert.AreEqual('1 / 1', Reads('linecount', 'linecount', 'modifyall'), 'CalcFields after a commit of a ModifyAll of its row');
+    end;
+
+    [Test]
+    procedure BgCacheEdges_CalcFieldsAfterACommitOfADeleteAllOfItsRow_FirstAnswer()
+    begin
+        Assert.AreEqual('1 / 1', Reads('linecountkey', 'linecountkey', 'deleteall'), 'CalcFields after a commit of a DeleteAll of its row');
+    end;
+
+    [Test]
+    procedure BgCacheEdges_CalcFieldsAfterACommitOfADeleteOfItsRow_FirstAnswer()
+    begin
+        Assert.AreEqual('1 / 1', Reads('linecountkey', 'linecountkey', 'delete'), 'CalcFields after a commit of a Delete of its row');
+    end;
+
+    [Test]
+    procedure BgCacheEdges_SelectLatestVersionOfAnOptionTwo_FirstAnswer()
+    begin
+        Assert.AreEqual('first / first', Reads('description', 'optionselect', 'description'), 'SelectLatestVersion(Option of 2)');
+    end;
+
+    [Test]
+    procedure BgCacheEdges_SelectLatestVersionOfACharTwo_FirstAnswer()
+    begin
+        Assert.AreEqual('first / first', Reads('description', 'charselect', 'description'), 'SelectLatestVersion(Char of 2)');
+    end;
+
+    [Test]
+    procedure BgCacheEdges_SelectLatestVersionOfAByteTwo_FirstAnswer()
+    begin
+        Assert.AreEqual('first / first', Reads('description', 'byteselect', 'description'), 'SelectLatestVersion(Byte of 2)');
+    end;
+
+    [Test]
+    procedure BgCacheEdges_SelectLatestVersionOfAnEnumTwo_FirstAnswer()
+    begin
+        Assert.AreEqual('first / first', Reads('description', 'enumselect', 'description'), 'SelectLatestVersion(Enum of 2)');
+    end;
+
+    // Last in the file: a Truncate of table 97709, which no other cell reads.
+    [Test]
+    procedure BgCacheEdges_CalcFieldsAfterACommitOfATruncateOfItsTable_FirstAnswer()
+    begin
+        Assert.AreEqual('1 / 1', Reads('truncatedkey', 'truncatedkey', 'truncate'), 'CalcFields after a commit of a Truncate of table 97709');
     end;
 }

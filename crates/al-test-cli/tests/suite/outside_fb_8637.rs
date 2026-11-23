@@ -428,10 +428,12 @@ fn issue_8879_follow_up_neighbors() {
 /// Tests): a commit of a ModifyAll, a DeleteAll or a Delete of another row of the row's table keeps a CalcFields entry (:639,
 /// :645, :651), so does the test session's CalcFields first, then a commit, then the lines (:657), and FieldRef.CalcField of a
 /// database RecordRef after a commit (:681); SelectLatestVersion with an Option, a Char, a Byte or an Enum of value 0 keeps the
-/// row entry (:687-:705). All flagged.
+/// row entry (:687-:705). BCE Row Commit Tests: a commit of a ModifyAll, a DeleteAll or a Delete of the row itself keeps the
+/// entry (:915-:927), so do a commit of a Truncate of the row's table (:958) and SelectLatestVersion with an Option, a Char, a
+/// Byte or an Enum of value 2, which names no table (:933-:951). All flagged.
 #[test]
 fn issue_1555_cells() {
-    for (codeunit, n) in [("BCE Tests", 16), ("BCE Commit Tests", 9)] {
+    for (codeunit, n) in [("BCE Tests", 16), ("BCE Commit Tests", 9), ("BCE Row Commit Tests", 8)] {
         let o = outcomes(EDGES, codeunit);
         assert_eq!(o.len(), n, "{codeunit}");
         for (name, r, marks) in &o {
