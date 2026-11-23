@@ -13,6 +13,7 @@ const REPRO: &str = include_str!("../../../../tests/neighbors/8637-bg-cache-filt
 const CALC_NEIGHBORS: &str = include_str!("../../../../tests/neighbors/8677-bg-cache-calcfields/src/Neighbors.al");
 const CALC_REPRO: &str = include_str!("../../../../tests/neighbors/8677-bg-cache-calcfields/src/Repro.al");
 const CALC_PROBE: &str = include_str!("../../../../tests/neighbors/8677-bg-cache-calcfields/src/CalcProbe.al");
+const MORE: &str = include_str!("../../../../tests/neighbors/8637-bg-cache-filtered-reads/src/MoreNeighbors.al");
 
 fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
     let src = format!("{src}\n{}", include_str!("../fixtures/outside-sc/Assert.al"));
@@ -374,6 +375,21 @@ fn issue_8803_cells() {
 fn issue_8803_count_both_directions() {
     let o = outcomes(CALC_PROBE, "BCC Count Tests");
     assert_eq!(o.len(), 1);
+    for (name, r, marks) in &o {
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+    }
+}
+
+/// Neighbors from the reviews of al-runner PRs 8656 and 8682 (MoreNeighbors.al; BC answers each from the cache, a local BC
+/// 29.1 container, 3 runs). Each answers from the cache, flagged: a worker's Count ascending twice, a count and an exist over a
+/// count FlowField of the row and a CalcSums with no filter (with #8682), and a Count ascending then descending and a
+/// CalcFields and a CalcSums after SetAscending(false) (BgTaskCalcCache.al:613, :522, :528, open corpus PR 1533).
+#[test]
+fn issue_8637_more_neighbors() {
+    let src = format!("{PROBE}\n{MORE}");
+    let o = outcomes(&src, "BQ More Tests");
+    assert_eq!(o.len(), 7);
     for (name, r, marks) in &o {
         assert_eq!(*r, Outcome::Pass, "{name}");
         assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
