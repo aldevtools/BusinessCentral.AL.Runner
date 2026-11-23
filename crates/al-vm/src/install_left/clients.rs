@@ -256,6 +256,8 @@ pub(crate) fn report_as_new(r: &ReportState) -> bool {
         run_bare,
         system_printer,
         set_view_filters,
+        // Read only while its run is the innermost running report, and a new run of the instance replaces it.
+        item_views: _,
         dataset,
     } = r;
     !rebind_after_run
