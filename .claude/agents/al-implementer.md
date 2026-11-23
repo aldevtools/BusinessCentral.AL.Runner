@@ -54,8 +54,11 @@ artifact in the PR body; without it the item is not done. Fix what you find, red
    assumption id with its open probe PR. Answers are no wider than the pin. Error texts only from the corpus.
 10. **Numbers.** No cap, budget or allowance raised. `--baseline-diff` on BC 27, 28 and 29 with the head binary, after
     the merge of `origin/main`: the counts.
+11. **No duplicate code** (owner, 2026-11-23). Run the `simplify` skill on the diff. Apply each finding that reuses
+    an existing helper, removes a copy or deletes dead code, then rerun the tests of item 8. List each finding and what
+    you did with it; one you leave gets its reason. A behavior change is not a simplification: leave it.
 
-In your report, add one line: "Self-check: items 1-10 in the PR body", and list anything you left open with the reason.
+In your report, add one line: "Self-check: items 1-11 in the PR body", and list anything you left open with the reason.
 
 ## Flow before DONE (owner, 2026-11-21)
 
