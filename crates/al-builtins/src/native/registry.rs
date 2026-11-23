@@ -11,6 +11,14 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     ("RecordRef.GetTableVariant#1", |c, r, a| {
         c.ref_op("RecordRef.GetTableVariant#1", r, a)
     }),
+    // `FieldRef.SetRange` with every argument written as a Variant, or with one that is neither a Variant nor a plain value
+    // (lowering picks them): the VM converts a value of another type than the field's by how it is written.
+    ("FieldRef.SetRangeVariant#1", |c, r, a| {
+        c.ref_op("FieldRef.SetRangeVariant#1", r, a)
+    }),
+    ("FieldRef.SetRangeUntyped#1", |c, r, a| {
+        c.ref_op("FieldRef.SetRangeUntyped#1", r, a)
+    }),
     ("TextBuilder.AppendFieldValue#1", crate::textfns::tb_append_field_value),
     // `TestField.SetValue(V)` with a Variant argument (lowering picks it): an Enum or Option control reads a Text in it by
     // ordinal digits (pages/enum-setvalue-blank/BeEnumSetValueBlank.al:532-597).

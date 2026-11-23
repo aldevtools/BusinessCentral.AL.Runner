@@ -178,6 +178,8 @@ fn every_registered_id_is_in_the_catalog() {
         "System.FormatVariant#1",
         "TextBuilder.AppendVariant#1",
         "RecordRef.GetTableVariant#1",
+        "FieldRef.SetRangeVariant#1",
+        "FieldRef.SetRangeUntyped#1",
         "TestField.SetValueVariant#1",
         "Record.ValidateVariant#1",
         "System.FormatDecimalField#1",

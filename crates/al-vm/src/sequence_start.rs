@@ -103,6 +103,8 @@ fn unkept(start: &SequenceStart, now: &HashMap<Key, Sequence>, flags: &HashMap<K
 /// The RecordRef, FieldRef and KeyRef methods the cells of corpus PR 1468 call in a failed test (codeunit 76240 "LT SQ Ref Access",
 /// SqRecordRefFail.al:44-160: GetNewRecNo, GetNewLineNo, LastLineByRef, InsertByRef, OpenOnly, MockInsert), by catalog id.
 pub(crate) fn measured_ref_method(id: &str) -> bool {
+    // `FieldRef.SetRange` keeps its catalog id whichever way lowering wrote its arguments (`fieldref_setrange_convert`).
+    let (id, _) = crate::fieldref_setrange_convert::catalog_id(id);
     matches!(
         id.split('#').next(),
         Some(
