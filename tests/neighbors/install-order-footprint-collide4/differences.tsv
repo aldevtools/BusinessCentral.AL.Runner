@@ -1,0 +1,3 @@
+# key	entry
+# Main installs once and passes; four installs write one row (ADR-079 decisions 2 and 5).
+FP collide4 Tests::SharedRowExists	REFUSED install order: FP Collide C1, FP Collide C2, FP Collide C3, FP Collide C4: no dependency path between them, and the runner cannot prove that every install order leaves the same database: 4 apps whose installs read from each other or write the same resource

@@ -1,1 +1,5 @@
 # key	entry
+# Issue 8056: each install reads from B and B2 only through a meet; it runs once per subset of them and leaves the same rows
+# (ADR-079 decision 3), resting on the fresh SingleInstance state of each install session (ADR-079 fact 1).
+Order Probe Tests::FeatureRowExists	PINNED tests/al-language/record/BfInstallTests.al:125
+Order Probe Tests::Feature2RowExists	PINNED tests/al-language/record/BfInstallTests.al:125
