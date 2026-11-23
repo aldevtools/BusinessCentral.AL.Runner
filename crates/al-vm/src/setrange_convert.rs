@@ -1,10 +1,12 @@
-//! A value of another type than the field's given to `FieldRef.SetRange`, `FieldRef.SetFilter('%1', ...)` or
-//! `Record.SetRange` (al-runner issues 8857, 8867, 8868, 8869, 8870): BC converts it into the field's type before it sets
-//! the filter, or raises the conversion error (SetFilter without the filter error around it). Lowering (al-sema
-//! `setrange_written`) tells the calls apart by how their values are written: a Text into a Guid field raises another
-//! error when it is written as a Variant. Only the cells corpus PR 1552 measures convert here
+//! A value of another type than the field's given to `FieldRef.SetRange`, `FieldRef.SetFilter`, `Record.SetRange` or
+//! `Record.SetFilter` from AL code (al-runner issues 8857, 8867, 8868, 8869, 8870): BC converts it into the field's type
+//! before it sets the filter, or raises the conversion error (SetFilter without the filter error around it). Lowering (al-sema
+//! `setrange_written`) tells the calls apart by how their values are written: a Text into a Guid field raises another error
+//! when it is written as a Variant. Only the cells corpus PR 1552 measures convert here
 //! (recordref-fieldref/fieldref/SrcSetRangeConvert.al, SrcFilterConvertKinds.al, not yet pinned: assumption
-//! setrange-other-type-convert); every other value keeps the conversion `setrange_filter` and the filter parser give it.
+//! setrange-other-type-convert). A value of a pair of types those cells measure is refused in a shape or of a size they do
+//! not measure, unless its cell passes on the conversion `setrange_filter` and the filter parser give it; a pair of types
+//! they do not measure keeps that conversion.
 
 use crate::Session;
 use al_builtins::assumptions::{Assumption, assume};
