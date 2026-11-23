@@ -36,7 +36,7 @@ fn issue_8833_repro_passes() {
 #[test]
 fn probe_cells_pass_on_the_tree_pages() {
     let o = outcomes(PROBE, "LT TVF Tests");
-    assert_eq!(o.len(), 34);
+    assert_eq!(o.len(), 36);
     let bad: Vec<_> = o
         .iter()
         .filter(|(n, ..)| !super::tree_dropped_row_8846::DROP_CELLS.contains(&n.as_str()))

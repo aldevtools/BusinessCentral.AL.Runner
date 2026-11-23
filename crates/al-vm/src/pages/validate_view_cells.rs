@@ -214,7 +214,7 @@ const TREE_ISSUE_PAGE: [&str; 8] = [
     "trigger onaftergetrecord: begin Log.Add((('AGR(' + Rec.\"Name\") + ')')); end",
 ];
 
-/// Page 97714 "LT TVF Drop Tree" (:1555-1584): the issue's tree page without OnAfterGetRecord; the page of al-runner issue
+/// Page 97714 "LT TVF Drop Tree" (:1585-1614): the issue's tree page without OnAfterGetRecord; the page of al-runner issue
 /// 8846's repro reads the same.
 const TREE_DROP_PAGE: [&str; 7] = [
     TREE_ISSUE_PAGE[0],
@@ -304,7 +304,7 @@ const TREE_COLLAPSED_PAGE: [&str; 13] = [
 ];
 
 /// Which measured page a page is (the line numbers of TreeValidateFilterRefresh.al are those of corpus pull request 1539's head
-/// 9ca19f83).
+/// 7eab6eba).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CellPage {
     /// Page 97583, the issue's page of 8698: a List with OnAfterGetRecord only.
@@ -848,7 +848,7 @@ const TREE_LINES_CELLS: [Cell; 3] = [
         DROP_TO_FIRST,
         Set(Val, Upd::False, Same, Some((1, 0))),
     ])),
-    flat(walk(&DROP_F)),
+    flat(walk(&DROP_F)), // :1282, and :1484 SetRange on G0 with B between
 ];
 
 /// A SetValue on Name, Update(false), whose filter leaves the row out of a view of `rows`, the refresh settling on the first.
@@ -874,7 +874,7 @@ const TREE_CELLS: [Cell; 14] = [
     walk(&[Last, Set(Val, Upd::False, Same, Some((3, 1)))]), // :1129
     flat(end(&[DROP_TO_FIRST])), // :1300, :1436
     flat(end(&[Last, Previous, DROP_TO_FIRST])), // :1312
-    flat(end(&[Last, DROP_TO_FIRST])), // :1324, :1448
+    flat(end(&[Last, DROP_TO_FIRST])), // :1324, :1448, and :1472 SetRange on G0 with B between
     end(&[Last, DROP_TO_FIRST]), // :1146
     over(
         &[("G0", 0), ("G1", 0), ("G5", 0)],

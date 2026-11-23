@@ -10,8 +10,8 @@ use al_test_cli::report::Outcome;
 
 const PROBE: &str = include_str!("../../../../tests/neighbors/8833-tree-update-false-refresh/src/Probe.al");
 
-/// The probe's tests of a filter that leaves the row out (:1146, :1246-:1324, :1347-:1390, :1424-:1460).
-pub(super) const DROP_CELLS: [&str; 14] = [
+/// The probe's tests of a filter that leaves the row out (:1146, :1246-:1324, :1347-:1390, :1424-:1484).
+pub(super) const DROP_CELLS: [&str; 16] = [
     "Tree_SetRangeDropsUpdateFalse_Fails",
     "List_FirstRowSetRangeDropsUpdateFalse",
     "List_MiddleRowSetRangeDropsUpdateFalse",
@@ -26,6 +26,8 @@ pub(super) const DROP_CELLS: [&str; 14] = [
     "FlatTree_GroupsG0G2G1_FirstRowSetRangeDropsUpdateFalse_Fails",
     "FlatTree_GroupsG1G0G2_LastRowSetRangeDropsUpdateFalse_Fails",
     "Tree_ChildInG0_LastRowSetRangeDropsUpdateFalse_Fails",
+    "FlatTree_LastRowSetRangeG0DropsUpdateFalse_Fails",
+    "List_LastRowSetRangeG0DropsUpdateFalse",
 ];
 
 /// The reporter's test passes: the SetValue on the tree's first row raises the filtered-view error, and the typed row stays
@@ -86,14 +88,15 @@ fn neighbors_past_the_cells_keep_mains_path() {
 }
 
 /// The data shapes of the review on page 97720 under other names, each measured on BC: the rows of the drop cells in other
-/// groups and the child in G0 run under the entry, as the cells of :1424-:1460 measure them; the value the page shows after
+/// groups, the child in G0 and SetRange on G0 from the last row (also on the List 97727's copy) run under the entry, as the
+/// cells of :1424-:1484 measure them; the value the page shows after
 /// the failed SetValue refuses (BC shows the row the view settled on, then Close reads nothing).
 #[test]
 fn shape_neighbors() {
     let src = include_str!("../../../../tests/neighbors/8846-tree-dropped-row/src/ShapeNeighbors.al");
     let shapes = outcomes(src, "LT TDN Shape Tests");
     assert!(
-        shapes.len() == 4
+        shapes.len() == 6
             && shapes
                 .iter()
                 .all(|(_, r, marks)| *r == Outcome::Pass && *marks == [TreeValidateViewRefresh]),
@@ -104,6 +107,16 @@ fn shape_neighbors() {
         after.len() == 1
             && matches!(&after[0].1, Outcome::NotRun(why) if why.starts_with("a tree page of TreeValidateFilterRefresh.al after a SetValue whose filter left the row out")),
         "{after:#?}"
+    );
+    // A page the failed SetValue left behind, then a keep cell on a new page that saves the row it stood on: both run under the
+    // entry, and the second reads as without the page left behind, as on BC.
+    let left = outcomes(src, "LT TDN Left Page Tests");
+    assert!(
+        left.len() == 2
+            && left
+                .iter()
+                .all(|(_, r, marks)| *r == Outcome::Pass && *marks == [TreeValidateViewRefresh]),
+        "{left:#?}"
     );
 }
 

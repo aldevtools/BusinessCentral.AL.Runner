@@ -1466,6 +1466,36 @@ codeunit 97724 "LT TVF Tests"
         Expect('setname', 'P.AGR(B);P.V(X2);P.AGR(C);');
         Expect('stored', 'C/,A/,X2/,');
     end;
+
+    // The tree, the last row C: SetRange on G0 keeps only A, the first row, with B between.
+    [Test]
+    procedure FlatTree_LastRowSetRangeG0DropsUpdateFalse_Fails()
+    begin
+        InitializeFlat();
+        RunTreeDrop(2, 4);
+        Expect('open', 'C:P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('error', 'TestValidation: Validation error for Field: ,  Message = ''The view is filtered, and the entry is outside the filter. Some actions may not work.''');
+        Expect('setname', 'P.AGR(C);P.V(X2);P.AGR(A);');
+        Expect('stored', 'A/,B/,X2/,');
+    end;
+
+    // The List, the last row C: SetRange on G0 keeps only A, the first row, with B between.
+    [Test]
+    procedure List_LastRowSetRangeG0DropsUpdateFalse()
+    begin
+        InitializeFlat();
+        RunListDrop(2, 4);
+        Expect('open', 'C:P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('setname', 'P.AGR(C);P.V(X2);P.AGR(A);');
+        Expect('shown', 'A/');
+        Expect('stored1', 'A/,B/,C/,');
+        Expect('setvalue', 'P.AGR(A);');
+        Expect('shown2', 'A/');
+        Expect('first', 'A:');
+        Expect('walk', 'A,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
 }
 
 // A List over the tree's table, without ShowAsTree; otherwise page 97720.
