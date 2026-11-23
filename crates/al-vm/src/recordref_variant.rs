@@ -82,6 +82,23 @@ impl VariantRefs {
         !get_table && typed_aliases.is_empty() && variant_held.is_empty()
     }
 
+    /// Holds what a new session holds as far as code can tell: no `GetTable` runs, every Variant-held handle is gone and
+    /// every typed alias pair has a half that is gone. Each reader upgrades the handles and passes over a gone one (a pair
+    /// only when both halves live: `has_typed_alias`), and each note drops them first (`note_variant_held`,
+    /// `copy_typed_alias`), so such lists answer as empty ones. What a session image of the login requires (issue 8211).
+    pub(crate) fn holds_no_live_handle(&self) -> bool {
+        let VariantRefs {
+            get_table,
+            typed_aliases,
+            variant_held,
+        } = self;
+        !get_table
+            && typed_aliases
+                .iter()
+                .all(|(a, b)| a.strong_count() == 0 || b.strong_count() == 0)
+            && variant_held.iter().all(|h| h.strong_count() == 0)
+    }
+
     /// The value a parameter of type `ty` gets for RecordRef `handle` (`takes_param`). By value: a RecordRef of its own on
     /// the same buffer, so the callee's Close leaves the caller's open; a subscriber's RecordRef parameter is a typed alias.
     /// Bound to a `var` Variant: the Variant holds the caller's handle, noted as Variant-held, so a RecordRef assigned from

@@ -2320,6 +2320,11 @@ pub(crate) fn read_serialised_text(stream: &mut Value) -> Result<String, Signal>
     })
 }
 
+/// The encoding of an `InStream` argument (`ReadFromYaml` reads only the default and the UTF-8 ones).
+pub(crate) fn in_stream_encoding(stream: &mut Value) -> Result<Encoding, Signal> {
+    with_in(Some(stream), |st| Ok(st.enc))
+}
+
 /// The number of characters `WriteText(Text, Length)` writes, `None` for all of them. On a UTF-8 and a UTF-16 stream the length
 /// changes nothing: the whole text is written for 3, 6, 10, 1, 0, -1 and 2147483647 (streams/P130WriteText.al:54-110,
 /// P130_WriteText_WithLength_Utf8 and _NonAscii; :112-160 P130_WriteText_Sequences; :162-185 a Code argument). On a Windows and

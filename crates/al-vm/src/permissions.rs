@@ -1816,7 +1816,7 @@ impl Session {
                 refuse("Find('=') of a non-blank key that does not exist on a table with rows")
             };
         }
-        let (filters, flow_field_filters) = self.split_filters(rec);
+        let (filters, flow_field_filters) = self.split_filters(rec)?;
         if !flow_field_filters.is_empty() || rec.borrow().marked_only {
             return refuse("a read with a FlowField filter or marked records only");
         }
