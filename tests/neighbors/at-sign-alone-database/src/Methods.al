@@ -1,4 +1,4 @@
-// A copy of the corpus probe record/filters/AtSignAloneMethods.al of corpus pull request 1495 at c2bb3172 (its lines are the probe's
+// A copy of the corpus probe record/filters/AtSignAloneMethods.al of corpus pull request 1495 at 60048e66 (its lines are the probe's
 // lines plus two).
 // BC Documentation: https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/properties/devenv-calcformula-property
 // Scope: in-scope
@@ -444,4 +444,538 @@ codeunit 97501 "AM Kind Tests"
         Assert.AreEqual('The value "@" can''t be evaluated into type Boolean.', CalcError(Host, Host.FieldNo("Flag At")), 'boolean @');
         Assert.AreEqual('The value "@" can''t be evaluated into type Boolean.', CalcError(Host, Host.FieldNo("Flag Not At")), 'boolean <>@');
     end;
+
+    // The error code GetLastErrorCode returns after each of those errors.
+    local procedure CalcErrorCode(var Host: Record "AM Formula Host"; FieldNo: Integer): Text
+    begin
+        CalcError(Host, FieldNo);
+        exit(GetLastErrorCode());
+    end;
+
+    [Test]
+    procedure AtSignAlone_CalcFormulaOtherSources_ErrorCode()
+    var
+        Host: Record "AM Formula Host";
+        Seen: Text;
+    begin
+        Host."No." := NewGroup();
+        Host.Insert();
+        Seen := CalcErrorCode(Host, Host.FieldNo("Num At")) + ',' + CalcErrorCode(Host, Host.FieldNo("Num Not At"));
+        Seen += '|' + CalcErrorCode(Host, Host.FieldNo("Amount At")) + ',' + CalcErrorCode(Host, Host.FieldNo("Amount Not At"));
+        Seen += '|' + CalcErrorCode(Host, Host.FieldNo("Opt At")) + ',' + CalcErrorCode(Host, Host.FieldNo("Opt Not At"));
+        Seen += '|' + CalcErrorCode(Host, Host.FieldNo("Flag At")) + ',' + CalcErrorCode(Host, Host.FieldNo("Flag Not At"));
+        Assert.AreEqual(
+            'InvalidFilterExpression:Evaluate,InvalidFilterExpression:Evaluate|InvalidFilterExpression:Evaluate,InvalidFilterExpression:Evaluate|' +
+            'InvalidFilterExpression:InvalidOptionString,InvalidFilterExpression:InvalidOptionString|' +
+            'InvalidFilterExpression:Evaluate,InvalidFilterExpression:Evaluate',
+            Seen, 'integer, decimal, option, boolean; @ and <>@');
+    end;
+
+    // <>@ alone set in filter group Group, read in filter group 0: Count and the rows FindSet goes through. Filter group 1 is
+    // reset at the end, as it is the session's.
+    local procedure GroupNotAt(var R: Record "AM Kind Row"; Group: Integer; FieldNo: Integer): Text
+    var
+        Seen: Text;
+    begin
+        R.FilterGroup(Group);
+        SetNotAt(R, FieldNo);
+        R.FilterGroup(0);
+        Seen := Format(R.Count()) + ':' + Ids(R);
+        R.FilterGroup(Group);
+        ClearKinds(R);
+        R.FilterGroup(0);
+        exit(Seen);
+    end;
+
+    [Test]
+    procedure AtSignAloneNegated_FilterGroupsOneAndTwo()
+    var
+        R: Record "AM Kind Row";
+        Temp: Record "AM Kind Row" temporary;
+        G: Code[20];
+        Seen: Text;
+    begin
+        G := NewGroup();
+        CopyGroup(G, Temp);
+        R.SetRange("Group", G);
+        Seen := GroupNotAt(R, 1, R.FieldNo("Code Kind")) + '|' + GroupNotAt(R, 1, R.FieldNo("Text Kind"));
+        Seen += '|' + GroupNotAt(R, 2, R.FieldNo("Code Kind")) + '|' + GroupNotAt(R, 2, R.FieldNo("Text Kind"));
+        Seen += '|' + GroupNotAt(Temp, 2, Temp.FieldNo("Code Kind")) + '|' + GroupNotAt(Temp, 2, Temp.FieldNo("Text Kind"));
+        Assert.AreEqual('1:1,|1:1,|1:1,|1:1,|0:|0:', Seen, 'database group 1 code, text, group 2 code, text; temporary group 2 code, text');
+    end;
+
+    // The same in filter group 1 of a temporary record.
+    [Test]
+    procedure AtSignAloneNegated_FilterGroupOne_Temporary()
+    var
+        Temp: Record "AM Kind Row" temporary;
+        Seen: Text;
+    begin
+        CopyGroup(NewGroup(), Temp);
+        Seen := GroupNotAt(Temp, 1, Temp.FieldNo("Code Kind")) + '|' + GroupNotAt(Temp, 1, Temp.FieldNo("Text Kind"));
+        Assert.AreEqual('0:|0:', Seen, 'temporary group 1 code, text');
+    end;
+
+    // <>@ alone and @ alone set on a min and on a max FlowField of Code and of Text type (table 97511): Count, IsEmpty and
+    // FindFirst, of a host in the database and of a temporary host. The min of the group is the empty value, the max is K.
+    local procedure MinMaxReads(var Host: Record "AM Min Max Host"; FieldNo: Integer; Filter: Text): Text
+    begin
+        Host.SetRange("Min Code");
+        Host.SetRange("Max Code");
+        Host.SetRange("Min Text");
+        Host.SetRange("Max Text");
+        case FieldNo of
+            Host.FieldNo("Min Code"):
+                Host.SetFilter("Min Code", Filter);
+            Host.FieldNo("Max Code"):
+                Host.SetFilter("Max Code", Filter);
+            Host.FieldNo("Min Text"):
+                Host.SetFilter("Min Text", Filter);
+            Host.FieldNo("Max Text"):
+                Host.SetFilter("Max Text", Filter);
+        end;
+        exit(Format(Host.Count()) + ',' + Format(Host.IsEmpty()) + ',' + Format(Host.FindFirst()));
+    end;
+
+    local procedure MinMaxAll(var Host: Record "AM Min Max Host"): Text
+    var
+        Seen: Text;
+        No: Integer;
+    begin
+        for No := 2 to 5 do begin
+            Seen += MinMaxReads(Host, No, '<>@') + ';' + MinMaxReads(Host, No, '@');
+            if No < 5 then
+                Seen += '|';
+        end;
+        exit(Seen);
+    end;
+
+    [Test]
+    procedure AtSignAloneNegated_MinMaxFlowFieldFilter()
+    var
+        Host: Record "AM Min Max Host";
+        TempHost: Record "AM Min Max Host" temporary;
+        Seen: Text;
+    begin
+        Host."No." := NewGroup();
+        Host.Insert();
+        TempHost := Host;
+        TempHost.Insert();
+        Host.SetRange("No.", Host."No.");
+        TempHost.SetRange("No.", Host."No.");
+        Seen := MinMaxAll(Host) + ' / ' + MinMaxAll(TempHost);
+        Assert.AreEqual(
+            '0,Yes,No;1,No,Yes|1,No,Yes;0,Yes,Yes|0,Yes,No;1,No,Yes|1,No,Yes;0,Yes,Yes / ' +
+            '0,Yes,No;1,No,Yes|0,Yes,No;1,No,Yes|0,Yes,No;1,No,Yes|0,Yes,No;1,No,Yes',
+            Seen, 'min code, max code, min text, max text: <>@;@; database / temporary');
+    end;
+
+    // The other readers of a sum with filter('@') or filter('<>@') over a Date, an Integer and an Option source field (table 97507):
+    // SetAutoCalcFields and FindFirst, SetRange on the FlowField and Count, a query column (queries 97503 and 97504), CalcFields of a
+    // temporary host. Each answers as CalcFields of a host in the database does (:395, :430, :454).
+    local procedure ErrorOf(Ok: Boolean; Value: Text): Text
+    begin
+        if Ok then
+            exit(Value);
+        exit(GetLastErrorText() + '|' + GetLastErrorCode());
+    end;
+
+    [TryFunction]
+    local procedure TryAutoCalc(G: Code[20]; FieldNo: Integer; var Value: Text)
+    var
+        Host: Record "AM Formula Host";
+    begin
+        Host.SetRange("No.", G);
+        case FieldNo of
+            Host.FieldNo("Day At"):
+                Host.SetAutoCalcFields("Day At", "Day Not At");
+            Host.FieldNo("Num At"):
+                Host.SetAutoCalcFields("Num At");
+            Host.FieldNo("Opt At"):
+                Host.SetAutoCalcFields("Opt At");
+        end;
+        Host.FindFirst();
+        Value := Format(Host."Day At") + ',' + Format(Host."Day Not At");
+    end;
+
+    [TryFunction]
+    local procedure TryRangeCount(G: Code[20]; FieldNo: Integer; var Value: Text)
+    var
+        Host: Record "AM Formula Host";
+    begin
+        Host.SetRange("No.", G);
+        case FieldNo of
+            Host.FieldNo("Day At"):
+                Host.SetRange("Day At", 0);
+            Host.FieldNo("Day Not At"):
+                Host.SetRange("Day Not At", 15);
+            Host.FieldNo("Num At"):
+                Host.SetRange("Num At", 0);
+            Host.FieldNo("Opt At"):
+                Host.SetRange("Opt At", 0);
+        end;
+        Value := Format(Host.Count());
+    end;
+
+    [TryFunction]
+    local procedure TryDayQuery(G: Code[20]; var Value: Text)
+    var
+        Days: Query "AM Day Columns";
+    begin
+        Days.SetRange(HostNo, G);
+        Days.Open();
+        while Days.Read() do
+            Value += Format(Days.DayAt) + ',' + Format(Days.DayNotAt) + ';';
+        Days.Close();
+    end;
+
+    [TryFunction]
+    local procedure TryNumQuery(G: Code[20]; var Value: Text)
+    var
+        Nums: Query "AM Num Columns";
+    begin
+        Nums.SetRange(HostNo, G);
+        Nums.Open();
+        while Nums.Read() do
+            Value += Format(Nums.NumAt) + ';';
+        Nums.Close();
+    end;
+
+    [TryFunction]
+    local procedure TryTempCalc(var TempHost: Record "AM Formula Host" temporary; FieldNo: Integer; var Value: Text)
+    begin
+        case FieldNo of
+            TempHost.FieldNo("Day At"):
+                TempHost.CalcFields("Day At", "Day Not At");
+            TempHost.FieldNo("Num At"):
+                TempHost.CalcFields("Num At");
+            TempHost.FieldNo("Opt At"):
+                TempHost.CalcFields("Opt At");
+        end;
+        Value := Format(TempHost."Day At") + ',' + Format(TempHost."Day Not At");
+    end;
+
+    [Test]
+    procedure AtSignAlone_CalcFormulaOtherSources_Readers()
+    var
+        Host: Record "AM Formula Host";
+        TempHost: Record "AM Formula Host" temporary;
+        G: Code[20];
+        V: Text;
+        Seen: Text;
+    begin
+        G := NewGroup();
+        Host."No." := G;
+        Host.Insert();
+        V := '';
+        Seen := 'auto day=' + ErrorOf(TryAutoCalc(G, Host.FieldNo("Day At"), V), V);
+        V := '';
+        Seen += ' num=' + ErrorOf(TryAutoCalc(G, Host.FieldNo("Num At"), V), V);
+        V := '';
+        Seen += ' opt=' + ErrorOf(TryAutoCalc(G, Host.FieldNo("Opt At"), V), V);
+        V := '';
+        Seen += ' | range day=' + ErrorOf(TryRangeCount(G, Host.FieldNo("Day At"), V), V);
+        V := '';
+        Seen += ' notday=' + ErrorOf(TryRangeCount(G, Host.FieldNo("Day Not At"), V), V);
+        V := '';
+        Seen += ' num=' + ErrorOf(TryRangeCount(G, Host.FieldNo("Num At"), V), V);
+        V := '';
+        Seen += ' opt=' + ErrorOf(TryRangeCount(G, Host.FieldNo("Opt At"), V), V);
+        V := '';
+        Seen += ' | query day=' + ErrorOf(TryDayQuery(G, V), V);
+        V := '';
+        Seen += ' num=' + ErrorOf(TryNumQuery(G, V), V);
+        TempHost := Host;
+        TempHost.Insert();
+        V := '';
+        Seen += ' | temp day=' + ErrorOf(TryTempCalc(TempHost, Host.FieldNo("Day At"), V), V);
+        V := '';
+        Seen += ' num=' + ErrorOf(TryTempCalc(TempHost, Host.FieldNo("Num At"), V), V);
+        V := '';
+        Seen += ' opt=' + ErrorOf(TryTempCalc(TempHost, Host.FieldNo("Opt At"), V), V);
+        Assert.AreEqual(
+            'auto day=0,15 num=The value "@" can''t be evaluated into type Integer.|InvalidFilterExpression:Evaluate ' +
+            'opt=''@'' is not an option. The existing options are: A,B|InvalidFilterExpression:InvalidOptionString | ' +
+            'range day=1 notday=1 num=The value "@" can''t be evaluated into type Integer.|InvalidFilterExpression:Evaluate ' +
+            'opt=''@'' is not an option. The existing options are: A,B|InvalidFilterExpression:InvalidOptionString | ' +
+            'query day=0,15; num=The value "@" can''t be evaluated into type Integer.|InvalidFilterExpression:Evaluate | ' +
+            'temp day=0,15 num=The value "@" can''t be evaluated into type Integer.|InvalidFilterExpression:Evaluate ' +
+            'opt=''@'' is not an option. The existing options are: A,B|InvalidFilterExpression:InvalidOptionString',
+            Seen, 'SetAutoCalcFields, SetRange and Count, a query column, a temporary host');
+    end;
+
+    // filter('@') and filter('<>@') over an Option source field with a blank member (tables 97513 and 97515), of a host in the
+    // database and of a temporary host: the error lists the member names as they are, the blank one included.
+    [TryFunction]
+    local procedure TryBlankOpt(var Host: Record "AM Blank Opt Host"; Negated: Boolean)
+    begin
+        if Negated then
+            Host.CalcFields("Blank Opt Not At")
+        else
+            Host.CalcFields("Blank Opt At");
+    end;
+
+    [Test]
+    procedure AtSignAlone_CalcFormulaBlankOptionMember()
+    var
+        Row: Record "AM Blank Opt Row";
+        Host: Record "AM Blank Opt Host";
+        TempHost: Record "AM Blank Opt Host" temporary;
+        Seen: Text;
+    begin
+        Row."Group" := CopyStr(DelChr(Format(CreateGuid()), '=', '{}-'), 1, 18);
+        Row.Id := 1;
+        Row.Opt := Row.Opt::B;
+        Row.Amount := 10;
+        Row.Insert();
+        Row.Id := 2;
+        Row.Opt := Row.Opt::" ";
+        Row.Amount := 5;
+        Row.Insert();
+        Host."No." := Row."Group";
+        Host.Insert();
+        TempHost := Host;
+        TempHost.Insert();
+        Seen := ErrorOf(TryBlankOpt(Host, false), '') + ' # ' + ErrorOf(TryBlankOpt(Host, true), '');
+        Seen += ' # ' + ErrorOf(TryBlankOpt(TempHost, false), '') + ' # ' + ErrorOf(TryBlankOpt(TempHost, true), '');
+        Assert.AreEqual(
+            '''@'' is not an option. The existing options are:  ,A,B|InvalidFilterExpression:InvalidOptionString # ' +
+            '''@'' is not an option. The existing options are:  ,A,B|InvalidFilterExpression:InvalidOptionString # ' +
+            '''@'' is not an option. The existing options are:  ,A,B|InvalidFilterExpression:InvalidOptionString # ' +
+            '''@'' is not an option. The existing options are:  ,A,B|InvalidFilterExpression:InvalidOptionString',
+            Seen, 'database @, database <>@, temporary @, temporary <>@');
+    end;
+
+    // A Code FlowFilter set to <>@ alone, applied by CalcFields through field(filter()) and through field() with every method, over
+    // a Code and over a Text source field (table 97512), of a host in the database and of a temporary host: the K row.
+    local procedure FlowMethods(var Host: Record "AM Flow Host"): Text
+    var
+        Ref: RecordRef;
+        F: FieldRef;
+        No: Integer;
+        Seen: Text;
+    begin
+        Host.SetFilter("Code Filter", '<>@');
+        Ref.GetTable(Host);
+        for No := 10 to 35 do begin
+            F := Ref.Field(No);
+            F.CalcField();
+            Seen += Format(F.Value) + ',';
+        end;
+        exit(Seen);
+    end;
+
+    [Test]
+    procedure AtSignAloneNegated_CodeFlowFilterMethods()
+    var
+        Host: Record "AM Flow Host";
+        TempHost: Record "AM Flow Host" temporary;
+        Seen: Text;
+    begin
+        Host."No." := NewGroup();
+        Host.Insert();
+        TempHost := Host;
+        TempHost.Insert();
+        Seen := FlowMethods(Host) + ' / ' + FlowMethods(TempHost);
+        Assert.AreEqual(
+            '1,Yes,10,10,10,10,1,Yes,10,10,10,10,10,1,Yes,10,10,10,10,1,Yes,10,10,10,10,10, / ' +
+            '1,Yes,10,10,10,10,1,Yes,10,10,10,10,10,1,Yes,10,10,10,10,1,Yes,10,10,10,10,10,',
+            Seen, 'fields 10-35 (Code over Code and Code over Text, field(filter()) then field()); database / temporary');
+    end;
+
+    // The other Find methods with <>@ alone and @ alone set on a min and on a max FlowField (table 97511): Find('='), Find('-'),
+    // Find('+'), FindLast, and FindSet with the rows Next goes through, of a host in the database and of a temporary host.
+    local procedure MinMaxFinds(var Host: Record "AM Min Max Host"; FieldNo: Integer; Filter: Text): Text
+    var
+        Seen: Text;
+        Rows: Integer;
+    begin
+        Host.SetRange("Min Code");
+        Host.SetRange("Max Code");
+        Host.SetRange("Min Text");
+        Host.SetRange("Max Text");
+        case FieldNo of
+            Host.FieldNo("Min Code"):
+                Host.SetFilter("Min Code", Filter);
+            Host.FieldNo("Max Code"):
+                Host.SetFilter("Max Code", Filter);
+            Host.FieldNo("Min Text"):
+                Host.SetFilter("Min Text", Filter);
+            Host.FieldNo("Max Text"):
+                Host.SetFilter("Max Text", Filter);
+        end;
+        Seen := Format(Host.Find('=')) + ',' + Format(Host.Find('-')) + ',' + Format(Host.Find('+')) + ',' + Format(Host.FindLast());
+        if Host.FindSet() then
+            repeat
+                Rows += 1;
+            until Host.Next() = 0;
+        exit(Seen + ',' + Format(Rows));
+    end;
+
+    local procedure MinMaxFindsAll(var Host: Record "AM Min Max Host"): Text
+    var
+        Seen: Text;
+        No: Integer;
+    begin
+        for No := 2 to 5 do begin
+            Seen += MinMaxFinds(Host, No, '<>@') + ';' + MinMaxFinds(Host, No, '@');
+            if No < 5 then
+                Seen += '|';
+        end;
+        exit(Seen);
+    end;
+
+    [Test]
+    procedure AtSignAloneNegated_MinMaxFlowFieldFilter_FindMethods()
+    var
+        Host: Record "AM Min Max Host";
+        TempHost: Record "AM Min Max Host" temporary;
+        Seen: Text;
+    begin
+        Host."No." := NewGroup();
+        Host.Insert();
+        TempHost := Host;
+        TempHost.Insert();
+        Host.SetRange("No.", Host."No.");
+        TempHost.SetRange("No.", Host."No.");
+        Seen := MinMaxFindsAll(Host) + ' / ' + MinMaxFindsAll(TempHost);
+        Assert.AreEqual(
+            'No,No,No,No,0;Yes,Yes,Yes,Yes,1|Yes,Yes,Yes,Yes,1;Yes,Yes,Yes,Yes,1|No,No,No,No,0;Yes,Yes,Yes,Yes,1|Yes,Yes,Yes,Yes,1;Yes,Yes,Yes,Yes,1 / ' +
+            'No,No,No,No,0;Yes,Yes,Yes,Yes,1|No,No,No,No,0;Yes,Yes,Yes,Yes,1|No,No,No,No,0;Yes,Yes,Yes,Yes,1|No,No,No,No,0;Yes,Yes,Yes,Yes,1',
+            Seen, 'min code, max code, min text, max text: <>@;@; database / temporary');
+    end;
+}
+
+// The FlowFields of AtSignAloneNegated_MinMaxFlowFieldFilter: the min and the max of the Code and of the Text field of a group.
+table 97511 "AM Min Max Host"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; "Min Code"; Code[20]) { FieldClass = FlowField; CalcFormula = min("AM Kind Row"."Code Kind" where("Group" = field("No."))); }
+        field(3; "Max Code"; Code[20]) { FieldClass = FlowField; CalcFormula = max("AM Kind Row"."Code Kind" where("Group" = field("No."))); }
+        field(4; "Min Text"; Text[50]) { FieldClass = FlowField; CalcFormula = min("AM Kind Row"."Text Kind" where("Group" = field("No."))); }
+        field(5; "Max Text"; Text[50]) { FieldClass = FlowField; CalcFormula = max("AM Kind Row"."Text Kind" where("Group" = field("No."))); }
+    }
+
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+    }
+}
+
+// The queries of AtSignAlone_CalcFormulaOtherSources_Readers: a column over a FlowField of table 97507.
+query 97503 "AM Day Columns"
+{
+    QueryType = Normal;
+
+    elements
+    {
+        dataitem(Host; "AM Formula Host")
+        {
+            column(HostNo; "No.") { }
+            column(DayAt; "Day At") { }
+            column(DayNotAt; "Day Not At") { }
+        }
+    }
+}
+
+query 97504 "AM Num Columns"
+{
+    QueryType = Normal;
+
+    elements
+    {
+        dataitem(Host; "AM Formula Host")
+        {
+            column(HostNo; "No.") { }
+            column(NumAt; "Num At") { }
+        }
+    }
+}
+
+// The rows and the FlowFields of AtSignAlone_CalcFormulaBlankOptionMember: an Option source field with a blank member.
+table 97513 "AM Blank Opt Row"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+
+    fields
+    {
+        field(1; "Group"; Code[20]) { }
+        field(2; Id; Integer) { }
+        field(3; Opt; Option) { OptionMembers = " ",A,B; }
+        field(4; Amount; Decimal) { }
+    }
+
+    keys
+    {
+        key(PK; "Group", Id) { Clustered = true; }
+    }
+}
+
+table 97515 "AM Blank Opt Host"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; "Blank Opt At"; Decimal) { FieldClass = FlowField; CalcFormula = sum("AM Blank Opt Row".Amount where("Group" = field("No."), Opt = filter('@'))); }
+        field(3; "Blank Opt Not At"; Decimal) { FieldClass = FlowField; CalcFormula = sum("AM Blank Opt Row".Amount where("Group" = field("No."), Opt = filter('<>@'))); }
+    }
+
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+    }
+}
+
+// The FlowFields of AtSignAloneNegated_CodeFlowFilterMethods: every method over the Code field (Code over Code) and over the Text
+// field (Code over Text) of a group, filtered by the Code FlowFilter through field(filter()) (10-22) and through field() (23-35).
+table 97512 "AM Flow Host"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; "Code Filter"; Code[20]) { FieldClass = FlowFilter; }
+        field(10; "CC Count Filter"; Integer) { FieldClass = FlowField; CalcFormula = count("AM Kind Row" where("Group" = field("No."), "Code Kind" = field(filter("Code Filter")))); }
+        field(11; "CC Exist Filter"; Boolean) { FieldClass = FlowField; CalcFormula = exist("AM Kind Row" where("Group" = field("No."), "Code Kind" = field(filter("Code Filter")))); }
+        field(12; "CC Lookup Filter"; Decimal) { FieldClass = FlowField; CalcFormula = lookup("AM Kind Row".Amount where("Group" = field("No."), "Code Kind" = field(filter("Code Filter")))); }
+        field(13; "CC Min Filter"; Decimal) { FieldClass = FlowField; CalcFormula = min("AM Kind Row".Amount where("Group" = field("No."), "Code Kind" = field(filter("Code Filter")))); }
+        field(14; "CC Max Filter"; Decimal) { FieldClass = FlowField; CalcFormula = max("AM Kind Row".Amount where("Group" = field("No."), "Code Kind" = field(filter("Code Filter")))); }
+        field(15; "CC Average Filter"; Decimal) { FieldClass = FlowField; CalcFormula = average("AM Kind Row".Amount where("Group" = field("No."), "Code Kind" = field(filter("Code Filter")))); }
+        field(16; "CT Count Filter"; Integer) { FieldClass = FlowField; CalcFormula = count("AM Kind Row" where("Group" = field("No."), "Text Kind" = field(filter("Code Filter")))); }
+        field(17; "CT Exist Filter"; Boolean) { FieldClass = FlowField; CalcFormula = exist("AM Kind Row" where("Group" = field("No."), "Text Kind" = field(filter("Code Filter")))); }
+        field(18; "CT Lookup Filter"; Decimal) { FieldClass = FlowField; CalcFormula = lookup("AM Kind Row".Amount where("Group" = field("No."), "Text Kind" = field(filter("Code Filter")))); }
+        field(19; "CT Min Filter"; Decimal) { FieldClass = FlowField; CalcFormula = min("AM Kind Row".Amount where("Group" = field("No."), "Text Kind" = field(filter("Code Filter")))); }
+        field(20; "CT Max Filter"; Decimal) { FieldClass = FlowField; CalcFormula = max("AM Kind Row".Amount where("Group" = field("No."), "Text Kind" = field(filter("Code Filter")))); }
+        field(21; "CT Average Filter"; Decimal) { FieldClass = FlowField; CalcFormula = average("AM Kind Row".Amount where("Group" = field("No."), "Text Kind" = field(filter("Code Filter")))); }
+        field(22; "CT Sum Filter"; Decimal) { FieldClass = FlowField; CalcFormula = sum("AM Kind Row".Amount where("Group" = field("No."), "Text Kind" = field(filter("Code Filter")))); }
+        field(23; "CC Count Field"; Integer) { FieldClass = FlowField; CalcFormula = count("AM Kind Row" where("Group" = field("No."), "Code Kind" = field("Code Filter"))); }
+        field(24; "CC Exist Field"; Boolean) { FieldClass = FlowField; CalcFormula = exist("AM Kind Row" where("Group" = field("No."), "Code Kind" = field("Code Filter"))); }
+        field(25; "CC Lookup Field"; Decimal) { FieldClass = FlowField; CalcFormula = lookup("AM Kind Row".Amount where("Group" = field("No."), "Code Kind" = field("Code Filter"))); }
+        field(26; "CC Min Field"; Decimal) { FieldClass = FlowField; CalcFormula = min("AM Kind Row".Amount where("Group" = field("No."), "Code Kind" = field("Code Filter"))); }
+        field(27; "CC Max Field"; Decimal) { FieldClass = FlowField; CalcFormula = max("AM Kind Row".Amount where("Group" = field("No."), "Code Kind" = field("Code Filter"))); }
+        field(28; "CC Average Field"; Decimal) { FieldClass = FlowField; CalcFormula = average("AM Kind Row".Amount where("Group" = field("No."), "Code Kind" = field("Code Filter"))); }
+        field(29; "CT Count Field"; Integer) { FieldClass = FlowField; CalcFormula = count("AM Kind Row" where("Group" = field("No."), "Text Kind" = field("Code Filter"))); }
+        field(30; "CT Exist Field"; Boolean) { FieldClass = FlowField; CalcFormula = exist("AM Kind Row" where("Group" = field("No."), "Text Kind" = field("Code Filter"))); }
+        field(31; "CT Lookup Field"; Decimal) { FieldClass = FlowField; CalcFormula = lookup("AM Kind Row".Amount where("Group" = field("No."), "Text Kind" = field("Code Filter"))); }
+        field(32; "CT Min Field"; Decimal) { FieldClass = FlowField; CalcFormula = min("AM Kind Row".Amount where("Group" = field("No."), "Text Kind" = field("Code Filter"))); }
+        field(33; "CT Max Field"; Decimal) { FieldClass = FlowField; CalcFormula = max("AM Kind Row".Amount where("Group" = field("No."), "Text Kind" = field("Code Filter"))); }
+        field(34; "CT Average Field"; Decimal) { FieldClass = FlowField; CalcFormula = average("AM Kind Row".Amount where("Group" = field("No."), "Text Kind" = field("Code Filter"))); }
+        field(35; "CT Sum Field"; Decimal) { FieldClass = FlowField; CalcFormula = sum("AM Kind Row".Amount where("Group" = field("No."), "Text Kind" = field("Code Filter"))); }
+    }
+
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+    }
 }
