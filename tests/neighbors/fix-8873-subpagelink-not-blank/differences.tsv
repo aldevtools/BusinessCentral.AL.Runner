@@ -7,4 +7,3 @@ NB SPNB Tests::CodeAlone_Rows	ASSUMED link-filter-not-blank (corpus PR 1548, Sub
 NB SPNB Tests::TextSpaced_Rows	ASSUMED link-filter-not-blank (corpus PR 1548, SubPageLinkNotBlank.al:242)
 NB SPNB Tests::RunPageLink_Code_Rows	ASSUMED link-filter-not-blank (corpus PR 1548, SubPageLinkNotBlank.al:282)
 NB SPNB Tests::RunPageLink_Text_Rows	ASSUMED link-filter-not-blank (corpus PR 1548, SubPageLinkNotBlank.al:307)
-NB SPNB Tests::Integer_KeepsMain	REFUSED SubPageLink filter: value expected after
