@@ -5,6 +5,25 @@
 //! refused (`Signal::Unsupported`) and listed in docs/probes-needed.md: the exact bytes of an
 //! export (declaration, whitespace), the texts of import errors, field types other than
 //! Integer, Decimal, Text and Code, tables with triggers or event subscribers, and so on.
+//!
+//! Submodules: `export_xml`, `import_xml`, `import_record`, `pass`, `sequence`, `shape`, `text`,
+//! `value`; `builtin_calls` holds the long XmlPort builtins (Break, Skip and Quit, `Filename`,
+//! `TextEncoding`, the static `Export`, `Import` and `Run`) that `xmlport_builtin` dispatches to,
+//! `assigned` the separator getters and setters (`xp_separator_builtin`, one decoder with export and
+//! import: `text::text_separator`); `legacy_guid` decides the import of a text into a Guid field
+//! without FormatEvaluate in the cells XpLegacyGuidImport.al measures (al-runner issue 7854);
+//! `root_nested` says which root table elements holding a header table element import through
+//! `xp_import_record` (al-runner issue 6924, pinned by XpRootTableNested.al and
+//! XpRootTableNestedVariants.al); `import_encoding` says which encoding a VariableText import decodes
+//! its source with (al-runner issue 7775, XpVarTextWindowsImport.al); `shape::childless_table_root`
+//! is the root table element without child elements that an export writes once per row (al-runner
+//! issue 7396). `after_assign` runs OnAfterAssignField before the validation of the value it leaves
+//! in the import shapes XpAfterAssignTableRelation.al measures (al-runner issue 7863) and validates
+//! nothing for a field node without triggers on a temporary table element there; `text_attr_export`
+//! writes a text element with one field attribute and its own text below a temporary table element
+//! (al-runner issue 7865, XpTextElemFieldAttrExport.al). al-sema `xmlports/measured_shapes.rs`
+//! decides the layout of both and marks the IR node (`after_assign_layout`, `plain_import_layout`,
+//! `text_attr_export`).
 
 use crate::records::Rec;
 use crate::transactions::TxModel;

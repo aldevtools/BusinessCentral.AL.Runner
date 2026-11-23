@@ -1,6 +1,11 @@
 //! The value a variable starts with, from its slot (al-ir `Slot`): the default of its type, and for a record declared with
 //! `[SecurityFiltering(x)]` that value. Every place that makes a routine's locals or an object's globals, or sets them back
 //! (`ClearAll`, and `Clear` of a record for its table's globals), goes through here.
+//!
+//! The value a routine's local or an object's global starts with, and gets again from `ClearAll`: the
+//! default of its type, and for a record declared with `[SecurityFiltering(x)]` (al-ir
+//! `Slot::security_filtering`) that value, kept in `RecordState::declared_security_filtering` for
+//! `Clear`. Entry points: `slot_default`, `slot_defaults`.
 
 use super::*;
 

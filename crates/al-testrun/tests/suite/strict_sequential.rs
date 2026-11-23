@@ -1,4 +1,4 @@
-//! ADR-070, migration step 2: the plain sequential strict run (`RunOptions::strict_sequential` with `strict_order`).
+//! ADR-070: the plain sequential strict run (`RunOptions::strict_order`, `--strict-order`).
 //! Every test codeunit of a BC session runs one after the other in BC's order on one thread; the single instances, rows,
 //! number sequence values and storage move along (P7: codeunits/TestCuP7BReader.al:24-37 against TestCuP7ASetter.al:24-58).
 //! BC sessions are the suite and hub leg, or each line of `--test-suites`. A later codeunit of a session that ran after a
@@ -62,10 +62,9 @@ fn run(src: &str, opts: &RunOptions) -> CorpusRuntime {
     .expect("the run starts")
 }
 
-fn sequential() -> RunOptions {
+fn strict() -> RunOptions {
     RunOptions {
         strict_order: true,
-        strict_sequential: true,
         ..Default::default()
     }
 }
@@ -75,7 +74,7 @@ fn suites(text: &str) -> RunOptions {
         test_suites: Some(std::sync::Arc::new(
             al_testrun::test_suites::TestSuites::parse(text).expect("a valid suites file"),
         )),
-        ..sequential()
+        ..strict()
     }
 }
 
@@ -127,18 +126,76 @@ fn assert_all_pass_clean(rt: &CorpusRuntime) {
     }
 }
 
+/// The three codeunits of al-runner issues 8695 and 8696: `TC First` sets the flag, `TC Second` reads it (`second`: its
+/// test body) and sets its own, `TC Third` reads that. BC runs them in one session in id order, so each sees what the one
+/// before it left (P7: codeunits/TestCuP7BReader.al:24-37 against TestCuP7ASetter.al:24-58).
+fn issue_chain(second: &str) -> String {
+    format!(
+        r#"
+codeunit 60691 "TC First"
+{{
+    Subtype = Test;
+    [Test] procedure FirstSetsSet() var S: Codeunit "Seq State"; begin S.SetFlag('set'); end;
+}}
+codeunit 60692 "TC Second"
+{{
+    Subtype = Test;
+    [Test] procedure SecondSeesSetAndSetsSecond() var S: Codeunit "Seq State"; Seen: Text;
+    begin
+{second}
+    end;
+}}
+codeunit 60693 "TC Third"
+{{
+    Subtype = Test;
+    [Test] procedure ThirdSeesSecond() var S: Codeunit "Seq State";
+    begin if S.GetFlag() <> 'second' then Error('third saw flag=%1', S.GetFlag()); end;
+}}
+"#
+    )
+}
+
+/// al-runner issue 8695: `TC Second` writes the flag only after it read what `TC First` left. `--strict-order` runs the
+/// three in BC's order, so `TC Third` sees `second` (the lane re-ran it with `TC First` only and failed it).
+#[test]
+fn issue_8695_a_writer_that_reads_first_hands_its_value_to_the_next_codeunit() {
+    let src = issue_chain(
+        "        if S.GetFlag() <> 'set' then Error('second saw flag=%1', S.GetFlag());\n        S.SetFlag('second');",
+    );
+    for opts in [strict(), suites("S: 60691 60692 60693")] {
+        let rt = run(&src, &opts);
+        let outcomes: Vec<(&str, &Outcome)> = rt.results().iter().map(|r| (r.test.as_str(), &r.outcome)).collect();
+        assert!(outcomes.iter().all(|(_, o)| **o == Outcome::Pass), "{outcomes:?}");
+        assert_all_pass_clean(&rt);
+    }
+}
+
+/// al-runner issue 8696: `TC Second` keeps the value it read in a local, overwrites the flag, then decides on the local.
+/// Under `--strict-order` it sees `set` (the lane took the read for a cache refill and kept its fresh run, which failed).
+#[test]
+fn issue_8696_a_read_kept_in_a_local_before_an_overwrite_sees_the_earlier_value() {
+    let src = issue_chain(
+        "        Seen := S.GetFlag();\n        S.SetFlag('second');\n        if Seen <> 'set' then Error('second saw flag=%1', Seen);",
+    );
+    for opts in [strict(), suites("S: 60691 60692 60693")] {
+        let rt = run(&src, &opts);
+        let outcomes: Vec<(&str, &Outcome)> = rt.results().iter().map(|r| (r.test.as_str(), &r.outcome)).collect();
+        assert!(outcomes.iter().all(|(_, o)| **o == Outcome::Pass), "{outcomes:?}");
+        assert_all_pass_clean(&rt);
+    }
+}
+
 /// Every codeunit is a member of the walk, in id order (the source lists them out of order), and the single instances
 /// move from one to the next.
 #[test]
 fn every_codeunit_runs_in_id_order_and_the_single_instances_move_on() {
     let src = [ranked(60603, 3), ranked(60601, 1), ranked(60604, 4), ranked(60602, 2)].concat();
-    let rt = run(&src, &sequential());
+    let rt = run(&src, &strict());
     assert_all_pass_clean(&rt);
     let chain = &rt.phases.chain;
     let ids: Vec<u32> = chain.members.iter().map(|m| m.id).collect();
     assert_eq!(ids, vec![60601, 60602, 60603, 60604], "{chain:?}");
     assert_eq!(chain.singles_kept, 4, "{chain:?}");
-    assert_eq!(chain.single_lane.rerun, 0, "{:?}", chain.single_lane);
 }
 
 /// Gap 5 of the review: a member whose OnRun writes a table is in today's chain, and a plain codeunit before it is not,
@@ -162,7 +219,7 @@ codeunit 60612 "Seq Writing Reader"
     end;
 }
 "#;
-    let rt = run(src, &sequential());
+    let rt = run(src, &strict());
     assert_all_pass_clean(&rt);
 }
 
@@ -193,13 +250,8 @@ codeunit 60622 "Seq Numbers Reader"
     end;
 }
 "#;
-    let rt = run(src, &sequential());
+    let rt = run(src, &strict());
     assert_all_pass_clean(&rt);
-    assert_eq!(
-        rt.phases.chain.single_lane.rerun, 0,
-        "{:?}",
-        rt.phases.chain.single_lane
-    );
 }
 
 /// Rows an OnRun trigger wrote reach the codeunits after it, and the ones before it do not see them.
@@ -229,7 +281,7 @@ codeunit 60632 "Seq Row Writer"
 }
 "#;
     let src = [reader(60631, false), writer.to_string(), reader(60633, true)].concat();
-    let rt = run(&src, &sequential());
+    let rt = run(&src, &strict());
     assert_all_pass_clean(&rt);
 }
 
@@ -338,7 +390,7 @@ codeunit 60662 "Seq Bumper"
         lenient(60663),
     ]
     .concat();
-    let rt = run(&src, &sequential());
+    let rt = run(&src, &strict());
     assert!(flagged(&rt, "Reads60653"));
     assert!(
         flagged(&rt, "OnlyBumps"),
@@ -359,26 +411,12 @@ codeunit 60672 "Seq Unknown Reach"
 }
 "#;
     let src = [refusing.to_string(), lenient(60673)].concat();
-    let rt = run(&src, &sequential());
+    let rt = run(&src, &strict());
     assert!(matches!(
         result(&rt, "RunsAnythingThenIsRefused").outcome,
         Outcome::NotRun(_)
     ));
     assert!(flagged(&rt, "Lenient60673"));
-}
-
-/// The default of `strict_order` is unchanged: without the internal option the chain holds only what it did before.
-#[test]
-fn without_the_internal_option_plain_codeunits_stay_out_of_the_chain() {
-    let src = [ranked(60661, 1), ranked(60662, 2)].concat();
-    let rt = run(
-        &src,
-        &RunOptions {
-            strict_order: true,
-            ..Default::default()
-        },
-    );
-    assert!(rt.phases.chain.members.is_empty(), "{:?}", rt.phases.chain.members);
 }
 
 /// A test stopped by the time limit hands on partial state: the later codeunits of its session are flagged too.
@@ -400,7 +438,7 @@ codeunit 60672 "Seq After Slow"
         src,
         &RunOptions {
             test_time_limit: Some(std::time::Duration::from_secs(1)),
-            ..sequential()
+            ..strict()
         },
     );
     assert!(
@@ -433,7 +471,7 @@ codeunit 60682 "Seq Reads Numbers After"
     end;
 }
 "#;
-    let rt = run(src, &sequential());
+    let rt = run(src, &strict());
     let after = result(&rt, "TakesANumberAfterTheRefusedCodeunit");
     assert_eq!(after.outcome, Outcome::Pass, "{:?}", after.outcome);
     assert!(after.assumptions.contains(&Assumption::StrictAfterRefused));
@@ -446,7 +484,7 @@ codeunit 60682 "Seq Reads Numbers After"
 #[test]
 fn the_single_instances_move_on_past_a_test_refused_while_it_ran() {
     let src = [ranked(60640, 1), REFUSING.to_string(), ranked(60695, 2)].concat();
-    let rt = run(&src, &sequential());
+    let rt = run(&src, &strict());
     assert!(
         matches!(result(&rt, "IsRefusedWhileItRuns").outcome, Outcome::NotRun(_)),
         "{:?}",
@@ -472,7 +510,7 @@ codeunit 60696 "Seq Unknown Reader"
 }
 "#;
     let src = [REFUSING.to_string(), reader.to_string()].concat();
-    let rt = run(&src, &sequential());
+    let rt = run(&src, &strict());
     assert_eq!(result(&rt, "ReadsThroughAnUnknownId").outcome, Outcome::Pass);
     assert!(flagged(&rt, "ReadsThroughAnUnknownId"));
 }
@@ -516,7 +554,7 @@ codeunit 60698 "Seq Disabled Refused"
         &src,
         &RunOptions {
             required_isolation: true,
-            ..sequential()
+            ..strict()
         },
     );
     assert!(

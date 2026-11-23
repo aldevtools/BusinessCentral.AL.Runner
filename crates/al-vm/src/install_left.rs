@@ -2,6 +2,14 @@
 //! issue 8144). A test codeunit's session that starts from it must start exactly as the session in which the install code
 //! ran would go on: the data ([`crate::Baseline`]) and [`InstallLeft`] are carried, and every other field of [`Session`]
 //! must still hold what a new session holds ([`Session::install_left`] checks each, by name).
+//!
+//! , `install_left/clients.rs` (~260): What install code that ran in a session of its own left (al-
+//! testrun `install_once.rs`): `Session::install_left` names every `Session` field (carried in
+//! `Baseline` or `InstallLeft`, checked against a new session's value, or not written by install code
+//! with the reason) and returns `None` when one differs; the sub-states answer `as_new` in their
+//! owners (`SqlCounters::left_inactive`, `DotNetState::as_new`, al-host `FileSystem::changed`, ...).
+//! `restore_install_left` starts a new session from it. Entry points: `Session::install_left`,
+//! `restore_install_left`, `InstallLeft`.
 
 use crate::Session;
 

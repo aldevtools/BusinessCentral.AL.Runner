@@ -3,6 +3,12 @@
 //! (assumption `bg-task-worker-filter-group-one`; corpus PR 1507, tests/al-language/pages/background-tasks/
 //! BgTaskWorkerFilterGroup1.al, and corpus PR 1514, BgTaskWorkerFilterGroup1Shapes.al). Every other call on the table
 //! refuses with main's wording ([`Session::group1_refusal`]): main read the test session's entry there.
+//!
+//! What a page background task's worker may do on a table whose filter group 1 entry of the test
+//! session it runs without: by the entry's form and setter (`WorkerReads`, noted with the entry), the
+//! calls the cells of corpus PR 1507 and PR 1514 (BgTaskWorkerFilterGroup1Shapes.al) measured; every
+//! other call refuses with main's wording. Entry points: `Session::worker_call_measured` (by
+//! `group1_use`), `worker_set_measured` (by `set_global_group_filter`).
 
 use super::*;
 use std::cmp::Ordering;

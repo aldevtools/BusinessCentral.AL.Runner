@@ -1,3 +1,7 @@
+//! New rows, drafts, saving a row, activating a control. The one owner of the new-row rules other
+//! modules share: `top_card_or_document`, `key_typed_since_draft_start` (`PageState::draft_start`).
+//! Close of the OpenNew row whose key was typed leaves the parts that show no row unread
+//! (`quiet_parts_at_new_host_close`).
 use super::pinned_shape::TestCall;
 use super::*;
 use al_builtins::page_op::PageMethod;
@@ -1239,8 +1243,9 @@ impl Session {
 }
 
 /// The error of an insert whose row the page cannot find in its view (corpus testpage/AoTests.al:467-487,
-/// pages/triggers/RecordTriggerReturnValue.al:365).
-fn view_filtered_error() -> Signal {
+/// pages/triggers/RecordTriggerReturnValue.al:365), and of a tree's refresh whose filter left the row out
+/// (`validate_view_refresh.rs`).
+pub(super) fn view_filtered_error() -> Signal {
     error_code(
         "Validation error for Field: ,  Message = 'The view is filtered, and the entry is outside the filter. Some actions may not work.'",
         "TestValidation",

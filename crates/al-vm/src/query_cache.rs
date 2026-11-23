@@ -38,6 +38,24 @@
 //! Media field is cached as any other (:6898, :6918), and CalcFields of a Blob of a row the cache answered with another row
 //! is refused. The cache keeps no notes at all in a program whose own apps run no page background task
 //! (`Session::query_cache_on`). Every other read keeps reading the rows as they are, as on main.
+//!
+//! The query cache page background tasks and the test session read through (al-runner issue 8467,
+//! assumption `background-task-query-cache`, corpus pull request 1457, merged, not pinned yet): a
+//! worker's `Get` and full-key `FindFirst` (a row), and `FindFirst`, `FindLast`, `Count` and
+//! `IsEmpty` of AL code keyed by the read, the sort direction and every filter (`group_key`; the
+//! filter shapes of open corpus PR 1495, al-runner issue 8637), and a Record's `CalcFields` (keyed by
+//! its fields in order, the row and its FlowFilters, `calc_key`) and `CalcSums` (al-runner issue 8677)
+//! answer their first answer until a commit writes the row (or, for the group reads and
+//! calculations, the table, or a table its FlowField filters or formulas read); the test session's
+//! reads fill it while it has not written the table; emptied per test codeunit. Entry points:
+//! `cached_get`, `cached_find`, `cached_count` (called from `records/op_inner.rs`),
+//! `cached_calc_fields`, `cached_calc_sums` (called from `flowfields.rs`), `mark_al_record_read`
+//! (`record_op_of_al`), `note_commit_for_query_cache` (`commit_transaction`), `note_replayed_load`
+//! (`load`), `refuse_load_of_replayed` (`partial.rs`), `reset_query_cache` (`mark_install_end`),
+//! `note_select_latest_version` (`hostvalues.rs`), `refuse_blob_of_replayed` (`load_blobs`),
+//! `end_record_op_for_query_cache` (`record_op`); the minors a committed ModifyAll or DeleteAll ends
+//! an entry on: `al_version::bulk_commit_ends_cached_row`; nothing is noted unless the program's own
+//! apps run a page background task (`query_cache_on`).
 
 use crate::records::Rec;
 use crate::{Session, Signal};
@@ -47,7 +65,7 @@ use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_builtins::native::unsupported;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::Value;
-use al_data::{AccessContext, Store, TableDef};
+use al_data::{AccessContext, Store, TableDef, memory::MemStore};
 use al_version::BulkWrite;
 use std::collections::{HashMap, HashSet};
 use std::rc::{Rc, Weak};
@@ -200,6 +218,8 @@ fn holds(then: Committed, now: Committed, bulk_ends: [Option<bool>; 3]) -> Holds
 struct GroupThen {
     stamps: Vec<Option<u64>>,
     selects: u64,
+    /// For a CalcFields (`Ends::Sources`), the commits of a Truncate of its row's table: no cell measures one.
+    truncates: u64,
 }
 
 #[derive(Clone)]
@@ -245,6 +265,36 @@ impl Form {
             Form::Sums => RecordOp::CalcSums,
         }
     }
+}
+
+/// What [`Session::cached_form_of`] checks a read as.
+#[derive(Clone, Copy, PartialEq)]
+enum Shape {
+    /// A Get or a group read: of a database table, its sort fields ascending.
+    Read,
+    /// CalcSums: of a database table (a temporary record's sum reads its own rows), descending too.
+    CalcSums,
+    /// CalcFields: of a temporary record too, descending too.
+    CalcFields,
+}
+
+/// The tables whose commits end a group entry ([`Session::cached_group`]).
+#[derive(Clone, Copy)]
+enum Ends<'a> {
+    /// The read's own table and these: a group read and its FlowField filters' tables (:823, :1907, :3465, :4259), a CalcSums.
+    TableAnd(&'a [Arc<TableDef>]),
+    /// Only these, the tables a CalcFields' formulas read (:6231, :6261): its entry holds through a commit of its row's table,
+    /// of an insert of another row or a change of the row, of a temporary record too (BgTaskCacheEdges.al:428-:446, open corpus
+    /// PR 1558), of a ModifyAll (:639), a DeleteAll (:645) or a Delete of another row (:651), after the test session's
+    /// CalcFields first (:657), and for FieldRef.CalcField of a database RecordRef (:681). A commit of a Truncate of it is not
+    /// measured (`GroupThen::truncates`).
+    Sources(&'a [Arc<TableDef>]),
+}
+
+/// Whether `rec` is temporary: declared so, or over a temporary table.
+fn temporary(rec: &Rec) -> bool {
+    let r = rec.borrow();
+    r.temporary || r.temp_id.is_some()
 }
 
 /// Whether the cells set a group read's filters in filter group `group`: 0, 2 (:1698), 3 and 5 (:2685), 4 (:1704), 6 (:1766), 7
@@ -426,8 +476,8 @@ fn one_value(e: &FilterExpr) -> Option<&Value> {
 /// The kinds of a FlowField filter the cells measure: one value, a range, `>`, `<>` and a `|` of values (:4215), `>=`, `<`,
 /// `<=` and an `&` of comparisons (:4743), an empty `FILTER()` of a view (:4800), open ranges and an `&` inside a `|`
 /// (:5588) and a case-sensitive wildcard (:5599). A case-insensitive wildcard reads the rows as they are (:4756); other compounds
-/// and patterns not matched are not measured. `@` alone on a lookup FlowField (:5609) waits for the "@ alone" PR, which reads
-/// it as the database does: until then it reads the rows as they are.
+/// and patterns not matched are not measured. `@` alone on a lookup FlowField (:5609) reads the rows as they are: the database
+/// keeps only blank values for it (assumption at-sign-alone-database-blank), and no cell measures it through the cache.
 fn flow_filter_measured(e: &FilterExpr) -> bool {
     use FilterExpr as F;
     let comparisons = |e: &FilterExpr| matches!(e, F::And(items) if items.iter().all(|i| matches!(i, F::Lt(_) | F::Le(_) | F::Gt(_) | F::Ge(_))));
@@ -456,26 +506,26 @@ fn values_only(e: &FilterExpr) -> bool {
 }
 
 /// The formulas a `CalcFields` of the FlowField `calc` of a row of `row` reads, when the cells measure it: `calc` of any method
-/// but negated (count, sum, min, max, average, exist, lookup, :6147-:6183), reading its source table with no FlowField of
-/// the source (a condition on one reads the table, :6267), and with a `field()` condition on a count FlowField of the row
-/// that reads its own source table alone, whose formula follows (:6255, :6261). Its other conditions, and the inner formula's,
-/// are constants, filters, `field()` of a stored field or of a FlowFilter, and `field(filter())` of a FlowFilter (:6219).
-/// `field(filter())` of a stored field, the row's value read as a filter text, is not measured (code review of c00e40f2f;
-/// BC keys it by the text, the neighbor app 8677-bg-cache-calcfields): it keeps main's answer.
+/// (count, sum, min, max, average, exist, lookup, :6147-:6183), negated only as a sum (BgTaskCalcCache.al:425, open corpus PR
+/// 1533), reading its source table with no FlowField of the source (a condition on one reads the table, :6267), and with a
+/// `field()` condition on a FlowField of the row that reads its own source table alone, whose formula follows: a count under
+/// any outer method (:6255, :6261, BgTaskCalcCache.al:498-:516) or a sum under a count (BgTaskCalcCache.al:468). Its other
+/// conditions, and the inner formula's, are constants, filters, `field()` of a stored field or of a FlowFilter, and
+/// `field(filter())` of a FlowFilter (:6219) or of a stored field, whose value `calc_key` keys (BgTaskCalcCache.al:480; in the
+/// inner formula, :552).
 fn calc_formulas<'a>(
     row: &'a al_ir::Table,
     calc: &'a al_ir::CalcFormula,
     source: impl Fn(usize) -> Option<&'a al_ir::Table>,
 ) -> Option<Vec<&'a al_ir::CalcFormula>> {
     let src = source(calc.table)?;
-    if calc.negate || calc.field.is_some_and(|f| flow_field(src, f)) {
+    if (calc.negate && calc.method != al_ir::CalcMethod::Sum) || calc.field.is_some_and(|f| flow_field(src, f)) {
         return None;
     }
-    let flow_filter = |x: usize| row.fields.get(x).is_some_and(|d| d.flow_filter);
     let plain = |v: &al_ir::CalcValue| match *v {
         al_ir::CalcValue::Const(_) | al_ir::CalcValue::Filter(_) => true,
         al_ir::CalcValue::Field(x) => !flow_field(row, x),
-        al_ir::CalcValue::FieldFilter(x) => flow_filter(x),
+        al_ir::CalcValue::FieldFilter(x) => !flow_field(row, x),
         al_ir::CalcValue::UpperLimit(_) => false,
     };
     let mut formulas = vec![calc];
@@ -487,7 +537,9 @@ fn calc_formulas<'a>(
             ref v if plain(v) => {}
             al_ir::CalcValue::Field(x) => {
                 let inner = row.fields.get(x)?.calc.as_ref()?;
-                let one = inner.method == al_ir::CalcMethod::Count && !inner.negate;
+                let one = !inner.negate
+                    && (inner.method == al_ir::CalcMethod::Count
+                        || (inner.method == al_ir::CalcMethod::Sum && calc.method == al_ir::CalcMethod::Count));
                 if !one
                     || !calc_reads_one_table(row, source(inner.table), inner)
                     || !inner.conds.iter().all(|c| plain(&c.value))
@@ -599,21 +651,61 @@ impl Session {
         }
     }
 
+    /// `SelectLatestVersion(Table)` with the argument `arg`, which the compiler takes for the Integer also as a Char, a Byte, an
+    /// Option or an Enum (the Enum with warning AL0603), each reaching here as itself. An Integer or an Enum that names a table
+    /// ends that table's entries and no other table's (another table's number changes nothing, BgTaskQueryCache.al:6744; an
+    /// Enum whose value is the cached table's id ends its row entry, BgTaskCacheEdges.al:452, open corpus PR 1558); one that
+    /// names no table ends none (a Char, a Byte, an Option and an Enum of value 0, :687-:705). A Char, a Byte or an Option
+    /// that names a table is refused in a worker: no cell measures one.
+    pub(crate) fn note_select_latest_version_of(&mut self, arg: Option<&Value>) -> Result<(), Signal> {
+        let (n, measured) = match arg {
+            Some(Value::Integer(n)) => (i64::from(*n), true),
+            Some(Value::Enum(_, n)) => (i64::from(*n), true),
+            Some(Value::Option(n, _)) => (i64::from(*n), false),
+            Some(Value::Char(n)) => (i64::from(*n), false),
+            Some(Value::Byte(n)) => (i64::from(*n), false),
+            _ => return Ok(()),
+        };
+        let Some(t) = self.table_object(n) else {
+            return Ok(());
+        };
+        let noted = self.in_worker() && self.query_cache_on();
+        if noted && matches!(arg, Some(Value::Enum(..))) {
+            // Runs through the entry until the open probe is pinned.
+            assume(Assumption::BackgroundTaskQueryCache);
+        }
+        if !measured && noted {
+            return unsupported(
+                "SelectLatestVersion(Table) in a page background task with a Char, a Byte or an Option that names a table \
+                 (not measured)",
+            );
+        }
+        self.note_select_latest_version(Some(t as u32));
+        Ok(())
+    }
+
     fn selects_of(&self, table: u32) -> u64 {
         let cache = &self.pages.query_cache;
         cache.selects_all + cache.selects.get(&table).copied().unwrap_or(0)
     }
 
-    /// AL code calls `method` on a Record or a RecordRef: marks a FindFirst, FindLast, Count or IsEmpty as AL code's read
-    /// (`group_key`; a page's own reads are not, :2099), and a Record's CalcFields and CalcSums (a RecordRef's are not
-    /// measured); returns the mark to set back when the call returns.
-    pub(crate) fn mark_al_record_read(&mut self, method: RecordOp) -> Option<RecordOp> {
+    /// AL code calls `method` on a Record or a RecordRef, or (`field_ref`) CalcField on a FieldRef: marks a FindFirst, FindLast,
+    /// Count or IsEmpty as AL code's read (`group_key`; a page's own reads are not, :2099), a Record's CalcFields and CalcSums
+    /// (a RecordRef's are not measured) and a FieldRef's CalcField (BgTaskCalcCache.al:431, open corpus PR 1533); returns the
+    /// mark to set back with [`Self::unmark_al_record_read`] when the call returns.
+    pub(crate) fn mark_al_record_read(&mut self, method: RecordOp, field_ref: bool) -> Option<RecordOp> {
         let read = match method {
             RecordOp::FindFirst | RecordOp::FindLast | RecordOp::Count | RecordOp::IsEmpty => Some(method),
+            RecordOp::CalcFields if field_ref => Some(method),
             RecordOp::CalcFields | RecordOp::CalcSums if !self.through_recordref => Some(method),
             _ => None,
         };
         std::mem::replace(&mut self.pages.query_cache.al_record_read, read)
+    }
+
+    /// Sets back the mark [`Self::mark_al_record_read`] returned.
+    pub(crate) fn unmark_al_record_read(&mut self, prior: Option<RecordOp>) {
+        self.pages.query_cache.al_record_read = prior;
     }
 
     fn bulk_ends(&self) -> [Option<bool>; 3] {
@@ -636,19 +728,26 @@ impl Session {
     /// SecurityFiltering, no SetAutoCalcFields, no LockTable of its table, and (with `all_fields`) no `SetLoadFields` (:2047,
     /// :2083); and whether the program runs page background tasks at all (`query_cache_on`). A row read also sorts ascending.
     fn cached_form(&mut self, rec: &Rec, t: &TableDef, all_fields: bool) -> Result<bool, Signal> {
+        self.cached_form_of(rec, t, all_fields, Shape::Read)
+    }
+
+    /// [`Self::cached_form`] for `shape`: a calculation's sort fields may be descending, and it shares its entry with the
+    /// ascending one (BgTaskCalcCache.al:522, :528, :540, :546, open corpus PR 1533); a CalcFields may be of a temporary record
+    /// (`temporary`), whose FlowFields read the database (:474), so the gate reads the database's tables.
+    fn cached_form_of(&mut self, rec: &Rec, t: &TableDef, all_fields: bool, shape: Shape) -> Result<bool, Signal> {
         if !self.query_cache_on() {
             return Ok(false);
         }
+        let temp = temporary(rec);
         let plain = {
             let r = rec.borrow();
-            !r.temporary
-                && r.temp_id.is_none()
+            (!temp || shape == Shape::CalcFields)
                 && !r.crm
                 && r.company.is_none()
                 && !r.change_company_called
                 && r.key == 0
                 && r.adhoc.is_none()
-                && r.field_descending == 0
+                && (shape != Shape::Read || r.field_descending == 0)
                 && !r.marked_only
                 && r.read_isolation == 0
                 && r.security_filtering == r.declared_security_filtering
@@ -657,7 +756,19 @@ impl Session {
         };
         // A lock the test session holds on another table (`TxState::lock_tx`) is not the read's: a worker reads outside the
         // test session's transaction (testpage/TestPageBgTaskTx_Tests.al).
-        Ok(plain && !self.tx.open.locked_tables.contains(&t.object) && !self.store_for(rec)?.is_virtual(t))
+        if !plain || self.tx.open.locked_tables.contains(&t.object) {
+            return Ok(false);
+        }
+        Ok(!self.view_store(rec)?.is_virtual(t))
+    }
+
+    /// The store a cached read of `rec` reads: the database's for a temporary record (only its CalcFields gets this far, and its
+    /// FlowFields read the database), else the record's own.
+    fn view_store(&mut self, rec: &Rec) -> Result<&mut MemStore, Signal> {
+        if temporary(rec) {
+            return Ok(&mut self.store);
+        }
+        Ok(self.store_for(rec)?)
     }
 
     /// The primary key a `FindFirst` of `rec` reads as a row: one value on every primary-key field and no other filter.
@@ -678,8 +789,8 @@ impl Session {
             .collect()
     }
 
-    /// The key of the group read `form` of `rec`: a read of AL code, its sort direction and every filter (filter group, field,
-    /// expression) in group and field order, when the cells measure each: no filter or up to `MAX_CACHED_FILTERS` (:2737,
+    /// The key of the group read `form` of `rec`: a read of AL code, its sort direction (`Ascending`; not for a Count) and every
+    /// filter (filter group, field, expression) in group and field order, when the cells measure each: no filter or up to `MAX_CACHED_FILTERS` (:2737,
     /// :3370), in a filter group `cached_filter_group` takes, of the kinds `encode_filter` takes, on stored fields and FlowFilter
     /// fields (:3472), with a FlowField filter only as `flow_field_find` allows. `None`: another read, which reads the rows as
     /// they are.
@@ -694,7 +805,13 @@ impl Session {
         let schema = self.engine.program.objects[t.object as usize].table.as_ref()?;
         let mut filters: Vec<_> = r.filters.iter().collect();
         filters.sort_by_key(|f| (f.group, f.field));
-        let mut values = vec![Value::Text(form.kind().into()), Value::Boolean(r.ascending)];
+        // A Count has one entry for both sort directions: ascending first and with Ascending(false) again it answers the first
+        // answer (BgTaskCalcCache.al:613, open corpus PR 1533). The other reads are keyed by it, not measured across it.
+        let direction = match form {
+            Form::Count => Value::Null,
+            _ => Value::Boolean(r.ascending),
+        };
+        let mut values = vec![Value::Text(form.kind().into()), direction];
         let mut flow_fields = Vec::new();
         for f in &filters {
             if !cached_filter_group(f.group, self.global_group1.worker_owns_group1()) {
@@ -722,7 +839,8 @@ impl Session {
     }
 
     /// The tables the FlowFields `rec` filters on read (`flow_field_find` keys a read with them), once each, by object id: two
-    /// reads with the same key get their commit stamps in the same order, whatever order their filters were set in.
+    /// reads with the same key get their commit stamps in the same order, whatever order their filters were set in, as BC
+    /// shares the entry (BgTaskCacheEdges.al:458, :464, open corpus PR 1558).
     fn flow_field_sources(&self, rec: &Rec, t: &TableDef) -> Vec<Arc<TableDef>> {
         let Some(schema) = self.engine.program.objects[t.object as usize].table.as_ref() else {
             return Vec::new();
@@ -815,11 +933,13 @@ impl Session {
             return Ok(fresh);
         }
         let sources = self.flow_field_sources(rec, t);
-        Ok(match self.cached_group(rec, cx, t, values, &sources, answer)? {
-            GroupAnswer::Count(n) => n,
-            GroupAnswer::Empty(empty) if empty != (fresh == 0) => usize::from(!empty),
-            _ => fresh,
-        })
+        Ok(
+            match self.cached_group(rec, cx, t, values, Ends::TableAnd(&sources), answer)? {
+                GroupAnswer::Count(n) => n,
+                GroupAnswer::Empty(empty) if empty != (fresh == 0) => usize::from(!empty),
+                _ => fresh,
+            },
+        )
     }
 
     /// What a `FindFirst` or `FindLast` of `rec` that found `fresh` answers: through the cache as a row or a group read, when
@@ -858,7 +978,14 @@ impl Session {
             return Ok(fresh);
         };
         let sources = self.flow_field_sources(rec, t);
-        match self.cached_group(rec, cx, t, values, &sources, GroupAnswer::Row(fresh.clone()))? {
+        match self.cached_group(
+            rec,
+            cx,
+            t,
+            values,
+            Ends::TableAnd(&sources),
+            GroupAnswer::Row(fresh.clone()),
+        )? {
             GroupAnswer::Row(row) => {
                 let at = row
                     .as_ref()
@@ -871,7 +998,9 @@ impl Session {
     }
 
     /// What AL code's `CalcSums` of `positions` on `rec`, which summed `fresh`, answers: through the cache when its filters are
-    /// ones the cells measure, filter group 0 on stored fields, each one value or a `|` of values (:6273, :6279, :6285).
+    /// ones the cells measure, filter group 0 on stored fields, each one value, a `|` of values (:6273, :6279, :6285) or a `>`
+    /// (BgTaskCalcCache.al:449, open corpus PR 1533), or no filter (:455), its sort fields ascending or descending with one entry
+    /// for both (:528, :546). A temporary record's sum reads its own rows: not through the cache.
     pub(crate) fn cached_calc_sums(
         &mut self,
         rec: &Rec,
@@ -886,16 +1015,21 @@ impl Session {
         let Some(mut values) = self.group_key(rec, t, Form::Sums) else {
             return Ok(fresh);
         };
-        let measured = rec
-            .borrow()
-            .filters
-            .iter()
-            .all(|f| f.group == 0 && t.fields[f.field].stored && values_only(&f.expr));
-        if !measured || !self.cached_form(rec, t, true)? {
+        let measured = rec.borrow().filters.iter().all(|f| {
+            f.group == 0 && t.fields[f.field].stored && (values_only(&f.expr) || matches!(f.expr, FilterExpr::Gt(_)))
+        });
+        if !measured || !self.cached_form_of(rec, t, true, Shape::CalcSums)? {
             return Ok(fresh);
         }
         values.extend(positions.iter().map(|&p| Value::Integer(p as i32)));
-        match self.cached_group(rec, cx, t, values, &[], GroupAnswer::Values(fresh.clone()))? {
+        match self.cached_group(
+            rec,
+            cx,
+            t,
+            values,
+            Ends::TableAnd(&[]),
+            GroupAnswer::Values(fresh.clone()),
+        )? {
             GroupAnswer::Values(v) => Ok(v),
             _ => Ok(fresh),
         }
@@ -904,8 +1038,9 @@ impl Session {
     /// What AL code's `CalcFields` of `positions` on `rec`, which calculated `fresh`, answers: through the cache when
     /// `calc_key` keys it and no table its formulas read is virtual (its entry ends only with commits of stored tables; the
     /// neighbor app 8677-bg-cache-calcfields, Platform.al). A worker's repeated call answers its first answer (:6147-:6189,
-    /// :6219, :6249, :6255), also after SetLoadFields and Get (:7255); the test session's call fills the entry before it
-    /// writes (:6237, :6243).
+    /// :6219, :6249, :6255), also after SetLoadFields and Get (:7255), of a temporary record (BgTaskCalcCache.al:474, open corpus
+    /// PR 1533) and with its sort fields descending, with one entry for both directions (:522, :540); the test session's call
+    /// fills the entry before it writes (:6237, :6243).
     pub(crate) fn cached_calc_fields(
         &mut self,
         rec: &Rec,
@@ -919,18 +1054,29 @@ impl Session {
         let Some(t) = self.engine.tables[table].clone() else {
             return Ok(fresh);
         };
-        if !self.cached_form(rec, &t, false)? {
+        if !self.cached_form_of(rec, &t, false, Shape::CalcFields)? {
             return Ok(fresh);
         }
-        let Some((values, sources)) = self.calc_key(rec, &t, positions) else {
+        let Some((mut values, sources)) = self.calc_key(rec, &t, positions) else {
             return Ok(fresh);
         };
-        let store = self.store_for(rec)?;
+        // A temporary record's CalcFields reads the database (BgTaskCalcCache.al:474): its entry is its own, stamped there.
+        if temporary(rec) {
+            values.push(Value::Text("temporary".into()));
+        }
+        let store = self.view_store(rec)?;
         if sources.iter().any(|s| store.is_virtual(s)) {
             return Ok(fresh);
         }
         let cx = self.cx_for(rec, &t)?;
-        match self.cached_group(rec, &cx, &t, values, &sources, GroupAnswer::Values(fresh.clone()))? {
+        match self.cached_group(
+            rec,
+            &cx,
+            &t,
+            values,
+            Ends::Sources(&sources),
+            GroupAnswer::Values(fresh.clone()),
+        )? {
             GroupAnswer::Values(v) => Ok(v),
             _ => Ok(fresh),
         }
@@ -938,8 +1084,10 @@ impl Session {
 
     /// The key of a `CalcFields` of `positions` on `rec` and the tables it reads, when the cells measure it: the number of
     /// fields and the fields in their order (another order, a field more or less read the table, :6195-:6207), the row's
-    /// primary key and the values of the row its formulas read by `field()`, and the record's filters, each on a FlowFilter in filter group 0, one value or a
-    /// `|` of values (another value reads the table, :6219, :6225). Each FlowField is one `calc_formulas` takes.
+    /// primary key and the values of the row its formulas read by `field()` or `field(filter())` (BgTaskCalcCache.al:480, :552,
+    /// open corpus PR 1533), and the record's filters in filter group 0: on a FlowFilter one value, a `|` of values (another
+    /// value reads the table, :6219, :6225) or a range (BgTaskCalcCache.al:437), on a stored field one value or a `|` of values
+    /// (:443, :534). Not the sort direction (:540). Each FlowField is one `calc_formulas` takes.
     fn calc_key(&self, rec: &Rec, t: &TableDef, positions: &[usize]) -> Option<(Vec<Value>, Vec<Arc<TableDef>>)> {
         let schema = self.engine.program.objects[t.object as usize].table.as_ref()?;
         let source = |i: usize| self.engine.program.objects[i].table.as_ref();
@@ -950,7 +1098,10 @@ impl Session {
         let mut filters: Vec<_> = r.filters.iter().collect();
         filters.sort_by_key(|f| (f.group, f.field));
         for f in filters {
-            if f.group != 0 || !schema.fields.get(f.field)?.flow_filter || !values_only(&f.expr) {
+            let field = schema.fields.get(f.field)?;
+            let kind =
+                values_only(&f.expr) || (field.flow_filter && matches!(f.expr, FilterExpr::Range(Some(_), Some(_))));
+            if f.group != 0 || !(field.flow_filter || field.stored) || !kind {
                 return None;
             }
             values.push(Value::Integer(f.field as i32));
@@ -961,7 +1112,7 @@ impl Session {
             for calc in calc_formulas(schema, schema.fields.get(p)?.calc.as_ref()?, source)? {
                 sources.push(self.engine.tables[calc.table].clone()?);
                 for c in &calc.conds {
-                    if let al_ir::CalcValue::Field(x) = c.value
+                    if let al_ir::CalcValue::Field(x) | al_ir::CalcValue::FieldFilter(x) = c.value
                         && schema.fields.get(x)?.stored
                     {
                         values.push(r.fields[x].clone());
@@ -1069,8 +1220,9 @@ impl Session {
     }
 
     /// A group read of `rec` for `values` that the table answers with `fresh`: what the read answers. An entry holds while no
-    /// commit wrote the table (:823, :845, :1907, :1980), nor a table of `sources` (the tables its FlowField filters
-    /// read, :3465, :4259; the tables a calculation reads, :6231, :6261; a commit of another table keeps it). The test session's read fills it while that session has not written those tables since its last
+    /// commit wrote a table of `ends` (the table, :823, :845, :1907, :1980, and the tables its FlowField filters read, :3465,
+    /// :4259; for a CalcFields only the tables its formulas read, :6231, :6261; a commit of another table keeps it). The test
+    /// session's read fills it while that session has not written the read's table nor those tables since its last
     /// commit, in every shape `group_key` takes (:6498, :1866, :1886, :2337-:2367, :2751, :2770, :3482-:3514), and after it wrote
     /// the table reads the table (:1944, :2063).
     fn cached_group(
@@ -1079,46 +1231,68 @@ impl Session {
         cx: &AccessContext,
         t: &TableDef,
         values: Vec<Value>,
-        sources: &[Arc<TableDef>],
+        ends: Ends<'_>,
         fresh: GroupAnswer,
     ) -> Result<GroupAnswer, Signal> {
         let at = Self::at(rec, t, values);
         let selects = self.selects_of(t.object);
-        let store = self.store_for(rec)?;
-        let stamps: Vec<Option<u64>> = std::iter::once(t)
+        let store = self.view_store(rec)?;
+        let (own, sources) = match ends {
+            Ends::TableAnd(s) => (Some(t), s),
+            Ends::Sources(s) => (None, s),
+        };
+        let stamps: Vec<Option<u64>> = own
+            .into_iter()
             .chain(sources.iter().map(|s| &**s))
             .map(|table| store.committed_stamp(cx, table))
             .collect();
         let written = std::iter::once(t)
             .chain(sources.iter().map(|s| &**s))
             .any(|table| store.written_since_commit(cx, table));
-        let now = GroupThen { stamps, selects };
+        let truncates = match ends {
+            Ends::TableAnd(_) => 0,
+            Ends::Sources(_) => {
+                let bulk = &self.pages.query_cache.bulk_commits;
+                bulk.get(&(t.object, BulkWrite::Truncate)).copied().unwrap_or(0)
+            }
+        };
+        let now = GroupThen {
+            stamps,
+            selects,
+            truncates,
+        };
         let entry = self
             .pages
             .query_cache
             .groups
             .get(&at)
             .filter(|(then, _)| then.stamps == now.stamps)
-            .map(|(then, a)| (then.selects == now.selects, a.clone()));
+            .map(|(then, a)| (then.selects == now.selects, then.truncates == now.truncates, a.clone()));
         if !self.in_worker() {
             if written {
                 return Ok(fresh);
             }
-            if entry.as_ref().is_some_and(|(_, a)| !same_group(a, &fresh)) {
+            if entry.as_ref().is_some_and(|(_, _, a)| !same_group(a, &fresh)) {
                 return unsupported(TEST_READ_REFUSAL);
             }
             self.pages.query_cache.groups.insert(&at, (now, fresh.clone()));
             return Ok(fresh);
         }
         let answer = match entry {
-            Some((true, a)) => a,
-            Some((false, a)) if !same_group(&a, &fresh) => {
+            Some((true, true, a)) => a,
+            Some((false, _, a)) if !same_group(&a, &fresh) => {
                 return unsupported(
                     "a group read of a page background task after its SelectLatestVersion, which the query cache would answer \
                      otherwise than the table (not measured)",
                 );
             }
-            Some((false, _)) | None => fresh.clone(),
+            Some((_, false, a)) if !same_group(&a, &fresh) => {
+                return unsupported(
+                    "a CalcFields of a page background task after a commit of a Truncate of its row's table, which the query \
+                     cache would answer otherwise than the table (not measured)",
+                );
+            }
+            Some(_) | None => fresh.clone(),
         };
         self.pages.query_cache.groups.insert(&at, (now, answer.clone()));
         // A FindFirst or FindLast is flagged by `answered`.

@@ -1,6 +1,8 @@
 //! Decoded values. A `Value` carries the typed form (so a consumer that loads rows
 //! into a store never re-parses text), and its `Display` is exactly the text bcdb
 //! prints, which is what the differential tests compare.
+//!
+//! Entry points: `Value`, `json_string`, `format_binary`, `format_guid`.
 
 use std::fmt::{self, Write as _};
 

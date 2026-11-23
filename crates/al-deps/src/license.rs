@@ -4,6 +4,10 @@
 //! The file is read into memory for one run and never written anywhere: no license is cached, shipped or committed
 //! (ADR-060 decision 3). Only the platform artifact's central directory, which the dependency loading already keeps in the
 //! artifact cache, is reused to find the entry.
+//!
+//! The license that ships with the BC artifacts of a build (ADR-060): an extracted artifact on disk,
+//! else the platform artifact's entry read by range; never written anywhere. Entry points:
+//! `artifact_license`.
 use crate::artifact::{Cdn, Fetch};
 use crate::build::BuildId;
 use crate::cache::Store;

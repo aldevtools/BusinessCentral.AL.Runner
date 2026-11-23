@@ -1,6 +1,10 @@
 //! A list page that shows no row before an action, and the `CurrPage.Update` after that action that fills it: the client
 //! reads the page as when it opens and the first row of the new view becomes current. `action_invoke_body` (actions.rs)
 //! asks `empty_list_view` before the action's trigger and `update_on_empty_list_view` after it.
+//!
+//! A list that shows no row before an action, and the `CurrPage.Update` after it that fills the page
+//! from the first row of the new view (view-mode lists, and the pinned edit-mode Worksheet). Entry
+//! points: `empty_list_view`, `update_on_empty_list_view` (from `action_invoke_body`).
 
 use super::pinned_shape::{NextEnd, PinnedEnd, Reads, capital_word, open_page_filters_then_find, own_table_code};
 use super::*;

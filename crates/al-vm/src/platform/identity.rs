@@ -13,6 +13,8 @@
 //!
 //! "Client Computer Name" is not in `PINNED_COLUMNS`: the row holds it
 //! unknown, so a read is refused (it is the test runner's, TestActiveSessionHostColumnsContracts.al:9).
+//!
+//! The Session and Active Session tables.
 
 use super::{Ident, blank, option, pos};
 use al_builtins::value::Value;

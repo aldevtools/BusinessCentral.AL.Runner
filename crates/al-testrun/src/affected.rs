@@ -10,6 +10,15 @@
 //!   differs is changed;
 //! - per test codeunit of the stored run, the trace keys its tests recorded (`impact_trace::keys`: events raised,
 //!   tables, pages, reports and enums used) and the workspace objects whose code they entered (decision 4).
+//!
+//! `--affected` (ADR-050): the stored result of the last run (`Stored`, `Header`, per workspace
+//! object its `ObjectFacts` with the symbolic IR hash, per test codeunit its trace keys, entered
+//! objects and outcomes; JSON, `FORMAT`), the rule that picks the test codeunits a change can affect
+//! or forces a full run with a reason (`Stored::select`), and the update after a run
+//! (`Stored::merge`); the facts of a compile made with `Roots::object_hashes` (`facts`: hash from
+//! `Lowered::object_hashes`, trace keys, subscribed events, install code, references) and the objects
+//! a test entered (`entered_keys`, from `Touches::entered`). Pure; the file is the command line's.
+//! Entry points: `Stored`, `select`, `merge`, `facts`, `entered_keys`.
 
 use crate::Outcome;
 use al_ir::ObjKind;

@@ -2,6 +2,8 @@
 //! command (a mistyped `--compayn` silently reading every company is a wrong answer
 //! reported as success), a value-taking option without a value is refused, and a stray
 //! positional argument is refused instead of dropped.
+//!
+//! Entry points: `command_keys`, `parse`.
 
 use std::collections::HashMap;
 

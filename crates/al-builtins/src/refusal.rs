@@ -13,6 +13,13 @@
 //!
 //! The text of a refusal is its `Display` (and `Deref<Target = str>`, a shim for readers written against the `String`
 //! that goes away with `From<String>` in the last migration step).
+//!
+//! Typed refusals (ADR-071): `Refusal` (a key and a text, the size of a `String`; free text converts
+//! with the key `legacy` and reads, prints and stores as the `String` did), `refuse!` (arguments
+//! through `Describe`, positional or `name = value`; a name read from the scope does not compile),
+//! `Shown`, `Probe`, `AREAS`, and `refusal_keys!`, which turns this crate's list
+//! `src/refusals/<key>.rs` (one file per key, collected by `build.rs`) into `keys` and `ALL`. Entry
+//! points: `Refusal`, `refuse!`, `refusal_keys!`, `placeholders_passed`.
 
 use crate::describe::Describe;
 use std::borrow::Cow;

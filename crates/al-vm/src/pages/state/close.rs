@@ -1,3 +1,8 @@
+//! How the last close of a page ended (`CloseOutcome`: an error or a false answer of
+//! OnQueryClosePage, a save that failed at `TestPage.Close()`, what a `TestPage.Close()` in a modal
+//! handler left for `RunModal`), with transitions named after what happened and questions named after
+//! what the caller needs (al-runner issue 7685). Entry points: `CloseOutcome`, field
+//! `PageState::close`.
 #![deny(clippy::wildcard_enum_match_arm)]
 //! How the last close of a page ended: the answer of OnQueryClosePage, a save that failed at `TestPage.Close()`, and what a
 //! `TestPage.Close()` inside the handler of a modal run left for `RunModal`. The corpus citations are at the callers in

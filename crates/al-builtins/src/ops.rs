@@ -1,5 +1,8 @@
 //! Value operations: conversion to a slot type, arithmetic, comparison
 //! (ADR-010: conversions live next to the value model).
+//!
+//! Value operations: conversion, arithmetic, comparison, truthiness. Entry points: `convert`,
+//! `arith`, `compare_order`, `truthy`.
 
 use crate::date_difference::{closing_date_minus, datetime_difference, undefined_date_difference};
 use crate::describe::Describe;

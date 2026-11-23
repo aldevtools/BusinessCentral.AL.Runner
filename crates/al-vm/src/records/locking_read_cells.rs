@@ -5,6 +5,12 @@
 //! (BC 27.5, 28.5, 29.0) run, each with the result measured for it. A cell is: the write through the buffer, the Commits since
 //! the buffer's own write, the one database read of the open transaction (its isolation level and what it read), and the
 //! writes of the open transaction before that read. Anything else is refused by the caller.
+//!
+//! the exact cells of a write through a stale own-write buffer after a locking ReadIsolation read
+//! (al-runner issue 7795; record/crud/CodeunitRunTableNoWrites.al): ten cells, Modify only, each with
+//! its measured result; anything else is refused by `stale_rule.rs`. Entry points:
+//! `note_locking_read` (after each record operation, `records.rs`), `locking_read_cell` (by
+//! `stale_verdict`).
 
 use super::stale_rule::Contact;
 use super::*;

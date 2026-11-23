@@ -14,6 +14,9 @@
 //! and `CurrentDateTime` are three views of one reading each, and `DT2Date`, `DT2Time`,
 //! `CreateDateTime` and `Format` read a `DateTime` in UTC too. There is no zone offset to
 //! configure, so the date part of `CurrentDateTime` always equals `Today`.
+//!
+//! The host seam: clock, identity, client type, file system (ADR-006). Entry points: `Clock`,
+//! `Identity`, `ClientType`, `Host`.
 
 pub mod dotnet;
 pub mod inproc;

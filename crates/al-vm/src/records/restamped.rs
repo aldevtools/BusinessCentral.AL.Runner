@@ -7,6 +7,10 @@
 //! stamps them at the Insert, so a row whose Insert row version is at or below one sent before it holds a lower value than BC's.
 //! `Database.LastUsedRowVersion` still moves as BC's (`Session::note_read_for_row_versions`); a read of the field of such a row,
 //! and a find or query that filters or sorts on it, are refused. Other reads of those rows run, in install code too.
+//!
+//! inserted rows sent after a higher row version (`send_pending_insert`, `Session::restamped_rows`,
+//! carried in the Baseline) and the refusals of what shows their SystemRowVersion (`restamped_read`,
+//! `restamped_find`, `restamped_query`).
 
 use super::*;
 use crate::state::RestampedRows;

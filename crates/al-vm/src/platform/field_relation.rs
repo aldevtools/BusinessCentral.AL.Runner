@@ -4,6 +4,10 @@
 //! record/TestPlatformMetadataDeclarationContracts.al:240-264, metadata/platform-tables/ProbeObjectMetadataTables.al and
 //! tableextension/TestTableExtFieldTableRelation.al. A relation that names no field: metadata/platform-tables/
 //! FieldRelationFieldNo.al (`no_field_measured`).
+//!
+//! RelationTableNo and RelationFieldNo of a Field row (`relation_columns`, called by `field_row`); a
+//! relation without a field reads RelationFieldNo 0 in the shapes `no_field_measured` allows
+//! (metadata/platform-tables/FieldRelationFieldNo.al) and refuses a read of it in every other.
 
 use super::objects::{Catalog, prop};
 use super::pos;

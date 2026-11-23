@@ -2,6 +2,14 @@
 //!
 //! Exit codes: 0 ok, 1 regression against the baseline, 2 setup error
 //! (oracle and corpus disagree, unreadable input, bad arguments).
+//!
+//! The binary: run each oracle version, report, check the not-passing lists. Exit 0 ok, 1 a list does
+//! not hold, 2 setup error. A version runs in passes (`passes`, `run_version_passes`): the main app
+//! with the suites of the main environment, then one pass per set of `extra_apps` (oracle.toml) with
+//! only those suites; the reports are joined before `--json`/`--markdown` are written. The main pass
+//! keeps its compile (`PassCompile`), and the next pass grows it by its own apps (ADR-063;
+//! `AL_FRESH_PASS_COMPILE=1` turns it off). Entry points: `main`, `run`, `run_version_passes`,
+//! `run_version`, `find_explained`, `drift_summary`.
 
 use al_host::dotnet::DotNetHost;
 use al_test_cli::args::{self, Args, Parsed};
@@ -1357,10 +1365,8 @@ fn run_version_inner(
         // `dev_endpoint_ui` stays off: the corpus runs as Microsoft's Test Runner app does, so unhandled UI is an error.
         private_baseline: std::env::var_os("AL_PRIVATE_BASELINE").is_some(), // ADR-069 decision 11
         login_replay_check: std::env::var_os("ALRUNNER_LOGIN_REPLAY_CHECK").is_some(), // issue 8211, internal
-        // Internal, for the ADR-070 step 2 comparison: the whole corpus in BC's order (`AL_STRICT_ORDER_ALL`), and the
-        // sequential strict run (`AL_STRICT_SEQUENTIAL`).
+        // Internal: the whole corpus in BC's order (`AL_STRICT_ORDER_ALL`; ADR-070 decision 5).
         strict_order: std::env::var_os("AL_STRICT_ORDER_ALL").is_some(),
-        strict_sequential: std::env::var_os("AL_STRICT_SEQUENTIAL").is_some(), // ADR-070 step 2 (internal)
         ..Default::default()
     };
     let load_time = started.elapsed();

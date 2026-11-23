@@ -1,5 +1,8 @@
 //! `oracle/oracle.toml`: the corpus pin and one `[[version]]` table per BC major
 //! (ADR-015 3.5).
+//!
+//! oracle/oracle.toml: versions, suites, corpus pin. Entry points: `OracleFile`, `VersionEntry`,
+//! `SuiteEntry`.
 
 use al_version::BcVersion;
 

@@ -6,6 +6,13 @@
 //! read checks it ([`read`], from `Session::global_value`, interp.rs). The mark is on the instance: it moves with it to a
 //! later session (`take_single_instances`, `adopt_single_instances`) and goes when the session drops it
 //! (`reset_single_instances`).
+//!
+//! SingleInstance codeunits whose state the run found somewhere no pin covers (al-runner issue 8239):
+//! `Instance::unmeasured` holds a `SingleMark`; `mark_single_unmeasured` (Refused) makes every read
+//! of one of their globals by name (`interp.rs` `global_value`, through `read`) refused, a write
+//! runs; `mark_single_assumed` (Assumed, only on an unmarked instance) makes every such read mark the
+//! assumption entry. The mark moves with the instance to a later session. Set by al-testrun
+//! `partner_login::raise`.
 
 use crate::Session;
 use al_builtins::assumptions::Assumption;

@@ -1,0 +1,19 @@
+# key	entry
+# A filter that leaves the row out (al-runner issue 8846): main raised no error on the tree and read only the typed row on
+# the List; the head saves and reads as BC does, then raises the filtered-view error on the tree.
+LT TVF Tests::Tree_SetRangeDropsUpdateFalse_Fails	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1146)
+LT TVF Tests::List_FirstRowSetRangeDropsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1246)
+LT TVF Tests::List_MiddleRowSetRangeDropsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1264)
+LT TVF Tests::List_LastRowSetRangeDropsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1282)
+LT TVF Tests::FlatTree_FirstRowSetRangeDropsUpdateFalse_Fails	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1300)
+LT TVF Tests::FlatTree_MiddleRowSetRangeDropsUpdateFalse_Fails	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1312)
+LT TVF Tests::FlatTree_LastRowSetRangeDropsUpdateFalse_Fails	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1324)
+LT TVF Tests::IssueTree_FirstRowSetRangeDropsUpdateFalse_Fails	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1347)
+LT TVF Tests::DropTree_FirstRowSetRangeDropsUpdateFalse_Fails	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1370)
+LT TVF Tests::DropTree_FirstRowSetRangeDropsUpdateFalse_AssertError	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1390)
+LT TVF Tests::FlatTree_GroupsG5G1G0_MiddleRowSetRangeDropsUpdateFalse_Fails	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1424)
+LT TVF Tests::FlatTree_GroupsG0G2G1_FirstRowSetRangeDropsUpdateFalse_Fails	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1436)
+LT TVF Tests::FlatTree_GroupsG1G0G2_LastRowSetRangeDropsUpdateFalse_Fails	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1448)
+LT TVF Tests::Tree_ChildInG0_LastRowSetRangeDropsUpdateFalse_Fails	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1460)
+LT TVF Tests::FlatTree_LastRowSetRangeG0DropsUpdateFalse_Fails	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1472)
+LT TVF Tests::List_LastRowSetRangeG0DropsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1484)

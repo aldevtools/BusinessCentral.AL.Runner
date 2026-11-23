@@ -5,6 +5,8 @@
 //! `name [(args)] [{ members }]`, which covers `fields`, `field(...)`, `keys`,
 //! `layout`, `area(...)`, `dataitem(...)`, `value(...)`, `modify(...)` and the
 //! rest without a rule per object type.
+//!
+//! Entry points: `source_file`.
 
 use super::declarations::{at_routine_start, property_value, routine, var_section};
 use crate::SyntaxKind::*;

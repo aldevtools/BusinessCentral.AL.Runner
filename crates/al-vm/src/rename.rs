@@ -7,6 +7,8 @@
 //! an `else` arm carries no condition at all; a `where()` on the related table limits which
 //! renamed rows count; a referencing field inside the child's primary key re-keys the child, and
 //! the child's own OnRename does not run.
+//!
+//! Rename propagation to related tables. Entry points: `rename_references`, `propagate_rename`.
 
 use crate::Session;
 use al_builtins::filter::{FieldFilter, FilterExpr};

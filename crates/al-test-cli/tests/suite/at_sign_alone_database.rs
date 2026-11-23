@@ -10,6 +10,8 @@ const PROBE: &str = include_str!("../../../../tests/neighbors/at-sign-alone-data
 const ROUTES: &str = include_str!("../../../../tests/neighbors/at-sign-alone-database/src/Routes.al");
 const NEIGHBORS: &str = include_str!("../../../../tests/neighbors/at-sign-alone-database/src/Neighbors.al");
 const CRM: &str = include_str!("../../../../tests/neighbors/at-sign-alone-database/src/Crm.al");
+const METHODS: &str = include_str!("../../../../tests/neighbors/at-sign-alone-database/src/Methods.al");
+const SOURCES: &str = include_str!("../../../../tests/neighbors/at-sign-alone-database/src/Sources.al");
 
 fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
     let src = format!("{src}\n{}", include_str!("../fixtures/outside-sc/Assert.al"));
@@ -80,9 +82,9 @@ fn at_sign_alone_bq9c_cells() {
     }
 }
 
-/// `<>@` alone on a Text field of a record in the database keeps the rows whose value is not empty (AtSignAloneReads.al:698), and
-/// the places no cell measures `@` alone on a Code field from keep main's refusal: a report's DataItemTableView, a query column's
-/// ColumnFilter, and `<>@` alone on a Code field (measured, not run yet).
+/// `<>@` alone on a Text field of a record in the database keeps the rows whose value is not empty (AtSignAloneReads.al:698), and so
+/// does `<>@` alone on a Code field set by Record.SetFilter (:698). The places no cell measures `@` alone on a Code field from keep
+/// main's refusal: a report's DataItemTableView and a query column's ColumnFilter.
 #[test]
 fn at_sign_alone_neighbors() {
     let src = format!("{PROBE}\n{NEIGHBORS}");
@@ -94,8 +96,13 @@ fn at_sign_alone_neighbors() {
             .1
     };
     let flags = |name: &str| &o.iter().find(|(n, ..)| n == name).expect(name).2;
-    assert_eq!(*outcome("AtSignAloneNegated_TextField_SourceRows"), Outcome::Pass);
-    assert!(flags("AtSignAloneNegated_TextField_SourceRows").contains(&Assumption::AtSignAloneDatabaseBlank));
+    for name in [
+        "AtSignAloneNegated_TextField_SourceRows",
+        "AtSignAloneNegated_CodeField_SourceRows",
+    ] {
+        assert_eq!(*outcome(name), Outcome::Pass, "{name}");
+        assert!(flags(name).contains(&Assumption::AtSignAloneDatabaseBlank), "{name}");
+    }
     let not_measured = "`@` alone on a Code field from a place no cell measures";
     for (name, origin) in [
         ("AtSignAlone_ReportDataItemTableView_CodeField", "SetView: "),
@@ -107,34 +114,115 @@ fn at_sign_alone_neighbors() {
             outcome(name)
         );
     }
-    let negated = outcome("AtSignAloneNegated_CodeField_SourceRows");
-    assert!(
-        matches!(negated, Outcome::NotRun(w) if w.contains("`<>@`")),
-        "{negated:?}"
-    );
 }
 
-/// The cells of AtSignAloneReads.al (corpus PR 1495): every read method and place a filter comes from, flagged. Three stay refused:
-/// the two with `<>@` alone on a Code field (:698, :730) and the CalcFormula's quoted `filter('@')` (:579), whose lowering refuses a
-/// quoted literal with filter operators.
+/// `<>@` alone on a Code field from a query's SetFilter and DataItemTableFilter and as a FlowFilter CalcFields applies through
+/// field(): the cells (AtSignAloneReads.al:861, :871, :928) keep the K row and sum 10, and so do these neighbors, flagged.
+#[test]
+fn not_at_sign_alone_code_neighbors() {
+    let src = format!("{PROBE}\n{NEIGHBORS}");
+    let o = outcomes(&src, "BQ Not At Neighbor Tests");
+    assert_eq!(o.len(), 3);
+    for (name, r, marks) in &o {
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert!(
+            marks.contains(&Assumption::AtSignAloneDatabaseBlank),
+            "{name}: {marks:?}"
+        );
+    }
+}
+
+/// The cells of AtSignAloneReads.al (corpus PR 1495): every read method and place a filter comes from, `<>@` alone on a Code field
+/// (:698, :730, :792, :861, :871, :904, :928), the CalcFormula's quoted `filter('@')` and `filter('<>@')` (:579, :752) and the
+/// read-back of both (:823) included, flagged.
 #[test]
 fn at_sign_alone_reads_cells() {
     let o = outcomes(ROUTES, "AS Kind Tests");
-    assert_eq!(o.len(), 18);
+    assert_eq!(o.len(), 25);
     for (name, r, marks) in &o {
-        let refused = match name.as_str() {
-            "AtSignAloneNegated_DatabaseAndTemporary" | "AtSignAloneNegated_LookupFlowFieldFilter" => Some("`<>@`"),
-            "AtSignAlone_CalcFormulaConstFilter" => Some("is one quoted literal with filter operators in it"),
-            _ => None,
-        };
-        if let Some(why) = refused {
-            assert!(matches!(r, Outcome::NotRun(w) if w.contains(why)), "{name}: {r:?}");
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert!(
+            marks.contains(&Assumption::AtSignAloneDatabaseBlank),
+            "{name}: {marks:?}"
+        );
+    }
+}
+
+/// The cells of AtSignAloneMethods.al (corpus PR 1495): `<>@` alone read by DeleteAll, ModifyAll, CalcSums, FindLast, a report and
+/// a page (:215, :244, :279, :312, :345), a CalcFormula's `filter('@')` and `filter('<>@')` with every method (:376), and its sum over
+/// a Date source field (:395) and over an Integer, Decimal, Option or Boolean one, with the error's text and code (:430, :454),
+/// `<>@` alone in filter groups 1 and 2 (:489) and `<>@` alone and `@` alone set on a min or max FlowField (:552, :827), the other
+/// readers of a sum over the other source types (:657), an Option source with a blank member (:717) and a Code FlowFilter `<>@`
+/// with every method over Code and Text (:767), flagged. Filter
+/// group 1 of a temporary record (:507) keeps the runner's refusal of any SetFilter there, which is not about `@`.
+#[test]
+fn at_sign_alone_methods_cells() {
+    let o = outcomes(METHODS, "AM Kind Tests");
+    assert_eq!(o.len(), 16);
+    for (name, r, marks) in &o {
+        if name == "AtSignAloneNegated_FilterGroupOne_Temporary" {
+            assert!(
+                matches!(r, Outcome::NotRun(w) if w.contains("filter group 1 (the global group) on a temporary record")),
+                "{name}: {r:?}"
+            );
             continue;
         }
         assert_eq!(*r, Outcome::Pass, "{name}");
         assert!(
             marks.contains(&Assumption::AtSignAloneDatabaseBlank),
             "{name}: {marks:?}"
+        );
+    }
+}
+
+/// A CalcFormula's `filter('@')` past the cells of AtSignAloneMethods.al: a count over a Date source field, a sum over an Option
+/// field with an OptionCaption and over a Time field, which the lowering refuses before the test runs, and the error of a sum over
+/// an Integer field in a session of language 1031, which the run refuses (:430 and :454 measure 1033).
+#[test]
+fn at_sign_alone_other_source_neighbors_refused() {
+    let o = outcomes(SOURCES, "AN Source Neighbor Tests");
+    assert_eq!(o.len(), 4);
+    for (name, r, marks) in &o {
+        if name == "AtSignAlone_SumOverIntegerSource_OtherLanguage" {
+            assert!(
+                matches!(r, Outcome::NotRun(w) if w.contains("in a session of language 1031 (not measured)")),
+                "{name}: {r:?}"
+            );
+            assert!(
+                !marks.contains(&Assumption::AtSignAloneDatabaseBlank),
+                "{name}: {marks:?}"
+            );
+            continue;
+        }
+        assert!(
+            matches!(r, Outcome::NotRun(w) if w.contains("CalcFormula filter '@' over a") && w.contains("(not measured)")),
+            "{name}: {r:?}"
+        );
+    }
+}
+
+/// A CalcFormula's unquoted `filter(<>@)` does not compile on BC (must-not-compile case 3806: AL0726, AL0104, AL0870), as
+/// `filter(@)` does not (case 3805), with blanks in it or not (cases 3807, 3808): the lowering refuses them, over a Code and over a
+/// Text field, and never reads them as `@` alone or `<>@` alone.
+#[test]
+fn unquoted_calcformula_at_signs_refused() {
+    for (filter, field) in [
+        ("<>@", "Kind"),
+        ("<>@", "Note"),
+        ("@", "Kind"),
+        ("<> @", "Kind"),
+        ("<> @", "Note"),
+    ] {
+        let src = format!(
+            r#"table 97590 "UQ Row" {{ fields {{ field(1; "Group"; Code[20]) {{ }} field(2; Kind; Code[20]) {{ }} field(3; Note; Text[50]) {{ }} field(4; Amount; Decimal) {{ }} }} keys {{ key(PK; "Group", Kind) {{ }} }} }}
+table 97591 "UQ Host" {{ fields {{ field(1; "No."; Code[20]) {{ }} field(2; Total; Decimal) {{ FieldClass = FlowField; CalcFormula = sum("UQ Row".Amount where("Group" = field("No."), {field} = filter({filter}))); }} }} keys {{ key(PK; "No.") {{ }} }} }}
+codeunit 97590 "UQ Tests" {{ Subtype = Test; [Test] procedure Unquoted() var Host: Record "UQ Host"; begin Host."No." := 'G'; Host.CalcFields(Total); end; }}"#
+        );
+        let o = outcomes(&src, "UQ Tests");
+        let [(_, r, _)] = o.as_slice() else { panic!("{o:?}") };
+        assert!(
+            matches!(r, Outcome::NotRun(w) if w.contains(&format!("filter({filter}) without quotes"))),
+            "{filter} on {field}: {r:?}"
         );
     }
 }
@@ -151,13 +239,16 @@ fn at_sign_alone_crm_table_refused() {
     );
 }
 
-/// FilterPageBuilder.SetView with `@` alone on a Code field: no cell measures a filter page's view.
+/// FilterPageBuilder.SetView with `@` alone or `<>@` alone on a Code field: no cell measures a filter page's view, and the refusal
+/// names the filter it got.
 #[test]
 fn at_sign_alone_filter_page_view_refused() {
-    let src = r#"
-table 97590 "AS Fp Row" { fields { field(1; "No."; Code[20]) { } field(2; Kind; Code[20]) { } } keys { key(PK; "No.") { Clustered = true; } } }
+    for (filter, named) in [("@", "`@` alone"), ("<>@", "`<>@` alone")] {
+        let src = format!(
+            r#"
+table 97590 "AS Fp Row" {{ fields {{ field(1; "No."; Code[20]) {{ }} field(2; Kind; Code[20]) {{ }} }} keys {{ key(PK; "No.") {{ Clustered = true; }} }} }}
 codeunit 97591 "AS Fp Tests"
-{
+{{
     Subtype = Test;
     [Test]
     procedure FilterPageView_AtSignAlone()
@@ -166,14 +257,16 @@ codeunit 97591 "AS Fp Tests"
         Builder: FilterPageBuilder;
     begin
         Builder.AddRecord('Rows', Row);
-        Builder.SetView('Rows', 'WHERE(Kind=FILTER(@))');
+        Builder.SetView('Rows', 'WHERE(Kind=FILTER({filter}))');
     end;
-}
-"#;
-    let o = outcomes(src, "AS Fp Tests");
-    let [(_, r, _)] = o.as_slice() else { panic!("{o:?}") };
-    assert!(
-        matches!(r, Outcome::NotRun(w) if w.starts_with("FilterPageBuilder.SetView with `@` alone on a Code field")),
-        "{r:?}"
-    );
+}}
+"#
+        );
+        let o = outcomes(&src, "AS Fp Tests");
+        let [(_, r, _)] = o.as_slice() else { panic!("{o:?}") };
+        assert!(
+            matches!(r, Outcome::NotRun(w) if w.starts_with(&format!("FilterPageBuilder.SetView with {named} on a Code field"))),
+            "{filter}: {r:?}"
+        );
+    }
 }

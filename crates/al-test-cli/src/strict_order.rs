@@ -7,6 +7,11 @@
 //! Each pass runs the test codeunits of the listed files once more, alone, with `--strict-order`
 //! (`RunOptions::strict_order`), and their cases take the outcome of that run. They must pass there; no not-passing
 //! line is added for them.
+//!
+//! the corpus order probes of `metrics/strict-order-files.txt` (ADR-066 amendment 12, owner
+//! 2026-11-09): `parse`, `load`, `codeunits` (the listed files' test codeunits). `main.rs`
+//! `StrictOrder::of` picks them per pass and `StrictOrder::adopt` runs them alone with
+//! `strict_order`, then `CorpusRuntime::adopt_cases` gives their cases that run's outcomes.
 
 use crate::corpus::CorpusIndex;
 use std::collections::BTreeSet;

@@ -2,6 +2,15 @@
 //! the runner reads is derived from that file's expectations; the shapes it does not pin are refused as the page opens. Outside
 //! every chain: the turns to visible (`read_hidden_parts_the_action_showed`, which runs one pinned shape and refuses the
 //! rest, and `note_hidden_part_found_visible`).
+//!
+//! Parts a Visible expression hid: the Provider-chain shapes of
+//! testpage/parts/ProviderLinkedPartsMatrix.al, and outside every chain the turns to visible: one
+//! pinned turn by an action's body, an extra read (`read_hidden_parts_the_action_showed`;
+//! `first_turn_as_pinned` lists the conditions, every other turn in an action body is refused); a
+//! turn by the host's trigger or an OnValidate, flagged `hidden-part-shown-outside-action`
+//! (`note_hidden_part_found_visible`, per refill: `PageState::visible_at_sync`, `seen_visible`).
+//! Entry points: `read_blank_before_parts_turning_visible`, `before_action_body`,
+//! `read_hidden_parts_the_action_showed`, `note_hidden_part_found_visible`.
 
 use super::*;
 

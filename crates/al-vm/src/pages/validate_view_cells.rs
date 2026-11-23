@@ -1,7 +1,19 @@
 //! The cells of corpus pull request 1518, tests/al-language/pages/currpage/ListValidateFilterRefresh.al (merged), with the
-//! read cells of corpus pull requests 1529 (the same file) and 1535 (ListValidateViewReads.al, open), that
-//! `validate_view_refresh.rs` runs: the code of each measured page line for line (`pinned_body.rs`), and the test's steps on
-//! it, each cell with the line of its test.
+//! read cells of corpus pull requests 1529 (the same file) and 1535 (ListValidateViewReads.al, open), and of corpus pull
+//! request 1539, TreeValidateFilterRefresh.al (open), that `validate_view_refresh.rs` runs: the code of each measured page
+//! line for line (`pinned_body.rs`), and the test's steps on it, each cell with the line of its test.
+//!
+//! The probe objects of corpus pull request 1518 (ListValidateFilterRefresh.al) line for line, one
+//! `CellPage` per page shape (the List without OnAfterGetCurrRecord, the issue's List, the List with
+//! both row triggers, the List with OnAfterGetCurrRecord only, the Card, the Card of issue 8717; and
+//! the trees of corpus pull request 1539, TreeValidateFilterRefresh.al: the issue's tree of 8833 and
+//! the trees with OnAfterGetRecord, both row triggers, OnAfterGetCurrRecord and CollapseAll), and the
+//! cells' test calls on each (`Cell`, `Step`; the test's read-only calls at the points corpus pull
+//! requests 1529 and 1535 measure are one `Step::Reads`, the calls of each page in
+//! `CellPage::read_calls`). Page 97498 of ListValidateViewReads.al (`CellPage::Wide`) is the issue's
+//! page with controls of every type. Data only; `validate_view_refresh.rs` reads it.
+
+use al_builtins::assumptions::Assumption;
 
 /// The probe's table 97581 "LT RFU Line" (ListValidateFilterRefresh.al:17-41), and the table of al-runner issue 8698's repro:
 /// `«L»` is the log codeunit.
@@ -184,7 +196,125 @@ const EDIT_PAGE: [&str; 9] = [
 /// Its log codeunit's Add: the probe's codeunit 97573 "LT RFU Edit Log" (:1548-1568) and the repro's.
 const EDIT_CALLEES: [&str; 1] = [CALLEES[0]];
 
-/// Which measured page a page is.
+/// The tree pages of corpus pull request 1539, tests/al-language/pages/currpage/TreeValidateFilterRefresh.al (open): the issue's
+/// table 97716 "LT TVF Row" (:19-35), the table of al-runner issue 8833's repro reads the same.
+const TREE_ISSUE_TABLE: [&str; 6] = [
+    "DataClassification = SystemMetadata",
+    "field 1 \"Group Code\": Code[10]",
+    "field 2 \"Entry No.\": Integer",
+    "field 3 \"Name\": Text[30]",
+    "field 4 \"Indentation\": Integer",
+    "key \"Group Code\", \"Entry No.\" {Clustered=true}",
+];
+
+/// The repeater of the tree pages: C indented under B, TreeInitialState ExpandAll.
+const TREE_REPEATER: &str = "repeater Lines in - {indentationcolumn=Rec.Indentation; indentationcontrols=Name; showastree=true; \
+                             treeinitialstate=ExpandAll}";
+
+/// The issue's page 97718 "LT TVF Issue Tree" (:82-119); the page of issue 8833's repro reads the same, and its log
+/// codeunit's Add (`EDIT_CALLEES`).
+const TREE_ISSUE_PAGE: [&str; 8] = [
+    "PageType = List",
+    "SourceTable = \"«T»\"",
+    "ApplicationArea = All",
+    "UsageCategory = Lists",
+    TREE_REPEATER,
+    "field Name in Lines = Name {}",
+    "  trigger onvalidate: begin Rec.SetRange(field#0, 'G1'); CurrPage.Update(false); end",
+    "trigger onaftergetrecord: begin Log.Add((('AGR(' + Rec.\"Name\") + ')')); end",
+];
+
+/// Page 97714 "LT TVF Drop Tree" (:1585-1614): the issue's tree page without OnAfterGetRecord; the page of al-runner issue
+/// 8846's repro reads the same.
+const TREE_DROP_PAGE: [&str; 7] = [
+    TREE_ISSUE_PAGE[0],
+    TREE_ISSUE_PAGE[1],
+    TREE_ISSUE_PAGE[2],
+    TREE_ISSUE_PAGE[3],
+    TREE_ISSUE_PAGE[4],
+    TREE_ISSUE_PAGE[5],
+    TREE_ISSUE_PAGE[6],
+];
+
+/// Table 97719 "LT TVF Line" (:121-138) of the configurable tree pages, whose ChangeView and log codeunit 97717 read as
+/// `CALLEES`.
+const TREE_TABLE: [&str; 7] = [
+    "DataClassification = CustomerContent",
+    "field 1 \"Group Code\": Code[10]",
+    "field 2 \"Entry No.\": Integer",
+    "field 3 \"Name\": Text[30]",
+    "field 4 \"Value\": Text[30]",
+    "field 5 \"Indentation\": Integer",
+    "key \"Group Code\", \"Entry No.\" {Clustered=true}",
+];
+
+/// Page 97720 "LT TVF Tree" (:141-226): the tree with OnAfterGetRecord only. 97721 adds OnAfterGetCurrRecord (:229-319), 97722
+/// has OnAfterGetCurrRecord only (:322-407), 97723 is 97720 with TreeInitialState CollapseAll (:410-495).
+const TREE_PAGE: [&str; 13] = [
+    LINES_PAGE[0],
+    LINES_PAGE[1],
+    LINES_PAGE[2],
+    LINES_PAGE[3],
+    TREE_REPEATER,
+    LINES_PAGE[5],
+    NAME_VALIDATE,
+    LINES_PAGE[7],
+    VALUE_VALIDATE,
+    ACTION,
+    ON_ACTION,
+    ACTION_AREA,
+    AGR,
+];
+const TREE_BOTH_PAGE: [&str; 14] = [
+    LINES_PAGE[0],
+    LINES_PAGE[1],
+    LINES_PAGE[2],
+    LINES_PAGE[3],
+    TREE_REPEATER,
+    LINES_PAGE[5],
+    NAME_VALIDATE,
+    LINES_PAGE[7],
+    VALUE_VALIDATE,
+    ACTION,
+    ON_ACTION,
+    ACTION_AREA,
+    AGR,
+    AGCR,
+];
+const TREE_CURR_PAGE: [&str; 13] = [
+    LINES_PAGE[0],
+    LINES_PAGE[1],
+    LINES_PAGE[2],
+    LINES_PAGE[3],
+    TREE_REPEATER,
+    LINES_PAGE[5],
+    NAME_VALIDATE,
+    LINES_PAGE[7],
+    VALUE_VALIDATE,
+    ACTION,
+    ON_ACTION,
+    ACTION_AREA,
+    AGCR,
+];
+const TREE_COLLAPSED_PAGE: [&str; 13] = [
+    LINES_PAGE[0],
+    LINES_PAGE[1],
+    LINES_PAGE[2],
+    LINES_PAGE[3],
+    "repeater Lines in - {indentationcolumn=Rec.Indentation; indentationcontrols=Name; showastree=true; \
+     treeinitialstate=CollapseAll}",
+    LINES_PAGE[5],
+    NAME_VALIDATE,
+    LINES_PAGE[7],
+    VALUE_VALIDATE,
+    ACTION,
+    ON_ACTION,
+    ACTION_AREA,
+    AGR,
+];
+
+/// Which measured page a page is (the line numbers of TreeValidateFilterRefresh.al are those of corpus pull request 1539's head
+/// 7eab6eba).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CellPage {
     /// Page 97583, the issue's page of 8698: a List with OnAfterGetRecord only.
@@ -201,10 +331,24 @@ pub(crate) enum CellPage {
     EditCard,
     /// Page 97498 of ListValidateViewReads.al: the issue's page with controls of every type.
     Wide,
+    /// Page 97718 of TreeValidateFilterRefresh.al, the issue's tree of 8833: OnAfterGetRecord only.
+    TreeIssue,
+    /// Page 97720: a tree with OnAfterGetRecord only.
+    Tree,
+    /// Page 97721: a tree with OnAfterGetRecord and OnAfterGetCurrRecord.
+    TreeBoth,
+    /// Page 97722: a tree with OnAfterGetCurrRecord only.
+    TreeCurr,
+    /// Page 97723: the tree of 97720 with TreeInitialState CollapseAll.
+    TreeCollapsed,
+    /// Page 97714, the tree of issue 8846: the issue's tree of 8833 without OnAfterGetRecord.
+    TreeDrop,
+    /// Page 97727: the List over the tree's table, 97720 without ShowAsTree.
+    TreeLines,
 }
 
 impl CellPage {
-    pub(crate) const ALL: [CellPage; 7] = [
+    pub(crate) const ALL: [CellPage; 14] = [
         CellPage::Issue,
         CellPage::Lines,
         CellPage::Both,
@@ -212,6 +356,13 @@ impl CellPage {
         CellPage::Card,
         CellPage::EditCard,
         CellPage::Wide,
+        CellPage::TreeIssue,
+        CellPage::Tree,
+        CellPage::TreeBoth,
+        CellPage::TreeCurr,
+        CellPage::TreeCollapsed,
+        CellPage::TreeDrop,
+        CellPage::TreeLines,
     ];
 
     /// The lines of the page, of its table and of the procedures they call.
@@ -230,6 +381,13 @@ impl CellPage {
             CellPage::Card => (&CARD_PAGE, &TABLE, &CALLEES),
             CellPage::EditCard => (&EDIT_PAGE, &EDIT_TABLE, &EDIT_CALLEES),
             CellPage::Wide => (&WIDE_PAGE, &WIDE_TABLE, &EDIT_CALLEES),
+            CellPage::TreeIssue => (&TREE_ISSUE_PAGE, &TREE_ISSUE_TABLE, &EDIT_CALLEES),
+            CellPage::Tree => (&TREE_PAGE, &TREE_TABLE, &CALLEES),
+            CellPage::TreeBoth => (&TREE_BOTH_PAGE, &TREE_TABLE, &CALLEES),
+            CellPage::TreeCurr => (&TREE_CURR_PAGE, &TREE_TABLE, &CALLEES),
+            CellPage::TreeCollapsed => (&TREE_COLLAPSED_PAGE, &TREE_TABLE, &CALLEES),
+            CellPage::TreeDrop => (&TREE_DROP_PAGE, &TREE_ISSUE_TABLE, &[]),
+            CellPage::TreeLines => (&LINES_PAGE, &TREE_TABLE, &CALLEES),
         }
     }
 
@@ -243,10 +401,17 @@ impl CellPage {
             CellPage::Card => &CARD_CELLS,
             CellPage::EditCard => &EDIT_CELLS,
             CellPage::Wide => &WIDE_CELLS,
+            CellPage::TreeIssue => &TREE_ISSUE_CELLS,
+            CellPage::Tree => &TREE_CELLS,
+            CellPage::TreeBoth => &TREE_BOTH_CELLS,
+            CellPage::TreeCurr => &TREE_CURR_CELLS,
+            CellPage::TreeCollapsed => &TREE_COLLAPSED_CELLS,
+            CellPage::TreeDrop => &TREE_DROP_CELLS,
+            CellPage::TreeLines => &TREE_LINES_CELLS,
         }
     }
 
-    /// The rows the table held in every cell on the page (:563-565 three; :1622 one).
+    /// The rows the table held in every cell on a page other than the tree pages and their List (:563-565 three; :1622 one).
     pub(crate) fn table_rows(self) -> usize {
         match self {
             CellPage::EditCard => 1,
@@ -258,7 +423,58 @@ impl CellPage {
     /// Close read the row first when the page's last read was of another row. On the other pages every cell's last read
     /// before such a call was of the row itself.
     pub(crate) fn reads_first(self) -> bool {
-        matches!(self, CellPage::Issue | CellPage::Wide | CellPage::Lines)
+        matches!(
+            self,
+            CellPage::Issue
+                | CellPage::Wide
+                | CellPage::Lines
+                | CellPage::TreeIssue
+                | CellPage::Tree
+                | CellPage::TreeCollapsed
+                | CellPage::TreeLines
+        )
+    }
+
+    /// The rows of the table, in the key, that `cell` on the page had (`Cell::rows`): on a tree page and on the List over the
+    /// tree's table; `None` elsewhere.
+    pub(crate) fn tree_rows(self, cell: &Cell) -> Option<&'static [Row]> {
+        if self.tree() || self == CellPage::TreeLines {
+            // Every cell of these pages names its rows; one that does not would hold none.
+            return Some(cell.rows.unwrap_or(&[]));
+        }
+        None
+    }
+
+    /// A tree page of TreeValidateFilterRefresh.al (assumption `tree-validate-view-refresh`).
+    pub(crate) fn tree(self) -> bool {
+        matches!(
+            self,
+            CellPage::TreeIssue
+                | CellPage::Tree
+                | CellPage::TreeBoth
+                | CellPage::TreeCurr
+                | CellPage::TreeCollapsed
+                | CellPage::TreeDrop
+        )
+    }
+
+    /// The entry the rule runs under on the page: the pages of TreeValidateFilterRefresh.al, the List 97727 too, run under
+    /// `tree-validate-view-refresh`; the Lists without OnAfterGetCurrRecord of ListValidateFilterRefresh.al under
+    /// `list-validate-view-refresh`; the other pages under `validate-update-false-rereads-row`.
+    pub(crate) fn assumption(self) -> Assumption {
+        match self {
+            CellPage::Issue | CellPage::Wide | CellPage::Lines => Assumption::ListValidateViewRefresh,
+            CellPage::Both | CellPage::Curr | CellPage::Card | CellPage::EditCard => {
+                Assumption::ValidateUpdateFalseRereadsRow
+            }
+            CellPage::TreeIssue
+            | CellPage::Tree
+            | CellPage::TreeBoth
+            | CellPage::TreeCurr
+            | CellPage::TreeCollapsed
+            | CellPage::TreeDrop
+            | CellPage::TreeLines => Assumption::TreeValidateViewRefresh,
+        }
     }
 
     /// Whether control read `m` with `args` on a field of type `ty` is one the read cells of the page measure. On page 97498
@@ -312,8 +528,8 @@ const PAGE_READS: [PageMethod; 3] = [
 ];
 
 /// The read-only calls of corpus pull request 1535 on page 97498 (ListValidateViewReads.al `ReadsLines` blocks 1 and 2):
-/// the As* reads, OptionCount and GetOption on a control, IsExpanded on the page. GetField by a control id (block 3) is not
-/// among them: the runner does not know the compiler's control ids.
+/// the As* reads, OptionCount and GetOption on a control, IsExpanded on the page. GetField by the Name control's id (block 3)
+/// is checked by its id (`validate_view_reads`).
 const WIDE_CONTROL_READS: [PageMethod; 8] = [
     PageMethod::AsBoolean,
     PageMethod::AsDate,
@@ -368,6 +584,8 @@ pub(crate) enum Step {
     Action(Upd, Change),
     /// The test's read-only calls between two steps, any number of them (`validate_view_reads`).
     Reads,
+    /// `Expand(true)` on the tree's row.
+    Expand,
     /// A step the cells do not take.
     Other,
 }
@@ -381,17 +599,33 @@ pub(crate) enum Tail {
     FirstClose,
     /// Close.
     Close,
+    /// No call: the last SetValue raised the filtered-view error, and every later call on the page refuses.
+    End,
 }
+
+/// One row of the table a cell on a tree page had, in the key: its Group Code and its Indentation.
+pub(crate) type Row = (&'static str, i32);
+
+/// The rows of the tree cells: A (G0) and B (G1) at the top, C (G1) under B (TreeValidateFilterRefresh.al:507 `Initialize`,
+/// :514-:519).
+const TREE_ROWS: [Row; 3] = [("G0", 0), ("G1", 0), ("G1", 1)];
+
+/// The rows of the flat cells: A (G0), B (G1) and C (G2), none indented (:1167 `InitializeFlat`); the same groups in the key
+/// over other entry numbers (:1436, :1448 `InitializeShape`).
+const FLAT_ROWS: [Row; 3] = [("G0", 0), ("G1", 0), ("G2", 0)];
 
 /// The steps of one cell and the calls after them.
 pub(crate) struct Cell {
     pub(crate) steps: &'static [Step],
     pub(crate) tail: Tail,
+    /// On a tree page and on the List over the tree's table, the rows the table held (`CellPage::tree_rows`); `None` on the
+    /// other pages, whose cells hold the number of rows only (`CellPage::table_rows`).
+    pub(crate) rows: Option<&'static [Row]>,
 }
 
 use Change::{Drop, Keep, KeepText, Reset, Same};
 use Ctl::{Name, Value as Val};
-use Step::{Action, Fail, GoToKey, Last, Previous, Reads, Set};
+use Step::{Action, Expand, Fail, GoToKey, Last, Previous, Reads, Set};
 use al_builtins::page_op::PageMethod;
 use al_builtins::value::{RtType, Value};
 
@@ -399,6 +633,7 @@ const fn walk(steps: &'static [Step]) -> Cell {
     Cell {
         steps,
         tail: Tail::Walk,
+        rows: None,
     }
 }
 
@@ -406,7 +641,38 @@ const fn close(steps: &'static [Step]) -> Cell {
     Cell {
         steps,
         tail: Tail::Close,
+        rows: None,
     }
+}
+
+const fn end(steps: &'static [Step]) -> Cell {
+    Cell {
+        steps,
+        tail: Tail::End,
+        rows: None,
+    }
+}
+
+/// `cell` over rows none indented.
+const fn flat(cell: Cell) -> Cell {
+    over(&FLAT_ROWS, cell)
+}
+
+/// `cell` over `rows`.
+const fn over(rows: &'static [Row], cell: Cell) -> Cell {
+    Cell {
+        rows: Some(rows),
+        ..cell
+    }
+}
+
+/// `walk(steps)` and `end(steps)` over the tree cells' rows.
+const fn tree_walk(steps: &'static [Step]) -> Cell {
+    over(&TREE_ROWS, walk(steps))
+}
+
+const fn tree_end(steps: &'static [Step]) -> Cell {
+    over(&TREE_ROWS, end(steps))
 }
 
 /// Last, a SetValue on Name with `update` and `change` whose refresh settled on row `at` of a view of `rows`, then a SetValue on
@@ -518,6 +784,7 @@ const ISSUE_CELLS: [Cell; 6] = [
     Cell {
         steps: &KEEP_F,
         tail: Tail::FirstClose,
+        rows: None,
     },
     walk(&[Last, Set(Name, Upd::False, Keep, Some((2, 1)))]),
 ];
@@ -575,4 +842,88 @@ const EDIT_CELLS: [Cell; 3] = [
     close(&[GoToKey, Set(Name, Upd::False, Same, Some((1, 0)))]),
     close(&[GoToKey, Reads, Set(Name, Upd::False, Same, Some((1, 0)))]), // PR 1529 :2846, :2869
     close(&[GoToKey, Set(Name, Upd::False, Same, Some((1, 0))), Reads]), // :2892, :2915
+];
+
+/// The tree cells (TreeValidateFilterRefresh.al of corpus pull request 1539). The rows of the view are those of the tree, its
+/// hidden child C too: SetRange on G1 keeps B (renamed C2) and C, the row first; no change keeps A, C2 and C, the row second.
+const TREE_KEEP_F: [Step; 3] = name_then_value(Upd::False, Keep, 2, 0);
+const TREE_KEEP_TEXT_F: [Step; 3] = name_then_value(Upd::False, KeepText, 2, 0);
+const TREE_KEEP_T: [Step; 3] = name_then_value(Upd::True, Keep, 2, 0);
+const TREE_SAME_F: [Step; 3] = name_then_value(Upd::False, Same, 3, 1);
+const TREE_EXPANDED_F: [Step; 4] = [Last, Expand, TREE_KEEP_F[1], TREE_KEEP_F[2]];
+
+/// The cells on the issue's tree page 97718 and the repro's test: Last, the SetValue on Name, then First, the walk and Close
+/// (:761); the same with Expand(true) on B after Last (:777); the SetValue on the first row A, whose filter leaves it out of
+/// the view of B and C (:1347).
+const TREE_ISSUE_CELLS: [Cell; 3] = [
+    tree_walk(&[Last, Set(Name, Upd::False, Keep, Some((2, 0)))]),
+    tree_walk(&[Last, Expand, Set(Name, Upd::False, Keep, Some((2, 0)))]),
+    tree_end(&[Set(Name, Upd::False, Drop, Some((2, 0)))]),
+];
+
+/// The cell on page 97714 and the repro's test of issue 8846: the SetValue on the first row A, in a TryFunction (:1370) or
+/// under asserterror (:1390).
+const TREE_DROP_CELLS: [Cell; 1] = [tree_end(&[Set(Name, Upd::False, Drop, Some((2, 0)))])];
+
+/// The cells on page 97727, over the flat rows (`FLAT_ROWS`): the SetValue on Name from the first, the middle and
+/// the last row, the filter leaving the row out; then the SetValue on Value, First, the walk and Close (:1246, :1264, :1282).
+const TREE_LINES_CELLS: [Cell; 3] = [
+    flat(walk(&[DROP_TO_FIRST, Set(Val, Upd::False, Same, Some((1, 0)))])),
+    flat(walk(&[
+        Last,
+        Previous,
+        DROP_TO_FIRST,
+        Set(Val, Upd::False, Same, Some((1, 0))),
+    ])),
+    flat(walk(&DROP_F)), // :1282, and :1484 SetRange on G0 with B between
+];
+
+/// A SetValue on Name, Update(false), whose filter leaves the row out of a view of `rows`, the refresh settling on the first.
+const DROP_TO_FIRST: Step = Set(Name, Upd::False, Drop, Some((1, 0)));
+
+/// The cells on page 97720 (the line of each test). Then a filter that leaves the row out over the rows A (G0), B (G1) and C
+/// (G2), none indented, from the first, the middle and the last row, the same groups over other entries in the key from the
+/// first and the last row; from the middle row over the groups G0, G1 and G5; over the tree's rows, where Last stands on B and
+/// SetRange on G0 leaves it out (:1146); and over a child in G0 before two top-level rows in G1, where Last stands on the
+/// last of them and SetRange on G0 keeps only the child (:1460).
+const TREE_CELLS: [Cell; 14] = [
+    tree_walk(&TREE_KEEP_F),      // :794
+    tree_walk(&TREE_KEEP_TEXT_F), // :812
+    tree_walk(&TREE_KEEP_T),      // :830
+    tree_walk(&[
+        Last,
+        Set(Name, Upd::None, Keep, None),
+        Set(Val, Upd::False, Same, Some((2, 0))),
+    ]), // :848
+    tree_walk(&TREE_SAME_F),      // :866, and :884 (Reset of no filter)
+    tree_walk(&TREE_EXPANDED_F),  // :902
+    tree_walk(&[Last, Action(Upd::False, Keep), Set(Val, Upd::False, Same, Some((2, 0)))]), // :921
+    tree_walk(&[Last, Set(Val, Upd::False, Same, Some((3, 1)))]), // :1129
+    flat(tree_end(&[DROP_TO_FIRST])), // :1300, :1436
+    flat(tree_end(&[Last, Previous, DROP_TO_FIRST])), // :1312
+    flat(tree_end(&[Last, DROP_TO_FIRST])), // :1324, :1448, and :1472 SetRange on G0 with B between
+    tree_end(&[Last, DROP_TO_FIRST]), // :1146
+    over(
+        &[("G0", 0), ("G1", 0), ("G5", 0)],
+        tree_end(&[Last, Previous, DROP_TO_FIRST]),
+    ), // :1424
+    over(&[("G0", 1), ("G1", 0), ("G1", 0)], tree_end(&[Last, DROP_TO_FIRST])), // :1460
+];
+
+/// The cells on page 97721, both row triggers (:939, :957, :975, :993).
+const TREE_BOTH_CELLS: [Cell; 4] = [
+    tree_walk(&TREE_KEEP_F),
+    tree_walk(&TREE_KEEP_T),
+    tree_walk(&TREE_SAME_F),
+    tree_walk(&TREE_EXPANDED_F),
+];
+
+/// The cells on page 97722, OnAfterGetCurrRecord only (:1012, :1030).
+const TREE_CURR_CELLS: [Cell; 2] = [tree_walk(&TREE_KEEP_F), tree_walk(&TREE_SAME_F)];
+
+/// The cells on page 97723, CollapseAll (:1048, :1066, :1084).
+const TREE_COLLAPSED_CELLS: [Cell; 3] = [
+    tree_walk(&TREE_KEEP_F),
+    tree_walk(&TREE_SAME_F),
+    tree_walk(&TREE_EXPANDED_F),
 ];

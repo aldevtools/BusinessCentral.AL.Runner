@@ -26,6 +26,25 @@
 //! only while a read the cell measured runs: a test Invoke of an action of the part right after the landing, which ends at
 //! any other test call on the host or its parts that starts inside it (`Session::reading_empty_list_rec`,
 //! `Session::end_read_at_test_call`). Code that the Invoke runs itself (the action body and what it calls) reads the values.
+//!
+//! What Rec of a ListPart that shows no row holds after it read its empty view: the single values of
+//! its SubPageLink on key fields (const, field, a filter of one value; not a range; stamped by
+//! `stamp_from_filters`), only for the measured shape: link fields all in the key and the link the
+//! part's only filter, no SourceTableView, PopulateAllFields or OnNewRecord, a top-level Card or
+//! Document host on a stored row or the OpenNew row, the part landing as the host opens or after a
+//! GoToRecord of a host opened for view that left the row (al-runner issue 6924, page 1178's
+//! OpenInDetail; corpus pull request 1335 pages/parts/EmptyPartRecLink.al), or a List-host cell
+//! (`empty_part_rec_list.rs`). A part of a top-level List host outside the cells gets the fields its
+//! filters name as `Value::Unknown` (a read is refused with the first fact outside the cells); in a
+//! cell the fields the filters name are unknown too, and Rec holds the values only while a read the
+//! cell measured runs (`reading_empty_list_rec`, called by `dirty_step.rs` around a test call on a
+//! control: a test Invoke of an action of the part right after the landing, with the landing's facts
+//! unchanged, `measured_read`; `PageState::empty_list_landing`, `EmptyListLanding`: the landing's
+//! step count, measured reads and store state, which is the store's change counter and
+//! `Session::rollbacks`; the landing ends when the part reads its view again and at a page-code call
+//! on the part, `end_empty_list_landing`); every other part keeps the blank record. Entry points:
+//! `empty_part_rec` (by `page_first_row_from` and, for a part of a List host, by `filter.rs`);
+//! `reading_empty_list_rec`; `Session::host_move_running` (`HostMove`, set in `pageops.rs`).
 
 use super::empty_part_rec_list::ListCell;
 use super::parts::LINK_GROUP;

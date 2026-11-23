@@ -13,6 +13,12 @@
 //! first call that succeeds is charged at most [`FIRST_CALL_CHARGE_CAP`].
 //!
 //! Requests and replies use the frames of the session sidecar (`crate::dotnet`); bytes travel as Base64.
+//!
+//! The report render process (ADR-040 amendment 2026-11-13b): the helper started with `--render`, one
+//! per run, calls one at a time, started on first need, `MAX_STARTS` starts a run (3 starts, 2
+//! restarts after a crash), then every need is unavailable; `render_probe` kept per run; the frames
+//! and the hello check are `dotnet.rs`'s (`Proc::send`, `check_hello`). Entry points: `RenderHost`,
+//! `RenderPieces`, `PrepareFn`.
 
 use crate::dotnet::{
     PROTOCOL, Proc, SidecarConfig, base64, check_hello, resolve, spawn_helper, unbase64, wire_probe_dirs,

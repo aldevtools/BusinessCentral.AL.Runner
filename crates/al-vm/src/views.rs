@@ -5,6 +5,13 @@
 //! grammar through the strings it feeds to `SetView`
 //! (`'SORTING(Entry No.) WHERE(Entry No.=FILTER(1..3))'`:
 //! recordref-fieldref/recordref/TestRecordRefFilter.al:23). Anything else is refused.
+//!
+//! Filter and view text: SetView, GetFilters, filter group text, AL property views (`property_view`),
+//! the one reader of a view's parts (`view_parts`, `view_clauses`: which of SORTING, ORDER, WHERE a
+//! view has). Entry points: `parse_filter_text`, `filter_text`, `get_filters`, `property_view`,
+//! `view_clauses`. `get_filters_order`: the order of a FlowField filter and a FlowFilter filter in
+//! GetFilters, RecordRef.GetFilters and a Find error text (the one shape
+//! record/filters/ByValueRecordView.al:575-582 pins; every shape outside it refuses).
 
 use crate::Session;
 use al_builtins::describe::Describe;
@@ -17,7 +24,7 @@ use std::rc::Rc;
 
 type Rec = Rc<RefCell<RecordState>>;
 
-/// `filter::parse_filter_with` or `filter::parse_filter_at_sign_measured`.
+/// `filter::parse_filter_with` or `filter::parse_filter_both_at_signs_measured`.
 type ParseFilter =
     fn(&str, &[Value], &RtType, &dyn Fn(u32) -> Result<Vec<(i32, String)>, String>) -> Result<FilterExpr, String>;
 
@@ -46,13 +53,14 @@ impl Session {
         self.parse_filter_text_by(al_builtins::filter::parse_filter_with, text, ty)
     }
 
-    /// [`Self::parse_filter_text`] where the cells measure `@` alone on a Code field (`filter::parse_filter_at_sign_measured`).
-    pub(crate) fn parse_filter_text_at_sign_measured(
+    /// [`Self::parse_filter_text`] where the cells measure `@` alone and `<>@` alone on a Code field
+    /// (`filter::parse_filter_both_at_signs_measured`).
+    pub(crate) fn parse_filter_text_both_at_signs_measured(
         &self,
         text: &str,
         ty: &al_builtins::value::RtType,
     ) -> Result<FilterExpr, String> {
-        self.parse_filter_text_by(al_builtins::filter::parse_filter_at_sign_measured, text, ty)
+        self.parse_filter_text_by(al_builtins::filter::parse_filter_both_at_signs_measured, text, ty)
     }
 
     fn parse_filter_text_by(
@@ -296,7 +304,11 @@ impl Session {
             FilterExpr::NotLike(p, ci) => format!("<>{}{p}", if *ci { "@" } else { "" }),
             // record/filters/WcInvalidFilterExpr.al:84-111: `@` and `<>@` read back as written.
             FilterExpr::AtSignAlone(negated) => if *negated { "<>@" } else { "@" }.to_string(),
-            FilterExpr::AtSignAloneCode => "@".to_string(),
+            // GetFilter, GetFilters and GetView write `@` and `<>@` alone on a Code field as written (AtSignAloneReads.al:823).
+            FilterExpr::AtSignAloneCode(negated) => {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::AtSignAloneDatabaseBlank);
+                if *negated { "<>@" } else { "@" }.to_string()
+            }
             FilterExpr::EmptyViewValue => "==".to_string(),
             FilterExpr::UnpinnedMatch(inner, _) => self.filter_text_with(inner, iso)?,
             FilterExpr::UnpinnedText(_) => {
@@ -797,9 +809,10 @@ impl Session {
                         let expr = match empty {
                             Some(e) => e,
                             None => {
-                                // `@` alone on a Code field is measured in a view SetView gets, not in an object property.
+                                // `@` alone and `<>@` alone on a Code field are measured in a view SetView gets, not in an
+                                // object property.
                                 let parse = if runtime {
-                                    Self::parse_filter_text_at_sign_measured
+                                    Self::parse_filter_text_both_at_signs_measured
                                 } else {
                                     Self::parse_filter_text
                                 };
@@ -982,7 +995,7 @@ fn ordinals(e: &FilterExpr) -> FilterExpr {
         FilterExpr::Like(p, ci) => FilterExpr::Like(p.clone(), *ci),
         FilterExpr::NotLike(p, ci) => FilterExpr::NotLike(p.clone(), *ci),
         FilterExpr::AtSignAlone(n) => FilterExpr::AtSignAlone(*n),
-        FilterExpr::AtSignAloneCode => FilterExpr::AtSignAloneCode,
+        FilterExpr::AtSignAloneCode(n) => FilterExpr::AtSignAloneCode(*n),
         FilterExpr::EmptyViewValue => FilterExpr::EmptyViewValue,
         FilterExpr::UnpinnedMatch(..) | FilterExpr::UnpinnedText(_) => e.clone(),
         FilterExpr::NumCode(e) => FilterExpr::NumCode(e.clone()),

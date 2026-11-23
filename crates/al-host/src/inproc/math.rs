@@ -14,6 +14,9 @@
 //! What .NET answers, measured with .NET 8 and 10 and kept equal by the differential test (`dotnet_diff.rs`):
 //! a zero never prints a sign; `Abs` keeps the scale; `Floor`, `Ceiling` and `Truncate` give scale 0; `Max` of two equal
 //! values gives the first, `Min` the second (`Max(1.0, 1.00)` is `1.0`, `Min(1.0, 1.00)` is `1.00`).
+//!
+//! Exact decimal `System.Math` members and `TimeSpan.FromTicks` (ADR-038 amendment 2026-11-09). Entry
+//! points: `math`, `time_span`.
 
 use crate::dotnet::DotNetValue;
 use std::cmp::Ordering;

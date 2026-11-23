@@ -4,13 +4,14 @@
 //! the capture is a clone of a root pointer), the counters that must not repeat (system ids,
 //! row versions, AutoIncrement), isolated storage and number sequences. Execution state
 //! (single-instance codeunits, bindings, handlers) starts fresh, as in a new BC session.
+//!
+//! The install baseline (ADR-013 decision 5, ADR-004), with the install routines that could not run
+//! (`SkippedInstall`: `tables`, `assumed`, `why`). Entry points: `Baseline`, `SkippedInstall`.
 
 use crate::Session;
 
 mod install_orders;
-mod row_delta;
 mod shared;
-pub use row_delta::RowDelta;
 pub use shared::{NotShared, SharedBaseline};
 
 /// What a session keeps of the baseline run; see the module comment.
