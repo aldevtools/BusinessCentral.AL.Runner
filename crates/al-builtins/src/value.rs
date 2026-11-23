@@ -857,14 +857,22 @@ impl RecordState {
     /// IsDirty, RecordRef.IsDirty and Modify compare with (`is_dirty_base`, `dirty_base`, `last_modify`).
     pub fn blob_copies_of(&self, pos: usize, b: &crate::stream::BlobRef) -> usize {
         let holds = |row: &[Value]| matches!(row.get(pos), Some(Value::Blob(o)) if std::sync::Arc::ptr_eq(o, b));
-        let mut rows: Vec<&[Value]> = vec![&self.fields];
-        rows.extend(self.dirty_base.as_deref());
-        rows.extend(self.last_modify.as_deref());
-        if let DirtyBase::Row { base, alt, .. } = &self.is_dirty_base {
-            rows.push(base);
-            rows.extend(alt.as_deref());
-        }
-        rows.into_iter().filter(|r| holds(r)).count()
+        // Without a vector of the rows: every write through an OutStream on a temporary record's Blob counts here.
+        let (base, alt) = match &self.is_dirty_base {
+            DirtyBase::Row { base, alt, .. } => (Some(base.as_slice()), alt.as_deref()),
+            _ => (None, None),
+        };
+        [
+            Some(&self.fields[..]),
+            self.dirty_base.as_deref(),
+            self.last_modify.as_deref(),
+            base,
+            alt,
+        ]
+        .into_iter()
+        .flatten()
+        .filter(|r| holds(r))
+        .count()
     }
 
     /// A copy of the record that is a variable of its own: a by-value parameter (also a temporary one). It reads the

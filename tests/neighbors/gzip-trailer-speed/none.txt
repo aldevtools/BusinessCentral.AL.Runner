@@ -1,0 +1,1 @@
+Pure speed change of stream byte calls (temp Blob guard, Integer to Byte, InStream.Read write-back): no observable behavior change; --baseline-diff shows 0 regressions on BC 27, 28 and 29.

@@ -1,0 +1,18 @@
+# key	entry
+# Head runs the RecordRef calls the probe measured (corpus PR 1525, RecordRefMetadataGlobalFilter.al); every other call keeps main's refusal and has no row.
+NB Glob Tests::RefCaption	ASSUMED recordref-metadata-global-filter
+NB Glob Tests::RefClose	ASSUMED recordref-metadata-global-filter
+NB Glob Tests::RefFieldCount	ASSUMED recordref-metadata-global-filter
+NB Glob Tests::RefFieldExist	ASSUMED recordref-metadata-global-filter
+NB Glob Tests::RefFindFirst_Reader	ASSUMED recordref-metadata-global-filter
+NB Glob Tests::RefIsEmpty_Reader	ASSUMED recordref-metadata-global-filter
+NB Glob Tests::RefIsTemporary	ASSUMED recordref-metadata-global-filter
+NB Glob Tests::RefKeyCount	ASSUMED recordref-metadata-global-filter
+NB Glob Tests::RefKeyIndexAndField_Measured	ASSUMED recordref-metadata-global-filter
+NB Glob Tests::RefName	ASSUMED recordref-metadata-global-filter
+NB Glob Tests::RefName_WithFilterOfItsOwn	ASSUMED recordref-metadata-global-filter
+NB Glob Tests::RefNumber	ASSUMED recordref-metadata-global-filter
+NB Glob Tests::RefReadPermission_Measured	ASSUMED recordref-metadata-global-filter
+NB Glob Tests::RefRecordId_BufferOnly	ASSUMED recordref-metadata-global-filter
+NB Glob Tests::RefName_AfterClose	ASSUMED recordref-metadata-global-filter
+NB Glob Tests::RefRecordId_AfterFindFirst	ASSUMED recordref-metadata-global-filter
