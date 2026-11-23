@@ -199,6 +199,11 @@ pub enum FactboxStep {
     OkAsked,
     /// `Previous()` on the empty view's only row answered false: reads, then `Next()`.
     PreviousNo,
+    /// The page with triggers and a FactBox (`Triggers::FactboxExtra`) landed on the row: reads, and one SetValue of a control
+    /// without code.
+    ExtraLanded,
+    /// After that SetValue: reads, then `OK()` (ListNewLineExtraCodeFactbox.al:319-434, :664-837).
+    ExtraTyped,
     /// The page with code (`code_inserted_coded.rs`) after the landing and `steps` measured SetValues since: reads, a SetValue
     /// whose validation saves and refreshes the row again, or `OK()`.
     Coded { steps: u8 },

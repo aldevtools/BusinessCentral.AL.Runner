@@ -249,16 +249,7 @@ impl Session {
             (Some(a), Some(b)) => a.len() == b.len() && a.iter().zip(&b).all(|(x, y)| Self::same_values(x, y)),
             _ => false,
         };
-        let view_kept = {
-            let r = rec.borrow();
-            crate::records::same_filters(&r.filters, &view.filters)
-                && r.filter_group == view.filter_group
-                && r.key == view.key
-                && r.adhoc == view.adhoc
-                && r.ascending == view.ascending
-                && r.field_descending == view.field_descending
-                && r.marked_only == view.marked_only
-        };
+        let view_kept = Self::same_view(&rec.borrow(), &view);
         let kept = rows_kept && view_kept && stored.is_some_and(|s| Self::same_values(&rec.borrow().fields, &s));
         if !kept {
             st.borrow_mut().forget_code_inserted_line();
