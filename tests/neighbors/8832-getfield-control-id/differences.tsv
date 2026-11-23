@@ -19,9 +19,9 @@ LT GFI Kinds Tests::CardPartOfHost_GetFieldHostControlId_NotFound	ASSUMED testpa
 LT GFI Kinds Tests::RoleCenterPart_GetFieldMissingId_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2604)
 LT GFI Kinds Tests::Api_GetFieldMissingId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2617)
 LT GFI Kinds Tests::PromptDialog_GetFieldMissingId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2630)
-# ReportPreview_GetFieldMissingId (:2643) is guarded `#if BC29PLUS`: BC 27 and 28 raise on the page's open. The neighbor app
-# defines no corpus symbol, so its other branch runs here and main and the head answer alike; the suite's review_shapes runs
-# the BC 29 branch.
+# ReportPreview_GetFieldMissingId (:2643): BC 27 and 28 raise on the page's open (`#if BC27PLUS and not BC29PLUS`); the neighbor
+# app defines no corpus symbol, so it runs BC 29's branch on each major.
+LT GFI Kinds Tests::ReportPreview_GetFieldMissingId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2643)
 LT GFI Kinds Tests::ReportProcessingOnly_GetFieldMissingId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2663)
 LT GFI Kinds Tests::Worksheet_GetFieldOwnId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2676)
 LT GFI Kinds Tests::ListPlus_GetFieldOwnId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2689)

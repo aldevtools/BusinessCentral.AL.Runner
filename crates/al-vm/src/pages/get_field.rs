@@ -5,12 +5,14 @@
 //! repeater, a group, a nested group, a fixed, a grid or a cuegroup, :449 :503 :630 :653, a base field a page extension
 //! modifies, :705); the handle reads and writes as the control by its name in the calls the cells make (`BY_ID_CALLS`, :570
 //! :668), a hidden control included (:530, :705 not found); a field in a cuegroup reads as by its name (`cue_value.rs`, :653,
-//! :742). The id of a part, a cuegroup, a fixed or a grid gives a field whose Value is empty (:545, :630). Any other id is not
+//! :742). The id of a part, a cuegroup, a fixed or a grid gives a field whose Value is empty (:545, :630), unless it is hidden
+//! (no cell measures that; it refuses). Any other id is not
 //! found: a group, a repeater, an action, an action group, an area, a field a page extension adds (by either object's id; from
 //! BC 28, :589: BC 27 finds it by the extension's id, `al_version::getfield_finds_extension_fields`), a control of another page
 //! or of the part's page (:468 :484 :545 :611 :705; testpage/TestPageRuntimeContracts.al:274-275 the code).
 //! On the other page kinds the cells measure an id no control has, a Worksheet's action ids and a field's Value by its own id
-//! (al-runner issue 8887, :1631-:2702; `get_field_kind`, `get_field_missing`).
+//! (al-runner issue 8887, :1631-:2702); the ids of page extension controls refuse (:3015-:3051; `get_field_id_owner`).
+//! `get_field_kind`, `get_field_missing`.
 //!
 //! `TestPage.GetField(Id)` / `TestPart.GetField(Id)` by the compiler's control id
 //! (`pages::control_id`; al-runner issues 8832 and 8887, assumption `testpage-getfield-control-id`): the page's
@@ -50,10 +52,37 @@ enum GetFieldKind {
 /// Who else has an id no control of the page has as its own (`Session::get_field_id_owner`).
 enum IdOwner {
     None,
+    /// A field a page extension adds, by the base page's id (:2576).
     ExtensionField,
     OtherOfPage,
+    /// A control of the host page itself, by the host's id (:2591).
     Host,
     PartPage,
+    /// A control a page extension adds, by the extension's id on the page (an actionref), the host or a part's page, or by the
+    /// host's id on the host (:3015, :3035, :3051).
+    ExtensionControl,
+}
+
+/// The page kind `t` the compiler gives no variant of its own (`cardpart`, `rolecenter`, ...).
+fn is_other(t: &Option<al_ir::PageType>, k: &str) -> bool {
+    matches!(t, Some(al_ir::PageType::Other(o)) if o == k)
+}
+
+/// [`Session::get_field_kind`] of the page type `kind` and, for a part, its host's type `host`.
+fn get_field_kind_of(kind: &Option<al_ir::PageType>, host: &Option<Option<al_ir::PageType>>) -> GetFieldKind {
+    use al_ir::PageType as T;
+    let other = |k: &str| is_other(kind, k);
+    match host {
+        Some(_) if other("listpart") => GetFieldKind::Full,
+        Some(Some(T::Card)) if other("cardpart") => GetFieldKind::FieldValue,
+        Some(_) => GetFieldKind::Missing,
+        None if matches!(kind, Some(T::Card | T::List | T::Document)) || other("cardpart") || other("listpart") => {
+            GetFieldKind::Full
+        }
+        None if matches!(kind, Some(T::Worksheet)) => GetFieldKind::Worksheet,
+        None if matches!(kind, Some(T::ListPlus)) => GetFieldKind::FieldValue,
+        None => GetFieldKind::Missing,
+    }
 }
 
 /// The error GetField raises for an id it does not find (GetFieldByControlId.al:468).
@@ -108,7 +137,7 @@ impl Session {
         if self.control_eliminated(st, idx) || self.off_page(st, idx) {
             if by_id != ById::Field {
                 return unsupported(
-                    "TestPage.GetField by the id of a hidden control on a page kind no cell measures it on",
+                    "TestPage.GetField by the id of a hidden part, cuegroup, fixed or grid, or of a hidden field whose Value only is measured (not measured)",
                 );
             }
             return not_found(id);
@@ -134,20 +163,8 @@ impl Session {
     /// `FieldValue` (a ListPlus, a CardPart a Card shows): a field control's Value (:2676-:2702). `Missing`: only an id no
     /// control has (`get_field_missing`).
     fn get_field_kind(&self, st: &St) -> GetFieldKind {
-        use al_ir::PageType as T;
         let (kind, host) = self.get_field_page_types(st);
-        let other = |k: &str| matches!(&kind, Some(T::Other(o)) if o == k);
-        match host {
-            Some(_) if other("listpart") => GetFieldKind::Full,
-            Some(Some(T::Card)) if other("cardpart") => GetFieldKind::FieldValue,
-            Some(_) => GetFieldKind::Missing,
-            None if matches!(kind, Some(T::Card | T::List | T::Document)) || other("cardpart") || other("listpart") => {
-                GetFieldKind::Full
-            }
-            None if matches!(kind, Some(T::Worksheet)) => GetFieldKind::Worksheet,
-            None if matches!(kind, Some(T::ListPlus)) => GetFieldKind::FieldValue,
-            None => GetFieldKind::Missing,
-        }
+        get_field_kind_of(&kind, &host)
     }
 
     /// `GetField(id)` where no control of the page has the id as its own, nor a page extension's control by the extension's
@@ -159,20 +176,20 @@ impl Session {
     ///   page (:2663).
     /// - On a Worksheet the base page's id of a field a page extension adds (:2576).
     /// - On a CardPart a Card shows, the id of a host control (:2591).
+    ///
+    /// The id of a control a page extension adds, by the extension's id, on the page (an actionref), the host or a part's page,
+    /// and a control the host's extension adds by the host's id, refuse (:3015, :3035, :3051 measure some).
     fn get_field_missing(&self, st: &St, id: i32) -> Result<(), Signal> {
         use al_ir::PageType as T;
-        let kind = self.get_field_kind(st);
+        let (page_type, host) = self.get_field_page_types(st);
+        let kind = get_field_kind_of(&page_type, &host);
         if kind == GetFieldKind::Full {
             return Ok(());
         }
-        let (page_type, host) = self.get_field_page_types(st);
-        let other = |k: &str| matches!(&page_type, Some(T::Other(o)) if o == k);
+        let other = |k: &str| is_other(&page_type, k);
         let measured = match self.get_field_id_owner(st, id)? {
             IdOwner::None => match host {
-                Some(host) => {
-                    other("cardpart")
-                        && (host == Some(T::Card) || matches!(&host, Some(T::Other(o)) if o == "rolecenter"))
-                }
+                Some(host) => other("cardpart") && (host == Some(T::Card) || is_other(&host, "rolecenter")),
                 None => {
                     matches!(
                         page_type,
@@ -199,6 +216,11 @@ impl Session {
             IdOwner::OtherOfPage => false,
             IdOwner::Host => kind == GetFieldKind::FieldValue && host.is_some(),
             IdOwner::PartPage => false,
+            IdOwner::ExtensionControl => {
+                return unsupported(
+                    "TestPage.GetField with the id of a page extension's control on the page, the host or a part's page (not measured)",
+                );
+            }
         };
         if !measured {
             return unsupported(
@@ -210,9 +232,11 @@ impl Session {
     }
 
     /// Who else has the id `id` that no control of `st` has as its own: by the base page's id a field a page extension adds or
-    /// another control of the page (an actionref, an extension's action), a control of the host, or a control of a part's page.
+    /// another control of the page (an actionref, an extension's action), a control of the host, or a control of a part's page;
+    /// by the extension's id a control a page extension adds to the page (an actionref), the host or a part's page.
     fn get_field_id_owner(&self, st: &St, id: i32) -> Result<IdOwner, Signal> {
-        let with_id = |s: &St| -> Result<Option<(bool, bool)>, Signal> {
+        // The control of `s` whose id by its page's id is `id`: whether a page extension adds it, and whether it is a field.
+        let by_page = |s: &St| -> Result<Option<(bool, bool)>, Signal> {
             let page_id = self.object_id_of(s.borrow().object)?;
             let engine = self.engine();
             Ok(page_of(&engine, s)
@@ -221,24 +245,46 @@ impl Session {
                 .find(|c| control_id(page_id, &c.name) == i64::from(id))
                 .map(|c| (c.owner.is_some(), c.kind == ir::ControlKind::Field)))
         };
-        let has = |s: &St| with_id(s).map(|c| c.is_some());
-        match with_id(st)? {
+        // Whether a control a page extension adds to `s` has the id `id` by the extension's id.
+        let by_extension = |s: &St| -> Result<bool, Signal> {
+            let engine = self.engine();
+            for c in &page_of(&engine, s).controls {
+                if let Some(ext) = c.owner
+                    && control_id(self.object_id_of(ext as u32)?, &c.name) == i64::from(id)
+                {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        };
+        if by_extension(st)? {
+            return Ok(IdOwner::ExtensionControl);
+        }
+        match by_page(st)? {
             Some((true, true)) => return Ok(IdOwner::ExtensionField),
             Some(_) => return Ok(IdOwner::OtherOfPage),
             None => {}
         }
         let host = st.borrow().host.as_ref().and_then(|(h, _)| h.upgrade());
-        if let Some(host) = host
-            && has(&host)?
-        {
-            return Ok(IdOwner::Host);
+        if let Some(host) = host {
+            if by_extension(&host)? {
+                return Ok(IdOwner::ExtensionControl);
+            }
+            match by_page(&host)? {
+                Some((false, _)) => return Ok(IdOwner::Host),
+                Some((true, _)) => return Ok(IdOwner::ExtensionControl),
+                None => {}
+            }
         }
         let parts: Vec<St> = {
             let s = st.borrow();
             s.parts.iter().chain(&s.hidden_parts).map(|(_, p)| p.clone()).collect()
         };
         for part in &parts {
-            if has(part)? {
+            if by_extension(part)? {
+                return Ok(IdOwner::ExtensionControl);
+            }
+            if by_page(part)?.is_some() {
                 return Ok(IdOwner::PartPage);
             }
         }
