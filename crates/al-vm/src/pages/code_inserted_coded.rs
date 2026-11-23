@@ -42,10 +42,14 @@
 //!
 //! A page of their shape with other code (`coded_extra_shape`, `CodedObjects::Extra`; al-runner issue 8826) takes the same
 //! steps under the assumption `list-new-line-extra-code-coded` (ListNewLineExtraCodeCodedPage.al, corpus pull request 1537,
-//! open, 7 of 7 green on BC 29.1 in 3 runs): its SaveRecord under the effect gate (`extra_code_coded_cell`), its refresh
-//! reading the row as stored first and refusing a trigger that writes (:773), its worker's reads through the query cache
-//! (`bg_drain`), then one SetValue of a control without code and `OK()` (`refuse_off_factbox_row`). A row before the line
-//! (:821) and a table with record triggers (:839) keep main's way.
+//! open, 7 of 7 green on BC 29.1 in 3 runs). Its page, controls, actions and three parts equal the cells' in every fact but
+//! their code (`coded_extra_shape`, `coded_extra_parts`); an OnOpenPage that wrote keeps main's way, a part that writes at
+//! the open is refused (`coded_open_on_empty_view`); only a first SetValue whose control saves and whose table field inserts
+//! takes the steps (`coded_write_may_land`). Then its SaveRecord under the effect gate (`extra_code_coded_cell`), nothing
+//! between the save and the Update but a modify of the row through another record (`extra_coded_between_kept`), its
+//! refresh reading the row as stored first and refusing a trigger that writes (:773), its worker's reads through the query
+//! cache (`bg_drain`), then one SetValue of a control without code and `OK()` (`FactboxStep::ExtraTyped`). A row before the
+//! line (:821) and a table with record triggers (:839) keep main's way.
 
 use super::pinned_shape::TestCall;
 use super::state::{CodedLine, FactboxStep};
@@ -289,6 +293,14 @@ impl Session {
                 s.cursor == Cursor::NewLine && s.draft && !s.dirty && !s.draft_stored && s.new_by_call
             };
         match call {
+            // On a page of the shape of the page with code, only a write whose validation can land as the cells' do takes the
+            // steps: the control's OnValidate calls CurrPage.SaveRecord() and its table field's OnValidate inserts
+            // (ListNewLineExtraCodeCodedPage.al:31-36, :318-324). Every other first write keeps main's way (review of al-runner
+            // PR 8834, 21:06Z, point 1).
+            TestCall::Write(i) if first_write && !self.coded_write_may_land(st, i) => {
+                st.borrow_mut().coded_line = CodedLine::Off;
+                Ok(())
+            }
             _ if first_write => {
                 coded_assume(st);
                 st.borrow_mut().coded_line = CodedLine::LineRead;
@@ -300,6 +312,42 @@ impl Session {
                 Ok(())
             }
         }
+    }
+
+    /// Whether the first write of control `idx` of host `st` may land as the cells' does: on the probe's and the repro's pages
+    /// always (their code is compared line for line); on a page of their shape (`CodedObjects::Extra`) when the control's
+    /// OnValidate calls `CurrPage.SaveRecord()` and the OnValidate of the table field it shows inserts the row (`Insert(`).
+    /// A body the renderer cannot write does not.
+    fn coded_write_may_land(&self, st: &St, idx: usize) -> bool {
+        if st.borrow().coded_objects != super::state::CodedObjects::Extra {
+            return true;
+        }
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        let Some(control) = page_of(&engine, st).controls.get(idx) else {
+            return false;
+        };
+        let ir::Binding::Field(field) = control.binding else {
+            return false;
+        };
+        let text = |object: usize, routine: usize| {
+            super::pinned_body::routine_text(&engine.program, object, routine, &mut Vec::new())
+        };
+        let saves = control
+            .triggers
+            .iter()
+            .find(|(n, _)| n == "onvalidate")
+            .and_then(|&(_, r)| text(object, r))
+            .is_some_and(|t| t.contains("CurrPage.SaveRecord()"));
+        let table = self.page_rec(st).borrow().table as usize;
+        let inserts = engine.program.objects[table]
+            .table
+            .as_ref()
+            .and_then(|t| t.fields.get(field))
+            .and_then(|f| f.on_validate)
+            .and_then(|(o, r)| text(o, r))
+            .is_some_and(|t| t.contains("Insert("));
+        saves && inserts
     }
 
     /// Whether the validation of the SetValue that let the parts read the new line has landed on its row: before the landing an
