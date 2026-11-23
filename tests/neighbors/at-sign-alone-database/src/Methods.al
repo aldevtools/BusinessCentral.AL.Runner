@@ -1,4 +1,4 @@
-// A copy of the corpus probe record/filters/AtSignAloneMethods.al of corpus pull request 1495 at c2bb3172 (its lines are the probe's
+// A copy of the corpus probe record/filters/AtSignAloneMethods.al of corpus pull request 1495 at ab0f8548 (its lines are the probe's
 // lines plus two).
 // BC Documentation: https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/properties/devenv-calcformula-property
 // Scope: in-scope
@@ -443,5 +443,31 @@ codeunit 97501 "AM Kind Tests"
         Assert.AreEqual('''@'' is not an option. The existing options are: A,B', CalcError(Host, Host.FieldNo("Opt Not At")), 'option <>@');
         Assert.AreEqual('The value "@" can''t be evaluated into type Boolean.', CalcError(Host, Host.FieldNo("Flag At")), 'boolean @');
         Assert.AreEqual('The value "@" can''t be evaluated into type Boolean.', CalcError(Host, Host.FieldNo("Flag Not At")), 'boolean <>@');
+    end;
+
+    // The error code GetLastErrorCode returns after each of those errors.
+    local procedure CalcErrorCode(var Host: Record "AM Formula Host"; FieldNo: Integer): Text
+    begin
+        CalcError(Host, FieldNo);
+        exit(GetLastErrorCode());
+    end;
+
+    [Test]
+    procedure AtSignAlone_CalcFormulaOtherSources_ErrorCode()
+    var
+        Host: Record "AM Formula Host";
+        Seen: Text;
+    begin
+        Host."No." := NewGroup();
+        Host.Insert();
+        Seen := CalcErrorCode(Host, Host.FieldNo("Num At")) + ',' + CalcErrorCode(Host, Host.FieldNo("Num Not At"));
+        Seen += '|' + CalcErrorCode(Host, Host.FieldNo("Amount At")) + ',' + CalcErrorCode(Host, Host.FieldNo("Amount Not At"));
+        Seen += '|' + CalcErrorCode(Host, Host.FieldNo("Opt At")) + ',' + CalcErrorCode(Host, Host.FieldNo("Opt Not At"));
+        Seen += '|' + CalcErrorCode(Host, Host.FieldNo("Flag At")) + ',' + CalcErrorCode(Host, Host.FieldNo("Flag Not At"));
+        Assert.AreEqual(
+            'InvalidFilterExpression:Evaluate,InvalidFilterExpression:Evaluate|InvalidFilterExpression:Evaluate,InvalidFilterExpression:Evaluate|' +
+            'InvalidFilterExpression:InvalidOptionString,InvalidFilterExpression:InvalidOptionString|' +
+            'InvalidFilterExpression:Evaluate,InvalidFilterExpression:Evaluate',
+            Seen, 'integer, decimal, option, boolean; @ and <>@');
     end;
 }

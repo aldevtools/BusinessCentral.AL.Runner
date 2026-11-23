@@ -11,6 +11,7 @@ const ROUTES: &str = include_str!("../../../../tests/neighbors/at-sign-alone-dat
 const NEIGHBORS: &str = include_str!("../../../../tests/neighbors/at-sign-alone-database/src/Neighbors.al");
 const CRM: &str = include_str!("../../../../tests/neighbors/at-sign-alone-database/src/Crm.al");
 const METHODS: &str = include_str!("../../../../tests/neighbors/at-sign-alone-database/src/Methods.al");
+const SOURCES: &str = include_str!("../../../../tests/neighbors/at-sign-alone-database/src/Sources.al");
 
 fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
     let src = format!("{src}\n{}", include_str!("../fixtures/outside-sc/Assert.al"));
@@ -148,25 +149,32 @@ fn at_sign_alone_reads_cells() {
 }
 
 /// The cells of AtSignAloneMethods.al (corpus PR 1495): `<>@` alone read by DeleteAll, ModifyAll, CalcSums, FindLast, a report and
-/// a page (:215, :244, :279, :312, :345), and a CalcFormula's `filter('@')` and `filter('<>@')` with every method (:376), flagged.
-/// Over a Date source field (:395) and an Integer, Decimal, Option or Boolean one (:430) BC answers otherwise; those keep main's
-/// refusal here.
+/// a page (:215, :244, :279, :312, :345), a CalcFormula's `filter('@')` and `filter('<>@')` with every method (:376), and its sum over
+/// a Date source field (:395) and over an Integer, Decimal, Option or Boolean one, with the error's text and code (:430, :454),
+/// flagged.
 #[test]
 fn at_sign_alone_methods_cells() {
     let o = outcomes(METHODS, "AM Kind Tests");
-    assert_eq!(o.len(), 8);
+    assert_eq!(o.len(), 9);
     for (name, r, marks) in &o {
-        if name.starts_with("AtSignAlone_CalcFormula") && name != "AtSignAlone_CalcFormulaMethods" {
-            assert!(
-                matches!(r, Outcome::NotRun(w) if w.contains("value expected after @")),
-                "{name}: {r:?}"
-            );
-            continue;
-        }
         assert_eq!(*r, Outcome::Pass, "{name}");
         assert!(
             marks.contains(&Assumption::AtSignAloneDatabaseBlank),
             "{name}: {marks:?}"
+        );
+    }
+}
+
+/// A CalcFormula's `filter('@')` past the cells of AtSignAloneMethods.al: a count over a Date source field, a sum over an Option
+/// field with an OptionCaption and over a Time field. No cell measures them, so they keep main's refusal.
+#[test]
+fn at_sign_alone_other_source_neighbors_refused() {
+    let o = outcomes(SOURCES, "AN Source Neighbor Tests");
+    assert_eq!(o.len(), 3);
+    for (name, r, _) in &o {
+        assert!(
+            matches!(r, Outcome::NotRun(w) if w.contains("value expected after @")),
+            "{name}: {r:?}"
         );
     }
 }
