@@ -7,6 +7,12 @@
 //! project lists. This module reads those folder lists, reads each folder's `app.json` (fetched sparsely into the cache
 //! with `bcapps::ensure_sources`), and decides which test apps come from BCApps and which of their dependencies the
 //! artifact lacks too. Nothing from BCApps is committed to this repository (hard rule 7).
+//!
+//! the test apps Microsoft's CI runs that the artifact lacks (ADR-052): the folders of the projects
+//! `Test Apps <COUNTRY>` tests (`project_folders`), their app.json (`index`), artifact and BCApps
+//! names matched without case, punctuation or plural (`name_key`), and the apps a test app needs from
+//! BCApps (`closure`). The fetch is `bcapps::ensure_sources` (sparse, case of the tree, cached per
+//! pattern). Entry points: `project_folders`, `index`, `closure`.
 
 use std::path::{Component, Path, PathBuf};
 

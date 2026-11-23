@@ -4,6 +4,8 @@
 //! directory (ADR-013 decision 1, integrity). Only what Business Central
 //! packages use is supported: stored and deflate entries, no ZIP64, no
 //! encryption. Anything else is a named error, never a guess.
+//!
+//! Entry points: `ZipError`, `Entry`, `Zip`, `EndRecord`.
 
 use std::fmt;
 

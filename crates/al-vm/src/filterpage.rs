@@ -2,6 +2,8 @@
 //! Everything up to `RunModal` is an object-graph operation (corpus
 //! pages/filterpagebuilder/TestFilterPageBuilder.al); `RunModal` goes to a bound `[FilterPageHandler]`
 //! (`Session::ui_filter_page`).
+//!
+//! Entry points: `filter_page_builder_op`.
 
 use crate::Session;
 use al_builtins::builtin_id::ids;
@@ -299,7 +301,7 @@ impl Session {
                     .borrow()
                     .filters
                     .iter()
-                    .any(|f| matches!(f.expr, FilterExpr::AtSignAloneCode))
+                    .any(|f| matches!(f.expr, FilterExpr::AtSignAloneCode(_)))
                 {
                     return unsupported("FilterPageBuilder.SetView with `@` alone on a Code field (not measured)");
                 }

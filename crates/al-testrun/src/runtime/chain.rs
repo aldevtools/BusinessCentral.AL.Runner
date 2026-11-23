@@ -4,6 +4,10 @@
 //! state to the later codeunits run first, one after the other, on the main thread. A codeunit outside the chain that
 //! reads what a chain codeunit left runs again afterwards, also on the main thread. [`ChainReport`] counts both, with
 //! the reason of each, so a run that is slower than its thread count promises can be read from `--timings`.
+//!
+//! Why a test codeunit joins the carry chain (`carry_why`: OnRun writes a table or state, tests take
+//! numbers) and the `--timings` report of the chain (`ChainReport`: members, reasons, serial re-
+//! runs).
 
 use super::TestIsolation;
 use al_sema::lower::Lowered;

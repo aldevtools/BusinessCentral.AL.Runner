@@ -6,6 +6,8 @@
 //! containers hold their children as such handles, so a token obtained with
 //! `Get` shares the child. Behaviour the corpus does not pin (error texts,
 //! duplicate keys, out-of-range indexes) raises `Signal::Unsupported`.
+//!
+//! Entry points: `Handle`, `JsonCell`, `JsonNode`, `Scalar`.
 
 use crate::describe::Describe;
 use crate::native::{Ctx, NativeFn, Signal, unsupported};
@@ -2750,7 +2752,7 @@ pub fn native_for(sig: &Signature) -> Option<NativeFn> {
         ("JsonObject.GetObject", _) => obj_get_object,
         ("JsonObject.GetArray", _) => obj_get_array,
         ("JsonObject.ReadFrom", ["Text" | "InStream"]) => object_read_from,
-        ("JsonObject.ReadFromYaml", ["Text"]) => read_from_yaml,
+        ("JsonObject.ReadFromYaml", ["Text" | "InStream"]) => read_from_yaml,
         ("JsonObject.WriteToYaml", ["Text"]) if first_by_var => write_to_yaml,
         ("JsonObject.WriteTo", ["Text"]) if first_by_var => write_to_text,
         ("JsonObject.WriteTo", ["OutStream"]) => write_to_stream,

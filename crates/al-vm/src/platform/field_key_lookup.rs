@@ -1,6 +1,11 @@
 //! App Package ID and App Runtime Package ID of a Field row that a key read finds (al-runner issue 8051 and its follow-ups): a
 //! read that can find only the row of one key (TableNo, No.) in a form the probes measured is answered as a `Get`, not as a
 //! scan. Every pin is in tests/al-language/metadata/platform-tables/PlatformMetadataColumnValues.al (cited by line below).
+//!
+//! App Package ID and App Runtime Package ID of a Field row a read of one key (TableNo, No.) finds:
+//! the Get rule (`KeyIds`, `key_lookup`), the measured scan forms (`measured_key_scan`,
+//! `measured_key_package_scan`), `Providers::field_key_scan`, and `unmeasured_key_read` (the VM calls
+//! it for Find(), multi-character Find and RecordRef.Get(RecordId)).
 
 use super::fields::declaring_extension;
 use super::objects::Catalog;

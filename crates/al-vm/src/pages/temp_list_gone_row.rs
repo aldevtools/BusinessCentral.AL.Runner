@@ -4,6 +4,11 @@
 //! TempListRowGone_CloseReopen_DeleteAgain (`cursor-1` R1, `del-1` `[del(R2) agcr(R1) agcr(R1)]`, `next-in-1` R3, the same on the
 //! second open). Only that cell runs; every other such list is refused, because the landing main gives it (the row after) is
 //! the one the probe showed wrong.
+//!
+//! a top-level List over a temporary table whose action deleted the row it stood on with rows left
+//! (al-runner issue 7940): on the probe's read-only list (middle row of three) it lands on the row
+//! before (ReopenSameVariableState.al:469); other such lists refuse. Entry points:
+//! `settle_gone_row_of_temp_list` (from `settle_after_action`).
 
 use super::pinned_shape::{PinnedCode, TestCall, code_stmts, rec_text_log_call, without_pos};
 use super::*;

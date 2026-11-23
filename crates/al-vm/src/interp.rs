@@ -1,3 +1,7 @@
+//! Helpers the bytecode calls: `read`, `write` (places, with their index registers), `element`,
+//! `write_char`, `finish_call`, `call_site`, `run_native` (by-reference write-back,
+//! `fit_ref_number`), `vm_class_call`, `binary_op`, `unary_op`, `set_curr_field_no`, `clear_all`,
+//! `application_area`, constants.
 use super::*;
 use crate::blob_transfer::{BlobMove, FieldKind, Holder};
 use crate::var_option::Store;

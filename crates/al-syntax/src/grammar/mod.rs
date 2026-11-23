@@ -1,4 +1,6 @@
 //! AL grammar.
+//!
+//! Grammar entry module.
 
 mod declarations;
 mod expressions;

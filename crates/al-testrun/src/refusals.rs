@@ -1,5 +1,8 @@
 //! Reading refusals: the ranking of not-run reasons, with names and numbers folded so that one
 //! cause groups together (`--top-refusals` of both command lines).
+//!
+//! Ranking not-run reasons with names and numbers folded (`--top-refusals` of both command lines).
+//! Entry points: `normalise_reason`, `rank`, `render_top`.
 
 use crate::CaseId;
 use std::collections::BTreeMap;

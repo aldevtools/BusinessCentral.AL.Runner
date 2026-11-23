@@ -1,6 +1,13 @@
 //! The columns a store notes on write so that a read can refuse a row it cannot answer for, at no cost until such a row
 //! was stored: a value a platform row left unknown or a placeholder's size (`unknown_cols`), and a text outside ASCII (`accent_cols`), whose order or
 //! `@` match may rest on letters no measurement covers.
+//!
+//! The columns a write notes so a read can refuse rows it cannot answer for: unknown values of a
+//! platform row (`unknown_read`) and texts outside ASCII (`collation_read`: an order or filter
+//! resting on `Æ`/`æ` or on accents under `@` that no measurement covers, decided once per read and
+//! kept per table version, key and filters, `Verdict`, across Modifies that write no column the read
+//! looks at, `ModifyRun`). Entry points: `note_held` (called by `MemStore::kept`, which every row
+//! write passes), `collation_read`.
 
 use super::*;
 

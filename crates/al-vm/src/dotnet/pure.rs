@@ -3,6 +3,10 @@
 //! read files, the environment, the clock or an assembly the key does not name, so a baseline whose code made one is
 //! not kept (`Engine::dotnet_called`). The list is short on purpose: a member that is not here only costs the next
 //! run its install code.
+//!
+//! The `DotNet` members that answer from their arguments alone; a baseline whose install code calls
+//! any other is not kept on disk (`Engine::dotnet_called`, al-testrun `baseline_key`). Entry points:
+//! `answers_from_arguments`.
 
 /// The member name of a constructor.
 pub(crate) const CONSTRUCT: &str = ".ctor";

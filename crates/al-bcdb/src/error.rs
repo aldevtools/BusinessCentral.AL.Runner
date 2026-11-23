@@ -3,6 +3,8 @@
 //! `InvalidDataException`), `NotSupported` is something known but not decodable
 //! (bcdb's `NotSupportedException`). Both carry a message that names the column,
 //! table or page, and never a default value (see PROVENANCE.md, "Loud failures").
+//!
+//! Entry points: `Error`, `Result`.
 
 use std::fmt;
 

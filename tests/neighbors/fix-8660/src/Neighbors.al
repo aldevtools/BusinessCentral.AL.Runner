@@ -4,8 +4,9 @@
 // After them, the shapes and routes of the al-runner PR 8667 review, which read Yes on BC 29 and differ from main (corpus
 // PR 1504, VisibleExpressionSource.al): another control binding the named field, the primary key, an `and` with one field
 // bound, OpenView, a Trap of Page.Run, and the modal routes of round 2 (a field argument, Page.RunModal(0, Rec) through the
-// table's lookup page). Then a Page variable's RunModal, a route no probe measured: it runs when the handler reads no such
-// Visible, and the read is refused (last, refused on main too).
+// table's lookup page) and the return value compared in an `if`. Then routes no probe measured: a Page variable's RunModal
+// runs when the handler reads no such Visible; a read of it is refused there, in a part, on a page an action's RunObject
+// opens and in a RunModal that mixes two of the measured forms (last, refused on main too).
 table 50000 "NB TV Row"
 {
     LookupPageId = "NB TV Shapes Card";
@@ -66,6 +67,32 @@ page 50003 "NB TV Shapes Card"
             field(Total; Rec.Amount + 1) { Visible = Rec.Amount > 0; }
             field(KeyNamed; Rec.Amount + 1) { Visible = Rec.Id > 0; }
             field(OneBound; Rec.Amount + 1) { Visible = (Rec.Amount > 0) and Rec.Flag; }
+        }
+    }
+}
+
+page 50004 "NB TV Host"
+{
+    PageType = Card;
+    SourceTable = "NB TV Row";
+
+    layout
+    {
+        area(Content)
+        {
+            field(HostId; Rec.Id) { }
+            part(ShapesPart; "NB TV Shapes Card") { SubPageLink = Id = field(Id); }
+        }
+    }
+    actions
+    {
+        area(Processing)
+        {
+            action(OpenShapes)
+            {
+                RunObject = page "NB TV Shapes Card";
+                RunPageLink = Id = field(Id);
+            }
         }
     }
 }
@@ -212,6 +239,22 @@ codeunit 50002 "NB TV Tests"
     end;
 
     [Test]
+    [HandlerFunctions('ReadVisibleHandler')]
+    procedure ExprSource_ModalReturnInIf_Yes()
+    var
+        Row: Record "NB TV Row";
+        Returned: Text;
+    begin
+        InsertRow(Row);
+        ModalVisible := 'not run';
+        Returned := 'other';
+        if Page.RunModal(Page::"NB TV Shapes Card", Row) = Action::LookupCancel then
+            Returned := 'LookupCancel';
+        if (ModalVisible <> 'Yes') or (Returned <> 'LookupCancel') then
+            Error('Visible in the handler is %1 and RunModal returned %2, expected Yes and LookupCancel.', ModalVisible, Returned);
+    end;
+
+    [Test]
     [HandlerFunctions('NoReadHandler')]
     procedure PageVarModal_HandlerReadsNoVisible_Runs()
     var
@@ -234,6 +277,46 @@ codeunit 50002 "NB TV Tests"
         ModalVisible := 'not run';
         Card.SetRecord(Row);
         Card.RunModal();
+    end;
+
+    [Test]
+    procedure Refused_PartReadsVisible()
+    var
+        Row: Record "NB TV Row";
+        Host: TestPage "NB TV Host";
+    begin
+        InsertRow(Row);
+        Host.OpenEdit();
+        Host.GoToRecord(Row);
+        Check(Host.ShapesPart.Total.Visible(), true);
+    end;
+
+    [Test]
+    procedure Refused_ActionRunObjectReadsVisible()
+    var
+        Row: Record "NB TV Row";
+        Host: TestPage "NB TV Host";
+        Card: TestPage "NB TV Shapes Card";
+    begin
+        InsertRow(Row);
+        Host.OpenEdit();
+        Host.GoToRecord(Row);
+        Card.Trap();
+        Host.OpenShapes.Invoke();
+        Check(Card.Total.Visible(), true);
+    end;
+
+    [Test]
+    [HandlerFunctions('ReadVisibleHandler')]
+    procedure Refused_ModalMixReadsVisible()
+    var
+        Row: Record "NB TV Row";
+    begin
+        InsertRow(Row);
+        ModalVisible := 'not run';
+        Page.RunModal(0, Row, Row.FieldNo(Amount));
+        if ModalVisible <> 'Yes' then
+            Error('Visible in the handler is %1, expected Yes.', ModalVisible);
     end;
 
     [ModalPageHandler]

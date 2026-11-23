@@ -7,6 +7,8 @@ Writes the new pin, the run and the artifact ids of each leg (the version's own 
 other suites, such as the isolation probe from another run, are left alone), and the README's pin and leg rows.
 PROVENANCE=FILE (written by tools/corpus_bump_provenance.py files) gives per major the fields of ADR-077 decision 7:
 they replace the version's own; a major the file does not name (a run without a results manifest) loses them.
+RELEASED_MINORS=FILE (written by tools/corpus_bump_symbols.py, a JSON list) gives the released minors of the results
+manifest (ADR-078 point 3): they replace the top-level `released_minors`; without the file the list stays.
 """
 import json, os, re, sys
 root, sha, run, rest = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
@@ -50,6 +52,15 @@ blocks = re.split(r'(?m)^(?=\[\[version\]\])', t)
 # The pin is the top-level corpus_commit only; a suite with its own corpus_commit (the isolation probe,
 # from another run) keeps it.
 blocks[0] = re.sub(r'^corpus_commit = "[0-9a-f]+"', f'corpus_commit = "{sha}"', blocks[0], count=1, flags=re.M)
+# ADR-078 point 3: the corpus's list of released minors, after the pin; a second bump replaces the line.
+if os.environ.get("RELEASED_MINORS"):
+    line = "released_minors = %s\n" % json.dumps(json.load(open(os.environ["RELEASED_MINORS"])))
+    if re.search(r'(?m)^released_minors = ', blocks[0]):
+        blocks[0] = re.sub(r'(?m)^released_minors = .*\n', lambda m: line, blocks[0], count=1)
+    else:
+        note = "# ADR-078 point 3: the corpus's list of released minors, from the results manifest of the run (the bump\n" \
+               "# writes it; al_version::corpus_symbols derives the minor preprocessor symbols from it).\n"
+        blocks[0] = re.sub(r'(?m)^(corpus_commit = .*\n)', lambda m: m.group(1) + note + line, blocks[0], count=1)
 out = [blocks[0]]
 
 def leg_fields(part, artifact):

@@ -2,6 +2,12 @@
 //! `setup:` line, a serve summary sends them as `timings.setupParts` beside `setupMs`, their sum. `run.rs` `test_inner`
 //! ends each part with `Laps::lap`; a part reached twice (the test data: the backup named on the command line, then the
 //! one chosen once the dependency apps are known) adds up.
+//!
+//! The parts of a run's setup before the compile (al-runner issue 8205): `Part`, `Laps` (`run.rs`
+//! `test_inner` ends each part with `lap`; a part reached twice adds up), `SetupParts` (`total` is
+//! serve's `setupMs`, `keyed` its `setupParts`, `line` the `--timings` `setup:` line). A server
+//! request's entry runs are built by `run.rs` `entry_runs`. Entry points: `Laps::start`,
+//! `Laps::finish`.
 
 use std::time::{Duration, Instant};
 

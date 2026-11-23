@@ -1,5 +1,9 @@
 //! What the VM asks of a table object on every record operation, worked out once when the engine is built (ADR-035
 //! decision 4).
+//!
+//! `TableFacts`, what the VM asks of a table on every record operation (InitValue texts, SQLTimestamp
+//! and Blob field positions, SQLDataType, unqueued Inserts), worked out once when the engine is
+//! built. Entry points: `of_heads`.
 
 use crate::blob_transfer::FieldKind;
 use al_builtins::value::RtType;

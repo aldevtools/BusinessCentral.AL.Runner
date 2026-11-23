@@ -2,20 +2,18 @@
 //! (`al_test_cli::windows_language`), derived from the corpus so that the table cannot drift.
 //! Regenerate with `UPDATE_GOLDEN=1` on this test.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-/// The BC majors the repository measures (`metrics/<major>/`).
-fn majors() -> Vec<u16> {
-    let mut v: Vec<u16> = std::fs::read_dir(root().join("metrics"))
-        .unwrap()
-        .filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok())
-        .collect();
-    v.sort();
-    v
+/// The oracle legs of `oracle/oracle.toml`, each with its corpus preprocessor symbols (ADR-078 point 3).
+fn legs() -> Vec<(u16, BTreeSet<String>)> {
+    let text = std::fs::read_to_string(root().join("oracle/oracle.toml")).unwrap();
+    let oracle = al_test_cli::config::OracleFile::parse(&text).unwrap();
+    oracle.legs_symbols().into_iter().collect()
 }
 
 #[test]
@@ -38,14 +36,12 @@ fn windows_language_rows_are_current() {
         })
         .unwrap_or_default();
     files.sort();
-    let majors = majors();
-    let tables = al_test_cli::windows_language::tables(&files, &majors).unwrap();
+    let legs = legs();
+    let tables = al_test_cli::windows_language::tables(&files, &legs).unwrap();
     // Only the files that give a row are named, so a probe file of the folder does not make the header stale.
     let named: Vec<String> = files
         .iter()
-        .filter(|f| {
-            al_test_cli::windows_language::tables(std::slice::from_ref(f), &majors).is_ok_and(|t| !t.is_empty())
-        })
+        .filter(|f| al_test_cli::windows_language::tables(std::slice::from_ref(f), &legs).is_ok_and(|t| !t.is_empty()))
         .map(|(n, _)| n.clone())
         .collect();
     // A held pin generates the empty table (`windows_language::HELD`).

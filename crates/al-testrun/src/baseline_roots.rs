@@ -1,6 +1,10 @@
 //! One root of the dependency apps' install baseline (`baseline::run_traced`): an install routine, Company-Initialize or a
 //! step of the company build, run with what the session sees set by the caller. Split from `baseline.rs`, so that the
 //! partner apps' roots can run again in another install order (`install_orders.rs`, ADR-046 amendment 7).
+//!
+//! One root of the dependency baseline (`RootRun::run_root`: install routine, Company-Initialize or a
+//! company build step), and the partner apps' roots as `install_orders::AppInstalls`
+//! (`DependencyInstalls`). Entry points: `RootRun`, `DependencyInstalls`.
 
 use al_builtins::native::Signal;
 use al_sema::lower::Lowered;

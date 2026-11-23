@@ -1,6 +1,11 @@
 //! TestPage.OpenNew() of a NavigatePage over a temporary source whose OnOpenPage inserted its one record (al-runner issue
 //! 7811): the page shows that record as OpenEdit would, and a SetValue edits it instead of inserting a second one.
 //! No corpus test pins it yet (assumption `open-new-temp-navigate-page-edits-inserted-row`); Microsoft's tests need it.
+//!
+//! OpenNew of a NavigatePage over a temporary source whose OnOpenPage inserted its one row opens on
+//! that row as OpenEdit does (al-runner issue 7811, assumption `open-new-temp-navigate-page-edits-
+//! inserted-row`; Microsoft's SMTP Account Wizard tests). Entry points: `open_new_on_onopenpage_row`
+//! (the entry predicate, by `load_first_row`).
 
 use super::*;
 

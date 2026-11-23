@@ -30,6 +30,14 @@
 //! pages/actions/Y45SaveBeforeAction.al NextField_*, pages/modify-denied/Y80ModifyDenied.al and pages/extensions/
 //! Y65CodeChangeNextField.al: a second value on a row of a Worksheet or a Document). Only a row stored inside the step
 //! whose xRec a page extension's OnAfterValidate reads is refused there, the shape of al-runner issue 7403.
+//!
+//! The page's xRec while a TestPage SetValue validates a control bound to a field of Rec and after it
+//! (al-runner issue 7403): one xRec for every page trigger of the step, a save inside the step
+//! becomes xRec when the step ends, `CurrPage.Update(false)` drops the step's edit; pinned on a List,
+//! a Card and a ListPart (AutoSplitKey, DelayedInsert) of a Document or alone. Entry points:
+//! `validate_step_begin`, `validate_step_keeps_xrec` (by `save_from_update`),
+//! `validate_step_update_false`, `validate_step_end`, `validate_step_discard` (by
+//! `control_set_value_now`).
 
 use super::*;
 

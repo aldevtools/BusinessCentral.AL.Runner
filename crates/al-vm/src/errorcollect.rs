@@ -12,6 +12,9 @@
 //!   summary for several; the set is gone afterwards (finding C). An inner scope hands its errors
 //!   to the outer one.
 //! - `HasCollectedErrors` is a within-scope predicate and answers true outside any (finding D).
+//!
+//! ErrorBehavior::Collect scopes. Entry points: `declares_collect`, `collect_error`,
+//! `close_error_scope`.
 
 use crate::{AlError, Session, Signal};
 use al_builtins::builtin_id::ids;

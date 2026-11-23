@@ -1,4 +1,6 @@
 //! The seam between the harness and the runtime.
+//!
+//! Entry points: `Runner`, `NoRuntime`.
 
 use crate::oracle::CaseId;
 use crate::report::Outcome;

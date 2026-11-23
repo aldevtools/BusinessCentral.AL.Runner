@@ -7,6 +7,13 @@
 //! (`TxState::guarded_bodies`) that follows these steps. A record method, a Commit, a `Codeunit.Run` or an asserterror that is
 //! not the next pinned step makes the body `Other`, and the rollback of such a run is one the stale-buffer rule does not
 //! know (`stale_rule.rs` refuses a write through a stale buffer after it, as before the pin).
+//!
+//! what the body of a running guarded `Codeunit.Run` did (al-runner issue 7795;
+//! record/crud/CodeunitRunTableNoWrites.al:69, :205, :267): only a static `Codeunit.Run(Id, Rec)`
+//! whose run did `Rec.Modify()`, `Commit()` and `Error('literal')` is a rollback the stale rule
+//! knows; any other step or form is refused after it. Entry points: `guarded_body_begin`,
+//! `guarded_run_rollback` (by `codeunit_run`), `guarded_body_record_op` (after each record operation,
+//! `records.rs`), `guarded_body_commit` (by `commit_transaction`).
 
 use super::*;
 

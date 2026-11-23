@@ -18,6 +18,13 @@
 //! GoToKey off a line `New()` started on a list with OnAfterGetRecord or OnAfterGetCurrRecord) is refused before it changes
 //! anything: the old moves read other rows or none (al-runner issue 7452). Next keeps the moves of `rows.rs`. Also here: Previous
 //! off the new-row line of a list opened on a moved Rec (see `previous_off_new_line_onto_held_row`).
+//!
+//! A move off the new-row line `New()` started on a List or ListPlus with OnAfterGetRecord and
+//! OnAfterGetCurrRecord: First, Previous, Last and GoToKey read the row they land on twice, then
+//! OnAfterGetCurrRecord (al-runner issue 7452, testpage/NewRowThenMove.al); Previous off the line of
+//! a list opened on a moved Rec. Entry points: `off_new_line_pinned`, `move_off_untouched_new_line`
+//! (by `page_move`), `go_to_key_off_untouched_new_line` (by `page_go_to_key`),
+//! `previous_off_new_line_onto_held_row` (by `page_move_inner`).
 
 use super::*;
 use al_builtins::page_op::PageMethod;

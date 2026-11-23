@@ -12,6 +12,14 @@
 //! test that fails before its first `Expect` has no record. Fine for a report; a ratchet needs a static count per test.
 //!
 //! Off unless asked for (`Session::enable_cell_tap`): then a routine call costs one branch.
+//!
+//! The cell tap (`Session::enable_cell_tap`, `take_cell_record`): counts `Expect` calls of corpus
+//! codeunit 69160 "Probe Observer" and at each `Verify` entry compares the instance's `Pairs`,
+//! `Expected` and `Ignored` cell by cell (past the first wrong cell). Report only; hooked in
+//! `call_inner`. The fixture's objects are found once per engine from the object heads
+//! (`FixtureObjects`, `Engine::derived`), so turning the tap on makes no object. Extra observations
+//! are a mismatch (`CellRecord::first_extra`). Entry points: `compare`, `CellRecord`,
+//! `Session::tap_cells`.
 
 use al_builtins::value::{Instance, Value};
 use std::cell::RefCell;

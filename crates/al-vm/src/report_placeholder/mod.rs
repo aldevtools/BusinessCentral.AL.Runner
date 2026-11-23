@@ -17,6 +17,12 @@
 //! handlers of Report Layout, ERM Account Schedule II and ERM Purchase Reports III call `SaveAsPdf`;
 //! ReportCatalogTests CustomerStatementReport checks the file is not empty (`CheckFileNotEmpty`). The Html form: e-mail body
 //! reports of an outside reporter's suite (al-runner issue 6924) that copy the Html into an attachment or check that it saved.
+//!
+//! `mod.rs` writes the output of a rendering save (`write_save_output`: dataset, nothing, or a
+//! placeholder file, from the row `report_save` answers after the run); `files.rs` the placeholder
+//! bytes (PDF, .docx, .xlsx, html); `run.rs` Run/RunModal/Execute of a report that renders
+//! (`run_without_output`). A stream Html save of a measured shape takes the real Html of
+//! `report_render/` instead of the placeholder.
 
 mod files;
 mod run;

@@ -1,8 +1,8 @@
-// A copy of the corpus probe record/filters/AtSignAloneReads.al of corpus pull request 1495 at 3a46fe35 (its lines are the probe's
+// A copy of the corpus probe record/filters/AtSignAloneReads.al of corpus pull request 1495 at ca3a9942 (its lines are the probe's
 // lines plus two).
 // BC Documentation: https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/methods-auto/record/record-setfilter-method
 // Scope: in-scope
-// Fixtures used: Assert (60021); own tables 97502 and 97503, report 97500, page 97500 and test codeunit 97500
+// Fixtures used: Assert (60021); own tables 97502, 97503 and 97505, report 97500, page 97500 and test codeunit 97500
 // Probe (al-runner issue 8637, review of al-runner PR 8716): `@` alone and `<>@` alone on a Code and a Text field, read from the
 //   database and from a temporary record. pages/background-tasks/BgTaskQueryCache.al (BQ Tests 9b, 9c) measures SetFilter read by
 //   Count, a FlowFilter that CalcFields applies, a lookup FlowField's filter read by Count and a query's filters; this file
@@ -15,7 +15,7 @@
 //   for `<>@`; so do Find, FindFirst, FindLast, FindSet and Next with `@` or `<>@` on a lookup FlowField, where Count and IsEmpty
 //   keep the empty rows for `@`. A temporary record keeps every row for `@` and none for `<>@`. Filter places: Record.SetFilter
 //   in filter groups 0, 1 and 2, SetView, FieldRef.SetFilter, RecordRef.SetView, a CalcFormula's field(filter()) over a normal
-//   field that holds `@` and over a FlowFilter set to `@`, and a CalcFormula's filter('@').
+//   field that holds `@` and over a FlowFilter set to `@`, a CalcFormula's filter('@') and filter('<>@'); GetFilter, GetFilters, GetView.
 // BC versions: 27, 28, 29
 
 table 97502 "AS Kind Row"
@@ -747,4 +747,122 @@ codeunit 97500 "AS Kind Tests"
         Seen += '|' + NotAtHost(TempHost, TempHost.FieldNo("Kind One Text"));
         Assert.AreEqual('1,No,Yes|1,No,Yes|0,Yes,No|0,Yes,No', Seen, 'database code, database text, temporary code, temporary text');
     end;
+
+    // A CalcFormula's quoted filter('<>@') over the Code and the Text field (table 97505), of a host in the database and of a
+    // temporary host. An unquoted filter(@) does not compile (AL0870).
+    [Test]
+    procedure AtSignAloneNegated_CalcFormulaQuotedFilter()
+    var
+        Host: Record "AS Kind Filter Host";
+        TempHost: Record "AS Kind Filter Host" temporary;
+        Seen: Text;
+    begin
+        Host."No." := NewGroup(true);
+        Host.Insert();
+        TempHost := Host;
+        TempHost.Insert();
+        Host.CalcFields("Code Not At", "Text Not At");
+        Seen := Format(Host."Code Not At") + ',' + Format(Host."Text Not At");
+        TempHost.CalcFields("Code Not At", "Text Not At");
+        Seen += '|' + Format(TempHost."Code Not At") + ',' + Format(TempHost."Text Not At");
+        Assert.AreEqual('10,10|10,10', Seen, 'database host, temporary host');
+    end;
+
+    // <>@ alone by FieldRef.SetFilter, by SetView with FILTER(<>@) (Count and GetFilter) and by RecordRef.SetView, on the Code and
+    // on the Text field.
+    local procedure NotAtRefs(var R: Record "AS Kind Row"; G: Code[20]; FieldName: Text; FieldNo: Integer): Text
+    var
+        Ref: RecordRef;
+        GroupRef: FieldRef;
+        KindRef: FieldRef;
+        Seen: Text;
+    begin
+        Ref.GetTable(R);
+        GroupRef := Ref.Field(1);
+        KindRef := Ref.Field(FieldNo);
+        GroupRef.SetRange(G);
+        KindRef.SetFilter('<>@');
+        Seen := Format(Ref.Count()) + ',' + KindRef.GetFilter();
+        Ref.SetView(StrSubstNo('WHERE(Group=CONST(%1),%2=FILTER(<>@))', G, FieldName));
+        Seen += ',' + Format(Ref.Count());
+        R.SetView(StrSubstNo('WHERE(Group=CONST(%1),%2=FILTER(<>@))', G, FieldName));
+        Seen += ',' + Format(R.Count()) + ',' + R.GetFilter("Code Kind") + ',' + R.GetFilter("Text Kind");
+        exit(Seen);
+    end;
+
+    [Test]
+    procedure AtSignAloneNegated_FieldRefAndSetView()
+    var
+        R: Record "AS Kind Row";
+        Temp: Record "AS Kind Row" temporary;
+        G: Code[20];
+        Seen: Text;
+    begin
+        G := NewGroup(true);
+        CopyGroup(G, Temp);
+        Seen := NotAtRefs(R, G, 'Code Kind', R.FieldNo("Code Kind"));
+        Seen += '|' + NotAtRefs(R, G, 'Text Kind', R.FieldNo("Text Kind"));
+        Seen += '|' + NotAtRefs(Temp, G, 'Code Kind', Temp.FieldNo("Code Kind"));
+        Seen += '|' + NotAtRefs(Temp, G, 'Text Kind', Temp.FieldNo("Text Kind"));
+        Assert.AreEqual('1,<>@,1,1,<>@,|1,<>@,1,1,,<>@|0,<>@,0,0,<>@,|0,<>@,0,0,,<>@', Seen,
+            'database code, database text, temporary code, temporary text');
+    end;
+
+    // GetFilter, GetFilters and GetView of @ alone and of <>@ alone on the Code and on the Text field.
+    local procedure ReadBack(Filter: Text; FieldNo: Integer): Text
+    var
+        R: Record "AS Kind Row";
+    begin
+        if FieldNo = R.FieldNo("Code Kind") then begin
+            R.SetFilter("Code Kind", Filter);
+            exit(R.GetFilter("Code Kind") + ' # ' + R.GetFilters() + ' # ' + R.GetView());
+        end;
+        R.SetFilter("Text Kind", Filter);
+        exit(R.GetFilter("Text Kind") + ' # ' + R.GetFilters() + ' # ' + R.GetView());
+    end;
+
+    [Test]
+    procedure AtSignAlone_GetFilterGetFiltersGetView()
+    var
+        R: Record "AS Kind Row";
+        Seen: Text;
+    begin
+        Seen := ReadBack('@', R.FieldNo("Code Kind"));
+        Seen += ' | ' + ReadBack('<>@', R.FieldNo("Code Kind"));
+        Seen += ' | ' + ReadBack('@', R.FieldNo("Text Kind"));
+        Seen += ' | ' + ReadBack('<>@', R.FieldNo("Text Kind"));
+        Assert.AreEqual(
+            '@ # Code Kind: @ # VERSION(1) SORTING(Group,Id) WHERE(Code Kind=FILTER(@)) | ' +
+            '<>@ # Code Kind: <>@ # VERSION(1) SORTING(Group,Id) WHERE(Code Kind=FILTER(<>@)) | ' +
+            '@ # Text Kind: @ # VERSION(1) SORTING(Group,Id) WHERE(Text Kind=FILTER(@)) | ' +
+            '<>@ # Text Kind: <>@ # VERSION(1) SORTING(Group,Id) WHERE(Text Kind=FILTER(<>@))',
+            Seen, 'code @, code <>@, text @, text <>@');
+    end;
+}
+
+// The CalcFormulas of AtSignAloneNegated_CalcFormulaQuotedFilter: a quoted filter('<>@').
+table 97505 "AS Kind Filter Host"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; "Code Not At"; Decimal)
+        {
+            FieldClass = FlowField;
+            CalcFormula = sum("AS Kind Row".Amount where("Group" = field("No."), "Code Kind" = filter('<>@')));
+        }
+        field(3; "Text Not At"; Decimal)
+        {
+            FieldClass = FlowField;
+            CalcFormula = sum("AS Kind Row".Amount where("Group" = field("No."), "Text Kind" = filter('<>@')));
+        }
+    }
+
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+    }
 }

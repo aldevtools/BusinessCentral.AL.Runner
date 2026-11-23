@@ -13,6 +13,14 @@
 //! Both pages are temporary Worksheets with InsertAllowed = false (`kept_page` lists every page fact). Neither expression can
 //! raise an error or write anything, so skipping its run at the open changes only the caption; a TestPage's Caption() on such
 //! a page refuses (`refuse_kept_open_caption`). Every other page keeps the refusal of `data_caption_open_neighbor`.
+//!
+//! The two Worksheet opens of Microsoft's pages where main keeps its open, which does not run the
+//! DataCaptionExpression BC runs there (pinned by pages/properties/DataCaptionKeptOpen.al): a
+//! temporary Worksheet without inserts whose expression is a page procedure returning StrSubstNo of a
+//! label and a Text field of Rec, opened by a Page variable's Run() into a Trap; one whose expression
+//! returns a codeunit variable's Text variable, opened by SetTableView and RunModal() for a
+//! ModalPageHandler. Entry points: `data_caption_open_kept` (by `data_caption_at_handled_open`,
+//! before the neighbor refusal), `refuse_kept_open_caption` (by `test_page_caption`).
 
 use super::page_run_close::PageRunCall;
 use super::*;

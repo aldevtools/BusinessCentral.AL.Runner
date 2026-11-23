@@ -2,6 +2,9 @@
 //!
 //! A refusal names what it refused in AL terms: the type, and for a simple value a short form of
 //! it. Rust's debug format shows internal structure instead (`Record(RefCell { .. })`).
+//!
+//! How a value or type reads in a refusal reason or internal error (AL type and a short value, never
+//! a debug dump). Entry points: `Describe`.
 
 use crate::json::Scalar;
 use crate::native::Signal;
@@ -296,6 +299,7 @@ pub(crate) mod tests {
             crm: false,
             fields: Default::default(),
             filters: Vec::new(),
+            decimal_cut_filters: Vec::new(),
             filter_group: 0,
             marks: Vec::new(),
             marked_only: false,

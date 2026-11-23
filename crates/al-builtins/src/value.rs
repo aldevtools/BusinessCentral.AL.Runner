@@ -1,4 +1,7 @@
 //! Runtime values (ADR-010).
+//!
+//! The state of a page is not here (ADR-072: al-vm `pages/state/mod.rs`). Entry points: `Value`,
+//! `RtType`, `RecordState`, `Instance`, `DotNetObject`.
 
 pub use crate::page_handle::{ControlHandle, PageHandle};
 use rust_decimal::Decimal;
@@ -527,6 +530,10 @@ pub struct RecordState {
     /// Field values in the table's field order.
     pub fields: crate::record_fields::Fields,
     pub filters: Vec<crate::filter::FieldFilter>,
+    /// Copies of the filters in `filters` that a measured setter set on a Decimal field whose SQL column cuts their values
+    /// (al-vm `decimal_column::measured_setter`): a read compares such a filter cut only while the identical filter is here.
+    /// `SetRange` and `SetFilter` drop the entry of their field and group; every copy of the record copies it with `filters`.
+    pub decimal_cut_filters: Vec<crate::filter::FieldFilter>,
     /// The filter group `SetRange` and `SetFilter` write to and `GetFilter` reads.
     pub filter_group: i32,
     /// Primary keys marked with `Mark(true)`, and whether `MarkedOnly` restricts the set to them.

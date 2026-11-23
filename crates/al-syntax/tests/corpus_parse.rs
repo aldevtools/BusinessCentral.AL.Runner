@@ -41,7 +41,10 @@ const KNOWN_UNPARSED: &[(&str, &str)] = &[];
 
 #[test]
 fn every_corpus_file_parses_without_errors_and_round_trips() {
-    let syms = al_version::corpus_symbols(27);
+    let syms = al_version::corpus_symbols(
+        &al_version::BcVersion::new(27, 0),
+        &al_version::ReleasedMinors::NotRecorded,
+    );
     let mut failures = Vec::new();
     let files = corpus_files();
     for f in &files {
@@ -94,7 +97,10 @@ fn every_corpus_file_parses_without_errors_and_round_trips() {
 #[test]
 fn corpus_code_is_parsed_structurally_not_swallowed() {
     use al_syntax::SyntaxKind::*;
-    let syms = al_version::corpus_symbols(27);
+    let syms = al_version::corpus_symbols(
+        &al_version::BcVersion::new(27, 0),
+        &al_version::ReleasedMinors::NotRecorded,
+    );
     let (mut kw_routines, mut kw_begins, mut nodes_routines, mut nodes_blocks, mut test_attrs) = (0, 0, 0, 0, 0);
     for f in corpus_files() {
         if is_must_not_compile(&f) {
@@ -132,7 +138,10 @@ fn corpus_code_is_parsed_structurally_not_swallowed() {
 #[test]
 fn no_corpus_block_holds_a_type_reference() {
     use al_syntax::SyntaxKind::*;
-    let syms = al_version::corpus_symbols(27);
+    let syms = al_version::corpus_symbols(
+        &al_version::BcVersion::new(27, 0),
+        &al_version::ReleasedMinors::NotRecorded,
+    );
     let mut found = Vec::new();
     for f in corpus_files() {
         let src = std::fs::read_to_string(&f).unwrap();

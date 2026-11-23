@@ -22,7 +22,29 @@
 //!   the table field's insert wrote the store before, is written over by the save (:443 `A//`, `Inserted::Rewritten`, measured
 //!   under Page.RunModal on an empty group).
 //!
+//! - writes of other tables before the save, after the table field's insert, by the table field or the control (inserts and
+//!   modifies, no delete), leave the save and the Update as they are, also before the rewritten row (ListNewLineWritesOtherTable.al,
+//!   corpus pull requests 1527, merged, and 1536, open, 17 of 17 green on BC 29.1 in 3 runs, under the assumption
+//!   `list-new-line-writes-other-table`, `only_other_tables_written`).
+//!
 //! Every other open, view and page keeps main's refusal (`UNMEASURED_CODE`).
+//!
+//! Code that is not a pinned page's around `CurrPage.SaveRecord()` and `CurrPage.Update` on the page
+//! without triggers of `code_inserted_new_line.rs` (al-runner issues 8712 and 8713; assumption `list-
+//! new-line-extra-code`, corpus pull request 1521): the gate is what the code did, not its lines.
+//! Before the save only the table field's insert wrote the store (`extra_code_cell`, by
+//! `code_inserted_cell` when `code_inserted_code` finds no pin); the save writes Rec as it is;
+//! between the save and `Update(false)` the row may change through another record or Rec may change,
+//! not both (`extra_code_kept`, read by `view_kept` through `SavedView::extra`), and every other row
+//! of the page's table stays as the save left it (`extra_code_rows`); nothing changes after the
+//! Update (`extra_code_unchanged`). `Update(true)` after the save writes Rec over the row again
+//! (`extra_code_update_true`); TestPage.OpenEdit with a filter of the test is the open
+//! `Opened::OpenEditOneGroup`; a row the control's OnValidate wrote once before the save is
+//! `Inserted::Rewritten`, which a control's OnValidate tells by the row version it began with
+//! (`ControlOnValidate::row_version`, `new_line_row_version`). Writes of other tables before the save
+//! (al-runner issue 8735; assumption `list-new-line-writes-other-table`, corpus pull request 1527)
+//! pass when the line's insert was the store's first write and the page's table's only one, with no
+//! delete (`only_other_tables_written`).
 
 use super::code_inserted_new_line::{Leave, Opened, UNMEASURED_CODE, View};
 use super::state::{CodeInsertedSave, SavedView};
@@ -40,7 +62,8 @@ impl Session {
     /// one group, empty or with one row before the line, each effect measured both ways, :342, :355, :401, :414, :454, :512,
     /// :487, :524, :498, :536; Update(true) on an empty group, :465), its table declares no
     /// record trigger (`no_record_trigger`), and nothing but the table field's insert wrote the store since the line began (or,
-    /// `rewritten`, that row once more inside the control's OnValidate, :443); otherwise refused.
+    /// `rewritten`, that row once more inside the control's OnValidate, :443), or only other tables besides
+    /// (`only_other_tables_written`); otherwise refused.
     pub(super) fn extra_code_cell(
         &mut self,
         st: &St,
@@ -69,8 +92,20 @@ impl Session {
         };
         let rewritten_measured =
             rewritten && insert_before_control && opened == Opened::RunModalOneGroup && view == Some(View::Alone);
-        if !(measured && (only_the_insert || rewritten_measured) && self.no_record_trigger(st)) {
+        // Writes of other tables before the save, or before the control's OnValidate began for the rewritten row (on an empty
+        // group only): measured under Page.RunModal (ListNewLineWritesOtherTable.al, `only_other_tables_written`). The rewritten
+        // row is the control's only write (`Inserted::Rewritten`): a control that also writes another table is refused, in
+        // either order (:630, :654, review of #8806, point 2).
+        let other_tables = !only_the_insert
+            && !rewritten_measured
+            && opened == Opened::RunModalOneGroup
+            && (!rewritten || view == Some(View::Alone))
+            && self.only_other_tables_written(st, rewritten)?;
+        if !(measured && (only_the_insert || rewritten_measured || other_tables) && self.no_record_trigger(st)) {
             return Err(Signal::unsupported(UNMEASURED_CODE));
+        }
+        if other_tables {
+            assume(Assumption::ListNewLineWritesOtherTable);
         }
         if rewritten {
             // The save writes Rec over what the other record wrote (:443 `A//`); the table has no OnModify, so the write is the
@@ -100,6 +135,46 @@ impl Session {
                     .iter()
                     .any(|n| r.name.eq_ignore_ascii_case(n))
         })
+    }
+
+    /// Whether, since the line began, the table field's insert was the store's first write and the page's table's only one, and
+    /// every other write went to other tables, as inserts or modifies (no delete anywhere): the line's SystemRowVersion is the
+    /// first one handed out after the line's mark (`new_line_writes`), every other row of the page's table is older than the
+    /// mark, and the delete count is the mark's. For the `rewritten` row (`Inserted::Rewritten`) the line's version is the one
+    /// the control's OnValidate began with (`ControlOnValidate::row_version`). ListNewLineWritesOtherTable.al (corpus pull
+    /// request 1527, merged, and 1536, open) measures it under Page.RunModal: the table field inserts rows of another table (:328,
+    /// :342), the control does (:361, :373), both do (:642), the table field does before Update(true) (:386), and so does the
+    /// control (:605), the table field or the control modifies them (:398, :411, :425), the table field before Update(true)
+    /// (:617), the table field does before the rewritten row (:463), and a FlowField of the page's table counts them (:666). A
+    /// write before the insert (:438) and a delete (:450) are measured too, and refused: the store does not tell which table a
+    /// delete or an earlier write went to.
+    fn only_other_tables_written(&mut self, st: &St, rewritten: bool) -> Result<bool, Signal> {
+        let (Some((mark, deletes)), began) = ({
+            let s = st.borrow();
+            (
+                s.new_line_writes,
+                s.control_onvalidate.as_ref().and_then(|c| c.row_version),
+            )
+        }) else {
+            return Ok(false);
+        };
+        if self.write_mark().1 != deletes {
+            return Ok(false);
+        }
+        let Some(rows) = self.coded_rows(st)? else {
+            return Ok(false);
+        };
+        let rec = self.page_rec(st);
+        let table = self.table(&rec)?;
+        let line = table.primary_key(&rec.borrow().fields);
+        Ok(rows.iter().all(|row| {
+            let version = crate::stale_rename::row_version(&table, row);
+            match Self::same_key(&table.primary_key(row), &line) {
+                true if rewritten => began == Some(mark + 1),
+                true => version == Some(mark + 1),
+                false => version.is_some_and(|v| v <= mark),
+            }
+        }))
     }
 
     /// `CurrPage.Update(true)` after the save, when the code since kept what `Update(false)` needs kept (`view_kept`): the page

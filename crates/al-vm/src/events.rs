@@ -7,6 +7,25 @@
 //! publisher is not in the workspace (Base App, platform codeunits) attaches
 //! to nothing: the publisher cannot run here, so it cannot fire. The platform
 //! codeunits the runtime raises events of are found by the name as written.
+//!
+//! A subscriber is bound to the object its `ir::Attribute::publisher` names (al-sema
+//! `Workspace::subscriber_publisher`); an unpicked name refuses each twin's event (`Missing`,
+//! `MissingWhy`), and so does a subscriber that writes the id of `Filter Helper Triggers`, `UI Helper
+//! Triggers` or `Reporting Triggers` for the event it names, a manual one only while bound
+//! (`Registry::add_by_id_subscriber`, `Missing::bound_only`), except a static subscriber of the app
+//! under test to MakeDateFilter, CaptionClassTranslate or SubstituteReport, registered as the name
+//! form is (`by_id_as_name`, assumption `subscriber-publisher-by-id`); A subscriber that writes any
+//! other publisher as a bare id is bound only in the shapes `by_id_measured` allows (assumption
+//! `subscriber-publisher-by-id`, marked by `note_scope`, and for install subscribers through the
+//! tables al-testrun `install::assume_by_id_install_tables` lists from `is_by_id_install`); every
+//! other bare-id shape refuses its event (`MissingWhy::PublisherByIdNotMeasured`), except a
+//! dependency app's bare-id subscriber to Global Triggers, Caption Class, Company Triggers or
+//! Extension Triggers: registered nowhere, every test refuses (`dependency_platform_by_id`, read by
+//! al-testrun `runtime/run.rs`). `subscribers_at` and `is_subscribed` mark the twin assumption.
+//! `dispatch.rs` `Session::receiving_dependency_subscriber` finds a dependency-app subscriber a
+//! runtime-raised platform event would reach, other than the System Application codeunit the runtime
+//! stands in for (`filterevents.rs`, `pages/ui_caption_translate.rs` and `pages/caption_class.rs`
+//! refuse on it). Entry points: `Registry`, `build`, `subscribers_at`, `Subscriber`, `Publisher`.
 
 use al_ir as ir;
 use al_ir::ObjKind;

@@ -3,6 +3,12 @@
 //! split into "breaks with fresh SingleInstance state" (a flip under `isolation.singleInstance = fresh`, with its
 //! reason) and "reads carried state, outcome unchanged" (`readsCarried`: "checked" when the run had a `fresh` variant,
 //! else "not checked").
+//!
+//! the order dependence part of a stability report (ADR-058 amendment 1, decisions 4 to 6):
+//! `SiReport::new` from the base variant's `CorpusRuntime::single_carried` (dependency apps marked
+//! against the apps under test), the console section "Order dependence (SingleInstance state)"
+//! (`lines`), `flips[].reason` (`reason`), `readsCarried` (`reads_carried`), the JUnit reason line
+//! and the property `singleInstanceCarried`. Wired in by `stability::Outcome::with_single_instance`.
 
 use al_testrun::runtime::CarriedCodeunit;
 use al_testrun::stability::{Change, Kind, Seen};
