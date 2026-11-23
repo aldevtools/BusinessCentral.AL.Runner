@@ -51,7 +51,8 @@ fn cue_cells_pass() {
     assert!(cue.len() == 6 && bad.is_empty(), "{cue:#?}");
 }
 
-/// The neighbors past the cells refuse: a DateFormula field in a cuegroup, a Boolean field in a wide one.
+/// The neighbors past the cells refuse, each measured on BC: a DateFormula field in a cuegroup, a Boolean field in a wide one,
+/// a Code field in a cuegroup on a Document page and in a CardPart read through its host (BC shows `0` for each).
 #[test]
 fn neighbors_past_the_cells_refuse() {
     let o = outcomes(
@@ -64,5 +65,5 @@ fn neighbors_past_the_cells_refuse() {
             |(_, r, _)| !matches!(r, Outcome::NotRun(why) if why.starts_with("Value of a field control in a cuegroup")),
         )
         .collect();
-    assert!(o.len() == 2 && bad.is_empty(), "{o:#?}");
+    assert!(o.len() == 4 && bad.is_empty(), "{o:#?}");
 }

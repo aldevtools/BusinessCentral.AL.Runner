@@ -58,8 +58,69 @@ page 97715 "LT CFN Card"
     }
 }
 
+// A Document page with a cuegroup: no cell opens one.
+page 97716 "LT CFN Document"
+{
+    PageType = Document;
+    SourceTable = "LT CFN Row";
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            cuegroup(Cues)
+            {
+                field(CueCode; Rec.CodeValue) { }
+            }
+        }
+    }
+}
+
+// A CardPart with a cuegroup, read as a part of the Card 97718: the cells open a CardPart as a TestPage of its own only.
+page 97717 "LT CFN Part"
+{
+    PageType = CardPart;
+    SourceTable = "LT CFN Row";
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            cuegroup(Cues)
+            {
+                field(CueCode; Rec.CodeValue) { }
+            }
+        }
+    }
+}
+
+page 97718 "LT CFN Host"
+{
+    PageType = Card;
+    SourceTable = "LT CFN Row";
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            field("No."; Rec."No.") { }
+            part(CuePart; "LT CFN Part")
+            {
+                SubPageLink = "No." = field("No.");
+            }
+        }
+    }
+}
+
 // Neighbors of al-runner issue 8845 just past the cells of GetFieldByControlId.al (corpus pull request 1538, CueTypes_ValueByNameAndById):
-// a DateFormula field in a cuegroup, and a Boolean field in a cuegroup with CuegroupLayout = Wide.
+// a DateFormula field in a cuegroup, a Boolean field in a cuegroup with CuegroupLayout = Wide, a Code field in a cuegroup on a
+// Document page, and one in a CardPart read as a part of a Card.
 // Each test asserts what Business Central 29.1 answered (3 runs).
 codeunit 97713 "LT CFN Tests"
 {
@@ -98,6 +159,30 @@ codeunit 97713 "LT CFN Tests"
     end;
 
     [Test]
+    procedure DocumentCueCode_Value()
+    var
+        Doc: TestPage "LT CFN Document";
+    begin
+        Initialize();
+        Doc.OpenView();
+        Note('value', Doc.CueCode.Value());
+        Doc.Close();
+        Expect('value', '0');
+    end;
+
+    [Test]
+    procedure PartCueCode_Value()
+    var
+        Host: TestPage "LT CFN Host";
+    begin
+        Initialize();
+        Host.OpenView();
+        Note('value', Host.CuePart.CueCode.Value());
+        Host.Close();
+        Expect('value', '0');
+    end;
+
+    [Test]
     procedure CueDateFormula_Value()
     var
         Card: TestPage "LT CFN Card";
@@ -120,4 +205,5 @@ codeunit 97713 "LT CFN Tests"
         Card.Close();
         Expect('value', '0');
     end;
+
 }
