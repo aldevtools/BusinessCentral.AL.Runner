@@ -6,18 +6,17 @@
 //! in S; the apps of an input of several apps are placed one by one): from the database before the group, the units it
 //! reads from through others first, then the run of the plan, each in a fixed order. The run also installs the
 //! dependency predecessors of these apps and the units those read from (the run set, [`Proof::run_set`]), each at its
-//! place in the fixed order (ADR-079 decision 3, clarification of 2026-11-23). While an
-//! app installs, an app of the run placed before it is installed; one placed after it is not installed only when the
-//! round's graph has the edge "the installing app reads from it" (`InstallView::of_ordered`), else it stays of unknown
-//! order. The other apps of the group are not part of the run and stay of unknown order. A meet with an app of unknown
-//! order is refused and noted. The end databases are compared with
-//! `Baseline::install_order_differences` (ADR-046 amendments 7 and 8; the orchestrator's clarification of decision 3
-//! in ADR-079: the whole database, a superset of what the unit leaves). Every run's footprints count for the graph: a
-//! run that adds an edge starts the proof again on the grown graph; a meet that adds none stops it ([`next_round`]).
-//! A final install of the whole group in an order of the units (or, where the dependencies rule that out, the plan order:
-//! `PartnerGroup::final_order`), every app's place fixed, ends the session; its
-//! footprints are checked the same way. The tables that differ are closed over the footprints ([`tainted`]): an
-//! install that read one may have written other rows from it.
+//! place in the fixed order (ADR-079 decision 3, clarification of 2026-11-23). While an app installs, an app of the run
+//! placed before it is installed; one placed after it is not installed only when the round's graph has the edge "the
+//! installing app reads from it" (`InstallView::of_ordered`), else it stays of unknown order. The other apps of the
+//! group are not part of the run and stay of unknown order. A meet with an app of unknown order is refused and noted.
+//! The end databases are compared with `Baseline::install_order_differences` (ADR-046 amendments 7 and 8; the
+//! orchestrator's clarification of decision 3 in ADR-079: the whole database, a superset of what the unit leaves).
+//! Every run's footprints count for the graph: a run that adds an edge starts the proof again on the grown graph; a
+//! meet that adds none stops it ([`next_round`]). A final install of the whole group in an order of the units (or,
+//! where the dependencies rule that out, the plan order: `PartnerGroup::final_order`), every app's place fixed, ends
+//! the session; its footprints are checked the same way. The tables that differ are closed over the footprints
+//! ([`tainted`]): an install that read one may have written other rows from it.
 
 use crate::install_orders::{
     AppInstalls, INSTALL_ORDER_DIFFERENCE_NOTE, INSTALL_ORDERS_NOTE, MAX_INPUTS, MAX_INTERACTING, MAX_UNIT_RUNS,
