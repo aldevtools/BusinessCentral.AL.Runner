@@ -74,11 +74,11 @@ impl Graph {
                     .collect(),
             );
         }
-        // Inputs and dependencies first: a unit that reaches another reads from it (directly or through others). When
-        // the reads run against the dependencies no unit is free; the list order stays and `order_of` stops the proof.
-        let after = |u: &[u32], v: &[u32]| {
-            (reaches(u[0], v[0]) && !reaches(v[0], u[0])) || u.iter().any(|&a| v.iter().any(|&b| needs(a, b)))
-        };
+        // Inputs and dependencies first: a unit that reaches another reads from it (directly or through others; two
+        // units never reach each other, else they would be one). When the reads run against the dependencies no unit is
+        // free; the list order stays and `PartnerGroup::order` stops the proof.
+        let after =
+            |u: &[u32], v: &[u32]| reach.contains(&(u[0], v[0])) || u.iter().any(|&a| v.iter().any(|&b| needs(a, b)));
         let mut ordered = Vec::new();
         while !units.is_empty() {
             let k = (0..units.len())

@@ -22,13 +22,18 @@ fn all(apps: &[u32]) -> BTreeSet<u32> {
     apps.iter().copied().collect()
 }
 
+/// No app depends on another.
+fn no_deps(_: u32, _: u32) -> bool {
+    false
+}
+
 #[test]
 fn the_8056_shape_has_a_unit_per_app_and_each_install_reads_from_both_subscriber_apps() {
     // A (1) and A2 (2) meet B (3) and B2 (4); B and B2 have no install code.
     let fp: Footprints = [(1, meets(&[3, 4])), (2, meets(&[3, 4]))].into_iter().collect();
     let apps = all(&[1, 2, 3, 4]);
     let g = Graph::of(&apps, &fp, |x, y| x != y);
-    let units = g.units(&apps, |_, _| false);
+    let units = g.units(&apps, no_deps);
     assert_eq!(units.len(), 4, "{units:?}");
     let a = units.iter().position(|u| u == &vec![1]).unwrap();
     let b = units.iter().position(|u| u == &vec![3]).unwrap();
@@ -44,7 +49,7 @@ fn two_installs_that_write_the_same_key_are_one_unit() {
         .into_iter()
         .collect();
     let apps = all(&[1, 2, 3]);
-    let units = Graph::of(&apps, &fp, |x, y| x != y).units(&apps, |_, _| false);
+    let units = Graph::of(&apps, &fp, |x, y| x != y).units(&apps, no_deps);
     assert!(units.contains(&vec![1, 2]) && units.contains(&vec![3]), "{units:?}");
     assert!(tie(&fp, 1, 2, |a| a.to_string(), |t| t.to_string()).contains("both write"));
 }
@@ -56,12 +61,12 @@ fn a_cycle_of_four_installs_is_one_unit_and_ordered_apps_have_no_edge() {
         .collect();
     let apps = all(&[1, 2, 3, 4]);
     assert_eq!(
-        Graph::of(&apps, &fp, |x, y| x != y).units(&apps, |_, _| false),
+        Graph::of(&apps, &fp, |x, y| x != y).units(&apps, no_deps),
         vec![vec![1, 2, 3, 4]]
     );
     // 4 depends on 1: their order is known, so the cycle breaks there.
     let ordered = |x: u32, y: u32| x != y && (x, y) != (4, 1) && (x, y) != (1, 4);
-    assert_eq!(Graph::of(&apps, &fp, ordered).units(&apps, |_, _| false).len(), 4);
+    assert_eq!(Graph::of(&apps, &fp, ordered).units(&apps, no_deps).len(), 4);
 }
 
 /// ADR-079 decision 1, clarification of 2026-11-23: a session that touches everything ties every other install session;
@@ -73,7 +78,7 @@ fn an_install_that_touches_everything_ties_every_unordered_install_session() {
     let fp: Footprints = [(1, page), (2, InstallFootprint::default())].into_iter().collect();
     let apps = all(&[1, 2, 3]);
     assert_eq!(
-        Graph::of(&apps, &fp, |x, y| x != y).units(&apps, |_, _| false),
+        Graph::of(&apps, &fp, |x, y| x != y).units(&apps, no_deps),
         vec![vec![1, 2], vec![3]]
     );
     assert!(tie(&fp, 2, 1, |a| a.to_string(), |t| t.to_string()).contains("a page"));
@@ -85,7 +90,7 @@ fn ancestors_follow_inputs_of_inputs() {
     let fp: Footprints = [(1, meets(&[2])), (2, meets(&[3]))].into_iter().collect();
     let apps = all(&[1, 2, 3]);
     let g = Graph::of(&apps, &fp, |x, y| x != y);
-    let units = g.units(&apps, |_, _| false);
+    let units = g.units(&apps, no_deps);
     assert_eq!(units, vec![vec![3], vec![2], vec![1]]);
     let anc: Vec<_> = g.ancestors(&units, &[1]).into_iter().cloned().collect();
     assert_eq!(anc, vec![vec![3], vec![2]]);
@@ -143,6 +148,6 @@ fn a_unit_goes_after_the_units_with_an_app_it_depends_on() {
     let fp: Footprints = [(2, meets(&[3]))].into_iter().collect();
     let apps = all(&[1, 2, 3]);
     let g = Graph::of(&apps, &fp, |x, y| x != y && (x, y) != (1, 2) && (x, y) != (2, 1));
-    assert_eq!(g.units(&apps, |_, _| false), vec![vec![1], vec![3], vec![2]]);
+    assert_eq!(g.units(&apps, no_deps), vec![vec![1], vec![3], vec![2]]);
     assert_eq!(g.units(&apps, |a, b| (a, b) == (1, 2)), vec![vec![3], vec![2], vec![1]]);
 }
