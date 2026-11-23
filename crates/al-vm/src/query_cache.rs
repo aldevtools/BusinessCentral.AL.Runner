@@ -618,6 +618,27 @@ impl Session {
         }
     }
 
+    /// `SelectLatestVersion(Table)` with the argument `arg`: an Integer that names a table ends that table's entries and no
+    /// other table's (another table's number changes nothing, :6744); one that names no table ends none. A Char, a Byte, an
+    /// Option or an Enum, which the compiler takes for the Integer (an Enum with warning AL0603) and which reaches here as
+    /// itself (al-runner issue 8879), is refused in a worker: no cell measures which table it names (the neighbors of
+    /// MoreNeighbors.al measure each of the four with value 0, which names no table).
+    pub(crate) fn note_select_latest_version_of(&mut self, arg: Option<&Value>) -> Result<(), Signal> {
+        match arg {
+            Some(Value::Integer(n)) => {
+                if let Some(t) = self.table_object(i64::from(*n)) {
+                    self.note_select_latest_version(Some(t as u32));
+                }
+                Ok(())
+            }
+            _ if !self.in_worker() || !self.query_cache_on() => Ok(()),
+            _ => unsupported(
+                "SelectLatestVersion(Table) in a page background task with a value that is no Integer (a Char, a Byte, an \
+                 Option or an Enum; not measured)",
+            ),
+        }
+    }
+
     fn selects_of(&self, table: u32) -> u64 {
         let cache = &self.pages.query_cache;
         cache.selects_all + cache.selects.get(&table).copied().unwrap_or(0)
@@ -773,7 +794,8 @@ impl Session {
     }
 
     /// The tables the FlowFields `rec` filters on read (`flow_field_find` keys a read with them), once each, by object id: two
-    /// reads with the same key get their commit stamps in the same order, whatever order their filters were set in.
+    /// reads with the same key get their commit stamps in the same order, whatever order their filters were set in, as BC
+    /// shares the entry (the neighbor TwoFlowFieldFiltersSwapped_NoteAfterFirstRead, MoreNeighbors.al, al-runner issue 8879).
     fn flow_field_sources(&self, rec: &Rec, t: &TableDef) -> Vec<Arc<TableDef>> {
         let Some(schema) = self.engine.program.objects[t.object as usize].table.as_ref() else {
             return Vec::new();
