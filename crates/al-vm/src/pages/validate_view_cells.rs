@@ -464,8 +464,8 @@ const PAGE_READS: [PageMethod; 3] = [
 ];
 
 /// The read-only calls of corpus pull request 1535 on page 97498 (ListValidateViewReads.al `ReadsLines` blocks 1 and 2):
-/// the As* reads, OptionCount and GetOption on a control, IsExpanded on the page. GetField by a control id (block 3) is not
-/// among them: the runner does not know the compiler's control ids.
+/// the As* reads, OptionCount and GetOption on a control, IsExpanded on the page. GetField by the Name control's id (block 3)
+/// is checked by its id (`validate_view_reads`).
 const WIDE_CONTROL_READS: [PageMethod; 8] = [
     PageMethod::AsBoolean,
     PageMethod::AsDate,
