@@ -255,6 +255,243 @@ page 97157 "LT PR NB TwoRows Host"
     end;
 }
 
+// The styled part of corpus PR 1534 with the style computed with another threshold, and with the StyleExpr on Period Start.
+page 97159 "LT PR NB Styled Part B"
+{
+    PageType = ListPart;
+    SourceTable = "LT PR Load Line";
+    SourceTableTemporary = true;
+    InsertAllowed = false;
+    DeleteAllowed = false;
+    Editable = false;
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Lines)
+            {
+                field("Period Start"; Rec."Period Start") { ApplicationArea = All; }
+                field("Allocated Qty."; Rec."Allocated Qty.") { ApplicationArea = All; StyleExpr = LoadStyle; }
+            }
+        }
+    }
+
+    trigger OnAfterGetRecord()
+    begin
+        LoadStyle := 'Standard';
+        if Rec."Allocated Qty." > 25 then
+            LoadStyle := 'Unfavorable';
+    end;
+
+    var
+        ResourceNo: Code[20];
+        LinesLoaded: Boolean;
+        LoadStyle: Text;
+
+    procedure IsLoadedFor(NewResourceNo: Code[20]): Boolean
+    begin
+        exit(LinesLoaded and (NewResourceNo = ResourceNo));
+    end;
+
+    procedure Invalidate()
+    begin
+        LinesLoaded := false;
+    end;
+
+    procedure ClearLines(NewResourceNo: Code[20])
+    begin
+        ResourceNo := NewResourceNo;
+        LinesLoaded := false;
+        Rec.Reset();
+        Rec.DeleteAll(false);
+        CurrPage.Update(false);
+    end;
+
+    procedure SetLoadLines(Results: Dictionary of [Text, Text])
+    var
+        DayKey: Text;
+    begin
+        foreach DayKey in Results.Keys() do begin
+            Rec.Init();
+            Evaluate(Rec."Period Start", DayKey, 9);
+            Evaluate(Rec."Allocated Qty.", Results.Get(DayKey), 9);
+            Rec.Insert();
+        end;
+        LinesLoaded := true;
+        if Rec.FindFirst() then;
+        CurrPage.Update(false);
+    end;
+}
+
+page 97160 "LT PR NB Styled Host B"
+{
+    PageType = Worksheet;
+    SourceTable = "LT PR Op";
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Ops)
+            {
+                field("No."; Rec."No.") { ApplicationArea = All; }
+                field("Resource No."; Rec."Resource No.") { ApplicationArea = All; }
+            }
+            part(Load; "LT PR NB Styled Part B") { ApplicationArea = All; }
+        }
+    }
+
+    actions
+    {
+        area(Processing)
+        {
+            action(Refresh)
+            {
+                ApplicationArea = All;
+
+                trigger OnAction()
+                begin
+                    CurrPage.Load.Page.Invalidate();
+                    CurrPage.Update(false);
+                end;
+            }
+        }
+    }
+
+    trigger OnAfterGetCurrRecord()
+    var
+        LoadCalc: Codeunit "LT PR Load Calc";
+    begin
+        if CurrPage.Load.Page.IsLoadedFor(Rec."Resource No.") then
+            exit;
+        CurrPage.Load.Page.ClearLines(Rec."Resource No.");
+        CurrPage.Load.Page.SetLoadLines(LoadCalc.Calculate(Rec."Resource No."));
+    end;
+}
+
+page 97161 "LT PR NB Styled Part C"
+{
+    PageType = ListPart;
+    SourceTable = "LT PR Load Line";
+    SourceTableTemporary = true;
+    InsertAllowed = false;
+    DeleteAllowed = false;
+    Editable = false;
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Lines)
+            {
+                field("Period Start"; Rec."Period Start") { ApplicationArea = All; StyleExpr = LoadStyle; }
+                field("Allocated Qty."; Rec."Allocated Qty.") { ApplicationArea = All; }
+            }
+        }
+    }
+
+    trigger OnAfterGetRecord()
+    begin
+        LoadStyle := 'Standard';
+        if Rec."Allocated Qty." > 20 then
+            LoadStyle := 'Unfavorable';
+    end;
+
+    var
+        ResourceNo: Code[20];
+        LinesLoaded: Boolean;
+        LoadStyle: Text;
+
+    procedure IsLoadedFor(NewResourceNo: Code[20]): Boolean
+    begin
+        exit(LinesLoaded and (NewResourceNo = ResourceNo));
+    end;
+
+    procedure Invalidate()
+    begin
+        LinesLoaded := false;
+    end;
+
+    procedure ClearLines(NewResourceNo: Code[20])
+    begin
+        ResourceNo := NewResourceNo;
+        LinesLoaded := false;
+        Rec.Reset();
+        Rec.DeleteAll(false);
+        CurrPage.Update(false);
+    end;
+
+    procedure SetLoadLines(Results: Dictionary of [Text, Text])
+    var
+        DayKey: Text;
+    begin
+        foreach DayKey in Results.Keys() do begin
+            Rec.Init();
+            Evaluate(Rec."Period Start", DayKey, 9);
+            Evaluate(Rec."Allocated Qty.", Results.Get(DayKey), 9);
+            Rec.Insert();
+        end;
+        LinesLoaded := true;
+        if Rec.FindFirst() then;
+        CurrPage.Update(false);
+    end;
+}
+
+page 97162 "LT PR NB Styled Host C"
+{
+    PageType = Worksheet;
+    SourceTable = "LT PR Op";
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Ops)
+            {
+                field("No."; Rec."No.") { ApplicationArea = All; }
+                field("Resource No."; Rec."Resource No.") { ApplicationArea = All; }
+            }
+            part(Load; "LT PR NB Styled Part C") { ApplicationArea = All; }
+        }
+    }
+
+    actions
+    {
+        area(Processing)
+        {
+            action(Refresh)
+            {
+                ApplicationArea = All;
+
+                trigger OnAction()
+                begin
+                    CurrPage.Load.Page.Invalidate();
+                    CurrPage.Update(false);
+                end;
+            }
+        }
+    }
+
+    trigger OnAfterGetCurrRecord()
+    var
+        LoadCalc: Codeunit "LT PR Load Calc";
+    begin
+        if CurrPage.Load.Page.IsLoadedFor(Rec."Resource No.") then
+            exit;
+        CurrPage.Load.Page.ClearLines(Rec."Resource No.");
+        CurrPage.Load.Page.SetLoadLines(LoadCalc.Calculate(Rec."Resource No."));
+    end;
+}
+
 codeunit 97158 "LT PR NB Object Neighbors"
 {
     Subtype = Test;
@@ -366,5 +603,55 @@ codeunit 97158 "LT PR NB Object Neighbors"
         Seen += 'text=' + Host.Load.QtyText.Value() + ';scope=' + Host.Load.Scope.Value() + ';';
         Host.Close();
         Assert.AreEqual('before=T:0:10;text=agr10;scope=open;after=T:0:30;text=agr30;scope=open;', Seen, 'Worksheet, a part with OnOpenPage and OnAfterGetRecord over a two-field key (Period Type, Period Start): Refresh, then Filter.SetFilter on Period Start and First on the part');
+    end;
+
+    [Test]
+    procedure StyledPart_OtherThreshold_First()
+    var
+        Op: Record "LT PR Op";
+        Host: TestPage "LT PR NB Styled Host B";
+        Found: Boolean;
+        Seen: Text;
+    begin
+        Initialize();
+        Seed();
+        Op.Get('OP1');
+        Host.OpenView();
+        Host.GoToRecord(Op);
+        Host.Load.Filter.SetFilter("Period Start", Format(TheDay()));
+        Found := Host.Load.First();
+        Seen := Fact('before', Found, Host.Load."Period Start".AsDate(), Host.Load."Allocated Qty.".AsDecimal());
+        AddBooking(3, 'R1', TheDay(), 20);
+        Host.Refresh.Invoke();
+        Host.Load.Filter.SetFilter("Period Start", Format(TheDay()));
+        Found := Host.Load.First();
+        Seen += Fact('after', Found, Host.Load."Period Start".AsDate(), Host.Load."Allocated Qty.".AsDecimal());
+        Host.Close();
+        Assert.AreEqual('before=T:0:10;after=T:0:30;', Seen, 'Worksheet, the plain part with StyleExpr on Allocated Qty. set in its OnAfterGetRecord: Refresh, then Filter.SetFilter and First on the part');
+    end;
+
+    [Test]
+    procedure StyledPart_StyleOnPeriodStart_First()
+    var
+        Op: Record "LT PR Op";
+        Host: TestPage "LT PR NB Styled Host C";
+        Found: Boolean;
+        Seen: Text;
+    begin
+        Initialize();
+        Seed();
+        Op.Get('OP1');
+        Host.OpenView();
+        Host.GoToRecord(Op);
+        Host.Load.Filter.SetFilter("Period Start", Format(TheDay()));
+        Found := Host.Load.First();
+        Seen := Fact('before', Found, Host.Load."Period Start".AsDate(), Host.Load."Allocated Qty.".AsDecimal());
+        AddBooking(3, 'R1', TheDay(), 20);
+        Host.Refresh.Invoke();
+        Host.Load.Filter.SetFilter("Period Start", Format(TheDay()));
+        Found := Host.Load.First();
+        Seen += Fact('after', Found, Host.Load."Period Start".AsDate(), Host.Load."Allocated Qty.".AsDecimal());
+        Host.Close();
+        Assert.AreEqual('before=T:0:10;after=T:0:30;', Seen, 'Worksheet, the plain part with StyleExpr on Allocated Qty. set in its OnAfterGetRecord: Refresh, then Filter.SetFilter and First on the part');
     end;
 }
