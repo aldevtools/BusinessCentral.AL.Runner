@@ -1,9 +1,9 @@
 //! Who calls the procedure a record is handed to by value, and what else the caller's record holds (al-runner issue 8248,
 //! round 2 of its review): an interface call is not measured, nor is an event subscriber outside the shape of
 //! `by_value_subscriber.rs`, a table procedure is measured only as
-//! `Row.Proc(Row)` from a codeunit, and a record whose SetLoadFields after a read or ReadIsolation the probe did not hand
-//! on is refused (SetAutoCalcFields in the shape of `by_value_auto_calc.rs` runs flagged). Each neighbor that main answered
-//! keeps main's result.
+//! `Row.Proc(Row)` from a codeunit, and a record whose ReadIsolation the probe did not hand on is refused (SetAutoCalcFields in
+//! the shape of `by_value_auto_calc.rs`, and a SetLoadFields after a read handed to a codeunit's procedure, run flagged). Each
+//! neighbor that main answered keeps main's result.
 
 use crate::record_copy_reports::{PASS, VIEW_REFUSED, check, run};
 
@@ -188,8 +188,11 @@ codeunit 50166 "BD Test"
         Expect(Filters.Filters(Line), '');
     end;
 
+    // The copy does not keep the caller's SetLoadFields after a read: its own FindFirst loads every field (corpus PR 1543,
+    // record/filters/ByValueLoadFieldsAfterRead.al:193-208 ByValueLoad_LoadFieldsThenFindFirst, `amount loaded=Yes` after the
+    // copy's read); the refused neighbors of that rule are in tests/neighbors/8839-setloadfields-byvalue-copy.
     [Test]
-    procedure SetLoadFields_AfterARead_Refused()
+    procedure SetLoadFields_AfterARead_Flagged()
     var
         Line: Record "BD Row";
     begin
@@ -197,7 +200,7 @@ codeunit 50166 "BD Test"
         Line.SetLoadFields(Name);
         Line.FindFirst();
         Line.SetRange(Status, Line.Status::Posted);
-        Expect(Callee.LoadedAfterFind(Line), '');
+        Expect(Callee.LoadedAfterFind(Line), 'Yes');
     end;
 
     // The copy does not keep SetAutoCalcFields (corpus PR 1473, record/filters/ByValueAutoCalcFields.al:289-306 in corpus PR 1485); the
@@ -277,7 +280,7 @@ fn by_value_copies_outside_the_measured_calls_and_record_state_refuse_or_keep_ma
         ("Interface_Group0Filter_Refused", VIEW_REFUSED, false),
         ("Interface_NoFilter_KeepsMain", PASS, false),
         ("TemporaryToInterface_Refused", VIEW_REFUSED, false),
-        ("SetLoadFields_AfterARead_Refused", VIEW_REFUSED, false),
+        ("SetLoadFields_AfterARead_Flagged", PASS, true),
         ("SetAutoCalcFields_Flagged", PASS, true),
         ("ReadIsolation_Refused", VIEW_REFUSED, false),
         ("TableProcedure_SameRecord_Pinned", PASS, false),

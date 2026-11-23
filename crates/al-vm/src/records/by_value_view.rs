@@ -19,7 +19,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 /// The `RecordState::unpinned_buffer` reason of a by-value copy whose view [`Session::by_value_view`] does not decide.
-pub(crate) const BY_VALUE_VIEW: &str = "a record handed by value whose view the probe did not measure (a filter in filter group 1 or in a group other than -1, 0, 2 and 4, the caller standing in a group other than 0 and 2, a field sorted descending by SetAscending, a SetLoadFields after a read, a SetAutoCalcFields outside the measured shape or ReadIsolation on the record, a call through an interface, a parameter of an object other than a codeunit, of a report procedure called from other than the report, a codeunit or a page, a key on a FlowField with a filter, another order, marks, or a SetLoadFields before a read other than handed from a codeunit to a codeunit's or a report's procedure, or of a table procedure other than Row.Proc(Row) or Buffer.Proc(Entry) of another table from a codeunit or a third table, or an event subscriber's parameter whose publisher parameter is a by-value Record, other than in the one cell record/filters/ByValueRecordView.al:286-308 and :964-978 measures): what the copy's view holds is not pinned";
+pub(crate) const BY_VALUE_VIEW: &str = "a record handed by value whose view the probe did not measure (a filter in filter group 1 or in a group other than -1, 0, 2 and 4, the caller standing in a group other than 0 and 2, a field sorted descending by SetAscending, a SetLoadFields and a read before the hand-off other than from a codeunit to a codeunit's procedure with every filter in group 0, ascending and without marks or an ad hoc key, a SetAutoCalcFields outside the measured shape or ReadIsolation on the record, a call through an interface, a parameter of an object other than a codeunit, of a report procedure called from other than the report, a codeunit or a page, a key on a FlowField with a filter, another order, marks, or a SetLoadFields before a read other than handed from a codeunit to a codeunit's or a report's procedure, or of a table procedure other than Row.Proc(Row) or Buffer.Proc(Entry) of another table from a codeunit or a third table, or an event subscriber's parameter whose publisher parameter is a by-value Record, other than in the one cell record/filters/ByValueRecordView.al:286-308 and :964-978 measures): what the copy's view holds is not pinned";
 
 /// The `RecordState::unpinned_buffer` reason of the copy an event subscriber's parameter gets in the cell
 /// record/filters/ByValueRecordView.al:286-308 measures ([`subscriber_view`]): the subscriber reads GetFilters and Count of it
@@ -160,38 +160,53 @@ fn reads_no_view(method: RecordOp) -> bool {
 /// secondary in `ByValue_SecondaryKey_*`, ad hoc in `ByValue_AdHocKey_Group0Filter`), Ascending (`ByValue_Descending_*`)
 /// and the marks with MarkedOnly on or off (`ByValue_Marks_*`) are each measured. A filter in group 1 is seen by every
 /// record of the table in the session (`ByValue_Group1Filter_OtherInstance`), which the runtime does not model.
-/// `auto_calc_dropped`: the caller's SetAutoCalcFields is one [`Session::measured_auto_calc`] names, and the copy drops it.
-fn measured_view(s: &RecordState, auto_calc_dropped: bool) -> bool {
+/// `state_dropped`: what else the caller's record holds is a state the copy drops, a SetAutoCalcFields
+/// [`Session::measured_auto_calc`] names or a SetLoadFields and a read `load_read` in [`Session::by_value_view`] names.
+fn measured_view(s: &RecordState, state_dropped: bool) -> bool {
     s.filters.iter().all(|f| matches!(f.group, -1 | 0 | 2 | 4))
         && matches!(s.filter_group, 0 | 2)
         && s.field_descending == 0
-        && (measured_state(s) || auto_calc_dropped)
+        && (measured_state(s) || state_dropped)
 }
 
 /// Whether the probe measured what else `s` holds that a copy could keep: no SetLoadFields, or one before any read
-/// (`ByValue_SetLoadFields`; `load.buffer` is set by a read), no SetAutoCalcFields, ReadIsolation at its default. Every cell
-/// of the probe has these. SecurityFiltering of a by-value parameter is pinned on its own
+/// (`ByValue_SetLoadFields`; [`load_after_read`]), and the state [`plain_state`] names. Every cell of
+/// record/filters/ByValueRecordView.al has these. SecurityFiltering of a by-value parameter is pinned on its own
 /// (al-language/reports/runtime/SFSecurityFilteringFlow.al, `RecordState::security_filtering_unpinned`).
 fn measured_state(s: &RecordState) -> bool {
-    (s.load.request.is_none() || s.load.buffer.is_none()) && s.auto_calc.is_empty() && s.read_isolation == 0
+    !load_after_read(s) && plain_state(s)
 }
 
-/// Whether every filter of `s` is in filter group 0 and `s` otherwise has the view of a fresh record: standing in group 0,
-/// the primary key (no ad hoc key), ascending, no field sorted descending, no marks, MarkedOnly off, no SetLoadFields, and
-/// the state [`measured_state`] names. The caller's record of `ByValue_EventSubscriberParameter`
-/// (record/filters/ByValueRecordView.al:967-972, `SetRange(Status, Posted)` on a fresh record) and of
-/// `ByValue_TemporaryToPlainParameter` (:984-995).
-fn group0_view(s: &RecordState) -> bool {
+/// Whether `s` holds no SetAutoCalcFields and ReadIsolation at its default.
+fn plain_state(s: &RecordState) -> bool {
+    s.auto_calc.is_empty() && s.read_isolation == 0
+}
+
+/// Whether `s` holds a SetLoadFields and a row it read (`load.buffer` is set by a read), whichever came first.
+fn load_after_read(s: &RecordState) -> bool {
+    s.load.request.is_some() && s.load.buffer.is_some()
+}
+
+/// Whether every filter of `s` is in filter group 0, `s` stands in group 0 on the primary or a declared key (no ad hoc key),
+/// ascending, with no field sorted descending, no marks and MarkedOnly off. The view of every cell of
+/// record/filters/ByValueLoadFieldsAfterRead.al (corpus PR 1543): no filter, `SetRange(Status, Posted)`, and the
+/// secondary key (Status, Doc) with `SetRange(Doc, ..)` after the read (`ByValueLoad_SecondaryKeyNarrowedThenFindSet`, :282).
+fn load_read_view(s: &RecordState) -> bool {
     s.filters.iter().all(|f| f.group == 0)
         && s.filter_group == 0
-        && s.key == 0
         && s.adhoc.is_none()
         && s.ascending
         && s.field_descending == 0
         && s.marks.is_empty()
         && !s.marked_only
-        && s.load.request.is_none()
-        && measured_state(s)
+}
+
+/// Whether `s` has the view [`load_read_view`] names on the primary key, no SetLoadFields, and the state
+/// [`measured_state`] names. The caller's record of `ByValue_EventSubscriberParameter`
+/// (record/filters/ByValueRecordView.al:967-972, `SetRange(Status, Posted)` on a fresh record) and of
+/// `ByValue_TemporaryToPlainParameter` (:984-995).
+fn group0_view(s: &RecordState) -> bool {
+    load_read_view(s) && s.key == 0 && s.load.request.is_none() && measured_state(s)
 }
 
 /// Whether `s` has the view of a fresh record ([`primary_view`]) and no SetLoadFields: a by-value copy of it has no filter,
@@ -417,8 +432,11 @@ impl Session {
     ///   A FlowField key with a filter, another order or marks is marked [`BY_VALUE_VIEW`] for every callee: no cell has it.
     /// - A callee [`Session::measured_callee`] names, no mark on `source`, a view [`measured_view`] names: the view of
     ///   [`primary_view`], and a SetLoadFields of a caller that read no row is dropped (`ByValue_SetLoadFields`
-    ///   `amount loaded=Yes`). Under [`Evidence::Assumed`] the copy is marked (`RecordState::view_assumption`)
-    ///   so that a read of its view marks the assumption (`by_value_view_read`, `by_value_view_handed`).
+    ///   `amount loaded=Yes`). So is a SetLoadFields of a caller that read a row, handed from a codeunit to a codeunit's
+    ///   procedure with the view [`load_read_view`] names, the copy keeping the fields the row loaded (assumption
+    ///   `by-value-load-fields-after-read`, corpus PR 1543); with no filter this replaces the first case. Under
+    ///   [`Evidence::Assumed`] or that assumption the copy is marked (`RecordState::view_assumption`) so that a read of its
+    ///   view marks the assumption (`by_value_view_read`, `by_value_view_handed`).
     /// - Another callee that is not a report's procedure, or the callee of `by-value-table-proc-other-table` with a view
     ///   [`measured_view`] does not name, no filter and no mark on `source`, the caller in filter group 0, ascending, with no
     ///   marks: main's view (a declared secondary key stays). A report procedure's copy is marked [`BY_VALUE_VIEW`] there,
@@ -446,7 +464,6 @@ impl Session {
         let no_filter = s.filters.is_empty();
         let pinned_key = s.key == 0 || s.adhoc.as_ref().is_some_and(|(k, _)| *k == s.key);
         let load_pending = s.load.request.is_some() && s.load.buffer.is_none();
-        let load_dropped = measured.is_some() && load_pending;
         let callee_kind = self.engine.program.objects[call.callee].kind;
         // A report procedure from a caller no cell measured: its copy keeps main's view only where that is a fresh record's.
         let unmeasured_report = callee_kind == ObjKind::Report && measured.is_none();
@@ -460,6 +477,18 @@ impl Session {
             let r = &objects[o].routines[f.routine];
             objects[o].kind == ObjKind::Table && r.is_trigger && r.name.eq_ignore_ascii_case("OnInsert")
         });
+        // A SetLoadFields and a read, handed from a codeunit to a codeunit's procedure (`measured_callee` pins every codeunit
+        // callee called by name): the copy keeps the fields the caller's row loaded and drops the request (assumption
+        // `by-value-load-fields-after-read`, corpus PR 1543, record/filters/ByValueLoadFieldsAfterRead.al:175-342, every cell:
+        // `name loaded=Yes amount loaded=No` as handed, `amount loaded=Yes` after the copy's own FindSet; :186).
+        let load_read = measured == Some(Evidence::Pinned)
+            && callee_kind == ObjKind::Codeunit
+            && from_codeunit
+            && s.unpinned_buffer.is_none()
+            && load_after_read(&s)
+            && plain_state(&s)
+            && load_read_view(&s);
+        let load_dropped = (measured.is_some() && load_pending) || load_read;
         let auto_calc_caller = from_codeunit
             || (measured == Some(Evidence::Assumed(Assumption::ByValueTableProcOtherTable)) && from_third_table_insert);
         // No cell of ByValueAutoCalcFields.al hands the record to a report's procedure.
@@ -499,12 +528,14 @@ impl Session {
                 c.load.request = None;
                 c.view_assumption = Some(Assumption::ByValueReportProcedure);
             }
-            None if measured.is_some() && measured_view(&s, auto_calc_dropped) => {
+            None if measured.is_some() && measured_view(&s, auto_calc_dropped || load_read) => {
                 primary_view(&mut c);
                 if load_dropped {
                     c.load.request = None;
                 }
-                c.view_assumption = measured.and_then(Evidence::assumption);
+                c.view_assumption = measured
+                    .and_then(Evidence::assumption)
+                    .or(load_read.then_some(Assumption::ByValueLoadFieldsAfterRead));
             }
             // Another callee, or one of `by-value-table-proc-other-table` whose view the probe did not measure: main's view. A
             // report procedure's copy refuses there, whoever calls it: its cells show BC drops a secondary key main kept

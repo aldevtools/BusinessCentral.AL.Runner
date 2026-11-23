@@ -1,0 +1,11 @@
+# key	entry
+# Now run through the open probe (record/filters/ByValueLoadFieldsAfterRead.al); main refused them at the copy's first read.
+NB LR Filter FindSet::LoadFieldsThenFindSet_Flagged	ASSUMED by-value-load-fields-after-read (corpus PR 1543, ByValueLoad_LoadFieldsThenFindSet)
+NB LR Read Then Load::FindFirstThenLoadFields_Flagged	ASSUMED by-value-load-fields-after-read (corpus PR 1543, ByValueLoad_FindFirstThenLoadFields)
+NB LR Codeunit Loop::CodeunitLoopToLocalProcedure_Flagged	ASSUMED by-value-load-fields-after-read (corpus PR 1543, ByValueLoad_CodeunitLoopToLocalProcedure)
+NB LR Get::LoadFieldsThenGet_Flagged	ASSUMED by-value-load-fields-after-read (corpus PR 1543, ByValueLoad_LoadFieldsThenGet)
+# Main ran this one and kept the caller's SetLoadFields on the copy, so the copy's FindSet left Amount unloaded (after=No);
+# BC loads every field (corpus PR 1543, ByValueLoad_NoFilterThenFindFirst `amount loaded=Yes`).
+NB LR No Filter::NoFilterThenFindFirst_Flagged	ASSUMED by-value-load-fields-after-read (corpus PR 1543, ByValueLoad_NoFilterThenFindFirst)
+# Not here: a filter in filter group 2, an ad hoc key, a descending order, marks, a table's or a report's procedure, an
+# interface call, table code as the caller and ReadIsolation stay refused on both.
