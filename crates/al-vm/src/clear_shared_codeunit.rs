@@ -6,6 +6,7 @@
 //! `Session::clear_all_in_place` (from `clear_all`).
 
 use super::*;
+use crate::var_option::ArrayOf;
 use std::rc::Weak;
 
 impl Session {
@@ -81,14 +82,14 @@ impl Session {
             && o.rec_slot.is_none()
     }
 
-    /// Whether the instance `rc` is of the measured shape: of a codeunit that is not SingleInstance, has no TableNo and holds
+    /// Whether the instance `rc`, of a codeunit that is not SingleInstance (the caller checks), is of the measured shape: of a
+    /// codeunit that has no TableNo and holds
     /// exactly one global, an Integer, as "CLX Store" (ClearSharedCodeunit.al codeunit 75580, `N: Integer`); not bound by
     /// BindSubscription (`clear_all_bound_globals` owns those) and with no routine of its codeunit running.
     fn reset_in_place(&self, rc: &Rc<RefCell<Instance>>) -> bool {
         let object = rc.borrow().object as usize;
         let o = &self.engine.program.objects[object];
-        self.plain_codeunit(object)
-            && o.rec_slot.is_none()
+        o.rec_slot.is_none()
             && matches!(o.globals.as_slice(), [g] if matches!(g.ty, RtType::Integer))
             && !self.holds_bound_codeunit(&Value::Codeunit(rc.clone()))
             && !self.frames.contains(&object)
@@ -122,10 +123,7 @@ impl Session {
                 }
                 al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ClearSharedCodeunit);
                 let object = rc.borrow().object;
-                *v = Value::Codeunit(al_builtins::instance_cycles::shared(Instance {
-                    object,
-                    ..Default::default()
-                }));
+                *v = Value::default_for(&RtType::Codeunit(object));
                 Ok(())
             }
             (RtType::Array(_, el), Value::Array(items))
@@ -144,14 +142,9 @@ impl Session {
 
     /// The kind of place `p` a `Clear` names, in the routine `f` runs.
     fn clear_place(&self, p: &ir::Place, f: &Frame) -> ClearPlace {
-        let r = &self.engine.program.objects[f.object].routines[f.routine];
-        match p {
-            ir::Place::Local(slot) if Some(*slot) == r.ret_local => ClearPlace::Other,
-            ir::Place::Local(slot) if *slot < r.params => match r.by_var.get(*slot) {
-                Some(true) => ClearPlace::VarParameter(*slot),
-                _ => ClearPlace::Other,
-            },
-            ir::Place::Local(_) | ir::Place::Global(_) => ClearPlace::Measured,
+        match (p, self.array_of(p, f)) {
+            (ir::Place::Global(_), _) | (_, ArrayOf::Declared) => ClearPlace::Measured,
+            (ir::Place::Local(slot), ArrayOf::VarParameter) => ClearPlace::VarParameter(*slot),
             _ => ClearPlace::Other,
         }
     }
@@ -228,10 +221,10 @@ impl Session {
     ) -> Vec<Option<VarCodeunit>> {
         let r = &self.engine.program.objects[object].routines[routine];
         let caller = &self.engine.program.objects[f.object].routines[f.routine];
-        let fresh = |rc: &Rc<RefCell<Instance>>, origin| {
+        let make = |rc: &Rc<RefCell<Instance>>, chain, origin| {
             Some(VarCodeunit {
                 handed: Rc::downgrade(rc),
-                chain: 2,
+                chain,
                 origin,
             })
         };
@@ -247,16 +240,12 @@ impl Session {
                     ir::Arg::Ref(ir::Place::Local(j)) if *j < caller.params && caller.by_var.get(*j) == Some(&true) => {
                         let got = f.var_codeunits.get(*j).and_then(Option::as_ref)?;
                         match got.copies(rc) {
-                            Some(1) => fresh(rc, None),
-                            n => Some(VarCodeunit {
-                                handed: Rc::downgrade(rc),
-                                chain: n.unwrap_or(got.chain) + 1,
-                                origin: got.origin.clone(),
-                            }),
+                            Some(1) => make(rc, 2, None),
+                            n => make(rc, n.unwrap_or(got.chain) + 1, got.origin.clone()),
                         }
                     }
-                    ir::Arg::Ref(ir::Place::Local(_)) => fresh(rc, None),
-                    ir::Arg::Ref(ir::Place::Global(g)) => fresh(rc, Some((Rc::downgrade(&f.instance), *g))),
+                    ir::Arg::Ref(ir::Place::Local(_)) => make(rc, 2, None),
+                    ir::Arg::Ref(ir::Place::Global(g)) => make(rc, 2, Some((Rc::downgrade(&f.instance), *g))),
                     _ => None,
                 }
             })
