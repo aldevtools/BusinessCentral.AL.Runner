@@ -120,6 +120,7 @@ codeunit 50105 "NB CS Holder"
     procedure ShareXC(var Y: Codeunit "NB CS Calling Store") begin Y := XC; end;
     procedure ShareArr(var Y: Codeunit "NB CS Store") begin Y := Arr[1]; end;
     procedure ClearArr() begin Clear(Arr); end;
+    procedure ClearArrElement() begin Clear(Arr[1]); end;
     procedure ClearAllGlobals() begin ClearAll(); end;
     procedure GetX(): Integer begin exit(X.Get()); end;
     procedure GetX2(): Integer begin exit(X2.Get()); end;
@@ -469,8 +470,53 @@ codeunit 50120 "NB CS Tests"
         Check(R(X.Get(), 0), '0|0');
     end;
 
+    // Refused: Clear of an unused codeunit array element itself that another variable shares (not measured).
+    [Test]
+    procedure Clear_ArrayElementItselfUnusedShared()
+    var
+        H: Codeunit "NB CS Holder";
+        Y: Codeunit "NB CS Store";
+    begin
+        H.ShareArr(Y);
+        H.ClearArrElement();
+        Y.Set(5);
+        Check(R(H.GetArr(), Y.Get()), '5|5');
+    end;
+
+    // Clear of an unused X nothing else holds, through a var parameter handed on as a var parameter: each slot's copy
+    // counts as a holder, so it is flagged; the value is the same as main's.
+    [Test]
+    procedure Clear_LocalUnused_ThroughNestedVarParam_NoHolder()
+    var
+        X: Codeunit "NB CS Store";
+    begin
+        ClearByVarVar(X);
+        X.Set(5);
+        Check(R(X.Get(), 0), '5|0');
+    end;
+
+    // Clear of an Interface whose unused X another codeunit variable shares: the Interface place keeps main's path.
+    [Test]
+    procedure Clear_InterfaceOfSharedUnused()
+    var
+        X: Codeunit "NB CS Store";
+        Y: Codeunit "NB CS Store";
+        I: Interface "NB CS IStore";
+    begin
+        Y := X;
+        I := X;
+        Clear(I);
+        Y.Set(5);
+        Check(R(X.Get(), Y.Get()), '5|5');
+    end;
+
     local procedure ClearByVar(var P: Codeunit "NB CS Store")
     begin
         Clear(P);
+    end;
+
+    local procedure ClearByVarVar(var P: Codeunit "NB CS Store")
+    begin
+        ClearByVar(P);
     end;
 }
