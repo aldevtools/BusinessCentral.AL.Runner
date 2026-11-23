@@ -11,3 +11,20 @@ LT GFI Missing Tests::StandardDialog_GetFieldMissingId_NotFound	ASSUMED testpage
 LT GFI Missing Tests::ConfirmationDialog_GetFieldMissingId_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :1780)
 LT GFI Missing Tests::HeadlinePart_GetFieldMissingId_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :1797)
 LT GFN Missing Tests::WorksheetOtherPageId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :1631, the id of another page's control)
+# The shapes of the review (corpus PR 1538 :2559-:2695): main refused every GetField on these page kinds; the head answers not
+# found for the measured ids and reads a field control's Value by its own id. The extension's field by the extension's id on a
+# Worksheet still refuses, now through the flagged lookup.
+LT GFI Kinds Tests::Worksheet_GetFieldActionIds_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2559)
+LT GFI Kinds Tests::CardPartOfHost_GetFieldHostControlId_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2591)
+LT GFI Kinds Tests::RoleCenterPart_GetFieldMissingId_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2604)
+LT GFI Kinds Tests::Api_GetFieldMissingId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2617)
+LT GFI Kinds Tests::PromptDialog_GetFieldMissingId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2630)
+LT GFI Kinds Tests::ReportPreview_GetFieldMissingId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2643)
+LT GFI Kinds Tests::ReportProcessingOnly_GetFieldMissingId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2656)
+LT GFI Kinds Tests::Worksheet_GetFieldOwnId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2669)
+LT GFI Kinds Tests::ListPlus_GetFieldOwnId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2682)
+LT GFI Kinds Tests::CardPartOfHost_GetFieldOwnId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2695)
+LT GFI Kinds Tests::Worksheet_GetFieldExtensionFieldIds	REFUSED TestPage.GetField by a control id on a page kind no cell opens
+LT GFN Tests::WorksheetGetField	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2669)
+LT GFN Tests::ListPlusOwnId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2682)
+LT GFN Tests::CardPartOwnId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2695)
