@@ -249,6 +249,9 @@ pub(super) fn read_from_yaml(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
         (text.to_string(), false)
     };
     let doc = read::document(&text);
+    if read::tag_or_directive(&text) {
+        assume(Assumption::ReadFromYamlFinalShapes);
+    }
     if matches!(doc, Err(Fail::Refuse(_))) {
         let Err(Fail::Refuse(why)) = doc else { unreachable!() };
         return unsupported(why);
@@ -272,9 +275,6 @@ pub(super) fn read_from_yaml(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
     doc.write_json(&mut json);
     if matches!(doc, Yaml::Map(_)) {
         return read_from(c, r, &mut [Value::Text(json.into())], Some("object"));
-    }
-    if matches!(doc, Yaml::Raw(_)) {
-        return unsupported("ReadFromYaml of a document that is a tagged number or Boolean (not measured)");
     }
     let mut r = r;
     let empty = receiver_empty(r.as_deref_mut())?;

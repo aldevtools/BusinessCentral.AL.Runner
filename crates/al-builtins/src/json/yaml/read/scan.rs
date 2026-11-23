@@ -16,7 +16,7 @@ pub(super) enum Style {
 pub(super) enum Tok {
     StreamStart,
     StreamEnd,
-    Version,
+    Version(String),
     TagDirective(String, String),
     DocStart,
     DocEnd,
@@ -527,17 +527,20 @@ impl Scanner {
             "YAML" => {
                 blanks(self);
                 let mut ver = String::new();
-                while self.at(0).is_ascii_digit() || self.at(0) == '.' {
+                while !self.blankz(0) {
                     ver.push(self.adv());
                 }
-                // Measured: one directive, version 1.1, 1.2 or 1.3 (`dc7`-`dc9`).
+                // Versions 1.0 to 1.3 read; a second directive, `2.0`, `1`, `1.10` and none are the YAML error
+                // (corpus PR 1549 JsonYamlFinalStructure.al `Directives1_1`-`Directives1_11`, `Directives2_15`). Other
+                // versions are not measured.
                 self.yaml_directives += 1;
-                if self.yaml_directives > 1 || !["1.1", "1.2", "1.3"].contains(&ver.as_str()) {
-                    return Err(Fail::Refuse(
-                        "ReadFromYaml of a %YAML directive other than one of version 1.1, 1.2 or 1.3",
-                    ));
+                if self.yaml_directives > 1 || matches!(ver.as_str(), "2.0" | "1" | "1.10" | "") {
+                    return Err(Fail::Bad);
                 }
-                Tok::Version
+                if !matches!(ver.as_str(), "1.0" | "1.1" | "1.2" | "1.3") {
+                    return Err(Fail::Refuse("ReadFromYaml of a %YAML version no probe measured"));
+                }
+                Tok::Version(ver)
             }
             "TAG" => {
                 blanks(self);
