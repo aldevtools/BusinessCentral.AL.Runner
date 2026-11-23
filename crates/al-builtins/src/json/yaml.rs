@@ -233,7 +233,7 @@ const PR1530_DEPTHS: [std::ops::RangeInclusive<usize>; 2] = [0..=51, 101..=301];
 /// JSON and read like `ReadFrom` into the object. A document that is no mapping fails with ReadFrom's InvalidJsonType
 /// error (P88:225, 228-229; PnA:173-176; `tl2`-`tl19`), a text that is no YAML with the YAML error (P88:238,
 /// PnA:177-178), a mapping nested too deep with InvalidJsonData (`flowseq-depth100`).
-pub(super) fn read_from_yaml(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
+pub(super) fn read_from_yaml(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
     let stream = matches!(&a[0], Value::Library(..));
     let text = if stream {
         match stream_text(&mut a[0])? {
@@ -246,7 +246,7 @@ pub(super) fn read_from_yaml(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
         };
         text.to_string()
     };
-    let read = read::document(&text);
+    let read = read::document(&text, stream);
     if read.marked {
         assume(Assumption::ReadFromYamlFinalShapes);
     }
@@ -274,12 +274,16 @@ pub(super) fn read_from_yaml(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
     }
     let mut json = String::new();
     doc.write_json(&mut json);
-    if json.contains(crate::native::CALL_STACK_MARK) {
+    if json.contains(crate::native::TEXT_MARKS) {
         // `\uFDD0` reads as U+FDD0 (corpus PR 1549 JsonYamlFinalStructure.al `EscapeSurrogates1_17`), which this runtime
-        // holds as its mark of untracked call stack frames.
-        return unsupported("ReadFromYaml of a text that reads as U+FDD0, this runtime's call stack mark");
+        // holds as its mark of untracked call stack frames; the other marks are noncharacters next to it.
+        return unsupported("ReadFromYaml of a text that reads as a noncharacter this runtime uses as a mark");
     }
     if matches!(doc, Yaml::Map(_)) {
+        // A good read into an object with members (JsonYamlFinalStructure.al:664-666).
+        if !receiver_empty(r.as_deref_mut())? {
+            assume(Assumption::ReadFromYamlFinalShapes);
+        }
         return read_from(c, r, &mut [Value::Text(json.into())], Some("object"));
     }
     // A document that is no mapping: ReadFrom's error, read into a new object so that the receiver stays as it was.
@@ -297,6 +301,10 @@ pub(super) fn read_from_yaml(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
 fn stream_text(stream: &mut Value) -> Result<Option<String>, Signal> {
     use crate::stream::Encoding;
     let enc = crate::stream::in_stream_encoding(stream)?;
+    // A read from a position after the start (JsonYamlFinalStreams.al:195-202 `whole-second-read`, `partial-read`).
+    if crate::stream::in_stream_pos(stream)? > 0 {
+        assume(Assumption::ReadFromYamlFinalShapes);
+    }
     let bytes = crate::stream::in_stream_rest(stream)?;
     if utf16_written(&bytes) {
         assume(Assumption::ReadFromYamlFinalShapes);
@@ -492,6 +500,93 @@ mod tests {
             }
         }
         assert!(unrefused.is_empty(), "read, not refused:\n{}", unrefused.join("\n"));
+    }
+
+    /// Shapes next to the cells of corpus PR 1549 that no cell measures: each refuses (review round 1 of PR 8881). The
+    /// last four are shapes main answered without a cell.
+    #[test]
+    fn shapes_next_to_the_final_cells_refuse() {
+        let mut unrefused = Vec::new();
+        for text in [
+            // a second sign after the one a !!float may have, a word no cell measures
+            "q: !!float --1",
+            "q: !!float +-1",
+            "q: !!float hello",
+            "q: !!int hello",
+            "q: !!bool maybe",
+            // %TAG with a handle that is not `!`, `!!` or `!name!`; a directive no tag uses for `!` or `!!`
+            "%TAG e! tag:yaml.org,2002:\n---\nq: 1",
+            "%TAG foo tag:yaml.org,2002:\n---\nq: 1",
+            "%TAG ! tag:yaml.org,2002:\n---\nq: 1",
+            "%TAG !! tag:yaml.org,2002:\n---\nq: 1",
+            "%TAG !a! tag:yaml.org,2002:\n%TAG !b! tag:yaml.org,2002:\n---\nq: !a!int 1",
+            // a high surrogate before another escape or a blank, a low one before a letter
+            "q: \"\\uD83D\\n\"",
+            "q: \"\\uD83D\\U0000DE00\"",
+            "q: \"\\uD83D \"",
+            "q: \"\\uDE00a\"",
+            // !!bool under %YAML 1.1 other than a plain `yes`
+            "%YAML 1.1\n---\nq: !!bool On",
+            "%YAML 1.1\n---\nq: !!bool \"yes\"",
+            // U+0015 in a text (its one cell is an InStream value)
+            "a\u{15}b: 1",
+            "q: a\u{15}b",
+            // a sign or `_` with a leading zero, a quoted text with a blank, an empty quoted !!bool or !!float
+            "q: !!int -007",
+            "q: !!int 0_7",
+            "q: !!int \" 1\"",
+            "q: !!bool \"\"",
+            "q: !!float \"\"",
+            // a negative !!float key, a tagged null word or another kind as the document, the document under %YAML
+            "!!float -0: a",
+            "!!float -1.5: a",
+            "!!int ~",
+            "!!float 1",
+            "%YAML 1.2\n---\n!!int 1",
+            // a tab after the indentation of the line after `:` before a list item
+            "k:\n  \t- a",
+            // a collection under an unknown core tag, a line separator in single quotes before a blank
+            "q: !!foo [a]",
+            "q: 'a\u{2028} b'",
+            // U+FDD0 and the other marks of this runtime as escapes
+            "q: \"\\uFDD0\"",
+            "q: \"\\uFDD1\"",
+            "q: \"\\uFDD3\"",
+            // main answered these without a cell
+            "q: [!!str, a]",
+            "a: &x 1\n*x: 2",
+            "&x: 1",
+            "q: !!str \"null\"",
+        ] {
+            if !refused_read(text) {
+                unrefused.push(format!("{text:?}: {:?}", read(text, true).0));
+            }
+        }
+        assert!(unrefused.is_empty(), "read, not refused:\n{}", unrefused.join("\n"));
+    }
+
+    /// A good read into an object with members runs through `read-from-yaml-final-shapes` (corpus PR 1549
+    /// JsonYamlFinalStructure.al:664-666); into an empty one it does not.
+    #[test]
+    fn a_good_read_into_an_object_with_members_is_marked() {
+        for (members, marked) in [
+            (
+                vec![(
+                    "a".to_string(),
+                    new_handle(JsonNode::Scalar(super::super::Scalar::Null)),
+                )],
+                true,
+            ),
+            (Vec::new(), false),
+        ] {
+            let mut obj = tagged("JsonObject", new_handle(JsonNode::Object(members)));
+            let mut ctx = TestCtx::default();
+            crate::assumptions::clear_hits();
+            let answer = read_from_yaml(&mut ctx, Some(&mut obj), &mut [Value::Text("q: 1".into())]);
+            assert!(answer.is_ok(), "{answer:?}");
+            let hits = crate::assumptions::take_hits();
+            assert_eq!(hits.contains(&Assumption::ReadFromYamlFinalShapes), marked);
+        }
     }
 
     /// Shapes that round 1 of PR 8824 refused, now measured by corpus PR 1549 (`JsonYamlFinalTags.al` T,

@@ -76,6 +76,7 @@ pub(crate) fn bad_yaml() -> crate::native::Signal {
 }
 
 /// Why a text does not read.
+#[derive(Debug, PartialEq)]
 pub(crate) enum Fail {
     /// `YamlBadFormat`: BC's YAML error.
     Bad,
@@ -119,8 +120,6 @@ fn final_char(c: char) -> bool {
         c,
         '\u{1}'
             | '\u{2}'
-            // U+0015: what `§` written on an MS-DOS stream reads as (JsonYamlFinalStreams.al:95 `sect-m-*`).
-            | '\u{15}'
             | '\u{8}'
             | '\u{b}'
             | '\u{c}'
@@ -227,10 +226,19 @@ pub(crate) struct Read {
     pub(crate) marked: bool,
 }
 
-/// The text read as a YAML tree.
-pub(crate) fn document(text: &str) -> Read {
+/// U+0015 is what `§` written on an MS-DOS stream reads as: measured in an InStream only (corpus PR 1549
+/// JsonYamlFinalStreams.al:95 `sect-m-*`).
+fn stream_char(c: char) -> bool {
+    c == '\u{15}'
+}
+
+/// The text read as a YAML tree; `stream` when it came from an InStream.
+pub(crate) fn document(text: &str, stream: bool) -> Read {
     let chars: Vec<char> = text.chars().filter(|&c| c != '\0').collect();
-    if !chars.iter().all(|&c| measured_char(c) || final_char(c)) {
+    if !chars
+        .iter()
+        .all(|&c| measured_char(c) || final_char(c) || (stream && stream_char(c)))
+    {
         let doc = Err(Fail::Refuse("ReadFromYaml of a character that no probe measures"));
         return Read { doc, marked: false };
     }
@@ -256,10 +264,11 @@ fn tree(chars: &[char], t: Vec<Tok>, unicode_breaks: usize) -> Res<Yaml> {
     // A tagged scalar as the document: `!!int`, `!!bool` and `!!str` with a value are measured (corpus PR 1549
     // JsonYamlFinalTags.al `Top1_1`-`Top1_3`, `Top1_8`); they read as a number, a Boolean or a text, which is no object.
     // An empty `!!null` document is the YAML error, as `!!null` is everywhere (`Top1_10`).
-    if let Some(Node::Scalar { v, tag: Some(t), .. }) = &root {
+    if let Some(Node::Scalar { v, style, tag: Some(t) }) = &root {
         let kind = tags::kind(t);
-        let measured = (matches!(kind, Kind::Int | Kind::Bool | Kind::Str) && !v.is_empty())
-            || (kind == Kind::Null && v.is_empty());
+        let null_word = *style == Style::Plain && tags::plain_null(v);
+        let measured =
+            (matches!(kind, Kind::Int | Kind::Bool | Kind::Str) && !null_word) || (kind == Kind::Null && v.is_empty());
         if !measured || p.version != Version::None {
             return Err(Fail::Refuse(
                 "ReadFromYaml of a document that is a tagged scalar no probe measured",
@@ -317,7 +326,12 @@ impl Parser {
                     // One directive for `!`, `!!` or a named handle, with any prefix, its escapes decoded (corpus PR
                     // 1549 JsonYamlFinalStructure.al `Directives1_13`-`Directives1_25`, JsonYamlFinalTags.al
                     // `Escapes1_9`); the same handle twice is the YAML error (`Directives1_21`). Two directives for
-                    // different handles are not measured.
+                    // different handles, and a handle of another form (`e!`, `foo`), are not measured.
+                    if !(h == "!" || h == "!!" || named_handle(&h)) {
+                        return Err(Fail::Refuse(
+                            "ReadFromYaml of a %TAG directive for a handle that is not !, !! or a named one (not measured)",
+                        ));
+                    }
                     if self.tags.contains_key(&h) {
                         return Err(Fail::Bad);
                     }
@@ -346,11 +360,16 @@ impl Parser {
         if *self.peek() == Tok::DocEnd {
             self.i += 1;
         }
-        // A directive no tag uses is measured with the core prefix only (`Directives1_22`); every directive with another
-        // prefix was measured with a tag that uses it (`Directives1_18`-`Directives1_20`, `Directives1_25`, `Escapes1_3`).
-        if self.tags.values().any(|(p, used)| !(*used || p == CORE)) {
+        // A directive no tag uses is measured for a named handle with the core prefix only (`Directives1_22`); every
+        // other directive was measured with a tag that uses it (`Directives1_13`-`Directives1_20`, `Directives1_25`,
+        // `Escapes1_3`).
+        if self
+            .tags
+            .iter()
+            .any(|(h, (p, used))| !(*used || (named_handle(h) && p == tags::CORE)))
+        {
             return Err(Fail::Refuse(
-                "ReadFromYaml of a %TAG directive with a prefix other than the core one that no tag uses (not measured)",
+                "ReadFromYaml of a %TAG directive that no tag uses, other than a named handle with the core prefix (not measured)",
             ));
         }
         // Only one document is read (`dc2`, `dc3`, `dc15`, `dc18`, `dc22`).
@@ -374,7 +393,7 @@ impl Parser {
         }
         match handle {
             "!" => Ok(format!("!{suffix}")),
-            "!!" => Ok(format!("{CORE}{suffix}")),
+            "!!" => Ok(format!("{}{suffix}", tags::CORE)),
             _ => Err(Fail::Bad),
         }
     }
@@ -619,7 +638,10 @@ impl Parser {
     }
 }
 
-const CORE: &str = "tag:yaml.org,2002:";
+/// A named tag handle: `!`, word characters, `!` (corpus PR 1549 JsonYamlFinalStructure.al `Directives1_14`, `!e!`).
+fn named_handle(h: &str) -> bool {
+    h.len() > 2 && h.starts_with('!') && h.ends_with('!') && h[1..h.len() - 1].chars().all(scan::word)
+}
 
 /// The nesting a text may have (the parser refuses deeper ones).
 const MAX_DEPTH: usize = 600;
@@ -691,7 +713,7 @@ fn convert(n: &Node, version: Version) -> Res<Yaml> {
     match n {
         Node::Scalar { v, style, tag: Some(t) } => tagged_scalar(v, *style, t, version),
         Node::Scalar { v, style, tag: None } => {
-            let null = *style == Style::Plain && matches!(v.as_str(), "" | "~" | "null" | "Null" | "NULL");
+            let null = *style == Style::Plain && tags::plain_null(v);
             Ok(if null { Yaml::Null } else { Yaml::Text(v.clone()) })
         }
         Node::Seq { items, tag } => {

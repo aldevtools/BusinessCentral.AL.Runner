@@ -6,7 +6,8 @@
 use super::scan::Style;
 use super::{Fail, Res};
 
-const CORE: &str = "tag:yaml.org,2002:";
+/// The prefix of the core tags `!!` names.
+pub(super) const CORE: &str = "tag:yaml.org,2002:";
 
 /// `%XX` escapes decoded as UTF-8 bytes, before the tag is resolved (`Escapes1_4`-`Escapes1_9`, `Escapes2_3`-`Escapes2_8`).
 /// A `%` without two hex digits after it, or bytes that are no UTF-8, is the YAML error (`Escapes1_10`-`Escapes1_12`).
@@ -97,11 +98,28 @@ pub(super) enum Typed {
     Bool(bool),
 }
 
-fn plain_null(v: &str) -> bool {
+/// The plain words that read as null (corpus PR 1530 `nl1`-`nl9`).
+pub(super) fn plain_null(v: &str) -> bool {
     matches!(v, "" | "~" | "null" | "Null" | "NULL")
 }
 
 const UNMEASURED: &str = "ReadFromYaml of a tagged scalar no probe measured";
+
+/// The texts no number reads from that a cell measured as the YAML error under `!!int` (`Int1_7`, `Int2_1`-`Int2_5`,
+/// `Int2_9`-`Int2_11`, `Int2_13`, `Keys1_15`, an empty quoted text `Position2_2`), `!!float` (`Float2_1`, `Float2_2`,
+/// `Float2_4`, `Float2_12`, a quoted `x` `Position2_3`) and `!!bool` (`Bool2_9`, `Bool2_10`, `Bool2_12`, `Bool3_1`-`Bool3_3`).
+const INT_BAD: [&str; 11] = ["0o17", "1.5", "1e3", "abc", "yes", "true", "0.0", "1.", ".5", "0x", ""];
+const FLOAT_BAD: [&str; 5] = ["nan", "inf", "0x10", "abc", "x"];
+const BOOL_BAD: [&str; 6] = ["1", "0", "abc", "t", "f", "1.0"];
+
+/// A text no number or Boolean reads from: the YAML error when a cell measured it, else not measured.
+fn measured_bad<T>(v: &str, bad: &[&str]) -> Res<T> {
+    if bad.contains(&v) {
+        Err(Fail::Bad)
+    } else {
+        Err(Fail::Refuse(UNMEASURED))
+    }
+}
 
 /// The scalar `v` of `style` under the tag `kind`. Under `%YAML 1.1` only `!!int` (`Directives2_4`, `Directives2_6`,
 /// `Directives2_7`) and `!!bool` (`Directives2_5`) are measured; under another version no tagged number or Boolean is.
@@ -109,10 +127,13 @@ pub(super) fn scalar(kind: Kind, v: &str, style: Style, version: Version) -> Res
     let plain = style == Style::Plain;
     let versioned = match version {
         Version::None => false,
-        Version::V11 => !matches!(kind, Kind::Int | Kind::Bool | Kind::Str | Kind::Map),
+        // `!!bool` under 1.1 is measured with a plain `yes` only (`Directives2_5`).
+        Version::V11 if kind == Kind::Bool => !(plain && v == "yes"),
+        Version::V11 => !matches!(kind, Kind::Int | Kind::Str | Kind::Map),
         Version::Other => !matches!(kind, Kind::Str | Kind::Map),
     };
-    if versioned {
+    // No cell puts a null word under a tag in a document with `%YAML`.
+    if versioned || (version != Version::None && plain && plain_null(v)) {
         return Err(Fail::Refuse(UNMEASURED));
     }
     // The null forms each kind is measured with: `Str1_4`, `Str1_5`, corpus PR 1530 `tg12`; `Int2_6`, `WrongNode1_12`;
@@ -187,8 +208,11 @@ fn int(v: &str) -> Res<i64> {
         return refuse();
     } else {
         // `007` reads 7 (`Int1_2`); whether a leading zero makes an octal number without `%YAML 1.1` is not measured
-        // where the two differ (`010`).
-        let leading_zero = body.len() > 1 && body.starts_with('0') && !body.contains('_');
+        // where the two differ (`010`), nor with a sign or `_` (`-007`, `0_7`).
+        let leading_zero = body.len() > 1 && body.starts_with('0');
+        if leading_zero && (signed || body.contains('_')) {
+            return refuse();
+        }
         if leading_zero && u64::from_str_radix(body, 8).ok() != body.parse::<u64>().ok() {
             return refuse();
         }
@@ -208,7 +232,7 @@ fn int(v: &str) -> Res<i64> {
         return refuse();
     }
     if clean.is_empty() || !clean.chars().all(|c| c.is_digit(radix)) {
-        return Err(Fail::Bad);
+        return measured_bad(v, &INT_BAD);
     }
     let magnitude = u128::from_str_radix(&clean, radix).ok();
     match magnitude {
@@ -258,12 +282,14 @@ fn float(v: &str) -> Res<f64> {
             Err(Fail::Refuse(UNMEASURED))
         };
     }
-    let number = body
-        .bytes()
-        .all(|c| c.is_ascii_digit() || matches!(c, b'.' | b'e' | b'E' | b'+' | b'-' | b'_'))
+    // After the one sign the number starts with a digit or `.`: `--1` and `+-1` are not measured.
+    let number = body.starts_with(|c: char| c.is_ascii_digit() || c == '.')
+        && body
+            .bytes()
+            .all(|c| c.is_ascii_digit() || matches!(c, b'.' | b'e' | b'E' | b'+' | b'-' | b'_'))
         && body.bytes().any(|c| c.is_ascii_digit());
     if !number {
-        return Err(Fail::Bad);
+        return measured_bad(v, &FLOAT_BAD);
     }
     if body.contains('_')
         && !(body.bytes().all(|c| c.is_ascii_digit() || c == b'_')
@@ -303,7 +329,7 @@ fn boolean(v: &str) -> Res<bool> {
     ];
     let lower = v.to_ascii_lowercase();
     let Some(&(_, b)) = WORDS.iter().find(|(w, _)| *w == lower) else {
-        return Err(Fail::Bad);
+        return measured_bad(v, &BOOL_BAD);
     };
     let capital = {
         let mut c = lower.clone();
@@ -397,7 +423,115 @@ pub(super) fn key(kind: Kind, v: &str, style: Style, version: Version) -> Res<St
         Typed::Int(i) => Ok(i.to_string()),
         Typed::Bool(b) => Ok(if b { "True" } else { "False" }.into()),
         Typed::Float(x) if x == f64::INFINITY => Ok("Infinity".into()),
-        Typed::Float(x) if x.is_finite() && (-1..=5).contains(&digits(x).1) => Ok(format!("{x}")),
+        // Measured: `1.5`, `1` (`Keys1_7`, `Keys2_7`); a negative number or zero is not.
+        Typed::Float(x) if x.is_finite() && x > 0.0 && (-1..=5).contains(&digits(x).1) => Ok(format!("{x}")),
         _ => Err(Fail::Refuse(UNMEASURED)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn refused<T: std::fmt::Debug>(r: Res<T>) -> bool {
+        matches!(r, Err(Fail::Refuse(_)))
+    }
+
+    /// Every form next to the measured ones refuses (corpus PR 1549 JsonYamlFinalTags.al names the measured cells).
+    #[test]
+    fn unmeasured_forms_refuse() {
+        for v in [
+            "1__0",
+            "_1",
+            "+0x1F",
+            "-0b1",
+            "+0b1",
+            "0X1F",
+            "0B1",
+            "0O7",
+            "010",
+            "-007",
+            "+007",
+            "0_7",
+            "-2147483649",
+        ] {
+            assert!(refused(int(v)), "int {v:?}");
+        }
+        assert!(refused(int("-0xFFFFFFFFFF")));
+        assert!(refused(int("0x1_F")));
+        for v in ["hello", " 1", "1 ", "-abc"] {
+            assert!(refused(int(v)), "int {v:?}");
+        }
+        for v in ["-010", "-5", "0b1", "1_000", "abc", ""] {
+            assert!(refused(int11(v)), "int11 {v:?}");
+        }
+        for v in [
+            "--1", "+-1", "-.nan", "+.nan", "1_0.5", "_1", "1e-400", "-1e400", "hello", "", "-x", "1-2", "e5",
+        ] {
+            assert!(refused(float(v)), "float {v:?}");
+        }
+        for v in ["yEs", "tRUE", "maybe", "", "yes!"] {
+            assert!(refused(boolean(v)), "bool {v:?}");
+        }
+        for x in [0.001, 0.01, 0.0999, 1e6, 1e16] {
+            assert!(refused(float_json(x)), "float_json {x}");
+        }
+        for (kind, v) in [
+            (Kind::Float, "-0"),
+            (Kind::Float, "-1.5"),
+            (Kind::Float, "1e20"),
+            (Kind::Float, "-.inf"),
+            (Kind::Float, ".nan"),
+            (Kind::Timestamp, "2001-12-14"),
+            (Kind::UnknownCore, "x"),
+            (Kind::Str, "null"),
+        ] {
+            assert!(refused(key(kind, v, Style::Plain, Version::None)), "key {kind:?} {v:?}");
+        }
+        assert!(refused(key(Kind::Str, "x", Style::Block, Version::None)));
+        assert!(refused(scalar(Kind::Bool, "On", Style::Plain, Version::V11)));
+        assert!(refused(scalar(Kind::Bool, "yes", Style::Double, Version::V11)));
+        assert!(refused(scalar(Kind::Int, "~", Style::Plain, Version::V11)));
+        assert!(refused(scalar(Kind::Int, "1", Style::Plain, Version::Other)));
+        assert!(refused(scalar(Kind::Float, "1", Style::Plain, Version::V11)));
+        assert!(refused(scalar(Kind::Int, "1", Style::Block, Version::None)));
+        assert!(refused(scalar(Kind::Str, "null", Style::Double, Version::None)));
+        assert!(refused(scalar(Kind::Int, "null", Style::Plain, Version::None)));
+        assert!(refused(scalar(
+            Kind::Timestamp,
+            "2001-12-14",
+            Style::Double,
+            Version::None
+        )));
+    }
+
+    /// The measured YAML errors stay errors and the measured values read.
+    #[test]
+    fn measured_forms_answer_their_cells() {
+        for v in INT_BAD {
+            assert_eq!(int(v), Err(Fail::Bad), "int {v:?}");
+        }
+        for v in FLOAT_BAD {
+            assert_eq!(float(v), Err(Fail::Bad), "float {v:?}");
+        }
+        for v in BOOL_BAD {
+            assert_eq!(boolean(v), Err(Fail::Bad), "bool {v:?}");
+        }
+        assert_eq!(int("007"), Ok(7));
+        assert_eq!(int("-0x1F"), Ok(-31));
+        assert_eq!(int("+0"), Ok(0));
+        assert_eq!(int11("010"), Ok(8));
+        assert_eq!(float("-0").map(|x| x.is_sign_negative()), Ok(true));
+        assert_eq!(float(".5"), Ok(0.5));
+        assert_eq!(boolean("Off"), Ok(false));
+        assert_eq!(
+            scalar(Kind::Bool, "yes", Style::Plain, Version::V11),
+            Ok(Typed::Bool(true))
+        );
+        assert_eq!(key(Kind::Float, "1.5", Style::Plain, Version::None), Ok("1.5".into()));
+        assert_eq!(
+            key(Kind::Float, ".inf", Style::Plain, Version::None),
+            Ok("Infinity".into())
+        );
     }
 }

@@ -254,7 +254,7 @@ codeunit 61351 "YN Yaml Final Shapes Tests"
     [Test]
     procedure Refused_Escape_CallStackMark()
     begin
-        ReadRet('q: "﷐"');
+        ReadRet('q: "\uFDD0"');
     end;
 
     [Test]

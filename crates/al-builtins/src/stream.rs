@@ -2326,6 +2326,11 @@ pub(crate) fn in_stream_rest(stream: &mut Value) -> Result<Vec<u8>, Signal> {
     with_in(Some(stream), |st| Ok(st.rest()))
 }
 
+/// The read position of an `InStream` argument, 0 at its start.
+pub(crate) fn in_stream_pos(stream: &mut Value) -> Result<usize, Signal> {
+    with_in(Some(stream), |st| Ok(st.pos))
+}
+
 /// The encoding of an `InStream` argument (`ReadFromYaml` reads only the default and the UTF-8 ones).
 pub(crate) fn in_stream_encoding(stream: &mut Value) -> Result<Encoding, Signal> {
     with_in(Some(stream), |st| Ok(st.enc))
