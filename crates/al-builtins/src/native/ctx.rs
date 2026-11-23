@@ -189,12 +189,6 @@ pub trait Ctx: FormatCtx {
     fn xrec_holds_blob(&self, _b: &crate::stream::BlobRef) -> bool {
         false
     }
-    /// Whether object `object` (an index) is a codeunit that is not SingleInstance: `Clear` of such a variable that nothing
-    /// used yet gives it a fresh instance (`native::values::clear`). `false` where the context has no program, which keeps
-    /// the variable as it is.
-    fn plain_codeunit(&self, _object: u32) -> bool {
-        false
-    }
     /// `Clear` of a TestPage or Page variable: the fresh, closed page of the same object the variable holds afterwards. A
     /// page that is open or waits for `Trap()` is closed first without running anything and loses its trap, or the shapes
     /// that are not pinned are refused (al-vm `pages/clear_test_page.rs`). The page state belongs to the VM (ADR-072

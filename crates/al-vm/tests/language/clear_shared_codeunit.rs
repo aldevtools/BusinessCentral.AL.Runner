@@ -92,8 +92,8 @@ codeunit 50802 T {
 ";
 
 /// The cells of ClearSharedCodeunit.al with the values BC 29.0 gave, X unused and X used once alike; `true` where the cell
-/// runs a path of assumption `clear-shared-codeunit` with X unused (a Clear of an X still unused, a ClearAll of the holder;
-/// a write through the alias before the Clear uses X).
+/// runs a path of assumption `clear-shared-codeunit` with X unused (a Clear of an X still unused that another holder
+/// shares, a ClearAll of the holder whose X another holder shares; a write through the alias before the Clear uses X).
 const EXPECTED: &[(&str, &str, bool)] = &[
     ("ClearLocalIface", "0|5", true),       // ClearSharedCodeunit.al Clear_LocalUnusedIface
     ("ClearLocalAlias", "0|5", true),       // Clear_LocalUnusedAlias
@@ -118,7 +118,7 @@ const EXPECTED: &[(&str, &str, bool)] = &[
     ("ShareGlobalIface", "5|5", false),     // Share_GlobalUnusedIface_WriteThroughAlias
     ("SecondLocal", "0|7", false),          // Second_LocalUnusedX_OtherVariableWrites
     ("SecondGlobal", "0|7", false),         // Second_GlobalUnusedX_OtherVariableWrites
-    ("ClearAllSetXNoAlias", "0|0", true),   // ClearAll_GlobalSetX_NoAlias
+    ("ClearAllSetXNoAlias", "0|0", false),  // ClearAll_GlobalSetX_NoAlias (nothing shares X: main's fresh instance)
     ("ClearSetXNoAlias", "0|0", false),     // Clear_GlobalSetX_NoAlias (X used: main's fresh instance)
 ];
 
@@ -187,4 +187,134 @@ fn a_single_instance_codeunit_variable_keeps_its_one_instance() {
         assert_eq!(al_testkit::text(al_testkit::run_in(SI, "T", cell)), want, "{cell}");
         assert!(!take_hits().contains(&Assumption::ClearSharedCodeunit), "{cell}");
     }
+}
+
+const SHAPES: &str = "
+interface IStore { procedure Set(V: Integer); procedure Get(): Integer; }
+codeunit 50820 Store implements IStore { EventSubscriberInstance = Manual; var N: Integer;
+    procedure Set(V: Integer) begin N := V; end;
+    procedure Get(): Integer begin exit(N); end;
+    procedure CallBack(H: Codeunit Holder) begin H.ClearAllGlobals(); end; }
+codeunit 50821 Store2 implements IStore { var N: Integer; M: Integer;
+    procedure Set(V: Integer) begin N := V; end;
+    procedure Get(): Integer begin exit(N); end; }
+codeunit 50822 Holder { var X: Codeunit Store;
+    procedure ShareIface(var I: Interface IStore) begin I := X; end;
+    procedure ClearAllGlobals() begin ClearAll(); end;
+    procedure RunCallBack() var Me: Codeunit Holder; begin Me := this; X.CallBack(Me); end;
+    procedure GetX(): Integer begin exit(X.Get()); end; }
+codeunit 50823 Holder2 { var X: Codeunit Store2;
+    procedure ShareIface(var I: Interface IStore) begin I := X; end;
+    procedure ClearAllGlobals() begin ClearAll(); end; }
+codeunit 50824 SiHolder { SingleInstance = true; var X: Codeunit Store;
+    procedure ShareIface(var I: Interface IStore) begin I := X; end;
+    procedure ClearAllGlobals() begin ClearAll(); end; }
+codeunit 50825 ArrHolder { var A: array[2] of Codeunit Store;
+    procedure ShareIface(var I: Interface IStore) begin I := A[1]; end;
+    procedure ClearA() begin Clear(A); end;
+    procedure ClearAllGlobals() begin ClearAll(); end; }
+codeunit 50826 T {
+    local procedure ClearVal(P: Codeunit Store; Q: Codeunit Store): Integer begin Clear(P); P.Set(5); exit(Q.Get()); end;
+    local procedure ClearVar(var P: Codeunit Store) begin Clear(P); end;
+    local procedure ClearVarVar(var P: Codeunit Store) begin ClearVar(P); end;
+    procedure ClearLocalUnshared(): Text var X: Codeunit Store; begin Clear(X); X.Set(5); exit(Format(X.Get())); end;
+    procedure ClearVarUnshared(): Text var X: Codeunit Store; begin ClearVar(X); X.Set(5); exit(Format(X.Get())); end;
+    procedure ClearVarVarUnshared(): Text var X: Codeunit Store; begin ClearVarVar(X); X.Set(5); exit(Format(X.Get())); end;
+    procedure ClearVarVarShared(): Text var X: Codeunit Store; Y: Codeunit Store;
+    begin Y := X; ClearVarVar(X); Y.Set(5); exit(Format(X.Get()) + '|' + Format(Y.Get())); end;
+    procedure ClearValueParam(): Text var X: Codeunit Store; begin exit(Format(ClearVal(X, X))); end;
+    procedure ClearValueParamUsed(): Text var X: Codeunit Store; begin X.Get(); exit(Format(ClearVal(X, X))); end;
+    procedure ClearArrayShared(): Text var H: Codeunit ArrHolder; I: Interface IStore; begin H.ShareIface(I); H.ClearA(); exit('done'); end;
+    procedure ClearArrayUnshared(): Text var H: Codeunit ArrHolder; begin H.ClearA(); exit('done'); end;
+    procedure ClearAllArrayShared(): Text var H: Codeunit ArrHolder; I: Interface IStore; begin H.ShareIface(I); H.ClearAllGlobals(); exit('done'); end;
+    procedure ClearAllTwoGlobalsShared(): Text var H: Codeunit Holder2; I: Interface IStore; begin H.ShareIface(I); H.ClearAllGlobals(); exit('done'); end;
+    procedure ClearAllTwoGlobalsUnshared(): Text var H: Codeunit Holder2; begin H.ClearAllGlobals(); exit('done'); end;
+    procedure ClearAllSiOwnerShared(): Text var H: Codeunit SiHolder; I: Interface IStore; begin H.ShareIface(I); H.ClearAllGlobals(); exit('done'); end;
+    procedure ClearAllSiOwnerUnshared(): Text var H: Codeunit SiHolder; begin H.ClearAllGlobals(); exit('done'); end;
+    procedure ClearAllWhileXRuns(): Text var H: Codeunit Holder; begin H.RunCallBack(); exit('done'); end;
+    procedure ClearBoundNeverCalled(): Text var X: Codeunit Store; Y: Codeunit Store;
+    begin BindSubscription(X); Y := X; Clear(X); Y.Set(5); exit(Format(X.Get()) + '|' + Format(Y.Get())); end;
+}
+";
+
+/// What `cell` of [`SHAPES`] gives: its text, or `refused`; and whether it ran a path of assumption `clear-shared-codeunit`.
+fn shape(cell: &str, track: bool) -> (String, bool) {
+    take_hits();
+    let mut b = al_testkit::Built::from_source(SHAPES);
+    if track {
+        b.session.track_single_instances();
+    }
+    let got = match b.run_in("T", cell) {
+        Err(al_builtins::native::Signal::Unsupported(why)) => format!("refused: {why}"),
+        other => al_testkit::text(other),
+    };
+    (got, take_hits().contains(&Assumption::ClearSharedCodeunit))
+}
+
+// A codeunit variable nothing shares reads the same after main's answer as after the measured one: no mark.
+#[test]
+fn an_instance_nothing_shares_keeps_main_with_no_mark() {
+    for track in [false, true] {
+        for (cell, want) in [
+            ("ClearLocalUnshared", "5"),
+            ("ClearVarUnshared", "5"),
+            ("ClearArrayUnshared", "done"),
+            ("ClearAllTwoGlobalsUnshared", "done"),
+            ("ClearAllSiOwnerUnshared", "done"),
+        ] {
+            assert_eq!(
+                shape(cell, track),
+                (want.to_string(), false),
+                "{cell} (tracked: {track})"
+            );
+        }
+    }
+}
+
+// The shapes the probe does not measure refuse when another holder shares the instance: Clear of a by-value parameter
+// nothing used yet, Clear or ClearAll of an array whose unused element is shared, ClearAll of a shared instance of a codeunit
+// with two globals, ClearAll in a SingleInstance codeunit, ClearAll while a routine of X runs. A used by-value parameter
+// keeps main's fresh instance.
+#[test]
+fn a_shared_instance_in_a_shape_the_probe_does_not_measure_refuses() {
+    for (cell, why) in [
+        ("ClearValueParam", "Clear of a by-value codeunit parameter"),
+        ("ClearArrayShared", "Clear of an array whose unused codeunit element"),
+        (
+            "ClearAllArrayShared",
+            "ClearAll of a global array whose codeunit element",
+        ),
+        (
+            "ClearAllTwoGlobalsShared",
+            "ClearAll of a global codeunit variable whose instance",
+        ),
+        (
+            "ClearAllSiOwnerShared",
+            "ClearAll of a global codeunit variable whose instance",
+        ),
+        (
+            "ClearAllWhileXRuns",
+            "ClearAll of a global codeunit variable whose instance",
+        ),
+    ] {
+        let got = shape(cell, false).0;
+        assert!(got.starts_with("refused: ") && got.contains(why), "{cell}: {got}");
+    }
+    assert_eq!(shape("ClearValueParamUsed", false), ("0".to_string(), false));
+}
+
+// BindSubscription makes the instance (al-vm `dispatch.rs`, `ensure_initialized` before the binding), so a bound X is never
+// unused: Clear takes main's arm for a used X, with no mark.
+// A var parameter handed on as a var parameter keeps one more copy of the caller's variable: it counts as shared, so the
+// Clear is marked even when nothing else holds the instance (the value is main's either way); one another holder shares
+// gets the measured fresh instance.
+#[test]
+fn a_var_parameter_of_a_var_parameter_counts_its_copies_as_holders() {
+    assert_eq!(shape("ClearVarVarUnshared", false), ("5".to_string(), true));
+    assert_eq!(shape("ClearVarVarShared", false), ("0|5".to_string(), true));
+}
+
+#[test]
+fn a_bound_codeunit_variable_is_never_unused() {
+    assert_eq!(shape("ClearBoundNeverCalled", false), ("0|5".to_string(), false));
 }

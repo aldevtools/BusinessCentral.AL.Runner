@@ -67,7 +67,7 @@ mod auto_format_writer;
 mod callstack;
 mod caught_errors;
 mod clear_all_page_ext;
-mod clear_all_shared;
+mod clear_shared_codeunit;
 mod code_storage_check;
 mod column_formatter;
 mod companies;

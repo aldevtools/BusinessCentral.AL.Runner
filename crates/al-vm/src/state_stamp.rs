@@ -265,7 +265,7 @@ impl Session {
                 let held = a.globals.clone();
                 let declared = if a.object != b.object {
                     return false;
-                } else if a.initialized && !b.initialized && b.globals.is_empty() && self.made_codeunit(object) {
+                } else if a.initialized && !b.initialized && b.globals.is_empty() && self.plain_codeunit(object) {
                     drop((a, b));
                     self.slot_defaults(&engine.program.objects[object].globals)
                 } else {
@@ -276,15 +276,6 @@ impl Session {
             }
             _ => crate::single_track::fp(v, &engine) == crate::single_track::fp(fresh, &engine),
         }
-    }
-
-    /// Whether a used instance of object `object` may count as the fresh variable nothing used yet ([`Session::at_declared`]):
-    /// a codeunit that is not SingleInstance, as the cells measure ("CLX Store", ClearSharedCodeunit.al codeunit 75580). A
-    /// SingleInstance codeunit variable is a handle to the one instance, never made by its own first call. The caller of
-    /// [`LeftStamp::changed`] marks the reads of a codeunit that counted unchanged this way ([`LeftChange::declared_form`]).
-    fn made_codeunit(&self, object: usize) -> bool {
-        self.engine.program.objects[object].kind == al_ir::ObjKind::Codeunit
-            && !self.engine.object_facts[object].single_instance
     }
 }
 

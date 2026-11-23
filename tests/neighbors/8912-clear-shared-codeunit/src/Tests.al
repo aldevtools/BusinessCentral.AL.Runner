@@ -284,7 +284,7 @@ codeunit 50120 "NB CS Tests"
         Check(R(X.Get(), Y.Get()), '0|5');
     end;
 
-    // Clear of an unused X nothing else holds: a fresh instance, no holder to see it.
+    // Clear of an unused X nothing else holds: main's answer, unflagged (a fresh unused instance reads the same).
     [Test]
     procedure Clear_LocalUnused_NoHolder()
     var
@@ -295,7 +295,7 @@ codeunit 50120 "NB CS Tests"
         Check(R(X.Get(), 0), '5|0');
     end;
 
-    // Assumed beyond the cells: Clear of a value parameter itself; the caller's X keeps the instance.
+    // Refused: Clear of a by-value parameter nothing used yet that the caller's X shares (the probe never clears one).
     [Test]
     procedure Clear_ValueParamItself()
     var
@@ -305,7 +305,7 @@ codeunit 50120 "NB CS Tests"
         Check(R(X.Get(), 0), '0|0');
     end;
 
-    // Assumed beyond the cells: an unused X bound by BindSubscription; Clear ends the binding as for a used one.
+    // BindSubscription makes the instance, so a bound S is a used one: main's Clear of a used variable, unflagged.
     [Test]
     procedure Clear_UnusedBound()
     var
@@ -318,9 +318,9 @@ codeunit 50120 "NB CS Tests"
         Check(R(S.GetHits(), 0), '0|0');
     end;
 
-    // Main kept: an element of an array of codeunits nothing used yet; Clear of the array leaves it shared.
+    // Refused: Clear of an array whose unused codeunit element another variable shares (not measured).
     [Test]
-    procedure Clear_ArrayElementUnused_KeepsMain()
+    procedure Clear_ArrayElementUnusedShared()
     var
         H: Codeunit "NB CS Holder";
         Y: Codeunit "NB CS Store";
@@ -346,9 +346,9 @@ codeunit 50120 "NB CS Tests"
         Check(R(X.Get(), I.Get()), '5|5');
     end;
 
-    // Main kept: ClearAll of a store with a second (Text) global gives X a fresh instance.
+    // Refused: ClearAll of a shared store with a second (Text) global (the probe's store has one Integer global).
     [Test]
-    procedure ClearAll_StoreWithTwoGlobals_KeepsMain()
+    procedure ClearAll_StoreWithTwoGlobals()
     var
         H: Codeunit "NB CS Holder";
         I: Interface "NB CS IStore";
@@ -359,9 +359,9 @@ codeunit 50120 "NB CS Tests"
         Check(R(H.GetX2(), I.Get()), '0|3');
     end;
 
-    // Main kept: ClearAll of a store whose one global is a Text.
+    // Refused: ClearAll of a shared store whose one global is a Text.
     [Test]
-    procedure ClearAll_StoreWithTextGlobal_KeepsMain()
+    procedure ClearAll_StoreWithTextGlobal()
     var
         H: Codeunit "NB CS Holder";
         I: Interface "NB CS IStore";
@@ -372,9 +372,9 @@ codeunit 50120 "NB CS Tests"
         Check(R(H.GetXT(), I.Get()), '0|3');
     end;
 
-    // Main kept: ClearAll while a method of X's codeunit runs.
+    // Refused: ClearAll while a method of X's codeunit runs.
     [Test]
-    procedure ClearAll_WhileStoreRuns_KeepsMain()
+    procedure ClearAll_WhileStoreRuns()
     var
         H: Codeunit "NB CS Holder";
         Y: Codeunit "NB CS Calling Store";
@@ -385,9 +385,9 @@ codeunit 50120 "NB CS Tests"
         Check(R(H.GetXC(), Inner), '0|3');
     end;
 
-    // Main kept: ClearAll in a SingleInstance holder.
+    // Refused: ClearAll of a shared X in a SingleInstance holder (not measured).
     [Test]
-    procedure ClearAll_SingleInstanceHolder_KeepsMain()
+    procedure ClearAll_SingleInstanceHolder()
     var
         H: Codeunit "NB CS SI Holder";
         Y: Codeunit "NB CS Store";
@@ -398,9 +398,9 @@ codeunit 50120 "NB CS Tests"
         Check(R(H.GetX(), Y.Get()), '0|3');
     end;
 
-    // Main kept: ClearAll in a holder with a TableNo.
+    // Refused: ClearAll of a shared X in a holder with a TableNo.
     [Test]
-    procedure ClearAll_TableNoHolder_KeepsMain()
+    procedure ClearAll_TableNoHolder()
     var
         H: Codeunit "NB CS Table Holder";
         Y: Codeunit "NB CS Store";
@@ -411,9 +411,9 @@ codeunit 50120 "NB CS Tests"
         Check(R(H.GetX(), Y.Get()), '0|3');
     end;
 
-    // Main kept: ClearAll in a report.
+    // Refused: ClearAll of a shared X in a report.
     [Test]
-    procedure ClearAll_ReportHolder_KeepsMain()
+    procedure ClearAll_ReportHolder()
     var
         H: Report "NB CS Report";
         Y: Codeunit "NB CS Store";
@@ -424,9 +424,9 @@ codeunit 50120 "NB CS Tests"
         Check(R(H.GetX(), Y.Get()), '0|3');
     end;
 
-    // Main kept: ClearAll in the test codeunit itself.
+    // Refused: ClearAll of a shared X in the test codeunit itself.
     [Test]
-    procedure ClearAll_TestCodeunit_KeepsMain()
+    procedure ClearAll_TestCodeunit()
     var
         Y: Codeunit "NB CS Store";
     begin
@@ -434,5 +434,43 @@ codeunit 50120 "NB CS Tests"
         Y.Set(3);
         ClearAll();
         Check(R(TX.Get(), Y.Get()), '0|3');
+    end;
+
+    // ClearAll in the holder of an X nothing else holds: main's fresh instance, unflagged.
+    [Test]
+    procedure ClearAll_Holder_NoHolder()
+    var
+        H: Codeunit "NB CS Holder";
+    begin
+        H.ClearAllGlobals();
+        Check(R(H.GetX(), 0), '0|0');
+    end;
+
+    // Clear of an unused X nothing else holds, through a var parameter: the parameter's copy counts as a holder, so it is
+    // flagged; the value is the same as main's.
+    [Test]
+    procedure Clear_LocalUnused_ThroughVarParam_NoHolder()
+    var
+        X: Codeunit "NB CS Store";
+    begin
+        ClearByVar(X);
+        X.Set(5);
+        Check(R(X.Get(), 0), '5|0');
+    end;
+
+    // Clear of a used by-value parameter: main's fresh instance; the caller's X keeps the old one.
+    [Test]
+    procedure Clear_ValueParamItself_Used()
+    var
+        X: Codeunit "NB CS Store";
+    begin
+        X.Get();
+        ClearByValue(X);
+        Check(R(X.Get(), 0), '0|0');
+    end;
+
+    local procedure ClearByVar(var P: Codeunit "NB CS Store")
+    begin
+        Clear(P);
     end;
 }
