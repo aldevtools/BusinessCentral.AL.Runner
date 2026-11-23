@@ -5,8 +5,8 @@
 //! `at-sign-alone-database-blank`. A reader that knows how its rows are read rewrites the filter here; any other (a platform
 //! table its provider serves, a CRM table's connection, a query's own check, CalcSums or a TableRelation over a FlowField filter)
 //! keeps the filter as it is: a Text field keeps main's answer and `@` alone on a Code field refuses
-//! ([`FilterExpr::AtSignAloneCode`]). The places a filter comes from where `@` alone on a Code field is measured are those of
-//! [`parse_filter_at_sign_measured`].
+//! ([`FilterExpr::AtSignAloneCode`]). The places a filter comes from where `@` alone and `<>@` alone on a Code field are measured
+//! are those of [`parse_filter_both_at_signs_measured`] and [`parse_filter_at_sign_measured`].
 
 use crate::assumptions::{Assumption, assume};
 use crate::filter::{FieldFilter, FilterExpr};
@@ -19,8 +19,9 @@ pub enum AtSignRows {
     /// A read of the database: `@` keeps the empty values, `<>@` the others. FindSet and Next, FindFirst, FindLast, Find('-'),
     /// Find('+'), Find('<'), Count, IsEmpty, CalcSums, DeleteAll and ModifyAll (AtSignAloneReads.al:229, :265, :314, :399, :429,
     /// :698; BgTaskQueryCache.al:5780), a report's data item and a page (AtSignAloneReads.al:625, :658), CalcFields of a sum or a
-    /// count (BgTaskQueryCache.al:5753, :5767; AtSignAloneReads.al:558, :598), a query (BgTaskQueryCache.al:6369-:6419), and
-    /// Count and IsEmpty with the filter on a lookup FlowField (BgTaskQueryCache.al:5809; AtSignAloneReads.al:366, :730).
+    /// count (BgTaskQueryCache.al:5753, :5767; AtSignAloneReads.al:558, :598, :904, :928), a query (BgTaskQueryCache.al:6369-:6419;
+    /// AtSignAloneReads.al:861, :871), and Count and IsEmpty with the filter on a lookup FlowField (BgTaskQueryCache.al:5809;
+    /// AtSignAloneReads.al:366, :730).
     Database,
     /// A row of the database BC checks against the filter itself: `@` keeps every row, `<>@` the values that are not empty.
     /// Find('=') (AtSignAloneReads.al:314, :698), and Find, FindFirst, FindLast, FindSet and Next with the filter on a lookup
@@ -30,13 +31,10 @@ pub enum AtSignRows {
     Temporary,
 }
 
-/// The places a filter comes from where the cells measure `@` alone on a Code field: Record.SetFilter in filter groups 0, 1 and 2
-/// and FieldRef.SetFilter (AtSignAloneReads.al:457, :475, :538; the FlowFilters and lookup FlowField filters they set,
-/// BgTaskQueryCache.al:5753, :5809), SetView and RecordRef.SetView (AtSignAloneReads.al:497, :538), a CalcFormula's
-/// `field(filter())` of a normal field (:558) and its `filter('@')` (:579), a query's SetFilter and its DataItemTableFilter
-/// (BgTaskQueryCache.al:6369, :6403). Every other place ([`crate::filter::parse_filter_with`]) refuses it, as before this module
-/// answered it. Here `<>@` alone on a Code field refuses: the places that measure it too take
-/// [`parse_filter_both_at_signs_measured`].
+/// The place a filter comes from where the cells measure `@` alone on a Code field but not `<>@` alone: a CalcFormula's
+/// `field(filter())` of a normal field (AtSignAloneReads.al:558). Here `<>@` alone on a Code field refuses; every other place that
+/// admits `@` alone admits both ([`parse_filter_both_at_signs_measured`]), and the rest ([`crate::filter::parse_filter_with`])
+/// refuse both, as before this module answered them.
 pub fn parse_filter_at_sign_measured(
     text: &str,
     args: &[Value],
@@ -46,9 +44,11 @@ pub fn parse_filter_at_sign_measured(
     refused_where_not_measured(crate::filter::parse_filter_any(text, args, ty, enums)?, true)
 }
 
-/// [`parse_filter_at_sign_measured`] at the places where the cells also measure `<>@` alone on a Code field: Record.SetFilter on
-/// stored fields (AtSignAloneReads.al:698) and on a lookup FlowField (:730), FieldRef.SetFilter, SetView and RecordRef.SetView
-/// (:792), and a CalcFormula's `filter('<>@')` (:752).
+/// The places a filter comes from where the cells measure both `@` alone and `<>@` alone on a Code field: Record.SetFilter in
+/// filter groups 0, 1 and 2 and FieldRef.SetFilter, on stored fields, on a lookup FlowField and on a FlowFilter that CalcFields
+/// applies (AtSignAloneReads.al:457, :475, :538, :698, :730, :792, :904, :928; BgTaskQueryCache.al:5753, :5809), SetView and
+/// RecordRef.SetView (AtSignAloneReads.al:497, :538, :792), a CalcFormula's `filter('@')` and `filter('<>@')` (:579, :752), a
+/// query's SetFilter and its DataItemTableFilter (BgTaskQueryCache.al:6369, :6403; AtSignAloneReads.al:861, :871).
 pub fn parse_filter_both_at_signs_measured(
     text: &str,
     args: &[Value],

@@ -1024,19 +1024,14 @@ impl Session {
             };
             parsed.map_err(|e| Signal::unsupported(format!("CalcFormula filter: {e}")))
         };
-        // The flow filter the caller set on field `q`, if any. No cell measures a FlowFilter's `<>@` alone on a Code field.
+        // The flow filter the caller set on field `q`, if any. `@` alone and `<>@` alone in it are measured through field() and
+        // through field(filter()) (BgTaskQueryCache.al:5753, :5767; AtSignAloneReads.al:598, :904, :928).
         let flow = |q: usize| {
             rec.borrow()
                 .filters
                 .iter()
                 .find(|x| x.field == q)
                 .map(|x| x.expr.clone())
-        };
-        let measured_flow = |e: &FilterExpr| match e {
-            FilterExpr::AtSignAloneCode(true) => {
-                unsupported("a FlowFilter of `<>@` alone on a Code field (not measured)")
-            }
-            _ => Ok(()),
         };
         // (source field, filter, replaces other conditions on that field)
         let mut parts: Vec<(usize, FilterExpr, bool)> = Vec::new();
@@ -1056,7 +1051,6 @@ impl Session {
                             if !same_kind(&pf.ty, sty) {
                                 return unsupported("a flow filter of another type than the source field");
                             }
-                            measured_flow(&e)?;
                             parts.push((c.field, e, false));
                         }
                     } else if !pf.stored {
@@ -1146,7 +1140,6 @@ impl Session {
                                     "field(filter()) of a FlowFilter beside another condition on the same field (not pinned)",
                                 );
                             }
-                            measured_flow(&e)?;
                             parts.push((c.field, e, false));
                         }
                         (other, Some(_)) => {

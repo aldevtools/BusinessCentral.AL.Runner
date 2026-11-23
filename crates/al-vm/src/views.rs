@@ -17,7 +17,7 @@ use std::rc::Rc;
 
 type Rec = Rc<RefCell<RecordState>>;
 
-/// `filter::parse_filter_with`, `filter::parse_filter_at_sign_measured` or `filter::parse_filter_both_at_signs_measured`.
+/// `filter::parse_filter_with` or `filter::parse_filter_both_at_signs_measured`.
 type ParseFilter =
     fn(&str, &[Value], &RtType, &dyn Fn(u32) -> Result<Vec<(i32, String)>, String>) -> Result<FilterExpr, String>;
 
@@ -44,15 +44,6 @@ impl Session {
     /// A filter expression over a field of type `ty`, enum members by name included.
     pub(crate) fn parse_filter_text(&self, text: &str, ty: &al_builtins::value::RtType) -> Result<FilterExpr, String> {
         self.parse_filter_text_by(al_builtins::filter::parse_filter_with, text, ty)
-    }
-
-    /// [`Self::parse_filter_text`] where the cells measure `@` alone on a Code field (`filter::parse_filter_at_sign_measured`).
-    pub(crate) fn parse_filter_text_at_sign_measured(
-        &self,
-        text: &str,
-        ty: &al_builtins::value::RtType,
-    ) -> Result<FilterExpr, String> {
-        self.parse_filter_text_by(al_builtins::filter::parse_filter_at_sign_measured, text, ty)
     }
 
     /// [`Self::parse_filter_text`] where the cells measure `@` alone and `<>@` alone on a Code field
