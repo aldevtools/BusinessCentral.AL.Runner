@@ -1,7 +1,7 @@
 // BC Documentation: https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/methods-auto/testpage/testpage-getfield-method
 // Scope: in-scope
 // local object: the pages' controls and the ids the compiler gives them are what is under test
-// Fixtures used: shared Assert (60021); own table 97701, pages 97702-97705, 97708 and 97709, page extensions 97706 and 97710, tests 97707
+// Fixtures used: shared Assert (60021); own tables 97701 and 97711, enum 97713, pages 97702-97705, 97708, 97709 and 97712, page extensions 97706 and 97710, tests 97707
 // Probe (al-runner issue 8832): TestPage.GetField and TestPart.GetField take the id the compiler gives a page control. The ids in
 //   this file are FNV-1a (32 bit) over the UTF-16LE text of the declaring object's id followed by the control name as declared,
 //   read as a signed number and made positive; the compiled app's SymbolReference.json lists the same ids. The issue's page (a List
@@ -720,4 +720,172 @@ codeunit 97707 "LT GFI Tests"
         Expect('hidden', 'error TestFieldNotFound: The field with ID = 651490805 is not found on the page.');
         Expect('group', 'error TestFieldNotFound: The field with ID = 298019664 is not found on the page.');
     end;
+    [TryFunction]
+    local procedure TryCueTypes(var Card: TestPage "LT GFI Cue Types"; Id: Integer; var Shown: Text)
+    begin
+        Shown := Card.GetField(Id).Value();
+    end;
+
+    local procedure ReadCueTypes(var Card: TestPage "LT GFI Cue Types"; Id: Integer): Text
+    var
+        Shown: Text;
+    begin
+        ClearLastError();
+        if TryCueTypes(Card, Id, Shown) then
+            exit(Shown);
+        exit(Failure());
+    end;
+
+    // A field control in a cuegroup for a field of each type, and a Code and an Integer field in a cuegroup with CuegroupLayout = Wide:
+    // its Value by its name, then through GetField by its id.
+    [Test]
+    procedure CueTypes_ValueByNameAndById()
+    var
+        Row: Record "LT GFI Cue Row";
+        Card: TestPage "LT GFI Cue Types";
+    begin
+        Initialize();
+        Row.DeleteAll();
+        Row."No." := 'R1';
+        Row.TextWord := 'Alpha';
+        Row.TextNumber := '42';
+        Row.CodeWord := 'R1';
+        Row.CodeNumber := '7';
+        Row.IntValue := 5;
+        Row.IntZero := 0;
+        Row.DecValue := 1.5;
+        Row.DecBig := 1234.5;
+        Row.BoolValue := true;
+        Row.DayValue := DMY2Date(3, 3, 2026);
+        Row.BigValue := 77;
+        Row.OptValue := Row.OptValue::Beta;
+        Row.AtValue := 103000T;
+        Row.StampValue := CreateDateTime(DMY2Date(3, 3, 2026), 103000T);
+        Row.GuidValue := '{0F2E7C52-6E0B-4F51-9C3A-1B2C3D4E5F60}';
+        Row.KindValue := Row.KindValue::Beta;
+        Row.SpanValue := 90000;
+        Row.Insert();
+        Card.OpenView();
+        Note('TextWord', Card.CueTextWord.Value() + '|' + ReadCueTypes(Card, 674324257));
+        Note('TextNumber', Card.CueTextNumber.Value() + '|' + ReadCueTypes(Card, 702274306));
+        Note('CodeWord', Card.CueCodeWord.Value() + '|' + ReadCueTypes(Card, 541430713));
+        Note('CodeNumber', Card.CueCodeNumber.Value() + '|' + ReadCueTypes(Card, 843379546));
+        Note('IntValue', Card.CueIntValue.Value() + '|' + ReadCueTypes(Card, 1094229972));
+        Note('IntZero', Card.CueIntZero.Value() + '|' + ReadCueTypes(Card, 1411875605));
+        Note('DecValue', Card.CueDecValue.Value() + '|' + ReadCueTypes(Card, 1957540459));
+        Note('DecBig', Card.CueDecBig.Value() + '|' + ReadCueTypes(Card, 2039052834));
+        Note('BoolValue', Card.CueBoolValue.Value() + '|' + ReadCueTypes(Card, 1490279559));
+        Note('DayValue', Card.CueDayValue.Value() + '|' + ReadCueTypes(Card, 772286949));
+        Note('BigValue', Card.CueBigValue.Value() + '|' + ReadCueTypes(Card, 166715205));
+        Note('OptValue', Card.CueOptValue.Value() + '|' + ReadCueTypes(Card, 1575506972));
+        Note('AtValue', Card.CueAtValue.Value() + '|' + ReadCueTypes(Card, 1819569266));
+        Note('StampValue', Card.CueStampValue.Value() + '|' + ReadCueTypes(Card, 339305132));
+        Note('GuidValue', Card.CueGuidValue.Value() + '|' + ReadCueTypes(Card, 1928044720));
+        Note('KindValue', Card.CueKindValue.Value() + '|' + ReadCueTypes(Card, 2059022367));
+        Note('SpanValue', Card.CueSpanValue.Value() + '|' + ReadCueTypes(Card, 1714720931));
+        Note('WideCodeWord', Card.WideCodeWord.Value() + '|' + ReadCueTypes(Card, 1127485133));
+        Note('WideIntValue', Card.WideIntValue.Value() + '|' + ReadCueTypes(Card, 585839752));
+        Card.Close();
+        Expect('TextWord', '0|0');
+        Expect('TextNumber', '0|0');
+        Expect('CodeWord', '0|0');
+        Expect('CodeNumber', '0|0');
+        Expect('IntValue', '5|5');
+        Expect('IntZero', '0|0');
+        Expect('DecValue', '1.50|1.50');
+        Expect('DecBig', '1,234.50|1,234.50');
+        Expect('BoolValue', '0|0');
+        Expect('DayValue', '0|0');
+        Expect('BigValue', '0|0');
+        Expect('OptValue', '1|1');
+        Expect('AtValue', '0|0');
+        Expect('StampValue', '0|0');
+        Expect('GuidValue', '0|0');
+        Expect('KindValue', '1|1');
+        Expect('SpanValue', '0|0');
+        Expect('WideCodeWord', '0|0');
+        Expect('WideIntValue', '5|5');
+    end;
+}
+
+table 97711 "LT GFI Cue Row"
+{
+    DataClassification = CustomerContent;
+
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; TextWord; Text[30]) { }
+        field(3; TextNumber; Text[30]) { }
+        field(4; CodeWord; Code[20]) { }
+        field(5; CodeNumber; Code[20]) { }
+        field(6; IntValue; Integer) { }
+        field(7; IntZero; Integer) { }
+        field(8; DecValue; Decimal) { }
+        field(9; DecBig; Decimal) { }
+        field(10; BoolValue; Boolean) { }
+        field(11; DayValue; Date) { }
+        field(12; BigValue; BigInteger) { }
+        field(13; OptValue; Option) { OptionMembers = Alpha,Beta,Gamma; }
+        field(14; AtValue; Time) { }
+        field(15; StampValue; DateTime) { }
+        field(16; GuidValue; Guid) { }
+        field(17; KindValue; Enum "LT GFI Cue Kind") { }
+        field(18; SpanValue; Duration) { }
+    }
+
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+    }
+}
+
+page 97712 "LT GFI Cue Types"
+{
+    PageType = Card;
+    SourceTable = "LT GFI Cue Row";
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            cuegroup(Cues)
+            {
+                field(CueTextWord; Rec.TextWord) { }
+                field(CueTextNumber; Rec.TextNumber) { }
+                field(CueCodeWord; Rec.CodeWord) { }
+                field(CueCodeNumber; Rec.CodeNumber) { }
+                field(CueIntValue; Rec.IntValue) { }
+                field(CueIntZero; Rec.IntZero) { }
+                field(CueDecValue; Rec.DecValue) { }
+                field(CueDecBig; Rec.DecBig) { }
+                field(CueBoolValue; Rec.BoolValue) { }
+                field(CueDayValue; Rec.DayValue) { }
+                field(CueBigValue; Rec.BigValue) { }
+                field(CueOptValue; Rec.OptValue) { }
+                field(CueAtValue; Rec.AtValue) { }
+                field(CueStampValue; Rec.StampValue) { }
+                field(CueGuidValue; Rec.GuidValue) { }
+                field(CueKindValue; Rec.KindValue) { }
+                field(CueSpanValue; Rec.SpanValue) { }
+            }
+            cuegroup(WideCues)
+            {
+                CuegroupLayout = Wide;
+
+                field(WideCodeWord; Rec.CodeWord) { }
+                field(WideIntValue; Rec.IntValue) { }
+            }
+        }
+    }
+}
+
+enum 97713 "LT GFI Cue Kind"
+{
+    Extensible = false;
+
+    value(0; Alpha) { }
+    value(1; Beta) { }
 }

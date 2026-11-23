@@ -2,10 +2,9 @@
 //! control, `pages::control_id` of the page and the control name (the compiled app's SymbolReference.json lists the same ids),
 //! measured by corpus pull request 1538, testpage/GetFieldByControlId.al (open; assumption `testpage-getfield-control-id`).
 //! The page's own field control with the id is the field (a field bound to a field of Rec, to a page variable, or a label, in a
-//! repeater, a group, a nested group, a fixed or a grid, :449 :503 :630, a base field a page extension modifies, :705); the handle
+//! repeater, a group, a nested group, a fixed, a grid or a cuegroup, :449 :503 :630 :653, a base field a page extension modifies, :705); the handle
 //! reads and writes as the control by its name in the calls the cells make (`BY_ID_CALLS`, :570 :668), a hidden control included
-//! (:530, :705 not found). A field in a cuegroup is refused: BC shows `0` for its Text, through GetField and by its name (:653),
-//! where the control by its name answers the text here. The id of a part, a cuegroup, a fixed or a grid gives a field whose Value
+//! (:530, :705 not found); a field in a cuegroup reads as by its name (`cue_value.rs`, :653, :742). The id of a part, a cuegroup, a fixed or a grid gives a field whose Value
 //! is empty (:545, :630). Any other id is not found: a group, a repeater, an action, an action group, an area, a field a page
 //! extension adds (by either object's id; from BC 28, :589: BC 27 finds it by the extension's id,
 //! `al_version::getfield_finds_extension_fields`), a control of another page or of the part's page (:468 :484 :545 :611 :705;
@@ -56,11 +55,6 @@ impl Session {
         };
         let ctl = &page.controls[idx];
         let by_id = match ctl.kind {
-            ir::ControlKind::Field if Self::in_cuegroup(page, idx) => {
-                return unsupported(
-                    "TestPage.GetField of a field in a cuegroup (its value is not modelled as BC shows it)",
-                );
-            }
             ir::ControlKind::Field => ById::Field,
             ir::ControlKind::Part | ir::ControlKind::CueGroup => ById::Empty,
             ir::ControlKind::Group if ctl.fixed_or_grid => ById::Empty,
@@ -102,18 +96,6 @@ impl Session {
                 "TestPage.GetField with the id of a page extension's control on this BC version, or of one that is no field (not measured)",
             ),
         }
-    }
-
-    /// Control `idx` of `page` is inside a cuegroup.
-    fn in_cuegroup(page: &ir::Page, idx: usize) -> bool {
-        let mut at = page.controls[idx].parent;
-        while let Some(p) = at {
-            if page.controls[p].kind == ir::ControlKind::CueGroup {
-                return true;
-            }
-            at = page.controls[p].parent;
-        }
-        false
     }
 
     /// A call `m` on what GetField found (`ControlRef::by_id`): `Some` answers it, `None` lets it run as on the control by its

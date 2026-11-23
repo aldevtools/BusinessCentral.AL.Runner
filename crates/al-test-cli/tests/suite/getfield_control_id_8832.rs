@@ -27,12 +27,12 @@ fn issue_8832_repro_passes() {
 }
 
 /// Every cell of the probe passes under the entry where GetField found a control, and without it where every id is one main
-/// already did not find (:484 a name of no control; :589 a page extension's field, from BC 28). A field in a cuegroup (:653) and Caption
-/// of what a part control's id gives (:692) refuse.
+/// already did not find (:484 a name of no control; :589 a page extension's field, from BC 28). Caption of what a part control's
+/// id gives (:692) refuses.
 #[test]
 fn probe_cells_pass_where_measured() {
     let o = outcomes(PROBE, "LT GFI Tests");
-    assert_eq!(o.len(), 14);
+    assert_eq!(o.len(), 15);
     let bad: Vec<_> = o
         .iter()
         .filter(|(n, r, marks)| match n.as_str() {
@@ -40,7 +40,9 @@ fn probe_cells_pass_where_measured() {
             // Compiled without a BC version symbol, the cell expects BC 27's answer (`#else` of BC28PLUS), and the runtime
             // answers as BC 29 does without a target; the neighbor check runs it on each major.
             "Card_ExtensionControl" => !matches!(r, Outcome::Fail(m) if m.contains("Expected:<x1>")) || !marks.is_empty(),
-            "CueCard_CueField" => !matches!(r, Outcome::NotRun(why) if why.contains("a field in a cuegroup")),
+            // A field in a cuegroup reads as by its name (`cue_field_value_8845.rs`).
+            "CueCard_CueField" => *r != Outcome::Pass || marks.len() != 1,
+            "CueTypes_ValueByNameAndById" => *r != Outcome::Pass || marks.len() != 2,
             "Card_PartIdCaptionAndVisible" => {
                 !matches!(r, Outcome::NotRun(why) if why.starts_with("TestField.Caption on what TestPage.GetField found"))
             }
