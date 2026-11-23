@@ -1,0 +1,2 @@
+{ "id": "8d1a2b3c-0000-4000-8000-000000088580", "name": "YA Yaml All Shapes", "publisher": "YN Neighbors", "version": "1.0.0.0",
+  "platform": "27.0.0.0", "runtime": "15.0", "idRanges": [ { "from": 61310, "to": 61319 } ] }
