@@ -693,13 +693,16 @@ impl Session {
         if !plain || self.tx.open.locked_tables.contains(&t.object) {
             return Ok(false);
         }
-        Ok(!self.view_store(rec, temp)?.is_virtual(t))
+        Ok(!self.view_store(rec)?.is_virtual(t))
     }
 
-    /// The store a cached read of `rec` reads: the database's for a temporary record's CalcFields (`database`), else the
-    /// record's own.
-    fn view_store(&mut self, rec: &Rec, database: bool) -> Result<&mut MemStore, Signal> {
-        Ok(if database { &mut self.store } else { self.store_for(rec)? })
+    /// The store a cached read of `rec` reads: the database's for a temporary record (only its CalcFields gets this far, and its
+    /// FlowFields read the database), else the record's own.
+    fn view_store(&mut self, rec: &Rec) -> Result<&mut MemStore, Signal> {
+        if temporary(rec) {
+            return Ok(&mut self.store);
+        }
+        Ok(self.store_for(rec)?)
     }
 
     /// The primary key a `FindFirst` of `rec` reads as a row: one value on every primary-key field and no other filter.
@@ -863,7 +866,7 @@ impl Session {
             return Ok(fresh);
         }
         let sources = self.flow_field_sources(rec, t);
-        Ok(match self.cached_group(rec, cx, t, values, &sources, answer, false)? {
+        Ok(match self.cached_group(rec, cx, t, values, &sources, answer)? {
             GroupAnswer::Count(n) => n,
             GroupAnswer::Empty(empty) if empty != (fresh == 0) => usize::from(!empty),
             _ => fresh,
@@ -906,7 +909,7 @@ impl Session {
             return Ok(fresh);
         };
         let sources = self.flow_field_sources(rec, t);
-        match self.cached_group(rec, cx, t, values, &sources, GroupAnswer::Row(fresh.clone()), false)? {
+        match self.cached_group(rec, cx, t, values, &sources, GroupAnswer::Row(fresh.clone()))? {
             GroupAnswer::Row(row) => {
                 let at = row
                     .as_ref()
@@ -943,7 +946,7 @@ impl Session {
             return Ok(fresh);
         }
         values.extend(positions.iter().map(|&p| Value::Integer(p as i32)));
-        match self.cached_group(rec, cx, t, values, &[], GroupAnswer::Values(fresh.clone()), false)? {
+        match self.cached_group(rec, cx, t, values, &[], GroupAnswer::Values(fresh.clone()))? {
             GroupAnswer::Values(v) => Ok(v),
             _ => Ok(fresh),
         }
@@ -975,16 +978,15 @@ impl Session {
             return Ok(fresh);
         };
         // A temporary record's CalcFields reads the database (BgTaskCalcCache.al:474): its entry is its own, stamped there.
-        let temp = temporary(rec);
-        if temp {
+        if temporary(rec) {
             values.push(Value::Text("temporary".into()));
         }
-        let store = self.view_store(rec, temp)?;
+        let store = self.view_store(rec)?;
         if sources.iter().any(|s| store.is_virtual(s)) {
             return Ok(fresh);
         }
         let cx = self.cx_for(rec, &t)?;
-        match self.cached_group(rec, &cx, &t, values, &sources, GroupAnswer::Values(fresh.clone()), temp)? {
+        match self.cached_group(rec, &cx, &t, values, &sources, GroupAnswer::Values(fresh.clone()))? {
             GroupAnswer::Values(v) => Ok(v),
             _ => Ok(fresh),
         }
@@ -1140,11 +1142,10 @@ impl Session {
         values: Vec<Value>,
         sources: &[Arc<TableDef>],
         fresh: GroupAnswer,
-        database: bool,
     ) -> Result<GroupAnswer, Signal> {
         let at = Self::at(rec, t, values);
         let selects = self.selects_of(t.object);
-        let store = self.view_store(rec, database)?;
+        let store = self.view_store(rec)?;
         let stamps: Vec<Option<u64>> = std::iter::once(t)
             .chain(sources.iter().map(|s| &**s))
             .map(|table| store.committed_stamp(cx, table))
