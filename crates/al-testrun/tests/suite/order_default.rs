@@ -5,7 +5,6 @@
 //! `--strict-order` (`RunOptions::strict_order`) restores the carry, the chain and the re-run in BC's
 //! order. BC runs all test codeunits in one session: codeunits/TestCuP7ASetter.al:24-58 against TestCuP7BReader.al:24-37.
 
-use al_builtins::assumptions::Assumption;
 use al_sema::workspace::AppSource;
 use al_testrun::Outcome;
 use al_testrun::runtime::{CorpusRuntime, Manifest, RunOptions, SuiteRun, TestResult};
@@ -142,7 +141,7 @@ fn result<'a>(rt: &'a CorpusRuntime, test: &str) -> &'a TestResult {
 }
 
 fn order_flagged(r: &TestResult) -> bool {
-    r.assumptions.contains(&Assumption::SingleInstanceOrder)
+    !r.assumptions.is_empty()
 }
 
 /// Test plan 1 and 4: by default the reader runs with fresh state and fails, nothing runs again, and its result names
@@ -172,19 +171,17 @@ fn by_default_a_reader_of_state_an_earlier_codeunit_left_fails_with_a_hint_and_n
     assert_eq!(hint.reads[0].last_writer, Some((60471, "Order Setter".to_string())));
     let setter = result(&rt, "SetsTheFlag");
     assert!(setter.outcome == Outcome::Pass && setter.order_hint.is_none());
-    let lane = &rt.phases.chain.single_lane;
-    assert_eq!((lane.rerun, lane.lane.len()), (0, 0), "{lane:?}");
     assert!(rt.phases.chain.members.is_empty() && rt.phases.chain.reruns.is_empty());
 }
 
-/// Test plan 1: with `--strict-order` the reader passes in BC's order, as amendment 8 pins (flagged, no hint).
+/// Test plan 1: with `--strict-order` the reader passes in BC's order (ADR-070: clean, no hint; P7:
+/// codeunits/TestCuP7BReader.al:24-37 against TestCuP7ASetter.al:24-58).
 #[test]
-fn with_strict_order_the_reader_runs_again_in_bcs_order_and_passes() {
+fn with_strict_order_the_reader_runs_in_bcs_order_and_passes() {
     let rt = run(PAIR, &strict());
     let reader = result(&rt, "ReadsTheFlag");
     assert_eq!(reader.outcome, Outcome::Pass, "{reader:?}");
-    assert!(order_flagged(reader) && reader.order_hint.is_none());
-    assert_eq!(rt.phases.chain.single_lane.rerun, 1);
+    assert!(!order_flagged(reader) && reader.order_hint.is_none(), "{reader:?}");
 }
 
 /// Test plan 2 and owner answer 1: a reader that passes with fresh state gets no hint and is not flagged.
@@ -322,28 +319,25 @@ fn by_default_a_codeunit_that_only_reads_numbers_after_a_taker_is_listed() {
 /// nothing, one whose reach is not known and the first taker run; under Codeunit isolation the reader keeps main's result.
 #[test]
 fn strict_order_under_function_isolation_refuses_a_later_reader_of_the_numbers() {
-    for sequential in [false, true] {
-        let opts = RunOptions {
-            strict_order: true,
-            strict_sequential: sequential,
-            isolation: Some(al_testrun::isolation::TestIsolation::Function),
-            ..Default::default()
-        };
-        let rt = run(&with_hidden_readers(), &opts);
-        for test in ["ReadsCurrent", "TakesTwo", "ReadsInHandler", "ReadsThroughRecRef"] {
-            assert!(
-                matches!(&result(&rt, test).outcome, Outcome::NotRun(m) if m.contains("TestIsolation = Function")),
-                "{sequential} {test}: {:?}",
-                result(&rt, test)
-            );
-        }
-        for test in ["ReadsEarly", "TakesOne", "TakesNothing", "ReadsNothing", "RunsById"] {
-            assert!(
-                !matches!(&result(&rt, test).outcome, Outcome::NotRun(_)),
-                "{sequential} {test}: {:?}",
-                result(&rt, test)
-            );
-        }
+    let opts = RunOptions {
+        strict_order: true,
+        isolation: Some(al_testrun::isolation::TestIsolation::Function),
+        ..Default::default()
+    };
+    let rt = run(&with_hidden_readers(), &opts);
+    for test in ["ReadsCurrent", "TakesTwo", "ReadsInHandler", "ReadsThroughRecRef"] {
+        assert!(
+            matches!(&result(&rt, test).outcome, Outcome::NotRun(m) if m.contains("TestIsolation = Function")),
+            "{test}: {:?}",
+            result(&rt, test)
+        );
+    }
+    for test in ["ReadsEarly", "TakesOne", "TakesNothing", "ReadsNothing", "RunsById"] {
+        assert!(
+            !matches!(&result(&rt, test).outcome, Outcome::NotRun(_)),
+            "{test}: {:?}",
+            result(&rt, test)
+        );
     }
     let rt = run(&with_readers(), &strict());
     assert_eq!(
@@ -374,10 +368,7 @@ fn a_default_run_takes_the_outcomes_of_listed_codeunits_from_a_strict_run() {
         name: name.into(),
     };
     assert_eq!(rt.outcome_in("", &case("ReadsTheFlag", 60472)), Outcome::Pass);
-    assert!(
-        rt.assumptions_in("", &case("ReadsTheFlag", 60472))
-            .contains(&Assumption::SingleInstanceOrder)
-    );
+    assert!(rt.assumptions_in("", &case("ReadsTheFlag", 60472)).is_empty());
     assert_eq!(rt.outcome_in("", &case("SetsTheFlag", 60471)), Outcome::Pass);
 }
 
