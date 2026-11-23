@@ -14,7 +14,7 @@
 //! view (al-runner issue 8846, the same file), the tree reads and saves as when it keeps it, then the SetValue raises the
 //! filtered-view error; the List of the same code raises none. Main raised none on the tree.
 //!
-//! Only on the probe's pages, line for line (`validate_view_cells.rs`; the repros of 8698, 8717 and 8833 read as three of
+//! Only on the probe's pages, line for line (`validate_view_cells.rs`; the repros of 8698, 8717, 8833 and 8846 read as four of
 //! them), as the test called them in the cells: assumption `list-validate-view-refresh` on a List without
 //! OnAfterGetCurrRecord, `tree-validate-view-refresh` on a tree, `validate-update-false-rereads-row` on the other pages. Any
 //! other page, or calls the cells do not make before the rule changed anything, keep main's path; after it did they refuse.

@@ -428,7 +428,11 @@ impl CellPage {
     /// The rows of the table, in the key, that `cell` on the page had (`Cell::rows`): on a tree page and on the List over the
     /// tree's table; `None` elsewhere.
     pub(crate) fn tree_rows(self, cell: &Cell) -> Option<&'static [Row]> {
-        (self.tree() || self == CellPage::TreeLines).then_some(cell.rows)
+        if self.tree() || self == CellPage::TreeLines {
+            // Every cell of these pages names its rows; one that does not would hold none.
+            return Some(cell.rows.unwrap_or(&[]));
+        }
+        None
     }
 
     /// A tree page of TreeValidateFilterRefresh.al (assumption `tree-validate-view-refresh`).
@@ -604,8 +608,9 @@ const FLAT_ROWS: [Row; 3] = [("G0", 0), ("G1", 0), ("G2", 0)];
 pub(crate) struct Cell {
     pub(crate) steps: &'static [Step],
     pub(crate) tail: Tail,
-    /// On a tree page and on the List over the tree's table, the rows the table held (`CellPage::tree_rows`).
-    pub(crate) rows: &'static [Row],
+    /// On a tree page and on the List over the tree's table, the rows the table held (`CellPage::tree_rows`); `None` on the
+    /// other pages, whose cells hold the number of rows only (`CellPage::table_rows`).
+    pub(crate) rows: Option<&'static [Row]>,
 }
 
 use Change::{Drop, Keep, KeepText, Reset, Same};
@@ -618,7 +623,7 @@ const fn walk(steps: &'static [Step]) -> Cell {
     Cell {
         steps,
         tail: Tail::Walk,
-        rows: &TREE_ROWS,
+        rows: None,
     }
 }
 
@@ -626,7 +631,7 @@ const fn close(steps: &'static [Step]) -> Cell {
     Cell {
         steps,
         tail: Tail::Close,
-        rows: &TREE_ROWS,
+        rows: None,
     }
 }
 
@@ -634,7 +639,7 @@ const fn end(steps: &'static [Step]) -> Cell {
     Cell {
         steps,
         tail: Tail::End,
-        rows: &TREE_ROWS,
+        rows: None,
     }
 }
 
@@ -645,7 +650,19 @@ const fn flat(cell: Cell) -> Cell {
 
 /// `cell` over `rows`.
 const fn over(rows: &'static [Row], cell: Cell) -> Cell {
-    Cell { rows, ..cell }
+    Cell {
+        rows: Some(rows),
+        ..cell
+    }
+}
+
+/// `walk(steps)` and `end(steps)` over the tree cells' rows.
+const fn tree_walk(steps: &'static [Step]) -> Cell {
+    over(&TREE_ROWS, walk(steps))
+}
+
+const fn tree_end(steps: &'static [Step]) -> Cell {
+    over(&TREE_ROWS, end(steps))
 }
 
 /// Last, a SetValue on Name with `update` and `change` whose refresh settled on row `at` of a view of `rows`, then a SetValue on
@@ -757,7 +774,7 @@ const ISSUE_CELLS: [Cell; 6] = [
     Cell {
         steps: &KEEP_F,
         tail: Tail::FirstClose,
-        rows: &TREE_ROWS,
+        rows: None,
     },
     walk(&[Last, Set(Name, Upd::False, Keep, Some((2, 1)))]),
 ];
@@ -829,14 +846,14 @@ const TREE_EXPANDED_F: [Step; 4] = [Last, Expand, TREE_KEEP_F[1], TREE_KEEP_F[2]
 /// (:761); the same with Expand(true) on B after Last (:777); the SetValue on the first row A, whose filter leaves it out of
 /// the view of B and C (:1347).
 const TREE_ISSUE_CELLS: [Cell; 3] = [
-    walk(&[Last, Set(Name, Upd::False, Keep, Some((2, 0)))]),
-    walk(&[Last, Expand, Set(Name, Upd::False, Keep, Some((2, 0)))]),
-    end(&[Set(Name, Upd::False, Drop, Some((2, 0)))]),
+    tree_walk(&[Last, Set(Name, Upd::False, Keep, Some((2, 0)))]),
+    tree_walk(&[Last, Expand, Set(Name, Upd::False, Keep, Some((2, 0)))]),
+    tree_end(&[Set(Name, Upd::False, Drop, Some((2, 0)))]),
 ];
 
 /// The cell on page 97714 and the repro's test of issue 8846: the SetValue on the first row A, in a TryFunction (:1370) or
 /// under asserterror (:1390).
-const TREE_DROP_CELLS: [Cell; 1] = [end(&[Set(Name, Upd::False, Drop, Some((2, 0)))])];
+const TREE_DROP_CELLS: [Cell; 1] = [tree_end(&[Set(Name, Upd::False, Drop, Some((2, 0)))])];
 
 /// The cells on page 97727, over the flat rows (`FLAT_ROWS`): the SetValue on Name from the first, the middle and
 /// the last row, the filter leaving the row out; then the SetValue on Value, First, the walk and Close (:1246, :1264, :1282).
@@ -860,39 +877,43 @@ const DROP_TO_FIRST: Step = Set(Name, Upd::False, Drop, Some((1, 0)));
 /// SetRange on G0 leaves it out (:1146); and over a child in G0 before two top-level rows in G1, where Last stands on the
 /// last of them and SetRange on G0 keeps only the child (:1460).
 const TREE_CELLS: [Cell; 14] = [
-    walk(&TREE_KEEP_F),      // :794
-    walk(&TREE_KEEP_TEXT_F), // :812
-    walk(&TREE_KEEP_T),      // :830
-    walk(&[
+    tree_walk(&TREE_KEEP_F),      // :794
+    tree_walk(&TREE_KEEP_TEXT_F), // :812
+    tree_walk(&TREE_KEEP_T),      // :830
+    tree_walk(&[
         Last,
         Set(Name, Upd::None, Keep, None),
         Set(Val, Upd::False, Same, Some((2, 0))),
     ]), // :848
-    walk(&TREE_SAME_F),      // :866, and :884 (Reset of no filter)
-    walk(&TREE_EXPANDED_F),  // :902
-    walk(&[Last, Action(Upd::False, Keep), Set(Val, Upd::False, Same, Some((2, 0)))]), // :921
-    walk(&[Last, Set(Val, Upd::False, Same, Some((3, 1)))]), // :1129
-    flat(end(&[DROP_TO_FIRST])), // :1300, :1436
-    flat(end(&[Last, Previous, DROP_TO_FIRST])), // :1312
-    flat(end(&[Last, DROP_TO_FIRST])), // :1324, :1448, and :1472 SetRange on G0 with B between
-    end(&[Last, DROP_TO_FIRST]), // :1146
+    tree_walk(&TREE_SAME_F),      // :866, and :884 (Reset of no filter)
+    tree_walk(&TREE_EXPANDED_F),  // :902
+    tree_walk(&[Last, Action(Upd::False, Keep), Set(Val, Upd::False, Same, Some((2, 0)))]), // :921
+    tree_walk(&[Last, Set(Val, Upd::False, Same, Some((3, 1)))]), // :1129
+    flat(tree_end(&[DROP_TO_FIRST])), // :1300, :1436
+    flat(tree_end(&[Last, Previous, DROP_TO_FIRST])), // :1312
+    flat(tree_end(&[Last, DROP_TO_FIRST])), // :1324, :1448, and :1472 SetRange on G0 with B between
+    tree_end(&[Last, DROP_TO_FIRST]), // :1146
     over(
         &[("G0", 0), ("G1", 0), ("G5", 0)],
-        end(&[Last, Previous, DROP_TO_FIRST]),
+        tree_end(&[Last, Previous, DROP_TO_FIRST]),
     ), // :1424
-    over(&[("G0", 1), ("G1", 0), ("G1", 0)], end(&[Last, DROP_TO_FIRST])), // :1460
+    over(&[("G0", 1), ("G1", 0), ("G1", 0)], tree_end(&[Last, DROP_TO_FIRST])), // :1460
 ];
 
 /// The cells on page 97721, both row triggers (:939, :957, :975, :993).
 const TREE_BOTH_CELLS: [Cell; 4] = [
-    walk(&TREE_KEEP_F),
-    walk(&TREE_KEEP_T),
-    walk(&TREE_SAME_F),
-    walk(&TREE_EXPANDED_F),
+    tree_walk(&TREE_KEEP_F),
+    tree_walk(&TREE_KEEP_T),
+    tree_walk(&TREE_SAME_F),
+    tree_walk(&TREE_EXPANDED_F),
 ];
 
 /// The cells on page 97722, OnAfterGetCurrRecord only (:1012, :1030).
-const TREE_CURR_CELLS: [Cell; 2] = [walk(&TREE_KEEP_F), walk(&TREE_SAME_F)];
+const TREE_CURR_CELLS: [Cell; 2] = [tree_walk(&TREE_KEEP_F), tree_walk(&TREE_SAME_F)];
 
 /// The cells on page 97723, CollapseAll (:1048, :1066, :1084).
-const TREE_COLLAPSED_CELLS: [Cell; 3] = [walk(&TREE_KEEP_F), walk(&TREE_SAME_F), walk(&TREE_EXPANDED_F)];
+const TREE_COLLAPSED_CELLS: [Cell; 3] = [
+    tree_walk(&TREE_KEEP_F),
+    tree_walk(&TREE_SAME_F),
+    tree_walk(&TREE_EXPANDED_F),
+];
