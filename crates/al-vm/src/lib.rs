@@ -152,6 +152,7 @@ mod report_save;
 mod reports;
 mod resource_reads;
 mod run_page_link_open;
+mod session_fields;
 mod sessionops;
 mod setup_no_op;
 mod slot_default;
