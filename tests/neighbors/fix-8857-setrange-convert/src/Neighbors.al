@@ -220,4 +220,134 @@ codeunit 57411 "SRN Neighbors"
         F.SetRange(V, T);
         Show(F);
     end;
+
+    [Test]
+    procedure RecordSetFilterVariantIntoInteger()
+    var
+        Rec: Record "SRN Row";
+        V: Variant;
+    begin
+        V := 'ABC';
+        Rec.SetFilter(Int, '%1', V);
+        Error('filter [%1]', Rec.GetFilter(Int));
+    end;
+
+    [Test]
+    procedure RecordSetFilterTypedIntegerIntoCode()
+    var
+        Rec: Record "SRN Row";
+        I: Integer;
+    begin
+        I := 5;
+        Rec.SetFilter(Cod, '%1', I);
+        Error('filter [%1]', Rec.GetFilter(Cod));
+    end;
+
+    [Test]
+    procedure KeyRefFieldRef()
+    var
+        R: RecordRef;
+        K: KeyRef;
+        F: FieldRef;
+        C: Code[20];
+    begin
+        R.Open(Database::"SRN Row");
+        K := R.KeyIndex(1);
+        F := K.FieldIndex(1);
+        C := 'ABC';
+        F.SetRange(C);
+        Show(F);
+    end;
+
+    [Test]
+    procedure FalseIntoCode()
+    var
+        R: RecordRef;
+        F: FieldRef;
+        B: Boolean;
+    begin
+        R.Open(Database::"SRN Row");
+        F := R.Field(3);
+        B := false;
+        F.SetRange(B);
+        Show(F);
+    end;
+
+    [Test]
+    procedure DecimalThreePlacesIntoCode()
+    var
+        R: RecordRef;
+        F: FieldRef;
+        D: Decimal;
+    begin
+        R.Open(Database::"SRN Row");
+        F := R.Field(3);
+        D := 1.125;
+        F.SetRange(D);
+        Show(F);
+    end;
+
+    [Test]
+    procedure DigitsIntoIntegerOnTemporary()
+    var
+        R: RecordRef;
+        F: FieldRef;
+        C: Code[20];
+    begin
+        R.Open(Database::"SRN Row", true);
+        F := R.Field(4);
+        C := '123';
+        F.SetRange(C);
+        Show(F);
+    end;
+
+    [Test]
+    procedure TextIntoCodeOnRecord()
+    var
+        Rec: Record "SRN Row";
+        T: Text;
+    begin
+        T := 'abc';
+        Rec.SetRange(Cod, T);
+        Error('filter [%1]', Rec.GetFilter(Cod));
+    end;
+
+    [Test]
+    procedure RecordSetRangeTypedIntegerIntoBoolean()
+    var
+        Rec: Record "SRN Row";
+        I: Integer;
+    begin
+        I := 1;
+        Rec.SetRange(Bool, I);
+        Error('filter [%1]', Rec.GetFilter(Bool));
+    end;
+
+    [Test]
+    procedure EmptyTextIntoGuidTyped()
+    var
+        R: RecordRef;
+        F: FieldRef;
+        T: Text;
+    begin
+        R.Open(Database::"SRN Row");
+        F := R.Field(7);
+        T := '';
+        F.SetRange(T);
+        Show(F);
+    end;
+
+    [Test]
+    procedure LongDurationIntoDate()
+    var
+        R: RecordRef;
+        F: FieldRef;
+        X: Duration;
+    begin
+        R.Open(Database::"SRN Row");
+        F := R.Field(6);
+        X := 120000;
+        F.SetRange(X);
+        Show(F);
+    end;
 }

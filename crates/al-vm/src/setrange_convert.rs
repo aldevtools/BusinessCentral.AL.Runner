@@ -10,6 +10,7 @@ use crate::Session;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::fieldref_variant_cells::{temporal_value_error, text_evaluate_error, variant_guid_error};
 use al_builtins::native::Signal;
+use al_builtins::describe::Describe;
 use al_builtins::value::{LibraryValue, RecordState, RtType, Value};
 use rust_decimal::Decimal;
 use std::cell::RefCell;
@@ -40,10 +41,24 @@ pub(crate) fn catalog_id(id: &str) -> (&str, Option<Written>) {
 
 /// The call a value is given to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Call {
+pub(crate) enum Call {
     FieldRefSetRange,
+    /// `FieldRef.SetFilter('%1', X)`: the filter text `%1` and one value.
     FieldRefSetFilter,
+    /// `FieldRef.SetFilter` with another filter text or more values.
+    FieldRefSetFilterOther,
     RecordSetRange,
+    RecordSetFilter,
+}
+
+/// What a measured cell says of a value of another type than the field's.
+enum Cell {
+    /// BC converts it into this value or raises this error, where main's conversion gives another answer.
+    Convert(Result<Value, Signal>),
+    /// BC gives what main's conversion gives (the cell passes on main).
+    Main,
+    /// A value of a pair the probe measures, but not this value: refused.
+    Unmeasured,
 }
 
 const MS_PER_DAY: i64 = 86_400_000;
@@ -51,30 +66,33 @@ const MS_PER_DAY: i64 = 86_400_000;
 /// The measured calls: the routes of the probe (a, aLit, c: typed SetRange; b: Variant SetRange; d1, d2: a Variant and a typed
 /// value; e, eLit: typed SetFilter('%1', X); f: Variant SetFilter('%1', V); gr: Record.SetRange(Field, V)) with their number of
 /// values. Mixed only on a Date, Time or DateTime field (d1 and d2 run on those only).
-fn measured_call(call: Call, written: Written, values: usize, field: &RtType) -> bool {
+fn measured_call(call: Call, written: Option<Written>, values: usize, field: &RtType) -> bool {
     let temporal = matches!(field, RtType::Date | RtType::Time | RtType::DateTime);
     match (call, written) {
-        (Call::FieldRefSetRange, Written::Typed) => values == 1 || values == 2,
-        (Call::FieldRefSetRange, Written::Variant) => values == 1,
-        (Call::FieldRefSetRange, Written::Mixed) => values == 2 && temporal,
-        (Call::FieldRefSetFilter, Written::Typed | Written::Variant) => values == 1,
-        (Call::RecordSetRange, Written::Variant) => values == 1,
+        (Call::FieldRefSetRange, Some(Written::Typed)) => values == 1 || values == 2,
+        (Call::FieldRefSetRange, Some(Written::Variant)) => values == 1,
+        (Call::FieldRefSetRange, Some(Written::Mixed)) => values == 2 && temporal,
+        (Call::FieldRefSetFilter, Some(Written::Typed | Written::Variant)) => values == 1,
+        (Call::RecordSetRange, Some(Written::Variant)) => values == 1,
         _ => false,
     }
 }
 
 impl Session {
-    /// Converts the values of `FieldRef.<method>` on the FieldRef `lib` (`args`, written as `written`) where a measured cell
-    /// says so; raises its error. SetFilter: only the filter text `%1` with one value.
+    /// Converts the values of `FieldRef.<method>` on the FieldRef `lib` (`args`, written as `written`, `None` for a call lowering
+    /// keeps the catalog id for) where a measured cell says so; raises its error; refuses a value of another type than the
+    /// field's that no cell measures in this shape.
     pub(crate) fn fieldref_setrange_convert(
         &mut self,
         method: &str,
         lib: &Rc<RefCell<LibraryValue>>,
         args: &mut [Value],
-        written: Written,
+        written: Option<Written>,
     ) -> Result<(), Signal> {
-        let (rec, pos) = match &*lib.borrow() {
-            LibraryValue::FieldRef(r, p) => (r.clone(), *p),
+        // The probe reads a FieldRef of `RecordRef.Field`; one of `KeyRef.FieldIndex` is not measured.
+        let (rec, pos, written) = match &*lib.borrow() {
+            LibraryValue::FieldRef(r, p) => (r.clone(), *p, written),
+            LibraryValue::KeyFieldRef(r, p) => (r.clone(), *p, None),
             _ => return Ok(()),
         };
         let (call, values) = match method {
@@ -82,23 +100,34 @@ impl Session {
             "SetFilter" if args.len() == 2 && crate::filter_text_arg::filter_text(args.first()).as_str() == "%1" => {
                 (Call::FieldRefSetFilter, &mut args[1..])
             }
+            "SetFilter" if args.len() >= 2 => (Call::FieldRefSetFilterOther, &mut args[1..]),
             _ => return Ok(()),
         };
         self.setrange_convert(&rec, pos, values, written, call)
     }
 
-    /// Converts the value of `Record.SetRange(Field, V)`, `V` written as a Variant (`args`: the field position and the value),
-    /// where a measured cell says so; raises its error.
-    pub(crate) fn record_setrange_variant_convert(
+    /// The same for `Record.SetRange(Field, ...)` and `Record.SetFilter(Field, Text, ...)` (`args`: the field position and the
+    /// rest); `written` is `Some(Variant)` for `Record.SetRange(Field, V)` with `V` written as a Variant, `None` for every other
+    /// shape (lowering keeps the catalog id).
+    pub(crate) fn record_setrange_convert(
         &mut self,
+        call: Call,
         rec: &Rc<RefCell<RecordState>>,
         args: &mut [Value],
+        written: Option<Written>,
     ) -> Result<(), Signal> {
-        let Some((Value::Integer(p), values)) = args.split_first_mut() else {
+        let Some((Value::Integer(p), rest)) = args.split_first_mut() else {
             return Ok(());
         };
         let Ok(pos) = usize::try_from(*p) else { return Ok(()) };
-        self.setrange_convert(rec, pos, values, Written::Variant, Call::RecordSetRange)
+        let values = match call {
+            Call::RecordSetFilter => match rest.split_first_mut() {
+                Some((_, values)) => values,
+                None => return Ok(()),
+            },
+            _ => rest,
+        };
+        self.setrange_convert(rec, pos, values, written, call)
     }
 
     fn setrange_convert(
@@ -106,9 +135,12 @@ impl Session {
         rec: &Rc<RefCell<RecordState>>,
         pos: usize,
         values: &mut [Value],
-        written: Written,
+        written: Option<Written>,
         call: Call,
     ) -> Result<(), Signal> {
+        if values.is_empty() {
+            return Ok(());
+        }
         let t = self.table(rec)?;
         let Some(f) = t.fields.get(pos) else { return Ok(()) };
         let state_measured = {
@@ -122,53 +154,73 @@ impl Session {
             && f.id < 2_000_000_000
             && state_measured
             && measured_call(call, written, values.len(), &f.ty);
-        if !measured {
-            return Ok(());
-        }
         for v in values.iter_mut() {
-            if let Some(converted) = self.setrange_cell(v, &f.ty, written) {
-                assume(Assumption::SetRangeOtherTypeConvert);
-                *v = converted?;
+            match self.setrange_cell(v, &f.ty, written) {
+                None | Some(Cell::Main) => {}
+                Some(Cell::Convert(converted)) if measured => {
+                    assume(Assumption::SetRangeOtherTypeConvert);
+                    *v = converted?;
+                }
+                Some(Cell::Convert(_) | Cell::Unmeasured) => {
+                    return Err(Signal::unsupported(format!(
+                        "SetRange or SetFilter of {} into a {} field in a shape no cell measures (assumption setrange-other-type-convert)",
+                        v.describe(),
+                        f.ty.describe()
+                    )));
+                }
             }
         }
         Ok(())
     }
 
-    /// The measured cell of the value `v` into a field of type `ty`; `None` for one the probe does not measure or one the
-    /// conversion before already gives (a digit text into a number field, a Decimal text into a Decimal field, a Boolean into
-    /// a Text or Code field, a Date into a DateTime field, a Text into a Guid field written as a Text, a value of the field's
-    /// own type).
-    fn setrange_cell(&self, v: &Value, ty: &RtType, written: Written) -> Option<Result<Value, Signal>> {
+    /// The measured cell of the value `v` into a field of type `ty`; `None` for a pair of types the probe does not measure (a
+    /// value of the field's own type among them): main's conversion stays.
+    fn setrange_cell(&self, v: &Value, ty: &RtType, written: Option<Written>) -> Option<Cell> {
         let from28 = self.has(al_version::Gate::FieldRefTextNumberEvaluateErrorFrom28);
+        let text = match v {
+            Value::Text(s) | Value::Code(s) => Some(s.as_str()),
+            _ => None,
+        };
         match ty {
-            // SrcFilterConvertKinds.al:452-686 (Int5_Cod .. DecNeg125_Txt): the Format text, `1,000.5` and `-1.25` too.
-            RtType::Code(_) | RtType::Text(_) => number_into_text(v, ty, self),
-            // SrcFilterConvertKinds.al:729-1381 (CodeABC_Int .. TxtEmpty_Dec, Code1000_Int, Code1000_Big).
-            RtType::Integer | RtType::BigInteger | RtType::Decimal => match v {
-                Value::Text(s) | Value::Code(s) if no_number_text(s.as_str(), ty) => {
-                    Some(Err(text_evaluate_error(s.as_str(), ty, from28)?))
-                }
+            // SrcFilterConvertKinds.al:452-686 (Int5_Cod .. DecNeg125_Txt): the Format text, `1,000.5` and `-1.25` too; true is
+            // Yes (BoolTrue_Cod, BoolTrue_Txt: main's answer).
+            RtType::Code(_) | RtType::Text(_) => match v {
+                Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_) => Some(number_into_text(v, ty, self)),
+                Value::Boolean(true) => Some(Cell::Main),
+                Value::Boolean(false) => Some(Cell::Unmeasured),
                 _ => None,
             },
+            // SrcFilterConvertKinds.al:729-1381 (CodeABC_Int .. TxtEmpty_Dec, Code1000_Int, Code1000_Big); digits (Code123_Int)
+            // and, into a Decimal, `1.5` and `1,000` (Txt15_Dec, Code1000_Dec) are main's answer.
+            RtType::Integer | RtType::BigInteger | RtType::Decimal => {
+                let s = text?;
+                let decimal = matches!(ty, RtType::Decimal);
+                Some(if no_number_text(s, ty) {
+                    Cell::Convert(Err(text_evaluate_error(s, ty, from28)?))
+                } else if digits(s) || (decimal && (decimal_point(s) || one_group(s))) {
+                    Cell::Main
+                } else {
+                    Cell::Unmeasured
+                })
+            }
             // SrcFilterConvertKinds.al:1406-1598 (Code123_Bool .. Int0_Bool).
-            RtType::Boolean => match v {
-                Value::Text(s) | Value::Code(s) if digits(s.as_str()) => {
-                    Some(Ok(Value::Boolean(s.as_str().bytes().any(|b| b != b'0'))))
-                }
-                Value::Text(s) | Value::Code(s) if letters(s.as_str()) => {
-                    Some(Err(text_evaluate_error(s.as_str(), ty, from28)?))
-                }
-                Value::Integer(n @ (0 | 1)) => Some(Ok(Value::Boolean(*n == 1))),
+            RtType::Boolean => match (v, text) {
+                (_, Some(s)) if digits(s) => Some(Cell::Convert(Ok(Value::Boolean(s.bytes().any(|b| b != b'0'))))),
+                (_, Some(s)) if letters(s) => Some(Cell::Convert(Err(text_evaluate_error(s, ty, from28)?))),
+                (Value::Integer(n @ (0 | 1)), _) => Some(Cell::Convert(Ok(Value::Boolean(*n == 1)))),
+                (Value::Integer(_), _) | (_, Some(_)) => Some(Cell::Unmeasured),
                 _ => None,
             },
-            // SrcFilterConvertKinds.al:1730-1849 (CodeABC_G .. TxtGuid_G) routes b, f and gr; the typed routes keep the Guid
-            // format error and the Guid a valid text gives.
-            RtType::Guid => match (v, written) {
-                (Value::Text(s) | Value::Code(s), Written::Variant) if !s.is_empty() => {
-                    Some(Err(variant_guid_error(s.as_str(), from28)))
-                }
-                _ => None,
-            },
+            // SrcFilterConvertKinds.al:1730-1849 (CodeABC_G .. TxtGuid_G) routes b, f and gr raise the Evaluate error; the typed
+            // routes (a, e) keep the Guid format error and the Guid a valid text gives (main's answer).
+            RtType::Guid => {
+                let s = text?;
+                Some(match written {
+                    Some(Written::Variant) if !s.is_empty() => Cell::Convert(Err(variant_guid_error(s, from28))),
+                    Some(Written::Typed) if !s.is_empty() => Cell::Main,
+                    _ => Cell::Unmeasured,
+                })
+            }
             RtType::Date | RtType::Time | RtType::DateTime => self.temporal_cell(v, ty, from28),
             _ => None,
         }
@@ -176,56 +228,69 @@ impl Session {
 
     /// Into a Date, Time or DateTime field (SrcSetRangeConvert.al:920-5680; SrcFilterConvertKinds.al:1616-1714 CodeABC_D,
     /// TxtXY_D).
-    fn temporal_cell(&self, v: &Value, ty: &RtType, from28: bool) -> Option<Result<Value, Signal>> {
+    fn temporal_cell(&self, v: &Value, ty: &RtType, from28: bool) -> Option<Cell> {
         let formatted = || al_builtins::format::try_format(v, 0, 0, self).ok();
+        let variant_cell = || match al_builtins::fieldref_variant_cells::variant_into_field(v, ty, from28, self) {
+            Some(r) => Cell::Convert(r),
+            None => Cell::Unmeasured,
+        };
         // The .NET type BC 27 names and the text BC 28 evaluates (an Integer and a BigInteger as digits without grouping).
         let (nav, text) = match v {
-            Value::Integer(n) if *n >= 0 => ("NavInteger", n.to_string()),
-            Value::BigInteger(n) if *n >= 0 => ("NavBigInteger", n.to_string()),
+            Value::Integer(n) if *n >= 0 => ("NavInteger", Some(n.to_string())),
+            Value::BigInteger(n) if *n >= 0 => ("NavBigInteger", Some(n.to_string())),
             Value::Decimal(d) if *d >= Decimal::ZERO && *d < Decimal::from(1000) && d.scale() <= 2 => {
-                ("NavDecimal", formatted()?)
+                ("NavDecimal", formatted())
             }
-            Value::Boolean(true) => ("NavBoolean", formatted()?),
-            Value::Text(s) => ("NavText", s.as_str().to_string()),
-            Value::Code(s) => ("NavCode", s.as_str().to_string()),
-            Value::Guid(_) => ("NavGuid", formatted()?),
-            Value::Duration(ms) if (1..60_000).contains(ms) => ("NavDuration", formatted()?),
-            Value::Option(..) => ("NavOption", formatted()?),
+            Value::Boolean(true) => ("NavBoolean", formatted()),
+            Value::Text(s) => ("NavText", Some(s.as_str().to_string())),
+            Value::Code(s) => ("NavCode", Some(s.as_str().to_string())),
+            Value::Guid(_) => ("NavGuid", formatted()),
+            Value::Duration(ms) if (1..60_000).contains(ms) => ("NavDuration", formatted()),
+            Value::Option(..) => ("NavOption", formatted()),
             Value::Enum(id, o) => {
-                let text = formatted()?;
-                let name = self.engine.program.objects.get(*id as usize)?.enum_values.iter().find(|(n, _)| n == o)?;
-                if name.1 != text {
-                    return None;
+                let text = formatted();
+                let name = self.engine.program.objects.get(*id as usize).and_then(|obj| {
+                    obj.enum_values.iter().find(|(n, _)| n == o).map(|(_, name)| name.clone())
+                });
+                match (text, name) {
+                    (Some(text), Some(name)) if name == text => ("NavOption", Some(text)),
+                    _ => return Some(Cell::Unmeasured),
                 }
-                ("NavOption", text)
             }
+            // A negative number, false, a Decimal out of the measured size, a longer Duration.
+            Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_) | Value::Boolean(false) | Value::Duration(_) => {
+                return Some(Cell::Unmeasured);
+            }
+            // Date_DT, DateZero_DT: that day at midnight, main's answer.
+            Value::Date(..) if matches!(ty, RtType::DateTime) => return Some(Cell::Main),
             // SrcSetRangeConvert.al Date_T, Time_D, DT_D, DT_T and the undefined values (DateZero_T, TimeZero_D, TimeZero_DT,
             // DTZero_D, DTZero_T): the same on every major.
-            Value::Date(0, false) if matches!(ty, RtType::Time) => return Some(Ok(Value::Time(0))),
-            Value::Time(0) if matches!(ty, RtType::Date) => return Some(Ok(Value::Date(0, false))),
-            Value::Time(0) if matches!(ty, RtType::DateTime) => return Some(Ok(Value::DateTime(0))),
-            Value::DateTime(0) if matches!(ty, RtType::Date) => return Some(Ok(Value::Date(0, false))),
-            Value::DateTime(0) if matches!(ty, RtType::Time) => return Some(Ok(Value::Time(0))),
-            Value::Date(_, false) if matches!(ty, RtType::Time) => {
-                return al_builtins::fieldref_variant_cells::variant_into_field(v, ty, from28, self);
-            }
-            Value::Time(_) if matches!(ty, RtType::Date) => {
-                return al_builtins::fieldref_variant_cells::variant_into_field(v, ty, from28, self);
-            }
+            Value::Date(0, false) if matches!(ty, RtType::Time) => return Some(Cell::Convert(Ok(Value::Time(0)))),
+            Value::Time(0) if matches!(ty, RtType::Date) => return Some(Cell::Convert(Ok(Value::Date(0, false)))),
+            Value::Time(0) if matches!(ty, RtType::DateTime) => return Some(Cell::Convert(Ok(Value::DateTime(0)))),
+            Value::DateTime(0) if matches!(ty, RtType::Date) => return Some(Cell::Convert(Ok(Value::Date(0, false)))),
+            Value::DateTime(0) if matches!(ty, RtType::Time) => return Some(Cell::Convert(Ok(Value::Time(0)))),
+            Value::Date(_, false) if matches!(ty, RtType::Time) => return Some(variant_cell()),
+            Value::Time(_) if matches!(ty, RtType::Date) => return Some(variant_cell()),
             // Time_DT: that time on 0001-01-02 (`01/02/0001 10:00 AM`).
-            Value::Time(x) if matches!(ty, RtType::DateTime) => return Some(Ok(Value::DateTime(*x + MS_PER_DAY))),
-            Value::DateTime(_) if matches!(ty, RtType::Date | RtType::Time) => {
-                return al_builtins::fieldref_variant_cells::variant_into_field(v, ty, from28, self);
+            Value::Time(x) if matches!(ty, RtType::DateTime) => {
+                return Some(Cell::Convert(Ok(Value::DateTime(*x + MS_PER_DAY))));
             }
+            Value::DateTime(_) if matches!(ty, RtType::Date | RtType::Time) => return Some(variant_cell()),
+            // A closing date (`Date(_, true)`) into a Time field.
+            Value::Date(..) if matches!(ty, RtType::Time) => return Some(Cell::Unmeasured),
             _ => return None,
         };
-        Some(Err(temporal_value_error(nav, &text, ty, from28)))
+        Some(match text {
+            Some(text) => Cell::Convert(Err(temporal_value_error(nav, &text, ty, from28))),
+            None => Cell::Unmeasured,
+        })
     }
 }
 
 /// An Integer, BigInteger or Decimal into a Code or Text field: its Format text, of the sizes the probe measures (5, 0, 1.5,
 /// 1000.5, -1.25: at most 999,999 in size, at most two decimals). A text longer than the field is not measured: refused.
-fn number_into_text(v: &Value, ty: &RtType, ctx: &Session) -> Option<Result<Value, Signal>> {
+fn number_into_text(v: &Value, ty: &RtType, ctx: &Session) -> Cell {
     let limit = Decimal::from(1_000_000);
     let measured = match v {
         Value::Integer(n) => n.unsigned_abs() < 1_000_000,
@@ -234,14 +299,13 @@ fn number_into_text(v: &Value, ty: &RtType, ctx: &Session) -> Option<Result<Valu
         _ => false,
     };
     if !measured {
-        return None;
+        return Cell::Unmeasured;
     }
-    match al_builtins::ops::number_into_text_field(v, ty, ctx)? {
-        Ok(text) => Some(Ok(text)),
-        Err(Signal::Error(_)) => Some(Err(Signal::unsupported(
-            "SetRange or SetFilter of a number whose Format text is longer than the Code or Text field (not measured)",
-        ))),
-        Err(e) => Some(Err(e)),
+    match al_builtins::ops::number_into_text_field(v, ty, ctx) {
+        Some(Ok(text)) => Cell::Convert(Ok(text)),
+        Some(Err(Signal::Error(_))) => Cell::Unmeasured,
+        Some(Err(e)) => Cell::Convert(Err(e)),
+        None => Cell::Unmeasured,
     }
 }
 

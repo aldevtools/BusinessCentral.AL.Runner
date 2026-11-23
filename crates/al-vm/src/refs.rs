@@ -282,10 +282,10 @@ impl Session {
                 }
             }
             "FieldRef" => {
-                if let Some(written) = setrange {
-                    self.fieldref_setrange_convert(&sig.name, &lib, args, written)?;
-                }
                 self.fieldref_arg_values(&sig.name, &lib, args)?;
+                if matches!(sig.name.as_str(), "SetRange" | "SetFilter") {
+                    self.fieldref_setrange_convert(&sig.name, &lib, args, setrange)?;
+                }
                 self.fieldref_op(&sig.name, &lib, args)
             }
             "KeyRef" => self.keyref_op(&sig.name, &lib, args),
