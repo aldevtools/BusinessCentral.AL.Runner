@@ -227,3 +227,36 @@ fn a_read_of_another_field_does_not_read_the_row_version() {
     let fp = run_src(ROW_VERSION_SRC, "OtherField");
     assert!(!fp.reads.contains(&Lasting::RowVersion), "{fp:?}");
 }
+
+/// Fixture tables with the platform's ids (as al-vm tests/store/published_application_tenant_id.rs).
+const SERVED_SRC: &str = r#"
+table 2000000153 "NAV App Installed App" { fields { field(1; "App ID"; Guid) { } field(3; Name; Text[250]) { } } keys { key(PK; "App ID") { } } }
+table 2000000038 AllObj { fields { field(1; "Object Type"; Option) { OptionMembers = TableData,Table; } field(3; "Object ID"; Integer) { } field(4; "Object Name"; Text[30]) { } field(60; "App Package ID"; Guid) { } field(61; "App Runtime Package ID"; Guid) { } field(62; "Object Subtype"; Text[30]) { } } keys { key(PK; "Object Type", "Object ID") { } } }
+codeunit 50100 Probe
+{
+    procedure AppTable()
+    var R: Record "NAV App Installed App";
+    begin
+        if R.FindFirst() then;
+    end;
+    procedure OtherServed()
+    var R: Record AllObj;
+    begin
+        if R.FindFirst() then;
+    end;
+}
+"#;
+
+#[test]
+fn a_read_of_an_app_table_reads_the_presence_of_every_app() {
+    let fp = run_src(SERVED_SRC, "AppTable");
+    assert!(fp.apps_all && fp.everything.is_empty(), "{fp:?}");
+    let other = InstallFootprint::default();
+    assert!(fp.reads_from(&other, 7), "every app's presence is read");
+}
+
+#[test]
+fn a_read_of_another_served_table_touches_everything() {
+    let fp = run_src(SERVED_SRC, "OtherServed");
+    assert!(fp.touches_everything() && !fp.apps_all, "{fp:?}");
+}

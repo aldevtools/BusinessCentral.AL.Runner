@@ -8,10 +8,10 @@
 //! - number sequences (`sessionops.rs`), isolated storage (`isolated_storage_op`), AutoIncrement counters (`autoinc.rs`),
 //!   `Database.LastUsedRowVersion` and `Database.MinimumActiveRowVersion`: one note at each;
 //! - apps met: the objects whose code ran (the impact trace's `entered`, `impact.rs`) and `NavApp.GetModuleInfo`
-//!   (`ctx.rs` `module_by_id`);
+//!   (`ctx.rs` `module_by_id`); a read of an app table ([`APP_TABLES`]) meets every app;
 //! - touching everything: .NET, a page, a report (the impact trace), every builtin outside [`KEPT_RECEIVERS`] (HTTP,
 //!   files, StartSession, TaskScheduler and so a Job Queue run, DataTransfer, XMLports), a table served by a provider
-//!   (the store), a whole-store read or a company change (the store), an impact trace that was already on.
+//!   other than the app tables (the store), a whole-store read or a company change (the store), an impact trace that was already on.
 //!
 //! - the row version read by the SystemRowVersion field: the routines the session ran (`install_footprint_row_version.rs`).
 //!
@@ -64,6 +64,9 @@ pub struct InstallFootprint {
     pub writes: BTreeSet<Lasting>,
     /// Apps (indexes into `Program::apps`) whose code ran in the session or whose presence it read.
     pub apps_met: BTreeSet<u32>,
+    /// The session read a table that lists the apps (NAV App Installed App and the other app tables): it observes the
+    /// presence of every app.
+    pub apps_all: bool,
     /// Why the session counts as touching everything; empty when it does not.
     pub everything: BTreeSet<String>,
 }
@@ -78,6 +81,7 @@ impl InstallFootprint {
     pub fn reads_from(&self, other: &InstallFootprint, other_app: u32) -> bool {
         self.touches_everything()
             || other.touches_everything()
+            || self.apps_all
             || self.apps_met.contains(&other_app)
             || self
                 .reads
@@ -100,19 +104,36 @@ impl InstallFootprint {
         self.reads.extend(other.reads);
         self.writes.extend(other.writes);
         self.apps_met.extend(other.apps_met);
+        self.apps_all |= other.apps_all;
         self.everything.extend(other.everything);
     }
 
-    fn add_store(&mut self, s: StoreFootprint) {
+    /// Adds what the store recorded. A table served by a provider (`served`, object indexes of `engine`) is a read of the
+    /// presence of every app when it lists the apps ([`APP_TABLES`]), else it touches everything.
+    fn add_store(&mut self, s: StoreFootprint, engine: &crate::Engine) {
         self.reads.extend(s.reads.into_iter().map(Lasting::Store));
         self.writes.extend(s.writes.into_iter().map(Lasting::Store));
-        if !s.served.is_empty() {
-            self.everything
-                .insert(format!("a table served by a provider ({:?})", s.served));
+        for o in s.served {
+            let id = engine.program.objects.get(o as usize).and_then(|ob| ob.id);
+            match id.and_then(al_builtins::platform::virtual_table) {
+                Some(v) if APP_TABLES.contains(&v) => self.apps_all = true,
+                _ => {
+                    self.everything.insert(format!("a table served by a provider ({id:?})"));
+                }
+            }
         }
         self.everything.extend(s.everything.into_iter().map(String::from));
     }
 }
+
+/// The provider tables whose rows are the apps of the tenant (al-vm `platform/apps.rs`): a read observes which apps are
+/// installed, nothing else.
+const APP_TABLES: &[al_builtins::platform::Virtual] = &[
+    al_builtins::platform::Virtual::NavAppInstalledApp,
+    al_builtins::platform::Virtual::NavAppExtra,
+    al_builtins::platform::Virtual::InstalledApplication,
+    al_builtins::platform::Virtual::PublishedApplication,
+];
 
 /// The builtin receivers whose calls touch no lasting resource, or one the recorder notes at its own site: values of the
 /// session (text, numbers, collections, JSON, XML, streams, errors), the store's readers and writers (recorded by the
@@ -231,7 +252,7 @@ impl crate::Session {
         let rec = self.coverage.install_footprint.borrow_mut().take()?;
         let mut fp = rec.fp;
         if let Some(s) = self.store.footprint_take() {
-            fp.add_store(s);
+            fp.add_store(s, &self.engine);
         }
         if !fp.everything.contains("the impact trace was already on") {
             let t = self.take_impact_trace();
