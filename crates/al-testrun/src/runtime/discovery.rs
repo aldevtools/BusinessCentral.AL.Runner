@@ -64,7 +64,7 @@ impl TestDriver {
 
     /// Whether the run models one BC session for the discovery pass and every test codeunit, so that the SingleInstance
     /// state the pass and each codeunit leave carries to the next codeunit: the front ends then run in BC's order
-    /// (`RunOptions::strict_order` and `strict_sequential`). BcContainerHelper's page 130455 runs the pass and the run in
+    /// (`RunOptions::strict_order`). BcContainerHelper's page 130455 runs the pass and the run in
     /// the one client session of `Run-TestsInBcContainer`, and the reader sees the OnRun calls of the pass and of the run
     /// in a later codeunit (SwOnRunRunner.al:18-20, the reader `OnRunRaisesInDiscovery_Rows` :289-294). Without it every
     /// test codeunit would start with fresh SingleInstance state, and a test that reads one the pass changed (Microsoft's

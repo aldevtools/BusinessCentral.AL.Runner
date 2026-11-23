@@ -109,7 +109,8 @@ Small PRs, each red/green. Outcomes do not change in steps 1 to 3 except where t
 2. **Sequential strict run behind an internal option.** The walk follows `streams` order, every codeunit is a member,
    BC sessions run in parallel. Compare with the lane-based strict path on the corpus strict files, the stress suite
    and NP Retail. Differences are expected only at the six gaps.
-3. **Switch `--strict-order` to it.** Delete lane re-runs (`Found::lane_for`, `Found::sessions`, `run_chains`),
+3. **Switch `--strict-order` to it.** (Done, 2026-11-23: a runner 130450 codeunit whose place against the hub leg's
+   writers is not pinned, and that reads what the walk carried, is refused, as `handlers_unpinned` refused it before.) Delete lane re-runs (`Found::lane_for`, `Found::sessions`, `run_chains`),
    `lane_starts.rs`, `baseline/row_delta.rs`, `al-data` `row_changes.rs`, `--max-replay` and `maxReplay`,
    `replay_every_dependent`, and the assumptions `single-instance-order`, `single-instance-refill`,
    `single-instance-rerun-skipped`. Removing `--max-replay` and changing what `--strict-order` runs is a seam change;
