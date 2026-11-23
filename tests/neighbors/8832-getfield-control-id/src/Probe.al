@@ -1,7 +1,7 @@
 // BC Documentation: https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/methods-auto/testpage/testpage-getfield-method
 // Scope: in-scope
 // local object: the pages' controls and the ids the compiler gives them are what is under test
-// Fixtures used: shared Assert (60021); own tables 97701 and 97711, enum 97713, pages 97680-97683, 97702-97705, 97708, 97709 and 97712, page extensions 97706 and 97710, tests 97707
+// Fixtures used: shared Assert (60021); own tables 97701 and 97711, enum 97713, pages 97680-97684, 97702-97705, 97708, 97709 and 97712, page extensions 97706 and 97710, tests 97707
 // Probe (al-runner issue 8832): TestPage.GetField and TestPart.GetField take the id the compiler gives a page control. The ids in
 //   this file are FNV-1a (32 bit) over the UTF-16LE text of the declaring object's id followed by the control name as declared,
 //   read as a signed number and made positive; the compiled app's SymbolReference.json lists the same ids. The issue's page (a List
@@ -1086,6 +1086,99 @@ codeunit 97707 "LT GFI Tests"
         Expect('TextWord', 'error TestFieldNotFound: The field with ID = 110307410 is not found on the page.|error TestFieldNotFound: The field with ID = 110307410 is not found on the page.');
         Expect('WideIntValue', 'error TestFieldNotFound: The field with ID = 1211919791 is not found on the page.|error TestFieldNotFound: The field with ID = 1211919791 is not found on the page.');
     end;
+
+    [TryFunction]
+    local procedure TryGetCardField(var Card: TestPage "LT GFI Card"; Id: Integer; var Shown: Text)
+    begin
+        Shown := Format(Card.GetField(Id).Visible()) + '/' + Card.GetField(Id).Caption();
+    end;
+
+    [TryFunction]
+    local procedure TryGetModField(var Card: TestPage "LT GFI Mod Card"; Id: Integer; var Shown: Text)
+    begin
+        Shown := Format(Card.GetField(Id).Visible()) + '/' + Card.GetField(Id).Caption();
+    end;
+
+    local procedure GetCardFieldAlone(var Card: TestPage "LT GFI Card"; Id: Integer): Text
+    var
+        Shown: Text;
+    begin
+        ClearLastError();
+        if TryGetCardField(Card, Id, Shown) then
+            exit(Shown);
+        exit(Failure());
+    end;
+
+    local procedure GetModFieldAlone(var Card: TestPage "LT GFI Mod Card"; Id: Integer): Text
+    var
+        Shown: Text;
+    begin
+        ClearLastError();
+        if TryGetModField(Card, Id, Shown) then
+            exit(Shown);
+        exit(Failure());
+    end;
+
+    // GetField with Visible() and Caption() instead of Value() on what it gives (the compiler wants its return value used), on the
+    // ids of the hidden fields of Card_HiddenControls (Visible = false, and in a group with Visible = false), of the field the
+    // application area hides on page 97709, and of a visible field: which call raises.
+    [Test]
+    procedure Card_HiddenControls_VisibleAndCaption()
+    var
+        Card: TestPage "LT GFI Card";
+        ModCard: TestPage "LT GFI Mod Card";
+        Areas: Text;
+    begin
+        Initialize();
+        Card.OpenView();
+        Note('hidden', GetCardFieldAlone(Card, 1811926571));
+        Note('ingroup', GetCardFieldAlone(Card, 621122018));
+        Note('visible', GetCardFieldAlone(Card, 201861513));
+        Card.Close();
+        Areas := ApplicationArea();
+        ApplicationArea('#Basic');
+        ModCard.OpenView();
+        Note('appareahidden', GetModFieldAlone(ModCard, 651490805));
+        ModCard.Close();
+        ApplicationArea(Areas);
+        Expect('hidden', 'error TestFieldNotFound: The field with ID = 1811926571 is not found on the page.');
+        Expect('ingroup', 'error TestFieldNotFound: The field with ID = 621122018 is not found on the page.');
+        Expect('visible', 'Yes/Name');
+        Expect('appareahidden', 'error TestFieldNotFound: The field with ID = 651490805 is not found on the page.');
+    end;
+
+    [TryFunction]
+    local procedure TryDoc(var Doc: TestPage "LT GFI Doc"; Id: Integer; var Shown: Text)
+    begin
+        Shown := Doc.GetField(Id).Value();
+    end;
+
+    local procedure ReadDoc(var Doc: TestPage "LT GFI Doc"; Id: Integer): Text
+    var
+        Shown: Text;
+    begin
+        ClearLastError();
+        if TryDoc(Doc, Id, Shown) then
+            exit(Shown);
+        exit(Failure());
+    end;
+
+    // A Document page (97684): GetField by the ids of its field controls, on R1 then R2.
+    [Test]
+    procedure Document_GetFieldByControlId()
+    var
+        Doc: TestPage "LT GFI Doc";
+    begin
+        Initialize();
+        Doc.OpenView();
+        Doc.First();
+        Note('first', ReadDoc(Doc, 723944874) + '/' + ReadDoc(Doc, 2139865318));
+        Doc.Next();
+        Note('next', ReadDoc(Doc, 723944874) + '/' + ReadDoc(Doc, 2139865318));
+        Doc.Close();
+        Expect('first', 'R1/Alpha');
+        Expect('next', 'R2/Beta');
+    end;
 }
 
 table 97711 "LT GFI Cue Row"
@@ -1345,6 +1438,27 @@ page 97683 "LT GFI Cue Role"
 
                 field(WideCodeWord; Rec.CodeWord) { }
                 field(WideIntValue; Rec.IntValue) { }
+            }
+        }
+    }
+}
+
+// A Document page with the issue's two fields.
+page 97684 "LT GFI Doc"
+{
+    PageType = Document;
+    SourceTable = "LT GFI Row";
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            group(General)
+            {
+                field("No."; Rec."No.") { }
+                field(Name; Rec.Name) { }
             }
         }
     }

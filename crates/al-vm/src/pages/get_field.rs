@@ -51,6 +51,7 @@ impl Session {
         if self.is_request_page(st) {
             return not_found();
         }
+        self.get_field_page_measured(st)?;
         let Some(idx) = self.own_control_by_id(st, id)? else {
             return self.get_extension_field_by_id(st, id);
         };
@@ -66,6 +67,27 @@ impl Session {
         drop(engine);
         assume(Assumption::TestPageGetFieldControlId);
         Ok(test_control_by_id(st.clone(), idx, by_id))
+    }
+
+    /// The page kinds the cells call GetField on: a Card, a List, a Document (:1168), a CardPart and a ListPart opened as a
+    /// TestPage of their own (:856, :923), and a ListPart a TestPart shows (:611, :630). Every other one refuses.
+    fn get_field_page_measured(&self, st: &St) -> Result<(), Signal> {
+        let engine = self.engine();
+        let kind = engine.object_facts[st.borrow().object as usize].page_type.clone();
+        let part = |k: &str| matches!(&kind, Some(al_ir::PageType::Other(o)) if o == k);
+        let measured = if st.borrow().host.is_some() {
+            part("listpart")
+        } else {
+            matches!(
+                kind,
+                Some(al_ir::PageType::Card | al_ir::PageType::List | al_ir::PageType::Document)
+            ) || part("cardpart")
+                || part("listpart")
+        };
+        if measured {
+            return Ok(());
+        }
+        unsupported("TestPage.GetField by a control id on a page kind no cell opens (not measured)")
     }
 
     /// `GetField(id)` where no control of the page itself has the id: a field a page extension adds, by the extension's id and

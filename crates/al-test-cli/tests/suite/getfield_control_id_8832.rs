@@ -32,7 +32,7 @@ fn issue_8832_repro_passes() {
 #[test]
 fn probe_cells_pass_where_measured() {
     let o = outcomes(PROBE, "LT GFI Tests");
-    assert_eq!(o.len(), 19);
+    assert_eq!(o.len(), 21);
     let bad: Vec<_> = o
         .iter()
         // A field in a cuegroup reads as by its name (`cue_field_value_8845.rs`).
@@ -52,13 +52,18 @@ fn probe_cells_pass_where_measured() {
 }
 
 /// The neighbors past the cells: Activate on what GetField found, which no cell calls, refuses, and so does Caption of what the
-/// Card's part control id gives.
+/// Card's part control id gives, and GetField on a Worksheet page (BC finds the field there; no cell opens a Worksheet).
 #[test]
 fn neighbors_past_the_cells_refuse() {
     let o = outcomes(&format!("{PROBE}\n{NEIGHBORS}"), "LT GFN Tests");
     let bad: Vec<_> = o
         .iter()
-        .filter(|(_, r, _)| !matches!(r, Outcome::NotRun(why) if why.contains("on what TestPage.GetField found by a control id")))
+        .filter(|(n, r, _)| match n.as_str() {
+            "WorksheetGetField" => {
+                !matches!(r, Outcome::NotRun(why) if why.starts_with("TestPage.GetField by a control id on a page kind"))
+            }
+            _ => !matches!(r, Outcome::NotRun(why) if why.contains("on what TestPage.GetField found by a control id")),
+        })
         .collect();
-    assert!(o.len() == 2 && bad.is_empty(), "{o:#?}");
+    assert!(o.len() == 3 && bad.is_empty(), "{o:#?}");
 }
