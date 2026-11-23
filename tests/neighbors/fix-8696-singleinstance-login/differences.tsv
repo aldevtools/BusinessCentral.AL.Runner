@@ -1,0 +1,4 @@
+# key	entry
+# No difference in the default mode: it claims no BC order, so the cells that read what an earlier codeunit left fail
+# on main and head alike (18 of 72 pass on both). The change shows under --strict-order, which neighbor-diff does not
+# pass: main 69 of 72 (TC Second, SIR Keep Write, SIR Keep Final fail), head 72 of 72, flagged single-instance-order.

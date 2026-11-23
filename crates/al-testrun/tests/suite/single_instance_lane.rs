@@ -217,8 +217,9 @@ fn a_keyed_cache_refilled_with_another_key_is_a_dependence() {
     );
     // B refilled the cache with another key than A left: a dependence (al-runner issue 8696), run in BC's order.
     assert!(flagged(&rt, "AsksForTwo"), "{:?}", rt.results());
-    // C refilled it with the key B left: the same value either way, no link.
-    assert!(!flagged(&rt, "AsksForTwoAgain") && !flagged(&rt, "AsksForOne"));
+    // C refilled it with the key B left in its parallel run, but B is dependent: what it left in BC's order is not
+    // known from that run, so C is dependent too (corpus PR 1551, SirKeepWrite.al).
+    assert!(flagged(&rt, "AsksForTwoAgain"), "{:?}", rt.results());
 }
 
 /// al-runner issue 8696, the reporter's repro: a SingleInstance global read into a local, then overwritten, and the
@@ -277,7 +278,8 @@ fn a_global_record_overwritten_before_it_is_read_is_no_dependence() {
     );
     let lane = &rt.phases.chain.single_lane;
     assert!(lane.lane.is_empty() && lane.notes.is_empty(), "{:?}", lane.notes);
-    assert!(!flagged(&rt, "RemembersTwo") && !refill_flagged(&rt, "RemembersTwo"));
+    let two = rt.results().iter().find(|r| r.test == "RemembersTwo").expect("RemembersTwo ran");
+    assert!(two.assumptions.is_empty(), "{:?}", two.assumptions);
 }
 
 fn app(id: &str, deps: &[&str], src: &str) -> AppSource {
