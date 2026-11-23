@@ -309,3 +309,61 @@ fn stability_compares_two_plain_runs_and_names_the_cause_of_each_flip() {
     let x = std::fs::read_to_string(&junit).unwrap();
     assert!(x.contains("(cause not known)"), "{x}");
 }
+
+/// ADR-070 step 4: under `--strict-order` a test refused while it ran stops the session being BC's, and a later codeunit
+/// that reads what it changed passes flagged (`strict-after-refused`): the console counts it and its JSON row says so.
+const STRICT_STOP: &str = r#"
+codeunit 50991 "Order Stop State"
+{
+    SingleInstance = true;
+    procedure SetFlag(V: Text) begin Flag := V; end;
+    procedure GetFlag(): Text begin exit(Flag); end;
+    var Flag: Text;
+}
+codeunit 50992 "Order Stop Refused"
+{
+    Subtype = Test;
+    [Test] procedure IsRefusedWhileItRuns() var S: Codeunit "Order Stop State"; begin S.SetFlag('y'); Sleep(-1); end;
+}
+codeunit 50993 "Order Stop Reader"
+{
+    Subtype = Test;
+    [Test] procedure ReadsAfterTheStop() var S: Codeunit "Order Stop State"; begin if S.GetFlag() = 'never' then Error('no'); end;
+}
+"#;
+
+#[test]
+fn a_strict_pass_after_a_test_refused_while_it_ran_is_reported_flagged() {
+    let d = tempfile::tempdir().unwrap();
+    let app = one_file_app(
+        d.path(),
+        "orderstop",
+        "11111111-0000-0000-0000-000000007509",
+        "OrderStop",
+        "src/Tests.al",
+        STRICT_STOP,
+    );
+    let json = d.path().join("r.json");
+    let o = alrunner(&[
+        "test",
+        app.to_str().unwrap(),
+        "--no-download",
+        "--strict-order",
+        "--output-json",
+        json.to_str().unwrap(),
+    ]);
+    let out = text(&o);
+    assert!(out.contains("1 flagged: rely on unprobed assumptions"), "{out}");
+    let j: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&json).unwrap()).unwrap();
+    let row = |m: &str| {
+        j["tests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["method"] == m)
+            .unwrap_or_else(|| panic!("{j}"))
+            .clone()
+    };
+    assert_eq!(row("ReadsAfterTheStop")["flagged"], true, "{j}");
+    assert_eq!(j["orderMode"], "bc", "{j}");
+}

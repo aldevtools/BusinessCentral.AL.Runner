@@ -71,8 +71,10 @@ Business Central runs all test codeunits of a run in one session, one after the
 other. The globals of a `SingleInstance` codeunit, and the numbers a test took from
 a `NumberSequence`, carry from one test codeunit to the next.
 
-By default AL Runner does not follow that order (ADR-066 amendment 12, owner
-decision of 2026-11-09). Every test codeunit starts with fresh SingleInstance state
+By default AL Runner does not follow that order (ADR-070, the isolated mode; owner
+decision of 2026-11-09). The header line `Order mode: isolated` (`orderMode` in
+JSON and in each JUnit test suite) says so; with `--strict-order` or `--stability`
+it reads `bc`. Every test codeunit starts with fresh SingleInstance state
 and with the NumberSequence values the install code left. The codeunits run in
 parallel and nothing runs again. A test should not depend on state or numbers
 another test codeunit left. Within one test codeunit, Business Central's order is
@@ -86,22 +88,29 @@ Two reports say where the result may differ from Business Central's:
   codeunit, its app and publisher, the global, the test codeunit that sets it, and
   the option `--strict-order`. It is printed under the failure, written to the
   JUnit property `orderHint` and to `orderHint` on the test's `--output-json` row
-  (in `serve`: the summary's `orderHints`). A passing test gets no hint.
+  (in `serve`: the summary's `orderHints`). A passing test gets no hint. A failed
+  test that took NumberSequence numbers from a sequence an earlier test codeunit of
+  its session also took from gets the hint too ("this test took numbers from
+  sequence S after test codeunit X took some on BC").
+- **Passing tests that read carried state.** A passing test that read such a
+  global (or comes after a test of its codeunit that read it) gets the JUnit
+  property `singleInstanceCarried`, and the run prints one line: "N passing tests
+  read SingleInstance state that an earlier codeunit would have left differently
+  on BC. --strict-order runs BC's order." On Business Central the test may fail.
 
   ```
   FAIL   50972 Order Cli Reader.ReadsTheFlag: flag is empty
             order hint: this test read global Flag of SingleInstance codeunit 50961 "Order Cli State" (app Order by Me), which test codeunit 50971 "Order Cli Setter" sets before this test on BC; each test codeunit starts with fresh SingleInstance state here; --strict-order runs the test codeunits in BC's order
   ```
 
-- **Number order.** A test codeunit whose tests can take NumberSequence numbers, or
-  only read them (`NumberSequence.Current`, `Exists`), and that comes after a
-  codeunit whose tests can take some gets one `number order:` line and the JUnit
-  property `numberSequenceOrder` on each of its tests. On Business Central it would
-  see the numbers after the ones the earlier codeunit took. It is a note, not a
-  failure. Under `--strict-order --isolation test` every `NumberSequence` call of a
-  test codeunit after one whose tests can take numbers is refused, and its test is
-  reported as not run: what Business Central leaves of the numbers under
-  TestIsolation = Function is not measured yet.
+Under `--strict-order --isolation test` every `NumberSequence` call of a test
+codeunit after one whose tests can take numbers is refused, and its test is
+reported as not run: what Business Central leaves of the numbers under
+TestIsolation = Function is not measured yet.
+
+With `--test-suites` each suite is a session of its own: the hints and the summary
+line then look only at the earlier codeunits of the same suite. It changes nothing
+else in the default mode.
 
 `--strict-order` (in `serve`: the `runTests` field `strictOrder`) runs the test
 codeunits in Business Central's order: the state and the numbers carry (see
