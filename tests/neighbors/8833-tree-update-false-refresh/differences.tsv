@@ -1,29 +1,4 @@
 # key	entry
-# The cells of corpus PR 1539 (pages/currpage/TreeValidateFilterRefresh.al) and the reporter's repro: main read only the
-# typed row, saved nothing with Update(false) and showed the rows the client held; the head reads and shows them as BC does.
-Repro Tree Tests::UpdateFalseOnTree_SavesTheRowAndShowsTheNewView	ASSUMED tree-validate-view-refresh (corpus PR 1539, the issue's shape at :761)
-LT TVF Tests::Issue_SetRangeUpdateFalse_SavesRowAndAppliesFilter	ASSUMED tree-validate-view-refresh (corpus PR 1539 :761)
-LT TVF Tests::Issue_Expanded_SetRangeUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1539 :777)
-LT TVF Tests::Tree_SetRangeKeepsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1539 :794)
-LT TVF Tests::Tree_SetFilterKeepsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1539 :812)
-LT TVF Tests::Tree_SetRangeKeepsUpdateTrue	ASSUMED tree-validate-view-refresh (corpus PR 1539 :830)
-LT TVF Tests::Tree_SetRangeKeepsNoUpdate	ASSUMED tree-validate-view-refresh (corpus PR 1539 :848)
-LT TVF Tests::Tree_NoChangeUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1539 :866)
-LT TVF Tests::Tree_ResetNoFilterUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1539 :884)
-LT TVF Tests::Tree_SetRangeKeepsUpdateFalse_Expanded	ASSUMED tree-validate-view-refresh (corpus PR 1539 :902)
-LT TVF Tests::Tree_ActionSetRangeKeepsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1539 :921)
-LT TVF Tests::Both_SetRangeKeepsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1539 :939)
-LT TVF Tests::Both_SetRangeKeepsUpdateTrue	ASSUMED tree-validate-view-refresh (corpus PR 1539 :957)
-LT TVF Tests::Both_NoChangeUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1539 :975)
-LT TVF Tests::Both_SetRangeKeepsUpdateFalse_Expanded	ASSUMED tree-validate-view-refresh (corpus PR 1539 :993)
-LT TVF Tests::Curr_SetRangeKeepsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1012)
-LT TVF Tests::Curr_NoChangeUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1030)
-LT TVF Tests::Collapsed_SetRangeKeepsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1048)
-LT TVF Tests::Collapsed_NoChangeUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1066)
-LT TVF Tests::Collapsed_SetRangeKeepsUpdateFalse_Expanded	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1084)
-LT TVF Tests::Tree_ValueOnlyUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1129)
-# No cell makes a second SetValue on Name: it refuses once the rule read the row.
-LT TVN Tests::Tree_NameTwiceUpdateFalse	REFUSED a call on a tree page of TreeValidateFilterRefresh.al after the page read its row or the view again
 # A filter that leaves the row out (al-runner issue 8846): main raised no error on the tree and read only the typed row on
 # the List; the head saves and reads as BC does, then raises the filtered-view error on the tree.
 LT TVF Tests::Tree_SetRangeDropsUpdateFalse_Fails	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1146)
