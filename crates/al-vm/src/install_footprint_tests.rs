@@ -150,6 +150,47 @@ fn builtins_outside_the_kept_receivers_touch_everything() {
     assert!(names.iter().any(|&n| n.starts_with("Record.") && !all(n)));
 }
 
+/// The receivers kept by method (`System`, `Database`, `Blob`, `Query`): a method that reads or writes state the footprint
+/// does not hold touches everything, the encryption key's eight among them (the review of PR 8865, finding M2).
+#[test]
+fn methods_of_receivers_kept_by_method_that_reach_lasting_state_touch_everything() {
+    let all = |name: &str| {
+        let (r, m) = name.split_once('.').unwrap_or((name, ""));
+        super::builtin_touches_everything(r, m)
+    };
+    for kept in [
+        "System.Format",
+        "System.CalcDate",
+        "Database.CompanyName",
+        "Blob.CreateInStream",
+        "Query.Read",
+    ] {
+        assert!(!all(kept), "{kept}");
+    }
+    for every in [
+        "System.DeleteEncryptionKey",
+        "System.EncryptionKeyExists",
+        "System.CreateEncryptionKey",
+        "System.ImportEncryptionKey",
+        "System.ExportEncryptionKey",
+        "System.EncryptionEnabled",
+        "System.Encrypt",
+        "System.Decrypt",
+        "System.ImportObjects",
+        "System.CodeCoverageLog",
+        "System.SomethingNew",
+        "Database.AlterKey",
+        "Database.ImportData",
+        "Database.RegisterTableConnection",
+        "Database.SomethingNew",
+        "Blob.Import",
+        "Blob.Export",
+        "Query.SaveAsCsv",
+    ] {
+        assert!(all(every), "{every}");
+    }
+}
+
 #[test]
 fn a_builtin_that_touches_everything_marks_the_session() {
     let l =
