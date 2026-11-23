@@ -1,0 +1,7 @@
+# key	entry
+# Main refused the second save of a parent stored again after its linked child rows when its attribute triggers assign fields.
+# Head runs it when the record and the stored row agree on every field the document does not carry (corpus PR 1550, open).
+NB XAU Tests::Suite_Fresh	ASSUMED xmlport-stored-again-assign-triggers (corpus PR 1550, XpAutoUpdateAssign.al Suite_Fresh)
+NB XAU Tests::Suite_SameAppOtherHash_Replaces	ASSUMED xmlport-stored-again-assign-triggers (corpus PR 1550, Suite_SameAppOtherHash_Replaces)
+NB XAU Tests::Suite_OtherApp_Errors	ASSUMED xmlport-stored-again-assign-triggers (corpus PR 1550, Suite_OtherApp_Errors)
+NB XAU Tests::Again_FieldElementTrigger	ASSUMED xmlport-stored-again-assign-triggers (corpus PR 1550, Again_FieldElementTrigger)

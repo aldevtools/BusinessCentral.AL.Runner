@@ -607,7 +607,8 @@ impl Session {
                     child.trigger("onafterassignfield").is_some() || child.trigger("onafterassignvariable").is_some()
                 });
                 let has_init_trigger = n.trigger("onafterinitrecord").is_some();
-                if has_assign_trigger {
+                let stored_again = stored_again_assigned(schema, node, again, temporary);
+                if has_assign_trigger && !stored_again {
                     return unsupported("AutoUpdate with triggers that assign fields (which values win is not pinned)");
                 }
                 let imported = rec.borrow().fields.clone();
@@ -616,19 +617,31 @@ impl Session {
                 self.record_op(RecordOp::Get, &rec, &mut key_args.clone())?;
                 {
                     let mut r = rec.borrow_mut();
+                    let uncarried_differs = (0..imported.len()).any(|p| {
+                        !assigned.contains(&p)
+                            && t.fields[p].id < 2_000_000_000
+                            && !matches!(
+                                al_builtins::ops::compare_order(&imported[p], &r.fields[p]),
+                                Ok(std::cmp::Ordering::Equal)
+                            )
+                    });
+                    // A row stored again after its linked child rows, whose attribute or field triggers assign fields of it: the
+                    // record and the stored row hold the same value in every field the document does not carry, so the stored row
+                    // ends the same whichever of the two the save writes. Otherwise which value wins is not pinned.
+                    if has_assign_trigger {
+                        if uncarried_differs {
+                            return unsupported(
+                                "XmlPort import of a table element stored again after its linked child rows, whose record differs from the stored row in a field the document does not carry, with triggers that assign fields (which values win is not pinned)",
+                            );
+                        }
+                        al_builtins::assumptions::assume(
+                            al_builtins::assumptions::Assumption::XmlportStoredAgainAssignTriggers,
+                        );
+                    }
                     // An OnAfterInitRecord that assigns a field the document does not carry: which of its value and the stored
                     // one wins is not pinned. When both are equal it does not matter (XmlPortTriggerFlow.al:452
                     // NoAutoReplace_NewParentTwoChildren, :512 NoAutoReplace_ExistingChildUnderNewParent log only).
-                    if has_init_trigger
-                        && (0..imported.len()).any(|p| {
-                            !assigned.contains(&p)
-                                && t.fields[p].id < 2_000_000_000
-                                && !matches!(
-                                    al_builtins::ops::compare_order(&imported[p], &r.fields[p]),
-                                    Ok(std::cmp::Ordering::Equal)
-                                )
-                        })
-                    {
+                    if has_init_trigger && uncarried_differs {
                         return unsupported(
                             "AutoUpdate with an OnAfterInitRecord that assigns fields the document does not carry (which values win is not pinned)",
                         );
@@ -660,4 +673,18 @@ impl Session {
     }
 
     // ------------------------------------------------- VariableText, FixedText
+}
+
+/// The save of `xp_save_record` in which triggers that assign fields of the row may run: a table element right below the
+/// root text element, AutoSave without AutoUpdate or AutoReplace, a real table, stored before its linked child rows and
+/// stored again after them (`again`). Measured with an OnAfterAssignField of the key attribute and an OnAfterAssignVariable
+/// of a text attribute, child and grandchild rows (corpus PR 1550, XpAutoUpdateAssign.al Suite_Fresh), and with an
+/// OnAfterAssignField of the key field element (same file, Again_FieldElementTrigger); assumption
+/// `xmlport-stored-again-assign-triggers` until the probe is pinned.
+fn stored_again_assigned(schema: &Schema, node: usize, again: bool, temporary: bool) -> bool {
+    let n = schema.node(node);
+    let below_root = n
+        .parent
+        .is_some_and(|p| schema.node(p).parent.is_none() && schema.node(p).kind == ir::XmlNodeKind::Text);
+    again && below_root && n.auto_save && !n.auto_update && !n.auto_replace && !n.use_temporary && !temporary
 }
