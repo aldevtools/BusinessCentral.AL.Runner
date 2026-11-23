@@ -89,7 +89,19 @@ pub fn blob_clears_in_place(ctx: &dyn Ctx, b: &crate::stream::BlobRef) -> bool {
 
 /// `Clear(var X)`: the default of the value's own kind. Records go to the VM.
 pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
-    let v = &mut args[0];
+    clear_value(ctx, &mut args[0], false)
+}
+
+/// Whether `Clear` of a codeunit variable that holds `rc`, an instance nothing has used yet, gives the variable a fresh
+/// instance: for a codeunit that is not SingleInstance (assumption clear-shared-codeunit, see the Codeunit arm of
+/// [`clear_value`]).
+fn unused_codeunit_cleared(ctx: &dyn Ctx, rc: &std::cell::RefCell<crate::value::Instance>) -> bool {
+    ctx.plain_codeunit(rc.borrow().object)
+        && crate::assumptions::hit(crate::assumptions::Assumption::ClearSharedCodeunit)
+}
+
+/// [`clear`] of the value `v`; `element`: `v` is an element of an array the Clear empties.
+fn clear_value(ctx: &mut dyn Ctx, v: &mut Value, element: bool) -> Result<Value, Signal> {
     *v = match v {
         Value::Record(_) => return ctx.record(RecordOp::Clear, Some(v), &mut []),
         // Clearing a RecordRef or a KeyRef gives a new handle that holds nothing, kept apart from one never opened or assigned
@@ -189,11 +201,17 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
             q.borrow_mut().reopen.cleared()?;
             Value::Query(Rc::new(std::cell::RefCell::new(crate::value::QueryState::new(object))))
         }
-        // A codeunit or report variable nothing has used yet has no instance to release, so
-        // clearing it changes nothing (reports/TestReportRunWithRequestPage.al: `Clear(Probe)`
-        // before `Probe.Run()`). Clearing one in use gives a fresh instance: after `Clear(TempBlob)` the
-        // blob is empty again (streams/TestStreamsRuntimeContracts.al:WriteText_ExplicitEncodings_Bytes).
-        Value::Codeunit(rc) if !rc.borrow().initialized => return Ok(Value::Null),
+        // A codeunit variable in use gets a fresh instance: after `Clear(TempBlob)` the blob is empty again
+        // (streams/TestStreamsRuntimeContracts.al:WriteText_ExplicitEncodings_Bytes). So does one nothing used yet, of a
+        // codeunit that is not SingleInstance: an interface, a codeunit variable or a parameter that shares the old
+        // instance keeps it (assumption clear-shared-codeunit, open corpus PR 1560, codeunits/clear-instance/
+        // ClearSharedCodeunit.al). An unused report variable has no instance to release, so clearing it changes nothing
+        // (reports/TestReportRunWithRequestPage.al: `Clear(Probe)` before `Probe.Run()`); so does an unused SingleInstance
+        // codeunit variable (ClearSharedCodeunitSI.al: every variable reads the one instance), and, as before, an unused element
+        // of an array the Clear empties (not measured).
+        Value::Codeunit(rc) if !rc.borrow().initialized && (element || !unused_codeunit_cleared(&*ctx, rc)) => {
+            return Ok(Value::Null);
+        }
         Value::Codeunit(rc) => {
             let object = rc.borrow().object;
             Value::Codeunit(crate::instance_cycles::shared(crate::value::Instance {
@@ -216,7 +234,7 @@ pub(super) fn clear(ctx: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]
                 _ => {}
             }
             for e in a.borrow_mut().iter_mut() {
-                clear(ctx, None, std::slice::from_mut(e))?;
+                clear_value(ctx, e, true)?;
             }
             return Ok(Value::Null);
         }

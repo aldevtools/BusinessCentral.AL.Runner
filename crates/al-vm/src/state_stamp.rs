@@ -83,6 +83,9 @@ struct Single {
     /// Per global: it holds what a fresh instance of the codeunit holds ([`at_declared`]). Empty when the instance has
     /// another number of globals than a fresh one.
     declared: Vec<bool>,
+    /// A global holds a codeunit instance a call made whose globals hold their declared values, and it took the fingerprint
+    /// of the fresh variable ([`Session::at_declared`], assumption clear-shared-codeunit).
+    declared_form: bool,
 }
 
 /// What differs between two [`LeftStamp`]s, other than rows and group 1 filters ([`LeftStamp::changed`]).
@@ -99,12 +102,20 @@ pub struct LeftChange {
     /// globals differs); of a new instance, those that do not hold what a fresh instance holds. A global with no
     /// comparable form (a .NET object, a stream, a temporary record) counts as changed.
     pub singles: BTreeMap<usize, BTreeSet<usize>>,
+    /// The SingleInstance codeunits (object index) one of whose globals came to hold a codeunit instance a call made, with
+    /// every global of it at its declared value, and counts as unchanged only through assumption clear-shared-codeunit
+    /// ([`Session::at_declared`]): the caller marks their reads with it (`Session::mark_single_assumed`).
+    pub declared_form: BTreeSet<usize>,
 }
 
 impl LeftChange {
-    /// Nothing changed.
+    /// Nothing changed ([`LeftChange::declared_form`] is no change).
     pub fn is_empty(&self) -> bool {
-        *self == LeftChange::default()
+        self.session.is_none()
+            && !self.number_sequences
+            && !self.isolated_storage
+            && !self.random
+            && self.singles.is_empty()
     }
 }
 
@@ -139,7 +150,12 @@ impl LeftStamp {
                 (!changed.is_empty()).then_some((o, changed))
             })
             .collect();
+        let declared_form = (later.singles.iter())
+            .filter(|(o, y)| y.declared_form && !self.singles.get(o).is_some_and(|x| x.declared_form))
+            .map(|(o, _)| *o)
+            .collect();
         LeftChange {
+            declared_form,
             session,
             number_sequences: a.sequences != b.sequences,
             isolated_storage: a.isolated_storage != b.isolated_storage,
@@ -159,6 +175,14 @@ impl LeftStamp {
 }
 
 impl Session {
+    /// Marks the reads of each SingleInstance codeunit of `change` that counted unchanged only through assumption
+    /// clear-shared-codeunit ([`LeftChange::declared_form`]), when it carries no mark yet (`mark_single_assumed`).
+    pub fn mark_declared_form(&mut self, change: &LeftChange) {
+        for &o in &change.declared_form {
+            self.mark_single_assumed(o, al_builtins::assumptions::Assumption::ClearSharedCodeunit);
+        }
+    }
+
     /// The state [`LeftStamp`] takes, now.
     pub fn left_stamp(&mut self) -> LeftStamp {
         let made: Vec<(usize, Rc<RefCell<Instance>>)> = self.singletons.iter().map(|(&o, i)| (o, i.clone())).collect();
@@ -166,20 +190,38 @@ impl Session {
         for (o, inst) in made {
             let engine = self.engine.clone();
             let fresh = self.slot_defaults(&engine.program.objects[o].globals);
-            let inst = inst.borrow();
-            let declared = if inst.globals.len() == fresh.len() {
-                (inst.globals.iter().zip(&fresh))
-                    .map(|(v, f)| at_declared(v, f, &engine, 0))
+            let held = inst.borrow().globals.clone();
+            let declared: Vec<bool> = if held.len() == fresh.len() {
+                (held.iter().zip(&fresh))
+                    .map(|(v, f)| self.at_declared(v, f, 0))
                     .collect()
             } else {
                 Vec::new()
             };
-            let globals = inst
-                .globals
-                .iter()
-                .map(|v| crate::single_track::fp(v, &engine))
+            // A global at its declared value takes the fingerprint of the fresh one: a codeunit variable whose first call made
+            // its instance, with every global of it at its declared value, reads as one never used (al-runner issue 8912).
+            let mut declared_form = false;
+            let globals = (held.iter().enumerate())
+                .map(|(g, v)| {
+                    let own = crate::single_track::fp(v, &engine);
+                    match fresh.get(g) {
+                        Some(f) if declared.get(g) == Some(&true) => {
+                            let fresh = crate::single_track::fp(f, &engine);
+                            declared_form |= fresh != own;
+                            fresh
+                        }
+                        _ => own,
+                    }
+                })
                 .collect();
-            singles.insert(o, Single { globals, declared });
+            singles.insert(
+                o,
+                Single {
+                    globals,
+                    declared,
+                    declared_form,
+                },
+            );
         }
         let group1 = self.global_group1.signatures();
         LeftStamp {
@@ -192,29 +234,57 @@ impl Session {
     }
 }
 
-/// Whether global value `v` holds what `fresh`, the value a fresh instance's global holds, holds: the same fingerprint;
-/// for a record also the same view (key, sort order, filter group, load and calculated fields, read isolation, security
-/// filtering, company, marks) and nothing read or written through it; for a codeunit the same of each of its globals.
-fn at_declared(v: &Value, fresh: &Value, engine: &crate::Engine, depth: u8) -> bool {
-    if depth > 8 {
-        return false;
+impl Session {
+    /// Whether global value `v` holds what `fresh`, the value a fresh instance's global holds, holds: the same fingerprint;
+    /// for a record also the same view (key, sort order, filter group, load and calculated fields, read isolation, security
+    /// filtering, company, marks) and nothing read or written through it; for a codeunit the same of each of its globals. A
+    /// codeunit variable whose instance a call made (`ensure_initialized`) and a fresh one nothing used yet hold the same when
+    /// each global of the instance holds its declared value: AL code cannot tell them apart, `Clear` gives both a fresh
+    /// instance and `ClearAll` resets both in place (open corpus PR 1560, codeunits/clear-instance/ClearSharedCodeunit.al,
+    /// every cell alike with X unused and used once; assumption clear-shared-codeunit). Only for a codeunit: a report
+    /// variable's first call runs OnInitReport (reports/TestProbeReportContracts.al:ReportVariable_RunTwice_GlobalsReset).
+    /// The declared values come from `slot_defaults`, never `Session::instance`, which would mark the session's records as
+    /// blob copy sources (`blob_transfer::new_variable`).
+    fn at_declared(&mut self, v: &Value, fresh: &Value, depth: u8) -> bool {
+        if depth > 8 {
+            return false;
+        }
+        let engine = self.engine.clone();
+        match (v, fresh) {
+            (Value::Record(a), Value::Record(b)) => {
+                let (Ok(a), Ok(b)) = (a.try_borrow(), b.try_borrow()) else {
+                    return false;
+                };
+                same_view(&a, &b) && crate::single_track::fp(v, &engine) == crate::single_track::fp(fresh, &engine)
+            }
+            (Value::Codeunit(a), Value::Codeunit(b)) => {
+                let (Ok(a), Ok(b)) = (a.try_borrow(), b.try_borrow()) else {
+                    return false;
+                };
+                let object = a.object as usize;
+                let held = a.globals.clone();
+                let declared = if a.object != b.object {
+                    return false;
+                } else if a.initialized && !b.initialized && b.globals.is_empty() && self.made_codeunit(object) {
+                    drop((a, b));
+                    self.slot_defaults(&engine.program.objects[object].globals)
+                } else {
+                    b.globals.clone()
+                };
+                held.len() == declared.len()
+                    && (held.iter().zip(&declared)).all(|(x, y)| self.at_declared(x, y, depth + 1))
+            }
+            _ => crate::single_track::fp(v, &engine) == crate::single_track::fp(fresh, &engine),
+        }
     }
-    match (v, fresh) {
-        (Value::Record(a), Value::Record(b)) => {
-            let (Ok(a), Ok(b)) = (a.try_borrow(), b.try_borrow()) else {
-                return false;
-            };
-            same_view(&a, &b) && crate::single_track::fp(v, engine) == crate::single_track::fp(fresh, engine)
-        }
-        (Value::Codeunit(a), Value::Codeunit(b)) => {
-            let (Ok(a), Ok(b)) = (a.try_borrow(), b.try_borrow()) else {
-                return false;
-            };
-            a.object == b.object
-                && a.globals.len() == b.globals.len()
-                && (a.globals.iter().zip(&b.globals)).all(|(x, y)| at_declared(x, y, engine, depth + 1))
-        }
-        _ => crate::single_track::fp(v, engine) == crate::single_track::fp(fresh, engine),
+
+    /// Whether a used instance of object `object` may count as the fresh variable nothing used yet ([`Session::at_declared`]):
+    /// a codeunit that is not SingleInstance, as the cells measure ("CLX Store", ClearSharedCodeunit.al codeunit 75580). A
+    /// SingleInstance codeunit variable is a handle to the one instance, never made by its own first call. The caller of
+    /// [`LeftStamp::changed`] marks the reads of a codeunit that counted unchanged this way ([`LeftChange::declared_form`]).
+    fn made_codeunit(&self, object: usize) -> bool {
+        self.engine.program.objects[object].kind == al_ir::ObjKind::Codeunit
+            && !self.engine.object_facts[object].single_instance
     }
 }
 
@@ -432,19 +502,48 @@ codeunit 50102 Memo
         R.Get();
     end;
 }
+
+codeunit 50104 Driver
+{
+    procedure Touch() var M: Codeunit Memo; begin M.Touch(); end;
+    procedure Read() var M: Codeunit Memo; begin M.Read(); end;
+    procedure ReadInner() var M: Codeunit Memo; begin M.ReadInner(); end;
+    procedure Write() var M: Codeunit Memo; begin M.Write(); end;
+    procedure ReadReport() var M: Codeunit Memo; begin M.ReadReport(); end;
+}
 "#;
 
     /// The globals of codeunit Memo that changed between its first use (`Touch`) and a call of `routine`, on an instance
-    /// made before (`made`) or by the call itself.
+    /// made before (`made`) or by the call itself. Driver calls Memo through a variable, so the call reaches the session's
+    /// single instance.
     fn memo_change(routine: &str, made: bool) -> std::collections::BTreeSet<usize> {
+        memo_left(routine, made).0
+    }
+
+    /// [`memo_change`], with the number of codeunits that counted unchanged only through their declared form and whether
+    /// nothing changed.
+    fn memo_left(routine: &str, made: bool) -> (std::collections::BTreeSet<usize>, usize, bool) {
         let mut b = Built::from_source(MEMO);
         if made {
-            b.run_in("Memo", "Touch").unwrap();
+            b.run_in("Driver", "Touch").unwrap();
         }
         let before = b.session.left_stamp();
-        b.run_in("Memo", routine).unwrap();
+        b.run_in("Driver", routine).unwrap();
         let change = before.changed(&b.session.left_stamp());
-        change.singles.into_values().next().unwrap_or_default()
+        let (form, empty) = (change.declared_form.len(), change.is_empty());
+        (change.singles.into_values().next().unwrap_or_default(), form, empty)
+    }
+
+    // A codeunit global that counts unchanged only through its declared form is named, for the caller to mark its reads
+    // with assumption clear-shared-codeunit; one that changed, or a report's, is not.
+    #[test]
+    fn a_codeunit_global_counted_through_its_declared_form_is_named() {
+        for made in [true, false] {
+            assert_eq!(memo_left("Read", made).1, 1, "made before: {made}");
+            assert!(memo_left("Read", made).2, "made before: {made}");
+            assert_eq!(memo_left("Write", made).1, 0, "made before: {made}");
+            assert_eq!(memo_left("ReadReport", made).1, 0, "made before: {made}");
+        }
     }
 
     // al-runner issue 8912: the first call on a codeunit variable makes its instance; while every global of it holds its

@@ -334,7 +334,8 @@ impl Session {
         self.alias_any(f)?;
         let globals = f.instance.borrow().globals.clone();
         let bound = self.clear_all_bound_globals(&globals, &keep, true)?;
-        let keep: Vec<usize> = keep.into_iter().chain(bound).collect();
+        let in_place = self.clear_all_in_place(object, &globals, &keep);
+        let keep: Vec<usize> = keep.into_iter().chain(bound).chain(in_place).collect();
         let fresh = self.slot_defaults(&o.globals);
         let mut inst = f.instance.borrow_mut();
         for (i, v) in fresh.into_iter().enumerate() {

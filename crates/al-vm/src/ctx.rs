@@ -182,6 +182,11 @@ impl al_builtins::native::Ctx for Session {
     fn xrec_holds_blob(&self, b: &al_builtins::stream::BlobRef) -> bool {
         Session::xrec_holds_blob(self, b)
     }
+    fn plain_codeunit(&self, object: u32) -> bool {
+        let object = object as usize;
+        self.engine.program.objects[object].kind == al_ir::ObjKind::Codeunit
+            && !self.engine.object_facts[object].single_instance
+    }
     fn clear_test_page(
         &mut self,
         page: &al_builtins::page_handle::PageHandle,
