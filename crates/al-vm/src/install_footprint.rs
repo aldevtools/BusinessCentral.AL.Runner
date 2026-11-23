@@ -11,7 +11,7 @@
 //!   (`ctx.rs` `module_by_id`); a read of an app table ([`APP_TABLES`]) meets every app;
 //! - touching everything: .NET, a page, a report (the impact trace), every builtin outside [`KEPT_RECEIVERS`] (HTTP,
 //!   files, StartSession, TaskScheduler and so a Job Queue run, DataTransfer, XMLports), a table served by a provider
-//!   other than the app tables (the store), a whole-store read or a company change (the store), an impact trace that was already on.
+//!   other than the app tables (the store), a whole-store read or a company change (the store).
 //!
 //! - the row version read by the SystemRowVersion field: the routines the session ran (`install_footprint_row_version.rs`).
 //!
@@ -22,7 +22,7 @@ use al_data::memory::{Resource, StoreFootprint};
 use std::collections::BTreeSet;
 
 /// A lasting resource an install session can read or write.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Lasting {
     /// A row, a table extent or a whole table (al-data `Resource`).
     Store(Resource),
@@ -229,6 +229,9 @@ fn builtin_touches_everything(receiver: &str, method: &str) -> bool {
 pub(crate) struct Recording {
     fp: InstallFootprint,
     before: Before,
+    /// The impact trace that was on when the recording started (the baseline of an impact index build): it goes on
+    /// with what the session noted added when the recording stops.
+    outer: Option<crate::impact::Touches>,
 }
 
 /// What the lasting stores held when the recording started, for the safety net of [`Session::install_footprint_take`]:
@@ -308,16 +311,13 @@ impl crate::Session {
 impl crate::Session {
     /// Starts recording the footprint of an install session, replacing one that was recorded.
     pub fn install_footprint_start(&mut self) {
-        let mut fp = InstallFootprint::default();
-        if self.coverage.impact_on {
-            // The objects entered before the recording cannot be told from those entered during it.
-            fp.everything.insert("the impact trace was already on".into());
-        } else {
-            self.enable_impact_trace();
-        }
+        let fp = InstallFootprint::default();
+        // The session's own trace is noted apart from one that was on, and added to it when the recording stops.
+        let outer = self.coverage.impact_on.then(|| self.take_impact_trace());
+        self.enable_impact_trace();
         let before = self.footprint_before();
         self.store.footprint_start();
-        *self.coverage.install_footprint.borrow_mut() = Some(Box::new(Recording { fp, before }));
+        *self.coverage.install_footprint.borrow_mut() = Some(Box::new(Recording { fp, before, outer }));
         self.coverage.footprint_on = true;
     }
 
@@ -330,25 +330,29 @@ impl crate::Session {
             fp.add_store(s, &self.engine);
         }
         self.footprint_check(&rec.before, &mut fp);
-        if !fp.everything.contains("the impact trace was already on") {
-            let t = self.take_impact_trace();
-            self.disable_impact_trace();
-            let objects = &self.engine.program.objects;
-            fp.apps_met
-                .extend(t.entered.iter().filter_map(|o| objects.get(*o).map(|o| o.app)));
-            let routines = t.routines.iter().copied();
-            if crate::install_footprint_row_version::routines_read(&self.engine, routines) {
-                fp.reads.insert(Lasting::RowVersion);
+        let t = self.take_impact_trace();
+        match rec.outer {
+            Some(mut outer) => {
+                outer.extend(&t);
+                *self.coverage.impact.borrow_mut() = Some(outer);
             }
-            if t.dotnet {
-                fp.everything.insert("a .NET call".into());
-            }
-            if !t.pages.is_empty() {
-                fp.everything.insert(format!("a page ({:?})", t.pages));
-            }
-            if !t.reports.is_empty() {
-                fp.everything.insert(format!("a report ({:?})", t.reports));
-            }
+            None => self.disable_impact_trace(),
+        }
+        let objects = &self.engine.program.objects;
+        fp.apps_met
+            .extend(t.entered.iter().filter_map(|o| objects.get(*o).map(|o| o.app)));
+        let routines = t.routines.iter().copied();
+        if crate::install_footprint_row_version::routines_read(&self.engine, routines) {
+            fp.reads.insert(Lasting::RowVersion);
+        }
+        if t.dotnet {
+            fp.everything.insert("a .NET call".into());
+        }
+        if !t.pages.is_empty() {
+            fp.everything.insert(format!("a page ({:?})", t.pages));
+        }
+        if !t.reports.is_empty() {
+            fp.everything.insert(format!("a report ({:?})", t.reports));
         }
         Some(fp)
     }

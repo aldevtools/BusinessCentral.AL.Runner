@@ -111,8 +111,10 @@ fn touching_everything_reads_from_and_collides_with_every_session() {
 
 #[test]
 fn store_resources_keep_the_store_rules() {
-    let row = Lasting::Store(Resource::Row("C".into(), 7, vec![1]));
-    let extent = Lasting::Store(Resource::Extent("C".into(), 7));
+    let t = al_data::contract::table();
+    let key = al_data::memory::RowKey::of(&t, vec![al_data::contract::row("B", 1, 1)[0].clone()]);
+    let row = Lasting::Store(Resource::Row("C".into(), t.object, key));
+    let extent = Lasting::Store(Resource::Extent("C".into(), t.object));
     assert!(extent.read_sees_write(&row) && row.writes_collide(&row) && !extent.writes_collide(&extent));
 }
 
@@ -283,4 +285,38 @@ fn a_change_the_recorder_did_not_note_touches_everything() {
     s.call(probe, routine.unwrap_or(0), inst, vec![]).unwrap();
     let fp = s.install_footprint_take().unwrap();
     assert!(!fp.touches_everything(), "{fp:?}");
+}
+
+#[test]
+fn an_impact_trace_that_was_on_keeps_running_and_the_session_is_recorded_all_the_same() {
+    // The baseline of `al-runner impact-index build` runs the install code with the impact trace on (al-testrun
+    // `baseline::run_traced`): the footprint takes the session's own part of it, and the outer trace keeps every note.
+    let l = al_testkit::compile(SRC);
+    let engine = Engine::new(l.program.clone(), al_testkit::blocked(&l));
+    let probe = (engine.program.objects.iter())
+        .position(|o| o.name == "Probe")
+        .expect("Probe");
+    let mut s = Session::new(engine);
+    let ri = |s: &Session, n: &str| {
+        (s.engine.program.objects[probe].routines.iter())
+            .position(|r| r.name == n)
+            .unwrap()
+    };
+    s.enable_impact_trace();
+    let (before, during) = (ri(&s, "StorageGet"), ri(&s, "AutoInsert"));
+    let inst = s.codeunit_instance(probe);
+    s.call(probe, before, inst.clone(), vec![]).unwrap();
+    s.install_footprint_start();
+    s.call(probe, during, inst, vec![]).unwrap();
+    s.commit_transaction();
+    let fp = s.install_footprint_take().expect("recorded");
+    assert!(fp.everything.is_empty(), "{fp:?}");
+    assert!(!fp.apps_met.is_empty(), "{fp:?}");
+    let outer = s.take_impact_trace();
+    let routines: Vec<usize> = outer.routines.iter().map(|r| r.1).collect();
+    assert!(routines.contains(&before) && routines.contains(&during), "{outer:?}");
+    assert!(
+        !outer.writes.is_empty(),
+        "the insert of the recorded session: {outer:?}"
+    );
 }
