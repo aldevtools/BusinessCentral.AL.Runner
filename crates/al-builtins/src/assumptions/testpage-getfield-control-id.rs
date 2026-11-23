@@ -1,0 +1,11 @@
+TestPageGetFieldControlId => {
+    id: "testpage-getfield-control-id",
+    assumed: "TestPage.GetField(Id) and TestPart.GetField(Id) take the id the compiler gives a page control: 32-bit FNV-1a over the UTF-16LE text of the page's object id followed by the control name as declared, read as a signed number and made positive (al-vm pages::control_id; the compiled app's SymbolReference.json lists the same ids). The page's own field control with that id is what GetField gives: a field bound to a field of Rec, to a page variable, or a label, in a repeater, a group, a nested group, a fixed or a grid, on a List, a Card or a ListPart that a TestPart shows, also a base field whose caption a page extension modifies; on it Value, Caption, SetValue, Visible, Enabled, Editable, AsDecimal, HideValue, ShowMandatory, ValidationErrorCount and AssertEquals answer as on the control by its name, a field with Visible = false, in a group with Visible = false or hidden by the application area included (not found); every other call on it refuses, and a field in a cuegroup refuses (Business Central shows 0 for its Text, through GetField and by its name). The id of a part (in the content area or a FactBox), a cuegroup, a fixed or a grid gives a field whose Value is empty; every other call on that field refuses. Any other id is not found, as main answered: a group, a repeater, an action, an action group, a field a page extension adds (by the extension's id or the base page's), a control of another page, of the part's page or of the host. Not measured: a request page, a usercontrol or a system part, the other calls.",
+    tests: "No Microsoft test: al-runner issue 8832 (the reporter's repro, green on real Business Central 29.1, 3/3).",
+    probe: "Corpus pull request 1538 (open), tests/al-language/testpage/GetFieldByControlId.al:449-:698, 14 tests on pages 97702-97705, 97708 and 97709 and page extensions 97706 and 97710, on a local Business Central 29.1, 3 runs.",
+    awaiting: Awaiting {
+        issues: &[8832],
+        files: &["tests/al-language/testpage/GetFieldByControlId.al"],
+        since: "2026-11-23",
+    },
+}
