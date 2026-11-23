@@ -81,7 +81,9 @@ The preprocessor symbols (ADR-078 point 3, `tools/corpus_bump_symbols.py`, also 
 manifest records `released_minors`, every version must record `preprocessor_symbols`, and each set must equal
 `al-test-cli --print-symbols <version> --released-minors <list>`. The bump then writes the list as the top-level
 `released_minors` of `oracle.toml`. Symbols without a list refuse, and so does a run without a list once
-`oracle.toml` has one. A `--from-pr` bump keeps the list of `oracle.toml`.
+`oracle.toml` has one. A `--from-pr` bump keeps the list of `oracle.toml`, so it refuses when a listed pull request
+or a master commit since the pin changes `.github/released-minors.txt` or `.github/scripts/ci-legs.py`: bump from a
+master run.
 
 A bump need not wait for the corpus master run (about 55 minutes after a corpus
 pull request merges; owner, 2026-11-05): `tools/corpus_bump.sh --from-pr
