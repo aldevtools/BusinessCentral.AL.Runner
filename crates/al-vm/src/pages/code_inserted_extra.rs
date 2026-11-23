@@ -136,8 +136,8 @@ impl Session {
     /// reads the row as stored before the page's OnAfterGetRecord runs on it, so the first read shows a write made through
     /// another record after the save (ListNewLineExtraCodeFactbox.al:344 `AGR(A/Resolved/Stamped)`); then the view from the row,
     /// the row twice more, OnAfterGetCurrRecord and the part's OnAfterGetRecord (:344; :355 with a row before). The cells'
-    /// triggers only read: one that wrote the store, or left the page's or the part's record other than stored, is not
-    /// measured, and refused.
+    /// triggers only read: one that wrote the store, or left the page's or the part's record other than stored, or Rec's view
+    /// other than it was, is not measured, and refused. The calls after it are those of the FactBox host (`FactboxStep`).
     pub(super) fn extra_code_factbox_refresh(
         &mut self,
         st: &St,
@@ -145,6 +145,7 @@ impl Session {
         without_parts: bool,
     ) -> Result<(), Signal> {
         let rec = self.page_rec(st);
+        let view = rec.borrow().clone();
         let mut pk = self.table(&rec)?.primary_key(&rec.borrow().fields);
         self.ret_used = true;
         self.record_op(al_builtins::record_op::RecordOp::Get, &rec, &mut pk)?;
@@ -155,12 +156,20 @@ impl Session {
             Some(p) => self.holds_stored_row(&p)?,
             None => false,
         };
-        if self.write_mark() != writes || !self.holds_stored_row(st)? || !parts_kept {
+        let view_kept = Self::same_view(&self.page_rec(st).borrow(), &view);
+        if self.write_mark() != writes || !self.holds_stored_row(st)? || !parts_kept || !view_kept {
             st.borrow_mut().forget_code_inserted_line();
             return unsupported(
-                "a trigger of a List page with a FactBox, or of its part, wrote the store or changed its record in the refresh \
-                 after CurrPage.Update moved the page from its new line onto the row the table field inserted (not measured)",
+                "a trigger of a List page with a FactBox, or of its part, wrote the store or changed its record or Rec's view in \
+                 the refresh after CurrPage.Update moved the page from its new line onto the row the table field inserted (not \
+                 measured)",
             );
+        }
+        // OK reads nothing more on this page, also with a row before (ListNewLineExtraCodeFactbox.al:355, :726): unlike the
+        // FactBox host, it does not read the row again before it leaves it.
+        if let Some(row) = st.borrow_mut().code_inserted_row.as_mut() {
+            row.read_before_leave = false;
+            row.factbox = super::state::FactboxStep::Landed;
         }
         Ok(())
     }

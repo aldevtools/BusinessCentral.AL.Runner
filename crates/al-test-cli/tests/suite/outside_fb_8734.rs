@@ -37,15 +37,23 @@ fn issue_8734_probe_cells() {
 
 /// Code just past the cells keeps a refusal: the page's OnAfterGetRecord sets a field of Rec, the part's OnAfterGetRecord
 /// writes another table, a modify of the row through another record before the save, a write of another table before the save,
-/// a page without OnAfterGetCurrRecord, and CurrPage.Update(true) or Update() without a save or Update(true) after it (only
-/// the page without triggers measures Update(true) after the save, ListNewLineExtraCode.al:476).
+/// a page without OnAfterGetCurrRecord, CurrPage.Update(true) or Update() without a save or Update(true) after it (only the
+/// page without triggers measures Update(true) after the save, ListNewLineExtraCode.al:476), Previous() or Next() after
+/// the landing, Previous() or Close() after a SetValue, OnAfterGetCurrRecord setting a field of the new line at New(), and OnAfterGetCurrRecord setting a filter on
+/// Rec in the refresh. The save without an Update after it,
+/// with a row before, runs as the cells :701 and :713 measure it, flagged.
 #[test]
 fn issue_8734_neighbors_are_refused() {
     let o = super::outside_fb_8712::outcomes(NEIGHBORS, "LT NG Tests");
-    assert_eq!(o.len(), 8);
+    assert_eq!(o.len(), 15);
     let ran: Vec<_> = o
         .iter()
-        .filter(|(_, r, _)| !matches!(r, Outcome::NotRun(_)))
+        .filter(|(name, r, marks)| match name.as_str() {
+            "NewLine_SaveRecordWithoutUpdate_RowBefore_ShowsAndSavesTheRow" => {
+                !(*r == Outcome::Pass && marks.contains(&ListNewLineExtraCodeFactbox))
+            }
+            _ => !matches!(r, Outcome::NotRun(_)),
+        })
         .map(|(name, r, _)| format!("{name}: {r:?}"))
         .collect();
     assert!(ran.is_empty(), "{ran:#?}");
