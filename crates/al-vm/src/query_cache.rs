@@ -281,11 +281,11 @@ enum Shape {
 enum Ends<'a> {
     /// The read's own table and these: a group read and its FlowField filters' tables (:823, :1907, :3465, :4259), a CalcSums.
     TableAnd(&'a [Arc<TableDef>]),
-    /// Only these, the tables a CalcFields' formulas read (:6231, :6261): its entry holds through a commit of its row's table,
-    /// of an insert of another row or a change of the row, of a temporary record too (BgTaskCacheEdges.al:428-:446, open corpus
-    /// PR 1558), of a ModifyAll (:639), a DeleteAll (:645) or a Delete of another row (:651), after the test session's
-    /// CalcFields first (:657), and for FieldRef.CalcField of a database RecordRef (:681). A commit of a Truncate of it is not
-    /// measured (`GroupThen::truncates`).
+    /// Only these, the tables a CalcFields' formulas read (:6231, :6261): its entry holds through every commit of its row's
+    /// table, of an insert of another row or a change of the row, of a temporary record too (BgTaskCacheEdges.al:428-:446, open
+    /// corpus PR 1558), of a ModifyAll (:639), a DeleteAll (:645) or a Delete of another row (:651), of a ModifyAll (:915), a
+    /// DeleteAll (:921) or a Delete (:927) of the row itself, of a Truncate of the table (:958), after the test session's
+    /// CalcFields first (:657), and for FieldRef.CalcField of a database RecordRef (:681).
     Sources(&'a [Arc<TableDef>]),
 }
 
@@ -653,8 +653,8 @@ impl Session {
     /// Option or an Enum (the Enum with warning AL0603), each reaching here as itself. An Integer or an Enum that names a table
     /// ends that table's entries and no other table's (another table's number changes nothing, BgTaskQueryCache.al:6744; an
     /// Enum whose value is the cached table's id ends its row entry, BgTaskCacheEdges.al:452, open corpus PR 1558); one that
-    /// names no table ends none (a Char, a Byte, an Option and an Enum of value 0, :687-:705). A Char, a Byte or an Option
-    /// that names a table is refused in a worker: no cell measures one.
+    /// names no table ends none (a Char, a Byte, an Option and an Enum of value 0, :687-:705, and of value 2, :933-:951). A
+    /// Char, a Byte or an Option that names a table is refused in a worker: no cell measures one.
     pub(crate) fn note_select_latest_version_of(&mut self, arg: Option<&Value>) -> Result<(), Signal> {
         let (n, measured) = match arg {
             Some(Value::Integer(n)) => (i64::from(*n), true),
