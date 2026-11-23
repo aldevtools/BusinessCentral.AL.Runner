@@ -1089,10 +1089,18 @@ impl Lowerer<'_> {
                             let sum = f.method == ir::CalcMethod::Sum;
                             if !al_builtins::filter::calc_formula_at_sign_measured(&rt, sum, names_shown) {
                                 use al_builtins::describe::Describe;
+                                let method = match f.method {
+                                    ir::CalcMethod::Sum => "sum",
+                                    ir::CalcMethod::Count => "count",
+                                    ir::CalcMethod::Average => "average",
+                                    ir::CalcMethod::Min => "min",
+                                    ir::CalcMethod::Max => "max",
+                                    ir::CalcMethod::Exist => "exist",
+                                    ir::CalcMethod::Lookup => "lookup",
+                                };
                                 return Err(format!(
-                                    "CalcFormula filter '{inner}' over a {} field with {:?} (not measured)",
-                                    rt.describe(),
-                                    f.method
+                                    "CalcFormula filter '{inner}' over a {} field in a {method} (not measured)",
+                                    rt.describe()
                                 ));
                             }
                         }
