@@ -11,6 +11,10 @@ pub struct OracleFile {
     /// The companies of the oracle's database (ADR-046 decision 2 and amendment 1, A6): the corpus run declares them as
     /// `--companies` does. Absent: one company.
     pub companies: Option<CompaniesValue>,
+    /// Every released BC minor from 27.0 (`"29.1"`), copied by `tools/corpus_bump.sh` from the corpus results manifest
+    /// (ADR-078 point 3); the corpus preprocessor symbols follow from it (`al_version::corpus_symbols`). Absent: the
+    /// pinned corpus records no list, and its CI defines the major symbols only.
+    pub released_minors: Option<Vec<String>>,
     #[serde(rename = "version")]
     pub versions: Vec<VersionEntry>,
 }
@@ -210,8 +214,30 @@ impl OracleFile {
         }
     }
 
+    /// The released minors the corpus symbols are computed from ([`OracleFile::released_minors`]).
+    pub fn released(&self) -> al_version::ReleasedMinors {
+        self.released_minors
+            .as_deref()
+            .map_or(al_version::ReleasedMinors::NotRecorded, |l| {
+                al_version::ReleasedMinors::parse(l).expect("checked by OracleFile::parse")
+            })
+    }
+
+    /// The corpus preprocessor symbols of `version`'s oracle leg (ADR-078 point 3).
+    pub fn leg_symbols(&self, version: &VersionEntry) -> std::collections::BTreeSet<String> {
+        al_version::corpus_symbols(&version.bc(), &self.released())
+    }
+
+    /// The corpus symbols of the oracle leg of each major, by major.
+    pub fn legs_symbols(&self) -> std::collections::BTreeMap<u16, std::collections::BTreeSet<String>> {
+        self.versions.iter().map(|v| (v.major, self.leg_symbols(v))).collect()
+    }
+
     pub fn parse(text: &str) -> Result<OracleFile, String> {
         let f: OracleFile = toml::from_str(text).map_err(|e| e.to_string())?;
+        if let Some(l) = &f.released_minors {
+            al_version::ReleasedMinors::parse(l).map_err(|e| format!("released_minors: {e}"))?;
+        }
         if let Some(c) = &f.companies {
             c.companies()?;
         }
@@ -621,5 +647,25 @@ extra_apps = [
         assert_ne!(with, TOML);
         let (a, b) = (file(), OracleFile::parse(&with).unwrap());
         assert_eq!(format!("{:?}", a.versions), format!("{:?}", b.versions));
+    }
+
+    /// ADR-078 point 3: the bump copies the corpus's list of released minors into `released_minors`; absent, the corpus
+    /// records none. An entry that is not `major.minor` is an error.
+    #[test]
+    fn released_minors_are_read_and_checked() {
+        assert_eq!(file().released(), al_version::ReleasedMinors::NotRecorded);
+        let with = TOML.replace(
+            "corpus_commit = \"abc\"\n",
+            "corpus_commit = \"abc\"\nreleased_minors = [\"29.1\", \"27.0\"]\n",
+        );
+        assert_eq!(
+            OracleFile::parse(&with).unwrap().released(),
+            al_version::ReleasedMinors::List(vec![(27, 0), (29, 1)])
+        );
+        let bad = TOML.replace(
+            "corpus_commit = \"abc\"\n",
+            "corpus_commit = \"abc\"\nreleased_minors = [\"29\"]\n",
+        );
+        assert!(OracleFile::parse(&bad).unwrap_err().starts_with("released_minors:"));
     }
 }
