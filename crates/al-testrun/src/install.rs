@@ -976,15 +976,19 @@ impl InstallView {
         }
     }
 
-    /// (not installed, order unknown) while `installing` installs, with `fixed` an install order the runner chose for some apps of `group` with no dependency
-    /// path between them (ADR-046 amendment 7, `install_orders.rs`): between two apps of `fixed`, the one listed first is
-    /// installed while the other installs.
+    /// (not installed, order unknown) while `installing` installs, with `fixed` an install order the runner chose for some
+    /// apps of `group` with no dependency path between them (ADR-046 amendment 7, `install_orders.rs`) and `reads` the
+    /// edges "x's install reads from y's" the proof counted (`install_proof::Graph::reads`). An app of `fixed` listed
+    /// before `installing` is installed. One listed after it is not installed only when `reads` has the edge
+    /// (`installing`, it): then the proof also runs `installing` with it installed first. Every other one stays of
+    /// unknown order, so a meet with it is noted (ADR-079 decision 3, clarification of 2026-11-23, review round 2).
     pub(crate) fn of_ordered(
         &self,
         installing: u32,
         group: &BTreeSet<u32>,
         held: &BTreeSet<u32>,
         fixed: &[u32],
+        reads: &BTreeSet<(u32, u32)>,
     ) -> (BTreeSet<u32>, BTreeSet<u32>) {
         let mut not_installed = held.clone();
         let mut unknown = BTreeSet::new();
@@ -998,8 +1002,11 @@ impl InstallView {
             } else if let (Some(i), Some(j)) = (at(installing), at(g)) {
                 if j < i {
                     not_installed.remove(&g);
-                } else {
+                } else if reads.contains(&(installing, g)) {
                     not_installed.insert(g);
+                } else {
+                    not_installed.remove(&g);
+                    unknown.insert(g);
                 }
             } else if self.listed_order && g > installing {
                 not_installed.insert(g);
@@ -1025,10 +1032,11 @@ impl InstallView {
 
     /// Sets what the session sees while `installing` installs.
     pub(crate) fn apply(&self, session: &mut Session, installing: u32, group: &BTreeSet<u32>, held: &BTreeSet<u32>) {
-        self.apply_ordered(session, installing, group, held, &[]);
+        self.apply_ordered(session, installing, group, held, &[], &BTreeSet::new());
     }
 
-    /// [`InstallView::apply`] with an install order chosen for the apps of `fixed` ([`InstallView::of_ordered`]).
+    /// [`InstallView::apply`] with an install order chosen for the apps of `fixed` and the edges `reads` the proof
+    /// counted ([`InstallView::of_ordered`]).
     pub(crate) fn apply_ordered(
         &self,
         session: &mut Session,
@@ -1036,8 +1044,9 @@ impl InstallView {
         group: &BTreeSet<u32>,
         held: &BTreeSet<u32>,
         fixed: &[u32],
+        reads: &BTreeSet<(u32, u32)>,
     ) {
-        let (not_installed, unknown) = self.of_ordered(installing, group, held, fixed);
+        let (not_installed, unknown) = self.of_ordered(installing, group, held, fixed, reads);
         session.set_apps_not_installed(Some(not_installed));
         session.set_apps_install_order_unknown(Some(unknown));
         session.set_installing_app(Some(installing));

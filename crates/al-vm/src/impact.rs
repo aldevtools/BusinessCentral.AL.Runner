@@ -51,6 +51,20 @@ pub struct Touches {
 }
 
 impl Touches {
+    /// Adds what `other` noted: the trace of a stretch of code noted apart, as if it had been noted here.
+    pub fn extend(&mut self, other: &Touches) {
+        self.events.extend(other.events.iter().cloned());
+        self.tables.extend(&other.tables);
+        self.writes.extend(&other.writes);
+        self.pages.extend(&other.pages);
+        self.reports.extend(&other.reports);
+        self.enums.extend(&other.enums);
+        self.entered.extend(&other.entered);
+        self.dotnet |= other.dotnet;
+        self.routines.extend(&other.routines);
+        self.indirect_reads.extend(&other.indirect_reads);
+    }
+
     pub fn is_empty(&self) -> bool {
         self.events.is_empty()
             && self.tables.is_empty()
