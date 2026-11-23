@@ -47,7 +47,7 @@ use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_builtins::native::unsupported;
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::Value;
-use al_data::{AccessContext, Store, TableDef};
+use al_data::{AccessContext, Store, TableDef, memory::MemStore};
 use al_version::BulkWrite;
 use std::collections::{HashMap, HashSet};
 use std::rc::{Rc, Weak};
@@ -245,6 +245,23 @@ impl Form {
             Form::Sums => RecordOp::CalcSums,
         }
     }
+}
+
+/// What [`Session::cached_form_of`] checks a read as.
+#[derive(Clone, Copy, PartialEq)]
+enum Shape {
+    /// A Get or a group read: of a database table, its sort fields ascending.
+    Read,
+    /// CalcSums: of a database table (a temporary record's sum reads its own rows), descending too.
+    CalcSums,
+    /// CalcFields: of a temporary record too, descending too.
+    CalcFields,
+}
+
+/// Whether `rec` is temporary: declared so, or over a temporary table.
+fn temporary(rec: &Rec) -> bool {
+    let r = rec.borrow();
+    r.temporary || r.temp_id.is_some()
 }
 
 /// Whether the cells set a group read's filters in filter group `group`: 0, 2 (:1698), 3 and 5 (:2685), 4 (:1704), 6 (:1766), 7
@@ -654,24 +671,26 @@ impl Session {
     /// SecurityFiltering, no SetAutoCalcFields, no LockTable of its table, and (with `all_fields`) no `SetLoadFields` (:2047,
     /// :2083); and whether the program runs page background tasks at all (`query_cache_on`). A row read also sorts ascending.
     fn cached_form(&mut self, rec: &Rec, t: &TableDef, all_fields: bool) -> Result<bool, Signal> {
-        self.cached_form_of(rec, t, all_fields, false)
+        self.cached_form_of(rec, t, all_fields, Shape::Read)
     }
 
-    /// [`Self::cached_form`] for a calculation (`calc`): the fields of its sort may be descending (BgTaskCalcCache.al:482,
-    /// :488), and the record may be temporary, whose FlowFields read the tables in the database (:434; the caller keys it).
-    fn cached_form_of(&mut self, rec: &Rec, t: &TableDef, all_fields: bool, calc: bool) -> Result<bool, Signal> {
+    /// [`Self::cached_form`] for `shape`: a calculation's sort fields may be descending, and it shares its entry with the
+    /// ascending one (BgTaskCalcCache.al:522, :528, :540, :546, open corpus PR 1533); a CalcFields may be of a temporary record
+    /// (`temporary`), whose FlowFields read the database (:474), so the gate reads the database's tables.
+    fn cached_form_of(&mut self, rec: &Rec, t: &TableDef, all_fields: bool, shape: Shape) -> Result<bool, Signal> {
         if !self.query_cache_on() {
             return Ok(false);
         }
+        let temp = temporary(rec);
         let plain = {
             let r = rec.borrow();
-            (calc || (!r.temporary && r.temp_id.is_none()))
+            (!temp || shape == Shape::CalcFields)
                 && !r.crm
                 && r.company.is_none()
                 && !r.change_company_called
                 && r.key == 0
                 && r.adhoc.is_none()
-                && (calc || r.field_descending == 0)
+                && (shape != Shape::Read || r.field_descending == 0)
                 && !r.marked_only
                 && r.read_isolation == 0
                 && r.security_filtering == r.declared_security_filtering
@@ -680,7 +699,16 @@ impl Session {
         };
         // A lock the test session holds on another table (`TxState::lock_tx`) is not the read's: a worker reads outside the
         // test session's transaction (testpage/TestPageBgTaskTx_Tests.al).
-        Ok(plain && !self.tx.open.locked_tables.contains(&t.object) && !self.store_for(rec)?.is_virtual(t))
+        if !plain || self.tx.open.locked_tables.contains(&t.object) {
+            return Ok(false);
+        }
+        Ok(!self.view_store(rec, temp)?.is_virtual(t))
+    }
+
+    /// The store a cached read of `rec` reads: the database's for a temporary record's CalcFields (`database`), else the
+    /// record's own.
+    fn view_store(&mut self, rec: &Rec, database: bool) -> Result<&mut MemStore, Signal> {
+        Ok(if database { &mut self.store } else { self.store_for(rec)? })
     }
 
     /// The one value `f` is set to in filter group 0, by `SetRange(F, V)` or by `SetFilter(F, V)` alike (:1834, :1850).
@@ -844,7 +872,7 @@ impl Session {
             return Ok(fresh);
         }
         let sources = self.flow_field_sources(rec, t);
-        Ok(match self.cached_group(rec, cx, t, values, &sources, answer)? {
+        Ok(match self.cached_group(rec, cx, t, values, &sources, answer, false)? {
             GroupAnswer::Count(n) => n,
             GroupAnswer::Empty(empty) if empty != (fresh == 0) => usize::from(!empty),
             _ => fresh,
@@ -884,7 +912,7 @@ impl Session {
             return Ok(fresh);
         };
         let sources = self.flow_field_sources(rec, t);
-        match self.cached_group(rec, cx, t, values, &sources, GroupAnswer::Row(fresh.clone()))? {
+        match self.cached_group(rec, cx, t, values, &sources, GroupAnswer::Row(fresh.clone()), false)? {
             GroupAnswer::Row(row) => {
                 let at = row
                     .as_ref()
@@ -912,21 +940,14 @@ impl Session {
         let Some(mut values) = self.group_key(rec, t, Form::Sums) else {
             return Ok(fresh);
         };
-        // `>` on a stored field too (BgTaskCalcCache.al:409); a temporary record's sum is not measured.
-        let measured = {
-            let r = rec.borrow();
-            !r.temporary
-                && r.filters.iter().all(|f| {
-                    f.group == 0
-                        && t.fields[f.field].stored
-                        && (values_only(&f.expr) || matches!(f.expr, FilterExpr::Gt(_)))
-                })
-        };
-        if !measured || !self.cached_form_of(rec, t, true, true)? {
+        let measured = rec.borrow().filters.iter().all(|f| {
+            f.group == 0 && t.fields[f.field].stored && (values_only(&f.expr) || matches!(f.expr, FilterExpr::Gt(_)))
+        });
+        if !measured || !self.cached_form_of(rec, t, true, Shape::CalcSums)? {
             return Ok(fresh);
         }
         values.extend(positions.iter().map(|&p| Value::Integer(p as i32)));
-        match self.cached_group(rec, cx, t, values, &[], GroupAnswer::Values(fresh.clone()))? {
+        match self.cached_group(rec, cx, t, values, &[], GroupAnswer::Values(fresh.clone()), false)? {
             GroupAnswer::Values(v) => Ok(v),
             _ => Ok(fresh),
         }
@@ -950,28 +971,23 @@ impl Session {
         let Some(t) = self.engine.tables[table].clone() else {
             return Ok(fresh);
         };
-        if !self.cached_form_of(rec, &t, false, true)? {
+        if !self.cached_form_of(rec, &t, false, Shape::CalcFields)? {
             return Ok(fresh);
         }
         let Some((mut values, sources)) = self.calc_key(rec, &t, positions) else {
             return Ok(fresh);
         };
-        // A temporary record's CalcFields reads the database (BgTaskCalcCache.al:434): its entry is its own, stamped there.
-        let rec = &if rec.borrow().temporary {
+        // A temporary record's CalcFields reads the database (BgTaskCalcCache.al:474): its entry is its own, stamped there.
+        let temp = temporary(rec);
+        if temp {
             values.push(Value::Text("temporary".into()));
-            let mut p = rec.borrow().clone();
-            p.temporary = false;
-            p.temp_id = None;
-            std::rc::Rc::new(std::cell::RefCell::new(p))
-        } else {
-            rec.clone()
-        };
-        let store = self.store_for(rec)?;
+        }
+        let store = self.view_store(rec, temp)?;
         if sources.iter().any(|s| store.is_virtual(s)) {
             return Ok(fresh);
         }
         let cx = self.cx_for(rec, &t)?;
-        match self.cached_group(rec, &cx, &t, values, &sources, GroupAnswer::Values(fresh.clone()))? {
+        match self.cached_group(rec, &cx, &t, values, &sources, GroupAnswer::Values(fresh.clone()), temp)? {
             GroupAnswer::Values(v) => Ok(v),
             _ => Ok(fresh),
         }
@@ -1126,10 +1142,11 @@ impl Session {
         values: Vec<Value>,
         sources: &[Arc<TableDef>],
         fresh: GroupAnswer,
+        database: bool,
     ) -> Result<GroupAnswer, Signal> {
         let at = Self::at(rec, t, values);
         let selects = self.selects_of(t.object);
-        let store = self.store_for(rec)?;
+        let store = self.view_store(rec, database)?;
         let stamps: Vec<Option<u64>> = std::iter::once(t)
             .chain(sources.iter().map(|s| &**s))
             .map(|table| store.committed_stamp(cx, table))
