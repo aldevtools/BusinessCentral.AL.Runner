@@ -1,6 +1,6 @@
 # ADR-079: Install order of partner apps proven by footprints, not by trying every order
 
-- Status: Proposed
+- Status: Accepted (owner, 2026-11-23)
 - Date: 2026-11-23
 - Amends: ADR-046 amendment 7, decision 3 (at most three interacting partner apps, all their orders tried; more refuses).
   Decisions 1, 2 and 4 of amendment 7 and the comparison of amendment 8 item 2 stay. Amendment 8 item 1 (the watched
