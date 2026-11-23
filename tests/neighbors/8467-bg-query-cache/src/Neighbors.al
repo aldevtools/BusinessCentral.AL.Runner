@@ -16,6 +16,7 @@ codeunit 97512 "BQ Neighbor Reader"
         Row: Record "BQ Row";
         Copy: Record "BQ Row";
         BlobRow: Record "BQ Blob Row";
+        MediaRow: Record "BQ Media Row";
         InS: InStream;
         Content: Text;
         Parameters: Dictionary of [Text, Text];
@@ -39,6 +40,13 @@ codeunit 97512 "BQ Neighbor Reader"
                     Row.Get(Group, 1);
                     Row.Get(Group, 2);
                     Seen := Row.Note;
+                end;
+            'mediadesc', 'slvmediadesc':
+                begin
+                    if Parameters.Get('Mode') = 'slvmediadesc' then
+                        Database.SelectLatestVersion();
+                    MediaRow.Get(Group);
+                    Seen := MediaRow.Description;
                 end;
             'blobdesc':
                 begin
@@ -461,6 +469,58 @@ codeunit 97514 "BQ Neighbor Tests 3"
         Commit();
         asserterror Run(Rows, 'blobread', 'NBC1');
         Assert.IsTrue(GetLastErrorText().Contains('is being updated in a transaction done by another session'), GetLastErrorText());
+        Rows.Close();
+    end;
+}
+
+// SelectLatestVersion() without a table in a worker ends the query cache's entry of a row of any table: a Get of a row of BQ
+// Media Row, the test changes it, the worker calls SelectLatestVersion() and gets the row again (a local BC 29.1 container,
+// 3 runs; review of al-runner PR 8808: the overload without a table, DATABASE_SELECTLATESTVERSION_1).
+codeunit 97515 "BQ Neighbor Tests 4"
+{
+    Subtype = Test;
+
+    var
+        Assert: Codeunit Assert;
+        BqMode: Codeunit "BQ Mode";
+
+    local procedure Run(var Rows: TestPage "BQ Rows"; Mode: Text; Group: Code[20]): Text
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Seen: Text;
+    begin
+        Parameters.Add('Group', Group);
+        Parameters.Add('Mode', Mode);
+        Results := Rows.RunPageBackgroundTask(Codeunit::"BQ Neighbor Reader", Parameters, false);
+        Results.Get('Seen', Seen);
+        exit(Seen);
+    end;
+
+    [Test]
+    procedure SelectLatestVersionWithoutATable_OtherTableRow_ReadsTheTable()
+    var
+        Rows: TestPage "BQ Rows";
+        Row: Record "BQ Row";
+        MediaRow: Record "BQ Media Row";
+    begin
+        BqMode.Set('');
+        Row."Group" := 'NBS';
+        Row."Line No." := 1;
+        Row.Description := 'h';
+        Row.Insert();
+        MediaRow."No." := 'NBS1';
+        MediaRow.Description := 'first';
+        MediaRow.Insert();
+        Commit();
+        Rows.OpenView();
+        Rows.Filter.SetFilter("Group", 'NBS');
+        Rows.First();
+        Assert.AreEqual('first', Run(Rows, 'mediadesc', 'NBS1'), 'Get');
+        MediaRow.Get('NBS1');
+        MediaRow.Description := 'second';
+        MediaRow.Modify();
+        Assert.AreEqual('second', Run(Rows, 'slvmediadesc', 'NBS1'), 'Get after SelectLatestVersion()');
         Rows.Close();
     end;
 }
