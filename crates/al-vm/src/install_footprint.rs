@@ -363,7 +363,8 @@ impl crate::Session {
         }
     }
 
-    /// A builtin call while a footprint is recorded (`exec/run.rs` `run_builtin`): one that touches everything marks it.
+    /// A builtin call while a footprint is recorded (`exec/run.rs` `builtin_prologue`, which every builtin path takes): one
+    /// that touches everything marks it.
     pub(crate) fn note_footprint_builtin(&self, id: al_builtins::builtin_id::BuiltinId) {
         let name = id.name();
         let (receiver, method) = name.split_once('.').unwrap_or((name, ""));

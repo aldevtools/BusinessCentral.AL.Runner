@@ -163,6 +163,17 @@ fn a_builtin_that_touches_everything_marks_the_session() {
     assert!(fp.everything.iter().any(|w| w.contains("HttpClient")), "{fp:?}");
 }
 
+/// A builtin whose operands are all values runs on the plain path (`run_plain_builtin`), not through `run_builtin`: it
+/// marks the session all the same (found by the neighbor app `install-order-footprint-everything4`).
+#[test]
+fn a_plain_builtin_that_touches_everything_marks_the_session() {
+    let fp = run_src(
+        "codeunit 50100 Probe { procedure Run() begin if TaskScheduler.CanCreateTask() then; end; }",
+        "Run",
+    );
+    assert!(fp.everything.iter().any(|w| w.contains("TaskScheduler")), "{fp:?}");
+}
+
 const ROW_VERSION_SRC: &str = r#"
 table 50100 "Versioned" { fields { field(1; Id; Integer) { } field(2; Name; Text[20]) { } field(3; MaxVersion; Integer) { FieldClass = FlowField; CalcFormula = count("Versioned" where(SystemRowVersion = filter(>0))); } } keys { key(PK; Id) { } } }
 codeunit 50100 Probe
