@@ -650,6 +650,8 @@ mod page_client_expr;
 mod pages;
 mod request_procs;
 mod routine_lists;
+#[cfg(test)]
+mod setrange_written_tests;
 mod shared;
 mod stmt;
 mod table_no_rec;
