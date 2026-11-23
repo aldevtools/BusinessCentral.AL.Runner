@@ -38,7 +38,8 @@ fn probe_cells_pass_where_measured() {
         // A field in a cuegroup reads as by its name (`cue_field_value_8845.rs`).
         .filter(|(n, ..)| !(n.starts_with("CueCard_") || n.starts_with("CueTypes")))
         .filter(|(n, r, marks)| match n.as_str() {
-            "List_IdsOfNoField" => *r != Outcome::Pass || !marks.is_empty(),
+            // GetField does not find a hidden field (:530, :1126 `hidden`), as main answered every id.
+            "List_IdsOfNoField" | "Card_HiddenControls" => *r != Outcome::Pass || !marks.is_empty(),
             // Compiled without a BC version symbol, the cell expects BC 27's answer (`#else` of BC28PLUS), and the runtime
             // answers as BC 29 does without a target; the neighbor check runs it on each major.
             "Card_ExtensionControl" => !matches!(r, Outcome::Fail(m) if m.contains("Expected:<x1>")) || !marks.is_empty(),

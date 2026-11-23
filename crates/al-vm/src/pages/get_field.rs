@@ -65,6 +65,11 @@ impl Session {
             _ => return not_found(),
         };
         drop(engine);
+        // A hidden field is not found by GetField itself, whatever is called on it (:1126 Visible() and Caption() raise as
+        // Value() does at :530 and :705): Visible = false, in a group with Visible = false, or removed by the application area.
+        if by_id == ById::Field && (self.control_eliminated(st, idx) || self.off_page(st, idx)) {
+            return not_found();
+        }
         assume(Assumption::TestPageGetFieldControlId);
         Ok(test_control_by_id(st.clone(), idx, by_id))
     }

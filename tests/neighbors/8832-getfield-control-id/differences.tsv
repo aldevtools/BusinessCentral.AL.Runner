@@ -5,8 +5,6 @@ Repro GetField Tests::GetFieldByControlId_ReturnsTheControl	ASSUMED testpage-get
 LT GFI Tests::List_GetFieldByControlId_ReadsTheRow	ASSUMED testpage-getfield-control-id (corpus PR 1538 :449)
 LT GFI Tests::OtherList_SameNames_IdsOfTheirOwnPage	ASSUMED testpage-getfield-control-id (corpus PR 1538 :468)
 LT GFI Tests::Card_FieldControls	ASSUMED testpage-getfield-control-id (corpus PR 1538 :503)
-# Main passed it: every id was not found. The head finds the hidden fields by their ids, and their Value is not found then.
-LT GFI Tests::Card_HiddenControls	ASSUMED testpage-getfield-control-id (corpus PR 1538 :530)
 LT GFI Tests::Card_OtherControlKinds	ASSUMED testpage-getfield-control-id (corpus PR 1538 :545, the part's id gives an empty field)
 # BC 27 finds a page extension's field by the extension's id (corpus PR 1538 :589, the BC28PLUS guard's other branch).
 LT GFI Tests::Card_ExtensionControl	ASSUMED testpage-getfield-control-id (corpus PR 1538 :589)	27
