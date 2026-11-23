@@ -372,6 +372,59 @@ fn more_than_three_interacting_partner_apps_are_refused() {
     assert!(matches!(outcome(&rt, "PartnerInstallRan"), Outcome::NotRun(_)));
 }
 
+/// Partner app A2: A's install code under other object ids, marking "A2" (al-runner issue 8056: two apps install
+/// through one event).
+const PA2: &str = r#"
+codeunit 73100 "PA2 Install"
+{
+    Subtype = Install;
+
+    trigger OnInstallAppPerCompany()
+    var
+        T: Codeunit "Loggers";
+        M: Codeunit "Marks";
+    begin
+        T.LogMessage('installed');
+        M.Mark('A2');
+    end;
+}
+"#;
+
+/// Issue 8056: A and A2 each raise an event that B and B2 subscribe to, and the subscribers change `Sender` only.
+/// Four apps meet, more than every order tries (ADR-046 amendment 7); each install reads from B and B2 only, so each
+/// runs once per subset of them and the results agree (ADR-079 decision 3).
+#[test]
+fn two_installs_that_each_meet_two_subscriber_apps_run() {
+    let rt = run(vec![
+        base(),
+        (PA_ID, "Partner A", "Partner", vec![BASE_ID], PA.into()),
+        (PC_ID, "Partner A2", "Partner", vec![BASE_ID], PA2.into()),
+        (PB_ID, "Partner B", "Partner", vec![BASE_ID], registering(74000, "PB")),
+        (PD_ID, "Partner B2", "Partner", vec![BASE_ID], registering(76000, "PD")),
+    ]);
+    assert_eq!(outcome(&rt, "PartnerInstallRan"), Outcome::Pass);
+    let line = rt.phases.baseline_line().unwrap_or_default();
+    assert!(line.contains("ran in 4 orders"), "{line}");
+}
+
+/// Issue 8056 with a subscriber that writes a row: A's install leaves another Order Log with B installed before it
+/// than without, so a test that reads the log is not run, with the apps and the table named.
+#[test]
+fn an_install_whose_subset_runs_leave_different_rows_is_refused_for_that_table() {
+    let rt = run(vec![
+        base(),
+        (PA_ID, "Partner A", "Partner", vec![BASE_ID], PA.into()),
+        (PC_ID, "Partner A2", "Partner", vec![BASE_ID], PA2.into()),
+        (PB_ID, "Partner B", "Partner", vec![BASE_ID], logging(74000, "PB")),
+        (PD_ID, "Partner B2", "Partner", vec![BASE_ID], registering(76000, "PD")),
+    ]);
+    match outcome(&rt, "ReadsTheLog") {
+        Outcome::NotRun(why) => assert!(why.contains("Partner B") && why.contains("Order Log"), "{why}"),
+        other => panic!("expected not run, got {other:?}"),
+    }
+    assert_eq!(outcome(&rt, "PartnerInstallRan"), Outcome::Pass);
+}
+
 /// [`run`] with the partner apps under test too (`al-runner test A B Tests`): the Microsoft base app is a dependency.
 fn run_under_test(partners: Vec<(&str, &str, String)>) -> CorpusRuntime {
     let mut apps = vec![app(BASE_ID, "Base", &[], BASE)];
