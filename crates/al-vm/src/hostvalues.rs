@@ -244,12 +244,7 @@ impl Session {
             }
             ids::DATABASE_SELECTLATESTVERSION_2 => {
                 self.caption_translations.clear();
-                if let Some(Value::Integer(n)) = args.first()
-                    && let Some(t) = self.table_object(i64::from(*n))
-                {
-                    self.note_select_latest_version(Some(t as u32));
-                }
-                Ok(Value::Null)
+                self.note_select_latest_version_of(args.first()).map(|()| Value::Null)
             }
             // corpus types/PSCaptionClass.al:5-8, :58-81 (CaptionClassTranslate_Expressions).
             ids::SYSTEM_CAPTIONCLASSTRANSLATE_1 => match args.first().and_then(al_builtins::native::text_of) {
