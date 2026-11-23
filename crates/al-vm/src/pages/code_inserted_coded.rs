@@ -87,53 +87,136 @@ impl Session {
         Ok(self.coded_code(st).is_some() || self.coded_extra_shape(st)?)
     }
 
-    /// Whether host `st`, whose code is not the probe's or the repro's, has their shape as ListNewLineExtraCodeCodedPage.al
-    /// measures it (`CodedObjects::Extra`): a List page with AutoSplitKey, no page extension and no subscriber, whose triggers
-    /// are among OnOpenPage, OnAfterGetRecord and OnDeleteRecord; a table without OnInsert, OnModify, OnDelete and OnRename
-    /// (`no_record_trigger`); three CardPart FactBoxes, each linked by a SubPageLink of each field of the primary key to
-    /// itself, no SubPageView and no Provider, whose triggers are among OnAfterGetRecord, OnAfterGetCurrRecord and
-    /// OnPageBackgroundTaskCompleted.
+    /// Whether host `st`, whose code is not the probe's or the repro's, has the shape of the pages of
+    /// ListNewLineExtraCodeCodedPage.al's cells (`CodedObjects::Extra`), every fact by equality with them (review of al-runner
+    /// PR 8834, 21:06Z; the repro page :300-409 and the logging page :481-604):
+    /// - the page: a List page with no page extension and no subscriber, that declares only PageType, SourceTable,
+    ///   AutoSplitKey (as true), ApplicationArea and UsageCategory (`pinned_property`: no SourceTableView, so the view is in
+    ///   the primary key), and exactly the triggers OnOpenPage, OnAfterGetRecord and OnDeleteRecord; a table without
+    ///   OnInsert, OnModify, OnDelete and OnRename (`no_record_trigger`);
+    /// - its controls: a repeater without a property; fields of Rec or of a variable with no property but ApplicationArea and
+    ///   Editable as false, and no trigger but OnValidate; actions with no property but ApplicationArea and no trigger but
+    ///   OnAction; three part controls (`coded_extra_parts`).
     fn coded_extra_shape(&self, st: &St) -> Result<bool, Signal> {
         if !(self.is_list_page(st) && self.unextended_unsubscribed(st) && self.no_record_trigger(st)) {
             return Ok(false);
         }
-        let key = self.table(&self.page_rec(st))?.keys[0].clone();
         let engine = self.engine();
         let object = st.borrow().object as usize;
-        let split = engine.program.objects[object]
-            .properties
+        let properties = &engine.program.objects[object].properties;
+        let split = properties
             .iter()
             .any(|(n, v)| n.eq_ignore_ascii_case("AutoSplitKey") && v.trim().eq_ignore_ascii_case("true"));
         let page = page_of(&engine, st);
-        let host_triggers = page
-            .triggers
-            .iter()
-            .all(|(n, _)| ["onopenpage", "onaftergetrecord", "ondeleterecord"].contains(&n.as_str()));
-        let parts = st.borrow().parts.clone();
-        let parts_ok = parts.iter().all(|(idx, part)| {
-            let control = &page.controls[*idx];
-            let link = control.part_link.as_ref().is_some_and(|l| {
-                l.provider.is_none()
-                    && l.view.is_none()
-                    && l.entries.len() == key.len()
-                    && l.entries
-                        .iter()
-                        .zip(&key)
-                        .all(|(e, k)| matches!(e, ir::LinkEntry::Field(pf, hf) if pf == k && hf == k))
-            });
-            let part_object = part.borrow().object as usize;
-            let card_part = engine.object_facts[part_object].page_type == Some(ir::PageType::Other("cardpart".into()));
-            let triggers = page_of(&engine, part).triggers.iter().all(|(n, _)| {
-                [
-                    "onaftergetrecord",
-                    "onaftergetcurrrecord",
-                    "onpagebackgroundtaskcompleted",
-                ]
-                .contains(&n.as_str())
-            });
-            control.factbox && link && card_part && triggers
+        let mut triggers: Vec<&str> = page.triggers.iter().map(|(n, _)| n.as_str()).collect();
+        triggers.sort_unstable();
+        let host_triggers = triggers == ["onaftergetrecord", "ondeleterecord", "onopenpage"];
+        let controls = page.controls.iter().all(|c| {
+            let props = |allowed: &[&str]| {
+                c.props
+                    .iter()
+                    .all(|(k, v)| allowed.contains(&k.as_str()) && Self::plain_prop(k, v))
+            };
+            let triggers = |allowed: &str| c.triggers.iter().all(|(n, _)| n == allowed);
+            let own =
+                c.owner.is_none() && c.ext_triggers.is_empty() && c.run_object.is_none() && c.action_ref.is_none();
+            own && match c.kind {
+                ir::ControlKind::Repeater => c.props.is_empty() && c.triggers.is_empty(),
+                ir::ControlKind::Field => {
+                    matches!(c.binding, ir::Binding::Field(_) | ir::Binding::Var(_))
+                        && props(&["applicationarea", "editable"])
+                        && triggers("onvalidate")
+                }
+                ir::ControlKind::Action => props(&["applicationarea"]) && triggers("onaction"),
+                ir::ControlKind::Part => c.triggers.is_empty(),
+                _ => false,
+            }
         });
-        Ok(split && host_triggers && parts_ok)
+        let pinned = properties.iter().all(super::code_inserted_new_line::pinned_property);
+        drop(engine);
+        Ok(split && pinned && host_triggers && controls && self.coded_extra_parts(st)?)
+    }
+
+    /// Whether `value` of property `name` of a control is as the cells write it: ApplicationArea and a SubPageLink as written,
+    /// Editable only as the literal false (the Kind column, ListNewLineExtraCodeCodedPage.al:329).
+    fn plain_prop(name: &str, value: &ir::PropVal) -> bool {
+        match name {
+            "editable" => matches!(value, ir::PropVal::Lit(v) if v.trim().eq_ignore_ascii_case("false")),
+            _ => matches!(value, ir::PropVal::Lit(_)),
+        }
+    }
+
+    /// Whether the three parts of host `st` are the cells' three FactBoxes in their order (ListNewLineExtraCodeCodedPage.al
+    /// :207-298, :411-479): each part control in the FactBoxes area with no property but ApplicationArea and a SubPageLink
+    /// that links each field of the primary key to itself (`Session::part_linked_on_key`); each part a CardPart that declares
+    /// only PageType and SourceTable, whose controls are fields with no property but ApplicationArea and no trigger, and
+    /// actions with no property but ApplicationArea and no trigger but OnAction; the first part's only trigger
+    /// OnAfterGetRecord, the second none, the third OnAfterGetCurrRecord, which enqueues a page background task, and
+    /// OnPageBackgroundTaskCompleted.
+    fn coded_extra_parts(&self, st: &St) -> Result<bool, Signal> {
+        let key = self.table(&self.page_rec(st))?.keys[0].clone();
+        let parts = st.borrow().parts.clone();
+        let engine = self.engine();
+        let page = page_of(&engine, st);
+        let wanted: [&[&str]; 3] = [
+            &["onaftergetrecord"],
+            &[],
+            &["onaftergetcurrrecord", "onpagebackgroundtaskcompleted"],
+        ];
+        if parts.len() != wanted.len() {
+            return Ok(false);
+        }
+        for ((idx, part), want) in parts.iter().zip(wanted) {
+            let control = &page.controls[*idx];
+            let control_ok = Self::part_linked_on_key(control, &key)
+                && control
+                    .props
+                    .iter()
+                    .all(|(k, v)| matches!(k.as_str(), "applicationarea" | "subpagelink") && Self::plain_prop(k, v));
+            let part_object = part.borrow().object as usize;
+            let part_page = page_of(&engine, part);
+            let mut names: Vec<&str> = part_page.triggers.iter().map(|(n, _)| n.as_str()).collect();
+            names.sort_unstable();
+            let part_controls = part_page.controls.iter().all(|c| {
+                let props = c
+                    .props
+                    .iter()
+                    .all(|(k, v)| k == "applicationarea" && Self::plain_prop(k, v));
+                let own =
+                    c.owner.is_none() && c.ext_triggers.is_empty() && c.run_object.is_none() && c.action_ref.is_none();
+                own && props
+                    && match c.kind {
+                        ir::ControlKind::Field => {
+                            matches!(c.binding, ir::Binding::Field(_) | ir::Binding::Var(_)) && c.triggers.is_empty()
+                        }
+                        ir::ControlKind::Action => c.triggers.iter().all(|(n, _)| n == "onaction"),
+                        _ => false,
+                    }
+            });
+            let properties = engine.program.objects[part_object]
+                .properties
+                .iter()
+                .all(|(k, _)| matches!(k.to_ascii_lowercase().as_str(), "pagetype" | "sourcetable"));
+            let enqueues = !want.contains(&"onaftergetcurrrecord")
+                || part_page
+                    .triggers
+                    .iter()
+                    .find(|(n, _)| n == "onaftergetcurrrecord")
+                    .is_some_and(|&(_, r)| {
+                        super::pinned_body::routine_text(&engine.program, part_object, r, &mut Vec::new())
+                            .is_some_and(|text| text.contains("CurrPage.EnqueueBackgroundTask("))
+                    });
+            if !(control_ok
+                && Self::is_card_part(&engine, part_object)
+                && properties
+                && part_controls
+                && names == want
+                && enqueues)
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     /// Whether part `part` of host `st` shows its rows as the probe's parts do: over the host's table, stored, not marked,

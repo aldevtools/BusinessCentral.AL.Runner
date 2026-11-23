@@ -131,7 +131,7 @@ const ROW_TRIGGERS: [&str; 5] = [
 
 /// A page property the pinned pages declare: PageType, SourceTable, AutoSplitKey as true, ApplicationArea and UsageCategory
 /// (:105-109, :169-172, :251-255, :347-351).
-fn pinned_property((name, value): &(String, String)) -> bool {
+pub(super) fn pinned_property((name, value): &(String, String)) -> bool {
     match name.to_ascii_lowercase().as_str() {
         "autosplitkey" => value.trim().eq_ignore_ascii_case("true"),
         "pagetype" | "sourcetable" | "applicationarea" | "usagecategory" => true,
@@ -140,6 +140,27 @@ fn pinned_property((name, value): &(String, String)) -> bool {
 }
 
 impl Session {
+    /// Whether part control `control` is a FactBox linked by a SubPageLink of `field(..)` entries that link each field of
+    /// primary key `key` to itself, in key order, with no SubPageView and no Provider (the measured FactBoxes:
+    /// ListNewLineCodeInsertUpdate.al:282, ListNewLineSaveRecordUpdate.al:242, ListNewLineExtraCodeCodedPage.al:337).
+    pub(super) fn part_linked_on_key(control: &ir::Control, key: &[usize]) -> bool {
+        control.factbox
+            && control.part_link.as_ref().is_some_and(|l| {
+                l.provider.is_none()
+                    && l.view.is_none()
+                    && l.entries.len() == key.len()
+                    && l.entries
+                        .iter()
+                        .zip(key)
+                        .all(|(e, k)| matches!(e, ir::LinkEntry::Field(pf, hf) if pf == k && hf == k))
+            })
+    }
+
+    /// Whether page object `object` is a CardPart.
+    pub(super) fn is_card_part(engine: &crate::Engine, object: usize) -> bool {
+        engine.object_facts[object].page_type == Some(ir::PageType::Other("cardpart".into()))
+    }
+
     /// The open of the host of ListNewLineCodeInsertUpdate.al:249-299 (page 97036), every fact by equality: a List page
     /// (:251) over a stored table, unextended and unsubscribed, that declares only the pinned properties with AutoSplitKey
     /// (:251-255, `pinned_property`), whose only trigger is OnAfterGetRecord (:292-295), with exactly two part controls
@@ -177,24 +198,12 @@ impl Session {
             .filter(|c| c.kind == ir::ControlKind::Part)
             .collect();
         let parts = st.borrow().parts.clone();
-        let linked = |c: &ir::Control| {
-            c.factbox
-                && c.part_link.as_ref().is_some_and(|l| {
-                    l.provider.is_none()
-                        && l.view.is_none()
-                        && l.entries.len() == 2
-                        && l.entries
-                            .iter()
-                            .zip(key.iter())
-                            .all(|(e, k)| matches!(e, ir::LinkEntry::Field(pf, hf) if *pf == *k && *hf == *k))
-                })
-        };
         let card_parts = parts.len() == 2
             && parts.iter().all(|(idx, part)| {
                 engine.object_facts[part.borrow().object as usize].page_type_lower() == "cardpart"
                     && self.has_source(part)
                     && self.page_rec(part).borrow().table == host_rec.borrow().table
-                    && linked(&page.controls[*idx])
+                    && Self::part_linked_on_key(&page.controls[*idx], key)
             });
         if part_controls.len() == 2 && card_parts {
             return Err(Signal::unsupported(
@@ -392,21 +401,12 @@ impl Session {
         let part_object = part.borrow().object as usize;
         let (host_page, part_page) = (page_of(&engine, st), page_of(&engine, part));
         let control = &host_page.controls[*idx];
-        let link = control.part_link.as_ref().is_some_and(|l| {
-            l.provider.is_none()
-                && l.view.is_none()
-                && l.entries.len() == key.len()
-                && l.entries
-                    .iter()
-                    .zip(&key)
-                    .all(|(e, k)| matches!(e, ir::LinkEntry::Field(pf, hf) if pf == k && hf == k))
-        });
-        let part_control = control.factbox
-            && control
-                .props
-                .iter()
-                .all(|(k, _)| k == "applicationarea" || k == "subpagelink");
-        let card_part = engine.object_facts[part_object].page_type == Some(ir::PageType::Other("cardpart".into()));
+        let link = Self::part_linked_on_key(control, &key);
+        let part_control = control
+            .props
+            .iter()
+            .all(|(k, _)| k == "applicationarea" || k == "subpagelink");
+        let card_part = Self::is_card_part(&engine, part_object);
         let part_properties = engine.program.objects[part_object].properties.iter().all(|(k, _)| {
             matches!(
                 k.to_ascii_lowercase().as_str(),
