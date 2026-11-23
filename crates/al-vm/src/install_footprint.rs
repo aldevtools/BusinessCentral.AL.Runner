@@ -15,8 +15,8 @@
 //!
 //! - the row version read by the SystemRowVersion field: the routines the session ran (`install_footprint_row_version.rs`).
 //!
-//! Not yet recorded, so no verdict may rest on a footprint until it counts as a conflict (ADR-079 migration step 1):
-//! a write the recorder missed (the safety-net diff of the stores).
+//! A write the recorder missed counts as touching everything: at the end the stores are compared with what they held at
+//! the start, and every change must be a recorded write (`footprint_check`).
 
 use al_data::memory::{Resource, StoreFootprint};
 use std::collections::BTreeSet;
@@ -226,9 +226,83 @@ fn builtin_touches_everything(receiver: &str, method: &str) -> bool {
 }
 
 /// The recording in progress (`CoverageState::install_footprint`).
-#[derive(Debug, Default)]
 pub(crate) struct Recording {
     fp: InstallFootprint,
+    before: Before,
+}
+
+/// What the lasting stores held when the recording started, for the safety net of [`Session::install_footprint_take`]:
+/// a change the recorder did not note touches everything.
+struct Before {
+    store: al_data::memory::MemStore,
+    autoinc: std::collections::HashMap<(String, u32), i64>,
+    isolated_storage: std::collections::HashMap<(String, String), (String, bool, bool)>,
+    sequences: std::collections::HashMap<(String, String), crate::sessionops::Sequence>,
+    company_unknown: std::collections::HashMap<(String, u32), String>,
+    full_copies: BTreeSet<String>,
+}
+
+impl crate::Session {
+    fn footprint_before(&self) -> Before {
+        Before {
+            store: self.store.clone(),
+            autoinc: self.autoinc.clone(),
+            isolated_storage: self.isolated_storage.clone(),
+            sequences: self.sequences.clone(),
+            company_unknown: self.company_unknown.clone(),
+            full_copies: self.full_copies.clone(),
+        }
+    }
+
+    /// The safety net: every change of the lasting stores since `b` must be a recorded write of `fp`, else `fp` touches
+    /// everything. The write set stays what the sites noted (a write back to the start value shows no change here).
+    fn footprint_check(&self, b: &Before, fp: &mut InstallFootprint) {
+        let store_writes: BTreeSet<Resource> = (fp.writes.iter())
+            .filter_map(|w| match w {
+                Lasting::Store(r) => Some(r.clone()),
+                _ => None,
+            })
+            .collect();
+        if self.store.has_uncommitted() {
+            fp.everything
+                .insert("writes not committed at the end of the install session".into());
+        } else if let Err(why) = self.store.unrecorded_writes(&b.store, &store_writes) {
+            fp.everything.insert(why.into());
+        }
+        fn changed<K: Eq + std::hash::Hash + Clone, V: PartialEq>(
+            a: &std::collections::HashMap<K, V>,
+            b: &std::collections::HashMap<K, V>,
+        ) -> Vec<K> {
+            let gone = b.keys().filter(|k| !a.contains_key(*k));
+            (a.iter())
+                .filter(|(k, v)| b.get(*k) != Some(*v))
+                .map(|(k, _)| k)
+                .chain(gone)
+                .cloned()
+                .collect()
+        }
+        let mut unnoted = changed(&self.autoinc, &b.autoinc)
+            .into_iter()
+            .map(|(c, t)| Lasting::AutoIncrement(c, t))
+            .chain(
+                changed(&self.isolated_storage, &b.isolated_storage)
+                    .into_iter()
+                    .map(|(a, k)| Lasting::IsolatedStorage(a, k)),
+            )
+            .chain(
+                changed(&self.sequences, &b.sequences)
+                    .into_iter()
+                    .map(|(c, n)| Lasting::Sequence(c, n)),
+            )
+            .filter(|l| !fp.writes.contains(l));
+        if unnoted.next().is_some() {
+            fp.everything
+                .insert("a counter, sequence or storage key changed that no recorded write names".into());
+        }
+        if self.company_unknown != b.company_unknown || self.full_copies != b.full_copies {
+            fp.everything.insert("the companies changed".into());
+        }
+    }
 }
 
 impl crate::Session {
@@ -241,8 +315,9 @@ impl crate::Session {
         } else {
             self.enable_impact_trace();
         }
+        let before = self.footprint_before();
         self.store.footprint_start();
-        *self.coverage.install_footprint.borrow_mut() = Some(Box::new(Recording { fp }));
+        *self.coverage.install_footprint.borrow_mut() = Some(Box::new(Recording { fp, before }));
         self.coverage.footprint_on = true;
     }
 
@@ -254,6 +329,7 @@ impl crate::Session {
         if let Some(s) = self.store.footprint_take() {
             fp.add_store(s, &self.engine);
         }
+        self.footprint_check(&rec.before, &mut fp);
         if !fp.everything.contains("the impact trace was already on") {
             let t = self.take_impact_trace();
             self.disable_impact_trace();

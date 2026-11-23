@@ -260,3 +260,27 @@ fn a_read_of_another_served_table_touches_everything() {
     let fp = run_src(SERVED_SRC, "OtherServed");
     assert!(fp.touches_everything() && !fp.apps_all, "{fp:?}");
 }
+
+#[test]
+fn a_change_the_recorder_did_not_note_touches_everything() {
+    let l = al_testkit::compile(SRC);
+    let engine = Engine::new(l.program.clone(), al_testkit::blocked(&l));
+    let mut s = Session::new(engine);
+    // Unrecorded: changes made behind the recorder's back stand in for a site that forgot its note.
+    s.install_footprint_start();
+    s.isolated_storage
+        .insert(("scope".into(), "K".into()), ("v".into(), false, false));
+    s.autoinc.insert((String::new(), 7), 3);
+    let fp = s.install_footprint_take().unwrap();
+    assert!(fp.touches_everything(), "{fp:?}");
+    // A recorded change passes the net.
+    let probe = (s.engine.program.objects.iter())
+        .position(|o| o.name == "Probe")
+        .unwrap();
+    let routine = (s.engine.program.objects[probe].routines.iter()).position(|r| r.name == "StorageSet");
+    s.install_footprint_start();
+    let inst = s.codeunit_instance(probe);
+    s.call(probe, routine.unwrap_or(0), inst, vec![]).unwrap();
+    let fp = s.install_footprint_take().unwrap();
+    assert!(!fp.touches_everything(), "{fp:?}");
+}

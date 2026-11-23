@@ -287,3 +287,29 @@ fn a_snapshot_put_back_keeps_the_recording() {
     s.restore(snap);
     assert!(take(&mut s).reads.contains(&whole()));
 }
+
+#[test]
+fn the_safety_net_finds_a_committed_row_change_no_write_covers() {
+    let mut before = MemStore::default();
+    before.insert(&cx("C"), &table(), row("B", 1, 1)).unwrap();
+    before.commit();
+    let mut after = before.clone();
+    after.modify(&cx("C"), &table(), row("B", 2, 1)).unwrap();
+    after.insert(&cx("C"), &table(), row("D", 1, 1)).unwrap();
+    after.commit();
+    let key = |k: &str| after.footprint_key(&[row(k, 1, 1)[0].clone()]);
+    let object = table().object;
+    let row_of = |k: &str| Resource::Row("C".into(), object, key(k));
+    // Nothing recorded: both rows are unrecorded writes.
+    assert!(after.unrecorded_writes(&before, &Default::default()).is_err());
+    // One row recorded: the other is still found.
+    let one = [row_of("B")].into_iter().collect();
+    assert!(after.unrecorded_writes(&before, &one).is_err());
+    // Both rows recorded, or the table written whole: nothing is left.
+    let both = [row_of("B"), row_of("D")].into_iter().collect();
+    assert_eq!(after.unrecorded_writes(&before, &both), Ok(()));
+    let all = [whole()].into_iter().collect();
+    assert_eq!(after.unrecorded_writes(&before, &all), Ok(()));
+    // No change: nothing to cover.
+    assert_eq!(before.unrecorded_writes(&before.clone(), &Default::default()), Ok(()));
+}
