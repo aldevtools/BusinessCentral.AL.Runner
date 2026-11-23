@@ -225,3 +225,83 @@ codeunit 50273 "NR T14"
         L.AreEqual('1/bm/s0/e0', L.ParRow(1));
     end;
 }
+
+codeunit 50274 "NR T15"
+{
+    Subtype = Test;
+
+    // The const filter is on a Code field.
+    [Test]
+    procedure ViewConst_CodeField()
+    var
+        L: Codeunit "NR Lib";
+    begin
+        L.Wipe();
+        L.Run(50224, '<Root><Suite Code="A"><Evaluator Name="e0"/></Suite></Root>');
+        L.AreEqual('A/0/e0;', L.EvalRows());
+    end;
+}
+
+codeunit 50275 "NR T16"
+{
+    Subtype = Test;
+
+    // OnPreXmlPort runs ClearAll.
+    [Test]
+    procedure ViewConst_ClearAll()
+    var
+        L: Codeunit "NR Lib";
+    begin
+        L.Wipe();
+        L.Run(50225, '<Root><Suite Code="A"><Evaluator Name="e0"/></Suite></Root>');
+        L.AreEqual('A/0/e0;', L.EvalRows());
+    end;
+}
+
+codeunit 50276 "NR T17"
+{
+    Subtype = Test;
+
+    // AutoReplace on the suite element.
+    [Test]
+    procedure ViewConst_ParentAutoReplace()
+    var
+        L: Codeunit "NR Lib";
+    begin
+        L.Wipe();
+        L.Run(50226, '<Root><Suite Code="A"><Evaluator Name="e0"/></Suite></Root>');
+        L.AreEqual('A/0/e0;', L.EvalRows());
+    end;
+}
+
+codeunit 50277 "NR T18"
+{
+    Subtype = Test;
+
+    // UseTemporary on the suite element: the suite row stays in the temporary table.
+    [Test]
+    procedure ViewConst_ParentTemporary()
+    var
+        L: Codeunit "NR Lib";
+    begin
+        L.Wipe();
+        L.Run(50227, '<Root><Suite Code="A"><Evaluator Name="e0"/></Suite></Root>');
+        L.AreEqual('A/0/e0;', L.EvalRows());
+    end;
+}
+
+codeunit 50278 "NR T19"
+{
+    Subtype = Test;
+
+    // Stored again after its child rows; a text element holding a field attribute beside the triggered key.
+    [Test]
+    procedure Again_TextContainerChild()
+    var
+        L: Codeunit "NR Lib";
+    begin
+        L.Wipe();
+        L.Run(50228, '<Root><P><Id>3</Id><Info Name="nm"/><C><CId>11</CId></C></P></Root>');
+        L.AreEqual('3/nm/st/', L.ParRow(3));
+    end;
+}

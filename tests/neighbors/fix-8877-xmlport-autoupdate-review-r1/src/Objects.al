@@ -53,6 +53,7 @@ table 50203 "NR Eval"
         field(2; LineNo; Integer) { }
         field(3; Name; Text[30]) { }
         field(4; Kind; Integer) { }
+        field(5; Tag; Code[10]) { }
     }
 
     keys { key(PK; SuiteCode, LineNo, Name) { Clustered = true; } }
@@ -598,6 +599,179 @@ xmlport 50223 "NR UpdInitBmRestore"
                     Par.Extra := 'e0';
                     Par.Name := 'bm';
                 end;
+            }
+        }
+    }
+}
+
+// ViewConst_CodeField: the const filter is on a Code field (blank, as the field starts).
+xmlport 50224 "NR ViewCodeField"
+{
+    Direction = Import;
+    Format = Xml;
+    Encoding = UTF8;
+    UseRequestPage = false;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Suite; "NR Suite")
+            {
+                XmlName = 'Suite';
+
+                fieldattribute(Code; Suite.Code) { Occurrence = Required; }
+                tableelement(SuiteEval; "NR Eval")
+                {
+                    LinkTable = Suite;
+                    LinkFields = SuiteCode = field(Code);
+                    MinOccurs = Zero;
+                    XmlName = 'Evaluator';
+                    SourceTableView = where(Tag = const(''));
+                    fieldattribute(Name; SuiteEval.Name) { Occurrence = Required; }
+                }
+            }
+        }
+    }
+}
+
+// ViewConst_ClearAll: OnPreXmlPort runs ClearAll, which clears the element's record too.
+xmlport 50225 "NR ViewClearAll"
+{
+    Direction = Import;
+    Format = Xml;
+    Encoding = UTF8;
+    UseRequestPage = false;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Suite; "NR Suite")
+            {
+                XmlName = 'Suite';
+
+                fieldattribute(Code; Suite.Code) { Occurrence = Required; }
+                tableelement(SuiteEval; "NR Eval")
+                {
+                    LinkTable = Suite;
+                    LinkFields = SuiteCode = field(Code);
+                    MinOccurs = Zero;
+                    XmlName = 'Evaluator';
+                    SourceTableView = where(LineNo = const(0));
+                    fieldattribute(Name; SuiteEval.Name) { Occurrence = Required; }
+                }
+            }
+        }
+    }
+
+    trigger OnPreXmlPort()
+    begin
+        ClearAll();
+    end;
+}
+
+// ViewConst_ParentAutoReplace: AutoReplace on the suite element.
+xmlport 50226 "NR ViewParentReplace"
+{
+    Direction = Import;
+    Format = Xml;
+    Encoding = UTF8;
+    UseRequestPage = false;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Suite; "NR Suite")
+            {
+                XmlName = 'Suite';
+                AutoReplace = true;
+
+                fieldattribute(Code; Suite.Code) { Occurrence = Required; }
+                tableelement(SuiteEval; "NR Eval")
+                {
+                    LinkTable = Suite;
+                    LinkFields = SuiteCode = field(Code);
+                    MinOccurs = Zero;
+                    XmlName = 'Evaluator';
+                    SourceTableView = where(LineNo = const(0));
+                    fieldattribute(Name; SuiteEval.Name) { Occurrence = Required; }
+                }
+            }
+        }
+    }
+}
+
+// ViewConst_ParentTemporary: UseTemporary on the suite element.
+xmlport 50227 "NR ViewParentTemp"
+{
+    Direction = Import;
+    Format = Xml;
+    Encoding = UTF8;
+    UseRequestPage = false;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Suite; "NR Suite")
+            {
+                XmlName = 'Suite';
+                UseTemporary = true;
+
+                fieldattribute(Code; Suite.Code) { Occurrence = Required; }
+                tableelement(SuiteEval; "NR Eval")
+                {
+                    LinkTable = Suite;
+                    LinkFields = SuiteCode = field(Code);
+                    MinOccurs = Zero;
+                    XmlName = 'Evaluator';
+                    SourceTableView = where(LineNo = const(0));
+                    fieldattribute(Name; SuiteEval.Name) { Occurrence = Required; }
+                }
+            }
+        }
+    }
+}
+
+// Again_TextContainerChild: stored again after its child rows; the key field element's trigger assigns a field, and a text
+// element holding a field attribute stands beside it.
+xmlport 50228 "NR AgainTextContainer"
+{
+    Direction = Import;
+    Format = Xml;
+    Encoding = UTF8;
+    UseRequestPage = false;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Par; "NR Par")
+            {
+                XmlName = 'P';
+
+                fieldelement(Id; Par.Id)
+                {
+                    trigger OnAfterAssignField()
+                    begin
+                        Par.Stamp := 'st';
+                    end;
+                }
+                textelement(Info)
+                {
+                    fieldattribute(Name; Par.Name) { }
+                }
+                tableelement(Chi; "NR Chi")
+                {
+                    XmlName = 'C';
+                    LinkTable = Par;
+                    LinkFields = ParentId = field(Id);
+                    MinOccurs = Zero;
+
+                    fieldelement(CId; Chi.Id) { }
+                }
             }
         }
     }

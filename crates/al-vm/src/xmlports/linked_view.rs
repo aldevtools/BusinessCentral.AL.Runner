@@ -203,8 +203,8 @@ fn trigger_only_skips(schema: &Schema, r: usize) -> bool {
 }
 
 /// Whether a routine of the port (a trigger of any node, of the port, or a procedure) names global `slot`: reads, writes or
-/// passes it, or clears every global (`ClearAll`). The runner does not put the view's filter on the record, which the
-/// cell does not measure, so no code of the port may look at the record.
+/// passes it. The runner does not put the view's filter on the record, which the cell does not measure, so no code of the
+/// port may look at the record. (`ClearAll` in an xmlport is refused before the run.)
 fn port_names_global(schema: &Schema, slot: usize) -> bool {
     schema.engine.program.objects[schema.object]
         .routines
@@ -247,11 +247,7 @@ fn expr_names_global(e: &ir::Expr, slot: usize) -> bool {
     match e {
         Expr::Load(p) => root_global(p) == Some(slot),
         Expr::Call { args, .. } | Expr::InterfaceCall { args, .. } | Expr::DotNet { args, .. } => args.iter().any(arg),
-        Expr::Builtin { id, receiver, args, .. } => {
-            (*id == ids::SYSTEM_CLEARALL_1 && receiver.is_none())
-                || receiver.as_deref().is_some_and(arg)
-                || args.iter().any(arg)
-        }
+        Expr::Builtin { receiver, args, .. } => receiver.as_deref().is_some_and(arg) || args.iter().any(arg),
         Expr::Const(_)
         | Expr::Unary(..)
         | Expr::Binary(..)

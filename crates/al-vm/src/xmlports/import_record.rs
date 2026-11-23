@@ -621,16 +621,14 @@ impl Session {
         // 1550, XpAutoUpdateAssign.al KeyTrig_Existing_NameCarried, _NameAbsent, FieldTrig_Existing, TextTrig_Existing,
         // InitTrig_Existing_NameCarried, _NameAbsent: what the triggers assign to a field the document does not carry is
         // dropped). Assumption `xmlport-autoupdate-assign-triggers` until the probe is pinned.
-        let merged = if modify
-            && (has_assign_trigger || init_differs)
-            && autoupdate_assigned(schema, node, again, temporary)
-        {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportAutoupdateAssignTriggers);
-            self.xp_take_stored_row(&rec, &pk, assigned)?;
-            Some(rec.borrow().fields.clone())
-        } else {
-            None
-        };
+        let merged =
+            if modify && (has_assign_trigger || init_differs) && autoupdate_assigned(schema, node, again, temporary) {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportAutoupdateAssignTriggers);
+                self.xp_take_stored_row(&rec, &pk, assigned)?;
+                Some(rec.borrow().fields.clone())
+            } else {
+                None
+            };
         // Skip and BreakUnbound leave this record out (no insert, no after trigger), Break leaves it out and ends the import
         // (P112_Import_Skip, _Break, _BreakUnbound at beforeIns2).
         match self.xp_site(inst, schema, node, before)? {
@@ -735,22 +733,24 @@ const LINKED_VIEW_FLOW: &str = "XmlPort import of a linked table element whose S
 
 /// The save of `xp_save_record` in which triggers that assign fields of the row may run: a table element right below the
 /// root text element, AutoSave without AutoUpdate or AutoReplace, a real table, stored before its linked child rows and
-/// stored again after them (`again`), whose triggers that assign fields sit only on its field attributes, text attributes
-/// and field elements without nodes below them. Measured with an OnAfterAssignField of the key attribute and an
+/// stored again after them (`again`), whose children are field attributes, text attributes, table elements and field
+/// elements of its own without nodes below them. Measured with an OnAfterAssignField of the key attribute and an
 /// OnAfterAssignVariable of a text attribute, child and grandchild rows (corpus PR 1550, XpAutoUpdateAssign.al Suite_Fresh),
 /// and with an OnAfterAssignField of the key field element (same file, Again_FieldElementTrigger); assumption
 /// `xmlport-stored-again-assign-triggers` until the probe is pinned.
 fn stored_again_assigned(schema: &Schema, node: usize, again: bool, temporary: bool) -> bool {
     let n = schema.node(node);
-    let measured_sites = schema.children(node).iter().all(|&c| {
+    // The children the import reads a field trigger's Skip, Break or BreakUnbound from (`first_stored`), and table elements.
+    let measured_children = schema.children(node).iter().all(|&c| {
         let cn = schema.node(c);
-        !assign_trigger(cn)
-            || matches!(cn.kind, ir::XmlNodeKind::FieldAttr | ir::XmlNodeKind::TextAttr)
-            || (cn.kind == ir::XmlNodeKind::Field && schema.children(c).is_empty())
+        matches!(
+            cn.kind,
+            ir::XmlNodeKind::FieldAttr | ir::XmlNodeKind::TextAttr | ir::XmlNodeKind::Table
+        ) || (cn.kind == ir::XmlNodeKind::Field && schema.children(c).is_empty())
     });
     again
         && below_root(schema, node)
-        && measured_sites
+        && measured_children
         && n.auto_save
         && !n.auto_update
         && !n.auto_replace
@@ -768,8 +768,7 @@ fn autoupdate_assigned(schema: &Schema, node: usize, again: bool, temporary: boo
     let n = schema.node(node);
     let leaf_elements = schema.children(node).iter().all(|&c| {
         let cn = schema.node(c);
-        schema.children(c).is_empty()
-            && ((cn.kind == ir::XmlNodeKind::Field && cn.table_node == Some(node)) || cn.kind == ir::XmlNodeKind::Text)
+        schema.children(c).is_empty() && matches!(cn.kind, ir::XmlNodeKind::Field | ir::XmlNodeKind::Text)
     });
     schema.xp().format == ir::XmlFormat::Xml
         && leaf_elements
