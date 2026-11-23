@@ -453,7 +453,13 @@ impl CellPage {
             CellPage::Both | CellPage::Curr | CellPage::Card | CellPage::EditCard => {
                 Assumption::ValidateUpdateFalseRereadsRow
             }
-            _ => Assumption::TreeValidateViewRefresh,
+            CellPage::TreeIssue
+            | CellPage::Tree
+            | CellPage::TreeBoth
+            | CellPage::TreeCurr
+            | CellPage::TreeCollapsed
+            | CellPage::TreeDrop
+            | CellPage::TreeLines => Assumption::TreeValidateViewRefresh,
         }
     }
 
