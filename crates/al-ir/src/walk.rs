@@ -884,6 +884,7 @@ fn walk_part_link<V: RefVisitor>(l: &mut PartLink, target: TableOf, host: TableO
         provider: _,
         consts: _,
         enum_values: _,
+        not_blank: _,
     } = l;
     for e in entries {
         match e {
@@ -930,6 +931,7 @@ fn walk_control<V: RefVisitor>(
         visible_row_field: _,
         source_text: _,
         factbox: _,
+        fixed_or_grid: _,
     } = c;
     for (table, field) in [var_field, array_element_field].into_iter().flatten() {
         fld(v, field, TableOf::object(Some(*table)));

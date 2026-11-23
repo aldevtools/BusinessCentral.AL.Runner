@@ -59,7 +59,20 @@ pub(crate) fn control_of(handle: &ControlHandle) -> &Rc<ControlRef> {
 
 /// A `Value::TestControl` for `target` on `page`.
 pub(crate) fn test_control(page: Rc<RefCell<PageState>>, target: ControlTarget) -> Value {
-    Value::TestControl(ControlHandle::new(Rc::new(ControlRef { page, target })))
+    Value::TestControl(ControlHandle::new(Rc::new(ControlRef {
+        page,
+        target,
+        by_id: None,
+    })))
+}
+
+/// The `Value::TestControl` `TestPage.GetField` gives for control `idx` of `page` (`get_field.rs`).
+pub(crate) fn test_control_by_id(page: Rc<RefCell<PageState>>, idx: usize, by_id: ById) -> Value {
+    Value::TestControl(ControlHandle::new(Rc::new(ControlRef {
+        page,
+        target: ControlTarget::Control(idx),
+        by_id: Some(by_id),
+    })))
 }
 
 /// A page of `object` that was never opened: what a declared `TestPage` or `Page` variable holds, and what `Clear`
@@ -1310,6 +1323,17 @@ pub enum ControlTarget {
 pub struct ControlRef {
     pub page: Rc<RefCell<PageState>>,
     pub target: ControlTarget,
+    /// Set when `TestPage.GetField` or `TestPart.GetField` gave the handle (`get_field.rs`).
+    pub by_id: Option<ById>,
+}
+
+/// What `TestPage.GetField` found by a control id (`get_field.rs`): a field control of the page, one a page extension adds, or
+/// a part, a cuegroup, a fixed or a grid, whose field reads empty.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ById {
+    Field,
+    ExtField,
+    Empty,
 }
 
 #[cfg(test)]
@@ -1363,7 +1387,7 @@ mod tests {
         let c = test_control(page.clone(), ControlTarget::Control(3));
         assert_eq!(
             format!("{c:?}"),
-            "TestControl(ControlRef { page: RefCell { value: PageState(page 5, open true, mode View) }, target: Control(3) })"
+            "TestControl(ControlRef { page: RefCell { value: PageState(page 5, open true, mode View) }, target: Control(3), by_id: None })"
         );
         assert!(v.identical(&page_value(&page)));
         assert!(!v.identical(&Value::default_for(&RtType::TestPage(5))));

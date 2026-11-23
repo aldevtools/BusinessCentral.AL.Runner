@@ -14,7 +14,8 @@ pub use awaited::{
 pub use choose::{AppVersions, Chosen, TargetError, choose_target};
 pub use gates::{
     Evidence, FeatureKeyRows, Gate, dev_endpoint_answers_unhandled_ui, feature_key_refusal, feature_key_rows,
-    has as gate_on, other_record_option_member_names_confirmed, platform_table_scopes_known, test_runner_root_scope,
+    getfield_finds_extension_fields, has as gate_on, other_record_option_member_names_confirmed,
+    platform_table_scopes_known, test_runner_root_scope,
 };
 pub use symbols::{ReleasedMinors, corpus_symbols};
 

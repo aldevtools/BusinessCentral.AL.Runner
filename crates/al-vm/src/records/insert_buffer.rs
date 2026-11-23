@@ -148,9 +148,9 @@ impl Session {
             RecordOp::ModifyAll => Some(WriteOfAl::ModifyAll),
             _ => None,
         };
-        let al_read = self.mark_al_record_read(method);
+        let al_read = self.mark_al_record_read(method, false);
         let r = self.record_op(method, rec, args);
-        self.pages.query_cache.al_record_read = al_read;
+        self.unmark_al_record_read(al_read);
         self.tx.write_of_al = None;
         self.tx.get_from_al = false;
         r

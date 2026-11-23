@@ -1497,6 +1497,19 @@ pub fn other_record_option_member_names_confirmed(bc_major: u16) -> bool {
     bc_major == 28
 }
 
+/// Whether `TestPage.GetField` with the control id of a field a page extension adds (the extension's id and the field's name)
+/// finds the field on `bc_major`: BC 27 finds it, BC 28 and 29 do not; `None` for a major that was not measured. Corpus pull
+/// request 1538 (open), testpage/GetFieldByControlId.al:589 (Card_ExtensionControl, guarded `#if BC28PLUS`), in its CI on BC
+/// 27.5, 28.5 and 29.0 and on a local BC 29.1. Not a [`Gate`] yet: a gate's evidence is a file of the pinned corpus, so this
+/// becomes one when the probe is pinned. Consumed by `al-vm` pages/get_field.rs.
+pub fn getfield_finds_extension_fields(bc_major: u16) -> Option<bool> {
+    match bc_major {
+        27 => Some(true),
+        28 | 29 => Some(false),
+        _ => None,
+    }
+}
+
 /// Whether the platform tables of System.app that are `Scope = OnPrem`, internal or removed are known for
 /// this BC major: corpus must-not-compile 0020 to 0024 hold the lists for the symbols of BC 27, and 1240
 /// (`@from 28`, no `@until`) the same 123 tables with the same AL0296 / AL0161 / AL0433 verdicts for BC 28 and
