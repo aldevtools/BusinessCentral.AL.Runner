@@ -114,6 +114,12 @@ runs leave with `Baseline::install_order_differences` (amendment 7 rules, amendm
 - **Different:** the tests that touch a table that differs are not run, with the reason of amendment 7 (apps and tables
   named). Isolated storage or number sequences that differ: what reads them is refused, as amendment 7 does today.
 
+**Clarification (2026-11-23, orchestrator, inside the accepted decision):** a subset run installs, from the database
+before the group, the dependency closure of X and its inputs in one fixed order: S, then X, then the inputs not in S.
+It compares the whole end databases with the existing amendment 7 and 8 comparison (`Baseline::install_order_differences`),
+not only what X leaves. That compares a superset of X's writes, so it is never less strict than the rule above and adds
+no second comparator; it can only add refusals.
+
 The footprints of all of X's subset runs count for the graph. A subset run that reveals a new input or a new conflict
 adds it, and the graph is built again (as the `'grow` loop does today).
 
