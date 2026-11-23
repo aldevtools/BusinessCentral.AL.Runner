@@ -136,7 +136,7 @@ page 97692 "LT GFN Sheet"
     }
 }
 
-// Just past the cells of :2559-:2695: an action's id on a NavigatePage (the cells measure an action's id on a Worksheet only),
+// Just past the cells of :2559-:2702: an action's id on a NavigatePage (the cells measure an action's id on a Worksheet only),
 // and GetField(1) on the CardPart a Document page shows (the cells measure it behind a Card and a RoleCenter). In a codeunit of
 // its own, as the runner refuses both.
 page 97743 "LT GFN Navigate Act"

@@ -10,7 +10,7 @@
 //! BC 28, :589: BC 27 finds it by the extension's id, `al_version::getfield_finds_extension_fields`), a control of another page
 //! or of the part's page (:468 :484 :545 :611 :705; testpage/TestPageRuntimeContracts.al:274-275 the code).
 //! On the other page kinds the cells measure an id no control has, a Worksheet's action ids and a field's Value by its own id
-//! (al-runner issue 8887, :1631-:2695; `get_field_kind`, `get_field_missing`).
+//! (al-runner issue 8887, :1631-:2702; `get_field_kind`, `get_field_missing`).
 //!
 //! `TestPage.GetField(Id)` / `TestPart.GetField(Id)` by the compiler's control id
 //! (`pages::control_id`; al-runner issues 8832 and 8887, assumption `testpage-getfield-control-id`): the page's
@@ -92,7 +92,7 @@ impl Session {
             (GetFieldKind::Full, ir::ControlKind::Part | ir::ControlKind::CueGroup) => ById::Empty,
             (GetFieldKind::Full, ir::ControlKind::Group) if ctl.fixed_or_grid => ById::Empty,
             (GetFieldKind::Full, _) => return not_found(id),
-            // A field control's Value on a Worksheet, a ListPlus and a CardPart a TestPart shows (:2669, :2682, :2695).
+            // A field control's Value on a Worksheet, a ListPlus and a CardPart a TestPart shows (:2676, :2689, :2702).
             (GetFieldKind::FieldValue | GetFieldKind::Worksheet, ir::ControlKind::Field) => ById::ValueOnly,
             // An action or an action group of a Worksheet is not found (:2559).
             (GetFieldKind::Worksheet, ir::ControlKind::Action | ir::ControlKind::ActionGroup) => {
@@ -131,7 +131,7 @@ impl Session {
 
     /// How far the cells measure GetField on the kind of `st`. `Full`: a Card, a List, a Document (:1168), a CardPart and a
     /// ListPart opened as a TestPage of their own (:856, :923), and a ListPart a TestPart shows (:611, :630). `Worksheet` and
-    /// `FieldValue` (a ListPlus, a CardPart a Card shows): a field control's Value (:2669-:2695). `Missing`: only an id no
+    /// `FieldValue` (a ListPlus, a CardPart a Card shows): a field control's Value (:2676-:2702). `Missing`: only an id no
     /// control has (`get_field_missing`).
     fn get_field_kind(&self, st: &St) -> GetFieldKind {
         use al_ir::PageType as T;
@@ -156,7 +156,7 @@ impl Session {
     ///   Worksheet (:1631), a ListPlus (:1648), a CardPart a Card (:1665) or a RoleCenter (:2604) shows, a page without PageType
     ///   (:1682), a RoleCenter (:1729), a NavigatePage (:1746), a StandardDialog (:1763), a ConfirmationDialog (:1780), a
     ///   HeadlinePart (:1797), an API page (:2617), a PromptDialog (:2630), a ReportPreview (:2643) and a ReportProcessingOnly
-    ///   page (:2656).
+    ///   page (:2663).
     /// - On a Worksheet the base page's id of a field a page extension adds (:2576).
     /// - On a CardPart a Card shows, the id of a host control (:2591).
     fn get_field_missing(&self, st: &St, id: i32) -> Result<(), Signal> {
@@ -286,7 +286,7 @@ impl Session {
     /// A call `m` on what GetField found (`ControlRef::by_id`): `Some` answers it, `None` lets it run as on the control by its
     /// name. The empty field of a part, a cuegroup, a fixed or a grid answers Value only (GetFieldByControlId.al:545 :630; its
     /// Caption, the part page's, and its Visible are measured at :692 and refused here); so does a page extension's field on
-    /// BC 27 (:589) and a field control on a Worksheet, a ListPlus or a CardPart a TestPart shows (:2669-:2695).
+    /// BC 27 (:589) and a field control on a Worksheet, a ListPlus or a CardPart a TestPart shows (:2676-:2702).
     pub(super) fn by_id_call(c: &ControlRef, m: PageMethod) -> Result<Option<Value>, Signal> {
         match (c.by_id, m) {
             (None, _) => Ok(None),
