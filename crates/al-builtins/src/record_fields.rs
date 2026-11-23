@@ -7,6 +7,11 @@
 //! The one invariant: a `Shared` slice is never written and holds only plain values, never a value with identity or
 //! interior state (a Blob buffer, a RecordId, a List, ...). Al-vm `Session::initial_fields` is the only maker. So a Blob's
 //! holder count (`RecordState::blob_copies_of`, the `Arc::strong_count` rules) sees the same holders as with a copy.
+//!
+//! `Fields`, a record's field buffer (`RecordState::fields`): the values in the table's field order,
+//! read and written as a fixed-length slice. Copy-on-write (issue 8570): `Shared` (an `Rc<[Value]>`
+//! of plain values only, made only by al-vm `Session::initial_fields` for a table without fresh
+//! slots) is copied into `Owned` on the first `&mut`; every other buffer is `Owned`.
 
 use crate::value::Value;
 use std::ops::{Deref, DerefMut};

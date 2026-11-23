@@ -1,4 +1,6 @@
 //! Type inference for expressions and the diagnostics that hang off it.
+//!
+//! Entry points: `infer`, `al_unresolved_name`, `name`.
 use super::*;
 use al_syntax::ast::NodeText;
 

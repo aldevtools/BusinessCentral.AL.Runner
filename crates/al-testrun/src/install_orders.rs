@@ -11,6 +11,12 @@
 //!
 //! The install code runs more than once only for apps whose install code met an app of the other kind of refusal
 //! (`Session::take_order_unknown_hits`); a run without such apps installs every app once, as before.
+//!
+//! The install order of apps with no dependency path between them (ADR-046 amendment 7, al-runner
+//! issue 6644): Microsoft's apps before partner apps (`split_microsoft`), and partner apps whose
+//! install code meets another partner app's code installed again in every order (at most
+//! `MAX_INTERACTING` apps) from a capture of the database before them, the databases compared
+//! (`install_partner_apps`, `AppInstalls`). Entry points: `split_microsoft`, `install_partner_apps`.
 
 use crate::install::InstallView;
 use al_sema::lower::Lowered;

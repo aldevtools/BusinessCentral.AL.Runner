@@ -1,5 +1,8 @@
 //! In-memory store on persistent maps: a snapshot is a cheap clone (ADR-004).
 //! Scans are linear in the table size; fine for test-sized tables.
+//!
+//! In-memory store on persistent maps; a `Backing` gives untouched tables their restored rows (test
+//! data). Entry points: `MemStore`, `with_virtual_tables`, `detached`, `attached`.
 
 use crate::*;
 use al_builtins::filter::FieldFilter;

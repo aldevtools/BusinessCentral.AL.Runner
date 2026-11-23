@@ -7,6 +7,10 @@
 //! it unchanged.
 //!
 //! Core crate: no OS access (ADR-006).
+//!
+//! `link` for a whole program, `relink` for the incremental compile, `first_difference` for the
+//! `AL_CHECK_LINK` proof, `par_map` for the worker threads. Entry points: `link`, `relink`, `Unit`,
+//! `LinkError`.
 use al_ir::sym::{
     Contribution, ControlKey, EnumImplDecl, Expansion, FieldKey, FxMap, ImplSlot, ListKind, LocalKey, ObjKey,
     RoutineKey, SubscriberTarget, SymObject,

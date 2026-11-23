@@ -14,6 +14,11 @@
 //! docs/probes-needed.md). Where both are the same row, it does not matter which one is passed. Outside OnModifyRecord a Validate
 //! keeps the rule of every other record: xRec is the record before the call (`records/nested_validate.rs`
 //! `validate_before_image`).
+//!
+//! In the page's own OnModifyRecord a `Rec.Validate` of the page's Rec passes the page's xRec to the
+//! field's OnValidate (al-runner issue 7428). Entry points: `with_modify_record_xrec` (by
+//! `save_row`), `modify_record_validate_xrec` (by `validate_before_image` in
+//! `records/nested_validate.rs`).
 
 use super::*;
 

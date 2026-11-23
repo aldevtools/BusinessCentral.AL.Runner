@@ -5,6 +5,11 @@
 //! Protocol (internal to this file and `tools/dotnet-sidecar`): one request, one reply, in order,
 //! over stdin and stdout. A message is a 4-byte little-endian length and that many bytes of UTF-8
 //! JSON. Values are tagged objects (`{"t":"s","v":"text"}`), see `tools/dotnet-sidecar/Marshal.cs`.
+//!
+//! The .NET sidecar host (ADR-014): one process per session, standby processes started at run start
+//! (`prewarm`) or beside the first process a session needs (`prewarm_on_first_use`, `al-runner` with
+//! the compile cache), start-up stats. Entry points: `SidecarConfig`, `SidecarStats`, `SidecarHost`,
+//! `prewarm`, `encode`, `decode`.
 
 use al_host::dotnet::{
     DotNetArg, DotNetFailure, DotNetHandle, DotNetHost, DotNetReply, DotNetSession, DotNetSessionConfig, DotNetTarget,

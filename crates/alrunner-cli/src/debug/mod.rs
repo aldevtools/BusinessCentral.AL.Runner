@@ -5,6 +5,16 @@
 //! and runs the tests one after the other. The worker's debugger ([`Hook`]) stops it on a condition variable and
 //! sends `stopped`; `stackTrace`, `scopes` and `variables` are answered from the snapshot it took when it stopped, so
 //! this thread never touches the VM.
+//!
+//! , `debug/wire.rs`, `debug/breakpoints.rs` (1400): `al-runner debug` (ADR-048): the DAP session
+//! (reader thread answers requests; the test worker blocks in the `DebugHook` at a stop; stack and
+//! variables come from a snapshot taken at the stop), Content-Length framing over stdio (stdout
+//! carries only frames) or TCP, breakpoint resolution against the program's position table (every
+//! statement on the line, column narrowing, unverified reasons) in every app compiled from source
+//! (`Sources`/`Origin` per app: a folder, or a source package whose files are written to
+//! `<cache>/debug-sources/` at a stop; a checkout of a package binds when its text is the compiled
+//! text). Entry points: `debug::run`, `debug::sources_of`, `wire::read_message`,
+//! `breakpoints::Index`.
 
 pub mod breakpoints;
 pub mod wire;

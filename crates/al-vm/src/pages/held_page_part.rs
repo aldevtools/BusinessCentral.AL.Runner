@@ -13,6 +13,15 @@
 //! fields of its Rec and `Rec.Count()`; a page method on the part, any other method of its Rec and its xRec refuse. A field
 //! write on its Rec runs and marks the assumption `held-page-part-after-testpage-close`, as does a reopen of the same TestPage
 //! variable while a SingleInstance codeunit holds the page (`fresh_page_for_held_reopen`).
+//!
+//! What the code of a page that ran and is closed reaches through `CurrPage.<part>.Page`: its own
+//! part instances (`PageState::closed_parts`, `hidden_parts`), by what closed the page
+//! (`PageState::closed_by`, `ClosedBy`, set at the close sites): a modal run closed by an action,
+//! `CurrPage.Close`, and `TestPage.Close()` of a page the test opened (al-runner issue 6924,
+//! assumption `held-page-part-after-testpage-close`; inside such a part a page method and Rec methods
+//! other than Count refuse, `records::HELD_PART_REC`); every other close refuses. Also the reopen of
+//! a TestPage variable whose page another value holds (`fresh_page_for_held_reopen`). Entry points:
+//! `closed_page_part` (by `part_page`), `mark_closed_as`, `mark_closed_by_test` (by `page_close`).
 
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};

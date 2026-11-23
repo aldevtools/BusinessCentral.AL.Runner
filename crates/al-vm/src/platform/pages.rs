@@ -5,6 +5,8 @@
 //! TestPageControlFieldDefaults.al, TestPageControlFieldControlTree.al,
 //! TestPageControlFieldPageExtension.al and pageextensioncontrol/
 //! TestPageExtensionControlPrecompiledRows_Tests.al.
+//!
+//! The page platform tables. Entry points: `source_table`.
 
 use super::mat::Entry;
 use super::objects::{Catalog, ident, member, prop, string_lit, truthy};

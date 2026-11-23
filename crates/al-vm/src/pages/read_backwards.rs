@@ -1,4 +1,7 @@
 //! A part that reads its rows last to first (moved out of rows.rs).
+//!
+//! A part that reads its rows last to first (SubPageView on the linked field). Entry points:
+//! `populate_window_backwards`.
 
 use super::*;
 use al_builtins::record_op::RecordOp;

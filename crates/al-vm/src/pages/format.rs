@@ -1,3 +1,7 @@
+//! Reading a control: value, text, type, caption, editable, enabled, visible (a field control's own
+//! Visible is its value at open, or Yes on a Card for `Control::visible_row_field`, assumption
+//! `visible-names-row-field-reads-yes`; `freeze_visible` evaluates them at open, and before BC 29
+//! raises the client error for such a Card).
 use super::auto_format_writer_cell::ControlRead;
 use super::*;
 use crate::platform::relation_field_no_readers as rfn;

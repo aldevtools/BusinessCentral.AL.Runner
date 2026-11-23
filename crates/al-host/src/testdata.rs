@@ -6,6 +6,10 @@
 //! provider answers in plain typed cells under the table's SQL column names. Mapping those names
 //! to the fields of the compiled program is the runtime's job (the program is the schema, never a
 //! symbol file).
+//!
+//! Test data capability (ADR-020): `TableProvider`, `Cell`, `TestData` (reads each table once for all
+//! threads) and `LoadStats` (the counts behind the summary line). Entry points: `TableProvider`,
+//! `TestData`, `LoadStats`, `Summary`.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, OnceLock};

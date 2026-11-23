@@ -1,5 +1,10 @@
 //! Finds the diagnostics at one position of one file without scanning the whole list: lowering asks once per call it
 //! lowers whether the checker refused that call (AR1006, AR1008, AR1009, AL0666, AR1007), or the enum member it lowers (AR1010).
+//!
+//! The diagnostics of a check by (app, file, offset), built once per `CheckResult`; lowering asks it
+//! whether the checker refused a call (AR1006, AR1008, AR1009, AL0666, AR1007) instead of scanning
+//! the list, and whether it refused a whole routine (AR1010). Entry points:
+//! `CheckResult::diagnostic_at`, `DiagIndex`.
 
 use super::posmap::FxMap;
 use crate::workspace::Diagnostic;

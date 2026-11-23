@@ -13,6 +13,20 @@
 //! per-database part runs last, with `CompanyName()` empty (`:138-140`). Inside one app and part the routines run in
 //! ascending codeunit id, across the 65536 id boundary (amendment 3, [`order_of`]); only the order of two subscribers of
 //! one codeunit is not pinned, and every test that can see it is refused (A2).
+//!
+//! The install code of each app (ADR-046 step A): install codeunit triggers and `Extension Triggers`
+//! subscribers per app and part (`plan`), the tables whose install rows tests may not read (`facts`:
+//! decision 4c, amendment 1 A2; `AL_INSTALL_FACTS=1` prints them), and the run of the apps under test
+//! one after the other (`run_apps_under_test`: install session id, SingleInstance reset, the app's
+//! own Company Triggers subscribers; under `--companies` the per-company part once per declared
+//! company, ADR-046 step B, and `refuse` for a routine that stops in another company; in the session
+//! company `skipped_at_home` splits its tables into `tables` and the `assumed` ones only the table-
+//! event subscribers of a table it only reads add). `not_ended_before_first_test` is the one reason
+//! text for code that runs as the test session opens the company (own and partner login subscribers,
+//! Company Triggers subscribers) and did not end: it names the event and, for a refusal, ends with
+//! `explain::site_suffix`; `runtime/run.rs` `observed_not_run` gives each test of the codeunit that
+//! stack under `--explain` (tests: `runtime/login_explain_tests.rs`). Entry points: `plan`, `facts`,
+//! `ensure_facts`, `run_apps_under_test`, `not_ended_before_first_test`.
 
 use al_builtins::describe::Describe;
 use al_builtins::native::Signal;

@@ -9,6 +9,14 @@
 //! `ChainWalk::sequential` (ADR-070, migration step 2; `strict_walk.rs`): the walk of one BC session of the plain
 //! sequential strict run. Every unit is a member, a unit that leaves nothing leaves the state it was given, every member
 //! keeps the single instances of the one before it, and the members after one that stopped the session are flagged.
+//!
+//! The walk of the carry chain (`ChainWalk::walk`), always serial on the walk's thread (ADR-070 step
+//! 1 deleted the run-ahead helper threads, `chain_runs.rs` and `al-vm` `baseline/delta.rs`). ADR-066
+//! amendment 8 (`ChainWalk::keep_singles`, on unless `--test-suites` is given or nothing is watched):
+//! the walk moves the single instances from member to member of a BC session through
+//! `run::LANE_SINGLES` (`KeptSingles`; `starts_fresh`: a new suite or hub leg, a refused link or a
+//! member with a test refused mid-run starts fresh); `ChainReport::singles_kept` and
+//! `singles_read_carried` count for `--timings`.
 
 use super::carry_after::After;
 use super::corpus::{observed_detail, refuse_all};

@@ -1,4 +1,6 @@
 //! Lowering of expressions, places and constants.
+//!
+//! Expressions, constants, operands, controls. Entry points: `expr`, `constant`.
 use super::*;
 use al_syntax::ast::NodeText;
 

@@ -1,4 +1,6 @@
 //! Command-line arguments of `al-test-cli`: parsing and the `--help` text.
+//!
+//! Command-line parsing and the --help text. Entry points: `parse`, `Args`, `HELP`.
 
 use crate::select::Selection;
 use std::path::PathBuf;

@@ -38,6 +38,24 @@
 //! Media field is cached as any other (:6898, :6918), and CalcFields of a Blob of a row the cache answered with another row
 //! is refused. The cache keeps no notes at all in a program whose own apps run no page background task
 //! (`Session::query_cache_on`). Every other read keeps reading the rows as they are, as on main.
+//!
+//! The query cache page background tasks and the test session read through (al-runner issue 8467,
+//! assumption `background-task-query-cache`, corpus pull request 1457, merged, not pinned yet): a
+//! worker's `Get` and full-key `FindFirst` (a row), and `FindFirst`, `FindLast`, `Count` and
+//! `IsEmpty` of AL code keyed by the read, the sort direction and every filter (`group_key`; the
+//! filter shapes of open corpus PR 1495, al-runner issue 8637), and a Record's `CalcFields` (keyed by
+//! its fields in order, the row and its FlowFilters, `calc_key`) and `CalcSums` (al-runner issue 8677)
+//! answer their first answer until a commit writes the row (or, for the group reads and
+//! calculations, the table, or a table its FlowField filters or formulas read); the test session's
+//! reads fill it while it has not written the table; emptied per test codeunit. Entry points:
+//! `cached_get`, `cached_find`, `cached_count` (called from `records/op_inner.rs`),
+//! `cached_calc_fields`, `cached_calc_sums` (called from `flowfields.rs`), `mark_al_record_read`
+//! (`record_op_of_al`), `note_commit_for_query_cache` (`commit_transaction`), `note_replayed_load`
+//! (`load`), `refuse_load_of_replayed` (`partial.rs`), `reset_query_cache` (`mark_install_end`),
+//! `note_select_latest_version` (`hostvalues.rs`), `refuse_blob_of_replayed` (`load_blobs`),
+//! `end_record_op_for_query_cache` (`record_op`); the minors a committed ModifyAll or DeleteAll ends
+//! an entry on: `al_version::bulk_commit_ends_cached_row`; nothing is noted unless the program's own
+//! apps run a page background task (`query_cache_on`).
 
 use crate::records::Rec;
 use crate::{Session, Signal};

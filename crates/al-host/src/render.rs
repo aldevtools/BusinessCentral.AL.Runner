@@ -3,6 +3,10 @@
 //!
 //! The renderer only makes bytes. Whether a save is answered, its error and its events stay with the save table of the
 //! VM; which saves ask the renderer at all is decided there too.
+//!
+//! The report renderer seam (ADR-040 amendment 2026-11-13b): `ReportRenderer` (availability per
+//! `RenderNeed`, `merge_word`, `word_to_pdf`, `word_to_html`), `WordMerge`, `RenderFailure`,
+//! `RenderUnavailable`, `NoRenderer`.
 
 use std::fmt;
 

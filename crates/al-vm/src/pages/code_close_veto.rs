@@ -13,6 +13,12 @@
 //! In every pinned case the second query refuses again. A second query that allows the close, an error in it, a vetoed close
 //! from any other trigger or outside a TestPage call, on another page type or a part, with an extension's OnQueryClosePage,
 //! a subscriber to OnQueryClosePageEvent or a part that declares OnQueryClosePage are not pinned and are refused.
+//!
+//! A `CurrPage.Close()` the page's OnQueryClosePage refused is asked again when the TestPage call
+//! returns (a Card, from an action or from OnAfterGetCurrRecord at OpenView; corpus
+//! pages/parts/Y37PartAfterClose.al); other shapes are refused. Entry points: `in_page_trigger` (by
+//! `page_trigger` and an action's OnAction), `code_close_client_call` (by `page_op_inner`),
+//! `note_code_close_veto` (by `CurrPage.Close`).
 
 use super::*;
 use al_builtins::page_op::{PageMethod, PageOp, PageRecv};

@@ -1,4 +1,7 @@
 //! The array arguments of `CopyArray`, which BC accepts as the array a procedure returns (al-runner issue 6658).
+//!
+//! The array arguments of `CopyArray`: a procedure result as the source (al-runner issue 6658). Entry
+//! points: `ref_arg`.
 use super::*;
 
 impl<'a> Lowerer<'a> {

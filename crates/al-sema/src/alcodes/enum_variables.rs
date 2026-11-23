@@ -12,6 +12,9 @@
 //! qualified name, a file without a namespace that finds the enum in any namespace, an enum of a dependency app in another
 //! namespace, two visible enums of that name, a namespace with another parent, and a parent or child namespace (not
 //! measured).
+//!
+//! AL0185 `Enum 'X' is missing` for a procedure variable whose enum no app declares (case 0214) or is
+//! declared only in an unrelated namespace of the file's own app (al-runner issue 7921)
 
 use super::{offset_of, push};
 use crate::workspace::{Diagnostic, ObjKind, Workspace};

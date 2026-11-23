@@ -15,6 +15,13 @@
 //!   does not depend on where a checkout is (ADR-050 decision 10) and a file that keeps its name but changes its
 //!   content is another key (decision 7).
 //! - **not an input**: named in an arm that says why.
+//!
+//! `RunInputs::of` destructures `TestArgs` without `..`: each field is an outcome input, a stored-
+//! result-only input, a compile input, a content file, or named as no input with the reason.
+//! `outcome_digest(Purpose)` is the options hash of the `--affected` stored result (`affected.rs`)
+//! and the options part of the impact index key (`impact_index.rs`); `compile_text` is the options
+//! part of the key of serve's kept compile (`run.rs`, beside `warm_key`). A new option is added here
+//! and nowhere else; the tests need a miss test per input.
 
 use crate::args::TestArgs;
 use sha2::{Digest, Sha256};
