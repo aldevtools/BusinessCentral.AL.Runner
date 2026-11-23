@@ -265,10 +265,11 @@ enum Shape {
 enum Ends<'a> {
     /// The read's own table and these: a group read and its FlowField filters' tables (:823, :1907, :3465, :4259), a CalcSums.
     TableAnd(&'a [Arc<TableDef>]),
-    /// Only these, the tables a CalcFields' formulas read (:6231, :6261): its entry holds through a commit of its row's table, of
-    /// an insert or a delete of another row, a change of the row, a ModifyAll or a DeleteAll, of a temporary record too, after
-    /// the test session's CalcFields first too, and for FieldRef.CalcField (BgTaskCacheEdges.al:428-:446, :639-:681, open
-    /// corpus PR 1558). A commit of a Truncate of it is not measured (`GroupThen::truncates`).
+    /// Only these, the tables a CalcFields' formulas read (:6231, :6261): its entry holds through a commit of its row's table,
+    /// of an insert of another row or a change of the row, of a temporary record too (BgTaskCacheEdges.al:428-:446, open corpus
+    /// PR 1558), of a ModifyAll (:639), a DeleteAll (:645) or a Delete of another row (:651), after the test session's
+    /// CalcFields first (:657), and for FieldRef.CalcField of a database RecordRef (:681). A commit of a Truncate of it is not
+    /// measured (`GroupThen::truncates`).
     Sources(&'a [Arc<TableDef>]),
 }
 
