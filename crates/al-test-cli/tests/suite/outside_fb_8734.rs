@@ -16,11 +16,15 @@ const NEIGHBORS: &str = include_str!("../../../../tests/neighbors/8734-new-line-
 
 /// Every cell passes, flagged by both assumptions: the repro of 8734 on an empty group and with a row before, and the logging
 /// page (the page's and the part's triggers, step by step) with the repro's code, only the save, a modify through another record
-/// after the save and a field set before it, each on an empty group and with a row before.
+/// after the save and a field set before it, each on an empty group and with a row before; and after the save, a field of Rec
+/// set, a row of another table inserted or one deleted (the review of al-runner PR 8820, the codeunit after the tests).
 #[test]
 fn issue_8734_probe_cells() {
-    let o = super::outside_fb_8712::outcomes(PROBE, "LT NK Tests");
+    let mut o = super::outside_fb_8712::outcomes(PROBE, "LT NK Tests");
     assert_eq!(o.len(), 10);
+    let more = super::outside_fb_8712::outcomes(PROBE, "LT NK More Tests");
+    assert_eq!(more.len(), 3);
+    o.extend(more);
     for (name, r, marks) in &o {
         assert_eq!(*r, Outcome::Pass, "{name}");
         assert!(
@@ -32,11 +36,12 @@ fn issue_8734_probe_cells() {
 
 /// Code just past the cells keeps a refusal: the page's OnAfterGetRecord sets a field of Rec, the part's OnAfterGetRecord
 /// writes another table, a modify of the row through another record before the save, a write of another table before the save,
-/// and a page without OnAfterGetCurrRecord.
+/// a page without OnAfterGetCurrRecord, and CurrPage.Update(true) or Update() without a save or Update(true) after it (only
+/// the page without triggers measures Update(true) after the save, ListNewLineExtraCode.al:476).
 #[test]
 fn issue_8734_neighbors_are_refused() {
     let o = super::outside_fb_8712::outcomes(NEIGHBORS, "LT NG Tests");
-    assert_eq!(o.len(), 5);
+    assert_eq!(o.len(), 8);
     let ran: Vec<_> = o
         .iter()
         .filter(|(_, r, _)| !matches!(r, Outcome::NotRun(_)))

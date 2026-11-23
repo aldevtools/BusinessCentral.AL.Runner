@@ -1,5 +1,5 @@
-// The objects and tests of corpus PR 1474 (pages/parts/PartRefillTestFilter.al, merged) and its two-field key cell
-// (corpus PR 1475), both merged; the suite test part_left_view_test_filter.rs reads them from here.
+// The objects and tests of corpus PR 1474 (pages/parts/PartRefillTestFilter.al, merged) its two-field key cell
+// (corpus PR 1475), both merged, and the styled part (corpus PR 1534, open); the suite test part_left_view_test_filter.rs reads them from here.
 table 97100 "LT PR Op"
 {
     DataClassification = SystemMetadata;
@@ -549,6 +549,123 @@ page 97114 "LT PR Typed Trig Host"
                 field("Resource No."; Rec."Resource No.") { ApplicationArea = All; }
             }
             part(Load; "LT PR Typed Trig Part") { ApplicationArea = All; }
+        }
+    }
+
+    actions
+    {
+        area(Processing)
+        {
+            action(Refresh)
+            {
+                ApplicationArea = All;
+
+                trigger OnAction()
+                begin
+                    CurrPage.Load.Page.Invalidate();
+                    CurrPage.Update(false);
+                end;
+            }
+        }
+    }
+
+    trigger OnAfterGetCurrRecord()
+    var
+        LoadCalc: Codeunit "LT PR Load Calc";
+    begin
+        if CurrPage.Load.Page.IsLoadedFor(Rec."Resource No.") then
+            exit;
+        CurrPage.Load.Page.ClearLines(Rec."Resource No.");
+        CurrPage.Load.Page.SetLoadLines(LoadCalc.Calculate(Rec."Resource No."));
+    end;
+}
+page 97115 "LT PR Styled Part"
+{
+    PageType = ListPart;
+    SourceTable = "LT PR Load Line";
+    SourceTableTemporary = true;
+    InsertAllowed = false;
+    DeleteAllowed = false;
+    Editable = false;
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Lines)
+            {
+                field("Period Start"; Rec."Period Start") { ApplicationArea = All; }
+                field("Allocated Qty."; Rec."Allocated Qty.") { ApplicationArea = All; StyleExpr = LoadStyle; }
+            }
+        }
+    }
+
+    trigger OnAfterGetRecord()
+    begin
+        LoadStyle := 'Standard';
+        if Rec."Allocated Qty." > 20 then
+            LoadStyle := 'Unfavorable';
+    end;
+
+    var
+        ResourceNo: Code[20];
+        LinesLoaded: Boolean;
+        LoadStyle: Text;
+
+    procedure IsLoadedFor(NewResourceNo: Code[20]): Boolean
+    begin
+        exit(LinesLoaded and (NewResourceNo = ResourceNo));
+    end;
+
+    procedure Invalidate()
+    begin
+        LinesLoaded := false;
+    end;
+
+    procedure ClearLines(NewResourceNo: Code[20])
+    begin
+        ResourceNo := NewResourceNo;
+        LinesLoaded := false;
+        Rec.Reset();
+        Rec.DeleteAll(false);
+        CurrPage.Update(false);
+    end;
+
+    procedure SetLoadLines(Results: Dictionary of [Text, Text])
+    var
+        DayKey: Text;
+    begin
+        foreach DayKey in Results.Keys() do begin
+            Rec.Init();
+            Evaluate(Rec."Period Start", DayKey, 9);
+            Evaluate(Rec."Allocated Qty.", Results.Get(DayKey), 9);
+            Rec.Insert();
+        end;
+        LinesLoaded := true;
+        if Rec.FindFirst() then;
+        CurrPage.Update(false);
+    end;
+}
+
+page 97116 "LT PR Styled Host"
+{
+    PageType = Worksheet;
+    SourceTable = "LT PR Op";
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Ops)
+            {
+                field("No."; Rec."No.") { ApplicationArea = All; }
+                field("Resource No."; Rec."Resource No.") { ApplicationArea = All; }
+            }
+            part(Load; "LT PR Styled Part") { ApplicationArea = All; }
         }
     }
 

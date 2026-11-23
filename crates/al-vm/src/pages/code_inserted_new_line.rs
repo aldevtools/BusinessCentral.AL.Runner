@@ -843,7 +843,12 @@ impl Session {
         arg: Option<&Value>,
         view: &SavedView,
     ) -> Result<(), Signal> {
-        if view.extra && matches!(arg, Some(Value::Boolean(true))) {
+        // Update(true) after the save is measured on the page without triggers only (ListNewLineExtraCode.al:476); on the page
+        // with triggers and a FactBox it stays refused (review of al-runner PR 8820).
+        if view.extra
+            && matches!(arg, Some(Value::Boolean(true)))
+            && matches!(self.code_inserted_page(st)?, Some((Triggers::Quiet, _)))
+        {
             return self.extra_code_update_true(st, view);
         }
         if !matches!(arg, Some(Value::Boolean(false))) {

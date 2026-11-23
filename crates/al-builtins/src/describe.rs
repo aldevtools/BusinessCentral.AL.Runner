@@ -296,6 +296,7 @@ pub(crate) mod tests {
             crm: false,
             fields: Default::default(),
             filters: Vec::new(),
+            decimal_cut_filters: Vec::new(),
             filter_group: 0,
             marks: Vec::new(),
             marked_only: false,

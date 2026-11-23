@@ -248,10 +248,12 @@ impl Session {
     ///   `One or more errors occurred while closing the page.\\CEM close page error` `TestWrapped`).
     ///
     /// Every case above runs a handler of `CemDocModal` (:925-975), which catches no error. A handler that caught one first
-    /// (the session's count of caught errors moved from `caught_before`, caught_errors.rs) closes the page in the same way:
-    /// every test of CemDocumentTests.al gives its answer again with a handler that first catches an error (corpus PR
-    /// 1531, CemDocumentCaughtTests.al), and so do six ways of catching before a handler error (corpus PR 1524,
-    /// CemHandlerCaughtErrors.al:398-:433). Such a close runs through the assumption `page-handler-caught-error-close`.
+    /// closes the page in the same way: every test of CemDocumentTests.al gives its answer again with a handler that first
+    /// catches an error (corpus PR 1531, CemDocumentCaughtTests.al), and so do six ways of catching before a handler error
+    /// (corpus PR 1524, CemHandlerCaughtErrors.al:398-:433). Such a close runs through the assumption
+    /// `page-handler-caught-error-close`. The flag does not tell who caught the error: any error the session caught since
+    /// the handler started counts (the count of caught_errors.rs moved from `caught_before`), the handler's, a page
+    /// trigger's or the code they call; only the handler's catches are measured.
     pub(super) fn close_document_after_handler_error(
         &mut self,
         st: &St,

@@ -1,2 +1,11 @@
 # key	entry
-# head and main answer alike: no row differs.
+NB Char Loop::CharVar_CharVarFrom_LiteralTo	ASSUMED for-char-literal-bounds (corpus PR 1525)
+NB Char Loop::CharVar_EmptyRange	ASSUMED for-char-literal-bounds (corpus PR 1525)
+NB Char Loop::CharVar_IntegerLiteralFrom_LiteralTo	ASSUMED for-char-literal-bounds (corpus PR 1525)
+NB Char Loop::CharVar_LiteralBounds_DownTo	ASSUMED for-char-literal-bounds (corpus PR 1525)
+NB Char Loop::CharVar_LiteralBounds_To	ASSUMED for-char-literal-bounds (corpus PR 1525)
+NB Char Loop::CharVar_LiteralFrom_CharVarTo	ASSUMED for-char-literal-bounds (corpus PR 1525)
+NB Char Loop::CharVar_LiteralFrom_IntegerLiteralTo	ASSUMED for-char-literal-bounds (corpus PR 1525)
+NB Char Loop::CharVar_NonAscii	ASSUMED for-char-literal-bounds (corpus PR 1525)
+NB Char Loop::IntegerVar_OneCharLiteralBounds	ASSUMED for-char-literal-bounds (corpus PR 1525)
+NB Char Loop::IntegerVar_OneCharLiteralBounds_DownTo	ASSUMED for-char-literal-bounds (corpus PR 1525)
