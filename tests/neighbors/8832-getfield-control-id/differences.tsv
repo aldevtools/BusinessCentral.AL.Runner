@@ -1,0 +1,21 @@
+# key	entry
+# The cells of corpus PR 1538 (testpage/GetFieldByControlId.al) and the reporter's repro: main answered every GetField by a
+# control id with "not found"; the head finds the page's own field control by the id the compiler gives it.
+Repro GetField Tests::GetFieldByControlId_ReturnsTheControl	ASSUMED testpage-getfield-control-id (corpus PR 1538, the issue's shape at :449)
+LT GFI Tests::List_GetFieldByControlId_ReadsTheRow	ASSUMED testpage-getfield-control-id (corpus PR 1538 :449)
+LT GFI Tests::OtherList_SameNames_IdsOfTheirOwnPage	ASSUMED testpage-getfield-control-id (corpus PR 1538 :468)
+LT GFI Tests::Card_FieldControls	ASSUMED testpage-getfield-control-id (corpus PR 1538 :503)
+# Main passed it: every id was not found. The head finds the hidden fields by their ids, and their Value is not found then.
+LT GFI Tests::Card_HiddenControls	ASSUMED testpage-getfield-control-id (corpus PR 1538 :530)
+LT GFI Tests::Card_OtherControlKinds	ASSUMED testpage-getfield-control-id (corpus PR 1538 :545, the part's id gives an empty field)
+LT GFI Tests::Card_SetValueThroughGetField	ASSUMED testpage-getfield-control-id (corpus PR 1538 :570)
+LT GFI Tests::Card_PartControls	ASSUMED testpage-getfield-control-id (corpus PR 1538 :604)
+LT GFI Tests::CueCard_OtherContainers	ASSUMED testpage-getfield-control-id (corpus PR 1538 :623)
+LT GFI Tests::Card_ReadsThroughGetField	ASSUMED testpage-getfield-control-id (corpus PR 1538 :661)
+LT GFI Tests::ModCard_ModifiedHiddenAndActionGroup	ASSUMED testpage-getfield-control-id (corpus PR 1538 :698)
+# Main failed them. BC shows 0 for a Text field in a cuegroup, also by its name, where the runner answers the text: refused.
+LT GFI Tests::CueCard_CueField	REFUSED TestPage.GetField of a field in a cuegroup
+# Caption and Visible of what a part control's id gives, and Activate on a field GetField found: no cell runs them.
+LT GFI Tests::Card_PartIdCaptionAndVisible	REFUSED TestField.Caption on what TestPage.GetField found by a control id
+LT GFN Tests::PartIdCaption	REFUSED TestField.Caption on what TestPage.GetField found by a control id
+LT GFN Tests::ActivateThroughGetField	REFUSED TestField.Activate on what TestPage.GetField found by a control id
