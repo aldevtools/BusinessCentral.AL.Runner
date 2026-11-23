@@ -135,3 +135,109 @@ page 97692 "LT GFN Sheet"
         }
     }
 }
+
+// Just past the cells of :2559-:2695: an action's id on a NavigatePage (the cells measure an action's id on a Worksheet only),
+// and GetField(1) on the CardPart a Document page shows (the cells measure it behind a Card and a RoleCenter). In a codeunit of
+// its own, as the runner refuses both.
+page 97743 "LT GFN Navigate Act"
+{
+    PageType = NavigatePage;
+    SourceTable = "LT GFI Row";
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            group(General)
+            {
+                field(Name; Rec.Name) { ApplicationArea = All; }
+            }
+        }
+    }
+
+    actions
+    {
+        area(Processing)
+        {
+            action(NextStep)
+            {
+                ApplicationArea = All;
+                InFooterBar = true;
+
+                trigger OnAction()
+                begin
+                end;
+            }
+        }
+    }
+}
+
+page 97744 "LT GFN Doc Host"
+{
+    PageType = Document;
+    SourceTable = "LT GFI Row";
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            field(Name; Rec.Name) { ApplicationArea = All; }
+            part(Part; "LT GFI Card Part")
+            {
+                ApplicationArea = All;
+                SubPageLink = "No." = field("No.");
+            }
+        }
+    }
+}
+
+codeunit 97745 "LT GFN Kind Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    local procedure Initialize()
+    var
+        Row: Record "LT GFI Row";
+    begin
+        Row.DeleteAll();
+        Row."No." := 'R1';
+        Row.Name := 'Alpha';
+        Row.Insert();
+        Commit();
+    end;
+
+    // The id of the NavigatePage's own action.
+    [Test]
+    procedure NavigatePageActionId()
+    var
+        Pg: TestPage "LT GFN Navigate Act";
+        Shown: Text;
+    begin
+        Initialize();
+        Pg.OpenEdit();
+        asserterror Shown := Pg.GetField(461634918).Value();
+        if GetLastErrorText() <> 'The field with ID = 461634918 is not found on the page.' then
+            Error('error: found <%1>.', GetLastErrorText());
+        Pg.Close();
+    end;
+
+    // GetField(1) on the TestPart of the CardPart a Document page shows.
+    [Test]
+    procedure DocumentHostPartMissingId()
+    var
+        Pg: TestPage "LT GFN Doc Host";
+        Shown: Text;
+    begin
+        Initialize();
+        Pg.OpenEdit();
+        asserterror Shown := Pg.Part.GetField(1).Value();
+        if GetLastErrorText() <> 'The field with ID = 1 is not found on the page.' then
+            Error('error: found <%1>.', GetLastErrorText());
+        Pg.Close();
+    end;
+}
