@@ -443,8 +443,8 @@ fn one_value(e: &FilterExpr) -> Option<&Value> {
 /// The kinds of a FlowField filter the cells measure: one value, a range, `>`, `<>` and a `|` of values (:4215), `>=`, `<`,
 /// `<=` and an `&` of comparisons (:4743), an empty `FILTER()` of a view (:4800), open ranges and an `&` inside a `|`
 /// (:5588) and a case-sensitive wildcard (:5599). A case-insensitive wildcard reads the rows as they are (:4756); other compounds
-/// and patterns not matched are not measured. `@` alone on a lookup FlowField (:5609) waits for the "@ alone" PR, which reads
-/// it as the database does: until then it reads the rows as they are.
+/// and patterns not matched are not measured. `@` alone on a lookup FlowField (:5609) reads the rows as they are: the database
+/// keeps only blank values for it (assumption at-sign-alone-database-blank), and no cell measures it through the cache.
 fn flow_filter_measured(e: &FilterExpr) -> bool {
     use FilterExpr as F;
     let comparisons = |e: &FilterExpr| matches!(e, F::And(items) if items.iter().all(|i| matches!(i, F::Lt(_) | F::Le(_) | F::Gt(_) | F::Ge(_))));
