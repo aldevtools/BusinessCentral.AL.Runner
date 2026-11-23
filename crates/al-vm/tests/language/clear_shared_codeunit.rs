@@ -405,7 +405,13 @@ codeunit 50837 TNormal { Subtype = Normal; var GX: Codeunit TStore;
     procedure GlobalWritten(): Text begin GX.Write(3); ClearAll(); exit(GX.State()); end; }
 report 50838 TRep { ProcessingOnly = true; var GX: Codeunit TStore;
     procedure GlobalWritten(): Text begin GX.Write(3); ClearAll(); exit(GX.State()); end; }
+codeunit 50840 TArrSelf { var Rows: array[2] of Record Row temporary;
+    procedure Run(): Text begin Rows[1].No := 1; Rows[1].Insert(); ClearAll(); exit(Format(Rows[2].Count())); end; }
+report 50841 TArrRep { ProcessingOnly = true; var Rows: array[2] of Record Row temporary;
+    procedure Run(): Text begin Rows[1].No := 1; Rows[1].Insert(); ClearAll(); exit(Format(Rows[2].Count())); end; }
 codeunit 50839 T {
+    procedure ArrayOfTempRecordsInReport(): Text var R: Report TArrRep; begin exit(R.Run()); end;
+    procedure ArrayOfTempRecordsInOwner(): Text var C: Codeunit TArrSelf; begin exit(C.Run()); end;
     procedure SiOwner(): Text var S: Codeunit TOwner;
     begin S.WriteX(5); S.SetCnt(4); S.ClearAllGlobals(); exit(S.StateX()); end;
     procedure SiOwnerThenWrites(): Text var S: Codeunit TOwner;
@@ -453,11 +459,19 @@ fn clear_all_of_a_temp_store_keeps_its_rows() {
         temp_store("HolderTempNotWritten"),
         ("rows=0 ref11=0 refrows=- int1=0 count=0".to_string(), false)
     );
+    // ClearAll in a plain codeunit whose own global is an array of temporary records keeps the one table's rows
+    // (ClearSharedCodeunitSIOwner.al ArrStore_ClearAll_InsideStore :1808); main gave the array fresh tables.
+    assert_eq!(temp_store("ArrayOfTempRecordsInOwner"), ("1".to_string(), true));
 }
 
 // The shapes 1561 does not measure, whose temporary rows main's fresh instance would lose, refuse.
 #[test]
 fn clear_all_of_an_unmeasured_store_with_rows_refuses() {
+    let got = temp_store("ArrayOfTempRecordsInReport").0;
+    assert!(
+        got.starts_with("refused: ClearAll of a global array of temporary records whose table holds rows"),
+        "{got}"
+    );
     for cell in ["NormalOwner", "ReportOwner", "ExtraStore", "WrappedStore", "StoreArray"] {
         let got = temp_store(cell).0;
         assert!(

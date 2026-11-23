@@ -78,7 +78,10 @@ impl Session {
                     inst.globals = fresh;
                     kept.push(i);
                 }
-                Value::Array(items) if items.borrow().iter().any(|e| self.holds_temp_rows(e, 0)) => {
+                Value::Array(items)
+                    if (items.borrow().iter())
+                        .any(|e| matches!(e, Value::Codeunit(_)) && self.holds_temp_rows(e, 0)) =>
+                {
                     return Err(temp_rows_refusal());
                 }
                 Value::Array(items) if items.borrow().iter().any(|e| self.shared_element(e)) => {
@@ -90,6 +93,32 @@ impl Session {
             }
         }
         Ok(kept)
+    }
+
+    /// Checks the globals of `owner` (not in `keep`) that `ClearAll()` resets for an array of temporary records whose table
+    /// was written: `keep_temp_table` (`interp.rs`) gives the fresh array the old table, so the rows stay, in a codeunit that
+    /// is not SingleInstance with no TableNo that states no Subtype ("CLS Arr Store", ClearSharedCodeunitSIOwner.al
+    /// ArrStore_ClearAll_InsideStore :1808, rows1=2 rows2=2 after ClearAll), through assumption clear-shared-codeunit. Any
+    /// other owner refuses: main gave such an array fresh tables, and 1561 measures only that owner.
+    pub(crate) fn clear_all_temp_arrays(
+        &mut self,
+        owner: usize,
+        globals: &[Value],
+        keep: &[usize],
+    ) -> Result<(), Signal> {
+        let written = (globals.iter().enumerate())
+            .filter(|(i, _)| !keep.contains(i))
+            .any(|(_, v)| matches!(v, Value::Array(items) if items.borrow().iter().any(|e| matches!(e, Value::Record(_)) && self.holds_temp_rows(e, 0))));
+        if !written {
+            return Ok(());
+        }
+        if !self.clears_in_place(owner) {
+            return Err(Signal::unsupported(
+                "ClearAll of a global array of temporary records whose table holds rows, in an object the corpus does not pin",
+            ));
+        }
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ClearSharedCodeunit);
+        Ok(())
     }
 
     /// Whether `v` is or holds, through the globals of an instance of a codeunit that is not SingleInstance and through
