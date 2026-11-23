@@ -387,6 +387,15 @@ codeunit 50121 "NB XAU View Tests"
         AreEqual('SA////No/7;EA/0/e0;', SuiteRows());
     end;
 
+    // The NoTrigger element without MinOccurs = Zero.
+    [Test]
+    procedure ViewConst_MinOccursOnce()
+    begin
+        WipeSuites();
+        RunPort(50146, '<Root><Suite Code="A"><Evaluator Name="e0"/></Suite></Root>');
+        AreEqual('SA////No/7;EA/0/e0;', SuiteRows());
+    end;
+
     // A fieldelement instead of the fieldattribute.
     [Test]
     procedure ViewConst_FieldElement()

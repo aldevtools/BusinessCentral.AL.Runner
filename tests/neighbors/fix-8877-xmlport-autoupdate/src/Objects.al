@@ -1329,3 +1329,33 @@ xmlport 50145 "NB XAU BelowLine"
         }
     }
 }
+
+// Neighbor ViewConst_MinOccursOnce: the NoTrigger element without MinOccurs = Zero (MinOccurs = Once).
+xmlport 50146 "NB XAU MinOccursOnce"
+{
+    Direction = Import;
+    Format = Xml;
+    Encoding = UTF8;
+    UseRequestPage = false;
+
+    schema
+    {
+        textelement(Root)
+        {
+            tableelement(Suite; "NB XAU Suite")
+            {
+                XmlName = 'Suite';
+
+                fieldattribute(Code; Suite.Code) { Occurrence = Required; }
+                tableelement(SuiteEval; "NB XAU Eval")
+                {
+                    LinkTable = Suite;
+                    LinkFields = SuiteCode = field(Code);
+                    XmlName = 'Evaluator';
+                    SourceTableView = where(LineNo = const(0));
+                    fieldattribute(Name; SuiteEval.Name) { Occurrence = Required; }
+                }
+            }
+        }
+    }
+}

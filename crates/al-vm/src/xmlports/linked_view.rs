@@ -12,9 +12,10 @@ use super::*;
 
 /// The field position and value of the one `const` filter of the SourceTableView of `node`, when the element is in the
 /// measured shape: right below a table element right below the root text element of a Format = Xml port, linked to it
-/// (LinkTable = that element), AutoSave without AutoUpdate, AutoReplace or UseTemporary, only field attributes
-/// (`fieldattribute`, as `Name` of `SuiteEval`) without triggers below it, none of them nor a link field on the filtered
-/// field, and an OnAfterInitRecord as its only trigger, which neither names its record nor calls a procedure of the port.
+/// (LinkTable = that element), MinOccurs = Zero (:633), AutoSave without AutoUpdate, AutoReplace or UseTemporary, only
+/// field attributes (`fieldattribute`, as `Name` of `SuiteEval`) without triggers below it, none of them nor a link field
+/// on the filtered field, and an OnAfterInitRecord as its only trigger, which neither names its record nor calls a
+/// procedure of the port.
 pub(super) struct LinkedViewConst {
     pub field: usize,
     pub value: Value,
@@ -49,6 +50,7 @@ impl Session {
             && !clauses.order
             && parent_below_root
             && n.link_node == n.parent
+            && n.min_zero
             && n.auto_save
             && !n.auto_update
             && !n.auto_replace

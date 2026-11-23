@@ -16,6 +16,6 @@ NB XAU Tests::Suite_SameAppSameHash_Skips	REFUSED XmlPort import of a table elem
 NB XAU Tests::Suite_SuiteEvaluator	ASSUMED xmlport-linked-view-const,xmlport-stored-again-assign-triggers (corpus PR 1550, Suite_Fresh_SuiteEvaluator)
 NB XAU View Tests::ViewConst_NoTrigger	ASSUMED xmlport-linked-view-const (corpus PR 1550, Suite_Fresh_SuiteEvaluator)
 NB XAU View Tests::ViewConst_OnInsertChangesField	REFUSED XmlPort import of a linked table element whose SourceTableView const filter's field holds another value
-# Refused on main and head with the same text; only the carried transaction-type flags of main differ (an earlier test of
-# the codeunit passes on head).
-NB XAU View Tests::ViewConst_FieldElement	REFUSED XmlPort import: sourcetableview with a filter on the linked tableelement
+# Refused on main and head with the same text; only the carried transaction-type flags of main differ (the test before it
+# in the codeunit passes on head). MinOccurs = Zero is a fact of the measured element (XpAutoUpdateAssign.al:633).
+NB XAU View Tests::ViewConst_MinOccursOnce	REFUSED XmlPort import: sourcetableview with a filter on the linked tableelement
