@@ -615,22 +615,23 @@ impl Session {
         cache.selects_all + cache.selects.get(&table).copied().unwrap_or(0)
     }
 
-    /// AL code calls `method` on a Record or a RecordRef: marks a FindFirst, FindLast, Count or IsEmpty as AL code's read
-    /// (`group_key`; a page's own reads are not, :2099), and a Record's CalcFields and CalcSums (a RecordRef's are not
-    /// measured); returns the mark to set back when the call returns.
-    pub(crate) fn mark_al_record_read(&mut self, method: RecordOp) -> Option<RecordOp> {
+    /// AL code calls `method` on a Record or a RecordRef, or (`field_ref`) CalcField on a FieldRef: marks a FindFirst, FindLast,
+    /// Count or IsEmpty as AL code's read (`group_key`; a page's own reads are not, :2099), a Record's CalcFields and CalcSums
+    /// (a RecordRef's are not measured) and a FieldRef's CalcField (BgTaskCalcCache.al:431, open corpus PR 1533); returns the
+    /// mark to set back with [`Self::unmark_al_record_read`] when the call returns.
+    pub(crate) fn mark_al_record_read(&mut self, method: RecordOp, field_ref: bool) -> Option<RecordOp> {
         let read = match method {
             RecordOp::FindFirst | RecordOp::FindLast | RecordOp::Count | RecordOp::IsEmpty => Some(method),
+            RecordOp::CalcFields if field_ref => Some(method),
             RecordOp::CalcFields | RecordOp::CalcSums if !self.through_recordref => Some(method),
             _ => None,
         };
         std::mem::replace(&mut self.pages.query_cache.al_record_read, read)
     }
 
-    /// A FieldRef's CalcField of a RecordRef marks the read as AL code's CalcFields (BgTaskCalcCache.al:391); returns the mark to
-    /// set back when the call returns.
-    pub(crate) fn mark_al_calc_fields(&mut self) -> Option<RecordOp> {
-        self.pages.query_cache.al_record_read.replace(RecordOp::CalcFields)
+    /// Sets back the mark [`Self::mark_al_record_read`] returned.
+    pub(crate) fn unmark_al_record_read(&mut self, prior: Option<RecordOp>) {
+        self.pages.query_cache.al_record_read = prior;
     }
 
     fn bulk_ends(&self) -> [Option<bool>; 3] {
