@@ -2623,7 +2623,7 @@ fn unquoted_calcformula_at_signs_with_blanks_keep_their_codes() {
         )
     };
     let negated = vec!["AL0104".to_string(), "AL0726".to_string(), "AL0870".to_string()];
-    for (field, filter) in [("Kind", "<> @"), ("Note", "<> @"), ("Kind", "< > @")] {
+    for (field, filter) in [("Kind", "<> @"), ("Note", "<> @"), ("Kind", "< > @"), ("Kind", "<>@ ")] {
         assert_eq!(codes(&[row, &host(field, filter)]), negated, "{filter} on {field}");
     }
     assert_eq!(
