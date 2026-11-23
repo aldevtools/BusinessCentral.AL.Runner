@@ -399,6 +399,12 @@ impl CellPage {
         )
     }
 
+    /// The Indentation of each row of the table, in the key, that every cell on the page had: on a tree page A and B at the top,
+    /// C under B (TreeValidateFilterRefresh.al:507 `Initialize`, :514-:519); `None` elsewhere.
+    pub(crate) fn indentations(self) -> Option<&'static [i32]> {
+        self.tree().then_some(&[0, 0, 1])
+    }
+
     /// A tree page of TreeValidateFilterRefresh.al (assumption `tree-validate-view-refresh`).
     pub(crate) fn tree(self) -> bool {
         matches!(

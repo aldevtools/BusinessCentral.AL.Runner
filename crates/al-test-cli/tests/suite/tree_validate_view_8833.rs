@@ -63,3 +63,11 @@ fn neighbors_past_the_cells() {
         "{first:#?}"
     );
 }
+
+/// Page 97720 over rows the cells do not hold, by equality of the Indentation of each row (0, 1, 1 and 0, 1, 2 with Last on the
+/// first row, 0, 0, 2, four rows), and Expand(false) after Last or Expand(true) on the first row: main's path, no entry.
+#[test]
+fn shapes_past_the_cells_keep_mains_path() {
+    let o = outcomes(&format!("{PROBE}\n{NEIGHBORS}"), "LT TVN Shape Tests");
+    assert!(o.len() == 6 && o.iter().all(|(_, _, marks)| marks.is_empty()), "{o:#?}");
+}

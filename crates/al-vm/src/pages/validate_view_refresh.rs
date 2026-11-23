@@ -235,8 +235,7 @@ impl Session {
         // test reaches this check today: in the runner a TestPage filter before OpenEdit fails (the page is not open), and
         // one after it turns the rule off at its SetFilter call.
         let first = !v.steps.iter().any(|s| matches!(s, Set(..) | Fail(_) | Action(..)));
-        if (first && !Self::view_filters(&rec).is_empty()) || self.validate_view_table_rows(&rec)? != page.table_rows()
-        {
+        if (first && !Self::view_filters(&rec).is_empty()) || !self.validate_view_table_fits(st, &rec, page)? {
             return Ok(false);
         }
         let table = self.table(&rec)?;
@@ -520,7 +519,7 @@ impl Session {
         let mut steps = st.borrow().validate_view.steps.clone();
         steps.push(Set(ctl, update, change, at.map(|at| (rows, at))));
         let measured = page.cells().iter().any(|c| c.steps.starts_with(&steps))
-            && self.validate_view_table_rows(&rec)? == page.table_rows();
+            && self.validate_view_table_fits(st, &rec, page)?;
         if !measured {
             if ran {
                 return unmeasured(Some(page));
@@ -650,15 +649,30 @@ impl Session {
         Ok(None)
     }
 
-    /// The rows the table of `rec` holds, up to five (`CellPage::table_rows`).
-    fn validate_view_table_rows(&mut self, rec: &Rec) -> Result<usize, Signal> {
+    /// The table of `rec` holds the rows the cells of `page` hold: their number (`CellPage::table_rows`) and, on a tree page,
+    /// the Indentation of each row in the key, by equality (`CellPage::indentations`).
+    fn validate_view_table_fits(&mut self, st: &St, rec: &Rec, page: CellPage) -> Result<bool, Signal> {
         let probe = Rc::new(RefCell::new(rec.borrow().clone()));
         {
             let mut p = probe.borrow_mut();
             p.filters.clear();
             p.marked_only = false;
         }
-        Ok(self.view_rows(&probe, 5)?.len())
+        let rows = self.view_rows(&probe, 5)?;
+        if rows.len() != page.table_rows() {
+            return Ok(false);
+        }
+        let Some(want) = page.indentations() else {
+            return Ok(true);
+        };
+        let Some(level) = self.tree_level_field(st)? else {
+            return Ok(false);
+        };
+        Ok(rows.len() == want.len()
+            && rows
+                .iter()
+                .zip(want)
+                .all(|(r, i)| matches!(r.get(level), Some(Value::Integer(n)) if n == i)))
     }
 
     /// The control of `st` at `idx` as the cells type into it: bound to the field Name or to the field Value of Rec.
