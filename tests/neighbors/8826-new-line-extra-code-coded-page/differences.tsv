@@ -1,14 +1,4 @@
 # key	entry
-# The probe's cells on an empty group: the base refused them at the Update; the page of the page-with-code shape runs them.
-LT NZ Tests::NewLine_ExtraCodeOnPageWithCodeAndFactBoxes_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1537, open: ListNewLineExtraCodeCodedPage.al)
-LT NZ Tests::NewLine_ExtraCodeOnPageWithCodeAndFactBoxes_LogsTheTriggers	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1537, open: ListNewLineExtraCodeCodedPage.al)
-LT NZ Tests::NewLine_SaveRecordOnPageWithCodeAndFactBoxes_LogsTheTriggers	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1537, open: ListNewLineExtraCodeCodedPage.al)
-LT NZ Tests::NewLine_SaveRecordThenModifyThroughAnotherRecordOnPageWithCodeAndFactBoxes_LogsTheTriggers	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1537, open: ListNewLineExtraCodeCodedPage.al)
-LT NZ Tests::NewLine_FieldSetBeforeSaveRecordOnPageWithCodeAndFactBoxes_LogsTheTriggers	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1537, open: ListNewLineExtraCodeCodedPage.al)
-# A row before the line keeps the base's refusal; only the flags the test before it leaves differ.
-LT NZ Tests::NewLine_ExtraCodeOnPageWithCodeAndFactBoxes_RowBefore_LogsTheTriggers	REFUSED CurrPage.Update on a page that shows no row
-# Neighbors the shape takes, then refuses later: the control's write before the save, a part's trigger that writes. The base
-# refused both at the Update. The page with OnAfterGetCurrRecord and the part with OnPageBackgroundTaskError keep the base's
-# refusal, the same on both.
-LT NG2 Tests::NewLine_ControlWritesAnotherTableBeforeSaveRecord_ShowsAndSavesTheRow	REFUSED CurrPage.SaveRecord or Update(true) on the new line whose table field inserted it
-LT NG2 Tests::NewLine_PartTriggerWritesAnotherTable_ShowsAndSavesTheRow	REFUSED a trigger of a List page with code and FactBoxes, or of its parts, wrote or changed Rec
+# The part that declares OnPageBackgroundTaskError: the base refused it at the Update; the page-with-code shape now measures the
+# trigger (ListNewLineExtraCodeCodedTaskError.al) and runs it.
+LT NG2 Tests::NewLine_PartWithBackgroundTaskError_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1540, open: ListNewLineExtraCodeCodedTaskError.al)

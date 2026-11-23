@@ -1,0 +1,19 @@
+# key	entry
+# The probe cells of the table with OnInsert and OnDelete: the base refused them at the Update (its table declares record
+# triggers); the page of the page-with-code shape runs them.
+LT NE2 Tests::NewLine_ExtraCodeOnPageWithCodeOverTableWithTriggers_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1540, open: ListNewLineExtraCodeCodedTableTriggers.al)
+LT NE2 Tests::NewLine_OnInsertSetsAField_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1540, open: ListNewLineExtraCodeCodedTableTriggers.al)
+LT NE2 Tests::NewLine_OnInsertReadsTheTableForASortingNumber_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1540, open: ListNewLineExtraCodeCodedTableTriggers.al)
+LT NE2 Tests::NewLine_OnInsertCallsACodeunit_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1540, open: ListNewLineExtraCodeCodedTableTriggers.al)
+# OnInsert's error reaches the test on both; the head runs it through the shape, flagged.
+LT NE2 Tests::NewLine_OnInsertRaisesAnError_TheSetValueFails	ASSUMED list-new-line-extra-code-coded (corpus PR 1540, open: ListNewLineExtraCodeCodedTableTriggers.al)
+# OnInsert writing another table before the line's insert: refused on both, later on the head.
+LT NE2 Tests::NewLine_OnInsertWritesAnotherTable_ShowsAndSavesTheRow	REFUSED CurrPage.SaveRecord or Update(true) on the new line whose table field inserted it
+# The probe cells of the part with OnPageBackgroundTaskError: the base refused them at the Update; the head runs them.
+LT NQ2 Tests::NewLine_ExtraCodeOnPageWithCodeAndTaskErrorTrigger_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1540, open: ListNewLineExtraCodeCodedTaskError.al)
+LT NQ2 Tests::NewLine_TaskErrorTriggerTheTaskDoesNotRaise_ShowsTheCount	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1540, open: ListNewLineExtraCodeCodedTaskError.al)
+LT NQ2 Tests::NewLine_TaskRaisesAnErrorTheTriggerHandles_ShowsTheFailure	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1540, open: ListNewLineExtraCodeCodedTaskError.al)
+LT NQ2 Tests::NewLine_TaskRaisesAnErrorTheTriggerDoesNotHandle_TheErrorReachesTheTest	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1540, open: ListNewLineExtraCodeCodedTaskError.al)
+# Neighbors just past the cells, refused on both: an error trigger that calls CurrPage.Update, and one that writes another table.
+LT NQ3 Tests::NewLine_TaskErrorTriggerUpdatesThePart_ShowsTheFailure	REFUSED a page background task's completion or error trigger called CurrPage.Update
+LT NQ3 Tests::NewLine_TaskErrorTriggerWritesAnotherTable_ShowsTheFailure	REFUSED a trigger of a List page with code and FactBoxes, or of its parts, wrote or changed Rec
