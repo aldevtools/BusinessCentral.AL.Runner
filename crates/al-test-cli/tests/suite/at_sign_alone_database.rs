@@ -172,11 +172,17 @@ fn at_sign_alone_methods_cells() {
 }
 
 /// A CalcFormula's unquoted `filter(<>@)` does not compile on BC (must-not-compile case 3806: AL0726, AL0104, AL0870), as
-/// `filter(@)` does not (case 3805): the lowering refuses both, over a Code and over a Text field, and never reads them as `@` alone
-/// or `<>@` alone.
+/// `filter(@)` does not (case 3805), with blanks in it or not (cases 3807, 3808): the lowering refuses them, over a Code and over a
+/// Text field, and never reads them as `@` alone or `<>@` alone.
 #[test]
 fn unquoted_calcformula_at_signs_refused() {
-    for (filter, field) in [("<>@", "Kind"), ("<>@", "Note"), ("@", "Kind")] {
+    for (filter, field) in [
+        ("<>@", "Kind"),
+        ("<>@", "Note"),
+        ("@", "Kind"),
+        ("<> @", "Kind"),
+        ("<> @", "Note"),
+    ] {
         let src = format!(
             r#"table 97590 "UQ Row" {{ fields {{ field(1; "Group"; Code[20]) {{ }} field(2; Kind; Code[20]) {{ }} field(3; Note; Text[50]) {{ }} field(4; Amount; Decimal) {{ }} }} keys {{ key(PK; "Group", Kind) {{ }} }} }}
 table 97591 "UQ Host" {{ fields {{ field(1; "No."; Code[20]) {{ }} field(2; Total; Decimal) {{ FieldClass = FlowField; CalcFormula = sum("UQ Row".Amount where("Group" = field("No."), {field} = filter({filter}))); }} }} keys {{ key(PK; "No.") {{ }} }} }}

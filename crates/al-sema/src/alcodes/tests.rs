@@ -2612,6 +2612,26 @@ fn unquoted_calcformula_filter_not_at_sign_is_al0726_al0104_and_al0870() {
     }
 }
 
+// Must-not-compile cases 3807 and 3808 (corpus pull request 1495): blanks anywhere in an unquoted filter(<>@) or filter(@) change
+// nothing, over a Code and over a Text field.
+#[test]
+fn unquoted_calcformula_at_signs_with_blanks_keep_their_codes() {
+    let row = r#"table 50000 "MNC At Row" { fields { field(1; "Group"; Code[20]) { } field(2; Kind; Code[20]) { } field(3; Note; Text[50]) { } field(4; Amount; Decimal) { } } keys { key(PK; "Group") { } } }"#;
+    let host = |field: &str, filter: &str| {
+        format!(
+            r#"table 50001 "MNC At Host" {{ fields {{ field(1; "No."; Code[20]) {{ }} field(2; Total; Decimal) {{ FieldClass = FlowField; CalcFormula = sum("MNC At Row".Amount where("Group" = field("No."), {field} = filter({filter}))); }} }} keys {{ key(PK; "No.") {{ }} }} }}"#
+        )
+    };
+    let negated = vec!["AL0104".to_string(), "AL0726".to_string(), "AL0870".to_string()];
+    for (field, filter) in [("Kind", "<> @"), ("Note", "<> @"), ("Kind", "< > @")] {
+        assert_eq!(codes(&[row, &host(field, filter)]), negated, "{filter} on {field}");
+    }
+    assert_eq!(
+        codes(&[row, &host("Kind", " @ ")]),
+        vec!["AL0224".to_string(), "AL0870".to_string()]
+    );
+}
+
 // must-not-compile 3126-3131: a blank member name after `::`. `""` and an unquoted empty member are the nameless member, which
 // has no name to write; `" "` names the member `" "` only where one exists.
 #[test]
