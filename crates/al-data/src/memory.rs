@@ -28,12 +28,14 @@ mod key;
 mod key_value_tests;
 mod order_carry;
 mod replace;
+mod row_changes;
 mod source_stamps;
 #[cfg(test)]
 mod source_stamps_tests;
 #[cfg(test)]
 mod storage_tests;
 pub use frozen::{FrozenRows, FrozenStore, NotShareable, not_shareable, shareable};
+pub use row_changes::{RowChanges, TableRows};
 
 type Table = crate::pmap::PMap<Key, Row>;
 /// A table's place in the store: its company (empty for a table that is not per company) and its object. The company
