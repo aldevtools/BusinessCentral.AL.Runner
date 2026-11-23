@@ -5,6 +5,11 @@
 //! codeunit that calculates the rows, `«B»` the table it reads, `«K»` the id of the background task's codeunit.
 //!
 //! A cell is one host with one part, as measured: another combination of a host and a part from different cells is no cell.
+//!
+//! The objects of the cells of `part-left-view-test-filter` (al-runner issue 8537), line for line
+//! through `pinned_body.rs`: the probe's hosts with their parts, tables, part procedures, calculation
+//! and background task, and the reporter's repro. Entry points: `refill_cell` (by
+//! `part_update_left_view.rs` `measured_reread`).
 
 use super::pinned_body::{Callees, Names, callees_are, page_is, routine_text, table_is};
 use super::*;

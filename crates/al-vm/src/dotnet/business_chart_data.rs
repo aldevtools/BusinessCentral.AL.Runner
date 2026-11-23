@@ -8,6 +8,9 @@
 //!
 //! Refused: every other member. `ShowChartCondensed` and `DataTable` are only seen through `Update`, which serializes the
 //! object for the BusinessChart add-in; no test pins that JSON, so neither is served.
+//!
+//! Microsoft's `BusinessChartData` behind "Business Chart Impl." (AuEdgeTests.al:608): constructor,
+//! `ClearMeasures`, `AddMeasure`, `XDimension`. Entry points: `types`.
 
 use super::registry::{MemberKind, Pin, RegistryMember, RegistryType};
 use crate::Session;

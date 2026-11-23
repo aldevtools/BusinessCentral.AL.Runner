@@ -1,5 +1,10 @@
 //! The handler functions a test declares, bound for the length of the test, and the routines a test or a test codeunit
 //! starts AL code from (the roots of their static reach), its handler functions included.
+//!
+//! The handler functions a test declares, bound for the length of the test, and the roots of a test's
+//! and a test codeunit's static reach with the handler functions their tests name (every reach walk
+//! of a test or test codeunit takes them). Entry points: `test_roots`, `unit_roots`,
+//! `resolve_handlers`, `bind_handlers`.
 use super::*;
 
 /// The names a `[HandlerFunctions('A,B')]` attribute lists, or `None` when its argument is no text.

@@ -7,6 +7,8 @@
 //! session seeds it with before AL calls `Randomize(seed)` is the host's choice
 //! ([`crate::Host::random_seed`]); BC seeds it from the clock, which AL cannot observe beyond the
 //! range of the numbers (docs/owner-review.md).
+//!
+//! .NET's seeded `System.Random` for `Random` and `Randomize`. Entry points: `NetRandom`.
 
 const MBIG: i32 = i32::MAX;
 const MSEED: i32 = 161_803_398;

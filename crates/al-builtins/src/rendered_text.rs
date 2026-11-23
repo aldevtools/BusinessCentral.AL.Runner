@@ -12,6 +12,20 @@
 //! The paths it lets through run under assumptions (CLAUDE.md rule 3, second exception: al-runner issue 6924, the reporter's
 //! tests pass on BC and need the body to move): `report-html-rendered-text` when a read gives a marked text, and
 //! `email-body-rgba-replace-keeps-content` for the one `Regex.Replace` of [`DOTNET_ALLOWED`].
+//!
+//! rendered Html content in a Text value (ADR-040 amendment 2026-11-12, Part A): the fourth text mark
+//! U+FDD4 with a process-wide render number (one per distinct `Render`, never reused: `RENDERS`, al-
+//! runner issue 8458), the one read that starts it (`read_whole`, `read_in`), the builtin allow-list
+//! (`ALLOWED`, `guard`, called from al-vm `exec/run.rs`), the .NET allow-list (`DOTNET_ALLOWED`,
+//! `dotnet_guard`; al-vm `dotnet/rendered.rs`) and whether the rgba replace is measured on a render
+//! (`Render::rgba_replace`, the rgba column of al-vm's `report_save` row), the refusal text and
+//! `describe`, and the mark of a buffer a marked text was written to (`mark_written`, `WRITTEN_KIND`;
+//! `WRITTEN_OVER_KIND` once a write that is no append touched it, set by `stream::write_bytes`).
+//! Paths that are not a builtin call refuse or convert at their own owner in al-vm: `interp.rs`
+//! `write_char` (a character assignment) and `rendered_into_place` (the write-back of a `var`
+//! argument, a `foreach` variable), `dataset::escape` (a report dataset column),
+//! `xmlports/export_xml.rs` `xp_pass_variable` (an XmlPort text variable), `pages/rendered_field.rs`
+//! (a page control: `TestField.Value()` only). All marks are `native::TEXT_MARKS`.
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;

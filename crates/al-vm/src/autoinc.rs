@@ -4,6 +4,9 @@
 //! TestAutoIncrementEdges.al and TestTempTableContracts.al; what they leave open is refused.
 //! Truncate (which resets the counter) and guarded `Codeunit.Run` rollbacks (which restore it)
 //! are not implemented, so no code path here has to model them.
+//!
+//! AutoIncrement fields: taking the next value, explicit keys. Entry points: `auto_increment_field`,
+//! `take_auto_increment`.
 
 use crate::Session;
 use al_builtins::native::{AlError, Signal, unsupported};

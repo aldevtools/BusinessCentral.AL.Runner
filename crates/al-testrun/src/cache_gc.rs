@@ -9,6 +9,11 @@
 //! - a temporary file of a write that did not finish goes after 1 day.
 //!
 //! A reader that finds a file gone treats it as a miss, so a race with a delete costs a rebuild, nothing else.
+//!
+//! Cleanup of the compile cache folder (ADR-022 amendment): other-build entries after 7 days, any
+//! entry after 30, old temp files after 1 day; automatic once a day within 200 ms (`al-runner test`),
+//! by hand with `al-runner cache prune|info`. Stat only, never reads an entry. Entry points: `prune`,
+//! `auto_prune`, `info`.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

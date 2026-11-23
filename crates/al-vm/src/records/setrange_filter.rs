@@ -1,4 +1,7 @@
 //! The filter a Record's `SetRange` sets.
+//!
+//! The range a Record's `SetRange` sets (values converted to the field type; two Guids on a Media or
+//! MediaSet field refused, `filter::media_guid_order`). Entry points: `setrange_filter`.
 
 use super::*;
 

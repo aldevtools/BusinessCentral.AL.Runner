@@ -5,6 +5,14 @@
 //! where no row names the set keeps its result. With Microsoft's apps loaded (the corpus run), the delete of the set row is not
 //! known to raise no event or database trigger; what BC raises for the rows the cascade takes is not pinned, so there the
 //! delete is refused (`tenant_set_cascade_hooks_off`) and the probe's cases do not run in the corpus run.
+//!
+//! the Delete or DeleteAll of a stored Tenant Permission Set row with App ID zero deletes the Tenant
+//! Permission and Tenant Permission Set Rel. rows that name it, for the shapes the pinned
+//! permissions/permission-sets/TenantSetDeleteCascade.al measured (al-runner issue 7854; with
+//! Microsoft's apps loaded the delete refuses, `tenant_set_cascade_hooks_off`); other shapes where
+//! such rows exist refuse. Called from the Delete arm of `records/op_inner.rs` and
+//! `records/delete_all.rs` (plan before the delete, apply after). Entry points:
+//! `tenant_set_delete_one`, `tenant_set_delete_all`, `tenant_set_cascade_apply`.
 
 use crate::Session;
 use crate::globaltriggers::GlobalOp;

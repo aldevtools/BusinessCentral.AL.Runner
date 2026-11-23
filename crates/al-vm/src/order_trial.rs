@@ -29,6 +29,13 @@
 //!
 //! Anything else (an error, a refusal inside S, a write, a read of a table install code may write) is the refusal it was
 //! before: the install code stops, and the pair goes into the comparison of the orders (`take_order_unknown_hits`).
+//!
+//! A subscriber whose install order is not known runs once under watch instead of being refused
+//! (ADR-046 amendment 8, al-runner issues 6972 and 6644): no lasting write, reads only tables no
+//! open-order install code writes, `var` arguments unchanged, or only state handed to `Sender` (then
+//! its app's code writes nothing until the next app installs). Picked in `dispatch.rs`
+//! `event_targets`, run in `raise_to_subscribers`, writes and reads noted in `records/op_inner.rs`.
+//! Entry points: `trial_start`, `trial_end`, `note_table_op`.
 
 use crate::Session;
 use crate::impact::Touches;

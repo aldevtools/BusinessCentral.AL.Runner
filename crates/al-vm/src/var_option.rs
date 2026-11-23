@@ -4,6 +4,30 @@
 //! OptionVarMemberlessWrites.al (OVMW), OptionVarMemberlessCallers.al (OVMC), OptionVarMemberlessUnheard.al (OVMU, an event
 //! publisher no subscriber hears) and OptionVarMemberlessDirectCallers.al. The callers the corpus does not pin are refused
 //! where the call is lowered (al-sema `lower/var_option_arg.rs`).
+//!
+//! An Option handed to a `var` parameter whose declared member list differs from the value's (al-
+//! runner issues 7994 and 8291, pinned by types/enum-option/OptionVar*.al): a memberless parameter
+//! keeps the caller's members while the call runs and through stores into it, the caller's local or
+//! global gets its own members back after a parameter with other members, an element of an array of
+//! memberless Options that holds a caller's members keeps them or takes the number by the stored
+//! value's kind. Entry points: `var_binding` (the binding in `lib.rs` and `dispatch.rs::publish`),
+//! `written_back` (`interp.rs::write_back`), `param_store` (`Session::option_param_store`, called
+//! from `interp.rs::write_as`), `cleared_array` (`interp.rs::write_native_back`: Clear of a whole
+//! array declared with members gives back the members a memberless store dropped), `element_store`
+//! (`Session::element_value`, from `interp.rs::write_as` for an Index place; the store kind `Store`
+//! comes from the write site: an assignment, one from a `var`-section variable
+//! (`exec/run.rs::store_var_section`), a procedure's or an event publisher's write-back, or a
+//! builtin's). `Session::var_option_publisher_args` (`interp.rs::finish_call`) runs a publisher
+//! called directly with another member list that a subscriber hears only for the event contract
+//! (`heard_contract`) and places (`heard_place`) the probe measured, through `heard_publisher_caller`
+//! (assumption var-option-heard-publisher, al-runner issue 8384; a parameter with members, a number a
+//! subscriber leaves outside it `heard_finals`; the call refuses when it ends in an error,
+//! `heard_publisher_error`), and refuses every other place; one no subscriber hears changes nothing:
+//! for the places `unheard_publisher_caller` names it returns the arguments whose write-back
+//! `interp.rs::write_backs` skips, and refuses every other place; and a memberless subscriber under a
+//! publisher with members unless the argument is a procedure's `var` parameter its caller handed a
+//! measured variable (`option_hops_of`, kept per frame in `Frame::option_hops`). The static side is
+//! al-sema `lower/var_option_arg.rs`.
 
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::builtin_id::{BuiltinId, ids};

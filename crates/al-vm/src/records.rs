@@ -2,6 +2,9 @@
 //!
 //! Pinned by the corpus or the docs as noted; behaviour neither pins yet
 //! raises `Signal::Unsupported` instead of guessing.
+//!
+//! Record.* on the store: Insert, Modify, Delete, Get, Find, filters, triggers, events. Entry points:
+//! `record_op`, `table_event`, `run_trigger`, `delete_row`, `scan`, `unique_violation`.
 
 use crate::Session;
 use crate::globaltriggers::GlobalOp;

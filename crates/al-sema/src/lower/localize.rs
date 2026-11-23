@@ -5,6 +5,10 @@
 //! The keys of an object's routines come from its syntax, not from its lowered form: a routine
 //! that nothing reached is lowered to a stub without parameters, and its key must not change
 //! because of that.
+//!
+//! From a lowered object (positions) to a symbolic one (keys): routine keys from the syntax, the walk
+//! that moves every reference into the object's tables. Entry points: `localize`, `routine_keys`,
+//! `Keys`.
 
 use al_ir as ir;
 use al_ir::sym::{

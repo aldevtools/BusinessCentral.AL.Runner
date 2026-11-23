@@ -5,6 +5,8 @@
 //! TestTextExtended.al, TestTextOperations.al, TestTextProcessingContracts.al,
 //! TestTextBuilder.al, TestBigText.al); cases outside the pinned ones, and every
 //! error whose text is not pinned, raise `Signal::Unsupported`.
+//!
+//! Entry points: `secret_or_text`, `native_for`.
 
 use crate::describe::Describe;
 use crate::native::{Ctx, NativeFn, Signal, raise, text_of, unsupported};

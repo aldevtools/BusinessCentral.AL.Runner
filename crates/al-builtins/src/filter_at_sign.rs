@@ -7,6 +7,17 @@
 //! keeps the filter as it is: a Text field keeps main's answer and `@` alone on a Code field refuses
 //! ([`FilterExpr::AtSignAloneCode`]). The places a filter comes from where `@` alone on a Code field is measured are those of
 //! [`parse_filter_at_sign_measured`].
+//!
+//! `@` alone and `<>@` alone answer as BC reads the rows (`AtSignRows`: a read of the database, a row
+//! of the database BC checks itself, a temporary record), whatever the field's type. al-data
+//! `MemStore::at_sign_alone_read` picks the kind for the store's `next`, `count` and `delete_all`,
+//! for `row_passes` and for `passes_flow_field_filters` (by the Record call that runs); a CRM table's
+//! connection, a platform table and any other reader keep the filter, so `@` alone on a Code field
+//! refuses (`FilterExpr::AtSignAloneCode`). It is parsed only at the places the cells measure
+//! (`parse_filter_at_sign_measured`; `<>@` alone on a Code field only where its cells are,
+//! `parse_filter_both_at_signs_measured`); `parse_filter_with` refuses it everywhere else. Entry
+//! points: `AtSignRows`, `at_sign_alone_read`, `parse_filter_at_sign_measured`,
+//! `parse_filter_both_at_signs_measured`.
 
 use crate::assumptions::{Assumption, assume};
 use crate::filter::{FieldFilter, FilterExpr};

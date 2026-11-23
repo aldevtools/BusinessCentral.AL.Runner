@@ -5,6 +5,11 @@
 //! Pins: corpus al-language-testlibraries/test-framework/data-driven-tests-and-handlers/BiDataDriven.al (corpus PR 861). Its header (:9-41) is the
 //! reference run on BC 29; the asserting tests passed on the corpus CI of BC 29 with the result names used here (for
 //! example `Rows[alpha]`, `Id[ padded ]`), and the red part (:542-703) holds the results of the cases that cannot pass.
+//!
+//! Data-driven tests (`[TestDataSource]`, ADR-059): the run order (plain tests, then data-driven
+//! procedures by name), `ListTestCases` and the identifier rules, one result per case named
+//! `Procedure[identifier]`. Entry points: `queue`, `list`, `run_case` (called from the test loop of
+//! `run.rs`).
 use super::*;
 use al_builtins::value::{Instance, LibraryValue, Value};
 use std::cell::RefCell;

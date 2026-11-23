@@ -7,6 +7,11 @@
 //! 27.5.46862.48827 27024, 27.5.46862.58057 27025, 27.5.54899.58548 27025, 28.5.54151.54365 28014, 28.5.54151.58194 28015,
 //! 28.5.54976.58543 28015, 29.0.54011.55816 29022, 29.0.54011.56262 29022. So the number is a fact of the build, not of
 //! the BC minor.
+//!
+//! The emit version of a BC build, the constant `EmitVersion.CodeEmitVersion` of
+//! `Microsoft.Dynamics.Nav.CodeAnalysis.dll` in its platform artifact (assumption `missing-object-
+//! emit-version-from-artifact`). Entry points: `emit_version` (the file's bytes), `in_dir`, `of_tier`
+//! (through the artifact cache).
 use crate::artifact::Cdn;
 use crate::service_tier::ServiceTier;
 use std::path::Path;

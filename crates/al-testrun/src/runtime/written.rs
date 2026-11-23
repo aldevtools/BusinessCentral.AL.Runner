@@ -9,6 +9,14 @@
 //! of what it runs by a constant id, and the subscribers of the events all of these can raise. A refused routine, or a
 //! codeunit, page, report or xmlport run by an id known only at run time, makes the reach unknown: it may change
 //! anything.
+//!
+//! What a test that did not run to its end can change that a later test of the codeunit reads (static
+//! reach: tables, codeunit globals, session state; `unknown` for a refused construct or a run by a
+//! run-time id), for the trust of later failures. Entry points: `ReachFacts` (`inserts`: the tables a
+//! reach can add rows to), `changes_read_by`, `ReachIndex`, `reach_facts`, `union_call_reach_facts`
+//! (calls only, for `login.rs`), `login_subscriber_reach_facts` (a login subscriber's calls, runs,
+//! table triggers and the app's own events), `remainder_reach_facts` (a test a statement of its own
+//! body refused: its writes plus the rest of its body), `settled_flags`.
 use super::*;
 use al_builtins::value::RtType;
 use al_ir::{Arg, Const, Expr, ObjKind, Place, Stmt};

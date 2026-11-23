@@ -1,5 +1,8 @@
 //! The base branch's oracle and not-passing lists, read with `git show REV:PATH` (ADR-065): `--list-new-cases`
 //! adds lines only for cases the base oracle lacks, and `--list-changes` tells such lines apart from regressions.
+//!
+//! The base branch's oracle and lists, read with `git show REV:PATH` (`--list-new-cases`, `--list-
+//! changes`).
 
 use crate::config::{OracleFile, OracleFormat};
 use crate::oracle::{self, CaseId};

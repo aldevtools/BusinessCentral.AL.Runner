@@ -18,6 +18,16 @@
 //!
 //! Only which thread runs a codeunit, and when, changes: each codeunit still runs on a session of its own from the same
 //! baseline, so the outcomes are those of any other thread count (ADR-009: scheduling is internal).
+//!
+//! `MemoryBudget` (limit, source, resident-memory reader, `hard`) comes in through
+//! `RunOptions::memory`; `Plan` reads the resident memory after the compile and after the install
+//! baseline (the fixed part) and makes the `Pool`. `Pool::try_add` lets a test thread start while its
+//! codeunit fits at the cost learned from the first codeunit; `Pool::keep` ends a thread other than
+//! the first when there is no room; `Pool::enter` counts a running codeunit; `Pool::watch` samples
+//! the resident memory and, under a hard limit, sets the `Halt` (its flag stops the running tests
+//! through `Hooks::halt`; `run_unit` reports the tests not reached as not run with `Halt::reason`).
+//! `MemoryReport` is the `memory:` line of `--timings`. Entry points: `MemoryBudget`, `Pool`, `Halt`,
+//! `CompileWatch`.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};

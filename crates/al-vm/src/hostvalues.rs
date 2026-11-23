@@ -4,6 +4,10 @@
 //! The model (see `al-host`): the session time zone is UTC, so `Today`, `Time` and
 //! `CurrentDateTime` are views of one clock reading each. `Sleep` does not wait; it moves the
 //! session's view of the clock forward, which is all AL can observe of a wait.
+//!
+//! Builtins that answer from the host (ADR-006), and the system field stamps of a write
+//! (`stamp_insert`, `stamp_modify`, `stamp_rename`). Entry points: `datetime_of_unix_millis`,
+//! `Replaced`.
 
 use crate::Session;
 use al_builtins::builtin_id::ids;
