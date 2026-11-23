@@ -218,8 +218,6 @@ fn holds(then: Committed, now: Committed, bulk_ends: [Option<bool>; 3]) -> Holds
 struct GroupThen {
     stamps: Vec<Option<u64>>,
     selects: u64,
-    /// For a CalcFields (`Ends::Sources`), the commits of a Truncate of its row's table: no cell measures one.
-    truncates: u64,
 }
 
 #[derive(Clone)]
@@ -1249,50 +1247,33 @@ impl Session {
         let written = std::iter::once(t)
             .chain(sources.iter().map(|s| &**s))
             .any(|table| store.written_since_commit(cx, table));
-        let truncates = match ends {
-            Ends::TableAnd(_) => 0,
-            Ends::Sources(_) => {
-                let bulk = &self.pages.query_cache.bulk_commits;
-                bulk.get(&(t.object, BulkWrite::Truncate)).copied().unwrap_or(0)
-            }
-        };
-        let now = GroupThen {
-            stamps,
-            selects,
-            truncates,
-        };
+        let now = GroupThen { stamps, selects };
         let entry = self
             .pages
             .query_cache
             .groups
             .get(&at)
             .filter(|(then, _)| then.stamps == now.stamps)
-            .map(|(then, a)| (then.selects == now.selects, then.truncates == now.truncates, a.clone()));
+            .map(|(then, a)| (then.selects == now.selects, a.clone()));
         if !self.in_worker() {
             if written {
                 return Ok(fresh);
             }
-            if entry.as_ref().is_some_and(|(_, _, a)| !same_group(a, &fresh)) {
+            if entry.as_ref().is_some_and(|(_, a)| !same_group(a, &fresh)) {
                 return unsupported(TEST_READ_REFUSAL);
             }
             self.pages.query_cache.groups.insert(&at, (now, fresh.clone()));
             return Ok(fresh);
         }
         let answer = match entry {
-            Some((true, true, a)) => a,
-            Some((false, _, a)) if !same_group(&a, &fresh) => {
+            Some((true, a)) => a,
+            Some((false, a)) if !same_group(&a, &fresh) => {
                 return unsupported(
                     "a group read of a page background task after its SelectLatestVersion, which the query cache would answer \
                      otherwise than the table (not measured)",
                 );
             }
-            Some((_, false, a)) if !same_group(&a, &fresh) => {
-                return unsupported(
-                    "a CalcFields of a page background task after a commit of a Truncate of its row's table, which the query \
-                     cache would answer otherwise than the table (not measured)",
-                );
-            }
-            Some(_) | None => fresh.clone(),
+            Some((false, _)) | None => fresh.clone(),
         };
         self.pages.query_cache.groups.insert(&at, (now, answer.clone()));
         // A FindFirst or FindLast is flagged by `answered`.

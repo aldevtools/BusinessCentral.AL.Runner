@@ -1,26 +1,4 @@
 # key	entry
-# Against main (the query cache of al-runner PRs 8490, 8656, 8682, 8808, 8872 and 8885): the cells of corpus PR
-# 1558 at aedde991 (corpus issue 1555) whose answer changes. A CalcFields entry, of a temporary record too, holds through a commit
-# of another row of its row's table or of the row itself; main read the table. SelectLatestVersion with an Enum whose value
-# is the cached table's id ends the row entry; main refused it.
-BCE Tests::BgCacheEdges_CalcFieldsAfterACommitOfItsRow_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1558: BgTaskCacheEdges.al:440)
-BCE Tests::BgCacheEdges_CalcFieldsAfterACommitOfItsTable_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1558: BgTaskCacheEdges.al:434)
-BCE Tests::BgCacheEdges_SelectLatestVersionOfAnEnumNamingTheTable_ReadsTheTable	ASSUMED background-task-query-cache (open corpus PR 1558: BgTaskCacheEdges.al:452)
-BCE Tests::BgCacheEdges_TemporaryRecordAfterACommitOfItsRow_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1558: BgTaskCacheEdges.al:446)
-BCE Tests::BgCacheEdges_TemporaryRecordAfterACommitOfItsTable_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1558: BgTaskCacheEdges.al:428)
-# From the review of al-runner PR 8897: commits of the row's table that keep a CalcFields entry, where main reads the table,
-# and SelectLatestVersion of a value 0, which main refuses; and the BQN neighbors of the same commits, measured on BC.
-BCE Commit Tests::BgCacheEdges_CalcFieldsAfterACommitOfADelete_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1558: BgTaskCacheEdges.al:651)
-BCE Commit Tests::BgCacheEdges_CalcFieldsAfterACommitOfADeleteAll_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1558: BgTaskCacheEdges.al:645)
-BCE Commit Tests::BgCacheEdges_CalcFieldsAfterACommitOfAModifyAll_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1558: BgTaskCacheEdges.al:639)
-BCE Commit Tests::BgCacheEdges_RecordRefCalcFieldAfterACommitOfItsTable_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1558: BgTaskCacheEdges.al:681)
-BCE Commit Tests::BgCacheEdges_SelectLatestVersionOfAByteZero_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1558: BgTaskCacheEdges.al:699)
-BCE Commit Tests::BgCacheEdges_SelectLatestVersionOfACharZero_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1558: BgTaskCacheEdges.al:693)
-BCE Commit Tests::BgCacheEdges_SelectLatestVersionOfAnEnumZero_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1558: BgTaskCacheEdges.al:705)
-BCE Commit Tests::BgCacheEdges_SelectLatestVersionOfAnOptionZero_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1558: BgTaskCacheEdges.al:687)
-BCE Commit Tests::BgCacheEdges_TestCalcFieldsFirstThenACommit_TestsAnswer	ASSUMED background-task-query-cache (open corpus PR 1558: BgTaskCacheEdges.al:657)
-BQN Commit Tests::DeleteAllCommitted_LinesAfterFirstRead	ASSUMED background-task-query-cache (open corpus PR 1558: BgTaskCacheEdges.al:645)
-BQN Commit Tests::DeleteCommitted_LinesAfterFirstRead	ASSUMED background-task-query-cache (open corpus PR 1558: BgTaskCacheEdges.al:651)
-BQN Commit Tests::ModifyAllCommitted_LinesAfterFirstRead	ASSUMED background-task-query-cache (open corpus PR 1558: BgTaskCacheEdges.al:639)
-BQN Commit Tests::RecordRefCalcFieldAfterACommit_LinesAfterFirstRead	ASSUMED background-task-query-cache (open corpus PR 1558: BgTaskCacheEdges.al:681)
-BQN Commit Tests::TestCalcFieldsFirstThenCommit_LinesAfterIt	ASSUMED background-task-query-cache (open corpus PR 1558: BgTaskCacheEdges.al:657)
+# Against main (the query cache with al-runner PRs 8872, 8885 and 8897): corpus PR 1558 at d413e8b7 measures a commit of a
+# Truncate of the row's table: a worker's CalcFields keeps its entry, where main refused it.
+BCE Row Commit Tests::BgCacheEdges_CalcFieldsAfterACommitOfATruncateOfItsTable_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1558: BgTaskCacheEdges.al:958)
