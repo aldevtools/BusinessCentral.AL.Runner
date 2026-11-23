@@ -75,19 +75,26 @@ impl Session {
         };
         let rewritten_measured =
             rewritten && insert_before_control && opened == Opened::RunModalOneGroup && view == Some(View::Alone);
+        // The control's OnValidate wrote the rewritten row and nothing else (:443, :463).
+        let control_only_rewrote = st
+            .borrow()
+            .control_onvalidate
+            .as_ref()
+            .is_some_and(|c| self.write_mark() == (c.writes.0 + 1, c.writes.1));
         // Writes of other tables before the save, or before the control's OnValidate began for the rewritten row (on an empty
         // group only): measured under Page.RunModal (ListNewLineWritesOtherTable.al, `only_other_tables_written`). The rewritten
-        // row is the control's only write (`Inserted::Rewritten`): a control that also writes another table is refused, in
-        // either order (:630, :654, review of #8806, point 2).
+        // row is the control's only write of the page's table (`Inserted::Rewritten`); the control may also write other tables,
+        // in either order, when only the insert wrote the store before it (:630, :654, follow-up of the review of #8806); after
+        // the table field's writes of other tables, the rewrite is the control's only write (:463).
         let other_tables = !only_the_insert
             && !rewritten_measured
             && opened == Opened::RunModalOneGroup
-            && (!rewritten || view == Some(View::Alone))
+            && (!rewritten || (view == Some(View::Alone) && control_only_rewrote))
             && self.only_other_tables_written(st, rewritten)?;
         if !(measured && (only_the_insert || rewritten_measured || other_tables) && self.no_record_trigger(st)) {
             return Err(Signal::unsupported(UNMEASURED_CODE));
         }
-        if other_tables {
+        if other_tables || (rewritten_measured && !control_only_rewrote) {
             assume(Assumption::ListNewLineWritesOtherTable);
         }
         if rewritten {

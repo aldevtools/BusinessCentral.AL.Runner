@@ -130,6 +130,14 @@ page 97664 "LT NX Lines"
                                     CurrPage.SaveRecord();
                                     CurrPage.Update(false);
                                 end;
+                            9:
+                                begin
+                                    StampRow(Rec."Group Code", Rec."Entry No.");
+                                    AddDetail('ByPage');
+                                    StampRow(Rec."Group Code", Rec."Entry No.");
+                                    CurrPage.SaveRecord();
+                                    CurrPage.Update(false);
+                                end;
                             else begin
                                 CurrPage.SaveRecord();
                                 CurrPage.Update(false);
@@ -286,6 +294,20 @@ codeunit 97666 "LT NX Tests"
         Check('shown after the Value SetValue', 'A//V/1', ShownAfterValue);
         Check('rows', 'A//V;', Rows());
         Check('details', 'A;', Details());
+    end;
+
+    // The control writes the line through another record, then another table, then the line again, before the save (follow-up
+    // of the review of the runner pull request 8806: :630 and :654 measure one rewrite).
+    [Test]
+    [HandlerFunctions('LinesHandler')]
+    procedure NewLine_ControlRewritesTheLineTwiceAroundAnotherTablesWrite_SaveWritesRecOverTheLine()
+    begin
+        Initialize();
+        RunMode(9);
+        Check('shown after the Name SetValue', 'A//', ShownAfterName);
+        Check('shown after the Value SetValue', 'A//V', ShownAfterValue);
+        Check('rows', 'A//V;', Rows());
+        Check('details', 'A;ByPage;', Details());
     end;
 
     [ModalPageHandler]

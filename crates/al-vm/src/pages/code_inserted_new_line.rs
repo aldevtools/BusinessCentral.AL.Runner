@@ -496,7 +496,8 @@ impl Session {
     /// `new_line_writes`, and not above the mark when the control's OnValidate began, `control_onvalidate`). The table has
     /// no table extension and no event subscriber; with `manual_unbound` (the page with code), manual subscribers nobody binds
     /// are allowed (ListNewLineFactboxesCode.al:255-275). `Inserted::Rewritten` for that row when the control's OnValidate then
-    /// wrote it once, and nothing else (`code_inserted_extra.rs`, ListNewLineExtraCode.al:443).
+    /// wrote it, and wrote nothing else but rows of other tables, before or after it, with no delete (`code_inserted_extra.rs`,
+    /// ListNewLineExtraCode.al:443; ListNewLineWritesOtherTable.al:630, :654).
     fn inserted_by_table_field(&mut self, st: &St, manual_unbound: bool) -> Result<Option<Inserted>, Signal> {
         let (Some(start), Some((line_mark, _)), Some(control)) = ({
             let s = st.borrow();
@@ -539,10 +540,19 @@ impl Session {
         if by_table_field(version) {
             return Ok(Some(Inserted::ByTableField));
         }
-        // The row the table field inserted when the control's OnValidate began, written once since, and nothing else written.
+        // The row the table field inserted when the control's OnValidate began, written since, and nothing else of the page's
+        // table written and nothing deleted (rows of other tables may be written, before or after it: :630, :654).
+        drop(engine);
         let rewritten = control.row_version.is_some_and(by_table_field)
-            && version == control_mark + 1
-            && self.write_mark() == (control_mark + 1, control_deletes);
+            && version > control_mark
+            && self.write_mark().1 == control_deletes
+            && self.coded_rows(st)?.is_some_and(|rows| {
+                let line = table.primary_key(&stored);
+                rows.iter().all(|row| {
+                    Self::same_key(&table.primary_key(row), &line)
+                        || crate::stale_rename::row_version(&table, row).is_some_and(|v| v <= control_mark)
+                })
+            });
         Ok(rewritten.then_some(Inserted::Rewritten))
     }
 
