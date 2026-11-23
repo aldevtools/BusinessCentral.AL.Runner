@@ -260,6 +260,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `report.rs`: Joins the oracle with the runtime's outcomes into… Entry: `Outcome`.
 - `runner.rs`: The seam between the harness and the runtime. Entry: `Runner`.
 - `select.rs`: Test selection: --codeunit, --test, --area, --file. Entry: `Selection`.
+- `strict_not_run.rs`: The lists of the whole corpus in BC's order (ADR-070 decision 5). Entry: `check`.
 - `strict_order.rs`: The corpus order probes…
 
 ### al-testrun

@@ -95,6 +95,10 @@ fn run() -> Result<ExitCode, String> {
         }
         Parsed::Run(a) => *a,
     };
+    args.strict_order_all = std::env::var_os("AL_STRICT_ORDER_ALL").is_some();
+    if args.strict_order_all && args.list_new_cases.is_some() {
+        return Err("--list-new-cases cannot run with AL_STRICT_ORDER_ALL: new cases go to the default lists".into());
+    }
     if let Some(p) = &args.permission_shadow {
         al_builtins::permission_shadow::enable();
         let _ = SHADOW_FILE.set(p.clone());
@@ -284,7 +288,8 @@ fn awaiting_assumptions(
 
 /// `--coverage-map`: which builtin overloads the corpus calls (`coverage.rs`).
 /// `--list-changes REV`: how each not-passing list changed against REV, as Markdown (ADR-065, owner decision 2: a line
-/// added for a case REV's oracle had is a regression the owner approves in review). Exit 1 when there is one.
+/// added for a case REV's oracle had is a regression the owner approves in review). Exit 1 when there is one; exit 3 when
+/// a line was added to a strict list (`strict_not_run.rs`), which may only shrink.
 fn list_changes(args: &Args, root: &Path, rev: &str) -> Result<ExitCode, String> {
     let oracle_path = args.oracle.clone().unwrap_or_else(|| root.join("oracle/oracle.toml"));
     let cfg = config::OracleFile::parse(&read(&oracle_path)?).map_err(|e| format!("{}: {e}", oracle_path.display()))?;
@@ -305,8 +310,32 @@ fn list_changes(args: &Args, root: &Path, rev: &str) -> Result<ExitCode, String>
         }
     }
     print!("{}", not_passing::render_changes(rev, &changes));
+    // ADR-070 decision 5: the strict lists only shrink. Exit 3 when a line was added to one the base revision has.
+    let mut grown = false;
+    for v in &cfg.versions {
+        let rel = al_test_cli::strict_not_run::path(v.major);
+        let path = root.join(&rel);
+        let now = if path.exists() {
+            not_passing::parse(&read(&path)?).map_err(|e| format!("{}: {e}", path.display()))?
+        } else {
+            Default::default()
+        };
+        let base_list = match base.show(&rel)? {
+            Some(text) => Some(not_passing::parse(&text).map_err(|e| format!("{rev}:{rel}: {e}"))?),
+            None => None,
+        };
+        let added = al_test_cli::strict_not_run::added(base_list.as_ref(), &now);
+        if !added.is_empty() {
+            grown = true;
+            println!(
+                "\n### Lines added to `{rel}` ({}): this list may only shrink\n",
+                added.len()
+            );
+            added.iter().for_each(|c| println!("- {} {}", c.codeunit, c.name));
+        }
+    }
     let accepted = changes.iter().any(|c| !c.accepted_regressions.is_empty());
-    Ok(ExitCode::from(u8::from(accepted)))
+    Ok(ExitCode::from(if grown { 3 } else { u8::from(accepted) }))
 }
 
 fn coverage_map(root: &Path, dir: Option<&Path>) -> Result<ExitCode, String> {
@@ -1366,7 +1395,7 @@ fn run_version_inner(
         private_baseline: std::env::var_os("AL_PRIVATE_BASELINE").is_some(), // ADR-069 decision 11
         login_replay_check: std::env::var_os("ALRUNNER_LOGIN_REPLAY_CHECK").is_some(), // issue 8211, internal
         // Internal: the whole corpus in BC's order (`AL_STRICT_ORDER_ALL`; ADR-070 decision 5).
-        strict_order: std::env::var_os("AL_STRICT_ORDER_ALL").is_some(),
+        strict_order: args.strict_order_all,
         ..Default::default()
     };
     let load_time = started.elapsed();
@@ -1780,7 +1809,7 @@ fn check_lists(args: &Args, root: &Path, targets: &[Target]) -> Result<u8, Strin
         None => None,
     };
     let mut failed = false;
-    let mut writes: Vec<(&Path, String, Vec<String>)> = Vec::new();
+    let mut writes: Vec<(PathBuf, String, Vec<String>)> = Vec::new();
     for t in targets {
         let Some(path) = &t.list_path else { continue };
         let text = if path.exists() { read(path)? } else { String::new() };
@@ -1808,7 +1837,20 @@ fn check_lists(args: &Args, root: &Path, targets: &[Target]) -> Result<u8, Strin
                 list.extend(new);
             }
         }
-        let c = not_passing::check(&list, t.all, &*t.selected, &*t.recorded);
+        // ADR-070 decision 5: in BC's order the strict list joins the default one, and only its lines can be stale.
+        let strict = if args.strict_order_all {
+            Some(StrictList::of(root, t, &list)?)
+        } else {
+            None
+        };
+        let default_check;
+        let c = match &strict {
+            Some(s) => &s.check.check,
+            None => {
+                default_check = not_passing::check(&list, t.all, &*t.selected, &*t.recorded);
+                &default_check
+            }
+        };
         if args.baseline_diff {
             println!(
                 "\n{}",
@@ -1829,7 +1871,18 @@ fn check_lists(args: &Args, root: &Path, targets: &[Target]) -> Result<u8, Strin
             }
         }
         let stale: Vec<_> = c.stale().cloned().collect();
-        if args.prune_not_passing && !stale.is_empty() {
+        if let Some(s) = &strict {
+            s.report_default_passing(t);
+            if args.prune_not_passing && !stale.is_empty() {
+                let note = format!(
+                    "BC {}: {} stale line(s) deleted from {}",
+                    t.label,
+                    stale.len(),
+                    s.path.display()
+                );
+                writes.push((s.path.clone(), s.pruned(&stale), vec![note]));
+            }
+        } else if args.prune_not_passing && !stale.is_empty() {
             notes.push(format!(
                 "BC {}: {} stale line(s) deleted from {}",
                 t.label,
@@ -1841,9 +1894,19 @@ fn check_lists(args: &Args, root: &Path, targets: &[Target]) -> Result<u8, Strin
             }
         }
         if !notes.is_empty() {
-            writes.push((path, not_passing::format(&list), notes));
+            writes.push((path.clone(), not_passing::format(&list), notes));
         }
-        report_check(t, path, &c, args.prune_not_passing);
+        match &strict {
+            Some(s) => report_check(
+                t,
+                &s.lists(path),
+                &s.path,
+                &c,
+                args.prune_not_passing,
+                "AL_STRICT_ORDER_ALL=1 ",
+            ),
+            None => report_check(t, &path.display().to_string(), path, &c, args.prune_not_passing, ""),
+        }
         match not_passing::decide(&c, args.prune_not_passing, args.require_dotnet) {
             not_passing::Decision::Ok => {}
             not_passing::Decision::Setup(why) => return Err(why),
@@ -1851,20 +1914,63 @@ fn check_lists(args: &Args, root: &Path, targets: &[Target]) -> Result<u8, Strin
         }
     }
     for (path, text, notes) in writes {
-        write(path, &text)?;
+        write(&path, &text)?;
         notes.iter().for_each(|n| println!("{n}"));
     }
     Ok(u8::from(failed))
 }
 
-/// The failures of a check on standard error: what each case does, and what to do about it.
-fn report_check(t: &Target, path: &Path, c: &not_passing::Check, pruned: bool) {
+/// The strict list of one target in BC's order (`strict_not_run.rs`, ADR-070 decision 5): the main app's
+/// `metrics/<major>/strict-order-not-run.txt`; a suite app has none.
+struct StrictList {
+    path: PathBuf,
+    text: String,
+    check: al_test_cli::strict_not_run::StrictCheck,
+}
+
+impl StrictList {
+    fn of(root: &Path, t: &Target, list: &std::collections::BTreeSet<oracle::CaseId>) -> Result<StrictList, String> {
+        let path = root.join(al_test_cli::strict_not_run::path(t.major));
+        let text = match (&t.suite, path.exists()) {
+            (None, true) => read(&path)?,
+            _ => String::new(),
+        };
+        let strict = not_passing::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+        let check = al_test_cli::strict_not_run::check(list, &strict, t.all, &*t.selected, &*t.recorded);
+        Ok(StrictList { path, text, check })
+    }
+
+    /// The lists a case may be on, for the regression line.
+    fn lists(&self, default: &Path) -> String {
+        format!("{} or {}", default.display(), self.path.display())
+    }
+
+    fn pruned(&self, stale: &[oracle::CaseId]) -> String {
+        al_test_cli::strict_not_run::prune(&self.text, &stale.iter().cloned().collect())
+    }
+
+    fn report_default_passing(&self, t: &Target) {
+        let passing = &self.check.default_passing;
+        if !passing.is_empty() {
+            eprintln!(
+                "BC {}: {} case(s) of the default not-passing list pass in BC's order (the default run keeps the line):",
+                t.label,
+                passing.len()
+            );
+            passing.iter().for_each(|x| eprintln!("  {} {}", x.codeunit, x.name));
+        }
+    }
+}
+
+/// The failures of a check on standard error: what each case does, and what to do about it. `lists` names the lists a
+/// case may be on; `path` is the list whose stale lines `--prune-not-passing` deletes, run with `env` in front.
+fn report_check(t: &Target, lists: &str, path: &Path, c: &not_passing::Check, pruned: bool, env: &str) {
     if !c.regressions.is_empty() {
         eprintln!(
             "BC {}: {} regression(s): cases not listed in {} do not pass:",
             t.label,
             c.regressions.len(),
-            path.display()
+            lists
         );
         for (x, why) in &c.regressions {
             eprintln!("  {} {}  [{why}]", x.codeunit, x.name);
@@ -1872,7 +1978,7 @@ fn report_check(t: &Target, path: &Path, c: &not_passing::Check, pruned: bool) {
     }
     if !pruned && c.stale().next().is_some() {
         eprintln!(
-            "BC {}: {} stale line(s) in {}: delete them with `al-test-cli --root . --prune-not-passing --bc-version {}`:",
+            "BC {}: {} stale line(s) in {}: delete them with `{env}al-test-cli --root . --prune-not-passing --bc-version {}`:",
             t.label,
             c.stale_passing.len() + c.stale_gone.len(),
             path.display(),

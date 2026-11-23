@@ -632,11 +632,13 @@ jobs:
 
       # ADR-070 decision 5: the corpus is the oracle for BC, and BC runs in strict order, so the whole corpus must also
       # hold its not-passing lists when every pass runs in BC's order (`AL_STRICT_ORDER_ALL=1`, the internal switch of
-      # `al-test-cli` that sets `--strict-order` on every pass). Latest major only.
+      # `al-test-cli` that sets `--strict-order` on every pass). Latest major only. It fails on a case that does not pass
+      # and is on no list; a case the default run passes and this run does not run yet may be on the shrink-only
+      # `metrics/29/strict-order-not-run.txt` (`strict_not_run.rs`).
       - name: Corpus in BC's order (whole corpus with --strict-order)
         if: env.NIGHTLY_SET == 'true'
         run: |
-          AL_STRICT_ORDER_ALL=1 ./target/release/al-test-cli --bc-version 29 --require-dotnet --no-ratchet \
+          AL_STRICT_ORDER_ALL=1 ./target/release/al-test-cli --bc-version 29 --require-dotnet \
             --junit strict-all-junit.xml
 
       # The job summary, from the files the two steps above write. It runs even when one of them
@@ -663,6 +665,9 @@ jobs:
           cat list-changes.md
           if [ "$status" = 1 ]; then
             echo "::warning::this pull request adds a not-passing line for a case the base oracle had (a regression); it needs the owner's OK"
+          elif [ "$status" = 3 ]; then
+            echo "::error::this pull request adds a line to metrics/<major>/strict-order-not-run.txt, which may only shrink (ADR-070 decision 5)"
+            exit 1
           elif [ "$status" != 0 ]; then
             echo "::error::al-test-cli --list-changes failed"
             exit 1

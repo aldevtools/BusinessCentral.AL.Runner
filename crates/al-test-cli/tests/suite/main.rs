@@ -42,6 +42,7 @@ mod card_onfindrecord;
 mod ci_bc_artifacts;
 mod ci_compile_cache;
 mod ci_neighbors;
+mod ci_strict_order;
 mod clear_trapping_test_page;
 mod close_save_error;
 mod codemap;
