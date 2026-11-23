@@ -166,7 +166,7 @@ PY
   gates_out="$(cargo test -q -p al-version 2>&1)" || {
     printf '%s\n' "$gates_out"
     echo "files with a guard above the floor and no gate:"
-    printf '%s\n' "$gates_out" | sed -n '/corpus guards with no gate/,/^$/p' | grep -E "\(BC[0-9]+PLUS\)" | sed 's/^/  /' || true
+    printf '%s\n' "$gates_out" | sed -n '/corpus guards with no gate/,/^$/p' | grep -E "\(BC[0-9]+(_[0-9]+)?PLUS\)" | sed 's/^/  /' || true
     todo+=("version gates: extend a Gate in crates/al-version/src/gates.rs (its evidence list) for each file above, then cargo test -p al-version")
   }
 fi
@@ -350,6 +350,10 @@ done
 CORPUS_BUMP_GH="$gh" python3 -I "$here/corpus_bump_provenance.py" files --state "$tmp/provenance.json" \
   --corpus "$corpus" --sha "$sha" --old "$old" --oracle "${CORPUS_BUMP_ORACLE:-$root/oracle}" \
   --list "$tmp/files.txt" --summary "$tmp/provenance-summary.json"
+# The preprocessor symbols of each leg (ADR-078 point 3): the manifest's agree with the runner's, and its list of
+# released minors goes to oracle.toml (tools/corpus_bump_symbols.py).
+python3 -I "$here/corpus_bump_symbols.py" --state "$tmp/provenance.json" --oracle "${CORPUS_BUMP_ORACLE:-$root/oracle}" \
+  --out "$tmp/released-minors.json"
 
 if git -C "$corpus" cat-file -e "$old^{commit}" 2>/dev/null; then
   echo "corpus files added since the old pin ${old:0:7}:"
@@ -405,10 +409,12 @@ for leg in $legs; do
   major="${leg%%.*}"
   args+=("$major" "${oracle_id[$leg]}" "${onprem_id[$leg]}" "$(cases "$root/oracle/$major/junit.xml")" "$(cases "$root/oracle/$major/junit-onprem.xml")")
 done
+released=""
+[ -f "$tmp/released-minors.json" ] && released="$tmp/released-minors.json"
 DOTNET_IDS="27=${dotnet_id[27.5]} 28=${dotnet_id[28.5]} 29=${dotnet_id[29.0]}" \
   TESTLIB_IDS="27=${testlib_id[27.5]} 28=${testlib_id[28.5]} 29=${testlib_id[29.0]}" \
   ISOL_IDS="27=${isol_id[27.5]} 28=${isol_id[28.5]} 29=${isol_id[29.0]}" \
   TRYW_IDS="27=${tryw_id[27.5]} 28=${tryw_id[28.5]} 29=${tryw_id[29.0]}" \
-  PROVENANCE="$tmp/provenance-summary.json" python3 "$here/corpus_bump_edit.py" "$root" "$sha" "$run" "${args[@]}"
+  PROVENANCE="$tmp/provenance-summary.json" RELEASED_MINORS="$released" python3 "$here/corpus_bump_edit.py" "$root" "$sha" "$run" "${args[@]}"
 
 finish "run $run"
