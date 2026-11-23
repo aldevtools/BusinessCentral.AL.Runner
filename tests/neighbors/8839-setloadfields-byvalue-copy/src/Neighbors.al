@@ -159,6 +159,45 @@ codeunit 50005 "NB LR Seed"
     end;
 }
 
+// A codeunit trigger as the caller: the cells call from procedures of a codeunit.
+codeunit 50006 "NB LR OnRun"
+{
+    var
+        Described: Text;
+
+    trigger OnRun()
+    var
+        Row: Record "NB LR Row";
+        Callee: Codeunit "NB LR Callee";
+    begin
+        Row.SetRange(Status, Row.Status::Posted);
+        Row.SetLoadFields(Name);
+        Row.FindFirst();
+        Described := Callee.Describe(Row);
+    end;
+
+    procedure Result(): Text
+    begin
+        exit(Described);
+    end;
+}
+
+codeunit 50015 "NB LR From OnRun"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure FromCodeunitOnRun_Flagged()
+    var
+        Seed: Codeunit "NB LR Seed";
+        Runner: Codeunit "NB LR OnRun";
+    begin
+        Seed.Seed();
+        Runner.Run();
+        Seed.Expect(Runner.Result(), 'loaded=No f={} key=Id after=Yes amount=20');
+    end;
+}
+
 codeunit 50010 "NB LR Filter FindSet"
 {
     Subtype = Test;
