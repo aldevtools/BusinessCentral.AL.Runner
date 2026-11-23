@@ -2,13 +2,13 @@
 //! control, `pages::control_id` of the page and the control name (the compiled app's SymbolReference.json lists the same ids),
 //! measured by corpus pull request 1538, testpage/GetFieldByControlId.al (open; assumption `testpage-getfield-control-id`).
 //! The page's own field control with the id is the field (a field bound to a field of Rec, to a page variable, or a label, in a
-//! repeater, a group, a nested group, a fixed, a grid or a cuegroup, :449 :503 :630 :653, a base field a page extension modifies, :705); the handle
-//! reads and writes as the control by its name in the calls the cells make (`BY_ID_CALLS`, :570 :668), a hidden control included
-//! (:530, :705 not found); a field in a cuegroup reads as by its name (`cue_value.rs`, :653, :742). The id of a part, a cuegroup, a fixed or a grid gives a field whose Value
-//! is empty (:545, :630). Any other id is not found: a group, a repeater, an action, an action group, an area, a field a page
-//! extension adds (by either object's id; from BC 28, :589: BC 27 finds it by the extension's id,
-//! `al_version::getfield_finds_extension_fields`), a control of another page or of the part's page (:468 :484 :545 :611 :705;
-//! testpage/TestPageRuntimeContracts.al:274-275 the code).
+//! repeater, a group, a nested group, a fixed, a grid or a cuegroup, :449 :503 :630 :653, a base field a page extension
+//! modifies, :705); the handle reads and writes as the control by its name in the calls the cells make (`BY_ID_CALLS`, :570
+//! :668), a hidden control included (:530, :705 not found); a field in a cuegroup reads as by its name (`cue_value.rs`, :653,
+//! :742). The id of a part, a cuegroup, a fixed or a grid gives a field whose Value is empty (:545, :630). Any other id is not
+//! found: a group, a repeater, an action, an action group, an area, a field a page extension adds (by either object's id; from
+//! BC 28, :589: BC 27 finds it by the extension's id, `al_version::getfield_finds_extension_fields`), a control of another page
+//! or of the part's page (:468 :484 :545 :611 :705; testpage/TestPageRuntimeContracts.al:274-275 the code).
 
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
@@ -30,6 +30,16 @@ const BY_ID_CALLS: [PageMethod; 11] = [
 ];
 
 impl Session {
+    /// The page's own control (no action, no page extension's) whose compiler id is `id`.
+    pub(super) fn own_control_by_id(&self, st: &St, id: i32) -> Result<Option<usize>, Signal> {
+        let page_id = self.object_id_of(st.borrow().object)?;
+        let engine = self.engine();
+        Ok(page_of(&engine, st)
+            .controls
+            .iter()
+            .position(|c| c.owner.is_none() && c.action_ref.is_none() && control_id(page_id, &c.name) == i64::from(id)))
+    }
+
     /// `GetField(id)` on the open page `st`.
     pub(super) fn get_field_by_id(&mut self, st: &St, id: i32) -> Result<Value, Signal> {
         let not_found = || {
@@ -41,18 +51,11 @@ impl Session {
         if self.is_request_page(st) {
             return not_found();
         }
-        let object = st.borrow().object;
-        let page_id = self.object_id_of(object)?;
-        let engine = self.engine();
-        let page = page_of(&engine, st);
-        let Some(idx) = page
-            .controls
-            .iter()
-            .position(|c| c.owner.is_none() && c.action_ref.is_none() && control_id(page_id, &c.name) == i64::from(id))
-        else {
-            drop(engine);
+        let Some(idx) = self.own_control_by_id(st, id)? else {
             return self.get_extension_field_by_id(st, id);
         };
+        let engine = self.engine();
+        let page = page_of(&engine, st);
         let ctl = &page.controls[idx];
         let by_id = match ctl.kind {
             ir::ControlKind::Field => ById::Field,
