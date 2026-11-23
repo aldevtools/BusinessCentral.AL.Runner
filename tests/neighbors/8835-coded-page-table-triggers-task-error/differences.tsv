@@ -14,6 +14,6 @@ LT NQ2 Tests::NewLine_ExtraCodeOnPageWithCodeAndTaskErrorTrigger_ShowsAndSavesTh
 LT NQ2 Tests::NewLine_TaskErrorTriggerTheTaskDoesNotRaise_ShowsTheCount	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1540, open: ListNewLineExtraCodeCodedTaskError.al)
 LT NQ2 Tests::NewLine_TaskRaisesAnErrorTheTriggerHandles_ShowsTheFailure	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1540, open: ListNewLineExtraCodeCodedTaskError.al)
 LT NQ2 Tests::NewLine_TaskRaisesAnErrorTheTriggerDoesNotHandle_TheErrorReachesTheTest	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1540, open: ListNewLineExtraCodeCodedTaskError.al)
-# Neighbors just past the cells, refused on both: an error trigger that calls CurrPage.Update, and one that writes another table.
-LT NQ3 Tests::NewLine_TaskErrorTriggerUpdatesThePart_ShowsTheFailure	REFUSED a page background task's completion or error trigger called CurrPage.Update
-LT NQ3 Tests::NewLine_TaskErrorTriggerWritesAnotherTable_ShowsTheFailure	REFUSED a trigger of a List page with code and FactBoxes, or of its parts, wrote or changed Rec
+# Neighbors just past the cells: an error trigger that calls CurrPage.Update, and one that writes another table. Their pages
+# differ from the cells' in facts the strict shape compares (review of al-runner PR 8834, 21:06Z), so they keep the base's
+# refusal, the same on both.
