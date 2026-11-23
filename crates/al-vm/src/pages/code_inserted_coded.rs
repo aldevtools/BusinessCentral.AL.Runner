@@ -55,6 +55,7 @@ use super::pinned_shape::TestCall;
 use super::state::{CodedLine, FactboxStep};
 use super::*;
 use al_builtins::assumptions::assume;
+use al_builtins::builtin_id::ids;
 use al_builtins::page_op::PageMethod;
 
 /// A step of the page with code `st` runs under the assumption of the objects it showed at its open (`CodedObjects`).
@@ -207,8 +208,7 @@ impl Session {
                     .iter()
                     .find(|(n, _)| n == "onaftergetcurrrecord")
                     .is_some_and(|&(_, r)| {
-                        super::pinned_body::routine_text(&engine.program, part_object, r, &mut Vec::new())
-                            .is_some_and(|text| text.contains("CurrPage.EnqueueBackgroundTask("))
+                        Self::routine_calls(&engine, part_object, r, &[ids::PAGE_ENQUEUEBACKGROUNDTASK_1])
                     });
             if !(control_ok
                 && Self::is_card_part(&engine, part_object)
@@ -332,8 +332,8 @@ impl Session {
 
     /// Whether the first write of control `idx` of host `st` may land as the cells' does: on the probe's and the repro's pages
     /// always (their code is compared line for line); on a page of their shape (`CodedObjects::Extra`) when the control's
-    /// OnValidate calls `CurrPage.SaveRecord()` and the OnValidate of the table field it shows inserts the row (`Insert(`).
-    /// A body the renderer cannot write does not.
+    /// OnValidate calls `CurrPage.SaveRecord()` itself and the OnValidate of the table field it shows calls Insert itself
+    /// (`routine_calls`).
     fn coded_write_may_land(&self, st: &St, idx: usize) -> bool {
         if st.borrow().coded_objects != super::state::CodedObjects::Extra {
             return true;
@@ -346,24 +346,44 @@ impl Session {
         let ir::Binding::Field(field) = control.binding else {
             return false;
         };
-        let text = |object: usize, routine: usize| {
-            super::pinned_body::routine_text(&engine.program, object, routine, &mut Vec::new())
-        };
         let saves = control
             .triggers
             .iter()
             .find(|(n, _)| n == "onvalidate")
-            .and_then(|&(_, r)| text(object, r))
-            .is_some_and(|t| t.contains("CurrPage.SaveRecord()"));
+            .is_some_and(|&(_, r)| Self::routine_calls(&engine, object, r, &[ids::PAGE_SAVERECORD_1]));
         let table = self.page_rec(st).borrow().table as usize;
         let inserts = engine.program.objects[table]
             .table
             .as_ref()
             .and_then(|t| t.fields.get(field))
             .and_then(|f| f.on_validate)
-            .and_then(|(o, r)| text(o, r))
-            .is_some_and(|t| t.contains("Insert("));
+            .is_some_and(|(o, r)| {
+                Self::routine_calls(
+                    &engine,
+                    o,
+                    r,
+                    &[ids::RECORD_INSERT_1, ids::RECORD_INSERT_2, ids::RECORD_INSERT_3],
+                )
+            });
         saves && inserts
+    }
+
+    /// Whether routine `routine` of object `object` calls one of the builtins `wanted` itself, in any statement or expression
+    /// (`for_each_expr_post`); a call in a procedure it calls does not count.
+    fn routine_calls(
+        engine: &crate::Engine,
+        object: usize,
+        routine: usize,
+        wanted: &[al_builtins::builtin_id::BuiltinId],
+    ) -> bool {
+        let mut found = false;
+        al_ir::types::for_each_expr_post(
+            engine.program.objects[object].routines[routine].body.stmts(),
+            &mut |e| {
+                found |= matches!(e, ir::Expr::Builtin { id, .. } if wanted.contains(id));
+            },
+        );
+        found
     }
 
     /// Whether the validation of the SetValue that let the parts read the new line has landed on its row: before the landing an
