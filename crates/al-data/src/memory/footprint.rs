@@ -36,7 +36,8 @@ pub enum Resource {
     /// One row: company (empty for `DataPerCompany = false`), table object, primary key. Rows of one table object carry
     /// keys of one order, so the derived order compares two keys only when they belong to the same table.
     Row(Arc<str>, u32, RowKey),
-    /// Which rows a table holds, and through a filtered read what they hold: company, table object.
+    /// Every row of a table in a company: read by a filtered read (which rows the table holds and what they hold),
+    /// written by a write that may change any row (`DeleteAll`, a write the store cannot place by key).
     Extent(Arc<str>, u32),
     /// Every row of a table object in every company: what a read or write the store cannot place more precisely touches.
     Table(u32),
@@ -132,7 +133,7 @@ pub(super) enum Touch {
     ReadRow,
     /// `Next`, `Count`, and the reads of whether or when a table changed.
     ReadExtent,
-    /// `Insert`, `Delete`: reads the row (whether it exists decides the outcome), writes it and the extent.
+    /// `Insert`, `Delete`: reads the row (whether it exists decides the outcome) and writes it.
     InsertOrDelete,
     /// `Modify`: reads and writes the row.
     Modify,
@@ -232,10 +233,11 @@ impl MemStore {
                 f.reads.insert(r.clone());
                 f.writes.insert(r);
             }
+            // An insert or delete changes its row only. A filtered read sees it as a write of a row of its table
+            // (`read_sees_write`), so no extent write is needed: that one stands for a write of every row.
             (Touch::InsertOrDelete, Some(r)) => {
                 f.reads.insert(r.clone());
                 f.writes.insert(r);
-                f.writes.insert(extent);
             }
             (Touch::DeleteAll, _) => {
                 f.reads.insert(extent.clone());
@@ -328,7 +330,10 @@ mod tests {
         let f = s.footprint_take().unwrap();
         assert!(f.everything.is_empty());
         let extent = Resource::Extent("C".into(), t.object);
-        assert!(f.writes.contains(&extent), "an insert writes the extent");
+        assert!(
+            !f.writes.contains(&extent),
+            "an insert writes its row only; a filtered read sees that"
+        );
         assert!(f.reads.contains(&extent), "a count reads the extent");
         let rows: Vec<_> = f.writes.iter().filter(|r| matches!(r, Resource::Row(..))).collect();
         assert_eq!(rows.len(), 1, "the inserted row, kept over the restore");

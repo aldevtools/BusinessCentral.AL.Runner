@@ -357,3 +357,29 @@ fn a_row_is_keyed_as_the_store_compares_text_keys() {
     assert!(row_read.read_sees_write(row_write), "{row_read:?} / {row_write:?}");
     assert!(row_write.writes_collide(row_read));
 }
+
+#[test]
+fn an_insert_of_one_key_is_not_seen_by_a_get_of_another_but_by_every_filtered_read() {
+    // Two partner installs that each insert a row of their own and Get it first (`if not Get then Insert`) do not read
+    // from each other: an insert changes its row only. A filtered read (Find, Count) sees it; a DeleteAll changes every
+    // row, so a Get sees that.
+    let (c, t) = (cx("C"), table());
+    let mut s = MemStore::default();
+    s.footprint_start();
+    s.insert(&c, &t, row("A", 1, 1)).unwrap();
+    let a = take(&mut s);
+    s.footprint_start();
+    assert!(s.get(&c, &t, &[row("A2", 1, 1)[0].clone()]).unwrap().is_none());
+    let get = take(&mut s);
+    s.footprint_start();
+    s.count(&c, &t, &[]).unwrap();
+    let count = take(&mut s);
+    let sees =
+        |r: &StoreFootprint, w: &StoreFootprint| r.reads.iter().any(|r| w.writes.iter().any(|w| r.read_sees_write(w)));
+    assert!(!sees(&get, &a), "{get:?} / {a:?}");
+    assert!(sees(&count, &a));
+    s.footprint_start();
+    s.delete_all(&c, &t, &[]).unwrap();
+    let all = take(&mut s);
+    assert!(sees(&get, &all));
+}
