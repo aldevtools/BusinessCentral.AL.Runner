@@ -425,10 +425,11 @@ impl CellPage {
         )
     }
 
-    /// The Indentation of each row of the table, in the key, that every cell on the page had: on a tree page A and B at the top,
-    /// C under B (TreeValidateFilterRefresh.al:507 `Initialize`, :514-:519); `None` elsewhere.
-    pub(crate) fn indentations(self) -> Option<&'static [i32]> {
-        self.tree().then_some(&[0, 0, 1])
+    /// The Indentation of each row of the table, in the key, that `cell` on the page had: on a tree page and on the List over
+    /// the tree's table A and B at the top, C under B (TreeValidateFilterRefresh.al:507 `Initialize`, :514-:519), or none
+    /// indented for a flat cell (:1167 `InitializeFlat`); `None` elsewhere.
+    pub(crate) fn indentations(self, cell: &Cell) -> Option<&'static [i32]> {
+        (self.tree() || self == CellPage::TreeLines).then_some(if cell.flat { &[0, 0, 0] } else { &[0, 0, 1] })
     }
 
     /// A tree page of TreeValidateFilterRefresh.al (assumption `tree-validate-view-refresh`).
@@ -587,6 +588,8 @@ pub(crate) enum Tail {
 pub(crate) struct Cell {
     pub(crate) steps: &'static [Step],
     pub(crate) tail: Tail,
+    /// Over rows none indented (`CellPage::indentations`).
+    pub(crate) flat: bool,
 }
 
 use Change::{Drop, Keep, KeepText, Reset, Same};
@@ -599,6 +602,7 @@ const fn walk(steps: &'static [Step]) -> Cell {
     Cell {
         steps,
         tail: Tail::Walk,
+        flat: false,
     }
 }
 
@@ -606,11 +610,21 @@ const fn close(steps: &'static [Step]) -> Cell {
     Cell {
         steps,
         tail: Tail::Close,
+        flat: false,
     }
 }
 
 const fn end(steps: &'static [Step]) -> Cell {
-    Cell { steps, tail: Tail::End }
+    Cell {
+        steps,
+        tail: Tail::End,
+        flat: false,
+    }
+}
+
+/// `cell` over rows none indented.
+const fn flat(cell: Cell) -> Cell {
+    Cell { flat: true, ..cell }
 }
 
 /// Last, a SetValue on Name with `update` and `change` whose refresh settled on row `at` of a view of `rows`, then a SetValue on
@@ -722,6 +736,7 @@ const ISSUE_CELLS: [Cell; 6] = [
     Cell {
         steps: &KEEP_F,
         tail: Tail::FirstClose,
+        flat: false,
     },
     walk(&[Last, Set(Name, Upd::False, Keep, Some((2, 1)))]),
 ];
@@ -805,9 +820,14 @@ const TREE_DROP_CELLS: [Cell; 1] = [end(&[Set(Name, Upd::False, Drop, Some((2, 0
 /// The cells on page 97727, over the rows of `TREE_CELLS`' last three: the SetValue on Name from the first, the middle and
 /// the last row, the filter leaving the row out; then the SetValue on Value, First, the walk and Close (:1246, :1264, :1282).
 const TREE_LINES_CELLS: [Cell; 3] = [
-    walk(&[DROP_TO_FIRST, Set(Val, Upd::False, Same, Some((1, 0)))]),
-    walk(&[Last, Previous, DROP_TO_FIRST, Set(Val, Upd::False, Same, Some((1, 0)))]),
-    walk(&DROP_F),
+    flat(walk(&[DROP_TO_FIRST, Set(Val, Upd::False, Same, Some((1, 0)))])),
+    flat(walk(&[
+        Last,
+        Previous,
+        DROP_TO_FIRST,
+        Set(Val, Upd::False, Same, Some((1, 0))),
+    ])),
+    flat(walk(&DROP_F)),
 ];
 
 /// A SetValue on Name, Update(false), whose filter leaves the row out of a view of `rows`, the refresh settling on the first.
@@ -816,7 +836,7 @@ const DROP_TO_FIRST: Step = Set(Name, Upd::False, Drop, Some((1, 0)));
 /// The cells on page 97720 (the line of each test). The last three: a filter that leaves the row out over the rows A (G0), B
 /// (G1) and C (G2), none indented, from the first, the middle and the last row; the last one also over the tree's rows, where
 /// Last stands on B and SetRange on G0 leaves it out (:1146).
-const TREE_CELLS: [Cell; 11] = [
+const TREE_CELLS: [Cell; 12] = [
     walk(&TREE_KEEP_F),      // :794
     walk(&TREE_KEEP_TEXT_F), // :812
     walk(&TREE_KEEP_T),      // :830
@@ -829,9 +849,10 @@ const TREE_CELLS: [Cell; 11] = [
     walk(&TREE_EXPANDED_F),  // :902
     walk(&[Last, Action(Upd::False, Keep), Set(Val, Upd::False, Same, Some((2, 0)))]), // :921
     walk(&[Last, Set(Val, Upd::False, Same, Some((3, 1)))]), // :1129
-    end(&[DROP_TO_FIRST]),   // :1300
-    end(&[Last, Previous, DROP_TO_FIRST]), // :1312
-    end(&[Last, DROP_TO_FIRST]), // :1324, :1146
+    flat(end(&[DROP_TO_FIRST])), // :1300
+    flat(end(&[Last, Previous, DROP_TO_FIRST])), // :1312
+    flat(end(&[Last, DROP_TO_FIRST])), // :1324
+    end(&[Last, DROP_TO_FIRST]), // :1146
 ];
 
 /// The cells on page 97721, both row triggers (:939, :957, :975, :993).

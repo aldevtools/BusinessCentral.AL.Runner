@@ -240,7 +240,7 @@ impl Session {
         // test reaches this check today: in the runner a TestPage filter before OpenEdit fails (the page is not open), and
         // one after it turns the rule off at its SetFilter call.
         let first = !v.steps.iter().any(|s| matches!(s, Set(..) | Fail(_) | Action(..)));
-        if (first && !Self::view_filters(&rec).is_empty()) || !self.validate_view_table_fits(st, &rec, page)? {
+        if (first && !Self::view_filters(&rec).is_empty()) || !self.validate_view_table_fits(&rec, page, &v.steps)? {
             return Ok(false);
         }
         let table = self.table(&rec)?;
@@ -538,8 +538,7 @@ impl Session {
         let at = self.view_index(&rec, &at_key)?;
         let mut steps = st.borrow().validate_view.steps.clone();
         steps.push(Set(ctl, update, change, at.map(|at| (rows, at))));
-        let measured = page.cells().iter().any(|c| c.steps.starts_with(&steps))
-            && self.validate_view_table_fits(st, &rec, page)?;
+        let measured = self.validate_view_table_fits(&rec, page, &steps)?;
         if !measured {
             if ran {
                 return unmeasured(Some(page));
@@ -703,9 +702,10 @@ impl Session {
         Ok(None)
     }
 
-    /// The table of `rec` holds the rows the cells of `page` hold: their number (`CellPage::table_rows`) and, on a tree page,
-    /// the Indentation of each row in the key, by equality (`CellPage::indentations`).
-    fn validate_view_table_fits(&mut self, st: &St, rec: &Rec, page: CellPage) -> Result<bool, Signal> {
+    /// A cell of `page` whose steps begin with `steps` held the rows the table of `rec` holds: their number
+    /// (`CellPage::table_rows`) and, on the pages of TreeValidateFilterRefresh.al, the Indentation of each row in the key, by
+    /// equality (`CellPage::indentations`).
+    fn validate_view_table_fits(&mut self, rec: &Rec, page: CellPage, steps: &[Step]) -> Result<bool, Signal> {
         let probe = Rc::new(RefCell::new(rec.borrow().clone()));
         {
             let mut p = probe.borrow_mut();
@@ -716,17 +716,24 @@ impl Session {
         if rows.len() != page.table_rows() {
             return Ok(false);
         }
-        let Some(want) = page.indentations() else {
-            return Ok(true);
+        let level = self
+            .table(rec)?
+            .fields
+            .iter()
+            .position(|f| f.name.eq_ignore_ascii_case("Indentation"));
+        let indented = |want: &[i32]| {
+            level.is_some_and(|l| {
+                rows.len() == want.len()
+                    && rows
+                        .iter()
+                        .zip(want)
+                        .all(|(r, i)| matches!(r.get(l), Some(Value::Integer(n)) if n == i))
+            })
         };
-        let Some(level) = self.tree_level_field(st)? else {
-            return Ok(false);
-        };
-        Ok(rows.len() == want.len()
-            && rows
-                .iter()
-                .zip(want)
-                .all(|(r, i)| matches!(r.get(level), Some(Value::Integer(n)) if n == i)))
+        Ok(page
+            .cells()
+            .iter()
+            .any(|c| c.steps.starts_with(steps) && page.indentations(c).is_none_or(indented)))
     }
 
     /// The control of `st` at `idx` as the cells type into it: bound to the field Name or to the field Value of Rec.
