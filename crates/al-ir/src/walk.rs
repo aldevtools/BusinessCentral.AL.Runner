@@ -884,6 +884,7 @@ fn walk_part_link<V: RefVisitor>(l: &mut PartLink, target: TableOf, host: TableO
         provider: _,
         consts: _,
         enum_values: _,
+        not_blank: _,
     } = l;
     for e in entries {
         match e {
