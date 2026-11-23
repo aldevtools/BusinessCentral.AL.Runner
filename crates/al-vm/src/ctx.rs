@@ -508,6 +508,7 @@ impl al_builtins::native::Ctx for Session {
         let apps = &self.engine.program.apps;
         let parse = |s: &str| ops::parse_guid(s);
         if let Some(i) = apps.iter().position(|a| parse(&a.id).as_ref() == Some(id)) {
+            self.note_footprint_app(i as u32);
             // While an app installs, an app installed after it is not found (corpus branch al-runtime-rs-staging-y3,
             // install-upgrade/install-order/InstallOrderSubscriberTests.al:90-91: getModuleInfo=No during XApp A's install).
             let events = &self.events;

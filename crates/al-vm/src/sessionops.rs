@@ -289,13 +289,17 @@ impl Session {
             // What the database holds committed, raised by the rows the open transaction sent: a row inserted in the open
             // transaction does not count until a Get of its table or a Modify (`Session::last_used_row_version`).
             ids::DATABASE_LASTUSEDROWVERSION_1 => {
+                self.note_footprint_row_version();
                 return match self.last_used_row_version() {
                     Ok(v) => Ok(Value::BigInteger(v)),
                     Err(why) => unsupported(format!("Database.LastUsedRowVersion after {why} (not pinned)")),
                 };
             }
             // `min_row_version.rs`.
-            ids::DATABASE_MINIMUMACTIVEROWVERSION_1 => return self.minimum_active_row_version(),
+            ids::DATABASE_MINIMUMACTIVEROWVERSION_1 => {
+                self.note_footprint_row_version();
+                return self.minimum_active_row_version();
+            }
             // Set when given a value, read otherwise; the default is the documented one
             // (docs/probes-needed.md). session-system/TestSystemExtended.al:608-630 only calls it.
             ids::DATABASE_LOCKTIMEOUT_1 => {
@@ -380,6 +384,7 @@ impl Session {
             _ => 1,
         };
         let key = self.sequence_key(args, scope)?;
+        self.note_footprint_sequence(method, &key);
         let name = key.1.clone();
         // session-system/TestNumberSequenceRuntimeContracts.al:NumberSequence_MissingSequence_Texts: the name is
         // quoted and the code is `AL`.
@@ -590,6 +595,7 @@ impl Session {
         self.check_unmeasured_key(&scope, &key)?;
         // A key that matches a stored key only without their trailing spaces (isolated_storage_reads.rs `trailing_twin`).
         let slot = self.trailing_twin(method, scope, &key)?;
+        self.note_footprint_storage(method, &slot);
         let found = self.ret_used;
         match method {
             "Set" | "SetEncrypted" => {

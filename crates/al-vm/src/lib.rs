@@ -102,6 +102,7 @@ pub mod group1_sessions;
 mod hostvalues;
 mod http;
 pub mod impact;
+pub mod install_footprint;
 mod install_left;
 mod interfaces;
 mod isdirty;
