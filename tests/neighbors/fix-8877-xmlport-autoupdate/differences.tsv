@@ -11,7 +11,8 @@ NB XAU Tests::UpdInit_Existing	ASSUMED xmlport-autoupdate-assign-triggers (corpu
 NB XAU Tests::UpdBm_ChangesRow	REFUSED AutoUpdate with triggers that assign fields and an OnBeforeModifyRecord that changes the row
 # Shapes the new stored-again path refuses: the record differs from the stored row in a field the document does not carry.
 NB XAU Tests::Stale_ChildTriggerSetsParentVariable	REFUSED XmlPort import of a table element stored again after its linked child rows, whose record differs
-NB XAU Tests::Suite_SameAppSameHash_Skips	REFUSED XmlPort import of a table element stored again after its linked child rows, whose record differs
+# A skipped first save is not stored again (Suite_SameAppSameHash_Skips, the cell itself); refused before the stored row is read.
+NB XAU Tests::Suite_SameAppSameHash_Skips	REFUSED XmlPort import of a table element stored again after its linked child rows, whose first save stored no row
 # Main refused every linked element whose SourceTableView filters. Head runs the measured const shape (corpus PR 1550, open).
 NB XAU Tests::Suite_SuiteEvaluator	ASSUMED xmlport-linked-view-const,xmlport-stored-again-assign-triggers (corpus PR 1550, Suite_Fresh_SuiteEvaluator)
 NB XAU View Tests::ViewConst_NoTrigger	ASSUMED xmlport-linked-view-const (corpus PR 1550, Suite_Fresh_SuiteEvaluator)

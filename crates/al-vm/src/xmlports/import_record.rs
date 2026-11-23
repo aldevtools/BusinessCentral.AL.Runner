@@ -609,13 +609,20 @@ impl Session {
             ("onbeforeinsertrecord", "onafterinsertrecord")
         };
         let has_init_trigger = n.trigger("onafterinitrecord").is_some();
-        // AutoUpdate of an existing row whose triggers assign fields: the save takes the stored row with the fields the
-        // document carries, as the record holds them, before OnBeforeModifyRecord, which sees that row (corpus PR 1550,
-        // XpAutoUpdateAssign.al KeyTrig_Existing_NameCarried, _NameAbsent, FieldTrig_Existing, TextTrig_Existing,
+        // A field the document does not carry; system fields keep the stored row's values on every path.
+        let uncarried_skip = |p: usize| assigned.contains(&p) || t.fields[p].id >= 2_000_000_000;
+        let init_differs = has_init_trigger
+            && stored
+                .as_ref()
+                .is_some_and(|old| !same_fields(old, &rec.borrow().fields, uncarried_skip));
+        // AutoUpdate of an existing row whose triggers assign fields, or whose OnAfterInitRecord left a field the document does
+        // not carry other than the stored row holds (the two shapes main refused): the save takes the stored row with the
+        // fields the document carries, as the record holds them, before OnBeforeModifyRecord, which sees that row (corpus PR
+        // 1550, XpAutoUpdateAssign.al KeyTrig_Existing_NameCarried, _NameAbsent, FieldTrig_Existing, TextTrig_Existing,
         // InitTrig_Existing_NameCarried, _NameAbsent: what the triggers assign to a field the document does not carry is
         // dropped). Assumption `xmlport-autoupdate-assign-triggers` until the probe is pinned.
         let merged = if modify
-            && (has_assign_trigger || has_init_trigger)
+            && (has_assign_trigger || init_differs)
             && autoupdate_assigned(schema, node, again, temporary)
         {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportAutoupdateAssignTriggers);
@@ -649,9 +656,7 @@ impl Session {
                     return unsupported("AutoUpdate with triggers that assign fields (which values win is not pinned)");
                 }
                 let imported = self.xp_take_stored_row(&rec, &pk, assigned)?;
-                let uncarried_same = same_fields(&imported, &rec.borrow().fields, |p| {
-                    assigned.contains(&p) || t.fields[p].id >= 2_000_000_000
-                });
+                let uncarried_same = same_fields(&imported, &rec.borrow().fields, uncarried_skip);
                 // A row stored again after its linked child rows, whose attribute or field triggers assign fields of it: the
                 // record and the stored row hold the same value in every field the document does not carry, so the stored row
                 // ends the same whichever of the two the save writes. Otherwise which value wins is not pinned.
@@ -730,46 +735,46 @@ const LINKED_VIEW_FLOW: &str = "XmlPort import of a linked table element whose S
 
 /// The save of `xp_save_record` in which triggers that assign fields of the row may run: a table element right below the
 /// root text element, AutoSave without AutoUpdate or AutoReplace, a real table, stored before its linked child rows and
-/// stored again after them (`again`). Measured with an OnAfterAssignField of the key attribute and an OnAfterAssignVariable
-/// of a text attribute, child and grandchild rows (corpus PR 1550, XpAutoUpdateAssign.al Suite_Fresh), and with an
-/// OnAfterAssignField of the key field element (same file, Again_FieldElementTrigger); assumption
+/// stored again after them (`again`), whose triggers that assign fields sit only on its field attributes, text attributes
+/// and field elements without nodes below them. Measured with an OnAfterAssignField of the key attribute and an
+/// OnAfterAssignVariable of a text attribute, child and grandchild rows (corpus PR 1550, XpAutoUpdateAssign.al Suite_Fresh),
+/// and with an OnAfterAssignField of the key field element (same file, Again_FieldElementTrigger); assumption
 /// `xmlport-stored-again-assign-triggers` until the probe is pinned.
 fn stored_again_assigned(schema: &Schema, node: usize, again: bool, temporary: bool) -> bool {
     let n = schema.node(node);
-    let below_root = n
-        .parent
-        .is_some_and(|p| schema.node(p).parent.is_none() && schema.node(p).kind == ir::XmlNodeKind::Text);
-    again && below_root && n.auto_save && !n.auto_update && !n.auto_replace && !n.use_temporary && !temporary
+    let measured_sites = schema.children(node).iter().all(|&c| {
+        let cn = schema.node(c);
+        !assign_trigger(cn)
+            || matches!(cn.kind, ir::XmlNodeKind::FieldAttr | ir::XmlNodeKind::TextAttr)
+            || (cn.kind == ir::XmlNodeKind::Field && schema.children(c).is_empty())
+    });
+    again
+        && below_root(schema, node)
+        && measured_sites
+        && n.auto_save
+        && !n.auto_update
+        && !n.auto_replace
+        && !n.use_temporary
+        && !temporary
 }
 
 /// The AutoUpdate save in which triggers that assign fields of an existing row may run: a table element right below the root
-/// text element of a Format = Xml port, AutoSave and AutoUpdate without AutoReplace, a real table, saved once (not `again`)
-/// and without table elements anywhere below it. Measured with an OnAfterAssignField of the key field element and of a carried field element, an
-/// OnAfterAssignVariable of a text element and an OnAfterInitRecord (corpus PR 1550, XpAutoUpdateAssign.al KeyTrig_*,
-/// FieldTrig_Existing, TextTrig_Existing, InitTrig_*); assumption `xmlport-autoupdate-assign-triggers` until it is pinned.
+/// text element of a Format = Xml port, AutoSave and AutoUpdate without AutoReplace, a real table, saved once (not `again`),
+/// whose children are all field elements of its own and text elements without nodes below them. Measured with an
+/// OnAfterAssignField of the key field element and of a carried field element, an OnAfterAssignVariable of a text element
+/// and an OnAfterInitRecord (corpus PR 1550, XpAutoUpdateAssign.al KeyTrig_*, FieldTrig_Existing, TextTrig_Existing,
+/// InitTrig_*); assumption `xmlport-autoupdate-assign-triggers` until it is pinned.
 fn autoupdate_assigned(schema: &Schema, node: usize, again: bool, temporary: bool) -> bool {
     let n = schema.node(node);
-    let below_root = n
-        .parent
-        .is_some_and(|p| schema.node(p).parent.is_none() && schema.node(p).kind == ir::XmlNodeKind::Text);
-    fn table_below(schema: &Schema, node: usize) -> bool {
-        schema
-            .children(node)
-            .iter()
-            .any(|&c| schema.node(c).kind == ir::XmlNodeKind::Table || table_below(schema, c))
-    }
-    // The measured assign triggers sit on field and text elements; on an attribute they are not measured.
-    let element_triggers = schema
-        .children(node)
-        .iter()
-        .map(|&c| schema.node(c))
-        .filter(|c| c.trigger("onafterassignfield").is_some() || c.trigger("onafterassignvariable").is_some())
-        .all(|c| matches!(c.kind, ir::XmlNodeKind::Field | ir::XmlNodeKind::Text));
+    let leaf_elements = schema.children(node).iter().all(|&c| {
+        let cn = schema.node(c);
+        schema.children(c).is_empty()
+            && ((cn.kind == ir::XmlNodeKind::Field && cn.table_node == Some(node)) || cn.kind == ir::XmlNodeKind::Text)
+    });
     schema.xp().format == ir::XmlFormat::Xml
-        && element_triggers
+        && leaf_elements
         && !again
-        && below_root
-        && !table_below(schema, node)
+        && below_root(schema, node)
         && n.auto_save
         && n.auto_update
         && !n.auto_replace

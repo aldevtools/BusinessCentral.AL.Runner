@@ -1,23 +1,24 @@
 //! The import of a linked table element whose SourceTableView holds one `const` filter on a field the document does not
 //! carry (corpus PR 1550, tests/al-language/xmlports/shapes-properties/XpAutoUpdateAssign.al:629-641 element `SuiteEval`,
-//! cell Suite_Fresh_SuiteEvaluator at :1047-1057: `where(LineNo = const(0))` on a field whose initial value is 0, the row
-//! is stored with 0, `rows` `EA/0/e0`). The shape of the AI Test Toolkit's suite-level Evaluator element (xmlport 149031,
-//! al-runner issue 8877). Assumption `xmlport-linked-view-const` until the probe is pinned.
+//! cell Suite_Fresh_SuiteEvaluator at :1047-1057: `where(LineNo = const(0))` on an Integer field whose initial value is 0,
+//! the row is stored with 0, `rows` `EA/0/e0`). The shape of the AI Test Toolkit's suite-level Evaluator element (xmlport
+//! 149031, al-runner issue 8877). Assumption `xmlport-linked-view-const` until the probe is pinned.
 //!
-//! What the cell measures is the stored row when the field holds the filter's value at the save. Whether the triggers see
-//! the filter on the record is not measured: the element's triggers must not name its record or call a procedure of the
-//! port. Every other linked element with a filtering view keeps main's refusal.
+//! What the cell measures is the stored row of the first such element under its parent when the field holds the filter's
+//! value at the save. Whether code sees the filter on the record is not measured: no routine of the port may name the
+//! element's record. Every other linked element with a filtering view keeps main's refusal.
 
 use super::*;
 
 const LINKED_VIEW_OTHER_VALUE: &str = "XmlPort import of a linked table element whose SourceTableView const filter's field holds another value at the save (not pinned)";
 
 /// The field position and value of the one `const` filter of the SourceTableView of `node`, when the element is in the
-/// measured shape: right below a table element right below the root text element of a Format = Xml port, linked to it
-/// (LinkTable = that element), MinOccurs = Zero (:633), AutoSave without AutoUpdate, AutoReplace or UseTemporary, only
-/// field attributes (`fieldattribute`, as `Name` of `SuiteEval`) without triggers below it, none of them nor a link field
-/// on the filtered field, and an OnAfterInitRecord as its only trigger, which neither names its record nor calls a
-/// procedure of the port.
+/// measured shape: right below a table element (`Suite`, :556) that stands right below the root text element of a Format =
+/// Xml port and has AutoSave without AutoUpdate, AutoReplace or UseTemporary; linked to it by LinkTable with one LinkFields
+/// pair (:631-632); MinOccurs = Zero (:633); AutoSave without AutoUpdate, AutoReplace or UseTemporary; only field attributes
+/// of its own without triggers below it (:637), none of them nor the link field on the filtered field; the view one
+/// `where(<Integer field> = const(..))` (:635); an OnAfterInitRecord as its only trigger, which calls no procedure of the
+/// port and uses the port only to call `Skip` (:639-641); and no routine of the port naming its record.
 pub(super) struct LinkedViewConst {
     pub field: usize,
     pub value: Value,
@@ -86,13 +87,20 @@ impl Session {
         let Some(view) = n.source_view.as_deref() else {
             return Ok(None);
         };
+        let Some(slot) = n.slot else {
+            return Ok(None);
+        };
         let clauses = crate::views::view_clauses(view);
-        let parent_below_root = n.parent.is_some_and(|p| {
+        // The parent `Suite` (:556): a table element right below the root, AutoSave without AutoUpdate, AutoReplace or
+        // UseTemporary.
+        let parent_measured = n.parent.is_some_and(|p| {
             let pn = schema.node(p);
             pn.kind == ir::XmlNodeKind::Table
-                && pn
-                    .parent
-                    .is_some_and(|r| schema.node(r).parent.is_none() && schema.node(r).kind == ir::XmlNodeKind::Text)
+                && below_root(schema, p)
+                && pn.auto_save
+                && !pn.auto_update
+                && !pn.auto_replace
+                && !pn.use_temporary
         });
         let field_attrs_only = schema.children(node).iter().all(|&c| {
             let cn = schema.node(c);
@@ -102,8 +110,9 @@ impl Session {
             && clauses.filters
             && !clauses.sorting
             && !clauses.order
-            && parent_below_root
+            && parent_measured
             && n.link_node == n.parent
+            && n.link_fields.len() == 1
             && n.min_zero
             && n.auto_save
             && !n.auto_update
@@ -112,7 +121,8 @@ impl Session {
             && field_attrs_only
             && n.triggers
                 .iter()
-                .all(|(name, r)| name == "onafterinitrecord" && trigger_leaves_record(schema, *r, n.slot));
+                .all(|(name, r)| name == "onafterinitrecord" && trigger_only_skips(schema, *r))
+            && !port_names_global(schema, slot);
         if !shape {
             return Ok(None);
         }
@@ -120,15 +130,8 @@ impl Session {
         let rec = self.xp_record(inst, n)?;
         let t = self.table(&rec)?;
         let kept = rec.borrow().clone();
-        self.set_view_in(
-            &rec,
-            &t,
-            &crate::views::property_view(view),
-            Some(XP_VIEW_GROUP),
-            false,
-            false,
-            false,
-        )?;
+        let view = crate::views::property_view(view);
+        self.set_view_in(&rec, &t, &view, Some(XP_VIEW_GROUP), false, false, false)?;
         let filters: Vec<_> = rec
             .borrow()
             .filters
@@ -143,12 +146,15 @@ impl Session {
         let al_builtins::filter::FilterExpr::Eq(value) = &only.expr else {
             return Ok(None);
         };
+        // `where(LineNo = const(0))` on an Integer field: a `filter(0)` reads as the same filter and is not measured.
+        let const_form = crate::views::single_where_const(&t, &view) == Some(only.field);
+        let integer = t.fields[only.field].ty == RtType::Integer;
         let carried = schema
             .children(node)
             .iter()
             .any(|&c| schema.node(c).field == Some(only.field));
         let linked = n.link_fields.iter().any(|&(own, _)| own == only.field);
-        if carried || linked {
+        if !const_form || !integer || carried || linked {
             return Ok(None);
         }
         Ok(Some(LinkedViewConst {
@@ -172,63 +178,103 @@ impl Session {
     }
 }
 
-/// Whether trigger routine `r` of the port leaves the element's record (global `slot`) alone: no read, write, receiver or
-/// `var` argument of it, no call of a procedure of the port, and the port itself (`currXMLport`) only as the receiver of
-/// `Skip`, as in the measured OnAfterInitRecord (XpAutoUpdateAssign.al, element SuiteEval).
-fn trigger_leaves_record(schema: &Schema, r: usize, slot: Option<usize>) -> bool {
-    let Some(slot) = slot else { return false };
+/// Whether trigger routine `r` of the port calls no procedure of the port and uses the port itself (`currXMLport`) only as
+/// the receiver of `Skip`, as the measured OnAfterInitRecord (XpAutoUpdateAssign.al:637-641, element SuiteEval) does.
+fn trigger_only_skips(schema: &Schema, r: usize) -> bool {
     let routine = &schema.engine.program.objects[schema.object].routines[r];
     routine.body.read(|stmts| {
-        let mut ok = true;
+        let mut port_calls = 0usize;
         let mut this_uses = 0usize;
         let mut skips = 0usize;
-        let names = |p: &ir::Place| root_global(p) == Some(slot);
-        let names_arg = |a: &ir::Arg| matches!(a, ir::Arg::Ref(p) if names(p));
-        ir::types::for_each_expr_post(stmts, &mut |e| {
-            let args: &[ir::Arg] = match e {
-                ir::Expr::Load(p) => {
-                    ok &= !names(p);
-                    &[]
-                }
-                ir::Expr::ThisInstance => {
-                    this_uses += 1;
-                    &[]
-                }
-                ir::Expr::Call { object, args, .. } => {
-                    ok &= *object != schema.object;
-                    args
-                }
-                ir::Expr::Builtin { id, receiver, args, .. } => {
-                    if let Some(recv) = receiver.as_deref() {
-                        ok &= !names_arg(recv);
-                        if *id == ids::XMLPORT_SKIP_1 && matches!(recv, ir::Arg::Value(ir::Expr::ThisInstance)) {
-                            skips += 1;
-                        }
-                    }
-                    args
-                }
-                ir::Expr::InterfaceCall { args, .. } | ir::Expr::DotNet { args, .. } => args,
-                _ => &[],
-            };
-            ok &= !args.iter().any(names_arg);
+        ir::types::for_each_expr_post(stmts, &mut |e| match e {
+            ir::Expr::ThisInstance => this_uses += 1,
+            ir::Expr::Call { object, .. } if *object == schema.object => port_calls += 1,
+            ir::Expr::Builtin {
+                id,
+                receiver: Some(recv),
+                ..
+            } if *id == ids::XMLPORT_SKIP_1 && matches!(recv.as_ref(), ir::Arg::Value(ir::Expr::ThisInstance)) => {
+                skips += 1
+            }
+            _ => {}
         });
-        ok && this_uses == skips && stmts.iter().all(|s| stmt_places_leave(s, &names))
+        port_calls == 0 && this_uses == skips
     })
 }
 
-/// Whether no place a statement of `s` writes (an assignment or a loop variable) is named by `names`.
-fn stmt_places_leave(s: &ir::Stmt, names: &dyn Fn(&ir::Place) -> bool) -> bool {
+/// Whether a routine of the port (a trigger of any node, of the port, or a procedure) names global `slot`: reads, writes or
+/// passes it, or clears every global (`ClearAll`). The runner does not put the view's filter on the record, which the
+/// cell does not measure, so no code of the port may look at the record.
+fn port_names_global(schema: &Schema, slot: usize) -> bool {
+    schema.engine.program.objects[schema.object]
+        .routines
+        .iter()
+        .any(|routine| routine.body.read(|stmts| stmts_name_global(stmts, slot)))
+}
+
+fn stmts_name_global(stmts: &[ir::Stmt], slot: usize) -> bool {
+    let mut named = stmts.iter().any(|s| stmt_place_names(s, slot));
+    ir::types::for_each_expr_post(stmts, &mut |e| named |= expr_names_global(e, slot));
+    named
+}
+
+/// Whether a place a statement of `s` writes (an assignment or a loop variable), or one nested in it, starts at `slot`.
+fn stmt_place_names(s: &ir::Stmt, slot: usize) -> bool {
     use ir::Stmt;
-    let all = |b: &[Stmt]| b.iter().all(|s| stmt_places_leave(s, names));
+    let any = |b: &[Stmt]| b.iter().any(|s| stmt_place_names(s, slot));
     match s {
-        Stmt::Assign(p, _) => !names(p),
-        Stmt::For { var, body, .. } | Stmt::Foreach { var, body, .. } => !names(var) && all(body),
-        Stmt::If(_, a, b) => all(a) && all(b),
-        Stmt::While(_, b) | Stmt::Repeat(b, _) | Stmt::AssertError(b) => all(b),
+        Stmt::Assign(p, _) => root_global(p) == Some(slot),
+        Stmt::For { var, body, .. } | Stmt::Foreach { var, body, .. } => root_global(var) == Some(slot) || any(body),
+        Stmt::If(_, a, b) => any(a) || any(b),
+        Stmt::While(_, b) | Stmt::Repeat(b, _) | Stmt::AssertError(b) => any(b),
         Stmt::Case {
             branches, otherwise, ..
-        } => branches.iter().all(|(_, b)| all(b)) && all(otherwise),
-        _ => true,
+        } => branches.iter().any(|(_, b)| any(b)) || any(otherwise),
+        Stmt::Expr(_)
+        | Stmt::Exit(_)
+        | Stmt::Break
+        | Stmt::Pos(_)
+        | Stmt::Assume(_)
+        | Stmt::TddMark(_)
+        | Stmt::Continue => false,
+    }
+}
+
+/// Whether expression node `e` itself (not the nodes inside it) names `slot`: a load, a `var` argument or a receiver.
+fn expr_names_global(e: &ir::Expr, slot: usize) -> bool {
+    use ir::Expr;
+    let arg = |a: &ir::Arg| matches!(a, ir::Arg::Ref(p) if root_global(p) == Some(slot));
+    match e {
+        Expr::Load(p) => root_global(p) == Some(slot),
+        Expr::Call { args, .. } | Expr::InterfaceCall { args, .. } | Expr::DotNet { args, .. } => args.iter().any(arg),
+        Expr::Builtin { id, receiver, args, .. } => {
+            (*id == ids::SYSTEM_CLEARALL_1 && receiver.is_none())
+                || receiver.as_deref().is_some_and(arg)
+                || args.iter().any(arg)
+        }
+        Expr::Const(_)
+        | Expr::Unary(..)
+        | Expr::Binary(..)
+        | Expr::In(..)
+        | Expr::Ternary(..)
+        | Expr::Convert(..)
+        | Expr::BaseInstance
+        | Expr::ThisInstance
+        | Expr::Refused(_)
+        | Expr::Fail { .. }
+        | Expr::ControlAddInCall { .. }
+        | Expr::InterfaceTest { .. }
+        | Expr::EnumImpl { .. }
+        | Expr::Control { .. }
+        | Expr::FieldOf(..)
+        | Expr::QueryColumn { .. }
+        | Expr::CharAt(..)
+        | Expr::DotNetCoerce(..)
+        | Expr::DotNetOperand(..)
+        | Expr::TddStub { .. }
+        | Expr::TddFit { .. }
+        | Expr::FitOrRefuse { .. }
+        | Expr::VarSectionValue(_) => false,
     }
 }
 
@@ -237,6 +283,6 @@ fn root_global(p: &ir::Place) -> Option<usize> {
     match p {
         ir::Place::Global(g) => Some(*g),
         ir::Place::Index(b, _) | ir::Place::Field(b, _) | ir::Place::RecGlobal(b, ..) => root_global(b),
-        _ => None,
+        ir::Place::Local(_) | ir::Place::BaseGlobal(_) | ir::Place::ExtGlobal(..) => None,
     }
 }

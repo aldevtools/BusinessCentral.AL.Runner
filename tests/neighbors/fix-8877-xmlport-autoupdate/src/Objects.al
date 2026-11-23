@@ -427,7 +427,7 @@ xmlport 50113 "NB XAU BeforeModify"
     }
 }
 
-// AutoUpdate (not the shape the fix runs): an OnAfterAssignField of the key, an existing row, no child rows.
+// AutoUpdate (the merge the fix runs): an OnAfterAssignField of the key, an existing row, no child rows.
 xmlport 50114 "NB XAU KeyTrig"
 {
     Direction = Import;
