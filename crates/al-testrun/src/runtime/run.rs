@@ -762,6 +762,7 @@ fn run_codeunit_inner(
             crate::events::starting(obj.id.unwrap_or(0), &obj.routines[r].name);
             // The number of this test for the SingleInstance notes (ADR-066 amendment 7; 0 without notes).
             let test_no = single_test_begins(session, scratch.watch);
+            super::order_hint::note_taken(scratch, session, ""); // OnRun and the runner steps before this test
             let test_started = std::time::Instant::now();
             let draws_before = session.inherited_random_draws();
             let carried_before = session.carried_random_draws();
@@ -1224,6 +1225,10 @@ fn run_codeunit_inner(
                 stopped.get_or_insert_with(|| stopped_after_failure(stop, obj.id.unwrap_or(0), &name));
             }
             note_unfinished(scratch, ended, runner_refused.is_some(), test_no, &name);
+            super::order_hint::note_taken(scratch, session, &name);
+            if scratch.watch {
+                scratch.test_numbers.push((test_no, name.clone()));
+            }
             let ended_from = unfinished.len();
             if let (Some(ended), Outcome::NotRun(why) | Outcome::Fail(why)) = (ended, &outcome) {
                 unfinished.push(Unfinished {

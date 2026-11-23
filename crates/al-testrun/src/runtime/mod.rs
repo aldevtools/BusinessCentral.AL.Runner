@@ -718,10 +718,6 @@ pub(crate) struct Unit {
     watch: bool,
     /// See `Scratch::singles_past_stop`.
     singles_past_stop: bool,
-    /// ADR-066 amendment 12, decision 3: by default its tests can take NumberSequence numbers but it is not in the
-    /// carry chain for that (`ChainWhy::TestsTakeNumbers` without `--strict-order`): it is on the numbers list when
-    /// it comes after another such codeunit (`order_hint::numbers_order`).
-    takes_numbers: bool,
     /// See `Scratch::numbers_unmeasured`.
     numbers_unmeasured: Option<Arc<str>>,
     /// The driver whose behavior the unit models (ADR-074, `discovery.rs`).
@@ -830,6 +826,12 @@ pub(crate) struct Scratch {
     pub(crate) unfinished_at: Vec<(u32, String)>,
     /// ADR-066 amendment 12, decision 2: the hint of each failed test (`TestResult::order_hint`), set by the lane.
     pub(crate) order_hints: Vec<(String, OrderHint)>,
+    /// ADR-070 decision 3: the number sequences (company, name) each test took numbers from (`""`: OnRun and the
+    /// runner steps outside a test), for the numbers hint (`order_hint::note_taken`).
+    pub(crate) numbers_taken: Vec<(String, BTreeSet<(String, String)>)>,
+    /// Each test that began, with the number `Session::single_test_begins` gave it (watched codeunits only; ADR-070
+    /// decision 4: which SingleInstance reads count for a passing test).
+    pub(crate) test_numbers: Vec<(u32, String)>,
 }
 
 /// How the tests of a codeunit ended (`Scratch::note_ended`).
@@ -1114,7 +1116,6 @@ fn scratch_unit(
         run_seed: opts.run_seed,
         runner: None,
         watch: false,
-        takes_numbers: false,
         numbers_unmeasured: None,
         singles_past_stop: false,
         driver: opts.test_driver,
@@ -1308,7 +1309,7 @@ pub use self::discovery::TestDriver;
 use self::grow::{Grow, GrowKept};
 pub use self::grow::{KeptCompile, fresh_pass_compile};
 use self::handlers::*;
-pub use self::order_hint::{NumbersOrder, OrderHint};
+pub use self::order_hint::{NumbersTaken, OrderHint};
 pub use self::run::*;
 pub use self::single_fresh::{CarriedCodeunit, CarriedRead};
 pub use self::single_lane::LaneReport;

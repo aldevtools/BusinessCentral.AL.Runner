@@ -1413,6 +1413,8 @@ fn test_inner(
             .has(al_version::Gate::TestRunnerHubRequiredIsolationFrom28);
     // ADR-074: BcContainerHelper runs every test codeunit through the runner codeunit; it has no TestRunnerHub.
     let driver = a.test_driver.unwrap_or_default();
+    // ADR-070: the mode the run states; a stability run's base variant runs in BC's order.
+    let order_mode = crate::order_mode::OrderMode::of(a.strict_order || driver.one_session() || a.stability.is_some());
     if a.required_isolation && driver == al_testrun::runtime::TestDriver::BcContainerHelper {
         return Err("--isolation required follows the TestRunnerHub of the bc-linux driver; --test-driver bccontainerhelper has no hub".into());
     }
@@ -1429,6 +1431,7 @@ fn test_inner(
         say!("{}", style::bold(&crate::version::line()));
         // ADR-061 section 3: the seed before the first test, so a run that never ends still shows it.
         say!("{}", crate::seed::line(run_seed));
+        say!("{}", order_mode.line());
     }
     // Setup details: --verbose only (see HELP, "Output").
     if a.verbose {
@@ -2017,13 +2020,9 @@ fn test_inner(
             );
         }
     }
-    // ADR-066 amendment 7, option 2: a re-run skipped for the length of its chain is said with or without `--timings`
-    // (`--timings` prints it with the other lane lines).
-    if !a.timings {
-        // ADR-066 amendment 12, decision 3: and the numbers list (`--timings` prints it with the chain lines).
-        for line in p.chain.run_output_lines() {
-            eprintln!("{line}");
-        }
+    // ADR-070 decision 4: the passing tests that read carried state, with or without `--timings`.
+    for line in p.chain.run_output_lines() {
+        eprintln!("{line}");
     }
     if rt.panics > 0 {
         eprintln!(
@@ -2171,10 +2170,10 @@ fn test_inner(
     if let (Some(path), Some((plan, per_variant, _, out))) = (&a.junit, &stability) {
         write_file(
             path,
-            &crate::seed::junit_license(
+            &order_mode.junit(&crate::seed::junit_license(
                 &crate::seed::junit(&crate::stability::junit(plan, per_variant, out), run_seed),
                 &license,
-            ),
+            )),
         )?;
     } else if let Some(path) = &a.junit {
         let mut with_skipped: Vec<&TestResult> = results.iter().copied().chain(&skipped_results).collect();
@@ -2182,20 +2181,19 @@ fn test_inner(
         write_file(
             path,
             &crate::unpinned::junit(
-                &crate::seed::junit_license(
+                &order_mode.junit(&crate::seed::junit_license(
                     &crate::seed::junit(
-                        &output::junit_with(
+                        &output::junit(
                             &with_skipped,
                             bc_build.as_deref(),
                             total_time.as_secs_f64(),
                             &|cu, t| disabled.as_ref().is_some_and(|d| d.is_disabled(cu, t)),
                             &rt.phases.baseline_assumptions,
-                            &|r| output::order_properties(&rt.phases.chain, r),
                         ),
                         run_seed,
                     ),
                     &license,
-                ),
+                )),
                 crate::unpinned::enabled(),
             ),
         )?;
@@ -2352,13 +2350,13 @@ fn test_inner(
         w.timings = Some(RequestTimings::of(setup, p, coverage_time));
         w.report = Some(Report {
             doc: serde_json::from_str(&crate::unpinned::json(
-                crate::seed::json(
+                order_mode.json(crate::seed::json(
                     crate::affected::with_selection(
                         output::json_tdd(&results, code, total_time.as_secs_f64(), tdd_stubs),
                         affected.as_ref(),
                     ),
                     run_seed,
-                ),
+                )),
                 crate::unpinned::enabled(),
                 crate::unpinned::count(results.iter().map(|r| &r.outcome)),
             ))
@@ -2408,7 +2406,7 @@ fn test_inner(
     }
     if let Some(target) = &a.output_json {
         let doc = crate::unpinned::json(
-            crate::seed::json(
+            order_mode.json(crate::seed::json(
                 crate::seed::json_license(
                     crate::affected::with_selection(
                         output::json_tdd(&results, code, total_time.as_secs_f64(), tdd_stubs),
@@ -2417,7 +2415,7 @@ fn test_inner(
                     &license,
                 ),
                 run_seed,
-            ),
+            )),
             crate::unpinned::enabled(),
             crate::unpinned::count(results.iter().map(|r| &r.outcome)),
         );

@@ -19,6 +19,7 @@ mod impact_index;
 mod kept_apps;
 mod matrix;
 mod memory_budget;
+mod order_mode;
 mod output;
 mod path_note;
 mod profile;

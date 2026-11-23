@@ -64,6 +64,9 @@ pub(crate) struct Notes {
     /// How many table calls from AL code are running ([`Session::al_table_call`]).
     table_depth: u32,
     inserted_at: HashMap<Key, u64>,
+    /// The sequences `Next` or `Range` took numbers from since [`Session::take_numbers_taken`] (al-testrun
+    /// `order_hint.rs`, ADR-070 decision 3).
+    taken: std::collections::BTreeSet<Key>,
 }
 
 /// The number sequences when a test codeunit's tests begin (after its OnRun), and which of them the session had
@@ -285,6 +288,16 @@ impl Session {
     pub(crate) fn insert_sequence(&mut self, key: Key, sequence: Sequence) {
         self.access_notes.inserted_at.insert(key.clone(), self.commits);
         self.sequences.insert(key, sequence);
+    }
+
+    /// `NumberSequence.Next` or `Range` took numbers from the sequence `key` ([`Session::take_numbers_taken`]).
+    pub(crate) fn note_numbers_taken(&mut self, key: &Key) {
+        self.access_notes.taken.insert(key.clone());
+    }
+
+    /// The sequences (company, name) the session took numbers from since the last call, and starts the next count.
+    pub fn take_numbers_taken(&mut self) -> std::collections::BTreeSet<Key> {
+        std::mem::take(&mut self.access_notes.taken)
     }
 
     /// The number sequences now, for [`Session::drop_sequences_inserted_since`].
