@@ -846,11 +846,20 @@ impl Session {
         arg: Option<&Value>,
         view: &SavedView,
     ) -> Result<(), Signal> {
-        // Update(true) after the save is measured on the page without triggers only (ListNewLineExtraCode.al:476); on the page
-        // with triggers and a FactBox it stays refused (review of al-runner PR 8820).
+        // Update(true) after the save is measured on the page without triggers (ListNewLineExtraCode.al:476) and on the later
+        // SetValue of the page-with-code shape (ListNewLineExtraCodeCodedSecondSetValue.al:804); on the page with triggers and a
+        // FactBox, and at the landing of the page with code, it stays refused (review of al-runner PR 8820).
+        let typed_extra = {
+            let s = st.borrow();
+            s.coded_objects == super::state::CodedObjects::Extra
+                && matches!(
+                    s.code_inserted_row.as_ref().map(|r| r.factbox),
+                    Some(FactboxStep::CodedTyped { .. })
+                )
+        };
         if view.extra
             && matches!(arg, Some(Value::Boolean(true)))
-            && matches!(self.code_inserted_page(st)?, Some((Triggers::Quiet, _)))
+            && (typed_extra || matches!(self.code_inserted_page(st)?, Some((Triggers::Quiet, _))))
         {
             return self.extra_code_update_true(st, view);
         }
