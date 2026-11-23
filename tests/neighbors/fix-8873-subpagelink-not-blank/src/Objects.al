@@ -110,18 +110,6 @@ page 50113 "NB SPNB Int Card"
             }
         }
     }
-    actions
-    {
-        area(Processing)
-        {
-            action(RunInt)
-            {
-                ApplicationArea = All;
-                RunObject = page "NB SPNB List";
-                RunPageLink = Qty = filter(<> '');
-            }
-        }
-    }
 }
 
 page 50114 "NB SPNB Wide Card"
@@ -191,6 +179,31 @@ page 50117 "NB SPNB Const Card"
             {
                 ApplicationArea = All;
                 SubPageLink = "Header No." = field("No."), "Arrival No." = const(<> '');
+            }
+        }
+    }
+}
+
+page 50118 "NB SPNB IntRun Card"
+{
+    PageType = Card;
+    SourceTable = "Repro Header";
+    layout
+    {
+        area(Content)
+        {
+            field("No."; Rec."No.") { ApplicationArea = All; }
+        }
+    }
+    actions
+    {
+        area(Processing)
+        {
+            action(RunInt)
+            {
+                ApplicationArea = All;
+                RunObject = page "NB SPNB List";
+                RunPageLink = Qty = filter(<> '');
             }
         }
     }
