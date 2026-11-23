@@ -1,0 +1,3 @@
+# key	entry
+# Same status on main and head (not run: its app is neither the subscriber's app nor an app the subscriber's app depends
+# on): ReadsMicrosoftLibraryMemo, ReadsOtherPublisherMemo. ReadsNothing passes on both.

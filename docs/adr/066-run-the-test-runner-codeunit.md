@@ -348,6 +348,9 @@ Tests-SCM from 245 s to 517 s with 75 of 76. The causes:
   would have refilled all the same or found the key it wants, and the cached row is what the store holds. Every test of
   such a codeunit is flagged and the codeunit keeps its parallel run. Neither applies when the codeunit also left
   another global unlike the earlier codeunit (a cache filled after its key): then it is dependent.
+  Removed 2026-11-23 (al-runner issue 8696; ADR-070 step 3 lists this assumption for deletion): the notes cannot tell a
+  guard from a read whose value the codeunit keeps in a local after the write, so a refill that left another value is
+  a dependence like any other read. The same-value half stays.
 - **R2, only the last writer.** For each global that makes a codeunit dependent, only the last earlier codeunit that
   wrote it joins the lane. That writer's own writers join only when it is dependent itself. The fixpoint over every
   earlier writer is gone.

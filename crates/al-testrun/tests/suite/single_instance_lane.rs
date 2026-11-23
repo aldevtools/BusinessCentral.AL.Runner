@@ -207,30 +207,64 @@ codeunit 60512 "Lane Remember B"
 }
 "#;
 
-fn refill_flagged(rt: &CorpusRuntime, test: &str) -> bool {
-    rt.results()
-        .iter()
-        .find(|r| r.test == test)
-        .unwrap_or_else(|| panic!("{test} ran"))
-        .assumptions
-        .contains(&Assumption::SingleInstanceRefill)
-}
-
 #[test]
-fn a_keyed_cache_each_codeunit_checks_and_refills_costs_no_lane() {
+fn a_keyed_cache_refilled_with_another_key_is_a_dependence() {
     let rt = runtime_over(KEYED_OTHER_KEYS, KEYED);
     assert!(
         rt.results().iter().all(|r| r.outcome == Outcome::Pass),
         "{:?}",
         rt.results()
     );
-    let lane = &rt.phases.chain.single_lane;
-    assert!(lane.lane.is_empty(), "{:?}", lane.lane);
-    // B refilled the cache with another key than A left: independent under the guard-then-refill assumption, flagged.
-    assert!(refill_flagged(&rt, "AsksForTwo") && !flagged(&rt, "AsksForTwo"));
-    // C refilled it with the key B left: the same value either way, nothing assumed.
-    assert!(!refill_flagged(&rt, "AsksForTwoAgain"));
-    assert!(!refill_flagged(&rt, "AsksForOne"));
+    // B refilled the cache with another key than A left: a dependence (al-runner issue 8696), run in BC's order.
+    assert!(flagged(&rt, "AsksForTwo"), "{:?}", rt.results());
+    // C refilled it with the key B left: the same value either way, no link.
+    assert!(!flagged(&rt, "AsksForTwoAgain") && !flagged(&rt, "AsksForOne"));
+}
+
+/// al-runner issue 8696, the reporter's repro: a SingleInstance global read into a local, then overwritten, and the
+/// local decides. BC runs the codeunits in one session in id order, so TC Second sees what TC First left
+/// (codeunits/TestCuP7BReader.al:36-37 against TestCuP7ASetter.al:6-9).
+const KEPT_LOCAL: &str = r#"
+codeunit 63010 "TC First"
+{
+    Subtype = Test;
+    [Test] procedure FirstSetsSet() var S: Codeunit "TC State"; begin S.SetFlag('set'); end;
+}
+codeunit 63011 "TC Second"
+{
+    Subtype = Test;
+    [Test] procedure SecondSeesSetAndSetsSecond() var S: Codeunit "TC State"; Seen: Text;
+    begin
+        Seen := S.GetFlag();
+        S.SetFlag('second');
+        if Seen <> 'set' then Error('second saw flag=%1', Seen);
+    end;
+}
+codeunit 63012 "TC Third"
+{
+    Subtype = Test;
+    [Test] procedure ThirdSeesSecond() var S: Codeunit "TC State";
+    begin if S.GetFlag() <> 'second' then Error('third saw flag=%1', S.GetFlag()); end;
+}
+"#;
+
+const KEPT_LOCAL_STATE: &str = r#"
+codeunit 63090 "TC State"
+{
+    SingleInstance = true;
+    procedure SetFlag(V: Text) begin Flag := V; end;
+    procedure GetFlag(): Text begin exit(Flag); end;
+    var Flag: Text;
+}
+"#;
+
+#[test]
+fn a_read_kept_in_a_local_then_overwritten_runs_in_bc_order() {
+    let rt = runtime_over(KEPT_LOCAL, KEPT_LOCAL_STATE);
+    for t in ["FirstSetsSet", "SecondSeesSetAndSetsSecond", "ThirdSeesSecond"] {
+        assert!(passed(&rt, t), "{t}: {:?}", rt.results());
+    }
+    assert!(flagged(&rt, "SecondSeesSetAndSetsSecond"));
 }
 
 #[test]

@@ -1,0 +1,7 @@
+{ "id": "8d1a2b3c-0000-4000-8000-000000086964", "name": "XS Main", "publisher": "XS Partner Co", "version": "1.0.0.0",
+  "platform": "27.0.0.0", "runtime": "15.0", "idRanges": [ { "from": 60980, "to": 60989 } ],
+  "dependencies": [
+    { "id": "8d1a2b3c-0000-4000-8000-000000086962", "name": "XS Partner", "publisher": "XS Partner Co", "version": "1.0.0.0" },
+    { "id": "8d1a2b3c-0000-4000-8000-000000086961", "name": "XS Stand-in Test Library", "publisher": "Microsoft", "version": "1.0.0.0" },
+    { "id": "8d1a2b3c-0000-4000-8000-000000086963", "name": "XS Other Library", "publisher": "XS Other Co", "version": "1.0.0.0" },
+    { "id": "8d1a2b3c-0000-4000-8000-000000086960", "name": "XS Stand-in Platform", "publisher": "Microsoft", "version": "1.0.0.0" } ] }

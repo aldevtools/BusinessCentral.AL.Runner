@@ -1,0 +1,14 @@
+{
+  "id": "8d1a2b3c-0000-4000-8000-000000008696",
+  "name": "Neighbors fix-8696-singleinstance-login",
+  "publisher": "AL Runner",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "idRanges": [
+    { "from": 63000, "to": 63099 },
+    { "from": 69160, "to": 69163 },
+    { "from": 73460, "to": 73480 }
+  ],
+  "dependencies": []
+}

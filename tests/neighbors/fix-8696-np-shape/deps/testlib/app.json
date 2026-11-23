@@ -1,0 +1,3 @@
+{ "id": "8d1a2b3c-0000-4000-8000-000000086961", "name": "XS Stand-in Test Library", "publisher": "Microsoft", "version": "1.0.0.0",
+  "platform": "27.0.0.0", "runtime": "15.0", "idRanges": [ { "from": 60960, "to": 60961 } ],
+  "dependencies": [ { "id": "8d1a2b3c-0000-4000-8000-000000086960", "name": "XS Stand-in Platform", "publisher": "Microsoft", "version": "1.0.0.0" } ] }
