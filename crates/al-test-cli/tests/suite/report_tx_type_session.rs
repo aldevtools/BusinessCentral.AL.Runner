@@ -535,8 +535,7 @@ codeunit 50302 "Repro Report Tx Tests"
         ReproPublisher.Raise();
     end;
 
-    // A set to Update after a write at the Snapshot a set after the Commit gave: the error text is measured from
-    // UpdateNoLocks only.
+    // An Insert at the Snapshot a set after the Commit gave: Snapshot does not write, so the Insert raises before the set.
     [Test]
     procedure CommitSetSnapshotInsertSetUpdate()
     var
@@ -679,8 +678,8 @@ fn an_update_report_without_its_page_runs_at_the_measured_moments_and_is_refused
             "AtTestStartWithoutWrite after a refused test that sets no type: expected a pass, got {o:?}"
         ));
     }
-    // A set to another type at the start of a codeunit's first test method: BC ignores it there (TxTypeNextTestMethod.al
-    // TxN01's comment), not pinned.
+    // A set to another type at the start of a codeunit's first test method: whether the test runner's transaction has
+    // started there depends on the runner and on what ran before it (the description of corpus pull request 1520).
     for t in ["SetSnapshotAtTestStart", "AutoRollbackSetUpdateAtStart"] {
         match run_in_order(&[t]) {
             Outcome::NotRun(r) if r.contains("at the start of a test codeunit's first test method") => {}
@@ -689,11 +688,11 @@ fn an_update_report_without_its_page_runs_at_the_measured_moments_and_is_refused
             )),
         }
     }
-    // A set to Update after a write at another type than UpdateNoLocks: refused, not DB:CannotChangeTransactionType.
+    // An Insert at Snapshot raises (record/TxTypeSetAfterCall.al TxS16 of the open probe).
     match run_alone(&["CommitSetSnapshotInsertSetUpdate"]) {
-        Outcome::NotRun(r) if r.contains("after a database call while the type is Snapshot") => {}
+        Outcome::Fail(m) if m.starts_with("Write operations in the database") => {}
         other => wrong.push(format!(
-            "CommitSetSnapshotInsertSetUpdate: expected a refusal, got {other:?}"
+            "CommitSetSnapshotInsertSetUpdate: expected DB:TransActionIsReadOnly, got {other:?}"
         )),
     }
     assert!(wrong.is_empty(), "{wrong:#?}");

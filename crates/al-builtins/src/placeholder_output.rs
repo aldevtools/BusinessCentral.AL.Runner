@@ -170,6 +170,7 @@ pub fn size(mark: &Arc<str>) -> Value {
 static SIZE_MADE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Whether [`size_guard`] can find a size (see [`SIZE_MADE`]).
+#[inline]
 pub fn sizes_made() -> bool {
     SIZE_MADE.load(std::sync::atomic::Ordering::Relaxed)
 }

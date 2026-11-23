@@ -256,6 +256,8 @@ pub(crate) enum Step {
     Fail(Ctl),
     /// The action ChangeViewAction (the refresh after it is main's).
     Action(Upd, Change),
+    /// The test's read-only calls between two steps, any number of them (`validate_view_reads`).
+    Reads,
     /// A step the cells do not take.
     Other,
 }
@@ -279,7 +281,7 @@ pub(crate) struct Cell {
 
 use Change::{Drop, Keep, KeepText, Reset, Same};
 use Ctl::{Name, Value as Val};
-use Step::{Action, Fail, GoToKey, Last, Previous, Set};
+use Step::{Action, Fail, GoToKey, Last, Previous, Reads, Set};
 
 const fn walk(steps: &'static [Step]) -> Cell {
     Cell {
@@ -315,8 +317,35 @@ const DROP_T: [Step; 3] = name_then_value(Upd::True, Drop, 1, 0);
 const SAME_T: [Step; 3] = name_then_value(Upd::True, Same, 3, 2);
 const ACTION_KEEP_F: [Step; 3] = [Last, Action(Upd::False, Keep), Set(Val, Upd::False, Same, Some((2, 1)))];
 
+/// `steps` with the test's read-only calls at `at`: 1 after Last, 2 after the SetValue on Name or the action, 3 after the
+/// SetValue on Value, before First.
+const fn reads_at(steps: [Step; 3], at: usize) -> [Step; 4] {
+    let mut out = [Reads; 4];
+    let mut i = 0;
+    while i < 3 {
+        out[if i < at { i } else { i + 1 }] = steps[i];
+        i += 1;
+    }
+    out
+}
+
+/// The cells' steps with the read-only calls at each point (corpus pull request 1529, ListValidateFilterRefresh.al
+/// `RunReadsLines` and the others, two tests per point: block 1 and block 2 of `ReadsLines`).
+const KEEP_F_READS: [[Step; 4]; 3] = [reads_at(KEEP_F, 1), reads_at(KEEP_F, 2), reads_at(KEEP_F, 3)];
+const ACTION_READS: [[Step; 4]; 3] = [
+    reads_at(ACTION_KEEP_F, 1),
+    reads_at(ACTION_KEEP_F, 2),
+    reads_at(ACTION_KEEP_F, 3),
+];
+
 /// The cells on page 97584 (the line of each test).
-const LINES_CELLS: [Cell; 20] = [
+const LINES_CELLS: [Cell; 26] = [
+    walk(&KEEP_F_READS[0]), // PR 1529 :1909-:2004
+    walk(&KEEP_F_READS[1]),
+    walk(&KEEP_F_READS[2]),
+    walk(&ACTION_READS[0]), // :2023-:2118
+    walk(&ACTION_READS[1]),
+    walk(&ACTION_READS[2]),
     walk(&KEEP_F),      // :832
     walk(&KEEP_TEXT_F), // :883
     walk(&KEEP_T),      // :849
@@ -369,8 +398,11 @@ const LINES_CELLS: [Cell; 20] = [
 
 /// The cells on the issue's page (:815; :1477 the steps of the repro of issue 8698, First then Close; :1444 First right after
 /// the SetValue on Name).
-const ISSUE_CELLS: [Cell; 3] = [
+const ISSUE_CELLS: [Cell; 6] = [
     walk(&KEEP_F),
+    walk(&KEEP_F_READS[0]), // PR 1529 :1795-:1890
+    walk(&KEEP_F_READS[1]),
+    walk(&KEEP_F_READS[2]),
     Cell {
         steps: &KEEP_F,
         tail: Tail::FirstClose,
@@ -379,8 +411,14 @@ const ISSUE_CELLS: [Cell; 3] = [
 ];
 
 /// The cells on page 97585, both row triggers (:1105, :1122, :1139, :1156, :1173).
-const BOTH_CELLS: [Cell; 5] = [
+const BOTH_CELLS: [Cell; 11] = [
     walk(&KEEP_F),
+    walk(&KEEP_F_READS[0]), // PR 1529 :2137-:2232
+    walk(&KEEP_F_READS[1]),
+    walk(&KEEP_F_READS[2]),
+    walk(&ACTION_READS[0]), // :2251-:2346
+    walk(&ACTION_READS[1]),
+    walk(&ACTION_READS[2]),
     walk(&KEEP_T),
     walk(&DROP_F),
     walk(&SAME_F),
@@ -388,11 +426,32 @@ const BOTH_CELLS: [Cell; 5] = [
 ];
 
 /// The cells on page 97586, OnAfterGetCurrRecord only (:1190, :1207).
-const CURR_CELLS: [Cell; 2] = [walk(&KEEP_F), walk(&SAME_F)];
+const CURR_CELLS: [Cell; 5] = [
+    walk(&KEEP_F),
+    walk(&SAME_F),
+    walk(&KEEP_F_READS[0]), // PR 1529 :2365-:2460
+    walk(&KEEP_F_READS[1]),
+    walk(&KEEP_F_READS[2]),
+];
 
 /// The cells on page 97588, the Card (:1258, :1275, :1292, :1309).
-const CARD_CELLS: [Cell; 4] = [walk(&KEEP_F), walk(&KEEP_T), walk(&SAME_F), walk(&ACTION_KEEP_F)];
+const CARD_CELLS: [Cell; 10] = [
+    walk(&KEEP_F),
+    walk(&KEEP_T),
+    walk(&SAME_F),
+    walk(&ACTION_KEEP_F),
+    walk(&KEEP_F_READS[0]), // PR 1529 :2479-:2574
+    walk(&KEEP_F_READS[1]),
+    walk(&KEEP_F_READS[2]),
+    walk(&ACTION_READS[0]), // :2593-:2688
+    walk(&ACTION_READS[1]),
+    walk(&ACTION_READS[2]),
+];
 
 /// The cell on page 97571, the Card of issue 8717, and the repro's test: GoToKey to its only row, the SetValue on Name, Close
 /// (:1632).
-const EDIT_CELLS: [Cell; 1] = [close(&[GoToKey, Set(Name, Upd::False, Same, Some((1, 0)))])];
+const EDIT_CELLS: [Cell; 3] = [
+    close(&[GoToKey, Set(Name, Upd::False, Same, Some((1, 0)))]),
+    close(&[GoToKey, Reads, Set(Name, Upd::False, Same, Some((1, 0)))]), // PR 1529 :2846, :2869
+    close(&[GoToKey, Set(Name, Upd::False, Same, Some((1, 0))), Reads]), // :2892, :2915
+];
