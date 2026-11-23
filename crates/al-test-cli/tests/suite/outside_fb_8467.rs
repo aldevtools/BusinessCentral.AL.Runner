@@ -201,6 +201,19 @@ fn issue_8467_blob_after_commit_neighbor() {
     );
 }
 
+/// SelectLatestVersion() without a table in a worker ends the entry of a row of another table (BQ Neighbor Tests 4, BC 29.1,
+/// 3 runs): the Get after it reads the table, as BC does.
+#[test]
+fn issue_8467_select_latest_version_without_a_table_neighbor() {
+    let src = format!("{PROBE}\n{NEIGHBORS}");
+    let o = outcomes(&src, "BQ Neighbor Tests 4");
+    assert_pass(
+        &o,
+        "SelectLatestVersionWithoutATable_OtherTableRow_ReadsTheTable",
+        false,
+    );
+}
+
 /// A commit of a ModifyAll, a DeleteAll or a Truncate of another row, then a change of the row: the neighbors assert the
 /// answer of BC 27.5, 28.5 and 29.0 for the first two (the cache entry ended, BgTaskQueryCache.al:7035, :7042). On 29.0 the
 /// head reads the table, clean; on 29.1 it answers the first read (so the neighbors fail there); with no target, or on a minor
