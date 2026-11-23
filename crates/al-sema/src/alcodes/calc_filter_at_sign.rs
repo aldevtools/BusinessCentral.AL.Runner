@@ -1,7 +1,8 @@
 //! AL0870 and AL0224 for a table FlowField whose CalcFormula filters a field by `filter(@)` without quotes (must-not-compile
 //! 3805 on corpus pull request 1495, al-runner issue 8637): the compiler expects a verbatim string literal there. Without quotes,
 //! `filter(<>@)` is AL0726, AL0104 and AL0870 (must-not-compile 3806). The quoted `filter('@')` and `filter('<>@')` compile
-//! (record/filters/AtSignAloneReads.al:579, :752). Only `@` alone and `<>@` alone are measured; other unquoted texts with `@`
+//! (record/filters/AtSignAloneReads.al:579, :752). Blanks anywhere in the unquoted forms change nothing (cases 3807 and 3808).
+//! Only `@` alone and `<>@` alone are measured; other unquoted texts with `@`
 //! and table extension fields are left alone (the lowering refuses an unquoted `@` alone or `<>@` alone wherever it is).
 
 use super::{offset_of, push};
@@ -64,9 +65,11 @@ pub(super) fn check(ws: &Workspace, oi: usize, obj: &ast::Object, out: &mut Vec<
     }
 }
 
-/// Whether the raw text of a CalcFormula's `filter(...)` is `@` alone or `<>@` alone, without quotes.
+/// Whether the raw text of a CalcFormula's `filter(...)` is `@` alone or `<>@` alone, without quotes, with blanks anywhere in it or
+/// not: BC reports the same diagnostics (cases 3807 and 3808).
 pub(crate) fn unquoted_at_sign(raw: &str) -> Option<UnquotedAtSign> {
-    match raw.trim() {
+    let text: String = raw.chars().filter(|c| !c.is_whitespace()).collect();
+    match text.as_str() {
         "@" => Some(UnquotedAtSign::Alone),
         "<>@" => Some(UnquotedAtSign::Negated),
         _ => None,
