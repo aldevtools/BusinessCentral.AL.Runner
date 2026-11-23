@@ -170,9 +170,43 @@ impl Session {
             .is_some_and(|stored| Self::same_values(&rec.borrow().fields, &stored)))
     }
 
+    /// The SaveRecord cell `leave` on a page of the shape of the page with code but not its code (`CodedObjects::Extra`, the
+    /// steps of `code_inserted_coded.rs`), opened as `opened` with the line in `view`: measured under Page.RunModal on one
+    /// empty group, when only the table field's insert wrote the store, or other tables besides
+    /// (`only_other_tables_written`), before the save (ListNewLineExtraCodeCodedPage.al); otherwise refused.
+    pub(super) fn extra_code_coded_cell(
+        &mut self,
+        st: &St,
+        opened: Opened,
+        view: Option<View>,
+        leave: Leave,
+    ) -> Result<(), Signal> {
+        let measured = (leave, opened, view) == (Leave::SaveRecord, Opened::RunModalOneGroup, Some(View::Alone));
+        let line = st.borrow().new_line_writes;
+        let only_the_insert = line.is_some_and(|(mark, deletes)| self.write_mark() == (mark + 1, deletes));
+        // The cells' control writes nothing before the save (ListNewLineExtraCodeCodedPage.al:762-809); only the table field
+        // wrote other tables.
+        let control_wrote = st
+            .borrow()
+            .control_onvalidate
+            .as_ref()
+            .is_none_or(|c| c.writes != self.write_mark());
+        let written = only_the_insert || self.only_other_tables_written(st, false)?;
+        if !(measured && written && !control_wrote && self.no_record_trigger(st)) {
+            st.borrow_mut().forget_code_inserted_line();
+            return Err(Signal::unsupported(UNMEASURED_CODE));
+        }
+        if !only_the_insert {
+            assume(Assumption::ListNewLineWritesOtherTable);
+        }
+        extra_code_assume();
+        st.borrow_mut().code_inserted_extra = true;
+        Ok(())
+    }
+
     /// Whether the table of page `st` declares none of OnInsert, OnModify, OnDelete and OnRename: no table code runs at the save
     /// or the saves after it (the cells' tables, :19-43, :102-126, :171-199).
-    fn no_record_trigger(&self, st: &St) -> bool {
+    pub(super) fn no_record_trigger(&self, st: &St) -> bool {
         let table = self.page_rec(st).borrow().table as usize;
         let engine = self.engine();
         !engine.program.objects[table].routines.iter().any(|r| {

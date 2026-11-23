@@ -209,6 +209,9 @@ pub enum CodedObjects {
     /// The reporter's repro of al-runner issue 8434, ListNewLineFactboxesRepro.al: assumption
     /// `list-new-line-coded-factboxes-repro`.
     Repro,
+    /// Not either's code, a page of their shape (`code_inserted_coded.rs` `coded_extra_shape`) under the effect gate of
+    /// `code_inserted_extra.rs`: assumption `list-new-line-extra-code-coded` (ListNewLineExtraCodeCodedPage.al).
+    Extra,
 }
 
 impl CodedObjects {
@@ -217,25 +220,30 @@ impl CodedObjects {
         match self {
             Self::Probe => al_builtins::assumptions::Assumption::ListNewLineCodedFactboxes,
             Self::Repro => al_builtins::assumptions::Assumption::ListNewLineCodedFactboxesRepro,
+            Self::Extra => al_builtins::assumptions::Assumption::ListNewLineExtraCodeCoded,
         }
     }
 
     /// Whether a SetValue after the landing and `steps` earlier ones is measured: up to two on the probe's page
     /// (ListNewLineFactboxesCode.al:1407 `setvalue`, :1576 `setvalue2`), the one Value on the repro's
-    /// (ListNewLineFactboxesRepro.al:639-647).
+    /// (ListNewLineFactboxesRepro.al:639-647); on a page of their shape the one SetValue of a control without code instead
+    /// (`refuse_off_factbox_row`).
     pub fn later_set_value(self, steps: u8) -> bool {
         match self {
             Self::Probe => steps < 2,
             Self::Repro => steps == 0,
+            Self::Extra => false,
         }
     }
 
     /// Whether `OK()` after the landing and `steps` later SetValues is measured: after any of them on the probe's page (:1407
-    /// `ok=`), after the one Value on the repro's (:646).
+    /// `ok=`), after the one Value on the repro's (:646); on a page of their shape only after the SetValue of a control without
+    /// code (`FactboxStep::Typed`).
     pub fn ok_after(self, steps: u8) -> bool {
         match self {
             Self::Probe => true,
             Self::Repro => steps == 1,
+            Self::Extra => false,
         }
     }
 }

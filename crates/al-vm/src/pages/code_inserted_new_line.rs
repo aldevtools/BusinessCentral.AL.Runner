@@ -255,6 +255,10 @@ impl Session {
             _ => None,
         };
         let shape = view.is_some() && (!coded || self.no_active_subscriber(page_object));
+        // A page of the shape of the page with code, but not its code: the effect gate (`extra_code_coded_cell`).
+        if shape && coded && st.borrow().coded_objects == super::state::CodedObjects::Extra {
+            self.extra_code_coded_cell(st, opened, view, leave)?;
+        }
         if shape && coded {
             super::code_inserted_coded::coded_assume(st);
             st.borrow_mut().coded_line = CodedLine::Landed;
@@ -1099,6 +1103,14 @@ impl Session {
                 FactboxStep::CodedOk
             }
             (FactboxStep::CodedOk, TestCall::Other(PageMethod::Invoke), None) => step,
+            // A page of the shape of the page with code: one SetValue of a control without code, then as on the FactBox host
+            // (ListNewLineExtraCodeCodedPage.al).
+            (FactboxStep::Coded { steps: 0 }, TestCall::Write(i), None)
+                if root.borrow().coded_objects == super::state::CodedObjects::Extra
+                    && self.control_without_code(&root, i) =>
+            {
+                FactboxStep::Typed
+            }
             _ => {
                 root.borrow_mut().forget_code_inserted_line();
                 return unsupported(MOVE_OFF_FACTBOX_ROW);

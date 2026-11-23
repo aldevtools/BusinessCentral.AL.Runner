@@ -20,6 +20,13 @@
 //! parts and codeunits, line for line, `CodedObjects::Repro`) runs the same way under the assumption
 //! `list-new-line-coded-factboxes-repro`, opened and driven only as it is measured: the open and the view above, `New()`, the
 //! Name SetValue that lands, one Value SetValue and `OK()` (:611-683).
+//!
+//! A page of their shape with other code (`coded_extra_shape`, `CodedObjects::Extra`; al-runner issue 8826) takes the same
+//! steps under the assumption `list-new-line-extra-code-coded` (ListNewLineExtraCodeCodedPage.al, corpus pull request 1537,
+//! open, 7 of 7 green on BC 29.1 in 3 runs): its SaveRecord under the effect gate (`extra_code_coded_cell`), its refresh
+//! reading the row as stored first and refusing a trigger that writes (:773), its worker's reads through the query cache
+//! (`bg_drain`), then one SetValue of a control without code and `OK()` (`refuse_off_factbox_row`). A row before the line
+//! (:821) and a table with record triggers (:839) keep main's way.
 
 use super::pinned_shape::TestCall;
 use super::state::{CodedLine, FactboxStep};
@@ -58,7 +65,56 @@ impl Session {
                 return Ok(false);
             }
         }
-        Ok(self.coded_code(st).is_some())
+        Ok(self.coded_code(st).is_some() || self.coded_extra_shape(st)?)
+    }
+
+    /// Whether host `st`, whose code is not the probe's or the repro's, has their shape as ListNewLineExtraCodeCodedPage.al
+    /// measures it (`CodedObjects::Extra`): a List page with AutoSplitKey, no page extension and no subscriber, whose triggers
+    /// are among OnOpenPage, OnAfterGetRecord and OnDeleteRecord; a table without OnInsert, OnModify, OnDelete and OnRename
+    /// (`no_record_trigger`); three CardPart FactBoxes, each linked by a SubPageLink of each field of the primary key to
+    /// itself, no SubPageView and no Provider, whose triggers are among OnAfterGetRecord, OnAfterGetCurrRecord and
+    /// OnPageBackgroundTaskCompleted.
+    fn coded_extra_shape(&self, st: &St) -> Result<bool, Signal> {
+        if !(self.is_list_page(st) && self.unextended_unsubscribed(st) && self.no_record_trigger(st)) {
+            return Ok(false);
+        }
+        let key = self.table(&self.page_rec(st))?.keys[0].clone();
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        let split = engine.program.objects[object]
+            .properties
+            .iter()
+            .any(|(n, v)| n.eq_ignore_ascii_case("AutoSplitKey") && v.trim().eq_ignore_ascii_case("true"));
+        let page = page_of(&engine, st);
+        let host_triggers = page
+            .triggers
+            .iter()
+            .all(|(n, _)| ["onopenpage", "onaftergetrecord", "ondeleterecord"].contains(&n.as_str()));
+        let parts = st.borrow().parts.clone();
+        let parts_ok = parts.iter().all(|(idx, part)| {
+            let control = &page.controls[*idx];
+            let link = control.part_link.as_ref().is_some_and(|l| {
+                l.provider.is_none()
+                    && l.view.is_none()
+                    && l.entries.len() == key.len()
+                    && l.entries
+                        .iter()
+                        .zip(&key)
+                        .all(|(e, k)| matches!(e, ir::LinkEntry::Field(pf, hf) if pf == k && hf == k))
+            });
+            let part_object = part.borrow().object as usize;
+            let card_part = engine.object_facts[part_object].page_type == Some(ir::PageType::Other("cardpart".into()));
+            let triggers = page_of(&engine, part).triggers.iter().all(|(n, _)| {
+                [
+                    "onaftergetrecord",
+                    "onaftergetcurrrecord",
+                    "onpagebackgroundtaskcompleted",
+                ]
+                .contains(&n.as_str())
+            });
+            control.factbox && link && card_part && triggers
+        });
+        Ok(split && host_triggers && parts_ok)
     }
 
     /// Whether part `part` of host `st` shows its rows as the probe's parts do: over the host's table, stored, not marked,
@@ -102,7 +158,7 @@ impl Session {
         {
             return Ok(false);
         }
-        let objects = self.coded_code(st).unwrap_or_default();
+        let objects = self.coded_code(st).unwrap_or(super::state::CodedObjects::Extra);
         st.borrow_mut().coded_objects = objects;
         coded_assume(st);
         st.borrow_mut().coded_line = CodedLine::EmptyOpen;
@@ -218,6 +274,16 @@ impl Session {
         if !primary_key {
             self.populate_current(st)?;
         }
+        let extra = st.borrow().coded_objects == super::state::CodedObjects::Extra;
+        if extra {
+            // The Update reads the row as stored before the page's OnAfterGetRecord runs on it: the first read shows a write
+            // made through another record after the save (ListNewLineExtraCodeCodedPage.al:773 `AGR(A/Resolved/Stamped)`).
+            let rec = self.page_rec(st);
+            let mut pk = self.table(&rec)?.primary_key(&rec.borrow().fields);
+            self.ret_used = true;
+            self.record_op(al_builtins::record_op::RecordOp::Get, &rec, &mut pk)?;
+        }
+        let changes = self.store.change_counter();
         self.reread_view_from_row(st, without_curr, without_parts, false)?;
         // The refresh's reads are its own: on this page without OnAfterGetCurrRecord the mark they leave for the refresh
         // (`note_reads_done`) is spent here, so it does not skip the refresh of the next SetValue (:1407 `setvalue`). Only here,
@@ -240,7 +306,11 @@ impl Session {
                 && r.field_descending == view.field_descending
                 && r.marked_only == view.marked_only
         };
-        let kept = rows_kept && view_kept && stored.is_some_and(|s| Self::same_values(&rec.borrow().fields, &s));
+        // On a page of the probe's shape with other code the triggers only read: one that wrote the store (a part's write of
+        // another table) is not measured either.
+        let quiet = !extra || self.store.change_counter() == changes;
+        let kept =
+            quiet && rows_kept && view_kept && stored.is_some_and(|s| Self::same_values(&rec.borrow().fields, &s));
         if !kept {
             st.borrow_mut().forget_code_inserted_line();
             return unsupported(

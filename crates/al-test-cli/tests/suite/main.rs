@@ -173,6 +173,7 @@ mod outside_fb_8697;
 mod outside_fb_8712;
 mod outside_fb_8734;
 mod outside_fb_8735;
+mod outside_fb_8826;
 mod outside_fb_repros;
 mod outside_id_repros;
 mod outside_rt_pages;
