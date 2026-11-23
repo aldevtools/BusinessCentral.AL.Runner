@@ -75,11 +75,11 @@ fn neighbors_past_the_cells() {
 /// no control has on the CardPart a RoleCenter shows, on an API page, a PromptDialog, a ReportPreview and a ReportProcessingOnly
 /// page are not found; a control's own id on a Worksheet, a ListPlus and a CardPart a TestPart shows reads its Value. The
 /// extension's field by the extension's id on a Worksheet (:2576 `ext`) refuses, as only a Card's is measured. Just past the
-/// cells an action's id on a NavigatePage and an id no control has on the CardPart a Document shows refuse. The cells run as
-/// on BC 29: BC 27 and 28 raise on opening the ReportPreview page (:2643, `#if BC29PLUS`).
+/// cells an action's id on a NavigatePage and an id no control has on the CardPart a Document shows refuse. Without a version
+/// symbol the ReportPreview cell takes BC 29's branch (:2643; BC 27 and 28 raise on the page's open).
 #[test]
 fn review_shapes() {
-    let src = format!("#define BC29PLUS\n{PROBE}\n{NEIGHBORS}");
+    let src = format!("{PROBE}\n{NEIGHBORS}");
     let kinds = outcomes(&src, "LT GFI Kinds Tests");
     let bad: Vec<_> = kinds
         .iter()
@@ -98,10 +98,28 @@ fn review_shapes() {
             "NavigatePageActionId" => {
                 !matches!(r, Outcome::NotRun(why) if why.starts_with("TestPage.GetField by a control id on a page kind"))
             }
+            "WorksheetExtActionRefId" | "CardPartHostExtFieldId" => !matches!(r, Outcome::NotRun(why) if why.starts_with(EXT_ID)),
             _ => !matches!(r, Outcome::NotRun(why) if why.starts_with("TestPage.GetField with an id no control of the page has")),
         })
         .collect();
-    assert!(past.len() == 2 && bad.is_empty(), "{past:#?}");
+    assert!(past.len() == 4 && bad.is_empty(), "{past:#?}");
+}
+
+/// How the refusal of an id a page extension's control has, on the page, the host or a part's page, starts.
+const EXT_ID: &str = "TestPage.GetField with the id of a page extension's control";
+
+/// The review of the 8902 pull request at 22:31Z (:3015-:3051): on a Worksheet an extension's actionref by the extension's id
+/// (BC finds it, an empty field), a field the host's extension adds read through the CardPart and a field a part page's
+/// extension adds read on the RoleCenter (BC: not found) refuse, as the entry says; main answered "not found" for the first and
+/// the third.
+#[test]
+fn extension_control_ids_refuse() {
+    let o = outcomes(PROBE, "LT GFI Owner Tests");
+    let bad: Vec<_> = o
+        .iter()
+        .filter(|(_, r, _)| !matches!(r, Outcome::NotRun(why) if why.starts_with(EXT_ID)))
+        .collect();
+    assert!(o.len() == 3 && bad.is_empty(), "{o:#?}");
 }
 
 /// Al-runner issue 8887: an id no control has is not found on every page kind the cells open, a Worksheet, a ListPlus, a
