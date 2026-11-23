@@ -367,3 +367,15 @@ fn issue_8803_cells() {
         assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
     }
 }
+
+/// The Count of a group read ascending and then descending (corpus PR 1533, BgTaskCalcCache.al:549, green 3 of 3 on BC 29.1):
+/// BC answers the first answer, one entry for both sort directions, and so does the runner, flagged.
+#[test]
+fn issue_8803_count_both_directions() {
+    let o = outcomes(CALC_PROBE, "BCC Count Tests");
+    assert_eq!(o.len(), 1);
+    for (name, r, marks) in &o {
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
+    }
+}

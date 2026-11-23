@@ -1,4 +1,4 @@
-// An excerpt of the corpus probe BgTaskCalcCache.al of corpus pull request 1533 at c16793ba (al-runner issue 8803): the file
+// An excerpt of the corpus probe BgTaskCalcCache.al of corpus pull request 1533 at 97e79d60 (al-runner issue 8803): the file
 // without its two Tenant Media cells (:446, :452) and the Media Id fields they read, because the runner's unit tests compile
 // this file without the platform tables. Line numbers below are the corpus file's.
 // BC Documentation:
@@ -452,5 +452,82 @@ codeunit 97490 "BCC Tests"
     procedure BgCalcCache_CalcSumsAfterSetAscendingFalse_FirstAnswer()
     begin
         Assert.AreEqual('5 / 5', Reads('descendingsums', 'lines'), 'CalcSums after SetAscending(false)');
+    end;
+}
+
+// The Count of a group, read ascending and then descending (review of al-runner PR 8808): a worker's Count of the lines of a
+// committed parent with line 1, ascending; the test session inserts lines 0 and 2 without a commit and reads them; the worker's
+// Count of the same lines with Ascending(false): BC answers the first answer, one entry for both sort directions (a local
+// BC 29.1 container, 3 runs).
+codeunit 97472 "BCC Count Reader"
+{
+    trigger OnRun()
+    var
+        Line: Record "BCC Line";
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+    begin
+        Parameters := Page.GetBackgroundParameters();
+        Line.SetRange(Parent, Parameters.Get('Group'));
+        if Parameters.Get('Mode') = 'descending' then
+            Line.Ascending(false);
+        Results.Add('Seen', Format(Line.Count()));
+        Page.SetBackgroundTaskResult(Results);
+    end;
+}
+
+codeunit 97473 "BCC Count Tests"
+{
+    Subtype = Test;
+
+    var
+        Assert: Codeunit Assert;
+
+    local procedure Run(var Lines: TestPage "BCC Lines"; Mode: Text; Group: Code[20]): Text
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Seen: Text;
+    begin
+        Parameters.Add('Group', Group);
+        Parameters.Add('Mode', Mode);
+        Results := Lines.RunPageBackgroundTask(Codeunit::"BCC Count Reader", Parameters, false);
+        Results.Get('Seen', Seen);
+        exit(Seen);
+    end;
+
+    local procedure AddLine(Parent: Code[20]; LineNo: Integer)
+    var
+        Line: Record "BCC Line";
+    begin
+        Line.Parent := Parent;
+        Line."Line No." := LineNo;
+        Line.Kind := 'K';
+        Line.Amount := 1;
+        Line.Insert();
+        Line.SetRange(Parent, Parent);
+        if Line.FindFirst() then;
+    end;
+
+    [Test]
+    procedure BgCalcCache_CountAscendingThenDescending_FirstAnswer()
+    var
+        Lines: TestPage "BCC Lines";
+        Parent: Record "BCC Parent";
+        G: Code[20];
+        Seen: Text;
+    begin
+        G := CopyStr(DelChr(Format(CreateGuid()), '=', '{}-'), 1, 18);
+        Parent."No." := G;
+        Parent.Insert();
+        AddLine(G, 1);
+        Commit();
+        Lines.OpenView();
+        Seen := Run(Lines, 'ascending', G);
+        AddLine(G, 0);
+        AddLine(G, 2);
+        Seen += ' / ' + Run(Lines, 'descending', G);
+        Lines.Close();
+        Assert.AreEqual('1 / 1', Seen, 'Count ascending, then descending');
     end;
 }
