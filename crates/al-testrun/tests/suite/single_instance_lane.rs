@@ -769,7 +769,7 @@ codeunit 60832 "Lane Hub Handler Reader"
 "#;
 
 /// A codeunit with handlers that reads a table a hub member wrote is refused: under `--strict-order` the walk marks it
-/// (`strict_walk.rs` `LEG_UNPINNED`, `carry_after.rs` `place_unpinned`), with the text main's default run gives it
+/// (`strict_walk.rs` `Unpinned`, `carry_after.rs` `place_unpinned`), as main's default run refuses it
 /// (`After::outside_refusal`), even when a plain codeunit runs between the hub member and it.
 #[test]
 fn a_lane_reader_with_handlers_after_a_hub_member_stays_refused() {
@@ -918,7 +918,7 @@ codeunit 60862 "Lane Leg Handler Reader"
 "#;
 
 /// The refusal of a codeunit with handlers holds only after a member on the TestRunnerHub (`carry_after.rs`
-/// `handlers_unpinned`, `strict_walk.rs` `LEG_UNPINNED`): after a member on the other leg it runs from what the member left.
+/// `handlers_unpinned`, `strict_walk.rs` `Unpinned`): after a member on the other leg it runs from what the member left.
 #[test]
 fn a_lane_reader_with_handlers_on_the_other_leg_runs_again() {
     let opts = RunOptions {

@@ -1589,7 +1589,7 @@ impl CorpusRuntime {
             // and the lane's analysis to do. By default the walk takes the carry chain only, each member with fresh single
             // instances.
             #[rustfmt::skip]
-            let carried = { let walk = super::chain_walk::ChainWalk { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, trace: opts.trace, limit, pool: memory.pool(), fresh_check: opts.single_fresh_check, sequential: opts.strict_order }; if opts.strict_order { super::strict_walk::StrictRun { walk, place: &place, suites: opts.test_suites.as_deref(), refused: &refused_disabled, discovery: &discovery, workers, copies: baseline.is_none() || baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline }.run(&mut slots, &mut details, &mut chain_report); Vec::new() } else { walk.walk(chain, &mut |k, r| slots[k] = Some(r), &mut details, &mut chain_report) } };
+            let carried = { let walk = super::chain_walk::ChainWalk { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, trace: opts.trace, limit, pool: memory.pool(), fresh_check: opts.single_fresh_check, sequential: opts.strict_order, unpinned: None }; if opts.strict_order { super::strict_walk::StrictRun { walk, place: &place, suites: opts.test_suites.as_deref(), refused: &refused_disabled, discovery: &discovery, workers, copies: baseline.is_none() || baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline }.run(&mut slots, &mut details, &mut chain_report); Vec::new() } else { walk.walk(chain, &mut |k, r| slots[k] = Some(r), &mut details, &mut chain_report) } };
             // The other codeunits run as before; one that comes after a Disabled codeunit notes whether it reads a table that
             // codeunit left rows in, and then runs again below, from what it left.
             note_leaks(&mut units, &carried, &sees);
@@ -2377,8 +2377,9 @@ fn unit_runner(
 
 /// Whether BC runs test codeunit `oi` on the TestRunnerHub: `hub` (its RequiredTestIsolation is Function or Disabled), or
 /// on the hub path (`RunOptions::required_isolation`, no runner codeunit) a codeunit without handlers and with
-/// TestPermissions = Disabled, which the hub runs under Codeunit isolation (RqIsolationModes.al:9-15). The hub runs its
-/// codeunits before runner 130450 runs the others (:12).
+/// TestPermissions = Disabled, which the hub runs under Codeunit isolation (RqIsolationModes.al:9-15). Whether the hub
+/// runs its codeunits before runner 130450 runs the others is not pinned (:12 states it in the header only; corpus issue
+/// #1559; `strict_walk.rs` `Unpinned`).
 fn on_hub(lowered: &Lowered, oi: usize, hub: bool, hub_path: bool) -> bool {
     let o = &lowered.program.objects[oi];
     hub || (hub_path

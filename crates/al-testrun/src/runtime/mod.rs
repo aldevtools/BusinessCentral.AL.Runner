@@ -765,10 +765,10 @@ pub(crate) struct Scratch {
     hub: bool,
     /// See `Unit::hub_leg`. Not set (a run outside the corpus routing): runner 130450, as before the hub leg existed.
     hub_leg: bool,
-    /// The tables an earlier codeunit with RequiredTestIsolation = Disabled left rows in; reading one sets `leak_hit`.
+    /// The tables an earlier codeunit with RequiredTestIsolation = Disabled left rows in; reading one notes it in `leak_hits`.
     leak: Option<Arc<std::collections::BTreeSet<u32>>>,
-    /// A test or the `OnRun` trigger read or wrote one of `leak`.
-    leak_hit: bool,
+    /// The tables of `leak` a test or the `OnRun` trigger read or wrote.
+    leak_hits: std::collections::BTreeSet<u32>,
     /// Runner 130450 runs the codeunit and its `OnRun` can write: what OnRun left reaches the later codeunits
     /// (`corpus.rs` `onrun_writes`; run.rs sets CARRIED).
     onrun_carry: bool,

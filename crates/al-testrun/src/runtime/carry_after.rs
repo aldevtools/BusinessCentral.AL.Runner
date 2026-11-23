@@ -44,7 +44,7 @@ impl After {
 
     /// Whether run `r` read what the carry left: a table it left rows in, or the storage it changed.
     pub(super) fn read(&self, r: &UnitResult) -> bool {
-        self.storage || r.result.as_ref().is_ok_and(|done| done.5.leak_hit)
+        self.storage || r.result.as_ref().is_ok_and(|done| !done.5.leak_hits.is_empty())
     }
 
     /// Why what run `r` of a chain member found is refused: the storage the carry changed is not followed (when the
@@ -61,7 +61,7 @@ impl After {
     }
 }
 
-/// The tables `carry` left rows in, for `Unit::leak`: a run notes `leak_hit` when it reads one.
+/// The tables `carry` left rows in, for `Unit::leak`: a run notes in `leak_hits` the ones it reads.
 pub(super) fn leak(carry: Option<&Carried>) -> Leak {
     carry.map(|c| Arc::new(c.tables.clone()))
 }
@@ -86,17 +86,20 @@ pub(super) fn has_handlers(lowered: &Lowered, oi: usize) -> bool {
     })
 }
 
-/// The sequential strict walk (`strict_walk.rs` `groups`, leg [`super::strict_walk::LEG_UNPINNED`]): codeunit `oi` runs
-/// under runner 130450 after the hub leg of its BC session, which has a codeunit that can leave rows, and it has handlers
-/// or comes before that codeunit in its suite. No corpus case measures whether BC runs the 130450 leg before or after the
-/// hub leg (RqIsolationModes.al:12 states it in the header only), so a run that read what the walk carried is refused,
-/// with main's text when it has handlers ([`handlers_unpinned`]).
-pub(super) fn place_unpinned(lowered: &Lowered, oi: usize) -> String {
+/// The sequential strict walk (`strict_walk.rs` `Unpinned`): codeunit `oi` runs under runner 130450, hub-leg codeunit
+/// `writer` left rows in a table its run read, and whether BC runs `oi` before or after `writer` is not pinned (corpus
+/// issue #1559).
+pub(super) fn place_unpinned(lowered: &Lowered, oi: usize, writer: usize) -> String {
+    let name = &lowered.program.objects[writer].name;
     if has_handlers(lowered, oi) {
-        HANDLERS_UNPINNED.to_string()
+        format!(
+            "\"{name}\", a codeunit on the TestRunnerHub, wrote a table this test reads, and whether BC runs this codeunit, \
+             which has handlers, before or after it is not pinned"
+        )
     } else {
-        "a codeunit with RequiredTestIsolation = Disabled that comes after this codeunit in its suite may have written a table this \
-         test reads, and whether BC runs this codeunit before or after it is not pinned"
-            .to_string()
+        format!(
+            "\"{name}\", a codeunit on the TestRunnerHub that comes after this codeunit in its suite, wrote a table this test \
+             reads, and whether BC runs this codeunit before or after it is not pinned"
+        )
     }
 }

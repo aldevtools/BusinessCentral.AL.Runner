@@ -623,7 +623,7 @@ fn run_codeunit_inner(
             let timed_out = watchdog.and_then(Watchdog::finish);
             let ran = on_run_time_limit(session, ran, limit, timed_out);
             let hits = session.store_mut().watch_hits();
-            scratch.leak_hit |= !leak.is_disjoint(&hits);
+            scratch.leak_hits.extend(leak.intersection(&hits));
             session.store_mut().watch(Default::default());
             if let Some((_, why)) = skipped_install_hit(&skipped_installs, &hits, Refused) {
                 return Err(on_run_refused(format!("OnRun: {why}")));
@@ -1112,7 +1112,7 @@ fn run_codeunit_inner(
             let drew_carried = session.carried_random_draws() > carried_before;
             // A test that read or wrote, while it ran, a table a Company Triggers subscriber wrote before the first test
             // (al-runner issue 5641), or one a watched login wrote (`login.rs`): what it found there is not pinned.
-            // A read or write of any table an earlier Disabled codeunit left rows in sets `leak_hit`, whatever watched
+            // A read or write of any table an earlier Disabled codeunit left rows in is noted in `leak_hits`, whatever watched
             // table the test touched first (review of al-runner issue 7717, round five, probe p13).
             let touched = session.store_mut().watch_hits();
             let hit = company_open.watch_hit(&touched, began);
@@ -1127,8 +1127,8 @@ fn run_codeunit_inner(
             {
                 Some(why) => Outcome::NotRun(why),
                 None => {
-                    if began && !leak.is_disjoint(&touched) {
-                        scratch.leak_hit = true;
+                    if began {
+                        scratch.leak_hits.extend(leak.intersection(&touched));
                     }
                     outcome
                 }

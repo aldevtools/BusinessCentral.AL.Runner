@@ -10,8 +10,9 @@
 //! session are flagged (`Assumption::StrictAfterRefused`), as their state is no longer BC's.
 //!
 //! A suite's hub leg and the codeunits runner 130450 runs share one database in BC, so they are one walk: the hub leg
-//! first (BC runs it first, `RqIsolationModes.al:12`), then the rest, the single instances starting fresh at that
-//! boundary (`chain_walk.rs` `starts_fresh`).
+//! first, then the rest, the single instances starting fresh at that boundary (`chain_walk.rs` `starts_fresh`). That
+//! the hub leg runs first is not pinned (`RqIsolationModes.al:12` states it in the header only; corpus issue #1559): a
+//! runner 130450 codeunit that read what a hub-leg writer of unknown place left is refused ([`Unpinned`], [`HubLeft`]).
 
 use super::chain_walk::{ChainWalk, Link};
 use super::single_lane::{Stream, keyed_streams};
@@ -19,13 +20,44 @@ use super::*;
 use al_builtins::assumptions::Assumption;
 
 /// One member of a walk, as `ChainWalk::walk` takes it: (suite, leg, codeunit id, what to do). The leg is the carry chain's
-/// (`corpus.rs`): 0 on the TestRunnerHub, 1 under runner 130450, or [`LEG_UNPINNED`].
+/// (`corpus.rs`): 0 on the TestRunnerHub, 1 under runner 130450.
 pub(super) type Item = (usize, u8, u32, Link);
 
-/// The leg of a codeunit under runner 130450 whose place against the hub leg is not pinned: the hub leg of its BC session has
-/// a codeunit that can leave rows ([`leaves_nothing`] is false, or it is not run), and this codeunit has handlers or comes
-/// before that one in its suite (`carry_after.rs` `place_unpinned`).
-pub(super) const LEG_UNPINNED: u8 = 2;
+/// The codeunits under runner 130450 of a walk whose place against some hub-leg writers is not pinned, each (codeunit id)
+/// with those writers' ids in place order. A writer is a hub-leg codeunit that can leave rows ([`leaves_nothing`] is
+/// false, or it is not run); it counts for a codeunit with handlers, or for one that comes before it in its suite
+/// (`groups`). No corpus case measures whether BC runs the 130450 leg before or after the hub leg (corpus issue #1559).
+pub(super) type Unpinned = std::collections::BTreeMap<u32, Vec<u32>>;
+
+/// What each hub-leg member of a walk left by itself: (codeunit id) -> (object, tables it left rows in). Read by the
+/// members of [`Unpinned`]. Isolated storage and numbers a hub-leg member changed need no entry: every later member whose
+/// reach can touch them is refused already (`carry_after.rs` `After::refusal`, `Carried::storage_why`).
+#[derive(Default)]
+pub(super) struct HubLeft(std::collections::BTreeMap<u32, (usize, BTreeSet<u32>)>);
+
+impl HubLeft {
+    /// Hub-leg member `id` (object `oi`) left `left`, before what the members before it left is added.
+    pub(super) fn note(&mut self, id: u32, oi: usize, left: &super::run::Carried) {
+        self.0.insert(id, (oi, left.tables.clone()));
+    }
+
+    /// Why run `r` of codeunit `oi`, whose place against `writers` is not pinned, is refused: it read a table one of them
+    /// left rows in (`Scratch::leak_hits`). Names the first such writer (`carry_after.rs` `place_unpinned`).
+    pub(super) fn refusal(
+        &self,
+        writers: &[u32],
+        lowered: &al_sema::lower::Lowered,
+        oi: usize,
+        r: &UnitResult,
+    ) -> Option<String> {
+        let hits = &r.result.as_ref().ok()?.5.leak_hits;
+        let (w, _) = writers
+            .iter()
+            .filter_map(|w| self.0.get(w))
+            .find(|(_, tables)| !hits.is_disjoint(tables))?;
+        Some(super::carry_after::place_unpinned(lowered, oi, *w))
+    }
+}
 
 /// A unit that leaves nothing for the later codeunits: its isolation rolls its tests back and its OnRun cannot write
 /// (`Unit::carry` is the static analysis of that, `chain::carry_why`).
@@ -107,7 +139,7 @@ pub(super) fn groups(
     place: &dyn Fn(usize, u32) -> u32,
     suites: Option<&crate::test_suites::TestSuites>,
     refused: &[(usize, u32, usize, String)],
-) -> Vec<Vec<Item>> {
+) -> Vec<(Vec<Item>, Unpinned)> {
     struct Group {
         suite: usize,
         si: usize,
@@ -160,7 +192,7 @@ pub(super) fn groups(
     out.into_iter()
         .map(|mut g| {
             g.hub.sort_by_key(|(p, _)| *p);
-            let last_writer = g
+            let writers: Vec<(u64, u32)> = g
                 .hub
                 .iter()
                 .filter(|(_, item)| match &item.3 {
@@ -168,18 +200,26 @@ pub(super) fn groups(
                     Link::Refused(..) => true,
                     Link::Discovery(_) => false,
                 })
-                .map(|(p, _)| *p)
-                .max();
-            if let Some(last) = last_writer {
-                for (p, item) in &mut g.rest {
-                    if let Link::Run(k) = item.3
-                        && (*p < last || handlers(units[k].oi))
-                    {
-                        item.1 = LEG_UNPINNED;
+                .map(|(p, item)| (*p, item.2))
+                .collect();
+            let mut unpinned = Unpinned::new();
+            for (p, item) in &g.rest {
+                if let Link::Run(k) = item.3 {
+                    let all = handlers(units[k].oi);
+                    let w: Vec<u32> = writers
+                        .iter()
+                        .filter(|(wp, _)| all || wp > p)
+                        .map(|(_, id)| *id)
+                        .collect();
+                    if !w.is_empty() {
+                        unpinned.insert(item.2, w);
                     }
                 }
             }
-            g.hub.into_iter().chain(g.rest).map(|(_, item)| item).collect()
+            (
+                g.hub.into_iter().chain(g.rest).map(|(_, item)| item).collect(),
+                unpinned,
+            )
         })
         .collect()
 }
@@ -221,14 +261,14 @@ impl StrictRun<'_> {
         let lowered = self.walk.lowered;
         let handlers = |oi: usize| super::carry_after::has_handlers(lowered, oi);
         let mut groups = groups(self.walk.units, &handlers, self.place, self.suites, self.refused);
-        for g in &mut groups {
+        for (g, _) in &mut groups {
             if let Some(d) = g.first().and_then(|f| self.discovery.iter().find(|d| d.0 == f.0)) {
                 g.insert(0, d.clone());
             }
         }
         // The longest walks first: the wall time is then close to the longest session's.
         let mut order: Vec<usize> = (0..groups.len()).collect();
-        order.sort_by_key(|&g| std::cmp::Reverse(groups[g].len()));
+        order.sort_by_key(|&g| std::cmp::Reverse(groups[g].0.len()));
         // The closure captures only what threads may share (a baseline stays on its thread).
         let w = &self.walk;
         let (engine, lowered, units, trace, limit, pool, fresh_check) =
@@ -245,11 +285,12 @@ impl StrictRun<'_> {
                 pool,
                 fresh_check,
                 sequential: true,
+                unpinned: Some(&groups[order[i]].1),
             };
             let mut take = |k: usize, r: UnitResult| out.done.push((k, r));
             let mut local = ChainReport::default();
             let mut det = std::collections::HashMap::new();
-            walk.walk(groups[order[i]].clone(), &mut take, &mut det, &mut local);
+            walk.walk(groups[order[i]].0.clone(), &mut take, &mut det, &mut local);
             out.details = det;
             out.report = local;
             out

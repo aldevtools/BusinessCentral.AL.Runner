@@ -47,6 +47,9 @@ pub(super) struct ChainWalk<'a> {
     /// ADR-070 step 2: this is the walk of one BC session of the sequential strict run (`strict_walk.rs`); see the head of
     /// the file. The caller runs it on a thread of its own that already counts as a running codeunit.
     pub sequential: bool,
+    /// The sequential walk's runner 130450 codeunits whose place against some hub-leg writers is not pinned
+    /// (`strict_walk.rs` `groups`).
+    pub unpinned: Option<&'a super::strict_walk::Unpinned>,
 }
 
 /// The single instances the walk keeps from member to member (`ChainWalk::sequential`): which BC session they belong
@@ -141,6 +144,7 @@ impl ChainWalk<'_> {
         // a whole) and the ones flagged after them could have changed: a later member that can read it is flagged
         // (`strict_taint.rs`).
         let mut taint = super::strict_taint::Taint::default();
+        let mut hub_left = super::strict_walk::HubLeft::default();
         super::run::CARRIED.with(|c| c.borrow_mut().take());
         if keep {
             super::run::LANE_SINGLES.with(|c| *c.borrow_mut() = Some(None));
@@ -155,6 +159,11 @@ impl ChainWalk<'_> {
                 });
             }
             let before = carried.iter().rev().find(|(s, _, _, _)| *s == si);
+            let hub_oi = match &link {
+                Link::Run(k) if units[*k].hub_leg => Some(units[*k].oi),
+                Link::Refused(oi, _) => Some(*oi),
+                _ => None,
+            };
             let mut left = match link {
                 Link::Run(k) => {
                     let start = match before {
@@ -213,10 +222,10 @@ impl ChainWalk<'_> {
                     }
                     if let Some((_, _, before_leg, b)) = before {
                         let after = After::new(engine, lowered, b, units[k].oi, *before_leg);
-                        // Sequential: a 130450 codeunit whose place against the hub leg's writers is not pinned
-                        // (`strict_walk.rs` `groups`) is refused when it read what the walk carried.
-                        let unpinned = (leg == super::strict_walk::LEG_UNPINNED && after.read(&r))
-                            .then(|| super::carry_after::place_unpinned(lowered, units[k].oi));
+                        // Sequential: a 130450 codeunit whose place against some hub-leg writers is not pinned
+                        // (`strict_walk.rs` `groups`) is refused when it read what those writers left.
+                        let unpinned = (self.unpinned.and_then(|u| u.get(&id)))
+                            .and_then(|w| hub_left.refusal(w, lowered, units[k].oi, &r));
                         let why = after.refusal(&r).cloned().or(unpinned);
                         if let (Some(why), Ok(done)) = (why, &mut r.result) {
                             refuse_all(&mut done.0, &why);
@@ -253,6 +262,9 @@ impl ChainWalk<'_> {
             // A link that leaves the state it was given (`baseline: None`) and has no link before it in its suite
             // leaves the walk's start: the first member that was not run would otherwise hand the later ones no
             // install baseline (tests/suite/refused_chain_link.rs).
+            if let (Some(oi), Some(_)) = (hub_oi, self.unpinned) {
+                hub_left.note(id, oi, &left);
+            }
             if before.is_none() && left.baseline.is_none() {
                 left.baseline = self.baseline.cloned();
             }

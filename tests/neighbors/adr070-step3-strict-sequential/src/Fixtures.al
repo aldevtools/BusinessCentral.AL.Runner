@@ -12,6 +12,20 @@ table 50101 "N70 Other Row"
     keys { key(PK; K) { Clustered = true; } }
 }
 
+table 50104 "N70 Third Row"
+{
+    DataClassification = SystemMetadata;
+    fields { field(1; K; Code[20]) { } }
+    keys { key(PK; K) { Clustered = true; } }
+}
+
+table 50105 "N70 Mid Row"
+{
+    DataClassification = SystemMetadata;
+    fields { field(1; K; Code[20]) { } }
+    keys { key(PK; K) { Clustered = true; } }
+}
+
 codeunit 50102 "N70 State"
 {
     SingleInstance = true;
