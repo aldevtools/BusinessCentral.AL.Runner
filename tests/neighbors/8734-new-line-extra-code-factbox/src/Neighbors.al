@@ -520,7 +520,7 @@ codeunit 97708 "LT NG Tests"
         Check('rows', 'B///;A/Resolved//V;', Rows());
     end;
 
-    // After the landing: Previous(), Next(), or Close() instead of OK.
+    // After the landing: Previous() or Next(), and after a SetValue Previous() or Close(), instead of OK.
     [Test]
     [HandlerFunctions('PreviousHandler')]
     procedure NewLine_PreviousAfterTheLanding_StaysOnTheRow()
@@ -553,7 +553,7 @@ codeunit 97708 "LT NG Tests"
 
     [Test]
     [HandlerFunctions('CloseHandler')]
-    procedure NewLine_CloseAfterTheLanding_RunModalFails()
+    procedure NewLine_CloseAfterASetValue_RunModalFails()
     begin
         Initialize();
         asserterror RunMode(0, Page::"LT NG Lines");
@@ -683,6 +683,117 @@ codeunit 97708 "LT NG Tests"
         Mode.Set(M);
         Opener.Open('G1', PageId);
         Mode.Set(0);
+    end;
+
+    local procedure Rows() Result: Text
+    var
+        Line: Record "LT NG Line";
+    begin
+        Line.SetRange("Group Code", 'G1');
+        if Line.FindSet() then
+            repeat
+                Result += Line.Name + '/' + Line.Note + '/' + Line.Mark + '/' + Line.Value + ';';
+            until Line.Next() = 0;
+    end;
+
+    local procedure Check(What: Text; Expected: Text; Actual: Text)
+    begin
+        if Expected <> Actual then
+            Error('%1: expected <%2>, found <%3>.', What, Expected, Actual);
+    end;
+}
+
+// Previous(), then Next(), after a SetValue on the row the new line became. Its own codeunit, so that no earlier refused test hides its result.
+codeunit 97711 "LT NG Prev Next Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        Shown: Text;
+
+    [Test]
+    [HandlerFunctions('PrevNextHandler')]
+    procedure NewLine_PreviousThenNextAfterASetValue_SavesTheRow()
+    var
+        Line: Record "LT NG Line";
+        Mode: Codeunit "LT NG Mode";
+        Opener: Codeunit "LT NG Opener";
+    begin
+        Line.DeleteAll();
+        Mode.Set(0);
+        Commit();
+        Shown := '';
+        Opener.Open('G1', Page::"LT NG Lines");
+        Check('shown', 'value=A/Resolved/Stamped/V previous=No next=Yes then=/// ', Shown);
+        Check('rows', 'A/Resolved/Stamped/V;', Rows());
+    end;
+
+    [ModalPageHandler]
+    procedure PrevNextHandler(var Lines: TestPage "LT NG Lines")
+    begin
+        Lines.New();
+        Lines.Name.SetValue('A');
+        Lines.Value.SetValue('V');
+        Shown += 'value=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + ' ';
+        Shown += 'previous=' + Format(Lines.Previous()) + ' ';
+        Shown += 'next=' + Format(Lines.Next()) + ' ';
+        Shown += 'then=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + ' ';
+        Lines.OK().Invoke();
+    end;
+
+    local procedure Rows() Result: Text
+    var
+        Line: Record "LT NG Line";
+    begin
+        Line.SetRange("Group Code", 'G1');
+        if Line.FindSet() then
+            repeat
+                Result += Line.Name + '/' + Line.Note + '/' + Line.Mark + '/' + Line.Value + ';';
+            until Line.Next() = 0;
+    end;
+
+    local procedure Check(What: Text; Expected: Text; Actual: Text)
+    begin
+        if Expected <> Actual then
+            Error('%1: expected <%2>, found <%3>.', What, Expected, Actual);
+    end;
+}
+
+// Close() right after the landing, with no SetValue. Its own codeunit, so that no earlier refused test hides its result.
+codeunit 97712 "LT NG Close Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        Shown: Text;
+
+    [Test]
+    [HandlerFunctions('CloseAtLandingHandler')]
+    procedure NewLine_CloseAfterTheLanding_RunModalFails()
+    var
+        Line: Record "LT NG Line";
+        Mode: Codeunit "LT NG Mode";
+        Opener: Codeunit "LT NG Opener";
+    begin
+        Line.DeleteAll();
+        Mode.Set(0);
+        Commit();
+        Shown := '';
+        asserterror Opener.Open('G1', Page::"LT NG Lines");
+        Check('shown', 'name=A/Resolved/Stamped/ ', Shown);
+        Check('error', 'The RunModal procedure could not close the page 97705 as it has already been closed.', GetLastErrorText());
+        Check('rows', '', Rows());
+    end;
+
+    [ModalPageHandler]
+    procedure CloseAtLandingHandler(var Lines: TestPage "LT NG Lines")
+    begin
+        Lines.New();
+        Lines.Name.SetValue('A');
+        Shown += 'name=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + ' ';
+        Lines.Close();
     end;
 
     local procedure Rows() Result: Text

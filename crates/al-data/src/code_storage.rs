@@ -159,7 +159,7 @@ fn map_expr(e: &E, field: &str, variant: bool) -> Result<E, StoreError> {
         E::Like(..)
         | E::NotLike(..)
         | E::AtSignAlone(_)
-        | E::AtSignAloneCode
+        | E::AtSignAloneCode(_)
         | E::EmptyViewValue
         | E::NumCode(_)
         | E::UnpinnedMatch(..) => e.clone(),
@@ -174,7 +174,7 @@ fn compares_numbers(e: &E) -> bool {
         E::Like(..)
         | E::NotLike(..)
         | E::AtSignAlone(_)
-        | E::AtSignAloneCode
+        | E::AtSignAloneCode(_)
         | E::EmptyViewValue
         | E::UnpinnedMatch(..) => false,
         _ => true,
