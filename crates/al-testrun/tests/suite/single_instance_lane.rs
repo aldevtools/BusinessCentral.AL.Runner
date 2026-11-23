@@ -278,7 +278,11 @@ fn a_global_record_overwritten_before_it_is_read_is_no_dependence() {
     );
     let lane = &rt.phases.chain.single_lane;
     assert!(lane.lane.is_empty() && lane.notes.is_empty(), "{:?}", lane.notes);
-    let two = rt.results().iter().find(|r| r.test == "RemembersTwo").expect("RemembersTwo ran");
+    let two = rt
+        .results()
+        .iter()
+        .find(|r| r.test == "RemembersTwo")
+        .expect("RemembersTwo ran");
     assert!(two.assumptions.is_empty(), "{:?}", two.assumptions);
 }
 
