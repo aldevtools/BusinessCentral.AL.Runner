@@ -50,6 +50,7 @@ mod einvoice_shapes;
 mod export_xml;
 mod import_encoding;
 mod import_record;
+use import_record::Save;
 mod import_view;
 mod import_xml;
 mod legacy_guid;
@@ -600,6 +601,21 @@ enum Flow {
     Unbound,
     Quit,
     Skip,
+}
+
+/// Whether `node` is the root text element of the schema.
+fn root_text(schema: &Schema, node: usize) -> bool {
+    schema.node(node).parent.is_none() && schema.node(node).kind == ir::XmlNodeKind::Text
+}
+
+/// Whether `node` stands right below the root text element.
+fn below_root(schema: &Schema, node: usize) -> bool {
+    schema.node(node).parent.is_some_and(|p| root_text(schema, p))
+}
+
+/// Whether node `n` has a trigger that runs after the import assigns it (OnAfterAssignField or OnAfterAssignVariable).
+fn assign_trigger(n: &ir::XmlNode) -> bool {
+    n.trigger("onafterassignfield").is_some() || n.trigger("onafterassignvariable").is_some()
 }
 
 fn root_table_element(schema: &Schema, top: usize) -> bool {

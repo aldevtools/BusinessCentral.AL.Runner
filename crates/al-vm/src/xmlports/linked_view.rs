@@ -31,6 +31,7 @@ impl Session {
         inst: &Inst,
         schema: &Schema,
         node: usize,
+        first_of_node: bool,
     ) -> Result<Option<LinkedViewConst>, Signal> {
         let n = schema.node(node);
         let filtering_link = n.link_node.is_some()
@@ -40,7 +41,13 @@ impl Session {
         if !filtering_link {
             return Ok(None);
         }
-        match self.xp_linked_view_const(inst, schema, node)? {
+        // The cell holds one row of the element under its parent: a later row is not measured.
+        let measured = if first_of_node {
+            self.xp_linked_view_const(inst, schema, node)?
+        } else {
+            None
+        };
+        match measured {
             Some(c) => Ok(Some(c)),
             None => unsupported(format!(
                 "XmlPort import: sourcetableview with a filter on the linked tableelement {} is not pinned",
@@ -62,7 +69,7 @@ impl Session {
             return unsupported(LINKED_VIEW_OTHER_VALUE);
         }
         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportLinkedViewConst);
-        self.xp_save_record(inst, schema, node, assigned, false)?;
+        self.xp_save_record(inst, schema, node, assigned, Save::Once)?;
         if !self.xp_holds_view_const(inst, schema, node, c)? {
             return unsupported(LINKED_VIEW_OTHER_VALUE);
         }

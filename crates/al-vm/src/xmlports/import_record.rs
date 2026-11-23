@@ -33,7 +33,7 @@ impl Session {
             );
         }
         // A linked element whose SourceTableView filters: only the measured `const` shape runs (`linked_view`).
-        let view_const = self.xp_linked_view_entry(inst, schema, node)?;
+        let view_const = self.xp_linked_view_entry(inst, schema, node, first_of_node)?;
         if !first_of_node {
             self.xp_after_assign_second_row(inst, schema, node, elem)?;
         }
@@ -95,10 +95,7 @@ impl Session {
         // it stay, OnPostXmlPort runs (AyXmlPortFlowTriggers.al:428 Import_init_Break, `...init2;post;`, rows `1=a,`). Deeper it
         // is not pinned.
         if Self::xp_flow(inst) == Some(Flow::Break) {
-            let below_root = n
-                .parent
-                .is_some_and(|p| schema.node(p).parent.is_none() && schema.node(p).kind == ir::XmlNodeKind::Text);
-            if !below_root {
+            if !below_root(schema, node) {
                 return unsupported(
                     "Break in OnAfterInitRecord of a table element that is not right below the root (not pinned)",
                 );
@@ -115,12 +112,15 @@ impl Session {
                 _ => return unsupported(LINKED_VIEW_FLOW),
             }
         }
-        self.xp_import_attrs(inst, schema, node, elem, Some(&mut assigned))?;
+        // Whether a trigger of a field attribute or field element asked for Skip, Break or BreakUnbound, which the import does
+        // not act on there: read by the second save of a row stored before its linked child rows (`Save::Again`).
+        let mut field_flow = self.xp_import_attrs(inst, schema, node, elem, Some(&mut assigned))?;
         if sibling {
             self.xp_sibling_link_conflict(schema, node, &rec, &links)?;
         }
         let mut saved = false;
         let mut saved_before_tables = false;
+        let mut first_stored = false;
         let table_children: Vec<usize> = schema
             .children(node)
             .into_iter()
@@ -156,7 +156,8 @@ impl Session {
             };
             match schema.node(child).kind {
                 ir::XmlNodeKind::Field => {
-                    let pos = self.xp_assign_field_elem(inst, schema, child, ce)?;
+                    let (pos, flow) = self.xp_assign_field_elem_flow(inst, schema, child, ce)?;
+                    field_flow |= flow.is_some();
                     // A field element of a table element further up assigns that record, not this one (Y60XpTextInTable.al
                     // TextWrap_TempTable_Inner_Import `Outer.Name` inside `Inner`: `outer ins H1 name=n2`).
                     if schema.node(child).table_node != Some(node) {
@@ -213,7 +214,7 @@ impl Session {
                         );
                     }
                     if save_first && !saved {
-                        self.xp_save_record(inst, schema, node, &assigned, false)?;
+                        first_stored = self.xp_save_record(inst, schema, node, &assigned, Save::Once)?;
                         saved = true;
                         saved_before_tables = true;
                     }
@@ -266,7 +267,7 @@ impl Session {
                 ir::XmlNodeKind::Text if linked_container(schema, child, node) => {
                     // The rows below are linked to this record, which is stored first, as for a table element right below it.
                     if !saved {
-                        self.xp_save_record(inst, schema, node, &assigned, false)?;
+                        self.xp_save_record(inst, schema, node, &assigned, Save::Once)?;
                         saved = true;
                     }
                     self.xp_import_linked_container(inst, schema, child, ce)?;
@@ -290,7 +291,7 @@ impl Session {
         if let Some(c) = &view_const {
             self.xp_save_view_const(inst, schema, node, c, &assigned)?;
         } else if !saved {
-            self.xp_save_record(inst, schema, node, &assigned, false)?;
+            self.xp_save_record(inst, schema, node, &assigned, Save::Once)?;
         } else if saved_before_tables {
             // A parent stored before its linked child rows is modified again after them, with its OnBefore/OnAfterModifyRecord and
             // the table's OnModify: with AutoReplace (XmlPortTriggerFlow.al:374 Import_TriggerOrder_NewRows `Par.BeforeModifyRecord=1/one`
@@ -302,7 +303,8 @@ impl Session {
                     "XmlPort import of a table element with AutoUpdate or AutoSave = false after its linked child rows (whether it is stored again is not pinned)",
                 );
             }
-            self.xp_save_record(inst, schema, node, &assigned, true)?;
+            let first_stored = first_stored && !field_flow;
+            self.xp_save_record(inst, schema, node, &assigned, Save::Again { first_stored })?;
         }
         self.xp_import_view_after_row(inst, schema, node)
     }
@@ -523,19 +525,34 @@ impl Session {
     /// :Import_AutoUpdate_ChangesOnlyTheCarriedFields_KeepsSystemId, corpus: .
     /// The `OnBefore...Record` and `OnAfter...Record` triggers bracket it, and `AutoSave = false`
     /// leaves the storing to them (xmlports/TestXmlPortAdvanced.al:XmlPort_AutoSaveFalse_...).
-    /// `again`: the second save of a row stored before its linked child rows, a Modify (see `xp_import_record`).
+    /// `save`: the only save, or the second save of a row stored before its linked child rows, a Modify (see
+    /// `xp_import_record`). Returns whether the row was stored (inserted or modified).
     pub(super) fn xp_save_record(
         &mut self,
         inst: &Inst,
         schema: &Schema,
         node: usize,
         assigned: &[usize],
-        again: bool,
-    ) -> Result<(), Signal> {
+        save: Save,
+    ) -> Result<bool, Signal> {
         let n = schema.node(node);
         let rec = self.xp_record(inst, n)?;
         let t = self.table(&rec)?;
         let temporary = rec.borrow().temporary;
+        let again = matches!(save, Save::Again { .. });
+        let has_assign_trigger = schema.children(node).iter().any(|&c| assign_trigger(schema.node(c)));
+        // A row whose first save stored nothing (Skip, Break or BreakUnbound) is not stored again: corpus PR 1550,
+        // XpAutoUpdateAssign.al:1062-1076 Suite_SameAppSameHash_Skips, trace `bi:A/db///Yes/0` without `bm:A`, row `SA/da/...`.
+        // Measured with a Skip in OnBeforeInsertRecord after one in the key attribute's trigger, the child rows skipped by
+        // theirs; what follows otherwise, and after a request of a field trigger the import does not act on, is not pinned.
+        if let Save::Again { first_stored: false } = save
+            && has_assign_trigger
+            && stored_again_assigned(schema, node, again, temporary)
+        {
+            return unsupported(
+                "XmlPort import of a table element stored again after its linked child rows, whose first save stored no row or followed a Skip, Break or BreakUnbound of a field trigger, with triggers that assign fields (not pinned)",
+            );
+        }
         if again
             && !temporary
             && self
@@ -591,10 +608,6 @@ impl Session {
         } else {
             ("onbeforeinsertrecord", "onafterinsertrecord")
         };
-        let has_assign_trigger = schema.children(node).iter().any(|&c| {
-            let child = schema.node(c);
-            child.trigger("onafterassignfield").is_some() || child.trigger("onafterassignvariable").is_some()
-        });
         let has_init_trigger = n.trigger("onafterinitrecord").is_some();
         // AutoUpdate of an existing row whose triggers assign fields: the save takes the stored row with the fields the
         // document carries, as the record holds them, before OnBeforeModifyRecord, which sees that row (corpus PR 1550,
@@ -614,10 +627,10 @@ impl Session {
         // Skip and BreakUnbound leave this record out (no insert, no after trigger), Break leaves it out and ends the import
         // (P112_Import_Skip, _Break, _BreakUnbound at beforeIns2).
         match self.xp_site(inst, schema, node, before)? {
-            Some(Flow::Skip | Flow::Unbound) => return Ok(()),
+            Some(Flow::Skip | Flow::Unbound) => return Ok(false),
             Some(Flow::Break) => {
                 Self::xp_stop_import(inst);
-                return Ok(());
+                return Ok(false);
             }
             _ => {}
         }
@@ -679,7 +692,7 @@ impl Session {
         if self.xp_site(inst, schema, node, after)? == Some(Flow::Break) {
             Self::xp_stop_import(inst);
         }
-        Ok(())
+        Ok(n.auto_save)
     }
 
     /// Reads the stored row of `rec`'s key into `rec` and puts back the fields the document carried (`assigned`) as `rec`
@@ -701,6 +714,16 @@ impl Session {
     }
 
     // ------------------------------------------------- VariableText, FixedText
+}
+
+/// Which save of a table element `xp_save_record` runs.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Save {
+    /// The only save, or the first of a row stored before its linked child rows.
+    Once,
+    /// The second save of a row stored before its linked child rows. `first_stored`: the first save stored the row, and no
+    /// trigger of a field attribute or field element of the row asked for Skip, Break or BreakUnbound.
+    Again { first_stored: bool },
 }
 
 const LINKED_VIEW_FLOW: &str = "XmlPort import of a linked table element whose SourceTableView has a const filter, skipped by its trigger (not pinned)";

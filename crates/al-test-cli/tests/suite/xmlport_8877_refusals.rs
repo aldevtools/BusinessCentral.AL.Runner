@@ -64,6 +64,26 @@ xmlport 50115 "RX UpdBm"
         trigger OnBeforeModifyRecord() begin Par.Extra := 'bm'; end; } } }
 }
 
+xmlport 50116 "RX Skipped"
+{
+    Direction = Import; Format = Xml; UseRequestPage = false;
+    schema { textelement(Root) { tableelement(Par; "RX Par") { XmlName = 'P';
+        fieldelement(Id; Par.Id) { trigger OnAfterAssignField() begin Par.Stamp := 'trig'; end; }
+        fieldelement(Name; Par.Name) { }
+        tableelement(Chi; "RX Chi") { XmlName = 'C'; LinkTable = Par; LinkFields = ParentId = field(Id); MinOccurs = Zero;
+            fieldelement(CId; Chi.Id) { } }
+        trigger OnBeforeInsertRecord() var Other: Record "RX Par"; begin if Other.Get(Par.Id) then currXMLport.Skip(); end; } } }
+}
+xmlport 50117 "RX View Read"
+{
+    Direction = Import; Format = Xml; UseRequestPage = false;
+    schema { textelement(Root) { tableelement(Suite; "RX Suite") { fieldattribute(Code; Suite.Code) { }
+        tableelement(SuiteEval; "RX Eval") { LinkTable = Suite; LinkFields = SuiteCode = field(Code); MinOccurs = Zero; XmlName = 'Evaluator';
+            SourceTableView = where(LineNo = const(0)); fieldattribute(Name; SuiteEval.Name) { } } } } }
+    trigger OnPostXmlPort() begin Seen := SuiteEval.GetFilters(); end;
+    var Seen: Text;
+}
+
 codeunit 50149 H
 {
     procedure Run(PortId: Integer; Xml: Text)
@@ -80,6 +100,11 @@ codeunit 50149 H
     procedure SeedPar()
     var Par: Record "RX Par";
     begin Par.DeleteAll(); Par.Id := 1; Par.Name := 'old'; Par.Stamp := 's0'; Par.Extra := 'e0'; Par.Insert(); end;
+
+    // The row a first import of "RX Skipped" stores: every field the document does not carry as the record holds it.
+    procedure SeedSkipped()
+    var Par: Record "RX Par";
+    begin Par.DeleteAll(); Par.Id := 1; Par.Name := 'old'; Par.Stamp := 'trig'; Par.Insert(); end;
 }
 "#;
 
@@ -147,5 +172,21 @@ fn autoupdate_before_modify_changing_the_row_refuses() {
     refused_with(
         "H.SeedPar(); H.Run(Xmlport::\"RX UpdBm\", '<Root><P><Id>1</Id><Name>new</Name></P></Root>');",
         "AutoUpdate with triggers that assign fields and an OnBeforeModifyRecord that changes the row",
+    );
+}
+
+#[test]
+fn stored_again_after_a_first_save_that_stored_no_row_refuses() {
+    refused_with(
+        "H.SeedSkipped(); H.Run(Xmlport::\"RX Skipped\", '<Root><P><Id>1</Id><Name>new</Name><C><CId>10</CId></C></P></Root>');",
+        "XmlPort import of a table element stored again after its linked child rows, whose first save stored no row",
+    );
+}
+
+#[test]
+fn linked_view_const_read_by_another_routine_of_the_port_refuses() {
+    refused_with(
+        &format!("H.Run(Xmlport::\"RX View Read\", {SUITE});"),
+        "XmlPort import: sourcetableview with a filter on the linked tableelement",
     );
 }
