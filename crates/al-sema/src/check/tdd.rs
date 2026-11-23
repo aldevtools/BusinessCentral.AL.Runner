@@ -3,6 +3,15 @@
 //! type no rule gives is refused (decision 7). Lowering turns a site into `ir::Expr::TddStub`.
 //!
 //! This is tooling, not AL semantics: no corpus case pins it, and without `--tdd` nothing here runs.
+//!
+//! `--tdd` (ADR-051): call sites in test apps of procedures a codeunit, table, page or report does
+//! not declare (`tdd_member`), bare calls of unknown names (`tdd_bare`) and calls no overload takes
+//! by count (`tdd_overload`) become stub sites (`Res::TddStub`), their return type from the use
+//! (`tdd_settle*`), the refusals, and the signatures (`signature`; `sites_by_object` and `stub_list`
+//! for `Program::tdd_stubs`, which `relower_objects` renews from `Lowered::tdd_sites` for the objects
+//! it compiles again). Lowering makes `ir::Expr::TddStub` (`lower/call.rs` `tdd_stub`); the VM yields
+//! the type's initial value and notes the stub in `Session::take_tdd_reached`. Entry points:
+//! `TddSite`, `TddRet`, `test_apps`, `signature`.
 use super::*;
 use al_syntax::ast::NodeText;
 

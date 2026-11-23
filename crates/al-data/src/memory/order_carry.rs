@@ -8,6 +8,10 @@
 //!
 //! Only an order that a read used since it was cached is carried (`OrderEntry::used`): a run of writes with no read in
 //! between carries once and leaves the next read to sort, so writing never costs more than the reads would.
+//!
+//! Keeps a cached secondary-key order (`order_of`) through an Insert, a Delete or a Modify that moves
+//! a row, by a binary-search insert instead of a new sort (al-runner issue 6924). Entry points:
+//! `carry_orders`, `carry_moved`.
 
 use super::{Key, MemStore, ORDERS_PER_KEY, OrderEntry, OrderKey, Row, Slot, Table, cmp_rows, slot};
 use crate::{AccessContext, TableDef};

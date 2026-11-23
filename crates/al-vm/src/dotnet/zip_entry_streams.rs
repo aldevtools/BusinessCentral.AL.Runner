@@ -6,6 +6,9 @@
 //!
 //! A value nobody else holds (its `Rc` count is one when it is used) is the statement's temporary. Only the streams of
 //! `ZipArchiveEntry.Open` are closed this way; what BC does with other temporaries is not pinned.
+//!
+//! The temporary stream of `ZipArchiveEntry.Open()` is closed at the end of its statement; CopyStream
+//! from it reads it whole. Entry points: `Session::dotnet_apply_closing_entry_streams`.
 
 use super::{DotNetFailure, DotNetHandle, DotNetTarget, unsupported};
 use crate::{Frame, Session};

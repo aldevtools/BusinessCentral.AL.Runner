@@ -25,6 +25,11 @@
 //! before the end (whether the two positions are one is not pinned then); the `OutStream` created again; a byte value out of
 //! range; a `Write` range outside the array; an `InStream` assigned to a System.Object or any stream to another .NET type.
 //! The object is never handed on to .NET code: `value_to_wire` refuses a runtime-provided object.
+//!
+//! An AL `OutStream` or `InStream` held by a `DotNet` System.IO.Stream variable
+//! (`NavBLOB+InternalStream`, Base Application `DotNet_Stream.FromOutStream`; SgDotNetStreams.al):
+//! the conversion in `Op::Convert`, the stream members, refusals of every unpinned shape. Entry
+//! points: `Session::al_stream_into_dotnet`, `types`.
 
 use super::registry::{MemberKind, Pin, RegistryMember, RegistryType};
 use super::*;

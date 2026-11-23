@@ -7,6 +7,23 @@
 //! keeps the filter as it is: a Text field keeps main's answer and `@` alone on a Code field refuses
 //! ([`FilterExpr::AtSignAloneCode`]). The places a filter comes from where `@` alone and `<>@` alone on a Code field are measured
 //! are those of [`parse_filter_both_at_signs_measured`] and [`parse_filter_at_sign_measured`].
+//!
+//! `@` alone and `<>@` alone answer as BC reads the rows (`AtSignRows`: a read of the database, a row
+//! of the database BC checks itself, a temporary record), whatever the field's type. al-data
+//! `MemStore::at_sign_alone_read` picks the kind for the store's `next`, `count` and `delete_all`,
+//! for `row_passes` and for `passes_flow_field_filters` (by the Record call that runs); a CRM table's
+//! connection, a platform table and any other reader keep the filter, so `@` alone on a Code field
+//! refuses (`FilterExpr::AtSignAloneCode`). It is parsed only at the places the cells measure
+//! (`parse_filter_both_at_signs_measured` for `@` alone and `<>@` alone; `parse_filter_at_sign_measured`
+//! for `@` alone only, at a CalcFormula's `field(filter())` of a normal field); `parse_filter_with`
+//! refuses it everywhere else. A CalcFormula's sum with a quoted `'@'` or `'<>@'` over a Date, Integer,
+//! Decimal, Boolean or name-showing Option source field takes BC's rows or error
+//! (`calc_formula_at_sign_other_source`, applied by al-vm `flowfields::calc_filters`); the al-sema
+//! lowering admits `'@'` and `'<>@'` only where `calc_formula_at_sign_measured` holds, and both sides
+//! read an Option field's captions through `shows_member_names`. `code_at_sign_alone_named` names the
+//! filter in the refusals of DataTransfer and FilterPageBuilder.SetView. Entry points: `AtSignRows`,
+//! `at_sign_alone_read`, `parse_filter_at_sign_measured`, `parse_filter_both_at_signs_measured`,
+//! `calc_formula_at_sign_other_source`, `calc_formula_at_sign_measured`.
 
 use crate::assumptions::{Assumption, assume};
 use crate::filter::{FieldFilter, FilterExpr};

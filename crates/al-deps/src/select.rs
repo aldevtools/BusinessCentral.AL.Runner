@@ -3,6 +3,8 @@
 //! Mirrors AL Runner's `DependencyResolver`, with the owner's addition that the
 //! project's own `.alpackages` is the first place looked up. Everything here is
 //! a pure function over values: no file, no network.
+//!
+//! Entry points: `DepDecl`, `Candidate`, `Project`, `MissingPolicy`.
 
 use crate::version::Version;
 use std::collections::HashMap;

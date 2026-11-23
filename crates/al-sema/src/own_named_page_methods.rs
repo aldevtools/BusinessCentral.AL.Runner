@@ -1,6 +1,11 @@
 //! A page method named like one of the page's own procedures: which of the two a site names (the checker) and which
 //! of those sites the lowering runs. The one owner of that rule (al-runner issue 8452) for `SaveRecord` (pinned) and
 //! `Caption` (pages/lifecycle/CurrPageCaptionOwn*.al, cells at [`measured`]).
+//!
+//! A page method named like one of the page's own procedures (`SaveRecord`, `Caption`): which one a
+//! site names, for the checker, and which sites the lowering runs, assumes or refuses. Entry points:
+//! `save_record_names_platform`, `save_record_refusal`, `caption_names_platform`, `caption_gate`,
+//! `request_page_caption_refusal`.
 
 use al_syntax::ast;
 use al_syntax::{SyntaxKind, SyntaxNode};

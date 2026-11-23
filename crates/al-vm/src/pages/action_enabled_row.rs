@@ -5,6 +5,12 @@
 //! FieldTable_TrapPageRun_EnabledAfterGoToKey measures the same page after a trapped static Page.Run (page 75305 at :237-287 is
 //! the reporter's page with log calls added in OnAfterGetRecord and OnAfterGetCurrRecord; `gotokey-2` Yes, `gotokey-1` No).
 //! Only the reporter's shape runs here; every other shape keeps the variable's current value.
+//!
+//! `TestAction.Enabled()` right after a `GoToKey` on the List of al-runner issue 7916 answers for the
+//! row the GoToKey landed on (ActionEnabledAfterGoToKey.al:610). Entry points: `test_control_enabled`
+//! (from `test_control_op`), `action_enabled_after_go_to_key`; the page shape is
+//! `action_enabled_row_page`, the rule on OnAfterGetRecord and its writers `row_function_slots`;
+//! `action_enabled_row_slots` lets `note_row_prop_vars` note the rows the page read.
 
 use super::pinned_shape::{PinnedCode, TestCall};
 use super::*;

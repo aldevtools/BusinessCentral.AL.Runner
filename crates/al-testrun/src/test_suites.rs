@@ -15,6 +15,11 @@
 //!   line ends are accepted.
 //! - A token that is not a whole number from 1 to 4294967295 is an error, and so is a codeunit listed twice in one
 //!   suite. A suite without ids is kept and holds nothing. A codeunit may be listed in more than one suite.
+//!
+//! the `--test-suites` file (ADR-066 amendment 6): `TestSuites::parse` (one suite per line, optional
+//! `name:`, ids in run order; bad tokens and a codeunit twice in a suite are errors), `places` and
+//! `index` (where a codeunit is listed). Pure; the file is read by the command line. Used by
+//! `runtime/single_lane.rs` `streams` through `RunOptions::test_suites`.
 
 /// One suite: its name, the line it is on (from 1) and its test codeunit ids in BC's run order.
 #[derive(Debug, Clone, PartialEq, Eq)]

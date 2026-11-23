@@ -6,6 +6,9 @@
 //! commit" (`MemStore::has_uncommitted`). Every rule below is pinned by a corpus test, cited
 //! where it is applied; what the corpus does not pin is refused (`Signal::Unsupported`) and
 //! listed in docs/probes-needed.md.
+//!
+//! Entry points: `TxModel`, `CommitBehavior`, `codeunit_run`, `commit_transaction` (every commit and
+//! what it ends).
 
 use crate::{AlError, Session, Signal};
 use al_builtins::builtin_id::ids;

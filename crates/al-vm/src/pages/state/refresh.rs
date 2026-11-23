@@ -7,6 +7,12 @@
 //! What is not one `Option`: a cancel (`cancel`) withdraws the ask and keeps the notes, an Update's argument outlives the
 //! refresh it asked for, and a reader reads a note while no refresh is asked
 //! (`starts_from_code_inserted_line`). Those are main's behavior and stay as they are (al-runner issue 7687).
+//!
+//! The refresh a page waits for and what was noted for it (`RefreshRequest`: who asked, Update's
+//! argument, the rows a part's Update left, the notes `run_refresh` takes at once, the pinned run and
+//! the host re-read that keeps xRec). `take` takes every note `run_refresh` reads; a cancel keeps the
+//! notes, as main did (al-runner issue 7687). Entry points: `RefreshRequest`, field
+//! `PageState::refresh`, taken by `run_refresh` (`actions.rs`).
 
 use al_builtins::value::Value;
 

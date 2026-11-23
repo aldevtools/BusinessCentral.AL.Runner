@@ -5,6 +5,13 @@
 //! nothing on Published Application, the CalcFields of shape 2's FlowFields raises the `IndirectRead` denial of Published
 //! Application (`Session::published_app_calc_denied`). Every other shape keeps the refusal of
 //! `Session::permission_gate_flowfield_decided`.
+//!
+//! The read "Published Application"."Tenant Visible" makes of "NAV App Extra" under sets that do not
+//! grant it, in the two shapes assumption `system-flowfield-reads-internal-table` covers (FindFirst
+//! filtered on ID and Tenant Visible; CalcFields of an app table's Lookup with a Tenant Visible
+//! condition); read by `permission_gate_flowfield_decided`. `as_find_first` marks the scan and load
+//! of `Record.FindFirst`. Entry points: `Session::system_flowfield_reads_unchecked`,
+//! `Session::as_find_first`.
 
 use std::rc::Rc;
 

@@ -7,6 +7,23 @@
 //! (`install::CompanyOpenWrites::raised`), what the session holds after it ([`LoginState`]). The first session of a key
 //! keeps its state on the engine ([`Check`]); every later session of the key is compared with it
 //! ([`first_difference`]). Outcomes do not change. [`report`] is the line the front ends print.
+//!
+//! The check that a replay of the raised login would give each test session what running it gives
+//! (al-runner issue 8211; measures only, replays nothing). Under `RunOptions::login_replay_check`
+//! (`ALRUNNER_LOGIN_REPLAY_CHECK=1`, read by the front ends) `runtime/run.rs` `open_company` takes
+//! the session's `Key` (the inputs of the login it keys on, not yet the clock start, the stability
+//! perturbation, the host's company list or the modes that follow the code a session runs (coverage,
+//! the impact trace, the observer): the committed rows, the backing, the session state, company,
+//! user, run seed, test codeunit, the entry's resource texts, the client, the whole `SessionFlags`,
+//! the license; a backing that does not say who it is gives a key of its own) and, when the login was
+//! raised (`install::CompanyOpenWrites::raised`), its `LoginState` (committed rows, al-vm
+//! `Session::state_lines`, assumption marks); `Check` (on the engine) compares each with the first of
+//! its key, and across test codeunits, counts the sessions whose key was seen before (what a replay
+//! could serve), and counts the differences by kind (`differences`: not comparable, rows, session
+//! state, marks); `first_difference` names what differs (a value with no comparable form counts). The
+//! front ends print `report` from `Phases::login_replay`. Tests: `runtime/login_replay_tests.rs`,
+//! alrunner-cli `tests/serve.rs`. Entry points: `Key::of`, `LoginState::of`, `Check::note`,
+//! `first_difference`.
 
 use al_vm::{Engine, Session};
 use std::collections::BTreeSet;

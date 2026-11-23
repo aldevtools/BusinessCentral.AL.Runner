@@ -20,6 +20,12 @@
 //! apps without a path whose app id and app name sort differently. The refusal stops the report's run, not a variable of the
 //! report: it is kept in `ir::Report::extension_order`, apart from `unsupported` (the reasons a variable is refused for), and
 //! `ir::Report::run_refusal` reads both where the report runs (al-vm `Session::report_schema`, al-testrun `written.rs`).
+//!
+//! The order report extensions that change a run apply in (dataset, triggers, Report.WordXmlPart):
+//! object id within an app, dependency order along a path, app id for two independent apps
+//! (assumption `report-ext-independent-app-order`); and `page_extension_key`, the order page
+//! extensions apply in (the merge in `build_shared` and the join order of the linked page). Entry
+//! points: `report_extension_order`, `page_extension_key`.
 
 use crate::workspace::Workspace;
 use al_builtins::assumptions::Assumption;

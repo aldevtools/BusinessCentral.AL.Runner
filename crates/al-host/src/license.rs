@@ -16,6 +16,11 @@
 //! 512 (by the pattern Execute Indirect) and every higher bit, and a letter with both its bits set. The limited-usage
 //! list keeps its own meaning (32 Excluded, 64 Included) and is never read as levels. MenuSuite rows do not follow the
 //! mask (the same facts), so only a MenuSuite mask of all five or none is answered.
+//!
+//! A BC license file (`.bclicense`, ADR-060): `parse` (UTF-16 header, XML permission lists, no
+//! signature check), `License::levels`/`level` per list and number (Yes bits 1-16, Indirect bits
+//! 32-256), the limited-usage list, `synthetic::file` for tests. Entry points: `parse`, `License`,
+//! `Level`.
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 

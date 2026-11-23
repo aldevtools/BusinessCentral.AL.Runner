@@ -209,6 +209,8 @@ pub(crate) fn coverage_as_new(c: &CoverageState) -> bool {
         impact_on,
         cells,
         profiler,
+        install_footprint,
+        footprint_on,
     } = c;
     !code_coverage
         && coverage_counts.is_none()
@@ -217,6 +219,8 @@ pub(crate) fn coverage_as_new(c: &CoverageState) -> bool {
         && !impact_on
         && cells.is_none()
         && profiler.is_none()
+        && install_footprint.borrow().is_none()
+        && !footprint_on
 }
 
 /// The report state: no report ran and nothing it noted lasts.

@@ -1,5 +1,13 @@
 //! The platform's transaction-world decision for a report run: [`Session::report_enter_world`], and the moments of the open
 //! transaction it is measured at ([`Moment`]).
+//!
+//! whether a report run enters a transaction world (request page, TransactionType against the
+//! session's type, AutoRollback, a pending write), and the moments of the open transaction an Update
+//! report without its request page is measured at (`Moment`: the test method's start or an AL Commit,
+//! the CurrentTransactionType set, reads and runs since). Entry points: `report_enter_world` (from
+//! Run, RunModal, RunRequestPage, Execute and Print). The session's type itself
+//! (`Database.CurrentTransactionType`, kept by a Commit and carried into the next test method) is
+//! `transaction_type.rs`.
 
 use super::Schema;
 use crate::transaction_type::TRANSACTION_TYPE_UPDATE_NO_LOCKS as UPDATE_NO_LOCKS;

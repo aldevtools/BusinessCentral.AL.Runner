@@ -1,4 +1,6 @@
 //! Members of a type: page controls, record fields, sections.
+//!
+//! Entry points: `member`, `field_of`.
 use super::*;
 
 impl<'a> Checker<'a> {

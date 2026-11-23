@@ -5,6 +5,24 @@
 //! codeunit; test libraries and the test framework do not), the narrowing by `--app`, and one recipe run per test app.
 //! Each test app is its own run, so that one app that does not compile or load does not stop the others, and the
 //! memory of one app's run is given back before the next one starts.
+//!
+//! The `microsoft` source: the Microsoft test apps of a build (candidates from `al_deps::test_apps`,
+//! kept when they hold a test codeunit; the `_Exclude_` apps too, as Microsoft's CI runs them),
+//! `--app` narrowing (`BcappsApps`, `bcapps_apps_of`: the test apps of Microsoft's project the
+//! artifact lacks, from BCApps), and `al-runner test-microsoft`: one recipe run per test app
+//! (`list_lanes`: `--list-lanes`, the plan of every app without a compile). Step 2: `affected` (`test
+//! APP --affected-from microsoft`, `test-microsoft APP`): `split` the APPs into extension and own
+//! tests, own tests by `run::test_collect`, then `microsoft_source`: per test app
+//! `recipe_run::plan_lanes`, per lane `impact::run_part` with the extension as `--impact-of`; one
+//! JUnit file (`output::junit_parts`). Step 3: `resolve` reads the ISV test apps given as paths
+//! (`Source::Isv`; a folder of apps is one source per app) and refuses compiled-only sources and
+//! dependencies, a source that depends on the extension, twice or also an APP; `isv_source` runs one
+//! `impact::run_part`; `SourceOut` gathers each source's row, JUnit parts, runs (their `--impact-
+//! json` bodies, `impact::Part::json`) and the accept entries stale in every run
+//! (`TestArgs::accept_source` filters `impact::Accepts` per source); `affected` writes `--output-
+//! json` (own tests + `sources`) and `--impact-json` format 2. `build_index`: `impact-index build --from
+//! microsoft`. Entry points: `test_microsoft`, `affected`, `resolve`, `build_index`, `choose`,
+//! `test_apps_of`.
 
 use crate::args::TestArgs;
 use crate::sources_report::{self, AppOutcome, AppResult};

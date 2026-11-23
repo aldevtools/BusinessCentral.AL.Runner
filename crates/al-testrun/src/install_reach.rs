@@ -19,6 +19,12 @@
 //! changed is outside that set, in the old program and in the new one, and it changed nothing but routines of
 //! codeunits that are neither install nor upgrade codeunits. Anything else, or anything this module cannot compare,
 //! runs the install code again.
+//!
+//! Whether an incremental compile of `al-runner serve` changed code the install baseline can run: the
+//! workspace routines the entries (subscribers, triggers, interface implementers, routines of objects
+//! that are not codeunits) reach through calls, old and new program, routine by routine; when not,
+//! `update_files` carries the kept baseline over the edit (`baseline_cache::carry`, matched by the
+//! key's frame, which leaves out the sources). Entry points: `before`, `after`.
 
 use al_builtins::refusal::Refusal;
 use al_ir::{ObjKind, Object, Program, Routine};

@@ -5,6 +5,10 @@
 //! refused with `Signal::Unsupported`; the open questions are listed in
 //! docs/probes-needed.md. Aggregates are computed over the store's scan API
 //! (ADR-003): a FlowField reads the persistent table, one row at a time.
+//!
+//! A FlowField's value: `calc_value` (recursion guard by table and field, `CalcStack`), the rows from
+//! the store (`tally_stored`) or through the condition FlowFields of source rows
+//! (`tally_source_rows`), then one `aggregate` and `finish_value` (the pinned value exceptions).
 
 use crate::Session;
 use al_builtins::describe::Describe;

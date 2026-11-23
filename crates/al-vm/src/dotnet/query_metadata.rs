@@ -11,6 +11,9 @@
 //!
 //! Refused: any other stream, a query with a filter element, a column name that is not a plain identifier (none is
 //! pinned), `Item` out of range, every other member.
+//!
+//! Microsoft's `QueryMetadataReader` over a query's Application Object Metadata
+//! (ReQueryMetadataShapes.al). Entry points: `types`, `from_stream`.
 
 use super::registry::{MemberKind, Pin, RegistryMember, RegistryType};
 use crate::Session;

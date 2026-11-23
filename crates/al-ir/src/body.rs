@@ -5,6 +5,12 @@
 //! (rewrite the references, shift the source positions) is kept as a list of [`BodyFixup`]s and applied, in order, right
 //! after the decode. The statements a reader sees are the same as with an eager decode; only when the work is done
 //! differs. A human-readable form (JSON) is the plain statement list.
+//!
+//! `Body`, the statements of a routine: a compact form (postcard) stores a body as its own byte
+//! string, and a body read from it is decoded on first read, with the link work kept for that moment
+//! (`BodyFixup`). The lowering keeps the bodies it lowered compact (`Body::compact`, called by
+//! `lower/assemble.rs` `compact_bodies`); a static walk reads a body without keeping it decoded
+//! (`Body::read`). Entry points: `Body`, `Body::fix`, `Body::compact`, `Body::read`, `BodyFixup`.
 
 use crate::Stmt;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};

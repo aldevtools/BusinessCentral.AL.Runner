@@ -6,6 +6,12 @@
 //! (the first in file and line order, so the output does not depend on thread timing). The point is
 //! to see, per type, what a probe topic still has to cover (owner decision 2026-10-15: close whole
 //! topics, not one blocker at a time).
+//!
+//! The corpus coverage map (`--coverage-map`, `docs/corpus-coverage.md` and `.json`, not committed):
+//! which builtin overloads of the catalog some corpus test calls, from the checker's `Res::Builtin`
+//! resolutions. Entry points: `collect_calls`, `build`, `to_markdown`, `to_json`, `corpus_coverage`.
+//! Also the view against the language catalog (`language_view`: every catalog overload with pinned,
+//! implemented, refused or unknown and its Microsoft use, `microsoft_calls`).
 
 use crate::language_catalog::{LanguageCatalog, State, majors, runtime_receiver};
 use al_builtins::catalog::Catalog;
