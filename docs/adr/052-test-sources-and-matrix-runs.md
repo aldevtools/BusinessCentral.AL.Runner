@@ -1,6 +1,8 @@
 # ADR-052: Test sources (`--affected-from`, `al-runner test-microsoft`) and matrix runs over BC versions and countries
 
 - Status: Accepted (owner, 2026-10-21, with the answers recorded under the open questions)
+- Amended by [ADR-078](078-latest-released-minor-as-oracle.md) (2026-11-23): the matrix examples name 29.1 for the 29 leg, and Microsoft's run
+  and the recipe artifact are both 29.1 after the switch.
 - Date: 2026-10-21
 - Related: ADR-013 (dependency apps from source, compiled-only apps refused), ADR-015 (one runtime for every BC
   major), ADR-022 (compile cache), ADR-028 (serve), ADR-043 (impact selection), ADR-046 (install code, companies),

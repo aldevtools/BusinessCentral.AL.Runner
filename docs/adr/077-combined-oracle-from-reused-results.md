@@ -1,6 +1,9 @@
 # ADR-077: The oracle may combine fresh and reused BC results (amends ADR-007)
 
 - Status: Accepted (owner, 2026-11-17)
+- Amended by [ADR-078](078-latest-released-minor-as-oracle.md) (2026-11-23): the corpus pins one build per oracle leg (27.5, 28.5, 29.1), not 29.0
+  only, and the results manifest records the preprocessor symbols of each version and the list of released minors
+  (`versions.<v>.preprocessor_symbols`, top-level `released_minors`; checked by `tools/corpus_bump_symbols.py`).
 - Date: 2026-11-17
 - Amends: [ADR-007](007-oracle-and-ratchet.md), the oracle source and its amendment of 2026-11-05 (`--from-pr`).
 
