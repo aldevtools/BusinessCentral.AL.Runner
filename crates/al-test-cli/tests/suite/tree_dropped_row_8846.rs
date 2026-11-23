@@ -59,11 +59,12 @@ fn drop_cells_pass() {
     assert!(drops.len() == DROP_CELLS.len() && bad.is_empty(), "{drops:#?}");
 }
 
-/// The neighbors past the cells keep main's path, each measured on BC: the repro's tree with Update(true) passes (no error, the
-/// row saved); with CollapseAll and with OnAfterGetCurrRecord main raises no error and saves nothing, where BC raises the
-/// filtered-view error and saves the row; the repro's page over rows that the filter leaves none of refuses.
+/// The neighbors past the cells, each measured on BC: the repro's tree with Update(true) passes on main's path (no error, the
+/// row saved); with CollapseAll and with OnAfterGetCurrRecord they pass under the entry since the cells of corpus pull request
+/// 1554 measure their pages (al-runner issue 8882; main raised no error and saved nothing); the repro's page over rows that the
+/// filter leaves none of refuses.
 #[test]
-fn neighbors_past_the_cells_keep_mains_path() {
+fn neighbors_past_the_cells() {
     let src = format!(
         "{}\n{}",
         include_str!("../../../../tests/neighbors/8846-tree-dropped-row/src/Repro.al"),
@@ -73,15 +74,17 @@ fn neighbors_past_the_cells_keep_mains_path() {
     let bad: Vec<_> = o
         .iter()
         .filter(|(n, r, marks)| {
-            !marks.is_empty()
-                || !match n.as_str() {
-                    "DropTreeTrue_FirstRow" => *r == Outcome::Pass,
-                    "DropTreeCollapsed_FirstRow" | "DropTreeCurr_FirstRow" => matches!(r, Outcome::Fail(_)),
-                    "DropTree_NoRowLeft" => {
-                        matches!(r, Outcome::NotRun(why) if why.starts_with("CurrPage.Update on a list whose filters left the row"))
-                    }
-                    _ => false,
+            !match n.as_str() {
+                "DropTreeTrue_FirstRow" => *r == Outcome::Pass && marks.is_empty(),
+                "DropTreeCollapsed_FirstRow" | "DropTreeCurr_FirstRow" => {
+                    *r == Outcome::Pass && *marks == [TreeValidateViewRefresh]
                 }
+                "DropTree_NoRowLeft" => {
+                    marks.is_empty()
+                        && matches!(r, Outcome::NotRun(why) if why.starts_with("CurrPage.Update on a list whose filters left the row"))
+                }
+                _ => false,
+            }
         })
         .collect();
     assert!(o.len() == 4 && bad.is_empty(), "{o:#?}");

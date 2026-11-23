@@ -12,7 +12,9 @@
 //! of the same row triggers, over the tree's hidden rows too; then the tree shows the rows of the new view
 //! (`validate_view_tree_refresh`). Main read only the typed row and saved nothing. When the filter leaves the row out of the
 //! view (al-runner issue 8846, the same file), the tree reads and saves as when it keeps it, then the SetValue raises the
-//! filtered-view error; the List of the same code raises none. Main raised none on the tree.
+//! filtered-view error; the List of the same code raises none. Main raised none on the tree. Over other rows of the tree, with
+//! Expand(false) or an Expand on the first row, and with the first row dropped on the other measured tree pages (al-runner issue 8882, corpus
+//! pull request 1554, TreeValidateFilterShapes.al, open) the tree reads the same way.
 //!
 //! Only on the probe's pages, line for line (`validate_view_cells.rs`; the repros of 8698, 8717, 8833 and 8846 read as four of
 //! them), as the test called them in the cells: assumption `list-validate-view-refresh` on a List without
@@ -27,7 +29,8 @@
 //! pages main's refresh reads the stored row (assumption `validate-update-false-rereads-row`). On a
 //! tree (al-runner issue 8833, assumption `tree-validate-view-refresh`) Update(false) saves the row,
 //! and the refresh reads as on the List of the same row triggers over the tree's hidden rows too
-//! (`validate_view_tree_refresh`). Only on those pages, line for line (`pinned_body.rs`), and only
+//! (`validate_view_tree_refresh`); the same over the other rows, Expand calls and pages of corpus
+//! pull request 1554 (al-runner issue 8882). Only on those pages, line for line (`pinned_body.rs`), and only
 //! along the cells' test calls. Entry points: `validate_view_call` (each test call, `dirty_step.rs`),
 //! `validate_view_refresh` (from `refresh_after_validate_filter`), `validate_view_update`
 //! (`CurrPage.Update`).
@@ -181,10 +184,6 @@ impl Session {
             let step = self.validate_view_unrefreshed(st, v, &p)?;
             v.steps.push(step);
         }
-        // The cells' Expand is Expand(true) on B, which has a child (TreeValidateFilterRefresh.al:902).
-        if v.steps.last() == Some(&Step::Expand) && !self.validate_view_expanded(st)? {
-            return Ok(false);
-        }
         let cells = page.cells();
         if !Self::validate_view_calls_ok(st, page) || !cells.iter().any(|c| c.steps.starts_with(&v.steps)) {
             return Ok(false);
@@ -212,7 +211,10 @@ impl Session {
             TestCall::Page(PageMethod::Last) => Step::Last,
             TestCall::Page(PageMethod::Previous) => Step::Previous,
             TestCall::Page(PageMethod::GoToKey) => Step::GoToKey,
-            TestCall::Page(PageMethod::Expand) => Step::Expand,
+            TestCall::Page(PageMethod::Expand) => match args {
+                [Value::Boolean(on)] => Step::Expand(*on),
+                _ => return Ok(false),
+            },
             TestCall::Write(i) => match self.validate_view_ctl(st, i) {
                 Some(c) => Set(c, Upd::None, Same, None),
                 None => return Ok(false),
@@ -384,12 +386,6 @@ impl Session {
         let table = self.table(rec)?;
         let rows = self.view_rows(&Self::full_view(rec), 4)?;
         Ok(rows.iter().position(|r| Self::same_key(&table.primary_key(r), key)))
-    }
-
-    /// The row the tree stands on is expanded.
-    fn validate_view_expanded(&mut self, st: &St) -> Result<bool, Signal> {
-        let key = self.row_key(&self.page_rec(st))?;
-        Ok(st.borrow().expanded.iter().any(|k| Self::same_key(k, &key)))
     }
 
     /// Rec's filters without the tree's cut (`apply_tree_cut`), which no cell's code sets.
@@ -579,6 +575,15 @@ impl Session {
         }
         if page.tree() {
             let done = self.validate_view_tree_refresh(st, page, at, at_key, without_curr, without_parts)?;
+            if change == Drop && !done {
+                // With OnAfterGetCurrRecord only, OnAfterGetCurrRecord of the row the view settled on runs before the error, as in
+                // main's refresh (TreeValidateFilterShapes.al:729 `P.V(A2);P.AGCR(B);`, :996 `AGCR(B);`).
+                self.populate_current(st)?;
+                if !without_curr {
+                    self.page_trigger(st, "onaftergetcurrrecord", vec![])?;
+                    self.page_event(st, "onaftergetcurrrecordevent", None, None)?;
+                }
+            }
             let mut s = st.borrow_mut();
             s.validate_view.steps = steps;
             s.validate_view.pending = None;
@@ -634,7 +639,9 @@ impl Session {
             | CellPage::TreeBoth
             | CellPage::TreeCurr
             | CellPage::TreeCollapsed
-            | CellPage::TreeDrop => {
+            | CellPage::TreeDrop
+            | CellPage::TreeDropCollapsed
+            | CellPage::TreeDropCurr => {
                 unreachable!("a tree page refreshes in validate_view_tree_refresh")
             }
         };
@@ -662,7 +669,7 @@ impl Session {
         without_parts: bool,
     ) -> Result<bool, Signal> {
         assume(Assumption::TreeValidateViewRefresh);
-        if page == CellPage::TreeCurr {
+        if matches!(page, CellPage::TreeCurr | CellPage::TreeDropCurr) {
             st.borrow_mut().dirty = false;
             return Ok(false);
         }

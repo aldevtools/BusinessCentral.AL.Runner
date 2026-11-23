@@ -289,6 +289,7 @@ mod testpage_action_without_parentheses;
 mod testpage_visible_non_field_source;
 mod this_in_objects;
 mod tree_dropped_row_8846;
+mod tree_shapes_8882;
 mod tree_validate_view_8833;
 mod trigger_setup_read_permission;
 mod tx_type_sets;
