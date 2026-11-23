@@ -1,7 +1,8 @@
 # key	entry
 # Not here, refused on main and head alike (the login changed them): TempTableWrittenThenEmptied (written, then emptied),
-# TempTableShared (Copy(Rows, true)), TempRecordFiltered, StoreRecordRefOpened, UntouchedTempRecordArray (the elements share
-# one table, record/temporary/RecordTempArrayElements.al:67-93). ReadsNothing passes on both.
-UT Login Tests::StoreMadeByFirstCall	ASSUMED clear-shared-codeunit (corpus PR 1560)
+# TempTableShared (Copy(Rows, true)), TempRecordFiltered, TempRecordKeptByRecordRef (RecordRef.GetTable), UntouchedTempRecordArray
+# (the elements share one table, record/temporary/RecordTempArrayElements.al:67-93), StoreSharedByAlias (a second global holds
+# the instance), StoreMadeByFirstCall and StoreRecordRefOpened (a temporary record and a RecordRef in an instance a call made:
+# the probe of clear-shared-codeunit measures an Integer). ReadsNothing passes on both.
 UT Login Tests::TempTableReadOnly	PINNED tests/al-language/record/TestTempTableContracts.al:37
 UT Login Tests::UntouchedTempRecords	PINNED tests/al-language/record/TestTempTableContracts.al:37

@@ -204,6 +204,48 @@ codeunit 61860 "UT Temp Array"
     end;
 }
 
+// The login makes the codeunit global's instance by a first call and hands it to a second global.
+codeunit 61861 "UT Aliased Store"
+{
+    SingleInstance = true;
+
+    var
+        Store: Codeunit "UT Plain Store";
+        Alias: Codeunit "UT Plain Store";
+
+    procedure Share()
+    begin
+        Alias := Store;
+        Store.Get();
+    end;
+
+    procedure Count(): Integer
+    begin
+        Alias.Bump();
+        exit(Store.Get());
+    end;
+}
+
+// The login keeps a RecordRef on the temporary record (RecordRef.GetTable).
+codeunit 61862 "UT Ref Kept"
+{
+    SingleInstance = true;
+
+    var
+        Rows: Record "UT Row" temporary;
+        Ref: RecordRef;
+
+    procedure Keep()
+    begin
+        Ref.GetTable(Rows);
+    end;
+
+    procedure Count(): Integer
+    begin
+        exit(Rows.Count());
+    end;
+}
+
 codeunit 61849 "UT Lib Login"
 {
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"UT Ping", 'OnPing', '', false, false)]
@@ -217,8 +259,12 @@ codeunit 61849 "UT Lib Login"
         Filtered: Codeunit "UT Filtered";
         OpenedRef: Codeunit "UT Opened Ref";
         TempArray: Codeunit "UT Temp Array";
+        Aliased: Codeunit "UT Aliased Store";
+        RefKept: Codeunit "UT Ref Kept";
     begin
         TempArray.Touch();
+        Aliased.Share();
+        RefKept.Keep();
         Untouched.Touch();
         Read.Read();
         UsedStore.Use();
@@ -226,5 +272,22 @@ codeunit 61849 "UT Lib Login"
         Shared.Share();
         Filtered.Filter();
         OpenedRef.Open();
+    end;
+}
+
+// A plain codeunit with one Integer, the probe's store shape.
+codeunit 61863 "UT Plain Store"
+{
+    var
+        N: Integer;
+
+    procedure Get(): Integer
+    begin
+        exit(N);
+    end;
+
+    procedure Bump()
+    begin
+        N += 1;
     end;
 }

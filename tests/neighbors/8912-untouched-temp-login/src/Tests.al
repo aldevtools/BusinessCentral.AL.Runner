@@ -78,6 +78,22 @@ codeunit 61856 "UT Login Tests"
     end;
 
     [Test]
+    procedure StoreSharedByAlias()
+    var
+        M: Codeunit "UT Aliased Store";
+    begin
+        Check(M.Count(), 1);
+    end;
+
+    [Test]
+    procedure TempRecordKeptByRecordRef()
+    var
+        M: Codeunit "UT Ref Kept";
+    begin
+        Check(M.Count(), 0);
+    end;
+
+    [Test]
     procedure ReadsNothing()
     begin
     end;
