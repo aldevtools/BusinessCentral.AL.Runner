@@ -71,6 +71,49 @@ pub(crate) fn refused_where_not_measured(e: FilterExpr, at_sign: bool) -> Result
     }
 }
 
+/// What BC answers for a CalcFormula's sum with a quoted `filter('@')` or `filter('<>@')` (`text`, as the lowering passes it) over
+/// a source field of type `ty` that is neither Code nor Text (AtSignAloneMethods.al:395, :430, :454).
+#[derive(Debug, PartialEq, Eq)]
+pub enum OtherSourceAtSign {
+    /// A Date field: `@` keeps no row, `<>@` every row (true) (:395).
+    Rows(bool),
+    /// CalcFields raises this error, for `@` and `<>@` alike (:430, :454).
+    Error { message: String, code: &'static str },
+}
+
+/// [`OtherSourceAtSign`] for `text` over `ty`, or None when the text is not `@` alone or `<>@` alone or no cell measures the type:
+/// Date, Integer, Decimal, Boolean, and an Option field that shows its member names (`names_shown`: no OptionCaption or
+/// OptionCaptionML). The filter parser reads every other case as before.
+pub fn calc_formula_at_sign_other_source(
+    text: &str,
+    ty: &crate::value::RtType,
+    names_shown: bool,
+) -> Option<OtherSourceAtSign> {
+    use crate::value::RtType;
+    let negated = match text {
+        "@" => false,
+        "<>@" => true,
+        _ => return None,
+    };
+    let evaluate = |type_name: &str| OtherSourceAtSign::Error {
+        message: format!("The value \"@\" can't be evaluated into type {type_name}."),
+        code: "InvalidFilterExpression:Evaluate",
+    };
+    let answer = match ty {
+        RtType::Date => OtherSourceAtSign::Rows(negated),
+        RtType::Integer => evaluate("Integer"),
+        RtType::Decimal => evaluate("Decimal"),
+        RtType::Boolean => evaluate("Boolean"),
+        RtType::Option(names) if names_shown => OtherSourceAtSign::Error {
+            message: format!("'@' is not an option. The existing options are: {}", names.join(",")),
+            code: "InvalidFilterExpression:InvalidOptionString",
+        },
+        _ => return None,
+    };
+    assume(Assumption::AtSignAloneDatabaseBlank);
+    Some(answer)
+}
+
 impl FilterExpr {
     /// This filter as BC reads `rows` with it ([`AtSignRows`]), or None when it is not `@` alone or `<>@` alone; `blank` is the
     /// field's empty value.
