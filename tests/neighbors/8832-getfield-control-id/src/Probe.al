@@ -583,7 +583,8 @@ codeunit 97707 "LT GFI Tests"
         Expect('stored', 'Zed');
     end;
 
-    // A field a page extension adds has the id of the extension and its name; the base page's id with that name finds nothing.
+    // A field a page extension adds has the id of the extension and its name (the extension's SymbolReference.json lists it). From
+    // BC 28 GetField finds it by neither that id nor the base page's id with its name; BC 27 finds it by the extension's id.
     [Test]
     procedure Card_ExtensionControl()
     var
@@ -594,7 +595,13 @@ codeunit 97707 "LT GFI Tests"
         Note('ext', ReadCard(Card, 1335360081));
         Note('base', ReadCard(Card, 766046563));
         Card.Close();
+#if BC28PLUS
+        // BC 28 and later: GetField does not find a field a page extension adds.
         Expect('ext', 'error TestFieldNotFound: The field with ID = 1335360081 is not found on the page.');
+#else
+        // BC 27: GetField finds it by the extension's id.
+        Expect('ext', 'x1');
+#endif
         Expect('base', 'error TestFieldNotFound: The field with ID = 766046563 is not found on the page.');
     end;
 

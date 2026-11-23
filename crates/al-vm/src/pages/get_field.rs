@@ -2,19 +2,20 @@
 //! control, `pages::control_id` of the page and the control name (the compiled app's SymbolReference.json lists the same ids),
 //! measured by corpus pull request 1538, testpage/GetFieldByControlId.al (open; assumption `testpage-getfield-control-id`).
 //! The page's own field control with the id is the field (a field bound to a field of Rec, to a page variable, or a label, in a
-//! repeater, a group, a nested group, a fixed or a grid, :449 :503 :623, a base field a page extension modifies, :698); the handle
-//! reads and writes as the control by its name in the calls the cells make (`BY_ID_CALLS`, :570 :661), a hidden control included
-//! (:530, :698 not found). A field in a cuegroup is refused: BC shows `0` for its Text, through GetField and by its name (:646),
+//! repeater, a group, a nested group, a fixed or a grid, :449 :503 :630, a base field a page extension modifies, :705); the handle
+//! reads and writes as the control by its name in the calls the cells make (`BY_ID_CALLS`, :570 :668), a hidden control included
+//! (:530, :705 not found). A field in a cuegroup is refused: BC shows `0` for its Text, through GetField and by its name (:653),
 //! where the control by its name answers the text here. The id of a part, a cuegroup, a fixed or a grid gives a field whose Value
-//! is empty (:545, :623). Any other id is not found: a group, a repeater, an action, an action group, an area, a field a page
-//! extension adds (by either object's id), a control of another page or of the part's page (:468 :484 :545 :588 :604 :698;
+//! is empty (:545, :630). Any other id is not found: a group, a repeater, an action, an action group, an area, a field a page
+//! extension adds (by either object's id; from BC 28, :589: BC 27 finds it by the extension's id,
+//! `al_version::getfield_finds_extension_fields`), a control of another page or of the part's page (:468 :484 :545 :611 :705;
 //! testpage/TestPageRuntimeContracts.al:274-275 the code).
 
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::page_op::PageMethod;
 
-/// The calls the cells make on what GetField found for a field control (GetFieldByControlId.al:449-:698).
+/// The calls the cells make on what GetField found for a field control (GetFieldByControlId.al:449-:705).
 const BY_ID_CALLS: [PageMethod; 11] = [
     PageMethod::Value,
     PageMethod::Caption,
@@ -50,7 +51,8 @@ impl Session {
             .iter()
             .position(|c| c.owner.is_none() && c.action_ref.is_none() && control_id(page_id, &c.name) == i64::from(id))
         else {
-            return not_found();
+            drop(engine);
+            return self.get_extension_field_by_id(st, id);
         };
         let ctl = &page.controls[idx];
         let by_id = match ctl.kind {
@@ -69,6 +71,39 @@ impl Session {
         Ok(test_control_by_id(st.clone(), idx, by_id))
     }
 
+    /// `GetField(id)` where no control of the page itself has the id: a field a page extension adds, by the extension's id and
+    /// its name, is found on BC 27 and not found from BC 28 (`al_version::getfield_finds_extension_fields`;
+    /// GetFieldByControlId.al:589, where BC 27 measured its Value only); any other id is not found.
+    fn get_extension_field_by_id(&mut self, st: &St, id: i32) -> Result<Value, Signal> {
+        let engine = self.engine();
+        let page = page_of(&engine, st);
+        let mut found = None;
+        for (idx, c) in page.controls.iter().enumerate() {
+            if let Some(ext) = c.owner
+                && c.action_ref.is_none()
+                && control_id(self.object_id_of(ext as u32)?, &c.name) == i64::from(id)
+            {
+                found = Some((idx, c.kind.clone()));
+                break;
+            }
+        }
+        drop(engine);
+        let major = self.engine.target.as_ref().map_or(29, |t| t.bc.major);
+        match (found, al_version::getfield_finds_extension_fields(major)) {
+            (None, _) | (Some(_), Some(false)) => Err(error_code(
+                format!("The field with ID = {id} is not found on the page."),
+                "TestFieldNotFound",
+            )),
+            (Some((idx, ir::ControlKind::Field)), Some(true)) => {
+                assume(Assumption::TestPageGetFieldControlId);
+                Ok(test_control_by_id(st.clone(), idx, ById::ExtField))
+            }
+            (Some(_), _) => unsupported(
+                "TestPage.GetField with the id of a page extension's control on this BC version, or of one that is no field (not measured)",
+            ),
+        }
+    }
+
     /// Control `idx` of `page` is inside a cuegroup.
     fn in_cuegroup(page: &ir::Page, idx: usize) -> bool {
         let mut at = page.controls[idx].parent;
@@ -82,12 +117,14 @@ impl Session {
     }
 
     /// A call `m` on what GetField found (`ControlRef::by_id`): `Some` answers it, `None` lets it run as on the control by its
-    /// name. The empty field of a part, a cuegroup, a fixed or a grid answers Value only (GetFieldByControlId.al:545 :623; its
-    /// Caption, the part page's, and its Visible are measured at :685 and refused here).
+    /// name. The empty field of a part, a cuegroup, a fixed or a grid answers Value only (GetFieldByControlId.al:545 :630; its
+    /// Caption, the part page's, and its Visible are measured at :692 and refused here); so does a page extension's field on
+    /// BC 27 (:589).
     pub(super) fn by_id_call(c: &ControlRef, m: PageMethod) -> Result<Option<Value>, Signal> {
         match (c.by_id, m) {
             (None, _) => Ok(None),
             (Some(ById::Empty), PageMethod::Value) => Ok(Some(Value::Text("".into()))),
+            (Some(ById::ExtField), PageMethod::Value) => Ok(None),
             (Some(ById::Field), m) if BY_ID_CALLS.contains(&m) => Ok(None),
             (Some(_), m) => unsupported(format!(
                 "TestField.{} on what TestPage.GetField found by a control id (not measured)",

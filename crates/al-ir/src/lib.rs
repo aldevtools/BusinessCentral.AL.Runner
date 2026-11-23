@@ -1495,7 +1495,7 @@ pub struct Control {
     #[serde(default)]
     pub factbox: bool,
     /// A `fixed` or a `grid`, which lower as a group: `TestPage.GetField` with its control id gives a field whose Value is
-    /// empty, where a group's id finds nothing (corpus pull request 1538, testpage/GetFieldByControlId.al:545, :623).
+    /// empty, where a group's id finds nothing (corpus pull request 1538, testpage/GetFieldByControlId.al:545, :630).
     #[serde(default)]
     pub fixed_or_grid: bool,
 }

@@ -1327,11 +1327,12 @@ pub struct ControlRef {
     pub by_id: Option<ById>,
 }
 
-/// What `TestPage.GetField` found by a control id (`get_field.rs`): a field control, or a part, a cuegroup, a fixed or a grid,
-/// whose field reads empty.
+/// What `TestPage.GetField` found by a control id (`get_field.rs`): a field control of the page, one a page extension adds, or
+/// a part, a cuegroup, a fixed or a grid, whose field reads empty.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ById {
     Field,
+    ExtField,
     Empty,
 }
 

@@ -8,11 +8,13 @@ LT GFI Tests::Card_FieldControls	ASSUMED testpage-getfield-control-id (corpus PR
 # Main passed it: every id was not found. The head finds the hidden fields by their ids, and their Value is not found then.
 LT GFI Tests::Card_HiddenControls	ASSUMED testpage-getfield-control-id (corpus PR 1538 :530)
 LT GFI Tests::Card_OtherControlKinds	ASSUMED testpage-getfield-control-id (corpus PR 1538 :545, the part's id gives an empty field)
+# BC 27 finds a page extension's field by the extension's id (corpus PR 1538 :589, the BC28PLUS guard's other branch).
+LT GFI Tests::Card_ExtensionControl	ASSUMED testpage-getfield-control-id (corpus PR 1538 :589)	27
 LT GFI Tests::Card_SetValueThroughGetField	ASSUMED testpage-getfield-control-id (corpus PR 1538 :570)
-LT GFI Tests::Card_PartControls	ASSUMED testpage-getfield-control-id (corpus PR 1538 :604)
-LT GFI Tests::CueCard_OtherContainers	ASSUMED testpage-getfield-control-id (corpus PR 1538 :623)
-LT GFI Tests::Card_ReadsThroughGetField	ASSUMED testpage-getfield-control-id (corpus PR 1538 :661)
-LT GFI Tests::ModCard_ModifiedHiddenAndActionGroup	ASSUMED testpage-getfield-control-id (corpus PR 1538 :698)
+LT GFI Tests::Card_PartControls	ASSUMED testpage-getfield-control-id (corpus PR 1538 :611)
+LT GFI Tests::CueCard_OtherContainers	ASSUMED testpage-getfield-control-id (corpus PR 1538 :630)
+LT GFI Tests::Card_ReadsThroughGetField	ASSUMED testpage-getfield-control-id (corpus PR 1538 :668)
+LT GFI Tests::ModCard_ModifiedHiddenAndActionGroup	ASSUMED testpage-getfield-control-id (corpus PR 1538 :705)
 # Main failed them. BC shows 0 for a Text field in a cuegroup, also by its name, where the runner answers the text: refused.
 LT GFI Tests::CueCard_CueField	REFUSED TestPage.GetField of a field in a cuegroup
 # Caption and Visible of what a part control's id gives, and Activate on a field GetField found: no cell runs them.
