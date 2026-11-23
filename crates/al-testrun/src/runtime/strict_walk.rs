@@ -1,4 +1,4 @@
-//! The plain sequential strict run (ADR-070, migration step 2; `RunOptions::strict_sequential` with `strict_order`).
+//! The plain sequential strict run (ADR-070; `RunOptions::strict_order`, `--strict-order`).
 //!
 //! BC runs all test codeunits of a run in one session, in order. Here each BC session ([`super::single_lane::keyed_streams`]:
 //! the suite and its hub leg, or each line of `--test-suites`) runs its test codeunits one after the other on one thread,
@@ -10,32 +10,70 @@
 //! session are flagged (`Assumption::StrictAfterRefused`), as their state is no longer BC's.
 //!
 //! A suite's hub leg and the codeunits runner 130450 runs share one database in BC, so they are one walk: the hub leg
-//! first (BC runs it first, `RqIsolationModes.al:12`), then the rest, the single instances starting fresh at that
-//! boundary (`chain_walk.rs` `starts_fresh`).
+//! first, then the rest, the single instances starting fresh at that boundary (`chain_walk.rs` `starts_fresh`). That
+//! the hub leg runs first is not pinned (`RqIsolationModes.al:12` states it in the header only; corpus issue #1559): a
+//! runner 130450 codeunit that read what a hub-leg writer of unknown place left is refused ([`Unpinned`], [`HubLeft`]).
 //!
-//! The plain sequential strict run (ADR-070 step 2; `RunOptions::strict_sequential` with
-//! `strict_order`, set by the test CLIs from `AL_STRICT_SEQUENTIAL`; no front end flag until step 3).
-//! `groups` makes one walk per BC session from `single_lane.rs` `keyed_streams` (suite and hub leg,
-//! or each `--test-suites` line; the hub leg first, then the rest, refused Disabled links at their
-//! place); `StrictRun::run` walks them with `ChainWalk` in `sequential` mode (every unit a member,
-//! `ChainWhy::InOrder` for one that leaves nothing, single instances kept from member to member) in
-//! parallel, one thread per walk (`threads::run_parallel`), and merges results, details and the chain
-//! report. `stops_session`/`after_run`: a test refused while it ran, a time-limit stop, a codeunit
-//! none of whose tests ran or a panic stops the session; `strict_taint.rs` (`Taint`, `unit_facts`)
-//! flags a later codeunit `Assumption::StrictAfterRefused` only when its reach can read what the
-//! stopped (or flagged) codeunits' reach could have changed (`ReachFacts::changes_read_by`; an
-//! unknown reach on either side flags, a panic, a codeunit refused as a whole after its session
-//! started or a codeunit that is not run drops the single instances and flags all later ones
-//! (`strict_walk::singles_held` before and after each run, `Scratch::hands_on_none`); after a test
-//! refused while it ran the single instances move on, `Unit::singles_past_stop`).
+//! `groups` makes one walk per BC session from `single_lane.rs` `keyed_streams` (suite and hub leg, or each
+//! `--test-suites` line; the hub leg first, then the rest, refused Disabled links at their place) and gives each runner
+//! 130450 codeunit whose place against hub-leg writers is not pinned those writers (`Unpinned`: a codeunit with handlers
+//! gets every writer, another the writers placed after it); the walk notes what each hub-leg member left by itself
+//! (`HubLeft::note`) and refuses such a codeunit only when its run read a table those writers left rows in
+//! (`Scratch::leak_hits`, `HubLeft::refusal`). `StrictRun::run` walks them with `ChainWalk` in `sequential` mode (every
+//! unit a member, `ChainWhy::InOrder` for one that leaves nothing, single instances kept from member to member) in
+//! parallel, one thread per walk (`threads::run_parallel`), and merges results, details and the chain report.
+//! `stops_session`/`after_run`: a test refused while it ran, a time-limit stop, a codeunit none of whose tests ran or a
+//! panic stops the session; `strict_taint.rs` (`Taint`, `unit_facts`) flags a later codeunit
+//! `Assumption::StrictAfterRefused` only when its reach can read what the stopped (or flagged) codeunits' reach could
+//! have changed (`ReachFacts::changes_read_by`; an unknown reach on either side flags, a panic, a codeunit refused as a
+//! whole after its session started or a codeunit that is not run drops the single instances and flags all later ones
+//! (`strict_walk::singles_held` before and after each run, `Scratch::hands_on_none`); after a test refused while it ran
+//! the single instances move on, `Unit::singles_past_stop`).
 
 use super::chain_walk::{ChainWalk, Link};
 use super::single_lane::{Stream, keyed_streams};
 use super::*;
 use al_builtins::assumptions::Assumption;
 
-/// One member of a walk, as `ChainWalk::walk` takes it: (suite, hub leg as 0 or 1, codeunit id, what to do).
+/// One member of a walk, as `ChainWalk::walk` takes it: (suite, leg, codeunit id, what to do). The leg is the carry chain's
+/// (`corpus.rs`): 0 on the TestRunnerHub, 1 under runner 130450.
 pub(super) type Item = (usize, u8, u32, Link);
+
+/// The codeunits under runner 130450 of a walk whose place against some hub-leg writers is not pinned, each (codeunit id)
+/// with those writers' ids in place order. A writer is a hub-leg codeunit that can leave rows ([`leaves_nothing`] is
+/// false, or it is not run); it counts for a codeunit with handlers, or for one that comes before it in its suite
+/// (`groups`). No corpus case measures whether BC runs the 130450 leg before or after the hub leg (corpus issue #1559).
+pub(super) type Unpinned = std::collections::BTreeMap<u32, Vec<u32>>;
+
+/// What each hub-leg member of a walk left by itself: (codeunit id) -> (object, tables it left rows in). Read by the
+/// members of [`Unpinned`]. Isolated storage and numbers a hub-leg member changed need no entry: every later member whose
+/// reach can touch them is refused already (`carry_after.rs` `After::refusal`, `Carried::storage_why`).
+#[derive(Default)]
+pub(super) struct HubLeft(std::collections::BTreeMap<u32, (usize, BTreeSet<u32>)>);
+
+impl HubLeft {
+    /// Hub-leg member `id` (object `oi`) left `left`, before what the members before it left is added.
+    pub(super) fn note(&mut self, id: u32, oi: usize, left: &super::run::Carried) {
+        self.0.insert(id, (oi, left.tables.clone()));
+    }
+
+    /// Why run `r` of codeunit `oi`, whose place against `writers` is not pinned, is refused: it read a table one of them
+    /// left rows in (`Scratch::leak_hits`). Names the first such writer (`carry_after.rs` `place_unpinned`).
+    pub(super) fn refusal(
+        &self,
+        writers: &[u32],
+        lowered: &al_sema::lower::Lowered,
+        oi: usize,
+        r: &UnitResult,
+    ) -> Option<String> {
+        let hits = &r.result.as_ref().ok()?.5.leak_hits;
+        let (w, _) = writers
+            .iter()
+            .filter_map(|w| self.0.get(w))
+            .find(|(_, tables)| !hits.is_disjoint(tables))?;
+        Some(super::carry_after::place_unpinned(lowered, oi, *w))
+    }
+}
 
 /// A unit that leaves nothing for the later codeunits: its isolation rolls its tests back and its OnRun cannot write
 /// (`Unit::carry` is the static analysis of that, `chain::carry_why`).
@@ -59,7 +97,17 @@ pub(super) fn stops_session(r: &UnitResult) -> bool {
 /// Marks every test of the unit's run: it started from state that is not BC's.
 pub(super) fn flag_after_refused(r: &mut UnitResult) {
     if let Ok(done) = &mut r.result {
-        super::single_lane::flag_all(done, Assumption::StrictAfterRefused);
+        for (test, _) in &done.0 {
+            match done.3.iter_mut().find(|(t, _)| t == test) {
+                Some((_, hits)) => {
+                    if !hits.contains(&Assumption::StrictAfterRefused) {
+                        hits.push(Assumption::StrictAfterRefused);
+                        hits.sort();
+                    }
+                }
+                None => done.3.push((test.clone(), vec![Assumption::StrictAfterRefused])),
+            }
+        }
     }
 }
 
@@ -103,10 +151,11 @@ pub(super) fn after_run(
 /// RequiredTestIsolation = Disabled that are not run (`Link::Refused`), at their place in the hub leg of their suite.
 pub(super) fn groups(
     units: &[Unit],
+    handlers: &dyn Fn(usize) -> bool,
     place: &dyn Fn(usize, u32) -> u32,
     suites: Option<&crate::test_suites::TestSuites>,
     refused: &[(usize, u32, usize, String)],
-) -> Vec<Vec<Item>> {
+) -> Vec<(Vec<Item>, Unpinned)> {
     struct Group {
         suite: usize,
         si: usize,
@@ -133,7 +182,7 @@ pub(super) fn groups(
         let g = out.last_mut().expect("a group");
         let items = members
             .into_iter()
-            .map(|(p, k)| (p, (units[k].si, u8::from(hub_leg), units[k].id, Link::Run(k))));
+            .map(|(p, k)| (p, (units[k].si, u8::from(!hub_leg), units[k].id, Link::Run(k))));
         if hub_leg {
             g.hub.extend(items)
         } else {
@@ -152,14 +201,40 @@ pub(super) fn groups(
         };
         for (suite, p) in places {
             if let Some(g) = out.iter_mut().find(|g| (g.suite, g.si) == (suite, *si)) {
-                g.hub.push((p, (*si, 1, *id, Link::Refused(*oi, why.clone()))));
+                g.hub.push((p, (*si, 0, *id, Link::Refused(*oi, why.clone()))));
             }
         }
     }
     out.into_iter()
         .map(|mut g| {
             g.hub.sort_by_key(|(p, _)| *p);
-            g.hub.into_iter().chain(g.rest).map(|(_, item)| item).collect()
+            let writers: Vec<(u64, u32)> = g
+                .hub
+                .iter()
+                .filter(|(_, item)| match &item.3 {
+                    Link::Run(k) => !leaves_nothing(&units[*k]),
+                    Link::Refused(..) => true,
+                    Link::Discovery(_) => false,
+                })
+                .map(|(p, item)| (*p, item.2))
+                .collect();
+            let mut unpinned = Unpinned::new();
+            for (p, item) in g.rest.iter().filter(|_| !writers.is_empty()) {
+                if let Link::Run(k) = item.3 {
+                    let w: Vec<u32> = writers
+                        .iter()
+                        .filter(|(wp, _)| wp > p || handlers(units[k].oi))
+                        .map(|(_, id)| *id)
+                        .collect();
+                    if !w.is_empty() {
+                        unpinned.insert(item.2, w);
+                    }
+                }
+            }
+            (
+                g.hub.into_iter().chain(g.rest).map(|(_, item)| item).collect(),
+                unpinned,
+            )
         })
         .collect()
 }
@@ -198,18 +273,21 @@ impl StrictRun<'_> {
         details: &mut std::collections::HashMap<(usize, u32, String), explain::TestDetail>,
         report: &mut ChainReport,
     ) {
-        let mut groups = groups(self.walk.units, self.place, self.suites, self.refused);
-        for g in &mut groups {
+        let lowered = self.walk.lowered;
+        let handlers = |oi: usize| super::carry_after::has_handlers(lowered, oi);
+        let mut groups = groups(self.walk.units, &handlers, self.place, self.suites, self.refused);
+        for (g, _) in &mut groups {
             if let Some(d) = g.first().and_then(|f| self.discovery.iter().find(|d| d.0 == f.0)) {
-                g.insert(0, (d.0, d.1, d.2, d.3.clone()));
+                g.insert(0, d.clone());
             }
         }
         // The longest walks first: the wall time is then close to the longest session's.
         let mut order: Vec<usize> = (0..groups.len()).collect();
-        order.sort_by_key(|&g| std::cmp::Reverse(groups[g].len()));
+        order.sort_by_key(|&g| std::cmp::Reverse(groups[g].0.len()));
         // The closure captures only what threads may share (a baseline stays on its thread).
         let w = &self.walk;
-        let (engine, lowered, units, trace, limit, pool) = (w.engine, w.lowered, w.units, w.trace, w.limit, w.pool);
+        let (engine, lowered, units, trace, limit, pool, fresh_check) =
+            (w.engine, w.lowered, w.units, w.trace, w.limit, w.pool, w.fresh_check);
         let run = |b: Option<&al_vm::Baseline>, i: usize| -> WalkOut {
             let mut out = WalkOut::default();
             let walk = ChainWalk {
@@ -220,14 +298,14 @@ impl StrictRun<'_> {
                 trace,
                 limit,
                 pool,
-                keep_singles: true,
-                fresh_check: false,
+                fresh_check,
                 sequential: true,
+                unpinned: Some(&groups[order[i]].1),
             };
             let mut take = |k: usize, r: UnitResult| out.done.push((k, r));
             let mut local = ChainReport::default();
             let mut det = std::collections::HashMap::new();
-            walk.walk(clone_items(&groups[order[i]]), &mut take, &mut det, &mut local);
+            walk.walk(groups[order[i]].0.clone(), &mut take, &mut det, &mut local);
             out.details = det;
             out.report = local;
             out
@@ -257,10 +335,6 @@ impl StrictRun<'_> {
     }
 }
 
-fn clone_items(items: &[Item]) -> Vec<Item> {
-    items.iter().map(|(a, b, c, l)| (*a, *b, *c, l.clone())).collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::super::{Ends, Scratch};
@@ -279,12 +353,12 @@ mod tests {
     }
 
     /// Second review of the draft (finding B): in the sequential walk the single instances move on past a refusal or a
-    /// time-limit stop, but not past a panic in a test method; the lane hands nothing on after either.
+    /// time-limit stop, but not past a panic in a test method.
     #[test]
     fn a_panic_in_a_test_drops_the_single_instances_in_the_sequential_walk() {
         assert!(!scratch(true, true, false).hands_on_none(), "a refusal: they move on");
         assert!(scratch(true, true, true).hands_on_none(), "a panic: they are dropped");
-        assert!(scratch(false, true, false).hands_on_none(), "the lane, R3");
+        assert!(scratch(false, true, false).hands_on_none(), "not past a stop (R3)");
         assert!(!scratch(true, false, false).hands_on_none());
     }
 }
