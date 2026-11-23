@@ -425,6 +425,79 @@ fn an_install_whose_subset_runs_leave_different_rows_is_refused_for_that_table()
     assert_eq!(outcome(&rt, "PartnerInstallRan"), Outcome::Pass);
 }
 
+/// A partner install that reads Order Log and marks what it saw (ADR-079 decision 6: no meet, a data edge only).
+const READER: &str = r#"
+codeunit 73200 "Reader Install"
+{
+    Subtype = Install;
+
+    trigger OnInstallAppPerCompany()
+    var
+        L: Record "Order Log";
+        M: Codeunit "Marks";
+    begin
+        if L.IsEmpty() then
+            M.Mark('A')
+        else
+            M.Mark('A saw the log');
+    end;
+}
+"#;
+
+/// A partner install that writes one Order Log row of its own.
+fn writer(object: u32, name: &str) -> String {
+    format!(
+        r#"
+codeunit {object} "{name} Install"
+{{
+    Subtype = Install;
+
+    trigger OnInstallAppPerCompany()
+    var
+        M: Codeunit "Marks";
+    begin
+        M.Log('{name}');
+    end;
+}}
+"#
+    )
+}
+
+/// ADR-079 decision 6: two partner installs that meet nothing, one reading what the other writes. Main installs them
+/// once; the runner now runs the reader with and without the writer before it, and Install Mark differs, so a test that
+/// reads it is not run. The writer's Order Log row is the same in both runs.
+#[test]
+fn an_install_that_reads_what_another_install_wrote_is_refused_for_the_table_that_differs() {
+    let rt = run(vec![
+        base(),
+        (PA_ID, "Partner Reader", "Partner", vec![BASE_ID], READER.into()),
+        (PB_ID, "Partner W1", "Partner", vec![BASE_ID], writer(74000, "W1")),
+    ]);
+    match outcome(&rt, "PartnerInstallRan") {
+        Outcome::NotRun(why) => assert!(why.contains("Partner Reader") && why.contains("Install Mark"), "{why}"),
+        other => panic!("expected not run, got {other:?}"),
+    }
+    assert_eq!(outcome(&rt, "ReadsTheLog"), Outcome::Pass);
+}
+
+/// ADR-079 decision 5: an install that reads from four apps is beyond the three inputs whose every subset runs; the
+/// tables the tied installs wrote are refused.
+#[test]
+fn an_install_that_reads_from_four_apps_is_refused() {
+    let rt = run(vec![
+        base(),
+        (PA_ID, "Partner Reader", "Partner", vec![BASE_ID], READER.into()),
+        (PB_ID, "Partner W1", "Partner", vec![BASE_ID], writer(74000, "W1")),
+        (PC_ID, "Partner W2", "Partner", vec![BASE_ID], writer(75000, "W2")),
+        (PD_ID, "Partner W3", "Partner", vec![BASE_ID], writer(76000, "W3")),
+        (PE_ID, "Partner W4", "Partner", vec![BASE_ID], writer(77000, "W4")),
+    ]);
+    match outcome(&rt, "PartnerInstallRan") {
+        Outcome::NotRun(why) => assert!(why.contains("reads from 4 apps"), "{why}"),
+        other => panic!("expected not run, got {other:?}"),
+    }
+}
+
 /// [`run`] with the partner apps under test too (`al-runner test A B Tests`): the Microsoft base app is a dependency.
 fn run_under_test(partners: Vec<(&str, &str, String)>) -> CorpusRuntime {
     let mut apps = vec![app(BASE_ID, "Base", &[], BASE)];
