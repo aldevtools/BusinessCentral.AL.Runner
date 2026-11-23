@@ -30,4 +30,5 @@ Fix Round Neighbors::Time_Plain_NegativeCut	PINNED tests/al-language/format-eval
 Fix Round Neighbors::Time_Number0_LongerPositive	PINNED tests/al-language/format-evaluate/format-length/FormatLengthStrings.al:198
 Fix Round Neighbors::Time_StandardFormat0_AsLong	PINNED tests/al-language/format-evaluate/format-length/FormatLengthStrings.al:204
 Fix Round Neighbors::Time_StandardFormat0_NegativeLonger	PINNED tests/al-language/format-evaluate/format-length/FormatLengthStrings.al:208
+Fix Round Neighbors::Time_StandardFormat0_NegativeCut10	PINNED tests/al-language/format-evaluate/format-length/FormatLengthNeighbors.al:370
 Fix Round Neighbors::Region_Iso_Length10	REFUSED Format of Date (day 738900) with length 10 and a format string

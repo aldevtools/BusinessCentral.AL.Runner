@@ -95,14 +95,14 @@ fn measured_length(v: &Value, standard: i32, chars: usize, length: i32) -> bool 
 }
 
 /// Whether `Format(v, length, standard)` of a defined Time, whose text without a length has `chars` characters, is a measured
-/// cell: format 0, a text of 11 characters, cut to 3 and 10, kept in 11, right-aligned in 16, and the same lengths negative
-/// (format-evaluate/format-length/FormatLengthStrings.al:182-300 `Time_StandardFormat0_Length*`, by `Format(T, L)`,
-/// `Format(T, L, 0)` and `<Standard Format,0>`; FormatLengthNeighbors.al:367-371). A longer negative length keeps the text.
+/// cell: format 0, a text of 11 characters, cut to 3 and 10, kept in 11, right-aligned in 16, cut to -3, kept in -11 and -16
+/// (format-evaluate/format-length/FormatLengthStrings.al:186-208 `Time_StandardFormat0_Length`, by `Format(T, L)`,
+/// `Format(T, L, 0)` and `<Standard Format,0>`). Length -10 is measured only under the string: `STRING_LENGTH_CELLS`.
 fn time_cell(v: &Value, standard: i32, chars: usize, length: i32) -> bool {
     matches!(v, Value::Time(t) if *t != 0)
         && standard == 0
         && chars == 11
-        && matches!(length.unsigned_abs(), 3 | 10 | 11 | 16)
+        && matches!(length, 3 | 10 | 11 | 16 | -3 | -11 | -16)
 }
 
 /// The format string of `R01` (pages/list-key-navigation/SgListKeyMovesTests.al:54).
@@ -393,6 +393,8 @@ const STRING_LENGTH_CELLS: &[(Temporal, &str, usize, &[i32])] = {
         (UndefinedDate, STANDARD_FORMAT_0, 0, &[5, 8, -5, -8]),
         (UndefinedDate, STANDARD_FORMAT_9, 0, &[5, 10, -5, -10]),
         (UndefinedDate, CLOSING_DAY, 0, &[1, 10, -3]),
+        // A defined Time: FormatLengthNeighbors.al:370 (the other lengths: `time_cell`).
+        (Time, STANDARD_FORMAT_0, 11, &[-10]),
         // 0DT: FormatLengthStrings.al:751-863, :970-988 (a DateTime field).
         (UndefinedDateTime, SECOND_DEC, 0, UNDEFINED_LADDER),
         (UndefinedDateTime, YEAR4_MONTH_DAY, 0, UNDEFINED_LADDER),
@@ -1100,7 +1102,8 @@ mod tests {
 
     /// A defined Time in standard format 0, by `Format(T, L, 0)` and by `<Standard Format,0>`: cut to a shorter length of
     /// either sign, right-aligned in a longer positive one, kept in a longer negative one, for the measured lengths of a text of
-    /// 11 characters (format-evaluate/format-length/FormatLengthStrings.al:182-300, FormatLengthNeighbors.al:367-371). No mark.
+    /// 11 characters (format-evaluate/format-length/FormatLengthStrings.al:186-208). Length -10 only under the string
+    /// (FormatLengthNeighbors.al:370); the number forms at -10 refuse. No mark.
     #[test]
     fn a_defined_time_in_standard_format_0_takes_the_measured_lengths() {
         let at = |h: i64, m: i64, s: i64, ms: i64| Value::Time(((h * 3600 + m * 60 + s) * 1000 + ms) + 1);
@@ -1117,7 +1120,6 @@ mod tests {
                 (11, text.to_string()),
                 (16, format!("     {text}")),
                 (-3, cut(3)),
-                (-10, cut(10)),
                 (-11, text.to_string()),
                 (-16, text.to_string()),
             ] {
@@ -1128,6 +1130,8 @@ mod tests {
                     "{v:?} {length}"
                 );
             }
+            assert_eq!(fmt_string_hits(&v, -10, STANDARD_FORMAT_0), (Ok(cut(10)), vec![]), "{v:?}");
+            assert!(refused(fmt(&v, -10, 0)), "{v:?}");
         }
         // Neighbors no line measures: other lengths, the undefined Time, another standard format.
         let time = at(13, 45, 6, 0);

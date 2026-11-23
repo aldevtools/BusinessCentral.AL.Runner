@@ -51,6 +51,25 @@ codeunit 50809 "Fix Round Neighbors"
         Check(Format(134506T, -16, Sf0Tok), ' 1:45:06 PM');
     end;
 
+    // Length -10: measured only under the string; the number forms refuse.
+    [Test]
+    procedure Time_StandardFormat0_NegativeCut10()
+    begin
+        Check(Format(134506T, -10, Sf0Tok), ' 1:45:06 P');
+    end;
+
+    [Test]
+    procedure Time_Number0_NegativeCut10()
+    begin
+        Check(Format(134506T, -10, 0), ' 1:45:06 P');
+    end;
+
+    [Test]
+    procedure Time_Plain_NegativeCut10()
+    begin
+        Check(Format(134506T, -10), ' 1:45:06 P');
+    end;
+
     // Neighbors no line measures: another length, the undefined Time, another standard format.
     [Test]
     procedure Time_Number0_Length12()
@@ -98,7 +117,8 @@ codeunit 50809 "Fix Round Neighbors"
     [Test]
     procedure Region_Time_StandardFormat0_Length11()
     begin
-        Check(RunRegion(4), '13:45:06');
+        // Refusal only: no line measures the text.
+        RunRegion(4);
     end;
 
     local procedure RunRegion(Mode: Integer): Text
