@@ -318,6 +318,11 @@ fn format_codes(
     // `<Integer>` and `<Text>` on 0D, `<Closing>` and `<Text>` on 0DT are the invalid-format error; every standard format code
     // on 0DT is the empty text). Earlier pins: types/date-time/Format.al QR_DateTime_Format_StampStrings_Undefined,
     // QR_Date_Format_StampStrings.
+    // `<Hours24,2>:<Minutes,2>` on 0D is the invalid-format error, with and without a length (format-evaluate/format-length/
+    // FormatLengthStrings.al:858-860). The same string on a defined Date is not pinned.
+    if matches!(v, Value::Date(0, false)) && template == "<Hours24,2>:<Minutes,2>" {
+        return Err(format!("{INVALID_FORMAT_MARK}{template}"));
+    }
     let defined = match v {
         Value::Date(0, false) => Some(Value::Date(crate::format::day_from_civil(2024, 3, 5), false)),
         Value::DateTime(0) => {

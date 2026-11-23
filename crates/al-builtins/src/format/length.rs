@@ -36,6 +36,11 @@ fn measured(v: &Value, standard: i32, fit: Ordering, positive: bool) -> bool {
         (Value::Decimal(_), 0 | 1 | 2 | 9, true, Less) => true,
         // A defined Date in format 9: shorter is right-aligned, as long as the length stays (types/date-time/Format.al:531, :530).
         (Value::Date(day, false), 9, true, Less | Equal) => *day != 0,
+        // A defined Date as long as the length in format 0, a closing one too, and in format 9 (format-evaluate/format-length/
+        // FormatLengthStrings.al:341-342, :348-349, :345); a Duration in format 0 (:352-353). Both signs.
+        (Value::Date(day, _), 0, _, Equal) => *day != 0,
+        (Value::Date(day, false), 9, false, Equal) => *day != 0,
+        (Value::Duration(_), 0, _, Equal) => true,
         // A defined DateTime in format 9, shorter: right-aligned (types/date-time/Format.al:535).
         (Value::DateTime(stamp), 9, true, Less) => *stamp != 0,
         // A Text as long as a positive length stays (types/date-time/P146FormatCalcDate.al:30, `'<+%1D>'` in 6).
@@ -116,7 +121,7 @@ pub(crate) fn with_format_string(v: &Value, length: i32, template: &str, chars: 
         (Value::Time(0), true, Equal) => template == HOURS_MINUTES_SECONDS,
         _ => false,
     };
-    if length == 0 || measured || measured_string_length(v, length, template) {
+    if length == 0 || measured || string_length_cell(v, length, template, chars) {
         return Ok(());
     }
     if string_cell(integer_kind(v), INTEGER_STRING_CELLS, template, length > 0, fit) {
@@ -233,7 +238,8 @@ const DATETIME_SEPARATED: &str = "<Year4>-<Month,2>-<Day,2> <Hours24,2>:<Minutes
 /// `format-length-date-string`): the kind of value, the exact format string, a positive length or not, and how the text without
 /// a length compares with it. The probe lines of each cell follow it. A length shorter than the text cuts it (either sign), a
 /// longer positive length pads it on the left, a longer negative length keeps it (the cut: `cuts_to_length`). A defined Time
-/// in a positive length has no row: the pinned arm of `with_format_string` runs it under any string (Format.al:873, :885).
+/// in a positive length has no row: the pinned arm of `with_format_string` runs it under any string (Format.al:873, :885). The
+/// lengths of `STRING_LENGTH_CELLS` run clean before these rows.
 const DATE_STRING_CELLS: &[(Temporal, &str, bool, Ordering)] = {
     use Ordering::{Equal, Greater, Less};
     use Temporal::*;
@@ -305,26 +311,87 @@ fn string_cell<'a, K: PartialEq>(
     kind.is_some_and(|kind| cells.contains(&(kind, template, positive, fit)))
 }
 
-/// The pinned cells under a format string where a cited line measures only some lengths of one string.
-fn measured_string_length(v: &Value, length: i32, template: &str) -> bool {
-    match v {
-        // 0D: blanks / '' (format-evaluate/format-length/FormatLengthDates.al:132-137, :216-217).
-        Value::Date(0, false) => {
-            (template == YEAR4_MONTH_DAY && matches!(length, 3 | 10 | 30 | -3 | -10))
-                || (template == "<Closing><Day>" && length == 10)
-        }
-        // A defined Date: as long as the length, padded on the left, kept in a longer negative length, or cut to 3, 8 or 9
-        // (FormatLengthDates.al:206-214, :219-223; the cuts :207, :209, :445).
-        Value::Date(_, false) => template == YEAR4_MONTH_DAY && matches!(length, 3 | 8 | 9 | 10 | 11 | 12 | -10 | -12),
-        _ => false,
-    }
+/// The format string of format-evaluate/format-length/FormatLengthStrings.al:47 (`DayMonthYear2Txt`).
+const DAY_MONTH_YEAR2: &str = "<Day,2><Month,2><Year,2>";
+/// The format string of FormatLengthStrings.al:743 and format-evaluate/format-length/FormatLengthDates.al:130.
+const CLOSING_DAY: &str = "<Closing><Day>";
+const STANDARD_FORMAT_0: &str = "<Standard Format,0>";
+const STANDARD_FORMAT_9: &str = "<Standard Format,9>";
+
+/// The pinned cells under a format string where a cited line measures only some lengths: the kind of value, the exact format
+/// string, the length of the text the string gives without a length, and the lengths measured. A shorter length cuts the text
+/// (either sign), a longer positive one pads it on the left, a longer negative one keeps it; an undefined value's text is empty
+/// (the cut: `cuts_to_length`). FormatLengthStrings.al (codeunit 96391): `DateLadder` (:1065-1084) measures, for the text's
+/// length x, 1, x, x + 3, x - 1 and x - 2 with both signs (only 1 when x is below 3); `UndefinedLadder` (:1086-1100) 1, 5 and
+/// 30 on 0DT and 5 on 0D, with both signs.
+const STRING_LENGTH_CELLS: &[(Temporal, &str, usize, &[i32])] = {
+    use Temporal::*;
+    const UNDEFINED_LADDER: &[i32] = &[1, 5, 30, -1, -5, -30];
+    &[
+        // FormatLengthStrings.al:639-657.
+        (Date, YEAR4_MONTH, 7, &[1, 5, 6, 7, 10, -1, -5, -6, -7, -10]),
+        // FormatLengthDates.al:206-214, :219-223, :445-447 (WorkDate and 2024-01-15); FormatLengthStrings.al:659-677.
+        (
+            Date,
+            YEAR4_MONTH_DAY,
+            10,
+            &[1, 3, 8, 9, 10, 11, 12, 13, -1, -3, -8, -9, -10, -12, -13],
+        ),
+        // FormatLengthStrings.al:82-103 (two dates), :171-175 (a Date field), :679-697.
+        (
+            Date,
+            DAY_MONTH_YEAR2,
+            6,
+            &[1, 4, 5, 6, 7, 8, 9, 12, -1, -4, -5, -6, -7, -8, -9, -12],
+        ),
+        // FormatLengthStrings.al:699-717, :338-339.
+        (Date, STANDARD_FORMAT_0, 8, &[1, 6, 7, 8, 11, -1, -6, -7, -8, -11]),
+        // FormatLengthStrings.al:719-737, :343-344.
+        (Date, STANDARD_FORMAT_9, 10, &[1, 8, 9, 10, 13, -1, -8, -9, -10, -13]),
+        // FormatLengthStrings.al:739-749.
+        (Date, CLOSING_DAY, 2, &[1, -1]),
+        // A closing Date: FormatLengthStrings.al:142-148 (no C under the string), :346-347.
+        (ClosingDate, DAY_MONTH_YEAR2, 6, &[4, 6, 8, -4, -6, -8]),
+        (ClosingDate, STANDARD_FORMAT_0, 9, &[9, -9]),
+        // 0D: FormatLengthStrings.al:132-141, :176-177 (a Date field), :789-806.
+        (UndefinedDate, DAY_MONTH_YEAR2, 0, &[1, 4, 5, 6, 8, -1, -4, -5, -6, -8]),
+        // FormatLengthDates.al:132-136; FormatLengthStrings.al:770-787.
+        (UndefinedDate, YEAR4_MONTH_DAY, 0, &[3, 5, 10, 30, -3, -5, -10]),
+        // FormatLengthStrings.al:1003-1010 (`UndefinedDate_Templates_Length`), :808-844 (L = 5); FormatLengthDates.al:137.
+        (UndefinedDate, YEAR4_MONTH, 0, &[7, -7]),
+        (UndefinedDate, STANDARD_FORMAT_0, 0, &[5, 8, -5, -8]),
+        (UndefinedDate, STANDARD_FORMAT_9, 0, &[5, 10, -5, -10]),
+        (UndefinedDate, CLOSING_DAY, 0, &[1, 10, -3]),
+        // 0DT: FormatLengthStrings.al:751-863, :970-988 (a DateTime field).
+        (UndefinedDateTime, SECOND_DEC, 0, UNDEFINED_LADDER),
+        (UndefinedDateTime, YEAR4_MONTH_DAY, 0, UNDEFINED_LADDER),
+        (UndefinedDateTime, DAY_MONTH_YEAR2, 0, UNDEFINED_LADDER),
+        (UndefinedDateTime, STANDARD_FORMAT_0, 0, UNDEFINED_LADDER),
+        (
+            UndefinedDateTime,
+            STANDARD_FORMAT_9,
+            0,
+            &[1, 5, 10, 30, -1, -5, -10, -30],
+        ),
+        (UndefinedDateTime, TIME_HOURS_MINUTES, 0, UNDEFINED_LADDER),
+    ]
+};
+
+/// Whether `Format(v, length, template)`, whose text without a length has `chars` characters, is a cell of `STRING_LENGTH_CELLS`.
+fn string_length_cell(v: &Value, length: i32, template: &str, chars: usize) -> bool {
+    temporal_kind(v).is_some_and(|kind| {
+        STRING_LENGTH_CELLS
+            .iter()
+            .any(|&(k, t, x, lengths)| k == kind && t == template && x == chars && lengths.contains(&length))
+    })
 }
 
 /// `Format(v, length, '<Standard Format,N>')`, a template of that one code, gave `out`: `None` for any other template. The
 /// string takes the gate of `Format(v, length, N)` and runs only where that call gives the same text: pinned for a Decimal
 /// shorter than a positive length in formats 0, 1 and 9 (format-evaluate/P86FormatDecimal.al:1083, :1084, :1086), and for the
 /// types, numbers and lengths of format-evaluate/format-length/FormatLengthNeighbors.al with a text shorter or longer than the
-/// length.
+/// length, and for a Duration as long as it. The cells of `STRING_LENGTH_CELLS` under the string run as `format_codes` gives
+/// them, without `Format(v, length, N)`.
 pub(crate) fn lone_standard_format(
     v: &Value,
     length: i32,
@@ -343,13 +410,16 @@ pub(crate) fn lone_standard_format(
             v.describe()
         )
     };
+    let Ok(bare) = format_value(v, 0, standard, ctx) else {
+        return Some(Err(refused()));
+    };
+    if string_length_cell(v, length, template, bare.chars().count()) {
+        return Some(Ok(()));
+    }
     let plain = match format_value(v, length, standard, ctx) {
         Ok(plain) => plain,
         Err(FormatFail::Unsupported(why)) => return Some(Err(why)),
         Err(FormatFail::Error { .. }) => return Some(Err(refused())),
-    };
-    let Ok(bare) = format_value(v, 0, standard, ctx) else {
-        return Some(Err(refused()));
     };
     let fit = fit(bare.chars().count(), length);
     let decimal = matches!(
@@ -378,7 +448,9 @@ pub(crate) fn lone_standard_format(
                 10 | 3 | -3 | -10,
             ) | (Value::Date(_, false), 9, 10 | 3 | 12 | -12 | -10)
         );
-    if plain == out && (decimal || neighbors) {
+    // A Duration as long as the length, both signs (format-evaluate/format-length/FormatLengthStrings.al:350-351).
+    let duration = matches!((v, standard, fit), (Value::Duration(_), 0, Ordering::Equal));
+    if plain == out && (decimal || neighbors || duration) {
         return Some(Ok(()));
     }
     Some(Err(refused()))
@@ -512,7 +584,7 @@ mod tests {
             (Value::Integer(12345), 3, "<Integer,3>"),
             (dec.clone(), -10, "<Integer>"),
             (Value::Integer(42), 1, "<Integer,3>"),
-            (Value::DateTime(0), -5, "<Second dec.>"),
+            (Value::DateTime(0), -6, "<Second dec.>"),
             (date.clone(), 20, "<Year4>-<Month,2>"),
             (time.clone(), -1, "<Hours24,2>"),
             (time.clone(), -2, "<Hours24,2>"),
@@ -800,7 +872,7 @@ mod tests {
                 10,
                 "<Year4>-<Month,2>-<Day,2>",
             ),
-            (&date, 6, "<Day,2><Month,2><Year,2>"),
+            (&date, 10, "<Day,2><Month,2><Year,2>"),
             (&undefined, 8, "<Year4>-<Month,2>-<Day,2>"),
             (&undefined, 10, "<Year4>"),
         ] {
@@ -862,9 +934,7 @@ mod tests {
             (&date, -12, DATE_DOTS, "05.01.2024"),                          // :123
             (&date, -4, DATE_YEAR2, "2401"),                                // :130
             (&date, 8, DATE_YEAR2, "  240105"),                             // :128
-            (&date, 1, YEAR4_MONTH_DAY, "2"),                               // :133
             (&date, 30, YEAR4_MONTH_DAY, "                    2024-01-05"), // :134
-            (&date, -9, YEAR4_MONTH_DAY, "2024-01-0"),                      // :137
             (&date, -11, YEAR4_MONTH_DAY, "2024-01-05"),                    // :138
             (&time, -6, TIME_COMPACT, " 93005"),                            // :181
             (&time, -4, TIME_COMPACT, " 930"),                              // :182
@@ -878,10 +948,19 @@ mod tests {
         ] {
             assert_date_string_flagged(v, length, template, want);
         }
-        // The cells a cited line pins keep running unmarked (FormatLengthDates.al:206-214; Format.al:873, :885).
+        // The cells a cited line pins keep running unmarked (FormatLengthDates.al:206-214; FormatLengthStrings.al:663, :667;
+        // Format.al:873, :885).
         assert_eq!(
             fmt_string_hits(&date, 10, YEAR4_MONTH_DAY),
             (Ok("2024-01-05".to_string()), vec![])
+        );
+        assert_eq!(
+            fmt_string_hits(&date, 1, YEAR4_MONTH_DAY),
+            (Ok("2".to_string()), vec![])
+        );
+        assert_eq!(
+            fmt_string_hits(&date, -9, YEAR4_MONTH_DAY),
+            (Ok("2024-01-0".to_string()), vec![])
         );
         assert_eq!(
             fmt_string_hits(&time, 4, TIME_COMPACT),
