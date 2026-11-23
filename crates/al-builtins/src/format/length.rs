@@ -1,6 +1,3 @@
-//! What a length does in `Format`, after the type rules of `format_value` and the format strings of `formatstr`: only the
-//! shapes the corpus measured run, every other value and length refuses (al-runner issue 8389).
-//!
 //! What a length does in `Format`: after the type rules of `format.rs` (`rest`, by type, standard
 //! format, sign and fit), under a format string (`with_format_string`, and `lone_standard_format` for
 //! a string that is one `<Standard Format,N>`, both called by `formatstr.rs`), and where no case
@@ -18,10 +15,11 @@ use std::cmp::Ordering;
 pub(super) fn rest(v: &Value, standard: i32, s: String, length: i32) -> Result<String, FormatFail> {
     let chars = s.chars().count();
     let fit = fit(chars, length);
-    if length == 0 || measured(v, standard, fit, length > 0) || measured_length(v, standard, fit, length) {
-        return Ok(pad(s, length));
+    if length == 0 {
+        return Ok(s);
     }
-    if time_cell(v, standard, chars, length) {
+    if measured(v, standard, fit, length > 0) || measured_length(v, standard, chars, length) {
+        // Of the measured cells only a Time's text can be longer than the length here (`time_cell`): cut to it.
         return Ok(pad(s.chars().take(length.unsigned_abs() as usize).collect(), length));
     }
     Err(FormatFail::Unsupported(format!(
@@ -76,7 +74,8 @@ fn measured(v: &Value, standard: i32, fit: Ordering, positive: bool) -> bool {
 
 /// The pinned shapes where a cited line measures only some lengths, each by its value type, the standard format number and
 /// the lengths (or the sign of the length and how the text compares with it).
-fn measured_length(v: &Value, standard: i32, fit: Ordering, length: i32) -> bool {
+fn measured_length(v: &Value, standard: i32, chars: usize, length: i32) -> bool {
+    let fit = fit(chars, length);
     // The lengths the cells of 0D in formats 0 and 9 and of 0DT in format 0 measure, each with both signs.
     let measured_undefined = matches!(length.unsigned_abs(), 1 | 3 | 8 | 10 | 30);
     match (v, standard, length > 0, fit) {
@@ -90,6 +89,7 @@ fn measured_length(v: &Value, standard: i32, fit: Ordering, length: i32) -> bool
         (Value::DateTime(0), 9, _, _) => matches!(length, 3 | 10 | 30 | -3 | -30),
         // A Text as long as a negative length stays (format-evaluate/format-length/FormatLengthTypes.al:888).
         (Value::Text(_), 0, false, Ordering::Equal) => true,
+        (Value::Time(_), _, _, _) => time_cell(v, standard, chars, length),
         _ => false,
     }
 }
@@ -102,7 +102,7 @@ fn time_cell(v: &Value, standard: i32, chars: usize, length: i32) -> bool {
     matches!(v, Value::Time(t) if *t != 0)
         && standard == 0
         && chars == 11
-        && matches!(length, 3 | 10 | 11 | 16 | -3 | -10 | -11 | -16)
+        && matches!(length.unsigned_abs(), 3 | 10 | 11 | 16)
 }
 
 /// The format string of `R01` (pages/list-key-navigation/SgListKeyMovesTests.al:54).
@@ -149,14 +149,15 @@ pub(crate) fn with_format_string(
         (Value::Time(0), true, Equal) => template == HOURS_MINUTES_SECONDS,
         _ => false,
     };
-    if length == 0 || measured || string_length_cell(v, length, template, chars, ctx) {
+    let culture = temporal_kind(v).is_some() && measured_culture(ctx);
+    if length == 0 || measured || (culture && string_length_cell(v, length, template, chars)) {
         return Ok(());
     }
     if string_cell(integer_kind(v), INTEGER_STRING_CELLS, template, length > 0, fit) {
         crate::assumptions::assume(crate::assumptions::Assumption::FormatLengthIntegerString);
         return Ok(());
     }
-    if measured_culture(ctx) && string_cell(temporal_kind(v), DATE_STRING_CELLS, template, length > 0, fit) {
+    if culture && string_cell(temporal_kind(v), DATE_STRING_CELLS, template, length > 0, fit) {
         crate::assumptions::assume(crate::assumptions::Assumption::FormatLengthDateString);
         return Ok(());
     }
@@ -258,7 +259,7 @@ const DATE_COMPACT: &str = "<Year4><Month,2><Day,2>";
 const DATE_DOTS: &str = "<Day,2>.<Month,2>.<Year4>";
 const DATE_YEAR2: &str = "<Year><Month,2><Day,2>";
 const TIME_COMPACT: &str = "<Hours24,2><Minutes,2><Seconds,2>";
-const TIME_HOURS_MINUTES: &str = "<Hours24,2>:<Minutes,2>";
+pub(crate) const TIME_HOURS_MINUTES: &str = "<Hours24,2>:<Minutes,2>";
 const DATETIME_COMPACT: &str = "<Year4><Month,2><Day,2><Hours24,2><Minutes,2><Seconds,2>";
 const DATETIME_SEPARATED: &str = "<Year4>-<Month,2>-<Day,2> <Hours24,2>:<Minutes,2>";
 
@@ -381,7 +382,7 @@ const STRING_LENGTH_CELLS: &[(Temporal, &str, usize, &[i32])] = {
         // A closing Date: FormatLengthStrings.al:142-148 (no C under the string), :346-347.
         (ClosingDate, DAY_MONTH_YEAR2, 6, &[4, 6, 8, -4, -6, -8]),
         (ClosingDate, STANDARD_FORMAT_0, 9, &[9, -9]),
-        // FormatLengthDates.al:215.
+        // FormatLengthDates.al:199, :218.
         (ClosingDate, YEAR4_MONTH_DAY, 10, &[10]),
         // 0D: FormatLengthStrings.al:132-141, :176-177 (a Date field), :789-806.
         (UndefinedDate, DAY_MONTH_YEAR2, 0, &[1, 4, 5, 6, 8, -1, -4, -5, -6, -8]),
@@ -414,15 +415,14 @@ fn measured_culture(ctx: &dyn FormatCtx) -> bool {
     super::region_in_force(ctx).is_none() && ctx.region_unpinned().is_none()
 }
 
-/// Whether `Format(v, length, template)`, whose text without a length has `chars` characters, is a cell of `STRING_LENGTH_CELLS`
-/// in the culture its lines measure.
-fn string_length_cell(v: &Value, length: i32, template: &str, chars: usize, ctx: &dyn FormatCtx) -> bool {
-    measured_culture(ctx)
-        && temporal_kind(v).is_some_and(|kind| {
-            STRING_LENGTH_CELLS
-                .iter()
-                .any(|&(k, t, x, lengths)| k == kind && t == template && x == chars && lengths.contains(&length))
-        })
+/// Whether `Format(v, length, template)`, whose text without a length has `chars` characters, is a cell of `STRING_LENGTH_CELLS`.
+/// Each caller also asks for `measured_culture`.
+fn string_length_cell(v: &Value, length: i32, template: &str, chars: usize) -> bool {
+    temporal_kind(v).is_some_and(|kind| {
+        STRING_LENGTH_CELLS
+            .iter()
+            .any(|&(k, t, x, lengths)| k == kind && t == template && x == chars && lengths.contains(&length))
+    })
 }
 
 /// `Format(v, length, '<Standard Format,N>')`, a template of that one code, gave `out`: `None` for any other template. The
@@ -452,7 +452,8 @@ pub(crate) fn lone_standard_format(
     let Ok(bare) = format_value(v, 0, standard, ctx) else {
         return Some(Err(refused()));
     };
-    if string_length_cell(v, length, template, bare.chars().count(), ctx) {
+    let chars = bare.chars().count();
+    if measured_culture(ctx) && string_length_cell(v, length, template, chars) {
         return Some(Ok(()));
     }
     let plain = match format_value(v, length, standard, ctx) {
@@ -460,7 +461,7 @@ pub(crate) fn lone_standard_format(
         Err(FormatFail::Unsupported(why)) => return Some(Err(why)),
         Err(FormatFail::Error { .. }) => return Some(Err(refused())),
     };
-    let fit = fit(bare.chars().count(), length);
+    let fit = fit(chars, length);
     let decimal = matches!(
         (v, standard, length > 0, fit),
         (Value::Decimal(_), 0 | 1 | 9, true, Ordering::Less)
@@ -489,7 +490,7 @@ pub(crate) fn lone_standard_format(
         );
     // A Duration as long as the length, both signs (format-evaluate/format-length/FormatLengthStrings.al:350-351).
     let duration = matches!((v, standard, fit), (Value::Duration(_), 0, Ordering::Equal));
-    let time = time_cell(v, standard, bare.chars().count(), length);
+    let time = time_cell(v, standard, chars, length);
     if plain == out && (decimal || neighbors || duration || time) {
         return Some(Ok(()));
     }
@@ -874,7 +875,7 @@ mod tests {
                 "{length}"
             );
         }
-        // A closing Date under the string, as long as the length: FormatLengthDates.al:215, no C.
+        // A closing Date under the string, as long as the length: FormatLengthDates.al:199, :218, no C.
         assert_eq!(
             fmt_string_hits(&Value::Date(day_from_civil(2024, 1, 15), true), 10, YEAR4),
             (Ok("2024-01-15".to_string()), vec![])

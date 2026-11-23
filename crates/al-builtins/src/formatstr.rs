@@ -322,7 +322,7 @@ fn format_codes(
     // QR_Date_Format_StampStrings.
     // `<Hours24,2>:<Minutes,2>` on 0D is the invalid-format error, with and without a length (format-evaluate/format-length/
     // FormatLengthStrings.al:858-860). The same string on a defined Date is not pinned.
-    if matches!(v, Value::Date(0, false)) && template == "<Hours24,2>:<Minutes,2>" {
+    if matches!(v, Value::Date(0, false)) && template == crate::format::length::TIME_HOURS_MINUTES {
         return Err(format!("{INVALID_FORMAT_MARK}{template}"));
     }
     let defined = match v {
