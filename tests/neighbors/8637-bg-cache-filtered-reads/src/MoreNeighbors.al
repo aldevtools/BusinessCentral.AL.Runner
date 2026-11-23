@@ -97,6 +97,7 @@ codeunit 97583 "BQ More Reader"
         Parent: Record "BQ More Parent";
         Line: Record "BQ More Line";
         Row: Record "BQ Row";
+        Kind: Option First,Second;
     begin
         case Mode of
             'countasc', 'countdesc':
@@ -136,6 +137,27 @@ codeunit 97583 "BQ More Reader"
                     Line.SetRange(Parent, Group);
                     Line.CalcSums(Amount);
                     exit(D(Line.Amount));
+                end;
+            'linesnotes':
+                begin
+                    Parent.SetRange("No.", Group);
+                    Parent.SetFilter("Line Count", '>0');
+                    Parent.SetRange("Note Count", 0);
+                    exit(Format(Parent.FindFirst()));
+                end;
+            'noteslines':
+                begin
+                    Parent.SetRange("No.", Group);
+                    Parent.SetRange("Note Count", 0);
+                    Parent.SetFilter("Line Count", '>0');
+                    exit(Format(Parent.FindFirst()));
+                end;
+            'description', 'optionselect':
+                begin
+                    if Mode = 'optionselect' then
+                        Database.SelectLatestVersion(Kind);
+                    Parent.Get(Group);
+                    exit(Parent.Description);
                 end;
         end;
         Error('Mode %1', Mode);
@@ -278,5 +300,92 @@ codeunit 97584 "BQ More Tests"
     procedure CalcSumsAfterSetAscendingFalse_LinesAfterFirstRead()
     begin
         Assert.AreEqual('5 / 5', Reads('descendingsums', 'descendingsums', 'lines'), 'descending sums');
+    end;
+}
+
+// From the review of al-runner PR 8808 (al-runner issue 8879), on a committed parent with line 1 and description 'first'. A
+// worker's FindFirst of the parent filtered on its key and on two FlowFields of different source tables (Line Count > 0, Note
+// Count = 0); the test session inserts a note without a commit and reads it; the worker's FindFirst again, with the filters set
+// in the same order and in the other order: BC answers the first answer in both, so the order the filters were set in is not
+// part of the entry. A worker's Get of the parent; the test session changes its description without a commit; the worker calls
+// SelectLatestVersion with an Option whose value 0 names no table, and gets the parent again: BC answers 'first' (a local BC
+// 29.1 container, 3 runs).
+codeunit 97510 "BQ More Follow-up Tests"
+{
+    Subtype = Test;
+
+    var
+        Assert: Codeunit Assert;
+
+    local procedure Run(var Rows: TestPage "BQ Plain Rows"; Mode: Text; Group: Code[20]): Text
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Seen: Text;
+    begin
+        Parameters.Add('Group', Group);
+        Parameters.Add('Mode', Mode);
+        Results := Rows.RunPageBackgroundTask(Codeunit::"BQ More Reader", Parameters, false);
+        Results.Get('Seen', Seen);
+        exit(Seen);
+    end;
+
+    local procedure Reads(First: Text; Again: Text; Change: Text): Text
+    var
+        Rows: TestPage "BQ Plain Rows";
+        Parent: Record "BQ More Parent";
+        Line: Record "BQ More Line";
+        Note: Record "BQ More Note";
+        G: Code[20];
+        Seen: Text;
+    begin
+        G := CopyStr(DelChr(Format(CreateGuid()), '=', '{}-'), 1, 18);
+        Parent."No." := G;
+        Parent.Description := 'first';
+        Parent.Insert();
+        Line.Parent := G;
+        Line."Line No." := 1;
+        Line.Amount := 5;
+        Line.Insert();
+        Commit();
+        Rows.OpenView();
+        Seen := Run(Rows, First, G);
+        case Change of
+            'note':
+                begin
+                    Note.Parent := G;
+                    Note."Line No." := 1;
+                    Note.Insert();
+                    Note.SetRange(Parent, G);
+                    if Note.FindFirst() then;
+                end;
+            'description':
+                begin
+                    Parent.Get(G);
+                    Parent.Description := 'second';
+                    Parent.Modify();
+                end;
+        end;
+        Seen += ' / ' + Run(Rows, Again, G);
+        Rows.Close();
+        exit(Seen);
+    end;
+
+    [Test]
+    procedure TwoFlowFieldFiltersSameOrder_NoteAfterFirstRead()
+    begin
+        Assert.AreEqual('Yes / Yes', Reads('linesnotes', 'linesnotes', 'note'), 'Line Count, Note Count twice');
+    end;
+
+    [Test]
+    procedure TwoFlowFieldFiltersSwapped_NoteAfterFirstRead()
+    begin
+        Assert.AreEqual('Yes / Yes', Reads('linesnotes', 'noteslines', 'note'), 'Line Count, Note Count, then the other order');
+    end;
+
+    [Test]
+    procedure SelectLatestVersionOfAnOption_DescriptionAfterFirstRead()
+    begin
+        Assert.AreEqual('first / first', Reads('description', 'optionselect', 'description'), 'SelectLatestVersion(Option)');
     end;
 }

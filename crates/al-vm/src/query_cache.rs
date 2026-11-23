@@ -722,7 +722,8 @@ impl Session {
     }
 
     /// The tables the FlowFields `rec` filters on read (`flow_field_find` keys a read with them), once each, by object id: two
-    /// reads with the same key get their commit stamps in the same order, whatever order their filters were set in.
+    /// reads with the same key get their commit stamps in the same order, whatever order their filters were set in, as BC
+    /// shares the entry (the neighbor TwoFlowFieldFiltersSwapped_NoteAfterFirstRead, MoreNeighbors.al, al-runner issue 8879).
     fn flow_field_sources(&self, rec: &Rec, t: &TableDef) -> Vec<Arc<TableDef>> {
         let Some(schema) = self.engine.program.objects[t.object as usize].table.as_ref() else {
             return Vec::new();
