@@ -5,6 +5,13 @@
 //!
 //! A skipped test is never reported as passed or failed in this run: it is counted in `selection`, shown in JUnit as
 //! `<skipped>` with its stored outcome, and one whose stored outcome is not a pass keeps the exit code at 1.
+//!
+//! `al-runner test --affected` and serve `affectedOnly` (ADR-050): the header of the run (runtime
+//! build, option hash, environment, workspace apps, `app.json` hashes), the stored result file
+//! (`<cache>/affected/<key>.json.gz` or `--affected-store`, gzip JSON, temporary file and rename),
+//! the narrow callback that applies `Stored::select`, and after the run the merged stored result and
+//! the `Report` (text lines, `selection` JSON, JUnit `<skipped>` rows, exit code). Entry points:
+//! `Affected::prepare`, `Affected::narrow`, `Affected::finish`, `Report`, `with_selection`.
 
 use crate::apps::AppInput;
 use crate::args::TestArgs;

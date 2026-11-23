@@ -11,6 +11,10 @@
 //! The same list, as data: `al_version::MEASURED_SERVICE_RUNTIMES`. So the major is a fact of the build, not of the BC
 //! major: the BC 27 and 28 builds published on 2026-11-17 run on .NET 10, the builds of the same minors before them on
 //! .NET 8.
+//!
+//! The `Microsoft.NETCore.App` major a build's service tier runs on, from
+//! `Microsoft.Dynamics.Nav.Server.runtimeconfig.json` (a fact of the build: BC 27 and 28 builds of
+//! one minor run on .NET 8 or 10). Entry points: `netcore_major`, `major_in_dir`, `major_of_tier`.
 use crate::artifact::Cdn;
 use crate::service_tier::ServiceTier;
 use std::path::Path;

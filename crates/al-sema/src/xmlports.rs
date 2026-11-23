@@ -4,6 +4,8 @@
 //! The runtime runs only what the corpus pins. Every property, trigger or element kind it does
 //! not understand becomes a reason on the xmlport, so a variable of that xmlport is refused
 //! statically (hard rule 4) instead of running with a guessed behaviour.
+//!
+//! Entry points: `RawNode`, `Layout`, `layout`, `Context`.
 
 use crate::check::posmap::FxMap as HashMap;
 use crate::members::FieldClass;

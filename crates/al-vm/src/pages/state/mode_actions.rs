@@ -1,3 +1,8 @@
+//! The built-in View and Edit actions a TestPage variable handed out and the open each is bound to
+//! (`ModeActions`: free, taken on the open page, bound to an earlier open with the mode it closed in
+//! and the test method it opened in); it survives Close and reopen, `Clear(P)` frees it (al-runner
+//! issue 8501, assumption `mode-actions-bound-to-earlier-open`). Rules in `builtin_mode_action.rs`.
+//! Entry points: `ModeActions`, field `PageState::mode_actions`.
 #![deny(clippy::wildcard_enum_match_arm)]
 //! The built-in View and Edit actions a TestPage variable handed out (`P.View()`, `P.Edit()`) and the open of the page each one
 //! is bound to (assumption `mode-actions-bound-to-earlier-open`, corpus PR 1467, open): an action taken once stays bound to that

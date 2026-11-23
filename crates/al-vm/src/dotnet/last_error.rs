@@ -12,6 +12,9 @@
 //! `StackTrace`, `Source`, `Data`, `HResult`, the members of the inner exception, `GetBaseException`.
 //! The stack frames are .NET's, which AL code can read: only the shapes the corpus pins are written (see `exception_text`);
 //! any other trace makes the text unreadable.
+//!
+//! The exception `GetLastErrorObject` answers and its `GetType()` (GetLastErrorObject.al). Entry
+//! points: `types`, `exception_text`.
 
 use super::registry::{MemberKind, Pin, RegistryMember, RegistryType};
 use crate::Session;

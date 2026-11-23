@@ -7,6 +7,15 @@
 //! did not pass or was not run, or when it changed isolated storage or a number sequence, is not known or not followed
 //! (`run.rs` `carry_disabled`, [`Carried::unfinished`], [`Carried::storage_why`]): a later codeunit that reads it is
 //! refused.
+//!
+//! A codeunit that comes after a carry-chain member, one rule for the walk (`chain_walk.rs`), the re-
+//! run after the parallel part (`corpus.rs`) and the SingleInstance lane (`single_lane.rs`): `After`
+//! (the tables it watches, `leak`; whether a run read what the carry left, `read`; the refusal when
+//! that is not known or not followed, `refusal`, and for a codeunit outside the chain
+//! `outside_refusal`, with handlers after a hub member), `run_in_session` (how the lane runs it: a
+//! member from the carry and refused as in the walk, issue 8593; one outside the chain from the
+//! install baseline and again from the carry when it read it, issue 8594). Entry points:
+//! `After::new`, `run_in_session`.
 
 use super::run::Carried;
 use super::*;

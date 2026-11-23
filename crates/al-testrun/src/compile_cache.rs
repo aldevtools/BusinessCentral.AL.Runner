@@ -1,5 +1,9 @@
 //! The compile cache of the dependency apps (ADR-022): which key a run has, where the entry file
 //! lives, how it is read, built and written. The format is `al-cache`; this is the OS side.
+//!
+//! The OS side of the compile cache (ADR-022): the key of a run (hash of the executable and of each
+//! app's source), reading, writing (temporary file, rename) and building the entry file. Entry
+//! points: `CompileCache`, `key_for`, `read_entry`, `write_entry`, `open_or_build`.
 
 use al_cache::{AppKey, Entry, Key};
 use al_sema::provided::{DepLayer, DepSource, LayerSource, Stack};

@@ -5,6 +5,9 @@
 //!
 //! The central directory is read by range first (a few hundred kilobytes), exactly as for the
 //! platform artifact.
+//!
+//! The demo database backup of a build: streamed from the country artifact into the artifact cache
+//! (ADR-020). Entry points: `ensure_demo_backup`, `cached_backup`, `DemoBackup`.
 
 use crate::artifact::Cdn;
 use crate::build::BuildId;

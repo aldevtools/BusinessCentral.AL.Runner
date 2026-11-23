@@ -1,4 +1,6 @@
 //! Lowering of table schemas: relations, field triggers, CalcFormulas.
+//!
+//! Entry points: `table_schema`, `relation_arms`, `lower_calc`.
 use super::*;
 
 impl Lowerer<'_> {

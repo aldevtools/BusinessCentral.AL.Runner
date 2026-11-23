@@ -2,6 +2,12 @@
 //! Y45SaveBeforeAction.al, file header lines 7-26, measured on BC 27.5, 28.5 and 29.0): an action, a RunObject codeunit or
 //! page, Next, Previous, GoToRecord, GoToKey, OK and Close each save the dirty row first (OnModifyRecord, OnBeforeModifyEvent,
 //! OnModify, OnAfterModifyEvent), then run.
+//!
+//! What the client saves before the next step (an action, a RunObject, a part's New) and a page that
+//! holds a failed save or a refused entry (corpus pages/actions). An action on a new row of a Card or
+//! Document page with parts whose key a SetValue typed is refused
+//! (`refuse_action_on_new_host_with_parts`). Entry points: `save_before_action`, `test_page_op_held`,
+//! `test_control_op_held`.
 
 use super::*;
 use al_builtins::page_op::{PageMethod, PageOp};

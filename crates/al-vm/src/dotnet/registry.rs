@@ -9,6 +9,8 @@
 //! The shipped registry (`server_classes.rs`) mirrors AL Runner v2 until a probe on real BC pins
 //! each value (owner decision 2026-10-14, ADR-014). Each member's result type is declared in
 //! `al_builtins::dotnet_sigs`, which the compiler reads; a test keeps the two in step.
+//!
+//! Entry points: `MemberKind`, `Pin`, `MemberFn`, `RegistryMember`.
 
 use crate::Session;
 use al_builtins::native::Signal;

@@ -132,6 +132,7 @@ impl MemStore {
     /// The first value of the committed tables, in table and key order, for which `blocks` says true: where it is and
     /// what it is.
     pub fn first_value_where(&self, blocks: impl Fn(&Value) -> bool) -> Option<NotShareable> {
+        self.footprint_everything("a read of every table");
         self.committed.iter().find_map(|((company, object), rows)| {
             rows.iter().find_map(|(k, r)| {
                 let at = |in_key: bool, vals: &[Value]| {

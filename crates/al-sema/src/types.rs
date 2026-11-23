@@ -1,4 +1,6 @@
 //! Semantic types.
+//!
+//! Semantic types (Ty) and their display names. Entry points: `Ty`, `display_name`, `from_type_ref`.
 
 use crate::workspace::ObjKind;
 use al_syntax::ast::TypeRef;

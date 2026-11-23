@@ -22,6 +22,18 @@
 //! session's entries (:322-:471) and whose own entries end with it (:489, :506, :556); the test session's entries are back
 //! as they were after the task (:489, :521) ([`Group1Filters::enter_worker`], [`Group1Filters::leave_worker`]). What the
 //! worker may do on a table whose entry it runs without is in `worker.rs`.
+//!
+//! The filters in filter group 1 (the global group) a session holds, per table: what another variable
+//! of the table reads of them (the calls, setter and reader kinds tests/al-
+//! language/record/filters/FilterGroupOtherVariable.al measured, `measured_read`; everything else is
+//! refused), and their end with an app's install session (pinned by tests/al-language/install-
+//! upgrade/G1sInstallSessionTests.al:55-123 with tests/al-language-xapp-a/G1sXaInstall.al:116-124 and
+//! :131-155): what the runner's install sessions set (`Group1InstallShape`) and which filters end; a
+//! page background task's worker runs with none of the test session's filters and its own end with it
+//! (assumption `bg-task-worker-filter-group-one`, corpus PR 1507, BgTaskWorkerFilterGroup1.al). Entry
+//! points: `Session::set_global_group_filter`, `group1_use`, `with_group1`,
+//! `end_group1_install_routine`, `end_group1_install_session`, `Group1Filters::enter_worker`,
+//! `leave_worker`, `worker_owns_group1` (the query cache's key of a worker's own group 1 filters).
 
 mod worker;
 

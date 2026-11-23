@@ -18,14 +18,14 @@ const NEIGHBORS: &str = include_str!("../../../../tests/neighbors/8734-new-line-
 /// page (the page's and the part's triggers, step by step) with the repro's code, only the save, a modify through another record
 /// after the save and a field set before it, each on an empty group and with a row before; and after the save, a field of Rec
 /// set, a row of another table inserted or one deleted, each on an empty group and with a row before; and the save without an
-/// Update after it, alone, followed by a field of Rec set or by a row of another table inserted, each on an empty group and
-/// with a row before (the codeunit after the tests, :664-812).
+/// Update after it, alone, followed by a field of Rec set or by a row of another table inserted or modified, each on an empty
+/// group and with a row before (the codeunit after the tests, :664-837).
 #[test]
 fn issue_8734_probe_cells() {
     let mut o = super::outside_fb_8712::outcomes(PROBE, "LT NK Tests");
     assert_eq!(o.len(), 10);
     let more = super::outside_fb_8712::outcomes(PROBE, "LT NK More Tests");
-    assert_eq!(more.len(), 12);
+    assert_eq!(more.len(), 14);
     o.extend(more);
     for (name, r, marks) in &o {
         assert_eq!(*r, Outcome::Pass, "{name}");
@@ -42,13 +42,23 @@ fn issue_8734_probe_cells() {
 /// page without triggers measures Update(true) after the save, ListNewLineExtraCode.al:476), Previous() or Next() after the
 /// landing, Previous(), Previous() then Next(), or Close() after a SetValue, Close() right after the landing,
 /// OnAfterGetCurrRecord setting a field of the new line at New(), and OnAfterGetCurrRecord setting a filter on Rec in the
-/// refresh. The save without an Update after it, with a row before, runs as the cells :701 and :713 measure it, flagged.
+/// refresh, and after a save without an Update: a primary-key field of Rec set, Rec moved to another row, or a key field set
+/// with a write of another table. The save without an Update after it, with a row before, Rec read again by its key after
+/// it, and a row of another table modified after it run as the cells :701, :713 and :816 measure them, flagged.
 #[test]
 fn issue_8734_neighbors_are_refused() {
     let mut o = super::outside_fb_8712::outcomes(NEIGHBORS, "LT NG Tests");
     assert_eq!(o.len(), 15);
     // Each in its own codeunit, so that no earlier refused test hides its result.
-    for cu in ["LT NG Prev Next Tests", "LT NG Close Tests"] {
+    for cu in [
+        "LT NG Prev Next Tests",
+        "LT NG Close Tests",
+        "LT NG Key Kept Tests",
+        "LT NG Key Set Tests",
+        "LT NG Key Moved Tests",
+        "LT NG Key Other Tests",
+        "LT NG Other Modified Tests",
+    ] {
         let one = super::outside_fb_8712::outcomes(NEIGHBORS, cu);
         assert_eq!(one.len(), 1, "{cu}");
         o.extend(one);
@@ -56,7 +66,9 @@ fn issue_8734_neighbors_are_refused() {
     let ran: Vec<_> = o
         .iter()
         .filter(|(name, r, marks)| match name.as_str() {
-            "NewLine_SaveRecordWithoutUpdate_RowBefore_ShowsAndSavesTheRow" => {
+            "NewLine_SaveRecordWithoutUpdate_RowBefore_ShowsAndSavesTheRow"
+            | "NewLine_RecFoundAgainAfterSaveRecordWithoutUpdate_KeepsTheRow"
+            | "NewLine_AnotherTableModifiedAfterSaveRecordWithoutUpdate_ShowsAndSavesTheRow" => {
                 !(*r == Outcome::Pass && marks.contains(&ListNewLineExtraCodeFactbox))
             }
             _ => !matches!(r, Outcome::NotRun(_)),

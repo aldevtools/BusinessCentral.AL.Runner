@@ -1,0 +1,22 @@
+{
+ "id": "9e1a2b3c-0000-4000-8000-000000000012",
+ "name": "RP Mixed Y",
+ "publisher": "Review Probe Co",
+ "version": "1.0.0.0",
+ "platform": "27.0.0.0",
+ "runtime": "15.0",
+ "idRanges": [
+  {
+   "from": 52110,
+   "to": 52119
+  }
+ ],
+ "dependencies": [
+  {
+   "id": "9e1a2b3c-0000-4000-8000-000000000011",
+   "name": "RP mixed P",
+   "publisher": "Review Probe Co",
+   "version": "1.0.0.0"
+  }
+ ]
+}

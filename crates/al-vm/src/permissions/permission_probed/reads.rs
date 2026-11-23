@@ -5,6 +5,11 @@
 //! tests/al-language/permissions/testpermissions/Y19PermExtAndCompose.al:396-424 (PC_C_NoMatchReadsAndDelete, ops 42-46)
 //! pins FindSet, FindLast, Find('-') and Count denied with `Read`, and IsEmpty allowed. The measured shape is an allowlist of its facts here; every other no-match read
 //! is refused.
+//!
+//! Denied reads the pinned corpus measures (permissions/testpermissions/Y19PermExtAndCompose.al,
+//! Y19InherentAttrIndirect.al): the text of a read denied to code whose Permissions grants it
+//! (`read_denial`), and no-match reads without a read grant. Entry points: `Session::read_denial`,
+//! `Session::read_no_match_probed`.
 use crate::Session;
 use crate::permission_bulk_no_match::{RecordCaller, Target};
 use crate::permissions::Access;

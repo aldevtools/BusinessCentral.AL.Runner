@@ -4,6 +4,9 @@
 //! unit is dropped (`-62<D>` is `-62D`, `2<D>` is stored as `2D`, for D, WD, W, M, Q and Y), as are `<1>D`, `1<>D`
 //! and `1D<+1D>`. A bracket after the number and before `C` or a digit raises the missing time unit error, and one
 //! between `C` and the unit (`C<M>`) the missing number error; the message shows the formula as written.
+//!
+//! angle brackets inside a term of a date formula (`-62<D>`, `1<>D`, `C<M>`). Entry points: `open`,
+//! `close`.
 
 use crate::native::{Signal, raise};
 

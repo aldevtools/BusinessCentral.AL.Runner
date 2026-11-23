@@ -1,5 +1,8 @@
 //! The .NET exceptions whose error text AL sees is pinned: `A call to <type>[.<member>] failed with this message: <.NET
 //! message>` with code `DotNetInvoke:<exception name without "Exception">` (ADR-014 section 7). Moved out of `dotnet_apply`.
+//!
+//! The .NET exceptions whose error text AL sees is pinned (`A call to ... failed with this
+//! message:`). Entry points: `signal`.
 
 use al_builtins::native::Signal;
 use al_builtins::value::Value;

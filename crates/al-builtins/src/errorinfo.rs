@@ -1,6 +1,9 @@
 //! `ErrorInfo`: a property bag describing an error (corpus errors/errorinfo/TestErrorInfoType.al,
 //! TestErrorInfoErrorType.al). Raising one (`Error(ErrorInfo)`), collecting errors and the
 //! callback of an action are not here: they need the error pipeline.
+//!
+//! ErrorInfo: the property bag, Error(ErrorInfo), collected errors. Entry points: `raise`, `copy_of`,
+//! `native_for`.
 
 use crate::describe::Describe;
 use crate::native::{Ctx, NativeFn, Signal, unsupported};
