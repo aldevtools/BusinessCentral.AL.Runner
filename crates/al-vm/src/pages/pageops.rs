@@ -10,6 +10,11 @@ impl Session {
         recv: Option<&mut Value>,
         args: &mut [Value],
     ) -> Result<Value, Signal> {
+        if let Some(Value::TestControl(c)) = recv.as_deref()
+            && let Some(v) = Self::by_id_call(control_of(c), method.method())?
+        {
+            return Ok(v);
+        }
         if self.without_client() {
             self.clientless_page_guard(method, recv.as_deref(), args)?;
         }
@@ -744,8 +749,8 @@ impl Session {
                     None => unsupported("TestPart.Enabled on a page that is not a part"),
                 }
             }
-            // The id is a compiler-generated control id; the corpus pins only that a table field
-            // number is not one (testpage/parts/TestTestPart.al:TestPart_GetField_TakesAControlIdNotATableFieldNo).
+            // The id is a compiler-generated control id (`get_field.rs`); a table field number is not one
+            // (testpage/parts/TestTestPart.al:TestPart_GetField_TakesAControlIdNotATableFieldNo).
             PageMethod::Filter => {
                 self.require_open(st)?;
                 Ok(self.filter_handle(st))
@@ -753,11 +758,7 @@ impl Session {
             PageMethod::GetField => {
                 self.require_open(st)?;
                 match args.first() {
-                    // Code: testpage/TestPageRuntimeContracts.al:274-275 (page and part).
-                    Some(Value::Integer(n)) => Err(error_code(
-                        format!("The field with ID = {n} is not found on the page."),
-                        "TestFieldNotFound",
-                    )),
+                    Some(Value::Integer(n)) => self.get_field_by_id(st, *n),
                     _ => unsupported("TestPart.GetField without an id"),
                 }
             }
