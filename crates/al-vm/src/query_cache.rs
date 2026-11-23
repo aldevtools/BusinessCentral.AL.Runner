@@ -258,6 +258,16 @@ enum Shape {
     CalcFields,
 }
 
+/// The tables whose commits end a group entry ([`Session::cached_group`]).
+#[derive(Clone, Copy)]
+enum Ends<'a> {
+    /// The read's own table and these: a group read and its FlowField filters' tables (:823, :1907, :3465, :4259), a CalcSums.
+    TableAnd(&'a [Arc<TableDef>]),
+    /// Only these, the tables a CalcFields' formulas read (:6231, :6261): its entry holds through a commit of another row of its
+    /// row's table or of the row itself, of a temporary record too (BgTaskCacheEdges.al:428-:446, open corpus PR 1558).
+    Sources(&'a [Arc<TableDef>]),
+}
+
 /// Whether `rec` is temporary: declared so, or over a temporary table.
 fn temporary(rec: &Rec) -> bool {
     let r = rec.borrow();
@@ -888,11 +898,13 @@ impl Session {
             return Ok(fresh);
         }
         let sources = self.flow_field_sources(rec, t);
-        Ok(match self.cached_group(rec, cx, t, values, &sources, answer)? {
-            GroupAnswer::Count(n) => n,
-            GroupAnswer::Empty(empty) if empty != (fresh == 0) => usize::from(!empty),
-            _ => fresh,
-        })
+        Ok(
+            match self.cached_group(rec, cx, t, values, Ends::TableAnd(&sources), answer)? {
+                GroupAnswer::Count(n) => n,
+                GroupAnswer::Empty(empty) if empty != (fresh == 0) => usize::from(!empty),
+                _ => fresh,
+            },
+        )
     }
 
     /// What a `FindFirst` or `FindLast` of `rec` that found `fresh` answers: through the cache as a row or a group read, when
@@ -931,7 +943,14 @@ impl Session {
             return Ok(fresh);
         };
         let sources = self.flow_field_sources(rec, t);
-        match self.cached_group(rec, cx, t, values, &sources, GroupAnswer::Row(fresh.clone()))? {
+        match self.cached_group(
+            rec,
+            cx,
+            t,
+            values,
+            Ends::TableAnd(&sources),
+            GroupAnswer::Row(fresh.clone()),
+        )? {
             GroupAnswer::Row(row) => {
                 let at = row
                     .as_ref()
@@ -968,7 +987,14 @@ impl Session {
             return Ok(fresh);
         }
         values.extend(positions.iter().map(|&p| Value::Integer(p as i32)));
-        match self.cached_group(rec, cx, t, values, &[], GroupAnswer::Values(fresh.clone()))? {
+        match self.cached_group(
+            rec,
+            cx,
+            t,
+            values,
+            Ends::TableAnd(&[]),
+            GroupAnswer::Values(fresh.clone()),
+        )? {
             GroupAnswer::Values(v) => Ok(v),
             _ => Ok(fresh),
         }
@@ -1008,7 +1034,14 @@ impl Session {
             return Ok(fresh);
         }
         let cx = self.cx_for(rec, &t)?;
-        match self.cached_group(rec, &cx, &t, values, &sources, GroupAnswer::Values(fresh.clone()))? {
+        match self.cached_group(
+            rec,
+            &cx,
+            &t,
+            values,
+            Ends::Sources(&sources),
+            GroupAnswer::Values(fresh.clone()),
+        )? {
             GroupAnswer::Values(v) => Ok(v),
             _ => Ok(fresh),
         }
@@ -1152,8 +1185,9 @@ impl Session {
     }
 
     /// A group read of `rec` for `values` that the table answers with `fresh`: what the read answers. An entry holds while no
-    /// commit wrote the table (:823, :845, :1907, :1980), nor a table of `sources` (the tables its FlowField filters
-    /// read, :3465, :4259; the tables a calculation reads, :6231, :6261; a commit of another table keeps it). The test session's read fills it while that session has not written those tables since its last
+    /// commit wrote a table of `ends` (the table, :823, :845, :1907, :1980, and the tables its FlowField filters read, :3465,
+    /// :4259; for a CalcFields only the tables its formulas read, :6231, :6261; a commit of another table keeps it). The test
+    /// session's read fills it while that session has not written the read's table nor those tables since its last
     /// commit, in every shape `group_key` takes (:6498, :1866, :1886, :2337-:2367, :2751, :2770, :3482-:3514), and after it wrote
     /// the table reads the table (:1944, :2063).
     fn cached_group(
@@ -1162,13 +1196,18 @@ impl Session {
         cx: &AccessContext,
         t: &TableDef,
         values: Vec<Value>,
-        sources: &[Arc<TableDef>],
+        ends: Ends<'_>,
         fresh: GroupAnswer,
     ) -> Result<GroupAnswer, Signal> {
         let at = Self::at(rec, t, values);
         let selects = self.selects_of(t.object);
         let store = self.view_store(rec)?;
-        let stamps: Vec<Option<u64>> = std::iter::once(t)
+        let (own, sources) = match ends {
+            Ends::TableAnd(s) => (Some(t), s),
+            Ends::Sources(s) => (None, s),
+        };
+        let stamps: Vec<Option<u64>> = own
+            .into_iter()
             .chain(sources.iter().map(|s| &**s))
             .map(|table| store.committed_stamp(cx, table))
             .collect();
