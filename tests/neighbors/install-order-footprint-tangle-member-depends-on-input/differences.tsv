@@ -1,0 +1,7 @@
+# key	entry
+# Issue 8907, a tangle app depends on the input: T1 raises OnOne (T2 and I answer), T2 raises OnTwo (T1 answers), T2
+# depends on I. Real orders: I,T1,T2 / T1,I,T2 / I,T2,T1; constant rows. Main: not run (the run "I after the tangle" in
+# the order T2,T1 asked for T2 < T1 < I < T2). Head: the class "I after T1" in the order T2,T1 fits no slot (T2 needs
+# I first) and is skipped; the three real orders run. Pass.
+RQ tm Tests::T1RowIsConst	PINNED tests/al-language/install-upgrade/install-order/InstallOrderSubscriberTests.al:70
+RQ tm Tests::T2RowIsConst	PINNED tests/al-language/install-upgrade/install-order/InstallOrderSubscriberTests.al:70

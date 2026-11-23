@@ -284,7 +284,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `install.rs`: The install code of each app. Entry: `plan`.
 - `install_orders.rs`: The install order of apps with no dependency path: Microsoft's first, partner groups recorded and proven. Entry: `split_microsoft`, `install_partner_apps`.
 - `install_proof.rs`: The influence graph of a partner group's installs and its units. Entry: `Graph::of`.
-- `install_subsets.rs`: The subset runs that prove a group's install independent of order. Entry: `Proof::settle`.
+- `install_subsets.rs`: The runs that prove a group's install independent of order: per order of a unit's apps and per place of its inputs among them. Entry: `Proof::settle`.
 - `impact_static.rs`: Static selection: the graph of routines, objects. Entry: `Graph`.
 - `login.rs`: The test session's login. Entry: `decide`.
 - `login_replay.rs`: The check that a replay of the raised login would… Entry: `Key::of`.
