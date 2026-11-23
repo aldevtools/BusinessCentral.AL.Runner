@@ -1082,9 +1082,7 @@ impl Lowerer<'_> {
                         // `filter_at_sign::calc_formula_at_sign_measured`); everything else is refused here, not at run time.
                         if inner == "@" || inner == "<>@" {
                             let field = &src_fields[pos];
-                            let names_shown = !field.properties.iter().any(|(k, _)| {
-                                k.eq_ignore_ascii_case("OptionCaption") || k.eq_ignore_ascii_case("OptionCaptionML")
-                            });
+                            let names_shown = al_builtins::filter::shows_member_names(&field.properties);
                             let rt = self.field_rt(src, field);
                             let sum = f.method == ir::CalcMethod::Sum;
                             if !al_builtins::filter::calc_formula_at_sign_measured(&rt, sum, names_shown) {

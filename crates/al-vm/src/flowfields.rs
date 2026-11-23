@@ -1052,15 +1052,15 @@ impl Session {
                     // `filter('@')` or `filter('<>@')` over a Date, Integer, Decimal, Boolean or name-showing Option source field
                     // answers as BC does (al-builtins `filter_at_sign::calc_formula_at_sign_other_source`); the lowering admits
                     // it only in a sum.
-                    let names_shown = !src[c.field].properties.iter().any(|(k, _)| {
-                        k.eq_ignore_ascii_case("OptionCaption") || k.eq_ignore_ascii_case("OptionCaptionML")
-                    });
-                    match calc_formula_at_sign_other_source(text, sty, names_shown) {
-                        Some(OtherSourceAtSign::Rows(true)) => {}
-                        Some(OtherSourceAtSign::Rows(false)) => {
+                    let names_shown = al_builtins::filter::shows_member_names(&src[c.field].properties);
+                    let language = self.global_language();
+                    match calc_formula_at_sign_other_source(text, sty, names_shown, language) {
+                        Some(Err(refusal)) => return unsupported(refusal),
+                        Some(Ok(OtherSourceAtSign::Rows(true))) => {}
+                        Some(Ok(OtherSourceAtSign::Rows(false))) => {
                             parts.push((c.field, FilterExpr::Or(Vec::new()), false))
                         }
-                        Some(OtherSourceAtSign::Error { message, code }) => {
+                        Some(Ok(OtherSourceAtSign::Error { message, code })) => {
                             return Err(crate::transactions::al_error_code(&message, code));
                         }
                         None => parts.push((c.field, parse(text, sty, true)?, false)),

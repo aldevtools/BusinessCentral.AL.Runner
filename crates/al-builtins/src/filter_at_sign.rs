@@ -25,7 +25,7 @@ pub enum AtSignRows {
     Database,
     /// A row of the database BC checks against the filter itself: `@` keeps every row, `<>@` the values that are not empty.
     /// Find('=') (AtSignAloneReads.al:314, :698), and Find, FindFirst, FindLast, FindSet and Next with the filter on a lookup, min
-    /// or max FlowField (:366, :730; AtSignAloneMethods.al:552).
+    /// or max FlowField (:366, :730; AtSignAloneMethods.al:552, :827).
     DatabaseRowCheck,
     /// A temporary record: `@` keeps every row, `<>@` none (AtSignAloneReads.al:247, :265, :314, :366, :698, :730).
     Temporary,
@@ -82,31 +82,48 @@ pub fn code_at_sign_alone_named(filters: &[FieldFilter]) -> Option<&'static str>
 }
 
 /// What BC answers for a CalcFormula's sum with a quoted `filter('@')` or `filter('<>@')` (`text`, as the lowering passes it) over
-/// a source field of type `ty` that is neither Code nor Text (AtSignAloneMethods.al:395, :430, :454).
+/// a source field of type `ty` that is neither Code nor Text (AtSignAloneMethods.al:395, :430, :454), whoever reads the FlowField
+/// (CalcFields, SetAutoCalcFields and a Find, a filter on the FlowField, a query column, a temporary host: :657).
 #[derive(Debug, PartialEq, Eq)]
 pub enum OtherSourceAtSign {
     /// A Date field: `@` keeps no row, `<>@` every row (true) (:395).
     Rows(bool),
-    /// CalcFields raises this error, for `@` and `<>@` alike (:430, :454).
+    /// Reading the FlowField raises this error, for `@` and `<>@` alike (:430, :454; an Option member list with a blank member
+    /// :717), in a session of language 1033 ([`calc_formula_at_sign_other_source`] refuses it in another).
     Error { message: String, code: &'static str },
 }
 
-/// [`OtherSourceAtSign`] for `text` over `ty`, or None when the text is not `@` alone or `<>@` alone or no cell measures the type:
-/// Date, Integer, Decimal, Boolean, and an Option field that shows its member names (`names_shown`: no OptionCaption or
-/// OptionCaptionML). The lowering admits the text only where [`calc_formula_at_sign_measured`] holds.
+/// Whether an Option field with these `properties` (as written) shows its member names: it declares neither OptionCaption nor
+/// OptionCaptionML. The error over an Option source field lists the names only then (:430, :717).
+pub fn shows_member_names(properties: &[(String, String)]) -> bool {
+    !properties
+        .iter()
+        .any(|(k, _)| k.eq_ignore_ascii_case("OptionCaption") || k.eq_ignore_ascii_case("OptionCaptionML"))
+}
+
+/// [`OtherSourceAtSign`] for `text` over `ty` in a session of `language`, or None when the text is not `@` alone or `<>@` alone or
+/// no cell measures the type: Date, Integer, Decimal, Boolean, and an Option field that shows its member names (`names_shown`,
+/// [`shows_member_names`]). The error texts are measured in language 1033 only: in another language an error answer is the
+/// refusal `Err`. The lowering admits the text only where [`calc_formula_at_sign_measured`] holds.
 pub fn calc_formula_at_sign_other_source(
     text: &str,
     ty: &crate::value::RtType,
     names_shown: bool,
-) -> Option<OtherSourceAtSign> {
+    language: i32,
+) -> Option<Result<OtherSourceAtSign, String>> {
     let negated = match text {
         "@" => false,
         "<>@" => true,
         _ => return None,
     };
     let answer = other_source_answer(negated, ty, names_shown)?;
+    if matches!(answer, OtherSourceAtSign::Error { .. }) && language != 1033 {
+        return Some(Err(format!(
+            "the error of a CalcFormula filter '{text}' in a session of language {language} (not measured)"
+        )));
+    }
     assume(Assumption::AtSignAloneDatabaseBlank);
-    Some(answer)
+    Some(Ok(answer))
 }
 
 /// Whether the cells measure a CalcFormula's quoted `filter('@')` or `filter('<>@')` over a source field of type `ty`: a Code or
