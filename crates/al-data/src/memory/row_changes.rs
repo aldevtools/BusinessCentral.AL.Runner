@@ -13,12 +13,10 @@ use crate::Value;
 pub struct TableRows {
     pub company: String,
     pub object: u32,
-    /// The table is new (the other store holds no entry for it) or its keys order otherwise: `put` holds all of its
-    /// rows and replaces what the other store holds.
-    pub whole: bool,
     /// How the table's primary key fields are stored: the order of its keys (`memory/key.rs`).
     pub pk_storage: PkStorage,
-    /// The rows that are new or hold other values, with their primary keys, in key order.
+    /// The rows that are new or hold other values, with their primary keys, in key order. All of its rows when the table
+    /// is new (the other store holds no entry for it) or its keys order otherwise.
     pub put: Vec<(Vec<Value>, Row)>,
     /// The primary keys of the rows that are gone.
     pub gone: Vec<Vec<Value>>,
@@ -31,8 +29,6 @@ pub struct RowChanges {
     pub tables: Vec<TableRows>,
     /// The tables the other store holds an entry for and this one does not.
     pub gone: Vec<(String, u32)>,
-    /// The tables a DeleteAll without filters emptied, as this store has them (all of them, not a difference).
-    pub emptied: Vec<(String, u32)>,
 }
 
 /// Whether two rows (or keys) are the same; `None` when one holds a value that is not plain.
@@ -106,7 +102,6 @@ impl MemStore {
                 out.tables.push(TableRows {
                     company,
                     object,
-                    whole: false,
                     pk_storage: table_storage(table),
                     put,
                     gone,
@@ -119,7 +114,6 @@ impl MemStore {
             .filter(|s| !self.committed.contains_key(*s))
             .map(name)
             .collect();
-        out.emptied = self.committed_emptied.keys().map(name).collect();
         Some(out)
     }
 }
@@ -130,7 +124,6 @@ fn whole(slot: &Slot, table: &Table) -> TableRows {
     TableRows {
         company,
         object,
-        whole: true,
         pk_storage: table_storage(table),
         put: table.iter().map(|(k, r)| (k.0.clone(), r.clone())).collect(),
         gone: Vec::new(),

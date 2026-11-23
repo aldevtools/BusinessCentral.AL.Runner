@@ -219,12 +219,11 @@ pub(super) fn groups(
                 .map(|(p, item)| (*p, item.2))
                 .collect();
             let mut unpinned = Unpinned::new();
-            for (p, item) in &g.rest {
+            for (p, item) in g.rest.iter().filter(|_| !writers.is_empty()) {
                 if let Link::Run(k) = item.3 {
-                    let all = handlers(units[k].oi);
                     let w: Vec<u32> = writers
                         .iter()
-                        .filter(|(wp, _)| all || wp > p)
+                        .filter(|(wp, _)| wp > p || handlers(units[k].oi))
                         .map(|(_, id)| *id)
                         .collect();
                     if !w.is_empty() {

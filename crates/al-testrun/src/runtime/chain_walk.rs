@@ -266,12 +266,12 @@ impl ChainWalk<'_> {
                     not_run_link(engine, lowered, oi, false, why)
                 }
             };
-            // A link that leaves the state it was given (`baseline: None`) and has no link before it in its suite
-            // leaves the walk's start: the first member that was not run would otherwise hand the later ones no
-            // install baseline (tests/suite/refused_chain_link.rs).
             if let (Some(oi), Some(_)) = (hub_oi, self.unpinned) {
                 hub_left.note(id, oi, &left);
             }
+            // A link that leaves the state it was given (`baseline: None`) and has no link before it in its suite
+            // leaves the walk's start: the first member that was not run would otherwise hand the later ones no
+            // install baseline (tests/suite/refused_chain_link.rs).
             if before.is_none() && left.baseline.is_none() {
                 left.baseline = self.baseline.cloned();
             }
