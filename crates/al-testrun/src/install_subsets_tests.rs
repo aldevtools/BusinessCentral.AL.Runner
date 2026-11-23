@@ -191,3 +191,27 @@ fn a_plan_beyond_the_runs_of_decision_5_is_refused() {
     let runs = plan(&orders, &[4, 5, 6], pairs(both), pairs(&[]));
     assert_eq!(runs, Err(162));
 }
+
+/// The limits at their extreme (review round 1, L3): a tangle of three whose nine input apps are all read by all three
+/// apps has 6 x 4^9 classes. The plan stops once it is over [`MAX_UNIT_RUNS`] and reports that count as the bound: it
+/// does not place every class first.
+#[test]
+fn a_plan_over_the_limit_stops_before_it_places_every_class() {
+    let orders: Vec<Vec<u32>> = vec![
+        vec![1, 2, 3],
+        vec![1, 3, 2],
+        vec![2, 1, 3],
+        vec![2, 3, 1],
+        vec![3, 1, 2],
+        vec![3, 2, 1],
+    ];
+    let inputs: Vec<u32> = (4..13).collect();
+    let asked = std::cell::Cell::new(0usize);
+    let needs = |_: u32, _: u32| {
+        asked.set(asked.get() + 1);
+        false
+    };
+    let runs = plan(&orders, &inputs, |a, _| a < 4, needs);
+    assert_eq!(runs, Err(6 << 18));
+    assert!(asked.get() < 100_000, "{} dependency checks", asked.get());
+}

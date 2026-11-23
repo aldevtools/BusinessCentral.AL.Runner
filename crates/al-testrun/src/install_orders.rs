@@ -8,7 +8,7 @@
 //!    al-vm `install_footprint.rs`; [`PartnerGroup::recorded_run`]: footprint start, install, commit, take, and the
 //!    install-order refusals met (`Session::take_order_unknown_hits`) added as apps met). When no install reads from or
 //!    collides with another's (`install_proof.rs`), that install stands. Else the install is proven independent of the
-//!    order by subset runs (ADR-079, `install_subsets.rs`): the same database in every subset and order, the run goes
+//!    order by unit runs (ADR-079, `install_subsets.rs`): the same database in every order and place, the run goes
 //!    on; different rows, the tests that touch a table that differs are not run, with the apps and the table named.
 //!    What the proof cannot prove installs once more with the order not known (as before) and stays refused. Beyond the
 //!    limits of ADR-079 decision 5 ([`MAX_INTERACTING`] apps in a tangle, [`MAX_INPUTS`] inputs of a unit), or a
@@ -31,8 +31,8 @@ use std::collections::BTreeSet;
 /// before (ADR-079 decision 5).
 pub(crate) const MAX_INTERACTING: usize = 3;
 
-/// The most inputs of one unit whose every subset the runner installs before it (2^3 = 8 subset runs; ADR-079
-/// decision 5). Beyond it, it refuses as before.
+/// The most inputs of one unit the runner places among its apps (for inputs of one app each read by a unit of one app,
+/// every subset: 2^3 = 8 runs; ADR-079 decision 5). Beyond it, it refuses as before.
 pub(crate) const MAX_INPUTS: usize = 3;
 
 /// The most runs of one unit: every order of a tangle of [`MAX_INTERACTING`] apps times every subset of [`MAX_INPUTS`]

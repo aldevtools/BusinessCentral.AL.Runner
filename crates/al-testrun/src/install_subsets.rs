@@ -1,10 +1,12 @@
-//! Subset runs (ADR-079 decision 3): the proof that a partner group's install leaves the same database in every order.
+//! Unit runs (ADR-079 decision 3): the proof that a partner group's install leaves the same database in every order.
 //!
 //! The units of the influence graph (`install_proof.rs`) are proven one by one. A unit with inputs, or a tangle of two
-//! or three apps, installs once per order of its apps and per place of its inputs among them ([`plan`]; for a unit of
-//! one app, once per subset S of its inputs: S, then the unit, then the inputs not in S): from the database before the
-//! group, the units it reads from through others first, then the run of the plan, each in a fixed order. The run also installs the dependency predecessors of these apps and the units those read from (the run set,
-//! [`Proof::run_set`]), each at its place in the fixed order (ADR-079 decision 3, clarification of 2026-11-23). While an
+//! or three apps, installs once per order of its apps and per place of each input app among them ([`plan`]; for a unit
+//! of one app whose inputs are of one app each, once per subset S of its inputs: S, then the unit, then the inputs not
+//! in S; the apps of an input of several apps are placed one by one): from the database before the group, the units it
+//! reads from through others first, then the run of the plan, each in a fixed order. The run also installs the
+//! dependency predecessors of these apps and the units those read from (the run set, [`Proof::run_set`]), each at its
+//! place in the fixed order (ADR-079 decision 3, clarification of 2026-11-23). While an
 //! app installs, an app of the run placed before it is installed; one placed after it is not installed only when the
 //! round's graph has the edge "the installing app reads from it" (`InstallView::of_ordered`), else it stays of unknown
 //! order. The other apps of the group are not part of the run and stay of unknown order. A meet with an app of unknown
@@ -35,7 +37,7 @@ pub(crate) struct Proof<'p, 'g> {
     start: &'p Baseline,
     /// The footprint of each app, over every run so far.
     fp: Footprints,
-    /// How many subset runs ran.
+    /// How many unit runs ran.
     runs: usize,
     /// Every difference a comparison measured, in every round: each is a difference between two real install orders.
     /// (tables, reason, the apps of the unit whose runs measured it).
@@ -69,7 +71,7 @@ struct Round<'r> {
 }
 
 enum UnitProof {
-    /// The unit's orders and subsets were compared.
+    /// The unit's orders and the places of its inputs were compared.
     Done,
     /// A run met an app of unknown order or added an edge: the proof starts again.
     Grew,
@@ -183,12 +185,12 @@ impl<'p, 'g> Proof<'p, 'g> {
         }
     }
 
-    /// [`plan`] gave `n` runs for the unit `own` (with its inputs, `who`), more than [`MAX_UNIT_RUNS`].
+    /// [`plan`] has up to `n` runs for the unit `own` (with its inputs, `who`), more than [`MAX_UNIT_RUNS`].
     fn too_many(&self, n: usize, own: &BTreeSet<u32>, who: &BTreeSet<u32>) -> Unproven {
         Unproven {
             apps: who.clone(),
             why: format!(
-                "placing the inputs of {} among its apps takes {n} runs, more than the {MAX_UNIT_RUNS} the runner makes \
+                "placing the inputs of {} among its apps takes up to {n} runs, more than the {MAX_UNIT_RUNS} the runner makes \
                  for one unit",
                 names(self.lowered, own)
             ),
@@ -236,8 +238,8 @@ impl<'p, 'g> Proof<'p, 'g> {
             return Err(Unproven {
                 apps: who,
                 why: format!(
-                    "the install of {} reads from {} apps or groups of apps, more than the {MAX_INPUTS} whose every \
-                     subset the runner installs before it",
+                    "the install of {} reads from {} apps or groups of apps, more than the {MAX_INPUTS} the runner \
+                     places among the apps of one unit",
                     names(self.lowered, &own),
                     inputs.len()
                 ),
@@ -441,7 +443,8 @@ impl Unproven {
 /// holds no order BC gives, so it is skipped (in the measured shape, a tangle whose input depends on one of its apps,
 /// main before ADR-079 passes; neighbor app `install-order-footprint-tangle-dependent-input`). The apps of an input are
 /// placed one by one: on BC they can install on both sides of an app of the unit. The first run puts every input app
-/// after its readers. `Err` with the count when there are more runs than [`MAX_UNIT_RUNS`].
+/// after its readers. Once there are more runs than [`MAX_UNIT_RUNS`], `Err` with the count of classes (the runs before
+/// the skips): the plan stops there and does not place the remaining classes.
 pub(crate) fn plan(
     orders: &[Vec<u32>],
     inputs: &[u32],
@@ -449,13 +452,20 @@ pub(crate) fn plan(
     needs: impl Fn(u32, u32) -> bool,
 ) -> Result<Vec<Vec<u32>>, usize> {
     let k = inputs.len();
+    let readers: Vec<Vec<Vec<usize>>> = (orders.iter())
+        .map(|order| {
+            let t = order.len();
+            (inputs.iter())
+                .map(|&y| (0..t).filter(|&p| reads(order[p], y)).collect())
+                .collect()
+        })
+        .collect();
+    let classes = |r: &Vec<Vec<usize>>| r.iter().fold(1usize, |n, r| n.saturating_mul(r.len() + 1));
+    let bound = readers.iter().map(classes).fold(0usize, usize::saturating_add);
     let mut runs = Vec::new();
-    for order in orders {
+    for (order, readers) in orders.iter().zip(&readers) {
         let t = order.len();
-        let readers: Vec<Vec<usize>> = (inputs.iter())
-            .map(|&y| (0..t).filter(|&p| reads(order[p], y)).collect())
-            .collect();
-        for code in 0..readers.iter().map(|r| r.len() + 1).product::<usize>() {
+        for code in 0..classes(readers) {
             let (mut lo, mut hi) = (vec![0; k], vec![t; k]);
             let mut rest = code;
             for (i, r) in readers.iter().enumerate() {
@@ -490,10 +500,10 @@ pub(crate) fn plan(
                 run.extend(order.get(s));
             }
             runs.push(run);
+            if runs.len() > MAX_UNIT_RUNS {
+                return Err(bound);
+            }
         }
-    }
-    if runs.len() > MAX_UNIT_RUNS {
-        return Err(runs.len());
     }
     Ok(runs)
 }
