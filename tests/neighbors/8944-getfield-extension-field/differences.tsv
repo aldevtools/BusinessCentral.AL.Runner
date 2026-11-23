@@ -1,0 +1,13 @@
+# key	entry
+# The reporter's test (al-runner issue 8944): the base did not find the extension's field by its id from BC 28; the head finds it
+# (on BC 27 the base found it too).
+Repro ExtField Tests::GetFieldByExtensionControlId_ReturnsTheExtensionField	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2804)	28
+Repro ExtField Tests::GetFieldByExtensionControlId_ReturnsTheExtensionField	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2804)	29
+# Just past the cells, measured on BC 29.1, 3 runs: the field on a List (BC `Gamma`), with ApplicationArea = Suite (BC `Gamma`),
+# hidden (BC not found) refuse on the head; the base answered with the version gate of a field without ApplicationArea.
+Repro ExtField Neighbors::ListExtensionFieldWithArea	REFUSED TestPage.GetField with the id of a page extension's field with ApplicationArea = All, on a page kind or of a shape no cell measures
+Repro ExtField Neighbors::CardExtensionFieldSuiteArea	REFUSED TestPage.GetField with the id of a page extension's field with an ApplicationArea other than All
+Repro ExtField Neighbors::CardExtensionFieldHidden	REFUSED TestPage.GetField with the id of a page extension's field with ApplicationArea = All, on a page kind or of a shape no cell measures
+# Caption through GetField (BC `Note`) refuses on both from BC 27; from BC 28 the base did not find the field.
+Repro ExtField Neighbors::CardExtensionFieldCaption	REFUSED TestField.Caption on what TestPage.GetField found by a control id	28
+Repro ExtField Neighbors::CardExtensionFieldCaption	REFUSED TestField.Caption on what TestPage.GetField found by a control id	29
