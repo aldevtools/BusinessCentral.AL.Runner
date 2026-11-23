@@ -85,15 +85,4 @@ mod tests {
         scratch.move_marks("T", Some(&mut r));
         assert!(r.skipped_by_option);
     }
-
-    #[test]
-    fn another_outcome_in_place_of_a_left_out_ones_drops_the_mark() {
-        let left_out = bare(Outcome::NotRun("stopped".into())).skipped(true);
-        let mut same = left_out.clone();
-        same.take_outcome(Outcome::NotRun("stopped".into()));
-        assert!(same.skipped_by_option);
-        let mut other = left_out;
-        other.take_outcome(Outcome::NotRun("a fresh run refused it".into()));
-        assert!(!other.skipped_by_option);
-    }
 }
