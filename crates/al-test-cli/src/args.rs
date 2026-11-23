@@ -88,6 +88,11 @@ pub struct Args {
     /// `--print-builds`: print the newest published build for each version and stop. CI keys its
     /// artifact cache by this.
     pub print_builds: bool,
+    /// `--print-symbols VERSION`: print the corpus preprocessor symbols of a BC version and stop (ADR-078 point 3).
+    pub print_symbols: Option<String>,
+    /// `--released-minors LIST`: the released minors `--print-symbols` and `--must-not-compile` compute the symbols
+    /// from, instead of `released_minors` of the oracle table.
+    pub released_minors: Option<String>,
     /// `--project DIR` (with `--fetch-deps`): any AL project, not the corpus. The BC build comes
     /// from `--bc-version`, else from the app.json floor (ADR-013 Layer A, ADR-015 3.2).
     pub project: Option<PathBuf>,
@@ -295,6 +300,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
                 a.build_compile_cache = true;
             }
             "--print-builds" => a.print_builds = true,
+            "--print-symbols" => a.print_symbols = Some(text()?),
+            "--released-minors" => a.released_minors = Some(text()?),
             "--project" => a.project = Some(text()?.into()),
             "--dotnet-timeout-secs" => {
                 a.dotnet_timeout_secs = Some(
@@ -507,6 +514,9 @@ DEPENDENCY TOOLING
                               (the merge and conversion sets, on Linux the pinned nuget pieces)
   --project DIR               with --fetch-deps: any AL project, not the corpus
   --print-builds              print the newest published build of each version, then stop
+  --print-symbols VERSION     print the corpus preprocessor symbols of a BC version (29.1), then stop
+  --released-minors LIST      with --print-symbols or --must-not-compile: the released minors (27.0,...,29.1)
+                              the symbols come from, instead of released_minors of the oracle table
 
   -h, --help                  this text
 ";

@@ -44,7 +44,10 @@ fn main() {
     let corpus_deps = al_test_cli::deps::corpus_publish_dirs(&tests.join("al-language")).unwrap();
     let mut apps: Vec<_> = corpus_deps.iter().map(|d| runtime::load_app(d).unwrap()).collect();
     apps.push(runtime::load_app(&tests.join("al-language")).unwrap());
-    let syms = al_version::corpus_symbols(27);
+    let syms = al_version::corpus_symbols(
+        &al_version::BcVersion::new(27, 0),
+        &al_version::ReleasedMinors::NotRecorded,
+    );
     if std::env::args().nth(3).is_some_and(|a| a == "deps") {
         return dump_with_deps(&root, apps, &syms, &out);
     }

@@ -8,7 +8,7 @@
 //! `crates/al-vm/src/platform/windows_language_rows.rs`; the test `windows_language_rows_are_current`
 //! (tests/windows_language_rows.rs) checks it, and `UPDATE_GOLDEN=1` rewrites it.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// The corpus folder that pins the whole table, under the corpus checkout.
 pub const FOLDER: &str = "tests/al-language/record/table-properties";
@@ -40,14 +40,19 @@ fn literal(text: &str) -> String {
     text[1..text.len() - 1].replace("''", "'")
 }
 
-/// The rows of `src` active for `major`, by Language ID: each `AddRow(<id>, <text>)` call, where the text is string
+/// The rows of `src` active under `symbols` (the corpus symbols of `major`'s leg), by Language ID: each `AddRow(<id>, <text>)` call, where the text is string
 /// literals and calls of a procedure without parameters whose body is `exit('<literal>')`, joined by `+`. A call that
 /// cannot be read, a text that is no row of the id, or two different texts for one id are an error.
-fn rows_of(file: &str, src: &str, major: u16, out: &mut BTreeMap<i32, String>) -> Result<(), String> {
+fn rows_of(
+    file: &str,
+    src: &str,
+    (major, symbols): &(u16, BTreeSet<String>),
+    out: &mut BTreeMap<i32, String>,
+) -> Result<(), String> {
     use al_syntax::SyntaxKind as K;
-    let symbols = al_version::corpus_symbols(major);
+    let major = *major;
     let tokens = al_syntax::lex(src);
-    let tokens = al_syntax::preprocessor::preprocess(src, &tokens, &symbols).tokens;
+    let tokens = al_syntax::preprocessor::preprocess(src, &tokens, symbols).tokens;
     let mut sig: Vec<(K, &str)> = Vec::new();
     let mut pos = 0;
     for t in &tokens {
@@ -134,16 +139,20 @@ fn rows_of(file: &str, src: &str, major: u16, out: &mut BTreeMap<i32, String>) -
     Ok(())
 }
 
-/// The pinned table of each major of `majors` that `files` (path, source) pin a row for: Language ID to row text.
-pub fn tables(files: &[(String, String)], majors: &[u16]) -> Result<BTreeMap<u16, BTreeMap<i32, String>>, String> {
+/// The pinned table of each major of `legs` (a major and the corpus symbols of its oracle leg,
+/// `al_version::corpus_symbols`) that `files` (path, source) pin a row for: Language ID to row text.
+pub fn tables(
+    files: &[(String, String)],
+    legs: &[(u16, BTreeSet<String>)],
+) -> Result<BTreeMap<u16, BTreeMap<i32, String>>, String> {
     let mut out = BTreeMap::new();
-    for &major in majors {
+    for leg in legs {
         let mut rows = BTreeMap::new();
         for (file, src) in files {
-            rows_of(file, src, major, &mut rows)?;
+            rows_of(file, src, leg, &mut rows)?;
         }
         if !rows.is_empty() {
-            out.insert(major, rows);
+            out.insert(leg.0, rows);
         }
     }
     Ok(out)
@@ -191,6 +200,15 @@ pub fn to_rust(tables: &BTreeMap<u16, BTreeMap<i32, String>>, files: &[String]) 
 mod tests {
     use super::*;
 
+    /// The legs of `majors` with the symbols of the pinned corpus (it records no released minors).
+    fn legs(majors: &[u16]) -> Vec<(u16, BTreeSet<String>)> {
+        let none = al_version::ReleasedMinors::NotRecorded;
+        majors
+            .iter()
+            .map(|&m| (m, al_version::corpus_symbols(&al_version::BcVersion::new(m, 0), &none)))
+            .collect()
+    }
+
     const ROW_1025: &str = "1025|1025|Arabic (Saudi Arabia)|ARA|Yes|Yes|Yes|Yes|No|Yes|720|No|No|No|No|ar-SA";
 
     fn file(body: &str) -> Vec<(String, String)> {
@@ -215,7 +233,7 @@ mod tests {
         let files = file(&format!(
             "        AddRow(1025, '{ROW_1025}');\n        AddRow(1067, '1067|1067|Armenian (Armenia)|HYE|Yes|Yes|Yes|Yes|No|Yes|' + Utf8CodePage() + '|No|No|No|No|hy-AM');\n#if BC29PLUS\n        AddRow(1079, '1079|1079|Georgian (Georgia)|KAT|Yes|Yes|Yes|Yes|No|Yes|1|No|No|No|No|ka-GE');\n#endif"
         ));
-        let t = tables(&files, &[27, 28, 29]).unwrap();
+        let t = tables(&files, &legs(&[27, 28, 29])).unwrap();
         assert_eq!(t.len(), 3);
         assert!(t[&29][&1067].contains("|1|"), "{:?}", t[&29]);
         assert!(t[&28][&1067].contains("|65001|"), "{:?}", t[&28]);
@@ -235,19 +253,19 @@ mod tests {
             ROW_1025.replace("ARA", "ARX")
         ));
         assert!(
-            tables(&two, &[29])
+            tables(&two, &legs(&[29]))
                 .unwrap_err()
                 .contains("two rows for Language ID 1025")
         );
         let other = file(&format!("        AddRow(1026, '{ROW_1025}');"));
-        assert!(tables(&other, &[29]).unwrap_err().contains("AddRow(1026"));
+        assert!(tables(&other, &legs(&[29])).unwrap_err().contains("AddRow(1026"));
         let call = file("        AddRow(1025, '1025|' + Unknown() + '|x');");
-        assert!(tables(&call, &[29]).unwrap_err().contains("Unknown"));
+        assert!(tables(&call, &legs(&[29])).unwrap_err().contains("Unknown"));
     }
 
     #[test]
     fn no_row_leaves_the_major_unpinned() {
-        assert!(tables(&file(""), &[29]).unwrap().is_empty());
+        assert!(tables(&file(""), &legs(&[29])).unwrap().is_empty());
         assert!(to_rust(&BTreeMap::new(), &[]).contains("pub const MAJORS: &[u16] = &[];"));
     }
 }

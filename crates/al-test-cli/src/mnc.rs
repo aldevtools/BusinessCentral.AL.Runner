@@ -157,7 +157,7 @@ pub struct Outcome {
 }
 
 /// Compiles `case` alone and compares the AL diagnostics with the expected ones.
-pub fn run_case(case: &Case, bc_major: u16) -> Outcome {
+pub fn run_case(case: &Case, bc_major: u16, symbols: &std::collections::BTreeSet<String>) -> Outcome {
     let major = u32::from(bc_major);
     let mut out = Outcome {
         name: case.name.clone(),
@@ -175,7 +175,7 @@ pub fn run_case(case: &Case, bc_major: u16) -> Outcome {
         out.verdict = Verdict::Skipped(format!("the verdict holds for {range}, this is BC {major}"));
         return out;
     }
-    let (_, _, diags) = compile(case, bc_major);
+    let (_, _, diags) = compile(case, bc_major, symbols);
     let mut got: Vec<(String, String)> = diags.iter().map(|d| (d.code.to_string(), d.message.clone())).collect();
     got.sort();
     out.got = got.clone();
@@ -206,7 +206,11 @@ pub fn run_case(case: &Case, bc_major: u16) -> Outcome {
 
 /// Compiles `case` alone at `bc_major`: the workspace, the check, and the AL diagnostics of the
 /// checker and of the app context (unsorted).
-fn compile(case: &Case, bc_major: u16) -> (Workspace, al_sema::check::CheckResult, Vec<Diagnostic>) {
+fn compile(
+    case: &Case,
+    bc_major: u16,
+    symbols: &std::collections::BTreeSet<String>,
+) -> (Workspace, al_sema::check::CheckResult, Vec<Diagnostic>) {
     let major = u32::from(bc_major);
     // The case's app comes first (file 0 is the case); the corpus apps of `@depends` follow, from source. It depends
     // on the named ones only: an app sees what it declares (`al_sema::workspace`).
@@ -227,7 +231,7 @@ fn compile(case: &Case, bc_major: u16) -> (Workspace, al_sema::check::CheckResul
         files: vec![("src/case.al".into(), case.source.clone())],
     }];
     apps.extend(corpus_apps);
-    let ws = Workspace::load(apps, &al_version::corpus_symbols(bc_major));
+    let ws = Workspace::load(apps, symbols);
     let members = al_sema::members::build(&ws);
     // The corpus apps' runtime on this leg (`oracle.toml` app_runtime): 16.1, 17.1, 18.0, unless `@appjson` names one.
     let runtime = case.appjson_runtime.or_else(|| {
@@ -266,13 +270,17 @@ fn compile(case: &Case, bc_major: u16) -> (Workspace, al_sema::check::CheckResul
 /// in runtime version` names `Prev`), and, when our codes match the case's, every call on a line
 /// where we report one of them. Other calls of the file (a `Message` that only completes the code)
 /// pin nothing. Site: `must-not-compile/cases/<name>.al`. 0561-testpage-prev.al pins `TestPage.Prev`.
-pub fn pinned_calls(case: &Case, catalog: &al_builtins::catalog::Catalog) -> Vec<crate::coverage::Call> {
+pub fn pinned_calls(
+    case: &Case,
+    catalog: &al_builtins::catalog::Catalog,
+    symbols: &std::collections::BTreeSet<String>,
+) -> Vec<crate::coverage::Call> {
     // A case for some majors only (`@from`, `@until`: a member a later runtime has) leaves the
     // item's behavior on the other majors open, so it pins nothing.
     if case.from.is_some() || case.until.is_some() {
         return Vec::new();
     }
-    let (ws, _, diags) = compile(case, al_version::MIN_BC_MAJOR);
+    let (ws, _, diags) = compile(case, al_version::MIN_BC_MAJOR, symbols);
     // Which overload a call means does not depend on the runtime: the newest catalog resolves a call the case's
     // runtime refuses (AL0666), so the refused overload is the one pinned.
     let checked = al_sema::check::check(&ws, &al_sema::members::build(&ws), catalog);
@@ -372,6 +380,14 @@ pub fn render(outcomes: &[Outcome], bc_major: u16) -> String {
 mod tests {
     use super::*;
 
+    /// The symbols of the pinned corpus for a major's leg (it records no released minors).
+    fn symbols(major: u16) -> std::collections::BTreeSet<String> {
+        al_version::corpus_symbols(
+            &al_version::BcVersion::new(major, 0),
+            &al_version::ReleasedMinors::NotRecorded,
+        )
+    }
+
     const CASE: &str = "// @expect AL0162 | 'OnInit' is not a valid trigger\n// A human line.\n// @target OnPrem\n// @from 27\n\ntable 1 T { }\n";
 
     #[test]
@@ -410,25 +426,25 @@ mod tests {
             "// @expect AL0162 | t\n// @from 28\n// @until 28\ncodeunit 1 C { }",
         )
         .unwrap();
-        assert!(matches!(run_case(&c, 27).verdict, Verdict::Skipped(_)));
-        assert!(matches!(run_case(&c, 29).verdict, Verdict::Skipped(_)));
-        assert!(!matches!(run_case(&c, 28).verdict, Verdict::Skipped(_)));
+        assert!(matches!(run_case(&c, 27, &symbols(27)).verdict, Verdict::Skipped(_)));
+        assert!(matches!(run_case(&c, 29, &symbols(29)).verdict, Verdict::Skipped(_)));
+        assert!(!matches!(run_case(&c, 28, &symbols(28)).verdict, Verdict::Skipped(_)));
     }
 
     #[test]
     fn a_missing_diagnostic_is_a_mismatch_and_an_undecidable_code_is_not_checked() {
         let c = parse_case("x", "// @expect AL0162 | t\ncodeunit 50000 C { }").unwrap();
-        assert!(matches!(run_case(&c, 27).verdict, Verdict::Mismatch(_)));
+        assert!(matches!(run_case(&c, 27, &symbols(27)).verdict, Verdict::Mismatch(_)));
         let c = parse_case("x", "// @expect AL0175 | t\ncodeunit 50000 C { }").unwrap();
-        assert!(matches!(run_case(&c, 27).verdict, Verdict::NotChecked(_)));
+        assert!(matches!(run_case(&c, 27, &symbols(27)).verdict, Verdict::NotChecked(_)));
         let c = parse_case("x", "// @expect AL9999 | t\ncodeunit 50000 C { }").unwrap();
-        assert!(matches!(run_case(&c, 27).verdict, Verdict::NotChecked(_)));
+        assert!(matches!(run_case(&c, 27, &symbols(27)).verdict, Verdict::NotChecked(_)));
     }
 
     #[test]
     fn a_found_diagnostic_matches_and_a_wording_difference_is_only_a_note() {
         let src = "// @expect AL0197 | An application object of type 'Codeunit' with name 'C' is already declared by the extension\n// @expect AL0197 | other wording\ncodeunit 50000 C { }\ncodeunit 50001 C { }";
-        let o = run_case(&parse_case("x", src).unwrap(), 27);
+        let o = run_case(&parse_case("x", src).unwrap(), 27, &symbols(27));
         assert_eq!(o.verdict, Verdict::Match);
         assert_eq!(o.text_notes.len(), 1, "{:?}", o.text_notes);
     }
@@ -469,7 +485,7 @@ mod tests {
         assert_eq!(read[0].corpus_deps, [tests.join("xapp-a"), tests.join("xapp-b")]);
         std::fs::write(cases.join("1580-x.al"), case("XApp A,XApp B")).unwrap();
         let read = read_cases(&cases).unwrap();
-        let o = run_case(&read[0], 29);
+        let o = run_case(&read[0], 29, &symbols(29));
         assert_eq!(o.verdict, Verdict::Match, "{:?}", o.got);
         assert!(o.text_notes.is_empty(), "{:?}", o.text_notes);
     }
@@ -494,7 +510,7 @@ codeunit 50561 \"MNC O 0561\"
         )
         .unwrap();
         let catalog = al_builtins::catalog::Catalog::load();
-        let calls = pinned_calls(&case, &catalog);
+        let calls = pinned_calls(&case, &catalog, &symbols(27));
         let ids: Vec<&str> = calls.iter().map(|c| c.id.as_str()).collect();
         assert_eq!(ids, ["TestPage.Prev#1"]);
         assert_eq!(calls[0].file, "must-not-compile/cases/0561-testpage-prev.al");

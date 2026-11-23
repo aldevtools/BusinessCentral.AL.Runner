@@ -5,7 +5,7 @@
 //! fails. The cases are never faked.
 
 use al_test_cli::mnc::{Verdict, read_cases, render, run_case};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn cases_dir() -> Option<PathBuf> {
     if let Some(d) = std::env::var_os("AL_MNC_DIR") {
@@ -47,8 +47,12 @@ fn every_must_not_compile_case_gets_the_expected_codes() {
         .collect();
     let mut failures = Vec::new();
     let mut mismatched: std::collections::BTreeSet<(u16, String)> = Default::default();
+    // Each major as its oracle leg compiles the corpus (the leg's preprocessor symbols, ADR-078 point 3).
+    let oracle =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../oracle/oracle.toml")).unwrap();
+    let legs = al_test_cli::config::OracleFile::parse(&oracle).unwrap().legs_symbols();
     for major in [27u16, 28, 29] {
-        let outcomes: Vec<_> = cases.iter().map(|c| run_case(c, major)).collect();
+        let outcomes: Vec<_> = cases.iter().map(|c| run_case(c, major, &legs[&major])).collect();
         let report = render(&outcomes, major);
         eprintln!("{report}");
         for o in &outcomes {

@@ -491,7 +491,10 @@ fn corpus_differential() {
     let a = Apps {
         apps: dirs.iter().map(|d| runtime::load_app(d).unwrap()).collect(),
         manifests: dirs.iter().map(|d| runtime::load_manifest(d).unwrap()).collect(),
-        symbols: al_version::corpus_symbols(newest_major()),
+        symbols: al_version::corpus_symbols(
+            &al_version::BcVersion::new(newest_major(), 0),
+            &al_version::ReleasedMinors::NotRecorded,
+        ),
         tested,
     };
     let n = std::env::var("AL_AFFECTED_DIFF_EDITS")
