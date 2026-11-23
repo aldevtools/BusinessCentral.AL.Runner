@@ -37,7 +37,7 @@ impl Session {
                     .into(),
             ));
         }
-        let (filters, _) = self.split_filters(rec);
+        let (filters, _) = self.split_filters(rec)?;
         self.coverage_cleared(t, temporary, &filters);
         if !temporary {
             self.global_setup_asked(t)?;

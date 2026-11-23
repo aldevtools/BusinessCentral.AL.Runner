@@ -10,6 +10,8 @@ use al_test_cli::report::Outcome;
 
 const PROBE: &str = include_str!("../../../../tests/neighbors/8698-refresh-filter-update-false/src/Probe.al");
 const NEIGHBORS: &str = include_str!("../../../../tests/neighbors/8698-refresh-filter-update-false/src/Neighbors.al");
+const PROBE_READS: &str =
+    include_str!("../../../../tests/neighbors/8698-refresh-filter-update-false/src/ProbeReads.al");
 
 /// The refusal of a call the cells do not make after the rule ran.
 const UNMEASURED: &str =
@@ -94,14 +96,16 @@ fn probe_cells_pass_on_the_measured_pages() {
 /// Editable() after the cell's steps only read, and the cell's First and walk follow.
 #[test]
 fn neighbors_keep_main_or_refuse() {
-    let o = outcomes(&format!("{PROBE}\n{NEIGHBORS}"), "LT RFU Neighbor Tests");
-    assert_eq!(o.len(), 9);
+    let o = outcomes(&format!("{PROBE}\n{PROBE_READS}\n{NEIGHBORS}"), "LT RFU Neighbor Tests");
+    assert_eq!(o.len(), 11);
     for (n, r, marks) in &o {
         match n.as_str() {
             "Lines_NextAfterSetValues"
             | "Lines_ActionAfterSetValues"
             | "Both_NextAfterSetValues"
-            | "EditCard_SecondSetValue" => {
+            | "EditCard_SecondSetValue"
+            | "Wide_AsIntegerOnText_BetweenSteps"
+            | "Wide_AsBooleanOnDecimal_BetweenSteps" => {
                 assert!(
                     matches!(r, Outcome::NotRun(why) if why.starts_with(UNMEASURED)),
                     "{n}: {r:?}"
@@ -123,7 +127,7 @@ fn read_only_calls_pass_only_where_measured() {
     let outcome = |from: &str, to: &str| {
         assert!(NEIGHBORS.contains(from));
         let o = outcomes(
-            &format!("{PROBE}\n{}", NEIGHBORS.replacen(from, to, 1)),
+            &format!("{PROBE}\n{PROBE_READS}\n{}", NEIGHBORS.replacen(from, to, 1)),
             "LT RFU Neighbor Tests",
         );
         o.into_iter()
@@ -157,5 +161,61 @@ fn read_only_calls_pass_only_where_measured() {
             matches!(&r, Outcome::NotRun(why) if why.starts_with(UNMEASURED)),
             "{to}: {r:?}"
         );
+    }
+}
+
+/// Corpus pull request 1535 (ListValidateViewReads.al): on page 97498, the issue's page with controls of every type, the
+/// issue's cell and the As* reads, OptionCount, GetOption and IsExpanded at its points pass under the rule. GetField by a
+/// control id refuses once the rule ran and keeps main's (wrong) answer before; the bad SetValue on Qty and the tree page
+/// keep main's path.
+#[test]
+fn wide_page_reads_pass_where_measured() {
+    let o = outcomes(PROBE_READS, "LT RVR Tests");
+    assert_eq!(o.len(), 22);
+    for (n, r, marks) in &o {
+        match n.as_str() {
+            "Lines_GetFieldById_BetweenSteps" | "Lines_GetFieldById_AfterSteps" => assert!(
+                matches!(r, Outcome::NotRun(why) if why.starts_with(UNMEASURED)),
+                "{n}: {r:?}"
+            ),
+            "Lines_SetValueQtyNotANumber_ValidationError" | "Tree_SetValueQtyNotANumber_ValidationError" => {
+                assert!(*r == Outcome::Pass && marks.is_empty(), "{n}: {r:?} {marks:?}")
+            }
+            _ if n.starts_with("Lines_") && !n.starts_with("Lines_GetFieldById_") => {
+                assert!(
+                    *r == Outcome::Pass && *marks == [ListValidateViewRefresh],
+                    "{n}: {r:?} {marks:?}"
+                )
+            }
+            _ => assert!(*r != Outcome::Pass && marks.is_empty(), "{n}: {r:?} {marks:?}"),
+        }
+    }
+}
+
+/// On page 97498 a read passes only on the field type and with the option index the read cells measure: AsInteger on the
+/// Text control and AsBoolean on the Decimal one (BC raises `Invalid Conversion. ...`, the neighbors
+/// Wide_AsIntegerOnText_BetweenSteps and Wide_AsBooleanOnDecimal_BetweenSteps), GetOption on Qty and GetOption(4) on Kind
+/// (BC raises a CLR exception no test catches, measured on BC 29.1, 3 runs) refuse once the rule ran.
+#[test]
+fn wide_page_reads_need_their_field_type() {
+    let src = format!("{PROBE}\n{PROBE_READS}\n{NEIGHBORS}");
+    let refused = |o: &[(String, Outcome, Vec<al_builtins::assumptions::Assumption>)], name: &str| {
+        let (_, r, _) = o.iter().find(|(n, ..)| n == name).unwrap();
+        assert!(
+            matches!(r, Outcome::NotRun(why) if why.starts_with(UNMEASURED)),
+            "{name}: {r:?}"
+        );
+    };
+    let o = outcomes(&src, "LT RFU Neighbor Tests");
+    refused(&o, "Wide_AsIntegerOnText_BetweenSteps");
+    refused(&o, "Wide_AsBooleanOnDecimal_BetweenSteps");
+    let read = "                ReadResult := Format(Lines.Name.AsInteger());\n";
+    for to in [
+        "                ReadResult := Lines.Qty.GetOption(1);\n",
+        "                ReadResult := Lines.Kind.GetOption(4);\n",
+    ] {
+        assert!(src.contains(read));
+        let o = outcomes(&src.replacen(read, to, 1), "LT RFU Neighbor Tests");
+        refused(&o, "Wide_AsIntegerOnText_BetweenSteps");
     }
 }

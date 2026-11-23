@@ -1045,10 +1045,13 @@ impl Lowerer<'_> {
                 }
                 CondValue::Filter(raw) => {
                     let raw = &unqualified(raw);
-                    // Without quotes, `filter(@)` does not compile (AL0870; alcodes/calc_filter_at_sign.rs reports it on a table
-                    // field): never run it.
-                    if crate::alcodes::calc_filter_at_sign::unquoted_at_sign(raw) {
-                        return Err("CalcFormula filter(@) without quotes, which BC does not compile (AL0870)".into());
+                    // Without quotes, `filter(@)` and `filter(<>@)` do not compile (AL0870, cases 3805 and 3806;
+                    // alcodes/calc_filter_at_sign.rs reports them on a table field): never run them.
+                    if crate::alcodes::calc_filter_at_sign::unquoted_at_sign(raw).is_some() {
+                        return Err(format!(
+                            "CalcFormula filter({}) without quotes, which BC does not compile (AL0870)",
+                            raw.trim()
+                        ));
                     }
                     // One quoted literal is read as the filter its content spells (record/flowfields/W4CalcFields.al:396
                     // QZ_CalcFormula_QuotedLiteralFilters, fixtures QzCalcFormulaQuotedFilter.al): `'<>'''''` is `<>''`,

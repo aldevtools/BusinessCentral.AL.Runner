@@ -10,6 +10,7 @@ const PROBE: &str = include_str!("../../../../tests/neighbors/at-sign-alone-data
 const ROUTES: &str = include_str!("../../../../tests/neighbors/at-sign-alone-database/src/Routes.al");
 const NEIGHBORS: &str = include_str!("../../../../tests/neighbors/at-sign-alone-database/src/Neighbors.al");
 const CRM: &str = include_str!("../../../../tests/neighbors/at-sign-alone-database/src/Crm.al");
+const METHODS: &str = include_str!("../../../../tests/neighbors/at-sign-alone-database/src/Methods.al");
 
 fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
     let src = format!("{src}\n{}", include_str!("../fixtures/outside-sc/Assert.al"));
@@ -142,6 +143,50 @@ fn at_sign_alone_reads_cells() {
         assert!(
             marks.contains(&Assumption::AtSignAloneDatabaseBlank),
             "{name}: {marks:?}"
+        );
+    }
+}
+
+/// The cells of AtSignAloneMethods.al (corpus PR 1495): `<>@` alone read by DeleteAll, ModifyAll, CalcSums, FindLast, a report and
+/// a page (:215, :244, :279, :312, :345), and a CalcFormula's `filter('@')` and `filter('<>@')` with every method (:376), flagged.
+/// Over a Date source field (:395) and an Integer, Decimal, Option or Boolean one (:430) BC answers otherwise; those keep main's
+/// refusal here.
+#[test]
+fn at_sign_alone_methods_cells() {
+    let o = outcomes(METHODS, "AM Kind Tests");
+    assert_eq!(o.len(), 8);
+    for (name, r, marks) in &o {
+        if name.starts_with("AtSignAlone_CalcFormula") && name != "AtSignAlone_CalcFormulaMethods" {
+            assert!(
+                matches!(r, Outcome::NotRun(w) if w.contains("value expected after @")),
+                "{name}: {r:?}"
+            );
+            continue;
+        }
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert!(
+            marks.contains(&Assumption::AtSignAloneDatabaseBlank),
+            "{name}: {marks:?}"
+        );
+    }
+}
+
+/// A CalcFormula's unquoted `filter(<>@)` does not compile on BC (must-not-compile case 3806: AL0726, AL0104, AL0870), as
+/// `filter(@)` does not (case 3805): the lowering refuses both, over a Code and over a Text field, and never reads them as `@` alone
+/// or `<>@` alone.
+#[test]
+fn unquoted_calcformula_at_signs_refused() {
+    for (filter, field) in [("<>@", "Kind"), ("<>@", "Note"), ("@", "Kind")] {
+        let src = format!(
+            r#"table 97590 "UQ Row" {{ fields {{ field(1; "Group"; Code[20]) {{ }} field(2; Kind; Code[20]) {{ }} field(3; Note; Text[50]) {{ }} field(4; Amount; Decimal) {{ }} }} keys {{ key(PK; "Group", Kind) {{ }} }} }}
+table 97591 "UQ Host" {{ fields {{ field(1; "No."; Code[20]) {{ }} field(2; Total; Decimal) {{ FieldClass = FlowField; CalcFormula = sum("UQ Row".Amount where("Group" = field("No."), {field} = filter({filter}))); }} }} keys {{ key(PK; "No.") {{ }} }} }}
+codeunit 97590 "UQ Tests" {{ Subtype = Test; [Test] procedure Unquoted() var Host: Record "UQ Host"; begin Host."No." := 'G'; Host.CalcFields(Total); end; }}"#
+        );
+        let o = outcomes(&src, "UQ Tests");
+        let [(_, r, _)] = o.as_slice() else { panic!("{o:?}") };
+        assert!(
+            matches!(r, Outcome::NotRun(w) if w.contains(&format!("filter({filter}) without quotes"))),
+            "{filter} on {field}: {r:?}"
         );
     }
 }

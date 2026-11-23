@@ -213,7 +213,7 @@ impl Session {
 
     /// The rows of Tenant Profile Setting that `rec`'s filters keep.
     fn setting_rows(&mut self, rec: &Rec, t: &TableDef) -> Result<Vec<Vec<Value>>, Signal> {
-        let (_, flow) = self.split_filters(rec);
+        let (_, flow) = self.split_filters(rec)?;
         if !flow.is_empty() || rec.borrow().marked_only {
             return unsupported("a DeleteAll or ModifyAll with a FlowField filter or MarkedOnly");
         }

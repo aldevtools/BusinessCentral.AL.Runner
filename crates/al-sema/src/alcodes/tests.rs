@@ -2593,6 +2593,25 @@ fn unquoted_calcformula_filter_at_sign_is_al0870_and_al0224() {
     assert!(codes(&[row, &host("'<>@'")]).is_empty());
 }
 
+// Must-not-compile case 3806 (corpus pull request 1495, al-runner issue 8637): a CalcFormula's unquoted filter(<>@) is AL0726,
+// AL0104 and AL0870, over a Code and over a Text field (measured on a local BC 29.1 container).
+#[test]
+fn unquoted_calcformula_filter_not_at_sign_is_al0726_al0104_and_al0870() {
+    let row = r#"table 50000 "MNC At Row" { fields { field(1; "Group"; Code[20]) { } field(2; Kind; Code[20]) { } field(3; Note; Text[50]) { } field(4; Amount; Decimal) { } } keys { key(PK; "Group") { } } }"#;
+    let host = |field: &str| {
+        format!(
+            r#"table 50001 "MNC At Host" {{ fields {{ field(1; "No."; Code[20]) {{ }} field(2; Total; Decimal) {{ FieldClass = FlowField; CalcFormula = sum("MNC At Row".Amount where("Group" = field("No."), {field} = filter(<>@))); }} }} keys {{ key(PK; "No.") {{ }} }} }}"#
+        )
+    };
+    for field in ["Kind", "Note"] {
+        assert_eq!(
+            codes(&[row, &host(field)]),
+            vec!["AL0104".to_string(), "AL0726".to_string(), "AL0870".to_string()],
+            "{field}"
+        );
+    }
+}
+
 // must-not-compile 3126-3131: a blank member name after `::`. `""` and an unquoted empty member are the nameless member, which
 // has no name to write; `" "` names the member `" "` only where one exists.
 #[test]
