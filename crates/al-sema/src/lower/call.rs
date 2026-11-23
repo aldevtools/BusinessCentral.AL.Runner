@@ -290,7 +290,10 @@ impl Lowerer<'_> {
     /// members.
     pub(crate) fn set_char_option_byte_locals(&mut self, decls: impl Iterator<Item = ast::VarDecl>) {
         self.local_char_option_byte_vars.clear();
+        self.local_var_section_names.clear();
         for v in decls {
+            self.local_var_section_names
+                .extend(v.names().into_iter().map(|n| n.to_lowercase()));
             let pinned = v
                 .type_ref()
                 .is_some_and(|t| match t.type_name().to_ascii_lowercase().as_str() {

@@ -21,6 +21,7 @@ mod blob_copy;
 mod blob_transfer;
 mod clientless;
 mod consistent_marks;
+mod decimal_column;
 mod get_key_value;
 mod package_data;
 mod partial_gone;
@@ -151,6 +152,7 @@ mod report_save;
 mod reports;
 mod resource_reads;
 mod run_page_link_open;
+mod session_fields;
 mod sessionops;
 mod setup_no_op;
 mod slot_default;
@@ -1705,6 +1707,7 @@ impl Session {
                     crm: self.engine.object_facts[*table as usize].crm(),
                     fields: self.initial_fields(*table as usize),
                     filters: Vec::new(),
+                    decimal_cut_filters: Vec::new(),
                     filter_group: 0,
                     marks: Vec::new(),
                     marked_only: false,

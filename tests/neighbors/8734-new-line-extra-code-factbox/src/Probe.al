@@ -3,15 +3,15 @@
 // Scope: in-scope
 // local object: a List page with page triggers and a CardPart FactBox whose table field's OnValidate inserts the page's new line,
 //   and the code around CurrPage.SaveRecord() and CurrPage.Update in the control's OnValidate, are what is under test
-// Fixtures used: own table 97691, pages 97693, 97694, 97697 and 97698, codeunits 97692, 97695, 97696, 97699 and test codeunit
-//   97700
+// Fixtures used: own tables 97691 and 96741, pages 97693, 97694, 97697, 97698 and 96743, codeunits 97692, 97695, 97696,
+//   97699, 96742 and 96744, test codeunits 97700 and 96745
 // Probe (al-runner issue 8734): a List page with AutoSplitKey, OnAfterGetRecord and OnAfterGetCurrRecord, and a CardPart
 //   FactBox linked to the line's key whose OnAfterGetRecord sets a variable it shows, stands on its new line; the SetValue on
 //   Name runs the table field's OnValidate, which inserts the row (Insert(true), an AutoIncrement key field), then the
 //   control's OnValidate. In the repro of 8734 it sets another field of Rec, saves, modifies the row through another record
 //   and calls CurrPage.Update(false). The second page logs its triggers and its part's, and varies the code one step at a
 //   time (only the save, the modify through another record after the save, the field set before the save; each also with one
-//   row before the new line). The page is opened with Page.RunModal on a record filtered to one group.
+//   row before the new line; a third page, after the tests, sets Rec or writes another table after the save). Page.RunModal, one group.
 //   Readings: what the page and its part show after the Name and the Value SetValue, the rows after OK, and the triggers'
 //   log with a mark at each step of the test.
 //   Measured on a local BC 29.1 OnPrem w1 container.
@@ -521,3 +521,266 @@ codeunit 97700 "LT NK Tests"
             Error('%1: expected <%2>, found <%3>.', What, Expected, Actual);
     end;
 }
+
+// The review of the runner pull request 8820: after the save, a field of Rec set, a row of another table inserted, or a row
+// of another table deleted, then CurrPage.Update(false), on the logging page's shape.
+table 96741 "LT NK Other"
+{
+    DataClassification = CustomerContent;
+
+    fields
+    {
+        field(1; "Entry No."; Integer) { AutoIncrement = true; }
+        field(2; Text; Text[30]) { }
+    }
+
+    keys
+    {
+        key(PK; "Entry No.") { Clustered = true; }
+    }
+}
+
+codeunit 96742 "LT NK More Log"
+{
+    SingleInstance = true;
+
+    var
+        Entries: Text;
+        Mode: Integer;
+
+    procedure Add(Entry: Text)
+    begin
+        Entries += Entry + ';';
+    end;
+
+    procedure Get(): Text
+    begin
+        exit(Entries);
+    end;
+
+    procedure Reset(NewMode: Integer)
+    begin
+        Entries := '';
+        Mode := NewMode;
+    end;
+
+    procedure GetMode(): Integer
+    begin
+        exit(Mode);
+    end;
+}
+
+page 96743 "LT NK More Lines"
+{
+    PageType = List;
+    SourceTable = "LT NK Line";
+    AutoSplitKey = true;
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Lines)
+            {
+                field(Name; Rec.Name)
+                {
+                    ApplicationArea = All;
+
+                    trigger OnValidate()
+                    var
+                        Log: Codeunit "LT NK More Log";
+                        Other: Record "LT NK Other";
+                    begin
+                        Rec.Note := 'Resolved';
+                        CurrPage.SaveRecord();
+                        case Log.GetMode() of
+                            1:
+                                Rec.Mark := 'Late';
+                            2:
+                                begin
+                                    Other.Init();
+                                    Other.Text := 'After';
+                                    Other.Insert();
+                                end;
+                            3:
+                                Other.DeleteAll();
+                        end;
+                        CurrPage.Update(false);
+                    end;
+                }
+                field(Note; Rec.Note) { ApplicationArea = All; }
+                field(Mark; Rec.Mark) { ApplicationArea = All; }
+                field(Value; Rec.Value) { ApplicationArea = All; }
+            }
+        }
+        area(FactBoxes)
+        {
+            part(Info; "LT NK Info")
+            {
+                ApplicationArea = All;
+                SubPageLink = "Group Code" = field("Group Code"), "Entry No." = field("Entry No.");
+            }
+        }
+    }
+
+    trigger OnAfterGetRecord()
+    var
+        Log: Codeunit "LT NK More Log";
+    begin
+        Log.Add('AGR(' + Rec.Name + '/' + Rec.Note + '/' + Rec.Mark + ')');
+    end;
+
+    trigger OnAfterGetCurrRecord()
+    var
+        Log: Codeunit "LT NK More Log";
+    begin
+        Log.Add('AGCR(' + Rec.Name + '/' + Rec.Note + '/' + Rec.Mark + ')');
+    end;
+}
+
+codeunit 96744 "LT NK More Opener"
+{
+    procedure Open(GroupCode: Code[10])
+    var
+        Line: Record "LT NK Line";
+    begin
+        Line.SetRange("Group Code", GroupCode);
+        Page.RunModal(Page::"LT NK More Lines", Line);
+    end;
+}
+
+codeunit 96745 "LT NK More Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        Shown: Text;
+
+    [Test]
+    [HandlerFunctions('MoreHandler')]
+    procedure NewLine_FieldOfRecSetAfterSaveRecordOnPageWithTriggersAndFactBox_LogsTheTriggers()
+    begin
+        Initialize();
+        RunMore(1);
+        Check('shown', 'name=A/Resolved// part=Resolved//A value=A/Resolved//V part=Resolved//A ', Shown);
+        Check('log', 'AGCR(//);AGCR(//);|open;AGCR(//);|new;AGR(A/Resolved/);AGR(A/Resolved/);AGCR(A/Resolved/);|name;|read;|value;|read;|ok;', Log());
+        Check('rows', 'A/Resolved//V;', Rows());
+        Check('others', '', Others());
+    end;
+
+    [Test]
+    [HandlerFunctions('MoreHandler')]
+    procedure NewLine_AnotherTableWrittenAfterSaveRecordOnPageWithTriggersAndFactBox_LogsTheTriggers()
+    begin
+        Initialize();
+        RunMore(2);
+        Check('shown', 'name=A/Resolved// part=Resolved//A value=A/Resolved//V part=Resolved//A ', Shown);
+        Check('log', 'AGCR(//);AGCR(//);|open;AGCR(//);|new;AGR(A/Resolved/);AGR(A/Resolved/);AGCR(A/Resolved/);|name;|read;|value;|read;|ok;', Log());
+        Check('rows', 'A/Resolved//V;', Rows());
+        Check('others', 'After;', Others());
+    end;
+
+    [Test]
+    [HandlerFunctions('MoreHandler')]
+    procedure NewLine_AnotherTablesRowDeletedAfterSaveRecordOnPageWithTriggersAndFactBox_LogsTheTriggers()
+    begin
+        Initialize();
+        AddOther('Old');
+        RunMore(3);
+        Check('shown', 'name=A/Resolved// part=Resolved//A value=A/Resolved//V part=Resolved//A ', Shown);
+        Check('log', 'AGCR(//);AGCR(//);|open;AGCR(//);|new;AGR(A/Resolved/);AGR(A/Resolved/);AGCR(A/Resolved/);|name;|read;|value;|read;|ok;', Log());
+        Check('rows', 'A/Resolved//V;', Rows());
+        Check('others', '', Others());
+    end;
+
+    [ModalPageHandler]
+    procedure MoreHandler(var Lines: TestPage "LT NK More Lines")
+    var
+        LogCu: Codeunit "LT NK More Log";
+    begin
+        LogCu.Add('|open');
+        Lines.New();
+        LogCu.Add('|new');
+        Lines.Name.SetValue('A');
+        LogCu.Add('|name');
+        Shown += 'name=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value();
+        Shown += ' part=' + Lines.Info.Note.Value() + '/' + Lines.Info.Mark.Value() + '/' + Lines.Info.Info.Value() + ' ';
+        LogCu.Add('|read');
+        Lines.Value.SetValue('V');
+        LogCu.Add('|value');
+        Shown += 'value=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value();
+        Shown += ' part=' + Lines.Info.Note.Value() + '/' + Lines.Info.Mark.Value() + '/' + Lines.Info.Info.Value() + ' ';
+        LogCu.Add('|read');
+        Lines.OK().Invoke();
+        LogCu.Add('|ok');
+    end;
+
+    local procedure Initialize()
+    var
+        Line: Record "LT NK Line";
+        Other: Record "LT NK Other";
+        LogCu: Codeunit "LT NK More Log";
+    begin
+        Line.DeleteAll();
+        Other.DeleteAll();
+        LogCu.Reset(0);
+        Commit();
+        Shown := '';
+    end;
+
+    local procedure AddOther(NewText: Text[30])
+    var
+        Other: Record "LT NK Other";
+    begin
+        Other.Text := NewText;
+        Other.Insert();
+        Commit();
+    end;
+
+    local procedure RunMore(M: Integer)
+    var
+        LogCu: Codeunit "LT NK More Log";
+        Opener: Codeunit "LT NK More Opener";
+    begin
+        LogCu.Reset(M);
+        Opener.Open('G1');
+    end;
+
+    local procedure Log(): Text
+    var
+        LogCu: Codeunit "LT NK More Log";
+    begin
+        exit(LogCu.Get());
+    end;
+
+    local procedure Rows() Result: Text
+    var
+        Line: Record "LT NK Line";
+    begin
+        Line.SetRange("Group Code", 'G1');
+        if Line.FindSet() then
+            repeat
+                Result += Line.Name + '/' + Line.Note + '/' + Line.Mark + '/' + Line.Value + ';';
+            until Line.Next() = 0;
+    end;
+
+    local procedure Others() Result: Text
+    var
+        Other: Record "LT NK Other";
+    begin
+        if Other.FindSet() then
+            repeat
+                Result += Other.Text + ';';
+            until Other.Next() = 0;
+    end;
+
+    local procedure Check(What: Text; Expected: Text; Actual: Text)
+    begin
+        if Expected <> Actual then
+            Error('%1: expected <%2>, found <%3>.', What, Expected, Actual);
+    end;
+}
+

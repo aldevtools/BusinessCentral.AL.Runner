@@ -24,7 +24,8 @@
 //! test filters the part to one day before and after). In the cells the probe measured (`part_refill_pins.rs`), the calls a cell
 //! made after that filter answer from the rows it read, as main does, under assumption `part-left-view-test-filter`
 //! (pages/parts/PartRefillTestFilter.al, corpus PR 1474, merged, not pinned yet; its two-field key cell
-//! PartRefill_TypedKeyTriggerPartActionThenFilterFirst_FindsRefilledRow is in corpus PR 1475, open): `TestFilterReread` admits
+//! PartRefill_TypedKeyTriggerPartActionThenFilterFirst_FindsRefilledRow is in corpus PR 1475, merged; the styled part of al-runner
+//! issue 8704 in corpus PR 1534, open): `TestFilterReread` admits
 //! each in turn (`measured_step_after_test_filter`), until a test call on another page. Every other call keeps the refusal.
 
 use super::part_refill_pins::Cell;
