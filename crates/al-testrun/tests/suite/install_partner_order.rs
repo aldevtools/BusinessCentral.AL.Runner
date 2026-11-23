@@ -931,14 +931,11 @@ fn a_read_order_against_the_dependency_order_is_refused() {
             answering(77400, "Q", "OnTwo"),
         ),
     ]);
+    let note = rt.phases.baseline_line().unwrap_or_default();
     match outcome(&rt, "ReadsTheLog") {
         Outcome::NotRun(why) => assert!(why.contains("Order Log"), "{why}"),
-        other => panic!(
-            "expected not run, got {other:?}; {}",
-            rt.phases.baseline_line().unwrap_or_default()
-        ),
+        other => panic!("expected not run, got {other:?}; {note}"),
     }
-    let note = rt.phases.baseline_line().unwrap_or_default();
     assert!(note.contains("an order their dependencies rule out"), "{note}");
 }
 

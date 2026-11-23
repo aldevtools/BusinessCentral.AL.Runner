@@ -433,16 +433,22 @@ pub(crate) fn final_units<'u>(
     inputs: impl Fn(&[u32]) -> Vec<&'u Vec<u32>>,
     needs: impl Fn(u32, u32) -> bool,
 ) -> Vec<&'u Vec<u32>> {
-    let mut left: Vec<&Vec<u32>> = units.iter().collect();
-    let mut out: Vec<&Vec<u32>> = Vec::new();
+    // waits[i][j]: unit i goes after unit j.
+    let waits: Vec<Vec<bool>> = (units.iter())
+        .map(|u| {
+            let ins = inputs(u);
+            (units.iter())
+                .map(|v| u != v && (ins.contains(&v) || u.iter().any(|&a| v.iter().any(|&b| needs(a, b)))))
+                .collect()
+        })
+        .collect();
+    let mut left: Vec<usize> = (0..units.len()).collect();
+    let mut out = Vec::new();
     while !left.is_empty() {
-        let waits = |u: &Vec<u32>, v: &Vec<u32>| {
-            u != v && (inputs(u).contains(&v) || u.iter().any(|&a| v.iter().any(|&b| needs(a, b))))
-        };
         let k = (0..left.len())
-            .find(|&i| !left.iter().any(|v| waits(left[i], v)))
+            .find(|&i| !left.iter().any(|&j| waits[left[i]][j]))
             .unwrap_or(0);
-        out.push(left.remove(k));
+        out.push(&units[left.remove(k)]);
     }
     out
 }
