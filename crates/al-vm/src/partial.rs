@@ -17,6 +17,9 @@
 //! What the corpus does not pin is refused when asked about: a primary key field under a secondary
 //! current key, a field of a row other than the one the buffer held, a field assigned without
 //! being loaded, a record written but never fetched, a field that is not stored.
+//!
+//! Partial records (SetLoadFields, LoadFields). Entry points: `note_partial_fetch`, `load_fields_op`,
+//! `load_fields_row`.
 
 use crate::Session;
 use crate::records::Rec;

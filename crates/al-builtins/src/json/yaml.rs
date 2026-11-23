@@ -1,5 +1,15 @@
 //! `JsonObject.WriteToYaml` and `JsonObject.ReadFromYaml`. Citations are relative to `corpus/tests/al-language/json/`:
 //! P88 `json/P88ObjectPathYaml.al`, PnA `PnAJsonYaml.al`, Dc `DcJsonLeads.al`, Probe `TestProbeJsonContracts.al`.
+//!
+//! `JsonObject.WriteToYaml` and `ReadFromYaml` (the call forms: what a failed read answers, the depth
+//! limits, which texts read unmarked). `json/yaml/read/` is the one YAML reader: `scan.rs` cuts the
+//! tokens the way libyaml does, `mod.rs` parses them and converts the tree to what BC hands on to
+//! JSON (null forms, `(Collection)` keys, duplicate keys, %TAG resolution), and `tags.rs` owns what a
+//! tagged scalar or key reads as (int, float, bool, timestamp, null, str, percent escapes); it
+//! refuses the characters, tags and forms no probe measured. Its rules cite corpus PRs 1493, 1515,
+//! 1519 and 1530 through the assumption `read-from-yaml-probed-shapes`, and PR 1549 through `read-
+//! from-yaml-final-shapes`, until they are pinned. Entry points: `read_from_yaml`, `write_to_yaml`,
+//! `read::document`.
 
 use super::{
     Handle, JsonNode, Reader, Scalar, invalid_json, new_handle, read_from, read_text_into, recv, with_node, write,

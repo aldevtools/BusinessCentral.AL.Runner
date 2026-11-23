@@ -1,6 +1,12 @@
 //! Reads past the client's window of 20 rows that run to the end of a long view: `Last` past a full window, the `New` of a
 //! list longer than a window (`draft.rs`), and the open of a tree whose view is longer than the window
 //! (corpus pages/long-list-open/LastOnLongList.al, al-runner issues 7475 and 7421).
+//!
+//! Reads past the window of 20 rows that run to the end of a long view: `Last` past a full window
+//! (one block, or the whole view on the scenario LastOnLongList.al pins,
+//! `last_reads_long_view_pinned`), the read `New` makes on a long list, and the open of a collapsed
+//! tree over a temporary source longer than a window. Entry points: `last_past_the_window`,
+//! `read_block_past_the_window`, `tree_open_reads_on`.
 
 use super::pinned_shape::{PinnedCode, TestCall};
 use super::*;

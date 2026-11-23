@@ -1,4 +1,6 @@
 //! The command line of `al-runner` (ADR-016 section 2): parsing and the help text.
+//!
+//! Command-line parsing and the `--help` text of `al-runner`. Entry points: `parse`, `HELP`.
 
 use std::path::{Path, PathBuf};
 

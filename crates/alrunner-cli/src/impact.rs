@@ -5,6 +5,15 @@
 //! APPs, their statements counted per test), and compares the outcome of each test. The report names the
 //! extension procedures each test entered. No impact index and no static selection: every selected test runs on
 //! both sides (ADR-043 section 6, steps 2 and 5 add those).
+//!
+//! `al-runner test --impact-of APP` (ADR-043 steps 1, 2 and 5): dynamic selection with a cached index
+//! (`decide` narrows the "with" run after its compile and install baseline; the "without" outcomes
+//! come from the index; tests the index's run refused get their static verdict, `refused_static`),
+//! static selection (`--impact static`, or no index cached: `run_static`/`decide_static`, both sides
+//! run the selection, with the warning), else both runs (`--impact all`); the change class of each
+//! test (selection miss included), the impact points it reached, the extension routines it entered,
+//! the report and exit code. Entry points: `run`, `run_dynamic`, `run_static`, `run_all`, `decide`,
+//! `decide_static`, `classify`, `Routines`, `diff_reached`, `report_with`.
 
 use crate::args::TestArgs;
 use crate::output;

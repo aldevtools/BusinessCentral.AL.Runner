@@ -52,6 +52,22 @@
 //!   leaves out the not-compiled check, whose entries do not say their app).
 //! - Own: an application area a subscriber sets is cleared when the first test starts, as for every test (not pinned
 //!   either way).
+//!
+//! The test session's login (al-runner issues 7343, 7717), and the one list of what it does not
+//! model: for a test codeunit that can see what an app under test's subscriber to "System
+//! Initialization" `OnAfterLogin` or "Guided Experience" `OnRegisterAssistedSetup` leaves (`decide`),
+//! `install::test_session_company_open` also runs the dependency apps' Company Triggers
+//! `OnCompanyOpenCompleted` subscribers, which raise the login (`Login::Raise`); also when those
+//! subscribers read what the dependency apps' login code writes (`reads_microsofts_login`, except
+//! calls of Guided Experience or Checklist keyed on a constant own object), subscribe to
+//! OnRegisterManualSetup or OnRegisterGuidedExperienceItem (`RAISE_ONLY`), or the checklist is set up
+//! (`checklist_set_up`); a test that touches a table the own subscribers wrote marks `login-own-
+//! registration-reads-alone` (`CompanyOpenWrites::watch_hit`); otherwise it raises the two events to
+//! the apps under test's own subscribers only (`Login::Own`, `install::own_login`, al-vm
+//! `Session::raise_to`), watched under `--no-client` and Disabled isolation
+//! (`install::CompanyOpenWrites::watched_login`, al-vm `state_stamp.rs`, `watched_state`);
+//! `state_objects` for the baseline rule. Entry points: `decide`, `Login`, `LOGIN_RAISER`,
+//! `state_objects`.
 
 use crate::runtime::written::{
     JoinedReach, ReachFacts, ReachIndex, global_triggers_reach_facts, login_subscriber_reach_facts,

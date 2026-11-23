@@ -1,4 +1,11 @@
 //! What a compile produces and keeps (`Compiled`), the warm slot (`Warm`), and what a run asks for.
+//!
+//! What a compile produces and keeps (`Compiled`, `into_apps` for another compile of the same run),
+//! the warm slot (`Warm`; the engines a request kept for the next one over the same compile,
+//! `KeptEngines`, issue 5856; the install baseline it read is kept per thread by
+//! `baseline_cache::read_kept`, and across an edit the install code cannot reach by
+//! `baseline_cache::carry`), and what a run asks for. Entry points: `RunOptions`, `Compiled`, `Warm`,
+//! `SuiteRun`.
 use super::*;
 
 /// How the `OnRun` trigger of a test codeunit shows in the results of a run: what Microsoft's test runner reports, which

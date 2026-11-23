@@ -11,6 +11,8 @@
 //! cond    := field '=' ( const(..) | filter(..) | field(ref) )
 //! ref     := name | upperlimit(name) | filter(name)
 //! ```
+//!
+//! Entry points: `Formula`, `Cond`, `CondValue`, `parse`.
 
 use al_ir::CalcMethod;
 

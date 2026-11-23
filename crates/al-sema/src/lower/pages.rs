@@ -1,4 +1,6 @@
 //! Lowering of page control trees, `RunObject` and part links.
+//!
+//! Page control trees, `RunObject`, part links. Entry points: `page`, `run_object`.
 use super::shared::with_field_guard;
 use super::*;
 

@@ -12,6 +12,11 @@
 //! Nothing from BCApps is committed to this repository (hard rule 7).
 //!
 //! This file does the OS work (git, folders) that the core crates must not do (ADR-006).
+//!
+//! Where the Microsoft recipe files come from: a sparse `git` checkout of BCApps
+//! `releases/<major>.<minor>` kept in `<cache>/bcapps/<major>.<minor>/`; a release without the
+//! BaseApp test recipe (before 29.0) uses `releases/29.0`. Entry points: `resolve`, `git_fetch`,
+//! `has_recipe`.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

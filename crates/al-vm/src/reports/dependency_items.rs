@@ -1,4 +1,11 @@
 //! Resolves report extension data items and binds the records their owners supply.
+//!
+//! data items a report extension of a dependency app adds and a consumer extension names (ADR-075).
+//! `item_anchor` maps an IR anchor to the running item, `bind_report_item_aliases` points the
+//! consumer's names at the owner's records, and `require_pinned_entry` / `check_static_save` refuse
+//! every entry point but a static `Report.SaveAs` to an XML stream (`ir::Report::dependency_items`;
+//! pinned by reports/extensions/TestReportDependencyDataItems.al). al-sema
+//! `reports::dependency_dataset_items` decides which items a consumer sees.
 use super::*;
 
 pub(super) fn item_anchor(report: &ir::Report, owner: usize, anchor: ir::ItemAnchor) -> Option<ItemRef> {

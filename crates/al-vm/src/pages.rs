@@ -5,6 +5,9 @@
 //!
 //! Every rule below cites the corpus test that pins it; behaviour no test
 //! pins raises `Signal::Unsupported`.
+//!
+//! The page test client (ADR-012): shared helpers, page triggers and events, the handle to a control.
+//! The rest is split by topic into `pages/`.
 
 use crate::{Engine, Session, UiKind};
 use al_builtins::describe::Describe;

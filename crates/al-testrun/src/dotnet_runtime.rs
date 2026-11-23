@@ -22,6 +22,12 @@
 //! chosen here. `DOTNET_ROLL_FORWARD=Major`, used before, never left .NET 8 when .NET 8 was installed: it rolls forward
 //! only when the requested major is missing, which is why `--dotnet-allow-roll-forward` changed nothing on a machine
 //! with .NET 8 and 10.
+//!
+//! Which `Microsoft.NETCore.App` the sidecar runs on: the major the runtime configuration of the
+//! run's service tier names (`ServiceRuntime`: a fetched tier or an extracted service folder; an
+//! unreadable one refuses every DotNet call), else the BC major's table (8 for BC 27-28, 10 for BC 29),
+//! and the newest installed patch of it, or a newer major with `--dotnet-allow-roll-forward`.
+//! Entry points: `ServiceRuntime`, `need`, `runtime_major_for_bc`, `pick_runtime`.
 
 use al_deps::artifact::Cdn;
 use al_deps::service_tier::ServiceTier;

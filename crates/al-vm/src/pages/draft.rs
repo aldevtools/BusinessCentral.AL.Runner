@@ -1,3 +1,7 @@
+//! New rows, drafts, saving a row, activating a control. The one owner of the new-row rules other
+//! modules share: `top_card_or_document`, `key_typed_since_draft_start` (`PageState::draft_start`).
+//! Close of the OpenNew row whose key was typed leaves the parts that show no row unread
+//! (`quiet_parts_at_new_host_close`).
 use super::pinned_shape::TestCall;
 use super::*;
 use al_builtins::page_op::PageMethod;

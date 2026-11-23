@@ -13,6 +13,22 @@
 //! first, then the rest, the single instances starting fresh at that boundary (`chain_walk.rs` `starts_fresh`). That
 //! the hub leg runs first is not pinned (`RqIsolationModes.al:12` states it in the header only; corpus issue #1559): a
 //! runner 130450 codeunit that read what a hub-leg writer of unknown place left is refused ([`Unpinned`], [`HubLeft`]).
+//!
+//! `groups` makes one walk per BC session from `single_lane.rs` `keyed_streams` (suite and hub leg, or each
+//! `--test-suites` line; the hub leg first, then the rest, refused Disabled links at their place) and gives each runner
+//! 130450 codeunit whose place against hub-leg writers is not pinned those writers (`Unpinned`: a codeunit with handlers
+//! gets every writer, another the writers placed after it); the walk notes what each hub-leg member left by itself
+//! (`HubLeft::note`) and refuses such a codeunit only when its run read a table those writers left rows in
+//! (`Scratch::leak_hits`, `HubLeft::refusal`). `StrictRun::run` walks them with `ChainWalk` in `sequential` mode (every
+//! unit a member, `ChainWhy::InOrder` for one that leaves nothing, single instances kept from member to member) in
+//! parallel, one thread per walk (`threads::run_parallel`), and merges results, details and the chain report.
+//! `stops_session`/`after_run`: a test refused while it ran, a time-limit stop, a codeunit none of whose tests ran or a
+//! panic stops the session; `strict_taint.rs` (`Taint`, `unit_facts`) flags a later codeunit
+//! `Assumption::StrictAfterRefused` only when its reach can read what the stopped (or flagged) codeunits' reach could
+//! have changed (`ReachFacts::changes_read_by`; an unknown reach on either side flags, a panic, a codeunit refused as a
+//! whole after its session started or a codeunit that is not run drops the single instances and flags all later ones
+//! (`strict_walk::singles_held` before and after each run, `Scratch::hands_on_none`); after a test refused while it ran
+//! the single instances move on, `Unit::singles_past_stop`).
 
 use super::chain_walk::{ChainWalk, Link};
 use super::single_lane::{Stream, keyed_streams};

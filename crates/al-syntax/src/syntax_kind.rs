@@ -1,6 +1,8 @@
 //! Every token and node kind. Keywords are not separate kinds: AL keywords are
 //! case-insensitive and mostly contextual, so the parser recognises them from
 //! `Ident` text.
+//!
+//! Entry points: `SyntaxKind`, `AlLanguage`, `SyntaxNode`, `SyntaxToken`.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(u16)]

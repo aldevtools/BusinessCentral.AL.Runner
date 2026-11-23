@@ -3,6 +3,10 @@
 //! test fails until the function here becomes a gate. A major that the probe did not measure gets `None` (or `false` where the
 //! function answers whether a major is measured); no target means the newest behavior, as [`crate::has`] does, or `false` where the
 //! newest major is not measured.
+//!
+//! Behavior that differs between BC versions in an open corpus probe, before a bump pins its guard
+//! (not a `Gate`; `tests/gate_completeness.rs` fails at the bump until it becomes one). Entry points:
+//! `journal_temp_part_reads_after_refresh`.
 
 use crate::Target;
 

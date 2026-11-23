@@ -1,5 +1,13 @@
 //! Where the refresh after a control's OnValidate changed the filters starts (`refresh_after_validate_filter`), including from
 //! the new-row line (gap G5-20).
+//!
+//! Where the refresh after a control's OnValidate changed the filters starts, including from the new-
+//! row line, and Update(true) from that line (gap G5-20). From the line to an empty view the page
+//! shows the new-row line of that view (al-runner issue 6924, assumption `new-line-switch-to-empty-
+//! view`). Entry points: `validate_refresh_start`, `same_filters_on_empty_new_line`,
+//! `show_new_line_of_empty_view`, `save_found_row_from_new_line`, `reread_view_from_row` (the refresh
+//! that reads the view from its first row, for `refresh_after_validate_filter` and
+//! `code_inserted_new_line.rs`, which leaves out the last read of the row on its FactBox host).
 
 use super::pinned_body::{Callees, Names, callees_are, page_is, table_is};
 use super::pinned_shape::TestCall;

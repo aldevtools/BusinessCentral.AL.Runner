@@ -2,6 +2,14 @@
 //!
 //! Exit codes: 0 ok, 1 regression against the baseline, 2 setup error
 //! (oracle and corpus disagree, unreadable input, bad arguments).
+//!
+//! The binary: run each oracle version, report, check the not-passing lists. Exit 0 ok, 1 a list does
+//! not hold, 2 setup error. A version runs in passes (`passes`, `run_version_passes`): the main app
+//! with the suites of the main environment, then one pass per set of `extra_apps` (oracle.toml) with
+//! only those suites; the reports are joined before `--json`/`--markdown` are written. The main pass
+//! keeps its compile (`PassCompile`), and the next pass grows it by its own apps (ADR-063;
+//! `AL_FRESH_PASS_COMPILE=1` turns it off). Entry points: `main`, `run`, `run_version_passes`,
+//! `run_version`, `find_explained`, `drift_summary`.
 
 use al_host::dotnet::DotNetHost;
 use al_test_cli::args::{self, Args, Parsed};

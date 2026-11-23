@@ -6,6 +6,14 @@
 //! did not pass or was not run, or when it changed isolated storage or a number sequence, is not known or not followed
 //! (`run.rs` `carry_disabled`, [`Carried::unfinished`], [`Carried::storage_why`]): a later codeunit that reads it is
 //! refused.
+//!
+//! A codeunit that comes after a carry-chain member, one rule for the walk (`chain_walk.rs`) and the re-run after the
+//! parallel part (`corpus.rs`): `After` (whether a run read what the carry left, `read`; the refusal when that is not
+//! known or not followed, `refusal`, and for a codeunit outside the chain `outside_refusal`, with handlers after a hub
+//! member, `handlers_unpinned`), `leak` (the tables to watch, `Unit::leak`), `has_handlers`, and `place_unpinned`: the
+//! refusal text of a runner 130450 codeunit of the `--strict-order` walk that read what a hub-leg writer of unknown
+//! place left, naming that writer (`strict_walk.rs` `Unpinned`, `HubLeft`). Entry points: `After::new`,
+//! `place_unpinned`.
 
 use super::run::Carried;
 use super::*;

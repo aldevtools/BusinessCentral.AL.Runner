@@ -1,5 +1,7 @@
 //! `WebServiceActionContext`: the object an API page action tells the OData layer to answer with.
 //! A mutable in-memory value shared by assignment (corpus session-system/TestWebServiceActionContext.al).
+//!
+//! Entry points: `native_for`.
 
 use crate::describe::Describe;
 use crate::native::{Ctx, NativeFn, Signal, unsupported};

@@ -2,6 +2,14 @@
 //! outcome changes between them (console, `--output-json`, `--junit`), and the exit code. The config, the registry of
 //! dimensions and the variants are al-testrun's (`al_testrun::stability`); the runs share one compile
 //! (`CorpusRuntime::try_run_variants`).
+//!
+//! `al-runner test --stability` (ADR-058): the plan of a run (`plan`, `Plan::new`: the cells of this
+//! process, one per value of the `environment` axis, their variants, master seed, config hash;
+//! `parse_cell` reads a cell name back), `--stability-replay` (`replay`), the comparison of each
+//! variant with the base variant and the console report (`compare`), the exit code, the `stability`
+//! object of `--output-json` (`json`) and the JUnit with one testsuite per variant (`junit`). The
+//! variants run over one compile (al-testrun `CorpusRuntime::try_run_variants`). Entry points:
+//! `plan`, `replay`, `compare`, `json`, `junit`.
 
 use crate::args::TestArgs;
 use al_testrun::runtime::TestResult;

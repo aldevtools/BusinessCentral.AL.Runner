@@ -7,6 +7,9 @@
 //! and every procedure it calls: anything else (another Get, a read of Rec outside that key, an assignment to Rec or one of its
 //! fields, a method of Rec, a CurrPage or UI call, Commit, Codeunit.Run, a loop, an event, code the runtime refused to lower) is
 //! outside the cells.
+//!
+//! The allowlist of what that expression and its callees may do (`data_caption_body_in_cells`),
+//! checked on the compiled code.
 
 use super::*;
 use al_builtins::builtin_id::BuiltinId;

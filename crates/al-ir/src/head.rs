@@ -5,6 +5,9 @@
 //! objects of a list whose objects are made on first read. The field names are those of [`Object`], so a pass moves
 //! from objects to heads by its loop alone. A head is computed from its object ([`ObjectHead::of`]); a test compares
 //! the two.
+//!
+//! `ObjectHead`, what a pass over all objects reads of an object (ADR-054 decision 2): kind, id,
+//! name, app, properties, the linked table, routine count and the event routines.
 
 use crate::{Attribute, ObjKind, Object, Table};
 use al_builtins::value::RtType;

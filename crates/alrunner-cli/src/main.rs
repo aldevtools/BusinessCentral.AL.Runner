@@ -1,4 +1,7 @@
 //! `al-runner`: the user command line of AL Runner v3 (ADR-016). Today: `al-runner test`.
+//!
+//! The `al-runner` binary: runs on a thread with a large stack, maps results to exit codes. Entry
+//! points: `main`.
 
 mod affected;
 mod apps;

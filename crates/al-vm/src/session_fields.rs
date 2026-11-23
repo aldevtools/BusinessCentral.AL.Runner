@@ -72,6 +72,14 @@
 //!   `crates/al-vm/src/platform/mod.rs` `static SHARED`, `crates/al-vm/src/refs.rs` `static C`,
 //!   `crates/al-vm/src/report_save/cells.rs` `static CELLS`: run (tables of the program and the platform, the same for
 //!   every session).
+//!
+//! Every `Session` field in one class of one table (al-runner issue 8211): `plain`, `linked`,
+//! `fresh`, `refuse` (a new session's value, the predicate next to the field), `rest` (no code runs,
+//! the predicate next to the field) and `own`. The table makes the pattern that names every field,
+//! `Session::install_refused_field` (read by `install_left`) and `Session::at_rest_why`; its module
+//! comment lists every owner of session state outside the fields (al-test-cli
+//! `tests/outside_session_state.rs` keeps it complete). Entry points: `Session::at_rest_why`,
+//! `Session::install_refused_field`.
 
 use crate::Session;
 use std::collections::{BTreeSet, HashMap, HashSet};

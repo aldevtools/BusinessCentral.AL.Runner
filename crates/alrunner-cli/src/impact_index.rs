@@ -8,6 +8,12 @@
 //! outcomes with the content of the files such an option names (`run_inputs.rs`, the one list of them). The Microsoft
 //! apps the run compiled are stored in the index and checked against the impact run's compile (a different build
 //! of the Base App makes the index stale).
+//!
+//! The impact index (ADR-043 step 2): format (gzip JSON, `FORMAT`), cache key and path
+//! (`<cache>/impact/<key>/index.json.gz`), `al-runner impact-index build`, and `al-runner impact-
+//! index check-static` (step 5: every key a test recorded must be in its static reach; ratios per
+//! kind of key; `AL_IMPACT_WHY=<key>` prints the paths). Entry points: `Index`, `key`, `lookup`,
+//! `build`, `check_static`.
 
 use crate::apps;
 use crate::args::TestArgs;

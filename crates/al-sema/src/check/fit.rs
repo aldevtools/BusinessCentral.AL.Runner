@@ -1,4 +1,6 @@
 //! Candidates and whether an argument type fits a parameter type.
+//!
+//! Entry points: `fits`, `sig_cand`, `proc_cand`.
 use super::*;
 
 pub(crate) fn proc_cand(p: &ProcSig) -> Cand {

@@ -17,6 +17,15 @@
 //!
 //! A fingerprint is a byte string of the value ([`Fp::Val`]) or, for a value that has no comparable form (a .NET
 //! object, a page, a stream, a temporary record), [`Fp::Opaque`], which never equals anything.
+//!
+//! The notes of a session that watches SingleInstance codeunits (ADR-066 amendment 2): per global the
+//! fingerprint at its first read, after the refill and at the end (`SingleOut`), hooks
+//! `single_read`/`single_wrote`/`single_replaced` (a write in place, amendment 3 R1; the VM emits
+//! `Op::SingleWrite` before such a builtin or `var` argument)/`single_written`/`single_made`, and
+//! `single_test_begins` (numbers the test methods; `SingleOut::read_in` gives the test each global
+//! was first read in, ADR-066 amendment 7), `take_single_instances`/`adopt_single_instances`, which
+//! move the single instances, temporary tables and manual bindings from one codeunit's session to the
+//! next in the serial lane.
 
 use crate::Session;
 use al_builtins::value::{Instance, Value};

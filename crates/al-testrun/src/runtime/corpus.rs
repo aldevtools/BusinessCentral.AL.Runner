@@ -1,4 +1,8 @@
 //! `CorpusRuntime`: compiling suites of apps and running them.
+//!
+//! A selection of pure tests is compiled lean (`compile_suites_with`, `Roots::lean`) and run again on
+//! a compile that leaves less out when a test met what was left out (`narrowing.rs`). Entry points:
+//! `run_suites_with`, `compile_suites`, `run_compiled`.
 use super::carry_after::After;
 use super::narrowing::{Met, Narrowing};
 use super::*;

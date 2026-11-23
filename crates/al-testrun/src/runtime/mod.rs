@@ -1,6 +1,10 @@
 //! Runs test codeunits the way BC's test runner does, as far as the corpus
 //! pins it: one instance per test codeunit, `OnRun` once before the tests
 //! (codeunit/TestCodeunitOnRun.al), tests in declaration order.
+//!
+//! Runs test codeunits the way BC's test runner does; one Session per codeunit. Holds the app and
+//! manifest loading, `CorpusRuntime`, `TestResult`, `Phases` and the single-unit run. Entry points:
+//! `CorpusRuntime`, `load_app`, `Phases`.
 
 use crate::explain::{self, TestDetail};
 use crate::isolation::{Checkpoint, TestIsolation, runner_isolation};

@@ -18,6 +18,18 @@
 //! ([`TestDriver::run_onrun_carries`]), the pass ([`run_pass`], a link of the carry chain at the front of each BC
 //! session, `chain_walk.rs`) and what is refused because no probe pins it ([`Plan::refusal`] before the run,
 //! [`refuse_after_pass`] after it).
+//!
+//! The test driver (ADR-074, `TestDriver`, `RunOptions::test_driver`, `SuiteRun::driver`; `al-runner
+//! test --test-driver`, the harness from `OracleFormat::driver`) and every difference between the
+//! two: the hub (`TestDriver::has_hub`, `corpus.rs` `hub_path`), the run's OnRun carry
+//! (`run_onrun_carries`, `run_onrun_left`), BcContainerHelper's discovery pass (`Plan` per BC
+//! session, `Plan::link` puts `chain_walk.rs` `Link::Discovery` at the front of the session,
+//! `run_pass` runs in the session `run.rs` `discover` opens, `take_found`), the codeunits whose OnRun
+//! raised there (`skip_methods_if_raised`), whether a run is one BC session (`one_session`, the front
+//! ends then take BC order) and measures what each codeunit reads (`watches_reads`,
+//! `Scratch::read_tables`), and the refusals (`unmeasured` runners and `Plan::refusal` before the
+//! run, `refuse_after_pass`/`unpinned_reach` after it). Entry points: `TestDriver`, `Plan`,
+//! `run_pass`, `refuse_after_pass`.
 
 use super::blocked::tables_touched;
 use super::chain_walk::Link;

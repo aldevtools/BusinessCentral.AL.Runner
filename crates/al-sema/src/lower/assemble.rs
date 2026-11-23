@@ -1,5 +1,9 @@
 //! Lowering a whole workspace: drives the objects (in parallel when it pays), builds the shared
 //! data, and relowers the objects an edit touched.
+//!
+//! Lowering a whole workspace: drives the objects (in parallel), builds the shared data, relowers the
+//! objects an edit touched. Entry points: `lower_with_positions`, `build_shared`, `lower_core`,
+//! `relower_objects`.
 use super::*;
 
 /// The routines driven by the slots of a routine (its locals) and its object (its globals).

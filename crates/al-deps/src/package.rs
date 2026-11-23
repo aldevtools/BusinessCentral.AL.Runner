@@ -1,4 +1,7 @@
 //! An `.app` package: its manifest and its AL source entries.
+//!
+//! Reading an .app package: manifest, sources, resources. Entry points: `Manifest`, `parse_manifest`,
+//! `Sources`.
 
 use crate::select::DepDecl;
 use crate::version::Version;
