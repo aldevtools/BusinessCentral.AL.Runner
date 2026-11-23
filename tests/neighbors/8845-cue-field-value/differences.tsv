@@ -7,3 +7,5 @@ LT CFN Tests::CueDateFormula_Value	REFUSED Value of a field control in a cuegrou
 # each (measured 3/3 here); main showed the text, the head refuses.
 LT CFN Tests::DocumentCueCode_Value	REFUSED Value of a field control in a cuegroup outside a Card
 LT CFN Tests::PartCueCode_Value	REFUSED Value of a field control in a cuegroup outside a Card
+# An Integer in a wide cuegroup alone on the Card: main refused it; the head shows its value under the entry, as BC does (:742).
+LT CFN Wide Tests::WideCueInteger_Value	ASSUMED cuegroup-field-value (corpus PR 1538 :742, WideIntValue)

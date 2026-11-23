@@ -51,19 +51,21 @@ fn cue_cells_pass() {
     assert!(cue.len() == 6 && bad.is_empty(), "{cue:#?}");
 }
 
-/// The neighbors past the cells refuse, each measured on BC: a DateFormula field in a cuegroup, a Boolean field in a wide one,
-/// a Code field in a cuegroup on a Document page and in a CardPart read through its host (BC shows `0` for each).
+/// The neighbors past the cells, each measured on BC: an Integer in a wide cuegroup alone on the Card passes under the entry (BC
+/// shows its value, :742 measures it); every other one refuses: a DateFormula field in a cuegroup, a Boolean field in a wide
+/// one, a Code field in a cuegroup on a Document page and in a CardPart read through its host (BC shows `0` for each), and the
+/// wide Integer there (BC shows its value; main refused it).
 #[test]
-fn neighbors_past_the_cells_refuse() {
-    let o = outcomes(
-        include_str!("../../../../tests/neighbors/8845-cue-field-value/src/Neighbors.al"),
-        "LT CFN Tests",
-    );
+fn neighbors_past_the_cells() {
+    let src = include_str!("../../../../tests/neighbors/8845-cue-field-value/src/Neighbors.al");
+    let mut o = outcomes(src, "LT CFN Tests");
+    o.extend(outcomes(src, "LT CFN Wide Tests"));
     let bad: Vec<_> = o
         .iter()
-        .filter(
-            |(_, r, _)| !matches!(r, Outcome::NotRun(why) if why.starts_with("Value of a field control in a cuegroup")),
-        )
+        .filter(|(n, r, marks)| match n.as_str() {
+            "WideCueInteger_Value" => *r != Outcome::Pass || *marks != [CuegroupFieldValue],
+            _ => !matches!(r, Outcome::NotRun(why) if why.starts_with("Value of a field control in a cuegroup")),
+        })
         .collect();
-    assert!(o.len() == 4 && bad.is_empty(), "{o:#?}");
+    assert!(o.len() == 7 && bad.is_empty(), "{o:#?}");
 }
