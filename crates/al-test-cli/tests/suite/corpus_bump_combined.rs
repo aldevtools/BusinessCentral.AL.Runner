@@ -1786,6 +1786,48 @@ fn a_manifest_with_symbols_but_no_list_is_refused() {
     refused(&c, &s, "names preprocessor symbols but no released minors");
 }
 
+#[test]
+fn a_manifest_list_of_released_minors_that_is_no_list_of_versions_is_refused() {
+    let c = corpus();
+    for bad in [
+        serde_json::json!([]),
+        serde_json::json!("29.1"),
+        serde_json::json!([29.1]),
+    ] {
+        let mut s = Spec::combined(&c);
+        with_symbols(&mut s);
+        s.manifest.as_mut().unwrap()["released_minors"] = bad;
+        refused(&c, &s, "the results manifest's released minors");
+    }
+}
+
+#[test]
+fn manifest_symbols_that_are_no_list_of_names_are_refused() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    with_symbols(&mut s);
+    s.manifest.as_mut().unwrap()["versions"]["27.5"]["preprocessor_symbols"] = serde_json::json!("BC27PLUS");
+    refused(
+        &c,
+        &s,
+        "BC 27.5: the results manifest's preprocessor symbols 'BC27PLUS' are not a list of names",
+    );
+}
+
+/// al-test-cli refuses the list (an entry that is no `major.minor`), so the check refuses with its message.
+#[test]
+fn a_list_al_test_cli_refuses_is_refused() {
+    let c = corpus();
+    let mut s = Spec::combined(&c);
+    with_symbols(&mut s);
+    s.manifest.as_mut().unwrap()["released_minors"] = serde_json::json!(["27.0", "29"]);
+    refused(
+        &c,
+        &s,
+        "al-test-cli --print-symbols 27.5 --released-minors 27.0,29 failed: error: --released-minors",
+    );
+}
+
 /// The list in oracle.toml never goes away by a bump: a manifest without it (or a run without a manifest) is refused.
 #[test]
 fn a_manifest_without_a_list_is_refused_once_oracle_toml_records_one() {
