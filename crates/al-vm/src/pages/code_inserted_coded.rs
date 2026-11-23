@@ -265,10 +265,26 @@ impl Session {
             return Ok(false);
         }
         let objects = self.coded_code(st).unwrap_or(super::state::CodedObjects::Extra);
+        let extra = objects == super::state::CodedObjects::Extra;
+        // On a page of the shape of the page with code, the cells' OnOpenPage and parts write nothing at the open
+        // (ListNewLineExtraCodeCodedPage.al:379-382, :773 `OPEN;U.AGCR();`): a page whose OnOpenPage wrote keeps main's way,
+        // and a part that writes while it reads the blank record is not measured, and refused (review of al-runner PR 8834,
+        // 21:06Z).
+        if extra && self.store.change_counter() != st.borrow().open_changes {
+            return Ok(false);
+        }
         st.borrow_mut().coded_objects = objects;
         coded_assume(st);
         st.borrow_mut().coded_line = CodedLine::EmptyOpen;
+        let before = self.store.change_counter();
         self.with_blank_landing(st, |s| s.sync_parts_at_open(st))?;
+        if extra && self.store.change_counter() != before {
+            st.borrow_mut().coded_line = CodedLine::Off;
+            return unsupported(
+                "a part of a List page of the shape of the page with code wrote the store when it read the blank record at the \
+                 open (not measured)",
+            );
+        }
         Ok(true)
     }
 

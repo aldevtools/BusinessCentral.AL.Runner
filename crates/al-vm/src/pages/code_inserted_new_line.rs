@@ -892,6 +892,15 @@ impl Session {
                  line onto the row the table field inserted, and the CurrPage.Update(false) after it (not measured)",
             );
         }
+        let coded_extra = st.borrow().coded_objects == super::state::CodedObjects::Extra
+            && matches!(self.code_inserted_page(st)?, Some((Triggers::Coded, _)));
+        if coded_extra && !self.extra_coded_between_kept(st, view)? {
+            st.borrow_mut().forget_code_inserted_line();
+            return unsupported(
+                "a field of Rec set, or another table written, between CurrPage.SaveRecord and the CurrPage.Update(false) after \
+                 it on a List page of the shape of the page with code (not measured)",
+            );
+        }
         let asked = match view.extra {
             // The effect gate notes what the page, the table and the store hold at the Update (`extra_code_unchanged`).
             true => self.extra_code_at_update(st)?,

@@ -1055,6 +1055,9 @@ pub struct PageState {
     pub coded_line: CodedLine,
     /// Whose objects the page with code is, noted at its open (`coded_open_on_empty_view`).
     pub coded_objects: CodedObjects,
+    /// The store's change counter when the page began to open (`open_page`): `coded_open_on_empty_view` tells by it whether
+    /// OnOpenPage or a part's trigger wrote at the open.
+    pub open_changes: u64,
     /// The page control's own OnValidate while it runs (`code_inserted_new_line.rs` `run_control_onvalidate`).
     pub control_onvalidate: Option<ControlOnValidate>,
     /// `CurrPage.SaveRecord()` saved the row page code found from the new-row line through assumption
