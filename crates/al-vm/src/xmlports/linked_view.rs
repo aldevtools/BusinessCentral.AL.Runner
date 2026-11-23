@@ -10,6 +10,8 @@
 
 use super::*;
 
+const LINKED_VIEW_OTHER_VALUE: &str = "XmlPort import of a linked table element whose SourceTableView const filter's field holds another value at the save (not pinned)";
+
 /// The field position and value of the one `const` filter of the SourceTableView of `node`, when the element is in the
 /// measured shape: right below a table element right below the root text element of a Format = Xml port, linked to it
 /// (LinkTable = that element), MinOccurs = Zero (:633), AutoSave without AutoUpdate, AutoReplace or UseTemporary, only
@@ -22,6 +24,51 @@ pub(super) struct LinkedViewConst {
 }
 
 impl Session {
+    /// The measured `const` shape of a linked element whose SourceTableView filters; `None` for an element that is not
+    /// linked or whose view does not filter. Every other linked element with a filtering view keeps main's refusal.
+    pub(super) fn xp_linked_view_entry(
+        &mut self,
+        inst: &Inst,
+        schema: &Schema,
+        node: usize,
+    ) -> Result<Option<LinkedViewConst>, Signal> {
+        let n = schema.node(node);
+        let filtering_link = n.link_node.is_some()
+            && n.source_view
+                .as_deref()
+                .is_some_and(|v| crate::views::view_clauses(v).filters);
+        if !filtering_link {
+            return Ok(None);
+        }
+        match self.xp_linked_view_const(inst, schema, node)? {
+            Some(c) => Ok(Some(c)),
+            None => unsupported(format!(
+                "XmlPort import: sourcetableview with a filter on the linked tableelement {} is not pinned",
+                n.name
+            )),
+        }
+    }
+
+    /// Saves the record of the measured element: the row holds the filter's value at its save, and keeps it.
+    pub(super) fn xp_save_view_const(
+        &mut self,
+        inst: &Inst,
+        schema: &Schema,
+        node: usize,
+        c: &LinkedViewConst,
+        assigned: &[usize],
+    ) -> Result<(), Signal> {
+        if !self.xp_holds_view_const(inst, schema, node, c)? {
+            return unsupported(LINKED_VIEW_OTHER_VALUE);
+        }
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportLinkedViewConst);
+        self.xp_save_record(inst, schema, node, assigned, false)?;
+        if !self.xp_holds_view_const(inst, schema, node, c)? {
+            return unsupported(LINKED_VIEW_OTHER_VALUE);
+        }
+        Ok(())
+    }
+
     pub(super) fn xp_linked_view_const(
         &mut self,
         inst: &Inst,
@@ -105,7 +152,7 @@ impl Session {
 
     /// Whether the record of `node` holds the filter's value in the filtered field: the measured row, before and after its
     /// save.
-    pub(super) fn xp_holds_view_const(
+    fn xp_holds_view_const(
         &mut self,
         inst: &Inst,
         schema: &Schema,
