@@ -453,7 +453,9 @@ impl Session {
         // :1675 `ByValue_ReportProcedure_DataItemView` and :1690 `_DataItemViewToCodeunit`: `callee f={} n=3 key=Id asc=Yes
         // grp=0`), also read descending on the primary or a secondary key and to a codeunit whose table procedure reads
         // ReadIsolation (corpus PR 1544, open, record/filters/ByValueDataItemView.al:220, :234 and :248, al-runner issue
-        // 8838: `f={} n=4 key=Id asc=Yes grp=0 ... iso before=Default`). Not pinned yet, so the copy holds
+        // 8838: `f={} n=4 key=Id asc=Yes grp=0 ... iso before=Default`), a child data item that also holds its DataItemLink
+        // filter in group 4 (:476 and :490: `f={} n=5 key=RowId,Id asc=Yes`), and a procedure of another instance of the
+        // same report as the callee (:504: `other instance id=4 f={} n=4 key=Id asc=Yes`). Not pinned yet, so the copy holds
         // `by-value-report-procedure`, also for a codeunit callee, whose other cells are pinned.
         let item_view = measured.is_some()
             && matches!(callee_kind, ObjKind::Codeunit | ObjKind::Report)

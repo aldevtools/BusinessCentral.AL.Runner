@@ -55,6 +55,11 @@ codeunit 50802 "NB DIV Callee"
     begin
         exit(Describe(R) + R.NeedToReplenish());
     end;
+
+    procedure DescribeLine(L: Record "NB DIV Line"): Text
+    begin
+        exit('f={' + L.GetFilters() + '} n=' + Format(L.Count()) + ' key=' + L.CurrentKey() + ' asc=' + Format(L.Ascending()));
+    end;
 }
 
 codeunit 50803 "NB DIV Result"
@@ -309,6 +314,99 @@ xmlport 50808 "NB DIV Xml"
     end;
 }
 
+table 50811 "NB DIV Line"
+{
+    fields
+    {
+        field(1; RowId; Integer) { }
+        field(2; Id; Integer) { }
+        field(3; Amt; Decimal) { }
+    }
+    keys
+    {
+        key(PK; RowId, Id) { Clustered = true; }
+    }
+}
+
+// A child data item with both a DataItemLink (group 4) and a DataItemTableView (group 5).
+report 50812 "NB DIV Link"
+{
+    ProcessingOnly = true;
+    UseRequestPage = false;
+
+    dataset
+    {
+        dataitem(Row; "NB DIV Row")
+        {
+            DataItemTableView = sorting(Id) where(Status = filter(Open));
+
+            dataitem(Line; "NB DIV Line")
+            {
+                DataItemLink = RowId = field(Id);
+                DataItemTableView = sorting(RowId, Id) order(descending) where(Amt = filter(> 0));
+
+                trigger OnAfterGetRecord()
+                var
+                    Callee: Codeunit "NB DIV Callee";
+                begin
+                    if Done then
+                        exit;
+                    Done := true;
+                    Outcome := Callee.DescribeLine(Line);
+                end;
+            }
+        }
+    }
+
+    var
+        Done: Boolean;
+        Outcome: Text;
+
+    procedure GetResult(): Text
+    begin
+        exit(Outcome);
+    end;
+}
+
+// The data item with its view handed to a procedure of another instance of the same report.
+report 50813 "NB DIV Other Instance"
+{
+    ProcessingOnly = true;
+    UseRequestPage = false;
+
+    dataset
+    {
+        dataitem(Row; "NB DIV Row")
+        {
+            DataItemTableView = sorting(Id) order(descending) where(Status = filter(Open));
+
+            trigger OnAfterGetRecord()
+            var
+                OtherInstance: Report "NB DIV Other Instance";
+            begin
+                if Done then
+                    exit;
+                Done := true;
+                Outcome := OtherInstance.Describe(Row);
+            end;
+        }
+    }
+
+    var
+        Done: Boolean;
+        Outcome: Text;
+
+    procedure GetResult(): Text
+    begin
+        exit(Outcome);
+    end;
+
+    procedure Describe(R: Record "NB DIV Row"): Text
+    begin
+        exit('f={' + R.GetFilters() + '} n=' + Format(R.Count()) + ' key=' + R.CurrentKey() + ' asc=' + Format(R.Ascending()));
+    end;
+}
+
 codeunit 50810 "NB DIV Test"
 {
     Subtype = Test;
@@ -335,6 +433,16 @@ codeunit 50810 "NB DIV Test"
         Row.Status := Status;
         Row.Amount := Amount;
         Row.Insert();
+    end;
+
+    local procedure AddLine(RowId: Integer; Id: Integer; Amt: Decimal)
+    var
+        Line: Record "NB DIV Line";
+    begin
+        Line.RowId := RowId;
+        Line.Id := Id;
+        Line.Amt := Amt;
+        Line.Insert();
     end;
 
     local procedure RunDesc(Mode: Integer): Text
@@ -387,6 +495,35 @@ codeunit 50810 "NB DIV Test"
     procedure AscendingToCodeunit()
     var
         Rep: Report "NB DIV Asc";
+    begin
+        Seed();
+        Rep.RunModal();
+        Expect(Rep.GetResult(), 'f={} n=4 key=Id asc=Yes');
+    end;
+
+    // A child data item with a DataItemLink and a DataItemTableView (corpus PR 1544, ByValueDataItemView.al:476).
+    [Test]
+    procedure ChildLinkAndViewToCodeunit()
+    var
+        Line: Record "NB DIV Line";
+        Rep: Report "NB DIV Link";
+    begin
+        Seed();
+        Line.DeleteAll();
+        AddLine(1, 1, 5);
+        AddLine(1, 2, 0);
+        AddLine(1, 3, 7);
+        AddLine(2, 1, 9);
+        AddLine(4, 1, 3);
+        Rep.RunModal();
+        Expect(Rep.GetResult(), 'f={} n=5 key=RowId,Id asc=Yes');
+    end;
+
+    // Another instance of the same report as the callee (ByValueDataItemView.al:504).
+    [Test]
+    procedure ViewToOtherInstance()
+    var
+        Rep: Report "NB DIV Other Instance";
     begin
         Seed();
         Rep.RunModal();
