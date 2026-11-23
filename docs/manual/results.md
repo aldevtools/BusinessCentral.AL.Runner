@@ -132,10 +132,12 @@ Where AL Runner cannot follow that order:
   is a flagged pass (or flagged failure) with the assumption `strict-after-refused`.
 - **A runner 130450 codeunit next to the TestRunnerHub's writers.** Whether
   Business Central runs the codeunits of runner 130450 before or after those of
-  the TestRunnerHub is not measured. A runner 130450 codeunit that has handler
-  functions, or comes before a codeunit with `RequiredTestIsolation = Disabled` in
-  id order (or in its suite), and that reads a table the walk carried, is not run,
-  with that reason.
+  the TestRunnerHub is not measured. A runner 130450 codeunit is not run, with
+  that reason, when it read a table that a TestRunnerHub codeunit wrote, and that
+  codeunit comes after it in its suite. For a runner 130450 codeunit with handler
+  functions, every TestRunnerHub codeunit of the session counts. Isolated storage
+  or a number sequence that a `RequiredTestIsolation = Disabled` codeunit changed
+  still refuses every runner 130450 codeunit that reads it.
 
 The cost: a session uses one core, so a run that is one session runs on one thread.
 

@@ -1,13 +1,12 @@
-//! The committed rows one store holds apart from another, row by row ([`MemStore::committed_row_changes_from`]), and
-//! a store with such changes put on top ([`MemStore::with_committed_row_changes`]).
+//! The committed rows one store holds apart from another, row by row ([`MemStore::committed_row_changes_from`]).
 //!
 //! The reader is the safety net of an install footprint (`footprint.rs` `MemStore::unrecorded_writes`, ADR-079 step 1).
 //! The persistent maps share every entry a session did not touch, so the difference is found by comparing pointers, and
-//! only the rows that differ are compared by value. The lane starts of ADR-066 amendment 5 that also replayed the
-//! changes are gone (ADR-070 step 3); the replay stays for the round trip its tests check.
+//! only the rows that differ are compared by value. The lane starts of ADR-066 amendment 5 that replayed the
+//! changes are gone, and the replay with them (ADR-070 step 3).
 
-use super::{Key, MemStore, PkStorage, Row, Slot, Table, table_storage};
-use crate::{Store, Value};
+use super::{MemStore, PkStorage, Row, Slot, Table, table_storage};
+use crate::Value;
 
 /// One table's rows in a [`RowChanges`].
 #[derive(Debug, Clone)]
@@ -123,44 +122,6 @@ impl MemStore {
         out.emptied = self.committed_emptied.keys().map(name).collect();
         Some(out)
     }
-
-    /// This store, with no change open, with `changes` put on top of its committed rows: each table of it replaced
-    /// whole or changed row by row, the tables it names gone removed, and the tables a DeleteAll emptied as it has them.
-    /// The changed tables get new stamps, as a write gives them. `None` when a table to change row by row is not held.
-    pub fn with_committed_row_changes(mut self, changes: RowChanges) -> Option<MemStore> {
-        self.rollback();
-        for (company, object) in &changes.gone {
-            let slot: Slot = (std::sync::Arc::from(company.as_str()), *object);
-            self.tables.remove(&slot);
-            self.versions.remove(&slot);
-            self.shapes.remove(&slot);
-        }
-        for t in changes.tables {
-            let slot: Slot = (std::sync::Arc::from(t.company.as_str()), t.object);
-            let mut table: Table = if t.whole {
-                Table::new()
-            } else {
-                self.tables.get(&slot)?.clone()
-            };
-            for k in t.gone {
-                table.remove(&Key::in_table(k, &t.pk_storage));
-            }
-            for (k, r) in t.put {
-                table.insert(Key::in_table(k, &t.pk_storage), r);
-            }
-            self.counter = super::next_stamp();
-            self.versions.insert(slot.clone(), self.counter);
-            self.shapes.insert(slot.clone(), self.counter);
-            self.tables.insert(slot, table);
-        }
-        let mut emptied = crate::pmap::PMap::new();
-        for (company, object) in changes.emptied {
-            emptied.insert((std::sync::Arc::from(company.as_str()), object), ());
-        }
-        self.emptied = emptied;
-        self.commit();
-        Some(self)
-    }
 }
 
 /// Every row of `table`, to replace whole.
@@ -178,7 +139,7 @@ fn whole(slot: &Slot, table: &Table) -> TableRows {
 
 #[cfg(test)]
 mod tests {
-    use super::super::ExportedTable;
+    use super::super::{ExportedTable, Key};
     use super::*;
 
     fn table(n: i32) -> ExportedTable {
@@ -195,7 +156,7 @@ mod tests {
     /// A store a write made from a clone of another shares every entry the write did not touch: the difference is
     /// found by pointers, and only the changed rows are compared by value (issue 6924: a 65,000-row start per step).
     #[test]
-    fn rows_a_clone_shares_are_not_compared_and_a_copy_with_the_changes_holds_the_same_rows() {
+    fn rows_a_clone_shares_are_not_compared_and_the_changes_name_the_changed_rows() {
         let base = MemStore::from_exported(vec![table(2000)]);
         let mut later = base.clone();
         let slot: Slot = (std::sync::Arc::from("CRONUS"), 18);
@@ -221,11 +182,9 @@ mod tests {
         assert!(compared <= 2, "only the changed row: {compared}");
         assert_eq!(c.tables.len(), 1);
         assert_eq!((c.tables[0].put.len(), c.tables[0].gone.len()), (2, 1));
-        let copy = MemStore::from_exported(vec![table(2000)])
-            .with_committed_row_changes(c)
-            .unwrap();
-        let rows = |s: &MemStore| format!("{:?}", s.export_committed().unwrap());
-        assert_eq!(rows(&copy), rows(&later));
+        let keys: Vec<_> = c.tables[0].put.iter().map(|(k, _)| k).collect();
+        assert_eq!(format!("{keys:?}"), "[[Integer(5)], [Integer(3000)]]");
+        assert_eq!(format!("{:?}", c.tables[0].gone), "[[Integer(6)]]");
         // Nothing changed: nothing to put.
         let mut never = |_: &[Value], _: &[Value]| -> Option<bool> { panic!("no row compared") };
         assert!(
