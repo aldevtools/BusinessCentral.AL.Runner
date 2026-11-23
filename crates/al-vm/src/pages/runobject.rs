@@ -450,7 +450,7 @@ impl Session {
             }
         }
         if let Some(link) = &ro.link {
-            for entry in &link.entries {
+            for (at, entry) in link.entries.iter().enumerate() {
                 // `field(filter(F))`: the host's value as a filter text in filter group 0, no filter when it is blank
                 // (pages/link-filter/Y37LinkFilterTests.al:357-383 `LL.open f0=[No.: A1|A3]`).
                 if let ir::LinkEntry::FieldFilter(pf, hf) = entry {
@@ -503,6 +503,9 @@ impl Session {
                     ir::LinkEntry::Filter(pf, text) => {
                         // An empty term selects the rows whose field is blank (testpage/AoTests.al:513-560 RunPageLink, :845-887
                         // SubPageLink).
+                        if link.not_blank.contains(&at) {
+                            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LinkFilterNotBlank);
+                        }
                         let ty = table.fields[*pf].ty.clone();
                         let expr = self
                             .parse_filter_text(text, &ty)

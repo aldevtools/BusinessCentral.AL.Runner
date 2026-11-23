@@ -1319,7 +1319,7 @@ impl Session {
             let mut fields = Vec::new();
             let mut no_row_chain = false;
             // Pinned by testpage/UjSubPageLink.al (was assumption `subpagelink-const-qualified-enum-value`).
-            for entry in link.entries.iter() {
+            for (at, entry) in link.entries.iter().enumerate() {
                 match entry {
                     ir::LinkEntry::Field(pf, hf) => {
                         fields.push(*pf);
@@ -1398,6 +1398,9 @@ impl Session {
                     ir::LinkEntry::Filter(pf, text) => {
                         // An empty term selects the rows whose field is blank (testpage/AoTests.al:513-560 RunPageLink, :845-887
                         // SubPageLink).
+                        if link.not_blank.contains(&at) {
+                            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LinkFilterNotBlank);
+                        }
                         fields.push(*pf);
                         let ty = table.fields[*pf].ty.clone();
                         let expr = match blank_record_id_link(text, &ty) {

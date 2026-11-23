@@ -1928,7 +1928,14 @@ pub enum LinkRhs {
     /// `const("Enum Name"::Member)`: a value of the named enum (testpage/UjSubPageLink.al, corpus branch
     /// al-runtime-rs-staging-uj 1dc037a8). The names are unquoted.
     EnumValue(String, String),
+    /// `filter(<> '')` or `filter(<>'')`, the term "not blank" (`NOT_BLANK_TERMS`). It holds the text the term lowers to
+    /// where the lowering does not take it as "not blank": what `Filter` held for it before.
+    NotBlank(String),
 }
+
+/// The `filter(...)` terms of a `SubPageLink` or `RunPageLink` that the corpus probe of al-runner issue 8873 measures
+/// as "not blank" (assumption `link-filter-not-blank`).
+const NOT_BLANK_TERMS: [&str; 2] = ["<> ''", "<>''"];
 
 /// `"Enum Name"::Member` or `Enum::"Member"`: the enum and member names, unquoted; `None` for any other text.
 fn qualified_enum_value(inner: &str) -> Option<(String, String)> {
@@ -2085,6 +2092,8 @@ pub fn parse_sub_page_link_kinds(text: &str) -> Result<Vec<(String, LinkRhs, boo
                 {
                     // A quoted member name: `const("Released Production Order")` is the member, not text with quotes.
                     LinkRhs::Filter(inner[1..inner.len() - 1].to_string())
+                } else if kind == "filter" && NOT_BLANK_TERMS.contains(&inner) {
+                    LinkRhs::NotBlank(unquote_literals(inner))
                 } else {
                     LinkRhs::Filter(unquote_literals(inner))
                 }

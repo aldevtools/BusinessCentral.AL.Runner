@@ -1,0 +1,16 @@
+{
+  "id": "6d1f3c20-1a2b-4c3d-9e8f-887300000001",
+  "name": "Neighbors fix-8873-subpagelink-not-blank",
+  "publisher": "AL Runner",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "application": "27.0.0.0",
+  "runtime": "15.0",
+  "idRanges": [
+    {
+      "from": 50100,
+      "to": 50199
+    }
+  ],
+  "dependencies": []
+}
