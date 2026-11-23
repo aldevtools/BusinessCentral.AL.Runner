@@ -278,6 +278,36 @@ codeunit 61310 "YA Yaml All Shapes Tests"
     end;
 
     [Test]
+    procedure Refused_TagDirectiveSplitCorePrefix()
+    begin
+        ReadRet('%TAG !e! tag:yaml.org,200~---~q: !e!2:int "1"');
+    end;
+
+    [Test]
+    procedure Refused_TagDirectiveSplitCoreStr()
+    begin
+        ReadRet('%TAG !e! tag:yaml.org,200~---~q: !e!2:str x');
+    end;
+
+    [Test]
+    procedure Refused_FlowKey1500Chars()
+    begin
+        ReadRet('[' + Rep('a, ', 500) + 'b]: 1');
+    end;
+
+    [Test]
+    procedure Refused_EscapeAboveU10FFFF()
+    begin
+        ReadRet('q: "\U00110000"');
+    end;
+
+    [Test]
+    procedure Refused_Nesting601Levels()
+    begin
+        ReadRet(Rep('[', 601) + Rep(']', 601));
+    end;
+
+    [Test]
     procedure Refused_TwoYamlDirectives()
     begin
         ReadRet('%YAML 1.2~%YAML 1.2~---~q: a');

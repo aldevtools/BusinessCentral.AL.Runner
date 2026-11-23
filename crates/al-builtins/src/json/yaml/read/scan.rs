@@ -57,7 +57,12 @@ struct Scanner {
     flow: usize,
     keys: Vec<Option<SimpleKey>>,
     yaml_directives: usize,
+    /// The line on which a key of 1025 to 2999 characters went stale without a `:` after it.
+    long_key_line: Option<usize>,
 }
+
+/// Only a key of 3000 characters is measured as too long (`long-key`).
+const LONG_KEY: &str = "ReadFromYaml of a key or text of 1025 to 2999 characters (not measured)";
 
 type Res<T> = Result<T, Fail>;
 
@@ -75,6 +80,7 @@ pub(super) fn tokens(text: &[char]) -> Res<Vec<Tok>> {
         flow: 0,
         keys: vec![None],
         yaml_directives: 0,
+        long_key_line: None,
     };
     loop {
         sc.next_token()?;
@@ -263,15 +269,17 @@ impl Scanner {
             if let Some(sk) = *k {
                 let long = sk.line == self.line && sk.pos + 1024 < self.i;
                 if sk.line < self.line || long {
-                    // Only a key of 3000 characters is measured as too long (`long-key`).
+                    let unmeasured_length = long && self.i - sk.pos < 3000;
                     let value_follows = self.s.get(self.i) == Some(&':');
-                    if long && self.i - sk.pos < 3000 && (sk.required || value_follows) {
-                        return Err(Fail::Refuse(
-                            "ReadFromYaml of a key or text of 1025 to 2999 characters (not measured)",
-                        ));
+                    if unmeasured_length && (sk.required || value_follows) {
+                        return Err(Fail::Refuse(LONG_KEY));
                     }
                     if sk.required {
                         return Err(Fail::Bad);
+                    }
+                    if unmeasured_length {
+                        // A `:` later on this line may still be this key's value (`[a, ... b]: 1`).
+                        self.long_key_line = Some(self.line);
                     }
                     *k = None;
                 }
@@ -394,6 +402,9 @@ impl Scanner {
             *self.keys.last_mut().expect("level") = None;
             self.allowed = false;
         } else {
+            if self.long_key_line == Some(self.line) {
+                return Err(Fail::Refuse(LONG_KEY));
+            }
             if self.flow == 0 {
                 if !self.allowed {
                     return Err(Fail::Bad);

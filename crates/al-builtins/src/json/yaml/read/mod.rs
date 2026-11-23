@@ -256,7 +256,15 @@ impl Parser {
             "!!" => Ok(format!("tag:yaml.org,2002:{suffix}")),
             h => {
                 self.tag_used.set(true);
-                self.tags.get(h).map(|p| format!("{p}{suffix}")).ok_or(Fail::Bad)
+                let tag = self.tags.get(h).map(|p| format!("{p}{suffix}")).ok_or(Fail::Bad)?;
+                // A named handle is measured only for a tag no cell resolves (`tg17`). A prefix and suffix that
+                // together give a core tag (`tag:yaml.org,200` + `2:int`) are not measured.
+                if tag.starts_with("tag:yaml.org,2002") {
+                    return Err(Fail::Refuse(
+                        "ReadFromYaml of a %TAG handle that gives a core tag (not measured)",
+                    ));
+                }
+                Ok(tag)
             }
         }
     }

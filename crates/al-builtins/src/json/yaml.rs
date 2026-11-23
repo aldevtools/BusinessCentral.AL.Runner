@@ -413,6 +413,8 @@ mod tests {
     fn unmeasured_shapes_refuse() {
         let long_key = format!("{}: 1", "k".repeat(1500));
         let wide_key = format!("{}: 1", "\u{1F600}".repeat(600));
+        let deep = format!("{}{}", "[".repeat(601), "]".repeat(601));
+        let flow_key = format!("[{}b]: 1", "a, ".repeat(500));
         let mut laughs = String::from("a: &a0 [x, x, x, x, x, x, x, x, x, x]\n");
         for n in 1..9 {
             laughs.push_str(&format!(
@@ -458,6 +460,8 @@ mod tests {
             "%TAG ! tag:x,2000:\n---\nq: a",
             "%TAG !! tag:x,2000:\n---\nq: a",
             "%TAG !e! tag:x,2000:\n---\nq: a",
+            "%TAG !e! tag:yaml.org,200\n---\nq: !e!2:int \"1\"",
+            "%TAG !e! tag:yaml.org,200\n---\nq: !e!2:str x",
             "%YAML 1.2\n%YAML 1.2\n---\nq: a",
             "%YAML 2.0\n---\nq: a",
             "%YAML 1\n---\nq: a",
@@ -473,6 +477,10 @@ mod tests {
             // key length
             long_key.as_str(),
             wide_key.as_str(),
+            flow_key.as_str(),
+            // escapes, nesting
+            "q: \"\\U00110000\"",
+            deep.as_str(),
             // expansion
             laughs.as_str(),
         ] {
