@@ -603,7 +603,8 @@ impl Session {
     ///   handler but PageHandlers (every test of CemPageHandlerTests.al binds only its PageHandler);
     /// - an error caught before the close changes no cell: every test of CemPageHandlerTests.al gives its answer again with
     ///   a handler that first catches an error (corpus PR 1531, CemPageHandlerCaughtTests.al; asserterror, a TryFunction
-    ///   and four more ways of catching, CemHandlerCaughtErrors.al:150-:234). The flag does not tell who caught it: any
+    ///   and four more ways of catching, CemHandlerCaughtErrors.al:150-:234 on the card, CemRunCaughtWaysTests.al on the
+    ///   wizard, the card from a Page variable and the list). The flag does not tell who caught it: any
     ///   error the session caught since the run started counts (`PageRunClose::caught`, caught_errors.rs), the handler's,
     ///   a page trigger's or the code they call, and only the handler's catches are measured. Such a close runs through
     ///   the assumption `page-handler-caught-error-close`;
