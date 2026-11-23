@@ -36,7 +36,11 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ),
     (
         "AL0104",
-        "a parameter named begin, procedure or trigger without `var` (the first diagnostic, at the name); alc's full list for a file of two codeunits whose procedures take `<keyword>: Integer` and `var <keyword>: Integer` (cases 2016-2039), and for a variable \"If\" used unquoted (case 2040); a variable named by a keyword (alcodes/keyword_variable_names.rs; the first diagnostic, `'}' expected`, `'begin' expected` or `'procedure' expected`, at the name; case 0334 and issue 8539); `end`, `begin` or `var` as an option member, `O: Option Zero,End;` (alcodes/keyword_option_members.rs; the first diagnostic, `';' expected`, `')' expected` or `'end' expected`, at the word or the comma after it; issue 8657)",
+        "a parameter named begin, procedure or trigger without `var` (the first diagnostic, at the name); alc's full list for a file of two codeunits whose procedures take `<keyword>: Integer` and `var <keyword>: Integer` (cases 2016-2039), and for a variable \"If\" used unquoted (case 2040); a variable named by a keyword (alcodes/keyword_variable_names.rs; the first diagnostic, `'}' expected`, `'begin' expected` or `'procedure' expected`, at the name; case 0334 and issue 8539); `end`, `begin` or `var` as an option member, `O: Option Zero,End;` (alcodes/keyword_option_members.rs; the first diagnostic, `';' expected`, `')' expected` or `'end' expected`, at the word or the comma after it; issue 8657); a table FlowField's CalcFormula with an unquoted `filter(<>@)`, beside AL0726 and AL0870 (alcodes/calc_filter_at_sign.rs; case 3806)",
+    ),
+    (
+        "AL0726",
+        "a table FlowField's CalcFormula with an unquoted `filter(<>@)`, beside AL0104 and AL0870 (alcodes/calc_filter_at_sign.rs; case 3806 on corpus pull request 1495)",
     ),
     (
         "AL0105",
@@ -148,7 +152,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
 pub const NOT_CHECKED: &[(&str, &str)] = &[
     (
         "AL0870",
-        "reported only for a table FlowField's CalcFormula with an unquoted `filter(@)`, beside AL0224 (alcodes/calc_filter_at_sign.rs; case 3805 on corpus pull request 1495); an `@` before code that is no verbatim string elsewhere (case 1386) is not judged.",
+        "reported only for a table FlowField's CalcFormula with an unquoted `filter(@)`, beside AL0224, or `filter(<>@)`, beside AL0726 and AL0104 (alcodes/calc_filter_at_sign.rs; cases 3805 and 3806 on corpus pull request 1495); an `@` before code that is no verbatim string elsewhere (case 1386) is not judged.",
     ),
     (
         "AL0519",
