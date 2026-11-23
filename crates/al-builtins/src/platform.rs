@@ -8,6 +8,8 @@
 //!
 //! This is the second id namespace of the builtin registry (ADR-008). The providers themselves
 //! live in `al-vm` (`platform/`); this table is data so that `al-sema` can refuse at compile time.
+//!
+//! Entry points: `Provider`, `Virtual`, `provider`, `virtual_table`.
 
 /// How the rows of a platform table are provided.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1,4 +1,7 @@
 //! The difference of two Dates or two DateTimes where a side is undefined or a closing date (`ops::arith` takes the others).
+//!
+//! the difference of two Dates or DateTimes with an undefined side or a closing date, for
+//! `ops::arith`.
 
 use crate::native::{Signal, closing_date_operation, date_invalid};
 use crate::value::Value;

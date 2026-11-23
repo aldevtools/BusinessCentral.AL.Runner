@@ -5,6 +5,11 @@
 //! What BC runs there is pinned by tests/al-language/codeunits/TableNoBareSystemFunction.al, for codeunits without a
 //! Subtype only; a codeunit with a Subtype (Test, Install, TestRunner: compiled but not run there, :20-23) keeps main's
 //! result.
+//!
+//! Names in a codeunit with TableNo that the implicit Rec of OnRun can take: a field named like a
+//! system function called bare outside OnRun (`system_function_named_like_a_rec_field`) and a
+//! declared global `Rec` (`declared_rec_refusal`, `declared_rec_place`: its own variable in a
+//! procedure of a codeunit without Subtype). Pinned by codeunits/TableNoBareSystemFunction.al.
 
 use super::*;
 use al_syntax::ast::NodeText;

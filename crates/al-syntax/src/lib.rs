@@ -1,4 +1,6 @@
 //! AL syntax: lexer, preprocessor and lossless parser.
+//!
+//! Crate root of the AL syntax: lexer, parser, tree, AST views.
 
 pub mod ast;
 mod builder;

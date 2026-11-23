@@ -6,6 +6,14 @@
 //! change: `page_held_bindings.rs` and `rows.rs` count them. Borrow the page with `st_of` (no new reference), take it
 //! out of a value this code owns with `into_st`, and build a value with `page_value` (one new reference, as
 //! `Value::TestPage(st.clone())` was).
+//!
+//! The test client's state of one page (`PageState`, 282 fields, `Default`; `PageState::closed` names
+//! only the starting values that are not the default), its helper types (`PageMode`, `LookupKind`
+//! (what put the page into lookup mode), `WindowRow`, `Cursor`, `ReadBackwards`, `ControlRef`,
+//! `ControlTarget`) and the bridge to the handles in a `Value` (ADR-072 decision 3; moved here from
+//! `al-builtins/src/value.rs`). Entry points: `st_of` (borrow the page of a `Value::TestPage`, no new
+//! reference), `into_st`, `page_value`, `control_of`, `test_control`, `closed_page`,
+//! `register_closed_page` (called by `Engine::with_config`).
 
 mod after_go_to_key;
 mod close;

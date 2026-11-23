@@ -2,6 +2,10 @@
 //!
 //! A leaf crate: no dependencies, no OS access (ADR-006). Everything that
 //! depends on the Business Central version is a function of a [`Target`].
+//!
+//! `BcVersion::resolved_to` makes the target the build the Microsoft apps came from (minor and build
+//! string; both CLIs call it, al-runner issue 8209). Entry points: `VersionError`, `BcVersion`,
+//! `Runtime`, `Target`.
 
 mod awaited;
 mod choose;

@@ -18,6 +18,8 @@
 //! Two encodings genuinely differ from the storage form and are converted here: datetime
 //! (the halves are the other way round) and time/datetime2 (always written at full
 //! precision). DacFx also writes char/varchar/text as UTF-16.
+//!
+//! Entry points: `BacpacColumn`, `decimal_storage_bytes`, `BcpRowReader`.
 
 use crate::error::{Error, Result};
 use crate::types::{Cell, SysColumn, decode};

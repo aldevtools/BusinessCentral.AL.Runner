@@ -6,6 +6,10 @@
 //! other lane, and a lane runs the codeunits whose AL property `TestType` is that lane's type (no property: UnitTest).
 //! This module only reads those files and plans the lanes. It has no OS access beyond reading the files it is given.
 //! Nothing here is Microsoft's data: the files stay in the cache (`bcapps.rs`).
+//!
+//! BCApps' settings as lanes (Legacy, UnitTest, Integration, Uncategorized): which company each test
+//! codeunit gets. Pure; reads `settings.json` and `TestConfiguration.json`. Entry points:
+//! `Recipe::load`, `Lane`, `plan`.
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};

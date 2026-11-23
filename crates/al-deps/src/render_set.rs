@@ -5,6 +5,12 @@
 //! The sets are lists of files, not reference walks: the round-0 spike recorded which assemblies a merge and a
 //! conversion load on builds 27.5, 28.1, 28.5 and 29.1. Nothing of Microsoft's or of the packages is committed; the
 //! files come to the user's machine like the apps do.
+//!
+//! What the report render process needs (ADR-040 amendment 2026-11-13b): the named service-folder
+//! sets (`RenderSet::Merge`, `RenderSet::Convert`, `RenderSet::name`, `set_files`; `render_probe`
+//! requires every file of a set by name), fetched by `ServiceTier::ensure_set`; the Linux nuget.org
+//! pieces pinned by the SHA-256 of the file used (`DRAWING_COMMON`, `SYSTEM_EVENTS`, `SKIA_LINUX` by
+//! managed SkiaSharp version), `ensure_piece`.
 use crate::remote::{RangeSource, RemoteZip};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};

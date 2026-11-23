@@ -11,6 +11,10 @@
 //! The message is the one the must-not-compile corpus pins: "The option value 'Sideways' is not valid. Check the enum
 //! definition for valid values." (0313-pagetype-bad-value.al:1, 0762-field-masktype-invalid-value.al:1,
 //! 1180-report-layout-obsoletestate-removed.al:1; the other cases of this family pin its first sentence).
+//!
+//! AL0169, a property set to a name that is none of its values. The values per property and element
+//! kind are the AL language server's completion lists (`docs/language-catalog.json`; a test keeps the
+//! rows equal to it). Run by `alcodes::check_workspace`.
 use crate::workspace::{AppKind, Diagnostic, Workspace};
 
 /// One property at the element kinds of one owner of the language catalog.

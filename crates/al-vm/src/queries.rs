@@ -6,6 +6,9 @@
 //! filters on aggregated columns applied to the groups (HAVING), then the sort and the row cap.
 //! Every behaviour is pinned by a corpus test cited at the code or is refused with
 //! `Signal::Unsupported`; the open questions are in docs/probes-needed.md.
+//!
+//! Query objects: Open, Read, column values, SaveAs. Entry points: `query_op`, `query_open_started`,
+//! `query_column`.
 
 use crate::Session;
 use crate::query_reopen::ReopenCall;

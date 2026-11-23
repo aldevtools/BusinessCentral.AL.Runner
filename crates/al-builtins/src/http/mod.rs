@@ -9,6 +9,11 @@
 //! tests/al-language-onprem/session-system/PZHttpHandler.al and PZHttpBlock.al (BC 29.0.54011.55816) and
 //! tests/al-language/network/lt-http/*.al (the laptop's HTTP topic, BC 29.0.54011.55816). What those do not
 //! measure is refused or marked in the assumption registry.
+//!
+//! HttpClient, HttpRequestMessage, HttpResponseMessage, HttpHeaders, HttpContent, Cookie. Submodules:
+//! `content`, `cookies`, `dates`, `headers`, `header_rules`, `messages`, `secret_read` (which
+//! `ReadAs(SecretText)` call sequences have evidence), `send`, `uri`. Entry points: `native_for`
+//! (mod.rs).
 
 use crate::describe::Describe;
 use crate::native::{Ctx, HttpOutgoing, NativeFn, Signal, raise, unsupported};

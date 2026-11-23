@@ -1,4 +1,6 @@
 //! Identifiers the runtime makes up for what a service tier would assign.
+//!
+//! Entry points: `package_id`.
 
 /// The package id of the app with id `app` (16 bytes in text order).
 ///

@@ -14,6 +14,12 @@ impl MemStore {
     /// in order would: a row whose primary key an earlier row already took is not inserted (Insert answers
     /// `AlreadyExists`). Returns how many rows were inserted.
     pub fn replace_all(&mut self, cx: &AccessContext, t: &TableDef, rows: Vec<Row>) -> Result<usize, StoreError> {
+        // The footprint of a DeleteAll and one Insert per row (ADR-079).
+        let _fp = self.footprint_note(cx, t, None, super::footprint::Touch::DeleteAll);
+        let _rows: Vec<_> = rows
+            .iter()
+            .map(|r| self.footprint_note(cx, t, Some(&t.primary_key(r)), super::footprint::Touch::InsertOrDelete))
+            .collect();
         // A virtual table, and a store that writes down changes to the backing's rows, take the general path: both act
         // per row.
         if self.virtual_of(t).is_some() || self.restored_log.is_some() {

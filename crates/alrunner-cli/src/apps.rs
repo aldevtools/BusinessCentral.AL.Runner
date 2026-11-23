@@ -1,4 +1,7 @@
 //! Reading the APPs given on the command line: a folder, a source archive or an `.app`.
+//!
+//! Reads the APPs given on the command line (folder, `*.Source.zip`, `.app`) and builds the project
+//! the dependency resolution works for. Entry points: `load`, `combined_project`.
 
 use al_deps::load::{AppJson, read_package_at_with};
 use al_deps::select::{APPLICATION_APP_ID, DepDecl, SYSTEM_APP_ID};

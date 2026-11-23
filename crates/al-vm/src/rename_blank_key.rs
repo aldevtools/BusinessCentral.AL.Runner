@@ -10,6 +10,15 @@
 //! those facts, or two of them at once, is refused.
 //! These keep main's rename and main's errors: a temporary record, a rename in which no key field that a counting relation
 //! targets changes to or from blank, a row that is not stored and a new key that is stored.
+//!
+//! a Rename of a database record in which a primary key field changes to or from its blank or zero
+//! value while a relation that counts (`relation_counts`: validated, Normal, not Removed) targets
+//! that field (`RenameRef::related_field`; al-runner issue 7937, pinned by corpus record/table-
+//! relation/RenameBlankKeyRelation.al). BC's error is raised after the OnRename trigger and the
+//! database rename event, only in the measured cells: the base cell or one fact away from it (one
+//! allowlist predicate, `measured_blank_rename`); any other such rename is refused; everything else
+//! keeps main's rename. Called twice by the Rename arm of `records/op_inner.rs`: `blank_key_rename`
+//! before the triggers (with `TxState::rename_from_al`), `blank_key_rename_raise` after them.
 
 use crate::Session;
 use crate::globaltriggers::GlobalOp;

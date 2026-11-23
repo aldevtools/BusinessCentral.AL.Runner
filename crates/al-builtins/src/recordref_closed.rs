@@ -3,6 +3,9 @@
 //! `unopened_refs.rs` `after_open_attempt`) or one emptied by `Clear` or `Open(0)` (`LibraryValue::EmptiedRef`, [`cleared`] and
 //! `after_open_attempt`). Every place that answers a RecordRef that is not open answers all of them alike, except the members the
 //! corpus measured only in some of these states (al-vm `unopened_refs.rs`).
+//!
+//! a RecordRef that is not open, never opened (`LibraryValue::Empty`) or closed
+//! (`LibraryValue::ClosedRecordRef`, set by `RecordRef.Close`).
 
 use crate::value::{EmptiedRef, LibraryValue};
 

@@ -11,6 +11,8 @@
 //! `CreateOutStream` does not empty the buffer: a stream writes from the start and overwrites what
 //! was there (:BlobField_CreateOutStream_DoesNotEmptyExistingData). Text is written in
 //! Windows-1252 unless an encoding says otherwise (:WriteText_DefaultEncodingIsWindows1252_NotUtf8).
+//!
+//! Entry points: `BlobBuf`, `BlobRef`, `new_blob`, `copy_blob`.
 
 use crate::describe::Describe;
 use crate::native::{Ctx, NativeFn, Signal, raise, unsupported};

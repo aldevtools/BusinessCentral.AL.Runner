@@ -4,6 +4,8 @@
 //! What the corpus pins is the content of the document (element and attribute names, values,
 //! nesting). Its whitespace, XML declaration and line endings are not pinned by any test; the
 //! choices below are listed in docs/probes-needed.md.
+//!
+//! Entry points: `Elem`, `Node`, `ReadFailure`, `parse`.
 
 use crate::describe::Describe;
 use crate::value::{RtType, Value};

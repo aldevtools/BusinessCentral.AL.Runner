@@ -1,4 +1,9 @@
 //! A table an app keeps as a stub after it moved the table to one of its dependencies (`ObsoleteState = Moved`).
+//!
+//! a workspace table kept as the `ObsoleteState = Moved` stub of a direct dependency's table (al-
+//! runner issue 7914): `alcodes::duplicate_ids` lets it compile, `pick_real` resolves to the
+//! dependency's table, `lower/assemble.rs` puts the assumption on `ir::Program::assumes` (marked for
+//! every test). Entry points: `moved_table_of_dependency`.
 
 use super::{AppKind, ObjKind, Workspace};
 

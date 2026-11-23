@@ -1,3 +1,8 @@
+//! What a TestPage GoToKey that moved a list without OnAfterGetCurrRecord left for the next calls
+//! (`AfterGoToKey`, one `Option<GoToKeyLeft>`: a SetValue, a call that is not pinned or a Previous in
+//! between, and whether the GoToKey ran no trigger). The rules that read it are in `pageops.rs`,
+//! `controls.rs` and `actions.rs` (al-runner issue 7685). Entry points: `AfterGoToKey`, field
+//! `PageState::after_goto`.
 #![deny(clippy::wildcard_enum_match_arm)]
 //! What a TestPage GoToKey left on a list without OnAfterGetCurrRecord when it moved the cursor: the client reads the row once
 //! more before every later action (pages/list-order/AiListOrderTests.al:39 Keep_Nav `update` = `R:R1002;R:R1002;A:filter...`;

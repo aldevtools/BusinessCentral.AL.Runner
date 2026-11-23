@@ -3,6 +3,8 @@
 //! TestNavAppCallerCallstackModuleInfos.al, TestBCPlatformContracts.al, TestMiscTypes.al).
 //!
 //! Resources, entitlements and archive data of an app are not here.
+//!
+//! Entry points: `native_for`.
 
 use crate::describe::Describe;
 use crate::native::{AlError, Ctx, ModuleLookup, NativeFn, Signal, unsupported};

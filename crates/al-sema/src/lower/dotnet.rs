@@ -1,4 +1,6 @@
 //! Lowering of the arguments and members of `DotNet` values (ADR-014).
+//!
+//! Entry points: `dotnet_arg`, `dotnet_member`.
 use super::*;
 
 impl Lowerer<'_> {

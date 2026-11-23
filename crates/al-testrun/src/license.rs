@@ -1,6 +1,9 @@
 //! Which BC license a run uses (ADR-060 decision 2), shared by both command lines: `--license FILE` (serve: `license`),
 //! else the license of the BC artifacts the run uses, else none. The file is read into memory and parsed by
 //! `al_host::license`; it is never written anywhere. A file that cannot be parsed stops the run before any test starts.
+//!
+//! Which BC license a run uses (ADR-060): `--license FILE`, the artifacts' license, or none; the
+//! report line, JUnit properties and JSON object. Entry points: `LicenseUse`.
 use std::path::Path;
 use std::sync::Arc;
 

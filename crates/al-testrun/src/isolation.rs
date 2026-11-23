@@ -26,6 +26,10 @@
 //! A unit starts from a fork of the shared install baseline ([`al_vm::Baseline`], also O(1)) and
 //! shares nothing mutable with another unit; the parallel scheduler (not built yet) runs units on
 //! threads and needs nothing else from this module.
+//!
+//! TestIsolation of the runner codeunit; Checkpoint for Function isolation; `after_test` hands keys
+//! and sequences whose rollback is not measured to the session (al-vm `storage_checkpoint.rs`). Entry
+//! points: `TestIsolation`, `runner_isolation`, `Checkpoint`, `after_test`.
 
 mod failed_test;
 
