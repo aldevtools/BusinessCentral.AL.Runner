@@ -32,6 +32,18 @@ codeunit 50126 "N70 Early Storage Reader"
     [Test] procedure EarlyStorageReaderReads() begin if IsolatedStorage.Contains('n70-key', DataScope::Module) then Error('storage set'); end;
 }
 
+// 130450 leg with handlers, before the hub writer, reads its table: refused (new in the walk; main ran it in id order and
+// saw no row). Its place against the hub writer is not pinned (corpus issue #1559).
+codeunit 50127 "N70 Early Handler Reader"
+{
+    Subtype = Test;
+    var Rows: Codeunit "N70 Rows";
+    [Test]
+    [HandlerFunctions('N70Msg4')]
+    procedure EarlyHandlerReaderReadsHubTable() begin Message('x'); if Rows.Count() <> 0 then Error('early handler: %1', Rows.Count()); end;
+    [MessageHandler] procedure N70Msg4(M: Text[1024]) begin end;
+}
+
 // Hub leg (TestPermissions = Disabled, no handlers), before the writer: the hub leg runs in id order, sees nothing.
 codeunit 50123 "N70 Hub Early Reader"
 {
@@ -49,8 +61,9 @@ codeunit 50124 "N70 Hub Mid Writer"
     [Test] procedure HubMidWriterWrites() var R: Record "N70 Mid Row"; begin R.K := 'M1'; R.Insert(); end;
 }
 
-// 130450 leg, between the hub writers 50124 and 50130, reads only 50124's table: hub leg first or id order, it sees the
-// row; only 50130's place against it is not pinned. Runs (review round 1).
+// 130450 leg, between the hub writers 50124 and 50130, reads only 50124's table: sees the row, the same answer as main.
+// Not pinned until corpus issue #1559 (runner issue 8917): with the 130450 leg first it would see none. Runs (review
+// round 1).
 codeunit 50125 "N70 Mid Reader"
 {
     Subtype = Test;

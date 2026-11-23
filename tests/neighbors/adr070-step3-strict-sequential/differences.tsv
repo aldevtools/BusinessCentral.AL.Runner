@@ -6,4 +6,5 @@ N70 Early Reader::EarlyReaderReadsHubTable	REFUSED "N70 Hub Writer", a codeunit 
 N70 SI Second::SiSecondReadsThenWrites	PINNED tests/al-language/codeunits/TestCuP7BReader.al:24
 N70 SI Third::SiThirdSeesSecond	PINNED tests/al-language/codeunits/TestCuP7BReader.al:24
 N70 SI Local Overwrite::SiLocalThenOverwrite	PINNED tests/al-language/codeunits/TestCuP7BReader.al:24
+N70 Early Handler Reader::EarlyHandlerReaderReadsHubTable	REFUSED "N70 Hub Writer", a codeunit on the TestRunnerHub, wrote a table this test reads
 N70 Early Storage Reader::EarlyStorageReaderReads	REFUSED an earlier codeunit under RequiredTestIsolation = Disabled, N70 Hub Storage Writer, changed isolated storage or a number sequence

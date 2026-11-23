@@ -217,8 +217,9 @@ fn a_handler_codeunit_that_reads_only_an_onrun_writers_table_runs() {
     assert_eq!(outcome(&o, "X1_SeesOnRunRow"), &Outcome::Pass, "{o:?}");
 }
 
-// A 130450 codeunit (`Mid`) between two hub writers reads only the earlier writer's table: hub first or id order, it sees
-// `W1`'s row. Only `W2`'s tables depend on the order that is not pinned; a reader of them is refused, naming `W2`.
+// A 130450 codeunit (`Mid`) between two hub writers reads only the earlier writer's table: it runs and sees `W1`'s row, the
+// same answer as main. Not pinned until corpus issue #1559 (runner issue 8917): with the 130450 leg first it would see
+// none. A reader of `W2`'s tables is refused, naming `W2`.
 const BETWEEN_HUB_WRITERS: &str = r#"
 table 50606 "Other" { fields { field(1; K; Code[20]) { } } keys { key(PK; K) { Clustered = true; } } }
 codeunit 50640 "W1"
