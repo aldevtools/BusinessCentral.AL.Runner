@@ -301,7 +301,7 @@ fn builtin_keeps_probed(id: BuiltinId) -> bool {
 /// Every SetTable ends the mark after it ran ([`recordref_set_table_ran`]). The record methods these reach are [`after`]'s.
 fn recordref_keeps_table_copy(id: BuiltinId, operands: &[Value]) -> bool {
     matches!(
-        (id, operands.len()),
+        (id.written_base(), operands.len()),
         (
             ids::RECORDREF_FIELD_2 | ids::FIELDREF_SETRANGE_1 | ids::FIELDREF_VALUE_1,
             1

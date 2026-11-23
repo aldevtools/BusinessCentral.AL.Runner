@@ -10,9 +10,9 @@
 
 use crate::Session;
 use al_builtins::assumptions::{Assumption, assume};
+use al_builtins::describe::Describe;
 use al_builtins::fieldref_variant_cells::{temporal_value_error, text_evaluate_error, variant_guid_error};
 use al_builtins::native::Signal;
-use al_builtins::describe::Describe;
 use al_builtins::value::{LibraryValue, RecordState, RtType, Value};
 use rust_decimal::Decimal;
 use std::cell::RefCell;
@@ -31,14 +31,15 @@ pub(crate) enum Written {
 
 /// The catalog id of `id` and, for an id lowering gives by how the values are written, that.
 pub(crate) fn catalog_id(id: &str) -> (&str, Option<Written>) {
-    match id {
-        "FieldRef.SetRangeTyped#1" => ("FieldRef.SetRange#1", Some(Written::Typed)),
-        "FieldRef.SetRangeVariant#1" => ("FieldRef.SetRange#1", Some(Written::Variant)),
-        "FieldRef.SetRangeMixed#1" => ("FieldRef.SetRange#1", Some(Written::Mixed)),
-        "FieldRef.SetFilterTyped#1" => ("FieldRef.SetFilter#1", Some(Written::Typed)),
-        "FieldRef.SetFilterVariant#1" => ("FieldRef.SetFilter#1", Some(Written::Variant)),
-        _ => (id, None),
-    }
+    use al_builtins::builtin_id::{BuiltinId, ids};
+    let Some(b) = BuiltinId::of(id) else { return (id, None) };
+    let written = match b {
+        ids::FIELDREF_SETRANGETYPED_1 | ids::FIELDREF_SETFILTERTYPED_1 => Some(Written::Typed),
+        ids::FIELDREF_SETRANGEVARIANT_1 | ids::FIELDREF_SETFILTERVARIANT_1 => Some(Written::Variant),
+        ids::FIELDREF_SETRANGEMIXED_1 => Some(Written::Mixed),
+        _ => None,
+    };
+    (b.written_base().name(), written)
 }
 
 /// The call a value is given to.
@@ -62,8 +63,6 @@ enum Cell {
     /// A value of a pair the probe measures, but not this value: refused.
     Unmeasured,
 }
-
-const MS_PER_DAY: i64 = 86_400_000;
 
 /// The measured calls: the routes of the probe (a, aLit, c: typed SetRange; b: Variant SetRange; d1, d2: a Variant and a typed
 /// value; e, eLit: typed SetFilter('%1', X); f: Variant SetFilter('%1', V); gr: Record.SetRange(Field, V)) with their number of
@@ -156,8 +155,10 @@ impl Session {
             && f.id < 2_000_000_000
             && state_measured
             && measured_call(call, written, values.len(), &f.ty);
+        // `Record.SetRange(Field, Value)` with one value of a type other than Variant.
+        let record_typed_one = call == Call::RecordSetRange && written.is_none() && values.len() == 1;
         for v in values.iter_mut() {
-            match self.setrange_cell(v, &f.ty, written) {
+            match self.setrange_cell(v, &f.ty, written, record_typed_one) {
                 None | Some(Cell::Main) => {}
                 Some(Cell::Convert(converted)) if measured => {
                     assume(Assumption::SetRangeOtherTypeConvert);
@@ -177,7 +178,7 @@ impl Session {
 
     /// The measured cell of the value `v` into a field of type `ty`; `None` for a pair of types the probe does not measure (a
     /// value of the field's own type among them): main's conversion stays.
-    fn setrange_cell(&self, v: &Value, ty: &RtType, written: Option<Written>) -> Option<Cell> {
+    fn setrange_cell(&self, v: &Value, ty: &RtType, written: Option<Written>, record_typed_one: bool) -> Option<Cell> {
         let from28 = self.has(al_version::Gate::FieldRefTextNumberEvaluateErrorFrom28);
         let text = match v {
             Value::Text(s) | Value::Code(s) => Some(s.as_str()),
@@ -214,12 +215,16 @@ impl Session {
                 _ => None,
             },
             // SrcFilterConvertKinds.al:1730-1849 (CodeABC_G .. TxtGuid_G) routes b, f and gr raise the Evaluate error; the typed
-            // routes (a, e) keep the Guid format error and the Guid a valid text gives (main's answer).
+            // routes (a, e) keep the Guid format error and the Guid a valid text gives (main's answer). `Record.SetRange` of one
+            // Text that holds a Guid filters on that Guid (main's answer): a text literal in
+            // tests/al-language/permissions/permission-sets/TenantSetDeleteCascade.al:221, a Label in
+            // tests/al-language-onprem/metadata/platform-tables/Y35StoredTables.al:569.
             RtType::Guid => {
                 let s = text?;
                 Some(match written {
                     Some(Written::Variant) if !s.is_empty() => Cell::Convert(Err(variant_guid_error(s, from28))),
                     Some(Written::Typed) if !s.is_empty() => Cell::Main,
+                    None if record_typed_one && al_builtins::ops::parse_guid(s).is_some() => Cell::Main,
                     _ => Cell::Unmeasured,
                 })
             }
@@ -252,7 +257,10 @@ impl Session {
             Value::Enum(id, o) => {
                 let text = formatted();
                 let name = self.engine.program.objects.get(*id as usize).and_then(|obj| {
-                    obj.enum_values.iter().find(|(n, _)| n == o).map(|(_, name)| name.clone())
+                    obj.enum_values
+                        .iter()
+                        .find(|(n, _)| n == o)
+                        .map(|(_, name)| name.clone())
                 });
                 match (text, name) {
                     (Some(text), Some(name)) if name == text => ("NavOption", Some(text)),
@@ -260,7 +268,11 @@ impl Session {
                 }
             }
             // A negative number, false, a Decimal out of the measured size, a longer Duration.
-            Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_) | Value::Boolean(false) | Value::Duration(_) => {
+            Value::Integer(_)
+            | Value::BigInteger(_)
+            | Value::Decimal(_)
+            | Value::Boolean(false)
+            | Value::Duration(_) => {
                 return Some(Cell::Unmeasured);
             }
             // Date_DT, DateZero_DT: that day at midnight, main's answer.
@@ -274,10 +286,9 @@ impl Session {
             Value::DateTime(0) if matches!(ty, RtType::Time) => return Some(Cell::Convert(Ok(Value::Time(0)))),
             Value::Date(_, false) if matches!(ty, RtType::Time) => return Some(variant_cell()),
             Value::Time(_) if matches!(ty, RtType::Date) => return Some(variant_cell()),
-            // Time_DT: that time on 0001-01-02 (`01/02/0001 10:00 AM`).
-            Value::Time(x) if matches!(ty, RtType::DateTime) => {
-                return Some(Cell::Convert(Ok(Value::DateTime(*x + MS_PER_DAY))));
-            }
+            // Time_DT (SrcSetRangeConvert.al) measures that time on 0001-01-02 and reads it back as `01/02/0001 10:00 AM`; the
+            // filter text al-runner writes for a DateTime of year 1 is `01/02/1`, so this cell stays refused.
+            Value::Time(_) if matches!(ty, RtType::DateTime) => return Some(Cell::Unmeasured),
             Value::DateTime(_) if matches!(ty, RtType::Date | RtType::Time) => return Some(variant_cell()),
             // A closing date (`Date(_, true)`) into a Time field.
             Value::Date(..) if matches!(ty, RtType::Time) => return Some(Cell::Unmeasured),

@@ -837,16 +837,6 @@ impl Session {
     }
 }
 
-#[cfg(test)]
-mod conformance {
-    /// ADR-001: the compiled program is shared across threads; sessions are not.
-    #[test]
-    fn engine_is_send_and_sync() {
-        fn assert_send_sync<T: Send + Sync>() {}
-        assert_send_sync::<super::Engine>();
-    }
-}
-
 impl Session {
     /// A Record method called from AL code (`Ctx::record`); `written` says how the values of `Record.SetRange` are written
     /// where lowering tells it (al-vm `setrange_convert`).
@@ -903,5 +893,15 @@ impl Session {
                 other.describe()
             ))),
         }
+    }
+}
+
+#[cfg(test)]
+mod conformance {
+    /// ADR-001: the compiled program is shared across threads; sessions are not.
+    #[test]
+    fn engine_is_send_and_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<super::Engine>();
     }
 }

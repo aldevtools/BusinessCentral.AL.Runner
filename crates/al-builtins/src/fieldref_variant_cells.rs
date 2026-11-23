@@ -86,7 +86,10 @@ pub fn text_evaluate_error(s: &str, t: &RtType, from28: bool) -> Option<Signal> 
     }
     let (eval_name, nav_name) = target_names(t)?;
     Some(if from28 {
-        error(format!("The value \"{s}\" can't be evaluated into type {eval_name}."), "Evaluate:Format")
+        error(
+            format!("The value \"{s}\" can't be evaluated into type {eval_name}."),
+            "Evaluate:Format",
+        )
     } else {
         error(format!("The type Nav{nav_name} is unknown."), "NotSupportedType")
     })
@@ -98,7 +101,10 @@ pub fn text_evaluate_error(s: &str, t: &RtType, from28: bool) -> Option<Signal> 
 /// (`fieldref_value_text::fieldref_value_into_temporal`, al-vm `setrange_convert`).
 pub fn temporal_value_error(nav: &str, text: &str, t: &RtType, from28: bool) -> Signal {
     if !from28 {
-        return error(format!("Unable to convert from {NS}{nav} to System.DateTime."), "Conversion");
+        return error(
+            format!("Unable to convert from {NS}{nav} to System.DateTime."),
+            "Conversion",
+        );
     }
     let message = match t {
         RtType::Date => date_settings_error(text),
@@ -113,9 +119,15 @@ pub fn temporal_value_error(nav: &str, text: &str, t: &RtType, from28: bool) -> 
 /// (Y67FieldRefValidateVariant.al Validate_Into_G_B; al-vm `setrange_convert`).
 pub fn variant_guid_error(text: &str, from28: bool) -> Signal {
     if from28 {
-        error(format!("The value \"{text}\" can't be evaluated into type GUID."), "Evaluate:Argument")
+        error(
+            format!("The value \"{text}\" can't be evaluated into type GUID."),
+            "Evaluate:Argument",
+        )
     } else {
-        error("Invalid Conversion. Source: NavVariant, Destination: NavGuid.".into(), "Argument")
+        error(
+            "Invalid Conversion. Source: NavVariant, Destination: NavGuid.".into(),
+            "Argument",
+        )
     }
 }
 

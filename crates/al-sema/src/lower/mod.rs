@@ -628,7 +628,6 @@ mod assemble;
 mod bare_report_name;
 mod blob_length_sign;
 mod call;
-mod setrange_written;
 mod compile;
 mod conv_matrix;
 mod convert;
@@ -641,6 +640,7 @@ mod expr;
 mod ext_order;
 mod ext_request_page;
 mod extend;
+mod setrange_written;
 
 #[cfg(test)]
 mod abp_refusal_tests;

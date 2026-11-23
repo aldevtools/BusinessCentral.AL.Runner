@@ -13,11 +13,15 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     }),
     // `FieldRef.SetRange`, `FieldRef.SetFilter` and `Record.SetRange` by how their values are written (lowering picks them,
     // al-sema `setrange_written`): the VM converts a value of another type than the field's by it.
-    ("FieldRef.SetRangeTyped#1", |c, r, a| c.ref_op("FieldRef.SetRangeTyped#1", r, a)),
+    ("FieldRef.SetRangeTyped#1", |c, r, a| {
+        c.ref_op("FieldRef.SetRangeTyped#1", r, a)
+    }),
     ("FieldRef.SetRangeVariant#1", |c, r, a| {
         c.ref_op("FieldRef.SetRangeVariant#1", r, a)
     }),
-    ("FieldRef.SetRangeMixed#1", |c, r, a| c.ref_op("FieldRef.SetRangeMixed#1", r, a)),
+    ("FieldRef.SetRangeMixed#1", |c, r, a| {
+        c.ref_op("FieldRef.SetRangeMixed#1", r, a)
+    }),
     ("FieldRef.SetFilterTyped#1", |c, r, a| {
         c.ref_op("FieldRef.SetFilterTyped#1", r, a)
     }),

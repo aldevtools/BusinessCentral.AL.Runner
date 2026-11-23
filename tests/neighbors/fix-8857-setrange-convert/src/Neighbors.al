@@ -11,6 +11,7 @@ table 57410 "SRN Row"
         field(5; Bool; Boolean) { }
         field(6; D; Date) { }
         field(7; G; Guid) { }
+        field(8; DT; DateTime) { }
     }
     keys { key(PK; Id) { Clustered = true; } }
 }
@@ -347,6 +348,63 @@ codeunit 57411 "SRN Neighbors"
         R.Open(Database::"SRN Row");
         F := R.Field(6);
         X := 120000;
+        F.SetRange(X);
+        Show(F);
+    end;
+
+    [Test]
+    procedure RecordSetRangeGuidTextKept()
+    var
+        Rec: Record "SRN Row";
+        T: Text;
+    begin
+        T := '{7A1C0E55-3B2D-4E6F-8A90-1B2C3D4E5F60}';
+        Rec.SetRange(G, T);
+        Error('filter [%1]', Rec.GetFilter(G));
+    end;
+
+    [Test]
+    procedure RecordSetRangeGuidLabelKept()
+    var
+        Rec: Record "SRN Row";
+        GuidTok: Label '7a1c0e55-3b2d-4e6f-8a90-1b2c3d4e5f60', Locked = true;
+    begin
+        Rec.SetRange(G, GuidTok);
+        Error('filter [%1]', Rec.GetFilter(G));
+    end;
+
+    [Test]
+    procedure RecordSetRangeTextNotAGuid()
+    var
+        Rec: Record "SRN Row";
+        T: Text;
+    begin
+        T := 'ABC';
+        Rec.SetRange(G, T);
+        Error('filter [%1]', Rec.GetFilter(G));
+    end;
+
+    [Test]
+    procedure RecordSetRangeGuidTextRange()
+    var
+        Rec: Record "SRN Row";
+        T: Text;
+    begin
+        T := '{7A1C0E55-3B2D-4E6F-8A90-1B2C3D4E5F60}';
+        Rec.SetRange(G, T, T);
+        Error('filter [%1]', Rec.GetFilter(G));
+    end;
+
+    [Test]
+    procedure TimeIntoDateTimeFieldRef()
+    var
+        R: RecordRef;
+        F: FieldRef;
+        X: Time;
+    begin
+        R.Open(Database::"SRN Row");
+        F := R.Field(8);
+        X := 100000T;
         F.SetRange(X);
         Show(F);
     end;

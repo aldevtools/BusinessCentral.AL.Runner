@@ -951,7 +951,7 @@ pub(super) fn open_page_filters_then_find(program: &ir::Program, object: usize, 
         return false;
     };
     let on_rec = |e: &ir::Expr, want: al_builtins::builtin_id::BuiltinId| {
-        matches!(e, ir::Expr::Builtin { id, receiver: Some(receiver), .. } if *id == want
+        matches!(e, ir::Expr::Builtin { id, receiver: Some(receiver), .. } if id.written_base() == want
             && matches!(&**receiver, ir::Arg::Value(ir::Expr::Load(ir::Place::Global(g))) | ir::Arg::Ref(ir::Place::Global(g))
                 if *g == rec))
     };

@@ -46,16 +46,29 @@ fn typed_values_take_the_typed_id() {
     ] {
         assert_eq!(first_call_id(vars, body), "FieldRef.SetRangeTyped#1", "{body}");
     }
-    assert_eq!(first_call_id("X: Code[20];", "F.SetFilter('%1', X);"), "FieldRef.SetFilterTyped#1");
+    assert_eq!(
+        first_call_id("X: Code[20];", "F.SetFilter('%1', X);"),
+        "FieldRef.SetFilterTyped#1"
+    );
 }
 
 #[test]
 fn variant_values_take_the_variant_id() {
     for body in ["F.SetRange(V);", "F.SetRange(V, V);"] {
-        assert_eq!(first_call_id("V: Variant;", body), "FieldRef.SetRangeVariant#1", "{body}");
+        assert_eq!(
+            first_call_id("V: Variant;", body),
+            "FieldRef.SetRangeVariant#1",
+            "{body}"
+        );
     }
-    assert_eq!(first_call_id("V: Variant;", "F.SetFilter('%1', V);"), "FieldRef.SetFilterVariant#1");
-    assert_eq!(first_call_id("V: Variant;", "Rec.SetRange(D, V);"), "Record.SetRangeVariant#1");
+    assert_eq!(
+        first_call_id("V: Variant;", "F.SetFilter('%1', V);"),
+        "FieldRef.SetFilterVariant#1"
+    );
+    assert_eq!(
+        first_call_id("V: Variant;", "Rec.SetRange(D, V);"),
+        "Record.SetRangeVariant#1"
+    );
 }
 
 #[test]

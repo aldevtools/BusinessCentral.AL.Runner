@@ -121,5 +121,7 @@ pub fn fieldref_value_into_temporal(
         _ => return None,
     };
     crate::assumptions::assume(crate::assumptions::Assumption::FieldRefValueTemporalError);
-    Some(Err(crate::fieldref_variant_cells::temporal_value_error(nav, &text, t, from28)))
+    Some(Err(crate::fieldref_variant_cells::temporal_value_error(
+        nav, &text, t, from28,
+    )))
 }
