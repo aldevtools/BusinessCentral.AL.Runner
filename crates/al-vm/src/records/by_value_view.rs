@@ -216,7 +216,7 @@ fn fetched_row(s: &RecordState) -> bool {
 /// Whether every filter of `s` is in filter group 0, `s` stands in group 0 on the primary or a declared key (no ad hoc key),
 /// ascending, with no field sorted descending, no marks and MarkedOnly off. The view of every cell of
 /// record/filters/ByValueLoadFieldsAfterRead.al (corpus PR 1543): no filter, `SetRange(Status, Posted)`, and the
-/// secondary key (Status, Doc) with `SetRange(Doc, ..)` after the read (`ByValueLoad_SecondaryKeyNarrowedThenFindSet`, :282).
+/// secondary key (Status, Doc) with `SetRange(Doc, ..)` after the read (`ByValueLoad_SecondaryKeyNarrowedThenFindSet`, :283).
 fn group0_declared_view(s: &RecordState) -> bool {
     s.filters.iter().all(|f| f.group == 0)
         && s.filter_group == 0
@@ -525,7 +525,7 @@ impl Session {
         // codeunit callee called by name): the copy keeps the fields the caller's row loaded and drops the request
         // (assumption `by-value-load-fields-after-read`, corpus PR 1543, record/filters/ByValueLoadFieldsAfterRead.al: as handed,
         // the copy's loaded fields are the caller's, `name loaded=Yes amount loaded=No` after SetLoadFields(Name) and a read
-        // (:186) and every field after a read first (:240); after the copy's own FindSet every field is loaded in every cell).
+        // (:187) and every field after a read first (:241); after the copy's own FindSet every field is loaded in every cell).
         let load_read = measured == Some(Evidence::Pinned)
             && callee_kind == ObjKind::Codeunit
             && from_codeunit

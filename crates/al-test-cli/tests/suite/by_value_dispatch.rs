@@ -189,7 +189,7 @@ codeunit 50166 "BD Test"
     end;
 
     // The copy does not keep the caller's SetLoadFields after a read: its own FindFirst loads every field (corpus PR 1543,
-    // record/filters/ByValueLoadFieldsAfterRead.al:193-208 ByValueLoad_LoadFieldsThenFindFirst, `amount loaded=Yes` after the
+    // record/filters/ByValueLoadFieldsAfterRead.al:194-209 ByValueLoad_LoadFieldsThenFindFirst, `amount loaded=Yes` after the
     // copy's read); the refused neighbors of that rule are in tests/neighbors/8839-setloadfields-byvalue-copy.
     [Test]
     procedure SetLoadFields_AfterARead_Flagged()
