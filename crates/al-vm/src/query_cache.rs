@@ -725,7 +725,12 @@ impl Session {
         let schema = self.engine.program.objects[t.object as usize].table.as_ref()?;
         let mut filters: Vec<_> = r.filters.iter().collect();
         filters.sort_by_key(|f| (f.group, f.field));
-        let mut values = vec![Value::Text(form.kind().into()), Value::Boolean(r.ascending)];
+        // A Count has one entry for both sort directions (BgTaskCalcCache.al:549, corpus PR 1533); the other reads are keyed by it.
+        let direction = match form {
+            Form::Count => Value::Null,
+            _ => Value::Boolean(r.ascending),
+        };
+        let mut values = vec![Value::Text(form.kind().into()), direction];
         let mut flow_fields = Vec::new();
         for f in &filters {
             if !cached_filter_group(f.group, self.global_group1.worker_owns_group1()) {
