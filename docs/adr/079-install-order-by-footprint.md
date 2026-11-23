@@ -52,7 +52,7 @@ orders.
    stores listed below do.
 2. **One app's install ends before the next one begins** (ADR-046 A3, fact 4, `BfTests` P5).
 3. **A subscriber or table extension of an app runs during another app's install exactly when its app was installed
-   first** (corpus `tests/al-language/install-upgrade/install-triggers/Y79InstallUnrelated.al:6-12`,
+   first** (corpus `tests/al-language/install-upgrade/install-triggers/Y79InstallUnrelated.al:142-143`,
    `install-upgrade/install-order/InstallOrderSubscriberTests.al:66-79`).
 
 The rule below assumes nothing else about BC. It is a proof that the orders cannot differ, built from these facts and
@@ -161,6 +161,45 @@ This argument needs the footprint to be complete. Decision 1 makes every gap a c
   "still not pinned", amendment 7 "not covered"). With footprints it is: such a pair becomes a "reads from" edge and gets
   subset runs. This can turn a run that passes on main into a refusal where the order could really change the result.
   Migration step 3 measures it before it is turned on.
+
+### Clarifications of 2026-11-23 (review round 1 of the first pull request)
+
+These state what the code does where the text above is silent or shorter. They change no decision; each one is at
+least as strict as the text it clarifies.
+
+- **Decision 1, the recorder's table.** `Insert` and `Delete` write the row, not the extent. An extent read (`Find*`,
+  `Next`, `Count`, `IsEmpty`, `DeleteAll`) sees every row write of its table, so a filtered read still conflicts with
+  every insert, delete and modify of that table (al-data `memory/footprint.rs`, `Resource::read_sees_write`).
+- **Decision 1, kept builtins.** A builtin counts as attributable only when it is on an allowlist by receiver or, for
+  `System`, `Database`, `Blob` and `Query`, by method. Every other method touches everything, the eight encryption key
+  methods among them. Between two subset runs the runner also puts the encryption key and the encrypted values back.
+- **Decision 1, ties need an install session.** "Conflicts with every other session" means every other app with an
+  install session of its own. An app without install code is tied only through a meet. `NavApp.IsInstalling` is not
+  pinned by the corpus, so it stays "touches everything".
+- **Decision 3, the run set.** A subset run installs, besides S, the unit and the inputs not in S, every dependency
+  predecessor of these apps and the units those read from, until nothing is added. Each of them has a fixed place in
+  the run's order, and the run gives every app it installs a view in which all the others have a known place. Apps
+  outside the run set stay of unknown order; a meet with one is noted. The units that X reads from through others are
+  installed before every subset run of X.
+- **Decision 3, when the proof ends.** A run that adds an edge starts the proof again on the grown graph. Footprints
+  only grow, so the rounds end. A run that meets an app of unknown order and adds no edge stops the proof: the group is
+  not proven, and the note names that pair.
+- **Decision 3, the final install.** After every unit is proven, the whole group installs once in an order of the
+  units, every app at a fixed place. Its footprints are checked like those of a subset run.
+- **Decision 3, a group the proof cannot cover.** The install runs once more with the order not known. Refused besides:
+  every difference measured before the proof stopped, and the tables written by every install that reads what another
+  unordered install wrote or writes what another writes (every table when one of them touches everything or writes a
+  number sequence or isolated storage).
+- **Decision 4, differences follow the footprints.** A table that differs between two orders is not the end of it: an
+  install that read it may have written other rows from it. The runner closes the differing tables over the
+  footprints. App R is tainted by a differing table t when R's install read a resource of t (a row, its rows, its
+  AutoIncrement counter, the row version, or everything) and an install of another app W of the group wrote t, unless
+  W depends on R. The tables a tainted R wrote then differ too (every table when R touches everything or writes a
+  number sequence, isolated storage or the row version), until nothing is added. Exempt: the apps of the unit whose
+  runs measured the difference. Their own writes were compared directly in every one of those runs, so a difference
+  they could pass on is already in the compared tables.
+- **Facts, citation.** Fact 3 cites the asserting lines `Y79InstallUnrelated.al:142-143` (before: the header comment).
+- **Conformance.** The neighbor apps run on BC 27, 28 and 29; the pull request shows the table of each.
 
 ## Options considered
 
