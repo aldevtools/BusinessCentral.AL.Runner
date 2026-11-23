@@ -27,6 +27,7 @@ impl MemStore {
         limit: usize,
     ) -> Result<usize, StoreError> {
         bump();
+        self.footprint_note(cx, t, None, super::footprint::Touch::ReadExtent);
         if let Some(v) = self.virtual_of(t) {
             return Ok(v.count(self, cx, t, filters)?.min(limit));
         }

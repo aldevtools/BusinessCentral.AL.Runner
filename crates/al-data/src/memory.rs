@@ -14,6 +14,8 @@ mod alt_cache_tests;
 mod band;
 #[cfg(test)]
 mod collation_read_tests;
+mod footprint;
+pub use footprint::{Resource, StoreFootprint};
 mod frozen;
 mod held_cols;
 mod key;
@@ -229,6 +231,9 @@ pub struct MemStore {
     /// While set, the tables whose access is watched and the first one that was read or written ([`MemStore::watch`]).
     /// Shared by the clones of the store, so a snapshot, a restore or a rollback does not lose it.
     watch: Option<std::rc::Rc<std::cell::RefCell<Watch>>>,
+    /// While set, what the store reads and writes, for an install session's footprint (ADR-079, `footprint.rs`). Shared by
+    /// the clones of the store and kept by a restore.
+    footprint: Option<std::rc::Rc<std::cell::RefCell<StoreFootprint>>>,
     /// How many reads and writes of a table the store took ([`MemStore::accesses`], [`MemStore::writes`]). Shared by the
     /// clones of the store, so a snapshot put back does not lower them.
     counts: std::rc::Rc<AccessCounts>,
@@ -1645,6 +1650,7 @@ pub fn store_ops() -> u64 {
 impl Store for MemStore {
     fn insert(&mut self, cx: &AccessContext, t: &TableDef, row: Row) -> Result<InsertOutcome, StoreError> {
         bump();
+        self.footprint_note(cx, t, Some(&t.primary_key(&row)), footprint::Touch::InsertOrDelete);
         let row = self.kept(t, row);
         t.check_key_values(&row)?;
         if let Some(v) = self.virtual_of(t) {
@@ -1673,6 +1679,7 @@ impl Store for MemStore {
 
     fn get(&self, cx: &AccessContext, t: &TableDef, pk: &[Value]) -> Result<Option<Row>, StoreError> {
         bump();
+        self.footprint_note(cx, t, Some(pk), footprint::Touch::ReadRow);
         t.check_primary_key(pk)?;
         if let Some(v) = self.virtual_of(t) {
             return v.get(self, cx, t, pk);
@@ -1682,6 +1689,7 @@ impl Store for MemStore {
 
     fn modify(&mut self, cx: &AccessContext, t: &TableDef, row: Row) -> Result<WriteOutcome, StoreError> {
         bump();
+        self.footprint_note(cx, t, Some(&t.primary_key(&row)), footprint::Touch::Modify);
         let row = self.kept(t, row);
         t.check_key_values(&row)?;
         if let Some(v) = self.virtual_of(t) {
@@ -1768,6 +1776,7 @@ impl Store for MemStore {
 
     fn delete(&mut self, cx: &AccessContext, t: &TableDef, pk: &[Value]) -> Result<WriteOutcome, StoreError> {
         bump();
+        self.footprint_note(cx, t, Some(pk), footprint::Touch::InsertOrDelete);
         t.check_primary_key(pk)?;
         if let Some(v) = self.virtual_of(t) {
             let k = Key::of(t, pk.to_vec());
@@ -1796,6 +1805,8 @@ impl Store for MemStore {
         row: Row,
     ) -> Result<RenameOutcome, StoreError> {
         bump();
+        self.footprint_note(cx, t, Some(old), footprint::Touch::InsertOrDelete);
+        self.footprint_note(cx, t, Some(&t.primary_key(&row)), footprint::Touch::InsertOrDelete);
         let row = self.kept(t, row);
         t.check_primary_key(old)?;
         t.check_key_values(&row)?;
@@ -1819,6 +1830,7 @@ impl Store for MemStore {
 
     fn next(&self, cx: &AccessContext, t: &TableDef, scan: &Scan) -> Result<Option<Row>, StoreError> {
         bump();
+        self.footprint_note(cx, t, None, footprint::Touch::ReadExtent);
         if let Some(at) = scan.after {
             t.check_position(scan.key, at)?;
         }
@@ -1973,6 +1985,7 @@ impl Store for MemStore {
 
     fn delete_all(&mut self, cx: &AccessContext, t: &TableDef, f: &[FieldFilter]) -> Result<usize, StoreError> {
         bump();
+        self.footprint_note(cx, t, None, footprint::Touch::DeleteAll);
         if self.virtual_of(t).is_some() {
             return Err(self.read_only(t, "DeleteAll"));
         }
@@ -2062,7 +2075,9 @@ impl SnapshotStore for MemStore {
         let counter = self.counter.max(s.counter);
         // Whether the store stands for the database or a table connection is its role, not part of the rows a snapshot holds.
         let (database, connection) = (self.database, self.connection);
+        let footprint = self.footprint.take();
         *self = s;
+        self.footprint = footprint;
         self.counter = counter;
         self.database = database;
         self.connection = connection;
