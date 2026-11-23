@@ -11,3 +11,5 @@ NB CS Tests::ClearAll_TestCodeunit	REFUSED ClearAll of a global codeunit variabl
 NB CS Tests::ClearAll_WhileStoreRuns	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
 NB CS Tests::Clear_ArrayElementUnusedShared	REFUSED Clear of an array whose unused codeunit element another variable shares
 NB CS Tests::Clear_ValueParamItself	REFUSED Clear of a codeunit variable that nothing used yet and another variable shares
+NB CS Tests::Clear_ArrayElementItselfUnusedShared	REFUSED Clear of a codeunit variable that nothing used yet and another variable shares
+NB CS Tests::Clear_LocalUnused_ThroughNestedVarParam_NoHolder	ASSUMED clear-shared-codeunit (corpus PR 1560)
