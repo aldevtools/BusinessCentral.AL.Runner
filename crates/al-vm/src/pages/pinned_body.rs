@@ -501,6 +501,8 @@ fn type_text(program: &ir::Program, ty: &RtType) -> Option<String> {
         RtType::Text(Some(n)) => format!("Text[{n}]"),
         RtType::Code(Some(n)) => format!("Code[{n}]"),
         RtType::Date => "Date".into(),
+        RtType::Time => "Time".into(),
+        RtType::DateTime => "DateTime".into(),
         RtType::Option(members) => format!("Option {}", members.join(",")),
         RtType::Dictionary(k, v) => format!("Dictionary of [{}, {}]", type_text(program, k)?, type_text(program, v)?),
         RtType::Record(t, false) => format!("Record \"{}\"", program.objects.get(*t as usize)?.name),

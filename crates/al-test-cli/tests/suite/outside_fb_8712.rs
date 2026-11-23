@@ -13,7 +13,7 @@ const PROBE: &str = include_str!("../../../../tests/neighbors/8712-new-line-extr
 /// The neighbors just past the cells, each with BC's answer (3 runs of 3 on BC 29.1).
 const NEIGHBORS: &str = include_str!("../../../../tests/neighbors/8712-new-line-extra-code/src/Neighbors.al");
 
-fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
+pub(super) fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
     let l = al_testkit::compile_apps(vec![al_testkit::app(src)]);
     let engine = al_vm::Engine::new(l.program.clone(), al_testkit::blocked(&l));
     let oi = l
@@ -81,104 +81,25 @@ fn issue_8712_probe_cells() {
 
 /// Code just past the cells is refused, also where BC's answer follows the same rule: the row and Rec both changed between the
 /// save and `Update(false)` (through another record, or through `Rec.Modify()`), another row of the page's table changed, Rec's
-/// view changed, a write of another table before the save (by the table field or the control), `Update(true)` with a row before,
-/// a page with a trigger, and code after the `CurrPage.Update` (a modify through another record after `Update(false)` or
-/// `Update(true)`, a field set after `Update(false)`; review of #8720, points 1 and 2).
+/// view changed, `Update(true)` with a row before, a page with a trigger, and code after the `CurrPage.Update` (a modify through
+/// another record after `Update(false)` or `Update(true)`, a field set after `Update(false)`; review of #8720, points 1 and 2).
+/// A write of another table before the save, by the table field or the control, runs since ListNewLineWritesOtherTable.al
+/// measures it (`outside_fb_8735.rs`).
 #[test]
 fn issue_8712_neighbors_are_refused() {
     let o = outcomes(NEIGHBORS, "LT NN Tests");
     assert_eq!(o.len(), 11);
+    let other_tables = [
+        "NewLine_TableFieldWritesAnotherTable_ShowsAndSavesTheRow",
+        "NewLine_WriteAnotherTableBeforeSaveRecord_ShowsAndSavesTheRow",
+    ];
     let ran: Vec<_> = o
         .iter()
-        .filter(|(_, r, _)| !matches!(r, Outcome::NotRun(_)))
+        .filter(|(name, r, marks)| match other_tables.contains(&name.as_str()) {
+            true => !(*r == Outcome::Pass && marks.contains(&Assumption::ListNewLineWritesOtherTable)),
+            false => !matches!(r, Outcome::NotRun(_)),
+        })
         .map(|(name, r, _)| format!("{name}: {r:?}"))
         .collect();
     assert!(ran.is_empty(), "{ran:#?}");
-}
-
-/// A write through another record before the save is measured only where nothing but the table field's insert wrote the store
-/// before the control's OnValidate began (ListNewLineExtraCode.al:443): a table field that also inserts a row of another table
-/// first keeps main's refusal.
-#[test]
-fn issue_8712_rewrite_after_another_tables_write_is_refused() {
-    const SRC: &str = r#"
-table 97651 "LT RW Line"
-{
-    fields
-    {
-        field(1; "Group Code"; Code[10]) { }
-        field(2; "Entry No."; Integer) { AutoIncrement = true; }
-        field(3; Name; Text[30])
-        {
-            trigger OnValidate()
-            var
-                Detail: Record "LT RW Detail";
-            begin
-                if "Entry No." = 0 then
-                    Insert(true);
-                Detail.Init();
-                Detail.Insert();
-            end;
-        }
-        field(4; Note; Text[30]) { }
-    }
-    keys { key(PK; "Group Code", "Entry No.") { Clustered = true; } }
-}
-table 97652 "LT RW Detail"
-{
-    fields { field(1; "Entry No."; Integer) { AutoIncrement = true; } }
-    keys { key(PK; "Entry No.") { Clustered = true; } }
-}
-page 97653 "LT RW Lines"
-{
-    PageType = List;
-    SourceTable = "LT RW Line";
-    AutoSplitKey = true;
-    layout
-    {
-        area(Content)
-        {
-            repeater(Lines)
-            {
-                field(Name; Rec.Name)
-                {
-                    trigger OnValidate()
-                    var
-                        Other: Record "LT RW Line";
-                    begin
-                        Other.Get(Rec."Group Code", Rec."Entry No.");
-                        Other.Note := 'Stamped';
-                        Other.Modify();
-                        CurrPage.SaveRecord();
-                        CurrPage.Update(false);
-                    end;
-                }
-                field(Note; Rec.Note) { }
-            }
-        }
-    }
-}
-codeunit 97654 "LT RW Tests"
-{
-    Subtype = Test;
-    [Test]
-    [HandlerFunctions('Handler')]
-    procedure RewriteAfterAnotherTablesWrite()
-    var
-        Line: Record "LT RW Line";
-    begin
-        Line.SetRange("Group Code", 'G1');
-        Page.RunModal(Page::"LT RW Lines", Line);
-    end;
-    [ModalPageHandler]
-    procedure Handler(var Lines: TestPage "LT RW Lines")
-    begin
-        Lines.New();
-        Lines.Name.SetValue('A');
-        Lines.OK().Invoke();
-    end;
-}
-"#;
-    let o = outcomes(SRC, "LT RW Tests");
-    assert!(matches!(o[0].1, Outcome::NotRun(_)), "{:?}", o[0]);
 }
