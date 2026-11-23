@@ -281,14 +281,18 @@ fn issue_8677_repro() {
 
 /// Neighbors of al-runner issue 8677 (the neighbor app's Neighbors.al), each asserting BC's answer: BC answers each from the
 /// cache, and so does the runner now, flagged, as corpus PR 1533 measures each shape (al-runner issue 8803): a negated sum,
-/// FieldRef.CalcField, a FlowFilter range, a filter on a stored field, a CalcSums with a range, a count over a sum FlowField
+/// FieldRef.CalcField, a FlowFilter range, a filter on a stored field, a CalcSums with a `>`, a count over a sum FlowField
 /// of the row, a temporary record, a field(filter()) of a stored field set to A and then to B in one worker run (keyed by its
-/// value: 5,0 / 5,0), and SetLoadFields, Get, CalcFields (:7255). (The exist over Tenant Media, Platform.al, needs the
-/// platform tables: the neighbor check runs it.)
+/// value: 5,0 / 5,0), and SetLoadFields, Get, CalcFields (:7255). From the review of al-runner PR 8872, one per fact the cache
+/// took past the first cells: a `|` of values on a stored field (BgTaskCalcCache.al:534), a CalcFields and a CalcSums ascending
+/// first and descending again (:540, :546), a count at a sum whose field(filter()) reads a stored field (:552), and a
+/// CalcFields of a temporary record a Variant got from another Variant (its table's rows are marked not measured; main and
+/// BC answer, the runner refused it before it read such a CalcFields through the database store). (The exist over Tenant
+/// Media, Platform.al, needs the platform tables: the neighbor check runs it.)
 #[test]
 fn issue_8677_neighbors() {
     let o = outcomes(CALC_NEIGHBORS, "BQN Tests");
-    assert_eq!(o.len(), 9);
+    assert_eq!(o.len(), 14);
     for (name, r, marks) in &o {
         assert_eq!(*r, Outcome::Pass, "{name}");
         assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
@@ -353,23 +357,24 @@ fn issue_8677_bq13_cells() {
     }
 }
 
-/// The cells of corpus PR 1533 (BgTaskCalcCache.al, al-runner issue 8803), each green 3 of 3 on BC 29.1 and in its CI on 27.5,
-/// 28.5 and 29.0, but the two Tenant Media cells (CalcProbe.al leaves them out; Platform.al has the neighbor): a worker's
-/// repeated CalcFields and CalcSums answer the first answer for a negated sum, FieldRef.CalcField, a FlowFilter range, a filter
-/// on a stored field, a CalcSums with a range or with no filter, a count over a sum FlowField of the row, a temporary record,
-/// a field(filter()) of a stored field, a count, min, exist and lookup over a count FlowField of the row, and after
-/// SetAscending(false). All pass, flagged.
+/// The cells of corpus PR 1533 (BgTaskCalcCache.al at fe7a324c, al-runner issue 8803), each green 3 of 3 on BC 29.1, but the
+/// two Tenant Media cells (CalcProbe.al leaves them out; Platform.al has the neighbor): a worker's repeated CalcFields and
+/// CalcSums answer the first answer for a negated sum, FieldRef.CalcField, a FlowFilter range, a filter on a stored field, a
+/// CalcSums with a `>` or with no filter, a count over a sum FlowField of the row, a temporary record, a field(filter()) of a
+/// stored field, a count, min, exist and lookup over a count FlowField of the row, after SetAscending(false), a `|` of values
+/// on a stored field (:534), a CalcFields and a CalcSums ascending first and descending again (:540, :546), and a count over a
+/// sum FlowField whose field(filter()) reads a stored field (:552). All pass, flagged.
 #[test]
 fn issue_8803_cells() {
     let o = outcomes(CALC_PROBE, "BCC Tests");
-    assert_eq!(o.len(), 15);
+    assert_eq!(o.len(), 19);
     for (name, r, marks) in &o {
         assert_eq!(*r, Outcome::Pass, "{name}");
         assert!(marks.contains(&BackgroundTaskQueryCache), "{name}: {marks:?}");
     }
 }
 
-/// The Count of a group read ascending and then descending (corpus PR 1533, BgTaskCalcCache.al:549, green 3 of 3 on BC 29.1):
+/// The Count of a group read ascending and then descending (corpus PR 1533, BgTaskCalcCache.al:613, green 3 of 3 on BC 29.1):
 /// BC answers the first answer, one entry for both sort directions, and so does the runner, flagged.
 #[test]
 fn issue_8803_count_both_directions() {
