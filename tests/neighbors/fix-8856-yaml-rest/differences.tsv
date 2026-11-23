@@ -1,0 +1,30 @@
+# key	entry
+YN Yaml Final Shapes Tests::Assumed_AnchorName_Dot	ASSUMED read-from-yaml-final-shapes,read-from-yaml-probed-shapes (corpus PR 1549)
+YN Yaml Final Shapes Tests::Assumed_Character_Auml	ASSUMED read-from-yaml-final-shapes,read-from-yaml-probed-shapes (corpus PR 1549)
+YN Yaml Final Shapes Tests::Assumed_Depth_65Containers	ASSUMED read-from-yaml-final-shapes,read-from-yaml-probed-shapes (corpus PR 1549)
+YN Yaml Final Shapes Tests::Assumed_Directive_Yaml10	ASSUMED read-from-yaml-final-shapes,read-from-yaml-probed-shapes (corpus PR 1549)
+YN Yaml Final Shapes Tests::Assumed_Escape_LoneSurrogate	ASSUMED read-from-yaml-final-shapes,read-from-yaml-probed-shapes (corpus PR 1549)
+YN Yaml Final Shapes Tests::Assumed_FailedRead_KeepsMembers	ASSUMED read-from-yaml-final-shapes,read-from-yaml-probed-shapes (corpus PR 1549)
+YN Yaml Final Shapes Tests::Assumed_KeyLength_FlowMapping1025	ASSUMED read-from-yaml-final-shapes,read-from-yaml-probed-shapes (corpus PR 1549)
+YN Yaml Final Shapes Tests::Assumed_KeyLength_Plain1025	ASSUMED read-from-yaml-final-shapes,read-from-yaml-probed-shapes (corpus PR 1549)
+YN Yaml Final Shapes Tests::Assumed_LineSeparator_InSingleQuotes	ASSUMED read-from-yaml-final-shapes,read-from-yaml-probed-shapes (corpus PR 1549)
+YN Yaml Final Shapes Tests::Assumed_Stream_Utf16Written	ASSUMED read-from-yaml-final-shapes (corpus PR 1549)
+YN Yaml Final Shapes Tests::Assumed_Stream_WindowsBytesReadAsUtf8	ASSUMED read-from-yaml-final-shapes,read-from-yaml-probed-shapes (corpus PR 1549)
+YN Yaml Final Shapes Tests::Assumed_Tab_BeforeFirstKey	ASSUMED read-from-yaml-final-shapes,read-from-yaml-probed-shapes (corpus PR 1549)
+YN Yaml Final Shapes Tests::Assumed_Tab_InFlowIndentation	ASSUMED read-from-yaml-final-shapes,read-from-yaml-probed-shapes (corpus PR 1549)
+YN Yaml Final Shapes Tests::Assumed_TagDirective_CorePrefixUsed	ASSUMED read-from-yaml-final-shapes,read-from-yaml-probed-shapes (corpus PR 1549)
+YN Yaml Final Shapes Tests::Assumed_TagDirective_OtherPrefixUsed	ASSUMED read-from-yaml-final-shapes,read-from-yaml-probed-shapes (corpus PR 1549)
+YN Yaml Final Shapes Tests::Assumed_Tag_IntLeadingZero	ASSUMED read-from-yaml-final-shapes,read-from-yaml-probed-shapes (corpus PR 1549)
+YN Yaml Final Shapes Tests::Assumed_Tag_KeyBool	ASSUMED read-from-yaml-final-shapes,read-from-yaml-probed-shapes (corpus PR 1549)
+YN Yaml Final Shapes Tests::Assumed_Tag_LocalOnList	ASSUMED read-from-yaml-final-shapes,read-from-yaml-probed-shapes (corpus PR 1549)
+YN Yaml Final Shapes Tests::Assumed_WriteText_SectionMsDos_ReadFromYaml	ASSUMED read-from-yaml-final-shapes,read-from-yaml-probed-shapes (corpus PR 1549)
+YN Yaml Final Shapes Tests::Assumed_WriteText_SectionMsDos_ReadText	ASSUMED read-from-yaml-final-shapes (corpus PR 1549)
+YN Yaml Final Shapes Tests::Refused_AnchorName_UnmeasuredLetter	REFUSED ReadFromYaml of an anchor or alias name with a character no probe measured
+YN Yaml Final Shapes Tests::Refused_Depth_AsStatement	REFUSED ReadFromYaml of a document nested too deep, as a statement (not measured)
+YN Yaml Final Shapes Tests::Refused_Directive_Yaml14	REFUSED ReadFromYaml of a %YAML version no probe measured
+YN Yaml Final Shapes Tests::Refused_KeyLength_InFlowList	REFUSED ReadFromYaml of a key longer than 1024 UTF-16 units in a flow sequence (not measured)
+YN Yaml Final Shapes Tests::Refused_Tag_NonUriCharacter	REFUSED ReadFromYaml of a tag with other characters than a URI (not measured)
+YN Yaml Final Shapes Tests::Refused_Tag_TimestampOtherDate	REFUSED ReadFromYaml of a tagged scalar no probe measured
+YN Yaml Final Shapes Tests::Refused_Escape_CallStackMark	REFUSED ReadFromYaml of a text that reads as a noncharacter this runtime uses as a mark
+YN Yaml Final Shapes Tests::Refused_KeyLength_FlowCollectionKey	REFUSED ReadFromYaml of a key longer than 1024 UTF-16 units that starts with a character other than a letter, a non-ASCII character or a quote (not measured)
+YN Yaml Final Shapes Tests::Refused_TagDirective_OtherPrefixUnused	REFUSED ReadFromYaml of a %TAG directive that no tag uses, other than a named handle with the core prefix (not measured)
