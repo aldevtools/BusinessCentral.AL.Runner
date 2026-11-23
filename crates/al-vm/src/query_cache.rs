@@ -618,10 +618,11 @@ impl Session {
         }
     }
 
-    /// `SelectLatestVersion(Table)` with the argument `arg`: an Integer that names a table ends that table's entries, one that
-    /// names no table ends none (another table's changes nothing, :6744). A Char, a Byte, an Option or an Enum, which the
-    /// compiler takes for the Integer (an Enum with warning AL0603) and which reaches here as itself (al-runner issue 8879), is
-    /// refused in a worker: no cell measures which table it names.
+    /// `SelectLatestVersion(Table)` with the argument `arg`: an Integer that names a table ends that table's entries and no
+    /// other table's (another table's number changes nothing, :6744); one that names no table ends none. A Char, a Byte, an
+    /// Option or an Enum, which the compiler takes for the Integer (an Enum with warning AL0603) and which reaches here as
+    /// itself (al-runner issue 8879), is refused in a worker: no cell measures which table it names (the neighbors of
+    /// MoreNeighbors.al measure each of the four with value 0, which names no table).
     pub(crate) fn note_select_latest_version_of(&mut self, arg: Option<&Value>) -> Result<(), Signal> {
         match arg {
             Some(Value::Integer(n)) => {
