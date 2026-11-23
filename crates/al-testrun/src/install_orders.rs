@@ -14,9 +14,10 @@
 //!    limits of ADR-079 decision 5 ([`MAX_INTERACTING`] apps in a tangle, [`MAX_INPUTS`] inputs of a unit), or a
 //!    difference outside the tables, the runner refuses as before.
 //!
-//! Owns [`PartnerGroup`] (`unordered`, `closure`, `sequence`, `order`), [`orders`], [`MAX_INTERACTING`] and
-//! [`MAX_INPUTS`]. The order of the units (a unit after every unit it reads from and after the units its apps depend on)
-//! is `install_proof.rs` `Graph::units`; the final install of the whole group follows it. Entry points:
+//! Owns [`PartnerGroup`] (`unordered`, `closure`, `sequence`, `order`, `final_order`), [`orders`], [`MAX_INTERACTING`]
+//! and [`MAX_INPUTS`]. The order of the units (a unit after every unit it reads from and after the units its apps depend
+//! on) is `install_proof.rs` `Graph::units`; the final install of the whole group follows it where the dependencies
+//! allow ([`final_order`]). Entry points:
 //! [`split_microsoft`], [`install_partner_apps`].
 
 use crate::install::InstallView;
@@ -159,9 +160,19 @@ impl PartnerGroup<'_> {
     /// The order of the group in which the apps of `fixed` install in that order ([`order_of`]), or the apps whose
     /// requested order their dependencies rule out.
     pub(crate) fn order(&self, fixed: &[u32]) -> Result<Vec<u32>, BTreeSet<u32>> {
+        order_of(&self.ranked(), |a, b| self.view.needs(a, b), fixed)
+    }
+
+    /// The order of the final install ([`final_order`]) of `wanted`.
+    pub(crate) fn final_order(&self, wanted: &[u32]) -> Result<Vec<u32>, BTreeSet<u32>> {
+        final_order(&self.ranked(), |a, b| self.view.needs(a, b), wanted)
+    }
+
+    /// The apps of the group in plan order.
+    fn ranked(&self) -> Vec<u32> {
         let mut ranked: Vec<u32> = self.group.iter().copied().collect();
         ranked.sort_by_key(|&a| (self.apps.iter().position(|&x| x == a).unwrap_or(usize::MAX), a));
-        order_of(&ranked, |a, b| self.view.needs(a, b), fixed)
+        ranked
     }
 
     /// The apps of `order` with install code: the apps a run in that order installs.
@@ -206,6 +217,19 @@ pub(crate) fn order_of(
         out.push(left.remove(k));
     }
     Ok(out)
+}
+
+/// ADR-079 decision 3, the final install (clarification of 2026-11-23, issue 8907): the units' order `wanted` when the
+/// dependencies allow it ([`order_of`]). When they do not (two tangles whose dependencies cross: 1 depends on 3, 4 on
+/// 2, while 1, 2 and 3, 4 are tangles), the plan order with the dependencies kept: once every unit is proven, every
+/// order BC can give leaves the same database (decision 4), so any of them is a final install. `Err` only when the
+/// dependencies themselves form a cycle.
+pub(crate) fn final_order(
+    ranked: &[u32],
+    needs: impl Fn(u32, u32) -> bool,
+    wanted: &[u32],
+) -> Result<Vec<u32>, BTreeSet<u32>> {
+    order_of(ranked, &needs, wanted).or_else(|_| order_of(ranked, &needs, &[]))
 }
 
 /// The orders of `apps` that no dependency path rules out.

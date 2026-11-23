@@ -207,9 +207,29 @@ least as strict as the text it clarifies.
   stops the proof (a multi-app input, an ancestor placed first, the order of the unit's own apps). The list of
   units (`Graph::units`) puts a unit after its inputs and after the units with an app one of its apps depends on; units
   with neither tie keep their order. Every order the proof builds from the list (the subset runs and the final install)
-  then keeps the dependencies unless the reads run against them, and only then does the proof stop. Before, the list
+  then keeps the dependencies unless the reads run against them or the dependencies of two units cross (see "the final
+  install" below). Before, the list
   order could request an app before the app it depends on with a third app between them, and the proof stopped
   (neighbor app `install-order-footprint-final-order`; main passes).
+- **Decision 3, the places of a unit's inputs (2026-11-23, issue 8907).** This replaces "S, then X, then the inputs
+  not in S" for a tangle, and the skip of review round 4. A unit's runs are its orders with each input placed among the
+  unit's apps, one app at a time (the apps of an input of several apps can install on both sides of an app of the
+  unit). For one order, an input app's place counts only relative to the apps of the unit that read from it: any other
+  app of the unit commutes with it (neither reads from the other and they write nothing in common, else they would be
+  one unit). So each input app gets one place per count of its readers it installs after, at the earliest slot of that
+  class the dependencies allow. For a unit of one app with inputs of one app these are the subsets of decision 3. A
+  class no slot fits holds no order BC gives and is skipped. Reason: decision
+  4 treats a tangle as one app, but on BC an input can install between two apps of a tangle. The input that depends on
+  one tangle app installs after it (T1, I, T2; neighbor app `install-order-footprint-tangle-dependent-input`, main
+  before this ADR passes, round 4 stopped), and an input two apps of the tangle read from can give each of them a
+  different view (neighbor app `install-order-footprint-tangle-interleaved-input`: the four runs of the old plan agree,
+  T1, I, T2 differs). The runs of one unit stay at most 3! x 2^3 = 48 (decision 5); a plan with more refuses.
+- **Decision 3, the final install: crossing dependencies (2026-11-23, issue 8907, review round 5 L15).** When the
+  units' order cannot be built (two tangles whose dependencies cross: 1 depends on 3 and 4 on 2, while 1, 2 and 3, 4
+  are tangles), the final install takes the plan order with the dependencies kept. Once every unit is proven, every
+  order BC can give leaves the same database (decision 4), so any of them is a final install. The run set also takes
+  every app of a unit one of its apps is in: before, proving 1, 2 installed 3 (1 depends on it) without 4, so 3's meet
+  of 4 was of unknown order and the proof stopped (neighbor app `install-order-footprint-crossing-tangles`).
 - **Decision 3, when the proof ends.** A run that adds an edge starts the proof again on the grown graph. Footprints
   only grow, so the rounds end. A run that meets an app of unknown order and adds no edge stops the proof: the group is
   not proven, and the note names that pair.

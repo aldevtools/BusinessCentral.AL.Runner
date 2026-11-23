@@ -1,9 +1,9 @@
 //! Subset runs (ADR-079 decision 3): the proof that a partner group's install leaves the same database in every order.
 //!
 //! The units of the influence graph (`install_proof.rs`) are proven one by one. A unit with inputs, or a tangle of two
-//! or three apps, installs once per subset S of its inputs and per order of its apps: from the database before the
-//! group, the units it reads from through others first, then S, then the unit, then the inputs not in S, each in a fixed
-//! order. The run also installs the dependency predecessors of these apps and the units those read from (the run set,
+//! or three apps, installs once per order of its apps and per place of its inputs among them ([`plan`]; for a unit of
+//! one app, once per subset S of its inputs: S, then the unit, then the inputs not in S): from the database before the
+//! group, the units it reads from through others first, then the run of the plan, each in a fixed order. The run also installs the dependency predecessors of these apps and the units those read from (the run set,
 //! [`Proof::run_set`]), each at its place in the fixed order (ADR-079 decision 3, clarification of 2026-11-23). While an
 //! app installs, an app of the run placed before it is installed; one placed after it is not installed only when the
 //! round's graph has the edge "the installing app reads from it" (`InstallView::of_ordered`), else it stays of unknown
@@ -12,7 +12,8 @@
 //! `Baseline::install_order_differences` (ADR-046 amendments 7 and 8; the orchestrator's clarification of decision 3
 //! in ADR-079: the whole database, a superset of what the unit leaves). Every run's footprints count for the graph: a
 //! run that adds an edge starts the proof again on the grown graph; a meet that adds none stops it ([`next_round`]).
-//! A final install of the whole group in an order of the units, every app's place fixed, ends the session; its
+//! A final install of the whole group in an order of the units (or, where the dependencies rule that out, the plan order:
+//! `PartnerGroup::final_order`), every app's place fixed, ends the session; its
 //! footprints are checked the same way. The tables that differ are closed over the footprints ([`tainted`]): an
 //! install that read one may have written other rows from it.
 
@@ -113,9 +114,9 @@ impl<'p, 'g> Proof<'p, 'g> {
                 }
             }
             rewind(session, inst);
-            let fixed: Vec<u32> = units.iter().flat_map(|u| self.first_order(u)).collect();
+            let wanted: Vec<u32> = units.iter().flat_map(|u| self.first_order(u)).collect();
             // The view and the run take the same order (ADR-079 decision 3, clarification of 2026-11-23, round 3).
-            let fixed = self.order(&fixed)?;
+            let fixed = self.g.final_order(&wanted).map_err(|apps| self.ruled(apps))?;
             let hit = (self.g).recorded_run(
                 session,
                 inst,
@@ -146,13 +147,16 @@ impl<'p, 'g> Proof<'p, 'g> {
         })
     }
 
-    /// The apps of the group a run of the apps `start` installs: those, the apps they depend on, and the units those read
-    /// from (directly or through others), until nothing is added.
+    /// The apps of the group a run of the apps `start` installs: those, the apps they depend on, the other apps of their
+    /// units, and the units those read from (directly or through others), until nothing is added. A unit comes whole:
+    /// an app of a tangle meets the others, and one left out stays of unknown order (two tangles whose dependencies
+    /// cross; issue 8907).
     fn run_set(&self, round: &Round, start: &[u32]) -> BTreeSet<u32> {
         let mut set = self.g.closure(start);
         loop {
             let mut more: Vec<u32> = set.iter().copied().collect();
             for u in round.units.iter().filter(|u| u.iter().any(|a| set.contains(a))) {
+                more.extend(u);
                 more.extend(round.graph.ancestors(round.units, u).into_iter().flatten());
             }
             let more = self.g.closure(&more);
@@ -166,13 +170,29 @@ impl<'p, 'g> Proof<'p, 'g> {
     /// [`PartnerGroup::order`] of `fixed`. An order the dependencies rule out is not run, so the proof stops there
     /// (ADR-079 decision 3, clarification of 2026-11-23, review round 3).
     fn order(&self, fixed: &[u32]) -> Result<Vec<u32>, Unproven> {
-        self.g.order(fixed).map_err(|apps| Unproven {
+        self.g.order(fixed).map_err(|apps| self.ruled(apps))
+    }
+
+    fn ruled(&self, apps: BTreeSet<u32>) -> Unproven {
+        Unproven {
             why: format!(
                 "the proof needs {} installed in an order their dependencies rule out",
                 names(self.lowered, &apps)
             ),
             apps,
-        })
+        }
+    }
+
+    /// [`plan`] gave `n` runs for the unit `own` (with its inputs, `who`), more than [`MAX_UNIT_RUNS`].
+    fn too_many(&self, n: usize, own: &BTreeSet<u32>, who: &BTreeSet<u32>) -> Unproven {
+        Unproven {
+            apps: who.clone(),
+            why: format!(
+                "placing the inputs of {} among its apps takes {n} runs, more than the {MAX_UNIT_RUNS} the runner makes \
+                 for one unit",
+                names(self.lowered, own)
+            ),
+        }
     }
 
     /// The first order of `unit`'s apps that no dependency path rules out.
@@ -227,34 +247,26 @@ impl<'p, 'g> Proof<'p, 'g> {
             .filter(|v| !inputs.contains(v))
             .flat_map(|v| self.first_order(v))
             .collect();
+        let placed: Vec<u32> = inputs.iter().flat_map(|v| self.first_order(v)).collect();
+        let reads = |a: u32, y: u32| graph.reads.contains(&(a, y));
+        let runs = plan(&orders(self.g, &own), &placed, reads, |a, b| self.g.view.needs(a, b))
+            .map_err(|n| self.too_many(n, &own, &who))?;
         let mut ends = Vec::new();
-        for mask in 0..1usize << inputs.len() {
-            if no_real_order(&inputs, mask, |a, b| self.g.view.needs(a, b)) {
-                continue;
+        for placed in runs {
+            let mut fixed = before.clone();
+            fixed.extend(placed);
+            rewind(session, inst);
+            // The clock readings around this run: a value inside them was read from the clock (amendment 8).
+            let from = session.clock_now_millis();
+            let run = self.run_set(round, &fixed);
+            let fixed: Vec<u32> = (self.order(&fixed)?.into_iter()).filter(|a| run.contains(a)).collect();
+            let sequence: Vec<u32> = (fixed.iter().copied()).filter(|a| self.g.apps.contains(a)).collect();
+            let hit = (self.g).recorded_run(session, inst, &sequence, &fixed, &graph.reads, &mut self.fp);
+            self.runs += 1;
+            if self.grew(graph, hit)? {
+                return Ok(UnitProof::Grew);
             }
-            let chosen = |k: usize| mask & (1 << k) != 0;
-            for order in orders(self.g, &own) {
-                let mut fixed = before.clone();
-                for (_, v) in inputs.iter().enumerate().filter(|(k, _)| chosen(*k)) {
-                    fixed.extend(self.first_order(v));
-                }
-                fixed.extend(&order);
-                for (_, v) in inputs.iter().enumerate().filter(|(k, _)| !chosen(*k)) {
-                    fixed.extend(self.first_order(v));
-                }
-                rewind(session, inst);
-                // The clock readings around this run: a value inside them was read from the clock (amendment 8).
-                let from = session.clock_now_millis();
-                let run = self.run_set(round, &fixed);
-                let fixed: Vec<u32> = (self.order(&fixed)?.into_iter()).filter(|a| run.contains(a)).collect();
-                let sequence: Vec<u32> = (fixed.iter().copied()).filter(|a| self.g.apps.contains(a)).collect();
-                let hit = (self.g).recorded_run(session, inst, &sequence, &fixed, &graph.reads, &mut self.fp);
-                self.runs += 1;
-                if self.grew(graph, hit)? {
-                    return Ok(UnitProof::Grew);
-                }
-                ends.push((session.capture_baseline(), (from, session.clock_now_millis())));
-            }
+            ends.push((session.capture_baseline(), (from, session.clock_now_millis())));
         }
         self.compare(session, &own, &who, &inputs, &ends, out)?;
         Ok(UnitProof::Done)
@@ -418,19 +430,74 @@ impl Unproven {
     }
 }
 
-/// ADR-079 decision 3, clarification of 2026-11-23 (review round 4): whether the subset `mask` of `inputs` (bit `k` set:
-/// input `k` installs before the unit) is no real order. That holds when a chosen input of one app depends on an
-/// unchosen input of one app (`needs(a, b)`: a depends on b): b installs before a on BC, so "a before the unit, b after
-/// it" never happens, and the proof skips the subset. Every other order the dependencies rule out stops the proof
-/// ([`Proof::order`]). In the measured shape (a base app and its extension both answer an event P's install raises)
-/// main passes (neighbor app `install-order-footprint-dependent-inputs`).
-pub(crate) fn no_real_order(inputs: &[&Vec<u32>], mask: usize, needs: impl Fn(u32, u32) -> bool) -> bool {
-    let single = |chosen: bool| {
-        (inputs.iter().enumerate())
-            .filter(move |(k, v)| (mask & (1 << k) != 0) == chosen && v.len() == 1)
-            .map(|(_, v)| v[0])
-    };
-    single(true).any(|a| single(false).any(|b| needs(a, b)))
+/// The most runs of one unit: every order of a tangle of [`MAX_INTERACTING`] apps times every subset of [`MAX_INPUTS`]
+/// inputs (ADR-079 decision 5: 3! x 2^3 = 48).
+pub(crate) const MAX_UNIT_RUNS: usize = 6 << MAX_INPUTS;
+
+/// ADR-079 decision 3, clarification of 2026-11-23 (issue 8907): the runs of a unit with inputs, as orders of the unit's
+/// apps with each app of its inputs (`inputs`, in install order) placed among them. Per order of the unit's apps
+/// (`orders`), an input app's place counts only relative to the apps of the unit that read from it (`reads(a, y)`):
+/// every other app of the unit commutes with it (neither reads from the other and they write nothing in common, else
+/// they would be one unit). So an input app gets one place per count c of its readers it installs after (c = 0 to all
+/// of them), at the earliest slot of that class the dependencies allow (`needs(a, b)`: a depends on b): after every app
+/// of the unit it depends on, before every app of the unit that depends on it, and not before an input app it depends
+/// on. For a unit of one app with inputs of one app each these are the subsets of the inputs. A class no such slot fits
+/// holds no order BC gives, so it is skipped (in the measured shape, a tangle whose input depends on one of its apps,
+/// main before ADR-079 passes; neighbor app `install-order-footprint-tangle-dependent-input`). The apps of an input are
+/// placed one by one: on BC they can install on both sides of an app of the unit. The first run puts every input app
+/// after its readers. `Err` with the count when there are more runs than [`MAX_UNIT_RUNS`].
+pub(crate) fn plan(
+    orders: &[Vec<u32>],
+    inputs: &[u32],
+    reads: impl Fn(u32, u32) -> bool,
+    needs: impl Fn(u32, u32) -> bool,
+) -> Result<Vec<Vec<u32>>, usize> {
+    let k = inputs.len();
+    let mut runs = Vec::new();
+    for order in orders {
+        let t = order.len();
+        let readers: Vec<Vec<usize>> = (inputs.iter())
+            .map(|&y| (0..t).filter(|&p| reads(order[p], y)).collect())
+            .collect();
+        for code in 0..readers.iter().map(|r| r.len() + 1).product::<usize>() {
+            let (mut lo, mut hi) = (vec![0; k], vec![t; k]);
+            let mut rest = code;
+            for (i, r) in readers.iter().enumerate() {
+                let c = r.len() - rest % (r.len() + 1);
+                rest /= r.len() + 1;
+                lo[i] = if c == 0 { 0 } else { r[c - 1] + 1 };
+                hi[i] = if c == r.len() { t } else { r[c] };
+                for (p, &a) in order.iter().enumerate() {
+                    if needs(inputs[i], a) {
+                        lo[i] = lo[i].max(p + 1);
+                    }
+                    if needs(a, inputs[i]) {
+                        hi[i] = hi[i].min(p);
+                    }
+                }
+            }
+            for _ in 0..k {
+                for (i, j) in (0..k).flat_map(|i| (0..k).map(move |j| (i, j))) {
+                    if needs(inputs[i], inputs[j]) {
+                        lo[i] = lo[i].max(lo[j]);
+                    }
+                }
+            }
+            if (0..k).any(|i| lo[i] > hi[i]) {
+                continue;
+            }
+            let mut run = Vec::new();
+            for s in 0..=t {
+                run.extend((0..k).filter(|&i| lo[i] == s).map(|i| inputs[i]));
+                run.extend(order.get(s));
+            }
+            runs.push(run);
+        }
+    }
+    if runs.len() > MAX_UNIT_RUNS {
+        return Err(runs.len());
+    }
+    Ok(runs)
 }
 
 /// Whether the proof starts another round after a run: `after`, the graph with the run's footprints, has an edge
