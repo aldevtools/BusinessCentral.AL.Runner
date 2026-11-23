@@ -204,6 +204,17 @@ pub fn run_case(case: &Case, bc_major: u16) -> Outcome {
     out
 }
 
+/// The preprocessor symbols a must-not-compile case compiles with on `bc_major`: the major symbols, never a minor
+/// symbol of the released minors. The corpus checks each case with `BC<major>PLUS` only
+/// (`.github/scripts/check-must-not-compile.py:175`, unchanged on the corpus branch ci-bc-29-1); the cumulative major
+/// set below is main's, which already differs from that one symbol (a follow-up issue).
+pub fn case_symbols(bc_major: u16) -> std::collections::BTreeSet<String> {
+    al_version::corpus_symbols(
+        &al_version::BcVersion::new(bc_major, 0),
+        &al_version::ReleasedMinors::NotRecorded,
+    )
+}
+
 /// Compiles `case` alone at `bc_major`: the workspace, the check, and the AL diagnostics of the
 /// checker and of the app context (unsorted).
 fn compile(case: &Case, bc_major: u16) -> (Workspace, al_sema::check::CheckResult, Vec<Diagnostic>) {
@@ -227,7 +238,7 @@ fn compile(case: &Case, bc_major: u16) -> (Workspace, al_sema::check::CheckResul
         files: vec![("src/case.al".into(), case.source.clone())],
     }];
     apps.extend(corpus_apps);
-    let ws = Workspace::load(apps, &al_version::corpus_symbols(bc_major));
+    let ws = Workspace::load(apps, &case_symbols(bc_major));
     let members = al_sema::members::build(&ws);
     // The corpus apps' runtime on this leg (`oracle.toml` app_runtime): 16.1, 17.1, 18.0, unless `@appjson` names one.
     let runtime = case.appjson_runtime.or_else(|| {
@@ -373,6 +384,16 @@ mod tests {
     use super::*;
 
     const CASE: &str = "// @expect AL0162 | 'OnInit' is not a valid trigger\n// A human line.\n// @target OnPrem\n// @from 27\n\ntable 1 T { }\n";
+
+    /// A case never gets a minor symbol, whatever the oracle table records (check-must-not-compile.py:175).
+    #[test]
+    fn a_case_gets_the_major_symbols_only() {
+        for major in [27u16, 29] {
+            let s = case_symbols(major);
+            assert!(s.contains(&format!("BC{major}PLUS")), "{s:?}");
+            assert!(s.iter().all(|n| !n.contains('_')), "{s:?}");
+        }
+    }
 
     #[test]
     fn the_header_is_parsed() {
