@@ -151,12 +151,14 @@ fn at_sign_alone_reads_cells() {
 /// The cells of AtSignAloneMethods.al (corpus PR 1495): `<>@` alone read by DeleteAll, ModifyAll, CalcSums, FindLast, a report and
 /// a page (:215, :244, :279, :312, :345), a CalcFormula's `filter('@')` and `filter('<>@')` with every method (:376), and its sum over
 /// a Date source field (:395) and over an Integer, Decimal, Option or Boolean one, with the error's text and code (:430, :454),
-/// `<>@` alone in filter groups 1 and 2 (:489) and `<>@` alone and `@` alone set on a min or max FlowField (:552), flagged. Filter
+/// `<>@` alone in filter groups 1 and 2 (:489) and `<>@` alone and `@` alone set on a min or max FlowField (:552, :827), the other
+/// readers of a sum over the other source types (:657), an Option source with a blank member (:717) and a Code FlowFilter `<>@`
+/// with every method over Code and Text (:767), flagged. Filter
 /// group 1 of a temporary record (:507) keeps the runner's refusal of any SetFilter there, which is not about `@`.
 #[test]
 fn at_sign_alone_methods_cells() {
     let o = outcomes(METHODS, "AM Kind Tests");
-    assert_eq!(o.len(), 12);
+    assert_eq!(o.len(), 16);
     for (name, r, marks) in &o {
         if name == "AtSignAloneNegated_FilterGroupOne_Temporary" {
             assert!(
@@ -174,12 +176,24 @@ fn at_sign_alone_methods_cells() {
 }
 
 /// A CalcFormula's `filter('@')` past the cells of AtSignAloneMethods.al: a count over a Date source field, a sum over an Option
-/// field with an OptionCaption and over a Time field. No cell measures them, so the lowering refuses them before the test runs.
+/// field with an OptionCaption and over a Time field, which the lowering refuses before the test runs, and the error of a sum over
+/// an Integer field in a session of language 1031, which the run refuses (:430 and :454 measure 1033).
 #[test]
 fn at_sign_alone_other_source_neighbors_refused() {
     let o = outcomes(SOURCES, "AN Source Neighbor Tests");
-    assert_eq!(o.len(), 3);
-    for (name, r, _) in &o {
+    assert_eq!(o.len(), 4);
+    for (name, r, marks) in &o {
+        if name == "AtSignAlone_SumOverIntegerSource_OtherLanguage" {
+            assert!(
+                matches!(r, Outcome::NotRun(w) if w.contains("in a session of language 1031 (not measured)")),
+                "{name}: {r:?}"
+            );
+            assert!(
+                !marks.contains(&Assumption::AtSignAloneDatabaseBlank),
+                "{name}: {marks:?}"
+            );
+            continue;
+        }
         assert!(
             matches!(r, Outcome::NotRun(w) if w.contains("CalcFormula filter '@' over a") && w.contains("(not measured)")),
             "{name}: {r:?}"

@@ -1,7 +1,7 @@
 // Neighbors of a CalcFormula's filter('@') over a source field that is neither Code nor Text, past the cells: AtSignAloneMethods.al
-// measures a sum over a Date, Integer, Decimal, Boolean and an Option field without captions (:395, :430, :454). A count over a Date
-// field, an Option field with an OptionCaption and a Time field are not measured; the runner refuses them, as main does, so these
-// tests assert nothing.
+// measures a sum over a Date, Integer, Decimal, Boolean and an Option field without captions, read by any reader, in a session of
+// language 1033 (:395, :430, :454, :657, :717). A count over a Date field, an Option field with an OptionCaption, a Time field and
+// the Integer error in a session of language 1031 are not measured; the runner refuses them, so these tests assert nothing.
 table 97508 "AN Source Row"
 {
     DataClassification = SystemMetadata;
@@ -15,6 +15,7 @@ table 97508 "AN Source Row"
         field(4; Opt; Option) { OptionMembers = A,B; OptionCaption = 'First,Second'; }
         field(5; At; Time) { }
         field(6; Amount; Decimal) { }
+        field(7; Num; Integer) { }
     }
 
     keys
@@ -45,6 +46,11 @@ table 97509 "AN Source Host"
         {
             FieldClass = FlowField;
             CalcFormula = sum("AN Source Row".Amount where("Group" = field("No."), At = filter('@')));
+        }
+        field(5; "Num At"; Decimal)
+        {
+            FieldClass = FlowField;
+            CalcFormula = sum("AN Source Row".Amount where("Group" = field("No."), Num = filter('@')));
         }
     }
 
@@ -96,5 +102,18 @@ codeunit 97538 "AN Source Neighbor Tests"
     begin
         NewHost(Host);
         Host.CalcFields("Time At");
+    end;
+
+    // The error of a sum over an Integer source field is measured in a session of language 1033 only
+    // (AtSignAloneMethods.al:430, :454); in another language the runner refuses it.
+    [Test]
+    procedure AtSignAlone_SumOverIntegerSource_OtherLanguage()
+    var
+        Host: Record "AN Source Host";
+    begin
+        NewHost(Host);
+        GlobalLanguage(1031);
+        asserterror Host.CalcFields("Num At");
+        GlobalLanguage(1033);
     end;
 }
