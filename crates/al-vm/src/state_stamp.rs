@@ -17,7 +17,7 @@
 use crate::Session;
 use crate::sessionops::Sequence;
 use crate::state_render::content;
-use al_builtins::value::{Instance, RecordState, Value};
+use al_builtins::value::{Instance, LibraryValue, RecordState, Value};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
@@ -100,7 +100,8 @@ pub struct LeftChange {
     /// The SingleInstance codeunits (object index) whose state changed, each with the globals (index) that changed: of an
     /// instance that was there before, those that hold another value (all of them when it went away or its number of
     /// globals differs); of a new instance, those that do not hold what a fresh instance holds. A global with no
-    /// comparable form (a .NET object, a stream, a temporary record) counts as changed.
+    /// comparable form (a .NET object, a stream, a temporary record) counts as changed unless it holds what a fresh one
+    /// holds at both ends (`Session::at_declared`).
     pub singles: BTreeMap<usize, BTreeSet<usize>>,
     /// The SingleInstance codeunits (object index) one of whose globals came to hold a codeunit instance a call made, with
     /// every global of it at its declared value, and counts as unchanged only through assumption clear-shared-codeunit
@@ -138,7 +139,13 @@ impl LeftStamp {
             .filter_map(|o| {
                 let changed = match (self.singles.get(&o), later.singles.get(&o)) {
                     (Some(x), Some(y)) if x.globals.len() == y.globals.len() => {
-                        (0..x.globals.len()).filter(|&g| x.globals[g] != y.globals[g]).collect()
+                        // Two values that each hold what a fresh one holds hold the same, also where neither has a
+                        // comparable form (an untouched temporary record, `untouched_temp`).
+                        let both_declared =
+                            |g: usize| x.declared.get(g) == Some(&true) && y.declared.get(g) == Some(&true);
+                        (0..x.globals.len())
+                            .filter(|&g| x.globals[g] != y.globals[g] && !both_declared(g))
+                            .collect()
                     }
                     (None, Some(y)) if y.declared.len() == y.globals.len() => {
                         (0..y.declared.len()).filter(|&g| !y.declared[g]).collect()
@@ -207,7 +214,9 @@ impl Session {
                     match fresh.get(g) {
                         Some(f) if declared.get(g) == Some(&true) => {
                             let fresh = crate::single_track::fp(f, &engine);
-                            declared_form |= fresh != own;
+                            // Only a codeunit variable's instance counts through its declared form (assumption
+                            // clear-shared-codeunit); a temporary record's fingerprints never compare.
+                            declared_form |= matches!(v, Value::Codeunit(_)) && fresh != own;
                             fresh
                         }
                         _ => own,
@@ -237,7 +246,10 @@ impl Session {
 impl Session {
     /// Whether global value `v` holds what `fresh`, the value a fresh instance's global holds, holds: the same fingerprint;
     /// for a record also the same view (key, sort order, filter group, load and calculated fields, read isolation, security
-    /// filtering, company, marks) and nothing read or written through it; for a codeunit the same of each of its globals. A
+    /// filtering, company, marks) and nothing read or written through it, and for a temporary record, which has no
+    /// fingerprint, a table nothing wrote or shares and the rest of the record state alike (`untouched_temp`); a RecordRef
+    /// never opened that nothing shares; an array without a fingerprint element by element (never one of codeunits); for a
+    /// codeunit the same of each of its globals. A
     /// codeunit variable whose instance a call made (`ensure_initialized`) and a fresh one nothing used yet hold the same when
     /// each global of the instance holds its declared value: AL code cannot tell them apart, `Clear` gives both a fresh
     /// instance and `ClearAll` resets both in place (open corpus PR 1560, codeunits/clear-instance/ClearSharedCodeunit.al,
@@ -255,6 +267,10 @@ impl Session {
                 let (Ok(a), Ok(b)) = (a.try_borrow(), b.try_borrow()) else {
                     return false;
                 };
+                if a.temporary && b.temporary {
+                    let Value::Record(rc) = v else { unreachable!() };
+                    return same_view(&a, &b) && self.untouched_temp(rc, &a, &b);
+                }
                 same_view(&a, &b) && crate::single_track::fp(v, &engine) == crate::single_track::fp(fresh, &engine)
             }
             (Value::Codeunit(a), Value::Codeunit(b)) => {
@@ -274,8 +290,73 @@ impl Session {
                 held.len() == declared.len()
                     && (held.iter().zip(&declared)).all(|(x, y)| self.at_declared(x, y, depth + 1))
             }
+            // A RecordRef never opened that no other variable holds: what a fresh one holds (a closed or cleared one holds
+            // another state, al-builtins `recordref_closed.rs`). It has no fingerprint (al-builtins `value_codec`).
+            (Value::Library(k, a), Value::Library(_, b)) if *k == al_builtins::library_kind::LibraryKind::RecordRef => {
+                let (Ok(x), Ok(y)) = (a.try_borrow(), b.try_borrow()) else {
+                    return false;
+                };
+                let empty = |l: &LibraryValue| matches!(l, LibraryValue::Empty);
+                empty(&x) && empty(&y) && Rc::strong_count(a) == 2
+            }
+            // An array none of whose elements has a fingerprint compares element by element; never one of codeunits, whose
+            // declared form is the codeunit global's alone (`left_stamp`).
+            (Value::Array(a), Value::Array(b))
+                if crate::single_track::fp(v, &engine) != crate::single_track::fp(fresh, &engine) =>
+            {
+                let (Ok(x), Ok(y)) = (a.try_borrow(), b.try_borrow()) else {
+                    return false;
+                };
+                let (held, declared) = (x.clone(), y.clone());
+                drop((x, y));
+                Rc::strong_count(a) == 2
+                    && held.len() == declared.len()
+                    && !held.iter().any(|e| matches!(e, Value::Codeunit(_)))
+                    && (held.iter().zip(&declared)).all(|(e, d)| self.at_declared(e, d, depth + 1))
+            }
             _ => crate::single_track::fp(v, &engine) == crate::single_track::fp(fresh, &engine),
         }
+    }
+}
+
+impl Session {
+    /// Whether temporary record `a` (held in `rc`) holds what `b`, a fresh variable's temporary record, holds: its table was
+    /// never written (no store yet, or one whose change counter never moved, so no row was ever there) and no other record
+    /// holds it, and every other part of the record state equals `b`'s. A temporary record's rows are seen only through the
+    /// records that share its table: a second variable has a table of its own (record/TestTempTableContracts.al:37-46), and so
+    /// do a copy made with `Copy(x, false)` (:82-97) and a copy handed by value (:118-126); `Copy(x, true)` (:101-112) and a var
+    /// parameter (:130-138) share it, so a table another record holds (`TempId::sharers`) or a record state another holder
+    /// holds counts as changed, as does a by-value copy's table and one whose rows are not measured. The table's number
+    /// (`temp_id`) is the identity those shares name, and `probed_source` is the Blob probes' mark of the variable
+    /// (al-builtins `ProbedSource`): neither is compared. The caller's copy of the globals holds `rc` once besides the
+    /// instance.
+    fn untouched_temp(&self, rc: &Rc<RefCell<RecordState>>, a: &RecordState, b: &RecordState) -> bool {
+        let Some(t) = &a.temp_id else {
+            return false;
+        };
+        let never_written = self.temps.get(&t.id()).is_none_or(|s| s.change_counter() == 0);
+        let alone = t.sharers() == 1 && Rc::strong_count(rc) == 2;
+        let own = |r: &RecordState| {
+            r.own_read.0.is_none()
+                && r.rolled_read.0.is_none()
+                && r.globals.instances().is_empty()
+                && r.globals.xrec_instances().is_empty()
+        };
+        // A clone drops the table's number, the own read, the rolled read, the probed source and the table globals (checked
+        // above): what is left is the rest of the record state, field values and view included.
+        let rest = |r: &RecordState| {
+            let mut c = r.clone();
+            c.temp_id = None;
+            c.probed_source = Default::default();
+            content(&c)
+        };
+        never_written
+            && alone
+            && !t.is_by_value_copy()
+            && !t.rows_unmeasured()
+            && own(a)
+            && own(b)
+            && rest(a) == rest(b)
     }
 }
 
@@ -562,6 +643,184 @@ codeunit 50104 Driver
             assert_eq!(memo_change("Write", made), [0].into(), "made before: {made}");
         }
     }
+    const TEMP_MEMO: &str = r#"
+table 50110 Row
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+    }
+}
+
+codeunit 50111 TempStore
+{
+    var
+        Rows: Record Row temporary;
+        Backups: array[2, 3] of RecordRef;
+        Indices: array[2] of Integer;
+
+    procedure Get(): Integer
+    begin
+        exit(Indices[1]);
+    end;
+
+    procedure OpenRef()
+    begin
+        Backups[1, 1].Open(50110, true);
+    end;
+
+    procedure ShareRef()
+    begin
+        Backups[1, 2] := Backups[1, 1];
+    end;
+
+    procedure InsertRow()
+    begin
+        Rows.Insert();
+    end;
+}
+
+codeunit 50112 TempMemo
+{
+    SingleInstance = true;
+
+    var
+        Rows: Record Row temporary;
+        Store: Codeunit TempStore;
+        Other: Record Row temporary;
+
+    procedure Touch()
+    begin
+    end;
+
+    procedure UseStore()
+    begin
+        Store.Get();
+    end;
+
+    procedure ReadRows()
+    begin
+        if not Rows.IsEmpty() then
+            Error('rows');
+    end;
+
+    procedure InsertDelete()
+    begin
+        Rows.Id := 1;
+        Rows.Insert();
+        Rows.Delete();
+        Rows.Id := 0;
+    end;
+
+    procedure Share()
+    begin
+        Other.Copy(Rows, true);
+    end;
+
+    procedure Filter()
+    begin
+        Rows.SetRange(Id, 1);
+    end;
+
+    procedure StoreOpenRef()
+    begin
+        Store.OpenRef();
+    end;
+
+    procedure StoreShareRef()
+    begin
+        Store.ShareRef();
+    end;
+
+    procedure StoreInsertRow()
+    begin
+        Store.InsertRow();
+    end;
+}
+
+codeunit 50113 TempDriver
+{
+    procedure Touch() var M: Codeunit TempMemo; begin M.Touch(); end;
+    procedure UseStore() var M: Codeunit TempMemo; begin M.UseStore(); end;
+    procedure ReadRows() var M: Codeunit TempMemo; begin M.ReadRows(); end;
+    procedure InsertDelete() var M: Codeunit TempMemo; begin M.InsertDelete(); end;
+    procedure Share() var M: Codeunit TempMemo; begin M.Share(); end;
+    procedure Filter() var M: Codeunit TempMemo; begin M.Filter(); end;
+    procedure StoreOpenRef() var M: Codeunit TempMemo; begin M.StoreOpenRef(); end;
+    procedure StoreShareRef() var M: Codeunit TempMemo; begin M.StoreShareRef(); end;
+    procedure StoreInsertRow() var M: Codeunit TempMemo; begin M.StoreInsertRow(); end;
+}
+"#;
+
+    /// [`memo_left`] for codeunit TempMemo, whose globals are temporary records and a codeunit holding one.
+    fn temp_memo_left(routine: &str, made: bool) -> (std::collections::BTreeSet<usize>, usize) {
+        let mut b = Built::from_source(TEMP_MEMO);
+        if made {
+            b.run_in("TempDriver", "Touch").unwrap();
+        }
+        let before = b.session.left_stamp();
+        b.run_in("TempDriver", routine).unwrap();
+        let change = before.changed(&b.session.left_stamp());
+        (
+            change.singles.into_values().next().unwrap_or_default(),
+            change.declared_form.len(),
+        )
+    }
+
+    // al-runner issue 8912 ("Backup Management" after the login of NP Retail): a temporary record global whose table nothing
+    // wrote and nothing shares, with the view and the values of a fresh one, holds what a fresh one holds: no change. A codeunit
+    // global made by its first call whose globals hold such a record counts through its declared form (one mark); the record
+    // itself is no mark.
+    #[test]
+    fn an_untouched_temporary_record_global_is_no_change() {
+        for made in [true, false] {
+            assert_eq!(
+                temp_memo_left("Touch", made),
+                (Default::default(), 0),
+                "made before: {made}"
+            );
+            assert_eq!(
+                temp_memo_left("UseStore", made),
+                (Default::default(), 1),
+                "made before: {made}"
+            );
+            assert_eq!(
+                temp_memo_left("ReadRows", made),
+                (Default::default(), 0),
+                "made before: {made}"
+            );
+        }
+    }
+
+    // A temporary table written to (even emptied again), shared with another record (`Copy(x, true)`,
+    // record/TestTempTableContracts.al:101-112) or filtered is a change.
+    #[test]
+    fn a_written_shared_or_filtered_temporary_record_global_is_a_change() {
+        for made in [true, false] {
+            assert!(
+                temp_memo_left("InsertDelete", made).0.contains(&0),
+                "made before: {made}"
+            );
+            assert!(temp_memo_left("Share", made).0.contains(&0), "made before: {made}");
+            assert!(temp_memo_left("Filter", made).0.contains(&0), "made before: {made}");
+        }
+    }
+
+    // In a codeunit global made by its first call: an opened RecordRef, a RecordRef another element holds and a written
+    // temporary table are a change, and nothing counts through the declared form.
+    #[test]
+    fn an_opened_or_shared_record_ref_or_written_table_in_a_codeunit_global_is_a_change() {
+        for made in [true, false] {
+            for routine in ["StoreOpenRef", "StoreShareRef", "StoreInsertRow"] {
+                assert_eq!(
+                    temp_memo_left(routine, made),
+                    ([1].into(), 0),
+                    "{routine}, made before: {made}"
+                );
+            }
+        }
+    }
+
     // The clock's draws and its last system stamp are state lines: a later stamp lands after the last one, past it by a
     // draw of the clock key (`Session::stamp_millis`), so two sessions that differ only in them stamp differently.
     #[test]
