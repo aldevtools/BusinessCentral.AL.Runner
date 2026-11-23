@@ -228,6 +228,75 @@ page 97706 "LT NG Lines Read"
         Reads: Integer;
 }
 
+// The same page whose Name control calls CurrPage.Update(true) or Update() without a save, or Update(true) after it.
+page 97709 "LT NG Upd Lines"
+{
+    PageType = List;
+    SourceTable = "LT NG Line";
+    AutoSplitKey = true;
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Lines)
+            {
+                field(Name; Rec.Name)
+                {
+                    ApplicationArea = All;
+
+                    trigger OnValidate()
+                    var
+                        Mode: Codeunit "LT NG Mode";
+                    begin
+                        Rec.Note := 'Resolved';
+                        case Mode.Get() of
+                            5:
+                                CurrPage.Update(true);
+                            6:
+                                CurrPage.Update();
+                            7:
+                                begin
+                                    CurrPage.SaveRecord();
+                                    CurrPage.Update(true);
+                                end;
+                        end;
+                    end;
+                }
+                field(Note; Rec.Note) { ApplicationArea = All; }
+                field(Mark; Rec.Mark) { ApplicationArea = All; }
+                field(Value; Rec.Value) { ApplicationArea = All; }
+            }
+        }
+        area(FactBoxes)
+        {
+            part(Info; "LT NG Info")
+            {
+                ApplicationArea = All;
+                SubPageLink = "Group Code" = field("Group Code"), "Entry No." = field("Entry No.");
+            }
+        }
+    }
+
+    trigger OnAfterGetRecord()
+    var
+        Mode: Codeunit "LT NG Mode";
+    begin
+        if (Mode.Get() = 1) and (Rec.Name <> '') then
+            Rec.Value := 'Got';
+    end;
+
+    trigger OnAfterGetCurrRecord()
+    begin
+        CurrentName := Rec.Name;
+    end;
+
+    var
+        CurrentName: Text;
+}
+
 codeunit 97707 "LT NG Opener"
 {
     procedure Open(GroupCode: Code[10]; PageId: Integer)
@@ -306,6 +375,50 @@ codeunit 97708 "LT NG Tests"
         RunMode(0, Page::"LT NG Lines Read");
         Check('shown', 'name=A/Resolved/Stamped/ part=Resolved/Stamped/A value=A/Resolved/Stamped/V part=Resolved/Stamped/A ', Shown);
         Check('rows', 'A/Resolved/Stamped/V;', Rows());
+    end;
+
+    // Update(true) without a save, Update() without a save, and Update(true) after the save.
+    [Test]
+    [HandlerFunctions('UpdHandler')]
+    procedure NewLine_UpdateTrueWithoutSaveRecord_ShowsAndSavesTheRow()
+    begin
+        Initialize();
+        RunMode(5, Page::"LT NG Upd Lines");
+        Check('shown', 'name=A/Resolved// part=Resolved//A value=A/Resolved//V part=Resolved//A ', Shown);
+        Check('rows', 'A/Resolved//V;', Rows());
+    end;
+
+    [Test]
+    [HandlerFunctions('UpdHandler')]
+    procedure NewLine_UpdateWithoutSaveRecord_ShowsAndSavesTheRow()
+    begin
+        Initialize();
+        RunMode(6, Page::"LT NG Upd Lines");
+        Check('shown', 'name=A/Resolved// part=Resolved//A value=A/Resolved//V part=Resolved//A ', Shown);
+        Check('rows', 'A/Resolved//V;', Rows());
+    end;
+
+    [Test]
+    [HandlerFunctions('UpdHandler')]
+    procedure NewLine_SaveRecordThenUpdateTrue_ShowsAndSavesTheRow()
+    begin
+        Initialize();
+        RunMode(7, Page::"LT NG Upd Lines");
+        Check('shown', 'name=A/Resolved// part=Resolved//A value=A/Resolved//V part=Resolved//A ', Shown);
+        Check('rows', 'A/Resolved//V;', Rows());
+    end;
+
+    [ModalPageHandler]
+    procedure UpdHandler(var Lines: TestPage "LT NG Upd Lines")
+    begin
+        Lines.New();
+        Lines.Name.SetValue('A');
+        Shown += 'name=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value();
+        Shown += ' part=' + Lines.Info.Note.Value() + '/' + Lines.Info.Mark.Value() + '/' + Lines.Info.Info.Value() + ' ';
+        Lines.Value.SetValue('V');
+        Shown += 'value=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value();
+        Shown += ' part=' + Lines.Info.Note.Value() + '/' + Lines.Info.Mark.Value() + '/' + Lines.Info.Info.Value() + ' ';
+        Lines.OK().Invoke();
     end;
 
     [ModalPageHandler]
