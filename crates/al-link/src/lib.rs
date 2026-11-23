@@ -1896,6 +1896,7 @@ mod tests {
             bare_quoted_ext_source: false,
             visible_row_field: None,
             factbox: false,
+            fixed_or_grid: false,
         }
     }
 
