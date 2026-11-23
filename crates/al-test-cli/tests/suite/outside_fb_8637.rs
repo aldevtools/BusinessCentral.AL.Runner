@@ -404,15 +404,15 @@ fn issue_8637_more_neighbors() {
 /// Neighbors from the review of al-runner PR 8808 (al-runner issue 8879; MoreNeighbors.al, "BQ More Follow-up Tests", a local BC
 /// 29.1 container, 3 runs). A FindFirst with filters on two FlowFields of different source tables answers the first answer,
 /// flagged, with the filters set in the same order and in the other order (`flow_field_sources` sorts the tables). A worker's
-/// SelectLatestVersion with an Option is refused: BC answers the first read when its value names no table, but no cell
-/// measures one that names the cached table.
+/// SelectLatestVersion with an Option, a Char, a Byte or an Enum is refused: BC answers the first read when its value names no
+/// table, but no cell measures one that names the cached table.
 #[test]
 fn issue_8879_follow_up_neighbors() {
     let src = format!("{PROBE}\n{MORE}");
     let o = outcomes(&src, "BQ More Follow-up Tests");
-    assert_eq!(o.len(), 3);
+    assert_eq!(o.len(), 6);
     for (name, r, marks) in &o {
-        if name.starts_with("SelectLatestVersionOfAnOption") {
+        if name.starts_with("SelectLatestVersionOf") {
             assert!(
                 matches!(r, Outcome::NotRun(w) if w.starts_with("SelectLatestVersion(Table) in a page background task")),
                 "{name}: {r:?}"

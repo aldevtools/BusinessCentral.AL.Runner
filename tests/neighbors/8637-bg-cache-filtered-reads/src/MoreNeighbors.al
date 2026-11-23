@@ -98,6 +98,9 @@ codeunit 97583 "BQ More Reader"
         Line: Record "BQ More Line";
         Row: Record "BQ Row";
         Kind: Option First,Second;
+        C: Char;
+        B: Byte;
+        E: Enum "BQ More Kind";
     begin
         case Mode of
             'countasc', 'countdesc':
@@ -152,10 +155,20 @@ codeunit 97583 "BQ More Reader"
                     Parent.SetFilter("Line Count", '>0');
                     exit(Format(Parent.FindFirst()));
                 end;
-            'description', 'optionselect':
+            'description', 'optionselect', 'charselect', 'byteselect', 'enumselect':
                 begin
-                    if Mode = 'optionselect' then
-                        Database.SelectLatestVersion(Kind);
+                    // Each value is 0, which names no table; the compiler takes each for the Integer (an Enum with warning
+                    // AL0603).
+                    case Mode of
+                        'optionselect':
+                            Database.SelectLatestVersion(Kind);
+                        'charselect':
+                            Database.SelectLatestVersion(C);
+                        'byteselect':
+                            Database.SelectLatestVersion(B);
+                        'enumselect':
+                            Database.SelectLatestVersion(E);
+                    end;
                     Parent.Get(Group);
                     exit(Parent.Description);
                 end;
@@ -308,8 +321,8 @@ codeunit 97584 "BQ More Tests"
 // Count = 0); the test session inserts a note without a commit and reads it; the worker's FindFirst again, with the filters set
 // in the same order and in the other order: BC answers the first answer in both, so the order the filters were set in is not
 // part of the entry. A worker's Get of the parent; the test session changes its description without a commit; the worker calls
-// SelectLatestVersion with an Option whose value 0 names no table, and gets the parent again: BC answers 'first' (a local BC
-// 29.1 container, 3 runs).
+// SelectLatestVersion with an Option, a Char, a Byte or an Enum whose value 0 names no table, and gets the parent again: BC
+// answers 'first' for each (a local BC 29.1 container, 3 runs).
 codeunit 97510 "BQ More Follow-up Tests"
 {
     Subtype = Test;
@@ -388,4 +401,29 @@ codeunit 97510 "BQ More Follow-up Tests"
     begin
         Assert.AreEqual('first / first', Reads('description', 'optionselect', 'description'), 'SelectLatestVersion(Option)');
     end;
+
+    [Test]
+    procedure SelectLatestVersionOfAChar_DescriptionAfterFirstRead()
+    begin
+        Assert.AreEqual('first / first', Reads('description', 'charselect', 'description'), 'SelectLatestVersion(Char)');
+    end;
+
+    [Test]
+    procedure SelectLatestVersionOfAByte_DescriptionAfterFirstRead()
+    begin
+        Assert.AreEqual('first / first', Reads('description', 'byteselect', 'description'), 'SelectLatestVersion(Byte)');
+    end;
+
+    [Test]
+    procedure SelectLatestVersionOfAnEnum_DescriptionAfterFirstRead()
+    begin
+        Assert.AreEqual('first / first', Reads('description', 'enumselect', 'description'), 'SelectLatestVersion(Enum)');
+    end;
+}
+
+enum 97510 "BQ More Kind"
+{
+    Extensible = false;
+
+    value(0; None) { }
 }
