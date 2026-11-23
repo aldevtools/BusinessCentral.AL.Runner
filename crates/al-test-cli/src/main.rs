@@ -142,6 +142,9 @@ fn run() -> Result<ExitCode, String> {
     if let Some(dir) = &args.coverage_map {
         return coverage_map(&root, dir.as_deref());
     }
+    if let Some(version) = &args.print_symbols {
+        return print_symbols(&args, &root, version);
+    }
     if let Some(dir) = &args.must_not_compile {
         return must_not_compile(&args, &root, dir.as_deref());
     }
@@ -364,6 +367,29 @@ fn must_not_compile(args: &Args, root: &Path, dir: Option<&Path>) -> Result<Exit
     print!("{}", al_test_cli::mnc::render(&outcomes, major));
     let bad = al_test_cli::mnc::Summary::of(&outcomes).mismatched;
     Ok(ExitCode::from(u8::from(bad > 0)))
+}
+
+/// `--print-symbols VERSION`: the corpus preprocessor symbols of a BC version (`al_version::corpus_symbols`),
+/// comma-separated on one line. `tools/corpus-writer/compile-legs.sh` and the symbol check of `tools/corpus_bump.sh`
+/// read them here, so the rule has one owner (ADR-078 point 3).
+fn print_symbols(args: &Args, root: &Path, version: &str) -> Result<ExitCode, String> {
+    let v = al_version::BcVersion::parse(version).map_err(|e| format!("--print-symbols `{version}`: {e}"))?;
+    let symbols: Vec<String> = al_version::corpus_symbols(&v, &released_minors(args, root)?)
+        .into_iter()
+        .collect();
+    println!("{}", symbols.join(","));
+    Ok(ExitCode::SUCCESS)
+}
+
+/// The released minors of `--released-minors LIST` (comma-separated, not empty), else those the oracle table records.
+fn released_minors(args: &Args, root: &Path) -> Result<al_version::ReleasedMinors, String> {
+    if let Some(list) = &args.released_minors {
+        let entries: Vec<&str> = list.split(',').map(str::trim).filter(|e| !e.is_empty()).collect();
+        return al_version::ReleasedMinors::parse(&entries).map_err(|e| format!("--released-minors: {e}"));
+    }
+    let oracle_path = args.oracle.clone().unwrap_or_else(|| root.join("oracle/oracle.toml"));
+    let cfg = config::OracleFile::parse(&read(&oracle_path)?).map_err(|e| format!("{}: {e}", oracle_path.display()))?;
+    Ok(cfg.released())
 }
 
 /// What one version's run leaves for the comparison across versions.
@@ -1101,7 +1127,7 @@ fn run_version_inner(
     for note in &chosen.notes {
         eprintln!("note: {note}");
     }
-    let symbols = al_version::corpus_symbols(chosen.target.bc.major);
+    let symbols = al_version::corpus_symbols(&chosen.target.bc, &cfg.released());
     // The corpus apps CI publishes before the main app (the internals fixture, the cross-app fixtures, including
     // fixture D, which the main app does not depend on), in CI's order, then the main app (corpus
     // `.github/workflows/ci.yml`, `app_dirs`; `deps::corpus_publish_dirs`).
