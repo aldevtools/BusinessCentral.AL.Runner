@@ -1348,6 +1348,9 @@ impl Session {
             values.push(take(f, r, nl));
         }
         self.builtin_prologue(site, recv.as_ref(), &mut values)?;
+        if self.coverage.impact_on {
+            self.note_footprint_builtin(site.id);
+        }
         let open = match site.temp_blob {
             SiteCheck::Never => None,
             SiteCheck::StreamsKept if !crate::temp_blob_share::streams_kept() => None,

@@ -288,18 +288,9 @@ impl Session {
             // zero (session-system/TestSystemExtended.al:635-659, TestBCDatabaseContracts.al:100-117).
             // What the database holds committed, raised by the rows the open transaction sent: a row inserted in the open
             // transaction does not count until a Get of its table or a Modify (`Session::last_used_row_version`).
-            ids::DATABASE_LASTUSEDROWVERSION_1 => {
-                self.note_footprint_row_version();
-                return match self.last_used_row_version() {
-                    Ok(v) => Ok(Value::BigInteger(v)),
-                    Err(why) => unsupported(format!("Database.LastUsedRowVersion after {why} (not pinned)")),
-                };
-            }
+            ids::DATABASE_LASTUSEDROWVERSION_1 => return self.last_used_row_version_native(),
             // `min_row_version.rs`.
-            ids::DATABASE_MINIMUMACTIVEROWVERSION_1 => {
-                self.note_footprint_row_version();
-                return self.minimum_active_row_version();
-            }
+            ids::DATABASE_MINIMUMACTIVEROWVERSION_1 => return self.minimum_active_row_version(),
             // Set when given a value, read otherwise; the default is the documented one
             // (docs/probes-needed.md). session-system/TestSystemExtended.al:608-630 only calls it.
             ids::DATABASE_LOCKTIMEOUT_1 => {

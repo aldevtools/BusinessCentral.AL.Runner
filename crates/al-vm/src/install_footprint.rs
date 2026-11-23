@@ -9,12 +9,12 @@
 //!   `Database.LastUsedRowVersion` and `Database.MinimumActiveRowVersion`: one note at each;
 //! - apps met: the objects whose code ran (the impact trace's `entered`, `impact.rs`) and `NavApp.GetModuleInfo`
 //!   (`ctx.rs` `module_by_id`);
-//! - touching everything: .NET, a page, a report (the impact trace), a table served by a provider (the store), a
-//!   whole-store read or a company change (the store), an impact trace that was already on.
+//! - touching everything: .NET, a page, a report (the impact trace), every builtin outside [`KEPT_RECEIVERS`] (HTTP,
+//!   files, StartSession, TaskScheduler and so a Job Queue run, DataTransfer, XMLports), a table served by a provider
+//!   (the store), a whole-store read or a company change (the store), an impact trace that was already on.
 //!
 //! Not yet recorded, so no verdict may rest on a footprint until each counts as a conflict (ADR-079 migration step 1):
-//! a read of the SystemRowVersion field, HTTP, files, StartSession, TaskScheduler, a Job Queue run, DataTransfer, and a
-//! write the recorder missed (the safety-net diff of the stores).
+//! a read of the SystemRowVersion field, and a write the recorder missed (the safety-net diff of the stores).
 
 use al_data::memory::{Resource, StoreFootprint};
 use std::collections::BTreeSet;
@@ -112,6 +112,98 @@ impl InstallFootprint {
     }
 }
 
+/// The builtin receivers whose calls touch no lasting resource, or one the recorder notes at its own site: values of the
+/// session (text, numbers, collections, JSON, XML, streams, errors), the store's readers and writers (recorded by the
+/// store), the isolated storage, number sequence and row version natives (noted in `sessionops.rs`), and code run
+/// (`Codeunit`: its objects are entered, so its apps are met). Every other builtin counts as touching everything: HTTP,
+/// files, pages, reports, XMLports, request pages, TaskScheduler, DataTransfer, Media, CompanyProperty, the test page
+/// types and every receiver not named here (a new one included).
+const KEPT_RECEIVERS: &[&str] = &[
+    "BigInteger",
+    "BigText",
+    "Blob",
+    "Boolean",
+    "Byte",
+    "Codeunit",
+    "Database",
+    "Date",
+    "DateTime",
+    "Decimal",
+    "Dialog",
+    "Dictionary",
+    "Duration",
+    "Enum",
+    "ErrorInfo",
+    "FieldRef",
+    "Guid",
+    "HttpContent",
+    "HttpHeaders",
+    "HttpRequestMessage",
+    "HttpResponseMessage",
+    "InStream",
+    "Integer",
+    "Interface",
+    "IsolatedStorage",
+    "JsonArray",
+    "JsonObject",
+    "JsonToken",
+    "JsonValue",
+    "KeyRef",
+    "Label",
+    "List",
+    "ModuleDependencyInfo",
+    "ModuleInfo",
+    "Notification",
+    "NumberSequence",
+    "OutStream",
+    "ProductName",
+    "Query",
+    "Record",
+    "RecordId",
+    "RecordRef",
+    "SecretText",
+    "SessionInformation",
+    "System",
+    "Text",
+    "TextBuilder",
+    "TextConst",
+    "Time",
+    "Variant",
+    "Version",
+    "XmlAttribute",
+    "XmlAttributeCollection",
+    "XmlCData",
+    "XmlComment",
+    "XmlDeclaration",
+    "XmlDocument",
+    "XmlDocumentType",
+    "XmlElement",
+    "XmlNameTable",
+    "XmlNamespaceManager",
+    "XmlNode",
+    "XmlNodeList",
+    "XmlProcessingInstruction",
+    "XmlReadOptions",
+    "XmlText",
+    "XmlWriteOptions",
+];
+
+/// Whether builtin `name` (`Receiver.Method#n`) touches everything while an install session is recorded
+/// ([`KEPT_RECEIVERS`]). Of `NavApp`, the module info reads are kept (`GetModuleInfo` notes the app it reads); of
+/// `Session`, every method but the ones that start, stop or look at another session.
+fn builtin_touches_everything(name: &str) -> bool {
+    let (receiver, method) = name.split_once('.').unwrap_or((name, ""));
+    let method = method.split('#').next().unwrap_or(method);
+    match receiver {
+        "NavApp" => !matches!(method, "GetModuleInfo" | "GetCurrentModuleInfo" | "GetCallerModuleInfo"),
+        "Session" => matches!(
+            method,
+            "StartSession" | "StopSession" | "IsSessionActive" | "IsSessionLoggedIn"
+        ),
+        r => !KEPT_RECEIVERS.contains(&r),
+    }
+}
+
 /// The recording in progress (`CoverageState::install_footprint`).
 #[derive(Debug, Default)]
 pub(crate) struct Recording {
@@ -161,6 +253,15 @@ impl crate::Session {
     fn note_footprint(&self, f: impl FnOnce(&mut InstallFootprint)) {
         if let Some(rec) = self.coverage.install_footprint.borrow_mut().as_mut() {
             f(&mut rec.fp);
+        }
+    }
+
+    /// A builtin call while the impact trace is on (`exec/run.rs` `run_builtin`): one that touches everything marks it.
+    pub(crate) fn note_footprint_builtin(&self, id: al_builtins::builtin_id::BuiltinId) {
+        if builtin_touches_everything(id.name()) {
+            self.note_footprint(|fp| {
+                fp.everything.insert(format!("builtin {}", id.name()));
+            });
         }
     }
 

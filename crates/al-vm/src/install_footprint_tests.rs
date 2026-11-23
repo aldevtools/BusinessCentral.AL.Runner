@@ -115,3 +115,45 @@ fn store_resources_keep_the_store_rules() {
     let extent = Lasting::Store(Resource::Extent("C".into(), 7));
     assert!(extent.read_sees_write(&row) && row.writes_collide(&row) && !extent.writes_collide(&extent));
 }
+
+#[test]
+fn builtins_outside_the_kept_receivers_touch_everything() {
+    use super::builtin_touches_everything as all;
+    for kept in [
+        "Record.Insert#2",
+        "Text.StrSubstNo",
+        "NavApp.GetModuleInfo",
+        "Session.CurrentSessionId",
+    ] {
+        assert!(!all(kept), "{kept}");
+    }
+    for every in [
+        "HttpClient.Send",
+        "File.Create",
+        "TaskScheduler.CreateTask#1",
+        "Session.StartSession#1",
+        "DataTransfer.CopyRows",
+        "NavApp.GetArchiveRecordRef",
+        "Media.ImportStream",
+        "A.Receiver.Nobody.Named",
+    ] {
+        assert!(all(every), "{every}");
+    }
+    // The real names have the `Receiver.Method` shape the classifier reads.
+    let names: Vec<&str> = al_builtins::builtin_id::BuiltinId::all().map(|id| id.name()).collect();
+    assert!(names.iter().any(|&n| n.starts_with("HttpClient.") && all(n)));
+    assert!(names.iter().any(|&n| n.starts_with("Record.") && !all(n)));
+}
+
+#[test]
+fn a_builtin_that_touches_everything_marks_the_session() {
+    let l =
+        al_testkit::compile("codeunit 50100 Probe { procedure Run() var C: HttpClient; begin C.Timeout(1000); end; }");
+    let engine = Engine::new(l.program.clone(), al_testkit::blocked(&l));
+    let mut s = Session::new(engine);
+    s.install_footprint_start();
+    let inst = s.codeunit_instance(0);
+    let _ = s.call(0, 0, inst, vec![]);
+    let fp = s.install_footprint_take().unwrap();
+    assert!(fp.everything.iter().any(|w| w.contains("HttpClient")), "{fp:?}");
+}
