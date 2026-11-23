@@ -104,8 +104,8 @@ impl PartnerGroup<'_> {
     }
 
     /// [`PartnerGroup::run`] with each app's install session recorded and added to its footprint in `fp`; an app of
-    /// the group that an install-order refusal met counts as met (`Session::take_order_unknown_hits`). Whether such a
-    /// refusal was met: then an install stopped there.
+    /// the group that an install-order refusal met counts as met (`Session::take_order_unknown_hits`). The first such
+    /// meet, as (installing app, app met): then an install stopped there.
     pub(crate) fn recorded_run(
         &self,
         session: &mut Session,
@@ -113,21 +113,21 @@ impl PartnerGroup<'_> {
         sequence: &[u32],
         fixed: &[u32],
         fp: &mut Footprints,
-    ) -> bool {
-        let mut hit = false;
+    ) -> Option<(u32, u32)> {
+        let mut hit = None;
         for &app in sequence {
             self.view.apply_ordered(session, app, &self.group, &self.held, fixed);
             session.install_footprint_start();
             inst.install(session, app);
             // The install session ends; the safety net of the footprint compares committed rows.
-            session.commit_transaction();
+            session.install_footprint_commit();
             let mut f = session.install_footprint_take().unwrap_or_else(|| {
                 InstallFootprint::touching_everything("no footprint was recorded for the install session")
             });
             for (_, other) in session.take_order_unknown_hits() {
                 if self.group.contains(&other) {
                     f.apps_met.insert(other);
-                    hit = true;
+                    hit = hit.or(Some((app, other)));
                 }
             }
             fp.entry(app).or_default().extend(f);
@@ -147,8 +147,8 @@ impl PartnerGroup<'_> {
             .collect()
     }
 
-    /// The order of `apps` in which the apps of `fixed` install in that order: dependency order, else the plan's.
-    pub(crate) fn sequence(&self, fixed: &[u32]) -> Vec<u32> {
+    /// The order of the group in which the apps of `fixed` install in that order: dependency order, else the plan's.
+    pub(crate) fn order(&self, fixed: &[u32]) -> Vec<u32> {
         let rank = |a: u32| (self.apps.iter().position(|&x| x == a).unwrap_or(usize::MAX), a);
         let before = |x: u32, y: u32| {
             self.view.needs(y, x)
@@ -164,6 +164,12 @@ impl PartnerGroup<'_> {
                 .unwrap_or(0);
             out.push(left.remove(k));
         }
+        out
+    }
+
+    /// [`PartnerGroup::order`] of the apps with install code: the apps a run installs.
+    pub(crate) fn sequence(&self, fixed: &[u32]) -> Vec<u32> {
+        let mut out = self.order(fixed);
         out.retain(|a| self.apps.contains(a));
         out
     }
@@ -219,7 +225,7 @@ pub(crate) fn install_partner_apps<I: AppInstalls>(
     session.take_order_unknown_hits();
     let mut fp = Footprints::new();
     let hit = g.recorded_run(session, inst, &g.apps, &[], &mut fp);
-    if !hit && g.graph(&fp) == Graph::default() {
+    if hit.is_none() && g.graph(&fp) == Graph::default() {
         return;
     }
     let rewind = |session: &mut Session, inst: &mut I| {
@@ -230,7 +236,7 @@ pub(crate) fn install_partner_apps<I: AppInstalls>(
     };
     let mut proof = crate::install_subsets::Proof::new(lowered, g, &start, fp);
     match proof.settle(session, inst, &rewind) {
-        Ok(settled) => settled.apply(lowered, g, inst),
+        Ok(settled) => settled.apply(lowered, g, &proof, inst),
         Err(unproven) => {
             // Once more with the order not known, as before: a meet stays refused where it is reached.
             rewind(session, inst);

@@ -21,21 +21,27 @@ pub(crate) struct Graph {
 }
 
 impl Graph {
-    /// The graph of `apps` from their footprints; `unordered(x, y)` says that no dependency path joins x and y. An app
-    /// without install code has an empty footprint: others may read from it (meet it), it reads from none.
+    /// The graph of `apps` from their footprints; `unordered(x, y)` says that no dependency path joins x and y. Only an
+    /// app with install code has a footprint (`PartnerGroup::recorded_run`). An app without one is reached only by a
+    /// meet: x reads from it when x's session met it or read the app tables; it reads from none and collides with none,
+    /// a session that touches everything included (ADR-079 decision 1, clarification of 2026-11-23: such a session
+    /// conflicts with every other install *session*).
     pub(crate) fn of(apps: &BTreeSet<u32>, fp: &Footprints, unordered: impl Fn(u32, u32) -> bool) -> Graph {
-        let none = InstallFootprint::default();
-        let at = |a: u32| fp.get(&a).unwrap_or(&none);
         let mut g = Graph::default();
         for &x in apps {
+            let Some(a) = fp.get(&x) else { continue };
             for &y in apps {
                 if !unordered(x, y) {
                     continue;
                 }
-                if at(x).reads_from(at(y), y) {
+                let reads = match fp.get(&y) {
+                    Some(b) => a.reads_from(b, y),
+                    None => a.meets(y),
+                };
+                if reads {
                     g.reads.insert((x, y));
                 }
-                if x < y && at(x).collides(at(y)) {
+                if x < y && fp.get(&y).is_some_and(|b| a.collides(b)) {
                     g.collide.insert((x, y));
                     g.collide.insert((y, x));
                 }
@@ -139,7 +145,7 @@ pub(crate) fn tie(
     if let Some(why) = a.everything.first().or(b.everything.first()) {
         return format!("an install that touches everything ({why})");
     }
-    if a.apps_met.contains(&y) || a.apps_all {
+    if a.meets(y) {
         return format!("the install of {} meets {}", name(x), name(y));
     }
     let read = (a.reads.iter()).find_map(|r| b.writes.iter().find(|w| r.read_sees_write(w)).map(|w| (r, w)));

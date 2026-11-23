@@ -64,13 +64,18 @@ fn a_cycle_of_four_installs_is_one_unit_and_ordered_apps_have_no_edge() {
     assert_eq!(Graph::of(&apps, &fp, ordered).units(&apps).len(), 4);
 }
 
+/// ADR-079 decision 1, clarification of 2026-11-23: a session that touches everything ties every other install session;
+/// app 3 has no install code and is not met, so nothing ties it.
 #[test]
-fn an_install_that_touches_everything_ties_every_unordered_app() {
+fn an_install_that_touches_everything_ties_every_unordered_install_session() {
     let mut page = InstallFootprint::default();
     page.everything.insert("a page".into());
     let fp: Footprints = [(1, page), (2, InstallFootprint::default())].into_iter().collect();
     let apps = all(&[1, 2, 3]);
-    assert_eq!(Graph::of(&apps, &fp, |x, y| x != y).units(&apps), vec![vec![1, 2, 3]]);
+    assert_eq!(
+        Graph::of(&apps, &fp, |x, y| x != y).units(&apps),
+        vec![vec![1, 2], vec![3]]
+    );
     assert!(tie(&fp, 2, 1, |a| a.to_string(), |t| t.to_string()).contains("a page"));
 }
 
@@ -113,4 +118,20 @@ fn the_tie_names_the_table_and_the_kind_of_resource_not_its_debug_form() {
     assert!(!t.contains("Extent("), "{t}");
     let both = tie(&fp, 2, 2, |a| format!("app {a}"), |t| format!("T{t}"));
     assert!(both.contains("the AutoIncrement counter of table T7"), "{both}");
+}
+
+/// An app without install code is reached only by a meet: a session that touches everything but does not meet it has
+/// no edge to it; one that meets it reads from it.
+#[test]
+fn an_app_without_install_code_is_reached_only_by_a_meet() {
+    let mut page = InstallFootprint::default();
+    page.everything.insert("a page".into());
+    let apps = all(&[1, 2]);
+    let alone: Footprints = [(1, page.clone())].into_iter().collect();
+    assert_eq!(Graph::of(&apps, &alone, |x, y| x != y), Graph::default());
+    page.apps_met.insert(2);
+    let met: Footprints = [(1, page)].into_iter().collect();
+    let g = Graph::of(&apps, &met, |x, y| x != y);
+    assert_eq!(g.reads, BTreeSet::from([(1, 2)]));
+    assert!(g.collide.is_empty());
 }

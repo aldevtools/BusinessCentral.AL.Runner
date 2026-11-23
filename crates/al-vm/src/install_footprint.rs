@@ -105,13 +105,17 @@ impl InstallFootprint {
         !self.everything.is_empty()
     }
 
+    /// Whether this session met app `app`: code of it ran in the session, or the session read its presence.
+    pub fn meets(&self, app: u32) -> bool {
+        self.apps_all || self.apps_met.contains(&app)
+    }
+
     /// Whether this session reads from `other`, the session of app `other_app`: it met that app, read what `other`
     /// wrote, or one of them touches everything.
     pub fn reads_from(&self, other: &InstallFootprint, other_app: u32) -> bool {
         self.touches_everything()
             || other.touches_everything()
-            || self.apps_all
-            || self.apps_met.contains(&other_app)
+            || self.meets(other_app)
             || self
                 .reads
                 .iter()
@@ -399,6 +403,15 @@ impl crate::Session {
             fp.everything.insert(format!("a report ({})", id_list(&t.reports)));
         }
         Some(fp)
+    }
+
+    /// The end of a recorded install session: what it left uncommitted is committed, as the end of the session does, so
+    /// the safety net compares committed rows. With nothing uncommitted no commit runs, so the transaction flags the
+    /// next install reads (`min_row_version.rs`) stay what the plain path leaves.
+    pub fn install_footprint_commit(&mut self) {
+        if self.store.has_uncommitted() {
+            self.commit_transaction();
+        }
     }
 
     fn note_footprint(&self, f: impl FnOnce(&mut InstallFootprint)) {

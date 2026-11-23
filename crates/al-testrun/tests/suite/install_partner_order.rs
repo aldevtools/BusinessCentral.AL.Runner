@@ -538,3 +538,177 @@ fn partner_apps_under_test_whose_orders_give_different_databases_are_refused() {
     }
     assert_eq!(outcome(&rt, "PartnerInstallRan"), Outcome::Pass);
 }
+
+const PF_ID: &str = "a0000000-0000-0000-0000-000000006644";
+const PG_ID: &str = "b0000000-0000-0000-0000-000000006644";
+
+/// A partner install that copies what it sees in Order Log into Install Mark (`X` or `X saw the log`).
+const COPIER: &str = r#"
+codeunit 73300 "Copier Install"
+{
+    Subtype = Install;
+
+    trigger OnInstallAppPerCompany()
+    var
+        L: Record "Order Log";
+        M: Codeunit "Marks";
+    begin
+        if L.IsEmpty() then
+            M.Mark('X')
+        else
+            M.Mark('X saw the log');
+    end;
+}
+"#;
+
+/// ADR-079 decision 4, clarification of 2026-11-23: A's Order Log differs with B's subscriber installed before A or
+/// not; X depends on A and copies what it sees into Install Mark, so Install Mark differs by the order of A and B too.
+/// Every order of the group (ADR-046 amendment 7) shows both tables differ; the taint closure refuses Install Mark as
+/// well as Order Log.
+#[test]
+fn a_table_written_from_a_table_that_differs_is_refused_too() {
+    let rt = run(vec![
+        base(),
+        (PA_ID, "Partner A", "Partner", vec![BASE_ID], PA.into()),
+        (PB_ID, "Partner B", "Partner", vec![BASE_ID], logging(74000, "PB")),
+        (PF_ID, "Partner X", "Partner", vec![BASE_ID, PA_ID], COPIER.into()),
+    ]);
+    match outcome(&rt, "PartnerInstallRan") {
+        Outcome::NotRun(why) => assert!(why.contains("Partner X") && why.contains("Install Mark"), "{why}"),
+        other => panic!("expected not run, got {other:?}"),
+    }
+    match outcome(&rt, "ReadsTheLog") {
+        Outcome::NotRun(why) => assert!(why.contains("Order Log"), "{why}"),
+        other => panic!("expected not run, got {other:?}"),
+    }
+}
+
+/// Issue 8056 with A2 depending on A, both meeting B: in A2's subset runs A has its place in the fixed order, so its
+/// meet with B is not of unknown order (ADR-079 decision 3, clarification of 2026-11-23).
+#[test]
+fn two_installs_with_a_dependency_path_that_meet_one_subscriber_app_run() {
+    let rt = run(vec![
+        base(),
+        (PA_ID, "Partner A", "Partner", vec![BASE_ID], PA.into()),
+        (PC_ID, "Partner A2", "Partner", vec![BASE_ID, PA_ID], PA2.into()),
+        (PB_ID, "Partner B", "Partner", vec![BASE_ID], registering(74000, "PB")),
+    ]);
+    assert_eq!(outcome(&rt, "PartnerInstallRan"), Outcome::Pass);
+}
+
+/// A partner install that calls a builtin the footprint cannot attribute, then marks that it ran.
+const UNATTRIBUTED: &str = r#"
+codeunit 73400 "Unattributed Install"
+{
+    Subtype = Install;
+
+    trigger OnInstallAppPerCompany()
+    var
+        M: Codeunit "Marks";
+        Installing: Boolean;
+    begin
+        Installing := NavApp.IsInstalling();
+        M.Mark('A');
+    end;
+}
+"#;
+
+/// A partner app without install code or subscribers.
+fn plain(object: u32, name: &str) -> String {
+    format!(
+        r#"
+codeunit {object} "{name} Plain"
+{{
+    procedure Ping(): Integer
+    begin
+        exit(1);
+    end;
+}}
+"#
+    )
+}
+
+/// ADR-079 decision 1, clarification of 2026-11-23: an install that touches everything ties only apps with an install
+/// session of their own, or that it meets. One install session and three apps without install code: no order can
+/// matter, so nothing is refused.
+#[test]
+fn one_install_that_touches_everything_next_to_apps_without_install_code_runs() {
+    let rt = run(vec![
+        base(),
+        (PA_ID, "Partner N1", "Partner", vec![BASE_ID], UNATTRIBUTED.into()),
+        (PB_ID, "Partner L2", "Partner", vec![BASE_ID], plain(74000, "L2")),
+        (PC_ID, "Partner L3", "Partner", vec![BASE_ID], plain(75000, "L3")),
+        (PD_ID, "Partner L4", "Partner", vec![BASE_ID], plain(76000, "L4")),
+    ]);
+    assert_eq!(outcome(&rt, "PartnerInstallRan"), Outcome::Pass);
+}
+
+/// A partner install that writes JQ Entry 9 with its own note: four of them write the same row.
+fn colliding(object: u32, name: &str) -> String {
+    format!(
+        r#"
+codeunit {object} "{name} Install"
+{{
+    Subtype = Install;
+
+    trigger OnInstallAppPerCompany()
+    var
+        E: Record "JQ Entry";
+    begin
+        E."No." := 9;
+        E.Note := '{name}';
+        if not E.Insert() then
+            E.Modify();
+    end;
+}}
+"#
+    )
+}
+
+/// ADR-079 decision 3: a reader whose Install Mark differs by the order stays refused when four other apps of the
+/// group cannot be proven (they collide on one JQ Entry row).
+#[test]
+fn a_measured_difference_stays_refused_next_to_apps_that_cannot_be_proven() {
+    let rt = run(vec![
+        base(),
+        (PA_ID, "Partner Reader", "Partner", vec![BASE_ID], READER.into()),
+        (PB_ID, "Partner W1", "Partner", vec![BASE_ID], writer(74000, "W1")),
+        (PC_ID, "Partner C1", "Partner", vec![BASE_ID], colliding(75000, "C1")),
+        (PD_ID, "Partner C2", "Partner", vec![BASE_ID], colliding(76000, "C2")),
+        (PE_ID, "Partner C3", "Partner", vec![BASE_ID], colliding(77000, "C3")),
+        (PG_ID, "Partner C4", "Partner", vec![BASE_ID], colliding(78000, "C4")),
+    ]);
+    match outcome(&rt, "PartnerInstallRan") {
+        Outcome::NotRun(why) => assert!(why.contains("Partner Reader"), "{why}"),
+        other => panic!("expected not run, got {other:?}"),
+    }
+}
+
+/// A partner app whose subscriber sets an isolated storage key of its own.
+fn storing(object: u32, name: &str) -> String {
+    format!(
+        r#"
+codeunit {object} "{name} Storing Subscriber"
+{{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Loggers", 'OnRegister', '', false, false)]
+    local procedure OnRegister(var Sender: Codeunit "Loggers")
+    begin
+        IsolatedStorage.Set('seen', 'yes', DataScope::Module);
+    end;
+}}
+"#
+    )
+}
+
+/// ADR-079 decision 3: A's install leaves an isolated storage key with B installed before it and none without. The
+/// orders differ outside the table rows, so the proof stops and every table the installs wrote is refused.
+#[test]
+fn installs_whose_orders_differ_in_isolated_storage_are_refused() {
+    let rt = run(vec![
+        base(),
+        (PA_ID, "Partner A", "Partner", vec![BASE_ID], PA.into()),
+        (PB_ID, "Partner B", "Partner", vec![BASE_ID], storing(74000, "PB")),
+    ]);
+    let line = rt.phases.baseline_line().unwrap_or_default();
+    assert!(line.contains("more than table rows"), "{line}");
+}
