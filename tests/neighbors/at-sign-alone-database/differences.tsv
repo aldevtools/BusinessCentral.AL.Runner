@@ -1,9 +1,9 @@
 # key	entry
-# Against the head of #8895, which this pull request stacks on (and against main once #8895 has landed): the cells whose answer
-# this pull request changes. The base refuses a CalcFormula's filter('@') and filter('<>@') with another method than sum or over
-# a Time, DateTime, Duration, BigInteger, Guid, Enum or captioned Option source field, the errors in a language other than 1033,
-# <>@ through field(filter()) of a normal field over a Code field, and <>@ in filter group 1 of a temporary record; the head runs
-# them as BC answered them (corpus PR 1495, AtSignAloneTypes.al and AtSignAloneMethods.al:507).
+# Against main (#8895 has landed): the cells whose answer this pull request changes. Main refuses a CalcFormula's filter('@')
+# and filter('<>@') with another method than sum or over a Time, DateTime, Duration, BigInteger, Guid, Enum or captioned Option
+# source field, the errors in a language other than 1033, <>@ through field(filter()) of a normal field over a Code field, and
+# <>@ in filter group 1 of a temporary record; the head runs them as BC answered them (corpus PR 1495, AtSignAloneTypes.al and
+# AtSignAloneMethods.al:507).
 AM Kind Tests::AtSignAloneNegated_FilterGroupOne_Temporary	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneMethods.al:507)
 AN Source Neighbor Tests::AtSignAlone_CountOverDateSource	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:651)
 AN Source Neighbor Tests::AtSignAlone_SumOverCaptionedOptionSource	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:761)
