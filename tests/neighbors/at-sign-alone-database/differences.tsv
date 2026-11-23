@@ -1,8 +1,15 @@
 # key	entry
-# Against the head of al-runner PR 8716 (this pull request's base; main once 8716 lands): the cells whose answer this pull request
-# changes. 8716's head refuses <>@ alone on a Code field and a CalcFormula's quoted filter('@') and filter('<>@'); the head runs
-# them as BC answered them (corpus PR 1495, AtSignAloneReads.al). BQ Not At Neighbor Tests (<>@ alone on a Code field from a query's
-# SetFilter or DataItemTableFilter, or as a FlowFilter) stays refused on both: no difference.
+# Against main (8716 has landed): the cells whose answer this pull request changes. Main refuses <>@ alone on a Code field and a
+# CalcFormula's quoted filter('@') and filter('<>@'); the head runs them as BC answered them (corpus PR 1495, AtSignAloneReads.al
+# and AtSignAloneMethods.al). BQ Not At Neighbor Tests (<>@ alone on a Code field from a query's SetFilter or DataItemTableFilter,
+# or as a FlowFilter) and the CalcFormulas over a Date, Integer, Decimal, Option or Boolean source field stay refused on both: no
+# difference.
+AM Kind Tests::AtSignAloneNegated_CalcSumsFindLast	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneMethods.al:279)
+AM Kind Tests::AtSignAloneNegated_DeleteAll	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneMethods.al:215)
+AM Kind Tests::AtSignAloneNegated_ModifyAll	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneMethods.al:244)
+AM Kind Tests::AtSignAloneNegated_PageRows	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneMethods.al:345)
+AM Kind Tests::AtSignAloneNegated_ReportDataItem	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneMethods.al:312)
+AM Kind Tests::AtSignAlone_CalcFormulaMethods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneMethods.al:376)
 AS Kind Tests::AtSignAloneNegated_CalcFormulaQuotedFilter	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneReads.al:752)
 AS Kind Tests::AtSignAloneNegated_DatabaseAndTemporary	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneReads.al:698)
 AS Kind Tests::AtSignAloneNegated_FieldRefAndSetView	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneReads.al:792)
