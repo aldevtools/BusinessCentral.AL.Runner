@@ -1130,7 +1130,11 @@ mod tests {
                     "{v:?} {length}"
                 );
             }
-            assert_eq!(fmt_string_hits(&v, -10, STANDARD_FORMAT_0), (Ok(cut(10)), vec![]), "{v:?}");
+            assert_eq!(
+                fmt_string_hits(&v, -10, STANDARD_FORMAT_0),
+                (Ok(cut(10)), vec![]),
+                "{v:?}"
+            );
             assert!(refused(fmt(&v, -10, 0)), "{v:?}");
         }
         // Neighbors no line measures: other lengths, the undefined Time, another standard format.
