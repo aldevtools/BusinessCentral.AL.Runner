@@ -628,25 +628,37 @@ impl Session {
         }
     }
 
-    /// `SelectLatestVersion(Table)` with the argument `arg`: an Integer that names a table ends that table's entries and no
-    /// other table's (another table's number changes nothing, :6744); one that names no table ends none. A Char, a Byte, an
-    /// Option or an Enum, which the compiler takes for the Integer (an Enum with warning AL0603) and which reaches here as
-    /// itself (al-runner issue 8879), is refused in a worker: no cell measures which table it names (the neighbors of
-    /// MoreNeighbors.al measure each of the four with value 0, which names no table).
+    /// `SelectLatestVersion(Table)` with the argument `arg`, which the compiler takes for the Integer also as a Char, a Byte, an
+    /// Option or an Enum (the Enum with warning AL0603), each reaching here as itself. An Integer or an Enum that names a table
+    /// ends that table's entries and no other table's (another table's number changes nothing, BgTaskQueryCache.al:6744; an
+    /// Enum whose value is the cached table's id ends its row entry, BgTaskCacheEdges.al:452, open corpus PR 1558); one that
+    /// names no table ends none (the neighbors of MoreNeighbors.al, a Char, a Byte, an Option and an Enum of value 0). A Char,
+    /// a Byte or an Option that names a table is refused in a worker: no cell measures one.
     pub(crate) fn note_select_latest_version_of(&mut self, arg: Option<&Value>) -> Result<(), Signal> {
-        match arg {
-            Some(Value::Integer(n)) => {
-                if let Some(t) = self.table_object(i64::from(*n)) {
-                    self.note_select_latest_version(Some(t as u32));
-                }
-                Ok(())
-            }
-            _ if !self.in_worker() || !self.query_cache_on() => Ok(()),
-            _ => unsupported(
-                "SelectLatestVersion(Table) in a page background task with a value that is no Integer (a Char, a Byte, an \
-                 Option or an Enum; not measured)",
-            ),
+        let (n, measured) = match arg {
+            Some(Value::Integer(n)) => (i64::from(*n), true),
+            Some(Value::Enum(_, n)) => (i64::from(*n), true),
+            Some(Value::Option(n, _)) => (i64::from(*n), false),
+            Some(Value::Char(n)) => (i64::from(*n), false),
+            Some(Value::Byte(n)) => (i64::from(*n), false),
+            _ => return Ok(()),
+        };
+        let Some(t) = self.table_object(n) else {
+            return Ok(());
+        };
+        let noted = self.in_worker() && self.query_cache_on();
+        if noted && matches!(arg, Some(Value::Enum(..))) {
+            // Runs through the entry until the open probe is pinned.
+            assume(Assumption::BackgroundTaskQueryCache);
         }
+        if !measured && noted {
+            return unsupported(
+                "SelectLatestVersion(Table) in a page background task with a Char, a Byte or an Option that names a table \
+                 (not measured)",
+            );
+        }
+        self.note_select_latest_version(Some(t as u32));
+        Ok(())
     }
 
     fn selects_of(&self, table: u32) -> u64 {
