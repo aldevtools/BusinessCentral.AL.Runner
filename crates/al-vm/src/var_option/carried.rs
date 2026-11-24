@@ -297,12 +297,7 @@ impl crate::Session {
             .collect();
         bound.sort();
         bound.dedup();
-        bound.len() == 1
-            && self
-                .events
-                .bindings
-                .iter()
-                .any(|b| b.outside_subscriber && b.instance.upgrade().is_some_and(|i| std::rc::Rc::ptr_eq(&i, inst)))
+        bound.len() == 1 && self.bindings_of(inst).any(|b| b.outside_subscriber)
     }
 
     /// The marks `finish_call` or `raise_to_subscribers` left for the frame of a routine with memberless `var` Option

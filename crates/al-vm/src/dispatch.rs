@@ -790,12 +790,17 @@ impl Session {
         Ok(self.shared_instance(fresh))
     }
 
-    /// Whether `inst` is bound right now.
-    fn is_bound(&self, inst: &Inst) -> bool {
+    /// The live bindings of `inst`.
+    pub(crate) fn bindings_of<'s>(&'s self, inst: &'s Inst) -> impl Iterator<Item = &'s Binding> + 's {
         self.events
             .bindings
             .iter()
-            .any(|b| b.instance.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)))
+            .filter(move |b| b.instance.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)))
+    }
+
+    /// Whether `inst` is bound right now.
+    fn is_bound(&self, inst: &Inst) -> bool {
+        self.bindings_of(inst).next().is_some()
     }
 
     /// Whether `v` (a codeunit, or an array of them) holds an instance bound right now: `ClearAll()` keeps such an
