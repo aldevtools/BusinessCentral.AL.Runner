@@ -1,0 +1,13 @@
+# key	entry
+# Main gave the owner a fresh store; BC keeps one instance where corpus PR 1564 measures a shared store no call made
+# (Integer store, "CLB Store", array store, store with one more Integer). The other four stores run only after a call made the instance and
+# wrote: refused with no call (measured since b77f20dc, not opened yet) and after a call that wrote nothing.
+U4 ClearAll Tests::IntStoreAliasNeverCalled	ASSUMED clear-shared-codeunit (corpus PR 1564)
+U4 ClearAll Tests::ClbStoreAliasNeverCalled	ASSUMED clear-shared-codeunit (corpus PR 1564)
+U4 ClearAll Tests::ArrStoreAliasNeverCalled	ASSUMED clear-shared-codeunit (corpus PR 1564)
+U4 ClearAll Tests::PlusStoreAliasNeverCalled	ASSUMED clear-shared-codeunit (corpus PR 1564)
+U4 ClearAll Tests::WrapperAliasNeverCalled	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
+U4 ClearAll Tests::TwoDimStoreAliasNeverCalled	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
+U4 ClearAll Tests::RegisterAliasNeverCalled	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
+U4 ClearAll Tests::PriceStoreAliasNeverCalled	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
+U4 ClearAll Tests::PriceStoreAliasReadOnlyCall	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
