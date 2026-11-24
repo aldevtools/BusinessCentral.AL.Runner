@@ -940,3 +940,20 @@ fn a_table_shared_by_copy_keeps_its_copy_target_in_the_twin() {
     assert!(ours.contains("done"), "{ours}");
     assert_eq!(outcome(&mut twin, owner, "ClearAllGlobals"), ours);
 }
+
+// Main's state of issue 8969 (a read of the transaction type waiting for its set back) and of issue 8912 (the var Codeunit
+// parameters of the call being made) holds a new session's value only when empty: a session holding either is not imaged,
+// and the reason names the field.
+#[test]
+fn a_saved_transaction_type_or_a_calls_var_codeunits_refuses_the_image() {
+    let mut f = fx();
+    f.keeper_instance();
+    f.session
+        .tx
+        .saved_types
+        .push(crate::transaction_type_saved::SavedType::any());
+    assert_eq!(refused(&mut f), NotImaged::Field("tx.saved_types"));
+    f.session.tx.saved_types.clear();
+    f.session.events.next_var_codeunits.push(None);
+    assert_eq!(refused(&mut f), NotImaged::Field("events.next_var_codeunits"));
+}
