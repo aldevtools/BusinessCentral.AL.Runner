@@ -2,12 +2,11 @@
 //!
 //! Each row's `value_codec::encode_row` bytes (al-builtins, the one owner of "a row as bytes": the install baseline, the
 //! login image's rows and the frozen store use the same form) go straight into SHA-256 through one reused buffer: no
-//! String and no Debug text per row (on a 50,000-row store rendering and hashing the rows' Debug text was most of
-//! the key's cost). The form is exact: each value is self-delimiting and `value_codec::decode` reads it back
-//! (value_codec.rs, a Blob with every field of its buffer, `blob_form.rs`), and each table's row count comes before its
-//! rows, so equal digests mean equal rows, for one table and for several in one stream. A value
-//! that has no byte form (`value_codec::encode` answers false: a SqlCount, a placeholder's size, a handle) gives
-//! [`NoByteForm`], never a lossy digest, and the session runs its login.
+//! String and no Debug text per row. The form is exact: each value is self-delimiting and `value_codec::decode` reads
+//! it back (value_codec.rs, a Blob with every field of its buffer, `blob_form.rs`), and each table's row count comes
+//! before its rows, so equal digests mean equal rows, for one table and for several in one stream. A value that has no
+//! byte form (`value_codec::encode` answers false: a SqlCount, a placeholder's size, a handle) gives [`NoByteForm`],
+//! never a lossy digest, and the session runs its login.
 //!
 //! One gap the form shares with the earlier Debug text: a Text with half of a surrogate pair is written with U+FFFD at the
 //! lone position (value_codec.rs, `Txt::as_str`). No stored row can hold one (every write refuses it,
@@ -110,7 +109,10 @@ pub(crate) fn table_digest<'a>(
 }
 
 /// The digest of every row `store` holds now, the uncommitted changes included (the key's `uncommitted` part), table after
-/// table in the store's order; a table entry without rows is left out.
+/// table in the store's order; a table entry without rows is left out. It reads the rows through
+/// `MemStore::export_current`, a copy of every table of the store, not by reference as the committed part does. It runs
+/// only for a session that holds uncommitted rows before its login and whose SQL counters are at rest: when they have
+/// no comparable form, `Key::of` gives no key before it gets here.
 pub(crate) fn current_digest(store: &al_data::memory::MemStore) -> Result<LinesDigest, NoByteForm> {
     let mut h = RowsHasher::new();
     // A table entry without rows wrote no Debug line, so it is not hashed here either (as `store_table_digests`).
