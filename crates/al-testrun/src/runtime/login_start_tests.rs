@@ -366,6 +366,61 @@ fn another_skipped_install_list_is_another_key() {
     );
 }
 
+/// `engine` with its emit version set to `v`, as `set_run_options` sets it for each request on a kept engine.
+fn with_emit_version(mut engine: Arc<Engine>, v: al_vm::emit_version::EmitVersion) -> Arc<Engine> {
+    Arc::get_mut(&mut engine)
+        .expect("nothing else holds the engine")
+        .emit_version = v;
+    engine
+}
+
+// A warm server sets the emit version per request (`set_run_options`, `run_emit_version`: one per build), also on a
+// kept engine, whose starts outlive the request; the missing-object error the login may raise names it
+// (errors/error-texts/AzErrorTexts.al:125). Another build's emit version is another key; the same reader is the same
+// key.
+#[test]
+fn another_emit_version_is_another_key() {
+    use al_vm::emit_version::EmitVersion;
+    let (engine, _) = compiled();
+    let v28 = EmitVersion::known(28015);
+    let engine = with_emit_version(engine, v28.clone());
+    let a = key_skipping(&engine, &[]);
+    assert_eq!(a, key_skipping(&engine, &[]), "GUARD: the same reader");
+    let engine = with_emit_version(engine, v28);
+    assert_eq!(a, key_skipping(&engine, &[]), "GUARD: a clone of the same reader");
+    let engine = with_emit_version(engine, EmitVersion::known(29022));
+    assert_ne!(a, key_skipping(&engine, &[]), "another build's emit version");
+}
+
+// The tables a read of is refused on an engine are set per run after its install baseline (`corpus.rs`: `unseeded` from
+// the baseline, `demo_tables` without test data), also on a kept engine whose starts outlive the request: a login that
+// reads one is refused there. Another set, or another reason, is another key.
+#[test]
+fn another_set_of_tables_whose_reads_are_refused_is_another_key() {
+    let (engine, _) = compiled();
+    let table = (engine.program.objects.iter())
+        .position(|o| o.name == "Guided Experience Item")
+        .unwrap();
+    let set = |engine: Arc<Engine>, unseeded: &[(usize, &str)], demo: &[usize]| {
+        let mut engine = engine;
+        let e = Arc::get_mut(&mut engine).expect("nothing else holds the engine");
+        e.unseeded = unseeded.iter().map(|(t, why)| (*t, Arc::from(*why))).collect();
+        e.demo_tables = demo.iter().copied().collect();
+        engine
+    };
+    let engine = set(engine, &[], &[]);
+    let none = key_skipping(&engine, &[]);
+    let engine = set(engine, &[], &[]);
+    assert_eq!(none, key_skipping(&engine, &[]), "GUARD");
+    let engine = set(engine, &[(table, "a root stopped")], &[]);
+    let unseeded = key_skipping(&engine, &[]);
+    assert_ne!(none, unseeded, "an unseeded table");
+    let engine = set(engine, &[(table, "another root stopped")], &[]);
+    assert_ne!(unseeded, key_skipping(&engine, &[]), "another reason");
+    let engine = set(engine, &[], &[table]);
+    assert_ne!(none, key_skipping(&engine, &[]), "a table of demo rows");
+}
+
 // ---- the gate: why a session does not take a start ----
 
 /// A start taken from a new session of `engine` (nothing logged in: what the gate looks at is the target and the run).

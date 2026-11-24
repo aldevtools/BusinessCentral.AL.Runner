@@ -42,12 +42,12 @@ use std::sync::{Mutex, PoisonError};
 
 /// The inputs the login and its subscribers read when the test session opens the company, as far as the code shows them:
 /// a session state the key does not hold is held in place by the thaw's rule (al-vm `session_fields.rs`, `login_image/fields.rs`), and a
-/// static a request sets is a field here (`login_start/outside.rs`). Two sessions with the same
-/// key may share one run of the login only when they also hold the same after it ([`Check`]); a field left out of the
-/// key would let a replay hand a session the store of another input. The engine (the compiled program, its apps and
-/// their code) is not a field: the check lives on the engine (`Engine::derived`). Nor is `Engine::emit_version` (the
-/// build the missing-object error names): one daemon serves one BC build, so the engine fixes it. A daemon that took
-/// another build per request would need it as a field.
+/// static a request sets is a field here (`login_start/outside.rs`, which also names what the key does with each field
+/// of the run's `Scratch` and each engine field a run sets). Two sessions with the same key may share one run of the
+/// login only when they also hold the same after it ([`Check`]); a field left out of the key would let a replay hand a
+/// session the store of another input. The engine (the compiled program, its apps and their code) is not a field: the
+/// check lives on the engine (`Engine::derived`). What a run sets on it is, where a kept engine of a warm server may
+/// take another value in a later request (`emit_version`, `refused_reads`).
 ///
 /// The maintainer's two conditions for the replay (al-runner issue 8211): every field holds its input by content or by a
 /// SHA-256 digest ([`LinesDigest`]), never a 64-bit hash; and the test codeunit stays a field until a repeat across test
@@ -103,6 +103,40 @@ pub(crate) struct Key {
     isolation: (crate::isolation::TestIsolation, bool),
     /// The settings of the process a serve request sets and the system host answers from ([`RunSettings`]).
     run: RunSettings,
+    /// The emit version of the run's build, which the missing-object error names (`Engine::emit_version`): a warm
+    /// server sets it per request, one per build (`set_run_options`), also on a kept engine. By its reader
+    /// ([`EmitKey`]).
+    emit_version: EmitKey,
+    /// The tables a read of is refused on the engine: those the install baseline should have seeded, with why
+    /// (`Engine::unseeded`), and those whose demo rows the runtime does not have (`Engine::demo_tables`). A run sets
+    /// both after its install baseline, also on a kept engine; a login that reads one is refused there.
+    refused_reads: LinesDigest,
+}
+
+/// The emit version as a field of [`Key`]: by the reader the engine holds (`EmitVersion::same_reader`), since the
+/// number is read only when a missing-object error first needs it. Like [`BackingKey`] it names who answers, not a
+/// hash: a clone of one reader answers the same number, and a reader made apart is another key even for one build.
+#[derive(Debug, Clone)]
+pub(crate) struct EmitKey(al_vm::emit_version::EmitVersion);
+
+impl PartialEq for EmitKey {
+    fn eq(&self, other: &EmitKey) -> bool {
+        self.0.same_reader(&other.0)
+    }
+}
+
+impl Eq for EmitKey {}
+
+/// The lines of [`Key::refused_reads`]: each unseeded table with why, then each table of demo rows, in table order.
+fn refused_reads(engine: &Engine) -> LinesDigest {
+    let mut unseeded: Vec<_> = engine.unseeded.iter().collect();
+    unseeded.sort_by_key(|(t, _)| **t);
+    let mut demo: Vec<_> = engine.demo_tables.iter().collect();
+    demo.sort_unstable();
+    let lines: Vec<String> = (unseeded.into_iter().map(|(t, why)| format!("unseeded {t} {why}")))
+        .chain(demo.into_iter().map(|t| format!("demo {t}")))
+        .collect();
+    digest(&lines)
 }
 
 /// The process settings a serve request sets and the login can read through the system host (`host.rs`): the server
@@ -182,6 +216,8 @@ impl Key {
             skipped: skipped.to_vec(),
             isolation,
             run: RunSettings::now(),
+            emit_version: EmitKey(engine.emit_version.clone()),
+            refused_reads: refused_reads(&engine),
         }
     }
 }
@@ -228,6 +264,8 @@ impl Key {
             skipped,
             isolation,
             run,
+            emit_version,
+            refused_reads,
         } = self;
         [
             (*database != other.database, "database"),
@@ -245,6 +283,8 @@ impl Key {
             (*skipped != other.skipped, "skipped"),
             (*isolation != other.isolation, "isolation"),
             (*run != other.run, "run"),
+            (*emit_version != other.emit_version, "emit_version"),
+            (*refused_reads != other.refused_reads, "refused_reads"),
         ]
         .into_iter()
         .filter_map(|(differs, name)| differs.then_some(name))
@@ -956,6 +996,8 @@ mod tests {
                 company_name: None,
                 publish_order_known: false,
             },
+            emit_version: EmitKey(Default::default()),
+            refused_reads: digest(&[]),
         }
     }
 
@@ -984,8 +1026,10 @@ mod tests {
             skipped,
             isolation,
             run,
+            emit_version,
+            refused_reads,
         } = &k;
-        let digests: [&LinesDigest; 3] = [database, session, resources];
+        let digests: [&LinesDigest; 4] = [database, session, resources, refused_reads];
         let _: &Option<LinesDigest> = uncommitted;
         let _: &BackingKey = backing;
         let _: (&String, &i32, &String, &Option<usize>) = (company, seed, user, test_codeunit);
@@ -997,6 +1041,8 @@ mod tests {
         // The skipped installs by content: their tables, the tables left out on an assumption, and why.
         let _: &Vec<al_vm::SkippedInstall> = skipped;
         let _: &(crate::isolation::TestIsolation, bool) = isolation;
+        // Who answers the emit version, as `backing` says who offers the rows: the reader itself, never a number of it.
+        let _: &EmitKey = emit_version;
         // The process settings a request sets, each by content.
         let RunSettings {
             server_url,
