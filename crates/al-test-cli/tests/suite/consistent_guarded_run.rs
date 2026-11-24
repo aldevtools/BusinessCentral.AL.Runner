@@ -35,6 +35,7 @@ codeunit 50118 "C Other Mark Fail" { TableNo = "C Other"; trigger OnRun() var R:
 codeunit 50119 "C Drop Rec Fail" { trigger OnRun() begin Drop(); Error(''); end;
     [CommitBehavior(CommitBehavior::Error)] local procedure Drop() var O: Record "C Other"; begin
     if Codeunit.Run(Codeunit::"C Other Mark Fail", O) then; end; }
+codeunit 50120 "C Drop Unscoped Wrap" { trigger OnRun() var Ok: Boolean; begin Ok := Codeunit.Run(Codeunit::"C Drop Unscoped Fail"); end; }
 codeunit 50114 "C Drop Run Fail" { trigger OnRun() begin Drop(); if Codeunit.Run(Codeunit::"C Nothing") then; Error(''); end;
     [CommitBehavior(CommitBehavior::Error)] local procedure Drop() begin if Codeunit.Run(Codeunit::"C Mark Fail") then; end; }
 codeunit 50115 "C Commit Mark Fail" { trigger OnRun() var R: Record "C Row"; begin
@@ -86,6 +87,10 @@ codeunit 50000 T { Subtype = Test;
     Commit(); Ok := Codeunit.Run(Codeunit::"C Drop Unscoped Fail"); end;
   [Test] procedure NestedDropRecordArgOuterFails() var Ok: Boolean; begin
     Commit(); Ok := Codeunit.Run(Codeunit::"C Drop Rec Fail"); end;
+  [Test] [CommitBehavior(CommitBehavior::Error)] procedure NestedDropScopeAboveOuterFails() var Ok: Boolean; begin
+    Ok := Codeunit.Run(Codeunit::"C Drop Unscoped Fail"); end;
+  [Test] [CommitBehavior(CommitBehavior::Error)] procedure NestedDropScopeAboveUnguardedRunFails() begin
+    Codeunit.Run(Codeunit::"C Drop Unscoped Wrap"); end;
   [Test] procedure NestedDropThenRunOuterFails() var Ok: Boolean; begin
     Commit(); Ok := Codeunit.Run(Codeunit::"C Drop Run Fail"); end;
   [Test] procedure InnerCommitsThenMarksFails() var Ok: Boolean; begin
@@ -163,7 +168,13 @@ fn guarded_run_with_consistent_marks() {
     }
     // The nested run of that cell runs without a record argument inside a [CommitBehavior(CommitBehavior::Error)]
     // procedure: a nested drop outside such a scope, or with a record argument, is refused where it drops.
-    for name in ["NestedDropUnscopedOuterFails", "NestedDropRecordArgOuterFails"] {
+    // The scope must open inside the outer run: one opened above it (also across an unguarded run) is refused.
+    for name in [
+        "NestedDropUnscopedOuterFails",
+        "NestedDropRecordArgOuterFails",
+        "NestedDropScopeAboveOuterFails",
+        "NestedDropScopeAboveUnguardedRunFails",
+    ] {
         refused(name, "in a shape no probe measured");
     }
     // A Commit inside the run before the mark: no cell has it.

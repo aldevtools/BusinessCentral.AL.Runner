@@ -228,10 +228,14 @@ impl Session {
                 || caller_inner_marked
                 || (inner_kept && held(&[MarkState::Marked, MarkState::ReleasedByAnother])));
         // A drop inside another guarded run marks that run, once (one cell has one nested drop). That cell's nested run has
-        // no record argument and is called in a [CommitBehavior(CommitBehavior::Error)] procedure (GRC Outer.PreviewStart).
-        let drop_scope_measured =
-            top_level || (arg == RunArg::None && self.tx.commit_behavior == CommitBehavior::Error);
+        // no record argument and is called in a [CommitBehavior(CommitBehavior::Error)] procedure that the outer run's OnRun
+        // calls (GRC Outer.PreviewStart): the scope is Error at the drop and was not Error when the outer run started.
         let outer = self.tx.guarded_bodies.last_mut().filter(|_| dropped && !top_level);
+        let drop_scope_measured = outer.as_ref().map_or(top_level, |o| {
+            arg == RunArg::None
+                && self.tx.commit_behavior == CommitBehavior::Error
+                && o.commit_behavior_at_start != CommitBehavior::Error
+        });
         let first_drop = outer.as_ref().is_none_or(|o| !o.marks_dropped_inside);
         if arg_measured && no_commit && first_drop && drop_scope_measured && (dropped || raised) {
             assume(Assumption::GuardedRunConsistentEnd);

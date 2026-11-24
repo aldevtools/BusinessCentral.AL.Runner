@@ -38,6 +38,8 @@ pub(crate) struct GuardedBody {
     step: Step,
     /// A guarded run nested in this one failed and dropped its Consistent(false) marks (`consistent_marks.rs`).
     pub(crate) marks_dropped_inside: bool,
+    /// The CommitBehavior scope in effect when this run started: a scope opened above the run is not the cell's shape.
+    pub(crate) commit_behavior_at_start: crate::transactions::CommitBehavior,
 }
 
 impl Session {
@@ -54,6 +56,7 @@ impl Session {
                 rec,
                 step: Step::Start,
                 marks_dropped_inside: false,
+                commit_behavior_at_start: self.tx.commit_behavior,
             });
         }
     }
