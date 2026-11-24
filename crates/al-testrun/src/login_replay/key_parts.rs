@@ -56,7 +56,10 @@ impl KeyParts {
             by_name.entry(name.to_string()).or_default().push(line.clone());
         }
         if !state.opaque.is_empty() {
-            by_name.insert("not comparable".into(), state.opaque.clone());
+            by_name.insert(
+                "not comparable".into(),
+                state.opaque.iter().map(al_vm::NotComparable::line).collect(),
+            );
         }
         let session = (by_name.into_iter())
             .map(|(name, lines)| (name, digest(&lines)))

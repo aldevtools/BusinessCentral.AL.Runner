@@ -99,11 +99,12 @@ impl Key {
             )
         };
         let state = session.state_lines();
+        let opaque: Vec<String> = state.opaque.iter().map(al_vm::NotComparable::line).collect();
         Key {
             database,
             uncommitted,
             backing,
-            session: digest(&[digest(&state.lines).hex(), digest(&state.opaque).hex()]),
+            session: digest(&[digest(&state.lines).hex(), digest(&opaque).hex()]),
             company: session.access_company().to_string(),
             seed: session.run_seed(),
             user: session.user_id(),
@@ -515,6 +516,19 @@ mod tests {
         }
     }
 
+    /// A value with no comparable form at `path`, for `why`.
+    fn not_comparable(path: &str, why: &str) -> al_vm::NotComparable {
+        al_vm::NotComparable {
+            path: path.into(),
+            why: why.into(),
+        }
+    }
+
+    /// A state with no rows and no state lines.
+    pub(super) fn empty_state() -> LoginState {
+        state_of(&[], &[])
+    }
+
     fn key(test_codeunit: usize) -> Key {
         Key {
             database: digest(&["1".into()]),
@@ -632,7 +646,10 @@ mod tests {
         marked.hits.0[0] = 1;
         assert_eq!(first_difference(&a, &marked).as_deref(), Some("assumption marks"));
         let mut opaque = a.clone();
-        opaque.state.opaque.push("codeunit 5 global 0: DotNet".into());
+        opaque
+            .state
+            .opaque
+            .push(not_comparable("codeunit 5 global 0", "DotNet"));
         assert_eq!(
             first_difference(&opaque, &opaque.clone()).as_deref(),
             Some("not comparable: codeunit 5 global 0")
@@ -678,9 +695,7 @@ mod tests {
             &[(15, vec![Value::Integer(1), secret("124")])],
             &["session SECRET-VALUE-124"],
         );
-        b.state
-            .opaque
-            .push("codeunit 5 global 1: Text 'SECRET-VALUE-123'".into());
+        (b.state.opaque).push(not_comparable("codeunit 5 global 1", "Text 'SECRET-VALUE-123'"));
         b.open = "SECRET-VALUE-123".into();
         let check = Check::default();
         check.note(key(1), a.clone());
@@ -855,7 +870,9 @@ mod tests {
         let check = Check::default();
         let a = state(&["r"], &["s"]);
         let mut b = state(&["other"], &["s"]);
-        b.state.opaque.push("codeunit 5 global 1: Codeunit instance".into());
+        b.state
+            .opaque
+            .push(not_comparable("codeunit 5 global 1", "Codeunit instance"));
         check.note(key(1), a);
         check.note(key(1), b);
         let line = check.line().unwrap();

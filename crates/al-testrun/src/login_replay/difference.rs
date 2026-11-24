@@ -4,8 +4,8 @@
 //! report (issue 8211).
 //!
 //! The text, per kind of [`KINDS`]:
-//! - `not comparable: codeunit 5 global 1, entry 2`: per value with no comparable form, the path the line names before its
-//!   first `: ` (`Session::state_lines`), else its place in the list;
+//! - `not comparable: codeunit 5 global 1, SQL counters`: per value with no comparable form, the path its producer gives
+//!   apart from why (`al_vm::NotComparable`), never why;
 //! - `row 1 (table object 15): field 3 Blob: written_base, content_edits; field 4`: the first row that differs, by its place
 //!   in the committed rows and its table's object index; per field (its place in the row, from 1) that differs, and for a
 //!   Blob the fields of its buffer (`BlobBuf::differing_fields`); `missing` (the second state has no such row), `added`
@@ -68,13 +68,10 @@ pub(crate) fn stored_rows(tables: &[al_data::memory::ExportedTable]) -> Vec<Stor
 /// What differs between `a` and `b`, the states of two sessions of one key: per kind of [`KINDS`] that differs, its index
 /// and where it first differs (see the module comment). One kind does not hide another.
 pub(crate) fn differences(a: &LoginState, b: &LoginState) -> Vec<(usize, String)> {
-    let opaque: BTreeSet<&String> = a.state.opaque.iter().chain(&b.state.opaque).collect();
-    let opaque = (!opaque.is_empty()).then(|| {
-        let at: Vec<String> = (opaque.into_iter().enumerate())
-            .map(|(k, line)| path(line, k))
-            .collect();
-        format!("not comparable: {}", at.join(", "))
-    });
+    let opaque: BTreeSet<&str> = (a.state.opaque.iter().chain(&b.state.opaque))
+        .map(|v| v.path.as_str())
+        .collect();
+    let opaque = (!opaque.is_empty()).then(|| format!("not comparable: {}", Vec::from_iter(opaque).join(", ")));
     [
         opaque,
         first_apart(&a.rows, &b.rows).map(|n| row(n, a.rows.get(n), b.rows.get(n))),
@@ -106,12 +103,6 @@ fn presence<T>(x: Option<&T>, y: Option<&T>) -> &'static str {
         (None, Some(_)) => ": added",
         _ => "",
     }
-}
-
-/// A line with no comparable form by the path it names before its first `: `, or by its place `k`.
-fn path(line: &str, k: usize) -> String {
-    line.split_once(": ")
-        .map_or_else(|| format!("entry {}", k + 1), |(path, _)| path.to_string())
 }
 
 /// Row `n` of the two states, which differ.
@@ -189,10 +180,24 @@ mod tests {
         );
     }
 
+    // The maintainer's review of this check (issue 8211): a value with no comparable form is named by the path its
+    // producer gives apart from why (`al_vm::NotComparable`), never by cutting a line, so no text of why reaches the
+    // report, whatever it holds.
     #[test]
-    fn a_line_with_no_comparable_form_is_named_by_its_path_or_its_place() {
-        assert_eq!(path("codeunit 5 global 1: Text 'x'", 0), "codeunit 5 global 1");
-        assert_eq!(path("SQL counters: read", 1), "SQL counters");
-        assert_eq!(path("a line with no path", 1), "entry 2");
+    fn a_value_with_no_comparable_form_is_named_by_its_path_only() {
+        let entry = |path: &str, why: &str| al_vm::NotComparable {
+            path: path.into(),
+            why: why.into(),
+        };
+        let mut a = super::super::tests::empty_state();
+        a.state.opaque = vec![
+            entry("codeunit 5 global 1", "SECRET: x"),
+            entry("SQL counters", "SECRET"),
+        ];
+        let b = super::super::tests::empty_state();
+        assert_eq!(
+            differences(&a, &b),
+            [(0, "not comparable: SQL counters, codeunit 5 global 1".to_string())]
+        );
     }
 }
