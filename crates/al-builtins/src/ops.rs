@@ -327,10 +327,7 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         (Value::Text(s) | Value::Code(s), T::Guid) => match parse_guid(&s).or_else(|| parse_guid_without_hyphens(&s)) {
             Some(g) => Value::Guid(g),
             None => {
-                return raise(
-                    "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.",
-                    "InvalidGuidFormat",
-                );
+                return crate::native::invalid_guid_format();
             }
         },
         // An Option converts to an Enum by its ordinal, with or without `AssignmentCompatibility`, blank member
@@ -411,9 +408,8 @@ fn into_code(text: &crate::text::Txt, max: Option<u32>) -> Result<Value, Signal>
     Ok(Value::Code(fit(s, max)?.into()))
 }
 
-/// `8-4-4-4-12` hexadecimal digits, with or without surrounding braces.
 /// 32 hexadecimal digits, without hyphens or braces, with blanks around them (W7Scalars.al:53,60 `no_hyphens`; E_Guid.al:122).
-fn parse_guid_without_hyphens(text: &str) -> Option<[u8; 16]> {
+pub fn parse_guid_without_hyphens(text: &str) -> Option<[u8; 16]> {
     let t = text.trim();
     if t.len() != 32 || !t.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
@@ -428,6 +424,7 @@ fn parse_guid_without_hyphens(text: &str) -> Option<[u8; 16]> {
     ))
 }
 
+/// `8-4-4-4-12` hexadecimal digits, with or without surrounding braces.
 pub fn parse_guid(text: &str) -> Option<[u8; 16]> {
     let t = text.trim();
     let inner = match (t.strip_prefix('{'), t.strip_suffix('}')) {
@@ -1743,10 +1740,7 @@ fn compare_general(l: &Value, r: &Value) -> Result<Ordering, Signal> {
 fn guid_of_text(t: &str) -> Result<[u8; 16], Signal> {
     if t.bytes().filter(u8::is_ascii_hexdigit).count() < 32 {
         // GetLastErrorText(true) of `Guid = Text` only: `equal_operator`.
-        return crate::native::raise(
-            "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.",
-            "InvalidGuidFormat",
-        );
+        return crate::native::invalid_guid_format();
     }
     let inner = t.strip_prefix('{').and_then(|i| i.strip_suffix('}')).unwrap_or(t);
     if inner.len() == 36 {

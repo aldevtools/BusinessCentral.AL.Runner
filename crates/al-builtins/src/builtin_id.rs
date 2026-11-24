@@ -101,6 +101,20 @@ impl BuiltinId {
         after.split('#').next().unwrap_or(after)
     }
 
+    /// The overload AL code called, for an id lowering picks by how the values of `FieldRef.SetRange`, `FieldRef.SetFilter`
+    /// and `Record.SetRange` are written (al-sema `setrange_written`); every other id is itself. A reader that matches a call
+    /// by its id or name matches this one.
+    pub fn written_base(self) -> BuiltinId {
+        match self {
+            ids::FIELDREF_SETRANGETYPED_1 | ids::FIELDREF_SETRANGEVARIANT_1 | ids::FIELDREF_SETRANGEMIXED_1 => {
+                ids::FIELDREF_SETRANGE_1
+            }
+            ids::FIELDREF_SETFILTERTYPED_1 | ids::FIELDREF_SETFILTERVARIANT_1 => ids::FIELDREF_SETFILTER_1,
+            ids::RECORD_SETRANGEVARIANT_1 => ids::RECORD_SETRANGE_1,
+            other => other,
+        }
+    }
+
     /// The position in the table: the index into per-id arrays.
     pub fn index(self) -> usize {
         self.0 as usize
