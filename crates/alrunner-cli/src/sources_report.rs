@@ -1,5 +1,9 @@
 //! The report of a run over several parts (ADR-052 sections 1.6 and 1.7): the exit code shared by every kind of part,
 //! and the summary of `al-runner test-microsoft` with one row per Microsoft test app and a total.
+//!
+//! the exit code shared by runs of several parts (`worst`, ADR-052 1.7; the recipe uses it too), the
+//! per-test-app summary table of `test-microsoft`, and the `Sources` table of a run with test sources
+//! (`PartRow`, `table_lines`).
 
 use crate::recipe_run::{LaneOutcome, LaneResult};
 

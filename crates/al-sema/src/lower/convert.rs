@@ -1,4 +1,7 @@
 //! Name resolution helpers, runtime types and the conversion of a value to a target type.
+//!
+//! Name resolution helpers, runtime types, conversion of a value to a target type. Entry points:
+//! `rt`, `convert_to`.
 use super::*;
 
 impl<'a> Lowerer<'a> {
@@ -401,6 +404,27 @@ impl<'a> Lowerer<'a> {
             return self.convert_to(target, &Ty::Char, ch);
         }
         self.convert_after_char_literal(target, src, value)
+    }
+
+    /// The start and end of a `for` loop. A one-character literal bound is read as that Char in the shapes
+    /// language/ForCharBounds.al measured (`crate::check::for_one_char_literal_bounds`; open corpus PR 1525, assumption
+    /// `for-char-literal-bounds`, al-runner issue 7872). Any other bound keeps main's lowering, which refuses a text bound.
+    pub(crate) fn for_bounds(&mut self, kids: &[SyntaxNode], down: bool) -> (L<ir::Expr>, L<ir::Expr>) {
+        let mut from = self.operand(&kids[1], ir::OperandUse::Value);
+        let mut to = self.operand(&kids[2], ir::OperandUse::Value);
+        let local = |n: &SyntaxNode| matches!(self.res(n), Some(Res::Local(name)) if self.local_var_section_names.contains(name.as_str()));
+        let measured = crate::check::for_one_char_literal_bounds(kids, down, &|n| self.ty_of(n), &local);
+        if measured {
+            for (k, b) in [(&kids[1], &mut from), (&kids[2], &mut to)] {
+                if crate::check::one_char_literal(k) {
+                    if let Ok(x) = b.clone() {
+                        *b = self.convert_to(&Ty::Char, &Ty::Text(None), x);
+                    }
+                }
+            }
+            self.assume(al_builtins::assumptions::Assumption::ForCharLiteralBounds);
+        }
+        (from, to)
     }
 
     /// Whether `value` is a text literal of one character going into a Variant.

@@ -1,6 +1,10 @@
 //! `DotNet` calls (ADR-014). The router: registry of runtime-provided types, then the host
 //! provider, then refusal. Marshalling between AL values and the host's wire values lives here
 //! too.
+//!
+//! `DotNetConfig::renderer` is the run's report renderer (`NoRenderer` by default; ADR-040 amendment
+//! 2026-11-15); `require_renderer` is `--require-report-renderer`). Entry points: `DotNetConfig`,
+//! `DotNetState`, `fit`.
 
 mod blob_stream;
 mod blob_stream_position;

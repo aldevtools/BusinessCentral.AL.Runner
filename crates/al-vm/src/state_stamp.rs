@@ -1,6 +1,18 @@
 //! What a run of code left in the session besides the database rows: the session language, WorkDate, the number
 //! sequences and isolated storage (al-testrun `login.rs` compares it before and after the apps' own login subscribers
 //! ran in a session where what BC's login does is not known; the store's watch follows the rows).
+//!
+//! the session language, WorkDate, number sequences and isolated storage at one moment, to see what a
+//! run of code changed besides rows (al-testrun `login.rs`, a watched login); `LeftStamp`, wider:
+//! also the SingleInstance codeunits and their globals, the manual bindings, the Random sequence and
+//! the group 1 filters (al-testrun `partner_login.rs`); `LeftStamp::changed` gives a `LeftChange` by
+//! kind (for SingleInstance codeunits, the globals that changed), a new SingleInstance instance whose
+//! globals hold what a fresh one holds is no change; `Session::state_lines` renders what `LeftStamp`
+//! takes plus the counters code advances (clock, Guid draws, row versions, AutoIncrement) and the
+//! last error as lines that compare across sessions (al-testrun `login_replay.rs`), every
+//! SingleInstance global through `state_render.rs`. Entry points: `Session::state_stamp`,
+//! `StateStamp::changed`, `Session::left_stamp`, `LeftStamp::changed`, `LeftStamp::group1_changed`,
+//! `Session::state_lines`.
 
 use crate::Session;
 use crate::sessionops::Sequence;

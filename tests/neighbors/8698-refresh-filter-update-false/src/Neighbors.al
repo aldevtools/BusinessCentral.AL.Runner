@@ -56,6 +56,8 @@ codeunit 97591 "LT RFU Neighbor Tests"
         Assert: Codeunit Assert;
         Log: Codeunit "LT RFU Log";
         Seen: Dictionary of [Text, Text];
+        RvrLog: Codeunit "LT RVR Log";
+        ReadResult: Text;
 
     local procedure Initialize(FilterStep: Integer; UpdateStep: Integer; Rows: Integer)
     var
@@ -349,5 +351,125 @@ codeunit 97591 "LT RFU Neighbor Tests"
         Expect('setname', 'AGR(Alpha);Alpha');
         Expect('setname2', 'AGR(Alpha);Alpha');
         Expect('stored', 'Alpha');
+    end;
+
+    // Page 97498 of ProbeReads.al (ListValidateViewReads.al): the issue's cell with an As* read that does not fit its control
+    // between the two SetValues: 1 AsInteger on Name (Text), 2 AsBoolean on Qty (Decimal). BC raises an error the test can
+    // catch and the cell goes on as without the call. GetOption on Qty and GetOption(4) on Kind (three options) raise a CLR
+    // exception no test can catch (measured on BC 29.1, 3 runs; the Rust test wide_page_reads_need_their_field_type).
+    local procedure RunWideMismatch(Which: Integer)
+    var
+        Lines: TestPage "LT RVR Lines";
+        Walk: Text;
+    begin
+        InitializeWide();
+        Lines.OpenEdit();
+        Lines.Last();
+        Note('open', RvrLog.Take());
+        Lines.Name.SetValue('C2');
+        Note('setname', RvrLog.Take());
+        ClearLastError();
+        ReadResult := '';
+        if TryWideRead(Lines, Which) then
+            Note('read', ReadResult + ':' + RvrLog.Take())
+        else
+            Note('read', 'error ' + GetLastErrorText() + ':' + RvrLog.Take());
+        Note('shown', Lines.Name.Value() + '/' + Lines.Value.Value());
+        Lines.Value.SetValue('V');
+        Note('setvalue', RvrLog.Take());
+        Lines.First();
+        Note('first', Lines.Name.Value() + ':' + RvrLog.Take());
+        repeat
+            Walk += Lines.Name.Value() + ',';
+        until not Lines.Next();
+        Note('walk', Walk);
+        RvrLog.Take();
+        Lines.Close();
+        Note('close', RvrLog.Take());
+        Note('stored', WideStoredRows());
+    end;
+
+    [TryFunction]
+    local procedure TryWideRead(var Lines: TestPage "LT RVR Lines"; Which: Integer)
+    begin
+        case Which of
+            1:
+                ReadResult := Format(Lines.Name.AsInteger());
+            2:
+                ReadResult := Format(Lines.Qty.AsBoolean());
+        end;
+    end;
+
+    local procedure InitializeWide()
+    var
+        Row: Record "LT RVR Row";
+    begin
+        Row.DeleteAll();
+        AddWideRow('G0', 1, 'A', Row.Kind::Alpha, 0);
+        AddWideRow('G1', 2, 'B', Row.Kind::Beta, 0);
+        AddWideRow('G1', 3, 'C', Row.Kind::Gamma, 1);
+        Commit();
+        RvrLog.Take();
+        Clear(Seen);
+    end;
+
+    local procedure AddWideRow(GroupCode: Code[10]; EntryNo: Integer; Name: Text[30]; Kind: Option; Indentation: Integer)
+    var
+        Row: Record "LT RVR Row";
+    begin
+        Row.Init();
+        Row."Group Code" := GroupCode;
+        Row."Entry No." := EntryNo;
+        Row.Name := Name;
+        Row.Kind := Kind;
+        Row.Qty := EntryNo + 0.25;
+        Row.Day := DMY2Date(EntryNo, 3, 2026);
+        Row.At := 103000T;
+        Row.Stamp := CreateDateTime(Row.Day, Row.At);
+        Row.Flag := EntryNo = 3;
+        Row.Indentation := Indentation;
+        Row.Insert();
+    end;
+
+    local procedure WideStoredRows(): Text
+    var
+        Row: Record "LT RVR Row";
+        Result: Text;
+    begin
+        if Row.FindSet() then
+            repeat
+                Result += Row.Name + '/' + Row.Value + ',';
+            until Row.Next() = 0;
+        exit(Result);
+    end;
+
+    [Test]
+    procedure Wide_AsIntegerOnText_BetweenSteps()
+    begin
+        RunWideMismatch(1);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('setname', 'P.AGR(C);T.V(C2);P.AGR(C);P.AGR(B);');
+        Expect('read', 'error Invalid Conversion. Source: String, Destination: NavInteger.:');
+        Expect('shown', 'C/');
+        Expect('setvalue', 'P.AGR(C);P.AGR(C);P.AGR(B);');
+        Expect('first', 'B:');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    [Test]
+    procedure Wide_AsBooleanOnDecimal_BetweenSteps()
+    begin
+        RunWideMismatch(2);
+        Expect('open', 'P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('setname', 'P.AGR(C);T.V(C2);P.AGR(C);P.AGR(B);');
+        Expect('read', 'error Invalid Conversion. Source: Decimal, Destination: NavBoolean.:');
+        Expect('shown', 'C/');
+        Expect('setvalue', 'P.AGR(C);P.AGR(C);P.AGR(B);');
+        Expect('first', 'B:');
+        Expect('walk', 'B,C,,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
     end;
 }

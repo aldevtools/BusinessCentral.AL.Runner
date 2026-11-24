@@ -3,6 +3,10 @@
 //! `refusal_keys!` call makes from `src/refusals/<key>.rs`. A crate that starts a list adds a row to [`LISTS`].
 //! `docs/probes-needed.md` holds a table generated from these lists (`--refusals-doc` writes it; the test fails while
 //! it is stale).
+//!
+//! The refusal key lists of every crate that refuses, together (ADR-071, `LISTS`), and the generated
+//! table of `docs/probes-needed.md` (`--refusals-doc`; the suite test `refusal_keys` checks the lists
+//! and the table). Entry points: `LISTS`, `all`, `probes_needed_doc`.
 
 use al_builtins::refusal::RefusalKey;
 

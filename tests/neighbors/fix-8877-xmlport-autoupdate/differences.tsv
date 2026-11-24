@@ -1,0 +1,22 @@
+# key	entry
+# Main refused the second save of a parent stored again after its linked child rows when its attribute triggers assign fields.
+# Head runs it when the record and the stored row agree on every field the document does not carry (corpus PR 1550, open).
+NB XAU Tests::Suite_Fresh	ASSUMED xmlport-stored-again-assign-triggers (corpus PR 1550, XpAutoUpdateAssign.al Suite_Fresh)
+NB XAU Tests::Suite_SameAppOtherHash_Replaces	ASSUMED xmlport-stored-again-assign-triggers (corpus PR 1550, Suite_SameAppOtherHash_Replaces)
+NB XAU Tests::Suite_OtherApp_Errors	ASSUMED xmlport-stored-again-assign-triggers (corpus PR 1550, Suite_OtherApp_Errors)
+NB XAU Tests::Again_FieldElementTrigger	ASSUMED xmlport-stored-again-assign-triggers (corpus PR 1550, Again_FieldElementTrigger)
+# Main refused AutoUpdate with triggers that assign fields. Head runs the measured merge (corpus PR 1550, open).
+NB XAU Tests::KeyTrig_AutoUpdate_Existing	ASSUMED xmlport-autoupdate-assign-triggers (corpus PR 1550, XpAutoUpdateAssign.al)
+NB XAU Tests::UpdInit_Existing	ASSUMED xmlport-autoupdate-assign-triggers (corpus PR 1550, XpAutoUpdateAssign.al)
+NB XAU Tests::UpdBm_ChangesRow	REFUSED AutoUpdate with triggers that assign fields and an OnBeforeModifyRecord that changes the row
+# Shapes the new stored-again path refuses: the record differs from the stored row in a field the document does not carry.
+NB XAU Tests::Stale_ChildTriggerSetsParentVariable	REFUSED XmlPort import of a table element stored again after its linked child rows, whose record differs
+# A skipped first save is not stored again (Suite_SameAppSameHash_Skips, the cell itself); refused before the stored row is read.
+NB XAU Tests::Suite_SameAppSameHash_Skips	REFUSED XmlPort import of a table element stored again after its linked child rows, whose first save stored no row
+# Main refused every linked element whose SourceTableView filters. Head runs the measured const shape (corpus PR 1550, open).
+NB XAU Tests::Suite_SuiteEvaluator	ASSUMED xmlport-linked-view-const,xmlport-stored-again-assign-triggers (corpus PR 1550, Suite_Fresh_SuiteEvaluator)
+NB XAU View Tests::ViewConst_NoTrigger	ASSUMED xmlport-linked-view-const (corpus PR 1550, Suite_Fresh_SuiteEvaluator)
+NB XAU View Tests::ViewConst_OnInsertChangesField	REFUSED XmlPort import of a linked table element whose SourceTableView const filter's field holds another value
+# Refused on main and head with the same text; only the carried transaction-type flags of main differ (the test before it
+# in the codeunit passes on head). MinOccurs = Zero is a fact of the measured element (XpAutoUpdateAssign.al:633).
+NB XAU View Tests::ViewConst_MinOccursOnce	REFUSED XmlPort import: sourcetableview with a filter on the linked tableelement

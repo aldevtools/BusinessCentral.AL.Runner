@@ -6,6 +6,14 @@
 //! change: `page_held_bindings.rs` and `rows.rs` count them. Borrow the page with `st_of` (no new reference), take it
 //! out of a value this code owns with `into_st`, and build a value with `page_value` (one new reference, as
 //! `Value::TestPage(st.clone())` was).
+//!
+//! The test client's state of one page (`PageState`, 282 fields, `Default`; `PageState::closed` names
+//! only the starting values that are not the default), its helper types (`PageMode`, `LookupKind`
+//! (what put the page into lookup mode), `WindowRow`, `Cursor`, `ReadBackwards`, `ControlRef`,
+//! `ControlTarget`) and the bridge to the handles in a `Value` (ADR-072 decision 3; moved here from
+//! `al-builtins/src/value.rs`). Entry points: `st_of` (borrow the page of a `Value::TestPage`, no new
+//! reference), `into_st`, `page_value`, `control_of`, `test_control`, `closed_page`,
+//! `register_closed_page` (called by `Engine::with_config`).
 
 mod after_go_to_key;
 mod close;
@@ -59,7 +67,20 @@ pub(crate) fn control_of(handle: &ControlHandle) -> &Rc<ControlRef> {
 
 /// A `Value::TestControl` for `target` on `page`.
 pub(crate) fn test_control(page: Rc<RefCell<PageState>>, target: ControlTarget) -> Value {
-    Value::TestControl(ControlHandle::new(Rc::new(ControlRef { page, target })))
+    Value::TestControl(ControlHandle::new(Rc::new(ControlRef {
+        page,
+        target,
+        by_id: None,
+    })))
+}
+
+/// The `Value::TestControl` `TestPage.GetField` gives for control `idx` of `page` (`get_field.rs`).
+pub(crate) fn test_control_by_id(page: Rc<RefCell<PageState>>, idx: usize, by_id: ById) -> Value {
+    Value::TestControl(ControlHandle::new(Rc::new(ControlRef {
+        page,
+        target: ControlTarget::Control(idx),
+        by_id: Some(by_id),
+    })))
 }
 
 /// A page of `object` that was never opened: what a declared `TestPage` or `Page` variable holds, and what `Clear`
@@ -178,6 +199,14 @@ pub enum FactboxStep {
     OkAsked,
     /// `Previous()` on the empty view's only row answered false: reads, then `Next()`.
     PreviousNo,
+    /// The page with triggers and a FactBox (`Triggers::FactboxExtra`) landed on the row: reads, and one SetValue of a control
+    /// without code.
+    ExtraLanded,
+    /// After that SetValue: reads, then `OK()` (ListNewLineExtraCodeFactbox.al:319-434, :664-837).
+    ExtraTyped,
+    /// A page of the shape of the page with code (`CodedObjects::Extra`) after its one SetValue of a control without code:
+    /// reads, then `OK()` (ListNewLineExtraCodeCodedPage.al:762-809).
+    CodedExtraTyped,
     /// The page with code (`code_inserted_coded.rs`) after the landing and `steps` measured SetValues since: reads, a SetValue
     /// whose validation saves and refreshes the row again, or `OK()`.
     Coded { steps: u8 },
@@ -209,6 +238,9 @@ pub enum CodedObjects {
     /// The reporter's repro of al-runner issue 8434, ListNewLineFactboxesRepro.al: assumption
     /// `list-new-line-coded-factboxes-repro`.
     Repro,
+    /// Not either's code, a page of their shape (`code_inserted_coded.rs` `coded_extra_shape`) under the effect gate of
+    /// `code_inserted_extra.rs`: assumption `list-new-line-extra-code-coded` (ListNewLineExtraCodeCodedPage.al).
+    Extra,
 }
 
 impl CodedObjects {
@@ -217,25 +249,30 @@ impl CodedObjects {
         match self {
             Self::Probe => al_builtins::assumptions::Assumption::ListNewLineCodedFactboxes,
             Self::Repro => al_builtins::assumptions::Assumption::ListNewLineCodedFactboxesRepro,
+            Self::Extra => al_builtins::assumptions::Assumption::ListNewLineExtraCodeCoded,
         }
     }
 
     /// Whether a SetValue after the landing and `steps` earlier ones is measured: up to two on the probe's page
     /// (ListNewLineFactboxesCode.al:1407 `setvalue`, :1576 `setvalue2`), the one Value on the repro's
-    /// (ListNewLineFactboxesRepro.al:639-647).
+    /// (ListNewLineFactboxesRepro.al:639-647); on a page of their shape the one SetValue of a control without code instead
+    /// (`refuse_off_factbox_row`).
     pub fn later_set_value(self, steps: u8) -> bool {
         match self {
             Self::Probe => steps < 2,
             Self::Repro => steps == 0,
+            Self::Extra => false,
         }
     }
 
     /// Whether `OK()` after the landing and `steps` later SetValues is measured: after any of them on the probe's page (:1407
-    /// `ok=`), after the one Value on the repro's (:646).
+    /// `ok=`), after the one Value on the repro's (:646); on a page of their shape only after the SetValue of a control without
+    /// code (`FactboxStep::CodedExtraTyped`).
     pub fn ok_after(self, steps: u8) -> bool {
         match self {
             Self::Probe => true,
             Self::Repro => steps == 1,
+            Self::Extra => false,
         }
     }
 }
@@ -1021,6 +1058,9 @@ pub struct PageState {
     pub coded_line: CodedLine,
     /// Whose objects the page with code is, noted at its open (`coded_open_on_empty_view`).
     pub coded_objects: CodedObjects,
+    /// The store's change counter when the page began to open (`open_page`): `coded_open_on_empty_view` tells by it whether
+    /// OnOpenPage or a part's trigger wrote at the open.
+    pub open_changes: u64,
     /// The page control's own OnValidate while it runs (`code_inserted_new_line.rs` `run_control_onvalidate`).
     pub control_onvalidate: Option<ControlOnValidate>,
     /// `CurrPage.SaveRecord()` saved the row page code found from the new-row line through assumption
@@ -1310,6 +1350,18 @@ pub enum ControlTarget {
 pub struct ControlRef {
     pub page: Rc<RefCell<PageState>>,
     pub target: ControlTarget,
+    /// Set when `TestPage.GetField` or `TestPart.GetField` gave the handle (`get_field.rs`).
+    pub by_id: Option<ById>,
+}
+
+/// What `TestPage.GetField` found by a control id (`get_field.rs`): a field control of the page; a field whose Value only the
+/// cells measure (a page extension's field on BC 27, a field control on a Worksheet, a ListPlus or a CardPart a TestPart shows);
+/// or a part, a cuegroup, a fixed or a grid, whose field reads empty.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ById {
+    Field,
+    ValueOnly,
+    Empty,
 }
 
 #[cfg(test)]
@@ -1363,7 +1415,7 @@ mod tests {
         let c = test_control(page.clone(), ControlTarget::Control(3));
         assert_eq!(
             format!("{c:?}"),
-            "TestControl(ControlRef { page: RefCell { value: PageState(page 5, open true, mode View) }, target: Control(3) })"
+            "TestControl(ControlRef { page: RefCell { value: PageState(page 5, open true, mode View) }, target: Control(3), by_id: None })"
         );
         assert!(v.identical(&page_value(&page)));
         assert!(!v.identical(&Value::default_for(&RtType::TestPage(5))));

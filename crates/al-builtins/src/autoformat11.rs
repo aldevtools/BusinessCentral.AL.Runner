@@ -11,6 +11,8 @@
 //!   step that formats the stored field with `Format(Amount, 0, 9)`, :215).
 //!
 //! A length, any other format number and the format numbers 1, 2 and 9 of any other expression are refused.
+//!
+//! `Format` in code of an AutoFormatType 11 field with the format string its expression gave.
 
 use crate::native::{Ctx, Signal, lookup};
 use crate::value::Value;

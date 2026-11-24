@@ -7,6 +7,8 @@
 //! filters a handler sets (`RequestPage.Rows.SetFilter`, reports/TestReportRunRequestPage.al).
 //!
 //! Every rule cites the corpus test that pins it; the rest is refused.
+//!
+//! Entry points: `RequestClosed`, `run_request_page`.
 
 use super::*;
 use al_builtins::describe::Describe;

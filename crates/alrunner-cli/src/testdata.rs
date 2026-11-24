@@ -3,6 +3,9 @@
 //! then from the artifact cache, then downloaded (about 520 MB, once); only then a backup of
 //! another build of the same BC version, with a note that says which. Nothing found is not an
 //! error for a default run: test data is off and the run says why.
+//!
+//! Which demo backup a run restores: disk, cache, download, other build; or why test data is off
+//! (ADR-020). Entry points: `locate`, `Where`, `Located`.
 
 use al_bcdb_std::default_backup_in_country;
 use al_deps::build::BuildId;

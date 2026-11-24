@@ -2,6 +2,8 @@
 //! `Format()`: a control spells Decimals with its own places and thousands
 //! separators, Booleans as Yes/No, dates in the short forms, and so on.
 //! Every rule cites the corpus test that measured it on real BC.
+//!
+//! Entry points: `Blank`, `ControlFormat`, `parse_decimal_places`, `parse_precision`.
 
 use crate::describe::Describe;
 use crate::value::Value;

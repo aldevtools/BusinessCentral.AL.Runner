@@ -2,10 +2,15 @@
 //!
 //! A leaf crate: no dependencies, no OS access (ADR-006). Everything that
 //! depends on the Business Central version is a function of a [`Target`].
+//!
+//! `BcVersion::resolved_to` makes the target the build the Microsoft apps came from (minor and build
+//! string; both CLIs call it, al-runner issue 8209). Entry points: `VersionError`, `BcVersion`,
+//! `Runtime`, `Target`.
 
 mod awaited;
 mod choose;
 mod gates;
+mod symbols;
 pub use awaited::{
     BulkWrite, bulk_commit_ends_cached_row, journal_temp_part_reads_after_refresh, visible_names_row_field_reads_yes,
     web_service_session_measured,
@@ -13,10 +18,11 @@ pub use awaited::{
 pub use choose::{AppVersions, Chosen, TargetError, choose_target};
 pub use gates::{
     Evidence, FeatureKeyRows, Gate, dev_endpoint_answers_unhandled_ui, feature_key_refusal, feature_key_rows,
-    has as gate_on, other_record_option_member_names_confirmed, platform_table_scopes_known, test_runner_root_scope,
+    getfield_finds_extension_fields, has as gate_on, other_record_option_member_names_confirmed,
+    platform_table_scopes_known, test_runner_root_scope,
 };
+pub use symbols::{ReleasedMinors, corpus_symbols};
 
-use std::collections::BTreeSet;
 use std::fmt;
 
 /// The oldest BC major the runtime emulates (ADR-015: nothing older than 27).
@@ -208,15 +214,6 @@ impl Target {
     }
 }
 
-/// The preprocessor symbols the corpus CI defines for a BC major, cumulative:
-/// `BC27PLUS` through `BC<major>PLUS` (ADR-015 3.9). Only the corpus uses this
-/// convention; a third-party app gets only its own `preprocessorSymbols`.
-pub fn corpus_symbols(major: u16) -> BTreeSet<String> {
-    (MIN_BC_MAJOR..=major.max(MIN_BC_MAJOR))
-        .map(|n| format!("BC{n}PLUS"))
-        .collect()
-}
-
 /// Dot-separated decimal parts, at most `max` of them.
 fn numbers(s: &str, max: usize) -> Result<Vec<u16>, VersionError> {
     let s = s.trim();
@@ -384,21 +381,6 @@ mod tests {
         let t = t.with_runtime(Runtime { major: 16, minor: 0 });
         assert_eq!(t.bc.major, 29);
         assert_eq!(t.runtime.major, 16);
-    }
-
-    #[test]
-    fn corpus_symbols_are_cumulative_from_27() {
-        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<BTreeSet<_>>();
-        assert_eq!(corpus_symbols(27), s(&["BC27PLUS"]));
-        assert_eq!(corpus_symbols(28), s(&["BC27PLUS", "BC28PLUS"]));
-        assert_eq!(corpus_symbols(29), s(&["BC27PLUS", "BC28PLUS", "BC29PLUS"]));
-        assert!(corpus_symbols(30).contains("BC30PLUS"));
-    }
-
-    #[test]
-    fn corpus_symbols_below_the_floor_still_define_the_floor_symbol() {
-        // The runtime never runs below BC 27; a lower major gets BC 27's set.
-        assert_eq!(corpus_symbols(26), corpus_symbols(27));
     }
 
     #[test]

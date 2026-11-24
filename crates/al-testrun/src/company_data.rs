@@ -9,6 +9,11 @@
 //! The codeunit reads its resource files (`DemoDataConfig.xml`, pictures, text files) through the `File` type, by paths
 //! relative to the server's user folder, where BCApps' script copies them. [`ResourceFiles`] serves them from one
 //! folder, read-only; what the codeunit writes (its log file) stays in memory.
+//!
+//! A company built by a dependency codeunit in the baseline (`--company-data demotool`):
+//! `CompanyData` (codeunit, resources, key text), `ResourceFiles` (read-only resource folder matched
+//! without case, writes in memory), the blocked note that leaves every test not run
+//! (`Engine::company_refusal`). Entry points: `CompanyData`, `ResourceFiles`, `blocked`.
 
 use al_host::{FileSystem, MemFileSystem};
 use std::collections::BTreeSet;

@@ -10,6 +10,9 @@
 //!   Microsoft's "Date and Time" test calls the System App "Time Zone" codeunit only with dates of the current year.
 //!   For other years IANA history and the Windows rules differ (Hawaii 1945, Western Europe before 1996). Every
 //!   other shape, the `DateTimeOffset` overload included, is refused.
+//!
+//! off Windows, the `TimeZoneInfo` checks that need the arguments (a zone passed as an argument,
+//! `GetUtcOffset`), after the policy (issue 8012).
 
 use super::Target;
 use super::policy::Policy;

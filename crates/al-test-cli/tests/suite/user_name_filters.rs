@@ -15,7 +15,14 @@ fn run(objects: &str) -> Vec<(String, Outcome)> {
         dependencies: vec![],
         files: vec![("app0.al".into(), objects.to_string())],
     }];
-    let (ws, l) = al_sema::lower::compile_apps(sources, vec![AppKind::Workspace], &al_version::corpus_symbols(29));
+    let (ws, l) = al_sema::lower::compile_apps(
+        sources,
+        vec![AppKind::Workspace],
+        &al_version::corpus_symbols(
+            &al_version::BcVersion::new(29, 0),
+            &al_version::ReleasedMinors::NotRecorded,
+        ),
+    );
     assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
     let oi = l.program.objects.iter().position(|o| o.name == "T").unwrap();
     let blocked = l

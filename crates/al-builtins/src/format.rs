@@ -1,6 +1,8 @@
 //! `Format(Value [, Length] [, FormatNumber])`. Every rule cites the corpus
 //! test or the doc table ("Formatting values, dates, and time") that pins it;
 //! where the two disagree the corpus wins (it runs on real BC).
+//!
+//! Entry points: `FormatCtx`, `FormatFail`, `try_format`, `format_value`.
 
 use crate::native::Signal;
 use crate::value::Value;
@@ -423,6 +425,11 @@ fn guid_text(g: &[u8; 16], standard: i32) -> Result<String, FormatFail> {
     })
 }
 
+/// The format region `CurrReport.FormatRegion` set, None where none is in force (an empty one included).
+pub(crate) fn region_in_force(ctx: &dyn FormatCtx) -> Option<String> {
+    ctx.region().filter(|r| !r.is_empty())
+}
+
 /// `Format(Value, Length, Standard)` with BC's own errors kept apart from refusals.
 pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) -> Result<String, FormatFail> {
     if let Some(r) = format_unread(v, length, standard) {
@@ -440,7 +447,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
             return Err(FormatFail::Unsupported(format!("Format of {} {why}", type_phrase(v))));
         }
     }
-    if let Some(region) = ctx.region().filter(|r| !r.is_empty()) {
+    if let Some(region) = region_in_force(ctx) {
         return format_in_region(v, length, standard, &region, ctx);
     }
     let s = match v {

@@ -11,6 +11,9 @@
 //! in .NET.
 //!
 //! `ALRUNNER_NO_INPROC=1` leaves the sidecar alone: `wrap` returns the host it was given.
+//!
+//! In-process stand-ins for a closed set of .NET members in front of the sidecar (ADR-038), the list
+//! in `inproc.txt`. Entry points: `wrap`, `InprocHost`, `InprocSession`.
 
 use crate::dotnet::*;
 use md5::Md5;

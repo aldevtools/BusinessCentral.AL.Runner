@@ -116,6 +116,7 @@ const PLAIN_RECORD: &[&str] = &[
 
 /// Whether `id` is a builtin from the lists above, or a method of Text, Label or TextConst (they work on values).
 fn plain_builtin(id: al_builtins::builtin_id::BuiltinId) -> bool {
+    let id = id.written_base();
     let name = id.name();
     let (class, _) = name.split_once('.').unwrap_or(("", name));
     let method = id.method();

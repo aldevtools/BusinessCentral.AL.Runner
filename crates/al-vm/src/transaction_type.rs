@@ -1,6 +1,11 @@
 //! `Database.CurrentTransactionType`: the session's transaction type, what a set does at each point of a transaction, what a
 //! Commit and the start of a test method do to it, and what the type rests on when no corpus case pins it
 //! (`TxState::type_origin`). The Update report decision that reads it lives in `reports/transaction_world.rs`.
+//!
+//! `Database.CurrentTransactionType`: what a set does at each point of a transaction, what a Commit
+//! and the start of a test method do to the type, and what it rests on when no corpus case pins it
+//! (`TypeOrigin`). Entry points: `current_transaction_type` (from `sessionops.rs`),
+//! `transaction_type_seen` (every reader of the type).
 
 use crate::transactions::{TxPhase, al_error_code};
 use crate::{Session, Signal};
@@ -319,7 +324,7 @@ impl Session {
                 changed
             }
             _ => {
-                let (filters, flow) = self.split_filters(rec);
+                let (filters, flow) = self.split_filters(rec)?;
                 let rows = al_data::Store::count(&*self.store_for(rec)?, cx, t, &filters)
                     .map_err(|e| Signal::unsupported(format!("{e}")))?;
                 flow.is_empty() && (method == RecordOp::DeleteAll || rows > 0)

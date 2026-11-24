@@ -10,6 +10,8 @@
 //! Which entry holds an app: the platform artifact keeps one `Applications/**/<App name>.Source.zip`
 //! per app (and a precompiled `Microsoft_<App name>.app` for the test framework). The file name
 //! is a hint; the `app.json` inside decides, by app id.
+//!
+//! Entry points: `Cdn`, `HttpCdn`, `Fetch`, `ArtifactUse`.
 
 use crate::build::{BuildId, BuildQuery, Origin, Selection, parse_index, select_build};
 use crate::cache::{

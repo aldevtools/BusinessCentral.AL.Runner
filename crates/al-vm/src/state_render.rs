@@ -8,6 +8,23 @@
 //! library value, a List, a Dictionary, a query, a JSON or XML node, a header list) held by more than one owner
 //! (`Rc::strong_count` > 1) has a number by first sight too, and its content is written once as `shared <n> <content>`. A
 //! handle with one owner cannot be shared, so it is written in place.
+//!
+//! The one owner of how a value reads in `Session::state_lines` (`Render`): every `Value` variant and every
+//! `LibraryValue` variant has a rule (a match with no wildcard, so a new variant has to get one): an exact form, or
+//! `Err` with why it has none and its path (ids, indexes and type names only). Exact forms: a codeunit instance by a
+//! number by first sight, its globals once; an array and a List element by element with runs of equal elements once (a
+//! List with its change count); a Dictionary entry by entry as stored; a Record and a RecordRef by one rule (`record`):
+//! a temporary table by its number by first sight (its rows once), a real one by its id, and everything the variable
+//! carries (view, position, buffer, marks, load state, company, its table globals' instances; its own read as whether
+//! its counts are current); a FieldRef and a KeyRef by their record buffer and index; a RecordRef not open or closed as
+//! that; JSON and XML nodes by their tree (a node reached from a variable with the node it hangs in); HTTP messages,
+//! content and headers, ErrorInfo, FilterPageBuilder and a query by their state with the values and handles they hold
+//! by these rules; text, TextBuilder, Version, Notification, ModuleInfo and the other plain library states by value;
+//! plain values by `single_track::fp`, and a DotNet object the runtime serves itself the same way but numbered as a
+//! handle (its state can change). Any handle more than one owner holds is numbered by first sight and written once
+//! (`shared <n>`). No form: a .NET object of the process, a SQL counter value, a placeholder output's size, a test page
+//! or control, SecretText, HttpClient, File, an open InStream or OutStream, a CRM record, a temporary record whose rows
+//! are not measured. Entry points: `Render::new`, `Render::value`, `content`.
 
 use crate::Session;
 use al_builtins::library_kind::LibraryKind;

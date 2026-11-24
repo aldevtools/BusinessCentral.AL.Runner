@@ -11,6 +11,16 @@
 //!   that run leaves is dropped (decision 2: nothing is handed on);
 //! * a dependent codeunit outside the chain costs no run: its parallel run started fresh, and the lane (strict order in
 //!   the base variant, decision 3) puts its BC-order run in its place.
+//!
+//! Order dependence through SingleInstance state for stability mode (ADR-058 amendment 1). `carried_reads` (pure): the
+//! globals a chain member read first with a value an earlier member wrote last that differs from a fresh instance
+//! (`SingleOut::fresh`); `chain_walk.rs` `KeptSingles::left` uses it (with the last writer per global) and
+//! `ChainWalk::suspect` notes the member in `ChainReport::carried` and, under `RunOptions::single_fresh_check`, runs it
+//! once more from the same start with fresh single instances (`rerun_fresh`, hands nothing on); `single_lane.rs`
+//! `Lane::note_carried` notes each dependent codeunit of the default run (`Found::last`) in `LaneReport::carried` and
+//! keeps its run as its fresh outcome. `CorpusRuntime::single_carried` lists both; `fresh_plan` and
+//! `CorpusRuntime::fresh_variant` form the `isolation.singleInstance = fresh` variant from its carried twin in
+//! `try_run_variants`. Entry points: `CarriedCodeunit`, `single_carried`.
 
 use al_vm::single_track::{Fp, GlobalKey};
 use std::collections::BTreeMap;

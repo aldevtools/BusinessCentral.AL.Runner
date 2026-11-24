@@ -1,0 +1,5 @@
+# key	entry
+# Main refused the install: the suite element is stored again after its Line rows while its Code attribute trigger assigns
+# fields. Head runs it when the record and the stored row agree on every field the document does not carry.
+<baseline>	ASSUMED xmlport-stored-again-assign-triggers (corpus PR 1550, XpAutoUpdateAssign.al Suite_Fresh)
+WP Install Tests::Suite_ImportOtherCode	ASSUMED xmlport-stored-again-assign-triggers (corpus PR 1550, XpAutoUpdateAssign.al Suite_Fresh)

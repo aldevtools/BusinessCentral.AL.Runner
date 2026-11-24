@@ -1,4 +1,8 @@
 //! Which implementation `Evaluate` (`System.Evaluate#1`) lowers to, chosen by its target.
+//!
+//! Which builtin `Evaluate` lowers to, by its target (an Option field with captions, a `var` Option
+//! parameter declared without members or an element of a `var` array of them, an Option variable, a
+//! bounded Text or Code). Entry points: `evaluate_id`.
 use super::*;
 
 impl Lowerer<'_> {

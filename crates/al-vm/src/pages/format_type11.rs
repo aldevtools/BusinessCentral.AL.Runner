@@ -2,6 +2,9 @@
 //! the AutoFormatExpression evaluated once per call, a text literal as written (format-evaluate/Y43AfType11.al).
 //! A procedure runs on the formatted record itself, so the globals of its table and table extensions are the record's
 //! (`Ext11`: a global setup record of the extension, read again at each call after the setup changed).
+//!
+//! the format string of an AutoFormatType 11 field, evaluated once per `Format`. Entry points:
+//! `auto_format_type11_string`.
 
 use super::*;
 

@@ -9,6 +9,13 @@
 //! properties. Reach is static: roots are triggers, `[Test]` procedures, event subscribers and
 //! handlers of Workspace objects; edges are the procedure calls the checker resolved. Nothing runs.
 //! "Reached" does not mean "observed": a branch a test never takes counts.
+//!
+//! The behavior coverage map (`--behavior-coverage-map`, `docs/corpus-behavior-coverage.md` and
+//! `.json`, not committed): triggers, properties, platform events, statement/expression kinds and
+//! runtime error sites against the corpus; catalog = runtime source mentions union Microsoft-app use;
+//! pinned by static reach over resolved `Res::Proc` calls. Entry points: `collect`, `classify`,
+//! `match_errors`, `corpus_behavior_coverage`. Also attributes, and the view against the language
+//! catalog (`language_view`, `REFUSING_OWNERS`).
 
 use al_sema::check::{CheckResult, Res};
 use al_sema::{AppKind, Workspace};

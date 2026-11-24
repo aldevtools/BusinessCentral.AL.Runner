@@ -5,6 +5,9 @@
 //!
 //! The hash of the package is made from the zip directory (name, size and CRC-32 of every entry), so
 //! it too needs no inflating. The CRC-32 of an entry is checked when the entry is read.
+//!
+//! A package whose files are not read yet: zip directory and manifest only, files read by position on
+//! demand, a hash of the directory (ADR-022, pure tests). Entry points: `read_lazy`, `LazyPackage`.
 
 use crate::package::{Manifest, Vars, is_al, is_app, manifest_of_source_zip, parse_manifest, percent_decode_once};
 use crate::zip::{END_SEARCH, Entry, find_end_record, local_header_len, parse_central_directory};

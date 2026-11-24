@@ -4,6 +4,8 @@
 //! `#if BCnnPLUS` guard for it). Code asks [`Target::has`]; it never compares a version.
 //! A target newer than every gate gets every behaviour: a new major inherits the newest
 //! known behaviour until an oracle case says otherwise.
+//!
+//! Entry points: `Evidence`, `Gate`, `has`.
 
 use crate::Target;
 
@@ -1495,6 +1497,20 @@ pub fn dev_endpoint_answers_unhandled_ui(bc_major: u16) -> Option<bool> {
 /// Linux CI legs only, a Linux suspect: not confirmed.
 pub fn other_record_option_member_names_confirmed(bc_major: u16) -> bool {
     bc_major == 28
+}
+
+/// Whether `TestPage.GetField` with the control id of a field a page extension adds (the extension's id and the field's name)
+/// finds the field on `bc_major` when the field states no ApplicationArea of its own: BC 27 finds it, BC 28 and 29 do not;
+/// `None` for a major that was not measured. Corpus pull request 1538 (open), testpage/GetFieldByControlId.al:589
+/// (Card_ExtensionControl, guarded `#if BC28PLUS`) and :2822, in its CI on BC 27.5, 28.5 and 29.0 and on a local BC 29.1 (one
+/// with ApplicationArea = All is found on each, :2804). Not a [`Gate`] yet: a gate's evidence is a file of the pinned corpus, so
+/// this becomes one when the probe is pinned. Consumed by `al-vm` pages/get_field.rs.
+pub fn getfield_finds_extension_fields(bc_major: u16) -> Option<bool> {
+    match bc_major {
+        27 => Some(true),
+        28 | 29 => Some(false),
+        _ => None,
+    }
 }
 
 /// Whether the platform tables of System.app that are `Scope = OnPrem`, internal or removed are known for

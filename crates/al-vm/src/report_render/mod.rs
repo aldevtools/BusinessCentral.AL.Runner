@@ -5,6 +5,16 @@
 //! Only a save of a measured shape (`shape`) renders. Every other Html save keeps the opaque value of the amendment of
 //! 2026-11-12, Part A (`report_placeholder`), so no shape main answered changes. The Html written here carries no mark: it is
 //! plain text, every read answers (decision 3).
+//!
+//! the Html of a Word layout made by BC's own merger and converter through `DotNetConfig::renderer`.
+//! `mod.rs` the gate and the render (`Session::rendered_html`); `call.rs` the facts of the
+//! `Report.SaveAs` call (`SaveCall`, taken in `reports.rs` `report_save_as`); `shape.rs` the measured
+//! reports and datasets, each fact by equality (report properties and sections, the title, columns,
+//! rows, major and converter version), and the layout vocabulary (parts, relationships, element names
+//! per part, namespaces; the structure is free); `layout_facts.rs` reads the layout facts from the
+//! file. The save's whole fact vector after the run is compared in `report_save/html_cell.rs`. The
+//! content mark of the Word, Excel and Html placeholders, and what may still answer on them
+//! (presence, size, byte copies), is `al-builtins/src/placeholder_output.rs`.
 
 mod call;
 mod layout_facts;

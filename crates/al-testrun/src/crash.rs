@@ -3,6 +3,12 @@
 //! any report is written; without this, the run just stops and the cause looks like fewer or missing outcomes. Each worker thread records which test it runs (`running`); a signal handler,
 //! installed once by the command line (`install`), writes that test to stderr and then hands the signal on to the
 //! handler that was there before (Rust's stack-overflow handler, or the default action, which dumps core).
+//!
+//! Names the test a crashed process was running: each worker records its codeunit and test
+//! (`running`, from `events::starting` and `run_unit`); a handler for SIGSEGV, SIGBUS, SIGILL, SIGFPE
+//! and SIGABRT, installed by both command lines (`install`), writes it to stderr and hands the signal
+//! on (Rust's stack-overflow handler or the default action). Entry points: `install`, `running`,
+//! `idle`.
 
 use std::cell::Cell;
 

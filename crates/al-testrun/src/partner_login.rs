@@ -14,6 +14,26 @@
 //! state refuses the codeunit or its readers. In the default order each test codeunit starts with fresh SingleInstance
 //! state and its own login (ADR-066 amendment 12); in BC's order the single instances moved in from the codeunit before
 //! replace the ones this login made (`Session::adopt_single_instances`; PlLoginSingleTests.al:109-128).
+//!
+//! The partner dependency apps' "System Initialization" `OnAfterLogin` subscribers in the test
+//! session (al-runner issue 8115; pinned G1sInstallSessionTests.al, PlLoginSingleTests.al): which run
+//! (`subscribers`: off the Raise path, a session with a client and Codeunit isolation, a dependency
+//! app whose publisher is not Microsoft), merged with the apps under test's own in the event's order
+//! (`steps`, run by `install::own_login`), and what they leave (`raise`: tables they wrote refuse
+//! their readers, a group 1 filter stays, the partner subscribers run one at a time in the event's
+//! order (`Session::subscriber_order`) and each SingleInstance codeunit one changed is judged by
+//! `kept`: pinned when it is the one codeunit of the one subscriber's app with the pinned globals
+//! (two Integer, a List of [Text], a Text), kept through assumption `partner-login-memo-kept` (corpus
+//! PR 1490) for the measured shapes (a dependency app's codeunit of the subscriber's app or one it
+//! depends on, measured global types or Microsoft's 3702/3703, at most two subscribers of different
+//! apps that change different globals; the own subscribers' changes are noted by `own_step` and
+//! refuse a codeunit a partner subscriber changed too), otherwise marked so that every read of one of
+//! its globals is refused, from any code (al-vm `single_unmeasured.rs`; al-runner issue 8239), the
+//! session language, WorkDate and the bindings refuse the codeunit, session-open code after them that
+//! reads a table they wrote or filtered refuses it (`watch_after`, `after_open`), number sequences,
+//! isolated storage and Random (al-vm `LeftChange`) refuse a test codeunit whose reach can see them,
+//! `seen_by_test` through `login::ask_test_reach`). Entry points: `subscribers`, `steps`, `raise`,
+//! `PartnerLogin`.
 
 use crate::login::OwnEvent;
 use al_builtins::assumptions::Assumption;

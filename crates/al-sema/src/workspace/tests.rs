@@ -127,7 +127,13 @@ fn app(id: &str, deps: &[&str], files: &[(&str, &str)]) -> AppSource {
 }
 
 fn load(apps: Vec<AppSource>) -> Workspace {
-    Workspace::load(apps, &al_version::corpus_symbols(27))
+    Workspace::load(
+        apps,
+        &al_version::corpus_symbols(
+            &al_version::BcVersion::new(27, 0),
+            &al_version::ReleasedMinors::NotRecorded,
+        ),
+    )
 }
 
 fn codes(ws: &Workspace) -> Vec<(&'static str, String)> {
@@ -164,7 +170,10 @@ fn a_table_moved_to_another_app_does_not_make_its_name_ambiguous() {
     let ws = Workspace::load_apps(
         vec![live, old],
         vec![AppKind::Dependency, AppKind::Dependency],
-        &al_version::corpus_symbols(27),
+        &al_version::corpus_symbols(
+            &al_version::BcVersion::new(27, 0),
+            &al_version::ReleasedMinors::NotRecorded,
+        ),
     );
     let file = ws.objects.iter().find(|o| o.name == "CI").unwrap().file;
     match ws.resolve_ref(file, ObjKind::Table, &["Source Code".to_string()]) {
@@ -207,7 +216,10 @@ fn parsing_report_and_page_files_in_parallel_gives_the_same_trees_as_parsing_the
         let ws = Workspace::load_apps(
             vec![dep.clone()],
             vec![AppKind::Dependency],
-            &al_version::corpus_symbols(27),
+            &al_version::corpus_symbols(
+                &al_version::BcVersion::new(27, 0),
+                &al_version::ReleasedMinors::NotRecorded,
+            ),
         );
         let ids: Vec<usize> = (0..ws.files.len()).collect();
         if parallel {
@@ -730,7 +742,10 @@ fn a_moved_stub_does_not_make_the_real_table_ambiguous() {
     let ws = Workspace::load_apps(
         vec![bf, base, lib],
         vec![AppKind::Dependency; 3],
-        &al_version::corpus_symbols(27),
+        &al_version::corpus_symbols(
+            &al_version::BcVersion::new(27, 0),
+            &al_version::ReleasedMinors::NotRecorded,
+        ),
     );
     let file = ws.objects.iter().find(|o| o.name == "Lib").unwrap().file;
     let name = vec!["No. Series".to_string()];
@@ -746,7 +761,10 @@ fn a_moved_stub_does_not_make_the_real_table_ambiguous() {
             app("lib", &["s1", "s2"], &[("c.al", "codeunit 9 \"Lib\" { }")]),
         ],
         vec![AppKind::Dependency; 3],
-        &al_version::corpus_symbols(27),
+        &al_version::corpus_symbols(
+            &al_version::BcVersion::new(27, 0),
+            &al_version::ReleasedMinors::NotRecorded,
+        ),
     );
     let file = only_stubs.objects.iter().find(|o| o.name == "Lib").unwrap().file;
     assert!(matches!(
@@ -791,7 +809,10 @@ fn a_removed_table_does_not_make_the_real_table_ambiguous() {
     let ws = Workspace::load_apps(
         vec![base, pbi, sub],
         vec![AppKind::Dependency; 3],
-        &al_version::corpus_symbols(29),
+        &al_version::corpus_symbols(
+            &al_version::BcVersion::new(29, 0),
+            &al_version::ReleasedMinors::NotRecorded,
+        ),
     );
     let file = ws.objects.iter().find(|o| o.name == "Entry").unwrap().file;
     let name = vec!["Dimension Set Entry".to_string()];
@@ -814,7 +835,10 @@ fn a_removed_table_does_not_make_the_real_table_ambiguous() {
             app("lib", &["r1", "r2"], &[("c.al", "codeunit 9 \"Lib\" { }")]),
         ],
         vec![AppKind::Dependency; 3],
-        &al_version::corpus_symbols(29),
+        &al_version::corpus_symbols(
+            &al_version::BcVersion::new(29, 0),
+            &al_version::ReleasedMinors::NotRecorded,
+        ),
     );
     let file = only_removed.objects.iter().find(|o| o.name == "Lib").unwrap().file;
     assert!(matches!(
@@ -919,7 +943,10 @@ fn a_workspace_grown_by_appended_apps_equals_one_loaded_with_them_all() {
             ),
         ],
     );
-    let symbols = al_version::corpus_symbols(27);
+    let symbols = al_version::corpus_symbols(
+        &al_version::BcVersion::new(27, 0),
+        &al_version::ReleasedMinors::NotRecorded,
+    );
     let lib_symbols: BTreeSet<String> = ["LIBSYM".to_string()].into();
     let all = vec![base.clone(), lib.clone(), top.clone()];
     let app_symbols = vec![None, Some(lib_symbols.clone()), None];
@@ -971,7 +998,10 @@ fn a_workspace_with_workspace_apps_grown_by_apps_of_both_kinds_equals_one_loaded
             "codeunit 60 S { procedure P() var M: Codeunit M; begin y := ; end; }",
         )],
     );
-    let symbols = al_version::corpus_symbols(27);
+    let symbols = al_version::corpus_symbols(
+        &al_version::BcVersion::new(27, 0),
+        &al_version::ReleasedMinors::NotRecorded,
+    );
     let kinds = vec![
         AppKind::Workspace,
         AppKind::Dependency,
@@ -1038,7 +1068,10 @@ fn a_workspace_cut_back_to_its_first_apps_equals_one_loaded_with_them() {
                  codeunit 23 Broken { procedure P() begin x := ; end; }",
         )],
     );
-    let symbols = al_version::corpus_symbols(27);
+    let symbols = al_version::corpus_symbols(
+        &al_version::BcVersion::new(27, 0),
+        &al_version::ReleasedMinors::NotRecorded,
+    );
     let two = vec![AppKind::Workspace, AppKind::Dependency];
     let alone = Workspace::load_apps_symbols(vec![main.clone(), base.clone()], two.clone(), &symbols, &[], Vec::new());
     let mut cut = Workspace::load_apps_symbols(
@@ -1069,7 +1102,10 @@ fn a_workspace_cut_back_to_its_first_apps_equals_one_loaded_with_them() {
 /// than it did: the workspace refuses to grow then, and stays as it was.
 #[test]
 fn an_append_that_would_change_what_a_loaded_app_sees_is_refused() {
-    let symbols = al_version::corpus_symbols(27);
+    let symbols = al_version::corpus_symbols(
+        &al_version::BcVersion::new(27, 0),
+        &al_version::ReleasedMinors::NotRecorded,
+    );
     let early = app("early", &["late"], &[("a.al", "codeunit 1 A { }")]);
     let mut ws = Workspace::load_apps_symbols(vec![early], vec![AppKind::Dependency], &symbols, &[], Vec::new());
     let before = fingerprint(&ws);

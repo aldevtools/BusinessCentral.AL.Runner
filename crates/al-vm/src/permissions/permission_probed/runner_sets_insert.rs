@@ -11,6 +11,13 @@
 //! BiTpNonRestr.al:36-46, BiTpDisMRestr.al:38-48, BiTpDisMNonRestr.al:38-48; BC 27, 28 and 29), and, under codeunit
 //! Restrictive with no method attribute, also when the inserting procedure has the attribute `[InherentPermissions]` `'R'` or `'I'` with scope
 //! Entitlements (BiInherentPerms.al:202-213, :232-243). Every other access keeps main's answer.
+//!
+//! The one access the test runner's permission sets (Tests-TestLibraries codeunit 130302) deny: a
+//! procedure of a codeunit of the test's app inserts with `Insert()` into an empty table of that app,
+//! with no `[InherentPermissions]` or one of the two measured to deny (al-language-
+//! testlibraries/test-framework/testpermissions/BiTp*.al, BiInherentPerms.al); every other access
+//! under those sets keeps assumption `runner-permission-sets-grant-all`. Called from the Record
+//! branch of `ctx.rs`. Entry points: `Session::runner_sets_insert`.
 use crate::Session;
 use crate::permissions::{Access, Op, SetModel, Verdict};
 use al_builtins::native::Signal;

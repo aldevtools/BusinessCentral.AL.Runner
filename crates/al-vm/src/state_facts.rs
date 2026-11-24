@@ -1,6 +1,12 @@
 //! The session facts the login replay check compares besides the SingleInstance globals, the bindings and the counters
 //! of [`Session::state_lines`] (al-testrun `login_replay.rs`, al-runner issue 8211): state the login leaves that a later
 //! test or the runner reads. Each fact is a line that compares across sessions, or a reason why it has none.
+//!
+//! the facts `Session::state_lines` compares besides the globals, bindings and counters, one line
+//! each (al-testrun `login_replay.rs`, al-runner issue 8211): the Global Triggers setups asked, the
+//! event subscriber call counts, the media store, the commits and the last commit's facts, the
+//! committed store's marks (emptied tables, company copies), the SQL counters when inactive and at
+//! rest (else a reason, no form).
 
 use crate::Session;
 use crate::state_render::content;

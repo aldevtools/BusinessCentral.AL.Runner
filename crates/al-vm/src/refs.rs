@@ -5,6 +5,8 @@
 //! methods in `records.rs` (triggers included). `FieldRef` and `KeyRef` point
 //! into that buffer by field position and key index. Behaviour the corpus
 //! does not pin raises `Signal::Unsupported` instead of guessing.
+//!
+//! Entry points: `record_ref_value`.
 
 use crate::Session;
 use crate::blob_transfer::{BlobMove, Holder};
@@ -265,6 +267,7 @@ impl Session {
         } else {
             id
         };
+        let (id, setrange) = crate::setrange_convert::catalog_id(id);
         let Some(sig) = catalog().by_id(id) else {
             return unsupported(format!("builtin {id}"));
         };
@@ -282,6 +285,9 @@ impl Session {
             }
             "FieldRef" => {
                 self.fieldref_arg_values(&sig.name, &lib, args)?;
+                if matches!(sig.name.as_str(), "SetRange" | "SetFilter") {
+                    self.fieldref_setrange_convert(&sig.name, &lib, args, setrange)?;
+                }
                 self.fieldref_op(&sig.name, &lib, args)
             }
             "KeyRef" => self.keyref_op(&sig.name, &lib, args),
@@ -1712,12 +1718,16 @@ impl Session {
                 if stored {
                     return unsupported("FieldRef.CalcField of a field that is not a FlowField (not pinned)");
                 }
-                self.flow_op_asked(
+                // A page background task's repeated FieldRef.CalcField answers from the query cache as Record.CalcFields does.
+                let read = self.mark_al_record_read(RecordOp::CalcFields, true);
+                let r = self.flow_op_asked(
                     RecordOp::CalcFields,
                     &rec,
                     &[Value::Integer(pos as i32)],
                     crate::flowfields::Asked::Other,
-                )
+                );
+                self.unmark_al_record_read(read);
+                r
             }
             // FieldRef.CalcSum sums a stored Decimal or Integer field over the rows the RecordRef's filters pass, a field in
             // no SumIndexFields list as well, puts the sum into the field and answers Yes

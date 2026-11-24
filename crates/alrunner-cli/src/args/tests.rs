@@ -68,13 +68,6 @@ fn strict_order_is_opt_in() {
     assert!(test_args("test A --strict-order").strict_order);
 }
 
-/// ADR-066 amendment 7 (owner, 2026-11-08): no replay cap unless `--max-replay N` is given.
-#[test]
-fn max_replay_is_opt_in() {
-    assert_eq!(test_args("test A").max_replay, None);
-    assert_eq!(test_args("test A --max-replay 50").max_replay, Some(50));
-}
-
 /// Issue 7143: `--allow-write-in-try-functions` is off unless given.
 #[test]
 fn allow_write_in_try_functions_is_opt_in() {

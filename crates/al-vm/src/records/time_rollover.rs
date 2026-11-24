@@ -2,6 +2,19 @@
 //! it (`RolledRead`), and the refusals of the shapes record/filters/TimeRolledPastMidnight.al does not measure: a scan that
 //! returns such a row in the order of a key that holds the field, a Modify of such a row that runs trigger code or subscribers, a
 //! Rename that writes the rollover, and a query or CalcFormula filter on the field over such a row.
+//!
+//! the rules around a Time a database column holds past the day (`sqltime::keeps_past_midnight` owns
+//! the field shape, record/filters/TimeRolledPastMidnight.al:11-25; `sqltime::read_back` what AL
+//! reads). It owns `RecordState::rolled_read`, the read that lets a Modify keep the stored value
+//! (`sqltime::keep_rolled`): the variable's own Get from AL code (`TxState::get_from_al`, set in
+//! `record_op_of_al`) or ModifyAll's read of the row; every other load, record method, `:=` and
+//! builtin operand ends it. Refusals: a scan that returns such a row in the order of a key holding
+//! the field, a Modify of such a row that runs trigger code or subscribers, a Rename that writes the
+//! rollover, and a query or CalcFormula filter on the field over a table that holds it. Entries:
+//! `scan`, `rolled_read_before` and `rolled_read_of_load` (by `record_op` and `load` in
+//! `records.rs`), `modify_read_the_rolled_row` and `refuse_rolled_modify_with_code` (by the Modify
+//! arm of `op_inner.rs`), `refuse_rename_writing_rolled` (Rename arm), `refuse_filter_over_rolled`
+//! (by `queries.rs` and `flowfields.rs`).
 
 use super::sql_range::ModifyCaller;
 use super::*;

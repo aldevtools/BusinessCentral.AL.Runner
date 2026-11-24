@@ -5,6 +5,8 @@
 //! `FieldClass` is the C/AL order. The `FieldType` member names are the platform's; their
 //! ordinals are not pinned by the corpus (docs/probes-needed.md), so nothing here may be
 //! relied on to print as a number.
+//!
+//! Entry points: `members`, `option_members`.
 
 pub fn members(name: &str) -> Option<&'static [&'static str]> {
     match name.to_ascii_lowercase().as_str() {

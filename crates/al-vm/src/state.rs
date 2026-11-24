@@ -1,4 +1,9 @@
 //! Sub-states of a [`Session`] (ADR-037 item 3): fields that belong together, so `Session` stays readable.
+//!
+//! Sub-states of `Session`: `TxState` (what ends with the open transaction is `OpenTx`, which a
+//! Commit and a rollback reset in one step, `Session::end_open_transaction`; its locks are `TxLocks`;
+//! how far the transaction has started is `transactions::TxPhase`), `UiState`, `PageClients`,
+//! `EventState`, `CoverageState`, `ReportState` (the .NET host state is `dotnet::DotNetState`).
 
 use super::*;
 
@@ -554,6 +559,10 @@ pub(crate) struct CoverageState {
     /// `al-runner test --profile`: the session's call tree (`profile.rs`). `None` when off: one branch per statement,
     /// call, builtin return and record method.
     pub(crate) profiler: Option<Box<crate::profile::Profiler>>,
+    /// The footprint of a partner app's install session while one is recorded (`install_footprint.rs`). `None` when off.
+    pub(crate) install_footprint: std::cell::RefCell<Option<Box<crate::install_footprint::Recording>>>,
+    /// `install_footprint` is `Some`: the one branch a builtin call costs when no footprint is recorded.
+    pub(crate) footprint_on: bool,
 }
 
 /// `Language` and `FormatRegion` set on a report variable outside a run.
@@ -651,6 +660,9 @@ pub(crate) struct ReportState {
     /// later record can get the address of one that is gone and read its view (al-runner CI flake of reports/request-page/
     /// RptFilters.al:510 RequestFilterFields_Handler_SetsFilters). The entries of dropped records go on each new SetTableView.
     pub(crate) set_view_filters: Vec<(std::rc::Weak<RefCell<RecordState>>, Vec<ViewFilterKey>)>,
+    /// The filters each `DataItemTableView` gave the record of a data item of the report's own, by record
+    /// (`reports/item_view.rs`).
+    pub(crate) item_views: Vec<crate::reports::item_view::ItemView>,
     /// The dataset a `Report.SaveAs(.., Xml, ..)` run is writing (al-vm reports.rs).
     pub(crate) dataset: Option<crate::dataset::Dataset>,
 }

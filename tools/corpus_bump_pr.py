@@ -14,6 +14,8 @@ It refuses, and changes nothing, when:
   - a pull request is not merged into master, or its merge commit is not a first-parent commit of master;
   - master between the current pin and the newest merge commit has a commit that is not one of the listed merges and
     changes more than CI files, docs or must-not-compile cases;
+  - a pull request, or a master commit between the pin and the newest merge, changed a file the preprocessor symbols
+    come from (.github/released-minors.txt, .github/scripts/ci-legs.py; ADR-078 point 3);
   - a pull request changed a shared fixture (tests/al-language/_fixtures, the internals fixture, the xapp apps,
     custom.ruleset.json, an app.json), deleted a test file, or changed an app the Linux CI legs do not run;
   - the pull request's last CI run on its head is not green, or a BC version lacks a JUnit file another version has;
@@ -70,9 +72,22 @@ def changed(corpus, a, b):
     return [tuple(l.split("\t", 1)) for l in out.splitlines() if l]
 
 
+# The corpus files the preprocessor symbols of every leg come from (ADR-078 point 3): a subset run cannot show what a
+# change to them does, and this bump keeps the list of released minors oracle.toml records.
+SYMBOL_INPUTS = (".github/released-minors.txt", ".github/scripts/ci-legs.py")
+
+
+def symbol_refusal(path):
+    """The refusal text for a change to a file of SYMBOL_INPUTS, else None."""
+    if path in SYMBOL_INPUTS:
+        return f"{path}, which sets the preprocessor symbols of every leg (ADR-078 point 3): bump from a master run"
+    return None
+
+
 def neutral(path):
-    """A path whose change no oracle can see: CI files, docs, scripts, must-not-compile cases, corpus bookkeeping."""
-    return ("/" not in path or path.startswith((".github/", "docs/", "scripts/", "tests/must-not-compile/"))
+    """A path whose change no oracle can see: CI files, docs, scripts, must-not-compile cases, corpus bookkeeping.
+    The files the preprocessor symbols come from (SYMBOL_INPUTS) are not."""
+    return path not in SYMBOL_INPUTS and ("/" not in path or path.startswith((".github/", "docs/", "scripts/", "tests/must-not-compile/"))
             or path in ("tests/rename-map.tsv", "tests/facts-changes.tsv", "tests/al.code-workspace"))
 
 
@@ -244,8 +259,11 @@ def plan(root, corpus, gh, prs, old, fetch):
         if c in merges:
             continue
         seen = [p for _, p in changed(corpus, f"{c}^1", c) if not neutral(p)]
+        subj = git(corpus, "log", "-1", "--format=%s", c) if seen else ""
+        for p in seen:
+            if symbol_refusal(p):
+                raise Refused(f"master commit {c[:12]} ({subj}) between the pin and {target[:12]} changed {symbol_refusal(p)}")
         if seen:
-            subj = git(corpus, "log", "-1", "--format=%s", c)
             raise Refused(f"master commit {c[:12]} ({subj}) between the pin and {target[:12]} is not one of the listed "
                           f"pull requests and changes {seen[0]}: add its pull request to --from-pr, or bump from a master run")
     for i in infos:
@@ -256,6 +274,8 @@ def plan(root, corpus, gh, prs, old, fetch):
         for st, p in files:
             if neutral(p):
                 continue
+            if symbol_refusal(p):
+                raise Refused(f"corpus PR {i['pr']} changed {symbol_refusal(p)}")
             if shared(p):
                 raise Refused(f"corpus PR {i['pr']} changed the shared fixture {p}: a full master run is needed")
             if app_of(p) is None:

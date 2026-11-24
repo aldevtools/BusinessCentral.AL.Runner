@@ -1,5 +1,11 @@
 //! A temporary Worksheet without OnOpenPage whose rows a procedure of the page variable inserted before `Run()` or
 //! `RunModal()`, in the key of its SourceTableView (al-runner issue 7420; corpus pages/run-modal/PageVarOpenRow.al).
+//!
+//! A temporary Worksheet without OnOpenPage whose rows a page procedure inserted before Run or
+//! RunModal, in its SourceTableView key: the open on Rec's row and, for the pinned edit, the refill
+//! of `CurrPage.Update(false)` (al-runner issue 7420, PageVarOpenRow.al). Entry points:
+//! `temp_ws_preloaded_without_onopenpage` (the entry predicate), `open_temp_ws_preloaded`,
+//! `temp_ws_edit_begin` (by `validate_step_begin`), `refresh_temp_ws_preloaded` (by `run_refresh`).
 
 use super::*;
 use crate::pages::pinned_shape::{PinnedCode, TestCall};
