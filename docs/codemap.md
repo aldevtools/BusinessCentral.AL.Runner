@@ -288,6 +288,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `impact_static.rs`: Static selection: the graph of routines, objects. Entry: `Graph`.
 - `login.rs`: The test session's login. Entry: `decide`.
 - `login_replay.rs`: The check that a replay of the raised login would… Entry: `Key::of`.
+- `login_replay/` (2 files): What the login replay check's report names: where two states differ, and the parts a new key differs in, never a value. Entry: `differences`, `KeyParts::of`. Files: `difference.rs`, `key_parts.rs`
 - `partner_login.rs`: The partner dependency apps' "System… Entry: `subscribers`.
 - `partner_memo_once.rs`: A partner app's load-once memo filled through the Global Triggers events at login, of the measured shape. Entry: `kept`.
 - `license.rs`: Which BC license a run uses: `--license FILE`. Entry: `LicenseUse`.

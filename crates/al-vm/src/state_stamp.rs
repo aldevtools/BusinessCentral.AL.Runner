@@ -510,10 +510,31 @@ pub(crate) fn no_row_io(a: &RecordState) -> bool {
 pub struct StateLines {
     /// One line per kind of state, in a fixed order.
     pub lines: Vec<String>,
-    /// The SingleInstance globals that hold a value with no comparable form (`state_render.rs`: a .NET object, an open
-    /// stream, ...), with why and its path: what they hold cannot be compared, so two sessions holding one are never known
-    /// to hold the same.
-    pub opaque: Vec<String>,
+    /// The values with no comparable form (`state_render.rs`: a .NET object, an open stream, ...; the SQL counters when
+    /// not at rest): what they hold cannot be compared, so two sessions holding one are never known to hold the same.
+    pub opaque: Vec<NotComparable>,
+}
+
+/// A value with no comparable form in [`StateLines`]: where it is held and why it has none, apart, so a report can name
+/// the place without cutting a line (al-testrun `login_replay/difference.rs`, issue 8211).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotComparable {
+    /// Where the value is held, by ids and indexes only (`codeunit 5 global 1`, `binding 0`, `SQL counters`).
+    pub path: String,
+    /// Why it has no comparable form, by type names only (`state_render.rs`).
+    pub why: String,
+}
+
+impl NotComparable {
+    /// The value at `path` with no comparable form, for `why`.
+    pub(crate) fn new(path: String, why: impl Into<String>) -> NotComparable {
+        NotComparable { path, why: why.into() }
+    }
+
+    /// `path: why`, the form a digest of the state takes.
+    pub fn line(&self) -> String {
+        format!("{}: {}", self.path, self.why)
+    }
 }
 
 impl Session {
@@ -558,7 +579,7 @@ impl Session {
                 match rendered {
                     Ok(text) => out.lines.push(format!("single {} global {g} {text}", id(o))),
                     // Why it has no comparable form, with the path into the instances it is held in.
-                    Err(why) => out.opaque.push(format!("codeunit {} global {g}: {why}", id(o))),
+                    Err(why) => (out.opaque).push(NotComparable::new(format!("codeunit {} global {g}", id(o)), why)),
                 }
             }
         }
@@ -570,7 +591,7 @@ impl Session {
             let codeunit = id(inst.borrow().object as usize);
             match render.value(&Value::Codeunit(inst), 0) {
                 Ok(text) => bound.push(format!("codeunit {codeunit} {text}")),
-                Err(why) => out.opaque.push(format!("binding {k}: {why}")),
+                Err(why) => out.opaque.push(NotComparable::new(format!("binding {k}"), why)),
             }
         }
         out.lines.append(&mut render.lines);
