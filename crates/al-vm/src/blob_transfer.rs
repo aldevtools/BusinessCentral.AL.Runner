@@ -1,6 +1,25 @@
 //! The Blob value a record field or a Variant takes when a Blob moves into it: the one owner of "copy, empty or keep the buffer"
 //! for an assignment, a builtin's write-back, `FieldRef.Value :=`, `FieldRef.Validate`, `RecordRef.GetTable` / `SetTable`,
 //! `TransferFields`, a Variant (an assignment, a by-value parameter), `Record.Copy` and a record passed by value.
+//!
+//! The Blob value a record field or a Variant takes when a Blob moves into it (copy, empty, or keep
+//! the buffer): the one owner for an assignment, a builtin's write-back, `FieldRef.Value :=`,
+//! `FieldRef.Validate`, `RecordRef.GetTable` / `SetTable`, `TransferFields`, a Variant (an
+//! assignment, a by-value parameter), `Record.Copy` and a record passed by value. The source facts of
+//! a move: the Blob buffer's own state (`Source`), the record it is a field of (`Holder`, from
+//! `RecordState::probed_source`: a declared variable on which only the measured record methods and
+//! builtins ran, with no Commit since; started by `new_variable` where `measured_local` holds, moved
+//! on by `after` from `record_op` (`Session::probed_source_before`) and kept by
+//! `builtin_keeps_probed`, ended for every other builtin by `records_into_builtin` in `exec/run.rs`;
+//! `assigned`, `set_table_target`, `gettable_copy` and `publisher_copy` carry it over; the events
+//! whose by-value subscribers copy: `BlobEvent`, `measured_publisher`, `measured_table_event`,
+//! `measured_subscriber`), and for a Variant that is not local the expression (`FieldRead`: a field
+//! read as the whole right-hand side or call argument, which `exec/compile.rs` turns into
+//! `Op::BlobFieldRead` or `CallSite::field_reads`). Entry points: `moved`, `measured` (the cell
+//! table) and `record_cell` (the moves from a measured source record; `by_value_measured` per call
+//! and taker), `BlobMove` (with `set_table`), `FieldKind` (`FieldKind::of`), `Holder`, `FieldRead`,
+//! `Session::blob_field_kind`, `Session::field_read_into_variant`, `move_blobs`, `gettable_copy`,
+//! `Argument` and `Session::bind_blobs` (record arguments), `Session::blobs_by_value`.
 
 use crate::Session;
 use al_builtins::builtin_id::{BuiltinId, ids};

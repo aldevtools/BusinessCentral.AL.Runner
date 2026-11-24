@@ -1,5 +1,7 @@
 //! What is refused before a `DotNet` request is sent (ADR-014 section 8). The rules are data
 //! (`policy.txt`) checked in Rust; every refusal names the type or member and the rule.
+//!
+//! Entry points: `Access`, `Policy`.
 
 /// How a request touches a type, for rules that depend on it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

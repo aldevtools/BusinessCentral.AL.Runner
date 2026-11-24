@@ -2,6 +2,9 @@
 //!
 //! Every `<testcase>` in it passed on real BC, so it is the denominator of the
 //! pass rate. A case is identified by its codeunit id and procedure name.
+//!
+//! The oracle: JUnit and xUnit cases of real BC, identified by (codeunit, name). Entry points:
+//! `CaseId`, `OracleCase`, `parse_junit`, `parse_xunit`.
 
 pub use al_testrun::CaseId;
 

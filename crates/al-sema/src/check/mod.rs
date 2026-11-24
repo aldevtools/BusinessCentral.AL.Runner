@@ -1,6 +1,11 @@
 //! Resolves every name, member access and call in routine bodies, inferring
 //! expression types. The corpus compiles on BC, so a diagnostic here means
 //! the model is missing something, not that the AL is wrong.
+//!
+//! Resolves every name, member access and call in routine bodies, inferring types. Holds
+//! `CheckResult`, `Res`, `Roots`, the checker state and the entry points; `lean_left_out` (the
+//! workspace objects a lean compile of a selection leaves out, `Roots::lean`, `LEFT_OUT`). Entry
+//! points: `check_with`, `Checker`, `CheckResult`, `Res`, `Roots`.
 
 use crate::members::{MemberTable, ProcSig};
 use crate::types::Ty;

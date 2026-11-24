@@ -1,6 +1,13 @@
 //! The pieces of the report render process on disk (ADR-040 amendment 2026-11-13b): the two named service-folder sets,
 //! fetched by range when no extracted artifact serves the build, and on Linux the nuget.org pieces pinned by hash
 //! (`al_deps::render_set`). Builds the [`PrepareFn`] a [`crate::report_render::RenderHost`] calls on first use.
+//!
+//! The `PrepareFn` of a run: the service-folder sets of the run's needs (`PieceSources::needs`) by
+//! range (when no extracted artifact serves the build) and the Linux nuget pieces; the Skia native
+//! follows the build's `SkiaSharp.dll` version. `run_renderer` is the renderer of a run (`RUN_NEEDS`:
+//! the merge set, about 7 MB, and the conversion set, about 112 MB on disk per build, fetched by
+//! default for the Html of a Word layout, ADR-040 amendment 2026-11-15). Entry points: `prepare`,
+//! `PieceSources`, `run_renderer`.
 
 use crate::report_render::{PrepareFn, RenderPieces};
 use al_deps::artifact::Cdn;

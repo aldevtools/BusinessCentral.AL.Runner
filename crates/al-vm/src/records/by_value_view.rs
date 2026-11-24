@@ -6,6 +6,49 @@
 //! answers afterwards: its own record methods (`Session::by_value_view_runs`, by `record_op_inner`), and every hand-off of it to
 //! code that reads its view (`Session::by_value_view_handed`: a record method with it as the source, `RecordRef.GetTable`, a
 //! page, report, XmlPort or FilterPageBuilder it is handed to); Copy and CopyFilters hand its marks to their target.
+//!
+//! The view a record gets when it is handed by value to a Record parameter of a procedure or an event
+//! subscriber (not temporary): for a codeunit's procedure called by name, or a table's procedure
+//! called as `Row.Proc(Row)` from a codeunit, or a table's procedure whose parameter is a record of
+//! another table called from a codeunit or a third table (`Buffer.Proc(Entry)`, al-runner issue 8385,
+//! assumption `by-value-table-proc-other-table`, corpus PR 1451), or a report's procedure called by
+//! name from the report itself, a codeunit or a page (al-runner issue 8386, assumption `by-value-
+//! report-procedure`, corpus PR 1450, which also covers a FlowField key with a SetLoadFields before a
+//! read handed from a codeunit) (`measured_callee`, which names the assumption, from the call's
+//! `ByValueCall`: callee, instance, and `Dispatch` direct, subscriber or interface), the view of a
+//! fresh record (`primary_view`) when every filter is in group -1, 0, 2 or 4 (or is the data item's
+//! own `DataItemTableView`, handed from its `OnAfterGetRecord` to a codeunit's or its report's
+//! procedure: `reports/item_view.rs` `own_item_view_handed`, al-runner issue 8838, corpus PR 1544,
+//! flagged `by-value-report-procedure`), the caller stands in group 0 or 2 and holds no SetLoadFields
+//! after a read, SetAutoCalcFields or ReadIsolation (`measured_view`, `measured_state`); a caller's
+//! SetLoadFields and a read, the row as the read left it (`fetched_row`), handed from a codeunit to a
+//! codeunit's procedure with every filter in group 0 (`group0_declared_view`), give the fresh view
+//! too, the copy keeping the fields the row loaded and dropping the request (al-runner issue 8839,
+//! assumption `by-value-load-fields-after-read`, corpus PR 1543); a caller's SetAutoCalcFields in the
+//! shape `measured_auto_calc` names is not handed on: the copy keeps the field values and drops it
+//! (al-runner issue 8538, assumption `by-value-record-no-auto-calc`, corpus PR 1473); a temporary
+//! record handed to a stored parameter of a codeunit procedure called by name loses its group-0
+//! filters (`temporary_into_stored_param`). The others are pinned by
+//! record/filters/ByValueRecordView.al (`Evidence::Pinned`); a copy of `by-value-table-proc-other-
+//! table` holds that assumption in `RecordState::view_assumption`, marked on a read of its view. An
+//! event subscriber's parameter gets the fresh view (ByValueRecordView.al:964-978) only where
+//! `event_args` says `EventArg::Measured` (a by-value parameter of a codeunit's
+//! IntegrationEvent(false, false) without CommitBehavior, of a publisher codeunit that is not
+//! SingleInstance, raised by a call of the publisher (`event_publisher`, once per raise), to a
+//! subscriber codeunit that is neither manual nor SingleInstance) for a record with filters in group
+//! 0 only and the plain view (`group0_view`, `subscriber_view`); `dispatch.rs` `raise_to_subscribers`
+//! hands the answers to the subscriber's frame (`EventState::next_event_args`). Any other view, an
+//! interface call, a parameter of another object kind with filters, or another subscriber copy whose
+//! publisher parameter is a by-value Record (`EventArg::PublisherByValue`) without the view of a
+//! fresh record (`fresh_view`), gives a copy marked `BY_VALUE_VIEW` whose view reads refuse; a
+//! subscriber copy whose publisher parameter is `var`, or of an event the platform raises
+//! (`EventArg::Main`), keeps main's view. One list of the methods that read no view
+//! (`reads_no_view`). Entry points: `record_param_copy` and `temporary_into_stored_param` (by the
+//! parameter binding of `call_inner` in `lib.rs`; `exec/run.rs` `run_iface` sets
+//! `Session::next_interface_call`), `by_value_view_marks` and `by_value_view_runs` (by
+//! `record_op_inner`), `by_value_view_handed` (every hand-off that reads the view: `refs.rs`
+//! `gettable_record_copy`, `pages/open/record_refusals.rs`, `reports.rs` `report_set_view`,
+//! `xmlports/mod.rs` `xp_set_view`, `filterpage.rs`).
 
 use crate::Session;
 use crate::events::{EventKind, Subscriber};

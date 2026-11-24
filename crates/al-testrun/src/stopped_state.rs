@@ -11,6 +11,14 @@
 //! set-back), and `V := WorkDate()` / `WorkDate(V)` are pinned in that save, set and set-back shape by
 //! session-system/TestSessionFunctions.al:56-65. A WorkDate never set before the routine stays unset here, where BC sets it
 //! to today; both read as today, and only `--no-client` tells them apart (it flags such a later read).
+//!
+//! What code the runner stopped leaves of the session language and WorkDate (al-runner issue 8072),
+//! the one owner of "roll back and restore": a refused test is restored (`roll_back_refused_test`,
+//! called from `runtime/run.rs`); stopped install code is restored only where it saved the value
+//! first and sets it back as its last statements (`roll_back_stopped_install`,
+//! BdRegionTests.al:1327-1339), else the state is unknown and the callers (`baseline_roots.rs`,
+//! `install.rs`) refuse the later install code of that install session. Entry points:
+//! `roll_back_refused_test`, `roll_back_stopped_install`.
 
 use al_builtins::builtin_id::ids;
 use al_ir::{Arg, Expr, Place, Stmt};

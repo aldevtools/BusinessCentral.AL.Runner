@@ -3,6 +3,8 @@
 //! Representations follow `Value`: a Date is a day number (1 = 0001-01-01), a
 //! Time is milliseconds since midnight plus one, a DateTime is milliseconds
 //! since 0001-01-01 00:00 UTC plus one (0 is the undefined value of each).
+//!
+//! Entry points: `days_in_month`, `parse_date`, `parse_time`, `parse_datetime`.
 
 fn digits(s: &str, n: usize) -> Option<u32> {
     (s.len() == n && s.bytes().all(|b| b.is_ascii_digit())).then(|| s.parse().ok())?

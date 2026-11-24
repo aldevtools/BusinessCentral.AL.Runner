@@ -3,6 +3,12 @@
 //! the part page's one procedure
 //! (pages 75313, 75314). Each check lists the statements and expressions those pages have and requires that the page has no
 //! other.
+//!
+//! The static code facts of the journal shape: the host's triggers only call log procedures of
+//! codeunit variables (`log_call`), its actions codeunit variables, and the one procedure that sets
+//! the Visible variable from the part page's procedure (`host_bodies_are`), the part page's one
+//! procedure holds only the measured kinds of code (`part_procedure_is`), the Visible expression is
+//! one Boolean variable (`visible_variable`).
 
 use super::pinned_shape::{code_stmts, codeunit_var_call, text_log_routine, unconverted};
 use super::*;

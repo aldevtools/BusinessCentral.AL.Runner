@@ -1,5 +1,9 @@
 //! Tree-walking interpreter over the typed IR (ADR-011). `Engine` is the
 //! immutable program (ADR-001); `Session` holds all mutable state.
+//!
+//! Engine (immutable program) and Session (mutable state, grouped into the sub-states of `state.rs`),
+//! construction and the transaction entry points. The executor is the bytecode in `exec/`;
+//! `interp.rs` holds what both it and the rest of the VM use.
 
 use al_builtins::describe::Describe;
 use al_builtins::native::{AlError, Signal};
@@ -43,7 +47,7 @@ mod debug;
 mod exec;
 mod interp;
 mod isolated_storage_reads;
-pub use baseline::{Baseline, NotShared, RowDelta, SharedBaseline, SkippedInstall};
+pub use baseline::{Baseline, NotShared, SharedBaseline, SkippedInstall};
 pub use capture::{CaptureConfig, Captured, ClosedBy, LoopRecord, MAX_RECORDS, MessageRecord, Rendered, ValueRecord};
 pub(crate) use ctx::base_slot_missing;
 pub use debug::{DebugFrame, DebugHook, DebugView, Resume};
@@ -102,6 +106,8 @@ pub mod group1_sessions;
 mod hostvalues;
 mod http;
 pub mod impact;
+pub mod install_footprint;
+mod install_footprint_row_version;
 mod install_left;
 mod interfaces;
 mod isdirty;

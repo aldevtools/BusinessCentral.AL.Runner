@@ -356,7 +356,7 @@ codeunit 97591 "LT RFU Neighbor Tests"
     // Page 97498 of ProbeReads.al (ListValidateViewReads.al): the issue's cell with an As* read that does not fit its control
     // between the two SetValues: 1 AsInteger on Name (Text), 2 AsBoolean on Qty (Decimal). BC raises an error the test can
     // catch and the cell goes on as without the call. GetOption on Qty and GetOption(4) on Kind (three options) raise a CLR
-    // exception no test can catch (measured on BC 29.1, 3 runs; the Rust test read_only_calls_pass_only_where_measured).
+    // exception no test can catch (measured on BC 29.1, 3 runs; the Rust test wide_page_reads_need_their_field_type).
     local procedure RunWideMismatch(Which: Integer)
     var
         Lines: TestPage "LT RVR Lines";

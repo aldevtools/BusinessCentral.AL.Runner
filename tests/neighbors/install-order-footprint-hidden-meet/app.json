@@ -1,0 +1,46 @@
+{
+ "id": "9e1a2b3c-0000-4000-8000-000000000129",
+ "name": "RQ hz Tests",
+ "publisher": "Review Probe Co",
+ "version": "1.0.0.0",
+ "platform": "27.0.0.0",
+ "runtime": "15.0",
+ "idRanges": [
+  {
+   "from": 53290,
+   "to": 53299
+  }
+ ],
+ "dependencies": [
+  {
+   "id": "9e1a2b3c-0000-4000-8000-000000000121",
+   "name": "RQ hz E",
+   "publisher": "Review Probe Co",
+   "version": "1.0.0.0"
+  },
+  {
+   "id": "9e1a2b3c-0000-4000-8000-000000000122",
+   "name": "RQ hz D",
+   "publisher": "Review Probe Co",
+   "version": "1.0.0.0"
+  },
+  {
+   "id": "9e1a2b3c-0000-4000-8000-000000000123",
+   "name": "RQ hz X",
+   "publisher": "Review Probe Co",
+   "version": "1.0.0.0"
+  },
+  {
+   "id": "9e1a2b3c-0000-4000-8000-000000000124",
+   "name": "RQ hz B",
+   "publisher": "Review Probe Co",
+   "version": "1.0.0.0"
+  },
+  {
+   "id": "9e1a2b3c-0000-4000-8000-000000000125",
+   "name": "RQ hz Z",
+   "publisher": "Review Probe Co",
+   "version": "1.0.0.0"
+  }
+ ]
+}

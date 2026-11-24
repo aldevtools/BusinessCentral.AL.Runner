@@ -1913,7 +1913,7 @@ fn a_test_that_touches_an_own_login_table_first_still_notes_the_disabled_codeuni
             &mut scratch,
             &["M Data"],
         );
-        assert!(scratch.leak_hit, "{codeunit}: {o:?}");
+        assert!(!scratch.leak_hits.is_empty(), "{codeunit}: {o:?}");
     }
 }
 

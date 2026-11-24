@@ -1,31 +1,18 @@
 # key	entry
-# AS Kind Tests (Routes.al, a copy of AtSignAloneReads.al of corpus PR 1495): main refuses @ alone on a Code field; the head runs
-# each read method and place a filter comes from as BC read them. The cells with <>@ alone on a Code field and the quoted
-# filter('@') of a CalcFormula stay refused on both. So do the neighbors of BQ At Neighbor Tests that no cell measures (a report's
-# DataItemTableView, a query's ColumnFilter, <>@ alone on a Code field) and the CRM table (AS Crm Neighbor Tests): no difference.
-AS Kind Tests::AtSignAlone_CalcFormulaFieldFilterOfFlowFilter	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
-AS Kind Tests::AtSignAlone_CalcFormulaFieldFilterOfPattern	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
-AS Kind Tests::AtSignAlone_DeleteAll	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
-AS Kind Tests::AtSignAlone_FieldRefAndRecordRefSetView	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
-AS Kind Tests::AtSignAlone_FilterGroupOne	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
-AS Kind Tests::AtSignAlone_FilterGroupTwo	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
-AS Kind Tests::AtSignAlone_FindEqualsAndPrevious	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
-AS Kind Tests::AtSignAlone_FindEquals_LookupFlowFieldFilter	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
-AS Kind Tests::AtSignAlone_IsEmpty_NoEmptyValue	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
-AS Kind Tests::AtSignAlone_ModifyAll	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
-AS Kind Tests::AtSignAlone_PageRows	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
-AS Kind Tests::AtSignAlone_ReadMethods_Database	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
-AS Kind Tests::AtSignAlone_ReadMethods_Temporary	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
-AS Kind Tests::AtSignAlone_ReportDataItem	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
-AS Kind Tests::AtSignAlone_SetView	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
-# <>@ alone on a Text field of a record in the database: main keeps no row; the head keeps the K row, as BC does (AtSignAloneReads.al:698).
-BQ At Neighbor Tests::AtSignAloneNegated_TextField_SourceRows	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
-# BQ Tests 9b and 9c: main refuses @ alone on a Code field and keeps every row of a Text field; the head keeps the blank values in the database.
-BQ Tests 9b::AtSignAlone_CodeFlowFilter_OverTextAndCode	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
-BQ Tests 9b::AtSignAlone_LookupFlowFieldFilters_DatabaseAndTemporary	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
-BQ Tests 9b::AtSignAlone_SourceFields_DatabaseAndTemporary	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
-BQ Tests 9b::AtSignAlone_TextFlowFilter_OverCodeAndText	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
-BQ Tests 9c::QueryAtSignAlone_CodeColumn_KeepsTheEmptyValues	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
-BQ Tests 9c::QueryAtSignAlone_CodeDataItemTableFilter_KeepsTheEmptyValues	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
-BQ Tests 9c::QueryAtSignAlone_TextColumn_KeepsTheEmptyValues	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
-BQ Tests 9c::QueryAtSignAlone_TextDataItemTableFilter_KeepsTheEmptyValues	ASSUMED at-sign-alone-database-blank (corpus PR 1495)
+# Against main (8816 has landed): the cells whose answer this pull request changes. Main refuses <>@ alone on a Code field from a
+# query's SetFilter and DataItemTableFilter and as a FlowFilter CalcFields applies, and a CalcFormula's sum with filter('@') or
+# filter('<>@') over a Date, Integer, Decimal, Option or Boolean source field; the head runs them as BC answered them (corpus PR
+# 1495, AtSignAloneReads.al and AtSignAloneMethods.al).
+AM Kind Tests::AtSignAloneNegated_CodeFlowFilterMethods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneMethods.al:767)
+AM Kind Tests::AtSignAlone_CalcFormulaBlankOptionMember	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneMethods.al:717)
+AM Kind Tests::AtSignAlone_CalcFormulaDateSource	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneMethods.al:395)
+AM Kind Tests::AtSignAlone_CalcFormulaOtherSources	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneMethods.al:430)
+AM Kind Tests::AtSignAlone_CalcFormulaOtherSources_ErrorCode	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneMethods.al:454)
+AM Kind Tests::AtSignAlone_CalcFormulaOtherSources_Readers	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneMethods.al:657)
+AS Kind Tests::AtSignAloneNegated_FlowFilter	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneReads.al:904)
+AS Kind Tests::AtSignAloneNegated_FlowFilterThroughField	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneReads.al:928)
+AS Kind Tests::AtSignAloneNegated_QueryDataItemTableFilter	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneReads.al:871)
+AS Kind Tests::AtSignAloneNegated_QuerySetFilter	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneReads.al:861)
+BQ Not At Neighbor Tests::NotAtSignAlone_CodeField_DataItemTableFilter	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneReads.al:871)
+BQ Not At Neighbor Tests::NotAtSignAlone_CodeField_FlowFilter	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneReads.al:928)
+BQ Not At Neighbor Tests::NotAtSignAlone_CodeField_QuerySetFilter	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneReads.al:861)

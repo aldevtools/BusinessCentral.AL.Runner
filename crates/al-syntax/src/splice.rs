@@ -3,6 +3,9 @@
 //! The compiler adds routines to a page, report or table (`al_sema::pages`, ADR-012): each piece of added text is one or
 //! more whole routines that go between two members of an object body. Parsing the joined text again costs as much as the
 //! first parse. [`splice_routines`] parses only the added text and puts its routines into the tree of the file instead.
+//!
+//! Adds the routines the compiler generates (page expressions) to a parsed file without parsing the
+//! file again.
 
 use crate::{Parse, SyntaxKind, TreeCache};
 use rowan::{GreenNode, GreenNodeData, NodeOrToken};

@@ -2,6 +2,13 @@
 //! pinned by tests/al-language-onprem-dotnet/dotnet/ac/N4WithEventsNoRaise.al; and the AzureML variables of a codeunit with
 //! no trigger for them, in the uses Base Application's codeunit 2001 makes, on assumption
 //! `with-events-no-trigger-azure-ml-shape`. Every other WithEvents variable keeps the refusal of `Lowerer::var_attr_refusal`.
+//!
+//! Global `[WithEvents]` DotNet variables whose uses run (al-runner issue 7832): a codeunit's
+//! variable without a trigger, and a Timer with only an Elapsed trigger (codeunit, page, table,
+//! report) with the uses the probe made (constructor, Interval, Enabled, IsNull, Clear; ClearAll
+//! refused). Entry points: `marker`, `timer_elapsed_trigger` (the report trigger `reports::layout`
+//! accepts), `Lowerer::with_events_timer_use`, `Lowerer::with_events_timer_member`,
+//! `Lowerer::with_events_clear_all`.
 
 use super::*;
 use al_syntax::ast::NodeText;

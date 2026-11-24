@@ -1,4 +1,6 @@
 //! Lowering of page control trees, `RunObject` and part links.
+//!
+//! Page control trees, `RunObject`, part links. Entry points: `page`, `run_object`.
 use super::shared::with_field_guard;
 use super::*;
 
@@ -535,6 +537,8 @@ impl Lowerer<'_> {
                 bare_quoted_ext_source,
                 visible_row_field,
                 factbox: raw.factbox,
+                fixed_or_grid: raw.kind == ir::ControlKind::Group
+                    && ["fixed", "grid"].iter().any(|k| sec.name().eq_ignore_ascii_case(k)),
             });
         }
         let base = owner_of(None);
@@ -1033,6 +1037,7 @@ fn data_item_control(name: &str, binding: ir::Binding) -> ir::Control {
         visible_row_field: None,
         source_text: None,
         factbox: false,
+        fixed_or_grid: false,
     }
 }
 

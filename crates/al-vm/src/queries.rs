@@ -6,6 +6,9 @@
 //! filters on aggregated columns applied to the groups (HAVING), then the sort and the row cap.
 //! Every behaviour is pinned by a corpus test cited at the code or is refused with
 //! `Signal::Unsupported`; the open questions are in docs/probes-needed.md.
+//!
+//! Query objects: Open, Read, column values, SaveAs. Entry points: `query_op`, `query_open_started`,
+//! `query_column`.
 
 use crate::Session;
 use crate::query_reopen::ReopenCall;
@@ -326,7 +329,7 @@ impl Session {
                     let date_ctx = self.query_date_context();
                     Some(
                         al_builtins::filter::with_date_context(date_ctx, || {
-                            al_builtins::filter::parse_filter_at_sign_measured(&text, &args[2..], &ty, &enums)
+                            al_builtins::filter::parse_filter_both_at_signs_measured(&text, &args[2..], &ty, &enums)
                         })
                         .map_err(|e| Signal::unsupported(format!("SetFilter: {e}")))?,
                     )
@@ -1335,12 +1338,12 @@ impl Session {
         Ok(out)
     }
 
-    /// A DataItemTableFilter (`table_filter`) or a ColumnFilter text, parsed. `@` alone on a Code field is measured in a
-    /// DataItemTableFilter only (BgTaskQueryCache.al:6403, BQ Tests 9c).
+    /// A DataItemTableFilter (`table_filter`) or a ColumnFilter text, parsed. `@` alone and `<>@` alone on a Code field are measured
+    /// in a DataItemTableFilter only (BgTaskQueryCache.al:6403, BQ Tests 9c; AtSignAloneReads.al:871).
     fn parse_query_filter(&self, text: &str, ty: &RtType, table_filter: bool) -> Result<FilterExpr, Signal> {
         let text = crate::query_date_filter::static_text(text, ty)?;
         let parse = if table_filter {
-            Self::parse_filter_text_at_sign_measured
+            Self::parse_filter_text_both_at_signs_measured
         } else {
             Self::parse_filter_text
         };

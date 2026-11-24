@@ -14,6 +14,14 @@
 //! (al-runner issue 8343, `refuse_first_row_left_view_after_action`, with `stands_on_first_of_view`, `has_row_before`,
 //! `row_left_view`), and rows stored into an empty AutoSplitKey list with Rec left on one (al-runner issue 8344,
 //! `refuse_rows_stored_with_rec_on_one`).
+//!
+//! a list an action left without rows (al-runner issue 6945, ActionFilterEmptyView.al), and the
+//! refusals after an action of al-runner issues 8343 and 8344: the first row of a list with exactly
+//! one row trigger moved out of the view, with OnAfterGetCurrRecord alone only when the action left
+//! the view as it was (`refuse_first_row_left_view_after_action`, by `action_invoke_body` before the
+//! refresh; `stands_on_first_of_view` also by `read_page_again`), and rows stored into an empty
+//! AutoSplitKey list with Rec left on one (`refuse_rows_stored_with_rec_on_one`, by
+//! `empty_page_after_action`). Entry points: `value_reads_blank`, the two refusals.
 
 use super::*;
 use al_builtins::record_op::RecordOp;

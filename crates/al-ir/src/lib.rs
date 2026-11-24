@@ -1,5 +1,8 @@
 //! Typed IR (ADR-011): every name resolved, every node typed, conversions
 //! explicit. Plain data, serde-serialisable, no syntax nodes.
+//!
+//! The typed IR (ADR-011): Program, Object, Routine, Stmt, Expr. Plain serde data, no syntax nodes.
+//! Entry points: `Program`, `Object`, `Routine`, `Stmt`, `Expr`, `SrcPos`, `NO_POS`.
 
 pub use al_builtins::builtin_id::BuiltinId;
 use al_builtins::value::RtType;
@@ -1494,6 +1497,10 @@ pub struct Control {
     /// Declared in the layout's `area(FactBoxes)`.
     #[serde(default)]
     pub factbox: bool,
+    /// A `fixed` or a `grid`, which lower as a group: `TestPage.GetField` with its control id gives a field whose Value is
+    /// empty, where a group's id finds nothing (corpus pull request 1538, testpage/GetFieldByControlId.al:545, :630).
+    #[serde(default)]
+    pub fixed_or_grid: bool,
 }
 
 /// The action an `actionref` delegates to.

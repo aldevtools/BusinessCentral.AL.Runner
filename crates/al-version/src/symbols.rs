@@ -1,4 +1,10 @@
 //! The preprocessor symbols the corpus CI defines for a BC version (ADR-015 3.9, ADR-078 point 3).
+//!
+//! The preprocessor symbols the corpus CI defines for a BC version (ADR-015 3.9, ADR-078 point 3):
+//! `BC<n>PLUS` per major from 27, and `BC<n>_<m>PLUS` per released minor at or below the version once
+//! `oracle.toml` records `released_minors`. Its callers are al-test-cli's corpus paths (`--print-
+//! symbols`, the corpus run, the coverage maps); a must-not-compile case takes the major symbols only
+//! (`mnc::case_symbols`). Entry points: `ReleasedMinors`, `corpus_symbols`.
 
 use crate::{BcVersion, MIN_BC_MAJOR, VersionError};
 use std::collections::BTreeSet;

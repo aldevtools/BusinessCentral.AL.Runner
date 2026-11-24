@@ -1,3 +1,4 @@
 # key	entry
-# Against main with the query cache of al-runner PRs 8490 and 8656, no test differs: the new neighbor BQ Neighbor Tests 3
-# is refused on main and here alike.
+# Against main with the query cache of al-runner PRs 8490, 8656, 8682 and 8808, no test differs: BQ Neighbor Tests 3 (a Blob
+# CalcFields after the test commits) is refused on main and here alike, and BQ Neighbor Tests 4 (SelectLatestVersion() without
+# a table) passes on both.

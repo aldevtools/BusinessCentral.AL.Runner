@@ -16,7 +16,7 @@ pub(super) enum Style {
 pub(super) enum Tok {
     StreamStart,
     StreamEnd,
-    Version,
+    Version(String),
     TagDirective(String, String),
     DocStart,
     DocEnd,
@@ -57,17 +57,31 @@ struct Scanner {
     flow: usize,
     keys: Vec<Option<SimpleKey>>,
     yaml_directives: usize,
-    /// The line on which a key of 1025 to 2999 characters went stale without a `:` after it.
-    long_key_line: Option<usize>,
+    /// The open flow forms, `[` or `{`, innermost last.
+    flows: Vec<char>,
+    /// Whether a rule of corpus PR 1549 decided the text.
+    marked: bool,
+    /// The U+0085, U+2028 and U+2029 read where corpus PR 1549 measured them.
+    unicode_breaks: usize,
 }
 
-/// Only a key of 3000 characters is measured as too long (`long-key`).
-const LONG_KEY: &str = "ReadFromYaml of a key or text of 1025 to 2999 characters (not measured)";
+/// The tokens of a text, whether a rule of corpus PR 1549 decided them, and the U+0085, U+2028 and U+2029 read where
+/// PR 1549 measured them (`unicode_break_in_quotes`, `comment`).
+pub(super) struct Scan {
+    pub(super) toks: Res<Vec<Tok>>,
+    pub(super) marked: bool,
+    pub(super) unicode_breaks: usize,
+}
+
+/// The UTF-16 units an implicit key may span up to its `:` (corpus PR 1549 JsonYamlFinalStructure.al
+/// `KeyLength_Plain`, `KeyLength_Forms`, `KeyLength_Layout`: 1024 read, 1025 is the YAML error, counted in UTF-16 units,
+/// `emoji-key-512`, `emoji-key-513`).
+const KEY_UNITS: usize = 1024;
 
 type Res<T> = Result<T, Fail>;
 
 /// All tokens of `text` (breaks are LF, CRLF or a lone CR).
-pub(super) fn tokens(text: &[char]) -> Res<Vec<Tok>> {
+pub(super) fn tokens(text: &[char]) -> Scan {
     let mut sc = Scanner {
         s: text.to_vec(),
         i: 0,
@@ -80,13 +94,22 @@ pub(super) fn tokens(text: &[char]) -> Res<Vec<Tok>> {
         flow: 0,
         keys: vec![None],
         yaml_directives: 0,
-        long_key_line: None,
+        flows: Vec::new(),
+        marked: false,
+        unicode_breaks: 0,
     };
-    loop {
-        sc.next_token()?;
-        if sc.toks.last() == Some(&Tok::StreamEnd) {
-            return Ok(sc.toks);
+    let toks = loop {
+        if let Err(e) = sc.next_token() {
+            break Err(e);
         }
+        if sc.toks.last() == Some(&Tok::StreamEnd) {
+            break Ok(std::mem::take(&mut sc.toks));
+        }
+    };
+    Scan {
+        toks,
+        marked: sc.marked,
+        unicode_breaks: sc.unicode_breaks,
     }
 }
 
@@ -119,12 +142,28 @@ fn is_break(c: char) -> bool {
     c == '\n' || c == '\r' || super::unicode_break(c)
 }
 
+/// The UTF-16 units of `s`; only counted past `KEY_UNITS / 2` characters.
+fn units(s: &[char]) -> usize {
+    if s.len() <= KEY_UNITS / 2 {
+        s.len()
+    } else {
+        s.iter().map(|c| c.len_utf16()).sum()
+    }
+}
+
 fn is_blank(c: char) -> bool {
     c == ' ' || c == '\t'
 }
 
-fn word(c: char) -> bool {
+pub(super) fn word(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '-' || c == '_'
+}
+
+/// The characters an anchor or alias name was measured with (corpus PR 1549 JsonYamlFinalStructure.al
+/// `AnchorNames1_*`, `AnchorNames2_*`): letters, digits and the listed punctuation, U+00E4, U+00E9, U+00DF, U+4E2D and
+/// U+1F600. A `:` at the end of a name (`*a: b`) and `,`, `[`, `]`, `{`, `}`, `` ` ``, `\` are not measured.
+fn anchor_char(c: char) -> bool {
+    word(c) || ".-/:#'\"%@!$*&=+~|>?^();<".contains(c) || matches!(c, 'ä' | 'é' | 'ß' | '中' | '\u{1F600}')
 }
 
 impl Scanner {
@@ -230,29 +269,10 @@ impl Scanner {
             if c == ' ' {
                 self.adv();
             } else if c == '\t' {
-                // A tab inside a line is white space. A tab at column 0 of a line after the first is an error in block
-                // context (corpus PR 1530 BomTabsSpaces bt8, bt11, cm26 for the first line); after spaces, on any line,
-                // and at the start of a line inside a flow form it is not measured.
-                let only_spaces = self.s[self.i - self.col..self.i].iter().all(|&p| p == ' ');
-                if only_spaces && self.col > 0 {
-                    return Err(Fail::Refuse(
-                        "ReadFromYaml of a tab after the spaces of an indentation (not measured)",
-                    ));
-                }
-                if only_spaces && self.line > 0 {
-                    return if self.flow == 0 {
-                        Err(Fail::Bad)
-                    } else {
-                        Err(Fail::Refuse(
-                            "ReadFromYaml of a tab that opens a line inside a flow form (not measured)",
-                        ))
-                    };
-                }
+                self.indent_tab()?;
                 self.adv();
             } else if c == '#' {
-                while !self.breakz() {
-                    self.adv();
-                }
+                self.comment();
             } else if is_break(c) {
                 self.read_break();
                 if self.flow == 0 {
@@ -264,22 +284,76 @@ impl Scanner {
         }
     }
 
+    /// A tab between tokens. Inside a line, and in a flow form also in the indentation, it is white space (corpus PR 1530
+    /// BomTabsSpaces cm26; PR 1549 JsonYamlFinalStructure.al `Tabs1_7`-`Tabs1_10`, `Tabs2_11`-`Tabs2_15`, `Tabs2_19`).
+    /// In the indentation of a block line it is white space before the first node of the document (`Tabs1_1`-`Tabs1_4`,
+    /// `Tabs1_19`, `Tabs1_20`, `Tabs2_1`, `Tabs2_2`, `Tabs2_5`, `Tabs2_16`-`Tabs2_18`) and after spaces on the line after
+    /// a `:` before a plain key (`Tabs1_5`); at column 0 after a node it is the YAML error (PR 1530 bt8, bt11). Other
+    /// places are not measured.
+    fn indent_tab(&mut self) -> Res<()> {
+        let only_spaces = self.s[self.i - self.col..self.i].iter().all(|&p| p == ' ');
+        let first_line_start = self.line == 0 && self.col == 0;
+        if !only_spaces || first_line_start {
+            return Ok(());
+        }
+        let first_node = self.toks.iter().all(|t| {
+            matches!(
+                t,
+                Tok::StreamStart | Tok::Version(_) | Tok::TagDirective(..) | Tok::DocStart
+            )
+        });
+        let after_value = self.col > 0 && self.toks.last() == Some(&Tok::Value) && self.plain_key_follows();
+        if self.flow > 0 || first_node || after_value {
+            self.marked = true;
+            return Ok(());
+        }
+        if self.col == 0 {
+            return Err(Fail::Bad);
+        }
+        Err(Fail::Refuse(
+            "ReadFromYaml of a tab in the indentation of a block line at a place no probe measured",
+        ))
+    }
+
+    /// Whether the blanks at the read position are followed by a plain key of word characters and `: ` (the measured
+    /// line after a `:`, `Tabs1_5`: `o:~  {T}q: a`).
+    fn plain_key_follows(&self) -> bool {
+        let mut k = 0;
+        while is_blank(self.at(k)) {
+            k += 1;
+        }
+        let start = k;
+        while word(self.at(k)) {
+            k += 1;
+        }
+        k > start && self.at(k) == ':' && self.blankz(k + 1)
+    }
+
     fn stale_keys(&mut self) -> Res<()> {
+        let colon_next = self.at(0) == ':';
         for k in self.keys.iter_mut() {
             if let Some(sk) = *k {
-                let long = sk.line == self.line && sk.pos + 1024 < self.i;
-                if sk.line < self.line || long {
-                    let unmeasured_length = long && self.i - sk.pos < 3000;
-                    let value_follows = self.s.get(self.i) == Some(&':');
-                    if unmeasured_length && (sk.required || value_follows) {
-                        return Err(Fail::Refuse(LONG_KEY));
+                // In block context a key longer than `KEY_UNITS` goes stale: a required one is the YAML error, a `:`
+                // after another one finds no key (`plain-1025`, `nested-1025`, `listitem-1025`, `two-keys-1025`,
+                // `spaces-before-colon-1100`). A key in a flow mapping has no limit (`flow-1025`, `flow-3000`).
+                let long = sk.line == self.line && self.flow == 0 && units(&self.s[sk.pos..self.i]) > KEY_UNITS;
+                if long {
+                    self.marked = true;
+                    // The long keys measured before their `:` start with a letter, a non-ASCII character or a quote
+                    // (`plain-*`, `single-*`, `double-*`, `emoji-key-*`, `auml-key-*`); a key that starts with any other
+                    // character (a digit, `-`, a flow collection, an anchor, a tag, an alias) is not measured that
+                    // long. A long flow mapping with no `:` after it reads (`flow-1025`).
+                    let c = self.s[sk.pos];
+                    let measured = c.is_ascii_alphabetic() || u32::from(c) > 0x7F || matches!(c, '\'' | '"');
+                    if colon_next && !measured {
+                        return Err(Fail::Refuse(
+                            "ReadFromYaml of a key longer than 1024 UTF-16 units that starts with a character other than a letter, a non-ASCII character or a quote (not measured)",
+                        ));
                     }
+                }
+                if sk.line < self.line || long {
                     if sk.required {
                         return Err(Fail::Bad);
-                    }
-                    if unmeasured_length {
-                        // A `:` later on this line may still be this key's value (`[a, ... b]: 1`).
-                        self.long_key_line = Some(self.line);
                     }
                     *k = None;
                 }
@@ -338,6 +412,7 @@ impl Scanner {
     fn flow_start(&mut self, c: char) -> Res<()> {
         self.save_key()?;
         self.flow += 1;
+        self.flows.push(c);
         self.keys.push(None);
         self.allowed = true;
         self.adv();
@@ -350,6 +425,7 @@ impl Scanner {
         self.remove_key()?;
         if self.flow > 0 {
             self.flow -= 1;
+            self.flows.pop();
             self.keys.pop();
         }
         self.allowed = false;
@@ -389,11 +465,12 @@ impl Scanner {
     fn value(&mut self) -> Res<()> {
         let sk = self.keys.last().copied().flatten();
         if let Some(sk) = sk {
-            // BC counts UTF-16 units: a key of up to 1024 characters can be longer there.
-            let span = &self.s[sk.pos..self.i];
-            if span.len() > 512 && span.iter().map(|c| c.len_utf16()).sum::<usize>() > 1024 {
+            // A long key in a flow mapping reads (`flow-1025`); in a flow sequence (`[k..k: 1]`) it is not measured.
+            let long = units(&self.s[sk.pos..self.i]) > KEY_UNITS;
+            self.marked |= long;
+            if self.flows.last() == Some(&'[') && long {
                 return Err(Fail::Refuse(
-                    "ReadFromYaml of a key longer than 1024 UTF-16 units (not measured)",
+                    "ReadFromYaml of a key longer than 1024 UTF-16 units in a flow sequence (not measured)",
                 ));
             }
             self.toks.insert(sk.tok, Tok::Key);
@@ -402,9 +479,6 @@ impl Scanner {
             *self.keys.last_mut().expect("level") = None;
             self.allowed = false;
         } else {
-            if self.long_key_line == Some(self.line) {
-                return Err(Fail::Refuse(LONG_KEY));
-            }
             if self.flow == 0 {
                 if !self.allowed {
                     return Err(Fail::Bad);
@@ -428,15 +502,22 @@ impl Scanner {
         self.save_key()?;
         self.allowed = false;
         self.adv();
+        // A name runs up to the next blank, line break or end, in a flow form also up to `,`, `]` or `}` (corpus PR 1549
+        // JsonYamlFinalStructure.al `Aliases1_11`, `Aliases1_18`, `Aliases1_19`). An empty name is the YAML error
+        // (`Aliases1_24`, `Aliases1_25`, `Aliases2_1`, `Aliases2_2`).
         let mut name = String::new();
-        while word(self.at(0)) {
+        while !self.blankz(0) && !(self.flow > 0 && ",]}".contains(self.at(0))) {
             name.push(self.adv());
         }
-        let c = self.at(0);
-        // A name that stops at another character (`a.b`, a non-ASCII letter) is not measured.
-        if name.is_empty() || !(self.blankz(0) || "?:,]}%@`".contains(c)) {
+        if name.is_empty() || !name.chars().all(word) {
+            self.marked = true;
+        }
+        if name.is_empty() {
+            return Err(Fail::Bad);
+        }
+        if !name.chars().all(anchor_char) || name.ends_with(':') {
             return Err(Fail::Refuse(
-                "ReadFromYaml of an anchor or alias name with other than letters, digits, - and _",
+                "ReadFromYaml of an anchor or alias name with a character no probe measured",
             ));
         }
         self.toks.push(if alias { Tok::Alias(name) } else { Tok::Anchor(name) });
@@ -448,6 +529,8 @@ impl Scanner {
     }
 
     fn tag(&mut self) -> Res<()> {
+        // Every tag is read by the rules of corpus PR 1549 (`super::tags`).
+        self.marked = true;
         self.save_key()?;
         self.allowed = false;
         self.adv();
@@ -500,7 +583,17 @@ impl Scanner {
             }
         }
         let c = self.at(0);
-        if !(self.blankz(0) || (self.flow > 0 && ",]}".contains(c))) {
+        // A tag right before the end of a flow form is the YAML error (corpus PR 1549 JsonYamlFinalTags.al
+        // `Position1_11`, `Position1_12`, `Position1_14`); before a `,` it is not measured.
+        if self.flow > 0 && "]}".contains(c) {
+            return Err(Fail::Bad);
+        }
+        if self.flow > 0 && c == ',' {
+            return Err(Fail::Refuse(
+                "ReadFromYaml of a tag right before `,` in a flow form (not measured)",
+            ));
+        }
+        if !self.blankz(0) {
             return Err(Fail::Refuse(
                 "ReadFromYaml of a tag with other characters than a URI (not measured)",
             ));
@@ -523,21 +616,26 @@ impl Scanner {
                 s.adv();
             }
         };
+        // `%YAML` and `%TAG` are rules of corpus PR 1549.
+        self.marked |= matches!(name.as_str(), "YAML" | "TAG");
         let tok = match name.as_str() {
             "YAML" => {
                 blanks(self);
                 let mut ver = String::new();
-                while self.at(0).is_ascii_digit() || self.at(0) == '.' {
+                while !self.blankz(0) {
                     ver.push(self.adv());
                 }
-                // Measured: one directive, version 1.1, 1.2 or 1.3 (`dc7`-`dc9`).
+                // Versions 1.0 to 1.3 read; a second directive, `2.0`, `1`, `1.10` and none are the YAML error
+                // (corpus PR 1549 JsonYamlFinalStructure.al `Directives1_1`-`Directives1_11`, `Directives2_15`). Other
+                // versions are not measured.
                 self.yaml_directives += 1;
-                if self.yaml_directives > 1 || !["1.1", "1.2", "1.3"].contains(&ver.as_str()) {
-                    return Err(Fail::Refuse(
-                        "ReadFromYaml of a %YAML directive other than one of version 1.1, 1.2 or 1.3",
-                    ));
+                if self.yaml_directives > 1 || matches!(ver.as_str(), "2.0" | "1" | "1.10" | "") {
+                    return Err(Fail::Bad);
                 }
-                Tok::Version
+                if !matches!(ver.as_str(), "1.0" | "1.1" | "1.2" | "1.3") {
+                    return Err(Fail::Refuse("ReadFromYaml of a %YAML version no probe measured"));
+                }
+                Tok::Version(ver)
             }
             "TAG" => {
                 blanks(self);
@@ -629,6 +727,9 @@ impl Scanner {
                         ws.push(c);
                     }
                 } else {
+                    if self.flow > 0 && super::unicode_break(self.at(0)) {
+                        self.unicode_break_in_flow(leading || !ws.is_empty())?;
+                    }
                     self.read_break();
                     if leading {
                         trail.push('\n');
@@ -661,7 +762,7 @@ impl Scanner {
                 return Err(Fail::Bad);
             }
             let mut leading = false;
-            while !self.blankz(0) {
+            while !self.blankz(0) || (single && super::unicode_break(self.at(0))) {
                 let c = self.at(0);
                 if single && c == '\'' && self.at(1) == '\'' {
                     out.push('\'');
@@ -669,6 +770,8 @@ impl Scanner {
                     self.adv();
                 } else if c == q {
                     break;
+                } else if single && super::unicode_break(c) {
+                    self.unicode_break_in_quotes(&mut out)?;
                 } else if !single && c == '\\' && is_break(self.at(1)) {
                     self.adv();
                     self.read_break();
@@ -716,6 +819,49 @@ impl Scanner {
         Ok(())
     }
 
+    /// U+0085, U+2028 or U+2029 between two characters of a single-quoted text: U+0085 reads as a space, the others as
+    /// themselves (corpus PR 1549 JsonYamlFinalChars.al :220, :224, :236, the `s` form). Another place is not measured.
+    fn unicode_break_in_quotes(&mut self, out: &mut String) -> Res<()> {
+        let prev = out.chars().last().filter(|&p| !is_blank(p));
+        let next = self.at(1);
+        if prev.is_none() || is_blank(next) || is_break(next) || next == '\'' {
+            return Err(Fail::Refuse(
+                "ReadFromYaml of U+0085, U+2028 or U+2029 at a place in single quotes no probe measured",
+            ));
+        }
+        let c = self.adv();
+        out.push(if c == '\u{85}' { ' ' } else { c });
+        self.marked = true;
+        self.unicode_breaks += 1;
+        Ok(())
+    }
+
+    /// U+0085, U+2028 or U+2029 right after a character of a plain text in a flow form, before another one: the YAML
+    /// error (corpus PR 1549 JsonYamlFinalChars.al :220, :224, :236, the `fs` and `fm` forms). After a blank or before a
+    /// blank or a line break it is not measured.
+    fn unicode_break_in_flow(&mut self, after_blank: bool) -> Res<()> {
+        let next = self.at(1);
+        if after_blank || is_blank(next) || is_break(next) || self.eof() {
+            return Err(Fail::Refuse(
+                "ReadFromYaml of U+0085, U+2028 or U+2029 at a place in a flow form no probe measured",
+            ));
+        }
+        self.marked = true;
+        Err(Fail::Bad)
+    }
+
+    /// A comment up to its line break. U+0085, U+2028 or U+2029 right before LF or CR ends it like a line break
+    /// (corpus PR 1549 JsonYamlFinalChars.al :220, :224, :236, the `c` form).
+    fn comment(&mut self) {
+        while !self.breakz() {
+            self.adv();
+        }
+        if super::unicode_break(self.at(0)) && matches!(self.at(1), '\n' | '\r') {
+            self.marked = true;
+            self.unicode_breaks += 1;
+        }
+    }
+
     /// The escapes of a double-quoted text: the cells `\b \t \/ \x41 \0 \e \N \_ \L \P \u`, `\a`, `\ ` and `\q`
     /// (an error) of group `DoubleQuotedEscape`.
     fn escape(&mut self, out: &mut String) -> Res<()> {
@@ -732,7 +878,7 @@ impl Scanner {
             _ => return Err(Fail::Bad),
         };
         let v = self.hex(hex_len)?;
-        // `\uD83D\uDE00` is one character (JsonYamlUtf8.al `u-pair` of corpus PR 1515); a lone surrogate is not measured.
+        // `\uD83D\uDE00` is one character (JsonYamlUtf8.al `u-pair` of corpus PR 1515).
         if (0xD800..0xDC00).contains(&v) && self.at(0) == '\\' && self.at(1) == 'u' {
             self.adv();
             self.adv();
@@ -742,16 +888,34 @@ impl Scanner {
                 out.push(char::from_u32(c).ok_or(Fail::Bad)?);
                 return Ok(());
             }
+            self.marked = true;
+            return Err(Fail::Refuse(
+                "ReadFromYaml of a high surrogate escape before another \\u escape (not measured)",
+            ));
         }
-        match char::from_u32(v) {
-            Some(c) => out.push(c),
-            None if (0xD800..0xE000).contains(&v) => {
-                return Err(Fail::Refuse(
-                    "ReadFromYaml of a lone surrogate escape in double quotes (not measured)",
-                ));
-            }
-            None => return Err(Fail::Refuse("ReadFromYaml of an escape above U+10FFFF (not measured)")),
+        // A lone surrogate (`\uD800`-`\uDFFF`, `\uD83Dx`, a low before a high one, `\U0000D800`) and a code above
+        // U+10FFFF (`\U00110000`, `\U00200000`, `\U7FFFFFFF`, `\UFFFFFFFF`) are the YAML error (corpus PR 1549
+        // JsonYamlFinalStructure.al `EscapeSurrogates1_1`-`EscapeSurrogates1_4`, `EscapeSurrogates1_6`-`EscapeSurrogates1_8`,
+        // `EscapeSurrogates1_10`, `EscapeSurrogates1_12`, `EscapeSurrogates2_1`-`EscapeSurrogates2_3`).
+        // The surrogate cells end the text after it (`"`), go on with `x` after a high one or put a low one before a high
+        // one (`\uDE00\uD83D`); a surrogate before any other character or escape is not measured.
+        let high = (0xD800..0xDC00).contains(&v);
+        let low = (0xDC00..0xE000).contains(&v);
+        let next = (self.at(0), self.at(1));
+        let high_next = next == ('\\', 'u')
+            && (2..6)
+                .try_fold(0u32, |a, k| self.at(k).to_digit(16).map(|d| a * 16 + d))
+                .is_some_and(|h| (0xD800..0xDC00).contains(&h));
+        let measured_next = next.0 == '"' || (high && next.0 == 'x') || (low && high_next);
+        if (high || low) && !measured_next {
+            self.marked = true;
+            return Err(Fail::Refuse(
+                "ReadFromYaml of a lone surrogate escape before a character no probe measured",
+            ));
         }
+        let c = char::from_u32(v);
+        self.marked |= c.is_none();
+        out.push(c.ok_or(Fail::Bad)?);
         Ok(())
     }
 

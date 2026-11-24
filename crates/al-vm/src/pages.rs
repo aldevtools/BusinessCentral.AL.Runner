@@ -5,6 +5,9 @@
 //!
 //! Every rule below cites the corpus test that pins it; behaviour no test
 //! pins raises `Signal::Unsupported`.
+//!
+//! The page test client (ADR-012): shared helpers, page triggers and events, the handle to a control.
+//! The rest is split by topic into `pages/`.
 
 use crate::{Engine, Session, UiKind};
 use al_builtins::describe::Describe;
@@ -265,6 +268,7 @@ mod own_area_caption;
 mod triggerless_action;
 pub(crate) use code_close_veto::{CodeCloseVeto, TriggerKind};
 mod controls;
+mod cue_value;
 mod currpage_run_typed_key;
 mod data_caption_get_body;
 mod data_caption_get_open;
@@ -282,6 +286,7 @@ mod fn_controls;
 mod format;
 mod format_procedure;
 mod format_type11;
+mod get_field;
 mod gone_after_action;
 mod gone_new_line;
 mod gone_read_only_list;
@@ -368,9 +373,9 @@ mod walk_parts;
 pub(crate) mod ws_trigger_order;
 pub(crate) use shown::ShownNote;
 pub(crate) use state::{
-    ActionSaveCaptions, ChainRefill, ClosedBy, ControlRef, ControlTarget, Cursor, LiteralClassesAtOpen, LookupKind,
-    ModalRun, OpenEditable, PageMode, PageState, ReadBackwards, ReadUpFromLast, UnreadEdges, WindowRow, control_of,
-    into_st, page_value, st_of, test_control,
+    ActionSaveCaptions, ById, ChainRefill, ClosedBy, ControlRef, ControlTarget, Cursor, LiteralClassesAtOpen,
+    LookupKind, ModalRun, OpenEditable, PageMode, PageState, ReadBackwards, ReadUpFromLast, UnreadEdges, WindowRow,
+    control_of, into_st, page_value, st_of, test_control, test_control_by_id,
 };
 
 impl Session {

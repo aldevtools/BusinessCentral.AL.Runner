@@ -6,6 +6,17 @@
 //! the corpus does not pin, leaves an event publisher called directly to the run (al-vm
 //! `Session::var_option_publisher_args`), and routes `A[i] := x` into an array of memberless Options to the run, marking
 //! `x` when it is a variable of the routine's `var` section.
+//!
+//! The static side of an Option handed to a `var` parameter with another member list (al-runner issue
+//! 8291, pinned by types/enum-option/OptionVar*.al; the run's side is al-vm `var_option.rs`): the
+//! refusal of each pair of call kind (procedure, interface method) and caller the probes do not
+//! measure (`measured_memberless`; an event publisher called directly is left to the run), and the
+//! plain `:=` into an element of an array of memberless Options, lowered unconverted so the run tells
+//! the stored value's members apart, a variable of the routine's `var` section marked as
+//! `ir::Expr::VarSectionValue` (a whole array of Options with members into one without refuses).
+//! Entry points: `Lowerer::var_option_arg_refusal` (the `var` argument loops of direct calls in
+//! `lower/call.rs` and of interface calls in `lower/convert.rs`), `memberless_option_array_assign`
+//! (`stmt.rs::assign`), `memberless_var_option_param` (also `evaluate_id.rs`).
 use super::*;
 use al_builtins::option_members::memberless;
 

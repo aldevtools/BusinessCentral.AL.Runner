@@ -3,6 +3,14 @@
 //! codeunit 99523, page CEM Doc of CemFixtures.al). Pinned only for the exact shape of that page and of the handler's calls
 //! (`document_close_pinned`); every other page keeps the closes it had (`modal_handler_error.rs` refuses a page with an unsaved
 //! row or a hidden part).
+//!
+//! The pinned Document with hidden parts run by the static `Page.RunModal` (al-runner issue 7473,
+//! pages/close-errors/CemDocumentTests.al): the close after its handler raised an error, an
+//! OnClosePage error at a close by an action or the platform, and a ListPart line the table refused
+//! at the platform's close. A handler that caught an error first closes the page as one that caught
+//! none (assumption `page-handler-caught-error-close`). Entry points: `document_close_pinned`,
+//! `close_document_after_handler_error` (by `close_modal_after_handler_error`),
+//! `document_close_page_error`, `document_part_save_error` (by `close_with`).
 
 use super::pinned_shape::{TestCall, TreeCall};
 use super::relation_lookup_close::closing_error;

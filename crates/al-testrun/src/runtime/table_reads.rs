@@ -4,6 +4,13 @@
 //! The static reach of an install routine that could not run (`blocked.rs` `subscribers_reached_with`, asked by
 //! `install.rs` `touched`) leaves out their subscribers for such a table ([`ReadOnlyTables`]), on assumption
 //! `table-reads-raise-no-table-event`.
+//!
+//! Whether a routine only reads a table in a shape corpus PR 1431 measured (al-runner issue 8238,
+//! assumption `table-reads-raise-no-table-event`): such a read raises none of the ten table events.
+//! `ReadOnlyTables` decides per table over the whole walk: one routine that writes the table, opens a
+//! RecordRef on it or uses it any other way (`kept`) brings back all of the table's subscribers; one
+//! that runs an object or has an unknown part brings back every table's. Entry points:
+//! `ReadOnlyTables`, `reads_only`.
 
 use al_builtins::value::RtType;
 use al_ir::{Arg, Const, Expr, ObjKind, Place};

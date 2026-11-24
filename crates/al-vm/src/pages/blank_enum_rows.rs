@@ -13,6 +13,13 @@
 //! rows` at :474, :488, :648, :662; `stored=0 rows` at :532, :546, :706, :720; :561, :575, :735, :749 after New()). In the cell
 //! no control, field, table or extension trigger and no subscriber can run, so skipping the write skips no validation. Every
 //! other shape keeps the refusals of `controls.rs`.
+//!
+//! A text of one space, the Integer 0 or the member itself typed into an Enum control on the rows of
+//! a List or of a ListPart on a Card, where the enum has two members and the first has the caption '
+//! ' (al-runner issue 7380, EnumBlankCaptionListRows.al): it selects that member; on a new-row line
+//! that holds nothing typed the line stays unchanged. Only the pinned pages, control, enum and a
+//! table that runs no code for the field. Entry points: `blank_enum_list_rows_pinned` and
+//! `blank_enum_new_line_unchanged` (by `control_set_value_now` in `controls.rs`).
 
 use super::pinned_shape::PinnedPart;
 use super::*;

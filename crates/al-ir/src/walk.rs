@@ -14,6 +14,10 @@
 //!
 //! Source positions (`Stmt::Pos`, `Routine::pos`) are not references; link shifts them
 //! (`Routine::shift_positions`).
+//!
+//! Every reference to another object, routine, field or control that an `Object` holds (`RefVisitor`,
+//! `walk_object`, `TableOf`); the one place that lists the reference sites of the IR. Entry points:
+//! `walk_object`, `RefVisitor`.
 
 use crate::*;
 
@@ -931,6 +935,7 @@ fn walk_control<V: RefVisitor>(
         visible_row_field: _,
         source_text: _,
         factbox: _,
+        fixed_or_grid: _,
     } = c;
     for (table, field) in [var_field, array_element_field].into_iter().flatten() {
         fld(v, field, TableOf::object(Some(*table)));

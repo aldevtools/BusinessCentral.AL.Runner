@@ -104,119 +104,42 @@ Two reports say where the result may differ from Business Central's:
   TestIsolation = Function is not measured yet.
 
 `--strict-order` (in `serve`: the `runTests` field `strictOrder`) runs the test
-codeunits in Business Central's order: the state and the numbers carry, and the
-rest of this section applies. `--stability` always runs in Business Central's
+codeunits in Business Central's order: the state and the numbers carry (see
+"Business Central's order" below). `--stability` always runs in Business Central's
 order.
 
-### Flagged: relies on SingleInstance state another test codeunit left (`--strict-order`)
-
-Everything in this section applies with `--strict-order` only.
-
+### Business Central's order (`--strict-order`)
 
 Business Central runs all test codeunits of a run in one session. The globals of a
 `SingleInstance` codeunit that one test codeunit left are still there when the
-next test codeunit starts. AL Runner runs test codeunits in parallel, each on a
-session of its own, so a test codeunit starts with fresh globals.
+next test codeunit starts, and so are the rows a codeunit with
+`RequiredTestIsolation = Disabled` committed and the numbers its tests took.
 
-A test codeunit is **order dependent** when it reads such a global before it
-writes it, and an earlier test codeunit left another value there. On Business
-Central it sees that value; in AL Runner's parallel run it sees a fresh one.
+With `--strict-order` (ADR-070) AL Runner runs each Business Central session as
+one walk: its test codeunits run one after the other on one thread, in Business
+Central's order, and the state carries from one codeunit to the next. The
+codeunits the TestRunnerHub runs come first, then those runner 130450 runs; the
+SingleInstance state starts fresh at that switch, as these are two sessions on
+Business Central. Different sessions run in parallel with each other. Nothing runs
+twice, so the reported result is the one in Business Central's order.
 
-**Codeunits that already run one after the other.** Some test codeunits never run
-in parallel: those with `RequiredTestIsolation = Disabled`, and those whose `OnRun`
-writes data or whose tests take numbers from a number series (their changes reach
-the codeunits after them). AL Runner runs these one after the other in Business
-Central's order, in one chain. Since ADR-066 amendment 8 the chain also keeps the
-SingleInstance state from one codeunit to the next, as Business Central's session
-does. So for these codeunits the reported result already is the result in Business
-Central's order:
+Where AL Runner cannot follow that order:
 
-- They are never order dependent, never run again and never flagged
-  `single-instance-order`. `--strict-order` and `--max-replay` do not change them.
-- The state starts fresh at a new session: a new suite, or the switch from the
-  codeunits the TestRunnerHub runs to those runner 130450 runs.
-- The state also starts fresh after a codeunit AL Runner refuses as a whole, and
-  after a codeunit with a test refused while it ran: what Business Central would
-  have left there is not known. A failed test hands its state on, as on Business
-  Central.
-- The chain does not see state that a codeunit outside it left. Such a codeunit
-  still runs in parallel.
+- **A codeunit stops the session.** A test refused while it ran, a test the time
+  limit stopped, a codeunit none of whose tests ran, or a panic: Business Central
+  ran that work to its end, and what it left is not known here. A later codeunit
+  of the session whose reach can read what the stopped codeunit could have changed
+  is a flagged pass (or flagged failure) with the assumption `strict-after-refused`.
+- **A runner 130450 codeunit next to the TestRunnerHub's writers.** Whether
+  Business Central runs the codeunits of runner 130450 before or after those of
+  the TestRunnerHub is not measured. A runner 130450 codeunit is not run, with
+  that reason, when it read a table that a TestRunnerHub codeunit wrote, and that
+  codeunit comes after it in its suite. For a runner 130450 codeunit with handler
+  functions, every TestRunnerHub codeunit of the session counts. Isolated storage
+  or a number sequence that a `RequiredTestIsolation = Disabled` codeunit changed
+  still refuses every runner 130450 codeunit that reads it.
 
-On Microsoft's suites almost every test codeunit is in this chain (most of them take
-numbers). The cost: the chain can no longer run its codeunits ahead on other threads
-when they use SingleInstance state, so it runs more of them on one thread. On
-Tests-ERM-Purchase this made the run slower; on a large partner suite it removed
-almost all serial re-runs and made the run several times faster.
-
-Everything below is about the other codeunits, the ones that run in parallel.
-
-AL Runner follows one principle: a test should give the same result whether its
-codeunit runs alone or inside the whole suite. A parallel run with fresh state is a
-real Business Central result: the one you get when the codeunit runs alone, or
-first. So, with `--strict-order`:
-
-1. Order-dependent codeunits run in parallel like all others.
-2. When such a codeunit has a failed test, or a test that started and was refused
-   while it ran (or stopped by the time limit), AL Runner runs it again, together
-   with the codeunits that wrote the state it read, one after the other in Business
-   Central's order, with the state carried over. That serial result is the one
-   reported. A test refused before it starts (a feature AL Runner refuses when it
-   compiles the test) does not trigger this: the serial run would refuse it too.
-   The serial run also needs that failed test, or a test before it in the same
-   codeunit, to have read one of the values an earlier codeunit left otherwise.
-   If none did, the state cannot change its result, and the parallel result stays
-   (ADR-066 amendment 7). For example: a codeunit's first test fails on a missing
-   setup and its second test reads the shared value; the first test never saw the
-   value, so the codeunit does not run again.
-3. Each such serial run is a session of its own: the codeunit and the chain of
-   codeunits that wrote what it read (for each value, the last codeunit that wrote
-   it, and that codeunit's own writers when it is order dependent itself). These
-   sessions run in parallel. A codeunit in a session does not see the state that
-   codeunits outside its session left. When two chains share a writer, the writer
-   runs in each session.
-4. Every test of an order-dependent codeunit is a flagged pass (or a flagged
-   failure) with the assumption `single-instance-order`, whether it passed in
-   parallel or after the serial run. It is counted apart from the clean passes.
-5. By default every serial run replays its whole chain, however long, so the
-   result is exact. On some partner suites almost every codeunit reads state the
-   one before it left, so a chain is nearly the whole run before the codeunit and a
-   re-run costs minutes. To trade exactness for time, give `--max-replay N` (in
-   `serve`: the `runTests` field `maxReplay`): a serial run whose chain holds more
-   than `N` test codeunits is then skipped, and the codeunit keeps its parallel
-   result. A test that passes only in the full order then fails here, flagged.
-   AL Runner prints one line for each such codeunit, with or without `--timings`
-   (here with `--max-replay 50`):
-
-   ```
-   SingleInstance order: test codeunit 50999 Chain Checker: re-run skipped (chain of 51 codeunits over the limit of 50); its parallel result is kept (flagged); --strict-order replays it
-   ```
-
-   Its tests also carry the assumption `single-instance-rerun-skipped`, and in the
-   JUnit file the property `singleInstanceRerun` with the text
-   `re-run skipped (chain of 51 codeunits over the limit of 50)`. Without
-   `--strict-order`, `--max-replay` has no effect. Nothing is kept
-   from one run to the next: each run decides its re-runs on its own.
-
-`--timings` names the codeunit whose state each test relies on. Its
-`SingleInstance order:` line gives how many order-dependent codeunits were found, how
-many ran again because of a failure, how many kept their parallel result because no
-failed test read a changed value, with `--max-replay` how many re-runs were skipped
-for the length of their chain, in how many serial sessions, the time of the
-longest session and the wall time of all of them. When a session starts from data a
-codeunit with `RequiredTestIsolation = Disabled` left, the line also gives how many
-of those starts were copied for the worker threads and the most held at once. The
-serial sessions use the same number of threads as the parallel run
-(`AL_TEST_THREADS`), and each thread holds at most one such copy at a time.
-
-What the flag means: the result depends on the order in which Business Central
-runs the test codeunits. The stability mode (`--stability`) lists these tests apart,
-with and without `--strict-order`, and lists the tests whose re-run was skipped in
-a list of their own.
-
-The risk: a test that passes alone but fails on Business Central in the full order
-is reported as a flagged pass here. A stability run with the dimension
-`isolation.singleInstance` replays every order-dependent codeunit in its base
-variant, so its result in the full order is known.
+The cost: a session uses one core, so a run that is one session runs on one thread.
 
 `AL_TEST_THREADS=1` runs one test codeunit at a time, but each one still starts with
 fresh SingleInstance state. It does not reproduce Business Central's order; only
@@ -235,14 +158,13 @@ suites are in the [CLI reference](cli-reference.md#test-suites-file). Then:
 
 1. Each suite is a session of its own. A codeunit is order dependent only on a
    codeunit listed before it in its own suite. The order is the file's order.
-2. Within a suite everything above applies unchanged: parallel by default, a serial
-   run only after a failure (or always, with `--strict-order`), flagged passes.
-   The suites are minimum boundaries: AL Runner still runs everything in parallel.
+2. By default everything still runs in parallel and the order hints name only a
+   codeunit of the test's own suite. With `--strict-order` each suite is one walk
+   in the file's order, and the suites run in parallel.
 3. A codeunit in no suite runs as a session of its own. It is never linked to
-   another codeunit and never flagged as order dependent.
-4. A codeunit listed in several suites runs once and has one result. It is order
-   dependent when it is in any of its suites; the first such suite in the file
-   decides which codeunits its serial run starts after.
+   another codeunit.
+4. A codeunit listed in several suites has one result. With `--strict-order` it
+   runs in the walk of each suite, and the first suite in the file gives its result.
 5. `--stability` lists as order dependent only tests that depend on a codeunit of
    their own suite.
 
@@ -255,12 +177,6 @@ How to fix such a test:
    done it.
 2. Clear the state. Add a procedure to the `SingleInstance` codeunit that clears its
    globals, and call it in `Initialize()` (or at the end of each test).
-3. A lazy cache (a flag that guards a fill) is not flagged when the test fills it
-   with the same values as the earlier codeunit did.
-
-A test codeunit that also hands rows on to later codeunits (`RequiredTestIsolation =
-Disabled`, or an `OnRun` that writes under runner 130450) runs again like the others.
-The later codeunits keep the rows its first run left.
 
 ## Errors whose text is not pinned
 

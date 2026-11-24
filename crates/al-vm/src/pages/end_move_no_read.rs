@@ -1,6 +1,10 @@
 //! `First()` and `Last()` that read nothing: they stand on the row they would go to already, or the view holds no row. The
 //! pinned shapes, each with its own predicate (`end_move_without_read`, asked by `page_move`). `Previous()` on the only row of a
 //! view after a new line the table code inserted (`previous_on_code_inserted_row`).
+//!
+//! `First()` and `Last()` that read nothing (the row they would go to is the one they stand on, or
+//! the view holds no row): such a find ListPart's window after the pinned calls (`find_part_calls`),
+//! a list opened through `RunPageLink`. Entry points: `end_move_without_read` (by `page_move`).
 
 use super::part_filter_find::FindPartAt;
 use super::*;

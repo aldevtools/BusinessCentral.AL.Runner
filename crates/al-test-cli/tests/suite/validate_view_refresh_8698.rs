@@ -5,7 +5,9 @@
 //! the neighbor app tests/neighbors/8698-refresh-filter-update-false holds them.
 
 use super::outside_fb_repros::assert_stub_outcomes as outcomes;
-use al_builtins::assumptions::Assumption::{ListValidateViewRefresh, ValidateUpdateFalseRereadsRow};
+use al_builtins::assumptions::Assumption::{
+    ListValidateViewRefresh, TestPageGetFieldControlId, ValidateUpdateFalseRereadsRow,
+};
 use al_test_cli::report::Outcome;
 
 const PROBE: &str = include_str!("../../../../tests/neighbors/8698-refresh-filter-update-false/src/Probe.al");
@@ -165,31 +167,49 @@ fn read_only_calls_pass_only_where_measured() {
 }
 
 /// Corpus pull request 1535 (ListValidateViewReads.al): on page 97498, the issue's page with controls of every type, the
-/// issue's cell and the As* reads, OptionCount, GetOption and IsExpanded at its points pass under the rule. GetField by a
-/// control id refuses once the rule ran and keeps main's (wrong) answer before; the bad SetValue on Qty and the tree page
-/// keep main's path.
+/// issue's cell and the As* reads, OptionCount, GetOption and IsExpanded at its points pass under the rule, and so does
+/// GetField by the Name control's id (al-runner issue 8832); the bad SetValue on Qty and the tree page keep main's path.
 #[test]
 fn wide_page_reads_pass_where_measured() {
     let o = outcomes(PROBE_READS, "LT RVR Tests");
     assert_eq!(o.len(), 22);
     for (n, r, marks) in &o {
         match n.as_str() {
-            "Lines_GetFieldById_BetweenSteps" | "Lines_GetFieldById_AfterSteps" => assert!(
-                matches!(r, Outcome::NotRun(why) if why.starts_with(UNMEASURED)),
-                "{n}: {r:?}"
+            _ if n.starts_with("Lines_GetFieldById_") => assert!(
+                *r == Outcome::Pass && *marks == [ListValidateViewRefresh, TestPageGetFieldControlId],
+                "{n}: {r:?} {marks:?}"
             ),
             "Lines_SetValueQtyNotANumber_ValidationError" | "Tree_SetValueQtyNotANumber_ValidationError" => {
                 assert!(*r == Outcome::Pass && marks.is_empty(), "{n}: {r:?} {marks:?}")
             }
-            _ if n.starts_with("Lines_") && !n.starts_with("Lines_GetFieldById_") => {
+            _ if n.starts_with("Lines_") => {
                 assert!(
                     *r == Outcome::Pass && *marks == [ListValidateViewRefresh],
+                    "{n}: {r:?} {marks:?}"
+                )
+            }
+            // On the tree GetField finds the control too; the tree keeps main's path.
+            _ if n.starts_with("Tree_GetFieldById_") => {
+                assert!(
+                    *r != Outcome::Pass && *marks == [TestPageGetFieldControlId],
                     "{n}: {r:?} {marks:?}"
                 )
             }
             _ => assert!(*r != Outcome::Pass && marks.is_empty(), "{n}: {r:?} {marks:?}"),
         }
     }
+}
+
+/// GetField by the id of another control than Name (Qty), which no read cell makes, refuses once the rule ran.
+#[test]
+fn wide_page_getfield_by_another_id_refuses() {
+    let src = PROBE_READS.replacen("exit(26152855);", "exit(569897586);", 1);
+    let o = outcomes(&src, "LT RVR Tests");
+    let (_, r, _) = o.iter().find(|(n, ..)| n == "Lines_GetFieldById_BetweenSteps").unwrap();
+    assert!(
+        matches!(r, Outcome::NotRun(why) if why.starts_with(UNMEASURED)),
+        "{r:?}"
+    );
 }
 
 /// On page 97498 a read passes only on the field type and with the option index the read cells measure: AsInteger on the

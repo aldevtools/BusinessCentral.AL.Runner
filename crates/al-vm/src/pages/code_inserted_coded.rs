@@ -20,6 +20,25 @@
 //! parts and codeunits, line for line, `CodedObjects::Repro`) runs the same way under the assumption
 //! `list-new-line-coded-factboxes-repro`, opened and driven only as it is measured: the open and the view above, `New()`, the
 //! Name SetValue that lands, one Value SetValue and `OK()` (:611-683).
+//!
+//! The page with code of al-runner issue 8434 (assumption `list-new-line-coded-factboxes`, corpus
+//! pull request 1454, merged, not pinned yet): the probe's pages 97492/97493, their table, three
+//! CardPart FactBoxes (one enqueues a page background task), the tables they read and the codeunits
+//! they call, line for line (`coded_code` in `code_inserted_pinned.rs`), opened by a Page.RunModal
+//! statement on an empty view; or the reporter's repro's page with its objects
+//! (`CodedObjects::Repro`, assumption `list-new-line-coded-factboxes-repro`, noted at the open with
+//! the assumption every step runs under, `coded_assume`), driven only by the calls its test makes
+//! (one later SetValue, then OK). Its facts are `coded_page` (`Triggers::Coded` of
+//! `code_inserted_new_line.rs`, which owns the landing and the calls after it); the open lets the
+//! parts read the blank record (`coded_open_on_empty_view`, by `sync_parts_at_list_open`), the first
+//! SetValue after `New()` lets them read the new line before the validation
+//! (`coded_line_before_set_value`, by `test_page_op_held` and `test_control_op_held`), which must
+//! then land (`coded_must_have_landed`); the refresh after the landing and after up to two later
+//! SetValues reads the row once more in another key than the primary key and spends the reads-done
+//! mark (`coded_refresh`, by `code_inserted_refresh`), and the code between the save and the update
+//! may write other tables and the row itself (`coded_rows`, read by `view_kept`). A read of a page
+//! background task of its parts on a table the test session changed and has not committed is refused
+//! (`bg_watched_read` in `background.rs`, by `record_op`).
 
 use super::pinned_shape::TestCall;
 use super::state::{CodedLine, FactboxStep};
@@ -230,16 +249,7 @@ impl Session {
             (Some(a), Some(b)) => a.len() == b.len() && a.iter().zip(&b).all(|(x, y)| Self::same_values(x, y)),
             _ => false,
         };
-        let view_kept = {
-            let r = rec.borrow();
-            crate::records::same_filters(&r.filters, &view.filters)
-                && r.filter_group == view.filter_group
-                && r.key == view.key
-                && r.adhoc == view.adhoc
-                && r.ascending == view.ascending
-                && r.field_descending == view.field_descending
-                && r.marked_only == view.marked_only
-        };
+        let view_kept = Self::same_view(&rec.borrow(), &view);
         let kept = rows_kept && view_kept && stored.is_some_and(|s| Self::same_values(&rec.borrow().fields, &s));
         if !kept {
             st.borrow_mut().forget_code_inserted_line();
