@@ -2,7 +2,8 @@
 //! shares (assumption clear-shared-codeunit, open corpus PR 1560, tests/al-language/codeunits/clear-instance/
 //! ClearSharedCodeunit.al), and `ClearAll()` of a store codeunit with temporary records (open corpus PRs 1561 and 1564,
 //! ClearSharedCodeunitTempRef.al, ClearSharedCodeunitSIOwner.al, ClearSharedCodeunitOwnerKinds.al,
-//! ClearSharedCodeunitLabelStore.al). `Clear` gives such a variable nothing used yet a fresh instance, and `ClearAll()`
+//! ClearSharedCodeunitLabelStore.al, and at commit d8215564 ClearSharedCodeunitSetterOwner.al, ClearSharedCodeunitLabelShare.al,
+//! ClearSharedCodeunitTempArrayShare.al). `Clear` gives such a variable nothing used yet a fresh instance, and `ClearAll()`
 //! resets such an instance in place, keeping its temporary rows, in the measured (owner, store, holding) cells
 //! (`measured`); the cells the probes do not measure refuse. An instance nothing else holds keeps main's answer unless its
 //! temporary table holds rows. The store shapes are also what the login check counts at their declared value
@@ -27,8 +28,9 @@ impl Session {
     /// instance that another holder shares, or that nothing else holds while its temporary table holds rows: when the
     /// (owner, store, holding) cell is one the corpus measures ([`Session::measured_cell`]), its globals go back to their
     /// declared values, a temporary table keeping its rows, and the variable keeps the instance, so a sharer sees the
-    /// reset and later writes through either side. Any other shared instance refuses: main's fresh instance would detach
-    /// it. Any other with written rows refuses: main's fresh instance would lose them. A global array of "CLB Store"
+    /// reset and later writes through either side; a temporary table a record outside shares stays shared only in the cells
+    /// [`measured`] names. Any other shared instance refuses: main's fresh instance would detach it. Any other with rows now
+    /// refuses: main's fresh instance would lose them. So does an unshared one whose table a record outside shares. A global array of "CLB Store"
     /// instances in a plain codeunit resets each element in place ([`Session::clear_all_store_array`]). Any other global
     /// nothing else holds keeps main's answer.
     ///
