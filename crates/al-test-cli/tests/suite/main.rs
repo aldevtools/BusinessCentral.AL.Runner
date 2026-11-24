@@ -293,6 +293,7 @@ mod tree_dropped_row_8846;
 mod tree_shapes_8882;
 mod tree_validate_view_8833;
 mod trigger_setup_read_permission;
+mod tx_type_saved_restore;
 mod tx_type_sets;
 mod typed_handler_set_up_variable;
 mod typed_handler_temp_stored_source;

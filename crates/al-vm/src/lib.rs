@@ -183,6 +183,7 @@ mod test_rows;
 mod test_runner_host;
 mod testdata;
 mod transaction_type;
+mod transaction_type_saved;
 mod transactions;
 mod translations;
 mod ui;
