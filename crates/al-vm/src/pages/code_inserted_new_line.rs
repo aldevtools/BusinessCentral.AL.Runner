@@ -917,7 +917,14 @@ impl Session {
                  line onto the row the table field inserted, and the CurrPage.Update(false) after it (not measured)",
             );
         }
-        let coded_extra = st.borrow().coded_objects == super::state::CodedObjects::Extra
+        // At the landing only: the later SetValue of a control with code has its own cells for what it writes between its save
+        // and its Update (ListNewLineExtraCodeCodedSecondSetValue.al).
+        let landing = !matches!(
+            st.borrow().code_inserted_row.as_ref().map(|r| r.factbox),
+            Some(FactboxStep::CodedTyped { .. })
+        );
+        let coded_extra = landing
+            && st.borrow().coded_objects == super::state::CodedObjects::Extra
             && matches!(self.code_inserted_page(st)?, Some((Triggers::Coded, _)));
         if coded_extra && !self.extra_coded_between_kept(st, view)? {
             st.borrow_mut().forget_code_inserted_line();

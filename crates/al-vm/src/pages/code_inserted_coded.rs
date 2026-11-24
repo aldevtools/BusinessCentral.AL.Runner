@@ -106,8 +106,9 @@ impl Session {
     ///   AutoSplitKey (as true), ApplicationArea and UsageCategory (`pinned_property`: no SourceTableView, so the view is in
     ///   the primary key), and exactly the triggers OnOpenPage, OnAfterGetRecord and OnDeleteRecord; a table without OnModify
     ///   and OnRename (`no_save_trigger`; OnInsert and OnDelete measured by ListNewLineExtraCodeCodedTableTriggers.al);
-    /// - its controls: a repeater without a property; fields of Rec or of a variable with no property but ApplicationArea and
-    ///   Editable as false, and no trigger but OnValidate; actions with no property but ApplicationArea and no trigger but
+    /// - its controls: a repeater without a property; fields of Rec or of a variable with no property but ApplicationArea,
+    ///   Editable as false and a TableRelation (on the later SetValue's control, ListNewLineExtraCodeCodedSecondSetValue.al), and
+    ///   no trigger but OnValidate; actions with no property but ApplicationArea and no trigger but
     ///   OnAction; three part controls (`coded_extra_parts`).
     fn coded_extra_shape(&self, st: &St) -> Result<bool, Signal> {
         let page_object = st.borrow().object as usize;
@@ -139,7 +140,9 @@ impl Session {
                 ir::ControlKind::Repeater => c.props.is_empty() && c.triggers.is_empty(),
                 ir::ControlKind::Field => {
                     matches!(c.binding, ir::Binding::Field(_) | ir::Binding::Var(_))
-                        && props(&["applicationarea", "editable"])
+                        // A TableRelation on the control the later SetValue writes (ListNewLineExtraCodeCodedSecondSetValue.al,
+                        // the Rel page); the landing control has none (`coded_write_may_land`).
+                        && props(&["applicationarea", "editable", "tablerelation"])
                         && triggers("onvalidate")
                 }
                 ir::ControlKind::Action => props(&["applicationarea"]) && triggers("onaction"),
@@ -379,6 +382,9 @@ impl Session {
         let ir::Binding::Field(field) = control.binding else {
             return false;
         };
+        if control.props.iter().any(|(k, _)| k == "tablerelation") {
+            return false;
+        }
         let saves = control
             .triggers
             .iter()
