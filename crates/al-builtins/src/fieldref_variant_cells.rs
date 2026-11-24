@@ -21,11 +21,7 @@ const MS_PER_DAY: i64 = 86_400_000;
 const NS: &str = "Microsoft.Dynamics.Nav.Runtime.";
 
 fn err(message: String, code: &str) -> Option<Result<Value, Signal>> {
-    Some(Err(Signal::Error(Box::new(AlError {
-        message,
-        code: code.into(),
-        ..Default::default()
-    }))))
+    Some(Err(error(message, code)))
 }
 
 fn error(message: String, code: &str) -> Signal {
@@ -62,7 +58,7 @@ fn target_names(t: &RtType) -> Option<(&'static str, &'static str)> {
 }
 
 /// The `Nav<Type>` of a source value in the BC 27 conversion errors (an Enum is a NavOption there).
-fn nav_of(v: &Value) -> Option<&'static str> {
+pub fn nav_of(v: &Value) -> Option<&'static str> {
     Some(match v {
         Value::Integer(_) => "NavInteger",
         Value::Decimal(_) => "NavDecimal",

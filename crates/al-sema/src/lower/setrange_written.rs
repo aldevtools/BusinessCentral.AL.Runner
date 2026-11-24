@@ -21,8 +21,7 @@ enum Written {
 impl Lowerer<'_> {
     /// How the values `args` are written.
     fn values_written(&self, args: &[SyntaxNode]) -> Written {
-        let fieldref_value = |a: &SyntaxNode| matches!(self.res(a), Some(Res::Builtin(i)) if i == "FieldRef.Value#1");
-        if args.is_empty() || args.iter().any(fieldref_value) {
+        if args.is_empty() || args.iter().any(|a| self.is_fieldref_value(a)) {
             return Written::Other;
         }
         let plain = |t: &Ty| {

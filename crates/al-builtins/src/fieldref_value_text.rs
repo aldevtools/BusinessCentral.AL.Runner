@@ -108,18 +108,17 @@ pub fn fieldref_value_into_temporal(
     from28: bool,
     ctx: &dyn crate::format::FormatCtx,
 ) -> Option<Result<Value, Signal>> {
-    let (nav, text) = match (v, t) {
-        (Value::Integer(n), RtType::DateTime | RtType::Date | RtType::Time) => ("NavInteger", n.to_string()),
-        (Value::BigInteger(n), RtType::DateTime | RtType::Date | RtType::Time) => ("NavBigInteger", n.to_string()),
+    let text = match (v, t) {
+        (Value::Integer(n), RtType::DateTime | RtType::Date | RtType::Time) => n.to_string(),
+        (Value::BigInteger(n), RtType::DateTime | RtType::Date | RtType::Time) => n.to_string(),
         (Value::Decimal(d), RtType::DateTime) if *d == rust_decimal::Decimal::new(15, 1) => {
-            ("NavDecimal", crate::format::try_format(v, 0, 0, ctx).ok()?)
+            crate::format::try_format(v, 0, 0, ctx).ok()?
         }
-        (Value::Duration(ms), RtType::DateTime) if *ms == 65000 => {
-            ("NavDuration", crate::format::try_format(v, 0, 0, ctx).ok()?)
-        }
-        (Value::Boolean(_), RtType::DateTime) => ("NavBoolean", crate::format::try_format(v, 0, 0, ctx).ok()?),
+        (Value::Duration(ms), RtType::DateTime) if *ms == 65000 => crate::format::try_format(v, 0, 0, ctx).ok()?,
+        (Value::Boolean(_), RtType::DateTime) => crate::format::try_format(v, 0, 0, ctx).ok()?,
         _ => return None,
     };
+    let nav = crate::fieldref_variant_cells::nav_of(v)?;
     crate::assumptions::assume(crate::assumptions::Assumption::FieldRefValueTemporalError);
     Some(Err(crate::fieldref_variant_cells::temporal_value_error(
         nav, &text, t, from28,

@@ -334,6 +334,11 @@ impl Lowerer<'_> {
     }
 
     /// A call resolved on `node` (the CallExpr, or the callee for a call without parentheses).
+    /// Whether the argument `a` is written as a `FieldRef.Value()` call.
+    pub(super) fn is_fieldref_value(&self, a: &SyntaxNode) -> bool {
+        matches!(self.res(a), Some(Res::Builtin(i)) if i == "FieldRef.Value#1")
+    }
+
     /// The id of the implementation for a call whose argument is written as a Variant, where BC treats it apart.
     fn variant_argument_id(&self, id: &str, args: &[SyntaxNode]) -> Option<&'static str> {
         let variant = |i: usize| args.get(i).is_some_and(|a| matches!(self.ty_of(a), Ty::Variant));
@@ -717,11 +722,7 @@ impl Lowerer<'_> {
                     self.field_error_variant_id(&id, args)
                 } else if let Some(variant_id) = self.variant_argument_id(&id, args) {
                     variant_id.to_string()
-                } else if id == "TextBuilder.Append#1"
-                    && args
-                        .first()
-                        .is_some_and(|a| matches!(self.res(a), Some(Res::Builtin(i)) if i == "FieldRef.Value#1"))
-                {
+                } else if id == "TextBuilder.Append#1" && args.first().is_some_and(|a| self.is_fieldref_value(a)) {
                     // `FieldRef.Value()` written directly as the argument appends the formatted value
                     // (text/textbuilder-bigtext/TextBuilderAppendFieldDirect.al).
                     "TextBuilder.AppendFieldValue#1".to_string()

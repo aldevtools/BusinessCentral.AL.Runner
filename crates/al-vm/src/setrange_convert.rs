@@ -12,7 +12,7 @@
 use crate::Session;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::describe::Describe;
-use al_builtins::fieldref_variant_cells::{temporal_value_error, text_evaluate_error, variant_guid_error};
+use al_builtins::fieldref_variant_cells::{nav_of, temporal_value_error, text_evaluate_error, variant_guid_error};
 use al_builtins::native::Signal;
 use al_builtins::value::{LibraryValue, RecordState, RtType, Value};
 use rust_decimal::Decimal;
@@ -33,6 +33,10 @@ pub(crate) enum Written {
 /// The catalog id of `id` and, for an id lowering gives by how the values are written, that.
 pub(crate) fn catalog_id(id: &str) -> (&str, Option<Written>) {
     use al_builtins::builtin_id::{BuiltinId, ids};
+    // Only the FieldRef SetRange and SetFilter ids are written ids; skip the table search for every other ref call.
+    if !id.starts_with("FieldRef.Set") {
+        return (id, None);
+    }
     let Some(b) = BuiltinId::of(id) else { return (id, None) };
     let written = match b {
         ids::FIELDREF_SETRANGETYPED_1 | ids::FIELDREF_SETFILTERTYPED_1 => Some(Written::Typed),
@@ -147,23 +151,30 @@ impl Session {
         }
         let t = self.table(rec)?;
         let Some(f) = t.fields.get(pos) else { return Ok(()) };
-        let state_measured = {
+        let state_measured = || {
             let r = rec.borrow();
             !r.temporary && r.filter_group == 0
         };
+        let at = CellAt {
+            call,
+            written,
+            values: values.len(),
+        };
         // The probe's facts: an en-US session, a stored field of the table's own (no FlowField, FlowFilter or system field)
         // on a Record or RecordRef that is not temporary, in filter group 0.
-        let measured = self.global_language() == 1033
-            && f.stored
-            && f.id < 2_000_000_000
-            && state_measured
-            && measured_call(call, written, values.len(), &f.ty);
-        let at = CellAt { call, written, values: values.len() };
+        // Read only for a cell that runs in the measured shape alone (most values have no cell).
+        let measured = || {
+            self.global_language() == 1033
+                && f.stored
+                && f.id < 2_000_000_000
+                && state_measured()
+                && measured_call(call, written, at.values, &f.ty)
+        };
         for v in values.iter_mut() {
             match self.setrange_cell(v, &f.ty, at) {
                 None | Some(Cell::MainEveryShape) => {}
-                Some(Cell::Main) if measured => {}
-                Some(Cell::Convert(converted)) if measured => {
+                Some(Cell::Main) if measured() => {}
+                Some(Cell::Convert(converted)) if measured() => {
                     assume(Assumption::SetRangeOtherTypeConvert);
                     *v = converted?;
                 }
@@ -234,38 +245,20 @@ impl Session {
             Some(r) => Cell::Convert(r),
             None => Cell::Unmeasured,
         };
-        // The .NET type BC 27 names and the text BC 28 evaluates (an Integer and a BigInteger as digits without grouping).
-        let (nav, text) = match v {
-            Value::Integer(n) if *n >= 0 => ("NavInteger", Some(n.to_string())),
-            Value::BigInteger(n) if *n >= 0 => ("NavBigInteger", Some(n.to_string())),
-            Value::Decimal(d) if *d >= Decimal::ZERO && *d < Decimal::from(1000) && d.scale() <= 2 => {
-                ("NavDecimal", formatted())
-            }
-            Value::Boolean(true) => ("NavBoolean", formatted()),
-            Value::Text(s) => ("NavText", Some(s.as_str().to_string())),
-            Value::Code(s) => ("NavCode", Some(s.as_str().to_string())),
-            Value::Guid(_) => ("NavGuid", formatted()),
-            Value::Duration(ms) if (1..60_000).contains(ms) => ("NavDuration", formatted()),
+        // The text BC 28 evaluates (an Integer and a BigInteger as digits without grouping); BC 27 names the .NET type
+        // (`nav_of`).
+        let text = match v {
+            Value::Integer(n) if *n >= 0 => Some(n.to_string()),
+            Value::BigInteger(n) if *n >= 0 => Some(n.to_string()),
+            Value::Decimal(d) if *d >= Decimal::ZERO && *d < Decimal::from(1000) && d.scale() <= 2 => formatted(),
+            Value::Boolean(true) | Value::Guid(_) => formatted(),
+            Value::Text(s) | Value::Code(s) => Some(s.as_str().to_string()),
+            Value::Duration(ms) if (1..60_000).contains(ms) => formatted(),
             // Opt_* and Enum_* measure the member `One`: a member whose Format text is its name of letters (`letters`).
-            Value::Option(o, names) => {
-                let name = usize::try_from(*o).ok().and_then(|i| names.get(i)).cloned();
-                match member_text(formatted(), name) {
-                    Some(text) => ("NavOption", Some(text)),
-                    None => return Some(Cell::Unmeasured),
-                }
-            }
-            Value::Enum(id, o) => {
-                let name = self.engine.program.objects.get(*id as usize).and_then(|obj| {
-                    obj.enum_values
-                        .iter()
-                        .find(|(n, _)| n == o)
-                        .map(|(_, name)| name.clone())
-                });
-                match member_text(formatted(), name) {
-                    Some(text) => ("NavOption", Some(text)),
-                    None => return Some(Cell::Unmeasured),
-                }
-            }
+            Value::Option(..) | Value::Enum(..) => match member_text(formatted(), self.member_name(v)) {
+                Some(text) => Some(text),
+                None => return Some(Cell::Unmeasured),
+            },
             // A negative number, false, a Decimal out of the measured size, a longer Duration.
             Value::Integer(_)
             | Value::BigInteger(_)
@@ -293,10 +286,24 @@ impl Session {
             Value::Date(..) if matches!(ty, RtType::Time) => return Some(Cell::Unmeasured),
             _ => return None,
         };
-        Some(match text {
-            Some(text) => Cell::Convert(Err(temporal_value_error(nav, &text, ty, from28))),
-            None => Cell::Unmeasured,
+        Some(match (nav_of(v), text) {
+            (Some(nav), Some(text)) => Cell::Convert(Err(temporal_value_error(nav, &text, ty, from28))),
+            _ => Cell::Unmeasured,
         })
+    }
+
+    /// The name of the member an Option or Enum value holds.
+    fn member_name(&self, v: &Value) -> Option<String> {
+        match v {
+            Value::Option(o, names) => usize::try_from(*o).ok().and_then(|i| names.get(i)).cloned(),
+            Value::Enum(id, o) => self.engine.program.objects.get(*id as usize).and_then(|obj| {
+                obj.enum_values
+                    .iter()
+                    .find(|(n, _)| n == o)
+                    .map(|(_, name)| name.clone())
+            }),
+            _ => None,
+        }
     }
 }
 
@@ -316,15 +323,15 @@ struct CellAt {
 /// tests/al-language/permissions/permission-sets/TenantSetDeleteCascade.al:221, a Label in
 /// tests/al-language-onprem/metadata/platform-tables/Y35StoredTables.al:569.
 fn guid_cell(s: &str, at: CellAt, from28: bool) -> Cell {
-    let guid = al_builtins::ops::parse_guid(s).is_some();
+    let guid = || al_builtins::ops::parse_guid(s).is_some();
     match (at.call, at.written) {
         (_, Some(Written::Variant)) if !s.is_empty() => Cell::Convert(Err(variant_guid_error(s, from28))),
         (Call::FieldRefSetRange, Some(Written::Typed)) if !s.is_empty() => Cell::Main,
-        (Call::FieldRefSetFilter, Some(Written::Typed)) if guid => Cell::Main,
+        (Call::FieldRefSetFilter, Some(Written::Typed)) if guid() => Cell::Main,
         (Call::FieldRefSetFilter, Some(Written::Typed)) if letters(s) || digits(s) => {
             Cell::Convert(al_builtins::native::invalid_guid_format())
         }
-        (Call::RecordSetRange, None) if at.values == 1 && guid => Cell::MainEveryShape,
+        (Call::RecordSetRange, None) if at.values == 1 && guid() => Cell::MainEveryShape,
         _ => Cell::Unmeasured,
     }
 }

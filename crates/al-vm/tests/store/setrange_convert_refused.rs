@@ -299,11 +299,7 @@ fn a_typed_text_that_is_no_guid_in_setfilter_raises_the_guid_format_error() {
         match run_in(SRC, "T", x) {
             Err(Signal::Error(e)) => {
                 assert_eq!(e.code, "InvalidGuidFormat", "{x}");
-                assert_eq!(
-                    e.message,
-                    "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.",
-                    "{x}"
-                );
+                assert_eq!(e.message, al_builtins::native::INVALID_GUID_FORMAT, "{x}");
             }
             other => panic!("{x}: expected the Guid format error, got {other:?}"),
         }
