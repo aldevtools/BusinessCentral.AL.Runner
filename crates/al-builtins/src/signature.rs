@@ -1,4 +1,6 @@
 //! Parsing the `syntax` line of a documented builtin into a signature.
+//!
+//! Entry points: `Param`, `Signature`, `DocEntry`, `DocParam`.
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Param {

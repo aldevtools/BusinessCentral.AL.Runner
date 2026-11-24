@@ -1,4 +1,7 @@
 //! Runtime values (ADR-010).
+//!
+//! The state of a page is not here (ADR-072: al-vm `pages/state/mod.rs`). Entry points: `Value`,
+//! `RtType`, `RecordState`, `Instance`, `DotNetObject`.
 
 pub use crate::page_handle::{ControlHandle, PageHandle};
 use rust_decimal::Decimal;
@@ -525,8 +528,12 @@ pub struct RecordState {
     /// (session-system/TestCrmTableNoConnectionContracts.al).
     pub crm: bool,
     /// Field values in the table's field order.
-    pub fields: Vec<Value>,
+    pub fields: crate::record_fields::Fields,
     pub filters: Vec<crate::filter::FieldFilter>,
+    /// Copies of the filters in `filters` that a measured setter set on a Decimal field whose SQL column cuts their values
+    /// (al-vm `decimal_column::measured_setter`): a read compares such a filter cut only while the identical filter is here.
+    /// `SetRange` and `SetFilter` drop the entry of their field and group; every copy of the record copies it with `filters`.
+    pub decimal_cut_filters: Vec<crate::filter::FieldFilter>,
     /// The filter group `SetRange` and `SetFilter` write to and `GetFilter` reads.
     pub filter_group: i32,
     /// Primary keys marked with `Mark(true)`, and whether `MarkedOnly` restricts the set to them.
@@ -857,14 +864,22 @@ impl RecordState {
     /// IsDirty, RecordRef.IsDirty and Modify compare with (`is_dirty_base`, `dirty_base`, `last_modify`).
     pub fn blob_copies_of(&self, pos: usize, b: &crate::stream::BlobRef) -> usize {
         let holds = |row: &[Value]| matches!(row.get(pos), Some(Value::Blob(o)) if std::sync::Arc::ptr_eq(o, b));
-        let mut rows: Vec<&[Value]> = vec![&self.fields];
-        rows.extend(self.dirty_base.as_deref());
-        rows.extend(self.last_modify.as_deref());
-        if let DirtyBase::Row { base, alt, .. } = &self.is_dirty_base {
-            rows.push(base);
-            rows.extend(alt.as_deref());
-        }
-        rows.into_iter().filter(|r| holds(r)).count()
+        // Without a vector of the rows: every write through an OutStream on a temporary record's Blob counts here.
+        let (base, alt) = match &self.is_dirty_base {
+            DirtyBase::Row { base, alt, .. } => (Some(base.as_slice()), alt.as_deref()),
+            _ => (None, None),
+        };
+        [
+            Some(&self.fields[..]),
+            self.dirty_base.as_deref(),
+            self.last_modify.as_deref(),
+            base,
+            alt,
+        ]
+        .into_iter()
+        .flatten()
+        .filter(|r| holds(r))
+        .count()
     }
 
     /// A copy of the record that is a variable of its own: a by-value parameter (also a temporary one). It reads the
@@ -1020,6 +1035,14 @@ impl TableGlobals {
     pub fn instances(&self) -> Vec<(u32, Rc<RefCell<Instance>>)> {
         match &*self.data.borrow() {
             Some(d) => d.borrow().instances.clone(),
+            None => Vec::new(),
+        }
+    }
+
+    /// The instances of `xRec`'s set, without making the set ([`TableGlobals::xrec`] makes it).
+    pub fn xrec_instances(&self) -> Vec<(u32, Rc<RefCell<Instance>>)> {
+        match &*self.data.borrow() {
+            Some(d) => d.borrow().xrec.instances(),
             None => Vec::new(),
         }
     }

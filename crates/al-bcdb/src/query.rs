@@ -1,6 +1,9 @@
 //! The BC meaning layer over a [`BcSource`] (port of the shared part of `Program.cs`):
 //! company and app-id parsing of per-company table names, table resolution, `$ext`
 //! companion merging, AL symbol names. Shared by every container and every front end.
+//!
+//! `plan_read_table_in` (table list parsed once by the caller). Entry points: `BcTable`, `is_guid`,
+//! `parse_table_name`, `collate_cmp`.
 
 use crate::error::{Error, Result};
 use crate::source::{BcSource, SourceTable};

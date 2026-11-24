@@ -4,6 +4,10 @@
 //! (ProtVar_OtherRecordVariable_MemberForm_OtherApp, ProtVar_LocalRecordVariable_MemberForm,
 //! ProtVar_OtherRecordVariable_MemberForm_SameApp, ProtVar_SalesLineStatusCheckSuspended_MemberForm): it reads and writes
 //! Other's variable, not Rec's. A codeunit does not see the variable (must-not-compile 2953, AL0161).
+//!
+//! `Other.<protected var>` in a table extension (another record variable of the extended table),
+//! recorded as `Res::RecGlobal` and lowered to `ir::Place::RecGlobal`. Entry points:
+//! `control_or_protected_member`, `record_protected_member`.
 use super::*;
 
 impl<'a> Checker<'a> {

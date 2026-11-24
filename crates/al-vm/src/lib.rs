@@ -1,5 +1,9 @@
 //! Tree-walking interpreter over the typed IR (ADR-011). `Engine` is the
 //! immutable program (ADR-001); `Session` holds all mutable state.
+//!
+//! Engine (immutable program) and Session (mutable state, grouped into the sub-states of `state.rs`),
+//! construction and the transaction entry points. The executor is the bytecode in `exec/`;
+//! `interp.rs` holds what both it and the rest of the VM use.
 
 use al_builtins::describe::Describe;
 use al_builtins::native::{AlError, Signal};
@@ -15,11 +19,13 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 mod autoinc;
+mod bg_readisolation_lock;
 mod bgsession;
 mod blob_copy;
 mod blob_transfer;
 mod clientless;
 mod consistent_marks;
+mod decimal_column;
 mod get_key_value;
 mod package_data;
 mod partial_gone;
@@ -41,7 +47,7 @@ mod debug;
 mod exec;
 mod interp;
 mod isolated_storage_reads;
-pub use baseline::{Baseline, NotShared, RowDelta, SharedBaseline, SkippedInstall};
+pub use baseline::{Baseline, NotShared, SharedBaseline, SkippedInstall};
 pub use capture::{CaptureConfig, Captured, ClosedBy, LoopRecord, MAX_RECORDS, MessageRecord, Rendered, ValueRecord};
 pub(crate) use ctx::base_slot_missing;
 pub use debug::{DebugFrame, DebugHook, DebugView, Resume};
@@ -55,7 +61,7 @@ pub use profile::{
     DbStat, PosStat, ProfFrame, ProfNode, ProfileMode, ProfileTree, reaches_database,
     routine_label as profile_routine_label,
 };
-pub use state_stamp::{LeftChange, LeftStamp, StateStamp};
+pub use state_stamp::{LeftChange, LeftStamp, StateLines, StateStamp};
 pub use test_runner_host::TestCodeunitHost;
 mod auto_format_writer;
 mod callstack;
@@ -100,6 +106,8 @@ pub mod group1_sessions;
 mod hostvalues;
 mod http;
 pub mod impact;
+pub mod install_footprint;
+mod install_footprint_row_version;
 mod install_left;
 mod interfaces;
 mod isdirty;
@@ -121,6 +129,7 @@ mod permissions;
 mod platform;
 mod profile;
 mod queries;
+mod query_cache;
 mod query_date_filter;
 mod query_reopen;
 mod query_save_as;
@@ -149,7 +158,9 @@ mod report_save;
 mod reports;
 mod resource_reads;
 mod run_page_link_open;
+mod session_fields;
 mod sessionops;
+mod setrange_convert;
 mod setup_no_op;
 mod slot_default;
 mod sqlcount;
@@ -157,6 +168,8 @@ mod sqltime;
 mod stale_buffer_origin;
 mod stale_own_modify;
 mod stale_rename;
+mod state_facts;
+mod state_render;
 mod state_stamp;
 mod table_facts;
 mod tasks;
@@ -168,6 +181,7 @@ mod tenant_set_delete;
 mod test_rows;
 mod test_runner_host;
 mod testdata;
+mod transaction_type;
 mod transactions;
 mod translations;
 mod ui;
@@ -721,9 +735,11 @@ impl Engine {
         self.codeunits.get(&id).and_then(|c| c.any)
     }
 
-    /// The value of type `T` made from this engine's program, made by `make` the first time it is asked for and shared
-    /// by every session and thread of the engine after that: for data that depends on the program alone (al-testrun's
-    /// index of the static reach). `make` must not ask the engine for derived data itself.
+    /// The value of type `T` made by `make` the first time it is asked for and shared by every session and thread of the
+    /// engine after that: for data that depends on the program alone (al-testrun's index of the static reach), and for
+    /// state that lives as long as the engine and that every session adds to, as one value (al-testrun's login replay
+    /// check, `login_replay.rs`: its tally behind a lock, across the engine's requests). `make` must not ask the engine
+    /// for derived data itself.
     pub fn derived<T: std::any::Any + Send + Sync>(&self, make: impl FnOnce() -> T) -> Arc<T> {
         let mut slots = self.derived.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let slot = slots
@@ -871,6 +887,8 @@ pub struct Session {
     pub(crate) isolated_set_in_test: std::collections::HashSet<(String, String)>,
     /// The isolated storage keys this test codeunit set, in this test or an earlier one (isolated_storage_reads.rs).
     pub(crate) isolated_written_in_codeunit: std::collections::HashSet<(String, String)>,
+    /// The rows this test codeunit wrote and the tables it locked, as a page background task's locking read meets them.
+    pub(crate) row_locks: bg_readisolation_lock::CodeunitRowLocks,
     /// What a later test of the running codeunit may not reach (`storage_checkpoint.rs`).
     unmeasured: storage_checkpoint::Unmeasured,
     /// The TaskScheduler tasks this session created (`tasks.rs`).
@@ -1022,7 +1040,8 @@ pub struct Session {
     /// (`Ctx::field_error_with_form`); `None` outside such a call.
     pub(crate) field_error_form: Option<al_builtins::native::ErrorTextForm>,
     /// The parameters of the routine that just failed with an error, as it left them:
-    /// the caller writes its `var` arguments back before it handles the error.
+    /// the caller writes its `var` arguments back before it handles the error. Each call site clears it before its call
+    /// (interp.rs), so it takes only what its own routine left; see caught_errors.rs.
     pub(crate) error_finals: Option<Vec<Value>>,
     /// The scalar globals passed by `var` to a procedure call that is still running. BC passes the argument by reference,
     /// the runtime copies it in and back; the two differ only when code reaches the global by its own name while the call
@@ -1192,6 +1211,8 @@ pub struct Session {
     /// the session company's rows as they were, so the rows install code wrote there are known
     /// (`Session::copy_company`, `Session::cx_for`).
     pub(crate) full_copies: std::collections::BTreeSet<String>,
+    /// Rows whose SystemRowVersion is the Insert's, not BC's (`crate::state::RestampedRows`).
+    pub(crate) restamped_rows: Vec<crate::state::RestampedRows>,
     /// While `Database.CopyCompany` inserts the Company row: why the `RunTrigger` of the Company's insert events is not
     /// known. The subscribers get it as an unknown value (`Session::table_event`).
     pub(crate) run_trigger_unknown: Option<&'static str>,
@@ -1382,6 +1403,7 @@ impl Session {
             backed_companies,
             company_unknown: Default::default(),
             full_copies: Default::default(),
+            restamped_rows: Vec::new(),
             run_trigger_unknown: None,
             package_load: false,
             sleep_budget: None,
@@ -1468,6 +1490,7 @@ impl Session {
             isolated_committed: Default::default(),
             isolated_set_in_test: Default::default(),
             isolated_written_in_codeunit: Default::default(),
+            row_locks: Default::default(),
             unmeasured: Default::default(),
             tasks: Default::default(),
             install_scope: false,
@@ -1561,7 +1584,7 @@ impl Session {
     }
 
     /// What the AL test runner does before each test method: every application area on, and the transaction type of the
-    /// method's start (`start_test_transaction_type`: UpdateNoLocks for the first one of a codeunit, the type the one before
+    /// method's start (`start_test_transaction`: UpdateNoLocks for the first one of a codeunit, the type the one before
     /// left for a later one). What an earlier test wrote to a demo table does not count for this one: the corpus
     /// tests that write setup rows put the demo values back afterwards (record/QkSetupRows.al), which leaves the
     /// runtime with the install-code row (record/captions/QdCaptionClassAreas.al:798 QF_GLSetup_CorpusRow).
@@ -1580,36 +1603,8 @@ impl Session {
         self.isolated_set_in_test.clear();
         self.demo_written.clear();
         self.gl_setup_written = false;
-        self.start_test_transaction_type();
-        self.tx.phase = crate::transactions::TxPhase::Fresh;
-        self.tx.open.locks = Default::default();
-        self.tx.open.moment = Some(crate::reports::transaction_world::Moment::at(
-            crate::reports::transaction_world::MomentStart::TestStart,
-        ));
+        self.start_test_transaction();
         self.pages.test_methods_started += 1;
-    }
-
-    /// Makes every change so far durable (and a Truncate of this transaction final).
-    pub fn commit_transaction(&mut self) {
-        self.guarded_body_commit();
-        al_data::Store::commit(&mut self.store);
-        self.crm_committed();
-        self.commits += 1;
-        self.sql.committed();
-        self.truncate_undo.clear();
-        // Rows at or below this rowversion are durable: a buffer older than one of them is stale.
-        self.tx.committed_row_version = self.next_row_version;
-        // A transaction a lock opened counts as one that wrote: MinimumActiveRowVersion after it is not pinned.
-        self.tx.last_commit_wrote = self.tx.phase == crate::transactions::TxPhase::Write || self.tx.open.locks.lock_tx;
-        self.end_open_transaction();
-        self.tx.rolled_back = false;
-        self.tx.rollback_unpinned = None;
-        self.tx.rollback_kind = None;
-        self.isolated_committed = self.isolated_storage.clone();
-        self.pages.saved_values_committed = self.pages.saved_values.clone();
-        self.tasks.commit();
-        let removed = std::mem::take(&mut self.media_removed.0);
-        self.media_removed.1.extend(removed);
     }
 
     /// The test runner took a checkpoint of the committed data: what was removed before it stays removed.
@@ -1661,12 +1656,15 @@ impl Session {
     }
 
     pub fn rollback_transaction(&mut self) {
+        self.note_row_locks_rollback();
         self.note_rollback_for_stale_rule();
         al_data::Store::rollback(&mut self.store);
         self.rollbacks += 1;
         self.crm_rolled_back();
         self.sql.rolled_back();
+        let runner_tx = self.tx.open.runner_tx;
         self.end_open_transaction();
+        self.tx.open.runner_tx = runner_tx;
         self.tx.rolled_back = true;
         self.isolated_storage = self.isolated_committed.clone();
         // What SaveValues pages stored is kept in the database: a rollback takes back what was stored since the last commit. An
@@ -1716,6 +1714,7 @@ impl Session {
                     crm: self.engine.object_facts[*table as usize].crm(),
                     fields: self.initial_fields(*table as usize),
                     filters: Vec::new(),
+                    decimal_cut_filters: Vec::new(),
                     filter_group: 0,
                     marks: Vec::new(),
                     marked_only: false,
@@ -2024,6 +2023,7 @@ impl Session {
 
     pub fn mark_install_end(&mut self) {
         self.install_row_version = self.next_row_version;
+        self.reset_query_cache();
     }
 
     /// The `SessionId()` this session answers: an install session's own id, else the host's.
@@ -2727,7 +2727,7 @@ impl Session {
             if e.call_stack.is_empty() {
                 self.error_raised_in = Some(object);
             }
-            self.add_frame(e, object, top);
+            self.add_leaving_frame(e, object, top);
         }
         self.profile_leave();
         self.call_stack.pop();

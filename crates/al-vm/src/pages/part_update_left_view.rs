@@ -24,20 +24,44 @@
 //! test filters the part to one day before and after). In the cells the probe measured (`part_refill_pins.rs`), the calls a cell
 //! made after that filter answer from the rows it read, as main does, under assumption `part-left-view-test-filter`
 //! (pages/parts/PartRefillTestFilter.al, corpus PR 1474, merged, not pinned yet; its two-field key cell
-//! PartRefill_TypedKeyTriggerPartActionThenFilterFirst_FindsRefilledRow is in corpus PR 1475, open): `TestFilterReread` admits
+//! PartRefill_TypedKeyTriggerPartActionThenFilterFirst_FindsRefilledRow is in corpus PR 1475, merged; the styled part of al-runner
+//! issue 8704 in corpus PR 1534, open): `TestFilterReread` admits
 //! each in turn (`measured_step_after_test_filter`), until a test call on another page. Every other call keeps the refusal.
+//!
+//! A part whose own `CurrPage.Update` was asked while its view no longer started with the rows the
+//! client holds (al-runner issue 8328): decided once at the ask and kept in
+//! `RefreshRequest::update_left_view` (`state/refresh.rs`); while that refresh waits every test call
+//! that reads or writes a row of the part (field reads, SetValue, actions, New, the moves, GoToKey,
+//! GoToRecord, Find*Field, TestPart Editable, and a control's Caption, Visible, Editable or Enabled
+//! when the property it reads is an expression: `reads_no_row`) is refused, which rows BC shows is
+//! not pinned; a part with OnFindRecord or OnNextRecord is not compared. After the test's own
+//! `Filter.SetFilter` read the part's rows again (al-runner issue 8537), the calls a probe cell made
+//! take main's answer under assumption `part-left-view-test-filter`, one `TestFilterReread` step at a
+//! time (`PageState::left_view_test_filter`, set by `filter.rs` `filter_changed` in the cells of
+//! `part_refill_pins.rs`, ended by a test call on another page through `Session::test_filter_steps`
+//! in `dirty_step.rs`). Entry points: `note_part_update_left_view` (by `ask_update_refresh`),
+//! `refuse_row_access_on_part_left_by_its_view` (by `first_part_access`, which every test call on a
+//! part passes), `note_part_rows_read_by_test_filter`, `end_test_filter_steps_elsewhere`.
 
+use super::part_refill_pins::Cell;
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::page_op::{PageMethod, PageOp, PageRecv};
 
 /// The calls the test made on a part since its own `Filter.SetFilter` read the part's rows again while the refresh of
-/// `update_left_view` waits (`PageState::left_view_test_filter`). Each step admits only the calls a probe cell made after it.
+/// `update_left_view` waits (`PageState::left_view_test_filter`). Each step admits only the calls its cell made after it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum TestFilterReread {
     /// No such filter, or a call ended the steps.
     #[default]
     Off,
+    /// The steps on the part of `cell`, matched once, when the test's filter read the rows again (`measured_reread`).
+    On { cell: &'static Cell, step: Step },
+}
+
+/// The test calls made since the test's filter read the part's rows again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Step {
     /// The test's filter read the rows again.
     Filtered,
     /// Then `First()`.
@@ -128,13 +152,19 @@ impl Session {
             let s = st.borrow();
             s.open && s.refresh.asked_by_update() && s.refresh.update_left_view().is_some()
         };
-        let start = set_filter && waits && self.measured_reread(st)?;
-        st.borrow_mut().left_view_test_filter = if start {
-            TestFilterReread::Filtered
+        let cell = if set_filter && waits {
+            self.measured_reread(st)?
         } else {
-            TestFilterReread::Off
+            None
         };
-        if start {
+        st.borrow_mut().left_view_test_filter = match cell {
+            Some(cell) => TestFilterReread::On {
+                cell,
+                step: Step::Filtered,
+            },
+            None => TestFilterReread::Off,
+        };
+        if cell.is_some() {
             self.test_filter_steps = Some(Rc::downgrade(st));
         }
         Ok(())
@@ -164,17 +194,20 @@ impl Session {
     /// - the part's Rec in the primary key, ascending, not MarkedOnly, with one filter in group 0: the test's (`test_typed_filter`),
     ///   a single value (`Eq`) on the field `refill_cell` names (the part's own `Rec.Reset()` took any other);
     /// - exactly one row in that view: every cell had one there.
-    fn measured_reread(&mut self, st: &St) -> Result<bool, Signal> {
+    ///
+    /// The cell, which the steps keep (`TestFilterReread::On`), when all of them hold.
+    fn measured_reread(&mut self, st: &St) -> Result<Option<&'static Cell>, Signal> {
         let host = st.borrow().host.as_ref().and_then(|(h, _)| h.upgrade());
         let Some(host) = host else {
-            return Ok(false);
+            return Ok(None);
         };
         if host.borrow().host.is_some() {
-            return Ok(false);
+            return Ok(None);
         }
-        let Some(field) = self.refill_cell(&host, st) else {
-            return Ok(false);
+        let Some(cell) = self.refill_cell(&host, st) else {
+            return Ok(None);
         };
+        let field = cell.filter_field;
         let rec = self.page_rec(st);
         let filtered = {
             let s = st.borrow();
@@ -188,21 +221,24 @@ impl Session {
                 && r.filters.len() == 1
         };
         if !filtered {
-            return Ok(false);
+            return Ok(None);
         }
         let used = self.ret_used;
         let rows = self.view_rows(&rec, 2);
         self.ret_used = used;
-        Ok(rows?.len() == 1)
+        Ok((rows?.len() == 1).then_some(cell))
     }
 
-    /// The step call `m` on part `st` (on its control `target`) makes after the test's filter, when a probe cell made it there
-    /// (PartRefillTestFilter.al of corpus PR 1474): AsDate and AsDecimal of a field control after any step (the `Fact` reads of
-    /// every cell) and a Value read (:723 PartRefill_TriggerPartActionThenFilterFirst_FindsRefilledRow, `QtyText`); `First()`
-    /// (:512 PartRefill_WorksheetActionThenFilterFirst_FindsRefilledRow) or `Last()` (:590
-    /// PartRefill_WorksheetActionThenFilterLast_FindsRefilledRow) after the filter; `Next()` after that `First()` and
-    /// `Previous()` after that `Next()` (:561 PartRefill_WorksheetActionThenFilterFirstNextPrevious_StayOnRefilledRow). `None`
-    /// for any other call, a Value with an argument included.
+    /// The step call `m` on part `st` (on its control `target`) makes after the test's filter, when the cell the steps keep
+    /// made it there (PartRefillTestFilter.al of corpus PR 1474, the two-field key cell of corpus PR 1475, the repro of issue
+    /// 8537): `First()` after the filter (every cell); `Last()` after the filter (:590
+    /// PartRefill_WorksheetActionThenFilterLast_FindsRefilledRow), and `Next()` after that `First()` and `Previous()` after that
+    /// `Next()` (:561 PartRefill_WorksheetActionThenFilterFirstNextPrevious_StayOnRefilledRow), on the cell of the Worksheet host
+    /// and the plain part only; the AsDate and AsDecimal reads of the controls the cell read (`fact_reads`) after a move, and
+    /// right after the filter only where the cell read there (`read_without_move`, :537
+    /// PartRefill_WorksheetActionThenFilterRead_ShowsRefilledRow); a Value read after `First()` of the controls the cell read
+    /// (`value_reads`: :723 PartRefill_TriggerPartActionThenFilterFirst_FindsRefilledRow and PR 1475's cell, QtyText and Scope).
+    /// `None` for any other call, a Value with an argument included.
     fn measured_step_after_test_filter(
         &self,
         st: &St,
@@ -210,24 +246,33 @@ impl Session {
         target: Option<&ControlTarget>,
         field_read: bool,
     ) -> Option<TestFilterReread> {
-        use TestFilterReread as S;
-        let step = st.borrow().left_view_test_filter;
-        if step == S::Off {
+        let TestFilterReread::On { cell, step } = st.borrow().left_view_test_filter else {
             return None;
-        }
-        let field = match target {
-            Some(ControlTarget::Control(idx)) => {
-                page_of(&self.engine(), st).controls[*idx].kind == ir::ControlKind::Field
-            }
-            _ => false,
         };
-        let read = field && (matches!(m, PageMethod::AsDate | PageMethod::AsDecimal) || field_read);
+        let engine = self.engine();
+        let control = match target {
+            Some(ControlTarget::Control(idx)) => {
+                Some(&page_of(&engine, st).controls[*idx]).filter(|c| c.kind == ir::ControlKind::Field)
+            }
+            _ => None,
+        };
+        let named = |names: &[&str], c: &ir::Control| names.iter().any(|n| n.eq_ignore_ascii_case(&c.name));
+        let read = control.is_some_and(|c| match m {
+            PageMethod::AsDate | PageMethod::AsDecimal => {
+                cell.fact_reads
+                    .iter()
+                    .any(|(n, how)| *how == m && n.eq_ignore_ascii_case(&c.name))
+                    && (step != Step::Filtered || cell.read_without_move)
+            }
+            _ => field_read && step == Step::First && named(cell.value_reads, c),
+        });
+        let on = |step| Some(TestFilterReread::On { cell, step });
         match (step, m, target) {
-            _ if read => Some(step),
-            (S::Filtered, PageMethod::First, None) => Some(S::First),
-            (S::Filtered, PageMethod::Last, None) => Some(S::Last),
-            (S::First, PageMethod::Next, None) => Some(S::Next),
-            (S::Next, PageMethod::Previous, None) => Some(S::Previous),
+            _ if read => on(step),
+            (Step::Filtered, PageMethod::First, None) => on(Step::First),
+            (Step::Filtered, PageMethod::Last, None) if cell.last => on(Step::Last),
+            (Step::First, PageMethod::Next, None) if cell.next_previous => on(Step::Next),
+            (Step::Next, PageMethod::Previous, None) if cell.next_previous => on(Step::Previous),
             _ => None,
         }
     }

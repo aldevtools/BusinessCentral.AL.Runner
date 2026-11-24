@@ -2,6 +2,10 @@
 //! the control's OnValidate finds the row stored with the key the table's OnInsert assigned (corpus
 //! testpage/TestPageBlankKeyInsert.al:256 TestPage_OpenNew_VariableControlCanModifyDocument, page 67997; :272
 //! TestPage_OpenNew_VariableControlCanModifyDocumentWithPart, pages 67994 and 67995). `activate` (draft.rs) calls it.
+//!
+//! SetValue on a variable control of the pinned OpenNew Document (no part, or one empty linked
+//! ListPart) inserts the header before the control validates; other Documents that insert as you go
+//! refuse. Entry points: `insert_document_before_variable_validation` (from `activate`).
 
 use super::pinned_shape::{NextEnd, PinnedEnd, Reads, TestCall, code_stmts, table_code};
 use super::*;

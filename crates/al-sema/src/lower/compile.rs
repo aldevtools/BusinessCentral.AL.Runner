@@ -1,4 +1,6 @@
 //! Entry points that load, check and lower in one go, and the cached layer variants.
+//!
+//! Entry points: `compile`, `compile_apps_with`, `compile_with_roots`.
 use super::*;
 
 /// Load, check and lower in one go, against the newest catalog (nothing hidden), with source

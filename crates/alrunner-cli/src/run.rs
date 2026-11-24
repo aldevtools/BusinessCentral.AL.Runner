@@ -1,4 +1,14 @@
 //! `al-runner test`: load the APPs and their dependencies, compile, run, report.
+//!
+//! `al-runner test`: load APPs, select test codeunits, resolve dependencies, compile, run, print.
+//! `run/test_data.rs`: finding and opening the test data (backup kept between `serve` requests,
+//! package, DemoTool fetch, `resolved_companies` for the companies a run reads from a backup, the
+//! demo backup choice). Entry points: `open_backup`, `choose_test_data`, `resolved_companies`.
+//! `run/rankings.rs`: the rankings at the end of the report ("Top refusals", "Top failures",
+//! `--refusal-detail`); a refusal is `TestResult::is_refusal` (not run, not left out by a stop
+//! option). A serve request keeps the dependency apps it read (`WarmCtx::dependencies`, checked by
+//! `kept_apps::stamps`) and the apps under test (`WarmCtx::apps`, `kept_apps.rs`) and says where its
+//! time went (`request_timings.rs`, the summary's `timings`). Entry: `test`.
 
 use crate::apps::{self, AppInput};
 use crate::args::{DEFAULT_TOP, TestArgs};
@@ -1638,15 +1648,12 @@ fn test_inner(
         no_client: a.no_client,             // issue 7564
         allow_write_in_try_functions: a.allow_write_in_try_functions, // issue 7143
         dependencies_published_global: a.dependencies_published_global, // issue 7169
-        // `--strict-order` (ADR-066 amendment 12); BcContainerHelper runs in one session (`TestDriver::one_session`).
+        // `--strict-order` (ADR-070); BcContainerHelper runs in one session (`TestDriver::one_session`).
         strict_order: a.strict_order || driver.one_session(),
-        replay_every_dependent: false, // only a stability run sets it (ADR-058 amendment 1)
-        max_replay: a.max_replay,      // `--max-replay N` (ADR-066 amendment 7)
-        test_suites,                   // `--test-suites FILE` (ADR-066 amendment 6)
+        test_suites, // `--test-suites FILE` (ADR-066 amendment 6)
         memory: crate::memory_budget::budget(a.max_memory, warm.is_none() && debug.is_none()), // `--max-memory`
         private_baseline: std::env::var_os("AL_PRIVATE_BASELINE").is_some(), // ADR-069 decision 11
-        // ADR-070 step 2 (internal); ADR-074: the discovery pass under strict order needs each BC session in one walk.
-        strict_sequential: std::env::var_os("AL_STRICT_SEQUENTIAL").is_some() || driver.one_session(),
+        login_replay_check: std::env::var_os("ALRUNNER_LOGIN_REPLAY_CHECK").is_some(), // issue 8211, internal
         test_driver: driver,
         // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.
         run_only: run_only_picks(a, &selection, &found),
@@ -1769,6 +1776,7 @@ fn test_inner(
         }
     };
     let p = &rt.phases;
+    p.login_replay.iter().for_each(|l| eprintln!("{l}")); // ALRUNNER_LOGIN_REPLAY_CHECK (issue 8211)
     let d = sidecar_host.stats();
     sidecar_host.shutdown();
 

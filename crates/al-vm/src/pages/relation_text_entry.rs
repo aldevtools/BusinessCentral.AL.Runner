@@ -6,6 +6,11 @@
 //! of Rec keeps its path (not measured by the reporter; this refusal does not cover it), and so does a Code variable: its value and the
 //! stored key read the same in upper case. So does a relation, without a condition, to one table of the workspace with
 //! `TableType = Temporary` (`relates_to_temporary_table`): such a table stores no row a value could be taken from.
+//!
+//! refuses SetValue of any value but a blank text into a Text page variable (or a base page variable
+//! an extension binds) with its own TableRelation (al-runner issue 8339; which stored value BC takes
+//! is not pinned); a relation without a condition to one table with `TableType = Temporary` keeps its
+//! path. Entry points: `refuse_text_entry_with_relation` (by `control_set_value`).
 
 use super::relation_lookup::{simple_relation, tables_named};
 use super::*;

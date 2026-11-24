@@ -1,6 +1,9 @@
 //! Where a query variable stands in the one call sequence that queries/read-lifecycle/QueryClosedAfterLastRow.al:162-182 pins
 //! for a second `Open` while rows are left. `al-vm` `query_reopen` owns the moves from step to step; this is the state
 //! the variable carries.
+//!
+//! `ReopenStep`, the step a query variable reached in the pinned second-Open sequence (al-vm
+//! `query_reopen` moves it; `Clear` refuses after the second Open).
 
 use crate::native::{Signal, unsupported};
 

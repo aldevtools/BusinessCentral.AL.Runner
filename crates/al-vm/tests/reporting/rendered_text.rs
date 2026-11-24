@@ -302,11 +302,14 @@ fn rendered_text_a_whole_read_of_the_html_gives_the_mark_alone_and_marks_its_ass
     );
 }
 
+/// Two saves of one report with one layout are equal entries of the process's render list, so they share a number: a kept
+/// serve daemon's saves do not use the numbers up (al-runner issue 8458). A number still names one entry for the life of the
+/// process (`rendered_text::RENDERS`).
 #[test]
-fn rendered_text_two_reads_are_two_renders() {
+fn rendered_text_two_reads_of_one_render_share_its_number() {
     let a = rendered_text::marks(&raw("ReturnBody")).unwrap();
     let b = rendered_text::marks(&raw("ReturnBody")).unwrap();
-    assert_ne!(a[0].0, b[0].0, "a render number is never reused");
+    assert_eq!(a[0].0, b[0].0);
 }
 
 #[test]

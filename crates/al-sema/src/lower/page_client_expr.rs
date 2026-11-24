@@ -1,6 +1,12 @@
 //! What the lowering of a page does with a Boolean control expression BC compiles on the client when the page opens
-//! (`crate::pages::client_expression`): refuse what the client compile fails on, set aside a BigInteger literal, and check
-//! the types behind a qualified value through a member (`E.Mode::Beta`).
+//! (`crate::pages::client_expression`): refuse what the client compile fails on, set aside a BigInteger literal, check
+//! the types behind a qualified value through a member (`E.Mode::Beta`), and find the first field of the page's record it
+//! names (`visible_row_field`).
+//!
+//! the client-compile check of a Boolean control expression (refused forms, BigInteger literal, the
+//! typed check of a qualified value through a member), and whether a field control's own Visible
+//! names a field of the page's record (`visible_row_field`, `first_source_field`; al-runner issue 8660).
+//! Entry points: `client_expr_reasons`, `visible_row_field`.
 use super::*;
 use al_builtins::assumptions::Assumption;
 use std::cell::RefCell;
@@ -82,5 +88,67 @@ impl Lowerer<'_> {
                     && matches!(res(&base), Some(Res::Global(_)))
                     && matches!(self.checked.types.get(&key(file, &base)), Some(Ty::Record { .. }))
             })
+    }
+
+    /// The first field of the page's record that synthetic routine `routine` (a position among `owner`'s routines) of a
+    /// control expression names, as written: `Rec.<field>`, or a bare name that resolves to a field (no `Rec.`, warning
+    /// AL0604). A member of `xRec` or of another record is not counted, nor the qualifier of an Option or Enum value
+    /// (`Rec.Status::Open`, a constant). `None` as well when the name as written differs from the field's declared name
+    /// (BC's error names it, and only names written as declared are measured; al-runner issue 8660,
+    /// pages/controls/VisibleExpressionSource.al).
+    fn first_source_field(&self, owner: usize, routine: usize) -> Option<String> {
+        let r = self.routine_nodes.get(owner).get(routine)?;
+        let file = self.ws.objects[owner].file;
+        let res = |n: &SyntaxNode| self.checked.resolutions.get(&key(file, n)).map(Res::inner);
+        let unquoted = |n: &SyntaxNode| n.text().to_string().trim().trim_matches('"').to_string();
+        let (n, table, id) = r.syntax().descendants().find_map(|n| {
+            let qualifier = n
+                .parent()
+                .is_some_and(|p| p.kind() == SyntaxKind::ScopeExpr && p.first_child().as_ref() == Some(&n));
+            let Some(Res::Field { table, id }) = res(&n).cloned() else {
+                return None;
+            };
+            let of_rec = match n.kind() {
+                SyntaxKind::MemberExpr => n
+                    .first_child()
+                    .is_some_and(|b| b.kind() == SyntaxKind::NameRef && unquoted(&b).eq_ignore_ascii_case("rec")),
+                SyntaxKind::NameRef => !n.parent().is_some_and(|p| p.kind() == SyntaxKind::MemberExpr),
+                _ => false,
+            };
+            (of_rec && !qualifier).then_some((n, table, id))
+        })?;
+        let written = match n.kind() {
+            SyntaxKind::MemberExpr => n.last_child_or_token().map(|m| m.to_string())?,
+            _ => n.text().to_string(),
+        };
+        let written = written.trim().trim_matches('"').to_string();
+        let declared = self.members[table].fields.iter().find(|f| f.id == id)?;
+        (declared.name == written).then_some(written)
+    }
+
+    /// `Control::visible_row_field` of field control `control` of page `page`, its own (no extension declares it), bound by
+    /// `binding`: a page variable, or an expression that is no field of a record variable, no array element and no call
+    /// (`other_source`; those are not measured), with its own Visible an expression that names a field of the record. A
+    /// Visible an extension changes is a `PropVal::Ext` and is not counted.
+    pub(super) fn visible_row_field(
+        &self,
+        page: usize,
+        control: &crate::pages::RawControl,
+        binding: &ir::Binding,
+        other_source: bool,
+        props: &[(String, ir::PropVal)],
+    ) -> Option<String> {
+        let source = match binding {
+            ir::Binding::Var(_) => true,
+            ir::Binding::Expr(_) => !other_source,
+            _ => false,
+        };
+        if control.owner.is_some() || control.kind != ir::ControlKind::Field || !source {
+            return None;
+        }
+        props.iter().find_map(|(n, v)| match v {
+            ir::PropVal::Routine(r) if n == "visible" => self.first_source_field(page, *r),
+            _ => None,
+        })
     }
 }

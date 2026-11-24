@@ -21,6 +21,7 @@ pub struct FrozenStore {
     shapes: crate::pmap::PMap<Slot, u64>,
     moves: crate::pmap::PMap<(Slot, usize), u64>,
     copies: crate::pmap::PMap<std::sync::Arc<str>, std::sync::Arc<str>>,
+    source_stamps: crate::pmap::PMap<std::sync::Arc<str>, u64>,
     emptied: crate::pmap::PMap<Slot, ()>,
     unknown_cols: std::collections::HashMap<u32, Vec<usize>>,
     accent_cols: std::collections::HashMap<u32, Vec<usize>>,
@@ -131,6 +132,7 @@ impl MemStore {
     /// The first value of the committed tables, in table and key order, for which `blocks` says true: where it is and
     /// what it is.
     pub fn first_value_where(&self, blocks: impl Fn(&Value) -> bool) -> Option<NotShareable> {
+        self.footprint_everything("a read of every table");
         self.committed.iter().find_map(|((company, object), rows)| {
             rows.iter().find_map(|(k, r)| {
                 let at = |in_key: bool, vals: &[Value]| {
@@ -201,6 +203,7 @@ impl FrozenStore {
             shapes: store.committed_shapes.clone(),
             moves: store.committed_moves.clone(),
             copies: store.committed_copies.clone(),
+            source_stamps: store.committed_source_stamps.clone(),
             emptied: store.committed_emptied.clone(),
             unknown_cols: store.unknown_cols.clone(),
             accent_cols: store.accent_cols.clone(),
@@ -236,6 +239,8 @@ impl FrozenStore {
             committed_moves: self.moves.clone(),
             copies: self.copies.clone(),
             committed_copies: self.copies.clone(),
+            source_stamps: self.source_stamps.clone(),
+            committed_source_stamps: self.source_stamps.clone(),
             emptied: self.emptied.clone(),
             committed_emptied: self.emptied.clone(),
             unknown_cols: self.unknown_cols.clone(),

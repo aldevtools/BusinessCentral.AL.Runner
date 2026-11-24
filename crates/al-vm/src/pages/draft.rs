@@ -1,3 +1,7 @@
+//! New rows, drafts, saving a row, activating a control. The one owner of the new-row rules other
+//! modules share: `top_card_or_document`, `key_typed_since_draft_start` (`PageState::draft_start`).
+//! Close of the OpenNew row whose key was typed leaves the parts that show no row unread
+//! (`quiet_parts_at_new_host_close`).
 use super::pinned_shape::TestCall;
 use super::*;
 use al_builtins::page_op::PageMethod;
@@ -379,7 +383,7 @@ impl Session {
                 PageMethod::Previous | PageMethod::First => {
                     let fields = self.page_rec(st).borrow().fields.clone();
                     let mut s = st.borrow_mut();
-                    s.pending = Some(fields);
+                    s.pending = Some(fields.into_vec());
                     s.draft = false;
                     s.dirty = false;
                     Ok(Left::Go)
@@ -412,7 +416,7 @@ impl Session {
             return;
         }
         let fields = self.page_rec(st).borrow().fields.clone();
-        self.set_xrec_fields(st, fields);
+        self.set_xrec_fields(st, fields.into_vec());
     }
 
     /// xRec holds `fields`: the row as it was read.
@@ -426,7 +430,7 @@ impl Session {
         };
         let inst = st.borrow().instance.clone().expect("open page");
         if let Value::Record(x) = &inst.borrow().globals[slot] {
-            x.borrow_mut().fields = fields;
+            x.borrow_mut().fields = fields.into();
         }
     }
 
@@ -441,7 +445,7 @@ impl Session {
         let inst = st.borrow().instance.clone().expect("open page");
         let v = inst.borrow().globals[slot].clone();
         match v {
-            Value::Record(x) => x.borrow().fields.clone(),
+            Value::Record(x) => x.borrow().fields.to_vec(),
             _ => Vec::new(),
         }
     }
@@ -470,7 +474,7 @@ impl Session {
         let mut pk = table.primary_key(&rec.borrow().fields);
         self.ret_used = true;
         Ok(match self.record_op(RecordOp::Get, &probe, &mut pk)? {
-            Value::Boolean(true) => Some(probe.borrow().fields.clone()),
+            Value::Boolean(true) => Some(probe.borrow().fields.to_vec()),
             _ => None,
         })
     }
@@ -541,7 +545,7 @@ impl Session {
         st.borrow_mut().placeholder_line = false;
         // A list line started below a stored row: remember the row (see `PageState::after_new`).
         let anchor = (keep_focus && st.borrow().cursor == Cursor::Row && !st.borrow().draft)
-            .then(|| rec.borrow().fields.clone());
+            .then(|| rec.borrow().fields.to_vec());
         {
             let mut s = st.borrow_mut();
             s.after_new_by_update = anchor.is_some() && s.saved_by_update;
@@ -589,7 +593,7 @@ impl Session {
         st.borrow_mut().new_row_inserted_by_trigger = false;
         self.page_trigger(st, "onnewrecord", vec![Value::Boolean(true)])?;
         self.page_event(st, "onnewrecordevent", None, Some(true))?;
-        st.borrow_mut().draft_start = Some(rec.borrow().fields.clone());
+        st.borrow_mut().draft_start = Some(rec.borrow().fields.to_vec());
         st.borrow_mut().new_line_writes = Some(self.write_mark());
         // A card opened with OpenNew whose OnNewRecord inserts the new row itself still holds it as a new row: the next write to
         // a field outside the key inserts it again (corpus testpage/CfPageLeads.al:241-289
@@ -768,7 +772,7 @@ impl Session {
             return unsupported("a page saves an edit after an OnModifyRecordEvent subscriber vetoed one (not pinned)");
         }
         if !self.page_event(st, "onmodifyrecordevent", Some(true), None)? {
-            st.borrow_mut().modify_vetoed = Some(rec.borrow().fields.clone());
+            st.borrow_mut().modify_vetoed = Some(rec.borrow().fields.to_vec());
             return Ok(None);
         }
         self.ret_used = false;
@@ -1146,7 +1150,7 @@ impl Session {
         self.set_xrec(st);
         // The inserted row is the current row: the next OnAfterGetCurrRecord sees it as xRec (testpage/parts/QiHostSaveParts.al:580
         // `L.AGCR(D1/30000|typed x=D1/30000)` after the typed line was saved before the host SetValue).
-        st.borrow_mut().agcr_xrec = Some(rec.borrow().fields.clone());
+        st.borrow_mut().agcr_xrec = Some(rec.borrow().fields.to_vec());
         if let Some(host) = &host {
             let hrec = self.page_rec(host);
             if let Some(stored) = self.stored_row(&hrec)? {
@@ -1161,7 +1165,7 @@ impl Session {
                         edited = true;
                     }
                 }
-                hrec.borrow_mut().fields = merged;
+                hrec.borrow_mut().fields = merged.into();
                 if edited && host.borrow().dirty {
                     self.save_row(host)?;
                 } else {
@@ -1239,8 +1243,9 @@ impl Session {
 }
 
 /// The error of an insert whose row the page cannot find in its view (corpus testpage/AoTests.al:467-487,
-/// pages/triggers/RecordTriggerReturnValue.al:365).
-fn view_filtered_error() -> Signal {
+/// pages/triggers/RecordTriggerReturnValue.al:365), and of a tree's refresh whose filter left the row out
+/// (`validate_view_refresh.rs`).
+pub(super) fn view_filtered_error() -> Signal {
     error_code(
         "Validation error for Field: ,  Message = 'The view is filtered, and the entry is outside the filter. Some actions may not work.'",
         "TestValidation",

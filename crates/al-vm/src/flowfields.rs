@@ -5,10 +5,17 @@
 //! refused with `Signal::Unsupported`; the open questions are listed in
 //! docs/probes-needed.md. Aggregates are computed over the store's scan API
 //! (ADR-003): a FlowField reads the persistent table, one row at a time.
+//!
+//! A FlowField's value: `calc_value` (recursion guard by table and field, `CalcStack`), the rows from
+//! the store (`tally_stored`) or through the condition FlowFields of source rows
+//! (`tally_source_rows`), then one `aggregate` and `finish_value` (the pinned value exceptions).
 
 use crate::Session;
 use al_builtins::describe::Describe;
-use al_builtins::filter::{FieldFilter, FilterExpr, parse_filter_with};
+use al_builtins::filter::{
+    FieldFilter, FilterExpr, OtherSourceAtSign, calc_formula_at_sign_other_source, parse_filter_at_sign_measured,
+    parse_filter_both_at_signs_measured,
+};
 use al_builtins::native::{AlError, Signal, text_of, unsupported};
 use al_builtins::ops;
 use al_builtins::record_op::RecordOp;
@@ -411,14 +418,20 @@ impl Session {
             self.check_calc_field(table, p)?;
         }
         self.load_blobs(rec, &blobs)?;
-        let mut out = Vec::new();
+        let mut fresh = Vec::new();
         for &p in positions {
-            out.push((p, self.calc_value_in(rec, p, &mut Vec::new(), asked)?));
+            fresh.push(self.calc_value_in(rec, p, &mut Vec::new(), asked)?);
         }
+        // A page background task's repeated CalcFields answers its first answer (query_cache.rs).
+        let out = if blobs.is_empty() {
+            self.cached_calc_fields(rec, positions, fresh)?
+        } else {
+            fresh
+        };
         // A FlowField on a temporary record reads the persistent source table (corpus
         // record/TestCalcFieldsTruncateUniqueContracts.al:CalcFields_OnATemporaryRecord_ReadsThePersistentSourceTable).
         let mut r = rec.borrow_mut();
-        for (p, v) in out {
+        for (&p, v) in positions.iter().zip(out) {
             r.fields[p] = v;
         }
         Ok(())
@@ -684,11 +697,9 @@ impl Session {
         }
         let cx = self.cx_for(rec, &src_t)?;
         self.refuse_filter_over_rolled(&cx, &src_t, &filters)?;
-        let n = self
-            .store
-            .count(&cx, &src_t, &filters)
-            .map_err(|e| Signal::unsupported(format!("store error {e}")))?;
-        Ok(n > 0)
+        self.store
+            .exists(&cx, &src_t, &filters)
+            .map_err(|e| Signal::unsupported(format!("store error {e}")))
     }
 
     /// The value of FlowField `pos` of `rec`.
@@ -745,7 +756,8 @@ impl Session {
         self.note_indirect_read(src_t.object);
         self.unseeded_read(&src_t, rec.borrow().temporary, "a FlowField")?;
         // A CalcFields of the source table's own record raised a deferred Insert error before this (`record_op_inner`).
-        self.refuse_unmeasured_read_while_deferred(calc.table, "a FlowField read")?;
+        self.refuse_read_while_deferred(calc.table, "a FlowField read")?;
+        self.note_indirect_read_of_queue(calc.table, rec.borrow().company.as_deref(), true, "a FlowField read")?;
         // ADR-062: a FlowField reads its source table indirectly (CpPermLeads.al:29-63).
         if self.permission_checks() {
             self.permission_gate_flowfield(rec, calc.table, stack)?;
@@ -757,12 +769,16 @@ impl Session {
             .iter()
             .cloned()
             .partition(|c| src_fields[c.field].stored || src_fields[c.field].flow_filter);
+        // A page background task's worker does not see the rows the test session's insert queue holds (records/insert_buffer.rs).
+        let company = rec.borrow().company.clone();
+        let hidden = self.hide_queued_in_view(&[(&src_t, company, cx.clone())], "a FlowField read")?;
         let tally = if flow.is_empty() {
-            self.tally_stored(&cx, &src_t, &filters, calc)?
+            self.tally_stored(&cx, &src_t, &filters, calc)
         } else {
-            self.tally_source_rows(rec, &cx, &src_t, &stored, &flow, calc, stack)?
+            self.tally_source_rows(rec, &cx, &src_t, &stored, &flow, calc, stack)
         };
-        self.aggregate(f, calc, tally, !flow.is_empty())
+        self.show_queued_to_test_session(hidden);
+        self.aggregate(f, calc, tally?, !flow.is_empty())
     }
 
     /// The rows of the source table that pass `filters`, read from the store: a count and an exist ask the store, a lookup reads
@@ -849,7 +865,7 @@ impl Session {
             };
             {
                 let mut p = probe.borrow_mut();
-                p.fields = row.clone();
+                p.fields = row.clone().into();
                 p.company = rec.borrow().company.clone();
             }
             let mut pass = true;
@@ -1009,11 +1025,18 @@ impl Session {
         let src = &engine.program.objects[calc.table].table.as_ref().expect("table").fields;
         let language = al_builtins::format::FormatCtx::language(self);
         let enums = |id: u32| crate::views::enum_filter_members(&engine.program.objects[id as usize], language);
-        let parse = |text: &str, ty: &RtType| {
-            parse_filter_with(text, &[], ty, &enums)
-                .map_err(|e| Signal::unsupported(format!("CalcFormula filter: {e}")))
+        // `@` alone on a Code field is measured in a CalcFormula's field(filter()) of a normal field and in its filter('@'), and `<>@`
+        // alone in its filter('<>@') (`filter_at_sign`, AtSignAloneReads.al:558, :579, :752).
+        let parse = |text: &str, ty: &RtType, negated_measured: bool| {
+            let parsed = if negated_measured {
+                parse_filter_both_at_signs_measured(text, &[], ty, &enums)
+            } else {
+                parse_filter_at_sign_measured(text, &[], ty, &enums)
+            };
+            parsed.map_err(|e| Signal::unsupported(format!("CalcFormula filter: {e}")))
         };
-        // The flow filter the caller set on field `q`, if any.
+        // The flow filter the caller set on field `q`, if any. `@` alone and `<>@` alone in it are measured through field() and
+        // through field(filter()) (BgTaskQueryCache.al:5753, :5767; AtSignAloneReads.al:598, :904, :928).
         let flow = |q: usize| {
             rec.borrow()
                 .filters
@@ -1029,7 +1052,24 @@ impl Session {
                 ir::CalcValue::Const(k) => {
                     parts.push((c.field, FilterExpr::Eq(ops::convert(crate::constant(k), sty)?), false));
                 }
-                ir::CalcValue::Filter(text) => parts.push((c.field, parse(text, sty)?, false)),
+                ir::CalcValue::Filter(text) => {
+                    // `filter('@')` or `filter('<>@')` over a Date, Integer, Decimal, Boolean or name-showing Option source field
+                    // answers as BC does (al-builtins `filter_at_sign::calc_formula_at_sign_other_source`); the lowering admits
+                    // it only in a sum.
+                    let names_shown = al_builtins::filter::shows_member_names(&src[c.field].properties);
+                    let language = self.global_language();
+                    match calc_formula_at_sign_other_source(text, sty, names_shown, language) {
+                        Some(Err(refusal)) => return unsupported(refusal),
+                        Some(Ok(OtherSourceAtSign::Rows(true))) => {}
+                        Some(Ok(OtherSourceAtSign::Rows(false))) => {
+                            parts.push((c.field, FilterExpr::Or(Vec::new()), false))
+                        }
+                        Some(Ok(OtherSourceAtSign::Error { message, code })) => {
+                            return Err(crate::transactions::al_error_code(&message, code));
+                        }
+                        None => parts.push((c.field, parse(text, sty, true)?, false)),
+                    }
+                }
                 ir::CalcValue::Field(q) => {
                     let pf = &own[*q];
                     if pf.flow_filter {
@@ -1163,11 +1203,11 @@ impl Session {
                         let expr = match sty {
                             // A Text field over a Date source field: the earlier reading, then the pinned forms it refused
                             // (`calc_text_date_filter`). A Code field keeps the earlier reading only.
-                            RtType::Date if matches!(own[*q].ty, RtType::Text(_)) => match parse(&text, sty) {
+                            RtType::Date if matches!(own[*q].ty, RtType::Text(_)) => match parse(&text, sty, false) {
                                 Ok(e) => e,
                                 Err(refusal) => self.calc_text_date_filter(&text, &enums, refusal)?,
                             },
-                            _ => parse(&text, sty)?,
+                            _ => parse(&text, sty, false)?,
                         };
                         parts.push((c.field, expr, true));
                     }
@@ -1254,7 +1294,7 @@ impl Session {
                 ));
             }
         }
-        let (filters, flow_field_filters) = self.split_filters(rec);
+        let (filters, flow_field_filters) = self.split_filters(rec)?;
         let mut sums = vec![Decimal::ZERO; positions.len()];
         let cx = self.cx_for(rec, &t)?;
         let mut add = |row: &[Value]| -> Result<(), Signal> {
@@ -1280,13 +1320,15 @@ impl Session {
                 }
             }
         }
-        // The sums land in the record's fields only once all are known.
-        let mut out = Vec::new();
+        // The sums land in the record's fields only once all are known; a page background task's repeated CalcSums answers its
+        // first answer (query_cache.rs).
+        let mut fresh = Vec::new();
         for (s, &p) in sums.into_iter().zip(positions) {
-            out.push((p, to_number(s, &fields[p].ty, false)?));
+            fresh.push(to_number(s, &fields[p].ty, false)?);
         }
+        let out = self.cached_calc_sums(rec, &cx, &t, positions, fresh)?;
         let mut r = rec.borrow_mut();
-        for (p, v) in out {
+        for (&p, v) in positions.iter().zip(out) {
             r.fields[p] = v;
         }
         Ok(())
@@ -1296,7 +1338,17 @@ impl Session {
     /// fields) and those on FlowFields. Filters on FlowFilter fields are
     /// dropped: they hold no data and never constrain their own table (corpus
     /// record/TestCalcFormulaFlowFiltersTests.Codeunit.al:258).
-    pub(crate) fn split_filters(&self, rec: &Rec) -> (Vec<FieldFilter>, Vec<FieldFilter>) {
+    pub(crate) fn split_filters(&self, rec: &Rec) -> Result<(Vec<FieldFilter>, Vec<FieldFilter>), Signal> {
+        self.split_filters_read(rec, false)
+    }
+
+    /// [`Self::split_filters`] for a read that is a `Count()` AL code called on the Record variable (`count_by_al`): the one
+    /// read that compares a filter value a Decimal column cuts (`decimal_column::read_filters`).
+    pub(crate) fn split_filters_read(
+        &self,
+        rec: &Rec,
+        count_by_al: bool,
+    ) -> Result<(Vec<FieldFilter>, Vec<FieldFilter>), Signal> {
         let r = rec.borrow();
         let fields = &self.engine.program.objects[r.table as usize]
             .table
@@ -1320,9 +1372,10 @@ impl Session {
                 self.engine.program.objects[r.table as usize].table.as_ref(),
             ) {
                 crate::sqltime::round_filters(t, schema, &mut stored);
+                crate::decimal_column::read_filters(t, schema, &mut stored, &r.decimal_cut_filters, count_by_al)?;
             }
         }
-        (stored, flow_fields)
+        Ok((stored, flow_fields))
     }
 
     /// Whether a row passes the filters set on FlowFields: each is checked
@@ -1335,15 +1388,39 @@ impl Session {
         filters: &[FieldFilter],
     ) -> Result<bool, Signal> {
         let table = rec.borrow().table as usize;
+        let def = self.engine.tables[table].clone().expect("table");
+        // `@` alone on a FlowField as BC reads the rows for the Record call that is running (al-data
+        // `MemStore::at_sign_alone_read`): Count and IsEmpty read the database (BgTaskQueryCache.al:5809, AtSignAloneReads.al:366,
+        // :730); Find, FindFirst, FindLast, FindSet and Next check each row (AtSignAloneReads.al:366, :730). Any other reader keeps
+        // the filters: a Code field refuses.
+        let call = |m: RecordOp| self.is_al_record_call(m, rec);
+        let row_check = if call(RecordOp::Count) || call(RecordOp::IsEmpty) {
+            Some(false)
+        } else {
+            [
+                RecordOp::Find,
+                RecordOp::FindFirst,
+                RecordOp::FindLast,
+                RecordOp::FindSet,
+                RecordOp::Next,
+            ]
+            .into_iter()
+            .any(call)
+            .then_some(true)
+        };
+        let filters = match row_check {
+            Some(row_check) => self.store_for(rec)?.at_sign_alone_read(&def, filters, row_check),
+            None => std::borrow::Cow::Borrowed(filters),
+        };
         let probe = {
             let r = rec.borrow();
             let mut p = r.clone();
-            p.fields = row.to_vec();
+            p.fields = row.to_vec().into();
             p.temporary = false;
             p.auto_calc.clear();
             Rc::new(RefCell::new(p))
         };
-        for f in filters {
+        for f in filters.iter() {
             self.check_calc_field(table, f.field)?;
             let v = self.calc_value_in(&probe, f.field, &mut Vec::new(), Asked::RecordFilter)?;
             if !f.expr.matches(&v)? {

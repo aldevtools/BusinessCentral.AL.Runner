@@ -1,0 +1,8 @@
+# key	entry
+NB DIV Test::DescendingToCodeunitTableProcedure	ASSUMED by-value-report-procedure (corpus PR 1544, open, record/filters/ByValueDataItemView.al:220)
+NB DIV Test::DescendingToOwnReportProcedure	ASSUMED by-value-report-procedure (corpus PR 1544, open, record/filters/ByValueDataItemView.al:234)
+NB DIV Test::SecondaryKeyDescendingWithSetTableView	ASSUMED by-value-report-procedure (corpus PR 1544, open, record/filters/ByValueDataItemView.al:248)
+NB DIV Test::AscendingToCodeunit	ASSUMED by-value-report-procedure (corpus PR 1450, merged, record/filters/ByValueRecordView.al:1690)
+NB DIV Test::ThroughOwnProcedureToCodeunit	ASSUMED by-value-report-procedure (corpus PR 1544 :234 for the first hand-off; the report procedure's copy has the fresh view, as in PR 1450 ByValueRecordView.al:1342)
+NB DIV Test::ChildLinkAndViewToCodeunit	ASSUMED by-value-report-procedure (corpus PR 1544, open, record/filters/ByValueDataItemView.al:476)
+NB DIV Test::ViewToOtherInstance	ASSUMED by-value-report-procedure (corpus PR 1544, open, record/filters/ByValueDataItemView.al:504)

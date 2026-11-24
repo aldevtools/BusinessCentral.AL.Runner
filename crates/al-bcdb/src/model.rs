@@ -3,6 +3,8 @@
 //! as a tree: every table is a path of elements (`Element[SqlTable]` / `Relationship[Columns]`
 //! / `Entry` / `Element[SqlSimpleColumn]` / ...) and the scanner follows that path with a
 //! small stack.
+//!
+//! Entry points: `ModelScan`, `scan_streaming`, `split_name`.
 
 use crate::bcp::BacpacColumn;
 use crate::error::{Error, Result};

@@ -1,0 +1,2 @@
+{ "id": "8d1a2b3c-0000-4000-8000-000000058581", "name": "YR Yaml Utf8 Review R1", "publisher": "YN Neighbors", "version": "1.0.0.0",
+  "platform": "27.0.0.0", "runtime": "15.0", "idRanges": [ { "from": 61300, "to": 61309 } ] }

@@ -14,6 +14,10 @@
 //!
 //! Source positions (`Stmt::Pos`, `Routine::pos`) are not references; link shifts them
 //! (`Routine::shift_positions`).
+//!
+//! Every reference to another object, routine, field or control that an `Object` holds (`RefVisitor`,
+//! `walk_object`, `TableOf`); the one place that lists the reference sites of the IR. Entry points:
+//! `walk_object`, `RefVisitor`.
 
 use crate::*;
 
@@ -884,6 +888,7 @@ fn walk_part_link<V: RefVisitor>(l: &mut PartLink, target: TableOf, host: TableO
         provider: _,
         consts: _,
         enum_values: _,
+        not_blank: _,
     } = l;
     for e in entries {
         match e {
@@ -924,10 +929,13 @@ fn walk_control<V: RefVisitor>(
         expr_source: _,
         expr_row_unordered: _,
         expr_call: _,
+        rec_method_source: _,
         array_element: _,
         bare_quoted_ext_source: _,
+        visible_row_field: _,
         source_text: _,
         factbox: _,
+        fixed_or_grid: _,
     } = c;
     for (table, field) in [var_field, array_element_field].into_iter().flatten() {
         fld(v, field, TableOf::object(Some(*table)));

@@ -1,4 +1,6 @@
 //! Storage-form cells to typed values (port of `Values.cs`).
+//!
+//! Entry points: `SysColumn`, `type_name`, `Cell`, `LobResolver`.
 
 use crate::error::Result;
 use crate::value::Value;

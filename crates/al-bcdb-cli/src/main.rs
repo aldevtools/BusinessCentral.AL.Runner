@@ -8,6 +8,8 @@
 //!  * `--prefetch` is accepted and does nothing: the file is memory-mapped.
 //!  * `restore` is not ported: it needs a SQL Server as destination.
 //!  * `export` is new.
+//!
+//! The al-bcdb binary: reads BC database backups (.bak, .bacpac). Entry points: `main`.
 
 mod cmd;
 mod opts;

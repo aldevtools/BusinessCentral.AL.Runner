@@ -1,6 +1,13 @@
 //! The columns a store notes on write so that a read can refuse a row it cannot answer for, at no cost until such a row
 //! was stored: a value a platform row left unknown or a placeholder's size (`unknown_cols`), and a text outside ASCII (`accent_cols`), whose order or
 //! `@` match may rest on letters no measurement covers.
+//!
+//! The columns a write notes so a read can refuse rows it cannot answer for: unknown values of a
+//! platform row (`unknown_read`) and texts outside ASCII (`collation_read`: an order or filter
+//! resting on `Æ`/`æ` or on accents under `@` that no measurement covers, decided once per read and
+//! kept per table version, key and filters, `Verdict`, across Modifies that write no column the read
+//! looks at, `ModifyRun`). Entry points: `note_held` (called by `MemStore::kept`, which every row
+//! write passes), `collation_read`.
 
 use super::*;
 
@@ -69,8 +76,9 @@ impl MemStore {
     /// ([`al_builtins::collation::ae_decides_order`]). The rows are looked at only when a filter that can refuse
     /// ([`al_builtins::filter::FilterExpr::collation_open`]) reads a column where a written row held `Æ` or `æ` (any letter outside
     /// ASCII, for an `@` filter) or holds a letter outside ASCII itself, or the key orders by a column where a written row held
-    /// `Æ` or `æ` and no equality filter holds it to one text. Rows a backing or a virtual table
-    /// serves are not noted. A store that is not the database (a temporary record's, a CRM connection's) holds no normal records.
+    /// `Æ` or `æ` and no equality filter holds it to one text. Rows a backing serves are noted once a write copies them
+    /// into the store (`table_mut`), as a baseline exports them; until then, and for a virtual table, they are not. A
+    /// store that is not the database (a temporary record's, a CRM connection's) holds no normal records.
     ///
     /// The answer is decided once per read: it is kept per table, key and filters ([`Verdict`]) and holds while the table is
     /// the same, or only Modifies changed it that wrote no column the read looks at ([`ModifyRun`]).
@@ -224,7 +232,7 @@ impl MemStore {
 
     /// The version of `slot` now and the Modify run that ended there, to keep an answer computed now ([`KeptAt`]).
     fn kept_at(&self, slot: &Slot) -> KeptAt {
-        let version = self.versions.get(slot).copied().unwrap_or(0);
+        let version = self.stamp_of(slot, &self.versions);
         let run = self.modify_runs.get(slot).filter(|r| r.to == version).map(|r| r.id);
         KeptAt { version, run }
     }
@@ -232,7 +240,7 @@ impl MemStore {
     /// Whether an answer kept at `at` still holds for the rows of `slot` as far as the columns `cols` go: the table is at the same
     /// version, or only Modifies ran since (in the same run, or a run that started there) and none changed one of `cols`.
     fn still_holds(&self, slot: &Slot, at: &KeptAt, cols: &[usize]) -> bool {
-        let now = self.versions.get(slot).copied().unwrap_or(0);
+        let now = self.stamp_of(slot, &self.versions);
         at.version == now
             || self.modify_runs.get(slot).filter(|r| r.to == now).is_some_and(|r| {
                 (at.version == r.from || at.run == Some(r.id))
@@ -278,7 +286,7 @@ impl MemStore {
     /// Writes down a Modify of a table with noted columns (see [`ModifyRun`]): `before` is the table's version before it,
     /// `changed` the columns whose value it changed.
     pub(super) fn note_modify(&mut self, slot: &Slot, before: u64, changed: Vec<usize>) {
-        let to = self.versions.get(slot).copied().unwrap_or(0);
+        let to = self.stamp_of(slot, &self.versions);
         let run = self.modify_runs.entry(slot.clone()).or_default();
         if run.to != before {
             *run = ModifyRun {
@@ -306,8 +314,33 @@ impl MemStore {
     /// Writes down the columns of `row` that hold a value no read may compare (see `unknown_cols`, [`unread`]), a text outside ASCII (see
     /// `accent_cols`), and one with `Æ` or `æ` (see `ae_cols`).
     pub(super) fn note_held(&mut self, t: &TableDef, row: &Row) {
+        self.note_held_in(t.object, row);
+    }
+
+    /// This store with the held columns of every row it holds written down, as the writes that stored them wrote them
+    /// (`note_held`): a store made from exported rows ([`MemStore::from_exported`], a baseline read back from its bytes)
+    /// refuses the reads the store they were exported from refuses.
+    pub(super) fn with_held_noted(mut self) -> MemStore {
+        let tables = std::mem::take(&mut self.tables);
+        for ((_, object), table) in tables.iter() {
+            self.note_held_rows(*object, table);
+        }
+        self.tables = tables;
+        self
+    }
+
+    /// [`MemStore::note_held`] for every row of `table`, the rows of table object `object`: the rows a store takes in without a
+    /// write of each (read back from exported rows, or copied from the backing by the first write to a backed table).
+    pub(super) fn note_held_rows(&mut self, object: u32, table: &Table) {
+        for (_, row) in table.iter() {
+            self.note_held_in(object, row);
+        }
+    }
+
+    /// [`MemStore::note_held`] for a row of the table with object index `object`.
+    fn note_held_in(&mut self, object: u32, row: &Row) {
         let note = |map: &mut std::collections::HashMap<u32, Vec<usize>>, i: usize| {
-            let held = map.entry(t.object).or_default();
+            let held = map.entry(object).or_default();
             if !held.contains(&i) {
                 held.push(i);
             }
@@ -348,11 +381,6 @@ fn order_refusal(t: &TableDef, key: usize, a: &[Value], b: &[Value], normal_reco
             y.as_str()
         )
     })
-}
-
-/// Whether two filter lists are the same filters in the same order ([`FieldFilter::identical`]).
-fn same_filters(a: &[FieldFilter], b: &[FieldFilter]) -> bool {
-    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.identical(y))
 }
 
 /// How many verdicts of [`MemStore::collation_read`] one table keeps, the one used last first.

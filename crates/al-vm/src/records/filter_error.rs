@@ -1,5 +1,11 @@
 //! The English Filter:CSide error of a filter text `Record.SetFilter` rejects: one sentence that names the filter, the field and the
 //! table, then the reason; and the German sentence of a Date filter text.
+//!
+//! The English Filter:CSide sentence of a filter text SetFilter rejects (filter, field, table,
+//! reason), the German date-format error, and the date-format error of the other pinned languages
+//! (FilterGlobalLanguageDateBool.al). Entry points: `filter_error` (by the SetFilter arm of
+//! `records/op_inner.rs` and `setfilter_empty_or_side`), `german_date_filter_error`,
+//! `date_filter_error_in_language` (by `records/measured_setfilter.rs`).
 
 use super::*;
 

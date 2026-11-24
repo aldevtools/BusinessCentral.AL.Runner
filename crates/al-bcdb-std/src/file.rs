@@ -1,4 +1,6 @@
 //! A file as a byte source for the readers in `al-bcdb` (the core does no OS access, ADR-006).
+//!
+//! A file as a byte source (pread), the OS side of `al-bcdb` (ADR-006). Entry points: `FileSource`.
 
 use al_bcdb::io::ByteSource;
 use std::fs::File;

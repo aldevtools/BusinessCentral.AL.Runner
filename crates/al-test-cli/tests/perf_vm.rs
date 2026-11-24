@@ -1,7 +1,8 @@
-//! The VM speed budget (ADR-031): instructions per iteration of seven small programs that run in the interpreter.
+//! The VM speed budget (ADR-031): instructions per iteration of eight small programs that run in the interpreter.
 //!
 //! The programs are the test codeunits of `tests/vm-bench` (our own AL code): an Integer loop, a Decimal loop, a procedure
-//! call, text builtins, math builtins, record operations and `RecordRef.FieldIndex` on a table with FlowFields. Each runs
+//! call, text builtins, math builtins, record operations, `RecordRef.FieldIndex` on a table with FlowFields and a byte
+//! loop of `OutStream.Write` and `InStream.Read` on a temporary Blob. Each runs
 //! on one thread; the test counts the user-space instructions that thread executes while the tests of the codeunit run
 //! (`perf_event_open`), subtracts what an empty test codeunit costs (the session and the engine), and divides by the
 //! iterations. Instructions, not seconds: they do not move
@@ -41,7 +42,9 @@ struct Bench {
 /// Each fast path of ADR-031 that merges lowers them. CallLoop, TextLoop and BuiltinLoop were set on 2026-10-19 from 2295,
 /// 5342 and 5697 (spare value vectors for calls, the short path of a builtin whose operands are all values); the others
 /// are older and lower than their value plus 10 %. FieldIndex was set on 2026-10-27 from 4331 (al-runner issue 5911: the
-/// order of a table's fields worked out once, not on every call; it was 38861 before).
+/// order of a table's fields worked out once, not on every call; it was 38861 before). StreamByteLoop was set on 2026-11-22 from
+/// 4487 (one iteration is a Write and a Read of one byte): it guards the stream byte path of the GZip trailer codeunit 75290,
+/// whose wall budget in perf_budget.rs only catches a codeunit several times slower.
 const BENCHES: &[Bench] = &[
     Bench {
         name: "IntLoop",
@@ -91,6 +94,13 @@ const BENCHES: &[Bench] = &[
         iterations: 24_000,
         limit_instructions: 4764,
         limit_cpu_ns: 1000,
+    },
+    Bench {
+        name: "StreamByteLoop",
+        codeunit: 70009,
+        iterations: 100_000,
+        limit_instructions: 4936,
+        limit_cpu_ns: 1100,
     },
 ];
 const EMPTY: u32 = 70001;

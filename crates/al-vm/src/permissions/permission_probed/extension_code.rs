@@ -8,6 +8,11 @@
 //!   closes the page with `Page <name> has to close.`, code `FormAbort:Permission`.
 //!
 //! The measured shapes are allowlists of their facts here; every other access of extension code stays refused.
+//!
+//! The object grant of table extension and page extension code (the base table's Permissions on BC 27
+//! and 28, none on 29; the base page's on 27, 28 and 29) and the page close of a denied OnOpenPage,
+//! in the shapes permissions/testpermissions/Y19PermExtAndCompose.al pins. Entry points:
+//! `Session::extension_code_grant`, `Session::extension_page_denial`.
 use crate::Session;
 use crate::permission_bulk_no_match::{RecordCall, RecordCaller};
 use crate::permissions::{Access, Op, SetModel};

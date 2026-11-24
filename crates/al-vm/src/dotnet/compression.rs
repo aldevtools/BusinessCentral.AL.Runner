@@ -8,6 +8,9 @@
 //! Not pinned, so refused: a byte count in `CopyStream`, reading from a compressing stream or writing to a
 //! decompressing one. The bytes of the gzip header after the two magic numbers (modification time, operating system)
 //! are whatever the encoder writes; the corpus observes only the first four (GZipShortAndJoined.al:277).
+//!
+//! `GZipStream` and `CompressionMode` behind Data Compression's GZip methods (PZGzip.al): construct,
+//! `CopyStream` into a compressing stream, `Dispose`/`Close`, `CopyTo`.
 
 use super::registry::{MemberKind, Pin, RegistryMember, RegistryType};
 use crate::Session;

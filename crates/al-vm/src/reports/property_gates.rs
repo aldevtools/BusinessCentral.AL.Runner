@@ -1,4 +1,8 @@
 //! What a `Report.SaveAs` refuses in the report's declaration before it runs: [`save_as_declaration_refusals`].
+//!
+//! what a `Report.SaveAs` refuses in the report's declaration before it runs (a dataset this runtime
+//! cannot write, a TransactionType). Entry points: `save_as_declaration_refusals` (from
+//! `report_save_core`).
 
 use al_builtins::native::Signal;
 

@@ -1,5 +1,7 @@
 //! Reading a run: the ranking of refusal reasons (`--top-refusals`). Pure functions over the run's outcomes.
 //! `--baseline-diff` is `not_passing::render_diff`.
+//!
+//! --top-refusals (folded reason ranking).
 
 use crate::oracle::{CaseId, OracleCase};
 use crate::report::Outcome;

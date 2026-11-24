@@ -5,6 +5,8 @@
 //! TestFieldObsoleteStateVirtualTable.al and TestKeyVirtualTable.al. A table nothing compiled has
 //! no fields or keys in the program, so its rows are not known: they are poisoned, and a read that
 //! might touch them is refused (`mat.rs`).
+//!
+//! The Field and Key platform tables. Entry points: `field_row`, `shell_entries`.
 
 use super::mat::Entry;
 use super::objects::{Catalog, ident, prop, string_lit, truthy};

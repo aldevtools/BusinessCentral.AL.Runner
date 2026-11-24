@@ -16,6 +16,15 @@
 //!
 //! One exception, for the PDF only (owner decision 2026-11-12): a read that stays inside the bytes the corpus pins at the start of
 //! BC's PDF answers ([`pdf_read`], [`PDF_PREFIX`]).
+//!
+//! the mark of a placeholder report output (ADR-040 amendment 2026-11-11): presence and byte copies
+//! answer, every read of the content is refused; the size is `Value::PlaceholderSize`, which answers
+//! only a comparison with 0; a record field may hold it, with the number type of its slot, and
+//! `size_read` refuses a platform read of such a field (amendment 2026-11-12b; the store refuses a
+//! filter or sort on it in al-data `MemStore::unknown_read`); a comparison `size_order` refused that
+//! a caller turned into an answer (a page's row compare) is refused at the next builtin call or the
+//! end of the procedure (`UNANSWERED`). Entry points: `mark`, `is_placeholder`, `refusal`, `size`,
+//! `size_order`, `size_read`, `size_guard`, `refuse_unanswered`.
 
 use std::cmp::Ordering;
 use std::sync::Arc;
@@ -170,6 +179,7 @@ pub fn size(mark: &Arc<str>) -> Value {
 static SIZE_MADE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Whether [`size_guard`] can find a size (see [`SIZE_MADE`]).
+#[inline]
 pub fn sizes_made() -> bool {
     SIZE_MADE.load(std::sync::atomic::Ordering::Relaxed)
 }

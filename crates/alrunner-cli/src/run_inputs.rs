@@ -15,6 +15,13 @@
 //!   does not depend on where a checkout is (ADR-050 decision 10) and a file that keeps its name but changes its
 //!   content is another key (decision 7).
 //! - **not an input**: named in an arm that says why.
+//!
+//! `RunInputs::of` destructures `TestArgs` without `..`: each field is an outcome input, a stored-
+//! result-only input, a compile input, a content file, or named as no input with the reason.
+//! `outcome_digest(Purpose)` is the options hash of the `--affected` stored result (`affected.rs`)
+//! and the options part of the impact index key (`impact_index.rs`); `compile_text` is the options
+//! part of the key of serve's kept compile (`run.rs`, beside `warm_key`). A new option is added here
+//! and nowhere else; the tests need a miss test per input.
 
 use crate::args::TestArgs;
 use sha2::{Digest, Sha256};
@@ -160,7 +167,6 @@ impl RunInputs {
             dependencies_published_global,
             permissions_off,
             strict_order,
-            max_replay,
             test_suites,
             // The memory budget: the number of test threads, and in a plain run a hard limit (ADR-066 amendment 10,
             // decision 6) that stops a run which cannot fit, its tests not reached not run. Not a key: the budget also
@@ -263,9 +269,8 @@ impl RunInputs {
             .push(("dependencies_published_global", text(dependencies_published_global)));
         // ADR-062 section 5.
         r.outcome.push(("permissions_off", text(permissions_off)));
-        // The serial run is reported (ADR-066 amendments 4, 7 and 12).
+        // BC's order (ADR-070).
         r.outcome.push(("strict_order", text(strict_order)));
-        r.outcome.push(("max_replay", text(max_replay)));
         // The values of one stability variant (ADR-058): company name, work date, order and more. Without
         // `--stability` the text holds the values themselves; an id needs `--stability`, which `--affected` and an
         // impact run refuse.
@@ -441,7 +446,7 @@ mod tests {
     type Change = fn(&mut TestArgs, &Path);
 
     /// One change per outcome input, by the name `RunInputs::of` gives it. The path is a file that exists.
-    const CHANGES: [(&str, Change); 44] = [
+    const CHANGES: [(&str, Change); 43] = [
         ("country", |a, _| a.country = Some("de".into())),
         ("bc_version", |a, _| a.bc_version = Some("27.5".into())),
         ("isolation", |a, _| {
@@ -467,7 +472,6 @@ mod tests {
         }),
         ("permissions_off", |a, _| a.permissions_off = true),
         ("strict_order", |a, _| a.strict_order = true),
-        ("max_replay", |a, _| a.max_replay = Some(3)),
         ("stability_replay", |a, _| {
             a.stability_replay = Some("company.name=Other Company".into())
         }),

@@ -89,26 +89,17 @@ fn an_imported_table_keeps_the_number_order_of_its_key() {
     assert_number_order(&thawed, "thaw");
 }
 
+/// A view without some rows (`MemStore::without_rows`, the rows the insert queue holds back from a page background task's worker)
+/// counts no access, write or store operation, and leaves the store it was taken from as it was.
 #[test]
-fn a_row_change_replay_keeps_the_number_order_of_the_key() {
+fn a_view_without_rows_counts_nothing_and_leaves_the_store() {
     let t = int_table();
-    let base = MemStore::from_exported(store().export_committed().unwrap());
-    let mut next = base.clone();
-    next.insert(&cx("C"), &t, row("2", 1, 1)).unwrap();
-    next.delete(&cx("C"), &t, &code("9")).unwrap();
-    next.commit();
-    let changes = next
-        .committed_row_changes_from(&base, &mut |a, b| Some(format!("{a:?}") == format!("{b:?}")))
-        .unwrap();
-    let replayed = base.with_committed_row_changes(changes).unwrap();
-    for no in ["1", "2", "10"] {
-        assert!(
-            replayed.committed_get(&cx("C"), &t, &code(no)).is_some(),
-            "committed_get misses {no}"
-        );
-    }
-    assert!(replayed.committed_get(&cx("C"), &t, &code("9")).is_none());
-    let (up, down) = order(&replayed);
-    assert_eq!(up, ["1", "2", "10"]);
-    assert_eq!(down, ["10", "2", "1"]);
+    let s = store();
+    let (ops, accesses, writes) = (store_ops(), s.accesses(), s.writes());
+    let view = s.without_rows(&cx("C"), &t, &[code("9")]).unwrap();
+    assert_eq!((store_ops(), s.accesses(), s.writes()), (ops, accesses, writes));
+    assert_eq!(view.change_counter(), s.change_counter());
+    assert!(view.get(&cx("C"), &t, &code("9")).unwrap().is_none());
+    assert!(s.get(&cx("C"), &t, &code("9")).unwrap().is_some());
+    assert_eq!(order(&view).0, ["1", "10"]);
 }

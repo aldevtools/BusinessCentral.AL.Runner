@@ -18,6 +18,10 @@
 //! Metadata Updates), run by id with `Codeunit.Run` as the runner does. "Exists" is the runner's `AllObj` check: a
 //! codeunit with that id in the loaded apps. When none of them is loaded (the corpus apps load only Permissions Mock)
 //! only what is loaded runs. The steps of the Test Runner app itself are done here: our runner replaces it.
+//!
+//! What BC's AL test runner does around each test method: runs codeunits 131006, 130301, 130302
+//! (TestPermissions not Disabled) and 132553 when loaded, in Microsoft's order. Entry points:
+//! `RunnerReset::of`, `before`, `after`, `test_permissions`.
 
 use super::*;
 

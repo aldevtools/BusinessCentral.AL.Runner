@@ -10,11 +10,14 @@
 //!
 //! The conditional `c ? a : b` is not in that table; it is parsed below level 5
 //! (lowest), which is what `exit(N > 3 ? 'big' : 'small')` in the corpus needs.
+//!
+//! Expression grammar. Entry points: `expr`, `arg_list`.
 
 use crate::SyntaxKind::{self, *};
 use crate::parser::Parser;
 
-/// Words that can never be a name in expression position.
+/// Words that can never be a name in expression position. `local` is not one: in code it is a name (`Local := 2;` compiles,
+/// al-runner issue 8629); it is reserved only where a declaration begins (`declarations::is_declaration_reserved`).
 #[cfg(test)]
 const RESERVED: &[&str] = &[
     "begin",
@@ -37,7 +40,6 @@ const RESERVED: &[&str] = &[
     "var",
     "procedure",
     "trigger",
-    "local",
     "and",
     "or",
     "xor",
@@ -80,7 +82,6 @@ pub(crate) fn is_reserved(word: &str) -> bool {
             | b"var"
             | b"procedure"
             | b"trigger"
-            | b"local"
             | b"and"
             | b"or"
             | b"xor"

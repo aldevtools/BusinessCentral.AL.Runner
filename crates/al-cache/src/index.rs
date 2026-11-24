@@ -8,6 +8,9 @@
 //! ```
 //! `digest` is made from the key, so an index made for other inputs is refused; the payload is
 //! `zstd(postcard(Vec<Vec<FileIndex>>))`, one list of files per dependency app.
+//!
+//! The index entry (ADR-022, pure tests): the scan of the dependency sources, keyed, for a run that
+//! reads none of them. Entry points: `build_index`, `open_index`, `index_file_name`.
 
 use crate::{CacheError, FORMAT, Key};
 use al_sema::FileIndex;

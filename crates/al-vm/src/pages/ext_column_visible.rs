@@ -6,6 +6,15 @@
 //! The rule enters only on the measured page, every fact by equality: the page (:86-108), its one extension (:175-204) and
 //! what the three triggers do (`measured_columns`), the two rows (:213-226), and the calls the test made since the open
 //! (`ext_column_shown`).
+//!
+//! the Visible of a List's repeater column that a page extension's modify() binds to a Boolean
+//! variable its OnAfterGetRecord sets to true (PageExtModifyVisibleVariable.al:519-547). Static
+//! allowlist of the measured page, extension and trigger bodies (`measured_columns`); the columns the
+//! first OnAfterGetRecord of the open's own read turned on are kept in `PageState::ext_columns_shown`
+//! and read Yes only after the measured test calls (`ext_column_shown`, called from
+//! `control_visible`). The base control's own Visible is told apart by
+//! `al_ir::Control::ext_replaced`. Entry points: `load_first_row_at_open`,
+//! `show_ext_columns_after_first_open_row`.
 
 use super::pinned_shape::TestCall;
 use super::*;

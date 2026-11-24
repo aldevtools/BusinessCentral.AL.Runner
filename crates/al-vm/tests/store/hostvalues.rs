@@ -554,16 +554,17 @@ fn the_client_type_members_have_the_platforms_ordinals() {
     assert_eq!(text("", &format!("exit({body});")), "1,2,4,5,14,7,8,3,9,10,11,15,13,");
 }
 
-// ProbeSystemEnumMembers.al:94-112: a read starts the transaction; a set of Report after it reads as Update, and the
-// Commit leaves Update as the type of the next transaction, which a set changes again. A Report set before the read is
-// kept by the Commit as well (corpus pull request 1488, record/TxTypeUpdateReport.al:610-620 TxU25).
+// ProbeSystemEnumMembers.al:94-112, which runs at the Update the test before it left: after a read at Update a set of
+// Report reads as Update, and the Commit leaves Update as the type of the next transaction, which a set changes again. A
+// Report set before the read is kept by the Commit as well (corpus pull request 1488, record/TxTypeUpdateReport.al:610-620
+// TxU25).
 #[test]
 fn a_set_after_a_read_and_after_a_commit() {
     assert_eq!(
         text(
             "R: Record \"ALT T\";",
-            "if R.FindFirst() then; Database.CurrentTransactionType(TransactionType::Report); \
-             exit(Format(Database.CurrentTransactionType()));"
+            "Database.CurrentTransactionType(TransactionType::Update); if R.FindFirst() then; \
+             Database.CurrentTransactionType(TransactionType::Report); exit(Format(Database.CurrentTransactionType()));"
         ),
         "Update"
     );

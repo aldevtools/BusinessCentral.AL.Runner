@@ -1,0 +1,8 @@
+# key	entry
+# Against main with #8648 merged, only the two cells of a row the insert queue still holds differ: main refuses them, this branch
+# reads them on the view without the queued rows (al-runner PR 8498). The two Queued neighbors refuse on both, with a new text; on
+# this branch the worker's read went through the view first, so the refusal carries its flag.
+RL Queue Count Tests::BgTaskReadIsolation_QueuedInsert_OtherHostPage_ReadCommittedCount_LeavesItOut	ASSUMED bg-task-insert-queue,bg-task-readisolation-lock (corpus PR 1498, merged at c83004ed, not pinned yet, BgTaskReadIsolationLock.al:583; the view without the queued rows of al-runner PR 8498)
+RL Queue Get Tests::BgTaskReadIsolation_QueuedInsert_OtherHostPage_ReadCommittedGet_NotFound	ASSUMED bg-task-insert-queue,bg-task-readisolation-lock (corpus PR 1498, merged at c83004ed, not pinned yet, BgTaskReadIsolationLock.al:606; the view without the queued rows of al-runner PR 8498)
+RL NB Queued RepeatableRead::QueuedInsert_RepeatableReadGet	REFUSED page background task read under ReadIsolation of a table the test codeunit wrote or locked: a row the test session's insert queue still holds, in a form no cell measures
+RL NB Queued And Committed::QueuedInsert_NextToACommittedRow_ReadCommittedGet	REFUSED page background task read under ReadIsolation of a table the test codeunit wrote or locked: a row the test session's insert queue still holds, in a form no cell measures

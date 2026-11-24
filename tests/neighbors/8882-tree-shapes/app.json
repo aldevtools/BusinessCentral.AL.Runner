@@ -1,0 +1,13 @@
+{
+  "id": "b1c6f7a2-5d3e-4f80-9a1b-888200000001",
+  "name": "Neighbors 8882 CurrPage.Update in a control's OnValidate on a tree page, over other rows",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "idRanges": [
+    { "from": 97670, "to": 97685 },
+    { "from": 130000, "to": 130000 }
+  ],
+  "dependencies": []
+}

@@ -38,7 +38,6 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "noClient",
     "allowWriteInTryFunctions",
     "strictOrder",
-    "maxReplay",
     "maxMemory",
     "testSuites",
     "dependenciesPublishedGlobal",
@@ -413,17 +412,8 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
     a.no_client = flag(fields, "noClient")?;
     // Issue 7143: the service-tier setting DisableWriteInsideTryFunctions is off, as `--allow-write-in-try-functions`.
     a.allow_write_in_try_functions = flag(fields, "allowWriteInTryFunctions")?;
-    // ADR-066 amendment 4: every order-dependent test codeunit runs again serially, as `--strict-order`.
+    // ADR-070: BC's order, as `--strict-order`.
     a.strict_order = flag(fields, "strictOrder")?;
-    // ADR-066 amendment 7 (owner, 2026-11-08): a replay cap only when asked for, as `--max-replay N`.
-    a.max_replay = match fields.get("maxReplay") {
-        None | Some(Value::Null) => None,
-        Some(v) => Some(
-            v.as_u64()
-                .map(|n| n as usize)
-                .ok_or("`maxReplay` is a whole number of test codeunits")?,
-        ),
-    };
     // ADR-066 amendment 6: `testSuites` is the path of a suites file, as `--test-suites FILE`.
     a.test_suites = match fields.get("testSuites") {
         None | Some(Value::Null) => None,
@@ -1352,21 +1342,6 @@ mod tests {
             assert!(request(bad.clone()).unwrap_err().contains("`testTimeoutSecs`"), "{bad}");
             assert!(entry(bad.clone()).unwrap_err().contains("`testTimeoutSecs`"), "{bad}");
         }
-    }
-
-    /// ADR-066 amendment 7 (owner, 2026-11-08): `maxReplay` is `--max-replay N` for one request; no cap without it.
-    #[test]
-    fn max_replay_field() {
-        let run = |v: Value| request_args(&base(), &fields(v));
-        assert_eq!(
-            run(json!({"sourcePaths": ["/a"], "maxReplay": 50}))
-                .unwrap()
-                .0
-                .max_replay,
-            Some(50)
-        );
-        assert_eq!(run(json!({"sourcePaths": ["/a"]})).unwrap().0.max_replay, None);
-        assert!(run(json!({"sourcePaths": ["/a"], "maxReplay": "x"})).is_err());
     }
 
     /// al-runner issue 7954: a pass through an unprobed assumption is flagged on its `test` line and counted in the summary,
