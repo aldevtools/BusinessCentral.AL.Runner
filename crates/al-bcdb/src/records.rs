@@ -1,5 +1,7 @@
 //! Record parsers (port of `Records.cs`): the uncompressed FixedVar layout and the
 //! compressed "column descriptor" (CD) layout of row- and page-compressed data.
+//!
+//! Entry points: `record_type`, `is_ghost_type`, `live_slot`, `FixedVar`.
 
 use crate::error::{Error, Result};
 use crate::io::le;

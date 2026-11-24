@@ -14,6 +14,21 @@
 //! Every chain also needs the facts its cells share (`cell_facts`); the Validate called by other code than a test procedure, and
 //! an event with two subscribers, run through assumption `xrec-table-proc-callers-subscribers` (`callers_assumed`,
 //! `subscribers_measured`).
+//!
+//! The xRec of a procedure of a table or of its table extensions that a codeunit procedure calls on
+//! its `var` record while a field OnValidate of that record runs: the trigger's xRec, shared, in the
+//! measured chains (through a procedure of the table,
+//! record/validate/XRecTableProcThroughCodeunit.al; straight from the trigger, or from the sole
+//! subscriber of an integration event the trigger raises, also under a Validate the table's own code
+//! nested, record/validate/XRecTableProcThroughSubscriber.al; only with the facts every cell shares,
+//! `cell_facts`: no SingleInstance codeunit, the record untouched since the Validate started, the
+//! outer Validate called by a test codeunit, or, through assumption `xrec-table-proc-callers-
+//! subscribers`, by the callers `callers_assumed` lists and with two subscribers,
+//! `subscribers_measured`; under the nested Validate shared only while both Validates' xRecs hold the
+//! outer before-image and one view, and for reading: a change of values or view refuses,
+//! `XREC_CHANGED_UNDER_NESTED_VALIDATE`, `XrecView`), else a blank xRec marked `XREC_OF_RUNNING_CALL`
+//! whose reads refuse, also in the triggers of a Validate it calls (`BeforeImage`), and in a
+//! procedure the shared one calls on Rec (`shared_xrec_of_own_procedure`).
 
 use super::nested_validate::{ProcXrec, ValidateRun, ValidateSite};
 use crate::records::Rec;
@@ -517,19 +532,16 @@ impl Session {
     /// the last Commit or rollback is noted (`writes_all_noted`), and the last of them that is to the row's key or to its whole
     /// table (a Rename, ModifyAll, DeleteAll, Truncate or other write whose rows are not told apart) is an Insert of the row.
     fn inserted_unwritten_in_tx(&self, r: &RecordState) -> bool {
-        use crate::state::TxWriteKind;
         let Some(t) = self.engine.tables.get(r.table as usize).and_then(|t| t.as_deref()) else {
             return false;
         };
-        let pk = t.primary_key(&r.fields);
-        let last = self.tx.open.writes.iter().rev().find(|w| {
-            w.table == t.object
-                && w.company == r.company
-                && (crate::records::same_key(&w.pk, &pk)
-                    || !matches!(w.kind, TxWriteKind::Insert | TxWriteKind::Modify | TxWriteKind::Delete))
-        });
         self.writes_all_noted()
-            && last.is_some_and(|w| w.kind == TxWriteKind::Insert && crate::records::same_key(&w.pk, &pk))
+            && super::write_notes::inserted_unwritten(
+                &self.tx.open.writes,
+                t.object,
+                &r.company,
+                &t.primary_key(&r.fields),
+            )
     }
 }
 

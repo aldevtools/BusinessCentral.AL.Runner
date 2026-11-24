@@ -311,7 +311,13 @@ fn ours(ctx: &str, kind: Kind, tmpl: &str) -> BTreeMap<(String, String, String),
             ("src/matrix.al".into(), src.clone()),
         ],
     };
-    let ws = Workspace::load(vec![app], &al_version::corpus_symbols(29));
+    let ws = Workspace::load(
+        vec![app],
+        &al_version::corpus_symbols(
+            &al_version::BcVersion::new(29, 0),
+            &al_version::ReleasedMinors::NotRecorded,
+        ),
+    );
     let members = al_sema::members::build(&ws);
     let catalog = al_builtins::catalog::Catalog::for_target(
         &al_version::Target::for_bc(al_version::BcVersion::new(29, 0))

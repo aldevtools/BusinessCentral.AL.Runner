@@ -14,6 +14,15 @@
 //! Any other assigned list leaves the session restricted. No access kind is enforced yet, so the first access a
 //! restricted session makes outside the mock's own code refuses the test with the text the refusal had before (the
 //! stages of ADR-062 section 5 turn the checks on once their probes land).
+//!
+//! The session's permission sets (ADR-062): `SetModel` composes the Role IDs
+//! `PermissionTestHelper.AddEffectivePermissionSet` assigned from the permission set objects' source
+//! (`platform::raw_sets`: wildcards, IncludedPermissionSets), once per engine and set list; a list
+//! that grants everything (SUPER) leaves `Session::permissions` at `None` (unrestricted). A
+//! restricted session is refused at its next routine call (`Session::call_with_facts`) or record
+//! method (`records::record_op`) outside codeunit 131006, or at the end of the test (al-testrun
+//! `run.rs`). Entry points: `SetModel::compose`, `Session::assign_permission_set`, `permission_gate`,
+//! `permissions_lowered_at_end`.
 
 use crate::{Engine, Session};
 
@@ -1816,7 +1825,7 @@ impl Session {
                 refuse("Find('=') of a non-blank key that does not exist on a table with rows")
             };
         }
-        let (filters, flow_field_filters) = self.split_filters(rec);
+        let (filters, flow_field_filters) = self.split_filters(rec)?;
         if !flow_field_filters.is_empty() || rec.borrow().marked_only {
             return refuse("a read with a FlowField filter or marked records only");
         }
@@ -1875,7 +1884,8 @@ impl Session {
     pub(crate) fn count_approx(&mut self, rec: &crate::records::Rec) -> Result<al_builtins::value::Value, Signal> {
         // The Count below would raise a deferred Insert error as Count does; for CountApprox that is not measured.
         if !rec.borrow().temporary {
-            self.refuse_unmeasured_read_while_deferred(rec.borrow().table as usize, "CountApprox")?;
+            let (table, company) = (rec.borrow().table as usize, rec.borrow().company.clone());
+            self.refuse_unmeasured_read_while_deferred(table, company.as_deref(), "CountApprox")?;
         }
         self.permission_from_al = self.permission_checks();
         self.record_op(al_builtins::record_op::RecordOp::Count, rec, &mut [])

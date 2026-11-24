@@ -1,0 +1,5 @@
+# key	entry
+# No test differs from main. GetField by the Name control's id on page 97498 of corpus PR 1535 (ListValidateViewReads.al) is
+# on main since al-runner issue 8832. On the tree page 97499 GetField finds the control too
+# (LT RVR Tests::Tree_GetFieldById_BeforeFirstStep, Tree_GetFieldById_BetweenSteps, Tree_GetFieldById_AfterSteps), and the
+# tree's refresh keeps main's wrong answer: al-runner issue 8888.

@@ -1,4 +1,9 @@
 //! Sub-states of a [`Session`] (ADR-037 item 3): fields that belong together, so `Session` stays readable.
+//!
+//! Sub-states of `Session`: `TxState` (what ends with the open transaction is `OpenTx`, which a
+//! Commit and a rollback reset in one step, `Session::end_open_transaction`; its locks are `TxLocks`;
+//! how far the transaction has started is `transactions::TxPhase`), `UiState`, `PageClients`,
+//! `EventState`, `CoverageState`, `ReportState` (the .NET host state is `dotnet::DotNetState`).
 
 use super::*;
 
@@ -20,9 +25,13 @@ pub(crate) struct TxState {
     /// What `transaction_type` rests on when no corpus case pins it (`Session::transaction_type_seen`): the assumptions it
     /// went through (a Commit kept it, al-runner issue 8605; a test method before left it, 8606), or that it is not known (a
     /// test method before it did not run to its end and could set it). A set that takes effect clears it.
-    pub(crate) type_origin: crate::transactions::TypeOrigin,
+    pub(crate) type_origin: crate::transaction_type::TypeOrigin,
     /// A test method of this codeunit has ended (`Session::test_method_ended`): the next one starts with the type it left.
     pub(crate) test_ended: bool,
+    /// The rollback of an asserterror in the code of the test ended the test runner's transaction in a codeunit's first test
+    /// method (`OpenTx::runner_tx`) and no Commit came after it: a set of the type then rests on
+    /// `first-test-rollback-ends-runner-transaction`.
+    pub(crate) runner_tx_rolled_back: bool,
     /// `Database.LockTimeout`: whether a lock wait ends in a timeout error.
     pub(crate) lock_timeout: bool,
     /// `Database.LockTimeoutDuration` in milliseconds.
@@ -65,6 +74,11 @@ pub(crate) struct TxState {
     /// The record (its address) whose Insert was the last to leave a duplicate key pending: the insert queue asks whether the
     /// Insert that sends it was itself a duplicate (`Session::note_insert_buffer`).
     pub(crate) deferred_by: Option<usize>,
+    /// The record (its address) whose queued Insert runs now, until it writes the store (`Session::queue_stored_row`).
+    pub(crate) queue_pending: Option<usize>,
+    /// The records (their addresses) whose queued Insert put its row into the queue at the store write, before its After
+    /// event ran; taken by `Session::note_insert_buffer`.
+    pub(crate) queue_counted: Vec<usize>,
     /// How many deferred duplicate-key Inserts have come out so far (a TestPage action wraps the code of one its own
     /// Insert left, `action_invoke`).
     pub(crate) deferred_raised: u32,
@@ -107,8 +121,9 @@ pub(crate) struct OpenTx {
     /// A duplicate-key Insert into a table without a Blob field does not fail where it is
     /// called: the table (object index) and the error come out at the next access to the table
     /// or at Commit (corpus record/TestRecordRuntimeTextsAndViews.al:
-    /// Record_Insert_DuplicateKey_WithoutBlobField_IsDeferred_AndSurfacesAtTheNextAccess).
-    pub(crate) deferred_insert: Option<(usize, AlError)>,
+    /// Record_Insert_DuplicateKey_WithoutBlobField_IsDeferred_AndSurfacesAtTheNextAccess). An Insert of a Date or DateTime its
+    /// SQL column cannot hold is deferred the same way (`records/sql_range.rs`).
+    pub(crate) deferred_insert: Option<crate::records::DeferredInsert>,
     /// The rows each table's insert queue holds since it was last sent (`Session::note_insert_buffer`).
     pub(crate) insert_buffer: Vec<crate::records::InsertQueue>,
     /// What `Database.LastUsedRowVersion` reports inside the open transaction (`Session::last_used_row_version`): the
@@ -127,9 +142,10 @@ pub(crate) struct OpenTx {
     /// CurrentTransactionType set (`transactions.rs`) are noted in it or end it, a Codeunit.Run (`transactions.rs`) and a
     /// report run end it, and so does the end of the transaction.
     pub(crate) moment: Option<crate::reports::transaction_world::Moment>,
-    /// The open transaction is the one the test runner started before the first test method of the codeunit: a
-    /// CurrentTransactionType set to another type has no effect there on BC (corpus pull request 1488,
-    /// session-system/TxTypeNextTestMethod.al TxN01's comment), which no case pins.
+    /// The open transaction may be one the test runner started before the first test method of the codeunit: whether a
+    /// CurrentTransactionType set to another type takes effect there depends on the runner and on what ran before (the
+    /// description of corpus pull request 1520), so such a set is refused. A Commit and the rollback of an asserterror in the
+    /// code of the test end it (`transaction_type.rs`); every other rollback keeps it.
     pub(crate) runner_tx: bool,
 }
 
@@ -221,12 +237,30 @@ pub(crate) struct BulkEnd {
 /// The row versions of the open transaction as `Database.LastUsedRowVersion` sees them (`OpenTx::row_versions`).
 #[derive(Clone, Debug, Default)]
 pub(crate) struct RowVersionTx {
-    pub(crate) pending_inserts: Vec<(u32, Option<String>, i64)>,
+    /// (table, company, first, last): the row versions the Inserts of rows of that table that nothing sent yet handed out.
+    pub(crate) pending_inserts: Vec<(u32, Option<String>, i64, i64)>,
     pub(crate) sent: i64,
     pub(crate) handed_out: u64,
     pub(crate) accounted: u64,
     pub(crate) last: i64,
     pub(crate) unpinned: Option<&'static str>,
+    /// A Rename (`TxWriteKind::Other`) whose row version counts when it ends as a plain one (`Session::end_row_version_write`), or
+    /// a ModifyAll whose first modified row ends it (`Session::note_row_versions`). Set: `last_used_row_version` refuses.
+    pub(crate) write_sends: Option<(u32, Option<String>, TxWriteKind)>,
+    /// The value moved by a write after an Insert through the assumption `row-version-write-after-insert`
+    /// (`Session::note_row_versions`); `Session::last_used_row_version` marks the answer.
+    pub(crate) assumed_write: bool,
+}
+
+/// The rows of `table` whose SystemRowVersion lies in (`from`, `to`], in any company: the open transaction inserted them, and a row
+/// version sent before them was at or above theirs (`Session::send_pending_insert`). BC gives them their row version when it
+/// sends them (RowVersionWrites.al:392 of corpus PR 1509, merged, not pinned: InsertTwoTables `row/other` greater); this
+/// runtime keeps the Insert's, so what shows it is refused (`records/restamped.rs`). Kept until the session's data is replaced.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RestampedRows {
+    pub(crate) table: u32,
+    pub(crate) from: i64,
+    pub(crate) to: i64,
 }
 
 /// One Record write to the database store: the store's change counter before and after it.
@@ -255,6 +289,7 @@ impl TxState {
             transaction_type: 0,
             type_origin: Default::default(),
             test_ended: false,
+            runner_tx_rolled_back: false,
             lock_timeout: true,
             lock_timeout_duration: 10,
             committed_row_version: 0,
@@ -270,6 +305,8 @@ impl TxState {
             get_from_al: false,
             write_of_al: None,
             deferred_by: None,
+            queue_pending: None,
+            queue_counted: Vec::new(),
             deferred_raised: 0,
             immediate_errors: false,
             try_depth: 0,
@@ -324,6 +361,15 @@ pub(crate) struct PageClients {
     pub(crate) scope_unpinned: Vec<Rc<RefCell<crate::pages::PageState>>>,
     /// A page background task worker is running: its parameters and the result it set.
     pub(crate) bg_worker: Option<pages::BgWorker>,
+    /// The test session's last error as a worker's end gave it back, when the worker had set one of its own: until the first
+    /// read of another last error, a read of it differs from the answer before issue 8697, which gave the worker's
+    /// (`Session::bg_note_last_error_read`, which ends it).
+    pub(crate) bg_kept_last_error: std::cell::RefCell<Option<al_builtins::native::AlError>>,
+    /// A failing worker's error left `TestPage.RunPageBackgroundTask` and has not left a routine of the test session yet: an
+    /// asserterror around the call itself keeps the last error (`Session::bg_catch_keeps_last_error`).
+    pub(crate) bg_task_error_unrecorded: bool,
+    /// The query cache page background tasks and the test session read through (`query_cache.rs`).
+    pub(crate) query_cache: crate::query_cache::QueryCache,
     /// Which dialogs and errors the CaptionClass runs in progress may raise (`Session::caption_dialog_refusal`).
     pub(crate) caption_dialogs: crate::pages::CaptionDialogs,
     /// The CaptionClass expression whose own call runs now, on a page whose open ran its empty-record runs without a pinned
@@ -513,6 +559,10 @@ pub(crate) struct CoverageState {
     /// `al-runner test --profile`: the session's call tree (`profile.rs`). `None` when off: one branch per statement,
     /// call, builtin return and record method.
     pub(crate) profiler: Option<Box<crate::profile::Profiler>>,
+    /// The footprint of a partner app's install session while one is recorded (`install_footprint.rs`). `None` when off.
+    pub(crate) install_footprint: std::cell::RefCell<Option<Box<crate::install_footprint::Recording>>>,
+    /// `install_footprint` is `Some`: the one branch a builtin call costs when no footprint is recorded.
+    pub(crate) footprint_on: bool,
 }
 
 /// `Language` and `FormatRegion` set on a report variable outside a run.
@@ -610,6 +660,9 @@ pub(crate) struct ReportState {
     /// later record can get the address of one that is gone and read its view (al-runner CI flake of reports/request-page/
     /// RptFilters.al:510 RequestFilterFields_Handler_SetsFilters). The entries of dropped records go on each new SetTableView.
     pub(crate) set_view_filters: Vec<(std::rc::Weak<RefCell<RecordState>>, Vec<ViewFilterKey>)>,
+    /// The filters each `DataItemTableView` gave the record of a data item of the report's own, by record
+    /// (`reports/item_view.rs`).
+    pub(crate) item_views: Vec<crate::reports::item_view::ItemView>,
     /// The dataset a `Report.SaveAs(.., Xml, ..)` run is writing (al-vm reports.rs).
     pub(crate) dataset: Option<crate::dataset::Dataset>,
 }
@@ -646,6 +699,9 @@ pub(crate) struct RunningReport {
     /// one page trigger above them belong to this run (`running_page_answer`).
     pub(crate) depth: usize,
     pub(crate) page_triggers: usize,
+    /// The run entered a transaction world of a TransactionType = Update report: its writes run in that world's
+    /// transaction, whatever the session's type (record/TxTypeUpdateReport.al TxU13 to TxU15 of corpus pull request 1488).
+    pub(crate) update_world: bool,
 }
 
 /// How a running report body was started (`report_preview_pinned`).

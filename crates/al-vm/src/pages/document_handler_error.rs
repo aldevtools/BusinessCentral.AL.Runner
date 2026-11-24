@@ -3,6 +3,14 @@
 //! codeunit 99523, page CEM Doc of CemFixtures.al). Pinned only for the exact shape of that page and of the handler's calls
 //! (`document_close_pinned`); every other page keeps the closes it had (`modal_handler_error.rs` refuses a page with an unsaved
 //! row or a hidden part).
+//!
+//! The pinned Document with hidden parts run by the static `Page.RunModal` (al-runner issue 7473,
+//! pages/close-errors/CemDocumentTests.al): the close after its handler raised an error, an
+//! OnClosePage error at a close by an action or the platform, and a ListPart line the table refused
+//! at the platform's close. A handler that caught an error first closes the page as one that caught
+//! none (assumption `page-handler-caught-error-close`). Entry points: `document_close_pinned`,
+//! `close_document_after_handler_error` (by `close_modal_after_handler_error`),
+//! `document_close_page_error`, `document_part_save_error` (by `close_with`).
 
 use super::pinned_shape::{TestCall, TreeCall};
 use super::relation_lookup_close::closing_error;
@@ -247,8 +255,13 @@ impl Session {
     ///   HandlerError_QueryCloseError `MissingUIHandler`), an OnClosePage error wrapped (HandlerError_ClosePageError
     ///   `One or more errors occurred while closing the page.\\CEM close page error` `TestWrapped`).
     ///
-    /// Every case above runs a handler of `CemDocModal` (:925-975), which catches no error. A handler that caught one
-    /// (the session's count of caught errors moved from `caught_before`, caught_errors.rs) is refused (al-runner issue 7826).
+    /// Every case above runs a handler of `CemDocModal` (:925-975), which catches no error. A handler that caught one first
+    /// closes the page in the same way: every test of CemDocumentTests.al gives its answer again with a handler that first
+    /// catches an error (corpus PR 1531, CemDocumentCaughtTests.al), and so do six ways of catching before a handler error
+    /// (corpus PR 1524, CemHandlerCaughtErrors.al:398-:433). Such a close runs through the assumption
+    /// `page-handler-caught-error-close`. The flag does not tell who caught the error: any error the session caught since
+    /// the handler started counts (the count of caught_errors.rs moved from `caught_before`), the handler's, a page
+    /// trigger's or the code they call; only the handler's catches are measured.
     pub(super) fn close_document_after_handler_error(
         &mut self,
         st: &St,
@@ -258,12 +271,12 @@ impl Session {
         let Signal::Error(err) = e else {
             return Ok(());
         };
-        let nothing_caught = self.caught_errors() == caught_before;
-        if !nothing_caught {
-            return unsupported(
-                "a page left open by a ModalPageHandler that caught an error before it raised its own (not pinned)",
-            );
-        }
+        let caught = self.caught_errors() != caught_before;
+        let note_caught = || {
+            if caught {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageHandlerCaughtErrorClose);
+            }
+        };
         if st.borrow().close.error() {
             self.mark_closed(st);
             if err.code != "MissingUIHandler" {
@@ -271,6 +284,7 @@ impl Session {
             }
             let mut wrapped = (**err).clone();
             wrapped.code = "TestWrapped:MissingUIHandler".into();
+            note_caught();
             return Err(Signal::Error(Box::new(wrapped)));
         }
         let calls = st.borrow().tree_calls.clone();
@@ -285,6 +299,7 @@ impl Session {
         );
         if typed_failed && err.code == "TestValidation" {
             self.mark_closed(st);
+            note_caught();
             return Ok(());
         }
         // The handler's own error is pinned only for a handler that made no call (mode 7); a value typed before it keeps
@@ -296,9 +311,13 @@ impl Session {
         }
         let a = self.unattended_action(st);
         match self.close_with(st, a, false, false) {
-            Ok(_) if !st.borrow().open => Ok(()),
+            Ok(_) if !st.borrow().open => {
+                note_caught();
+                Ok(())
+            }
             Err(Signal::Error(q)) if q.code == "MissingUIHandler" || q.code == "TestWrapped" => {
                 self.mark_closed(st);
+                note_caught();
                 Err(Signal::Error(q))
             }
             Ok(_) | Err(Signal::Error(_)) => unsupported(

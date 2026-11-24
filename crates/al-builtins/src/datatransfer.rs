@@ -3,6 +3,8 @@
 //! a call before it asks for `SetTables`; a call after it says the type is for upgrade and install
 //! code. Inside install code each staging and copying call goes to the VM (`Ctx::ref_op`, al-vm `datatransfer`), which keeps
 //! the staged [`Plan`] in the variable and runs the copy (install-upgrade/AsDtInstaller.al, AsDtInstallRead.al).
+//!
+//! DataTransfer (install and upgrade code only). Entry points: `native_for`.
 
 use crate::native::{AlError, Ctx, NativeFn, Signal, unsupported};
 use crate::signature::Signature;

@@ -14,6 +14,12 @@
 //! What is not pinned is refused: a method that reads or writes the rows other than those above, a table or table extension
 //! trigger, a table event subscriber or a database trigger on a write, a Rename of a key other fields relate to, a primary key
 //! that is not one Guid field, and any read of a connection's rows after a rollback that may have had to take back a write.
+//!
+//! A `TableType = CRM` table through the `@@test@@` table connection: one `MemStore` per registered
+//! connection (`Session::crm_stores`), `store_for` routes a CRM record to the default connection's
+//! store, `crm_method_check` refuses the methods and write shapes the corpus does not pin, a rollback
+//! after a write makes the rows refuse (ADR-027 row 15). Entry points: `connection_check`,
+//! `crm_method_check`, `crm_connection_of`.
 
 use crate::Session;
 use crate::records::Rec;
@@ -27,7 +33,6 @@ use al_data::memory::MemStore;
 pub(crate) const CRM_KIND: i32 = 0;
 
 /// The rows of one registered CRM table connection.
-#[derive(Default)]
 pub(crate) struct CrmStore {
     pub(crate) store: MemStore,
     /// A write since the last commit.
@@ -36,6 +41,17 @@ pub(crate) struct CrmStore {
     written: bool,
     /// A rollback came after a write: whether it took the write back is not pinned.
     after_rollback: bool,
+}
+
+impl Default for CrmStore {
+    fn default() -> Self {
+        CrmStore {
+            store: MemStore::default().as_table_connection(),
+            uncommitted: false,
+            written: false,
+            after_rollback: false,
+        }
+    }
 }
 
 const MUST_REGISTER: &str = "Table connection  for table type CRM must be registered using RegisterTableConnection or cmdlet New-NAVTableConnection before it can be used.";

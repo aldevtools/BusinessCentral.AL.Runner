@@ -6,6 +6,8 @@
 //! another branch does, so an error that was caught earlier does not outlive a later one.
 //! Tracing is off in a normal run: nothing is recorded and the cost is one flag test on the
 //! error path.
+//!
+//! Entry points: `FaultFrame`, `trace_faults`, `fault_site`, `note_fault`.
 
 use crate::Session;
 

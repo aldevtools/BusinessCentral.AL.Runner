@@ -7,6 +7,9 @@
 //! and for the scale of a calculation (reports/layouts-saveas/TestReportSaveAsColumnTypesContracts.al:309 `18.5185170`);
 //! zero and the zeros of any other value by tests/al-language/reports/dataset/DatasetDecimalRoundScaleSources.al:101-615 and
 //! DatasetDecimalRoundScale.al:29-183.
+//!
+//! The decimals a Decimal shows where its scale is seen (zero, one and minus one none); the report
+//! dataset writes it and Round marks by it.
 
 use rust_decimal::Decimal;
 

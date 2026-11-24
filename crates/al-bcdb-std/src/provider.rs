@@ -6,6 +6,11 @@
 //! name, by the declaring app's id. Columns come back as the database names them (extension
 //! columns already joined, `$ext` companions merged on their own key); the runtime maps them onto
 //! the fields of the compiled program.
+//!
+//! `BackupProvider` (`open_with_index_dir` keeps the backup's index in the cache dir; `cost` for
+//! `--timings`): the rows of a restored company from a `.bak` or `.bacpac`, one table per `read`;
+//! picks the company, finds the table by AL name and declaring app id, merges `$ext` companions;
+//! `default_backup` finds the cached artifact. Entry points: `BackupProvider`, `default_backup`.
 
 use crate::FileSource;
 use al_bcdb::io::ByteSource as _;

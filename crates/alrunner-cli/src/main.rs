@@ -1,4 +1,7 @@
 //! `al-runner`: the user command line of AL Runner v3 (ADR-016). Today: `al-runner test`.
+//!
+//! The `al-runner` binary: runs on a thread with a large stack, maps results to exit codes. Entry
+//! points: `main`.
 
 mod affected;
 mod apps;
@@ -59,6 +62,8 @@ fn write_permission_shadow(path: &std::ffi::OsStr) {
 }
 
 fn main() -> ExitCode {
+    // Keep the executable open from the start: the build hash of the compile cache is made later (issue 8691).
+    let _ = al_testrun::compile_cache::pin_running_executable();
     let code = run_command();
     // The workspace layer entries this process writes off the critical path (ADR-022 amendment 2026-11-15, decision 6):
     // after the results are printed and before the process ends.

@@ -2,6 +2,11 @@
 //!
 //! The planning (which codeunit gets which company) is `recipe.rs`; the files come from `bcapps.rs`. This file turns a
 //! plan into runs of the ordinary test command and adds the lines that put the lanes together.
+//!
+//! `al-runner test --recipe microsoft`: one run per lane with the lane's company and Microsoft's
+//! disabled tests skipped, then a by-lane summary. The company builds (DemoTool, Contoso) need
+//! `--experimental-company-builds` (off by default, `company_refusal`; the gate for a command line is
+//! `args::company_build_off`). Entry points: `test`, `run_lanes`, `lane_args`.
 
 use crate::args::TestArgs;
 use crate::recipe::{self, AppUnits, Lane, Recipe};

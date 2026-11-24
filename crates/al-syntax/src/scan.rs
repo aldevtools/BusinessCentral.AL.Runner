@@ -10,6 +10,10 @@
 //! The scan does not check the grammar. A malformed file may be scanned
 //! differently from how it parses; the index it feeds is only trusted for files
 //! that are later parsed for real, which reports their errors.
+//!
+//! A cheap declaration scan: objects, ids, subscribers (publisher written `Kind::Name`, `Kind::id` or
+//! a bare id), without a tree (used for dependency apps). Entry points: `scan`, `ScannedObject`,
+//! `ScannedSubscriber`.
 
 use crate::SyntaxKind::{self, *};
 use crate::lex;

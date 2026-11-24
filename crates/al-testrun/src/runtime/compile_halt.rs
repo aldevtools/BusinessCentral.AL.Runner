@@ -7,6 +7,14 @@
 //! the stop line the threads stop at their next object or file, and the run ends before its install baseline: every
 //! test the suites select is reported as not run with the limit as the reason, from a text scan of the apps under
 //! test (`discover.rs`), since the compile that would name them did not end. The front end exits with code 2.
+//!
+//! `CorpusRuntime::compile_within_limit` starts `memory::CompileWatch` (samples the resident memory
+//! from before the apps load), runs `compile_suites_with` in a rayon pool whose threads are armed
+//! with the watch's flag (`al_sema::halt`), and when the flag stops the compile reports every
+//! selected test as not run from a text scan (`discover::test_codeunits_named`). Callers:
+//! `try_run_suites_inner`, `try_run_variants`. `al-sema/src/halt.rs`: the thread-local flag, `check`
+//! (unwinds with `Halted` at the next file or object of the parse, check and lowering), `join` and
+//! `rethrow_halt` (a scoped worker's or a guarded routine's stop goes on unwinding).
 
 use std::collections::BTreeSet;
 

@@ -17,11 +17,10 @@ impl Server {
     }
 
     fn start_with(extra: &[&str], env: &[(&str, &str)]) -> Server {
-        Server::start_to(extra, env, Stdio::null())
+        Server::start_with_stderr(extra, env, Stdio::null())
     }
 
-    /// [`Server::start_with`] with the server's stderr written to `stderr`.
-    fn start_to(extra: &[&str], env: &[(&str, &str)], stderr: Stdio) -> Server {
+    fn start_with_stderr(extra: &[&str], env: &[(&str, &str)], stderr: Stdio) -> Server {
         let mut child = Command::new(env!("CARGO_BIN_EXE_al-runner"))
             .arg("serve")
             .args(extra)
@@ -3014,7 +3013,7 @@ fn answer_of_a_new_daemon(cache: &Path, request: &Value) -> (Vec<Value>, String)
     let log = cache.with_extension("stderr.txt");
     let dir = cache.to_string_lossy().to_string();
     let err = std::fs::File::create(&log).unwrap();
-    let mut s = Server::start_to(
+    let mut s = Server::start_with_stderr(
         &["--no-download", "--no-test-data", "--timings", "--cache-dir", &dir],
         &[],
         Stdio::from(err),
@@ -3135,7 +3134,7 @@ fn a_request_on_the_kept_compile_says_no_workspace_layer_line() {
     let cache = d.path().join("cache").to_string_lossy().to_string();
     let log = d.path().join("stderr.txt");
     let err = std::fs::File::create(&log).unwrap();
-    let mut s = Server::start_to(
+    let mut s = Server::start_with_stderr(
         &["--no-download", "--no-test-data", "--timings", "--cache-dir", &cache],
         &[],
         Stdio::from(err),
@@ -3489,6 +3488,107 @@ fn the_check_of_an_incremental_compile_does_not_use_the_workspace_layer() {
         entries.len(),
         1,
         "the check's complete compile wrote an entry: {entries:?}"
+    );
+}
+
+/// A stand-in of Microsoft's login in a dependency app, in the shape of its code (al-testrun `runtime/login_tests.rs`):
+/// Company Triggers `OnCompanyOpenCompleted` raises `OnAfterLogin`, whose subscriber raises the registration events.
+const LOGIN_STAND_IN: &str = r#"
+table 1990 "Guided Experience Item" { fields { field(1; "Object ID"; Integer) { } } keys { key(PK; "Object ID") { Clustered = true; } } }
+table 1996 "Checklist Setup" { fields { field(1; K; Code[10]) { } } keys { key(PK; K) { Clustered = true; } } }
+codeunit 150 "System Initialization" { [IntegrationEvent(false, false, true)] internal procedure OnAfterLogin() begin end; }
+codeunit 151 "System Initialization Impl."
+{
+    SingleInstance = true;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Company Triggers", 'OnCompanyOpenCompleted', '', false, false)]
+    local procedure InitCompany() var SystemInitialization: Codeunit "System Initialization"; begin SystemInitialization.OnAfterLogin(); end;
+}
+codeunit 1990 "Guided Experience"
+{
+    procedure InsertAssistedSetup(ObjectID: Integer) var G: Record "Guided Experience Item"; begin G."Object ID" := ObjectID; G.Insert(); end;
+    procedure Register() begin OnRegisterManualSetup(); end;
+    [IntegrationEvent(false, false)] local procedure OnRegisterManualSetup() begin end;
+}
+codeunit 1997 "Checklist Events"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"System Initialization", 'OnAfterLogin', '', false, false)]
+    local procedure OnAfterLogIn() var S: Record "Checklist Setup"; G: Codeunit "Guided Experience";
+    begin
+        if S.Get('') then exit;
+        G.Register();
+        S.Insert();
+    end;
+}
+"#;
+
+/// Al-runner issue 8211: `ALRUNNER_LOGIN_REPLAY_CHECK=1` compares what each test session holds after the raised login with
+/// the first session of the same inputs, across the entries of a request (their `resources`, which the login reads here)
+/// and the requests of one kept daemon (another `seed`). No session of one key holds anything else.
+#[test]
+fn the_login_replay_check_finds_no_difference_across_entries_and_requests() {
+    let d = tempfile::tempdir().unwrap();
+    let dep = d.path().join("login");
+    write(
+        &dep,
+        "app.json",
+        r#"{"id":"82110000-0000-0000-0000-000000000001","name":"Login Stand-in","publisher":"Someone","version":"1.0.0.0","dependencies":[]}"#,
+    );
+    write(&dep, "src/Login.al", LOGIN_STAND_IN);
+    let main = d.path().join("main");
+    write(
+        &main,
+        "app.json",
+        r#"{"id":"82110000-0000-0000-0000-000000000002","name":"Login Probe","publisher":"Test","version":"1.0.0.0","resourceFolders":["Res"],"dependencies":[{"id":"82110000-0000-0000-0000-000000000001","name":"Login Stand-in","publisher":"Someone","version":"1.0.0.0"}]}"#,
+    );
+    write(&main, "Res/rpl.txt", "a");
+    write(
+        &main,
+        "src/T.al",
+        r#"codeunit 50820 "Probe Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
+    local procedure RegisterManualSetup() var G: Codeunit "Guided Experience";
+    begin G.InsertAssistedSetup(50800 + StrLen(NavApp.GetResourceAsText('rpl.txt'))); end;
+}
+codeunit 50821 "Probe Login Tests"
+{
+    Subtype = Test;
+    [Test] procedure SeesTheRow() var I: Record "Guided Experience Item"; begin if I.IsEmpty() then Error('no row'); end;
+}
+"#,
+    );
+    let log = d.path().join("stderr.txt");
+    let dep_arg = dep.to_string_lossy().to_string();
+    let mut s = Server::start_with_stderr(
+        &["--no-download", "--no-test-data", "--dep", &dep_arg],
+        &[("ALRUNNER_LOGIN_REPLAY_CHECK", "1")],
+        Stdio::from(std::fs::File::create(&log).unwrap()),
+    );
+    s.line();
+    let entries = json!([
+        {"id": "a", "resources": {"rpl.txt": "a"}, "test": "Codeunit50821."},
+        {"id": "b", "resources": {"rpl.txt": "abcd"}, "test": "Codeunit50821."},
+        {"id": "c", "resources": {"rpl.txt": "a"}, "test": "Codeunit50821."},
+    ]);
+    for seed in [1, 2] {
+        s.send(json!({"command": "runTests", "sourcePaths": [main], "entries": entries, "seed": seed}));
+        let lines = s.until_summary();
+        assert_eq!(lines.last().unwrap()["passed"], json!(3), "{lines:?}");
+    }
+    drop(s.stdin.take());
+    s.child.wait().unwrap();
+    let text = std::fs::read_to_string(&log).unwrap();
+    let checks: Vec<&str> = text.lines().filter(|l| l.starts_with("login replay check: ")).collect();
+    assert_eq!(checks.len(), 2, "one line per request: {text}");
+    // Per request: entries a and c are one key (c compared with a), entry b (`abcd`) another. The second request's seed
+    // makes two more keys: the seed moves the clock the login reads (without the seed in the key: "3 differ", the clock).
+    assert_eq!(
+        checks[0],
+        "login replay check: 3 sessions over 2 keys (a key seen before: 1 sessions, 33%), 1 compared, 0 differ; across test codeunits: 0 compared, 0 differ"
+    );
+    assert_eq!(
+        checks[1],
+        "login replay check: 6 sessions over 4 keys (a key seen before: 2 sessions, 33%), 2 compared, 0 differ; across test codeunits: 0 compared, 0 differ"
     );
 }
 

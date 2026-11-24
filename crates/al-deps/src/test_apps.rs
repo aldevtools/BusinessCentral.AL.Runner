@@ -4,6 +4,12 @@
 //! The listing reads only the central directory of the artifact (saved in the cache, else by range from the feed), or
 //! the files of an extracted artifact on disk. An app is fetched only when [`Listing::get`] asks for it. Whether an app
 //! holds a test codeunit is not decided here: that needs its AL source, which the caller reads.
+//!
+//! The Microsoft test apps of a build (ADR-052 1.3): the `*.Source.zip` entries whose path names a
+//! test (a country's replace the w1 ones of the same name), listed from the artifact's central
+//! directory or an extracted artifact, fetched into the cache only when asked; and the Legacy lane's
+//! RapidStart package. Entry points: `list`, `Listing::get`, `Listing::rapidstart_package`,
+//! `candidates`.
 
 use crate::artifact::{Cdn, CountryZip, Fetch, is_w1, open_country, pick_local, published_builds};
 use crate::build::{BuildId, Origin, select_build};

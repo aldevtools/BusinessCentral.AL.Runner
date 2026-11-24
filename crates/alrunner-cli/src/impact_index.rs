@@ -8,6 +8,12 @@
 //! outcomes with the content of the files such an option names (`run_inputs.rs`, the one list of them). The Microsoft
 //! apps the run compiled are stored in the index and checked against the impact run's compile (a different build
 //! of the Base App makes the index stale).
+//!
+//! The impact index (ADR-043 step 2): format (gzip JSON, `FORMAT`), cache key and path
+//! (`<cache>/impact/<key>/index.json.gz`), `al-runner impact-index build`, and `al-runner impact-
+//! index check-static` (step 5: every key a test recorded must be in its static reach; ratios per
+//! kind of key; `AL_IMPACT_WHY=<key>` prints the paths). Entry points: `Index`, `key`, `lookup`,
+//! `build`, `check_static`.
 
 use crate::apps;
 use crate::args::TestArgs;
@@ -607,7 +613,7 @@ mod tests {
         let file = dir.join("file.txt");
         std::fs::write(&file, "text").unwrap();
         type Change = fn(&mut TestArgs, &Path);
-        let options: [(&str, Change); 14] = [
+        let options: [(&str, Change); 13] = [
             ("test_runner", |a, _| {
                 a.test_runner = Some(al_testrun::runtime::TestRunner::Builtin)
             }),
@@ -627,7 +633,6 @@ mod tests {
             ("skip_after_timeout", |a, _| a.skip_after_timeout = true),
             ("stop_after_first_failure", |a, _| a.stop_after_first_failure = true),
             ("test_suites", |a, f| a.test_suites = Some(f.to_path_buf())),
-            ("max_replay", |a, _| a.max_replay = Some(3)),
         ];
         let plain = key(&TestArgs::default()).unwrap();
         assert_eq!(plain, key(&TestArgs::default()).unwrap());

@@ -4,6 +4,12 @@
 //! The store keys a per-company table by company (ADR-005), so a record in another company is a
 //! record whose access context names that company: no seam changes. A company exists while its row
 //! is in the Company table (record/TestRecordChangeCompanyRows.al:128-145), plus the session company.
+//!
+//! The company a record works in, ChangeCompany, the Company table's rows per company. Under
+//! `--companies` (`Session::companies`), `cx_for` refuses a dependency app's per-company table in
+//! another declared company (ADR-046 decision 5) unless the database holds no row of it there
+//! (`starts_empty_in`, amendment 4), and the tables `company_unknown` marks (decision 6). Entry
+//! points: `find_company`, `cx_for`, `change_company`.
 
 use crate::Session;
 use crate::records::Rec;

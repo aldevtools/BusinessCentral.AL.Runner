@@ -7,6 +7,8 @@
 //!
 //! Every function accepts the forms a corpus test pins and refuses the rest with
 //! `Signal::Unsupported`, never a guess.
+//!
+//! Entry points: `formula_text`, `check_formula`.
 
 use crate::describe::Describe;
 use crate::format::{civil_from_day, day_from_civil};

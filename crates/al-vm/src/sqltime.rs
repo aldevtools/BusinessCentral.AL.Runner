@@ -147,9 +147,13 @@ fn round_expr(e: &FilterExpr, rolls_over: bool) -> FilterExpr {
         F::Or(es) => F::Or(es.iter().map(|e| round_expr(e, rolls_over)).collect()),
         F::And(es) => F::And(es.iter().map(|e| round_expr(e, rolls_over)).collect()),
         F::UnpinnedText(inner) => F::UnpinnedText(Box::new(round_expr(inner, rolls_over))),
-        F::Like(..) | F::NotLike(..) | F::AtSignAlone(_) | F::EmptyViewValue | F::NumCode(_) | F::UnpinnedMatch(..) => {
-            e.clone()
-        }
+        F::Like(..)
+        | F::NotLike(..)
+        | F::AtSignAlone(_)
+        | F::AtSignAloneCode(_)
+        | F::EmptyViewValue
+        | F::NumCode(_)
+        | F::UnpinnedMatch(..) => e.clone(),
     }
 }
 

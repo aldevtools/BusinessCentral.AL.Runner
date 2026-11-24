@@ -1,6 +1,10 @@
 //! Runs test codeunits the way BC's test runner does, as far as the corpus
 //! pins it: one instance per test codeunit, `OnRun` once before the tests
 //! (codeunit/TestCodeunitOnRun.al), tests in declaration order.
+//!
+//! Runs test codeunits the way BC's test runner does; one Session per codeunit. Holds the app and
+//! manifest loading, `CorpusRuntime`, `TestResult`, `Phases` and the single-unit run. Entry points:
+//! `CorpusRuntime`, `load_app`, `Phases`.
 
 use crate::explain::{self, TestDetail};
 use crate::isolation::{Checkpoint, TestIsolation, runner_isolation};
@@ -535,6 +539,8 @@ pub struct Phases {
     pub install_snapshot: Option<String>,
     /// A warm server ran the request on the engines an earlier request over the same compile kept.
     pub engine_kept: bool,
+    /// `RunOptions::login_replay_check`: the check's report line (`login_replay.rs`), counted over every request the engine ran.
+    pub login_replay: Option<String>,
     /// What the run did, counted (the work ratchet of `al-test-cli`).
     pub work: RunWork,
 }
@@ -765,10 +771,10 @@ pub(crate) struct Scratch {
     hub: bool,
     /// See `Unit::hub_leg`. Not set (a run outside the corpus routing): runner 130450, as before the hub leg existed.
     hub_leg: bool,
-    /// The tables an earlier codeunit with RequiredTestIsolation = Disabled left rows in; reading one sets `leak_hit`.
+    /// The tables an earlier codeunit with RequiredTestIsolation = Disabled left rows in; reading one notes it in `leak_hits`.
     leak: Option<Arc<std::collections::BTreeSet<u32>>>,
-    /// A test or the `OnRun` trigger read or wrote one of `leak`.
-    leak_hit: bool,
+    /// The tables of `leak` a test or the `OnRun` trigger read or wrote.
+    leak_hits: std::collections::BTreeSet<u32>,
     /// Runner 130450 runs the codeunit and its `OnRun` can write: what OnRun left reaches the later codeunits
     /// (`corpus.rs` `onrun_writes`; run.rs sets CARRIED).
     onrun_carry: bool,
@@ -1233,6 +1239,7 @@ mod apply_manifests;
 pub(crate) mod baseline_key;
 mod blocked;
 mod cache;
+mod carry_after;
 mod case_lookup;
 mod chain;
 mod chain_walk;
@@ -1256,11 +1263,12 @@ mod install_snapshot;
 #[cfg(test)]
 mod install_unknown_tests;
 mod internals_grant;
-mod lane_starts;
 #[cfg(test)]
 mod login_explain_tests;
 #[cfg(test)]
 mod login_memo_tests;
+#[cfg(test)]
+mod login_replay_tests;
 #[cfg(test)]
 mod login_tests;
 pub mod memory;
@@ -1278,7 +1286,7 @@ mod run_on_client_reach_tests;
 #[cfg(test)]
 mod runner_frames_tests;
 mod runner_reset;
-mod session_flags;
+pub(crate) mod session_flags;
 mod single_fresh;
 mod single_lane;
 mod strict_taint;
@@ -1306,7 +1314,7 @@ use self::handlers::*;
 pub use self::order_hint::{NumbersOrder, OrderHint};
 pub use self::run::*;
 pub use self::single_fresh::{CarriedCodeunit, CarriedRead};
-pub use self::single_lane::{LaneReport, RerunSkipped, rerun_skipped_text};
+pub use self::single_lane::LaneReport;
 
 /// The translation files of the app folder `dir`, as the IR keeps them (ADR-053 step 2). A file that cannot be read keeps its
 /// reason, and its language refuses every translated read.

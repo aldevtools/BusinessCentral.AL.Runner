@@ -10,6 +10,13 @@
 //! routine left. The catches here clear it too, so that a session whose last error was caught here is at rest again
 //! (install_left.rs `at_rest`). Page, report and xmlport paths that write `last_error` themselves leave it set until the
 //! next call (al-vm tests/language/error_finals_after_catch.rs).
+//!
+//! The count of errors AL code caught: asserterror, a TryFunction call, `Codeunit.Run` with its
+//! result used, an isolated subscriber, and builtins that write the last error through
+//! `Ctx::set_last_error`. Read by the close of the pinned Document after a handler error. A failing
+//! page background task's error caught right at its call keeps the last error (`pages/background.rs`
+//! `bg_catch_keeps_last_error`). Entry points: `catch_error`, `set_last_error_of_builtin`,
+//! `caught_errors`.
 
 use al_builtins::native::{AlError, ExceptionKind, Signal};
 
@@ -23,6 +30,10 @@ impl Session {
     /// holds then is not measured (record/filters/SqlDateFloor1753.al:2468-2600 reads only the stored row), so that is refused.
     pub(crate) fn catch_error(&mut self, e: AlError) -> Result<(), Signal> {
         self.refuse_live_failed_rename()?;
+        if self.bg_catch_keeps_last_error() {
+            self.caught_errors += 1;
+            return Ok(());
+        }
         self.note_caught(e);
         Ok(())
     }

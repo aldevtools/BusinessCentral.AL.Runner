@@ -9,6 +9,13 @@
 //!
 //! Only the shapes the corpus pins take this path (`auto_split_part_pinned`); any other part read in another order is refused as
 //! before.
+//!
+//! AutoSplitKey on a ListPart read in another order than the primary key ascending (a SubPageView or
+//! SourceTableView in another key, or descending): the pinned scenario (`auto_split_part_pinned`:
+//! pages, link, no other filter, the test's calls), "The line cannot be split." at `New()`, the
+//! number from the grid's neighbours with a taken number numbered once more, the re-read last row
+//! OnNewRecord sees. Entry points: `split_view_check_at_new` (by `start_draft`),
+//! `split_in_view_number` (by `auto_split_key`), `split_view_last_row` (by `part_new_xrec`).
 
 use super::pinned_shape::{PartStep, PinnedPart, TestCall};
 use super::*;
@@ -251,7 +258,7 @@ impl Session {
             self.record_op(RecordOp::FindLast, &probe, &mut [])?,
             Value::Boolean(true)
         ) {
-            Ok(Some(probe.borrow().fields.clone()))
+            Ok(Some(probe.borrow().fields.to_vec()))
         } else {
             Ok(None)
         }

@@ -6,6 +6,15 @@
 //!
 //! AL Runner defines no preprocessor symbol of its own (3.4): a cell compiles with the app's `preprocessorSymbols` and
 //! `--define`, as a single run does.
+//!
+//! matrix runs (ADR-052 section 3): `cells` (lists in `--bc-version`/`--country`, `--matrix`),
+//! `stability_cells` (the version, country and companies axes of a stability config, ADR-058 section 3),
+//! the pre-flight of every cell (`al_deps::test_apps::choose` for the build, the country, the app
+//! floor), one child process per cell (`cell_args`: the run's own command line with the cell's build,
+//! country, JUnit file and the hidden `--matrix-cell FILE`), scheduling under `may_start` (free
+//! memory, expected peaks in `<cache>/matrix/peaks.json`), the cell table, `differs`,
+//! `stability_report` (the stability cells and flips of every cell process), `--output-json` format 1.
+//! Entry points: `run`, `cells`.
 
 use crate::args::TestArgs;
 use crate::{apps, sources_report};

@@ -1,0 +1,7 @@
+name: x
+description: >-
+  T1 § 19.11 ask-order test, two turns. Turn 1: a clear item reference but no
+  shipment/invoice number anywhere - the agent must ask
+tests:
+  - name: t
+    description: Ask-order primary question.

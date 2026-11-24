@@ -1,0 +1,8 @@
+# key	entry
+# Review round 1 of PR 8915 (M1), the run limit for a unit of one app: X reads two input tangles of three apps each
+# (A1 -> A2 -> A3 -> A1 and B1 -> B2 -> B3 -> B1 by meets), all six answer X's event OnX; constant rows. Main: 2^2 = 4
+# input subsets, pass. Head: each of the six input apps is placed on its own, 2^6 = 64 runs, more than the 48 of
+# ADR-079 decision 5, so the proof stops ("placing the inputs of RQ itm X among its apps takes up to 64 runs") and
+# X's install stays refused; the test reports the cascade (the row is missing), the reason is in the baseline note.
+# A lost pass against main, listed in the pull request and in issue 8916.
+RQ itm Tests::XRowIsConst	REFUSED RQ itm Row row not found

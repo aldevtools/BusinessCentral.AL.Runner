@@ -50,6 +50,26 @@ const KEPT: &[(&str, &str, &str)] = &[
         "the .NET host's identity in the key of the cached install state, hashed, never shown",
     ),
     (
+        "al-vm/src/state_render.rs",
+        r#"format!("{x:?}")"#,
+        "the content of a session's state for the login replay check (ALRUNNER_LOGIN_REPLAY_CHECK), compared across sessions and shown only in the check's report line",
+    ),
+    (
+        "al-testrun/src/login_replay.rs",
+        r#".map(|(app, files)| format!("{app} {files:?}"))"#,
+        "the resource texts in the login replay check's key, hashed, never shown",
+    ),
+    (
+        "al-testrun/src/login_replay.rs",
+        r#"(a.hits != b.hits).then(|| format!("assumption marks: {:?} | {:?}", a.hits, b.hits)),"#,
+        "the assumption marks two sessions differ in, in the login replay check's report line (ALRUNNER_LOGIN_REPLAY_CHECK), not a message of a test",
+    ),
+    (
+        "al-testrun/src/login_replay.rs",
+        r#"open: format!("{wrote:?}"),"#,
+        "what the company open noted for the tests, compared across sessions by the login replay check (ALRUNNER_LOGIN_REPLAY_CHECK) and shown only in its report line",
+    ),
+    (
         "al-testrun/src/runtime/baseline_key.rs",
         r#"format!("{platform_internals_visible_to:?}").as_bytes(),"#,
         "a cache key text, not a message",
@@ -123,6 +143,21 @@ const KEPT: &[(&str, &str, &str)] = &[
         "alrunner-cli/src/run.rs",
         r#""{project:?} {workspace:?} {search:?} {:?} {} {:?} {:?} {:?} {:?} {lazy_sources}","#,
         "the key of the dependencies kept between serve requests, compared for equality, never shown",
+    ),
+    (
+        "al-vm/src/pages/background.rs",
+        r#""{}|{:?}|{method:?}|{args:?}|{:?}|{}|{}|{:?}|{}|{}|{marks:?}|{key:?}","#,
+        "the question of a background worker's read, compared for equality with the run's earlier reads, never shown",
+    ),
+    (
+        "al-vm/src/pages/background.rs",
+        r#"R::Count | R::CountApprox | R::IsEmpty => format!("{value:?}"),"#,
+        "the answer of a background worker's read, compared for equality with the first answer, never shown",
+    ),
+    (
+        "al-vm/src/pages/background.rs",
+        r#"_ => format!("{value:?}|{:?}", rec.borrow().fields),"#,
+        "the answer of a background worker's read, compared for equality with the first answer, never shown",
     ),
     (
         "al-vm/src/pages/open/page_open.rs",

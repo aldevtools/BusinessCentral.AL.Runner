@@ -1,5 +1,8 @@
 //! Typed IR (ADR-011): every name resolved, every node typed, conversions
 //! explicit. Plain data, serde-serialisable, no syntax nodes.
+//!
+//! The typed IR (ADR-011): Program, Object, Routine, Stmt, Expr. Plain serde data, no syntax nodes.
+//! Entry points: `Program`, `Object`, `Routine`, `Stmt`, `Expr`, `SrcPos`, `NO_POS`.
 
 pub use al_builtins::builtin_id::BuiltinId;
 use al_builtins::value::RtType;
@@ -1466,6 +1469,10 @@ pub struct Control {
     /// record/X3PageControlCalls.al, al-runner issue 6368).
     #[serde(default)]
     pub expr_call: bool,
+    /// For a page's own control whose source is a Record method written without parentheses (`Rec.Count`): the methods
+    /// language pages/controls/RecCountControl.al measured (assumption `page-control-rec-method-source`, issue 7875).
+    #[serde(default)]
+    pub rec_method_source: bool,
     /// For a page's own control bound to an element of a one-dimensional page array variable with a number index
     /// (`ElementText[2]`): the slot of the array among the page's globals and the element's 0-based position. It shows
     /// what a control bound to a plain page variable shows (testpage/Y5PartArrayElementControl.al on corpus branch
@@ -1476,6 +1483,13 @@ pub struct Control {
     /// (`field("LT WD Profile"; "LT WD Profile Code")`): from BC 28 a TestPage cannot read it (testpage/WdBareQuotedField.al:185).
     #[serde(default)]
     pub bare_quoted_ext_source: bool,
+    /// For a page's own field control whose source is no field of the source table (a page variable, or an arithmetic or
+    /// constant expression) and whose own Visible is an expression that names a field of the source record (`Rec.Amount >
+    /// 0`, `Rec.Flag`, a bare field name): the first field it names, as written. On a Card, a TestPage reads its Visible as
+    /// Yes whatever the row holds, or opening it raises "The identifier '<field>' could not be found." (al-runner issue
+    /// 8660, `al_version::visible_names_row_field_reads_yes`, assumption `visible-names-row-field-reads-yes`).
+    #[serde(default)]
+    pub visible_row_field: Option<String>,
     /// For a report's own request page control bound to an expression: the source as written, trimmed (`BufArr[1].Name`).
     /// `Report.RunRequestPage` names the control's parameter by it (reports/request-page/R6960RequestParamBindings.al).
     #[serde(default)]
@@ -1483,6 +1497,10 @@ pub struct Control {
     /// Declared in the layout's `area(FactBoxes)`.
     #[serde(default)]
     pub factbox: bool,
+    /// A `fixed` or a `grid`, which lower as a group: `TestPage.GetField` with its control id gives a field whose Value is
+    /// empty, where a group's id finds nothing (corpus pull request 1538, testpage/GetFieldByControlId.al:545, :630).
+    #[serde(default)]
+    pub fixed_or_grid: bool,
 }
 
 /// The action an `actionref` delegates to.
@@ -1546,6 +1564,11 @@ pub struct PartLink {
     /// The `SubPageLink` entries (indices into `entries`) written as a qualified enum value, `const("Enum"::Member)`.
     #[serde(default)]
     pub enum_values: Vec<usize>,
+    /// The entries (indices into `entries`) written `filter(<> '')` on a measured shape (al-sema `not_blank_measured`),
+    /// lowered to the filter `<>''`.
+    /// Applying one runs through the assumption `link-filter-not-blank`.
+    #[serde(default)]
+    pub not_blank: Vec<usize>,
 }
 
 /// One `PartField = field(HostField)` / `const(..)` / `filter(..)` entry of a `SubPageLink`.

@@ -9,6 +9,10 @@
 //!
 //! Cases real BC fails (`bc_failed`) are in no list and are not checked. Pure functions; the CLI reads
 //! and writes the files.
+//!
+//! ADR-065, the lists of the cases the runtime does not pass yet and the CI rule over them
+//! (regressions, stale lines, cases without an outcome), `--list-new-cases`, `--list-changes`,
+//! `--baseline-diff`. Entry points: `check`, `decide`, `new_cases`, `list_change`, `render_diff`.
 
 use crate::oracle::{CaseId, OracleCase};
 use crate::report::{DOTNET_UNAVAILABLE, Outcome};

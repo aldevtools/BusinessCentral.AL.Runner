@@ -19,12 +19,12 @@ impl Session {
         self.ret_used = true;
         if !matches!(self.record_op(RecordOp::Get, &rec, &mut key)?, Value::Boolean(true)) {
             let stored = st.borrow().window[target].stored.clone();
-            rec.borrow_mut().fields = stored;
+            rec.borrow_mut().fields = stored.into();
             return unsupported("a move onto a row the client holds that the table no longer has (not pinned)");
         }
         let fresh = rec.borrow().fields.clone();
         if let Some(w) = st.borrow_mut().window.get_mut(target) {
-            w.stored = fresh;
+            w.stored = fresh.into_vec();
         }
         Ok(())
     }
@@ -41,7 +41,7 @@ impl Session {
         let before = self.xrec_before_move(st);
         let rec = self.page_rec(st);
         let stored = st.borrow().window[target].stored.clone();
-        rec.borrow_mut().fields = stored;
+        rec.borrow_mut().fields = stored.into();
         // A list with OnAfterGetRecord alone reads nothing when the cursor moves onto a row the client holds (testpage/
         // ListRowsOpenAG.al:OpenView_OnlyRec5Rows_ReadsAtOpen `after-next-total = 0`).
         // The same holds with OnFindRecord and OnNextRecord declared: testpage/F3ListTests.al:24
@@ -53,7 +53,7 @@ impl Session {
             && (self.declares(st, "onaftergetrecord") || self.filtered_find_list_without_row_triggers(st))
         {
             let shown = st.borrow().window[target].shown.clone();
-            rec.borrow_mut().fields = shown;
+            rec.borrow_mut().fields = shown.into();
             self.set_xrec(st);
             return Ok(());
         }
@@ -68,7 +68,7 @@ impl Session {
         }
         let shown = rec.borrow().fields.clone();
         if let Some(w) = st.borrow_mut().window.get_mut(target) {
-            w.shown = shown;
+            w.shown = shown.into_vec();
         }
         self.current_record_trigger(st, before)
     }

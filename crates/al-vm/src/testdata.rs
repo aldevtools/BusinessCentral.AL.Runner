@@ -14,6 +14,10 @@
 //! extension column of an app the run does not install, a table the reader failed on, a table
 //! whose values the runtime cannot rebuild. A value that cannot be rebuilt refuses the whole table
 //! (it reads as empty, and the summary says so); a default is never put in its place.
+//!
+//! Test data (ADR-020): `TestBacking` maps a provider's columns onto the compiled table's fields,
+//! rebuilds the values and builds the table once per thread. Entry points: `TestBacking`, `convert`,
+//! `sql_name`.
 
 use crate::Engine;
 use al_builtins::describe::Describe;

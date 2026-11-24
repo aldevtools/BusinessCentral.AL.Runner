@@ -92,7 +92,7 @@ pub fn prepare(root: &Path, major: u16, app: Option<&Path>) -> Result<Prepared, 
         kinds,
         manifests,
         lazy,
-        symbols: al_version::corpus_symbols(major),
+        symbols: oracle.leg_symbols(version),
         target: al_version::Target::for_bc(al_version::BcVersion::parse(build).map_err(|e| e.to_string())?),
     })
 }

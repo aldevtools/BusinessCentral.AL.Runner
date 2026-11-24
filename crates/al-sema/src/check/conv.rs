@@ -18,6 +18,13 @@
 //!
 //! Each judged site reports at most the codes the matrix holds for it; the older pinned checks (`infer.rs`) still judge
 //! the shapes this module does not.
+//!
+//! Implicit conversions at compile time, from the compile matrix of corpus writer Y31
+//! (`tests/conversion_matrix.rs` compares all 33 060 cells; `tests/fixtures/conversion-matrix/known-
+//! mismatches.txt` lists the cells left): operand shapes and kinds (`Operand`, `K`, `Shape`), the
+//! conversion table (`conv_accepts`), the operator table (`binary_verdict`), and the contexts `:=`,
+//! `+=`, arguments, `exit`, operators, `in`, case labels, conditional branches. Entry points:
+//! `conv_operand`, `conv_assign`, `conv_argument`, `conv_binary`, `conv_to_type_of`.
 use super::*;
 use al_syntax::ast::NodeText;
 

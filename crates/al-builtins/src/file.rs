@@ -16,6 +16,8 @@
 //! stream types the corpus already pins for Blob fields. `Create` and `Open` fill it, `Close` writes
 //! it to the host file system. A temporary file never reaches the host file system: it is a name and
 //! a buffer.
+//!
+//! Entry points: `FileState`, `native_for`.
 
 use crate::describe::Describe;
 use crate::native::{Ctx, NativeFn, Signal, unsupported};

@@ -21,6 +21,10 @@
 //! 6315). Its User ID, User Name, Company, Run Codeunit and Is Ready (No for a task created not ready) are pinned by
 //! session-system/CnSessionLeads.al:23-46; Company with a company argument is an assumption (`task_company`); every other
 //! column is refused when read (`platform::unknown`).
+//!
+//! `TaskScheduler.CreateTask`, `TaskExists`, `CancelTask`, `SetTaskReady`: the tasks of the running
+//! transaction (a rollback drops them; a committed task stays until cancelled and never runs). Entry
+//! points: `Session::task_scheduler_op`, `Tasks`.
 
 use crate::Session;
 use al_builtins::builtin_id::ids;

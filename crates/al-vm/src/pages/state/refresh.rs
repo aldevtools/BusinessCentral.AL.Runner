@@ -7,6 +7,12 @@
 //! What is not one `Option`: a cancel (`cancel`) withdraws the ask and keeps the notes, an Update's argument outlives the
 //! refresh it asked for, and a reader reads a note while no refresh is asked
 //! (`starts_from_code_inserted_line`). Those are main's behavior and stay as they are (al-runner issue 7687).
+//!
+//! The refresh a page waits for and what was noted for it (`RefreshRequest`: who asked, Update's
+//! argument, the rows a part's Update left, the notes `run_refresh` takes at once, the pinned run and
+//! the host re-read that keeps xRec). `take` takes every note `run_refresh` reads; a cancel keeps the
+//! notes, as main did (al-runner issue 7687). Entry points: `RefreshRequest`, field
+//! `PageState::refresh`, taken by `run_refresh` (`actions.rs`).
 
 use al_builtins::value::Value;
 
@@ -134,6 +140,13 @@ impl RefreshRequest {
     /// The reads after an action ended the refresh: it reads nothing more.
     pub fn note_reads_done(&mut self) {
         self.next.reads_done = true;
+    }
+
+    /// The refresh that runs now made the reads `note_reads_done` noted itself: the note is spent and does not end the next
+    /// refresh (`code_inserted_coded.rs` `coded_refresh`, the page with code only; `validate_view_refresh.rs`
+    /// `validate_view_refresh`, the pages of ListValidateFilterRefresh.al only).
+    pub fn spend_reads_done(&mut self) {
+        self.next.reads_done = false;
     }
 
     /// The page left a new line for the row the table code inserted inside the validation.

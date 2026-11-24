@@ -2,6 +2,12 @@
 //! The parser stops such a text with `filter::EMPTY_TERM`, which main refuses; at that refusal (`op_inner.rs`) only the measured
 //! shapes ([`empty_or_side`]) on the measured record ([`Session::measured_record`]) raise the error, every other call keeps the
 //! refusal.
+//!
+//! AL code's `Record.SetFilter` whose text the parser stops at an empty term (`filter::EMPTY_TERM`):
+//! the Filter:CSide error of an empty side of `|` in the measured shapes (`empty_or_side`) on the
+//! measured record (`measured_record`), raised at that refusal in `records/op_inner.rs`; every other
+//! call keeps the refusal (pinned by record/filters/SetFilterEmptyTerm.al). Entry points:
+//! `setfilter_empty_or_side` (with `Session::setfilter_from_al`, set in `ctx.rs`).
 
 use super::*;
 

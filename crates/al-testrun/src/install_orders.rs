@@ -4,21 +4,47 @@
 //!
 //! 1. Microsoft's apps install before partner apps ([`split_microsoft`]): a container's database comes from the BC
 //!    artifact with Microsoft's apps installed, and a pipeline publishes and installs the partner apps into it afterwards.
-//! 2. Partner apps whose install code may interact are installed in every order and the databases are compared
-//!    ([`install_partner_apps`]): the same database, the run goes on; different rows, the tests that touch a table that
-//!    differs are not run, with both apps and the table named. With more than [`MAX_INTERACTING`] interacting apps, or a
+//! 2. Partner apps of one group that may interact install once, each app's install session recorded (its footprint,
+//!    al-vm `install_footprint.rs`; [`PartnerGroup::recorded_run`]: footprint start, install, commit, take, and the
+//!    install-order refusals met (`Session::take_order_unknown_hits`) added as apps met). When no install reads from or
+//!    collides with another's (`install_proof.rs`), that install stands. Else the install is proven independent of the
+//!    order by unit runs (ADR-079, `install_subsets.rs`): the same database in every order and place, the run goes
+//!    on; different rows, the tests that touch a table that differs are not run, with the apps and the table named.
+//!    What the proof cannot prove installs once more with the order not known (as before) and stays refused. Beyond the
+//!    limits of ADR-079 decision 5 ([`MAX_INTERACTING`] apps in a tangle, [`MAX_INPUTS`] inputs of a unit), or a
 //!    difference outside the tables, the runner refuses as before.
 //!
-//! The install code runs more than once only for apps whose install code met an app of the other kind of refusal
-//! (`Session::take_order_unknown_hits`); a run without such apps installs every app once, as before.
+//! Owns [`PartnerGroup`] (`unordered`, `closure`, `sequence`, `order`, `final_order`), [`orders`], [`MAX_INTERACTING`]
+//! and [`MAX_INPUTS`]. The order of the units (a unit after every unit it reads from and after the units its apps depend
+//! on) is `install_proof.rs` `Graph::units`; the final install of the whole group follows it where the dependencies
+//! allow ([`final_order`]). Entry points:
+//! [`split_microsoft`], [`install_partner_apps`].
 
 use crate::install::InstallView;
+use crate::install_proof::{Footprints, Graph};
 use al_sema::lower::Lowered;
 use al_vm::Session;
+use al_vm::install_footprint::InstallFootprint;
 use std::collections::BTreeSet;
 
-/// The most partner apps whose every order the runner tries (3! = 6 orders). Beyond it, it refuses as before.
+/// The most partner apps of one tangle whose every order the runner tries (3! = 6 orders). Beyond it, it refuses as
+/// before (ADR-079 decision 5).
 pub(crate) const MAX_INTERACTING: usize = 3;
+
+/// The most inputs of one unit the runner places among its apps (for inputs of one app each read by a unit of one app,
+/// every subset: 2^3 = 8 runs; ADR-079 decision 5). Beyond it, it refuses as before.
+pub(crate) const MAX_INPUTS: usize = 3;
+
+/// The most runs of one unit: every order of a tangle of [`MAX_INTERACTING`] apps times every subset of [`MAX_INPUTS`]
+/// inputs (ADR-079 decision 5: 3! x 2^3 = 48). The input plan (`install_subsets.rs` `plan`) refuses beyond it.
+pub(crate) const MAX_UNIT_RUNS: usize = {
+    let (mut n, mut f) = (MAX_INTERACTING, 1);
+    while n > 1 {
+        f *= n;
+        n -= 1;
+    }
+    f << MAX_INPUTS
+};
 
 /// The start of the baseline note that says which partner apps were installed in several orders (`--timings`).
 pub const INSTALL_ORDERS_NOTE: &str = "install order: ";
@@ -27,7 +53,7 @@ pub const INSTALL_ORDERS_NOTE: &str = "install order: ";
 pub const INSTALL_ORDER_DIFFERENCE_NOTE: &str = "install order difference: ";
 
 /// How many differences the reason of a refusal names; the baseline notes list every one.
-const SHOWN_DIFFERENCES: usize = 3;
+pub(crate) const SHOWN_DIFFERENCES: usize = 3;
 
 /// Whether app `app` (index in `Program::apps`) counts as Microsoft's: its manifest's publisher is `Microsoft`, or no
 /// manifest gave a publisher (then the app keeps the rules of amendment 6: no partner rule without the fact).
@@ -85,51 +111,140 @@ pub(crate) struct PartnerGroup<'a> {
 
 impl PartnerGroup<'_> {
     /// Two apps whose install order is not known: no dependency path between them, and the run does not list the order.
-    fn unordered(&self, a: u32, b: u32) -> bool {
+    pub(crate) fn unordered(&self, a: u32, b: u32) -> bool {
         !self.view.listed() && a != b && !self.view.needs(a, b) && !self.view.needs(b, a)
     }
 
-    fn run(&self, session: &mut Session, inst: &mut impl AppInstalls, sequence: &[u32], fixed: &[u32]) {
+    fn run(&self, session: &mut Session, inst: &mut impl AppInstalls, sequence: &[u32]) {
         for &app in sequence {
-            self.view.apply_ordered(session, app, &self.group, &self.held, fixed);
+            self.view.apply(session, app, &self.group, &self.held);
             inst.install(session, app);
         }
     }
 
-    /// The apps of `group` met in a refusal of the install order since the last call.
-    fn hits(&self, session: &mut Session) -> BTreeSet<u32> {
-        session
-            .take_order_unknown_hits()
-            .into_iter()
-            .filter(|(a, b)| self.group.contains(a) && self.group.contains(b))
-            .flat_map(|(a, b)| [a, b])
+    /// [`PartnerGroup::run`] with each app's install session recorded and added to its footprint in `fp`; an app of
+    /// the group that an install-order refusal met counts as met (`Session::take_order_unknown_hits`). The first such
+    /// meet, as (installing app, app met): then an install stopped there.
+    pub(crate) fn recorded_run(
+        &self,
+        session: &mut Session,
+        inst: &mut impl AppInstalls,
+        sequence: &[u32],
+        fixed: &[u32],
+        reads: &BTreeSet<(u32, u32)>,
+        fp: &mut Footprints,
+    ) -> Option<(u32, u32)> {
+        let mut hit = None;
+        for &app in sequence {
+            self.view
+                .apply_ordered(session, app, &self.group, &self.held, fixed, reads);
+            session.install_footprint_start();
+            inst.install(session, app);
+            // The install session ends; the safety net of the footprint compares committed rows.
+            session.install_footprint_commit();
+            let mut f = session.install_footprint_take().unwrap_or_else(|| {
+                InstallFootprint::touching_everything("no footprint was recorded for the install session")
+            });
+            for (_, other) in session.take_order_unknown_hits() {
+                if self.group.contains(&other) {
+                    f.apps_met.insert(other);
+                    hit = hit.or(Some((app, other)));
+                }
+            }
+            fp.entry(app).or_default().extend(f);
+        }
+        hit
+    }
+
+    /// The influence graph of the group's apps from `fp`.
+    pub(crate) fn graph(&self, fp: &Footprints) -> Graph {
+        Graph::of(&self.group, fp, |x, y| self.unordered(x, y))
+    }
+
+    /// The apps of the group a run of the apps `fixed` installs: those and the apps they depend on.
+    pub(crate) fn closure(&self, fixed: &[u32]) -> BTreeSet<u32> {
+        (self.group.iter().copied())
+            .filter(|&a| fixed.contains(&a) || fixed.iter().any(|&f| self.view.needs(f, a)))
             .collect()
     }
 
-    /// The order of `apps` in which the apps of `fixed` install in that order: dependency order, else the plan's.
-    fn sequence(&self, fixed: &[u32]) -> Vec<u32> {
-        let rank = |a: u32| (self.apps.iter().position(|&x| x == a).unwrap_or(usize::MAX), a);
-        let before = |x: u32, y: u32| {
-            self.view.needs(y, x)
-                || matches!((fixed.iter().position(|&f| f == x), fixed.iter().position(|&f| f == y)), (Some(i), Some(j)) if i < j)
-        };
-        let mut left: Vec<u32> = self.group.iter().copied().collect();
-        left.sort_by_key(|&a| rank(a));
-        let mut out = Vec::new();
-        while !left.is_empty() {
-            let k = left
-                .iter()
-                .position(|&a| !left.iter().any(|&b| b != a && before(b, a)))
-                .unwrap_or(0);
-            out.push(left.remove(k));
-        }
-        out.retain(|a| self.apps.contains(a));
-        out
+    /// The order of the group in which the apps of `fixed` install in that order ([`order_of`]), or the apps whose
+    /// requested order their dependencies rule out.
+    pub(crate) fn order(&self, fixed: &[u32]) -> Result<Vec<u32>, BTreeSet<u32>> {
+        order_of(&self.ranked(), |a, b| self.view.needs(a, b), fixed)
+    }
+
+    /// The order of the final install ([`final_order`]) of `wanted`.
+    pub(crate) fn final_order(&self, wanted: &[u32]) -> Result<Vec<u32>, BTreeSet<u32>> {
+        final_order(&self.ranked(), |a, b| self.view.needs(a, b), wanted)
+    }
+
+    /// The apps of the group in plan order.
+    fn ranked(&self) -> Vec<u32> {
+        let mut ranked: Vec<u32> = self.group.iter().copied().collect();
+        ranked.sort_by_key(|&a| (self.apps.iter().position(|&x| x == a).unwrap_or(usize::MAX), a));
+        ranked
+    }
+
+    /// The apps of `order` with install code: the apps a run in that order installs.
+    pub(crate) fn sequence(&self, order: &[u32]) -> Vec<u32> {
+        (order.iter().copied()).filter(|a| self.apps.contains(a)).collect()
     }
 }
 
+/// ADR-079 decision 3, clarification of 2026-11-23 (review round 3): the apps of `ranked` (plan order) in an order where
+/// an app installs after the apps it depends on (`needs(a, b)`: a depends on b), and two apps of `fixed` with no
+/// dependency path between them install in their order in `fixed`. For two apps with a dependency path the dependency
+/// decides. Among the apps free to go next, the first of `ranked`. When no app is free, the requested order cannot be
+/// built: `Err` with the apps of one cycle of the constraints, and no run measures it.
+pub(crate) fn order_of(
+    ranked: &[u32],
+    needs: impl Fn(u32, u32) -> bool,
+    fixed: &[u32],
+) -> Result<Vec<u32>, BTreeSet<u32>> {
+    let at = |a: u32| fixed.iter().position(|&f| f == a);
+    let before = |x: u32, y: u32| match (needs(y, x), needs(x, y), at(x), at(y)) {
+        (true, _, _, _) => true,
+        (false, false, Some(i), Some(j)) => i < j,
+        _ => false,
+    };
+    let mut left = ranked.to_vec();
+    let mut out = Vec::new();
+    while !left.is_empty() {
+        let Some(k) = left.iter().position(|&a| !left.iter().any(|&b| b != a && before(b, a))) else {
+            // Every app left has one that must go before it: follow those back until one repeats.
+            let mut path = vec![left[0]];
+            loop {
+                let a = path[path.len() - 1];
+                let Some(&b) = left.iter().find(|&&b| b != a && before(b, a)) else {
+                    unreachable!("no app of `left` is free");
+                };
+                if let Some(p) = path.iter().position(|&x| x == b) {
+                    return Err(path[p..].iter().copied().collect());
+                }
+                path.push(b);
+            }
+        };
+        out.push(left.remove(k));
+    }
+    Ok(out)
+}
+
+/// ADR-079 decision 3, the final install (clarification of 2026-11-23, issue 8907): the units' order `wanted` when the
+/// dependencies allow it ([`order_of`]). When they do not (two tangles whose dependencies cross: 1 depends on 3, 4 on
+/// 2, while 1, 2 and 3, 4 are tangles), the plan order with the dependencies kept: once every unit is proven, every
+/// order BC can give leaves the same database (decision 4), so any of them is a final install. `Err` only when the
+/// dependencies themselves form a cycle.
+pub(crate) fn final_order(
+    ranked: &[u32],
+    needs: impl Fn(u32, u32) -> bool,
+    wanted: &[u32],
+) -> Result<Vec<u32>, BTreeSet<u32>> {
+    order_of(ranked, &needs, wanted).or_else(|_| order_of(ranked, &needs, &[]))
+}
+
 /// The orders of `apps` that no dependency path rules out.
-fn orders(group: &PartnerGroup, apps: &BTreeSet<u32>) -> Vec<Vec<u32>> {
+pub(crate) fn orders(group: &PartnerGroup, apps: &BTreeSet<u32>) -> Vec<Vec<u32>> {
     fn permute(rest: &[u32], at: &mut Vec<u32>, out: &mut Vec<Vec<u32>>) {
         if rest.is_empty() {
             out.push(at.clone());
@@ -148,7 +263,7 @@ fn orders(group: &PartnerGroup, apps: &BTreeSet<u32>) -> Vec<Vec<u32>> {
     all
 }
 
-fn names(lowered: &Lowered, apps: &BTreeSet<u32>) -> String {
+pub(crate) fn names(lowered: &Lowered, apps: &BTreeSet<u32>) -> String {
     apps.iter()
         .map(|&a| lowered.program.apps.get(a as usize).map_or("?", |x| x.name.as_str()))
         .collect::<Vec<_>>()
@@ -156,10 +271,11 @@ fn names(lowered: &Lowered, apps: &BTreeSet<u32>) -> String {
 }
 
 /// Installs the partner apps of `g`. Without two of them that have no dependency path between them, once each, in plan
-/// order. Otherwise once with the install order of such pairs not known (as before); when that install code met another
-/// partner app of the group (an event its subscriber would get, `NavApp.GetModuleInfo`, a table extension trigger), the
-/// apps met are installed again in every order (at most [`MAX_INTERACTING`] apps) from the database before them, and the
-/// databases compared ([`al_vm::Baseline::install_order_differences`]). The session ends on the database of the last order.
+/// order. Otherwise once with the install order of such pairs not known (as before), each app's install session
+/// recorded (its footprint, al-vm `install_footprint.rs`). When no install reads from or collides with another's
+/// (`install_proof::Graph`), that install stands. Else the install is proven independent of the order by subset runs
+/// (ADR-079, `install_subsets.rs`), and the session ends on a final install in an order the proof covers; what the
+/// proof cannot cover stays refused, as before.
 pub(crate) fn install_partner_apps<I: AppInstalls>(
     lowered: &Lowered,
     session: &mut Session,
@@ -168,109 +284,39 @@ pub(crate) fn install_partner_apps<I: AppInstalls>(
 ) {
     let may_interact = g.apps.iter().any(|&a| g.group.iter().any(|&b| g.unordered(a, b)));
     if !may_interact {
-        g.run(session, inst, &g.apps, &[]);
+        g.run(session, inst, &g.apps);
         return;
     }
     let start = session.capture_baseline();
+    let state = session.install_session_state();
     let clock = session.clock_offset_ms();
     let mark = inst.mark();
     session.take_order_unknown_hits();
-    g.run(session, inst, &g.apps, &[]);
-    let mut met = g.hits(session);
-    if met.is_empty() {
+    let mut fp = Footprints::new();
+    let hit = g.recorded_run(session, inst, &g.apps, &[], &BTreeSet::new(), &mut fp);
+    if hit.is_none() && g.graph(&fp) == Graph::default() {
         return;
     }
     let rewind = |session: &mut Session, inst: &mut I| {
         session.rewind_install(&start);
+        session.set_install_session_state(&state);
         session.set_clock_offset_ms(clock);
         inst.rewind(&mark);
         session.reset_single_instances();
     };
-    'grow: loop {
-        if met.len() > MAX_INTERACTING {
-            break 'grow;
-        }
-        let mut ends = Vec::new();
-        for order in orders(g, &met) {
+    let mut proof = crate::install_subsets::Proof::new(lowered, g, &start, fp);
+    match proof.settle(session, inst, &rewind) {
+        Ok(settled) => settled.apply(lowered, g, &proof, inst),
+        Err(unproven) => {
+            // Once more with the order not known, as before: a meet stays refused where it is reached.
             rewind(session, inst);
-            // The clock readings around this order: a value inside them was read from the clock (al-runner issue 6644 b).
-            let from = session.clock_now_millis();
-            g.run(session, inst, &g.sequence(&order), &order);
-            let new = g.hits(session);
-            if !new.is_subset(&met) {
-                met.extend(new);
-                continue 'grow;
-            }
-            ends.push((session.capture_baseline(), (from, session.clock_now_millis())));
+            g.run(session, inst, &g.apps);
+            session.take_order_unknown_hits();
+            unproven.apply(lowered, g, &proof, inst);
         }
-        let mut lines: std::collections::BTreeMap<u32, Vec<String>> = std::collections::BTreeMap::new();
-        for (e, clock) in ends.iter().skip(1) {
-            match e.install_order_differences(&ends[0].0, &start, &session.engine, (*clock, ends[0].1)) {
-                Some(d) => {
-                    for (t, l) in d {
-                        lines.entry(t).or_default().extend(l);
-                    }
-                }
-                None => break 'grow,
-            }
-        }
-        let differ: BTreeSet<u32> = lines.keys().copied().collect();
-        let table_name = |t: u32| lowered.program.objects.get(t as usize).map_or("?", |o| o.name.as_str());
-        // Every difference by table, key and field (`--verbose` prints the baseline notes; al-runner issue 6644 b).
-        let mut detail = Vec::new();
-        for (t, ls) in &lines {
-            let mut ls = ls.clone();
-            ls.sort();
-            ls.dedup();
-            for l in ls {
-                detail.push(format!("{}, {l}", table_name(*t)));
-            }
-        }
-        let who = names(lowered, &met);
-        inst.note(format!(
-            "{INSTALL_ORDERS_NOTE}{who}: no dependency path between them and their install code meets the other's code, so \
-             their install code ran in {} orders; {}",
-            ends.len(),
-            if differ.is_empty() {
-                "every order left the same database".to_string()
-            } else {
-                format!("the orders left different rows in {} table(s)", differ.len())
-            }
-        ));
-        for l in &detail {
-            inst.note(format!("{INSTALL_ORDER_DIFFERENCE_NOTE}{l}"));
-        }
-        if !differ.is_empty() {
-            let tables = differ.iter().map(|&t| table_name(t)).collect::<Vec<_>>().join(", ");
-            let first: Vec<&str> = detail.iter().take(SHOWN_DIFFERENCES).map(String::as_str).collect();
-            inst.refuse(
-                differ,
-                format!(
-                    "the install order of apps {who} is not known (no dependency path between them), and installing them \
-                     in each order leaves different rows in {tables} (ADR-046 amendment 7; {}{})",
-                    first.join("; "),
-                    if detail.len() > SHOWN_DIFFERENCES {
-                        format!("; {} more, --verbose lists them", detail.len() - SHOWN_DIFFERENCES)
-                    } else {
-                        String::new()
-                    }
-                ),
-            );
-        }
-        return;
     }
-    // Too many apps, or a difference outside the tables: once more with the order not known, as before.
-    rewind(session, inst);
-    g.run(session, inst, &g.apps, &[]);
-    session.take_order_unknown_hits();
-    inst.note(format!(
-        "{INSTALL_ORDERS_NOTE}{}: no dependency path between them and their install code meets the other's code; {}, so \
-         what it reaches stays refused",
-        names(lowered, &met),
-        if met.len() > MAX_INTERACTING {
-            format!("more than {MAX_INTERACTING} apps, whose every order the runner does not try")
-        } else {
-            "the orders differ in more than table rows (isolated storage, number sequences or companies)".to_string()
-        }
-    ));
 }
+
+#[cfg(test)]
+#[path = "install_orders_tests.rs"]
+mod tests;

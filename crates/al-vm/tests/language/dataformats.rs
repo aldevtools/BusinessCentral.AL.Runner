@@ -339,9 +339,16 @@ fn json_yaml_reads_and_writes_the_flat_form() {
         "J.ReadFromYaml('key: value'); J.WriteTo(Y); exit(Y);",
     );
     assert_eq!(t, "{\"key\":\"value\"}");
+    // A flow list under a key is a measured shape (corpus PR 1530, JsonYamlRemaining.al; read through
+    // `read-from-yaml-probed-shapes`); a character no probe measures is refused.
+    let t = text_of(
+        "J: JsonObject; Y: Text;",
+        "J.ReadFromYaml('key: [a, b]'); J.WriteTo(Y); exit(Y);",
+    );
+    assert_eq!(t, "{\"key\":[\"a\",\"b\"]}");
     assert!(unsupported(
         "J: JsonObject;",
-        "J.ReadFromYaml('key:' + Format(10) + '  - a'); exit('');"
+        "J.ReadFromYaml('key: \u{3b4}'); exit('');"
     ));
 }
 

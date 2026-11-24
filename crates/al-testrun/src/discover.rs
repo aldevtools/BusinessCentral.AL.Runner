@@ -2,6 +2,9 @@
 //!
 //! A deliberately shallow text scan: it reads no syntax tree, so it is cheap enough to run over a
 //! whole bucket before anything is compiled (to choose what to compile for a test filter).
+//!
+//! Finds `Subtype = Test` codeunits and their `[Test]` procedure names in AL text, without a syntax
+//! tree.
 
 /// `(codeunit id, [Test] procedure names)` for every `Subtype = Test` codeunit in `src`
 /// (comments are ignored).
