@@ -6,7 +6,7 @@
 //! the key's cost). The form is exact: each value is self-delimiting and `value_codec::decode` reads it back
 //! (value_codec.rs, a Blob with every field of its buffer, `blob_form.rs`), so equal digests mean equal rows. A value
 //! that has no byte form (`value_codec::encode` answers false: a SqlCount, a placeholder's size, a handle) gives
-//! [`NoKey`], never a lossy digest, and the session runs its login.
+//! [`NoByteForm`], never a lossy digest, and the session runs its login.
 //!
 //! One gap the form shares with the earlier Debug text: a Text with half of a surrogate pair is written with U+FFFD at the
 //! lone position (value_codec.rs, `Txt::as_str`). No stored row can hold one (every write refuses it,
@@ -18,10 +18,10 @@ use super::LinesDigest;
 use super::digest;
 use sha2::{Digest, Sha256};
 
-/// Why a session has no login key: a row holds a value with no byte form, named by its kind (al-data
-/// `memory::not_shareable`). The session then runs its login, counted in the starts line (`login_start::NotTaken::NoKey`).
+/// A row holds a value with no byte form, named by its kind (al-data `memory::not_shareable`): the session has no login
+/// key (`login_replay::NoKey::NoByteForm`) and runs its login.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct NoKey(pub(crate) &'static str);
+pub(crate) struct NoByteForm(pub(crate) &'static str);
 
 /// The first bytes of every digest: a digest of this form never equals one of another form (the earlier key hashed
 /// Debug lines).
@@ -52,14 +52,14 @@ impl RowsHasher {
         company: &str,
         object: u32,
         rows: impl Iterator<Item = &'a al_data::Row>,
-    ) -> Result<(), NoKey> {
+    ) -> Result<(), NoByteForm> {
         use al_builtins::value_codec::{encode_row, put_str, put_u32, put_u64};
         put_str(&mut self.buf, company);
         put_u32(&mut self.buf, object);
         let mut n: u64 = 0;
         for row in rows {
             if !encode_row(row, &mut self.buf) {
-                return Err(no_key(row));
+                return Err(no_byte_form(row));
             }
             #[cfg(test)]
             counts::ENCODED_ROWS.with(|c| c.set(c.get() + 1));
@@ -80,11 +80,11 @@ impl RowsHasher {
 }
 
 /// The kind of the first value of `row` that has no byte form.
-fn no_key(row: &al_data::Row) -> NoKey {
+fn no_byte_form(row: &al_data::Row) -> NoByteForm {
     let first = row
         .iter()
         .find(|v| !al_builtins::value_codec::encode(v, &mut Vec::new()));
-    NoKey(
+    NoByteForm(
         first
             .and_then(al_data::memory::not_shareable)
             .unwrap_or("a value with no byte form"),
@@ -97,7 +97,7 @@ pub(crate) fn table_digest<'a>(
     company: &str,
     object: u32,
     rows: impl Iterator<Item = &'a al_data::Row>,
-) -> Result<LinesDigest, NoKey> {
+) -> Result<LinesDigest, NoByteForm> {
     let mut h = RowsHasher::new();
     h.table(company, object, rows)?;
     Ok(h.finish())
@@ -105,7 +105,7 @@ pub(crate) fn table_digest<'a>(
 
 /// The digest of every row `store` holds now, the uncommitted changes included (the key's `uncommitted` part), table after
 /// table in the store's order; a table entry without rows is left out.
-pub(crate) fn current_digest(store: &al_data::memory::MemStore) -> Result<LinesDigest, NoKey> {
+pub(crate) fn current_digest(store: &al_data::memory::MemStore) -> Result<LinesDigest, NoByteForm> {
     let mut h = RowsHasher::new();
     // A table entry without rows wrote no Debug line, so it is not hashed here either (as `store_table_digests`).
     for t in store.export_current().iter().filter(|t| !t.rows.is_empty()) {
@@ -188,13 +188,13 @@ mod tests {
             let table = vec![vec![Value::Integer(1)], vec![Value::Integer(2), v.clone()]];
             let got = table_digest("C", 7, table.iter());
             assert!(
-                matches!(got, Err(NoKey(kind)) if !kind.is_empty()),
+                matches!(got, Err(NoByteForm(kind)) if !kind.is_empty()),
                 "{what}: table {got:?}"
             );
             let store = al_data::memory::MemStore::from_exported(vec![exported(table)]);
             let got = current_digest(&store);
             assert!(
-                matches!(got, Err(NoKey(kind)) if !kind.is_empty()),
+                matches!(got, Err(NoByteForm(kind)) if !kind.is_empty()),
                 "{what}: current {got:?}"
             );
         }

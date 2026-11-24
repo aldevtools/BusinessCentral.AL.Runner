@@ -1,36 +1,25 @@
-//! The check that a replay of the raised login would give each test session what running the login gives it (al-runner
-//! issue 8211). The maintainer's condition for a replay: the replayed store is the same as running the login for each
-//! session, including what the subscribers write. This module measures that and replays nothing.
+//! The login key and the check that a replay of the raised login gives each test session what running the login gives
+//! it (al-runner issue 8211). The maintainer's condition for a replay: the replayed store is the same as running the
+//! login for each session, including what the subscribers write. The replay itself is `login_start.rs`; this module
+//! keys it and measures it, and replays nothing.
 //!
-//! With `RunOptions::login_replay_check` (`ALRUNNER_LOGIN_REPLAY_CHECK=1`, read by the front ends), `runtime/run.rs`
-//! `open_company` takes the [`Key`] of each test session before it opens the company and, when the login was raised
-//! (`install::CompanyOpenWrites::raised`), what the session holds after it ([`LoginState`]). The first session of a key
-//! keeps its state on the engine ([`Check`]); every later session of the key is compared with it
-//! ([`differences`]). Outcomes do not change. The front ends print [`report`]: the check line, then the keys line.
+//! The key ([`Key::of`]) holds the inputs the login reads, each by content or by a SHA-256 digest; its doc lists them,
+//! and `login_start/outside.rs` names what it does with every input outside `Session`. A session that holds a value
+//! with no comparable form has no key. What no key holds keeps a run from the starts instead (`login_start::run_gate`:
+//! the code a run notes, a stability perturbation or a set clock start, single instances moved in, the real clock, a
+//! real files directory).
 //!
-//! The check that a replay of the raised login would give each test session what running it gives (al-runner issue
-//! 8211; measures only, replays nothing). Under `RunOptions::login_replay_check` (`ALRUNNER_LOGIN_REPLAY_CHECK=1`, read
-//! by the front ends) `runtime/run.rs` `open_company` takes the session's `Key` (the inputs of the login it keys on,
-//! not yet the clock start, the stability perturbation, the host's company list or the modes that follow the code a
-//! session runs (coverage, the impact trace, the observer): the committed rows, the backing, the session state,
-//! company, user, run seed, test codeunit, the entry's resource texts, the client, the whole `SessionFlags`, the
-//! license; a backing that does not say who it is gives a key of its own) and, when the login was raised
-//! (`install::CompanyOpenWrites::raised`), its `LoginState` (committed rows, al-vm `Session::state_lines`, assumption
-//! marks); `Check` (on the engine) compares each with the first of its key, and across test codeunits, counts the
-//! sessions whose key was seen before (what a replay could serve), and counts the differences by kind (not comparable,
-//! rows, session state, marks, open writes); `login_replay/difference.rs` owns `differences` and the text the report
-//! prints for them: where the states differ, never a value (`row 1 (table object 15): field 3 Blob: written_base,
-//! content_edits`, `session state 3`, the path of a value with no comparable form, which al-vm gives apart from why,
-//! `NotComparable`; the committed rows are kept field by field, `StoredRow`, a Blob as its buffer,
-//! `BlobBuf::differing_fields`); `first_difference` is the first of them; the report's second line (`login replay keys:
-//! ...`, `Check::keys_line`) counts each new key after the first by the set of key fields in which it differs from its
-//! nearest earlier key (`Key::differs_in`, names only), and per set, apart per field, the parts those keys differ in
-//! (`Key::differing_parts`, at most `PARTS_SHOWN` per field, the most counted first); `login_replay/key_parts.rs` keeps
-//! per-table and per-state-line-name digests beside the key's whole `database` and `session` digests (never compared:
-//! `NotCompared`), so that line also names the tables (`company N/table object T`, N by first sight over the check,
-//! `Companies`; `global/table object T` for a table not per company) and state lines (`counters`) a new key differs in,
-//! never a value. The front ends print `report` from `Phases::login_replay`. Tests: `runtime/login_replay_tests.rs`,
-//! alrunner-cli `tests/serve.rs`. Entry points: `Key::of`, `LoginState::of`, `Check::note`, `differences`.
+//! The check, under `RunOptions::login_replay_check` (`ALRUNNER_LOGIN_REPLAY_CHECK=1`, read by the front ends):
+//! `runtime/run.rs` `open_company` takes the key of each test session before its login and, when the login was raised
+//! (`install::CompanyOpenWrites::raised`), what the session holds after it ([`LoginState`]: committed rows, al-vm
+//! `Session::state_lines`, assumption marks, the open's writes). [`Check`] (on the engine) compares each with the first
+//! session of its key, and across test codeunits; a new key's session is also frozen, thawn into a twin and compared
+//! (the round trip), and a later session is compared with a thaw of its key's start (replay vs run). Outcomes do not
+//! change. `login_replay/difference.rs` owns [`differences`] and their text: where two states differ, never a value.
+//! The keys line ([`Check::keys_line`]) counts each new key by the key fields in which it differs from its nearest
+//! earlier key, and the parts of them (`login_replay/key_parts.rs`: per table and per state line name, by name only).
+//! The front ends print [`report`] from `Phases::login_replay`. Tests: `runtime/login_replay_tests.rs`,
+//! `runtime/login_start_tests.rs`, alrunner-cli `tests/serve.rs`.
 
 mod difference;
 mod key_parts;
@@ -39,17 +28,41 @@ mod rows_digest;
 use al_vm::{Engine, Session};
 pub(crate) use difference::differences;
 use difference::{KINDS, StoredRow, stored_rows};
-pub(crate) use rows_digest::NoKey;
 use std::sync::{Mutex, PoisonError};
+
+/// Why a session has no key ([`Key::of`]): it then runs its login.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum NoKey {
+    /// The session holds a value with no comparable form (al-vm `NotComparable`), at this path (ids and indexes only).
+    NotComparable(String),
+    /// A row holds a value with no byte form, of this kind (`rows_digest::NoByteForm`).
+    NoByteForm(&'static str),
+}
+
+impl From<rows_digest::NoByteForm> for NoKey {
+    fn from(no: rows_digest::NoByteForm) -> NoKey {
+        NoKey::NoByteForm(no.0)
+    }
+}
+
+impl NoKey {
+    /// The reason as the starts line names it.
+    pub(crate) fn reason(&self) -> String {
+        match self {
+            NoKey::NotComparable(path) => format!("no comparable form: {path}"),
+            NoKey::NoByteForm(kind) => format!("no byte form: {kind}"),
+        }
+    }
+}
 
 /// The inputs the login and its subscribers read when the test session opens the company, as far as the code shows them:
 /// a session state the key does not hold is held in place by the thaw's rule (al-vm `session_fields.rs`, `login_image/fields.rs`), and a
-/// static a request sets is a field here (`login_start/outside.rs`). Two sessions with the same
-/// key may share one run of the login only when they also hold the same after it ([`Check`]); a field left out of the
-/// key would let a replay hand a session the store of another input. The engine (the compiled program, its apps and
-/// their code) is not a field: the check lives on the engine (`Engine::derived`). Nor is `Engine::emit_version` (the
-/// build the missing-object error names): one daemon serves one BC build, so the engine fixes it. A daemon that took
-/// another build per request would need it as a field.
+/// static a request sets is a field here (`login_start/outside.rs`, which also names what the key does with each field
+/// of the run's `Scratch` and each engine field a run sets). Two sessions with the same key may share one run of the
+/// login only when they also hold the same after it ([`Check`]); a field left out of the key would let a replay hand a
+/// session the store of another input. The engine (the compiled program, its apps and their code) is not a field: the
+/// check lives on the engine (`Engine::derived`). What a run sets on it is, where a kept engine of a warm server may
+/// take another value in a later request (`emit_version`, `refused_reads`).
 ///
 /// The maintainer's two conditions for the replay (al-runner issue 8211): every field holds its input by content or by a
 /// SHA-256 digest ([`LinesDigest`]), never a 64-bit hash; and the test codeunit stays a field until a repeat across test
@@ -59,9 +72,10 @@ use std::sync::{Mutex, PoisonError};
 pub(crate) struct Key {
     /// Every committed row before the login: the install baseline, what install code and an earlier codeunit left.
     database: LinesDigest,
-    /// The rows the session holds now, written and not committed included, when some are not committed before the login:
-    /// the login reads them, so two sessions whose uncommitted rows differ have other keys. `None` when every row is
-    /// committed (the rows are then `database`).
+    /// The rows the session holds now, written and not committed included, when some are not committed before the
+    /// login: the login reads them, so two sessions whose uncommitted rows differ have other keys. `None` when every
+    /// row is committed (the rows are then `database`). A write since the last Commit that leaves the SQL counters with
+    /// no comparable form gives no key at all ([`Key::of`]).
     uncommitted: Option<LinesDigest>,
     /// Who offers the rows of the tables no write reached (the test data, `MemStore::backing_identity`).
     backing: BackingKey,
@@ -105,6 +119,40 @@ pub(crate) struct Key {
     isolation: (crate::isolation::TestIsolation, bool),
     /// The settings of the process a serve request sets and the system host answers from ([`RunSettings`]).
     run: RunSettings,
+    /// The emit version of the run's build, which the missing-object error names (`Engine::emit_version`): a warm
+    /// server sets it per request, one per build (`set_run_options`), also on a kept engine. By its reader
+    /// ([`EmitKey`]).
+    emit_version: EmitKey,
+    /// The tables a read of is refused on the engine: those the install baseline should have seeded, with why
+    /// (`Engine::unseeded`), and those whose demo rows the runtime does not have (`Engine::demo_tables`). A run sets
+    /// both after its install baseline, also on a kept engine; a login that reads one is refused there.
+    refused_reads: LinesDigest,
+}
+
+/// The emit version as a field of [`Key`]: by the reader the engine holds (`EmitVersion::same_reader`), since the
+/// number is read only when a missing-object error first needs it. Like [`BackingKey`] it names who answers, not a
+/// hash: a clone of one reader answers the same number, and a reader made apart is another key even for one build.
+#[derive(Debug, Clone)]
+pub(crate) struct EmitKey(al_vm::emit_version::EmitVersion);
+
+impl PartialEq for EmitKey {
+    fn eq(&self, other: &EmitKey) -> bool {
+        self.0.same_reader(&other.0)
+    }
+}
+
+impl Eq for EmitKey {}
+
+/// The lines of [`Key::refused_reads`]: each unseeded table with why, then each table of demo rows, in table order.
+fn refused_reads(engine: &Engine) -> LinesDigest {
+    let mut unseeded: Vec<_> = engine.unseeded.iter().collect();
+    unseeded.sort_by_key(|(t, _)| **t);
+    let mut demo: Vec<_> = engine.demo_tables.iter().collect();
+    demo.sort_unstable();
+    let lines: Vec<String> = (unseeded.into_iter().map(|(t, why)| format!("unseeded {t} {why}")))
+        .chain(demo.into_iter().map(|t| format!("demo {t}")))
+        .collect();
+    digest(&lines)
 }
 
 /// The process settings a serve request sets and the login can read through the system host (`host.rs`): the server
@@ -133,14 +181,19 @@ impl RunSettings {
 impl Key {
     /// The key of `session` before it opens the company; `isolation`: the codeunit's test isolation and whether the hub
     /// runs it; `flags`: the run options the session took; `skipped`: the install code that could not run, whose tables
-    /// the open is watched on. [`NoKey`] when a row holds a value with no byte form (`rows_digest.rs`): the session then
-    /// runs its login.
+    /// the open is watched on. [`NoKey`] when the session holds a value with no comparable form (al-vm `NotComparable`:
+    /// the key would hold it by its path only, so two sessions with other values there would share a key) or a row holds
+    /// a value with no byte form (`rows_digest.rs`). Such a session runs its login.
     pub(crate) fn of(
         session: &mut Session,
         isolation: (crate::isolation::TestIsolation, bool),
         flags: crate::runtime::session_flags::SessionFlags,
         skipped: &[al_vm::SkippedInstall],
     ) -> Result<Key, NoKey> {
+        let state = session.state_lines();
+        if let Some(opaque) = state.opaque.first() {
+            return Err(NoKey::NotComparable(opaque.path.clone()));
+        }
         let engine = session.engine.clone();
         let store = session.store_mut();
         let tables = key_parts::store_table_digests(&engine, store)?;
@@ -165,13 +218,11 @@ impl Key {
                     .collect::<Vec<_>>(),
             )
         };
-        let state = session.state_lines();
-        let opaque: Vec<String> = state.opaque.iter().map(al_vm::NotComparable::line).collect();
         Ok(Key {
             database,
             uncommitted,
             backing,
-            session: digest(&[digest(&state.lines).hex(), digest(&opaque).hex()]),
+            session: session_digest(&state),
             company: session.access_company().to_string(),
             seed: session.run_seed(),
             user: session.user_id(),
@@ -188,7 +239,24 @@ impl Key {
             skipped: skipped.to_vec(),
             isolation,
             run: RunSettings::now(),
+            emit_version: EmitKey(engine.emit_version.clone()),
+            refused_reads: refused_reads(&engine),
         })
+    }
+}
+
+/// [`Key::session`] of the state lines `state`: the lines, then the paths and reasons of the values with no comparable
+/// form.
+fn session_digest(state: &al_vm::StateLines) -> LinesDigest {
+    let opaque: Vec<String> = state.opaque.iter().map(al_vm::NotComparable::line).collect();
+    digest(&[digest(&state.lines).hex(), digest(&opaque).hex()])
+}
+
+#[cfg(test)]
+impl Key {
+    /// Whether the session state of this key is `state` ([`Key::session`]).
+    pub(crate) fn holds_session(&self, state: &al_vm::StateLines) -> bool {
+        self.session == session_digest(state)
     }
 }
 
@@ -234,6 +302,8 @@ impl Key {
             skipped,
             isolation,
             run,
+            emit_version,
+            refused_reads,
         } = self;
         [
             (*database != other.database, "database"),
@@ -251,6 +321,8 @@ impl Key {
             (*skipped != other.skipped, "skipped"),
             (*isolation != other.isolation, "isolation"),
             (*run != other.run, "run"),
+            (*emit_version != other.emit_version, "emit_version"),
+            (*refused_reads != other.refused_reads, "refused_reads"),
         ]
         .into_iter()
         .filter_map(|(differs, name)| differs.then_some(name))
@@ -736,9 +808,10 @@ impl std::fmt::Display for Uncompared {
     }
 }
 
-/// `image` thawn into `twin` (a new session with the run's flags) that starts from the store of `base`, on a thread of its
-/// own (so nothing of the thaw reaches this thread's state: its store operation count, its assumption marks, its instance
-/// registry); its state, with the marks and open writes `with` of the image. `Err`: why it could not be compared.
+/// `image` thawn into `twin` (a new session brought to its login by the runner's steps, `runtime/run.rs` `Steps::twin`)
+/// that starts from the store of `base`, on a thread of its own (so nothing of the thaw reaches this thread's state:
+/// its store operation count, its assumption marks, its instance registry); its state, with the marks and open writes
+/// `with` of the image. `Err`: why it could not be compared.
 fn thaw_twin(
     image: &al_vm::LoginImage,
     base: &al_vm::LoginBase,
@@ -779,9 +852,10 @@ fn thaw_twin(
 
 /// Under the check, after the real raised login of a session of `key` (`base`: the session before it; `gate`: why its
 /// run takes no starts): the session is compared with the first of its key; a new key's session is frozen, thawn into a
-/// twin and compared (the round trip) and its image kept as the key's start, as the replay would keep it; a later session
-/// is compared with a thaw of the key's start (`Check::replay_vs_run`) where the replay would have taken it. No session
-/// takes a start. `twin`: a new session with the run's host and flags.
+/// twin and compared (the round trip) and its image kept as the key's start, as the replay would keep it; a later
+/// session is compared with a thaw of the key's start (`Check::replay_vs_run`) where the replay would have taken it. No
+/// session takes a start. `twin`: a new session brought to its login by the runner's steps, as the replay's target is
+/// (`runtime/run.rs` `Steps::twin`).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn checked(
     engine: &Engine,
@@ -946,6 +1020,8 @@ mod tests {
                 company_name: None,
                 publish_order_known: false,
             },
+            emit_version: EmitKey(Default::default()),
+            refused_reads: digest(&[]),
         }
     }
 
@@ -974,8 +1050,10 @@ mod tests {
             skipped,
             isolation,
             run,
+            emit_version,
+            refused_reads,
         } = &k;
-        let digests: [&LinesDigest; 3] = [database, session, resources];
+        let digests: [&LinesDigest; 4] = [database, session, resources, refused_reads];
         let _: &Option<LinesDigest> = uncommitted;
         let _: &BackingKey = backing;
         let _: (&String, &i32, &String, &Option<usize>) = (company, seed, user, test_codeunit);
@@ -987,6 +1065,8 @@ mod tests {
         // The skipped installs by content: their tables, the tables left out on an assumption, and why.
         let _: &Vec<al_vm::SkippedInstall> = skipped;
         let _: &(crate::isolation::TestIsolation, bool) = isolation;
+        // Who answers the emit version, as `backing` says who offers the rows: the reader itself, never a number of it.
+        let _: &EmitKey = emit_version;
         // The process settings a request sets, each by content.
         let RunSettings {
             server_url,

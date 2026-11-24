@@ -196,19 +196,20 @@ pub fn run_codeunit_full(
 /// RequiredTestIsolation = Disabled), committed; then the `workDate.offset` of a stability run. With it, the marks of the
 /// assumptions this step relied on: they count for every test of the session (`mark_test_start_assumptions`). A session
 /// whose login inputs an earlier session of the engine had takes what that login left in place of running it
-/// (`login_start.rs`, al-runner issue 8211), unless the run notes the code it runs (`observed`: `--explain` or an
-/// observer), is perturbed, or had single instances moved in (`moved`). A scratch run (`execute`) is not a test session:
-/// it opens nothing. `Err`: why the codeunit is not run.
+/// (`login_start.rs`, al-runner issue 8211), unless the gate keeps it from the start (`login_start::run_gate`,
+/// `login_start::target_gate`, each reason counted). A scratch run (`execute`) is not a test session: it opens nothing.
+/// `Err`: why the codeunit is not run.
 fn open_company(
-    lowered: &Lowered,
+    start: &Start,
     session: &mut Session,
-    (execute, isolation, observed, moved): (bool, TestIsolation, bool, bool),
     skipped_installs: &[al_vm::SkippedInstall],
     perturb: &crate::stability::Perturb,
     scratch: &Scratch,
     after_refusal: bool,
 ) -> Result<(crate::install::CompanyOpenWrites, al_builtins::assumptions::HitBits), crate::install::NotOpened> {
-    if execute {
+    let steps = &start.steps;
+    let (lowered, isolation, observed, moved) = (steps.lowered, steps.isolation, steps.observed, steps.moved_in);
+    if steps.execute {
         return Ok(Default::default());
     }
     let disabled = isolation == TestIsolation::Disabled;
@@ -234,7 +235,8 @@ fn open_company(
         .then(|| crate::login_replay::Key::of(session, (isolation, scratch.hub), flags, skipped_installs))
     {
         Some(Ok(key)) => Some(key),
-        // A row holds a value with no byte form: the session runs its login, counted in the starts line.
+        // A value with no comparable form or a row with no byte form: the session runs its login, counted in the starts
+        // line.
         Some(Err(no_key)) => {
             crate::login_start::no_key(&engine, no_key);
             None
@@ -247,15 +249,20 @@ fn open_company(
         notes_code,
         perturbed,
         moved_in: moved,
-        ..Default::default()
     };
-    let gate = crate::login_start::run_gate(facts.with_host());
+    let gate = crate::login_start::run_gate(facts);
     let replayed =
         (key.as_ref().filter(|_| !check)).and_then(|key| crate::login_start::replay(&engine, key, session, gate));
     let (wrote, hits) = match replayed {
         Some(opened) => opened,
         None => {
-            let base = key.as_ref().map(|_| session.login_base());
+            // The session before the login, for a start that will be recorded or for the check: it clones the store.
+            let records = |key: &&crate::login_replay::Key| {
+                check || (gate.is_none() && !crate::login_start::starts(&engine).knows(key))
+            };
+            let base = key.as_ref().filter(records).map(|_| session.login_base());
+            #[cfg(test)]
+            crate::login_start::BASES.with(|b| b.set(b.get() + u32::from(base.is_some())));
             // Base Application's login code sets WorkDate when the session opens the company (`install::login_work_date`).
             // It runs before the workspace's own Company Triggers subscribers: the order of the two is not pinned
             // (docs/probes-needed.md, WorkDate row).
@@ -265,24 +272,14 @@ fn open_company(
             session.commit_transaction();
             let hits = al_builtins::assumptions::take_hit_bits();
             if let (Some(key), Some(base), true) = (key, base, wrote.raised) {
-                // The check's twin is made as `run_codeunit_inner` makes the session: the host of the same scratch, the
-                // run's flags, the test codeunit entered.
-                let object = session.test_object;
-                let twin = || {
-                    let mut host = crate::host::host_perturbed(scratch.clock_start, perturb);
-                    host.run_seed = scratch.run_seed.seed;
-                    let mut twin = Session::with_host(engine.clone(), host);
-                    scratch.flags.apply(&mut twin);
-                    // What the runner set before the login, which the thaw keeps from its target (`runner` fields).
-                    if let Some(object) = object {
-                        enter_test_codeunit(&mut twin, scratch, object, isolation);
-                    }
-                    twin
-                };
-                match (check, gate) {
-                    (true, _) => crate::login_replay::checked(&engine, session, key, &base, &wrote, hits, gate, twin),
-                    (false, None) => crate::login_start::record(&engine, key, session, &base, &wrote, hits),
-                    (false, Some(_)) => {}
+                // The check's twin: brought to its login by the steps of `Start::open`, as the replay's target is when
+                // it takes a start (`Steps::twin`).
+                let on = start.twin_baseline();
+                let twin = || steps.twin(scratch, on.as_ref());
+                // Without the check, a base is taken only for a start that will be recorded (`records`).
+                match check {
+                    true => crate::login_replay::checked(&engine, session, key, &base, &wrote, hits, gate, twin),
+                    false => crate::login_start::record(&engine, key, session, &base, &wrote, hits),
                 }
                 #[cfg(test)]
                 crate::login_replay::serve_twin(session, &base, twin);
@@ -569,14 +566,17 @@ fn run_codeunit_inner(
         Err(why) => return all(Outcome::NotRun(why)),
     };
     let start = Start {
-        engine,
-        lowered,
-        object,
+        steps: Steps {
+            engine,
+            lowered,
+            object,
+            installs: super::install_once::FromBaseline::of(baseline),
+            isolation,
+            execute,
+            observed: observe.is_some(),
+            moved_in: moved.is_some(),
+        },
         baseline,
-        isolation,
-        execute,
-        observed: observe.is_some(),
-        moved_in: moved.is_some(),
     };
     let mut opened = start.open(&mut session, scratch, &perturb, false);
     // Microsoft's login code refused where only System Application's login memos made it decide (`login::decide`): the
@@ -1685,10 +1685,22 @@ fn set_up_session(session: &mut Session, scratch: &Scratch, observed: bool) {
 
 /// What a test codeunit's session needs to open the company ([`Start::open`]), and to start once more ([`Start::again`]).
 struct Start<'a> {
+    steps: Steps<'a>,
+    /// The install baseline the session starts from. Not shared between threads: the check's twin takes its data with
+    /// the store the login started from ([`Steps::twin`]).
+    baseline: Option<&'a al_vm::Baseline>,
+}
+
+/// The steps that make a test codeunit's session and bring it to its login, besides the restore of the install
+/// baseline: [`Steps::session`], [`Steps::before_login`]. Any thread may take them: the check's twin is made by them
+/// ([`Steps::twin`]).
+#[derive(Clone, Copy)]
+struct Steps<'a> {
     engine: &'a Arc<Engine>,
     lowered: &'a Lowered,
     object: usize,
-    baseline: Option<&'a al_vm::Baseline>,
+    /// What the install step reads of the baseline (`install_once::installs_for`).
+    installs: super::install_once::FromBaseline<'a>,
     isolation: TestIsolation,
     execute: bool,
     observed: bool,
@@ -1711,11 +1723,49 @@ impl Start<'_> {
         perturb: &crate::stability::Perturb,
         after_refusal: bool,
     ) -> Result<Opened, crate::install::NotOpened> {
+        let skipped = self.steps.before_login(session, scratch);
+        // Company Triggers when the test session opens the company, before the codeunit's OnRun and first test (ADR-046
+        // amendment 1, A4 item 10). What the step relied on counts for every test of the session
+        // (`mark_test_start_assumptions`).
+        let opened = open_company(self, session, &skipped, perturb, scratch, after_refusal)?;
+        Ok((skipped, opened))
+    }
+
+    /// The baseline the check's twin runs the install code on ([`Steps::twin`]): only where the session ran it on its
+    /// baseline (`FromBaseline::NotInstalled`), frozen so that the twin's thread may take it. `None` too for a baseline
+    /// that cannot be frozen: the twin then runs the install code on no baseline.
+    fn twin_baseline(&self) -> Option<al_vm::SharedBaseline> {
+        let not_installed = matches!(self.steps.installs, super::install_once::FromBaseline::NotInstalled);
+        not_installed.then(|| self.baseline?.freeze().ok()).flatten()
+    }
+
+    /// A new session in place of one whose open did not end, set up as the first ([`set_up_session`]).
+    fn again(&self, scratch: &Scratch, moved: Option<&al_vm::single_track::MovedSingles>) -> Session {
+        self.steps.session(scratch, self.baseline, moved)
+    }
+}
+
+impl Steps<'_> {
+    /// A new session on `baseline` with the single instances `moved`, set up for the run ([`set_up_session`]).
+    fn session(
+        &self,
+        scratch: &Scratch,
+        baseline: Option<&al_vm::Baseline>,
+        moved: Option<&al_vm::single_track::MovedSingles>,
+    ) -> Session {
+        let mut session = session_from(self.engine, session_host(scratch), baseline, moved);
+        set_up_session(&mut session, scratch, self.observed);
+        session
+    }
+
+    /// The steps before the login: the install code's leftovers (or its run), the facts of the engine, the codeunit
+    /// entered. Returns the installs that could not run.
+    fn before_login(&self, session: &mut Session, scratch: &Scratch) -> Vec<al_vm::SkippedInstall> {
         // No single instance of an earlier codeunit moved in: the session is as `install_once` makes one.
         let skipped = super::install_once::installs_for(
             self.lowered,
             session,
-            self.baseline,
+            self.installs,
             scratch,
             self.execute,
             self.observed,
@@ -1724,19 +1774,21 @@ impl Start<'_> {
         // What install code wrote is known only in part (ADR-046): the tests read it through the facts of this engine.
         crate::install::ensure_facts(self.engine, self.lowered);
         enter_test_codeunit(session, scratch, self.object, self.isolation);
-        // Company Triggers when the test session opens the company, before the codeunit's OnRun and first test (ADR-046
-        // amendment 1, A4 item 10). What the step relied on counts for every test of the session
-        // (`mark_test_start_assumptions`).
-        let run = (self.execute, self.isolation, self.observed, self.moved_in);
-        let opened = open_company(self.lowered, session, run, &skipped, perturb, scratch, after_refusal)?;
-        Ok((skipped, opened))
+        skipped
     }
 
-    /// A new session in place of one whose open did not end, set up as the first ([`set_up_session`]).
-    fn again(&self, scratch: &Scratch, moved: Option<&al_vm::single_track::MovedSingles>) -> Session {
-        let mut session = session_from(self.engine, session_host(scratch), self.baseline, moved);
-        set_up_session(&mut session, scratch, self.observed);
-        session
+    /// The twin of the login replay check (`login_replay.rs`): a new session brought to its login by the same steps as
+    /// the codeunit's session, so that, once it starts from the store the session's login started from
+    /// (`Session::start_from`: the install baseline's data, which is not shared between threads, comes with it), it
+    /// holds before its thaw what the session held before its login, as the replay's target does, the fields the thaw
+    /// keeps from its target included. Single instances an earlier codeunit left are not moved into it (they were moved
+    /// into the session, and a run with them takes no start, `NotTaken::MovedIn`). Where the session ran the install
+    /// code itself, the twin runs it too, on the baseline `on` the session ran it on ([`Start::twin_baseline`]).
+    fn twin(&self, scratch: &Scratch, on: Option<&al_vm::SharedBaseline>) -> Session {
+        let on = on.map(|b| b.thaw(Some(self.engine)));
+        let mut twin = self.session(scratch, on.as_ref(), None);
+        self.before_login(&mut twin, scratch);
+        twin
     }
 }
 

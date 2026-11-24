@@ -5,8 +5,8 @@
 //!   the company by first sight over the whole check ([`Companies`]: a company name can be a customer's, so it is never
 //!   shown), or `global/table object T` for a table that is not per company;
 //! - per state line name, the session state lines of that name (`Session::state_lines`: every line starts with a name the
-//!   runtime writes, `session`, `single`, `counters`, ...: its first word), and the lines with no comparable form as
-//!   `not comparable`.
+//!   runtime writes, `session`, `single`, `counters`, ...: its first word). A session that holds a value with no
+//!   comparable form has no key (`Key::of`).
 //!
 //! A table the store exports without rows has no part and no digest ([`store_table_digests`]): `rows` writes no line
 //! for it, so the whole `database` digest does not see it either, and the keys line never names it. Whether a table has
@@ -15,7 +15,7 @@
 //! The parts are never compared: a key holds them as [`NotCompared`], so which keys are equal is decided by the key's
 //! fields alone (the maintainer's review of this check, issue 8211).
 
-use super::rows_digest::{NoKey, table_digest as rows_table_digest};
+use super::rows_digest::{NoByteForm, table_digest as rows_table_digest};
 use super::{LinesDigest, digest};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -43,7 +43,7 @@ pub(crate) struct KeyParts {
 
 /// The digest of the committed rows of table `t` (`rows_digest.rs`).
 #[cfg(test)]
-fn table_digest(t: &al_data::memory::ExportedTable) -> Result<LinesDigest, NoKey> {
+fn table_digest(t: &al_data::memory::ExportedTable) -> Result<LinesDigest, NoByteForm> {
     rows_table_digest(&t.company, t.object, t.rows.iter().map(|(_, row)| row))
 }
 
@@ -66,11 +66,11 @@ pub(crate) fn table_digests(tables: &[al_data::memory::ExportedTable]) -> BTreeM
 /// Stamp is the digest of the rows the table holds at that stamp (the rows were rendered and digested
 /// whole for every test session). A table with no stamp is digested each time. Kept per engine (`Engine::derived`).
 /// A table entry without rows has no digest, as `rows` writes no line for it (the module comment).
-/// [`NoKey`] when a row holds a value with no byte form (nothing is kept for its table).
+/// [`NoByteForm`] when a row holds a value with no byte form (nothing is kept for its table).
 pub(crate) fn store_table_digests(
     engine: &al_vm::Engine,
     store: &al_data::memory::MemStore,
-) -> Result<BTreeMap<(String, u32), LinesDigest>, NoKey> {
+) -> Result<BTreeMap<(String, u32), LinesDigest>, NoByteForm> {
     #[derive(Default)]
     struct Memo(std::sync::Mutex<std::collections::HashMap<(String, u32, u64), LinesDigest>>);
     /// How many table states the memo keeps before it starts again.
@@ -128,12 +128,6 @@ impl KeyParts {
         for line in &state.lines {
             let name = line.split(' ').next().unwrap_or_default();
             by_name.entry(name.to_string()).or_default().push(line.clone());
-        }
-        if !state.opaque.is_empty() {
-            by_name.insert(
-                "not comparable".into(),
-                state.opaque.iter().map(al_vm::NotComparable::line).collect(),
-            );
         }
         let session = (by_name.into_iter())
             .map(|(name, lines)| (name, digest(&lines)))

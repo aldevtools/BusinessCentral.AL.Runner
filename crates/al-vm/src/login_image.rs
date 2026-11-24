@@ -281,15 +281,21 @@ impl Session {
             .or_else(|| self.store.watching().then_some("store watch"))
     }
 
-    /// Makes this new session start from `base` ([`LoginBase::portable`]) over the engine's test data, as the session the
-    /// base was taken from started its login: the check's twin.
+    /// Makes this session start from `base` ([`LoginBase::portable`]) over the engine's test data, as the session the
+    /// base was taken from started its login: the check's twin, brought to its login by the runner's steps. SQL
+    /// counters at rest stay at rest: they note the store operations of the thread since the last Commit, and putting
+    /// the store back is none of the session's (they read the count again, as `restore_install_left` has them do).
     pub fn start_from(&mut self, base: &PortableBase) {
+        let at_rest = self.sql.left_inactive();
         let b = (crate::Baseline::from_bytes(&base.bytes).expect("a base read back from its own bytes"))
             .backed_by(&self.engine);
         self.restore_baseline(&b);
         let marked = rows::marked_as(&self.store, &base.emptied, &Default::default())
             .expect("an emptied table has an entry, and the bytes keep an empty one");
         self.store = std::mem::take(&mut self.store).with_committed_tables(marked, &[]);
+        if let Some(left) = at_rest {
+            self.sql.restore_left(&left);
+        }
     }
 
     /// What this session holds, as an image any thread may keep. `base`: what it was before the login

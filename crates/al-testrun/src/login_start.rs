@@ -1,11 +1,11 @@
-//! Login starts (al-runner issue 8211): a test session whose login inputs ([`crate::login_replay::Key`])
-//! were seen before takes what that login left (a [`Start`]) in place of running it again. The first session of a key runs
-//! the login and keeps its al-vm `LoginImage` with the open's writes and assumption marks ([`record`]); a later session of
-//! the key thaws the image into itself in `runtime/run.rs` `open_company` ([`replay`]), when [`why_not`] finds nothing
-//! against it. A key whose session the image refuses (`NotImaged`) runs the real login every time and is not frozen again.
-//! It is off unless `RunOptions::login_replay` (`ALRUNNER_LOGIN_REPLAY=1`) turns it on; under the login replay check
-//! (`ALRUNNER_LOGIN_REPLAY_CHECK=1`) no session takes a start, and `login_replay.rs` compares each later session of a key
-//! with a thaw of its start instead.
+//! Login starts (al-runner issue 8211): a test session whose login inputs ([`crate::login_replay::Key`]) were seen
+//! before takes what that login left (a [`Start`]) in place of running it again. The first session of a key runs the
+//! login and keeps its al-vm `LoginImage` with the open's writes and assumption marks ([`record`]); a later session of
+//! the key thaws the image into itself in `runtime/run.rs` `open_company` ([`replay`]), when neither the run
+//! ([`run_gate`]) nor the session ([`target_gate`]) keeps it from the start. A key whose session the image refuses
+//! (`NotImaged`) runs the real login every time and is not frozen again. It is off unless `RunOptions::login_replay`
+//! (`ALRUNNER_LOGIN_REPLAY=1`) turns it on; under the login replay check (`ALRUNNER_LOGIN_REPLAY_CHECK=1`) no session
+//! takes a start, and `login_replay.rs` compares each later session of a key with a thaw of its start instead.
 //!
 //! The starts live on the engine ([`starts`], `Engine::derived`): at most [`MAX_STARTS`] and [`MAX_BYTES`] of
 //! `LoginImage::kept_bytes`, least recently used out; one start over [`MAX_START_BYTES`] is not kept (`too large`). The
@@ -53,17 +53,12 @@ pub(crate) enum NotTaken {
     Perturbed,
     /// Single instances of the codeunit before were moved in (the strict-order lane).
     MovedIn,
-    /// The wall clock (`ALRUNNER_REAL_CLOCK`): a login that stamps the time it reads would hand a later session an
-    /// earlier time, and no key holds the clock.
-    RealClock,
-    /// A real files directory (`--files-dir`): a login that reads a file another session wrote reads what no key holds.
-    RealFiles,
+    /// A setting of the process no key holds (`host::unkeyed`): the real clock or a real files directory.
+    Unkeyed(crate::host::Unkeyed),
     /// The session is not a thaw target (`Session::thaw_target_why`).
     Target(&'static str),
     /// The store the session starts from has another shape than the start's (`LoginImage::base_shape`).
     BaseShape,
-    /// The session has no key: a row holds a value with no byte form, of this kind (`login_replay::NoKey`).
-    NoKey(&'static str),
     /// The thaw refused the session (`Session::thaw_login_image`).
     NotThawed(al_vm::NotThawed),
 }
@@ -75,11 +70,9 @@ impl NotTaken {
             NotTaken::NotesCode => "the run notes the code it runs".into(),
             NotTaken::Perturbed => "a stability perturbation or a set clock start".into(),
             NotTaken::MovedIn => "single instances moved in".into(),
-            NotTaken::RealClock => "the real clock (ALRUNNER_REAL_CLOCK)".into(),
-            NotTaken::RealFiles => "a real files directory (--files-dir)".into(),
+            NotTaken::Unkeyed(input) => input.reason().into(),
             NotTaken::Target(field) => format!("target: {field}"),
             NotTaken::BaseShape => "base shape".into(),
-            NotTaken::NoKey(kind) => format!("no key: {kind}"),
             NotTaken::NotThawed(why) => format!("not thawed: {}", why.reason()),
         }
     }
@@ -238,24 +231,11 @@ pub(crate) struct RunFacts {
     pub perturbed: bool,
     /// Single instances of the codeunit before were moved in.
     pub moved_in: bool,
-    /// The system host reads the wall clock as it goes (`ALRUNNER_REAL_CLOCK`, `host::real_clock`).
-    pub real_clock: bool,
-    /// `File` reads and writes a real directory (`--files-dir`, `host::uses_real_files`).
-    pub real_files: bool,
 }
 
-impl RunFacts {
-    /// The process settings of a run, besides what the caller knows of it.
-    pub(crate) fn with_host(self) -> RunFacts {
-        RunFacts {
-            real_clock: crate::host::real_clock(),
-            real_files: crate::host::uses_real_files(),
-            ..self
-        }
-    }
-}
-
-/// Why a run keeps every session from taking or recording a start ([`RunFacts`]), in this order.
+/// Why a run keeps every session from taking or recording a start, in this order: what `run_codeunit_inner` knows of it
+/// ([`RunFacts`]), then a setting of the process no key holds (`host::unkeyed`, which the install baseline cache asks
+/// too).
 pub(crate) fn run_gate(run: RunFacts) -> Option<NotTaken> {
     if run.notes_code {
         Some(NotTaken::NotesCode)
@@ -263,18 +243,18 @@ pub(crate) fn run_gate(run: RunFacts) -> Option<NotTaken> {
         Some(NotTaken::Perturbed)
     } else if run.moved_in {
         Some(NotTaken::MovedIn)
-    } else if run.real_clock {
-        Some(NotTaken::RealClock)
-    } else if run.real_files {
-        Some(NotTaken::RealFiles)
     } else {
-        None
+        crate::host::unkeyed().map(NotTaken::Unkeyed)
     }
 }
 
 /// Counts a session of `engine` that has no key (`no_key`): it runs its login.
 pub(crate) fn no_key(engine: &Engine, no_key: crate::login_replay::NoKey) {
-    starts(engine).not_taken(NotTaken::NoKey(no_key.0));
+    *starts(engine)
+        .state()
+        .not_taken
+        .entry(format!("no key: {}", no_key.reason()))
+        .or_default() += 1;
 }
 
 /// Why a session that was `target` (`Session::thaw_target_why`) with a store of shape `shape` before its login cannot take
@@ -364,6 +344,8 @@ thread_local! {
     /// ([`opened`]): a test compares a replayed session with a real one.
     pub(crate) static OPENED: std::cell::RefCell<Option<Vec<crate::login_replay::LoginState>>> =
         const { std::cell::RefCell::new(None) };
+    /// How many times `open_company` took the session before its login (`Session::login_base`) on this thread.
+    pub(crate) static BASES: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
     /// While `true`, a start is taken without its assumption marks: a test shows the marks' test bites.
     pub(crate) static DROP_HITS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }

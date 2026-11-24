@@ -211,6 +211,159 @@ fn a_planted_difference_in_the_replay_is_reported() {
     );
 }
 
+/// [`MAIN`] with install code that sets WorkDate: a codeunit's session that starts from no install baseline starts from
+/// what it left (`install_once.rs`, `Session::install_left` carries WorkDate), before the session enters the codeunit
+/// and logs in.
+const INSTALL_SETS_WORKDATE: &str = r#"
+codeunit 77480 "RPL Install"
+{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany() begin WorkDate(DMY2Date(3, 4, 2021)); end;
+}
+"#;
+
+/// The state lines of each twin of the check before its thaw (`TWIN_TARGET`), for the test below only.
+static TWINS_BEFORE_THAW: std::sync::Mutex<Vec<al_vm::StateLines>> = std::sync::Mutex::new(Vec::new());
+
+// Issue 8211: the replay thaws into the test session after the steps of `Start::open` (the install code's leftovers,
+// the test codeunit entered), so the fields the thaw keeps from its target are the session's own. The check's twin is
+// made by the same steps: before its thaw it holds what the session held before its login (the key's session state),
+// here the WorkDate the install code left.
+#[test]
+fn the_checks_twin_holds_before_its_thaw_what_the_session_held_before_its_login() {
+    let (engine, l) = compiled_with(&format!("{MAIN}{INSTALL_SETS_WORKDATE}"));
+    TWINS_BEFORE_THAW.lock().unwrap().clear();
+    crate::login_replay::TWIN_TARGET
+        .with(|p| p.set(Some(|twin| TWINS_BEFORE_THAW.lock().unwrap().push(twin.state_lines()))));
+    let check = RunOptions {
+        login_replay_check: true,
+        ..Default::default()
+    };
+    let ran = sessions(&engine, &l, "RPL Tests A", 2, &check);
+    crate::login_replay::TWIN_TARGET.with(|p| p.set(None));
+    assert_one_state(&ran, "check");
+    let twins = std::mem::take(&mut *TWINS_BEFORE_THAW.lock().unwrap());
+    assert_eq!(twins.len(), 2, "the round trip's twin and the replay-vs-run twin");
+    let firsts = crate::login_replay::check(&engine).firsts();
+    let key = &firsts[0].0;
+    for (i, twin) in twins.iter().enumerate() {
+        assert!(
+            key.holds_session(twin),
+            "twin {i} before its thaw is not the session before its login: {:?}",
+            twin.lines
+                .iter()
+                .filter(|l| l.to_lowercase().contains("work"))
+                .collect::<Vec<_>>()
+        );
+    }
+}
+
+/// [`MAIN`] with a login subscriber that commits: at UpdateNoLocks, the type the login runs at, the Commit keeps the
+/// type and marks it `commit-keeps-transaction-type` (al-vm `Session::keep_type_at_commit`, `TxState::type_origin`).
+const COMMITS_IN_THE_LOGIN: &str = r#"
+codeunit 77491 "RPL Snapshot Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
+    local procedure RegisterManualSetup() begin Commit(); end;
+}
+"#;
+
+/// The transaction line of `state` (al-vm `state_facts.rs`, with the type's origin).
+fn transaction_line(state: &crate::login_replay::LoginState) -> String {
+    let lines = &state.state_lines().lines;
+    lines
+        .iter()
+        .find(|l| l.starts_with("transaction "))
+        .cloned()
+        .unwrap_or_default()
+}
+
+// Issue 8211, from the #8528 review: a login that commits at a type other than Update leaves the type's origin (the
+// mark a later read of CurrentTransactionType before the first test method is flagged by). A replayed session holds the
+// same origin as a real login, in the transaction line the check compares.
+#[test]
+fn a_replayed_session_has_the_type_origin_a_real_login_leaves() {
+    let src = format!("{MAIN}{COMMITS_IN_THE_LOGIN}");
+    let (engine, l) = compiled_with(&src);
+    let ran = sessions(&engine, &l, "RPL Tests A", 3, &on());
+    assert_eq!(
+        starts(&engine).replayed(),
+        2,
+        "sessions 2 and 3 take the start of session 1"
+    );
+    let (off_engine, l) = compiled_with(&src);
+    let real = sessions(&off_engine, &l, "RPL Tests A", 1, &RunOptions::default());
+    for i in 0..3 {
+        assert_eq!(ran.outcomes[i], real.outcomes[0], "session {i}");
+        assert_eq!(first_difference(&ran.states[i], &real.states[0]), None, "session {i}");
+    }
+    let (plain, l) = compiled();
+    let unmarked = sessions(&plain, &l, "RPL Tests A", 1, &RunOptions::default());
+    assert_ne!(
+        transaction_line(&ran.states[2]),
+        transaction_line(&unmarked.states[0]),
+        "GUARD: the login's Commit shows in the transaction line"
+    );
+}
+
+/// [`MAIN`] with a login subscriber that shares element 1 of a SingleInstance codeunit's array of temporary records
+/// into another SingleInstance codeunit's global (`Copy(x, true)`, which notes the copy target on the table's token),
+/// and a test that clears the first codeunit: ClearAll keeps the shared table in place (al-vm
+/// `clear_shared_codeunit.rs`, ClearSharedCodeunitTempArrayShare.al SIArrNever_ :736); without the note it refuses.
+const SHARES_BY_COPY: &str = r#"
+codeunit 77492 "RPL Arr Owner"
+{
+    SingleInstance = true;
+    var A: array[2] of Record "Guided Experience Item" temporary;
+    procedure ShareA1(var R: Record "Guided Experience Item" temporary) begin R.Copy(A[1], true); end;
+    procedure ClearAllGlobals() begin ClearAll(); end;
+}
+codeunit 77493 "RPL Copy Keeper"
+{
+    SingleInstance = true;
+    var Keep: Record "Guided Experience Item" temporary;
+    procedure Take() var O: Codeunit "RPL Arr Owner"; begin O.ShareA1(Keep); end;
+}
+codeunit 77494 "RPL Copy Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
+    local procedure RegisterManualSetup() var K: Codeunit "RPL Copy Keeper"; begin K.Take(); end;
+}
+codeunit 77495 "RPL Clear Tests"
+{
+    Subtype = Test;
+    [Test]
+    procedure ClearsTheOwner() var O: Codeunit "RPL Arr Owner"; begin O.ClearAllGlobals(); end;
+}
+"#;
+
+// Issue 8211, from the #8528 review: the copy targets a login notes on a temporary table's token (main's `TempToken`
+// `copy_targets`) decide whether a test's ClearAll of a shared codeunit is the measured case. A replayed session has
+// the copy targets of a real login: the test passes in both, where losing them would refuse it.
+#[test]
+fn a_replayed_session_has_the_copy_targets_a_real_login_notes() {
+    let src = format!("{MAIN}{SHARES_BY_COPY}");
+    let passes = vec![("ClearsTheOwner".to_string(), Outcome::Pass)];
+    let (off_engine, l) = compiled_with(&src);
+    let real = sessions(&off_engine, &l, "RPL Clear Tests", 1, &RunOptions::default());
+    assert_eq!(
+        real.outcomes,
+        std::slice::from_ref(&passes),
+        "GUARD: a real login's session passes"
+    );
+    let (engine, l) = compiled_with(&src);
+    let ran = sessions(&engine, &l, "RPL Clear Tests", 3, &on());
+    assert_eq!(
+        starts(&engine).replayed(),
+        2,
+        "sessions 2 and 3 take the start of session 1"
+    );
+    assert_eq!(ran.outcomes, vec![passes; 3]);
+    for (i, s) in ran.states.iter().enumerate() {
+        assert_eq!(first_difference(s, &real.states[0]), None, "session {i}");
+    }
+}
+
 /// A login that also makes an assumption mark when the company opens (`OnCompanyOpenCompleted`, a Variant to Integer
 /// conversion): every test of the session is a flagged pass (al-runner issue 8060; `login_tests.rs`
 /// `an_assumption_the_company_open_step_relied_on_flags_every_test_of_the_session`).
@@ -283,6 +436,44 @@ fn a_key_that_is_not_imaged_runs_the_login_every_time_and_is_frozen_once() {
     assert!(line.contains(", 1 not imaged"), "one key, frozen once: {line}");
 }
 
+/// How many times `open_company` took a session before its login while `run` ran.
+fn bases_taken(run: impl FnOnce()) -> u32 {
+    login_start::BASES.with(|b| b.set(0));
+    run();
+    login_start::BASES.with(std::cell::Cell::get)
+}
+
+// The session before the login (`Session::login_base`, a clone of the store) is taken only where it is read: for a
+// start that will be recorded (a key not known yet, a run the gate lets take starts) or for the check. Not for a
+// session that replays, one whose key was refused, nor a run the gate keeps from starts (issue 8211).
+#[test]
+fn the_session_before_the_login_is_taken_only_to_record_a_start_or_for_the_check() {
+    let (engine, l) = compiled();
+    let recorded = bases_taken(|| drop(sessions(&engine, &l, "RPL Tests A", 3, &on())));
+    assert_eq!(
+        (recorded, starts(&engine).replayed()),
+        (1, 2),
+        "the first session records, the others replay"
+    );
+    let (engine, l) = compiled_with(&format!("{MAIN}{OPAQUE_INSIDE}"));
+    let refused = bases_taken(|| drop(sessions(&engine, &l, "RPL Tests A", 3, &on())));
+    assert_eq!(refused, 1, "a key the image refused is not frozen again");
+    let (engine, l) = compiled();
+    let observed = Setup {
+        observed: true,
+        ..Default::default()
+    };
+    let gated = bases_taken(|| drop(sessions_with(&engine, &l, "RPL Tests A", 2, &on(), &observed)));
+    assert_eq!(gated, 0, "a run the gate keeps from starts records none");
+    let (engine, l) = compiled();
+    let check = RunOptions {
+        login_replay_check: true,
+        ..Default::default()
+    };
+    let checked = bases_taken(|| drop(sessions(&engine, &l, "RPL Tests A", 2, &check)));
+    assert_eq!(checked, 2, "GUARD: the check compares every session");
+}
+
 // An uncaught error of the install code leaves `error_finals` on the session (`install_once`'s fallback makes the install
 // session the test session), and the login's calls clear it: the session that records is not a thaw target before its
 // login (`LoginBase::target_why`), so it keeps no start, as a later such session takes none (`thaw_target_why`).
@@ -334,9 +525,10 @@ fn the_image_line_reports_the_kept_bytes_and_the_nodes_per_kind() {
     assert!(!per_key.contains("77401"), "no value in the line: {per_key}");
 }
 
-/// The key of a new session of `engine` whose login skipped `skipped`.
+/// The key of a new session of `engine` whose login skipped `skipped` (committed: its SQL counters are at rest, as a
+/// test session's are before its login; a session whose counters are not has no comparable form and no key).
 fn key_skipping(engine: &Arc<Engine>, skipped: &[al_vm::SkippedInstall]) -> Key {
-    let mut session = al_vm::Session::new(engine.clone());
+    let mut session = target(engine);
     Key::of(&mut session, Default::default(), SessionFlags::default(), skipped).expect("a key")
 }
 
@@ -364,6 +556,93 @@ fn another_skipped_install_list_is_another_key() {
         key_skipping(&engine, std::slice::from_ref(&a)),
         key_skipping(&engine, &[a.clone(), b.clone()])
     );
+}
+
+/// [`OPAQUE_INSIDE`]'s holder kept from a codeunit's `OnRun`: run before the login, it leaves a SingleInstance global
+/// with no comparable form.
+const OPAQUE_BEFORE: &str = r#"
+codeunit 77490 "RPL Opaque Before"
+{
+    trigger OnRun() var Holder: Codeunit "RPL Holder"; begin Holder.Keep(); end;
+}
+"#;
+
+// `Key::of` holds a value with no comparable form only by its path (al-vm `NotComparable`): two sessions with other
+// values at the same path would get equal keys. A session that holds one before its login gets no key, and runs its
+// login.
+#[test]
+fn a_session_with_a_value_of_no_comparable_form_before_its_login_has_no_key() {
+    let (engine, _) = compiled_with(&format!("{MAIN}{OPAQUE_INSIDE}{OPAQUE_BEFORE}"));
+    let mut session = target(&engine);
+    assert!(
+        Key::of(&mut session, Default::default(), SessionFlags::default(), &[]).is_ok(),
+        "GUARD: a new session has a key"
+    );
+    assert!(session.run_codeunit_by_id(77490).is_ok());
+    session.commit_transaction();
+    assert!(
+        !session.state_lines().opaque.is_empty(),
+        "GUARD: the holder has no comparable form"
+    );
+    assert!(matches!(
+        Key::of(&mut session, Default::default(), SessionFlags::default(), &[]),
+        Err(crate::login_replay::NoKey::NotComparable(_))
+    ));
+}
+
+/// `engine` with its emit version set to `v`, as `set_run_options` sets it for each request on a kept engine.
+fn with_emit_version(mut engine: Arc<Engine>, v: al_vm::emit_version::EmitVersion) -> Arc<Engine> {
+    Arc::get_mut(&mut engine)
+        .expect("nothing else holds the engine")
+        .emit_version = v;
+    engine
+}
+
+// A warm server sets the emit version per request (`set_run_options`, `run_emit_version`: one per build), also on a
+// kept engine, whose starts outlive the request; the missing-object error the login may raise names it
+// (errors/error-texts/AzErrorTexts.al:125). Another build's emit version is another key; the same reader is the same
+// key.
+#[test]
+fn another_emit_version_is_another_key() {
+    use al_vm::emit_version::EmitVersion;
+    let (engine, _) = compiled();
+    let v28 = EmitVersion::known(28015);
+    let engine = with_emit_version(engine, v28.clone());
+    let a = key_skipping(&engine, &[]);
+    assert_eq!(a, key_skipping(&engine, &[]), "GUARD: the same reader");
+    let engine = with_emit_version(engine, v28);
+    assert_eq!(a, key_skipping(&engine, &[]), "GUARD: a clone of the same reader");
+    let engine = with_emit_version(engine, EmitVersion::known(29022));
+    assert_ne!(a, key_skipping(&engine, &[]), "another build's emit version");
+}
+
+// The tables a read of is refused on an engine are set per run after its install baseline (`corpus.rs`: `unseeded` from
+// the baseline, `demo_tables` without test data), also on a kept engine whose starts outlive the request: a login that
+// reads one is refused there. Another set, or another reason, is another key.
+#[test]
+fn another_set_of_tables_whose_reads_are_refused_is_another_key() {
+    let (engine, _) = compiled();
+    let table = (engine.program.objects.iter())
+        .position(|o| o.name == "Guided Experience Item")
+        .unwrap();
+    let set = |engine: Arc<Engine>, unseeded: &[(usize, &str)], demo: &[usize]| {
+        let mut engine = engine;
+        let e = Arc::get_mut(&mut engine).expect("nothing else holds the engine");
+        e.unseeded = unseeded.iter().map(|(t, why)| (*t, Arc::from(*why))).collect();
+        e.demo_tables = demo.iter().copied().collect();
+        engine
+    };
+    let engine = set(engine, &[], &[]);
+    let none = key_skipping(&engine, &[]);
+    let engine = set(engine, &[], &[]);
+    assert_eq!(none, key_skipping(&engine, &[]), "GUARD");
+    let engine = set(engine, &[(table, "a root stopped")], &[]);
+    let unseeded = key_skipping(&engine, &[]);
+    assert_ne!(none, unseeded, "an unseeded table");
+    let engine = set(engine, &[(table, "another root stopped")], &[]);
+    assert_ne!(unseeded, key_skipping(&engine, &[]), "another reason");
+    let engine = set(engine, &[], &[table]);
+    assert_ne!(none, key_skipping(&engine, &[]), "a table of demo rows");
 }
 
 // ---- the gate: why a session does not take a start ----
@@ -407,7 +686,6 @@ fn the_gate_names_a_run_that_notes_code_a_perturbation_and_moved_in_singles() {
             notes_code,
             perturbed,
             moved_in,
-            ..Default::default()
         };
         login_start::why_not(&target(&engine), &start, run)
     };
@@ -416,38 +694,46 @@ fn the_gate_names_a_run_that_notes_code_a_perturbation_and_moved_in_singles() {
     assert_eq!(why(false, false, true), Some(NotTaken::MovedIn));
 }
 
-// The wall clock is an input no key holds, as for the install baseline cache (`runtime/baseline_key.rs`): a kept serve
-// daemon under `ALRUNNER_REAL_CLOCK` would otherwise hand a later session the time an earlier login stamped into a row.
-// Such a run neither takes nor records a start, with its own reason (issue 8211).
-#[test]
-fn the_gate_names_the_real_clock() {
-    let (engine, _) = compiled();
-    let start = plain_start(&engine);
-    let run = login_start::RunFacts {
-        real_clock: true,
-        ..Default::default()
-    };
-    assert_eq!(
-        login_start::why_not(&target(&engine), &start, run),
-        Some(NotTaken::RealClock)
-    );
+/// Sets `host::UNKEYED` for its lifetime (a test that fails must not leave it set).
+struct Unkeyed;
+
+impl Unkeyed {
+    fn set(input: crate::host::Unkeyed) -> Unkeyed {
+        crate::host::UNKEYED.with(|u| u.set(Some(Some(input))));
+        Unkeyed
+    }
 }
 
-// A real files directory (`--files-dir`) is an input no key holds, as for the install baseline cache: a login that reads a
-// file an earlier test wrote would read what no key holds. Such a run neither takes nor records a start, with its own
-// reason (issue 8211).
+impl Drop for Unkeyed {
+    fn drop(&mut self) {
+        crate::host::UNKEYED.with(|u| u.set(None));
+    }
+}
+
+// The real clock (`ALRUNNER_REAL_CLOCK`) and a real files directory (`--files-dir`) are settings of the process no key
+// holds, for the install baseline cache as for the starts (`host::unkeyed`, the one check of both): a kept serve daemon
+// under the real clock would hand a later session the time an earlier login stamped into a row, and a login that reads
+// a file an earlier test wrote reads what no key holds. Through `open_company`: a run under either neither records nor
+// takes a start, and the report names why (issue 8211).
 #[test]
-fn the_gate_names_a_real_files_directory() {
-    let (engine, _) = compiled();
-    let start = plain_start(&engine);
-    let run = login_start::RunFacts {
-        real_files: true,
-        ..Default::default()
-    };
-    assert_eq!(
-        login_start::why_not(&target(&engine), &start, run),
-        Some(NotTaken::RealFiles)
-    );
+fn a_run_under_a_setting_no_key_holds_neither_records_nor_takes_a_start() {
+    for input in [crate::host::Unkeyed::RealClock, crate::host::Unkeyed::RealFiles] {
+        let (engine, l) = compiled();
+        let ran = {
+            let _set = Unkeyed::set(input);
+            sessions(&engine, &l, "RPL Tests A", 2, &on())
+        };
+        assert_one_state(&ran, input.reason());
+        assert_eq!(starts(&engine).replayed(), 0, "{input:?}");
+        assert_eq!(starts(&engine).kept(), 0, "{input:?}: no start is recorded");
+        let line = starts(&engine)
+            .line()
+            .unwrap_or_else(|| panic!("{input:?}: no report line"));
+        assert!(
+            line.contains(&format!("2 refused by the gate (2: {})", input.reason())),
+            "{line}"
+        );
+    }
 }
 
 #[test]
@@ -544,7 +830,7 @@ fn a_session_the_gate_refuses_runs_its_login_and_is_counted() {
 
 /// The key of a new session of `engine` whose work date is `n` (so every `n` is another key).
 fn numbered_key(engine: &Arc<Engine>, n: i32) -> Key {
-    let mut session = al_vm::Session::new(engine.clone());
+    let mut session = target(engine);
     session.set_work_date(1000 + n);
     Key::of(&mut session, Default::default(), SessionFlags::default(), &[]).expect("a key")
 }
@@ -749,7 +1035,7 @@ fn a_start_from_a_large_install_base_keeps_only_the_logins_rows() {
 fn the_numbers_mark_the_runner_sets_is_another_key_and_the_thaw_keeps_the_targets() {
     let (engine, _) = compiled();
     let key_of = |mark: Option<&str>| {
-        let mut session = al_vm::Session::new(engine.clone());
+        let mut session = target(&engine);
         if let Some(why) = mark {
             session.mark_numbers_unmeasured(std::rc::Rc::from(why));
         }
