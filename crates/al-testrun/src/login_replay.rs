@@ -6,7 +6,7 @@
 //! `open_company` takes the [`Key`] of each test session before it opens the company and, when the login was raised
 //! (`install::CompanyOpenWrites::raised`), what the session holds after it ([`LoginState`]). The first session of a key
 //! keeps its state on the engine ([`Check`]); every later session of the key is compared with it
-//! ([`first_difference`]). Outcomes do not change. [`report`] is the line the front ends print.
+//! ([`differences`]). Outcomes do not change. The front ends print [`report`]: the check line, then the keys line.
 
 mod difference;
 mod key_parts;
