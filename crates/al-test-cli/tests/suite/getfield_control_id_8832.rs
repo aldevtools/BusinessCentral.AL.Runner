@@ -110,8 +110,8 @@ const EXT_ID: &str = "TestPage.GetField with the id of a page extension's contro
 
 /// The review of the 8902 pull request at 22:31Z (:3015-:3051): on a Worksheet an extension's actionref by the extension's id
 /// (BC finds it, an empty field), a field the host's extension adds read through the CardPart and a field a part page's
-/// extension adds read on the RoleCenter (BC: not found) refuse, as the entry says; main answered "not found" for the first and
-/// the third.
+/// extension adds read on the RoleCenter (BC: not found) refuse, as the entry says; the previous head of this pull request
+/// answered "not found" for the first and the third, and main refuses both.
 #[test]
 fn extension_control_ids_refuse() {
     let o = outcomes(PROBE, "LT GFI Owner Tests");
