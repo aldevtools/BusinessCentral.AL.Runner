@@ -1,5 +1,5 @@
 //! The corpus probes of al-runner issues 8835 and 8836 (corpus pull request 1540, open: tests/al-language/pages/currpage/
-//! ListNewLineExtraCodeCodedTableTriggers.al and ListNewLineExtraCodeCodedTaskError.al, measured on BC 29.1, 13 of 13 green in 3
+//! ListNewLineExtraCodeCodedTableTriggers.al and ListNewLineExtraCodeCodedTaskError.al, measured on BC 29.1, 15 of 15 green in 3
 //! runs), run here until a bump pins them: the page of the page-with-code shape (`al-vm` pages/code_inserted_coded.rs
 //! `CodedObjects::Extra`) over a table with OnInsert and OnDelete, and with a FactBox that declares OnPageBackgroundTaskError. The
 //! probes are read from their copies in the neighbor app. Delete this file when the pin is in the corpus.
@@ -50,11 +50,15 @@ fn issue_8835_probe_cells() {
     }
     // The other errors of the first SetValue the cells measure (:1249, :1259, :1269): a TestField of the table field before the
     // insert, an error of it after the insert, the control's error before its save; each reaches the test.
-    let o = super::outside_fb_8712::outcomes(TABLE_PROBE, "LT NE4 Tests");
-    assert_eq!(o.len(), 3);
-    for (name, r, marks) in &o {
-        assert_eq!(*r, Outcome::Pass, "{name}");
-        assert!(marks.contains(&ListNewLineExtraCodeCoded), "{name}: {marks:?}");
+    // And the control's error when the table field skips its insert, after the control's plain save or before it (:1674,
+    // :1684): main answers both so, and BC too (review of 07:30Z).
+    for (cu, cells) in [("LT NE4 Tests", 3), ("LT NE5 Tests", 2)] {
+        let o = super::outside_fb_8712::outcomes(TABLE_PROBE, cu);
+        assert_eq!(o.len(), cells, "{cu}");
+        for (name, r, marks) in &o {
+            assert_eq!(*r, Outcome::Pass, "{name}");
+            assert!(marks.contains(&ListNewLineExtraCodeCoded), "{name}: {marks:?}");
+        }
     }
 }
 
@@ -107,8 +111,8 @@ fn issue_8836_neighbors_are_refused() {
 }
 
 /// The review's neighbors are refused: a handler that catches OnInsert's error and returns, one that catches the unhandled task
-/// error and goes on, a worker that fails on the blank record at the open, and an error trigger that calls CurrPage.Update (its
-/// own refusal).
+/// error and goes on, a worker that fails on the blank record at the open, or on the parts' read of the new line before the
+/// validation (review of 07:30Z), and an error trigger that calls CurrPage.Update (its own refusal).
 #[test]
 fn issue_8840_review_neighbors() {
     let src = format!("{TABLE_PROBE}\n{TASK_PROBE}\n{REVIEW}");
@@ -123,7 +127,7 @@ fn issue_8840_review_neighbors() {
         })
         .filter(|n| n.ends_with(" Tests"))
         .collect();
-    assert_eq!(codeunits.len(), 4);
+    assert_eq!(codeunits.len(), 5);
     for cu in codeunits {
         let o = super::outside_fb_8712::outcomes(&src, cu);
         assert_eq!(o.len(), 1, "{cu}");

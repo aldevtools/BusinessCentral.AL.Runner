@@ -26,3 +26,8 @@ LT NE4 Caught Tests::NewLine_HandlerCatchesOnInsertsError_ThePageCloses	REFUSED 
 LT NQ4 Caught Tests::NewLine_HandlerCatchesTheTaskErrorAndGoesOn_ThePageIsGone	REFUSED a call on a List page with code and FactBoxes after the validation of its first SetValue
 LT NQ4 Blank Tests::NewLine_TaskFailsOnTheBlankRecord_TheErrorReachesTheTest	REFUSED a page background task's error its part leaves unhandled
 LT NQ4 Update Tests::NewLine_TaskErrorTriggerCallsUpdate_ShowsTheFailure	REFUSED a page background task's completion or error trigger called CurrPage.Update
+# The cells and neighbor of the review of al-runner PR 8840 (07:30Z): the control's error when the table field skips its
+# insert reaches the test as main's answer does, flagged; a worker that fails at the parts' read of the new line is refused.
+LT NE5 Tests::NewLine_TableFieldSkipsItsInsertControlFailsAfterTheSave_TheSetValueFails	ASSUMED list-new-line-extra-code-coded (corpus PR 1540, open: ListNewLineExtraCodeCodedTableTriggers.al)
+LT NE5 Tests::NewLine_TableFieldSkipsItsInsertControlFailsBeforeTheSave_TheSetValueFails	ASSUMED list-new-line-extra-code-coded (corpus PR 1540, open: ListNewLineExtraCodeCodedTableTriggers.al)
+LT NQ4 Line Read Tests::NewLine_TaskFailsAtThePartsReadOfTheNewLine_TheErrorReachesTheTest	REFUSED a page background task's error its part leaves unhandled
