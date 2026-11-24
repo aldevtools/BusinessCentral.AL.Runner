@@ -118,3 +118,78 @@ codeunit 99605 "NB8992 Reads"
             Error('no key 3');
     end;
 }
+
+// The implicit Rec of a TableNo codeunit is a global Record that a bare Insert() names.
+codeunit 99606 "NB8992 TableNo"
+{
+    TableNo = "NB8992 Row";
+
+    trigger OnRun()
+    begin
+        Rec.K := 4;
+        if Insert() then;
+    end;
+}
+
+codeunit 99607 "NB8992 TableNo Caller"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure RunsTableNo()
+    var
+        Row: Record "NB8992 Row";
+    begin
+        Codeunit.Run(Codeunit::"NB8992 TableNo", Row);
+    end;
+}
+
+// A subscriber bound by hand with BindSubscription(this) in OnRun, naming the global.
+codeunit 99608 "NB8992 Manual Sub"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    EventSubscriberInstance = Manual;
+    var
+        Row: Record "NB8992 Row";
+
+    trigger OnRun()
+    begin
+        BindSubscription(this);
+    end;
+
+    [EventSubscriber(ObjectType::Table, Database::"NB8992 Row", 'OnAfterInsertEvent', '', false, false)]
+    local procedure OnAfterInsertRow(var Rec: Record "NB8992 Row"; RunTrigger: Boolean)
+    begin
+        if Row.IsEmpty() then;
+    end;
+
+    [Test]
+    procedure BindsInOnRun()
+    begin
+        Row.K := 5;
+        if Row.Insert() then;
+    end;
+}
+
+// A global named only inside an asserterror block of OnRun.
+codeunit 99609 "NB8992 Asserterror"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    var
+        Row: Record "NB8992 Row";
+
+    trigger OnRun()
+    begin
+        asserterror Row.Get(-1);
+    end;
+
+    [Test]
+    procedure SeesAssertErrorGlobal()
+    begin
+        Row.K := 6;
+        if Row.Insert() then;
+    end;
+}

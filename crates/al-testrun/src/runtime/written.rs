@@ -760,17 +760,42 @@ fn expr_places(e: &Expr, note: &mut dyn FnMut(&Place)) {
     }
 }
 
-/// The global slots `body` names, by [`root`].
-fn globals_named(body: &[Stmt]) -> BTreeSet<usize> {
+/// Calls `note` on every place `body` names: the places it assigns ([`stmt_places`]) and those its expressions name
+/// ([`expr_places`]). The one answer to "which slots does this body name".
+fn body_places(body: &[Stmt], note: &mut dyn FnMut(&Place)) {
+    stmt_places(body, note);
+    al_ir::types::for_each_expr_post(body, &mut |e| expr_places(e, note));
+}
+
+/// Whether a slot holds a handle that can reach the table of a Record bound elsewhere: a RecordRef, FieldRef, KeyRef
+/// or Variant (`RR.GetTable(Row)` in one routine, `RR.Insert()` in another).
+fn is_record_alias(ty: &RtType) -> bool {
+    use al_builtins::library_kind::LibraryKind as K;
+    let mut ty = ty;
+    while let RtType::Array(_, inner) = ty {
+        ty = inner;
+    }
+    matches!(
+        ty,
+        RtType::Variant | RtType::Library(K::RecordRef | K::FieldRef | K::KeyRef)
+    )
+}
+
+/// The global slots of codeunit `obj` that `body` of routine `rt` names, by [`root`]; `None` when it names a
+/// [`is_record_alias`] slot (local or global), whose target is not known and so every global may be used.
+fn globals_named(obj: &al_ir::Object, rt: &al_ir::Routine, body: &[Stmt]) -> Option<BTreeSet<usize>> {
     let mut named = BTreeSet::new();
-    let mut note = |p: &Place| {
-        if let Some((true, g)) = root(p) {
-            named.insert(g);
+    let mut alias = false;
+    body_places(body, &mut |p| {
+        if let Some((global, i)) = root(p) {
+            let slot = if global { obj.globals.get(i) } else { rt.locals.get(i) };
+            alias |= slot.is_some_and(|s| is_record_alias(&s.ty));
+            if global {
+                named.insert(i);
+            }
         }
-    };
-    stmt_places(body, &mut note);
-    al_ir::types::for_each_expr_post(body, &mut |e| expr_places(e, &mut note));
-    named
+    });
+    (!alias).then_some(named)
 }
 
 /// The reach facts of a test refused while it ran, when the refusal came from a statement of the test method itself
@@ -811,10 +836,9 @@ pub(crate) fn remainder_reach_facts(
             named.entry(k).or_default().0 += 1;
         }
     }
-    stmt_places(rest, &mut |p| note(&mut named, p));
+    body_places(rest, &mut |p| note(&mut named, p));
     let mut calls = Vec::new();
     al_ir::types::for_each_expr_post(rest, &mut |e| {
-        expr_places(e, &mut |p| note(&mut named, p));
         match e {
             Expr::Call { object, routine, .. } => calls.push((*object, *routine)),
             Expr::InterfaceCall { targets, .. } => calls.extend(al_ir::walk::interface_routines(targets)),
@@ -1424,12 +1448,15 @@ impl Rec<'_> {
         // A walk reads many bodies once and runs none: a compact body stays compact (`Body::read`).
         rt.body.read(|body| {
             // A global Record of a codeunit counts only in a routine that names it: only the codeunit's own routines
-            // can use the variable, and a variable no statement uses raises no event of its table (al-runner issue
-            // 8992: every OnRun took the subscribers of the tables of the codeunit's unused globals). The globals of
-            // other objects and the other types of slot count in every routine of their object, as before: a page,
-            // report, xmlport or table uses some of its globals without a statement naming them.
+            // can use the variable, except through a RecordRef, FieldRef, KeyRef or Variant bound to it elsewhere (a
+            // body that names such a slot counts every global), and a variable no statement uses raises no event of
+            // its table (al-runner issue 8992: every OnRun took the subscribers of the tables of the codeunit's unused
+            // globals). The globals of other objects and the other types of slot count in every routine of their
+            // object, as before: a page, report, xmlport or table uses some of its globals without a statement naming
+            // them.
             let named = (obj.kind == ObjKind::Codeunit && obj.globals.iter().any(|s| is_record(&s.ty)))
-                .then(|| globals_named(body));
+                .then(|| globals_named(obj, rt, body))
+                .flatten();
             for s in &rt.locals {
                 self.slot(&s.ty);
             }
@@ -2180,10 +2207,12 @@ mod tests {
                 local procedure OnAfterInsert(var Rec: Record Cust; RunTrigger: Boolean)
                 var V: Text;
                 begin if IsolatedStorage.Get('K', V) then IsolatedStorage.Set('K', V); end; }}
-            codeunit 50102 Takes {{ procedure Read(var C: Record Cust) begin end; }}
+            codeunit 50102 Takes {{ procedure Read(var C: Record Cust) begin end;
+                procedure ReadRef(var R: RecordRef) begin end; procedure ReadVar(var V: Variant) begin end; }}
             codeunit 50103 Tests {{ Subtype = Test;
                 var Customer: Record Cust; Customers: array[2] of Record Cust; IsInitialized: Boolean;
-                trigger OnRun() var T: Codeunit Takes; begin {onrun} end;
+                    RR: RecordRef; FR: FieldRef; KR: KeyRef; Any: Variant; Refs: array[2] of RecordRef;
+                trigger OnRun() var T: Codeunit Takes; LR: RecordRef; begin {onrun} end;
                 local procedure Helper() begin if Customer.IsEmpty() then; end;
                 [Test] procedure ExampleTest() begin Customer.Insert(); end; }}"
         );
@@ -2224,6 +2253,25 @@ mod tests {
             "if Customers[1].IsEmpty() then;",
             "Helper();",
             "Customer.Insert();",
+        ] {
+            assert!(onrun_writes_storage(onrun), "{onrun}");
+        }
+    }
+
+    // A RecordRef, FieldRef, KeyRef or Variant slot a body names may hold a global Record bound in another routine
+    // (`RR.GetTable(Customer)` in a helper): the table is reached, so the global stays in the reach. Naming counts, a
+    // builtin call is not needed (a `var` argument, a load, an array element, a local slot). Reviewed, al-runner issue 8992.
+    #[test]
+    fn a_global_record_stays_in_the_reach_of_a_body_that_names_a_ref_slot() {
+        for onrun in [
+            "RR.Reset();",
+            "T.ReadRef(RR);",
+            "T.ReadVar(Any);",
+            "if Any.IsRecord() then;",
+            "Refs[1].Reset();",
+            "LR.Reset();",
+            "FR := RR.Field(1);",
+            "KR := RR.KeyIndex(1);",
         ] {
             assert!(onrun_writes_storage(onrun), "{onrun}");
         }
