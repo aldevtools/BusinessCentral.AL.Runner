@@ -592,6 +592,7 @@ codeunit 96534 "LT NQ2 Tests"
         Initialize();
         asserterror RunVar(3);
         Check('error', 'Task failed', GetLastErrorText());
+        Check('code', 'ClientPageAbort:FormAbort', GetLastErrorCode());
         Check('shown', '', Shown);
         Check('log', 'U.ERR(Task failed);', Log());
         Check('rows', '', Rows());

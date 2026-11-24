@@ -17,3 +17,12 @@ LT NQ2 Tests::NewLine_TaskRaisesAnErrorTheTriggerDoesNotHandle_TheErrorReachesTh
 # Neighbors just past the cells: an error trigger that calls CurrPage.Update, and one that writes another table. Their pages
 # differ from the cells' in facts the strict shape compares (review of al-runner PR 8834, 21:06Z), so they keep the base's
 # refusal, the same on both.
+# The cells of the review of al-runner PR 8840 (01:32Z): the other errors of the first SetValue reach the test as main's
+# answer does, flagged; the review's neighbors are refused later than main refuses them.
+LT NE4 Tests::NewLine_TableFieldTestFieldFailsBeforeTheInsert_TheSetValueFails	ASSUMED list-new-line-extra-code-coded (corpus PR 1540, open: ListNewLineExtraCodeCodedTableTriggers.al)
+LT NE4 Tests::NewLine_TableFieldFailsAfterTheInsert_TheSetValueFails	ASSUMED list-new-line-extra-code-coded (corpus PR 1540, open: ListNewLineExtraCodeCodedTableTriggers.al)
+LT NE4 Tests::NewLine_ControlFailsBeforeItsSave_TheSetValueFails	ASSUMED list-new-line-extra-code-coded (corpus PR 1540, open: ListNewLineExtraCodeCodedTableTriggers.al)
+LT NE4 Caught Tests::NewLine_HandlerCatchesOnInsertsError_ThePageCloses	REFUSED a List page with code and FactBoxes closed after an error of its first SetValue
+LT NQ4 Caught Tests::NewLine_HandlerCatchesTheTaskErrorAndGoesOn_ThePageIsGone	REFUSED a call on a List page with code and FactBoxes after the validation of its first SetValue
+LT NQ4 Blank Tests::NewLine_TaskFailsOnTheBlankRecord_TheErrorReachesTheTest	REFUSED a page background task's error its part leaves unhandled
+LT NQ4 Update Tests::NewLine_TaskErrorTriggerCallsUpdate_ShowsTheFailure	REFUSED a page background task's completion or error trigger called CurrPage.Update

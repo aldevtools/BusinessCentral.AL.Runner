@@ -14,9 +14,10 @@
 //! `bg_catch_keeps_last_error` (by `catch_error`), `bg_worker_without_error` (by
 //! `Ctx::session_without_error`, GetLastErrorObject).
 
+use super::pinned_shape::TestCall;
 use super::*;
 use al_builtins::describe::Describe;
-use al_builtins::page_op::PageOp;
+use al_builtins::page_op::{PageMethod, PageOp};
 use al_builtins::value::Value as V;
 
 /// A worker codeunit that is running for a page background task.
@@ -463,9 +464,27 @@ impl Session {
                         return Err(Signal::Error(Box::new(e)));
                     }
                     if !handled && self.coded_extra_task(st) {
-                        // A page of the page-with-code shape whose part leaves its task's error unhandled: the worker's own text
-                        // reaches the test (ListNewLineExtraCodeCodedTaskError.al, `Task failed`).
+                        // A page of the page-with-code shape whose part leaves its task's error unhandled at the refresh of the
+                        // first SetValue: the worker's own text reaches the test with the code of the client's abort, and the page
+                        // is gone (ListNewLineExtraCodeCodedTaskError.al:589, `Task failed`, `ClientPageAbort:FormAbort`). A later
+                        // call on it, its close after a handler caught the error, and the error at any other step (the open's
+                        // blank record) are refused (review of al-runner PR 8840, 01:32Z).
                         st.borrow_mut().bg_tasks.clear();
+                        let (root, _) = Self::tree_root(st);
+                        root.borrow_mut().forget_code_inserted_line();
+                        let first_set_value = matches!(
+                            Self::test_calls(&root).as_deref(),
+                            Some([TestCall::Page(PageMethod::New), TestCall::Write(_)])
+                        );
+                        if !first_set_value {
+                            return unsupported(
+                                "a page background task's error its part leaves unhandled on a List page of the page-with-code \
+                                 shape, at a step other than the first SetValue (not measured)",
+                            );
+                        }
+                        root.borrow_mut().coded_line = super::state::CodedLine::Failed;
+                        let mut e = e;
+                        e.code = "ClientPageAbort:FormAbort".into();
                         return Err(Signal::Error(Box::new(e)));
                     }
                     if !handled {

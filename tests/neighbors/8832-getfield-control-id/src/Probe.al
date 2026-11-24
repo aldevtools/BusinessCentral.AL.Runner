@@ -3061,3 +3061,161 @@ codeunit 97749 "LT GFI Owner Tests"
         Expect('base', 'error TestFieldNotFound: The field with ID = 2012559612 is not found on the page.');
     end;
 }
+
+// The review of aldevtools/BusinessCentral.AL.Runner#8934: the cuegroups of the CardPart 97680 read through the Card 97735 by
+// their ids, through the TestPart; and the DateFormula and wide Boolean fields of page 97736 holding a blank formula and false.
+codeunit 97750 "LT GFI Cue Review Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        Assert: Codeunit Assert;
+        Seen: Dictionary of [Text, Text];
+
+    local procedure Initialize()
+    var
+        Row: Record "LT GFI Cue Row";
+        Extra: Record "LT GFI Cue Extra Row";
+    begin
+        Row.DeleteAll();
+        Extra.DeleteAll();
+        Extra."No." := 'R1';
+        Extra.FlagValue := false;
+        Extra.Insert();
+        Row."No." := 'R1';
+        Row.TextWord := 'Alpha';
+        Row.TextNumber := '42';
+        Row.CodeWord := 'R1';
+        Row.CodeNumber := '7';
+        Row.IntValue := 5;
+        Row.IntZero := 0;
+        Row.DecValue := 1.5;
+        Row.DecBig := 1234.5;
+        Row.BoolValue := true;
+        Row.DayValue := DMY2Date(3, 3, 2026);
+        Row.BigValue := 77;
+        Row.OptValue := Row.OptValue::Beta;
+        Row.AtValue := 103000T;
+        Row.StampValue := CreateDateTime(DMY2Date(3, 3, 2026), 103000T);
+        Row.GuidValue := '{0F2E7C52-6E0B-4F51-9C3A-1B2C3D4E5F60}';
+        Row.KindValue := Row.KindValue::Beta;
+        Row.SpanValue := 90000;
+        Row.Insert();
+        Commit();
+        Clear(Seen);
+    end;
+
+    local procedure Note(What: Text; Actual: Text)
+    begin
+        Seen.Set(What, Actual);
+    end;
+
+    local procedure Expect(What: Text; Expected: Text)
+    begin
+        Assert.AreEqual(Expected, Seen.Get(What), What);
+    end;
+
+    local procedure Failure(): Text
+    begin
+        exit('error ' + GetLastErrorCode() + ': ' + GetLastErrorText());
+    end;
+
+    [TryFunction]
+    local procedure TryHostPart(var Host: TestPage "LT GFI Cue Part Host"; Id: Integer; var Shown: Text)
+    begin
+        Shown := Host.CuePart.GetField(Id).Value();
+    end;
+
+    local procedure ReadHostPart(var Host: TestPage "LT GFI Cue Part Host"; Id: Integer): Text
+    var
+        Shown: Text;
+    begin
+        ClearLastError();
+        if TryHostPart(Host, Id, Shown) then
+            exit(Shown);
+        exit(Failure());
+    end;
+
+    [TryFunction]
+    local procedure TryExtra(var Pg: TestPage "LT GFI Cue Extra"; Id: Integer; var Shown: Text)
+    begin
+        Shown := Pg.GetField(Id).Value();
+    end;
+
+    local procedure ReadExtra(var Pg: TestPage "LT GFI Cue Extra"; Id: Integer): Text
+    var
+        Shown: Text;
+    begin
+        ClearLastError();
+        if TryExtra(Pg, Id, Shown) then
+            exit(Shown);
+        exit(Failure());
+    end;
+
+    // The cuegroups of the CardPart 97680 read through the Card 97735: each field's Value through the TestPart's GetField with
+    // the id of the control on page 97680.
+    [Test]
+    procedure CueTypesPartThroughHost_ValueById()
+    var
+        Host: TestPage "LT GFI Cue Part Host";
+    begin
+        Initialize();
+        Host.OpenView();
+        Note('CueTextWord', ReadHostPart(Host, 26977565));
+        Note('CueTextNumber', ReadHostPart(Host, 1688402688));
+        Note('CueCodeWord', ReadHostPart(Host, 1587224453));
+        Note('CueCodeNumber', ReadHostPart(Host, 717132888));
+        Note('CueIntValue', ReadHostPart(Host, 1897462670));
+        Note('CueIntZero', ReadHostPart(Host, 258298535));
+        Note('CueDecValue', ReadHostPart(Host, 1218698967));
+        Note('CueDecBig', ReadHostPart(Host, 737049792));
+        Note('CueBoolValue', ReadHostPart(Host, 1213531979));
+        Note('CueDayValue', ReadHostPart(Host, 865399911));
+        Note('CueBigValue', ReadHostPart(Host, 1009768583));
+        Note('CueOptValue', ReadHostPart(Host, 1863129850));
+        Note('CueAtValue', ReadHostPart(Host, 62956608));
+        Note('CueStampValue', ReadHostPart(Host, 1525930642));
+        Note('CueGuidValue', ReadHostPart(Host, 1580321858));
+        Note('CueKindValue', ReadHostPart(Host, 1381938349));
+        Note('CueSpanValue', ReadHostPart(Host, 1624429455));
+        Note('WideCodeWord', ReadHostPart(Host, 275062239));
+        Note('WideIntValue', ReadHostPart(Host, 2143231722));
+        Host.Close();
+        Expect('CueTextWord', '0');
+        Expect('CueTextNumber', '0');
+        Expect('CueCodeWord', '0');
+        Expect('CueCodeNumber', '0');
+        Expect('CueIntValue', '5');
+        Expect('CueIntZero', '0');
+        Expect('CueDecValue', '1.50');
+        Expect('CueDecBig', '1,234.50');
+        Expect('CueBoolValue', '0');
+        Expect('CueDayValue', '0');
+        Expect('CueBigValue', '0');
+        Expect('CueOptValue', '1');
+        Expect('CueAtValue', '0');
+        Expect('CueStampValue', '0');
+        Expect('CueGuidValue', '0');
+        Expect('CueKindValue', '1');
+        Expect('CueSpanValue', '0');
+        Expect('WideCodeWord', '0');
+        Expect('WideIntValue', '5');
+    end;
+
+    // The DateFormula field holding a blank formula and the Boolean field in the wide cuegroup holding false, on a Card: by
+    // name, then through GetField by id.
+    [Test]
+    procedure CueBlankDateFormulaAndWideFalse_ValueByNameAndById()
+    var
+        Pg: TestPage "LT GFI Cue Extra";
+    begin
+        Initialize();
+        Pg.OpenView();
+        Note('FormulaValue', Pg.CueFormulaValue.Value() + '|' + ReadExtra(Pg, 1631619223));
+        Note('WideFlagValue', Pg.WideFlagValue.Value() + '|' + ReadExtra(Pg, 1182527305));
+        Pg.Close();
+        Expect('FormulaValue', '0|0');
+        Expect('WideFlagValue', '0|0');
+    end;
+}

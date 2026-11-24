@@ -656,14 +656,16 @@ impl Session {
                     Some(FactboxStep::CodedTyped { .. })
                 )
         };
-        // On a page of the page-with-code shape with other code, an error before the landing (OnInsert's, at the table field's
-        // insert) reaches the test, and leaves the handler (ListNewLineExtraCodeCodedTableTriggers.al:746): a later call on
-        // the page is refused (`coded_line_before_set_value`).
+        // On a page of the page-with-code shape with other code, an error before the landing that the cells measure (OnInsert's at
+        // the table field's insert, the table field's own, the control's before its save: `coded_error_measured`) reaches the
+        // test and leaves the handler (ListNewLineExtraCodeCodedTableTriggers.al:746, :1249-:1269): a later call on the page, or
+        // its close after a handler caught it, is refused (`coded_line_before_set_value`, `code_inserted_row_at_close`). Any
+        // other error there is refused (`coded_must_have_landed`; review of al-runner PR 8840, 01:32Z).
         let extra_line_read = {
             let s = st.borrow();
             s.coded_line == CodedLine::LineRead && s.coded_objects == super::state::CodedObjects::Extra
         };
-        if matches!(e, Signal::Error(_)) && extra_line_read {
+        if matches!(&e, Signal::Error(err) if extra_line_read && self.coded_error_measured(st, err)) {
             st.borrow_mut().forget_code_inserted_line();
             st.borrow_mut().coded_line = CodedLine::Failed;
             return e;
@@ -1096,6 +1098,15 @@ impl Session {
     /// the close saves it (ListNewLineSaveRecordUpdate.al:784 `close=P.AGR(X/);T.M(X/V);`, :801 and :846 with OK); on an empty view
     /// it does not (:816, :831, :862 `close=T.M(X/V);`). Other pages close as before.
     pub(super) fn code_inserted_row_at_close(&mut self, st: &St) -> Result<(), Signal> {
+        // The cells' error before the landing (ListNewLineExtraCodeCodedTableTriggers.al:746), or the task error after it
+        // (ListNewLineExtraCodeCodedTaskError.al:589), leaves the handler: a handler that caught it and closes the page is not
+        // measured (review of al-runner PR 8840, 01:32Z).
+        if Self::tree_root(st).0.borrow().coded_line == CodedLine::Failed {
+            return unsupported(
+                "a List page with code and FactBoxes closed after an error of its first SetValue that the handler caught (not \
+                 measured)",
+            );
+        }
         if !matches!(st.borrow().code_inserted_save, CodeInsertedSave::Off) {
             st.borrow_mut().forget_code_inserted_line();
             return unsupported(
