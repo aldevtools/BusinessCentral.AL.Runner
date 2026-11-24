@@ -470,6 +470,9 @@ What is built:
   committed rows and the backing, the session state lines (with every field the thaw writes or keeps from its target,
   `Session::field_lines`), company, user, run seed, test codeunit, the entry's resource texts, the client, the session
   flags, the license, the skipped installs, the isolation and the hub, and the process settings a serve request sets.
+  *Built (2026-11-24, after acceptance):* the key also holds the engine's emit version (by its reader) and
+  `refused_reads`, one digest of the engine's `unseeded` and `demo_tables`, which a kept engine resets per request and
+  the login reads. Every Scratch and "Set by a run" engine field is listed under a test in `login_start/outside.rs`.
 - **The check** (`ALRUNNER_LOGIN_REPLAY_CHECK=1`) is the state check of the Conformance section: no session takes a
   start; each new key's session is frozen, thawn into a twin and compared (the round trip), and each later session of a
   key is compared with a thaw of the key's start (replay vs run). Its report names where two states differ, never a
