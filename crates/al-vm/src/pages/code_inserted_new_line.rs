@@ -903,11 +903,16 @@ impl Session {
         if typed_extra {
             let rec_kept = Self::same_values(&self.page_rec(st).borrow().fields, &view.rec.fields);
             let update_true = matches!(arg, Some(Value::Boolean(true)));
-            if !rec_kept || (update_true && self.write_mark() != view.writes) {
+            let measured = match update_true {
+                true => rec_kept && self.write_mark() == view.writes,
+                false => rec_kept && self.extra_typed_other_writes_inserted(st, view)?,
+            };
+            if !measured {
                 st.borrow_mut().forget_code_inserted_line();
                 return unsupported(
-                    "a field of Rec set, or a write before CurrPage.Update(true), between CurrPage.SaveRecord and the \
-                     CurrPage.Update after it in the later SetValue on a List page of the shape of the page with code (not measured)",
+                    "a field of Rec set, a row of another table modified or deleted, or a write before CurrPage.Update(true), \
+                     between CurrPage.SaveRecord and the CurrPage.Update after it in the later SetValue on a List page of the \
+                     shape of the page with code (not measured)",
                 );
             }
         }

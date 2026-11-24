@@ -1062,6 +1062,10 @@ pub struct PageState {
     /// Rec as the later SetValue of a page of the page-with-code shape with other code found it (`coded_typed_begins`): its
     /// save must find Rec's view so (`extra_code_typed_save`).
     pub coded_typed_view: Option<Box<RecordState>>,
+    /// The store's change counter and the last SystemModifiedAt stamp when the later SetValue's `CurrPage.SaveRecord()` began
+    /// (`extra_code_typed_save`): its Update tells by them which rows of other tables the code wrote since, and whether it
+    /// inserted them (`extra_typed_other_writes_inserted`).
+    pub coded_typed_save_at: Option<(u64, i64)>,
     /// The page control's own OnValidate while it runs (`code_inserted_new_line.rs` `run_control_onvalidate`).
     pub control_onvalidate: Option<ControlOnValidate>,
     /// `CurrPage.SaveRecord()` saved the row page code found from the new-row line through assumption
@@ -1250,6 +1254,7 @@ impl PageState {
         self.code_inserted_extra = false;
         self.coded_line = Default::default();
         self.coded_typed_view = None;
+        self.coded_typed_save_at = None;
     }
 
     /// The page opens: the captions its controls and fields resolved on the last run are gone.
