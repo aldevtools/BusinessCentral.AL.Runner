@@ -585,3 +585,191 @@ codeunit 97684 "LT TVS Neighbor Path Tests"
         Expect('stored', 'X2/V2,B/,C/,');
     end;
 }
+
+// The review of #8905 at 04:05Z, on page 97672 (page 97720): rows a cell of corpus PR 1539 holds, then Last and a call no cell
+// over them makes next. The rule starts at the call, as on main, and refuses once the OnValidate or the action ran: the flat rows
+// G0, G1, G2 with the SetValue on Value and with the action, the child in G0 before two top-level rows in G1 with the SetValue on
+// Value, and the rows G0, G1, G5 with the SetValue on Name. Each test asserts what Business Central 29.1 answered (3 runs).
+codeunit 97685 "LT TVS Neighbor Row Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        Assert: Codeunit Assert;
+        Log: Codeunit "LT TVS Log";
+        Seen: Dictionary of [Text, Text];
+
+    local procedure Initialize(UpdateKind: Integer)
+    var
+        Line: Record "LT TVS Line";
+    begin
+        Line.DeleteAll();
+        Commit();
+        Log.Setup(1, UpdateKind);
+        Clear(Seen);
+    end;
+
+    local procedure AddLine(GroupCode: Code[10]; EntryNo: Integer; Name: Text[30]; Indentation: Integer)
+    var
+        Line: Record "LT TVS Line";
+    begin
+        Line."Group Code" := GroupCode;
+        Line."Entry No." := EntryNo;
+        Line.Name := Name;
+        Line.Indentation := Indentation;
+        Line.Insert();
+    end;
+
+    local procedure StoredLines(): Text
+    var
+        Line: Record "LT TVS Line";
+        Result: Text;
+    begin
+        if Line.FindSet() then
+            repeat
+                Result += Line.Name + '/' + Line.Value + ',';
+            until Line.Next() = 0;
+        exit(Result);
+    end;
+
+    local procedure Note(What: Text; Actual: Text)
+    begin
+        Seen.Set(What, Actual);
+    end;
+
+    local procedure Expect(What: Text; Expected: Text)
+    begin
+        Assert.AreEqual(Expected, Seen.Get(What), What);
+    end;
+
+    [TryFunction]
+    local procedure TryCall(var Lines: TestPage "LT TVS Tree"; Call: Integer)
+    begin
+        case Call of
+            0:
+                Lines.Name.SetValue('X2');
+            1:
+                Lines.Value.SetValue('V2');
+            2:
+                Lines.ChangeViewAction.Invoke();
+        end;
+    end;
+
+    // Last, then the call (0 the SetValue on Name, 1 the SetValue on Value, 2 the action), its error or none, the log, the rows
+    // stored, then (without an error) First, the walk and Close.
+    local procedure LastThen(var Lines: TestPage "LT TVS Tree"; Call: Integer)
+    var
+        Walk: Text;
+        Error: Text;
+    begin
+        Lines.Last();
+        Note('at', Lines.Name.Value() + ':' + Log.Take());
+        ClearLastError();
+        if TryCall(Lines, Call) then
+            Error := 'none'
+        else
+            Error := GetLastErrorCode() + ': ' + GetLastErrorText();
+        Note('error', Error);
+        Note('call', Log.Take());
+        Note('stored1', StoredLines());
+        if Error = 'none' then begin
+            Lines.First();
+            repeat
+                Walk += Lines.Name.Value() + ',';
+            until not Lines.Next();
+            Log.Take();
+            Lines.Close();
+            Note('close', Log.Take());
+        end else
+            Note('close', '-');
+        Note('walk', Walk);
+        Note('stored', StoredLines());
+    end;
+
+    local procedure AddFlat()
+    begin
+        AddLine('G0', 1, 'A', 0);
+        AddLine('G1', 2, 'B', 0);
+        AddLine('G2', 3, 'C', 0);
+        Commit();
+    end;
+
+    [Test]
+    procedure FlatRows_LastThenValue()
+    var
+        Lines: TestPage "LT TVS Tree";
+    begin
+        Initialize(1);
+        AddFlat();
+        Lines.OpenEdit();
+        LastThen(Lines, 1);
+        Expect('at', 'C:P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('error', 'none');
+        Expect('call', 'P.AGR(C);P.AGR(C);P.AGR(B);P.AGR(A);');
+        Expect('stored1', 'A/,B/,C/V2,');
+        Expect('walk', 'A,B,C,');
+        Expect('close', 'P.AGR(C);');
+        Expect('stored', 'A/,B/,C/V2,');
+    end;
+
+    [Test]
+    procedure FlatRows_LastThenAction()
+    var
+        Lines: TestPage "LT TVS Tree";
+    begin
+        Initialize(1);
+        AddFlat();
+        Lines.OpenEdit();
+        LastThen(Lines, 2);
+        Expect('at', 'C:P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('error', 'none');
+        Expect('call', 'P.AGR(C);P.AGR(C);P.A(C);P.AGR(B);P.AGR(B);');
+        Expect('stored1', 'A/,B/,C/,');
+        Expect('walk', 'B,');
+        Expect('close', '');
+        Expect('stored', 'A/,B/,C/,');
+    end;
+
+    [Test]
+    procedure ChildInG0_LastThenValue()
+    var
+        Lines: TestPage "LT TVS Tree";
+    begin
+        Initialize(1);
+        AddLine('G0', 1, 'A', 1);
+        AddLine('G1', 2, 'B', 0);
+        AddLine('G1', 3, 'C', 0);
+        Commit();
+        Lines.OpenEdit();
+        LastThen(Lines, 1);
+        Expect('at', 'C:P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('error', 'none');
+        Expect('call', 'P.AGR(C);P.AGR(C);P.AGR(B);P.AGR(A);');
+        Expect('stored1', 'A/,B/,C/V2,');
+        Expect('walk', 'A,B,C,');
+        Expect('close', 'P.AGR(C);');
+        Expect('stored', 'A/,B/,C/V2,');
+    end;
+
+    [Test]
+    procedure GroupsG0G1G5_LastThenName()
+    var
+        Lines: TestPage "LT TVS Tree";
+    begin
+        Initialize(1);
+        AddLine('G0', 1, 'A', 0);
+        AddLine('G1', 2, 'B', 0);
+        AddLine('G5', 3, 'C', 0);
+        Commit();
+        Lines.OpenEdit();
+        LastThen(Lines, 0);
+        Expect('at', 'C:P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('error', 'TestValidation: Validation error for Field: ,  Message = ''The view is filtered, and the entry is outside the filter. Some actions may not work.''');
+        Expect('call', 'P.AGR(C);P.V(X2);P.AGR(B);');
+        Expect('stored1', 'A/,B/,X2/,');
+        Expect('walk', '');
+        Expect('close', '-');
+        Expect('stored', 'A/,B/,X2/,');
+    end;
+}

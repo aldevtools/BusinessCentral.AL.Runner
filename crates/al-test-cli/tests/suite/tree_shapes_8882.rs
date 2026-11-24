@@ -55,20 +55,32 @@ fn neighbors_keep_mains_path() {
     assert!(drop.len() == 3 && bad.is_empty(), "{drop:#?}");
 }
 
-/// The review of 01:31Z (`LT TVS Neighbor Path Tests`, each measured on BC): over rows 0, 0, 2, Last then a SetValue on Value
-/// first is a call no cell over those rows makes next, so the rule does not start and the page keeps main's path. The SetValue
-/// on Name with Update(true) over those rows, the same after Last and Expand(false), and a SetValue on Value without First
-/// after a cell that kept the row are told from a cell only once the OnValidate ran: the rule started, and they refuse.
+/// The reviews of 01:31Z and 04:05Z (`LT TVS Neighbor Path Tests`, each measured on BC): over rows 0, 0, 2 Last then a SetValue
+/// on Value first, or on Name with Update(true); Last, Expand(false), then the SetValue on Name with Update(true); and a SetValue
+/// on Value without First after a cell that kept the row. A cell over the rows starts with the steps so far, so the rule starts and
+/// reads the row; the coming call is told from a cell only once the OnValidate ran, and each refuses. Main read only the typed row
+/// where BC reads and saves more.
 #[test]
 fn calls_after_a_cells_prefix() {
     let src = format!("{PROBE}\n{NEIGHBORS}");
     let o = outcomes(&src, "LT TVS Neighbor Path Tests");
     let bad: Vec<_> = o
         .iter()
-        .filter(|(n, r, marks)| match n.as_str() {
-            "Rows002_LastThenValueFirst" => !marks.is_empty() || matches!(r, Outcome::NotRun(_)),
-            _ => !matches!(r, Outcome::NotRun(why) if why.starts_with("a call on a tree page of ")),
-        })
+        .filter(|(_, r, _)| !matches!(r, Outcome::NotRun(why) if why.starts_with("a call on a tree page of ")))
+        .collect();
+    assert!(o.len() == 4 && bad.is_empty(), "{o:#?}");
+}
+
+/// The review of 04:05Z (`LT TVS Neighbor Row Tests`, each measured on BC): over rows a cell of corpus PR 1539 holds, Last and a
+/// call no cell over them makes next (the flat rows with the SetValue on Value and with the action, the child in G0 with the
+/// SetValue on Value, the rows G0, G1, G5 with the SetValue on Name) start the rule and refuse, as on main.
+#[test]
+fn calls_no_cell_makes_next_over_held_rows_refuse() {
+    let src = format!("{PROBE}\n{NEIGHBORS}");
+    let o = outcomes(&src, "LT TVS Neighbor Row Tests");
+    let bad: Vec<_> = o
+        .iter()
+        .filter(|(_, r, _)| !matches!(r, Outcome::NotRun(why) if why.starts_with("a call on a tree page of ")))
         .collect();
     assert!(o.len() == 4 && bad.is_empty(), "{o:#?}");
 }
