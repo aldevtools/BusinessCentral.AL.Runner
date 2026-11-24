@@ -380,6 +380,7 @@ codeunit 50831 TStore { var Rows: Record Row temporary; Refs: array[2, 3] of Rec
         if Refs[1, 1].Number = 0 then Refs[1, 1].Open(50830, true);
         Refs[1, 1].Init(); Refs[1, 1].Field(1).Value := V; Refs[1, 1].Insert(); Ints[1] := V; end;
     procedure SetInt(V: Integer) begin Ints[1] := V; end;
+    procedure ShareRows(var R: Record Row temporary) begin R.Copy(Rows, true); end;
     procedure State(): Text var RefRows: Text;
     begin RefRows := '-'; if Refs[1, 1].Number <> 0 then RefRows := Format(Refs[1, 1].Count());
         exit(StrSubstNo('rows=%1 ref11=%2 refrows=%3 int1=%4', Rows.Count(), Refs[1, 1].Number, RefRows, Ints[1])); end; }
@@ -464,7 +465,53 @@ codeunit 50858 TDeepHolder { var W: Codeunit TWrapN; A: array[2] of Codeunit TSt
     procedure ClearAllGlobals() begin ClearAll(); end; }
 codeunit 50848 TIntTest { Subtype = Test; var GX: Codeunit TInt;
     procedure Shared(): Text var Y: Codeunit TInt; begin Y := GX; Y.Set(3); ClearAll(); exit('done'); end; }
+codeunit 50860 TGen { var Rows: Record Row temporary; D: Decimal; B: Boolean;
+    procedure Write(V: Integer) begin Rows.No := V; Rows.Insert(); D := V; B := true; end;
+    procedure Empty() begin Rows.DeleteAll(); end;
+    procedure ShareRows(var R: Record Row temporary) begin R.Copy(Rows, true); end;
+    procedure State(): Text begin exit(StrSubstNo('rows=%1 d=%2 b=%3', Rows.Count(), D, B)); end; }
+codeunit 50861 TGenHolder { var G: Codeunit TGen; X: Codeunit TStore; N: Integer;
+    procedure WriteG(V: Integer) begin G.Write(V); N := V; end;
+    procedure EmptyG() begin G.Empty(); end;
+    procedure ShareG(var R: Record Row temporary) begin G.ShareRows(R); end;
+    procedure WriteX(V: Integer) begin X.Write(V); end;
+    procedure ShareX(var R: Record Row temporary) begin X.ShareRows(R); end;
+    procedure StateG(): Text begin exit(G.State() + ' n=' + Format(N)); end;
+    procedure ClearAllGlobals() begin ClearAll(); end; }
+codeunit 50862 TD0 { var N: Codeunit TD1; procedure Touch() begin N.Touch(); end; procedure ClearAllGlobals() begin ClearAll(); end; }
+codeunit 50863 TD1 { var N: Codeunit TD2; procedure Touch() begin N.Touch(); end; }
+codeunit 50864 TD2 { var N: Codeunit TD3; procedure Touch() begin N.Touch(); end; }
+codeunit 50865 TD3 { var N: Codeunit TD4; procedure Touch() begin N.Touch(); end; }
+codeunit 50866 TD4 { var N: Codeunit TD5; procedure Touch() begin N.Touch(); end; }
+codeunit 50867 TD5 { var N: Codeunit TD6; procedure Touch() begin N.Touch(); end; }
+codeunit 50868 TD6 { var N: Codeunit TD7; procedure Touch() begin N.Touch(); end; }
+codeunit 50869 TD7 { var N: Codeunit TD8; procedure Touch() begin N.Touch(); end; }
+codeunit 50870 TD8 { var N: Codeunit TD9; procedure Touch() begin N.Touch(); end; }
+codeunit 50871 TD9 { var N: Codeunit TD10; procedure Touch() begin N.Touch(); end; }
+codeunit 50872 TD10 { var V: Integer; D: Decimal; procedure Touch() begin V := 1; end; }
+codeunit 50873 TArrCopy { var Rows: array[2] of Record Row temporary;
+    procedure Run(): Text var R: Record Row temporary;
+    begin R.Copy(Rows[1], true); ClearAll(); R.No := 1; R.Insert(); exit(Format(Rows[1].Count())); end; }
+codeunit 50874 TArrCopySi { SingleInstance = true; var Rows: array[2] of Record Row temporary;
+    procedure Run(): Text var R: Record Row temporary;
+    begin R.Copy(Rows[1], true); ClearAll(); R.No := 1; R.Insert(); exit(Format(Rows[1].Count())); end; }
+codeunit 50875 TArr2D { var Rows: array[2, 2] of Record Row temporary;
+    procedure Run(): Text begin Rows[1, 1].No := 1; Rows[1, 1].Insert(); ClearAll(); exit(Format(Rows[1, 2].Count())); end; }
+codeunit 50876 TArrEmptied { SingleInstance = true; var Rows: array[2] of Record Row temporary;
+    procedure Run(): Text begin Rows[1].No := 1; Rows[1].Insert(); Rows[1].DeleteAll(); ClearAll(); exit(Format(Rows[2].Count())); end; }
 codeunit 50839 T {
+    procedure GenWrittenThenEmptied(): Text var H: Codeunit TGenHolder;
+    begin H.WriteG(3); H.EmptyG(); H.ClearAllGlobals(); exit(H.StateG()); end;
+    procedure GenRowsNow(): Text var H: Codeunit TGenHolder; begin H.WriteG(3); H.ClearAllGlobals(); exit('done'); end;
+    procedure GenTableSharedByCopy(): Text var H: Codeunit TGenHolder; R: Record Row temporary;
+    begin H.ShareG(R); H.ClearAllGlobals(); exit('done'); end;
+    procedure StoreRowsSharedByCopy(): Text var H: Codeunit TGenHolder; R: Record Row temporary;
+    begin H.WriteX(3); H.ShareX(R); H.ClearAllGlobals(); exit('done'); end;
+    procedure DeepChain(): Text var C: Codeunit TD0; begin C.Touch(); C.ClearAllGlobals(); exit('done'); end;
+    procedure ArrUnwrittenSharedByCopy(): Text var C: Codeunit TArrCopy; begin exit(C.Run()); end;
+    procedure ArrUnwrittenSharedByCopySi(): Text var C: Codeunit TArrCopySi; begin exit(C.Run()); end;
+    procedure TwoDimArrWritten(): Text var C: Codeunit TArr2D; begin exit(C.Run()); end;
+    procedure ArrEmptiedSi(): Text var C: Codeunit TArrEmptied; begin exit(C.Run()); end;
     procedure HolderSharedWroteBefore(): Text var H: Codeunit THolder; Y: Codeunit TStore; A: Text;
     begin H.Share(Y); Y.Write(3); H.ClearAllGlobals(); A := H.StateX() + '|' + Y.State(); Y.Write(5); exit(A + '|' + H.StateX()); end;
     procedure HolderSharedUnused(): Text var H: Codeunit THolder; Y: Codeunit TStore;
@@ -627,7 +674,6 @@ fn clear_all_of_a_temp_store_in_a_pair_1564_measures_runs() {
         "ArrHolderUnsharedWritten",
         "ArrSiShared",
         "LabelHolderWritten",
-        "LabelHolderShared",
         "IntTestShared",
     ] {
         assert_eq!(temp_store(cell), ("done".to_string(), true), "{cell}");
@@ -643,6 +689,7 @@ fn clear_all_of_a_temp_store_in_a_pair_1564_measures_runs() {
 fn clear_all_of_a_temp_store_in_an_unmeasured_pair_refuses() {
     for (cell, why) in [
         ("LabelSiShared", "whose instance another variable shares"),
+        ("LabelHolderShared", "whose instance another variable shares"),
         ("LabelTestWritten", "whose instance holds temporary rows"),
         ("LabelValueParam", "whose instance another variable shares"),
         ("LabelBetweenArrays", "whose instance holds temporary rows"),
@@ -663,6 +710,54 @@ fn clear_all_of_a_temp_store_in_an_unmeasured_pair_refuses() {
     let got = temp_store("ElementSharedNoRows").0;
     assert!(
         got.starts_with("refused: ClearAll of a global array whose codeunit element another variable shares"),
+        "{got}"
+    );
+}
+
+// ClearAll in the owner of a codeunit global whose temporary table holds no row now and that no record outside it shares: a
+// fresh instance reads the same as one reset in place, so main's answer stays, with no mark. A table written and then
+// emptied counts as such; so does a chain of codeunit instances of any depth that holds no temporary row.
+#[test]
+fn clear_all_of_a_store_with_no_rows_now_keeps_main() {
+    assert_eq!(
+        temp_store("GenWrittenThenEmptied"),
+        ("rows=0 d=0 b=No n=0".to_string(), false)
+    );
+    assert_eq!(temp_store("DeepChain"), ("done".to_string(), false));
+    // An array of temporary records written and then emptied, under a SingleInstance owner (no probe measures one with
+    // rows there): main's fresh tables.
+    assert_eq!(temp_store("ArrEmptiedSi"), ("0".to_string(), false));
+}
+
+// A temporary table that a record outside the instance or the array shares (`Copy(x, true)`, record/
+// TestTempTableContracts.al:101-112): no probe measures what that record sees after ClearAll, so ClearAll refuses, with rows
+// or without, in a measured store too. Main gave a fresh table and left the sharer on the old one.
+#[test]
+fn clear_all_of_a_temp_table_a_record_outside_shares_refuses() {
+    for cell in [
+        "GenTableSharedByCopy",
+        "StoreRowsSharedByCopy",
+        "ArrUnwrittenSharedByCopy",
+        "ArrUnwrittenSharedByCopySi",
+    ] {
+        let got = temp_store(cell).0;
+        assert!(
+            got.contains("a temporary table that another record shares"),
+            "{cell}: {got}"
+        );
+    }
+    // A codeunit global whose own temporary table holds rows, in a store no probe measures: refused as before.
+    let got = temp_store("GenRowsNow").0;
+    assert!(got.contains("whose instance holds temporary rows"), "{got}");
+}
+
+// The probes measure arrays of temporary records of one dimension ("CLS Arr Store", ClearSharedCodeunitSIOwner.al:42-47;
+// "CLQ Report Rows", ClearSharedCodeunitOwnerKinds.al:378): an array of two dimensions whose table holds rows refuses.
+#[test]
+fn clear_all_of_a_two_dimensional_array_of_temp_records_with_rows_refuses() {
+    let got = temp_store("TwoDimArrWritten").0;
+    assert!(
+        got.starts_with("refused: ClearAll of a global array of temporary records whose table holds rows"),
         "{got}"
     );
 }

@@ -11,6 +11,7 @@
 
 use super::*;
 use crate::var_option::ArrayOf;
+use al_builtins::value::LibraryValue;
 use std::rc::Weak;
 
 impl Session {
@@ -47,9 +48,13 @@ impl Session {
             }
             match v {
                 Value::Codeunit(rc) if self.plain_codeunit(rc.borrow().object as usize) => {
+                    let hold = self.temp_hold(v);
+                    if hold == TempHold::SharedTable {
+                        return Err(shared_table_refusal());
+                    }
                     let holding = if Rc::strong_count(rc) > 2 {
                         Holding::Shared
-                    } else if self.holds_temp_rows(v, 0) {
+                    } else if hold == TempHold::Rows {
                         Holding::Written
                     } else if self.wrapped_store_shared(rc) {
                         return Err(Signal::unsupported(
@@ -59,7 +64,7 @@ impl Session {
                     } else {
                         continue;
                     };
-                    if !self.measured_cell(owner, v, holding, f) {
+                    if !self.measured_cell(owner, v, holding) {
                         return Err(match holding {
                             Holding::Shared => Signal::unsupported(
                                 "ClearAll of a global codeunit variable whose instance another variable shares, in a \
@@ -74,7 +79,8 @@ impl Session {
                 }
                 Value::Array(items)
                     if (items.borrow().iter()).any(|e| {
-                        self.shared_element(e) || matches!(e, Value::Codeunit(_)) && self.holds_temp_rows(e, 0)
+                        self.shared_element(e)
+                            || matches!(e, Value::Codeunit(_)) && self.temp_hold(e) != TempHold::Empty
                     }) =>
                 {
                     self.clear_all_store_array(owner, i, items)?;
@@ -87,7 +93,7 @@ impl Session {
     }
 
     /// `ClearAll()` in `owner` of its global array `items` (slot `slot`) of codeunits, an element of which another holder
-    /// shares or holds written temporary rows. In a plain codeunit ([`Owner::Plain`]), for an array of one dimension of "CLB
+    /// shares or holds a temporary table that holds rows or that a record outside shares. In a plain codeunit ([`Owner::Plain`]), for an array of one dimension of "CLB
     /// Store" ([`Store::TempRef`]) whose shared elements all hold rows, each element is reset in place: rows kept, the
     /// sharer sees the reset, an unused element stays as fresh (ClearSharedCodeunitOwnerKinds.al Arr2_Element1Written_NoAlias
     /// :770, Arr2_Element1AliasWroteBefore :790). Any other array refuses.
@@ -101,11 +107,17 @@ impl Session {
         let measured = self.owner_kind(owner) == Some(Owner::Plain)
             && matches!(ty, RtType::Array(d, e) if d.len() == 1
                 && matches!(**e, RtType::Codeunit(c) if self.store_kind(c as usize) == Some(Store::TempRef)))
-            && (items.borrow().iter()).all(|e| !self.shared_element(e) || self.holds_temp_rows(e, 0))
+            && (items.borrow().iter()).all(|e| !self.shared_element(e) || self.temp_hold(e) == TempHold::Rows)
             && (items.borrow().iter()).all(|e| !self.holds_bound_codeunit(e) && !self.store_runs(e));
+        let hold = (items.borrow().iter())
+            .map(|e| self.temp_hold(e))
+            .max()
+            .unwrap_or(TempHold::Empty);
+        if hold == TempHold::SharedTable {
+            return Err(shared_table_refusal());
+        }
         if !measured {
-            let rows = (items.borrow().iter()).any(|e| matches!(e, Value::Codeunit(_)) && self.holds_temp_rows(e, 0));
-            return Err(if rows {
+            return Err(if hold == TempHold::Rows {
                 temp_rows_refusal()
             } else {
                 Signal::unsupported(
@@ -122,50 +134,99 @@ impl Session {
         Ok(())
     }
 
-    /// Checks the globals of `owner` (not in `keep`) that `ClearAll()` resets for an array of temporary records whose table
-    /// was written: `keep_temp_table` (`interp.rs`) gives the fresh array the old table, so the rows stay, in a codeunit that
-    /// is not SingleInstance with no TableNo that states no Subtype ("CLS Arr Store", ClearSharedCodeunitSIOwner.al
+    /// The slots of the globals of `owner` (not in `keep`) that `ClearAll()` resets whose array of temporary records of one
+    /// dimension holds rows now, which keep their table (`keep_temp_table`, `interp.rs`), so the rows stay: in a codeunit
+    /// that is not SingleInstance with no TableNo that states no Subtype ("CLS Arr Store", ClearSharedCodeunitSIOwner.al
     /// ArrStore_ClearAll_InsideStore :1808, rows1=2 rows2=2 after ClearAll) and in a report of [`Owner::Report`]
-    /// (ClearSharedCodeunitOwnerKinds.al ReportRows_ArrayElement1Written :814), through assumption clear-shared-codeunit.
-    /// Any other owner refuses: main gave such an array fresh tables, and the probes measure only these.
+    /// (ClearSharedCodeunitOwnerKinds.al ReportRows_ArrayElement1Written :814, both `array[2]`), through assumption
+    /// clear-shared-codeunit. Such an array in any other owner, or of more dimensions, refuses: main gave it fresh tables,
+    /// and the probes measure only these. So does one whose table a record outside the array shares. Any other array of
+    /// temporary records gets fresh tables, main's answer with no mark.
     pub(crate) fn clear_all_temp_arrays(
         &mut self,
         owner: usize,
         globals: &[Value],
         keep: &[usize],
-    ) -> Result<(), Signal> {
-        let written = (globals.iter().enumerate())
-            .filter(|(i, _)| !keep.contains(i))
-            .any(|(_, v)| matches!(v, Value::Array(items) if items.borrow().iter().any(|e| matches!(e, Value::Record(_)) && self.holds_temp_rows(e, 0))));
-        if !written {
-            return Ok(());
-        }
-        if matches!(self.owner_kind(owner), Some(Owner::Plain | Owner::Report)) {
+    ) -> Result<Vec<usize>, Signal> {
+        let mut kept = Vec::new();
+        for (i, v) in globals.iter().enumerate() {
+            let Value::Array(items) = v else { continue };
+            if keep.contains(&i) || !items.borrow().iter().any(|e| matches!(e, Value::Record(_))) {
+                continue;
+            }
+            match self.temp_hold(v) {
+                TempHold::Empty => continue,
+                TempHold::SharedTable => return Err(shared_table_refusal()),
+                TempHold::Rows => {}
+            }
+            let one_dimension =
+                matches!(&self.engine.program.objects[owner].globals[i].ty, RtType::Array(d, _) if d.len() == 1);
+            if !(one_dimension && matches!(self.owner_kind(owner), Some(Owner::Plain | Owner::Report))) {
+                return Err(Signal::unsupported(
+                    "ClearAll of a global array of temporary records whose table holds rows, in an object the corpus \
+                     does not pin",
+                ));
+            }
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ClearSharedCodeunit);
-            return Ok(());
+            kept.push(i);
         }
-        Err(Signal::unsupported(
-            "ClearAll of a global array of temporary records whose table holds rows, in an object the corpus does not pin",
-        ))
+        Ok(kept)
     }
 
-    /// Whether `v` is or holds, through the globals of an instance of a codeunit that is not SingleInstance and through
-    /// arrays, a temporary record whose table was written (its change counter moved).
-    fn holds_temp_rows(&self, v: &Value, depth: u8) -> bool {
+    /// What the temporary tables `v` reaches hold, through the globals of instances of codeunits that are not
+    /// SingleInstance, through arrays and through RecordRefs: [`TempHold::SharedTable`] when a record state outside those
+    /// holds one of the tables (`TempId::sharers` counts more than the walk reaches), else [`TempHold::Rows`] when one
+    /// holds a row now, else [`TempHold::Empty`]. A table written and later emptied holds no row. Each instance is walked
+    /// once, so a cycle of instances ends.
+    fn temp_hold(&self, v: &Value) -> TempHold {
+        let mut walk = TempWalk::default();
+        self.walk_temp(v, &mut walk);
+        let tables = walk.tables.values();
+        if tables.clone().any(|t| t.own < t.sharers) {
+            TempHold::SharedTable
+        } else if tables.clone().any(|t| t.rows) {
+            TempHold::Rows
+        } else {
+            TempHold::Empty
+        }
+    }
+
+    fn walk_temp(&self, v: &Value, walk: &mut TempWalk) {
         match v {
-            _ if depth > 8 => true,
-            Value::Record(r) => {
-                let r = r.borrow();
-                r.temporary
-                    && (r.temp_id.as_ref())
-                        .is_some_and(|t| self.temps.get(&t.id()).is_some_and(|s| s.change_counter() > 0))
+            Value::Record(r) => self.note_temp(r, walk),
+            Value::Library(k, l) if *k == al_builtins::library_kind::LibraryKind::RecordRef => {
+                if let Ok(LibraryValue::RecordRef(r)) = l.try_borrow().as_deref() {
+                    self.note_temp(r, walk);
+                }
             }
             Value::Codeunit(rc) if self.plain_codeunit(rc.borrow().object as usize) => {
-                rc.borrow().globals.iter().any(|g| self.holds_temp_rows(g, depth + 1))
+                if !walk.instances.insert(Rc::as_ptr(rc) as usize) {
+                    return;
+                }
+                for g in rc.borrow().globals.iter() {
+                    self.walk_temp(g, walk);
+                }
             }
-            Value::Array(items) => items.borrow().iter().any(|e| self.holds_temp_rows(e, depth + 1)),
-            _ => false,
+            Value::Array(items) => items.borrow().iter().for_each(|e| self.walk_temp(e, walk)),
+            _ => {}
         }
+    }
+
+    /// Counts record state `r`, once, as a holder of its temporary table.
+    fn note_temp(&self, r: &Rc<RefCell<RecordState>>, walk: &mut TempWalk) {
+        if !walk.records.insert(Rc::as_ptr(r) as usize) {
+            return;
+        }
+        let r = r.borrow();
+        let (true, Some(t)) = (r.temporary, &r.temp_id) else {
+            return;
+        };
+        let table = walk.tables.entry(t.id()).or_insert_with(|| TempTable {
+            sharers: t.sharers(),
+            own: 0,
+            rows: self.temps.get(&t.id()).is_some_and(|s| s.holds_rows_unobserved()),
+        });
+        table.own += 1;
     }
 
     /// Whether array element `e` holds an instance of a codeunit that is not SingleInstance that another holder shares (the
@@ -251,16 +312,13 @@ impl Session {
 
     /// Whether `ClearAll()` in `owner` resets store instance `v`, held as `holding` says, in place: the instance is not bound
     /// by BindSubscription (`clear_all_bound_globals` owns those), no routine of its codeunit runs, and (owner, store,
-    /// holding) is a cell the corpus measures. A shared instance of [`Store::TempRefLabel`] counts only when no by-value
-    /// parameter of the routine `f` runs holds it (the probe shares it through a second variable only).
-    fn measured_cell(&self, owner: usize, v: &Value, holding: Holding, f: &Frame) -> bool {
+    /// holding) is a cell the corpus measures.
+    fn measured_cell(&self, owner: usize, v: &Value, holding: Holding) -> bool {
         let Value::Codeunit(rc) = v else { return false };
         let (Some(o), Some(s)) = (self.owner_kind(owner), self.store_kind(rc.borrow().object as usize)) else {
             return false;
         };
-        let cell = measured(o, s, holding)
-            && !(s == Store::TempRefLabel && holding == Holding::Shared && value_parameter_holds(self, f, rc));
-        cell && !self.holds_bound_codeunit(v) && !self.store_runs(v)
+        measured(o, s, holding) && !self.holds_bound_codeunit(v) && !self.store_runs(v)
     }
 
     /// Resets instance `rc` in place, as `ClearAll()` in a measured owner does to a store global: its globals go back to
@@ -472,6 +530,15 @@ impl Session {
     }
 }
 
+/// The refusal of a `ClearAll` that resets a temporary table a record outside the variable shares (`Copy(x, true)`): no
+/// probe measures what that record sees after.
+fn shared_table_refusal() -> Signal {
+    Signal::unsupported(
+        "ClearAll of a global variable that reaches a temporary table that another record shares, in a shape the corpus \
+         does not pin",
+    )
+}
+
 /// The refusal of a `ClearAll` that would give a fresh instance to a global codeunit variable whose instance holds
 /// temporary rows, in a shape the probes do not measure.
 fn temp_rows_refusal() -> Signal {
@@ -501,22 +568,16 @@ fn measured(owner: Owner, store: Store, holding: Holding) -> bool {
         // ArrStore_ClearAll_UnusedAlias :418, ArrStore_ClearAll_InHolder_NoAlias :439, SIArr_* :987 :1013 :1029,
         // M2_Step5_ClearAllInOwner :1241, ClearAll_TestGlobalArr* :1276 :1303 :1333.
         (Plain | SingleInstance | Test, TempArray, _) => true,
-        // ClearSharedCodeunitLabelStore.al LabelFirst_ClearAllInHolder_Written_NoAlias :354, _AliasWroteBefore :386,
-        // _UnusedAlias :422, and the same for Mid (:497 :529 :565) and Last (:640 :672 :708).
-        (Plain, TempRefLabel, _) => true,
+        // ClearSharedCodeunitLabelStore.al LabelFirst_ClearAllInHolder_Written_NoAlias :354, and the same for Mid (:497)
+        // and Last (:640). Shared, the probe measures a var-parameter alias only (:386 :422), and the runner cannot tell
+        // that holder from an interface or a by-value parameter: not measured.
+        (Plain, TempRefLabel, Written) => true,
         // ClearSharedCodeunitLabelStore.al First_L3_Step3_ClearAllInOwner :1415, Mid :1612, Last :1809.
         (SingleInstance, TempRefLabel, Written) => true,
         // ClearSharedCodeunitOwnerKinds.al StorePlus_* :644 :661 :684, Deep_* :701 :723 :745.
         (Plain, TempRefPlus | Wrapper, _) => true,
         _ => false,
     }
-}
-
-/// Whether a by-value parameter of the routine frame `f` runs holds instance `rc`.
-fn value_parameter_holds(s: &Session, f: &Frame, rc: &Rc<RefCell<Instance>>) -> bool {
-    let r = &s.engine.program.objects[f.object].routines[f.routine];
-    (f.locals.iter().take(r.params).enumerate())
-        .any(|(i, l)| r.by_var.get(i) != Some(&true) && matches!(l, Value::Codeunit(x) if Rc::ptr_eq(x, rc)))
 }
 
 /// Whether report `r` is the owner shape ClearSharedCodeunitOwnerKinds.al measures ("CLQ Report Owner" :138, "CLQ Report
@@ -602,6 +663,33 @@ enum Store {
 enum Holding {
     /// Another variable, parameter or interface holds it too.
     Shared,
-    /// Nothing else holds it, and its temporary table holds rows.
+    /// Nothing else holds it, and its temporary table holds rows now ([`TempHold::Rows`]).
     Written,
+}
+
+/// What the temporary tables a global reaches hold ([`Session::temp_hold`]), in rising order.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum TempHold {
+    /// No row now, and no record outside shares a table.
+    Empty,
+    /// A row now, and no record outside shares a table.
+    Rows,
+    /// A record outside holds one of the tables.
+    SharedTable,
+}
+
+/// The holders [`Session::walk_temp`] reached, per temporary table.
+#[derive(Default)]
+struct TempWalk {
+    tables: std::collections::HashMap<u64, TempTable>,
+    instances: std::collections::HashSet<usize>,
+    records: std::collections::HashSet<usize>,
+}
+
+struct TempTable {
+    /// `TempId::sharers` of the table.
+    sharers: usize,
+    /// The record states the walk reached that hold it.
+    own: usize,
+    rows: bool,
 }

@@ -336,12 +336,14 @@ impl Session {
         let bound = self.clear_all_bound_globals(&globals, &keep, true)?;
         let mut keep: Vec<usize> = keep.into_iter().chain(bound).collect();
         keep.extend(self.clear_all_in_place(f, &globals, &keep)?);
-        self.clear_all_temp_arrays(object, &globals, &keep)?;
+        let kept_tables = self.clear_all_temp_arrays(object, &globals, &keep)?;
         let fresh = self.slot_defaults(&o.globals);
         let mut inst = f.instance.borrow_mut();
         for (i, v) in fresh.into_iter().enumerate() {
             if !keep.contains(&i) {
-                keep_temp_table(&inst.globals[i], &v);
+                if !matches!(v, Value::Array(_)) || kept_tables.contains(&i) {
+                    keep_temp_table(&inst.globals[i], &v);
+                }
                 inst.globals[i] = v;
             }
         }
@@ -2463,7 +2465,8 @@ fn stored_as_is(v: &Value) -> bool {
 
 /// `ClearAll` gives global `new`, the fresh value that replaces `old`, the temporary table of `old` when `old` is a
 /// temporary record, and each element of an array of temporary records the table of its old element (the elements share
-/// one table, `Session::clear_all_temp_arrays` decides where that runs): a global temporary record keeps its rows, as Clear leaves them
+/// one table; `Session::clear_all_temp_arrays` names the arrays of an owner that keep theirs, and a store reset in place
+/// keeps its own, `Session::reset_keeping_rows`): a global temporary record keeps its rows, as Clear leaves them
 /// (types/ProbeTypeFormsAndFilters.al:Clear_TemporaryRecordWithRows_ThenCount); ClearAll does the same: real BC 29 keeps both
 /// rows of a codeunit's global temporary record and drops its filter, called directly and through Codeunit.Run
 /// (record/PriorityAssumptions.al:247-281, ClearAll_TemporaryGlobalRecord_*). Pinned for a codeunit's global; the same for a
