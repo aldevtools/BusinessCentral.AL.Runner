@@ -101,6 +101,7 @@ codeunit 50100 Keeper
     end;
     procedure Reseed() begin Randomize(7); end;
     procedure MakeSequence() begin NumberSequence.Insert('S50', 5, 3); Commit(); end;
+    procedure CommitAtSnapshot() begin CurrentTransactionType(TransactionType::Snapshot); Commit(); end;
     procedure Schedule() begin TaskScheduler.CreateTask(50101, 0, true); end;
     procedure FillJson() begin J.Add('a', 1); end;
     procedure InsertBlobTemp() begin TB.Id := 1; TB.Insert(); end;
@@ -120,6 +121,21 @@ codeunit 50100 Keeper
         R.Get(5); R.CalcFields(Data); R.Data.CreateInStream(I, TextEncoding::UTF16); I.Read(T); exit(T);
     end;
     procedure ReadAccent(): Text begin Rec.SetRange(Name, 'é'); T1.SetRange(Name, 'é'); exit(Format(Rec.Count()) + '|' + Format(T1.Count())); end;
+}
+// "CLS SI Arr" of ClearSharedCodeunitTempArrayShare.al (SIArrNever_ :736): a SingleInstance codeunit whose global array of
+// temporary records shares element 1 through Copy(A[1], true), here with another SingleInstance codeunit's global.
+codeunit 50104 ArrOwner
+{
+    SingleInstance = true;
+    var A: array[2] of Record TRow temporary;
+    procedure ShareA1(var R: Record TRow temporary) begin R.Copy(A[1], true); end;
+    procedure ClearAllGlobals(): Text begin ClearAll(); exit('done'); end;
+}
+codeunit 50105 CopyKeeper
+{
+    SingleInstance = true;
+    var Keep: Record TRow temporary;
+    procedure Take() var O: Codeunit ArrOwner; begin O.ShareA1(Keep); end;
 }
 "#;
 
@@ -1097,11 +1113,23 @@ fn a_thaw_into_a_session_that_is_not_new_refuses_and_leaves_it_as_it_was() {
     f.run("FillDatabase");
     f.run("FillCollections");
     let image = image(&mut f.session);
-    type Plant = fn(&mut Session);
-    let plants: [(Plant, &str); 3] = [
-        (|s| s.depth = 1, "depth"),
-        (|s| s.sessions_started = 1, "sessions_started"),
-        (|s| s.fault_trace = true, "fault_trace"),
+    let rec = record_of(f.get("Rec"));
+    type Plant = Box<dyn Fn(&mut Session)>;
+    let plants: [(Plant, &str); 7] = [
+        (Box::new(|s| s.depth = 1), "depth"),
+        (Box::new(|s| s.sessions_started = 1), "sessions_started"),
+        (Box::new(|s| s.fault_trace = true), "fault_trace"),
+        // The transaction, event and UI facts and the Temp Blob fields, which the thaw does not write.
+        (Box::new(|s| s.tx.try_depth = 1), "tx.try_depth"),
+        (
+            Box::new(|s| s.events.next_var_codeunits.push(None)),
+            "events.next_var_codeunits",
+        ),
+        (Box::new(|s| s.ui_state.page_handler_depth = 1), "ui_state"),
+        (
+            Box::new(move |s| s.temp_blob_impl_fields.note_all(&[(rec.clone(), 1)])),
+            "temp_blob_impl_fields",
+        ),
     ];
     for (plant, field) in plants {
         let mut target = new_session(&f.session);
@@ -1131,4 +1159,63 @@ fn a_thaw_onto_a_store_without_the_tables_the_login_changed_refuses() {
     let before = (lines_without_sql(&mut target), table_rows(&mut target, f.row));
     assert_eq!(target.thaw_login_image(&image), Err(NotThawed::Rows));
     assert_eq!((lines_without_sql(&mut target), table_rows(&mut target, f.row)), before);
+}
+
+// A Commit at a type other than Update keeps the type and marks it `commit-keeps-transaction-type`
+// (`Session::keep_type_at_commit`). Code that reads CurrentTransactionType before the first test method starts is flagged
+// through that mark, so the twin must carry it.
+#[test]
+fn a_login_that_commits_at_snapshot_gives_the_same_type_origin_in_the_twin() {
+    let mut f = fx();
+    f.run("CommitAtSnapshot");
+    assert_ne!(
+        f.session.tx.type_origin,
+        Default::default(),
+        "the Commit marks the type"
+    );
+    let image = image(&mut f.session);
+    let mut twin = thaw(&f.session, &image);
+    assert_eq!(twin.tx.type_origin, f.session.tx.type_origin);
+    assert_eq!(lines_without_sql(&mut f.session), lines_without_sql(&mut twin));
+}
+
+// `Record.Copy(x, true)` notes its target on the table's token (al-builtins `TempId::note_copy_target`), and ClearAll of a
+// SingleInstance codeunit's array whose element 1 one record outside shares that way keeps the table (al-vm
+// `clear_shared_codeunit.rs` `measured_array`, ClearSharedCodeunitTempArrayShare.al SIArrNever_ :736). Without the note
+// the same ClearAll refuses, so the twin must carry it.
+#[test]
+fn a_table_shared_by_copy_keeps_its_copy_target_in_the_twin() {
+    let mut f = fx();
+    let at = |s: &Session, name: &str| {
+        s.engine
+            .program
+            .objects
+            .iter()
+            .position(|o| o.name == name)
+            .expect(name)
+    };
+    let (owner, keeper) = (at(&f.session, "ArrOwner"), at(&f.session, "CopyKeeper"));
+    answer(&mut f.session, keeper, "Take");
+    let image = image(&mut f.session);
+    let mut twin = thaw(&f.session, &image);
+    let ours = outcome(&mut f.session, owner, "ClearAllGlobals");
+    assert!(ours.contains("done"), "{ours}");
+    assert_eq!(outcome(&mut twin, owner, "ClearAllGlobals"), ours);
+}
+
+// Main's state of issue 8969 (a read of the transaction type waiting for its set back) and of issue 8912 (the var Codeunit
+// parameters of the call being made) holds a new session's value only when empty: a session holding either is not imaged,
+// and the reason names the field.
+#[test]
+fn a_saved_transaction_type_or_a_calls_var_codeunits_refuses_the_image() {
+    let mut f = fx();
+    f.keeper_instance();
+    f.session
+        .tx
+        .saved_types
+        .push(crate::transaction_type_saved::SavedType::any());
+    assert_eq!(refused(&mut f), NotImaged::Field("tx.saved_types"));
+    f.session.tx.saved_types.clear();
+    f.session.events.next_var_codeunits.push(None);
+    assert_eq!(refused(&mut f), NotImaged::Field("events.next_var_codeunits"));
 }

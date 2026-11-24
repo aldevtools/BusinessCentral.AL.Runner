@@ -100,8 +100,8 @@ impl NotImaged {
 pub enum NotThawed {
     /// The image was taken on another engine (`Engine::uid`).
     Engine,
-    /// The session is not a thaw target: the first field of `Session::at_rest_why` or of
-    /// `Session::image_refused_field` that does not hold, or a store watch (`Session::thaw_target_why`).
+    /// The session is not a thaw target: the first field of `Session::at_rest_why`, of `Session::image_refused_field` or
+    /// of the facts the thaw does not write that does not hold, or a store watch (`Session::thaw_target_why`).
     Target(&'static str),
     /// The session's store does not take the rows the login wrote: it lacks a table the login changed row by row (a
     /// base of another shape than the image's).
@@ -271,11 +271,13 @@ impl Session {
     }
 
     /// Why this session cannot take a login start in place of its login: the first field of the `at_rest` rule or of the
-    /// `refuse` class that does not hold a new session's value, or `store watch` when an access watch is on (it would see
-    /// the thaw's writes). `None`: it can. The thaw's own target rule.
+    /// `refuse` class that does not hold a new session's value, then of the facts the thaw does not write (the transaction,
+    /// event and UI facts and the Temp Blob fields), or `store watch` when an access watch is on (it would see the thaw's
+    /// writes). `None`: it can. The thaw's own target rule.
     pub fn thaw_target_why(&self) -> Option<&'static str> {
         (self.at_rest_why())
             .or_else(|| self.image_refused_field())
+            .or_else(|| self.unwritten_fact_why())
             .or_else(|| self.store.watching().then_some("store watch"))
     }
 
@@ -344,6 +346,22 @@ impl Session {
         image.parts.give(self);
         thaw::thaw(self, image);
         Ok(())
+    }
+
+    /// The first fact of a thaw's target that the thaw does not write and that does not hold a new session's value, by
+    /// the rules the image is taken by (`SessionParts::take`): the transaction state besides what a Commit leaves, the
+    /// event state besides what the image carries, the UI state, and the Temp Blob fields (the thaw adds its own).
+    fn unwritten_fact_why(&self) -> Option<&'static str> {
+        if let Some(field) = crate::install_left::tx_not_as_new(&self.tx) {
+            return Some(field);
+        }
+        if !crate::install_left::clients::ui_left_as_new(&self.ui_state) {
+            return Some("ui_state");
+        }
+        if let Some(field) = crate::install_left::clients::events_not_as_new(&self.events) {
+            return Some(field);
+        }
+        (!self.temp_blob_impl_fields.as_new()).then_some("temp_blob_impl_fields")
     }
 }
 

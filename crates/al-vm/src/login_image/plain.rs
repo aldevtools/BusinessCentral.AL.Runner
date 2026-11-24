@@ -1,7 +1,7 @@
 //! A [`Value`] that holds no handle, as owned data any thread may hold (the session image, al-runner issue 8211): the plain
 //! mirror of `Value` and of a record filter. It lives with its only user rather than next to `Value` in al-builtins: there,
-//! its conversions alone, which no run without the login replay calls, changed how al-builtins' hot functions inline and
-//! cost every run about 0.1% more instructions.
+//! its conversions alone, which no run without the login replay calls, changed how al-builtins' hot functions inline, a
+//! cost every run would pay.
 
 use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_builtins::text::Txt;

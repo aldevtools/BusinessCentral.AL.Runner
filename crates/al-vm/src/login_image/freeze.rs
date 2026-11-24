@@ -884,7 +884,7 @@ codeunit 50200 PKeep
     // The image takes the DotNet objects measured on a real login only (`MEASURED_DOTNET`, empty state); another type, a state
     // and an enum value are deferred, each naming its type.
     #[test]
-    fn a_dotnet_object_v1_does_not_measure_is_deferred_by_its_type() {
+    fn a_dotnet_object_no_real_login_measured_is_deferred_by_its_type() {
         use al_builtins::value::{DotNetKind, DotNetObject};
         let l = al_testkit::compile(KINDS);
         let engine = Engine::new(l.program.clone(), al_testkit::blocked(&l));
