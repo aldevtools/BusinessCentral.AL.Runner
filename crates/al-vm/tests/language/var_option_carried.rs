@@ -69,6 +69,57 @@ table 69871 CRow
         Clear(Choice);
         exit('');
     end;
+
+    // The other uses of OptionVarMembersCallee.al `ConfirmOp`, `EvaluateStatement`.
+    procedure ClearRead(var Choice: Option " ",Skip,Update): Text
+    begin
+        Clear(Choice);
+        exit(Format(Choice) + '|' + Format(Choice, 0, 2));
+    end;
+
+    procedure EvaluateText(var Choice: Option " ",Skip,Update; Txt: Text): Text
+    begin
+        exit(Format(Evaluate(Choice, Txt)) + '>' + Format(Choice) + '|' + Format(Choice, 0, 2));
+    end;
+
+    procedure AssignOne(var Choice: Option " ",Skip,Update): Text
+    begin
+        Choice := 1;
+        exit(Format(Choice) + '|' + Format(Choice, 0, 2));
+    end;
+
+    procedure HandOn(var Choice: Option " ",Skip,Update): Text
+    var
+        Lib: Codeunit CLib;
+    begin
+        exit(Lib.Show(Choice) + Lib.ShowByValue(Choice));
+    end;
+
+    procedure HandOnEvaluate(var Choice: Option " ",Skip,Update): Text
+    var
+        Lib: Codeunit CLib;
+    begin
+        exit(Lib.ShowEvaluate(Choice));
+    end;
+}
+
+codeunit 69875 CLib
+{
+    procedure Show(var V: Option): Text
+    begin
+        exit('m ' + Format(V) + '|' + Format(V, 0, 2));
+    end;
+
+    procedure ShowByValue(V: Option): Text
+    begin
+        exit(' b ' + Format(V) + '|' + Format(V, 0, 2));
+    end;
+
+    procedure ShowEvaluate(var V: Option): Text
+    begin
+        Evaluate(V, '1');
+        exit(Format(V));
+    end;
 }
 
 codeunit 69872 CEvents
@@ -216,6 +267,115 @@ codeunit 69874 C
         exit(CopyHop(V));
     end;
 
+    local procedure ClearReadHop(var V: Option): Text
+    var
+        Row: Record CRow;
+    begin
+        exit(Row.ClearRead(V));
+    end;
+
+    local procedure EvaluateTextHop(var V: Option; Txt: Text): Text
+    var
+        Row: Record CRow;
+    begin
+        exit(Row.EvaluateText(V, Txt));
+    end;
+
+    local procedure AssignOneHop(var V: Option): Text
+    var
+        Row: Record CRow;
+    begin
+        exit(Row.AssignOne(V));
+    end;
+
+    local procedure HandOnHop(var V: Option): Text
+    var
+        Row: Record CRow;
+    begin
+        exit(Row.HandOn(V));
+    end;
+
+    procedure OtherClear(): Text
+    var
+        V: Option A,B,C,D;
+    begin
+        V := 3;
+        exit(ClearReadHop(V) + '>' + Format(V));
+    end;
+
+    procedure OtherEvaluate(Txt: Text): Text
+    var
+        V: Option A,B,C,D;
+    begin
+        V := 3;
+        exit(EvaluateTextHop(V, Txt) + '>' + Format(V));
+    end;
+
+    procedure OtherEvaluateName(): Text
+    begin
+        exit(OtherEvaluate('B'));
+    end;
+
+    procedure OtherEvaluateDigits(): Text
+    begin
+        exit(OtherEvaluate('7'));
+    end;
+
+    procedure OtherEvaluateNoName(): Text
+    begin
+        exit(OtherEvaluate('Skip'));
+    end;
+
+    procedure OtherEvaluateOtherCase(): Text
+    begin
+        exit(OtherEvaluate('b'));
+    end;
+
+    procedure OtherEvaluateBlank(): Text
+    begin
+        exit(OtherEvaluate(''));
+    end;
+
+    procedure MemberlessEvaluateName(): Text
+    var
+        V: Option;
+    begin
+        V := 1;
+        exit(EvaluateTextHop(V, 'Skip') + '>' + Format(V));
+    end;
+
+    procedure OtherAssignOne(): Text
+    var
+        V: Option A,B,C,D;
+    begin
+        exit(AssignOneHop(V) + '>' + Format(V));
+    end;
+
+    procedure OtherHandOn(): Text
+    var
+        V: Option A,B,C,D;
+    begin
+        V := 3;
+        exit(HandOnHop(V) + '>' + Format(V));
+    end;
+
+    procedure DirectHandOn(): Text
+    var
+        Row: Record CRow;
+        V: Option " ",Skip,Update;
+    begin
+        V := 1;
+        exit(Row.HandOn(V));
+    end;
+
+    procedure DirectHandOnEvaluate(): Text
+    var
+        Row: Record CRow;
+        V: Option " ",Skip,Update;
+    begin
+        exit(Row.HandOnEvaluate(V));
+    end;
+
     procedure MemberlessClear(): Text
     var
         V: Option;
@@ -339,11 +499,10 @@ fn a_value_carrying_another_list_from_a_measured_origin_runs_flagged_and_keeps_i
     assert_eq!(hits, vec![Assumption::VarOptionCarriedMembers]);
 }
 
-// A memberless value at a callee that uses the parameter in a way no cell measures for it (Evaluate, a copy, Clear), and a
+// A memberless value at a callee that uses the parameter in a way no cell measures for it (a copy, Clear), and a
 // memberless origin through the event, refuse.
 #[test]
 fn a_memberless_value_at_an_unmeasured_use_or_through_the_event_refuses() {
-    refused("MemberlessEvaluate");
     refused("MemberlessCopy");
     refused("MemberlessClear");
     refused("MemberlessEventOrigin");
@@ -355,4 +514,49 @@ fn a_memberless_value_at_an_unmeasured_use_or_through_the_event_refuses() {
 fn other_origins_and_event_contracts_refuse() {
     refused("GlobalOrigin");
     refused("EventNoSenderOrigin");
+}
+
+// The callee's Evaluate reads the value's list (OptionVarMembersCallee.al CalleeOps_VarHop_Other: `Second` Yes, `5` Yes, `Skip`
+// No; CalleeOps_VarHop_Memberless: `Skip` No), Clear gives its first member (`>First|0`), `:= 1` its second member (`>Second|1`).
+// Runs, flagged.
+#[test]
+fn evaluate_clear_and_an_integer_read_the_list_the_value_carries() {
+    for (routine, want) in [
+        ("OtherEvaluateName", "Yes>B|1>B"),
+        ("OtherEvaluateDigits", "Yes>7|7>7"),
+        ("OtherEvaluateNoName", "No>D|3>D"),
+        ("MemberlessEvaluateName", "No>1|1>1"),
+        ("OtherClear", "A|0>A"),
+        ("OtherAssignOne", "B|1>B"),
+    ] {
+        let (out, hits) = run(routine);
+        assert_eq!(out.unwrap(), want, "{routine}");
+        assert_eq!(hits, vec![Assumption::VarOptionCarriedMembers], "{routine}");
+    }
+}
+
+// Texts no cell measures for a value that carries another list (a blank text, another spelling of a member of its list) and
+// Clear of a value that carries no list (BC leaves the callee's list in the memberless callers) refuse.
+#[test]
+fn unmeasured_evaluate_texts_and_clear_of_no_list_refuse() {
+    refused("OtherEvaluateOtherCase");
+    refused("OtherEvaluateBlank");
+    refused("MemberlessClear");
+}
+
+// The parameter handed on to a memberless `var` parameter and by value to a memberless one of a routine that only formats it
+// shows the value's list, and the number by value (CalleeOps_VarHop_Other `m Fifth|4`, `b 4|4`); from a direct caller the same
+// (CalleeOps_MemberlessLocal `m Skip|1`). Runs, flagged. A target that does more with it refuses.
+#[test]
+fn a_hand_on_to_a_routine_that_only_formats_runs_and_any_other_refuses() {
+    let (out, hits) = run("OtherHandOn");
+    assert_eq!(out.unwrap(), "m D|3 b 3|3>D");
+    assert_eq!(hits, vec![Assumption::VarOptionCarriedMembers]);
+    let (out, hits) = run("DirectHandOn");
+    assert_eq!(out.unwrap(), "m Skip|1 b 1|1");
+    assert_eq!(hits, vec![Assumption::VarOptionCarriedMembers]);
+    match run("DirectHandOnEvaluate").0 {
+        Err(Signal::Unsupported(why)) => assert!(why.contains("that the callee does more with than Format"), "{why}"),
+        other => panic!("expected a refusal, got {other:?}"),
+    }
 }

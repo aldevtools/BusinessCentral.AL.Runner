@@ -95,8 +95,8 @@ pub(crate) fn written_back(v: &Value, declared: &RtType, current: impl FnOnce() 
 /// OptionVarMemberlessEvaluate.al:244). Declared with members and holding a value that carries another list or none (only a
 /// binding `carried::Session::carried_args` let through gives it one), it keeps that list: `:=` of an own member gives the
 /// value's member or the number (assumption var-option-carried-members, corpus PR 1569 OptionVarMembersCallee.al
-/// VarHop_Other_* `write inside` `|Third|2`, VarHop_Memberless_* `|2|2`; the callee bodies it lets through store nothing
-/// else). Any other value is stored as it is.
+/// VarHop_Other_* `write inside` `|Third|2`, VarHop_Memberless_* `|2|2`; CalleeOps_VarHop_* Evaluate and `:= 1`), and Clear
+/// the first member of that list (CalleeOps_VarHop_Other `Clear inside` `>First|0`). Any other value is stored as it is.
 pub(crate) fn param_store(v: Value, declared: &RtType, var_param: bool, current: &Value) -> Value {
     match (&v, declared, current) {
         (Value::Option(o, _), RtType::Option(d), Value::Option(_, own)) if var_param && own != d => {

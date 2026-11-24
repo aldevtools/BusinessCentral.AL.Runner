@@ -917,6 +917,10 @@ impl Session {
         if facts.option_hops {
             self.carried_args(object, routine, args, &values, f)?;
         }
+        // A `var` Option parameter with members of the caller handed to a memberless one (`var_option::hand_on_args`).
+        if facts.option_carries {
+            self.hand_on_args(object, routine, args, f)?;
+        }
         let mut kept = Vec::new();
         let mut heard = Vec::new();
         if facts.publisher {

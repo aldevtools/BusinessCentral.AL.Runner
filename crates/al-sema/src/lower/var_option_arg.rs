@@ -139,9 +139,10 @@ impl Lowerer<'_> {
     ///   or passed by value (OVML:468; OVMC:145).
     ///
     /// Refused: a field whose captions differ from its members (BC shows the caption, OVMC:269, :450, which the value does
-    /// not carry); a `var` parameter with members as the caller of a memberless parameter (after a hop through other members
-    /// a rejected Evaluate leaves the first member, OVMW:387, which the run cannot tell from a direct caller); every other
-    /// pair of call and caller.
+    /// not carry); a `var` parameter with members as the caller of a memberless parameter of an interface method (after a hop
+    /// through other members a rejected Evaluate leaves the first member, OVMW:387, which the run cannot tell from a direct
+    /// caller; from a procedure call the run decides by the callee's body, al-vm `var_option::hand_on_args`, corpus PR 1569);
+    /// every other pair of call and caller.
     pub(super) fn var_option_arg_refusal(
         &mut self,
         target: Option<(usize, usize)>,
@@ -179,6 +180,8 @@ impl Lowerer<'_> {
                         "an Option field whose OptionCaption differs from its members handed to a `var` Option parameter declared without members: the callee reads its captions, which the value does not carry (not pinned)".into(),
                     );
                 }
+                // A procedure call: the run decides by the callee's body (al-vm `var_option::hand_on_args`).
+                Caller::VarParameterWithMembers if call == Call::Procedure => true,
                 Caller::VarParameterWithMembers => {
                     return Some(
                         "a `var` parameter with members handed to a `var` Option parameter declared without members: a rejected Evaluate there is measured to leave the first member (not pinned)".into(),
