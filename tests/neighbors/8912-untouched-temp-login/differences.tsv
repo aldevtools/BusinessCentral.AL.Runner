@@ -3,9 +3,11 @@
 # TempTableShared (Copy(Rows, true)), TempRecordFiltered, TempRecordKeptByRecordRef (RecordRef.GetTable), UntouchedTempRecordArray
 # (the elements share one table, record/temporary/RecordTempArrayElements.al:67-93), StoreSharedByAlias (a second global holds
 # the instance), StoreRecordRefOpened and StoreRowWrittenAtLogin (the store was written), and the stores of a shape corpus PR
-# 1561 does not measure: LabelStoreMadeByFirstCall (a global Label among the store's globals), ExtraGlobalStoreMadeByFirstCall,
-# SwappedStoreMadeByFirstCall, TempArrayStoreMadeByFirstCall, StoreOneLevelDeeper. ReadsNothing passes on both.
+# 1561 and 1564 do not measure: ExtraGlobalStoreMadeByFirstCall, SwappedStoreMadeByFirstCall, TempArrayStoreMadeByFirstCall,
+# StoreOneLevelDeeper; ClosedRecordRefHeldDirectly (a closed RecordRef holds another state than a never-opened one).
+# ReadsNothing passes on both.
 UT Login Tests::TempTableReadOnly	PINNED tests/al-language/record/TestTempTableContracts.al:37
 UT Login Tests::UntouchedTempRecords	PINNED tests/al-language/record/TestTempTableContracts.al:37
 UT Login Tests::StoreMadeByFirstCall	ASSUMED clear-shared-codeunit (corpus PR 1561)
 UT Login Tests::LabelStoreMadeByFirstCall	ASSUMED clear-shared-codeunit (corpus PR 1564)
+UT Login Tests::UnopenedRecordRefHeldDirectly	PINNED tests/al-language/recordref-fieldref/UhUnopenedRecordRef.al:487

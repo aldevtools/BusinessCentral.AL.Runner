@@ -315,8 +315,9 @@ impl Session {
                             || self.at_declared(x, y, depth + 1, inner_made)
                     })
             }
-            // A RecordRef never opened that no other variable holds: what a fresh one holds (a closed or cleared one holds
-            // another state, al-builtins `recordref_closed.rs`). It has no fingerprint (al-builtins `value_codec`).
+            // A RecordRef never opened that no other variable holds: what a fresh one holds, every member reads as on one never
+            // opened (recordref-fieldref/UhUnopenedRecordRef.al:487 Untouched_Number). A closed or cleared one holds another
+            // state (al-builtins `recordref_closed.rs`). It has no fingerprint (al-builtins `value_codec`).
             (Value::Library(k, a), Value::Library(_, b)) if *k == al_builtins::library_kind::LibraryKind::RecordRef => {
                 let (Ok(x), Ok(y)) = (a.try_borrow(), b.try_borrow()) else {
                     return false;
@@ -608,6 +609,8 @@ codeunit 50102 Memo
         Storage: Codeunit Store;
         R: Report Rep;
         Alias: Codeunit Store;
+        Ref: RecordRef;
+        RefAlias: RecordRef;
 
     procedure Touch()
     begin
@@ -638,6 +641,11 @@ codeunit 50102 Memo
         Alias := Storage;
         Storage.Get();
     end;
+
+    procedure ShareRef()
+    begin
+        RefAlias := Ref;
+    end;
 }
 
 codeunit 50104 Driver
@@ -648,6 +656,7 @@ codeunit 50104 Driver
     procedure Write() var M: Codeunit Memo; begin M.Write(); end;
     procedure ReadReport() var M: Codeunit Memo; begin M.ReadReport(); end;
     procedure ShareRead() var M: Codeunit Memo; begin M.ShareRead(); end;
+    procedure ShareRef() var M: Codeunit Memo; begin M.ShareRef(); end;
 }
 "#;
 
@@ -709,6 +718,17 @@ codeunit 50104 Driver
     fn a_codeunit_global_made_by_a_call_and_shared_is_a_change() {
         for made in [true, false] {
             assert!(memo_change("ShareRead", made).contains(&0), "made before: {made}");
+        }
+    }
+
+    // A RecordRef the SingleInstance codeunit holds directly and never opened holds what a fresh one holds: every member reads
+    // as on one never opened (recordref-fieldref/UhUnopenedRecordRef.al:487 Untouched_Number), so it is no change, with no
+    // mark. One another RecordRef variable holds is a change.
+    #[test]
+    fn a_never_opened_record_ref_global_is_no_change_unless_shared() {
+        for made in [true, false] {
+            assert_eq!(memo_left("Touch", made), (Default::default(), 0, true), "made before: {made}");
+            assert!(memo_change("ShareRef", made).contains(&3), "made before: {made}");
         }
     }
 

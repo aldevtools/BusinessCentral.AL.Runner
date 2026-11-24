@@ -1,7 +1,7 @@
 # key	entry
-CN ClearAll Tests::LabelHolderSharedAlias	ASSUMED clear-shared-codeunit (corpus PR 1564)
-CN ClearAll Tests::LabelHolderSharedIface	ASSUMED clear-shared-codeunit (corpus PR 1564)
-CN ClearAll Tests::LabelValueParamFurtherOut	ASSUMED clear-shared-codeunit (corpus PR 1564)
+CN ClearAll Tests::LabelHolderSharedAlias	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
+CN ClearAll Tests::LabelHolderSharedIface	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
+CN ClearAll Tests::LabelValueParamFurtherOut	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
 CN ClearAll Tests::LabelValueParamInClearingRoutine	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
 CN ClearAll Tests::LabelOnIntStoreShared	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
 CN Owner Tests::LabelSiShared	REFUSED ClearAll of a global codeunit variable whose instance another variable shares

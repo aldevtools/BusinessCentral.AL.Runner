@@ -2,8 +2,9 @@ codeunit 50320 "CN ClearAll Tests"
 {
     Subtype = Test;
 
-    // Measured: the Label store shared through a second variable in a plain holder (ClearSharedCodeunitLabelStore.al
-    // LabelLast_ClearAllInHolder_AliasWroteBefore :672). This store also implements an interface; 1564's does not.
+    // The Label store shared through a second variable in a plain holder (ClearSharedCodeunitLabelStore.al
+    // LabelLast_ClearAllInHolder_AliasWroteBefore :672). The runner cannot tell this holder from an interface or a by-value
+    // parameter, which the probe does not measure: every shared Label store refuses.
     [Test]
     procedure LabelHolderSharedAlias()
     var
@@ -18,7 +19,7 @@ codeunit 50320 "CN ClearAll Tests"
         Check(H.StateL(), 'rows=2 int1=5 Store');
     end;
 
-    // Not measured: the Label store shared through an interface. The sharer's kind is not read: it runs as the alias.
+    // Not measured: the Label store shared through an interface: refused.
     [Test]
     procedure LabelHolderSharedIface()
     var
@@ -40,8 +41,7 @@ codeunit 50320 "CN ClearAll Tests"
         Check(H.ValueParamL(), 'rows=1 int1=5 Store');
     end;
 
-    // Not measured: the by-value parameter belongs to a routine further out than the one that runs ClearAll. Not
-    // detected: it runs as the alias.
+    // Not measured: the by-value parameter belongs to a routine further out than the one that runs ClearAll: refused.
     [Test]
     procedure LabelValueParamFurtherOut()
     var

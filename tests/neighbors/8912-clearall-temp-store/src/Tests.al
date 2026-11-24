@@ -108,6 +108,30 @@ codeunit 50120 "CT ClearAll Tests"
         Check(H.StateA(), 'rows=1 ref11=0 int1=0');
     end;
 
+    [Test]
+    procedure UnwrittenTempArraySharedByCopy()
+    var
+        C: Codeunit "CT Array Copy Owner";
+    begin
+        Check(Format(C.UnwrittenShared()), '0');
+    end;
+
+    [Test]
+    procedure UnwrittenTempArraySharedByCopySingleInstance()
+    var
+        C: Codeunit "CT Array Copy SI";
+    begin
+        Check(Format(C.UnwrittenShared()), '0');
+    end;
+
+    [Test]
+    procedure TwoDimTempArrayWritten()
+    var
+        C: Codeunit "CT Array 2D Owner";
+    begin
+        Check(Format(C.ArrayWritten()), '1');
+    end;
+
     local procedure Check(Got: Text; Want: Text)
     begin
         if Got <> Want then

@@ -142,6 +142,22 @@ codeunit 61856 "UT Login Tests"
     end;
 
     [Test]
+    procedure UnopenedRecordRefHeldDirectly()
+    var
+        M: Codeunit "UT Unopened Ref";
+    begin
+        Check(M.Count(), 0);
+    end;
+
+    [Test]
+    procedure ClosedRecordRefHeldDirectly()
+    var
+        M: Codeunit "UT Closed Ref";
+    begin
+        Check(M.Count(), 0);
+    end;
+
+    [Test]
     procedure ReadsNothing()
     begin
     end;

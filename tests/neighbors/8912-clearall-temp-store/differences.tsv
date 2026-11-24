@@ -11,3 +11,6 @@ CT ClearAll Tests::StoreOneLevelDeeper	REFUSED ClearAll of a global codeunit var
 CT ClearAll Tests::ArrayOfStores	ASSUMED clear-shared-codeunit (corpus PR 1564)
 CT ClearAll Tests::NormalSubtypeOwner	ASSUMED clear-shared-codeunit (corpus PR 1564)
 CT ClearAll Tests::StoreWithOneMoreGlobal	ASSUMED clear-shared-codeunit (corpus PR 1564)
+CT ClearAll Tests::UnwrittenTempArraySharedByCopy	REFUSED ClearAll of a global variable that reaches a temporary table that another record shares
+CT ClearAll Tests::UnwrittenTempArraySharedByCopySingleInstance	REFUSED ClearAll of a global variable that reaches a temporary table that another record shares
+CT ClearAll Tests::TwoDimTempArrayWritten	REFUSED ClearAll of a global array of temporary records whose table holds rows

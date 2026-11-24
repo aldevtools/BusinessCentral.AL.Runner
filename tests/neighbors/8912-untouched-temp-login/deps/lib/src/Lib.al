@@ -267,7 +267,11 @@ codeunit 61849 "UT Lib Login"
         ArrOwner: Codeunit "UT Arr Store Owner";
         WrapOwner: Codeunit "UT Wrapped Store Owner";
         RowOwner: Codeunit "UT Store Row Owner";
+        UnopenedRef: Codeunit "UT Unopened Ref";
+        ClosedRef: Codeunit "UT Closed Ref";
     begin
+        UnopenedRef.Touch();
+        ClosedRef.OpenAndClose();
         LabelOwner.Use();
         ExtraOwner.Use();
         SwappedOwner.Use();
@@ -524,3 +528,41 @@ codeunit 61875 "UT Store Row Owner"
     end;
 }
 
+
+// A RecordRef the SingleInstance codeunit holds directly: the login makes the instance and never opens it.
+codeunit 61876 "UT Unopened Ref"
+{
+    SingleInstance = true;
+
+    var
+        Ref: RecordRef;
+
+    procedure Touch()
+    begin
+    end;
+
+    procedure Count(): Integer
+    begin
+        exit(Ref.Number());
+    end;
+}
+
+// The same, but the login opens the RecordRef and closes it again.
+codeunit 61877 "UT Closed Ref"
+{
+    SingleInstance = true;
+
+    var
+        Ref: RecordRef;
+
+    procedure OpenAndClose()
+    begin
+        Ref.Open(Database::"UT Row");
+        Ref.Close();
+    end;
+
+    procedure Count(): Integer
+    begin
+        exit(Ref.Number());
+    end;
+}

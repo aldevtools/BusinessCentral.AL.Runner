@@ -220,3 +220,55 @@ codeunit 50108 "CT Array Owner"
         exit(Rows[2].Count());
     end;
 }
+
+// An array of temporary records never written whose table a local record shares (Copy(x, true)) when ClearAll runs.
+codeunit 50109 "CT Array Copy Owner"
+{
+    var
+        Rows: array[2] of Record "CT Row" temporary;
+
+    procedure UnwrittenShared(): Integer
+    var
+        R: Record "CT Row" temporary;
+    begin
+        R.Copy(Rows[1], true);
+        ClearAll();
+        R.No := 1;
+        R.Insert();
+        exit(Rows[1].Count());
+    end;
+}
+
+codeunit 50110 "CT Array Copy SI"
+{
+    SingleInstance = true;
+
+    var
+        Rows: array[2] of Record "CT Row" temporary;
+
+    procedure UnwrittenShared(): Integer
+    var
+        R: Record "CT Row" temporary;
+    begin
+        R.Copy(Rows[1], true);
+        ClearAll();
+        R.No := 1;
+        R.Insert();
+        exit(Rows[1].Count());
+    end;
+}
+
+// An array of temporary records of two dimensions whose table holds a row.
+codeunit 50111 "CT Array 2D Owner"
+{
+    var
+        Rows: array[2, 2] of Record "CT Row" temporary;
+
+    procedure ArrayWritten(): Integer
+    begin
+        Rows[1, 1].No := 1;
+        Rows[1, 1].Insert();
+        ClearAll();
+        exit(Rows[1, 2].Count());
+    end;
+}
