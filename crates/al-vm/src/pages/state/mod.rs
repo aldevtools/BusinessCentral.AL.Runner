@@ -1354,12 +1354,13 @@ pub struct ControlRef {
     pub by_id: Option<ById>,
 }
 
-/// What `TestPage.GetField` found by a control id (`get_field.rs`): a field control of the page, one a page extension adds, or
-/// a part, a cuegroup, a fixed or a grid, whose field reads empty.
+/// What `TestPage.GetField` found by a control id (`get_field.rs`): a field control of the page; a field whose Value only the
+/// cells measure (a page extension's field on BC 27, a field control on a Worksheet, a ListPlus or a CardPart a TestPart shows);
+/// or a part, a cuegroup, a fixed or a grid, whose field reads empty.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ById {
     Field,
-    ExtField,
+    ValueOnly,
     Empty,
 }
 

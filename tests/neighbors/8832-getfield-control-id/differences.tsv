@@ -1,32 +1,32 @@
 # key	entry
-# The cells of corpus PR 1538 (testpage/GetFieldByControlId.al) and the reporter's repro: main answered every GetField by a
-# control id with "not found"; the head finds the page's own field control by the id the compiler gives it.
-Repro GetField Tests::GetFieldByControlId_ReturnsTheControl	ASSUMED testpage-getfield-control-id (corpus PR 1538, the issue's shape at :449)
-LT GFI Tests::List_GetFieldByControlId_ReadsTheRow	ASSUMED testpage-getfield-control-id (corpus PR 1538 :449)
-LT GFI Tests::OtherList_SameNames_IdsOfTheirOwnPage	ASSUMED testpage-getfield-control-id (corpus PR 1538 :468)
-LT GFI Tests::Card_FieldControls	ASSUMED testpage-getfield-control-id (corpus PR 1538 :503)
-LT GFI Tests::Card_OtherControlKinds	ASSUMED testpage-getfield-control-id (corpus PR 1538 :545, the part's id gives an empty field)
-# BC 27 finds a page extension's field by the extension's id (corpus PR 1538 :589, the BC28PLUS guard's other branch).
-LT GFI Tests::Card_ExtensionControl	ASSUMED testpage-getfield-control-id (corpus PR 1538 :589)	27
-LT GFI Tests::Card_SetValueThroughGetField	ASSUMED testpage-getfield-control-id (corpus PR 1538 :570)
-LT GFI Tests::Card_PartControls	ASSUMED testpage-getfield-control-id (corpus PR 1538 :611)
-LT GFI Tests::CueCard_OtherContainers	ASSUMED testpage-getfield-control-id (corpus PR 1538 :630)
-LT GFI Tests::Card_ReadsThroughGetField	ASSUMED testpage-getfield-control-id (corpus PR 1538 :668)
-LT GFI Tests::ModCard_ModifiedHiddenAndActionGroup	ASSUMED testpage-getfield-control-id (corpus PR 1538 :705)
-# Caption and Visible of what a part control's id gives, and Activate on a field GetField found: no cell runs them.
-LT GFI Tests::Card_PartIdCaptionAndVisible	REFUSED TestField.Caption on what TestPage.GetField found by a control id
-LT GFN Tests::PartIdCaption	REFUSED TestField.Caption on what TestPage.GetField found by a control id
-LT GFN Tests::ActivateThroughGetField	REFUSED TestField.Activate on what TestPage.GetField found by a control id
-# A field in a cuegroup (al-runner issue 8845): main did not find it by its id, read a Text's own text by its name and refused
-# a Code in a wide cuegroup; the head shows what BC shows there, on a Card, a CardPart, a ListPart and a List.
-LT GFI Tests::CueCard_CueField	ASSUMED cuegroup-field-value,testpage-getfield-control-id (corpus PR 1538 :653)
-LT GFI Tests::CueTypesCardPart_ValueByNameAndById	ASSUMED cuegroup-field-value,testpage-getfield-control-id (corpus PR 1538 :856)
-LT GFI Tests::CueTypesListPart_ValueByNameAndById	ASSUMED cuegroup-field-value,testpage-getfield-control-id (corpus PR 1538 :923)
-LT GFI Tests::CueTypesList_ValueByNameAndById	ASSUMED cuegroup-field-value,testpage-getfield-control-id (corpus PR 1538 :990)
-LT GFI Tests::CueTypes_ValueByNameAndById	ASSUMED cuegroup-field-value,testpage-getfield-control-id (corpus PR 1538 :742)
-# GetField on the hidden ids is not found by GetField itself (:1126), and a Document page finds the field (:1168); main did not
-# reach them (an earlier cell of the codeunit refused).
-LT GFI Tests::Card_HiddenControls_VisibleAndCaption	ASSUMED testpage-getfield-control-id (corpus PR 1538 :1126)
-LT GFI Tests::Document_GetFieldByControlId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :1168)
-# GetField on a Worksheet page: BC finds the field (measured 3/3 here), main did not; no cell opens a Worksheet, so it refuses.
-LT GFN Tests::WorksheetGetField	REFUSED TestPage.GetField by a control id on a page kind no cell opens
+# GetField with an id no control has (al-runner issue 8887): main refused it on every page kind but a Card, a List, a Document,
+# a CardPart and a ListPart; the head answers "not found" as BC does on the page kinds the cells of corpus PR 1538 open.
+LT GFI Missing Tests::Worksheet_GetFieldMissingId_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :1631)
+LT GFI Missing Tests::ListPlus_GetFieldMissingId_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :1648)
+LT GFI Missing Tests::CardPartOfHost_GetFieldMissingId_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :1665)
+LT GFI Missing Tests::NoPageType_GetFieldMissingId_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :1682)
+LT GFI Missing Tests::RoleCenter_GetFieldMissingId_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :1729)
+LT GFI Missing Tests::NavigatePage_GetFieldMissingId_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :1746)
+LT GFI Missing Tests::StandardDialog_GetFieldMissingId_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :1763)
+LT GFI Missing Tests::ConfirmationDialog_GetFieldMissingId_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :1780)
+LT GFI Missing Tests::HeadlinePart_GetFieldMissingId_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :1797)
+LT GFN Missing Tests::WorksheetOtherPageId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :1631, the id of another page's control)
+# The shapes of the review (corpus PR 1538 :2559-:2702): main refused every GetField on these page kinds; the head answers not
+# found for the measured ids and reads a field control's Value by its own id. The extension's field by the extension's id on a
+# Worksheet still refuses, now through the flagged lookup.
+LT GFI Kinds Tests::Worksheet_GetFieldActionIds_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2559)
+LT GFI Kinds Tests::CardPartOfHost_GetFieldHostControlId_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2591)
+LT GFI Kinds Tests::RoleCenterPart_GetFieldMissingId_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2604)
+LT GFI Kinds Tests::Api_GetFieldMissingId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2617)
+LT GFI Kinds Tests::PromptDialog_GetFieldMissingId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2630)
+# ReportPreview_GetFieldMissingId (:2643): BC 27 and 28 raise on the page's open (`#if BC27PLUS and not BC29PLUS`); the neighbor
+# app defines no corpus symbol, so it runs BC 29's branch on each major.
+LT GFI Kinds Tests::ReportPreview_GetFieldMissingId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2643)
+LT GFI Kinds Tests::ReportProcessingOnly_GetFieldMissingId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2663)
+LT GFI Kinds Tests::Worksheet_GetFieldOwnId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2676)
+LT GFI Kinds Tests::ListPlus_GetFieldOwnId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2689)
+LT GFI Kinds Tests::CardPartOfHost_GetFieldOwnId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2702)
+LT GFI Kinds Tests::Worksheet_GetFieldExtensionFieldIds	REFUSED TestPage.GetField by a control id on a page kind no cell opens
+LT GFN Tests::WorksheetGetField	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2676)
+LT GFN Tests::ListPlusOwnId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2689)
+LT GFN Tests::CardPartOwnId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2702)

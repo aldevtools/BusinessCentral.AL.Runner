@@ -1,0 +1,1 @@
+{"id": "9e1a2b3c-0000-4000-8000-008907010000", "name": "RQ itm A1", "publisher": "Review Probe Co", "version": "1.0.0.0", "platform": "27.0.0.0", "runtime": "15.0", "idRanges": [{"from": 56210, "to": 56219}], "dependencies": [{"id": "9e1a2b3c-0000-4000-8000-008907000000", "name": "RQ itm E", "publisher": "Review Probe Co", "version": "1.0.0.0"}]}
