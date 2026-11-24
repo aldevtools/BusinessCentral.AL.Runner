@@ -7,8 +7,10 @@
 //! :668), a hidden control included (:530, :705 not found); a field in a cuegroup reads as by its name (`cue_value.rs`, :653,
 //! :742). The id of a part, a cuegroup, a fixed or a grid gives a field whose Value is empty (:545, :630), unless it is hidden
 //! (no cell measures that; it refuses). Any other id is not
-//! found: a group, a repeater, an action, an action group, an area, a field a page extension adds (by either object's id; from
-//! BC 28, :589: BC 27 finds it by the extension's id, `al_version::getfield_finds_extension_fields`), a control of another page
+//! found: a group, a repeater, an action, an action group, an area, a field a page extension adds (by the base page's id; by
+//! the extension's id from BC 28 when it states no ApplicationArea, :589: BC 27 finds it,
+//! `al_version::getfield_finds_extension_fields`; one with ApplicationArea = All is found by the extension's id, :2804,
+//! al-runner issue 8944), a control of another page
 //! or of the part's page (:468 :484 :545 :611 :705; testpage/TestPageRuntimeContracts.al:274-275 the code).
 //! On the other page kinds the cells measure an id no control has, a Worksheet's action ids and a field's Value by its own id
 //! (al-runner issue 8887, :1631-:2702); the ids of page extension controls refuse (:3015-:3051; `get_field_id_owner`).
@@ -292,8 +294,11 @@ impl Session {
     }
 
     /// `GetField(id)` where no control of the page itself has the id: a field a page extension adds, by the extension's id and
-    /// its name, is found on BC 27 and not found from BC 28 (`al_version::getfield_finds_extension_fields`;
-    /// GetFieldByControlId.al:589, where BC 27 measured its Value only), on the kinds of `Full` only; any other id is
+    /// its name (al-runner issue 8944). With `ApplicationArea = All` of its own it is found on a Card (GetFieldByControlId.al
+    /// :2804) and a Worksheet (:2576 `ext`) that state `ApplicationArea = All` themselves, on every version measured; its Value
+    /// only is measured. With no ApplicationArea it
+    /// is found on BC 27 and not found from BC 28 (`al_version::getfield_finds_extension_fields`; :589 and :2822, where BC 27
+    /// measured its Value only), on the kinds of `Full`. Every other extension field refuses; any other id is
     /// `get_field_missing`'s.
     fn get_extension_field_by_id(&mut self, st: &St, id: i32) -> Result<Value, Signal> {
         let engine = self.engine();
@@ -304,19 +309,47 @@ impl Session {
                 && c.action_ref.is_none()
                 && control_id(self.object_id_of(ext as u32)?, &c.name) == i64::from(id)
             {
-                found = Some((idx, c.kind.clone()));
+                let area = match c.prop("applicationarea") {
+                    None => Some(false),
+                    Some(ir::PropVal::Lit(v)) if v.trim().eq_ignore_ascii_case("All") => Some(true),
+                    Some(_) => None,
+                };
+                found = Some((idx, c.kind.clone(), area));
                 break;
             }
         }
         drop(engine);
-        let Some((idx, ctl_kind)) = found else {
+        let Some((idx, ctl_kind, area)) = found else {
             self.get_field_missing(st, id)?;
             return not_found(id);
         };
-        if self.get_field_kind(st) != GetFieldKind::Full {
+        let major = self.engine.target.as_ref().map_or(29, |t| t.bc.major);
+        let kind = self.get_field_kind(st);
+        if area == Some(true) {
+            let card = matches!(self.get_field_page_types(st), (Some(al_ir::PageType::Card), None));
+            // Every cell's base page states ApplicationArea = All itself (:2804, :2576); a page extension cannot state one (AL0246).
+            if ctl_kind != ir::ControlKind::Field
+                || !(card || kind == GetFieldKind::Worksheet)
+                || !self.page_states_area_all(st)
+                || al_version::getfield_finds_extension_fields(major).is_none()
+                || self.control_eliminated(st, idx)
+                || self.off_page(st, idx)
+            {
+                return unsupported(
+                    "TestPage.GetField with the id of a page extension's field with ApplicationArea = All, on a page kind or of a shape no cell measures (not measured)",
+                );
+            }
+            assume(Assumption::TestPageGetFieldControlId);
+            return Ok(test_control_by_id(st.clone(), idx, ById::ValueOnly));
+        }
+        if kind != GetFieldKind::Full {
             return unsupported("TestPage.GetField by a control id on a page kind no cell opens (not measured)");
         }
-        let major = self.engine.target.as_ref().map_or(29, |t| t.bc.major);
+        if area.is_none() {
+            return unsupported(
+                "TestPage.GetField with the id of a page extension's field with an ApplicationArea other than All (not measured)",
+            );
+        }
         match (ctl_kind, al_version::getfield_finds_extension_fields(major)) {
             (_, Some(false)) => not_found(id),
             (ir::ControlKind::Field, Some(true)) => {
@@ -329,10 +362,20 @@ impl Session {
         }
     }
 
+    /// Whether the page `st` states `ApplicationArea = All` on the object.
+    fn page_states_area_all(&self, st: &St) -> bool {
+        let engine = self.engine();
+        engine.program.objects[st.borrow().object as usize]
+            .properties
+            .iter()
+            .any(|(k, v)| k.eq_ignore_ascii_case("ApplicationArea") && v.trim().eq_ignore_ascii_case("All"))
+    }
+
     /// A call `m` on what GetField found (`ControlRef::by_id`): `Some` answers it, `None` lets it run as on the control by its
     /// name. The empty field of a part, a cuegroup, a fixed or a grid answers Value only (GetFieldByControlId.al:545 :630; its
     /// Caption, the part page's, and its Visible are measured at :692 and refused here); so does a page extension's field on
-    /// BC 27 (:589) and a field control on a Worksheet, a ListPlus or a CardPart a TestPart shows (:2676-:2702).
+    /// BC 27 (:589), a page extension's field with ApplicationArea = All (:2804, :2576) and a field control on a Worksheet, a
+    /// ListPlus or a CardPart a TestPart shows (:2676-:2702).
     pub(super) fn by_id_call(c: &ControlRef, m: PageMethod) -> Result<Option<Value>, Signal> {
         match (c.by_id, m) {
             (None, _) => Ok(None),
