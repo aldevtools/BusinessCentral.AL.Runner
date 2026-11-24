@@ -53,6 +53,7 @@ mod import_record;
 mod import_view;
 mod import_xml;
 mod legacy_guid;
+mod linked_view;
 mod pass;
 mod plain_tree;
 mod root_nested;
@@ -80,6 +81,8 @@ use self::shape::*;
 use self::text_columns::*;
 use self::value::*;
 use self::wraps::*;
+
+use import_record::Save;
 
 type Inst = Rc<RefCell<Instance>>;
 
@@ -599,6 +602,26 @@ enum Flow {
     Unbound,
     Quit,
     Skip,
+}
+
+/// Whether `node` is the root text element of the schema.
+fn root_text(schema: &Schema, node: usize) -> bool {
+    schema.node(node).parent.is_none() && schema.node(node).kind == ir::XmlNodeKind::Text
+}
+
+/// Whether `node` stands right below the root text element.
+fn below_root(schema: &Schema, node: usize) -> bool {
+    schema.node(node).parent.is_some_and(|p| root_text(schema, p))
+}
+
+/// Whether table element `n` saves its rows (AutoSave) as plain inserts: no AutoUpdate, AutoReplace or UseTemporary.
+fn plain_autosave(n: &ir::XmlNode) -> bool {
+    n.auto_save && !n.auto_update && !n.auto_replace && !n.use_temporary
+}
+
+/// Whether node `n` has a trigger that runs after the import assigns it (OnAfterAssignField or OnAfterAssignVariable).
+fn assign_trigger(n: &ir::XmlNode) -> bool {
+    n.trigger("onafterassignfield").is_some() || n.trigger("onafterassignvariable").is_some()
 }
 
 fn root_table_element(schema: &Schema, top: usize) -> bool {
