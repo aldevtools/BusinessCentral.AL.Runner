@@ -61,7 +61,7 @@ codeunit 50000 T { Subtype = Test;
   [Test] procedure CallerWritesNoMark() var R: Record "C Row"; Ok: Boolean; begin
     Commit(); R.Id := 1; R.Insert(); asserterror Ok := Codeunit.Run(Codeunit::"C Mark Fail"); Error(GetLastErrorCode()); end;
   [Test] procedure CallerWritesThenMarks() var R: Record "C Row"; Ok: Boolean; begin
-    Commit(); R.Id := 1; R.Insert(); R.Consistent(false); asserterror Ok := Codeunit.Run(Codeunit::"C Mark Fail"); end;
+    Commit(); R.Id := 1; R.Insert(); R.Consistent(false); asserterror Ok := Codeunit.Run(Codeunit::"C Mark Fail"); Error(GetLastErrorCode()); end;
   [Test] procedure InnerRefused() var R: Record "C Row"; Ok: Boolean; begin
     Commit(); R.Consistent(false); Ok := Codeunit.Run(Codeunit::"C Refused"); end;
   [Test] procedure TwoTables() var R: Record "C Row"; O: Record "C Other"; Ok: Boolean; begin
@@ -127,10 +127,11 @@ fn guarded_run_with_consistent_marks() {
         "ExtensionCaption",
         "whose caption a tableextension or a translation sets",
     );
-    // A guarded run while the caller holds a write and a mark: BC's answer differs between runs of the same version
-    // (ConsistentGuardedRunEnd.al GuardedRunId_CallerStartsState_InnerFails); without a mark main's pinned error stays.
-    refused("CallerWritesThenMarks", "uncommitted write");
+    // A guarded run while the caller holds a write: the pending-write error, with or without a mark. With a mark BC gave
+    // this error or the inconsistency error between CI runs of corpus PR 1568 (ConsistentGuardedRunEnd.al:955, :973);
+    // main's answer is one of them and stays, unflagged.
     assert_eq!(get("CallerWritesNoMark"), (Outcome::Fail("DB:Ok".into()), false));
+    assert_eq!(get("CallerWritesThenMarks"), (Outcome::Fail("DB:Ok".into()), false));
     // An inner refusal keeps its own reason: the Consistent mark does not replace it.
     refused("InnerRefused", "SetTaskReady");
 }

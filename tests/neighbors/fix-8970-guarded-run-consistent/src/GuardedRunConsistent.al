@@ -715,7 +715,7 @@ codeunit 61406 "GC Tests"
         Codeunit.Run(Codeunit::"GC Nothing");
     end;
 
-    // Last: the refusal leaves a write behind, which the runner does not trust for later tests.
+    // The pending-write error as without a mark: one of BC's two answers (corpus PR 1568, ConsistentGuardedRunEnd.al:955).
     [Test]
     procedure CallerWritesThenMarks()
     var
@@ -727,5 +727,7 @@ codeunit 61406 "GC Tests"
         Row.Insert();
         Row.Consistent(false);
         asserterror Ok := Codeunit.Run(Codeunit::"GC Inner");
+        if GetLastErrorCode() <> 'DB:Ok' then
+            Error('code %1', GetLastErrorCode());
     end;
 }

@@ -10,10 +10,13 @@
 //! drops the marks set inside it, a temporary record marks the database table, a Commit after another variable's
 //! `Consistent(true)` raises, and the error names a table by its Caption. Every other shape is refused.
 //!
-//! Entry points: `Session::set_consistent`; `mark_snapshot`, `refuse_write_and_mark_at_run_start` and
-//! `guarded_run_end_marks` (by `codeunit_run`); `commit_mark_error` (by `commit_builtin`); `inconsistent_error`;
-//! `refuse_inconsistent_end` (an unguarded run, a TestPage operation); `inconsistent_table` (the test runner's commit at
-//! the end of a test).
+//! A guarded run that starts while the caller holds an uncommitted write keeps the pending-write error of `codeunit_run`
+//! also with a mark: BC gave that error or the inconsistency error between CI runs 45353497570 and 45358869670 of corpus
+//! PR 1568 (ConsistentGuardedRunEnd.al:955, :973), so this one of its answers is not routed through the assumption.
+//!
+//! Entry points: `Session::set_consistent`; `mark_snapshot` and `guarded_run_end_marks` (by `codeunit_run`);
+//! `commit_mark_error` (by `commit_builtin`); `inconsistent_error`; `refuse_inconsistent_end` (an unguarded run, a
+//! TestPage operation); `inconsistent_table` (the test runner's commit at the end of a test).
 
 use crate::Session;
 use crate::records::Rec;
@@ -80,6 +83,17 @@ pub(crate) enum RunEnd<'a> {
     Failed(&'a str),
 }
 
+impl RunEnd<'_> {
+    /// How a run that gave `result` ended; `None` for a refusal or another signal, which keeps its own reason.
+    pub(crate) fn of<T>(result: &Result<T, Signal>) -> Option<RunEnd<'_>> {
+        match result {
+            Ok(_) => Some(RunEnd::Succeeded),
+            Err(Signal::Error(e)) => Some(RunEnd::Failed(&e.code)),
+            Err(_) => None,
+        }
+    }
+}
+
 /// The codes of the inner errors after which a guarded run that started with no mark returns false and the marks set
 /// inside it are gone (ConsistentGuardedRunEnd.al, GuardedRunId_InnerStartsStateAndFails `Error('inner failed')`,
 /// GuardedRunId_InnerStartsStateAndErrorsEmpty `Error('')`, GuardedRunId_InnerStartsStateAndGetFails,
@@ -135,7 +149,7 @@ impl Session {
 
     /// What a guarded `Codeunit.Run` does with the marks as it ends: `Some` the inconsistency error, which the guard
     /// does not trap; `None` nothing (no mark, or the marks set inside a failed run, which its rollback drops). `before`
-    /// are the marks at the start, `arg` the record argument, `nested` whether another guarded run is still running.
+    /// are the marks at the start, `arg` the record argument.
     ///
     /// Pinned (errors/ConsistentGuardedRun.al), without a record argument: one table marked before the run by the caller
     /// (and released or not by another variable before it), unchanged by the run, which succeeds or fails with an `Error`
@@ -161,18 +175,16 @@ impl Session {
         before: &[(u32, MarkState)],
         end: RunEnd,
         arg: RunArg,
-        nested: bool,
     ) -> Result<Option<Signal>, Signal> {
         let after = self.mark_snapshot();
+        // Whether another guarded run is still running.
+        let nested = !self.tx.guarded_runs.is_empty();
         if before.is_empty() && after.is_empty() {
             return Ok(None);
         }
         let caller_unchanged =
             before == after.as_slice() && matches!(before, [(_, MarkState::Marked | MarkState::ReleasedByAnother)]);
-        let caller_shape = match end {
-            RunEnd::Succeeded => caller_unchanged,
-            RunEnd::Failed(code) => caller_unchanged && code == "Dialog",
-        };
+        let caller_shape = caller_unchanged && matches!(end, RunEnd::Succeeded | RunEnd::Failed("Dialog"));
         let inner_kept = before.is_empty() && end == RunEnd::Succeeded;
         if arg == RunArg::None && (caller_shape || (inner_kept && matches!(after.as_slice(), [(_, MarkState::Marked)])))
         {
@@ -209,24 +221,13 @@ impl Session {
         Err(Signal::unsupported(format!(
             "A guarded Codeunit.Run ends while Consistent(false) marks table {} in a shape no probe measured (marks, outcome, \
              record argument or nesting)",
-            self.engine.program.objects[after.first().or(before.first()).map_or(0, |m| m.0) as usize].name
+            self.table_name(after.first().or(before.first()).expect("a mark").0)
         )))
     }
 
-    /// A guarded `Codeunit.Run` that starts while the caller holds an uncommitted write and a Consistent(false) mark:
-    /// refused, because BC's answer differs between runs on the same version (ConsistentGuardedRunEnd.al
-    /// GuardedRunId_CallerStartsState_InnerFails, GuardedRunId_CallerStartsAndStopsState_InnerFails: the pending-write
-    /// error in one CI run of corpus PR 1568, the inconsistency error in another). Without a mark the pending-write error
-    /// stays (codeunits/TestCodeunitRunWriteTransaction.al:GuardedRun_WithUncommittedWrite_IsRefused_AndCodeunitNeverRuns).
-    pub(crate) fn refuse_write_and_mark_at_run_start(&self) -> Result<(), Signal> {
-        match self.tx.open.inconsistent.first() {
-            Some(m) => Err(Signal::unsupported(format!(
-                "A guarded Codeunit.Run starts while the caller holds an uncommitted write and Consistent(false) marks table \
-                 {}: BC's answer differs between runs (not measured)",
-                self.engine.program.objects[m.table as usize].name
-            ))),
-            None => Ok(()),
-        }
+    /// The name of the marked table `table`, for a refusal text.
+    fn table_name(&self, table: u32) -> &str {
+        &self.engine.program.objects[table as usize].name
     }
 
     /// The error of a Commit while a mark is set, `None` without one (errors/CuCommitTests.al:405-419). After
@@ -241,7 +242,7 @@ impl Session {
             MarkState::Unmeasured => {
                 return Some(Signal::unsupported(format!(
                     "Commit after another variable of table {} called Consistent on its Consistent(false) mark (not measured)",
-                    self.engine.program.objects[m.table as usize].name
+                    self.table_name(m.table)
                 )));
             }
         }
@@ -259,7 +260,7 @@ impl Session {
                 t.name
             ));
         }
-        let caption = self.table_caption(table);
+        let caption = self.source_caption(self.engine.tables[table].as_deref().expect("table"));
         if caption != t.name {
             assume(Assumption::GuardedRunConsistentEnd);
         }
@@ -281,18 +282,16 @@ impl Session {
             .open
             .inconsistent
             .first()
-            .map(|m| self.engine.program.objects[m.table as usize].name.clone())
+            .map(|m| self.table_name(m.table).to_string())
     }
 
     /// A transaction that ends other than by `Commit()` while `Consistent(false)` marks a table: what BC does is not
     /// pinned (only `Commit()` is, errors/CuCommitTests.al:405-419), so it is refused.
     pub(crate) fn refuse_inconsistent_end(&self, how: &str) -> Result<(), Signal> {
-        match self.tx.open.inconsistent.first() {
-            Some(m) => Err(Signal::unsupported(format!(
-                "{how} ends a transaction while Consistent(false) marks table {} (only Commit() is pinned)",
-                self.engine.program.objects[m.table as usize].name
-            ))),
-            None => Ok(()),
-        }
+        self.inconsistent_table().map_or(Ok(()), |name| {
+            Err(Signal::unsupported(format!(
+                "{how} ends a transaction while Consistent(false) marks table {name} (only Commit() is pinned)"
+            )))
+        })
     }
 }

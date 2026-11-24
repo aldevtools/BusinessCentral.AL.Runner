@@ -818,8 +818,7 @@ impl Session {
             if self.in_write_transaction()? {
                 // The same refusal under AutoRollback, and inside a TryFunction, which traps it
                 // and returns false (codeunits/TestCodeunitRunErrorTextsAndModels.al:93-160 and
-                // :248-262).
-                self.refuse_write_and_mark_at_run_start()?;
+                // :248-262). Also with a Consistent(false) mark (consistent_marks.rs, the module doc).
                 return Err(transaction_stopped());
             }
         }
@@ -875,14 +874,8 @@ impl Session {
         }
         self.tx.tx_world -= 1;
         // What the run does with Consistent(false) marks as it ends (consistent_marks.rs); an inner refusal keeps its own reason.
-        let end = match &result {
-            Ok(_) => Some(RunEnd::Succeeded),
-            Err(Signal::Error(e)) => Some(RunEnd::Failed(&e.code)),
-            Err(_) => None,
-        };
-        if let Some(end) = end.filter(|_| guarded && self.pages.bg_worker.is_none()) {
-            let nested = !self.tx.guarded_runs.is_empty();
-            if let Some(e) = self.guarded_run_end_marks(&marks_before, end, run_arg, nested)? {
+        if let Some(end) = RunEnd::of(&result).filter(|_| guarded && self.pages.bg_worker.is_none()) {
+            if let Some(e) = self.guarded_run_end_marks(&marks_before, end, run_arg)? {
                 return Err(e);
             }
         }
