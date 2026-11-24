@@ -38,6 +38,7 @@ mod state;
 pub(crate) use state::*;
 mod baseline;
 mod sequence_start;
+pub use globaltriggers::RaiseChanges;
 pub use sequence_start::{DataAccess, SequenceStart};
 mod storage_checkpoint;
 pub use storage_checkpoint::{StorageCheckpoint, Unkept};

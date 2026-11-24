@@ -20,7 +20,8 @@
 //! and session (AL Runner reads that in BC's `GetTriggersOnTable`); that `Insert(false)` and the
 //! other `RunTrigger = false` writes raise the database events too.
 //!
-//! Entry points: `global_setup`, `global_enabled`, `global_trigger`.
+//! Entry points: `global_setup`, `global_enabled`, `global_trigger`; `watch_global_trigger_changes` notes, per
+//! SingleInstance codeunit and global, the events whose raise changed it (al-runner issue 8945).
 
 use crate::Session;
 use crate::dispatch::EventCall;
@@ -29,6 +30,7 @@ use al_builtins::describe::Describe;
 use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::Value;
 use al_data::TableDef;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// What the subscribers of `Global Triggers` answered for one table.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -57,14 +59,42 @@ fn names(list: &[&str]) -> Vec<String> {
     list.iter().map(|n| n.to_string()).collect()
 }
 
+/// SingleInstance codeunit (object index) -> global (index) -> the lower-case names of the `Global Triggers` events whose
+/// outermost raise changed it ([`Session::take_global_trigger_changes`]).
+pub type RaiseChanges = BTreeMap<usize, BTreeMap<usize, BTreeSet<String>>>;
+
 impl Session {
     /// Raises a `Global Triggers` event. While the SQL counters log record methods, its AL code is not logged: it is part
-    /// of the record method that raised it (sqlcount.rs, `SqlCounters::mute_begin`).
+    /// of the record method that raised it (sqlcount.rs, `SqlCounters::mute_begin`). While watched
+    /// ([`Session::watch_global_trigger_changes`]), the SingleInstance globals the outermost raise changed are noted under
+    /// its event; a raise inside it is not stamped again.
     fn raise_global(&mut self, call: &EventCall, args: &mut [Value]) -> Result<(), Signal> {
+        let watched = self.events.global_raise_singles.take();
+        let before = watched.as_ref().map(|_| self.left_stamp());
         let m = self.sql.mute_begin(self.calls_made);
         let r = self.raise(call, args);
         self.sql.mute_end(m, self.calls_made);
+        if let (Some(mut seen), Some(before)) = (watched, before) {
+            for (o, globals) in before.changed(&self.left_stamp()).singles {
+                let memo = seen.entry(o).or_default();
+                for g in globals {
+                    memo.entry(g).or_default().insert(call.event.to_string());
+                }
+            }
+            self.events.global_raise_singles = Some(seen);
+        }
         r
+    }
+
+    /// From now on, notes per SingleInstance codeunit and global the `Global Triggers` events whose raise changes it
+    /// (al-testrun `partner_login::raise`, al-runner issue 8945), until [`Session::take_global_trigger_changes`].
+    pub fn watch_global_trigger_changes(&mut self) {
+        self.events.global_raise_singles = Some(RaiseChanges::new());
+    }
+
+    /// What [`Session::watch_global_trigger_changes`] noted since it began; ends the watch.
+    pub fn take_global_trigger_changes(&mut self) -> RaiseChanges {
+        self.events.global_raise_singles.take().unwrap_or_default()
     }
 
     /// The setup of table `t`, asking the subscribers the first time (BC caches it per session).

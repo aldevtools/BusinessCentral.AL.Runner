@@ -139,6 +139,7 @@ pub(super) fn events_as_new(e: &EventState) -> bool {
         install_rows,
         setup_no_ops,
         db_setup_table,
+        global_raise_singles,
         trial,
         global_setups,
     } = e;
@@ -190,6 +191,7 @@ pub(super) fn events_as_new(e: &EventState) -> bool {
         && install_rows.is_none()
         && setup_no_ops.is_empty()
         && db_setup_table.is_none()
+        && global_raise_singles.is_none()
         && !allowed
         && picked.is_empty()
         && *depth == 0
