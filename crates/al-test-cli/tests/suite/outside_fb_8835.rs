@@ -130,17 +130,28 @@ fn issue_8840_review_neighbors() {
         })
         .filter(|n| n.ends_with(" Tests"))
         .collect();
-    assert_eq!(codeunits.len(), 8);
+    assert_eq!(codeunits.len(), 15);
     for cu in codeunits {
         let o = super::outside_fb_8712::outcomes(&src, cu);
         assert_eq!(o.len(), 1, "{cu}");
-        let (name, r, _) = &o[0];
+        let (name, r, marks) = &o[0];
+        if cu == "LT NQ6 Ignore No Trigger Tests" {
+            assert_eq!(*r, Outcome::Pass, "{name}: {r:?}");
+            assert!(marks.contains(&ListNewLineExtraCodeCoded), "{name}: {marks:?}");
+            continue;
+        }
         assert!(matches!(r, Outcome::NotRun(_)), "{name}: {r:?}");
         let reason = match cu {
             "LT NQ4 Update Tests" => "called CurrPage.Update",
             "LT NQ4 Trigger Error Tests" => "raised an error of its own",
             "LT NQ4 Requeue Tests" => "enqueued another task",
             "LT NQ4 Run Time Error Tests" => "failed with a run-time error",
+            "LT NQ5 Unhandled Update Tests" => "called CurrPage.Update",
+            "LT NQ5 Unhandled Requeue Tests" => "enqueued another task",
+            "LT NQ5 Complete Again Tests" => "enqueued another task",
+            "LT NQ5 Ignore Runtime Tests" => "failed with a run-time error",
+            "LT NQ5 Ignore Trigger Tests" => "raised an error of its own",
+            "LT NQ7 Duplicate Key Tests" => "did not leave the line",
             _ => "",
         };
         assert!(matches!(r, Outcome::NotRun(w) if w.contains(reason)), "{r:?}");

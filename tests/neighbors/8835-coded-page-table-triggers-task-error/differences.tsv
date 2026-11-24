@@ -48,3 +48,11 @@ LT NE6 Tests::NewLine_TableFieldSkipsItsInsertControlDeletesFromAnotherTableAndF
 LT NQ4 Trigger Error Tests::NewLine_TaskErrorTriggerRaisesItsOwnError_TheErrorReachesTheTest	REFUSED a page background task's error trigger that raised an error of its own
 LT NQ4 Run Time Error Tests::NewLine_TaskFailsWithARunTimeError_ShowsTheFailure	REFUSED a page background task whose worker failed with a run-time error
 LT NQ4 Requeue Tests::NewLine_TaskErrorTriggerEnqueuesAnotherTask_ShowsTheCount	REFUSED a page background task's completion or error trigger enqueued another task
+# The maintainer's next round: checks after the trigger return, in both result arms, plus Ignore on an Extra page.
+LT NQ5 Unhandled Update Tests::NewLine_UnhandledTaskErrorTriggerCallsUpdate_TheErrorReachesTheTest	REFUSED a page background task's completion or error trigger called CurrPage.Update
+LT NQ5 Unhandled Requeue Tests::NewLine_UnhandledTaskErrorTriggerEnqueuesAgain_TheErrorReachesTheTest	REFUSED a page background task's completion or error trigger enqueued another task
+LT NQ5 Complete Again Tests::NewLine_CompletionTriggerEnqueuesAgain_TheSecondTaskFails	REFUSED a page background task's completion or error trigger enqueued another task
+LT NQ5 Ignore Runtime Tests::NewLine_IgnoreTaskFailsWithARunTimeError_ShowsTheFailure	REFUSED a page background task whose worker failed with a run-time error
+LT NQ5 Ignore Trigger Tests::NewLine_IgnoreTaskErrorTriggerRaisesItsOwnError_TheErrorReachesTheTest	REFUSED a page background task's error trigger that raised an error of its own
+# A duplicate-key control error is an error kind outside the measured text Error cells (:2154, :2165); it stays refused.
+LT NQ7 Duplicate Key Tests::NewLine_ControlCallsInsertTrueAgain_TheDuplicateErrorReachesTheTest	REFUSED the validation of the first SetValue on a List page with code and FactBoxes

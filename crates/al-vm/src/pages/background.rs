@@ -427,18 +427,29 @@ impl Session {
             // On that page the cells' completion and error triggers set what the part shows, and ask no refresh
             // (ListNewLineExtraCodeCodedTaskError.al:567, :578): a trigger that calls CurrPage.Update is not measured.
             let extra = self.coded_extra_task(st);
-            let asked = st.borrow().refresh.asked_by_update();
-            let next_id = st.borrow().bg_next_id;
             match self.bg_run_worker(codeunit, params, watch)? {
                 Ok(results) => {
+                    let asked = st.borrow().refresh.asked_by_update();
+                    let next_id = st.borrow().bg_next_id;
                     let r = self.bg_completed(st, id, &results);
+                    if extra {
+                        self.coded_extra_task_end(st, asked, next_id)?;
+                    }
                     self.torn_down_on_error(st, r)?;
                 }
                 // A failing worker under ErrorLevel Ignore: the error trigger runs, and the page stays open even though the
-                // trigger did not mark the error as handled (pages/background-tasks/W2BackgroundTasks.al:455 ErrorLevel_Ignore, `open|ok` = Yes,
-                // `log` = `error(id=n,row=L1,handled_in=false);`).
+                // trigger did not mark the error as handled (pages/background-tasks/W2BackgroundTasks.al:455 ErrorLevel_Ignore,
+                // `open|ok` = Yes, `log` = `error(id=n,row=L1,handled_in=false);`). On the measured Extra shape the same
+                // dispatch as its default-level error arm first refuses a worker or trigger error kind outside the cells
+                // (review of al-runner PR 8840, 19:11Z).
                 Err(e) if level == Some(2) => {
-                    self.bg_error(st, id, &e)?;
+                    if extra {
+                        let asked = st.borrow().refresh.asked_by_update();
+                        let next_id = st.borrow().bg_next_id;
+                        self.coded_extra_error(st, id, &e, asked, next_id)?;
+                    } else {
+                        self.bg_error(st, id, &e)?;
+                    }
                 }
                 // Under Error or Warning given as an argument, what a failing worker does to the page is not pinned
                 // (docs/probes-needed.md).
@@ -448,8 +459,10 @@ impl Session {
                     );
                 }
                 Err(e) => {
+                    let asked = st.borrow().refresh.asked_by_update();
+                    let next_id = st.borrow().bg_next_id;
                     let handled = match extra {
-                        true => self.coded_extra_error(st, id, &e)?,
+                        true => self.coded_extra_error(st, id, &e, asked, next_id)?,
                         false => self.bg_error(st, id, &e)?,
                     };
                     // A task a card enqueued while OpenView reads its first row (from OnAfterGetCurrRecord) whose error nobody handles: OpenView
@@ -502,9 +515,6 @@ impl Session {
                     }
                 }
             }
-            if extra {
-                self.coded_extra_task_end(st, asked, next_id)?;
-            }
         }
     }
 
@@ -512,7 +522,7 @@ impl Session {
     /// error `e`: the cells' worker raises an AL `Error` with a text, and their trigger raises none
     /// (ListNewLineExtraCodeCodedTaskError.al:578, :589). A worker's run-time error and an error the trigger raises itself are
     /// not measured, and refused (deferred by the review of al-runner PR 8840, 07:30Z; docs/probes-needed.md).
-    fn coded_extra_error(&mut self, st: &St, id: i32, e: &AlError) -> Result<bool, Signal> {
+    fn coded_extra_error(&mut self, st: &St, id: i32, e: &AlError, asked: bool, next_id: i32) -> Result<bool, Signal> {
         if !super::page_run_close::error_with_text(e) {
             return self.coded_extra_refused(
                 st,
@@ -520,7 +530,9 @@ impl Session {
                  (not measured)",
             );
         }
-        match self.bg_error(st, id, e) {
+        let result = self.bg_error(st, id, e);
+        self.coded_extra_task_end(st, asked, next_id)?;
+        match result {
             Err(Signal::Error(_)) => self.coded_extra_refused(
                 st,
                 "a page background task's error trigger that raised an error of its own, on a List page of the page-with-code \
@@ -533,7 +545,8 @@ impl Session {
     /// After a task's completion or error trigger on a page of the page-with-code shape with other code: the cells' triggers set
     /// what the part shows, ask no refresh and enqueue no task (ListNewLineExtraCodeCodedTaskError.al:567, :578). A trigger that
     /// called CurrPage.Update (not `asked` before it ran), or enqueued a task (the page's next task id moved past `next_id`;
-    /// that task ran at its enqueue, `bg_drain_after_call`), is refused.
+    /// that task ran at its enqueue, `bg_drain_after_call`), is refused. The drain calls this immediately after each
+    /// completion or error trigger returns, before the trigger's result decides the task outcome.
     fn coded_extra_task_end(&mut self, st: &St, asked: bool, next_id: i32) -> Result<(), Signal> {
         if !asked && st.borrow().refresh.asked_by_update() {
             return self.coded_extra_refused(
