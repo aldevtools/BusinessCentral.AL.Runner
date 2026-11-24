@@ -335,6 +335,8 @@ thread_local! {
     /// ([`opened`]): a test compares a replayed session with a real one.
     pub(crate) static OPENED: std::cell::RefCell<Option<Vec<crate::login_replay::LoginState>>> =
         const { std::cell::RefCell::new(None) };
+    /// How many times `open_company` took the session before its login (`Session::login_base`) on this thread.
+    pub(crate) static BASES: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
     /// While `true`, a start is taken without its assumption marks: a test shows the marks' test bites.
     pub(crate) static DROP_HITS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }

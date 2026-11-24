@@ -330,6 +330,44 @@ fn a_key_that_is_not_imaged_runs_the_login_every_time_and_is_frozen_once() {
     assert!(line.contains(", 1 not imaged"), "one key, frozen once: {line}");
 }
 
+/// How many times `open_company` took a session before its login while `run` ran.
+fn bases_taken(run: impl FnOnce()) -> u32 {
+    login_start::BASES.with(|b| b.set(0));
+    run();
+    login_start::BASES.with(std::cell::Cell::get)
+}
+
+// The session before the login (`Session::login_base`, a clone of the store) is taken only where it is read: for a
+// start that will be recorded (a key not known yet, a run the gate lets take starts) or for the check. Not for a
+// session that replays, one whose key was refused, nor a run the gate keeps from starts (issue 8211).
+#[test]
+fn the_session_before_the_login_is_taken_only_to_record_a_start_or_for_the_check() {
+    let (engine, l) = compiled();
+    let recorded = bases_taken(|| drop(sessions(&engine, &l, "RPL Tests A", 3, &on())));
+    assert_eq!(
+        (recorded, starts(&engine).replayed()),
+        (1, 2),
+        "the first session records, the others replay"
+    );
+    let (engine, l) = compiled_with(&format!("{MAIN}{OPAQUE_INSIDE}"));
+    let refused = bases_taken(|| drop(sessions(&engine, &l, "RPL Tests A", 3, &on())));
+    assert_eq!(refused, 1, "a key the image refused is not frozen again");
+    let (engine, l) = compiled();
+    let observed = Setup {
+        observed: true,
+        ..Default::default()
+    };
+    let gated = bases_taken(|| drop(sessions_with(&engine, &l, "RPL Tests A", 2, &on(), &observed)));
+    assert_eq!(gated, 0, "a run the gate keeps from starts records none");
+    let (engine, l) = compiled();
+    let check = RunOptions {
+        login_replay_check: true,
+        ..Default::default()
+    };
+    let checked = bases_taken(|| drop(sessions(&engine, &l, "RPL Tests A", 2, &check)));
+    assert_eq!(checked, 2, "GUARD: the check compares every session");
+}
+
 // An uncaught error of the install code leaves `error_finals` on the session (`install_once`'s fallback makes the install
 // session the test session), and the login's calls clear it: the session that records is not a thaw target before its
 // login (`LoginBase::target_why`), so it keeps no start, as a later such session takes none (`thaw_target_why`).

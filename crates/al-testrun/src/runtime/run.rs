@@ -247,7 +247,13 @@ fn open_company(
     let (wrote, hits) = match replayed {
         Some(opened) => opened,
         None => {
-            let base = key.as_ref().map(|_| session.login_base());
+            // The session before the login, for a start that will be recorded or for the check: it clones the store.
+            let records = |key: &&crate::login_replay::Key| {
+                check || (gate.is_none() && !crate::login_start::starts(&engine).knows(key))
+            };
+            let base = key.as_ref().filter(records).map(|_| session.login_base());
+            #[cfg(test)]
+            crate::login_start::BASES.with(|b| b.set(b.get() + u32::from(base.is_some())));
             // Base Application's login code sets WorkDate when the session opens the company (`install::login_work_date`).
             // It runs before the workspace's own Company Triggers subscribers: the order of the two is not pinned
             // (docs/probes-needed.md, WorkDate row).
@@ -261,10 +267,10 @@ fn open_company(
                 // it takes a start (`Steps::twin`).
                 let on = start.twin_baseline();
                 let twin = || steps.twin(scratch, on.as_ref());
-                match (check, gate) {
-                    (true, _) => crate::login_replay::checked(&engine, session, key, &base, &wrote, hits, gate, twin),
-                    (false, None) => crate::login_start::record(&engine, key, session, &base, &wrote, hits),
-                    (false, Some(_)) => {}
+                // Without the check, a base is taken only for a start that will be recorded (`records`).
+                match check {
+                    true => crate::login_replay::checked(&engine, session, key, &base, &wrote, hits, gate, twin),
+                    false => crate::login_start::record(&engine, key, session, &base, &wrote, hits),
                 }
                 #[cfg(test)]
                 crate::login_replay::serve_twin(session, &base, twin);
