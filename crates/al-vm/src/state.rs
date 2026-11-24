@@ -269,23 +269,65 @@ pub(crate) struct RestampedRows {
     pub(crate) to: i64,
 }
 
+/// A value per table and company ([`TableWrites`], [`WriteCounts`]), found by a hash of the table and a scan of its
+/// companies (almost always one): a row load looks its table up in both, so the lookup must not grow with the tables the
+/// transaction or the session wrote (al-runner issue 8721). No reader depends on the order.
+#[derive(Debug, Clone)]
+pub(crate) struct ByTableCompany<V>(al_ir::sym::FxMap<u32, Vec<(Option<String>, V)>>);
+
+impl<V> Default for ByTableCompany<V> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
+impl<V: Default> ByTableCompany<V> {
+    /// The value of `table` in `company`, if one was noted.
+    pub(crate) fn get(&self, table: u32, company: &Option<String>) -> Option<&V> {
+        let companies = self.0.get(&table)?;
+        companies.iter().find(|(c, _)| c == company).map(|(_, v)| v)
+    }
+
+    /// The value of `table` in `company`, `V::default()` put in first when there is none.
+    pub(crate) fn entry(&mut self, table: u32, company: &Option<String>) -> &mut V {
+        let companies = self.0.entry(table).or_default();
+        let i = match companies.iter().position(|(c, _)| c == company) {
+            Some(i) => i,
+            None => {
+                companies.push((company.clone(), V::default()));
+                companies.len() - 1
+            }
+        };
+        &mut companies[i].1
+    }
+
+    /// How many tables and companies hold a value.
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.0.values().map(Vec::len).sum()
+    }
+
+    /// Whether no table holds a value (`entry` never leaves a table without a company).
+    pub(crate) fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
 /// [`OpenTx::table_writes`]: one entry per table and company the open transaction wrote or locked.
 #[derive(Debug, Default)]
-pub(crate) struct TableWrites(pub(crate) Vec<(u32, Option<String>, TableWritten)>);
+pub(crate) struct TableWrites(pub(crate) ByTableCompany<TableWritten>);
 
 impl TableWrites {
-    /// Notes a write or lock of `table` in `company` of kind `w`; the verdict only grows (`TableWritten` order).
+    /// Notes a write or lock of `table` in `company` of kind `w`; the verdict only grows (`TableWritten` order, whose
+    /// least value `No` is the default).
     pub(crate) fn note(&mut self, table: u32, company: &Option<String>, w: TableWritten) {
-        match self.0.iter_mut().find(|(t, c, _)| *t == table && c == company) {
-            Some((_, _, v)) => *v = (*v).max(w),
-            None => self.0.push((table, company.clone(), w)),
-        }
+        let v = self.0.entry(table, company);
+        *v = (*v).max(w);
     }
 
     /// What the open transaction wrote or locked of `table` in `company`.
     pub(crate) fn of(&self, table: u32, company: &Option<String>) -> TableWritten {
-        let e = self.0.iter().find(|(t, c, _)| *t == table && c == company);
-        e.map_or(TableWritten::No, |(_, _, v)| *v)
+        self.0.get(table, company).copied().unwrap_or(TableWritten::No)
     }
 }
 
@@ -295,7 +337,7 @@ impl TableWrites {
 pub(crate) struct WriteCounts {
     pub(crate) all: u64,
     pub(crate) unmeasured: u64,
-    pub(crate) tables: Vec<(u32, Option<String>, u64)>,
+    pub(crate) tables: ByTableCompany<u64>,
     /// `all` at the last Commit.
     pub(crate) at_commit: u64,
 }
@@ -305,10 +347,7 @@ impl WriteCounts {
     pub(crate) fn note(&mut self, table: u32, company: &Option<String>, unmeasured: bool) {
         self.all += 1;
         self.unmeasured += u64::from(unmeasured);
-        match self.tables.iter_mut().find(|(t, c, _)| *t == table && c == company) {
-            Some((_, _, n)) => *n += 1,
-            None => self.tables.push((table, company.clone(), 1)),
-        }
+        *self.tables.entry(table, company) += 1;
     }
 
     /// Counts one write that is not a Record write (IsolatedStorage), or a Commit whose transaction held a store write
@@ -320,8 +359,8 @@ impl WriteCounts {
 
     /// All writes, the unmeasured ones, and those of `table` in `company`, so far.
     pub(crate) fn now(&self, table: u32, company: &Option<String>) -> [u64; 3] {
-        let of = self.tables.iter().find(|(t, c, _)| *t == table && c == company);
-        [self.all, self.unmeasured, of.map_or(0, |(_, _, n)| *n)]
+        let of = self.tables.get(table, company).copied().unwrap_or(0);
+        [self.all, self.unmeasured, of]
     }
 }
 
@@ -893,5 +932,161 @@ mod open_tx_tests {
     fn an_unpinned_lock_names_its_cause() {
         assert_eq!(UnpinnedLock::LockingRead.text(), crate::records::UNPINNED_LOCKING_READ);
         assert_eq!(UnpinnedLock::Other("a lock").text(), "a lock");
+    }
+}
+
+/// `ByTableCompany` gives the answers the linear rule it replaced gave (al-runner issue 8721: a load looked its table up
+/// in every table the transaction and the session wrote). The reference below is that rule, kept for this test only.
+#[cfg(test)]
+mod by_table_company_tests {
+    use super::{ByTableCompany, TableWrites, WriteCounts};
+    use al_builtins::value::TableWritten;
+
+    /// The linear rule as it was: find the (table, company) entry, or push one.
+    #[derive(Default)]
+    struct Linear {
+        verdicts: Vec<(u32, Option<String>, TableWritten)>,
+        counts: Vec<(u32, Option<String>, u64)>,
+        all: u64,
+        unmeasured: u64,
+    }
+
+    impl Linear {
+        fn note_verdict(&mut self, table: u32, company: &Option<String>, w: TableWritten) {
+            match self.verdicts.iter_mut().find(|(t, c, _)| *t == table && c == company) {
+                Some((_, _, v)) => *v = (*v).max(w),
+                None => self.verdicts.push((table, company.clone(), w)),
+            }
+        }
+
+        fn of(&self, table: u32, company: &Option<String>) -> TableWritten {
+            let e = self.verdicts.iter().find(|(t, c, _)| *t == table && c == company);
+            e.map_or(TableWritten::No, |(_, _, v)| *v)
+        }
+
+        fn note_count(&mut self, table: u32, company: &Option<String>, unmeasured: bool) {
+            self.all += 1;
+            self.unmeasured += u64::from(unmeasured);
+            match self.counts.iter_mut().find(|(t, c, _)| *t == table && c == company) {
+                Some((_, _, n)) => *n += 1,
+                None => self.counts.push((table, company.clone(), 1)),
+            }
+        }
+
+        fn now(&self, table: u32, company: &Option<String>) -> [u64; 3] {
+            let of = self.counts.iter().find(|(t, c, _)| *t == table && c == company);
+            [self.all, self.unmeasured, of.map_or(0, |(_, _, n)| *n)]
+        }
+    }
+
+    const TABLES: [u32; 5] = [0, 1, 18, 5_000, u32::MAX];
+    const VERDICTS: [TableWritten; 4] = [
+        TableWritten::No,
+        TableWritten::EmptyBulk,
+        TableWritten::Written,
+        TableWritten::Unmeasured,
+    ];
+
+    fn companies() -> [Option<String>; 3] {
+        [None, Some("CRONUS".into()), Some("Other".into())]
+    }
+
+    /// Every table and company of the grid, written or not, gives the reference's answer.
+    fn same_answers(tw: &TableWrites, wc: &WriteCounts, r: &Linear) {
+        for t in TABLES.iter().copied().chain([7, 2_000_000_005]) {
+            for c in &companies() {
+                assert_eq!(tw.of(t, c), r.of(t, c), "verdict of {t} {c:?}");
+                assert_eq!(wc.now(t, c), r.now(t, c), "counts of {t} {c:?}");
+            }
+        }
+        assert_eq!(tw.0.is_empty(), r.verdicts.is_empty());
+        assert_eq!(tw.0.len(), r.verdicts.len());
+        assert_eq!(wc.tables.len(), r.counts.len());
+    }
+
+    #[test]
+    fn the_edge_cases_answer_as_the_linear_rule() {
+        let (mut tw, mut wc, mut r) = (TableWrites::default(), WriteCounts::default(), Linear::default());
+        let [none, cronus, other] = companies();
+        // Nothing noted: the defaults `No` and 0.
+        same_answers(&tw, &wc, &r);
+        assert_eq!(tw.of(18, &none), TableWritten::No);
+        assert_eq!(wc.now(18, &none), [0, 0, 0]);
+        // A first note of `No` is an entry with the default's value.
+        tw.note(18, &none, TableWritten::No);
+        r.note_verdict(18, &none, TableWritten::No);
+        same_answers(&tw, &wc, &r);
+        // Two companies of one table, and the session's own beside them, stay apart.
+        for (c, w) in [(&cronus, TableWritten::Written), (&other, TableWritten::EmptyBulk)] {
+            tw.note(18, c, w);
+            r.note_verdict(18, c, w);
+            wc.note(18, c, false);
+            r.note_count(18, c, false);
+        }
+        same_answers(&tw, &wc, &r);
+        assert_eq!(tw.of(18, &none), TableWritten::No);
+        assert_eq!(tw.of(18, &cronus), TableWritten::Written);
+        // The verdict only grows: a lower one after a higher one keeps the higher.
+        for w in [TableWritten::Unmeasured, TableWritten::EmptyBulk, TableWritten::No] {
+            tw.note(18, &other, w);
+            r.note_verdict(18, &other, w);
+        }
+        same_answers(&tw, &wc, &r);
+        assert_eq!(tw.of(18, &other), TableWritten::Unmeasured);
+        // Each write counts one; unmeasured ones and the non-Record writes count apart.
+        wc.note(18, &none, true);
+        r.note_count(18, &none, true);
+        wc.note_unmeasured();
+        r.all += 1;
+        r.unmeasured += 1;
+        same_answers(&tw, &wc, &r);
+        assert_eq!(wc.now(18, &cronus), [4, 2, 1]);
+        // A reset (a new transaction, a new session) is empty again.
+        (tw, wc, r) = (TableWrites::default(), WriteCounts::default(), Linear::default());
+        same_answers(&tw, &wc, &r);
+    }
+
+    #[test]
+    fn a_long_generated_sequence_answers_as_the_linear_rule() {
+        let (mut tw, mut wc, mut r) = (TableWrites::default(), WriteCounts::default(), Linear::default());
+        let cs = companies();
+        let mut x: u64 = 0x2545_f491_4f6c_dd1d;
+        for step in 0..20_000 {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            let t = TABLES[(x % 5) as usize];
+            let c = &cs[((x >> 8) % 3) as usize];
+            match (x >> 16) % 13 {
+                0..=4 => {
+                    let w = VERDICTS[((x >> 24) % 4) as usize];
+                    tw.note(t, c, w);
+                    r.note_verdict(t, c, w);
+                }
+                5..=9 => {
+                    let unmeasured = (x >> 24) % 3 == 0;
+                    wc.note(t, c, unmeasured);
+                    r.note_count(t, c, unmeasured);
+                }
+                10 => {
+                    wc.note_unmeasured();
+                    r.all += 1;
+                    r.unmeasured += 1;
+                }
+                11 => {
+                    // The open transaction ends: its verdicts go, the session's counts stay.
+                    tw = TableWrites::default();
+                    r.verdicts.clear();
+                }
+                _ => {
+                    let copy: ByTableCompany<u64> = wc.tables.clone();
+                    assert_eq!(copy.get(t, c), wc.tables.get(t, c));
+                }
+            }
+            if step % 97 == 0 {
+                same_answers(&tw, &wc, &r);
+            }
+        }
+        same_answers(&tw, &wc, &r);
     }
 }
