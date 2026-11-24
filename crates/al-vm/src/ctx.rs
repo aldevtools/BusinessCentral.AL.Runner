@@ -854,15 +854,6 @@ impl Session {
         match rec {
             Some(Value::Record(rc)) => {
                 let rc = rc.clone();
-                // A value of another type than the field's (`setrange_convert`).
-                let call = match method {
-                    al_builtins::record_op::RecordOp::SetRange => Some(Call::RecordSetRange),
-                    al_builtins::record_op::RecordOp::SetFilter => Some(Call::RecordSetFilter),
-                    _ => None,
-                };
-                if let Some(call) = call {
-                    self.record_setrange_convert(call, &rc, args, written)?;
-                }
                 // A Record write inside a CaptionClass expression whose runs have no pinned number (`pages/caption_runs.rs`).
                 if let Some(why) = self.caption_write_refusal(method) {
                     return Err(Signal::unsupported(why));
@@ -872,7 +863,16 @@ impl Session {
                     set_range: method == al_builtins::record_op::RecordOp::SetRange,
                     temporary: rc.borrow().temporary,
                 };
+                // A value of another type than the field's (`setrange_convert`), raised where the call's own errors are.
+                let call = match method {
+                    al_builtins::record_op::RecordOp::SetRange => Some(Call::RecordSetRange),
+                    al_builtins::record_op::RecordOp::SetFilter => Some(Call::RecordSetFilter),
+                    _ => None,
+                };
                 self.al_table_call(kind, |s| {
+                    if let Some(call) = call {
+                        s.record_setrange_convert(call, &rc, args, written)?;
+                    }
                     if method == al_builtins::record_op::RecordOp::Validate {
                         // `Record.Validate` in AL code (registry `Record.Validate#1`).
                         return s.validate_at(crate::records::ValidateSite::AlRecordValidate, &rc, args);

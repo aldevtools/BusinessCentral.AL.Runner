@@ -5,8 +5,9 @@
 //! when it is written as a Variant. Only the cells corpus PR 1552 measures convert here
 //! (recordref-fieldref/fieldref/SrcSetRangeConvert.al, SrcFilterConvertKinds.al, not yet pinned: assumption
 //! setrange-other-type-convert). A value of a pair of types those cells measure is refused in a shape or of a size they do
-//! not measure, unless its cell passes on the conversion `setrange_filter` and the filter parser give it; a pair of types
-//! they do not measure keeps that conversion.
+//! not measure; a cell that passes on the conversion `setrange_filter` and the filter parser give keeps it in the measured
+//! shape only, unless a pin or another assumption covers every shape (`Cell::MainEveryShape`). A pair of types they do not
+//! measure keeps that conversion.
 
 use crate::Session;
 use al_builtins::assumptions::{Assumption, assume};
@@ -58,8 +59,10 @@ pub(crate) enum Call {
 enum Cell {
     /// BC converts it into this value or raises this error, where main's conversion gives another answer.
     Convert(Result<Value, Signal>),
-    /// BC gives what main's conversion gives (the cell passes on main).
+    /// BC gives what main's conversion gives (the cell passes on main) in the shape the cells measure; refused in another.
     Main,
+    /// Main's conversion in every shape: pinned there, or run through another assumption entry.
+    MainEveryShape,
     /// A value of a pair the probe measures, but not this value: refused.
     Unmeasured,
 }
@@ -155,16 +158,16 @@ impl Session {
             && f.id < 2_000_000_000
             && state_measured
             && measured_call(call, written, values.len(), &f.ty);
-        // `Record.SetRange(Field, Value)` with one value of a type other than Variant.
-        let record_typed_one = call == Call::RecordSetRange && written.is_none() && values.len() == 1;
+        let at = CellAt { call, written, values: values.len() };
         for v in values.iter_mut() {
-            match self.setrange_cell(v, &f.ty, written, record_typed_one) {
-                None | Some(Cell::Main) => {}
+            match self.setrange_cell(v, &f.ty, at) {
+                None | Some(Cell::MainEveryShape) => {}
+                Some(Cell::Main) if measured => {}
                 Some(Cell::Convert(converted)) if measured => {
                     assume(Assumption::SetRangeOtherTypeConvert);
                     *v = converted?;
                 }
-                Some(Cell::Convert(_) | Cell::Unmeasured) => {
+                Some(Cell::Main | Cell::Convert(_) | Cell::Unmeasured) => {
                     return Err(Signal::unsupported(format!(
                         "SetRange or SetFilter of {} into a {} field in a shape no cell measures (assumption setrange-other-type-convert)",
                         v.describe(),
@@ -176,9 +179,9 @@ impl Session {
         Ok(())
     }
 
-    /// The measured cell of the value `v` into a field of type `ty`; `None` for a pair of types the probe does not measure (a
-    /// value of the field's own type among them): main's conversion stays.
-    fn setrange_cell(&self, v: &Value, ty: &RtType, written: Option<Written>, record_typed_one: bool) -> Option<Cell> {
+    /// The measured cell of the value `v` into a field of type `ty`, given to the call `at`; `None` for a pair of types the probe
+    /// does not measure (a value of the field's own type among them): main's conversion stays.
+    fn setrange_cell(&self, v: &Value, ty: &RtType, at: CellAt) -> Option<Cell> {
         let from28 = self.has(al_version::Gate::FieldRefTextNumberEvaluateErrorFrom28);
         let text = match v {
             Value::Text(s) | Value::Code(s) => Some(s.as_str()),
@@ -194,13 +197,16 @@ impl Session {
                 _ => None,
             },
             // SrcFilterConvertKinds.al:729-1381 (CodeABC_Int .. TxtEmpty_Dec, Code1000_Int, Code1000_Big); digits (Code123_Int)
-            // and, into a Decimal, `1.5` and `1,000` (Txt15_Dec, Code1000_Dec) are main's answer.
+            // and, into a Decimal, `1.5` and `1,000` (Txt15_Dec, Code1000_Dec) are main's answer. Digits run through the
+            // assumption text-digits-to-integer (al-builtins `ops.rs`) in every shape.
             RtType::Integer | RtType::BigInteger | RtType::Decimal => {
                 let s = text?;
                 let decimal = matches!(ty, RtType::Decimal);
                 Some(if no_number_text(s, ty) {
                     Cell::Convert(Err(text_evaluate_error(s, ty, from28)?))
-                } else if digits(s) || (decimal && (decimal_point(s) || one_group(s))) {
+                } else if digits(s) {
+                    Cell::MainEveryShape
+                } else if decimal && (decimal_point(s) || one_group(s)) {
                     Cell::Main
                 } else {
                     Cell::Unmeasured
@@ -214,20 +220,7 @@ impl Session {
                 (Value::Integer(_), _) | (_, Some(_)) => Some(Cell::Unmeasured),
                 _ => None,
             },
-            // SrcFilterConvertKinds.al:1730-1849 (CodeABC_G .. TxtGuid_G) routes b, f and gr raise the Evaluate error; the typed
-            // routes (a, e) keep the Guid format error and the Guid a valid text gives (main's answer). `Record.SetRange` of one
-            // Text that holds a Guid filters on that Guid (main's answer): a text literal in
-            // tests/al-language/permissions/permission-sets/TenantSetDeleteCascade.al:221, a Label in
-            // tests/al-language-onprem/metadata/platform-tables/Y35StoredTables.al:569.
-            RtType::Guid => {
-                let s = text?;
-                Some(match written {
-                    Some(Written::Variant) if !s.is_empty() => Cell::Convert(Err(variant_guid_error(s, from28))),
-                    Some(Written::Typed) if !s.is_empty() => Cell::Main,
-                    None if record_typed_one && al_builtins::ops::parse_guid(s).is_some() => Cell::Main,
-                    _ => Cell::Unmeasured,
-                })
-            }
+            RtType::Guid => text.map(|s| guid_cell(s, at, from28)),
             RtType::Date | RtType::Time | RtType::DateTime => self.temporal_cell(v, ty, from28),
             _ => None,
         }
@@ -253,18 +246,24 @@ impl Session {
             Value::Code(s) => ("NavCode", Some(s.as_str().to_string())),
             Value::Guid(_) => ("NavGuid", formatted()),
             Value::Duration(ms) if (1..60_000).contains(ms) => ("NavDuration", formatted()),
-            Value::Option(..) => ("NavOption", formatted()),
+            // Opt_* and Enum_* measure the member `One`: a member whose Format text is its name of letters (`letters`).
+            Value::Option(o, names) => {
+                let name = usize::try_from(*o).ok().and_then(|i| names.get(i)).cloned();
+                match member_text(formatted(), name) {
+                    Some(text) => ("NavOption", Some(text)),
+                    None => return Some(Cell::Unmeasured),
+                }
+            }
             Value::Enum(id, o) => {
-                let text = formatted();
                 let name = self.engine.program.objects.get(*id as usize).and_then(|obj| {
                     obj.enum_values
                         .iter()
                         .find(|(n, _)| n == o)
                         .map(|(_, name)| name.clone())
                 });
-                match (text, name) {
-                    (Some(text), Some(name)) if name == text => ("NavOption", Some(text)),
-                    _ => return Some(Cell::Unmeasured),
+                match member_text(formatted(), name) {
+                    Some(text) => ("NavOption", Some(text)),
+                    None => return Some(Cell::Unmeasured),
                 }
             }
             // A negative number, false, a Decimal out of the measured size, a longer Duration.
@@ -301,6 +300,35 @@ impl Session {
     }
 }
 
+/// The call a value is given to, how its values are written and how many there are.
+#[derive(Clone, Copy)]
+struct CellAt {
+    call: Call,
+    written: Option<Written>,
+    values: usize,
+}
+
+/// A Text or Code `s` into a Guid field. SrcFilterConvertKinds.al:1730-1849 (CodeABC_G, Code123_G, TxtXY_G, TxtGuid_G): routes b,
+/// f and gr raise the Evaluate error; the typed SetRange routes (a, c) raise the Guid format error or give the Guid a valid text
+/// gives (main's answer); the typed SetFilter('%1', X) route (e) gives the Guid of a valid text (main's answer) and raises the
+/// Guid format error itself for `ABC`, `123` and `XY`, without the filter error around it. `Record.SetRange` of one Text that
+/// holds a Guid filters on that Guid (main's answer) in every shape: a text literal in
+/// tests/al-language/permissions/permission-sets/TenantSetDeleteCascade.al:221, a Label in
+/// tests/al-language-onprem/metadata/platform-tables/Y35StoredTables.al:569.
+fn guid_cell(s: &str, at: CellAt, from28: bool) -> Cell {
+    let guid = al_builtins::ops::parse_guid(s).is_some();
+    match (at.call, at.written) {
+        (_, Some(Written::Variant)) if !s.is_empty() => Cell::Convert(Err(variant_guid_error(s, from28))),
+        (Call::FieldRefSetRange, Some(Written::Typed)) if !s.is_empty() => Cell::Main,
+        (Call::FieldRefSetFilter, Some(Written::Typed)) if guid => Cell::Main,
+        (Call::FieldRefSetFilter, Some(Written::Typed)) if letters(s) || digits(s) => {
+            Cell::Convert(al_builtins::native::invalid_guid_format())
+        }
+        (Call::RecordSetRange, None) if at.values == 1 && guid => Cell::MainEveryShape,
+        _ => Cell::Unmeasured,
+    }
+}
+
 /// An Integer, BigInteger or Decimal into a Code or Text field: its Format text, of the sizes the probe measures (5, 0, 1.5,
 /// 1000.5, -1.25: at most 999,999 in size, at most two decimals). A text longer than the field is not measured: refused.
 fn number_into_text(v: &Value, ty: &RtType, ctx: &Session) -> Cell {
@@ -327,6 +355,14 @@ fn number_into_text(v: &Value, ty: &RtType, ctx: &Session) -> Cell {
 fn no_number_text(s: &str, ty: &RtType) -> bool {
     let whole = matches!(ty, RtType::Integer | RtType::BigInteger);
     s.is_empty() || letters(s) || (whole && (decimal_point(s) || one_group(s)))
+}
+
+/// The Format text of an Option or Enum member where it is the member's name and that name is letters (`letters`).
+fn member_text(text: Option<String>, name: Option<String>) -> Option<String> {
+    match (text, name) {
+        (Some(text), Some(name)) if name == text && letters(&name) => Some(text),
+        _ => None,
+    }
 }
 
 /// Two or more ASCII letters and nothing else (`ABC`, `XY`, `Yes`).

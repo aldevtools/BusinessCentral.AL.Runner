@@ -327,10 +327,7 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         (Value::Text(s) | Value::Code(s), T::Guid) => match parse_guid(&s).or_else(|| parse_guid_without_hyphens(&s)) {
             Some(g) => Value::Guid(g),
             None => {
-                return raise(
-                    "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.",
-                    "InvalidGuidFormat",
-                );
+                return crate::native::invalid_guid_format();
             }
         },
         // An Option converts to an Enum by its ordinal, with or without `AssignmentCompatibility`, blank member
@@ -1743,10 +1740,7 @@ fn compare_general(l: &Value, r: &Value) -> Result<Ordering, Signal> {
 fn guid_of_text(t: &str) -> Result<[u8; 16], Signal> {
     if t.bytes().filter(u8::is_ascii_hexdigit).count() < 32 {
         // GetLastErrorText(true) of `Guid = Text` only: `equal_operator`.
-        return crate::native::raise(
-            "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.",
-            "InvalidGuidFormat",
-        );
+        return crate::native::invalid_guid_format();
     }
     let inner = t.strip_prefix('{').and_then(|i| i.strip_suffix('}')).unwrap_or(t);
     if inner.len() == 36 {

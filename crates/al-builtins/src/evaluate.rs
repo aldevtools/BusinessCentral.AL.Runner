@@ -2561,10 +2561,7 @@ fn evaluate_with_max(
             "Evaluate",
         ),
         // GetLastErrorText(true) leaves the text (errors/last-error/LastErrorFlagRuntimeCodes.al:238, :248).
-        Parsed::Rejected if matches!(a[0], Value::Guid(_)) => crate::native::raise_same_text(
-            "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.",
-            "InvalidGuidFormat",
-        ),
+        Parsed::Rejected if matches!(a[0], Value::Guid(_)) => crate::native::raise_same_text(crate::native::INVALID_GUID_FORMAT, "InvalidGuidFormat"),
         Parsed::Rejected | Parsed::RejectedUsedRefused(_) | Parsed::RejectedUsedCode(_) => unsupported(format!(
             "Evaluate of `{text}` failed with the result unused (error text not pinned yet)"
         )),

@@ -17,11 +17,94 @@ table 50290 SRC
         field(5; Bool; Boolean) { }
         field(6; D; Date) { }
         field(7; G; Guid) { }
+        field(8; Dec; Decimal) { }
+        field(9; DT; DateTime) { }
     }
     keys { key(PK; Id) { Clustered = true; } }
 }
 codeunit 50291 T
 {
+    procedure GuidSetFilterLetters(): Text
+    var R: RecordRef; F: FieldRef; X: Code[20];
+    begin
+        R.Open(Database::SRC);
+        F := R.Field(7);
+        X := 'ABC';
+        F.SetFilter('%1', X);
+        exit(F.GetFilter());
+    end;
+
+    procedure GuidSetFilterDigits(): Text
+    var R: RecordRef; F: FieldRef; X: Code[20];
+    begin
+        R.Open(Database::SRC);
+        F := R.Field(7);
+        X := '123';
+        F.SetFilter('%1', X);
+        exit(F.GetFilter());
+    end;
+
+    procedure GuidSetFilterMixed(): Text
+    var R: RecordRef; F: FieldRef; X: Code[20];
+    begin
+        R.Open(Database::SRC);
+        F := R.Field(7);
+        X := '1A2B-3C';
+        F.SetFilter('%1', X);
+        exit(F.GetFilter());
+    end;
+
+
+    procedure GuidSetFilterTextOnTemporary(): Text
+    var R: RecordRef; F: FieldRef; T: Text;
+    begin
+        R.Open(Database::SRC, true);
+        F := R.Field(7);
+        T := '{1F2E3D4C-5B6A-4978-8695-A4B3C2D1E0F9}';
+        F.SetFilter('%1', T);
+        exit(F.GetFilter());
+    end;
+
+    procedure TrueIntoCodeOnTemporary(): Text
+    var R: RecordRef; F: FieldRef; B: Boolean;
+    begin
+        R.Open(Database::SRC, true);
+        F := R.Field(3);
+        B := true;
+        F.SetRange(B);
+        exit(F.GetFilter());
+    end;
+
+    procedure DecimalTextIntoDecimalOnTemporary(): Text
+    var R: RecordRef; F: FieldRef; T: Text;
+    begin
+        R.Open(Database::SRC, true);
+        F := R.Field(8);
+        T := '1.5';
+        F.SetRange(T);
+        exit(F.GetFilter());
+    end;
+
+    procedure DateIntoDateTimeOnTemporary(): Text
+    var R: RecordRef; F: FieldRef; D: Date;
+    begin
+        R.Open(Database::SRC, true);
+        F := R.Field(9);
+        D := 20240101D;
+        F.SetRange(D);
+        exit(F.GetFilter());
+    end;
+
+    procedure BlankOptionIntoDate(): Text
+    var R: RecordRef; F: FieldRef; O: Option " ",One;
+    begin
+        R.Open(Database::SRC);
+        F := R.Field(6);
+        O := O::" ";
+        F.SetRange(O);
+        exit(F.GetFilter());
+    end;
+
     procedure RecordTyped(): Text
     var Rec: Record SRC; C: Code[20];
     begin
@@ -206,4 +289,44 @@ fn a_cell_that_passes_on_the_earlier_conversion_keeps_it() {
     assert_eq!(filter("DigitsIntoIntegerOnTemporary"), "123");
     // A Text into a Code field is no pair the cells measure.
     assert_eq!(filter("TextIntoCodeOnRecord"), "ABC");
+}
+
+/// SrcFilterConvertKinds.al:1730-1819 (CodeABC_G, Code123_G, TxtXY_G) route e: `FieldRef.SetFilter('%1', X)` of a typed text that
+/// is no Guid raises the Guid format error itself, without the filter error around it.
+#[test]
+fn a_typed_text_that_is_no_guid_in_setfilter_raises_the_guid_format_error() {
+    for x in ["GuidSetFilterLetters", "GuidSetFilterDigits"] {
+        match run_in(SRC, "T", x) {
+            Err(Signal::Error(e)) => {
+                assert_eq!(e.code, "InvalidGuidFormat", "{x}");
+                assert_eq!(
+                    e.message,
+                    "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.",
+                    "{x}"
+                );
+            }
+            other => panic!("{x}: expected the Guid format error, got {other:?}"),
+        }
+    }
+    // A text of another form than letters or digits (here: hex digits and a hyphen) is not measured.
+    refused("GuidSetFilterMixed");
+}
+
+/// The cells that pass on the earlier conversion are measured on a table that is not temporary only.
+#[test]
+fn a_cell_of_the_earlier_conversion_in_another_shape_is_refused() {
+    for routine in [
+        "GuidSetFilterTextOnTemporary",
+        "TrueIntoCodeOnTemporary",
+        "DecimalTextIntoDecimalOnTemporary",
+        "DateIntoDateTimeOnTemporary",
+    ] {
+        refused(routine);
+    }
+}
+
+/// SrcSetRangeConvert.al Opt_D_* measures the Option member `One`; a blank member is not measured.
+#[test]
+fn a_blank_option_member_into_a_date_is_refused() {
+    refused("BlankOptionIntoDate");
 }
