@@ -158,7 +158,7 @@ impl Key {
             client,
             flags,
             license,
-            // A detail of `database` and `session` (see `differs_detail`), not a field of its own.
+            // A detail of `database` and `session` (see `differing_parts`), not a field of its own.
             parts: _,
         } = self;
         [
@@ -180,21 +180,19 @@ impl Key {
         .collect()
     }
 
-    /// [`Key::differs_in`], joined by `+`, with the parts of `database` and `session` that differ named after each: by
-    /// name only, never a value (`key_parts.rs`).
-    pub(crate) fn differs_detail(&self, other: &Key) -> String {
-        let named = |field: &str, parts: Vec<String>| match parts.is_empty() {
-            true => field.to_string(),
-            false => format!("{field} ({})", parts.join(", ")),
-        };
+    /// Per field of [`Key::differs_in`] that has parts (`database`, `session`), the parts that differ, each with its field:
+    /// by name only, never a value (`key_parts.rs`).
+    pub(crate) fn differing_parts(&self, other: &Key) -> Vec<(&'static str, String)> {
         (self.differs_in(other).into_iter())
-            .map(|field| match field {
-                "database" => named(field, self.parts.0.database_differs(&other.parts.0)),
-                "session" => named(field, self.parts.0.session_differs(&other.parts.0)),
-                _ => field.to_string(),
+            .flat_map(|field| {
+                let parts = match field {
+                    "database" => self.parts.0.database_differs(&other.parts.0),
+                    "session" => self.parts.0.session_differs(&other.parts.0),
+                    _ => Vec::new(),
+                };
+                parts.into_iter().map(move |part| (field, part))
             })
-            .collect::<Vec<_>>()
-            .join("+")
+            .collect()
     }
 }
 
@@ -268,7 +266,44 @@ struct Tally {
     first_difference: Option<String>,
     /// Per set of key fields (joined by `+`), the new keys after the first that differ from their nearest earlier key in
     /// exactly those fields ([`Key::differs_in`]).
-    new_keys_by: std::collections::BTreeMap<String, u64>,
+    new_keys_by: std::collections::BTreeMap<String, NewKeys>,
+}
+
+/// The parts the keys line shows per key field of an entry, the most counted first; the rest it counts as `and N more`.
+const PARTS_SHOWN: usize = 5;
+
+/// The new keys of one set of key fields: how many, and per key field and part ([`Key::differing_parts`]) how many of
+/// them differ in it.
+#[derive(Default)]
+struct NewKeys {
+    n: u64,
+    parts: std::collections::BTreeMap<(&'static str, String), u64>,
+}
+
+impl NewKeys {
+    /// `N`, then per key field the parts with their counts, the most counted first, at most [`PARTS_SHOWN`] of them.
+    fn text(&self) -> String {
+        let mut by_field: std::collections::BTreeMap<&str, Vec<(&String, u64)>> = Default::default();
+        for ((field, part), n) in &self.parts {
+            by_field.entry(field).or_default().push((part, *n));
+        }
+        if by_field.is_empty() {
+            return self.n.to_string();
+        }
+        let fields: Vec<String> = (by_field.into_iter())
+            .map(|(field, mut parts)| {
+                parts.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+                let mut shown: Vec<String> = (parts.iter().take(PARTS_SHOWN))
+                    .map(|(part, n)| format!("{part} {n}"))
+                    .collect();
+                if parts.len() > PARTS_SHOWN {
+                    shown.push(format!("and {} more", parts.len() - PARTS_SHOWN));
+                }
+                format!("{field}: {}", shown.join(", "))
+            })
+            .collect();
+        format!("{} ({})", self.n, fields.join("; "))
+    }
 }
 
 impl Tally {
@@ -277,7 +312,11 @@ impl Tally {
         let Some((_, first)) = self.firsts.iter().find(|(k, _)| *k == key) else {
             let nearest = (self.firsts.iter()).min_by_key(|(k, _)| key.differs_in(k).len());
             if let Some((k, _)) = nearest {
-                *self.new_keys_by.entry(key.differs_detail(k)).or_default() += 1;
+                let entry = self.new_keys_by.entry(key.differs_in(k).join("+")).or_default();
+                entry.n += 1;
+                for part in key.differing_parts(k) {
+                    *entry.parts.entry(part).or_default() += 1;
+                }
             }
             self.firsts.push((key, state));
             return true;
@@ -345,7 +384,7 @@ impl Check {
             .exact
             .new_keys_by
             .iter()
-            .map(|(fields, n)| format!("{fields} {n}"))
+            .map(|(fields, keys)| format!("{fields} {}", keys.text()))
             .collect();
         Some(format!(
             "login replay keys: {keys} keys, {} new after the first; each differs from its nearest earlier key in: {}",
@@ -703,8 +742,8 @@ mod tests {
         );
         let other = [table("C", 15, vec![vec![Value::Integer(2)]])];
         assert_eq!(
-            key_of_tables(&other, &[]).differs_detail(&key_of_tables(&with_empty, &[])),
-            "database (company 1/table 15)"
+            key_of_tables(&other, &[]).differing_parts(&key_of_tables(&with_empty, &[])),
+            [("database", "company 1/table 15".to_string())]
         );
     }
 
@@ -741,9 +780,36 @@ mod tests {
         assert_eq!(
             line,
             "login replay keys: 2 keys, 1 new after the first; each differs from its nearest earlier key in: \
-             database (company 1/table 15)+session (counters) 1"
+             database+session 1 (database: company 1/table 15 1; session: counters 1)"
         );
         assert!(!line.contains("SECRET"), "{line}");
+    }
+
+    // The maintainer's review of this check (issue 8211): the keys line counts the new keys per set of key fields, and the
+    // parts they differ in apart, per field, the most counted first and at most `PARTS_SHOWN` of them, so that an entry
+    // stays short on a run with many keys.
+    #[test]
+    fn the_keys_line_counts_per_field_set_and_the_parts_apart() {
+        let tables = |changed: &[u32]| -> Vec<al_data::memory::ExportedTable> {
+            (1..=7)
+                .map(|t| table("C", t, vec![vec![Value::Integer(changed.contains(&t).into())]]))
+                .collect()
+        };
+        let check = Check::default();
+        let s = state(&["r"], &["s"]);
+        check.note(key_of_tables(&tables(&[]), &[]), s.clone());
+        check.note(key_of_tables(&tables(&[1, 2]), &[]), s.clone());
+        for t in 1..=7 {
+            check.note(key_of_tables(&tables(&[t]), &[]), s.clone());
+        }
+        assert_eq!(
+            check.keys_line().as_deref(),
+            Some(
+                "login replay keys: 9 keys, 8 new after the first; each differs from its nearest earlier key in: database 8 \
+                 (database: company 1/table 1 2, company 1/table 2 2, company 1/table 3 1, company 1/table 4 1, \
+                 company 1/table 5 1, and 2 more)"
+            )
+        );
     }
 
     #[test]
