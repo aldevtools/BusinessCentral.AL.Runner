@@ -1,6 +1,6 @@
 # ADR-080: Refuse an unmeasured value at its observable use, not at its read
 
-- Status: Proposed
+- Status: Accepted (owner, 2026-11-24)
 - Date: 2026-11-24
 
 ## Context
@@ -103,7 +103,7 @@ A tracing gap uses the typed refusal of ADR-071 with area `tracing-gap`, so `--t
   *with* content. That is a later amendment.
 - The rule never turns a refusal into a pass without either the proof of section 3 or an assumption entry.
 
-### 6. Open decision for the owner: a branch on an unmeasured value
+### 6. A branch on an unmeasured value (owner decision, 2026-11-24)
 
 Section 2 counts every branch as observable. That is stricter than "can not affect a test". The owner's own example
 shows the cost. Azure AD User Subscribers (System Application, `AzureADUserSubscribers.Codeunit.al:26-64`) is the only
@@ -123,7 +123,8 @@ Two choices:
   `P6924_Counters_FormattedInTelemetryDimension_NoError`). Recovers 9034 and other telemetry-only readers. Costs a
   static check of the arm not taken, and a mark on control regions in the VM.
 
-The ADR builds A first (steps 0 to 3). B is a later amendment, if step 0 shows enough branch-then-telemetry uses.
+Owner decision, 2026-11-24: **A now, B next.** The ADR builds A first (steps 0 to 3). B follows right after as a committed
+step, sized by the counting diagnostic of step 0. It is not optional.
 
 ### 7. Build order
 
