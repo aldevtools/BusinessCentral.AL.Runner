@@ -3,8 +3,10 @@
 //! Only a table a record node names is imaged: no AL value reaches another one. The thaw makes a new table of the
 //! thawn session, with an id from its own counter: a temporary table's id is never observable.
 //!
-//! The token's note of an Insert that stored a row while a Blob of the record was empty (al-builtins `TempId`, al-vm
-//! `temp_blob_share.rs`) goes with the table: the key, and the record that inserted it as a node while it lives.
+//! The token's notes go with the table, read through `TempId::image_parts`: the note of an Insert that stored a row while
+//! a Blob of the record was empty (al-vm `temp_blob_share.rs`), its key and the record that inserted it as a node while it
+//! lives; and each live `Record.Copy(x, true)` that gave a record the table (al-vm `clear_shared_codeunit.rs` `temp_hold`),
+//! the target and its source while it lives as record nodes. The thaw notes them again on the new table's token.
 
 use super::NotImaged;
 use super::arena::{Frozen, NodeId};
@@ -17,6 +19,8 @@ pub(crate) struct TempImage {
     pub(crate) tables: Vec<TempTableRows>,
     /// `TempId::note_empty_blob_insert`: the key it noted, and its inserter while that lives.
     pub(crate) empty_blob_insert: Option<(Vec<Frozen>, Option<NodeId>)>,
+    /// `TempId::note_copy_target`: each live target that still holds the table, and its source while that lives.
+    pub(crate) copy_targets: Vec<(NodeId, Option<NodeId>)>,
 }
 
 /// One (company, table) of a temporary table's store, its rows in key order.
@@ -37,23 +41,29 @@ impl TempImage {
 
 impl Walker<'_> {
     /// The rows of the temporary table of `token` (none when the session holds no store for it yet: no row was written),
-    /// and the token's empty-Blob Insert note.
+    /// and the token's notes: the empty-Blob Insert and the copy targets.
     pub(crate) fn temp_table(
         &mut self,
         token: &al_builtins::value::TempId,
         path: &str,
     ) -> Result<TempImage, NotImaged> {
-        let id = token.id();
-        let key = token.with_empty_blob_insert_key(|k| k.map(<[_]>::to_vec));
-        let empty_blob_insert = match key {
+        let parts = token.image_parts();
+        let id = parts.id;
+        let empty_blob_insert = match parts.empty_blob_insert_key {
             Some(key) => {
                 let key = self.field_values(&key, &format!("{path} empty-Blob insert key"))?;
-                let inserter = (token.empty_blob_inserter())
+                let inserter = (parts.empty_blob_inserter)
                     .map(|r| self.handle(Holder::Record(r), 0, format!("{path} empty-Blob inserter")));
                 Some((key, inserter))
             }
             None => None,
         };
+        let mut copy_targets = Vec::with_capacity(parts.copy_targets.len());
+        for (k, (target, source)) in parts.copy_targets.into_iter().enumerate() {
+            let target = self.handle(Holder::Record(target), 0, format!("{path} copy target {k}"));
+            let source = source.map(|s| self.handle(Holder::Record(s), 0, format!("{path} copy source {k}")));
+            copy_targets.push((target, source));
+        }
         let exported = self
             .session
             .temps
@@ -77,6 +87,7 @@ impl Walker<'_> {
         Ok(TempImage {
             tables,
             empty_blob_insert,
+            copy_targets,
         })
     }
 }
@@ -101,6 +112,15 @@ impl Maker<'_> {
                 token.forget_empty_blob_inserter();
             }
             (None, None) => unreachable!("a temporary table is in the image only through a record of it"),
+        }
+    }
+
+    /// Notes each copy target of `image` again on the thawn token `token`, after every record is made, in the order the
+    /// original noted them.
+    pub(crate) fn note_copy_targets(&self, image: &TempImage, token: &al_builtins::value::TempId) {
+        for &(target, source) in &image.copy_targets {
+            let source = source.map(|s| self.record_handle(s));
+            token.note_copy_target_of(&self.record_handle(target), source.as_ref());
         }
     }
 }
