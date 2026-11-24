@@ -41,22 +41,15 @@ pub(crate) struct KeyParts {
     session: BTreeMap<String, LinesDigest>,
 }
 
-/// The digest of the committed rows of table `t` (`rows_digest.rs`).
-#[cfg(test)]
-fn table_digest(t: &al_data::memory::ExportedTable) -> Result<LinesDigest, NoByteForm> {
-    rows_table_digest(&t.company, t.object, t.rows.len(), t.rows.iter().map(|(_, row)| row))
-}
-
-/// Per (company, table object), [`table_digest`] of each of `tables` that holds a row; every row of `tables` has a byte
-/// form.
+/// Per (company, table object), the digest of the committed rows of each of `tables` that holds a row
+/// (`rows_digest::table_digest`); every row of `tables` has a byte form.
 #[cfg(test)]
 pub(crate) fn table_digests(tables: &[al_data::memory::ExportedTable]) -> BTreeMap<(String, u32), LinesDigest> {
     (tables.iter().filter(|t| !t.rows.is_empty()))
         .map(|t| {
-            (
-                (t.company.clone(), t.object),
-                table_digest(t).expect("a row without a byte form"),
-            )
+            let rows = t.rows.iter().map(|(_, row)| row);
+            let d = rows_table_digest(&t.company, t.object, t.rows.len(), rows);
+            ((t.company.clone(), t.object), d.expect("a row without a byte form"))
         })
         .collect()
 }
