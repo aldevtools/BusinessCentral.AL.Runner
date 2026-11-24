@@ -31,3 +31,16 @@ LT NQ4 Update Tests::NewLine_TaskErrorTriggerCallsUpdate_ShowsTheFailure	REFUSED
 LT NE5 Tests::NewLine_TableFieldSkipsItsInsertControlFailsAfterTheSave_TheSetValueFails	ASSUMED list-new-line-extra-code-coded (corpus PR 1540, open: ListNewLineExtraCodeCodedTableTriggers.al)
 LT NE5 Tests::NewLine_TableFieldSkipsItsInsertControlFailsBeforeTheSave_TheSetValueFails	ASSUMED list-new-line-extra-code-coded (corpus PR 1540, open: ListNewLineExtraCodeCodedTableTriggers.al)
 LT NQ4 Line Read Tests::NewLine_TaskFailsAtThePartsReadOfTheNewLine_TheErrorReachesTheTest	REFUSED a page background task's error its part leaves unhandled
+# The cells of the review of al-runner PR 8840 (09:29Z): the control's error after it inserted, modified or deleted a row of
+# another table or Rec reaches the test as main's answer does, flagged.
+LT NE6 Tests::NewLine_ControlWritesAnotherTableAndFailsBeforeItsSave_TheSetValueFails	ASSUMED list-new-line-extra-code-coded (corpus PR 1540, open: ListNewLineExtraCodeCodedTableTriggers.al)
+LT NE6 Tests::NewLine_TableFieldSkipsItsInsertControlWritesAnotherTableAndFailsBeforeItsSave_TheSetValueFails	ASSUMED list-new-line-extra-code-coded (corpus PR 1540, open: ListNewLineExtraCodeCodedTableTriggers.al)
+LT NE6 Tests::NewLine_TableFieldSkipsItsInsertControlWritesAnotherTableAndFailsAfterItsSave_TheSetValueFails	ASSUMED list-new-line-extra-code-coded (corpus PR 1540, open: ListNewLineExtraCodeCodedTableTriggers.al)
+LT NE6 Tests::NewLine_TableFieldSkipsItsInsertControlInsertsRecAndFailsBeforeItsSave_TheSetValueFails	ASSUMED list-new-line-extra-code-coded (corpus PR 1540, open: ListNewLineExtraCodeCodedTableTriggers.al)
+LT NE6 Tests::NewLine_TableFieldSkipsItsInsertControlInsertsRecAndFailsAfterItsSave_TheSetValueFails	ASSUMED list-new-line-extra-code-coded (corpus PR 1540, open: ListNewLineExtraCodeCodedTableTriggers.al)
+LT NE6 Tests::NewLine_ControlModifiesAnotherTableAndFailsBeforeItsSave_TheSetValueFails	ASSUMED list-new-line-extra-code-coded (corpus PR 1540, open: ListNewLineExtraCodeCodedTableTriggers.al)
+LT NE6 Tests::NewLine_ControlDeletesFromAnotherTableAndFailsBeforeItsSave_TheSetValueFails	ASSUMED list-new-line-extra-code-coded (corpus PR 1540, open: ListNewLineExtraCodeCodedTableTriggers.al)
+LT NE6 Tests::NewLine_ControlModifiesRecAndFailsBeforeItsSave_TheSetValueFails	ASSUMED list-new-line-extra-code-coded (corpus PR 1540, open: ListNewLineExtraCodeCodedTableTriggers.al)
+LT NE6 Tests::NewLine_ControlDeletesRecAndFailsBeforeItsSave_TheSetValueFails	ASSUMED list-new-line-extra-code-coded (corpus PR 1540, open: ListNewLineExtraCodeCodedTableTriggers.al)
+LT NE6 Tests::NewLine_TableFieldSkipsItsInsertControlModifiesAnotherTableAndFailsAfterItsSave_TheSetValueFails	ASSUMED list-new-line-extra-code-coded (corpus PR 1540, open: ListNewLineExtraCodeCodedTableTriggers.al)
+LT NE6 Tests::NewLine_TableFieldSkipsItsInsertControlDeletesFromAnotherTableAndFailsAfterItsSave_TheSetValueFails	ASSUMED list-new-line-extra-code-coded (corpus PR 1540, open: ListNewLineExtraCodeCodedTableTriggers.al)
