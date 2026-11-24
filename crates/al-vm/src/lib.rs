@@ -376,6 +376,9 @@ pub(crate) struct RoutineFacts {
     /// A `var` Option parameter declared with members, of a routine that is no publisher: a call hands it whether its argument
     /// is a variable the probes measure handing on to a publisher (`var_option::option_hops_of`, `Frame::option_hops`).
     pub option_hops: bool,
+    /// A `var` Option parameter declared without members: a call hands it whether its value comes from a measured origin
+    /// (`var_option::option_carried_of`, `Frame::option_carried`).
+    pub option_carries: bool,
 }
 
 fn routine_facts(r: &ir::Routine, publisher: bool) -> RoutineFacts {
@@ -406,6 +409,12 @@ fn routine_facts(r: &ir::Routine, publisher: bool) -> RoutineFacts {
             .zip(&r.by_var)
             .take(r.params)
             .any(|(l, v)| *v && matches!(&l.ty, RtType::Option(m) if !al_builtins::option_members::memberless(m)));
+    f.option_carries = r
+        .locals
+        .iter()
+        .zip(&r.by_var)
+        .take(r.params)
+        .any(|(l, v)| *v && matches!(&l.ty, RtType::Option(m) if al_builtins::option_members::memberless(m)));
     f
 }
 
@@ -2652,6 +2661,7 @@ impl Session {
             Vec::new()
         };
         let option_hops = self.take_option_hops(facts.option_hops);
+        let option_carried = self.take_option_carried(facts.option_carries);
         let mut frame = Frame {
             object,
             routine,
@@ -2660,6 +2670,7 @@ impl Session {
             aliases,
             var_lens,
             option_hops,
+            option_carried,
         };
         let is_try = facts.is_try;
         // [CommitBehavior] governs the whole dynamic extent of the procedure and ends when it
@@ -2915,6 +2926,9 @@ struct Frame {
     /// Per parameter: the caller handed this `var` Option parameter with members a variable the probes measure handing on
     /// to an event publisher with a memberless subscriber (set by `finish_call`, `var_option::option_hops_of`).
     option_hops: Vec<bool>,
+    /// Per parameter: this memberless `var` Option parameter holds a value from an origin the probe measures handing on to
+    /// a parameter with members (set by `finish_call` and `raise_to_subscribers`, `var_option::option_carried_of`).
+    option_carried: Vec<bool>,
 }
 
 fn int(v: &Value) -> Result<i64, Signal> {

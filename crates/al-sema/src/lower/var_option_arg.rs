@@ -14,6 +14,8 @@
 //! plain `:=` into an element of an array of memberless Options, lowered unconverted so the run tells
 //! the stored value's members apart, a variable of the routine's `var` section marked as
 //! `ir::Expr::VarSectionValue` (a whole array of Options with members into one without refuses).
+//! A memberless `var` parameter handed to a parameter with members is left to the run, which decides by
+//! the list the value carries (al-vm `var_option::carried_args`).
 //! Entry points: `Lowerer::var_option_arg_refusal` (the `var` argument loops of direct calls in
 //! `lower/call.rs` and of interface calls in `lower/convert.rs`), `memberless_option_array_assign`
 //! (`stmt.rs::assign`), `memberless_var_option_param` (also `evaluate_id.rs`).
@@ -130,7 +132,9 @@ impl Lowerer<'_> {
     /// - a parameter with members: a record field or an array element (the usual conversion, as on main); from a procedure
     ///   call, a variable of the `var` section with other members or without members (OVML:398, :432), a parameter passed by
     ///   value (OVMC:131, :215) and a global with members of the running object
-    ///   (OptionVarMemberlessUnheard.al:415, :423).
+    ///   (OptionVarMemberlessUnheard.al:415, :423); from a procedure call or an interface method, a memberless `var`
+    ///   parameter of the routine, which the run lets through or refuses by the list its value carries (al-vm
+    ///   `var_option::carried_args`, assumption var-option-carried-members, corpus PR 1569).
     /// - a procedure's `var` array parameter of memberless Options, the caller an array with members of the `var` section
     ///   or passed by value (OVML:468; OVMC:145).
     ///
@@ -184,6 +188,8 @@ impl Lowerer<'_> {
             },
             (false, has_memberless, false) => {
                 matches!(arg, ir::Arg::Ref(ir::Place::Field(..) | ir::Place::Index(..)))
+                    // The run decides by the list the value carries (al-vm `var_option::carried_args`).
+                    || caller == Caller::MemberlessVarParameter
                     || (call == Call::Procedure
                         && matches!(
                             (caller, has_memberless),

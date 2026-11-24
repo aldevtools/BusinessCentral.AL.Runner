@@ -26,8 +26,11 @@
 //! for the places `unheard_publisher_caller` names it returns the arguments whose write-back
 //! `interp.rs::write_backs` skips, and refuses every other place; and a memberless subscriber under a
 //! publisher with members unless the argument is a procedure's `var` parameter its caller handed a
-//! measured variable (`option_hops_of`, kept per frame in `Frame::option_hops`). The static side is
-//! al-sema `lower/var_option_arg.rs`.
+//! measured variable (`option_hops_of`, kept per frame in `Frame::option_hops`). A memberless `var`
+//! parameter handed on to a `var` parameter with members runs only for a value that carries the
+//! callee's own list from a measured origin (`carried_args`, the origins `option_carried_of` marks per
+//! frame in `Frame::option_carried`; assumption var-option-carried-members, corpus PR 1569). The static
+//! side is al-sema `lower/var_option_arg.rs`.
 
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::builtin_id::{BuiltinId, ids};
@@ -668,5 +671,112 @@ impl crate::Session {
                     })
                 })
             })
+    }
+}
+
+/// The refusal of a memberless `var` parameter handed on to a `var` Option parameter with members (`Session::carried_args`).
+const CARRIED_REFUSED: &str = "an Option a `var` parameter declared without members hands on to a `var` Option parameter with members, from a caller the probe does not measure (not pinned)";
+
+/// Whether routine `r` of an object of kind `kind`, with no attribute but those named in `allowed`, is one the carried-members cells
+/// measure (corpus PR 1569, OptionVarMembersCallee.al, OptionVarMembersBatch.al): a codeunit's or a table's.
+fn carried_routine(kind: al_ir::ObjKind, r: &al_ir::Routine, allowed: &[&str]) -> bool {
+    matches!(kind, al_ir::ObjKind::Codeunit | al_ir::ObjKind::Table)
+        && r.attributes
+            .iter()
+            .all(|a| allowed.iter().any(|n| a.name.eq_ignore_ascii_case(n)))
+}
+
+impl crate::Session {
+    /// The marks `finish_call` or `raise_to_subscribers` left for the frame of a routine with memberless `var` Option
+    /// parameters (`option_carried_of`); empty for any other routine.
+    pub(crate) fn take_option_carried(&mut self, wanted: bool) -> Vec<bool> {
+        if wanted {
+            std::mem::take(&mut self.events.next_option_carried)
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Per parameter of `routine` of `object`, called from frame `f` with `args`: whether its `var` Option parameter declared
+    /// without members takes a value whose origin the carried-members cells measure (`Frame::option_carried`, read by
+    /// `carried_args`; assumption var-option-carried-members, corpus PR 1569): a variable with members of the `var` section
+    /// of a codeunit procedure (no attribute, or `Test`; OptionVarMembersCallee.al VarHop_Same_*, OptionVarMembersBatch.al
+    /// `RunBatch`), or a memberless `var` parameter of the caller that holds one (the hops, two hops, the subscriber of
+    /// BatchEvent_*). Not through an interface method (no cell hops through one).
+    pub(crate) fn option_carried_of(
+        &self,
+        object: usize,
+        routine: usize,
+        args: &[al_ir::Arg],
+        f: &crate::Frame,
+    ) -> Vec<bool> {
+        let program = &self.engine.program;
+        let r = &program.objects[object].routines[routine];
+        let caller = &program.objects[f.object].routines[f.routine];
+        let kind = program.objects[f.object].kind;
+        (0..r.params.min(args.len()))
+            .map(|i| {
+                let (Some(true), RtType::Option(d)) = (r.by_var.get(i).copied(), &r.locals[i].ty) else {
+                    return false;
+                };
+                if !memberless(d) || self.next_interface_call {
+                    return false;
+                }
+                match &args[i] {
+                    al_ir::Arg::Ref(al_ir::Place::Local(s)) if *s >= caller.params && Some(*s) != caller.ret_local => {
+                        kind == al_ir::ObjKind::Codeunit
+                            && carried_routine(kind, caller, &["Test"])
+                            && matches!(&caller.locals[*s].ty, RtType::Option(m) if !memberless(m))
+                    }
+                    al_ir::Arg::Ref(al_ir::Place::Local(s)) if *s < caller.params => {
+                        f.option_carried.get(*s) == Some(&true) && carried_routine(kind, caller, &["EventSubscriber"])
+                    }
+                    _ => false,
+                }
+            })
+            .collect()
+    }
+
+    /// The refusal of a call of `routine` of `object` (no publisher) that hands frame `f`'s memberless `var` Option
+    /// parameter, holding `values[i]`, to its `var` Option parameter `i` with members (al-sema `var_option_arg_refusal` leaves
+    /// it to the run). BC's callee reads the member list the value carries (corpus PR 1569, OptionVarMembersCallee.al header);
+    /// the run binds the parameter's own list, the same only when the value carries exactly it. Runs then, through
+    /// assumption var-option-carried-members, for a value `option_carried_of` marked, a callee and a caller of a codeunit or a
+    /// table with no attribute (an interface method a codeunit implements included): VarHop_Same_*, BatchEvent_*. Every other
+    /// such argument refuses: another list or none carried (VarHop_Memberless_*, VarHop_Other_*, BatchQueued_*: measured,
+    /// not modelled), an unmarked origin.
+    pub(crate) fn carried_args(
+        &self,
+        object: usize,
+        routine: usize,
+        args: &[al_ir::Arg],
+        values: &[Value],
+        f: &crate::Frame,
+    ) -> Result<(), Signal> {
+        let program = &self.engine.program;
+        let r = &program.objects[object].routines[routine];
+        let caller = &program.objects[f.object].routines[f.routine];
+        for i in 0..r.params.min(args.len()) {
+            let (Some(true), RtType::Option(d), al_ir::Arg::Ref(al_ir::Place::Local(s))) =
+                (r.by_var.get(i).copied(), &r.locals[i].ty, &args[i])
+            else {
+                continue;
+            };
+            let hop = *s < caller.params
+                && caller.by_var.get(*s) == Some(&true)
+                && matches!(&caller.locals[*s].ty, RtType::Option(m) if memberless(m));
+            if memberless(d) || !hop {
+                continue;
+            }
+            let measured = f.option_carried.get(*s) == Some(&true)
+                && matches!(values.get(i), Some(Value::Option(_, has)) if has == d)
+                && carried_routine(program.objects[object].kind, r, &[])
+                && carried_routine(program.objects[f.object].kind, caller, &[]);
+            if !measured {
+                return Err(Signal::unsupported(CARRIED_REFUSED));
+            }
+            assume(Assumption::VarOptionCarriedMembers);
+        }
+        Ok(())
     }
 }

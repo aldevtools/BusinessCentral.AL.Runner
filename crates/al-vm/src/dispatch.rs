@@ -78,6 +78,19 @@ impl Session {
         let lens = std::mem::take(&mut self.events.publisher_var_lens);
         let engine = self.engine.clone();
         let p = &engine.events.publishers[&(object, routine)];
+        // The origin marks reach the subscribers only under the event contract of OptionVarMembersBatch.al (corpus PR 1569):
+        // a codeunit's `IntegrationEvent(true, false)`, not isolated (`var_option::option_carried_of`).
+        let carried = std::mem::take(&mut self.events.publisher_option_carried);
+        let carried = if p.kind == crate::events::EventKind::Integration
+            && p.include_sender
+            && !p.global_var_access
+            && !p.isolated
+            && engine.program.objects[object].kind == al_ir::ObjKind::Codeunit
+        {
+            carried
+        } else {
+            Vec::new()
+        };
         self.note_event(p.object, &p.event, None);
         let r = &engine.program.objects[object].routines[routine];
         let blob_publisher = crate::blob_transfer::measured_publisher(engine.program.objects[object].kind, r);
@@ -190,7 +203,9 @@ impl Session {
         self.events.sender_refused = sender_refused;
         self.events.var_origins = origins;
         self.events.publisher_var_lens = lens;
+        self.events.publisher_option_carried = carried;
         let raised = self.raise(&call, &mut values);
+        self.events.publisher_option_carried.clear();
         self.events.sender_refused = None;
         self.events.publish_frame = false;
         self.profile_leave();
@@ -265,6 +280,7 @@ impl Session {
         // PYC_MaxStrLen_EventSubscriberVarParameter: `direct raise field text100` = 100, `subscriber via var param text30` =
         // 30). An event the platform raises has none: MaxStrLen refuses there when it runs.
         let lens = std::mem::take(&mut self.events.publisher_var_lens);
+        let carried = std::mem::take(&mut self.events.publisher_option_carried);
         // The publisher's global a `var` argument names is the variable itself while the event runs: whoever changes it (a subscriber
         // through its parameter, or through the sender) changes what the next subscriber receives and what the publisher's caller sees.
         let refresh = |args: &mut [Value]| {
@@ -357,6 +373,16 @@ impl Session {
                     .map(|m| m.and_then(|j| lens.get(j).copied().flatten()))
                     .collect();
             }
+            // A static subscriber of a codeunit takes the publisher's origin marks (`var_option::option_carried_of`).
+            if engine.routine_facts(s.object, s.routine).option_carries
+                && !s.manual
+                && engine.program.objects[s.object].kind == al_ir::ObjKind::Codeunit
+            {
+                self.events.next_option_carried = map
+                    .iter()
+                    .map(|m| m.is_some_and(|j| carried.get(j) == Some(&true)))
+                    .collect();
+            }
             self.events.next_is_subscriber = true;
             self.events.next_event_args = self.event_args(by_value_publisher.as_ref(), &s, &map, subscribers);
             self.events.next_blob_event = crate::blob_transfer::measured_subscriber(blob_publisher, s.manual);
@@ -374,6 +400,7 @@ impl Session {
             let watch = trial.then(|| self.trial_start());
             let called = self.call(s.object, s.routine, inst, call_args);
             self.events.subscriber_stack.pop();
+            self.events.next_option_carried.clear();
             if let Some(w) = watch {
                 let is_sender: Vec<bool> = map.iter().map(Option::is_none).collect();
                 let after = called.as_ref().ok().map(|(_, f)| f.as_slice());

@@ -500,6 +500,12 @@ pub(crate) struct EventState {
     pub(crate) next_var_lens: Vec<Option<i32>>,
     /// Set by `finish_call` just before the call, taken by the callee's frame (`Frame::option_hops`).
     pub(crate) next_option_hops: Vec<bool>,
+    /// Set by `finish_call` (by `raise_to_subscribers` for a subscriber) just before the call, taken by the callee's frame
+    /// (`Frame::option_carried`).
+    pub(crate) next_option_carried: Vec<bool>,
+    /// A publisher's marks of `var_option::option_carried_of`, set by `finish_call` and taken by `publish` and
+    /// `raise_to_subscribers`, under the measured event contract only.
+    pub(crate) publisher_option_carried: Vec<bool>,
     /// The declared lengths of a publisher's `var` Text and Code arguments (`var_lens_of`), set by `finish_call` just before
     /// the publisher runs and taken by `publish`, which hands them to the subscribers that read them.
     pub(crate) publisher_var_lens: Vec<Option<i32>>,

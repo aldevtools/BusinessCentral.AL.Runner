@@ -913,6 +913,10 @@ impl Session {
         // A publisher's `var` argument that is a global of the caller's instance is that variable itself for its subscribers
         // (events/binding-senders/EventVarThroughSender.al): they alias it, see `Frame::aliases`.
         let facts = self.engine.routine_facts(object, routine);
+        // A memberless `var` Option parameter of the caller handed to one with members (`var_option::carried_args`).
+        if facts.option_hops {
+            self.carried_args(object, routine, args, &values, f)?;
+        }
         let mut kept = Vec::new();
         let mut heard = Vec::new();
         if facts.publisher {
@@ -949,6 +953,15 @@ impl Session {
         if facts.option_hops && !self.next_interface_call {
             self.events.next_option_hops = self.option_hops_of(object, routine, args, &values, f);
         }
+        // The origin marks of a memberless `var` Option parameter (`var_option::option_carried_of`).
+        if facts.option_carries {
+            let carried = self.option_carried_of(object, routine, args, f);
+            if facts.publisher {
+                self.events.publisher_option_carried = carried;
+            } else {
+                self.events.next_option_carried = carried;
+            }
+        }
         let var_lens = facts.var_lens;
         if var_lens {
             self.events.next_var_lens = self.var_lens_of(object, routine, args, f);
@@ -981,6 +994,10 @@ impl Session {
         }
         if facts.option_hops {
             self.events.next_option_hops.clear();
+        }
+        if facts.option_carries {
+            self.events.next_option_carried.clear();
+            self.events.publisher_option_carried.clear();
         }
         if var_lens {
             self.events.next_var_lens.clear();
