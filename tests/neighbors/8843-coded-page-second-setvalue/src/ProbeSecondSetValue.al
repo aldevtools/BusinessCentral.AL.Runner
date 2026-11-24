@@ -866,6 +866,18 @@ codeunit 96575 "LT NV3 Tests"
         Check('stamps', 'Value V;', Stamps());
     end;
 
+    // The test writes the row between the two SetValues (review of al-runner PR 8847, 01:00Z): the page's save writes its Rec over it.
+    [Test]
+    [HandlerFunctions('OutsideHandler')]
+    procedure NewLine_SecondSetValueAfterTheTestWroteTheRow_SavesThePageRecord()
+    begin
+        Initialize();
+        RunVar(1, false);
+        Check('shown', 'name=A/Resolved/Stamped//Noted value=A/Resolved/Stamped/V//Noted part=Resolved/Stamped/A usage=2 ', Shown);
+        Check('rows', 'A/Resolved/Stamped/V/;', Rows());
+        Check('stamps', '', Stamps());
+    end;
+
     [ModalPageHandler]
     procedure LinesHandler(var Lines: TestPage "LT NV3 Lines")
     begin
@@ -897,6 +909,24 @@ codeunit 96575 "LT NV3 Tests"
         Lines.New();
         Lines.Name.SetValue('A');
         Shown += 'name=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + '/' + Lines.Kind.Value() + ' ';
+        Lines.Value.SetValue('V');
+        Shown += 'value=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + '/' + Lines.Shown.Value() + '/' + Lines.Kind.Value();
+        Shown += ' part=' + Lines.Info.Note.Value() + '/' + Lines.Info.Mark.Value() + '/' + Lines.Info.Info.Value() + ' usage=' + Lines.Usage.Usage.Value() + ' ';
+        Lines.OK().Invoke();
+    end;
+
+    [ModalPageHandler]
+    procedure OutsideHandler(var Lines: TestPage "LT NV3 Var Lines")
+    var
+        Line: Record "LT NV3 Line";
+    begin
+        Lines.New();
+        Lines.Name.SetValue('A');
+        Shown += 'name=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + '/' + Lines.Kind.Value() + ' ';
+        Line.SetRange("Group Code", 'G1');
+        Line.FindFirst();
+        Line.Mark := 'Outside';
+        Line.Modify();
         Lines.Value.SetValue('V');
         Shown += 'value=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + '/' + Lines.Shown.Value() + '/' + Lines.Kind.Value();
         Shown += ' part=' + Lines.Info.Note.Value() + '/' + Lines.Info.Mark.Value() + '/' + Lines.Info.Info.Value() + ' usage=' + Lines.Usage.Usage.Value() + ' ';

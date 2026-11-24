@@ -7,7 +7,7 @@
   "runtime": "16.0",
   "target": "OnPrem",
   "idRanges": [
-    { "from": 96560, "to": 96578 }
+    { "from": 96560, "to": 96578 }, { "from": 96580, "to": 96599 }
   ],
   "dependencies": []
 }
