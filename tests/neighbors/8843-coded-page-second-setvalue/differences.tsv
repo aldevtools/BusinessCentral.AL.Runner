@@ -15,3 +15,4 @@ LT NV5 Rel Stored Tests::NewLine_LaterSetValueOfAStoredRelatedValue_ShowsAndSave
 LT NV5 Between Tests::NewLine_RowWrittenBetweenTheTwoSetValues_ShowsTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1541, open: ListNewLineExtraCodeCodedSecondSetValue.al)
 LT NV5 Rel Missing Tests::NewLine_LaterSetValueOfAMissingRelatedValue_SavesItAsTyped	REFUSED a SetValue, after the landing on a List page with code and FactBoxes, into a control with a TableRelation
 LT NV5 Rel Case Tests::NewLine_LaterSetValueOfARelatedValueInAnotherCase_SavesItAsTyped	REFUSED a SetValue, after the landing on a List page with code and FactBoxes, into a control with a TableRelation
+LT NV5 Code Rel Tests::NewLine_LaterSetValueIntoARelationWithACodeKey_ShowsAndSavesTheRow	REFUSED a SetValue, after the landing on a List page with code and FactBoxes, into a control with a TableRelation
