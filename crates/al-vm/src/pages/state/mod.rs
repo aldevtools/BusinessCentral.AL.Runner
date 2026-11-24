@@ -267,7 +267,7 @@ impl CodedObjects {
 
     /// Whether `OK()` after the landing and `steps` later SetValues is measured: after any of them on the probe's page (:1407
     /// `ok=`), after the one Value on the repro's (:646); on a page of their shape only after the SetValue of a control without
-    /// code (`FactboxStep::Typed`).
+    /// code (`FactboxStep::CodedExtraTyped`).
     pub fn ok_after(self, steps: u8) -> bool {
         match self {
             Self::Probe => true,
