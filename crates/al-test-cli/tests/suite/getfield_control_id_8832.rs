@@ -163,16 +163,52 @@ fn an_extension_field_with_an_area_is_found_by_the_extensions_id() {
     assert!(cells.len() == 2 && bad.is_empty(), "{cells:#?}");
 }
 
-/// Just past the cells of 8944: the same field on a List, a field with ApplicationArea = Suite, a hidden one, and Caption
-/// through GetField refuse (BC: `Gamma`, `Gamma`, not found, `Note`).
+/// How the refusals of a page extension's field by the extension's id start.
+const EXT_AREA: &str =
+    "TestPage.GetField with the id of a page extension's field with ApplicationArea = All, on a page kind";
+const EXT_OTHER_AREA: &str =
+    "TestPage.GetField with the id of a page extension's field with an ApplicationArea other than All";
+
+/// Just past the cells of 8944, each measured on BC 29.1: the field with ApplicationArea = All on a List (BC `Gamma`), on a Card
+/// that states no ApplicationArea (BC `Gamma`), hidden (BC not found), a part a page extension adds with ApplicationArea = All
+/// (BC an empty field), a field with ApplicationArea = Suite (BC `Gamma`), and Caption through GetField (BC `Note`): each
+/// refuses with its own reason.
 #[test]
 fn extension_field_neighbors_refuse() {
     let src = format!(
+        "{}\n{}\n{}",
+        include_str!("../../../../tests/neighbors/8944-getfield-extension-field/src/Repro.al"),
+        include_str!("../../../../tests/neighbors/8944-getfield-extension-field/src/Neighbors.al"),
+        include_str!("../../../../tests/neighbors/8944-getfield-extension-field/src/AreaNeighbors.al")
+    );
+    let mut o = outcomes(&src, "Repro ExtField Neighbors");
+    o.extend(outcomes(&src, "Repro ExtField Area Neighbors"));
+    let bad: Vec<_> = o
+        .iter()
+        .filter(|(n, r, _)| {
+            let why = match n.as_str() {
+                "CardExtensionFieldSuiteArea" => EXT_OTHER_AREA,
+                "CardExtensionFieldCaption" => "TestField.Caption on what TestPage.GetField found by a control id",
+                _ => EXT_AREA,
+            };
+            !matches!(r, Outcome::NotRun(w) if w.starts_with(why))
+        })
+        .collect();
+    assert!(o.len() == 6 && bad.is_empty(), "{o:#?}");
+}
+
+/// The reporter's test of 8944 on a BC version the cells do not measure (26) refuses.
+#[test]
+fn an_extension_field_with_an_area_refuses_on_an_unmeasured_version() {
+    let src = format!(
         "{}\n{}",
         include_str!("../../../../tests/neighbors/8944-getfield-extension-field/src/Repro.al"),
-        include_str!("../../../../tests/neighbors/8944-getfield-extension-field/src/Neighbors.al")
+        include_str!("../../../../tests/neighbors/8944-getfield-extension-field/src/ReproTests.al")
     );
-    let o = outcomes(&src, "Repro ExtField Neighbors");
-    let bad: Vec<_> = o.iter().filter(|(_, r, _)| !matches!(r, Outcome::NotRun(_))).collect();
-    assert!(o.len() == 4 && bad.is_empty(), "{o:#?}");
+    let target = al_version::Target::for_bc(al_version::BcVersion::parse("26.5").unwrap());
+    let o = al_testkit::outcomes_in_with(&src, "Repro ExtField Tests", |e| e.target = Some(target));
+    assert!(
+        o.len() == 1 && matches!(&o[0].1, Outcome::NotRun(w) if w.starts_with(EXT_AREA)),
+        "{o:#?}"
+    );
 }

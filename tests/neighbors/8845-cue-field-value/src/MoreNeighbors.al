@@ -1,5 +1,6 @@
 // Neighbors just past the cue cells of GetFieldByControlId.al :2116-:2216 (corpus pull request 1538): a CardPart shown by a
-// Document page instead of a Card, and a DateFormula field and a Boolean field in a wide cuegroup on a List instead of a Card.
+// Document page instead of a Card, and a DateFormula field and a Boolean field in a wide cuegroup on a List instead of a Card;
+// and, past :3159, a Code field of a CardPart read by its id through the TestPart of the Card that shows it.
 // Each test asserts what Business Central 29.1 answered (3 runs). In a codeunit of its own: a refused test stops the rest of
 // its codeunit.
 
@@ -118,6 +119,18 @@ codeunit 97722 "LT CFN More Tests"
         Pg.OpenView();
         Note('value', Pg.WideFlag.Value());
         Pg.Close();
+        Expect('value', '0');
+    end;
+
+    [Test]
+    procedure PartThroughHostCueCode_ValueById()
+    var
+        Host: TestPage "LT CFN Host";
+    begin
+        Initialize();
+        Host.OpenView();
+        Note('value', Host.CuePart.GetField(1598725660).Value());
+        Host.Close();
         Expect('value', '0');
     end;
 }

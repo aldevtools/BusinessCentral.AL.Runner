@@ -26,15 +26,21 @@ fn issue_8845_repro_passes() {
 
 /// The cue cells pass under both entries: each type by its name and through GetField on a Card (:742), a CardPart (:856), a
 /// ListPart (:923), a List (:990) and a Document (:2116), the Text field of :653, and a DateFormula and a wide Boolean on a Card
-/// (:2216); on the CardPart read through a Card (:2166, by name) under the cue entry. On a RoleCenter (:1076), where BC finds no
-/// such field, the read refuses.
+/// (:2216), also a blank formula and false (:3209); on the CardPart read through a Card by name (:2166) under the cue entry, and
+/// by id through the TestPart (:3159) under both. On a RoleCenter (:1076), where BC finds no such field, the read refuses.
 #[test]
 fn cue_cells_pass() {
     let mut o = outcomes(PROBE, "LT GFI Tests");
     o.extend(outcomes(PROBE, "LT GFI Cue More Tests"));
+    o.extend(outcomes(PROBE, "LT GFI Cue Review Tests"));
     let cue: Vec<_> = o
         .iter()
-        .filter(|(n, ..)| n.starts_with("CueTypes") || n.starts_with("CueDateFormula") || n == "CueCard_CueField")
+        .filter(|(n, ..)| {
+            n.starts_with("CueTypes")
+                || n.starts_with("CueDateFormula")
+                || n.starts_with("CueBlankDateFormula")
+                || n == "CueCard_CueField"
+        })
         .collect();
     let bad: Vec<_> = cue
         .iter()
@@ -51,13 +57,14 @@ fn cue_cells_pass() {
             }
         })
         .collect();
-    assert!(cue.len() == 9 && bad.is_empty(), "{cue:#?}");
+    assert!(cue.len() == 11 && bad.is_empty(), "{cue:#?}");
 }
 
 /// The neighbors past the cells, each measured on BC: the shapes main refused and the cells of :2116-:2216 measure pass under the
 /// entry (a DateFormula field in a cuegroup, a Boolean field in a wide one, a Code field and a wide Integer on a Document page and
-/// in a CardPart read through a Card, the wide Integer on the Card); just past them a CardPart a Document shows, and a DateFormula
-/// and a wide Boolean on a List, refuse (BC shows `0` for each).
+/// in a CardPart read through a Card, the wide Integer on the Card), and a Code field of a CardPart read by its id through the
+/// Card's TestPart (:3159); just past them a CardPart a Document shows, and a DateFormula and a wide Boolean on a List, refuse
+/// (BC shows `0` for each).
 #[test]
 fn neighbors_past_the_cells() {
     let src = include_str!("../../../../tests/neighbors/8845-cue-field-value/src/Neighbors.al");
@@ -68,9 +75,15 @@ fn neighbors_past_the_cells() {
     let bad: Vec<_> = o
         .iter()
         .filter(|(_, r, marks)| *r != Outcome::Pass || *marks != [CuegroupFieldValue])
-        .chain(more.iter().filter(
-            |(_, r, _)| !matches!(r, Outcome::NotRun(why) if why.starts_with("Value of a field control in a cuegroup")),
-        ))
+        .chain(more.iter().filter(|(n, r, marks)| match n.as_str() {
+            "PartThroughHostCueCode_ValueById" => {
+                *r != Outcome::Pass
+                    || !(marks.len() == 2
+                        && marks.contains(&CuegroupFieldValue)
+                        && marks.contains(&TestPageGetFieldControlId))
+            }
+            _ => !matches!(r, Outcome::NotRun(why) if why.starts_with("Value of a field control in a cuegroup")),
+        }))
         .collect();
-    assert!(o.len() == 7 && more.len() == 3 && bad.is_empty(), "{o:#?} {more:#?}");
+    assert!(o.len() == 7 && more.len() == 4 && bad.is_empty(), "{o:#?} {more:#?}");
 }
