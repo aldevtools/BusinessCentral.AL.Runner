@@ -334,21 +334,15 @@ impl Session {
         self.alias_any(f)?;
         let globals = f.instance.borrow().globals.clone();
         let bound = self.clear_all_bound_globals(&globals, &keep, true)?;
-        let keep: Vec<usize> = keep.into_iter().chain(bound).collect();
+        let mut keep: Vec<usize> = keep.into_iter().chain(bound).collect();
+        keep.extend(self.clear_all_in_place(object, &globals, &keep)?);
+        let kept_tables = self.clear_all_temp_arrays(object, &globals, &keep)?;
         let fresh = self.slot_defaults(&o.globals);
         let mut inst = f.instance.borrow_mut();
         for (i, v) in fresh.into_iter().enumerate() {
             if !keep.contains(&i) {
-                // A global temporary record keeps its rows, as Clear leaves them
-                // (types/ProbeTypeFormsAndFilters.al:Clear_TemporaryRecordWithRows_ThenCount); ClearAll does the same: real BC 29
-                // keeps both rows of a codeunit's global temporary record and drops its filter, called directly and through
-                // Codeunit.Run (record/PriorityAssumptions.al:247-281, ClearAll_TemporaryGlobalRecord_*).
-                // Pinned for a codeunit's global; the same for a report, a page or a record shared through Copy is not.
-                if let (Value::Record(old), Value::Record(new)) = (&inst.globals[i], &v) {
-                    let id = old.borrow().temp_id.clone();
-                    if id.is_some() && old.borrow().temporary {
-                        new.borrow_mut().temp_id = id;
-                    }
+                if !matches!(v, Value::Array(_)) || kept_tables.contains(&i) {
+                    keep_temp_table(&inst.globals[i], &v);
                 }
                 inst.globals[i] = v;
             }
@@ -949,6 +943,9 @@ impl Session {
         if facts.option_hops && !self.next_interface_call {
             self.events.next_option_hops = self.option_hops_of(object, routine, args, &values, f);
         }
+        if facts.var_codeunits {
+            self.events.next_var_codeunits = self.var_codeunits_of(object, routine, args, &values, f);
+        }
         let var_lens = facts.var_lens;
         if var_lens {
             self.events.next_var_lens = self.var_lens_of(object, routine, args, f);
@@ -981,6 +978,9 @@ impl Session {
         }
         if facts.option_hops {
             self.events.next_option_hops.clear();
+        }
+        if facts.var_codeunits {
+            self.events.next_var_codeunits.clear();
         }
         if var_lens {
             self.events.next_var_lens.clear();
@@ -2461,4 +2461,32 @@ fn stored_as_is(v: &Value) -> bool {
                 _
             )
     )
+}
+
+/// `ClearAll` gives global `new`, the fresh value that replaces `old`, the temporary table of `old` when `old` is a
+/// temporary record, and each element of an array of temporary records the table of its old element (the elements share
+/// one table; `Session::clear_all_temp_arrays` names the arrays of an owner that keep theirs, and a store reset in place
+/// keeps its own, `Session::reset_keeping_rows`): a global temporary record keeps its rows, as Clear leaves them
+/// (types/ProbeTypeFormsAndFilters.al:Clear_TemporaryRecordWithRows_ThenCount); ClearAll does the same: real BC 29 keeps both
+/// rows of a codeunit's global temporary record and drops its filter, called directly and through Codeunit.Run
+/// (record/PriorityAssumptions.al:247-281, ClearAll_TemporaryGlobalRecord_*). Pinned for a codeunit's global temporary record;
+/// the same for a report's or a page's is not. An array keeps its table only in the cells `Session::clear_all_temp_arrays`
+/// names (assumption clear-shared-codeunit).
+pub(crate) fn keep_temp_table(old: &Value, new: &Value) {
+    match (old, new) {
+        (Value::Record(old), Value::Record(new)) => {
+            let id = old.borrow().temp_id.clone();
+            if id.is_some() && old.borrow().temporary {
+                new.borrow_mut().temp_id = id;
+            }
+        }
+        (Value::Array(old), Value::Array(new)) => {
+            for (o, n) in old.borrow().iter().zip(new.borrow().iter()) {
+                if matches!((o, n), (Value::Record(_), Value::Record(_))) {
+                    keep_temp_table(o, n);
+                }
+            }
+        }
+        _ => {}
+    }
 }

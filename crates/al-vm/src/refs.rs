@@ -1029,7 +1029,7 @@ impl Session {
                 let t = self.table(&dst)?;
                 let mut forwarded = vec![Value::Record(src)];
                 forwarded.extend(args.get(1).cloned());
-                return self.record_meta_op(RecordOp::Copy, &dst, &t, &mut forwarded);
+                return self.record_ref_copy(&dst, &t, &forwarded);
             }
 
             "Number" => match &*lib.borrow() {

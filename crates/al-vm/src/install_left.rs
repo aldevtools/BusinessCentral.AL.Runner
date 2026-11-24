@@ -374,6 +374,7 @@ impl Session {
             // Carried in InstallLeft.
             type_origin: _,
             test_ended,
+            saved_types,
             runner_tx_rolled_back,
             lock_timeout,
             lock_timeout_duration,
@@ -404,6 +405,7 @@ impl Session {
         let fresh = crate::state::TxState::fresh();
         *tx_world == fresh.tx_world
             && !test_ended
+            && saved_types.is_empty()
             && !runner_tx_rolled_back
             && *commit_behavior == fresh.commit_behavior
             && *phase == fresh.phase
