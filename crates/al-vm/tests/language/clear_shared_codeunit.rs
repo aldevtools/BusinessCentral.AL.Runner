@@ -784,7 +784,10 @@ fn clear_all_of_a_temp_table_shared_other_than_by_copy_refuses() {
     // another target, refuse.
     for cell in ["ArrSharedByChainedCopySi", "ArrSharedByTwoCopiesSi"] {
         let (got, _) = temp_store(cell);
-        assert!(got.contains("a temporary table that another record shares"), "{cell}: {got}");
+        assert!(
+            got.contains("a temporary table that another record shares"),
+            "{cell}: {got}"
+        );
     }
 }
 
