@@ -681,6 +681,14 @@ to the newest main commit with green CI on a push (never a force push), and call
 It pushes with GITHUB_TOKEN, so CI does not run twice on the same commit. A person's push to `release` works
 as before. Named alphas stay manual.
 
+### Owner decision (2026-11-24): a push to `release` no longer publishes edge
+
+`edge.yml` loses its `workflow_run` trigger (CI green on a push to `release`). Every edge build now comes from
+`nightly-edge.yml`, which the local edge check starts with the commit it compared. Reason: the push of
+`release` for alpha.15 on 2026-11-22 published an edge build that the check had not compared, and every later
+check compared against it. A numbered alpha or a hotfix still pushes `release` and runs CI; edge follows only
+through `nightly-edge.yml`. The text above that says a push to `release` builds edge describes the earlier state.
+
 ### Owner decision (2026-10-21): the binary is `al-runner`
 
 - The binary `alrunner` becomes `al-runner`: the Cargo bin name, the `--version` line

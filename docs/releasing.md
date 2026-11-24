@@ -7,8 +7,12 @@ Rules:
 
 - `release` is fast-forwarded from `main`. Nobody commits on it directly, except
   for a hotfix (below).
-- The `edge` pre-release is the newest build of `release`. Each build replaces
-  the assets of the one release named `edge` and moves its tag.
+- The `edge` pre-release is a build of `release`. Each build replaces
+  the assets of the one release named `edge` and moves its tag. Only
+  `nightly-edge.yml` publishes it. A push to `release` (a numbered alpha, a
+  hotfix) runs CI but no longer publishes edge (owner decision 2026-11-24): on
+  2026-11-22 the push for alpha.15 published an edge build that the local check
+  had not compared.
 - `nightly-edge.yml` has no schedule (owner decision 2026-11-08): every edge build
   goes through a local check that compares the candidate with the previous edge on
   large test suites, and then starts the workflow with that commit as `sha`. Before
@@ -43,24 +47,21 @@ Rules:
 
 ## 1. A new edge build
 
-The nightly run does this by itself, from the newest commit whose scheduled CI
-run passed. To get a build sooner, run "Nightly edge" from the Actions tab
-(workflow_dispatch): it builds the newest commit of `main` whose CI passed on a
-push. Or push `release` by hand:
-
-1. Check that CI is green on the `main` commit you want.
-2. `git fetch origin`
-3. `git push origin origin/main:refs/heads/release`
-4. CI runs on `release`. When it passes, the Edge workflow builds the four
-   targets, smoke tests them and replaces the `edge` assets.
-5. If the push is refused (not a fast-forward), see "Hotfix" below.
+The local edge check starts "Nightly edge" with the commit it compared as
+`sha`. "Nightly edge" fast-forwards `release` to that commit and calls the Edge
+workflow, which builds the four targets, smoke tests them and replaces the
+`edge` assets. A run of "Nightly edge" from the Actions tab without `sha` builds
+the newest commit of `main` whose CI passed on a push. Pushing `release` by hand
+does not publish edge.
 
 ## 2. A numbered alpha
 
 1. On `main`, change `version` in `[workspace.package]` of `Cargo.toml`, for
    example to `3.0.0-alpha.2`. Run `cargo check` so `Cargo.lock` follows.
 2. Commit and push to `main`. Wait for green CI.
-3. `git push origin origin/main:refs/heads/release` (as in section 1).
+3. `git fetch origin && git push origin origin/main:refs/heads/release`. This
+   publishes no edge build. If the push is refused (not a fast-forward), see
+   "Hotfix" below.
 4. `git fetch origin && git tag v3.0.0-alpha.2 origin/release`
 5. `git push origin v3.0.0-alpha.2`
 6. The Release workflow (`release-tag.yml`) checks that the tag equals the crate
@@ -94,13 +95,14 @@ signals), or `pack.sh VERSION DIST OUT` on downloaded release archives followed 
 
 1. `git checkout release && git pull --ff-only origin release`
 2. Commit the fix, or `git cherry-pick <commit>`.
-3. `git push origin release`. The edge build follows when CI passes.
+3. `git push origin release`. CI runs; no edge build follows. The next edge
+   build after the merge-back in step 5 goes through the local check as usual.
 4. For a numbered alpha, bump the version in that commit and tag it as in section 2.
 5. Merge back, so `release` can fast-forward again:
    `git checkout main && git pull --ff-only origin main && git merge release && git push origin main`
    This makes a merge commit on `main`.
 
-If the push in section 1 fails with "not a fast-forward", `release` has a hotfix
+If the push in section 2 fails with "not a fast-forward", `release` has a hotfix
 that `main` does not have. The merge-back in step 5 is missing. Do it, then push again.
 
 ## Dry runs

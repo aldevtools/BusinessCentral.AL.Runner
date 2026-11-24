@@ -10,9 +10,10 @@ name: Nightly edge
 # run whose commit is already the head of `release` but not yet on `edge` builds and publishes it
 # again without pushing `release`.
 #
-# The push to `release` uses GITHUB_TOKEN, so it does not start CI or edge.yml a second time.
-# That is wanted: the commit already passed CI on main. A person's push to `release` still
-# runs CI and then edge.yml, as before.
+# The push to `release` uses GITHUB_TOKEN, so it does not start CI a second time. That is wanted:
+# the commit already passed CI on main. A person's push to `release` still runs CI, but since
+# 2026-11-24 it no longer publishes edge (edge.yml has no workflow_run trigger): this workflow is
+# the only way edge is published.
 #
 # Which commit (owner decision 2026-11-04):
 #   - (Removed 2026-11-09, see `on:`.) The scheduled run (02:17 UTC) took the newest commit of main whose scheduled (nightly) CI run

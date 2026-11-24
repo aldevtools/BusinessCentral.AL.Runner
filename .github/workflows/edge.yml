@@ -1,18 +1,15 @@
 name: Edge
 
-# The rolling `edge` pre-release: the newest build of the `release` branch. When CI is green on a
-# push to `release`, this rebuilds the four targets and REPLACES the assets of the one pre-release
-# with the tag `edge`. The tag moves to the commit. No new tag or release per push, and edge is
-# never "latest". See docs/releasing.md.
-# nightly-edge.yml also calls this workflow (workflow_call) with the commit it fast-forwarded
-# `release` to. That commit already passed CI on main, so the call publishes without a second
-# CI run.
+# The rolling `edge` pre-release: a build of the `release` branch. This rebuilds the four targets
+# and REPLACES the assets of the one pre-release with the tag `edge`. The tag moves to the commit.
+# No new tag or release per build, and edge is never "latest". See docs/releasing.md.
+# Only nightly-edge.yml publishes, by calling this workflow (workflow_call) with the commit it
+# fast-forwarded `release` to. That commit passed CI on main and the local edge check, which
+# starts nightly-edge.yml with that commit. A push to `release` (a numbered alpha, a hotfix) no
+# longer publishes edge (owner decision 2026-11-24): on 2026-11-22 the push for alpha.15 published
+# an edge build that the edge check had not compared.
 
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
-    branches: [release]
   workflow_call:
     inputs:
       sha:
@@ -29,7 +26,7 @@ on:
 permissions:
   contents: read
 
-# A newer push cancels an older edge build.
+# A newer edge run cancels an older one.
 concurrency:
   group: edge
   cancel-in-progress: true
@@ -45,10 +42,6 @@ jobs:
       - id: plan
         env:
           EVENT: ${{ github.event_name }}
-          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
-          RUN_EVENT: ${{ github.event.workflow_run.event }}
-          BRANCH: ${{ github.event.workflow_run.head_branch }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           # Set only on a workflow_call (from nightly-edge.yml). There, github.event_name is the
           # caller's event (schedule or workflow_dispatch), so this input is checked first.
           CALL_SHA: ${{ inputs.sha }}
@@ -63,11 +56,8 @@ jobs:
             echo "Dry run: builds the selected commit, publishes nothing."
             echo "sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
             echo "publish=false" >> "$GITHUB_OUTPUT"
-          elif [ "$CONCLUSION" = success ] && [ "$RUN_EVENT" = push ] && [ "$BRANCH" = release ]; then
-            echo "sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
-            echo "publish=true" >> "$GITHUB_OUTPUT"
           else
-            echo "CI did not succeed on a push to release; nothing to do."
+            echo "Unexpected event $EVENT; nothing to do."
             echo "sha=" >> "$GITHUB_OUTPUT"
             echo "publish=false" >> "$GITHUB_OUTPUT"
           fi
