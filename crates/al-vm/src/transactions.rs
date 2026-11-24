@@ -10,6 +10,7 @@
 //! Entry points: `TxModel`, `CommitBehavior`, `codeunit_run`, `commit_transaction` (every commit and
 //! what it ends).
 
+use crate::consistent_marks::{RunArg, RunEnd};
 use crate::{AlError, Session, Signal};
 use al_builtins::builtin_id::ids;
 use al_builtins::native::unsupported;
@@ -313,9 +314,8 @@ impl Session {
         self.gate_used_try_write("COMMIT")?;
         // A table `Consistent(false)` marked fails the Commit (errors/CuCommitTests.al:405-419
         // Consistent_False_ThenCommit); `Consistent(true)` lifts the mark (:422-433).
-        self.refuse_commit_after_other_variable()?;
-        if let Some(m) = self.tx.open.inconsistent.first() {
-            return Err(self.inconsistent_error(m.table as usize));
+        if let Some(e) = self.commit_mark_error() {
+            return Err(e);
         }
         // A deferred duplicate-key Insert comes out here (corpus record/TestRecordRuntimeTextsAndViews.al:
         // Record_Insert_DuplicateKey_WithoutBlobField_IsDeferred_...: "raised by Commit").
@@ -331,33 +331,6 @@ impl Session {
         self.keep_type_at_commit();
         self.moment_after_commit();
         Ok(())
-    }
-
-    /// The error of a Commit while `Consistent(false)` marks `table` (errors/CuCommitTests.al:405-419). The
-    /// table is named in the text; only a table whose caption is its name is pinned.
-    pub(crate) fn inconsistent_error(&self, table: usize) -> Signal {
-        let t = &self.engine.program.objects[table];
-        let caption = t
-            .properties
-            .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case("Caption"))
-            .map(|(_, v)| v.trim().trim_matches('\'').to_string());
-        if caption.is_some_and(|c| c != t.name) {
-            return Signal::unsupported(format!(
-                "Commit after Consistent(false) on table {}, which has a caption other than its name (which one the error names is not pinned)",
-                t.name
-            ));
-        }
-        al_error_code(
-            &format!(
-                "The transaction cannot be completed because it will cause inconsistencies in the {} table. Check where and how \
-                 the CONSISTENT function is used in the transaction to find the reason for the error.\\\\Contact your system \
-                 administrator.\\\\Tables can be marked as inconsistent during comprehensive tasks, such as posting. This \
-                 prevents data from being updated incorrectly.",
-                t.name
-            ),
-            "DB:TableInConsistent",
-        )
     }
 
     /// The name of a table `Consistent(false)` marks in the open transaction, for the test runner's commit at the end of a
@@ -890,6 +863,7 @@ impl Session {
         // (codeunits/TestWriteTxTestBoundary.al:Test10_ARunCodeunitMayWriteUnderNone).
         let began_world = self.tx_model == TxModel::None && self.tx.tx_world == 0;
         let marks_before = if guarded { self.marks_at_run_start() } else { Vec::new() };
+        let run_arg = RunArg::of(record_arg);
         self.tx.tx_world += 1;
         if let Some(t) = self.tx.used_tries.last_mut() {
             t.runs += 1;
@@ -921,17 +895,17 @@ impl Session {
             t.runs -= 1;
         }
         self.tx.tx_world -= 1;
-        // The pin runs Codeunit.Run(Id) without a record, and an inner error it raises is the one of `Error`
-        // (errors/ConsistentGuardedRun.al:180, :100, :221-236).
-        let pinned_end =
-            record_arg.is_none() && (result.is_ok() || matches!(&result, Err(Signal::Error(e)) if e.code == "Dialog"));
-        if guarded && self.pages.bg_worker.is_none() && pinned_end {
-            if let Some(e) = self.guarded_run_end_marks(&marks_before, result.is_ok())? {
+        // What the run does with Consistent(false) marks as it ends (consistent_marks.rs); an inner refusal keeps its own reason.
+        let end = match &result {
+            Ok(_) => Some(RunEnd::Succeeded),
+            Err(Signal::Error(e)) => Some(RunEnd::Failed(&e.code)),
+            Err(_) => None,
+        };
+        if let Some(end) = end.filter(|_| guarded && self.pages.bg_worker.is_none()) {
+            let nested = !self.tx.guarded_runs.is_empty();
+            if let Some(e) = self.guarded_run_end_marks(&marks_before, end, run_arg, nested)? {
                 return Err(e);
             }
-        } else if guarded && self.pages.bg_worker.is_none() && matches!(&result, Ok(_) | Err(Signal::Error(_))) {
-            // Every other end of a run that leaves a mark is refused; an inner refusal keeps its own reason.
-            self.refuse_inconsistent_end("A guarded Codeunit.Run")?;
         }
 
         match result {
