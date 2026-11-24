@@ -429,8 +429,9 @@ impl Session {
     /// field's OnValidate itself, a TestField before the insert or an error after it (:1249, :1259); the landing control's own
     /// OnValidate before its save (:1269), or with the table field skipping its insert before or after the control's plain
     /// save (:1674, :1684; `PageState::control_failed_as_measured`, review of al-runner PR 8840, 07:30Z), whatever the control
-    /// wrote before it (:2121-:2231, review of 09:29Z). Any other stack
-    /// keeps main's way (review of al-runner PR 8840, 01:32Z).
+    /// wrote before it in the measured cells (:2121-:2231, review of 09:29Z). A control error must be an AL `Error` with a
+    /// text: the other error kinds are not pinned and go through `coded_must_have_landed`. Any other stack keeps main's way
+    /// (review of al-runner PR 8840, 01:32Z and 19:11Z).
     pub(super) fn coded_error_measured(&self, st: &St, e: &al_builtins::native::AlError) -> bool {
         let landing = match Self::test_calls(st).as_deref() {
             Some([TestCall::Page(PageMethod::New), TestCall::Write(landing)]) => *landing,
@@ -465,7 +466,10 @@ impl Session {
         match e.call_stack.lines().collect::<Vec<_>>().as_slice() {
             [inner, outer] => is(inner, &on_insert) && is(outer, &field_validate),
             [only] => {
-                is(only, &field_validate) || (is(only, &control_validate) && st.borrow().control_failed_as_measured)
+                is(only, &field_validate)
+                    || (is(only, &control_validate)
+                        && st.borrow().control_failed_as_measured
+                        && super::page_run_close::error_with_text(e))
             }
             _ => false,
         }
