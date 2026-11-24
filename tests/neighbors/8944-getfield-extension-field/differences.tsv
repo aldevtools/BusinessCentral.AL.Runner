@@ -11,3 +11,9 @@ Repro ExtField Neighbors::CardExtensionFieldHidden	REFUSED TestPage.GetField wit
 # Caption through GetField (BC `Note`) refuses on both from BC 27; from BC 28 the base did not find the field.
 Repro ExtField Neighbors::CardExtensionFieldCaption	REFUSED TestField.Caption on what TestPage.GetField found by a control id	28
 Repro ExtField Neighbors::CardExtensionFieldCaption	REFUSED TestField.Caption on what TestPage.GetField found by a control id	29
+# The review of 03:29Z (AreaNeighbors.al, measured on BC 29.1): a page extension's field with ApplicationArea = All on a Card that
+# states none (BC Gamma), and a part a page extension adds with ApplicationArea = All (BC an empty field), refuse; main answered
+# not found from BC 28, and on BC 27 found the field and refused the part.
+Repro ExtField Area Neighbors::PlainBaseCardExtensionFieldWithArea	REFUSED TestPage.GetField with the id of a page extension's field with ApplicationArea = All, on a page kind
+Repro ExtField Area Neighbors::ExtensionPartWithArea	REFUSED TestPage.GetField with the id of a page extension's field with ApplicationArea = All, on a page kind	28
+Repro ExtField Area Neighbors::ExtensionPartWithArea	REFUSED TestPage.GetField with the id of a page extension's field with ApplicationArea = All, on a page kind	29

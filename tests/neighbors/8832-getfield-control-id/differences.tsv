@@ -9,3 +9,6 @@ LT GFI Cue More Tests::CueDateFormulaAndWideBoolean_ValueByNameAndById	ASSUMED c
 LT GFI Kinds Tests::Worksheet_GetFieldExtensionFieldIds	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2576)
 LT GFI Ext Area Tests::Card_ExtensionFieldWithArea_ByEitherId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2804)	28
 LT GFI Ext Area Tests::Card_ExtensionFieldWithArea_ByEitherId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2804)	29
+# The cue cells of the review of 03:29Z (codeunit 97750): main refused them; the head reads each as BC does.
+LT GFI Cue Review Tests::CueTypesPartThroughHost_ValueById	ASSUMED cuegroup-field-value,testpage-getfield-control-id (corpus PR 1538 :3159)
+LT GFI Cue Review Tests::CueBlankDateFormulaAndWideFalse_ValueByNameAndById	ASSUMED cuegroup-field-value,testpage-getfield-control-id (corpus PR 1538 :3209)

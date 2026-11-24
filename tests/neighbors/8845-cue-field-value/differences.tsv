@@ -7,3 +7,5 @@ LT CFN Tests::CueDateFormula_Value	ASSUMED cuegroup-field-value (corpus PR 1538 
 LT CFN Tests::WideCueBoolean_Value	ASSUMED cuegroup-field-value (corpus PR 1538 :2216)
 LT CFN Wide Tests::DocumentWideInteger_Value	ASSUMED cuegroup-field-value (corpus PR 1538 :2116, WideIntValue)
 LT CFN Wide Tests::PartWideInteger_Value	ASSUMED cuegroup-field-value (corpus PR 1538 :2166, WideIntValue)
+# A Code field of a CardPart read by its id through the Card's TestPart, which :3159 measures: main refused it.
+LT CFN More Tests::PartThroughHostCueCode_ValueById	ASSUMED cuegroup-field-value,testpage-getfield-control-id (corpus PR 1538 :3159)
