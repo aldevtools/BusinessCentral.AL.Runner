@@ -109,6 +109,8 @@ pub mod impact;
 pub mod install_footprint;
 mod install_footprint_row_version;
 mod install_left;
+mod login_image;
+pub use login_image::{ImageSize, LoginImage, NotImaged, NotThawed};
 mod interfaces;
 mod isdirty;
 mod license_ceiling;
