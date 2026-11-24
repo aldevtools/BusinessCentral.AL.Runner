@@ -80,7 +80,7 @@ fn issue_8834_review_neighbors() {
                 .strip_suffix('"')
         })
         .collect();
-    assert_eq!(codeunits.len(), 20);
+    assert_eq!(codeunits.len(), 22);
     for cu in codeunits {
         let o = super::outside_fb_8712::outcomes(&src, cu);
         assert_eq!(o.len(), 1, "{cu}");
@@ -88,6 +88,11 @@ fn issue_8834_review_neighbors() {
         match cu {
             "LT NG3 Plain Tests" | "LT NG3 Auto Tests" => {
                 assert_eq!(*r, Outcome::Pass, "{name}");
+                assert!(!marks.contains(&ListNewLineExtraCodeCoded), "{name}: {marks:?}");
+            }
+            // A record in a secondary key or an ad hoc sort order keeps main's way (review of 02:53Z): main's refusal.
+            "LT NG4 Keyed Tests" | "LT NG4 Ad Hoc Tests" => {
+                assert!(matches!(r, Outcome::NotRun(_)), "{name}: {r:?}");
                 assert!(!marks.contains(&ListNewLineExtraCodeCoded), "{name}: {marks:?}");
             }
             _ => assert!(matches!(r, Outcome::NotRun(_)), "{name}: {r:?}"),

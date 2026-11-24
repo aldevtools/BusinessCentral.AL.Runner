@@ -204,6 +204,9 @@ pub enum FactboxStep {
     ExtraLanded,
     /// After that SetValue: reads, then `OK()` (ListNewLineExtraCodeFactbox.al:319-434, :664-837).
     ExtraTyped,
+    /// A page of the shape of the page with code (`CodedObjects::Extra`) after its one SetValue of a control without code:
+    /// reads, then `OK()` (ListNewLineExtraCodeCodedPage.al:762-809).
+    CodedExtraTyped,
     /// The page with code (`code_inserted_coded.rs`) after the landing and `steps` measured SetValues since: reads, a SetValue
     /// whose validation saves and refreshes the row again, or `OK()`.
     Coded { steps: u8 },
@@ -267,7 +270,7 @@ impl CodedObjects {
 
     /// Whether `OK()` after the landing and `steps` later SetValues is measured: after any of them on the probe's page (:1407
     /// `ok=`), after the one Value on the repro's (:646); on a page of their shape only after the SetValue of a control without
-    /// code (`FactboxStep::Typed`).
+    /// code (`FactboxStep::CodedExtraTyped`).
     pub fn ok_after(self, steps: u8) -> bool {
         match self {
             Self::Probe => true,
