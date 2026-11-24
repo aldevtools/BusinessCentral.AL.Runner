@@ -406,7 +406,7 @@ mod tests {
         let routine = |name: &str| engine.program.objects[at].routines.iter().position(|r| r.name == name).unwrap();
         let (add, same) = (routine("Add"), routine("Same"));
         let mut session = crate::Session::new(engine.clone());
-        let mut run = |s: &mut crate::Session, r: usize, args: Vec<al_builtins::value::Value>| {
+        let run = |s: &mut crate::Session, r: usize, args: Vec<al_builtins::value::Value>| {
             let inst = s.codeunit_instance(at);
             s.call(at, r, inst, args).unwrap();
         };

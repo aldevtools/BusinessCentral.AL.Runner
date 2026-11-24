@@ -1525,10 +1525,29 @@ pub struct Instance {
     /// The session watches this single instance's globals (al-vm `single_track.rs`).
     pub single: bool,
     /// What a read of one of this single instance's globals does, when the run found its state somewhere no pin covers
-    /// (al-vm `single_unmeasured.rs`). `None` for every other instance.
-    pub unmeasured: Option<SingleMark>,
+    /// (al-vm `single_unmeasured.rs`). Empty for every other instance.
+    pub unmeasured: SingleMarks,
     /// Counts the instance as live while it exists (`instance_cycles::live`).
     pub live: crate::instance_cycles::LiveCount,
+}
+
+/// The marks of a single instance whose state the run found somewhere no pin covers ([`Instance::unmeasured`]): one
+/// for every global, and one each for some globals.
+#[derive(Debug, Clone, Default)]
+pub struct SingleMarks {
+    /// The mark every read of one of its globals gets.
+    pub whole: Option<SingleMark>,
+    /// The marks the reads of one global (index) get, besides `whole`.
+    pub globals: Vec<(usize, SingleMark)>,
+}
+
+impl SingleMarks {
+    /// The marks a read of global `g` gets.
+    #[inline]
+    pub fn of(&self, g: usize) -> impl Iterator<Item = &SingleMark> {
+        let one = self.globals.iter().filter(move |(i, _)| *i == g).map(|(_, m)| m);
+        self.whole.iter().chain(one)
+    }
 }
 
 /// The mark of a single instance whose state the run found somewhere no pin covers ([`Instance::unmeasured`]).

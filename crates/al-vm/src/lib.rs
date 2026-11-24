@@ -2149,7 +2149,7 @@ impl Session {
             xp_text: Vec::new(),
             born: Default::default(),
             single: false,
-            unmeasured: None,
+            unmeasured: Default::default(),
             live: Default::default(),
         })
     }
@@ -2193,7 +2193,7 @@ impl Session {
             xp_text: Vec::new(),
             born: Default::default(),
             single: false,
-            unmeasured: None,
+            unmeasured: Default::default(),
             live: Default::default(),
         })
     }

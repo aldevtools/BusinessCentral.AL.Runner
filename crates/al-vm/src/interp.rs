@@ -1136,7 +1136,7 @@ impl Session {
     #[inline]
     pub(crate) fn global_value(&mut self, i: usize, f: &Frame) -> Result<Value, Signal> {
         self.alias_access(i, f)?;
-        if let Some(mark) = &f.instance.borrow().unmeasured {
+        for mark in f.instance.borrow().unmeasured.of(i) {
             crate::single_unmeasured::read(mark)?;
         }
         self.single_read(&f.instance, i);
