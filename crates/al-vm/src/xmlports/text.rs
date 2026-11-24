@@ -299,7 +299,7 @@ impl Session {
                     fields.len()
                 ));
             }
-            self.xp_save_record(inst, schema, table, &assigned, false)?;
+            self.xp_save_record(inst, schema, table, &assigned, Save::Once)?;
             if let Some(e) = nested.and_then(|c| Self::xp_nested_import_error(schema, table, c, false)) {
                 return Err(e);
             }

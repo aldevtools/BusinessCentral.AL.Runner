@@ -32,16 +32,8 @@ impl Session {
                 "XmlPort import of a table element with MaxOccurs = Once below another table element (not pinned)",
             );
         }
-        if n.link_node.is_some()
-            && n.source_view
-                .as_deref()
-                .is_some_and(|v| crate::views::view_clauses(v).filters)
-        {
-            return unsupported(format!(
-                "XmlPort import: sourcetableview with a filter on the linked tableelement {} is not pinned",
-                n.name
-            ));
-        }
+        // A linked element whose SourceTableView filters: only the measured `const` shape runs (`linked_view`).
+        let view_const = self.xp_linked_view_entry(inst, schema, node, first_of_node)?;
         if !first_of_node {
             self.xp_after_assign_second_row(inst, schema, node, elem)?;
         }
@@ -103,10 +95,7 @@ impl Session {
         // it stay, OnPostXmlPort runs (AyXmlPortFlowTriggers.al:428 Import_init_Break, `...init2;post;`, rows `1=a,`). Deeper it
         // is not pinned.
         if Self::xp_flow(inst) == Some(Flow::Break) {
-            let below_root = n
-                .parent
-                .is_some_and(|p| schema.node(p).parent.is_none() && schema.node(p).kind == ir::XmlNodeKind::Text);
-            if !below_root {
+            if !below_root(schema, node) {
                 return unsupported(
                     "Break in OnAfterInitRecord of a table element that is not right below the root (not pinned)",
                 );
@@ -115,12 +104,16 @@ impl Session {
             Self::xp_stop_import(inst);
             return Ok(());
         }
-        self.xp_import_attrs(inst, schema, node, elem, Some(&mut assigned))?;
+        Self::xp_linked_view_after_init(inst, &view_const)?;
+        // Whether a trigger of a field attribute or field element asked for Skip, Break or BreakUnbound, which the import does
+        // not act on there: read by the second save of a row stored before its linked child rows (`Save::Again`).
+        let mut field_flow = self.xp_import_attrs(inst, schema, node, elem, Some(&mut assigned))?;
         if sibling {
             self.xp_sibling_link_conflict(schema, node, &rec, &links)?;
         }
         let mut saved = false;
         let mut saved_before_tables = false;
+        let mut first_stored = false;
         let table_children: Vec<usize> = schema
             .children(node)
             .into_iter()
@@ -156,7 +149,8 @@ impl Session {
             };
             match schema.node(child).kind {
                 ir::XmlNodeKind::Field => {
-                    let pos = self.xp_assign_field_elem(inst, schema, child, ce)?;
+                    let (pos, flow) = self.xp_assign_field_elem(inst, schema, child, ce)?;
+                    field_flow |= flow.is_some();
                     // A field element of a table element further up assigns that record, not this one (Y60XpTextInTable.al
                     // TextWrap_TempTable_Inner_Import `Outer.Name` inside `Inner`: `outer ins H1 name=n2`).
                     if schema.node(child).table_node != Some(node) {
@@ -213,7 +207,7 @@ impl Session {
                         );
                     }
                     if save_first && !saved {
-                        self.xp_save_record(inst, schema, node, &assigned, false)?;
+                        first_stored = self.xp_save_record(inst, schema, node, &assigned, Save::Once)?;
                         saved = true;
                         saved_before_tables = true;
                     }
@@ -266,7 +260,7 @@ impl Session {
                 ir::XmlNodeKind::Text if linked_container(schema, child, node) => {
                     // The rows below are linked to this record, which is stored first, as for a table element right below it.
                     if !saved {
-                        self.xp_save_record(inst, schema, node, &assigned, false)?;
+                        self.xp_save_record(inst, schema, node, &assigned, Save::Once)?;
                         saved = true;
                     }
                     self.xp_import_linked_container(inst, schema, child, ce)?;
@@ -287,8 +281,10 @@ impl Session {
             }
         }
         seq.finish(schema)?;
-        if !saved {
-            self.xp_save_record(inst, schema, node, &assigned, false)?;
+        if let Some(c) = &view_const {
+            self.xp_save_view_const(inst, schema, node, c, &assigned)?;
+        } else if !saved {
+            self.xp_save_record(inst, schema, node, &assigned, Save::Once)?;
         } else if saved_before_tables {
             // A parent stored before its linked child rows is modified again after them, with its OnBefore/OnAfterModifyRecord and
             // the table's OnModify: with AutoReplace (XmlPortTriggerFlow.al:374 Import_TriggerOrder_NewRows `Par.BeforeModifyRecord=1/one`
@@ -300,7 +296,8 @@ impl Session {
                     "XmlPort import of a table element with AutoUpdate or AutoSave = false after its linked child rows (whether it is stored again is not pinned)",
                 );
             }
-            self.xp_save_record(inst, schema, node, &assigned, true)?;
+            let first_stored = first_stored && !field_flow;
+            self.xp_save_record(inst, schema, node, &assigned, Save::Again { first_stored })?;
         }
         self.xp_import_view_after_row(inst, schema, node)
     }
@@ -377,7 +374,7 @@ impl Session {
                 // An empty `<tier />` runs its OnAfterAssignVariable twice here (QrXpContainerOccurs.al TQ_Response_Import_Shapes
                 // `optional leaves absent`, `tier=;tier=;`; TR_EmptyLeaf_Import `inner=[];inner=[];`, `<inner></inner>` once).
                 match schema.node(child).kind {
-                    ir::XmlNodeKind::Field => assigned.push(self.xp_assign_field_elem(inst, schema, child, ce)?),
+                    ir::XmlNodeKind::Field => assigned.push(self.xp_assign_field_elem(inst, schema, child, ce)?.0),
                     _ => self.xp_assign_leaf_text(inst, schema, child, ce)?,
                 }
             }
@@ -497,7 +494,7 @@ impl Session {
                 continue;
             };
             match schema.node(child).kind {
-                ir::XmlNodeKind::Field => assigned.push(self.xp_assign_field_elem(inst, schema, child, ce)?),
+                ir::XmlNodeKind::Field => assigned.push(self.xp_assign_field_elem(inst, schema, child, ce)?.0),
                 ir::XmlNodeKind::Text => {
                     Self::xp_refuse_self_closed_leaf(schema, child, ce)?;
                     self.xp_assign_variable(inst, schema, child, ce.text())?
@@ -521,19 +518,35 @@ impl Session {
     /// :Import_AutoUpdate_ChangesOnlyTheCarriedFields_KeepsSystemId, corpus: .
     /// The `OnBefore...Record` and `OnAfter...Record` triggers bracket it, and `AutoSave = false`
     /// leaves the storing to them (xmlports/TestXmlPortAdvanced.al:XmlPort_AutoSaveFalse_...).
-    /// `again`: the second save of a row stored before its linked child rows, a Modify (see `xp_import_record`).
+    /// `save`: the only save, or the second save of a row stored before its linked child rows, a Modify (see
+    /// `xp_import_record`). Returns whether the row was stored (inserted or modified).
     pub(super) fn xp_save_record(
         &mut self,
         inst: &Inst,
         schema: &Schema,
         node: usize,
         assigned: &[usize],
-        again: bool,
-    ) -> Result<(), Signal> {
+        save: Save,
+    ) -> Result<bool, Signal> {
         let n = schema.node(node);
         let rec = self.xp_record(inst, n)?;
         let t = self.table(&rec)?;
         let temporary = rec.borrow().temporary;
+        let again = matches!(save, Save::Again { .. });
+        let has_assign_trigger = schema.children(node).iter().any(|&c| assign_trigger(schema.node(c)));
+        let stored_again = stored_again_assigned(schema, node, again, temporary);
+        // A row whose first save stored nothing (Skip, Break or BreakUnbound) is not stored again: corpus PR 1550,
+        // XpAutoUpdateAssign.al:1062-1076 Suite_SameAppSameHash_Skips, trace `bi:A/db///Yes/0` without `bm:A`, row `SA/da/...`.
+        // Measured with a Skip in OnBeforeInsertRecord after one in the key attribute's trigger, the child rows skipped by
+        // theirs; what follows otherwise, and after a request of a field trigger the import does not act on, is not pinned.
+        if let Save::Again { first_stored: false } = save
+            && has_assign_trigger
+            && stored_again
+        {
+            return unsupported(
+                "XmlPort import of a table element stored again after its linked child rows, whose first save stored no row or followed a Skip, Break or BreakUnbound of a field trigger, with triggers that assign fields (not pinned)",
+            );
+        }
         if again
             && !temporary
             && self
@@ -589,53 +602,76 @@ impl Session {
         } else {
             ("onbeforeinsertrecord", "onafterinsertrecord")
         };
+        let has_init_trigger = n.trigger("onafterinitrecord").is_some();
+        // A field the document does not carry; system fields keep the stored row's values on every path.
+        let uncarried_skip = |p: usize| assigned.contains(&p) || t.fields[p].id >= 2_000_000_000;
+        let init_differs = || {
+            has_init_trigger
+                && stored
+                    .as_ref()
+                    .is_some_and(|old| !same_fields(old, &rec.borrow().fields, uncarried_skip))
+        };
+        // AutoUpdate of an existing row whose triggers assign fields, or whose OnAfterInitRecord left a field the document does
+        // not carry other than the stored row holds (the two shapes main refused): the save takes the stored row with the
+        // fields the document carries, as the record holds them, before OnBeforeModifyRecord, which sees that row (corpus PR
+        // 1550, XpAutoUpdateAssign.al KeyTrig_Existing_NameCarried, _NameAbsent, FieldTrig_Existing, TextTrig_Existing,
+        // InitTrig_Existing_NameCarried, _NameAbsent: what the triggers assign to a field the document does not carry is
+        // dropped). Assumption `xmlport-autoupdate-assign-triggers` until the probe is pinned.
+        let merged = if modify
+            && autoupdate_assigned(schema, node, again, temporary)
+            && (has_assign_trigger || init_differs())
+        {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::XmlportAutoupdateAssignTriggers);
+            self.xp_take_stored_row(&rec, &pk, assigned)?;
+            Some(rec.borrow().fields.clone())
+        } else {
+            None
+        };
         // Skip and BreakUnbound leave this record out (no insert, no after trigger), Break leaves it out and ends the import
         // (P112_Import_Skip, _Break, _BreakUnbound at beforeIns2).
         match self.xp_site(inst, schema, node, before)? {
-            Some(Flow::Skip | Flow::Unbound) => return Ok(()),
+            Some(Flow::Skip | Flow::Unbound) => return Ok(false),
             Some(Flow::Break) => {
                 Self::xp_stop_import(inst);
-                return Ok(());
+                return Ok(false);
             }
             _ => {}
         }
         if n.auto_save {
-            if modify && !n.auto_replace {
+            if let Some(row) = merged {
+                // The measured OnBeforeModifyRecord only reads the row: one that changes it is not pinned.
+                if !same_fields(&row, &rec.borrow().fields, |_| false) {
+                    return unsupported(
+                        "AutoUpdate with triggers that assign fields and an OnBeforeModifyRecord that changes the row (which values win is not pinned)",
+                    );
+                }
+            } else if modify && !n.auto_replace {
                 // AutoUpdate changes only the fields the document carries.
-                let has_assign_trigger = schema.children(node).iter().any(|&c| {
-                    let child = schema.node(c);
-                    child.trigger("onafterassignfield").is_some() || child.trigger("onafterassignvariable").is_some()
-                });
-                let has_init_trigger = n.trigger("onafterinitrecord").is_some();
-                if has_assign_trigger {
+                if has_assign_trigger && !stored_again {
                     return unsupported("AutoUpdate with triggers that assign fields (which values win is not pinned)");
                 }
-                let imported = rec.borrow().fields.clone();
-                let key_args: Vec<Value> = pk.clone();
-                self.ret_used = true;
-                self.record_op(RecordOp::Get, &rec, &mut key_args.clone())?;
-                {
-                    let mut r = rec.borrow_mut();
-                    // An OnAfterInitRecord that assigns a field the document does not carry: which of its value and the stored
-                    // one wins is not pinned. When both are equal it does not matter (XmlPortTriggerFlow.al:452
-                    // NoAutoReplace_NewParentTwoChildren, :512 NoAutoReplace_ExistingChildUnderNewParent log only).
-                    if has_init_trigger
-                        && (0..imported.len()).any(|p| {
-                            !assigned.contains(&p)
-                                && t.fields[p].id < 2_000_000_000
-                                && !matches!(
-                                    al_builtins::ops::compare_order(&imported[p], &r.fields[p]),
-                                    Ok(std::cmp::Ordering::Equal)
-                                )
-                        })
-                    {
+                let imported = self.xp_take_stored_row(&rec, &pk, assigned)?;
+                let uncarried_same = same_fields(&imported, &rec.borrow().fields, uncarried_skip);
+                // A row stored again after its linked child rows, whose attribute or field triggers assign fields of it: the
+                // record and the stored row hold the same value in every field the document does not carry, so the stored row
+                // ends the same whichever of the two the save writes. Otherwise which value wins is not pinned.
+                if has_assign_trigger {
+                    if !uncarried_same {
                         return unsupported(
-                            "AutoUpdate with an OnAfterInitRecord that assigns fields the document does not carry (which values win is not pinned)",
+                            "XmlPort import of a table element stored again after its linked child rows, whose record differs from the stored row in a field the document does not carry, with triggers that assign fields (which values win is not pinned)",
                         );
                     }
-                    for &p in assigned {
-                        r.fields[p] = imported[p].clone();
-                    }
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::XmlportStoredAgainAssignTriggers,
+                    );
+                }
+                // An OnAfterInitRecord that assigns a field the document does not carry: which of its value and the stored
+                // one wins is not pinned. When both are equal it does not matter (XmlPortTriggerFlow.al:452
+                // NoAutoReplace_NewParentTwoChildren, :512 NoAutoReplace_ExistingChildUnderNewParent log only).
+                if has_init_trigger && !uncarried_same {
+                    return unsupported(
+                        "AutoUpdate with an OnAfterInitRecord that assigns fields the document does not carry (which values win is not pinned)",
+                    );
                 }
             } else if modify {
                 // The row keeps its system fields.
@@ -656,8 +692,90 @@ impl Session {
         if self.xp_site(inst, schema, node, after)? == Some(Flow::Break) {
             Self::xp_stop_import(inst);
         }
-        Ok(())
+        Ok(n.auto_save)
+    }
+
+    /// Reads the stored row of `rec`'s key into `rec` and puts back the fields the document carried (`assigned`) as `rec`
+    /// held them: the row an AutoUpdate save writes. Returns the record as it was before.
+    fn xp_take_stored_row(
+        &mut self,
+        rec: &Rec,
+        pk: &[Value],
+        assigned: &[usize],
+    ) -> Result<al_builtins::record_fields::Fields, Signal> {
+        let imported = rec.borrow().fields.clone();
+        self.ret_used = true;
+        self.record_op(RecordOp::Get, rec, &mut pk.to_vec())?;
+        let mut r = rec.borrow_mut();
+        for &p in assigned {
+            r.fields[p] = imported[p].clone();
+        }
+        Ok(imported)
     }
 
     // ------------------------------------------------- VariableText, FixedText
+}
+
+/// Which save of a table element `xp_save_record` runs.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Save {
+    /// The only save, or the first of a row stored before its linked child rows.
+    Once,
+    /// The second save of a row stored before its linked child rows. `first_stored`: the first save stored the row, and no
+    /// trigger of a field attribute or field element of the row asked for Skip, Break or BreakUnbound.
+    Again { first_stored: bool },
+}
+
+/// The save of `xp_save_record` in which triggers that assign fields of the row may run: a table element right below the
+/// root text element, AutoSave without AutoUpdate or AutoReplace, a real table, stored before its linked child rows and
+/// stored again after them (`again`), whose children are field attributes, text attributes, table elements and field
+/// elements of its own without nodes below them. Measured with an OnAfterAssignField of the key attribute and an
+/// OnAfterAssignVariable of a text attribute, child and grandchild rows (corpus PR 1550, XpAutoUpdateAssign.al Suite_Fresh),
+/// and with an OnAfterAssignField of the key field element (same file, Again_FieldElementTrigger); assumption
+/// `xmlport-stored-again-assign-triggers` until the probe is pinned.
+fn stored_again_assigned(schema: &Schema, node: usize, again: bool, temporary: bool) -> bool {
+    let n = schema.node(node);
+    // The children the import reads a field trigger's Skip, Break or BreakUnbound from (`first_stored`), and table elements.
+    let measured_children = schema.children(node).iter().all(|&c| {
+        let cn = schema.node(c);
+        matches!(
+            cn.kind,
+            ir::XmlNodeKind::FieldAttr | ir::XmlNodeKind::TextAttr | ir::XmlNodeKind::Table
+        ) || (cn.kind == ir::XmlNodeKind::Field && schema.children(c).is_empty())
+    });
+    again && below_root(schema, node) && measured_children && plain_autosave(n) && !temporary
+}
+
+/// The AutoUpdate save in which triggers that assign fields of an existing row may run: a table element right below the root
+/// text element of a Format = Xml port, AutoSave and AutoUpdate without AutoReplace, a real table, saved once (not `again`),
+/// whose children are all field elements of its own and text elements without nodes below them. Measured with an
+/// OnAfterAssignField of the key field element and of a carried field element, an OnAfterAssignVariable of a text element
+/// and an OnAfterInitRecord (corpus PR 1550, XpAutoUpdateAssign.al KeyTrig_*, FieldTrig_Existing, TextTrig_Existing,
+/// InitTrig_*); assumption `xmlport-autoupdate-assign-triggers` until it is pinned.
+fn autoupdate_assigned(schema: &Schema, node: usize, again: bool, temporary: bool) -> bool {
+    let n = schema.node(node);
+    let leaf_elements = schema.children(node).iter().all(|&c| {
+        let cn = schema.node(c);
+        schema.children(c).is_empty() && matches!(cn.kind, ir::XmlNodeKind::Field | ir::XmlNodeKind::Text)
+    });
+    schema.xp().format == ir::XmlFormat::Xml
+        && leaf_elements
+        && !again
+        && below_root(schema, node)
+        && n.auto_save
+        && n.auto_update
+        && !n.auto_replace
+        && !n.use_temporary
+        && !temporary
+}
+
+/// Whether `a` and `b` hold the same value in every field position `skip` does not exclude.
+fn same_fields(a: &[Value], b: &[Value], skip: impl Fn(usize) -> bool) -> bool {
+    (0..a.len()).all(|p| {
+        skip(p)
+            || matches!(
+                al_builtins::ops::compare_order(&a[p], &b[p]),
+                Ok(std::cmp::Ordering::Equal)
+            )
+    })
 }
