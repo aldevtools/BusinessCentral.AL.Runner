@@ -14,8 +14,10 @@ LT TVS Tests::Curr_FirstRowSetRangeDropsUpdateFalse	ASSUMED tree-validate-view-r
 LT TVS Tests::Collapsed_FirstRowSetRangeDropsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1554 :762)
 LT TVS Drop Tests::DropCollapsed_FirstRowSetRangeDropsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1554 :968)
 LT TVS Drop Tests::DropCurr_FirstRowSetRangeDropsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1554 :996)
-# The review of 01:31Z (codeunit 97684, measured on BC 29.1): the runner tells these from a cell only once the OnValidate ran,
-# so they refuse; main read only the typed row. Rows002_LastThenValueFirst keeps main's path and does not differ.
+# The reviews of 01:31Z and 04:05Z (codeunit 97684, measured on BC 29.1): the runner tells these from a cell only once the
+# OnValidate ran, so they refuse; main read only the typed row, where BC reads and saves more. The neighbors of codeunit 97685
+# refuse on main and on the head alike, and do not differ.
+LT TVS Neighbor Path Tests::Rows002_LastThenValueFirst	REFUSED a call on a tree page of TreeValidateFilterRefresh.al or TreeValidateFilterShapes.al after the page read
 LT TVS Neighbor Path Tests::Rows002_LastNameUpdateTrue	REFUSED a call on a tree page of TreeValidateFilterRefresh.al or TreeValidateFilterShapes.al after the page read
 LT TVS Neighbor Path Tests::ExpandFalse_NameUpdateTrue	REFUSED a call on a tree page of TreeValidateFilterRefresh.al or TreeValidateFilterShapes.al after the page read
 LT TVS Neighbor Path Tests::KeepCell_ThenValueWithoutFirst	REFUSED a call on a tree page of TreeValidateFilterRefresh.al or TreeValidateFilterShapes.al after the page read

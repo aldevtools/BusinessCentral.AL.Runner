@@ -257,12 +257,10 @@ impl Session {
         // test reaches this check today: in the runner a TestPage filter before OpenEdit fails (the page is not open), and
         // one after it turns the rule off at its SetFilter call.
         let first = !v.steps.iter().any(|s| matches!(s, Set(..) | Fail(_) | Action(..)));
-        // Only a cell whose next call is this one can start the rule: over rows a cell holds, a call no cell over them makes next
-        // keeps main's path (the review of #8905 at 01:31Z).
-        let steps = v.steps.clone();
-        if (first && !Self::view_filters(&rec).is_empty())
-            || !self.validate_view_table_fits(&rec, page, |c| takes_next(c, &steps, next))?
-        {
+        // Over rows a cell holds whose steps start as these, the rule starts and reads the row even when no cell over those rows
+        // makes this call next: the kind of a SetValue or of the action is known only once its code ran, and main's path would
+        // read only the typed row where BC reads and saves more; such a call refuses then (the review of #8905 at 04:05Z).
+        if (first && !Self::view_filters(&rec).is_empty()) || !self.validate_view_table_fits(&rec, page, &v.steps)? {
             return Ok(false);
         }
         let table = self.table(&rec)?;
@@ -554,7 +552,7 @@ impl Session {
         let at = self.view_index(&rec, &at_key)?;
         let mut steps = st.borrow().validate_view.steps.clone();
         steps.push(Set(ctl, update, change, at.map(|at| (rows, at))));
-        let measured = self.validate_view_table_fits(&rec, page, |c| c.steps.starts_with(&steps))?;
+        let measured = self.validate_view_table_fits(&rec, page, &steps)?;
         if !measured {
             if ran {
                 return unmeasured(Some(page));
@@ -729,15 +727,10 @@ impl Session {
         Ok(None)
     }
 
-    /// A cell of `page` that `cell` accepts held the rows the table of `rec` holds: on the pages of
+    /// A cell of `page` whose steps begin with `steps` held the rows the table of `rec` holds: on the pages of
     /// TreeValidateFilterRefresh.al the Group Code and the Indentation of each row in the key, by equality
     /// (`CellPage::tree_rows`), elsewhere their number (`CellPage::table_rows`).
-    fn validate_view_table_fits(
-        &mut self,
-        rec: &Rec,
-        page: CellPage,
-        cell: impl Fn(&Cell) -> bool,
-    ) -> Result<bool, Signal> {
+    fn validate_view_table_fits(&mut self, rec: &Rec, page: CellPage, steps: &[Step]) -> Result<bool, Signal> {
         let probe = Rc::new(RefCell::new(rec.borrow().clone()));
         {
             let mut p = probe.borrow_mut();
@@ -760,7 +753,7 @@ impl Session {
             })
         };
         Ok(page.cells().iter().any(|c| {
-            cell(c)
+            c.steps.starts_with(steps)
                 && match page.tree_rows(c) {
                     Some(want) => held(want),
                     None => rows.len() == page.table_rows(),
