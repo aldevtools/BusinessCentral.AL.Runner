@@ -542,7 +542,6 @@ fn the_gate_names_a_run_that_notes_code_a_perturbation_and_moved_in_singles() {
             notes_code,
             perturbed,
             moved_in,
-            ..Default::default()
         };
         login_start::why_not(&target(&engine), &start, run)
     };
@@ -551,38 +550,46 @@ fn the_gate_names_a_run_that_notes_code_a_perturbation_and_moved_in_singles() {
     assert_eq!(why(false, false, true), Some(NotTaken::MovedIn));
 }
 
-// The wall clock is an input no key holds, as for the install baseline cache (`runtime/baseline_key.rs`): a kept serve
-// daemon under `ALRUNNER_REAL_CLOCK` would otherwise hand a later session the time an earlier login stamped into a row.
-// Such a run neither takes nor records a start, with its own reason (issue 8211).
-#[test]
-fn the_gate_names_the_real_clock() {
-    let (engine, _) = compiled();
-    let start = plain_start(&engine);
-    let run = login_start::RunFacts {
-        real_clock: true,
-        ..Default::default()
-    };
-    assert_eq!(
-        login_start::why_not(&target(&engine), &start, run),
-        Some(NotTaken::RealClock)
-    );
+/// Sets `host::UNKEYED` for its lifetime (a test that fails must not leave it set).
+struct Unkeyed;
+
+impl Unkeyed {
+    fn set(input: crate::host::Unkeyed) -> Unkeyed {
+        crate::host::UNKEYED.with(|u| u.set(Some(Some(input))));
+        Unkeyed
+    }
 }
 
-// A real files directory (`--files-dir`) is an input no key holds, as for the install baseline cache: a login that reads a
-// file an earlier test wrote would read what no key holds. Such a run neither takes nor records a start, with its own
-// reason (issue 8211).
+impl Drop for Unkeyed {
+    fn drop(&mut self) {
+        crate::host::UNKEYED.with(|u| u.set(None));
+    }
+}
+
+// The real clock (`ALRUNNER_REAL_CLOCK`) and a real files directory (`--files-dir`) are settings of the process no key
+// holds, for the install baseline cache as for the starts (`host::unkeyed`, the one check of both): a kept serve daemon
+// under the real clock would hand a later session the time an earlier login stamped into a row, and a login that reads
+// a file an earlier test wrote reads what no key holds. Through `open_company`: a run under either neither records nor
+// takes a start, and the report names why (issue 8211).
 #[test]
-fn the_gate_names_a_real_files_directory() {
-    let (engine, _) = compiled();
-    let start = plain_start(&engine);
-    let run = login_start::RunFacts {
-        real_files: true,
-        ..Default::default()
-    };
-    assert_eq!(
-        login_start::why_not(&target(&engine), &start, run),
-        Some(NotTaken::RealFiles)
-    );
+fn a_run_under_a_setting_no_key_holds_neither_records_nor_takes_a_start() {
+    for input in [crate::host::Unkeyed::RealClock, crate::host::Unkeyed::RealFiles] {
+        let (engine, l) = compiled();
+        let ran = {
+            let _set = Unkeyed::set(input);
+            sessions(&engine, &l, "RPL Tests A", 2, &on())
+        };
+        assert_one_state(&ran, input.reason());
+        assert_eq!(starts(&engine).replayed(), 0, "{input:?}");
+        assert_eq!(starts(&engine).kept(), 0, "{input:?}: no start is recorded");
+        let line = starts(&engine)
+            .line()
+            .unwrap_or_else(|| panic!("{input:?}: no report line"));
+        assert!(
+            line.contains(&format!("2 refused by the gate (2: {})", input.reason())),
+            "{line}"
+        );
+    }
 }
 
 #[test]

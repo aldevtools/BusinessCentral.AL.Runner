@@ -69,8 +69,8 @@
 //!   `static PUBLISH_ORDER_KNOWN`: key (a serve request sets them: `Key::run`, `RunSettings`, by content; the company name
 //!   also reaches `Key::company`). `static RUN_START`, `static FILES_DIR`, `static ENVIRONMENT`, `static ON`: run (`OnceLock`s,
 //!   set once per process whatever a later request asks: the run clock's start, `--files-dir`, `--environment`,
-//!   `ALRUNNER_REAL_CLOCK`; a run with a files directory or the real clock takes no start, `NotTaken::RealFiles`,
-//!   `NotTaken::RealClock`).
+//!   `ALRUNNER_REAL_CLOCK`; a run with a files directory or the real clock takes no start, `host::unkeyed`,
+//!   `NotTaken::Unkeyed`).
 //! - `crates/al-testrun/src/dotnet.rs` `static BUILD`, `static PROCESSES`, `static START_ON_THIS_THREAD`: run (the sidecar
 //!   build lock, a process counter, the start-up time read after each test codeunit; an image needs the DotNet state of a
 //!   new session, so a login that started a sidecar has no start).

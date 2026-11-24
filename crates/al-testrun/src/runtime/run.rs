@@ -240,9 +240,8 @@ fn open_company(
         notes_code,
         perturbed,
         moved_in: moved,
-        ..Default::default()
     };
-    let gate = crate::login_start::run_gate(facts.with_host());
+    let gate = crate::login_start::run_gate(facts);
     let replayed =
         (key.as_ref().filter(|_| !check)).and_then(|key| crate::login_start::replay(&engine, key, session, gate));
     let (wrote, hits) = match replayed {
