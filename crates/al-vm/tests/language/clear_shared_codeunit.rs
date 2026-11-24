@@ -389,6 +389,7 @@ codeunit 50834 TOwner { SingleInstance = true; var X: Codeunit TStore; Cnt: Inte
     procedure WriteX(V: Integer) begin X.Write(V); end;
     procedure StateX(): Text begin exit(X.State() + ' cnt=' + Format(Cnt)); end;
     procedure SetCnt(V: Integer) begin Cnt := V; end;
+    procedure Share(var Y: Codeunit TStore) begin Y := X; end;
     procedure ClearAllGlobals() begin ClearAll(); end; }
 codeunit 50835 THolder { var X: Codeunit TStore; Count: Integer; E: Codeunit TStoreExtra; W: Codeunit TWrap; A: array[2] of Codeunit TStore;
     procedure WriteX(V: Integer) begin X.Write(V); end;
@@ -398,9 +399,14 @@ codeunit 50835 THolder { var X: Codeunit TStore; Count: Integer; E: Codeunit TSt
     procedure WriteA() begin A[1].Write(1); end;
     procedure StateX(): Text begin exit(X.State() + ' count=' + Format(Count)); end;
     procedure SetCount(V: Integer) begin Count := V; end;
+    procedure Share(var Y: Codeunit TStore) begin Y := X; end;
+    procedure ValueParam(): Text begin exit(ClearThenWrite(X)); end;
+    local procedure ClearThenWrite(P: Codeunit TStore): Text begin ClearAll(); P.Write(5); exit(X.State()); end;
     procedure ClearAllGlobals() begin ClearAll(); end; }
 codeunit 50836 TTest { Subtype = Test; var GX: Codeunit TStore;
-    procedure GlobalWritten(): Text begin GX.Write(3); ClearAll(); exit(GX.State()); end; }
+    procedure GlobalWritten(): Text begin GX.Write(3); ClearAll(); exit(GX.State()); end;
+    procedure GlobalShared(): Text var Y: Codeunit TStore;
+    begin Y := GX; Y.Write(3); ClearAll(); exit(GX.State() + '|' + Y.State()); end; }
 codeunit 50837 TNormal { Subtype = Normal; var GX: Codeunit TStore;
     procedure GlobalWritten(): Text begin GX.Write(3); ClearAll(); exit(GX.State()); end; }
 report 50838 TRep { ProcessingOnly = true; var GX: Codeunit TStore;
@@ -409,7 +415,48 @@ codeunit 50840 TArrSelf { var Rows: array[2] of Record Row temporary;
     procedure Run(): Text begin Rows[1].No := 1; Rows[1].Insert(); ClearAll(); exit(Format(Rows[2].Count())); end; }
 report 50841 TArrRep { ProcessingOnly = true; var Rows: array[2] of Record Row temporary;
     procedure Run(): Text begin Rows[1].No := 1; Rows[1].Insert(); ClearAll(); exit(Format(Rows[2].Count())); end; }
+codeunit 50842 TArrStore { var Rows: array[2] of Record Row temporary; Refs: array[2] of RecordRef; Ints: array[3] of Integer;
+    procedure Write(E: Integer; V: Integer) begin Rows[E].No := V; Rows[E].Insert();
+        if Refs[1].Number = 0 then Refs[1].Open(50830, true); Ints[1] := V; end;
+    procedure State(): Text
+    begin exit(StrSubstNo('rows1=%1 rows2=%2 ref1=%3 int1=%4', Rows[1].Count(), Rows[2].Count(), Refs[1].Number, Ints[1])); end; }
+codeunit 50843 TArrHolder { var X: Codeunit TArrStore;
+    procedure WriteX(E: Integer; V: Integer) begin X.Write(E, V); end;
+    procedure Share(var Y: Codeunit TArrStore) begin Y := X; end;
+    procedure StateX(): Text begin exit(X.State()); end;
+    procedure ClearAllGlobals() begin ClearAll(); end; }
+codeunit 50844 TArrSiHolder { SingleInstance = true; var X: Codeunit TArrStore;
+    procedure Share(var Y: Codeunit TArrStore) begin Y := X; end;
+    procedure ClearAllGlobals() begin ClearAll(); end; }
+codeunit 50845 TStoreLabel { var Rows: Record Row temporary; Refs: array[2, 3] of RecordRef; Ints: array[3] of Integer; L: Label 'x';
+    procedure Write(V: Integer) begin Rows.No := V; Rows.Insert(); Ints[1] := V; end; }
+codeunit 50846 TLabelHolder { var X: Codeunit TStoreLabel;
+    procedure WriteX(V: Integer) begin X.Write(V); end;
+    procedure Share(var Y: Codeunit TStoreLabel) begin Y := X; end;
+    procedure ClearAllGlobals() begin ClearAll(); end; }
+codeunit 50847 TInt { var N: Integer; procedure Set(V: Integer) begin N := V; end; }
+codeunit 50848 TIntTest { Subtype = Test; var GX: Codeunit TInt;
+    procedure Shared(): Text var Y: Codeunit TInt; begin Y := GX; Y.Set(3); ClearAll(); exit('done'); end; }
 codeunit 50839 T {
+    procedure HolderSharedWroteBefore(): Text var H: Codeunit THolder; Y: Codeunit TStore; A: Text;
+    begin H.Share(Y); Y.Write(3); H.ClearAllGlobals(); A := H.StateX() + '|' + Y.State(); Y.Write(5); exit(A + '|' + H.StateX()); end;
+    procedure HolderSharedUnused(): Text var H: Codeunit THolder; Y: Codeunit TStore;
+    begin H.Share(Y); H.ClearAllGlobals(); Y.Write(5); exit(H.StateX()); end;
+    procedure HolderValueParam(): Text var H: Codeunit THolder; begin exit(H.ValueParam()); end;
+    procedure SiOwnerShared(): Text var S: Codeunit TOwner; Y: Codeunit TStore;
+    begin S.Share(Y); Y.Write(3); S.SetCnt(4); S.ClearAllGlobals(); exit(S.StateX() + '|' + Y.State()); end;
+    procedure TestOwnerShared(): Text var C: Codeunit TTest; begin exit(C.GlobalShared()); end;
+    procedure ArrHolderShared(): Text var H: Codeunit TArrHolder; Y: Codeunit TArrStore;
+    begin H.Share(Y); Y.Write(1, 3); Y.Write(2, 4); H.ClearAllGlobals(); exit(H.StateX() + '|' + Y.State()); end;
+    procedure ArrHolderSharedUnused(): Text var H: Codeunit TArrHolder; Y: Codeunit TArrStore;
+    begin H.Share(Y); H.ClearAllGlobals(); exit('done'); end;
+    procedure ArrHolderUnsharedWritten(): Text var H: Codeunit TArrHolder; begin H.WriteX(1, 3); H.ClearAllGlobals(); exit('done'); end;
+    procedure ArrSiShared(): Text var S: Codeunit TArrSiHolder; Y: Codeunit TArrStore;
+    begin S.Share(Y); Y.Write(1, 3); S.ClearAllGlobals(); exit('done'); end;
+    procedure LabelHolderWritten(): Text var H: Codeunit TLabelHolder; begin H.WriteX(3); H.ClearAllGlobals(); exit('done'); end;
+    procedure LabelHolderShared(): Text var H: Codeunit TLabelHolder; Y: Codeunit TStoreLabel;
+    begin H.Share(Y); Y.Write(3); H.ClearAllGlobals(); exit('done'); end;
+    procedure IntTestShared(): Text var C: Codeunit TIntTest; begin exit(C.Shared()); end;
     procedure ArrayOfTempRecordsInReport(): Text var R: Report TArrRep; begin exit(R.Run()); end;
     procedure ArrayOfTempRecordsInOwner(): Text var C: Codeunit TArrSelf; begin exit(C.Run()); end;
     procedure SiOwner(): Text var S: Codeunit TOwner;
@@ -476,6 +523,58 @@ fn clear_all_of_an_unmeasured_store_with_rows_refuses() {
         let got = temp_store(cell).0;
         assert!(
             got.starts_with("refused: ClearAll of a global codeunit variable whose instance holds temporary rows"),
+            "{cell}: {got}"
+        );
+    }
+}
+
+// ClearAll in the owner of a shared store of 1561's shapes: BC keeps the store and every holder on one instance and resets it
+// in place (rows kept, RecordRef closed, Integers 0), for the measured (owner, store) pairs: a plain holder, a SingleInstance
+// owner and a test codeunit with "CLB Store" (ClearSharedCodeunitTempRef.al ClearAll_GlobalUnusedAlias :403,
+// ClearAll_GlobalUnusedAlias_AliasWroteBefore :456, ClearAll_GlobalUnusedValueParam :424; ClearSharedCodeunitSIOwner.al
+// ClearAll_SIOwnerUnused_Alias_AliasWroteBefore :1459, ClearAll_TestGlobalUnused_AliasWroteBefore :2090), a plain holder with
+// "CLS Arr Store" whose rows a sharer wrote (ArrStore_ClearAll_Alias_AliasWroteBefore :1759).
+#[test]
+fn clear_all_of_a_shared_temp_store_resets_it_in_place() {
+    for (cell, want) in [
+        (
+            "HolderSharedWroteBefore",
+            "rows=1 ref11=0 refrows=- int1=0 count=0|rows=1 ref11=0 refrows=- int1=0|rows=2 ref11=50830 refrows=1 int1=5 count=0",
+        ),
+        ("HolderSharedUnused", "rows=1 ref11=50830 refrows=1 int1=5 count=0"),
+        ("HolderValueParam", "rows=1 ref11=50830 refrows=1 int1=5"),
+        (
+            "SiOwnerShared",
+            "rows=1 ref11=0 refrows=- int1=0 cnt=0|rows=1 ref11=0 refrows=- int1=0",
+        ),
+        (
+            "TestOwnerShared",
+            "rows=1 ref11=0 refrows=- int1=0|rows=1 ref11=0 refrows=- int1=0",
+        ),
+        (
+            "ArrHolderShared",
+            "rows1=2 rows2=2 ref1=0 int1=0|rows1=2 rows2=2 ref1=0 int1=0",
+        ),
+    ] {
+        assert_eq!(temp_store(cell), (want.to_string(), true), "{cell}");
+    }
+}
+
+// The pairs 1561 does not measure refuse: "CLS Arr Store" shared and never written, written and unshared in its holder, or
+// shared under a SingleInstance owner; a store with a Label global; the Integer store of 1560 under a test codeunit.
+#[test]
+fn clear_all_of_a_temp_store_in_an_unmeasured_pair_refuses() {
+    for (cell, why) in [
+        ("ArrHolderSharedUnused", "whose instance another variable shares"),
+        ("ArrHolderUnsharedWritten", "whose instance holds temporary rows"),
+        ("ArrSiShared", "whose instance another variable shares"),
+        ("LabelHolderWritten", "whose instance holds temporary rows"),
+        ("LabelHolderShared", "whose instance another variable shares"),
+        ("IntTestShared", "whose instance another variable shares"),
+    ] {
+        let got = temp_store(cell).0;
+        assert!(
+            got.starts_with("refused: ClearAll of a global codeunit variable") && got.contains(why),
             "{cell}: {got}"
         );
     }

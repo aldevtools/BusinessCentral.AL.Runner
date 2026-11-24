@@ -1,8 +1,10 @@
 //! `Clear` and `ClearAll()` of a codeunit variable whose instance an interface, a second codeunit variable or a parameter
 //! shares (assumption clear-shared-codeunit, open corpus PR 1560, tests/al-language/codeunits/clear-instance/
-//! ClearSharedCodeunit.al). `Clear` gives such a variable nothing used yet a fresh instance, and `ClearAll()` resets such an
-//! instance in place in the measured shape; the shapes the probe does not measure refuse. An instance nothing else holds
-//! keeps main's answer. Entry points: `Session::clear_shared_codeunit` (from the `Clear` site, `exec/run.rs`) and
+//! ClearSharedCodeunit.al), and `ClearAll()` of a store codeunit with temporary records (open corpus PR 1561,
+//! ClearSharedCodeunitTempRef.al, ClearSharedCodeunitSIOwner.al). `Clear` gives such a variable nothing used yet a fresh
+//! instance, and `ClearAll()` resets such an instance in place, keeping its temporary rows, in the measured (owner, store)
+//! pairs; the pairs the probes do not measure refuse. An instance nothing else holds keeps main's answer unless its
+//! temporary table holds rows. Entry points: `Session::clear_shared_codeunit` (from the `Clear` site, `exec/run.rs`) and
 //! `Session::clear_all_in_place` (from `clear_all`).
 
 use super::*;
@@ -18,13 +20,15 @@ impl Session {
             && !self.engine.object_facts[object].single_instance
     }
 
-    /// The globals of `owner` (not in `keep`) that `ClearAll()` in `owner` resets in place: each holds an instance of a
-    /// codeunit in the measured shape ([`Session::reset_in_place`]) that another holder shares; its globals go back to their
-    /// declared values and the variable keeps the instance, so the holder sees the reset and later writes through either
-    /// side (ClearSharedCodeunit.al ClearAll_GlobalUnusedIface, ClearAll_GlobalUsedAlias_AliasWroteBefore,
-    /// ClearAll_GlobalUsedValueParam, X unused and used once alike). An instance nothing else holds keeps main's answer (the
-    /// variable gets a fresh one, which holds the same). A shared instance of any other shape refuses: main's fresh instance
-    /// would detach it, which BC does not do in the measured shape.
+    /// The globals of `owner` (not in `keep`) that `ClearAll()` in `owner` resets in place. A global whose instance another
+    /// holder shares, of a measured (owner, store) pair ([`Session::shared_pair`]): its globals go back to their declared
+    /// values, a temporary table keeping its rows, and the variable keeps the instance, so the holder sees the reset and later
+    /// writes through either side (ClearSharedCodeunit.al ClearAll_GlobalUnusedIface; ClearSharedCodeunitTempRef.al
+    /// ClearAll_GlobalUnusedAlias :403). A shared instance of any other pair refuses: main's fresh instance would detach it,
+    /// which BC does not do in the measured pairs. A global nothing else holds whose temporary table holds rows, of the "CLB
+    /// Store" shape under any [`Owner`], is reset the same way (ClearAll_GlobalWritten_NoAlias :1362,
+    /// ClearSharedCodeunitSIOwner.al A3_Step3_ClearAllInOwner :447, ClearAll_TestGlobalWritten_NoAlias :2207); any other
+    /// with rows refuses, main's fresh instance would lose them. Any other global nothing else holds keeps main's answer.
     ///
     /// `ClearAll` takes a copy of the globals, so the instance of a global nothing shares has two holders; an element of an
     /// array of codeunits has one, the array.
@@ -41,7 +45,7 @@ impl Session {
             }
             match v {
                 Value::Codeunit(rc) if self.plain_codeunit(rc.borrow().object as usize) && Rc::strong_count(rc) > 2 => {
-                    if !(self.clears_in_place(owner) && self.reset_in_place(rc)) {
+                    if !self.shared_pair(owner, v) {
                         return Err(Signal::unsupported(
                             "ClearAll of a global codeunit variable whose instance another variable shares, in a shape \
                              the corpus does not pin",
@@ -49,33 +53,26 @@ impl Session {
                     }
                     al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ClearSharedCodeunit);
                     if rc.borrow().initialized {
-                        let engine = self.engine.clone();
-                        let object = rc.borrow().object as usize;
-                        let fresh = self.slot_defaults(&engine.program.objects[object].globals);
-                        rc.borrow_mut().globals = fresh;
+                        self.reset_keeping_rows(rc);
                     }
                     kept.push(i);
                 }
                 // Nothing else holds the instance and its temporary table holds rows: BC resets a store of 1561's shape in
-                // place and keeps the rows (`keep_rows_in_place`); main's fresh instance would lose them.
+                // place and keeps the rows; main's fresh instance would lose them.
                 Value::Codeunit(rc)
                     if self.plain_codeunit(rc.borrow().object as usize) && self.holds_temp_rows(v, 0) =>
                 {
                     let object = rc.borrow().object as usize;
-                    if !(self.keeps_rows_in_place(owner)
-                        && self.temp_ref_store(object)
+                    if !(matches!(
+                        self.owner_kind(owner),
+                        Some(Owner::Plain | Owner::SingleInstance | Owner::Test)
+                    ) && self.store_kind(object) == Some(Store::TempRef)
                         && !self.frames.contains(&object))
                     {
                         return Err(temp_rows_refusal());
                     }
                     al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ClearSharedCodeunit);
-                    let engine = self.engine.clone();
-                    let fresh = self.slot_defaults(&engine.program.objects[object].globals);
-                    let mut inst = rc.borrow_mut();
-                    for (old, new) in inst.globals.iter().zip(&fresh) {
-                        crate::interp::keep_temp_table(old, new);
-                    }
-                    inst.globals = fresh;
+                    self.reset_keeping_rows(rc);
                     kept.push(i);
                 }
                 Value::Array(items)
@@ -112,13 +109,13 @@ impl Session {
         if !written {
             return Ok(());
         }
-        if !self.clears_in_place(owner) {
-            return Err(Signal::unsupported(
-                "ClearAll of a global array of temporary records whose table holds rows, in an object the corpus does not pin",
-            ));
+        if self.owner_kind(owner) == Some(Owner::Plain) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ClearSharedCodeunit);
+            return Ok(());
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ClearSharedCodeunit);
-        Ok(())
+        Err(Signal::unsupported(
+            "ClearAll of a global array of temporary records whose table holds rows, in an object the corpus does not pin",
+        ))
     }
 
     /// Whether `v` is or holds, through the globals of an instance of a codeunit that is not SingleInstance and through
@@ -141,51 +138,94 @@ impl Session {
         }
     }
 
-    /// Whether `ClearAll()` in `owner` may reset a store of 1561's shape whose temporary table holds rows in place: `owner`
-    /// is a codeunit with no TableNo that states no Subtype, SingleInstance or not ("CLS SI Owner A3", ClearSharedCodeunitSIOwner.al
-    /// A3_Step3_ClearAllInOwner; "CLB Holder", ClearSharedCodeunitTempRef.al ClearAll_GlobalWritten_NoAlias :1362), or
-    /// states `Subtype = Test` ("CLS TG ClearAll 6", ClearAll_TestGlobalWritten_NoAlias).
-    fn keeps_rows_in_place(&self, owner: usize) -> bool {
-        let o = &self.engine.program.objects[owner];
-        let subtypes: Vec<&str> = (o.properties.iter())
-            .filter(|(k, _)| k.eq_ignore_ascii_case("Subtype"))
-            .map(|(_, v)| v.as_str())
-            .collect();
-        o.kind == al_ir::ObjKind::Codeunit
-            && o.rec_slot.is_none()
-            && match subtypes.as_slice() {
-                [] => true,
-                [v] => v.eq_ignore_ascii_case("Test"),
-                _ => false,
-            }
-    }
-
     /// Whether array element `e` holds an instance of a codeunit that is not SingleInstance that another holder shares (the
     /// array is its one own holder).
     fn shared_element(&self, e: &Value) -> bool {
         matches!(e, Value::Codeunit(rc) if self.plain_codeunit(rc.borrow().object as usize) && Rc::strong_count(rc) > 1)
     }
 
-    /// Whether `ClearAll()` in `owner` may reset a global codeunit's instance in place: `owner` is a codeunit that is not
-    /// SingleInstance, states no Subtype and has no TableNo, as "CLX Holder" (ClearSharedCodeunit.al codeunit 75581).
-    fn clears_in_place(&self, owner: usize) -> bool {
+    /// The kind of object `owner` is, for the owners whose `ClearAll()` the corpus measures on a store global: a codeunit
+    /// with no TableNo that is not SingleInstance and states no Subtype ("CLX Holder", ClearSharedCodeunit.al codeunit 75581;
+    /// "CLB Holder", ClearSharedCodeunitTempRef.al:122), one that is SingleInstance and states no Subtype ("CLS SI Owner
+    /// B04", ClearSharedCodeunitSIOwner.al:672), or one that is not SingleInstance and states `Subtype = Test` ("CLS TG
+    /// ClearAll 1", ClearSharedCodeunitSIOwner.al:2048). `None` for any other object.
+    fn owner_kind(&self, owner: usize) -> Option<Owner> {
         let o = &self.engine.program.objects[owner];
-        self.plain_codeunit(owner)
-            && o.properties.iter().all(|(k, _)| !k.eq_ignore_ascii_case("Subtype"))
-            && o.rec_slot.is_none()
+        let subtypes: Vec<&str> = (o.properties.iter())
+            .filter(|(k, _)| k.eq_ignore_ascii_case("Subtype"))
+            .map(|(_, v)| v.as_str())
+            .collect();
+        if o.kind != al_ir::ObjKind::Codeunit || o.rec_slot.is_some() {
+            return None;
+        }
+        match (subtypes.as_slice(), self.engine.object_facts[owner].single_instance) {
+            ([], false) => Some(Owner::Plain),
+            ([], true) => Some(Owner::SingleInstance),
+            ([v], false) if v.eq_ignore_ascii_case("Test") => Some(Owner::Test),
+            _ => None,
+        }
     }
 
-    /// Whether the instance `rc`, of a codeunit that is not SingleInstance (the caller checks), is of the measured shape: of a
-    /// codeunit that has no TableNo and holds
-    /// exactly one global, an Integer, as "CLX Store" (ClearSharedCodeunit.al codeunit 75580, `N: Integer`); not bound by
-    /// BindSubscription (`clear_all_bound_globals` owns those) and with no routine of its codeunit running.
-    fn reset_in_place(&self, rc: &Rc<RefCell<Instance>>) -> bool {
-        let object = rc.borrow().object as usize;
+    /// The store shape of codeunit `object`, by its globals (every one, a Label among them), for the stores the corpus
+    /// measures `ClearAll()` on: not SingleInstance, no TableNo, and globals of [`Store`]'s kinds. `None` for any other.
+    fn store_kind(&self, object: usize) -> Option<Store> {
         let o = &self.engine.program.objects[object];
-        o.rec_slot.is_none()
-            && matches!(o.globals.as_slice(), [g] if matches!(g.ty, RtType::Integer))
-            && !self.holds_bound_codeunit(&Value::Codeunit(rc.clone()))
-            && !self.frames.contains(&object)
+        if !self.plain_codeunit(object) || o.rec_slot.is_some() {
+            return None;
+        }
+        let kinds: Vec<&RtType> = o.globals.iter().map(|g| &g.ty).collect();
+        let array = |t: &RtType, dims: usize, el: &dyn Fn(&RtType) -> bool| matches!(t, RtType::Array(d, e) if d.len() == dims && el(e));
+        let record_ref =
+            |t: &RtType| matches!(t, RtType::Library(k) if *k == al_builtins::library_kind::LibraryKind::RecordRef);
+        let integer = |t: &RtType| matches!(t, RtType::Integer);
+        let temp_record = |t: &RtType| matches!(t, RtType::Record(_, true));
+        match kinds.as_slice() {
+            [RtType::Integer] => Some(Store::Integer),
+            _ if temp_ref_kinds(&kinds) => Some(Store::TempRef),
+            [r, f, i] if array(r, 1, &temp_record) && array(f, 1, &record_ref) && array(i, 1, &integer) => {
+                Some(Store::TempArray)
+            }
+            _ => None,
+        }
+    }
+
+    /// Whether `ClearAll()` in `owner` resets the shared instance `v` (a global that another holder shares) in place: the
+    /// instance is not bound by BindSubscription (`clear_all_bound_globals` owns those), no routine of its codeunit runs, and
+    /// (owner, store) is a pair the corpus measures. Each measured pair runs through assumption clear-shared-codeunit:
+    /// - a plain owner and the Integer store (ClearSharedCodeunit.al ClearAll_GlobalUnusedIface,
+    ///   ClearAll_GlobalUsedAlias_AliasWroteBefore, ClearAll_GlobalUsedValueParam);
+    /// - any [`Owner`] and the "CLB Store" shape: plain (ClearSharedCodeunitTempRef.al ClearAll_GlobalUnusedIface :382,
+    ///   ClearAll_GlobalUnusedValueParam :424, ClearAll_GlobalUsedRowsAlias_AliasWroteBefore :1211), SingleInstance
+    ///   (ClearSharedCodeunitSIOwner.al ClearAll_SIOwnerUnused_Alias :1411, ClearAll_SIOwnerTouched_Iface :1585) and test
+    ///   (ClearAll_TestGlobalUnused_LocalAlias :2058, ClearAll_TestGlobalWritten_Keeper :2120): rows kept, RecordRef closed,
+    ///   Integers 0;
+    /// - a plain owner and the "CLS Arr Store" shape whose table holds rows (ArrStore_ClearAll_Alias_AliasWroteBefore
+    ///   :1759, rows1=2 rows2=2 ref1=0 int1=0); a never-written one is not measured.
+    fn shared_pair(&self, owner: usize, v: &Value) -> bool {
+        let Value::Codeunit(rc) = v else { return false };
+        let object = rc.borrow().object as usize;
+        let measured = match (self.owner_kind(owner), self.store_kind(object)) {
+            (Some(Owner::Plain), Some(Store::Integer)) => true,
+            (Some(_), Some(Store::TempRef)) => true,
+            (Some(Owner::Plain), Some(Store::TempArray)) => self.holds_temp_rows(v, 0),
+            _ => false,
+        };
+        measured && !self.holds_bound_codeunit(v) && !self.frames.contains(&object)
+    }
+
+    /// Resets instance `rc` in place, as `ClearAll()` in a measured owner does to a store global: its globals go back to
+    /// their declared values, a temporary record keeping its table (`keep_temp_table`), so its rows stay
+    /// (ClearSharedCodeunitSIOwner.al A3_Step3_ClearAllInOwner :447, rows=1 ref11=0 int1=0). The caller marks assumption
+    /// clear-shared-codeunit.
+    fn reset_keeping_rows(&mut self, rc: &Rc<RefCell<Instance>>) {
+        let engine = self.engine.clone();
+        let object = rc.borrow().object as usize;
+        let fresh = self.slot_defaults(&engine.program.objects[object].globals);
+        let mut inst = rc.borrow_mut();
+        for (old, new) in inst.globals.iter().zip(&fresh) {
+            crate::interp::keep_temp_table(old, new);
+        }
+        inst.globals = fresh;
     }
 
     /// Whether `object` is a codeunit of the store shape of open corpus PR 1561 (ClearSharedCodeunitTempRef.al:55-59, codeunit
@@ -196,18 +236,7 @@ impl Session {
     pub(crate) fn temp_ref_store(&self, object: usize) -> bool {
         let o = &self.engine.program.objects[object];
         let kinds: Vec<&RtType> = (o.globals.iter()).filter(|g| !g.label).map(|g| &g.ty).collect();
-        let lib = |t: &RtType, k| matches!(t, RtType::Library(x) if *x == k);
-        self.plain_codeunit(object)
-            && o.rec_slot.is_none()
-            && match kinds.as_slice() {
-                [RtType::Record(_, true), RtType::Array(d2, r), RtType::Array(d1, i)] => {
-                    d2.len() == 2
-                        && lib(r, al_builtins::library_kind::LibraryKind::RecordRef)
-                        && d1.len() == 1
-                        && matches!(**i, RtType::Integer)
-                }
-                _ => false,
-            }
+        self.plain_codeunit(object) && o.rec_slot.is_none() && temp_ref_kinds(&kinds)
     }
 
     /// `Clear` of place `p`, whose value `v` the native clears next (al-builtins `native/values.rs`, which keeps an unused
@@ -384,4 +413,42 @@ fn temp_rows_refusal() -> Signal {
     Signal::unsupported(
         "ClearAll of a global codeunit variable whose instance holds temporary rows, in a shape the corpus does not pin",
     )
+}
+
+/// Whether `kinds`, the types of a codeunit's globals in order, are those of "CLB Store" (open corpus PR 1561,
+/// ClearSharedCodeunitTempRef.al:55-59): one temporary record, one array of RecordRef of two dimensions, one array of
+/// Integer of one dimension. The sizes of the arrays and the table are not read.
+fn temp_ref_kinds(kinds: &[&RtType]) -> bool {
+    match kinds {
+        [RtType::Record(_, true), RtType::Array(d2, r), RtType::Array(d1, i)] => {
+            d2.len() == 2
+                && matches!(&**r, RtType::Library(k) if *k == al_builtins::library_kind::LibraryKind::RecordRef)
+                && d1.len() == 1
+                && matches!(**i, RtType::Integer)
+        }
+        _ => false,
+    }
+}
+
+/// The owners whose `ClearAll()` the corpus measures on a store global ([`Session::owner_kind`]).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Owner {
+    /// A codeunit that is not SingleInstance and states no Subtype.
+    Plain,
+    /// A SingleInstance codeunit that states no Subtype.
+    SingleInstance,
+    /// A codeunit that is not SingleInstance and states `Subtype = Test`.
+    Test,
+}
+
+/// The store shapes the corpus measures `ClearAll()` on ([`Session::store_kind`]).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Store {
+    /// One Integer global ("CLX Store", ClearSharedCodeunit.al codeunit 75580).
+    Integer,
+    /// "CLB Store" ([`temp_ref_kinds`]), with no other global, a Label neither.
+    TempRef,
+    /// "CLS Arr Store" (ClearSharedCodeunitSIOwner.al:42-47): an array of temporary records, an array of RecordRef and an
+    /// array of Integer, each of one dimension.
+    TempArray,
 }
