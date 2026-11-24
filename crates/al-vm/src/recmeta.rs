@@ -1059,8 +1059,6 @@ impl Session {
         }
     }
 
-    /// `Record.Copy(Source [, ShareTable])`. Doc (Record.Copy) and corpus record/TestCopyOntoTemporaryRecord.al:66-110: the
-    /// buffer, filters, key and direction come over; a temporary target keeps its own rows and stays temporary.
     /// The checks every record meta method makes first (`record_meta_op`, `record_ref_copy`).
     fn meta_op_checks(&mut self, method: RecordOp, rec: &Rec, t: &TableDef, args: &[Value]) -> Result<(), Signal> {
         self.connection_check(rec)?;
@@ -1073,6 +1071,8 @@ impl Session {
         self.record_copy(rec, args, false)
     }
 
+    /// `Record.Copy(Source [, ShareTable])`. Doc (Record.Copy) and corpus record/TestCopyOntoTemporaryRecord.al:66-110: the
+    /// buffer, filters, key and direction come over; a temporary target keeps its own rows and stays temporary.
     /// `by_record` notes a shared target for ClearAll (`TempId::note_copy_target`): its cells measure `Record.Copy(x, true)`
     /// only (ClearSharedCodeunitTempArrayShare.al:39), so a `RecordRef.Copy` target (`record_ref_copy`) counts as another
     /// sharer.
