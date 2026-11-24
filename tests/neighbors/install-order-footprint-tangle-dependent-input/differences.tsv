@@ -1,10 +1,10 @@
 # key	entry
-# Review round 4 of PR 8865, follow-up "tangle": T1's install raises OnOne (T2 answers) and writes a constant row; T2's
-# install raises OnTwo (T1 and I answer) and writes a constant row; I depends on T1. T1 and T2 are a tangle with input I.
-# Real orders: T1,T2,I / T2,T1,I / T1,I,T2; both rows are CONST in each. Main: pass (3 apps, every order tried).
-# Head: not run. The subset run "I before the tangle" with the tangle order T2,T1 asks for I < T2 < T1 < I, which no
-# real order gives, and the proof stops (ADR-079 decision 3, clarification of 2026-11-23, review round 3). Skipping
-# such an order is sound for a tangle of two apps but not of three (T1,T2,T3 with I depending on T2: the real order
-# T1,T2,I,T3 is then never run), so it is not skipped here. A lost pass against main, listed in the PR body.
-RQ tg Tests::T1RowIsConst	REFUSED RQ tg Row row not found
-RQ tg Tests::T2RowIsConst	REFUSED RQ tg Row row not found
+# Issue 8907 (review round 4 of PR 8865): T1's install raises OnOne (T2 answers) and writes a constant row; T2's install
+# raises OnTwo (T1 and I answer) and writes a constant row; I depends on T1. T1 and T2 are a tangle with input I.
+# Real orders: T1,T2,I / T2,T1,I / T1,I,T2; both rows are CONST in each. Main before ADR-079: pass (every order).
+# Main: not run (the run "I before the tangle" in the tangle order T2,T1 asked for I < T2 < T1 < I and the proof stopped).
+# Head: the plan places I after the readers it installs after, at the earliest slot the dependencies allow, and skips a
+# class no slot fits (ADR-079 decision 3, clarification of 2026-11-23, issue 8907). It runs the three real orders.
+# The pin: a subscriber runs during another app's install exactly when its app installed first (ADR-079 fact 3).
+RQ tg Tests::T1RowIsConst	PINNED tests/al-language/install-upgrade/install-order/InstallOrderSubscriberTests.al:70
+RQ tg Tests::T2RowIsConst	PINNED tests/al-language/install-upgrade/install-order/InstallOrderSubscriberTests.al:70

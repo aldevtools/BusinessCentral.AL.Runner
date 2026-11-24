@@ -53,18 +53,87 @@ fn probe_cells_pass_where_measured() {
 }
 
 /// The neighbors past the cells: Activate on what GetField found, which no cell calls, refuses, and so does Caption of what the
-/// Card's part control id gives, and GetField on a Worksheet page (BC finds the field there; no cell opens a Worksheet).
+/// Card's part control id gives. GetField by a control's own id on a Worksheet, a ListPlus and a CardPart behind a TestPart reads
+/// the field's Value, as the cells of :2676-:2702 measure.
 #[test]
-fn neighbors_past_the_cells_refuse() {
+fn neighbors_past_the_cells() {
     let o = outcomes(&format!("{PROBE}\n{NEIGHBORS}"), "LT GFN Tests");
     let bad: Vec<_> = o
         .iter()
-        .filter(|(n, r, _)| match n.as_str() {
-            "WorksheetGetField" => {
-                !matches!(r, Outcome::NotRun(why) if why.starts_with("TestPage.GetField by a control id on a page kind"))
+        .filter(|(n, r, marks)| match n.as_str() {
+            "WorksheetGetField" | "ListPlusOwnId" | "CardPartOwnId" => {
+                *r != Outcome::Pass || *marks != [TestPageGetFieldControlId]
             }
             _ => !matches!(r, Outcome::NotRun(why) if why.contains("on what TestPage.GetField found by a control id")),
         })
         .collect();
+    assert!(o.len() == 5 && bad.is_empty(), "{o:#?}");
+}
+
+/// The shapes of the review of the 8902 pull request (:2559-:2702): the ids of an action and an action group and the base
+/// page's id of an extension's field on a Worksheet, a host control's id through the TestPart of a CardPart a Card shows, an id
+/// no control has on the CardPart a RoleCenter shows, on an API page, a PromptDialog, a ReportPreview and a ReportProcessingOnly
+/// page are not found; a control's own id on a Worksheet, a ListPlus and a CardPart a TestPart shows reads its Value. The
+/// extension's field by the extension's id on a Worksheet (:2576 `ext`) refuses, as only a Card's is measured. Just past the
+/// cells an action's id on a NavigatePage and an id no control has on the CardPart a Document shows refuse. Without a version
+/// symbol the ReportPreview cell takes BC 29's branch (:2643; BC 27 and 28 raise on the page's open).
+#[test]
+fn review_shapes() {
+    let src = format!("{PROBE}\n{NEIGHBORS}");
+    let kinds = outcomes(&src, "LT GFI Kinds Tests");
+    let bad: Vec<_> = kinds
+        .iter()
+        .filter(|(n, r, marks)| match n.as_str() {
+            "Worksheet_GetFieldExtensionFieldIds" => {
+                !matches!(r, Outcome::NotRun(why) if why.starts_with("TestPage.GetField by a control id on a page kind"))
+            }
+            _ => *r != Outcome::Pass || *marks != [TestPageGetFieldControlId],
+        })
+        .collect();
+    assert!(kinds.len() == 11 && bad.is_empty(), "{kinds:#?}");
+    let past = outcomes(&src, "LT GFN Kind Tests");
+    let bad: Vec<_> = past
+        .iter()
+        .filter(|(n, r, _)| match n.as_str() {
+            "NavigatePageActionId" => {
+                !matches!(r, Outcome::NotRun(why) if why.starts_with("TestPage.GetField by a control id on a page kind"))
+            }
+            "WorksheetExtActionRefId" | "CardPartHostExtFieldId" => !matches!(r, Outcome::NotRun(why) if why.starts_with(EXT_ID)),
+            _ => !matches!(r, Outcome::NotRun(why) if why.starts_with("TestPage.GetField with an id no control of the page has")),
+        })
+        .collect();
+    assert!(past.len() == 4 && bad.is_empty(), "{past:#?}");
+}
+
+/// How the refusal of an id a page extension's control has, on the page, the host or a part's page, starts.
+const EXT_ID: &str = "TestPage.GetField with the id of a page extension's control";
+
+/// The review of the 8902 pull request at 22:31Z (:3015-:3051): on a Worksheet an extension's actionref by the extension's id
+/// (BC finds it, an empty field), a field the host's extension adds read through the CardPart and a field a part page's
+/// extension adds read on the RoleCenter (BC: not found) refuse, as the entry says; the previous head of this pull request
+/// answered "not found" for the first and the third, and main refuses both.
+#[test]
+fn extension_control_ids_refuse() {
+    let o = outcomes(PROBE, "LT GFI Owner Tests");
+    let bad: Vec<_> = o
+        .iter()
+        .filter(|(_, r, _)| !matches!(r, Outcome::NotRun(why) if why.starts_with(EXT_ID)))
+        .collect();
     assert!(o.len() == 3 && bad.is_empty(), "{o:#?}");
+}
+
+/// Al-runner issue 8887: an id no control has is not found on every page kind the cells open, a Worksheet, a ListPlus, a
+/// CardPart behind a TestPart, a page without PageType, a RoleCenter, a NavigatePage, a StandardDialog, a ConfirmationDialog
+/// and a HeadlinePart (:1631-:1797), and so is the id of another page's control on a Worksheet (the neighbor). Main refused
+/// them: it checked the page kind before the lookup.
+#[test]
+fn an_id_no_control_has_is_not_found_on_every_page_kind_measured() {
+    let src = format!("{PROBE}\n{NEIGHBORS}");
+    let mut o = outcomes(&src, "LT GFI Missing Tests");
+    o.extend(outcomes(&src, "LT GFN Missing Tests"));
+    let bad: Vec<_> = o
+        .iter()
+        .filter(|(_, r, marks)| *r != Outcome::Pass || *marks != [TestPageGetFieldControlId])
+        .collect();
+    assert!(o.len() == 10 && bad.is_empty(), "{o:#?}");
 }
