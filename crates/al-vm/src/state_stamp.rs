@@ -403,7 +403,13 @@ mod tests {
         assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
         let engine = crate::Engine::new(l.program, Vec::new());
         let at = engine.program.objects.iter().position(|o| o.name == "Keeper").unwrap();
-        let routine = |name: &str| engine.program.objects[at].routines.iter().position(|r| r.name == name).unwrap();
+        let routine = |name: &str| {
+            engine.program.objects[at]
+                .routines
+                .iter()
+                .position(|r| r.name == name)
+                .unwrap()
+        };
         let (add, same) = (routine("Add"), routine("Same"));
         let mut session = crate::Session::new(engine.clone());
         let run = |s: &mut crate::Session, r: usize, args: Vec<al_builtins::value::Value>| {
@@ -416,6 +422,9 @@ mod tests {
         assert!(before.changed(&session.left_stamp()).singles.is_empty());
         run(&mut session, add, vec![al_builtins::value::Value::Integer(2)]);
         let changed = before.changed(&session.left_stamp()).singles;
-        assert_eq!(changed.get(&at).map(|g| g.iter().copied().collect::<Vec<_>>()), Some(vec![0]));
+        assert_eq!(
+            changed.get(&at).map(|g| g.iter().copied().collect::<Vec<_>>()),
+            Some(vec![0])
+        );
     }
 }

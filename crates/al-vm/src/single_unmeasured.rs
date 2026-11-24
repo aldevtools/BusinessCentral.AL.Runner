@@ -33,7 +33,10 @@ impl Session {
     /// BC's value, for `why`; its other globals keep their marks.
     pub fn mark_single_global_unmeasured(&mut self, object: usize, global: usize, why: Rc<str>) {
         if let Some(inst) = self.singletons.get(&object) {
-            inst.borrow_mut().unmeasured.globals.push((global, SingleMark::Refused(why)));
+            inst.borrow_mut()
+                .unmeasured
+                .globals
+                .push((global, SingleMark::Refused(why)));
         }
     }
 
@@ -83,14 +86,24 @@ mod tests {
         assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
         let engine = crate::Engine::new(l.program, Vec::new());
         let at = engine.program.objects.iter().position(|o| o.name == "Keeper").unwrap();
-        let routine = |name: &str| engine.program.objects[at].routines.iter().position(|r| r.name == name).unwrap();
+        let routine = |name: &str| {
+            engine.program.objects[at]
+                .routines
+                .iter()
+                .position(|r| r.name == name)
+                .unwrap()
+        };
         let mut session = crate::Session::new(engine.clone());
         let get = |s: &mut crate::Session, name: &str| {
             let inst = s.codeunit_instance(at);
             s.call(at, routine(name), inst, Vec::new())
         };
         assert!(get(&mut session, "GetA").is_ok());
-        let b = engine.program.objects[at].globals.iter().position(|g| g.name == "B").unwrap();
+        let b = engine.program.objects[at]
+            .globals
+            .iter()
+            .position(|g| g.name == "B")
+            .unwrap();
         session.mark_single_global_unmeasured(at, b, "not measured".into());
         assert!(get(&mut session, "GetA").is_ok());
         let refused = get(&mut session, "GetB").unwrap_err();
