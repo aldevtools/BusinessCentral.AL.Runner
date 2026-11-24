@@ -298,8 +298,9 @@ impl Session {
     }
 
     /// `CurrPage.SaveRecord()` in the OnValidate of the later SetValue on a page of the page-with-code shape with other code
-    /// (`FactboxStep::CodedTyped`, `CodedObjects::Extra`), on the row its new line became: measured when Rec is that row and
-    /// the control wrote no row of the page's table since its OnValidate began, other tables only
+    /// (`FactboxStep::CodedTyped`, `CodedObjects::Extra`), on the row its new line became: measured when Rec is that row, its
+    /// view as the SetValue found it (`coded_typed_begins`; a filter set before the save, review of al-runner PR 8847, 01:00Z),
+    /// and the control wrote no row of the page's table since its OnValidate began, other tables only
     /// (ListNewLineExtraCodeCodedSecondSetValue.al:771); the Update after it and the step end then run under the effect gate
     /// (`SavedView::extra`: :746, :760, :782 run; a filter set, :793, and a write after the Update, :837, are refused).
     pub(super) fn extra_code_typed_save(&mut self, st: &St) -> Result<(), Signal> {
@@ -311,8 +312,10 @@ impl Session {
             .code_inserted_row
             .as_ref()
             .is_some_and(|row| Self::same_key(&row.key, &key));
+        let found = st.borrow_mut().coded_typed_view.take();
+        let view_found = found.is_some_and(|v| Self::same_view(&rec.borrow(), &v));
         let kept = match began {
-            Some(mark) if landed => self.page_table_kept_since(st, mark)?,
+            Some(mark) if landed && view_found => self.page_table_kept_since(st, mark)?,
             _ => false,
         };
         if !kept {

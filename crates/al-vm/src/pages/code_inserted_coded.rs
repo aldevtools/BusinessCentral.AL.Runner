@@ -53,8 +53,9 @@
 //! Its page may have manual subscribers none of which is bound (issue 8842, corpus pull request 1541); a test call while
 //! one is bound is refused (`coded_line_before_set_value`).
 //! After the landing, one SetValue of a control with code of its own (`extra_value_control`, issue 8843) saves and updates
-//! as the probe's Value does (`FactboxStep::CodedTyped`), its save under the effect gate (`extra_code_typed_save` in
-//! `code_inserted_extra.rs`).
+//! as the probe's Value does (`FactboxStep::CodedTyped`): into a control with a TableRelation only a value stored as typed
+//! (`coded_typed_begins`), its save under the effect gate with Rec's view as the SetValue found it (`extra_code_typed_save` in
+//! `code_inserted_extra.rs`), and Rec as saved at its Update (`update_after_code_inserted_save`).
 
 use super::pinned_shape::TestCall;
 use super::state::{CodedLine, FactboxStep};
@@ -439,6 +440,76 @@ impl Session {
             "the validation of the first SetValue on a List page with code and FactBoxes, whose parts read its new line, did not \
              leave the line for the row its table field inserted as measured (not measured)",
         )
+    }
+
+    /// The test's later SetValue `call` of `args` on a page of the page-with-code shape with other code begins
+    /// (`FactboxStep::CodedTyped`, set by `refuse_off_factbox_row`). Rec's view is noted, and the save must find it so
+    /// (`extra_code_typed_save`: a filter set before the save, review of al-runner PR 8847, 01:00Z). Into a control with a
+    /// TableRelation, only a value a row of the related table holds as its key, in the same case, is measured
+    /// (ListNewLineExtraCodeCodedSecondSetValue.al:859, 'V' stored as 'V'): a missing value or one in another case is refused.
+    pub(super) fn coded_typed_begins(&mut self, st: &St, call: Option<TestCall>, args: &[Value]) -> Result<(), Signal> {
+        let (root, _) = Self::tree_root(st);
+        let begins = {
+            let r = root.borrow();
+            r.coded_objects == super::state::CodedObjects::Extra
+                && matches!(
+                    r.code_inserted_row.as_ref().map(|c| c.factbox),
+                    Some(FactboxStep::CodedTyped { .. })
+                )
+        };
+        let (true, Some(TestCall::Write(idx))) = (begins, call) else {
+            return Ok(());
+        };
+        let view = self.page_rec(&root).borrow().clone();
+        root.borrow_mut().coded_typed_view = Some(Box::new(view));
+        let relation = page_of(&self.engine(), &root)
+            .controls
+            .get(idx)
+            .and_then(|c| c.prop("tablerelation").cloned());
+        let measured = match relation {
+            None => true,
+            Some(ir::PropVal::Lit(text)) => self.relation_holds_exactly(&text, args.first())?,
+            Some(_) => false,
+        };
+        if measured {
+            return Ok(());
+        }
+        root.borrow_mut().forget_code_inserted_line();
+        unsupported(
+            "a SetValue, after the landing on a List page with code and FactBoxes, into a control with a TableRelation of a value \
+             no row of the related table holds as its key in the same case (not measured)",
+        )
+    }
+
+    /// Whether a stored row of the table a plain `TableRelation` `relation` names (`Table` or `Table.Field`, the field its
+    /// primary key's only field) holds `value` as its key, character for character.
+    fn relation_holds_exactly(&mut self, relation: &str, value: Option<&Value>) -> Result<bool, Signal> {
+        let Some(Value::Text(typed) | Value::Code(typed)) = value else {
+            return Ok(false);
+        };
+        let Some((name, field)) = super::relation_lookup::simple_relation(relation) else {
+            return Ok(false);
+        };
+        let def = {
+            let engine = self.engine();
+            match super::relation_lookup::tables_named(&engine, &name).as_slice() {
+                [t] => engine.tables[*t].clone(),
+                _ => None,
+            }
+        };
+        let Some(def) = def else {
+            return Ok(false);
+        };
+        let key = match (def.keys.first().map(Vec::as_slice), field) {
+            (Some(&[k]), None) => k,
+            (Some(&[k]), Some(f)) if def.fields[k].name.eq_ignore_ascii_case(&f) => k,
+            _ => return Ok(false),
+        };
+        let cx = self.cx.clone();
+        Ok(self
+            .all_rows(&cx, &def)?
+            .iter()
+            .any(|row| matches!(&row[key], Value::Text(s) | Value::Code(s) if s == typed)))
     }
 
     /// A SetValue on the tree of host `st` ended with `result`. When it was the first SetValue that let the parts read the new
