@@ -131,6 +131,32 @@ codeunit 50412 "Saved Tx Lib"
         CurrentTransactionType(Saved);
     end;
 
+    procedure SaveReadSetRestore()
+    var
+        Saved: TransactionType;
+    begin
+        Commit();
+        Saved := CurrentTransactionType;
+        CurrentTransactionType(TransactionType::Update);
+        if CurrentTransactionType = TransactionType::Update then;
+        Commit();
+        CurrentTransactionType(Saved);
+    end;
+
+    procedure SaveRestoreAfterRollback()
+    var
+        Saved: TransactionType;
+        Row: Record "Saved Tx Row";
+    begin
+        Commit();
+        Saved := CurrentTransactionType;
+        CurrentTransactionType(TransactionType::Update);
+        Row."Entry No." := 8;
+        Row.Insert();
+        asserterror Error('x');
+        CurrentTransactionType(Saved);
+    end;
+
     local procedure SetBack(Saved: TransactionType)
     begin
         CurrentTransactionType(Saved);
@@ -233,6 +259,8 @@ fn every_other_use_of_the_saved_type_stays_refused() {
         "Lib.SavePassedOn();",
         "Lib.SaveInIf();",
         "Lib.SaveRestoredTwice();",
+        // A second read of the type in the procedure: the save's read is the only one.
+        "Lib.SaveReadSetRestore();",
     ] {
         match run(call, true).0 {
             Outcome::NotRun(r) if r.contains(NOT_KNOWN) => {}
@@ -248,5 +276,14 @@ fn a_set_back_that_does_not_take_effect_is_refused() {
         Outcome::NotRun(r)
             if r.contains("set back to the type read while the type a test method before left was not known") => {}
         other => panic!("expected the set back after a write to be refused, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_set_back_after_a_rollback_since_the_read_is_refused() {
+    match run("Lib.SaveRestoreAfterRollback();", true).0 {
+        Outcome::NotRun(r)
+            if r.contains("set back to the type read while the type a test method before left was not known") => {}
+        other => panic!("expected the set back after a rollback to be refused, got {other:?}"),
     }
 }
