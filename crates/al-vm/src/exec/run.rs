@@ -1395,6 +1395,9 @@ impl Session {
             // `Clear` of a Variant empties it, whatever it holds (types/lt-variant/VaTIs*.al:Is_Empty_Variant `V := 5; Clear(V)`
             // has no type flag left); the native clears a value to the default of its own kind.
             if let Some(ir::Arg::Ref(p)) = site.args.first() {
+                if let Some(v) = values.first_mut() {
+                    self.clear_shared_codeunit(p, v, f)?;
+                }
                 // What Clear does to a row of a multi-dimensional array is not pinned (only a row as an argument is).
                 if let ir::Place::Index(base, idx) = p {
                     if let al_builtins::value::RtType::Array(d, el) = self.place_type(base, f) {

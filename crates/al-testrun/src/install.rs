@@ -1544,8 +1544,10 @@ fn own_login(
         );
         let at = session.left_stamp();
         call_before_first_test(lowered, session, &what, |s| s.raise_to(po, pr, &step.subscribers))?;
-        let singles = at.changed(&session.left_stamp()).singles;
+        let mut change = at.changed(&session.left_stamp());
+        let singles = std::mem::take(&mut change.singles);
         crate::partner_login::own_step(lowered, session, singles, &mut partner, memo_alone);
+        session.mark_declared_form(&change);
         // On BC the registration events are raised inside Base Application's "Checklist Events" subscriber of the
         // isolated OnAfterLogin, whose own transaction commits before the app's OnAfterLogin subscribers run; an isolated
         // event isolates a subscriber only when nothing is pending (codeunits/TestIsolatedEventSubscriberError.al:5-11,

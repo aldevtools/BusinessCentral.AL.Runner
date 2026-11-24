@@ -67,6 +67,7 @@ mod auto_format_writer;
 mod callstack;
 mod caught_errors;
 mod clear_all_page_ext;
+mod clear_shared_codeunit;
 mod code_storage_check;
 mod column_formatter;
 mod companies;
@@ -186,6 +187,7 @@ mod test_rows;
 mod test_runner_host;
 mod testdata;
 mod transaction_type;
+mod transaction_type_saved;
 mod transactions;
 mod translations;
 mod ui;
@@ -380,6 +382,8 @@ pub(crate) struct RoutineFacts {
     /// A `var` Option parameter declared with members, of a routine that is no publisher: a call hands it whether its argument
     /// is a variable the probes measure handing on to a publisher (`var_option::option_hops_of`, `Frame::option_hops`).
     pub option_hops: bool,
+    /// A `var` Codeunit parameter, of a routine that is no publisher (`Frame::var_codeunits`).
+    pub var_codeunits: bool,
 }
 
 fn routine_facts(r: &ir::Routine, publisher: bool) -> RoutineFacts {
@@ -404,6 +408,8 @@ fn routine_facts(r: &ir::Routine, publisher: bool) -> RoutineFacts {
     }
     f.odd_attributes |= commits > 1 || collects > 1;
     f.var_lens = r.reads_var_max_len && !publisher;
+    f.var_codeunits = !publisher
+        && (r.locals.iter().zip(&r.by_var).take(r.params)).any(|(l, v)| *v && matches!(l.ty, RtType::Codeunit(_)));
     f.option_hops = !publisher
         && r.locals
             .iter()
@@ -2664,6 +2670,7 @@ impl Session {
             aliases,
             var_lens,
             option_hops,
+            var_codeunits: self.take_var_codeunits(facts.var_codeunits),
         };
         let is_try = facts.is_try;
         // [CommitBehavior] governs the whole dynamic extent of the procedure and ends when it
@@ -2919,6 +2926,8 @@ struct Frame {
     /// Per parameter: the caller handed this `var` Option parameter with members a variable the probes measure handing on
     /// to an event publisher with a memberless subscriber (set by `finish_call`, `var_option::option_hops_of`).
     option_hops: Vec<bool>,
+    /// Per parameter: what a `var` Codeunit parameter got from its caller (set by `finish_call`, `clear_shared_codeunit`).
+    var_codeunits: Vec<Option<clear_shared_codeunit::VarCodeunit>>,
 }
 
 fn int(v: &Value) -> Result<i64, Signal> {

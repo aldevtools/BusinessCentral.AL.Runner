@@ -1,0 +1,16 @@
+# key	entry
+# Main gave the owner a fresh price store in every ASSUMED row; BC resets it in place (corpus PR 1564 commit 65262a80,
+# ClearSharedCodeunitStoreShapes.al; shared with no row: ClearSharedCodeunitHolderSlots.al). The REFUSED rows are the
+# shapes those files do not measure.
+PS ClearAll Tests::PriceStoreViaInterface	ASSUMED clear-shared-codeunit (corpus PR 1564)
+PS ClearAll Tests::PriceStoreDirect	ASSUMED clear-shared-codeunit (corpus PR 1564)
+PS ClearAll Tests::PriceStoreTwice	ASSUMED clear-shared-codeunit (corpus PR 1564)
+PS ClearAll Tests::PriceStoreAlias	ASSUMED clear-shared-codeunit (corpus PR 1564)
+PS ClearAll Tests::PriceStoreCopyShared	ASSUMED clear-shared-codeunit (corpus PR 1564)
+PS ClearAll Tests::PriceStoreAliasMarkedNoRow	ASSUMED clear-shared-codeunit (corpus PR 1564)
+PS ClearAll Tests::PriceStoreAliasNeverWritten	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
+PS ClearAll Tests::PriceStoreCopySharedEmpty	REFUSED ClearAll of a global variable that reaches a temporary table that another record shares
+PS ClearAll Tests::PriceStoreSingleInstanceOwner	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows
+PS ClearAll Tests::PriceStoreTableNoOwner	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows
+PS ClearAll Tests::PriceStorePlainLabel	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows
+PS ClearAll Tests::PriceStoreMoreGlobals	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows

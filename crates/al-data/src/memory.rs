@@ -1093,6 +1093,13 @@ impl MemStore {
         }
     }
 
+    /// Whether a table of the store holds a row now, read with no footprint and no access counted: a decision of the VM,
+    /// not a read of AL code (al-vm `clear_shared_codeunit.rs`). The backing is not read; a temporary record's own store
+    /// has none.
+    pub fn holds_rows_unobserved(&self) -> bool {
+        self.tables.iter().any(|(_, t)| !t.is_empty())
+    }
+
     /// Whether table object `object` holds a row now (committed or not) in any company.
     pub fn has_rows(&self, object: u32) -> bool {
         self.seen(object);
