@@ -2527,6 +2527,13 @@ impl Session {
         // The call whose by-value arguments `blob_transfer::Argument` measures.
         let measured_call =
             blob_transfer::Argument::measured_call(engine.program.objects[object].kind, r, measured_event);
+        // The `var` Option parameters `var_option::carried::carried_args` let a value that carries another list or none
+        // through to: bound as they are.
+        let carried_kept = if facts.option_hops {
+            std::mem::take(&mut self.events.next_carried_kept)
+        } else {
+            Vec::new()
+        };
         for (i, a) in args.drain(..).enumerate().take(r.params) {
             // No arm below is for these pairs, and the last one hands them back unchanged.
             if passed_unchanged(&a, &r.locals[i].ty) {
@@ -2649,7 +2656,8 @@ impl Session {
                 // is passed on by value as it is: a routine that never reads it runs, a read is refused where it happens.
                 (a @ Value::Unknown(_), false) => a,
                 // A `var` Option parameter with another member list than the value (`var_option`).
-                (a, true) if let Some(v) = self.var_binding_at(i, &a, &r.locals[i].ty, subscriber) => v?,
+                (a, true) if carried_kept.get(i) == Some(&true) => a,
+                (a, true) if let Some(v) = crate::var_option::var_binding(&a, &r.locals[i].ty, subscriber) => v?,
                 (a, _) => ops::convert_plain(a, &r.locals[i].ty)?,
             };
             locals[i] = self.bind_blobs(argument, bound)?;

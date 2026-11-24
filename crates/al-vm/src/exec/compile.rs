@@ -9,19 +9,20 @@ use types::{DeclaredTypes, ExprTypes, Ty, of_rt};
 /// Compiles routine `routine` of object `o`.
 /// `captured`: the form a value capture runs (ADR-030): statement and loop ops that tell the capture
 /// what a statement did.
-pub(crate) fn compile(o: &ir::Object, routine: usize, captured: bool) -> Option<Chunk> {
-    compile_form(o, routine, captured, false)
+pub(crate) fn compile(program: &ir::Program, o: usize, routine: usize, captured: bool) -> Option<Chunk> {
+    compile_form(program, o, routine, captured, false)
 }
 
 /// The debug form of routine `routine` of object `o` (ADR-048): the plain form with an `Op::DbgHit` after each statement
 /// marker, where a debugger may stop. The ops between two markers are the plain form's, so a debugged test computes what
 /// it computes without one.
-pub(crate) fn compile_debug(o: &ir::Object, routine: usize) -> Option<Chunk> {
-    compile_form(o, routine, false, true)
+pub(crate) fn compile_debug(program: &ir::Program, o: usize, routine: usize) -> Option<Chunk> {
+    compile_form(program, o, routine, false, true)
 }
 
-fn compile_form(o: &ir::Object, routine: usize, captured: bool, debug: bool) -> Option<Chunk> {
-    let r = &o.routines[routine];
+fn compile_form(program: &ir::Program, o: usize, routine: usize, captured: bool, debug: bool) -> Option<Chunk> {
+    let kind = program.objects[o].kind;
+    let r = &program.objects[o].routines[routine];
     let nlocals = u16::try_from(r.locals.len()).ok()?;
     let mut c = Compiler {
         locals_ty: r.locals.iter().map(|l| l.ty.clone()).collect(),
@@ -57,6 +58,9 @@ fn compile_form(o: &ir::Object, routine: usize, captured: bool, debug: bool) -> 
         debug,
         params: r.params,
         by_var: &r.by_var,
+        kept_params: (0..r.params)
+            .map(|i| crate::var_option::may_keep_carried(program, kind, r, i))
+            .collect(),
     };
     c.block(&r.body).ok()?;
     c.chunk.temps = c.max - nlocals;
@@ -95,6 +99,9 @@ struct Compiler<'a> {
     params: usize,
     /// Which parameters are `var`.
     by_var: &'a [bool],
+    /// Per parameter: a `var` Option parameter with members that a call may bind to a value carrying another list or none
+    /// (`var_option::may_keep_carried`).
+    kept_params: Vec<bool>,
 }
 
 type R<T> = Result<T, ()>;
@@ -1359,9 +1366,12 @@ impl<'a> Compiler<'a> {
                 self.emit(Op::StoreLocal { i, a: d, p: pi });
             }
             // A `var` Option parameter declared without members may hold its caller's members, one declared with members a
-            // value that carries none (`var_option::carried`): its stores go through `write_as` (`var_option::param_store`).
+            // value that carries another list or none (`var_option::may_keep_carried`): its stores go through `write_as`
+            // (`var_option::param_store`).
             ir::Place::Local(i)
-                if self.by_var.get(*i) == Some(&true) && matches!(self.locals_ty.get(*i), Some(RtType::Option(_))) =>
+                if self.by_var.get(*i) == Some(&true)
+                    && matches!(self.locals_ty.get(*i), Some(RtType::Option(m)) if al_builtins::option_members::memberless(m))
+                    || self.kept_params.get(*i) == Some(&true) =>
             {
                 self.store_place(p, e, single)?;
             }

@@ -507,8 +507,8 @@ pub(crate) struct EventState {
     /// `raise_to_subscribers`, under the measured event contract only.
     pub(crate) publisher_option_carried: Vec<crate::var_option::Carried>,
     /// Per parameter: `var_option::carried::carried_args` let a value that carries another list or none through to this `var`
-    /// Option parameter with members, which binds it as it is. Set by `finish_call` just before the call, cleared when the frame is
-    /// made (`take_option_hops`) and after the call.
+    /// Option parameter with members, which binds it as it is. Set by `finish_call` just before the call, taken by the
+    /// callee's binding (`lib.rs`), cleared after the call.
     pub(crate) next_carried_kept: Vec<bool>,
     /// The declared lengths of a publisher's `var` Text and Code arguments (`var_lens_of`), set by `finish_call` just before
     /// the publisher runs and taken by `publish`, which hands them to the subscribers that read them.

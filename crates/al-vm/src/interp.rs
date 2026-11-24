@@ -914,9 +914,11 @@ impl Session {
         // (events/binding-senders/EventVarThroughSender.al): they alias it, see `Frame::aliases`.
         let facts = self.engine.routine_facts(object, routine);
         // A memberless `var` Option parameter of the caller handed to one with members (`var_option::carried_args`).
-        if facts.option_hops {
-            self.carried_args(object, routine, args, &values, f)?;
-        }
+        let carried_kept = if facts.option_hops {
+            self.carried_args(object, routine, args, &values, f)?
+        } else {
+            Vec::new()
+        };
         // A `var` Option parameter with members of the caller handed to a memberless one (`var_option::hand_on_args`); a
         // publisher's is `var_option_publisher_args`'s (OptionVarMemberlessUnheard.al:347, :387).
         if facts.option_carries && !facts.publisher {
@@ -958,6 +960,8 @@ impl Session {
         if facts.option_hops && !self.next_interface_call {
             self.events.next_option_hops = self.option_hops_of(object, routine, args, &values, f);
         }
+        // Taken by the callee's binding (`lib.rs`).
+        self.events.next_carried_kept = carried_kept;
         // The origin marks of a memberless `var` Option parameter (`var_option::option_carried_of`).
         if facts.option_carries {
             let carried = self.option_carried_of(object, routine, args, f);

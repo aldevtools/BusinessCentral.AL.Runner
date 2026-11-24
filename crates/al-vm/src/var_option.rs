@@ -38,7 +38,7 @@ use al_builtins::value::{RtType, Value};
 use std::sync::Arc;
 
 mod carried;
-pub(crate) use carried::Carried;
+pub(crate) use carried::{Carried, may_keep_carried};
 
 /// The value a `var` parameter of type `ty` takes when it is handed `v`; `None`: the usual conversion.
 /// - Declared without members, it keeps the members of the value handed in: Format, StrSubstNo and Evaluate in the callee
@@ -344,9 +344,8 @@ impl crate::Session {
     }
 
     /// The marks `finish_call` left for the frame of a routine with `var` Option parameters with members (`option_hops_of`);
-    /// empty for any other routine. The frame is made, so the bindings `carried::carried_args` let through are done.
+    /// empty for any other routine.
     pub(crate) fn take_option_hops(&mut self, wanted: bool) -> Vec<bool> {
-        self.events.next_carried_kept.clear();
         if wanted {
             std::mem::take(&mut self.events.next_option_hops)
         } else {
