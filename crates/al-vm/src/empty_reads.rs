@@ -244,7 +244,7 @@ impl EmptyReads {
                 .collect();
             return fields.is_some_and(|f| !f.is_empty() && t.keys.iter().any(|k| k.starts_with(&f)));
         }
-        if id != self.ids.set_range {
+        if id.map(|i| i.written_base()) != self.ids.set_range {
             return false;
         }
         // `SetRange(Field)`, `SetRange(Field, Value)`, `SetRange(Field, From, To)` with values of the field's type.
