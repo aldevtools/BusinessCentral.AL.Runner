@@ -13,7 +13,9 @@ use al_syntax::ast;
 use std::collections::BTreeSet;
 
 mod group_visible;
+pub(crate) mod rec_method;
 pub use group_visible::{bound_to_procedure_call, client_expression_of, procedure_bound_value};
+use rec_method::unquoted_rec_name;
 
 /// What a synthetic property routine returns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -728,15 +730,6 @@ pub fn var_and_field(text: &str) -> Option<(String, String)> {
     Some((plain_name(&t[..dot])?, plain_name(&t[dot + 1..])?))
 }
 
-/// Whether `text` is `Rec.<name>` with an unquoted name: a field, or a parameterless method called without parentheses.
-fn unquoted_rec_name(text: &str) -> bool {
-    let t = text.trim();
-    t.get(..4).is_some_and(|p| p.eq_ignore_ascii_case("rec."))
-        && !t[4..].is_empty()
-        && t[4..].chars().all(|c| c.is_alphanumeric() || c == '_')
-        && !t[4..].starts_with(|c: char| c.is_ascii_digit())
-}
-
 /// Global variable names (lower case) declared in `obj`.
 pub fn global_names(obj: &ast::Object) -> BTreeSet<String> {
     obj.var_decls()
@@ -757,6 +750,7 @@ fn needed(
     base: usize,
     globals: &BTreeSet<String>,
     extension_routines: Option<&BTreeSet<String>>,
+    rec_methods: bool,
 ) -> Vec<(String, PropType, usize, String)> {
     let mut out = Vec::new();
     // A cuegroup, fixed or grid control gets a routine for Visible only: what its other expression properties do is not pinned
@@ -789,7 +783,7 @@ fn needed(
             // parentheses (pages/record-method-controls/TestRecordMethodControls.al:39, al-runner issue 7133): it gets a routine
             // too, which the lowering binds when the name is no field. Only extensions: a page's own controls would add a
             // routine for every such field (thousands in Microsoft's apps, against 19 in their extensions).
-            let rec_name = extension_routines.is_some() && unquoted_rec_name(src);
+            let rec_name = rec_method::needs_routine(src, extension_routines.is_some(), rec_methods);
             if (classify_source(src, globals) == Source::Expr && !names_a_base_variable) || rec_name {
                 out.push((
                     "source".into(),
@@ -995,6 +989,7 @@ fn expansion(src: &str, parse: &al_syntax::Parse) -> Option<Vec<(usize, String)>
             .ends_with("extension")
             .then(|| obj.routines().map(|r| r.name().to_lowercase()).collect());
         let base = usize::from(obj.syntax().text_range().start());
+        let rec_methods = kind == "page" && rec_method::measured_page(&obj);
         let mut text = String::new();
         // The column routines below go in before the request page, so the lowering, which reads the expanded text, finds a control
         // section that much further from the start of the object. The names of its routines carry that offset (Contact - Cover
@@ -1038,7 +1033,7 @@ fn expansion(src: &str, parse: &al_syntax::Parse) -> Option<Vec<(usize, String)>
             ));
         }
         for sec in control_sections(&obj) {
-            for (prop, ty, offset, expr) in needed(&sec, base, &globals, extension_routines.as_ref()) {
+            for (prop, ty, offset, expr) in needed(&sec, base, &globals, extension_routines.as_ref(), rec_methods) {
                 let offset = shifted(offset);
                 text.push_str(&format!(
                     "\nprocedure {}(): {} begin exit({}); end;",
@@ -1048,7 +1043,7 @@ fn expansion(src: &str, parse: &al_syntax::Parse) -> Option<Vec<(usize, String)>
                 ));
                 // A source that is a path to a place (`TotalPurchLine[1]."Inv. Discount Amount"`) can be written:
                 // TestPage.SetValue on the control assigns it through this routine.
-                if prop == "source" && assignable_path(&expr) {
+                if prop == "source" && rec_method::settable(&expr, rec_methods) {
                     text.push_str(&format!(
                         "\nprocedure {}(NewValue: Variant) begin {} := NewValue; end;",
                         synthetic_name("sourceset", offset),
@@ -1933,7 +1928,12 @@ pub enum LinkRhs {
     /// `const("Enum Name"::Member)`: a value of the named enum (testpage/UjSubPageLink.al, corpus branch
     /// al-runtime-rs-staging-uj 1dc037a8). The names are unquoted.
     EnumValue(String, String),
+    /// A term of `NOT_BLANK_TERMS`, with the text `Filter` held for it before (kept on a field other than Code or Text).
+    NotBlank(String),
 }
+
+/// The `filter(...)` link terms "not blank" (assumption `link-filter-not-blank`, corpus PR 1548, al-runner issue 8873).
+const NOT_BLANK_TERMS: [&str; 2] = ["<> ''", "<>''"];
 
 /// `"Enum Name"::Member` or `Enum::"Member"`: the enum and member names, unquoted; `None` for any other text.
 fn qualified_enum_value(inner: &str) -> Option<(String, String)> {
@@ -2090,6 +2090,8 @@ pub fn parse_sub_page_link_kinds(text: &str) -> Result<Vec<(String, LinkRhs, boo
                 {
                     // A quoted member name: `const("Released Production Order")` is the member, not text with quotes.
                     LinkRhs::Filter(inner[1..inner.len() - 1].to_string())
+                } else if kind == "filter" && NOT_BLANK_TERMS.contains(&inner) {
+                    LinkRhs::NotBlank(unquote_literals(inner))
                 } else {
                     LinkRhs::Filter(unquote_literals(inner))
                 }

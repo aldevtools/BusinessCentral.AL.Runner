@@ -326,6 +326,30 @@ fn an_unlisted_master_commit_between_the_pin_and_the_merge_is_refused() {
     refused(&fx, &gh, "is not one of the listed pull requests");
 }
 
+/// The preprocessor symbols of every leg come from these two corpus files (ADR-078 point 3); a subset run cannot
+/// show what a change to them does, and a `--from-pr` bump keeps the list of `oracle.toml`.
+#[test]
+fn a_change_to_the_released_minors_is_refused_in_a_listed_pull_request() {
+    let fx = fixture(&[NEW_CU, (".github/released-minors.txt", "27.0\n29.0\n29.1\n")], None);
+    let gh = fake_gh(&fx, &pr_json(&fx, "MERGED"), &runs_json(&fx, "success"), &green_arts());
+    refused(
+        &fx,
+        &gh,
+        ".github/released-minors.txt, which sets the preprocessor symbols",
+    );
+}
+
+#[test]
+fn a_change_to_the_legs_script_is_refused_in_a_commit_between_the_pin_and_the_merge() {
+    let fx = fixture(&[NEW_CU], Some((".github/scripts/ci-legs.py", "# changed\n")));
+    let gh = fake_gh(&fx, &pr_json(&fx, "MERGED"), &runs_json(&fx, "success"), &green_arts());
+    refused(
+        &fx,
+        &gh,
+        ".github/scripts/ci-legs.py, which sets the preprocessor symbols",
+    );
+}
+
 #[test]
 fn a_changed_codeunit_with_oracle_cases_the_run_did_not_run_is_refused() {
     let fx = fixture(&[NEW_CU, EDIT_CU], None);

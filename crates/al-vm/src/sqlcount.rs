@@ -27,6 +27,15 @@
 //! (and a Modify after its Get) have the cost writer TX measured for each method alone ([`SqlCounters::read_cost`]); Inserts
 //! made before the session's first read are followed too ([`SqlCounters::pre_insert`]), so a measurement that starts after
 //! them knows what they left buffered.
+//!
+//! The model behind `SqlStatementsExecuted` / `SqlRowsRead`: record methods logged after the first
+//! read, segments between two reads sized (`sized`: nine measured shapes right after a Commit, N = 1,
+//! 2, 5, 10, 20) or classified by sign against the pinned sequences (session-
+//! system/session/SqlCounters.al), or summed from each method's cost under the insert-buffer rule
+//! (`SqlCounters::cost`, SkSqlBudget.al: every fifth buffered Insert sends one statement, a Count
+//! sends what is left, the first write to a table by its Global Triggers setup; the AL code of Global
+//! Triggers events is muted, `mute_begin`), a new epoch for anything else; `guard` refuses a builtin
+//! given a counter value. Entry points: `SqlCounters::read`, `enter`, `leave`, `guard`.
 
 use al_builtins::assumptions::Assumption;
 use al_builtins::record_op::RecordOp;
@@ -246,6 +255,18 @@ pub(crate) struct SqlCounters {
 pub(crate) struct SqlLeft {
     found_nothing: std::collections::HashSet<(u32, u8, u64)>,
     resets: u64,
+}
+
+impl SqlLeft {
+    /// The queries that found no row, sorted, and the resets: a line that compares across sessions (`state_facts.rs`).
+    pub(crate) fn line(&self) -> String {
+        let found: std::collections::BTreeSet<_> = self.found_nothing.iter().collect();
+        format!(
+            "found nothing {} resets {}",
+            crate::state_render::content(&found),
+            self.resets
+        )
+    }
 }
 
 /// What ran between two reads of a counter.

@@ -76,3 +76,89 @@ codeunit 69861 FD
     let v = al_testkit::run_in(src, "FD", "F");
     assert!(matches!(&v, Ok(al_builtins::value::Value::Integer(3))), "{v:?}");
 }
+
+// The one-character literal bounds of a Char loop variable that language/ForCharBounds.al measured (open corpus PR 1525) run through
+// the assumption for-char-literal-bounds; the corpus case is their test. Every other shape keeps main's refusal (hard rule 3):
+// a literal next to a Text variable, an expression or an Integer variable, and a global Char loop variable.
+#[test]
+fn unmeasured_one_character_literal_for_loop_bounds_are_refused() {
+    for (decl, head) in [
+        ("var c: Char; t: Text; s: Text;", "for c := '0' to t do"),
+        ("var c: Char; i: Integer; s: Text;", "for c := '0' to i do"),
+        ("var c: Char; s: Text;", "for c := '0' to 'a' + 1 do"),
+        ("var b: BigInteger; c: Char; s: Text;", "for b := '0' to '4' do"),
+        ("var d: Decimal; c: Char; s: Text;", "for d := '0' to '4' do"),
+        // A non-BMP literal is two UTF-16 units in BC (AL0122), and an Integer literal other than the measured `48 to <literal>` and `<literal> to 52` pairings.
+        ("var c: Char; s: Text;", "for c := '\u{1F600}' to '\u{1F601}' do"),
+        ("var c: Char; s: Text;", "for c := '0' to 70000 do"),
+        ("var c: Char; s: Text;", "for c := '0' to 50 do"),
+        ("var c: Char; s: Text;", "for c := 49 to 'a' do"),
+        ("var c: Char; s: Text;", "for c := 'a' to 65535 do"),
+        ("var c: Char; s: Text;", "for c := 0 to 'a' do"),
+        ("var c: Char; s: Text;", "for c := '0' downto 1 do"),
+        ("var c: Char; s: Text;", "for c := '0' to 48 do"),
+        ("var c: Char; s: Text;", "for c := 52 downto '0' do"),
+        ("var c: Char; s: Text;", "for c := '4' downto 48 do"),
+        ("var c: Char; s: Text;", "for c := 52 to '0' do"),
+        ("var c: Char; s: Text;", "for c := 48 downto '0' do"),
+        ("var c: Char; s: Text;", "for c := '4' downto 52 do"),
+        // A literal next to a local Char variable was measured only with `to` (Char_LiteralStart_CharVariableEnd, Char_CharVariableStart_LiteralEnd).
+        ("var c: Char; l: Char; s: Text;", "for c := 'c' downto l do"),
+        ("var c: Char; l: Char; s: Text;", "for c := l downto 'a' do"),
+    ] {
+        let src = format!(
+            "codeunit 69862 FC\n{{\n    procedure F(): Text\n    {decl}\n    begin\n        {head} s += Format(c);\n        exit(s);\n    end;\n}}\n"
+        );
+        let why = match al_testkit::run_in(&src, "FC", "F") {
+            Err(al_builtins::native::Signal::Unsupported(why)) => why.into_reason(),
+            other => panic!("`{head}`: expected a refusal, got {other:?}"),
+        };
+        assert!(why.contains("used as an integer"), "`{head}`: {why}");
+    }
+}
+
+#[test]
+fn a_one_character_literal_char_for_loop_bound_runs_through_its_assumption() {
+    let src = r#"
+codeunit 69863 FE
+{
+    procedure F(): Text
+    var c: Char; s: Text;
+    begin
+        for c := '0' to '4' do s += Format(c);
+        exit(s);
+    end;
+}
+"#;
+    let v = al_testkit::run_in(src, "FE", "F");
+    assert!(
+        matches!(&v, Ok(al_builtins::value::Value::Text(t)) if t.as_str() == "01234"),
+        "{v:?}"
+    );
+}
+
+// A Char loop variable that is a parameter was not measured (the probe's loop variables are local variables).
+#[test]
+fn a_parameter_as_the_char_for_loop_variable_keeps_main_s_refusal() {
+    let src = r#"
+codeunit 69864 FP
+{
+    local procedure Loop(var c: Char): Integer
+    var n: Integer;
+    begin
+        for c := '0' to '4' do n += 1;
+        exit(n);
+    end;
+
+    procedure F(): Integer
+    var c: Char;
+    begin
+        exit(Loop(c));
+    end;
+}
+"#;
+    match al_testkit::run_in(src, "FP", "F") {
+        Err(al_builtins::native::Signal::Unsupported(why)) => assert!(why.into_reason().contains("used as an integer")),
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}

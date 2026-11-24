@@ -3,6 +3,17 @@
 //! on a record value (`Rec.Proc()`) runs with (`table_proc_xrec`, by `call_site` in `interp.rs`). Where a Validate was called
 //! from (`ValidateSite`, `validate_at`). What a table procedure called on a record through other code sees while a call on the
 //! same record runs: `running_call_xrec.rs` (record/validate/XRecTableProcThroughCodeunit.al, XRecTableProcThroughSubscriber.al).
+//!
+//! The xRec of table code: the before-image a Validate hands its triggers (nested, plain table
+//! procedure, page OnModifyRecord) and the caller's xRec a table procedure called on a record value
+//! shares (the page's Rec from page code; Rec from a field OnValidate of the table or a field
+//! OnValidate / modify OnAfterValidate of its table extensions, al-runner issues 7785 and 7792;
+//! called from code other than the table and its extensions: `records/running_call_xrec.rs`). Every
+//! Validate names its call site (`ValidateSite`) and the call-stack depth its trigger runs at; only
+//! one un-nested `Record.Validate` from AL code is the pinned clean path (`sole_validate_from_al`),
+//! every other site keeps the assumption mark. Entry points: `validate_at`, `platform_validate`,
+//! `outer_validate_before`, `validate_before_image` (by the Validate arm of `records/op_inner.rs`),
+//! `table_proc_xrec` and `ProcXrec` (by `call_site` in `interp.rs`).
 
 use crate::records::Rec;
 use crate::{Frame, Session};
@@ -141,7 +152,7 @@ impl Session {
             site: entry.1,
             depth: self.call_stack.len(),
             xrec: xrec.clone(),
-            entered: rec.borrow().fields.clone(),
+            entered: rec.borrow().fields.to_vec(),
             touched: false,
         });
         let r = hooks(self);
@@ -360,12 +371,12 @@ impl Session {
         {
             let x = x.2.borrow();
             let mark = (x.unpinned_buffer == Some(XREC_OF_RUNNING_CALL)).then_some(XREC_OF_RUNNING_CALL);
-            return Ok((x.fields.clone(), mark));
+            return Ok((x.fields.to_vec(), mark));
         }
         let before = rec.borrow().fields.clone();
         let image = self
             .modify_record_validate_xrec(handle, &before, with_value)?
-            .unwrap_or(before);
+            .unwrap_or(before.into_vec());
         Ok((image, None))
     }
 }

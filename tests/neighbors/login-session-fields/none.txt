@@ -1,0 +1,1 @@
+A refactor of how session fields are classified (one table, the at-rest rule and the install checks generated from it), with no AL-visible answer change: install_left gives main's verdicts.

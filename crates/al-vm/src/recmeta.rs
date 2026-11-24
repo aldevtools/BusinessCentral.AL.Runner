@@ -1,6 +1,14 @@
 //! Record builtins that read table metadata or guard on session state:
 //! `TestField`, `Truncate`, `FieldCaption`, `FieldName`, `FieldNo`,
 //! `TableCaption`, `TableName`.
+//!
+//! Entry points: `string_literal`, `mentions_table`, `is_blank`. `field_caption_class_value` runs a
+//! table field's CaptionClass expression for every reader (FieldCaption, FieldRef.Caption, the page
+//! runs of `pages/caption_runs.rs`) and refuses a read of the field's caption while its own
+//! expression is on the call stack (al-runner issue 8329). TransferFields: `transfer_fields` walks
+//! the target's fields; `transfer_field` decides a field declared ObsoleteState = Removed on either
+//! side (`removed_pair_measured`, assumption `transferfields-removed-field`, corpus PR 1486) and
+//! `move_field` moves a live field.
 
 use crate::Session;
 use crate::blob_transfer::BlobMove;
@@ -2019,7 +2027,8 @@ impl Session {
             return unsupported("GetBySystemId on a table without SystemId");
         };
         if !rec.borrow().temporary {
-            self.refuse_unmeasured_read_while_deferred(t.object as usize, "GetBySystemId")?;
+            let company = rec.borrow().company.clone();
+            self.refuse_unmeasured_read_while_deferred(t.object as usize, company.as_deref(), "GetBySystemId")?;
         }
         // A Text argument binds to the Guid parameter as a Text assigns to a Guid
         // (PXEnumRecordRef.al:232 passes the null Guid as a text literal).
@@ -2032,7 +2041,7 @@ impl Session {
             return match args.first() {
                 // GetWithTextArgument.al:GetBySystemId_TextAndGuid, `empty_text`, `text_not_a_guid`, `integer`.
                 Some(Value::Text(_) | Value::Code(_)) => Err(crate::transactions::al_error_code(
-                    "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.",
+                    al_builtins::native::INVALID_GUID_FORMAT,
                     "InvalidGuidFormat",
                 )),
                 Some(Value::Integer(_)) => Err(crate::transactions::al_error_code(
@@ -2117,7 +2126,7 @@ impl Session {
     /// (corpus record/TestRecordModify.al:87-170, TestTriggerContracts.al:123-146).
     fn modify_all(&mut self, rec: &Rec, t: &TableDef, args: &[Value]) -> Result<Value, Signal> {
         let of_al = self.take_write_of_al(crate::state::WriteOfAl::ModifyAll);
-        let at = self.note_bulk_write(rec, t, crate::state::TxWriteKind::ModifyAll);
+        let at = self.note_bulk_write(rec, t, crate::state::TxWriteKind::ModifyAll, &[]);
         let r = self.modify_all_noted(rec, t, args, of_al);
         self.note_bulk_end(at);
         r
@@ -2292,7 +2301,7 @@ impl Session {
             let copy = {
                 let r = rec.borrow();
                 RecordState {
-                    fields: row,
+                    fields: row.into(),
                     // The caller's filters and current key stay: the Rec and xRec of the modify events show them (corpus
                     // record/events/Y7408XRecInModifyEvent.al:310 `ModifyAll(true) under a filter`, al-runner issue 7408).
                     filters: r.filters.clone(),

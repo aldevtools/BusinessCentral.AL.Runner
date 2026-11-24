@@ -1,3 +1,6 @@
+//! What the built-in View and Edit left on a list without a card (`ListViewSwitch`, five states;
+//! rules in `list_view_switch.rs`; al-runner issues 7685, 8501). Entry points: `ListViewSwitch`,
+//! field `PageState::list_view`.
 #![deny(clippy::wildcard_enum_match_arm)]
 //! Where the built-in View and Edit left a list without a card (al-runner issues 6977, 8501): on a list opened for edit View
 //! switched it to view (testpage/R6977ListViewNext.al:138, R6977ListAfterView.al:125), and Edit after that switched it back

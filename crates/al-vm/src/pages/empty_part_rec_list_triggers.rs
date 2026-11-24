@@ -4,6 +4,11 @@
 //! sends the same notification. The probe measured Rec of the empty part on hosts with exactly those triggers, both or one of them
 //! (pages 76865-76870). `host_trigger_cell` compares each trigger body, statement by statement, with the probe's, and each called
 //! procedure with the probe's procedure; the SendNotificationHandler of the test with the probe's (`notification_handler_measured`).
+//!
+//! the trigger bodies of the List hosts of pages/parts/EmptyPartRecListHostTriggers.al, compared
+//! statement by statement with the probe's, and the called table procedures and the test's
+//! SendNotificationHandler with the probe's. Entry points: `host_trigger_cell`,
+//! `notification_handler_measured`.
 
 use super::pinned_shape::{code_stmts, text_log_routine, unconverted, without_pos};
 use al_builtins::builtin_id::ids;

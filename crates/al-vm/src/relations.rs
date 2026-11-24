@@ -5,6 +5,10 @@
 //! first arm whose conditions hold applies, an else arm has none, a condition on a FlowFilter
 //! field is not evaluated, `where(A = field(B))` reads B off the referencing row, and a value the
 //! related table lacks is refused with "... cannot be found in the related table".
+//!
+//! TableRelation: lookups, Validate checks and the error code of a failed check (one rule,
+//! `UNPINNED_ERROR` where the corpus does not pin it). Entry points: `field_relation`,
+//! `validate_relation`, `relation_error_code`.
 
 use crate::Session;
 use crate::records::ValidateSite;
@@ -12,7 +16,7 @@ use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_builtins::native::{AlError, Signal, unsupported};
 use al_builtins::ops;
 use al_builtins::value::{RecordState, RtType, Value};
-use al_data::{Store, TableDef};
+use al_data::TableDef;
 use al_ir as ir;
 use std::cell::RefCell;
 use std::cmp::Ordering;
@@ -329,15 +333,22 @@ impl Session {
             });
         }
         self.crm_source_refused(&related, "the TableRelation check")?;
+        let company = rec.borrow().company.clone();
+        self.note_indirect_read_of_queue(
+            related.object as usize,
+            company.as_deref(),
+            false,
+            "the TableRelation check",
+        )?;
         let cx = self.cx_for(rec, &related)?;
         let found = if flow_field_filters.is_empty() {
             self.store
-                .count(&cx, &related, &filters)
+                .exists(&cx, &related, &filters)
                 .map_err(|e| Signal::unsupported(format!("{e}")))?
         } else {
-            self.count_passing_flow_fields(&cx, &related, &filters, &flow_field_filters)?
+            self.count_passing_flow_fields(&cx, &related, &filters, &flow_field_filters)? > 0
         };
-        if found > 0 {
+        if found {
             return Ok(());
         }
         // A related table the baseline could not fill may hold the row in BC.

@@ -1,6 +1,10 @@
 //! The declared id of an object, where the runtime prints it into an error text or hands it to AL code. Every runnable table,
 //! codeunit, page, report, query and XmlPort declares one; an object without one (a duplicate id the compile renamed, a kind
 //! that has none) refuses instead of showing object 0 (al-runner issue 7644).
+//!
+//! the declared id of an object where an error text or a value names it; an object without one
+//! refuses instead of showing 0 (al-runner issue 7644). Entry points: `declared_id`,
+//! `Session::object_id_of`.
 
 use al_builtins::native::{Signal, unsupported};
 

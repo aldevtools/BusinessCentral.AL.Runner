@@ -8,6 +8,10 @@
 //!
 //! `ALRUNNER_NO_PATH_NOTE=1` turns both off. Nothing here writes to stdout except the `--version` list, so
 //! JUnit, JSON and `serve` output do not change. Tooling only: nothing AL code can see (ADR-009).
+//!
+//! The note about another `al-runner` on PATH (AL Runner v2's dotnet tool): one stderr line at most
+//! once a day, the list after `--version`, off with `ALRUNNER_NO_PATH_NOTE=1` (ADR-016). Entry
+//! points: `maybe_note`, `version_lines`, `others`.
 
 use std::ffi::OsString;
 use std::io::Read;

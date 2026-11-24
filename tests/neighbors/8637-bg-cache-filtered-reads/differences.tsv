@@ -1,0 +1,7 @@
+# key	entry
+# Against main (with al-runner PR 8885): a worker's SelectLatestVersion with an Option, a Char, a Byte or an Enum of value 0, which
+# names no table, keeps the row entry, as on BC (the neighbors of MoreNeighbors.al); main refused it.
+BQ More Follow-up Tests::SelectLatestVersionOfAByte_DescriptionAfterFirstRead	ASSUMED background-task-query-cache (open corpus PR 1558: BgTaskCacheEdges.al:699)
+BQ More Follow-up Tests::SelectLatestVersionOfAChar_DescriptionAfterFirstRead	ASSUMED background-task-query-cache (open corpus PR 1558: BgTaskCacheEdges.al:693)
+BQ More Follow-up Tests::SelectLatestVersionOfAnEnum_DescriptionAfterFirstRead	ASSUMED background-task-query-cache (open corpus PR 1558: BgTaskCacheEdges.al:705)
+BQ More Follow-up Tests::SelectLatestVersionOfAnOption_DescriptionAfterFirstRead	ASSUMED background-task-query-cache (open corpus PR 1558: BgTaskCacheEdges.al:687)

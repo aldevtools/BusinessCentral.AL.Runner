@@ -71,7 +71,7 @@ impl Session {
         };
         if run && runs_first && !hooks {
             if let Some(tr) = trigger {
-                let x = Self::xrec_handle(rec, rec.borrow().fields.clone());
+                let x = Self::xrec_handle(rec, rec.borrow().fields.to_vec());
                 self.run_trigger(t.object as usize, tr, rec, Some(&x))?;
             }
         }

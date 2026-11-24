@@ -1,6 +1,12 @@
 //! Reads past the client's window of 20 rows that run to the end of a long view: `Last` past a full window, the `New` of a
 //! list longer than a window (`draft.rs`), and the open of a tree whose view is longer than the window
 //! (corpus pages/long-list-open/LastOnLongList.al, al-runner issues 7475 and 7421).
+//!
+//! Reads past the window of 20 rows that run to the end of a long view: `Last` past a full window
+//! (one block, or the whole view on the scenario LastOnLongList.al pins,
+//! `last_reads_long_view_pinned`), the read `New` makes on a long list, and the open of a collapsed
+//! tree over a temporary source longer than a window. Entry points: `last_past_the_window`,
+//! `read_block_past_the_window`, `tree_open_reads_on`.
 
 use super::pinned_shape::{PinnedCode, TestCall};
 use super::*;
@@ -53,7 +59,7 @@ impl Session {
     pub(super) fn read_block_past_the_window(&mut self, st: &St, pinned_rows: Option<usize>) -> Result<(), Signal> {
         let rec = self.page_rec(st);
         let last = st.borrow().window[Self::WINDOW - 1].stored.clone();
-        rec.borrow_mut().fields = last;
+        rec.borrow_mut().fields = last.into();
         self.populate_current(st)?;
         let mut new_rows = 0;
         loop {
@@ -61,9 +67,9 @@ impl Session {
                 break;
             }
             let key = self.row_key(&rec)?;
-            let stored = rec.borrow().fields.clone();
+            let stored = rec.borrow().fields.to_vec();
             self.populate_current(st)?;
-            let shown = rec.borrow().fields.clone();
+            let shown = rec.borrow().fields.to_vec();
             st.borrow_mut()
                 .window
                 .push(crate::pages::WindowRow { key, stored, shown });

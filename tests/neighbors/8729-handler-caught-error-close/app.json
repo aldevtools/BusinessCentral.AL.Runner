@@ -1,0 +1,31 @@
+{
+  "id": "4b8e2f6a-9c3d-4e21-8a7f-872900000001",
+  "name": "Neighbors 8729-handler-caught-error-close",
+  "publisher": "AL Runner",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "idRanges": [
+    {
+      "from": 69160,
+      "to": 69163
+    },
+    {
+      "from": 97343,
+      "to": 97347
+    },
+    {
+      "from": 97372,
+      "to": 97374
+    },
+    {
+      "from": 99500,
+      "to": 99523
+    },
+    {
+      "from": 130000,
+      "to": 130000
+    }
+  ],
+  "dependencies": []
+}

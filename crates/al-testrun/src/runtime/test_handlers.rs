@@ -16,6 +16,11 @@
 //!
 //! Not pinned, refused: an error or a `Skip` in a default handler, an error or a `Skip` in the case callbacks and in
 //! OnAfterTestCodeunitRun, a callback that writes to the database.
+//!
+//! ITestHandler callbacks (BC 29): the handler codeunits lowering listed (`$TestHandlerCodeunits`,
+//! al-sema `lower/test_handlers.rs`), one instance each per test codeunit run, called around the
+//! codeunit, each procedure and each data-driven case. Entry points: `refusal`, `Handlers::begin`,
+//! `around`, `Handlers::end` (called from `run.rs`).
 use super::*;
 use al_builtins::assumptions::{self, HitBits};
 use al_builtins::value::{HandlerContext, Instance, LibraryValue, Value};

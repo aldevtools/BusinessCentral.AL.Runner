@@ -1,0 +1,3 @@
+# key	entry
+SetRange Number Test::SetRangeWithDecimalOnTextField	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
+SetRange Number Test::SetRangeWithIntegerOnCodeField	ASSUMED setrange-other-type-convert (corpus PR 1552, open)

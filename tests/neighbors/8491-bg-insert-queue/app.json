@@ -1,0 +1,15 @@
+{
+  "id": "b1c6f7a2-5d3e-4f80-9a1b-849100000001",
+  "name": "Neighbors 8491 insert queue a page background task reads",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "OnPrem",
+  "idRanges": [
+    { "from": 50100, "to": 50110 },
+    { "from": 97520, "to": 97591 },
+    { "from": 130000, "to": 130000 }
+  ],
+  "dependencies": []
+}

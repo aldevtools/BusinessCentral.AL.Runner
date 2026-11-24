@@ -8,6 +8,14 @@
 //! everywhere (xml/TestXmlDeep.al Remove / ReplaceWith act on nodes fetched from
 //! node lists). Lists and attribute collections are views. Behaviour the corpus
 //! does not pin raises `Signal::Unsupported` (see docs/probes-needed.md).
+//!
+//! Submodules: `unassigned_element` (members of an unassigned XmlElement measured by
+//! xml/UhUnassignedXmlElement.al), `dom` (node store), `parse`, `write`, `write_to`, `xpath`,
+//! `select`, `queries`, `read`, `read_tree`, `tree`, `edit`, `attrs`, `names`, `node_types`, `lists`,
+//! `manager`, `create_names` (the name check of XmlElement.Create and XmlAttribute.Create: the
+//! invalid names xml/XmlNameValidity.al, XmlElement.al and XmlAttributes.al pin raise BC's error; al-
+//! runner issue 7964 item 1). Entry points: `native_for` (mod.rs), `XmlCell`, `XData` (dom.rs),
+//! `escape_text`, `escape_attr` (write.rs).
 
 use crate::describe::Describe;
 use crate::json::Handle;

@@ -5,6 +5,14 @@
 //! Only the shapes measured on real BC in the dev-endpoint mode are answered (`answer`); every other shape stays
 //! refused under the flag too. Each answer is kept for the runner, which prints it as a warning naming the test, and
 //! marks the assumption `dev-endpoint-ui`, so a test that passes through one is a flagged pass, never a clean one.
+//!
+//! `--dev-endpoint-ui` (al-runner issue 3697): the answer of the dev-endpoint test runner to a dialog
+//! no handler takes, for the shapes measured on BC 28.5 and 29; `pages/dev_endpoint.rs` does the same
+//! for `Page.Run(Id)`, `Page.RunModal(Id)` and the request page of `Report.RunModal`. The runner
+//! side: `al-testrun` `runtime/session_flags.rs`, `runtime/test_marks.rs` (`TestResult::ui_answered`;
+//! it also sets `TestResult::skipped_by_option`, the mark of a test `--stop-after-first-failure` or
+//! `--skip-after-timeout` left out, only while the row's outcome is still the reason the option
+//! gave); `alrunner-cli` `dev_endpoint_ui.rs` (version gate, warnings, JUnit and JSON marks).
 
 use crate::Session;
 use crate::ui::UiKind;

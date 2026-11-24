@@ -1,4 +1,9 @@
 //! The errors of an Option filter value that is no member: a word (al-runner issue 8197, shape 1) and the negative number `-1`.
+//!
+//! the errors of an Option filter value that is no member, only in the measured shape: a word
+//! (FilterNonMemberOptionEnum.al:137, entry `option_non_member_error`) and the negative number `-1`
+//! (:143, entry `option_negative_error`, raised at the `filter::OPTION_NEGATIVE` refusal); every
+//! other shape refuses. Both are called by the SetFilter arm of `records/op_inner.rs`.
 
 use super::*;
 

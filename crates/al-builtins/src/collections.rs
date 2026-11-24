@@ -1,6 +1,9 @@
 //! List and Dictionary methods. The corpus pins the error of `List.Get` outside the list and of
 //! `Dictionary.Get` of a missing key; the other out-of-range indexes and `Dictionary.Add` of an
 //! existing key raise Unsupported.
+//!
+//! A search (`Contains`, `IndexOf`, `Remove`, a Dictionary key) refuses when `ops::compare` refuses
+//! (`eq`).
 
 use crate::describe::Describe;
 use crate::native::{Ctx, NativeFn, Signal};

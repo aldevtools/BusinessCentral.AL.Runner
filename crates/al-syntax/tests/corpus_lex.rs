@@ -65,7 +65,10 @@ fn every_corpus_file_round_trips_and_lexes_without_errors() {
 #[test]
 fn every_corpus_file_preprocesses_cleanly_for_bc27_5() {
     // ADR-015: the corpus CI symbol set for BC 27.
-    let syms = al_version::corpus_symbols(27);
+    let syms = al_version::corpus_symbols(
+        &al_version::BcVersion::new(27, 0),
+        &al_version::ReleasedMinors::NotRecorded,
+    );
     let mut failures = Vec::new();
     let mut disabled_files = 0;
     for f in corpus_files() {

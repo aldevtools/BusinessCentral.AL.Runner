@@ -346,8 +346,7 @@ fn stability_mode_moves_host_values() {
 }
 
 /// ADR-066 amendment 4, decision 5: a test codeunit that relies on SingleInstance state an earlier one left is listed as
-/// order dependent by `--stability`, whether it keeps its parallel run (default) or runs again serially
-/// (`--strict-order`).
+/// order dependent by `--stability`, in the default run and under `--strict-order`.
 #[test]
 fn stability_lists_order_dependent_codeunits_with_and_without_strict_order() {
     let d = tempfile::tempdir().unwrap();
@@ -486,13 +485,11 @@ codeunit 50877 "Suite Lenient Reader"
     assert!(text(&o).contains("line 1: `x` is not a codeunit id"), "{}", text(&o));
 }
 
-/// ADR-066 amendment 7, option 2, opt-in since the owner's change of 2026-11-08: with `--strict-order` the chain of 51
-/// codeunits is replayed in full and the checker passes. With `--max-replay 50` too the dependent codeunit keeps its
-/// parallel run; the run output and the JUnit file say why, and `--stability` (BC's order) lists it. ADR-066 amendment
-/// 12: without `--strict-order` nothing is replayed (the checker fails with an order hint) and `--max-replay` has no
-/// effect.
+/// ADR-070: with `--strict-order` the chain of 51 codeunits runs in BC's order on one walk and the checker passes. Without
+/// it each codeunit starts fresh and the checker fails with an order hint. Migration step 3 removed `--max-replay`: it is
+/// an unknown flag now.
 #[test]
-fn a_rerun_over_max_replay_is_reported_in_the_output_junit_and_stability() {
+fn a_long_chain_runs_in_full_under_strict_order() {
     let d = tempfile::tempdir().unwrap();
     let mut src = String::from(
         "codeunit 50880 \"Chain Counter\" { SingleInstance = true; procedure Bump() begin Count += 1; end; procedure Get(): Integer begin exit(Count); end; var Count: Integer; }\n",
@@ -516,85 +513,14 @@ fn a_rerun_over_max_replay_is_reported_in_the_output_junit_and_stability() {
         &src,
     );
     let a = app.to_str().unwrap();
-    let text_of = "re-run skipped (chain of 51 codeunits over the limit of 50)";
-    // Default (amendment 12): fresh state, nothing replayed, the checker fails with a hint; `--max-replay` changes nothing.
-    for extra in [&[][..], &["--max-replay", "50"][..]] {
-        let o = alrunner(&[&["test", a, "--no-download"][..], extra].concat());
-        assert_eq!(code(&o), 1, "{}", text(&o));
-        assert!(
-            text(&o).contains("order hint: ") && !text(&o).contains("re-run skipped"),
-            "{}",
-            text(&o)
-        );
-    }
-    // `--strict-order`: no cap, the whole chain is replayed.
+    let o = alrunner(&["test", a, "--no-download"]);
+    assert_eq!(code(&o), 1, "{}", text(&o));
+    assert!(text(&o).contains("order hint: "), "{}", text(&o));
     let o = alrunner(&["test", a, "--no-download", "--strict-order"]);
     assert_eq!(code(&o), 0, "{}", text(&o));
-    assert!(!text(&o).contains("re-run skipped"), "{}", text(&o));
-    let o = alrunner(&["test", a, "--no-download", "--max-replay", "x"]);
+    let o = alrunner(&["test", a, "--no-download", "--strict-order", "--max-replay", "50"]);
     assert_eq!(code(&o), 2, "{}", text(&o));
-    assert!(
-        text(&o).contains("--max-replay needs a number, got `x`"),
-        "{}",
-        text(&o)
-    );
-    let junit = d.path().join("r.xml");
-    let o = alrunner(&[
-        "test",
-        a,
-        "--no-download",
-        "--strict-order",
-        "--max-replay",
-        "50",
-        "--junit",
-        junit.to_str().unwrap(),
-    ]);
-    assert_eq!(code(&o), 1, "{}", text(&o));
-    assert!(
-        text(&o).contains(&format!("test codeunit 50999 Chain Checker: {text_of}")),
-        "{}",
-        text(&o)
-    );
-    let x = std::fs::read_to_string(&junit).unwrap();
-    let case = x
-        .lines()
-        .find(|l| l.contains("name=\"NeedsTheChain\""))
-        .unwrap_or_else(|| panic!("{x}"));
-    assert!(
-        case.contains(&format!(
-            "<property name=\"singleInstanceRerun\" value=\"{text_of}\" />"
-        )),
-        "{case}"
-    );
-    assert!(case.contains("single-instance-rerun-skipped"), "{case}");
-    assert!(
-        !x.lines()
-            .any(|l| l.contains("name=\"Step3\"") && l.contains("singleInstanceRerun")),
-        "{x}"
-    );
-    // `--stability` lists the codeunit whose re-run was skipped.
-    let json = d.path().join("s.json");
-    let o = alrunner(&[
-        "test",
-        a,
-        "--no-download",
-        "--max-replay",
-        "50",
-        "--stability",
-        "microsoft",
-        "--stability-allow-flips",
-        "--output-json",
-        json.to_str().unwrap(),
-    ]);
-    assert!(text(&o).contains("re-run skipped"), "{}", text(&o));
-    let doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&json).unwrap()).unwrap();
-    let listed: Vec<&str> = doc["stability"]["rerunSkipped"]
-        .as_array()
-        .unwrap_or_else(|| panic!("{doc}"))
-        .iter()
-        .map(|t| t["test"].as_str().unwrap())
-        .collect();
-    assert!(listed.contains(&"Codeunit50999.NeedsTheChain"), "{doc}");
+    assert!(text(&o).contains("--max-replay"), "{}", text(&o));
 }
 
 const SI_PAIR: &str = r#"

@@ -10,6 +10,8 @@
 //!
 //! The conditional `c ? a : b` is not in that table; it is parsed below level 5
 //! (lowest), which is what `exit(N > 3 ? 'big' : 'small')` in the corpus needs.
+//!
+//! Expression grammar. Entry points: `expr`, `arg_list`.
 
 use crate::SyntaxKind::{self, *};
 use crate::parser::Parser;

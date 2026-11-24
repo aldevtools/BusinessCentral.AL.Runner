@@ -1,6 +1,9 @@
 //! `ErrorInfo`: a property bag describing an error (corpus errors/errorinfo/TestErrorInfoType.al,
 //! TestErrorInfoErrorType.al). Raising one (`Error(ErrorInfo)`), collecting errors and the
 //! callback of an action are not here: they need the error pipeline.
+//!
+//! ErrorInfo: the property bag, Error(ErrorInfo), collected errors. Entry points: `raise`, `copy_of`,
+//! `native_for`.
 
 use crate::describe::Describe;
 use crate::native::{Ctx, NativeFn, Signal, unsupported};
@@ -21,7 +24,8 @@ thread_local! {
     static CALLSTACKS: RefCell<Vec<CallstackEntry>> = const { RefCell::new(Vec::new()) };
 }
 
-fn callstack_of(cell: &Rc<RefCell<LibraryValue>>) -> Option<Rc<str>> {
+/// The `Callstack` an `ErrorInfo` cell carries on this thread (`set_callstack_of`); `None`: none (an error not collected).
+pub fn callstack_of(cell: &Rc<RefCell<LibraryValue>>) -> Option<Rc<str>> {
     CALLSTACKS.with_borrow(|t| {
         t.iter()
             .find(|(w, _)| std::ptr::eq(w.as_ptr(), Rc::as_ptr(cell)))

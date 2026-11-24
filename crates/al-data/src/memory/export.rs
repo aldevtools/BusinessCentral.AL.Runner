@@ -1,9 +1,9 @@
 //! The committed data of a store as plain values, and a store made from them: for a baseline on disk or on another
-//! thread (al-vm `Baseline::to_bytes`, `Baseline::from_bytes`) and for the row deltas of a carry chain (al-vm
-//! `baseline/row_delta.rs`). The rows and the tables a DeleteAll without filters emptied ([`MemStore::emptied`]) both
-//! travel: a store made from the export holds what the exported one held, marks included.
+//! thread (al-vm `Baseline::to_bytes`, `Baseline::from_bytes`). The rows and the tables a DeleteAll without filters
+//! emptied ([`MemStore::emptied`]) both travel: a store made from the export holds what the exported one held, marks
+//! included. Each export marks a recorded install session as reading everything (`footprint.rs`).
 
-use super::{Key, MemStore, PkStorage, Row, Slot, Table, next_stamp, slot, table_storage};
+use super::{Key, MemStore, PkStorage, Row, Slot, Table, Tables, next_stamp, slot, table_storage};
 use crate::{AccessContext, Store, TableDef, Value};
 
 /// One table of an exported store ([`MemStore::export_committed`]): its company (empty for a table that is not per
@@ -41,21 +41,33 @@ impl MemStore {
     /// (`with_backing`). The record of changes to restored rows is a log and is not exported.
     /// Changes that are not committed are not exported.
     pub fn export_committed(&self) -> Option<Vec<ExportedTable>> {
-        Some(
-            self.committed
-                .iter()
-                .map(|((company, object), table)| ExportedTable {
-                    company: company.to_string(),
-                    object: *object,
-                    pk_storage: table_storage(table),
-                    rows: table.iter().map(|(k, r)| (k.0.clone(), r.clone())).collect(),
-                })
-                .collect(),
-        )
+        self.footprint_everything("an export of the store");
+        Some(Self::export(&self.committed))
+    }
+
+    /// The tables the store holds now, uncommitted changes included, as [`MemStore::export_committed`] gives the committed
+    /// ones (a temporary table's store, which never commits; al-vm `Session::state_lines`). Counts no store operation.
+    pub fn export_current(&self) -> Vec<ExportedTable> {
+        self.footprint_everything("an export of the store");
+        Self::export(&self.tables)
+    }
+
+    /// Every table of `tables` with its rows in key order ([`MemStore::export_committed`], [`MemStore::export_current`]).
+    fn export(tables: &Tables) -> Vec<ExportedTable> {
+        tables
+            .iter()
+            .map(|((company, object), table)| ExportedTable {
+                company: company.to_string(),
+                object: *object,
+                pk_storage: table_storage(table),
+                rows: table.iter().map(|(k, r)| (k.0.clone(), r.clone())).collect(),
+            })
+            .collect()
     }
 
     /// The committed tables (company, object) a DeleteAll without filters emptied ([`MemStore::emptied`]), sorted.
     pub fn committed_emptied(&self) -> Vec<(String, u32)> {
+        self.footprint_everything("an export of the store");
         let mut emptied: Vec<(String, u32)> = self.committed_emptied.keys().map(|s| (s.0.to_string(), s.1)).collect();
         emptied.sort();
         emptied
@@ -95,6 +107,7 @@ impl MemStore {
     /// The committed rows of table `object` in `company` that the store holds, and whether a DeleteAll without filters
     /// emptied it ([`MemStore::emptied`]); `None` when the store holds no entry for it.
     pub fn committed_table(&self, company: &str, object: u32) -> Option<(ExportedTable, bool)> {
+        self.footprint_everything("an export of the store");
         let slot = slot_of(company, object);
         let table = self.committed.get(&slot)?;
         Some((
@@ -145,6 +158,7 @@ impl MemStore {
     /// ([`MemStore::committed_emptied`]) and the company copies, sorted.
     #[allow(clippy::type_complexity)]
     pub fn committed_marks(&self) -> (Vec<(String, u32)>, Vec<(String, String)>) {
+        self.footprint_everything("an export of the store");
         let mut copies: Vec<(String, String)> = self
             .committed_copies
             .iter()

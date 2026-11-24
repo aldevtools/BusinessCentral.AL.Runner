@@ -1,4 +1,6 @@
 //! Lowering of table schemas: relations, field triggers, CalcFormulas.
+//!
+//! Entry points: `table_schema`, `relation_arms`, `lower_calc`.
 use super::*;
 
 impl Lowerer<'_> {
@@ -1045,26 +1047,62 @@ impl Lowerer<'_> {
                 }
                 CondValue::Filter(raw) => {
                     let raw = &unqualified(raw);
+                    // Without quotes, `filter(@)` and `filter(<>@)` do not compile (AL0870, cases 3805 and 3806;
+                    // alcodes/calc_filter_at_sign.rs reports them on a table field): never run them.
+                    if crate::alcodes::calc_filter_at_sign::unquoted_at_sign(raw).is_some() {
+                        return Err(format!(
+                            "CalcFormula filter({}) without quotes, which BC does not compile (AL0870)",
+                            raw.trim()
+                        ));
+                    }
                     // One quoted literal is read as the filter its content spells (record/flowfields/W4CalcFields.al:396
                     // QZ_CalcFormula_QuotedLiteralFilters, fixtures QzCalcFormulaQuotedFilter.al): `'<>'''''` is `<>''`,
                     // `''''''` is `''`, `'''x|y'''` the literal x|y, `'x|y'` the union, `'<>''x'''` is `<>'x'`, and `*` stays a
                     // wildcard. Ranges (`200..299`, `..199`, `400..`), `&`, `>=` and blanks around `|` read the same way, as the
                     // unquoted form does: on a Code or Text field the ranges compare as text (W4CalcFields.al:455
                     // RO_CalcFormula_QuotedRangesAndUnions, :508 RO_CalcFormula_QuotedUnion_Repro; al-runner issues 5575, 5745).
-                    // A content with `<=`, a lone `=`, `<` or `>`, `@` or parentheses stays refused.
+                    // A content with `<=`, a lone `=`, `<` or `>`, `@` or parentheses stays refused, but `'@'` and `'<>@'`: `@` alone
+                    // and `<>@` alone, which CalcFields reads as those filters on a Code and a Text field (AtSignAloneReads.al:579,
+                    // :752; al-builtins `filter_at_sign`).
                     if let Some(inner) = crate::queries::whole_literal(raw)
                         .filter(|inner| inner.contains(['|', '&', '.', '<', '>', '=', '*', '@', '(', ')', '\'']))
                     {
-                        if inner
-                            .replace("<>", "")
-                            .replace(">=", "")
-                            .replace("..", "")
-                            .contains(['.', '<', '>', '=', '@', '(', ')'])
+                        if inner != "@"
+                            && inner != "<>@"
+                            && inner
+                                .replace("<>", "")
+                                .replace(">=", "")
+                                .replace("..", "")
+                                .contains(['.', '<', '>', '=', '@', '(', ')'])
                         {
                             return Err(format!(
                                 "CalcFormula filter {} is one quoted literal with filter operators in it: whether BC reads it as a filter is not pinned",
                                 raw.trim()
                             ));
+                        }
+                        // `'@'` and `'<>@'` run only where the cells measure them (al-builtins
+                        // `filter_at_sign::calc_formula_at_sign_measured`); everything else is refused here, not at run time.
+                        if inner == "@" || inner == "<>@" {
+                            let field = &src_fields[pos];
+                            let names_shown = al_builtins::filter::shows_member_names(&field.properties);
+                            let rt = self.field_rt(src, field);
+                            let sum = f.method == ir::CalcMethod::Sum;
+                            if !al_builtins::filter::calc_formula_at_sign_measured(&rt, sum, names_shown) {
+                                use al_builtins::describe::Describe;
+                                let method = match f.method {
+                                    ir::CalcMethod::Sum => "sum",
+                                    ir::CalcMethod::Count => "count",
+                                    ir::CalcMethod::Average => "average",
+                                    ir::CalcMethod::Min => "min",
+                                    ir::CalcMethod::Max => "max",
+                                    ir::CalcMethod::Exist => "exist",
+                                    ir::CalcMethod::Lookup => "lookup",
+                                };
+                                return Err(format!(
+                                    "CalcFormula filter '{inner}' over a {} field in a {method} (not measured)",
+                                    rt.describe()
+                                ));
+                            }
                         }
                         conds.push(ir::CalcCond {
                             field: pos,

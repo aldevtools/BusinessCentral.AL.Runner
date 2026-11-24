@@ -19,6 +19,11 @@
 //! (must-not-compile 3222-3277) is pinned; the page global `area` is pinned by must-not-compile
 //! 0334-variable-named-area.al:1 (AL0104 `'}' expected`). Other object types, and a named return value
 //! (`procedure P() Key: Integer`, which alc also rejects), are not judged.
+//!
+//! AL0104, AL0107, AL0303 and AL0519 for a variable named, unquoted, by a keyword alc does not take
+//! as a name there (`Key: Integer;`), alc's first diagnostic by section, earlier declaration and word
+//! (al-runner issue 8539, assumption `keyword-variable-names`). Scope tiers:
+//! `Workspace::in_scope_tiers` (shared with the Integer check of issue 5694).
 
 use super::{IDENTIFIER_EXPECTED, PARAM_NAME_KEYWORDS, offset_of, push};
 use crate::workspace::{Diagnostic, ObjKind, Workspace};

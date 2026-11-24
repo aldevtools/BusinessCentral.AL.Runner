@@ -6,6 +6,8 @@
 //! Structure derived by inspection of exports produced by sqlpackage 170.5.76 from SQL
 //! Server 2022 and validated by importing the same file back into a SQL Server and
 //! comparing full tables (bcdb PROVENANCE.md "bacpac container").
+//!
+//! Entry points: `BacpacTable`, `BacpacSource`.
 
 use crate::bcp::{BacpacColumn, BcpRowReader};
 use crate::error::{Error, Result};

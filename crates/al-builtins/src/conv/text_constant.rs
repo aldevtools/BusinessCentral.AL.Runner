@@ -14,6 +14,11 @@
 //!   `Dictionary.Get`), which then writes the Variant back as before.
 //! - Any other reader of a TextConst is refused: before the TextConstant existed a TextConst never went into a Variant,
 //!   and no case pins these readers (docs/probes-needed.md "Variant").
+//!
+//! What a reader gets from a Label or TextConst a Variant holds as a TextConstant (`Value::TextConst`
+//! with `TextConstFrom`): the one rule, called by `variant_into`, `ops::convert` and al-vm
+//! `exec/run.rs` (`text_constant_arguments`, the by-value arguments of every builtin). Entry points:
+//! `read`, `read_arguments`.
 
 use crate::describe::Describe;
 use crate::native::{Signal, unsupported};

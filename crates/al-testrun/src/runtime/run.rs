@@ -1,4 +1,7 @@
 //! Running the test codeunits of one compiled program, each test on a session of its own.
+//!
+//! Entry points: `run_codeunit`, `run_codeunit_isolated`, `run_codeunit_observed`,
+//! `run_codeunit_core`.
 use super::al_runner::run_unit;
 use super::written::{
     self, ReachFacts, ReachIndex, remainder_reach_facts, settled_flags, test_reach_facts, unfinished_reach_facts,
@@ -194,32 +197,45 @@ pub fn run_codeunit_full(
 /// marks of the assumptions this step relied on: they count for every test of the session (`mark_test_start_assumptions`).
 /// `Err`: why the codeunit is not run.
 fn open_company(
-    engine: &Engine,
     lowered: &Lowered,
     session: &mut Session,
     mode: Option<bool>,
     skipped_installs: &[al_vm::SkippedInstall],
     perturb: &crate::stability::Perturb,
+    scratch: &Scratch,
     after_refusal: bool,
 ) -> Result<(crate::install::CompanyOpenWrites, al_builtins::assumptions::HitBits), crate::install::NotOpened> {
     // A scratch run is not a test session: it opens nothing.
     let Some(disabled) = mode else {
         return Ok(Default::default());
     };
+    let engine = session.engine.clone();
     al_builtins::assumptions::clear_hits();
+    // `RunOptions::login_replay_check` (al-runner issue 8211): what the login can read, before it runs. A retry on a new
+    // session (`Start::again`, `after_refusal`) takes its own key; the call that refused ends at `?` below unnoted, so
+    // only the session that opens the company is checked.
+    let replay_key = scratch
+        .flags
+        .login_replay_check()
+        .then(|| crate::login_replay::Key::of(session, disabled, scratch.flags));
     // Base Application's login code sets WorkDate when the session opens the company (`install::login_work_date`).
     // It runs before the workspace's own Company Triggers subscribers: the order of the two is not pinned
     // (docs/probes-needed.md, WorkDate row).
-    crate::install::login_work_date(engine, lowered, session)?;
+    crate::install::login_work_date(&engine, lowered, session)?;
     let wrote = crate::install::test_session_company_open(lowered, session, disabled, skipped_installs, after_refusal)?;
     session.commit_transaction();
+    let hits = al_builtins::assumptions::take_hit_bits();
+    if let Some(key) = replay_key.filter(|_| wrote.raised) {
+        let state = crate::login_replay::LoginState::of(session, &wrote, hits);
+        crate::login_replay::check(&engine).note(key, state);
+    }
     // `workDate.offset` of a stability run (ADR-058): the work date the session starts with, after the login code set it;
     // a `WorkDate(d)` of the test still wins.
     if let Some(shift) = perturb.work_date {
         let day = session.work_date();
         session.set_work_date(shift.apply_day(day));
     }
-    Ok((wrote, al_builtins::assumptions::take_hit_bits()))
+    Ok((wrote, hits))
 }
 
 /// The session enters test codeunit `object` after the install code: the settings of its isolation, and the refusal of
@@ -610,7 +626,7 @@ fn run_codeunit_inner(
             let timed_out = watchdog.and_then(Watchdog::finish);
             let ran = on_run_time_limit(session, ran, limit, timed_out);
             let hits = session.store_mut().watch_hits();
-            scratch.leak_hit |= !leak.is_disjoint(&hits);
+            scratch.leak_hits.extend(leak.intersection(&hits));
             session.store_mut().watch(Default::default());
             if let Some((_, why)) = skipped_install_hit(&skipped_installs, &hits, Refused) {
                 return Err(on_run_refused(format!("OnRun: {why}")));
@@ -1099,7 +1115,7 @@ fn run_codeunit_inner(
             let drew_carried = session.carried_random_draws() > carried_before;
             // A test that read or wrote, while it ran, a table a Company Triggers subscriber wrote before the first test
             // (al-runner issue 5641), or one a watched login wrote (`login.rs`): what it found there is not pinned.
-            // A read or write of any table an earlier Disabled codeunit left rows in sets `leak_hit`, whatever watched
+            // A read or write of any table an earlier Disabled codeunit left rows in is noted in `leak_hits`, whatever watched
             // table the test touched first (review of al-runner issue 7717, round five, probe p13).
             let touched = session.store_mut().watch_hits();
             let hit = company_open.watch_hit(&touched, began);
@@ -1114,8 +1130,8 @@ fn run_codeunit_inner(
             {
                 Some(why) => Outcome::NotRun(why),
                 None => {
-                    if began && !leak.is_disjoint(&touched) {
-                        scratch.leak_hit = true;
+                    if began {
+                        scratch.leak_hits.extend(leak.intersection(&touched));
                     }
                     outcome
                 }
@@ -1650,15 +1666,7 @@ impl Start<'_> {
         // (`mark_test_start_assumptions`). `None`: a scratch run (`execute`), not a test session; else whether the
         // isolation is Disabled.
         let mode = (!self.execute).then_some(self.isolation == TestIsolation::Disabled);
-        let opened = open_company(
-            self.engine,
-            self.lowered,
-            session,
-            mode,
-            &skipped,
-            perturb,
-            after_refusal,
-        )?;
+        let opened = open_company(self.lowered, session, mode, &skipped, perturb, scratch, after_refusal)?;
         Ok((skipped, opened))
     }
 

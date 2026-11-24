@@ -1,3 +1,4 @@
+//! The `TestPage.*` and `TestField.*` methods. Entry points: `page_op`, `test_page_op`.
 use super::*;
 use al_builtins::page_op::{PageMethod, PageOp, PageRecv};
 use al_builtins::record_op::RecordOp;
@@ -10,6 +11,11 @@ impl Session {
         recv: Option<&mut Value>,
         args: &mut [Value],
     ) -> Result<Value, Signal> {
+        if let Some(Value::TestControl(c)) = recv.as_deref()
+            && let Some(v) = Self::by_id_call(control_of(c), method.method())?
+        {
+            return Ok(v);
+        }
         if self.without_client() {
             self.clientless_page_guard(method, recv.as_deref(), args)?;
         }
@@ -672,6 +678,7 @@ impl Session {
     fn ask_update_refresh(&mut self, st: &St, save: bool, arg: Option<&Value>) -> Result<(), Signal> {
         self.refuse_update_in_action(st)?;
         st.borrow_mut().refresh.ask_by_update(save);
+        self.validate_view_update(st, save);
         self.note_view_left(st)?;
         self.note_part_update_left_view(st)?;
         self.land_on_code_inserted_line(st, arg)
@@ -704,7 +711,7 @@ impl Session {
             let stored = self.page_rec(st).borrow().fields.clone();
             self.set_xrec_fields(st, xrec);
             self.validate_step_saved(st, &stored);
-            st.borrow_mut().xrec_after_validate = Some(stored);
+            st.borrow_mut().xrec_after_validate = Some(stored.into_vec());
         } else {
             self.save_record_now(st, method)?;
         }
@@ -743,8 +750,8 @@ impl Session {
                     None => unsupported("TestPart.Enabled on a page that is not a part"),
                 }
             }
-            // The id is a compiler-generated control id; the corpus pins only that a table field
-            // number is not one (testpage/parts/TestTestPart.al:TestPart_GetField_TakesAControlIdNotATableFieldNo).
+            // The id is a compiler-generated control id (`get_field.rs`); a table field number is not one
+            // (testpage/parts/TestTestPart.al:TestPart_GetField_TakesAControlIdNotATableFieldNo).
             PageMethod::Filter => {
                 self.require_open(st)?;
                 Ok(self.filter_handle(st))
@@ -752,11 +759,7 @@ impl Session {
             PageMethod::GetField => {
                 self.require_open(st)?;
                 match args.first() {
-                    // Code: testpage/TestPageRuntimeContracts.al:274-275 (page and part).
-                    Some(Value::Integer(n)) => Err(error_code(
-                        format!("The field with ID = {n} is not found on the page."),
-                        "TestFieldNotFound",
-                    )),
+                    Some(Value::Integer(n)) => self.get_field_by_id(st, *n),
                     _ => unsupported("TestPart.GetField without an id"),
                 }
             }
@@ -1255,7 +1258,7 @@ impl Session {
                 // LookupCancel (testpage/PnGRefresh.al:996 QN_CloseQ_Sheet_RunModal_OtherChanged_CloseInAction
                 // `run-modal-result = LookupCancel`, `row-after = A,orig A`; :1113 the List page). Pinned for that read back only.
                 if let Some(fields) = fields.filter(|_| a == "LookupCancel" && st.borrow().selection.is_none()) {
-                    st.borrow_mut().selection = Some(fields);
+                    st.borrow_mut().selection = Some(fields.into_vec());
                 }
                 Ok(r)
             }

@@ -11,6 +11,24 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     ("RecordRef.GetTableVariant#1", |c, r, a| {
         c.ref_op("RecordRef.GetTableVariant#1", r, a)
     }),
+    // `FieldRef.SetRange`, `FieldRef.SetFilter` and `Record.SetRange` by how their values are written (lowering picks them,
+    // al-sema `setrange_written`): the VM converts a value of another type than the field's by it.
+    ("FieldRef.SetRangeTyped#1", |c, r, a| {
+        c.ref_op("FieldRef.SetRangeTyped#1", r, a)
+    }),
+    ("FieldRef.SetRangeVariant#1", |c, r, a| {
+        c.ref_op("FieldRef.SetRangeVariant#1", r, a)
+    }),
+    ("FieldRef.SetRangeMixed#1", |c, r, a| {
+        c.ref_op("FieldRef.SetRangeMixed#1", r, a)
+    }),
+    ("FieldRef.SetFilterTyped#1", |c, r, a| {
+        c.ref_op("FieldRef.SetFilterTyped#1", r, a)
+    }),
+    ("FieldRef.SetFilterVariant#1", |c, r, a| {
+        c.ref_op("FieldRef.SetFilterVariant#1", r, a)
+    }),
+    ("Record.SetRangeVariant#1", |c, r, a| c.record_setrange_variant(r, a)),
     ("TextBuilder.AppendFieldValue#1", crate::textfns::tb_append_field_value),
     // `TestField.SetValue(V)` with a Variant argument (lowering picks it): an Enum or Option control reads a Text in it by
     // ordinal digits (pages/enum-setvalue-blank/BeEnumSetValueBlank.al:532-597).

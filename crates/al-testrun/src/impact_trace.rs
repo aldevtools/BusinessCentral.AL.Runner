@@ -9,6 +9,13 @@
 //! - `page <id>`: a page whose instance was made; `report <id>`: a report that was used;
 //! - `enum <id>`: an enum whose values were read (names, ordinals, captions, a value formatted or evaluated, an
 //!   interface dispatched on a value).
+//!
+//! The impact index's keys (`event <kind> <id> <event>[/<element>]`, `table`, `write`, `page`,
+//! `report`, `enum` by object id), their numbering, and the impact points of an extension from the
+//! compiled program (subscribers, table/page/report/enum extensions, install code by the tables it
+//! can write; uncovered events and kinds are `Unsupported`), each with its `Matcher` (index) and
+//! `Site` (static graph). Entry points: `keys`, `Interner`, `impact_points`, `ImpactPoint`,
+//! `Matcher`, `Site`.
 
 use al_ir::{ObjKind, Program};
 use al_vm::impact::Touches;

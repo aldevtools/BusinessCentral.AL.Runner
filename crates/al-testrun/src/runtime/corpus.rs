@@ -1,4 +1,8 @@
 //! `CorpusRuntime`: compiling suites of apps and running them.
+//!
+//! A selection of pure tests is compiled lean (`compile_suites_with`, `Roots::lean`) and run again on
+//! a compile that leaves less out when a test met what was left out (`narrowing.rs`). Entry points:
+//! `run_suites_with`, `compile_suites`, `run_compiled`.
 use super::carry_after::After;
 use super::narrowing::{Met, Narrowing};
 use super::*;
@@ -354,10 +358,8 @@ impl CorpusRuntime {
                 },
                 single_fresh_check: check[i],
                 // ADR-066 amendment 12, "What changes in code": a stability run keeps its variants in BC's order (it
-                // implies `--strict-order`); with `isolation.singleInstance` the base variant replays every dependent
-                // codeunit (ADR-058 amendment 1, decision 3).
+                // implies `--strict-order`, ADR-070's sequential run).
                 strict_order: true,
-                replay_every_dependent: opts.replay_every_dependent || check[i],
                 process_ends_after: false,
                 hooks: if i == 0 { opts.hooks.clone() } else { Default::default() },
                 ..opts.clone()
@@ -1586,16 +1588,12 @@ impl CorpusRuntime {
                 reset_ns.fetch_max(took, std::sync::atomic::Ordering::Relaxed);
                 own
             };
-            // ADR-066 amendment 8: the walk keeps the SingleInstance state along each BC session's members.
-            // `--test-suites` orders a session by the file, not by the walk's id order: there the walk keeps fresh
-            // state per member and the lane handles the members as before (amendment 8, decision 6).
-            // ADR-066 amendment 12, decision 1: by default every test codeunit starts with fresh single instances; the walk
-            // keeps them only under `--strict-order`.
-            let keep_singles = opts.strict_order && chain_report.single_lane.watched > 0 && opts.test_suites.is_none();
-            // ADR-070 step 2 (`RunOptions::strict_sequential`): the sequential strict run walks every BC session on a thread of its
-            // own (`strict_walk.rs`) and leaves nothing for `note_leaks`, the parallel part and the lane to do.
+            // ADR-070: under `--strict-order` every BC session is one sequential walk on a thread of its own
+            // (`strict_walk.rs`), the single instances moving along, and leaves nothing for `note_leaks`, the parallel part
+            // and the lane's analysis to do. By default the walk takes the carry chain only, each member with fresh single
+            // instances.
             #[rustfmt::skip]
-            let carried = { let walk = super::chain_walk::ChainWalk { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, trace: opts.trace, limit, pool: memory.pool(), keep_singles: keep_singles || opts.sequential_strict(), fresh_check: opts.single_fresh_check && !opts.sequential_strict(), sequential: opts.sequential_strict() }; if opts.sequential_strict() { super::strict_walk::StrictRun { walk, place: &place, suites: opts.test_suites.as_deref(), refused: &refused_disabled, discovery: &discovery, workers, copies: baseline.is_none() || baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline }.run(&mut slots, &mut details, &mut chain_report); Vec::new() } else { walk.walk(chain, &mut |k, r| slots[k] = Some(r), &mut details, &mut chain_report) } };
+            let carried = { let walk = super::chain_walk::ChainWalk { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, trace: opts.trace, limit, pool: memory.pool(), fresh_check: opts.single_fresh_check, sequential: opts.strict_order, unpinned: None }; if opts.strict_order { super::strict_walk::StrictRun { walk, place: &place, suites: opts.test_suites.as_deref(), refused: &refused_disabled, discovery: &discovery, workers, copies: baseline.is_none() || baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline }.run(&mut slots, &mut details, &mut chain_report); Vec::new() } else { walk.walk(chain, &mut |k, r| slots[k] = Some(r), &mut details, &mut chain_report) } };
             // The other codeunits run as before; one that comes after a Disabled codeunit notes whether it reads a table that
             // codeunit left rows in, and then runs again below, from what it left.
             note_leaks(&mut units, &carried, &sees);
@@ -1663,9 +1661,15 @@ impl CorpusRuntime {
                 }
                 slots[k] = Some(r);
             }
-            #[rustfmt::skip]
-            let lane = super::single_lane::Lane { engine: &engine, lowered, baseline: baseline.as_ref(), units: &units, carried: &carried, sees: &sees, place: &place, limit, bc_order: opts.strict_order, strict: opts.replay_every_dependent, max_replay: opts.max_replay, suites: opts.test_suites.as_deref(), workers, install_copies: baseline_engine.is_some(), snapshot: &snapshot_once, thread_baseline: &thread_baseline, kept_chain: keep_singles, pool: memory.pool(), fresh_check: opts.single_fresh_check };
-            (!opts.sequential_strict()).then(|| lane.run(&mut slots, &mut chain_report.single_lane));
+            if !opts.strict_order {
+                super::single_lane::Lane {
+                    lowered,
+                    units: &units,
+                    place: &place,
+                    suites: opts.test_suites.as_deref(),
+                }
+                .run(&mut slots, &mut chain_report.single_lane);
+            }
             super::discovery::refuse_after_pass(&mut slots, &chain_report, &engine, lowered, opts.strict_order);
             let results: Vec<UnitResult> = slots.into_iter().flatten().collect();
             for r in results {
@@ -1815,6 +1819,7 @@ impl CorpusRuntime {
             });
         }
         let install_runs = super::install_once::end_run(&engine, &installs);
+        let login_replay = crate::login_replay::report(&engine);
         let tests_time = tests_started.elapsed();
         memory.pool().unwatch();
         if let (Some((key, _)), Some(cc), Some((origin, read))) = (
@@ -1885,30 +1890,9 @@ impl CorpusRuntime {
                 passes: pass_times,
                 install_snapshot: snapshot_once.line(&lowered.program),
                 engine_kept,
+                login_replay,
                 decoded_on_touch: lowered.cached_objects.as_ref().map(|c| c.decoded()),
-                work: RunWork {
-                    compiles: *compiles,
-                    lower: lowered.work,
-                    dependency_apps: ws.kinds.iter().filter(|k| **k == al_sema::AppKind::Dependency).count(),
-                    // The dependency apps a compile cache supplied (objects a kept compile supplied are counted apart,
-                    // `LowerWork::objects_from_kept`).
-                    dependency_apps_from_cache: {
-                        let mut apps: Vec<usize> = (0..lowered.provided.len())
-                            .filter(|&oi| lowered.provided[oi] && lowered.work.objects_from_kept == 0)
-                            .map(|oi| ws.objects[oi].app)
-                            .collect();
-                        apps.dedup();
-                        apps.len()
-                    },
-                    cache_layers_hit: cache_report
-                        .as_ref()
-                        .map_or(0, |c| c.layers.iter().filter(|l| l.hit).count()),
-                    cache_layers_built: cache_report
-                        .as_ref()
-                        .map_or(0, |c| c.layers.iter().filter(|l| l.built).count()),
-                    baseline_rows,
-                    tests_run: list.iter().filter(|r| !matches!(r.outcome, Outcome::NotRun(_))).count(),
-                },
+                work: run_work(*compiles, lowered, ws, cache_report.as_ref(), baseline_rows, &list),
                 // Not redone, not warm: the caller sets them.
                 ..Default::default()
             },
@@ -1936,6 +1920,36 @@ fn set_run_options(e: &mut Engine, opts: &RunOptions) {
     e.write_in_try_allowed = opts.allow_write_in_try_functions;
     e.dependencies_published_global = opts.dependencies_published_global;
     e.skipped_apps = opts.skipped_dependencies.clone();
+}
+
+/// What the run did, counted (`Phases::work`, the work ratchet of `al-test-cli`).
+fn run_work(
+    compiles: usize,
+    lowered: &Lowered,
+    ws: &al_sema::Workspace,
+    cache_report: Option<&crate::compile_cache::CacheReport>,
+    baseline_rows: Option<usize>,
+    list: &[TestResult],
+) -> RunWork {
+    RunWork {
+        compiles,
+        lower: lowered.work,
+        dependency_apps: ws.kinds.iter().filter(|k| **k == al_sema::AppKind::Dependency).count(),
+        // The dependency apps a compile cache supplied (objects a kept compile supplied are counted apart,
+        // `LowerWork::objects_from_kept`).
+        dependency_apps_from_cache: {
+            let mut apps: Vec<usize> = (0..lowered.provided.len())
+                .filter(|&oi| lowered.provided[oi] && lowered.work.objects_from_kept == 0)
+                .map(|oi| ws.objects[oi].app)
+                .collect();
+            apps.dedup();
+            apps.len()
+        },
+        cache_layers_hit: cache_report.map_or(0, |c| c.layers.iter().filter(|l| l.hit).count()),
+        cache_layers_built: cache_report.map_or(0, |c| c.layers.iter().filter(|l| l.built).count()),
+        baseline_rows,
+        tests_run: list.iter().filter(|r| !matches!(r.outcome, Outcome::NotRun(_))).count(),
+    }
 }
 
 /// The tests' engine (with several test threads): it shares what `make_engine` worked out from the program with the
@@ -2253,11 +2267,7 @@ fn hub_isolation(lowered: &Lowered, oi: usize) -> Result<Option<TestIsolation>, 
     };
     // A codeunit with handlers runs under runner 130450 whatever its RequiredTestIsolation says: Codeunit isolation, and
     // StartSession fails as there (RqIsolationModes.al:9-15, :673-839 RQ_WF and RQ_WD, every version).
-    if o.routines.iter().any(|r| {
-        r.attributes
-            .iter()
-            .any(|a| a.name.eq_ignore_ascii_case("HandlerFunctions"))
-    }) {
+    if super::carry_after::has_handlers(lowered, oi) {
         return Ok(None);
     }
     // An OnRun trigger runs once, before the first test, with no write open; under Function its writes are part of the
@@ -2371,16 +2381,13 @@ fn unit_runner(
 
 /// Whether BC runs test codeunit `oi` on the TestRunnerHub: `hub` (its RequiredTestIsolation is Function or Disabled), or
 /// on the hub path (`RunOptions::required_isolation`, no runner codeunit) a codeunit without handlers and with
-/// TestPermissions = Disabled, which the hub runs under Codeunit isolation (RqIsolationModes.al:9-15). The hub runs its
-/// codeunits before runner 130450 runs the others (:12).
+/// TestPermissions = Disabled, which the hub runs under Codeunit isolation (RqIsolationModes.al:9-15). Whether the hub
+/// runs its codeunits before runner 130450 runs the others is not pinned (:12 states it in the header only; corpus issue
+/// #1559; `strict_walk.rs` `Unpinned`).
 fn on_hub(lowered: &Lowered, oi: usize, hub: bool, hub_path: bool) -> bool {
     let o = &lowered.program.objects[oi];
     hub || (hub_path
-        && !o.routines.iter().any(|r| {
-            r.attributes
-                .iter()
-                .any(|a| a.name.eq_ignore_ascii_case("HandlerFunctions"))
-        })
+        && !super::carry_after::has_handlers(lowered, oi)
         && o.properties
             .iter()
             .any(|(k, v)| k.eq_ignore_ascii_case("TestPermissions") && v.trim().eq_ignore_ascii_case("Disabled")))

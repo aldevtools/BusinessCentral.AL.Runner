@@ -9,6 +9,18 @@
 //! never a result. A kept app is the app a fresh read gives. An app is kept only where its stamps carry a change time
 //! (unix today, [`unchanged`]); elsewhere it is read on every request, and its files are not walked
 //! (`KeptApps::change_times`).
+//!
+//! What a warm server keeps between requests while the files it came from are unchanged, and the one
+//! rule of "unchanged" (`Stamp`: length and modification time, on unix also device, inode and change
+//! time; a stamp taken less than 2 s after the file changed is racy and equals none, as in git's
+//! index; `stamps`, `tree_at`, which follows a linked folder once). `KeptApps` keeps each app under
+//! test as `apps::load` read it, only when its stamps carry a change time (`unchanged`; elsewhere the
+//! app is read on every request and its files are not walked, `change_times`), with its test
+//! codeunits (`AppInput::test_codeunits`, found once per read), and reads it again when a file under
+//! its folder, the record next to it (`<path>.json`) or a file outside it the load read
+//! (`AppInput::outside_reads`, from al-testrun `runtime::load_manifest_reading`: resource folders and
+//! the logo) changed, came or went (al-runner issue 8205). Entry points: `load`, `KeptApps::load`,
+//! `stamps`.
 
 use crate::apps::{self, AppInput};
 use std::collections::BTreeSet;

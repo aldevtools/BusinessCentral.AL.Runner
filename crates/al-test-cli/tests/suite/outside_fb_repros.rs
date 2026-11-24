@@ -140,9 +140,12 @@ codeunit 50130 "Refill Probe Part Reads"
 }
 "#;
 
-/// The corpus probe of issue 8186 (tests/al-language/pages/currpage/ListNewLineCodeInsertUpdate.al) with a stand-in for the
-/// corpus's Assert, and the reporter's repro: each test's outcome and the assumptions it ran through.
-fn issue_8186_outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<al_builtins::assumptions::Assumption>)> {
+/// Each test of `codeunit` in the AL `src` (a corpus probe, a reporter's repro, the tests of a neighbor app), compiled with a
+/// stand-in for the corpus's Assert: its outcome and the assumptions it ran through.
+pub(super) fn assert_stub_outcomes(
+    src: &str,
+    codeunit: &str,
+) -> Vec<(String, Outcome, Vec<al_builtins::assumptions::Assumption>)> {
     let src = format!("{src}\n{}", include_str!("../fixtures/outside-sc/Assert.al"));
     let outcomes = al_testkit::outcomes_and_marks_in(&src, codeunit);
     assert!(!outcomes.is_empty());
@@ -156,7 +159,7 @@ const ISSUE_8186_PROBE: &str = include_str!("../fixtures/outside-fb/Issue8186Pro
 /// :736). The reporter's repro, a RunModal filtered to one group on the page without triggers, is no pinned cell: refused.
 #[test]
 fn issue_8186_code_inserted_new_line_lands_on_the_row() {
-    let bad: Vec<_> = issue_8186_outcomes(ISSUE_8186_PROBE, "LT NI Tests")
+    let bad: Vec<_> = assert_stub_outcomes(ISSUE_8186_PROBE, "LT NI Tests")
         .into_iter()
         .filter(|(n, o, marks)| match n.contains("PartsHost") {
             true => !matches!(o, Outcome::NotRun(why) if why.contains("two CardPart FactBoxes")),
@@ -164,7 +167,7 @@ fn issue_8186_code_inserted_new_line_lands_on_the_row() {
         })
         .collect();
     assert!(bad.is_empty(), "{bad:#?}");
-    let repro = issue_8186_outcomes(
+    let repro = assert_stub_outcomes(
         include_str!("../fixtures/outside-fb/Issue8186.al"),
         "Repro Update New Line Tests",
     );
@@ -198,7 +201,7 @@ fn issue_8186_parts_host_neighbors_keep_main_open() {
         ),
     ] {
         assert!(src != ISSUE_8186_PROBE, "{what}: the variant changes the probe");
-        let o = issue_8186_outcomes(&src, "LT NI Tests");
+        let o = assert_stub_outcomes(&src, "LT NI Tests");
         let hosts: Vec<_> = o.iter().filter(|(n, _, _)| n.contains("PartsHost")).collect();
         assert!(!hosts.is_empty(), "{what}");
         let refused: Vec<_> = hosts
@@ -237,7 +240,7 @@ fn issue_8186_unmeasured_neighbors_stay_refused() {
             format!("{}\n{peek}", ISSUE_8186_PROBE.replacen("area(Content)", with_part, 1)),
         ),
     ] {
-        let o = issue_8186_outcomes(&src, "LT NI Tests");
+        let o = assert_stub_outcomes(&src, "LT NI Tests");
         // The tests on page 97032, which the variants change (its Update(false) cells keep `Update(false)` under the Update(true)
         // variant, and stay measured).
         let split: Vec<_> = o
@@ -324,7 +327,7 @@ fn issue_8186_neighbor_outcomes(
     codeunits: &[&str],
 ) -> Vec<(String, Outcome, Vec<al_builtins::assumptions::Assumption>)> {
     let src = format!("{ISSUE_8186_PROBE}\n{ISSUE_8186_NEIGHBORS}");
-    codeunits.iter().flat_map(|c| issue_8186_outcomes(&src, c)).collect()
+    codeunits.iter().flat_map(|c| assert_stub_outcomes(&src, c)).collect()
 }
 
 /// The refusal main gives the neighbors it refuses: the new path does not take them.
@@ -398,7 +401,7 @@ fn issue_8186_unmeasured_page_and_key_keep_main_refusal() {
             ISSUE_8186_PROBE.replace("key(PK; \"Group Code\", \"Entry No.\")", "key(PK; \"Entry No.\")"),
         ),
     ] {
-        let bad: Vec<_> = issue_8186_outcomes(&src, "LT NI Tests")
+        let bad: Vec<_> = assert_stub_outcomes(&src, "LT NI Tests")
             .into_iter()
             .filter(|(_, r, marks)| !matches!(r, Outcome::NotRun(_)) || !marks.is_empty())
             .collect();
@@ -436,7 +439,7 @@ fn issue_8285_save_record_and_update_true_land_on_the_row() {
             vec![ListNewLineSaveRecordRepro],
         ),
     ] {
-        let o = issue_8186_outcomes(src, codeunit);
+        let o = assert_stub_outcomes(src, codeunit);
         let bad: Vec<_> = o
             .iter()
             .filter(|(_, r, marks)| *r != Outcome::Pass || *marks != want)
@@ -459,7 +462,7 @@ fn issue_8285_neighbor_outcomes(
     let at = ISSUE_8285_NEIGHBORS.find("page 97483").expect("the host page");
     let (before, from_host) = ISSUE_8285_NEIGHBORS.split_at(at);
     let src = format!("{}\n{before}{}", probe(ISSUE_8285_PROBE), host(from_host));
-    issue_8186_outcomes(&src, codeunit)
+    assert_stub_outcomes(&src, codeunit)
 }
 
 fn same(s: &str) -> String {
@@ -723,7 +726,7 @@ fn issue_8285_other_code_is_refused() {
     ];
     for (what, from, to, reached) in variants {
         assert_eq!(ISSUE_8285_PROBE.matches(from).count(), 1, "{what}");
-        let o = issue_8186_outcomes(&ISSUE_8285_PROBE.replacen(from, to, 1), "LT NS Tests");
+        let o = assert_stub_outcomes(&ISSUE_8285_PROBE.replacen(from, to, 1), "LT NS Tests");
         let mine: Vec<_> = o.iter().filter(|(n, _, _)| reached(n)).collect();
         assert!(!mine.is_empty(), "{what}");
         let bad: Vec<_> = mine
@@ -837,11 +840,15 @@ codeunit 50121 "Repro Unmeasured Open Tests"
 }
 "#;
     let src = format!("{}\n{tests}", include_str!("../fixtures/outside-fb/Issue8285.al"));
-    let o = issue_8186_outcomes(&src, "Repro Unmeasured Open Tests");
+    let o = assert_stub_outcomes(&src, "Repro Unmeasured Open Tests");
     assert_eq!(o.len(), 5, "{o:#?}");
+    // A write after a refused test whose reach is not fully known is marked (the type it left is not known).
+    let carry = al_builtins::assumptions::Assumption::TransactionTypeCarriesToNextTest;
     let bad: Vec<_> = o
         .iter()
-        .filter(|(_, r, marks)| !matches!(r, Outcome::NotRun(w) if w.contains(UNMEASURED_CODE)) || !marks.is_empty())
+        .filter(|(_, r, marks)| {
+            !matches!(r, Outcome::NotRun(w) if w.contains(UNMEASURED_CODE)) || marks.iter().any(|m| *m != carry)
+        })
         .collect();
     assert!(bad.is_empty(), "{bad:#?}");
 }

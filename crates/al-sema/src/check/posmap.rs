@@ -1,4 +1,6 @@
 //! The position-keyed maps the checker fills: FxHash and the per-file `PosMap`.
+//!
+//! Entry points: `PosMap`, `union`.
 
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};

@@ -1,0 +1,11 @@
+{
+  "id": "4ee573cd-9f52-4b7a-85a0-14ba0585d586",
+  "name": "Neighbors by-value copy after SetLoadFields and a read",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "29.0.0.0",
+  "runtime": "18.0",
+  "target": "Cloud",
+  "idRanges": [{ "from": 50000, "to": 50049 }],
+  "dependencies": []
+}

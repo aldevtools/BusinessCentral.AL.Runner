@@ -5,6 +5,12 @@
 //! (permissions/SysFlowFieldPerm.al:489-499: `Item.DeleteAll` of `Op`, the first write of "SFP Item" in each case, under
 //! "SFP PA READ" and "SFP NO PA", neither of which grants the table). With no row, the table enables no database trigger
 //! whichever way BC answers the read. Every other read keeps the refusal of `Session::write_denied`.
+//!
+//! The read that the code answering `Global Triggers.GetDatabaseTableTriggerSetup` makes of "API
+//! Webhook Subscription" under a restricted set that does not grant it, in the one shape
+//! permissions/SysFlowFieldPerm.al:489-499 measures (`IsEmpty` of an empty table, no error); every
+//! other read keeps the refusal of `Session::write_denied`. Entry points:
+//! `Session::trigger_setup_read_unchecked`.
 
 use crate::Session;
 use crate::permissions::{Access, Op};
