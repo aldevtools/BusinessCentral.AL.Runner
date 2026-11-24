@@ -1,0 +1,2 @@
+# The builtin test runner: no row write before the tests (the shapes the hub-like runner sees).
+--test-runner builtin

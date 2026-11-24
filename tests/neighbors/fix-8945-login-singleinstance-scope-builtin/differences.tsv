@@ -1,0 +1,7 @@
+# key	entry
+LS Login Tests A::Order_ThreeApps	ASSUMED login-subscribers-shared-memo (corpus PR 1567)
+LS Login Tests A::StateOne_ThreeSubscribersOfOneApp	ASSUMED login-subscribers-shared-memo (corpus PR 1567)
+LS Login Tests A::StateMany_OneSubscriberOfEachApp	ASSUMED login-subscribers-shared-memo (corpus PR 1567)
+LS Login Tests A::StateOne_SecondTest_ThenTestTouches	ASSUMED login-subscribers-shared-memo (corpus PR 1567)
+LS Login Tests B::Order_SecondCodeunit	ASSUMED login-subscribers-shared-memo (corpus PR 1567)
+LS Login Tests B::StateMany_SecondCodeunit	ASSUMED login-subscribers-shared-memo (corpus PR 1567)
