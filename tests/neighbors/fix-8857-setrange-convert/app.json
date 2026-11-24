@@ -6,7 +6,7 @@
   "platform": "27.0.0.0",
   "runtime": "16.0",
   "target": "OnPrem",
-  "idRanges": [ { "from": 57400, "to": 57411 }, { "from": 69160, "to": 69160 } ],
+  "idRanges": [ { "from": 57400, "to": 57413 }, { "from": 69160, "to": 69160 } ],
   "dependencies": [],
   "preprocessorSymbols": [ "BC28PLUS" ]
 }

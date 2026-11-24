@@ -142,6 +142,20 @@ codeunit 57406 "SFK Probe"
         CellInt('v', FieldNo, X);
     end;
 
+    // Neighbor copy only (not in corpus PR 1552): routes a, b, c, e, f and gr of an Integer source, like FiltersCode.
+    procedure FiltersInt(FieldNo: Integer; X: Integer)
+    var
+        V: Variant;
+    begin
+        V := X;
+        CellInt('a', FieldNo, X);
+        CellVar('b', FieldNo, V);
+        CellInt('c', FieldNo, X);
+        CellInt('e', FieldNo, X);
+        CellVar('f', FieldNo, V);
+        CellVar('gr', FieldNo, V);
+    end;
+
     [TryFunction]
     local procedure TryBig(var F: FieldRef; Route: Text; X: BigInteger)
     begin
@@ -818,52 +832,6 @@ codeunit 57408 "SFK Text To Number Tests"
     end;
 
     [Test]
-    procedure Txt15_Int()
-    var
-        Probe: Codeunit "SFK Probe";
-        X: Text;
-    begin
-        X := '1.5';
-        Probe.CellsTxt(4, X);
-#if BC28PLUS
-        Probe.Expect('a', 'E: The value "1.5" can''t be evaluated into type Integer. | Evaluate:Format');
-#else // BC 27.5 gives another result
-        Probe.Expect('a', 'E: The type NavInteger is unknown. | NotSupportedType');
-#endif
-#if BC28PLUS
-        Probe.Expect('b', 'E: The value "1.5" can''t be evaluated into type Integer. | Evaluate:Format');
-#else // BC 27.5 gives another result
-        Probe.Expect('b', 'E: The type NavInteger is unknown. | NotSupportedType');
-#endif
-#if BC28PLUS
-        Probe.Expect('c', 'E: The value "1.5" can''t be evaluated into type Integer. | Evaluate:Format');
-#else // BC 27.5 gives another result
-        Probe.Expect('c', 'E: The type NavInteger is unknown. | NotSupportedType');
-#endif
-#if BC28PLUS
-        Probe.Expect('e', 'E: The value "1.5" can''t be evaluated into type Integer. | Evaluate:Format');
-#else // BC 27.5 gives another result
-        Probe.Expect('e', 'E: The type NavInteger is unknown. | NotSupportedType');
-#endif
-#if BC28PLUS
-        Probe.Expect('f', 'E: The value "1.5" can''t be evaluated into type Integer. | Evaluate:Format');
-#else // BC 27.5 gives another result
-        Probe.Expect('f', 'E: The type NavInteger is unknown. | NotSupportedType');
-#endif
-#if BC28PLUS
-        Probe.Expect('gr', 'E: The value "1.5" can''t be evaluated into type Integer. | Evaluate:Format');
-#else // BC 27.5 gives another result
-        Probe.Expect('gr', 'E: The type NavInteger is unknown. | NotSupportedType');
-#endif
-#if BC28PLUS
-        Probe.Expect('v', 'E: The value "1.5" can''t be evaluated into type Integer. | Evaluate:Format');
-#else // BC 27.5 gives another result
-        Probe.Expect('v', 'E: The type NavInteger is unknown. | NotSupportedType');
-#endif
-        Probe.Verify();
-    end;
-
-    [Test]
     procedure TxtEmpty_Int()
     var
         Probe: Codeunit "SFK Probe";
@@ -903,52 +871,6 @@ codeunit 57408 "SFK Text To Number Tests"
 #endif
 #if BC28PLUS
         Probe.Expect('v', 'E: The value "" can''t be evaluated into type Integer. | Evaluate:Format');
-#else // BC 27.5 gives another result
-        Probe.Expect('v', 'E: The type NavInteger is unknown. | NotSupportedType');
-#endif
-        Probe.Verify();
-    end;
-
-    [Test]
-    procedure Code1000_Int()
-    var
-        Probe: Codeunit "SFK Probe";
-        X: Code[20];
-    begin
-        X := '1,000';
-        Probe.CellsCode(4, X);
-#if BC28PLUS
-        Probe.Expect('a', 'E: The value "1,000" can''t be evaluated into type Integer. | Evaluate:Format');
-#else // BC 27.5 gives another result
-        Probe.Expect('a', 'E: The type NavInteger is unknown. | NotSupportedType');
-#endif
-#if BC28PLUS
-        Probe.Expect('b', 'E: The value "1,000" can''t be evaluated into type Integer. | Evaluate:Format');
-#else // BC 27.5 gives another result
-        Probe.Expect('b', 'E: The type NavInteger is unknown. | NotSupportedType');
-#endif
-#if BC28PLUS
-        Probe.Expect('c', 'E: The value "1,000" can''t be evaluated into type Integer. | Evaluate:Format');
-#else // BC 27.5 gives another result
-        Probe.Expect('c', 'E: The type NavInteger is unknown. | NotSupportedType');
-#endif
-#if BC28PLUS
-        Probe.Expect('e', 'E: The value "1,000" can''t be evaluated into type Integer. | Evaluate:Format');
-#else // BC 27.5 gives another result
-        Probe.Expect('e', 'E: The type NavInteger is unknown. | NotSupportedType');
-#endif
-#if BC28PLUS
-        Probe.Expect('f', 'E: The value "1,000" can''t be evaluated into type Integer. | Evaluate:Format');
-#else // BC 27.5 gives another result
-        Probe.Expect('f', 'E: The type NavInteger is unknown. | NotSupportedType');
-#endif
-#if BC28PLUS
-        Probe.Expect('gr', 'E: The value "1,000" can''t be evaluated into type Integer. | Evaluate:Format');
-#else // BC 27.5 gives another result
-        Probe.Expect('gr', 'E: The type NavInteger is unknown. | NotSupportedType');
-#endif
-#if BC28PLUS
-        Probe.Expect('v', 'E: The value "1,000" can''t be evaluated into type Integer. | Evaluate:Format');
 #else // BC 27.5 gives another result
         Probe.Expect('v', 'E: The type NavInteger is unknown. | NotSupportedType');
 #endif
@@ -1066,52 +988,6 @@ codeunit 57408 "SFK Text To Number Tests"
     end;
 
     [Test]
-    procedure Txt15_Big()
-    var
-        Probe: Codeunit "SFK Probe";
-        X: Text;
-    begin
-        X := '1.5';
-        Probe.CellsTxt(5, X);
-#if BC28PLUS
-        Probe.Expect('a', 'E: The value "1.5" can''t be evaluated into type BigInteger. | Evaluate:Format');
-#else // BC 27.5 gives another result
-        Probe.Expect('a', 'E: The type NavBigInteger is unknown. | NotSupportedType');
-#endif
-#if BC28PLUS
-        Probe.Expect('b', 'E: The value "1.5" can''t be evaluated into type BigInteger. | Evaluate:Format');
-#else // BC 27.5 gives another result
-        Probe.Expect('b', 'E: The type NavBigInteger is unknown. | NotSupportedType');
-#endif
-#if BC28PLUS
-        Probe.Expect('c', 'E: The value "1.5" can''t be evaluated into type BigInteger. | Evaluate:Format');
-#else // BC 27.5 gives another result
-        Probe.Expect('c', 'E: The type NavBigInteger is unknown. | NotSupportedType');
-#endif
-#if BC28PLUS
-        Probe.Expect('e', 'E: The value "1.5" can''t be evaluated into type BigInteger. | Evaluate:Format');
-#else // BC 27.5 gives another result
-        Probe.Expect('e', 'E: The type NavBigInteger is unknown. | NotSupportedType');
-#endif
-#if BC28PLUS
-        Probe.Expect('f', 'E: The value "1.5" can''t be evaluated into type BigInteger. | Evaluate:Format');
-#else // BC 27.5 gives another result
-        Probe.Expect('f', 'E: The type NavBigInteger is unknown. | NotSupportedType');
-#endif
-#if BC28PLUS
-        Probe.Expect('gr', 'E: The value "1.5" can''t be evaluated into type BigInteger. | Evaluate:Format');
-#else // BC 27.5 gives another result
-        Probe.Expect('gr', 'E: The type NavBigInteger is unknown. | NotSupportedType');
-#endif
-#if BC28PLUS
-        Probe.Expect('v', 'E: The value "1.5" can''t be evaluated into type BigInteger. | Evaluate:Format');
-#else // BC 27.5 gives another result
-        Probe.Expect('v', 'E: The type NavBigInteger is unknown. | NotSupportedType');
-#endif
-        Probe.Verify();
-    end;
-
-    [Test]
     procedure TxtEmpty_Big()
     var
         Probe: Codeunit "SFK Probe";
@@ -1151,52 +1027,6 @@ codeunit 57408 "SFK Text To Number Tests"
 #endif
 #if BC28PLUS
         Probe.Expect('v', 'E: The value "" can''t be evaluated into type BigInteger. | Evaluate:Format');
-#else // BC 27.5 gives another result
-        Probe.Expect('v', 'E: The type NavBigInteger is unknown. | NotSupportedType');
-#endif
-        Probe.Verify();
-    end;
-
-    [Test]
-    procedure Code1000_Big()
-    var
-        Probe: Codeunit "SFK Probe";
-        X: Code[20];
-    begin
-        X := '1,000';
-        Probe.CellsCode(5, X);
-#if BC28PLUS
-        Probe.Expect('a', 'E: The value "1,000" can''t be evaluated into type BigInteger. | Evaluate:Format');
-#else // BC 27.5 gives another result
-        Probe.Expect('a', 'E: The type NavBigInteger is unknown. | NotSupportedType');
-#endif
-#if BC28PLUS
-        Probe.Expect('b', 'E: The value "1,000" can''t be evaluated into type BigInteger. | Evaluate:Format');
-#else // BC 27.5 gives another result
-        Probe.Expect('b', 'E: The type NavBigInteger is unknown. | NotSupportedType');
-#endif
-#if BC28PLUS
-        Probe.Expect('c', 'E: The value "1,000" can''t be evaluated into type BigInteger. | Evaluate:Format');
-#else // BC 27.5 gives another result
-        Probe.Expect('c', 'E: The type NavBigInteger is unknown. | NotSupportedType');
-#endif
-#if BC28PLUS
-        Probe.Expect('e', 'E: The value "1,000" can''t be evaluated into type BigInteger. | Evaluate:Format');
-#else // BC 27.5 gives another result
-        Probe.Expect('e', 'E: The type NavBigInteger is unknown. | NotSupportedType');
-#endif
-#if BC28PLUS
-        Probe.Expect('f', 'E: The value "1,000" can''t be evaluated into type BigInteger. | Evaluate:Format');
-#else // BC 27.5 gives another result
-        Probe.Expect('f', 'E: The type NavBigInteger is unknown. | NotSupportedType');
-#endif
-#if BC28PLUS
-        Probe.Expect('gr', 'E: The value "1,000" can''t be evaluated into type BigInteger. | Evaluate:Format');
-#else // BC 27.5 gives another result
-        Probe.Expect('gr', 'E: The type NavBigInteger is unknown. | NotSupportedType');
-#endif
-#if BC28PLUS
-        Probe.Expect('v', 'E: The value "1,000" can''t be evaluated into type BigInteger. | Evaluate:Format');
 #else // BC 27.5 gives another result
         Probe.Expect('v', 'E: The type NavBigInteger is unknown. | NotSupportedType');
 #endif
@@ -1421,24 +1251,6 @@ codeunit 57409 "SFK Other Kinds Tests"
     end;
 
     [Test]
-    procedure Code0_Bool()
-    var
-        Probe: Codeunit "SFK Probe";
-        X: Code[20];
-    begin
-        X := '0';
-        Probe.CellsCode(7, X);
-        Probe.Expect('a', 'ok: No');
-        Probe.Expect('b', 'ok: No');
-        Probe.Expect('c', 'ok: No');
-        Probe.Expect('e', 'ok: No');
-        Probe.Expect('f', 'ok: No');
-        Probe.Expect('gr', 'ok: No');
-        Probe.Expect('v', 'ok: false');
-        Probe.Verify();
-    end;
-
-    [Test]
     procedure CodeABC_Bool()
     var
         Probe: Codeunit "SFK Probe";
@@ -1591,24 +1403,6 @@ codeunit 57409 "SFK Other Kinds Tests"
         Probe.Expect('f', 'ok: Yes');
         Probe.Expect('gr', 'ok: Yes');
         Probe.Expect('v', 'ok: true');
-        Probe.Verify();
-    end;
-
-    [Test]
-    procedure Int0_Bool()
-    var
-        Probe: Codeunit "SFK Probe";
-        X: Integer;
-    begin
-        X := 0;
-        Probe.CellsInt(7, X);
-        Probe.Expect('a', 'ok: No');
-        Probe.Expect('b', 'ok: No');
-        Probe.Expect('c', 'ok: No');
-        Probe.Expect('e', 'ok: No');
-        Probe.Expect('f', 'ok: No');
-        Probe.Expect('gr', 'ok: No');
-        Probe.Expect('v', 'ok: false');
         Probe.Verify();
     end;
 
@@ -1846,4 +1640,232 @@ codeunit 57409 "SFK Other Kinds Tests"
         Probe.Verify();
     end;
 
+}
+
+// Neighbor copy only (not in corpus PR 1552): the probe tests that run route v on a value al-runner refuses there, moved
+// into a codeunit of their own so that a refusal does not hide the failure of another test in the same codeunit.
+codeunit 57412 "SFK Route V Refused Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure Txt15_Int()
+    var
+        Probe: Codeunit "SFK Probe";
+        X: Text;
+    begin
+        X := '1.5';
+        Probe.CellsTxt(4, X);
+#if BC28PLUS
+        Probe.Expect('a', 'E: The value "1.5" can''t be evaluated into type Integer. | Evaluate:Format');
+#else // BC 27.5 gives another result
+        Probe.Expect('a', 'E: The type NavInteger is unknown. | NotSupportedType');
+#endif
+#if BC28PLUS
+        Probe.Expect('b', 'E: The value "1.5" can''t be evaluated into type Integer. | Evaluate:Format');
+#else // BC 27.5 gives another result
+        Probe.Expect('b', 'E: The type NavInteger is unknown. | NotSupportedType');
+#endif
+#if BC28PLUS
+        Probe.Expect('c', 'E: The value "1.5" can''t be evaluated into type Integer. | Evaluate:Format');
+#else // BC 27.5 gives another result
+        Probe.Expect('c', 'E: The type NavInteger is unknown. | NotSupportedType');
+#endif
+#if BC28PLUS
+        Probe.Expect('e', 'E: The value "1.5" can''t be evaluated into type Integer. | Evaluate:Format');
+#else // BC 27.5 gives another result
+        Probe.Expect('e', 'E: The type NavInteger is unknown. | NotSupportedType');
+#endif
+#if BC28PLUS
+        Probe.Expect('f', 'E: The value "1.5" can''t be evaluated into type Integer. | Evaluate:Format');
+#else // BC 27.5 gives another result
+        Probe.Expect('f', 'E: The type NavInteger is unknown. | NotSupportedType');
+#endif
+#if BC28PLUS
+        Probe.Expect('gr', 'E: The value "1.5" can''t be evaluated into type Integer. | Evaluate:Format');
+#else // BC 27.5 gives another result
+        Probe.Expect('gr', 'E: The type NavInteger is unknown. | NotSupportedType');
+#endif
+#if BC28PLUS
+        Probe.Expect('v', 'E: The value "1.5" can''t be evaluated into type Integer. | Evaluate:Format');
+#else // BC 27.5 gives another result
+        Probe.Expect('v', 'E: The type NavInteger is unknown. | NotSupportedType');
+#endif
+        Probe.Verify();
+    end;
+
+    [Test]
+    procedure Code1000_Int()
+    var
+        Probe: Codeunit "SFK Probe";
+        X: Code[20];
+    begin
+        X := '1,000';
+        Probe.CellsCode(4, X);
+#if BC28PLUS
+        Probe.Expect('a', 'E: The value "1,000" can''t be evaluated into type Integer. | Evaluate:Format');
+#else // BC 27.5 gives another result
+        Probe.Expect('a', 'E: The type NavInteger is unknown. | NotSupportedType');
+#endif
+#if BC28PLUS
+        Probe.Expect('b', 'E: The value "1,000" can''t be evaluated into type Integer. | Evaluate:Format');
+#else // BC 27.5 gives another result
+        Probe.Expect('b', 'E: The type NavInteger is unknown. | NotSupportedType');
+#endif
+#if BC28PLUS
+        Probe.Expect('c', 'E: The value "1,000" can''t be evaluated into type Integer. | Evaluate:Format');
+#else // BC 27.5 gives another result
+        Probe.Expect('c', 'E: The type NavInteger is unknown. | NotSupportedType');
+#endif
+#if BC28PLUS
+        Probe.Expect('e', 'E: The value "1,000" can''t be evaluated into type Integer. | Evaluate:Format');
+#else // BC 27.5 gives another result
+        Probe.Expect('e', 'E: The type NavInteger is unknown. | NotSupportedType');
+#endif
+#if BC28PLUS
+        Probe.Expect('f', 'E: The value "1,000" can''t be evaluated into type Integer. | Evaluate:Format');
+#else // BC 27.5 gives another result
+        Probe.Expect('f', 'E: The type NavInteger is unknown. | NotSupportedType');
+#endif
+#if BC28PLUS
+        Probe.Expect('gr', 'E: The value "1,000" can''t be evaluated into type Integer. | Evaluate:Format');
+#else // BC 27.5 gives another result
+        Probe.Expect('gr', 'E: The type NavInteger is unknown. | NotSupportedType');
+#endif
+#if BC28PLUS
+        Probe.Expect('v', 'E: The value "1,000" can''t be evaluated into type Integer. | Evaluate:Format');
+#else // BC 27.5 gives another result
+        Probe.Expect('v', 'E: The type NavInteger is unknown. | NotSupportedType');
+#endif
+        Probe.Verify();
+    end;
+
+    [Test]
+    procedure Txt15_Big()
+    var
+        Probe: Codeunit "SFK Probe";
+        X: Text;
+    begin
+        X := '1.5';
+        Probe.CellsTxt(5, X);
+#if BC28PLUS
+        Probe.Expect('a', 'E: The value "1.5" can''t be evaluated into type BigInteger. | Evaluate:Format');
+#else // BC 27.5 gives another result
+        Probe.Expect('a', 'E: The type NavBigInteger is unknown. | NotSupportedType');
+#endif
+#if BC28PLUS
+        Probe.Expect('b', 'E: The value "1.5" can''t be evaluated into type BigInteger. | Evaluate:Format');
+#else // BC 27.5 gives another result
+        Probe.Expect('b', 'E: The type NavBigInteger is unknown. | NotSupportedType');
+#endif
+#if BC28PLUS
+        Probe.Expect('c', 'E: The value "1.5" can''t be evaluated into type BigInteger. | Evaluate:Format');
+#else // BC 27.5 gives another result
+        Probe.Expect('c', 'E: The type NavBigInteger is unknown. | NotSupportedType');
+#endif
+#if BC28PLUS
+        Probe.Expect('e', 'E: The value "1.5" can''t be evaluated into type BigInteger. | Evaluate:Format');
+#else // BC 27.5 gives another result
+        Probe.Expect('e', 'E: The type NavBigInteger is unknown. | NotSupportedType');
+#endif
+#if BC28PLUS
+        Probe.Expect('f', 'E: The value "1.5" can''t be evaluated into type BigInteger. | Evaluate:Format');
+#else // BC 27.5 gives another result
+        Probe.Expect('f', 'E: The type NavBigInteger is unknown. | NotSupportedType');
+#endif
+#if BC28PLUS
+        Probe.Expect('gr', 'E: The value "1.5" can''t be evaluated into type BigInteger. | Evaluate:Format');
+#else // BC 27.5 gives another result
+        Probe.Expect('gr', 'E: The type NavBigInteger is unknown. | NotSupportedType');
+#endif
+#if BC28PLUS
+        Probe.Expect('v', 'E: The value "1.5" can''t be evaluated into type BigInteger. | Evaluate:Format');
+#else // BC 27.5 gives another result
+        Probe.Expect('v', 'E: The type NavBigInteger is unknown. | NotSupportedType');
+#endif
+        Probe.Verify();
+    end;
+
+    [Test]
+    procedure Code1000_Big()
+    var
+        Probe: Codeunit "SFK Probe";
+        X: Code[20];
+    begin
+        X := '1,000';
+        Probe.CellsCode(5, X);
+#if BC28PLUS
+        Probe.Expect('a', 'E: The value "1,000" can''t be evaluated into type BigInteger. | Evaluate:Format');
+#else // BC 27.5 gives another result
+        Probe.Expect('a', 'E: The type NavBigInteger is unknown. | NotSupportedType');
+#endif
+#if BC28PLUS
+        Probe.Expect('b', 'E: The value "1,000" can''t be evaluated into type BigInteger. | Evaluate:Format');
+#else // BC 27.5 gives another result
+        Probe.Expect('b', 'E: The type NavBigInteger is unknown. | NotSupportedType');
+#endif
+#if BC28PLUS
+        Probe.Expect('c', 'E: The value "1,000" can''t be evaluated into type BigInteger. | Evaluate:Format');
+#else // BC 27.5 gives another result
+        Probe.Expect('c', 'E: The type NavBigInteger is unknown. | NotSupportedType');
+#endif
+#if BC28PLUS
+        Probe.Expect('e', 'E: The value "1,000" can''t be evaluated into type BigInteger. | Evaluate:Format');
+#else // BC 27.5 gives another result
+        Probe.Expect('e', 'E: The type NavBigInteger is unknown. | NotSupportedType');
+#endif
+#if BC28PLUS
+        Probe.Expect('f', 'E: The value "1,000" can''t be evaluated into type BigInteger. | Evaluate:Format');
+#else // BC 27.5 gives another result
+        Probe.Expect('f', 'E: The type NavBigInteger is unknown. | NotSupportedType');
+#endif
+#if BC28PLUS
+        Probe.Expect('gr', 'E: The value "1,000" can''t be evaluated into type BigInteger. | Evaluate:Format');
+#else // BC 27.5 gives another result
+        Probe.Expect('gr', 'E: The type NavBigInteger is unknown. | NotSupportedType');
+#endif
+#if BC28PLUS
+        Probe.Expect('v', 'E: The value "1,000" can''t be evaluated into type BigInteger. | Evaluate:Format');
+#else // BC 27.5 gives another result
+        Probe.Expect('v', 'E: The type NavBigInteger is unknown. | NotSupportedType');
+#endif
+        Probe.Verify();
+    end;
+
+    [Test]
+    procedure Code0_Bool()
+    var
+        Probe: Codeunit "SFK Probe";
+        X: Code[20];
+    begin
+        X := '0';
+        Probe.CellsCode(7, X);
+        Probe.Expect('a', 'ok: No');
+        Probe.Expect('b', 'ok: No');
+        Probe.Expect('c', 'ok: No');
+        Probe.Expect('e', 'ok: No');
+        Probe.Expect('f', 'ok: No');
+        Probe.Expect('gr', 'ok: No');
+        Probe.Expect('v', 'ok: false');
+        Probe.Verify();
+    end;
+
+    [Test]
+    procedure Int0_Bool()
+    var
+        Probe: Codeunit "SFK Probe";
+        X: Integer;
+    begin
+        X := 0;
+        Probe.CellsInt(7, X);
+        Probe.Expect('a', 'ok: No');
+        Probe.Expect('b', 'ok: No');
+        Probe.Expect('c', 'ok: No');
+        Probe.Expect('e', 'ok: No');
+        Probe.Expect('f', 'ok: No');
+        Probe.Expect('gr', 'ok: No');
+        Probe.Expect('v', 'ok: false');
+        Probe.Verify();
+    end;
 }

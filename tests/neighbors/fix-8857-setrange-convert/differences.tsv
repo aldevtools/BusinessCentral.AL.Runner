@@ -11,26 +11,35 @@ SFK Number To Text Tests::Int0_Cod	ASSUMED setrange-other-type-convert (corpus P
 SFK Number To Text Tests::Int0_Txt	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
 SFK Number To Text Tests::Int5_Cod	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
 SFK Number To Text Tests::Int5_Txt	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
-SFK Other Kinds Tests::Code0_Bool	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
 SFK Other Kinds Tests::Code123_Bool	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
 SFK Other Kinds Tests::Code123_G	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
 SFK Other Kinds Tests::CodeABC_Bool	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
 SFK Other Kinds Tests::CodeABC_D	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
 SFK Other Kinds Tests::CodeABC_G	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
-SFK Other Kinds Tests::Int0_Bool	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
 SFK Other Kinds Tests::Int1_Bool	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
 SFK Other Kinds Tests::TxtGuid_G	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
 SFK Other Kinds Tests::TxtXY_Bool	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
 SFK Other Kinds Tests::TxtXY_D	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
 SFK Other Kinds Tests::TxtXY_G	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
 SFK Other Kinds Tests::TxtYes_Bool	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
-SFK Text To Number Tests::Code1000_Big	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
-SFK Text To Number Tests::Code1000_Int	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
+SFK Route V Refused Tests::Code0_Bool	REFUSED conversion of Code '0' to Boolean
+SFK Route V Refused Tests::Code1000_Big	REFUSED conversion of Code '1,000' to BigInteger
+SFK Route V Refused Tests::Code1000_Int	REFUSED conversion of Code '1,000' to Integer
+SFK Route V Refused Tests::Int0_Bool	REFUSED conversion of Integer 0 to Boolean
+SFK Route V Refused Tests::Txt15_Big	REFUSED conversion of Text '1.5' to BigInteger
+SFK Route V Refused Tests::Txt15_Int	REFUSED conversion of Text '1.5' to Integer
+SFK Split Tests::Code0_Bool_Filters	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
+SFK Split Tests::Code1000_Big_Filters	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
+SFK Split Tests::Code1000_Int_Filters	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
+SFK Split Tests::Code123_G_Filters	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
+SFK Split Tests::CodeABC_G_Filters	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
+SFK Split Tests::Int0_Bool_Filters	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
+SFK Split Tests::Txt15_Big_Filters	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
+SFK Split Tests::Txt15_Int_Filters	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
+SFK Split Tests::TxtXY_G_Filters	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
 SFK Text To Number Tests::CodeABC_Big	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
 SFK Text To Number Tests::CodeABC_Dec	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
 SFK Text To Number Tests::CodeABC_Int	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
-SFK Text To Number Tests::Txt15_Big	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
-SFK Text To Number Tests::Txt15_Int	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
 SFK Text To Number Tests::TxtEmpty_Big	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
 SFK Text To Number Tests::TxtEmpty_Dec	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
 SFK Text To Number Tests::TxtEmpty_Int	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
@@ -223,14 +232,20 @@ SRC Text Tests::TxtUs_D_Var	ASSUMED setrange-other-type-convert (corpus PR 1552,
 SRC Text Tests::TxtUs_T_Pair	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
 SRC Text Tests::TxtUs_T_Typed	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
 SRC Text Tests::TxtUs_T_Var	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
+SRN Neighbors::DateIntoDateTimeInOtherLanguage	REFUSED SetRange or SetFilter of Date
+SRN Neighbors::DecimalTextIntoDecimalInFilterGroupTwo	REFUSED SetRange or SetFilter of Text '1.5' into a Decimal field
 SRN Neighbors::DecimalThreePlacesIntoCode	REFUSED SetRange or SetFilter of Decimal 1.125 into a Code[20] field in a shape no cell measures (assumption setrange-other-type-convert)
 SRN Neighbors::EmptyTextIntoGuidTyped	REFUSED SetRange or SetFilter of Text '' into a Guid field in a shape no cell measures (assumption setrange-other-type-convert)
 SRN Neighbors::FalseIntoCode	REFUSED SetRange or SetFilter of Boolean false into a Code[20] field in a shape no cell measures (assumption setrange-other-type-convert)
 SRN Neighbors::FieldRefValueArgument	REFUSED SetRange or SetFilter of Code 'ABC' into a Integer field in a shape no cell measures (assumption setrange-other-type-convert)
 SRN Neighbors::FilterGroupTwo	REFUSED SetRange or SetFilter of Code 'ABC' into a Integer field in a shape no cell measures (assumption setrange-other-type-convert)
+SRN Neighbors::GuidSetFilterLetters	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
+SRN Neighbors::GuidSetFilterMixedText	REFUSED SetRange or SetFilter of Code '1A2B-3C' into a Guid field
+SRN Neighbors::GuidTextInAnotherFilterText	REFUSED SetRange or SetFilter of Text '{7A1C0E55
 SRN Neighbors::KeyRefFieldRef	REFUSED SetRange or SetFilter of Code 'ABC' into a Integer field in a shape no cell measures (assumption setrange-other-type-convert)
 SRN Neighbors::MixedTextIntoGuid	REFUSED SetRange or SetFilter of Text 'ABC' into a Guid field in a shape no cell measures (assumption setrange-other-type-convert)
 SRN Neighbors::MixedVariantAndIntegerOnCode	REFUSED SetRange or SetFilter of Integer 5 into a Code[20] field in a shape no cell measures (assumption setrange-other-type-convert)
+SRN Neighbors::NamedOptionMemberIntoDate	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
 SRN Neighbors::NumberLongerThanTheCodeField	REFUSED SetRange or SetFilter of Integer 123 into a Code[2] field in a shape no cell measures (assumption setrange-other-type-convert)
 SRN Neighbors::NumberOverAMillionIntoCode	REFUSED SetRange or SetFilter of Integer 1000000 into a Code[20] field in a shape no cell measures (assumption setrange-other-type-convert)
 SRN Neighbors::OtherLanguage	REFUSED SetRange or SetFilter of Code 'ABC' into a Integer field in a shape no cell measures (assumption setrange-other-type-convert)
@@ -240,3 +255,4 @@ SRN Neighbors::RecordSetRangeTwoVariantsIntoInteger	REFUSED SetRange or SetFilte
 SRN Neighbors::RecordSetRangeTypedCodeIntoInteger	REFUSED SetRange or SetFilter of Code 'ABC' into a Integer field in a shape no cell measures (assumption setrange-other-type-convert)
 SRN Neighbors::SetFilterOtherText	REFUSED SetRange or SetFilter of Code 'ABC' into a Integer field in a shape no cell measures (assumption setrange-other-type-convert)
 SRN Neighbors::TemporaryRecordRef	REFUSED SetRange or SetFilter of Code 'ABC' into a Integer field in a shape no cell measures (assumption setrange-other-type-convert)
+SRN Neighbors::TrueIntoCodeOnTemporary	REFUSED SetRange or SetFilter of Boolean true into a Code[20] field

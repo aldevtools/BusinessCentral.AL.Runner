@@ -12,6 +12,7 @@ table 57410 "SRN Row"
         field(6; D; Date) { }
         field(7; G; Guid) { }
         field(8; DT; DateTime) { }
+        field(9; Dec; Decimal) { }
     }
     keys { key(PK; Id) { Clustered = true; } }
 }
@@ -406,6 +407,138 @@ codeunit 57411 "SRN Neighbors"
         F := R.Field(8);
         X := 100000T;
         F.SetRange(X);
+        Show(F);
+    end;
+
+    // Review round 1: the cells that pass on the earlier conversion, each with one fact of the measured shape flipped (refused).
+    [Test]
+    procedure TrueIntoCodeOnTemporary()
+    var
+        R: RecordRef;
+        F: FieldRef;
+        B: Boolean;
+    begin
+        R.Open(Database::"SRN Row", true);
+        F := R.Field(3);
+        B := true;
+        F.SetRange(B);
+        Show(F);
+    end;
+
+    [Test]
+    procedure DecimalTextIntoDecimalInFilterGroupTwo()
+    var
+        R: RecordRef;
+        F: FieldRef;
+        T: Text;
+    begin
+        R.Open(Database::"SRN Row");
+        R.FilterGroup(2);
+        F := R.Field(9);
+        T := '1.5';
+        F.SetRange(T);
+        Show(F);
+    end;
+
+    [Test]
+    procedure GuidTextInAnotherFilterText()
+    var
+        R: RecordRef;
+        F: FieldRef;
+        T: Text;
+    begin
+        R.Open(Database::"SRN Row");
+        F := R.Field(7);
+        T := '{7A1C0E55-3B2D-4E6F-8A90-1B2C3D4E5F60}';
+        F.SetFilter('%1|%1', T);
+        Show(F);
+    end;
+
+    [Test]
+    procedure DateIntoDateTimeInOtherLanguage()
+    var
+        R: RecordRef;
+        F: FieldRef;
+        D: Date;
+    begin
+        GlobalLanguage(1031);
+        R.Open(Database::"SRN Row");
+        F := R.Field(8);
+        D := 20240101D;
+        F.SetRange(D);
+        Show(F);
+    end;
+
+    // Review round 1: FieldRef.SetFilter('%1', X) of a typed text into a Guid field. Letters and digits raise the Guid format error
+    // itself (CodeABC_G, Code123_G, TxtXY_G route e); a text of another form is not measured (refused).
+    [Test]
+    procedure GuidSetFilterLetters()
+    var
+        R: RecordRef;
+        F: FieldRef;
+        C: Code[20];
+    begin
+        R.Open(Database::"SRN Row");
+        F := R.Field(7);
+        C := 'ABC';
+        F.SetFilter('%1', C);
+        Show(F);
+    end;
+
+    [Test]
+    procedure GuidSetFilterMixedText()
+    var
+        R: RecordRef;
+        F: FieldRef;
+        C: Code[20];
+    begin
+        R.Open(Database::"SRN Row");
+        F := R.Field(7);
+        C := '1A2B-3C';
+        F.SetFilter('%1', C);
+        Show(F);
+    end;
+
+    [Test]
+    procedure GuidSetFilterGuidText()
+    var
+        R: RecordRef;
+        F: FieldRef;
+        T: Text;
+    begin
+        R.Open(Database::"SRN Row");
+        F := R.Field(7);
+        T := '{7A1C0E55-3B2D-4E6F-8A90-1B2C3D4E5F60}';
+        F.SetFilter('%1', T);
+        Show(F);
+    end;
+
+    // Review round 1: an Option member into a Date field converts only when its name is letters (Opt_D_* measure `One`).
+    [Test]
+    procedure BlankOptionMemberIntoDate()
+    var
+        R: RecordRef;
+        F: FieldRef;
+        O: Option " ",One;
+    begin
+        R.Open(Database::"SRN Row");
+        F := R.Field(6);
+        O := O::" ";
+        F.SetRange(O);
+        Show(F);
+    end;
+
+    [Test]
+    procedure NamedOptionMemberIntoDate()
+    var
+        R: RecordRef;
+        F: FieldRef;
+        O: Option " ",One;
+    begin
+        R.Open(Database::"SRN Row");
+        F := R.Field(6);
+        O := O::One;
+        F.SetRange(O);
         Show(F);
     end;
 }
