@@ -134,7 +134,10 @@ fn only_set_true(lowered: &Lowered, memo: usize, g: usize) -> bool {
 fn code_of_l1_kinds(lowered: &Lowered, memo: usize) -> Result<(), String> {
     let obj = &lowered.program.objects[memo];
     for r in &obj.routines {
-        let publisher = r.attributes.iter().any(|a| al_ir::is_event_publisher_attribute(&a.name));
+        let publisher = r
+            .attributes
+            .iter()
+            .any(|a| al_ir::is_event_publisher_attribute(&a.name));
         if publisher {
             return Err(format!("its procedure {} publishes an event", r.name));
         }
