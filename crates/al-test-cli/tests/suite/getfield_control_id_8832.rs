@@ -73,22 +73,18 @@ fn neighbors_past_the_cells() {
 /// The shapes of the review of the 8902 pull request (:2559-:2702): the ids of an action and an action group and the base
 /// page's id of an extension's field on a Worksheet, a host control's id through the TestPart of a CardPart a Card shows, an id
 /// no control has on the CardPart a RoleCenter shows, on an API page, a PromptDialog, a ReportPreview and a ReportProcessingOnly
-/// page are not found; a control's own id on a Worksheet, a ListPlus and a CardPart a TestPart shows reads its Value. The
-/// extension's field by the extension's id on a Worksheet (:2576 `ext`) refuses, as only a Card's is measured. Just past the
+/// page are not found; a control's own id on a Worksheet, a ListPlus and a CardPart a TestPart shows reads its Value, and so
+/// does the extension's field with ApplicationArea = All by the extension's id (:2576 `ext`, al-runner issue 8944). Just past the
 /// cells an action's id on a NavigatePage and an id no control has on the CardPart a Document shows refuse. Without a version
-/// symbol the ReportPreview cell takes BC 29's branch (:2643; BC 27 and 28 raise on the page's open).
+/// symbol the ReportPreview cell takes BC 29's branch (:2643; BC 27 and 28 raise on the page's open, `#if BC27PLUS and not
+/// BC29PLUS`).
 #[test]
 fn review_shapes() {
     let src = format!("{PROBE}\n{NEIGHBORS}");
     let kinds = outcomes(&src, "LT GFI Kinds Tests");
     let bad: Vec<_> = kinds
         .iter()
-        .filter(|(n, r, marks)| match n.as_str() {
-            "Worksheet_GetFieldExtensionFieldIds" => {
-                !matches!(r, Outcome::NotRun(why) if why.starts_with("TestPage.GetField by a control id on a page kind"))
-            }
-            _ => *r != Outcome::Pass || *marks != [TestPageGetFieldControlId],
-        })
+        .filter(|(_, r, marks)| *r != Outcome::Pass || *marks != [TestPageGetFieldControlId])
         .collect();
     assert!(kinds.len() == 11 && bad.is_empty(), "{kinds:#?}");
     let past = outcomes(&src, "LT GFN Kind Tests");
@@ -136,4 +132,83 @@ fn an_id_no_control_has_is_not_found_on_every_page_kind_measured() {
         .filter(|(_, r, marks)| *r != Outcome::Pass || *marks != [TestPageGetFieldControlId])
         .collect();
     assert!(o.len() == 10 && bad.is_empty(), "{o:#?}");
+}
+
+/// Al-runner issue 8944: GetField with the extension's control id of a field a page extension adds with ApplicationArea = All
+/// finds it on a Card (:2804) and on a Worksheet (:2576 `ext`), on every version measured; main answered "not found" from BC
+/// 28. The reporter's test passes, and so does the cell; the cell of the field without ApplicationArea (:2822) is compiled
+/// without a version symbol and expects BC 27's answer, as at :589.
+#[test]
+fn an_extension_field_with_an_area_is_found_by_the_extensions_id() {
+    let repro = format!(
+        "{}\n{}",
+        include_str!("../../../../tests/neighbors/8944-getfield-extension-field/src/Repro.al"),
+        include_str!("../../../../tests/neighbors/8944-getfield-extension-field/src/ReproTests.al")
+    );
+    let o = outcomes(&repro, "Repro ExtField Tests");
+    assert!(
+        o.len() == 1 && o[0].1 == Outcome::Pass && o[0].2 == [TestPageGetFieldControlId],
+        "{o:#?}"
+    );
+    let cells = outcomes(PROBE, "LT GFI Ext Area Tests");
+    let bad: Vec<_> = cells
+        .iter()
+        .filter(|(n, r, marks)| match n.as_str() {
+            "Card_ExtensionFieldWithoutArea_ByEitherId" => {
+                !matches!(r, Outcome::Fail(m) if m.contains("Expected:<found x1>")) || !marks.is_empty()
+            }
+            _ => *r != Outcome::Pass || *marks != [TestPageGetFieldControlId],
+        })
+        .collect();
+    assert!(cells.len() == 2 && bad.is_empty(), "{cells:#?}");
+}
+
+/// How the refusals of a page extension's field by the extension's id start.
+const EXT_AREA: &str =
+    "TestPage.GetField with the id of a page extension's field with ApplicationArea = All, on a page kind";
+const EXT_OTHER_AREA: &str =
+    "TestPage.GetField with the id of a page extension's field with an ApplicationArea other than All";
+
+/// Just past the cells of 8944, each measured on BC 29.1: the field with ApplicationArea = All on a List (BC `Gamma`), on a Card
+/// that states no ApplicationArea (BC `Gamma`), hidden (BC not found), a part a page extension adds with ApplicationArea = All
+/// (BC an empty field), a field with ApplicationArea = Suite (BC `Gamma`), and Caption through GetField (BC `Note`): each
+/// refuses with its own reason.
+#[test]
+fn extension_field_neighbors_refuse() {
+    let src = format!(
+        "{}\n{}\n{}",
+        include_str!("../../../../tests/neighbors/8944-getfield-extension-field/src/Repro.al"),
+        include_str!("../../../../tests/neighbors/8944-getfield-extension-field/src/Neighbors.al"),
+        include_str!("../../../../tests/neighbors/8944-getfield-extension-field/src/AreaNeighbors.al")
+    );
+    let mut o = outcomes(&src, "Repro ExtField Neighbors");
+    o.extend(outcomes(&src, "Repro ExtField Area Neighbors"));
+    let bad: Vec<_> = o
+        .iter()
+        .filter(|(n, r, _)| {
+            let why = match n.as_str() {
+                "CardExtensionFieldSuiteArea" => EXT_OTHER_AREA,
+                "CardExtensionFieldCaption" => "TestField.Caption on what TestPage.GetField found by a control id",
+                _ => EXT_AREA,
+            };
+            !matches!(r, Outcome::NotRun(w) if w.starts_with(why))
+        })
+        .collect();
+    assert!(o.len() == 6 && bad.is_empty(), "{o:#?}");
+}
+
+/// The reporter's test of 8944 on a BC version the cells do not measure (26) refuses.
+#[test]
+fn an_extension_field_with_an_area_refuses_on_an_unmeasured_version() {
+    let src = format!(
+        "{}\n{}",
+        include_str!("../../../../tests/neighbors/8944-getfield-extension-field/src/Repro.al"),
+        include_str!("../../../../tests/neighbors/8944-getfield-extension-field/src/ReproTests.al")
+    );
+    let target = al_version::Target::for_bc(al_version::BcVersion::parse("26.5").unwrap());
+    let o = al_testkit::outcomes_in_with(&src, "Repro ExtField Tests", |e| e.target = Some(target));
+    assert!(
+        o.len() == 1 && matches!(&o[0].1, Outcome::NotRun(w) if w.starts_with(EXT_AREA)),
+        "{o:#?}"
+    );
 }
