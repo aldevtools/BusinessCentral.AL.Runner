@@ -7,14 +7,30 @@
 //!   runtime writes, `session`, `single`, `counters`, ...: its first word), and the lines with no comparable form as
 //!   `not comparable`.
 //!
-//! The parts are made of the same rows and lines as the whole digests, so two keys with equal whole digests have equal
-//! parts: comparing them does not change which keys are equal.
+//! A table the store exports without rows has no part: `rows` writes no line for it, so the whole `database` digest does
+//! not see it either, and the keys line never names it.
+//!
+//! The parts are never compared: a key holds them as [`NotCompared`], so which keys are equal is decided by the key's
+//! fields alone (the maintainer's review of this check, issue 8211).
 
 use super::{LinesDigest, digest};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// A detail a key carries beside its fields, never compared: two keys are equal by their fields alone, whatever their
+/// details hold.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct NotCompared<T>(pub(crate) T);
+
+impl<T> PartialEq for NotCompared<T> {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl<T> Eq for NotCompared<T> {}
+
 /// The parts of a key (see the module comment).
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct KeyParts {
     /// Per (company, table object), the digest of its committed row lines.
     database: BTreeMap<(String, u32), LinesDigest>,
@@ -25,7 +41,7 @@ pub(crate) struct KeyParts {
 impl KeyParts {
     /// The parts of the committed rows `tables` (one line per row, as `rows` writes them) and the state `state`.
     pub(crate) fn of(tables: &[al_data::memory::ExportedTable], state: &al_vm::StateLines) -> KeyParts {
-        let database = (tables.iter())
+        let database = (tables.iter().filter(|t| !t.rows.is_empty()))
             .map(|t| {
                 (
                     (t.company.clone(), t.object),

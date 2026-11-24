@@ -70,9 +70,8 @@ pub(crate) struct Key {
     /// login code read it. Compared by content.
     license: Option<std::sync::Arc<al_host::license::License>>,
     /// The parts of `database` and `session`, each with a digest of its own (`key_parts.rs`): which tables and which state
-    /// lines a new key differs in, for the keys line. Made of the same rows and lines, so equal whole digests mean equal
-    /// parts and comparing them changes no key equality.
-    parts: key_parts::KeyParts,
+    /// lines a new key differs in, for the keys line. Never compared (`NotCompared`), so they change no key equality.
+    parts: key_parts::NotCompared<key_parts::KeyParts>,
 }
 
 impl Key {
@@ -117,7 +116,7 @@ impl Key {
             ),
             flags,
             license: session.engine.license.clone(),
-            parts: key_parts::KeyParts::of(&tables, &state),
+            parts: key_parts::NotCompared(key_parts::KeyParts::of(&tables, &state)),
         }
     }
 }
@@ -190,8 +189,8 @@ impl Key {
         };
         (self.differs_in(other).into_iter())
             .map(|field| match field {
-                "database" => named(field, self.parts.database_differs(&other.parts)),
-                "session" => named(field, self.parts.session_differs(&other.parts)),
+                "database" => named(field, self.parts.0.database_differs(&other.parts.0)),
+                "session" => named(field, self.parts.0.session_differs(&other.parts.0)),
                 _ => field.to_string(),
             })
             .collect::<Vec<_>>()
@@ -520,7 +519,7 @@ mod tests {
         let _: &crate::runtime::session_flags::SessionFlags = flags;
         let _: &Option<std::sync::Arc<al_host::license::License>> = license;
         // SHA-256 digests per table and per state line name (key_parts.rs scanned below too).
-        let _: &key_parts::KeyParts = parts;
+        let _: &key_parts::NotCompared<key_parts::KeyParts> = parts;
         for d in digests {
             assert_eq!(std::mem::size_of_val(&d.0), 32);
         }
@@ -655,23 +654,58 @@ mod tests {
     /// A key whose parts are made of the rows `rows` ((company, table object, values)) and the state lines `lines`.
     fn key_with(table_rows: &[(&str, u32, Vec<Value>)], lines: &[&str]) -> Key {
         let tables: Vec<al_data::memory::ExportedTable> = (table_rows.iter())
-            .map(|(company, object, row)| al_data::memory::ExportedTable {
-                company: company.to_string(),
-                object: *object,
-                pk_storage: None,
-                rows: vec![(Vec::new(), row.clone())],
-            })
+            .map(|(company, object, row)| table(company, *object, vec![row.clone()]))
             .collect();
+        key_of_tables(&tables, lines)
+    }
+
+    /// An exported table of `company` and table object `object` with the rows `rows`.
+    fn table(company: &str, object: u32, rows: Vec<Vec<Value>>) -> al_data::memory::ExportedTable {
+        al_data::memory::ExportedTable {
+            company: company.to_string(),
+            object,
+            pk_storage: None,
+            rows: rows.into_iter().map(|row| (Vec::new(), row)).collect(),
+        }
+    }
+
+    /// A key whose `database` and parts are made of the exported tables `tables` and the state lines `lines`.
+    fn key_of_tables(tables: &[al_data::memory::ExportedTable], lines: &[&str]) -> Key {
         let state = al_vm::StateLines {
             lines: lines.iter().map(|s| s.to_string()).collect(),
             opaque: Vec::new(),
         };
         Key {
-            database: digest(&rows(&tables)),
+            database: digest(&rows(tables)),
             session: digest(&state.lines),
-            parts: key_parts::KeyParts::of(&tables, &state),
+            parts: key_parts::NotCompared(key_parts::KeyParts::of(tables, &state)),
             ..key(1)
         }
+    }
+
+    // The maintainer's review of this check (issue 8211): the parts are a detail of `database` and `session`, never a key
+    // field of their own. A store may export a table it holds no row of; `rows` writes no line for it, so `database`
+    // does not see it, and the key is the key of the same rows without that table: no new key, no entry with an empty
+    // name on the keys line. When the keys differ in other rows, the table without rows is not named among them.
+    #[test]
+    fn a_table_without_rows_changes_no_key_and_is_never_named() {
+        let row = || vec![vec![Value::Integer(1)]];
+        let rows = [table("C", 15, row())];
+        let with_empty = [table("C", 15, row()), table("C", 18, Vec::new())];
+        assert_eq!(key_of_tables(&rows, &[]), key_of_tables(&with_empty, &[]));
+        let check = Check::default();
+        check.note(key_of_tables(&rows, &[]), state(&["r"], &["s"]));
+        check.note(key_of_tables(&with_empty, &[]), state(&["r"], &["s"]));
+        let line = check.keys_line().unwrap();
+        assert_eq!(
+            line,
+            "login replay keys: 1 keys, 0 new after the first; each differs from its nearest earlier key in: -"
+        );
+        let other = [table("C", 15, vec![vec![Value::Integer(2)]])];
+        assert_eq!(
+            key_of_tables(&other, &[]).differs_detail(&key_of_tables(&with_empty, &[])),
+            "database (company 1/table 15)"
+        );
     }
 
     // Issue 8211: a new key names the session state lines and the database tables it differs in from its nearest
