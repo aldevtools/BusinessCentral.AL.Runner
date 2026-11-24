@@ -260,3 +260,18 @@ SRN Neighbors::TrueIntoCodeOnTemporary	REFUSED SetRange or SetFilter of Boolean 
 # The BC 27 values of every probe test are asserted by ../fix-8857-setrange-convert-bc27.
 SFK Other Kinds Tests::CodeABC_D_Value	PINNED tests/al-language/recordref-fieldref/fieldref/Y67FieldRefValidateVariant.al:619	27
 SFK Other Kinds Tests::TxtXY_D_Value	PINNED tests/al-language/recordref-fieldref/fieldref/Y67FieldRefValidateVariant.al:614	27
+SFK Number To Text Tests::BoolTrue_Cod	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
+SFK Number To Text Tests::BoolTrue_Txt	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
+SFK Text To Number Tests::Txt15_Dec	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
+SFK Text To Number Tests::Code1000_Dec	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
+SFK Text To Number Tests::Code123_Dec	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
+SRC DateTime Tests::Date_DT_Typed	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
+SRC DateTime Tests::Date_DT_Pair	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
+SRC DateTime Tests::Date_DT_Var	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
+SRC DateTime Tests::DateZero_DT_Typed	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
+SRC DateTime Tests::DateZero_DT_Pair	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
+SRC DateTime Tests::DateZero_DT_Var	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
+SRN Neighbors::DigitsIntoDecimalOnTemporary	REFUSED SetRange or SetFilter of Text '5' into a Decimal field
+SRN Neighbors::GuidSetFilterHexLettersNoHyphens	REFUSED SetRange or SetFilter of Text 'ABCDEFABCDEFABCDEFABCDEFABCDEF
+SRN Neighbors::GuidSetFilterGuidText	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
+SRN Neighbors::DecimalTextVariantOnTemporary	REFUSED SetRange or SetFilter of Text '1.5' into a Decimal field

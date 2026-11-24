@@ -541,4 +541,64 @@ codeunit 57411 "SRN Neighbors"
         F.SetRange(O);
         Show(F);
     end;
+
+    // Review round 2: digits into a Decimal field outside the measured shape (no pin, no assumption covers a Decimal target).
+    [Test]
+    procedure DigitsIntoDecimalOnTemporary()
+    var
+        R: RecordRef;
+        F: FieldRef;
+        T: Text;
+    begin
+        R.Open(Database::"SRN Row", true);
+        F := R.Field(9);
+        T := '5';
+        F.SetRange(T);
+        Show(F);
+    end;
+
+    // Review round 2: 32 hex letters without hyphens in FieldRef.SetFilter('%1', X) on a Guid field (not measured).
+    [Test]
+    procedure GuidSetFilterHexLettersNoHyphens()
+    var
+        R: RecordRef;
+        F: FieldRef;
+        T: Text;
+    begin
+        R.Open(Database::"SRN Row");
+        F := R.Field(7);
+        T := 'ABCDEFABCDEFABCDEFABCDEFABCDEFAB';
+        F.SetFilter('%1', T);
+        Show(F);
+    end;
+
+    // Review round 2: `1.5` in a Variant given to FieldRef.SetRange is pinned (FieldRefFilterMatrix.al:819,822) in the measured
+    // shape; on a temporary table it is not measured.
+    [Test]
+    procedure DecimalTextVariantPinned()
+    var
+        R: RecordRef;
+        F: FieldRef;
+        V: Variant;
+    begin
+        R.Open(Database::"SRN Row");
+        F := R.Field(9);
+        V := '1.5';
+        F.SetRange(V);
+        Show(F);
+    end;
+
+    [Test]
+    procedure DecimalTextVariantOnTemporary()
+    var
+        R: RecordRef;
+        F: FieldRef;
+        V: Variant;
+    begin
+        R.Open(Database::"SRN Row", true);
+        F := R.Field(9);
+        V := '1.5';
+        F.SetRange(V);
+        Show(F);
+    end;
 }

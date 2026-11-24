@@ -1,7 +1,9 @@
 //! A value of a pair of types the cells of corpus PR 1552 measure (recordref-fieldref/fieldref/SrcSetRangeConvert.al,
 //! SrcFilterConvertKinds.al) is refused in a shape or of a size those cells do not measure (al-vm `setrange_convert`); a value
-//! whose cell passes on the earlier conversion keeps it in every shape.
+//! whose cell passes on the earlier conversion keeps it in the measured shape, flagged unless a pin covers that call, and in
+//! every shape where a pin or another assumption covers it.
 
+use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
 use al_testkit::run_in;
@@ -236,6 +238,55 @@ codeunit 50291 T
         Rec.SetRange(Cod, T);
         exit(Rec.GetFilter(Cod));
     end;
+    procedure DigitsIntoDecimalOnTemporary(): Text
+    var R: RecordRef; F: FieldRef; T: Text;
+    begin
+        R.Open(Database::SRC, true);
+        F := R.Field(8);
+        T := '5';
+        F.SetRange(T);
+        exit(F.GetFilter());
+    end;
+
+    procedure GuidSetFilterHexNoHyphens(): Text
+    var R: RecordRef; F: FieldRef; T: Text;
+    begin
+        R.Open(Database::SRC);
+        F := R.Field(7);
+        T := 'ABCDEFABCDEFABCDEFABCDEFABCDEFAB';
+        F.SetFilter('%1', T);
+        exit(F.GetFilter());
+    end;
+
+    procedure TrueIntoCode(): Text
+    var R: RecordRef; F: FieldRef; B: Boolean;
+    begin
+        R.Open(Database::SRC);
+        F := R.Field(3);
+        B := true;
+        F.SetRange(B);
+        exit(F.GetFilter());
+    end;
+
+    procedure DecimalTextVariant(): Text
+    var R: RecordRef; F: FieldRef; V: Variant;
+    begin
+        R.Open(Database::SRC);
+        F := R.Field(8);
+        V := '1.5';
+        F.SetRange(V);
+        exit(F.GetFilter());
+    end;
+
+    procedure DecimalTextVariantOnTemporary(): Text
+    var R: RecordRef; F: FieldRef; V: Variant;
+    begin
+        R.Open(Database::SRC, true);
+        F := R.Field(8);
+        V := '1.5';
+        F.SetRange(V);
+        exit(F.GetFilter());
+    end;
 }
 "#;
 
@@ -285,8 +336,11 @@ fn a_value_no_cell_measures_is_refused() {
 
 #[test]
 fn a_cell_that_passes_on_the_earlier_conversion_keeps_it() {
-    // Code123_Int: digits into an Integer field are that number, also on a temporary table.
+    // Code123_Int: digits into an Integer field are that number, also on a temporary table, through the assumption
+    // text-digits-to-integer (the cover `Cell::MainEveryShape` names for this arm).
+    clear_hits();
     assert_eq!(filter("DigitsIntoIntegerOnTemporary"), "123");
+    assert!(take_hits().contains(&Assumption::TextDigitsToInteger));
     // A Text into a Code field is no pair the cells measure.
     assert_eq!(filter("TextIntoCodeOnRecord"), "ABC");
 }
@@ -304,8 +358,10 @@ fn a_typed_text_that_is_no_guid_in_setfilter_raises_the_guid_format_error() {
             other => panic!("{x}: expected the Guid format error, got {other:?}"),
         }
     }
-    // A text of another form than letters or digits (here: hex digits and a hyphen) is not measured.
+    // A text of another form than letters or digits (here: hex digits and a hyphen) is not measured, nor are 32 hexadecimal
+    // digits without hyphens (letters only, main's Guid for an assignment).
     refused("GuidSetFilterMixed");
+    refused("GuidSetFilterHexNoHyphens");
 }
 
 /// The cells that pass on the earlier conversion are measured on a table that is not temporary only.
@@ -316,9 +372,24 @@ fn a_cell_of_the_earlier_conversion_in_another_shape_is_refused() {
         "TrueIntoCodeOnTemporary",
         "DecimalTextIntoDecimalOnTemporary",
         "DateIntoDateTimeOnTemporary",
+        "DigitsIntoDecimalOnTemporary",
+        "DecimalTextVariantOnTemporary",
     ] {
         refused(routine);
     }
+}
+
+/// In the measured shape a cell that passes on the earlier conversion runs through the entry setrange-other-type-convert
+/// (BoolTrue_Cod, open corpus PR 1552), unless a pin covers that call: `1.5` in a Variant given to FieldRef.SetRange
+/// (FieldRefFilterMatrix.al:819,822).
+#[test]
+fn a_cell_of_the_earlier_conversion_in_the_measured_shape_is_flagged_unless_pinned() {
+    clear_hits();
+    assert_eq!(filter("TrueIntoCode"), "YES");
+    assert!(take_hits().contains(&Assumption::SetRangeOtherTypeConvert));
+    clear_hits();
+    assert_eq!(filter("DecimalTextVariant"), "1.5");
+    assert!(!take_hits().contains(&Assumption::SetRangeOtherTypeConvert));
 }
 
 /// SrcSetRangeConvert.al Opt_D_* measures the Option member `One`; a blank member is not measured.

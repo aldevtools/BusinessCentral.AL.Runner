@@ -408,9 +408,8 @@ fn into_code(text: &crate::text::Txt, max: Option<u32>) -> Result<Value, Signal>
     Ok(Value::Code(fit(s, max)?.into()))
 }
 
-/// `8-4-4-4-12` hexadecimal digits, with or without surrounding braces.
 /// 32 hexadecimal digits, without hyphens or braces, with blanks around them (W7Scalars.al:53,60 `no_hyphens`; E_Guid.al:122).
-fn parse_guid_without_hyphens(text: &str) -> Option<[u8; 16]> {
+pub fn parse_guid_without_hyphens(text: &str) -> Option<[u8; 16]> {
     let t = text.trim();
     if t.len() != 32 || !t.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
@@ -425,6 +424,7 @@ fn parse_guid_without_hyphens(text: &str) -> Option<[u8; 16]> {
     ))
 }
 
+/// `8-4-4-4-12` hexadecimal digits, with or without surrounding braces.
 pub fn parse_guid(text: &str) -> Option<[u8; 16]> {
     let t = text.trim();
     let inner = match (t.strip_prefix('{'), t.strip_suffix('}')) {

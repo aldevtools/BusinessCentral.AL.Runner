@@ -6,7 +6,7 @@
 //! (recordref-fieldref/fieldref/SrcSetRangeConvert.al, SrcFilterConvertKinds.al, not yet pinned: assumption
 //! setrange-other-type-convert). A value of a pair of types those cells measure is refused in a shape or of a size they do
 //! not measure; a cell that passes on the conversion `setrange_filter` and the filter parser give keeps it in the measured
-//! shape only, unless a pin or another assumption covers every shape (`Cell::MainEveryShape`). A pair of types they do not
+//! shape only (through the same assumption), unless a pin or another assumption covers every shape (`Cell::MainEveryShape`). A pair of types they do not
 //! measure keeps that conversion.
 
 use crate::Session;
@@ -63,8 +63,11 @@ pub(crate) enum Call {
 enum Cell {
     /// BC converts it into this value or raises this error, where main's conversion gives another answer.
     Convert(Result<Value, Signal>),
-    /// BC gives what main's conversion gives (the cell passes on main) in the shape the cells measure; refused in another.
+    /// BC gives what main's conversion gives (the cell passes on main) in the shape the cells measure, through the entry
+    /// setrange-other-type-convert; refused in another.
     Main,
+    /// Main's answer, pinned in the measured shape of this call: run there without the flag; refused in another.
+    MainPinned,
     /// Main's conversion in every shape: pinned there, or run through another assumption entry.
     MainEveryShape,
     /// A value of a pair the probe measures, but not this value: refused.
@@ -173,12 +176,14 @@ impl Session {
         for v in values.iter_mut() {
             match self.setrange_cell(v, &f.ty, at) {
                 None | Some(Cell::MainEveryShape) => {}
-                Some(Cell::Main) if measured() => {}
+                // Main's answer, measured by the open probe alone.
+                Some(Cell::Main) if measured() => assume(Assumption::SetRangeOtherTypeConvert),
+                Some(Cell::MainPinned) if measured() => {}
                 Some(Cell::Convert(converted)) if measured() => {
                     assume(Assumption::SetRangeOtherTypeConvert);
                     *v = converted?;
                 }
-                Some(Cell::Main | Cell::Convert(_) | Cell::Unmeasured) => {
+                Some(Cell::Main | Cell::MainPinned | Cell::Convert(_) | Cell::Unmeasured) => {
                     return Err(Signal::unsupported(format!(
                         "SetRange or SetFilter of {} into a {} field in a shape no cell measures (assumption setrange-other-type-convert)",
                         v.describe(),
@@ -207,17 +212,22 @@ impl Session {
                 Value::Boolean(false) => Some(Cell::Unmeasured),
                 _ => None,
             },
-            // SrcFilterConvertKinds.al:729-1381 (CodeABC_Int .. TxtEmpty_Dec, Code1000_Int, Code1000_Big); digits (Code123_Int)
-            // and, into a Decimal, `1.5` and `1,000` (Txt15_Dec, Code1000_Dec) are main's answer. Digits run through the
-            // assumption text-digits-to-integer (al-builtins `ops.rs`) in every shape.
+            // SrcFilterConvertKinds.al:729-1381 (CodeABC_Int .. TxtEmpty_Dec, Code1000_Int, Code1000_Big); digits (Code123_Int,
+            // Code123_Dec) and, into a Decimal, `1.5` and `1,000` (Txt15_Dec, Code1000_Dec) are main's answer. Digits into an
+            // Integer or BigInteger field run through the assumption text-digits-to-integer (al-builtins `ops.rs`) in every
+            // shape; into a Decimal field no other entry covers them, so they run in the measured shape only. `1.5` in a Variant
+            // given to FieldRef.SetRange alone is pinned: FieldRefFilterMatrix.al:819,822 (Filter_Dec_Range `rtext.Dec`).
             RtType::Integer | RtType::BigInteger | RtType::Decimal => {
                 let s = text?;
                 let decimal = matches!(ty, RtType::Decimal);
+                let whole = matches!(ty, RtType::Integer | RtType::BigInteger);
                 Some(if no_number_text(s, ty) {
                     Cell::Convert(Err(text_evaluate_error(s, ty, from28)?))
-                } else if digits(s) {
+                } else if whole && digits(s) {
                     Cell::MainEveryShape
-                } else if decimal && (decimal_point(s) || one_group(s)) {
+                } else if decimal && decimal_point(s) && variant_setrange(at) {
+                    Cell::MainPinned
+                } else if decimal && (digits(s) || decimal_point(s) || one_group(s)) {
                     Cell::Main
                 } else {
                     Cell::Unmeasured
@@ -315,19 +325,27 @@ struct CellAt {
     values: usize,
 }
 
+/// `FieldRef.SetRange(V)`: one value, written as a Variant.
+fn variant_setrange(at: CellAt) -> bool {
+    at.call == Call::FieldRefSetRange && at.written == Some(Written::Variant) && at.values == 1
+}
+
 /// A Text or Code `s` into a Guid field. SrcFilterConvertKinds.al:1730-1849 (CodeABC_G, Code123_G, TxtXY_G, TxtGuid_G): routes b,
 /// f and gr raise the Evaluate error; the typed SetRange routes (a, c) raise the Guid format error or give the Guid a valid text
 /// gives (main's answer); the typed SetFilter('%1', X) route (e) gives the Guid of a valid text (main's answer) and raises the
-/// Guid format error itself for `ABC`, `123` and `XY`, without the filter error around it. `Record.SetRange` of one Text that
+/// Guid format error itself for `ABC`, `123` and `XY`, without the filter error around it; 32 hexadecimal digits without
+/// hyphens (main's Guid for an assignment) are not measured there. `Record.SetRange` of one Text that
 /// holds a Guid filters on that Guid (main's answer) in every shape: a text literal in
 /// tests/al-language/permissions/permission-sets/TenantSetDeleteCascade.al:221, a Label in
 /// tests/al-language-onprem/metadata/platform-tables/Y35StoredTables.al:569.
 fn guid_cell(s: &str, at: CellAt, from28: bool) -> Cell {
     let guid = || al_builtins::ops::parse_guid(s).is_some();
+    let hex32 = || al_builtins::ops::parse_guid_without_hyphens(s).is_some();
     match (at.call, at.written) {
         (_, Some(Written::Variant)) if !s.is_empty() => Cell::Convert(Err(variant_guid_error(s, from28))),
         (Call::FieldRefSetRange, Some(Written::Typed)) if !s.is_empty() => Cell::Main,
         (Call::FieldRefSetFilter, Some(Written::Typed)) if guid() => Cell::Main,
+        (Call::FieldRefSetFilter, Some(Written::Typed)) if hex32() => Cell::Unmeasured,
         (Call::FieldRefSetFilter, Some(Written::Typed)) if letters(s) || digits(s) => {
             Cell::Convert(al_builtins::native::invalid_guid_format())
         }
