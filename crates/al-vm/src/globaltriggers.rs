@@ -97,6 +97,13 @@ impl Session {
         self.events.global_raise_singles.take().unwrap_or_default()
     }
 
+    /// The install sessions ended and the test session follows: what the subscribers answered there is gone, and the test
+    /// session's first write of a table asks again (Y69InstallTriggerSetup.al:104, :131 `d_setup_61180`: asked once per
+    /// table in the test session for a table the install code wrote).
+    pub fn end_install_session_setups(&mut self) {
+        self.events.global_setups.clear();
+    }
+
     /// The setup of table `t`, asking the subscribers the first time (BC caches it per session).
     pub(crate) fn global_setup(&mut self, t: &TableDef) -> Result<GlobalSetup, Signal> {
         let table = t.object as usize;

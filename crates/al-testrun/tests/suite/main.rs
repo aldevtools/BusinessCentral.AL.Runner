@@ -116,6 +116,7 @@ mod start_session_record;
 mod stop_after_first_failure;
 mod strict_sequential;
 mod test_driver;
+mod test_session_trigger_setup;
 mod testfilter_qualified_field;
 mod testpage_close_at_test_end;
 mod testpage_close_query_close_unhandled;
