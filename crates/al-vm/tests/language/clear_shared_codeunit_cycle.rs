@@ -167,12 +167,10 @@ fn login_change(name: &str) -> (Vec<std::collections::BTreeSet<usize>>, usize) {
     (change.singles.into_values().collect(), change.declared_form.len())
 }
 
+// The self holder and the two-codeunit cycle, each against its Decimal twin.
 #[test]
 fn the_login_check_counts_a_self_holder_as_no_store() {
-    assert_eq!(login_change("SiSelf"), login_change("SiSelfDec"));
-}
-
-#[test]
-fn the_login_check_counts_a_two_codeunit_cycle_as_no_store() {
-    assert_eq!(login_change("SiCycle"), login_change("SiCycleDec"));
+    for (name, twin) in [("SiSelf", "SiSelfDec"), ("SiCycle", "SiCycleDec")] {
+        assert_eq!(login_change(name), login_change(twin), "{name}");
+    }
 }
