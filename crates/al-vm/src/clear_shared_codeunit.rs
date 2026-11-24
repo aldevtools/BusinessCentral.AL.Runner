@@ -5,12 +5,13 @@
 //! ClearSharedCodeunitLabelStore.al, and at commit d8215564 ClearSharedCodeunitSetterOwner.al,
 //! ClearSharedCodeunitLabelShare.al, ClearSharedCodeunitTempArrayShare.al, and at commit 65262a80
 //! ClearSharedCodeunitStoreShapes.al, and at commit 4531df96 ClearSharedCodeunitHolderKinds.al and
-//! ClearSharedCodeunitHolderSlots.al: the slot of the sharer, measured for six stores, one answer for every slot). `Clear`
-//! gives such a variable nothing used yet a fresh instance, and `ClearAll()` resets such an instance in place, keeping
-//! its temporary rows, in the measured (owner, store, holding) cells (`measured`); the cells the probes do not measure refuse. An instance nothing else holds keeps main's answer
-//! unless its temporary table holds rows. The store shapes are also what the login check counts at their declared value
-//! (`Session::login_store`, read by `state_stamp.rs`). Entry points: `Session::clear_shared_codeunit` (from the `Clear`
-//! site, `exec/run.rs`) and `Session::clear_all_in_place` (from `clear_all`).
+//! ClearSharedCodeunitHolderSlots.al: the slot of the sharer, measured for six stores, one answer for every slot).
+//! `Clear` gives such a variable nothing used yet a fresh instance, and `ClearAll()` resets such an instance in place,
+//! keeping its temporary rows, in the measured (owner, store, holding) cells (`measured`); the cells the probes do not
+//! measure refuse. An instance nothing else holds keeps main's answer unless its temporary table holds rows. The store
+//! shapes are also what the login check counts at their declared value (`Session::login_store`, read by
+//! `state_stamp.rs`). Entry points: `Session::clear_shared_codeunit` (from the `Clear` site, `exec/run.rs`) and
+//! `Session::clear_all_in_place` (from `clear_all`).
 
 use super::*;
 use crate::var_option::ArrayOf;
