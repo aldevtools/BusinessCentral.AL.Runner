@@ -737,6 +737,42 @@ pub(crate) fn stmt_places(body: &[Stmt], note: &mut dyn FnMut(&Place)) {
     }
 }
 
+/// Calls `note` on each place expression `e` itself names: a load, a `var` argument, the receiver a builtin takes by
+/// reference (`R.Insert()`). With [`stmt_places`] and a walk of every expression, every place a body names.
+pub(crate) fn expr_places(e: &Expr, note: &mut dyn FnMut(&Place)) {
+    fn refs(args: &[Arg], note: &mut dyn FnMut(&Place)) {
+        for a in args {
+            if let Arg::Ref(p) = a {
+                note(p);
+            }
+        }
+    }
+    match e {
+        Expr::Load(p) => note(p),
+        Expr::Call { args, .. } | Expr::InterfaceCall { args, .. } | Expr::DotNet { args, .. } => refs(args, note),
+        Expr::Builtin { receiver, args, .. } => {
+            refs(args, note);
+            if let Some(Arg::Ref(p)) = receiver.as_deref() {
+                note(p);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The global slots `body` names, by [`root`].
+fn globals_named(body: &[Stmt]) -> BTreeSet<usize> {
+    let mut named = BTreeSet::new();
+    let mut note = |p: &Place| {
+        if let Some((true, g)) = root(p) {
+            named.insert(g);
+        }
+    };
+    stmt_places(body, &mut note);
+    al_ir::types::for_each_expr_post(body, &mut |e| expr_places(e, &mut note));
+    named
+}
+
 /// The reach facts of a test refused while it ran, when the refusal came from a statement of the test method itself
 /// (al-runner issue 5961): what it wrote while it ran (`written`: our run rolls those writes back, BC keeps them), and
 /// the static reach of what it did not run: the statements of its body from the one at index `from` (the statement it
@@ -775,35 +811,15 @@ pub(crate) fn remainder_reach_facts(
             named.entry(k).or_default().0 += 1;
         }
     }
-    fn refs(named: &mut BTreeMap<(bool, usize), (usize, usize)>, args: &[Arg]) {
-        for a in args {
-            if let Arg::Ref(p) = a {
-                note(named, p);
-            }
-        }
-    }
     stmt_places(rest, &mut |p| note(&mut named, p));
     let mut calls = Vec::new();
-    al_ir::types::for_each_expr_post(rest, &mut |e| match e {
-        Expr::Load(p) => note(&mut named, p),
-        Expr::Call {
-            object, routine, args, ..
-        } => {
-            calls.push((*object, *routine));
-            refs(&mut named, args);
-        }
-        Expr::InterfaceCall { targets, args, .. } => {
-            calls.extend(al_ir::walk::interface_routines(targets));
-            refs(&mut named, args);
-        }
-        Expr::DotNet { args, .. } => refs(&mut named, args),
-        Expr::Builtin { id, receiver, args, .. } => {
-            refs(&mut named, args);
-            if let Some(Arg::Ref(p)) = receiver.as_deref() {
-                note(&mut named, p);
-            }
+    al_ir::types::for_each_expr_post(rest, &mut |e| {
+        expr_places(e, &mut |p| note(&mut named, p));
+        match e {
+            Expr::Call { object, routine, .. } => calls.push((*object, *routine)),
+            Expr::InterfaceCall { targets, .. } => calls.extend(al_ir::walk::interface_routines(targets)),
             // `TP.Filter.GetFilter(..)`: the use of `TP` under it, counted already, is a filter read.
-            if id.name().split('#').next() == Some("TestFilter.GetFilter") {
+            Expr::Builtin { id, receiver, .. } if id.name().split('#').next() == Some("TestFilter.GetFilter") => {
                 if let Some(Arg::Value(Expr::Builtin {
                     id: filter,
                     receiver: Some(page),
@@ -821,8 +837,8 @@ pub(crate) fn remainder_reach_facts(
                     }
                 }
             }
+            _ => {}
         }
-        _ => {}
     });
     let mut rec = Rec {
         events,
@@ -1277,6 +1293,15 @@ enum Step {
     Write(Option<u32>, bool),
 }
 
+/// Whether a slot of type `ty` holds a Record, also as the elements of an array.
+fn is_record(ty: &RtType) -> bool {
+    let mut ty = ty;
+    while let RtType::Array(_, inner) = ty {
+        ty = inner;
+    }
+    matches!(ty, RtType::Record(..))
+}
+
 /// Records a routine's [`Summary`]: the analysis of its body, with the steps that depend on the walk deferred.
 struct Rec<'a> {
     events: &'a al_vm::events::Registry,
@@ -1396,11 +1421,23 @@ impl Rec<'_> {
                 self.push([(sub.object, sub.routine)]);
             }
         }
-        for s in rt.locals.iter().chain(&obj.globals) {
-            self.slot(&s.ty);
-        }
         // A walk reads many bodies once and runs none: a compact body stays compact (`Body::read`).
         rt.body.read(|body| {
+            // A global Record of a codeunit counts only in a routine that names it: only the codeunit's own routines
+            // can use the variable, and a variable no statement uses raises no event of its table (al-runner issue
+            // 8992: every OnRun took the subscribers of the tables of the codeunit's unused globals). The globals of
+            // other objects and the other types of slot count in every routine of their object, as before: a page,
+            // report, xmlport or table uses some of its globals without a statement naming them.
+            let named = (obj.kind == ObjKind::Codeunit).then(|| globals_named(body));
+            for s in &rt.locals {
+                self.slot(&s.ty);
+            }
+            for (g, s) in obj.globals.iter().enumerate() {
+                let unnamed_record = named.as_ref().is_some_and(|n| !n.contains(&g)) && is_record(&s.ty);
+                if !unnamed_record {
+                    self.slot(&s.ty);
+                }
+            }
             self.places(o, body);
             al_ir::types::for_each_expr_post(body, &mut |e| self.expr(o, r, e));
         });
@@ -2129,5 +2166,65 @@ mod tests {
         }
         // The subscriber's reach (table Seen) counts for the tests that write, unless it is skipped; B writes nothing.
         assert_eq!(subscribed, 6);
+    }
+
+    /// A test codeunit with a global Record of table `Cust`, whose `OnAfterInsertEvent` subscriber writes isolated
+    /// storage, and the OnRun body `onrun` (al-runner issue 8992).
+    fn onrun_with_global(onrun: &str) -> (Lowered, usize, usize) {
+        let src = format!(
+            "
+            table 50100 Cust {{ fields {{ field(1; K; Integer) {{ }} }} }}
+            codeunit 50101 Sub {{
+                [EventSubscriber(ObjectType::Table, Database::Cust, 'OnAfterInsertEvent', '', false, false)]
+                local procedure OnAfterInsert(var Rec: Record Cust; RunTrigger: Boolean)
+                var V: Text;
+                begin if IsolatedStorage.Get('K', V) then IsolatedStorage.Set('K', V); end; }}
+            codeunit 50102 Takes {{ procedure Read(var C: Record Cust) begin end; }}
+            codeunit 50103 Tests {{ Subtype = Test;
+                var Customer: Record Cust; Customers: array[2] of Record Cust; IsInitialized: Boolean;
+                trigger OnRun() var T: Codeunit Takes; begin {onrun} end;
+                local procedure Helper() begin if Customer.IsEmpty() then; end;
+                [Test] procedure ExampleTest() begin Customer.Insert(); end; }}"
+        );
+        let l = lowered(&src);
+        let (o, r) = routine(&l, "Tests", "OnRun");
+        (l, o, r)
+    }
+
+    fn onrun_writes_storage(onrun: &str) -> bool {
+        let (l, o, r) = onrun_with_global(onrun);
+        let events = al_vm::events::Registry::build(&l.program);
+        let warm = ReachIndex::new(&events, &l);
+        // The test's walk first, so OnRun's walk takes recorded summaries too.
+        let (_, t) = routine(&l, "Tests", "ExampleTest");
+        let _ = reach_facts(&events, &l, &warm, o, t);
+        let f = reach_facts(&events, &l, &warm, o, r);
+        let cold = reach_facts(&events, &l, &ReachIndex::new(&events, &l), o, r);
+        assert!(same_facts(&f, &cold), "{onrun}:\n{f:?}\n{cold:?}");
+        f.state_writes & state::ISOLATED_STORAGE != 0
+    }
+
+    // A global Record of a codeunit that OnRun does not name is not used by OnRun: its table's event subscribers are
+    // not in OnRun's reach (al-runner issue 8992: `IsInitialized := false` made OnRun write isolated storage).
+    #[test]
+    fn a_global_record_onrun_does_not_name_is_not_in_its_reach() {
+        assert!(!onrun_writes_storage("IsInitialized := false;"));
+    }
+
+    // A global Record OnRun names (directly, as a `var` argument, assigned, cleared, as an array element, or in a procedure
+    // it calls) is used by OnRun as before: its table's event subscribers are in the reach.
+    #[test]
+    fn a_global_record_onrun_names_is_in_its_reach() {
+        for onrun in [
+            "if Customer.IsEmpty() then;",
+            "T.Read(Customer);",
+            "Clear(Customer);",
+            "Customer := Customers[2];",
+            "if Customers[1].IsEmpty() then;",
+            "Helper();",
+            "Customer.Insert();",
+        ] {
+            assert!(onrun_writes_storage(onrun), "{onrun}");
+        }
     }
 }
