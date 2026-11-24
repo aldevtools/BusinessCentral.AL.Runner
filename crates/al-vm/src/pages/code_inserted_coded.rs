@@ -107,9 +107,9 @@ impl Session {
     ///   the primary key), and exactly the triggers OnOpenPage, OnAfterGetRecord and OnDeleteRecord; a table without OnModify
     ///   and OnRename (`no_save_trigger`; OnInsert and OnDelete measured by ListNewLineExtraCodeCodedTableTriggers.al);
     /// - its controls: a repeater without a property; fields of Rec or of a variable with no property but ApplicationArea,
-    ///   Editable as false and a TableRelation (on the later SetValue's control, ListNewLineExtraCodeCodedSecondSetValue.al), and
-    ///   no trigger but OnValidate; actions with no property but ApplicationArea and no trigger but
-    ///   OnAction; three part controls (`coded_extra_parts`).
+    ///   Editable as false and, on a control the later SetValue may write (`later_value_field`), a TableRelation
+    ///   (ListNewLineExtraCodeCodedSecondSetValue.al:859), and no trigger but OnValidate; actions with no property but
+    ///   ApplicationArea and no trigger but OnAction; three part controls (`coded_extra_parts`).
     fn coded_extra_shape(&self, st: &St) -> Result<bool, Signal> {
         let page_object = st.borrow().object as usize;
         let unextended = page_of(&self.engine(), st).extensions.is_empty();
@@ -127,6 +127,7 @@ impl Session {
         let mut triggers: Vec<&str> = page.triggers.iter().map(|(n, _)| n.as_str()).collect();
         triggers.sort_unstable();
         let host_triggers = triggers == ["onaftergetrecord", "ondeleterecord", "onopenpage"];
+        let table = self.table(&self.page_rec(st))?;
         let controls = page.controls.iter().all(|c| {
             let props = |allowed: &[&str]| {
                 c.props
@@ -136,14 +137,16 @@ impl Session {
             let triggers = |allowed: &str| c.triggers.iter().all(|(n, _)| n == allowed);
             let own =
                 c.owner.is_none() && c.ext_triggers.is_empty() && c.run_object.is_none() && c.action_ref.is_none();
+            // A TableRelation only on a control the later SetValue may write (ListNewLineExtraCodeCodedSecondSetValue.al:859,
+            // the Rel page; review of al-runner PR 8847, 01:00Z): a control without code keeps main's way.
+            let related = c.props.iter().any(|(k, _)| k == "tablerelation");
             own && match c.kind {
                 ir::ControlKind::Repeater => c.props.is_empty() && c.triggers.is_empty(),
                 ir::ControlKind::Field => {
                     matches!(c.binding, ir::Binding::Field(_) | ir::Binding::Var(_))
-                        // A TableRelation on the control the later SetValue writes (ListNewLineExtraCodeCodedSecondSetValue.al,
-                        // the Rel page); the landing control has none (`coded_write_may_land`).
                         && props(&["applicationarea", "editable", "tablerelation"])
                         && triggers("onvalidate")
+                        && (!related || Self::later_value_field(&engine, c, &table))
                 }
                 ir::ControlKind::Action => props(&["applicationarea"]) && triggers("onaction"),
                 ir::ControlKind::Part => c.triggers.is_empty(),
@@ -474,30 +477,37 @@ impl Session {
     }
 
     /// Whether control `idx` of host `st`, a page of the page-with-code shape with other code, takes the later SetValue
-    /// ListNewLineExtraCodeCodedSecondSetValue.al measures (:746; :859 with a TableRelation on the control): a field control
-    /// over Rec outside the primary key, other than the control whose SetValue landed, with an OnValidate of its own and no
-    /// extension trigger, over a table field with no OnValidate and no TableRelation.
+    /// ListNewLineExtraCodeCodedSecondSetValue.al measures: a control the later SetValue may write (`later_value_field`), other
+    /// than the control whose SetValue landed.
     fn extra_value_control(&self, st: &St, idx: usize) -> bool {
         let landing = match Self::test_calls(st).as_deref() {
             Some([TestCall::Page(PageMethod::New), TestCall::Write(landing), ..]) => *landing,
             _ => return false,
         };
-        let engine = self.engine();
-        let Some(control) = page_of(&engine, st).controls.get(idx) else {
-            return false;
-        };
-        let ir::Binding::Field(f) = control.binding else {
-            return false;
-        };
         let Ok(table) = self.table(&self.page_rec(st)) else {
+            return false;
+        };
+        let engine = self.engine();
+        idx != landing
+            && page_of(&engine, st)
+                .controls
+                .get(idx)
+                .is_some_and(|c| Self::later_value_field(&engine, c, &table))
+    }
+
+    /// Whether `control`, on a page over `table`, is a field control the later SetValue of
+    /// ListNewLineExtraCodeCodedSecondSetValue.al writes (:746; :859 with a TableRelation on the control): over a field of Rec
+    /// outside the primary key, with an OnValidate of its own and no extension trigger, over a table field with no OnValidate
+    /// and no TableRelation.
+    fn later_value_field(engine: &crate::Engine, control: &ir::Control, table: &al_data::TableDef) -> bool {
+        let ir::Binding::Field(f) = control.binding else {
             return false;
         };
         let field = engine.program.objects[table.object as usize]
             .table
             .as_ref()
             .and_then(|t| t.fields.get(f));
-        idx != landing
-            && control.trigger("onvalidate").is_some()
+        control.trigger("onvalidate").is_some()
             && control.ext_triggers.is_empty()
             && !table.keys[0].contains(&f)
             && field.is_some_and(|d| {
