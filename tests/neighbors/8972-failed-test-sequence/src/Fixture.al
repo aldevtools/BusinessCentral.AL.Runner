@@ -48,3 +48,33 @@ codeunit 52703 "N72 Run Reads"
         Access.ReadFirst();
     end;
 }
+
+codeunit 52704 "N72 Helper"
+{
+    // The RecordRef calls of GetLastEntryNoFromTable (shapes only): Lock sets UpdLock, else ReadUncommitted.
+    procedure LastNo(Lock: Boolean): Integer
+    var
+        RR: RecordRef;
+        KR: KeyRef;
+        FR: FieldRef;
+    begin
+        RR.Open(Database::"N72 Row");
+        if Lock then
+            RR.ReadIsolation(IsolationLevel::UpdLock)
+        else
+            RR.ReadIsolation(IsolationLevel::ReadUncommitted);
+        KR := RR.KeyIndex(1);
+        RR.SetLoadFields(KR.FieldIndex(KR.FieldCount).Number);
+        if RR.FindLast() then begin
+            FR := KR.FieldIndex(KR.FieldCount);
+            exit(StrLen(Format(FR.Value)));
+        end;
+        exit(0);
+    end;
+}
+
+page 52705 "N72 Row Card"
+{
+    SourceTable = "N72 Row";
+    layout { area(Content) { field(RowKey; Rec."Key") { } } }
+}

@@ -1102,3 +1102,101 @@ fn under_a_function_runner_a_failure_after_a_left_binding_is_still_not_trusted()
     let r = row(&o, "StillBoundInSecond");
     assert!(not_run(&r.2, "left a manual event subscription bound"), "{o:?}");
 }
+
+// Shapes beside the cells of corpus PR 1572 that it does not measure, each answered by main's refusal: the helper's
+// RecordRef calls with another count or isolation level than GetLastEntryNoFromTable makes for a sequence it does not
+// find (SqFailedSeqFixture.al:116, :176, :189); a write in one test and FindFirst with a Commit() in the next (S1J :1118
+// measures a Record write there); an asserterror before the insert; a TestPage after the keeping commit (unmeasured
+// under runners 61301 and 130450). The helper's exact calls keep the sequence (S1V SqFailedSeq.al:2232).
+const PR_1572_NEIGHBORS: &str = r#"
+codeunit 50890 "P4 Helper"
+{
+    procedure LastNo(Lock: Boolean): Integer
+    var RR: RecordRef; KR: KeyRef; FR: FieldRef;
+    begin
+        RR.Open(Database::"Row");
+        if Lock then RR.ReadIsolation(IsolationLevel::UpdLock) else RR.ReadIsolation(IsolationLevel::ReadUncommitted);
+        KR := RR.KeyIndex(1);
+        RR.SetLoadFields(KR.FieldIndex(KR.FieldCount).Number);
+        if RR.FindLast() then begin FR := KR.FieldIndex(KR.FieldCount); exit(StrLen(Format(FR.Value))); end;
+        exit(0);
+    end;
+}
+codeunit 50891 "P4 Helper Exact"
+{
+    Subtype = Test;
+    var H: Codeunit "P4 Helper";
+    [Test] procedure A_HelperCommits() begin if H.LastNo(false) = 0 then; NumberSequence.Insert('P4HX', 1, 1); NumberSequence.Next('P4HX'); if H.LastNo(true) = 0 then; Commit(); end;
+    [Test] procedure B_Fails() var Rows: Codeunit "Rows"; begin Rows.Put('HX'); Error('B deliberate'); end;
+    [Test] procedure C_HelperExactReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4HX')); end;
+}
+codeunit 50892 "P4 Helper Once"
+{
+    Subtype = Test;
+    var H: Codeunit "P4 Helper";
+    [Test] procedure A_HelperCommits() begin NumberSequence.Insert('P4HO', 1, 1); NumberSequence.Next('P4HO'); if H.LastNo(false) = 0 then; Commit(); end;
+    [Test] procedure B_Fails() var Rows: Codeunit "Rows"; begin Rows.Put('HO'); Error('B deliberate'); end;
+    [Test] procedure C_HelperOnceReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4HO')); end;
+}
+codeunit 50893 "P4 Helper Locks Twice"
+{
+    Subtype = Test;
+    var H: Codeunit "P4 Helper";
+    [Test] procedure A_HelperCommits() begin if H.LastNo(true) = 0 then; NumberSequence.Insert('P4HL', 1, 1); NumberSequence.Next('P4HL'); if H.LastNo(true) = 0 then; Commit(); end;
+    [Test] procedure B_Fails() var Rows: Codeunit "Rows"; begin Rows.Put('HL'); Error('B deliberate'); end;
+    [Test] procedure C_HelperLocksTwiceReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4HL')); end;
+}
+codeunit 50894 "P4 Write Then FindFirst"
+{
+    Subtype = Test;
+    var Rows: Codeunit "Rows";
+    [Test] procedure A_InsertsWrites() begin NumberSequence.Insert('P4WF', 1, 1); NumberSequence.Next('P4WF'); Rows.Put('WF'); end;
+    [Test] procedure B_FindsCommitsFails() var Row: Record "Row"; begin if Row.FindFirst() then; Commit(); Error('B deliberate'); end;
+    [Test] procedure C_WriteThenFindFirstReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4WF')); end;
+}
+codeunit 50895 "P4 Write Then Write"
+{
+    Subtype = Test;
+    var Rows: Codeunit "Rows";
+    [Test] procedure A_InsertsWrites() begin NumberSequence.Insert('P4WW', 1, 1); NumberSequence.Next('P4WW'); Rows.Put('WW1'); end;
+    [Test] procedure B_WritesCommitsFails() begin Rows.Put('WW2'); Commit(); Rows.Put('WW3'); Error('B deliberate'); end;
+    [Test] procedure C_WriteThenWriteReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4WW')); end;
+}
+codeunit 50896 "P4 AssertError Before Insert"
+{
+    Subtype = Test;
+    var Rows: Codeunit "Rows";
+    [Test] procedure A_InsertsCommits() begin Rows.Put('AB1'); asserterror Error('x'); NumberSequence.Insert('P4AB', 1, 1); NumberSequence.Next('P4AB'); Commit(); end;
+    [Test] procedure B_Fails() begin Rows.Put('AB2'); Error('B deliberate'); end;
+    [Test] procedure C_AssertErrorBeforeInsertReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4AB')); end;
+}
+page 50897 "P4 Row Card"
+{
+    SourceTable = "Row";
+    layout { area(Content) { field(K; Rec.K) { } } }
+}
+codeunit 50898 "P4 TestPage After Keep"
+{
+    Subtype = Test;
+    var Rows: Codeunit "Rows";
+    [Test] procedure A_InsertsWritesCommits() begin NumberSequence.Insert('P4TK', 1, 1); NumberSequence.Next('P4TK'); Rows.Put('TK1'); Commit(); end;
+    [Test] procedure B_PageFails() var P: TestPage "P4 Row Card"; begin P.OpenView(); P.Close(); Rows.Put('TK2'); Error('B deliberate'); end;
+    [Test] procedure C_TestPageAfterKeepReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4TK')); end;
+}
+"#;
+
+#[test]
+fn shapes_beside_the_cells_of_pr_1572_keep_mains_refusal() {
+    let o = cells(PR_1572_NEIGHBORS, TestIsolation::Codeunit);
+    flagged(&o, "C_HelperExactReads", "OBS cur=1 next=2", SEQ);
+    flagged(&o, "C_WriteThenWriteReads", "OBS cur=1 next=2", SEQ);
+    for (test, key) in [
+        ("C_HelperOnceReads", "'P4HO'"),
+        ("C_HelperLocksTwiceReads", "'P4HL'"),
+        ("C_WriteThenFindFirstReads", "'P4WF'"),
+        ("C_AssertErrorBeforeInsertReads", "'P4AB'"),
+        ("C_TestPageAfterKeepReads", "'P4TK'"),
+    ] {
+        assert!(not_run(&row(&o, test).2, key), "{test}: {o:?}");
+    }
+}

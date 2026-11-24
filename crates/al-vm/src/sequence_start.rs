@@ -57,9 +57,12 @@ pub struct DataAccess {
     pub ref_open_close_calls: u64,
     /// Calls of the session builtin CompanyName from AL code.
     pub company_name_calls: u64,
-    /// The RecordRef.ReadIsolation and RecordRef.SetLoadFields calls of `other_calls` on a RecordRef of the session's
-    /// company that is not temporary and that did not fail.
-    pub ref_load_calls: u64,
+    /// The RecordRef calls of `other_calls` that the helper of corpus PR 1572 makes (GetLastEntryNoFromTable,
+    /// SqFailedSeqFixture.al:189), on a RecordRef of the session's company that is not temporary and that did not fail:
+    /// [`RefLoads`].
+    pub ref_loads: RefLoads,
+    /// Calls of a Page or TestPage method from AL code (counted in no other field).
+    pub page_calls: u64,
     /// Calls from AL code of any other RecordRef, FieldRef or KeyRef method, of one on a temporary RecordRef or one of
     /// another company, of a Query method, and of a session builtin other than NumberSequence and CompanyName
     /// (IsolatedStorage, CompanyProperty, UserId, ...).
@@ -79,6 +82,19 @@ pub(crate) struct Notes {
     commit_by: Option<CommitBy>,
     /// The transaction ends and test method bodies since [`Session::note_tx_ends`]; `None` while not noted.
     tx_log: Option<Vec<TxPoint>>,
+}
+
+/// Calls of the RecordRef methods the helper of corpus PR 1572 makes beside the measured ones ([`DataAccess::ref_loads`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RefLoads {
+    /// RecordRef.ReadIsolation(IsolationLevel::ReadUncommitted).
+    pub read_uncommitted: u64,
+    /// RecordRef.ReadIsolation(IsolationLevel::UpdLock).
+    pub upd_lock: u64,
+    /// RecordRef.ReadIsolation with any other level.
+    pub other_isolation: u64,
+    /// RecordRef.SetLoadFields.
+    pub set_load_fields: u64,
 }
 
 /// A point of a test codeunit's run that [`Session::note_tx_ends`] notes (al-testrun `isolation/failed_test.rs`).
@@ -213,16 +229,16 @@ impl RecordCall {
             RecordOp::FindLast => RecordCall::FindLast,
             RecordOp::FindFirst => RecordCall::FindFirst,
             RecordOp::SetRange => RecordCall::SetRange,
-            RecordOp::ReadIsolation if is_upd_lock(args) => RecordCall::UpdLock,
+            RecordOp::ReadIsolation if is_level(args, "UpdLock") => RecordCall::UpdLock,
             _ => RecordCall::Other,
         }
     }
 }
 
-/// `args` is IsolationLevel::UpdLock.
-fn is_upd_lock(args: &[Value]) -> bool {
+/// `args` is the IsolationLevel member `level`.
+fn is_level(args: &[Value], level: &str) -> bool {
     matches!(args.first(), Some(Value::Option(i, names))
-        if usize::try_from(*i).ok().and_then(|i| names.get(i)).is_some_and(|n| n.eq_ignore_ascii_case("UpdLock")))
+        if usize::try_from(*i).ok().and_then(|i| names.get(i)).is_some_and(|n| n.eq_ignore_ascii_case(level)))
 }
 
 impl Session {
@@ -264,7 +280,15 @@ impl Session {
         self.access_notes.table_depth += 1;
         let out = call(self);
         self.access_notes.table_depth -= 1;
-        if self.access_notes.table_depth == 0 && matches!(kind, TableCall::Record { op: RecordCall::FindLast, .. }) {
+        if self.access_notes.table_depth == 0
+            && matches!(
+                kind,
+                TableCall::Record {
+                    op: RecordCall::FindLast,
+                    ..
+                }
+            )
+        {
             self.access_notes.access.find_last_failures += u64::from(out.is_err());
         }
         if self.access_notes.table_depth == 0 {
@@ -274,8 +298,14 @@ impl Session {
             access.table_writes += self.store.writes().saturating_sub(writes);
             match kind {
                 TableCall::Ref(_) => access.ref_store += read,
-                TableCall::Record { op: RecordCall::FindLast, .. } => access.find_last_store += read,
-                TableCall::Record { op: RecordCall::FindFirst, .. } => access.find_first_store += read,
+                TableCall::Record {
+                    op: RecordCall::FindLast,
+                    ..
+                } => access.find_last_store += read,
+                TableCall::Record {
+                    op: RecordCall::FindFirst,
+                    ..
+                } => access.find_first_store += read,
                 TableCall::Record { .. } => {}
             }
         }
@@ -293,15 +323,21 @@ impl Session {
     ) -> Result<Value, Signal> {
         if !measured_ref_method(id) {
             self.note_other_access();
-            let out = self.ref_op(id, receiver.as_deref_mut(), args);
             // The RecordRef calls of the helper of corpus PR 1572 beside the measured ones (GetLastEntryNoFromTable,
-            // SqFailedSeqFixture.al:189).
-            let load = matches!(
-                crate::setrange_convert::catalog_id(id).0.split('#').next(),
-                Some("RecordRef.ReadIsolation" | "RecordRef.SetLoadFields")
-            );
-            if load && out.is_ok() && self.ref_of_session_table(receiver.as_deref()) {
-                self.access_notes.access.ref_load_calls += 1;
+            // SqFailedSeqFixture.al:189), told apart by the isolation level they set.
+            let load: Option<fn(&mut RefLoads) -> &mut u64> =
+                match crate::setrange_convert::catalog_id(id).0.split('#').next() {
+                    Some("RecordRef.SetLoadFields") => Some(|l| &mut l.set_load_fields),
+                    Some("RecordRef.ReadIsolation") if is_level(args, "ReadUncommitted") => {
+                        Some(|l| &mut l.read_uncommitted)
+                    }
+                    Some("RecordRef.ReadIsolation") if is_level(args, "UpdLock") => Some(|l| &mut l.upd_lock),
+                    Some("RecordRef.ReadIsolation") => Some(|l| &mut l.other_isolation),
+                    _ => None,
+                };
+            let out = self.ref_op(id, receiver.as_deref_mut(), args);
+            if let Some(count) = load.filter(|_| out.is_ok() && self.ref_of_session_table(receiver.as_deref())) {
+                *count(&mut self.access_notes.access.ref_loads) += 1;
             }
             return out;
         }
@@ -335,6 +371,11 @@ impl Session {
     /// ([`DataAccess::other_calls`]). A call that code of Microsoft's apps makes while a Record call from AL code runs counts
     /// with that Record call instead: the Record writes of corpus PR 1465 ran on BC with Microsoft's apps, whose global
     /// triggers run under a table's first insert (the System Application's, which call CurrentDateTime and CompanyName).
+    /// AL code called a Page or TestPage method ([`DataAccess::page_calls`]).
+    pub(crate) fn note_page_call(&mut self) {
+        self.access_notes.access.page_calls += 1;
+    }
+
     pub(crate) fn note_other_access(&mut self) {
         if self.access_notes.table_depth > 0 && self.running_microsoft_code() {
             return;
@@ -450,7 +491,8 @@ impl Session {
     /// kept and gone now, sorted.
     pub fn new_sequences_changed_since(&self, start: &SequenceStart) -> Vec<Key> {
         let flagged = (self.sequences_changed.keys()).filter(|k| !start.holds(k) && !start.changed.contains_key(*k));
-        let removed = (self.access_notes.inserted_at.keys()).filter(|k| !start.holds(k) && !self.sequences.contains_key(*k));
+        let removed =
+            (self.access_notes.inserted_at.keys()).filter(|k| !start.holds(k) && !self.sequences.contains_key(*k));
         let mut keys: Vec<Key> = flagged.chain(removed).cloned().collect();
         keys.sort();
         keys.dedup();

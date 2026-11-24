@@ -183,3 +183,48 @@ codeunit 52730 "N72 WriteInOneBodyCommitInNext"
     [Test] procedure B_WriteInOneBodyCommitInNextFails() var Row: Record "N72 Row"; TempRow: Record "N72 Row" temporary; RR: RecordRef; K: Text; begin K := 'N72WIOBCINF30'; Access.ReadFirst(); Commit(); Error('B fails'); end;
     [Test] procedure C_Reads() begin Error('OBS %1', Access.Seq('N72WIOBCINF30')); end;
 }
+
+codeunit 52731 "N72 HelperExactThenCommit"
+{
+    Subtype = Test;
+    var Access: Codeunit "N72 Access"; H: Codeunit "N72 Helper";
+    [Test] procedure A_HelperExactThenCommit() var K: Text; begin K := 'N72HETC31'; if H.LastNo(false) = 0 then; NumberSequence.Insert(K, 1, 1); if H.LastNo(true) = 0 then; Commit(); end;
+    [Test] procedure B_HelperExactThenCommit() begin Access.Put('N72HETC31B'); Error('B fails'); end;
+    [Test] procedure C_Reads() begin Error('OBS %1', Access.Seq('N72HETC31')); end;
+}
+
+codeunit 52732 "N72 HelperLocksTwiceCommit"
+{
+    Subtype = Test;
+    var Access: Codeunit "N72 Access"; H: Codeunit "N72 Helper";
+    [Test] procedure A_HelperLocksTwiceCommit() var K: Text; begin K := 'N72HLTC32'; if H.LastNo(true) = 0 then; NumberSequence.Insert(K, 1, 1); if H.LastNo(true) = 0 then; Commit(); end;
+    [Test] procedure B_HelperLocksTwiceCommit() begin Access.Put('N72HLTC32B'); Error('B fails'); end;
+    [Test] procedure C_Reads() begin Error('OBS %1', Access.Seq('N72HLTC32')); end;
+}
+
+codeunit 52733 "N72 WriteInOneWriteCommitNext"
+{
+    Subtype = Test;
+    var Access: Codeunit "N72 Access";
+    [Test] procedure A_WriteInOneWriteCommitNext() var K: Text; begin K := 'N72WIOWCN33'; NumberSequence.Insert(K, 1, 1); Access.Put(K + 'A'); end;
+    [Test] procedure B_WriteInOneWriteCommitNext() begin Access.Put('N72WIOWCN33B'); Commit(); Access.Put('N72WIOWCN33C'); Error('B fails'); end;
+    [Test] procedure C_Reads() begin Error('OBS %1', Access.Seq('N72WIOWCN33')); end;
+}
+
+codeunit 52734 "N72 AssertErrorBeforeInsert"
+{
+    Subtype = Test;
+    var Access: Codeunit "N72 Access";
+    [Test] procedure A_AssertErrorBeforeInsert() var K: Text; begin K := 'N72AEBI34'; Access.Put(K + 'A'); asserterror Error('x'); NumberSequence.Insert(K, 1, 1); Commit(); end;
+    [Test] procedure B_AssertErrorBeforeInsert() begin Access.Put('N72AEBI34B'); Error('B fails'); end;
+    [Test] procedure C_Reads() begin Error('OBS %1', Access.Seq('N72AEBI34')); end;
+}
+
+codeunit 52735 "N72 TestPageAfterKeepingCommit"
+{
+    Subtype = Test;
+    var Access: Codeunit "N72 Access";
+    [Test] procedure A_TestPageAfterKeepingCommit() var K: Text; begin K := 'N72TPAKC35'; NumberSequence.Insert(K, 1, 1); Access.Put(K + 'A'); Commit(); end;
+    [Test] procedure B_TestPageAfterKeepingCommit() var P: TestPage "N72 Row Card"; begin P.OpenView(); P.Close(); Access.Put('N72TPAKC35B'); Error('B fails'); end;
+    [Test] procedure C_Reads() begin Error('OBS %1', Access.Seq('N72TPAKC35')); end;
+}

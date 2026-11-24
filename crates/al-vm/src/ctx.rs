@@ -261,6 +261,7 @@ impl al_builtins::native::Ctx for Session {
         recv: Option<&mut Value>,
         args: &mut [Value],
     ) -> Result<Value, Signal> {
+        self.note_page_call();
         self.page_op(method, recv, args)
     }
 

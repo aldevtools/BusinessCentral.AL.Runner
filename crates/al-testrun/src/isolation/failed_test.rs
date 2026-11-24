@@ -21,7 +21,7 @@
 //! `failed_test_runner_measured`.
 
 use al_builtins::native::Signal;
-use al_vm::{CommitBy, DataAccess, SequenceStart, Session, TxModel, TxPoint, TxPointKind};
+use al_vm::{CommitBy, DataAccess, RefLoads, SequenceStart, Session, TxModel, TxPoint, TxPointKind};
 
 use super::TestIsolation;
 
@@ -114,7 +114,9 @@ impl Body {
 impl Reached {
     /// What AL code reached between `from` and `to`.
     fn of(from: &DataAccess, to: &DataAccess) -> Reached {
-        if from == to {
+        // Page calls are read only by `measured_leaves`.
+        let pages = |a: &DataAccess| DataAccess { page_calls: 0, ..*a };
+        if pages(from) == pages(to) {
             return Reached::Nothing;
         }
         let delta = |count: fn(&DataAccess) -> u64| count(to).saturating_sub(count(from));
@@ -194,8 +196,9 @@ enum Interval {
     /// RecordRef table calls that read or wrote a table, beside Record calls ([`Reached::RefReads`],
     /// [`Reached::RefWrites`]).
     Ref,
-    /// As `Ref`, with the RecordRef.ReadIsolation and SetLoadFields calls of the helper of PR 1572
-    /// (GetLastEntryNoFromTable, SqFailedSeqFixture.al:189); `writes`: a table was written.
+    /// As `Ref`, with exactly the RecordRef.ReadIsolation and SetLoadFields calls of the helper of PR 1572 for a sequence
+    /// it does not find (GetLastEntryNoFromTable, SqFailedSeqFixture.al:189, called by :116 and :176); `writes`: a table
+    /// was written.
     Helper { writes: bool },
     /// Anything else.
     Unknown,
@@ -207,11 +210,29 @@ impl Interval {
         if delta(|a| a.temporary_record_calls) > 0 {
             return Interval::Unknown;
         }
-        let loads = delta(|a| a.ref_load_calls);
-        if loads > 0 {
-            // The helper's loads are other calls; what else ran must be what `Ref` names.
+        let loads = RefLoads {
+            read_uncommitted: delta(|a| a.ref_loads.read_uncommitted),
+            upd_lock: delta(|a| a.ref_loads.upd_lock),
+            other_isolation: delta(|a| a.ref_loads.other_isolation),
+            set_load_fields: delta(|a| a.ref_loads.set_load_fields),
+        };
+        if loads != RefLoads::default() {
+            // Exactly the two GetLastEntryNoFromTable calls the helper makes for a sequence it does not find (ValidateSeqNo
+            // with ReadUncommitted, then CreateNewTableSequence with UpdLock, each with one SetLoadFields), as in S1V, S1Z,
+            // S1A and S2E; these calls are other calls, and what else ran must be what `Ref` names.
+            let helper = RefLoads {
+                read_uncommitted: 1,
+                upd_lock: 1,
+                other_isolation: 0,
+                set_load_fields: 2,
+            };
+            if loads != helper {
+                return Interval::Unknown;
+            }
             let others = DataAccess {
-                other_calls: to.other_calls.saturating_sub(loads),
+                other_calls: to
+                    .other_calls
+                    .saturating_sub(helper.read_uncommitted + helper.upd_lock + helper.set_load_fields),
                 ..*to
             };
             return match Reached::of(from, &others) {
@@ -243,7 +264,12 @@ impl Interval {
     /// :2166 (C1 SqCommitFail.al:31 of PR 1465), one FindFirst S1X :2451, S1Y :2519, the helper S1V :2232, the helper and
     /// a Record write S1Z :220, S1A :85; a guarded Codeunit.Run after a Record write, C6 SqCommitFail.al:289, and an
     /// isolated event's subscriber after a Record write, C7 :322.
-    fn keeps_at(self, by: CommitBy) -> bool {
+    /// `pending`: an end since the insert kept nothing; then only an AL Commit() after a Record write keeps it (S1J
+    /// :1118, S1I :1034, S1K :1192: inserted without a commit, the runner's commit, then a Record write and a Commit()).
+    fn keeps_at(self, by: CommitBy, pending: bool) -> bool {
+        if pending {
+            return by == CommitBy::Statement && self == Interval::RecordWrite;
+        }
         match by {
             CommitBy::Statement => matches!(
                 self,
@@ -288,6 +314,7 @@ enum OutsideEnd {
 /// where runner 130450's steps before the failed test commit table writes, and the sequence is gone).
 fn fate(log: &[TxPoint], at: usize, failure: usize, outside: OutsideEnd) -> Option<bool> {
     let (mut reached, mut in_body, mut inserted, mut end_in_body) = (Interval::Untouched, false, false, false);
+    let mut pending = false;
     for (i, point) in log[..=failure].iter().enumerate() {
         if i > 0 && in_body {
             reached = reached.then(Interval::of(&log[i - 1].access, &point.access));
@@ -318,9 +345,11 @@ fn fate(log: &[TxPoint], at: usize, failure: usize, outside: OutsideEnd) -> Opti
             });
             match by {
                 None if i == failure => return reached.leaves_at_failure(end_in_body),
-                Some(by) if (in_body || outside == OutsideEnd::Keeps) && reached.keeps_at(by) => return Some(true),
-                Some(_) if reached == Interval::Untouched => {}
-                Some(_) if !in_body && outside == OutsideEnd::Resets => {}
+                Some(by) if (in_body || outside == OutsideEnd::Keeps) && reached.keeps_at(by, pending) => {
+                    return Some(true);
+                }
+                Some(_) if reached == Interval::Untouched => pending = true,
+                Some(_) if !in_body && outside == OutsideEnd::Resets => pending = true,
                 _ => return None,
             }
         }
@@ -434,14 +463,18 @@ impl CodeunitSequences {
         }
         // B1-B4 of PR 1465 (SqCommitFail.al:963-1135, SqReader.al:215-236): a sequence that existed, restarted or deleted
         // by the failed test itself, which reached no table, with or without a Commit(), stays as it is.
-        if !changed.is_empty() && !(body.access.0 == body.access.1 && body.before.unkept_since(&self.start).is_empty()) {
+        if !changed.is_empty() && !(body.access.0 == body.access.1 && body.before.unkept_since(&self.start).is_empty())
+        {
             return None;
         }
         let log = session.tx_log()?;
         // The failed test's rollback: the first end after the last body.
         let last_body = log.iter().rposition(|p| p.kind == TxPointKind::BodyEnd)?;
         let failure = last_body + log[last_body..].iter().position(|p| p.kind != TxPointKind::BodyEnd)?;
-        if log[failure].kind != TxPointKind::Rollback {
+        // The failed test's rollback is the only rollback since the tests began: no cell has an asserterror, a failed
+        // guarded Codeunit.Run or an earlier failed test.
+        if log[failure].kind != TxPointKind::Rollback || log[..failure].iter().any(|p| p.kind == TxPointKind::Rollback)
+        {
             return None;
         }
         let Some(first) = new.first() else {
@@ -450,6 +483,12 @@ impl CodeunitSequences {
         // Every cell inserts its new sequences between the same two points of the log.
         let at = session.sequence_inserted_at(first)?;
         if new.iter().any(|k| session.sequence_inserted_at(k) != Some(at)) {
+            return None;
+        }
+        // A Page or TestPage call since the point before the insert: under runners 61301 and 130450 the cells with a
+        // TestPage (S1F, S1G, S1H, S1I, S1K, S1P, S1W, S2B, S2C, S2D, S2N) are not measured (the Windows hosts refuse it).
+        let before_insert = at.checked_sub(1).map_or(body.access.0, |i| log[i].access);
+        if log[failure].access.page_calls > before_insert.page_calls {
             return None;
         }
         let kept = match [OutsideEnd::Keeps, OutsideEnd::Resets].map(|o| fate(log, at, failure, o)) {

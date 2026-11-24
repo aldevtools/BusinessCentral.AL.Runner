@@ -2,7 +2,8 @@
 N72 WriteThenCommit::C_Reads	ASSUMED sequence-after-failed-test (corpus PR 1572) S1T: a Commit() after a Record write keeps the sequence; main's C2 arm took it
 N72 FindFirstThenCommit::C_Reads	ASSUMED sequence-after-failed-test (corpus PR 1572) S1X: a Commit() after one FindFirst keeps it
 N72 UpdLockFindFirstThenCommit::C_Reads	ASSUMED sequence-after-failed-test (corpus PR 1572) S1Y: ReadIsolation(UpdLock) and FindFirst, then Commit()
-N72 RefLoadFindLastThenCommit::C_Reads	ASSUMED sequence-after-failed-test (corpus PR 1572) S1V: RecordRef reads with ReadIsolation and SetLoadFields, as the helper
+# N72 RefLoadFindLastThenCommit: (one ReadIsolation(ReadUncommitted) and SetLoadFields, not the two calls of the helper; main's C2 arm answered gone)
+N72 RefLoadFindLastThenCommit::C_Reads	REFUSED a test of this codeunit
 N72 OwnCommitThenWriteFails::C_Reads	ASSUMED sequence-after-failed-test (corpus PR 1572) S2F: insert, Commit() with nothing since, then a Record write: gone
 N72 OwnCommitThenNothingFails::C_Reads	ASSUMED sequence-after-failed-test (corpus PR 1572) S2G: insert, Commit(), nothing since: kept
 N72 InsertInFailedThenWriteFai::C_Reads	ASSUMED sequence-after-failed-test (corpus PR 1572) S2E: insert after the last transaction end, then a Record write: gone
@@ -18,4 +19,9 @@ N72 RefLoadThenCommitNoRead::C_Reads	REFUSED a test of this codeunit
 N72 TempRecordThenCommit::C_Reads	REFUSED a test of this codeunit
 # N72 TwoFindFirstThenCommit: (two FindFirst calls before the Commit(); main's C2 arm answered gone)
 N72 TwoFindFirstThenCommit::C_Reads	REFUSED a test of this codeunit
-N72 WriteInOneBodyCommitInNext::C_Reads	ASSUMED sequence-after-failed-test (corpus PR 1572) both readings of the runner's commit after A keep it: as a Commit() after A's Record write (S1T), or as an end, then B's FindFirst before its Commit() (S1X)
+N72 HelperExactThenCommit::C_Reads	ASSUMED sequence-after-failed-test (corpus PR 1572) S1V: exactly the helper's two RecordRef reads (ReadUncommitted, then UpdLock) before the Commit() keep it
+N72 WriteInOneWriteCommitNext::C_Reads	ASSUMED sequence-after-failed-test (corpus PR 1572) S1J: inserted with a write and no commit, then a Record write and a Commit() in the failed test keep it
+# N72 HelperLocksTwiceCommit: (the helper's calls with UpdLock twice are not the measured pair; main's C2 arm answered gone)
+N72 HelperLocksTwiceCommit::C_Reads	REFUSED a test of this codeunit
+# N72 AssertErrorBeforeInsert: (an asserterror rollback in the log is not a measured end; main's C2 arm answered gone)
+N72 AssertErrorBeforeInsert::C_Reads	REFUSED a test of this codeunit
