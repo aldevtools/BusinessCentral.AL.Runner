@@ -171,24 +171,35 @@ impl EventsPart {
 }
 
 impl MediaPart {
+    /// The store's maps through one destructure with no `..`: a map added to `MediaStore` fails this compile.
     fn take(s: &Session) -> MediaPart {
-        let m = &s.media;
+        let al_builtins::media::MediaStore {
+            objects,
+            sets,
+            removed,
+            outside_tenant,
+        } = &s.media;
         MediaPart {
-            objects: m.objects.borrow().clone(),
-            sets: m.sets.borrow().clone(),
-            removed: m.removed.borrow().clone(),
-            outside_tenant: m.outside_tenant.borrow().clone(),
+            objects: objects.borrow().clone(),
+            sets: sets.borrow().clone(),
+            removed: removed.borrow().clone(),
+            outside_tenant: outside_tenant.borrow().clone(),
             removed_by_writes: s.media_removed.1.clone(),
         }
     }
 
     /// Into the session's own cells, which its providers share (lib.rs `Providers`).
     fn give(&self, s: &mut Session) {
-        let m = &s.media;
-        m.objects.borrow_mut().clone_from(&self.objects);
-        m.sets.borrow_mut().clone_from(&self.sets);
-        m.removed.borrow_mut().clone_from(&self.removed);
-        m.outside_tenant.borrow_mut().clone_from(&self.outside_tenant);
+        let al_builtins::media::MediaStore {
+            objects,
+            sets,
+            removed,
+            outside_tenant,
+        } = &s.media;
+        objects.borrow_mut().clone_from(&self.objects);
+        sets.borrow_mut().clone_from(&self.sets);
+        removed.borrow_mut().clone_from(&self.removed);
+        outside_tenant.borrow_mut().clone_from(&self.outside_tenant);
         s.media_removed = (Vec::new(), self.removed_by_writes.clone());
     }
 }
