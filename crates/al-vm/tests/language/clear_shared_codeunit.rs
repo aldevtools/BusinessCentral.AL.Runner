@@ -370,8 +370,10 @@ fn a_bound_codeunit_variable_is_never_unused() {
 /// The store of open corpus pull request 1561 (ClearSharedCodeunitTempRef.al:55-104, "CLB Store": a temporary record, an
 /// array of RecordRef of two dimensions, an array of Integer) and its owners: a SingleInstance codeunit
 /// (ClearSharedCodeunitSIOwner.al "CLS SI Owner A3"), a plain holder ("CLB Holder") and a test codeunit ("CLS TG ClearAll
-/// 6"). Next to them the shapes 1561 does not measure: a store with one more global, a store inside a codeunit the owner
-/// holds, an array of stores, a report and a codeunit with a Subtype other than Test as the owner.
+/// 6"), each also with the store shared by a variable; and the array store "CLS Arr Store" (ClearSharedCodeunitSIOwner.al:42)
+/// with its plain holder. Next to them the shapes 1561 does not measure: a store with one more global or a Label, a store
+/// inside a codeunit the owner holds, an array of stores, a report and a codeunit with a Subtype other than Test as the
+/// owner, the array store never written, unshared or under a SingleInstance owner, the Integer store under a test codeunit.
 const TEMP_STORE: &str = "
 table 50830 Row { fields { field(1; No; Integer) { } } keys { key(PK; No) { } } }
 codeunit 50831 TStore { var Rows: Record Row temporary; Refs: array[2, 3] of RecordRef; Ints: array[3] of Integer;

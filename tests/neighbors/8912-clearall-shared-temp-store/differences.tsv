@@ -1,0 +1,15 @@
+# key	entry
+# Main gave the owner's variable a fresh instance in every row below, which loses the temporary rows and detaches the
+# sharer; BC keeps both on one instance, reset in place, in the pairs corpus PR 1561 measures.
+CS Shared ClearAll Tests::PlainHolderSharedAliasWroteBefore	ASSUMED clear-shared-codeunit (corpus PR 1561)
+CS Shared ClearAll Tests::PlainHolderSharedUnused	ASSUMED clear-shared-codeunit (corpus PR 1561)
+CS Shared ClearAll Tests::PlainHolderValueParam	ASSUMED clear-shared-codeunit (corpus PR 1561)
+CS Shared ClearAll Tests::SiOwnerSharedAlias	ASSUMED clear-shared-codeunit (corpus PR 1561)
+CS Shared ClearAll Tests::ArrHolderSharedWroteBefore	ASSUMED clear-shared-codeunit (corpus PR 1561)
+CS Test Owner Tests::TestOwnerSharedLocalAlias	ASSUMED clear-shared-codeunit (corpus PR 1561)
+CS Shared ClearAll Tests::ArrHolderSharedUnused	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
+CS Shared ClearAll Tests::ArrSiOwnerShared	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
+CS Shared ClearAll Tests::LabelStoreShared	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
+CS Int Test Owner Tests::IntegerStoreTestOwnerShared	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
+CS Shared ClearAll Tests::ArrHolderUnsharedWritten	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows
+CS Shared ClearAll Tests::LabelStoreWritten	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows
