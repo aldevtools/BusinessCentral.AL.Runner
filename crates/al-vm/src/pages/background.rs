@@ -471,11 +471,15 @@ impl Session {
                         // blank record) are refused (review of al-runner PR 8840, 01:32Z).
                         st.borrow_mut().bg_tasks.clear();
                         let (root, _) = Self::tree_root(st);
+                        // The refresh of the landing, not the parts' read of the blank line at the start of the same
+                        // SetValue (review of al-runner PR 8840, 07:30Z).
+                        let landed = root.borrow().coded_line == super::state::CodedLine::Landed;
                         root.borrow_mut().forget_code_inserted_line();
-                        let first_set_value = matches!(
-                            Self::test_calls(&root).as_deref(),
-                            Some([TestCall::Page(PageMethod::New), TestCall::Write(_)])
-                        );
+                        let first_set_value = landed
+                            && matches!(
+                                Self::test_calls(&root).as_deref(),
+                                Some([TestCall::Page(PageMethod::New), TestCall::Write(_)])
+                            );
                         if !first_set_value {
                             return unsupported(
                                 "a page background task's error its part leaves unhandled on a List page of the page-with-code \
