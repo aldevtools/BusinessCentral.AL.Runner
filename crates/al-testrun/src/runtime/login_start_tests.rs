@@ -211,6 +211,53 @@ fn a_planted_difference_in_the_replay_is_reported() {
     );
 }
 
+/// [`MAIN`] with install code that sets WorkDate: a codeunit's session that starts from no install baseline starts from
+/// what it left (`install_once.rs`, `Session::install_left` carries WorkDate), before the session enters the codeunit
+/// and logs in.
+const INSTALL_SETS_WORKDATE: &str = r#"
+codeunit 77480 "RPL Install"
+{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany() begin WorkDate(DMY2Date(3, 4, 2021)); end;
+}
+"#;
+
+/// The state lines of each twin of the check before its thaw (`TWIN_TARGET`), for the test below only.
+static TWINS_BEFORE_THAW: std::sync::Mutex<Vec<al_vm::StateLines>> = std::sync::Mutex::new(Vec::new());
+
+// Issue 8211: the replay thaws into the test session after the steps of `Start::open` (the install code's leftovers,
+// the test codeunit entered), so the fields the thaw keeps from its target are the session's own. The check's twin is
+// made by the same steps: before its thaw it holds what the session held before its login (the key's session state),
+// here the WorkDate the install code left.
+#[test]
+fn the_checks_twin_holds_before_its_thaw_what_the_session_held_before_its_login() {
+    let (engine, l) = compiled_with(&format!("{MAIN}{INSTALL_SETS_WORKDATE}"));
+    TWINS_BEFORE_THAW.lock().unwrap().clear();
+    crate::login_replay::TWIN_TARGET
+        .with(|p| p.set(Some(|twin| TWINS_BEFORE_THAW.lock().unwrap().push(twin.state_lines()))));
+    let check = RunOptions {
+        login_replay_check: true,
+        ..Default::default()
+    };
+    let ran = sessions(&engine, &l, "RPL Tests A", 2, &check);
+    crate::login_replay::TWIN_TARGET.with(|p| p.set(None));
+    assert_one_state(&ran, "check");
+    let twins = std::mem::take(&mut *TWINS_BEFORE_THAW.lock().unwrap());
+    assert_eq!(twins.len(), 2, "the round trip's twin and the replay-vs-run twin");
+    let firsts = crate::login_replay::check(&engine).firsts();
+    let key = &firsts[0].0;
+    for (i, twin) in twins.iter().enumerate() {
+        assert!(
+            key.holds_session(twin),
+            "twin {i} before its thaw is not the session before its login: {:?}",
+            twin.lines
+                .iter()
+                .filter(|l| l.to_lowercase().contains("work"))
+                .collect::<Vec<_>>()
+        );
+    }
+}
+
 /// A login that also makes an assumption mark when the company opens (`OnCompanyOpenCompleted`, a Variant to Integer
 /// conversion): every test of the session is a flagged pass (al-runner issue 8060; `login_tests.rs`
 /// `an_assumption_the_company_open_step_relied_on_flags_every_test_of_the_session`).

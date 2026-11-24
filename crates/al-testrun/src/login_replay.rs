@@ -194,12 +194,11 @@ impl Key {
             )
         };
         let state = session.state_lines();
-        let opaque: Vec<String> = state.opaque.iter().map(al_vm::NotComparable::line).collect();
         Key {
             database,
             uncommitted,
             backing,
-            session: digest(&[digest(&state.lines).hex(), digest(&opaque).hex()]),
+            session: session_digest(&state),
             company: session.access_company().to_string(),
             seed: session.run_seed(),
             user: session.user_id(),
@@ -219,6 +218,21 @@ impl Key {
             emit_version: EmitKey(engine.emit_version.clone()),
             refused_reads: refused_reads(&engine),
         }
+    }
+}
+
+/// [`Key::session`] of the state lines `state`: the lines, then the paths and reasons of the values with no comparable
+/// form.
+fn session_digest(state: &al_vm::StateLines) -> LinesDigest {
+    let opaque: Vec<String> = state.opaque.iter().map(al_vm::NotComparable::line).collect();
+    digest(&[digest(&state.lines).hex(), digest(&opaque).hex()])
+}
+
+#[cfg(test)]
+impl Key {
+    /// Whether the session state of this key is `state` ([`Key::session`]).
+    pub(crate) fn holds_session(&self, state: &al_vm::StateLines) -> bool {
+        self.session == session_digest(state)
     }
 }
 
@@ -770,9 +784,10 @@ impl std::fmt::Display for Uncompared {
     }
 }
 
-/// `image` thawn into `twin` (a new session with the run's flags) that starts from the store of `base`, on a thread of its
-/// own (so nothing of the thaw reaches this thread's state: its store operation count, its assumption marks, its instance
-/// registry); its state, with the marks and open writes `with` of the image. `Err`: why it could not be compared.
+/// `image` thawn into `twin` (a new session brought to its login by the runner's steps, `runtime/run.rs` `Steps::twin`)
+/// that starts from the store of `base`, on a thread of its own (so nothing of the thaw reaches this thread's state:
+/// its store operation count, its assumption marks, its instance registry); its state, with the marks and open writes
+/// `with` of the image. `Err`: why it could not be compared.
 fn thaw_twin(
     image: &al_vm::LoginImage,
     base: &al_vm::LoginBase,
@@ -813,9 +828,10 @@ fn thaw_twin(
 
 /// Under the check, after the real raised login of a session of `key` (`base`: the session before it; `gate`: why its
 /// run takes no starts): the session is compared with the first of its key; a new key's session is frozen, thawn into a
-/// twin and compared (the round trip) and its image kept as the key's start, as the replay would keep it; a later session
-/// is compared with a thaw of the key's start (`Check::replay_vs_run`) where the replay would have taken it. No session
-/// takes a start. `twin`: a new session with the run's host and flags.
+/// twin and compared (the round trip) and its image kept as the key's start, as the replay would keep it; a later
+/// session is compared with a thaw of the key's start (`Check::replay_vs_run`) where the replay would have taken it. No
+/// session takes a start. `twin`: a new session brought to its login by the runner's steps, as the replay's target is
+/// (`runtime/run.rs` `Steps::twin`).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn checked(
     engine: &Engine,
