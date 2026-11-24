@@ -1,0 +1,26 @@
+# key	entry
+# The probe's cells on an empty group: the base refused them at the Update; the page of the page-with-code shape runs them.
+LT NZ Tests::NewLine_ExtraCodeOnPageWithCodeAndFactBoxes_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1537, open: ListNewLineExtraCodeCodedPage.al)
+LT NZ Tests::NewLine_ExtraCodeOnPageWithCodeAndFactBoxes_LogsTheTriggers	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1537, open: ListNewLineExtraCodeCodedPage.al)
+LT NZ Tests::NewLine_SaveRecordOnPageWithCodeAndFactBoxes_LogsTheTriggers	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1537, open: ListNewLineExtraCodeCodedPage.al)
+LT NZ Tests::NewLine_SaveRecordThenModifyThroughAnotherRecordOnPageWithCodeAndFactBoxes_LogsTheTriggers	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1537, open: ListNewLineExtraCodeCodedPage.al)
+LT NZ Tests::NewLine_FieldSetBeforeSaveRecordOnPageWithCodeAndFactBoxes_LogsTheTriggers	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1537, open: ListNewLineExtraCodeCodedPage.al)
+# A row before the line keeps the base's refusal; only the flags the test before it leaves differ.
+LT NZ Tests::NewLine_ExtraCodeOnPageWithCodeAndFactBoxes_RowBefore_LogsTheTriggers	REFUSED CurrPage.Update on a page that shows no row
+# The earlier neighbors (LT NG2 Tests) declare fewer page triggers or no actions than the cells' pages: they keep the base's
+# way on both since the review of 21:06Z, so they have no row.
+# The review's neighbors (each in a codeunit of its own): the page lands, then a call after the Value SetValue other than
+# reads and OK is refused.
+LT NG3 Prev Next Tests::NewLine_PreviousThenNextAfterTheValue_SavesTheRow	REFUSED a call on a List page of the shape of the page with code and FactBoxes, on the row its new line became
+LT NG3 Close Tests::NewLine_CloseAfterTheValue_RunModalFails	REFUSED a call on a List page of the shape of the page with code and FactBoxes, on the row its new line became
+# A field of Rec set, or another table written, between the save and the Update: refused at the Update.
+LT NG3 Late Tests::NewLine_FieldOfRecSetBetweenSaveAndUpdate_ShowsAndSavesTheRow	REFUSED a field of Rec set, or another table written, between CurrPage.SaveRecord
+LT NG3 Between Tests::NewLine_AnotherTableWrittenBetweenSaveAndUpdate_ShowsAndSavesTheRow	REFUSED a field of Rec set, or another table written, between CurrPage.SaveRecord
+# A part that writes another table when it reads the blank record at the open: refused at the open.
+LT NG3 Open Part Writer Tests::NewLine_PartTriggerAtTheOpenWritesAnotherTable_ShowsAndSavesTheRow	REFUSED a part of a List page of the shape of the page with code wrote the store
+# The logging page whose control does nothing: main fails it ("already exists"), the branch refuses at the validation end.
+LT NG3 Idle Control Tests::NewLine_LoggingPageControlDoesNothing_ShowsAndSavesTheRow	REFUSED the validation of the first SetValue on a List page with code and FactBoxes
+# Update(true) on this page keeps the base's refusal; only the flag of the open differs.
+LT NG3 Update True Tests::NewLine_UpdateTrue_ShowsAndSavesTheRow	REFUSED CurrPage.Update on a page that shows no row
+# The two plain pages of point 1, the facts the cells do not measure, OpenEdit and a RunModal without a filter keep the
+# base's way, the same on both.
