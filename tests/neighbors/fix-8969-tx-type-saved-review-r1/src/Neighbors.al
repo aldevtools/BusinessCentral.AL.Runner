@@ -1,4 +1,4 @@
-// Review round 2 of the fix for al-runner issue 8969: a second read of the type in the saving procedure (before or after
+// Review round 1 of the fix for al-runner issue 8969: a second read of the type in the saving procedure (before or after
 // the set between), and a rollback between the save and the set back. Each shape is a test codeunit of its own: a first
 // test that is refused while it runs and could set the type, then the shape, then a test that reads the type.
 table 50100 "NB TV2 Row"

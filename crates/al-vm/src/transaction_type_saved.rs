@@ -40,8 +40,7 @@ fn save_and_set_back(routine: &Routine) -> Option<(u32, u32)> {
     // The read, as the save assigns it: to a TransactionType local the lowering converts it to the same option.
     let read = |e: &Expr| match e {
         Expr::Convert(al_builtins::value::RtType::Option(m), x) => {
-            ctt_read(x)
-                && m[..] == al_builtins::sysenum::transaction_type_members()[..]
+            ctt_read(x) && m[..] == al_builtins::sysenum::transaction_type_members()[..]
         }
         _ => false,
     };
@@ -71,12 +70,6 @@ fn save_and_set_back(routine: &Routine) -> Option<(u32, u32)> {
         }
     }
     let ((local, save), set_back) = (save?, set_back?);
-    // A second read of the type in the procedure would forget the save's wait (`read_saved_for_set_back`).
-    let mut reads = 0;
-    al_ir::types::for_each_expr_post(body, &mut |e| {
-        reads += usize::from(ctt_read(e));
-    });
-    (reads == 1).then_some(())?;
     if local < routine.params || Some(local) == routine.ret_local {
         return None;
     }
@@ -88,14 +81,14 @@ fn save_and_set_back(routine: &Routine) -> Option<(u32, u32)> {
     if writes.count() != 1 {
         return None;
     }
-    // The set back's argument is the one expression that reads it, and no call takes it by `var`.
-    let mut loads = 0;
+    // The set back's argument is the one expression that reads it, and no call takes it by `var`. The save's read is the
+    // procedure's one read of the type: a second read would forget the save's wait (`read_saved_for_set_back`).
+    let (mut loads, mut reads) = (0, 0);
     al_ir::types::for_each_expr_post(body, &mut |e| {
-        if matches!(e, Expr::Load(p) if is_local(p)) {
-            loads += 1;
-        }
+        loads += usize::from(matches!(e, Expr::Load(p) if is_local(p)));
+        reads += usize::from(ctt_read(e));
     });
-    (loads == 1 && !crate::effects::passes_by_var(body, &is_local)).then_some((save, set_back))
+    (loads == 1 && reads == 1 && !crate::effects::passes_by_var(body, &is_local)).then_some((save, set_back))
 }
 
 impl Session {

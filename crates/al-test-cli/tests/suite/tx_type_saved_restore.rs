@@ -143,6 +143,18 @@ codeunit 50412 "Saved Tx Lib"
         CurrentTransactionType(Saved);
     end;
 
+    procedure SaveQualifiedReadSetRestore()
+    var
+        Saved: TransactionType;
+    begin
+        Commit();
+        Saved := CurrentTransactionType;
+        CurrentTransactionType(TransactionType::Update);
+        if Database.CurrentTransactionType = TransactionType::Update then;
+        Commit();
+        CurrentTransactionType(Saved);
+    end;
+
     procedure SaveRestoreAfterRollback()
     var
         Saved: TransactionType;
@@ -261,6 +273,7 @@ fn every_other_use_of_the_saved_type_stays_refused() {
         "Lib.SaveRestoredTwice();",
         // A second read of the type in the procedure: the save's read is the only one.
         "Lib.SaveReadSetRestore();",
+        "Lib.SaveQualifiedReadSetRestore();",
     ] {
         match run(call, true).0 {
             Outcome::NotRun(r) if r.contains(NOT_KNOWN) => {}
