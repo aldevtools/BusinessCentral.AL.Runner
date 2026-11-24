@@ -13,5 +13,5 @@ NB CS Tests::Clear_ArrayElementItselfUnusedShared	REFUSED Clear of a codeunit va
 NB CS Tests::Clear_VarParamAssigned_Shared	ASSUMED clear-shared-codeunit (corpus PR 1560)
 NB CS Tests::Clear_SubscriberVarParam_NoHolder	ASSUMED clear-shared-codeunit (corpus PR 1560)
 NB CS Tests::Clear_VarParamOfReassignedGlobal_Shared	REFUSED Clear of a codeunit variable that nothing used yet and another variable shares
-NB CS Tests::ClearAll_SingleInstanceHolder	REFUSED an earlier test of this codeunit was refused while it ran
-NB CS Tests::ClearAll_TestCodeunit	REFUSED an earlier test of this codeunit was refused while it ran
+NB CS Tests::ClearAll_SingleInstanceHolder	ASSUMED clear-shared-codeunit (corpus PR 1564)
+NB CS Tests::ClearAll_TestCodeunit	ASSUMED clear-shared-codeunit (corpus PR 1564)

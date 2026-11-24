@@ -439,7 +439,8 @@ codeunit 50120 "NB CS Tests"
         Check(R(H.GetXC(), Inner), '0|3');
     end;
 
-    // Refused: ClearAll of a shared X in a SingleInstance holder (not measured).
+    // ClearAll of a shared X in a SingleInstance holder after the alias wrote: one instance, reset in place
+    // (corpus PR 1564, ClearSharedCodeunitOwnerKinds.al:1492 SICLX_ClearAll_AliasWroteBefore).
     [Test]
     procedure ClearAll_SingleInstanceHolder()
     var
@@ -449,7 +450,7 @@ codeunit 50120 "NB CS Tests"
         H.ShareX(Y);
         Y.Set(3);
         H.ClearAllGlobals();
-        Check(R(H.GetX(), Y.Get()), '0|3');
+        Check(R(H.GetX(), Y.Get()), '0|0');
     end;
 
     // Refused: ClearAll of a shared X in a holder with a TableNo.
@@ -478,7 +479,8 @@ codeunit 50120 "NB CS Tests"
         Check(R(H.GetX(), Y.Get()), '0|3');
     end;
 
-    // Refused: ClearAll of a shared X in the test codeunit itself.
+    // ClearAll of a shared X in the test codeunit itself after the alias wrote: one instance, reset in place
+    // (corpus PR 1564, ClearSharedCodeunitOwnerKinds.al:1568 ClearAll_TestGlobalCLX_LocalAliasWroteBefore).
     [Test]
     procedure ClearAll_TestCodeunit()
     var
@@ -487,7 +489,7 @@ codeunit 50120 "NB CS Tests"
         Y := TX;
         Y.Set(3);
         ClearAll();
-        Check(R(TX.Get(), Y.Get()), '0|3');
+        Check(R(TX.Get(), Y.Get()), '0|0');
     end;
 
     // ClearAll in the holder of an X nothing else holds: main's fresh instance, unflagged.
