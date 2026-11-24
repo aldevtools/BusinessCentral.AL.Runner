@@ -4,9 +4,10 @@
 //! ClearSharedCodeunitTempRef.al, ClearSharedCodeunitSIOwner.al, ClearSharedCodeunitOwnerKinds.al,
 //! ClearSharedCodeunitLabelStore.al, and at commit d8215564 ClearSharedCodeunitSetterOwner.al,
 //! ClearSharedCodeunitLabelShare.al, ClearSharedCodeunitTempArrayShare.al, and at commit 65262a80
-//! ClearSharedCodeunitStoreShapes.al). `Clear` gives such a variable nothing used yet a fresh instance, and
-//! `ClearAll()` resets such an instance in place, keeping its temporary rows, in the measured (owner, store, holding)
-//! cells (`measured`); the cells the probes do not measure refuse. An instance nothing else holds keeps main's answer
+//! ClearSharedCodeunitStoreShapes.al, and at commit 4531df96 ClearSharedCodeunitHolderKinds.al and
+//! ClearSharedCodeunitHolderSlots.al: the slot of the sharer, measured for six stores, one answer for every slot). `Clear`
+//! gives such a variable nothing used yet a fresh instance, and `ClearAll()` resets such an instance in place, keeping
+//! its temporary rows, in the measured (owner, store, holding) cells (`measured`); the cells the probes do not measure refuse. An instance nothing else holds keeps main's answer
 //! unless its temporary table holds rows. The store shapes are also what the login check counts at their declared value
 //! (`Session::login_store`, read by `state_stamp.rs`). Entry points: `Session::clear_shared_codeunit` (from the `Clear`
 //! site, `exec/run.rs`) and `Session::clear_all_in_place` (from `clear_all`).
@@ -656,7 +657,9 @@ fn measured(owner: Owner, store: Store, holding: Holding, hold: TempHold) -> boo
         (Plain | SingleInstance | Test | Normal | TableNo | Report, TempRef, _) => true,
         // ClearSharedCodeunitSIOwner.al ArrStore_ClearAll_Alias_AliasWroteBefore :1759; ClearSharedCodeunitOwnerKinds.al
         // ArrStore_ClearAll_UnusedAlias :418, ArrStore_ClearAll_InHolder_NoAlias :439, SIArr_* :987 :1013 :1029,
-        // M2_Step5_ClearAllInOwner :1241, ClearAll_TestGlobalArr* :1276 :1303 :1333.
+        // M2_Step5_ClearAllInOwner :1241, ClearAll_TestGlobalArr* :1276 :1303 :1333. Every holder slot under the plain
+        // owner, rows now and none: ClearSharedCodeunitHolderKinds.al Arr_VarParam_Rows :2090 to Arr_SetterIn_Never :2368;
+        // ClearSharedCodeunitHolderSlots.al :7263 to :7845.
         (Plain | SingleInstance | Test, TempArray, _) => true,
         // ClearSharedCodeunitLabelStore.al LabelFirst_ClearAllInHolder_Written_NoAlias :354, and the same for Mid (:497)
         // and Last (:640).
@@ -668,19 +671,31 @@ fn measured(owner: Owner, store: Store, holding: Holding, hold: TempHold) -> boo
         (Plain, TempRefLabel, Shared) => hold == TempHold::Rows,
         // ClearSharedCodeunitLabelStore.al First_L3_Step3_ClearAllInOwner :1415, Mid :1612, Last :1809.
         (SingleInstance, TempRefLabel, Written) => true,
-        // ClearSharedCodeunitOwnerKinds.al StorePlus_* :644 :661 :684, Deep_* :701 :723 :745.
+        // ClearSharedCodeunitOwnerKinds.al StorePlus_* :644 :661 :684, Deep_* :701 :723 :745. Every holder slot, rows now
+        // and none: ClearSharedCodeunitHolderKinds.al Plus_VarParam_Rows :2396 to Wrap_SetterIn_Never :3184;
+        // ClearSharedCodeunitHolderSlots.al Plus :8127 to :8825, Wrap :9161 to :10111.
         (Plain, TempRefPlus | Wrapper, _) => true,
         // ClearSharedCodeunitSetterOwner.al: shared through a setter, TableNo owner (:318 :345 :372 Run, :508 :535 :562
         // procedure), plain owner (:698 :725 :752 Run, :888 :915 :942 procedure), by-value setter (:1078 :1105); the owner's
         // own register (:1166 :1187 TableNo, :1208 :1229 plain).
+        // Every holder slot, rows now and none, under both owners: ClearSharedCodeunitHolderKinds.al RegPlain_VarParam_Rows
+        // :1496 to RegTableNo_SetterOut_Never :2057; ClearSharedCodeunitHolderSlots.al by-value parameters and Variant
+        // (RegPlain :5195 to :5378, RegTableNo :5607 to :5790), Interface, List and Dictionary slots (RegPlain :6025 to
+        // :6310, RegTableNo :6641 to :6926).
         (Plain | TableNo, Register, _) => true,
         // ClearSharedCodeunitStoreShapes.al: the price store nothing else holds, rows now, ClearAll in SetLine called
         // through an interface (Price_ViaInterface_Filled_SetLine :1206) or directly (:1225), twice (:1277).
         (Plain, PriceList, Written) => true,
-        // Shared with a test local through a var getter, rows written before (Price_StoreAlias_SetLine :1296). Never
-        // written while shared is not measured: refused.
-        (Plain, PriceList, Shared) => hold == TempHold::Rows,
+        // Shared, rows now or none: a test local through a var getter (Price_StoreAlias_SetLine :1296), and every holder
+        // slot of ClearSharedCodeunitHolderKinds.al (var parameter, other and SingleInstance global, caller local, array
+        // element, setters: Price_VarParam_Rows :1156 to Price_SetterIn_Never :1464) and ClearSharedCodeunitHolderSlots.al
+        // (by-value parameter live, passed, deep and through setters :4215 to :4309, Variant :4338 :4373 :4390, Interface
+        // local, caller local and global :4418 :4447 :4464, List and Dictionary of Interface :4492 :4527 :4555 :4590,
+        // Interface parameter var and by value :4618 :4639 :4660 :4680; the same cells with no row :4702 to :5167).
+        (Plain, PriceList, Shared) => true,
         // ClearSharedCodeunitTempArrayShare.al TwoDimWritten_InStore_ClearAll_NoAlias :688, ..._AliasWroteBefore :707.
+        // Every holder slot, rows now and none: ClearSharedCodeunitHolderKinds.al TwoDim_VarParam_Rows :3228 to
+        // TwoDim_SetterIn_Never :3511; ClearSharedCodeunitHolderSlots.al :10569 to :11216.
         (Plain, TwoDimArray, _) => true,
         _ => false,
     }

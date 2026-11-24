@@ -97,7 +97,8 @@ codeunit 50620 "PS ClearAll Tests"
         Check(O.State(), 't1=3 kind=None int=0 lc=store label cnt=0 line=1');
     end;
 
-    // Not measured: the store shared while T1 holds no row.
+    // Measured with no row (ClearSharedCodeunitHolderKinds.al Price_VarParam_Never :1323, scalars written before; with
+    // nothing written before only for the Integer store and "CLB Store", ClearSharedCodeunitTempRef.al :382). Runs flagged.
     [Test]
     procedure PriceStoreAliasNeverWritten()
     var

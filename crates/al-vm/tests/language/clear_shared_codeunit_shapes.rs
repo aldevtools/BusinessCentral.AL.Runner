@@ -146,12 +146,17 @@ fn clear_all_of_a_shared_price_store_keeps_one_instance_and_the_shared_table() {
     );
 }
 
-// The shapes Z lists as not measured refuse: the store shared while T1 holds no row, shared and Copy-shared at once,
-// Copy-shared while T1 holds no row, under
+// Shared while T1 holds no row runs flagged (corpus PR 1564 ClearSharedCodeunitHolderKinds.al Price_VarParam_Never
+// :1323, ClearSharedCodeunitHolderSlots.al :4702 to :5167).
+#[test]
+fn clear_all_of_a_shared_price_store_with_no_row_runs() {
+    assert_eq!(cell("AliasNeverWritten"), ("done".to_string(), true));
+}
+
+// The shapes Z lists as not measured refuse: shared and Copy-shared at once, Copy-shared while T1 holds no row, under
 // a SingleInstance or a TableNo owner, a store whose Label has no Comment or is Locked, or that has one more global.
 #[test]
 fn clear_all_of_a_price_store_in_an_unmeasured_shape_refuses() {
-    assert_refused("AliasNeverWritten", "whose instance another variable shares");
     assert_refused("AliasAndCopy", "a temporary table that another record shares");
     assert_refused("CopySharedEmpty", "a temporary table that another record shares");
     for name in ["SiOwner", "TableNoOwner", "PlainLabel", "LockedLabel", "More"] {

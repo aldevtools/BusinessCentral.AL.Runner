@@ -514,7 +514,10 @@ impl TempId {
         let id = self.0.id;
         (self.0.copy_targets.borrow().iter())
             .filter_map(std::rc::Weak::upgrade)
-            .filter(|r| r.try_borrow().is_ok_and(|r| r.temp_id.as_ref().is_some_and(|t| t.id() == id)))
+            .filter(|r| {
+                r.try_borrow()
+                    .is_ok_and(|r| r.temp_id.as_ref().is_some_and(|t| t.id() == id))
+            })
             .collect()
     }
 
