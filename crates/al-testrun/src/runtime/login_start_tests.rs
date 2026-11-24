@@ -337,7 +337,7 @@ fn the_image_line_reports_the_kept_bytes_and_the_nodes_per_kind() {
 /// The key of a new session of `engine` whose login skipped `skipped`.
 fn key_skipping(engine: &Arc<Engine>, skipped: &[al_vm::SkippedInstall]) -> Key {
     let mut session = al_vm::Session::new(engine.clone());
-    Key::of(&mut session, Default::default(), SessionFlags::default(), skipped)
+    Key::of(&mut session, Default::default(), SessionFlags::default(), skipped).expect("a key")
 }
 
 // The open runs under the watch of the skipped installs, whose hit marks or refuses: another list is another key.
@@ -546,7 +546,7 @@ fn a_session_the_gate_refuses_runs_its_login_and_is_counted() {
 fn numbered_key(engine: &Arc<Engine>, n: i32) -> Key {
     let mut session = al_vm::Session::new(engine.clone());
     session.set_work_date(1000 + n);
-    Key::of(&mut session, Default::default(), SessionFlags::default(), &[])
+    Key::of(&mut session, Default::default(), SessionFlags::default(), &[]).expect("a key")
 }
 
 /// A start whose image holds `bytes` of text in a SingleInstance codeunit's global: `kept_bytes` is a little more.
@@ -753,7 +753,7 @@ fn the_numbers_mark_the_runner_sets_is_another_key_and_the_thaw_keeps_the_target
         if let Some(why) = mark {
             session.mark_numbers_unmeasured(std::rc::Rc::from(why));
         }
-        Key::of(&mut session, Default::default(), SessionFlags::default(), &[])
+        Key::of(&mut session, Default::default(), SessionFlags::default(), &[]).expect("a key")
     };
     assert_eq!(key_of(None), key_of(None), "GUARD");
     assert_ne!(key_of(None), key_of(Some("an earlier codeunit took numbers")));
@@ -800,7 +800,7 @@ fn a_tables_digest_is_kept_per_state_and_a_write_makes_another() {
     };
     assert!(session.store_mut().insert(&cx, &table, row(1)).is_ok());
     session.commit_transaction();
-    let key = |s: &mut al_vm::Session| Key::of(s, Default::default(), SessionFlags::default(), &[]);
+    let key = |s: &mut al_vm::Session| Key::of(s, Default::default(), SessionFlags::default(), &[]).expect("a key");
     let first = key(&mut session);
     assert_eq!(
         key(&mut session),
@@ -854,4 +854,62 @@ fn a_call_count_that_differs_between_real_logins_of_one_key_is_no_difference() {
     );
     assert!(report.contains("2 compared, 0 differ"), "{report}");
     assert!(report.contains("replay vs run: 2 checked, 0 differ"), "{report}");
+}
+
+// ---- The key hashes each row's bytes; a row with no byte form gives no key ----
+
+/// A session of `engine` holding a committed row of "Guided Experience Item" whose second field (when it has one) or first is
+/// `v`, and the install baseline captured from it.
+fn baseline_with_value(engine: &Arc<Engine>, id: i32, v: Value) -> al_vm::Baseline {
+    use al_data::Store;
+    let mut session = al_vm::Session::new(engine.clone());
+    let at = (engine.program.objects.iter())
+        .position(|o| o.name == "Guided Experience Item")
+        .unwrap();
+    let t = engine.tables[at].clone().unwrap();
+    let mut row: Vec<Value> = t.fields.iter().map(|f| Value::default_for(&f.ty)).collect();
+    row[0] = Value::Integer(id);
+    *row.last_mut().unwrap() = v;
+    let cx = al_data::AccessContext {
+        company: session.access_company().into(),
+        user: session.user_id().into(),
+    };
+    assert!(session.store_mut().insert(&cx, &t, row).is_ok());
+    session.commit_transaction();
+    session.capture_baseline()
+}
+
+// A committed row that holds a value with no byte form (a SQL counter, a placeholder's size) gives no key: the
+// sessions run their logins (nothing replays), pass as before, and the starts line counts `no key: <kind>`. The stub
+// hashes the Debug text, so it gives a key, the second session takes the start and the line has no `no key`.
+#[test]
+fn a_row_with_no_byte_form_gives_no_key_and_the_session_runs_its_login() {
+    use al_builtins::value::{SqlCount, SqlForm, SqlType};
+    let count = Value::SqlCount(SqlCount {
+        n: 3,
+        form: SqlForm::Delta,
+        ty: SqlType::BigInteger,
+    });
+    let size = Value::PlaceholderSize("mark".into(), SqlType::Integer);
+    for (what, v) in [("SqlCount", count), ("PlaceholderSize", size)] {
+        let (engine, l) = compiled();
+        let baseline = baseline_with_value(&engine, 99, v);
+        let ran = sessions_with(
+            &engine,
+            &l,
+            "RPL Tests A",
+            2,
+            &on(),
+            &Setup {
+                baseline: Some(&baseline),
+                ..Default::default()
+            },
+        );
+        for (i, o) in ran.outcomes.iter().enumerate() {
+            assert_eq!(*o, passes(), "{what}: session {i}");
+        }
+        assert_eq!(starts(&engine).replayed(), 0, "{what}: no key, so no start is taken");
+        let line = starts(&engine).line().unwrap_or_default();
+        assert!(line.contains("no key: "), "{what}: the starts line counts it: {line}");
+    }
 }

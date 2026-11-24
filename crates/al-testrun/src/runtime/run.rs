@@ -230,8 +230,17 @@ fn open_company(
             )
         })
     };
-    let key = (check || (flags.login_replay() && raises()))
-        .then(|| crate::login_replay::Key::of(session, (isolation, scratch.hub), flags, skipped_installs));
+    let key = match (check || (flags.login_replay() && raises()))
+        .then(|| crate::login_replay::Key::of(session, (isolation, scratch.hub), flags, skipped_installs))
+    {
+        Some(Ok(key)) => Some(key),
+        // A row holds a value with no byte form: the session runs its login, counted in the starts line.
+        Some(Err(no_key)) => {
+            crate::login_start::no_key(&engine, no_key);
+            None
+        }
+        None => None,
+    };
     let notes_code = observed || session.notes_code_run() || crate::profiling::active();
     let perturbed = *perturb != crate::stability::Perturb::default() || scratch.clock_start.is_some();
     let facts = crate::login_start::RunFacts {

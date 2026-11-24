@@ -34,10 +34,12 @@
 
 mod difference;
 mod key_parts;
+mod rows_digest;
 
 use al_vm::{Engine, Session};
 pub(crate) use difference::differences;
 use difference::{KINDS, StoredRow, stored_rows};
+pub(crate) use rows_digest::NoKey;
 use std::sync::{Mutex, PoisonError};
 
 /// The inputs the login and its subscribers read when the test session opens the company, as far as the code shows them:
@@ -131,18 +133,22 @@ impl RunSettings {
 impl Key {
     /// The key of `session` before it opens the company; `isolation`: the codeunit's test isolation and whether the hub
     /// runs it; `flags`: the run options the session took; `skipped`: the install code that could not run, whose tables
-    /// the open is watched on.
+    /// the open is watched on. [`NoKey`] when a row holds a value with no byte form (`rows_digest.rs`): the session then
+    /// runs its login.
     pub(crate) fn of(
         session: &mut Session,
         isolation: (crate::isolation::TestIsolation, bool),
         flags: crate::runtime::session_flags::SessionFlags,
         skipped: &[al_vm::SkippedInstall],
-    ) -> Key {
+    ) -> Result<Key, NoKey> {
         let engine = session.engine.clone();
         let store = session.store_mut();
-        let tables = key_parts::store_table_digests(&engine, store);
+        let tables = key_parts::store_table_digests(&engine, store)?;
         let database = key_parts::database_digest(&tables);
-        let uncommitted = store.has_uncommitted().then(|| digest(&current_rows(store)));
+        let uncommitted = match store.has_uncommitted() {
+            true => Some(rows_digest::current_digest(store)?),
+            false => None,
+        };
         let backing = BackingKey::of(store.backing_identity());
         let resources = {
             let overrides = session
@@ -161,7 +167,7 @@ impl Key {
         };
         let state = session.state_lines();
         let opaque: Vec<String> = state.opaque.iter().map(al_vm::NotComparable::line).collect();
-        Key {
+        Ok(Key {
             database,
             uncommitted,
             backing,
@@ -182,7 +188,7 @@ impl Key {
             skipped: skipped.to_vec(),
             isolation,
             run: RunSettings::now(),
-        }
+        })
     }
 }
 
@@ -838,22 +844,6 @@ pub(crate) fn report(engine: &Engine) -> Option<String> {
         Some(image) => format!("{line}\n{image}{keys}"),
         None => format!("{line}{keys}"),
     })
-}
-
-/// Every row `store` holds now, the uncommitted changes included, one line each ([`rows`]).
-fn current_rows(store: &al_data::memory::MemStore) -> Vec<String> {
-    rows(&store.export_current())
-}
-
-/// The rows of `tables`, one line each: company, table object and the row with its system fields.
-fn rows(tables: &[al_data::memory::ExportedTable]) -> Vec<String> {
-    let mut out = Vec::new();
-    for t in tables {
-        for (_, row) in &t.rows {
-            out.push(format!("{}|{}|{row:?}", t.company, t.object));
-        }
-    }
-    out
 }
 
 /// A SHA-256 of lines, for a key field: two inputs that differ have other digests (no 64-bit hash collides them).

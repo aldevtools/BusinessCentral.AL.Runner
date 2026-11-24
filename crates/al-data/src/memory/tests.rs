@@ -947,3 +947,25 @@ fn a_deleted_out_backed_table_stays_empty_after_the_way_back() {
     let back = MemStore::from_exported(s.export_committed().unwrap()).with_backing(b);
     assert_eq!(back.count(&cx, &t, &[]).unwrap(), 0, "not restored again");
 }
+
+// A guard: `committed_rows` gives the rows `committed_table`
+// clones, by reference, in key order; `None` for a table the store holds no entry for. Rows written but not committed are
+// not in it.
+#[test]
+fn committed_rows_are_committed_tables_rows_by_reference_in_key_order() {
+    use crate::contract::{cx, row, table};
+    let (c, t) = (cx("C"), table());
+    let mut s = MemStore::default();
+    for no in ["C", "A", "B"] {
+        s.insert(&c, &t, row(no, 1, 1)).unwrap();
+    }
+    s.commit();
+    s.insert(&c, &t, row("D", 1, 1)).unwrap();
+    let (cloned, _) = s.committed_table("C", 7).unwrap();
+    let by_ref: Vec<&Row> = s.committed_rows("C", 7).unwrap().collect();
+    let expected: Vec<&Row> = cloned.rows.iter().map(|(_, r)| r).collect();
+    assert_eq!(format!("{by_ref:?}"), format!("{expected:?}"));
+    assert_eq!(by_ref.len(), 3, "the uncommitted row is not in it");
+    assert!(s.committed_rows("C", 8).is_none(), "an absent table");
+    assert!(s.committed_rows("Other", 7).is_none(), "an absent company");
+}

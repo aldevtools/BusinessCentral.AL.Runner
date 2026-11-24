@@ -685,7 +685,7 @@ fn key_with_uncommitted_row(engine: &Arc<Engine>, id: i32) -> crate::login_repla
     assert!(session.store_mut().insert(&cx, &t, row).is_ok());
     assert!(session.store_mut().has_uncommitted());
     let flags = super::session_flags::SessionFlags::of(&RunOptions::default());
-    crate::login_replay::Key::of(&mut session, Default::default(), flags, &[])
+    crate::login_replay::Key::of(&mut session, Default::default(), flags, &[]).expect("a key")
 }
 
 // The rows a session holds uncommitted before the login are an input of the login (it reads them): two sessions whose

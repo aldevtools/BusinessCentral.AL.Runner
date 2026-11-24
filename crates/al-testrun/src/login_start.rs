@@ -62,6 +62,8 @@ pub(crate) enum NotTaken {
     Target(&'static str),
     /// The store the session starts from has another shape than the start's (`LoginImage::base_shape`).
     BaseShape,
+    /// The session has no key: a row holds a value with no byte form, of this kind (`login_replay::NoKey`).
+    NoKey(&'static str),
     /// The thaw refused the session (`Session::thaw_login_image`).
     NotThawed(al_vm::NotThawed),
 }
@@ -77,6 +79,7 @@ impl NotTaken {
             NotTaken::RealFiles => "a real files directory (--files-dir)".into(),
             NotTaken::Target(field) => format!("target: {field}"),
             NotTaken::BaseShape => "base shape".into(),
+            NotTaken::NoKey(kind) => format!("no key: {kind}"),
             NotTaken::NotThawed(why) => format!("not thawed: {}", why.reason()),
         }
     }
@@ -267,6 +270,11 @@ pub(crate) fn run_gate(run: RunFacts) -> Option<NotTaken> {
     } else {
         None
     }
+}
+
+/// Counts a session of `engine` that has no key (`no_key`): it runs its login.
+pub(crate) fn no_key(engine: &Engine, no_key: crate::login_replay::NoKey) {
+    starts(engine).not_taken(NotTaken::NoKey(no_key.0));
 }
 
 /// Why a session that was `target` (`Session::thaw_target_why`) with a store of shape `shape` before its login cannot take
