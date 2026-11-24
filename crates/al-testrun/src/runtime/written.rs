@@ -739,7 +739,7 @@ pub(crate) fn stmt_places(body: &[Stmt], note: &mut dyn FnMut(&Place)) {
 
 /// Calls `note` on each place expression `e` itself names: a load, a `var` argument, the receiver a builtin takes by
 /// reference (`R.Insert()`). With [`stmt_places`] and a walk of every expression, every place a body names.
-pub(crate) fn expr_places(e: &Expr, note: &mut dyn FnMut(&Place)) {
+fn expr_places(e: &Expr, note: &mut dyn FnMut(&Place)) {
     fn refs(args: &[Arg], note: &mut dyn FnMut(&Place)) {
         for a in args {
             if let Arg::Ref(p) = a {
@@ -1428,15 +1428,16 @@ impl Rec<'_> {
             // 8992: every OnRun took the subscribers of the tables of the codeunit's unused globals). The globals of
             // other objects and the other types of slot count in every routine of their object, as before: a page,
             // report, xmlport or table uses some of its globals without a statement naming them.
-            let named = (obj.kind == ObjKind::Codeunit).then(|| globals_named(body));
+            let named = (obj.kind == ObjKind::Codeunit && obj.globals.iter().any(|s| is_record(&s.ty)))
+                .then(|| globals_named(body));
             for s in &rt.locals {
                 self.slot(&s.ty);
             }
             for (g, s) in obj.globals.iter().enumerate() {
-                let unnamed_record = named.as_ref().is_some_and(|n| !n.contains(&g)) && is_record(&s.ty);
-                if !unnamed_record {
-                    self.slot(&s.ty);
+                if is_record(&s.ty) && named.as_ref().is_some_and(|n| !n.contains(&g)) {
+                    continue;
                 }
+                self.slot(&s.ty);
             }
             self.places(o, body);
             al_ir::types::for_each_expr_post(body, &mut |e| self.expr(o, r, e));
