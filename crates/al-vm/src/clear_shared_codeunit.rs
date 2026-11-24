@@ -66,7 +66,7 @@ impl Session {
                     if !(matches!(
                         self.owner_kind(owner),
                         Some(Owner::Plain | Owner::SingleInstance | Owner::Test)
-                    ) && self.store_kind(object) == Some(Store::TempRef)
+                    ) && self.store_kind(object, Labels::Counted) == Some(Store::TempRef)
                         && !self.frames.contains(&object))
                     {
                         return Err(temp_rows_refusal());
@@ -130,8 +130,7 @@ impl Session {
                         .is_some_and(|t| self.temps.get(&t.id()).is_some_and(|s| s.change_counter() > 0))
             }
             Value::Codeunit(rc) if self.plain_codeunit(rc.borrow().object as usize) => {
-                let globals = rc.borrow().globals.clone();
-                globals.iter().any(|g| self.holds_temp_rows(g, depth + 1))
+                rc.borrow().globals.iter().any(|g| self.holds_temp_rows(g, depth + 1))
             }
             Value::Array(items) => items.borrow().iter().any(|e| self.holds_temp_rows(e, depth + 1)),
             _ => false,
@@ -151,38 +150,35 @@ impl Session {
     /// ClearAll 1", ClearSharedCodeunitSIOwner.al:2048). `None` for any other object.
     fn owner_kind(&self, owner: usize) -> Option<Owner> {
         let o = &self.engine.program.objects[owner];
-        let subtypes: Vec<&str> = (o.properties.iter())
-            .filter(|(k, _)| k.eq_ignore_ascii_case("Subtype"))
-            .map(|(_, v)| v.as_str())
-            .collect();
         if o.kind != al_ir::ObjKind::Codeunit || o.rec_slot.is_some() {
             return None;
         }
-        match (subtypes.as_slice(), self.engine.object_facts[owner].single_instance) {
-            ([], false) => Some(Owner::Plain),
-            ([], true) => Some(Owner::SingleInstance),
-            ([v], false) if v.eq_ignore_ascii_case("Test") => Some(Owner::Test),
+        match (
+            self.declared_subtype(owner),
+            self.engine.object_facts[owner].single_instance,
+        ) {
+            (None, false) => Some(Owner::Plain),
+            (None, true) => Some(Owner::SingleInstance),
+            (Some(v), false) if v.eq_ignore_ascii_case("Test") => Some(Owner::Test),
             _ => None,
         }
     }
 
-    /// The store shape of codeunit `object`, by its globals (every one, a Label among them), for the stores the corpus
-    /// measures `ClearAll()` on: not SingleInstance, no TableNo, and globals of [`Store`]'s kinds. `None` for any other.
-    fn store_kind(&self, object: usize) -> Option<Store> {
+    /// The store shape of codeunit `object`, by its globals (a Label counted or skipped as `labels` says), for the stores the
+    /// corpus measures: not SingleInstance, no TableNo, and globals of [`Store`]'s kinds. `None` for any other.
+    fn store_kind(&self, object: usize, labels: Labels) -> Option<Store> {
         let o = &self.engine.program.objects[object];
         if !self.plain_codeunit(object) || o.rec_slot.is_some() {
             return None;
         }
-        let kinds: Vec<&RtType> = o.globals.iter().map(|g| &g.ty).collect();
-        let array = |t: &RtType, dims: usize, el: &dyn Fn(&RtType) -> bool| matches!(t, RtType::Array(d, e) if d.len() == dims && el(e));
-        let record_ref =
-            |t: &RtType| matches!(t, RtType::Library(k) if *k == al_builtins::library_kind::LibraryKind::RecordRef);
-        let integer = |t: &RtType| matches!(t, RtType::Integer);
-        let temp_record = |t: &RtType| matches!(t, RtType::Record(_, true));
+        let kinds: Vec<&RtType> = (o.globals.iter())
+            .filter(|g| labels == Labels::Counted || !g.label)
+            .map(|g| &g.ty)
+            .collect();
         match kinds.as_slice() {
             [RtType::Integer] => Some(Store::Integer),
             _ if temp_ref_kinds(&kinds) => Some(Store::TempRef),
-            [r, f, i] if array(r, 1, &temp_record) && array(f, 1, &record_ref) && array(i, 1, &integer) => {
+            [r, f, i] if array_with(r, 1, temp_record) && array_with(f, 1, record_ref) && array_with(i, 1, integer) => {
                 Some(Store::TempArray)
             }
             _ => None,
@@ -204,7 +200,7 @@ impl Session {
     fn shared_pair(&self, owner: usize, v: &Value) -> bool {
         let Value::Codeunit(rc) = v else { return false };
         let object = rc.borrow().object as usize;
-        let measured = match (self.owner_kind(owner), self.store_kind(object)) {
+        let measured = match (self.owner_kind(owner), self.store_kind(object, Labels::Counted)) {
             (Some(Owner::Plain), Some(Store::Integer)) => true,
             (Some(_), Some(Store::TempRef)) => true,
             (Some(Owner::Plain), Some(Store::TempArray)) => self.holds_temp_rows(v, 0),
@@ -234,9 +230,7 @@ impl Session {
     /// read. A global Label or TextConst ([`ir::Slot::label`]) may stand anywhere among them: AL code cannot assign it, and
     /// 1561's store has none.
     pub(crate) fn temp_ref_store(&self, object: usize) -> bool {
-        let o = &self.engine.program.objects[object];
-        let kinds: Vec<&RtType> = (o.globals.iter()).filter(|g| !g.label).map(|g| &g.ty).collect();
-        self.plain_codeunit(object) && o.rec_slot.is_none() && temp_ref_kinds(&kinds)
+        self.store_kind(object, Labels::Skipped) == Some(Store::TempRef)
     }
 
     /// `Clear` of place `p`, whose value `v` the native clears next (al-builtins `native/values.rs`, which keeps an unused
@@ -249,6 +243,9 @@ impl Session {
     /// of codeunits whose unused element another holder shares. An instance nothing else holds keeps main's answer with no
     /// mark: a fresh unused instance reads the same. An Interface or Variant place keeps its own path (`exec/run.rs`).
     pub(crate) fn clear_shared_codeunit(&mut self, p: &ir::Place, v: &mut Value, f: &Frame) -> Result<(), Signal> {
+        if !matches!(v, Value::Codeunit(_) | Value::Array(_)) {
+            return Ok(());
+        }
         match (self.place_type(p, f), &*v) {
             (RtType::Codeunit(_), Value::Codeunit(rc))
                 if !rc.borrow().initialized && self.plain_codeunit(rc.borrow().object as usize) =>
@@ -419,15 +416,24 @@ fn temp_rows_refusal() -> Signal {
 /// ClearSharedCodeunitTempRef.al:55-59): one temporary record, one array of RecordRef of two dimensions, one array of
 /// Integer of one dimension. The sizes of the arrays and the table are not read.
 fn temp_ref_kinds(kinds: &[&RtType]) -> bool {
-    match kinds {
-        [RtType::Record(_, true), RtType::Array(d2, r), RtType::Array(d1, i)] => {
-            d2.len() == 2
-                && matches!(&**r, RtType::Library(k) if *k == al_builtins::library_kind::LibraryKind::RecordRef)
-                && d1.len() == 1
-                && matches!(**i, RtType::Integer)
-        }
-        _ => false,
-    }
+    matches!(kinds, [r, f, i] if temp_record(r) && array_with(f, 2, record_ref) && array_with(i, 1, integer))
+}
+
+/// Whether `t` is an array of `dims` dimensions whose element type passes `el`.
+fn array_with(t: &RtType, dims: usize, el: fn(&RtType) -> bool) -> bool {
+    matches!(t, RtType::Array(d, e) if d.len() == dims && el(e))
+}
+
+fn temp_record(t: &RtType) -> bool {
+    matches!(t, RtType::Record(_, true))
+}
+
+fn record_ref(t: &RtType) -> bool {
+    matches!(t, RtType::Library(k) if *k == al_builtins::library_kind::LibraryKind::RecordRef)
+}
+
+fn integer(t: &RtType) -> bool {
+    matches!(t, RtType::Integer)
 }
 
 /// The owners whose `ClearAll()` the corpus measures on a store global ([`Session::owner_kind`]).
@@ -451,4 +457,13 @@ enum Store {
     /// "CLS Arr Store" (ClearSharedCodeunitSIOwner.al:42-47): an array of temporary records, an array of RecordRef and an
     /// array of Integer, each of one dimension.
     TempArray,
+}
+
+/// Whether [`Session::store_kind`] counts a global Label or TextConst ([`ir::Slot::label`]) as a global of the store.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Labels {
+    /// Counted: a Label makes the store another shape (`ClearAll()`; 1561's stores have none).
+    Counted,
+    /// Skipped: AL code cannot assign a Label (the login check, `temp_ref_store`).
+    Skipped,
 }

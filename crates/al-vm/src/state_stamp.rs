@@ -80,7 +80,7 @@ pub struct LeftStamp {
 struct Single {
     /// The fingerprint of each global.
     globals: Vec<crate::single_track::Fp>,
-    /// Per global: it holds what a fresh instance of the codeunit holds ([`at_declared`]). Empty when the instance has
+    /// Per global: it holds what a fresh instance of the codeunit holds ([`Session::at_declared`]). Empty when the instance has
     /// another number of globals than a fresh one.
     declared: Vec<bool>,
     /// A global holds a codeunit instance a call made whose globals hold their declared values, and it took the fingerprint
@@ -112,11 +112,15 @@ pub struct LeftChange {
 impl LeftChange {
     /// Nothing changed ([`LeftChange::declared_form`] is no change).
     pub fn is_empty(&self) -> bool {
-        self.session.is_none()
-            && !self.number_sequences
-            && !self.isolated_storage
-            && !self.random
-            && self.singles.is_empty()
+        let LeftChange {
+            session,
+            number_sequences,
+            isolated_storage,
+            random,
+            singles,
+            declared_form: _,
+        } = self;
+        session.is_none() && !number_sequences && !isolated_storage && !random && singles.is_empty()
     }
 }
 
