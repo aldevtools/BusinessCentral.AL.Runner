@@ -256,3 +256,7 @@ SRN Neighbors::RecordSetRangeTypedCodeIntoInteger	REFUSED SetRange or SetFilter 
 SRN Neighbors::SetFilterOtherText	REFUSED SetRange or SetFilter of Code 'ABC' into a Integer field in a shape no cell measures (assumption setrange-other-type-convert)
 SRN Neighbors::TemporaryRecordRef	REFUSED SetRange or SetFilter of Code 'ABC' into a Integer field in a shape no cell measures (assumption setrange-other-type-convert)
 SRN Neighbors::TrueIntoCodeOnTemporary	REFUSED SetRange or SetFilter of Boolean true into a Code[20] field
+# BC 27 only: route v (FieldRef.Value :=) gives the BC 27 text; this app expects the BC 28 text, and main does not run the test.
+# The BC 27 values of every probe test are asserted by ../fix-8857-setrange-convert-bc27.
+SFK Other Kinds Tests::CodeABC_D_Value	PINNED tests/al-language/recordref-fieldref/fieldref/Y67FieldRefValidateVariant.al:619	27
+SFK Other Kinds Tests::TxtXY_D_Value	PINNED tests/al-language/recordref-fieldref/fieldref/Y67FieldRefValidateVariant.al:614	27
