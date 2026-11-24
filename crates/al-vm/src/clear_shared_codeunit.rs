@@ -333,10 +333,11 @@ impl Session {
         self.store_kind_of(object, true)
     }
 
-    /// [`Session::store_kind`], with the register and the wrapper (the stores that hold another store) only when `holder`.
-    /// The store they hold is read with `holder` false: it must be one that holds none, so a codeunit that holds itself,
-    /// directly or through others, is no store and is not read again. Read with `holder` true, such a codeunit recursed
-    /// until the stack overflowed (issue 9022).
+    /// [`Session::store_kind`], with the two stores that hold another store, [`Store::Wrapper`] and [`Store::Register`],
+    /// only when `holder`. The store they hold is read with `holder` false: each measured one holds a store that holds no
+    /// other ("CLB Store" in "CLQ Wrapper", ClearSharedCodeunitOwnerKinds.al:268; "CLX Store" in "CLR Register",
+    /// ClearSharedCodeunitSetterOwner.al:47-58). So a codeunit that holds itself, directly or through other codeunits, has
+    /// no measured shape and is read once more at most (al-runner issue 9022).
     fn store_kind_of(&self, object: usize, holder: bool) -> Option<Store> {
         let o = &self.engine.program.objects[object];
         if !self.plain_codeunit(object) {

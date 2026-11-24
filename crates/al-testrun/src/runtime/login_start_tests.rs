@@ -261,7 +261,7 @@ fn the_checks_twin_holds_before_its_thaw_what_the_session_held_before_its_login(
 /// [`MAIN`] with a login subscriber that commits: at UpdateNoLocks, the type the login runs at, the Commit keeps the
 /// type and marks it `commit-keeps-transaction-type` (al-vm `Session::keep_type_at_commit`, `TxState::type_origin`).
 const COMMITS_IN_THE_LOGIN: &str = r#"
-codeunit 77491 "RPL Snapshot Registration"
+codeunit 77491 "RPL Commit Registration"
 {
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
     local procedure RegisterManualSetup() begin Commit(); end;
