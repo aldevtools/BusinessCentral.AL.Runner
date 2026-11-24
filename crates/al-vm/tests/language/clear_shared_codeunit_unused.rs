@@ -26,7 +26,8 @@ codeunit 50947 UTwoDim { var Rows: array[2, 2] of Record URow temporary; Ints: a
     procedure Set(V: Integer) begin Ints[1] := V; end; procedure Touch() begin end; }
 codeunit 50948 UReg { TableNo = URow;
     var Rows: Record URow temporary; Rec: Record URow; Dec: Decimal; Flag: Boolean; Cd: Code[20]; Nested: Codeunit UInt;
-    procedure Set(V: Integer) begin Dec := V; end; procedure Touch() begin end; }
+    procedure Set(V: Integer) begin Dec := V; end; procedure Touch() begin end;
+    procedure ShareRows(var T: Record URow temporary) begin T.Copy(Rows, true); end; }
 codeunit 50949 UPrice { var T1: Record URow temporary; Kind: Enum UKind; Int: Integer; LblC: Label 'store label', Comment = 'c';
     procedure Set(V: Integer) begin Int := V; end; procedure Touch() begin end; }
 interface UFace { procedure Set(V: Integer); }
@@ -60,8 +61,8 @@ codeunit 50951 T {
     begin O.ShareArr(Y); if Mode = 1 then Y.Set(3); if Mode = 2 then Y.Touch(); O.ClearAllGlobals(); exit('done'); end;
     procedure TwoDim(Mode: Integer): Text var O: Codeunit UOwner; Y: Codeunit UTwoDim;
     begin O.ShareTwoDim(Y); if Mode = 1 then Y.Set(3); if Mode = 2 then Y.Touch(); O.ClearAllGlobals(); exit('done'); end;
-    procedure Reg(Mode: Integer): Text var O: Codeunit UOwner; Y: Codeunit UReg;
-    begin O.SetReg(Y); if Mode = 1 then Y.Set(3); if Mode = 2 then Y.Touch(); O.ClearAllGlobals(); exit('done'); end;
+    procedure Reg(Mode: Integer): Text var O: Codeunit UOwner; Y: Codeunit UReg; T: Record URow temporary;
+    begin O.SetReg(Y); if Mode = 4 then Y.ShareRows(T); if Mode = 1 then Y.Set(3); if Mode = 2 then Y.Touch(); O.ClearAllGlobals(); exit('done'); end;
     procedure Price(Mode: Integer): Text var O: Codeunit UOwner; Y: Codeunit UPrice;
     begin O.SharePrice(Y); if Mode = 1 then Y.Set(3); if Mode = 2 then Y.Touch(); O.ClearAllGlobals(); exit('done'); end;
     procedure PlusFace(Mode: Integer): Text var O: Codeunit UFaceOwner; Y: Codeunit UPlusFace; I: Interface UFace;
@@ -75,6 +76,8 @@ const NONE: i32 = 0;
 const WRITES: i32 = 1;
 /// A call that writes nothing.
 const WRITES_NOTHING: i32 = 2;
+/// A call that only shares the register's table with a record of the test (`Copy(Rows, true)`): no row, no scalar.
+const SHARES_ROWS: i32 = 4;
 /// No call; an Interface variable shares the store too.
 const INTERFACE: i32 = 3;
 
@@ -131,4 +134,17 @@ fn clear_all_of_an_uncalled_store_that_implements_an_interface_refuses() {
     for mode in [NONE, INTERFACE] {
         assert_refused("PlusFace", &cell("PlusFace", mode).0, why);
     }
+}
+
+// The register's table shared with a record of the test through `Copy(Rows, true)`, and no call wrote a row or a scalar:
+// every register cell of corpus PR 1564 calls `MarkReg()` first (ClearSharedCodeunitSetterOwner.al
+// TableNoRun_VarSetter_SharedNever :437), so this refuses.
+#[test]
+fn clear_all_of_a_shared_register_whose_table_is_shared_and_no_call_wrote_refuses() {
+    let (answer, _) = cell("Reg", SHARES_ROWS);
+    assert_refused(
+        "Reg",
+        &answer,
+        "ClearAll of a global variable that reaches a temporary table that another record shares",
+    );
 }

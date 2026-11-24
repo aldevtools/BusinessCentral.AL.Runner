@@ -73,7 +73,7 @@ impl Session {
                     let holding = if shared {
                         if !rc.borrow().initialized {
                             Holding::SharedUncalled
-                        } else if hold == TempHold::Empty && !self.wrote_scalar(rc, 0) {
+                        } else if !self.temp_rows_now(v) && !self.wrote_scalar(rc, 0) {
                             Holding::SharedUnwritten
                         } else {
                             Holding::Shared
