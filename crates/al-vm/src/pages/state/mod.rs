@@ -1064,6 +1064,11 @@ pub struct PageState {
     /// The store's change counter when the page began to open (`open_page`): `coded_open_on_empty_view` tells by it whether
     /// OnOpenPage or a part's trigger wrote at the open.
     pub open_changes: u64,
+    /// The control's OnValidate that ran last on the page failed with an AL error in a shape the cells of
+    /// ListNewLineExtraCodeCodedTableTriggers.al measure (`run_control_onvalidate`, read by `coded_error_measured`): before
+    /// any `CurrPage.SaveRecord` or `CurrPage.Update`, after its table field stored the new line (:1269) or skipped its insert
+    /// (:1684); or after one `CurrPage.SaveRecord` that saved a line the table field did not insert (:1674).
+    pub control_failed_as_measured: bool,
     /// The page control's own OnValidate while it runs (`code_inserted_new_line.rs` `run_control_onvalidate`).
     pub control_onvalidate: Option<ControlOnValidate>,
     /// `CurrPage.SaveRecord()` saved the row page code found from the new-row line through assumption

@@ -404,7 +404,9 @@ impl Session {
     /// out of code the cells measure raising it, by its stack, innermost first: its table's OnInsert at the insert the landing
     /// control's table field makes in its OnValidate (ListNewLineExtraCodeCodedTableTriggers.al:746, two frames); that table
     /// field's OnValidate itself, a TestField before the insert or an error after it (:1249, :1259); the landing control's own
-    /// OnValidate before its save (:1269). Any other stack keeps main's way (review of al-runner PR 8840, 01:32Z).
+    /// OnValidate before its save (:1269), or with the table field skipping its insert before or after the control's plain
+    /// save (:1674, :1684; `PageState::control_failed_as_measured`, review of al-runner PR 8840, 07:30Z). Any other stack
+    /// keeps main's way (review of al-runner PR 8840, 01:32Z).
     pub(super) fn coded_error_measured(&self, st: &St, e: &al_builtins::native::AlError) -> bool {
         let landing = match Self::test_calls(st).as_deref() {
             Some([TestCall::Page(PageMethod::New), TestCall::Write(landing)]) => *landing,
@@ -438,7 +440,9 @@ impl Session {
             |line: &str, head: &Option<String>| head.as_ref().is_some_and(|h| line.starts_with(&format!("{h} line ")));
         match e.call_stack.lines().collect::<Vec<_>>().as_slice() {
             [inner, outer] => is(inner, &on_insert) && is(outer, &field_validate),
-            [only] => is(only, &field_validate) || is(only, &control_validate),
+            [only] => {
+                is(only, &field_validate) || (is(only, &control_validate) && st.borrow().control_failed_as_measured)
+            }
             _ => false,
         }
     }
