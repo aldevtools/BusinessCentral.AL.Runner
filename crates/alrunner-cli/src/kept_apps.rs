@@ -193,7 +193,10 @@ impl KeptApps {
                 .map(|p| apps::load(p, build))
                 .collect::<Result<Vec<_>, _>>()?;
             self.reads += inputs.len();
-            inputs.iter().for_each(|i| _ = i.test_codeunits());
+            for i in &inputs {
+                i.test_codeunits();
+                i.manifest_digest();
+            }
             return Ok(inputs);
         }
         let mut kept = Vec::with_capacity(paths.len());
@@ -273,10 +276,11 @@ mod tests {
         app
     }
 
-    /// The app as a fresh read gives it, its test codeunits found.
+    /// The app as a fresh read gives it, its test codeunits found and its manifest digested.
     fn fresh(app: &Path) -> String {
         let input = apps::load(app, None).unwrap();
         input.test_codeunits();
+        input.manifest_digest();
         format!("{input:?}")
     }
 
