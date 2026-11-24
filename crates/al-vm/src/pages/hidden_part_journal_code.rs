@@ -160,7 +160,7 @@ pub(super) fn part_procedure_is(program: &ir::Program, object: usize, page: &ir:
                 receiver: Some(receiver),
                 args,
                 ..
-            } => FILL_RECORD_METHODS.contains(id) && record(receiver) && values(args),
+            } => FILL_RECORD_METHODS.contains(&id.written_base()) && record(receiver) && values(args),
             ir::Expr::Builtin {
                 id,
                 receiver: None,

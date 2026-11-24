@@ -161,6 +161,7 @@ mod resource_reads;
 mod run_page_link_open;
 mod session_fields;
 mod sessionops;
+mod setrange_convert;
 mod setup_no_op;
 mod slot_default;
 mod sqlcount;

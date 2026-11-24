@@ -426,6 +426,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `raise_to.rs`: `Session::raise_to`, an event raised to some…
 - `storage_checkpoint.rs`: The isolated storage and number sequences at a test… Entry: `storage_checkpoint`.
 - `sequence_start.rs`: The number sequences as a test codeunit's tests… Entry: `SequenceStart`.
+- `setrange_convert.rs`: A value of another type than the field's given to SetRange or SetFilter from AL code… Entries: `fieldref_setrange_convert`, `record_setrange_convert`.
 - `state_stamp.rs`: The session language, WorkDate. Entry: `Session::state_stamp`.
 - `state_render.rs`: The one owner of how a value reads… Entry: `Render::new`.
 - `state_facts.rs`: The facts `Session::state_lines` compares besides…

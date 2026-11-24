@@ -1,8 +1,8 @@
 //! The neighbors of the pinned wildcard and Media filter forms keep the answer they had before those forms were pinned, or are
 //! refused (owner rule for allow-list fixes, 2026-11-11):
 //! - The text `?` alone in a placeholder is the literal text only in the pinned shape `[op]%1` as the whole filter on a Text or
-//!   Code field (record/filters/PlaceholderWildcardValue.al:225-293); elsewhere it stays a wildcard, and on an Integer field the
-//!   value raises the evaluate error as before.
+//!   Code field (record/filters/PlaceholderWildcardValue.al:225-293); elsewhere it stays a wildcard; on an Integer field the
+//!   text is refused (al-vm `setrange_convert`).
 //! - GetFilter of a wildcard text written as a literal (`=A*B`, `>A*B`, `A*B..AXB`, `..A*`) is not pinned and stays refused;
 //!   the placeholder and SetRange forms read back quoted (PlaceholderWildcardValue.al:249-262, :413).
 //! - `<>'A *'`, a quoted pattern with blank space, is refused as a filter (only `<>'A*B'` and such without one are pinned,
@@ -144,11 +144,12 @@ fn a_question_mark_placeholder_outside_the_pinned_shape_stays_a_wildcard() {
     assert_eq!(call("Rows", "q alone name"), "3,");
 }
 
+/// A Text into an Integer field through `Record.SetFilter` is a value of another type no cell measures in that call (al-vm
+/// `setrange_convert`).
 #[test]
-fn a_question_mark_placeholder_on_an_integer_raises_the_evaluate_error() {
+fn a_question_mark_placeholder_on_an_integer_is_refused() {
     for which in ["q alone int", "q or int"] {
-        let got = call("Rows", which);
-        assert!(got.starts_with("E: "), "{which}: {got}");
+        refused("Rows", which);
     }
 }
 
