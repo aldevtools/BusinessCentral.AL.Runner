@@ -144,7 +144,7 @@ fn clear_all_of_a_shared_price_store_keeps_one_instance_and_the_shared_table() {
 
 // Shared while T1 holds no row, after a call made the instance, runs flagged (corpus PR 1564 ClearSharedCodeunitHolderKinds.al
 // Price_VarParam_Never :1323, ClearSharedCodeunitHolderSlots.al :4702 to :5167: Mark() or SetInt first). With no call
-// made, no cell: refused.
+// made: refused (measured since corpus PR 1564 commit b77f20dc, not opened yet).
 #[test]
 fn clear_all_of_a_shared_price_store_with_no_row_runs_once_a_call_made_it() {
     assert_eq!(

@@ -50,7 +50,8 @@ codeunit 50720 "U4 ClearAll Tests"
         Y.Set(5);
     end;
 
-    // Not measured for these four stores: every shared cell of corpus PR 1564 made the instance with a call first.
+    // Refused for these four stores with no call: measured since corpus PR 1564 commit b77f20dc
+    // (ClearSharedCodeunitTwoHolders.al Plain<store>_*_Never), not opened yet.
     [Test]
     procedure WrapperAliasNeverCalled()
     var
@@ -95,8 +96,8 @@ codeunit 50720 "U4 ClearAll Tests"
         Y.Set(5);
     end;
 
-    // A call made the instance but wrote nothing (a read). The cells wrote a scalar (ClearSharedCodeunitHolderKinds.al
-    // Price_VarParam_Never :1323); whether the call wrote is not read. Runs flagged: one instance.
+    // A call made the instance but wrote nothing (a read). Every cell that runs wrote a scalar first
+    // (ClearSharedCodeunitHolderKinds.al Price_VarParam_Never :1323): refused.
     [Test]
     procedure PriceStoreAliasReadOnlyCall()
     var

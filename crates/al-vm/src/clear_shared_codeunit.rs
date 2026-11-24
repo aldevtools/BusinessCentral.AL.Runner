@@ -71,10 +71,12 @@ impl Session {
                     }
                     let hold = self.temp_hold(v);
                     let holding = if shared {
-                        if rc.borrow().initialized {
-                            Holding::Shared
-                        } else {
+                        if !rc.borrow().initialized {
                             Holding::SharedUncalled
+                        } else if hold == TempHold::Empty && !self.wrote_scalar(rc, 0) {
+                            Holding::SharedUnwritten
+                        } else {
+                            Holding::Shared
                         }
                     } else if hold != TempHold::Empty {
                         Holding::Written
@@ -89,10 +91,12 @@ impl Session {
                     if !self.measured_cell(owner, v, holding, hold) {
                         return Err(match holding {
                             _ if hold.shared() => shared_table_refusal(),
-                            Holding::Shared | Holding::SharedUncalled => Signal::unsupported(
-                                "ClearAll of a global codeunit variable whose instance another variable shares, in a \
+                            Holding::Shared | Holding::SharedUnwritten | Holding::SharedUncalled => {
+                                Signal::unsupported(
+                                    "ClearAll of a global codeunit variable whose instance another variable shares, in a \
                                  shape the corpus does not pin",
-                            ),
+                                )
+                            }
                             Holding::Written => temp_rows_refusal(),
                         });
                     }
@@ -392,9 +396,41 @@ impl Session {
         };
         measured(o, s, holding, hold)
             && (s != Store::Register || self.register_as_measured(rc))
+            // The store with one more Integer that no call made is measured for "CLQ Store Plus" only
+            // (ClearSharedCodeunitOwnerKinds.al:183, StorePlus_UnusedAlias :684; ClearSharedCodeunitPlusUncalled.al), which
+            // implements no interface: no Interface, List or Dictionary slot can share it.
+            && ((s, holding) != (Store::TempRefPlus, Holding::SharedUncalled) || self.implements_no_interface(rc))
             && (s != Store::PriceList || hold != TempHold::SharedTable || self.temp_rows_now(v))
             && !self.holds_bound_codeunit(v)
             && !self.store_runs(v)
+    }
+
+    /// Whether codeunit instance `rc` is of a codeunit that lists no interface after `implements`
+    /// ([`al_ir::IMPLEMENTS_INTERFACE`]).
+    fn implements_no_interface(&self, rc: &Rc<RefCell<Instance>>) -> bool {
+        let o = &self.engine.program.objects[rc.borrow().object as usize];
+        o.properties.iter().all(|(k, _)| k != al_ir::IMPLEMENTS_INTERFACE)
+    }
+
+    /// Whether a global of instance `rc`, or of an instance a codeunit global of it holds, holds a scalar other than its
+    /// declared value by its fingerprint (`single_track::fp`): what every shared cell of the wrapper, the 2-D store, the
+    /// register and the price store wrote before the ClearAll. Records and arrays of records are left to
+    /// [`Session::temp_hold`].
+    fn wrote_scalar(&mut self, rc: &Rc<RefCell<Instance>>, depth: u8) -> bool {
+        if depth > 8 || !rc.borrow().initialized {
+            return false;
+        }
+        let engine = self.engine.clone();
+        let object = rc.borrow().object as usize;
+        let slots = &engine.program.objects[object].globals;
+        let fresh = self.slot_defaults(slots);
+        let held = rc.borrow().globals.clone();
+        (held.iter().zip(&fresh).zip(slots)).any(|((v, f), slot)| match (v, &slot.ty) {
+            (Value::Codeunit(inner), _) => self.wrote_scalar(inner, depth + 1),
+            (_, RtType::Record(..)) => false,
+            (_, RtType::Array(_, e)) if matches!(**e, RtType::Record(..)) => false,
+            _ => crate::single_track::fp(v, &engine) != crate::single_track::fp(f, &engine),
+        })
     }
 
     /// Whether register instance `rc` ([`Store::Register`]) holds only what ClearSharedCodeunitSetterOwner.al measures before
@@ -662,7 +698,7 @@ fn measured(owner: Owner, store: Store, holding: Holding, hold: TempHold) -> boo
         // ClearAll_TestGlobalCLX_LocalAliasWroteBefore :1568. No call made the instance: the Unused cells of each owner.
         // Every holder slot, written and never, under each owner: ClearSharedCodeunitOwnerSlotsCLX.al PlainCLX_VarParam_Written
         // :584 to :1762, SICLX_* :4819 to :5997, TGCLX_* :6482 to :10215.
-        (Plain | SingleInstance | Test, Integer, Shared | SharedUncalled) => true,
+        (Plain | SingleInstance | Test, Integer, Shared | SharedUnwritten | SharedUncalled) => true,
         // ClearSharedCodeunitTempRef.al ClearAll_GlobalUnusedIface :382, ClearAll_GlobalUnusedValueParam :424,
         // ClearAll_GlobalWritten_NoAlias :1362; ClearSharedCodeunitSIOwner.al ClearAll_SIOwnerUnused_Alias :1411,
         // A3_Step3_ClearAllInOwner :447, ClearAll_TestGlobalUnused_LocalAlias :2058, ClearAll_TestGlobalWritten_NoAlias
@@ -693,8 +729,12 @@ fn measured(owner: Owner, store: Store, holding: Holding, hold: TempHold) -> boo
         // ClearSharedCodeunitOwnerKinds.al StorePlus_* :644 :661 :684, Deep_* :701 :723 :745. Every holder slot, rows now
         // and none: ClearSharedCodeunitHolderKinds.al Plus_VarParam_Rows :2396 to Wrap_SetterIn_Never :3184;
         // ClearSharedCodeunitHolderSlots.al Plus :8127 to :9132, Wrap :9161 to :10534.
-        // No call made the shared instance: StorePlus_UnusedAlias :684. The wrapper is shared only after a call made the
-        // instance (every cell writes first): a shared wrapper no call made has no cell.
+        // No call made the shared instance: StorePlus_UnusedAlias :684, and every slot that needs no interface under the
+        // plain owner, ClearSharedCodeunitPlusUncalled.al PlainPlus_VarParam_Never :765 to PlainPlus_VariantGlobal_Never
+        // :1084, for "CLQ Store Plus", which implements no interface (`Session::measured_cell`). The wrapper runs shared only
+        // after a call made the instance and wrote (every such cell writes first). Shared with no call, or after calls that
+        // wrote nothing: refused; the no-call shape is measured since corpus PR 1564 commit b77f20dc
+        // (ClearSharedCodeunitTwoHolders.al PlainWrap_TwoVarParam_Never :13650), not opened yet.
         (Plain, TempRefPlus, _) | (Plain, Wrapper, Written | Shared) => true,
         // ClearSharedCodeunitSetterOwner.al: shared through a setter, TableNo owner (:318 :345 :372 Run, :508 :535 :562
         // procedure), plain owner (:698 :725 :752 Run, :888 :915 :942 procedure), by-value setter (:1078 :1105); the owner's
@@ -704,7 +744,9 @@ fn measured(owner: Owner, store: Store, holding: Holding, hold: TempHold) -> boo
         // (RegPlain :5195 to :5378, RegTableNo :5607 to :5790), Interface, List and Dictionary slots (RegPlain :6025 to
         // :6310, RegTableNo :6641 to :6926); the same with no row (RegPlain :5405 to :5580 and :6335 to :6618, RegTableNo
         // :5817 to :5992 and :6951 to :7234).
-        // Shared only after a call made the instance.
+        // Shared only after a call made the instance and wrote; with no call (measured since b77f20dc,
+        // ClearSharedCodeunitTwoHolders.al PlainReg_TwoVarParam_Never :19745, not opened yet) or after calls that wrote
+        // nothing: refused.
         (Plain | TableNo, Register, Written | Shared) => true,
         // ClearSharedCodeunitStoreShapes.al: the price store nothing else holds, rows now, ClearAll in SetLine called
         // through an interface (Price_ViaInterface_Filled_SetLine :1206) or directly (:1225), twice (:1277).
@@ -714,13 +756,15 @@ fn measured(owner: Owner, store: Store, holding: Holding, hold: TempHold) -> boo
         // (by-value parameter live, passed, deep and through setters :4215 to :4309, Variant :4338 :4373 :4390, Interface
         // local, caller local and global :4418 :4447 :4464, List and Dictionary of Interface :4492 :4527 :4555 :4590,
         // Interface parameter var and by value :4618 :4639 :4660 :4680; the same cells with no row :4702 to :5167). Every
-        // shared cell made the instance with a call first (Price_VarParam_Never :1323 calls Mark()): a shared instance no
-        // call made has no cell.
+        // shared cell of these files made the instance with a call that wrote a scalar first (Price_VarParam_Never :1323
+        // calls Mark()). With no call (measured since b77f20dc, ClearSharedCodeunitTwoHolders.al
+        // PlainPrice_TwoVarParam_Never :22805, not opened yet) or after calls that wrote nothing: refused.
         (Plain, PriceList, Written | Shared) => true,
         // ClearSharedCodeunitTempArrayShare.al TwoDimWritten_InStore_ClearAll_NoAlias :688, ..._AliasWroteBefore :707.
         // Every holder slot, rows now and none: ClearSharedCodeunitHolderKinds.al TwoDim_VarParam_Rows :3228 to
         // TwoDim_SetterIn_Never :3511; ClearSharedCodeunitHolderSlots.al :10569 to :11502.
-        // Shared only after a call made the instance.
+        // Shared only after a call made the instance and wrote; with no call (measured since b77f20dc, not opened yet) or
+        // after calls that wrote nothing: refused.
         (Plain, TwoDimArray, Written | Shared) => true,
         _ => false,
     }
@@ -834,8 +878,12 @@ enum Store {
 /// How the instance of a store global is held when `ClearAll()` runs in its owner.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Holding {
-    /// Another variable, parameter or interface holds it too, and a call made the instance (`Instance::initialized`).
+    /// Another variable, parameter or interface holds it too, a call made the instance (`Instance::initialized`), and a
+    /// temporary table holds rows or a scalar holds another value than its declared one ([`Session::wrote_scalar`]).
     Shared,
+    /// Another variable, parameter or interface holds it too, a call made the instance, and no row and no scalar was
+    /// written.
+    SharedUnwritten,
     /// Another variable, parameter or interface holds it too, and no call has made the instance yet.
     SharedUncalled,
     /// Nothing else holds it, and its temporary table holds rows now ([`TempHold::Rows`]) or a record outside shares it

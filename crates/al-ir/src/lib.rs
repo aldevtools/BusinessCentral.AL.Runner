@@ -550,6 +550,10 @@ pub const EXT_CAPTION_OVER_OWN: &str = "$ExtCaptionOverOwn";
 /// profile it extends. The All Profile rows read the extension's `Enabled` through it.
 pub const EXTENDS_PROFILE: &str = "$ExtendsProfile";
 
+/// The name of an object property the lowering adds to a codeunit that lists an interface after `implements` (value
+/// `Yes`), resolved or not: an Interface, List or Dictionary of an interface can hold an instance of it.
+pub const IMPLEMENTS_INTERFACE: &str = "$ImplementsInterface";
+
 /// The name of an object property the lowering adds to a test codeunit with ITestHandler callbacks (BC 29): its handler
 /// codeunits in call order, `D<id>` for a DefaultTestHandler handler and `O<id>` for one its TestHandlers names, separated
 /// by commas (al-sema `lower/test_handlers.rs`).

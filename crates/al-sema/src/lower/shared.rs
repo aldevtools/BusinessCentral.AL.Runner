@@ -786,6 +786,9 @@ pub(crate) fn lower_object<'a>(
     let mut properties = with_profile_target(ws, oi, object_properties(&obj, request_section.as_ref()));
     let handler_props = super::test_handlers::properties(ws, members, oi, &properties);
     properties.extend(handler_props);
+    if o.kind == ObjKind::Codeunit && !o.implements.is_empty() {
+        properties.push((ir::IMPLEMENTS_INTERFACE.into(), "Yes".into()));
+    }
     ext_caption_properties(
         ws,
         extensions.get(&oi).map(Vec::as_slice).unwrap_or_default(),
