@@ -1,32 +1,14 @@
 # key	entry
-# GetField with an id no control has (al-runner issue 8887): main refused it on every page kind but a Card, a List, a Document,
-# a CardPart and a ListPart; the head answers "not found" as BC does on the page kinds the cells of corpus PR 1538 open.
-LT GFI Missing Tests::Worksheet_GetFieldMissingId_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :1631)
-LT GFI Missing Tests::ListPlus_GetFieldMissingId_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :1648)
-LT GFI Missing Tests::CardPartOfHost_GetFieldMissingId_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :1665)
-LT GFI Missing Tests::NoPageType_GetFieldMissingId_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :1682)
-LT GFI Missing Tests::RoleCenter_GetFieldMissingId_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :1729)
-LT GFI Missing Tests::NavigatePage_GetFieldMissingId_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :1746)
-LT GFI Missing Tests::StandardDialog_GetFieldMissingId_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :1763)
-LT GFI Missing Tests::ConfirmationDialog_GetFieldMissingId_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :1780)
-LT GFI Missing Tests::HeadlinePart_GetFieldMissingId_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :1797)
-LT GFN Missing Tests::WorksheetOtherPageId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :1631, the id of another page's control)
-# The shapes of the review (corpus PR 1538 :2559-:2702): main refused every GetField on these page kinds; the head answers not
-# found for the measured ids and reads a field control's Value by its own id. The extension's field by the extension's id on a
-# Worksheet still refuses, now through the flagged lookup.
-LT GFI Kinds Tests::Worksheet_GetFieldActionIds_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2559)
-LT GFI Kinds Tests::CardPartOfHost_GetFieldHostControlId_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2591)
-LT GFI Kinds Tests::RoleCenterPart_GetFieldMissingId_NotFound	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2604)
-LT GFI Kinds Tests::Api_GetFieldMissingId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2617)
-LT GFI Kinds Tests::PromptDialog_GetFieldMissingId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2630)
-# ReportPreview_GetFieldMissingId (:2643): BC 27 and 28 raise on the page's open (`#if BC27PLUS and not BC29PLUS`); the neighbor
-# app defines no corpus symbol, so it runs BC 29's branch on each major.
-LT GFI Kinds Tests::ReportPreview_GetFieldMissingId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2643)
-LT GFI Kinds Tests::ReportProcessingOnly_GetFieldMissingId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2663)
-LT GFI Kinds Tests::Worksheet_GetFieldOwnId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2676)
-LT GFI Kinds Tests::ListPlus_GetFieldOwnId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2689)
-LT GFI Kinds Tests::CardPartOfHost_GetFieldOwnId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2702)
-LT GFI Kinds Tests::Worksheet_GetFieldExtensionFieldIds	REFUSED TestPage.GetField by a control id on a page kind no cell opens
-LT GFN Tests::WorksheetGetField	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2676)
-LT GFN Tests::ListPlusOwnId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2689)
-LT GFN Tests::CardPartOwnId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2702)
+# The cue cells of corpus PR 1538 on a Document page, on a CardPart read through a Card, and a DateFormula and a wide Boolean on
+# a Card (al-runner issue 8845 follow-up): the base refused them; the head reads each as BC does.
+LT GFI Cue More Tests::CueTypesDocument_ValueByNameAndById	ASSUMED cuegroup-field-value,testpage-getfield-control-id (corpus PR 1538 :2116)
+LT GFI Cue More Tests::CueTypesPartThroughHost_ValueByName	ASSUMED cuegroup-field-value (corpus PR 1538 :2166)
+LT GFI Cue More Tests::CueDateFormulaAndWideBoolean_ValueByNameAndById	ASSUMED cuegroup-field-value,testpage-getfield-control-id (corpus PR 1538 :2216)
+# A page extension's field with ApplicationArea = All by the extension's id (al-runner issue 8944): the base refused it on a
+# Worksheet and did not find it on a Card from BC 28; the head finds it on both (on BC 27 the base found it on the Card too).
+LT GFI Kinds Tests::Worksheet_GetFieldExtensionFieldIds	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2576)
+LT GFI Ext Area Tests::Card_ExtensionFieldWithArea_ByEitherId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2804)	28
+LT GFI Ext Area Tests::Card_ExtensionFieldWithArea_ByEitherId	ASSUMED testpage-getfield-control-id (corpus PR 1538 :2804)	29
+# The cue cells of the review of 03:29Z (codeunit 97750): main refused them; the head reads each as BC does.
+LT GFI Cue Review Tests::CueTypesPartThroughHost_ValueById	ASSUMED cuegroup-field-value,testpage-getfield-control-id (corpus PR 1538 :3159)
+LT GFI Cue Review Tests::CueBlankDateFormulaAndWideFalse_ValueByNameAndById	ASSUMED cuegroup-field-value,testpage-getfield-control-id (corpus PR 1538 :3209)

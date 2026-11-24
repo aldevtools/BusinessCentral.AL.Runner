@@ -1,5 +1,5 @@
 //! The corpus probes of al-runner issues 8835 and 8836 (corpus pull request 1540, open: tests/al-language/pages/currpage/
-//! ListNewLineExtraCodeCodedTableTriggers.al and ListNewLineExtraCodeCodedTaskError.al, measured on BC 29.1, 10 of 10 green in 3
+//! ListNewLineExtraCodeCodedTableTriggers.al and ListNewLineExtraCodeCodedTaskError.al, measured on BC 29.1, 13 of 13 green in 3
 //! runs), run here until a bump pins them: the page of the page-with-code shape (`al-vm` pages/code_inserted_coded.rs
 //! `CodedObjects::Extra`) over a table with OnInsert and OnDelete, and with a FactBox that declares OnPageBackgroundTaskError. The
 //! probes are read from their copies in the neighbor app. Delete this file when the pin is in the corpus.
@@ -18,6 +18,10 @@ const TASK_PROBE: &str =
 /// The neighbors just past the cells, each with BC's answer (3 runs of 3 on BC 29.1).
 const NEIGHBORS: &str =
     include_str!("../../../../tests/neighbors/8835-coded-page-table-triggers-task-error/src/Neighbors.al");
+
+/// The neighbors of the review of this pull request (01:32Z), each in its own codeunit with BC's answer (3 runs of 3 on BC 29.1).
+const REVIEW: &str =
+    include_str!("../../../../tests/neighbors/8835-coded-page-table-triggers-task-error/src/ReviewNeighbors.al");
 
 /// The cells of the table with OnInsert and OnDelete pass, flagged: the repro of 8835, OnInsert setting a field, reading the
 /// table for a sorting number, calling a codeunit, and raising an error, which reaches the test. An OnInsert that writes
@@ -44,10 +48,19 @@ fn issue_8835_probe_cells() {
             }
         }
     }
+    // The other errors of the first SetValue the cells measure (:1249, :1259, :1269): a TestField of the table field before the
+    // insert, an error of it after the insert, the control's error before its save; each reaches the test.
+    let o = super::outside_fb_8712::outcomes(TABLE_PROBE, "LT NE4 Tests");
+    assert_eq!(o.len(), 3);
+    for (name, r, marks) in &o {
+        assert_eq!(*r, Outcome::Pass, "{name}");
+        assert!(marks.contains(&ListNewLineExtraCodeCoded), "{name}: {marks:?}");
+    }
 }
 
 /// The cells of the FactBox with OnPageBackgroundTaskError pass, flagged: the repro of 8836, a task that does not fail, one
-/// that fails with the error handled, and one that fails with it unhandled, whose error text reaches the test.
+/// that fails with the error handled, and one that fails with it unhandled, whose error text reaches the test with the code
+/// ClientPageAbort:FormAbort (:589).
 #[test]
 fn issue_8836_probe_cells() {
     let o = super::outside_fb_8712::outcomes(TASK_PROBE, "LT NQ2 Tests");
@@ -91,4 +104,36 @@ fn issue_8836_neighbors_are_refused() {
         .map(|(name, r, _)| format!("{name}: {r:?}"))
         .collect();
     assert!(ran.is_empty(), "{ran:#?}");
+}
+
+/// The review's neighbors are refused: a handler that catches OnInsert's error and returns, one that catches the unhandled task
+/// error and goes on, a worker that fails on the blank record at the open, and an error trigger that calls CurrPage.Update (its
+/// own refusal).
+#[test]
+fn issue_8840_review_neighbors() {
+    let src = format!("{TABLE_PROBE}\n{TASK_PROBE}\n{REVIEW}");
+    let codeunits: Vec<&str> = REVIEW
+        .lines()
+        .filter_map(|l| {
+            l.strip_prefix("codeunit ")?
+                .split_once(' ')?
+                .1
+                .strip_prefix('"')?
+                .strip_suffix('"')
+        })
+        .filter(|n| n.ends_with(" Tests"))
+        .collect();
+    assert_eq!(codeunits.len(), 4);
+    for cu in codeunits {
+        let o = super::outside_fb_8712::outcomes(&src, cu);
+        assert_eq!(o.len(), 1, "{cu}");
+        let (name, r, _) = &o[0];
+        assert!(matches!(r, Outcome::NotRun(_)), "{name}: {r:?}");
+        if cu == "LT NQ4 Update Tests" {
+            assert!(
+                matches!(r, Outcome::NotRun(w) if w.contains("called CurrPage.Update")),
+                "{r:?}"
+            );
+        }
+    }
 }
