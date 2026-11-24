@@ -2649,7 +2649,7 @@ impl Session {
                 // is passed on by value as it is: a routine that never reads it runs, a read is refused where it happens.
                 (a @ Value::Unknown(_), false) => a,
                 // A `var` Option parameter with another member list than the value (`var_option`).
-                (a, true) if let Some(v) = crate::var_option::var_binding(&a, &r.locals[i].ty, subscriber) => v?,
+                (a, true) if let Some(v) = self.var_binding_at(i, &a, &r.locals[i].ty, subscriber) => v?,
                 (a, _) => ops::convert_plain(a, &r.locals[i].ty)?,
             };
             locals[i] = self.bind_blobs(argument, bound)?;
@@ -2928,7 +2928,7 @@ struct Frame {
     option_hops: Vec<bool>,
     /// Per parameter: this memberless `var` Option parameter holds a value from an origin the probe measures handing on to
     /// a parameter with members (set by `finish_call` and `raise_to_subscribers`, `var_option::option_carried_of`).
-    option_carried: Vec<bool>,
+    option_carried: Vec<crate::var_option::Carried>,
 }
 
 fn int(v: &Value) -> Result<i64, Signal> {

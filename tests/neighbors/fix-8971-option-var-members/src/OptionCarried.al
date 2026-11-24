@@ -1,6 +1,7 @@
 // al-runner issue 8971: a memberless `var` Option parameter handed on to a `var` Option parameter with members. The run
-// lets it through when the value carries exactly the callee's list and comes from a measured origin (assumption
-// var-option-carried-members, corpus PR 1569); every neighbor below flips one fact of that condition.
+// lets it through for a value from a measured origin (assumption var-option-carried-members, corpus PR 1569): one that
+// carries exactly the callee's list, or another list or none at a callee whose every use of the parameter the cells measure
+// (`=` and `case` on own members, `:=` of an own member, Format). Every neighbor below flips one fact of that condition.
 table 62500 "OC Row"
 {
     fields
@@ -36,6 +37,62 @@ table 62500 "OC Row"
         Seen := Format(Choice) + '|' + Format(Choice, 0, 2);
         Choice := Choice::C;
         exit(Seen);
+    end;
+
+    // The callee of the queued batch path (OptionVarMembersBatch.al `ConfirmOnce`).
+    procedure ConfirmOnce(var Choice: Option " ",Skip,Update): Text
+    begin
+        if Choice = Choice::Skip then
+            exit('skip-exit');
+        case Choice of
+            Choice::" ":
+                begin
+                    Choice := Choice::Update;
+                    exit('blank');
+                end;
+            Choice::Update:
+                exit('update');
+        end;
+    end;
+
+    // Callees that use the parameter in a way no cell measures for a value with another list or none.
+    procedure EvaluateIt(var Choice: Option " ",Skip,Update): Text
+    begin
+        exit(Format(Evaluate(Choice, 'Skip')) + '>' + Format(Choice, 0, 2));
+    end;
+
+    procedure CopyIt(var Choice: Option " ",Skip,Update): Text
+    var
+        Other: Option " ",Skip,Update;
+    begin
+        Other := Choice;
+        exit(Format(Other, 0, 2));
+    end;
+
+    procedure ClearIt(var Choice: Option " ",Skip,Update): Text
+    begin
+        Clear(Choice);
+        exit(Format(Choice, 0, 2));
+    end;
+
+    procedure NotEqualIt(var Choice: Option " ",Skip,Update): Text
+    begin
+        exit(Format(Choice <> Choice::Skip));
+    end;
+
+    procedure ByValueOnIt(var Choice: Option " ",Skip,Update): Text
+    begin
+        exit(ReadByValue(Choice));
+    end;
+
+    local procedure ReadByValue(Choice: Option " ",Skip,Update): Text
+    begin
+        exit(Format(Choice, 0, 2));
+    end;
+
+    procedure FormatOtherIt(var Choice: Option " ",Skip,Update): Text
+    begin
+        exit(Format(Choice, 0, 1));
     end;
 
     // An origin in a table procedure: no cell has one.
@@ -147,6 +204,55 @@ codeunit 62504 "OC Carried Tests"
         exit(Row.Confirm(V));
     end;
 
+    local procedure HopOnce(var V: Option): Text
+    var
+        Row: Record "OC Row";
+    begin
+        exit(Row.ConfirmOnce(V));
+    end;
+
+    local procedure HopEvaluate(var V: Option): Text
+    var
+        Row: Record "OC Row";
+    begin
+        exit(Row.EvaluateIt(V));
+    end;
+
+    local procedure HopCopy(var V: Option): Text
+    var
+        Row: Record "OC Row";
+    begin
+        exit(Row.CopyIt(V));
+    end;
+
+    local procedure HopClear(var V: Option): Text
+    var
+        Row: Record "OC Row";
+    begin
+        exit(Row.ClearIt(V));
+    end;
+
+    local procedure HopNotEqual(var V: Option): Text
+    var
+        Row: Record "OC Row";
+    begin
+        exit(Row.NotEqualIt(V));
+    end;
+
+    local procedure HopByValueOn(var V: Option): Text
+    var
+        Row: Record "OC Row";
+    begin
+        exit(Row.ByValueOnIt(V));
+    end;
+
+    local procedure HopFormatOther(var V: Option): Text
+    var
+        Row: Record "OC Row";
+    begin
+        exit(Row.FormatOtherIt(V));
+    end;
+
     local procedure HopAbc(var V: Option): Text
     var
         Row: Record "OC Row";
@@ -197,7 +303,7 @@ codeunit 62504 "OC Carried Tests"
         Check(HopAbc(Choice) + '>' + Format(Choice), 'B|1>C');
     end;
 
-    // A memberless origin: the callee reads the value's list (measured, not modelled): refused.
+    // A memberless origin: the callee reads the value's (no) list (VarHop_Memberless_*).
     [Test]
     procedure MemberlessOrigin()
     var
@@ -207,7 +313,7 @@ codeunit 62504 "OC Carried Tests"
         Check(Hop(Choice) + '>' + Format(Choice), '1|1>2');
     end;
 
-    // Other members in the origin: refused (measured, not modelled).
+    // Other members in the origin: the callee reads the value's list (VarHop_Other_*).
     [Test]
     procedure OtherMembersOrigin()
     var
@@ -215,6 +321,94 @@ codeunit 62504 "OC Carried Tests"
     begin
         Choice := Choice::Second;
         Check(Hop(Choice) + '>' + Format(Choice), 'Second|1>Third');
+    end;
+
+    // The queued batch path: a memberless local kept across calls (BatchQueued_*).
+    [Test]
+    procedure MemberlessOrigin_Queued()
+    var
+        Choice: Option;
+        Log: Text;
+        I: Integer;
+    begin
+        for I := 1 to 3 do
+            Log += HopOnce(Choice) + '/' + Format(Choice) + ';';
+        Check(Log + Format(Choice, 0, 2), 'blank/2;update/2;update/2;2');
+    end;
+
+    // The callee reads, compares and writes; its use of the parameter decides (the values below are BC's where a cell
+    // measures them, OptionVarMembersCallee.al CalleeOps_VarHop_Memberless; the rest are not measured).
+    [Test]
+    procedure Memberless_EvaluateCallee()
+    var
+        Choice: Option;
+    begin
+        Choice := 1;
+        Check(HopEvaluate(Choice), 'No>1');
+    end;
+
+    [Test]
+    procedure Memberless_CopyCallee()
+    var
+        Choice: Option;
+    begin
+        Choice := 1;
+        Check(HopCopy(Choice), '1');
+    end;
+
+    [Test]
+    procedure Memberless_ClearCallee()
+    var
+        Choice: Option;
+    begin
+        Choice := 1;
+        Check(HopClear(Choice), '0');
+    end;
+
+    [Test]
+    procedure Memberless_NotEqualCallee()
+    var
+        Choice: Option;
+    begin
+        Choice := 1;
+        Check(HopNotEqual(Choice), 'No');
+    end;
+
+    [Test]
+    procedure Memberless_ByValueHandOnCallee()
+    var
+        Choice: Option;
+    begin
+        Choice := 1;
+        Check(HopByValueOn(Choice), '1');
+    end;
+
+    [Test]
+    procedure Memberless_FormatOtherCallee()
+    var
+        Choice: Option;
+    begin
+        Choice := 1;
+        Check(HopFormatOther(Choice), '1');
+    end;
+
+    [Test]
+    procedure OtherMembers_EvaluateCallee()
+    var
+        Choice: Option First,Second,Third;
+    begin
+        Choice := Choice::Second;
+        Check(HopEvaluate(Choice), 'No>1');
+    end;
+
+    // The same list: the callee's own list, any use (CalleeOps_VarHop_Same `Evaluate Skip inside`).
+    [Test]
+    procedure Same_EvaluateCallee()
+    var
+        Choice: Option " ",Skip,Update;
+    begin
+        Choice := Choice::Update;
+        Check(HopEvaluate(Choice), 'Yes>1');
     end;
 
     [Test]
@@ -294,6 +488,31 @@ codeunit 62504 "OC Carried Tests"
         Choice := Choice::Skip;
         Events.RaiseWithSender(Choice, Row);
         Check(Format(Choice), 'Update');
+    end;
+
+    // The batch event with a memberless or another list: no cell raises it with one.
+    [Test]
+    procedure Event_WithSender_Memberless()
+    var
+        Choice: Option;
+        Events: Codeunit "OC Events";
+        Row: Record "OC Row";
+    begin
+        Choice := 1;
+        Events.RaiseWithSender(Choice, Row);
+        Check(Format(Choice), '2');
+    end;
+
+    [Test]
+    procedure Event_WithSender_OtherMembers()
+    var
+        Choice: Option First,Second,Third;
+        Events: Codeunit "OC Events";
+        Row: Record "OC Row";
+    begin
+        Choice := Choice::Second;
+        Events.RaiseWithSender(Choice, Row);
+        Check(Format(Choice), 'Third');
     end;
 
     [Test]

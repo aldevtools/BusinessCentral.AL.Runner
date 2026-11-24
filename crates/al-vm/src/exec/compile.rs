@@ -1358,11 +1358,10 @@ impl<'a> Compiler<'a> {
                 let pi = self.place(p);
                 self.emit(Op::StoreLocal { i, a: d, p: pi });
             }
-            // A `var` Option parameter declared without members may hold its caller's members: its stores go through
-            // `write_as` (`var_option::param_store`).
+            // A `var` Option parameter declared without members may hold its caller's members, one declared with members a
+            // value that carries none (`var_option::carried`): its stores go through `write_as` (`var_option::param_store`).
             ir::Place::Local(i)
-                if self.by_var.get(*i) == Some(&true)
-                    && matches!(self.locals_ty.get(*i), Some(RtType::Option(m)) if al_builtins::option_members::memberless(m)) =>
+                if self.by_var.get(*i) == Some(&true) && matches!(self.locals_ty.get(*i), Some(RtType::Option(_))) =>
             {
                 self.store_place(p, e, single)?;
             }

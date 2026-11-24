@@ -79,7 +79,8 @@ impl Session {
         let engine = self.engine.clone();
         let p = &engine.events.publishers[&(object, routine)];
         // The origin marks reach the subscribers only under the event contract of OptionVarMembersBatch.al (corpus PR 1569):
-        // a codeunit's `IntegrationEvent(true, false)`, not isolated (`var_option::option_carried_of`).
+        // a codeunit's `IntegrationEvent(true, false)`, not isolated, and only from a variable with members (`RunBatch`; no
+        // cell raises it with a memberless one) (`var_option::carried::option_carried_of`).
         let carried = std::mem::take(&mut self.events.publisher_option_carried);
         let carried = if p.kind == crate::events::EventKind::Integration
             && p.include_sender
@@ -380,7 +381,10 @@ impl Session {
             {
                 self.events.next_option_carried = map
                     .iter()
-                    .map(|m| m.is_some_and(|j| carried.get(j) == Some(&true)))
+                    .map(|m| match m.and_then(|j| carried.get(j).copied()) {
+                        Some(crate::var_option::Carried::Members) => crate::var_option::Carried::Event,
+                        _ => crate::var_option::Carried::No,
+                    })
                     .collect();
             }
             self.events.next_is_subscriber = true;

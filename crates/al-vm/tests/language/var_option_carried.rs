@@ -24,6 +24,51 @@ table 69871 CRow
         Choice := Choice::Update;
         exit(Seen);
     end;
+
+    // The callee of the queued batch path (OptionVarMembersBatch.al `ConfirmOnce`): an `=` and a `case` on its own members,
+    // `:=` of an own member.
+    procedure ConfirmOnce(var Choice: Option " ",Skip,Update): Text
+    begin
+        if Choice = Choice::Skip then
+            exit('skip-exit');
+        case Choice of
+            Choice::" ":
+                begin
+                    Choice := Choice::Update;
+                    exit('blank');
+                end;
+            Choice::Update:
+                exit('update');
+            else
+                exit('else');
+        end;
+    end;
+
+    procedure WriteAndRead(var Choice: Option " ",Skip,Update): Text
+    begin
+        Choice := Choice::Update;
+        exit(Format(Choice) + '|' + Format(Choice, 0, 2));
+    end;
+
+    // Uses no cell measures for a value that carries no list.
+    procedure EvaluateIt(var Choice: Option " ",Skip,Update): Text
+    begin
+        exit(Format(Evaluate(Choice, 'Skip')));
+    end;
+
+    procedure CopyIt(var Choice: Option " ",Skip,Update): Text
+    var
+        Other: Option " ",Skip,Update;
+    begin
+        Other := Choice;
+        exit(Format(Other));
+    end;
+
+    procedure ClearIt(var Choice: Option " ",Skip,Update): Text
+    begin
+        Clear(Choice);
+        exit('');
+    end;
 }
 
 codeunit 69872 CEvents
@@ -99,9 +144,114 @@ codeunit 69874 C
     procedure MemberlessOrigin(): Text
     var
         V: Option;
+        Seen: Text;
     begin
         V := 1;
-        exit(Hop(V));
+        Seen := Hop(V);
+        exit(Seen + '>' + Format(V) + '|' + Format(V, 0, 2));
+    end;
+
+    procedure MemberlessWriteInside(): Text
+    var
+        Row: Record CRow;
+        V: Option;
+    begin
+        exit(WriteHop(V, Row) + '>' + Format(V));
+    end;
+
+    local procedure WriteHop(var V: Option; var Row: Record CRow): Text
+    begin
+        exit(Row.WriteAndRead(V));
+    end;
+
+    local procedure QueuedHop(var V: Option; var Row: Record CRow): Text
+    begin
+        exit(Row.ConfirmOnce(V) + '/' + Format(V));
+    end;
+
+    procedure Queued(): Text
+    var
+        Row: Record CRow;
+        V: Option;
+        Log: Text;
+        I: Integer;
+    begin
+        for I := 1 to 3 do
+            Log += QueuedHop(V, Row) + ';';
+        exit(Log + Format(V) + '|' + Format(V, 0, 2));
+    end;
+
+    local procedure EvaluateHop(var V: Option): Text
+    var
+        Row: Record CRow;
+    begin
+        exit(Row.EvaluateIt(V));
+    end;
+
+    local procedure CopyHop(var V: Option): Text
+    var
+        Row: Record CRow;
+    begin
+        exit(Row.CopyIt(V));
+    end;
+
+    local procedure ClearHop(var V: Option): Text
+    var
+        Row: Record CRow;
+    begin
+        exit(Row.ClearIt(V));
+    end;
+
+    procedure MemberlessEvaluate(): Text
+    var
+        V: Option;
+    begin
+        exit(EvaluateHop(V));
+    end;
+
+    procedure MemberlessCopy(): Text
+    var
+        V: Option;
+    begin
+        exit(CopyHop(V));
+    end;
+
+    procedure MemberlessClear(): Text
+    var
+        V: Option;
+    begin
+        exit(ClearHop(V));
+    end;
+
+    // A memberless local through the event: no cell measures it.
+    procedure MemberlessEventOrigin(): Text
+    var
+        V: Option;
+        Events: Codeunit CEvents;
+        Row: Record CRow;
+    begin
+        Events.Raise(V, Row);
+        exit(Format(V));
+    end;
+
+    procedure OtherOrigin(): Text
+    var
+        V: Option A,B,C,D;
+        Seen: Text;
+    begin
+        V := 1;
+        Seen := Hop(V);
+        exit(Seen + '>' + Format(V));
+    end;
+
+    procedure OtherEventOrigin(): Text
+    var
+        V: Option A,B,C,D;
+        Events: Codeunit CEvents;
+        Row: Record CRow;
+    begin
+        Events.Raise(V, Row);
+        exit(Format(V));
     end;
 
     procedure GlobalOrigin(): Text
@@ -163,11 +313,46 @@ fn a_value_carrying_the_callee_list_from_a_measured_origin_runs_flagged() {
     assert_eq!(hits, vec![Assumption::VarOptionCarriedMembers]);
 }
 
-// Another carried list (BC's callee reads it, OptionVarMembersCallee.al VarHop_Memberless_*), an origin no cell has, and
-// another event contract refuse.
+// A memberless local of a codeunit procedure, through memberless hops: the callee reads the value's own (no) list, so Format
+// gives the number, and its `:=` of an own member comes back as the number (OptionVarMembersCallee.al VarHop_Memberless_*,
+// OptionVarMembersBatch.al BatchQueued_*). Runs, flagged.
 #[test]
-fn other_lists_origins_and_event_contracts_refuse() {
-    refused("MemberlessOrigin");
+fn a_memberless_value_from_a_measured_origin_runs_flagged_and_keeps_no_list() {
+    let (out, hits) = run("MemberlessOrigin");
+    assert_eq!(out.unwrap(), "1|1>2|2");
+    assert_eq!(hits, vec![Assumption::VarOptionCarriedMembers]);
+    // The callee's own `:=` reads back as the number (VarHop_Memberless_Table `0 write inside`).
+    let (out, hits) = run("MemberlessWriteInside");
+    assert_eq!(out.unwrap(), "2|2>2");
+    assert_eq!(hits, vec![Assumption::VarOptionCarriedMembers]);
+    let (out, hits) = run("Queued");
+    assert_eq!(out.unwrap(), "blank/2;update/2;update/2;2|2");
+    assert_eq!(hits, vec![Assumption::VarOptionCarriedMembers]);
+}
+
+// A local with another list, through memberless hops: the callee reads the value's list, its `:=` of an own member stores the
+// number in that list (OptionVarMembersCallee.al VarHop_Other_*). Runs, flagged.
+#[test]
+fn a_value_carrying_another_list_from_a_measured_origin_runs_flagged_and_keeps_its_list() {
+    let (out, hits) = run("OtherOrigin");
+    assert_eq!(out.unwrap(), "B|1>C");
+    assert_eq!(hits, vec![Assumption::VarOptionCarriedMembers]);
+}
+
+// A memberless value at a callee that uses the parameter in a way no cell measures for it (Evaluate, a copy, Clear), and a
+// memberless origin through the event, refuse.
+#[test]
+fn a_memberless_value_at_an_unmeasured_use_or_through_the_event_refuses() {
+    refused("MemberlessEvaluate");
+    refused("MemberlessCopy");
+    refused("MemberlessClear");
+    refused("MemberlessEventOrigin");
+    refused("OtherEventOrigin");
+}
+
+// An origin no cell has and another event contract refuse.
+#[test]
+fn other_origins_and_event_contracts_refuse() {
     refused("GlobalOrigin");
     refused("EventNoSenderOrigin");
 }

@@ -994,6 +994,7 @@ impl Session {
         }
         if facts.option_hops {
             self.events.next_option_hops.clear();
+            self.events.next_carried_kept.clear();
         }
         if facts.option_carries {
             self.events.next_option_carried.clear();

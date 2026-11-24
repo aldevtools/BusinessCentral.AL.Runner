@@ -130,6 +130,7 @@ pub(super) fn events_as_new(e: &EventState) -> bool {
         next_option_hops,
         next_option_carried,
         publisher_option_carried,
+        next_carried_kept,
         publisher_var_lens,
         unpinned_event_depth,
         skip_dependency_subscribers,
@@ -182,6 +183,7 @@ pub(super) fn events_as_new(e: &EventState) -> bool {
         && next_option_hops.is_empty()
         && next_option_carried.is_empty()
         && publisher_option_carried.is_empty()
+        && next_carried_kept.is_empty()
         && publisher_var_lens.is_empty()
         && *unpinned_event_depth == 0
         && !skip_dependency_subscribers
