@@ -162,6 +162,16 @@ pull request, the next review checks only those findings and the results of the 
 
 If the neighbor check does not fit your change, say so on the pull request.
 
+### When a pull request goes quiet
+
+If a review asks you for changes and there is no comment or commit from you for 7 days, a maintainer
+finishes the pull request on a branch of their own. Your commits keep your name. When the linked issue
+has the label `priority: high` or `priority: critical`, the wait is 3 days, because the issue affects many
+users. If you need more time, say so in a comment and the wait starts again.
+
+Issues that an open pull request fixes (`Fixes #N`) carry the label `author: implementing`. Maintainers
+leave those issues to you while the pull request is active.
+
 ## License and contributor agreement
 
 AL Runner is released under the license in [LICENSE](LICENSE).
