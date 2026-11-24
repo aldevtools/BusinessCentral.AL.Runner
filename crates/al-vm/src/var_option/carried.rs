@@ -6,8 +6,8 @@
 //!   binding gives the same;
 //! - the value carries another list, from a variable with that list (VarHop_Other_*), or no list, from a memberless variable
 //!   (VarHop_Memberless_*, BatchQueued_*): the parameter keeps the value's list (`next_carried_kept`, read by the binding
-//!   in `lib.rs`; stores keep it, `var_option::param_store`), for a callee whose every use of the parameter is one those
-//!   cells measure (`uses_measured`).
+//!   in `lib.rs`; stores keep it, `var_option::param_store`, in the form only such a frame runs, `ExecProgram::frame_chunk`),
+//!   for a callee whose every use of the parameter is one those cells measure (`uses_measured`, `may_keep_carried`).
 //!
 //! The other way, a `var` parameter with members handed to a memberless one, runs only to a callee that formats it
 //! (`hand_on_args`).
