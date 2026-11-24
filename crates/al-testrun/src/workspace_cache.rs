@@ -319,11 +319,19 @@ impl WorkspaceKey {
     }
 }
 
-/// An app of the layer in the key. `identity`: that of a lazily read package, which stands for its source.
+/// The digest of what a manifest gives the program and the compile, as both keys hold it (`WorkspaceAppKey::manifest`):
+/// `baseline_key::manifest_digest`, every field but the resources (issue 5635). It formats and hashes every translation
+/// unit, so a caller that keys every request makes it once per read of the app (`AppInput::manifest_digest`).
+pub fn manifest_digest(manifest: &Manifest) -> [u8; 32] {
+    crate::runtime::baseline_key::manifest_digest(manifest)
+}
+
+/// An app of the layer in the key. `manifest`: [`manifest_digest`] of its manifest. `identity`: that of a lazily read
+/// package, which stands for its source.
 pub fn app_key(
     app: &AppSource,
     kind: al_sema::AppKind,
-    manifest: &Manifest,
+    manifest: [u8; 32],
     app_json: &str,
     identity: Option<[u8; 32]>,
 ) -> WorkspaceAppKey {
@@ -343,7 +351,7 @@ pub fn app_key(
         name: name.clone(),
         dependencies: dependencies.clone(),
         app_json: app_json.to_string(),
-        manifest: crate::runtime::baseline_key::manifest_digest(manifest),
+        manifest,
         paths: p.finalize().into(),
         source: identity.unwrap_or_else(|| crate::compile_cache::source_hash(app)),
         kind,
@@ -408,9 +416,10 @@ pub fn dependency_digest(apps: &[AppSource], lazy: &[Option<al_sema::LazySource>
 
 /// The key of serve's kept compile (`workspace_layer::warm_key`, ADR-028): the [`WorkspaceKey`] of the workspace apps without the
 /// texts of their files, over `dependencies` ([`dependency_digest`]) in place of the layer below, without the roots and
-/// the path (the kept compile is made without a selection). One owner of the field list for both keys.
+/// the path (the kept compile is made without a selection). One owner of the field list for both keys. Each app comes
+/// with the [`manifest_digest`] of its manifest.
 pub fn warm_key(
-    apps: &[(&AppSource, &Manifest, &str)],
+    apps: &[(&AppSource, [u8; 32], &str)],
     dependencies: [u8; 32],
     symbols: &std::collections::BTreeSet<String>,
     target: &str,
@@ -423,7 +432,7 @@ pub fn warm_key(
         apps: apps
             .iter()
             // The texts are left out of the digest (the source is not hashed); the paths are not.
-            .map(|(a, m, json)| app_key(a, al_sema::AppKind::Workspace, m, json, Some([0; 32])))
+            .map(|(a, manifest, json)| app_key(a, al_sema::AppKind::Workspace, *manifest, json, Some([0; 32])))
             .collect(),
         target: target.to_string(),
         symbols: symbols.iter().cloned().collect(),

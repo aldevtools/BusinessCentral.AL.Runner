@@ -21,10 +21,10 @@ pub(crate) fn warm_key(
 ) -> String {
     use al_testrun::workspace_cache as wc;
     let json: Vec<String> = inputs.iter().map(app_json_text).collect();
-    let apps: Vec<(&al_sema::workspace::AppSource, &al_testrun::runtime::Manifest, &str)> = inputs
+    let apps: Vec<(&al_sema::workspace::AppSource, [u8; 32], &str)> = inputs
         .iter()
         .zip(&json)
-        .map(|(i, j)| (&i.source, &i.manifest, j.as_str()))
+        .map(|(i, j)| (&i.source, i.manifest_digest(), j.as_str()))
         .collect();
     let deps = wc::dependency_digest(&dependencies.apps, &dependencies.lazy, &dependencies.summary);
     let compile_options = &crate::run_inputs::RunInputs::of(a).compile_text();
