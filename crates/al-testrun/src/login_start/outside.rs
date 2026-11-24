@@ -9,7 +9,7 @@
 //! - **untouched**: a replay neither reads nor writes it. The login ran no test and no lane step, so nothing here changes
 //!   between the recording session's login and a replay (the owner says why).
 //! - **gated**: the state exists only in a run that follows the code it runs (coverage, the profiler); such a run takes no
-//!   start (`login_start::why_not`, `NotTaken::NotesCode`).
+//!   start (`login_start::run_gate`, `NotTaken::NotesCode`).
 //! - **key**: a serve request sets it and the login can read it: a field of the login key holds it by content, so a start
 //!   is never taken under another value (the field is named).
 //! - **run**: one value for the whole process or thread run, set once before any session, not of one session or request

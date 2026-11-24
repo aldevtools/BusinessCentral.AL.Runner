@@ -196,9 +196,9 @@ pub fn run_codeunit_full(
 /// RequiredTestIsolation = Disabled), committed; then the `workDate.offset` of a stability run. With it, the marks of the
 /// assumptions this step relied on: they count for every test of the session (`mark_test_start_assumptions`). A session
 /// whose login inputs an earlier session of the engine had takes what that login left in place of running it
-/// (`login_start.rs`, al-runner issue 8211), unless the run notes the code it runs (`observed`: `--explain` or an
-/// observer), is perturbed, or had single instances moved in (`moved`). A scratch run (`execute`) is not a test session:
-/// it opens nothing. `Err`: why the codeunit is not run.
+/// (`login_start.rs`, al-runner issue 8211), unless the gate keeps it from the start (`login_start::run_gate`,
+/// `login_start::target_gate`, each reason counted). A scratch run (`execute`) is not a test session: it opens nothing.
+/// `Err`: why the codeunit is not run.
 fn open_company(
     start: &Start,
     session: &mut Session,

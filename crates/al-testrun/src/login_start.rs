@@ -1,11 +1,11 @@
-//! Login starts (al-runner issue 8211): a test session whose login inputs ([`crate::login_replay::Key`])
-//! were seen before takes what that login left (a [`Start`]) in place of running it again. The first session of a key runs
-//! the login and keeps its al-vm `LoginImage` with the open's writes and assumption marks ([`record`]); a later session of
-//! the key thaws the image into itself in `runtime/run.rs` `open_company` ([`replay`]), when [`why_not`] finds nothing
-//! against it. A key whose session the image refuses (`NotImaged`) runs the real login every time and is not frozen again.
-//! It is off unless `RunOptions::login_replay` (`ALRUNNER_LOGIN_REPLAY=1`) turns it on; under the login replay check
-//! (`ALRUNNER_LOGIN_REPLAY_CHECK=1`) no session takes a start, and `login_replay.rs` compares each later session of a key
-//! with a thaw of its start instead.
+//! Login starts (al-runner issue 8211): a test session whose login inputs ([`crate::login_replay::Key`]) were seen
+//! before takes what that login left (a [`Start`]) in place of running it again. The first session of a key runs the
+//! login and keeps its al-vm `LoginImage` with the open's writes and assumption marks ([`record`]); a later session of
+//! the key thaws the image into itself in `runtime/run.rs` `open_company` ([`replay`]), when neither the run
+//! ([`run_gate`]) nor the session ([`target_gate`]) keeps it from the start. A key whose session the image refuses
+//! (`NotImaged`) runs the real login every time and is not frozen again. It is off unless `RunOptions::login_replay`
+//! (`ALRUNNER_LOGIN_REPLAY=1`) turns it on; under the login replay check (`ALRUNNER_LOGIN_REPLAY_CHECK=1`) no session
+//! takes a start, and `login_replay.rs` compares each later session of a key with a thaw of its start instead.
 //!
 //! The starts live on the engine ([`starts`], `Engine::derived`): at most [`MAX_STARTS`] and [`MAX_BYTES`] of
 //! `LoginImage::kept_bytes`, least recently used out; one start over [`MAX_START_BYTES`] is not kept (`too large`). The
