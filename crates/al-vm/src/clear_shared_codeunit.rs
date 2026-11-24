@@ -70,10 +70,12 @@ impl Session {
                         _ => continue,
                     }
                     let hold = self.temp_hold(v);
-                    let holding = if shared && rc.borrow().initialized {
-                        Holding::Shared
-                    } else if shared {
-                        Holding::SharedUncalled
+                    let holding = if shared {
+                        if rc.borrow().initialized {
+                            Holding::Shared
+                        } else {
+                            Holding::SharedUncalled
+                        }
                     } else if hold != TempHold::Empty {
                         Holding::Written
                     } else if self.wrapped_store_shared(rc) {

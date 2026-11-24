@@ -7,7 +7,7 @@
 //! (ClearSharedCodeunitHolderKinds.al Price_VarParam_Never :1323 and the other `_Never` cells), so the shape with no call
 //! refuses and the shape with a call that wrote no row runs flagged.
 
-use al_builtins::assumptions::{Assumption, take_hits};
+use crate::clear_shared_codeunit::{assert_refused, run_cell};
 
 const SOURCE: &str = "
 table 50940 URow { fields { field(1; No; Integer) { } } keys { key(PK; No) { } } }
@@ -59,24 +59,20 @@ codeunit 50951 T {
 }
 ";
 
-/// What `cell` of [`SOURCE`] gives with argument `call` (`done`, or `refused: ...`) and whether it ran a path of
-/// `clear-shared-codeunit`.
-fn cell(cell: &str, call: bool) -> (String, bool) {
-    take_hits();
-    let args = vec![al_builtins::value::Value::Boolean(call)];
-    let got = match al_testkit::run_with(SOURCE, "T", cell, args).map(|(v, _)| v) {
-        Err(al_builtins::native::Signal::Unsupported(why)) => format!("refused: {why}"),
-        other => al_testkit::text(other),
-    };
-    (got, take_hits().contains(&Assumption::ClearSharedCodeunit))
+/// What `name` of [`SOURCE`] gives with argument `call` and whether it ran a path of `clear-shared-codeunit`
+/// ([`run_cell`]).
+fn cell(name: &str, call: bool) -> (String, bool) {
+    run_cell(SOURCE, name, vec![al_builtins::value::Value::Boolean(call)])
 }
 
-const STORES: [&str; 8] = ["Int", "Clb", "Plus", "Wrap", "Arr", "TwoDim", "Reg", "Price"];
+/// The stores whose shared instance no call made is measured, and the stores where every shared cell calls first.
+const MEASURED_UNCALLED: [&str; 4] = ["Int", "Clb", "Arr", "Plus"];
+const UNMEASURED_UNCALLED: [&str; 4] = ["Wrap", "TwoDim", "Reg", "Price"];
 
 // A call made the shared instance (a scalar written, no row): one instance, flagged, for every store.
 #[test]
 fn clear_all_of_a_shared_store_a_call_made_runs() {
-    for name in STORES {
+    for name in MEASURED_UNCALLED.into_iter().chain(UNMEASURED_UNCALLED) {
         assert_eq!(cell(name, true), ("done".to_string(), true), "{name}");
     }
 }
@@ -85,14 +81,11 @@ fn clear_all_of_a_shared_store_a_call_made_runs() {
 // one more Integer only.
 #[test]
 fn clear_all_of_a_shared_store_no_call_made_runs_where_measured() {
-    for name in ["Int", "Clb", "Arr", "Plus"] {
+    for name in MEASURED_UNCALLED {
         assert_eq!(cell(name, false), ("done".to_string(), true), "{name}");
     }
-    for name in ["Wrap", "TwoDim", "Reg", "Price"] {
-        let got = cell(name, false).0;
-        assert!(
-            got.starts_with("refused: ClearAll of a global codeunit variable whose instance another variable shares"),
-            "{name}: {got}"
-        );
+    for name in UNMEASURED_UNCALLED {
+        let why = "ClearAll of a global codeunit variable whose instance another variable shares";
+        assert_refused(name, &cell(name, false).0, why);
     }
 }

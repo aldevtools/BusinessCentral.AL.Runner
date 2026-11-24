@@ -581,15 +581,25 @@ codeunit 50839 T {
 }
 ";
 
-/// What `cell` of [`TEMP_STORE`] gives (its text, or `refused: ...`) and whether it ran a path of assumption
-/// `clear-shared-codeunit`.
-fn temp_store(cell: &str) -> (String, bool) {
+/// What routine `cell` of codeunit `T` in `src` gives with `args` (its text, or `refused: ...`) and whether it ran a path
+/// of assumption `clear-shared-codeunit`. Shared by the `clear_shared_codeunit*` test files.
+pub(crate) fn run_cell(src: &str, cell: &str, args: Vec<al_builtins::value::Value>) -> (String, bool) {
     take_hits();
-    let got = match al_testkit::Built::from_source(TEMP_STORE).run_in("T", cell) {
+    let got = match al_testkit::run_with(src, "T", cell, args).map(|(v, _)| v) {
         Err(al_builtins::native::Signal::Unsupported(why)) => format!("refused: {why}"),
         other => al_testkit::text(other),
     };
     (got, take_hits().contains(&Assumption::ClearSharedCodeunit))
+}
+
+/// Asserts that `got`, what routine `name` gave, is a refusal whose reason contains `why`.
+pub(crate) fn assert_refused(name: &str, got: &str, why: &str) {
+    assert!(got.starts_with("refused: ") && got.contains(why), "{name}: {got}");
+}
+
+/// What `cell` of [`TEMP_STORE`] gives and whether it ran a path of assumption `clear-shared-codeunit` ([`run_cell`]).
+fn temp_store(cell: &str) -> (String, bool) {
+    run_cell(TEMP_STORE, cell, vec![])
 }
 
 // ClearAll in the owner of a store whose temporary table holds rows, nothing sharing the store: BC resets the store in

@@ -4,7 +4,7 @@
 //! owner that implements an interface. Next to it, the shapes the file lists as not measured, which refuse. Every measured
 //! cell runs through assumption `clear-shared-codeunit`.
 
-use al_builtins::assumptions::{Assumption, take_hits};
+use crate::clear_shared_codeunit::run_cell;
 
 const SOURCE: &str = "
 table 50900 PRow { fields { field(1; No; Integer) { } } keys { key(PK; No) { } } }
@@ -90,19 +90,13 @@ codeunit 50910 T {
 }
 ";
 
-/// What `cell` of [`SOURCE`] gives (its text, or `refused: ...`) and whether it ran a path of `clear-shared-codeunit`.
-fn cell(cell: &str) -> (String, bool) {
-    take_hits();
-    let got = match al_testkit::Built::from_source(SOURCE).run_in("T", cell) {
-        Err(al_builtins::native::Signal::Unsupported(why)) => format!("refused: {why}"),
-        other => al_testkit::text(other),
-    };
-    (got, take_hits().contains(&Assumption::ClearSharedCodeunit))
+/// What `name` of [`SOURCE`] gives and whether it ran a path of `clear-shared-codeunit` ([`run_cell`]).
+fn cell(name: &str) -> (String, bool) {
+    run_cell(SOURCE, name, vec![])
 }
 
 fn assert_refused(name: &str, why: &str) {
-    let got = cell(name).0;
-    assert!(got.starts_with("refused: ") && got.contains(why), "{name}: {got}");
+    crate::clear_shared_codeunit::assert_refused(name, &cell(name).0, why);
 }
 
 const RESET: &str = "kind=None int=0 lc=store label";
