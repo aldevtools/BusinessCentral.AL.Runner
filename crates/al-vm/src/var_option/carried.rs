@@ -355,8 +355,8 @@ impl crate::Session {
         let program = &self.engine.program;
         let r = &program.objects[object].routines[routine];
         let caller = &program.objects[f.object].routines[f.routine];
-        for i in 0..r.params.min(args.len()) {
-            let Some((d, _, false)) = var_option_pair(r, caller, i, &args[i]) else {
+        for (i, arg) in args.iter().enumerate().take(r.params) {
+            let Some((d, _, false)) = var_option_pair(r, caller, i, arg) else {
                 continue;
             };
             if !memberless(d) {
