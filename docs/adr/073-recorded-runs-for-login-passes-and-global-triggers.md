@@ -438,9 +438,9 @@ Risks:
 4. A temporary budget limit at today's 333 G that may only go down, removed once the run is under the real budget:
    yes.
 
-## Amendment (Proposed, 2026-11-23): Phase 1 as built, behind an opt-in switch
+## Amendment (Accepted, 2026-11-24): Phase 1 as built, behind an opt-in switch
 
-Status of this section: Proposed. It records how Phase 1 (the login runs once per engine) is built in al-runner issue
+Status of this section: Accepted (maintainer, 2026-11-24; proposed 2026-11-23). It records how Phase 1 (the login runs once per engine) is built in al-runner issue
 8211, where that differs from decision 1, and which conformance items wait until the replay is on by default.
 
 What is built:
