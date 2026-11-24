@@ -111,7 +111,7 @@ impl Session {
                 continue;
             };
             match schema.node(child).kind {
-                ir::XmlNodeKind::Field => assigned.push(self.xp_assign_field_elem(inst, schema, child, ce)?),
+                ir::XmlNodeKind::Field => assigned.push(self.xp_assign_field_elem(inst, schema, child, ce)?.0),
                 _ if schema.children(child).is_empty() => self.xp_assign_leaf_text(inst, schema, child, ce)?,
                 _ => {
                     if ce.elements().next().is_some() {
