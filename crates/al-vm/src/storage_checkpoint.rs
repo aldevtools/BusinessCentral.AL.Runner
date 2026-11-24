@@ -2,6 +2,16 @@
 //! the keys and sequences whose state after the rollback no probe measures: a later test of the codeunit that reaches one
 //! is refused at that call (`refuse_unmeasured_key`, `refuse_unmeasured_sequence`), and every other test runs. A session
 //! whose sequences as a whole are not known refuses every NumberSequence call (`mark_numbers_unmeasured`).
+//!
+//! the isolated storage and number sequences at a test runner's checkpoint (TestIsolation =
+//! Function), what a restore finds changed among what the checkpoint held (`Unkept`), and the keys
+//! and sequences a later test of the codeunit may not reach: `IsolatedStorage` and `NumberSequence`
+//! calls on them are refused at the call (al-runner issue 8002). Set by al-testrun
+//! `isolation::after_test`, cleared at the codeunit's end. A session whose number sequences as a
+//! whole are not known refuses every `NumberSequence` call (`mark_numbers_unmeasured`, set by al-
+//! testrun `order_hint::mark_unmeasured_numbers`; al-runner issue 8152). Entry points:
+//! `storage_checkpoint`, `restore_storage_checkpoint`, `refuse_unmeasured_key`,
+//! `refuse_unmeasured_sequence`, `clear_unmeasured`, `mark_numbers_unmeasured`.
 
 use crate::{Session, sessionops};
 use al_builtins::native::{Signal, unsupported};

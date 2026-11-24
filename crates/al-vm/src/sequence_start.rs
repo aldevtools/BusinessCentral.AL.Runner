@@ -1,5 +1,14 @@
 //! The number sequences as a test codeunit under TestIsolation = Codeunit found them, and what a failed test of it
 //! takes back (al-testrun `isolation::after_test`).
+//!
+//! the number sequences as a test codeunit's tests found them (`SequenceStart`), what a failed test
+//! takes back, and what a test reached of the table data (`DataAccess`: the store's reads and writes,
+//! al-data `MemStore::accesses` and `writes`, the part of them inside table calls from AL code,
+//! `al_table_call` for Record calls in `ctx.rs` and `counted_ref_op` for the RecordRef, FieldRef and
+//! KeyRef methods of `measured_ref_method`, CompanyName calls, and other RecordRef, Query and session
+//! builtin calls other than NumberSequence, `note_session_call`) with the commit count at each
+//! `NumberSequence.Insert` (`sequence_inserted_at`), for al-testrun `isolation/failed_test.rs`. Entry
+//! points: `SequenceStart`, `DataAccess`, `data_access`, `sequence_inserted_at`.
 
 use crate::Session;
 use crate::sessionops::Sequence;

@@ -13,7 +13,7 @@ const PROBE: &str = include_str!("../../../../tests/neighbors/8712-new-line-extr
 /// The neighbors just past the cells, each with BC's answer (3 runs of 3 on BC 29.1).
 const NEIGHBORS: &str = include_str!("../../../../tests/neighbors/8712-new-line-extra-code/src/Neighbors.al");
 
-fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
+pub(super) fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
     let l = al_testkit::compile_apps(vec![al_testkit::app(src)]);
     let engine = al_vm::Engine::new(l.program.clone(), al_testkit::blocked(&l));
     let oi = l
@@ -69,35 +69,36 @@ fn issue_8712_probe_cells() {
         "NewLine_TableFieldSetsFieldBeforeSaveRecord_RowBefore_ShowsAndSavesIt",
         "NewLine_FieldSetAfterSaveRecord_RowBefore_UpdateFalseReadsTheStoredRow",
         "NewLine_SaveRecordThenWriteAnotherTable_RowBefore_ShowsAndSavesTheRow",
+        "NewLine_SaveRecordModifyThroughAnotherRecordThenUpdateTrue_SaveWritesRecOverIt",
+        "NewLine_SaveRecordThenModifyThroughAnotherRecord_OpenEdit_ShowsAndSavesIt",
+        "NewLine_ModifyThroughAnotherRecordBeforeSaveRecord_SaveWritesRecOverIt",
     ] {
         let (_, r, marks) = o.iter().find(|(n, _, _)| n == name).expect("the test");
         assert_eq!(*r, Outcome::Pass, "{name}");
         assert!(marks.contains(&ListNewLineExtraCode), "{name}: {marks:?}");
     }
-    // A write of the row through another record before the save, and Update(true) after the save, are measured (the save
-    // writes Rec over the other record's write) but not run: refused. So is OpenEdit with a filter, which no pinned cell opens.
-    for name in [
-        "NewLine_SaveRecordThenModifyThroughAnotherRecord_OpenEdit_ShowsAndSavesIt",
-        "NewLine_ModifyThroughAnotherRecordBeforeSaveRecord_SaveWritesRecOverIt",
-        "NewLine_SaveRecordModifyThroughAnotherRecordThenUpdateTrue_SaveWritesRecOverIt",
-    ] {
-        let (_, r, _) = o.iter().find(|(n, _, _)| n == name).expect("the test");
-        assert!(matches!(r, Outcome::NotRun(_)), "{name}: {r:?}");
-    }
 }
 
 /// Code just past the cells is refused, also where BC's answer follows the same rule: the row and Rec both changed between the
 /// save and `Update(false)` (through another record, or through `Rec.Modify()`), another row of the page's table changed, Rec's
-/// view changed, a write of another table before the save (by the table field or the control), `Update(true)` with a row before,
-/// a page with a trigger, and code after the `CurrPage.Update` (a modify through another record after `Update(false)` or
-/// `Update(true)`, a field set after `Update(false)`; review of #8720, points 1 and 2).
+/// view changed, `Update(true)` with a row before, a page with a trigger, and code after the `CurrPage.Update` (a modify through
+/// another record after `Update(false)` or `Update(true)`, a field set after `Update(false)`; review of #8720, points 1 and 2).
+/// A write of another table before the save, by the table field or the control, runs since ListNewLineWritesOtherTable.al
+/// measures it (`outside_fb_8735.rs`).
 #[test]
 fn issue_8712_neighbors_are_refused() {
     let o = outcomes(NEIGHBORS, "LT NN Tests");
     assert_eq!(o.len(), 11);
+    let other_tables = [
+        "NewLine_TableFieldWritesAnotherTable_ShowsAndSavesTheRow",
+        "NewLine_WriteAnotherTableBeforeSaveRecord_ShowsAndSavesTheRow",
+    ];
     let ran: Vec<_> = o
         .iter()
-        .filter(|(_, r, _)| !matches!(r, Outcome::NotRun(_)))
+        .filter(|(name, r, marks)| match other_tables.contains(&name.as_str()) {
+            true => !(*r == Outcome::Pass && marks.contains(&Assumption::ListNewLineWritesOtherTable)),
+            false => !matches!(r, Outcome::NotRun(_)),
+        })
         .map(|(name, r, _)| format!("{name}: {r:?}"))
         .collect();
     assert!(ran.is_empty(), "{ran:#?}");

@@ -4,6 +4,9 @@
 //! unassigned. The lowering resolved which codeunit answers for an enum value (corpus
 //! types/TestEnumDefaultImplTests.Codeunit.al) and lists every implementing routine of an
 //! interface procedure; the VM only picks among them by the instance's object.
+//!
+//! Interface variables: dispatch through the implementing codeunit. Entry points: `interface_test`,
+//! `interface_target`, `enum_implementation`.
 
 use crate::{Session, Signal};
 use al_builtins::describe::Describe;

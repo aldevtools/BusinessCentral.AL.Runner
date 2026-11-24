@@ -1,3 +1,7 @@
+//! What a TestField.Lookup left for the next TestPage calls (`LookupLeft`: the refresh left for later
+//! and who ran it, a written or cancelled value, a part a call reached, the host that read its
+//! unlinked ListPart's row). Flags behind methods, because they do not exclude each other (al-runner
+//! issue 7686). Entry points: `LookupLeft`, field `PageState::lookup_left`.
 #![deny(clippy::wildcard_enum_match_arm)]
 //! What a TestField.Lookup left on its page for the next TestPage calls: the refresh of `CurrPage.Update(false)` that BC runs
 //! later on a host with row triggers whose ListPart links two or three fields (`Session::defer_lookup_refresh`), who ran it,

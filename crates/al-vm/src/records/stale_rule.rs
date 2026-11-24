@@ -16,6 +16,11 @@
 //! Every input the measured cells did not cover is refused (`OpenTxShape::unknown`), never decided by the rule.
 //! After a locking ReadIsolation read in the open transaction the rule decides one shape only (`read_of_others_only`); the other
 //! measured shapes are single cells (`locking_read_cells.rs`).
+//!
+//! the one rule for a write through a stale buffer (al-runner issue 7657;
+//! record/crud/StaleRuleMatrix.al): committed-read refused, row contact or table contact written,
+//! otherwise DB:RecordChanged; every input no cell measured refused. Also the rollback note it reads.
+//! Entry points: `stale_verdict`, `open_tx_contact`, `trapped_error_rollback`.
 
 use super::*;
 use crate::state::{TxWrite, TxWriteKind};
@@ -364,7 +369,11 @@ impl Session {
             || self.tx.open.locks.lock_unpinned.is_some();
         let undid_write = !self.tx.open.writes.is_empty() || self.store.change_counter() != self.tx.commit_counter;
         let earlier = self.tx.rollback_kind;
+        let ends_runner_tx = kind == TrappedRollback::AssertError && self.asserterror_ends_runner_tx();
         self.rollback_in_run()?;
+        if ends_runner_tx {
+            self.runner_tx_ended_by_asserterror();
+        }
         if before.is_some() || held_lock || e.exception != ExceptionKind::Dialog {
             return Ok(());
         }

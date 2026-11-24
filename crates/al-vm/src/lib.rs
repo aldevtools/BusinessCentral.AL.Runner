@@ -1,5 +1,9 @@
 //! Tree-walking interpreter over the typed IR (ADR-011). `Engine` is the
 //! immutable program (ADR-001); `Session` holds all mutable state.
+//!
+//! Engine (immutable program) and Session (mutable state, grouped into the sub-states of `state.rs`),
+//! construction and the transaction entry points. The executor is the bytecode in `exec/`;
+//! `interp.rs` holds what both it and the rest of the VM use.
 
 use al_builtins::describe::Describe;
 use al_builtins::native::{AlError, Signal};
@@ -21,6 +25,7 @@ mod blob_copy;
 mod blob_transfer;
 mod clientless;
 mod consistent_marks;
+mod decimal_column;
 mod get_key_value;
 mod package_data;
 mod partial_gone;
@@ -42,7 +47,7 @@ mod debug;
 mod exec;
 mod interp;
 mod isolated_storage_reads;
-pub use baseline::{Baseline, NotShared, RowDelta, SharedBaseline, SkippedInstall};
+pub use baseline::{Baseline, NotShared, SharedBaseline, SkippedInstall};
 pub use capture::{CaptureConfig, Captured, ClosedBy, LoopRecord, MAX_RECORDS, MessageRecord, Rendered, ValueRecord};
 pub(crate) use ctx::base_slot_missing;
 pub use debug::{DebugFrame, DebugHook, DebugView, Resume};
@@ -101,6 +106,8 @@ pub mod group1_sessions;
 mod hostvalues;
 mod http;
 pub mod impact;
+pub mod install_footprint;
+mod install_footprint_row_version;
 mod install_left;
 mod interfaces;
 mod isdirty;
@@ -151,6 +158,7 @@ mod report_save;
 mod reports;
 mod resource_reads;
 mod run_page_link_open;
+mod session_fields;
 mod sessionops;
 mod setup_no_op;
 mod slot_default;
@@ -172,6 +180,7 @@ mod tenant_set_delete;
 mod test_rows;
 mod test_runner_host;
 mod testdata;
+mod transaction_type;
 mod transactions;
 mod translations;
 mod ui;
@@ -1575,7 +1584,7 @@ impl Session {
     }
 
     /// What the AL test runner does before each test method: every application area on, and the transaction type of the
-    /// method's start (`start_test_transaction_type`: UpdateNoLocks for the first one of a codeunit, the type the one before
+    /// method's start (`start_test_transaction`: UpdateNoLocks for the first one of a codeunit, the type the one before
     /// left for a later one). What an earlier test wrote to a demo table does not count for this one: the corpus
     /// tests that write setup rows put the demo values back afterwards (record/QkSetupRows.al), which leaves the
     /// runtime with the install-code row (record/captions/QdCaptionClassAreas.al:798 QF_GLSetup_CorpusRow).
@@ -1594,12 +1603,7 @@ impl Session {
         self.isolated_set_in_test.clear();
         self.demo_written.clear();
         self.gl_setup_written = false;
-        self.start_test_transaction_type();
-        self.tx.phase = crate::transactions::TxPhase::Fresh;
-        self.tx.open.locks = Default::default();
-        self.tx.open.moment = Some(crate::reports::transaction_world::Moment::at(
-            crate::reports::transaction_world::MomentStart::TestStart,
-        ));
+        self.start_test_transaction();
         self.pages.test_methods_started += 1;
     }
 
@@ -1658,7 +1662,9 @@ impl Session {
         self.rollbacks += 1;
         self.crm_rolled_back();
         self.sql.rolled_back();
+        let runner_tx = self.tx.open.runner_tx;
         self.end_open_transaction();
+        self.tx.open.runner_tx = runner_tx;
         self.tx.rolled_back = true;
         self.isolated_storage = self.isolated_committed.clone();
         // What SaveValues pages stored is kept in the database: a rollback takes back what was stored since the last commit. An
@@ -1708,6 +1714,7 @@ impl Session {
                     crm: self.engine.object_facts[*table as usize].crm(),
                     fields: self.initial_fields(*table as usize),
                     filters: Vec::new(),
+                    decimal_cut_filters: Vec::new(),
                     filter_group: 0,
                     marks: Vec::new(),
                     marked_only: false,

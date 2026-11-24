@@ -1,5 +1,7 @@
 //! `Version`: four numbers read by `Evaluate` (corpus session-system/TestMiscTypes.al:44-80).
 //! `Create` and `ToText` are not pinned and are not implemented.
+//!
+//! The Version type. Entry points: `native_for`.
 
 use crate::describe::Describe;
 use crate::native::{Ctx, NativeFn, Signal};

@@ -19,6 +19,12 @@
 //! AL0132, AL0161 and AL0398 (and AL0175 for Char - Text, AL0172 for unary minus on an Enum, Option or Duration; AL0126, AL0129 and AL0133 for the assignment form of a builtin method); they are listed in [`IMPLEMENTED`] or, where only some shapes are decided, [`NOT_CHECKED`].
 //! The implicit-conversion rules of `check/conv.rs` add AL0129, AL0130, AL0133, AL0174, AL0175, AL0369, AL0698 and AL0777
 //! for the shapes the compile matrix measured; those are listed in [`NOT_CHECKED`], with what is decided.
+//!
+//! Compile errors with the AL compiler's own codes (must-not-compile corpus): `IMPLEMENTED`,
+//! `NOT_CHECKED`, `check_workspace` (source-only checks, run by `check_with`), `check_context`
+//! (target and app.json checks, the caller supplies the `AppContext`). The typed ones (AL0118,
+//! AL0122, AL0132, AL0161) are in `check.rs` (`al_unresolved_name`, `al_enum_assignment`,
+//! `ABSENT_ENUM_MEMBERS`).
 
 use crate::workspace::{AppKind, Diagnostic, ObjKind, Resolution, Workspace};
 use al_syntax::ast::NodeText;
@@ -36,7 +42,11 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ),
     (
         "AL0104",
-        "a parameter named begin, procedure or trigger without `var` (the first diagnostic, at the name); alc's full list for a file of two codeunits whose procedures take `<keyword>: Integer` and `var <keyword>: Integer` (cases 2016-2039), and for a variable \"If\" used unquoted (case 2040); a variable named by a keyword (alcodes/keyword_variable_names.rs; the first diagnostic, `'}' expected`, `'begin' expected` or `'procedure' expected`, at the name; case 0334 and issue 8539); `end`, `begin` or `var` as an option member, `O: Option Zero,End;` (alcodes/keyword_option_members.rs; the first diagnostic, `';' expected`, `')' expected` or `'end' expected`, at the word or the comma after it; issue 8657)",
+        "a parameter named begin, procedure or trigger without `var` (the first diagnostic, at the name); alc's full list for a file of two codeunits whose procedures take `<keyword>: Integer` and `var <keyword>: Integer` (cases 2016-2039), and for a variable \"If\" used unquoted (case 2040); a variable named by a keyword (alcodes/keyword_variable_names.rs; the first diagnostic, `'}' expected`, `'begin' expected` or `'procedure' expected`, at the name; case 0334 and issue 8539); `end`, `begin` or `var` as an option member, `O: Option Zero,End;` (alcodes/keyword_option_members.rs; the first diagnostic, `';' expected`, `')' expected` or `'end' expected`, at the word or the comma after it; issue 8657); a table FlowField's CalcFormula with an unquoted `filter(<>@)`, blanks in it or not, beside AL0726 and AL0870 (alcodes/calc_filter_at_sign.rs; cases 3806-3808)",
+    ),
+    (
+        "AL0726",
+        "a table FlowField's CalcFormula with an unquoted `filter(<>@)`, blanks in it or not, beside AL0104 and AL0870 (alcodes/calc_filter_at_sign.rs; cases 3806-3808 on corpus pull request 1495)",
     ),
     (
         "AL0105",
@@ -56,7 +66,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ),
     (
         "AL0224",
-        "a variable declared \"If\" used unquoted, `If := 1;`, as the one statement of the one procedure of a file's one codeunit (case 2040)",
+        "a variable declared \"If\" used unquoted, `If := 1;`, as the one statement of the one procedure of a file's one codeunit (case 2040); a table FlowField's CalcFormula with an unquoted `filter(@)`, blanks in it or not, beside AL0870 (alcodes/calc_filter_at_sign.rs; cases 3805 and 3808)",
     ),
     (
         "AL0118",
@@ -146,6 +156,10 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
 /// the features `catalog/alc-features.txt` measured (`features.rs`);
 /// a case that finds its code matches.
 pub const NOT_CHECKED: &[(&str, &str)] = &[
+    (
+        "AL0870",
+        "reported only for a table FlowField's CalcFormula with an unquoted `filter(@)`, beside AL0224, or `filter(<>@)`, beside AL0726 and AL0104 (alcodes/calc_filter_at_sign.rs; cases 3805-3808 on corpus pull request 1495); an `@` before code that is no verbatim string elsewhere (case 1386) is not judged.",
+    ),
     (
         "AL0519",
         "reported only for a variable named by a keyword (alcodes/keyword_variable_names.rs, the first diagnostic at the name; issue 8539) and for `end` or `var` as a member of an option return type (alcodes/keyword_option_members.rs, the first diagnostic, at the word or the comma after it; issue 8657); an `end` or other word where alc expects a value elsewhere (case 0331) is not judged.",
@@ -607,6 +621,7 @@ pub fn check_workspace_parts(ws: &Workspace, first: usize) -> (Vec<Diagnostic>, 
             ObjKind::Query => query_joins(ws, o.file, obj.sections(), &mut out),
             ObjKind::Table => {
                 count_flowfield::check(ws, oi, &obj, &mut out);
+                calc_filter_at_sign::check(ws, oi, &obj, &mut out);
                 field_types::check(ws, oi, &obj, &mut out);
             }
             ObjKind::Report => {
@@ -2568,6 +2583,7 @@ fn typed_names(d: &ast::VarDecl) -> Vec<(String, String)> {
 }
 
 mod action_subscriber;
+pub(crate) mod calc_filter_at_sign;
 mod control_visible;
 mod count_flowfield;
 mod enum_variables;

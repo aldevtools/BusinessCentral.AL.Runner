@@ -15,6 +15,10 @@
 //! anywhere is refused at open, before any test runs. A damaged header, index or dictionary is refused at open (a hash
 //! each), as is a file of the wrong length. A block is checked again when it is read (zstd's content checksum, then
 //! the decoder). Nothing in a refused file is used.
+//!
+//! The cache entry file: header, dictionary, per-object blocks, index; open checks the header, the
+//! index and the dictionary, a block is checked when read. Entry points: `build`, `Entry::open`,
+//! `Entry::verify`, `CacheError`.
 
 use crate::Key;
 use al_ir::ObjectHead;

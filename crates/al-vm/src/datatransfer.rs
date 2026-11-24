@@ -212,6 +212,13 @@ impl Session {
             a.extend(values.iter().cloned());
             self.record_op(RecordOp::SetFilter, &rec, &mut a)?;
         }
+        // No cell measures `@` alone or `<>@` alone on a Code field as a DataTransfer filter (al-builtins `filter_at_sign`).
+        let named = al_builtins::filter::code_at_sign_alone_named(&rec.borrow().filters);
+        if let Some(named) = named {
+            return refuse(format!(
+                "DataTransfer with {named} on a Code field as a filter (not measured)"
+            ));
+        }
         // The reads answer as when their result is used: an empty table answers false, it does not raise.
         let used = std::mem::replace(&mut self.ret_used, true);
         let rows = self.dt_scan(&rec);

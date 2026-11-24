@@ -4,6 +4,14 @@
 //! measured; the rest is refused here. BC reads the row again on each switch (corpus PR 1467, open): on the list of that probe
 //! (`reopen_probe_list`) the switch reads it, Edit also switches the list opened for view, and the page opens again after a
 //! Close; on another list the switch runs without a read, as on main, only where `switch_read_unseen` holds.
+//!
+//! View and Edit on a list without a card switch its own mode (`switch_list_without_card`; without a
+//! read, as on main, only where `switch_read_unseen` holds), and the calls refused after Edit
+//! switched it back or switched a list opened for view (`refuse_after_list_edit_back`,
+//! `refuse_after_list_edit_back_control`). On the list of corpus PR 1467 only (`reopen_probe_list`:
+//! page, table and log procedure line for line, `pinned_body`): the row read of the switch
+//! (assumption `list-mode-switch-reads-row`, `measured_switch_read`) and the opens after it
+//! (assumption `list-reopen-after-mode-switch`, `reopen_after_switch_measured`).
 
 use super::pinned_body::{Callees, Names, callees_are, page_is, table_is};
 use super::state::ListViewSwitch;

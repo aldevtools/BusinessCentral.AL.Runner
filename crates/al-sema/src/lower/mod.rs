@@ -1,6 +1,10 @@
 //! Lowering resolved syntax to the typed IR (ADR-011). Anything the IR or the
 //! builtins registry cannot express yet becomes a reason on the routine
 //! (`Routine::unsupported` in `Lowered`), never a guess.
+//!
+//! Lowers resolved syntax to the typed IR (ADR-011). Anything inexpressible becomes a refusal reason
+//! on the routine. Holds `Lowered`, the `Lowerer` state and the module list. Entry points: `Lowered`,
+//! `Lowerer`.
 
 use crate::check::posmap::FxMap as HashMap;
 use crate::check::{CheckResult, Res};
@@ -259,6 +263,9 @@ pub(crate) struct Lowerer<'a> {
     /// The local variables of the routine whose declaration writes `Char`, `Byte`, or `Option` with named members, by
     /// lowercase name (`char_option_byte_get`). A parameter, a return value and a platform option type are not among them.
     local_char_option_byte_vars: std::collections::HashSet<String>,
+    /// Every variable of the routine's `var` section, by lowercase name; a parameter and a return value are not among them
+    /// (the `for` loop bounds of `for-char-literal-bounds` measured only such locals).
+    local_var_section_names: std::collections::HashSet<String>,
     /// Declared text of Label variables, by lowercase name; reads lower to that constant.
     global_labels: HashMap<String, String>,
     local_labels: HashMap<String, String>,

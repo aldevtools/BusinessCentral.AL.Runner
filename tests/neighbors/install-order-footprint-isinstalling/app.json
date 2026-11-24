@@ -1,0 +1,46 @@
+{
+ "id": "9e1a2b3c-0000-4000-8000-000000000049",
+ "name": "RP nav2 Tests",
+ "publisher": "Review Probe Co",
+ "version": "1.0.0.0",
+ "platform": "27.0.0.0",
+ "runtime": "15.0",
+ "idRanges": [
+  {
+   "from": 52490,
+   "to": 52499
+  }
+ ],
+ "dependencies": [
+  {
+   "id": "9e1a2b3c-0000-4000-8000-000000000041",
+   "name": "RP nav2 P",
+   "publisher": "Review Probe Co",
+   "version": "1.0.0.0"
+  },
+  {
+   "id": "9e1a2b3c-0000-4000-8000-000000000042",
+   "name": "RP Nav2 N1",
+   "publisher": "Review Probe Co",
+   "version": "1.0.0.0"
+  },
+  {
+   "id": "9e1a2b3c-0000-4000-8000-000000000043",
+   "name": "RP Nav2 L2",
+   "publisher": "Review Probe Co",
+   "version": "1.0.0.0"
+  },
+  {
+   "id": "9e1a2b3c-0000-4000-8000-000000000044",
+   "name": "RP Nav2 L3",
+   "publisher": "Review Probe Co",
+   "version": "1.0.0.0"
+  },
+  {
+   "id": "9e1a2b3c-0000-4000-8000-000000000045",
+   "name": "RP Nav2 L4",
+   "publisher": "Review Probe Co",
+   "version": "1.0.0.0"
+  }
+ ]
+}

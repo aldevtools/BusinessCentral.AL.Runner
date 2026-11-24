@@ -8,6 +8,9 @@
 //!
 //! A routine is *reached* when it is not a stub. Weight is the size in bytes of the routine's
 //! lowered form as JSON, a proxy for its check and lowering cost.
+//!
+//! The reach report (`AL_REACH_REPORT=1`): which roots and edges pull the routines in, how many are
+//! refused, how many only matter through a refused routine.
 
 use al_sema::lower::Lowered;
 use al_sema::workspace::Workspace;

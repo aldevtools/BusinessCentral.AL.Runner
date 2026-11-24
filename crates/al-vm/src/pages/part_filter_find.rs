@@ -1,6 +1,14 @@
 //! A ListPart that serves its rows from OnFindRecord and OnNextRecord, after a TestPart filter (al-runner issue 7476): the
 //! client reads the rows again from the first row of the view, and the function controls' first repeated read of each window of a part. The function controls of such a
 //! read are `fn_controls.rs`.
+//!
+//! A ListPart with OnFindRecord, OnNextRecord and both row triggers after a TestPart filter (al-
+//! runner issue 7476): it reads again from OnFindRecord(`-`) without the step back of
+//! OnNextRecord(-1) (`find_list_part`, `open_read_steps_back`), and runs its function controls once
+//! on no row (`part_filter_runs_fn_on_new_line`); each window a part reads skips the function
+//! controls at its first repeated read (`part_window_read_starts`). Only on the pinned pages
+//! (`FIND_PAGES`, `find_list_part`) after the pinned calls of each rule (`find_part_calls`). Entry
+//! points: `find_list_part`, `find_part_calls`, `part_window_read_starts`, `open_read_steps_back`.
 
 use super::pinned_shape::{PartStep, PinnedPart, TestCall};
 use super::*;

@@ -1,28 +1,6 @@
 # key	entry
-# The probe's measured cells: main refused them at the save (UNMEASURED_CODE); the effect gate runs them.
-LT NE Tests::NewLine_SaveRecordThenModifyThroughAnotherRecord_ShowsAndSavesIt	ASSUMED list-new-line-extra-code (corpus PR 1521, open: ListNewLineExtraCode.al)
-LT NE Tests::NewLine_SaveRecordThenModifyThroughAnotherRecord_RowBefore_ShowsAndSavesIt	ASSUMED list-new-line-extra-code (corpus PR 1521, open: ListNewLineExtraCode.al)
-LT NE Tests::NewLine_FieldSetBeforeSaveRecord_ShowsAndSavesIt	ASSUMED list-new-line-extra-code (corpus PR 1521, open: ListNewLineExtraCode.al)
-LT NE Tests::NewLine_FieldSetBeforeSaveRecord_RowBefore_ShowsAndSavesIt	ASSUMED list-new-line-extra-code (corpus PR 1521, open: ListNewLineExtraCode.al)
-LT NE Tests::NewLine_TableFieldSetsFieldBeforeSaveRecord_ShowsAndSavesIt	ASSUMED list-new-line-extra-code (corpus PR 1521, open: ListNewLineExtraCode.al)
-LT NE Tests::NewLine_FieldSetThenUpdateTrue_ShowsAndSavesIt	ASSUMED list-new-line-extra-code (corpus PR 1521, open: ListNewLineExtraCode.al)
-LT NE Tests::NewLine_FieldSetAfterSaveRecord_UpdateFalseReadsTheStoredRow	ASSUMED list-new-line-extra-code (corpus PR 1521, open: ListNewLineExtraCode.al)
-LT NE Tests::NewLine_SaveRecordThenWriteAnotherTable_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code (corpus PR 1521, open: ListNewLineExtraCode.al)
-LT NE Tests::NewLine_TableFieldSetsFieldBeforeSaveRecord_RowBefore_ShowsAndSavesIt	ASSUMED list-new-line-extra-code (corpus PR 1521, open: ListNewLineExtraCode.al)
-LT NE Tests::NewLine_FieldSetAfterSaveRecord_RowBefore_UpdateFalseReadsTheStoredRow	ASSUMED list-new-line-extra-code (corpus PR 1521, open: ListNewLineExtraCode.al)
-LT NE Tests::NewLine_SaveRecordThenWriteAnotherTable_RowBefore_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code (corpus PR 1521, open: ListNewLineExtraCode.al)
-# Shapes the gate takes at the save, then refuses where their code leaves what the cells measure: Update(true) after
-# SaveRecord (a measured cell, :475), and the neighbors that change both the row and Rec, another row, or Rec's view
-# between the save and Update(false). Main refused each at the save.
-LT NE Tests::NewLine_SaveRecordModifyThroughAnotherRecordThenUpdateTrue_SaveWritesRecOverIt	REFUSED CurrPage.Update() or Update(true) after CurrPage.SaveRecord
-LT NN Tests::NewLine_RowAndRecChangeAfterSaveRecord_UpdateFalseReadsTheRow	REFUSED the page's record, its view or the table changed between CurrPage.SaveRecord
-LT NN Tests::NewLine_AnotherRowChangesAfterSaveRecord_ShowsTheNewLine	REFUSED the page's record, its view or the table changed between CurrPage.SaveRecord
-LT NN Tests::NewLine_SetRangeAfterSaveRecord_ShowsTheRow	REFUSED the page's record, its view or the table changed between CurrPage.SaveRecord
-# Code after the Update (review of #8720, point 1): refused at the end of the validation. Main refused each at the save.
-LT NN Tests::NewLine_ModifyThroughAnotherRecordAfterUpdateFalse_ShowsTheStoredRow	REFUSED the validation changed the page's record, the table or the store after CurrPage.Update
-LT NN Tests::NewLine_FieldSetAfterUpdateFalse_ReadsTheStoredRow	REFUSED the validation changed the page's record, the table or the store after CurrPage.Update
-LT NN Tests::NewLine_ModifyThroughAnotherRecordAfterUpdateTrue_ShowsTheStoredRow	REFUSED the validation changed the page's record, the table or the store after CurrPage.Update
-# The row and Rec both changed through Rec.Modify() between the save and Update(false) (review of #8720, point 2).
-LT NN Tests::NewLine_RecModifyAfterSaveRecord_ShowsTheModifiedRow	REFUSED the page's record, its view or the table changed between CurrPage.SaveRecord
-# A write before the save (by the table field or the control, :442), Update(true) with a row before, the cell under OpenEdit
-# with a filter, and the page with a trigger keep main's refusal, the same on both: no row.
+# The two neighbors this pull request runs, against #8731's gate, which refused them: a write of another table before the
+# save, by the table field or by the control (ListNewLineWritesOtherTable.al:328, :361). The other cells and neighbors of
+# this folder are #8720's and #8731's.
+LT NN Tests::NewLine_TableFieldWritesAnotherTable_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1527, open: ListNewLineWritesOtherTable.al)
+LT NN Tests::NewLine_WriteAnotherTableBeforeSaveRecord_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1527, open: ListNewLineWritesOtherTable.al)

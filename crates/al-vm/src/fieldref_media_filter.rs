@@ -2,6 +2,9 @@
 //! argument to the field type and raises an error, for a Guid argument and for the text of a Guid alike
 //! (recordref-fieldref/fieldref/FieldRefFilterMediaGuidText.al:258-296 and :397-434, al-runner issue 7461). A filter text without
 //! an argument is read by `al_builtins::filter`.
+//!
+//! the error of FieldRef.SetFilter with an argument and FieldRef.SetRange on a Media or MediaSet
+//! field (al-runner issue 7461). Entry points: `media_fieldref_filter_argument`.
 
 use crate::Session;
 use al_builtins::library_kind::LibraryKind;

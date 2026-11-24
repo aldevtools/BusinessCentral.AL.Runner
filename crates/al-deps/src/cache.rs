@@ -14,6 +14,8 @@
 //! and CRC-32. The sidecar also keeps the file's size and modification time at its last check
 //! (`checked`); while both are unchanged the file is not read again. Writes go to a temporary name
 //! and are renamed, so two processes filling the same cache never see a half-written file.
+//!
+//! Entry points: `cache_root`, `cache_root_from_env`, `Store`, `BuildDir`.
 
 use crate::build::BuildId;
 use std::path::{Path, PathBuf};

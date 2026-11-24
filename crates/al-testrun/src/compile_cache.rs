@@ -1,5 +1,9 @@
 //! The compile cache of the dependency apps (ADR-022): which key a run has, where the entry file
 //! lives, how it is read, built and written. The format is `al-cache`; this is the OS side.
+//!
+//! The OS side of the compile cache (ADR-022): the key of a run (hash of the executable and of each
+//! app's source), reading, writing (temporary file, rename) and building the entry file. Entry
+//! points: `CompileCache`, `key_for`, `read_entry`, `write_entry`, `open_or_build`.
 
 use al_cache::{AppKey, Entry, Key};
 use al_sema::provided::{DepLayer, DepSource, LayerSource, Stack};
@@ -126,17 +130,68 @@ impl Layers {
 /// builtins catalog. It cannot miss a crate, which a hash of source files can.
 pub fn runtime_build() -> [u8; 32] {
     static HASH: OnceLock<[u8; 32]> = OnceLock::new();
-    *HASH.get_or_init(|| build_identity(running_executable(), process_nonce()))
+    *HASH.get_or_init(|| build_identity(read_pinned(pin_running_executable()), process_nonce()))
 }
 
-/// The bytes of the running executable. On Linux through `/proc/self/exe`, which opens the file the process runs from even
-/// when its path was deleted or replaced since it started (an upgrade, a rebuild); elsewhere the path it was started from.
-fn running_executable() -> std::io::Result<Vec<u8>> {
+/// The open file of the executable this process started from, kept from [`pin_running_executable`]. The hash of
+/// [`runtime_build`] is made later (on first use), and a handle opened at start still reads the build that runs when
+/// the file at the path was replaced since (an upgrade, a rebuild): on macOS and Windows the path alone would give the
+/// key the new build's identity (issue 8691).
+static PINNED_EXECUTABLE: OnceLock<std::io::Result<PinnedFile>> = OnceLock::new();
+
+/// Opens the running executable and keeps the handle. Call it first thing in `main`; later calls do nothing.
+pub fn pin_running_executable() -> &'static std::io::Result<PinnedFile> {
+    PINNED_EXECUTABLE.get_or_init(open_running_executable)
+}
+
+fn open_running_executable() -> std::io::Result<PinnedFile> {
+    // On Linux `/proc/self/exe` opens the file the process runs from even when its path was deleted or replaced.
     #[cfg(target_os = "linux")]
-    if let Ok(bytes) = std::fs::read("/proc/self/exe") {
-        return Ok(bytes);
+    if let Ok(f) = std::fs::File::open("/proc/self/exe") {
+        return PinnedFile::new(f);
     }
-    std::env::current_exe().and_then(std::fs::read)
+    PinnedFile::new(std::fs::File::open(std::env::current_exe()?)?)
+}
+
+/// An open file with its size and modification time at pin time. A rename over the path leaves the handle on the old
+/// file; an overwrite in place (`cp` onto it) changes the file itself, which the two values show: the hash then
+/// refuses to read it, and the key takes the process's own value (a cache miss, never a wrong hit).
+pub struct PinnedFile {
+    file: std::fs::File,
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+}
+
+impl PinnedFile {
+    fn new(file: std::fs::File) -> std::io::Result<PinnedFile> {
+        let m = file.metadata()?;
+        Ok(PinnedFile {
+            file,
+            len: m.len(),
+            modified: m.modified().ok(),
+        })
+    }
+}
+
+/// All bytes of the pinned file, read from the handle (the file at its old path is not looked at). An error when the
+/// file changed in place since the pin.
+fn read_pinned(pinned: &std::io::Result<PinnedFile>) -> std::io::Result<Vec<u8>> {
+    use std::io::{Read, Seek, SeekFrom};
+    let p = match pinned {
+        Ok(p) => p,
+        Err(e) => return Err(std::io::Error::new(e.kind(), e.to_string())),
+    };
+    let m = p.file.metadata()?;
+    if m.len() != p.len || m.modified().ok() != p.modified {
+        return Err(std::io::Error::other(
+            "the executable changed in place since the process started",
+        ));
+    }
+    let mut f = &p.file;
+    let mut bytes = Vec::new();
+    f.seek(SeekFrom::Start(0))?;
+    f.read_to_end(&mut bytes)?;
+    Ok(bytes)
 }
 
 /// A value of this process alone ([`build_identity`] without the executable): the time and the process id.
@@ -881,11 +936,39 @@ mod build_identity_tests {
         assert_eq!(build_identity(Ok(bytes.clone()), 2), hash_build_bytes(&bytes));
     }
 
-    #[cfg(target_os = "linux")]
+    // Issue 8691: the file at the path is replaced after the process started (an upgrade); the identity stays the
+    // one of the file that was opened at start.
     #[test]
-    fn the_running_executable_is_read_through_the_process_itself() {
-        let bytes = running_executable().expect("the test binary reads itself");
-        let path = std::fs::read(std::env::current_exe().unwrap()).unwrap();
-        assert_eq!(bytes, path);
+    fn a_pinned_executable_keeps_its_identity_when_the_file_at_its_path_is_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("alrunner");
+        std::fs::write(&path, b"old build").unwrap();
+        let pinned = std::fs::File::open(&path).and_then(PinnedFile::new);
+        let new = dir.path().join("alrunner.new");
+        std::fs::write(&new, b"new build, longer").unwrap();
+        std::fs::rename(&new, &path).unwrap();
+        let bytes = read_pinned(&pinned).unwrap();
+        assert_eq!(build_identity(Ok(bytes), 1), hash_build_bytes(b"old build"));
+    }
+
+    // An overwrite in place (cp onto the file) changes the file the handle holds: no hash of the new bytes.
+    #[test]
+    fn a_pinned_executable_overwritten_in_place_gives_no_build_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("alrunner");
+        std::fs::write(&path, b"old build").unwrap();
+        let pinned = std::fs::File::open(&path).and_then(PinnedFile::new);
+        std::fs::write(&path, b"new build, longer").unwrap();
+        let bytes = read_pinned(&pinned);
+        assert!(bytes.is_err());
+        let a = build_identity(bytes, 1);
+        assert_ne!(a, hash_build_bytes(b"new build, longer"));
+        assert_ne!(a, build_identity(read_pinned(&pinned), 2));
+    }
+
+    #[test]
+    fn the_pinned_running_executable_reads_the_test_binary() {
+        let bytes = read_pinned(pin_running_executable()).expect("the test binary reads itself");
+        assert_eq!(bytes, std::fs::read(std::env::current_exe().unwrap()).unwrap());
     }
 }

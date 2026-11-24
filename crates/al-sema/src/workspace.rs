@@ -1,5 +1,15 @@
 //! A workspace is a set of apps. Each app is its manifest plus its sources
 //! (path, text). Loading parses every file and builds the object table.
+//!
+//! A set of apps: parse every file, build the object table, resolve names across apps. Tests in
+//! `workspace/tests.rs`. A run's compile drops the parse trees once lowered (`drop_trees`, from al-
+//! testrun `Compiled::for_one_run`) and `green` parses a file again when a tree is needed. Entry
+//! points: `Workspace`, `load_apps`, `ObjKind`, `ObjectSym`, `AppSource`, `AppKind`, `restrict_to`,
+//! `subscribers_of`, `resolve_ref`. `Workspace::file_order` (`FileOrder`) is the one order of
+//! diagnostics (by app and path, then offset) for `Workspace::diagnostics`,
+//! `CheckResult::diagnostics` and `Lowered::al_diagnostics`; `Diagnostic::site` (app, file, offset,
+//! code) is what makes two diagnostics one finding. The printed order of compile errors is al-testrun
+//! `runtime/mod.rs` `compile_errors`.
 
 use crate::check::posmap::{FxMap as HashMap, FxSet as HashSet};
 use al_syntax::ast;

@@ -5,6 +5,13 @@
 //! grammar through the strings it feeds to `SetView`
 //! (`'SORTING(Entry No.) WHERE(Entry No.=FILTER(1..3))'`:
 //! recordref-fieldref/recordref/TestRecordRefFilter.al:23). Anything else is refused.
+//!
+//! Filter and view text: SetView, GetFilters, filter group text, AL property views (`property_view`),
+//! the one reader of a view's parts (`view_parts`, `view_clauses`: which of SORTING, ORDER, WHERE a
+//! view has). Entry points: `parse_filter_text`, `filter_text`, `get_filters`, `property_view`,
+//! `view_clauses`. `get_filters_order`: the order of a FlowField filter and a FlowFilter filter in
+//! GetFilters, RecordRef.GetFilters and a Find error text (the one shape
+//! record/filters/ByValueRecordView.al:575-582 pins; every shape outside it refuses).
 
 use crate::Session;
 use al_builtins::describe::Describe;
@@ -16,6 +23,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 type Rec = Rc<RefCell<RecordState>>;
+
+/// `filter::parse_filter_with` or `filter::parse_filter_both_at_signs_measured`.
+type ParseFilter =
+    fn(&str, &[Value], &RtType, &dyn Fn(u32) -> Result<Vec<(i32, String)>, String>) -> Result<FilterExpr, String>;
 
 /// `=` before a literal text that `filter_value_with` quotes for its `*` or `?` alone, so it does not read as a pattern.
 fn equal_sign(v: &Value) -> &'static str {
@@ -39,10 +50,29 @@ impl Session {
 
     /// A filter expression over a field of type `ty`, enum members by name included.
     pub(crate) fn parse_filter_text(&self, text: &str, ty: &al_builtins::value::RtType) -> Result<FilterExpr, String> {
+        self.parse_filter_text_by(al_builtins::filter::parse_filter_with, text, ty)
+    }
+
+    /// [`Self::parse_filter_text`] where the cells measure `@` alone and `<>@` alone on a Code field
+    /// (`filter::parse_filter_both_at_signs_measured`).
+    pub(crate) fn parse_filter_text_both_at_signs_measured(
+        &self,
+        text: &str,
+        ty: &al_builtins::value::RtType,
+    ) -> Result<FilterExpr, String> {
+        self.parse_filter_text_by(al_builtins::filter::parse_filter_both_at_signs_measured, text, ty)
+    }
+
+    fn parse_filter_text_by(
+        &self,
+        parse: ParseFilter,
+        text: &str,
+        ty: &al_builtins::value::RtType,
+    ) -> Result<FilterExpr, String> {
         let engine = self.engine.clone();
         let language = al_builtins::format::FormatCtx::language(self);
         let enums = |id: u32| crate::views::enum_filter_members(&engine.program.objects[id as usize], language);
-        al_builtins::filter::parse_filter_with(text, &[], ty, &enums)
+        parse(text, &[], ty, &enums)
     }
 
     /// `filter_value`; with `iso` a Date reads `yyyy-mm-dd`, as a view writes it (record/crud/RcAMisc.al:
@@ -274,6 +304,11 @@ impl Session {
             FilterExpr::NotLike(p, ci) => format!("<>{}{p}", if *ci { "@" } else { "" }),
             // record/filters/WcInvalidFilterExpr.al:84-111: `@` and `<>@` read back as written.
             FilterExpr::AtSignAlone(negated) => if *negated { "<>@" } else { "@" }.to_string(),
+            // GetFilter, GetFilters and GetView write `@` and `<>@` alone on a Code field as written (AtSignAloneReads.al:823).
+            FilterExpr::AtSignAloneCode(negated) => {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::AtSignAloneDatabaseBlank);
+                if *negated { "<>@" } else { "@" }.to_string()
+            }
             FilterExpr::EmptyViewValue => "==".to_string(),
             FilterExpr::UnpinnedMatch(inner, _) => self.filter_text_with(inner, iso)?,
             FilterExpr::UnpinnedText(_) => {
@@ -774,7 +809,14 @@ impl Session {
                         let expr = match empty {
                             Some(e) => e,
                             None => {
-                                al_builtins::filter::with_date_context(date_ctx, || self.parse_filter_text(value, &ty))
+                                // `@` alone and `<>@` alone on a Code field are measured in a view SetView gets, not in an
+                                // object property.
+                                let parse = if runtime {
+                                    Self::parse_filter_text_both_at_signs_measured
+                                } else {
+                                    Self::parse_filter_text
+                                };
+                                al_builtins::filter::with_date_context(date_ctx, || parse(self, value, &ty))
                                     .map_err(|e| Signal::unsupported(format!("SetView: {e}")))?
                             }
                         };
@@ -953,6 +995,7 @@ fn ordinals(e: &FilterExpr) -> FilterExpr {
         FilterExpr::Like(p, ci) => FilterExpr::Like(p.clone(), *ci),
         FilterExpr::NotLike(p, ci) => FilterExpr::NotLike(p.clone(), *ci),
         FilterExpr::AtSignAlone(n) => FilterExpr::AtSignAlone(*n),
+        FilterExpr::AtSignAloneCode(n) => FilterExpr::AtSignAloneCode(*n),
         FilterExpr::EmptyViewValue => FilterExpr::EmptyViewValue,
         FilterExpr::UnpinnedMatch(..) | FilterExpr::UnpinnedText(_) => e.clone(),
         FilterExpr::NumCode(e) => FilterExpr::NumCode(e.clone()),

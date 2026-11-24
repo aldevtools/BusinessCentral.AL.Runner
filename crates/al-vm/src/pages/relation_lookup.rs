@@ -1,5 +1,8 @@
 //! `TestField.Lookup()` over a TableRelation: which arm of a conditional relation applies, the lookup page it opens and the
 //! write-back of the picked row.
+//!
+//! TableRelation lookups: the conditional relation arm, a control's own relation, the lookup page
+//! (`LookupKind::Relation`; refused onto a list with OnFindRecord) and the write-back of the pick.
 
 use super::*;
 

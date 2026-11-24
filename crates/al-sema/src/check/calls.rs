@@ -1,4 +1,6 @@
 //! Overload picking and the lookup of callables.
+//!
+//! Entry points: `pick`, `lookup_callable`, `lookup_name`.
 use super::*;
 
 /// The reason of an AR1007: a call in an app whose declared runtime is below the runtime floor, where the table of

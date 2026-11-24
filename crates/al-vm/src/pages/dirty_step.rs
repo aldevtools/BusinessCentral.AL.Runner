@@ -2,6 +2,12 @@
 //! Y45SaveBeforeAction.al, file header lines 7-26, measured on BC 27.5, 28.5 and 29.0): an action, a RunObject codeunit or
 //! page, Next, Previous, GoToRecord, GoToKey, OK and Close each save the dirty row first (OnModifyRecord, OnBeforeModifyEvent,
 //! OnModify, OnAfterModifyEvent), then run.
+//!
+//! What the client saves before the next step (an action, a RunObject, a part's New) and a page that
+//! holds a failed save or a refused entry (corpus pages/actions). An action on a new row of a Card or
+//! Document page with parts whose key a SetValue typed is refused
+//! (`refuse_action_on_new_host_with_parts`). Entry points: `save_before_action`, `test_page_op_held`,
+//! `test_control_op_held`.
 
 use super::*;
 use al_builtins::page_op::{PageMethod, PageOp};
@@ -288,7 +294,7 @@ impl Session {
         self.end_read_at_test_call(st, call);
         Self::end_deferred_host_reread(st, call, method.method());
         self.refuse_after_pinned_end(st, call, None)?;
-        self.validate_view_call(st, call)?;
+        self.validate_view_call(st, call, None, args)?;
         self.refuse_off_factbox_row(st, call)?;
         self.coded_line_before_set_value(st, call)?;
         Self::refuse_ws_trigger_order_step(st, call)?;
@@ -381,7 +387,7 @@ impl Session {
         self.end_read_at_test_call(st, call);
         Self::end_deferred_host_reread(st, call, method.method());
         self.refuse_after_pinned_end(st, call, Some(&c.target))?;
-        self.validate_view_call(st, call)?;
+        self.validate_view_call(st, call, Some(&c.target), args)?;
         self.refuse_off_factbox_row(st, call)?;
         self.coded_line_before_set_value(st, call)?;
         let control = match c.target {

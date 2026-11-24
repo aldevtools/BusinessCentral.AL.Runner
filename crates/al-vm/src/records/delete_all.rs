@@ -1,6 +1,8 @@
 //! `Delete` of one row with what it takes along (`delete_one`). `DeleteAll`: the rows it deletes, row by row (with delete
 //! events, database triggers, OnDelete for DeleteAll(true), the User table, MarkedOnly) or in one step in the store; a filter
 //! on a FlowField goes to `delete_all_flow`.
+//!
+//! `DeleteAll`, row by row or in one step in the store.
 
 use super::*;
 
@@ -65,7 +67,7 @@ impl Session {
         cx: &al_data::AccessContext,
         run: bool,
     ) -> Result<Value, Signal> {
-        let (filters, flow_field_filters) = self.split_filters(rec);
+        let (filters, flow_field_filters) = self.split_filters(rec)?;
         if !flow_field_filters.is_empty() {
             return self.delete_all_flow_filtered(t, rec, run);
         }

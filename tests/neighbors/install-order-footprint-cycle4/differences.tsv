@@ -1,0 +1,3 @@
+# key	entry
+# Main installs once and passes; four installs read from each other in a cycle (ADR-079 decisions 2 and 5).
+FP cycle4 Tests::CycleRowExists	REFUSED install order: FP Cycle X1, FP Cycle X2, FP Cycle X3, FP Cycle X4: the runner cannot prove that every order of the apps with no dependency path between them leaves the same database: 4 apps tied by their installs

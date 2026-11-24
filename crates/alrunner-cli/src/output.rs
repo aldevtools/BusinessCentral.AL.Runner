@@ -1,4 +1,10 @@
 //! What a run prints and writes: the summary, the lines per test, JUnit XML.
+//!
+//! Counts, exit codes (0, 1, 6, 7), the summary line, the one-line warnings shown by default
+//! (`baseline_warning`, `dependency_line_is_problem`; the rest is `--verbose`), JUnit XML of a run,
+//! and the `--output-json` document; `test_row` is the one builder of a test's JSON row, for the
+//! document and for serve's `test` lines (al-runner issue 7954). Entry points: `exit_code`, `junit`,
+//! `json_tdd`, `test_row`.
 
 use al_testrun::Outcome;
 use al_testrun::runtime::TestResult;
@@ -549,18 +555,14 @@ pub fn failure_tail(r: &TestResult) -> String {
     tail
 }
 
-/// The JUnit properties of a test that come from BC's order: `singleInstanceRerun` when its codeunit's serial re-run
-/// was skipped for the length of its chain (ADR-066 amendment 7, option 2), with the text the run output prints, and
-/// `numberSequenceOrder` when its codeunit is on the numbers list of a default run (amendment 12, decision 3).
+/// The JUnit properties of a test that come from BC's order: `numberSequenceOrder` when its codeunit is on the numbers
+/// list of a default run (ADR-066 amendment 12, decision 3).
 pub fn order_properties(chain: &al_testrun::runtime::ChainReport, r: &TestResult) -> Vec<(String, String)> {
-    let skipped = chain
-        .single_lane
-        .skipped_text(r.suite, r.codeunit)
-        .map(|t| ("singleInstanceRerun".to_string(), t));
-    let numbers = chain
+    chain
         .numbers_text(r.suite, r.codeunit)
-        .map(|t| ("numberSequenceOrder".to_string(), t));
-    skipped.into_iter().chain(numbers).collect()
+        .map(|t| ("numberSequenceOrder".to_string(), t))
+        .into_iter()
+        .collect()
 }
 
 /// [`junit`], with further properties per test (an impact run's change class, ADR-043 step 3).

@@ -1,5 +1,8 @@
 //! `TestField.SetValue` of a value that is not a Text, on a control bound to a Text or Code field or variable (moved out of controls.rs).
 //! Pinned by pages/properties/Y80SetValueTypes.al (needs corpus bump).
+//!
+//! What a Text or Code control makes of a SetValue of a value that is not a Text. Entry points:
+//! `text_control_value`.
 
 use super::*;
 

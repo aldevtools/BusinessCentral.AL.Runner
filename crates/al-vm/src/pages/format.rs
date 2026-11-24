@@ -1,3 +1,7 @@
+//! Reading a control: value, text, type, caption, editable, enabled, visible (a field control's own
+//! Visible is its value at open, or Yes on a Card for `Control::visible_row_field`, assumption
+//! `visible-names-row-field-reads-yes`; `freeze_visible` evaluates them at open, and before BC 29
+//! raises the client error for such a Card).
 use super::auto_format_writer_cell::ControlRead;
 use super::*;
 use crate::platform::relation_field_no_readers as rfn;
@@ -1817,7 +1821,11 @@ impl Session {
             self.prop_bool_now(st, idx, "visible", true)?
         } else if self.visible_reads_row(st, idx) {
             // A field control bound to no field of the source table whose own Visible names a field of the record reads Yes
-            // on a Card, whatever the row holds (al-runner issue 8660, pages/controls/VisibleExpressionSource.al).
+            // on a Card, whatever the row holds (al-runner issue 8660, pages/controls/VisibleExpressionSource.al). On a route
+            // no probe measured only this read is refused; the open and the other controls run (`freeze_visible`).
+            if st.borrow().visible_route_unmeasured {
+                return unsupported(UNMEASURED_ROUTE);
+            }
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::VisibleNamesRowFieldReadsYes);
             true
         } else {
@@ -1837,8 +1845,9 @@ impl Session {
     /// `al_version::visible_names_row_field_reads_yes` answers `Some(false)`, a TestPage's OpenEdit, OpenView or OpenNew raises
     /// "The identifier '<field>' could not be found." (code Expression:Argument) for the first such control's field
     /// (pages/controls/VisibleExpressionSource.al, al-runner issue 8660); where it answers `Some(true)` the control reads Yes
-    /// (`visible_reads_row`). Another way to open it, and a major the probe did not measure, is refused
-    /// (`visible_route_measured`).
+    /// (`visible_reads_row`). Another way to open it (`visible_route_measured`) is refused: at the open where it raises, since
+    /// BC raises there; where it reads Yes only at the Visible read of such a control (`visible_route_unmeasured`), so a test
+    /// that never reads it runs as main. A major the probe did not measure is refused at the open.
     pub(super) fn freeze_visible(&mut self, st: &St) -> Result<(), Signal> {
         let engine = self.engine();
         let page = page_of(&engine, st);
@@ -1846,7 +1855,7 @@ impl Session {
         let reads_yes = al_version::visible_names_row_field_reads_yes(self.engine.target.as_ref());
         match (first, reads_yes) {
             (None, _) => {}
-            (Some(_), Some(true)) if self.visible_route_measured(st, true) => {}
+            (Some(_), Some(true)) => st.borrow_mut().visible_route_unmeasured = !self.visible_route_measured(st, true),
             (Some(field), Some(false)) if self.visible_route_measured(st, false) => {
                 // Not pinned yet: the probe's open PR is the only evidence, so a test that expects this error is a flagged pass.
                 al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::VisibleNamesRowFieldReadsYes);
@@ -1856,9 +1865,7 @@ impl Session {
                 ));
             }
             (Some(_), _) => {
-                return unsupported(
-                    "a Card with a field control bound to no field whose Visible names a field of the record, opened in a way the probe did not measure (a TestPage's OpenEdit, OpenView or OpenNew, a Trap of Page.Run(Id, Rec), and where the control reads Yes a static Page.RunModal(Id, Rec) statement answered by a ModalPageHandler), or on a BC version the probe did not measure (al-runner issue 8660)",
-                );
+                return unsupported(UNMEASURED_ROUTE);
             }
         }
         let mut frozen = Vec::new();
@@ -1871,19 +1878,21 @@ impl Session {
 
     /// Whether this open of a Card with a `Control::visible_row_field` control is one the probe measured, on a major where
     /// the control reads Yes (`reads_yes`) or the open raises (pages/controls/VisibleExpressionSource.al): a TestPage's own
-    /// OpenEdit, OpenView or OpenNew, and a `Trap` of `Page.Run(Id, Rec)`, on every major; a static `Page.RunModal(Id, Rec)`
-    /// statement answered by a ModalPageHandler where it reads Yes: the page by its own id (not 0, the table's lookup page)
-    /// and no field argument, as measured. Where the open raises, that modal run raises the same error before
+    /// OpenEdit, OpenView or OpenNew, and a `Trap` of `Page.Run(Id, Rec)`, on every major; where it reads Yes, a static
+    /// `Page.RunModal(Id, Rec)` answered by a ModalPageHandler, as a statement, with a field argument
+    /// (`Page.RunModal(Id, Rec, Field)`), through the table's lookup page (`Page.RunModal(0, Rec)`) or with its return value
+    /// used, each alone (VisibleExpressionSource.al round 2); a mix of two of those is not measured. Where the open raises, that modal run raises the same error before
     /// the handler runs (corpus PR 1504's observe run), but no test can pin it: its handler never runs.
     fn visible_route_measured(&self, st: &St, reads_yes: bool) -> bool {
         let s = st.borrow();
         let trapped = s.caught_by_trap && s.trapped_run == Some(super::page_run_close::PageRunCall::StaticWithRecord);
+        let field = s.static_run_record && !s.static_run_record_only;
+        let used = s.lookup_kind == LookupKind::StaticRunModal;
         let modal = s.modal
             && s.modal_run == ModalRun::Static
-            && s.statement_run
-            && s.static_run_record_only
-            && !s.lookup_page_from_table
-            && !s.lookup;
+            && s.static_run_record
+            && (s.lookup == used)
+            && u8::from(field) + u8::from(used) + u8::from(s.lookup_page_from_table) <= 1;
         s.opened_by_test || trapped || (reads_yes && modal)
     }
 
@@ -1901,6 +1910,10 @@ impl Session {
         page_of(&engine, st).controls[idx].visible_row_field.clone()
     }
 }
+/// The refusal of a Card with a `Control::visible_row_field` control on a route or a major no probe measured (`freeze_visible`,
+/// `control_visible`).
+const UNMEASURED_ROUTE: &str = "a Card with a field control bound to no field whose Visible names a field of the record, opened in a way the probe did not measure (a TestPage's OpenEdit, OpenView or OpenNew, a Trap of Page.Run(Id, Rec), and where the control reads Yes a static Page.RunModal(Id, Rec) answered by a ModalPageHandler, as a statement, with a field argument, through the table's lookup page or with its return value used, one of these at a time), or on a BC version the probe did not measure (al-runner issue 8660)";
+
 /// The text of the `ENU = '...'` entry of a `...ML` property value.
 /// The class text goes to OnResolveCaptionClass (see `caption_class_text`): not area 3, not a numeric or empty area, and with a comma.
 pub(super) fn raises_resolve(text: &str) -> bool {

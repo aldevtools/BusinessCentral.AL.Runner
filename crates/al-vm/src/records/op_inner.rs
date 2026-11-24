@@ -1,4 +1,7 @@
 //! `record_op_inner`: the dispatch of every Record method (moved out of `records.rs`).
+//!
+//! `record_op_inner`, the dispatch of every Record method (moved out of `records.rs`), and
+//! `clear_record` (`Clear` of a record).
 
 use super::*;
 use crate::state::{UnpinnedLock, WriteOfAl};
@@ -244,6 +247,8 @@ impl Session {
         ) && !rec.borrow().temporary
         {
             self.bg_refuse_write(t.object as usize, method.name())?;
+            // At a type that does not write (Snapshot, Browse, Report) the write raises.
+            self.gate_read_only_type(method, &t, rec, args, &cx)?;
             self.gate_write(method)?;
             if matches!(method, RecordOp::Insert | RecordOp::DeleteAll)
                 && let Some(e) = self.read_only_platform_table(&t, rec, method)
@@ -582,7 +587,9 @@ impl Session {
                 }
                 let mut stored = Self::to_store(rec, view);
                 self.webhook_application_id(&t, rec, &mut stored)?;
-                if let Some(bad) = self.sql_columns(rec, &t, &mut stored)? {
+                if let Some(bad) =
+                    self.sql_columns(rec, &t, &mut stored, crate::decimal_column::Write::Insert { run })?
+                {
                     let shape = InsertShape {
                         auto: auto.is_some(),
                         run,
@@ -891,7 +898,9 @@ impl Session {
                 if let (false, Some(old)) = (rec.borrow().temporary, stored_row.as_deref()) {
                     crate::sqltime::keep_rolled(old, &mut stored, read_rolled)?;
                 }
-                if let Some(bad) = self.sql_columns(rec, &t, &mut stored)? {
+                if let Some(bad) =
+                    self.sql_columns(rec, &t, &mut stored, crate::decimal_column::Write::Modify { run })?
+                {
                     let shape = (caller, stored_row.is_some(), run);
                     return self.fail_modify_sql_range(rec, &t, bad, shape, (old_version, stamped));
                 }
@@ -1378,7 +1387,8 @@ impl Session {
                 Ok(Value::Integer(if steps < 0 { -moved } else { moved }))
             }
             RecordOp::Count | RecordOp::IsEmpty => {
-                let (filters, flow_field_filters) = self.split_filters(rec);
+                let count_by_al = method == RecordOp::Count && self.is_al_record_call(RecordOp::Count, rec);
+                let (filters, flow_field_filters) = self.split_filters_read(rec, count_by_al)?;
                 let n = if flow_field_filters.is_empty() && !rec.borrow().marked_only {
                     // IsEmpty needs one row: the store stops at it.
                     let limit = if method == RecordOp::IsEmpty { 1 } else { usize::MAX };
@@ -1414,13 +1424,16 @@ impl Session {
                 r.position = None;
                 let group = r.filter_group;
                 r.filters.retain(|f| !(f.field == pos && f.group == group));
+                r.decimal_cut_filters.retain(|f| !(f.field == pos && f.group == group));
                 // A FlowField filter in the OR group is dropped: GetFilters does not show it and no row is filtered by it
                 // (record/PWFilterGroupOr.al:OrGroup_FlowFieldFilter_BQ, `getFilters`, `flowFieldOnly`, `nameOrFlowField`).
                 if group == al_builtins::filter::OR_GROUP && or_flowfield {
                     return Ok(Value::Null);
                 }
                 if let Some(range) = super::setrange_filter::setrange_filter(&ty, &args[1..])? {
-                    r.filters.push(FieldFilter::new(pos, range, group));
+                    let filter = FieldFilter::new(pos, range, group);
+                    self.mark_decimal_cut_filter(rec, &mut r, &t, (RecordOp::SetRange, &filter), None, args);
+                    r.filters.push(filter);
                 }
                 Ok(Value::Null)
             }
@@ -1446,7 +1459,8 @@ impl Session {
                 let date_ctx = self.date_filter_context_for(&text);
                 let parse = |text: &str| {
                     al_builtins::filter::with_date_context(date_ctx, || {
-                        al_builtins::filter::parse_filter_with(text, &args[2..], &ty, &enums)
+                        // Record.SetFilter and FieldRef.SetFilter measure `<>@` alone on a Code field too (`filter_at_sign`).
+                        al_builtins::filter::parse_filter_both_at_signs_measured(text, &args[2..], &ty, &enums)
                     })
                 };
                 // A RecordId text (`Format(RecordId)`, alone or after `<>`): see `record_id_filter_text`.
@@ -1599,16 +1613,19 @@ impl Session {
                 let mut r = rec.borrow_mut();
                 let group = r.filter_group;
                 r.filters.retain(|f| !(f.field == pos && f.group == group));
+                r.decimal_cut_filters.retain(|f| !(f.field == pos && f.group == group));
                 // PWFilterGroupOr.al:OrGroup_FlowFieldFilter_BQ (`nameOrFlowField`: SetFilter too).
                 if group == al_builtins::filter::OR_GROUP && or_flowfield {
                     return Ok(Value::Null);
                 }
-                r.filters.push(FieldFilter {
+                let filter = FieldFilter {
                     lang: al_builtins::filter::filter_language(),
                     field: pos,
                     expr,
                     group,
-                });
+                };
+                self.mark_decimal_cut_filter(rec, &mut r, &t, (RecordOp::SetFilter, &filter), Some(text.trim()), args);
+                r.filters.push(filter);
                 Ok(Value::Null)
             }
             RecordOp::Reset => {
@@ -1619,6 +1636,7 @@ impl Session {
                 // SetAutoCalcFields_SurvivesResetAndClear).
                 let mut r = rec.borrow_mut();
                 r.filters.clear();
+                r.decimal_cut_filters.clear();
                 // The filter group goes back to 0 (recordref-fieldref/PnE08RecordMisc.al:RecordRef_FilterGroup `afterReset`).
                 r.filter_group = 0;
                 // Reset drops the marks too (record/crud/RcAMisc.al:ClearMarks_And_Reset `markAfterReset`).
@@ -2042,7 +2060,7 @@ impl Session {
                     }
                 }
                 let mut stored = Self::to_store(rec, self.stored_view(&t, &row));
-                if let Some(bad) = self.sql_columns(rec, &t, &mut stored)? {
+                if let Some(bad) = self.sql_columns(rec, &t, &mut stored, crate::decimal_column::Write::Rename)? {
                     return self.fail_rename_sql_range(rec, &t, bad, (from_al, refs.is_empty()), &old);
                 }
                 Self::refuse_rename_writing_rolled(&stored)?;

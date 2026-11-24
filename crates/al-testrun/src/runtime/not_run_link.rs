@@ -25,6 +25,12 @@
 //! statically, every table the routine and its calls name counts as well; its session state counts only through what it
 //! is known to change, as for the chain's members (`chain.rs` `onrun_writes`). A codeunit that can leave nothing of
 //! these leaves the state it was given.
+//!
+//! What a chain codeunit that was not run as a whole leaves for the later codeunits (`not_run_link`):
+//! its OnRun's writes, under Disabled its tests' writes, under runner 130450 the numbers its tests
+//! took through their own calls (tests and their handler functions, `handlers::unit_roots`), not what
+//! its session wrote when it opened the company (the login); a codeunit that can leave none of these
+//! leaves the state it was given. Entry points: `not_run_link`.
 
 use super::blocked::tables_touched;
 use super::run::Carried;

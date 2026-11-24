@@ -1,0 +1,7 @@
+# key	entry
+# Review round 1 of PR 8915 (M1), issue 8907 for a unit of one app: X writes row X from the count of answers to its
+# event OnX; I1 and I2 both answer it and meet each other (I1 asks OnI1, which I2 answers; I2 asks OnI2, which I1
+# answers), so {I1, I2} is one input of X. No dependency between X, I1 and I2. Main: input subsets {} and {I1, I2}
+# only, X counts 0 or 2, value 0, pass. On BC I1, X, I2 is possible: X counts 1, value 1. Head: each input app is
+# placed on its own, the runs differ, table "RQ iti Row" is refused.
+RQ iti Tests::XIsZero	REFUSED the install order of apps RQ iti I1, RQ iti I2, RQ iti X is not known

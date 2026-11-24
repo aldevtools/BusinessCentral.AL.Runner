@@ -1,6 +1,12 @@
 //! Storage for AL tables: the AL-shaped `Store` trait (ADR-003), the
 //! `SnapshotStore` extension (ADR-004), an in-memory implementation, and the
 //! contract suite every store must pass.
+//!
+//! The Store trait and table definitions (TableDef, Row, AccessContext). Owns which values may enter
+//! a key: `TableDef::check_key_values` (writes, `Rows::from_rows`) and `check_primary_key` (lookups)
+//! refuse a value `al_builtins::ops::key_orderable` rejects, so the key comparators never meet values
+//! that do not compare (al-runner issue 7644). Entry points: `Store`, `TableDef`, `FieldDef`,
+//! `AccessContext`, `InsertOutcome`.
 
 pub mod code_storage;
 pub mod contract;

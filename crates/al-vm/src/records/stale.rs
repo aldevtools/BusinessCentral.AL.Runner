@@ -1,4 +1,7 @@
 //! Row-version notes and the stale-record verdict (moved out of `records.rs`).
+//!
+//! row-version notes (`note_write`, `note_bulk_write`/`note_bulk_end` for ModifyAll, DeleteAll,
+//! Rename, Truncate), `modify_row_version` and `bump_row_version`.
 
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};

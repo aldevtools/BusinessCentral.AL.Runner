@@ -20,6 +20,22 @@ table 70000 "Bench Row"
     }
 }
 
+table 70009 "Bench Blob Row"
+{
+    TableType = Temporary;
+
+    fields
+    {
+        field(1; "No."; Integer) { }
+        field(2; Data; Blob) { }
+    }
+
+    keys
+    {
+        key(PK; "No.") { Clustered = true; }
+    }
+}
+
 // What a run costs besides its loop: the session and the engine. perf_vm.rs subtracts it.
 codeunit 70001 "Bench Empty"
 {
@@ -213,5 +229,36 @@ codeunit 70008 "Bench FieldIndex Loop"
                 Fr := Rr.FieldIndex(f);
                 n += Fr.Number();
             end;
+    end;
+}
+
+// 100000 iterations: each is one OutStream.Write and one InStream.Read of a Byte on a temporary Blob (the loop shape of the
+// GZip trailer codeunit 75290, which the 2 s wall budget of perf_budget.rs only catches when it gets several times slower)
+codeunit 70009 "Bench Stream Byte Loop"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure StreamByteLoop()
+    var
+        Row: Record "Bench Blob Row" temporary;
+        OutS: OutStream;
+        InS: InStream;
+        B: Byte;
+        S: Byte;
+        i: Integer;
+    begin
+        Row.Data.CreateOutStream(OutS);
+        for i := 1 to 100000 do begin
+            B := i mod 256;
+            OutS.Write(B);
+        end;
+        Row.Insert();
+        Row.CalcFields(Data);
+        Row.Data.CreateInStream(InS);
+        for i := 1 to 100000 do begin
+            InS.Read(S);
+            B := S;
+        end;
     end;
 }

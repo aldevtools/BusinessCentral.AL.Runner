@@ -1,4 +1,6 @@
 //! Lowering of page control trees, `RunObject` and part links.
+//!
+//! Page control trees, `RunObject`, part links. Entry points: `page`, `run_object`.
 use super::shared::with_field_guard;
 use super::*;
 
@@ -11,7 +13,7 @@ impl Lowerer<'_> {
         &self,
         table: Option<usize>,
         name: &str,
-        in_extension: bool,
+        (in_extension, own_rec_methods): (bool, bool),
         source: impl FnOnce() -> Option<usize>,
     ) -> Option<ir::Binding> {
         let t = table?;
@@ -27,7 +29,33 @@ impl Lowerer<'_> {
             .get(t)
             .iter()
             .any(|r| !r.is_trigger() && r.name().eq_ignore_ascii_case(name) && r.params().next().is_none());
-        (in_extension && method).then(source).flatten().map(ir::Binding::Expr)
+        // On the page's own layout (List or Card), `Rec.Count` and the five other Record methods language pages/controls/RecCountControl.al
+        // measured (open corpus PR 1525, assumption `page-control-rec-method-source`, issue 7875), when the table declares no
+        // procedure of that name.
+        let rec_method = own_rec_methods
+            && crate::pages::rec_method::measured_name(name)
+            && !self
+                .routine_nodes
+                .get(t)
+                .iter()
+                .any(|r| r.name().eq_ignore_ascii_case(name));
+        ((in_extension && method) || rec_method)
+            .then(source)
+            .flatten()
+            .map(ir::Binding::Expr)
+    }
+
+    /// `Rec.Count()` or a bare `Count` as a control source of the page `oi` over `table`, where no routine of the page or the table is
+    /// named Count: the Record method (RecCountControl.al `CountParens_List`, `BareCount_List`, `CountFieldParens_TableHasFieldNamedCount`).
+    fn rec_count_call(&self, src: &str, oi: usize, table: Option<usize>) -> bool {
+        let t = src.trim().to_ascii_lowercase();
+        let named = |o: usize| {
+            self.routine_nodes
+                .get(o)
+                .iter()
+                .any(|r| r.name().eq_ignore_ascii_case("count"))
+        };
+        (t == "rec.count()" || t == "count") && !named(oi) && !table.is_some_and(named)
     }
 
     /// The control tree of page `oi` with its extensions merged in, with bindings and routine
@@ -44,6 +72,7 @@ impl Lowerer<'_> {
         let (mut unsupported, mut big_integer_expressions) = (reasons.to_vec(), Vec::new());
         let ext_assumes = std::cell::RefCell::new(layout.assumes.clone());
         let table = self.table_of[oi];
+        let own_rec_methods = request_section.is_none() && crate::pages::rec_method::measured_page(obj);
         let extensions: Vec<usize> = self.page_extensions.get(&oi).cloned().unwrap_or_default();
         unsupported.extend(super::shared::over_max_length_of(self.ws, oi));
         for &e in &extensions {
@@ -269,6 +298,7 @@ impl Lowerer<'_> {
             let mut expr_source = None;
             let mut expr_row_unordered = false;
             let mut expr_call = false;
+            let mut rec_method_source = false;
             let mut array_element = None;
             let mut bare_quoted_ext_source = false;
             if raw.kind == ir::ControlKind::Field && sec.name().eq_ignore_ascii_case("label") {
@@ -282,8 +312,19 @@ impl Lowerer<'_> {
                     Some(crate::pages::Source::RecField(f)) => {
                         let off = usize::from(sec.syntax().text_range().start()) - ow.base;
                         let source = || routine_named(&ow, &crate::pages::synthetic_name("source", off));
-                        match self.rec_name_binding(table, &f, raw.owner.is_some(), source) {
-                            Some(b) => binding = b,
+                        match self.rec_name_binding(
+                            table,
+                            &f,
+                            (raw.owner.is_some(), raw.owner.is_none() && own_rec_methods),
+                            source,
+                        ) {
+                            Some(b) => {
+                                rec_method_source = own_rec_methods
+                                    && raw.owner.is_none()
+                                    && matches!(b, ir::Binding::Expr(_))
+                                    && crate::pages::rec_method::measured_name(&f);
+                                binding = b;
+                            }
                             None => unsupported.push(format!("control {} is bound to unknown field {f}", raw.name)),
                         }
                     }
@@ -359,6 +400,9 @@ impl Lowerer<'_> {
                         match routine_named(&ow, &crate::pages::synthetic_name("source", off)) {
                             Some(r) => {
                                 binding = ir::Binding::Expr(r);
+                                rec_method_source = own_rec_methods
+                                    && raw.owner.is_none()
+                                    && args.get(1).is_some_and(|a| self.rec_count_call(a, oi, table));
                                 // A field of a record variable of the page itself: the runtime formats the control from
                                 // that field's properties (al-runner issue 5822).
                                 if raw.owner.is_none() {
@@ -374,18 +418,7 @@ impl Lowerer<'_> {
                                     // branch al-runtime-rs-staging-y5, testpage/Y5PartArrayElementControl.al). Only a
                                     // page's own control (owner None, this block): `globals` are the page's variables, not
                                     // those of a pageextension that adds the control.
-                                    array_element = args.get(1).and_then(|a| crate::pages::array_element(a)).and_then(
-                                        |(v, text)| {
-                                            let index: usize =
-                                                text.split_once('[')?.1.strip_suffix(']')?.trim().parse().ok()?;
-                                            let slot = globals.iter().position(|g| g.name.eq_ignore_ascii_case(&v))?;
-                                            let RtType::Array(dims, _) = &globals[slot].ty else {
-                                                return None;
-                                            };
-                                            (dims.len() == 1 && index >= 1 && index <= dims[0] as usize)
-                                                .then_some((slot, index - 1))
-                                        },
-                                    );
+                                    array_element = args.get(1).and_then(|a| page_array_element(a, globals));
                                     expr_source =
                                         args.get(1).and_then(|a| own_expr_source(a, globals, found.is_some()));
                                 }
@@ -499,10 +532,13 @@ impl Lowerer<'_> {
                 expr_source,
                 expr_row_unordered,
                 expr_call,
+                rec_method_source,
                 array_element,
                 bare_quoted_ext_source,
                 visible_row_field,
                 factbox: raw.factbox,
+                fixed_or_grid: raw.kind == ir::ControlKind::Group
+                    && ["fixed", "grid"].iter().any(|k| sec.name().eq_ignore_ascii_case(k)),
             });
         }
         let base = owner_of(None);
@@ -621,15 +657,22 @@ impl Lowerer<'_> {
             };
             if let Some(link) = link {
                 let entries = (|| {
-                    let target_table = self.table_of[out.object.expect("resolved")]
-                        .ok_or("RunPageLink on a target page without a source table")?;
-                    self.link_entries("RunPageLink", &link, file, self.table_of[oi], target_table)
+                    let target_page = out.object.expect("resolved");
+                    let target_table =
+                        self.table_of[target_page].ok_or("RunPageLink on a target page without a source table")?;
+                    self.link_entries(
+                        "RunPageLink",
+                        &link,
+                        file,
+                        self.table_of[oi],
+                        (target_page, target_table),
+                    )
                 })();
                 pl.consts = crate::pages::parse_run_page_link_kinds(&link)
                     .map(|k| k.iter().enumerate().filter(|(_, e)| e.2).map(|(i, _)| i).collect())
                     .unwrap_or_default();
                 match entries {
-                    Ok(e) => pl.entries = e,
+                    Ok((e, not_blank)) => (pl.entries, pl.not_blank) = (e, not_blank),
                     Err(why) => out.unsupported = Some(why),
                 }
             }
@@ -639,15 +682,16 @@ impl Lowerer<'_> {
     }
 
     /// The entries of a `SubPageLink` or `RunPageLink` text: `what` names the property in errors,
-    /// `host_table` is the table `field(...)` entries read, `target_table` the linked page's.
+    /// `host_table` is the table `field(...)` entries read, `linked_page` the linked page and `target_table` its table. With
+    /// them, the indices of the entries lowered as "not blank" (`ir::PartLink::not_blank`).
     pub(crate) fn link_entries(
         &self,
         what: &str,
         text: &str,
         file: usize,
         host_table: Option<usize>,
-        target_table: usize,
-    ) -> L<Vec<ir::LinkEntry>> {
+        (linked_page, target_table): (usize, usize),
+    ) -> L<(Vec<ir::LinkEntry>, Vec<usize>)> {
         use crate::pages::LinkRhs;
         let field_pos = |t: usize, name: &str| {
             self.members[t]
@@ -657,6 +701,7 @@ impl Lowerer<'_> {
                 .ok_or_else(|| format!("{what} names field `{name}`, which table does not have"))
         };
         let mut entries = Vec::new();
+        let mut not_blank = Vec::new();
         for (left, rhs) in crate::pages::parse_run_page_link(text).map_err(|e| e.replace("RunPageLink", what))? {
             let pf = field_pos(target_table, &left)?;
             // `filter(<> "Enum"::Member)`, `filter("Enum"::A | "Enum"::B)` and the like: each operand is resolved first
@@ -701,6 +746,17 @@ impl Lowerer<'_> {
                     ir::LinkEntry::Filter(pf, super::rewrite_quotes(&t))
                 }
                 LinkRhs::Filter(t) => ir::LinkEntry::Filter(pf, t),
+                // `filter(<> '')` on a measured shape (`not_blank_measured`): the rows whose field is not blank, the filter
+                // `<>''` (assumption link-filter-not-blank, al-runner issue 8873). Any other shape keeps the text it lowered
+                // to before.
+                LinkRhs::NotBlank(t) => {
+                    if self.not_blank_measured(what, linked_page, &self.members[target_table].fields[pf]) {
+                        not_blank.push(entries.len());
+                        ir::LinkEntry::Filter(pf, "<>''".to_string())
+                    } else {
+                        ir::LinkEntry::Filter(pf, t)
+                    }
+                }
                 // A qualified enum value is the member of the field's enum (testpage/UjSubPageLink.al
                 // UJ_SubPageLink_ConstEnum_Rows, corpus branch al-runtime-rs-staging-uj 1dc037a8: the field may share the enum's
                 // name). The checker rejects a member the enum lacks (AL0132, must-not-compile 2276); an enum other than the
@@ -741,7 +797,26 @@ impl Lowerer<'_> {
                 }
             });
         }
-        Ok(entries)
+        Ok((entries, not_blank))
+    }
+
+    /// Whether a `filter(<> '')` term of `what` on `field`, linking page `linked_page`, is a shape corpus PR 1548 measured
+    /// (assumption link-filter-not-blank, tests/al-language/pages/subpagelink-empty-term/SubPageLinkNotBlank.al): a Normal
+    /// Code or Text field (:30, :31), a SubPageLink of a ListPart (:39) or a RunPageLink of a List (:114).
+    fn not_blank_measured(&self, what: &str, linked_page: usize, field: &crate::members::FieldInfo) -> bool {
+        let measured_page = match what {
+            "SubPageLink" => "ListPart",
+            "RunPageLink" => "List",
+            _ => return false,
+        };
+        let page_type = self
+            .ws
+            .object_ast(linked_page)
+            .properties()
+            .find(|p| p.name().eq_ignore_ascii_case("PageType"));
+        page_type.is_some_and(|p| p.value_text().trim().eq_ignore_ascii_case(measured_page))
+            && field.class == crate::members::FieldClass::Normal
+            && matches!(field.ty, Ty::Code(_) | Ty::Text(_))
     }
 
     /// The `filter(...)` value `text` of a link entry on field `pf` of `table` with each qualified operand resolved: a member of the
@@ -818,7 +893,8 @@ impl Lowerer<'_> {
             None => self.table_of[oi],
         };
         let part_table = self.table_of[part_page].ok_or("the part page has no source table to link")?;
-        link.entries = self.link_entries("SubPageLink", &text, file, host_table, part_table)?;
+        (link.entries, link.not_blank) =
+            self.link_entries("SubPageLink", &text, file, host_table, (part_page, part_table))?;
         link.consts = crate::pages::parse_sub_page_link_kinds(&text)
             .map(|k| k.iter().enumerate().filter(|(_, e)| e.2).map(|(i, _)| i).collect())
             .unwrap_or_default();
@@ -955,11 +1031,13 @@ fn data_item_control(name: &str, binding: ir::Binding) -> ir::Control {
         expr_source: None,
         expr_row_unordered: false,
         expr_call: false,
+        rec_method_source: false,
         array_element: None,
         bare_quoted_ext_source: false,
         visible_row_field: None,
         source_text: None,
         factbox: false,
+        fixed_or_grid: false,
     }
 }
 
@@ -975,4 +1053,16 @@ fn owner_names(obj: &ast::Object, is_extension: bool) -> std::collections::BTree
         );
     }
     names
+}
+
+/// The slot of the page array and the 0-based position of `ElementText[2]`, an element of a one-dimensional array with a number
+/// index in its bounds (al-runner issue 6379; testpage/Y5PartArrayElementControl.al).
+fn page_array_element(src: &str, globals: &[ir::Slot]) -> Option<(usize, usize)> {
+    let (v, text) = crate::pages::array_element(src)?;
+    let index: usize = text.split_once('[')?.1.strip_suffix(']')?.trim().parse().ok()?;
+    let slot = globals.iter().position(|g| g.name.eq_ignore_ascii_case(&v))?;
+    let RtType::Array(dims, _) = &globals[slot].ty else {
+        return None;
+    };
+    (dims.len() == 1 && index >= 1 && index <= dims[0] as usize).then_some((slot, index - 1))
 }

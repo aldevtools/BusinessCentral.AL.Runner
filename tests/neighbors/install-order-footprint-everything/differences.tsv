@@ -1,0 +1,2 @@
+# key	entry
+# No difference expected: the two apps form a tangle whose two orders leave the same rows (ADR-079 decisions 1 and 2).
