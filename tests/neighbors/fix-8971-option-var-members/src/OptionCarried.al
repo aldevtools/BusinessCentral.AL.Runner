@@ -564,3 +564,254 @@ codeunit 62504 "OC Carried Tests"
         exit(Format(V) + '|' + Format(V, 0, 2));
     end;
 }
+
+// Round 4: the callee's Evaluate, Clear, `:= 1` and hand-ons on a value that carries another list or none, and a `var`
+// parameter with members handed to a memberless one (OptionVarMembersCallee.al ConfirmOp, HandOnMemberless, HandOnByValue).
+codeunit 62505 "OC Ops"
+{
+    procedure EvaluateText(var Choice: Option " ",Skip,Update; T: Text): Text
+    begin
+        exit(Format(Evaluate(Choice, T)) + '>' + Format(Choice, 0, 2));
+    end;
+
+    procedure EvaluateBlank(var Choice: Option " ",Skip,Update): Text
+    begin
+        exit(Format(Evaluate(Choice, '')) + '>' + Format(Choice, 0, 2));
+    end;
+
+    procedure ClearOnly(var Choice: Option " ",Skip,Update)
+    begin
+        Clear(Choice);
+    end;
+
+    procedure AssignOne(var Choice: Option " ",Skip,Update)
+    begin
+        Choice := 1;
+    end;
+
+    procedure HandOnFormat(var Choice: Option " ",Skip,Update): Text
+    begin
+        exit(FormatMemberless(Choice));
+    end;
+
+    procedure HandOnByValue(var Choice: Option " ",Skip,Update): Text
+    begin
+        exit(FormatByValue(Choice));
+    end;
+
+    procedure HandOnEvaluate(var Choice: Option " ",Skip,Update): Text
+    begin
+        exit(EvaluateMemberless(Choice));
+    end;
+
+    procedure HandOnEmpty(var Choice: Option " ",Skip,Update): Text
+    begin
+        NeverReads(Choice);
+        exit('');
+    end;
+
+    local procedure FormatMemberless(var V: Option): Text
+    begin
+        exit(Format(V) + '|' + Format(V, 0, 2));
+    end;
+
+    local procedure FormatByValue(V: Option): Text
+    begin
+        exit(Format(V) + '|' + Format(V, 0, 2));
+    end;
+
+    local procedure EvaluateMemberless(var V: Option): Text
+    begin
+        exit(Format(Evaluate(V, 'Nope')) + '|' + Format(V, 0, 2));
+    end;
+
+    local procedure NeverReads(var V: Option)
+    begin
+    end;
+}
+
+codeunit 62506 "OC Ops Tests"
+{
+    Subtype = Test;
+
+    local procedure Check(Actual: Text; Expected: Text)
+    begin
+        if Actual <> Expected then
+            Error('expected %1, got %2', Expected, Actual);
+    end;
+
+    local procedure Hop(var V: Option; Op: Integer; T: Text): Text
+    var
+        Ops: Codeunit "OC Ops";
+    begin
+        case Op of
+            1:
+                exit(Ops.EvaluateText(V, T));
+            2:
+                exit(Ops.EvaluateBlank(V));
+            3:
+                Ops.ClearOnly(V);
+            4:
+                Ops.AssignOne(V);
+            5:
+                exit(Ops.HandOnFormat(V));
+            6:
+                exit(Ops.HandOnByValue(V));
+            7:
+                exit(Ops.HandOnEvaluate(V));
+            8:
+                exit(Ops.HandOnEmpty(V));
+        end;
+    end;
+
+    // Evaluate of a member of the value's list as it is spelled (CalleeErrors_VarHop_Other `Evaluate Second`).
+    [Test]
+    procedure OtherMembers_EvaluateMember()
+    var
+        Choice: Option First,Second,Third;
+    begin
+        Choice := Choice::Third;
+        Check(Hop(Choice, 1, 'Second') + '>' + Format(Choice), 'Yes>1>Second');
+    end;
+
+    // Digits (ConfirmOp op 3, `Evaluate 5`).
+    [Test]
+    procedure Memberless_EvaluateDigits()
+    var
+        Choice: Option;
+    begin
+        Choice := 1;
+        Check(Hop(Choice, 1, '5') + '>' + Format(Choice), 'Yes>5>5');
+    end;
+
+    // Not measured, refused: a member of the value's list in another case, a blank text (a parameter and a literal).
+    [Test]
+    procedure OtherMembers_EvaluateOtherCase()
+    var
+        Choice: Option First,Second,Third;
+    begin
+        Choice := Choice::Third;
+        Check(Hop(Choice, 1, 'second'), 'Yes>1');
+    end;
+
+    [Test]
+    procedure OtherMembers_EvaluateBlankParam()
+    var
+        Choice: Option First,Second,Third;
+    begin
+        Choice := Choice::Third;
+        Check(Hop(Choice, 1, ''), 'Yes>0');
+    end;
+
+    [Test]
+    procedure OtherMembers_EvaluateBlankLiteral()
+    var
+        Choice: Option First,Second,Third;
+    begin
+        Choice := Choice::Third;
+        Check(Hop(Choice, 2, ''), 'Yes>0');
+    end;
+
+    // Clear of a value that carries a list (CalleeOps_VarHop_Other `Clear`); of one that carries none, refused.
+    [Test]
+    procedure OtherMembers_Clear()
+    var
+        Choice: Option First,Second,Third;
+    begin
+        Choice := Choice::Third;
+        Hop(Choice, 3, '');
+        Check(Format(Choice) + '|' + Format(Choice, 0, 2), 'First|0');
+    end;
+
+    [Test]
+    procedure Memberless_Clear()
+    var
+        Choice: Option;
+    begin
+        Choice := 2;
+        Hop(Choice, 3, '');
+        Check(Format(Choice, 0, 2), '0');
+    end;
+
+    // `:= 1` stores the number in the value's list (ConfirmOp op 5).
+    [Test]
+    procedure OtherMembers_AssignOne()
+    var
+        Choice: Option First,Second,Third;
+    begin
+        Choice := Choice::Third;
+        Hop(Choice, 4, '');
+        Check(Format(Choice), 'Second');
+    end;
+
+    // The callee hands the value on to a memberless routine that only formats it (ConfirmOp ops 6 and 7: by value the list
+    // is lost, `b 4|4`).
+    [Test]
+    procedure OtherMembers_HandOnFormat()
+    var
+        Choice: Option First,Second,Third;
+    begin
+        Choice := Choice::Third;
+        Check(Hop(Choice, 5, ''), 'Third|2');
+    end;
+
+    [Test]
+    procedure OtherMembers_HandOnByValue()
+    var
+        Choice: Option First,Second,Third;
+    begin
+        Choice := Choice::Third;
+        Check(Hop(Choice, 6, ''), '2|2');
+    end;
+
+    // Refused: the target does more than format it, or never reads it.
+    [Test]
+    procedure OtherMembers_HandOnEvaluate()
+    var
+        Choice: Option First,Second,Third;
+    begin
+        Choice := Choice::Third;
+        Check(Hop(Choice, 7, ''), 'No|2');
+    end;
+
+    [Test]
+    procedure OtherMembers_HandOnEmpty()
+    var
+        Choice: Option First,Second,Third;
+    begin
+        Choice := Choice::Third;
+        Check(Hop(Choice, 8, ''), '');
+    end;
+
+    // A `var` parameter with members handed to a memberless one, called straight from the test (CalleeOps_VarHop_Same
+    // `HandOnMemberless`): runs when the target only formats it, refused otherwise.
+    [Test]
+    procedure Same_HandOnFormat_Direct()
+    var
+        Choice: Option " ",Skip,Update;
+        Ops: Codeunit "OC Ops";
+    begin
+        Choice := Choice::Skip;
+        Check(Ops.HandOnFormat(Choice), 'Skip|1');
+    end;
+
+    [Test]
+    procedure Same_HandOnEvaluate_Direct()
+    var
+        Choice: Option " ",Skip,Update;
+        Ops: Codeunit "OC Ops";
+    begin
+        Choice := Choice::Skip;
+        Check(Ops.HandOnEvaluate(Choice), 'No|1');
+    end;
+
+    [Test]
+    procedure Same_HandOnEmpty_Direct()
+    var
+        Choice: Option " ",Skip,Update;
+        Ops: Codeunit "OC Ops";
+    begin
+        Choice := Choice::Skip;
+        Check(Ops.HandOnEmpty(Choice), '');
+    end;
+}
