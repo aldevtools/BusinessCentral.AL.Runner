@@ -38,7 +38,7 @@ mod state;
 pub(crate) use state::*;
 mod baseline;
 mod sequence_start;
-pub use sequence_start::{DataAccess, SequenceStart, TxPoint, TxPointKind};
+pub use sequence_start::{CommitBy, DataAccess, SequenceStart, TxPoint, TxPointKind};
 mod storage_checkpoint;
 pub use storage_checkpoint::{StorageCheckpoint, Unkept};
 mod capture;

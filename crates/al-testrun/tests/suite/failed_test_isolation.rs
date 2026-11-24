@@ -243,8 +243,9 @@ fn shapes_the_probe_does_not_measure_keep_mains_result() {
     clean(&o, "C_AutoRollbackReads", "OBS missing");
     // IsolatedStorage is not measured in the failed test (only in an earlier one, D4 SqCommitFail.al:878).
     assert!(not_run(&of("B_IsolatedStorageReads"), "'P4IS'"), "{o:?}");
-    // C2 and C14 measured a sequence an earlier test inserted; one the failed test inserted after an earlier Commit() is not.
-    assert!(not_run(&of("C_InsertedInFailedReads"), "'P4IF'"), "{o:?}");
+    // Inserted in the failed test after the last transaction end and then a Record write: gone, as in S2E (corpus PR 1572
+    // SqFailedSeq.al:2031), where that end is the failed test's own Commit().
+    flagged(&o, "C_InsertedInFailedReads", "OBS missing", SEQ);
 }
 
 // A failed test whose table access is not a Record write after an earlier Commit() keeps main's refusal: a Record read
@@ -871,7 +872,7 @@ fn a_failed_test_that_only_ran_record_findlast_after_a_commit_takes_the_sequence
 
 // Neighbors of R14R and R2R that no cell measures (review probe of PR 8512, round 3, cells F03, F06, F08, F09, F12, F17,
 // F19): two FindLast calls, no filter, SetAutoCalcFields, FindLast raising, LockTable, SetLoadFields, FilterGroup. Main's
-// refusal.
+// refusal, except for F08, whose earlier test commits after a Record write.
 const RECORD_READ_NEIGHBORS: &str = r#"
 table 50877 "P4 Calc Line" { fields { field(1; Doc; Code[20]) { } field(2; "Line No."; Integer) { } field(3; Lines; Integer) { FieldClass = FlowField; CalcFormula = count("P4 Calc Line" where(Doc = field(Doc))); } } keys { key(PK; Doc, "Line No.") { Clustered = true; } } }
 codeunit 50878 "P4 F03"
@@ -928,7 +929,10 @@ codeunit 50884 "P4 F19"
 #[test]
 fn record_findlast_shapes_beside_the_cells_keep_mains_refusal() {
     let o = cells(&format!("{REF_LINE}\n{RECORD_READ_NEIGHBORS}"), TestIsolation::Codeunit);
-    for cell in ["F03", "F06", "F08", "F09", "F12", "F17", "F19"] {
+    // F08 inserts after a Record write and commits: the commit keeps the sequence, whatever the failed test does (corpus
+    // PR 1572 S1U SqFailedSeq.al:2166, S1F :662).
+    flagged(&o, "C_F08Reads", "OBS cur=1 next=2", SEQ);
+    for cell in ["F03", "F06", "F09", "F12", "F17", "F19"] {
         let test = format!("C_{cell}Reads");
         assert!(not_run(&row(&o, &test).2, &format!("'P4{cell}'")), "{test}: {o:?}");
     }

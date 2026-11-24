@@ -1,0 +1,21 @@
+# key	entry
+N72 WriteThenCommit::C_Reads	ASSUMED sequence-after-failed-test (corpus PR 1572) S1T: a Commit() after a Record write keeps the sequence; main's C2 arm took it
+N72 FindFirstThenCommit::C_Reads	ASSUMED sequence-after-failed-test (corpus PR 1572) S1X: a Commit() after one FindFirst keeps it
+N72 UpdLockFindFirstThenCommit::C_Reads	ASSUMED sequence-after-failed-test (corpus PR 1572) S1Y: ReadIsolation(UpdLock) and FindFirst, then Commit()
+N72 RefLoadFindLastThenCommit::C_Reads	ASSUMED sequence-after-failed-test (corpus PR 1572) S1V: RecordRef reads with ReadIsolation and SetLoadFields, as the helper
+N72 OwnCommitThenWriteFails::C_Reads	ASSUMED sequence-after-failed-test (corpus PR 1572) S2F: insert, Commit() with nothing since, then a Record write: gone
+N72 OwnCommitThenNothingFails::C_Reads	ASSUMED sequence-after-failed-test (corpus PR 1572) S2G: insert, Commit(), nothing since: kept
+N72 InsertInFailedThenWriteFai::C_Reads	ASSUMED sequence-after-failed-test (corpus PR 1572) S2E: insert after the last transaction end, then a Record write: gone
+# N72 FindSetThenCommit: (FindSet before the Commit() is not measured; main's C2 arm answered gone)
+N72 FindSetThenCommit::C_Reads	REFUSED a test of this codeunit
+# N72 GetThenCommit: (Get before the Commit() is not measured; main's C2 arm answered gone)
+N72 GetThenCommit::C_Reads	REFUSED a test of this codeunit
+# N72 ReadUncommittedFindFirstTh: (ReadIsolation ReadUncommitted is not measured; main's C2 arm answered gone)
+N72 ReadUncommittedFindFirstTh::C_Reads	REFUSED a test of this codeunit
+# N72 RefLoadThenCommitNoRead: (RecordRef calls that read no table before the Commit(); main's C2 arm answered gone)
+N72 RefLoadThenCommitNoRead::C_Reads	REFUSED a test of this codeunit
+# N72 TempRecordThenCommit: (a temporary Record before the Commit(); main's C2 arm answered gone)
+N72 TempRecordThenCommit::C_Reads	REFUSED a test of this codeunit
+# N72 TwoFindFirstThenCommit: (two FindFirst calls before the Commit(); main's C2 arm answered gone)
+N72 TwoFindFirstThenCommit::C_Reads	REFUSED a test of this codeunit
+N72 WriteInOneBodyCommitInNext::C_Reads	ASSUMED sequence-after-failed-test (corpus PR 1572) both readings of the runner's commit after A keep it: as a Commit() after A's Record write (S1T), or as an end, then B's FindFirst before its Commit() (S1X)

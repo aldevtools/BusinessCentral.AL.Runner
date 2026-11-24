@@ -40,6 +40,12 @@ pub struct DataAccess {
     pub find_last_failures: u64,
     /// Outermost Record.SetRange calls from AL code.
     pub set_range_calls: u64,
+    /// The part of `table_store` whose outermost call was Record.FindFirst.
+    pub find_first_store: u64,
+    /// Outermost Record.FindFirst calls from AL code.
+    pub find_first_calls: u64,
+    /// Outermost Record.ReadIsolation calls from AL code that set IsolationLevel::UpdLock.
+    pub upd_lock_calls: u64,
     /// Calls of a method of a Record variable from AL code, a temporary one too.
     pub record_calls: u64,
     /// Outermost calls of a method of a temporary Record variable from AL code (one that a trigger or subscriber of a table
@@ -51,6 +57,9 @@ pub struct DataAccess {
     pub ref_open_close_calls: u64,
     /// Calls of the session builtin CompanyName from AL code.
     pub company_name_calls: u64,
+    /// The RecordRef.ReadIsolation and RecordRef.SetLoadFields calls of `other_calls` on a RecordRef of the session's
+    /// company that is not temporary and that did not fail.
+    pub ref_load_calls: u64,
     /// Calls from AL code of any other RecordRef, FieldRef or KeyRef method, of one on a temporary RecordRef or one of
     /// another company, of a Query method, and of a session builtin other than NumberSequence and CompanyName
     /// (IsolatedStorage, CompanyProperty, UserId, ...).
@@ -65,8 +74,9 @@ pub(crate) struct Notes {
     table_depth: u32,
     /// Where in `tx_log` each number sequence was last inserted while the log was kept.
     inserted_at: HashMap<Key, usize>,
-    /// The next commit is the one of an AL `Commit()` statement ([`Session::al_commit`]).
-    al_commit: bool,
+    /// What the next commit is the commit of ([`Session::al_commit`], [`Session::guarded_run_commit`],
+    /// [`Session::isolated_event_commit`]).
+    commit_by: Option<CommitBy>,
     /// The transaction ends and test method bodies since [`Session::note_tx_ends`]; `None` while not noted.
     tx_log: Option<Vec<TxPoint>>,
 }
@@ -86,10 +96,23 @@ pub enum TxPointKind {
     BodyStart,
     /// A test method body ended.
     BodyEnd,
-    /// A transaction was committed; `al`: by an AL `Commit()` statement.
-    Commit { al: bool },
+    /// A transaction was committed, by this.
+    Commit(CommitBy),
     /// A transaction was rolled back.
     Rollback,
+}
+
+/// What committed a transaction ([`TxPointKind::Commit`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommitBy {
+    /// An AL `Commit()` statement.
+    Statement,
+    /// A guarded `Codeunit.Run`, which commits the run's own transaction.
+    GuardedRun,
+    /// The subscriber of an isolated event, which commits its own transaction.
+    IsolatedEvent,
+    /// Anything else (the runner, a TestIsolation boundary, an unguarded run).
+    Other,
 }
 
 /// The number sequences when a test codeunit's tests begin (after its OnRun), and which of them the session had
@@ -164,15 +187,42 @@ pub(crate) fn measured_ref_method(id: &str) -> bool {
 /// A table call from AL code ([`Session::al_table_call`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TableCall<'a> {
-    /// A method of a Record variable: `find_last`, it is Record.FindLast; `set_range`, Record.SetRange; `temporary`, the
-    /// record is temporary.
-    Record {
-        find_last: bool,
-        set_range: bool,
-        temporary: bool,
-    },
+    /// A method of a Record variable: `op`, which one as far as [`DataAccess`] counts it; `temporary`, the record is
+    /// temporary.
+    Record { op: RecordCall, temporary: bool },
     /// A RecordRef, FieldRef or KeyRef method [`measured_ref_method`] names, by catalog id.
     Ref(&'a str),
+}
+
+/// A Record method as [`DataAccess`] counts it ([`TableCall::Record`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RecordCall {
+    FindLast,
+    FindFirst,
+    SetRange,
+    /// Record.ReadIsolation setting IsolationLevel::UpdLock.
+    UpdLock,
+    Other,
+}
+
+impl RecordCall {
+    /// The Record method `method` called with `args`.
+    pub(crate) fn of(method: al_builtins::record_op::RecordOp, args: &[Value]) -> RecordCall {
+        use al_builtins::record_op::RecordOp;
+        match method {
+            RecordOp::FindLast => RecordCall::FindLast,
+            RecordOp::FindFirst => RecordCall::FindFirst,
+            RecordOp::SetRange => RecordCall::SetRange,
+            RecordOp::ReadIsolation if is_upd_lock(args) => RecordCall::UpdLock,
+            _ => RecordCall::Other,
+        }
+    }
+}
+
+/// `args` is IsolationLevel::UpdLock.
+fn is_upd_lock(args: &[Value]) -> bool {
+    matches!(args.first(), Some(Value::Option(i, names))
+        if usize::try_from(*i).ok().and_then(|i| names.get(i)).is_some_and(|n| n.eq_ignore_ascii_case("UpdLock")))
 }
 
 impl Session {
@@ -193,15 +243,13 @@ impl Session {
         let outermost = self.access_notes.table_depth == 0;
         let access = &mut self.access_notes.access;
         match kind {
-            TableCall::Record {
-                find_last,
-                set_range,
-                temporary,
-            } => {
+            TableCall::Record { op, temporary } => {
                 access.record_calls += 1;
                 access.temporary_record_calls += u64::from(temporary && outermost);
-                access.find_last_calls += u64::from(find_last && outermost);
-                access.set_range_calls += u64::from(set_range && outermost);
+                access.find_last_calls += u64::from(op == RecordCall::FindLast && outermost);
+                access.find_first_calls += u64::from(op == RecordCall::FindFirst && outermost);
+                access.set_range_calls += u64::from(op == RecordCall::SetRange && outermost);
+                access.upd_lock_calls += u64::from(op == RecordCall::UpdLock && outermost);
             }
             TableCall::Ref(id) => {
                 access.ref_calls += 1;
@@ -216,7 +264,7 @@ impl Session {
         self.access_notes.table_depth += 1;
         let out = call(self);
         self.access_notes.table_depth -= 1;
-        if self.access_notes.table_depth == 0 && matches!(kind, TableCall::Record { find_last: true, .. }) {
+        if self.access_notes.table_depth == 0 && matches!(kind, TableCall::Record { op: RecordCall::FindLast, .. }) {
             self.access_notes.access.find_last_failures += u64::from(out.is_err());
         }
         if self.access_notes.table_depth == 0 {
@@ -226,8 +274,9 @@ impl Session {
             access.table_writes += self.store.writes().saturating_sub(writes);
             match kind {
                 TableCall::Ref(_) => access.ref_store += read,
-                TableCall::Record { find_last: true, .. } => access.find_last_store += read,
-                TableCall::Record { find_last: false, .. } => {}
+                TableCall::Record { op: RecordCall::FindLast, .. } => access.find_last_store += read,
+                TableCall::Record { op: RecordCall::FindFirst, .. } => access.find_first_store += read,
+                TableCall::Record { .. } => {}
             }
         }
         out
@@ -244,7 +293,17 @@ impl Session {
     ) -> Result<Value, Signal> {
         if !measured_ref_method(id) {
             self.note_other_access();
-            return self.ref_op(id, receiver, args);
+            let out = self.ref_op(id, receiver.as_deref_mut(), args);
+            // The RecordRef calls of the helper of corpus PR 1572 beside the measured ones (GetLastEntryNoFromTable,
+            // SqFailedSeqFixture.al:189).
+            let load = matches!(
+                crate::setrange_convert::catalog_id(id).0.split('#').next(),
+                Some("RecordRef.ReadIsolation" | "RecordRef.SetLoadFields")
+            );
+            if load && out.is_ok() && self.ref_of_session_table(receiver.as_deref()) {
+                self.access_notes.access.ref_load_calls += 1;
+            }
+            return out;
         }
         let out = self.al_table_call(TableCall::Ref(id), |s| s.ref_op(id, receiver.as_deref_mut(), args));
         if out.is_err() || !self.ref_of_session_table(receiver.as_deref()) {
@@ -345,15 +404,27 @@ impl Session {
 
     /// The commit of an AL `Commit()` statement.
     pub(crate) fn al_commit(&mut self) {
-        self.access_notes.al_commit = true;
+        self.access_notes.commit_by = Some(CommitBy::Statement);
+        self.commit_transaction();
+    }
+
+    /// The commit of a guarded `Codeunit.Run` of the run's own transaction.
+    pub(crate) fn guarded_run_commit(&mut self) {
+        self.access_notes.commit_by = Some(CommitBy::GuardedRun);
+        self.commit_transaction();
+    }
+
+    /// The commit of the own transaction of an isolated event's subscriber.
+    pub(crate) fn isolated_event_commit(&mut self) {
+        self.access_notes.commit_by = Some(CommitBy::IsolatedEvent);
         self.commit_transaction();
     }
 
     /// A transaction ended (`commit`: by a commit), noted while [`Session::note_tx_ends`] notes.
     pub(crate) fn note_tx_end(&mut self, commit: bool) {
-        let al = std::mem::take(&mut self.access_notes.al_commit);
+        let by = self.access_notes.commit_by.take().unwrap_or(CommitBy::Other);
         self.note_tx_point(match commit {
-            true => TxPointKind::Commit { al },
+            true => TxPointKind::Commit(by),
             false => TxPointKind::Rollback,
         });
     }

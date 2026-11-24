@@ -961,7 +961,7 @@ impl Session {
                     return Ok(Value::Boolean(false));
                 }
                 if self.pages.bg_worker.is_none() {
-                    self.commit_transaction();
+                    self.guarded_run_commit();
                 }
                 Ok(Value::Boolean(true))
             }
