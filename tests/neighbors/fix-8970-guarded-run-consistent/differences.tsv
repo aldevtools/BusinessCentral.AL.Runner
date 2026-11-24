@@ -1,0 +1,27 @@
+# key	entry
+GC Tests::CallerMarksCaptioned	ASSUMED guarded-run-consistent-end (corpus PR 1568, GuardedRunId_CallerMarksCaptioned_InnerSucceeds)
+GC Tests::CallerMarksTemporary_InnerFails	ASSUMED guarded-run-consistent-end (corpus PR 1568, GuardedRunId_CallerMarksTemporary_InnerFails)
+GC Tests::CallerMarks_InnerGetFails	ASSUMED guarded-run-consistent-end (corpus PR 1568, GuardedRunId_CallerMarks_InnerGetFails)
+GC Tests::CallerMarks_InnerMarksOtherAndFails	ASSUMED guarded-run-consistent-end (corpus PR 1568, GuardedRunId_CallerMarksOther_InnerStartsStateAndFails)
+GC Tests::CallerMarks_RecordArgOtherTable	ASSUMED guarded-run-consistent-end (corpus PR 1568, GuardedRunIdRec_CallerMarks_InnerFails)
+GC Tests::CallerWritesThenMarks	REFUSED A guarded Codeunit.Run starts while the caller holds an uncommitted write and Consistent(false) marks table
+GC Tests::Commit_Captioned	ASSUMED guarded-run-consistent-end (corpus PR 1568, Commit_CallerMarksCaptioned)
+GC Tests::Commit_ReleasedByAnother	ASSUMED guarded-run-consistent-end (corpus PR 1568, Commit_FalseOnOneVariable_TrueOnAnother)
+GC Tests::Commit_ReleasedByTemporary	ASSUMED guarded-run-consistent-end (corpus PR 1568, Commit_CallerMarksTemporary): Consistent on a temporary record now runs and marks the database table; the shape still refuses at a later reader no cell measures
+GC Tests::Commit_ReleasedThenTrueOnFirst	ASSUMED guarded-run-consistent-end (corpus PR 1568, Commit_FalseOnOneVariable_TrueOnAnother_ThenTrueOnFirst)
+GC Tests::Commit_TemporaryMarks	ASSUMED guarded-run-consistent-end (corpus PR 1568, Commit_CallerMarksTemporary)
+GC Tests::Commit_TemporaryMarksAndLifts	ASSUMED guarded-run-consistent-end (corpus PR 1568, Commit_TemporaryMarkedThenUnmarked)
+GC Tests::InnerMarksCaptionedSucceeds	ASSUMED guarded-run-consistent-end (corpus PR 1568, GuardedRunId_InnerMarksCaptioned_Succeeds)
+GC Tests::InnerMarksFails_Error	ASSUMED guarded-run-consistent-end (corpus PR 1568, GuardedRunId_InnerStartsStateAndFails)
+GC Tests::InnerMarksFails_ErrorEmpty	ASSUMED guarded-run-consistent-end (corpus PR 1568, GuardedRunId_InnerStartsStateAndErrorsEmpty)
+GC Tests::InnerMarksFails_InstanceRecordArgOtherTable	ASSUMED guarded-run-consistent-end (corpus PR 1568, GuardedRunInstanceRec_InnerStartsStateAndFails)
+GC Tests::InnerMarksFails_RecordArgOtherTable	ASSUMED guarded-run-consistent-end (corpus PR 1568, GuardedRunIdRec_InnerStartsStateAndFails)
+GC Tests::InnerMarksFails_RecordNotFound	ASSUMED guarded-run-consistent-end (corpus PR 1568, GuardedRunId_InnerStartsStateAndGetFails)
+GC Tests::InnerMarksFails_TestField	ASSUMED guarded-run-consistent-end (corpus PR 1568, GuardedRunId_InnerStartsStateAndTestFieldFails)
+GC Tests::InnerMarksSucceeds_RecordArgOtherTable	ASSUMED guarded-run-consistent-end (corpus PR 1568, GuardedRunIdRec_InnerStartsState_Succeeds)
+GC Tests::InnerMarksTemporaryFails	ASSUMED guarded-run-consistent-end (corpus PR 1568, GuardedRunId_InnerMarksTemporaryAndFails)
+GC Tests::InnerMarksTwoTablesFails	ASSUMED guarded-run-consistent-end (corpus PR 1568, GuardedRunId_InnerMarksTwoTablesAndFails)
+GC Tests::InnerMarksTwoTablesSucceeds	ASSUMED guarded-run-consistent-end (corpus PR 1568, GuardedRunId_InnerMarksOtherThenRow_Succeeds)
+GC Tests::InnerReleasedByAnotherSucceeds	ASSUMED guarded-run-consistent-end (corpus PR 1568, GuardedRunId_InnerStartsAndStopsState_Succeeds)
+GC Tests::TestEnd_TemporaryMarks	ASSUMED guarded-run-consistent-end (corpus PR 1568, Commit_CallerMarksTemporary): Consistent on a temporary record now runs and marks the database table; the shape still refuses at a later reader no cell measures
+GC Tests::UnguardedRun_TemporaryMarks	ASSUMED guarded-run-consistent-end (corpus PR 1568, Commit_CallerMarksTemporary): Consistent on a temporary record now runs and marks the database table; the shape still refuses at a later reader no cell measures
