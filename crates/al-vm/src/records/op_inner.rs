@@ -929,23 +929,7 @@ impl Session {
                         }
                         if !rec.borrow().temporary {
                             self.note_own_modify(&t, rec);
-                            // The variable's own Modify (false or true, the first or a later one) after its own Insert or Get, in that
-                            // transaction, makes the buffer's new version its own write (record/crud/SbStaleOwnModify.al:
-                            // 132-264, :410-448). An own Modify in a later transaction leaves the origin behind, as before.
-                            if let Some((i, was, Some(o))) = version_before
-                                && o.version == was
-                            {
-                                let now = if let Value::BigInteger(n) = &rec.borrow().fields[i] {
-                                    *n
-                                } else {
-                                    0
-                                };
-                                if now != was {
-                                    let keep = o.commits == self.commits;
-                                    rec.borrow_mut().row_origin =
-                                        keep.then(|| crate::stale_buffer_origin::own_modify_origin(o, now));
-                                }
-                            }
+                            self.set_own_modify_origin(rec, version_before);
                             let company = rec.borrow().company.clone();
                             self.tx.open.rows_touched.push((t.object, company, pk.clone()));
                         }

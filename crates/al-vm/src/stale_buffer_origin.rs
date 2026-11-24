@@ -12,19 +12,32 @@ use crate::records::same_key;
 type Pk = [Value];
 type Rec = std::rc::Rc<std::cell::RefCell<al_builtins::value::RecordState>>;
 
-/// The origin of the version the variable's own Modify gave a buffer whose origin `o` was its own Insert or Get in the
-/// same transaction: its own write (record/crud/SbStaleOwnModify.al:132-264, :410-448).
-pub(crate) fn own_modify_origin(o: RowOrigin, now: i64) -> RowOrigin {
-    RowOrigin {
-        own_write: true,
-        version: now,
-        read_in_write_tx: false,
-        own_modified: true,
-        ..o
-    }
-}
-
 impl Session {
+    /// The origin after the variable's own Modify (false or true, the first or a later one) of `rec` was written.
+    /// `before`: the SystemRowVersion field's position, its version before the Modify and the origin then. After its own
+    /// Insert or Get in the same transaction the buffer's new version is its own write (record/crud/SbStaleOwnModify.al:
+    /// 132-264, :410-448); an own Modify in a later transaction leaves the origin behind, as before.
+    pub(crate) fn set_own_modify_origin(&self, rec: &Rec, before: Option<(usize, i64, Option<RowOrigin>)>) {
+        let Some((i, was, Some(o))) = before else {
+            return;
+        };
+        let now = if let Value::BigInteger(n) = &rec.borrow().fields[i] {
+            *n
+        } else {
+            0
+        };
+        if o.version != was || now == was {
+            return;
+        }
+        rec.borrow_mut().row_origin = (o.commits == self.commits).then_some(RowOrigin {
+            own_write: true,
+            version: now,
+            read_in_write_tx: false,
+            own_modified: true,
+            ..o
+        });
+    }
+
     /// Gives `rec` the origin of the version `v` the variable's own Insert into `t` gave it, and its version entry
     /// (`version_entry.rs`).
     pub(crate) fn set_own_insert_origin(&self, t: &TableDef, rec: &Rec, v: i64) {
