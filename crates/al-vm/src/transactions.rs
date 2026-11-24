@@ -10,7 +10,7 @@
 //! Entry points: `TxModel`, `CommitBehavior`, `codeunit_run`, `commit_transaction` (every commit and
 //! what it ends).
 
-use crate::consistent_marks::{RunArg, RunEnd};
+use crate::consistent_marks::{RunArg, RunEnd, RunStart};
 use crate::{AlError, Session, Signal};
 use al_builtins::builtin_id::ids;
 use al_builtins::native::unsupported;
@@ -842,6 +842,7 @@ impl Session {
         // (codeunits/TestWriteTxTestBoundary.al:Test10_ARunCodeunitMayWriteUnderNone).
         let began_world = self.tx_model == TxModel::None && self.tx.tx_world == 0;
         let marks_before = if guarded { self.mark_snapshot() } else { Vec::new() };
+        let commits_before = self.commits;
         let run_arg = RunArg::of(record_arg);
         self.tx.tx_world += 1;
         if let Some(t) = self.tx.used_tries.last_mut() {
@@ -876,7 +877,13 @@ impl Session {
         self.tx.tx_world -= 1;
         // What the run does with Consistent(false) marks as it ends (consistent_marks.rs); an inner refusal keeps its own reason.
         if let Some(end) = RunEnd::of(&result).filter(|_| guarded && self.pages.bg_worker.is_none()) {
-            if let Some(e) = self.guarded_run_end_marks(&marks_before, end, run_arg)? {
+            let start = RunStart {
+                marks: &marks_before,
+                commits: commits_before,
+                arg: run_arg,
+                marks_dropped_inside: body.as_ref().is_some_and(|b| b.marks_dropped_inside),
+            };
+            if let Some(e) = self.guarded_run_end_marks(start, end)? {
                 return Err(e);
             }
         }

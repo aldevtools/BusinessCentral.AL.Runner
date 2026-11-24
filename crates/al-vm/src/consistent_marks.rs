@@ -7,7 +7,8 @@
 //!
 //! Beyond those pins, the shapes of corpus PR 1568 (errors/ConsistentGuardedRunEnd.al, codeunit 75788; the cells its CI
 //! confirmed on BC 27.5, 28.5 and 29.0) run through the assumption `guarded-run-consistent-end`: a guarded run that fails
-//! drops the marks set inside it, a temporary record marks the database table, a Commit after another variable's
+//! drops the marks set inside it (with no Commit since it started; inside another guarded run only when that run then
+//! fails), a temporary record marks the database table, a Commit after another variable's
 //! `Consistent(true)` raises, and the error names a table by its Caption. Every other shape is refused.
 //!
 //! Entry points: `Session::set_consistent`; `mark_snapshot`, `refuse_write_and_mark_at_run_start` and
@@ -50,7 +51,7 @@ pub(crate) enum RunArg {
     None,
     /// A Record of the table with this object index.
     Record { table: u32, temporary: bool },
-    /// Anything else (a Variant that holds a RecordRef).
+    /// Any other value the caller passes (for example a Variant that holds a RecordRef).
     Other,
 }
 
@@ -69,6 +70,18 @@ impl RunArg {
             Some(_) => RunArg::Other,
         }
     }
+}
+
+/// What the end-of-run check reads of a guarded `Codeunit.Run` as it started, and of the runs nested in it.
+pub(crate) struct RunStart<'a> {
+    /// The marks at the start.
+    pub(crate) marks: &'a [(u32, MarkState)],
+    /// The session's commit count at the start (`Session::commits`).
+    pub(crate) commits: u64,
+    /// The record argument.
+    pub(crate) arg: RunArg,
+    /// A guarded run nested in this one failed and dropped its marks (`GuardedBody::marks_dropped_inside`).
+    pub(crate) marks_dropped_inside: bool,
 }
 
 /// How a guarded `Codeunit.Run` ended.
@@ -152,10 +165,12 @@ impl Session {
     /// (:170-236, :272-289); or no mark before the run and one the inner codeunit set and kept, when the run succeeds
     /// (:238-252). The error is the one of a Commit: the pin reads its text (:181).
     ///
-    /// Assumed (`guarded-run-consistent-end`, ConsistentGuardedRunEnd.al), outside another guarded run unless noted:
+    /// Assumed (`guarded-run-consistent-end`, ConsistentGuardedRunEnd.al), outside another guarded run and with no Commit
+    /// since the run started (every cell; the cells with an inner Commit commit under the mark and are refused), unless noted:
     /// - no mark before, a failed run with a code of [`DROPPED_BY`], every mark left held by the variable that set it:
-    ///   nothing, also inside another guarded run (GuardedRunId_InnerMarks*AndFails, GuardedRunInstance*_*AndFails,
-    ///   Preview_OuterGuardedRun_InnerStartsStateAndFails);
+    ///   nothing (GuardedRunId_InnerMarks*AndFails, GuardedRunInstance*_*AndFails). Inside another guarded run too, but
+    ///   only the outer run that then fails with an `Error` is measured (Preview_OuterGuardedRun_InnerStartsStateAndFails):
+    ///   the drop marks the outer run, whose end checks that shape;
     /// - no mark before, a successful run that leaves marks held or released by another variable: the error naming the
     ///   table marked first (GuardedRunId_InnerMarksRowThenOther_Succeeds, _InnerMarksOtherThenRow_Succeeds,
     ///   _InnerStartsAndStopsState_Succeeds, _InnerMarksTemporary_Succeeds, GuardedRunIdRec_InnerStartsState_Succeeds);
@@ -166,15 +181,29 @@ impl Session {
     ///   (GuardedRunId_CallerMarks_InnerGetFails, GuardedRunId_CallerMarksOther_InnerStartsStateAndFails).
     ///
     /// A record argument is measured only as a database record of a table no mark names. Any other shape is refused.
-    pub(crate) fn guarded_run_end_marks(
-        &self,
-        before: &[(u32, MarkState)],
-        end: RunEnd,
-        arg: RunArg,
-    ) -> Result<Option<Signal>, Signal> {
+    pub(crate) fn guarded_run_end_marks(&mut self, start: RunStart, end: RunEnd) -> Result<Option<Signal>, Signal> {
+        let (before, arg) = (start.marks, start.arg);
         let after = self.mark_snapshot();
-        // Whether another guarded run is still running.
-        let nested = !self.tx.guarded_runs.is_empty();
+        // Whether no other guarded run is still running, and whether nothing committed since this run started.
+        let top_level = self.tx.guarded_runs.is_empty();
+        let no_commit = self.commits == start.commits;
+        if start.marks_dropped_inside {
+            // The outer run of Preview_OuterGuardedRun_InnerStartsStateAndFails: not nested itself, no mark before or
+            // after, no Commit (and no successful run, which commits) since it started, and it fails with `Error('')`.
+            let measured = top_level
+                && no_commit
+                && before.is_empty()
+                && after.is_empty()
+                && end == RunEnd::Failed("Dialog");
+            if measured {
+                assume(Assumption::GuardedRunConsistentEnd);
+            } else {
+                return Err(Signal::unsupported(
+                    "A guarded Codeunit.Run ends after a guarded run inside it dropped its Consistent(false) marks, in a \
+                     shape no probe measured (outcome, Commit, marks or nesting)",
+                ));
+            }
+        }
         if before.is_empty() && after.is_empty() {
             return Ok(None);
         }
@@ -205,25 +234,31 @@ impl Session {
             && after.len() == 2
             && after[0] == before[0]
             && after[1..].iter().all(|(_, s)| *s == MarkState::Marked);
-        let raised = !nested
+        let raised = top_level
             && (caller_shape
                 || caller_get_failed
                 || caller_inner_marked
                 || (inner_kept && held(&[MarkState::Marked, MarkState::ReleasedByAnother])));
-        if arg_measured && (dropped || raised) {
+        // A drop inside another guarded run marks that run, once (one cell has one nested drop).
+        let outer = self.tx.guarded_bodies.last_mut().filter(|_| dropped && !top_level);
+        let first_drop = outer.as_ref().is_none_or(|o| !o.marks_dropped_inside);
+        if arg_measured && no_commit && first_drop && (dropped || raised) {
             assume(Assumption::GuardedRunConsistentEnd);
+            if let Some(o) = outer {
+                o.marks_dropped_inside = true;
+            }
             return Ok(raised.then(|| self.inconsistent_error(after[0].0 as usize)));
         }
         Err(Signal::unsupported(format!(
             "A guarded Codeunit.Run ends while Consistent(false) marks table {} in a shape no probe measured (marks, outcome, \
-             record argument or nesting)",
+             record argument, Commit or nesting)",
             self.table_name(after.first().or(before.first()).expect("a mark").0)
         )))
     }
 
     /// A guarded `Codeunit.Run` that starts while the caller holds an uncommitted write and a Consistent(false) mark:
     /// refused, because BC's answer differs between CI runs of corpus PR 1568 on the same version, so it depends on an
-    /// input the probe does not measure (ConsistentGuardedRunEnd.al:955 GuardedRunId_CallerStartsState_InnerFails, :973
+    /// input the probe does not measure (ConsistentGuardedRunEnd.al:965 GuardedRunId_CallerStartsState_InnerFails, :983
     /// GuardedRunId_CallerStartsAndStopsState_InnerFails: the pending-write error in CI run 45353497570, the
     /// inconsistency error in some legs of run 45358869670). Without a mark the pending-write error stays
     /// (codeunits/TestCodeunitRunWriteTransaction.al:GuardedRun_WithUncommittedWrite_IsRefused_AndCodeunitNeverRuns).
