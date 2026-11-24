@@ -2469,8 +2469,9 @@ fn stored_as_is(v: &Value) -> bool {
 /// keeps its own, `Session::reset_keeping_rows`): a global temporary record keeps its rows, as Clear leaves them
 /// (types/ProbeTypeFormsAndFilters.al:Clear_TemporaryRecordWithRows_ThenCount); ClearAll does the same: real BC 29 keeps both
 /// rows of a codeunit's global temporary record and drops its filter, called directly and through Codeunit.Run
-/// (record/PriorityAssumptions.al:247-281, ClearAll_TemporaryGlobalRecord_*). Pinned for a codeunit's global; the same for a
-/// report, a page or a record shared through Copy is not.
+/// (record/PriorityAssumptions.al:247-281, ClearAll_TemporaryGlobalRecord_*). Pinned for a codeunit's global temporary record;
+/// the same for a report's or a page's is not. An array keeps its table only in the cells `Session::clear_all_temp_arrays`
+/// names (assumption clear-shared-codeunit).
 pub(crate) fn keep_temp_table(old: &Value, new: &Value) {
     match (old, new) {
         (Value::Record(old), Value::Record(new)) => {

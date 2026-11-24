@@ -70,8 +70,10 @@ impl Session {
                         _ => continue,
                     }
                     let hold = self.temp_hold(v);
-                    let holding = if shared {
+                    let holding = if shared && rc.borrow().initialized {
                         Holding::Shared
+                    } else if shared {
+                        Holding::SharedUncalled
                     } else if hold != TempHold::Empty {
                         Holding::Written
                     } else if self.wrapped_store_shared(rc) {
@@ -85,7 +87,7 @@ impl Session {
                     if !self.measured_cell(owner, v, holding, hold) {
                         return Err(match holding {
                             _ if hold.shared() => shared_table_refusal(),
-                            Holding::Shared => Signal::unsupported(
+                            Holding::Shared | Holding::SharedUncalled => Signal::unsupported(
                                 "ClearAll of a global codeunit variable whose instance another variable shares, in a \
                                  shape the corpus does not pin",
                             ),
@@ -615,8 +617,8 @@ impl Session {
     }
 }
 
-/// The refusal of a `ClearAll` that resets a temporary table a record outside the variable shares (`Record.Copy(x, true)`): no
-/// probe measures what that record sees after.
+/// The refusal of a `ClearAll` that resets a temporary table a record outside the variable shares, in a cell no probe
+/// measures: a `Record.Copy(x, true)` target outside the measured cells, or any other sharer ([`TempHold::SharedOther`]).
 fn shared_table_refusal() -> Signal {
     Signal::unsupported(
         "ClearAll of a global variable that reaches a temporary table that another record shares, in a shape the corpus \
@@ -655,8 +657,8 @@ fn measured(owner: Owner, store: Store, holding: Holding, hold: TempHold) -> boo
         // ClearSharedCodeunit.al ClearAll_GlobalUnusedIface, ClearAll_GlobalUsedAlias_AliasWroteBefore,
         // ClearAll_GlobalUsedValueParam; ClearSharedCodeunitOwnerKinds.al SICLX_ClearAll_UnusedAlias :1472,
         // SICLX_ClearAll_AliasWroteBefore :1492, ClearAll_TestGlobalCLXUnused_LocalAlias :1540,
-        // ClearAll_TestGlobalCLX_LocalAliasWroteBefore :1568.
-        (Plain | SingleInstance | Test, Integer, Shared) => true,
+        // ClearAll_TestGlobalCLX_LocalAliasWroteBefore :1568. No call made the instance: the Unused cells of each owner.
+        (Plain | SingleInstance | Test, Integer, Shared | SharedUncalled) => true,
         // ClearSharedCodeunitTempRef.al ClearAll_GlobalUnusedIface :382, ClearAll_GlobalUnusedValueParam :424,
         // ClearAll_GlobalWritten_NoAlias :1362; ClearSharedCodeunitSIOwner.al ClearAll_SIOwnerUnused_Alias :1411,
         // A3_Step3_ClearAllInOwner :447, ClearAll_TestGlobalUnused_LocalAlias :2058, ClearAll_TestGlobalWritten_NoAlias
@@ -667,7 +669,7 @@ fn measured(owner: Owner, store: Store, holding: Holding, hold: TempHold) -> boo
         // ArrStore_ClearAll_UnusedAlias :418, ArrStore_ClearAll_InHolder_NoAlias :439, SIArr_* :987 :1013 :1029,
         // M2_Step5_ClearAllInOwner :1241, ClearAll_TestGlobalArr* :1276 :1303 :1333. Every holder slot under the plain
         // owner, rows now and none: ClearSharedCodeunitHolderKinds.al Arr_VarParam_Rows :2090 to Arr_SetterIn_Never :2368;
-        // ClearSharedCodeunitHolderSlots.al :7263 to :7845.
+        // ClearSharedCodeunitHolderSlots.al :7263 to :8102.
         (Plain | SingleInstance | Test, TempArray, _) => true,
         // ClearSharedCodeunitLabelStore.al LabelFirst_ClearAllInHolder_Written_NoAlias :354, and the same for Mid (:497)
         // and Last (:640).
@@ -681,16 +683,20 @@ fn measured(owner: Owner, store: Store, holding: Holding, hold: TempHold) -> boo
         (SingleInstance, TempRefLabel, Written) => true,
         // ClearSharedCodeunitOwnerKinds.al StorePlus_* :644 :661 :684, Deep_* :701 :723 :745. Every holder slot, rows now
         // and none: ClearSharedCodeunitHolderKinds.al Plus_VarParam_Rows :2396 to Wrap_SetterIn_Never :3184;
-        // ClearSharedCodeunitHolderSlots.al Plus :8127 to :8825, Wrap :9161 to :10111.
-        (Plain, TempRefPlus | Wrapper, _) => true,
+        // ClearSharedCodeunitHolderSlots.al Plus :8127 to :9132, Wrap :9161 to :10534.
+        // No call made the shared instance: StorePlus_UnusedAlias :684. The wrapper is shared only after a call made the
+        // instance (every cell writes first): a shared wrapper no call made has no cell.
+        (Plain, TempRefPlus, _) | (Plain, Wrapper, Written | Shared) => true,
         // ClearSharedCodeunitSetterOwner.al: shared through a setter, TableNo owner (:318 :345 :372 Run, :508 :535 :562
         // procedure), plain owner (:698 :725 :752 Run, :888 :915 :942 procedure), by-value setter (:1078 :1105); the owner's
         // own register (:1166 :1187 TableNo, :1208 :1229 plain).
         // Every holder slot, rows now and none, under both owners: ClearSharedCodeunitHolderKinds.al RegPlain_VarParam_Rows
         // :1496 to RegTableNo_SetterOut_Never :2057; ClearSharedCodeunitHolderSlots.al by-value parameters and Variant
         // (RegPlain :5195 to :5378, RegTableNo :5607 to :5790), Interface, List and Dictionary slots (RegPlain :6025 to
-        // :6310, RegTableNo :6641 to :6926).
-        (Plain | TableNo, Register, _) => true,
+        // :6310, RegTableNo :6641 to :6926); the same with no row (RegPlain :5405 to :5580 and :6335 to :6618, RegTableNo
+        // :5817 to :5992 and :6951 to :7234).
+        // Shared only after a call made the instance.
+        (Plain | TableNo, Register, Written | Shared) => true,
         // ClearSharedCodeunitStoreShapes.al: the price store nothing else holds, rows now, ClearAll in SetLine called
         // through an interface (Price_ViaInterface_Filled_SetLine :1206) or directly (:1225), twice (:1277).
         // Shared, rows now or none: a test local through a var getter (Price_StoreAlias_SetLine :1296), and every holder
@@ -698,12 +704,15 @@ fn measured(owner: Owner, store: Store, holding: Holding, hold: TempHold) -> boo
         // element, setters: Price_VarParam_Rows :1156 to Price_SetterIn_Never :1464) and ClearSharedCodeunitHolderSlots.al
         // (by-value parameter live, passed, deep and through setters :4215 to :4309, Variant :4338 :4373 :4390, Interface
         // local, caller local and global :4418 :4447 :4464, List and Dictionary of Interface :4492 :4527 :4555 :4590,
-        // Interface parameter var and by value :4618 :4639 :4660 :4680; the same cells with no row :4702 to :5167).
+        // Interface parameter var and by value :4618 :4639 :4660 :4680; the same cells with no row :4702 to :5167). Every
+        // shared cell made the instance with a call first (Price_VarParam_Never :1323 calls Mark()): a shared instance no
+        // call made has no cell.
         (Plain, PriceList, Written | Shared) => true,
         // ClearSharedCodeunitTempArrayShare.al TwoDimWritten_InStore_ClearAll_NoAlias :688, ..._AliasWroteBefore :707.
         // Every holder slot, rows now and none: ClearSharedCodeunitHolderKinds.al TwoDim_VarParam_Rows :3228 to
-        // TwoDim_SetterIn_Never :3511; ClearSharedCodeunitHolderSlots.al :10569 to :11216.
-        (Plain, TwoDimArray, _) => true,
+        // TwoDim_SetterIn_Never :3511; ClearSharedCodeunitHolderSlots.al :10569 to :11502.
+        // Shared only after a call made the instance.
+        (Plain, TwoDimArray, Written | Shared) => true,
         _ => false,
     }
 }
@@ -816,8 +825,10 @@ enum Store {
 /// How the instance of a store global is held when `ClearAll()` runs in its owner.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Holding {
-    /// Another variable, parameter or interface holds it too.
+    /// Another variable, parameter or interface holds it too, and a call made the instance (`Instance::initialized`).
     Shared,
+    /// Another variable, parameter or interface holds it too, and no call has made the instance yet.
+    SharedUncalled,
     /// Nothing else holds it, and its temporary table holds rows now ([`TempHold::Rows`]) or a record outside shares it
     /// ([`TempHold::shared`]).
     Written,

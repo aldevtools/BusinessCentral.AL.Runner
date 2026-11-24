@@ -97,8 +97,23 @@ codeunit 50620 "PS ClearAll Tests"
         Check(O.State(), 't1=3 kind=None int=0 lc=store label cnt=0 line=1');
     end;
 
-    // Measured with no row (ClearSharedCodeunitHolderKinds.al Price_VarParam_Never :1323, scalars written before; with
-    // nothing written before only for the Integer store and "CLB Store", ClearSharedCodeunitTempRef.al :382). Runs flagged.
+    // Shared with no row after a call made the instance (Mark() through the alias): measured (ClearSharedCodeunitHolderKinds.al
+    // Price_VarParam_Never :1323). One instance, reset in place; runs flagged.
+    [Test]
+    procedure PriceStoreAliasMarkedNoRow()
+    var
+        O: Codeunit "PS Owner";
+        X: Codeunit "PS Store";
+    begin
+        O.GetStore(X);
+        X.Mark();
+        O.SetLine();
+        Check(X.State(), 't1=0 kind=None int=0 lc=store label');
+        X.SetInt(10);
+        Check(O.State(), 't1=0 kind=None int=10 lc=store label cnt=0 line=1');
+    end;
+
+    // Not measured: shared while no call made the instance (every price store cell calls it first). Refused.
     [Test]
     procedure PriceStoreAliasNeverWritten()
     var

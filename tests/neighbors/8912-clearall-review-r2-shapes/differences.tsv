@@ -7,7 +7,8 @@ PS ClearAll Tests::PriceStoreDirect	ASSUMED clear-shared-codeunit (corpus PR 156
 PS ClearAll Tests::PriceStoreTwice	ASSUMED clear-shared-codeunit (corpus PR 1564)
 PS ClearAll Tests::PriceStoreAlias	ASSUMED clear-shared-codeunit (corpus PR 1564)
 PS ClearAll Tests::PriceStoreCopyShared	ASSUMED clear-shared-codeunit (corpus PR 1564)
-PS ClearAll Tests::PriceStoreAliasNeverWritten	ASSUMED clear-shared-codeunit (corpus PR 1564)
+PS ClearAll Tests::PriceStoreAliasMarkedNoRow	ASSUMED clear-shared-codeunit (corpus PR 1564)
+PS ClearAll Tests::PriceStoreAliasNeverWritten	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
 PS ClearAll Tests::PriceStoreCopySharedEmpty	REFUSED ClearAll of a global variable that reaches a temporary table that another record shares
 PS ClearAll Tests::PriceStoreSingleInstanceOwner	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows
 PS ClearAll Tests::PriceStoreTableNoOwner	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows

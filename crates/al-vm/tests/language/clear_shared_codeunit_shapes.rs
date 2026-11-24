@@ -78,6 +78,8 @@ codeunit 50910 T {
     procedure CopySharedEmpty(): Text var O: Codeunit POwner; R: Record PRow temporary;
     begin O.ShareT1(R); O.SetLine(); exit('done'); end;
     procedure AliasNeverWritten(): Text var O: Codeunit POwner; X: Codeunit PStore; begin O.GetStore(X); O.SetLine(); exit('done'); end;
+    procedure AliasMarkedNoRow(): Text var O: Codeunit POwner; X: Codeunit PStore;
+    begin O.GetStore(X); X.Mark(); O.SetLine(); exit(O.State() + '|' + X.State()); end;
     procedure AliasAndCopy(): Text var O: Codeunit POwner; X: Codeunit PStore; R: Record PRow temporary;
     begin O.Prepare(); O.GetStore(X); O.ShareT1(R); O.SetLine(); exit('done'); end;
     procedure SiOwner(): Text var O: Codeunit PSiOwner; begin O.Run(); exit('done'); end;
@@ -146,11 +148,16 @@ fn clear_all_of_a_shared_price_store_keeps_one_instance_and_the_shared_table() {
     );
 }
 
-// Shared while T1 holds no row runs flagged (corpus PR 1564 ClearSharedCodeunitHolderKinds.al Price_VarParam_Never
-// :1323, ClearSharedCodeunitHolderSlots.al :4702 to :5167).
+// Shared while T1 holds no row, after a call made the instance, runs flagged (corpus PR 1564 ClearSharedCodeunitHolderKinds.al
+// Price_VarParam_Never :1323, ClearSharedCodeunitHolderSlots.al :4702 to :5167: Mark() or SetInt first). With no call
+// made, no cell: refused.
 #[test]
-fn clear_all_of_a_shared_price_store_with_no_row_runs() {
-    assert_eq!(cell("AliasNeverWritten"), ("done".to_string(), true));
+fn clear_all_of_a_shared_price_store_with_no_row_runs_once_a_call_made_it() {
+    assert_eq!(
+        cell("AliasMarkedNoRow"),
+        (format!("t1=0 {RESET} cnt=0 line=1|t1=0 {RESET}"), true)
+    );
+    assert_refused("AliasNeverWritten", "whose instance another variable shares");
 }
 
 // The shapes Z lists as not measured refuse: shared and Copy-shared at once, Copy-shared while T1 holds no row, under
