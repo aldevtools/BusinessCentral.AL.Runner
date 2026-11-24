@@ -164,6 +164,9 @@ fn clear_all_of_a_price_store_in_an_unmeasured_shape_refuses() {
 // global that holds the shared instance keeps main's answer, with no mark.
 #[test]
 fn clear_all_of_an_interface_or_variant_global_sharing_a_store() {
-    assert_refused("FaceHolder", "ClearAll of a global interface variable whose codeunit instance another variable shares");
+    assert_refused(
+        "FaceHolder",
+        "ClearAll of a global interface variable whose codeunit instance another variable shares",
+    );
     assert_eq!(cell("VariantHolder"), ("7".to_string(), false));
 }
