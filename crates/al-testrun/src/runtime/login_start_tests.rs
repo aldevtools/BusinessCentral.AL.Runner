@@ -381,10 +381,11 @@ fn the_image_line_reports_the_kept_bytes_and_the_nodes_per_kind() {
     assert!(!per_key.contains("77401"), "no value in the line: {per_key}");
 }
 
-/// The key of a new session of `engine` whose login skipped `skipped`.
+/// The key of a new session of `engine` whose login skipped `skipped` (committed: its SQL counters are at rest, as a
+/// test session's are before its login; a session whose counters are not has no comparable form and no key).
 fn key_skipping(engine: &Arc<Engine>, skipped: &[al_vm::SkippedInstall]) -> Key {
-    let mut session = al_vm::Session::new(engine.clone());
-    Key::of(&mut session, Default::default(), SessionFlags::default(), skipped)
+    let mut session = target(engine);
+    Key::of(&mut session, Default::default(), SessionFlags::default(), skipped).expect("a key")
 }
 
 // The open runs under the watch of the skipped installs, whose hit marks or refuses: another list is another key.
@@ -410,6 +411,38 @@ fn another_skipped_install_list_is_another_key() {
     assert_ne!(
         key_skipping(&engine, std::slice::from_ref(&a)),
         key_skipping(&engine, &[a.clone(), b.clone()])
+    );
+}
+
+/// [`OPAQUE_INSIDE`]'s holder kept from a codeunit's `OnRun`: run before the login, it leaves a SingleInstance global
+/// with no comparable form.
+const OPAQUE_BEFORE: &str = r#"
+codeunit 77490 "RPL Opaque Before"
+{
+    trigger OnRun() var Holder: Codeunit "RPL Holder"; begin Holder.Keep(); end;
+}
+"#;
+
+// `Key::of` holds a value with no comparable form only by its path (al-vm `NotComparable`): two sessions with other
+// values at the same path would get equal keys. A session that holds one before its login gets no key, and runs its
+// login.
+#[test]
+fn a_session_with_a_value_of_no_comparable_form_before_its_login_has_no_key() {
+    let (engine, _) = compiled_with(&format!("{MAIN}{OPAQUE_INSIDE}{OPAQUE_BEFORE}"));
+    let mut session = target(&engine);
+    assert!(
+        Key::of(&mut session, Default::default(), SessionFlags::default(), &[]).is_some(),
+        "GUARD: a new session has a key"
+    );
+    assert!(session.run_codeunit_by_id(77490).is_ok());
+    session.commit_transaction();
+    assert!(
+        !session.state_lines().opaque.is_empty(),
+        "GUARD: the holder has no comparable form"
+    );
+    assert_eq!(
+        Key::of(&mut session, Default::default(), SessionFlags::default(), &[]),
+        None
     );
 }
 
@@ -646,9 +679,9 @@ fn a_session_the_gate_refuses_runs_its_login_and_is_counted() {
 
 /// The key of a new session of `engine` whose work date is `n` (so every `n` is another key).
 fn numbered_key(engine: &Arc<Engine>, n: i32) -> Key {
-    let mut session = al_vm::Session::new(engine.clone());
+    let mut session = target(engine);
     session.set_work_date(1000 + n);
-    Key::of(&mut session, Default::default(), SessionFlags::default(), &[])
+    Key::of(&mut session, Default::default(), SessionFlags::default(), &[]).expect("a key")
 }
 
 /// A start whose image holds `bytes` of text in a SingleInstance codeunit's global: `kept_bytes` is a little more.
@@ -851,11 +884,11 @@ fn a_start_from_a_large_install_base_keeps_only_the_logins_rows() {
 fn the_numbers_mark_the_runner_sets_is_another_key_and_the_thaw_keeps_the_targets() {
     let (engine, _) = compiled();
     let key_of = |mark: Option<&str>| {
-        let mut session = al_vm::Session::new(engine.clone());
+        let mut session = target(&engine);
         if let Some(why) = mark {
             session.mark_numbers_unmeasured(std::rc::Rc::from(why));
         }
-        Key::of(&mut session, Default::default(), SessionFlags::default(), &[])
+        Key::of(&mut session, Default::default(), SessionFlags::default(), &[]).expect("a key")
     };
     assert_eq!(key_of(None), key_of(None), "GUARD");
     assert_ne!(key_of(None), key_of(Some("an earlier codeunit took numbers")));
@@ -902,7 +935,7 @@ fn a_tables_digest_is_kept_per_state_and_a_write_makes_another() {
     };
     assert!(session.store_mut().insert(&cx, &table, row(1)).is_ok());
     session.commit_transaction();
-    let key = |s: &mut al_vm::Session| Key::of(s, Default::default(), SessionFlags::default(), &[]);
+    let key = |s: &mut al_vm::Session| Key::of(s, Default::default(), SessionFlags::default(), &[]).expect("a key");
     let first = key(&mut session);
     assert_eq!(
         key(&mut session),

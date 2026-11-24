@@ -232,7 +232,8 @@ fn open_company(
         })
     };
     let key = (check || (flags.login_replay() && raises()))
-        .then(|| crate::login_replay::Key::of(session, (isolation, scratch.hub), flags, skipped_installs));
+        .then(|| crate::login_replay::Key::of(session, (isolation, scratch.hub), flags, skipped_installs))
+        .flatten();
     let notes_code = observed || session.notes_code_run() || crate::profiling::active();
     let perturbed = *perturb != crate::stability::Perturb::default() || scratch.clock_start.is_some();
     let facts = crate::login_start::RunFacts {

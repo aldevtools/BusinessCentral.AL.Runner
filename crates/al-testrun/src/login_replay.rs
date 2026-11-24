@@ -57,9 +57,10 @@ use std::sync::{Mutex, PoisonError};
 pub(crate) struct Key {
     /// Every committed row before the login: the install baseline, what install code and an earlier codeunit left.
     database: LinesDigest,
-    /// The rows the session holds now, written and not committed included, when some are not committed before the login:
-    /// the login reads them, so two sessions whose uncommitted rows differ have other keys. `None` when every row is
-    /// committed (the rows are then `database`).
+    /// The rows the session holds now, written and not committed included, when some are not committed before the
+    /// login: the login reads them, so two sessions whose uncommitted rows differ have other keys. `None` when every
+    /// row is committed (the rows are then `database`). A write since the last Commit that leaves the SQL counters with
+    /// no comparable form gives no key at all ([`Key::of`]).
     uncommitted: Option<LinesDigest>,
     /// Who offers the rows of the tables no write reached (the test data, `MemStore::backing_identity`).
     backing: BackingKey,
@@ -165,13 +166,19 @@ impl RunSettings {
 impl Key {
     /// The key of `session` before it opens the company; `isolation`: the codeunit's test isolation and whether the hub
     /// runs it; `flags`: the run options the session took; `skipped`: the install code that could not run, whose tables
-    /// the open is watched on.
+    /// the open is watched on. `None` when the session holds a value with no comparable form (al-vm `NotComparable`):
+    /// the key would hold it by its path only, so two sessions with other values there would share a key. Such a
+    /// session runs its login.
     pub(crate) fn of(
         session: &mut Session,
         isolation: (crate::isolation::TestIsolation, bool),
         flags: crate::runtime::session_flags::SessionFlags,
         skipped: &[al_vm::SkippedInstall],
-    ) -> Key {
+    ) -> Option<Key> {
+        let state = session.state_lines();
+        if !state.opaque.is_empty() {
+            return None;
+        }
         let engine = session.engine.clone();
         let store = session.store_mut();
         let tables = key_parts::store_table_digests(&engine, store);
@@ -193,8 +200,7 @@ impl Key {
                     .collect::<Vec<_>>(),
             )
         };
-        let state = session.state_lines();
-        Key {
+        Some(Key {
             database,
             uncommitted,
             backing,
@@ -217,7 +223,7 @@ impl Key {
             run: RunSettings::now(),
             emit_version: EmitKey(engine.emit_version.clone()),
             refused_reads: refused_reads(&engine),
-        }
+        })
     }
 }
 

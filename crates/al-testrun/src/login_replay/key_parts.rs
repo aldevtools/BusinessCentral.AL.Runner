@@ -5,8 +5,8 @@
 //!   the company by first sight over the whole check ([`Companies`]: a company name can be a customer's, so it is never
 //!   shown), or `global/table object T` for a table that is not per company;
 //! - per state line name, the session state lines of that name (`Session::state_lines`: every line starts with a name the
-//!   runtime writes, `session`, `single`, `counters`, ...: its first word), and the lines with no comparable form as
-//!   `not comparable`.
+//!   runtime writes, `session`, `single`, `counters`, ...: its first word). A session that holds a value with no
+//!   comparable form has no key (`Key::of`).
 //!
 //! A table the store exports without rows has no part and no digest ([`store_table_digests`]): `rows` writes no line
 //! for it, so the whole `database` digest does not see it either, and the keys line never names it. Whether a table has
@@ -117,12 +117,6 @@ impl KeyParts {
         for line in &state.lines {
             let name = line.split(' ').next().unwrap_or_default();
             by_name.entry(name.to_string()).or_default().push(line.clone());
-        }
-        if !state.opaque.is_empty() {
-            by_name.insert(
-                "not comparable".into(),
-                state.opaque.iter().map(al_vm::NotComparable::line).collect(),
-            );
         }
         let session = (by_name.into_iter())
             .map(|(name, lines)| (name, digest(&lines)))
