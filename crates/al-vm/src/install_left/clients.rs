@@ -140,6 +140,7 @@ pub(super) fn events_as_new(e: &EventState) -> bool {
         db_setup_table,
         trial,
         global_setups,
+        global_raise_singles,
     } = e;
     let crate::platform::EventStats {
         calls: _,
@@ -195,6 +196,7 @@ pub(super) fn events_as_new(e: &EventState) -> bool {
         && read.is_empty()
         && guarded.is_empty()
         && global_setups.is_empty()
+        && global_raise_singles.is_none()
 }
 
 /// Code coverage, the impact trace, the cell tap and the profiler: all off and nothing recorded. A run with one of them on

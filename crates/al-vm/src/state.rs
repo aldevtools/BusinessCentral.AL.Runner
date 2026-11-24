@@ -534,6 +534,9 @@ pub(crate) struct EventState {
     pub(crate) trial: crate::order_trial::TrialState,
     /// What the subscribers of `Global Triggers` answered, per table object (globaltriggers.rs).
     pub(crate) global_setups: std::collections::HashMap<usize, globaltriggers::GlobalSetup>,
+    /// While watched (`Session::watch_global_trigger_changes`): the SingleInstance codeunits a raise of a `Global Triggers`
+    /// event changed. `None`: not watched.
+    pub(crate) global_raise_singles: Option<std::collections::BTreeSet<usize>>,
 }
 
 /// A filter of a SetTableView as (field, filter group, filter text).

@@ -109,4 +109,41 @@ mod tests {
         let refused = get(&mut session, "GetB").unwrap_err();
         assert!(refused.describe().contains("not measured"), "{}", refused.describe());
     }
+
+    // Al-runner issue 8945: while watched, a SingleInstance codeunit a Global Triggers raise changed is noted; one that
+    // code outside a raise changed is not.
+    #[test]
+    fn a_change_inside_a_global_triggers_raise_is_noted() {
+        const SRC: &str = "table 50101 Row { fields { field(1; K; Integer) { } } }
+            codeunit 50102 Memo { SingleInstance = true; var Asks: Integer;
+              [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Global Triggers\", 'GetDatabaseTableTriggerSetup', '', false, false)]
+              local procedure S(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean)
+              begin Asks += 1; end; }
+            codeunit 50103 Other { SingleInstance = true; var N: Integer;
+              procedure Write() var R: Record Row; begin N += 1; R.K := 1; R.Insert(); end; }";
+        let (ws, l) = al_sema::lower::compile(
+            vec![al_sema::workspace::AppSource {
+                id: "a".into(),
+                name: "a".into(),
+                dependencies: vec![],
+                files: vec![("f.al".into(), SRC.into())],
+            }],
+            &Default::default(),
+        );
+        assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+        let engine = crate::Engine::new(l.program, Vec::new());
+        let at = |name: &str| engine.program.objects.iter().position(|o| o.name == name).unwrap();
+        let (memo, other) = (at("Memo"), at("Other"));
+        let write = engine.program.objects[other]
+            .routines
+            .iter()
+            .position(|r| r.name == "Write")
+            .unwrap();
+        let mut session = crate::Session::new(engine.clone());
+        session.watch_global_trigger_changes();
+        let inst = session.codeunit_instance(other);
+        session.call(other, write, inst, Vec::new()).expect("the write");
+        assert_eq!(session.take_global_trigger_changes(), [memo].into_iter().collect());
+        assert!(session.take_global_trigger_changes().is_empty());
+    }
 }

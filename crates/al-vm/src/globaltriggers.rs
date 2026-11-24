@@ -20,7 +20,8 @@
 //! and session (AL Runner reads that in BC's `GetTriggersOnTable`); that `Insert(false)` and the
 //! other `RunTrigger = false` writes raise the database events too.
 //!
-//! Entry points: `global_setup`, `global_enabled`, `global_trigger`.
+//! Entry points: `global_setup`, `global_enabled`, `global_trigger`; `watch_global_trigger_changes` notes the
+//! SingleInstance codeunits a raise changed (al-runner issue 8945).
 
 use crate::Session;
 use crate::dispatch::EventCall;
@@ -60,11 +61,31 @@ fn names(list: &[&str]) -> Vec<String> {
 impl Session {
     /// Raises a `Global Triggers` event. While the SQL counters log record methods, its AL code is not logged: it is part
     /// of the record method that raised it (sqlcount.rs, `SqlCounters::mute_begin`).
+    /// While watched ([`Session::watch_global_trigger_changes`]), the SingleInstance codeunits the outermost raise changed
+    /// are noted; a raise inside it is not stamped again.
     fn raise_global(&mut self, call: &EventCall, args: &mut [Value]) -> Result<(), Signal> {
+        let watched = self.events.global_raise_singles.take();
+        let before = watched.as_ref().map(|_| self.left_stamp());
         let m = self.sql.mute_begin(self.calls_made);
         let r = self.raise(call, args);
         self.sql.mute_end(m, self.calls_made);
+        if let (Some(mut seen), Some(before)) = (watched, before) {
+            seen.extend(before.changed(&self.left_stamp()).singles.into_keys());
+            self.events.global_raise_singles = Some(seen);
+        }
         r
+    }
+
+    /// From now on, notes the SingleInstance codeunits a raise of a `Global Triggers` event changes (al-testrun
+    /// `partner_login::raise`, al-runner issue 8945), until [`Session::take_global_trigger_changes`].
+    pub fn watch_global_trigger_changes(&mut self) {
+        self.events.global_raise_singles = Some(Default::default());
+    }
+
+    /// The SingleInstance codeunits (object index) a raise of a `Global Triggers` event changed since
+    /// [`Session::watch_global_trigger_changes`]; ends the watch.
+    pub fn take_global_trigger_changes(&mut self) -> std::collections::BTreeSet<usize> {
+        self.events.global_raise_singles.take().unwrap_or_default()
     }
 
     /// The setup of table `t`, asking the subscribers the first time (BC caches it per session).

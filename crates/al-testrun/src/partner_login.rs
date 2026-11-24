@@ -236,14 +236,17 @@ pub(crate) fn raise(
     let (po, pr) = step.publisher;
     // The SingleInstance codeunits each subscriber changed, with the globals it changed, in the order they ran.
     let mut singles_by: Vec<((usize, usize), Singles)> = Vec::new();
-    crate::install::call_before_first_test(lowered, session, who, |s| {
+    session.watch_global_trigger_changes();
+    let ran = crate::install::call_before_first_test(lowered, session, who, |s| {
         for sub in s.subscriber_order(po, step.event, &step.subscribers)? {
             let at = s.left_stamp();
             s.raise_to(po, pr, &[sub])?;
             singles_by.push((sub, at.changed(&s.left_stamp()).singles));
         }
         Ok(())
-    })?;
+    });
+    let in_global_raise = session.take_global_trigger_changes();
+    ran?;
     let store = session.store_mut();
     if store.virtual_write_pending() {
         return Err(format!(
@@ -266,20 +269,39 @@ pub(crate) fn raise(
         )
         .into());
     }
+    // Per changed codeunit: the number of changes before this step, and the verdict of each change of this step.
+    let mut verdicts: BTreeMap<usize, (usize, Vec<Kept>)> = BTreeMap::new();
     for (sub, singles) in singles_by {
         let app = lowered.program.objects[sub.0].app;
         for (o, globals) in singles.iter() {
             let earlier = left.changed_by.entry(*o).or_default();
             let verdict = kept(lowered, session, step, *o, (app, globals), singles.len(), earlier);
+            let before = earlier.len();
             earlier.push(Change {
                 app: Some(app),
                 globals: globals.clone(),
             });
-            match verdict {
-                Kept::Pinned => {}
-                Kept::Assumed => session.mark_single_assumed(*o, Assumption::PartnerLoginMemoKept),
-                Kept::Refused(what) => refuse_reads(lowered, session, *o, &what),
-            }
+            verdicts.entry(*o).or_insert((before, Vec::new())).1.push(verdict);
+        }
+    }
+    for (o, (before, list)) in verdicts {
+        let changers: Vec<Option<u32>> = left.changed_by[&o].iter().map(|c| c.app).collect();
+        let shared = || {
+            before == 0
+                && crate::login_shared_memo::kept(
+                    lowered,
+                    session,
+                    &step.subscribers,
+                    o,
+                    &changers,
+                    in_global_raise.contains(&o),
+                )
+        };
+        match judged(list) {
+            Kept::Pinned => {}
+            Kept::Assumed(a) => session.mark_single_assumed(o, a),
+            Kept::Refused(_) if shared() => session.mark_single_assumed(o, Assumption::LoginSubscribersSharedMemo),
+            Kept::Refused(what) => refuse_reads(lowered, session, o, &what),
         }
     }
     left.group1.extend(before.group1_changed(&after));
@@ -323,13 +345,27 @@ pub(crate) fn own_step(
     }
 }
 
+/// What the changes of one codeunit in one step leave, from the verdict of each ([`kept`], in the order they ran): the
+/// last refusal, else the first assumption entry, else pinned.
+fn judged(list: Vec<Kept>) -> Kept {
+    let mut out = Kept::Pinned;
+    for k in list {
+        match (&out, k) {
+            (_, r @ Kept::Refused(_)) => out = r,
+            (Kept::Pinned, a @ Kept::Assumed(_)) => out = a,
+            _ => {}
+        }
+    }
+    out
+}
+
 /// What a read of a SingleInstance codeunit a partner login subscriber changed gets ([`kept`]).
 #[derive(Debug, PartialEq)]
 enum Kept {
     /// What the subscriber left, pinned.
     Pinned,
-    /// What the subscribers left, through assumption `partner-login-memo-kept` (corpus PR 1490).
-    Assumed,
+    /// What the subscribers left, through this assumption entry (`partner-login-memo-kept`, corpus PR 1490).
+    Assumed(Assumption),
     /// Refused: the fact no probe measured, for the reason text.
     Refused(String),
 }
@@ -407,7 +443,7 @@ fn kept(
     let microsoft = (lowered.program.apps.get(memo_app as usize)).is_some_and(|a| a.publisher.trim() == "Microsoft");
     if microsoft {
         return if crate::login_memo::microsoft_login_memo(lowered, memo) {
-            Kept::Assumed
+            Kept::Assumed(Assumption::PartnerLoginMemoKept)
         } else {
             Kept::Refused("it is a codeunit of an app published by Microsoft other than 3702 and 3703".into())
         };
@@ -415,7 +451,7 @@ fn kept(
     let measured_type =
         |ty: &RtType| matches!(ty, RtType::Boolean | RtType::Integer | RtType::Text(None)) || *ty == list_of_text;
     match globals.iter().find(|g| !measured_type(&g.ty)) {
-        None => Kept::Assumed,
+        None => Kept::Assumed(Assumption::PartnerLoginMemoKept),
         Some(other) => Kept::Refused(format!(
             "its global {} is of a type other than Boolean, Integer, Text and List of [Text]",
             other.name
