@@ -85,6 +85,11 @@ pub(crate) struct By<'a> {
 }
 
 impl By<'_> {
+    /// Whether it changed one of the globals inside a raise of a `Global Triggers` event.
+    pub fn in_raise(&self) -> bool {
+        self.raises.is_some_and(|r| !r.is_empty())
+    }
+
     /// The events whose raise changed global `g`: empty when it changed outside any raise.
     pub fn raised(&self, g: usize) -> Vec<&str> {
         (self.raises.and_then(|r| r.get(&g)).into_iter().flatten())
@@ -308,7 +313,7 @@ pub(crate) fn raise(
             earlier.push(Change {
                 app: Some(app),
                 globals: globals.clone(),
-                in_raise: by.raises.is_some_and(|r| !r.is_empty()),
+                in_raise: by.in_raise(),
             });
             match verdict {
                 Kept::Pinned => {}
@@ -448,7 +453,7 @@ fn kept(
                 in_raise,
             },
         ] if *a == sub_app => {
-            let pair = !*in_raise && by.raises.is_none_or(|r| r.is_empty());
+            let pair = !*in_raise && !by.in_raise();
             return if pair && crate::login_memo::env_info_pair(lowered, memo, first, by.globals) {
                 Kept::Again(Assumption::PartnerLoginEnvInfoPair)
             } else {

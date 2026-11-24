@@ -74,6 +74,40 @@ fn post(e: &Expr, f: &mut dyn FnMut(&Expr)) {
     f(e);
 }
 
+/// Calls `f` on every statement of `body`, nested ones included, each before the statements it holds.
+pub fn for_each_stmt(body: &[Stmt], f: &mut dyn FnMut(&Stmt)) {
+    for s in body {
+        f(s);
+        match s {
+            Stmt::If(_, a, b) => {
+                for_each_stmt(a, f);
+                for_each_stmt(b, f);
+            }
+            Stmt::While(_, b)
+            | Stmt::Repeat(b, _)
+            | Stmt::AssertError(b)
+            | Stmt::For { body: b, .. }
+            | Stmt::Foreach { body: b, .. } => for_each_stmt(b, f),
+            Stmt::Case {
+                branches, otherwise, ..
+            } => {
+                for (_, b) in branches {
+                    for_each_stmt(b, f);
+                }
+                for_each_stmt(otherwise, f);
+            }
+            Stmt::Assign(..)
+            | Stmt::Expr(_)
+            | Stmt::Exit(_)
+            | Stmt::Break
+            | Stmt::Pos(_)
+            | Stmt::Assume(_)
+            | Stmt::TddMark(_)
+            | Stmt::Continue => {}
+        }
+    }
+}
+
 /// The number of expression nodes in `body`.
 pub fn count_exprs(body: &[Stmt]) -> usize {
     let mut n = 0;

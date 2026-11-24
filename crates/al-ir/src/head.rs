@@ -103,7 +103,12 @@ pub struct EventRoutine {
 
 /// Whether an attribute named `name` declares an event or a subscriber.
 pub fn is_event_attribute(name: &str) -> bool {
-    ["integrationevent", "businessevent", "internalevent", "eventsubscriber"]
+    is_event_publisher_attribute(name) || name.eq_ignore_ascii_case("eventsubscriber")
+}
+
+/// Whether an attribute named `name` declares an event (a publisher).
+pub fn is_event_publisher_attribute(name: &str) -> bool {
+    ["integrationevent", "businessevent", "internalevent"]
         .iter()
         .any(|n| name.eq_ignore_ascii_case(n))
 }

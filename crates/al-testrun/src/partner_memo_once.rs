@@ -111,7 +111,7 @@ fn one_blank_filter(session: &mut Session, memo: usize, g: usize) -> bool {
 fn only_set_true(lowered: &Lowered, memo: usize, g: usize) -> bool {
     let mut ok = true;
     for r in &lowered.program.objects[memo].routines {
-        walk_stmts(r.body.stmts(), &mut |s| {
+        al_ir::types::for_each_stmt(r.body.stmts(), &mut |s| {
             if let Stmt::Assign(Place::Global(x), e) = s {
                 ok &= *x != g || matches!(e, Expr::Const(al_ir::Const::Boolean(true)));
             }
@@ -134,16 +134,12 @@ fn only_set_true(lowered: &Lowered, memo: usize, g: usize) -> bool {
 fn code_of_l1_kinds(lowered: &Lowered, memo: usize) -> Result<(), String> {
     let obj = &lowered.program.objects[memo];
     for r in &obj.routines {
-        let publisher = r.attributes.iter().any(|a| {
-            ["IntegrationEvent", "BusinessEvent", "InternalEvent"]
-                .iter()
-                .any(|k| a.name.eq_ignore_ascii_case(k))
-        });
+        let publisher = r.attributes.iter().any(|a| al_ir::is_event_publisher_attribute(&a.name));
         if publisher {
             return Err(format!("its procedure {} publishes an event", r.name));
         }
         let mut stmt_ok = true;
-        walk_stmts(r.body.stmts(), &mut |s| {
+        al_ir::types::for_each_stmt(r.body.stmts(), &mut |s| {
             stmt_ok &= match s {
                 Stmt::Assign(p, _) => r.local || !matches!(p, Place::Global(_)),
                 Stmt::Expr(_) | Stmt::If(..) | Stmt::Repeat(..) | Stmt::Exit(_) | Stmt::Pos(_) => true,
@@ -181,19 +177,4 @@ fn code_of_l1_kinds(lowered: &Lowered, memo: usize) -> Result<(), String> {
         }
     }
     Ok(())
-}
-
-/// Calls `f` on every statement of `body`, nested ones included.
-fn walk_stmts(body: &[Stmt], f: &mut dyn FnMut(&Stmt)) {
-    for s in body {
-        f(s);
-        match s {
-            Stmt::If(_, a, b) => {
-                walk_stmts(a, f);
-                walk_stmts(b, f);
-            }
-            Stmt::Repeat(a, _) | Stmt::While(_, a) => walk_stmts(a, f),
-            _ => {}
-        }
-    }
 }

@@ -62,39 +62,38 @@ pub(crate) fn microsoft_login_memo(lowered: &Lowered, o: usize) -> bool {
 /// subscriber and what a later test read gets there corpus PR 1571 measured (open; LmLoginCacheTests.al,
 /// LmLoginCacheTlTests.al with the login subscribers of LmXaLoginCaches.al; assumption `partner-login-microsoft-cache`):
 /// codeunit id, the names of exactly the globals the fill changed, and the `Global Triggers` event inside whose raise it
-/// changed them (`""`: outside any raise). Change Log Management 423 loads on the database insert event of the login's first
+/// changed them (empty: outside any raise). Change Log Management 423 loads on the database insert event of the login's first
 /// write with the change log inactive (cell M3, ChangeLog_AfterLogin: only its two flags change, so `Get` found no setup
 /// row and its temporary records hold no row); API Webhook Notification Mgt. 6153 on the same event (M4,
 /// ApiCache_CountingSubscriber); Conf./Personalization Mgt. 9170 by a direct call (M2, Profile_AfterLogin); Application Area
 /// Cache 9177 by a direct call (M1, AppAreas_AfterLogin).
-const MEASURED_CACHES: &[(u32, &[&str], &str)] = &[
+const MEASURED_CACHES: &[(u32, &[&str], &[&str])] = &[
     (
         423,
         &["ChangeLogSetupRead", "MonitorSensitiveFieldSetupRead"],
-        "ondatabaseinsert",
+        &["ondatabaseinsert"],
     ),
     (
         6153,
         &["CachedApiSubscriptionEnabled", "UseCachedApiSubscriptionEnabled"],
-        "ondatabaseinsert",
+        &["ondatabaseinsert"],
     ),
     (
         9170,
         &["CurrentAllProfile", "CurrentAllProfileFetched", "ProfileFound"],
-        "",
+        &[],
     ),
-    (9177, &["ApplicationAreaCache"], ""),
+    (9177, &["ApplicationAreaCache"], &[]),
 ];
 
 /// Whether partner login subscriber change `by` of codeunit `memo` is one of [`MEASURED_CACHES`]: a codeunit of a dependency
 /// app published by Microsoft with that id, whose changed globals are by name exactly that row's, each changed inside a raise
-/// of that row's event only (or outside any raise for `""`). The caller requires that no subscriber changed it before.
+/// of that row's event only (or outside any raise for an empty row). The caller requires that no subscriber changed it before.
 pub(crate) fn microsoft_cache_measured(lowered: &Lowered, memo: usize, by: &crate::partner_login::By) -> bool {
     let obj = &lowered.program.objects[memo];
     microsoft_dependency(lowered, memo)
         && obj.is_kind(al_ir::ObjKind::Codeunit)
-        && MEASURED_CACHES.iter().any(|&(id, names, event)| {
-            let raised: &[&str] = if event.is_empty() { &[] } else { &[event] };
+        && MEASURED_CACHES.iter().any(|&(id, names, raised)| {
             obj.id == Some(id)
                 && globals_named(lowered, memo, by.globals, names)
                 && by.globals.iter().all(|&g| by.raised(g) == raised)
