@@ -258,6 +258,112 @@ fn the_checks_twin_holds_before_its_thaw_what_the_session_held_before_its_login(
     }
 }
 
+/// [`MAIN`] with a login subscriber that commits: at UpdateNoLocks, the type the login runs at, the Commit keeps the
+/// type and marks it `commit-keeps-transaction-type` (al-vm `Session::keep_type_at_commit`, `TxState::type_origin`).
+const COMMITS_IN_THE_LOGIN: &str = r#"
+codeunit 77491 "RPL Snapshot Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
+    local procedure RegisterManualSetup() begin Commit(); end;
+}
+"#;
+
+/// The transaction line of `state` (al-vm `state_facts.rs`, with the type's origin).
+fn transaction_line(state: &crate::login_replay::LoginState) -> String {
+    let lines = &state.state_lines().lines;
+    lines
+        .iter()
+        .find(|l| l.starts_with("transaction "))
+        .cloned()
+        .unwrap_or_default()
+}
+
+// Issue 8211, from the #8528 review: a login that commits at a type other than Update leaves the type's origin (the
+// mark a later read of CurrentTransactionType before the first test method is flagged by). A replayed session holds the
+// same origin as a real login, in the transaction line the check compares.
+#[test]
+fn a_replayed_session_has_the_type_origin_a_real_login_leaves() {
+    let src = format!("{MAIN}{COMMITS_IN_THE_LOGIN}");
+    let (engine, l) = compiled_with(&src);
+    let ran = sessions(&engine, &l, "RPL Tests A", 3, &on());
+    assert_eq!(
+        starts(&engine).replayed(),
+        2,
+        "sessions 2 and 3 take the start of session 1"
+    );
+    let (off_engine, l) = compiled_with(&src);
+    let real = sessions(&off_engine, &l, "RPL Tests A", 1, &RunOptions::default());
+    for i in 0..3 {
+        assert_eq!(ran.outcomes[i], real.outcomes[0], "session {i}");
+        assert_eq!(first_difference(&ran.states[i], &real.states[0]), None, "session {i}");
+    }
+    let (plain, l) = compiled();
+    let unmarked = sessions(&plain, &l, "RPL Tests A", 1, &RunOptions::default());
+    assert_ne!(
+        transaction_line(&ran.states[2]),
+        transaction_line(&unmarked.states[0]),
+        "GUARD: the login's Commit shows in the transaction line"
+    );
+}
+
+/// [`MAIN`] with a login subscriber that shares element 1 of a SingleInstance codeunit's array of temporary records
+/// into another SingleInstance codeunit's global (`Copy(x, true)`, which notes the copy target on the table's token),
+/// and a test that clears the first codeunit: ClearAll keeps the shared table in place (al-vm
+/// `clear_shared_codeunit.rs`, ClearSharedCodeunitTempArrayShare.al SIArrNever_ :736); without the note it refuses.
+const SHARES_BY_COPY: &str = r#"
+codeunit 77492 "RPL Arr Owner"
+{
+    SingleInstance = true;
+    var A: array[2] of Record "Guided Experience Item" temporary;
+    procedure ShareA1(var R: Record "Guided Experience Item" temporary) begin R.Copy(A[1], true); end;
+    procedure ClearAllGlobals() begin ClearAll(); end;
+}
+codeunit 77493 "RPL Copy Keeper"
+{
+    SingleInstance = true;
+    var Keep: Record "Guided Experience Item" temporary;
+    procedure Take() var O: Codeunit "RPL Arr Owner"; begin O.ShareA1(Keep); end;
+}
+codeunit 77494 "RPL Copy Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
+    local procedure RegisterManualSetup() var K: Codeunit "RPL Copy Keeper"; begin K.Take(); end;
+}
+codeunit 77495 "RPL Clear Tests"
+{
+    Subtype = Test;
+    [Test]
+    procedure ClearsTheOwner() var O: Codeunit "RPL Arr Owner"; begin O.ClearAllGlobals(); end;
+}
+"#;
+
+// Issue 8211, from the #8528 review: the copy targets a login notes on a temporary table's token (main's `TempToken`
+// `copy_targets`) decide whether a test's ClearAll of a shared codeunit is the measured case. A replayed session has
+// the copy targets of a real login: the test passes in both, where losing them would refuse it.
+#[test]
+fn a_replayed_session_has_the_copy_targets_a_real_login_notes() {
+    let src = format!("{MAIN}{SHARES_BY_COPY}");
+    let passes = vec![("ClearsTheOwner".to_string(), Outcome::Pass)];
+    let (off_engine, l) = compiled_with(&src);
+    let real = sessions(&off_engine, &l, "RPL Clear Tests", 1, &RunOptions::default());
+    assert_eq!(
+        real.outcomes,
+        std::slice::from_ref(&passes),
+        "GUARD: a real login's session passes"
+    );
+    let (engine, l) = compiled_with(&src);
+    let ran = sessions(&engine, &l, "RPL Clear Tests", 3, &on());
+    assert_eq!(
+        starts(&engine).replayed(),
+        2,
+        "sessions 2 and 3 take the start of session 1"
+    );
+    assert_eq!(ran.outcomes, vec![passes; 3]);
+    for (i, s) in ran.states.iter().enumerate() {
+        assert_eq!(first_difference(s, &real.states[0]), None, "session {i}");
+    }
+}
+
 /// A login that also makes an assumption mark when the company opens (`OnCompanyOpenCompleted`, a Variant to Integer
 /// conversion): every test of the session is a flagged pass (al-runner issue 8060; `login_tests.rs`
 /// `an_assumption_the_company_open_step_relied_on_flags_every_test_of_the_session`).
