@@ -4,7 +4,8 @@
 //! login image's rows and the frozen store use the same form) go straight into SHA-256 through one reused buffer: no
 //! String and no Debug text per row (on a 50,000-row store rendering and hashing the rows' Debug text was most of
 //! the key's cost). The form is exact: each value is self-delimiting and `value_codec::decode` reads it back
-//! (value_codec.rs, a Blob with every field of its buffer, `blob_form.rs`), so equal digests mean equal rows. A value
+//! (value_codec.rs, a Blob with every field of its buffer, `blob_form.rs`), and each table's row count comes before its
+//! rows, so equal digests mean equal rows, for one table and for several in one stream. A value
 //! that has no byte form (`value_codec::encode` answers false: a SqlCount, a placeholder's size, a handle) gives
 //! [`NoByteForm`], never a lossy digest, and the session runs its login.
 //!
@@ -30,7 +31,9 @@ const FORM: &[u8] = b"al-runner login key rows: value_codec v1\0";
 /// How many bytes the buffer gathers before it goes into the hasher.
 const FLUSH: usize = 64 << 10;
 
-/// The rows of one or more tables going into one SHA-256: the form tag first, then per table its company, object and rows.
+/// The rows of one or more tables going into one SHA-256: the form tag first, then per table its company, object, row
+/// count and rows. The count comes before the rows, so where several tables share one stream (`current_digest`) a
+/// reader knows where a table's rows end: no row of one table can read as the count or the start of the next.
 struct RowsHasher {
     hash: Sha256,
     buf: Vec<u8>,
@@ -46,17 +49,19 @@ impl RowsHasher {
         }
     }
 
-    /// Table `object` of `company` and its rows in key order, then their count.
+    /// Table `object` of `company`, the count of its rows, then the rows in key order: `rows` yields exactly `count`.
     fn table<'a>(
         &mut self,
         company: &str,
         object: u32,
+        count: usize,
         rows: impl Iterator<Item = &'a al_data::Row>,
     ) -> Result<(), NoByteForm> {
         use al_builtins::value_codec::{encode_row, put_str, put_u32, put_u64};
         put_str(&mut self.buf, company);
         put_u32(&mut self.buf, object);
-        let mut n: u64 = 0;
+        put_u64(&mut self.buf, count as u64);
+        let mut n = 0;
         for row in rows {
             if !encode_row(row, &mut self.buf) {
                 return Err(no_byte_form(row));
@@ -69,7 +74,7 @@ impl RowsHasher {
                 self.buf.clear();
             }
         }
-        put_u64(&mut self.buf, n);
+        debug_assert_eq!(n, count, "the rows are the count given");
         Ok(())
     }
 
@@ -92,14 +97,15 @@ fn no_byte_form(row: &al_data::Row) -> NoByteForm {
 }
 
 /// The digest of the committed rows `rows` of table `object` in `company`, in key order (the per-table digest of the key's
-/// `database` part, `key_parts.rs`). The form tag is hashed for an empty table too.
+/// `database` part, `key_parts.rs`); `rows` yields exactly `count`. The form tag is hashed for an empty table too.
 pub(crate) fn table_digest<'a>(
     company: &str,
     object: u32,
+    count: usize,
     rows: impl Iterator<Item = &'a al_data::Row>,
 ) -> Result<LinesDigest, NoByteForm> {
     let mut h = RowsHasher::new();
-    h.table(company, object, rows)?;
+    h.table(company, object, count, rows)?;
     Ok(h.finish())
 }
 
@@ -109,7 +115,7 @@ pub(crate) fn current_digest(store: &al_data::memory::MemStore) -> Result<LinesD
     let mut h = RowsHasher::new();
     // A table entry without rows wrote no Debug line, so it is not hashed here either (as `store_table_digests`).
     for t in store.export_current().iter().filter(|t| !t.rows.is_empty()) {
-        h.table(&t.company, t.object, t.rows.iter().map(|(_, row)| row))?;
+        h.table(&t.company, t.object, t.rows.len(), t.rows.iter().map(|(_, row)| row))?;
     }
     Ok(h.finish())
 }
@@ -148,10 +154,10 @@ mod tests {
                 .collect()
         };
         counts::reset();
-        let a = table_digest("C", 7, rows(3).iter());
-        let b = table_digest("C", 7, rows(3).iter());
+        let a = table_digest("C", 7, 3, rows(3).iter());
+        let b = table_digest("C", 7, 3, rows(3).iter());
         assert_eq!(a, b);
-        assert_ne!(a, table_digest("C", 7, rows(2).iter()));
+        assert_ne!(a, table_digest("C", 7, 2, rows(2).iter()));
         assert_eq!(counts::rows(), 8);
     }
 
@@ -186,7 +192,7 @@ mod tests {
         let size = Value::PlaceholderSize("mark".into(), SqlType::Integer);
         for (what, v) in [("SqlCount", count), ("PlaceholderSize", size)] {
             let table = vec![vec![Value::Integer(1)], vec![Value::Integer(2), v.clone()]];
-            let got = table_digest("C", 7, table.iter());
+            let got = table_digest("C", 7, table.len(), table.iter());
             assert!(
                 matches!(got, Err(NoByteForm(kind)) if !kind.is_empty()),
                 "{what}: table {got:?}"
@@ -214,7 +220,7 @@ mod tests {
     // A guard (the Debug text rendered every BlobBuf field too): a field of a Blob that differs is another digest.
     #[test]
     fn a_blob_field_difference_gives_another_digest() {
-        let digest_of = |r: al_data::Row| table_digest("C", 7, [r].iter()).expect("a digest");
+        let digest_of = |r: al_data::Row| table_digest("C", 7, 1, [r].iter()).expect("a digest");
         let base = digest_of(blob_row(|_| {}));
         assert_eq!(base, digest_of(blob_row(|_| {})), "GUARD equal blobs");
         assert_ne!(
@@ -244,7 +250,7 @@ mod tests {
     fn every_row_of_a_table_digest_is_encoded() {
         counts::reset();
         let r = rows(5);
-        assert!(table_digest("C", 7, r.iter()).is_ok());
+        assert!(table_digest("C", 7, r.len(), r.iter()).is_ok());
         assert_eq!(counts::rows(), 5, "table_digest");
     }
 
@@ -273,6 +279,49 @@ mod tests {
         assert_eq!(current_digest(&a), current_digest(&b));
     }
 
+    // Several tables share one stream in the key's uncommitted part: a table's last row and its count must not read as
+    // a row of the table before. Store `b` holds 8 rows in its first table and 9 in a second, whose company name starts
+    // a Text; store `a` holds the 8 rows and one more whose values are the bytes of `b`'s count, the second table's
+    // company, object and rows. With the count after the rows both wrote the same bytes.
+    #[test]
+    fn two_stores_that_split_rows_at_another_table_boundary_give_two_digests() {
+        use al_builtins::value_codec::{encode_row, put_u32};
+        let ints = |n: i32| -> Vec<al_data::Row> { (0..n).map(|i| vec![Value::Integer(i)]).collect() };
+        let table = |company: &str, object: u32, rows: Vec<al_data::Row>| al_data::memory::ExportedTable {
+            company: company.into(),
+            object,
+            ..exported(rows)
+        };
+        // The second table's object and rows, which `a`'s last row holds as a Text.
+        let mut tail = Vec::new();
+        put_u32(&mut tail, 8);
+        for row in ints(9) {
+            assert!(encode_row(&row, &mut tail));
+        }
+        assert!(
+            tail.len() < 0x80,
+            "GUARD: the Text's length is one byte of the company name"
+        );
+        let second = format!("\u{7}{}\0\0\0", char::from(tail.len() as u8));
+        let b = al_data::memory::MemStore::from_exported(vec![table("", 7, ints(8)), table(&second, 8, ints(9))]);
+        let mut joined = ints(8);
+        let null = Value::Null;
+        let text = Value::Text(String::from_utf8(tail).expect("GUARD: ASCII").as_str().into());
+        joined.push(vec![
+            null.clone(),
+            null.clone(),
+            null.clone(),
+            null.clone(),
+            Value::Byte(0),
+            null.clone(),
+            null,
+            text,
+        ]);
+        let a = al_data::memory::MemStore::from_exported(vec![table("", 7, joined)]);
+        assert!(current_digest(&a).is_ok(), "GUARD");
+        assert_ne!(current_digest(&a), current_digest(&b));
+    }
+
     // The digest of the byte form is never the Debug lines' digest of the same rows (a version tag), so a start
     // recorded by another binary can never meet a new key.
     #[test]
@@ -280,7 +329,7 @@ mod tests {
         for n in [1, 3] {
             let r = rows(n);
             assert_ne!(
-                table_digest("C", 7, r.iter()).unwrap(),
+                table_digest("C", 7, r.len(), r.iter()).unwrap(),
                 debug_lines_digest("C", 7, &r),
                 "{n} rows"
             );

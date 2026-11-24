@@ -44,7 +44,7 @@ pub(crate) struct KeyParts {
 /// The digest of the committed rows of table `t` (`rows_digest.rs`).
 #[cfg(test)]
 fn table_digest(t: &al_data::memory::ExportedTable) -> Result<LinesDigest, NoByteForm> {
-    rows_table_digest(&t.company, t.object, t.rows.iter().map(|(_, row)| row))
+    rows_table_digest(&t.company, t.object, t.rows.len(), t.rows.iter().map(|(_, row)| row))
 }
 
 /// Per (company, table object), [`table_digest`] of each of `tables` that holds a row; every row of `tables` has a byte
@@ -94,7 +94,7 @@ pub(crate) fn store_table_digests(
             Some(d) => d,
             None => {
                 // By reference: no copy of the table's rows.
-                let d = rows_table_digest(company, object, entry.rows())?;
+                let d = rows_table_digest(company, object, entry.len(), entry.rows())?;
                 if stamp != 0 {
                     let mut m = memo.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                     if m.len() >= KEPT {
