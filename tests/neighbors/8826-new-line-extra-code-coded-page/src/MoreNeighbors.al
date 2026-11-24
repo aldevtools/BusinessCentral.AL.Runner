@@ -1843,6 +1843,255 @@ page 96920 "LT NG3 Update True Lines"
         Kind: Text;
 }
 
+// The repro's table with a secondary key on Name.
+table 96923 "LT NG4 Keyed Line"
+{
+    DataClassification = CustomerContent;
+
+    fields
+    {
+        field(1; "Group Code"; Code[10]) { }
+        field(2; "Entry No."; Integer) { AutoIncrement = true; }
+        field(3; Name; Text[30])
+        {
+            trigger OnValidate()
+            begin
+                if "Entry No." = 0 then
+                    Insert(true);
+                CopyDefaults();
+            end;
+        }
+        field(4; Note; Text[30]) { }
+        field(5; Mark; Text[30]) { }
+        field(6; Value; Text[30]) { }
+    }
+
+    keys
+    {
+        key(PK; "Group Code", "Entry No.") { Clustered = true; }
+        key(ByName; Name) { }
+    }
+
+    // Writes the default detail rows of the line into another table.
+    local procedure CopyDefaults()
+    var
+        Detail: Record "LT NZ Detail";
+        Index: Integer;
+    begin
+        for Index := 1 to 2 do begin
+            Detail.Init();
+            Detail."Entry No." := 0;
+            Detail."Line Entry No." := "Entry No.";
+            Detail.Text := Name + Format(Index);
+            Detail.Insert();
+        end;
+    end;
+}
+
+// The repro's first FactBox over the table with a secondary key.
+page 96924 "LT NG4 Keyed Info"
+{
+    PageType = CardPart;
+    SourceTable = "LT NG4 Keyed Line";
+
+    layout
+    {
+        area(Content)
+        {
+            field(Note; Rec.Note) { ApplicationArea = All; }
+            field(Mark; Rec.Mark) { ApplicationArea = All; }
+            field(Info; Info) { ApplicationArea = All; }
+        }
+    }
+
+    trigger OnAfterGetRecord()
+    begin
+        Info := Rec.Name;
+    end;
+
+    var
+        Info: Text;
+}
+
+// The repro's second FactBox over the table with a secondary key.
+page 96925 "LT NG4 Keyed Picture"
+{
+    PageType = CardPart;
+    SourceTable = "LT NG4 Keyed Line";
+
+    layout
+    {
+        area(Content)
+        {
+            field(Value; Rec.Value) { ApplicationArea = All; }
+        }
+    }
+
+    actions
+    {
+        area(Processing)
+        {
+            action(ClearValue)
+            {
+                ApplicationArea = All;
+
+                trigger OnAction()
+                begin
+                    Rec.Value := '';
+                    Rec.Modify();
+                end;
+            }
+        }
+    }
+}
+
+// The repro's third FactBox over the table with a secondary key.
+page 96926 "LT NG4 Keyed Usage"
+{
+    PageType = CardPart;
+    SourceTable = "LT NG4 Keyed Line";
+
+    layout
+    {
+        area(Content)
+        {
+            field(Usage; Usage) { ApplicationArea = All; }
+        }
+    }
+
+    trigger OnAfterGetCurrRecord()
+    var
+        Parameters: Dictionary of [Text, Text];
+    begin
+        Usage := '';
+        if Rec."Entry No." = 0 then
+            exit;
+        Parameters.Add('Entry', Format(Rec."Entry No."));
+        CurrPage.EnqueueBackgroundTask(TaskId, Codeunit::"LT NZ Usage Task", Parameters);
+    end;
+
+    trigger OnPageBackgroundTaskCompleted(CompletedTaskId: Integer; Results: Dictionary of [Text, Text])
+    begin
+        if CompletedTaskId = TaskId then
+            Usage := Results.Get('Count');
+    end;
+
+    var
+        TaskId: Integer;
+        Usage: Text;
+}
+
+// The repro page over the table with a secondary key.
+page 96927 "LT NG4 Keyed Lines"
+{
+    PageType = List;
+    SourceTable = "LT NG4 Keyed Line";
+    AutoSplitKey = true;
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Lines)
+            {
+                field(Name; Rec.Name)
+                {
+                    ApplicationArea = All;
+
+                    trigger OnValidate()
+                    begin
+                        Rec.Note := 'Resolved';
+                        CurrPage.SaveRecord();
+                        StampMark(Rec);
+                        CurrPage.Update(false);
+                    end;
+                }
+                field(Note; Rec.Note) { ApplicationArea = All; }
+                field(Mark; Rec.Mark) { ApplicationArea = All; }
+                field(Value; Rec.Value) { ApplicationArea = All; }
+                field(Kind; Kind) { ApplicationArea = All; Editable = false; }
+            }
+        }
+        area(FactBoxes)
+        {
+            part(Info; "LT NG4 Keyed Info")
+            {
+                ApplicationArea = All;
+                SubPageLink = "Group Code" = field("Group Code"), "Entry No." = field("Entry No.");
+            }
+            part(Picture; "LT NG4 Keyed Picture")
+            {
+                ApplicationArea = All;
+                SubPageLink = "Group Code" = field("Group Code"), "Entry No." = field("Entry No.");
+            }
+            part(Usage; "LT NG4 Keyed Usage")
+            {
+                ApplicationArea = All;
+                SubPageLink = "Group Code" = field("Group Code"), "Entry No." = field("Entry No.");
+            }
+        }
+    }
+
+    actions
+    {
+        area(Processing)
+        {
+            action(MarkLine)
+            {
+                ApplicationArea = All;
+
+                trigger OnAction()
+                begin
+                    StampMark(Rec);
+                    CurrPage.Update(false);
+                end;
+            }
+            action(ClearNote)
+            {
+                ApplicationArea = All;
+
+                trigger OnAction()
+                begin
+                    Rec.Note := '';
+                    CurrPage.Update(true);
+                end;
+            }
+        }
+    }
+
+    trigger OnOpenPage()
+    begin
+        Opened := true;
+    end;
+
+    trigger OnAfterGetRecord()
+    begin
+        Kind := '';
+        if Opened and (Rec.Note <> '') then
+            Kind := 'Noted';
+    end;
+
+    trigger OnDeleteRecord(): Boolean
+    begin
+        exit(true);
+    end;
+
+    local procedure StampMark(Line: Record "LT NG4 Keyed Line")
+    var
+        Other: Record "LT NG4 Keyed Line";
+    begin
+        Other.Get(Line."Group Code", Line."Entry No.");
+        Other.Mark := 'Stamped';
+        Other.Modify();
+    end;
+
+    var
+        Opened: Boolean;
+        Kind: Text;
+}
+
 
 // Point 1, first shape. Its own codeunit, so that no earlier refused test hides its result.
 codeunit 96881 "LT NG3 Plain Tests"
@@ -3158,6 +3407,144 @@ codeunit 96922 "LT NG3 Idle Control Tests"
 
     [ModalPageHandler]
     procedure LinesHandler(var Lines: TestPage "LT NZ Var Lines")
+    begin
+        Lines.New();
+        Lines.Name.SetValue('A');
+        Shown += 'r1=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + ' ';
+        Lines.Value.SetValue('V');
+        Shown += 'r2=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + ' ';
+        Lines.OK().Invoke();
+    end;
+
+    local procedure Rows() Result: Text
+    var
+        Line: Record "LT NZ Line";
+    begin
+        if Line.FindSet() then
+            repeat
+                Result += Line."Group Code" + ':' + Line.Name + '/' + Line.Note + '/' + Line.Mark + '/' + Line.Value + ';';
+            until Line.Next() = 0;
+    end;
+
+    local procedure Details() Result: Text
+    var
+        Detail: Record "LT NZ Detail";
+    begin
+        if Detail.FindSet() then
+            repeat
+                Result += Detail.Text + ';';
+            until Detail.Next() = 0;
+    end;
+
+    local procedure Check(What: Text; Expected: Text; Actual: Text)
+    begin
+        if Expected <> Actual then
+            Error('%1: expected <%2>, found <%3>.', What, Expected, Actual);
+    end;
+}
+
+
+// Page.RunModal on a record in the secondary key on Name. Its own codeunit, so that no earlier refused test hides its result.
+codeunit 96928 "LT NG4 Keyed Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        Shown: Text;
+        Errors: Text;
+
+    [Test]
+    [HandlerFunctions('LinesHandler')]
+    procedure NewLine_RecordInASecondaryKey_ShowsAndSavesTheRow()
+    var
+        Line: Record "LT NG4 Keyed Line";
+        Detail: Record "LT NZ Detail";
+        LogCu: Codeunit "LT NZ Log";
+    begin
+        Line.DeleteAll();
+        Detail.DeleteAll();
+        LogCu.Reset(0);
+        Commit();
+        Shown := '';
+        Errors := '';
+        Line.SetCurrentKey(Name);
+        Line.SetRange("Group Code", 'G1');
+        Page.RunModal(Page::"LT NG4 Keyed Lines", Line);
+        Check('all', 'r1=A/Resolved/Stamped/ r2=A/Resolved/Stamped/V | rows=G1:A/Resolved/Stamped/V;| details=A1;A2;', Shown + '| rows=' + Rows() + '| details=' + Details() + Errors);
+    end;
+
+    [ModalPageHandler]
+    procedure LinesHandler(var Lines: TestPage "LT NG4 Keyed Lines")
+    begin
+        Lines.New();
+        Lines.Name.SetValue('A');
+        Shown += 'r1=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + ' ';
+        Lines.Value.SetValue('V');
+        Shown += 'r2=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + ' ';
+        Lines.OK().Invoke();
+    end;
+
+    local procedure Rows() Result: Text
+    var
+        Line: Record "LT NG4 Keyed Line";
+    begin
+        if Line.FindSet() then
+            repeat
+                Result += Line."Group Code" + ':' + Line.Name + '/' + Line.Note + '/' + Line.Mark + '/' + Line.Value + ';';
+            until Line.Next() = 0;
+    end;
+
+    local procedure Details() Result: Text
+    var
+        Detail: Record "LT NZ Detail";
+    begin
+        if Detail.FindSet() then
+            repeat
+                Result += Detail.Text + ';';
+            until Detail.Next() = 0;
+    end;
+
+    local procedure Check(What: Text; Expected: Text; Actual: Text)
+    begin
+        if Expected <> Actual then
+            Error('%1: expected <%2>, found <%3>.', What, Expected, Actual);
+    end;
+}
+
+
+// Page.RunModal on a record sorted by Note, a field no key begins with. Its own codeunit, so that no earlier refused test hides its result.
+codeunit 96929 "LT NG4 Ad Hoc Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        Shown: Text;
+        Errors: Text;
+
+    [Test]
+    [HandlerFunctions('LinesHandler')]
+    procedure NewLine_RecordInAnAdHocSortOrder_ShowsAndSavesTheRow()
+    var
+        Line: Record "LT NZ Line";
+        Detail: Record "LT NZ Detail";
+        LogCu: Codeunit "LT NZ Log";
+    begin
+        Line.DeleteAll();
+        Detail.DeleteAll();
+        LogCu.Reset(0);
+        Commit();
+        Shown := '';
+        Errors := '';
+        Line.SetCurrentKey(Note);
+        Line.SetRange("Group Code", 'G1');
+        Page.RunModal(Page::"LT NZ Lines", Line);
+        Check('all', 'r1=A/Resolved/Stamped/ r2=A/Resolved/Stamped/V | rows=G1:A/Resolved/Stamped/V;| details=A1;A2;', Shown + '| rows=' + Rows() + '| details=' + Details() + Errors);
+    end;
+
+    [ModalPageHandler]
+    procedure LinesHandler(var Lines: TestPage "LT NZ Lines")
     begin
         Lines.New();
         Lines.Name.SetValue('A');
