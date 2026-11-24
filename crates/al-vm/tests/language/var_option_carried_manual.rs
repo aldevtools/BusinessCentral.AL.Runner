@@ -191,7 +191,7 @@ fn two_bound_instances_or_a_binding_inside_a_subscriber_refuse() {
         match run(routine).0 {
             Err(Signal::Unsupported(why)) => assert!(
                 why.contains(
-                    "a `var` parameter declared without members hands on to a `var` Option parameter with members"
+                    "an Option that a memberless `var` parameter hands on to a `var` Option parameter with members"
                 ),
                 "{routine}: {why}"
             ),

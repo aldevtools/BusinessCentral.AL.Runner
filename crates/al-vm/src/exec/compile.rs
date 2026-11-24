@@ -21,8 +21,8 @@ pub(crate) fn compile_kept(program: &ir::Program, o: usize, routine: usize) -> O
 }
 
 /// The debug form of routine `routine` of object `o` (ADR-048): the plain form with an `Op::DbgHit` after each statement
-/// marker, where a debugger may stop. The ops between two markers are the plain form's, so a debugged test computes what
-/// it computes without one.
+/// marker, where a debugger may stop. The ops between two markers are the kept form's (`compile_kept`), whose stores give
+/// the plain form's result in a frame without a carried binding, so a debugged test computes what it computes without one.
 pub(crate) fn compile_debug(program: &ir::Program, o: usize, routine: usize) -> Option<Chunk> {
     compile_form(program, o, routine, false, true, true)
 }

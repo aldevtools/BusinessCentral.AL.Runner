@@ -82,6 +82,21 @@ table 69871 CRow
         exit(Format(Evaluate(Choice, Txt)) + '>' + Format(Choice) + '|' + Format(Choice, 0, 2));
     end;
 
+    // The by-value text changed before Evaluate reads it: the text at the call is not the one Evaluate gets.
+    procedure EvaluateReassigned(var Choice: Option " ",Skip,Update; Txt: Text): Text
+    begin
+        Txt := 'b';
+        exit(Format(Evaluate(Choice, Txt)) + '>' + Format(Choice));
+    end;
+
+    procedure EvaluateTextSetByVar(var Choice: Option " ",Skip,Update; Txt: Text): Text
+    var
+        Lib: Codeunit CLib;
+    begin
+        Lib.SetText(Txt);
+        exit(Format(Evaluate(Choice, Txt)) + '>' + Format(Choice));
+    end;
+
     procedure AssignOne(var Choice: Option " ",Skip,Update): Text
     begin
         Choice := 1;
@@ -113,6 +128,11 @@ codeunit 69875 CLib
     procedure ShowByValue(V: Option): Text
     begin
         exit(' b ' + Format(V) + '|' + Format(V, 0, 2));
+    end;
+
+    procedure SetText(var T: Text)
+    begin
+        T := 'b';
     end;
 
     procedure ShowEvaluate(var V: Option): Text
@@ -159,6 +179,13 @@ codeunit 69873 CSubs
         Pass(V, Row);
     end;
 
+    // A subscriber that is also called directly, as a plain procedure.
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::CEvents, 'OnNoSender', '', false, false)]
+    procedure CalledDirect(var V: Option; var Row: Record CRow)
+    begin
+        Pass(V, Row);
+    end;
+
     local procedure Pass(var V: Option; var Row: Record CRow)
     begin
         Row.Confirm(V);
@@ -187,6 +214,7 @@ codeunit 69874 C
 {
     var
         G: Option " ",Skip,Update;
+        GOther: Option A,B,C,D;
 
     local procedure Hop(var V: Option): Text
     var
@@ -394,6 +422,105 @@ codeunit 69874 C
         exit(Row.HandOnEvaluate(V));
     end;
 
+    procedure OtherEvaluateReassigned(): Text
+    var
+        Row: Record CRow;
+        V: Option A,B,C,D;
+    begin
+        V := 3;
+        exit(ReassignedHop(V, Row) + '>' + Format(V));
+    end;
+
+    local procedure ReassignedHop(var V: Option; var Row: Record CRow): Text
+    begin
+        exit(Row.EvaluateReassigned(V, 'Nope'));
+    end;
+
+    procedure OtherEvaluateSetByVar(): Text
+    var
+        Row: Record CRow;
+        V: Option A,B,C,D;
+    begin
+        V := 3;
+        exit(SetByVarHop(V, Row) + '>' + Format(V));
+    end;
+
+    local procedure SetByVarHop(var V: Option; var Row: Record CRow): Text
+    begin
+        exit(Row.EvaluateTextSetByVar(V, 'Nope'));
+    end;
+
+    // An [EventSubscriber] procedure called directly as the hop: its frame's mark did not come from the raise.
+    procedure SubscriberCalledDirect(): Text
+    var
+        Subs: Codeunit CSubs;
+        Row: Record CRow;
+        V: Option A,B,C,D;
+    begin
+        V := 1;
+        Subs.CalledDirect(V, Row);
+        exit(Format(V));
+    end;
+
+    procedure SubscriberCalledDirectMemberless(): Text
+    var
+        Subs: Codeunit CSubs;
+        Row: Record CRow;
+        V: Option;
+    begin
+        V := 1;
+        Subs.CalledDirect(V, Row);
+        exit(Format(V));
+    end;
+
+    // A list shorter than the callee's: the callee's own members lie past it (no cell measures it).
+    procedure ShorterOrigin(): Text
+    var
+        V: Option A,B;
+    begin
+        V := 1;
+        exit(Hop(V) + '>' + Format(V));
+    end;
+
+    // The hand-on from a `var` parameter with members bound to a global with another list, a field, a by-value parameter,
+    // or a memberless local (CalleeOps_MemberlessLocal `m Skip|1`).
+    procedure GlobalOtherHandOn(): Text
+    var
+        Row: Record CRow;
+    begin
+        GOther := 1;
+        exit(Row.HandOn(GOther));
+    end;
+
+    procedure FieldHandOn(): Text
+    var
+        Row: Record CRow;
+    begin
+        Row.Opt := Row.Opt::Skip;
+        exit(Row.HandOn(Row.Opt));
+    end;
+
+    procedure ByValueHandOn(): Text
+    begin
+        exit(ByValueHandOnInner(1));
+    end;
+
+    local procedure ByValueHandOnInner(V: Option A,B,C,D): Text
+    var
+        Row: Record CRow;
+    begin
+        exit(Row.HandOn(V));
+    end;
+
+    procedure MemberlessHandOn(): Text
+    var
+        Row: Record CRow;
+        V: Option;
+    begin
+        V := 1;
+        exit(Row.HandOn(V));
+    end;
+
     procedure MemberlessClear(): Text
     var
         V: Option;
@@ -474,11 +601,14 @@ fn run(routine: &str) -> (Result<String, Signal>, Vec<Assumption>) {
     (out, assumptions::take_hits().into_iter().collect())
 }
 
+/// The start of the hand-on refusal (`hand_on_args`).
+const HAND_ON: &str = "a `var` parameter with members handed to a `var` Option parameter declared without members";
+
 fn refused(routine: &str) {
     match run(routine).0 {
         Err(Signal::Unsupported(why)) => assert!(
             why.contains(
-                "a `var` parameter declared without members hands on to a `var` Option parameter with members"
+                "an Option that a memberless `var` parameter hands on to a `var` Option parameter with members"
             ),
             "{routine}: {why}"
         ),
@@ -581,7 +711,46 @@ fn a_hand_on_to_a_routine_that_only_formats_runs_and_any_other_refuses() {
     assert_eq!(out.unwrap(), "m Skip|1 b 1|1");
     assert_eq!(hits, vec![Assumption::VarOptionCarriedMembers]);
     match run("DirectHandOnEvaluate").0 {
-        Err(Signal::Unsupported(why)) => assert!(why.contains("that the callee does more with than Format"), "{why}"),
+        Err(Signal::Unsupported(why)) => assert!(why.starts_with(HAND_ON), "{why}"),
         other => panic!("expected a refusal, got {other:?}"),
+    }
+}
+
+// MED 1 of review round 1: the callee changes its by-value text before Evaluate reads it (by `:=` or by handing it on by
+// `var`): the text at the call is not the text Evaluate gets, so the value check at the call does not cover it. Refused.
+#[test]
+fn a_text_parameter_the_callee_writes_before_evaluate_refuses() {
+    refused("OtherEvaluateReassigned");
+    refused("OtherEvaluateSetByVar");
+}
+
+// MED 2 of review round 1: an [EventSubscriber] procedure called directly takes no mark from its frame; only the raise
+// gives a subscriber one (`Carried::Event`). Refused.
+#[test]
+fn a_subscriber_called_directly_as_a_hop_refuses() {
+    refused("SubscriberCalledDirect");
+    refused("SubscriberCalledDirectMemberless");
+}
+
+// MED 3 of review round 1: a value whose list is shorter than the callee's; only a longer one is measured (VarHop_Other_*:
+// First,...,Sixth against " ",Skip,Update). Refused.
+#[test]
+fn a_value_carrying_a_shorter_list_refuses() {
+    refused("ShorterOrigin");
+}
+
+// MED 4 of review round 1: the hand-on from a `var` parameter with members runs only for the bindings the cells measure: a
+// local of the `var` section of the direct caller (CalleeOps_MemberlessLocal `m Skip|1`), or a value `carried_args` let
+// through. A global with another list, a field and a by-value parameter refuse.
+#[test]
+fn a_hand_on_from_an_unmeasured_binding_refuses() {
+    let (out, hits) = run("MemberlessHandOn");
+    assert_eq!(out.unwrap(), "m Skip|1 b 1|1");
+    assert_eq!(hits, vec![Assumption::VarOptionCarriedMembers]);
+    for routine in ["GlobalOtherHandOn", "FieldHandOn", "ByValueHandOn"] {
+        match run(routine).0 {
+            Err(Signal::Unsupported(why)) => assert!(why.starts_with(HAND_ON), "{routine}: {why}"),
+            other => panic!("{routine}: expected a refusal, got {other:?}"),
+        }
     }
 }

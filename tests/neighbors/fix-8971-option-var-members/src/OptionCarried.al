@@ -55,11 +55,13 @@ table 62500 "OC Row"
         end;
     end;
 
-    // Callees that use the parameter in a way no cell measures for a value with another list or none.
+    // Evaluate of a text no member of the value's list names (CalleeOps_VarHop_Other, _Memberless `Evaluate Skip`).
     procedure EvaluateIt(var Choice: Option " ",Skip,Update): Text
     begin
         exit(Format(Evaluate(Choice, 'Skip')) + '>' + Format(Choice, 0, 2));
     end;
+
+    // Callees that use the parameter in a way no cell measures for a value with another list or none.
 
     procedure CopyIt(var Choice: Option " ",Skip,Update): Text
     var

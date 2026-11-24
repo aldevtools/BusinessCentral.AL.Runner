@@ -42,10 +42,11 @@ pub(crate) enum Carried {
 }
 
 /// The refusal of a memberless `var` parameter handed on to a `var` Option parameter with members (`Session::carried_args`).
-const CARRIED_REFUSED: &str = "an Option a `var` parameter declared without members hands on to a `var` Option parameter with members, from a caller the probe does not measure (not pinned)";
+const CARRIED_REFUSED: &str = "an Option that a memberless `var` parameter hands on to a `var` Option parameter with members, from a caller the probe does not measure (not pinned)";
 
-/// The refusal of a `var` parameter with members handed to a memberless `var` Option parameter (`Session::hand_on_args`).
-const HAND_ON_REFUSED: &str = "a `var` parameter with members handed to a `var` Option parameter declared without members that the callee does more with than Format: a rejected Evaluate there is measured to leave the first member (not pinned)";
+/// The refusal of a `var` parameter with members handed to a memberless `var` Option parameter (`Session::hand_on_args`): a
+/// binding or a callee the cells do not measure.
+const HAND_ON_REFUSED: &str = "a `var` parameter with members handed to a `var` Option parameter declared without members, from a binding or to a callee the probe does not measure: a rejected Evaluate there is measured to leave the first member (not pinned)";
 
 /// Whether routine `r` of an object of kind `kind`, with no attribute but those named in `allowed`, is one the carried-members cells
 /// measure (corpus PR 1569, OptionVarMembersCallee.al, OptionVarMembersBatch.al): a codeunit's or a table's procedure. Every cell
@@ -160,7 +161,10 @@ fn uses(program: Option<&ir::Program>, r: &ir::Routine, p: usize, own: &[String]
     let text = |a: &ir::Arg| match a {
         ir::Arg::Value(ir::Expr::Const(ir::Const::Text(t))) => Some(Checked::Literal(t.to_string())),
         ir::Arg::Value(ir::Expr::Load(ir::Place::Local(k)))
-            if *k < r.params && r.by_var.get(*k) == Some(&false) && matches!(r.locals[*k].ty, RtType::Text(_)) =>
+            if *k < r.params
+                && r.by_var.get(*k) == Some(&false)
+                && matches!(r.locals[*k].ty, RtType::Text(_))
+                && never_written(r, *k) =>
         {
             Some(Checked::Param(*k))
         }
@@ -226,13 +230,32 @@ fn uses(program: Option<&ir::Program>, r: &ir::Routine, p: usize, own: &[String]
                 }
             }
         }
-        ir::Expr::Call { args, .. } | ir::Expr::InterfaceCall { args, .. } | ir::Expr::DotNet { args, .. } => {
-            other |= args.iter().any(ref_p)
-        }
-        ir::Expr::Builtin { receiver, args, .. } => other |= args.iter().chain(receiver.as_deref()).any(ref_p),
-        _ => {}
+        e => other |= any_arg(e, &ref_p),
     });
     !other && loads == measured
+}
+
+/// Whether some argument of call `e` (a procedure, an interface method, a .NET member or a builtin, its receiver included)
+/// is one `pred` takes.
+fn any_arg(e: &ir::Expr, pred: &dyn Fn(&ir::Arg) -> bool) -> bool {
+    match e {
+        ir::Expr::Call { args, .. } | ir::Expr::InterfaceCall { args, .. } | ir::Expr::DotNet { args, .. } => {
+            args.iter().any(pred)
+        }
+        ir::Expr::Builtin { receiver, args, .. } => args.iter().chain(receiver.as_deref()).any(pred),
+        _ => false,
+    }
+}
+
+/// Whether the body of `r` never writes local `k`: no `:=` into it, no loop over it, never handed on by `var`. The text an
+/// `Evaluate` of the callee reads from a by-value parameter is then the text `carried_args` checks at the call.
+fn never_written(r: &ir::Routine, k: usize) -> bool {
+    let mut by_var = false;
+    ir::types::for_each_expr_post(r.body.stmts(), &mut |e| {
+        by_var |= any_arg(e, &|a| matches!(a, ir::Arg::Ref(ir::Place::Local(l)) if *l == k))
+    });
+    // With nothing taken as stored, `stmts_measured` is false for any `:=` into `k` and any loop over it.
+    !by_var && stmts_measured(r.body.stmts(), k, &|_| false, &|_| false, &|_| false, &mut 0)
 }
 
 /// The statement-level part of `uses`: `case p of` with choices `own_member` takes (counted in `measured`), `p := x` with `x`
@@ -310,6 +333,16 @@ impl crate::Session {
         }
     }
 
+    /// The marks `finish_call` left for the frame of a routine with `var` Option parameters with members
+    /// (`hand_on_origins_of`); empty for any other routine.
+    pub(crate) fn take_hand_on_origins(&mut self, wanted: bool) -> Vec<bool> {
+        if wanted {
+            std::mem::take(&mut self.events.next_hand_on_origins)
+        } else {
+            Vec::new()
+        }
+    }
+
     /// Per parameter of `routine` of `object`, called from frame `f` with `args`: where the value of its `var` Option parameter
     /// declared without members comes from (`Frame::option_carried`, read by `carried_args`; assumption
     /// var-option-carried-members, corpus PR 1569): a variable of the `var` section of a codeunit procedure (no attribute, or
@@ -351,10 +384,14 @@ impl crate::Session {
                             _ => Carried::No,
                         }
                     }
-                    ir::Arg::Ref(ir::Place::Local(s))
-                        if *s < caller.params && carried_routine(kind, caller, &["EventSubscriber"]) =>
-                    {
-                        f.option_carried.get(*s).copied().unwrap_or_default()
+                    // A hop with no attribute hands on its frame's mark. A subscriber hands on only the mark of the raise
+                    // (`Carried::Event`, set by `raise_to_subscribers`): called directly, it is no measured hop.
+                    ir::Arg::Ref(ir::Place::Local(s)) if *s < caller.params => {
+                        match f.option_carried.get(*s).copied().unwrap_or_default() {
+                            c if carried_routine(kind, caller, &[]) => c,
+                            Carried::Event if carried_routine(kind, caller, &["EventSubscriber"]) => Carried::Event,
+                            _ => Carried::No,
+                        }
                     }
                     _ => Carried::No,
                 }
@@ -379,7 +416,7 @@ impl crate::Session {
         let r = &program.objects[object].routines[routine];
         let caller = &program.objects[f.object].routines[f.routine];
         for (i, arg) in args.iter().enumerate().take(r.params) {
-            let Some((d, _, false)) = var_option_pair(r, caller, i, arg) else {
+            let Some((d, s, false)) = var_option_pair(r, caller, i, arg) else {
                 continue;
             };
             if !memberless(d) {
@@ -387,6 +424,7 @@ impl crate::Session {
             }
             if !(carried_routine(program.objects[object].kind, r, &[])
                 && carried_routine(program.objects[f.object].kind, caller, &[])
+                && f.hand_on_origins.get(s) == Some(&true)
                 && format_only(r, i))
             {
                 return Err(Signal::unsupported(HAND_ON_REFUSED));
@@ -394,6 +432,54 @@ impl crate::Session {
             assume(Assumption::VarOptionCarriedMembers);
         }
         Ok(())
+    }
+
+    /// Per parameter of procedure `routine` of `object`, called from frame `f` with `args` (not through an interface): whether
+    /// its `var` Option parameter declared with members is bound to a value whose hand-on to a memberless `var` parameter the
+    /// cells measure (`hand_on_args`): a variable of the `var` section of a codeunit procedure (no attribute, or `Test`), with
+    /// any list or none (OptionVarMembersCallee.al CalleeOps_MemberlessLocal `hand on var inside` `m Skip|1>Skip|1`;
+    /// OptionVarMemberlessWrites.al:372 with another list, and its header: with the same list), or a memberless `var`
+    /// parameter of the caller whose value `carried_args` let through (it refuses every other: CalleeOps_VarHop_Same,
+    /// CalleeOps_VarHop_Other `hand on var`). Any other binding (a field, a global, a parameter passed by value, a `var`
+    /// parameter with members) is not measured.
+    pub(crate) fn hand_on_origins_of(
+        &self,
+        object: usize,
+        routine: usize,
+        args: &[ir::Arg],
+        f: &crate::Frame,
+    ) -> Vec<bool> {
+        let program = &self.engine.program;
+        let r = &program.objects[object].routines[routine];
+        let caller = &program.objects[f.object].routines[f.routine];
+        let kind = program.objects[f.object].kind;
+        (0..r.params.min(args.len()))
+            .map(|i| {
+                let (Some(true), RtType::Option(d), ir::Arg::Ref(ir::Place::Local(s))) =
+                    (r.by_var.get(i).copied(), &r.locals[i].ty, &args[i])
+                else {
+                    return false;
+                };
+                let declared = *s >= caller.params && Some(*s) != caller.ret_local;
+                let param = *s < caller.params;
+                !memberless(d)
+                    && match &caller.locals[*s].ty {
+                        RtType::Option(_) if declared => {
+                            kind == ir::ObjKind::Codeunit && carried_routine(kind, caller, &["Test"])
+                        }
+                        RtType::Option(m) => {
+                            memberless(m)
+                                && param
+                                && caller.by_var.get(*s) == Some(&true)
+                                && matches!(
+                                    f.option_carried.get(*s),
+                                    Some(Carried::Members | Carried::Event | Carried::Memberless)
+                                )
+                        }
+                        _ => false,
+                    }
+            })
+            .collect()
     }
 
     /// The refusal of a call of `routine` of `object` (no publisher) that hands frame `f`'s memberless `var` Option
@@ -446,7 +532,9 @@ impl crate::Session {
             let measured = routines
                 && match (carried, list) {
                     (Carried::Members | Carried::Event, Some(has)) if has[..] == *d => true,
-                    (Carried::Members, Some(has)) if !memberless(has) => kept_uses(has),
+                    // Every own member of the callee is a member of the value's list: VarHop_Other_* carries First,...,Sixth
+                    // to " ",Skip,Update; a shorter list is not measured.
+                    (Carried::Members, Some(has)) if !memberless(has) && has.len() >= d.len() => kept_uses(has),
                     (Carried::Memberless, Some(has)) if memberless(has) => kept_uses(has),
                     _ => false,
                 };

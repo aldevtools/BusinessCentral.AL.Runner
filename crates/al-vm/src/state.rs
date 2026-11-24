@@ -500,6 +500,8 @@ pub(crate) struct EventState {
     pub(crate) next_var_lens: Vec<Option<i32>>,
     /// Set by `finish_call` just before the call, taken by the callee's frame (`Frame::option_hops`).
     pub(crate) next_option_hops: Vec<bool>,
+    /// Set by `finish_call` just before the call, taken by the callee's frame (`Frame::hand_on_origins`).
+    pub(crate) next_hand_on_origins: Vec<bool>,
     /// Set by `finish_call` (by `raise_to_subscribers` for a subscriber) just before the call, taken by the callee's frame
     /// (`Frame::option_carried`).
     pub(crate) next_option_carried: Vec<crate::var_option::Carried>,

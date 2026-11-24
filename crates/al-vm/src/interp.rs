@@ -959,6 +959,7 @@ impl Session {
         // handing on to an event publisher (`var_option::option_hops_of`); not through an interface.
         if facts.option_hops && !self.next_interface_call {
             self.events.next_option_hops = self.option_hops_of(object, routine, args, &values, f);
+            self.events.next_hand_on_origins = self.hand_on_origins_of(object, routine, args, f);
         }
         // Taken by the callee's binding (`lib.rs`).
         self.events.next_carried_kept = carried_kept;
@@ -1003,6 +1004,7 @@ impl Session {
         }
         if facts.option_hops {
             self.events.next_option_hops.clear();
+            self.events.next_hand_on_origins.clear();
             self.events.next_carried_kept.clear();
         }
         if facts.option_carries {

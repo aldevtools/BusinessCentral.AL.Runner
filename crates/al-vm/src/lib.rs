@@ -2657,6 +2657,7 @@ impl Session {
             Vec::new()
         };
         let option_hops = self.take_option_hops(facts.option_hops);
+        let hand_on_origins = self.take_hand_on_origins(facts.option_hops);
         let option_carried = self.take_option_carried(facts.option_carries);
         let mut frame = Frame {
             object,
@@ -2666,6 +2667,7 @@ impl Session {
             aliases,
             var_lens,
             option_hops,
+            hand_on_origins,
             option_carried,
         };
         let is_try = facts.is_try;
@@ -2922,6 +2924,9 @@ struct Frame {
     /// Per parameter: the caller handed this `var` Option parameter with members a variable the probes measure handing on
     /// to an event publisher with a memberless subscriber (set by `finish_call`, `var_option::option_hops_of`).
     option_hops: Vec<bool>,
+    /// Per parameter: this `var` Option parameter with members was bound to a value from a binding the probe measures handing
+    /// on to a memberless `var` parameter (set by `finish_call`, `var_option::carried::hand_on_origins_of`).
+    hand_on_origins: Vec<bool>,
     /// Per parameter: this memberless `var` Option parameter holds a value from an origin the probe measures handing on to
     /// a parameter with members (set by `finish_call` and `raise_to_subscribers`, `var_option::option_carried_of`).
     option_carried: Vec<crate::var_option::Carried>,
