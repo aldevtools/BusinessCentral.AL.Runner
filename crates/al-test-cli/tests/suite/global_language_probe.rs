@@ -218,11 +218,16 @@ fn date_filter_closing_neighbors_keep_mains_answer_or_refuse() {
     reports(&o, "DanishAlternative", "ok|B001,B002,", None);
     refused(&o, "DanishLowerU");
     refused(&o, "DanishNoDate");
-    // FieldRef.SetFilter and a placeholder are not the measured shape: main's reading of the English letter, no error.
-    for n in ["DanishFieldRef", "DanishPlaceholder"] {
-        let (out, hits) = get(&o, n);
-        assert!(out == "Pass" && hits.is_empty(), "{n}: {out} {hits:?}");
-    }
+    // FieldRef.SetFilter is not the measured shape: main's reading of the English letter, no error.
+    let (out, hits) = get(&o, "DanishFieldRef");
+    assert!(out == "Pass" && hits.is_empty(), "DanishFieldRef: {out} {hits:?}");
+    // A Text placeholder value on a Date field: the setrange-other-type-convert cells measure a conversion error for
+    // it on FieldRef, and Record.SetFilter is a shape they do not measure, so it is refused.
+    let (out, _) = get(&o, "DanishPlaceholder");
+    assert!(
+        out.starts_with("NotRun") && out.contains("setrange-other-type-convert"),
+        "DanishPlaceholder: {out}"
+    );
 }
 
 /// CalcDate of `formula` from 2024-03-15 under `lang`: the date, or the error and its code.

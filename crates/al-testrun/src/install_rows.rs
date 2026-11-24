@@ -268,7 +268,12 @@ impl Scan<'_> {
                     }
                 }
                 let Some(r) = receiver.as_deref() else { return };
-                let Some(method) = id.name().strip_prefix("Record.").and_then(|m| m.split('#').next()) else {
+                let Some(method) = id
+                    .written_base()
+                    .name()
+                    .strip_prefix("Record.")
+                    .and_then(|m| m.split('#').next())
+                else {
                     return;
                 };
                 let table = Self::arg_place(r).and_then(|p| self.place_table(p));

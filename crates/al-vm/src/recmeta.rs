@@ -2041,7 +2041,7 @@ impl Session {
             return match args.first() {
                 // GetWithTextArgument.al:GetBySystemId_TextAndGuid, `empty_text`, `text_not_a_guid`, `integer`.
                 Some(Value::Text(_) | Value::Code(_)) => Err(crate::transactions::al_error_code(
-                    "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.",
+                    al_builtins::native::INVALID_GUID_FORMAT,
                     "InvalidGuidFormat",
                 )),
                 Some(Value::Integer(_)) => Err(crate::transactions::al_error_code(
