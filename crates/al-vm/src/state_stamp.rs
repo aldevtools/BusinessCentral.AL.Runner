@@ -439,10 +439,16 @@ fn same_view(a: &RecordState, b: &RecordState) -> bool {
         && a.auto_calc == b.auto_calc
         && a.load.request == b.load.request
         && a.load.partial == b.load.partial
-        && a.load.buffer.is_none()
-        && a.position.is_none()
         && !a.touched
         && !a.assigned
+        && no_row_io(a)
+}
+
+/// Whether record `a` read or wrote no row: no buffer loaded, no position, no insert, modify or failed insert, no row
+/// origin.
+pub(crate) fn no_row_io(a: &RecordState) -> bool {
+    a.load.buffer.is_none()
+        && a.position.is_none()
         && !a.inserted
         && a.last_modify.is_none()
         && a.failed_insert.is_none()
@@ -727,7 +733,11 @@ codeunit 50104 Driver
     #[test]
     fn a_never_opened_record_ref_global_is_no_change_unless_shared() {
         for made in [true, false] {
-            assert_eq!(memo_left("Touch", made), (Default::default(), 0, true), "made before: {made}");
+            assert_eq!(
+                memo_left("Touch", made),
+                (Default::default(), 0, true),
+                "made before: {made}"
+            );
             assert!(memo_change("ShareRef", made).contains(&3), "made before: {made}");
         }
     }

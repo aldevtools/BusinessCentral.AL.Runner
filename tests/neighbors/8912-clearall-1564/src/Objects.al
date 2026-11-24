@@ -214,6 +214,11 @@ codeunit 50310 "CN Holder"
         I := L;
     end;
 
+    procedure WriteL(V: Integer)
+    begin
+        L.Write(V);
+    end;
+
     procedure ShareIL(var Y: Codeunit "CN Int Label Store")
     begin
         Y := IL;

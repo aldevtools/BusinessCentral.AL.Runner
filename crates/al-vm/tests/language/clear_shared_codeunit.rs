@@ -664,8 +664,8 @@ fn clear_all_of_a_shared_temp_store_resets_it_in_place() {
 // The cells corpus PR 1564 adds to 1561's pairs run, flagged: "CLS Arr Store" shared and never written
 // (ClearSharedCodeunitOwnerKinds.al ArrStore_ClearAll_UnusedAlias :418), written and unshared in its holder
 // (ArrStore_ClearAll_InHolder_NoAlias :439), shared under a SingleInstance owner (SIArr_ClearAll_AliasWroteBefore :987);
-// "CLB Store" with a Label in a plain holder (ClearSharedCodeunitLabelStore.al LabelLast_ClearAllInHolder_Written_NoAlias
-// :640, LabelLast_ClearAllInHolder_AliasWroteBefore :672); the Integer store under a test codeunit
+// "CLB Store" with a Label in a plain holder, written (ClearSharedCodeunitLabelStore.al LabelLast_ClearAllInHolder_Written_NoAlias
+// :640) and shared by an alias that wrote before (LabelLast_ClearAllInHolder_AliasWroteBefore :672); the Integer store under a test codeunit
 // (ClearSharedCodeunitOwnerKinds.al ClearAll_TestGlobalCLX_LocalAliasWroteBefore :1568).
 #[test]
 fn clear_all_of_a_temp_store_in_a_pair_1564_measures_runs() {
@@ -674,6 +674,7 @@ fn clear_all_of_a_temp_store_in_a_pair_1564_measures_runs() {
         "ArrHolderUnsharedWritten",
         "ArrSiShared",
         "LabelHolderWritten",
+        "LabelHolderShared",
         "IntTestShared",
     ] {
         assert_eq!(temp_store(cell), ("done".to_string(), true), "{cell}");
@@ -681,7 +682,7 @@ fn clear_all_of_a_temp_store_in_a_pair_1564_measures_runs() {
 }
 
 // The cells no probe measures refuse: the Label store shared under a SingleInstance owner, as a test codeunit global,
-// behind a by-value parameter of the routine that runs ClearAll; a Label between the RecordRef array and the Integer
+// behind a by-value parameter of the routine that runs ClearAll while never written before; a Label between the RecordRef array and the Integer
 // array, a Label with Locked; "CLS Arr Store" under a codeunit with Subtype = Normal; "CLB Store" with one more Integer
 // under a SingleInstance owner; a wrapper never written whose store an alias shares; an array of stores whose shared
 // element holds no rows.
@@ -689,7 +690,6 @@ fn clear_all_of_a_temp_store_in_a_pair_1564_measures_runs() {
 fn clear_all_of_a_temp_store_in_an_unmeasured_pair_refuses() {
     for (cell, why) in [
         ("LabelSiShared", "whose instance another variable shares"),
-        ("LabelHolderShared", "whose instance another variable shares"),
         ("LabelTestWritten", "whose instance holds temporary rows"),
         ("LabelValueParam", "whose instance another variable shares"),
         ("LabelBetweenArrays", "whose instance holds temporary rows"),
@@ -729,35 +729,31 @@ fn clear_all_of_a_store_with_no_rows_now_keeps_main() {
     assert_eq!(temp_store("ArrEmptiedSi"), ("0".to_string(), false));
 }
 
-// A temporary table that a record outside the instance or the array shares (`Copy(x, true)`, record/
-// TestTempTableContracts.al:101-112): no probe measures what that record sees after ClearAll, so ClearAll refuses, with rows
-// or without, in a measured store too. Main gave a fresh table and left the sharer on the old one.
+// A temporary table that a record outside an unshared codeunit instance shares (`Copy(x, true)`, record/
+// TestTempTableContracts.al:101-112): no probe measures what that record sees after ClearAll of that instance, so
+// ClearAll refuses, with rows or without, in a measured store too. Main gave a fresh table and left the sharer on the old
+// one. An array of temporary records of the owner itself keeps the shared table (ClearSharedCodeunitTempArrayShare.al
+// ArrNever_SharedByCopy_ClearAll :519, SIArrNever_SharedByCopy_ClearAll :736): the record outside sees its insert.
 #[test]
-fn clear_all_of_a_temp_table_a_record_outside_shares_refuses() {
-    for cell in [
-        "GenTableSharedByCopy",
-        "StoreRowsSharedByCopy",
-        "ArrUnwrittenSharedByCopy",
-        "ArrUnwrittenSharedByCopySi",
-    ] {
+fn clear_all_of_a_temp_table_a_record_outside_shares() {
+    for cell in ["GenTableSharedByCopy", "StoreRowsSharedByCopy"] {
         let got = temp_store(cell).0;
         assert!(
             got.contains("a temporary table that another record shares"),
             "{cell}: {got}"
         );
     }
+    for cell in ["ArrUnwrittenSharedByCopy", "ArrUnwrittenSharedByCopySi"] {
+        assert_eq!(temp_store(cell), ("1".to_string(), true), "{cell}");
+    }
     // A codeunit global whose own temporary table holds rows, in a store no probe measures: refused as before.
     let got = temp_store("GenRowsNow").0;
     assert!(got.contains("whose instance holds temporary rows"), "{got}");
 }
 
-// The probes measure arrays of temporary records of one dimension ("CLS Arr Store", ClearSharedCodeunitSIOwner.al:42-47;
-// "CLQ Report Rows", ClearSharedCodeunitOwnerKinds.al:378): an array of two dimensions whose table holds rows refuses.
+// An array of temporary records of two dimensions keeps its rows in a plain owner (ClearSharedCodeunitTempArrayShare.al
+// TwoDimWritten_OwnerGlobal_ClearAll :655: every element reads the one table).
 #[test]
-fn clear_all_of_a_two_dimensional_array_of_temp_records_with_rows_refuses() {
-    let got = temp_store("TwoDimArrWritten").0;
-    assert!(
-        got.starts_with("refused: ClearAll of a global array of temporary records whose table holds rows"),
-        "{got}"
-    );
+fn clear_all_of_a_two_dimensional_array_of_temp_records_keeps_its_rows() {
+    assert_eq!(temp_store("TwoDimArrWritten"), ("1".to_string(), true));
 }

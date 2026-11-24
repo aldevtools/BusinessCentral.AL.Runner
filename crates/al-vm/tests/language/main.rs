@@ -34,6 +34,7 @@ mod clear_dialog;
 mod clear_enum;
 mod clear_errorinfo;
 mod clear_shared_codeunit;
+mod clear_shared_codeunit_share;
 mod clear_version;
 mod code_compare;
 mod codeunit_index;

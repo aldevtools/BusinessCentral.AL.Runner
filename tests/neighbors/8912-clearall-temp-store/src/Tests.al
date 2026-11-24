@@ -108,22 +108,26 @@ codeunit 50120 "CT ClearAll Tests"
         Check(H.StateA(), 'rows=1 ref11=0 int1=0');
     end;
 
+    // A record outside shares element 1 of a never-written array by Copy(x, true); ClearAll keeps the shared table, so the
+    // record's insert shows through the array (ClearSharedCodeunitTempArrayShare.al :519). Main gave fresh tables (0).
     [Test]
     procedure UnwrittenTempArraySharedByCopy()
     var
         C: Codeunit "CT Array Copy Owner";
     begin
-        Check(Format(C.UnwrittenShared()), '0');
+        Check(Format(C.UnwrittenShared()), '1');
     end;
 
+    // The same in a SingleInstance owner (ClearSharedCodeunitTempArrayShare.al :736).
     [Test]
     procedure UnwrittenTempArraySharedByCopySingleInstance()
     var
         C: Codeunit "CT Array Copy SI";
     begin
-        Check(Format(C.UnwrittenShared()), '0');
+        Check(Format(C.UnwrittenShared()), '1');
     end;
 
+    // An array[2, 2] written through one element keeps its rows (ClearSharedCodeunitTempArrayShare.al :655).
     [Test]
     procedure TwoDimTempArrayWritten()
     var

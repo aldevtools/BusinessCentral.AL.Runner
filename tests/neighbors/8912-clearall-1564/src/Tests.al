@@ -2,9 +2,8 @@ codeunit 50320 "CN ClearAll Tests"
 {
     Subtype = Test;
 
-    // The Label store shared through a second variable in a plain holder (ClearSharedCodeunitLabelStore.al
-    // LabelLast_ClearAllInHolder_AliasWroteBefore :672). The runner cannot tell this holder from an interface or a by-value
-    // parameter, which the probe does not measure: every shared Label store refuses.
+    // The Label store shared through a second variable in a plain holder, written before (ClearSharedCodeunitLabelStore.al
+    // LabelLast_ClearAllInHolder_AliasWroteBefore :672): reset in place, rows kept.
     [Test]
     procedure LabelHolderSharedAlias()
     var
@@ -19,7 +18,7 @@ codeunit 50320 "CN ClearAll Tests"
         Check(H.StateL(), 'rows=2 int1=5 Store');
     end;
 
-    // Not measured: the Label store shared through an interface: refused.
+    // The Label store shared through an interface, written before (ClearSharedCodeunitLabelShare.al :451): reset in place.
     [Test]
     procedure LabelHolderSharedIface()
     var
@@ -32,7 +31,8 @@ codeunit 50320 "CN ClearAll Tests"
         Check(H.StateL(), 'rows=1 int1=0 Store');
     end;
 
-    // Not measured: the Label store behind a by-value parameter of the routine that runs ClearAll: refused.
+    // Not measured: the Label store never written, behind a by-value parameter of the routine that runs ClearAll (the
+    // by-value cells of ClearSharedCodeunitLabelShare.al all write X first): refused.
     [Test]
     procedure LabelValueParamInClearingRoutine()
     var
@@ -41,13 +41,34 @@ codeunit 50320 "CN ClearAll Tests"
         Check(H.ValueParamL(), 'rows=1 int1=5 Store');
     end;
 
-    // Not measured: the by-value parameter belongs to a routine further out than the one that runs ClearAll: refused.
+    // Not measured: the same never written, the by-value parameter of a routine further out: refused.
     [Test]
     procedure LabelValueParamFurtherOut()
     var
         H: Codeunit "CN Holder";
     begin
         Check(H.OuterValueParamL(), 'rows=1 int1=5 Store');
+    end;
+
+    // Written before, a by-value parameter of the routine that runs ClearAll (ClearSharedCodeunitLabelShare.al :503):
+    // reset in place, rows kept, the write through the parameter shows through the global.
+    [Test]
+    procedure LabelValueParamWrittenInClearingRoutine()
+    var
+        H: Codeunit "CN Holder";
+    begin
+        H.WriteL(3);
+        Check(H.ValueParamL(), 'rows=2 int1=5 Store');
+    end;
+
+    // Written before, the by-value parameter of a routine further out (ClearSharedCodeunitLabelShare.al :519).
+    [Test]
+    procedure LabelValueParamWrittenFurtherOut()
+    var
+        H: Codeunit "CN Holder";
+    begin
+        H.WriteL(3);
+        Check(H.OuterValueParamL(), 'rows=2 int1=5 Store');
     end;
 
     // Not measured: a Label between the RecordRef array and the Integer array.
