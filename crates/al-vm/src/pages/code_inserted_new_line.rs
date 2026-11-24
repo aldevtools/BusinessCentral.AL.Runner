@@ -897,6 +897,20 @@ impl Session {
                     Some(FactboxStep::CodedTyped { .. })
                 )
         };
+        // The later SetValue's cells keep Rec as the save left it up to the Update (another table written, :746, or the row
+        // modified through another record, :782, at Update(false)), and Update(true) follows the save with nothing written
+        // (:804); a field of Rec set, or a write before Update(true), is not measured (review of al-runner PR 8847, 01:00Z).
+        if typed_extra {
+            let rec_kept = Self::same_values(&self.page_rec(st).borrow().fields, &view.rec.fields);
+            let update_true = matches!(arg, Some(Value::Boolean(true)));
+            if !rec_kept || (update_true && self.write_mark() != view.writes) {
+                st.borrow_mut().forget_code_inserted_line();
+                return unsupported(
+                    "a field of Rec set, or a write before CurrPage.Update(true), between CurrPage.SaveRecord and the \
+                     CurrPage.Update after it in the later SetValue on a List page of the shape of the page with code (not measured)",
+                );
+            }
+        }
         if view.extra
             && matches!(arg, Some(Value::Boolean(true)))
             && (typed_extra || matches!(self.code_inserted_page(st)?, Some((Triggers::Quiet, _))))
