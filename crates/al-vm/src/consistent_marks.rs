@@ -10,9 +10,10 @@
 //! drops the marks set inside it, a temporary record marks the database table, a Commit after another variable's
 //! `Consistent(true)` raises, and the error names a table by its Caption. Every other shape is refused.
 //!
-//! Entry points: `Session::set_consistent`, `mark_snapshot` and `guarded_run_end_marks` (by `codeunit_run`),
-//! `commit_mark_error` (by `commit_builtin`), `inconsistent_error`, `refuse_inconsistent_end` (an unguarded run, a TestPage
-//! operation) and `inconsistent_table` (the test runner's commit at the end of a test).
+//! Entry points: `Session::set_consistent`; `mark_snapshot`, `refuse_write_and_mark_at_run_start` and
+//! `guarded_run_end_marks` (by `codeunit_run`); `commit_mark_error` (by `commit_builtin`); `inconsistent_error`;
+//! `refuse_inconsistent_end` (an unguarded run, a TestPage operation); `inconsistent_table` (the test runner's commit at
+//! the end of a test).
 
 use crate::Session;
 use crate::records::Rec;
@@ -150,6 +151,9 @@ impl Session {
     ///   _InnerStartsAndStopsState_Succeeds, _InnerMarksTemporary_Succeeds, GuardedRunIdRec_InnerStartsState_Succeeds);
     /// - the pinned caller shape with a record argument (GuardedRunIdRec_CallerMarks_InnerFails, _InnerSucceeds,
     ///   GuardedRunInstanceRec_CallerMarks_InnerFails).
+    /// - one mark the caller holds, no record argument, and a run that fails with DB:RecordNotFound and leaves the marks
+    ///   unchanged, or with an `Error` after the inner codeunit marked one other table: the error naming the caller's table
+    ///   (GuardedRunId_CallerMarks_InnerGetFails, GuardedRunId_CallerMarksOther_InnerStartsStateAndFails).
     ///
     /// A record argument is measured only as a database record of a table no mark names. Any other shape is refused.
     pub(crate) fn guarded_run_end_marks(
@@ -183,8 +187,21 @@ impl Session {
         let dropped = before.is_empty()
             && matches!(end, RunEnd::Failed(code) if DROPPED_BY.contains(&code))
             && held(&[MarkState::Marked]);
-        let raised =
-            !nested && (caller_shape || (inner_kept && held(&[MarkState::Marked, MarkState::ReleasedByAnother])));
+        // One mark the caller set and still holds, and a run without a record argument that fails: an inner Get that fails
+        // (GuardedRunId_CallerMarks_InnerGetFails), or an inner codeunit that marks one other table and fails with an `Error`
+        // (GuardedRunId_CallerMarksOther_InnerStartsStateAndFails).
+        let caller_held = arg == RunArg::None && matches!(before, [(_, MarkState::Marked)]);
+        let caller_get_failed = caller_held && before == after.as_slice() && end == RunEnd::Failed("DB:RecordNotFound");
+        let caller_inner_marked = caller_held
+            && end == RunEnd::Failed("Dialog")
+            && after.len() == 2
+            && after[0] == before[0]
+            && after[1..].iter().all(|(_, s)| *s == MarkState::Marked);
+        let raised = !nested
+            && (caller_shape
+                || caller_get_failed
+                || caller_inner_marked
+                || (inner_kept && held(&[MarkState::Marked, MarkState::ReleasedByAnother])));
         if arg_measured && (dropped || raised) {
             assume(Assumption::GuardedRunConsistentEnd);
             return Ok(raised.then(|| self.inconsistent_error(after[0].0 as usize)));
@@ -194,6 +211,22 @@ impl Session {
              record argument or nesting)",
             self.engine.program.objects[after.first().or(before.first()).map_or(0, |m| m.0) as usize].name
         )))
+    }
+
+    /// A guarded `Codeunit.Run` that starts while the caller holds an uncommitted write and a Consistent(false) mark:
+    /// refused, because BC's answer differs between runs on the same version (ConsistentGuardedRunEnd.al
+    /// GuardedRunId_CallerStartsState_InnerFails, GuardedRunId_CallerStartsAndStopsState_InnerFails: the pending-write
+    /// error in one CI run of corpus PR 1568, the inconsistency error in another). Without a mark the pending-write error
+    /// stays (codeunits/TestCodeunitRunWriteTransaction.al:GuardedRun_WithUncommittedWrite_IsRefused_AndCodeunitNeverRuns).
+    pub(crate) fn refuse_write_and_mark_at_run_start(&self) -> Result<(), Signal> {
+        match self.tx.open.inconsistent.first() {
+            Some(m) => Err(Signal::unsupported(format!(
+                "A guarded Codeunit.Run starts while the caller holds an uncommitted write and Consistent(false) marks table \
+                 {}: BC's answer differs between runs (not measured)",
+                self.engine.program.objects[m.table as usize].name
+            ))),
+            None => Ok(()),
+        }
     }
 
     /// The error of a Commit while a mark is set, `None` without one (errors/CuCommitTests.al:405-419). After

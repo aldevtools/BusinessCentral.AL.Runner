@@ -22,6 +22,9 @@ codeunit 50107 "C Mark Divide" { trigger OnRun() var R: Record "C Row"; I: Integ
 codeunit 50108 "C Nested" { trigger OnRun() var R: Record "C Row"; O: Record "C Other"; Ok: Boolean; begin
     R.Consistent(false); Ok := Codeunit.Run(Codeunit::"C Other Run", O); end; }
 codeunit 50109 "C Mark Ext" { trigger OnRun() var E: Record "C Ext"; begin E.Consistent(false); end; }
+codeunit 50111 "C Mark Two Fail" { trigger OnRun() var R: Record "C Row"; E: Record "C Ext"; begin
+    R.Consistent(false); E.Consistent(false); Error('inner failed'); end; }
+codeunit 50110 "C Get Fail" { trigger OnRun() var R: Record "C Row"; begin R.Get(99); end; }
 codeunit 50000 T { Subtype = Test;
   [Test] procedure Pinned() var R: Record "C Row"; Ok: Boolean; begin
     Commit(); R.Consistent(false); asserterror Ok := Codeunit.Run(Codeunit::"C Nothing"); Error(GetLastErrorCode()); end;
@@ -45,6 +48,20 @@ codeunit 50000 T { Subtype = Test;
     Commit(); Ok := Codeunit.Run(Codeunit::"C Nested"); end;
   [Test] procedure ExtensionCaption() var Ok: Boolean; begin
     Commit(); asserterror Ok := Codeunit.Run(Codeunit::"C Mark Ext"); end;
+  [Test] procedure CallerMarksGetFails() var R: Record "C Row"; Ok: Boolean; begin
+    Commit(); R.Consistent(false); asserterror Ok := Codeunit.Run(Codeunit::"C Get Fail"); Error(GetLastErrorCode()); end;
+  [Test] procedure CallerReleasedGetFails() var M: Record "C Row"; U: Record "C Row"; Ok: Boolean; begin
+    Commit(); M.Consistent(false); U.Consistent(true); asserterror Ok := Codeunit.Run(Codeunit::"C Get Fail"); end;
+  [Test] procedure CallerMarksOtherInnerMarksFails() var O: Record "C Other"; Ok: Boolean; begin
+    Commit(); O.Consistent(false); asserterror Ok := Codeunit.Run(Codeunit::"C Mark Fail"); Error(GetLastErrorCode()); end;
+  [Test] procedure CallerMarksOtherInnerMarksDivides() var O: Record "C Other"; Ok: Boolean; begin
+    Commit(); O.Consistent(false); asserterror Ok := Codeunit.Run(Codeunit::"C Mark Divide"); end;
+  [Test] procedure CallerMarksOtherInnerMarksTwoFails() var O: Record "C Other"; Ok: Boolean; begin
+    Commit(); O.Consistent(false); asserterror Ok := Codeunit.Run(Codeunit::"C Mark Two Fail"); end;
+  [Test] procedure CallerWritesNoMark() var R: Record "C Row"; Ok: Boolean; begin
+    Commit(); R.Id := 1; R.Insert(); asserterror Ok := Codeunit.Run(Codeunit::"C Mark Fail"); Error(GetLastErrorCode()); end;
+  [Test] procedure CallerWritesThenMarks() var R: Record "C Row"; Ok: Boolean; begin
+    Commit(); R.Id := 1; R.Insert(); R.Consistent(false); asserterror Ok := Codeunit.Run(Codeunit::"C Mark Fail"); end;
   [Test] procedure InnerRefused() var R: Record "C Row"; Ok: Boolean; begin
     Commit(); R.Consistent(false); Ok := Codeunit.Run(Codeunit::"C Refused"); end;
   [Test] procedure TwoTables() var R: Record "C Row"; O: Record "C Other"; Ok: Boolean; begin
@@ -71,6 +88,16 @@ fn guarded_run_with_consistent_marks() {
         (Outcome::Fail("DB:TableInConsistent".into()), true)
     );
     assert_eq!(get("InnerMarksAndFails"), (Outcome::Pass, true));
+    // A caller mark raises after an inner Get fails (GuardedRunId_CallerMarks_InnerGetFails), and after the inner
+    // codeunit marks another table and fails (GuardedRunId_CallerMarksOther_InnerStartsStateAndFails).
+    assert_eq!(
+        get("CallerMarksGetFails"),
+        (Outcome::Fail("DB:TableInConsistent".into()), true)
+    );
+    assert_eq!(
+        get("CallerMarksOtherInnerMarksFails"),
+        (Outcome::Fail("DB:TableInConsistent".into()), true)
+    );
     assert_eq!(
         get("WithRecordOfOtherTable"),
         (Outcome::Fail("DB:TableInConsistent".into()), true)
@@ -86,6 +113,9 @@ fn guarded_run_with_consistent_marks() {
     for name in [
         "InnerMarksAndFailsOtherCode",
         "InnerMarksAndCommits",
+        "CallerReleasedGetFails",
+        "CallerMarksOtherInnerMarksDivides",
+        "CallerMarksOtherInnerMarksTwoFails",
         "WithRecordOfMarkedTable",
         "WithTemporaryRecord",
         "NestedRaise",
@@ -97,6 +127,10 @@ fn guarded_run_with_consistent_marks() {
         "ExtensionCaption",
         "whose caption a tableextension or a translation sets",
     );
+    // A guarded run while the caller holds a write and a mark: BC's answer differs between runs of the same version
+    // (ConsistentGuardedRunEnd.al GuardedRunId_CallerStartsState_InnerFails); without a mark main's pinned error stays.
+    refused("CallerWritesThenMarks", "uncommitted write");
+    assert_eq!(get("CallerWritesNoMark"), (Outcome::Fail("DB:Ok".into()), false));
     // An inner refusal keeps its own reason: the Consistent mark does not replace it.
     refused("InnerRefused", "SetTaskReady");
 }
