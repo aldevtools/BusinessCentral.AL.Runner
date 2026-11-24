@@ -8,19 +8,33 @@ use types::{DeclaredTypes, ExprTypes, Ty, of_rt};
 
 /// Compiles routine `routine` of object `o`.
 /// `captured`: the form a value capture runs (ADR-030): statement and loop ops that tell the capture
-/// what a statement did.
+/// what a statement did. That form runs every frame of a tracked routine, so it also keeps the carried lists (`compile_kept`).
 pub(crate) fn compile(program: &ir::Program, o: usize, routine: usize, captured: bool) -> Option<Chunk> {
-    compile_form(program, o, routine, captured, false)
+    compile_form(program, o, routine, captured, false, captured)
+}
+
+/// The form of routine `routine` of object `o` that a frame runs when a `var` Option parameter with members is bound to a
+/// value that carries another list or none (`var_option::carried::carried_args`): the stores of such a parameter go through
+/// `write_as` (`var_option::may_keep_carried`). Every other frame runs the plain form, whose stores are the usual ones.
+pub(crate) fn compile_kept(program: &ir::Program, o: usize, routine: usize) -> Option<Chunk> {
+    compile_form(program, o, routine, false, false, true)
 }
 
 /// The debug form of routine `routine` of object `o` (ADR-048): the plain form with an `Op::DbgHit` after each statement
 /// marker, where a debugger may stop. The ops between two markers are the plain form's, so a debugged test computes what
 /// it computes without one.
 pub(crate) fn compile_debug(program: &ir::Program, o: usize, routine: usize) -> Option<Chunk> {
-    compile_form(program, o, routine, false, true)
+    compile_form(program, o, routine, false, true, true)
 }
 
-fn compile_form(program: &ir::Program, o: usize, routine: usize, captured: bool, debug: bool) -> Option<Chunk> {
+fn compile_form(
+    program: &ir::Program,
+    o: usize,
+    routine: usize,
+    captured: bool,
+    debug: bool,
+    kept: bool,
+) -> Option<Chunk> {
     let kind = program.objects[o].kind;
     let r = &program.objects[o].routines[routine];
     let nlocals = u16::try_from(r.locals.len()).ok()?;
@@ -58,9 +72,13 @@ fn compile_form(program: &ir::Program, o: usize, routine: usize, captured: bool,
         debug,
         params: r.params,
         by_var: &r.by_var,
-        kept_params: (0..r.params)
-            .map(|i| crate::var_option::may_keep_carried(program, kind, r, i))
-            .collect(),
+        kept_params: if kept {
+            (0..r.params)
+                .map(|i| crate::var_option::may_keep_carried(program, kind, r, i))
+                .collect()
+        } else {
+            Vec::new()
+        },
     };
     c.block(&r.body).ok()?;
     c.chunk.temps = c.max - nlocals;

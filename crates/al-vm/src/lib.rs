@@ -2504,7 +2504,13 @@ impl Session {
         let r = &engine.program.objects[object].routines[routine];
         // The bytecode, if the mode asks for it. Whether a capture watches the routine is only known once its frame is
         // entered (`cap_enter_frame`); a capture watches the captured form of the bytecode.
-        let chunk = engine.exec.chunk(&engine.program, object, routine);
+        // A frame with a parameter bound to a value that carries another list or none runs the form that keeps it
+        // (`var_option::carried::carried_args`); every other frame the plain one.
+        let chunk = if facts.option_hops && self.events.next_carried_kept.contains(&true) {
+            engine.exec.kept_chunk(&engine.program, object, routine)
+        } else {
+            engine.exec.chunk(&engine.program, object, routine)
+        };
         let mut locals = self.spare_vec(r.locals.len() + chunk.map_or(0, |c| usize::from(c.temps)));
         let passed = args.len().min(r.params);
         for (i, s) in r.locals.iter().enumerate() {
