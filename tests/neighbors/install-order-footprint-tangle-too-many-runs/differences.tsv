@@ -1,0 +1,10 @@
+# key	entry
+# Issue 8907, the limit of the new plan: tangle T1 -> T2 -> T3 -> T1 (meets), inputs I1, I2, I3 each answer the events of
+# T1 and T2 (two readers each), constant rows. Main: pass (6 orders x 2 places per input, the input never between T1 and
+# T2). Head: each input also installs between its two readers; 6 x 3 x 3 = 54 runs once I1 and I2 are inputs, more than
+# the 48 of ADR-079 decision 5 (3! orders x 2^3 subsets), so the proof stops ("placing the inputs of ... takes up to 54
+# runs") and T1's install stays refused; the tests report the cascade (the row is missing), the reason is in the baseline
+# note. A lost pass against main, listed in the pull request and in issue 8916.
+RQ tr Tests::T1RowIsConst	REFUSED RQ tr Row row not found
+RQ tr Tests::T2RowIsConst	REFUSED RQ tr Row row not found
+RQ tr Tests::T3RowIsConst	REFUSED RQ tr Row row not found

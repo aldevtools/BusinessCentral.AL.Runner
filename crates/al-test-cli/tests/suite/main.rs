@@ -308,6 +308,7 @@ mod view_object_constant_unique;
 mod with_recordref_subject;
 mod with_statement;
 mod worksheet_validate_temp_part;
+mod xmlport_8877_refusals;
 mod xmlport_request_page;
 mod xmlport_windows_import_refusals;
 mod xrec_part_triggers_shape;

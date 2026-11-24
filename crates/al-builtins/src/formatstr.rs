@@ -216,7 +216,7 @@ pub fn format_with_field_places(
             gate?;
         } else {
             let bare = format_codes(v, 0, template, places, ctx)?;
-            crate::format::length::with_format_string(v, length, template, bare.chars().count())?;
+            crate::format::length::with_format_string(v, length, template, bare.chars().count(), ctx)?;
         }
     }
     Ok(out)
@@ -320,6 +320,11 @@ fn format_codes(
     // `<Integer>` and `<Text>` on 0D, `<Closing>` and `<Text>` on 0DT are the invalid-format error; every standard format code
     // on 0DT is the empty text). Earlier pins: types/date-time/Format.al QR_DateTime_Format_StampStrings_Undefined,
     // QR_Date_Format_StampStrings.
+    // `<Hours24,2>:<Minutes,2>` on 0D is the invalid-format error, with and without a length (format-evaluate/format-length/
+    // FormatLengthStrings.al:858-860). The same string on a defined Date is not pinned.
+    if matches!(v, Value::Date(0, false)) && template == crate::format::length::TIME_HOURS_MINUTES {
+        return Err(format!("{INVALID_FORMAT_MARK}{template}"));
+    }
     let defined = match v {
         Value::Date(0, false) => Some(Value::Date(crate::format::day_from_civil(2024, 3, 5), false)),
         Value::DateTime(0) => {
@@ -444,9 +449,10 @@ fn format_codes(
     // `date len 5 custom`; a Time: Format.al:912, :918 TU_Time_Format_CodeNames). Which values take a length: `format::length`
     // (`cuts_to_length`, the gate's own type list). An Integer or BigInteger is cut the same, and an Integer in a negative length
     // is cut to its first |length| characters too (corpus PR 1505, FormatLengthIntegerString.al:34, :36, :39, :204; assumption
-    // `format-length-integer-string`, marked by the gate). The cut also reaches the lone `<Standard Format,0>` gate
-    // (`lone_standard_format`): an Integer or BigInteger longer than a positive length now passes clean, pinned at
-    // format-evaluate/format-length/FormatLengthNeighbors.al:413 (BigInteger) and :453 (Integer).
+    // `format-length-integer-string`, marked by the gate); a Date, a Time and a DateTime in either sign: `cuts_to_length`. The cut
+    // also reaches the lone `<Standard Format,0>` gate (`lone_standard_format`): an Integer or BigInteger longer than a positive
+    // length now passes clean, pinned at format-evaluate/format-length/FormatLengthNeighbors.al:413 (BigInteger) and :453
+    // (Integer).
     let cut = crate::format::length::cuts_to_length(v, length);
     if cut && out.chars().count() > length.unsigned_abs() as usize {
         return Ok(out.chars().take(length.unsigned_abs() as usize).collect());
