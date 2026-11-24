@@ -406,6 +406,38 @@ impl Session {
 }
 
 impl Session {
+    /// The value global `g` of the single instance of codeunit `memo` holds, read without the marks a read by name checks.
+    pub fn single_global(&self, memo: usize, g: usize) -> Option<Value> {
+        self.singletons.get(&memo)?.borrow().globals.get(g).cloned()
+    }
+
+    /// The filters of global `g` of the single instance of codeunit `memo`, when it is a temporary record that holds what a
+    /// fresh one holds except for its filters ([`Session::untouched_temp`]: a table nothing wrote, so no row, and nothing
+    /// else shares; [`same_view`] without the filters): al-testrun `partner_memo_once` compares them with the measured
+    /// filter. `None` otherwise.
+    pub fn single_temp_filters_only(&mut self, memo: usize, g: usize) -> Option<Vec<al_builtins::filter::FieldFilter>> {
+        let inst = self.singletons.get(&memo)?.clone();
+        let engine = self.engine.clone();
+        let slot = engine.program.objects.get(memo)?.globals.get(g)?;
+        let fresh = self.slot_defaults(std::slice::from_ref(slot)).pop()?;
+        let held = inst.borrow().globals.get(g)?.clone();
+        let (Value::Record(rc), Value::Record(f)) = (&held, &fresh) else {
+            return None;
+        };
+        let b = f.try_borrow().ok()?;
+        let (mut unfiltered, filters) = {
+            let a = rc.try_borrow().ok()?;
+            (a.clone(), a.filters.clone())
+        };
+        unfiltered.filters.clear();
+        // The variable and the clone `unfiltered` share the table: two sharers.
+        let fresh_but_filters = unfiltered.temporary
+            && b.temporary
+            && same_view(&unfiltered, &b)
+            && self.untouched_temp(rc, &unfiltered, &b, 2);
+        fresh_but_filters.then_some(filters)
+    }
+
     /// Whether `v`, an array of temporary records whose elements share one table, holds what `fresh` holds: no other variable
     /// holds the array, and each element holds what [`Session::untouched_temp`] reads as fresh, its table shared by the
     /// elements only.
@@ -1295,7 +1327,13 @@ codeunit 50113 TempDriver
         assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
         let engine = crate::Engine::new(l.program, Vec::new());
         let at = engine.program.objects.iter().position(|o| o.name == "Keeper").unwrap();
-        let routine = |name: &str| engine.program.objects[at].routines.iter().position(|r| r.name == name).unwrap();
+        let routine = |name: &str| {
+            engine.program.objects[at]
+                .routines
+                .iter()
+                .position(|r| r.name == name)
+                .unwrap()
+        };
         let (add, same) = (routine("Add"), routine("Same"));
         let mut session = crate::Session::new(engine.clone());
         let mut run = |s: &mut crate::Session, r: usize, args: Vec<al_builtins::value::Value>| {
@@ -1308,6 +1346,51 @@ codeunit 50113 TempDriver
         assert!(before.changed(&session.left_stamp()).singles.is_empty());
         run(&mut session, add, vec![al_builtins::value::Value::Integer(2)]);
         let changed = before.changed(&session.left_stamp()).singles;
-        assert_eq!(changed.get(&at).map(|g| g.iter().copied().collect::<Vec<_>>()), Some(vec![0]));
+        assert_eq!(
+            changed.get(&at).map(|g| g.iter().copied().collect::<Vec<_>>()),
+            Some(vec![0])
+        );
+    }
+
+    const FILTER_MEMO: &str = r#"
+table 50120 Sub { fields { field(1; "Code"; Code[20]) { } field(2; "Company Name"; Text[30]) { } } keys { key(PK; "Code", "Company Name") { } } }
+codeunit 50121 FMemo
+{
+    SingleInstance = true;
+    var TempSub: Record Sub temporary;
+    procedure Blank() begin Clear(TempSub); TempSub.SetFilter("Company Name", '=%1', ''); end;
+    procedure Two() begin Blank(); TempSub.SetFilter(Code, '=%1', ''); end;
+    procedure Written() begin Blank(); TempSub.Code := 'A'; TempSub.Insert(); TempSub.Delete(); end;
+    procedure Found() begin TempSub.Code := 'A'; TempSub.Insert(); Blank(); if TempSub.Get('A', '') then; end;
+    procedure Touch() begin end;
+}
+codeunit 50122 FDriver
+{
+    procedure Touch() var M: Codeunit FMemo; begin M.Touch(); end;
+    procedure Blank() var M: Codeunit FMemo; begin M.Blank(); end;
+    procedure Two() var M: Codeunit FMemo; begin M.Two(); end;
+    procedure Written() var M: Codeunit FMemo; begin M.Written(); end;
+    procedure Found() var M: Codeunit FMemo; begin M.Found(); end;
+}
+"#;
+
+    /// What `single_temp_filters_only` gives for FMemo's TempSub after `routine`: the number of filters, or `None`.
+    fn filters_after(routine: &str) -> Option<usize> {
+        let mut b = Built::from_source(FILTER_MEMO);
+        b.run_in("FDriver", routine).unwrap();
+        let (memo, _) = b.routine_in("FMemo", "Touch");
+        b.session.single_temp_filters_only(memo, 0).map(|f| f.len())
+    }
+
+    // Cell L1 of corpus PR 1571 (LmXaLoginCaches.al, LoadTemps of "LT LM XA L1 Memo"): Clear and one filter on an empty temporary record leave the
+    // view of a fresh one except for that filter; a second filter is two, and rows written (even deleted again) or a Get
+    // after a write are not the fresh rest.
+    #[test]
+    fn a_temporary_record_global_fresh_but_its_filters_gives_them() {
+        assert_eq!(filters_after("Touch"), Some(0));
+        assert_eq!(filters_after("Blank"), Some(1));
+        assert_eq!(filters_after("Two"), Some(2));
+        assert_eq!(filters_after("Written"), None);
+        assert_eq!(filters_after("Found"), None);
     }
 }

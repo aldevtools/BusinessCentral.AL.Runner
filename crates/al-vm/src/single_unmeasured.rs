@@ -11,8 +11,8 @@
 //! `Instance::unmeasured` holds a `SingleMark`; `mark_single_unmeasured` (Refused) makes every read
 //! of one of their globals by name (`interp.rs` `global_value`, through `read`) refused, a write
 //! runs; `mark_single_assumed` (Assumed, only on an unmarked instance) makes every such read mark the
-//! assumption entry. The mark moves with the instance to a later session. Set by al-testrun
-//! `partner_login::raise`.
+//! assumption entry, `replace_single_assumed` swaps one entry for another. The mark moves with the
+//! instance to a later session. Set by al-testrun `partner_login::raise`.
 
 use crate::Session;
 use al_builtins::assumptions::Assumption;
@@ -35,6 +35,18 @@ impl Session {
             let mut inst = inst.borrow_mut();
             if inst.unmeasured.is_none() {
                 inst.unmeasured = Some(SingleMark::Assumed(a));
+            }
+        }
+    }
+
+    /// Marks the single instance of codeunit `object` with assumption entry `to`, if the session has one and its mark is
+    /// exactly entry `from`: a later change kept through `to`, whose text covers the earlier one too (al-testrun
+    /// `partner_login::raise`).
+    pub fn replace_single_assumed(&mut self, object: usize, from: Assumption, to: Assumption) {
+        if let Some(inst) = self.singletons.get(&object) {
+            let mut inst = inst.borrow_mut();
+            if matches!(inst.unmeasured, Some(SingleMark::Assumed(a)) if a == from) {
+                inst.unmeasured = Some(SingleMark::Assumed(to));
             }
         }
     }

@@ -44,6 +44,7 @@ mod login_memo;
 mod login_replay;
 pub mod observe;
 mod partner_login;
+mod partner_memo_once;
 pub mod profiling;
 pub mod reach;
 pub mod refusals;

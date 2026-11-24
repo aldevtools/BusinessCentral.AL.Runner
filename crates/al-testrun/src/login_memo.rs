@@ -14,6 +14,10 @@
 //! they get inside the login is the assumption `login-own-memo-alone`, marked at the reads (`partner_login::own_step`).
 //! The facades and memos are matched by id, name and publisher: Microsoft's apps are compiled from their real source
 //! (ADR-013), whose bodies on BC 27.5, 28.5 and 29.0 the probe ran.
+//!
+//! Also the caches of Microsoft's apps that a partner subscriber's login fill corpus PR 1571 measured (open, al-runner
+//! issue 8945), for `partner_login::kept`: 3702 filled by two subscribers of one app ([`env_info_pair`], cell E1) and the
+//! caches 423, 6153, 9170 and 9177 by id, changed globals and raise site ([`microsoft_cache_measured`], cells M1 to M4).
 
 use crate::runtime::written::{JoinedReach, ReachIndex, login_subscriber_reach_facts, login_subscribers_reach_without};
 use al_sema::lower::Lowered;
@@ -52,6 +56,71 @@ pub(crate) fn test_reads_measured(
 /// by Microsoft.
 pub(crate) fn microsoft_login_memo(lowered: &Lowered, o: usize) -> bool {
     microsoft_dependency(lowered, o) && matches!(lowered.program.objects[o].id, Some(3702 | 3703))
+}
+
+/// The caches of the dependency apps published by Microsoft, other than 3702 and 3703, whose fill by one partner login
+/// subscriber and what a later test read gets there corpus PR 1571 measured (open; LmLoginCacheTests.al,
+/// LmLoginCacheTlTests.al with the login subscribers of LmXaLoginCaches.al; assumption `partner-login-microsoft-cache`):
+/// codeunit id, the names of exactly the globals the fill changed, and the `Global Triggers` event inside whose raise it
+/// changed them (`""`: outside any raise). Change Log Management 423 loads on the database insert event of the login's first
+/// write with the change log inactive (cell M3, ChangeLog_AfterLogin: only its two flags change, so `Get` found no setup
+/// row and its temporary records hold no row); API Webhook Notification Mgt. 6153 on the same event (M4,
+/// ApiCache_CountingSubscriber); Conf./Personalization Mgt. 9170 by a direct call (M2, Profile_AfterLogin); Application Area
+/// Cache 9177 by a direct call (M1, AppAreas_AfterLogin).
+const MEASURED_CACHES: &[(u32, &[&str], &str)] = &[
+    (
+        423,
+        &["ChangeLogSetupRead", "MonitorSensitiveFieldSetupRead"],
+        "ondatabaseinsert",
+    ),
+    (
+        6153,
+        &["CachedApiSubscriptionEnabled", "UseCachedApiSubscriptionEnabled"],
+        "ondatabaseinsert",
+    ),
+    (
+        9170,
+        &["CurrentAllProfile", "CurrentAllProfileFetched", "ProfileFound"],
+        "",
+    ),
+    (9177, &["ApplicationAreaCache"], ""),
+];
+
+/// Whether partner login subscriber change `by` of codeunit `memo` is one of [`MEASURED_CACHES`]: a codeunit of a dependency
+/// app published by Microsoft with that id, whose changed globals are by name exactly that row's, each changed inside a raise
+/// of that row's event only (or outside any raise for `""`). The caller requires that no subscriber changed it before.
+pub(crate) fn microsoft_cache_measured(lowered: &Lowered, memo: usize, by: &crate::partner_login::By) -> bool {
+    let obj = &lowered.program.objects[memo];
+    microsoft_dependency(lowered, memo)
+        && obj.is_kind(al_ir::ObjKind::Codeunit)
+        && MEASURED_CACHES.iter().any(|&(id, names, event)| {
+            let raised: &[&str] = if event.is_empty() { &[] } else { &[event] };
+            obj.id == Some(id)
+                && globals_named(lowered, memo, by.globals, names)
+                && by.globals.iter().all(|&g| by.raised(g) == raised)
+        })
+}
+
+/// Whether two login subscribers of one partner app, in the order they ran, changed codeunit 3702 of a dependency app
+/// published by Microsoft as cell E1 of corpus PR 1571 measured (open; EnvInfo_AfterLogin, the subscribers of
+/// LmXaLoginCaches.al in ascending id order, the first calls IsSandbox(), the second IsSaaS(); assumption
+/// `partner-login-env-info-pair`): the first changed exactly IsSandboxConfig and IsSandboxInitialized, the second exactly
+/// IsSaaSConfig and IsSaasInitialized (EnvironmentInformationImpl.Codeunit.al of System Application). The caller requires
+/// that both changed them outside any `Global Triggers` raise.
+pub(crate) fn env_info_pair(lowered: &Lowered, memo: usize, first: &BTreeSet<usize>, second: &BTreeSet<usize>) -> bool {
+    microsoft_dependency(lowered, memo)
+        && lowered.program.objects[memo].id == Some(3702)
+        && globals_named(lowered, memo, first, &["IsSandboxConfig", "IsSandboxInitialized"])
+        && globals_named(lowered, memo, second, &["IsSaaSConfig", "IsSaasInitialized"])
+}
+
+/// Whether the globals `globals` of codeunit `memo` are by name (any case) exactly `names`.
+fn globals_named(lowered: &Lowered, memo: usize, globals: &BTreeSet<usize>, names: &[&str]) -> bool {
+    let decl = &lowered.program.objects[memo].globals;
+    globals.len() == names.len()
+        && globals
+            .iter()
+            .all(|&g| (decl.get(g)).is_some_and(|d| names.iter().any(|n| d.name.eq_ignore_ascii_case(n))))
 }
 
 /// Whether object `o` is in a dependency app published by Microsoft.

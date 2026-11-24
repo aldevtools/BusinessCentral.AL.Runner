@@ -309,3 +309,64 @@ impl Session {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use al_testkit::Built;
+
+    /// A memo the setup ask changes (`Asked`), one an `OnDatabaseInsert` subscriber changes (`Seen`), and one the writer
+    /// changes itself outside any raise (`Direct`).
+    const SRC: &str = r#"
+table 50401 Watched { fields { field(1; "No."; Integer) { } } keys { key(PK; "No.") { } } }
+codeunit 50402 Memo
+{
+    SingleInstance = true;
+    var Asked: Boolean; Seen: Boolean; Direct: Boolean;
+    procedure Ask() begin Asked := true; end;
+    procedure See() begin Seen := true; end;
+    procedure Write() begin Direct := true; end;
+}
+codeunit 50403 GT
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'GetDatabaseTableTriggerSetup', '', false, false)]
+    local procedure Setup(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean)
+    var M: Codeunit Memo;
+    begin
+        if TableId <> Database::Watched then exit;
+        M.Ask();
+        OnDatabaseInsert := true;
+    end;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'OnDatabaseInsert', '', false, false)]
+    local procedure DI(RecRef: RecordRef) var M: Codeunit Memo; begin M.See(); end;
+}
+codeunit 50404 Writer
+{
+    procedure Run() var W: Record Watched; M: Codeunit Memo; begin M.Write(); W."No." := 1; W.Insert(); end;
+}
+"#;
+
+    // al-runner issue 8945: the partner login gate tells a memo the setup ask changed from one a database event changed and
+    // from one changed outside any `Global Triggers` raise.
+    #[test]
+    fn the_watch_notes_each_changed_global_under_the_raise_that_changed_it() {
+        let mut b = Built::from_source(SRC);
+        b.session.watch_global_trigger_changes();
+        b.run_in("Writer", "Run").unwrap();
+        let noted = b.session.take_global_trigger_changes();
+        let (memo, _) = b.routine_in("Memo", "Ask");
+        let by_global: Vec<(usize, Vec<String>)> = (noted.get(&memo).into_iter().flatten())
+            .map(|(g, events)| (*g, events.iter().cloned().collect()))
+            .collect();
+        assert_eq!(
+            by_global,
+            vec![
+                (0, vec!["getdatabasetabletriggersetup".to_string()]),
+                (1, vec!["ondatabaseinsert".to_string()]),
+            ]
+        );
+        assert!(
+            b.session.take_global_trigger_changes().is_empty(),
+            "the take ends the watch"
+        );
+    }
+}

@@ -289,6 +289,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `login.rs`: The test session's login. Entry: `decide`.
 - `login_replay.rs`: The check that a replay of the raised login would… Entry: `Key::of`.
 - `partner_login.rs`: The partner dependency apps' "System… Entry: `subscribers`.
+- `partner_memo_once.rs`: A partner app's load-once memo filled through the Global Triggers events at login, of the measured shape. Entry: `kept`.
 - `license.rs`: Which BC license a run uses: `--license FILE`. Entry: `LicenseUse`.
 - `isolation.rs`: TestIsolation of the runner codeunit. Entry: `TestIsolation`.
 - `isolation/failed_test.rs`: What a failed test under TestIsolation = Codeunit… Entry: `CodeunitSequences`.
