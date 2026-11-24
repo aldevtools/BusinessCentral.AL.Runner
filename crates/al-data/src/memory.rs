@@ -1248,6 +1248,9 @@ impl MemStore {
             } else {
                 self.emptied.remove(&slot);
             }
+            // The rows come in without a write of each, so note their held columns as `from_exported` does: the store
+            // then refuses the reads the store the tables came from refuses.
+            self.note_held_rows(t.object, &table);
             self.tables.insert(slot, table);
         }
         self.commit();
