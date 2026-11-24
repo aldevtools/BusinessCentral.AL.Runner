@@ -694,7 +694,6 @@ codeunit 50111 TempStore
         Rows: Record Row temporary;
         Backups: array[2, 3] of RecordRef;
         Indices: array[2] of Integer;
-        NotFound: Label 'Could not find %1.';
 
     procedure Get(): Integer
     begin
@@ -744,6 +743,20 @@ codeunit 50115 TempStoreExtra
     end;
 }
 
+codeunit 50118 TempStoreLabel
+{
+    var
+        Rows: Record Row temporary;
+        Backups: array[2, 3] of RecordRef;
+        NotFound: Label 'Could not find %1.';
+        Indices: array[2] of Integer;
+
+    procedure Get(): Integer
+    begin
+        exit(Indices[1]);
+    end;
+}
+
 codeunit 50116 TempStoreSwapped
 {
     var
@@ -782,6 +795,12 @@ codeunit 50112 TempMemo
         Swapped: Codeunit TempStoreSwapped;
         Wrap: Codeunit TempWrap;
         StoreAlias: Codeunit TempStore;
+        Labeled: Codeunit TempStoreLabel;
+
+    procedure UseLabeled()
+    begin
+        Labeled.Get();
+    end;
 
     procedure UseArrStore()
     begin
@@ -916,6 +935,7 @@ codeunit 50113 TempDriver
     procedure UseSwapped() var M: Codeunit TempMemo; begin M.UseSwapped(); end;
     procedure UseWrap() var M: Codeunit TempMemo; begin M.UseWrap(); end;
     procedure ShareStore() var M: Codeunit TempMemo; begin M.ShareStore(); end;
+    procedure UseLabeled() var M: Codeunit TempMemo; begin M.UseLabeled(); end;
 }
 "#;
 
@@ -981,7 +1001,7 @@ codeunit 50113 TempDriver
     }
 
     // A store of the shape of open corpus PR 1561 (a temporary record, an array of RecordRef of two dimensions, an array of
-    // Integer, here with a Label besides) that the SingleInstance codeunit holds and a call made while writing nothing reads
+    // Integer) that the SingleInstance codeunit holds and a call made while writing nothing reads
     // as one never made (ClearSharedCodeunitSIOwner.al A2_Step2_ReadX): no change, counted through its declared form, so
     // its reads carry assumption clear-shared-codeunit.
     #[test]
@@ -997,7 +1017,7 @@ codeunit 50113 TempDriver
 
     // In a codeunit global made by its first call, an opened or shared RecordRef or a written temporary table is a change.
     // So is the made store of any shape or holder 1561 does not measure: an array of temporary records, one more global,
-    // another order of the globals, a store inside a codeunit the SingleInstance codeunit holds, and a store another
+    // a global Label among the globals (not measured yet), another order of the globals, a store inside a codeunit the SingleInstance codeunit holds, and a store another
     // global shares. Nothing counts through the declared form.
     #[test]
     fn a_written_or_unmeasured_store_made_by_a_call_is_a_change() {
@@ -1010,6 +1030,7 @@ codeunit 50113 TempDriver
                 ("UseExtra", 5),
                 ("UseSwapped", 6),
                 ("UseWrap", 7),
+                ("UseLabeled", 9),
             ] {
                 assert_eq!(
                     temp_memo_left(routine, made),

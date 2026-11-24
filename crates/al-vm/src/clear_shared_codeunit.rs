@@ -66,7 +66,7 @@ impl Session {
                     if !(matches!(
                         self.owner_kind(owner),
                         Some(Owner::Plain | Owner::SingleInstance | Owner::Test)
-                    ) && self.store_kind(object, Labels::Counted) == Some(Store::TempRef)
+                    ) && self.store_kind(object) == Some(Store::TempRef)
                         && !self.frames.contains(&object))
                     {
                         return Err(temp_rows_refusal());
@@ -164,17 +164,14 @@ impl Session {
         }
     }
 
-    /// The store shape of codeunit `object`, by its globals (a Label counted or skipped as `labels` says), for the stores the
-    /// corpus measures: not SingleInstance, no TableNo, and globals of [`Store`]'s kinds. `None` for any other.
-    fn store_kind(&self, object: usize, labels: Labels) -> Option<Store> {
+    /// The store shape of codeunit `object`, by all its globals (a Label or TextConst among them), for the stores the corpus
+    /// measures: not SingleInstance, no TableNo, and globals of [`Store`]'s kinds. `None` for any other.
+    fn store_kind(&self, object: usize) -> Option<Store> {
         let o = &self.engine.program.objects[object];
         if !self.plain_codeunit(object) || o.rec_slot.is_some() {
             return None;
         }
-        let kinds: Vec<&RtType> = (o.globals.iter())
-            .filter(|g| labels == Labels::Counted || !g.label)
-            .map(|g| &g.ty)
-            .collect();
+        let kinds: Vec<&RtType> = o.globals.iter().map(|g| &g.ty).collect();
         match kinds.as_slice() {
             [RtType::Integer] => Some(Store::Integer),
             _ if temp_ref_kinds(&kinds) => Some(Store::TempRef),
@@ -200,7 +197,7 @@ impl Session {
     fn shared_pair(&self, owner: usize, v: &Value) -> bool {
         let Value::Codeunit(rc) = v else { return false };
         let object = rc.borrow().object as usize;
-        let measured = match (self.owner_kind(owner), self.store_kind(object, Labels::Counted)) {
+        let measured = match (self.owner_kind(owner), self.store_kind(object)) {
             (Some(Owner::Plain), Some(Store::Integer)) => true,
             (Some(_), Some(Store::TempRef)) => true,
             (Some(Owner::Plain), Some(Store::TempArray)) => self.holds_temp_rows(v, 0),
@@ -226,11 +223,10 @@ impl Session {
 
     /// Whether `object` is a codeunit of the store shape of open corpus PR 1561 (ClearSharedCodeunitTempRef.al:55-59, codeunit
     /// 75587 "CLB Store"): not SingleInstance, no TableNo, and its globals, in this order, one temporary record, one array of
-    /// RecordRef of two dimensions and one array of Integer of one dimension. The sizes of the arrays and the table are not
-    /// read. A global Label or TextConst ([`ir::Slot::label`]) may stand anywhere among them: AL code cannot assign it, and
-    /// 1561's store has none.
+    /// RecordRef of two dimensions and one array of Integer of one dimension, with no other global, a Label neither (1561's
+    /// store has none). The sizes of the arrays and the table are not read.
     pub(crate) fn temp_ref_store(&self, object: usize) -> bool {
-        self.store_kind(object, Labels::Skipped) == Some(Store::TempRef)
+        self.store_kind(object) == Some(Store::TempRef)
     }
 
     /// `Clear` of place `p`, whose value `v` the native clears next (al-builtins `native/values.rs`, which keeps an unused
@@ -457,13 +453,4 @@ enum Store {
     /// "CLS Arr Store" (ClearSharedCodeunitSIOwner.al:42-47): an array of temporary records, an array of RecordRef and an
     /// array of Integer, each of one dimension.
     TempArray,
-}
-
-/// Whether [`Session::store_kind`] counts a global Label or TextConst ([`ir::Slot::label`]) as a global of the store.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Labels {
-    /// Counted: a Label makes the store another shape (`ClearAll()`; 1561's stores have none).
-    Counted,
-    /// Skipped: AL code cannot assign a Label (the login check, `temp_ref_store`).
-    Skipped,
 }
