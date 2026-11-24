@@ -15,3 +15,7 @@ OC Ops Tests::OtherMembers_AssignOne	ASSUMED var-option-carried-members (corpus 
 OC Ops Tests::OtherMembers_HandOnFormat	ASSUMED var-option-carried-members (corpus PR 1569, CalleeOps_VarHop_Other `hand on var`)
 OC Ops Tests::OtherMembers_HandOnByValue	ASSUMED var-option-carried-members (corpus PR 1569, CalleeOps_VarHop_Other `hand on by value`)
 OC Ops Tests::Same_HandOnFormat_Direct	ASSUMED var-option-carried-members (corpus PR 1569, CalleeOps_VarHop_Same `hand on var`)
+OC Manual Tests::Manual_BoundInOnRun	ASSUMED var-option-carried-members (corpus PR 1569, ManualRun_*)
+OC Manual Tests::Manual_BoundInProcedure	ASSUMED var-option-carried-members (corpus PR 1569, ManualBound_*)
+OC Manual Tests::Manual_BoundByTest	ASSUMED var-option-carried-members (corpus PR 1569, ManualTestBound_*)
+OC Manual Tests::Manual_HeldBySingleInstance	ASSUMED var-option-carried-members (corpus PR 1569, ManualBound_*): bound in a procedure; the variable that holds the instance is not read

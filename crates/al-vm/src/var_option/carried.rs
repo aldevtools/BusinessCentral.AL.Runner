@@ -13,7 +13,8 @@
 //! (`hand_on_args`).
 //!
 //! The origins are marked per frame (`option_carried_of`, `Frame::option_carried`), through memberless `var` hops and a
-//! codeunit's `IntegrationEvent(true, false)` (`dispatch.rs`: a with-members origin, as `Carried::Event`). Entry points:
+//! codeunit's `IntegrationEvent(true, false)` (`dispatch.rs`: a with-members origin, as `Carried::Event`), to a static
+//! subscriber or a manual one under the measured binding (`manual_takes_carried`, OptionVarMembersBatchManual.al). Entry points:
 //! `carried_args` and `hand_on_args` (`interp.rs::finish_call`), `option_carried_of`, `take_option_carried` (`lib.rs`,
 //! the frame).
 
@@ -23,6 +24,8 @@ use al_builtins::native::Signal;
 use al_builtins::option_members::memberless;
 use al_builtins::value::{RtType, Value};
 use al_ir as ir;
+
+type Inst = std::rc::Rc<std::cell::RefCell<crate::Instance>>;
 
 /// Where the value of a memberless `var` Option parameter comes from (`option_carried_of`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -277,6 +280,29 @@ fn stmts_measured(
 }
 
 impl crate::Session {
+    /// Whether the manual subscriber running on `inst` takes the publisher's origin marks (`dispatch.rs`, the raise): its
+    /// codeunit had exactly one instance bound as the raise began (`bound_at_raise`, the manual targets' instances), and
+    /// `BindSubscription` bound it with no subscriber running (`Binding::outside_subscriber`). Corpus PR 1569,
+    /// OptionVarMembersBatchManual.al: bound in the OnRun of `Codeunit.Run` (ManualRun_* :180/:212), in a procedure
+    /// (ManualBound_* :308/:340), by the test itself (ManualTestBound_* :436/:472). No cell binds two instances at once or
+    /// binds inside a subscriber: those get no marks, and the hand-on refuses (`carried_args`).
+    pub(crate) fn manual_takes_carried(&self, inst: &Inst, bound_at_raise: &[Inst]) -> bool {
+        let object = inst.borrow().object;
+        let mut bound: Vec<*const _> = bound_at_raise
+            .iter()
+            .filter(|i| i.borrow().object == object)
+            .map(std::rc::Rc::as_ptr)
+            .collect();
+        bound.sort();
+        bound.dedup();
+        bound.len() == 1
+            && self
+                .events
+                .bindings
+                .iter()
+                .any(|b| b.outside_subscriber && b.instance.upgrade().is_some_and(|i| std::rc::Rc::ptr_eq(&i, inst)))
+    }
+
     /// The marks `finish_call` or `raise_to_subscribers` left for the frame of a routine with memberless `var` Option
     /// parameters (`option_carried_of`); empty for any other routine.
     pub(crate) fn take_option_carried(&mut self, wanted: bool) -> Vec<Carried> {

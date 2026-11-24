@@ -254,6 +254,7 @@ mod user_gaps_round_duration;
 mod var_attribute_refusals;
 mod var_global_alias;
 mod var_option_carried;
+mod var_option_carried_manual;
 mod var_option_heard_publisher;
 mod var_option_member_lists;
 mod var_option_probe_1439;

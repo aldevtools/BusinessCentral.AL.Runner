@@ -52,6 +52,9 @@ pub(crate) struct EventCall<'a> {
 /// One manual subscription: a codeunit instance whose manual subscribers receive events.
 pub(crate) struct Binding {
     pub instance: Weak<RefCell<Instance>>,
+    /// Bound by `BindSubscription` with no subscriber running: the only bindings whose manual subscribers take a carried
+    /// Option's origin (`var_option::carried::manual_takes_carried`).
+    pub outside_subscriber: bool,
 }
 
 /// The error of a failed `BindSubscription` statement, code `EventBinding`.
@@ -301,6 +304,16 @@ impl Session {
         let trials = std::mem::take(&mut self.events.trial.picked);
         let targets = targets?;
         let subscribers = targets.len();
+        // The bound instances the raise reaches, per manual subscriber codeunit, as it begins (`manual_takes_carried`).
+        let bound_at_raise: Vec<Inst> = if carried.is_empty() {
+            Vec::new()
+        } else {
+            targets
+                .iter()
+                .filter(|(s, _)| s.manual)
+                .map(|(_, i)| i.clone())
+                .collect()
+        };
         for (s, inst) in targets {
             // A manual instance unbound since the raise began. One that unbound itself in an earlier method of this raise
             // is not called again (events/ProbeEventSubscriberOrder.al:253
@@ -374,10 +387,11 @@ impl Session {
                     .map(|m| m.and_then(|j| lens.get(j).copied().flatten()))
                     .collect();
             }
-            // A static subscriber of a codeunit takes the publisher's origin marks (`var_option::option_carried_of`).
+            // A subscriber of a codeunit takes the publisher's origin marks (`var_option::option_carried_of`): a static one, or a
+            // manual one under the measured binding (`manual_takes_carried`).
             if engine.routine_facts(s.object, s.routine).option_carries
-                && !s.manual
                 && engine.program.objects[s.object].kind == al_ir::ObjKind::Codeunit
+                && (!s.manual || self.manual_takes_carried(&inst, &bound_at_raise))
             {
                 self.events.next_option_carried = map
                     .iter()
@@ -880,6 +894,7 @@ impl Session {
             self.events.caption_context_revision += 1;
             self.events.bindings.push(Binding {
                 instance: Rc::downgrade(&inst),
+                outside_subscriber: self.events.subscriber_stack.is_empty(),
             });
             self.note_page_binding(&inst);
             self.sync_active_instances();
