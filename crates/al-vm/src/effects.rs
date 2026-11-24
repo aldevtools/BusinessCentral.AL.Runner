@@ -742,3 +742,19 @@ pub(crate) fn stmts_keep_local(body: &[Stmt], is_slot: &dyn Fn(&Place) -> bool) 
         _ => true,
     })
 }
+
+/// Whether an argument or a receiver of a call in `body` hands a place `is_slot` names on by `var`.
+pub(crate) fn passes_by_var(body: &[Stmt], is_slot: &dyn Fn(&Place) -> bool) -> bool {
+    let by_var = |a: &Arg| matches!(a, Arg::Ref(p) if is_slot(p));
+    let mut found = false;
+    al_ir::types::for_each_expr_post(body, &mut |e| match e {
+        Expr::Call { args, .. } | Expr::InterfaceCall { args, .. } | Expr::DotNet { args, .. } => {
+            found |= args.iter().any(by_var);
+        }
+        Expr::Builtin { receiver, args, .. } => {
+            found |= receiver.as_deref().is_some_and(by_var) || args.iter().any(by_var);
+        }
+        _ => {}
+    });
+    found
+}

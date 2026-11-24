@@ -25,18 +25,18 @@ pub(crate) struct SavedType {
     origin: TypeOrigin,
 }
 
-/// The statements of `routine`'s own body that save the type in a local and set it back, as `(local, position id of the
-/// save, position id of the set back)`: exactly one save and, after it, exactly one set back, each a statement of the body
+/// The statements of `routine`'s own body that save the type in a local and set it back, as `(position id of the save,
+/// position id of the set back)`: exactly one save and, after it, exactly one set back, each a statement of the body
 /// itself with its own position; the local is declared in the procedure (not a parameter or the return value) and these
 /// two statements are its only uses.
-fn save_and_set_back(routine: &Routine) -> Option<(usize, u32, u32)> {
+fn save_and_set_back(routine: &Routine) -> Option<(u32, u32)> {
     let body = routine.body.stmts();
     let ctt = |e: &Expr| matches!(e, Expr::Builtin { id, receiver: None, .. } if *id == ids::DATABASE_CURRENTTRANSACTIONTYPE_1);
     // The read, as the save assigns it: to a TransactionType local the lowering converts it to the same option.
     let read = |e: &Expr| match e {
         Expr::Convert(al_builtins::value::RtType::Option(m), x) => {
-            al_builtins::sysenum::option_members("TransactionType").is_some_and(|t| m[..] == t[..])
-                && matches!(&**x, Expr::Builtin { args, .. } if ctt(x) && args.is_empty())
+            matches!(&**x, Expr::Builtin { args, .. } if ctt(x) && args.is_empty())
+                && m[..] == al_builtins::sysenum::transaction_type_members()[..]
         }
         _ => false,
     };
@@ -50,19 +50,16 @@ fn save_and_set_back(routine: &Routine) -> Option<(usize, u32, u32)> {
     for (p, s) in placed {
         match s {
             Stmt::Assign(Place::Local(l), e) if read(e) => {
-                if save.is_some() {
+                if save.replace((*l, p)).is_some() {
                     return None;
                 }
-                save = Some((*l, p));
             }
             Stmt::Expr(e @ Expr::Builtin { args, .. }) if ctt(e) => {
                 if let [Arg::Value(Expr::Load(Place::Local(l)))] = args.as_slice()
                     && save.is_some_and(|(saved, _)| saved == *l)
+                    && set_back.replace(p).is_some()
                 {
-                    if set_back.is_some() {
-                        return None;
-                    }
-                    set_back = Some(p);
+                    return None;
                 }
             }
             _ => {}
@@ -81,17 +78,13 @@ fn save_and_set_back(routine: &Routine) -> Option<(usize, u32, u32)> {
         return None;
     }
     // The set back's argument is the one expression that reads it, and no call takes it by `var`.
-    let (mut loads, mut by_var) = (0, false);
-    let refs = |args: &[Arg]| args.iter().any(|a| matches!(a, Arg::Ref(p) if is_local(p)));
-    al_ir::types::for_each_expr_post(body, &mut |e| match e {
-        Expr::Load(p) if is_local(p) => loads += 1,
-        Expr::Builtin { receiver, args, .. } => {
-            by_var |= refs(args) || receiver.as_deref().is_some_and(|r| refs(std::slice::from_ref(r)));
+    let mut loads = 0;
+    al_ir::types::for_each_expr_post(body, &mut |e| {
+        if matches!(e, Expr::Load(p) if is_local(p)) {
+            loads += 1;
         }
-        Expr::Call { args, .. } | Expr::InterfaceCall { args, .. } | Expr::DotNet { args, .. } => by_var |= refs(args),
-        _ => {}
     });
-    (loads == 1 && !by_var).then_some((local, save, set_back))
+    (loads == 1 && !crate::effects::passes_by_var(body, &is_local)).then_some((save, set_back))
 }
 
 impl Session {
@@ -111,7 +104,7 @@ impl Session {
         if !origin.unknown {
             return None;
         }
-        let (_, save, set_back) = save_and_set_back(&self.engine.program.objects[object].routines[routine])?;
+        let (save, set_back) = save_and_set_back(&self.engine.program.objects[object].routines[routine])?;
         if save != pos {
             return None;
         }
@@ -133,6 +126,9 @@ impl Session {
     /// one the read saw, not known. Anywhere else what the set does depends on the value: refused. `None` for every
     /// other set.
     pub(crate) fn set_back_saved(&mut self, new: i32, fresh: bool) -> Option<Result<(), Signal>> {
+        if self.tx.saved_types.is_empty() {
+            return None;
+        }
         let (depth, object, routine, pos) = self.running_statement()?;
         let at = self
             .tx
