@@ -231,17 +231,14 @@ fn open_company(
             )
         })
     };
-    let key = match (check || (flags.login_replay() && raises()))
+    // No key (a value with no comparable form, a row with no byte form): the session runs its login, counted below
+    // when the login is raised.
+    let (key, no_key) = match (check || (flags.login_replay() && raises()))
         .then(|| crate::login_replay::Key::of(session, (isolation, scratch.hub), flags, skipped_installs))
     {
-        Some(Ok(key)) => Some(key),
-        // A value with no comparable form or a row with no byte form: the session runs its login, counted in the starts
-        // line.
-        Some(Err(no_key)) => {
-            crate::login_start::no_key(&engine, no_key);
-            None
-        }
-        None => None,
+        Some(Ok(key)) => (Some(key), None),
+        Some(Err(no_key)) => (None, Some(no_key)),
+        None => (None, None),
     };
     let notes_code = observed || session.notes_code_run() || crate::profiling::active();
     let perturbed = *perturb != crate::stability::Perturb::default() || scratch.clock_start.is_some();
@@ -271,6 +268,9 @@ fn open_company(
                 crate::install::test_session_company_open(lowered, session, disabled, skipped_installs, after_refusal)?;
             session.commit_transaction();
             let hits = al_builtins::assumptions::take_hit_bits();
+            if let (Some(no_key), true) = (&no_key, wrote.raised) {
+                crate::login_start::no_key(&engine, no_key);
+            }
             if let (Some(key), Some(base), true) = (key, base, wrote.raised) {
                 // The check's twin: brought to its login by the steps of `Start::open`, as the replay's target is when
                 // it takes a start (`Steps::twin`).

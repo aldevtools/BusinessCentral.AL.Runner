@@ -600,7 +600,7 @@ codeunit 77404 "RPL Tests C"
 }
 "#;
 
-const OWN_LOGIN: &str = r#"
+pub(super) const OWN_LOGIN: &str = r#"
 codeunit 77408 "RPL Own Registration"
 {
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterAssistedSetup', '', false, false)]

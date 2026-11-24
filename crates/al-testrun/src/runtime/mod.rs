@@ -467,7 +467,8 @@ impl TestResult {
 /// What the login starts of the engine did (`login_start.rs`, al-runner issue 8211), over every request it ran.
 #[derive(Debug, Clone, Default)]
 pub struct LoginReplay {
-    /// `RunOptions::login_replay_check`: the check's report lines (`login_replay.rs`); `None` without the check.
+    /// The report lines (`login_replay::report`): the check's under `RunOptions::login_replay_check`, and the starts line
+    /// with the replay alone; `None` when neither ran.
     pub report: Option<String>,
     /// How many test sessions took a login start in place of running the login.
     pub replays: u64,

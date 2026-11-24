@@ -1166,8 +1166,8 @@ fn baseline_with_value(engine: &Arc<Engine>, id: i32, v: Value) -> al_vm::Baseli
 }
 
 // A committed row that holds a value with no byte form (a SQL counter, a placeholder's size) gives no key: the
-// sessions run their logins (nothing replays), pass as before, and the starts line counts `no key: <kind>`. The stub
-// hashes the Debug text, so it gives a key, the second session takes the start and the line has no `no key`.
+// sessions run their logins (nothing replays) and pass as before. The starts line counts them in a part of its own, `no
+// key`, not among the gate's refusals, and the report prints it with the replay alone (no check line).
 #[test]
 fn a_row_with_no_byte_form_gives_no_key_and_the_session_runs_its_login() {
     use al_builtins::value::{SqlCount, SqlForm, SqlType};
@@ -1195,7 +1195,40 @@ fn a_row_with_no_byte_form_gives_no_key_and_the_session_runs_its_login() {
             assert_eq!(*o, passes(), "{what}: session {i}");
         }
         assert_eq!(starts(&engine).replayed(), 0, "{what}: no key, so no start is taken");
-        let line = starts(&engine).line().unwrap_or_default();
-        assert!(line.contains("no key: "), "{what}: the starts line counts it: {line}");
+        let line = format!(
+            "login start: 0 replayed, 0 kept (0.0 MB), 0 not imaged, 0 too large, 0 refused by the gate, 2 no key (2: \
+             no byte form: {what})"
+        );
+        assert_eq!(starts(&engine).line().as_deref(), Some(line.as_str()), "{what}");
+        assert_eq!(
+            crate::login_replay::report(&engine),
+            Some(line),
+            "{what}: the report prints it"
+        );
     }
+}
+
+// Under the check every session takes a key, also one whose login is not raised: such a session has nothing to replay,
+// so a missing key is not counted for it (the apps under test's own login alone is not raised).
+#[test]
+fn a_session_whose_login_is_not_raised_is_not_counted_as_no_key() {
+    use al_builtins::value::{SqlCount, SqlForm, SqlType};
+    let count = Value::SqlCount(SqlCount {
+        n: 3,
+        form: SqlForm::Delta,
+        ty: SqlType::BigInteger,
+    });
+    let (engine, l) = compiled_with(super::login_replay_tests::OWN_LOGIN);
+    let baseline = baseline_with_value(&engine, 99, count);
+    let check = RunOptions {
+        login_replay_check: true,
+        ..Default::default()
+    };
+    let setup = Setup {
+        baseline: Some(&baseline),
+        ..Default::default()
+    };
+    sessions_with(&engine, &l, "RPL Own Tests", 2, &check, &setup);
+    assert_eq!(starts(&engine).line(), None);
+    assert_eq!(crate::login_replay::report(&engine), None);
 }
