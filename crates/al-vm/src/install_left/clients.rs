@@ -127,6 +127,7 @@ pub(super) fn events_as_new(e: &EventState) -> bool {
         next_blob_event,
         subscriber_stack,
         next_var_lens,
+        next_var_codeunits,
         next_option_hops,
         next_hand_on_origins,
         next_option_carried,
@@ -181,6 +182,7 @@ pub(super) fn events_as_new(e: &EventState) -> bool {
         && !next_blob_event
         && subscriber_stack.is_empty()
         && next_var_lens.is_empty()
+        && next_var_codeunits.is_empty()
         && next_option_hops.is_empty()
         && next_hand_on_origins.is_empty()
         && next_option_carried.is_empty()

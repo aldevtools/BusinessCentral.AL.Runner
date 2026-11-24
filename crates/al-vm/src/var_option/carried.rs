@@ -15,7 +15,7 @@
 //! The origins are marked per frame (`option_carried_of`, `Frame::option_carried`), through memberless `var` hops and a
 //! codeunit's `IntegrationEvent(true, false)` (`dispatch.rs`: a with-members origin, as `Carried::Event`), to a static
 //! subscriber or a manual one under the measured binding (`manual_takes_carried`, OptionVarMembersBatchManual.al). Entry points:
-//! `carried_args` and `hand_on_args` (`interp.rs::finish_call`), `option_carried_of`, `take_option_carried` (`lib.rs`,
+//! `carried_args` and `hand_on_args` (`interp.rs::finish_call`), `option_carried_of`, `take_option_marks` (`lib.rs`,
 //! the frame).
 
 use al_builtins::assumptions::{Assumption, assume};
@@ -323,24 +323,25 @@ impl crate::Session {
         bound.len() == 1 && self.bindings_of(inst).any(|b| b.outside_subscriber)
     }
 
-    /// The marks `finish_call` or `raise_to_subscribers` left for the frame of a routine with memberless `var` Option
-    /// parameters (`option_carried_of`); empty for any other routine.
-    pub(crate) fn take_option_carried(&mut self, wanted: bool) -> Vec<Carried> {
-        if wanted {
-            std::mem::take(&mut self.events.next_option_carried)
+    /// The marks `finish_call` (`raise_to_subscribers` for the last) left for the frame of a routine with `var` Option
+    /// parameters, each empty for a routine without such parameters: `option_hops_of` and `hand_on_origins_of` (with members),
+    /// `option_carried_of` (memberless).
+    pub(crate) fn take_option_marks(&mut self, facts: &crate::RoutineFacts) -> (Vec<bool>, Vec<bool>, Vec<Carried>) {
+        let e = &mut self.events;
+        let (hops, origins) = if facts.option_hops {
+            (
+                std::mem::take(&mut e.next_option_hops),
+                std::mem::take(&mut e.next_hand_on_origins),
+            )
+        } else {
+            Default::default()
+        };
+        let carried = if facts.option_carries {
+            std::mem::take(&mut e.next_option_carried)
         } else {
             Vec::new()
-        }
-    }
-
-    /// The marks `finish_call` left for the frame of a routine with `var` Option parameters with members
-    /// (`hand_on_origins_of`); empty for any other routine.
-    pub(crate) fn take_hand_on_origins(&mut self, wanted: bool) -> Vec<bool> {
-        if wanted {
-            std::mem::take(&mut self.events.next_hand_on_origins)
-        } else {
-            Vec::new()
-        }
+        };
+        (hops, origins, carried)
     }
 
     /// Per parameter of `routine` of `object`, called from frame `f` with `args`: where the value of its `var` Option parameter

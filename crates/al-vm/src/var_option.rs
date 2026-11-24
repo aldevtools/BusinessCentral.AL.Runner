@@ -352,18 +352,9 @@ impl crate::Session {
         }
     }
 
-    /// The marks `finish_call` left for the frame of a routine with `var` Option parameters with members (`option_hops_of`);
-    /// empty for any other routine.
-    pub(crate) fn take_option_hops(&mut self, wanted: bool) -> Vec<bool> {
-        if wanted {
-            std::mem::take(&mut self.events.next_option_hops)
-        } else {
-            Vec::new()
-        }
-    }
-
-    /// The array `base` of an element store is, for `element_store`.
-    fn array_of(&self, base: &al_ir::Place, f: &crate::Frame) -> ArrayOf {
+    /// The array `base` of an element store is, for `element_store`; also the place a `Clear` names
+    /// (`clear_shared_codeunit`).
+    pub(crate) fn array_of(&self, base: &al_ir::Place, f: &crate::Frame) -> ArrayOf {
         let r = &self.engine.program.objects[f.object].routines[f.routine];
         match base {
             al_ir::Place::Local(s) if *s < r.params && r.by_var.get(*s) == Some(&true) => ArrayOf::VarParameter,

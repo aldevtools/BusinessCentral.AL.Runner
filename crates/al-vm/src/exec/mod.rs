@@ -669,16 +669,16 @@ impl ExecProgram {
     }
 
     /// The chunk a frame of routine `routine` of object `object` runs: the form that keeps carried lists
-    /// (`compile::compile_kept`) when `kept` (a parameter is bound to a value that carries another list or none), else the
-    /// plain one.
+    /// (`compile::compile_kept`) when `kept` holds a true (a parameter is bound to a value that carries another list or none),
+    /// else the plain one.
     pub(crate) fn frame_chunk(
         &self,
         program: &ir::Program,
         object: usize,
         routine: usize,
-        kept: bool,
+        kept: &[bool],
     ) -> Option<&Chunk> {
-        if !kept {
+        if !kept.contains(&true) {
             return self.chunk(program, object, routine);
         }
         let table = self.kept.get_or_init(|| chunk_table(program));

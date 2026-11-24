@@ -67,6 +67,7 @@ mod auto_format_writer;
 mod callstack;
 mod caught_errors;
 mod clear_all_page_ext;
+mod clear_shared_codeunit;
 mod code_storage_check;
 mod column_formatter;
 mod companies;
@@ -182,6 +183,7 @@ mod test_rows;
 mod test_runner_host;
 mod testdata;
 mod transaction_type;
+mod transaction_type_saved;
 mod transactions;
 mod translations;
 mod ui;
@@ -376,9 +378,10 @@ pub(crate) struct RoutineFacts {
     /// A `var` Option parameter declared with members, of a routine that is no publisher: a call hands it whether its argument
     /// is a variable the probes measure handing on to a publisher (`var_option::option_hops_of`, `Frame::option_hops`).
     pub option_hops: bool,
-    /// A `var` Option parameter declared without members: a call hands it whether its value comes from a measured origin
-    /// (`var_option::option_carried_of`, `Frame::option_carried`).
+    /// A `var` Option parameter declared without members (`var_option::option_carried_of`, `Frame::option_carried`).
     pub option_carries: bool,
+    /// A `var` Codeunit parameter, of a routine that is no publisher (`Frame::var_codeunits`).
+    pub var_codeunits: bool,
 }
 
 fn routine_facts(r: &ir::Routine, publisher: bool) -> RoutineFacts {
@@ -403,6 +406,8 @@ fn routine_facts(r: &ir::Routine, publisher: bool) -> RoutineFacts {
     }
     f.odd_attributes |= commits > 1 || collects > 1;
     f.var_lens = r.reads_var_max_len && !publisher;
+    f.var_codeunits = !publisher
+        && (r.locals.iter().zip(&r.by_var).take(r.params)).any(|(l, v)| *v && matches!(l.ty, RtType::Codeunit(_)));
     f.option_hops = !publisher && crate::var_option::has_var_option_param(r, false);
     f.option_carries = crate::var_option::has_var_option_param(r, true);
     f
@@ -2494,12 +2499,8 @@ impl Session {
         let r = &engine.program.objects[object].routines[routine];
         // The bytecode, if the mode asks for it. Whether a capture watches the routine is only known once its frame is
         // entered (`cap_enter_frame`); a capture watches the captured form of the bytecode.
-        // The `var` Option parameters `var_option::carried::carried_args` let a value that carries another list or none
-        // through to: bound as they are, in a frame that runs the form keeping that list (`ExecProgram::frame_chunk`).
         let carried_kept = std::mem::take(&mut self.events.next_carried_kept);
-        let chunk = engine
-            .exec
-            .frame_chunk(&engine.program, object, routine, carried_kept.contains(&true));
+        let chunk = engine.exec.frame_chunk(&engine.program, object, routine, &carried_kept);
         let mut locals = self.spare_vec(r.locals.len() + chunk.map_or(0, |c| usize::from(c.temps)));
         let passed = args.len().min(r.params);
         for (i, s) in r.locals.iter().enumerate() {
@@ -2656,9 +2657,7 @@ impl Session {
         } else {
             Vec::new()
         };
-        let option_hops = self.take_option_hops(facts.option_hops);
-        let hand_on_origins = self.take_hand_on_origins(facts.option_hops);
-        let option_carried = self.take_option_carried(facts.option_carries);
+        let (option_hops, hand_on_origins, option_carried) = self.take_option_marks(&facts);
         let mut frame = Frame {
             object,
             routine,
@@ -2669,6 +2668,7 @@ impl Session {
             option_hops,
             hand_on_origins,
             option_carried,
+            var_codeunits: self.take_var_codeunits(facts.var_codeunits),
         };
         let is_try = facts.is_try;
         // [CommitBehavior] governs the whole dynamic extent of the procedure and ends when it
@@ -2924,12 +2924,12 @@ struct Frame {
     /// Per parameter: the caller handed this `var` Option parameter with members a variable the probes measure handing on
     /// to an event publisher with a memberless subscriber (set by `finish_call`, `var_option::option_hops_of`).
     option_hops: Vec<bool>,
-    /// Per parameter: this `var` Option parameter with members was bound to a value from a binding the probe measures handing
-    /// on to a memberless `var` parameter (set by `finish_call`, `var_option::carried::hand_on_origins_of`).
+    /// Per parameter: bound to a value the probe measures handing on to a memberless one (`carried::hand_on_origins_of`).
     hand_on_origins: Vec<bool>,
-    /// Per parameter: this memberless `var` Option parameter holds a value from an origin the probe measures handing on to
-    /// a parameter with members (set by `finish_call` and `raise_to_subscribers`, `var_option::option_carried_of`).
+    /// Per parameter: a memberless `var` Option parameter's origin (`var_option::option_carried_of`, `raise_to_subscribers`).
     option_carried: Vec<crate::var_option::Carried>,
+    /// Per parameter: what a `var` Codeunit parameter got from its caller (set by `finish_call`, `clear_shared_codeunit`).
+    var_codeunits: Vec<Option<clear_shared_codeunit::VarCodeunit>>,
 }
 
 fn int(v: &Value) -> Result<i64, Signal> {
