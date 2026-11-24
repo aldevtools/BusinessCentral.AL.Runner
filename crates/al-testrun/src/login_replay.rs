@@ -923,7 +923,8 @@ pub(crate) fn report(engine: &Engine) -> Option<String> {
     })
 }
 
-/// A SHA-256 of lines, for a key field: two inputs that differ have other digests (no 64-bit hash collides them).
+/// A SHA-256 for a key field, of lines ([`digest`]) or of rows as bytes (`rows_digest.rs`): two inputs that differ have
+/// other digests (no 64-bit hash collides them).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct LinesDigest([u8; 32]);
 
@@ -1270,7 +1271,7 @@ mod tests {
     }
 
     // The maintainer's review of this check (issue 8211): the parts are a detail of `database` and `session`, never a key
-    // field of their own. A store may export a table it holds no row of; `rows` writes no line for it, so `database`
+    // field of their own. A store may export a table it holds no row of; it has no table digest, so `database`
     // does not see it, and the key is the key of the same rows without that table: no new key, no entry with an empty
     // name on the keys line. When the keys differ in other rows, the table without rows is not named among them.
     #[test]

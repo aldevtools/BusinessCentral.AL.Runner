@@ -145,7 +145,7 @@ mod tests {
     use super::*;
     use al_builtins::value::Value;
 
-    // One content gives one digest, and each row is written once, in one of the two forms (issue 8211).
+    // One content gives one digest, and each row is written as bytes once (issue 8211).
     #[test]
     fn one_content_gives_one_digest_and_writes_each_row_once() {
         let rows = |n: i32| -> Vec<al_data::Row> {

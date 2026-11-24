@@ -3399,12 +3399,11 @@ fn a_start_recorded_with_the_numbers_mark_does_not_refuse_a_later_test() {
     );
 }
 
-/// A guard (green before and after the login key hashes each row's bytes): two probe shapes of a large install base,
-/// scaled down from 50,000 install rows to 200. Both have an install codeunit
-/// that leaves a wide table; `py` also has a subscriber to the login's setup event that adds a row of its own, so its
-/// sessions' logins write and the key's rows matter; `pw` has none. Six test codeunits, one failing, in three requests of one
-/// seed (one key per codeunit).
-fn py_pw_source(login_row: bool) -> String {
+/// A guard (green before and after the login key hashes each row's bytes): an app whose install codeunit leaves a wide
+/// table of 200 rows, in two shapes. With `login_row`, a subscriber to the login's setup event adds a row of its own, so
+/// its sessions' logins are raised and write a row and the key's rows matter; without it, the login writes no row. Six
+/// test codeunits, one failing, in three requests of one seed (one key per codeunit).
+fn large_install_base_source(login_row: bool) -> String {
     let mut src = String::from(
         r#"table 50110 "Probe Wide"
 {
@@ -3459,8 +3458,8 @@ codeunit 50100 "Probe Logic" { procedure Twice(X: Integer): Integer begin exit(X
     src
 }
 
-/// Three requests of the `py`/`pw` input (`py-in.jsonl`): the six codeunits as entries, seed 1.
-fn py_pw_requests() -> Vec<Value> {
+/// Three requests of [`large_install_base_source`]: the six codeunits as entries, seed 1.
+fn large_install_base_requests() -> Vec<Value> {
     let entries: Vec<Value> = (0..6)
         .map(|i| json!({"id": format!("e{i}"), "test": format!("Codeunit501{}.", 50 + i)}))
         .collect();
@@ -3500,10 +3499,10 @@ fn check_lines(src: &str, requests: &[Value]) -> (Vec<Vec<Value>>, Vec<String>) 
 /// A guard: the same verdicts with the replay on, off (`ALRUNNER_LOGIN_REPLAY=0`) and under the check, and the check
 /// finds 0 that differ, for both shapes.
 #[test]
-fn the_py_and_pw_shapes_give_one_verdict_with_the_replay_on_off_and_under_the_check() {
-    for (shape, login_row) in [("py", true), ("pw", false)] {
-        let src = py_pw_source(login_row);
-        let requests = py_pw_requests();
+fn a_large_install_base_gives_one_verdict_with_the_replay_on_off_and_under_the_check() {
+    for (shape, login_row) in [("a login that writes a row", true), ("no login row", false)] {
+        let src = large_install_base_source(login_row);
+        let requests = large_install_base_requests();
         let on = login_app_requests(&src, &requests, &[("ALRUNNER_LOGIN_REPLAY", "1")]);
         let off = login_app_requests(&src, &requests, &[("ALRUNNER_LOGIN_REPLAY", "0")]);
         let (checked, check) = check_lines(&src, &requests);
@@ -3521,7 +3520,8 @@ fn the_py_and_pw_shapes_give_one_verdict_with_the_replay_on_off_and_under_the_ch
         }
         let failing: Vec<_> = verdicts(&off[0]).into_iter().filter(|v| v.2 != json!("pass")).collect();
         assert_eq!(failing.len(), 1, "{shape}: one failing test: {failing:?}");
-        // `pw`'s login is not raised, so it has no key and no check line (nothing to compare); `py`'s has one per request.
+        // Without the login row the login is not raised, so it has no key and no check line (nothing to compare); with it,
+        // one per request.
         let lines = if login_row { requests.len() } else { 0 };
         assert_eq!(check.len(), lines, "{shape}: check lines: {check:?}");
         for line in &check {

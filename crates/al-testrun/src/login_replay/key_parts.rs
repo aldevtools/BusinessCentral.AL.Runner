@@ -8,9 +8,10 @@
 //!   runtime writes, `session`, `single`, `counters`, ...: its first word). A session that holds a value with no
 //!   comparable form has no key (`Key::of`).
 //!
-//! A table the store exports without rows has no part and no digest ([`store_table_digests`]): `rows` writes no line
-//! for it, so the whole `database` digest does not see it either, and the keys line never names it. Whether a table has
-//! an entry is the replay's base shape (al-vm `BaseShape`), which the start's gate compares apart from the key.
+//! A table the store exports without rows has no part and no digest ([`store_table_digests`]): the key holds rows, and
+//! such an entry holds none, so the whole `database` digest does not see it either, and the keys line never names it.
+//! Whether a table has an entry is the replay's base shape (al-vm `BaseShape`), which the start's gate compares apart
+//! from the key.
 //!
 //! The parts are never compared: a key holds them as [`NotCompared`], so which keys are equal is decided by the key's
 //! fields alone (the maintainer's review of this check, issue 8211).
@@ -35,7 +36,7 @@ impl<T> Eq for NotCompared<T> {}
 /// The parts of a key (see the module comment).
 #[derive(Debug, Clone, Default)]
 pub(crate) struct KeyParts {
-    /// Per (company, table object), the digest of its committed row lines.
+    /// Per (company, table object), the digest of its committed rows (`rows_digest::table_digest`).
     database: BTreeMap<(String, u32), LinesDigest>,
     /// Per state line name, the digest of the lines of that name, in their order.
     session: BTreeMap<String, LinesDigest>,
@@ -54,11 +55,11 @@ pub(crate) fn table_digests(tables: &[al_data::memory::ExportedTable]) -> BTreeM
         .collect()
 }
 
-/// [`table_digests`] of the committed tables of `store`, each digest made once per state of its table: a table's stamp
-/// names one state of it in every store of the process (al-data `MemStore::committed_rows`), so a digest kept for a
-/// Stamp is the digest of the rows the table holds at that stamp (the rows were rendered and digested
-/// whole for every test session). A table with no stamp is digested each time. Kept per engine (`Engine::derived`).
-/// A table entry without rows has no digest, as `rows` writes no line for it (the module comment).
+/// Per (company, table object), the digest of the committed rows of each table of `store` that holds a row
+/// (`rows_digest::table_digest`), each made once per state of its table: a table's stamp names one state of it in every
+/// store of the process (al-data `MemStore::committed_rows`), so a digest kept for a stamp is the digest of the rows the
+/// table holds at that stamp, and a later session hashes only the tables that changed. A table with no stamp is hashed
+/// each time. Kept per engine (`Engine::derived`). A table entry without rows has no digest (the module comment).
 /// [`NoByteForm`] when a row holds a value with no byte form (nothing is kept for its table).
 pub(crate) fn store_table_digests(
     engine: &al_vm::Engine,
@@ -112,7 +113,7 @@ pub(crate) fn database_digest(tables: &BTreeMap<(String, u32), LinesDigest>) -> 
 }
 
 impl KeyParts {
-    /// The parts of the committed rows (per table, [`table_digests`]) and the state `state`.
+    /// The parts of the committed rows (per table, [`store_table_digests`]) and the state `state`.
     pub(crate) fn of(database: BTreeMap<(String, u32), LinesDigest>, state: &al_vm::StateLines) -> KeyParts {
         let mut by_name: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for line in &state.lines {
