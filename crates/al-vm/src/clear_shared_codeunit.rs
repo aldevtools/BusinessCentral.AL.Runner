@@ -660,18 +660,25 @@ fn measured(owner: Owner, store: Store, holding: Holding, hold: TempHold) -> boo
         // ClearAll_GlobalUsedValueParam; ClearSharedCodeunitOwnerKinds.al SICLX_ClearAll_UnusedAlias :1472,
         // SICLX_ClearAll_AliasWroteBefore :1492, ClearAll_TestGlobalCLXUnused_LocalAlias :1540,
         // ClearAll_TestGlobalCLX_LocalAliasWroteBefore :1568. No call made the instance: the Unused cells of each owner.
+        // Every holder slot, written and never, under each owner: ClearSharedCodeunitOwnerSlotsCLX.al PlainCLX_VarParam_Written
+        // :584 to :1762, SICLX_* :4819 to :5997, TGCLX_* :6482 to :10215.
         (Plain | SingleInstance | Test, Integer, Shared | SharedUncalled) => true,
         // ClearSharedCodeunitTempRef.al ClearAll_GlobalUnusedIface :382, ClearAll_GlobalUnusedValueParam :424,
         // ClearAll_GlobalWritten_NoAlias :1362; ClearSharedCodeunitSIOwner.al ClearAll_SIOwnerUnused_Alias :1411,
         // A3_Step3_ClearAllInOwner :447, ClearAll_TestGlobalUnused_LocalAlias :2058, ClearAll_TestGlobalWritten_NoAlias
         // :2207; ClearSharedCodeunitOwnerKinds.al NormalSubtypeOwner_* :470 :489 :511, TableNoOwner_* :528 :547 :569,
         // ReportOwner_* :586 :605 :627, SIValueParam_ClearAll_* :1805 :1818, TestGlobalValueParam_ClearAll_* :1854 :1888.
+        // Every holder slot, rows now and none, under each owner: ClearSharedCodeunitOwnerSlotsCLB.al PlainCLB_VarParam_Rows
+        // :1831 to :3009, NormalCLB_* :3064 to :4242, TableNoCLB_* :4297 to :5475, ReportCLB_* :5530 to :6708, SICLB_*
+        // :9765 to :10943, TGCLB_* :11428 to :15161.
         (Plain | SingleInstance | Test | Normal | TableNo | Report, TempRef, _) => true,
         // ClearSharedCodeunitSIOwner.al ArrStore_ClearAll_Alias_AliasWroteBefore :1759; ClearSharedCodeunitOwnerKinds.al
         // ArrStore_ClearAll_UnusedAlias :418, ArrStore_ClearAll_InHolder_NoAlias :439, SIArr_* :987 :1013 :1029,
         // M2_Step5_ClearAllInOwner :1241, ClearAll_TestGlobalArr* :1276 :1303 :1333. Every holder slot under the plain
         // owner, rows now and none: ClearSharedCodeunitHolderKinds.al Arr_VarParam_Rows :2090 to Arr_SetterIn_Never :2368;
-        // ClearSharedCodeunitHolderSlots.al :7263 to :8102.
+        // ClearSharedCodeunitHolderSlots.al :7263 to :8102. Under the SingleInstance and test owners:
+        // ClearSharedCodeunitOwnerSlotsArr.al SIArr_VarParam_Rows :1806 to :2488, SIArrF_* :6469 to :7004, TGArr_* :2759
+        // to :4918, TGArrF_* :7313 to :8975.
         (Plain | SingleInstance | Test, TempArray, _) => true,
         // ClearSharedCodeunitLabelStore.al LabelFirst_ClearAllInHolder_Written_NoAlias :354, and the same for Mid (:497)
         // and Last (:640).
