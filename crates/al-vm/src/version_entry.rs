@@ -96,7 +96,7 @@ impl Session {
         &self,
         table: u32,
         company: &Option<String>,
-        (version, key): (i64, Vec<Value>),
+        (version, key): (i64, Rc<[Value]>),
         how: VersionHow,
         table_written: TableWritten,
     ) -> VersionSource {
@@ -122,7 +122,7 @@ impl Session {
         rec: &Rec,
         version: Option<&Value>,
         how: [bool; 3],
-        pk: &[Value],
+        pk: &Rc<[Value]>,
     ) -> VersionEntry {
         let r = rec.borrow();
         let Some(Value::BigInteger(v)) = version else {
@@ -138,7 +138,7 @@ impl Session {
             _ => VersionHow::OtherRead,
         };
         let written = self.tx.open.table_writes.of(t.object, &r.company);
-        VersionEntry::own(self.stamp(t.object, &r.company, (*v, pk.to_vec()), how, written))
+        VersionEntry::own(self.stamp(t.object, &r.company, (*v, Rc::clone(pk)), how, written))
     }
 
     /// Stamps the version the variable's own write `how` just gave `rec`. `before`: the table's verdict before the
@@ -165,7 +165,7 @@ impl Session {
             Some(b) => b.max(TableWritten::Written),
             None => self.tx.open.table_writes.of(t.object, &company),
         };
-        let key = t.primary_key(&r.fields);
+        let key = t.primary_key_shared(&r.fields);
         r.version_entry = VersionEntry::own(self.stamp(t.object, &company, (v, key), how, written));
     }
 
@@ -337,5 +337,53 @@ impl Session {
             }
         }
         Ok(self.global_enabled(t, GlobalOp::Insert)? || self.global_enabled(t, GlobalOp::Modify)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use al_builtins::value::Value;
+
+    /// A load stamps the key of the row it read: the stamp and the record's position share the one key the load built
+    /// (the read buffer's own key may move later; the stamp keeps the key at the load).
+    #[test]
+    fn a_load_stamps_the_key_it_built_for_the_position() {
+        const SRC: &str = "table 50100 Row { fields { field(1; Code; Code[10]) { } } keys { key(PK; Code) { } } }
+            codeunit 50100 Keeper { var R: Record Row; }";
+        let (ws, l) = al_sema::lower::compile(
+            vec![al_sema::workspace::AppSource {
+                id: "a".into(),
+                name: "a".into(),
+                dependencies: vec![],
+                files: vec![("f.al".into(), SRC.into())],
+            }],
+            &Default::default(),
+        );
+        assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+        let engine = crate::Engine::new(l.program, Vec::new());
+        let at = engine.program.objects.iter().position(|o| o.name == "Keeper").unwrap();
+        let mut session = crate::Session::new(engine);
+        let Value::Record(rec) = session.codeunit_instance(at).borrow().globals[0].clone() else {
+            panic!("a record")
+        };
+        let t = session.table(&rec).expect("the table");
+        let mut row = rec.borrow().fields.to_vec();
+        row[t.keys[0][0]] = Value::Code("A".into());
+        let v = t
+            .fields
+            .iter()
+            .position(|f| f.id == 2_000_000_005)
+            .expect("SystemRowVersion");
+        row[v] = Value::BigInteger(7);
+        session.get_load = true;
+        session.load(&rec, row).expect("the load");
+        let r = rec.borrow();
+        let stamped = r.version_entry.0.as_ref().expect("a stamp");
+        let position = r.position.as_deref().expect("a position");
+        assert!(
+            matches!(position, [Value::Code(c)] if c.as_str() == "A"),
+            "{position:?}"
+        );
+        assert_eq!(stamped.source.key.as_ptr(), position.as_ptr());
     }
 }

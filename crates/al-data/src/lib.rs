@@ -121,7 +121,17 @@ impl TableDef {
     }
 
     pub fn primary_key(&self, row: &[Value]) -> Vec<Value> {
-        self.keys[0].iter().map(|&i| row[i].clone()).collect()
+        self.primary_key_values(row).collect()
+    }
+
+    /// [`TableDef::primary_key`] in one shared allocation, for a key several holders keep (a record's position and its
+    /// row version's stamp).
+    pub fn primary_key_shared(&self, row: &[Value]) -> std::rc::Rc<[Value]> {
+        self.primary_key_values(row).collect()
+    }
+
+    fn primary_key_values<'a>(&'a self, row: &'a [Value]) -> impl ExactSizeIterator<Item = Value> + 'a {
+        self.keys[0].iter().map(|&i| row[i].clone())
     }
 }
 

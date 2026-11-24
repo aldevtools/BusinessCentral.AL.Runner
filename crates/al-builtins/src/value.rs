@@ -567,7 +567,7 @@ pub struct RecordState {
     pub field_descending: u32,
     /// The primary key of the row the record last read: `Find` still finds that row after the
     /// record moved it out of its own filter.
-    pub position: Option<Vec<Value>>,
+    pub position: Option<Rc<[Value]>>,
     /// Field positions of `SetAutoCalcFields`: calculated whenever a row is read.
     pub auto_calc: Vec<usize>,
     /// Partial records: `SetLoadFields` and which fields the buffer holds.
@@ -757,8 +757,8 @@ pub struct HeldVersion {
 pub struct VersionSource {
     /// The row version.
     pub version: i64,
-    /// The primary key of the row it is the version of.
-    pub key: Vec<Value>,
+    /// The primary key of the row it is the version of, at the read or write (the buffer's key may move since).
+    pub key: Rc<[Value]>,
     /// The read or the write that gave it.
     pub how: VersionHow,
     /// What the open transaction had written to the table then (the buffer's own write included).
@@ -2275,7 +2275,7 @@ mod version_entry_tests {
     fn own_entry(key: Vec<Value>) -> VersionEntry {
         let mut e = VersionEntry::own(VersionSource {
             version: 7,
-            key,
+            key: key.into(),
             how: VersionHow::Get,
             table_written: TableWritten::Written,
             company: Some("CRONUS".into()),
