@@ -1548,6 +1548,11 @@ impl SingleMarks {
         let one = self.globals.iter().filter(move |(i, _)| *i == g).map(|(_, m)| m);
         self.whole.iter().chain(one)
     }
+
+    /// Whether it holds no mark.
+    pub fn is_empty(&self) -> bool {
+        self.whole.is_none() && self.globals.is_empty()
+    }
 }
 
 /// The mark of a single instance whose state the run found somewhere no pin covers ([`Instance::unmeasured`]).

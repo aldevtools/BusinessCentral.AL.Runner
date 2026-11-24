@@ -299,7 +299,7 @@ pub(crate) fn raise(
         };
         match judged(list) {
             Kept::Pinned => {}
-            Kept::Assumed(a) => session.mark_single_assumed(o, a),
+            Kept::Assumed => session.mark_single_assumed(o, Assumption::PartnerLoginMemoKept),
             Kept::Refused(_) if shared() => session.mark_single_assumed(o, Assumption::LoginSubscribersSharedMemo),
             Kept::Refused(what) => refuse_reads(lowered, session, o, &what),
         }
@@ -345,6 +345,11 @@ pub(crate) fn own_step(
     }
 }
 
+/// Whether app `a` depends on app `b` (the event registry's dependency rows).
+pub(crate) fn depends(session: &Session, a: u32, b: u32) -> bool {
+    (session.engine.events.depends.get(a as usize)).is_some_and(|row| row.get(b as usize) == Some(&true))
+}
+
 /// What the changes of one codeunit in one step leave, from the verdict of each ([`kept`], in the order they ran): the
 /// last refusal, else the first assumption entry, else pinned.
 fn judged(list: Vec<Kept>) -> Kept {
@@ -352,7 +357,7 @@ fn judged(list: Vec<Kept>) -> Kept {
     for k in list {
         match (&out, k) {
             (_, r @ Kept::Refused(_)) => out = r,
-            (Kept::Pinned, a @ Kept::Assumed(_)) => out = a,
+            (Kept::Pinned, Kept::Assumed) => out = Kept::Assumed,
             _ => {}
         }
     }
@@ -364,8 +369,8 @@ fn judged(list: Vec<Kept>) -> Kept {
 enum Kept {
     /// What the subscriber left, pinned.
     Pinned,
-    /// What the subscribers left, through this assumption entry (`partner-login-memo-kept`, corpus PR 1490).
-    Assumed(Assumption),
+    /// What the subscribers left, through assumption `partner-login-memo-kept` (corpus PR 1490).
+    Assumed,
     /// Refused: the fact no probe measured, for the reason text.
     Refused(String),
 }
@@ -412,10 +417,7 @@ fn kept(
     if !lowered.dependency[memo] {
         return Kept::Refused("it is a codeunit of an app under test".into());
     }
-    let depends = |a: u32, b: u32| {
-        (session.engine.events.depends.get(a as usize)).is_some_and(|row| row.get(b as usize) == Some(&true))
-    };
-    if !(memo_app == sub_app || depends(sub_app, memo_app)) {
+    if !(memo_app == sub_app || depends(session, sub_app, memo_app)) {
         return Kept::Refused(
             "its app is neither the subscriber's app nor an app the subscriber's app depends on".into(),
         );
@@ -443,7 +445,7 @@ fn kept(
     let microsoft = (lowered.program.apps.get(memo_app as usize)).is_some_and(|a| a.publisher.trim() == "Microsoft");
     if microsoft {
         return if crate::login_memo::microsoft_login_memo(lowered, memo) {
-            Kept::Assumed(Assumption::PartnerLoginMemoKept)
+            Kept::Assumed
         } else {
             Kept::Refused("it is a codeunit of an app published by Microsoft other than 3702 and 3703".into())
         };
@@ -451,7 +453,7 @@ fn kept(
     let measured_type =
         |ty: &RtType| matches!(ty, RtType::Boolean | RtType::Integer | RtType::Text(None)) || *ty == list_of_text;
     match globals.iter().find(|g| !measured_type(&g.ty)) {
-        None => Kept::Assumed(Assumption::PartnerLoginMemoKept),
+        None => Kept::Assumed,
         Some(other) => Kept::Refused(format!(
             "its global {} is of a type other than Boolean, Integer, Text and List of [Text]",
             other.name

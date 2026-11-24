@@ -391,17 +391,7 @@ mod tests {
             codeunit 50100 Keeper { SingleInstance = true; var T: Record Row temporary; N: Integer;
               procedure Add(I: Integer) begin T.Id := I; T.Insert(); end;
               procedure Same() begin N := N; end; }";
-        let (ws, l) = al_sema::lower::compile(
-            vec![al_sema::workspace::AppSource {
-                id: "a".into(),
-                name: "a".into(),
-                dependencies: vec![],
-                files: vec![("f.al".into(), SRC.into())],
-            }],
-            &Default::default(),
-        );
-        assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
-        let engine = crate::Engine::new(l.program, Vec::new());
+        let engine = crate::single_unmeasured::test_engine(SRC);
         let at = engine.program.objects.iter().position(|o| o.name == "Keeper").unwrap();
         let routine = |name: &str| {
             engine.program.objects[at]

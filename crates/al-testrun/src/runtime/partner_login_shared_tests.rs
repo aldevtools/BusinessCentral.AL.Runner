@@ -1,17 +1,10 @@
 //! More than two partner login subscribers that change one SingleInstance codeunit (al-runner issue 8945,
 //! `login_shared_memo.rs`; assumption `login-subscribers-shared-memo`, corpus PR 1567 cells A and B).
 use super::app_outcomes_tests::{OutcomesAndHits, outcomes_and_hits_with};
+use super::partner_login_tests::{marks, sys};
 use super::*;
 
 const SHARED: &str = "login-subscribers-shared-memo";
-
-/// System Application's login code (publisher Microsoft): "System Initialization Impl." raises
-/// "System Initialization".OnAfterLogin from Company Triggers OnCompanyOpenCompleted.
-const SYS: &str = "codeunit 150 \"System Initialization\" { procedure Raise() begin OnAfterLogin(); end;
-        [IntegrationEvent(false, false, false)] procedure OnAfterLogin() begin end; }
-    codeunit 151 \"System Initialization Impl.\" {
-        [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Company Triggers\", 'OnCompanyOpenCompleted', '', false, false)]
-        local procedure InitCompany() var S: Codeunit \"System Initialization\"; begin S.Raise(); end; }";
 
 /// XApp A's memo of the State cells (LsXaLoginSubscribers.al, State One and State Many): two temporary records of its
 /// own app's tables, three Booleans, two Texts and two Integers; `extra` declares more globals. `Touch` loads the setup
@@ -63,7 +56,7 @@ fn tests(want: &str) -> String {
 fn run(a: &str, b: &str, b_deps: &[&str], c: &str, c_deps: &[&str], want: &str) -> OutcomesAndHits {
     outcomes_and_hits_with(
         &[
-            ("dep", &[], SYS),
+            ("dep", &[], &sys(false)),
             ("depa", &["dep"], a),
             ("depb", b_deps, b),
             ("depc", c_deps, c),
@@ -78,11 +71,6 @@ fn run(a: &str, b: &str, b_deps: &[&str], c: &str, c_deps: &[&str], want: &str) 
         "T",
         TestIsolation::Codeunit,
     )
-}
-
-/// The assumption entries test `test` passed through.
-fn marks<'a>(hits: &'a [(String, Vec<&'static str>)], test: &str) -> &'a [&'static str] {
-    hits.iter().find(|(n, _)| n == test).map_or(&[], |(_, h)| h.as_slice())
 }
 
 fn assert_flagged((o, hits): OutcomesAndHits) {

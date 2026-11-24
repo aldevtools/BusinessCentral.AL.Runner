@@ -63,6 +63,23 @@ pub(crate) fn read(mark: &SingleMark) -> Result<(), Signal> {
     }
 }
 
+/// The engine of one app compiled alone from `src`, for this crate's tests (al_testkit's `Session` is a second type
+/// inside the crate); panics on a diagnostic.
+#[cfg(test)]
+pub(crate) fn test_engine(src: &str) -> std::sync::Arc<crate::Engine> {
+    let (ws, l) = al_sema::lower::compile(
+        vec![al_sema::workspace::AppSource {
+            id: "a".into(),
+            name: "a".into(),
+            dependencies: vec![],
+            files: vec![("f.al".into(), src.into())],
+        }],
+        &Default::default(),
+    );
+    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+    crate::Engine::new(l.program, Vec::new())
+}
+
 #[cfg(test)]
 mod tests {
     use al_builtins::describe::Describe;
@@ -74,17 +91,7 @@ mod tests {
         const SRC: &str = "codeunit 50100 Keeper { SingleInstance = true; var A: Integer; B: Integer;
               procedure GetA(): Integer begin exit(A); end;
               procedure GetB(): Integer begin exit(B); end; }";
-        let (ws, l) = al_sema::lower::compile(
-            vec![al_sema::workspace::AppSource {
-                id: "a".into(),
-                name: "a".into(),
-                dependencies: vec![],
-                files: vec![("f.al".into(), SRC.into())],
-            }],
-            &Default::default(),
-        );
-        assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
-        let engine = crate::Engine::new(l.program, Vec::new());
+        let engine = crate::single_unmeasured::test_engine(SRC);
         let at = engine.program.objects.iter().position(|o| o.name == "Keeper").unwrap();
         let routine = |name: &str| {
             engine.program.objects[at]
@@ -121,17 +128,7 @@ mod tests {
               begin Asks += 1; end; }
             codeunit 50103 Other { SingleInstance = true; var N: Integer;
               procedure Write() var R: Record Row; begin N += 1; R.K := 1; R.Insert(); end; }";
-        let (ws, l) = al_sema::lower::compile(
-            vec![al_sema::workspace::AppSource {
-                id: "a".into(),
-                name: "a".into(),
-                dependencies: vec![],
-                files: vec![("f.al".into(), SRC.into())],
-            }],
-            &Default::default(),
-        );
-        assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
-        let engine = crate::Engine::new(l.program, Vec::new());
+        let engine = crate::single_unmeasured::test_engine(SRC);
         let at = |name: &str| engine.program.objects.iter().position(|o| o.name == name).unwrap();
         let (memo, other) = (at("Memo"), at("Other"));
         let write = engine.program.objects[other]

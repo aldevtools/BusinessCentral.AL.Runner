@@ -241,7 +241,7 @@ impl<'a> Render<'a> {
             // Counts the instance as live while it exists (`instance_cycles`): no state of the instance.
             live: _,
         } = &*inst;
-        if unmeasured.whole.is_some() || !unmeasured.globals.is_empty() {
+        if !unmeasured.is_empty() {
             return Err(format!("instance of {kind} {id}: what it holds is not measured"));
         }
         let globals = (globals.iter().enumerate())

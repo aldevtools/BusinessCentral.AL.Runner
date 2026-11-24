@@ -6,7 +6,7 @@ use super::*;
 /// System Application's login code (app `dep`, publisher Microsoft): "System Initialization Impl." raises
 /// "System Initialization".OnAfterLogin from Company Triggers OnCompanyOpenCompleted; `isolated` is the event's third
 /// IntegrationEvent argument.
-fn sys(isolated: bool) -> String {
+pub(super) fn sys(isolated: bool) -> String {
     format!(
         "codeunit 150 \"System Initialization\" {{ procedure Raise() begin OnAfterLogin(); end;
             [IntegrationEvent(false, false, {isolated})] procedure OnAfterLogin() begin end; }}
@@ -204,7 +204,7 @@ fn a_partner_subscriber_that_sets_an_unmeasured_single_instance_refuses_its_read
 const MEMO_KEPT: &str = "partner-login-memo-kept";
 
 /// The assumption entries test `test` passed through (`hits` lists only the tests that passed through one).
-fn marks<'a>(hits: &'a [(String, Vec<&'static str>)], test: &str) -> &'a [&'static str] {
+pub(super) fn marks<'a>(hits: &'a [(String, Vec<&'static str>)], test: &str) -> &'a [&'static str] {
     hits.iter().find(|(n, _)| n == test).map_or(&[], |(_, h)| h.as_slice())
 }
 

@@ -31,7 +31,8 @@ enum RtTypeKey {
 /// - the memo is of a dependency app whose publisher is known and is not Microsoft (LsXaLoginSubscribers.al:95, :142,
 ///   :226, XApp A);
 /// - no `Global Triggers` event raised in the step changed it: a load-once cache filled from the setup asks can load in
-///   Microsoft's login code in some sessions (LsLoginSubscriberTests.al:43-52, cell C), and cell E is not covered;
+///   Microsoft's login code in some sessions (LsLoginSubscriberTests.al:43-52, cell C), and what such a load keeps
+///   depends on its body (corpus PR 1571, open, LmLoginMemoShapeTests.al:30-36: F3 and F4 differ by session kind);
 /// - every changer is a partner subscriber, and their apps in run order, grouped, are one of the measured cells:
 ///   State One, three of the memo's own app (:337-354, the subscribers 98530, 98533, 98536); State Many, one each of
 ///   three apps (:356-373, A1, B1, C1); Order, six of the memo's app, then two and two (:323-335);
@@ -97,9 +98,6 @@ fn chain(
     memo_app: u32,
     runs: &[(u32, usize)],
 ) -> bool {
-    let depends = |a: u32, b: u32| {
-        (session.engine.events.depends.get(a as usize)).is_some_and(|row| row.get(b as usize) == Some(&true))
-    };
     let apps: Vec<u32> = runs.iter().map(|r| r.0).collect();
     let lowest = |app: u32| {
         (step_subscribers.iter())
@@ -109,7 +107,7 @@ fn chain(
     };
     let ids: Vec<Option<u32>> = apps.iter().map(|&a| lowest(a)).collect();
     apps.first() == Some(&memo_app)
-        && (1..apps.len()).all(|i| (0..i).all(|j| depends(apps[i], apps[j])))
+        && (1..apps.len()).all(|i| (0..i).all(|j| crate::partner_login::depends(session, apps[i], apps[j])))
         && ids.iter().all(Option::is_some)
         && ids.windows(2).all(|w| w[0] < w[1])
 }
