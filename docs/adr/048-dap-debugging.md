@@ -117,9 +117,7 @@ All references are to the `v2` branch.
 9. **Time limits.** The per-test time limit (`--test-timeout-secs`) stops counting while the test is paused.
 10. **Values the test sees do not change** when it is debugged: the test clock steps per read (ADR-045), and the
     debug form runs the same ops between hits. A test gives the same outcome with and without the debugger
-    (conformance test 9). Note (2026-11-24, al-runner issue 8971): the debug form keeps a carried Option list in its
-    stores as the kept form does (`exec/compile.rs::compile_kept`); in a frame without a carried binding such a store
-    gives what the plain form's gives, so the outcome is unchanged.
+    (conformance test 9).
 
 ## What is refused
 
