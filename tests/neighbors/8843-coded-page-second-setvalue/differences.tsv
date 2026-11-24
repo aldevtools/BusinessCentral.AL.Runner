@@ -7,13 +7,3 @@ LT NV3 Tests::NewLine_SecondSetValueWritesAnotherTableBeforeTheSave_ShowsAndSave
 LT NV3 Tests::NewLine_SecondSetValueModifiesTheRowThroughAnotherRecordAfterTheSave_ShowsTheOtherWrite	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1541, open: ListNewLineExtraCodeCodedSecondSetValue.al)
 LT NV3 Tests::NewLine_SecondSetValueSavesThenUpdateTrue_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1541, open: ListNewLineExtraCodeCodedSecondSetValue.al)
 LT NV3 Tests::NewLine_SecondSetValueOnAControlWithATableRelation_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1541, open: ListNewLineExtraCodeCodedSecondSetValue.al)
-# The later SetValue's shapes the cells refuse, and its neighbors: the page lands as the head measures, then the SetValue is
-# refused later than the base refuses the page, with the shape's flags.
-LT NV3 Tests::NewLine_SecondSetValueModifiesRecThenUpdates_ShowsAndSavesTheRow	REFUSED a SetValue on a List page with code and FactBoxes, on its new line or on the row it became, ended without
-LT NV3 Tests::NewLine_SecondSetValueUpdateTrueWithoutSave_ShowsAndSavesTheRow	REFUSED a SetValue on a List page with code and FactBoxes, on its new line or on the row it became, ended without
-LT NV3 Tests::NewLine_SecondSetValueSavesWithoutUpdate_ShowsAndSavesTheRow	REFUSED CurrPage.SaveRecord moved the page from its new line onto the row the table field inserted, and the validation ended without
-LT NV3 Tests::NewLine_SecondSetValueSetsAFilterBeforeTheUpdate_ShowsTheRow	REFUSED the page's record, its view or the table changed between CurrPage.SaveRecord
-LT NV3 Tests::NewLine_SecondSetValueWritesAnotherTableAfterTheUpdate_ShowsAndSavesTheRow	REFUSED the validation changed the page's record, the table or the store after CurrPage.Update
-LT NV4 Tests::NewLine_SecondSetValueInsertsAnotherRowOfThePageTable_ShowsAndSavesTheRow	REFUSED CurrPage.SaveRecord or Update(true) on the new line whose table field inserted it
-LT NV4 Tests::NewLine_SecondSetValueOnTheLandingControl_RunsItsCodeAgain	REFUSED a call on a List page with a CardPart FactBox, on the row its new line became
-LT NV4 Tests::NewLine_TwoSetValuesWithCode_ShowAndSaveTheRow	REFUSED a call on a List page with a CardPart FactBox, on the row its new line became
