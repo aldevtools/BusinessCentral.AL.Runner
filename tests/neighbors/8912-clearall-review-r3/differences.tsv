@@ -1,9 +1,13 @@
 # key	entry
 # Main gave the SingleInstance owner's array fresh tables and the owner's register a fresh instance; BC keeps the table
-# shared in the Copy(x, true) cells corpus PR 1564 measures. A table shared through RecordRef.SetTable(R, true) is not
-# measured: refused.
+# shared in the Copy(x, true) cells corpus PR 1564 measures (one record copied the store's own record). A table shared
+# through RecordRef.SetTable(R, true) or RecordRef.Copy(RecRef, true), by two Copy targets, or by a record that copied a
+# Copy target is not measured: refused.
 R3 ClearAll Tests::TempArraySharedByCopySingleInstance	ASSUMED clear-shared-codeunit (corpus PR 1564)
 R3 ClearAll Tests::TempArraySharedByRecordRefSingleInstance	REFUSED ClearAll of a global variable that reaches a temporary table that another record shares
+R3 ClearAll Tests::TempArraySharedByRecordRefCopySingleInstance	REFUSED ClearAll of a global variable that reaches a temporary table that another record shares
+R3 ClearAll Tests::TempArraySharedByTwoCopiesSingleInstance	REFUSED ClearAll of a global variable that reaches a temporary table that another record shares
+R3 ClearAll Tests::TempArraySharedByChainedCopySingleInstance	REFUSED ClearAll of a global variable that reaches a temporary table that another record shares
 R3 ClearAll Tests::RegisterTableSharedByCopy	ASSUMED clear-shared-codeunit (corpus PR 1564)
 R3 ClearAll Tests::RegisterTableSharedByRecordRef	REFUSED ClearAll of a global variable that reaches a temporary table that another record shares
 # Main gave the owner a fresh price store or register; BC resets it in place for every holder slot corpus PR 1564 measures

@@ -37,6 +37,52 @@ codeunit 50620 "R3 ClearAll Tests"
         Check(O.State(), 'a1=2 a2=2 cnt=0');
     end;
 
+    // Not measured: the same table shared through RecordRef.Copy(RecRef, true), a RecordRef and not Record.Copy. Refused.
+    [Test]
+    procedure TempArraySharedByRecordRefCopySingleInstance()
+    var
+        O: Codeunit "R3 Arr SI Owner";
+        Other: RecordRef;
+    begin
+        O.Reset();
+        O.Write(1);
+        O.ShareByRecordRefCopy(Other);
+        O.ClearAllGlobals();
+        Check(O.State(), 'a1=1 a2=1 cnt=0');
+        Check(Format(Other.Count()), '1');
+    end;
+
+    // Not measured: two records of the test share the table through Copy(A[1], true). Refused.
+    [Test]
+    procedure TempArraySharedByTwoCopiesSingleInstance()
+    var
+        O: Codeunit "R3 Arr SI Owner";
+        R1: Record "R3 Row" temporary;
+        R2: Record "R3 Row" temporary;
+    begin
+        O.Reset();
+        O.Write(1);
+        O.ShareByTwoCopies(R1, R2);
+        O.ClearAllGlobals();
+        Check(O.State(), 'a1=1 a2=1 cnt=0');
+        Check(Format(R2.Count()), '1');
+    end;
+
+    // Not measured: the record of the test copied a record that copied A[1] (R2.Copy(R1, true)). Refused.
+    [Test]
+    procedure TempArraySharedByChainedCopySingleInstance()
+    var
+        O: Codeunit "R3 Arr SI Owner";
+        R2: Record "R3 Row" temporary;
+    begin
+        O.Reset();
+        O.Write(1);
+        O.ShareByChainedCopy(R2);
+        O.ClearAllGlobals();
+        Check(O.State(), 'a1=1 a2=1 cnt=0');
+        Check(Format(R2.Count()), '1');
+    end;
+
     // Measured: the register's table shared with a record of the test through Copy(Rows, true) stays shared (corpus PR 1564
     // ClearSharedCodeunitSetterOwner.al :397). Runs flagged.
     [Test]

@@ -153,7 +153,7 @@ impl Session {
 
     /// The slots of the globals of `owner` (not in `keep`) that `ClearAll()` resets whose array of temporary records keeps its
     /// table (`keep_temp_table`, `interp.rs`), through assumption clear-shared-codeunit, in the cells [`measured_array`]
-    /// names: an array whose table holds rows now keeps them, one whose table a record outside shares (`Copy(x, true)`)
+    /// names: an array whose table holds rows now keeps them, one whose table a record outside shares (`Record.Copy(x, true)`)
     /// stays shared with it. Any other such array refuses: main gave it fresh tables. An array whose table holds no row
     /// and that nothing outside shares gets fresh tables, main's answer with no mark (it reads the same).
     pub(crate) fn clear_all_temp_arrays(
@@ -193,16 +193,24 @@ impl Session {
     }
 
     /// What the temporary tables `v` reaches hold, through the globals of instances of codeunits that are not
-    /// SingleInstance, through arrays and through RecordRefs: [`TempHold::SharedOther`] when a record state outside those
-    /// holds one of the tables and is not a target of `Copy(x, true)` (`TempId::sharers` counts more than the walk and the
-    /// live Copy targets reach), else [`TempHold::SharedTable`] when a Copy target outside holds one, else
-    /// [`TempHold::Rows`] when one holds a row now, else [`TempHold::Empty`]. A table written and later emptied holds no
-    /// row. Each instance is walked once, so a cycle of instances ends.
+    /// SingleInstance, through arrays and through RecordRefs: [`TempHold::SharedOther`] when record states outside those
+    /// hold one of the tables (`TempId::sharers` counts more than the walk reaches) other than as one measured share,
+    /// else [`TempHold::SharedTable`] when one holds a table as that share, else [`TempHold::Rows`] when one holds a row
+    /// now, else [`TempHold::Empty`]. The measured share: exactly one record outside holds the table, and it got it as the
+    /// target of `Record.Copy(x, true)` from a record the walk reached (`TempId::copy_targets`). A table written and later
+    /// emptied holds no row. Each instance is walked once, so a cycle of instances ends.
     fn temp_hold(&self, v: &Value) -> TempHold {
         let walk = self.temp_walk(v);
         let tables = walk.tables.values();
-        let copies_outside = |t: &TempTable| (t.copy_targets.iter()).filter(|p| !walk.records.contains(p)).count();
-        if tables.clone().any(|t| t.own + copies_outside(t) < t.sharers) {
+        let measured_share = |t: &TempTable| {
+            let outside: Vec<_> = (t.copy_targets.iter())
+                .filter(|(p, _)| !walk.records.contains(p))
+                .collect();
+            t.sharers == t.own + 1
+                && outside.len() == 1
+                && outside[0].1.is_some_and(|source| walk.records.contains(&source))
+        };
+        if tables.clone().any(|t| t.own < t.sharers && !measured_share(t)) {
             TempHold::SharedOther
         } else if tables.clone().any(|t| t.own < t.sharers) {
             TempHold::SharedTable
@@ -256,7 +264,7 @@ impl Session {
         };
         let table = walk.tables.entry(t.id()).or_insert_with(|| TempTable {
             sharers: t.sharers(),
-            copy_targets: t.copy_targets().iter().map(|r| Rc::as_ptr(r) as usize).collect(),
+            copy_targets: t.copy_targets(),
             own: 0,
             rows: self.temps.get(&t.id()).is_some_and(|s| s.holds_rows_unobserved()),
         });
@@ -607,7 +615,7 @@ impl Session {
     }
 }
 
-/// The refusal of a `ClearAll` that resets a temporary table a record outside the variable shares (`Copy(x, true)`): no
+/// The refusal of a `ClearAll` that resets a temporary table a record outside the variable shares (`Record.Copy(x, true)`): no
 /// probe measures what that record sees after.
 fn shared_table_refusal() -> Signal {
     Signal::unsupported(
@@ -629,20 +637,19 @@ fn temp_rows_refusal() -> Signal {
 /// tests/al-language/codeunits/clear-instance/ of open corpus PRs 1560, 1561 and 1564.
 fn measured(owner: Owner, store: Store, holding: Holding, hold: TempHold) -> bool {
     use {Holding::*, Owner::*, Store::*};
-    if hold == TempHold::SharedOther {
-        return false;
-    }
-    if hold == TempHold::SharedTable {
+    if hold.shared() {
         // ClearSharedCodeunitSetterOwner.al: the register's table shared with a record of the test through Copy(Rows, true)
         // stays shared, rows or none (SharedRows, SharedNever, SharedEmptied :397 :434 :470 TableNo Run, :587 :624 :660
         // TableNo procedure, :777 :814 :850 plain Run, :967 :1004 :1040 plain procedure, :1130 by-value setter).
         // ClearSharedCodeunitStoreShapes.al Price_T1SharedByCopy_SetLine :1322: the price store nothing else holds, its
         // T1 shared with a record of the test through R.Copy(T1, true), stays shared (r=2, writes cross). Measured with
         // rows only (`Session::measured_cell` reads them).
-        return matches!(
-            (owner, store, holding),
-            (Plain | TableNo, Register, Shared) | (Plain, PriceList, Written)
-        );
+        // A table shared some other way (`TempHold::SharedOther`) is not measured.
+        return hold == TempHold::SharedTable
+            && matches!(
+                (owner, store, holding),
+                (Plain | TableNo, Register, Shared) | (Plain, PriceList, Written)
+            );
     }
     match (owner, store, holding) {
         // ClearSharedCodeunit.al ClearAll_GlobalUnusedIface, ClearAll_GlobalUsedAlias_AliasWroteBefore,
@@ -686,14 +693,13 @@ fn measured(owner: Owner, store: Store, holding: Holding, hold: TempHold) -> boo
         (Plain | TableNo, Register, _) => true,
         // ClearSharedCodeunitStoreShapes.al: the price store nothing else holds, rows now, ClearAll in SetLine called
         // through an interface (Price_ViaInterface_Filled_SetLine :1206) or directly (:1225), twice (:1277).
-        (Plain, PriceList, Written) => true,
         // Shared, rows now or none: a test local through a var getter (Price_StoreAlias_SetLine :1296), and every holder
         // slot of ClearSharedCodeunitHolderKinds.al (var parameter, other and SingleInstance global, caller local, array
         // element, setters: Price_VarParam_Rows :1156 to Price_SetterIn_Never :1464) and ClearSharedCodeunitHolderSlots.al
         // (by-value parameter live, passed, deep and through setters :4215 to :4309, Variant :4338 :4373 :4390, Interface
         // local, caller local and global :4418 :4447 :4464, List and Dictionary of Interface :4492 :4527 :4555 :4590,
         // Interface parameter var and by value :4618 :4639 :4660 :4680; the same cells with no row :4702 to :5167).
-        (Plain, PriceList, Shared) => true,
+        (Plain, PriceList, Written | Shared) => true,
         // ClearSharedCodeunitTempArrayShare.al TwoDimWritten_InStore_ClearAll_NoAlias :688, ..._AliasWroteBefore :707.
         // Every holder slot, rows now and none: ClearSharedCodeunitHolderKinds.al TwoDim_VarParam_Rows :3228 to
         // TwoDim_SetterIn_Never :3511; ClearSharedCodeunitHolderSlots.al :10569 to :11216.
@@ -824,12 +830,14 @@ enum TempHold {
     Empty,
     /// A row now, and no record outside shares a table.
     Rows,
-    /// A record outside holds one of the tables, each such record a target of `Copy(x, true)`, the one way of sharing the
-    /// probes measure (ClearSharedCodeunitSetterOwner.al:87, ClearSharedCodeunitTempArrayShare.al:39,
-    /// ClearSharedCodeunitStoreShapes.al:1119, ClearSharedCodeunitCopyHolder.al:39).
+    /// One record outside holds a table, the target of `Record.Copy(x, true)` from a record the walk reached, the one share
+    /// the probes measure (ClearSharedCodeunitSetterOwner.al:87, ClearSharedCodeunitTempArrayShare.al:39,
+    /// ClearSharedCodeunitStoreShapes.al:1119, ClearSharedCodeunitCopyHolder.al:39: one target, copied from the store's
+    /// own record).
     SharedTable,
-    /// A record outside holds one of the tables some other way (a RecordRef's SetTable with ShareTable, a page's Rec, a
-    /// record state clone). Never measured: every cell refuses it.
+    /// Records outside hold a table some other way: a RecordRef's SetTable or Copy with ShareTable, a page's Rec, a record
+    /// state clone, two Copy targets, or a Copy target whose source is not the store's record. Never measured: every cell
+    /// refuses it.
     SharedOther,
 }
 
@@ -851,8 +859,9 @@ struct TempWalk {
 struct TempTable {
     /// `TempId::sharers` of the table.
     sharers: usize,
-    /// The live records that got the table as the target of `Copy(x, true)` (`TempId::copy_targets`), by address.
-    copy_targets: Vec<usize>,
+    /// The live records that got the table as the target of `Record.Copy(x, true)`, by address, each with the address of
+    /// the record it copied while that record lives (`TempId::copy_targets`).
+    copy_targets: Vec<(usize, Option<usize>)>,
     /// The record states the walk reached that hold it.
     own: usize,
     rows: bool,

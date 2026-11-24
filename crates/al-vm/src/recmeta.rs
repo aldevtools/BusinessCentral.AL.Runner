@@ -576,8 +576,7 @@ impl Session {
         t: &TableDef,
         args: &mut [Value],
     ) -> Result<Value, Signal> {
-        self.connection_check(rec)?;
-        self.crm_method_check(t, rec, method, args)?;
+        self.meta_op_checks(method, rec, t, args)?;
         match method {
             RecordOp::AddLink
             | RecordOp::DeleteLink
@@ -1054,7 +1053,7 @@ impl Session {
                 Ok(Value::Null)
             }
             RecordOp::CopyFilters => Self::copy_filters(rec, args),
-            RecordOp::Copy => self.record_copy(rec, args),
+            RecordOp::Copy => self.record_copy(rec, args, true),
             RecordOp::TestField | RecordOp::FieldError => self.test_field_or_field_error(method, rec, t, args),
             other => unsupported(format!("Record.{other}")),
         }
@@ -1062,7 +1061,22 @@ impl Session {
 
     /// `Record.Copy(Source [, ShareTable])`. Doc (Record.Copy) and corpus record/TestCopyOntoTemporaryRecord.al:66-110: the
     /// buffer, filters, key and direction come over; a temporary target keeps its own rows and stays temporary.
-    fn record_copy(&self, rec: &Rec, args: &[Value]) -> Result<Value, Signal> {
+    /// The checks every record meta method makes first (`record_meta_op`, `record_ref_copy`).
+    fn meta_op_checks(&mut self, method: RecordOp, rec: &Rec, t: &TableDef, args: &[Value]) -> Result<(), Signal> {
+        self.connection_check(rec)?;
+        self.crm_method_check(t, rec, method, args)
+    }
+
+    /// `RecordRef.Copy(From [, ShareTable])` (refs.rs): `Record.Copy`, its target not noted.
+    pub(crate) fn record_ref_copy(&mut self, rec: &Rec, t: &TableDef, args: &[Value]) -> Result<Value, Signal> {
+        self.meta_op_checks(RecordOp::Copy, rec, t, args)?;
+        self.record_copy(rec, args, false)
+    }
+
+    /// `by_record` notes a shared target for ClearAll (`TempId::note_copy_target`): its cells measure `Record.Copy(x, true)`
+    /// only (ClearSharedCodeunitTempArrayShare.al:39), so a `RecordRef.Copy` target (`record_ref_copy`) counts as another
+    /// sharer.
+    fn record_copy(&self, rec: &Rec, args: &[Value], by_record: bool) -> Result<Value, Signal> {
         let Some(Value::Record(src)) = args.first() else {
             return unsupported(format!("Copy from {}", args.first().describe()));
         };
@@ -1131,8 +1145,8 @@ impl Session {
         d.load.partial = s.load.partial;
         if share && s.temporary {
             d.temp_id = s.temp_id.clone();
-            if let Some(id) = &d.temp_id {
-                id.note_copy_target(rec);
+            if let Some(id) = d.temp_id.as_ref().filter(|_| by_record) {
+                id.note_copy_target(rec, src);
             }
         }
         Ok(Value::Null)

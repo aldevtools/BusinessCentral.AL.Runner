@@ -408,9 +408,15 @@ struct TempToken {
     /// 8070): every read of its rows and every write refuses (al-vm `Session::store_for`). Set once, never cleared: it ends with
     /// the table.
     rows_unmeasured: std::cell::Cell<bool>,
-    /// The records that got the table as the target of `Copy(x, true)` (al-vm `clear_shared_codeunit.rs` counts them apart
-    /// from the table's other sharers).
-    copy_targets: RefCell<Vec<std::rc::Weak<RefCell<RecordState>>>>,
+    /// The records that got the table as the target of `Record.Copy(x, true)`, each with the record it copied (al-vm
+    /// `clear_shared_codeunit.rs` counts them apart from the table's other sharers).
+    copy_targets: RefCell<Vec<CopyShare>>,
+}
+
+/// One `target.Copy(source, true)` of a temporary table ([`TempId::note_copy_target`]).
+struct CopyShare {
+    target: std::rc::Weak<RefCell<RecordState>>,
+    source: std::rc::Weak<RefCell<RecordState>>,
 }
 
 impl Drop for TempToken {
@@ -502,22 +508,27 @@ impl TempId {
         *self.0.empty_blob_inserter.borrow_mut() = None;
     }
 
-    /// `Copy(x, true)` gave `target` the table.
-    pub fn note_copy_target(&self, target: &Rc<RefCell<RecordState>>) {
+    /// `target.Copy(source, true)` gave `target` the table.
+    pub fn note_copy_target(&self, target: &Rc<RefCell<RecordState>>, source: &Rc<RefCell<RecordState>>) {
         let mut targets = self.0.copy_targets.borrow_mut();
-        targets.retain(|t| t.strong_count() > 0 && !std::ptr::eq(t.as_ptr(), Rc::as_ptr(target)));
-        targets.push(Rc::downgrade(target));
+        targets.retain(|c| c.target.strong_count() > 0 && !std::ptr::eq(c.target.as_ptr(), Rc::as_ptr(target)));
+        targets.push(CopyShare {
+            target: Rc::downgrade(target),
+            source: Rc::downgrade(source),
+        });
     }
 
-    /// The live records [`TempId::note_copy_target`] noted that still hold this table.
-    pub fn copy_targets(&self) -> Vec<Rc<RefCell<RecordState>>> {
+    /// The live records [`TempId::note_copy_target`] noted that still hold this table, by address, each with the address
+    /// of the record it copied while that record lives.
+    pub fn copy_targets(&self) -> Vec<(usize, Option<usize>)> {
         let id = self.0.id;
+        let holds = |r: &Rc<RefCell<RecordState>>| {
+            r.try_borrow()
+                .is_ok_and(|r| r.temp_id.as_ref().is_some_and(|t| t.id() == id))
+        };
         (self.0.copy_targets.borrow().iter())
-            .filter_map(std::rc::Weak::upgrade)
-            .filter(|r| {
-                r.try_borrow()
-                    .is_ok_and(|r| r.temp_id.as_ref().is_some_and(|t| t.id() == id))
-            })
+            .filter_map(|c| c.target.upgrade().filter(holds).map(|t| (t, c.source.upgrade())))
+            .map(|(t, s)| (Rc::as_ptr(&t) as usize, s.map(|s| Rc::as_ptr(&s) as usize)))
             .collect()
     }
 

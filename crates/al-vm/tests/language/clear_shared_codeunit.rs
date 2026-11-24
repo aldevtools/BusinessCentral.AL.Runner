@@ -501,6 +501,17 @@ codeunit 50877 TArrRefSi { SingleInstance = true; var Rows: array[2] of Record R
     procedure Run(): Text var R: Record Row temporary; RecRef: RecordRef;
     begin Rows[1].No := 1; Rows[1].Insert(); RecRef.GetTable(Rows[1]); RecRef.SetTable(R, true); Clear(RecRef);
         ClearAll(); exit(Format(R.Count())); end; }
+codeunit 50878 TArrRefCopySi { SingleInstance = true; var Rows: array[2] of Record Row temporary;
+    procedure Run(): Text var RecRef: RecordRef; Other: RecordRef;
+    begin Rows[1].No := 1; Rows[1].Insert(); RecRef.GetTable(Rows[1]); Other.Open(Database::Row, true); Other.Copy(RecRef, true);
+        Clear(RecRef); ClearAll(); exit(Format(Other.Count())); end; }
+codeunit 50879 TArrTwoCopySi { SingleInstance = true; var Rows: array[2] of Record Row temporary;
+    procedure Run(): Text var R1: Record Row temporary; R2: Record Row temporary;
+    begin Rows[1].No := 1; Rows[1].Insert(); R1.Copy(Rows[1], true); R2.Copy(Rows[1], true); ClearAll(); exit(Format(R1.Count())); end; }
+codeunit 50880 TArrChainCopySi { SingleInstance = true; var Rows: array[2] of Record Row temporary;
+    procedure Run(): Text var R2: Record Row temporary;
+    begin Rows[1].No := 1; Rows[1].Insert(); Chain(R2); ClearAll(); exit(Format(R2.Count())); end;
+    local procedure Chain(var R2: Record Row temporary) var R1: Record Row temporary; begin R1.Copy(Rows[1], true); R2.Copy(R1, true); end; }
 codeunit 50876 TArrEmptied { SingleInstance = true; var Rows: array[2] of Record Row temporary;
     procedure Run(): Text begin Rows[1].No := 1; Rows[1].Insert(); Rows[1].DeleteAll(); ClearAll(); exit(Format(Rows[2].Count())); end; }
 codeunit 50839 T {
@@ -517,6 +528,9 @@ codeunit 50839 T {
     procedure TwoDimArrWritten(): Text var C: Codeunit TArr2D; begin exit(C.Run()); end;
     procedure ArrEmptiedSi(): Text var C: Codeunit TArrEmptied; begin exit(C.Run()); end;
     procedure ArrSharedByRecordRefSi(): Text var C: Codeunit TArrRefSi; begin exit(C.Run()); end;
+    procedure ArrSharedByRecordRefCopySi(): Text var C: Codeunit TArrRefCopySi; begin exit(C.Run()); end;
+    procedure ArrSharedByTwoCopiesSi(): Text var C: Codeunit TArrTwoCopySi; begin exit(C.Run()); end;
+    procedure ArrSharedByChainedCopySi(): Text var C: Codeunit TArrChainCopySi; begin exit(C.Run()); end;
     procedure HolderSharedWroteBefore(): Text var H: Codeunit THolder; Y: Codeunit TStore; A: Text;
     begin H.Share(Y); Y.Write(3); H.ClearAllGlobals(); A := H.StateX() + '|' + Y.State(); Y.Write(5); exit(A + '|' + H.StateX()); end;
     procedure HolderSharedUnused(): Text var H: Codeunit THolder; Y: Codeunit TStore;
@@ -763,6 +777,15 @@ fn clear_all_of_a_temp_table_a_record_outside_shares() {
 fn clear_all_of_a_temp_table_shared_other_than_by_copy_refuses() {
     let (got, _) = temp_store("ArrSharedByRecordRefSi");
     assert!(got.contains("a temporary table that another record shares"), "{got}");
+    // RecordRef.Copy(x, true) is not the Record.Copy share the probes measure: refused too.
+    let (got, _) = temp_store("ArrSharedByRecordRefCopySi");
+    assert!(got.contains("a temporary table that another record shares"), "{got}");
+    // The probes measure one Copy target, copied from the store's own record: two targets, or a target that copied
+    // another target, refuse.
+    for cell in ["ArrSharedByChainedCopySi", "ArrSharedByTwoCopiesSi"] {
+        let (got, _) = temp_store(cell);
+        assert!(got.contains("a temporary table that another record shares"), "{cell}: {got}");
+    }
 }
 
 // An array of temporary records of two dimensions keeps its rows in a plain owner (ClearSharedCodeunitTempArrayShare.al

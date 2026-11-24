@@ -1,5 +1,5 @@
 // Neighbors of al-runner issue 8912, review round 3 of the ClearAll change: a temporary table that a record outside shares
-// by something other than Copy(x, true) (a RecordRef's SetTable with ShareTable), next to the Copy(x, true) share corpus PR
+// by something other than Copy(x, true) (a RecordRef's SetTable or Copy with ShareTable, two Copy targets, a Copy of a Copy target), next to the Copy(x, true) share corpus PR
 // 1564 measures. Stand-in objects, invented code.
 table 50600 "R3 Row"
 {
@@ -172,6 +172,29 @@ codeunit 50610 "R3 Arr SI Owner"
     begin
         RecRef.GetTable(A[1]);
         RecRef.SetTable(R, true);
+    end;
+
+    procedure ShareByTwoCopies(var R1: Record "R3 Row" temporary; var R2: Record "R3 Row" temporary)
+    begin
+        R1.Copy(A[1], true);
+        R2.Copy(A[1], true);
+    end;
+
+    procedure ShareByChainedCopy(var R2: Record "R3 Row" temporary)
+    var
+        R1: Record "R3 Row" temporary;
+    begin
+        R1.Copy(A[1], true);
+        R2.Copy(R1, true);
+    end;
+
+    procedure ShareByRecordRefCopy(var Other: RecordRef)
+    var
+        RecRef: RecordRef;
+    begin
+        RecRef.GetTable(A[1]);
+        Other.Open(Database::"R3 Row", true);
+        Other.Copy(RecRef, true);
     end;
 
     procedure State(): Text
