@@ -13,8 +13,9 @@
 //! (`hand_on_args`).
 //!
 //! The origins are marked per frame (`option_carried_of`, `Frame::option_carried`), through memberless `var` hops and a
-//! codeunit's `IntegrationEvent(true, false)` (`dispatch.rs`: a with-members origin, as `Carried::Event`), to a static
-//! subscriber or a manual one under the measured binding (`manual_takes_carried`, OptionVarMembersBatchManual.al). Entry points:
+//! codeunit's `IntegrationEvent(true, false)` (`dispatch.rs`: a with-members origin, as `Carried::Raised` in the subscriber's
+//! frame and `Carried::Event` after it), to a static subscriber or a manual one under the measured binding
+//! (`manual_takes_carried`, OptionVarMembersBatchManual.al). Entry points:
 //! `carried_args` and `hand_on_args` (`interp.rs::finish_call`), `option_carried_of`, `take_option_marks` (`lib.rs`,
 //! the frame).
 
@@ -24,6 +25,8 @@ use al_builtins::native::Signal;
 use al_builtins::option_members::memberless;
 use al_builtins::value::{RtType, Value};
 use al_ir as ir;
+
+use crate::capture::root_local;
 
 type Inst = std::rc::Rc<std::cell::RefCell<crate::Instance>>;
 
@@ -35,7 +38,9 @@ pub(crate) enum Carried {
     No,
     /// A `var`-section variable with members of a codeunit procedure (VarHop_Same_*, VarHop_Other_*, `RunBatch`).
     Members,
-    /// `Members` through the measured event (BatchEvent_*: the variable has the callee's list).
+    /// `Members` given to a subscriber frame by the measured raise (`dispatch.rs`, BatchEvent_*). Only that frame holds it.
+    Raised,
+    /// `Raised` handed on by the subscriber, and on through hops (BatchEvent_*: the variable has the callee's list).
     Event,
     /// A memberless `var`-section variable of a codeunit procedure (VarHop_Memberless_*, `RunQueued`).
     Memberless,
@@ -247,19 +252,20 @@ fn any_arg(e: &ir::Expr, pred: &dyn Fn(&ir::Arg) -> bool) -> bool {
     }
 }
 
-/// Whether the body of `r` never writes local `k`: no `:=` into it, no loop over it, never handed on by `var`. The text an
-/// `Evaluate` of the callee reads from a by-value parameter is then the text `carried_args` checks at the call.
+/// Whether the body of `r` never writes local `k` or a part of it (a character, `T[1]`): no `:=` into it, no loop over it,
+/// never handed on by `var`. The text an `Evaluate` of the callee reads from a by-value parameter is then the text
+/// `carried_args` checks at the call.
 fn never_written(r: &ir::Routine, k: usize) -> bool {
     let mut by_var = false;
     ir::types::for_each_expr_post(r.body.stmts(), &mut |e| {
-        by_var |= any_arg(e, &|a| matches!(a, ir::Arg::Ref(ir::Place::Local(l)) if *l == k))
+        by_var |= any_arg(e, &|a| matches!(a, ir::Arg::Ref(pl) if root_local(pl) == Some(k)))
     });
     // With nothing taken as stored, `stmts_measured` is false for any `:=` into `k` and any loop over it.
     !by_var && stmts_measured(r.body.stmts(), k, &|_| false, &|_| false, &|_| false, &mut 0)
 }
 
 /// The statement-level part of `uses`: `case p of` with choices `own_member` takes (counted in `measured`), `p := x` with `x`
-/// one `stored` takes; false for any other statement that names `p` as its target.
+/// one `stored` takes; false for any other statement whose target is `p` or a place rooted in it (`p[1] := ..`).
 fn stmts_measured(
     stmts: &[ir::Stmt],
     p: usize,
@@ -268,7 +274,7 @@ fn stmts_measured(
     stored: &dyn Fn(&ir::Expr) -> bool,
     measured: &mut usize,
 ) -> bool {
-    let target = |pl: &ir::Place| matches!(pl, ir::Place::Local(l) if *l == p);
+    let target = |pl: &ir::Place| root_local(pl) == Some(p);
     stmts.iter().all(|s| match s {
         ir::Stmt::Assign(pl, e) if target(pl) => stored(e),
         ir::Stmt::For { var, .. } | ir::Stmt::Foreach { var, .. } if target(var) => false,
@@ -385,12 +391,13 @@ impl crate::Session {
                             _ => Carried::No,
                         }
                     }
-                    // A hop with no attribute hands on its frame's mark. A subscriber hands on only the mark of the raise
-                    // (`Carried::Event`, set by `raise_to_subscribers`): called directly, it is no measured hop.
+                    // A hop with no attribute hands on its frame's mark (never `Raised`). A subscriber hands on `Event` only
+                    // when the raise gave its frame the mark (`Carried::Raised`, set by `raise_to_subscribers` alone): called
+                    // directly, even from a hop that holds `Event`, it is no measured hop.
                     ir::Arg::Ref(ir::Place::Local(s)) if *s < caller.params => {
                         match f.option_carried.get(*s).copied().unwrap_or_default() {
                             c if carried_routine(kind, caller, &[]) => c,
-                            Carried::Event if carried_routine(kind, caller, &["EventSubscriber"]) => Carried::Event,
+                            Carried::Raised if carried_routine(kind, caller, &["EventSubscriber"]) => Carried::Event,
                             _ => Carried::No,
                         }
                     }

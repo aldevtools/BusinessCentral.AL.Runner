@@ -4,6 +4,8 @@
 // - an [EventSubscriber] procedure called directly, as a plain hop;
 // - a value whose list is shorter than the callee's;
 // - the binding of a `var` parameter with members that hands the value on to a memberless one.
+// Review round 2 adds: a subscriber called directly from a hop below the raise's subscriber, and a store into one character
+// of the by-value text (by `:=` and by `var`).
 table 62520 "R1 Row"
 {
     fields
@@ -68,6 +70,23 @@ codeunit 62521 "R1 Ops"
         T := 'second';
     end;
 
+    procedure EvaluateCharStore(var Choice: Option " ",Skip,Update; T: Text): Text
+    begin
+        T[1] := 's';
+        exit(Format(Evaluate(Choice, T)) + '>' + Format(Choice) + '|' + Format(Choice, 0, 2));
+    end;
+
+    procedure EvaluateCharByVar(var Choice: Option " ",Skip,Update; T: Text): Text
+    begin
+        SetChar(T[1]);
+        exit(Format(Evaluate(Choice, T)) + '>' + Format(Choice) + '|' + Format(Choice, 0, 2));
+    end;
+
+    local procedure SetChar(var C: Char)
+    begin
+        C := 's';
+    end;
+
     procedure WriteUpdate(var Choice: Option " ",Skip,Update): Text
     var
         R: Text;
@@ -118,10 +137,32 @@ codeunit 62522 "R1 Subscribers"
     begin
         T := Ops.WriteUpdate(V);
     end;
+
+    // The raise's subscriber, then a hop with no attribute, then `HandleDirectHop` called directly.
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"R1 Events", 'OnRaise', '', false, false)]
+    local procedure HandleRaise(var V: Option)
+    begin
+        HopToDirect(V);
+    end;
+
+    local procedure HopToDirect(var V: Option)
+    begin
+        HandleDirectHop(V);
+    end;
 }
 
 codeunit 62523 "R1 Events"
 {
+    procedure Raise(var V: Option)
+    begin
+        OnRaise(V);
+    end;
+
+    [IntegrationEvent(true, false)]
+    local procedure OnRaise(var V: Option)
+    begin
+    end;
+
     [IntegrationEvent(true, false)]
     local procedure OnWithSender(var V: Option)
     begin
@@ -160,6 +201,20 @@ codeunit 62524 "R1 Ops Tests"
         Ops: Codeunit "R1 Ops";
     begin
         Ops.EvaluateReassignedStatement(V, T);
+    end;
+
+    local procedure HopCharStore(var V: Option; T: Text): Text
+    var
+        Ops: Codeunit "R1 Ops";
+    begin
+        exit(Ops.EvaluateCharStore(V, T));
+    end;
+
+    local procedure HopCharByVar(var V: Option; T: Text): Text
+    var
+        Ops: Codeunit "R1 Ops";
+    begin
+        exit(Ops.EvaluateCharByVar(V, T));
     end;
 
     local procedure HopChangedByVar(var V: Option; T: Text): Text
@@ -226,6 +281,26 @@ codeunit 62524 "R1 Ops Tests"
     begin
         Choice := Choice::Third;
         Check(HopChangedByVar(Choice, 'Nope') + '>' + Format(Choice), 'Yes>Second|1>Second');
+    end;
+
+    // Review round 2: one character of the text stored, or handed on by `var`, before Evaluate reads it ('xecond' becomes
+    // 'second', another case of a member of the value's list).
+    [Test]
+    procedure OtherMembers_EvaluateCharStore()
+    var
+        Choice: Option First,Second,Third;
+    begin
+        Choice := Choice::Third;
+        Check(HopCharStore(Choice, 'xecond') + '>' + Format(Choice), 'Yes>Second|1>Second');
+    end;
+
+    [Test]
+    procedure OtherMembers_EvaluateCharByVar()
+    var
+        Choice: Option First,Second,Third;
+    begin
+        Choice := Choice::Third;
+        Check(HopCharByVar(Choice, 'xecond') + '>' + Format(Choice), 'Yes>Second|1>Second');
     end;
 
     [Test]
@@ -369,6 +444,18 @@ codeunit 62525 "R1 Carried Tests"
         Choice := Choice::Second;
         Subs.HandleDirectHop(Choice);
         Check(Format(Choice) + '|' + Format(Choice, 0, 2), 'Third|2');
+    end;
+
+    // Review round 2: the raise's subscriber, a hop, then the subscriber procedure of another event called directly.
+    [Test]
+    procedure SubscriberCalledDirect_AfterRaise()
+    var
+        Choice: Option " ",Skip,Update;
+        Events: Codeunit "R1 Events";
+    begin
+        Choice := Choice::Skip;
+        Events.Raise(Choice);
+        Check(Format(Choice), 'Update');
     end;
 
     [Test]

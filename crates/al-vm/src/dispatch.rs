@@ -396,7 +396,7 @@ impl Session {
                 self.events.next_option_carried = map
                     .iter()
                     .map(|m| match m.and_then(|j| carried.get(j).copied()) {
-                        Some(crate::var_option::Carried::Members) => crate::var_option::Carried::Event,
+                        Some(crate::var_option::Carried::Members) => crate::var_option::Carried::Raised,
                         _ => crate::var_option::Carried::No,
                     })
                     .collect();

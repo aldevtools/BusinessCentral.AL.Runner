@@ -89,6 +89,21 @@ table 69871 CRow
         exit(Format(Evaluate(Choice, Txt)) + '>' + Format(Choice));
     end;
 
+    // One character of the by-value text stored, or handed on by `var`, before Evaluate reads it (review round 2, BLOCK 2).
+    procedure EvaluateCharStore(var Choice: Option " ",Skip,Update; Txt: Text): Text
+    begin
+        Txt[1] := 's';
+        exit(Format(Evaluate(Choice, Txt)) + '>' + Format(Choice));
+    end;
+
+    procedure EvaluateCharByVar(var Choice: Option " ",Skip,Update; Txt: Text): Text
+    var
+        Lib: Codeunit CLib;
+    begin
+        Lib.SetChar(Txt[1]);
+        exit(Format(Evaluate(Choice, Txt)) + '>' + Format(Choice));
+    end;
+
     procedure EvaluateTextSetByVar(var Choice: Option " ",Skip,Update; Txt: Text): Text
     var
         Lib: Codeunit CLib;
@@ -135,6 +150,11 @@ codeunit 69875 CLib
         T := 'b';
     end;
 
+    procedure SetChar(var C: Char)
+    begin
+        C := 's';
+    end;
+
     procedure ShowEvaluate(var V: Option): Text
     begin
         Evaluate(V, '1');
@@ -152,6 +172,16 @@ codeunit 69872 CEvents
     procedure RaiseNoSender(var V: Option; var Row: Record CRow)
     begin
         OnNoSender(V, Row);
+    end;
+
+    procedure RaiseHop(var V: Option; var Row: Record CRow)
+    begin
+        OnHop(V, Row);
+    end;
+
+    [IntegrationEvent(true, false)]
+    local procedure OnHop(var V: Option; var Row: Record CRow)
+    begin
     end;
 
     [IntegrationEvent(true, false)]
@@ -189,6 +219,18 @@ codeunit 69873 CSubs
     local procedure Pass(var V: Option; var Row: Record CRow)
     begin
         Row.Confirm(V);
+    end;
+
+    // The raise's subscriber, then a hop, then a subscriber of another event called directly (review round 2, BLOCK 1).
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::CEvents, 'OnHop', '', false, false)]
+    local procedure HopSub(var V: Option; var Row: Record CRow)
+    begin
+        HopToDirect(V, Row);
+    end;
+
+    local procedure HopToDirect(var V: Option; var Row: Record CRow)
+    begin
+        CalledDirect(V, Row);
     end;
 }
 
@@ -451,6 +493,45 @@ codeunit 69874 C
     end;
 
     // An [EventSubscriber] procedure called directly as the hop: its frame's mark did not come from the raise.
+    procedure SubscriberCalledDirectAfterRaise(): Text
+    var
+        V: Option " ",Skip,Update;
+        Events: Codeunit CEvents;
+        Row: Record CRow;
+    begin
+        V := V::Skip;
+        Events.RaiseHop(V, Row);
+        exit(Format(V));
+    end;
+
+    procedure OtherEvaluateCharStore(): Text
+    var
+        Row: Record CRow;
+        V: Option First,Second,Third;
+    begin
+        V := V::Third;
+        exit(CharStoreHop(V, Row) + '>' + Format(V));
+    end;
+
+    local procedure CharStoreHop(var V: Option; var Row: Record CRow): Text
+    begin
+        exit(Row.EvaluateCharStore(V, 'xecond'));
+    end;
+
+    procedure OtherEvaluateCharByVar(): Text
+    var
+        Row: Record CRow;
+        V: Option First,Second,Third;
+    begin
+        V := V::Third;
+        exit(CharByVarHop(V, Row) + '>' + Format(V));
+    end;
+
+    local procedure CharByVarHop(var V: Option; var Row: Record CRow): Text
+    begin
+        exit(Row.EvaluateCharByVar(V, 'xecond'));
+    end;
+
     procedure SubscriberCalledDirect(): Text
     var
         Subs: Codeunit CSubs;
@@ -724,12 +805,27 @@ fn a_text_parameter_the_callee_writes_before_evaluate_refuses() {
     refused("OtherEvaluateSetByVar");
 }
 
+// BLOCK 2 of review round 2: a store into one character of the by-value text, or that character handed on by `var`, also
+// changes the text Evaluate reads. Refused.
+#[test]
+fn a_text_parameter_the_callee_writes_one_character_of_refuses() {
+    refused("OtherEvaluateCharStore");
+    refused("OtherEvaluateCharByVar");
+}
+
 // MED 2 of review round 1: an [EventSubscriber] procedure called directly takes no mark from its frame; only the raise
 // gives a subscriber one (`Carried::Event`). Refused.
 #[test]
 fn a_subscriber_called_directly_as_a_hop_refuses() {
     refused("SubscriberCalledDirect");
     refused("SubscriberCalledDirectMemberless");
+}
+
+// BLOCK 1 of review round 2: a subscriber called directly from a hop that holds the raise's mark passes on no mark; only the
+// frame the raise gave its mark (`Carried::Raised`) does. Refused.
+#[test]
+fn a_subscriber_called_directly_after_the_raise_refuses() {
+    refused("SubscriberCalledDirectAfterRaise");
 }
 
 // MED 3 of review round 1: a value whose list is shorter than the callee's; only a longer one is measured (VarHop_Other_*:
