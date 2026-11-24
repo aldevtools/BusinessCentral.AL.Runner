@@ -74,7 +74,9 @@ codeunit 423 "Change Log Management"
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'OnDatabaseInsert', '', false, false)]
     local procedure DatabaseInsert(RecRef: RecordRef)
     begin
-        Load();
+        // Only the partner table's insert (60930): the test runner's own writes do not reach the cache.
+        if RecRef.Number = 60930 then
+            Load();
     end;
 }
 
@@ -94,6 +96,8 @@ codeunit 6153 "API Webhook Notification Mgt."
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'OnDatabaseInsert', '', false, false)]
     local procedure DatabaseInsert(RecRef: RecordRef)
     begin
+        if RecRef.Number <> 60930 then
+            exit;
         if UseCachedApiSubscriptionEnabled then
             exit;
         CachedApiSubscriptionEnabled := true;

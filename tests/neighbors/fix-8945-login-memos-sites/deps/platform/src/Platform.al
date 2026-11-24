@@ -74,7 +74,9 @@ codeunit 423 "Change Log Management"
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'GetDatabaseTableTriggerSetup', '', false, false)]
     local procedure Setup(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean)
     begin
-        Load();
+        // Only the partner table's setup ask (60970).
+        if TableId = 60970 then
+            Load();
     end;
 }
 

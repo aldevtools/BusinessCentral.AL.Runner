@@ -1,5 +1,6 @@
 // Partner app (publisher LM Partner Co): its login subscribers fill the stand-in Microsoft caches and load-once memos
-// reached through the wrapper's events. Each memo below differs from the measured one ("LMP Memo Measured", the shape of
+// reached through the wrapper's events, which pass on the partner table's setup ask and insert only (so the
+// test runner's own writes reach no memo). Each memo below differs from the measured one ("LMP Memo Measured", the shape of
 // cell L1 of corpus PR 1571) in one fact; its name says which.
 table 60930 "LMP Tab"
 {
@@ -28,13 +29,15 @@ codeunit 60933 "LMP Wrapper"
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'GetDatabaseTableTriggerSetup', '', false, false)]
     local procedure Setup(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean)
     begin
-        OnWrapperSetup(TableId);
+        if TableId = Database::"LMP Tab" then
+            OnWrapperSetup(TableId);
     end;
 
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'OnDatabaseInsert', '', false, false)]
     local procedure DatabaseInsert(RecRef: RecordRef)
     begin
-        OnWrapperWrite(RecRef.Number);
+        if RecRef.Number = Database::"LMP Tab" then
+            OnWrapperWrite(RecRef.Number);
     end;
 
     [IntegrationEvent(false, false)]

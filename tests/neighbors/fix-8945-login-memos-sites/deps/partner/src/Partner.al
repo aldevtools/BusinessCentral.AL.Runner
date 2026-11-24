@@ -25,6 +25,7 @@ codeunit 60971 "LSP Login"
     var
         P: Codeunit "Conf./Personalization Mgt.";
     begin
-        P.Fetch();
+        if RecRef.Number = Database::"LSP Tab" then
+            P.Fetch();
     end;
 }
