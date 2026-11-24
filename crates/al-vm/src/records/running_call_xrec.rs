@@ -30,7 +30,7 @@
 //! whose reads refuse, also in the triggers of a Validate it calls (`BeforeImage`), and in a
 //! procedure the shared one calls on Rec (`shared_xrec_of_own_procedure`).
 
-use super::nested_validate::{ProcXrec, ValidateRun, ValidateSite};
+use super::nested_validate::{ProcXrec, ValidateRun, ValidateSite, XREC_OF_RUNNING_CALL};
 use crate::records::Rec;
 use crate::{Frame, Session};
 use al_builtins::assumptions::{self, Assumption};
@@ -77,6 +77,10 @@ impl Session {
     /// - Else, and when no call on the record runs: a plain call (record/PWTableGlobals.al:196-260 XRecPlainProc_*).
     pub(super) fn running_call_xrec(&mut self, object: usize, rc: &Rec, f: &Frame) -> ProcXrec {
         let table = rc.borrow().table as usize;
+        // A table extension's insert or delete trigger runs on the record: its xRec is not measured, nor is the procedure's.
+        if let Some(mark) = self.ext_trigger_xrec_mark(table, rc) {
+            return ProcXrec::PlainUnpinned(mark);
+        }
         if self.table_or_its_extension(f.object, table) {
             let Some(x) = self.shared_xrec_of_own_procedure(rc, f) else {
                 return ProcXrec::Plain;
@@ -85,7 +89,7 @@ impl Session {
             return if Self::same_values(&x.borrow().fields, &blank) {
                 ProcXrec::Plain
             } else {
-                ProcXrec::PlainUnpinned
+                ProcXrec::PlainUnpinned(XREC_OF_RUNNING_CALL)
             };
         }
         let blank = self.initial_fields(table);
@@ -108,7 +112,7 @@ impl Session {
                 ProcXrec::Shared(x)
             };
         }
-        ProcXrec::PlainUnpinned
+        ProcXrec::PlainUnpinned(XREC_OF_RUNNING_CALL)
     }
 
     /// The xRec of the procedure in frame `f`, of the table or of one of its table extensions, when it runs on `rc` with an xRec

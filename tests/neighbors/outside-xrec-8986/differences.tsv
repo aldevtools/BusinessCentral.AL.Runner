@@ -1,0 +1,28 @@
+# key	entry
+# xRec of a table extension's insert and delete triggers: not measured (al-runner issue 8986); every read refuses.
+NX Refused Tests::Reporter_ExtOnAfterInsert_AfterValidate	REFUSED xRec in a table extension's insert or delete trigger
+NX Refused Tests::ExtOnAfterInsert_PlainAssign	REFUSED xRec in a table extension's insert or delete trigger
+NX Refused Tests::ExtOnAfterInsert_LocalProcedure	REFUSED xRec in a table extension's insert or delete trigger
+NX Refused Tests::ExtOnAfterInsert_ExtProcedureOnRec	REFUSED xRec in a table extension's insert or delete trigger
+NX Refused Tests::ExtOnAfterInsert_BaseProcedureOnRec	REFUSED xRec in a table extension's insert or delete trigger
+NX Refused Tests::ExtOnAfterInsert_CodeunitVarRecCallsBaseProcedure	REFUSED xRec in a table extension's insert or delete trigger
+NX Refused Tests::ExtOnAfterInsert_XRecByValueToProcedure	REFUSED xRec in a table extension's insert or delete trigger
+NX Refused Tests::ExtOnAfterInsert_XRecKeptInSingleInstance	REFUSED an assignment from a record: xRec in a table extension's insert or delete trigger
+NX Refused Tests::ExtOnAfterInsert_XRecKeptInVariant	REFUSED an assignment from a record: xRec in a table extension's insert or delete trigger
+NX Refused Tests::ExtOnAfterInsert_XRecCopy	REFUSED Record.Copy() from a record: xRec in a table extension's insert or delete trigger
+NX Refused Tests::ExtOnAfterInsert_XRecTransferFields	REFUSED Record.TransferFields() from a record: xRec in a table extension's insert or delete trigger
+NX Refused Tests::ExtOnAfterInsert_XRecRecordRef	REFUSED RecordRef.GetTable of a record: xRec in a table extension's insert or delete trigger
+NX Refused Tests::ExtOnAfterInsert_XRecFormat	REFUSED Format of a record: xRec in a table extension's insert or delete trigger
+NX Refused Tests::ExtOnAfterInsert_XRecGetFilters	REFUSED xRec in a table extension's insert or delete trigger
+NX Refused Tests::ExtOnAfterInsert_XRecFieldWriteOnly	REFUSED xRec in a table extension's insert or delete trigger
+NX Refused Tests::ExtOnAfterInsert_XRecAssignedFromRecThenRead	REFUSED xRec in a table extension's insert or delete trigger
+NX Refused Tests::ExtOnAfterInsert_RecordRefInsertTrue	REFUSED xRec in a table extension's insert or delete trigger
+NX Refused Tests::ExtOnAfterInsert_TemporaryRecord	REFUSED xRec in a table extension's insert or delete trigger
+NX Refused Tests::ExtOnBeforeInsert_AfterValidate	REFUSED xRec in a table extension's insert or delete trigger
+NX Refused Tests::ExtOnInsert_AfterValidate	REFUSED xRec in a table extension's insert or delete trigger
+NX Refused Tests::ExtOnInsert_LocalProcedure	REFUSED xRec in a table extension's insert or delete trigger
+NX Refused Tests::ExtOnBeforeDelete_AfterGet	REFUSED xRec in a table extension's insert or delete trigger
+NX Refused Tests::ExtOnDelete_AfterGet	REFUSED xRec in a table extension's insert or delete trigger
+NX Refused Tests::ExtOnAfterDelete_AfterGet	REFUSED xRec in a table extension's insert or delete trigger
+NX Page Tests::ExtOnAfterInsert_TestPageNew	REFUSED xRec in a table extension's insert or delete trigger
+NX Duplicate Tests::ExtOnAfterInsert_DuplicateKeyStatement	REFUSED xRec in a table extension's insert or delete trigger

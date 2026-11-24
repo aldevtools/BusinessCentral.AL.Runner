@@ -458,12 +458,12 @@ impl Session {
                 if run {
                     // The extension's triggers bracket the base table's own (tableextensiontrigger/
                     // TestTableExtensionTableTriggers_Tests.al); Insert(false) runs none of them.
-                    self.run_ext_trigger(&t, "OnBeforeInsert", rec, insert_xrec.as_ref())?;
+                    self.run_ext_trigger_unmeasured_xrec(&t, "OnBeforeInsert", rec)?;
                     if let Some(tr) = self.table_trigger(&t, "OnInsert") {
                         self.run_trigger(t.object as usize, tr, rec, insert_xrec.as_ref())?;
                     }
                     self.document_service_insert(&t, rec)?;
-                    self.run_ext_trigger(&t, "OnInsert", rec, insert_xrec.as_ref())?;
+                    self.run_ext_trigger_unmeasured_xrec(&t, "OnInsert", rec)?;
                 }
                 // The SystemId the OnBeforeInsertEvent subscribers and the insert triggers left in the buffer.
                 let mut set_by_code = id_slot.map(|i| rec.borrow().fields[i].clone());
@@ -654,7 +654,7 @@ impl Session {
                             self.user_after_insert(&t, rec)?;
                         }
                         if run {
-                            self.run_ext_trigger(&t, "OnAfterInsert", rec, None)?;
+                            self.run_ext_trigger_unmeasured_xrec(&t, "OnAfterInsert", rec)?;
                         }
                         self.table_event(&t, "onafterinsertevent", rec, None, run, None)?;
                         Ok(Value::Boolean(true))
@@ -719,7 +719,7 @@ impl Session {
                             // DK_AfterEvent_InsertFalse, DK_ExtAfterTrigger_Statement, DK_AfterEvent_ReadInsideSubscriber;
                             // events/binding-senders/DbtEvents.al:347 Insert_DuplicateKey).
                             if run {
-                                self.run_ext_trigger(&t, "OnAfterInsert", rec, None)?;
+                                self.run_ext_trigger_unmeasured_xrec(&t, "OnAfterInsert", rec)?;
                             }
                             self.table_event(&t, "onafterinsertevent", rec, None, run, None)?;
                             return Ok(Value::Boolean(true));

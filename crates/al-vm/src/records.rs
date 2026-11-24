@@ -38,9 +38,11 @@ mod sql_range;
 mod sql_range_code;
 pub(crate) use insert_buffer::{DeferredInsert, InsertKind, InsertQueue};
 use sql_range::InsertShape;
+mod ext_trigger_xrec;
 mod nested_validate;
 mod running_call_xrec;
 mod validate_event_xrec;
+pub(crate) use ext_trigger_xrec::XREC_OF_EXT_INSERT_DELETE_TRIGGER;
 pub(crate) use nested_validate::{BeforeImage, ProcXrec, ValidateRun, ValidateSite, XREC_OF_RUNNING_CALL};
 pub(crate) use running_call_xrec::{XREC_CHANGED_UNDER_NESTED_VALIDATE, XrecView};
 pub(crate) use validate_event_xrec::ValidateEvent;
@@ -92,12 +94,13 @@ pub(crate) const HELD_PART_REC: &str =
 pub(crate) const HELD_PART_XREC: &str = "xRec of a part of a page the test client closed is not measured there";
 
 /// A field write on a record whose buffer is `why`: on Rec of a held part it runs and marks the assumption (not measured); on
-/// its xRec it refuses. Every other buffer writes as before.
+/// its xRec, and on xRec of a table extension's insert or delete trigger (`ext_trigger_xrec.rs`), it refuses. Every other
+/// buffer writes as before.
 pub(crate) fn held_part_field_write(why: &str) -> Result<(), Signal> {
     if why == HELD_PART_REC {
         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::HeldPagePartAfterTestPageClose);
-    } else if why == HELD_PART_XREC {
-        return Err(Signal::unsupported(HELD_PART_XREC));
+    } else if why == HELD_PART_XREC || why == XREC_OF_EXT_INSERT_DELETE_TRIGGER {
+        return Err(Signal::unsupported(why));
     }
     Ok(())
 }
@@ -137,6 +140,7 @@ pub(crate) fn copy_refused_mark(rec: &Rec) -> Option<&'static str> {
             || *w == XP_BUFFER_AFTER_EXPORT
             || *w == al_builtins::stream_cleared::UNCREATED_IMPORT_BUFFER
             || *w == XREC_OF_RUNNING_CALL
+            || *w == XREC_OF_EXT_INSERT_DELETE_TRIGGER
     })
 }
 
@@ -1164,12 +1168,12 @@ impl Session {
         }
         self.table_event(t, "onbeforedeleteevent", rec, None, run, None)?;
         if run {
-            let x = Self::xrec_handle(rec, rec.borrow().fields.to_vec());
-            self.run_ext_trigger(t, "OnBeforeDelete", rec, Some(&x))?;
+            self.run_ext_trigger_unmeasured_xrec(t, "OnBeforeDelete", rec)?;
             if let Some(tr) = self.table_trigger(t, "OnDelete") {
+                let x = Self::xrec_handle(rec, rec.borrow().fields.to_vec());
                 self.run_trigger(t.object as usize, tr, rec, Some(&x))?;
             }
-            self.run_ext_trigger(t, "OnDelete", rec, Some(&x))?;
+            self.run_ext_trigger_unmeasured_xrec(t, "OnDelete", rec)?;
         }
         self.global_trigger(t, GlobalOp::Delete, rec, None)?;
         let user_row = self.is_user_row(t, rec.borrow().temporary);
@@ -1257,8 +1261,7 @@ impl Session {
                     self.user_after_delete(t, rec)?;
                 }
                 if run {
-                    let x = Self::xrec_handle(rec, rec.borrow().fields.to_vec());
-                    self.run_ext_trigger(t, "OnAfterDelete", rec, Some(&x))?;
+                    self.run_ext_trigger_unmeasured_xrec(t, "OnAfterDelete", rec)?;
                 }
                 self.table_event(t, "onafterdeleteevent", rec, None, run, None)?;
                 Ok(Value::Boolean(true))

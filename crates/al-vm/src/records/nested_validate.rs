@@ -44,8 +44,9 @@ pub(crate) enum ProcXrec {
     SharedReadOnly(Rec),
     /// The blank xRec of a plain call (`enter_record`).
     Plain,
-    /// The blank xRec of a plain call, marked [`XREC_OF_RUNNING_CALL`].
-    PlainUnpinned,
+    /// The blank xRec of a plain call, marked with this `RecordState::unpinned_buffer` reason ([`XREC_OF_RUNNING_CALL`], or
+    /// `ext_trigger_xrec.rs` `XREC_OF_EXT_INSERT_DELETE_TRIGGER`).
+    PlainUnpinned(&'static str),
 }
 
 /// The call site of a Validate of a record field. Each caller names its own (`Session::validate_at`); a Validate that names none
