@@ -378,3 +378,210 @@ codeunit 97683 "LT TVS Neighbor Drop Tests"
         Expect('stored', 'X2/,B/,C/,');
     end;
 }
+
+// The review of #8905 at 01:31Z, on page 97672 (page 97720 of TreeValidateFilterRefresh.al): over rows A (G0), B (G1) and C
+// (G1) indented 0, 0, 2, Last then a SetValue on Value first, which no cell over those rows makes (main's path); and three
+// shapes the runner cannot tell from a cell before the OnValidate runs, which it refuses: over the same rows the SetValue on
+// Name with Update(true), Expand(false) after Last then the SetValue on Name with Update(true), and after a cell that keeps
+// the row (A and B in G1, C in G2, indented 0, 1, 1) a SetValue on Value without First.
+codeunit 97684 "LT TVS Neighbor Path Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        Assert: Codeunit Assert;
+        Log: Codeunit "LT TVS Log";
+        Seen: Dictionary of [Text, Text];
+
+    local procedure Initialize(UpdateKind: Integer)
+    var
+        Line: Record "LT TVS Line";
+    begin
+        Line.DeleteAll();
+        Commit();
+        Log.Setup(1, UpdateKind);
+        Clear(Seen);
+    end;
+
+    local procedure AddLine(GroupCode: Code[10]; EntryNo: Integer; Name: Text[30]; Indentation: Integer)
+    var
+        Line: Record "LT TVS Line";
+    begin
+        Line."Group Code" := GroupCode;
+        Line."Entry No." := EntryNo;
+        Line.Name := Name;
+        Line.Indentation := Indentation;
+        Line.Insert();
+    end;
+
+    local procedure StoredLines(): Text
+    var
+        Line: Record "LT TVS Line";
+        Result: Text;
+    begin
+        if Line.FindSet() then
+            repeat
+                Result += Line.Name + '/' + Line.Value + ',';
+            until Line.Next() = 0;
+        exit(Result);
+    end;
+
+    local procedure Note(What: Text; Actual: Text)
+    begin
+        Seen.Set(What, Actual);
+    end;
+
+    local procedure Expect(What: Text; Expected: Text)
+    begin
+        Assert.AreEqual(Expected, Seen.Get(What), What);
+    end;
+
+    [TryFunction]
+    local procedure TrySetName(var Lines: TestPage "LT TVS Tree"; NewName: Text)
+    begin
+        Lines.Name.SetValue(NewName);
+    end;
+
+    [TryFunction]
+    local procedure TrySetValue(var Lines: TestPage "LT TVS Tree"; NewValue: Text)
+    begin
+        Lines.Value.SetValue(NewValue);
+    end;
+
+    local procedure Outcome(Ok: Boolean): Text
+    begin
+        if Ok then
+            exit('none');
+        exit(GetLastErrorCode() + ': ' + GetLastErrorText());
+    end;
+
+    // From the row the page stands on: the SetValue (on Name, or on Value), its error or none, the log, the rows stored, then
+    // (without an error) First, the walk and Close.
+    local procedure SetAndWalk(var Lines: TestPage "LT TVS Tree"; OnValue: Boolean)
+    var
+        Walk: Text;
+    begin
+        Note('at', Lines.Name.Value() + ':' + Log.Take());
+        ClearLastError();
+        if OnValue then
+            Note('error', Outcome(TrySetValue(Lines, 'V2')))
+        else
+            Note('error', Outcome(TrySetName(Lines, 'X2')));
+        Note('set', Log.Take());
+        Note('stored1', StoredLines());
+        if Seen.Get('error') = 'none' then begin
+            Lines.First();
+            repeat
+                Walk += Lines.Name.Value() + ',';
+            until not Lines.Next();
+            Log.Take();
+            Lines.Close();
+            Note('close', Log.Take());
+        end else
+            Note('close', '-');
+        Note('walk', Walk);
+        Note('stored', StoredLines());
+    end;
+
+    local procedure AddRows002()
+    begin
+        AddLine('G0', 1, 'A', 0);
+        AddLine('G1', 2, 'B', 0);
+        AddLine('G1', 3, 'C', 2);
+        Commit();
+    end;
+
+    // Rows 0, 0, 2: Last, then the SetValue on Value first (its OnValidate calls Update(false)).
+    [Test]
+    procedure Rows002_LastThenValueFirst()
+    var
+        Lines: TestPage "LT TVS Tree";
+    begin
+        Initialize(1);
+        AddRows002();
+        Lines.OpenEdit();
+        Lines.Last();
+        SetAndWalk(Lines, true);
+        Expect('at', 'B:P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('error', 'none');
+        Expect('set', 'P.AGR(B);P.AGR(B);P.AGR(C);P.AGR(B);P.AGR(A);');
+        Expect('stored1', 'A/,B/V2,C/,');
+        Expect('walk', 'A,B,');
+        Expect('close', 'P.AGR(B);');
+        Expect('stored', 'A/,B/V2,C/,');
+    end;
+
+    // Rows 0, 0, 2: Last, then the SetValue on Name, SetRange on G1 with Update(true).
+    [Test]
+    procedure Rows002_LastNameUpdateTrue()
+    var
+        Lines: TestPage "LT TVS Tree";
+    begin
+        Initialize(2);
+        AddRows002();
+        Lines.OpenEdit();
+        Lines.Last();
+        SetAndWalk(Lines, false);
+        Expect('at', 'B:P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('error', 'none');
+        Expect('set', 'P.AGR(B);P.V(X2);P.AGR(X2);P.AGR(C);P.AGR(X2);');
+        Expect('stored1', 'A/,X2/,C/,');
+        Expect('walk', 'X2,');
+        Expect('close', '');
+        Expect('stored', 'A/,X2/,C/,');
+    end;
+
+    // The tree's rows: Last, Expand(false), then the SetValue on Name, SetRange on G1 with Update(true).
+    [Test]
+    procedure ExpandFalse_NameUpdateTrue()
+    var
+        Lines: TestPage "LT TVS Tree";
+    begin
+        Initialize(2);
+        AddLine('G0', 1, 'A', 0);
+        AddLine('G1', 2, 'B', 0);
+        AddLine('G1', 3, 'C', 1);
+        Commit();
+        Lines.OpenEdit();
+        Lines.Last();
+        Lines.Expand(false);
+        SetAndWalk(Lines, false);
+        Expect('at', 'B:P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('error', 'none');
+        Expect('set', 'P.AGR(B);P.V(X2);P.AGR(X2);P.AGR(C);P.AGR(X2);');
+        Expect('stored1', 'A/,X2/,C/,');
+        Expect('walk', 'X2,');
+        Expect('close', '');
+        Expect('stored', 'A/,X2/,C/,');
+    end;
+
+    // Rows 0, 1, 1 (A and B in G1, C in G2): Last, the SetValue on Name that keeps the row (Update(false)), then a SetValue on
+    // Value without First, and Close.
+    [Test]
+    procedure KeepCell_ThenValueWithoutFirst()
+    var
+        Lines: TestPage "LT TVS Tree";
+    begin
+        Initialize(1);
+        AddLine('G1', 1, 'A', 0);
+        AddLine('G1', 2, 'B', 1);
+        AddLine('G2', 3, 'C', 1);
+        Commit();
+        Lines.OpenEdit();
+        Lines.Last();
+        Note('at', Lines.Name.Value() + ':' + Log.Take());
+        Lines.Name.SetValue('X2');
+        Note('setname', Log.Take());
+        Lines.Value.SetValue('V2');
+        Note('setvalue', Lines.Name.Value() + ':' + Log.Take());
+        Lines.Close();
+        Note('close', Log.Take());
+        Note('stored', StoredLines());
+        Expect('at', 'A:P.AGR(A);P.AGR(B);P.AGR(C);P.AGR(A);');
+        Expect('setname', 'P.V(X2);P.AGR(X2);P.AGR(B);P.AGR(X2);');
+        Expect('setvalue', 'X2:P.AGR(X2);P.AGR(B);P.AGR(X2);');
+        Expect('close', '');
+        Expect('stored', 'X2/V2,B/,C/,');
+    end;
+}

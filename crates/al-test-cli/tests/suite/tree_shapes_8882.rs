@@ -54,3 +54,21 @@ fn neighbors_keep_mains_path() {
         .collect();
     assert!(drop.len() == 3 && bad.is_empty(), "{drop:#?}");
 }
+
+/// The review of 01:31Z (`LT TVS Neighbor Path Tests`, each measured on BC): over rows 0, 0, 2, Last then a SetValue on Value
+/// first is a call no cell over those rows makes next, so the rule does not start and the page keeps main's path. The SetValue
+/// on Name with Update(true) over those rows, the same after Last and Expand(false), and a SetValue on Value without First
+/// after a cell that kept the row are told from a cell only once the OnValidate ran: the rule started, and they refuse.
+#[test]
+fn calls_after_a_cells_prefix() {
+    let src = format!("{PROBE}\n{NEIGHBORS}");
+    let o = outcomes(&src, "LT TVS Neighbor Path Tests");
+    let bad: Vec<_> = o
+        .iter()
+        .filter(|(n, r, marks)| match n.as_str() {
+            "Rows002_LastThenValueFirst" => !marks.is_empty() || matches!(r, Outcome::NotRun(_)),
+            _ => !matches!(r, Outcome::NotRun(why) if why.starts_with("a call on a tree page of ")),
+        })
+        .collect();
+    assert!(o.len() == 4 && bad.is_empty(), "{o:#?}");
+}
