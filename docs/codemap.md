@@ -445,3 +445,4 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `variant_copy.rs`: A temporary record going from a Variant into a Variant. Entry: `source_of`.
 - `views.rs`: Filter and view text: SetView, GetFilters. Entry: `parse_filter_text`.
 - `xmlports/mod.rs`: XmlPort import and export (Format = Xml).
+- `xmlports/linked_view.rs`: Import of a linked element whose SourceTableView has one `const`. Entry: `xp_linked_view_entry`.
