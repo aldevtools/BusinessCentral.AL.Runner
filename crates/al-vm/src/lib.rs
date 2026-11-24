@@ -38,7 +38,7 @@ mod state;
 pub(crate) use state::*;
 mod baseline;
 mod sequence_start;
-pub use sequence_start::{DataAccess, SequenceStart};
+pub use sequence_start::{DataAccess, SequenceStart, TxPoint, TxPointKind};
 mod storage_checkpoint;
 pub use storage_checkpoint::{StorageCheckpoint, Unkept};
 mod capture;
@@ -1666,6 +1666,7 @@ impl Session {
         self.note_rollback_for_stale_rule();
         al_data::Store::rollback(&mut self.store);
         self.rollbacks += 1;
+        self.note_tx_end(false);
         self.crm_rolled_back();
         self.sql.rolled_back();
         let runner_tx = self.tx.open.runner_tx;

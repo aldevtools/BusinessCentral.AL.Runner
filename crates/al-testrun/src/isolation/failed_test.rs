@@ -21,7 +21,7 @@
 //! `failed_test_runner_measured`.
 
 use al_builtins::native::Signal;
-use al_vm::{DataAccess, SequenceStart, Session, TxModel};
+use al_vm::{DataAccess, SequenceStart, Session, TxModel, TxPoint, TxPointKind};
 
 use super::TestIsolation;
 
@@ -73,8 +73,6 @@ struct Body {
     raised: bool,
     /// The sequences when it began.
     before: SequenceStart,
-    /// [`Session::commits`] when it began and when it ended.
-    commits: (u64, u64),
     /// [`Session::data_access`] when it began and when it ended.
     access: (DataAccess, DataAccess),
 }
@@ -141,28 +139,111 @@ impl Body {
     fn measured_failure(&self) -> bool {
         self.raised && self.autocommit
     }
-
-    /// The Record calls of cells R14R and R2R of corpus PR 1468 (LastLineByRecord, SqRecordRefFail.al:118): Record.SetRange
-    /// and exactly one Record.FindLast, which did not fail, and every table read inside that FindLast. Any other Record call
-    /// (SetAutoCalcFields, LockTable, SetLoadFields, FilterGroup, a second FindLast) or no SetRange is not measured.
-    fn reads_by_find_last(&self) -> bool {
-        let delta = |count| self.delta(count);
-        let (find_last, set_range) = (delta(|a| a.find_last_calls), delta(|a| a.set_range_calls));
-        find_last == 1
-            && set_range > 0
-            && delta(|a| a.record_calls) == find_last + set_range
-            && delta(|a| a.find_last_failures) == 0
-            && delta(|a| a.find_last_store) == delta(|a| a.store)
-    }
 }
 
-/// What a failed test leaves of the sequences, as corpus PR 1465 measured it.
+/// What a failed test leaves of the sequences, as corpus PRs 1465, 1468 and 1572 measured it.
 #[derive(Debug, PartialEq, Eq)]
 enum Leaves {
     /// Every sequence stays as it is; these are the ones the failed test's rollback could have reached.
     Kept(Vec<Key>),
-    /// These sequences, the ones inserted since the codeunit's tests began, are gone.
-    Gone(Vec<Key>),
+    /// The sequences `gone` are gone, the others stay; `keys`: the ones the failed test's rollback could have reached.
+    Gone { gone: Vec<Key>, keys: Vec<Key> },
+}
+
+/// What AL code reached between two transaction ends ([`DataAccess`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Interval {
+    /// Nothing: no table, no table call, no other call counted (NumberSequence calls are not).
+    Untouched,
+    /// RecordRef.Open and RecordRef.Close alone, which read no table (PR 1468 OpenOnly, SqRecordRefFail.al:141).
+    OpenClose,
+    /// A Record call or a RecordRef table call read or wrote a table, every read and write of the store ran inside one,
+    /// and no temporary Record was called.
+    Table,
+    /// Anything else.
+    Unknown,
+}
+
+impl Interval {
+    fn of(from: &DataAccess, to: &DataAccess) -> Interval {
+        if from == to {
+            return Interval::Untouched;
+        }
+        let delta = |count: fn(&DataAccess) -> u64| count(to).saturating_sub(count(from));
+        let (store, table_store, refs) = (delta(|a| a.store), delta(|a| a.table_store), delta(|a| a.ref_calls));
+        let other = delta(|a| a.record_calls) + delta(|a| a.other_calls) + delta(|a| a.company_name_calls);
+        if store == 0 && other == 0 && refs == delta(|a| a.ref_open_close_calls) {
+            return Interval::OpenClose;
+        }
+        if table_store > 0 && store == table_store && delta(|a| a.temporary_record_calls) == 0 {
+            return Interval::Table;
+        }
+        Interval::Unknown
+    }
+
+    /// What was reached over this interval and then `next`.
+    fn then(self, next: Interval) -> Interval {
+        match (self, next) {
+            (Interval::Untouched, other) | (other, Interval::Untouched) => other,
+            (a, b) if a == b => a,
+            _ => Interval::Unknown,
+        }
+    }
+}
+
+/// How a commit outside the test method bodies (the runner's, among them its commit after a passing test) acts on the
+/// transaction of the tests. It ends it: after a passing test that wrote a row, a later test inserts a sequence and fails
+/// with no table access, and the sequence is kept (PR 1465 D1, SqCommitFail.al:758, SqReader.al:166). Whether it keeps a
+/// sequence inserted since, as an AL `Commit()` does, no cell measures, so [`fate`] reads both ways and needs one answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OutsideEnd {
+    /// As an AL `Commit()` inside a body.
+    Keeps,
+    /// It ends what was reached so far, and keeps no sequence.
+    Resets,
+}
+
+/// What the failed test's rollback (`log[failure]`) leaves of the sequence inserted before `log[at]`, inside a test method
+/// body, when the ends outside the bodies act as `outside`: `Some(true)` kept, `Some(false)` gone, `None` not measured.
+/// Only what AL code reached inside the bodies counts: the runner's own steps between them do not keep a sequence (S1R,
+/// where runner 130450's steps before the failed test commit table writes, and the sequence is gone).
+fn fate(log: &[TxPoint], at: usize, failure: usize, outside: OutsideEnd) -> Option<bool> {
+    let (mut reached, mut in_body, mut inserted) = (Interval::Untouched, false, false);
+    for (i, point) in log[..=failure].iter().enumerate() {
+        if i > 0 && in_body {
+            reached = reached.then(Interval::of(&log[i - 1].access, &point.access));
+        }
+        if i == at {
+            inserted = in_body;
+            if !inserted {
+                return None;
+            }
+        }
+        let commit = match point.kind {
+            TxPointKind::BodyStart | TxPointKind::BodyEnd => {
+                in_body = point.kind == TxPointKind::BodyStart;
+                continue;
+            }
+            TxPointKind::Commit { al } => Some(al),
+            TxPointKind::Rollback => None,
+        };
+        if inserted {
+            match (reached, commit) {
+                (Interval::Untouched, _) => {}
+                (Interval::OpenClose, None) | (Interval::Table, None) if i == failure => {
+                    return Some(reached == Interval::OpenClose);
+                }
+                (Interval::Table, Some(al)) if (in_body && al) || (!in_body && outside == OutsideEnd::Keeps) => {
+                    return Some(true);
+                }
+                (_, Some(_)) if !in_body && outside == OutsideEnd::Resets => {}
+                _ => return None,
+            }
+        }
+        reached = Interval::Untouched;
+    }
+    // The failed test reached nothing since the last end.
+    inserted.then_some(true)
 }
 
 /// Runs `body`, a test method's body under TransactionModel `model`, and notes in `sequences` what it did.
@@ -177,7 +258,9 @@ pub fn noting_body<V>(
     };
     let before = session.sequences_at_start();
     let (commits, access) = (session.commits, session.data_access());
+    session.note_body(true);
     let out = body(session);
+    session.note_body(false);
     let autocommit = model == TxModel::AutoCommit;
     sequences.committed |= session.commits > commits;
     sequences.autocommit_inserts &= autocommit || session.sequences_inserted_since(&before).is_empty();
@@ -185,7 +268,6 @@ pub fn noting_body<V>(
         autocommit,
         raised: matches!(out, Err(Signal::Error(_))),
         before,
-        commits: (commits, session.commits),
         access: (access, session.data_access()),
     });
     out
@@ -193,7 +275,8 @@ pub fn noting_body<V>(
 
 impl CodeunitSequences {
     /// The sequences now, as the codeunit's tests begin; `measured`: [`failed_test_runner_measured`].
-    pub fn begin(session: &Session, measured: bool) -> CodeunitSequences {
+    pub fn begin(session: &mut Session, measured: bool) -> CodeunitSequences {
+        session.note_tx_ends();
         CodeunitSequences {
             start: session.sequences_at_start(),
             measured,
@@ -221,79 +304,74 @@ impl CodeunitSequences {
             .and_then(|b| self.measured_leaves(session, b));
         match measured {
             Some(Leaves::Kept(keys)) => session.assume_sequences_after_failure(&keys),
-            Some(Leaves::Gone(keys)) => {
-                session.drop_sequences_inserted_since(&self.start);
+            Some(Leaves::Gone { gone, keys }) => {
+                session.drop_sequences(&gone);
                 session.assume_sequences_after_failure(&keys);
             }
             None => self.mains_rule(session, body.map(|b| b.reached()), routine),
         }
     }
 
-    /// What corpus PR 1465 measured a failed test leaves (assumption `sequence-after-failed-test`, cells of
-    /// tests/al-language-isolation-probe/src/SqCommitFail.al asserted by SqReader.al, BC 27.5, 28.5 and 29.0, runners 61301
-    /// and 130450). Each cell has one failed test, raised by its body under AutoCommit, and no sequence an earlier failure
-    /// left, and no cell calls a temporary record in its failed test. `None`: a shape it does not measure, or one where main's
-    /// rule gives the same answer.
+    /// What corpus PRs 1465, 1468 and 1572 measured a failed test leaves (assumption `sequence-after-failed-test`, BC
+    /// 27.5, 28.5 and 29.0, runners 61301 and 130450). Each cell has one failed test, raised by its body under AutoCommit,
+    /// no sequence an earlier failure left, and no sequence inserted since the tests began that was restarted or deleted
+    /// after. `None`: a shape they do not measure, which main's rule answers.
+    ///
+    /// A commit keeps a new sequence when a table call read or wrote a table since the transaction end before it, and a
+    /// failed test's rollback takes a sequence no such commit kept back when the failed test reached a table since its
+    /// last transaction end (tests/al-language-isolation-probe/src/SqFailedSeq.al, corpus PR 1572): kept after a Record
+    /// write before the earlier test's Commit() S1T :1546, a Record write before the insert S1U :2166, the helper's
+    /// RecordRef read S1V :2232, a Record read S1X :2451 and an UpdLock read S1Y :2519, the helper's entry insert S1Z :220,
+    /// S1A :85, S1J :1118 and S1Q :1344, whatever the failed test does after its Commit() (S1B :290 a temporary Record, S1C
+    /// :360 a TestPage, S1D :446 a number taken, S1E :517 session builtins and a temporary RecordRef, S1L :587 RecordRef
+    /// calls, S1F :662 all of them, S1G :752 without a Commit(), S1H :843 and S1P :935 the Commit() in a called codeunit,
+    /// S1I :1034 and S1K :1192 after a test that inserted without a commit, S1M :1275 a trigger's IsolatedStorage call),
+    /// and in the failed test itself, inserted before its own Commit() (S2A :1612, S2B :1684, S2C :1859, S2D :1949);
+    /// gone after a Commit() with only NumberSequence calls since the last end and a failed test that wrote a table (S1R
+    /// :1411, S1S :1478, S2F :2098, and C2, C14 and the RecordRef cells of corpus PRs 1465 and 1468), after an insert
+    /// after the failed test's last Commit() (S2E :2031); kept when the failed test reached no table since its last end
+    /// (S2G :2383, C13, C3, D1-D4 of PR 1465, RecordRef.Open and Close alone R14N, R2N of PR 1468).
     fn measured_leaves(&self, session: &Session, body: &Body) -> Option<Leaves> {
-        let no_temporary_record = body.delta(|a| a.temporary_record_calls) == 0;
-        if !(self.measured && self.autocommit_inserts && body.measured_failure() && no_temporary_record) {
+        if !(self.measured && self.autocommit_inserts && body.measured_failure()) {
             return None;
         }
         let new = session.sequences_inserted_since(&self.start);
         let changed = session.unkept_sequences_since(&self.start);
         if (new.is_empty() && changed.is_empty())
             || new.iter().chain(&changed).any(|k| session.sequence_left_by_failure(k))
+            || !session.new_sequences_changed_since(&self.start).is_empty()
         {
             return None;
         }
-        let (from, to) = body.commits;
-        let in_body = |k: &Key| !body.before.holds(k);
-        let inserted_at = |k: &Key| session.sequence_inserted_at(k);
-        // The C2 and C14 shape: the failed test ran no commit, an earlier test did, and earlier tests inserted every new
-        // sequence and changed none that existed.
-        let earlier_inserts_after_a_commit =
-            from == to && self.committed && changed.is_empty() && new.iter().all(|k| body.before.holds(k));
-        match body.reached() {
-            // Kept: C13 :541 (SqReader.al:138), C3 :100 (:68) with a Commit() before the insert, C8-C11 :354-505, C15 :638,
-            // C16 :698, D1-D4 :758-912, D6 :1225 (:201) after an earlier test's Commit(); B1-B4 :963-1135 (:215-236) for a
-            // sequence that existed and that the failed test itself restarted or deleted, with or without a Commit().
-            Reached::Nothing
-                if new.iter().filter(|k| in_body(k)).all(|k| inserted_at(k) == Some(to))
-                    && body.before.unkept_since(&self.start).is_empty() =>
-            {
-                Some(Leaves::Kept([new, changed].concat()))
-            }
-            // Gone: C2 :64 (:61) and C14 :570 (:145), each inserted by an earlier test, after an earlier test's Commit(); the
-            // failed test wrote a row. Without any Commit() main's rule drops them too (C12 :510, D5 :918, D7 :1260; pinned
-            // for a Get by IsolProbeAfterRollback.Codeunit.al:72-79, :117-123). The same with RecordRef access, corpus PR
-            // 1468 (draft) SqRecordRefFail.al: a RecordRef read R14O :192, R14E :483, R2O :655 (SqRecordRefReader.al:37, :72,
-            // :93), the GetNewRecNo copy R14V :249, R2V :697 (:44, :100), a Record passed to a RecordRef parameter R14P :309,
-            // R2P :742 (:51, :107), RecordRef.Insert R14W :369, R2W :787 (:58, :114), GetNewRecNo and Record.Insert R14M
-            // :540, R2M :871 (:79, :128).
-            Reached::RecordWrites | Reached::RefReads | Reached::RefWrites if earlier_inserts_after_a_commit => {
-                Some(Leaves::Gone(new))
-            }
-            // Gone: Record.SetRange and Record.FindLast alone (LastLineByRecord :118), PR 1468 R14R :597, a row found, R2R :913,
-            // none found (SqRecordRefReader.al:86, :135).
-            Reached::RecordReads if earlier_inserts_after_a_commit && body.reads_by_find_last() => {
-                Some(Leaves::Gone(new))
-            }
-            // Kept: RecordRef.Open and Close alone, PR 1468 R14N :426, R2N :829 (SqRecordRefReader.al:65, :121).
-            Reached::RefOpenOnly if earlier_inserts_after_a_commit => Some(Leaves::Kept(new)),
-            // Kept: C1 :31 (:54), C4 :130 (:75), C5 :248 (:82, a MessageHandler's Commit()), C6 :289 (:89, a guarded
-            // Codeunit.Run), C7 :322 (:96, an isolated subscriber): the failed test wrote a row and inserted each sequence
-            // before its last commit.
-            Reached::RecordWrites
-                if from < to
-                    && changed.is_empty()
-                    && new
-                        .iter()
-                        .all(|k| in_body(k) && inserted_at(k).is_some_and(|at| at < to)) =>
-            {
-                Some(Leaves::Kept(new))
-            }
-            _ => None,
+        // B1-B4 of PR 1465 (SqCommitFail.al:963-1135, SqReader.al:215-236): a sequence that existed, restarted or deleted
+        // by the failed test itself, which reached no table, with or without a Commit(), stays as it is.
+        if !changed.is_empty() && !(body.access.0 == body.access.1 && body.before.unkept_since(&self.start).is_empty()) {
+            return None;
         }
+        let log = session.tx_log()?;
+        // The failed test's rollback: the first end after the last body.
+        let last_body = log.iter().rposition(|p| p.kind == TxPointKind::BodyEnd)?;
+        let failure = last_body + log[last_body..].iter().position(|p| p.kind != TxPointKind::BodyEnd)?;
+        if log[failure].kind != TxPointKind::Rollback {
+            return None;
+        }
+        let mut gone = Vec::new();
+        for key in &new {
+            let at = session.sequence_inserted_at(key)?;
+            match [OutsideEnd::Keeps, OutsideEnd::Resets].map(|o| fate(log, at, failure, o)) {
+                [Some(kept), other] if other == Some(kept) => {
+                    if !kept {
+                        gone.push(key.clone());
+                    }
+                }
+                _ => return None,
+            }
+        }
+        let keys = [new, changed].concat();
+        Some(match gone.is_empty() {
+            true => Leaves::Kept(keys),
+            false => Leaves::Gone { gone, keys },
+        })
     }
 
     /// Main's rule (module doc); `reached`: what the failed test's body reached, `None` when no body ran.
@@ -403,7 +481,6 @@ mod tests {
             autocommit: true,
             raised: true,
             before: SequenceStart::default(),
-            commits: (0, 0),
             access: (from, to),
         }
     }

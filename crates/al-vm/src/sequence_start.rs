@@ -63,7 +63,33 @@ pub(crate) struct Notes {
     access: DataAccess,
     /// How many table calls from AL code are running ([`Session::al_table_call`]).
     table_depth: u32,
-    inserted_at: HashMap<Key, u64>,
+    /// Where in `tx_log` each number sequence was last inserted while the log was kept.
+    inserted_at: HashMap<Key, usize>,
+    /// The next commit is the one of an AL `Commit()` statement ([`Session::al_commit`]).
+    al_commit: bool,
+    /// The transaction ends and test method bodies since [`Session::note_tx_ends`]; `None` while not noted.
+    tx_log: Option<Vec<TxPoint>>,
+}
+
+/// A point of a test codeunit's run that [`Session::note_tx_ends`] notes (al-testrun `isolation/failed_test.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TxPoint {
+    pub kind: TxPointKind,
+    /// [`Session::data_access`] then.
+    pub access: DataAccess,
+}
+
+/// What happened at a [`TxPoint`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TxPointKind {
+    /// A test method body began ([`Session::note_body`]).
+    BodyStart,
+    /// A test method body ended.
+    BodyEnd,
+    /// A transaction was committed; `al`: by an AL `Commit()` statement.
+    Commit { al: bool },
+    /// A transaction was rolled back.
+    Rollback,
 }
 
 /// The number sequences when a test codeunit's tests begin (after its OnRun), and which of them the session had
@@ -278,15 +304,86 @@ impl Session {
             .is_some_and(|o| self.of_microsoft_app(self.engine.program.objects[*o].app))
     }
 
-    /// The value of [`Session::commits`] when the sequence `key` (company, name) was last inserted.
-    pub fn sequence_inserted_at(&self, key: &Key) -> Option<u64> {
+    /// How many points [`Session::tx_log`] held when the sequence `key` (company, name) was last inserted while it was kept.
+    pub fn sequence_inserted_at(&self, key: &Key) -> Option<usize> {
         self.access_notes.inserted_at.get(key).copied()
     }
 
     /// `NumberSequence.Insert` makes the sequence `key`, and notes when ([`Session::sequence_inserted_at`]).
     pub(crate) fn insert_sequence(&mut self, key: Key, sequence: Sequence) {
-        self.access_notes.inserted_at.insert(key.clone(), self.commits);
+        if let Some(log) = &self.access_notes.tx_log {
+            self.access_notes.inserted_at.insert(key.clone(), log.len());
+        }
         self.sequences.insert(key, sequence);
+    }
+
+    /// From now on every transaction end and test method body is noted ([`Session::tx_log`]), and every
+    /// `NumberSequence.Insert`, until [`Session::stop_noting_tx_ends`].
+    pub fn note_tx_ends(&mut self) {
+        self.access_notes.tx_log = Some(Vec::new());
+        self.access_notes.inserted_at.clear();
+    }
+
+    /// Ends [`Session::note_tx_ends`].
+    pub fn stop_noting_tx_ends(&mut self) {
+        self.access_notes.tx_log = None;
+        self.access_notes.inserted_at.clear();
+    }
+
+    /// Every point noted since [`Session::note_tx_ends`], in order.
+    pub fn tx_log(&self) -> Option<&[TxPoint]> {
+        self.access_notes.tx_log.as_deref()
+    }
+
+    /// A test method body begins (`start`) or ends: noted while [`Session::note_tx_ends`] notes.
+    pub fn note_body(&mut self, start: bool) {
+        self.note_tx_point(match start {
+            true => TxPointKind::BodyStart,
+            false => TxPointKind::BodyEnd,
+        });
+    }
+
+    /// The commit of an AL `Commit()` statement.
+    pub(crate) fn al_commit(&mut self) {
+        self.access_notes.al_commit = true;
+        self.commit_transaction();
+    }
+
+    /// A transaction ended (`commit`: by a commit), noted while [`Session::note_tx_ends`] notes.
+    pub(crate) fn note_tx_end(&mut self, commit: bool) {
+        let al = std::mem::take(&mut self.access_notes.al_commit);
+        self.note_tx_point(match commit {
+            true => TxPointKind::Commit { al },
+            false => TxPointKind::Rollback,
+        });
+    }
+
+    fn note_tx_point(&mut self, kind: TxPointKind) {
+        if self.access_notes.tx_log.is_none() {
+            return;
+        }
+        let access = self.data_access();
+        if let Some(log) = &mut self.access_notes.tx_log {
+            log.push(TxPoint { kind, access });
+        }
+    }
+
+    /// The sequences `keys` (company, name) are gone, as a failed test's rollback takes their `NumberSequence.Insert` back.
+    pub fn drop_sequences(&mut self, keys: &[Key]) {
+        for key in keys {
+            self.sequences.remove(key);
+        }
+    }
+
+    /// The sequences `start` did not hold that were restarted or deleted since, or inserted while [`Session::tx_log`] was
+    /// kept and gone now, sorted.
+    pub fn new_sequences_changed_since(&self, start: &SequenceStart) -> Vec<Key> {
+        let flagged = (self.sequences_changed.keys()).filter(|k| !start.holds(k) && !start.changed.contains_key(*k));
+        let removed = (self.access_notes.inserted_at.keys()).filter(|k| !start.holds(k) && !self.sequences.contains_key(*k));
+        let mut keys: Vec<Key> = flagged.chain(removed).cloned().collect();
+        keys.sort();
+        keys.dedup();
+        keys
     }
 
     /// The number sequences now, for [`Session::drop_sequences_inserted_since`].

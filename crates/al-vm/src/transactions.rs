@@ -322,7 +322,7 @@ impl Session {
         if let Some(d) = self.tx.open.deferred_insert.take() {
             return Err(Signal::Error(Box::new(d.error)));
         }
-        self.commit_transaction();
+        self.al_commit();
         // A Commit puts LockTimeout back on (session-system/PnBRecordMisc.al:LastUsedRowVersion_AndLockTimeout
         // `lockTimeoutAfterCommit`). The timeout duration is not pinned.
         self.tx.lock_timeout = true;
@@ -1056,6 +1056,7 @@ impl Session {
         al_data::Store::commit(&mut self.store);
         self.crm_committed();
         self.commits += 1;
+        self.note_tx_end(true);
         self.sql.committed();
         self.truncate_undo.clear();
         // Rows at or below this rowversion are durable: a buffer older than one of them is stale.
