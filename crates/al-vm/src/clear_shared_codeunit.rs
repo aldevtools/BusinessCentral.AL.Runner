@@ -335,8 +335,8 @@ impl Session {
 
     /// [`Session::store_kind`], with the register and the wrapper (the stores that hold another store) only when `holder`.
     /// The store they hold is read with `holder` false: it must be one that holds none, so a codeunit that holds itself,
-    /// directly or through others, is no store and is not read again. (Read with `holder` true, such a codeunit recursed
-    /// until the stack overflowed: the store shapes of issue 8912.)
+    /// directly or through others, is no store and is not read again. Read with `holder` true, such a codeunit recursed
+    /// until the stack overflowed (issue 9022).
     fn store_kind_of(&self, object: usize, holder: bool) -> Option<Store> {
         let o = &self.engine.program.objects[object];
         if !self.plain_codeunit(object) {
