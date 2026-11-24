@@ -634,7 +634,14 @@ impl Session {
         let result = self.control_routine(st, idx, r);
         self.pages.onvalidate_pages.pop();
         let mut s = st.borrow_mut();
-        s.control_onvalidate = outer;
+        let inner = std::mem::replace(&mut s.control_onvalidate, outer);
+        s.control_failed_as_measured = matches!(result, Err(Signal::Error(_)))
+            && inner.is_some_and(|c| {
+                matches!(
+                    (c.row_version.is_some(), c.saves.as_slice()),
+                    (_, []) | (false, [crate::pages::state::CurrPageSave::SaveRecord])
+                )
+            });
         // An OnValidate that failed after its save left the new-row line runs no refresh (`ValidateStart::left_new_line`).
         if let (Err(_), Some(start)) = (&result, s.filters_before_validate.as_mut()) {
             start.left_new_line = false;
