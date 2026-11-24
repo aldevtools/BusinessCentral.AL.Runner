@@ -40,7 +40,26 @@ codeunit 50909 POtherOwner { var A: Codeunit PPlainLabel; B: Codeunit PLockedLab
     procedure PlainLabel() begin A.WriteT1(1); ClearAll(); end;
     procedure LockedLabel() begin B.WriteT1(1); ClearAll(); end;
     procedure More() begin C.WriteT1(1); ClearAll(); end; }
+interface PFace { procedure GetN(): Integer; }
+codeunit 50911 PIntStore implements PFace { var N: Integer;
+    procedure SetN(V: Integer) begin N := V; end;
+    procedure GetN(): Integer begin exit(N); end; }
+codeunit 50912 PFaceHolder { var F: Interface PFace;
+    procedure Take(NewF: Interface PFace) begin F := NewF; end;
+    procedure ClearAllHere() begin ClearAll(); end; }
+codeunit 50913 PVariantHolder { var V: Variant;
+    procedure Take(X: Codeunit PIntStore) begin V := X; end;
+    procedure ClearAllHere() begin ClearAll(); end; }
+codeunit 50914 PIntOwner { var S: Codeunit PIntStore;
+    procedure SetN(V: Integer) begin S.SetN(V); end;
+    procedure GetN(): Integer begin exit(S.GetN()); end;
+    procedure ShareFace(var H: Codeunit PFaceHolder) begin H.Take(S); end;
+    procedure ShareVariant(var H: Codeunit PVariantHolder) begin H.Take(S); end; }
 codeunit 50910 T {
+    procedure FaceHolder(): Text var O: Codeunit PIntOwner; H: Codeunit PFaceHolder;
+    begin O.SetN(7); O.ShareFace(H); H.ClearAllHere(); exit(Format(O.GetN())); end;
+    procedure VariantHolder(): Text var O: Codeunit PIntOwner; H: Codeunit PVariantHolder;
+    begin O.SetN(7); O.ShareVariant(H); H.ClearAllHere(); exit(Format(O.GetN())); end;
     procedure ViaInterface(): Text var O: Codeunit POwner; L: Interface PLine; S: Text;
     begin O.Prepare(); L := O; L.SetLine(); S := O.State(); O.WriteT1(10); exit(S + '|' + O.State()); end;
     procedure Direct(): Text var O: Codeunit POwner; S: Text;
@@ -138,4 +157,13 @@ fn clear_all_of_a_price_store_in_an_unmeasured_shape_refuses() {
     for name in ["SiOwner", "TableNoOwner", "PlainLabel", "LockedLabel", "More"] {
         assert_refused(name, "whose instance holds temporary rows");
     }
+}
+
+// ClearAll in a codeunit whose interface global shares a store instance: Z:2001 measures it for another store only (BC
+// resets the instance in place), so it refuses; main cleared the interface and left the instance as it was. A Variant
+// global that holds the shared instance keeps main's answer, with no mark.
+#[test]
+fn clear_all_of_an_interface_or_variant_global_sharing_a_store() {
+    assert_refused("FaceHolder", "ClearAll of a global interface variable whose codeunit instance another variable shares");
+    assert_eq!(cell("VariantHolder"), ("7".to_string(), false));
 }

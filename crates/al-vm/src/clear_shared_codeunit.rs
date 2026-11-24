@@ -1,12 +1,13 @@
-//! `Clear` and `ClearAll()` of a codeunit variable whose instance an interface, a second codeunit variable or a parameter
-//! shares (assumption clear-shared-codeunit, open corpus PR 1560, tests/al-language/codeunits/clear-instance/
+//! `Clear` and `ClearAll()` of a codeunit variable whose instance an interface, a second codeunit variable or a
+//! parameter shares (assumption clear-shared-codeunit, open corpus PR 1560, tests/al-language/codeunits/clear-instance/
 //! ClearSharedCodeunit.al), and `ClearAll()` of a store codeunit with temporary records (open corpus PRs 1561 and 1564,
 //! ClearSharedCodeunitTempRef.al, ClearSharedCodeunitSIOwner.al, ClearSharedCodeunitOwnerKinds.al,
-//! ClearSharedCodeunitLabelStore.al, and at commit d8215564 ClearSharedCodeunitSetterOwner.al, ClearSharedCodeunitLabelShare.al,
-//! ClearSharedCodeunitTempArrayShare.al). `Clear` gives such a variable nothing used yet a fresh instance, and `ClearAll()`
-//! resets such an instance in place, keeping its temporary rows, in the measured (owner, store, holding) cells
-//! (`measured`); the cells the probes do not measure refuse. An instance nothing else holds keeps main's answer unless its
-//! temporary table holds rows. The store shapes are also what the login check counts at their declared value
+//! ClearSharedCodeunitLabelStore.al, and at commit d8215564 ClearSharedCodeunitSetterOwner.al,
+//! ClearSharedCodeunitLabelShare.al, ClearSharedCodeunitTempArrayShare.al, and at commit 65262a80
+//! ClearSharedCodeunitStoreShapes.al). `Clear` gives such a variable nothing used yet a fresh instance, and
+//! `ClearAll()` resets such an instance in place, keeping its temporary rows, in the measured (owner, store, holding)
+//! cells (`measured`); the cells the probes do not measure refuse. An instance nothing else holds keeps main's answer
+//! unless its temporary table holds rows. The store shapes are also what the login check counts at their declared value
 //! (`Session::login_store`, read by `state_stamp.rs`). Entry points: `Session::clear_shared_codeunit` (from the `Clear`
 //! site, `exec/run.rs`) and `Session::clear_all_in_place` (from `clear_all`).
 
@@ -34,6 +35,9 @@ impl Session {
     /// instances in a plain codeunit resets each element in place ([`Session::clear_all_store_array`]). Any other global
     /// nothing else holds keeps main's answer.
     ///
+    /// Only a global declared as a codeunit takes this path. One declared as an interface whose instance another holder
+    /// shares refuses; any other (an interface nothing else holds, a Variant) keeps main's answer.
+    ///
     /// `ClearAll` takes a copy of the globals, so the instance of a global nothing shares has two holders; an element of an
     /// array of codeunits has one, the array.
     pub(crate) fn clear_all_in_place(
@@ -50,6 +54,19 @@ impl Session {
             }
             match v {
                 Value::Codeunit(rc) if self.plain_codeunit(rc.borrow().object as usize) => {
+                    match self.engine.program.objects[owner].globals.get(i).map(|g| &g.ty) {
+                        Some(RtType::Codeunit(_)) => {}
+                        // BC resets the shared instance in place for another store only (corpus PR 1564
+                        // ClearSharedCodeunitStoreShapes.al Whse_InterfaceHolder_HolderClearAll :2001); main clears the
+                        // interface and leaves the instance as it was.
+                        Some(RtType::Interface(_)) if Rc::strong_count(rc) > 2 => {
+                            return Err(Signal::unsupported(
+                                "ClearAll of a global interface variable whose codeunit instance another variable \
+                                 shares, in a shape the corpus does not pin",
+                            ));
+                        }
+                        _ => continue,
+                    }
                     let hold = self.temp_hold(v);
                     let holding = if Rc::strong_count(rc) > 2 {
                         Holding::Shared

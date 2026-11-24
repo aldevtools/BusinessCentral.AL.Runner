@@ -30,8 +30,8 @@ codeunit 50520 "RR ClearAll Tests"
         Check(C.CallerState(), 'rows=3 dec=0 flag=No code= filter= no=0 nested=0');
     end;
 
-    // Not read: which side of the sharing runs ClearAll. The caller, whose global made the instance, runs it here; the probe
-    // measures the owner a setter gave the instance. Runs flagged; corpus probe requested.
+    // Not read: which side of the sharing runs ClearAll. The caller, whose global made the instance, runs it here; corpus PR
+    // 1564 ClearSharedCodeunitStoreShapes.al measures both sides (:1508 owner, :1682 to :1856 caller). Runs flagged.
     [Test]
     procedure RegisterCallerSideClearAll()
     var
@@ -56,8 +56,8 @@ codeunit 50520 "RR ClearAll Tests"
         Check(C.OwnerState(), 'rows=2 dec=1.5 flag=Yes code=MARK filter=No: 7 no=9 nested=4');
     end;
 
-    // Not read: the kind of the other holder. A local variable shares the owner's register here; the probe measures another
-    // codeunit's global. Runs flagged; corpus probe requested.
+    // Not read: the kind of the other holder. A local variable shares the owner's register here; corpus PR 1564
+    // ClearSharedCodeunitStoreShapes.al measures another codeunit's global and a local alias (:1963). Runs flagged.
     [Test]
     procedure RegisterSharedByLocalAlias()
     var
@@ -125,8 +125,8 @@ codeunit 50520 "RR ClearAll Tests"
         Check(Format(N.Get()), '4');
     end;
 
-    // Not read: which element a record copied. Element 2 here (the elements read one table); the probe copies element 1.
-    // Runs flagged; corpus probe requested.
+    // Not read: which element a record copied. Element 2 here (the elements read one table); corpus PR 1564
+    // ClearSharedCodeunitCopyHolder.al measures elements 1 and 2 (:278). Runs flagged.
     [Test]
     procedure ArrayElement2SharedByCopy()
     var
@@ -140,8 +140,8 @@ codeunit 50520 "RR ClearAll Tests"
         Check(Format(O.CountA1()), '1');
     end;
 
-    // Not read: where the record that shares the table lives. Another codeunit's global here; the probe uses a local of the
-    // test. Runs flagged; corpus probe requested.
+    // Not read: where the record that shares the table lives. Another codeunit's global here; corpus PR 1564
+    // ClearSharedCodeunitCopyHolder.al measures a local of the test and a holder global (:337). Runs flagged.
     [Test]
     procedure ArraySharerInOtherCodeunitGlobal()
     var
