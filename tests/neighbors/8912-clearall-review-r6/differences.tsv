@@ -1,0 +1,5 @@
+# key	entry
+# Main gives the owner a fresh register, so the owner reads 0; BC keeps one instance. A register whose table a record of the test shares
+# through Copy(Rows, true) and no call wrote a row or a scalar is not measured (every register cell calls MarkReg() first): refused.
+U6 ClearAll Tests::RegCopySharedReadOnlyCall	REFUSED ClearAll of a global variable that reaches a temporary table that another record shares
+U6 ClearAll Tests::RegCopySharedWritingCall	ASSUMED clear-shared-codeunit (corpus PR 1564)
