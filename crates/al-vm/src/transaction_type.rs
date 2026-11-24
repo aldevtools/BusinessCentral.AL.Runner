@@ -35,9 +35,9 @@ fn type_members() -> std::sync::Arc<[String]> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub(crate) struct TypeOrigin {
     /// The assumptions the value went through, every one of them (a carried type a Commit then kept rests on both).
-    marks: al_builtins::assumptions::HitBits,
+    pub(crate) marks: al_builtins::assumptions::HitBits,
     /// A test method before this one did not run to its end and could set the type: the value is not known.
-    unknown: bool,
+    pub(crate) unknown: bool,
 }
 impl Session {
     /// `Database.CurrentTransactionType`, read with no argument and set with one (session-system/ProbeSystemEnumMembers.al:
@@ -49,7 +49,11 @@ impl Session {
         use al_builtins::describe::Describe;
         let new = match args.first() {
             None | Some(Value::Null) => {
-                return Ok(Value::Option(self.transaction_type_seen()?, type_members()));
+                let t = match self.read_saved_for_set_back() {
+                    Some(t) => t,
+                    None => self.transaction_type_seen()?,
+                };
+                return Ok(Value::Option(t, type_members()));
             }
             Some(Value::Option(t, _)) => *t,
             Some(other) => return unsupported(format!("CurrentTransactionType set to {}", other.describe())),
@@ -64,6 +68,10 @@ impl Session {
         // corpus pull request 1520): until a Commit or the rollback of an asserterror in the code of the test ends it, a set is
         // one after the start.
         let fresh = self.tx.phase == TxPhase::Fresh && !self.tx.open.runner_tx;
+        // The set back of a read while the type was not known (`transaction_type_saved.rs`).
+        if let Some(done) = self.set_back_saved(new, fresh) {
+            return done.map(|()| Value::Null);
+        }
         // The set is a step of the moment an Update report is measured at (`OpenTx::moment`).
         self.moment_type_set(
             new,
@@ -378,6 +386,7 @@ impl Session {
     /// run, no lock, and the moment an Update report is measured at is the test's start (`OpenTx::moment`).
     pub(crate) fn start_test_transaction(&mut self) {
         self.start_test_transaction_type();
+        self.tx.saved_types.clear();
         self.tx.phase = TxPhase::Fresh;
         self.tx.open.locks = Default::default();
         self.moment_at_test_start();

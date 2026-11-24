@@ -416,6 +416,7 @@ pub(crate) fn tx_not_as_new(tx: &crate::state::TxState) -> Option<&'static str> 
         transaction_type: _,
         type_origin: _,
         test_ended,
+        saved_types,
         runner_tx_rolled_back,
         lock_timeout: _,
         lock_timeout_duration: _,
@@ -447,6 +448,7 @@ pub(crate) fn tx_not_as_new(tx: &crate::state::TxState) -> Option<&'static str> 
     [
         (*tx_world == fresh.tx_world, "tx.tx_world"),
         (!test_ended, "tx.test_ended"),
+        (saved_types.is_empty(), "tx.saved_types"),
         (!runner_tx_rolled_back, "tx.runner_tx_rolled_back"),
         (*commit_behavior == fresh.commit_behavior, "tx.commit_behavior"),
         (rollback_unpinned.is_none(), "tx.rollback_unpinned"),

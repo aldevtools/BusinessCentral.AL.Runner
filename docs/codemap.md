@@ -354,6 +354,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `order_trial.rs`: A subscriber whose install order is not known runs… Entry: `trial_start`.
 - `callstack.rs`: The AL call stack of an error and the live stack. Entry: `add_frame`.
 - `caught_errors.rs`: The count of errors AL code caught: asserterror. Entry: `catch_error`.
+- `clear_shared_codeunit.rs`: Clear and ClearAll of a codeunit variable whose instance another holder shares. Entry: `Session::clear_shared_codeunit`.
 - `crm.rs`: A `TableType = CRM` table through the `@@test@@`… Entry: `connection_check`.
 - `companies.rs`: The company a record works in, ChangeCompany. Entry: `find_company`.
 - `dataset.rs`: The dataset XML `Report.SaveAs` writes: header. Entry: `dataset_name`.
@@ -440,6 +441,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `tenant_set_delete.rs`: The Delete or DeleteAll of a stored Tenant… Entry: `tenant_set_delete_one`.
 - `testdata.rs`: Test data: `TestBacking` maps a provider's columns… Entry: `TestBacking`.
 - `transaction_type.rs`: `Database.CurrentTransactionType`. Entry: `current_transaction_type`.
+- `transaction_type_saved.rs`: A `CurrentTransactionType` read while the type is not known whose value only sets it back. Entry: `Session::read_saved_for_set_back`.
 - `transactions.rs`: Transactions as AL code sees them. Entry: `TxModel`.
 - `consistent_marks.rs`: The tables `Record.Consistent` marks. Entry: `Session::set_consistent`.
 - `ui.rs`: Dialogs raised by the code under test and the test… Entry: `UiKind`.
