@@ -333,8 +333,6 @@ impl Session {
         Ok(())
     }
 
-    /// The name of a table `Consistent(false)` marks in the open transaction, for the test runner's commit at the end of a
-    /// test (not pinned: refused there).
     /// The table of a duplicate-key `Insert` whose error is still deferred: the next access to the table or a `Commit`
     /// raises it (record/TestRecordRuntimeTextsAndViews.al:180-209). `None` when there is none.
     pub fn deferred_insert_table(&self) -> Option<String> {
@@ -348,26 +346,6 @@ impl Session {
     /// Takes the error of a duplicate-key `Insert` that is still deferred, for the test runner at the end of a test.
     pub fn take_deferred_insert_error(&mut self) -> Option<AlError> {
         self.tx.open.deferred_insert.take().map(|d| d.error)
-    }
-
-    pub fn inconsistent_table(&self) -> Option<String> {
-        self.tx
-            .open
-            .inconsistent
-            .first()
-            .map(|m| self.engine.program.objects[m.table as usize].name.clone())
-    }
-
-    /// A transaction that ends other than by `Commit()` while `Consistent(false)` marks a table: what BC does is not
-    /// pinned (only `Commit()` is, errors/CuCommitTests.al:405-419), so it is refused.
-    pub(crate) fn refuse_inconsistent_end(&self, how: &str) -> Result<(), Signal> {
-        match self.tx.open.inconsistent.first() {
-            Some(m) => Err(Signal::unsupported(format!(
-                "{how} ends a transaction while Consistent(false) marks table {} (only Commit() is pinned)",
-                self.engine.program.objects[m.table as usize].name
-            ))),
-            None => Ok(()),
-        }
     }
 
     /// A TryFunction call whose result is used begins: `consumer` is the frame count of the caller that uses the
@@ -862,7 +840,7 @@ impl Session {
         // under TransactionModel::None, and the transaction ends with the run
         // (codeunits/TestWriteTxTestBoundary.al:Test10_ARunCodeunitMayWriteUnderNone).
         let began_world = self.tx_model == TxModel::None && self.tx.tx_world == 0;
-        let marks_before = if guarded { self.marks_at_run_start() } else { Vec::new() };
+        let marks_before = if guarded { self.mark_snapshot() } else { Vec::new() };
         let run_arg = RunArg::of(record_arg);
         self.tx.tx_world += 1;
         if let Some(t) = self.tx.used_tries.last_mut() {

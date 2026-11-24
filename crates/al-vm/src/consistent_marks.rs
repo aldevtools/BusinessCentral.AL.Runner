@@ -10,8 +10,9 @@
 //! drops the marks set inside it, a temporary record marks the database table, a Commit after another variable's
 //! `Consistent(true)` raises, and the error names a table by its Caption. Every other shape is refused.
 //!
-//! Entry points: `Session::set_consistent`, `marks_at_run_start` and `guarded_run_end_marks` (by `codeunit_run`),
-//! `commit_mark_error` (by `commit_builtin`), `inconsistent_error`.
+//! Entry points: `Session::set_consistent`, `mark_snapshot` and `guarded_run_end_marks` (by `codeunit_run`),
+//! `commit_mark_error` (by `commit_builtin`), `inconsistent_error`, `refuse_inconsistent_end` (an unguarded run, a TestPage
+//! operation) and `inconsistent_table` (the test runner's commit at the end of a test).
 
 use crate::Session;
 use crate::records::Rec;
@@ -39,8 +40,6 @@ pub(crate) struct ConsistentMark {
     pub(crate) table: u32,
     /// The record variable that set the mark (gone when that variable is).
     by: Weak<RefCell<RecordState>>,
-    /// Whether that variable is a temporary record.
-    temporary: bool,
     pub(crate) state: MarkState,
 }
 
@@ -104,7 +103,6 @@ impl Session {
                 self.tx.open.inconsistent.push(ConsistentMark {
                     table,
                     by: Rc::downgrade(rec),
-                    temporary,
                     state: MarkState::Marked,
                 });
             }
@@ -120,7 +118,7 @@ impl Session {
             (MarkState::Marked, false, true) if !temporary => mark.state = MarkState::ReleasedByAnother,
             // Consistent(true) on the database variable that set the mark, after another one's: lifted
             // (ConsistentGuardedRunEnd.al Commit_FalseOnOneVariable_TrueOnAnother_ThenTrueOnFirst).
-            (MarkState::ReleasedByAnother, true, true) if !mark.temporary => {
+            (MarkState::ReleasedByAnother, true, true) if !temporary => {
                 assume(Assumption::GuardedRunConsistentEnd);
                 self.tx.open.inconsistent.remove(i);
             }
@@ -129,8 +127,8 @@ impl Session {
         Ok(())
     }
 
-    /// The marks a guarded `Codeunit.Run` starts with, to compare with the marks it ends with.
-    pub(crate) fn marks_at_run_start(&self) -> Vec<(u32, MarkState)> {
+    /// The marks of the open transaction (table, state), which a guarded `Codeunit.Run` takes as it starts and as it ends.
+    pub(crate) fn mark_snapshot(&self) -> Vec<(u32, MarkState)> {
         self.tx.open.inconsistent.iter().map(|m| (m.table, m.state)).collect()
     }
 
@@ -161,7 +159,7 @@ impl Session {
         arg: RunArg,
         nested: bool,
     ) -> Result<Option<Signal>, Signal> {
-        let after = self.marks_at_run_start();
+        let after = self.mark_snapshot();
         if before.is_empty() && after.is_empty() {
             return Ok(None);
         }
@@ -241,5 +239,27 @@ impl Session {
             ),
             "DB:TableInConsistent",
         )
+    }
+
+    /// The name of a table `Consistent(false)` marks in the open transaction, for the test runner's commit at the end of a
+    /// test (not pinned: refused there).
+    pub fn inconsistent_table(&self) -> Option<String> {
+        self.tx
+            .open
+            .inconsistent
+            .first()
+            .map(|m| self.engine.program.objects[m.table as usize].name.clone())
+    }
+
+    /// A transaction that ends other than by `Commit()` while `Consistent(false)` marks a table: what BC does is not
+    /// pinned (only `Commit()` is, errors/CuCommitTests.al:405-419), so it is refused.
+    pub(crate) fn refuse_inconsistent_end(&self, how: &str) -> Result<(), Signal> {
+        match self.tx.open.inconsistent.first() {
+            Some(m) => Err(Signal::unsupported(format!(
+                "{how} ends a transaction while Consistent(false) marks table {} (only Commit() is pinned)",
+                self.engine.program.objects[m.table as usize].name
+            ))),
+            None => Ok(()),
+        }
     }
 }
