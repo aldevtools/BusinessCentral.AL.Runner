@@ -85,6 +85,7 @@ codeunit 50100 Keeper
     end;
     procedure Reseed() begin Randomize(7); end;
     procedure MakeSequence() begin NumberSequence.Insert('S50', 5, 3); Commit(); end;
+    procedure CommitAtSnapshot() begin CurrentTransactionType(TransactionType::Snapshot); Commit(); end;
     procedure Schedule() begin TaskScheduler.CreateTask(50101, 0, true); end;
     procedure FillJson() begin J.Add('a', 1); end;
     procedure InsertBlobTemp() begin TB.Id := 1; TB.Insert(); end;
@@ -881,4 +882,22 @@ fn a_thaw_into_a_session_that_is_not_new_refuses_and_leaves_it_as_it_was() {
     let before = other.state_lines().lines;
     assert_eq!(other.thaw_login_image(&image), Err(NotThawed::Engine));
     assert_eq!(other.state_lines().lines, before);
+}
+
+// A Commit at a type other than Update keeps the type and marks it `commit-keeps-transaction-type`
+// (`Session::keep_type_at_commit`). Code that reads CurrentTransactionType before the first test method starts is flagged
+// through that mark, so the twin must carry it.
+#[test]
+fn a_login_that_commits_at_snapshot_gives_the_same_type_origin_in_the_twin() {
+    let mut f = fx();
+    f.run("CommitAtSnapshot");
+    assert_ne!(
+        f.session.tx.type_origin,
+        Default::default(),
+        "the Commit marks the type"
+    );
+    let image = image(&mut f.session);
+    let mut twin = thaw(&f.session, &image);
+    assert_eq!(twin.tx.type_origin, f.session.tx.type_origin);
+    assert_eq!(f.session.state_lines(), twin.state_lines());
 }

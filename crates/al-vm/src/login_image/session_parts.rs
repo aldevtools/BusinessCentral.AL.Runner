@@ -33,6 +33,7 @@ pub(crate) struct SessionParts {
 struct TxPart {
     phase: crate::transactions::TxPhase,
     transaction_type: i32,
+    type_origin: crate::transaction_type::TypeOrigin,
     lock_timeout: bool,
     lock_timeout_duration: i64,
     committed_row_version: i64,
@@ -114,6 +115,7 @@ impl TxPart {
         TxPart {
             phase: tx.phase,
             transaction_type: tx.transaction_type,
+            type_origin: tx.type_origin,
             lock_timeout: tx.lock_timeout,
             lock_timeout_duration: tx.lock_timeout_duration,
             committed_row_version: tx.committed_row_version,
@@ -126,6 +128,7 @@ impl TxPart {
         let TxPart {
             phase,
             transaction_type,
+            type_origin,
             lock_timeout,
             lock_timeout_duration,
             committed_row_version,
@@ -135,6 +138,7 @@ impl TxPart {
         let tx = &mut s.tx;
         tx.phase = phase;
         tx.transaction_type = transaction_type;
+        tx.type_origin = type_origin;
         tx.lock_timeout = lock_timeout;
         tx.lock_timeout_duration = lock_timeout_duration;
         tx.committed_row_version = committed_row_version;
