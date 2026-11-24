@@ -259,3 +259,60 @@ fn a_counter_difference_in_a_test_is_the_same_whatever_rows_the_reset_deleted() 
         assert_eq!(run_from(&engine, &l, 60478, Some(&earlier)), none, "{n} earlier lines");
     }
 }
+
+/// A SingleInstance codeunit whose `Global Triggers` setup subscriber counts the asks (`Asks`) and leaves `Other` alone,
+/// and a test codeunit whose test `ReadsAsks` reads the count and whose test `ReadsOther` reads the other global.
+const ASK_COUNT: &str = r#"
+codeunit 60480 "Ask Count"
+{
+    SingleInstance = true;
+    var
+        Asks: Integer;
+        Other: Integer;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'GetDatabaseTableTriggerSetup', '', false, false)]
+    local procedure OnSetup(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean)
+    begin
+        Asks += 1;
+    end;
+
+    procedure GetAsks(): Integer begin exit(Asks); end;
+    procedure GetOther(): Integer begin exit(Other); end;
+}
+
+codeunit 60481 "Ask Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure ReadsAsks()
+    var
+        C: Codeunit "Ask Count";
+    begin
+        if C.GetAsks() > 10 then Error('asks %1', C.GetAsks());
+    end;
+
+    [Test]
+    procedure ReadsOther()
+    var
+        C: Codeunit "Ask Count";
+    begin
+        if C.GetOther() <> 0 then Error('other %1', C.GetOther());
+    end;
+}
+"#;
+
+// Al-runner issue 8945: the runner's row write asks the Global Triggers setup for 130450 and 130451; BC asks 130450 once or
+// not at all depending on the runner, and 130451 never (corpus PR 1567 cell D). A global the asks changed refuses its
+// readers; the other globals read as before.
+#[test]
+fn a_global_the_row_writes_setup_ask_changed_refuses_its_readers() {
+    let (engine, l) = compiled(ASK_COUNT);
+    let out = run_from(&engine, &l, 60481, None);
+    assert_eq!(out.len(), 2, "{out:?}");
+    match &out[0].1 {
+        Outcome::NotRun(why) => assert!(why.contains("writes of its tables 130450 and 130451"), "{why}"),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(out[1], ("ReadsOther".to_string(), Outcome::Pass));
+}

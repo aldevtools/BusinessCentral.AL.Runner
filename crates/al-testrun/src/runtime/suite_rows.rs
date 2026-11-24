@@ -89,7 +89,9 @@ pub(crate) fn write(session: &mut Session, runner: usize, object: usize, selecte
     // suite and the codeunit's "Line No." filter (TestRunnerIsolCodeunit.Codeunit.al:28-40), and those read lines only
     // through `GetTestCodeunit`, `GetTestFunction` and `UpdateCodeunitLine`, each filtered on "Test Suite", "Test
     // Codeunit" and that filter (TestRunnerMgt.Codeunit.al:146-158, :215-241). The test's own code may not touch the
-    // tables at all (`al_runner.rs` `Steps::rows_touched`, ADR-066 decision 4).
+    // tables at all (`al_runner.rs` `Steps::rows_touched`, ADR-066 decision 4). A SingleInstance global that the
+    // setup asks or the events of these writes change refuses its readers ([`mark_changed`]).
+    let before = session.left_stamp();
     for t in [lines, suites] {
         session.database_triggers_on(t).map_err(refused)?;
         session.delete_all_rows(t).map_err(refused)?;
@@ -143,9 +145,33 @@ pub(crate) fn write(session: &mut Session, runner: usize, object: usize, selecte
     }
     // The page's record: blank but for the suite (`CommandLineTestTool.Page.al:353-375`).
     let rec = session.record_with(lines, &[(1, text(SUITE))]).map_err(refused)?;
+    mark_changed(session, &before);
     // The rows are there before the run starts, as BcContainerHelper's are.
     session.commit_transaction();
     Ok(rec)
+}
+
+/// Marks each global of a SingleInstance codeunit that the row write changed since `before` (its Global Triggers setup
+/// asks for 130450 and 130451, and the database events of its writes when a subscriber turned them on): every read of it
+/// is refused. BC asks the setup for 130450 once or not at all, depending on the test runner, and for 130451 never
+/// (corpus PR 1567, LsLoginSubscriberTests.al:53-57, cell D), so what this code leaves is not BC's value (al-runner issue
+/// 8945). The mark comes after the whole write: a second ask that reads what the first one changed runs, and what it
+/// changes is marked too.
+fn mark_changed(session: &mut Session, before: &al_vm::LeftStamp) {
+    let engine = session.engine.clone();
+    for (o, globals) in before.changed(&session.left_stamp()).singles {
+        let obj = &engine.program.objects[o];
+        for g in globals {
+            let why = format!(
+                "a read of global {} of SingleInstance codeunit {}: the test runner's writes of its tables 130450 and 130451 (the \
+                 Global Triggers setup asks and events they raise) changed it before the first test; BC asks the setup for 130450 once \
+                 or not at all, depending on the test runner, and for 130451 never: what BC leaves there is not measured",
+                obj.globals.get(g).map_or("?", |v| v.name.as_str()),
+                obj.name
+            );
+            session.mark_single_global_unmeasured(o, g, why.into());
+        }
+    }
 }
 
 /// `Test Suite Mgt.`.RunNextTest(`rec`), as page 130455's action calls it.

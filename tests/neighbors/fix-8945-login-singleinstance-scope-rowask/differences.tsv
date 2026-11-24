@@ -1,0 +1,3 @@
+# key	entry
+LS RA Tests::ReadsTheAskCount	REFUSED a read of global Asks of SingleInstance codeunit LS RA Ask Memo: the test runner's writes of its tables 130450 and 130451
+LS RA Tests::WritesThenReadsTheAskCount	REFUSED a read of global Asks of SingleInstance codeunit LS RA Ask Memo: the test runner's writes of its tables 130450 and 130451
