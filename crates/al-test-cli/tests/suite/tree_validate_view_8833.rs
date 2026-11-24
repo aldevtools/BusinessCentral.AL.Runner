@@ -11,8 +11,7 @@ const PROBE: &str = include_str!("../../../../tests/neighbors/8833-tree-update-f
 const NEIGHBORS: &str = include_str!("../../../../tests/neighbors/8833-tree-update-false-refresh/src/Neighbors.al");
 
 /// The refusal of a call the cells do not make after the rule ran.
-const UNMEASURED: &str =
-    "a call on a tree page of TreeValidateFilterRefresh.al after the page read its row or the view again";
+const UNMEASURED: &str = "a call on a tree page of TreeValidateFilterRefresh.al or TreeValidateFilterShapes.al after the page read its row or the view again";
 
 /// The reporter's test passes: the SetValue reads the row first, the refresh saves the row and reads it, the hidden child and
 /// the first row of the new view, and the tree shows the renamed row alone. Main read only the typed row (`AGR(C2);`), saved

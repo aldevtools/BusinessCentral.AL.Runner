@@ -341,7 +341,7 @@ const TREE_COLLAPSED_PAGE: [&str; 13] = [
 ];
 
 /// Which measured page a page is (the line numbers of TreeValidateFilterRefresh.al are those of corpus pull request 1539's head
-/// 7eab6eba).
+/// 4e9aaba6, whose lines are those of 7eab6eba).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CellPage {
     /// Page 97583, the issue's page of 8698: a List with OnAfterGetRecord only.
@@ -958,7 +958,7 @@ const TREE_CELLS: [Cell; 21] = [
     tree_end(&[DROP_FROM_FIRST]), // TreeValidateFilterShapes.al:663
 ];
 
-/// The cells of corpus pull request 1554, tests/al-language/pages/currpage/TreeValidateFilterShapes.al (open, head 7253b679),
+/// The cells of corpus pull request 1554, tests/al-language/pages/currpage/TreeValidateFilterShapes.al (open, head 070e6275),
 /// on its copy of page 97720: Last, the SetValue on Name keeping the row, First, the walk and Close, over other rows. Last stands
 /// on the last top-level row: A over A (G1), B (G1) and C (G2) indented 0, 1, 1 (:532) or 0, 1, 2 (:546), the view A and B;
 /// B over the tree's rows with C indented 2 (:561); D over the tree's rows and D (G1) at the top (:584), the view B, C and D.

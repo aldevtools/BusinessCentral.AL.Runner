@@ -108,7 +108,7 @@ fn shape_neighbors() {
     let after = outcomes(src, "LT TDN Close Tests");
     assert!(
         after.len() == 1
-            && matches!(&after[0].1, Outcome::NotRun(why) if why.starts_with("a tree page of TreeValidateFilterRefresh.al after a SetValue whose filter left the row out")),
+            && matches!(&after[0].1, Outcome::NotRun(why) if why.starts_with("a tree page of TreeValidateFilterRefresh.al or TreeValidateFilterShapes.al after a SetValue whose filter left the row out")),
         "{after:#?}"
     );
     // A page the failed SetValue left behind, then a keep cell on a new page that saves the row it stood on: both run under the

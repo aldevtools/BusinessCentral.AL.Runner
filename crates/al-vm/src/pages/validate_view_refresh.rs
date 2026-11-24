@@ -39,7 +39,7 @@ use super::draft::view_filtered_error;
 use super::open::TREE_GROUP;
 use super::pinned_body::{Callees, Names, callees_with_calls_are, page_is, table_is};
 use super::pinned_shape::TestCall;
-use super::validate_view_cells::{CellPage, Change, Ctl, Row, Step, Tail, Upd};
+use super::validate_view_cells::{Cell, CellPage, Change, Ctl, Row, Step, Tail, Upd};
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::filter::{FieldFilter, FilterExpr};
@@ -52,7 +52,7 @@ use Step::{Action, Fail, Set};
 
 /// The refusal of a call the cells do not make, after the rule ran.
 const UNMEASURED: &str = "a call on a page of ListValidateFilterRefresh.al after the page read its row or the view again as the cells measure it, which the cells do not make (not measured)";
-const TREE_UNMEASURED: &str = "a call on a tree page of TreeValidateFilterRefresh.al after the page read its row or the view again as the cells measure it, which the cells do not make (not measured)";
+const TREE_UNMEASURED: &str = "a call on a tree page of TreeValidateFilterRefresh.al or TreeValidateFilterShapes.al after the page read its row or the view again as the cells measure it, which the cells do not make (not measured)";
 
 /// The refusal of a call the cells of `page` do not make, after the rule ran.
 fn unmeasured<T>(page: Option<CellPage>) -> Result<T, Signal> {
@@ -61,6 +61,18 @@ fn unmeasured<T>(page: Option<CellPage>) -> Result<T, Signal> {
     } else {
         UNMEASURED
     })
+}
+
+/// Whether cell `c` takes the steps `steps` and then `next`. The kind of a SetValue or of the action is known once its code ran
+/// (`validate_view_refresh`, `validate_view_unrefreshed`), so any SetValue on the same control, or the action, matches here.
+fn takes_next(c: &Cell, steps: &[Step], next: Step) -> bool {
+    c.steps.starts_with(steps)
+        && match (c.steps.get(steps.len()), next) {
+            (Some(Set(a, ..) | Fail(a)), Set(b, ..)) => *a == b,
+            (Some(Action(..)), Action(..)) => true,
+            (Some(a), b) => *a == b,
+            (None, _) => false,
+        }
 }
 
 /// The SetValue or action that runs now, or the last one until the next call takes it.
@@ -227,17 +239,7 @@ impl Session {
             },
             _ => return Ok(false),
         };
-        // The kind of a SetValue or of the action is known once its code ran (`validate_view_refresh`,
-        // `validate_view_unrefreshed`).
-        let continues = cells.iter().any(|c| {
-            c.steps.starts_with(&v.steps)
-                && match (c.steps.get(v.steps.len()), next) {
-                    (Some(Set(a, ..) | Fail(a)), Set(b, ..)) => *a == b,
-                    (Some(Action(..)), Action(..)) => true,
-                    (Some(a), b) => *a == b,
-                    (None, _) => false,
-                }
-        });
+        let continues = cells.iter().any(|c| takes_next(c, &v.steps, next));
         if !continues || v.walked {
             return Ok(false);
         }
@@ -255,7 +257,12 @@ impl Session {
         // test reaches this check today: in the runner a TestPage filter before OpenEdit fails (the page is not open), and
         // one after it turns the rule off at its SetFilter call.
         let first = !v.steps.iter().any(|s| matches!(s, Set(..) | Fail(_) | Action(..)));
-        if (first && !Self::view_filters(&rec).is_empty()) || !self.validate_view_table_fits(&rec, page, &v.steps)? {
+        // Only a cell whose next call is this one can start the rule: over rows a cell holds, a call no cell over them makes next
+        // keeps main's path (the review of #8905 at 01:31Z).
+        let steps = v.steps.clone();
+        if (first && !Self::view_filters(&rec).is_empty())
+            || !self.validate_view_table_fits(&rec, page, |c| takes_next(c, &steps, next))?
+        {
             return Ok(false);
         }
         let table = self.table(&rec)?;
@@ -547,7 +554,7 @@ impl Session {
         let at = self.view_index(&rec, &at_key)?;
         let mut steps = st.borrow().validate_view.steps.clone();
         steps.push(Set(ctl, update, change, at.map(|at| (rows, at))));
-        let measured = self.validate_view_table_fits(&rec, page, &steps)?;
+        let measured = self.validate_view_table_fits(&rec, page, |c| c.steps.starts_with(&steps))?;
         if !measured {
             if ran {
                 return unmeasured(Some(page));
@@ -595,7 +602,7 @@ impl Session {
                 // on it, Close too, refuses; its end of scope is the cells' (:1300 the page goes out of scope, its test
                 // reads the table).
                 s.unpinned_state = Some(
-                    "a tree page of TreeValidateFilterRefresh.al after a SetValue whose filter left the row out of the view (not measured)"
+                    "a tree page of TreeValidateFilterRefresh.al or TreeValidateFilterShapes.al after a SetValue whose filter left the row out of the view (not measured)"
                         .into(),
                 );
                 s.unpinned_close = true;
@@ -722,10 +729,15 @@ impl Session {
         Ok(None)
     }
 
-    /// A cell of `page` whose steps begin with `steps` held the rows the table of `rec` holds: on the pages of
+    /// A cell of `page` that `cell` accepts held the rows the table of `rec` holds: on the pages of
     /// TreeValidateFilterRefresh.al the Group Code and the Indentation of each row in the key, by equality
     /// (`CellPage::tree_rows`), elsewhere their number (`CellPage::table_rows`).
-    fn validate_view_table_fits(&mut self, rec: &Rec, page: CellPage, steps: &[Step]) -> Result<bool, Signal> {
+    fn validate_view_table_fits(
+        &mut self,
+        rec: &Rec,
+        page: CellPage,
+        cell: impl Fn(&Cell) -> bool,
+    ) -> Result<bool, Signal> {
         let probe = Rc::new(RefCell::new(rec.borrow().clone()));
         {
             let mut p = probe.borrow_mut();
@@ -748,7 +760,7 @@ impl Session {
             })
         };
         Ok(page.cells().iter().any(|c| {
-            c.steps.starts_with(steps)
+            cell(c)
                 && match page.tree_rows(c) {
                     Some(want) => held(want),
                     None => rows.len() == page.table_rows(),
