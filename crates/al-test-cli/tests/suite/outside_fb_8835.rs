@@ -51,8 +51,9 @@ fn issue_8835_probe_cells() {
     // The other errors of the first SetValue the cells measure (:1249, :1259, :1269): a TestField of the table field before the
     // insert, an error of it after the insert, the control's error before its save; each reaches the test.
     // And the control's error when the table field skips its insert, after the control's plain save or before it (:1674,
-    // :1684): main answers both so, and BC too (review of 07:30Z).
-    for (cu, cells) in [("LT NE4 Tests", 3), ("LT NE5 Tests", 2)] {
+    // :1684): main answers both so, and BC too (review of 07:30Z). And the control's error after it inserted, modified or
+    // deleted a row of another table or Rec (:2121-:2238): main answers each so, and BC too (review of 09:29Z).
+    for (cu, cells) in [("LT NE4 Tests", 3), ("LT NE5 Tests", 2), ("LT NE6 Tests", 11)] {
         let o = super::outside_fb_8712::outcomes(TABLE_PROBE, cu);
         assert_eq!(o.len(), cells, "{cu}");
         for (name, r, marks) in &o {
