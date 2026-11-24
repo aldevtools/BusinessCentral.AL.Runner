@@ -818,7 +818,8 @@ impl Session {
             if self.in_write_transaction()? {
                 // The same refusal under AutoRollback, and inside a TryFunction, which traps it
                 // and returns false (codeunits/TestCodeunitRunErrorTextsAndModels.al:93-160 and
-                // :248-262). Also with a Consistent(false) mark (consistent_marks.rs, the module doc).
+                // :248-262). With a Consistent(false) mark it is refused (consistent_marks.rs).
+                self.refuse_write_and_mark_at_run_start()?;
                 return Err(transaction_stopped());
             }
         }

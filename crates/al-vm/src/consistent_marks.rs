@@ -10,12 +10,8 @@
 //! drops the marks set inside it, a temporary record marks the database table, a Commit after another variable's
 //! `Consistent(true)` raises, and the error names a table by its Caption. Every other shape is refused.
 //!
-//! A guarded run that starts while the caller holds an uncommitted write keeps the pending-write error of `codeunit_run`
-//! also with a mark: BC gave that error or the inconsistency error between CI runs 45353497570 and 45358869670 of corpus
-//! PR 1568 (ConsistentGuardedRunEnd.al:955, :973), so this one of its answers is not routed through the assumption.
-//!
-//! Entry points: `Session::set_consistent`; `mark_snapshot` and `guarded_run_end_marks` (by `codeunit_run`);
-//! `commit_mark_error` (by `commit_builtin`); `inconsistent_error`; `refuse_inconsistent_end` (an unguarded run, a
+//! Entry points: `Session::set_consistent`; `mark_snapshot`, `refuse_write_and_mark_at_run_start` and
+//! `guarded_run_end_marks` (by `codeunit_run`); `commit_mark_error` (by `commit_builtin`); `inconsistent_error`; `refuse_inconsistent_end` (an unguarded run, a
 //! TestPage operation); `inconsistent_table` (the test runner's commit at the end of a test).
 
 use crate::Session;
@@ -223,6 +219,21 @@ impl Session {
              record argument or nesting)",
             self.table_name(after.first().or(before.first()).expect("a mark").0)
         )))
+    }
+
+    /// A guarded `Codeunit.Run` that starts while the caller holds an uncommitted write and a Consistent(false) mark:
+    /// refused, because BC's answer differs between CI runs of corpus PR 1568 on the same version, so it depends on an
+    /// input the probe does not measure (ConsistentGuardedRunEnd.al:955 GuardedRunId_CallerStartsState_InnerFails, :973
+    /// GuardedRunId_CallerStartsAndStopsState_InnerFails: the pending-write error in CI run 45353497570, the
+    /// inconsistency error in some legs of run 45358869670). Without a mark the pending-write error stays
+    /// (codeunits/TestCodeunitRunWriteTransaction.al:GuardedRun_WithUncommittedWrite_IsRefused_AndCodeunitNeverRuns).
+    pub(crate) fn refuse_write_and_mark_at_run_start(&self) -> Result<(), Signal> {
+        self.inconsistent_table().map_or(Ok(()), |name| {
+            Err(Signal::unsupported(format!(
+                "A guarded Codeunit.Run starts while the caller holds an uncommitted write and Consistent(false) marks table \
+                 {name}: BC's answer differs between runs (not measured)"
+            )))
+        })
     }
 
     /// The name of the marked table `table`, for a refusal text.

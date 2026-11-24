@@ -715,7 +715,7 @@ codeunit 61406 "GC Tests"
         Codeunit.Run(Codeunit::"GC Nothing");
     end;
 
-    // The pending-write error as without a mark: one of BC's two answers (corpus PR 1568, ConsistentGuardedRunEnd.al:955).
+    // Last: refused (BC's answer varies, corpus PR 1568 ConsistentGuardedRunEnd.al:955); the refusal leaves a write behind.
     [Test]
     procedure CallerWritesThenMarks()
     var

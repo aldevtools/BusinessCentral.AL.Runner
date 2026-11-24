@@ -127,11 +127,11 @@ fn guarded_run_with_consistent_marks() {
         "ExtensionCaption",
         "whose caption a tableextension or a translation sets",
     );
-    // A guarded run while the caller holds a write: the pending-write error, with or without a mark. With a mark BC gave
-    // this error or the inconsistency error between CI runs of corpus PR 1568 (ConsistentGuardedRunEnd.al:955, :973);
-    // main's answer is one of them and stays, unflagged.
+    // A guarded run while the caller holds a write and a mark: BC gave the pending-write error or the inconsistency error
+    // between CI runs of corpus PR 1568 (ConsistentGuardedRunEnd.al:955, :973), so it is refused; without a mark main's
+    // pinned error stays.
+    refused("CallerWritesThenMarks", "uncommitted write");
     assert_eq!(get("CallerWritesNoMark"), (Outcome::Fail("DB:Ok".into()), false));
-    assert_eq!(get("CallerWritesThenMarks"), (Outcome::Fail("DB:Ok".into()), false));
     // An inner refusal keeps its own reason: the Consistent mark does not replace it.
     refused("InnerRefused", "SetTaskReady");
 }
