@@ -1857,6 +1857,10 @@ pub struct Slot {
     /// `Lowerer::security_filtering_read_refusal`).
     #[serde(default)]
     pub security_filtering_not_kept: bool,
+    /// A global declared `Label 'text'` with a text that is not empty and no property (al-sema `shared::plain_label`): its
+    /// reads lower to its text, and AL code cannot assign or clear it (corpus must-not-compile 0350, 2628).
+    #[serde(default)]
+    pub plain_label: bool,
 }
 
 impl Slot {
@@ -1867,6 +1871,7 @@ impl Slot {
             ty,
             security_filtering: None,
             security_filtering_not_kept: false,
+            plain_label: false,
         }
     }
 }

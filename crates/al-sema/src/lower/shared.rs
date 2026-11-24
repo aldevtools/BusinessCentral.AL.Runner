@@ -582,6 +582,7 @@ pub(crate) fn lower_object<'a>(
                     let mut slot = ir::Slot::new(n, rt);
                     slot.security_filtering = declared.clone().and_then(Result::ok);
                     slot.security_filtering_not_kept = security_filtering_not_kept(&attrs, &declared);
+                    slot.plain_label = v.type_ref().as_ref().is_some_and(plain_label);
                     globals.push(slot);
                 }
                 Err(e) => global_reasons.push(format!("global `{n}`: {e}")),
@@ -1271,7 +1272,7 @@ pub(crate) fn plain_text_constant(t: &ast::TypeRef) -> bool {
         .filter(|k| !k.kind().is_trivia())
         .collect();
     match toks.as_slice() {
-        [kw, text] => kw.text().eq_ignore_ascii_case("label") && text_not_empty(text),
+        [_, _] => plain_label(t),
         [kw, lang, eq, text] => {
             kw.text().eq_ignore_ascii_case("textconst")
                 && lang.text().eq_ignore_ascii_case("enu")
@@ -1280,6 +1281,18 @@ pub(crate) fn plain_text_constant(t: &ast::TypeRef) -> bool {
         }
         _ => false,
     }
+}
+
+/// Whether a declaration is `Label 'text'` with a text that is not empty and no property (no `Locked`, `Comment` or
+/// `MaxLength`).
+pub(crate) fn plain_label(t: &ast::TypeRef) -> bool {
+    let toks: Vec<_> = t
+        .syntax()
+        .descendants_with_tokens()
+        .filter_map(|e| e.into_token())
+        .filter(|k| !k.kind().is_trivia())
+        .collect();
+    matches!(toks.as_slice(), [kw, text] if kw.text().eq_ignore_ascii_case("label") && text_not_empty(text))
 }
 
 /// A string literal with at least one character between its quotes (every pinned text has one, `Simple` of VaTTextConst.al:13 among them; the empty text of :16 never goes into a Variant).

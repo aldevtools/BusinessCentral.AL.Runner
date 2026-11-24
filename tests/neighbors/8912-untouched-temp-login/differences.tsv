@@ -8,3 +8,4 @@
 UT Login Tests::TempTableReadOnly	PINNED tests/al-language/record/TestTempTableContracts.al:37
 UT Login Tests::UntouchedTempRecords	PINNED tests/al-language/record/TestTempTableContracts.al:37
 UT Login Tests::StoreMadeByFirstCall	ASSUMED clear-shared-codeunit (corpus PR 1561)
+UT Login Tests::LabelStoreMadeByFirstCall	ASSUMED clear-shared-codeunit (corpus PR 1564)

@@ -6,8 +6,8 @@ CT ClearAll Tests::PlainHolderKeepsRows	ASSUMED clear-shared-codeunit (corpus PR
 CT ClearAll Tests::TestCodeunitOwnerKeepsRows	ASSUMED clear-shared-codeunit (corpus PR 1561)
 CT ClearAll Tests::ArrayOfTempRecordsInPlainCodeunit	ASSUMED clear-shared-codeunit (corpus PR 1561)
 CT ClearAll Tests::ArrayOfTempRecordsInReport	REFUSED ClearAll of a global array of temporary records whose table holds rows
-CT ClearAll Tests::NormalSubtypeOwner	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows
 CT ClearAll Tests::ReportOwner	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows
-CT ClearAll Tests::StoreWithOneMoreGlobal	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows
 CT ClearAll Tests::StoreOneLevelDeeper	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows
-CT ClearAll Tests::ArrayOfStores	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows
+CT ClearAll Tests::ArrayOfStores	ASSUMED clear-shared-codeunit (corpus PR 1564)
+CT ClearAll Tests::NormalSubtypeOwner	ASSUMED clear-shared-codeunit (corpus PR 1564)
+CT ClearAll Tests::StoreWithOneMoreGlobal	ASSUMED clear-shared-codeunit (corpus PR 1564)

@@ -263,7 +263,7 @@ impl Session {
     /// blob copy sources (`blob_transfer::new_variable`). The instance counts so only while no other variable holds it (one
     /// that does sees what is written through it later), and only when its globals hold their declared values by a
     /// fingerprint: the probe's codeunits hold an Integer, so a temporary record or a RecordRef (`made`) in an instance a
-    /// call made counts as changed, except in a store of the shape of open corpus PR 1561 (`Session::temp_ref_store`) that
+    /// call made counts as changed, except in a store of the shape of open corpus PR 1561 (`Session::login_store`) that
     /// the SingleInstance codeunit holds directly (the same assumption).
     fn at_declared(&mut self, v: &Value, fresh: &Value, depth: u8, made: bool) -> bool {
         if depth > 8 {
@@ -277,7 +277,7 @@ impl Session {
                 };
                 if a.temporary && b.temporary {
                     let Value::Record(rc) = v else { unreachable!() };
-                    return !made && same_view(&a, &b) && self.untouched_temp(rc, &a, &b);
+                    return !made && same_view(&a, &b) && self.untouched_temp(rc, &a, &b, 1);
                 }
                 same_view(&a, &b) && crate::single_track::fp(v, &engine) == crate::single_track::fp(fresh, &engine)
             }
@@ -288,6 +288,7 @@ impl Session {
                 let object = a.object as usize;
                 let held = a.globals.clone();
                 let mut inner_made = made;
+                let mut measured_store = false;
                 let declared = if a.object != b.object {
                     return false;
                 } else if a.initialized && !b.initialized && b.globals.is_empty() && self.plain_codeunit(object) {
@@ -300,14 +301,19 @@ impl Session {
                     // calls that wrote nothing, it reads as one never made through the owner, in the same test and the
                     // next ones (ClearSharedCodeunitSIOwner.al:5-21, A2_Step1_MadeByCallsThatWriteNothing :370 and
                     // A2_Step2_ReadX :385 against A1_Step2_FirstReadOfX :346). Any other holder or shape keeps `made`.
-                    let measured_store = depth == 0 && self.temp_ref_store(object);
+                    measured_store = depth == 0 && self.login_store(object);
                     inner_made = !measured_store;
                     self.slot_defaults(&engine.program.objects[object].globals)
                 } else {
                     b.globals.clone()
                 };
+                // The elements of an array of temporary records share one table ("CLS Arr Store", ClearSharedCodeunitOwnerKinds.al
+                // M2_Step2_ReadX :1205): in a measured store, those sharers are the array itself.
                 held.len() == declared.len()
-                    && (held.iter().zip(&declared)).all(|(x, y)| self.at_declared(x, y, depth + 1, inner_made))
+                    && (held.iter().zip(&declared)).all(|(x, y)| {
+                        (measured_store && self.untouched_temp_array(x, y))
+                            || self.at_declared(x, y, depth + 1, inner_made)
+                    })
             }
             // A RecordRef never opened that no other variable holds: what a fresh one holds (a closed or cleared one holds
             // another state, al-builtins `recordref_closed.rs`). It has no fingerprint (al-builtins `value_codec`).
@@ -349,12 +355,13 @@ impl Session {
     /// (`temp_id`) is the identity those shares name, and `probed_source` is the Blob probes' mark of the variable
     /// (al-builtins `ProbedSource`): neither is compared. The caller's copy of the globals holds `rc` once besides the
     /// instance.
-    fn untouched_temp(&self, rc: &Rc<RefCell<RecordState>>, a: &RecordState, b: &RecordState) -> bool {
+    /// `sharers` is how many records hold the table as the variable itself: one, or the elements of an array.
+    fn untouched_temp(&self, rc: &Rc<RefCell<RecordState>>, a: &RecordState, b: &RecordState, sharers: usize) -> bool {
         let Some(t) = &a.temp_id else {
             return false;
         };
         let never_written = self.temps.get(&t.id()).is_none_or(|s| s.change_counter() == 0);
-        let alone = t.sharers() == 1 && Rc::strong_count(rc) == 2;
+        let alone = t.sharers() == sharers && Rc::strong_count(rc) == 2;
         let own = |r: &RecordState| {
             r.own_read.0.is_none()
                 && r.rolled_read.0.is_none()
@@ -376,6 +383,38 @@ impl Session {
             && own(a)
             && own(b)
             && rest(a) == rest(b)
+    }
+}
+
+impl Session {
+    /// Whether `v`, an array of temporary records whose elements share one table, holds what `fresh` holds: no other variable
+    /// holds the array, and each element holds what [`Session::untouched_temp`] reads as fresh, its table shared by the
+    /// elements only.
+    fn untouched_temp_array(&self, v: &Value, fresh: &Value) -> bool {
+        let (Value::Array(a), Value::Array(b)) = (v, fresh) else {
+            return false;
+        };
+        let (held, declared) = (a.borrow().clone(), b.borrow().clone());
+        let ids: Vec<Option<u64>> = (held.iter())
+            .map(|e| match e {
+                Value::Record(r) => r.borrow().temp_id.as_ref().map(|t| t.id()),
+                _ => None,
+            })
+            .collect();
+        Rc::strong_count(a) == 2
+            && held.len() == declared.len()
+            && ids
+                .first()
+                .is_some_and(|id| id.is_some() && ids.iter().all(|x| x == id))
+            && (held.iter().zip(&declared)).all(|(e, d)| match (e, d) {
+                (Value::Record(rc), Value::Record(f)) => {
+                    let (Ok(x), Ok(y)) = (rc.try_borrow(), f.try_borrow()) else {
+                        return false;
+                    };
+                    x.temporary && y.temporary && same_view(&x, &y) && self.untouched_temp(rc, &x, &y, held.len())
+                }
+                _ => false,
+            })
     }
 }
 
@@ -757,6 +796,95 @@ codeunit 50118 TempStoreLabel
     end;
 }
 
+codeunit 50119 LabelFirst
+{
+    var
+        NotFound: Label 'Could not find %1.';
+        Rows: Record Row temporary;
+        Backups: array[2, 3] of RecordRef;
+        Indices: array[2] of Integer;
+
+    procedure Get(): Integer
+    begin
+        exit(Indices[1]);
+    end;
+}
+
+codeunit 50120 LabelMid
+{
+    var
+        Rows: Record Row temporary;
+        NotFound: Label 'Could not find %1.';
+        Backups: array[2, 3] of RecordRef;
+        Indices: array[2] of Integer;
+
+    procedure Get(): Integer
+    begin
+        exit(Indices[1]);
+    end;
+}
+
+codeunit 50121 LabelLast
+{
+    var
+        Rows: Record Row temporary;
+        Backups: array[2, 3] of RecordRef;
+        Indices: array[2] of Integer;
+        NotFound: Label 'Could not find %1.';
+
+    procedure Get(): Integer
+    begin
+        exit(Indices[1]);
+    end;
+}
+
+codeunit 50122 LabelLocked
+{
+    var
+        Rows: Record Row temporary;
+        Backups: array[2, 3] of RecordRef;
+        Indices: array[2] of Integer;
+        NotFound: Label 'Could not find %1.', Locked = true;
+
+    procedure Get(): Integer
+    begin
+        exit(Indices[1]);
+    end;
+}
+
+codeunit 50123 ArrStore1
+{
+    var
+        Rows: array[2] of Record Row temporary;
+        Refs: array[2] of RecordRef;
+        Ints: array[3] of Integer;
+
+    procedure Get(): Integer
+    begin
+        exit(Ints[1]);
+    end;
+
+    procedure Write()
+    begin
+        Rows[2].Insert();
+    end;
+}
+
+codeunit 50124 TwoLabels
+{
+    var
+        NotFound: Label 'Could not find %1.';
+        Rows: Record Row temporary;
+        Backups: array[2, 3] of RecordRef;
+        Indices: array[2] of Integer;
+        Other: Label 'Other %1.';
+
+    procedure Get(): Integer
+    begin
+        exit(Indices[1]);
+    end;
+}
+
 codeunit 50116 TempStoreSwapped
 {
     var
@@ -796,6 +924,20 @@ codeunit 50112 TempMemo
         Wrap: Codeunit TempWrap;
         StoreAlias: Codeunit TempStore;
         Labeled: Codeunit TempStoreLabel;
+        First: Codeunit LabelFirst;
+        Mid: Codeunit LabelMid;
+        Last: Codeunit LabelLast;
+        Locked: Codeunit LabelLocked;
+        Arr1: Codeunit ArrStore1;
+        Two: Codeunit TwoLabels;
+
+    procedure UseFirst() begin First.Get(); end;
+    procedure UseMid() begin Mid.Get(); end;
+    procedure UseLast() begin Last.Get(); end;
+    procedure UseLocked() begin Locked.Get(); end;
+    procedure UseArr1() begin Arr1.Get(); end;
+    procedure UseArr1Write() begin Arr1.Write(); end;
+    procedure UseTwo() begin Two.Get(); end;
 
     procedure UseLabeled()
     begin
@@ -936,6 +1078,13 @@ codeunit 50113 TempDriver
     procedure UseWrap() var M: Codeunit TempMemo; begin M.UseWrap(); end;
     procedure ShareStore() var M: Codeunit TempMemo; begin M.ShareStore(); end;
     procedure UseLabeled() var M: Codeunit TempMemo; begin M.UseLabeled(); end;
+    procedure UseFirst() var M: Codeunit TempMemo; begin M.UseFirst(); end;
+    procedure UseMid() var M: Codeunit TempMemo; begin M.UseMid(); end;
+    procedure UseLast() var M: Codeunit TempMemo; begin M.UseLast(); end;
+    procedure UseLocked() var M: Codeunit TempMemo; begin M.UseLocked(); end;
+    procedure UseArr1() var M: Codeunit TempMemo; begin M.UseArr1(); end;
+    procedure UseArr1Write() var M: Codeunit TempMemo; begin M.UseArr1Write(); end;
+    procedure UseTwo() var M: Codeunit TempMemo; begin M.UseTwo(); end;
 }
 "#;
 
@@ -1015,9 +1164,27 @@ codeunit 50113 TempDriver
         }
     }
 
+    // The same store with one global `Label 'text'` before, between the temporary record and the RecordRef array, or after
+    // (ClearSharedCodeunitLabelStore.al First_L2_Step2_ReadX :1344, Mid_L2_Step2_ReadX :1541, Last_L2_Step2_ReadX :1738),
+    // and "CLS Arr Store" (ClearSharedCodeunitOwnerKinds.al M2_Step2_ReadX :1205) read as never made too.
+    #[test]
+    fn a_label_store_or_array_store_made_by_a_call_that_wrote_nothing_is_no_change() {
+        for made in [true, false] {
+            for routine in ["UseFirst", "UseMid", "UseLast", "UseArr1"] {
+                assert_eq!(
+                    temp_memo_left(routine, made),
+                    (Default::default(), 1),
+                    "{routine}, made before: {made}"
+                );
+            }
+        }
+    }
+
     // In a codeunit global made by its first call, an opened or shared RecordRef or a written temporary table is a change.
     // So is the made store of any shape or holder 1561 does not measure: an array of temporary records, one more global,
-    // a global Label among the globals (not measured yet), another order of the globals, a store inside a codeunit the SingleInstance codeunit holds, and a store another
+    // a global Label between the RecordRef array and the Integer array, a Label with Locked, two Labels (not measured), an
+    // array store whose table was written,
+    // another order of the globals, a store inside a codeunit the SingleInstance codeunit holds, and a store another
     // global shares. Nothing counts through the declared form.
     #[test]
     fn a_written_or_unmeasured_store_made_by_a_call_is_a_change() {
@@ -1031,6 +1198,9 @@ codeunit 50113 TempDriver
                 ("UseSwapped", 6),
                 ("UseWrap", 7),
                 ("UseLabeled", 9),
+                ("UseLocked", 13),
+                ("UseTwo", 15),
+                ("UseArr1Write", 14),
             ] {
                 assert_eq!(
                     temp_memo_left(routine, made),

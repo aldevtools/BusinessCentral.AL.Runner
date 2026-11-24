@@ -3,11 +3,9 @@ NB CS Tests::ClearAll_HolderUnused_Alias	ASSUMED clear-shared-codeunit (corpus P
 NB CS Tests::ClearAll_HolderUsed_AliasWroteBefore	ASSUMED clear-shared-codeunit (corpus PR 1560)
 NB CS Tests::Clear_LocalUnused_Interface	ASSUMED clear-shared-codeunit (corpus PR 1560)
 NB CS Tests::ClearAll_ReportHolder	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
-NB CS Tests::ClearAll_SingleInstanceHolder	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
 NB CS Tests::ClearAll_StoreWithTextGlobal	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
 NB CS Tests::ClearAll_StoreWithTwoGlobals	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
 NB CS Tests::ClearAll_TableNoHolder	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
-NB CS Tests::ClearAll_TestCodeunit	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
 NB CS Tests::ClearAll_WhileStoreRuns	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
 NB CS Tests::Clear_ArrayElementUnusedShared	REFUSED Clear of an array whose unused codeunit element another variable shares
 NB CS Tests::Clear_ValueParamItself	REFUSED Clear of a codeunit variable that nothing used yet and another variable shares
@@ -15,3 +13,5 @@ NB CS Tests::Clear_ArrayElementItselfUnusedShared	REFUSED Clear of a codeunit va
 NB CS Tests::Clear_VarParamAssigned_Shared	ASSUMED clear-shared-codeunit (corpus PR 1560)
 NB CS Tests::Clear_SubscriberVarParam_NoHolder	ASSUMED clear-shared-codeunit (corpus PR 1560)
 NB CS Tests::Clear_VarParamOfReassignedGlobal_Shared	REFUSED Clear of a codeunit variable that nothing used yet and another variable shares
+NB CS Tests::ClearAll_SingleInstanceHolder	REFUSED an earlier test of this codeunit was refused while it ran
+NB CS Tests::ClearAll_TestCodeunit	REFUSED an earlier test of this codeunit was refused while it ran
