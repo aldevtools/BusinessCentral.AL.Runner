@@ -1,8 +1,9 @@
 //! The parts of a key's `database` and `session` digests, each with a SHA-256 digest of its own, so the keys line can say
 //! which parts a new key differs in from its nearest earlier key, by name only (issue 8211: a key field alone, such as
 //! `session`, does not say which state moved). The parts:
-//! - per company and table object, the committed rows of that table: named `company N/table T`, where N is the company's
-//!   place among the companies of the two keys (a company name can be a customer's, so it is never shown);
+//! - per company and table object, the committed rows of that table: named `company N/table object T`, where N numbers
+//!   the company by first sight over the whole check ([`Companies`]: a company name can be a customer's, so it is never
+//!   shown), or `global/table object T` for a table that is not per company;
 //! - per state line name, the session state lines of that name (`Session::state_lines`: every line starts with a name the
 //!   runtime writes, `session`, `single`, `counters`, ...: its first word), and the lines with no comparable form as
 //!   `not comparable`.
@@ -64,21 +65,40 @@ impl KeyParts {
     }
 
     /// The tables whose committed rows differ between `self` and `other` (one has rows the other has not, or other rows),
-    /// as `company N/table T`.
-    pub(crate) fn database_differs(&self, other: &KeyParts) -> Vec<String> {
-        let companies: BTreeSet<&String> = (self.database.keys().chain(other.database.keys()))
-            .map(|(c, _)| c)
-            .collect();
-        let place = |c: &String| companies.iter().position(|x| *x == c).map_or(0, |p| p + 1);
+    /// named by `companies`.
+    pub(crate) fn database_differs(&self, other: &KeyParts, companies: &mut Companies) -> Vec<String> {
         differing(&self.database, &other.database)
             .into_iter()
-            .map(|(company, table)| format!("company {}/table {table}", place(company)))
+            .map(|(company, table)| companies.table(company, *table))
             .collect()
     }
 
     /// The names of the session state lines that differ between `self` and `other`.
     pub(crate) fn session_differs(&self, other: &KeyParts) -> Vec<String> {
         differing(&self.session, &other.session).into_iter().cloned().collect()
+    }
+}
+
+/// The companies the keys line names, numbered by first sight over one check, so one number means one company in every
+/// entry of the line. The names stay here: a company name can be a customer's, so the line shows only the number.
+#[derive(Default)]
+pub(crate) struct Companies(Vec<String>);
+
+impl Companies {
+    /// `table object T` of `company`: `company N/table object T`, or `global/table object T` for a table that is not per
+    /// company (the empty company of `ExportedTable`).
+    fn table(&mut self, company: &str, table: u32) -> String {
+        if company.is_empty() {
+            return format!("global/table object {table}");
+        }
+        let n = match self.0.iter().position(|c| c == company) {
+            Some(p) => p + 1,
+            None => {
+                self.0.push(company.to_string());
+                self.0.len()
+            }
+        };
+        format!("company {n}/table object {table}")
     }
 }
 

@@ -181,12 +181,16 @@ impl Key {
     }
 
     /// Per field of [`Key::differs_in`] that has parts (`database`, `session`), the parts that differ, each with its field:
-    /// by name only, never a value (`key_parts.rs`).
-    pub(crate) fn differing_parts(&self, other: &Key) -> Vec<(&'static str, String)> {
+    /// by name only, never a value, a company by its number in `companies` (`key_parts.rs`).
+    pub(crate) fn differing_parts(
+        &self,
+        other: &Key,
+        companies: &mut key_parts::Companies,
+    ) -> Vec<(&'static str, String)> {
         (self.differs_in(other).into_iter())
             .flat_map(|field| {
                 let parts = match field {
-                    "database" => self.parts.0.database_differs(&other.parts.0),
+                    "database" => self.parts.0.database_differs(&other.parts.0, companies),
                     "session" => self.parts.0.session_differs(&other.parts.0),
                     _ => Vec::new(),
                 };
@@ -267,6 +271,8 @@ struct Tally {
     /// Per set of key fields (joined by `+`), the new keys after the first that differ from their nearest earlier key in
     /// exactly those fields ([`Key::differs_in`]).
     new_keys_by: std::collections::BTreeMap<String, NewKeys>,
+    /// The companies `new_keys_by` names, by number.
+    companies: key_parts::Companies,
 }
 
 /// The parts the keys line shows per key field of an entry, the most counted first; the rest it counts as `and N more`.
@@ -314,7 +320,7 @@ impl Tally {
             if let Some((k, _)) = nearest {
                 let entry = self.new_keys_by.entry(key.differs_in(k).join("+")).or_default();
                 entry.n += 1;
-                for part in key.differing_parts(k) {
+                for part in key.differing_parts(k, &mut self.companies) {
                     *entry.parts.entry(part).or_default() += 1;
                 }
             }
@@ -742,8 +748,8 @@ mod tests {
         );
         let other = [table("C", 15, vec![vec![Value::Integer(2)]])];
         assert_eq!(
-            key_of_tables(&other, &[]).differing_parts(&key_of_tables(&with_empty, &[])),
-            [("database", "company 1/table 15".to_string())]
+            key_of_tables(&other, &[]).differing_parts(&key_of_tables(&with_empty, &[]), &mut Default::default()),
+            [("database", "company 1/table object 15".to_string())]
         );
     }
 
@@ -780,7 +786,7 @@ mod tests {
         assert_eq!(
             line,
             "login replay keys: 2 keys, 1 new after the first; each differs from its nearest earlier key in: \
-             database+session 1 (database: company 1/table 15 1; session: counters 1)"
+             database+session 1 (database: company 1/table object 15 1; session: counters 1)"
         );
         assert!(!line.contains("SECRET"), "{line}");
     }
@@ -806,8 +812,34 @@ mod tests {
             check.keys_line().as_deref(),
             Some(
                 "login replay keys: 9 keys, 8 new after the first; each differs from its nearest earlier key in: database 8 \
-                 (database: company 1/table 1 2, company 1/table 2 2, company 1/table 3 1, company 1/table 4 1, \
-                 company 1/table 5 1, and 2 more)"
+                 (database: company 1/table object 1 2, company 1/table object 2 2, company 1/table object 3 1, \
+                 company 1/table object 4 1, company 1/table object 5 1, and 2 more)"
+            )
+        );
+    }
+
+    // The maintainer's review of this check (issue 8211): a company is numbered once over the whole check, by first sight,
+    // so one number means one company in every entry; a table that is not per company is `global`; a table is a `table
+    // object` as in the check line.
+    #[test]
+    fn the_keys_line_numbers_a_company_once_and_names_a_global_table() {
+        let tables = |changed: (&str, u32)| -> Vec<al_data::memory::ExportedTable> {
+            [("A", 15), ("B", 15), ("", 18)]
+                .into_iter()
+                .map(|(c, t)| table(c, t, vec![vec![Value::Integer(((c, t) == changed).into())]]))
+                .collect()
+        };
+        let check = Check::default();
+        let s = state(&["r"], &["s"]);
+        check.note(key_of_tables(&tables(("", 0)), &[]), s.clone());
+        for changed in [("B", 15), ("A", 15), ("", 18)] {
+            check.note(key_of_tables(&tables(changed), &[]), s.clone());
+        }
+        assert_eq!(
+            check.keys_line().as_deref(),
+            Some(
+                "login replay keys: 4 keys, 3 new after the first; each differs from its nearest earlier key in: database 3 \
+                 (database: company 1/table object 15 1, company 2/table object 15 1, global/table object 18 1)"
             )
         );
     }
