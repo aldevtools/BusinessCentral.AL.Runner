@@ -1,7 +1,10 @@
 # key	entry
 GC Tests::CallerMarksCaptioned	ASSUMED guarded-run-consistent-end (corpus PR 1568)
 GC Tests::CallerMarksTemporary_InnerFails	ASSUMED guarded-run-consistent-end (corpus PR 1568)
+GC Tests::CallerMarks_InnerGetFails	ASSUMED guarded-run-consistent-end (corpus PR 1568, GuardedRunId_CallerMarks_InnerGetFails)
+GC Tests::CallerMarks_InnerMarksOtherAndFails	ASSUMED guarded-run-consistent-end (corpus PR 1568, GuardedRunId_CallerMarksOther_InnerStartsStateAndFails)
 GC Tests::CallerMarks_RecordArgOtherTable	ASSUMED guarded-run-consistent-end (corpus PR 1568)
+GC Tests::CallerWritesThenMarks	REFUSED A guarded Codeunit.Run starts while the caller holds an uncommitted write and Consistent(false) marks table
 GC Tests::Commit_Captioned	ASSUMED guarded-run-consistent-end (corpus PR 1568)
 GC Tests::Commit_ReleasedByAnother	ASSUMED guarded-run-consistent-end (corpus PR 1568)
 GC Tests::Commit_ReleasedByTemporary	ASSUMED guarded-run-consistent-end (corpus PR 1568): Consistent on a temporary record now runs and marks the database table; the shape still refuses at a later reader no cell measures

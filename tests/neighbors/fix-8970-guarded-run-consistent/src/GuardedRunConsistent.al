@@ -118,6 +118,8 @@ codeunit 61401 "GC Inner"
                     if Codeunit.Run(Codeunit::"GC Other Rec", Other) then;
                 'nestedfail':
                     if Codeunit.Run(Codeunit::"GC Fail Marks") then;
+                'nestedget':
+                    if Codeunit.Run(Codeunit::"GC Get Fails") then;
             end;
     end;
 }
@@ -162,6 +164,17 @@ codeunit 61405 "GC Fail Marks"
     begin
         Row.Consistent(false);
         Error('nested failed');
+    end;
+}
+
+// An inner Get that fails, whatever the mode: the run nested in another run.
+codeunit 61407 "GC Get Fails"
+{
+    trigger OnRun()
+    var
+        Other: Record "GC Other";
+    begin
+        Other.Get(999);
     end;
 }
 
@@ -434,6 +447,7 @@ codeunit 61406 "GC Tests"
         Init('get');
         Row.Consistent(false);
         asserterror Ok := Codeunit.Run(Codeunit::"GC Inner");
+        ExpectInconsistent('GC Row');
     end;
 
     [Test]
@@ -445,6 +459,113 @@ codeunit 61406 "GC Tests"
         Init('markother,err');
         Row.Consistent(false);
         asserterror Ok := Codeunit.Run(Codeunit::"GC Inner");
+        ExpectInconsistent('GC Row');
+    end;
+
+    [Test]
+    procedure CallerReleased_InnerGetFails()
+    var
+        Row: Record "GC Row";
+        Row2: Record "GC Row";
+        Ok: Boolean;
+    begin
+        Init('get');
+        Row.Consistent(false);
+        Row2.Consistent(true);
+        asserterror Ok := Codeunit.Run(Codeunit::"GC Inner");
+    end;
+
+    [Test]
+    procedure CallerMarks_InnerGetFails_RecordArg()
+    var
+        Row: Record "GC Row";
+        Other: Record "GC Other";
+        Ok: Boolean;
+    begin
+        Init('get');
+        Row.Consistent(false);
+        asserterror Ok := Codeunit.Run(Codeunit::"GC Other Rec", Other);
+    end;
+
+    [Test]
+    procedure CallerMarks_InnerMarksOtherAndGetFails()
+    var
+        Row: Record "GC Row";
+        Ok: Boolean;
+    begin
+        Init('markother,get');
+        Row.Consistent(false);
+        asserterror Ok := Codeunit.Run(Codeunit::"GC Inner");
+    end;
+
+    [Test]
+    procedure CallerMarks_InnerMarksOtherAndDivides()
+    var
+        Row: Record "GC Row";
+        Ok: Boolean;
+    begin
+        Init('markother,div');
+        Row.Consistent(false);
+        asserterror Ok := Codeunit.Run(Codeunit::"GC Inner");
+    end;
+
+    [Test]
+    procedure CallerMarks_InnerMarksTwoOthersAndFails()
+    var
+        Row: Record "GC Row";
+        Ok: Boolean;
+    begin
+        Init('markother,markcap,err');
+        Row.Consistent(false);
+        asserterror Ok := Codeunit.Run(Codeunit::"GC Inner");
+    end;
+
+    [Test]
+    procedure CallerMarks_InnerMarksOtherAndFails_RecordArg()
+    var
+        Row: Record "GC Row";
+        Other: Record "GC Other";
+        Ok: Boolean;
+    begin
+        Init('markcap,err');
+        Row.Consistent(false);
+        asserterror Ok := Codeunit.Run(Codeunit::"GC Other Rec", Other);
+    end;
+
+    [Test]
+    procedure CallerReleased_InnerMarksOtherAndFails()
+    var
+        Row: Record "GC Row";
+        Row2: Record "GC Row";
+        Ok: Boolean;
+    begin
+        Init('markother,err');
+        Row.Consistent(false);
+        Row2.Consistent(true);
+        asserterror Ok := Codeunit.Run(Codeunit::"GC Inner");
+    end;
+
+    [Test]
+    procedure NestedCallerMarks_InnerGetFails()
+    var
+        Ok: Boolean;
+    begin
+        Init('mark,nestedget');
+        Ok := Codeunit.Run(Codeunit::"GC Inner");
+    end;
+
+    [Test]
+    procedure CallerWritesNoMark()
+    var
+        Row: Record "GC Row";
+        Ok: Boolean;
+    begin
+        Init('err');
+        Row.Id := 5;
+        Row.Insert();
+        asserterror Ok := Codeunit.Run(Codeunit::"GC Inner");
+        if GetLastErrorCode() <> 'DB:Ok' then
+            Error('code %1', GetLastErrorCode());
     end;
 
     [Test]
@@ -592,5 +713,19 @@ codeunit 61406 "GC Tests"
         Init('');
         TempRow.Consistent(false);
         Codeunit.Run(Codeunit::"GC Nothing");
+    end;
+
+    // Last: the refusal leaves a write behind, which the runner does not trust for later tests.
+    [Test]
+    procedure CallerWritesThenMarks()
+    var
+        Row: Record "GC Row";
+        Ok: Boolean;
+    begin
+        Init('err');
+        Row.Id := 5;
+        Row.Insert();
+        Row.Consistent(false);
+        asserterror Ok := Codeunit.Run(Codeunit::"GC Inner");
     end;
 }
