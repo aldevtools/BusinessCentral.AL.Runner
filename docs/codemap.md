@@ -443,7 +443,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `transaction_type.rs`: `Database.CurrentTransactionType`. Entry: `current_transaction_type`.
 - `transaction_type_saved.rs`: A `CurrentTransactionType` read while the type is not known whose value only sets it back. Entry: `Session::read_saved_for_set_back`.
 - `transactions.rs`: Transactions as AL code sees them. Entry: `TxModel`.
-- `consistent_marks.rs`: The tables `Record.Consistent` marks. Entry: `Session::set_consistent`.
+- `consistent_marks.rs`: `Record.Consistent` marks and how a run or Commit ends on one. Entry: `Session::set_consistent`.
 - `ui.rs`: Dialogs raised by the code under test and the test… Entry: `UiKind`.
 - `dev_endpoint_ui.rs`: `--dev-endpoint-ui`: the answer of the dev-endpoint…
 - `clientless.rs`: What a dialog does in a session without a client.
