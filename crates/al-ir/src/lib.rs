@@ -1861,6 +1861,10 @@ pub struct Slot {
     /// reads lower to its text, and AL code cannot assign or clear it (corpus must-not-compile 0350, 2628).
     #[serde(default)]
     pub plain_label: bool,
+    /// A global declared `Label 'text', Comment = 'text'` with two texts that are not empty and no other property (al-sema
+    /// `shared::comment_label`).
+    #[serde(default)]
+    pub comment_label: bool,
 }
 
 impl Slot {
@@ -1872,6 +1876,7 @@ impl Slot {
             security_filtering: None,
             security_filtering_not_kept: false,
             plain_label: false,
+            comment_label: false,
         }
     }
 }

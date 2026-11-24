@@ -583,6 +583,7 @@ pub(crate) fn lower_object<'a>(
                     slot.security_filtering = declared.clone().and_then(Result::ok);
                     slot.security_filtering_not_kept = security_filtering_not_kept(&attrs, &declared);
                     slot.plain_label = v.type_ref().as_ref().is_some_and(plain_label);
+                    slot.comment_label = v.type_ref().as_ref().is_some_and(comment_label);
                     globals.push(slot);
                 }
                 Err(e) => global_reasons.push(format!("global `{n}`: {e}")),
@@ -1282,6 +1283,16 @@ pub(crate) fn plain_text_constant(t: &ast::TypeRef) -> bool {
 /// `MaxLength`).
 pub(crate) fn plain_label(t: &ast::TypeRef) -> bool {
     matches!(type_tokens(t).as_slice(), [kw, text] if is_plain_label(kw, text))
+}
+
+/// Whether a declaration is `Label 'text', Comment = 'text'` with two texts that are not empty and no other property.
+pub(crate) fn comment_label(t: &ast::TypeRef) -> bool {
+    matches!(type_tokens(t).as_slice(), [kw, text, comma, comment, eq, note]
+        if is_plain_label(kw, text)
+            && comma.kind() == SyntaxKind::Comma
+            && comment.text().eq_ignore_ascii_case("comment")
+            && eq.kind() == SyntaxKind::Eq
+            && text_not_empty(note))
 }
 
 fn is_plain_label(kw: &al_syntax::SyntaxToken, text: &al_syntax::SyntaxToken) -> bool {

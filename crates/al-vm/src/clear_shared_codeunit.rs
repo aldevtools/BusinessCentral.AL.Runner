@@ -53,9 +53,7 @@ impl Session {
                     let hold = self.temp_hold(v);
                     let holding = if Rc::strong_count(rc) > 2 {
                         Holding::Shared
-                    } else if hold == TempHold::SharedTable {
-                        return Err(shared_table_refusal());
-                    } else if hold == TempHold::Rows {
+                    } else if hold != TempHold::Empty {
                         Holding::Written
                     } else if self.wrapped_store_shared(rc) {
                         return Err(Signal::unsupported(
@@ -67,7 +65,7 @@ impl Session {
                     };
                     if !self.measured_cell(owner, v, holding, hold) {
                         return Err(match holding {
-                            Holding::Shared if hold == TempHold::SharedTable => shared_table_refusal(),
+                            _ if hold == TempHold::SharedTable => shared_table_refusal(),
                             Holding::Shared => Signal::unsupported(
                                 "ClearAll of a global codeunit variable whose instance another variable shares, in a \
                                  shape the corpus does not pin",
@@ -183,8 +181,7 @@ impl Session {
     /// holds a row now, else [`TempHold::Empty`]. A table written and later emptied holds no row. Each instance is walked
     /// once, so a cycle of instances ends.
     fn temp_hold(&self, v: &Value) -> TempHold {
-        let mut walk = TempWalk::default();
-        self.walk_temp(v, &mut walk);
+        let walk = self.temp_walk(v);
         let tables = walk.tables.values();
         if tables.clone().any(|t| t.own < t.sharers) {
             TempHold::SharedTable
@@ -193,6 +190,17 @@ impl Session {
         } else {
             TempHold::Empty
         }
+    }
+
+    /// Whether a temporary table `v` reaches ([`Session::temp_hold`]) holds a row now, shared by a record outside or not.
+    fn temp_rows_now(&self, v: &Value) -> bool {
+        self.temp_walk(v).tables.values().any(|t| t.rows)
+    }
+
+    fn temp_walk(&self, v: &Value) -> TempWalk {
+        let mut walk = TempWalk::default();
+        self.walk_temp(v, &mut walk);
+        walk
     }
 
     fn walk_temp(&self, v: &Value, walk: &mut TempWalk) {
@@ -291,6 +299,11 @@ impl Session {
         if o.rec_slot.is_some() {
             return self.register_kinds(object).then_some(Store::Register);
         }
+        if matches!(o.globals.as_slice(), [t, e, i, l]
+            if temp_record(&t.ty) && matches!(e.ty, RtType::Enum(_)) && integer(&i.ty) && l.comment_label)
+        {
+            return Some(Store::PriceList);
+        }
         let labels: Vec<usize> = (o.globals.iter().enumerate())
             .filter(|(_, g)| g.plain_label)
             .map(|(i, _)| i)
@@ -345,6 +358,7 @@ impl Session {
         };
         measured(o, s, holding, hold)
             && (s != Store::Register || self.register_as_measured(rc))
+            && (s != Store::PriceList || hold != TempHold::SharedTable || self.temp_rows_now(v))
             && !self.holds_bound_codeunit(v)
             && !self.store_runs(v)
     }
@@ -597,7 +611,13 @@ fn measured(owner: Owner, store: Store, holding: Holding, hold: TempHold) -> boo
         // ClearSharedCodeunitSetterOwner.al: the register's table shared with a record of the test through Copy(Rows, true)
         // stays shared, rows or none (SharedRows, SharedNever, SharedEmptied :397 :434 :470 TableNo Run, :587 :624 :660
         // TableNo procedure, :777 :814 :850 plain Run, :967 :1004 :1040 plain procedure, :1130 by-value setter).
-        return matches!((owner, store, holding), (Plain | TableNo, Register, Shared));
+        // ClearSharedCodeunitStoreShapes.al Price_T1SharedByCopy_SetLine :1322: the price store nothing else holds, its
+        // T1 shared with a record of the test through R.Copy(T1, true), stays shared (r=2, writes cross). Measured with
+        // rows only (`Session::measured_cell` reads them).
+        return matches!(
+            (owner, store, holding),
+            (Plain | TableNo, Register, Shared) | (Plain, PriceList, Written)
+        );
     }
     match (owner, store, holding) {
         // ClearSharedCodeunit.al ClearAll_GlobalUnusedIface, ClearAll_GlobalUsedAlias_AliasWroteBefore,
@@ -631,6 +651,12 @@ fn measured(owner: Owner, store: Store, holding: Holding, hold: TempHold) -> boo
         // procedure), plain owner (:698 :725 :752 Run, :888 :915 :942 procedure), by-value setter (:1078 :1105); the owner's
         // own register (:1166 :1187 TableNo, :1208 :1229 plain).
         (Plain | TableNo, Register, _) => true,
+        // ClearSharedCodeunitStoreShapes.al: the price store nothing else holds, rows now, ClearAll in SetLine called
+        // through an interface (Price_ViaInterface_Filled_SetLine :1206) or directly (:1225), twice (:1277).
+        (Plain, PriceList, Written) => true,
+        // Shared with a test local through a var getter, rows written before (Price_StoreAlias_SetLine :1296). Never
+        // written while shared is not measured: refused.
+        (Plain, PriceList, Shared) => hold == TempHold::Rows,
         // ClearSharedCodeunitTempArrayShare.al TwoDimWritten_InStore_ClearAll_NoAlias :688, ..._AliasWroteBefore :707.
         (Plain, TwoDimArray, _) => true,
         _ => false,
@@ -737,6 +763,9 @@ enum Store {
     TwoDimArray,
     /// "CLR Register" ([`Session::register_kinds`]), a codeunit with a TableNo.
     Register,
+    /// "CLV Price Store" (ClearSharedCodeunitStoreShapes.al:1080-1086): exactly, in this order, a temporary record, an
+    /// Enum, an Integer and a `Label 'text', Comment = 'text'` ([`ir::Slot::comment_label`]).
+    PriceList,
 }
 
 /// How the instance of a store global is held when `ClearAll()` runs in its owner.
@@ -744,7 +773,8 @@ enum Store {
 enum Holding {
     /// Another variable, parameter or interface holds it too.
     Shared,
-    /// Nothing else holds it, and its temporary table holds rows now ([`TempHold::Rows`]).
+    /// Nothing else holds it, and its temporary table holds rows now ([`TempHold::Rows`]) or a record outside shares it
+    /// ([`TempHold::SharedTable`]).
     Written,
 }
 
