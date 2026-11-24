@@ -40,6 +40,15 @@ use std::sync::Arc;
 mod carried;
 pub(crate) use carried::{Carried, may_keep_carried};
 
+/// Whether routine `r` has a `var` Option parameter declared without members (`memberless_list`) or with members.
+pub(crate) fn has_var_option_param(r: &al_ir::Routine, memberless_list: bool) -> bool {
+    r.locals
+        .iter()
+        .zip(&r.by_var)
+        .take(r.params)
+        .any(|(l, v)| *v && matches!(&l.ty, RtType::Option(m) if memberless(m) == memberless_list))
+}
+
 /// The value a `var` parameter of type `ty` takes when it is handed `v`; `None`: the usual conversion.
 /// - Declared without members, it keeps the members of the value handed in: Format, StrSubstNo and Evaluate in the callee
 ///   read the caller's members (OptionVarMemberLists.al:241, :364, :510, :531; OptionVarMemberlessEvaluate.al:77-244;

@@ -403,18 +403,8 @@ fn routine_facts(r: &ir::Routine, publisher: bool) -> RoutineFacts {
     }
     f.odd_attributes |= commits > 1 || collects > 1;
     f.var_lens = r.reads_var_max_len && !publisher;
-    f.option_hops = !publisher
-        && r.locals
-            .iter()
-            .zip(&r.by_var)
-            .take(r.params)
-            .any(|(l, v)| *v && matches!(&l.ty, RtType::Option(m) if !al_builtins::option_members::memberless(m)));
-    f.option_carries = r
-        .locals
-        .iter()
-        .zip(&r.by_var)
-        .take(r.params)
-        .any(|(l, v)| *v && matches!(&l.ty, RtType::Option(m) if al_builtins::option_members::memberless(m)));
+    f.option_hops = !publisher && crate::var_option::has_var_option_param(r, false);
+    f.option_carries = crate::var_option::has_var_option_param(r, true);
     f
 }
 
@@ -2504,13 +2494,12 @@ impl Session {
         let r = &engine.program.objects[object].routines[routine];
         // The bytecode, if the mode asks for it. Whether a capture watches the routine is only known once its frame is
         // entered (`cap_enter_frame`); a capture watches the captured form of the bytecode.
-        // A frame with a parameter bound to a value that carries another list or none runs the form that keeps it
-        // (`var_option::carried::carried_args`); every other frame the plain one.
-        let chunk = if facts.option_hops && self.events.next_carried_kept.contains(&true) {
-            engine.exec.kept_chunk(&engine.program, object, routine)
-        } else {
-            engine.exec.chunk(&engine.program, object, routine)
-        };
+        // The `var` Option parameters `var_option::carried::carried_args` let a value that carries another list or none
+        // through to: bound as they are, in a frame that runs the form keeping that list (`ExecProgram::frame_chunk`).
+        let carried_kept = std::mem::take(&mut self.events.next_carried_kept);
+        let chunk = engine
+            .exec
+            .frame_chunk(&engine.program, object, routine, carried_kept.contains(&true));
         let mut locals = self.spare_vec(r.locals.len() + chunk.map_or(0, |c| usize::from(c.temps)));
         let passed = args.len().min(r.params);
         for (i, s) in r.locals.iter().enumerate() {
@@ -2533,13 +2522,6 @@ impl Session {
         // The call whose by-value arguments `blob_transfer::Argument` measures.
         let measured_call =
             blob_transfer::Argument::measured_call(engine.program.objects[object].kind, r, measured_event);
-        // The `var` Option parameters `var_option::carried::carried_args` let a value that carries another list or none
-        // through to: bound as they are.
-        let carried_kept = if facts.option_hops {
-            std::mem::take(&mut self.events.next_carried_kept)
-        } else {
-            Vec::new()
-        };
         for (i, a) in args.drain(..).enumerate().take(r.params) {
             // No arm below is for these pairs, and the last one hands them back unchanged.
             if passed_unchanged(&a, &r.locals[i].ty) {

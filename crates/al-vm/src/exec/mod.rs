@@ -668,8 +668,19 @@ impl ExecProgram {
             .as_deref()
     }
 
-    /// The form of routine `routine` of object `object` for a frame with a carried binding (`compile::compile_kept`).
-    pub(crate) fn kept_chunk(&self, program: &ir::Program, object: usize, routine: usize) -> Option<&Chunk> {
+    /// The chunk a frame of routine `routine` of object `object` runs: the form that keeps carried lists
+    /// (`compile::compile_kept`) when `kept` (a parameter is bound to a value that carries another list or none), else the
+    /// plain one.
+    pub(crate) fn frame_chunk(
+        &self,
+        program: &ir::Program,
+        object: usize,
+        routine: usize,
+        kept: bool,
+    ) -> Option<&Chunk> {
+        if !kept {
+            return self.chunk(program, object, routine);
+        }
         let table = self.kept.get_or_init(|| chunk_table(program));
         table[object][routine]
             .get_or_init(|| compile::compile_kept(program, object, routine).map(Box::new))
