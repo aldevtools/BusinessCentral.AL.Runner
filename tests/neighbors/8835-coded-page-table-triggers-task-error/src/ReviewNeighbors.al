@@ -1,10 +1,11 @@
 // Neighbors of ListNewLineExtraCodeCodedTableTriggers.al and ListNewLineExtraCodeCodedTaskError.al (review of al-runner
-// PR 8840, 01:32Z): a handler that catches the first SetValue's error, a copy of the task FactBox whose worker fails on
-// the blank record, or whose error trigger calls CurrPage.Update. Each test holds
+// PR 8840, 01:32Z and 07:30Z): a handler that catches the first SetValue's error, and a copy of the task FactBox whose
+// worker fails on the blank record or on the parts' read of the new line, or whose error trigger calls CurrPage.Update.
+// Each test holds
 // Business Central's answer, measured on a local BC 29.1 container (3 runs of 3), in a codeunit of its own.
 
-// The task error probe's variation FactBox, with modes 5 (fails on the blank record, too) and 6
-// (its error trigger calls CurrPage.Update(false)).
+// The task error probe's variation FactBox, with modes 5 (fails on the blank record, too), 6 (its error
+// trigger calls CurrPage.Update(false)) and 7 (fails at its second read of the blank record, the new line's).
 page 96600 "LT NQ4 Usage"
 {
     PageType = CardPart;
@@ -24,10 +25,14 @@ page 96600 "LT NQ4 Usage"
         Parameters: Dictionary of [Text, Text];
     begin
         Usage := '';
-        if (Rec."Entry No." = 0) and (Mode.Get() <> 5) then
+        if (Rec."Entry No." = 0) and (Mode.Get() = 7) and not BlankSeen then begin
+            BlankSeen := true;
+            exit;
+        end;
+        if (Rec."Entry No." = 0) and not (Mode.Get() in [5, 7]) then
             exit;
         Parameters.Add('Entry', Format(Rec."Entry No."));
-        Parameters.Add('Fail', Format(Mode.Get() in [2, 3, 5, 6]));
+        Parameters.Add('Fail', Format(Mode.Get() in [2, 3, 5, 6, 7]));
         CurrPage.EnqueueBackgroundTask(TaskId, Codeunit::"LT NQ2 Var Task", Parameters);
     end;
 
@@ -53,6 +58,7 @@ page 96600 "LT NQ4 Usage"
     end;
 
     var
+        BlankSeen: Boolean;
         TaskId: Integer;
         Usage: Text;
 }
@@ -372,6 +378,44 @@ codeunit 96606 "LT NQ4 Update Tests"
         Shown := '';
         Lib.OpenNq(false);
         Lib.Check('name=A usage=Failed value=V usage=Failed | err=| code=| rows=A/Resolved/Stamped/V;| log=U.ERR(Task failed);|name;|value;|ok;', Shown + '| err=' + GetLastErrorText() + '| code=' + GetLastErrorCode() + '| rows=' + Lib.NqRows() + '| log=' + Lib.NqLog());
+    end;
+
+    [ModalPageHandler]
+    procedure Handler(var Lines: TestPage "LT NQ4 Lines")
+    var
+        Mode: Codeunit "LT NQ2 Mode";
+    begin
+        Lines.New();
+        Lines.Name.SetValue('A');
+        Mode.Add('|name');
+        Shown += 'name=' + Lines.Name.Value() + ' usage=' + Lines.Usage.Usage.Value() + ' ';
+        Lines.Value.SetValue('V');
+        Mode.Add('|value');
+        Shown += 'value=' + Lines.Value.Value() + ' usage=' + Lines.Usage.Usage.Value() + ' ';
+        Lines.OK().Invoke();
+        Mode.Add('|ok');
+    end;
+}
+
+
+// The worker fails only at the parts' read of the new line at the start of the first SetValue. Its own codeunit.
+codeunit 96607 "LT NQ4 Line Read Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        Lib: Codeunit "LT NX4 Lib";
+        Shown: Text;
+
+    [Test]
+    [HandlerFunctions('Handler')]
+    procedure NewLine_TaskFailsAtThePartsReadOfTheNewLine_TheErrorReachesTheTest()
+    begin
+        Lib.Initialize(0, 7);
+        Shown := '';
+        asserterror Lib.OpenNq(false);
+        Lib.Check('| err=Task failed| code=ClientPageAbort:FormAbort| rows=| log=U.ERR(Task failed);', Shown + '| err=' + GetLastErrorText() + '| code=' + GetLastErrorCode() + '| rows=' + Lib.NqRows() + '| log=' + Lib.NqLog());
     end;
 
     [ModalPageHandler]

@@ -1313,3 +1313,418 @@ codeunit 96436 "LT NE4 Tests"
             Error('%1: expected <%2>, found <%3>.', What, Expected, Actual);
     end;
 }
+
+// The cells of an error of the control when the table field skips its insert (review of al-runner PR 8840, 07:30Z),
+// with a log of their own.
+codeunit 96438 "LT NE5 Log"
+{
+    SingleInstance = true;
+
+    var
+        Entries: Text;
+        Mode: Integer;
+
+    procedure Add(Entry: Text)
+    begin
+        Entries += Entry + ';';
+    end;
+
+    procedure Get(): Text
+    begin
+        exit(Entries);
+    end;
+
+    procedure Reset(NewMode: Integer)
+    begin
+        Entries := '';
+        Mode := NewMode;
+    end;
+
+    procedure GetMode(): Integer
+    begin
+        exit(Mode);
+    end;
+}
+
+// A copy of the variation table whose Name OnValidate skips its insert in modes 15 and 16.
+table 96439 "LT NE5 Line"
+{
+    DataClassification = CustomerContent;
+
+    fields
+    {
+        field(1; "Group Code"; Code[10]) { }
+        field(2; "Entry No."; Integer) { AutoIncrement = true; }
+        field(3; Name; Text[30])
+        {
+            trigger OnValidate()
+            var
+                Log: Codeunit "LT NE5 Log";
+            begin
+                if ("Entry No." = 0) and not (Log.GetMode() in [15, 16]) then
+                    Insert(true);
+                CopyDefaults();
+            end;
+        }
+        field(4; Note; Text[30]) { }
+        field(5; Mark; Text[30]) { }
+        field(6; Value; Text[30]) { }
+        field(7; Created; Text[10]) { }
+        field(8; Sorting; Integer) { }
+    }
+
+    keys
+    {
+        key(PK; "Group Code", "Entry No.") { Clustered = true; }
+    }
+
+    trigger OnInsert()
+    var
+        Log: Codeunit "LT NE5 Log";
+        Defaults: Codeunit "LT NE2 Defaults";
+        Last: Record "LT NE5 Line";
+        Detail: Record "LT NE2 Detail";
+    begin
+        case Log.GetMode() of
+            1:
+                Created := 'Yes';
+            2:
+                begin
+                    Last.SetRange("Group Code", "Group Code");
+                    Last.SetLoadFields(Sorting);
+                    if Last.FindLast() then
+                        Sorting := Last.Sorting + 10
+                    else
+                        Sorting := 10;
+                end;
+            3:
+                begin
+                    Detail.Init();
+                    Detail."Line Entry No." := -1;
+                    Detail.Text := 'ByInsert';
+                    Detail.Insert();
+                end;
+            4:
+                Created := 'Called';
+            5:
+                Error('Not allowed');
+        end;
+    end;
+
+    trigger OnDelete()
+    var
+        Log: Codeunit "LT NE5 Log";
+    begin
+        Log.Add('T.DEL(' + Name + ')');
+    end;
+
+    local procedure CopyDefaults()
+    var
+        Detail: Record "LT NE2 Detail";
+        Index: Integer;
+    begin
+        for Index := 1 to 2 do begin
+            Detail.Init();
+            Detail."Entry No." := 0;
+            Detail."Line Entry No." := "Entry No.";
+            Detail.Text := Name + Format(Index);
+            Detail.Insert();
+        end;
+    end;
+}
+
+// The variation FactBoxes over that table.
+page 96440 "LT NE5 Info"
+{
+    PageType = CardPart;
+    SourceTable = "LT NE5 Line";
+
+    layout
+    {
+        area(Content)
+        {
+            field(Note; Rec.Note) { ApplicationArea = All; }
+            field(Mark; Rec.Mark) { ApplicationArea = All; }
+            field(Info; Info) { ApplicationArea = All; }
+        }
+    }
+
+    trigger OnAfterGetRecord()
+    begin
+        Info := Rec.Name;
+    end;
+
+    var
+        Info: Text;
+}
+
+// FactBox 2: a field and an action.
+
+page 96441 "LT NE5 Picture"
+{
+    PageType = CardPart;
+    SourceTable = "LT NE5 Line";
+
+    layout
+    {
+        area(Content)
+        {
+            field(Value; Rec.Value) { ApplicationArea = All; }
+        }
+    }
+
+    actions
+    {
+        area(Processing)
+        {
+            action(ClearValue)
+            {
+                ApplicationArea = All;
+
+                trigger OnAction()
+                begin
+                    Rec.Value := '';
+                    Rec.Modify();
+                end;
+            }
+        }
+    }
+}
+
+// FactBox 3: counts the line's detail rows in a page background task.
+
+page 96442 "LT NE5 Usage"
+{
+    PageType = CardPart;
+    SourceTable = "LT NE5 Line";
+
+    layout
+    {
+        area(Content)
+        {
+            field(Usage; Usage) { ApplicationArea = All; }
+        }
+    }
+
+    trigger OnAfterGetCurrRecord()
+    var
+        Parameters: Dictionary of [Text, Text];
+    begin
+        Usage := '';
+        if Rec."Entry No." = 0 then
+            exit;
+        Parameters.Add('Entry', Format(Rec."Entry No."));
+        CurrPage.EnqueueBackgroundTask(TaskId, Codeunit::"LT NE2 Usage Task", Parameters);
+    end;
+
+    trigger OnPageBackgroundTaskCompleted(CompletedTaskId: Integer; Results: Dictionary of [Text, Text])
+    begin
+        if CompletedTaskId = TaskId then
+            Usage := Results.Get('Count');
+    end;
+
+    var
+        TaskId: Integer;
+        Usage: Text;
+}
+
+
+// A List page with OnOpenPage, OnAfterGetRecord and OnDeleteRecord, actions, a Notes part and three FactBoxes, over a table with
+// OnInsert and OnDelete: the Name control's OnValidate
+// sets another field of Rec, saves the new line, modifies the row through another record and updates the page.
+
+// The variation page over that table; its Name control raises after its save (mode 15) or before it (mode 16).
+page 96443 "LT NE5 Lines"
+{
+    PageType = List;
+    SourceTable = "LT NE5 Line";
+    AutoSplitKey = true;
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Lines)
+            {
+                field(Name; Rec.Name)
+                {
+                    ApplicationArea = All;
+
+                    trigger OnValidate()
+                    var
+                        Log: Codeunit "LT NE5 Log";
+                    begin
+                        if Log.GetMode() = 16 then
+                            Error('Control failed before the save');
+                        Rec.Note := 'Resolved';
+                        CurrPage.SaveRecord();
+                        if Log.GetMode() = 15 then
+                            Error('Control failed after the save');
+                        StampMark(Rec);
+                        CurrPage.Update(false);
+                    end;
+                }
+                field(Note; Rec.Note) { ApplicationArea = All; }
+                field(Mark; Rec.Mark) { ApplicationArea = All; }
+                field(Value; Rec.Value) { ApplicationArea = All; }
+                field(Kind; Kind) { ApplicationArea = All; Editable = false; }
+            }
+        }
+        area(FactBoxes)
+        {
+            systempart(Notes; Notes)
+            {
+                ApplicationArea = All;
+            }
+            part(Info; "LT NE5 Info")
+            {
+                ApplicationArea = All;
+                SubPageLink = "Group Code" = field("Group Code"), "Entry No." = field("Entry No.");
+            }
+            part(Picture; "LT NE5 Picture")
+            {
+                ApplicationArea = All;
+                SubPageLink = "Group Code" = field("Group Code"), "Entry No." = field("Entry No.");
+            }
+            part(Usage; "LT NE5 Usage")
+            {
+                ApplicationArea = All;
+                SubPageLink = "Group Code" = field("Group Code"), "Entry No." = field("Entry No.");
+            }
+        }
+    }
+
+    actions
+    {
+        area(Processing)
+        {
+            action(MarkLine)
+            {
+                ApplicationArea = All;
+
+                trigger OnAction()
+                begin
+                    StampMark(Rec);
+                    CurrPage.Update(false);
+                end;
+            }
+            action(ClearNote)
+            {
+                ApplicationArea = All;
+
+                trigger OnAction()
+                begin
+                    Rec.Note := '';
+                    CurrPage.Update(true);
+                end;
+            }
+        }
+    }
+
+    trigger OnOpenPage()
+    begin
+        Opened := true;
+    end;
+
+    trigger OnAfterGetRecord()
+    begin
+        Kind := '';
+        if Opened and (Rec.Note <> '') then
+            Kind := 'Noted';
+    end;
+
+    trigger OnDeleteRecord(): Boolean
+    begin
+        exit(true);
+    end;
+
+    local procedure StampMark(Line: Record "LT NE5 Line")
+    var
+        Other: Record "LT NE5 Line";
+    begin
+        Other.Get(Line."Group Code", Line."Entry No.");
+        Other.Mark := 'Stamped';
+        Other.Modify();
+    end;
+
+    var
+        Opened: Boolean;
+        Kind: Text;
+}
+
+codeunit 96444 "LT NE5 Opener"
+{
+    procedure Open(GroupCode: Code[10])
+    var
+        Line: Record "LT NE5 Line";
+    begin
+        Line.SetRange("Group Code", GroupCode);
+        Page.RunModal(Page::"LT NE5 Lines", Line);
+    end;
+}
+
+codeunit 96445 "LT NE5 Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    [HandlerFunctions('ErrorHandler')]
+    procedure NewLine_TableFieldSkipsItsInsertControlFailsAfterTheSave_TheSetValueFails()
+    begin
+        Run(15);
+        Check('error', 'Validation error for Field: Name,  Message = ''Control failed after the save''', GetLastErrorText());
+        Check('code', 'TestValidation', GetLastErrorCode());
+        Check('rows', '', Rows());
+    end;
+
+    [Test]
+    [HandlerFunctions('ErrorHandler')]
+    procedure NewLine_TableFieldSkipsItsInsertControlFailsBeforeTheSave_TheSetValueFails()
+    begin
+        Run(16);
+        Check('error', 'Validation error for Field: Name,  Message = ''Control failed before the save''', GetLastErrorText());
+        Check('code', 'TestValidation', GetLastErrorCode());
+        Check('rows', '', Rows());
+    end;
+
+    [ModalPageHandler]
+    procedure ErrorHandler(var Lines: TestPage "LT NE5 Lines")
+    begin
+        Lines.New();
+        Lines.Name.SetValue('A');
+        Lines.OK().Invoke();
+    end;
+
+    local procedure Run(M: Integer)
+    var
+        Line: Record "LT NE5 Line";
+        Detail: Record "LT NE2 Detail";
+        LogCu: Codeunit "LT NE5 Log";
+        Opener: Codeunit "LT NE5 Opener";
+    begin
+        Line.DeleteAll();
+        Detail.DeleteAll();
+        LogCu.Reset(M);
+        Commit();
+        asserterror Opener.Open('G1');
+    end;
+
+    local procedure Rows() Result: Text
+    var
+        Line: Record "LT NE5 Line";
+    begin
+        if Line.FindSet() then
+            repeat
+                Result += Line.Name + '/' + Line.Note + '/' + Line.Mark + '/' + Line.Value + ';';
+            until Line.Next() = 0;
+    end;
+
+    local procedure Check(What: Text; Expected: Text; Actual: Text)
+    begin
+        if Expected <> Actual then
+            Error('%1: expected <%2>, found <%3>.', What, Expected, Actual);
+    end;
+}
