@@ -1131,6 +1131,9 @@ impl Session {
         d.load.partial = s.load.partial;
         if share && s.temporary {
             d.temp_id = s.temp_id.clone();
+            if let Some(id) = &d.temp_id {
+                id.note_copy_target(rec);
+            }
         }
         Ok(Value::Null)
     }

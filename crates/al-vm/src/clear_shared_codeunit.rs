@@ -82,7 +82,7 @@ impl Session {
                     };
                     if !self.measured_cell(owner, v, holding, hold) {
                         return Err(match holding {
-                            _ if hold == TempHold::SharedTable => shared_table_refusal(),
+                            _ if hold.shared() => shared_table_refusal(),
                             Holding::Shared => Signal::unsupported(
                                 "ClearAll of a global codeunit variable whose instance another variable shares, in a \
                                  shape the corpus does not pin",
@@ -123,7 +123,7 @@ impl Session {
         let ty = &self.engine.program.objects[owner].globals[slot].ty;
         let holds: Vec<TempHold> = items.borrow().iter().map(|e| self.temp_hold(e)).collect();
         let hold = holds.iter().copied().max().unwrap_or(TempHold::Empty);
-        if hold == TempHold::SharedTable {
+        if hold.shared() {
             return Err(shared_table_refusal());
         }
         let measured = self.owner_kind(owner) == Some(Owner::Plain)
@@ -175,7 +175,7 @@ impl Session {
                 _ => 0,
             };
             if !self.owner_kind(owner).is_some_and(|o| measured_array(o, dims, hold)) {
-                return Err(if hold == TempHold::SharedTable {
+                return Err(if hold.shared() {
                     shared_table_refusal()
                 } else {
                     Signal::unsupported(
@@ -191,14 +191,18 @@ impl Session {
     }
 
     /// What the temporary tables `v` reaches hold, through the globals of instances of codeunits that are not
-    /// SingleInstance, through arrays and through RecordRefs: [`TempHold::SharedTable`] when a record state outside those
-    /// holds one of the tables (`TempId::sharers` counts more than the walk reaches), else [`TempHold::Rows`] when one
-    /// holds a row now, else [`TempHold::Empty`]. A table written and later emptied holds no row. Each instance is walked
-    /// once, so a cycle of instances ends.
+    /// SingleInstance, through arrays and through RecordRefs: [`TempHold::SharedOther`] when a record state outside those
+    /// holds one of the tables and is not a target of `Copy(x, true)` (`TempId::sharers` counts more than the walk and the
+    /// live Copy targets reach), else [`TempHold::SharedTable`] when a Copy target outside holds one, else
+    /// [`TempHold::Rows`] when one holds a row now, else [`TempHold::Empty`]. A table written and later emptied holds no
+    /// row. Each instance is walked once, so a cycle of instances ends.
     fn temp_hold(&self, v: &Value) -> TempHold {
         let walk = self.temp_walk(v);
         let tables = walk.tables.values();
-        if tables.clone().any(|t| t.own < t.sharers) {
+        let copies_outside = |t: &TempTable| (t.copy_targets.iter()).filter(|p| !walk.records.contains(p)).count();
+        if tables.clone().any(|t| t.own + copies_outside(t) < t.sharers) {
+            TempHold::SharedOther
+        } else if tables.clone().any(|t| t.own < t.sharers) {
             TempHold::SharedTable
         } else if tables.clone().any(|t| t.rows) {
             TempHold::Rows
@@ -250,6 +254,7 @@ impl Session {
         };
         let table = walk.tables.entry(t.id()).or_insert_with(|| TempTable {
             sharers: t.sharers(),
+            copy_targets: t.copy_targets().iter().map(|r| Rc::as_ptr(r) as usize).collect(),
             own: 0,
             rows: self.temps.get(&t.id()).is_some_and(|s| s.holds_rows_unobserved()),
         });
@@ -622,6 +627,9 @@ fn temp_rows_refusal() -> Signal {
 /// tests/al-language/codeunits/clear-instance/ of open corpus PRs 1560, 1561 and 1564.
 fn measured(owner: Owner, store: Store, holding: Holding, hold: TempHold) -> bool {
     use {Holding::*, Owner::*, Store::*};
+    if hold == TempHold::SharedOther {
+        return false;
+    }
     if hold == TempHold::SharedTable {
         // ClearSharedCodeunitSetterOwner.al: the register's table shared with a record of the test through Copy(Rows, true)
         // stays shared, rows or none (SharedRows, SharedNever, SharedEmptied :397 :434 :470 TableNo Run, :587 :624 :660
@@ -789,7 +797,7 @@ enum Holding {
     /// Another variable, parameter or interface holds it too.
     Shared,
     /// Nothing else holds it, and its temporary table holds rows now ([`TempHold::Rows`]) or a record outside shares it
-    /// ([`TempHold::SharedTable`]).
+    /// ([`TempHold::shared`]).
     Written,
 }
 
@@ -800,8 +808,20 @@ enum TempHold {
     Empty,
     /// A row now, and no record outside shares a table.
     Rows,
-    /// A record outside holds one of the tables.
+    /// A record outside holds one of the tables, each such record a target of `Copy(x, true)`, the one way of sharing the
+    /// probes measure (ClearSharedCodeunitSetterOwner.al:87, ClearSharedCodeunitTempArrayShare.al:39,
+    /// ClearSharedCodeunitStoreShapes.al:1119, ClearSharedCodeunitCopyHolder.al:39).
     SharedTable,
+    /// A record outside holds one of the tables some other way (a RecordRef's SetTable with ShareTable, a page's Rec, a
+    /// record state clone). Never measured: every cell refuses it.
+    SharedOther,
+}
+
+impl TempHold {
+    /// Whether a record outside holds one of the tables ([`TempHold::SharedTable`] or [`TempHold::SharedOther`]).
+    fn shared(self) -> bool {
+        self >= TempHold::SharedTable
+    }
 }
 
 /// The holders [`Session::walk_temp`] reached, per temporary table.
@@ -815,6 +835,8 @@ struct TempWalk {
 struct TempTable {
     /// `TempId::sharers` of the table.
     sharers: usize,
+    /// The live records that got the table as the target of `Copy(x, true)` (`TempId::copy_targets`), by address.
+    copy_targets: Vec<usize>,
     /// The record states the walk reached that hold it.
     own: usize,
     rows: bool,

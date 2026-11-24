@@ -408,6 +408,9 @@ struct TempToken {
     /// 8070): every read of its rows and every write refuses (al-vm `Session::store_for`). Set once, never cleared: it ends with
     /// the table.
     rows_unmeasured: std::cell::Cell<bool>,
+    /// The records that got the table as the target of `Copy(x, true)` (al-vm `clear_shared_codeunit.rs` counts them apart
+    /// from the table's other sharers).
+    copy_targets: RefCell<Vec<std::rc::Weak<RefCell<RecordState>>>>,
 }
 
 impl Drop for TempToken {
@@ -425,6 +428,7 @@ impl TempId {
             empty_blob_insert_key: RefCell::new(None),
             empty_blob_inserter: RefCell::new(None),
             rows_unmeasured: Default::default(),
+            copy_targets: Default::default(),
         }))
     }
 
@@ -437,6 +441,7 @@ impl TempId {
             empty_blob_insert_key: RefCell::new(None),
             empty_blob_inserter: RefCell::new(None),
             rows_unmeasured: Default::default(),
+            copy_targets: Default::default(),
         }))
     }
 
@@ -495,6 +500,22 @@ impl TempId {
     /// `RecordRef.SetTable` wrote into a record of the table: no record state counts as the inserter any more.
     pub fn forget_empty_blob_inserter(&self) {
         *self.0.empty_blob_inserter.borrow_mut() = None;
+    }
+
+    /// `Copy(x, true)` gave `target` the table.
+    pub fn note_copy_target(&self, target: &Rc<RefCell<RecordState>>) {
+        let mut targets = self.0.copy_targets.borrow_mut();
+        targets.retain(|t| t.strong_count() > 0 && !std::ptr::eq(t.as_ptr(), Rc::as_ptr(target)));
+        targets.push(Rc::downgrade(target));
+    }
+
+    /// The live records [`TempId::note_copy_target`] noted that still hold this table.
+    pub fn copy_targets(&self) -> Vec<Rc<RefCell<RecordState>>> {
+        let id = self.0.id;
+        (self.0.copy_targets.borrow().iter())
+            .filter_map(std::rc::Weak::upgrade)
+            .filter(|r| r.try_borrow().is_ok_and(|r| r.temp_id.as_ref().is_some_and(|t| t.id() == id)))
+            .collect()
     }
 
     /// `f` of the key [`TempId::note_empty_blob_insert`] last noted.
