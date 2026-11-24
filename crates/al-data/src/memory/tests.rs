@@ -948,9 +948,8 @@ fn a_deleted_out_backed_table_stays_empty_after_the_way_back() {
     assert_eq!(back.count(&cx, &t, &[]).unwrap(), 0, "not restored again");
 }
 
-// A guard: `committed_rows` gives the rows `committed_table`
-// clones, by reference, in key order; `None` for a table the store holds no entry for. Rows written but not committed are
-// not in it.
+// A guard: `committed_rows` gives each committed entry with the rows `committed_table` clones, by reference, in key
+// order, and its stamp. Rows written but not committed are not in it.
 #[test]
 fn committed_rows_are_committed_tables_rows_by_reference_in_key_order() {
     use crate::contract::{cx, row, table};
@@ -962,10 +961,13 @@ fn committed_rows_are_committed_tables_rows_by_reference_in_key_order() {
     s.commit();
     s.insert(&c, &t, row("D", 1, 1)).unwrap();
     let (cloned, _) = s.committed_table("C", 7).unwrap();
-    let by_ref: Vec<&Row> = s.committed_rows("C", 7).unwrap().collect();
+    let entries: Vec<_> = s.committed_rows().collect();
+    assert_eq!(entries.len(), 1, "one entry");
+    let entry = &entries[0];
+    assert_eq!((entry.company, entry.object), ("C", 7));
+    assert_ne!(entry.stamp, 0, "a committed write stamps the entry");
+    let by_ref: Vec<&Row> = entry.rows().collect();
     let expected: Vec<&Row> = cloned.rows.iter().map(|(_, r)| r).collect();
     assert_eq!(format!("{by_ref:?}"), format!("{expected:?}"));
-    assert_eq!(by_ref.len(), 3, "the uncommitted row is not in it");
-    assert!(s.committed_rows("C", 8).is_none(), "an absent table");
-    assert!(s.committed_rows("Other", 7).is_none(), "an absent company");
+    assert_eq!((by_ref.len(), entry.len()), (3, 3), "the uncommitted row is not in it");
 }

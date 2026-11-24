@@ -62,7 +62,7 @@ pub(crate) fn table_digests(tables: &[al_data::memory::ExportedTable]) -> BTreeM
 }
 
 /// [`table_digests`] of the committed tables of `store`, each digest made once per state of its table: a table's stamp
-/// names one state of it in every store of the process (al-data `MemStore::committed_stamps`), so a digest kept for a
+/// names one state of it in every store of the process (al-data `MemStore::committed_rows`), so a digest kept for a
 /// Stamp is the digest of the rows the table holds at that stamp (the rows were rendered and digested
 /// whole for every test session). A table with no stamp is digested each time. Kept per engine (`Engine::derived`).
 /// A table entry without rows has no digest, as `rows` writes no line for it (the module comment).
@@ -77,11 +77,16 @@ pub(crate) fn store_table_digests(
     const KEPT: usize = 1 << 16;
     let memo = engine.derived(Memo::default);
     let mut out = BTreeMap::new();
-    for (company, object, stamp) in store.committed_stamps() {
+    for entry in store.committed_rows() {
+        // A table without rows has no digest, so a known stamp is one of a table with rows.
+        if entry.is_empty() {
+            continue;
+        }
+        let (company, object, stamp) = (entry.company, entry.object, entry.stamp);
         let known = (stamp != 0)
             .then(|| {
                 (memo.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
-                    .get(&(company.clone(), object, stamp))
+                    .get(&(company.to_string(), object, stamp))
                     .copied()
             })
             .flatten();
@@ -89,26 +94,18 @@ pub(crate) fn store_table_digests(
             Some(d) => d,
             None => {
                 // By reference: no copy of the table's rows.
-                let Some(rows) = store.committed_rows(&company, object) else {
-                    continue;
-                };
-                // A table without rows has no digest, so a known stamp is one of a table with rows.
-                let mut rows = rows.peekable();
-                if rows.peek().is_none() {
-                    continue;
-                }
-                let d = rows_table_digest(&company, object, rows)?;
+                let d = rows_table_digest(company, object, entry.rows())?;
                 if stamp != 0 {
                     let mut m = memo.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                     if m.len() >= KEPT {
                         m.clear();
                     }
-                    m.insert((company.clone(), object, stamp), d);
+                    m.insert((company.to_string(), object, stamp), d);
                 }
                 d
             }
         };
-        out.insert((company, object), d);
+        out.insert((company.to_string(), object), d);
     }
     Ok(out)
 }

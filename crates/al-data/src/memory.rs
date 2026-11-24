@@ -30,6 +30,7 @@ mod order_carry;
 mod replace;
 mod row_changes;
 mod shape;
+pub use shape::CommittedRows;
 mod source_stamps;
 #[cfg(test)]
 mod source_stamps_tests;
