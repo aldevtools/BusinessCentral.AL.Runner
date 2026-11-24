@@ -25,7 +25,7 @@ impl Session {
             && !self.engine.object_facts[object].single_instance
     }
 
-    /// The globals of the owner of frame `f` (not in `keep`) that `ClearAll()` there resets in place. A global holding a store
+    /// The globals of `owner` (not in `keep`) that `ClearAll()` there resets in place. A global holding a store
     /// instance that another holder shares, or that nothing else holds while its temporary table holds rows: when the
     /// (owner, store, holding) cell is one the corpus measures ([`Session::measured_cell`]), its globals go back to their
     /// declared values, a temporary table keeping its rows, and the variable keeps the instance, so a sharer sees the
@@ -42,11 +42,10 @@ impl Session {
     /// array of codeunits has one, the array.
     pub(crate) fn clear_all_in_place(
         &mut self,
-        f: &Frame,
+        owner: usize,
         globals: &[Value],
         keep: &[usize],
     ) -> Result<Vec<usize>, Signal> {
-        let owner = f.object;
         let mut kept = Vec::new();
         for (i, v) in globals.iter().enumerate() {
             if keep.contains(&i) {
@@ -54,12 +53,13 @@ impl Session {
             }
             match v {
                 Value::Codeunit(rc) if self.plain_codeunit(rc.borrow().object as usize) => {
+                    let shared = Rc::strong_count(rc) > 2;
                     match self.engine.program.objects[owner].globals.get(i).map(|g| &g.ty) {
                         Some(RtType::Codeunit(_)) => {}
                         // BC resets the shared instance in place for another store only (corpus PR 1564
                         // ClearSharedCodeunitStoreShapes.al Whse_InterfaceHolder_HolderClearAll :2001); main clears the
                         // interface and leaves the instance as it was.
-                        Some(RtType::Interface(_)) if Rc::strong_count(rc) > 2 => {
+                        Some(RtType::Interface(_)) if shared => {
                             return Err(Signal::unsupported(
                                 "ClearAll of a global interface variable whose codeunit instance another variable \
                                  shares, in a shape the corpus does not pin",
@@ -68,7 +68,7 @@ impl Session {
                         _ => continue,
                     }
                     let hold = self.temp_hold(v);
-                    let holding = if Rc::strong_count(rc) > 2 {
+                    let holding = if shared {
                         Holding::Shared
                     } else if hold != TempHold::Empty {
                         Holding::Written
@@ -121,18 +121,16 @@ impl Session {
         items: &Rc<RefCell<Vec<Value>>>,
     ) -> Result<(), Signal> {
         let ty = &self.engine.program.objects[owner].globals[slot].ty;
-        let measured = self.owner_kind(owner) == Some(Owner::Plain)
-            && matches!(ty, RtType::Array(d, e) if d.len() == 1
-                && matches!(**e, RtType::Codeunit(c) if self.store_kind(c as usize) == Some(Store::TempRef)))
-            && (items.borrow().iter()).all(|e| !self.shared_element(e) || self.temp_hold(e) == TempHold::Rows)
-            && (items.borrow().iter()).all(|e| !self.holds_bound_codeunit(e) && !self.store_runs(e));
-        let hold = (items.borrow().iter())
-            .map(|e| self.temp_hold(e))
-            .max()
-            .unwrap_or(TempHold::Empty);
+        let holds: Vec<TempHold> = items.borrow().iter().map(|e| self.temp_hold(e)).collect();
+        let hold = holds.iter().copied().max().unwrap_or(TempHold::Empty);
         if hold == TempHold::SharedTable {
             return Err(shared_table_refusal());
         }
+        let measured = self.owner_kind(owner) == Some(Owner::Plain)
+            && matches!(ty, RtType::Array(d, e) if d.len() == 1
+                && matches!(**e, RtType::Codeunit(c) if self.store_kind(c as usize) == Some(Store::TempRef)))
+            && (items.borrow().iter().zip(&holds)).all(|(e, h)| !self.shared_element(e) || *h == TempHold::Rows)
+            && (items.borrow().iter()).all(|e| !self.holds_bound_codeunit(e) && !self.store_runs(e));
         if !measured {
             return Err(if hold == TempHold::Rows {
                 temp_rows_refusal()
