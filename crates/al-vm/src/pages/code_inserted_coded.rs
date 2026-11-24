@@ -403,8 +403,8 @@ impl Session {
     /// Whether error `e` of the first SetValue's validation on host `st`, a page of the page-with-code shape with other code, came
     /// out of code the cells measure raising it, by its stack, innermost first: its table's OnInsert at the insert the landing
     /// control's table field makes in its OnValidate (ListNewLineExtraCodeCodedTableTriggers.al:746, two frames); that table
-    /// field's OnValidate itself, a TestField before the insert or an error after it (:1217, :1227); the landing control's own
-    /// OnValidate before its save (:1237). Any other stack keeps main's way (review of al-runner PR 8840, 01:32Z).
+    /// field's OnValidate itself, a TestField before the insert or an error after it (:1249, :1259); the landing control's own
+    /// OnValidate before its save (:1269). Any other stack keeps main's way (review of al-runner PR 8840, 01:32Z).
     pub(super) fn coded_error_measured(&self, st: &St, e: &al_builtins::native::AlError) -> bool {
         let landing = match Self::test_calls(st).as_deref() {
             Some([TestCall::Page(PageMethod::New), TestCall::Write(landing)]) => *landing,

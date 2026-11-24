@@ -48,7 +48,7 @@ fn issue_8835_probe_cells() {
             }
         }
     }
-    // The other errors of the first SetValue the cells measure (:1217, :1227, :1237): a TestField of the table field before the
+    // The other errors of the first SetValue the cells measure (:1249, :1259, :1269): a TestField of the table field before the
     // insert, an error of it after the insert, the control's error before its save; each reaches the test.
     let o = super::outside_fb_8712::outcomes(TABLE_PROBE, "LT NE4 Tests");
     assert_eq!(o.len(), 3);

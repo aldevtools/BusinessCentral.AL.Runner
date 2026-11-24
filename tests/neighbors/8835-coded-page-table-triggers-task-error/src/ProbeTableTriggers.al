@@ -886,8 +886,40 @@ codeunit 96518 "LT NE2 Tests"
     end;
 }
 
-// The cells of errors of the first SetValue other than OnInsert's (review of al-runner PR 8840, 01:32Z): a copy of the
-// variation table whose Name OnValidate raises before the insert (mode 11, TestField) or after it (mode 12).
+// The cells of errors of the first SetValue other than OnInsert's (review of al-runner PR 8840, 01:32Z), with a log
+// of their own, so that no SingleInstance codeunit is shared with the earlier tests.
+codeunit 96437 "LT NE4 Log"
+{
+    SingleInstance = true;
+
+    var
+        Entries: Text;
+        Mode: Integer;
+
+    procedure Add(Entry: Text)
+    begin
+        Entries += Entry + ';';
+    end;
+
+    procedure Get(): Text
+    begin
+        exit(Entries);
+    end;
+
+    procedure Reset(NewMode: Integer)
+    begin
+        Entries := '';
+        Mode := NewMode;
+    end;
+
+    procedure GetMode(): Integer
+    begin
+        exit(Mode);
+    end;
+}
+
+// A copy of the variation table whose Name OnValidate raises before the insert (mode 11, TestField) or after it
+// (mode 12).
 table 96430 "LT NE4 Line"
 {
     DataClassification = CustomerContent;
@@ -900,7 +932,7 @@ table 96430 "LT NE4 Line"
         {
             trigger OnValidate()
             var
-                Log: Codeunit "LT NE2 Log";
+                Log: Codeunit "LT NE4 Log";
             begin
                 if Log.GetMode() = 11 then
                     TestField(Note);
@@ -925,7 +957,7 @@ table 96430 "LT NE4 Line"
 
     trigger OnInsert()
     var
-        Log: Codeunit "LT NE2 Log";
+        Log: Codeunit "LT NE4 Log";
         Defaults: Codeunit "LT NE2 Defaults";
         Last: Record "LT NE4 Line";
         Detail: Record "LT NE2 Detail";
@@ -958,7 +990,7 @@ table 96430 "LT NE4 Line"
 
     trigger OnDelete()
     var
-        Log: Codeunit "LT NE2 Log";
+        Log: Codeunit "LT NE4 Log";
     begin
         Log.Add('T.DEL(' + Name + ')');
     end;
@@ -1099,7 +1131,7 @@ page 96434 "LT NE4 Lines"
 
                     trigger OnValidate()
                     var
-                        Log: Codeunit "LT NE2 Log";
+                        Log: Codeunit "LT NE4 Log";
                     begin
                         if Log.GetMode() = 13 then
                             Error('Control failed');
@@ -1255,7 +1287,7 @@ codeunit 96436 "LT NE4 Tests"
     var
         Line: Record "LT NE4 Line";
         Detail: Record "LT NE2 Detail";
-        LogCu: Codeunit "LT NE2 Log";
+        LogCu: Codeunit "LT NE4 Log";
         Opener: Codeunit "LT NE4 Opener";
     begin
         Line.DeleteAll();

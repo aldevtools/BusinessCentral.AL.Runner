@@ -181,7 +181,7 @@ codeunit 96602 "LT NX4 Lib"
         NeDetail: Record "LT NE2 Detail";
         NqLine: Record "LT NQ2 Line";
         NqDetail: Record "LT NQ2 Detail";
-        Log: Codeunit "LT NE2 Log";
+        Log: Codeunit "LT NE4 Log";
         Mode: Codeunit "LT NQ2 Mode";
     begin
         NeLine.DeleteAll();

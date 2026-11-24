@@ -658,7 +658,7 @@ impl Session {
         };
         // On a page of the page-with-code shape with other code, an error before the landing that the cells measure (OnInsert's at
         // the table field's insert, the table field's own, the control's before its save: `coded_error_measured`) reaches the
-        // test and leaves the handler (ListNewLineExtraCodeCodedTableTriggers.al:746, :1217-:1237): a later call on the page, or
+        // test and leaves the handler (ListNewLineExtraCodeCodedTableTriggers.al:746, :1249-:1269): a later call on the page, or
         // its close after a handler caught it, is refused (`coded_line_before_set_value`, `code_inserted_row_at_close`). Any
         // other error there is refused (`coded_must_have_landed`; review of al-runner PR 8840, 01:32Z).
         let extra_line_read = {
