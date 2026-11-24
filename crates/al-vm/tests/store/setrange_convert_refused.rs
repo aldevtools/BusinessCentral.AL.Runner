@@ -278,6 +278,27 @@ codeunit 50291 T
         exit(F.GetFilter());
     end;
 
+    procedure DecimalCodeVariant(): Text
+    var R: RecordRef; F: FieldRef; V: Variant; C: Code[10];
+    begin
+        R.Open(Database::SRC);
+        F := R.Field(8);
+        C := '1.5';
+        V := C;
+        F.SetRange(V);
+        exit(F.GetFilter());
+    end;
+
+    procedure DecimalOtherTextVariant(): Text
+    var R: RecordRef; F: FieldRef; V: Variant;
+    begin
+        R.Open(Database::SRC);
+        F := R.Field(8);
+        V := '2.25';
+        F.SetRange(V);
+        exit(F.GetFilter());
+    end;
+
     procedure DecimalTextVariantOnTemporary(): Text
     var R: RecordRef; F: FieldRef; V: Variant;
     begin
@@ -390,6 +411,12 @@ fn a_cell_of_the_earlier_conversion_in_the_measured_shape_is_flagged_unless_pinn
     clear_hits();
     assert_eq!(filter("DecimalTextVariant"), "1.5");
     assert!(!take_hits().contains(&Assumption::SetRangeOtherTypeConvert));
+    // The pin measures the Text '1.5' only: a Code, or another Decimal text, in the same call runs through the entry.
+    for (routine, expected) in [("DecimalCodeVariant", "1.5"), ("DecimalOtherTextVariant", "2.25")] {
+        clear_hits();
+        assert_eq!(filter(routine), expected, "{routine}");
+        assert!(take_hits().contains(&Assumption::SetRangeOtherTypeConvert), "{routine}");
+    }
 }
 
 /// SrcSetRangeConvert.al Opt_D_* measures the Option member `One`; a blank member is not measured.

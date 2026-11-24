@@ -215,8 +215,9 @@ impl Session {
             // SrcFilterConvertKinds.al:729-1381 (CodeABC_Int .. TxtEmpty_Dec, Code1000_Int, Code1000_Big); digits (Code123_Int,
             // Code123_Dec) and, into a Decimal, `1.5` and `1,000` (Txt15_Dec, Code1000_Dec) are main's answer. Digits into an
             // Integer or BigInteger field run through the assumption text-digits-to-integer (al-builtins `ops.rs`) in every
-            // shape; into a Decimal field no other entry covers them, so they run in the measured shape only. `1.5` in a Variant
-            // given to FieldRef.SetRange alone is pinned: FieldRefFilterMatrix.al:819,822 (Filter_Dec_Range `rtext.Dec`).
+            // shape; into a Decimal field no other entry covers them, so they run in the measured shape only. The Text `1.5` in a
+            // Variant given to FieldRef.SetRange alone is pinned: FieldRefFilterMatrix.al:819,822 (Filter_Dec_Range `rtext.Dec`);
+            // a Code or another Decimal text there runs through the entry.
             RtType::Integer | RtType::BigInteger | RtType::Decimal => {
                 let s = text?;
                 let decimal = matches!(ty, RtType::Decimal);
@@ -225,7 +226,7 @@ impl Session {
                     Cell::Convert(Err(text_evaluate_error(s, ty, from28)?))
                 } else if whole && digits(s) {
                     Cell::MainEveryShape
-                } else if decimal && decimal_point(s) && variant_setrange(at) {
+                } else if decimal && matches!(v, Value::Text(t) if t.as_str() == "1.5") && variant_setrange(at) {
                     Cell::MainPinned
                 } else if decimal && (digits(s) || decimal_point(s) || one_group(s)) {
                     Cell::Main

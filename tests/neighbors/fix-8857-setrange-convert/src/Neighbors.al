@@ -588,6 +588,23 @@ codeunit 57411 "SRN Neighbors"
         Show(F);
     end;
 
+    // Review round 3: the pin measures the Text '1.5' only; a Code '1.5' in the same call is the open probe's cell (flagged).
+    [Test]
+    procedure DecimalCodeVariantSetRange()
+    var
+        R: RecordRef;
+        F: FieldRef;
+        V: Variant;
+        C: Code[10];
+    begin
+        R.Open(Database::"SRN Row");
+        F := R.Field(9);
+        C := '1.5';
+        V := C;
+        F.SetRange(V);
+        Show(F);
+    end;
+
     [Test]
     procedure DecimalTextVariantOnTemporary()
     var

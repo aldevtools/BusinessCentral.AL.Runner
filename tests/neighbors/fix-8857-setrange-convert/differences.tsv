@@ -275,3 +275,4 @@ SRN Neighbors::DigitsIntoDecimalOnTemporary	REFUSED SetRange or SetFilter of Tex
 SRN Neighbors::GuidSetFilterHexLettersNoHyphens	REFUSED SetRange or SetFilter of Text 'ABCDEFABCDEFABCDEFABCDEFABCDEF
 SRN Neighbors::GuidSetFilterGuidText	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
 SRN Neighbors::DecimalTextVariantOnTemporary	REFUSED SetRange or SetFilter of Text '1.5' into a Decimal field
+SRN Neighbors::DecimalCodeVariantSetRange	ASSUMED setrange-other-type-convert (corpus PR 1552, open)
