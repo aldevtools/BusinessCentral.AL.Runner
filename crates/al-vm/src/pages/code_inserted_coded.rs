@@ -43,13 +43,14 @@
 //! A page of their shape with other code (`coded_extra_shape`, `CodedObjects::Extra`; al-runner issue 8826) takes the same
 //! steps under the assumption `list-new-line-extra-code-coded` (ListNewLineExtraCodeCodedPage.al, corpus pull request 1537,
 //! open, 7 of 7 green on BC 29.1 in 3 runs). Its page, controls, actions and three parts equal the cells' in every fact but
-//! their code (`coded_extra_shape`, `coded_extra_parts`); an OnOpenPage that wrote keeps main's way, a part that writes at
-//! the open is refused (`coded_open_on_empty_view`); only a first SetValue whose control saves and whose table field inserts
+//! their code (`coded_extra_shape`, `coded_extra_parts`); an OnOpenPage that wrote, or a record handed to the open in a
+//! secondary key or an ad hoc sort order, keeps main's way, a part that writes at the open is refused
+//! (`coded_open_on_empty_view`); only a first SetValue whose control saves and whose table field inserts
 //! takes the steps (`coded_write_may_land`). Then its SaveRecord under the effect gate (`extra_code_coded_cell`), nothing
 //! between the save and the Update but a modify of the row through another record (`extra_coded_between_kept`), its
 //! refresh reading the row as stored first and refusing a trigger that writes (:773), its worker's reads through the query
-//! cache (`bg_drain`), then one SetValue of a control without code and `OK()` (`FactboxStep::ExtraTyped`). A row before the
-//! line (:821) and a table with record triggers (:839) keep main's way.
+//! cache (`bg_drain`), then one SetValue of a control without code and `OK()` (`FactboxStep::CodedExtraTyped`). A row before
+//! the line (:821) and a table with record triggers (:839) keep main's way.
 
 use super::pinned_shape::TestCall;
 use super::state::{CodedLine, FactboxStep};
@@ -269,8 +270,14 @@ impl Session {
         // On a page of the shape of the page with code, the cells' OnOpenPage and parts write nothing at the open
         // (ListNewLineExtraCodeCodedPage.al:379-382, :773 `OPEN;U.AGCR();`): a page whose OnOpenPage wrote keeps main's way,
         // and a part that writes while it reads the blank record is not measured, and refused (review of al-runner PR 8834,
-        // 21:06Z).
-        if extra && self.store.change_counter() != st.borrow().open_changes {
+        // 21:06Z). The cells open the page on a record in the primary key: a record handed to Page.RunModal in a secondary key
+        // or an ad hoc sort order keeps main's way too (review of al-runner PR 8834, 02:53Z).
+        let primary_key = {
+            let rec = self.page_rec(st);
+            let r = rec.borrow();
+            r.key == 0 && r.adhoc.is_none()
+        };
+        if extra && (self.store.change_counter() != st.borrow().open_changes || !primary_key) {
             return Ok(false);
         }
         st.borrow_mut().coded_objects = objects;

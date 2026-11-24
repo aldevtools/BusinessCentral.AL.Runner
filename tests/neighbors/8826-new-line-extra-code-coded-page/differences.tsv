@@ -11,8 +11,8 @@ LT NZ Tests::NewLine_ExtraCodeOnPageWithCodeAndFactBoxes_RowBefore_LogsTheTrigge
 # way on both since the review of 21:06Z, so they have no row.
 # The review's neighbors (each in a codeunit of its own): the page lands, then a call after the Value SetValue other than
 # reads and OK is refused.
-LT NG3 Prev Next Tests::NewLine_PreviousThenNextAfterTheValue_SavesTheRow	REFUSED a call on a List page with page triggers and a FactBox, on the row its new line became
-LT NG3 Close Tests::NewLine_CloseAfterTheValue_RunModalFails	REFUSED a call on a List page with page triggers and a FactBox, on the row its new line became
+LT NG3 Prev Next Tests::NewLine_PreviousThenNextAfterTheValue_SavesTheRow	REFUSED a call on a List page of the shape of the page with code and FactBoxes, on the row its new line became
+LT NG3 Close Tests::NewLine_CloseAfterTheValue_RunModalFails	REFUSED a call on a List page of the shape of the page with code and FactBoxes, on the row its new line became
 # A field of Rec set, or another table written, between the save and the Update: refused at the Update.
 LT NG3 Late Tests::NewLine_FieldOfRecSetBetweenSaveAndUpdate_ShowsAndSavesTheRow	REFUSED a field of Rec set, or another table written, between CurrPage.SaveRecord
 LT NG3 Between Tests::NewLine_AnotherTableWrittenBetweenSaveAndUpdate_ShowsAndSavesTheRow	REFUSED a field of Rec set, or another table written, between CurrPage.SaveRecord

@@ -1158,6 +1158,7 @@ impl Session {
                 FactboxStep::ExtraTyped
             }
             (FactboxStep::ExtraTyped, TestCall::Page(PageMethod::OK), None) => FactboxStep::OkAsked,
+            (FactboxStep::CodedExtraTyped, TestCall::Page(PageMethod::OK), None) => FactboxStep::OkAsked,
             (FactboxStep::PreviousNo, TestCall::Page(PageMethod::Next), None) => step,
             // The page with code: the SetValues of the measured control (`coded_value_control`) its objects are measured with
             // (`CodedObjects::later_set_value`, ListNewLineFactboxesCode.al:1407 and :1576 `setvalue2`), then OK() and its Invoke
@@ -1180,12 +1181,13 @@ impl Session {
                 if root.borrow().coded_objects == super::state::CodedObjects::Extra
                     && self.control_without_code(&root, i) =>
             {
-                FactboxStep::ExtraTyped
+                FactboxStep::CodedExtraTyped
             }
             _ => {
                 root.borrow_mut().forget_code_inserted_line();
                 return unsupported(match step {
                     FactboxStep::ExtraLanded | FactboxStep::ExtraTyped => MOVE_OFF_EXTRA_ROW,
+                    FactboxStep::CodedExtraTyped => MOVE_OFF_CODED_EXTRA_ROW,
                     _ => MOVE_OFF_FACTBOX_ROW,
                 });
             }
@@ -1234,3 +1236,8 @@ const MOVE_OFF_FACTBOX_ROW: &str = "a call on a List page with a CardPart FactBo
 /// The refusal of a call that leaves the row of the page with triggers and a FactBox other than as measured.
 const MOVE_OFF_EXTRA_ROW: &str = "a call on a List page with page triggers and a FactBox, on the row its new line became, other \
                                   than control reads, one SetValue, then OK() (not measured)";
+
+/// The refusal of a call that leaves the row of a page of the shape of the page with code other than as measured.
+const MOVE_OFF_CODED_EXTRA_ROW: &str = "a call on a List page of the shape of the page with code and FactBoxes, on the row its new \
+                                        line became, other than control reads, one SetValue of a control without code, then OK() \
+                                        (not measured)";
