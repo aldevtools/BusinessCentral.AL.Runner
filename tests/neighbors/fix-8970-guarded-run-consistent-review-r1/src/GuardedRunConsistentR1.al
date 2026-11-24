@@ -43,6 +43,20 @@ codeunit 61421 "GR Fail Marks"
     end;
 }
 
+// The same with a record argument of the other table.
+codeunit 61425 "GR Other Fail Marks"
+{
+    TableNo = "GR Other";
+
+    trigger OnRun()
+    var
+        Row: Record "GR Row";
+    begin
+        Row.Consistent(false);
+        Error('nested failed');
+    end;
+}
+
 codeunit 61422 "GR Nothing"
 {
     trigger OnRun()
@@ -68,6 +82,8 @@ codeunit 61423 "GR Outer"
                     if Codeunit.Run(Codeunit::"GR Nothing") then;
                 'nestedfailce':
                     NestedFailCommitError();
+                'nestedfailrec':
+                    NestedFailRecordCommitError();
                 'ins':
                     begin
                         Row.Init();
@@ -91,6 +107,14 @@ codeunit 61423 "GR Outer"
     local procedure NestedFailCommitError()
     begin
         if Codeunit.Run(Codeunit::"GR Fail Marks") then;
+    end;
+
+    [CommitBehavior(CommitBehavior::Error)]
+    local procedure NestedFailRecordCommitError()
+    var
+        Other: Record "GR Other";
+    begin
+        if Codeunit.Run(Codeunit::"GR Other Fail Marks", Other) then;
     end;
 }
 
@@ -132,7 +156,7 @@ codeunit 61424 "GR Tests"
     [Test]
     procedure NestedRunMarksFails_OuterFailsText()
     begin
-        Init('nestedfail,err');
+        Init('nestedfailce,err');
         ExpectFalse(Codeunit.Run(Codeunit::"GR Outer"), 'Dialog', 'outer failed');
         Commit();
     end;
@@ -140,7 +164,7 @@ codeunit 61424 "GR Tests"
     [Test]
     procedure NestedRunMarksFails_OuterSucceeds()
     begin
-        Init('nestedfail');
+        Init('nestedfailce');
         if not Codeunit.Run(Codeunit::"GR Outer") then
             Error('outer run failed: %1', GetLastErrorText());
         Commit();
@@ -149,28 +173,44 @@ codeunit 61424 "GR Tests"
     [Test]
     procedure NestedRunMarksFails_OuterCommitsThenFails()
     begin
-        Init('nestedfail,commit,err0');
+        Init('nestedfailce,commit,err0');
         ExpectFalse(Codeunit.Run(Codeunit::"GR Outer"), 'Dialog', '');
     end;
 
     [Test]
     procedure NestedRunMarksFails_OuterRunsAgainThenFails()
     begin
-        Init('nestedfail,nestedok,err0');
+        Init('nestedfailce,nestedok,err0');
         ExpectFalse(Codeunit.Run(Codeunit::"GR Outer"), 'Dialog', '');
     end;
 
     [Test]
     procedure NestedRunMarksFails_Twice_OuterFails()
     begin
-        Init('nestedfail,nestedfail,err0');
+        Init('nestedfailce,nestedfailce,err0');
         ExpectFalse(Codeunit.Run(Codeunit::"GR Outer"), 'Dialog', '');
     end;
 
     [Test]
     procedure NestedRunMarksFails_OuterMarksAndFails()
     begin
-        Init('nestedfail,markother,err0');
+        Init('nestedfailce,markother,err0');
+        ExpectFalse(Codeunit.Run(Codeunit::"GR Outer"), 'Dialog', '');
+        Commit();
+    end;
+
+    [Test]
+    procedure NestedRunMarksFails_Unscoped_OuterFails()
+    begin
+        Init('nestedfail,err0');
+        ExpectFalse(Codeunit.Run(Codeunit::"GR Outer"), 'Dialog', '');
+        Commit();
+    end;
+
+    [Test]
+    procedure NestedRunMarksFails_RecordArg_OuterFails()
+    begin
+        Init('nestedfailrec,err0');
         ExpectFalse(Codeunit.Run(Codeunit::"GR Outer"), 'Dialog', '');
         Commit();
     end;

@@ -23,6 +23,5 @@ GC Tests::InnerMarksTemporaryFails	ASSUMED guarded-run-consistent-end (corpus PR
 GC Tests::InnerMarksTwoTablesFails	ASSUMED guarded-run-consistent-end (corpus PR 1568, GuardedRunId_InnerMarksTwoTablesAndFails)
 GC Tests::InnerMarksTwoTablesSucceeds	ASSUMED guarded-run-consistent-end (corpus PR 1568, GuardedRunId_InnerMarksOtherThenRow_Succeeds)
 GC Tests::InnerReleasedByAnotherSucceeds	ASSUMED guarded-run-consistent-end (corpus PR 1568, GuardedRunId_InnerStartsAndStopsState_Succeeds)
-GC Tests::NestedRunMarksFails	REFUSED A guarded Codeunit.Run ends after a guarded run inside it dropped its Consistent(false) marks
 GC Tests::TestEnd_TemporaryMarks	ASSUMED guarded-run-consistent-end (corpus PR 1568, Commit_CallerMarksTemporary): Consistent on a temporary record now runs and marks the database table; the shape still refuses at a later reader no cell measures
 GC Tests::UnguardedRun_TemporaryMarks	ASSUMED guarded-run-consistent-end (corpus PR 1568, Commit_CallerMarksTemporary): Consistent on a temporary record now runs and marks the database table; the shape still refuses at a later reader no cell measures

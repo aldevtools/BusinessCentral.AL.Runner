@@ -7,9 +7,9 @@
 //!
 //! Beyond those pins, the shapes of corpus PR 1568 (errors/ConsistentGuardedRunEnd.al, codeunit 75788; the cells its CI
 //! confirmed on BC 27.5, 28.5 and 29.0) run through the assumption `guarded-run-consistent-end`: a guarded run that fails
-//! drops the marks set inside it (with no Commit since it started; inside another guarded run only when that run then
-//! fails), a temporary record marks the database table, a Commit after another variable's
-//! `Consistent(true)` raises, and the error names a table by its Caption. Every other shape is refused.
+//! drops the marks set inside it (with no Commit since it started; inside another guarded run only from a CommitBehavior
+//! Error procedure, without a record argument, and when that run then fails), a temporary record marks the database
+//! table, a Commit after another variable's `Consistent(true)` raises, and the error names a table by its Caption. Every other shape is refused.
 //!
 //! Entry points: `Session::set_consistent`; `mark_snapshot`, `refuse_write_and_mark_at_run_start` and
 //! `guarded_run_end_marks` (by `codeunit_run`); `commit_mark_error` (by `commit_builtin`); `inconsistent_error`; `refuse_inconsistent_end` (an unguarded run, a
@@ -17,6 +17,7 @@
 
 use crate::Session;
 use crate::records::Rec;
+use crate::transactions::CommitBehavior;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::native::Signal;
 use al_builtins::value::{RecordState, Value};
@@ -169,8 +170,9 @@ impl Session {
     /// since the run started (every cell; the cells with an inner Commit commit under the mark and are refused), unless noted:
     /// - no mark before, a failed run with a code of [`DROPPED_BY`], every mark left held by the variable that set it:
     ///   nothing (GuardedRunId_InnerMarks*AndFails, GuardedRunInstance*_*AndFails). Inside another guarded run too, but
-    ///   only the outer run that then fails with an `Error` is measured (Preview_OuterGuardedRun_InnerStartsStateAndFails):
-    ///   the drop marks the outer run, whose end checks that shape;
+    ///   only without a record argument, called in a [CommitBehavior(CommitBehavior::Error)] procedure, and when the outer
+    ///   run then fails with an `Error` (Preview_OuterGuardedRun_InnerStartsStateAndFails): the drop marks the outer run,
+    ///   whose end checks that shape (`outer_end_after_nested_drop`);
     /// - no mark before, a successful run that leaves marks held or released by another variable: the error naming the
     ///   table marked first (GuardedRunId_InnerMarksRowThenOther_Succeeds, _InnerMarksOtherThenRow_Succeeds,
     ///   _InnerStartsAndStopsState_Succeeds, _InnerMarksTemporary_Succeeds, GuardedRunIdRec_InnerStartsState_Succeeds);
@@ -188,21 +190,7 @@ impl Session {
         let top_level = self.tx.guarded_runs.is_empty();
         let no_commit = self.commits == start.commits;
         if start.marks_dropped_inside {
-            // The outer run of Preview_OuterGuardedRun_InnerStartsStateAndFails: not nested itself, no mark before or
-            // after, no Commit (and no successful run, which commits) since it started, and it fails with `Error('')`.
-            let measured = top_level
-                && no_commit
-                && before.is_empty()
-                && after.is_empty()
-                && end == RunEnd::Failed("Dialog");
-            if measured {
-                assume(Assumption::GuardedRunConsistentEnd);
-            } else {
-                return Err(Signal::unsupported(
-                    "A guarded Codeunit.Run ends after a guarded run inside it dropped its Consistent(false) marks, in a \
-                     shape no probe measured (outcome, Commit, marks or nesting)",
-                ));
-            }
+            self.outer_end_after_nested_drop(top_level && no_commit, before, &after, end)?;
         }
         if before.is_empty() && after.is_empty() {
             return Ok(None);
@@ -239,10 +227,13 @@ impl Session {
                 || caller_get_failed
                 || caller_inner_marked
                 || (inner_kept && held(&[MarkState::Marked, MarkState::ReleasedByAnother])));
-        // A drop inside another guarded run marks that run, once (one cell has one nested drop).
+        // A drop inside another guarded run marks that run, once (one cell has one nested drop). That cell's nested run has
+        // no record argument and is called in a [CommitBehavior(CommitBehavior::Error)] procedure (GRC Outer.PreviewStart).
+        let drop_scope_measured =
+            top_level || (arg == RunArg::None && self.tx.commit_behavior == CommitBehavior::Error);
         let outer = self.tx.guarded_bodies.last_mut().filter(|_| dropped && !top_level);
         let first_drop = outer.as_ref().is_none_or(|o| !o.marks_dropped_inside);
-        if arg_measured && no_commit && first_drop && (dropped || raised) {
+        if arg_measured && no_commit && first_drop && drop_scope_measured && (dropped || raised) {
             assume(Assumption::GuardedRunConsistentEnd);
             if let Some(o) = outer {
                 o.marks_dropped_inside = true;
@@ -254,6 +245,28 @@ impl Session {
              record argument, Commit or nesting)",
             self.table_name(after.first().or(before.first()).expect("a mark").0)
         )))
+    }
+
+    /// The end of a guarded run inside which a nested guarded run failed and dropped its marks: measured only as the outer
+    /// run of Preview_OuterGuardedRun_InnerStartsStateAndFails, which is not nested itself, has had no Commit (and no
+    /// successful run, which commits) since it started, keeps no mark before or after, and fails with code Dialog (the cell
+    /// raises `Error('')`; an `Error` with a text drops the same, GuardedRunId_InnerStartsStateAndFails). `top_level_no_commit`
+    /// is whether no other guarded run is running and nothing committed since this run started.
+    fn outer_end_after_nested_drop(
+        &self,
+        top_level_no_commit: bool,
+        before: &[(u32, MarkState)],
+        after: &[(u32, MarkState)],
+        end: RunEnd,
+    ) -> Result<(), Signal> {
+        if top_level_no_commit && before.is_empty() && after.is_empty() && end == RunEnd::Failed("Dialog") {
+            assume(Assumption::GuardedRunConsistentEnd);
+            return Ok(());
+        }
+        Err(Signal::unsupported(
+            "A guarded Codeunit.Run ends after a guarded run inside it dropped its Consistent(false) marks, in a shape no \
+             probe measured (outcome, Commit, marks or nesting)",
+        ))
     }
 
     /// A guarded `Codeunit.Run` that starts while the caller holds an uncommitted write and a Consistent(false) mark:

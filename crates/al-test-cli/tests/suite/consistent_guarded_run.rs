@@ -25,10 +25,18 @@ codeunit 50109 "C Mark Ext" { trigger OnRun() var E: Record "C Ext"; begin E.Con
 codeunit 50111 "C Mark Two Fail" { trigger OnRun() var R: Record "C Row"; E: Record "C Ext"; begin
     R.Consistent(false); E.Consistent(false); Error('inner failed'); end; }
 codeunit 50110 "C Get Fail" { trigger OnRun() var R: Record "C Row"; begin R.Get(99); end; }
-codeunit 50112 "C Drop Then Ok" { trigger OnRun() begin if Codeunit.Run(Codeunit::"C Mark Fail") then; end; }
-codeunit 50113 "C Drop Then Fail" { trigger OnRun() begin if Codeunit.Run(Codeunit::"C Mark Fail") then; Error(''); end; }
-codeunit 50114 "C Drop Run Fail" { trigger OnRun() begin if Codeunit.Run(Codeunit::"C Mark Fail") then;
-    if Codeunit.Run(Codeunit::"C Nothing") then; Error(''); end; }
+codeunit 50112 "C Drop Then Ok" { trigger OnRun() begin Drop(); end;
+    [CommitBehavior(CommitBehavior::Error)] local procedure Drop() begin if Codeunit.Run(Codeunit::"C Mark Fail") then; end; }
+codeunit 50113 "C Drop Then Fail" { trigger OnRun() begin Drop(); Error(''); end;
+    [CommitBehavior(CommitBehavior::Error)] local procedure Drop() begin if Codeunit.Run(Codeunit::"C Mark Fail") then; end; }
+codeunit 50117 "C Drop Unscoped Fail" { trigger OnRun() begin if Codeunit.Run(Codeunit::"C Mark Fail") then; Error(''); end; }
+codeunit 50118 "C Other Mark Fail" { TableNo = "C Other"; trigger OnRun() var R: Record "C Row"; begin
+    R.Consistent(false); Error('inner failed'); end; }
+codeunit 50119 "C Drop Rec Fail" { trigger OnRun() begin Drop(); Error(''); end;
+    [CommitBehavior(CommitBehavior::Error)] local procedure Drop() var O: Record "C Other"; begin
+    if Codeunit.Run(Codeunit::"C Other Mark Fail", O) then; end; }
+codeunit 50114 "C Drop Run Fail" { trigger OnRun() begin Drop(); if Codeunit.Run(Codeunit::"C Nothing") then; Error(''); end;
+    [CommitBehavior(CommitBehavior::Error)] local procedure Drop() begin if Codeunit.Run(Codeunit::"C Mark Fail") then; end; }
 codeunit 50115 "C Commit Mark Fail" { trigger OnRun() var R: Record "C Row"; begin
     R.Id := 1; R.Insert(); Commit(); R.Consistent(false); Error('inner failed'); end; }
 codeunit 50116 "C Commit Mark Twice" { trigger OnRun() var R: Record "C Row"; O: Record "C Other"; begin
@@ -74,6 +82,10 @@ codeunit 50000 T { Subtype = Test;
     Commit(); Ok := Codeunit.Run(Codeunit::"C Drop Then Ok"); end;
   [Test] procedure NestedDropOuterFails() var Ok: Boolean; begin
     Commit(); Ok := Codeunit.Run(Codeunit::"C Drop Then Fail"); if Ok then Error('run succeeded'); Commit(); end;
+  [Test] procedure NestedDropUnscopedOuterFails() var Ok: Boolean; begin
+    Commit(); Ok := Codeunit.Run(Codeunit::"C Drop Unscoped Fail"); end;
+  [Test] procedure NestedDropRecordArgOuterFails() var Ok: Boolean; begin
+    Commit(); Ok := Codeunit.Run(Codeunit::"C Drop Rec Fail"); end;
   [Test] procedure NestedDropThenRunOuterFails() var Ok: Boolean; begin
     Commit(); Ok := Codeunit.Run(Codeunit::"C Drop Run Fail"); end;
   [Test] procedure InnerCommitsThenMarksFails() var Ok: Boolean; begin
@@ -148,6 +160,11 @@ fn guarded_run_with_consistent_marks() {
     // run committed, is refused.
     for name in ["NestedDropOuterSucceeds", "NestedDropThenRunOuterFails"] {
         refused(name, "after a guarded run inside it dropped");
+    }
+    // The nested run of that cell runs without a record argument inside a [CommitBehavior(CommitBehavior::Error)]
+    // procedure: a nested drop outside such a scope, or with a record argument, is refused where it drops.
+    for name in ["NestedDropUnscopedOuterFails", "NestedDropRecordArgOuterFails"] {
+        refused(name, "in a shape no probe measured");
     }
     // A Commit inside the run before the mark: no cell has it.
     for name in ["InnerCommitsThenMarksFails", "InnerCommitsThenMarksTwoSucceeds"] {
