@@ -1265,14 +1265,9 @@ pub(crate) fn label_maxlength(t: &ast::TypeRef) -> bool {
 /// Whether a declaration is a Label with a text that is not empty and no property (`Label 'text'`) or a TextConst with one
 /// such text, in ENU: the forms the corpus puts into a Variant as a TextConstant (`Lowerer::text_constant_into_variant`).
 pub(crate) fn plain_text_constant(t: &ast::TypeRef) -> bool {
-    let toks: Vec<_> = t
-        .syntax()
-        .descendants_with_tokens()
-        .filter_map(|e| e.into_token())
-        .filter(|k| !k.kind().is_trivia())
-        .collect();
+    let toks = type_tokens(t);
     match toks.as_slice() {
-        [_, _] => plain_label(t),
+        [kw, text] => is_plain_label(kw, text),
         [kw, lang, eq, text] => {
             kw.text().eq_ignore_ascii_case("textconst")
                 && lang.text().eq_ignore_ascii_case("enu")
@@ -1286,13 +1281,20 @@ pub(crate) fn plain_text_constant(t: &ast::TypeRef) -> bool {
 /// Whether a declaration is `Label 'text'` with a text that is not empty and no property (no `Locked`, `Comment` or
 /// `MaxLength`).
 pub(crate) fn plain_label(t: &ast::TypeRef) -> bool {
-    let toks: Vec<_> = t
-        .syntax()
+    matches!(type_tokens(t).as_slice(), [kw, text] if is_plain_label(kw, text))
+}
+
+fn is_plain_label(kw: &al_syntax::SyntaxToken, text: &al_syntax::SyntaxToken) -> bool {
+    kw.text().eq_ignore_ascii_case("label") && text_not_empty(text)
+}
+
+/// The tokens of a type declaration, trivia left out.
+fn type_tokens(t: &ast::TypeRef) -> Vec<al_syntax::SyntaxToken> {
+    t.syntax()
         .descendants_with_tokens()
         .filter_map(|e| e.into_token())
         .filter(|k| !k.kind().is_trivia())
-        .collect();
-    matches!(toks.as_slice(), [kw, text] if kw.text().eq_ignore_ascii_case("label") && text_not_empty(text))
+        .collect()
 }
 
 /// A string literal with at least one character between its quotes (every pinned text has one, `Simple` of VaTTextConst.al:13 among them; the empty text of :16 never goes into a Variant).

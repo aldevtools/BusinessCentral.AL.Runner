@@ -69,9 +69,7 @@ impl Session {
                         });
                     }
                     al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ClearSharedCodeunit);
-                    if rc.borrow().initialized {
-                        self.reset_keeping_rows(rc);
-                    }
+                    self.reset_keeping_rows(rc);
                     kept.push(i);
                 }
                 Value::Array(items)
@@ -117,9 +115,7 @@ impl Session {
         }
         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ClearSharedCodeunit);
         for e in items.borrow().iter() {
-            if let Value::Codeunit(rc) = e
-                && rc.borrow().initialized
-            {
+            if let Value::Codeunit(rc) = e {
                 self.reset_keeping_rows(rc);
             }
         }
@@ -271,8 +267,12 @@ impl Session {
     /// their declared values, a temporary record keeping its table (`keep_temp_table`), so its rows stay
     /// (ClearSharedCodeunitSIOwner.al A3_Step3_ClearAllInOwner :447, rows=1 ref11=0 int1=0); the store a
     /// [`Store::Wrapper`] holds is reset in place the same way and kept, so its alias sees the reset
-    /// (ClearSharedCodeunitOwnerKinds.al Deep_StoreAliasWroteBefore :723). The caller marks assumption clear-shared-codeunit.
+    /// (ClearSharedCodeunitOwnerKinds.al Deep_StoreAliasWroteBefore :723). An instance nothing made yet stays as it is. The
+    /// caller marks assumption clear-shared-codeunit.
     fn reset_keeping_rows(&mut self, rc: &Rc<RefCell<Instance>>) {
+        if !rc.borrow().initialized {
+            return;
+        }
         let engine = self.engine.clone();
         let object = rc.borrow().object as usize;
         let mut fresh = self.slot_defaults(&engine.program.objects[object].globals);
@@ -280,9 +280,7 @@ impl Session {
         for (old, new) in old.iter().zip(fresh.iter_mut()) {
             match old {
                 Value::Codeunit(inner) => {
-                    if inner.borrow().initialized {
-                        self.reset_keeping_rows(inner);
-                    }
+                    self.reset_keeping_rows(inner);
                     *new = old.clone();
                 }
                 _ => crate::interp::keep_temp_table(old, new),
