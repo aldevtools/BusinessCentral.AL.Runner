@@ -139,8 +139,7 @@ mod tests {
     use super::*;
     use al_builtins::value::Value;
 
-    // A guard that holds before and after stage 1: one content gives one digest, and each row is written once, in one of
-    // the two forms.
+    // One content gives one digest, and each row is written once, in one of the two forms (issue 8211).
     #[test]
     fn one_content_gives_one_digest_and_writes_each_row_once() {
         let rows = |n: i32| -> Vec<al_data::Row> {
