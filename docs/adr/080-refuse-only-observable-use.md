@@ -14,7 +14,7 @@ Examples:
 - A SingleInstance codeunit that partner login subscribers changed in an unmeasured shape: every read of any of its
   globals refuses (`al-testrun/src/partner_login.rs:292-298` marks the instance, `al-vm/src/interp.rs:1137-1141` and
   `al-vm/src/single_unmeasured.rs:45-54` refuse the read). On main this stops the whole NP Retail suite at the test
-  runner's own row write (`al-testrun/src/runtime/suite_rows.rs:75`, :95; issue 8945).
+  runner's own row write (`al-testrun/src/runtime/suite_rows.rs:75`, :94; issue 8945).
 - A failure after an unfinished test, and a codeunit after a carry chain member: refused on static reach, with no read at
   all (`al-testrun/src/runtime/written.rs:196-211`; `carry_after.rs:41`, `corpus.rs:2430-2438`).
 
@@ -83,7 +83,10 @@ refused at the read as today, with its own runner issue:
 - a marked global passed as a `var` argument;
 - a marked value converted to Variant and then to another type;
 - table rows (class T in the audit): rows carry no mark, so code that reads or writes a table with unmeasured rows
-  stays refused at the touch.
+  stays refused at the touch;
+- number sequences and isolated storage keys whose state after a rollback is not measured (`failed_test.rs`,
+  `storage_checkpoint.rs`, `isolated_storage_reads.rs`): what is unknown is whether the sequence or key *exists*, so the
+  call itself can raise on BC. The call is an observable use and stays refused at the call.
 
 A tracing gap uses the typed refusal of ADR-071 with area `tracing-gap`, so `--top-refusals` counts them apart.
 
@@ -91,14 +94,38 @@ A tracing gap uses the typed refusal of ADR-071 with area `tracing-gap`, so `--t
 
 - An unmeasured value that reaches no observable use needs no assumption. The pass is **clean**: the outcome cannot
   depend on a value with no content.
-- An unmeasured value that reaches an observable use refuses, as today, unless an assumption entry gives BC's value for
-  that shape. Then the use runs and marks the entry (a flagged pass, hard rule 3).
+- Whether a read gives an opaque value or an assumed one is decided when the state is marked, not at the use. Marked
+  refused: the read gives an opaque value, and its observable use refuses (no assumption can make an opaque value run).
+  Marked assumed: an assumption entry gives BC's value for that shape, the read keeps the content and marks the entry
+  (a flagged pass, hard rule 3).
 - Assumed values (`SingleMark::Assumed`, `single_unmeasured.rs:49-52`) keep their content, because the entry gives it.
   In this ADR they still mark the entry at the read. Moving that mark to the first observable use needs a marked value
   *with* content. That is a later amendment.
 - The rule never turns a refusal into a pass without either the proof of section 3 or an assumption entry.
 
-### 6. Build order
+### 6. Open decision for the owner: a branch on an unmeasured value
+
+Section 2 counts every branch as observable. That is stricter than "can not affect a test". The owner's own example
+shows the cost. Azure AD User Subscribers (System Application, `AzureADUserSubscribers.Codeunit.al:26-64`) is the only
+known reader whose values go only to telemetry, and it is not recovered by this ADR as written:
+
+- `GetInformation` starts with `if Initialized then exit` and later branches on `IsAzure` (:31, :36, :60): control flow.
+- It adds `IsAdmin` as a dimension through `Language.ToDefaultLanguage`, which formats the Boolean (:64): `Format` is
+  not on the allowlist.
+
+Two choices:
+
+- **A. Keep the strict rule** (as written). Simple and provable. Recovers only values that are dropped, overwritten,
+  stored or passed on. 9034 and the NP lazy-init readers stay refused.
+- **B. Track the branch.** Inside a branch on an unmeasured value, every write marks its target, every observable use
+  refuses, and the arm not taken must have, by static reach, no observable use and only writes that get marked. Add
+  `Format` of an unmeasured value to a marked text, as `SqlCount` does (pinned: SqlCounters.al
+  `P6924_Counters_FormattedInTelemetryDimension_NoError`). Recovers 9034 and other telemetry-only readers. Costs a
+  static check of the arm not taken, and a mark on control regions in the VM.
+
+The ADR builds A first (steps 0 to 3). B is a later amendment, if step 0 shows enough branch-then-telemetry uses.
+
+### 7. Build order
 
 0. **Counting diagnostic** (no behavior change, off by default): for each marked read, record the first use by kind
    (drop, overwrite, store, pass, LogMessage, control flow, raise-capable op, output). Run on NP Retail and the MS
@@ -106,8 +133,8 @@ A tracing gap uses the typed refusal of ADR-071 with area `tracing-gap`, so `--t
 1. **Static reach to read** (class S): rules that refuse because a codeunit *could* read the state mark the state
    instead, and refuse at the read. Today's largest rule-shaped gap (ADR-064: 1581 tests in the BC 29 MS run; NP: 320
    codeunits refused with no read).
-2. **Read to use** (class R): scalar SingleInstance globals, `CurrentTransactionType`, NumberSequence results, the
-   SystemRowVersion value, as section 3.
+2. **Read to use** (class R): scalar SingleInstance globals, `CurrentTransactionType`, the SystemRowVersion value, as
+   section 3. NumberSequence and IsolatedStorage stay refused at the call (section 4).
 3. Per-global marks with write clearing (section 3, last point).
 
 Each step is its own pull request with neighbor apps for each allowed and each refused use.
