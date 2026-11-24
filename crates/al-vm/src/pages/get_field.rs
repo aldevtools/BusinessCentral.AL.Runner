@@ -295,7 +295,8 @@ impl Session {
 
     /// `GetField(id)` where no control of the page itself has the id: a field a page extension adds, by the extension's id and
     /// its name (al-runner issue 8944). With `ApplicationArea = All` of its own it is found on a Card (GetFieldByControlId.al
-    /// :2804) and a Worksheet (:2576 `ext`) on every version measured; its Value only is measured. With no ApplicationArea it
+    /// :2804) and a Worksheet (:2576 `ext`) that state `ApplicationArea = All` themselves, on every version measured; its Value
+    /// only is measured. With no ApplicationArea it
     /// is found on BC 27 and not found from BC 28 (`al_version::getfield_finds_extension_fields`; :589 and :2822, where BC 27
     /// measured its Value only), on the kinds of `Full`. Every other extension field refuses; any other id is
     /// `get_field_missing`'s.
@@ -326,8 +327,10 @@ impl Session {
         let kind = self.get_field_kind(st);
         if area == Some(true) {
             let card = matches!(self.get_field_page_types(st), (Some(al_ir::PageType::Card), None));
+            // Every cell's base page states ApplicationArea = All itself (:2804, :2576); a page extension cannot state one (AL0246).
             if ctl_kind != ir::ControlKind::Field
                 || !(card || kind == GetFieldKind::Worksheet)
+                || !self.page_states_area_all(st)
                 || al_version::getfield_finds_extension_fields(major).is_none()
                 || self.control_eliminated(st, idx)
                 || self.off_page(st, idx)
@@ -357,6 +360,15 @@ impl Session {
                 "TestPage.GetField with the id of a page extension's control on this BC version, or of one that is no field (not measured)",
             ),
         }
+    }
+
+    /// Whether the page `st` states `ApplicationArea = All` on the object.
+    fn page_states_area_all(&self, st: &St) -> bool {
+        let engine = self.engine();
+        engine.program.objects[st.borrow().object as usize]
+            .properties
+            .iter()
+            .any(|(k, v)| k.eq_ignore_ascii_case("ApplicationArea") && v.trim().eq_ignore_ascii_case("All"))
     }
 
     /// A call `m` on what GetField found (`ControlRef::by_id`): `Some` answers it, `None` lets it run as on the control by its

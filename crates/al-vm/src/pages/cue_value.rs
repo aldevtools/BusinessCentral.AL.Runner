@@ -4,8 +4,8 @@
 //! `cuegroup-field-value`): on a Card :742 (Text, a Text holding a number, Code, a Code holding a number, Integer, Decimal,
 //! Boolean, Date, BigInteger, Option, Time, DateTime, Guid, Enum and Duration; in a cuegroup with `CuegroupLayout = Wide`
 //! Code and Integer) and :653 (Text), and the same on a CardPart :856, a ListPart :923, a List :990 and a Document :2116, each
-//! opened as a TestPage of its own, and on a CardPart read through the Card that shows it as a part :2166; on a Card also a
-//! DateFormula, and a Boolean in a wide cuegroup :2216. Pinned without the entry: a Text on a List (testpage/ABTests.al:747, cuegroups with and without
+//! opened as a TestPage of its own, and on a CardPart read through the Card that shows it as a part :2166 (by its id through the
+//! TestPart :3159); on a Card also a DateFormula, and a Boolean in a wide cuegroup :2216 (a blank formula and false :3209). Pinned without the entry: a Text on a List (testpage/ABTests.al:747, cuegroups with and without
 //! ShowAsTree) and a Text in a wide cuegroup on a Card (pages/properties/ABLayouts.al:68, :70). On a RoleCenter BC finds no
 //! field there, by its name or its id (:1076): refused for every type. A Decimal, and an Integer outside a wide cuegroup, read
 //! as anywhere else on the other page kinds and in a part too (pinned); an Integer in a wide cuegroup only on the measured
@@ -67,7 +67,7 @@ impl Session {
         if matches!(v, Value::Decimal(_)) || (!wide && matches!(v, Value::Integer(_))) {
             return Ok(None);
         }
-        // A page of its own, or a CardPart a Card shows as a part (:2166).
+        // A page of its own, or a CardPart a Card shows as a part (:2166, by its id through the TestPart :3159).
         let Some(kind) = kind.filter(|k| host.is_none() || *k == "cardpart" && host_card) else {
             return unsupported(
                 "Value of a field control in a cuegroup outside a Card, a CardPart, a ListPart, a List or a Document opened as a \
@@ -78,7 +78,7 @@ impl Session {
             // A Text in a wide cuegroup is pinned on a Card only (ABLayouts.al:68).
             Value::Text(_) => !wide || kind == "card",
             Value::Code(_) | Value::Integer(_) => true,
-            // A wide Boolean and a DateFormula are measured on a Card only (:2216).
+            // A wide Boolean and a DateFormula are measured on a Card only (:2216, :3209).
             Value::Boolean(_) => !wide || kind == "card",
             Value::DateFormula(_) => !wide && kind == "card",
             Value::Date(..)
