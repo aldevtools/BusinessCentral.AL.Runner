@@ -409,10 +409,13 @@ impl Session {
             if !st.borrow().open {
                 return unsupported("a background task queued on a page that closed before it ran (not pinned)");
             }
+            // A page of the shape of the page with code runs other code: its worker's reads go through the query cache as every
+            // worker's do (assumption `background-task-query-cache`, BgTaskQueryCache.al); ListNewLineExtraCodeCodedPage.al's
+            // worker counts the rows the table field wrote and BC answers them (`U.DONE(2)`).
             let watch = {
                 let (root, _) = Self::tree_root(st);
                 let r = root.borrow();
-                r.coded_line != super::state::CodedLine::Off
+                r.coded_line != super::state::CodedLine::Off && r.coded_objects != super::state::CodedObjects::Extra
             };
             match self.bg_run_worker(codeunit, params, watch)? {
                 Ok(results) => {
