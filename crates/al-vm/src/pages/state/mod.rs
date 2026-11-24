@@ -1067,7 +1067,12 @@ pub struct PageState {
     /// The control's OnValidate that ran last on the page failed with an AL error in a shape the cells of
     /// ListNewLineExtraCodeCodedTableTriggers.al measure (`run_control_onvalidate`, read by `coded_error_measured`): before
     /// any `CurrPage.SaveRecord` or `CurrPage.Update`, after its table field stored the new line (:1269) or skipped its insert
-    /// (:1684); or after one `CurrPage.SaveRecord` that saved a line the table field did not insert (:1674).
+    /// (:1684); or after one `CurrPage.SaveRecord` that saved a line the table field did not insert (:1674). It does not look
+    /// at what the control wrote before the error: each kind of write is measured, rolled back with the error, the answer
+    /// unchanged (review of al-runner PR 8840, 09:29Z): a row of another table inserted before the save (:2121, :2132) and
+    /// after it (:2143), modified or deleted before it (:2176, :2187) and after it (:2220, :2231); Rec inserted when the table
+    /// field skipped its insert, before the save (:2154) and after it (:2165); and the stored Rec modified or deleted (:2198,
+    /// :2209).
     pub control_failed_as_measured: bool,
     /// The page control's own OnValidate while it runs (`code_inserted_new_line.rs` `run_control_onvalidate`).
     pub control_onvalidate: Option<ControlOnValidate>,
