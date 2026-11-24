@@ -1,1 +1,25 @@
 # key	entry
+GC Tests::CallerMarksCaptioned	ASSUMED guarded-run-consistent-end (corpus PR 1568)
+GC Tests::CallerMarksTemporary_InnerFails	ASSUMED guarded-run-consistent-end (corpus PR 1568)
+GC Tests::CallerMarks_RecordArgOtherTable	ASSUMED guarded-run-consistent-end (corpus PR 1568)
+GC Tests::Commit_Captioned	ASSUMED guarded-run-consistent-end (corpus PR 1568)
+GC Tests::Commit_ReleasedByAnother	ASSUMED guarded-run-consistent-end (corpus PR 1568)
+GC Tests::Commit_ReleasedByTemporary	ASSUMED guarded-run-consistent-end (corpus PR 1568): Consistent on a temporary record now runs and marks the database table; the shape still refuses at a later reader no cell measures
+GC Tests::Commit_ReleasedThenTrueOnFirst	ASSUMED guarded-run-consistent-end (corpus PR 1568)
+GC Tests::Commit_TemporaryMarks	ASSUMED guarded-run-consistent-end (corpus PR 1568)
+GC Tests::Commit_TemporaryMarksAndLifts	ASSUMED guarded-run-consistent-end (corpus PR 1568)
+GC Tests::InnerMarksCaptionedSucceeds	ASSUMED guarded-run-consistent-end (corpus PR 1568)
+GC Tests::InnerMarksFails_Error	ASSUMED guarded-run-consistent-end (corpus PR 1568)
+GC Tests::InnerMarksFails_ErrorEmpty	ASSUMED guarded-run-consistent-end (corpus PR 1568)
+GC Tests::InnerMarksFails_InstanceRecordArgOtherTable	ASSUMED guarded-run-consistent-end (corpus PR 1568)
+GC Tests::InnerMarksFails_RecordArgOtherTable	ASSUMED guarded-run-consistent-end (corpus PR 1568)
+GC Tests::InnerMarksFails_RecordNotFound	ASSUMED guarded-run-consistent-end (corpus PR 1568)
+GC Tests::InnerMarksFails_TestField	ASSUMED guarded-run-consistent-end (corpus PR 1568)
+GC Tests::InnerMarksSucceeds_RecordArgOtherTable	ASSUMED guarded-run-consistent-end (corpus PR 1568)
+GC Tests::InnerMarksTemporaryFails	ASSUMED guarded-run-consistent-end (corpus PR 1568)
+GC Tests::InnerMarksTwoTablesFails	ASSUMED guarded-run-consistent-end (corpus PR 1568)
+GC Tests::InnerMarksTwoTablesSucceeds	ASSUMED guarded-run-consistent-end (corpus PR 1568)
+GC Tests::InnerReleasedByAnotherSucceeds	ASSUMED guarded-run-consistent-end (corpus PR 1568)
+GC Tests::NestedRunMarksFails	ASSUMED guarded-run-consistent-end (corpus PR 1568)
+GC Tests::TestEnd_TemporaryMarks	ASSUMED guarded-run-consistent-end (corpus PR 1568): Consistent on a temporary record now runs and marks the database table; the shape still refuses at a later reader no cell measures
+GC Tests::UnguardedRun_TemporaryMarks	ASSUMED guarded-run-consistent-end (corpus PR 1568): Consistent on a temporary record now runs and marks the database table; the shape still refuses at a later reader no cell measures

@@ -480,6 +480,15 @@ codeunit 61406 "GC Tests"
         Ok := Codeunit.Run(Codeunit::"GC Inner");
     end;
 
+    [Test]
+    procedure NestedCallerMarks_Pinned()
+    var
+        Ok: Boolean;
+    begin
+        Init('mark,nested');
+        Ok := Codeunit.Run(Codeunit::"GC Inner");
+    end;
+
     // ---- Commit and the test end ----
 
     [Test]
