@@ -468,7 +468,9 @@ impl Session {
             .and_then(|c| c.prop("tablerelation").cloned());
         let measured = match relation {
             None => true,
-            Some(ir::PropVal::Lit(text)) => self.relation_holds_exactly(&text, args.first())?,
+            Some(ir::PropVal::Lit(text)) => {
+                self.text_field_control(&root, idx) && self.relation_holds_exactly(&text, args.first())?
+            }
             Some(_) => false,
         };
         if measured {
@@ -477,14 +479,25 @@ impl Session {
         root.borrow_mut().forget_code_inserted_line();
         unsupported(
             "a SetValue, after the landing on a List page with code and FactBoxes, into a control with a TableRelation of a value \
-             no row of the related table holds as its key in the same case (not measured)",
+             no row of the related table holds as its key in the same case, or into a Code field or of a Code key (not measured)",
         )
     }
 
+    /// Whether control `idx` of host `st` shows a Text field of Rec: the cell's Value control does (:859).
+    fn text_field_control(&self, st: &St, idx: usize) -> bool {
+        let engine = self.engine();
+        let Some(ir::Binding::Field(f)) = page_of(&engine, st).controls.get(idx).map(|c| c.binding.clone()) else {
+            return false;
+        };
+        self.table(&self.page_rec(st))
+            .is_ok_and(|t| matches!(t.fields.get(f).map(|d| &d.ty), Some(RtType::Text(_))))
+    }
+
     /// Whether a stored row of the table a plain `TableRelation` `relation` names (`Table` or `Table.Field`, the field its
-    /// primary key's only field) holds `value` as its key, character for character.
+    /// primary key's only field, of type Text as the cell's is, :859) holds the text `value` as its key, character for
+    /// character. A Code key or a Code value is not measured (review of al-runner PR 8847, 02:55Z).
     fn relation_holds_exactly(&mut self, relation: &str, value: Option<&Value>) -> Result<bool, Signal> {
-        let Some(Value::Text(typed) | Value::Code(typed)) = value else {
+        let Some(Value::Text(typed)) = value else {
             return Ok(false);
         };
         let Some((name, field)) = super::relation_lookup::simple_relation(relation) else {
@@ -505,11 +518,14 @@ impl Session {
             (Some(&[k]), Some(f)) if def.fields[k].name.eq_ignore_ascii_case(&f) => k,
             _ => return Ok(false),
         };
+        if !matches!(def.fields[key].ty, RtType::Text(_)) {
+            return Ok(false);
+        }
         let cx = self.cx.clone();
         Ok(self
             .all_rows(&cx, &def)?
             .iter()
-            .any(|row| matches!(&row[key], Value::Text(s) | Value::Code(s) if s == typed)))
+            .any(|row| matches!(&row[key], Value::Text(s) if s == typed)))
     }
 
     /// A SetValue on the tree of host `st` ended with `result`. When it was the first SetValue that let the parts read the new
