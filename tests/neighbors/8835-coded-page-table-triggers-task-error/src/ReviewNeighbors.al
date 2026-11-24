@@ -1,11 +1,15 @@
 // Neighbors of ListNewLineExtraCodeCodedTableTriggers.al and ListNewLineExtraCodeCodedTaskError.al (review of al-runner
 // PR 8840, 01:32Z and 07:30Z): a handler that catches the first SetValue's error, and a copy of the task FactBox whose
-// worker fails on the blank record or on the parts' read of the new line, or whose error trigger calls CurrPage.Update.
+// worker fails on the blank record or on the parts' read of the new line, or whose error trigger calls CurrPage.Update;
+// and the shapes left deferred: an error trigger that raises its own error or enqueues another task, a worker that
+// fails with a run-time error.
 // Each test holds
 // Business Central's answer, measured on a local BC 29.1 container (3 runs of 3), in a codeunit of its own.
 
 // The task error probe's variation FactBox, with modes 5 (fails on the blank record, too), 6 (its error
-// trigger calls CurrPage.Update(false)) and 7 (fails at its second read of the blank record, the new line's).
+// trigger calls CurrPage.Update(false)), 7 (fails at its second read of the blank record, the new line's), 8 (its
+// error trigger raises an error of its own), 9 (its worker fails with a run-time error) and 10 (its error trigger
+// enqueues another task).
 page 96600 "LT NQ4 Usage"
 {
     PageType = CardPart;
@@ -32,8 +36,11 @@ page 96600 "LT NQ4 Usage"
         if (Rec."Entry No." = 0) and not (Mode.Get() in [5, 7]) then
             exit;
         Parameters.Add('Entry', Format(Rec."Entry No."));
-        Parameters.Add('Fail', Format(Mode.Get() in [2, 3, 5, 6, 7]));
-        CurrPage.EnqueueBackgroundTask(TaskId, Codeunit::"LT NQ2 Var Task", Parameters);
+        Parameters.Add('Fail', Format(Mode.Get() in [2, 3, 5, 6, 7, 8, 10]));
+        if Mode.Get() = 9 then
+            CurrPage.EnqueueBackgroundTask(TaskId, Codeunit::"LT NQ4 Task", Parameters)
+        else
+            CurrPage.EnqueueBackgroundTask(TaskId, Codeunit::"LT NQ2 Var Task", Parameters);
     end;
 
     trigger OnPageBackgroundTaskCompleted(CompletedTaskId: Integer; Results: Dictionary of [Text, Text])
@@ -49,16 +56,26 @@ page 96600 "LT NQ4 Usage"
     trigger OnPageBackgroundTaskError(ErroredTaskId: Integer; ErrorCode: Text; ErrorText: Text; ErrorCallStack: Text; var IsHandled: Boolean)
     var
         Mode: Codeunit "LT NQ2 Mode";
+        Again: Dictionary of [Text, Text];
     begin
         Mode.Add('U.ERR(' + ErrorText + ')');
         Usage := 'Failed';
-        IsHandled := Mode.Get() in [2, 6];
+        IsHandled := Mode.Get() in [2, 6, 9, 10];
         if Mode.Get() = 6 then
             CurrPage.Update(false);
+        if Mode.Get() = 8 then
+            Error('Trigger failed');
+        if (Mode.Get() = 10) and not Requeued then begin
+            Requeued := true;
+            Again.Add('Entry', Format(Rec."Entry No."));
+            Again.Add('Fail', Format(false));
+            CurrPage.EnqueueBackgroundTask(TaskId, Codeunit::"LT NQ2 Var Task", Again);
+        end;
     end;
 
     var
         BlankSeen: Boolean;
+        Requeued: Boolean;
         TaskId: Integer;
         Usage: Text;
 }
@@ -253,6 +270,19 @@ codeunit 96602 "LT NX4 Lib"
     end;
 }
 
+// The worker of mode 9: a division by zero.
+codeunit 96611 "LT NQ4 Task"
+{
+    trigger OnRun()
+    var
+        Zero: Integer;
+        Results: Dictionary of [Text, Text];
+    begin
+        Results.Add('Count', Format(1 div Zero));
+        Page.SetBackgroundTaskResult(Results);
+    end;
+}
+
 
 // The handler catches OnInsert's error and returns. Its own codeunit.
 codeunit 96603 "LT NE4 Caught Tests"
@@ -416,6 +446,120 @@ codeunit 96607 "LT NQ4 Line Read Tests"
         Shown := '';
         asserterror Lib.OpenNq(false);
         Lib.Check('| err=Task failed| code=ClientPageAbort:FormAbort| rows=| log=U.ERR(Task failed);', Shown + '| err=' + GetLastErrorText() + '| code=' + GetLastErrorCode() + '| rows=' + Lib.NqRows() + '| log=' + Lib.NqLog());
+    end;
+
+    [ModalPageHandler]
+    procedure Handler(var Lines: TestPage "LT NQ4 Lines")
+    var
+        Mode: Codeunit "LT NQ2 Mode";
+    begin
+        Lines.New();
+        Lines.Name.SetValue('A');
+        Mode.Add('|name');
+        Shown += 'name=' + Lines.Name.Value() + ' usage=' + Lines.Usage.Usage.Value() + ' ';
+        Lines.Value.SetValue('V');
+        Mode.Add('|value');
+        Shown += 'value=' + Lines.Value.Value() + ' usage=' + Lines.Usage.Usage.Value() + ' ';
+        Lines.OK().Invoke();
+        Mode.Add('|ok');
+    end;
+}
+
+
+// The error trigger leaves the task's error unhandled and raises an error of its own. Its own codeunit.
+codeunit 96608 "LT NQ4 Trigger Error Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        Lib: Codeunit "LT NX4 Lib";
+        Shown: Text;
+
+    [Test]
+    [HandlerFunctions('Handler')]
+    procedure NewLine_TaskErrorTriggerRaisesItsOwnError_TheErrorReachesTheTest()
+    begin
+        Lib.Initialize(0, 8);
+        Shown := '';
+        asserterror Lib.OpenNq(false);
+        Lib.Check('| err=Trigger failed| code=ClientPageAbort:FormAbort| rows=| log=U.ERR(Task failed);', Shown + '| err=' + GetLastErrorText() + '| code=' + GetLastErrorCode() + '| rows=' + Lib.NqRows() + '| log=' + Lib.NqLog());
+    end;
+
+    [ModalPageHandler]
+    procedure Handler(var Lines: TestPage "LT NQ4 Lines")
+    var
+        Mode: Codeunit "LT NQ2 Mode";
+    begin
+        Lines.New();
+        Lines.Name.SetValue('A');
+        Mode.Add('|name');
+        Shown += 'name=' + Lines.Name.Value() + ' usage=' + Lines.Usage.Usage.Value() + ' ';
+        Lines.Value.SetValue('V');
+        Mode.Add('|value');
+        Shown += 'value=' + Lines.Value.Value() + ' usage=' + Lines.Usage.Usage.Value() + ' ';
+        Lines.OK().Invoke();
+        Mode.Add('|ok');
+    end;
+}
+
+
+// The worker fails with a division by zero; the error trigger marks it handled. Its own codeunit.
+codeunit 96609 "LT NQ4 Run Time Error Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        Lib: Codeunit "LT NX4 Lib";
+        Shown: Text;
+
+    [Test]
+    [HandlerFunctions('Handler')]
+    procedure NewLine_TaskFailsWithARunTimeError_ShowsTheFailure()
+    begin
+        Lib.Initialize(0, 9);
+        Shown := '';
+        Lib.OpenNq(false);
+        Lib.Check('name=A usage=Failed value=V usage=Failed | err=| code=| rows=A/Resolved/Stamped/V;| log=U.ERR(Attempted to divide by zero.);|name;|value;|ok;', Shown + '| err=' + GetLastErrorText() + '| code=' + GetLastErrorCode() + '| rows=' + Lib.NqRows() + '| log=' + Lib.NqLog());
+    end;
+
+    [ModalPageHandler]
+    procedure Handler(var Lines: TestPage "LT NQ4 Lines")
+    var
+        Mode: Codeunit "LT NQ2 Mode";
+    begin
+        Lines.New();
+        Lines.Name.SetValue('A');
+        Mode.Add('|name');
+        Shown += 'name=' + Lines.Name.Value() + ' usage=' + Lines.Usage.Usage.Value() + ' ';
+        Lines.Value.SetValue('V');
+        Mode.Add('|value');
+        Shown += 'value=' + Lines.Value.Value() + ' usage=' + Lines.Usage.Usage.Value() + ' ';
+        Lines.OK().Invoke();
+        Mode.Add('|ok');
+    end;
+}
+
+
+// The error trigger marks the error handled and enqueues another task that does not fail. Its own codeunit.
+codeunit 96610 "LT NQ4 Requeue Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        Lib: Codeunit "LT NX4 Lib";
+        Shown: Text;
+
+    [Test]
+    [HandlerFunctions('Handler')]
+    procedure NewLine_TaskErrorTriggerEnqueuesAnotherTask_ShowsTheCount()
+    begin
+        Lib.Initialize(0, 10);
+        Shown := '';
+        Lib.OpenNq(false);
+        Lib.Check('name=A usage=2 value=V usage=2 | err=| code=| rows=A/Resolved/Stamped/V;| log=U.ERR(Task failed);U.DONE(2);|name;|value;|ok;', Shown + '| err=' + GetLastErrorText() + '| code=' + GetLastErrorCode() + '| rows=' + Lib.NqRows() + '| log=' + Lib.NqLog());
     end;
 
     [ModalPageHandler]

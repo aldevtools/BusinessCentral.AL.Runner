@@ -44,3 +44,7 @@ LT NE6 Tests::NewLine_ControlModifiesRecAndFailsBeforeItsSave_TheSetValueFails	A
 LT NE6 Tests::NewLine_ControlDeletesRecAndFailsBeforeItsSave_TheSetValueFails	ASSUMED list-new-line-extra-code-coded (corpus PR 1540, open: ListNewLineExtraCodeCodedTableTriggers.al)
 LT NE6 Tests::NewLine_TableFieldSkipsItsInsertControlModifiesAnotherTableAndFailsAfterItsSave_TheSetValueFails	ASSUMED list-new-line-extra-code-coded (corpus PR 1540, open: ListNewLineExtraCodeCodedTableTriggers.al)
 LT NE6 Tests::NewLine_TableFieldSkipsItsInsertControlDeletesFromAnotherTableAndFailsAfterItsSave_TheSetValueFails	ASSUMED list-new-line-extra-code-coded (corpus PR 1540, open: ListNewLineExtraCodeCodedTableTriggers.al)
+# The shapes the review of al-runner PR 8840 (07:30Z) left deferred: refused on both, later on the head.
+LT NQ4 Trigger Error Tests::NewLine_TaskErrorTriggerRaisesItsOwnError_TheErrorReachesTheTest	REFUSED a page background task's error trigger that raised an error of its own
+LT NQ4 Run Time Error Tests::NewLine_TaskFailsWithARunTimeError_ShowsTheFailure	REFUSED a page background task whose worker failed with a run-time error
+LT NQ4 Requeue Tests::NewLine_TaskErrorTriggerEnqueuesAnotherTask_ShowsTheCount	REFUSED a page background task's completion or error trigger enqueued another task

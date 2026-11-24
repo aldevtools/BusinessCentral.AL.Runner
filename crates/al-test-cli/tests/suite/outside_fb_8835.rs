@@ -113,7 +113,9 @@ fn issue_8836_neighbors_are_refused() {
 
 /// The review's neighbors are refused: a handler that catches OnInsert's error and returns, one that catches the unhandled task
 /// error and goes on, a worker that fails on the blank record at the open, or on the parts' read of the new line before the
-/// validation (review of 07:30Z), and an error trigger that calls CurrPage.Update (its own refusal).
+/// validation (review of 07:30Z), and an error trigger that calls CurrPage.Update (its own refusal). The shapes that review left
+/// deferred are refused too: an error trigger that raises its own error or enqueues another task, and a worker that fails
+/// with a run-time error (docs/probes-needed.md).
 #[test]
 fn issue_8840_review_neighbors() {
     let src = format!("{TABLE_PROBE}\n{TASK_PROBE}\n{REVIEW}");
@@ -128,17 +130,19 @@ fn issue_8840_review_neighbors() {
         })
         .filter(|n| n.ends_with(" Tests"))
         .collect();
-    assert_eq!(codeunits.len(), 5);
+    assert_eq!(codeunits.len(), 8);
     for cu in codeunits {
         let o = super::outside_fb_8712::outcomes(&src, cu);
         assert_eq!(o.len(), 1, "{cu}");
         let (name, r, _) = &o[0];
         assert!(matches!(r, Outcome::NotRun(_)), "{name}: {r:?}");
-        if cu == "LT NQ4 Update Tests" {
-            assert!(
-                matches!(r, Outcome::NotRun(w) if w.contains("called CurrPage.Update")),
-                "{r:?}"
-            );
-        }
+        let reason = match cu {
+            "LT NQ4 Update Tests" => "called CurrPage.Update",
+            "LT NQ4 Trigger Error Tests" => "raised an error of its own",
+            "LT NQ4 Requeue Tests" => "enqueued another task",
+            "LT NQ4 Run Time Error Tests" => "failed with a run-time error",
+            _ => "",
+        };
+        assert!(matches!(r, Outcome::NotRun(w) if w.contains(reason)), "{r:?}");
     }
 }
