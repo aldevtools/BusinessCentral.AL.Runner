@@ -1,0 +1,8 @@
+# key	entry
+LM Login Tests::ReadsApiCacheLoadedOnInsert	ASSUMED partner-login-microsoft-cache (corpus PR 1571)
+LM Login Tests::ReadsAreasFilledDirectly	ASSUMED partner-login-microsoft-cache (corpus PR 1571)
+LM Login Tests::ReadsChangeLogLoadedOnInsert	ASSUMED partner-login-microsoft-cache (corpus PR 1571)
+LM Login Tests::ReadsProfileFetchedDirectly	ASSUMED partner-login-microsoft-cache (corpus PR 1571)
+LM Login Tests::ReadsEnvInfoSplitOverTwoSubscribers	ASSUMED partner-login-env-info-pair (corpus PR 1571)
+LM Login Tests::ReadsMeasuredMemo	ASSUMED partner-login-load-once-memo (corpus PR 1571)
+LM Login Tests::TestSessionAsksSetupAgain	PINNED tests/al-language/install-upgrade/install-triggers/Y69InstallTriggerSetup.al:134

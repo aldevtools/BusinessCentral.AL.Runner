@@ -98,7 +98,7 @@ impl Session {
     }
 
     /// The install sessions ended and the test session follows: what the subscribers answered there is gone, and the test
-    /// session's first write of a table asks again (Y69InstallTriggerSetup.al:104, :131 `d_setup_61180`: asked once per
+    /// session's first write of a table asks again (Y69InstallTriggerSetup.al:104, :134 `d_setup_61180`: asked once per
     /// table in the test session for a table the install code wrote).
     pub fn end_install_session_setups(&mut self) {
         self.events.global_setups.clear();

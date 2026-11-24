@@ -1,7 +1,7 @@
 //! The test session is a session of its own: its first write of a table asks the `Global Triggers` subscribers for the
 //! table's setup again, although the install session asked for the same table (pinned: the setup is asked once per table
 //! in the test session for a table the install code wrote, install-upgrade/install-triggers/Y69InstallTriggerSetup.al:104,
-//! :131 `d_setup_61180`; a later test of the same session does not ask again, events/platform-triggers/
+//! :134 `d_setup_61180`; a later test of the same session does not ask again, events/platform-triggers/
 //! TableTriggerSetupCalls.al:103-125).
 
 use al_sema::workspace::AppSource;
