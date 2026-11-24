@@ -19,6 +19,9 @@ use rust_decimal::Decimal;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+/// The entry of the cells of corpus PR 1552.
+const ENTRY: Assumption = Assumption::SetRangeOtherTypeConvert;
+
 /// How the values of a call are written (al-sema `setrange_written`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Written {
@@ -63,9 +66,9 @@ pub(crate) enum Call {
 enum Cell {
     /// BC converts it into this value or raises this error, where main's conversion gives another answer.
     Convert(Result<Value, Signal>),
-    /// BC gives what main's conversion gives (the cell passes on main) in the shape the cells measure, through the entry
-    /// setrange-other-type-convert; refused in another.
-    Main,
+    /// BC gives what main's conversion gives (the cell passes on main) in the shape the cells measure, through this entry
+    /// (setrange-other-type-convert, or setrange-false-into-text for false into a Code or Text field); refused in another.
+    Main(Assumption),
     /// Main's answer, pinned in the measured shape of this call: run there without the flag; refused in another.
     MainPinned,
     /// Main's conversion in every shape: pinned there, or run through another assumption entry.
@@ -177,13 +180,13 @@ impl Session {
             match self.setrange_cell(v, &f.ty, at) {
                 None | Some(Cell::MainEveryShape) => {}
                 // Main's answer, measured by the open probe alone.
-                Some(Cell::Main) if measured() => assume(Assumption::SetRangeOtherTypeConvert),
+                Some(Cell::Main(entry)) if measured() => assume(entry),
                 Some(Cell::MainPinned) if measured() => {}
                 Some(Cell::Convert(converted)) if measured() => {
                     assume(Assumption::SetRangeOtherTypeConvert);
                     *v = converted?;
                 }
-                Some(Cell::Main | Cell::MainPinned | Cell::Convert(_) | Cell::Unmeasured) => {
+                Some(Cell::Main(_) | Cell::MainPinned | Cell::Convert(_) | Cell::Unmeasured) => {
                     return Err(Signal::unsupported(format!(
                         "SetRange or SetFilter of {} into a {} field in a shape no cell measures (assumption setrange-other-type-convert)",
                         v.describe(),
@@ -208,7 +211,7 @@ impl Session {
             // Yes (BoolTrue_Cod, BoolTrue_Txt: main's answer).
             RtType::Code(_) | RtType::Text(_) => match v {
                 Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_) => Some(number_into_text(v, ty, self)),
-                Value::Boolean(true) => Some(Cell::Main),
+                Value::Boolean(true) => Some(Cell::Main(ENTRY)),
                 Value::Boolean(false) => Some(Cell::Unmeasured),
                 _ => None,
             },
@@ -229,7 +232,7 @@ impl Session {
                 } else if decimal && matches!(v, Value::Text(t) if t.as_str() == "1.5") && variant_setrange(at) {
                     Cell::MainPinned
                 } else if decimal && (digits(s) || decimal_point(s) || one_group(s)) {
-                    Cell::Main
+                    Cell::Main(ENTRY)
                 } else {
                     Cell::Unmeasured
                 })
@@ -279,7 +282,7 @@ impl Session {
                 return Some(Cell::Unmeasured);
             }
             // Date_DT, DateZero_DT: that day at midnight, main's answer.
-            Value::Date(..) if matches!(ty, RtType::DateTime) => return Some(Cell::Main),
+            Value::Date(..) if matches!(ty, RtType::DateTime) => return Some(Cell::Main(ENTRY)),
             // SrcSetRangeConvert.al Date_T, Time_D, DT_D, DT_T and the undefined values (DateZero_T, TimeZero_D, TimeZero_DT,
             // DTZero_D, DTZero_T): the same on every major.
             Value::Date(0, false) if matches!(ty, RtType::Time) => return Some(Cell::Convert(Ok(Value::Time(0)))),
@@ -344,8 +347,8 @@ fn guid_cell(s: &str, at: CellAt, from28: bool) -> Cell {
     let hex32 = || al_builtins::ops::parse_guid_without_hyphens(s).is_some();
     match (at.call, at.written) {
         (_, Some(Written::Variant)) if !s.is_empty() => Cell::Convert(Err(variant_guid_error(s, from28))),
-        (Call::FieldRefSetRange, Some(Written::Typed)) if !s.is_empty() => Cell::Main,
-        (Call::FieldRefSetFilter, Some(Written::Typed)) if guid() => Cell::Main,
+        (Call::FieldRefSetRange, Some(Written::Typed)) if !s.is_empty() => Cell::Main(ENTRY),
+        (Call::FieldRefSetFilter, Some(Written::Typed)) if guid() => Cell::Main(ENTRY),
         (Call::FieldRefSetFilter, Some(Written::Typed)) if hex32() => Cell::Unmeasured,
         (Call::FieldRefSetFilter, Some(Written::Typed)) if letters(s) || digits(s) => {
             Cell::Convert(al_builtins::native::invalid_guid_format())

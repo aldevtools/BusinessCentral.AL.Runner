@@ -258,6 +258,26 @@ codeunit 50291 T
         exit(F.GetFilter());
     end;
 
+    procedure FalseIntoCode(): Text
+    var R: RecordRef; F: FieldRef; B: Boolean;
+    begin
+        R.Open(Database::SRC);
+        F := R.Field(3);
+        B := false;
+        F.SetFilter('%1', B);
+        exit(F.GetFilter());
+    end;
+
+    procedure FalseIntoCodeOnTemporary(): Text
+    var R: RecordRef; F: FieldRef; B: Boolean;
+    begin
+        R.Open(Database::SRC, true);
+        F := R.Field(3);
+        B := false;
+        F.SetRange(B);
+        exit(F.GetFilter());
+    end;
+
     procedure TrueIntoCode(): Text
     var R: RecordRef; F: FieldRef; B: Boolean;
     begin
@@ -391,6 +411,7 @@ fn a_cell_of_the_earlier_conversion_in_another_shape_is_refused() {
     for routine in [
         "GuidSetFilterTextOnTemporary",
         "TrueIntoCodeOnTemporary",
+        "FalseIntoCodeOnTemporary",
         "DecimalTextIntoDecimalOnTemporary",
         "DateIntoDateTimeOnTemporary",
         "DigitsIntoDecimalOnTemporary",
@@ -423,4 +444,16 @@ fn a_cell_of_the_earlier_conversion_in_the_measured_shape_is_flagged_unless_pinn
 #[test]
 fn a_blank_option_member_into_a_date_is_refused() {
     refused("BlankOptionIntoDate");
+}
+
+/// False into a Code field is main's answer, `NO` (SrcFilterBoolIntoText.al BoolFalse_Cod, open corpus PR, al-runner issue 9026),
+/// in the measured shape through the entry setrange-false-into-text; refused on a temporary table
+/// (`a_cell_of_the_earlier_conversion_in_another_shape_is_refused`).
+#[test]
+fn false_into_a_code_field_is_its_format_text_through_its_own_entry() {
+    clear_hits();
+    assert_eq!(filter("FalseIntoCode"), "NO");
+    let hits = take_hits();
+    assert!(hits.contains(&Assumption::SetRangeFalseIntoText), "{hits:?}");
+    assert!(!hits.contains(&Assumption::SetRangeOtherTypeConvert), "{hits:?}");
 }
