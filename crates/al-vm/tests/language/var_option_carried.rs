@@ -165,6 +165,24 @@ codeunit 69873 CSubs
     end;
 }
 
+codeunit 69876 CTrigger
+{
+    // A trigger's `var` section as the origin: no cell of corpus PR 1569 hands a value on from a trigger.
+    trigger OnRun()
+    var
+        V: Option " ",Skip,Update;
+        Row: Record CRow;
+    begin
+        V := V::Skip;
+        Hop(V, Row);
+    end;
+
+    local procedure Hop(var V: Option; var Row: Record CRow)
+    begin
+        Row.Confirm(V);
+    end;
+}
+
 codeunit 69874 C
 {
     var
@@ -414,6 +432,12 @@ codeunit 69874 C
         exit(Format(V));
     end;
 
+    procedure TriggerOrigin(): Text
+    begin
+        Codeunit.Run(Codeunit::CTrigger);
+        exit('ran');
+    end;
+
     procedure GlobalOrigin(): Text
     begin
         G := G::Skip;
@@ -514,6 +538,7 @@ fn a_memberless_value_at_an_unmeasured_use_or_through_the_event_refuses() {
 fn other_origins_and_event_contracts_refuse() {
     refused("GlobalOrigin");
     refused("EventNoSenderOrigin");
+    refused("TriggerOrigin");
 }
 
 // The callee's Evaluate reads the value's list (OptionVarMembersCallee.al CalleeOps_VarHop_Other: `Second` Yes, `5` Yes, `Skip`

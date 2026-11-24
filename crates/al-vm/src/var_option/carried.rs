@@ -48,9 +48,11 @@ const CARRIED_REFUSED: &str = "an Option a `var` parameter declared without memb
 const HAND_ON_REFUSED: &str = "a `var` parameter with members handed to a `var` Option parameter declared without members that the callee does more with than Format: a rejected Evaluate there is measured to leave the first member (not pinned)";
 
 /// Whether routine `r` of an object of kind `kind`, with no attribute but those named in `allowed`, is one the carried-members cells
-/// measure (corpus PR 1569, OptionVarMembersCallee.al, OptionVarMembersBatch.al): a codeunit's or a table's.
+/// measure (corpus PR 1569, OptionVarMembersCallee.al, OptionVarMembersBatch.al): a codeunit's or a table's procedure. Every cell
+/// hands the value on from and to procedures, never a trigger (`OnRun` as the origin refuses).
 fn carried_routine(kind: ir::ObjKind, r: &ir::Routine, allowed: &[&str]) -> bool {
     matches!(kind, ir::ObjKind::Codeunit | ir::ObjKind::Table)
+        && !r.is_trigger
         && r.attributes
             .iter()
             .all(|a| allowed.iter().any(|n| a.name.eq_ignore_ascii_case(n)))
