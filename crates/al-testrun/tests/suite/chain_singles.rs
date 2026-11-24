@@ -5,7 +5,6 @@
 //! order dependence is flagged and run again in the lane as amendments 4, 5 and 7 say. A member whose OnRun takes the
 //! number keeps amendment 8.
 
-use al_builtins::assumptions::Assumption;
 use al_sema::workspace::AppSource;
 use al_testrun::Outcome;
 use al_testrun::runtime::{ChainWhy, CorpusRuntime, Manifest, RunOptions, SuiteRun};
@@ -140,12 +139,11 @@ fn a_chain_whose_members_use_single_instance_state_keeps_it_from_member_to_membe
     assert_eq!(chain.singles_kept, MEMBERS as usize, "{:?}", chain);
 }
 
-/// ADR-066 amendment 11, option 1: members that are in the chain only for the numbers their tests take run with fresh
-/// single instances although they read and write SingleInstance state. Each first access of the count is `Count += 1`, a write under amendment 3, R1, so no
-/// member is order dependent: none is flagged and none runs again (the SingleInstance handling of codeunits outside
-/// the chain, not amendment 8's).
+/// ADR-070 (gap 1 of its review, numbers-only members with fresh state, closed): members that are in the chain only for
+/// the numbers their tests take keep the walk's single instances like every other codeunit of the strict walk, and none
+/// is flagged (P7: codeunits/TestCuP7BReader.al:24-37 against TestCuP7ASetter.al:24-58).
 #[test]
-fn numbers_only_members_run_with_fresh_single_instances_although_they_read_single_instance_state() {
+fn numbers_only_members_keep_the_single_instances_in_the_strict_walk() {
     let rt = run(
         &source(false),
         &RunOptions {
@@ -167,17 +165,9 @@ fn numbers_only_members_run_with_fresh_single_instances_although_they_read_singl
         "{:?}",
         chain.members
     );
-    assert_eq!(chain.single_lane.rerun, 0, "{:?}", chain.single_lane);
-    let flagged = rt
-        .results()
-        .iter()
-        .filter(|r| r.assumptions.contains(&Assumption::SingleInstanceOrder))
-        .count();
+    let flagged = rt.results().iter().filter(|r| !r.assumptions.is_empty()).count();
     assert_eq!(flagged, 0, "`Count += 1` is a write first (amendment 3, R1)");
-    assert_eq!(
-        chain.singles_kept, 0,
-        "no member kept the walk's single instances: {chain:?}"
-    );
+    assert_eq!(chain.singles_kept, MEMBERS as usize, "{chain:?}");
 }
 
 /// ADR-066 amendment 11, option 1, with amendment 4, decision 2: a numbers-only member that fails with fresh
@@ -228,16 +218,7 @@ codeunit 60301 "Numbers Reader"
         chain.members
     );
     assert_eq!(result("ReadsTheFlag").outcome, Outcome::Pass, "{:?}", rt.results());
-    assert!(
-        result("ReadsTheFlag")
-            .assumptions
-            .contains(&Assumption::SingleInstanceOrder)
-    );
-    assert_eq!(chain.single_lane.rerun, 1, "{:?}", chain.single_lane);
+    assert!(result("ReadsTheFlag").assumptions.is_empty(), "{:?}", rt.results());
     assert_eq!(result("SetsTheFlag").outcome, Outcome::Pass);
-    assert!(
-        !result("SetsTheFlag")
-            .assumptions
-            .contains(&Assumption::SingleInstanceOrder)
-    );
+    assert!(result("SetsTheFlag").assumptions.is_empty());
 }

@@ -35,7 +35,6 @@ mod source_stamps_tests;
 #[cfg(test)]
 mod storage_tests;
 pub use frozen::{FrozenRows, FrozenStore, NotShareable, not_shareable, shareable};
-pub use row_changes::{RowChanges, TableRows};
 
 type Table = crate::pmap::PMap<Key, Row>;
 /// A table's place in the store: its company (empty for a table that is not per company) and its object. The company

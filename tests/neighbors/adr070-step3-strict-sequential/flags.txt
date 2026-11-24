@@ -1,0 +1,5 @@
+# The walk of --strict-order with the TestRunnerHub leg (codeunits without handlers and with TestPermissions = Disabled,
+# or RequiredTestIsolation = Function or Disabled).
+--strict-order
+--isolation
+required
