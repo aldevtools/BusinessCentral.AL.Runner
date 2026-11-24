@@ -29,6 +29,7 @@ mod key_value_tests;
 mod order_carry;
 mod replace;
 mod row_changes;
+mod shape;
 mod source_stamps;
 #[cfg(test)]
 mod source_stamps_tests;

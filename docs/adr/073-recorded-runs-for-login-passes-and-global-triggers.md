@@ -437,3 +437,56 @@ Risks:
    not built.
 4. A temporary budget limit at today's 333 G that may only go down, removed once the run is under the real budget:
    yes.
+
+## Amendment (Proposed, 2026-11-23): Phase 1 as built, behind an opt-in switch
+
+Status of this section: Proposed. It records how Phase 1 (the login runs once per engine) is built in al-runner issue
+8211, where that differs from decision 1, and which conformance items wait until the replay is on by default.
+
+What is built:
+
+- **The session field table** (`al-vm` `session_fields.rs`) is decision 2: every `Session` field is in exactly one
+  class (`plain`, `runner`, `counter`, `linked`, `fresh`, `refuse`, `rest`, `own`) of one table, with the predicate of
+  each `refuse` and `rest` field next to it. The table generates the pattern that names every field without `..`, the
+  check of a session at rest (`Session::at_rest_why`), the image's refuse check (`Session::image_refused_field`) and the
+  install code's (`Session::install_refused_field`, read by `install_left`). The session state kept outside `Session`'s
+  fields is listed in the same module, and al-test-cli `tests/outside_session_state.rs` keeps that list complete; the
+  `static`s of al-testrun are listed in `login_start/outside.rs` under the same test.
+- **The session image** (`al-vm` `login_image.rs`): `Session::login_image` freezes a session after the raised login
+  into owned data any thread may keep (`LoginImage`: the `plain` fields by value, the nested states, the committed rows
+  the login wrote apart from the store it started from, as their bytes (`login_image/rows.rs`, `LoginRows`), and the
+  SingleInstance object graph as an arena), or names why not (`NotImaged`). A thaw rebuilds each table the login
+  touched from the target's own rows and puts it with al-data `with_committed_tables`. `Session::thaw_login_image` makes a session hold it, or refuses before it changes anything
+  (`NotThawed`), so its caller runs the login instead. The image's classes of values are those `Session::state_lines`
+  renders exactly, which is wider than decision 3: a temporary record, a codeunit instance and a shared collection are
+  imaged as nodes of the graph; the kinds without an exact form are refused, each with its reason.
+- **The replay** (`al-testrun` `login_start.rs`): the first session of a login key runs the login and keeps a login
+  start (the image, the open's writes, the assumption marks); a later session of the key that passes the gate thaws it
+  in place of its login. The gate refuses a run that notes the code it runs, a stability perturbation or a set clock
+  start, single instances moved in, the real clock (`ALRUNNER_REAL_CLOCK`) and a real files directory (`--files-dir`),
+  and a session that is not a thaw target or whose store has another shape; each refusal is counted by reason. A start
+  is kept only from a session that was a thaw target before its login. At most 8 starts and 64 MB per engine.
+- **The key** (`al-testrun` `login_replay.rs` `Key`) holds the inputs of decision 4 as the code shows them: the
+  committed rows and the backing, the session state lines (with every field the thaw writes or keeps from its target,
+  `Session::field_lines`), company, user, run seed, test codeunit, the entry's resource texts, the client, the session
+  flags, the license, the skipped installs, the isolation and the hub, and the process settings a serve request sets.
+- **The check** (`ALRUNNER_LOGIN_REPLAY_CHECK=1`) is the state check of the Conformance section: no session takes a
+  start; each new key's session is frozen, thawn into a twin and compared (the round trip), and each later session of a
+  key is compared with a thaw of the key's start (replay vs run). Its report names where two states differ, never a
+  value.
+
+Where it differs from decision 1: the pool of starts and the replay decision live in al-testrun (`login_start.rs`),
+next to the runner's other per-engine state, and the image and its field table in al-vm. `LoginMemo` (al-testrun
+`install.rs`) stays: it records the WorkDate step, which a session that replays its login does not run; it is not
+moved onto the image.
+
+The replay is opt-in: it runs only under `ALRUNNER_LOGIN_REPLAY=1`, read by the front ends (decision 8). With it off,
+every session runs its own login as before.
+
+What waits until the replay is on by default:
+
+- the outcome check of the Conformance section over every suite on BC 27, 28 and 29 and the partner suites, with the
+  replay on and off;
+- the budget measurement of Phase 1 and the lowering of the temporary limit;
+- the counters of recorded runs, replays and runs not recorded in `work.json`, under the work ratchet (today they are in
+  the check's report and in serve's `timings.loginReplays` and `timings.loginStarts`).

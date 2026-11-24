@@ -366,6 +366,9 @@ impl Session {
         out.lines.push(format!("autoincrement {}", content(&autoinc)));
         out.lines.push(format!("last error {}", content(&self.last_error)));
         self.fact_lines(&mut out.lines, &mut out.opaque);
+        // Every field the login image writes or keeps from its target (`login_image/fields.rs`), last: the lines above
+        // name what AL code reads, so a difference is named by them first.
+        out.lines.extend(self.field_lines());
         out
     }
 }

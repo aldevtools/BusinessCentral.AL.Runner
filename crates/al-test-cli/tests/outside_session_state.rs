@@ -1,7 +1,8 @@
 //! Session state outside `Session`'s fields (al-runner issue 8211): every `static` of al-vm, al-builtins and al-data (a
 //! thread-local or a process table) is listed, with what it is to a session, in the module comment of
 //! `crates/al-vm/src/session_fields.rs` ("Thread-local and process tables"). A new one fails here until it is listed: the
-//! field table names every `Session` field, and this list names every owner outside them.
+//! field table names every `Session` field, and this list names every owner outside them. The `static`s of
+//! al-testrun are listed the same way in `crates/al-testrun/src/login_start/outside.rs`.
 //!
 //! A listed name is written `static NAME` in backticks after its file. The scan fails both ways: for a `static` the list
 //! does not name, and for a listed one that is no longer there. Exempt: test code (a `#[cfg(test)]` item; a file whose
@@ -14,6 +15,8 @@ use std::collections::BTreeSet;
 
 const CRATES: &[&str] = &["al-vm", "al-builtins", "al-data"];
 const LIST: &str = "crates/al-vm/src/session_fields.rs";
+const TESTRUN_CRATES: &[&str] = &["al-testrun"];
+const TESTRUN_LIST: &str = "crates/al-testrun/src/login_start/outside.rs";
 
 /// Blanks every `#[cfg(test)]` item (as `os_access_ratchet.rs` does).
 fn blank_test_items(code: &mut [char]) {
@@ -142,10 +145,11 @@ fn listed(list: &str) -> BTreeSet<(String, String)> {
     out
 }
 
-#[test]
-fn every_owner_of_session_state_outside_session_is_listed() {
+/// Fails for a `static` of `crates` (generated files and test code left out) that the list in `list_file` does not name,
+/// and for a listed one that is no longer there. The list is the text after "Thread-local and process tables:".
+fn assert_every_static_is_listed(crates: &[&str], list_file: &str, what: &str) {
     let root = rust_scan::root();
-    let list = std::fs::read_to_string(root.join(LIST)).expect("the field table");
+    let list = std::fs::read_to_string(root.join(list_file)).expect("the list of statics");
     let list = list
         .split("Thread-local and process tables:")
         .nth(1)
@@ -153,7 +157,7 @@ fn every_owner_of_session_state_outside_session_is_listed() {
         .expect("the list of thread-local and process tables");
     let named = listed(list);
     let mut found = BTreeSet::new();
-    for krate in CRATES {
+    for krate in crates {
         let dir = root.join("crates").join(krate);
         let files = rust_scan::rust_files(&dir.join("src"), &root);
         let test_mods = test_modules(&files);
@@ -171,7 +175,7 @@ fn every_owner_of_session_state_outside_session_is_listed() {
         .collect();
     assert!(
         missing.is_empty(),
-        "session state outside `Session` that {LIST} does not list (say what it is to a session):\n{}",
+        "{what} that {list_file} does not list (say what it is to a session):\n{}",
         missing.join("\n")
     );
     let stale: Vec<String> = (named.difference(&found))
@@ -179,8 +183,24 @@ fn every_owner_of_session_state_outside_session_is_listed() {
         .collect();
     assert!(
         stale.is_empty(),
-        "{LIST} lists a static that is no longer there (delete it from the list):\n{}",
+        "{list_file} lists a static that is no longer there (delete it from the list):\n{}",
         stale.join("\n")
+    );
+}
+
+#[test]
+fn every_owner_of_session_state_outside_session_is_listed() {
+    assert_every_static_is_listed(CRATES, LIST, "session state outside `Session`");
+}
+
+// Al-testrun keeps session state outside `Session` too (the events hooks, the lane's
+// single instances, the carry, the login memo); each is listed with what a login start does with it.
+#[test]
+fn every_owner_of_session_state_in_al_testrun_is_listed() {
+    assert_every_static_is_listed(
+        TESTRUN_CRATES,
+        TESTRUN_LIST,
+        "session state outside `Session` kept by al-testrun",
     );
 }
 

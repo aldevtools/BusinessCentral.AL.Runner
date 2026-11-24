@@ -525,7 +525,9 @@ codeunit 50110 Holder
         session.temp_blob_impl_fields.note_all(&[(rec.clone(), 1)]);
         let original = std::rc::Rc::as_ptr(&rec);
         drop(rec);
-        let image = session.login_image(0).unwrap_or_else(|why| panic!("{}", why.reason()));
+        let image = session
+            .login_image(&crate::LoginBase::before_everything())
+            .unwrap_or_else(|why| panic!("{}", why.reason()));
         let mut twin = Session::new(session.engine.clone());
         twin.thaw_login_image(&image).expect("a new session takes the image");
         let noted = twin.temp_blob_impl_fields.live();
@@ -654,7 +656,7 @@ query 50113 KQ { elements { dataitem(K; KRow) { column(Id; Id) { } } } }
             s.call(at, ri, inst, vec![]).unwrap_or_else(|e| panic!("{fill}: {e:?}"));
             s.commit_transaction();
             let exact = s.state_lines().opaque.is_empty();
-            let image = s.login_image(0);
+            let image = s.login_image(&crate::LoginBase::before_everything());
             match (&image, exact) {
                 (Ok(_), true) => {}
                 (Err(why), true) => {
@@ -690,7 +692,7 @@ query 50113 KQ { elements { dataitem(K; KRow) { column(Id; Id) { } } } }
         drop(inst);
         s.commit_transaction();
         assert!(!s.state_lines().opaque.is_empty());
-        assert!(s.login_image(0).is_err());
+        assert!(s.login_image(&crate::LoginBase::before_everything()).is_err());
         // DotNet objects the check renders exactly: the measured ones (`MEASURED_DOTNET`) are imaged, the others are deferred
         // by type.
         let slot = |name: &str| {
@@ -725,12 +727,17 @@ query 50113 KQ { elements { dataitem(K; KRow) { column(Id; Id) { } } } }
             s.codeunit_instance(at).borrow_mut().globals[slot("V")] = Value::DotNet(std::rc::Rc::new(object));
             s.commit_transaction();
             let exact = s.state_lines().opaque.is_empty();
-            match (s.login_image(0), exact) {
+            match (s.login_image(&crate::LoginBase::before_everything()), exact) {
                 (Ok(_), true) | (Err(_), false) => {}
                 (Err(why), true) if DEFERRED.contains(&why.reason().as_str()) => {}
                 (other, _) => wrong.push(format!("DotNet {k}: exact {exact}, image {:?}", other.err())),
             }
-            seen.push(("DotNet", s.login_image(0).err().map(|w| w.reason())));
+            seen.push((
+                "DotNet",
+                s.login_image(&crate::LoginBase::before_everything())
+                    .err()
+                    .map(|w| w.reason()),
+            ));
         }
         assert!(wrong.is_empty(), "{wrong:#?}");
         assert!(seen.iter().filter(|(_, why)| why.is_none()).count() >= 10, "{seen:?}");
@@ -760,7 +767,9 @@ query 50113 KQ { elements { dataitem(K; KRow) { column(Id; Id) { } } } }
             let address = std::rc::Rc::as_ptr(&original);
             s.codeunit_instance(at).borrow_mut().globals[slot] = Value::DotNet(original);
             s.commit_transaction();
-            let image = s.login_image(0).unwrap_or_else(|why| panic!("{}", why.reason()));
+            let image = s
+                .login_image(&crate::LoginBase::before_everything())
+                .unwrap_or_else(|why| panic!("{}", why.reason()));
             let mut twin = Session::new(engine.clone());
             twin.thaw_login_image(&image).expect("a new session takes the image");
             let Value::DotNet(d) = twin.codeunit_instance(at).borrow().globals[slot].clone() else {
@@ -829,7 +838,9 @@ codeunit 50200 PKeep
             outcome(&mut s, keep, r);
         }
         s.commit_transaction();
-        let image = s.login_image(0).unwrap_or_else(|why| panic!("{}", why.reason()));
+        let image = s
+            .login_image(&crate::LoginBase::before_everything())
+            .unwrap_or_else(|why| panic!("{}", why.reason()));
         let mut twin = Session::new(engine);
         twin.thaw_login_image(&image).expect("a new session takes the image");
         (s, twin, keep)
@@ -907,7 +918,13 @@ codeunit 50200 PKeep
             s.codeunit_instance(at).borrow_mut().globals[slot] =
                 Value::DotNet(std::rc::Rc::new(DotNetObject::new(kind)));
             s.commit_transaction();
-            assert_eq!(s.login_image(0).err().map(|w| w.reason()).as_deref(), Some(why));
+            assert_eq!(
+                s.login_image(&crate::LoginBase::before_everything())
+                    .err()
+                    .map(|w| w.reason())
+                    .as_deref(),
+                Some(why)
+            );
         }
     }
 
@@ -940,7 +957,7 @@ codeunit 50210 RKeep
             s.commit_transaction();
             assert!(s.state_lines().opaque.is_empty(), "the check renders it exactly");
             let image = s
-                .login_image(0)
+                .login_image(&crate::LoginBase::before_everything())
                 .unwrap_or_else(|why| panic!("{routine}: {}", why.reason()));
             let mut twin = Session::new(engine.clone());
             twin.thaw_login_image(&image).expect("a new session takes the image");

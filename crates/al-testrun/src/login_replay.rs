@@ -40,15 +40,14 @@ pub(crate) use difference::differences;
 use difference::{KINDS, StoredRow, stored_rows};
 use std::sync::{Mutex, PoisonError};
 
-/// The inputs of the login and its subscribers this check keys on, when the test session opens the company: the fields
-/// below. Two sessions with the same key may share one run of the login only when they also hold the same after it
-/// ([`Check`]); a field left out of the key would let a replay hand a session the store of another input. The engine
-/// (the compiled program, its apps and their code) is not a field: the check lives on the engine (`Engine::derived`).
-/// Not yet fields, though the login can read them or run otherwise under them: the clock start
-/// (`Scratch::clock_start`), the stability perturbation (`Scratch::perturb`), the host's company list (the test data's
-/// `known_companies`) and the modes that follow the code a session runs (coverage, the impact trace, the observer);
-/// runtime `install_once.rs` `Key` holds the first two. Here a missing field can only show as a difference (the check
-/// replays nothing); the replay adds them before it serves a session (al-runner issue 8211).
+/// The inputs the login and its subscribers read when the test session opens the company, as far as the code shows them:
+/// a session state the key does not hold is held in place by the thaw's rule (al-vm `session_fields.rs`, `login_image/fields.rs`), and a
+/// static a request sets is a field here (`login_start/outside.rs`). Two sessions with the same
+/// key may share one run of the login only when they also hold the same after it ([`Check`]); a field left out of the
+/// key would let a replay hand a session the store of another input. The engine (the compiled program, its apps and
+/// their code) is not a field: the check lives on the engine (`Engine::derived`). Nor is `Engine::emit_version` (the
+/// build the missing-object error names): one daemon serves one BC build, so the engine fixes it. A daemon that took
+/// another build per request would need it as a field.
 ///
 /// The maintainer's two conditions for the replay (al-runner issue 8211): every field holds its input by content or by a
 /// SHA-256 digest ([`LinesDigest`]), never a 64-bit hash; and the test codeunit stays a field until a repeat across test
@@ -96,15 +95,53 @@ pub(crate) struct Key {
     /// The parts of `database` and `session`, each with a digest of its own (`key_parts.rs`): which tables and which state
     /// lines a new key differs in, for the keys line. Never compared (`NotCompared`), so they change no key equality.
     parts: key_parts::NotCompared<key_parts::KeyParts>,
+    /// The install code that could not run (`runtime::install_once`): the open runs under the watch of its tables, whose
+    /// hit marks an assumption or refuses the codeunit (`runtime/blocked.rs` `watching_skipped_installs`). By content.
+    skipped: Vec<al_vm::SkippedInstall>,
+    /// The test isolation the codeunit runs under and whether BC's TestRunnerHub runs it (`Scratch::hub`): a request
+    /// sets both (`testIsolation`), and they set the session's isolation fields before the login.
+    isolation: (crate::isolation::TestIsolation, bool),
+    /// The settings of the process a serve request sets and the system host answers from ([`RunSettings`]).
+    run: RunSettings,
+}
+
+/// The process settings a serve request sets and the login can read through the system host (`host.rs`): the server
+/// base address (`GetUrl`), the companies of the database, the company name and whether the publish order is known. By
+/// content: two requests of one daemon with other settings never share a key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RunSettings {
+    server_url: (String, bool),
+    companies: al_host::Companies,
+    company_name: Option<String>,
+    publish_order_known: bool,
+}
+
+impl RunSettings {
+    /// The settings now.
+    fn now() -> RunSettings {
+        RunSettings {
+            server_url: crate::host::server_url(),
+            companies: crate::host::companies(),
+            company_name: crate::host::company_name(),
+            publish_order_known: crate::host::publish_order_known(),
+        }
+    }
 }
 
 impl Key {
-    /// The key of `session` before it opens the company; `disabled`: RequiredTestIsolation = Disabled; `flags`: the run options
-    /// the session took.
-    pub(crate) fn of(session: &mut Session, disabled: bool, flags: crate::runtime::session_flags::SessionFlags) -> Key {
+    /// The key of `session` before it opens the company; `isolation`: the codeunit's test isolation and whether the hub
+    /// runs it; `flags`: the run options the session took; `skipped`: the install code that could not run, whose tables
+    /// the open is watched on.
+    pub(crate) fn of(
+        session: &mut Session,
+        isolation: (crate::isolation::TestIsolation, bool),
+        flags: crate::runtime::session_flags::SessionFlags,
+        skipped: &[al_vm::SkippedInstall],
+    ) -> Key {
+        let engine = session.engine.clone();
         let store = session.store_mut();
-        let tables = store.export_committed().unwrap_or_default();
-        let database = digest(&rows(&tables));
+        let tables = key_parts::store_table_digests(&engine, store);
+        let database = key_parts::database_digest(&tables);
         let uncommitted = store.has_uncommitted().then(|| digest(&current_rows(store)));
         let backing = BackingKey::of(store.backing_identity());
         let resources = {
@@ -137,11 +174,14 @@ impl Key {
             client: (
                 session.has_interactive_client(),
                 session.is_clientless_session(),
-                disabled,
+                isolation.0 == crate::isolation::TestIsolation::Disabled,
             ),
             flags,
             license: session.engine.license.clone(),
-            parts: key_parts::NotCompared(key_parts::KeyParts::of(&tables, &state)),
+            parts: key_parts::NotCompared(key_parts::KeyParts::of(tables, &state)),
+            skipped: skipped.to_vec(),
+            isolation,
+            run: RunSettings::now(),
         }
     }
 }
@@ -185,6 +225,9 @@ impl Key {
             license,
             // A detail of `database` and `session` (see `differing_parts`), not a field of its own.
             parts: _,
+            skipped,
+            isolation,
+            run,
         } = self;
         [
             (*database != other.database, "database"),
@@ -199,6 +242,9 @@ impl Key {
             (*client != other.client, "client"),
             (*flags != other.flags, "flags"),
             (*license != other.license, "license"),
+            (*skipped != other.skipped, "skipped"),
+            (*isolation != other.isolation, "isolation"),
+            (*run != other.run, "run"),
         ]
         .into_iter()
         .filter_map(|(differs, name)| differs.then_some(name))
@@ -250,14 +296,14 @@ impl LoginState {
         &self.state
     }
 
-    /// What the thawn `twin` holds now, with the marks and the open writes of `first`, the state of the session it was
-    /// thawn from: those are not session state (al-testrun keeps them next to an image).
-    fn of_twin(twin: &mut Session, first: &LoginState) -> LoginState {
+    /// What the thawn `twin` holds now, with the marks `hits` and the open writes `open` that came with its image: those
+    /// are not session state (al-testrun keeps them next to an image).
+    fn of_twin(twin: &mut Session, (hits, open): (al_builtins::assumptions::HitBits, String)) -> LoginState {
         LoginState {
             rows: stored_rows(&twin.store_mut().export_committed().unwrap_or_default()),
             state: twin.state_lines(),
-            hits: first.hits,
-            open: first.open.clone(),
+            hits,
+            open,
         }
     }
 
@@ -294,6 +340,47 @@ struct CheckState {
     exact: Tally,
     across_codeunits: Tally,
     image: ImageTally,
+    /// Each later session of a key with a start against a thaw of the start (`Check::replay_vs_run`).
+    replay_vs_run: Differences,
+}
+
+/// Comparisons of thawn twins with real sessions: how many, how many differ, by kind of [`KINDS`], and the first.
+#[derive(Default)]
+struct Differences {
+    checked: u64,
+    differ: u64,
+    differ_by: [u64; KINDS.len()],
+    first: Option<String>,
+}
+
+impl Differences {
+    fn note(&mut self, differs: &[(usize, String)]) {
+        self.checked += 1;
+        if let Some((_, what)) = differs.first() {
+            self.differ += 1;
+            self.first.get_or_insert(what.clone());
+        }
+        for (k, _) in differs {
+            self.differ_by[*k] += 1;
+        }
+    }
+
+    /// `C checked, D differ`, with the kinds and the first difference when one differs.
+    fn line(&self) -> String {
+        let first = self.first.as_ref().map(|first| {
+            let by: Vec<String> = (KINDS.iter().zip(&self.differ_by))
+                .filter(|(_, n)| **n > 0)
+                .map(|(kind, n)| format!("{kind} {n}"))
+                .collect();
+            format!(" ({}; first: {first})", by.join(", "))
+        });
+        format!(
+            "{} checked, {} differ{}",
+            self.checked,
+            self.differ,
+            first.unwrap_or_default()
+        )
+    }
 }
 
 /// The round trips of the session image (al-vm `login_image`): per new key, whether its session was imaged, why not, its
@@ -306,10 +393,8 @@ struct ImageTally {
     /// Per reason (`NotThawed::reason`), the images the twin did not take: no round trip is compared for them.
     not_thawed: std::collections::BTreeMap<String, u64>,
     sizes: Vec<al_vm::ImageSize>,
-    differ: u64,
-    /// Per kind of [`KINDS`], the round trips that differ in it.
-    differ_by: [u64; KINDS.len()],
-    first_difference: Option<String>,
+    /// The round trips.
+    differences: Differences,
 }
 
 impl ImageTally {
@@ -325,21 +410,12 @@ impl ImageTally {
             let by: Vec<String> = (self.not_thawed.iter()).map(|(why, n)| format!("{n}: {why}")).collect();
             format!(", {n} not thawed ({})", by.join(", "))
         });
-        let differ = self.first_difference.as_ref().map(|first| {
-            let by: Vec<String> = (KINDS.iter().zip(&self.differ_by))
-                .filter(|(_, n)| **n > 0)
-                .map(|(kind, n)| format!("{kind} {n}"))
-                .collect();
-            format!(" ({}; first: {first})", by.join(", "))
-        });
+        let trips = self.differences.line().replacen(" checked", "", 1);
         format!(
-            "login image: {} keys, {} imaged, {not} not imaged{}; round trips {}, {} differ{}{}; per key: {}",
+            "login image: {} keys, {} imaged, {not} not imaged{}; round trips {trips}{}; per key: {}",
             self.keys,
             self.sizes.len(),
             reasons.unwrap_or_default(),
-            self.sizes.len() as u64 - self.not_thawed.values().sum::<u64>(),
-            self.differ,
-            differ.unwrap_or_default(),
             refused.unwrap_or_default(),
             self.per_key()
         )
@@ -356,16 +432,19 @@ impl ImageTally {
             v[v.len() / 2]
         };
         let mb = |b: u64| format!("{:.1} MB", b as f64 / 1_048_576.0);
-        let largest = (self.sizes.iter())
-            .map(|s| s.rows_bytes + s.state_bytes)
-            .max()
-            .unwrap_or(0);
+        let largest = self.sizes.iter().map(|s| s.kept_bytes).max().unwrap_or(0);
+        // Per kind of node with any in an image: the median count, names only.
+        let kinds: Vec<String> = (al_vm::NODE_KINDS.iter().enumerate())
+            .filter(|(k, _)| self.sizes.iter().any(|s| s.kinds[*k].count > 0))
+            .map(|(k, name)| format!("{name} {}", median(&|s| s.kinds[k].count as u64)))
+            .collect();
         format!(
-            "rows {} (the login's own tables {}), state {}, {} nodes, {} instances, {} temporary tables, {} temporary rows; \
+            "rows {} (delta), state {}, kept {} ({}), {} nodes, {} instances, {} temporary tables, {} temporary rows; \
              largest key {}",
             mb(median(&|s| s.rows_bytes)),
-            mb(median(&|s| s.rows_own_bytes)),
             mb(median(&|s| s.state_bytes)),
+            mb(median(&|s| s.kept_bytes)),
+            kinds.join(", "),
             median(&|s| s.nodes as u64),
             median(&|s| s.instances as u64),
             median(&|s| s.temp_tables as u64),
@@ -485,75 +564,64 @@ impl Check {
         new
     }
 
-    /// A new key's session after the raised login: frozen ([`Session::login_image`]), thawn into `twin` on a thread of
-    /// its own (so nothing of the thaw reaches this thread's state: its store operation count, its assumption marks, its
-    /// instance registry), and the twin's state compared with `state` ([`differences`]). `before_login`: the store's
-    /// change counter before the login. Outcomes do not change: the twin is dropped and `session` is only read. A twin
-    /// that does not take the image (`NotThawed`) is counted, and no round trip is compared for it.
+    /// A new key's session after the raised login: frozen ([`Session::login_image`]), thawn into a twin that starts from
+    /// the store `base` (the session before its login), and the twin's state compared with `state` ([`differences`]).
+    /// Returns the image, for the key's start (`login_start.rs`). Outcomes do not change: the twin is dropped and
+    /// `session` is only read. A twin that does not take the image (`NotThawed`) is counted, and no round trip is
+    /// compared for it.
     pub(crate) fn round_trip(
         &self,
         session: &Session,
-        before_login: u64,
+        base: &al_vm::LoginBase,
         state: &LoginState,
         twin: impl FnOnce() -> Session + Send,
-    ) {
-        #[cfg(test)]
-        let (target, plant) = (
-            TWIN_TARGET.with(std::cell::Cell::get),
-            TWIN_PLANT.with(std::cell::Cell::get),
-        );
-        let image = session.login_image(before_login);
-        let thawn = image.as_ref().ok().map(|image| {
-            std::thread::scope(|scope| {
-                // A test thread's stack: the drop of a deep graph recurses on it.
-                std::thread::Builder::new()
-                    .stack_size(crate::runtime::TEST_STACK)
-                    .spawn_scoped(scope, || -> Result<LoginState, al_vm::NotThawed> {
-                        // Declared first, so it drops last: the twin's instances that hold each other are freed.
-                        let _run_end = al_builtins::instance_cycles::RunEnd::new();
-                        let mut twin = twin();
-                        #[cfg(test)]
-                        if let Some(target) = target {
-                            target(&mut twin);
-                        }
-                        twin.thaw_login_image(image)?;
-                        #[cfg(test)]
-                        if let Some(plant) = plant {
-                            plant(&mut twin);
-                        }
-                        Ok(LoginState::of_twin(&mut twin, state))
-                    })
-                    .ok()
-                    .and_then(|thread| thread.join().ok())
-            })
-        });
+    ) -> Result<al_vm::LoginImage, al_vm::NotImaged> {
+        let image = session.login_image(base);
+        let thawn = image
+            .as_ref()
+            .ok()
+            .map(|image| thaw_twin(image, base, (state.hits, state.open.clone()), twin));
         let mut s = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         let t = &mut s.image;
         t.keys += 1;
-        let (image, thawn) = match (image, thawn) {
-            (Err(why), _) => {
-                *t.not_imaged.entry(why.reason()).or_default() += 1;
-                return;
+        match (&image, thawn) {
+            (Err(why), _) => *t.not_imaged.entry(why.reason()).or_default() += 1,
+            (Ok(image), Some(thawn)) => {
+                t.sizes.push(image.size());
+                match thawn {
+                    Ok(twin) => t.differences.note(&differences(state, &twin)),
+                    Err(Uncompared::NotThawed(why)) => *t.not_thawed.entry(why.reason()).or_default() += 1,
+                    Err(why) => t.differences.note(&[(0, format!("not comparable: {why}"))]),
+                }
             }
-            (Ok(image), Some(thawn)) => (image, thawn),
             (Ok(_), None) => unreachable!("an image is thawn"),
-        };
-        t.sizes.push(image.size());
-        let differs = match thawn {
-            Some(Ok(twin)) => differences(state, &twin),
-            Some(Err(why)) => {
-                *t.not_thawed.entry(why.reason()).or_default() += 1;
-                return;
-            }
-            None => vec![(0, "not comparable: the thaw did not end".to_string())],
-        };
-        if let Some((_, what)) = differs.first() {
-            t.differ += 1;
-            t.first_difference.get_or_insert(what.clone());
         }
-        for (k, _) in &differs {
-            t.differ_by[*k] += 1;
-        }
+        image
+    }
+
+    /// A later session of a key after its real login (`state`; `base`: the session before it) against a thaw of the key's
+    /// start into a twin that starts from the same store: what a replay would have given it ([`differences`]).
+    pub(crate) fn replay_vs_run(
+        &self,
+        start: &crate::login_start::Start,
+        base: &al_vm::LoginBase,
+        state: &LoginState,
+        twin: impl FnOnce() -> Session + Send,
+    ) {
+        let thawn = thaw_twin(&start.image, base, (start.hits, format!("{:?}", start.wrote)), twin);
+        let mut s = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        s.replay_vs_run.note(&match thawn {
+            Ok(twin) => differences(state, &twin),
+            Err(why) => vec![(0, format!("not comparable: {why}"))],
+        });
+    }
+    /// `C checked, D differ` of the later sessions compared with a thaw of their key's start.
+    fn replay_vs_run_line(&self) -> String {
+        self.inner
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .replay_vs_run
+            .line()
     }
 
     /// The image line: `None` before a round trip was tried.
@@ -627,16 +695,127 @@ thread_local! {
 /// from the session's image on this thread, so the codeunit's tests run on the twin: the evidence, at the level of test
 /// results, that a thawn session serves the tests as the session that ran its login does (issue 8211).
 #[cfg(test)]
-pub(crate) fn serve_twin(session: &mut Session, before_login: u64, twin: impl FnOnce() -> Session) {
+pub(crate) fn serve_twin(session: &mut Session, base: &al_vm::LoginBase, twin: impl FnOnce() -> Session) {
     let (on, served) = SERVE_TWIN.with(std::cell::Cell::get);
     if !on {
         return;
     }
-    let image = (session.login_image(before_login)).unwrap_or_else(|why| panic!("no image: {}", why.reason()));
+    let image = (session.login_image(base)).unwrap_or_else(|why| panic!("no image: {}", why.reason()));
     let mut twin = twin();
+    twin.start_from(&base.portable().expect("the store before the login has a rows form"));
     twin.thaw_login_image(&image).expect("a new session takes the image");
     *session = twin;
     SERVE_TWIN.with(|s| s.set((true, served + 1)));
+}
+
+/// Why a thawn twin was not compared ([`thaw_twin`]).
+enum Uncompared {
+    /// The store before the login has no rows form.
+    NoBase,
+    /// The twin did not take the image (`Session::thaw_login_image`).
+    NotThawed(al_vm::NotThawed),
+    /// The thaw's thread did not end.
+    NoEnd,
+}
+
+impl std::fmt::Display for Uncompared {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Uncompared::NoBase => {
+                f.write_str("the store before the login has no rows form (a value with no bytes, or company copies)")
+            }
+            Uncompared::NotThawed(why) => write!(f, "not thawed: {}", why.reason()),
+            Uncompared::NoEnd => f.write_str("the thaw did not end"),
+        }
+    }
+}
+
+/// `image` thawn into `twin` (a new session with the run's flags) that starts from the store of `base`, on a thread of its
+/// own (so nothing of the thaw reaches this thread's state: its store operation count, its assumption marks, its instance
+/// registry); its state, with the marks and open writes `with` of the image. `Err`: why it could not be compared.
+fn thaw_twin(
+    image: &al_vm::LoginImage,
+    base: &al_vm::LoginBase,
+    with: (al_builtins::assumptions::HitBits, String),
+    twin: impl FnOnce() -> Session + Send,
+) -> Result<LoginState, Uncompared> {
+    #[cfg(test)]
+    let (target, plant) = (
+        TWIN_TARGET.with(std::cell::Cell::get),
+        TWIN_PLANT.with(std::cell::Cell::get),
+    );
+    let base = base.portable().ok_or(Uncompared::NoBase)?;
+    std::thread::scope(|scope| {
+        // A test thread's stack: the drop of a deep graph recurses on it.
+        std::thread::Builder::new()
+            .stack_size(crate::runtime::TEST_STACK)
+            .spawn_scoped(scope, || -> Result<LoginState, Uncompared> {
+                // Declared first, so it drops last: the twin's instances that hold each other are freed.
+                let _run_end = al_builtins::instance_cycles::RunEnd::new();
+                let mut twin = twin();
+                twin.start_from(&base);
+                #[cfg(test)]
+                if let Some(target) = target {
+                    target(&mut twin);
+                }
+                twin.thaw_login_image(image).map_err(Uncompared::NotThawed)?;
+                #[cfg(test)]
+                if let Some(plant) = plant {
+                    plant(&mut twin);
+                }
+                Ok(LoginState::of_twin(&mut twin, with))
+            })
+            .ok()
+            .and_then(|thread| thread.join().ok())
+            .unwrap_or(Err(Uncompared::NoEnd))
+    })
+}
+
+/// Under the check, after the real raised login of a session of `key` (`base`: the session before it; `gate`: why its
+/// run takes no starts): the session is compared with the first of its key; a new key's session is frozen, thawn into a
+/// twin and compared (the round trip) and its image kept as the key's start, as the replay would keep it; a later session
+/// is compared with a thaw of the key's start (`Check::replay_vs_run`) where the replay would have taken it. No session
+/// takes a start. `twin`: a new session with the run's host and flags.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn checked(
+    engine: &Engine,
+    session: &mut Session,
+    key: Key,
+    base: &al_vm::LoginBase,
+    wrote: &crate::install::CompanyOpenWrites,
+    hits: al_builtins::assumptions::HitBits,
+    gate: Option<crate::login_start::NotTaken>,
+    twin: impl FnOnce() -> Session + Send,
+) {
+    let state = LoginState::of(session, wrote, hits);
+    let check = check(engine);
+    let starts = crate::login_start::starts(engine);
+    if check.note(key.clone(), state.clone()) {
+        let image = check.round_trip(session, base, &state, twin);
+        match gate {
+            Some(why) => starts.not_taken(why),
+            None => crate::login_start::keep(
+                engine,
+                key,
+                base,
+                image.map(|image| crate::login_start::Start {
+                    image,
+                    wrote: wrote.clone(),
+                    hits,
+                }),
+            ),
+        }
+        return;
+    }
+    if let Some(why) = gate {
+        starts.not_taken(why);
+        return;
+    }
+    let Some(start) = starts.take(&key) else { return };
+    match crate::login_start::target_gate(base.target_why(), base.shape(), &start) {
+        Some(why) => starts.not_taken(why),
+        None => check.replay_vs_run(&start, base, &state, twin),
+    }
 }
 
 /// The check of `engine`.
@@ -649,8 +828,12 @@ pub(crate) fn check(engine: &Engine) -> std::sync::Arc<Check> {
 pub(crate) fn report(engine: &Engine) -> Option<String> {
     let check = check(engine);
     let line = check.line()?;
-    // The keys line comes last, so the check line and the image line keep their places.
-    let keys = check.keys_line().map_or(String::new(), |k| format!("\n{k}"));
+    // The keys line comes after them, so the check line and the image line keep their places; then the starts.
+    let mut keys = check.keys_line().map_or(String::new(), |k| format!("\n{k}"));
+    if let Some(starts) = crate::login_start::starts(engine).line() {
+        let replay_vs_run = check.replay_vs_run_line();
+        keys.push_str(&format!("\n{starts}; replay vs run: {replay_vs_run}"));
+    }
     Some(match check.image_line() {
         Some(image) => format!("{line}\n{image}{keys}"),
         None => format!("{line}{keys}"),
@@ -765,6 +948,14 @@ mod tests {
             flags: Default::default(),
             license: None,
             parts: Default::default(),
+            skipped: Vec::new(),
+            isolation: Default::default(),
+            run: RunSettings {
+                server_url: ("http://localhost:8080/BC".into(), true),
+                companies: Default::default(),
+                company_name: None,
+                publish_order_known: false,
+            },
         }
     }
 
@@ -790,6 +981,9 @@ mod tests {
             flags,
             license,
             parts,
+            skipped,
+            isolation,
+            run,
         } = &k;
         let digests: [&LinesDigest; 3] = [database, session, resources];
         let _: &Option<LinesDigest> = uncommitted;
@@ -800,6 +994,18 @@ mod tests {
         let _: &Option<std::sync::Arc<al_host::license::License>> = license;
         // SHA-256 digests per table and per state line name (key_parts.rs scanned below too).
         let _: &key_parts::NotCompared<key_parts::KeyParts> = parts;
+        // The skipped installs by content: their tables, the tables left out on an assumption, and why.
+        let _: &Vec<al_vm::SkippedInstall> = skipped;
+        let _: &(crate::isolation::TestIsolation, bool) = isolation;
+        // The process settings a request sets, each by content.
+        let RunSettings {
+            server_url,
+            companies,
+            company_name,
+            publish_order_known,
+        } = run;
+        let _: (&(String, bool), &al_host::Companies, &Option<String>, &bool) =
+            (server_url, companies, company_name, publish_order_known);
         for d in digests {
             assert_eq!(std::mem::size_of_val(&d.0), 32);
         }
@@ -813,6 +1019,22 @@ mod tests {
     // Condition 2 of the maintainer's acceptance on al-runner issue 8211: the test codeunit stays in the key. Two sessions
     // that differ only in their test codeunit have other keys, so neither is compared with (nor, later, replayed from) the
     // other's first state; only the evidence tally across test codeunits sees them together.
+    // The server base address a request sets, and the codeunit's isolation and hub, are inputs of
+    // the login (`GetUrl`, the isolation fields `enter_test_codeunit` sets): another value is another key.
+    #[test]
+    fn another_server_url_or_isolation_is_another_key() {
+        let mut url = key(1);
+        url.run.server_url = ("https://other.example/BC280/".into(), false);
+        assert_ne!(key(1), url);
+        assert_eq!(url.differs_in(&key(1)), vec!["run"]);
+        let mut hub = key(1);
+        hub.isolation.1 = true;
+        assert_eq!(hub.differs_in(&key(1)), vec!["isolation"]);
+        let mut function = key(1);
+        function.isolation.0 = crate::isolation::TestIsolation::Function;
+        assert_ne!(key(1), function);
+    }
+
     #[test]
     fn two_test_codeunits_never_share_a_key() {
         assert_ne!(key(1), key(2));
@@ -863,6 +1085,15 @@ mod tests {
         );
         let session = state_of(&[(1990, vec![Value::Integer(7)])], &["session y"]);
         assert_eq!(first_difference(&a, &session).as_deref(), Some("session state 1"));
+        // A `field.` line is named by its field (a name, never its value), and when more lines
+        // differ the text says how many.
+        let row = [(1990, vec![Value::Integer(7)])];
+        let fields = state_of(&row, &["session x", "field.a 1", "field.b 2", "field.c 3"]);
+        let other = state_of(&row, &["session x", "field.a 1", "field.b 9", "field.c 8"]);
+        assert_eq!(
+            first_difference(&fields, &other).as_deref(),
+            Some("session state 3 (field.b), 2 lines differ")
+        );
         let mut marked = a.clone();
         marked.hits.0[0] = 1;
         assert_eq!(first_difference(&a, &marked).as_deref(), Some("assumption marks"));
@@ -956,10 +1187,11 @@ mod tests {
             lines: lines.iter().map(|s| s.to_string()).collect(),
             opaque: Vec::new(),
         };
+        let digests = key_parts::table_digests(tables);
         Key {
-            database: digest(&rows(tables)),
+            database: key_parts::database_digest(&digests),
             session: digest(&state.lines),
-            parts: key_parts::NotCompared(key_parts::KeyParts::of(tables, &state)),
+            parts: key_parts::NotCompared(key_parts::KeyParts::of(digests, &state)),
             ..key(1)
         }
     }

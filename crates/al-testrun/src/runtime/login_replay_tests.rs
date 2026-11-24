@@ -577,7 +577,7 @@ fn two_backings_that_do_not_say_who_they_are_are_never_one_key() {
         let mut s = Session::new(engine.clone());
         let store = std::mem::take(s.store_mut());
         *s.store_mut() = store.with_backing(std::rc::Rc::new(Unnamed));
-        crate::login_replay::Key::of(&mut s, false, Default::default())
+        crate::login_replay::Key::of(&mut s, (TestIsolation::Codeunit, false), Default::default(), &[])
     };
     assert_ne!(key(), key());
 }
@@ -685,7 +685,7 @@ fn key_with_uncommitted_row(engine: &Arc<Engine>, id: i32) -> crate::login_repla
     assert!(session.store_mut().insert(&cx, &t, row).is_ok());
     assert!(session.store_mut().has_uncommitted());
     let flags = super::session_flags::SessionFlags::of(&RunOptions::default());
-    crate::login_replay::Key::of(&mut session, false, flags)
+    crate::login_replay::Key::of(&mut session, Default::default(), flags, &[])
 }
 
 // The rows a session holds uncommitted before the login are an input of the login (it reads them): two sessions whose

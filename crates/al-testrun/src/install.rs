@@ -1186,7 +1186,7 @@ fn run_subscribers(lowered: &Lowered, session: &mut Session, subs: &[(usize, usi
 }
 
 /// The tables the Company Triggers subscribers of the test session wrote ([`test_session_company_open`]).
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(crate) struct CompanyOpenWrites {
     /// The first subscriber that wrote, for the reason text.
     pub who: Option<String>,
@@ -1329,13 +1329,7 @@ fn open_test_session_company(
     // subscribers, in codeunit id order with the apps under test's own, for a test codeunit that can see what the login
     // leaves; else the apps under test's own login subscribers run where the login is raised, watched in a session the
     // pin does not cover (`login::decide`).
-    let watched = if session.is_clientless_session() {
-        Some(crate::login::NO_CLIENT)
-    } else if disabled {
-        Some(crate::login::DISABLED)
-    } else {
-        None
-    };
+    let watched = crate::login::watched(session, disabled);
     let mut decision = session.test_object.map_or(crate::login::Login::None, |t| {
         crate::login::decide(&engine, lowered, t, watched, after_refusal)
     });
