@@ -106,6 +106,21 @@ codeunit 50100 Keeper
     end;
     procedure ReadAccent(): Text begin Rec.SetRange(Name, 'é'); T1.SetRange(Name, 'é'); exit(Format(Rec.Count()) + '|' + Format(T1.Count())); end;
 }
+// "CLS SI Arr" of ClearSharedCodeunitTempArrayShare.al (SIArrNever_ :736): a SingleInstance codeunit whose global array of
+// temporary records shares element 1 through Copy(A[1], true), here with another SingleInstance codeunit's global.
+codeunit 50104 ArrOwner
+{
+    SingleInstance = true;
+    var A: array[2] of Record TRow temporary;
+    procedure ShareA1(var R: Record TRow temporary) begin R.Copy(A[1], true); end;
+    procedure ClearAllGlobals(): Text begin ClearAll(); exit('done'); end;
+}
+codeunit 50105 CopyKeeper
+{
+    SingleInstance = true;
+    var Keep: Record TRow temporary;
+    procedure Take() var O: Codeunit ArrOwner; begin O.ShareA1(Keep); end;
+}
 "#;
 
 /// A session on `SRC` and the indexes of its objects.
@@ -900,4 +915,28 @@ fn a_login_that_commits_at_snapshot_gives_the_same_type_origin_in_the_twin() {
     let mut twin = thaw(&f.session, &image);
     assert_eq!(twin.tx.type_origin, f.session.tx.type_origin);
     assert_eq!(f.session.state_lines(), twin.state_lines());
+}
+
+// `Record.Copy(x, true)` notes its target on the table's token (al-builtins `TempId::note_copy_target`), and ClearAll of a
+// SingleInstance codeunit's array whose element 1 one record outside shares that way keeps the table (al-vm
+// `clear_shared_codeunit.rs` `measured_array`, ClearSharedCodeunitTempArrayShare.al SIArrNever_ :736). Without the note
+// the same ClearAll refuses, so the twin must carry it.
+#[test]
+fn a_table_shared_by_copy_keeps_its_copy_target_in_the_twin() {
+    let mut f = fx();
+    let at = |s: &Session, name: &str| {
+        s.engine
+            .program
+            .objects
+            .iter()
+            .position(|o| o.name == name)
+            .expect(name)
+    };
+    let (owner, keeper) = (at(&f.session, "ArrOwner"), at(&f.session, "CopyKeeper"));
+    answer(&mut f.session, keeper, "Take");
+    let image = image(&mut f.session);
+    let mut twin = thaw(&f.session, &image);
+    let ours = outcome(&mut f.session, owner, "ClearAllGlobals");
+    assert!(ours.contains("done"), "{ours}");
+    assert_eq!(outcome(&mut twin, owner, "ClearAllGlobals"), ours);
 }

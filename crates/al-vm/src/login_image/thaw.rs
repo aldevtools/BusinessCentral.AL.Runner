@@ -139,6 +139,7 @@ pub(crate) fn thaw(session: &mut Session, image: &super::LoginImage) {
                 .find(|(_, n)| matches!(n, Node::Record(r) if r.temp() == Some(table)))
                 .map(|(r, _)| NodeId(r as u32));
             m.note_empty_blob_insert(t, &m.temp_id(table), holder);
+            m.note_copy_targets(t, &m.temp_id(table));
         }
     }
     fill(&m);

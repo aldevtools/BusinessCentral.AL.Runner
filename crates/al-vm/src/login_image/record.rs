@@ -173,10 +173,10 @@ impl Walker<'_> {
         if rolled_read.0.is_some() {
             return Err(refuse("Record holding its own read of a rolled Time"));
         }
-        let temp = match temp_id {
-            Some(t) if t.is_by_value_copy() => return Err(refuse("temporary Record of a by-value copy's table")),
-            Some(t) if t.rows_unmeasured() => return Err(refuse("temporary Record whose rows are not measured")),
-            Some(t) => Some(self.handle(Holder::TempTable(t.clone()), 1, format!("{path} temporary table"))),
+        let temp = match temp_id.as_ref().map(|t| (t, t.image_parts())) {
+            Some((_, p)) if p.by_value_copy => return Err(refuse("temporary Record of a by-value copy's table")),
+            Some((_, p)) if p.rows_unmeasured => return Err(refuse("temporary Record whose rows are not measured")),
+            Some((t, _)) => Some(self.handle(Holder::TempTable(t.clone()), 1, format!("{path} temporary table"))),
             None => None,
         };
         let mut plain_filters = Vec::with_capacity(filters.len());
