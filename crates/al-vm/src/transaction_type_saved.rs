@@ -35,10 +35,12 @@ pub(crate) struct SavedType {
 fn save_and_set_back(routine: &Routine) -> Option<(u32, u32)> {
     let body = routine.body.stmts();
     let ctt = |e: &Expr| matches!(e, Expr::Builtin { id, receiver: None, .. } if *id == ids::DATABASE_CURRENTTRANSACTIONTYPE_1);
+    // A read: the call without arguments.
+    let ctt_read = |e: &Expr| matches!(e, Expr::Builtin { args, .. } if ctt(e) && args.is_empty());
     // The read, as the save assigns it: to a TransactionType local the lowering converts it to the same option.
     let read = |e: &Expr| match e {
         Expr::Convert(al_builtins::value::RtType::Option(m), x) => {
-            matches!(&**x, Expr::Builtin { args, .. } if ctt(x) && args.is_empty())
+            ctt_read(x)
                 && m[..] == al_builtins::sysenum::transaction_type_members()[..]
         }
         _ => false,
@@ -72,9 +74,7 @@ fn save_and_set_back(routine: &Routine) -> Option<(u32, u32)> {
     // A second read of the type in the procedure would forget the save's wait (`read_saved_for_set_back`).
     let mut reads = 0;
     al_ir::types::for_each_expr_post(body, &mut |e| {
-        if matches!(e, Expr::Builtin { args, .. } if ctt(e) && args.is_empty()) {
-            reads += 1;
-        }
+        reads += usize::from(ctt_read(e));
     });
     (reads == 1).then_some(())?;
     if local < routine.params || Some(local) == routine.ret_local {
