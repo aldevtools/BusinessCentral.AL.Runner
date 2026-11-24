@@ -330,12 +330,19 @@ impl Session {
     /// positions ClearSharedCodeunitLabelStore.al measures; any other Label or TextConst is a global of its own type, which
     /// no store has. `None` for any other.
     fn store_kind(&self, object: usize) -> Option<Store> {
+        self.store_kind_of(object, true)
+    }
+
+    /// [`Session::store_kind`], with the register and the wrapper (the stores that hold another store) only when `holder`.
+    /// The store they hold is read with `holder` false: it must be one that holds none, so a codeunit that holds itself,
+    /// directly or through others, is no store and is not read again.
+    fn store_kind_of(&self, object: usize, holder: bool) -> Option<Store> {
         let o = &self.engine.program.objects[object];
         if !self.plain_codeunit(object) {
             return None;
         }
         if o.rec_slot.is_some() {
-            return self.register_kinds(object).then_some(Store::Register);
+            return (holder && self.register_kinds(object)).then_some(Store::Register);
         }
         if matches!(o.globals.as_slice(), [t, e, i, l]
             if temp_record(&t.ty) && matches!(e.ty, RtType::Enum(_)) && integer(&i.ty) && l.comment_label)
@@ -351,7 +358,9 @@ impl Session {
             [RtType::Integer] => Store::Integer,
             [r, f, i] if temp_ref_kinds(r, f, i) => Store::TempRef,
             [r, f, i, n] if temp_ref_kinds(r, f, i) && integer(n) => Store::TempRefPlus,
-            [RtType::Codeunit(c), n] if integer(n) && self.store_kind(*c as usize) == Some(Store::TempRef) => {
+            [RtType::Codeunit(c), n]
+                if holder && integer(n) && self.store_kind_of(*c as usize, false) == Some(Store::TempRef) =>
+            {
                 Store::Wrapper
             }
             [r, f, i] if array_with(r, 1, temp_record) && array_with(f, 1, record_ref) && array_with(i, 1, integer) => {
@@ -383,7 +392,7 @@ impl Session {
         !globals.iter().any(|g| g.plain_label)
             && matches!(kinds.as_slice(),
                 [RtType::Record(_, true), RtType::Record(_, false), RtType::Decimal, RtType::Boolean, RtType::Code(_),
-                    RtType::Codeunit(c)] if self.store_kind(*c as usize) == Some(Store::Integer))
+                    RtType::Codeunit(c)] if self.store_kind_of(*c as usize, false) == Some(Store::Integer))
     }
 
     /// Whether `ClearAll()` in `owner` resets store instance `v`, held as `holding` says, in place: the instance is not bound
