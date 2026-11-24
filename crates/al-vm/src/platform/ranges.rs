@@ -1,5 +1,7 @@
 //! Filters on one integer-like field as a sorted set of closed intervals, for the generated
 //! tables (Integer, Date), whose rows cannot be listed before a filter bounds them.
+//!
+//! Entry points: `Iv`, `Set`, `intersect`, `of_expr`.
 
 use al_builtins::describe::Describe;
 use al_builtins::filter::{FieldFilter, FilterExpr};
@@ -94,7 +96,10 @@ pub(crate) fn of_expr(e: &FilterExpr, num: &dyn Fn(&Value) -> Option<i64>, lo: i
         // A store's own wrapper, never part of a filter the language builds.
         FilterExpr::NumCode(_) => return Err("a store-internal filter".into()),
         FilterExpr::UnpinnedMatch(..) => return Err("a filter whose matching is not pinned".into()),
-        FilterExpr::Like(..) | FilterExpr::NotLike(..) | FilterExpr::AtSignAlone(_) => {
+        FilterExpr::Like(..)
+        | FilterExpr::NotLike(..)
+        | FilterExpr::AtSignAlone(_)
+        | FilterExpr::AtSignAloneCode(_) => {
             return Err("a wildcard filter on a numeric field".into());
         }
     })

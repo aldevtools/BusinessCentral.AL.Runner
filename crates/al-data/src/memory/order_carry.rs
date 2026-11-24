@@ -8,6 +8,10 @@
 //!
 //! Only an order that a read used since it was cached is carried (`OrderEntry::used`): a run of writes with no read in
 //! between carries once and leaves the next read to sort, so writing never costs more than the reads would.
+//!
+//! Keeps a cached secondary-key order (`order_of`) through an Insert, a Delete or a Modify that moves
+//! a row, by a binary-search insert instead of a new sort (al-runner issue 6924). Entry points:
+//! `carry_orders`, `carry_moved`.
 
 use super::{Key, MemStore, ORDERS_PER_KEY, OrderEntry, OrderKey, Row, Slot, Table, cmp_rows, slot};
 use crate::{AccessContext, TableDef};
@@ -33,7 +37,7 @@ impl MemStore {
             return;
         }
         let Some(table) = self.tables.get(&sl) else { return };
-        let to_shape = self.shapes.get(&sl).copied().unwrap_or(0);
+        let to_shape = self.stamp_of(&sl, &self.shapes);
         for j in 1..t.keys.len() {
             let moved = self.moves.get(&(sl.clone(), j)).copied().unwrap_or(0);
             self.carry_order(&sl, j, t, table, key, change, (from_shape, moved), (to_shape, moved));
@@ -43,7 +47,7 @@ impl MemStore {
     /// After a Modify moved the row `key` (it held `old`) in key `j`, whose move stamp was `from_moved` before it.
     pub(super) fn carry_moved(&self, sl: &Slot, j: usize, t: &TableDef, key: &Key, old: &Row, from_moved: u64) {
         let Some(table) = self.tables.get(sl) else { return };
-        let shape = self.shapes.get(sl).copied().unwrap_or(0);
+        let shape = self.stamp_of(sl, &self.shapes);
         let to_moved = self.moves.get(&(sl.clone(), j)).copied().unwrap_or(0);
         self.carry_order(
             sl,

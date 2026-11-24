@@ -1,5 +1,12 @@
 //! How many times a page open runs the CaptionClass expressions of its source table's fields with an empty record (al-runner
 //! issue 5870), where the corpus pins it.
+//!
+//! How many times a page open runs the CaptionClass expressions with an empty record, where the
+//! corpus pins it, and the runs where it does not (refused when an expression leaves a trace:
+//! `effects.rs`, a dialog, an error or a let-through Record write raised in a run,
+//! `caption_dialog_refusal` and `caption_write_refusal`, the latter called by the Record method path
+//! in `ctx.rs`; one refusal text, `caption_count_refusal`). Entries: `caption_empty_runs_pinned`,
+//! `run_caption_empty_unpinned`.
 
 use super::*;
 
@@ -464,7 +471,7 @@ impl Session {
                 s.field_captions.push((idx, caption, own_area));
             }
         }
-        st.borrow_mut().field_captions_row = Some(rec.borrow().fields.clone());
+        st.borrow_mut().field_captions_row = Some(rec.borrow().fields.to_vec());
         Ok(())
     }
 }

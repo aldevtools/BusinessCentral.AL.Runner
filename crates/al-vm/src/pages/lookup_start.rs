@@ -52,7 +52,7 @@ impl Session {
             self.page_trigger(related, "onopenpage", vec![])?;
         }
         let Some(fields) = start else { return Ok(()) };
-        handed.borrow_mut().fields = fields.clone();
+        handed.borrow_mut().fields = fields.clone().into();
         related.borrow_mut().lookup_held_row = true;
         Ok(())
     }

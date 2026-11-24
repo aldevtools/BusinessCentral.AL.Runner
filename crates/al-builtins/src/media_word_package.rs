@@ -4,6 +4,12 @@
 //! are not the file's and depend on the host (facts header :10-17), so the media carries the mark `stream::MEDIA_DOCX_REZIPPED`
 //! and any look at its bytes is refused. Plain text imported as a Word document gives no media (:21-22). A four-argument
 //! `ImportStream` with a blank MIME type reads a `.xlsx` or `.docx` file name as an Office document (`office_header_check`).
+//!
+//! What the ImportFile and ImportStream of Media and MediaSet make of an Office document: the
+//! measured Word package re-zipped (marked `MEDIA_DOCX_REZIPPED`, its bytes refused), no media for
+//! plain text (corpus PR 1469), and the Office header error of a four-argument import named `.xlsx`
+//! or `.docx`. Entry points: `media_import_file`, `set_import_file`, `office_header_check`,
+//! `stream_import`, `is_measured_package`.
 
 use crate::assumptions::{Assumption, assume};
 use crate::native::Signal;

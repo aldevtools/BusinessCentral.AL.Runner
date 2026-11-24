@@ -1,0 +1,11 @@
+{
+  "id": "b1c6f7a2-5d3f-4f80-9a1b-888690000001",
+  "name": "Neighbors 8869 reporter repro, runtime 16.0 for BC 27",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "OnPrem",
+  "idRanges": [ { "from": 50100, "to": 50101 } ],
+  "dependencies": []
+}

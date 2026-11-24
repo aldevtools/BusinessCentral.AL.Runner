@@ -1,4 +1,6 @@
 //! Variables, types, parameters, procedures, triggers, attributes.
+//!
+//! Entry points: `var_section`, `type_ref`, `property_value`, `attributes`.
 
 use super::expressions::{arg_list, expr, is_reserved};
 use super::statements::block;
@@ -43,9 +45,16 @@ fn at_attributed_var_decl(p: &Parser) -> bool {
 fn at_name(p: &Parser, n: usize) -> bool {
     match p.nth(n) {
         QuotedIdent => true,
-        Ident => !is_reserved(p.nth_text(n)),
+        Ident => !is_declaration_reserved(p.nth_text(n)),
         _ => false,
     }
+}
+
+/// [`is_reserved`], and `local`, where a declaration begins: the AL compiler of every supported major reads `local` there as
+/// the modifier of a procedure (`Local: Integer;` as a declaration's first name, or `procedure P() Local: Integer` as a
+/// named return value, is AL0104 `'procedure' expected`; al-runner issue 8629). In code it is a name.
+fn is_declaration_reserved(word: &str) -> bool {
+    is_reserved(word) || word.eq_ignore_ascii_case("local")
 }
 
 /// The reserved words the latest AL compiler (30.0.42.60748, measured 2026-10-21) accepts as the name of a variable in
@@ -78,7 +87,7 @@ const VAR_NAME_KEYWORDS: &[&str] = &[
 
 /// Whether `word` (an `Ident`) can name a variable in a var section.
 fn at_var_name(word: &str) -> bool {
-    !is_reserved(word) || VAR_NAME_KEYWORDS.iter().any(|k| k.eq_ignore_ascii_case(word))
+    !is_declaration_reserved(word) || VAR_NAME_KEYWORDS.iter().any(|k| k.eq_ignore_ascii_case(word))
 }
 
 /// [`at_name`] for the name of a variable in a var section.
@@ -488,6 +497,9 @@ mod tests {
         for w in ["begin", "end", "of", "var", "procedure", "trigger", "local"] {
             assert!(!at_var_name(w), "{w}");
         }
+        // `local` starts no declaration (al-runner issue 8629): alc gives AL0104 `'procedure' expected` for `Local:
+        // Integer;` as a declaration's first name and as a named return value.
+        assert!(errors("procedure P() Local: Integer begin end;", routine) > 0);
     }
 
     #[test]

@@ -12,6 +12,15 @@
 //! initialization does), an install trigger is rolled back. What did not run is recorded in the
 //! engine's `unseeded` set, so that a `Get` that finds nothing in dependency code is refused for
 //! exactly those tables instead of answered.
+//!
+//! The install baseline (ADR-013 decision 5, ADR-046): the dependency apps' install code
+//! (`install::plan`), Company-Initialize, the company data codeunit if any (`company_data.rs`), then
+//! the apps under test (`install::run_apps_under_test`), captured once. `tables_written_or_loaded`
+//! adds the package-data loads and, when the reach writes through a RecordRef, the tables a RecordRef
+//! opens (every table for an Open by a run-time id). Entry points: `BaselineRun`, `run`,
+//! `tables_written`, `tables_written_or_loaded`. `BaselineRun::read_resources`: whether the install
+//! code read a resource file, kept in the cache file and with a kept baseline, so an entry with
+//! resources of its own is refused alike whether the baseline ran or was kept (al-runner issue 8206).
 
 use crate::company_data::CompanyData;
 use al_sema::lower::Lowered;

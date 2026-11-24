@@ -1,0 +1,13 @@
+{
+  "id": "4b0a0e54-8a72-4a9c-84ba-9e47ef1b148b",
+  "name": "Neighbors 8735 writes of another table before SaveRecord on a code-inserted new line",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "OnPrem",
+  "idRanges": [
+    { "from": 97651, "to": 97670 }
+  ],
+  "dependencies": []
+}

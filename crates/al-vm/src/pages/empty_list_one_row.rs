@@ -9,6 +9,16 @@
 //!
 //! Those are the answers of the ordinary calls on such a page, so a pinned call goes on as usual; after it only the calls the
 //! pin makes next are let through (`PinnedEnd`). Close stays as before (`pageops.rs`).
+//!
+//! The calls after an action left a List without row triggers on its new-row line with one stored row
+//! behind it (al-runner issue 7478, ActionReportInsertsOneRowOnEmptyList.al): OK, and on a
+//! DelayedInsert list also Next, Previous, Last and GoToKey of the row, after only the test's filter,
+//! the action and value reads, with Rec untouched, and only when the action itself did what the pin's
+//! did (`one_row_action_pinned`, set at the flag site in `actions.rs`: one report with its request
+//! page, one plain `Insert()` of key filter value / 10000, no other write, Commit, Codeunit.Run or
+//! CurrPage.Update, counted by `pages/action_tally.rs`); then only value reads and OK (`PinnedEnd`).
+//! Also holds `first_after_empty_list_action`. Entry points: `one_row_behind_call_pinned` (by
+//! `test_page_op` in `pageops.rs`).
 
 use super::pinned_shape::{NextEnd, PinnedEnd, Reads, TestCall};
 use super::*;
@@ -212,8 +222,8 @@ impl Session {
             let f = probe.borrow().fields.clone();
             rest.push(crate::pages::WindowRow {
                 key: self.table(&probe)?.primary_key(&f),
-                stored: f.clone(),
-                shown: f,
+                stored: f.to_vec(),
+                shown: f.into_vec(),
             });
             if rest.len() >= Self::WINDOW {
                 return unsupported(
@@ -225,11 +235,11 @@ impl Session {
         self.populate_current(st)?;
         let key = self.row_key(&rec)?;
         {
-            let shown = rec.borrow().fields.clone();
+            let shown = rec.borrow().fields.to_vec();
             let mut s = st.borrow_mut();
             s.window = vec![crate::pages::WindowRow {
                 key,
-                stored: fields,
+                stored: fields.into_vec(),
                 shown,
             }];
             s.window_from_start = true;

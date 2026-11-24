@@ -6,6 +6,10 @@
 //! valid header followed by twenty bytes 255 or 65, a 12-byte stream with method 99, a flipped byte in the deflate
 //! data and in the size field of an 83-byte member, two members joined, a member followed by bytes that are not a
 //! member). Every corrupt stream BC answered there raises the same error, with nothing written to the target stream.
+//!
+//! what `GZipStream.CopyTo` decodes and raises (GZipShortAndJoined.al): the measured whole streams
+//! (the short ones and the corrupt ones that raise InvalidData), CRC32 and size checks, a refusal for
+//! every other corrupt stream. Entry points: `inflate`.
 
 use al_builtins::native::{Signal, unsupported};
 use flate2::{Crc, Decompress, FlushDecompress, Status};

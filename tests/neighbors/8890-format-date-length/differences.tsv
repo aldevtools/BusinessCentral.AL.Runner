@@ -1,0 +1,34 @@
+# key	entry
+Repro Date Writer Test::CompactDateWithLength8	ASSUMED format-length-date-string (corpus PR 1557)
+Date String Neighbors::ClosingDate_Compact_AsLong	ASSUMED format-length-date-string (corpus PR 1557)
+Date String Neighbors::DateTime_Compact_Cut	ASSUMED format-length-date-string (corpus PR 1557)
+Date String Neighbors::Date_Compact_LongerPositive	ASSUMED format-length-date-string (corpus PR 1557)
+Date String Neighbors::Date_Compact_NegativeCut	ASSUMED format-length-date-string (corpus PR 1557)
+Date String Neighbors::Date_Compact_NegativeLonger	ASSUMED format-length-date-string (corpus PR 1557)
+Date String Neighbors::Date_Dots_Cut	ASSUMED format-length-date-string (corpus PR 1557)
+Date String Neighbors::Date_Iso_NegativeCut	PINNED tests/al-language/format-evaluate/format-length/FormatLengthStrings.al:673
+Date String Neighbors::Field_Date_Compact	ASSUMED format-length-date-string (corpus PR 1557)
+Date String Neighbors::Time_Compact_NegativeCut	ASSUMED format-length-date-string (corpus PR 1557)
+Date String Neighbors::UndefinedDateTime_Compact_Negative	ASSUMED format-length-date-string (corpus PR 1557)
+Date String Neighbors::UndefinedDate_Compact_Positive	ASSUMED format-length-date-string (corpus PR 1557)
+Date String Neighbors::UndefinedTime_Compact_Cut	ASSUMED format-length-date-string (corpus PR 1557)
+Date String Neighbors::Variant_Date_Compact	ASSUMED format-length-date-string (corpus PR 1557)
+Date String Neighbors::StandardFormat0_Date_NegativeCut	PINNED tests/al-language/format-evaluate/format-length/FormatLengthNeighbors.al:312
+Date Ladder Neighbors::ClosingDate_DayMonthYear2_NegativeCut	PINNED tests/al-language/format-evaluate/format-length/FormatLengthStrings.al:147
+Date Ladder Neighbors::Date_DayMonthYear2_AsLong	PINNED tests/al-language/format-evaluate/format-length/FormatLengthStrings.al:83
+Date Ladder Neighbors::Date_Number0_AsLong_Negative	PINNED tests/al-language/format-evaluate/format-length/FormatLengthStrings.al:342
+Date Ladder Neighbors::Date_StandardFormat0_One	PINNED tests/al-language/format-evaluate/format-length/FormatLengthStrings.al:705
+Date Ladder Neighbors::Date_StandardFormat9_LongerPositive	PINNED tests/al-language/format-evaluate/format-length/FormatLengthStrings.al:728
+Date Ladder Neighbors::Duration_StandardFormat0_AsLong	PINNED tests/al-language/format-evaluate/format-length/FormatLengthStrings.al:350
+Date Ladder Neighbors::UndefinedDateTime_DayMonthYear2_Negative	PINNED tests/al-language/format-evaluate/format-length/FormatLengthStrings.al:800
+Date Ladder Neighbors::UndefinedDate_HoursMinutes_Error	PINNED tests/al-language/format-evaluate/format-length/FormatLengthStrings.al:859
+Date Ladder Neighbors::UndefinedDate_StandardFormat0_Positive	PINNED tests/al-language/format-evaluate/format-length/FormatLengthStrings.al:1005
+Date String Neighbors::StandardFormat0_Time_NegativeCut	PINNED tests/al-language/format-evaluate/format-length/FormatLengthNeighbors.al:369
+Fix Round Neighbors::ClosingDate_Iso_AsLong	PINNED tests/al-language/format-evaluate/format-length/FormatLengthDates.al:218
+Fix Round Neighbors::StandardFormat0_ClosingDate_NegativeCut	PINNED tests/al-language/format-evaluate/format-length/FormatLengthNeighbors.al:307
+Fix Round Neighbors::Time_Plain_NegativeCut	PINNED tests/al-language/format-evaluate/format-length/FormatLengthStrings.al:192
+Fix Round Neighbors::Time_Number0_LongerPositive	PINNED tests/al-language/format-evaluate/format-length/FormatLengthStrings.al:198
+Fix Round Neighbors::Time_StandardFormat0_AsLong	PINNED tests/al-language/format-evaluate/format-length/FormatLengthStrings.al:204
+Fix Round Neighbors::Time_StandardFormat0_NegativeLonger	PINNED tests/al-language/format-evaluate/format-length/FormatLengthStrings.al:208
+Fix Round Neighbors::Time_StandardFormat0_NegativeCut10	PINNED tests/al-language/format-evaluate/format-length/FormatLengthNeighbors.al:370
+Fix Round Neighbors::Region_Iso_Length10	REFUSED Format of Date (day 738900) with length 10 and a format string

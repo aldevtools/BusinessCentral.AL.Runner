@@ -4,6 +4,10 @@
 //! The model (see `al-host`): the session time zone is UTC, so `Today`, `Time` and
 //! `CurrentDateTime` are views of one clock reading each. `Sleep` does not wait; it moves the
 //! session's view of the clock forward, which is all AL can observe of a wait.
+//!
+//! Builtins that answer from the host (ADR-006), and the system field stamps of a write
+//! (`stamp_insert`, `stamp_modify`, `stamp_rename`). Entry points: `datetime_of_unix_millis`,
+//! `Replaced`.
 
 use crate::Session;
 use al_builtins::builtin_id::ids;
@@ -233,11 +237,18 @@ impl Session {
                     other = other.describe()
                 )),
             },
-            // SelectLatestVersion drops what CaptionClassTranslate kept (types/PSCaptionClass.al:103-115); the session reads the
-            // store as it is, so there is nothing else to refresh.
-            ids::DATABASE_SELECTLATESTVERSION_1 | ids::DATABASE_SELECTLATESTVERSION_2 => {
+            // SelectLatestVersion drops what CaptionClassTranslate kept (types/PSCaptionClass.al:103-115). In a page background
+            // task's worker it also ends the query cache's row entries of the table, or of every table without one
+            // (`Session::note_select_latest_version`, open corpus PR 1495, BgTaskQueryCache.al:6730-6845).
+            // `#1` is SelectLatestVersion(), `#2` SelectLatestVersion(Table).
+            ids::DATABASE_SELECTLATESTVERSION_1 => {
                 self.caption_translations.clear();
+                self.note_select_latest_version(None);
                 Ok(Value::Null)
+            }
+            ids::DATABASE_SELECTLATESTVERSION_2 => {
+                self.caption_translations.clear();
+                self.note_select_latest_version_of(args.first()).map(|()| Value::Null)
             }
             // corpus types/PSCaptionClass.al:5-8, :58-81 (CaptionClassTranslate_Expressions).
             ids::SYSTEM_CAPTIONCLASSTRANSLATE_1 => match args.first().and_then(al_builtins::native::text_of) {

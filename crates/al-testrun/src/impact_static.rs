@@ -32,6 +32,13 @@
 //! validation counts as a write, an interface call reaches every implementer, a branch that never runs counts); it
 //! misses only what no node stands for: events the platform raises with no static raiser, and setup rows that name an
 //! object to run.
+//!
+//! Static selection (ADR-043 step 5): the graph of routines, objects, tables' written nodes, events
+//! and the nodes for what the program does not name (`Graph::build`), one reverse search per impact
+//! point with the verdicts reaches / cannot rule out (`select`), the install rule over the baseline's
+//! trace (`Install`), the index-key-to-node map for the cross-check (`key_node`), test roots, and
+//! `path`/`describe` for `AL_IMPACT_WHY`. Entry points: `Graph`, `select`, `Install`, `Verdict`,
+//! `key_node`, `test_roots`, `baseline_roots`.
 
 use crate::impact_trace::{ImpactPoint, Matcher, Site};
 use al_builtins::value::RtType;

@@ -1,6 +1,17 @@
 //! The install code of the apps under test for a test codeunit that starts from no install baseline (no dependency app,
 //! or no selected test can observe the baseline, `observe.rs`). Publishing the app runs it once, in a session of its own
 //! (`blocked.rs` `run_install_codeunits`).
+//!
+//! The install code of the apps under test for a test codeunit that starts from no install baseline
+//! (al-runner issue 8144, ADR-046 amendment 2026-11-15): `run_installs_in` (in the codeunit's
+//! session) and `start_installed` (run once per run in a session of its own, shared by every test
+//! thread through `RunInstalls` in `Unit` and `Scratch`, frozen with `Baseline::freeze`; again for
+//! other texts of the resource files it read; the codeunit's session restores what
+//! `Session::install_left` returned; when that is `None` the session the install code ran in becomes
+//! the first codeunit's session and every later codeunit runs the install code itself).
+//! `installs_for` is the install step of `run_codeunit_inner`. `begin_pass` and `end_run` set and
+//! clear the entries' resource texts. Entry points: `installs_for`, `run_installs_in`, `RunInstalls`,
+//! `begin_pass`, `end_run`.
 use super::*;
 
 /// Runs the install code of the apps under test in `session`, as the codeunit's session does when no install baseline ran

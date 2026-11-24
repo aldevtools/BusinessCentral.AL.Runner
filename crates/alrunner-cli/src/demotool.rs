@@ -12,6 +12,12 @@
 //! `src/DemoTool/Pictures`, the folder `src/DemoTool/O365`, and `DemoDataConfig.xml` with `DataType` `Extended`.
 //!
 //! This file does the OS work (git, folders) that the core crates must not do (ADR-006).
+//!
+//! `--company-data demotool`: the DemoTool's source and W1 resource files of BCApps
+//! `releases/<major>.<minor>`, fetched sparse into `<cache>/bcapps-demotool/<major>.<minor>/`, the
+//! resources staged as BCApps' `Initialize-DemoToolResources` does; the app becomes one more
+//! dependency and codeunit 101899 the baseline's company data root. Entry points: `resolve`,
+//! `DemoTool::dependency`, `DemoTool::company_data`.
 
 use crate::bcapps;
 use al_deps::load::AppJson;

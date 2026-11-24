@@ -1,5 +1,9 @@
 //! A key typed into a stored row of a temporary List that `CurrPage.Run()` shows (al-runner issue 7443; corpus
 //! pages/run-modal/PageVarOpenRow.al).
+//!
+//! A key typed into a stored row of a temporary List that `CurrPage.Run()` shows is not written (al-
+//! runner issue 7443). Entry points: `typed_key_dropped_on_currpage_run` (by `save_row`; the entry
+//! predicate is `typed_key_drop_pinned`), `refuse_call_after_typed_key_drop`.
 
 use super::pinned_shape::{PinnedCode, TestCall};
 use super::*;
@@ -34,7 +38,7 @@ impl Session {
             return Ok(false);
         }
         let rec = self.page_rec(st);
-        rec.borrow_mut().fields = self.page_xrec_fields(st);
+        rec.borrow_mut().fields = self.page_xrec_fields(st).into();
         let mut s = st.borrow_mut();
         s.dirty = false;
         s.typed_key_dropped = true;
@@ -109,7 +113,7 @@ impl Session {
             return Ok(false);
         }
         let probe = Rc::new(RefCell::new(rec.borrow().clone()));
-        probe.borrow_mut().fields = held;
+        probe.borrow_mut().fields = held.into();
         if self.stored_row(&probe)?.is_none() {
             return Ok(false);
         }

@@ -5,6 +5,25 @@
 //! refused (`Signal::Unsupported`) and listed in docs/probes-needed.md: the exact bytes of an
 //! export (declaration, whitespace), the texts of import errors, field types other than
 //! Integer, Decimal, Text and Code, tables with triggers or event subscribers, and so on.
+//!
+//! Submodules: `export_xml`, `import_xml`, `import_record`, `pass`, `sequence`, `shape`, `text`,
+//! `value`; `builtin_calls` holds the long XmlPort builtins (Break, Skip and Quit, `Filename`,
+//! `TextEncoding`, the static `Export`, `Import` and `Run`) that `xmlport_builtin` dispatches to,
+//! `assigned` the separator getters and setters (`xp_separator_builtin`, one decoder with export and
+//! import: `text::text_separator`); `legacy_guid` decides the import of a text into a Guid field
+//! without FormatEvaluate in the cells XpLegacyGuidImport.al measures (al-runner issue 7854);
+//! `root_nested` says which root table elements holding a header table element import through
+//! `xp_import_record` (al-runner issue 6924, pinned by XpRootTableNested.al and
+//! XpRootTableNestedVariants.al); `import_encoding` says which encoding a VariableText import decodes
+//! its source with (al-runner issue 7775, XpVarTextWindowsImport.al); `shape::childless_table_root`
+//! is the root table element without child elements that an export writes once per row (al-runner
+//! issue 7396). `after_assign` runs OnAfterAssignField before the validation of the value it leaves
+//! in the import shapes XpAfterAssignTableRelation.al measures (al-runner issue 7863) and validates
+//! nothing for a field node without triggers on a temporary table element there; `text_attr_export`
+//! writes a text element with one field attribute and its own text below a temporary table element
+//! (al-runner issue 7865, XpTextElemFieldAttrExport.al). al-sema `xmlports/measured_shapes.rs`
+//! decides the layout of both and marks the IR node (`after_assign_layout`, `plain_import_layout`,
+//! `text_attr_export`).
 
 use crate::records::Rec;
 use crate::transactions::TxModel;
@@ -34,6 +53,7 @@ mod import_record;
 mod import_view;
 mod import_xml;
 mod legacy_guid;
+mod linked_view;
 mod pass;
 mod plain_tree;
 mod root_nested;
@@ -61,6 +81,8 @@ use self::shape::*;
 use self::text_columns::*;
 use self::value::*;
 use self::wraps::*;
+
+use import_record::Save;
 
 type Inst = Rc<RefCell<Instance>>;
 
@@ -580,6 +602,26 @@ enum Flow {
     Unbound,
     Quit,
     Skip,
+}
+
+/// Whether `node` is the root text element of the schema.
+fn root_text(schema: &Schema, node: usize) -> bool {
+    schema.node(node).parent.is_none() && schema.node(node).kind == ir::XmlNodeKind::Text
+}
+
+/// Whether `node` stands right below the root text element.
+fn below_root(schema: &Schema, node: usize) -> bool {
+    schema.node(node).parent.is_some_and(|p| root_text(schema, p))
+}
+
+/// Whether table element `n` saves its rows (AutoSave) as plain inserts: no AutoUpdate, AutoReplace or UseTemporary.
+fn plain_autosave(n: &ir::XmlNode) -> bool {
+    n.auto_save && !n.auto_update && !n.auto_replace && !n.use_temporary
+}
+
+/// Whether node `n` has a trigger that runs after the import assigns it (OnAfterAssignField or OnAfterAssignVariable).
+fn assign_trigger(n: &ir::XmlNode) -> bool {
+    n.trigger("onafterassignfield").is_some() || n.trigger("onafterassignvariable").is_some()
 }
 
 fn root_table_element(schema: &Schema, top: usize) -> bool {

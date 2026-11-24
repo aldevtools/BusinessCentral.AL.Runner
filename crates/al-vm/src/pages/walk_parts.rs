@@ -1,6 +1,12 @@
 //! What the parts of a host read while a GoToKey or GoToRecord walks the host's rows from the first one to the row it finds
 //! (`Session::page_go_to_key` in `rows.rs`, `go_to_key_current_only` in `gotokey_find.rs`): for each row the walk passes whose lines they do not already show, the parts read
 //! their rows again in two shapes. Every other host keeps the reads it had: its parts read only at the row the walk finds.
+//!
+//! what a host's parts read at each row a GoToKey or GoToRecord walk passes: a Document host's parts
+//! (QjPartPropagation.al), and the empty part of a List host in a cell of corpus pull request 1378
+//! (`WalkParts`, the passed row as `HostMove::passing`). Entry points: `walk_reads_parts`,
+//! `sync_parts_passed` (by `rows.rs` `page_go_to_key`), `sync_parts_stepped` (by `gotokey_find.rs`
+//! `go_to_key_current_only`).
 
 use super::*;
 use al_builtins::page_op::PageMethod;

@@ -1,0 +1,6 @@
+# key	entry
+# The two neighbors this pull request runs, against #8731's gate, which refused them: a write of another table before the
+# save, by the table field or by the control (ListNewLineWritesOtherTable.al:328, :361). The other cells and neighbors of
+# this folder are #8720's and #8731's.
+LT NN Tests::NewLine_TableFieldWritesAnotherTable_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1527, open: ListNewLineWritesOtherTable.al)
+LT NN Tests::NewLine_WriteAnotherTableBeforeSaveRecord_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1527, open: ListNewLineWritesOtherTable.al)

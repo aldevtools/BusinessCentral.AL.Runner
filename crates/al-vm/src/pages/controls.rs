@@ -1,3 +1,5 @@
+//! Writing a control and the `TestField` methods. Entry points: `control_set_value`,
+//! `test_control_op`.
 use super::pinned_shape::TestCall;
 use super::*;
 use crate::platform::relation_field_no_readers::ControlRead;
@@ -35,7 +37,7 @@ impl Session {
         st.borrow_mut().next_held_row = None;
         // The row a part held before this write (`part_refresh_find_forward.rs` compares it with the row after).
         let held_row =
-            (st.borrow().host.is_some() && self.has_source(st)).then(|| self.page_rec(st).borrow().fields.clone());
+            (st.borrow().host.is_some() && self.has_source(st)).then(|| self.page_rec(st).borrow().fields.to_vec());
         st.borrow_mut().row_before_write = held_row;
         let r = self.control_set_value_now(st, idx, args);
         if let (Ok(_), Some(held)) = (&r, refill_held) {
@@ -1074,7 +1076,6 @@ impl Session {
                     }
                     let mut e = e;
                     e.code = format!("NSValidateField:{}", e.code);
-                    self.error_finals = None;
                     self.hold_error(*e)?;
                     return Ok(Value::Null);
                 }
@@ -1100,7 +1101,6 @@ impl Session {
                 if e.message.is_empty() && rec_bound && ctl.trigger("onvalidate").is_none() && pinned_shape {
                     let mut e = e;
                     e.code = format!("NSValidateField:{}", e.code);
-                    self.error_finals = None;
                     self.hold_error(*e)?;
                     return Ok(Value::Null);
                 }
@@ -1235,7 +1235,7 @@ impl Session {
     }
 
     /// Whether control `idx` sits inside a `cuegroup` with `CuegroupLayout = Wide`.
-    fn in_wide_cue_group(&self, st: &St, idx: usize) -> bool {
+    pub(super) fn in_wide_cue_group(&self, st: &St, idx: usize) -> bool {
         let engine = self.engine();
         let page = page_of(&engine, st);
         let mut at = page.controls[idx].parent;
@@ -1546,20 +1546,9 @@ impl Session {
                     return Ok(Value::Text(String::new().into()));
                 }
                 let v = self.control_value_read(st, idx, ControlRead::Value)?;
-                // A Text control in a cuegroup with CuegroupLayout = Wide reads '0' (pages/properties/ABLayouts.al:68,
-                // :70, also written `wide`); a Decimal one reads its value (pages/controls/AaControls.al:422). Other
-                // types there are not pinned.
-                if self.in_wide_cue_group(st, idx) {
-                    match &v {
-                        Value::Text(_) => return Ok(Value::Text("0".into())),
-                        Value::Decimal(_) => {}
-                        _ => {
-                            return unsupported(format!(
-                                "Value of a {} control in a cuegroup with CuegroupLayout = Wide (not pinned)",
-                                v.describe()
-                            ));
-                        }
-                    }
+                // A field control in a cuegroup (`cue_value.rs`).
+                if let Some(shown) = self.cue_value_shown(st, idx, &v)? {
+                    return Ok(shown);
                 }
                 // An Enum control that refused an entry shows the ordinal, not the caption (pages/controls/W2ValueControls.al:
                 // Enum_VariableControl_*, `value` 0 after a refused `Alpha`, BC 27.5 and 29.0).

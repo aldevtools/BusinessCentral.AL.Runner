@@ -1,16 +1,24 @@
 //! The objects of the cells that measured a part's calls after the test's own filter read its refilled rows (al-runner issue
 //! 8537, `part_update_left_view.rs`), line for line as `pinned_body.rs` renders them: the probe's (pages/parts/
-//! PartRefillTestFilter.al, corpus PR 1474, merged, not pinned yet, and the two-field key part of corpus PR 1475) and the
-//! reporter's repro in issue 8537. Name slots: `«T»` the host's table, `«P»` the part page, `«L»` the part's table, `«C»` the
+//! PartRefillTestFilter.al, corpus PRs 1474 and 1475, merged, not pinned yet, and the styled part of corpus PR 1534, open) and
+//! the reporters' repros in issues 8537 and 8704. Name slots: `«T»` the host's table, `«P»` the part page, `«L»` the part's table, `«C»` the
 //! codeunit that calculates the rows, `«B»` the table it reads, `«K»` the id of the background task's codeunit.
 //!
 //! A cell is one host with one part, as measured: another combination of a host and a part from different cells is no cell.
+//!
+//! The objects of the cells of `part-left-view-test-filter` (al-runner issue 8537), line for line
+//! through `pinned_body.rs`: the probe's hosts with their parts, tables, part procedures, calculation
+//! and background task, and the reporter's repro. Entry points: `refill_cell` (by
+//! `part_update_left_view.rs` `measured_reread`).
 
 use super::pinned_body::{Callees, Names, callees_are, page_is, routine_text, table_is};
 use super::*;
+use al_builtins::page_op::PageMethod;
 
-/// One measured combination of objects, and the position of the part's key field the test's filter is on.
-struct Cell {
+/// One measured combination of objects, the position of the part's key field the test's filter is on, and the moves and reads
+/// its tests made after that filter (`part_update_left_view.rs` `measured_step_after_test_filter`).
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Cell {
     host: &'static [&'static str],
     host_table: &'static [&'static str],
     part: &'static [&'static str],
@@ -19,8 +27,24 @@ struct Cell {
     callees: &'static [&'static str],
     /// The `OnRun` of the background task's codeunit, for the host that fills the part from a page background task.
     task: Option<&'static str>,
-    filter_field: usize,
+    pub(super) filter_field: usize,
+    /// `Last()` right after the filter.
+    pub(super) last: bool,
+    /// `Next()` after `First()`, then `Previous()`.
+    pub(super) next_previous: bool,
+    /// The controls whose `Value` the tests read after `First()`.
+    pub(super) value_reads: &'static [&'static str],
+    /// The AsDate and AsDecimal reads the tests made after each move: (control, method).
+    pub(super) fact_reads: &'static [(&'static str, PageMethod)],
+    /// Those reads right after the filter, before any move.
+    pub(super) read_without_move: bool,
 }
+
+/// The reads of every probe cell after each move (the `Fact` of PartRefillTestFilter.al).
+const PROBE_READS: &[(&str, PageMethod)] = &[
+    ("Period Start", PageMethod::AsDate),
+    ("Allocated Qty.", PageMethod::AsDecimal),
+];
 
 /// The host's code that fills the part in its own OnAfterGetCurrRecord (:152 "LT PR Load Host", :200, :403, PR 1475's
 /// "LT PR Typed Trig Host", and the repro's host).
@@ -118,6 +142,24 @@ const PLAIN_PART: &[&str] = &[
     "field Allocated Qty. in Lines = Allocated Qty. {applicationarea=All}",
 ];
 
+/// Corpus PR 1534's "LT PR Styled Part" (al-runner issue 8704): the plain part with StyleExpr on Allocated Qty. set in its
+/// OnAfterGetRecord.
+const STYLED_PART: &[&str] = &[
+    "PageType = ListPart",
+    "SourceTable = \"«L»\"",
+    "SourceTableTemporary = true",
+    "InsertAllowed = false",
+    "DeleteAllowed = false",
+    "Editable = false",
+    "ApplicationArea = All",
+    "UsageCategory = None",
+    "repeater Lines in - {}",
+    "field Period Start in Lines = Period Start {applicationarea=All}",
+    "field Allocated Qty. in Lines = Allocated Qty. {applicationarea=All; styleexpr=LoadStyle}",
+    "trigger onaftergetrecord: begin LoadStyle := 'Standard'; if (Rec.\"Allocated Qty.\" > 20) then begin LoadStyle := \
+     'Unfavorable'; end; end",
+];
+
 /// :323 "LT PR Load Trig Part" and PR 1475's "LT PR Typed Trig Part": OnOpenPage and OnAfterGetRecord.
 const TRIGGER_PART: &[&str] = &[
     "PageType = ListPart",
@@ -151,6 +193,24 @@ const REPRO_PART: &[&str] = &[
     "repeater Lines in - {}",
     "field Period Start in Lines = Period Start {}",
     "field Allocated Qty. in Lines = Allocated Qty. {}",
+];
+
+/// The part of the repro of al-runner issue 8704: the repro's part of issue 8537 with StyleExpr on Allocated Qty. set in its
+/// OnAfterGetRecord.
+const REPRO_STYLED_PART: &[&str] = &[
+    "PageType = ListPart",
+    "SourceTable = \"«L»\"",
+    "SourceTableTemporary = true",
+    "InsertAllowed = false",
+    "DeleteAllowed = false",
+    "Editable = false",
+    "ApplicationArea = All",
+    "UsageCategory = None",
+    "repeater Lines in - {}",
+    "field Period Start in Lines = Period Start {}",
+    "field Allocated Qty. in Lines = Allocated Qty. {styleexpr=LoadStyle}",
+    "trigger onaftergetrecord: begin LoadStyle := 'Standard'; if (Rec.\"Allocated Qty.\" > 20) then begin LoadStyle := \
+     'Unfavorable'; end; end",
 ];
 
 /// :18 "LT PR Op", :34 "LT PR Booking", :52 "LT PR Load Line", PR 1475's "LT PR Load Line Typed".
@@ -240,7 +300,8 @@ const TYPED_PART_CALLEES: &[&str] = &[
 
 /// The measured cells, with the corpus lines of the tests that ran them.
 const CELLS: &[Cell] = &[
-    // :512, :537, :561, :590 (and :615, :643, which never reach the steps).
+    // :512, :537 (a read right after the filter), :561 (First, Next, Previous), :590 (Last) (and :615, :643, which never
+    // reach the steps).
     Cell {
         host: WORKSHEET_HOST,
         host_table: OP_TABLE,
@@ -250,6 +311,11 @@ const CELLS: &[Cell] = &[
         callees: PART_CALLEES,
         task: None,
         filter_field: 0,
+        last: true,
+        next_previous: true,
+        value_reads: &[],
+        fact_reads: PROBE_READS,
+        read_without_move: true,
     },
     // :671 PartRefill_ListActionThenFilterFirst_FindsRefilledRow.
     Cell {
@@ -261,6 +327,11 @@ const CELLS: &[Cell] = &[
         callees: PART_CALLEES,
         task: None,
         filter_field: 0,
+        last: false,
+        next_previous: false,
+        value_reads: &[],
+        fact_reads: PROBE_READS,
+        read_without_move: false,
     },
     // :696 PartRefill_BackgroundTaskActionThenFilterFirst_FindsRefilledRow.
     Cell {
@@ -272,8 +343,13 @@ const CELLS: &[Cell] = &[
         callees: PART_CALLEES,
         task: Some(BACKGROUND_TASK),
         filter_field: 0,
+        last: false,
+        next_previous: false,
+        value_reads: &[],
+        fact_reads: PROBE_READS,
+        read_without_move: false,
     },
-    // :723 PartRefill_TriggerPartActionThenFilterFirst_FindsRefilledRow.
+    // :723 PartRefill_TriggerPartActionThenFilterFirst_FindsRefilledRow: Value of QtyText and Scope after First.
     Cell {
         host: WORKSHEET_HOST,
         host_table: OP_TABLE,
@@ -283,8 +359,14 @@ const CELLS: &[Cell] = &[
         callees: PART_CALLEES,
         task: None,
         filter_field: 0,
+        last: false,
+        next_previous: false,
+        value_reads: &["QtyText", "Scope"],
+        fact_reads: PROBE_READS,
+        read_without_move: false,
     },
-    // PR 1475 PartRefill_TypedKeyTriggerPartActionThenFilterFirst_FindsRefilledRow: the filter on the key's second field.
+    // PR 1475 PartRefill_TypedKeyTriggerPartActionThenFilterFirst_FindsRefilledRow: the filter on the key's second field; Value of
+    // QtyText and Scope after First.
     Cell {
         host: WORKSHEET_HOST,
         host_table: OP_TABLE,
@@ -294,8 +376,13 @@ const CELLS: &[Cell] = &[
         callees: TYPED_PART_CALLEES,
         task: None,
         filter_field: 1,
+        last: false,
+        next_previous: false,
+        value_reads: &["QtyText", "Scope"],
+        fact_reads: PROBE_READS,
+        read_without_move: false,
     },
-    // The reporter's repro (issue 8537, green on Business Central 29.1).
+    // The reporter's repro (issue 8537, green on Business Central 29.1): only the AsDecimal of Allocated Qty.
     Cell {
         host: REPRO_HOST,
         host_table: REPRO_OP_TABLE,
@@ -305,13 +392,50 @@ const CELLS: &[Cell] = &[
         callees: PART_CALLEES,
         task: None,
         filter_field: 0,
+        last: false,
+        next_previous: false,
+        value_reads: &[],
+        fact_reads: &[("Allocated Qty.", PageMethod::AsDecimal)],
+        read_without_move: false,
+    },
+    // Corpus PR 1534 PartRefill_StyledPartActionThenFilterFirst_FindsRefilledRow (al-runner issue 8704).
+    Cell {
+        host: WORKSHEET_HOST,
+        host_table: OP_TABLE,
+        part: STYLED_PART,
+        part_table: LINE_TABLE,
+        booking_table: BOOKING_TABLE,
+        callees: PART_CALLEES,
+        task: None,
+        filter_field: 0,
+        last: false,
+        next_previous: false,
+        value_reads: &[],
+        fact_reads: PROBE_READS,
+        read_without_move: false,
+    },
+    // The reporter's repro of issue 8704 (green on Business Central 29.1): only the AsDecimal of Allocated Qty.
+    Cell {
+        host: REPRO_HOST,
+        host_table: REPRO_OP_TABLE,
+        part: REPRO_STYLED_PART,
+        part_table: REPRO_LINE_TABLE,
+        booking_table: REPRO_BOOKING_TABLE,
+        callees: PART_CALLEES,
+        task: None,
+        filter_field: 0,
+        last: false,
+        next_previous: false,
+        value_reads: &[],
+        fact_reads: &[("Allocated Qty.", PageMethod::AsDecimal)],
+        read_without_move: false,
     },
 ];
 
 impl Session {
-    /// The position of the part's key field the test's filter must be on, when host `host`, part `part`, their tables, the table
-    /// the calculation reads and every procedure their code calls read as one of `CELLS`; `None` otherwise.
-    pub(super) fn refill_cell(&self, host: &St, part: &St) -> Option<usize> {
+    /// The cell of `CELLS` host `host`, part `part`, their tables, the table the calculation reads and every procedure their code
+    /// calls read as; `None` otherwise.
+    pub(super) fn refill_cell(&self, host: &St, part: &St) -> Option<&'static Cell> {
         let engine = self.engine();
         let host_object = host.borrow().object as usize;
         let part_object = part.borrow().object as usize;
@@ -324,7 +448,7 @@ impl Session {
         if !one_part {
             return None;
         }
-        CELLS.iter().find_map(|cell| {
+        CELLS.iter().find(|cell| {
             let mut callees = Callees::new();
             let names = &mut Names::default();
             let read = page_is(&engine, host_object, cell.host, &mut callees, names)
@@ -338,8 +462,7 @@ impl Session {
             let booking = read
                 .then(|| object_named(&engine.program, names.bound('B')?, ir::ObjKind::Table))
                 .flatten();
-            let all = booking.is_some_and(|b| table_is(&engine, b, cell.booking_table, &mut Callees::new(), names));
-            all.then_some(cell.filter_field)
+            booking.is_some_and(|b| table_is(&engine, b, cell.booking_table, &mut Callees::new(), names))
         })
     }
 }

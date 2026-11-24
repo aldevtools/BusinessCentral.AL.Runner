@@ -21,11 +21,23 @@ const MS_PER_DAY: i64 = 86_400_000;
 const NS: &str = "Microsoft.Dynamics.Nav.Runtime.";
 
 fn err(message: String, code: &str) -> Option<Result<Value, Signal>> {
-    Some(Err(Signal::Error(Box::new(AlError {
+    Some(Err(error(message, code)))
+}
+
+fn error(message: String, code: &str) -> Signal {
+    Signal::Error(Box::new(AlError {
         message,
         code: code.into(),
         ..Default::default()
-    }))))
+    }))
+}
+
+/// The Evaluate error of a text that is no Date (Y67FieldRefValidateVariant.al:585 `biginteger`; fieldref-value-convert in
+/// `fieldref_value_text::fieldref_value_into_temporal`).
+pub(crate) fn date_settings_error(f: &str) -> String {
+    format!(
+        "The format of the Date '{f}' does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'."
+    )
 }
 
 /// The target types this module answers for, with the name an Evaluate error and a `Nav<Type>` text give them.
@@ -46,7 +58,7 @@ fn target_names(t: &RtType) -> Option<(&'static str, &'static str)> {
 }
 
 /// The `Nav<Type>` of a source value in the BC 27 conversion errors (an Enum is a NavOption there).
-fn nav_of(v: &Value) -> Option<&'static str> {
+pub fn nav_of(v: &Value) -> Option<&'static str> {
     Some(match v {
         Value::Integer(_) => "NavInteger",
         Value::Decimal(_) => "NavDecimal",
@@ -59,6 +71,60 @@ fn nav_of(v: &Value) -> Option<&'static str> {
         Value::Duration(_) => "NavDuration",
         _ => return None,
     })
+}
+
+/// The error of the text `s`, which is no number, put into a field of type `t` (Integer, BigInteger, Decimal, Boolean, Option,
+/// Duration): from BC 28 (`from28`) its Evaluate error, code Evaluate:Format; before, `The type Nav<Type> is unknown.`, code
+/// NotSupportedType (Y67FieldRefValidateVariant.al `text abc`; also al-vm `setrange_convert`). `None` for another type.
+pub fn text_evaluate_error(s: &str, t: &RtType, from28: bool) -> Option<Signal> {
+    if matches!(t, RtType::Date | RtType::Time | RtType::DateTime | RtType::Guid) {
+        return None;
+    }
+    let (eval_name, nav_name) = target_names(t)?;
+    Some(if from28 {
+        error(
+            format!("The value \"{s}\" can't be evaluated into type {eval_name}."),
+            "Evaluate:Format",
+        )
+    } else {
+        error(format!("The type Nav{nav_name} is unknown."), "NotSupportedType")
+    })
+}
+
+/// The error of a value of the .NET type `nav` (`NavInteger`, ...) whose text is `text`, put into a Date, Time or DateTime
+/// `t`: from BC 28 (`from28`) the Evaluate error of the text, code Evaluate:Conversion; before, `Unable to convert from
+/// Microsoft.Dynamics.Nav.Runtime.<nav> to System.DateTime.`, code Conversion, for all three types
+/// (`fieldref_value_text::fieldref_value_into_temporal`, al-vm `setrange_convert`).
+pub fn temporal_value_error(nav: &str, text: &str, t: &RtType, from28: bool) -> Signal {
+    if !from28 {
+        return error(
+            format!("Unable to convert from {NS}{nav} to System.DateTime."),
+            "Conversion",
+        );
+    }
+    let message = match t {
+        RtType::Date => date_settings_error(text),
+        RtType::Time => format!("The value \"{text}\" can't be evaluated into type Time."),
+        _ => format!("The value \"{text}\" can't be evaluated into type DateTime."),
+    };
+    error(message, "Evaluate:Conversion")
+}
+
+/// The error of a Variant holding a value that is no Guid, `text` its Format text, put into a Guid field: from BC 28
+/// (`from28`) the Evaluate error, code Evaluate:Argument; before, the conversion error of a NavVariant, code Argument
+/// (Y67FieldRefValidateVariant.al Validate_Into_G_B; al-vm `setrange_convert`).
+pub fn variant_guid_error(text: &str, from28: bool) -> Signal {
+    if from28 {
+        error(
+            format!("The value \"{text}\" can't be evaluated into type GUID."),
+            "Evaluate:Argument",
+        )
+    } else {
+        error(
+            "Invalid Conversion. Source: NavVariant, Destination: NavGuid.".into(),
+            "Argument",
+        )
+    }
 }
 
 /// A number into a number target: an Integer beyond its range raises the overflow (`biginteger` into Integer, Boolean, Option and
@@ -126,17 +192,12 @@ fn never_temporal(v: &Value) -> bool {
 
 /// The conversion of `v` into a field of type `t`. `from28`: the target is BC 28 or later (Gate::FieldRefVariantEvaluateErrorFrom28).
 pub fn variant_into_field(v: &Value, t: &RtType, from28: bool, ctx: &dyn FormatCtx) -> Option<Result<Value, Signal>> {
-    let (eval_name, nav_name) = target_names(t)?;
+    let (eval_name, _) = target_names(t)?;
     let text = || crate::format::try_format(v, 0, 0, ctx).ok();
     let evaluate_error = |kind: &str| -> Option<Result<Value, Signal>> {
         let f = text()?;
         if matches!(t, RtType::Date) {
-            return err(
-                format!(
-                    "The format of the Date '{f}' does not match your device's date settings.\\\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format 'yyyy-mm-dd'."
-                ),
-                "Evaluate:Conversion",
-            );
+            return err(date_settings_error(&f), "Evaluate:Conversion");
         }
         err(
             format!("The value \"{f}\" can't be evaluated into type {eval_name}."),
@@ -147,11 +208,8 @@ pub fn variant_into_field(v: &Value, t: &RtType, from28: bool, ctx: &dyn FormatC
     match t {
         RtType::Guid => match v {
             Value::Guid(_) => None,
-            _ if from28 => evaluate_error("Evaluate:Argument"),
-            _ => err(
-                "Invalid Conversion. Source: NavVariant, Destination: NavGuid.".into(),
-                "Argument",
-            ),
+            _ if from28 => Some(Err(variant_guid_error(&text()?, true))),
+            _ => Some(Err(variant_guid_error("", false))),
         },
         RtType::Date | RtType::Time | RtType::DateTime => temporal_into(v, t, from28, &evaluate_error, &unable),
         _ => match v {
@@ -178,11 +236,7 @@ pub fn variant_into_field(v: &Value, t: &RtType, from28: bool, ctx: &dyn FormatC
             Value::Guid(_) if from28 => evaluate_error("Evaluate:Conversion"),
             Value::Guid(_) => unable("NavGuid", "System.Int32"),
             Value::Text(s) | Value::Code(s) if no_number(s.as_str()) => {
-                if from28 {
-                    evaluate_error("Evaluate:Format")
-                } else {
-                    err(format!("The type Nav{nav_name} is unknown."), "NotSupportedType")
-                }
+                Some(Err(text_evaluate_error(s.as_str(), t, from28)?))
             }
             // A Date, Time or true into a Boolean field is true.
             Value::Date(n, false) | Value::Enum(_, n) | Value::Option(n, _)

@@ -9,6 +9,11 @@
 //! switches the checker scope on and pins cases without a probe: `1` or `all` pins every case,
 //! any other value is a comma-separated list of probe ids to pin (`none` pins nothing). A run with
 //! it set is not a conformance result.
+//!
+//! Page and report extension code that names the base object's members (ADR-023): which probes are
+//! pinned (`PINNED`), the `AL_UNPINNED_BASE_ACCESS` switch, the base's visible variables and
+//! procedures, and the slot of a base variable from syntax. Entry points: `PINNED`, `pinned`,
+//! `scope_enabled`, `visible_vars`, `visible_procs`, `slot_of`.
 
 use al_syntax::ast;
 

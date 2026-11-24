@@ -124,7 +124,6 @@ fn the_onrun_writes_reader_passes_under_bccontainerhelper_only() {
         let opts = runtime::RunOptions {
             test_driver: driver,
             strict_order: true,
-            strict_sequential: true,
             only: Some(only.clone()),
             ..Default::default()
         };

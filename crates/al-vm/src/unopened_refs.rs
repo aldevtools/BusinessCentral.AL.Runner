@@ -3,6 +3,13 @@
 //! 7764, 8084, 8001), and some of them after `Open(0)` and after `Open` then `Clear`, where
 //! tests/al-language/streams/instream-outstream/UhUntouchedStreamsAfter.al:353-380 and :403-421 (codeunit 66996) measure them.
 //! Every other shape keeps the answer of its owner in `refs.rs` (which refuses it).
+//!
+//! members of a RecordRef that is not open and of a KeyRef never assigned, and `RecordRef.GetTable`
+//! of a Variant that holds no record, where the corpus measures them (UhUnopenedRecordRef.al,
+//! UhUntouchedStreamsAfter.al); a RecordRef never opened whose Open raised or whose Get left it not
+//! open counts as closed (`after_open_attempt`); called from `refs.rs` (`ref_op`, `recordref_op`).
+//! Entry points: `record_not_open`, `recordref_not_open_measured`, `after_open_attempt`,
+//! `get_table_variant_not_record`, `keyref_unassigned_measured`.
 
 use crate::Session;
 use al_builtins::native::{AlError, Signal, unsupported};

@@ -1,0 +1,40 @@
+{
+ "id": "9e1a2b3c-0000-4000-8000-000000000209",
+ "name": "RQ dc1 Tests",
+ "publisher": "Review Probe Co",
+ "version": "1.0.0.0",
+ "platform": "27.0.0.0",
+ "runtime": "15.0",
+ "idRanges": [
+  {
+   "from": 54090,
+   "to": 54099
+  }
+ ],
+ "dependencies": [
+  {
+   "id": "9e1a2b3c-0000-4000-8000-000000000201",
+   "name": "RQ dc1 A0",
+   "publisher": "Review Probe Co",
+   "version": "1.0.0.0"
+  },
+  {
+   "id": "9e1a2b3c-0000-4000-8000-000000000202",
+   "name": "RQ dc1 K",
+   "publisher": "Review Probe Co",
+   "version": "1.0.0.0"
+  },
+  {
+   "id": "9e1a2b3c-0000-4000-8000-000000000203",
+   "name": "RQ dc1 M",
+   "publisher": "Review Probe Co",
+   "version": "1.0.0.0"
+  },
+  {
+   "id": "9e1a2b3c-0000-4000-8000-000000000204",
+   "name": "RQ dc1 Q",
+   "publisher": "Review Probe Co",
+   "version": "1.0.0.0"
+  }
+ ]
+}

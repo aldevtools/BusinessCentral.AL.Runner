@@ -3,6 +3,20 @@
 //! ReportObjectOptionsSaveValues.al in the shapes it measures (`measured_save`); every other save keeps its values outside
 //! the rows, as before, and a later change to the rows refuses its next read. The values themselves stay in
 //! `PageClients::saved_values` (`values.rs`); the row decides whether and which of them a run shows.
+//!
+//! The Object Options row of a report request page with SaveValues (al-runner issue 8250, pinned by
+//! corpus reports/ReportObjectOptionsSaveValues.al). An OK of the request page of the static
+//! Report.RunModal(Id), no write transaction open, of a ProcessingOnly report without data item or
+//! extension that stores one Text global asks for the row (`measured_save`, `mirror_saved_row`,
+//! called by `values.rs` `store_page_values`); `settle_saved_row` (called by `reports.rs`
+//! `report_in_world`) writes it just before the run commits, its Option Data marked
+//! `stream::SAVED_OPTION_DATA` (every look refuses) and its stamps unknown. Any other save, a run
+//! that does not commit, rows AL changed since the OK, or a row under the key other than the
+//! runtime's own written row of the report (`SavedRow::is_written_row`, also used by the read) keep
+//! the values outside the rows. The next run reads the row through `saved_through_row` (called by
+//! `restore_page_values`): no change by AL to the rows since keeps the stored values; the row as
+//! written gives them too; no row gives blank on the measured read; the rest refuses. State:
+//! `PageClients::saved_rows` and `saved_row_pending`.
 
 use super::*;
 use crate::pages::pinned_body::{Names, report_globals_are};

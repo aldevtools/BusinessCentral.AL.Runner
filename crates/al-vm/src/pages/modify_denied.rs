@@ -1,5 +1,8 @@
 //! A row that page code changes on a page whose ModifyAllowed is false, other than through the client's own save
 //! (testpage/Y61ModifyDeniedSave.al).
+//!
+//! A drill-down whose code changed the row on a list whose ModifyAllowed is false. Entry points:
+//! `navigate_settled`.
 
 use super::*;
 use al_builtins::page_op::PageMethod;
@@ -58,10 +61,10 @@ impl Session {
         let at = st.borrow().window.iter().position(|w| Self::same_key(&w.key, &key));
         if let Some(at) = at {
             let mut s = st.borrow_mut();
-            s.window[at].stored = fields.clone();
-            s.window[at].shown = fields.clone();
+            s.window[at].stored = fields.to_vec();
+            s.window[at].shown = fields.to_vec();
         }
-        self.set_xrec_fields(st, fields);
+        self.set_xrec_fields(st, fields.into_vec());
         Ok(true)
     }
 

@@ -1,4 +1,6 @@
 //! Compiling through the compile cache.
+//!
+//! Entry points: `compile_with_cache`, `lazy_index`.
 use super::*;
 
 /// The index of the lazily read dependency apps from the cache folder, as the `LazyDep`s a workspace

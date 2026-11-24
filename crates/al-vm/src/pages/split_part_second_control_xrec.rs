@@ -5,6 +5,12 @@
 //! x=40000`, :929 Timing_CardPK_Three; :1175 TableTrig_Card_DescrSeq, :1205 TableTrig_Card_SeqDescr, :1262
 //! TableTrig_Card_Three with table code). Only the measured shape takes it; every other shape keeps the earlier path (the
 //! blank xRec after the last row, `insert_draft`).
+//!
+//! The xRec a new AutoSplitKey ListPart line hands to OnInsertRecord when SetValue on a second
+//! control inserts it below the last row of the view (al-runner issue 8050,
+//! pages/parts/PartSplitKeyInsertTiming.al): the measured shape only, every other shape keeps
+//! `insert_draft`'s xRec; xRec is put back when the insert does not happen. Entry points:
+//! `insert_at_second_control` (by `activate`).
 
 use super::pinned_shape::{PartStep, PinnedPart, TestCall, code_stmts, table_code, text_log_routine, unconverted};
 use super::*;

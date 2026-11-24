@@ -8,7 +8,7 @@
 
 use super::*;
 
-const DEP: &str = r#"
+pub(super) const DEP: &str = r#"
 table 1990 "Guided Experience Item" { fields { field(1; "Object ID"; Integer) { } field(2; Completed; Boolean) { } } keys { key(PK; "Object ID") { Clustered = true; } } }
 table 1996 "Checklist Setup" { fields { field(1; K; Code[10]) { } field(2; Done; Boolean) { } } keys { key(PK; K) { Clustered = true; } } }
 codeunit 150 "System Initialization"
@@ -1913,7 +1913,7 @@ fn a_test_that_touches_an_own_login_table_first_still_notes_the_disabled_codeuni
             &mut scratch,
             &["M Data"],
         );
-        assert!(scratch.leak_hit, "{codeunit}: {o:?}");
+        assert!(!scratch.leak_hits.is_empty(), "{codeunit}: {o:?}");
     }
 }
 

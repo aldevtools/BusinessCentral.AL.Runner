@@ -1,4 +1,11 @@
 //! The key of the install baseline kept on disk (`baseline_cache.rs`): everything the baseline of a run depends on.
+//!
+//! The key of the install baseline kept on disk (`baseline_key`): everything the baseline of a run
+//! depends on. `UncoveredApp` and `uncovered_apps` (set on `Compiled::uncovered` by the compile): the
+//! manifest and, for a dependency app that stands on a workspace app, the source of each app no layer
+//! of the compile cache covers. `manifest_digest` destructures `Manifest` without `..`, so a new
+//! manifest field must be hashed or named as left out (al-runner issue 7610). Entry points:
+//! `baseline_key`, called by `run_compiled_kept` in corpus.rs.
 use super::{Compiled, Manifest, RunOptions};
 use sha2::{Digest, Sha256};
 

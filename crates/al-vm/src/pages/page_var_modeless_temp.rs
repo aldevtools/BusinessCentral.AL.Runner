@@ -1,4 +1,8 @@
 //! A Page variable over a temporary source after its non-modal `Run()` (al-runner issue 7443, 7420).
+//!
+//! After a Page variable's `Run()` of a page over a temporary source, the variable's Rec is empty
+//! (al-runner issues 7443, 7420). Entry points: `empty_temp_rec_after_variable_run` (by
+//! `run_page_var`).
 
 use super::*;
 use al_builtins::record_op::RecordOp;

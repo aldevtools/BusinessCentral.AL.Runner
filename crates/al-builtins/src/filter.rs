@@ -1,4 +1,6 @@
 //! Record filters as data (shared by the VM and the store).
+//!
+//! Entry points: `FilterExpr`, `parse_filter`, `parse_filter_with`, `FieldFilter`.
 
 use crate::describe::Describe;
 use crate::native::Signal;
@@ -27,9 +29,13 @@ pub enum FilterExpr {
     /// `<>` before a wildcard pattern: the texts the pattern does not match. `<>*` keeps no row, not even the blank one
     /// (record/filters/WildcardGetFilter.al:106-173, Forms_CodeField and Forms_TextField).
     NotLike(String, bool),
-    /// `@` alone keeps every row; `<>@` alone keeps none (`true`). Pinned on a Text field (record/filters/WcInvalidFilterExpr.al:
-    /// 84-90 `@`, :93-111 `<>@`).
+    /// `@` alone keeps every row; `<>@` alone keeps none (`true`). Pinned on a Text field of a temporary record (record/filters/
+    /// WcInvalidFilterExpr.al:84-90 `@`, :93-111 `<>@`); a row of the database answers otherwise (`filter_at_sign::AtSignRows`).
     AtSignAlone(bool),
+    /// `@` alone on a Code field, or `<>@` alone (`true`), from a place `filter_at_sign` lists: answered only by a reader that
+    /// knows how BC reads its rows (`filter_at_sign::AtSignRows`); any other reader refuses it ([`FilterExpr::unpinned_match`]),
+    /// as main refused it.
+    AtSignAloneCode(bool),
     /// An empty value in a view's `1()` or `FILTER()`: BC keeps every row and writes the filter back as `==`
     /// (record/views/Y51SetViewShapes.al:141-154, SetView_EmptyFilterValue, on Text, Date and Integer fields).
     EmptyViewValue,
@@ -124,7 +130,9 @@ impl FilterExpr {
             FilterExpr::Ge(x) => matches!(ord(x), Some(Ordering::Greater | Ordering::Equal)),
             FilterExpr::Like(p, ci) => crate::native::text_of(v).is_some_and(|t| like(&t, p, *ci, text_value)),
             FilterExpr::NotLike(p, ci) => crate::native::text_of(v).is_some_and(|t| !like(&t, p, *ci, text_value)),
+            // The answer of a temporary record; a reader of a database's rows asks `filter_at_sign` first.
             FilterExpr::AtSignAlone(negated) => !negated,
+            FilterExpr::AtSignAloneCode(_) => true,
             FilterExpr::EmptyViewValue => true,
             FilterExpr::Or(xs) => xs.iter().any(|x| x.matches_checked(v)),
             FilterExpr::And(xs) => xs.iter().all(|x| x.matches_checked(v)),
@@ -143,6 +151,10 @@ impl FilterExpr {
         match self {
             FilterExpr::UnpinnedMatch(_, text) => Some(format!(
                 "a read through the filter `{text}`, an unclosed quote after `@`: its matching not pinned"
+            )),
+            FilterExpr::AtSignAloneCode(negated) => Some(format!(
+                "a read through the filter `{}` (alone) on a Code field by a reader no cell measures (a CRM table's connection, a platform table's provider, a check of a FlowField filter outside Count, IsEmpty and the Find methods)",
+                if *negated { "<>@" } else { "@" }
             )),
             FilterExpr::Or(xs) | FilterExpr::And(xs) => xs.iter().find_map(FilterExpr::unpinned_match),
             FilterExpr::NumCode(inner) | FilterExpr::UnpinnedText(inner) => inner.unpinned_match(),
@@ -178,6 +190,7 @@ impl FilterExpr {
             FilterExpr::Like(..)
             | FilterExpr::NotLike(..)
             | FilterExpr::AtSignAlone(_)
+            | FilterExpr::AtSignAloneCode(_)
             | FilterExpr::EmptyViewValue => None,
         }
     }
@@ -210,7 +223,9 @@ impl FilterExpr {
                 _ => None,
             },
             FilterExpr::AtSignAlone(_) | FilterExpr::EmptyViewValue => None,
-            FilterExpr::UnpinnedMatch(..) => self.unpinned_match().map(Signal::unsupported),
+            FilterExpr::UnpinnedMatch(..) | FilterExpr::AtSignAloneCode(_) => {
+                self.unpinned_match().map(Signal::unsupported)
+            }
             FilterExpr::Or(xs) | FilterExpr::And(xs) => xs.iter().find_map(|x| x.compare_error(v)),
             FilterExpr::UnpinnedText(inner) => inner.compare_error(v),
             FilterExpr::NumCode(inner) => match code_number(v) {
@@ -746,7 +761,19 @@ pub fn set_filter_text_error(text: &str, ty: &crate::value::RtType) -> Option<&'
     }
 }
 
+/// [`parse_filter_any`] for every place a filter comes from except those [`parse_filter_at_sign_measured`] lists: `@` alone on a
+/// Code field refuses there, as it did before `filter_at_sign` answered it.
 pub fn parse_filter_with(
+    text: &str,
+    args: &[crate::value::Value],
+    ty: &crate::value::RtType,
+    enums: &dyn Fn(u32) -> Result<Vec<(i32, String)>, String>,
+) -> Result<FilterExpr, String> {
+    crate::filter_at_sign::refused_where_not_measured(parse_filter_any(text, args, ty, enums)?, false)
+}
+
+/// The filter `text` of a field of type `ty`, `@` alone on a Code field included ([`FilterExpr::AtSignAloneCode`]).
+pub(crate) fn parse_filter_any(
     text: &str,
     args: &[crate::value::Value],
     ty: &crate::value::RtType,
@@ -1566,6 +1593,11 @@ impl Parser<'_> {
                 self.i = at;
                 Ok(Some(FilterExpr::AtSignAlone(true)))
             }
+            // `<>@` alone on a Code field reads as on a Text field (AtSignAloneReads.al:698, :730; `filter_at_sign`).
+            None if ci && matches!(self.ty, T::Code(_)) && self.toks.len() == 2 => {
+                self.i = at;
+                Ok(Some(FilterExpr::AtSignAloneCode(true)))
+            }
             _ if ci => Err("`<>@` before a value without a wildcard (not pinned)".into()),
             // A placeholder wildcard text with a blank at one end, or longer than a Code field, BC reads otherwise (trimmed, as a
             // literal text, or the length error; corpus PR 1503, open: record/filters/PlaceholderWildcardSuffix.al). al-vm
@@ -1648,6 +1680,10 @@ impl Parser<'_> {
             }
             Some("@") => {
                 self.i += 1;
+                // `@` alone on a Code field (open corpus PR 1495, BgTaskQueryCache.al:5616, :5780; `filter_at_sign`).
+                if matches!(self.ty, crate::value::RtType::Code(_)) && self.toks.len() == 1 {
+                    return Ok(FilterExpr::AtSignAloneCode(false));
+                }
                 // On a Text field (WcInvalidFilterExpr.al:66-90): `@` alone keeps every row, `@<>` raises, and `@@C-A` reads the
                 // second `@` as the value's first character (no row holds `@C-A`; GetFilter writes `@@C-A`).
                 if matches!(self.ty, crate::value::RtType::Text(_)) {
@@ -1836,13 +1872,14 @@ impl FilterExpr {
             | (Ge(a), Ge(b)) => a.identical(b),
             (Or(a), Or(b)) | (And(a), And(b)) => all(a, b),
             (Like(a, x), Like(b, y)) | (NotLike(a, x), NotLike(b, y)) => a == b && x == y,
-            (AtSignAlone(a), AtSignAlone(b)) => a == b,
+            (AtSignAlone(a), AtSignAlone(b)) | (AtSignAloneCode(a), AtSignAloneCode(b)) => a == b,
             (EmptyViewValue, EmptyViewValue) => true,
             (NumCode(a), NumCode(b)) | (UnpinnedText(a), UnpinnedText(b)) => a.identical(b),
             (UnpinnedMatch(a, s), UnpinnedMatch(b, t)) => s == t && a.identical(b),
             (
                 Range(..) | Eq(_) | RangeSame(_) | Ne(_) | Lt(_) | Le(_) | Gt(_) | Ge(_) | Or(_) | And(_) | Like(..)
-                | NotLike(..) | AtSignAlone(_) | EmptyViewValue | NumCode(_) | UnpinnedMatch(..) | UnpinnedText(_),
+                | NotLike(..) | AtSignAlone(_) | AtSignAloneCode(_) | EmptyViewValue | NumCode(_) | UnpinnedMatch(..)
+                | UnpinnedText(_),
                 _,
             ) => false,
         }
@@ -1909,6 +1946,11 @@ pub fn all_match(filters: &[FieldFilter], row: &[Value]) -> Result<bool, Signal>
     all_match_on(filters, row, false)
 }
 
+pub use crate::filter_at_sign::{
+    AtSignRows, OtherSourceAtSign, at_sign_alone_read, calc_formula_at_sign_measured,
+    calc_formula_at_sign_other_source, code_at_sign_alone_named, parse_filter_at_sign_measured,
+    parse_filter_both_at_signs_measured, shows_member_names,
+};
 pub use crate::filter_collation::{all_match_on, row_passes_collation};
 
 /// `row` when every filter matches it ([`all_match`]), else `None`.

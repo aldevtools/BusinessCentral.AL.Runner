@@ -5,6 +5,17 @@
 //! refuses at the open: BC runs its expression there and main does not, and no corpus test measures that shape (the reads of
 //! DataCaptionExprPureOpen.al refuse with it), except the two opens of Microsoft's pages `data_caption_kept_open.rs` keeps under
 //! an assumption. Every other page keeps main's path (`data_caption_run.rs`, `caption_expr_list.rs`).
+//!
+//! The DataCaptionExpression of a Worksheet or a Card with DelayedInsert that AL code's static
+//! Page.Run or RunModal opens for a TestPage handler: how often it runs before the handler, in the
+//! cells DataCaptionExprWorksheet.al measured, then only the caption, reads of page-variable controls
+//! and the close (`refuse_rec_control_after_open`, by `dirty_step.rs`); a Worksheet of the cells'
+//! neighborhood (any run with a handler or a Trap, any rows) in no cell refuses at the open, naming
+//! the missed fact and what the expression can do (`data_caption_open_neighbor`,
+//! `Engine::caption_open_risk` in `effects/open_risk.rs`); the page variable's RunModal() that
+//! Y50ListCaptionExpr.al pins keeps main's path (`data_caption_read_pinned`). Entry points:
+//! `data_caption_handed` before the open and `data_caption_at_handled_open` after it (by `open_page`,
+//! also for a trapped page), `data_caption_open_caption` (by `caption_expr_list.rs`).
 
 use super::pinned_shape::{NextEnd, PinnedEnd, Reads};
 use super::*;

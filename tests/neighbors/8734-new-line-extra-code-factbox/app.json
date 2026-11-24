@@ -1,0 +1,14 @@
+{
+  "id": "1e430492-2b80-4d85-82c2-9d5e6b504b4a",
+  "name": "Neighbors 8734 extra code on a code-inserted new line of a page with triggers and a FactBox",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "OnPrem",
+  "idRanges": [
+    { "from": 96741, "to": 96745 },
+    { "from": 97691, "to": 97717 }
+  ],
+  "dependencies": []
+}

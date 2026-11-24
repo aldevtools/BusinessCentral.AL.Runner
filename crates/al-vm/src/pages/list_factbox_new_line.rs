@@ -20,6 +20,21 @@
 //! a `New()` that kept the part, the host's reads and property calls, a key's SetValue the probe does not make and Close keep
 //! main's answers; a call that reads or moves the part otherwise, an action, another SetValue or a move of the host is refused
 //! (`factbox_line_call`).
+//!
+//! A top-level List page's CardPart FactBox, linked to the key, around the new line (al-runner issue
+//! 8188, pages/parts/ListHostFactBoxNewLine.al): on the probe's page shapes only
+//! (`factbox_line_pages`) and after the probe's earlier steps (`FactboxLine` on
+//! `PageState::factbox_line`, `steps_are`), the open of an empty view, the key's SetValue on the new
+//! line and the Next onto it run the part's OnAfterGetCurrRecord on the blank record
+//! (`with_blank_landing`, read by `factbox_blank_landing` in `open/landing.rs`); New() below the
+//! view's one row leaves the part on that row until the key's SetValue (`sync_parts_after_new`,
+//! `factbox_line_call`: the host's reads and property calls, Close and a key's SetValue the probe
+//! does not make keep main's answers, `release_held_part`; the other calls are refused); Next back
+//! onto the row the line saved finds it among the rows the host holds (`next_back_held`). Entry
+//! points: `sync_parts_at_list_open` (by `open/page_open.rs`), `sync_parts_after_new` (by
+//! `pageops.rs`), `factbox_line_call` (by `page_op_inner`), `resync_parts_after_set_value` (by
+//! `controls.rs`), `sync_parts_after_host_step` (by `fn_controls.rs`), `factbox_line_after_set_value`
+//! (by `pageops.rs`: a SetValue that raised an error ends the steps).
 
 use super::pinned_shape::{PinnedCode, TestCall, code_stmts, rec_text_log_call};
 use super::*;
@@ -227,7 +242,7 @@ impl Session {
     }
 
     /// Runs `read` (a read of the parts of host `host`) with `PageState::factbox_blank_landing` on.
-    fn with_blank_landing(
+    pub(super) fn with_blank_landing(
         &mut self,
         host: &St,
         read: impl FnOnce(&mut Self) -> Result<(), Signal>,
@@ -252,6 +267,9 @@ impl Session {
         let empty =
             Self::on_untouched_line(st) && self.factbox_line_pages(st)?.is_some() && self.view_row_count(st)? == 0;
         if !empty {
+            if self.coded_open_on_empty_view(st)? {
+                return Ok(());
+            }
             return self.sync_parts_at_open(st);
         }
         self.with_blank_landing(st, |s| s.sync_parts_at_open(st))?;

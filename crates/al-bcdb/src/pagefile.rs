@@ -23,6 +23,9 @@
 //! Page self-identification (m_pageId in the header) is deliberately not used to build the
 //! map: deallocated pages keep their old headers, so a stale image elsewhere in the file
 //! can carry the same page id as a live page. It is kept as a cross-check only.
+//!
+//! `IndexStore`, `open_indexed` (a kept page map, checked against the file's length and data
+//! regions). Entry points: `Page`, `PageFile`, `CrossCheck`.
 
 use crate::error::Result;
 use crate::io::{ByteSource, le};

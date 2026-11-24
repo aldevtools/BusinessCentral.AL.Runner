@@ -3,6 +3,15 @@
 //! rows (al-runner issue 6924). Measured by pages/properties/DataCaptionGetOpen.al (the cells below cite its lines). The cells of
 //! DataCaptionExprWorksheet.al (`data_caption_open.rs`) are tried first; a page in neither family keeps the refusal or main's
 //! path there.
+//!
+//! The second family of cells of that open (DataCaptionGetOpen.al): a Worksheet with OnOpenPage only
+//! whose expression can raise or leave something behind and does only what the measured bodies do
+//! (`data_caption_get_body.rs`: a guarded Get of a local record keyed by a constant or by Rec's key
+//! on its own table, assignments, List.Add), opened by a static Page.Run or RunModal(Id, Rec) with a
+//! handler or after a Trap, a handed record whose filters and row count match one cell: the
+//! expression runs twice on an empty view and once per row (Rec on that row, page globals held back)
+//! otherwise; a run that raises refuses. Entry points: `data_caption_get_open` (by
+//! `data_caption_at_handled_open`, after the cells of DataCaptionExprWorksheet.al miss).
 
 use super::data_caption_open::{HandedRecord, Shape};
 use super::pinned_shape::{NextEnd, PinnedEnd, Reads};
@@ -128,7 +137,7 @@ impl Session {
         let mut first = None;
         let mut ran = Ok(());
         for row in rows {
-            rec.borrow_mut().fields = row.clone();
+            rec.borrow_mut().fields = row.clone().into();
             ran = self.run_data_caption_held_back(st);
             if ran.is_err() {
                 break;
@@ -224,7 +233,7 @@ impl Session {
         self.ret_used = true;
         let mut found = self.record_op(RecordOp::FindSet, &probe, &mut [])?;
         while matches!(found, Value::Boolean(true)) && rows.len() <= MOST_ROWS {
-            rows.push(probe.borrow().fields.clone());
+            rows.push(probe.borrow().fields.to_vec());
             self.ret_used = true;
             found = match self.record_op(RecordOp::Next, &probe, &mut [])? {
                 Value::Integer(n) => Value::Boolean(n != 0),
