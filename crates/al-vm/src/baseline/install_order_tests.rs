@@ -91,3 +91,20 @@ fn a_company_copied_alike_in_both_orders_is_the_same_database() {
     let b = order(&start, |s| s.copy_company("C", "E"));
     assert_eq!(differences(&a, &b, &start), Some(Default::default()));
 }
+
+// Without a backing a deleted company changes no read of an untouched table (`MemStore::has_backing`): the tables it held
+// are gone in that order only, and the comparison names them.
+#[test]
+fn a_company_deleted_in_one_order_only_without_a_backing_names_its_tables() {
+    let start = order(&sample(), |s| {
+        let row = vec![
+            al_builtins::value::Value::Text("Alpha".into()),
+            al_builtins::value::Value::Code("A".into()),
+        ];
+        s.insert(&al_data::contract::cx("C"), &names(), row).unwrap();
+    });
+    let dropped = order(&start, |s| s.drop_company("C"));
+    let kept = order(&start, |_| {});
+    let d = differences(&dropped, &kept, &start).expect("tables only");
+    assert!(d.contains_key(&11), "table 11 differs: {d:?}");
+}

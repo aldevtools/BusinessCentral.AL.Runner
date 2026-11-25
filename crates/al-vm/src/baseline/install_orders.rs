@@ -105,7 +105,8 @@ impl Baseline {
     /// when its AutoIncrement counter does, or when a DeleteAll without filters emptied it in one order only. A table a
     /// store holds no entry for is compared with the rows a read finds there (`MemStore::committed_table_read`).
     /// `None` when something besides the tables differs (isolated storage, number sequences, the companies not known or
-    /// copied, the companies copied or deleted: `MemStore::same_unshown_marks`, al-runner issue 9039), or a row is not
+    /// copied, the companies copied or deleted when the store has a backing their untouched tables read:
+    /// `MemStore::same_unshown_marks`, al-runner issue 9039), or a row is not
     /// a plain value: the caller cannot name what differs by table.
     pub fn install_order_differences(
         &self,
@@ -118,7 +119,7 @@ impl Baseline {
             || self.sequences != other.sequences
             || self.company_unknown != other.company_unknown
             || self.full_copies != other.full_copies
-            || !self.store.same_unshown_marks(&other.store)
+            || (self.store.has_backing() && !self.store.same_unshown_marks(&other.store))
         {
             return None;
         }

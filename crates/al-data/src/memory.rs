@@ -752,6 +752,12 @@ impl MemStore {
         self.copies.get(&key).cloned().unwrap_or(key)
     }
 
+    /// Whether the untouched tables read rows of a backing (ADR-020); without one, the company copies and deleted
+    /// companies change no read (`backing_rows`, `has_company_rows`).
+    pub fn has_backing(&self) -> bool {
+        self.backing.is_some()
+    }
+
     /// The identity of the rows the untouched tables read ([`Backing::identity`]): `Some((0, 0))` without a backing,
     /// `None` when the backing does not say.
     pub fn backing_identity(&self) -> Option<(u64, u64)> {
