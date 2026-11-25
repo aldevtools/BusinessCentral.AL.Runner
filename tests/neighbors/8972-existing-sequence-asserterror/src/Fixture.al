@@ -25,3 +25,5 @@ codeunit 52892 "N6 Fails"
         Error('fails');
     end;
 }
+
+page 52893 "N6 Row List" { PageType = List; SourceTable = "N6 Row"; layout { area(Content) { repeater(G) { field(K; Rec.K) { } } } } }

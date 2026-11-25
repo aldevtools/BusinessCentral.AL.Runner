@@ -23,7 +23,7 @@ codeunit 52800 "N6 RE5"
     
     procedure B_RE5Step()
     begin
-        NumberSequence.Restart('P6RE5', 1002); Rows.Put('RE5-B1'); asserterror Error('inner');
+        NumberSequence.Restart('P6RE5', 1002); if NumberSequence.Exists('P6RE5') then if NumberSequence.Current('P6RE5') = 0 then; Rows.Put('RE5-B1'); asserterror Error('inner');
     end;
 
     [Test]
@@ -57,7 +57,7 @@ codeunit 52801 "N6 RE4"
     
     procedure B_RE4Step()
     begin
-        NumberSequence.Restart('P6RE4', 1002); asserterror Error('inner');
+        NumberSequence.Restart('P6RE4', 1002); if NumberSequence.Exists('P6RE4') then if NumberSequence.Current('P6RE4') = 0 then; asserterror Error('inner');
     end;
 
     [Test]
@@ -91,7 +91,7 @@ codeunit 52802 "N6 RE"
     
     procedure B_REStep()
     begin
-        NumberSequence.Restart('P6RE', 1002); Rows.Put('RE-B1'); asserterror Error('inner'); Error('B deliberate');
+        NumberSequence.Restart('P6RE', 1002); if NumberSequence.Exists('P6RE') then if NumberSequence.Current('P6RE') = 0 then; Rows.Put('RE-B1'); asserterror Error('inner'); Error('B deliberate');
     end;
 
     [Test]
@@ -125,7 +125,7 @@ codeunit 52803 "N6 RE2"
     
     procedure B_RE2Step()
     begin
-        NumberSequence.Restart('P6RE2', 1002); asserterror begin Rows.Put('RE2-B1'); Error('inner'); end; Error('B deliberate');
+        NumberSequence.Restart('P6RE2', 1002); if NumberSequence.Exists('P6RE2') then if NumberSequence.Current('P6RE2') = 0 then; asserterror begin Rows.Put('RE2-B1'); Error('inner'); end; Error('B deliberate');
     end;
 
     [Test]
@@ -159,7 +159,7 @@ codeunit 52804 "N6 DE"
     
     procedure B_DEStep()
     begin
-        NumberSequence.Delete('P6DE'); Rows.Put('DE-B1'); asserterror Error('inner'); Error('B deliberate');
+        NumberSequence.Delete('P6DE'); if NumberSequence.Exists('P6DE') then; Rows.Put('DE-B1'); asserterror Error('inner'); Error('B deliberate');
     end;
 
     [Test]
@@ -193,7 +193,7 @@ codeunit 52805 "N6 RE3"
     
     procedure B_RE3Step()
     begin
-        NumberSequence.Restart('P6RE3', 1002); asserterror Error('inner'); Error('B deliberate');
+        NumberSequence.Restart('P6RE3', 1002); if NumberSequence.Exists('P6RE3') then if NumberSequence.Current('P6RE3') = 0 then; asserterror Error('inner'); Error('B deliberate');
     end;
 
     [Test]
@@ -227,7 +227,7 @@ codeunit 52806 "N6 NextAfterStep"
     
     procedure B_NextAfterStepStep()
     begin
-        NumberSequence.Restart('P6NextAfterStep', 1002); Rows.Put('NextAfterStep-B1'); NumberSequence.Next('P6NextAfterStep'); asserterror Error('inner');
+        NumberSequence.Restart('P6NextAfterStep', 1002); if NumberSequence.Exists('P6NextAfterStep') then if NumberSequence.Current('P6NextAfterStep') = 0 then; Rows.Put('NextAfterStep-B1'); NumberSequence.Next('P6NextAfterStep'); asserterror Error('inner');
     end;
 
     [Test]
@@ -261,7 +261,7 @@ codeunit 52807 "N6 WriteBeforeStep"
     
     procedure B_WriteBeforeStepStep()
     begin
-        Rows.Put('WriteBeforeStep-B1'); NumberSequence.Restart('P6WriteBeforeStep', 1002); asserterror Error('inner');
+        Rows.Put('WriteBeforeStep-B1'); NumberSequence.Restart('P6WriteBeforeStep', 1002); if NumberSequence.Exists('P6WriteBeforeStep') then if NumberSequence.Current('P6WriteBeforeStep') = 0 then; asserterror Error('inner');
     end;
 
     [Test]
@@ -295,7 +295,7 @@ codeunit 52808 "N6 CompanyWide"
     
     procedure B_CompanyWideStep()
     begin
-        NumberSequence.Restart('P6CompanyWide', 1002, false); Rows.Put('CompanyWide-B1'); asserterror Error('inner');
+        NumberSequence.Restart('P6CompanyWide', 1002, false); if NumberSequence.Exists('P6CompanyWide', false) then if NumberSequence.Current('P6CompanyWide', false) = 0 then; Rows.Put('CompanyWide-B1'); asserterror Error('inner');
     end;
 
     [Test]
@@ -329,7 +329,7 @@ codeunit 52809 "N6 ReadOnly"
     
     procedure B_ReadOnlyStep()
     begin
-        NumberSequence.Restart('P6ReadOnly', 1002); if Rows.Has('ReadOnly-INIT') then; asserterror Error('inner');
+        NumberSequence.Restart('P6ReadOnly', 1002); if NumberSequence.Exists('P6ReadOnly') then if NumberSequence.Current('P6ReadOnly') = 0 then; if Rows.Has('ReadOnly-INIT') then; asserterror Error('inner');
     end;
 
     [Test]
@@ -363,7 +363,7 @@ codeunit 52810 "N6 AutoRollback"
     [TransactionModel(TransactionModel::AutoRollback)]
     procedure B_AutoRollbackStep()
     begin
-        NumberSequence.Restart('P6AutoRollback', 1002); Rows.Put('AutoRollback-B1'); asserterror Error('inner');
+        NumberSequence.Restart('P6AutoRollback', 1002); if NumberSequence.Exists('P6AutoRollback') then if NumberSequence.Current('P6AutoRollback') = 0 then; Rows.Put('AutoRollback-B1'); asserterror Error('inner');
     end;
 
     [Test]
@@ -397,7 +397,7 @@ codeunit 52811 "N6 LabelError"
     
     procedure B_LabelErrorStep()
     begin
-        NumberSequence.Restart('P6LabelError', 1002); Rows.Put('LabelError-B1'); asserterror Error(InnerErr);
+        NumberSequence.Restart('P6LabelError', 1002); if NumberSequence.Exists('P6LabelError') then if NumberSequence.Current('P6LabelError') = 0 then; Rows.Put('LabelError-B1'); asserterror Error(InnerErr);
     end;
 
     [Test]
@@ -431,7 +431,7 @@ codeunit 52812 "N6 GuardedRunFails"
     
     procedure B_GuardedRunFailsStep()
     begin
-        NumberSequence.Restart('P6GuardedRunFails', 1002); Rows.Put('GuardedRunFails-B1'); if Codeunit.Run(Codeunit::"N6 Fails") then;
+        NumberSequence.Restart('P6GuardedRunFails', 1002); if NumberSequence.Exists('P6GuardedRunFails') then if NumberSequence.Current('P6GuardedRunFails') = 0 then; Rows.Put('GuardedRunFails-B1'); if Codeunit.Run(Codeunit::"N6 Fails") then;
     end;
 
     [Test]
@@ -465,7 +465,7 @@ codeunit 52813 "N6 HeldSecondAsserterror"
     
     procedure B_HeldSecondAsserterrorStep()
     begin
-        NumberSequence.Restart('P6HeldSecondAsserterror', 1002); asserterror Error('inner'); Rows.Put('HeldSecondAsserterror-B1'); asserterror Error('inner');
+        NumberSequence.Restart('P6HeldSecondAsserterror', 1002); if NumberSequence.Exists('P6HeldSecondAsserterror') then if NumberSequence.Current('P6HeldSecondAsserterror') = 0 then; asserterror Error('inner'); Rows.Put('HeldSecondAsserterror-B1'); asserterror Error('inner');
     end;
 
     [Test]
@@ -499,7 +499,7 @@ codeunit 52814 "N6 DeletePasses"
     
     procedure B_DeletePassesStep()
     begin
-        NumberSequence.Delete('P6DeletePasses'); Rows.Put('DeletePasses-B1'); asserterror Error('inner');
+        NumberSequence.Delete('P6DeletePasses'); if NumberSequence.Exists('P6DeletePasses') then; Rows.Put('DeletePasses-B1'); asserterror Error('inner');
     end;
 
     [Test]
@@ -533,7 +533,7 @@ codeunit 52815 "N6 DeleteNothing"
     
     procedure B_DeleteNothingStep()
     begin
-        NumberSequence.Delete('P6DeleteNothing'); asserterror Error('inner');
+        NumberSequence.Delete('P6DeleteNothing'); if NumberSequence.Exists('P6DeleteNothing') then; asserterror Error('inner');
     end;
 
     [Test]
@@ -567,7 +567,7 @@ codeunit 52816 "N6 NoEarlierWrite"
     
     procedure B_NoEarlierWriteStep()
     begin
-        NumberSequence.Restart('P6NoEarlierWrite', 1002); Rows.Put('NoEarlierWrite-B1'); asserterror Error('inner');
+        NumberSequence.Restart('P6NoEarlierWrite', 1002); if NumberSequence.Exists('P6NoEarlierWrite') then if NumberSequence.Current('P6NoEarlierWrite') = 0 then; Rows.Put('NoEarlierWrite-B1'); asserterror Error('inner');
     end;
 
     [Test]
@@ -601,7 +601,7 @@ codeunit 52817 "N6 SecondStep"
     
     procedure B_SecondStepStep()
     begin
-        NumberSequence.Restart('P6SecondStep', 1002); NumberSequence.Restart('P6SecondStep', 1002); Rows.Put('SecondStep-B1'); asserterror Error('inner');
+        NumberSequence.Restart('P6SecondStep', 1002); if NumberSequence.Exists('P6SecondStep') then if NumberSequence.Current('P6SecondStep') = 0 then; NumberSequence.Restart('P6SecondStep', 1002); if NumberSequence.Exists('P6SecondStep') then if NumberSequence.Current('P6SecondStep') = 0 then; Rows.Put('SecondStep-B1'); asserterror Error('inner');
     end;
 
     [Test]
@@ -635,7 +635,7 @@ codeunit 52818 "N6 CommitInStepBody"
     
     procedure B_CommitInStepBodyStep()
     begin
-        Rows.Put('CommitInStepBody-B1'); Commit(); NumberSequence.Restart('P6CommitInStepBody', 1002); Rows.Put('CommitInStepBody-B1'); asserterror Error('inner');
+        Rows.Put('CommitInStepBody-B1'); Commit(); NumberSequence.Restart('P6CommitInStepBody', 1002); if NumberSequence.Exists('P6CommitInStepBody') then if NumberSequence.Current('P6CommitInStepBody') = 0 then; Rows.Put('CommitInStepBody-B1'); asserterror Error('inner');
     end;
 
     [Test]
@@ -669,7 +669,7 @@ codeunit 52819 "N6 ComputedError"
     
     procedure B_ComputedErrorStep()
     begin
-        NumberSequence.Restart('P6ComputedError', 1002); Rows.Put('ComputedError-B1'); asserterror Error(StrSubstNo('inner %1', 1));
+        NumberSequence.Restart('P6ComputedError', 1002); if NumberSequence.Exists('P6ComputedError') then if NumberSequence.Current('P6ComputedError') = 0 then; Rows.Put('ComputedError-B1'); asserterror Error(StrSubstNo('inner %1', 1));
     end;
 
     [Test]
@@ -703,7 +703,7 @@ codeunit 52820 "N6 ReadAfterUndo"
     
     procedure B_ReadAfterUndoStep()
     begin
-        NumberSequence.Restart('P6ReadAfterUndo', 1002); Rows.Put('ReadAfterUndo-B1'); asserterror Error('inner'); if NumberSequence.Current('P6ReadAfterUndo') <> 2 then Error('B read %1', NumberSequence.Current('P6ReadAfterUndo'));
+        NumberSequence.Restart('P6ReadAfterUndo', 1002); if NumberSequence.Exists('P6ReadAfterUndo') then if NumberSequence.Current('P6ReadAfterUndo') = 0 then; Rows.Put('ReadAfterUndo-B1'); asserterror Error('inner'); if NumberSequence.Current('P6ReadAfterUndo') <> 2 then Error('B read %1', NumberSequence.Current('P6ReadAfterUndo'));
     end;
 
     [Test]
@@ -737,7 +737,7 @@ codeunit 52821 "N6 ReadAfterDeleteUndo"
     
     procedure B_ReadAfterDeleteUndoStep()
     begin
-        NumberSequence.Delete('P6ReadAfterDeleteUndo'); Rows.Put('ReadAfterDeleteUndo-B1'); asserterror Error('inner'); if not NumberSequence.Exists('P6ReadAfterDeleteUndo') then Error('B missing'); Error('B deliberate');
+        NumberSequence.Delete('P6ReadAfterDeleteUndo'); if NumberSequence.Exists('P6ReadAfterDeleteUndo') then; Rows.Put('ReadAfterDeleteUndo-B1'); asserterror Error('inner'); if not NumberSequence.Exists('P6ReadAfterDeleteUndo') then Error('B missing'); Error('B deliberate');
     end;
 
     [Test]
@@ -770,7 +770,7 @@ codeunit 52822 "N6 ReadAfterKeep"
     
     procedure B_ReadAfterKeepStep()
     begin
-        NumberSequence.Restart('P6ReadAfterKeep', 1002); asserterror Error('inner'); if NumberSequence.Current('P6ReadAfterKeep') <> 1002 then Error('B read %1', NumberSequence.Current('P6ReadAfterKeep'));
+        NumberSequence.Restart('P6ReadAfterKeep', 1002); if NumberSequence.Exists('P6ReadAfterKeep') then if NumberSequence.Current('P6ReadAfterKeep') = 0 then; asserterror Error('inner'); if NumberSequence.Current('P6ReadAfterKeep') <> 1002 then Error('B read %1', NumberSequence.Current('P6ReadAfterKeep'));
     end;
 
     [Test]
@@ -803,7 +803,7 @@ codeunit 52823 "N6 RE3WriteAfter"
     [Test]
     procedure B_RE3WriteAfterStep()
     begin
-        NumberSequence.Restart('P6RE3WriteAfter', 1002); asserterror Error('inner'); Rows.Put('RE3WriteAfter-B1'); Error('B deliberate');
+        NumberSequence.Restart('P6RE3WriteAfter', 1002); if NumberSequence.Exists('P6RE3WriteAfter') then if NumberSequence.Current('P6RE3WriteAfter') = 0 then; asserterror Error('inner'); Rows.Put('RE3WriteAfter-B1'); Error('B deliberate');
     end;
 
     [Test]
@@ -834,7 +834,7 @@ codeunit 52824 "N6 RE3EarlierAsserterror"
     [Test]
     procedure B_RE3EarlierAsserterrorStep()
     begin
-        NumberSequence.Restart('P6RE3EarlierAsserterror', 1002); asserterror Error('inner'); Error('B deliberate');
+        NumberSequence.Restart('P6RE3EarlierAsserterror', 1002); if NumberSequence.Exists('P6RE3EarlierAsserterror') then if NumberSequence.Current('P6RE3EarlierAsserterror') = 0 then; asserterror Error('inner'); Error('B deliberate');
     end;
 
     [Test]
@@ -865,7 +865,7 @@ codeunit 52825 "N6 RE3OtherChanged"
     [Test]
     procedure B_RE3OtherChangedStep()
     begin
-        NumberSequence.Restart('P6RE3OtherChanged', 1002); asserterror Error('inner'); Error('B deliberate');
+        NumberSequence.Restart('P6RE3OtherChanged', 1002); if NumberSequence.Exists('P6RE3OtherChanged') then if NumberSequence.Current('P6RE3OtherChanged') = 0 then; asserterror Error('inner'); Error('B deliberate');
     end;
 
     [Test]
@@ -876,3 +876,211 @@ codeunit 52825 "N6 RE3OtherChanged"
         Error('OBS cur=%1 row=%2', NumberSequence.Current('P6RE3OtherChanged', true), Rows.Has('RE3OtherChanged-B1'));
     end;
 }
+
+codeunit 52826 "N6 NoReadAfterStep"
+{
+    Subtype = Test;
+    var
+        Rows: Codeunit "N6 Rows";
+        InnerErr: Label 'inner';
+
+    trigger OnRun()
+    begin
+        if not NumberSequence.Exists('P6NoReadAfterStep') then begin NumberSequence.Insert('P6NoReadAfterStep', 1, 1); NumberSequence.Next('P6NoReadAfterStep'); NumberSequence.Next('P6NoReadAfterStep'); end;
+    end;
+
+    [Test]
+    procedure A_NoReadAfterStepWritesCommits()
+    begin
+        Rows.Put('NoReadAfterStep-INIT'); Commit();
+    end;
+
+    [Test]
+    
+    procedure B_NoReadAfterStepStep()
+    begin
+        NumberSequence.Restart('P6NoReadAfterStep', 1002); asserterror Error('inner');
+    end;
+
+    [Test]
+    procedure C_NoReadAfterStepReads()
+    begin
+        if not NumberSequence.Exists('P6NoReadAfterStep', true) then
+            Error('OBS missing row=%1', Rows.Has('NoReadAfterStep-B1'));
+        Error('OBS cur=%1 row=%2', NumberSequence.Current('P6NoReadAfterStep', true), Rows.Has('NoReadAfterStep-B1'));
+    end;
+}
+
+codeunit 52827 "N6 CurrentAfterStep"
+{
+    Subtype = Test;
+    var
+        Rows: Codeunit "N6 Rows";
+        InnerErr: Label 'inner';
+
+    trigger OnRun()
+    begin
+        if not NumberSequence.Exists('P6CurrentAfterStep') then begin NumberSequence.Insert('P6CurrentAfterStep', 1, 1); NumberSequence.Next('P6CurrentAfterStep'); NumberSequence.Next('P6CurrentAfterStep'); end;
+    end;
+
+    [Test]
+    procedure A_CurrentAfterStepWritesCommits()
+    begin
+        Rows.Put('CurrentAfterStep-INIT'); Commit();
+    end;
+
+    [Test]
+    
+    procedure B_CurrentAfterStepStep()
+    begin
+        NumberSequence.Restart('P6CurrentAfterStep', 1002); if NumberSequence.Current('P6CurrentAfterStep') = 0 then; asserterror Error('inner');
+    end;
+
+    [Test]
+    procedure C_CurrentAfterStepReads()
+    begin
+        if not NumberSequence.Exists('P6CurrentAfterStep', true) then
+            Error('OBS missing row=%1', Rows.Has('CurrentAfterStep-B1'));
+        Error('OBS cur=%1 row=%2', NumberSequence.Current('P6CurrentAfterStep', true), Rows.Has('CurrentAfterStep-B1'));
+    end;
+}
+
+codeunit 52828 "N6 ExistsAfterStep"
+{
+    Subtype = Test;
+    var
+        Rows: Codeunit "N6 Rows";
+        InnerErr: Label 'inner';
+
+    trigger OnRun()
+    begin
+        if not NumberSequence.Exists('P6ExistsAfterStep') then begin NumberSequence.Insert('P6ExistsAfterStep', 1, 1); NumberSequence.Next('P6ExistsAfterStep'); NumberSequence.Next('P6ExistsAfterStep'); end;
+    end;
+
+    [Test]
+    procedure A_ExistsAfterStepWritesCommits()
+    begin
+        Rows.Put('ExistsAfterStep-INIT'); Commit();
+    end;
+
+    [Test]
+    
+    procedure B_ExistsAfterStepStep()
+    begin
+        NumberSequence.Restart('P6ExistsAfterStep', 1002); if NumberSequence.Exists('P6ExistsAfterStep') then; asserterror Error('inner');
+    end;
+
+    [Test]
+    procedure C_ExistsAfterStepReads()
+    begin
+        if not NumberSequence.Exists('P6ExistsAfterStep', true) then
+            Error('OBS missing row=%1', Rows.Has('ExistsAfterStep-B1'));
+        Error('OBS cur=%1 row=%2', NumberSequence.Current('P6ExistsAfterStep', true), Rows.Has('ExistsAfterStep-B1'));
+    end;
+}
+
+codeunit 52829 "N6 TwoSequencesRestarted"
+{
+    Subtype = Test;
+    var
+        Rows: Codeunit "N6 Rows";
+        InnerErr: Label 'inner';
+
+    trigger OnRun()
+    begin
+        if not NumberSequence.Exists('P6TwoSequencesRestartedX') then NumberSequence.Insert('P6TwoSequencesRestartedX', 1, 1);
+        if not NumberSequence.Exists('P6TwoSequencesRestarted') then begin NumberSequence.Insert('P6TwoSequencesRestarted', 1, 1); NumberSequence.Next('P6TwoSequencesRestarted'); NumberSequence.Next('P6TwoSequencesRestarted'); end;
+    end;
+
+    [Test]
+    procedure A_TwoSequencesRestartedWritesCommits()
+    begin
+        Rows.Put('TwoSequencesRestarted-INIT'); Commit();
+    end;
+
+    [Test]
+    
+    procedure B_TwoSequencesRestartedStep()
+    begin
+        NumberSequence.Restart('P6TwoSequencesRestartedX', 1002); NumberSequence.Restart('P6TwoSequencesRestarted', 1002); if NumberSequence.Exists('P6TwoSequencesRestarted') then if NumberSequence.Current('P6TwoSequencesRestarted') = 0 then; asserterror Error('inner');
+    end;
+
+    [Test]
+    procedure C_TwoSequencesRestartedReads()
+    begin
+        if not NumberSequence.Exists('P6TwoSequencesRestarted', true) then
+            Error('OBS missing row=%1', Rows.Has('TwoSequencesRestarted-B1'));
+        Error('OBS cur=%1 row=%2', NumberSequence.Current('P6TwoSequencesRestarted', true), Rows.Has('TwoSequencesRestarted-B1'));
+    end;
+}
+
+codeunit 52830 "N6 TestPageBeforeStep"
+{
+    Subtype = Test;
+    var
+        Rows: Codeunit "N6 Rows";
+        TP: TestPage "N6 Row List";
+        InnerErr: Label 'inner';
+
+    trigger OnRun()
+    begin
+        if not NumberSequence.Exists('P6TestPageBeforeStep') then begin NumberSequence.Insert('P6TestPageBeforeStep', 1, 1); NumberSequence.Next('P6TestPageBeforeStep'); NumberSequence.Next('P6TestPageBeforeStep'); end;
+    end;
+
+    [Test]
+    procedure A_TestPageBeforeStepWritesCommits()
+    begin
+        Rows.Put('TestPageBeforeStep-INIT'); Commit();
+    end;
+
+    [Test]
+    
+    procedure B_TestPageBeforeStepStep()
+    begin
+        TP.OpenView(); TP.Close(); NumberSequence.Restart('P6TestPageBeforeStep', 1002); if NumberSequence.Exists('P6TestPageBeforeStep') then if NumberSequence.Current('P6TestPageBeforeStep') = 0 then; asserterror Error('inner');
+    end;
+
+    [Test]
+    procedure C_TestPageBeforeStepReads()
+    begin
+        if not NumberSequence.Exists('P6TestPageBeforeStep', true) then
+            Error('OBS missing row=%1', Rows.Has('TestPageBeforeStep-B1'));
+        Error('OBS cur=%1 row=%2', NumberSequence.Current('P6TestPageBeforeStep', true), Rows.Has('TestPageBeforeStep-B1'));
+    end;
+}
+
+codeunit 52831 "N6 TestPageAfterStep"
+{
+    Subtype = Test;
+    var
+        Rows: Codeunit "N6 Rows";
+        TP: TestPage "N6 Row List";
+        InnerErr: Label 'inner';
+
+    trigger OnRun()
+    begin
+        if not NumberSequence.Exists('P6TestPageAfterStep') then begin NumberSequence.Insert('P6TestPageAfterStep', 1, 1); NumberSequence.Next('P6TestPageAfterStep'); NumberSequence.Next('P6TestPageAfterStep'); end;
+    end;
+
+    [Test]
+    procedure A_TestPageAfterStepWritesCommits()
+    begin
+        Rows.Put('TestPageAfterStep-INIT'); Commit();
+    end;
+
+    [Test]
+    
+    procedure B_TestPageAfterStepStep()
+    begin
+        NumberSequence.Restart('P6TestPageAfterStep', 1002); if NumberSequence.Exists('P6TestPageAfterStep') then if NumberSequence.Current('P6TestPageAfterStep') = 0 then; TP.OpenView(); TP.Close(); asserterror Error('inner');
+    end;
+
+    [Test]
+    procedure C_TestPageAfterStepReads()
+    begin
+        if not NumberSequence.Exists('P6TestPageAfterStep', true) then
+            Error('OBS missing row=%1', Rows.Has('TestPageAfterStep-B1'));
+        Error('OBS cur=%1 row=%2', NumberSequence.Current('P6TestPageAfterStep', true), Rows.Has('TestPageAfterStep-B1'));
+    end;
+}
+
