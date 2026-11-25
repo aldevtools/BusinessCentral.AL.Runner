@@ -44,7 +44,7 @@ const _: fn() = || {
     both::<Start>();
 };
 
-/// Why a session does not take a start, each counted in the report.
+/// Why a session does not take a start, each counted in the report's starts line (`Starts::line`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NotTaken {
     /// The run notes the code it runs: `--explain` or an observer, coverage, the impact trace, the profiler.
@@ -321,22 +321,28 @@ pub(crate) fn record(
     if starts(engine).knows(&key) {
         return;
     }
-    let start = session.login_image(base).map(|image| Start {
-        image,
-        wrote: wrote.clone(),
-        hits,
+    keep(engine, key, base, || {
+        session.login_image(base).map(|image| Start {
+            image,
+            wrote: wrote.clone(),
+            hits,
+        })
     });
-    keep(engine, key, base, start);
 }
 
-/// Keeps `start` as the start of `key` ([`Starts::record`]) when the session it was taken from was a thaw target before its
-/// login (`base`, `LoginBase::target_why`), as a later session must be to take it ([`target_gate`]); else the session is
-/// counted as refused by the gate.
-pub(crate) fn keep(engine: &Engine, key: Key, base: &al_vm::LoginBase, start: Result<Start, NotImaged>) {
+/// Keeps the start `start` makes as the start of `key` ([`Starts::record`]) when the session it is taken from was a
+/// thaw target before its login (`base`, `LoginBase::target_why`), as a later session must be to take it
+/// ([`target_gate`]); else the session is counted as refused by the gate, and no start is made.
+pub(crate) fn keep(
+    engine: &Engine,
+    key: Key,
+    base: &al_vm::LoginBase,
+    start: impl FnOnce() -> Result<Start, NotImaged>,
+) {
     let starts = starts(engine);
     match base.target_why() {
         Some(field) => starts.not_taken(NotTaken::Target(field)),
-        None => starts.record(key, start),
+        None => starts.record(key, start()),
     }
 }
 

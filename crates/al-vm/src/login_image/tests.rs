@@ -1006,7 +1006,19 @@ fn the_base_shape_names_an_empty_entry_and_an_emptied_mark() {
         emptied.session.base_shape(),
         "a table emptied by DeleteAll is marked"
     );
-    assert!(!emptied.session.base_shape().emptied.is_empty());
+    assert!(!emptied.session.base_shape().marks.emptied.is_empty());
+}
+
+// A company deleted with its rows takes the rows the database holds in it (`MemStore::drop_company`), which no row shows:
+// two stores with the same rows differ in it, and a row delta put on the one assumes the other's reads (maintainer's
+// review of al-runner PR 8665).
+#[test]
+fn the_base_shape_names_a_deleted_company() {
+    let mut deleted = fx();
+    deleted.session.store.drop_company("Other");
+    deleted.session.commit_transaction();
+    let fresh = fx();
+    assert_ne!(deleted.session.base_shape(), fresh.session.base_shape());
 }
 
 // The image keeps the shape of the store its login started from, so a replay can compare it with the target's.

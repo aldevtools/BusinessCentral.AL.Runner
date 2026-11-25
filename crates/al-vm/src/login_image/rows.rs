@@ -42,7 +42,7 @@ pub(super) struct LoginRows {
 impl LoginRows {
     /// The committed rows of `store` apart from `base`, the store the login started from, whose entries `base_tables`
     /// lists ((company, object, rows) of `Session::base_shape`). Rows are the same when their bytes are. `None` when a
-    /// row that differs has no bytes form, or the company copies differ.
+    /// row that differs has no bytes form, or the company copies or the deleted companies differ.
     pub(super) fn take(store: &MemStore, base: &MemStore, base_tables: &[(String, u32, usize)]) -> Option<LoginRows> {
         let (mut x, mut y) = (Vec::new(), Vec::new());
         let mut same = |a: &[Value], b: &[Value]| (bytes(a, &mut x) && bytes(b, &mut y)).then(|| x == y);
@@ -73,11 +73,10 @@ impl LoginRows {
                 gone,
             });
         }
-        let (emptied, _) = store.committed_marks();
         Some(LoginRows {
             tables,
             gone: changes.gone,
-            emptied,
+            emptied: store.committed_marks().emptied,
         })
     }
 
@@ -160,7 +159,7 @@ pub(super) fn marked_as(
     touched: &BTreeSet<Slot>,
 ) -> Option<Vec<(ExportedTable, bool)>> {
     let want: BTreeSet<&Slot> = emptied.iter().collect();
-    let (have, _) = store.committed_marks();
+    let have = store.committed_marks().emptied;
     let have: BTreeSet<&Slot> = have.iter().collect();
     let mut out = Vec::new();
     for slot in want.symmetric_difference(&have) {

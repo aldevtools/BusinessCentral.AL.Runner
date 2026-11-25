@@ -272,17 +272,19 @@ fn open_company(
                 crate::login_start::no_key(&engine, no_key);
             }
             if let (Some(key), Some(base), true) = (key, base, wrote.raised) {
-                // The check's twin: brought to its login by the steps of `Start::open`, as the replay's target is when
-                // it takes a start (`Steps::twin`).
-                let on = start.twin_baseline();
-                let twin = || steps.twin(scratch, on.as_ref());
                 // Without the check, a base is taken only for a start that will be recorded (`records`).
                 match check {
-                    true => crate::login_replay::checked(&engine, session, key, &base, &wrote, hits, gate, twin),
+                    true => {
+                        // The check's twin: brought to its login by the steps of `Start::open`, as the replay's target
+                        // is when it takes a start (`Steps::twin`). The install baseline is frozen for it only here.
+                        let on = start.twin_baseline();
+                        let twin = || steps.twin(scratch, on.as_ref());
+                        crate::login_replay::checked(&engine, session, key, &base, &wrote, hits, gate, twin)
+                    }
                     false => crate::login_start::record(&engine, key, session, &base, &wrote, hits),
                 }
                 #[cfg(test)]
-                crate::login_replay::serve_twin(session, &base, twin);
+                crate::login_replay::serve_twin(session, &base, || steps.twin(scratch, start.twin_baseline().as_ref()));
             }
             (wrote, hits)
         }

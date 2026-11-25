@@ -436,6 +436,20 @@ fn a_key_that_is_not_imaged_runs_the_login_every_time_and_is_frozen_once() {
     assert!(line.contains(", 1 not imaged"), "one key, frozen once: {line}");
 }
 
+// With the replay alone (no check), the report is the starts line: the keys not imaged, the starts too large and the
+// sessions the gate or a refused thaw kept from a start are counted there and nowhere else (maintainer's review of
+// al-runner PR 8665).
+#[test]
+fn with_the_replay_alone_the_report_is_the_starts_line() {
+    let (engine, l) = compiled_with(&format!("{MAIN}{OPAQUE_INSIDE}"));
+    sessions(&engine, &l, "RPL Tests A", 2, &on());
+    let line = starts(&engine).line().expect("a line once a key was refused");
+    assert!(line.contains(", 1 not imaged"), "{line}");
+    assert_eq!(crate::login_replay::report(&engine), Some(line));
+    let (_, line) = gated_line(&|s| s.perturb.library_seed = Some(3), false);
+    assert!(line.is_some_and(|l| l.starts_with("login start: 0 replayed") && l.contains("refused by the gate")));
+}
+
 /// How many times `open_company` took a session before its login while `run` ran.
 fn bases_taken(run: impl FnOnce()) -> u32 {
     login_start::BASES.with(|b| b.set(0));
@@ -784,7 +798,7 @@ fn the_gate_refuses_a_target_whose_base_has_another_shape() {
 }
 
 /// Runs "RPL Tests A" twice with `tweak` on both runs (and an observer when `observed`): the second session would take
-/// the first's start. Returns the report line of the starts.
+/// the first's start. Returns how many sessions replayed, and the report (the starts line, with the replay alone).
 fn gated_line(tweak: &dyn Fn(&mut Scratch), observed: bool) -> (u64, Option<String>) {
     let (engine, l) = compiled();
     let ran = sessions_with(
@@ -800,7 +814,7 @@ fn gated_line(tweak: &dyn Fn(&mut Scratch), observed: bool) -> (u64, Option<Stri
         },
     );
     assert_one_state(&ran, "gated");
-    (starts(&engine).replayed(), starts(&engine).line())
+    (starts(&engine).replayed(), crate::login_replay::report(&engine))
 }
 
 // At run level: a run that follows the code it runs, a perturbation and a set clock start never take a start, and the
@@ -1231,4 +1245,109 @@ fn a_session_whose_login_is_not_raised_is_not_counted_as_no_key() {
     sessions_with(&engine, &l, "RPL Own Tests", 2, &check, &setup);
     assert_eq!(starts(&engine).line(), None);
     assert_eq!(crate::login_replay::report(&engine), None);
+}
+
+/// [`MAIN`] with the Company table, a table of the apps under test whose rows the database holds in company `Other`
+/// ([`OtherCompanyRows`]), a login subscriber that makes company `Other` and deletes it with its rows, and a test that
+/// makes the company again and reads its table there: a company deleted and made again starts empty
+/// (record/TestChangeCompanyFiltersCopyDeleteContracts.al:204-212; al-vm `store/companies.rs`
+/// `deleting_and_recreating_a_selected_backup_company_starts_empty`).
+const DELETES_A_COMPANY: &str = r#"
+table 2000000006 Company { DataPerCompany = false;
+  fields { field(1; Name; Text[30]) { } field(2; "Evaluation Company"; Boolean) { } field(3; "Display Name"; Text[250]) { } field(8000; Id; Guid) { } }
+  keys { key(PK; Name) { } } }
+table 77496 "RPL Company Row" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+codeunit 77497 "RPL Company Remover"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
+    local procedure RegisterManualSetup()
+    var Co: Record Company;
+    begin
+        Co.Name := 'Other'; Co.Insert(); Co.Delete(true);
+    end;
+}
+codeunit 77498 "RPL Company Tests"
+{
+    Subtype = Test;
+    [Test]
+    procedure TheDeletedCompanyStartsEmpty()
+    var Co: Record Company; R: Record "RPL Company Row";
+    begin
+        Co.Name := 'Other'; Co.Insert();
+        R.ChangeCompany('Other');
+        if R.FindFirst() then Error('a row of the deleted company');
+    end;
+}
+"#;
+
+/// A database whose company `Other` holds one row of "RPL Company Row"; the session company holds none.
+struct OtherCompanyRows;
+
+impl al_host::testdata::TableProvider for OtherCompanyRows {
+    fn company(&self) -> &str {
+        "CRONUS International Ltd."
+    }
+
+    fn known_companies(&self) -> Option<Vec<String>> {
+        Some(vec!["CRONUS International Ltd.".into(), "Other".into()])
+    }
+
+    fn source(&self) -> String {
+        "other company rows".into()
+    }
+
+    fn read(
+        &self,
+        table: &al_host::testdata::TableRequest,
+    ) -> Result<Arc<al_host::testdata::TableRows>, al_host::testdata::TableError> {
+        self.read_for_company("CRONUS International Ltd.", table)
+    }
+
+    fn read_for_company(
+        &self,
+        company: &str,
+        table: &al_host::testdata::TableRequest,
+    ) -> Result<Arc<al_host::testdata::TableRows>, al_host::testdata::TableError> {
+        match (table.name.as_str(), company) {
+            ("RPL Company Row", "Other") => Ok(Arc::new(al_host::testdata::TableRows {
+                columns: vec!["Id".into()],
+                rows: vec![vec![al_host::testdata::Cell::Int(1)]],
+            })),
+            _ => Err(al_host::testdata::TableError::Absent),
+        }
+    }
+}
+
+/// [`compiled_with`] `src`, on a database of [`OtherCompanyRows`].
+fn compiled_over_other_company_rows(src: &str) -> (Arc<Engine>, Lowered) {
+    let (mut engine, l) = compiled_with(src);
+    Arc::get_mut(&mut engine).expect("a new engine").test_data =
+        Some(al_host::testdata::TestData::new(Arc::new(OtherCompanyRows)));
+    (engine, l)
+}
+
+// Maintainer's review of al-runner PR 8665: a login that deletes a company takes the rows the database holds in it
+// (`MemStore::drop_company`, a mark the rows do not show). A later session of the key answers as a real login's: the
+// company made again starts empty.
+#[test]
+fn a_login_that_deletes_a_company_leaves_it_deleted_in_every_session_of_its_key() {
+    let src = format!("{MAIN}{DELETES_A_COMPANY}");
+    let passes = vec![("TheDeletedCompanyStartsEmpty".to_string(), Outcome::Pass)];
+    let (off_engine, l) = compiled_over_other_company_rows(&src);
+    let real = sessions(&off_engine, &l, "RPL Company Tests", 1, &RunOptions::default());
+    assert_eq!(
+        real.outcomes,
+        std::slice::from_ref(&passes),
+        "GUARD: a real login's session passes"
+    );
+    let (engine, l) = compiled_over_other_company_rows(&src);
+    let ran = sessions(&engine, &l, "RPL Company Tests", 3, &on());
+    assert_eq!(ran.outcomes, vec![passes; 3]);
+    // The rows do not carry the deleted company: the image refuses the session, and every session runs its login.
+    assert_eq!(starts(&engine).replayed(), 0);
+    let line = starts(&engine).line().unwrap_or_default();
+    assert!(line.contains("1 not imaged (1: rows: "), "{line}");
+    for (i, s) in ran.states.iter().enumerate() {
+        assert_eq!(first_difference(s, &real.states[0]), None, "session {i}");
+    }
 }
