@@ -66,7 +66,8 @@ impl<'a> Observed<'a> {
 pub type Observer<'a> = dyn FnMut(&str, &Outcome, &Observed) + 'a;
 
 /// [`run_codeunit_isolated`] that tells `observe` how each test ended and turns on the session's
-/// fault tracing for it (`--explain`).
+/// fault tracing for it (`--explain`). The call is a run of its own: it begins its clock. A caller whose baseline was
+/// made at another clock passes that one to [`run_codeunit_full`].
 pub fn run_codeunit_observed(
     engine: &Arc<Engine>,
     lowered: &Lowered,
@@ -86,10 +87,12 @@ pub fn run_codeunit_observed(
         &mut Vec::new(),
         &mut Vec::new(),
         None,
+        crate::host::RunClock::begin(),
     )
 }
 
-/// [`run_codeunit_isolated`] where a test that runs longer than `limit` is stopped and not run.
+/// [`run_codeunit_isolated`] where a test that runs longer than `limit` is stopped and not run. A run of its own, as
+/// [`run_codeunit_observed`].
 pub fn run_codeunit_limited(
     engine: &Arc<Engine>,
     lowered: &Lowered,
@@ -109,6 +112,7 @@ pub fn run_codeunit_limited(
         &mut Vec::new(),
         &mut Vec::new(),
         limit,
+        crate::host::RunClock::begin(),
     )
 }
 
@@ -161,7 +165,8 @@ pub(crate) fn runner_frames(program: &al_ir::Program, engine: &Engine, hub_leg: 
 }
 
 /// [`run_codeunit_observed`] that also collects, for each test that failed with an AL error, the AL
-/// call stack of that error as `(test name, stack)` (`GetLastErrorCallStack` form, innermost first).
+/// call stack of that error as `(test name, stack)` (`GetLastErrorCallStack` form, innermost first). The sessions read
+/// `clock`, the clock of the run `baseline` belongs to (ADR-045, amendment of 2026-11-22).
 #[allow(clippy::too_many_arguments)]
 pub fn run_codeunit_full(
     engine: &Arc<Engine>,
@@ -174,6 +179,7 @@ pub fn run_codeunit_full(
     times: &mut Vec<(String, std::time::Duration)>,
     hits: &mut Vec<(String, Vec<Assumption>)>,
     limit: Option<std::time::Duration>,
+    clock: crate::host::RunClock,
 ) -> Vec<(String, Outcome)> {
     run_codeunit_core(
         engine,
@@ -185,7 +191,7 @@ pub fn run_codeunit_full(
         stacks,
         times,
         hits,
-        &mut Scratch::default(),
+        &mut Scratch::new(clock),
         limit,
         false,
     )
@@ -231,11 +237,17 @@ fn open_company(
             )
         })
     };
-    let key = (check || (flags.login_replay() && raises()))
+    // No key (a value with no comparable form, a row with no byte form): the session runs its login, counted below
+    // when the login is raised.
+    let (key, no_key) = match (check || (flags.login_replay() && raises()))
         .then(|| crate::login_replay::Key::of(session, (isolation, scratch.hub), flags, skipped_installs))
-        .flatten();
+    {
+        Some(Ok(key)) => (Some(key), None),
+        Some(Err(no_key)) => (None, Some(no_key)),
+        None => (None, None),
+    };
     let notes_code = observed || session.notes_code_run() || crate::profiling::active();
-    let perturbed = *perturb != crate::stability::Perturb::default() || scratch.clock_start.is_some();
+    let perturbed = *perturb != crate::stability::Perturb::default() || scratch.clock_set;
     let facts = crate::login_start::RunFacts {
         notes_code,
         perturbed,
@@ -262,6 +274,9 @@ fn open_company(
                 crate::install::test_session_company_open(lowered, session, disabled, skipped_installs, after_refusal)?;
             session.commit_transaction();
             let hits = al_builtins::assumptions::take_hit_bits();
+            if let (Some(no_key), true) = (&no_key, wrote.raised) {
+                crate::login_start::no_key(&engine, no_key);
+            }
             if let (Some(key), Some(base), true) = (key, base, wrote.raised) {
                 // Without the check, a base is taken only for a start that will be recorded (`records`).
                 match check {
@@ -1660,7 +1675,7 @@ fn session_from(
 
 /// The host of a test codeunit's session: the run's clock and seed, perturbed by a stability run.
 fn session_host(scratch: &Scratch) -> al_host::Host {
-    let mut host = crate::host::host_perturbed(scratch.clock_start, &scratch.perturb);
+    let mut host = crate::host::host_perturbed(scratch.clock, &scratch.perturb);
     host.run_seed = scratch.run_seed.seed;
     host
 }

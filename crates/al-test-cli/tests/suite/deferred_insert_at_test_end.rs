@@ -101,6 +101,7 @@ fn run(codeunit: &str, isolation: TestIsolation) -> Run {
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     (out, stacks, hits)
 }

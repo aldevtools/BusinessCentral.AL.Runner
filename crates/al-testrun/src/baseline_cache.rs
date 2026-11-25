@@ -74,7 +74,7 @@ impl Default for KeyBuilder {
 
 /// The bytes of a run, or `None` when it cannot be kept: its baseline has no bytes (a row holds a value that is not
 /// plain). `started_at` is the instant the run began (Unix milliseconds): the rows of the baseline
-/// carry it, so a run that reads the file starts its own clock there (`SystemClock::begin_at`).
+/// carry it, so a run takes the file only when its own clock starts there (`RunClock`).
 pub fn encode(run: &BaselineRun, started_at: i64) -> Option<Vec<u8>> {
     let mut out = MAGIC.to_vec();
     put_i64(&mut out, started_at);

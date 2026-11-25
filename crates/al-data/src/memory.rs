@@ -29,8 +29,9 @@ mod key_value_tests;
 mod order_carry;
 mod replace;
 mod row_changes;
+pub use row_changes::BeforeRows;
 mod shape;
-pub use shape::CommittedMarks;
+pub use shape::{CommittedMarks, CommittedRows};
 mod source_stamps;
 #[cfg(test)]
 mod source_stamps_tests;

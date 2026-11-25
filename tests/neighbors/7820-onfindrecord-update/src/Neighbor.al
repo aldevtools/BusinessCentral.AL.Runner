@@ -288,9 +288,15 @@ codeunit 97210 "Neighbor 7820 Tests"
     end;
 
     [Test]
-    procedure ThreeRows_KeepMainOpenRead()
+    procedure ThreeRows_KeepMainValues()
     begin
-        CheckStandalone(3, 'F=><;R1;R2;R3;R1;F=;R1;C1;');
+        CheckStandaloneValues(3);
+    end;
+
+    [Test]
+    procedure TwoRows_KeepMainValues()
+    begin
+        CheckStandaloneValues(2);
     end;
 
     [Test]
@@ -363,6 +369,22 @@ codeunit 97210 "Neighbor 7820 Tests"
         ReadLog.Clear();
         OrderCard.Lines.Qty.SetValue(100);
         AssertLog(Expected);
+        OrderCard.Lines."Line No.".AssertEquals(10000);
+        OrderCard.Lines.Qty.AssertEquals(100);
+        OrderCard.Close();
+    end;
+
+    local procedure CheckStandaloneValues(Rows: Integer)
+    var
+        Header: Record "Repro Order Header";
+        OrderCard: TestPage "Standalone Order Card";
+    begin
+        SeedRows(Rows);
+        Header.FindFirst();
+        OrderCard.OpenEdit();
+        OrderCard.GoToRecord(Header);
+        OrderCard.Lines.First();
+        OrderCard.Lines.Qty.SetValue(100);
         OrderCard.Lines."Line No.".AssertEquals(10000);
         OrderCard.Lines.Qty.AssertEquals(100);
         OrderCard.Close();
