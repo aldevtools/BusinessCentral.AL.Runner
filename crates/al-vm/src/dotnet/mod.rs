@@ -35,6 +35,7 @@ mod system_environment;
 mod xml_errors;
 mod zip_entry_streams;
 mod zone_rules;
+pub(crate) use zone_rules::{ValueOrigin, value_origin};
 
 use crate::{Frame, Session};
 use al_builtins::describe::Describe;
@@ -122,6 +123,9 @@ pub struct DotNetState {
     entry_streams: std::collections::HashSet<DotNetHandle>,
     /// `DotNetSite::result_ty` of the call `dotnet_apply` is about to make (taken at its start).
     pub(crate) result_ty: Option<usize>,
+    /// Bit `i` set: argument `i` of the call `dotnet_apply` is about to make is an AL DateTime (`zone_rules.rs`
+    /// `al_datetime_args`; taken at its start).
+    pub(crate) al_datetime_args: u64,
     /// The last .NET result was a null `string` (ADR-024). Set by the reply of a host call and
     /// cleared at the start of every `DotNet` member, so a settle step that runs right after
     /// the member reads the declared type of the null it got.
@@ -148,6 +152,7 @@ impl DotNetState {
             cleared,
             entry_streams,
             result_ty,
+            al_datetime_args,
             null_string,
             password_rng,
         } = self;
@@ -163,6 +168,7 @@ impl DotNetState {
             && cleared.is_empty()
             && entry_streams.is_empty()
             && result_ty.is_none()
+            && *al_datetime_args == 0
             && !null_string
             && password_rng.is_none()
     }
@@ -373,6 +379,7 @@ impl Session {
         };
         let decl = ty.map(declared);
         let result_decl = self.dotnet.result_ty.take().map(declared);
+        let al_datetime_args = std::mem::take(&mut self.dotnet.al_datetime_args);
         let (kind, member) = match op {
             ir::DotNetOp::ClientNull | ir::DotNetOp::ClientAssign | ir::DotNetOp::ClientCall(_) => {
                 unreachable!("answered above")
@@ -545,6 +552,9 @@ impl Session {
                 value: self.value_to_wire(v, i, &mut book).map_err(|e| prefix(e, &shown))?,
                 by_ref: places[i].is_some(),
             });
+        }
+        if let Err(why) = self.zone_datetime_kind(&target, &clr_type, &member, &values, al_datetime_args, &mut wire) {
+            return unsupported(format!("DotNet {shown}: {why}"));
         }
         self.dotnet_ready(
             &clr_type,
@@ -1529,6 +1539,7 @@ impl Session {
             },
             DotNetValue::Str(s) => Value::Text(s.into()),
             DotNetValue::DateTime(ticks) => Value::DateTime(ticks.div_euclid(TICKS_PER_MS) + 1),
+            DotNetValue::DateTimeUtc(_) => return unsupported("the host returned a DateTime of kind Utc"),
             DotNetValue::TimeSpan(ticks) => Value::Duration(ticks.div_euclid(TICKS_PER_MS)),
             DotNetValue::Guid(g) => Value::Guid(g),
             DotNetValue::Enum { ty, name, ordinal } => Value::DotNet(Rc::new(DotNetObject::new(DotNetKind::Enum {

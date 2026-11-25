@@ -793,6 +793,7 @@ fn linux_zone_host() -> Fake {
             reply(DotNetValue::TimeSpan(-34_200 * 10_000_000))
         }
         Req::Invoke(DotNetTarget::Instance(8), m, _) if m == "GetUtcOffset" => reply(DotNetValue::TimeSpan(0)),
+        Req::Invoke(DotNetTarget::Instance(7), m, _) if m == "IsDaylightSavingTime" => reply(DotNetValue::Bool(true)),
         Req::Invoke(DotNetTarget::Instance(7), m, _) if m == "ToString" => {
             reply(DotNetValue::Str("(UTC-10:00) Hawaii-Aleutian Time (Honolulu)".into()))
         }
@@ -4658,4 +4659,70 @@ fn the_members_that_only_answer_are_registered_calls() {
     assert!(!answers_only(helper, "IsProduction"));
     assert!(!answers_only(helper, "SetTestTenantEnvironmentType"));
     assert!(!holds_answering_class("System.Text.StringBuilder"));
+}
+
+/// The wire values of the arguments of the first request of `member`.
+fn args_of(host: &Fake, member: &str) -> Vec<DotNetValue> {
+    host.calls()
+        .iter()
+        .find_map(|c| match c {
+            Req::Invoke(_, m, a) if m == member => Some(a.iter().map(|a| a.value.clone()).collect()),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
+/// Issue 8587: `GetUtcOffset` and `IsDaylightSavingTime` get an AL DateTime as a UTC moment (kind Utc on the wire), on a
+/// Windows host and, for the session clock's year, off Windows (assumption `zone-datetime-utc-instant`).
+#[test]
+fn an_al_datetime_reaches_a_zone_as_a_utc_moment() {
+    let at = "CreateDateTime(DMY2Date(1, 6, 2024), 120000T)";
+    for (windows, member, vars, body) in [
+        (true, "GetUtcOffset", ZONE_VARS, format!("D := Z.GetUtcOffset({at}); exit(Format(D));")),
+        (false, "GetUtcOffset", ZONE_VARS, format!("D := Z.GetUtcOffset({at}); exit(Format(D));")),
+        (true, "IsDaylightSavingTime", ZONE_VARS, format!("exit(Format(Z.IsDaylightSavingTime({at})));")),
+        (
+            true,
+            "GetUtcOffset",
+            "Z: DotNet TimeZoneInfo; D: Duration; At: DateTime;",
+            format!("At := {at}; D := Z.GetUtcOffset(At); exit(Format(D));"),
+        ),
+    ] {
+        let host = linux_zone_host();
+        let r = run_with(zone_cfg(&host, windows), vars, &format!("{HAWAII} {body}"), ": Text");
+        assert!(r.result.is_ok(), "{body}: {:?}", r.result);
+        assert!(
+            matches!(args_of(&host, member).as_slice(), [DotNetValue::DateTimeUtc(_)]),
+            "{body}: {:?}",
+            host.calls()
+        );
+    }
+}
+
+/// Issue 8587, the shapes the assumption does not cover, on a Windows host where the policy lets every member through: a
+/// DateTime a DotNet variable holds, a Date, and another member that reads a DateTime's kind are refused before the host.
+#[test]
+fn a_zone_refuses_a_datetime_of_unmeasured_kind_on_windows() {
+    let at = "CreateDateTime(DMY2Date(1, 6, 2024), 120000T)";
+    for (member, vars, body) in [
+        (
+            "GetUtcOffset",
+            "Z: DotNet TimeZoneInfo; D: Duration; Dn: DotNet ClrDateTime;",
+            format!("Dn := {at}; D := Z.GetUtcOffset(Dn); exit(Format(D));"),
+        ),
+        ("GetUtcOffset", ZONE_VARS, "D := Z.GetUtcOffset(DMY2Date(1, 6, 2024)); exit(Format(D));".to_string()),
+        ("IsAmbiguousTime", ZONE_VARS, format!("exit(Format(Z.IsAmbiguousTime({at})));")),
+        ("ConvertTimeFromUtc", ZONE_VARS, format!("exit(Format(Z.ConvertTimeFromUtc({at}, Z)));")),
+        (
+            "GetUtcOffset",
+            ZONE_VARS,
+            format!("D := Z.GetUtcOffset(RoundDateTime({at}, 1000)); exit(Format(D));"),
+        ),
+    ] {
+        let host = linux_zone_host();
+        let r = run_with(zone_cfg(&host, true), vars, &format!("{HAWAII} {body}"), ": Text");
+        let why = unsupported(&r);
+        assert!(why.contains(&format!("System.TimeZoneInfo.{member}")) && why.contains("not measured"), "{body}: {why}");
+        assert!(!reached(&host, member), "{body}: {:?}", host.calls());
+    }
 }
