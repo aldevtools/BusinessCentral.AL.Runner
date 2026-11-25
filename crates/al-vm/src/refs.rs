@@ -1210,7 +1210,7 @@ impl Session {
             // As Record.Truncate: every row the filters select goes, with or without the argument
             // (recordref-fieldref/recordref/P92Counts.al:124-186, Truncate_Unfiltered, Truncate_WithFilter,
             // Truncate_WithoutTriggerArgument).
-            "Truncate" => self.record_op(RecordOp::Truncate, &rec, args),
+            "Truncate" => self.recordref_record_op(method, &rec, args),
             // Field(FieldName): the name is matched case-insensitively and as given, never trimmed, and a caption is not a
             // name; an unknown name raises FieldNotFound with the supplied text
             // (recordref-fieldref/P107RecRefNames.al:25-60).
