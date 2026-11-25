@@ -5,11 +5,12 @@
 //!   the company by first sight over the whole check ([`Companies`]: a company name can be a customer's, so it is never
 //!   shown), or `global/table object T` for a table that is not per company;
 //! - per state line name, the session state lines of that name (`Session::state_lines`: every line starts with a name the
-//!   runtime writes, `session`, `single`, `counters`, ...: its first word), and the lines with no comparable form as
-//!   `not comparable`.
+//!   runtime writes, `session`, `single`, `counters`, ...: its first word). A session that holds a value with no
+//!   comparable form has no key (`Key::of`).
 //!
-//! A table the store exports without rows has no part: `rows` writes no line for it, so the whole `database` digest does
-//! not see it either, and the keys line never names it.
+//! A table the store exports without rows has no part and no digest ([`store_table_digests`]): `rows` writes no line
+//! for it, so the whole `database` digest does not see it either, and the keys line never names it. Whether a table has
+//! an entry is the replay's base shape (al-vm `BaseShape`), which the start's gate compares apart from the key.
 //!
 //! The parts are never compared: a key holds them as [`NotCompared`], so which keys are equal is decided by the key's
 //! fields alone (the maintainer's review of this check, issue 8211).
@@ -39,27 +40,83 @@ pub(crate) struct KeyParts {
     session: BTreeMap<String, LinesDigest>,
 }
 
-impl KeyParts {
-    /// The parts of the committed rows `tables` (one line per row, as `rows` writes them) and the state `state`.
-    pub(crate) fn of(tables: &[al_data::memory::ExportedTable], state: &al_vm::StateLines) -> KeyParts {
-        let database = (tables.iter().filter(|t| !t.rows.is_empty()))
-            .map(|t| {
-                (
-                    (t.company.clone(), t.object),
-                    digest(&super::rows(std::slice::from_ref(t))),
-                )
+/// The digest of the committed row lines of table `t` (as `rows` writes them).
+fn table_digest(t: &al_data::memory::ExportedTable) -> LinesDigest {
+    digest(&super::rows(std::slice::from_ref(t)))
+}
+
+/// Per (company, table object), [`table_digest`] of each of `tables` that holds a row.
+#[cfg(test)]
+pub(crate) fn table_digests(tables: &[al_data::memory::ExportedTable]) -> BTreeMap<(String, u32), LinesDigest> {
+    (tables.iter().filter(|t| !t.rows.is_empty()))
+        .map(|t| ((t.company.clone(), t.object), table_digest(t)))
+        .collect()
+}
+
+/// [`table_digests`] of the committed tables of `store`, each digest made once per state of its table: a table's stamp
+/// names one state of it in every store of the process (al-data `MemStore::committed_stamps`), so a digest kept for a
+/// Stamp is the digest of the rows the table holds at that stamp (the rows were rendered and digested
+/// whole for every test session). A table with no stamp is digested each time. Kept per engine (`Engine::derived`).
+/// A table entry without rows has no digest, as `rows` writes no line for it (the module comment).
+pub(crate) fn store_table_digests(
+    engine: &al_vm::Engine,
+    store: &al_data::memory::MemStore,
+) -> BTreeMap<(String, u32), LinesDigest> {
+    #[derive(Default)]
+    struct Memo(std::sync::Mutex<std::collections::HashMap<(String, u32, u64), LinesDigest>>);
+    /// How many table states the memo keeps before it starts again.
+    const KEPT: usize = 1 << 16;
+    let memo = engine.derived(Memo::default);
+    let mut out = BTreeMap::new();
+    for (company, object, stamp) in store.committed_stamps() {
+        let known = (stamp != 0)
+            .then(|| {
+                (memo.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
+                    .get(&(company.clone(), object, stamp))
+                    .copied()
             })
-            .collect();
+            .flatten();
+        let d = match known {
+            Some(d) => d,
+            None => {
+                let Some((table, _)) = store.committed_table(&company, object) else {
+                    continue;
+                };
+                // Only a table with rows is kept in the memo, so a known stamp is one of a table with rows.
+                if table.rows.is_empty() {
+                    continue;
+                }
+                let d = table_digest(&table);
+                if stamp != 0 {
+                    let mut m = memo.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    if m.len() >= KEPT {
+                        m.clear();
+                    }
+                    m.insert((company.clone(), object, stamp), d);
+                }
+                d
+            }
+        };
+        out.insert((company, object), d);
+    }
+    out
+}
+
+/// The `database` digest of a key: the digest of the per-table digests `tables`, each with its company and table.
+pub(crate) fn database_digest(tables: &BTreeMap<(String, u32), LinesDigest>) -> LinesDigest {
+    let lines: Vec<String> = (tables.iter())
+        .map(|((company, object), d)| format!("{company}|{object}|{}", d.hex()))
+        .collect();
+    digest(&lines)
+}
+
+impl KeyParts {
+    /// The parts of the committed rows (per table, [`table_digests`]) and the state `state`.
+    pub(crate) fn of(database: BTreeMap<(String, u32), LinesDigest>, state: &al_vm::StateLines) -> KeyParts {
         let mut by_name: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for line in &state.lines {
             let name = line.split(' ').next().unwrap_or_default();
             by_name.entry(name.to_string()).or_default().push(line.clone());
-        }
-        if !state.opaque.is_empty() {
-            by_name.insert(
-                "not comparable".into(),
-                state.opaque.iter().map(al_vm::NotComparable::line).collect(),
-            );
         }
         let session = (by_name.into_iter())
             .map(|(name, lines)| (name, digest(&lines)))
