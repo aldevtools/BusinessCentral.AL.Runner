@@ -770,9 +770,10 @@ enum Uncompared {
 impl std::fmt::Display for Uncompared {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Uncompared::NoBase => {
-                f.write_str("the store before the login has no rows form (a value with no bytes, or company copies)")
-            }
+            Uncompared::NoBase => f.write_str(
+                "the store before the login has no rows form (a value with no bytes, company copies or deleted \
+                 companies)",
+            ),
             Uncompared::NotThawed(why) => write!(f, "not thawed: {}", why.reason()),
             Uncompared::NoEnd => f.write_str("the thaw did not end"),
         }

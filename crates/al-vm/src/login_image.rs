@@ -159,16 +159,14 @@ pub struct KindSize {
 }
 
 /// What a login's row delta assumes of the store it is put on, beyond the rows the key's digest sees: which tables have
-/// An entry (with their row counts), the tables a DeleteAll emptied, and the company copies. A replay
-/// takes a start only onto a store of the same shape.
+/// an entry (with their row counts), and the committed marks the rows leave out (the tables a DeleteAll emptied, the
+/// company copies, the deleted companies). A replay takes a start only onto a store of the same shape.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BaseShape {
     /// (company, table object, committed rows) of every committed table entry, sorted.
     pub tables: Vec<(String, u32, usize)>,
-    /// (company, table object) of every table a DeleteAll without filters emptied, sorted.
-    pub emptied: Vec<(String, u32)>,
-    /// (copy, source) of every company copy, sorted.
-    pub copies: Vec<(String, String)>,
+    /// al-data `MemStore::committed_marks`.
+    pub marks: al_data::memory::CommittedMarks,
 }
 
 impl BaseShape {
@@ -179,15 +177,14 @@ impl BaseShape {
             .iter()
             .map(|(c, ..)| size_of::<(String, u32, usize)>() + c.len())
             .sum::<usize>()
-            + self
-                .emptied
-                .iter()
+            + (self.marks.emptied.iter())
                 .map(|(c, _)| size_of::<(String, u32)>() + c.len())
                 .sum::<usize>()
-            + self
-                .copies
-                .iter()
+            + (self.marks.copies.iter())
                 .map(|(a, b)| size_of::<(String, String)>() + a.len() + b.len())
+                .sum::<usize>()
+            + (self.marks.deleted.iter())
+                .map(|c| size_of::<String>() + c.len())
                 .sum::<usize>()
     }
 }
@@ -218,14 +215,15 @@ impl LoginBase {
 
     /// The store before the login in a form another thread may take ([`Session::start_from`]): the baseline's bytes
     /// (`Baseline::to_bytes`) and the tables a DeleteAll emptied, which the bytes leave out. `None` when a row has no
-    /// bytes form or the store holds company copies.
+    /// bytes form or the store holds company copies or deleted companies, which the bytes leave out too.
     pub fn portable(&self) -> Option<PortableBase> {
-        if !self.shape.copies.is_empty() {
+        let marks = &self.shape.marks;
+        if !marks.copies.is_empty() || !marks.deleted.is_empty() {
             return None;
         }
         Some(PortableBase {
             bytes: self.data.as_ref()?.to_bytes()?,
-            emptied: self.shape.emptied.clone(),
+            emptied: marks.emptied.clone(),
         })
     }
 
@@ -260,13 +258,11 @@ impl Session {
     }
 
     /// The shape of this session's committed store ([`BaseShape`]): what a row delta assumes of the store it is put on
-    /// Beyond the rows.
+    /// beyond the rows.
     pub fn base_shape(&self) -> BaseShape {
-        let (emptied, copies) = self.store.committed_marks();
         BaseShape {
             tables: self.store.committed_entries(),
-            emptied,
-            copies,
+            marks: self.store.committed_marks(),
         }
     }
 
@@ -314,7 +310,9 @@ impl Session {
         let walk = freeze::Walker::new(self).walk()?;
         let rows = rows::LoginRows::take(&self.store, &base.store, &base.shape.tables).ok_or_else(|| {
             NotImaged::Rows(
-                "a row with no bytes form, or company copies apart from the store the login started from".into(),
+                "a row with no bytes form, or company copies or deleted companies apart from the store the login started \
+                 from"
+                    .into(),
             )
         })?;
         Ok(LoginImage {
