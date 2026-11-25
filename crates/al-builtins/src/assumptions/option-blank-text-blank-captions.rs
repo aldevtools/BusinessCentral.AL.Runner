@@ -1,0 +1,11 @@
+OptionBlankTextBlankCaptions => {
+    id: "option-blank-text-blank-captions",
+    assumed: "`Evaluate` of the text `''`, `' '`, `'  '` or a TAB, with the result used, or of `''` as a statement, into an Option record field named directly, whose plain OptionCaption has as many entries as the field has members, under GlobalLanguage 1033, where no member named `\" \"` with the caption `' '` comes first among the members with a blank name or a blank caption: a member named `\"\"` with the caption `''` or with a caption that is not blank, and a member with a name that is not blank and the caption `''`, is not named; a member named `\"\"`, `\" \"` or with a name that is not blank, with the caption `' '`, and a member named `\" \"` with the caption `''`, is named. When every such member is not named, the text is rejected: false with the result used, and as a statement the error `'' is not an option. The existing options are: <OptionCaption>` (InvalidOptionString). When the field has exactly one such member and it is named, the text names it (al-builtins `evaluate/option_blank.rs`). Any other text or language, the statement form of another text, a FieldRef, OptionCaptionML, two or more such members of which one is named, and every other pair of a blank name or caption refuse.",
+    tests: "No Microsoft test. The outside reporter's repro of al-runner issue 8354 on BC 28.4 and 29.0: `OptionMembers = First,Second,Third,,,Skip`, `OptionCaption = 'First one,Second one,Third one,,,Skip it'`, `''` and `' '` give false and the value stays First. The CI run of corpus PR 1577 on BC 27.5, 28.5 and 29.0 (run 45559748084), format-evaluate/EvalOptionBlankCaptions.al OBC_Option_Reporter, OBC_Option_FirstEmpty, OBC_Option_EmptyNamedCap, OBC_Option_NamedEmptyCap (rejected, and the statement error), OBC_Option_SpaceEmptyCap, OBC_Option_NamedSpaceCapMid, OBC_Option_EmptySpaceCapMid (named).",
+    probe: "Corpus PR 1577 (open), format-evaluate/EvalOptionBlankCaptions.al OBC_Option_*: blank texts into Option fields with blank member names and captions.",
+    awaiting: Awaiting {
+        issues: &[8354, 8356],
+        files: &["tests/al-language/format-evaluate/EvalOptionBlankCaptions.al"],
+        since: "2026-11-25",
+    },
+}

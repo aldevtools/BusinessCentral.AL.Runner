@@ -88,6 +88,9 @@ codeunit 71911 "NB8354 Enum Tests"
 {
     Subtype = Test;
 
+    var
+        GlobalLast: Enum "NB8354 Last";
+
     local procedure Tab(): Text
     var
         T: Text;
@@ -137,6 +140,48 @@ codeunit 71911 "NB8354 Enum Tests"
         R.Kind := R.Kind::Beta;
         Ok := Evaluate(R.Kind, '');
         Error('%1|%2', Ok, R.Kind.AsInteger());
+    end;
+
+    [Test]
+    procedure Last_FieldRef()
+    var
+        R: Record "NB8354 Row";
+        RecRef: RecordRef;
+        FldRef: FieldRef;
+        Ok: Boolean;
+    begin
+        R.Kind := R.Kind::Beta;
+        RecRef.GetTable(R);
+        FldRef := RecRef.Field(R.FieldNo(Kind));
+        Ok := FldRef.Evaluate('');
+        Error('%1|%2', Ok, Format(FldRef.Value, 0, 9));
+    end;
+
+    [Test]
+    procedure Last_Global()
+    var
+        Ok: Boolean;
+    begin
+        GlobalLast := GlobalLast::Beta;
+        Ok := Evaluate(GlobalLast, '');
+        Error('%1|%2', Ok, GlobalLast.AsInteger());
+    end;
+
+    [Test]
+    procedure Last_Parameter()
+    var
+        E: Enum "NB8354 Last";
+    begin
+        E := E::Beta;
+        EvaluateInto(E);
+    end;
+
+    local procedure EvaluateInto(var E: Enum "NB8354 Last")
+    var
+        Ok: Boolean;
+    begin
+        Ok := Evaluate(E, '');
+        Error('%1|%2', Ok, E.AsInteger());
     end;
 
     [Test]

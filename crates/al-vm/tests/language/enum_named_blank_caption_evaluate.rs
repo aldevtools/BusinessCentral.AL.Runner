@@ -18,11 +18,52 @@ table 69814 "NB Option Row"
         field(2; Kind; Option) { OptionMembers = None,First,Second; OptionCaption = ' ,First cap,Second cap'; }
         field(3; Pinned; Option) { OptionMembers = " ",First,Second; OptionCaption = ' ,First cap,Second cap'; }
         field(4; Reporter; Option) { OptionMembers = First,Second,Third,,,Skip; OptionCaption = 'First one,Second one,Third one,,,Skip it'; }
+        field(5; Last; Enum "NB E Last") { }
     }
     keys { key(PK; Id) { Clustered = true; } }
 }
 codeunit 69810 C
 {
+    var GlobalLast: Enum "NB E Last";
+
+    procedure LastField(): Text
+    var Row: Record "NB Option Row"; R: Boolean;
+    begin
+        Row.Last := "NB E Last"::Beta;
+        R := Evaluate(Row.Last, '');
+        exit(Format(R));
+    end;
+
+    procedure LastGlobal(): Text
+    var R: Boolean;
+    begin
+        GlobalLast := "NB E Last"::Beta;
+        R := Evaluate(GlobalLast, '');
+        exit(Format(R));
+    end;
+
+    procedure LastParameter(): Text
+    var F: Enum "NB E Last";
+    begin
+        exit(EvaluateInto(F));
+    end;
+
+    local procedure EvaluateInto(var F: Enum "NB E Last"): Text
+    var R: Boolean;
+    begin
+        R := Evaluate(F, '');
+        exit(Format(R));
+    end;
+
+    procedure LastFieldRef(): Text
+    var Row: Record "NB Option Row"; RecRef: RecordRef; FldRef: FieldRef; R: Boolean;
+    begin
+        RecRef.GetTable(Row);
+        FldRef := RecRef.Field(5);
+        R := FldRef.Evaluate('');
+        exit(Format(R));
+    end;
+
     procedure SpaceRoundTrip(): Text
     var E: Enum "NB E Space"; F: Enum "NB E Space"; T: Text; R: Boolean;
     begin
@@ -215,27 +256,40 @@ fn the_pinned_blank_members_still_read_blank_text() {
     assert_eq!(text(al_testkit::run_in(SRC, "C", "PinnedFromSpace")), "[ ]Yes|0");
 }
 
-// The last member with Caption `''` (al-runner issue 8356, the reporter's repro, BC 28.4 and 29.0: true and member 10), on the
-// same assumption. A TAB, a middle member and the statement form of a `''` caption are not measured: refused.
+// The first member with a name and a blank Caption, wherever it is (al-runner issue 8356, the reporter's repro, BC 28.4 and
+// 29.0: true and member 10; corpus PR 1577 OBC_Enum_Last, OBC_Enum_SpaceMid: a TAB, a middle member, `''` as a statement), on
+// the same assumption.
 #[test]
-fn blank_text_into_the_last_member_with_an_empty_caption_names_it() {
+fn blank_text_into_the_first_named_member_with_a_blank_caption_names_it() {
     assert_eq!(text(al_testkit::run_in(SRC, "C", "LastFromEmpty")), "Yes|10");
-    for r in ["LastFromTab", "MidFromEmpty", "EmptyStatement"] {
+    assert_eq!(text(al_testkit::run_in(SRC, "C", "LastFromTab")), "Yes|10");
+    assert_eq!(text(al_testkit::run_in(SRC, "C", "MidFromEmpty")), "Yes|1");
+    assert_eq!(text(al_testkit::run_in(SRC, "C", "EmptyStatement")), "0");
+    // An Enum field named directly (OBC_Enum_Field).
+    assert_eq!(text(al_testkit::run_in(SRC, "C", "LastField")), "Yes");
+}
+
+// Measured on an Enum variable of the routine's `var` section and an Enum field only: a FieldRef, a global and a parameter
+// refuse.
+#[test]
+fn blank_text_into_a_named_blank_caption_member_of_another_place_is_refused() {
+    for r in ["LastFieldRef", "LastGlobal", "LastParameter"] {
         assert!(refused(r).contains("blank caption"), "{r}");
     }
 }
 
-// The named first member of an Option field with a blank OptionCaption is not measured for an Option field: refused.
+// A member with a name and the caption `' '` of an Option field is named by a blank text (corpus PR 1577
+// OBC_Option_NamedSpaceCapMid), on the assumption `option-blank-text-blank-captions`.
 #[test]
-fn blank_text_into_an_option_field_whose_named_member_has_a_blank_caption_is_refused() {
+fn blank_text_into_an_option_field_whose_named_member_has_a_space_caption_names_it() {
     for r in ["OptionFromEmpty", "OptionFromSpace"] {
-        assert!(refused(r).contains("blank member names and captions"), "{r}");
+        assert_eq!(text(al_testkit::run_in(SRC, "C", r)), "Yes|0", "{r}");
     }
 }
 
-// Members named "" with caption `''` in the middle (al-runner issue 8354, the reporter's repro, BC 28.4 and 29.0): `''` and
-// `' '` give false and keep the value, on the assumption `option-blank-text-empty-caption-members`. The statement form and a
-// FieldRef are not measured: refused.
+// Members named "" with caption `''` in the middle (al-runner issue 8354, the reporter's repro, BC 28.4 and 29.0; corpus PR
+// 1577 OBC_Option_Reporter): `''` and `' '` give false and keep the value, `''` as a statement raises the error of the field,
+// on the assumption `option-blank-text-blank-captions`. A FieldRef is not measured: refused.
 #[test]
 fn blank_text_into_option_members_named_empty_with_empty_captions_is_rejected() {
     for t in ["", " "] {
@@ -248,9 +302,17 @@ fn blank_text_into_option_members_named_empty_with_empty_captions_is_rejected() 
         .map(|(v, _)| v);
         assert_eq!(text(r), "No|0", "[{t}]");
     }
-    for r in ["ReporterOptionStatement", "ReporterOptionFieldRef"] {
-        assert!(refused(r).contains("blank member names and captions"), "{r}");
+    match al_testkit::run_in(SRC, "C", "ReporterOptionStatement") {
+        Err(al_builtins::native::Signal::Error(e)) => assert_eq!(
+            (e.message.as_str(), e.code.as_str()),
+            (
+                "'' is not an option. The existing options are: First one,Second one,Third one,,,Skip it",
+                "InvalidOptionString"
+            )
+        ),
+        other => panic!("expected the error, got {other:?}"),
     }
+    assert!(refused("ReporterOptionFieldRef").contains("blank member names and captions"));
 }
 
 // A member name still reads (types/ProbeTypeFormsAndFilters.al Enum_Evaluate_Forms; recordref-fieldref/P128EvalBasic.al

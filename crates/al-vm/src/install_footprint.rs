@@ -357,6 +357,8 @@ const KEPT_METHODS: &[(&str, &[&str])] = &[
             "Evaluate",
             "EvaluateBounded",
             "EvaluateDateVariable",
+            "EvaluateEnumField",
+            "EvaluateEnumVariable",
             "EvaluateMemberlessVarOption",
             "EvaluateMemberlessVarOptionElement",
             "EvaluateOptionField",

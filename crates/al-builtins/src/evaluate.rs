@@ -1487,7 +1487,29 @@ pub fn evaluate(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Resu
 
 /// `Evaluate` into a Date or DateTime local variable or parameter: the shapes of `short_us_date`, else [`evaluate`].
 pub fn evaluate_date_variable(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
-    evaluate_with_max(c, a, false, None, false, true)
+    evaluate_with_max(c, a, false, None, false, Place::Variable)
+}
+
+/// `Evaluate` into an Enum variable of the routine's `var` section: `enum_text` reads the shapes measured on such a variable.
+pub fn evaluate_enum_variable(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
+    evaluate_with_max(c, a, false, None, false, Place::Variable)
+}
+
+/// `Evaluate` into an Enum record field named directly: `enum_text` reads the shapes measured on such a field.
+pub fn evaluate_enum_field(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
+    evaluate_with_max(c, a, false, None, false, Place::Field)
+}
+
+/// The place the lowering chose an `Evaluate` id for, where a reader needs it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Place {
+    /// `System.EvaluateDateVariable#1` (a Date or DateTime local or parameter) or `System.EvaluateEnumVariable#1` (an Enum
+    /// variable of the routine's `var` section).
+    Variable,
+    /// `System.EvaluateEnumField#1`: an Enum record field named directly.
+    Field,
+    /// Any other target, and every caller that is no `Evaluate` statement of AL code.
+    Other,
 }
 
 /// `Evaluate` into an Option variable, which has no OptionCaption to name a member by.
@@ -1579,6 +1601,7 @@ fn option_field(c: &mut dyn Ctx, a: &mut [Value], direct: bool) -> Result<Value,
             text: text.as_str(),
             direct_plain_caption: direct && a.get(4).is_none(),
             ret_used: c.ret_used(),
+            language: c.language(),
         };
         let caps: Vec<&str> = captions.split(',').collect();
         match option_blank::blank_text(&names, &caps, &call)? {
@@ -1618,11 +1641,11 @@ pub fn evaluate_bounded(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value])
         return unsupported("Evaluate into a bounded text without its length");
     };
     let max = u32::try_from(max).ok();
-    evaluate_with_max(c, &mut a[..3], false, max, false, false)
+    evaluate_with_max(c, &mut a[..3], false, max, false, Place::Other)
 }
 
 fn evaluate_with(c: &mut dyn Ctx, a: &mut [Value], variable_option: bool) -> Result<Value, Signal> {
-    evaluate_with_max(c, a, variable_option, None, false, false)
+    evaluate_with_max(c, a, variable_option, None, false, Place::Other)
 }
 
 /// `Evaluate` into a Text or a Code (corpus recordref-fieldref/P128EvalBasic.al:P128_Evaluate_IntoText,
@@ -1695,7 +1718,7 @@ pub fn evaluate_typed(
         Value::Integer(number as i32),
     ];
     // The caller says the result is used: a rejected text is `false`, not an error.
-    Ok(match evaluate_with_max(c, &mut tmp, false, max, false, false)? {
+    Ok(match evaluate_with_max(c, &mut tmp, false, max, false, Place::Other)? {
         Value::Boolean(true) => Some(tmp.swap_remove(0)),
         _ => None,
     })
@@ -2207,7 +2230,7 @@ fn into_field_ref(c: &mut dyn Ctx, a: &mut [Value], number: i64) -> Result<Value
     }
     let mut tmp = vec![current, a[1].clone(), Value::Integer(number as i32)];
     // A Date field names any text in the date error, letters too (N582EvalFieldRefUnused.al:92, `abc`).
-    let ok = evaluate_with_max(c, &mut tmp, !target.option_caption, max, true, false)?;
+    let ok = evaluate_with_max(c, &mut tmp, !target.option_caption, max, true, Place::Other)?;
     if matches!(ok, Value::Boolean(true)) {
         let v = crate::ops::convert(tmp.swap_remove(0), &target.ty)?;
         target.rec.borrow_mut().fields[target.pos] = v;
@@ -2235,7 +2258,7 @@ pub fn evaluate_key_part(c: &mut dyn Ctx, ty: &crate::value::RtType, text: &str,
         Value::Text(text.to_string().into()),
         Value::Integer(number as i32),
     ];
-    match evaluate_with_max(c, &mut tmp, false, max, true, false)? {
+    match evaluate_with_max(c, &mut tmp, false, max, true, Place::Other)? {
         Value::Boolean(true) => Ok(tmp.swap_remove(0)),
         _ => unsupported(format!(
             "Evaluate of the key part `{text}` into {} (not pinned)",
@@ -2270,13 +2293,14 @@ fn pinned_number(number: i64, target: &Value, variable_option: bool) -> Option<i
     pinned.then_some(number)
 }
 
+/// `place`: the target the lowering chose the id for.
 fn evaluate_with_max(
     c: &mut dyn Ctx,
     a: &mut [Value],
     variable_option: bool,
     max: Option<u32>,
     any_date_text: bool,
-    date_variable: bool,
+    place: Place,
 ) -> Result<Value, Signal> {
     // A Guid source reads as its text `{XXXXXXXX-...}`: into a Text, a Code and a Guid (types/duration/
     // E_Guid.al:224-311). Other sources that are not text are not pinned.
@@ -2326,7 +2350,7 @@ fn evaluate_with_max(
     }
     let parsed = match &a[0] {
         Value::Date(..) | Value::DateTime(_)
-            if date_variable
+            if place == Place::Variable
                 && matches!(a.get(2), None | Some(Value::Integer(0)))
                 && short_us_date::measured(c, matches!(a[0], Value::DateTime(_)), &text) =>
         {
@@ -2395,7 +2419,7 @@ fn evaluate_with_max(
                 None => return unsupported(format!("Evaluate of `{text}` into Version (only a.b.c.d is pinned)")),
             }
         }
-        Value::Enum(id, _) => enum_text::enum_text(c, id, &text)?,
+        Value::Enum(id, _) => enum_text::enum_text(c, id, &text, place)?,
         Value::Option(_, members) if platform_options::reads(members) => platform_options::read(c, members, &text)?,
         Value::Option(_, members) if variable_option => option_text::variable(c, members, &text)?,
         Value::Option(_, members) => option_text::field(c, members, &text)?,

@@ -1,7 +1,7 @@
 //! Which implementation `Evaluate` (`System.Evaluate#1`) lowers to, chosen by its target.
 //!
 //! Which builtin `Evaluate` lowers to, by its target (an Option field with captions, a `var` Option
-//! parameter declared without members or an element of a `var` array of them, an Option variable, a
+//! parameter declared without members or an element of a `var` array of them, an Option variable, an Enum variable or field, a Date variable, a
 //! bounded Text or Code). Entry points: `evaluate_id`.
 use super::*;
 
@@ -38,10 +38,30 @@ impl Lowerer<'_> {
         if matches!(self.ty_of(a), Ty::Date | Ty::DateTime) && matches!(self.res(a), Some(Res::Local(_))) {
             return "System.EvaluateDateVariable#1";
         }
+        // An Enum variable of the routine's `var` section, and an Enum record field named directly: the blank-text readers of
+        // al-builtins `evaluate::enum_text` were measured on these targets only (corpus PR 1306, EvalNamedBlankCaption.al:81-107;
+        // corpus PR 1577, EvalOptionBlankCaptions.al OBC_Enum_*; al-runner issue 8356). A global, a parameter, a return value and
+        // an array element keep the plain id.
+        if matches!(self.ty_of(a), Ty::Enum(_)) && self.declared_local(a) {
+            return "System.EvaluateEnumVariable#1";
+        }
+        if matches!(self.ty_of(a), Ty::Enum(_)) && matches!(self.res(a), Some(Res::Field { .. })) {
+            return "System.EvaluateEnumField#1";
+        }
         if matches!(self.ty_of(a), Ty::Text(Some(_)) | Ty::Code(Some(_))) {
             return "System.EvaluateBounded#1";
         }
         "System.Evaluate#1"
+    }
+
+    /// `a` names a variable of the routine's `var` section: a slot past the parameters that is not the named return value.
+    fn declared_local(&self, a: &SyntaxNode) -> bool {
+        let Some(Res::Local(n)) = (a.kind() == SyntaxKind::NameRef).then(|| self.res(a)).flatten() else {
+            return false;
+        };
+        self.locals
+            .get(n)
+            .is_some_and(|&slot| slot >= self.var_params.len() && Some(slot) != self.named_ret)
     }
 
     /// The target is a `var` parameter declared `Option` without members, or an element of a `var` array parameter of such

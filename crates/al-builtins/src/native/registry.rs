@@ -58,6 +58,8 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     ),
     ("System.EvaluateBounded#1", crate::evaluate::evaluate_bounded),
     ("System.EvaluateDateVariable#1", crate::evaluate::evaluate_date_variable),
+    ("System.EvaluateEnumField#1", crate::evaluate::evaluate_enum_field),
+    ("System.EvaluateEnumVariable#1", crate::evaluate::evaluate_enum_variable),
     ("System.EvaluateOptionField#1", crate::evaluate::evaluate_option_field),
     ("Blob.LengthSign#1", crate::stream::blob_length_sign),
     ("System.Abs#1", abs),
