@@ -1455,6 +1455,7 @@ impl CorpusRuntime {
                             order: order_arc.clone(),
                             hooks: pass.hooks.clone(),
                             clock: opts.codeunit_clock(id, clock),
+                            clock_set: opts.clock_starts.as_ref().is_some_and(|m| m.contains_key(&id)),
                             impact: opts.impact_trace,
                             run_only: pass.run_only.clone(),
                             on_run_rows: opts.on_run_rows,

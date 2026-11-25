@@ -44,7 +44,7 @@ fn sessions_with(engine: &Arc<Engine>, l: &Lowered, name: &str, n: usize, opts: 
     for _ in 0..n {
         let mut scratch = Scratch {
             flags: SessionFlags::of(opts),
-            ..Default::default()
+            ..Scratch::new(crate::host::RunClock::begin())
         };
         if let Some(tweak) = setup.tweak {
             tweak(&mut scratch);
@@ -822,7 +822,10 @@ fn gated_line(tweak: &dyn Fn(&mut Scratch), observed: bool) -> (u64, Option<Stri
 #[test]
 fn a_session_the_gate_refuses_runs_its_login_and_is_counted() {
     let perturbed = |s: &mut Scratch| s.perturb.library_seed = Some(3);
-    let clocked = |s: &mut Scratch| s.clock_start = Some(1_700_000_000_000);
+    let clocked = |s: &mut Scratch| {
+        s.clock = crate::host::RunClock::At(1_700_000_000_000);
+        s.clock_set = true;
+    };
     let cases: [(&str, (u64, Option<String>)); 3] = [
         ("--explain or an observer", gated_line(&|_| {}, true)),
         ("a stability perturbation", gated_line(&perturbed, false)),

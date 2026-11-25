@@ -698,6 +698,8 @@ pub(crate) struct Unit {
     hooks: crate::events::Hooks,
     /// See `Scratch::clock`.
     clock: crate::host::RunClock,
+    /// See `Scratch::clock_set`.
+    clock_set: bool,
     /// Note what each test raised and touched (`RunOptions::impact_trace`).
     impact: bool,
     /// See `RunOptions::run_only`.
@@ -759,6 +761,9 @@ pub(crate) struct Scratch {
     /// The clock of the codeunit's sessions: the run's (`RunOptions::run_clock`), or where `RunOptions::clock_starts`
     /// starts this codeunit.
     clock: crate::host::RunClock,
+    /// `RunOptions::clock_starts` set `clock` for this codeunit: the login replay never takes or records a start then
+    /// (`login_start::RunFacts::perturbed`).
+    clock_set: bool,
     /// Note what each test raised and touched (`RunOptions::impact_trace`).
     trace: bool,
     /// What each test raised and touched, as keys (`impact_trace::keys`).
@@ -858,6 +863,7 @@ impl Scratch {
     pub(crate) fn new(clock: crate::host::RunClock) -> Scratch {
         Scratch {
             clock,
+            clock_set: false,
             capture: Default::default(),
             order: Default::default(),
             messages: Default::default(),
@@ -1035,6 +1041,7 @@ fn run_unit(
             singles_past_stop: u.singles_past_stop,
             numbers_unmeasured: u.numbers_unmeasured.clone(),
             installs: u.installs.clone(),
+            clock_set: u.clock_set,
             ..Scratch::new(clock)
         };
         if u.coverage {
@@ -1158,6 +1165,7 @@ fn scratch_unit(
         order: order.clone(),
         hooks: hooks.clone(),
         clock,
+        clock_set: false,
         impact: opts.impact_trace,
         run_only: None,
         hub: false,

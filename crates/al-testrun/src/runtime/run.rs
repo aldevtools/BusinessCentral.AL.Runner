@@ -241,7 +241,7 @@ fn open_company(
         .then(|| crate::login_replay::Key::of(session, (isolation, scratch.hub), flags, skipped_installs))
         .flatten();
     let notes_code = observed || session.notes_code_run() || crate::profiling::active();
-    let perturbed = *perturb != crate::stability::Perturb::default() || scratch.clock_start.is_some();
+    let perturbed = *perturb != crate::stability::Perturb::default() || scratch.clock_set;
     let facts = crate::login_start::RunFacts {
         notes_code,
         perturbed,
