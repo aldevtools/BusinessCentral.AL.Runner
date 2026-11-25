@@ -533,6 +533,25 @@ fn a_write_starts_from_the_backing_rows() {
     assert_eq!(s.count(&cx, &t, &[]).unwrap(), 3);
 }
 
+// al-runner issue 8954: the first write of a backed table copies the backing's rows in; the safety net of an install
+// footprint compares them with the rows the store read before, so only the written row is a change.
+#[test]
+fn the_footprint_safety_net_takes_the_backing_rows_as_the_rows_before() {
+    use super::footprint::{Resource, RowKey};
+    let (mut before, _) = backed();
+    let (t, cx) = (crate::contract::table(), crate::contract::cx("C"));
+    before.commit();
+    let mut after = before.clone();
+    after.insert(&cx, &t, crate::contract::row("D", 4, 3)).unwrap();
+    after.commit();
+    let d = Resource::Row("C".into(), t.object, RowKey::of(&t, vec![Value::Code("D".into())]));
+    assert_eq!(after.unrecorded_writes(&before, &[d].into_iter().collect()), Ok(()));
+    assert!(
+        after.unrecorded_writes(&before, &Default::default()).is_err(),
+        "the new row is a change"
+    );
+}
+
 #[test]
 fn deleting_every_restored_row_leaves_the_table_empty_not_restored_again() {
     let (mut s, _) = backed();

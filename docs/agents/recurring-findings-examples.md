@@ -385,3 +385,11 @@ State the pin's lines (`pinned_body::page_lines`, `table_lines`) and require the
   and refused mid-run, where main answered.
 - Fix: one owner of what a reader gets (`conv/text_constant.rs`), called from every place a Variant's value is read. Rust
   tests that each old reader keeps main's value.
+
+## 30. A shared store reader changes its contract for one caller (al-runner PR 8665, PR 9043)
+
+- PR 9043: `committed_row_changes_from` began to compare a table the base holds no entry for with the backing's rows, for
+  the install footprint's safety net. A merge of main had added a second caller, the login image, which reads such a
+  table as whole. A login that wrote one row of a test-data table left a thawed session with that one row. Fix: an
+  explicit argument per caller (`BeforeRows::Backing` for the safety net, `BeforeRows::Empty` for the login image).
+- PR 8665: `same_unshown_marks` was added for the login reader while the footprint reader also uses it.

@@ -11,7 +11,7 @@
 
 use al_builtins::value::Value;
 use al_builtins::value_codec::{Reader, decode_row, encode_row, put_u32};
-use al_data::memory::{ExportedTable, MemStore, PkStorage};
+use al_data::memory::{BeforeRows, ExportedTable, MemStore, PkStorage};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// A table of a store: (company, table object).
@@ -21,7 +21,7 @@ type Slot = (String, u32);
 struct TableRows {
     company: String,
     object: u32,
-    /// The store the login started from held no entry for the table: `put` holds every row of it.
+    /// The store the login started from held no entry for the table: `put` holds every row of it (`BeforeRows::Empty`).
     whole: bool,
     pk_storage: PkStorage,
     /// The rows to put: count, then key and row of each.
@@ -46,7 +46,7 @@ impl LoginRows {
     pub(super) fn take(store: &MemStore, base: &MemStore, base_tables: &[(String, u32, usize)]) -> Option<LoginRows> {
         let (mut x, mut y) = (Vec::new(), Vec::new());
         let mut same = |a: &[Value], b: &[Value]| (bytes(a, &mut x) && bytes(b, &mut y)).then(|| x == y);
-        let changes = store.committed_row_changes_from(base, &mut same)?;
+        let changes = store.committed_row_changes_from(base, BeforeRows::Empty, &mut same)?;
         let held: BTreeSet<(&str, u32)> = base_tables.iter().map(|(c, o, _)| (c.as_str(), *o)).collect();
         let mut tables = Vec::with_capacity(changes.tables.len());
         for t in changes.tables {
@@ -182,4 +182,41 @@ fn bytes(row: &[Value], buf: &mut Vec<u8>) -> bool {
 fn key_bytes(key: &[Value]) -> Option<Vec<u8>> {
     let mut b = Vec::new();
     bytes(key, &mut b).then_some(b)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use al_data::Store;
+    use al_data::contract::{cx, row, table};
+    use al_data::memory::{Backing, Rows};
+
+    /// Three rows of table 7 in company `C`, as test data offers them before anything wrote to the table.
+    struct ThreeRows;
+
+    impl Backing for ThreeRows {
+        fn company(&self) -> &str {
+            "C"
+        }
+        fn rows(&self, company: &str, object: u32) -> Option<Rows> {
+            (company == "C" && object == 7)
+                .then(|| Rows::from_rows(&table(), vec![row("A", 1, 1), row("B", 2, 1), row("C", 3, 2)]).ok())
+                .flatten()
+        }
+    }
+
+    /// A login that writes one row of a table the start's store reads from its backing (no entry of its own) leaves
+    /// that table with every backing row plus the new one in the image: the image puts the table whole (reviewer of
+    /// al-runner PR 9043, finding 1: the backed table must not shrink to the row the login wrote).
+    #[test]
+    fn a_login_writing_one_row_of_a_backed_table_keeps_every_backing_row() {
+        let base = MemStore::default().with_backing(std::rc::Rc::new(ThreeRows));
+        let mut store = base.clone();
+        store.insert(&cx("C"), &table(), row("D", 4, 1)).unwrap();
+        store.commit();
+        let rows = LoginRows::take(&store, &base, &[]).expect("plain rows");
+        let mut target = base.clone();
+        rows.put_on(&mut target).expect("puts");
+        assert_eq!(target.count(&cx("C"), &table(), &[]).unwrap(), 4);
+    }
 }
