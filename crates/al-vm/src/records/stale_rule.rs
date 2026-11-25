@@ -374,7 +374,8 @@ impl Session {
             e,
             kind == TrappedRollback::AssertError,
         ));
-        self.rollback_in_run()?;
+        // A rollback that did not run leaves no mark for the runner's next rollback.
+        self.rollback_in_run().inspect_err(|_| self.forget_rollback_by())?;
         if ends_runner_tx {
             self.runner_tx_ended_by_asserterror();
         }
