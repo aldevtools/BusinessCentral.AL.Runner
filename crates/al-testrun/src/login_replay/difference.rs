@@ -11,7 +11,8 @@
 //!   Blob the fields of its buffer (`BlobBuf::differing_fields`); `missing` (the second state has no such row), `added`
 //!   (only the second has it), `another table`, `another company`;
 //! - `session state 3`: the first session state line that differs, by its place (`missing` or `added` as for a row); the
-//!   lines are not `name: value`, so nothing of a line is shown;
+//!   lines are not `name: value`, so nothing of a line is shown, except the name of a `field.<name>` line (a `Session`
+//!   field's name, `Session::field_lines`); `, 4 lines differ` when more lines than that one differ;
 //! - `assumption marks`, `open writes`.
 
 use super::LoginState;
@@ -75,10 +76,7 @@ pub(crate) fn differences(a: &LoginState, b: &LoginState) -> Vec<(usize, String)
     [
         opaque,
         first_apart(&a.rows, &b.rows).map(|n| row(n, a.rows.get(n), b.rows.get(n))),
-        first_apart(&a.state.lines, &b.state.lines).map(|n| {
-            let place = presence(a.state.lines.get(n), b.state.lines.get(n));
-            format!("session state {}{place}", n + 1)
-        }),
+        first_apart(&a.state.lines, &b.state.lines).map(|n| state_line(n, &a.state.lines, &b.state.lines)),
         (a.hits != b.hits).then(|| "assumption marks".to_string()),
         (a.open != b.open).then(|| "open writes".to_string()),
     ]
@@ -94,6 +92,30 @@ fn first_apart<T: PartialEq>(x: &[T], y: &[T]) -> Option<usize> {
         .position(|(p, q)| p != q)
         .unwrap_or(x.len().min(y.len()));
     (n < x.len().max(y.len())).then_some(n)
+}
+
+/// Session state line `n` of the two states, which differ there: by its place; a line of one `Session` field
+/// (`field.<name> ...`, al-vm `Session::field_lines`) also by the field's name, never its value; and how many lines differ
+/// when more than one does.
+fn state_line(n: usize, x: &[String], y: &[String]) -> String {
+    let place = presence(x.get(n), y.get(n));
+    let field = |l: Option<&String>| {
+        l.and_then(|l| l.split(' ').next())
+            .filter(|w| w.starts_with("field."))
+            .map(str::to_string)
+    };
+    let name = match (field(x.get(n)), field(y.get(n))) {
+        (Some(p), Some(q)) if p == q => format!(" ({p})"),
+        (Some(p), None) | (None, Some(p)) => format!(" ({p})"),
+        _ => String::new(),
+    };
+    let apart = (0..x.len().max(y.len())).filter(|&i| x.get(i) != y.get(i)).count();
+    let count = if apart > 1 {
+        format!(", {apart} lines differ")
+    } else {
+        String::new()
+    };
+    format!("session state {}{name}{place}{count}", n + 1)
 }
 
 /// `: missing` when only the first state has the item, `: added` when only the second has it.
