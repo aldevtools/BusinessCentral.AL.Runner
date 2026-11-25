@@ -11,14 +11,13 @@
 //!   For other years IANA history and the Windows rules differ (Hawaii 1945, Western Europe before 1996). Every
 //!   other shape, the `DateTimeOffset` overload included, is refused.
 //!
-//!
 //! On every OS this module also owns the kind of a DateTime a `TimeZoneInfo` member gets (al-runner issue 8587,
 //! `zone_datetime_kind`): `GetUtcOffset` and `IsDaylightSavingTime` of a zone the host holds read an AL DateTime as a
 //! UTC moment (assumption `zone-datetime-utc-instant`); a DateTime whose origin is not an AL DateTime, a Date, and any
 //! other `TimeZoneInfo` member with a DateTime or Date argument are refused.
 //!
-//! off Windows, the `TimeZoneInfo` checks that need the arguments (a zone passed as an argument,
-//! `GetUtcOffset`), after the policy (issue 8012).
+//! Off Windows, the `TimeZoneInfo` checks that need the arguments (a zone passed as an argument,
+//! `GetUtcOffset`) run after the policy (issue 8012).
 
 use super::Target;
 use super::policy::Policy;
