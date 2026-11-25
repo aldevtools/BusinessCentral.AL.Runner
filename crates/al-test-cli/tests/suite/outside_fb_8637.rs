@@ -14,7 +14,7 @@ const CALC_NEIGHBORS: &str = include_str!("../../../../tests/neighbors/8677-bg-c
 const CALC_REPRO: &str = include_str!("../../../../tests/neighbors/8677-bg-cache-calcfields/src/Repro.al");
 const CALC_PROBE: &str = include_str!("../../../../tests/neighbors/8677-bg-cache-calcfields/src/CalcProbe.al");
 const MORE: &str = include_str!("../../../../tests/neighbors/8637-bg-cache-filtered-reads/src/MoreNeighbors.al");
-const EDGES: &str = include_str!("../../../../tests/neighbors/8677-bg-cache-calcfields/src/EdgesProbe.al");
+const EDGES: &str = include_str!("../../../../tests/neighbors/1555-cache-row-commits-review-r1/src/EdgesProbe.al");
 
 fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
     let src = format!("{src}\n{}", include_str!("../fixtures/outside-sc/Assert.al"));
@@ -418,7 +418,8 @@ fn issue_8879_follow_up_neighbors() {
     }
 }
 
-/// The cells of corpus PR 1558 (BgTaskCacheEdges.al, corpus issue 1555), each green 3 of 3 on BC 29.1. The worker answers its
+/// The cells of merged corpus PR 1558 and unpublished follow-up f167e990 (BgTaskCacheEdges.al, corpus issue 1555).
+/// All 38 passed three times on local BC 29.0. The worker answers its
 /// first answer for a CalcFields, a CalcSums and a Count descending first and ascending again (:374-:386) and the test
 /// session's answer after the test session read first (:392, :398); for a count at an inner count with field(filter()) of a
 /// stored field (:404), a CalcSums with a `>` on another field and with two (:410, :416), FieldRef.CalcField of a temporary
@@ -430,10 +431,17 @@ fn issue_8879_follow_up_neighbors() {
 /// database RecordRef after a commit (:681); SelectLatestVersion with an Option, a Char, a Byte or an Enum of value 0 keeps the
 /// row entry (:687-:705). BCE Row Commit Tests: a commit of a ModifyAll, a DeleteAll or a Delete of the row itself keeps the
 /// entry (:915-:927), so do a commit of a Truncate of the row's table (:958) and SelectLatestVersion with an Option, a Char, a
-/// Byte or an Enum of value 2, which names no table (:933-:951). All flagged.
+/// Byte or an Enum of value 2, which names no table (:933-:951). The review adds a temporary Record (:1178),
+/// the test session first (:1184) and FieldRef.CalcField (:1190) after Truncate, and Integer 0 and 2 (:1196, :1202).
+/// All flagged, including every reader of the held calculation.
 #[test]
 fn issue_1555_cells() {
-    for (codeunit, n) in [("BCE Tests", 16), ("BCE Commit Tests", 9), ("BCE Row Commit Tests", 8)] {
+    for (codeunit, n) in [
+        ("BCE Tests", 16),
+        ("BCE Commit Tests", 9),
+        ("BCE Row Commit Tests", 8),
+        ("BCE Truncate Tests", 5),
+    ] {
         let o = outcomes(EDGES, codeunit);
         assert_eq!(o.len(), n, "{codeunit}");
         for (name, r, marks) in &o {

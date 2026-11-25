@@ -1,4 +1,2 @@
 # key	entry
-# Against main (the query cache with al-runner PRs 8872, 8885 and 8897): corpus PR 1558 at d413e8b7 measures a commit of a
-# Truncate of the row's table: a worker's CalcFields keeps its entry, where main refused it.
-BCE Row Commit Tests::BgCacheEdges_CalcFieldsAfterACommitOfATruncateOfItsTable_FirstAnswer	ASSUMED background-task-query-cache (open corpus PR 1558: BgTaskCacheEdges.al:958)
+# The corpus PR 1558 copy and its Truncate differences moved to 1555-cache-row-commits-review-r1.

@@ -1,5 +1,5 @@
-// A copy of the corpus probe BgTaskCacheEdges.al of corpus pull request 1558 at d413e8b7 (corpus issue 1555), run here until a
-// bump pins it. Citations of BgTaskCacheEdges.al name the corpus file's lines (this copy has two lines more).
+// Copy of BgTaskCacheEdges.al at unpublished follow-up f167e990 (38 cells); PR 1558 merged the first 33 cells.
+// Citations name the corpus file's lines; this copy has two extra header lines.
 // BC Documentation:
 //   https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/methods-auto/testpage/testpagetestpage-runpagebackgroundtask-method
 //   https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/methods-auto/record/record-calcfields-method
@@ -7,8 +7,8 @@
 // Scope: in-scope
 // local object: what a page background task's worker's repeated reads answer after the test session changed the rows they
 //   read without a commit, in shapes past the cells of BgTaskQueryCache.al and BgTaskCalcCache.al (issue 1555)
-// Fixtures used: shared Assert (60021); own tables 97706 to 97708, page 97706, enum 97706, worker codeunit 97708, test
-//   codeunit 97709
+// Fixtures used: shared Assert (60021); own tables 97706 to 97712, page 97706, enums 97706 and 97707, and codeunits
+//   97708 to 97715
 // Probe (issue 1555, al-runner PR 8872 and 8885 reviews): each cell commits a parent of table 97706 (description 'first')
 //   with line 1 of table 97707 (Kind A, Amount 5, Qty 1) and opens page 97706; the worker reads; the test session changes
 //   the rows without a commit and reads the table it wrote; the worker reads again: 'first / again'. The changes: lines 0
@@ -955,10 +955,254 @@ codeunit 97713 "BCE Row Commit Tests"
         Assert.AreEqual('first / first', Reads('description', 'enumselect', 'description'), 'SelectLatestVersion(Enum of 2)');
     end;
 
-    // Last in the file: a Truncate of table 97709, which no other cell reads.
+    // Last in this codeunit: a Truncate of table 97709, which no other cell reads.
     [Test]
     procedure BgCacheEdges_CalcFieldsAfterACommitOfATruncateOfItsTable_FirstAnswer()
     begin
         Assert.AreEqual('1 / 1', Reads('truncatedkey', 'truncatedkey', 'truncate'), 'CalcFields after a commit of a Truncate of table 97709');
+    end;
+}
+
+// local objects: each Truncate cell needs its own table; a Truncate can leave its table locked for later cells.
+// Review of al-runner PR 8932: cross the Truncate commit with a temporary Record, the test session's CalcFields first,
+// and FieldRef.CalcField of a database RecordRef. Each calculation sets the primary key without Get, so it can calculate
+// again after Truncate removed the row. The line table is separate and changes without a commit after the Truncate commit.
+// Observed on local BC 29.0: all three answer '1 / 1'; SelectLatestVersion(Integer 0 or 2) answers 'first / first'.
+table 97710 "BCE Truncate Temp"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(4; "Line Count"; Integer)
+        {
+            FieldClass = FlowField;
+            CalcFormula = count("BCE Line" where(Parent = field("No.")));
+        }
+    }
+    keys { key(PK; "No.") { Clustered = true; } }
+}
+
+table 97711 "BCE Truncate Test First"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(4; "Line Count"; Integer)
+        {
+            FieldClass = FlowField;
+            CalcFormula = count("BCE Line" where(Parent = field("No.")));
+        }
+    }
+    keys { key(PK; "No.") { Clustered = true; } }
+}
+
+table 97712 "BCE Truncate FieldRef"
+{
+    DataClassification = SystemMetadata;
+    ReplicateData = false;
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(4; "Line Count"; Integer)
+        {
+            FieldClass = FlowField;
+            CalcFormula = count("BCE Line" where(Parent = field("No.")));
+        }
+    }
+    keys { key(PK; "No.") { Clustered = true; } }
+}
+
+codeunit 97714 "BCE Truncate Reader"
+{
+    trigger OnRun()
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Temp: Record "BCE Truncate Temp" temporary;
+        TestFirst: Record "BCE Truncate Test First";
+        Parent: Record "BCE Parent";
+        Ref: RecordRef;
+        KeyField: FieldRef;
+        CountField: FieldRef;
+        Mode: Text;
+        G: Code[20];
+        Seen: Text;
+    begin
+        Parameters := Page.GetBackgroundParameters();
+        Mode := Parameters.Get('Mode');
+        G := CopyStr(Parameters.Get('Group'), 1, MaxStrLen(G));
+        case Mode of
+            'temp':
+                begin
+                    Temp."No." := G;
+                    Temp.CalcFields("Line Count");
+                    Seen := Format(Temp."Line Count");
+                end;
+            'testfirst':
+                begin
+                    TestFirst."No." := G;
+                    TestFirst.CalcFields("Line Count");
+                    Seen := Format(TestFirst."Line Count");
+                end;
+            'fieldref':
+                begin
+                    Ref.Open(Database::"BCE Truncate FieldRef");
+                    KeyField := Ref.Field(1);
+                    KeyField.Value := G;
+                    CountField := Ref.Field(4);
+                    CountField.CalcField();
+                    Seen := Format(CountField.Value);
+                    Ref.Close();
+                end;
+            'description', 'integerzero', 'integertwo':
+                begin
+                    case Mode of
+                        'integerzero': Database.SelectLatestVersion(0);
+                        'integertwo': Database.SelectLatestVersion(2);
+                    end;
+                    Parent.Get(G);
+                    Seen := Parent.Description;
+                end;
+        end;
+        Results.Add('Seen', Seen);
+        Page.SetBackgroundTaskResult(Results);
+    end;
+}
+
+codeunit 97715 "BCE Truncate Tests"
+{
+    Subtype = Test;
+
+    var
+        Assert: Codeunit Assert;
+
+    local procedure Run(var Lines: TestPage "BCE Lines"; Mode: Text; G: Code[20]): Text
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+    begin
+        Parameters.Add('Group', G);
+        Parameters.Add('Mode', Mode);
+        Results := Lines.RunPageBackgroundTask(Codeunit::"BCE Truncate Reader", Parameters, false);
+        exit(Results.Get('Seen'));
+    end;
+
+    local procedure AddLine(G: Code[20]; LineNo: Integer)
+    var
+        Line: Record "BCE Line";
+    begin
+        Line.Parent := G;
+        Line."Line No." := LineNo;
+        Line.Kind := 'K';
+        Line.Amount := 5;
+        Line.Qty := 1;
+        Line.Insert();
+        Line.SetRange(Parent, G);
+        if Line.FindFirst() then;
+    end;
+
+    local procedure Reads(Mode: Text): Text
+    var
+        Lines: TestPage "BCE Lines";
+        TempTable: Record "BCE Truncate Temp";
+        TestFirst: Record "BCE Truncate Test First";
+        FieldRefTable: Record "BCE Truncate FieldRef";
+        G: Code[20];
+        Seen: Text;
+    begin
+        G := CopyStr(DelChr(Format(CreateGuid()), '=', '{}-'), 1, 18);
+        case Mode of
+            'temp':
+                begin
+                    TempTable."No." := G;
+                    TempTable.Insert();
+                end;
+            'testfirst':
+                begin
+                    TestFirst."No." := G;
+                    TestFirst.Insert();
+                end;
+            'fieldref':
+                begin
+                    FieldRefTable."No." := G;
+                    FieldRefTable.Insert();
+                end;
+        end;
+        AddLine(G, 1);
+        Commit();
+        Lines.OpenView();
+        if Mode = 'testfirst' then begin
+            TestFirst.CalcFields("Line Count");
+            Seen := Format(TestFirst."Line Count");
+        end else
+            Seen := Run(Lines, Mode, G);
+        case Mode of
+            'temp': TempTable.Truncate();
+            'testfirst': TestFirst.Truncate();
+            'fieldref': FieldRefTable.Truncate();
+        end;
+        Commit();
+        AddLine(G, 0);
+        AddLine(G, 3);
+        Seen += ' / ' + Run(Lines, Mode, G);
+        Lines.Close();
+        exit(Seen);
+    end;
+
+    local procedure Selects(Mode: Text): Text
+    var
+        Lines: TestPage "BCE Lines";
+        Parent: Record "BCE Parent";
+        G: Code[20];
+        Seen: Text;
+    begin
+        G := CopyStr(DelChr(Format(CreateGuid()), '=', '{}-'), 1, 18);
+        Parent."No." := G;
+        Parent.Description := 'first';
+        Parent.Insert();
+        AddLine(G, 1);
+        Commit();
+        Lines.OpenView();
+        Seen := Run(Lines, 'description', G);
+        Parent.Description := 'second';
+        Parent.Modify();
+        Parent.Get(G);
+        Seen += ' / ' + Run(Lines, Mode, G);
+        Lines.Close();
+        exit(Seen);
+    end;
+
+    [Test]
+    procedure BgCacheEdges_Truncate_TemporaryCalcFields()
+    begin
+        Assert.AreEqual('1 / 1', Reads('temp'), 'Temporary CalcFields after a Truncate commit');
+    end;
+
+    [Test]
+    procedure BgCacheEdges_Truncate_TestCalcFieldsFirst()
+    begin
+        Assert.AreEqual('1 / 1', Reads('testfirst'), 'Test CalcFields first, then a Truncate commit');
+    end;
+
+    [Test]
+    procedure BgCacheEdges_Truncate_FieldRefCalcField()
+    begin
+        Assert.AreEqual('1 / 1', Reads('fieldref'), 'FieldRef.CalcField after a Truncate commit');
+    end;
+
+    [Test]
+    procedure BgCacheEdges_SelectLatestVersion_IntegerZero()
+    begin
+        Assert.AreEqual('first / first', Selects('integerzero'), 'SelectLatestVersion(Integer 0), naming no table');
+    end;
+
+    [Test]
+    procedure BgCacheEdges_SelectLatestVersion_IntegerTwo()
+    begin
+        Assert.AreEqual('first / first', Selects('integertwo'), 'SelectLatestVersion(Integer 2), naming no table');
     end;
 }

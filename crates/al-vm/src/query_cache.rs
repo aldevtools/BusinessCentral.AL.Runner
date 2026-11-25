@@ -2,7 +2,7 @@
 //! pull request 1457, merged, not pinned yet: tests/al-language/pages/background-tasks/BgTaskQueryCache.al, measured on Business Central 29.1).
 //!
 //! A worker's read that repeats an earlier read answers what the earlier read answered, also after the test session changed
-//! the rows without committing. Two kinds of read are measured, and only they are kept here:
+//! the rows without committing. Three kinds of read are measured, and only they are kept here:
 //! - a row: `Get` with every primary-key field, and `FindFirst` whose filters set every primary-key field to one value, by
 //!   `SetRange` or by `SetFilter` (filter group 0, the primary key, ascending): they answer alike (:367, :389, :566, :586;
 //!   open corpus pull request 1495, the same file, :1834 and :1850 for `SetFilter`);
@@ -19,7 +19,10 @@
 //!   :2722);
 //! - a calculation (al-runner issue 8677): `CalcFields` of a Record, keyed by its fields in their order, the row and the
 //!   record's FlowFilters (`calc_key`, :6147-:6255), and `CalcSums` of a Record, keyed like a group read and by its fields
-//!   (:6273-:6285).
+//!   (:6273-:6285). CalcFields ends with a commit of a formula's source table, not a commit of its row's table
+//!   (`Ends::Sources`). BgTaskCacheEdges.al:958 (merged corpus PR 1558, awaiting pin) measures a database Record after
+//!   Truncate. Its unpublished follow-up f167e990:1178-:1190 measures a temporary Record, the test session first, and
+//!   FieldRef.CalcField of a database RecordRef; that follow-up still needs a replacement corpus PR.
 //!
 //! A row entry holds until a commit writes that row (:430, :804 against :741, :762, :784; also when no commit held the row
 //! before or after, an insert and a delete each committed: PR 1495 :1207; a commit of a ModifyAll or DeleteAll of another row
@@ -39,20 +42,13 @@
 //! is refused. The cache keeps no notes at all in a program whose own apps run no page background task
 //! (`Session::query_cache_on`). Every other read keeps reading the rows as they are, as on main.
 //!
-//! The query cache page background tasks and the test session read through (al-runner issue 8467,
-//! assumption `background-task-query-cache`, corpus pull request 1457, merged, not pinned yet): a
-//! worker's `Get` and full-key `FindFirst` (a row), and `FindFirst`, `FindLast`, `Count` and
-//! `IsEmpty` of AL code keyed by the read, the sort direction and every filter (`group_key`; the
-//! filter shapes of open corpus PR 1495, al-runner issue 8637), and a Record's `CalcFields` (keyed by
-//! its fields in order, the row and its FlowFilters, `calc_key`) and `CalcSums` (al-runner issue 8677)
-//! answer their first answer until a commit writes the row (or, for the group reads and
-//! calculations, the table, or a table its FlowField filters or formulas read); the test session's
-//! reads fill it while it has not written the table; emptied per test codeunit. Entry points:
+//! Unpinned answers run through assumption `background-task-query-cache`. Entry points:
 //! `cached_get`, `cached_find`, `cached_count` (called from `records/op_inner.rs`),
 //! `cached_calc_fields`, `cached_calc_sums` (called from `flowfields.rs`), `mark_al_record_read`
 //! (`record_op_of_al`), `note_commit_for_query_cache` (`commit_transaction`), `note_replayed_load`
 //! (`load`), `refuse_load_of_replayed` (`partial.rs`), `reset_query_cache` (`mark_install_end`),
-//! `note_select_latest_version` (`hostvalues.rs`), `refuse_blob_of_replayed` (`load_blobs`),
+//! `note_select_latest_version_of` (`hostvalues.rs`; the no-argument overload calls `note_select_latest_version`),
+//! `refuse_blob_of_replayed` (`load_blobs`),
 //! `end_record_op_for_query_cache` (`record_op`); the minors a committed ModifyAll or DeleteAll ends
 //! an entry on: `al_version::bulk_commit_ends_cached_row`; nothing is noted unless the program's own
 //! apps run a page background task (`query_cache_on`).
@@ -281,11 +277,14 @@ enum Shape {
 enum Ends<'a> {
     /// The read's own table and these: a group read and its FlowField filters' tables (:823, :1907, :3465, :4259), a CalcSums.
     TableAnd(&'a [Arc<TableDef>]),
-    /// Only these, the tables a CalcFields' formulas read (:6231, :6261): its entry holds through every commit of its row's
-    /// table, of an insert of another row or a change of the row, of a temporary record too (BgTaskCacheEdges.al:428-:446, open
-    /// corpus PR 1558), of a ModifyAll (:639), a DeleteAll (:645) or a Delete of another row (:651), of a ModifyAll (:915), a
+    /// Only these, the tables a CalcFields' formulas read (:6231, :6261). Measured commits of its row's table: an insert of
+    /// another row or a change of the row, of a temporary record too (BgTaskCacheEdges.al:428-:446, merged
+    /// corpus PR 1558, awaiting pin), of a ModifyAll (:639), a DeleteAll (:645) or a Delete of another row (:651), of a ModifyAll (:915), a
     /// DeleteAll (:921) or a Delete (:927) of the row itself, of a Truncate of the table (:958), after the test session's
-    /// CalcFields first (:657), and for FieldRef.CalcField of a database RecordRef (:681).
+    /// CalcFields first (:657), and for FieldRef.CalcField of a database RecordRef (:681). Truncate also holds for a
+    /// temporary Record (:1178), the test session first (:1184), and FieldRef.CalcField of a database RecordRef (:1190),
+    /// in unpublished follow-up f167e990 (replacement corpus PR required).
+    /// These cells do not measure Rename or Delete followed by reinsert; those keep main's existing behavior.
     Sources(&'a [Arc<TableDef>]),
 }
 
@@ -652,9 +651,10 @@ impl Session {
     /// `SelectLatestVersion(Table)` with the argument `arg`, which the compiler takes for the Integer also as a Char, a Byte, an
     /// Option or an Enum (the Enum with warning AL0603), each reaching here as itself. An Integer or an Enum that names a table
     /// ends that table's entries and no other table's (another table's number changes nothing, BgTaskQueryCache.al:6744; an
-    /// Enum whose value is the cached table's id ends its row entry, BgTaskCacheEdges.al:452, open corpus PR 1558); one that
-    /// names no table ends none (a Char, a Byte, an Option and an Enum of value 0, :687-:705, and of value 2, :933-:951). A
-    /// Char, a Byte or an Option that names a table is refused in a worker: no cell measures one.
+    /// Enum whose value is the cached table's id ends its row entry, BgTaskCacheEdges.al:452, merged corpus PR 1558); one that
+    /// names no table ends none (a Char, a Byte, an Option and an Enum of value 0, :687-:705, and of value 2, :933-:951;
+    /// Integer 0 and 2, :1196 and :1202 in unpublished follow-up f167e990). A Char, a Byte or an Option that names a table is
+    /// refused in a worker: no cell measures one.
     pub(crate) fn note_select_latest_version_of(&mut self, arg: Option<&Value>) -> Result<(), Signal> {
         let (n, measured) = match arg {
             Some(Value::Integer(n)) => (i64::from(*n), true),
@@ -838,7 +838,7 @@ impl Session {
 
     /// The tables the FlowFields `rec` filters on read (`flow_field_find` keys a read with them), once each, by object id: two
     /// reads with the same key get their commit stamps in the same order, whatever order their filters were set in, as BC
-    /// shares the entry (BgTaskCacheEdges.al:458, :464, open corpus PR 1558).
+    /// shares the entry (BgTaskCacheEdges.al:458, :464, merged corpus PR 1558, awaiting pin).
     fn flow_field_sources(&self, rec: &Rec, t: &TableDef) -> Vec<Arc<TableDef>> {
         let Some(schema) = self.engine.program.objects[t.object as usize].table.as_ref() else {
             return Vec::new();
