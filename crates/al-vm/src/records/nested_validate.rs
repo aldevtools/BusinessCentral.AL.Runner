@@ -85,6 +85,8 @@ pub(crate) struct ValidateRun {
     pub(crate) entered: Vec<Value>,
     /// A record method that writes the record or reads it again ran on it since (`Session::note_record_op_under_validate`).
     pub(crate) touched: bool,
+    /// The OnBeforeValidateEvent returned with the fields in `entered` (`Session::validate_event`).
+    pub(crate) kept_by_before_event: bool,
 }
 
 impl Session {
@@ -154,6 +156,7 @@ impl Session {
             xrec: xrec.clone(),
             entered: rec.borrow().fields.to_vec(),
             touched: false,
+            kept_by_before_event: false,
         });
         let r = hooks(self);
         self.validate_sites.pop();

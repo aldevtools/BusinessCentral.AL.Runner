@@ -1,0 +1,11 @@
+XrecTableProcRoutes => {
+    id: "xrec-table-proc-routes",
+    assumed: "A procedure of a table or of one of its table extensions that a subscriber of the OnAfterValidateEvent of a Validate calls on its Rec reads the xRec the Validate hands the event (al-vm records/validate_event_xrec.rs, pinned by record/validate/XRecTableProcThroughSubscriber.al for a record untouched since the Validate started) also when the record's fields changed while the field's OnValidate trigger ran: the fields when the OnBeforeValidateEvent returned are those the Validate started with, the fields at the call are those the OnAfterValidateEvent was raised with, and no record method ran on the record since the Validate started. The same xRec when the subscriber calls the procedure through one procedure of its own codeunit, no trigger and without attributes, called directly, that holds the subscriber's Rec in its first parameter by var and the subscriber's xRec in its second by var, with at most a third parameter, a Boolean by value, and only from an OnAfterValidateEvent subscriber that declares xRec. Every other fact of the pinned shape still holds (the subscriber, the field, the caller of the Validate); every other shape refuses: a change made in the OnBeforeValidateEvent, by the subscriber, or by a record method; a helper that takes only the record, a second helper, a helper of another codeunit.",
+    tests: "al-runner issue 8974: the reporter's repro (four routes: the subscriber calls a table or a table extension procedure, directly or through a procedure of its codeunit, after the field trigger assigned another field), from an outside partner suite that loses 136 of 408 tests on it.",
+    probe: "record/validate/XRecTableProcRoutes.al (corpus PR 1583, open): AfterEvent_TriggerAssigns_TableProc, AfterEvent_TriggerAssigns_ExtProc, AfterEvent_TriggerAssigns_HelperTableProc, AfterEvent_TriggerAssigns_HelperExtProc, AfterEvent_TriggerAssignsInProc_TableProc, AfterEvent_TriggerAssignsThroughCodeunit_TableProc, AfterEvent_Helper_TableProc; the reporter's own repro on real BC (issue 8974).",
+    awaiting: Awaiting {
+        issues: &[8974],
+        files: &["tests/al-language/record/validate/XRecTableProcRoutes.al"],
+        since: "2026-11-25",
+    },
+}

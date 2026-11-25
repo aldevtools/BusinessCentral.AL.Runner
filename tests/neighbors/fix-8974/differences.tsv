@@ -1,0 +1,9 @@
+# key	entry
+NB XRec Route Tests::Direct_TriggerAssignsInOwnProc	ASSUMED xrec-table-proc-routes (corpus PR 1583)
+NB XRec Route Tests::Direct_TriggerAssignsThroughCodeunit	ASSUMED xrec-table-proc-routes (corpus PR 1583)
+NB XRec Route Tests::Helper_NoAssignment	ASSUMED xrec-table-proc-routes (corpus PR 1583)
+NB XRec Route Tests::Helper_WithBooleanFlag	ASSUMED xrec-table-proc-routes (corpus PR 1583)
+Repro XRec Route Tests::R1_SubscriberCallsTableProc	ASSUMED xrec-table-proc-routes (corpus PR 1583)
+Repro XRec Route Tests::R2_SubscriberHelperCallsTableProc	ASSUMED xrec-table-proc-routes (corpus PR 1583)
+Repro XRec Route Tests::R3_SubscriberCallsExtProc	ASSUMED xrec-table-proc-routes (corpus PR 1583)
+Repro XRec Route Tests::R4_SubscriberHelperCallsExtProc	ASSUMED xrec-table-proc-routes (corpus PR 1583)
