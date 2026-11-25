@@ -1343,6 +1343,9 @@ fixed in the compile first; the build is already required to be deterministic (d
 
 ### Test plan as built (2026-11-22)
 
+Status of this section: **Accepted** (owner, 2026-11-22). The owner accepted this test plan as written, with its six
+deviations below (the outcomes leg's four and the serve suite's two), as recorded on al-runner PR 8446 on 2026-11-22.
+
 - **Corpus equality:** `al-test-cli` test `workspace_cache_equality` (fresh, built, read, read on one thread, fresh on
   one thread; equal canonical dumps), a step of the corpus job on BC 27, 28 and 29. As planned.
 - **Modes and incremental after a hit:** the al-testrun suite `workspace_cache`. As planned.
@@ -1389,12 +1392,17 @@ fixed in the compile first; the build is already required to be deterministic (d
 - **Store the workspace objects in the top dependency layer.** A dependency layer is shared by projects; the workspace
   changes with every edit. Mixing them would rebuild a shared file on every edit. Not taken.
 
-### Open for the owner
+### Decided by the owner
 
-1. Accept or reject this amendment.
-2. The limit of 4 entries per project (decision 9).
-3. The serve field: `cached` keeps its meaning and `workspaceCache` is added (decision 4). The reporter asked for
-   `cached: true` on a restarted daemon; that would change what `cached` means for current clients.
+The three questions this amendment left open were decided on al-runner PR 8155, 2026-11-19 ("I accept the amendment as
+written: the limit of 4 entries, and serve keeps its `cached` field and adds `workspaceCache`"):
+
+1. The amendment: accepted as written.
+2. The limit of 4 entries per project (decision 9): kept.
+3. The serve field (decision 4): `cached` keeps its meaning and `workspaceCache` is added. The reporter asked for
+   `cached: true` on a restarted daemon; that would have changed what `cached` means for current clients.
+
+The test-plan deviations were decided on 2026-11-22 (see "Test plan as built").
 
 ## Consequences
 
