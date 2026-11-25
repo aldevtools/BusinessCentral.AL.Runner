@@ -6,6 +6,8 @@ use al_testkit::text;
 const SRC: &str = r#"
 enum 69811 "NB E Space" { value(0; None) { Caption = ' '; } value(1; Insert) { Caption = 'Insert'; } }
 enum 69812 "NB E Empty" { value(0; None) { Caption = ''; } value(1; Insert) { Caption = 'Insert'; } }
+enum 69815 "NB E Last" { Extensible = false; value(0; Alpha) { Caption = 'Alpha cap'; } value(5; Beta) { Caption = 'Beta cap'; } value(10; Blank) { Caption = ''; } }
+enum 69816 "NB E Mid" { value(0; Alpha) { Caption = 'Alpha cap'; } value(1; None) { Caption = ' '; } value(2; Beta) { Caption = 'Beta cap'; } }
 enum 69813 "NB E Pinned" { value(0; " ") { Caption = ' '; } value(1; Insert) { Caption = 'Insert'; } }
 table 69814 "NB Option Row"
 {
@@ -15,6 +17,7 @@ table 69814 "NB Option Row"
         field(1; Id; Integer) { }
         field(2; Kind; Option) { OptionMembers = None,First,Second; OptionCaption = ' ,First cap,Second cap'; }
         field(3; Pinned; Option) { OptionMembers = " ",First,Second; OptionCaption = ' ,First cap,Second cap'; }
+        field(4; Reporter; Option) { OptionMembers = First,Second,Third,,,Skip; OptionCaption = 'First one,Second one,Third one,,,Skip it'; }
     }
     keys { key(PK; Id) { Clustered = true; } }
 }
@@ -113,6 +116,64 @@ codeunit 69810 C
         exit(Format(R) + '|' + Format(Row.Pinned, 0, 9));
     end;
 
+    procedure ReporterOption(T: Text): Text
+    var Row: Record "NB Option Row"; R: Boolean;
+    begin
+        Row.Reporter := Row.Reporter::First;
+        R := Evaluate(Row.Reporter, T);
+        exit(Format(R) + '|' + Format(Row.Reporter, 0, 9));
+    end;
+
+    procedure ReporterOptionStatement(): Text
+    var Row: Record "NB Option Row";
+    begin
+        Row.Reporter := Row.Reporter::First;
+        Evaluate(Row.Reporter, '');
+        exit(Format(Row.Reporter, 0, 9));
+    end;
+
+    procedure ReporterOptionFieldRef(): Text
+    var Row: Record "NB Option Row"; RecRef: RecordRef; FldRef: FieldRef; R: Boolean;
+    begin
+        RecRef.GetTable(Row);
+        FldRef := RecRef.Field(4);
+        R := FldRef.Evaluate('');
+        exit(Format(R));
+    end;
+
+    procedure LastFromEmpty(): Text
+    var F: Enum "NB E Last"; R: Boolean;
+    begin
+        F := "NB E Last"::Beta;
+        R := Evaluate(F, '');
+        exit(Format(R) + '|' + Format(F.AsInteger()));
+    end;
+
+    procedure LastFromTab(): Text
+    var F: Enum "NB E Last"; R: Boolean; T: Text;
+    begin
+        T[1] := 9;
+        F := "NB E Last"::Beta;
+        R := Evaluate(F, T);
+        exit(Format(R) + '|' + Format(F.AsInteger()));
+    end;
+
+    procedure MidFromEmpty(): Text
+    var F: Enum "NB E Mid"; R: Boolean;
+    begin
+        F := "NB E Mid"::Beta;
+        R := Evaluate(F, '');
+        exit(Format(R) + '|' + Format(F.AsInteger()));
+    end;
+
+    procedure EmptyStatement(): Text
+    var F: Enum "NB E Empty";
+    begin
+        F := "NB E Empty"::Insert;
+        Evaluate(F, '');
+        exit(Format(F.AsInteger()));
+    end;
+
     procedure EmptyFromSpace(): Text
     var F: Enum "NB E Empty"; R: Boolean;
     begin
@@ -130,43 +191,65 @@ fn refused(routine: &str) -> String {
     }
 }
 
-// Real BC accepts the text Format gave for a member named None with a blank caption (al-runner issue 6924, a partner test),
-// but no corpus test pins it yet (the pinned blank members are named " " or ""): refused until the probe lands
-// (corpus pull request 1283, docs/probes-needed.md).
+// A first member named None with Caption `' '` or `''` reads the blank text, on the assumption
+// `enum-blank-text-named-blank-caption` (corpus PR 1306, format-evaluate/EvalNamedBlankCaption.al:208-211, :383-385, merged,
+// not yet pinned). The round trip of the `''` caption goes through the text Format gives for it, which is not blank.
 #[test]
-fn blank_text_into_a_named_member_with_a_blank_caption_is_refused_not_rejected() {
-    for r in ["SpaceRoundTrip", "SpaceFromSpace", "SpaceFromEmpty"] {
-        assert!(refused(r).contains("blank caption"), "{r}");
+fn blank_text_into_a_first_member_with_a_blank_caption_names_it() {
+    for r in [
+        "SpaceRoundTrip",
+        "SpaceFromSpace",
+        "SpaceFromEmpty",
+        "EmptyFromSpace",
+        "EmptyFromEmpty",
+        "EmptyRoundTrip",
+    ] {
+        assert!(text(al_testkit::run_in(SRC, "C", r)).ends_with("Yes|0"), "{r}");
     }
+    assert_eq!(text(al_testkit::run_in(SRC, "C", "SpaceRoundTrip")), "[ ]Yes|0");
 }
 
-// Pinned shapes keep working: a member named " " (corpus format-evaluate/EvalLanguageBoolean.al WA_BlankEnum2) and a
-// Evaluate of a blank text into a named member with a blank caption is refused.
+// Pinned shapes keep working: a member named " " (corpus format-evaluate/EvalLanguageBoolean.al WA_BlankEnum2).
 #[test]
 fn the_pinned_blank_members_still_read_blank_text() {
     assert_eq!(text(al_testkit::run_in(SRC, "C", "PinnedFromSpace")), "[ ]Yes|0");
 }
 
-// The other shapes corpus pull request 1283 (EvalNamedBlankCaption.al:13-58) lists as not pinned: a named member with
-// `Caption = ''`, and an Option field whose named member has a blank OptionCaption.
+// The last member with Caption `''` (al-runner issue 8356, the reporter's repro, BC 28.4 and 29.0: true and member 10), on the
+// same assumption. A TAB, a middle member and the statement form of a `''` caption are not measured: refused.
 #[test]
-fn blank_text_into_a_named_member_with_an_empty_caption_is_refused() {
-    for r in ["EmptyFromSpace", "EmptyFromEmpty"] {
+fn blank_text_into_the_last_member_with_an_empty_caption_names_it() {
+    assert_eq!(text(al_testkit::run_in(SRC, "C", "LastFromEmpty")), "Yes|10");
+    for r in ["LastFromTab", "MidFromEmpty", "EmptyStatement"] {
         assert!(refused(r).contains("blank caption"), "{r}");
     }
-    // The text Format gives for that member is not blank here, so the round trip does not pass through the refusal: it
-    // reads back as the member (al-runner issue 6924).
-    let t = text(al_testkit::run_in(SRC, "C", "EmptyRoundTrip"));
-    assert!(
-        t.ends_with("]Yes|0") && !t.starts_with("[]") && !t.starts_with("[ ]"),
-        "{t}"
-    );
 }
 
+// The named first member of an Option field with a blank OptionCaption is not measured for an Option field: refused.
 #[test]
 fn blank_text_into_an_option_field_whose_named_member_has_a_blank_caption_is_refused() {
     for r in ["OptionFromEmpty", "OptionFromSpace"] {
-        assert!(refused(r).contains("blank OptionCaption"), "{r}");
+        assert!(refused(r).contains("blank member names and captions"), "{r}");
+    }
+}
+
+// Members named "" with caption `''` in the middle (al-runner issue 8354, the reporter's repro, BC 28.4 and 29.0): `''` and
+// `' '` give false and keep the value, on the assumption `option-blank-text-empty-caption-members`. The statement form and a
+// FieldRef are not measured: refused.
+#[test]
+fn blank_text_into_option_members_named_empty_with_empty_captions_is_rejected() {
+    for t in ["", " "] {
+        let r = al_testkit::run_with(
+            SRC,
+            "C",
+            "ReporterOption",
+            vec![al_builtins::value::Value::Text(t.into())],
+        )
+        .map(|(v, _)| v);
+        assert_eq!(text(r), "No|0", "[{t}]");
+    }
+    for r in ["ReporterOptionStatement", "ReporterOptionFieldRef"] {
+        assert!(refused(r).contains("blank member names and captions"), "{r}");
     }
 }
 

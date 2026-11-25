@@ -1,6 +1,7 @@
 //! `Evaluate` into an Enum.
 
 use super::{Parsed, unsupported};
+use crate::assumptions::{Assumption, assume};
 use crate::native::{Ctx, Signal};
 use crate::value::Value;
 
@@ -69,21 +70,10 @@ pub(super) fn enum_text(c: &mut dyn Ctx, id: &u32, text: &crate::text::Txt) -> R
                 .find(|(_, n)| !text.is_empty() && n.eq_ignore_ascii_case(text))
                 .map(|(o, _)| *o)
         });
-    // A blank text into an enum whose member has a name and a blank or empty caption (`value(0; None) { Caption = ' '; }`,
-    // `value(0; None) { Caption = ''; }`) matched nothing above. Real BC reads the first shape as that member (al-runner issue
-    // 6924, a partner test), but no corpus test pins either shape yet (the pinned blank members are named " " or "":
-    // EvalLanguageBoolean.al WA_BlankEnum1-3, FMOptionBlankEnum.al). Refused until the probe (corpus pull request 1283,
-    // EvalNamedBlankCaption.al:13-39, which lists both) lands.
-    if found.is_none()
-        && text.is_empty()
-        && captions
-            .iter()
-            .any(|(o, cap)| cap.trim().is_empty() && members.iter().any(|(mo, n)| mo == o && !n.trim().is_empty()))
-    {
-        return unsupported(
-            "Evaluate of a blank text into an Enum whose member has a name and a blank caption (not pinned)",
-        );
-    }
+    let found = match found {
+        None if text.is_empty() => named_blank_caption(c, &members, &captions, &original, translated_file)?,
+        found => found,
+    };
     if found.is_none() && translated_file && !c.ret_used() {
         return unsupported(format!(
             "the error of Evaluate of `{text}` into an Enum whose captions a translation file changes (not pinned)"
@@ -112,4 +102,39 @@ pub(super) fn enum_text(c: &mut dyn Ctx, id: &u32, text: &crate::text::Txt) -> R
             );
         }
     })
+}
+
+/// A blank text that matched no member name: the member with a name and a blank Caption it names, if any. With no such member it
+/// names none (types/TestBlankEnumInitTests.Codeunit.al: EvaluateMatchesBlankMemberAndRejectsNonMember). One such member, on the
+/// assumption [`Assumption::EnumBlankTextNamedBlankCaption`]: the first member with Caption `' '` or `''` (corpus PR 1306,
+/// format-evaluate/EvalNamedBlankCaption.al:208-211, :224, :383-385, merged, not yet pinned), the last member with Caption `''`
+/// (al-runner issue 8356, the reporter's repro; corpus PR 1577). Every other shape refuses.
+fn named_blank_caption(
+    c: &dyn Ctx,
+    members: &[(i32, String)],
+    captions: &[(i32, String)],
+    original: &crate::text::Txt,
+    translated_file: bool,
+) -> Result<Option<i32>, Signal> {
+    let caption = |o: i32| captions.iter().find(|(co, _)| *co == o).map(|(_, cap)| cap.as_str());
+    let named: Vec<usize> = (0..members.len())
+        .filter(|&i| !members[i].1.trim().is_empty() && caption(members[i].0).is_some_and(|cap| cap.trim().is_empty()))
+        .collect();
+    if named.is_empty() {
+        return Ok(None);
+    }
+    let lang = c.language();
+    let blanks_only = original.as_str().bytes().all(|b| b == b' ');
+    let no_blank_name = members.iter().all(|(_, n)| !n.trim().is_empty());
+    if let ([i], true, true, false) = (named.as_slice(), blanks_only, no_blank_name, translated_file) {
+        let (o, cap) = (members[*i].0, caption(members[*i].0).unwrap_or_default());
+        let first =
+            *i == 0 && matches!(cap, " " | "") && matches!(lang, 1033 | 1034 | 2067) && (c.ret_used() || cap == " ");
+        let last = *i == members.len() - 1 && cap.is_empty() && lang == 1033 && c.ret_used();
+        if first || last {
+            assume(Assumption::EnumBlankTextNamedBlankCaption);
+            return Ok(Some(o));
+        }
+    }
+    unsupported("Evaluate of a blank text into an Enum whose member has a name and a blank caption (not pinned)")
 }

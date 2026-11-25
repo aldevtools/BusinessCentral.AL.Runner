@@ -9,6 +9,7 @@ mod datetime_forms;
 mod duration;
 mod enum_text;
 use duration::duration;
+mod option_blank;
 mod option_text;
 mod platform_options;
 mod short_us_date;
@@ -1538,6 +1539,11 @@ pub fn evaluate_memberless_var_option_element(
 ///
 /// A rejected text gives `false` with the result used.
 pub fn evaluate_option_field(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
+    option_field(c, a, true)
+}
+
+/// [`evaluate_option_field`] of a field named directly (`direct`) or through a FieldRef.
+fn option_field(c: &mut dyn Ctx, a: &mut [Value], direct: bool) -> Result<Value, Signal> {
     let (Some(text), Some(Value::Text(captions)), Value::Option(_, names)) =
         (crate::native::text_of(&a[1]), a.get(3).cloned(), a[0].clone())
     else {
@@ -1560,28 +1566,28 @@ pub fn evaluate_option_field(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Va
     // A field without a caption (fifth argument 2, the fourth its member names): an empty or blank text names a member
     // declared as `" "`, not one declared as `""` (format-evaluate/AxFormatOption.al:208-211).
     let no_caption = matches!(a.get(4), Some(Value::Integer(2)));
-    // An empty or blank text names a blank member (format-evaluate/P131EvalOption.al:107-108: `''` and `' '` give the
-    // member `" "` of caption `' '`, :146: a field without a blank member rejects `''`).
     let same = |n: &str| {
         if t.is_empty() {
-            n.trim().is_empty() && !(no_caption && n.is_empty())
+            !n.is_empty() && n.trim().is_empty()
         } else {
             n.trim().eq_ignore_ascii_case(t)
         }
     };
-    let by_caption = captions.split(',').position(same);
-    let by_name = names.iter().position(|n| same(n));
-    // A blank text that names a member only by its blank caption, while the member has a name (`OptionMembers = None,First`,
-    // `OptionCaption = ' ,First cap'`): the pins are members named " " or "" (P131EvalOption.al:107-108, FMOptionBlankField.al).
-    // Not pinned, listed by the probe of corpus pull request 1283 (EvalNamedBlankCaption.al:41-58): refused.
-    if t.is_empty()
-        && by_name.is_none()
-        && by_caption.is_some_and(|p| names.get(p).is_some_and(|n| !n.trim().is_empty()))
-    {
-        return unsupported(
-            "Evaluate of a blank text into an Option field whose member has a name and a blank OptionCaption (not pinned)",
-        );
-    }
+    // A blank text into a field with captions: `option_blank` decides from the blank names and captions.
+    let (by_caption, by_name) = if t.is_empty() && !no_caption {
+        let call = option_blank::BlankCall {
+            text: text.as_str(),
+            direct_plain_caption: direct && a.get(4).is_none(),
+            ret_used: c.ret_used(),
+        };
+        let caps: Vec<&str> = captions.split(',').collect();
+        match option_blank::blank_text(&names, &caps, &call)? {
+            option_blank::BlankText::Member(p) => (Some(p), None),
+            option_blank::BlankText::NoMember => (None, None),
+        }
+    } else {
+        (captions.split(',').position(same), names.iter().position(|n| same(n)))
+    };
     let digits = t.strip_prefix('+').unwrap_or(t);
     let ordinal = (!digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
         .then(|| digits.parse::<i32>().ok())
@@ -2193,7 +2199,7 @@ fn into_field_ref(c: &mut dyn Ctx, a: &mut [Value], number: i64) -> Result<Value
             Value::Integer(number as i32),
             Value::Text(captions.clone().into()),
         ];
-        let ok = evaluate_option_field(c, None, &mut args)?;
+        let ok = option_field(c, &mut args, false)?;
         if matches!(ok, Value::Boolean(true)) {
             target.rec.borrow_mut().fields[target.pos] = args.swap_remove(0);
         }

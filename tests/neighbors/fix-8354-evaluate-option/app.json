@@ -1,0 +1,10 @@
+{
+  "id": "6d1f3c20-8354-4c3d-9e8f-835400000002",
+  "name": "Neighbors 8354",
+  "publisher": "AL Runner",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "idRanges": [ { "from": 71900, "to": 71919 } ],
+  "dependencies": []
+}
