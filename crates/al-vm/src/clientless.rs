@@ -126,7 +126,8 @@ impl Session {
     }
 
     /// The Company Triggers OnCompanyOpen and OnCompanyOpenCompleted subscribers of an install session run (or no longer
-    /// run), and the login they raise: `TaskScheduler.CanCreateTask` is not measured there (al-builtins `can_create_task`).
+    /// run), and the login they raise: `TaskScheduler.CanCreateTask` keeps main's false, not measured there (al-builtins
+    /// `can_create_task`).
     pub fn set_install_company_open(&mut self, on: bool) {
         self.install_company_open = on;
     }

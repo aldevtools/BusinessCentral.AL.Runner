@@ -178,7 +178,7 @@ fn can_create_task_answers_yes_in_an_app_install_session_and_no_elsewhere() {
     };
     assert!(matches!(run(&mut build), Ok(Value::Boolean(false))));
     assert!(!take_hits().contains(&Assumption::InstallSessionCanCreateTask));
-    // The Company Triggers subscribers of the install session (and the login they raise): not measured, refused.
+    // The Company Triggers subscribers of the install session (and the login they raise): not measured, main's false.
     for install_session in [true, false] {
         let mut open = TestCtx {
             install: true,
@@ -186,7 +186,7 @@ fn can_create_task_answers_yes_in_an_app_install_session_and_no_elsewhere() {
             company_open: true,
             ..Default::default()
         };
-        assert!(matches!(run(&mut open), Err(Signal::Unsupported(_))));
+        assert!(matches!(run(&mut open), Ok(Value::Boolean(false))));
     }
     assert!(!take_hits().contains(&Assumption::InstallSessionCanCreateTask));
 }
