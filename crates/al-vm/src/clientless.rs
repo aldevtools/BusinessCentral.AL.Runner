@@ -116,6 +116,21 @@ impl Session {
         self.ui_state.clientless && self.pages.bg_worker.is_none() && !self.install_without_client
     }
 
+    /// An install routine of an app runs (or no longer runs): BC runs it in a session without a client. `GuiAllowed()` is
+    /// false, `CurrentClientType()` is SOAP, a `Message` does not stop it, and StrMenu, Confirm and `Page.Run` raise
+    /// CallbackNotAllowed (errors/RlInstallUi.al:210-241, metadata/CmInstallLeads.al:54-61).
+    /// Not set while the company is built: Company-Initialize and the company data codeunit keep their own rules.
+    pub fn set_install_without_client(&mut self, on: bool) {
+        self.install_without_client = on;
+        self.sync_no_client_test_session();
+    }
+
+    /// The Company Triggers OnCompanyOpen and OnCompanyOpenCompleted subscribers of an install session run (or no longer
+    /// run), and the login they raise: `TaskScheduler.CanCreateTask` is not measured there (al-builtins `can_create_task`).
+    pub fn set_install_company_open(&mut self, on: bool) {
+        self.install_company_open = on;
+    }
+
     /// Puts [`Session::no_client_test_session`] where the platform providers read it (`EventStats::no_client_test_session`,
     /// for the reads of the Session and Active Session tables). Called wherever one of its inputs changes: the session
     /// flag (`set_clientless_session`), install code (`set_install_without_client`) and a page background task worker

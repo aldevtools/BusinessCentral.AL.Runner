@@ -913,6 +913,8 @@ pub struct Session {
     pub(crate) sessions_started: i32,
     /// An install routine runs in BC's install session, which has no client (`set_install_without_client`).
     install_without_client: bool,
+    /// The Company Triggers subscribers of an install session run (`set_install_company_open`).
+    install_company_open: bool,
     /// The session's data comes from a baseline in which the company data codeunit built the company to its end
     /// (`Baseline::company_built`).
     pub(crate) company_built: bool,
@@ -1507,6 +1509,7 @@ impl Session {
             background_session: false,
             sessions_started: 0,
             install_without_client: false,
+            install_company_open: false,
             company_built: false,
             demo_written: Default::default(),
             gl_setup_written: false,
@@ -1939,15 +1942,6 @@ impl Session {
     /// reporter of al-runner issues 8154, 8158 and 8028 measured it: what each call does there is in `clientless.rs`.
     pub fn set_clientless_session(&mut self, on: bool) {
         self.ui_state.clientless = on;
-        self.sync_no_client_test_session();
-    }
-
-    /// An install routine of an app runs (or no longer runs): BC runs it in a session without a client. `GuiAllowed()` is
-    /// false, `CurrentClientType()` is SOAP, a `Message` does not stop it, and StrMenu, Confirm and `Page.Run` raise
-    /// CallbackNotAllowed (errors/RlInstallUi.al:210-241, metadata/CmInstallLeads.al:54-61).
-    /// Not set while the company is built: Company-Initialize and the company data codeunit keep their own rules.
-    pub fn set_install_without_client(&mut self, on: bool) {
-        self.install_without_client = on;
         self.sync_no_client_test_session();
     }
 

@@ -361,6 +361,11 @@ pub trait Ctx: FormatCtx {
     fn install_without_client(&self) -> bool {
         false
     }
+    /// Whether the Company Triggers OnCompanyOpen and OnCompanyOpenCompleted subscribers of an install session run (and
+    /// the login they raise), before the app's install code (al-vm `set_install_company_open`).
+    fn install_company_open(&self) -> bool {
+        false
+    }
     /// Whether a test codeunit is being run by the test runner (under TestIsolation = Codeunit).
     fn in_test_run(&self) -> bool {
         false

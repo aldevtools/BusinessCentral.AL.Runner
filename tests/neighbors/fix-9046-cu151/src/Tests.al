@@ -43,16 +43,6 @@ codeunit 52690 "CT Task Tests"
     end;
 
     [Test]
-    procedure CompanyOpenOfTheInstallSessionSeesYes()
-    var
-        Row: Record "CT Task TA";
-    begin
-        Row.Get('OPEN');
-        if Row.Value <> 'Yes' then
-            Error('company open in the install session: %1', Row.Value);
-    end;
-
-    [Test]
     procedure TestSessionSeesNo()
     begin
         if TaskScheduler.CanCreateTask() then

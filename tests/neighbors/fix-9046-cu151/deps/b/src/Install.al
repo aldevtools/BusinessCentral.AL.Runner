@@ -1,5 +1,7 @@
 table 52610 "CT Task TB"
 {
+    DataPerCompany = false;
+
     fields
     {
         field(1; "Code"; Code[20]) { }

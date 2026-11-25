@@ -27,15 +27,3 @@ codeunit 52601 "CT Task A Install"
             Row.Modify();
     end;
 }
-
-codeunit 52602 "CT Task A Open"
-{
-    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Company Triggers", 'OnCompanyOpenCompleted', '', false, false)]
-    local procedure OpenCompleted()
-    var
-        Install: Codeunit "CT Task A Install";
-    begin
-        if Session.GetExecutionContext() = ExecutionContext::Install then
-            Install.Note('OPEN');
-    end;
-}

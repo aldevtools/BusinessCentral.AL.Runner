@@ -37,6 +37,8 @@ pub(crate) struct TestCtx {
     install: bool,
     /// What `install_without_client` answers: an app's install session.
     install_session: bool,
+    /// What `install_company_open` answers: the Company Triggers subscribers of an install session run.
+    company_open: bool,
     in_test: bool,
     pub(crate) result_ignored: bool,
     /// What `held_by_temp_blob_impl` answers for every buffer.
@@ -76,6 +78,9 @@ impl Ctx for TestCtx {
     }
     fn install_without_client(&self) -> bool {
         self.install_session
+    }
+    fn install_company_open(&self) -> bool {
+        self.company_open
     }
     fn in_test_run(&self) -> bool {
         self.in_test
@@ -149,7 +154,7 @@ fn start_session_answers_false_in_install_and_is_refused_in_a_test_run() {
 
 #[test]
 fn can_create_task_answers_yes_in_an_app_install_session_and_no_elsewhere() {
-    use crate::assumptions::{take_hits, Assumption};
+    use crate::assumptions::{Assumption, take_hits};
     let run = |ctx: &mut TestCtx| lookup("TaskScheduler.CanCreateTask#1").unwrap()(ctx, None, &mut []);
     let _ = take_hits();
     // Corpus PR 1589, install-upgrade/IsInstallSessionTests.al:86, :91, :135 (pin pending).
@@ -172,6 +177,17 @@ fn can_create_task_answers_yes_in_an_app_install_session_and_no_elsewhere() {
         ..Default::default()
     };
     assert!(matches!(run(&mut build), Ok(Value::Boolean(false))));
+    assert!(!take_hits().contains(&Assumption::InstallSessionCanCreateTask));
+    // The Company Triggers subscribers of the install session (and the login they raise): not measured, refused.
+    for install_session in [true, false] {
+        let mut open = TestCtx {
+            install: true,
+            install_session,
+            company_open: true,
+            ..Default::default()
+        };
+        assert!(matches!(run(&mut open), Err(Signal::Unsupported(_))));
+    }
     assert!(!take_hits().contains(&Assumption::InstallSessionCanCreateTask));
 }
 

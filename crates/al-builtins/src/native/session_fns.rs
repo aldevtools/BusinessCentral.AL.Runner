@@ -168,9 +168,16 @@ pub(super) fn start_session_of(c: &mut dyn Ctx, args: &mut [Value], timeout: boo
 }
 
 /// `TaskScheduler.CanCreateTask()`. False in a test (session-system/TestEnvironmentUserTenantContracts.al:235). True in
-/// an app's install session (`Ctx::install_without_client`): corpus PR 1589, install-upgrade/IsInstallSessionTests.al:86,
-/// :91, :135, pin pending (assumption install-session-can-create-task). Everywhere else main's false.
+/// an app's install code (`Ctx::install_without_client`): corpus PR 1589, install-upgrade/IsInstallSessionTests.al:86,
+/// :91, :135, pin pending (assumption install-session-can-create-task). Refused in the Company Triggers subscribers of an
+/// install session (`Ctx::install_company_open`): not measured there. Everywhere else main's false.
 pub(super) fn can_create_task(c: &mut dyn Ctx, _: Option<&mut Value>, _: &mut [Value]) -> Result<Value, Signal> {
+    if c.install_company_open() {
+        return Err(Signal::unsupported(
+            "TaskScheduler.CanCreateTask in a Company Triggers OnCompanyOpen or OnCompanyOpenCompleted subscriber (or the \
+             login it raises) of an install session: the answer there is not measured",
+        ));
+    }
     if c.install_without_client() {
         crate::assumptions::assume(crate::assumptions::Assumption::InstallSessionCanCreateTask);
         return Ok(Value::Boolean(true));
