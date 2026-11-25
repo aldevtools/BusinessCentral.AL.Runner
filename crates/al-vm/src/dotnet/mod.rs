@@ -21,7 +21,7 @@ mod last_error;
 mod not_created;
 mod pinned_exceptions;
 pub mod policy;
-pub(crate) mod pure;
+mod pure;
 use pure::CONSTRUCT;
 mod business_chart_data;
 mod key_vault;

@@ -34,6 +34,21 @@ const LOCAL_BASE: u64 = 1 << 48;
 /// the differential tests).
 pub const MEMBERS: &str = include_str!("inproc.txt");
 
+/// The `Type.Member` lines of [`MEMBERS`], without its comments and blank lines.
+pub fn listed_members() -> impl Iterator<Item = &'static str> {
+    (MEMBERS.lines().map(str::trim)).filter(|l| !l.is_empty() && !l.starts_with('#'))
+}
+
+/// Whether [`MEMBERS`] lists `member` of `clr_type` (`None`: the constructor, `.ctor`): the type as written, the
+/// member without regard to case.
+pub fn lists(clr_type: &str, member: Option<&str>) -> bool {
+    let member = member.unwrap_or(".ctor");
+    listed_members().any(|l| {
+        (l.strip_prefix(clr_type).and_then(|rest| rest.strip_prefix('.')))
+            .is_some_and(|m| m.eq_ignore_ascii_case(member))
+    })
+}
+
 /// The host to give the engine: `host` wrapped with the stand-ins, or `host` itself when `ALRUNNER_NO_INPROC` is set.
 pub fn wrap(host: Arc<dyn DotNetHost>) -> Arc<dyn DotNetHost> {
     if std::env::var_os("ALRUNNER_NO_INPROC").is_some() {
@@ -896,12 +911,7 @@ mod tests {
     }
 
     fn listed() -> Vec<String> {
-        MEMBERS
-            .lines()
-            .map(str::trim)
-            .filter(|l| !l.is_empty() && !l.starts_with('#'))
-            .map(String::from)
-            .collect()
+        listed_members().map(String::from).collect()
     }
 
     #[test]

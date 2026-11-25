@@ -111,7 +111,7 @@ fn the_apps_whose_code_ran_are_met() {
 #[test]
 fn touching_everything_reads_from_and_collides_with_every_session() {
     let mut all = InstallFootprint::default();
-    all.touch_everything("a page", Vec::new());
+    all.touch_everything("a page");
     let none = InstallFootprint::default();
     assert!(all.reads_from(&none, 1) && none.reads_from(&all, 1) && all.collides(&none));
     assert!(!none.reads_from(&none, 1) && !none.collides(&none));

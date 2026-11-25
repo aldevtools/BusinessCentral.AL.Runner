@@ -41,8 +41,9 @@ fn name(s: &Slot) -> (String, u32) {
 impl MemStore {
     /// The committed rows of this store apart from `base`'s, row by row: the tables whose rows differ, with the rows
     /// that are new or changed and the keys of those that are gone, and the tables `base` holds that this store does
-    /// not. A table `base` holds no entry for is compared with the backing's rows `base` reads for it. A table with `base`'s stamp holds `base`'s rows (stamps are unique in the process) and is skipped; an entry
-    /// both maps share is the same row. `same(a, b)` says whether two rows (or keys) are the same, as their bytes are;
+    /// not. A table `base` holds no entry for is compared with the backing's rows `base` reads for it. A table with
+    /// `base`'s stamp holds `base`'s rows (stamps are unique in the process) and is skipped; an entry both maps share is
+    /// the same row. `same(a, b)` says whether two rows (or keys) are the same, as their bytes are;
     /// `None` from it (a value that is not plain) gives `None`. `None` too when the company copies differ.
     pub fn committed_row_changes_from(&self, base: &MemStore, same: &mut SameRows<'_>) -> Option<RowChanges> {
         let same_copies = self.committed_copies.len() == base.committed_copies.len()

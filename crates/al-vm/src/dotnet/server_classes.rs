@@ -74,14 +74,18 @@ pub const CONSTANT_ANSWERS: &[(&str, &str)] = &[
 /// Whether `member` of the declared CLR type `clr_type` is one of [`ANSWERS_ONLY`] (both without regard to case, as the
 /// registry matches them).
 pub fn answers_only(clr_type: &str, member: &str) -> bool {
-    (ANSWERS_ONLY.iter()).any(|(t, m)| t.eq_ignore_ascii_case(clr_type) && m.eq_ignore_ascii_case(member))
+    listed(ANSWERS_ONLY, clr_type, member)
+}
+
+/// Whether `list` holds (`clr_type`, `member`), both without regard to case.
+fn listed(list: &[(&str, &str)], clr_type: &str, member: &str) -> bool {
+    (list.iter()).any(|(t, m)| t.eq_ignore_ascii_case(clr_type) && m.eq_ignore_ascii_case(member))
 }
 
 /// Whether `member` of `clr_type` is one of [`ANSWERS_ONLY`] or [`CONSTANT_ANSWERS`] (both without regard to case): its
 /// implementation here keeps nothing (al-vm `install_footprint.rs`).
 pub fn keeps_nothing(clr_type: &str, member: &str) -> bool {
-    answers_only(clr_type, member)
-        || (CONSTANT_ANSWERS.iter()).any(|(t, m)| t.eq_ignore_ascii_case(clr_type) && m.eq_ignore_ascii_case(member))
+    answers_only(clr_type, member) || listed(CONSTANT_ANSWERS, clr_type, member)
 }
 
 /// Whether a variable of the declared CLR type `clr_type` can only hold an object of a class served here whose members

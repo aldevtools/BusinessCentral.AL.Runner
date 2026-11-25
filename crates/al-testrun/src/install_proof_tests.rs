@@ -74,7 +74,7 @@ fn a_cycle_of_four_installs_is_one_unit_and_ordered_apps_have_no_edge() {
 #[test]
 fn an_install_that_touches_everything_ties_every_unordered_install_session() {
     let mut page = InstallFootprint::default();
-    page.touch_everything("a page", Vec::new());
+    page.touch_everything("a page");
     let fp: Footprints = [(1, page), (2, InstallFootprint::default())].into_iter().collect();
     let apps = all(&[1, 2, 3]);
     assert_eq!(
@@ -96,8 +96,8 @@ fn the_lines_of_installs_that_touch_everything_group_the_apps_by_reason_and_plac
             routine: 0,
             pos: 0,
         }];
-        f.touch_everything("a .NET call (X.Y)", site.clone());
-        f.touch_everything("a .NET call (X.Y)", Vec::new());
+        f.touch_everything_at("a .NET call (X.Y)", site.clone());
+        f.touch_everything("a .NET call (X.Y)");
         f
     };
     let fp: Footprints = [(1, at(7)), (2, at(7)), (3, at(8))].into_iter().collect();
@@ -159,7 +159,7 @@ fn the_tie_names_the_table_and_the_kind_of_resource_not_its_debug_form() {
 #[test]
 fn an_app_without_install_code_is_reached_only_by_a_meet() {
     let mut page = InstallFootprint::default();
-    page.touch_everything("a page", Vec::new());
+    page.touch_everything("a page");
     let apps = all(&[1, 2]);
     let alone: Footprints = [(1, page.clone())].into_iter().collect();
     assert_eq!(Graph::of(&apps, &alone, |x, y| x != y), Graph::default());

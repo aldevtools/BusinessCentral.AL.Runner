@@ -131,12 +131,17 @@ impl InstallFootprint {
     /// counts as.
     pub fn touching_everything(why: &str) -> InstallFootprint {
         let mut fp = InstallFootprint::default();
-        fp.touch_everything(why, Vec::new());
+        fp.touch_everything(why);
         fp
     }
 
+    /// Marks the session as touching everything for `why`, found at the end of the session (no site).
+    pub fn touch_everything(&mut self, why: impl Into<String>) {
+        self.touch_everything_at(why, Vec::new());
+    }
+
     /// Marks the session as touching everything for `why`, noted from `site`; the first site of a reason stays.
-    pub fn touch_everything(&mut self, why: impl Into<String>, site: Vec<FaultFrame>) {
+    pub fn touch_everything_at(&mut self, why: impl Into<String>, site: Vec<FaultFrame>) {
         self.everything.entry(why.into()).or_insert(site);
     }
 
@@ -182,7 +187,7 @@ impl InstallFootprint {
         self.apps_met.extend(other.apps_met);
         self.apps_all |= other.apps_all;
         for (why, site) in other.everything {
-            self.touch_everything(why, site);
+            self.touch_everything_at(why, site);
         }
     }
 
@@ -200,12 +205,12 @@ impl InstallFootprint {
                         Some(n) => format!("a table served by a provider (table {n})"),
                         None => "a table served by a provider".to_string(),
                     };
-                    self.touch_everything(what, Vec::new());
+                    self.touch_everything(what);
                 }
             }
         }
         for why in s.everything {
-            self.touch_everything(why, Vec::new());
+            self.touch_everything(why);
         }
     }
 }
@@ -423,17 +428,8 @@ const KEPT_METHODS: &[(&str, &[&str])] = &[
 ///
 /// Every other member touches everything (ADR-079 decision 1), every other server class member included.
 fn dotnet_member_kept(clr_type: &str, member: Option<&str>) -> bool {
-    let in_process = |m: &str| {
-        (al_host::inproc::MEMBERS.lines()).any(|l| {
-            l.strip_prefix(clr_type)
-                .and_then(|rest| rest.strip_prefix('.'))
-                .is_some_and(|listed| listed.eq_ignore_ascii_case(m))
-        })
-    };
-    match member {
-        None => in_process(crate::dotnet::pure::CONSTRUCT),
-        Some(m) => in_process(m) || crate::dotnet::server_classes::keeps_nothing(clr_type, m),
-    }
+    al_host::inproc::lists(clr_type, member)
+        || member.is_some_and(|m| crate::dotnet::server_classes::keeps_nothing(clr_type, m))
 }
 
 /// Whether builtin `name` (`Receiver.Method#n`) touches everything while an install session is recorded
@@ -495,14 +491,11 @@ impl crate::Session {
             })
             .collect();
         if self.store.has_uncommitted() {
-            fp.touch_everything("writes not committed at the end of the install session", Vec::new());
+            fp.touch_everything("writes not committed at the end of the install session");
         } else if let Err((why, table)) = self.store.unrecorded_writes(&b.store, &store_writes) {
             let objects = &self.engine.program.objects;
             let named = table.and_then(|t| objects.get(t as usize)).map(|o| o.name.as_str());
-            match named {
-                Some(name) => fp.touch_everything(format!("{why} (table {name})"), Vec::new()),
-                None => fp.touch_everything(why, Vec::new()),
-            }
+            fp.touch_everything(named.map_or_else(|| why.to_string(), |name| format!("{why} (table {name})")));
         }
         fn changed<K: Eq + std::hash::Hash + Clone, V: PartialEq>(
             a: &std::collections::HashMap<K, V>,
@@ -531,13 +524,10 @@ impl crate::Session {
             )
             .filter(|l| !fp.writes.contains(l));
         if unnoted.next().is_some() {
-            fp.touch_everything(
-                "a counter, sequence or storage key changed that no recorded write names",
-                Vec::new(),
-            );
+            fp.touch_everything("a counter, sequence or storage key changed that no recorded write names");
         }
         if self.company_unknown != b.company_unknown || self.full_copies != b.full_copies {
-            fp.touch_everything("the companies changed", Vec::new());
+            fp.touch_everything("the companies changed");
         }
     }
 }
@@ -563,7 +553,7 @@ impl crate::Session {
         match self.store.footprint_take() {
             Some(s) => fp.add_store(s, &self.engine),
             None => {
-                fp.touch_everything("the store's record of the install session was lost", Vec::new());
+                fp.touch_everything("the store's record of the install session was lost");
             }
         }
         self.footprint_check(&rec.before, &mut fp);
@@ -607,17 +597,13 @@ impl crate::Session {
             return;
         }
         let site = self.stack_now();
-        self.note_footprint(|fp| fp.touch_everything(why(), site));
+        self.note_footprint(|fp| fp.touch_everything_at(why(), site));
     }
 
-    /// A page (object index `page`) opens while a footprint is recorded: it touches everything.
-    pub(crate) fn note_footprint_page(&self, page: usize) {
-        self.note_footprint_everything(|| format!("a page ({})", self.object_id_text(page)));
-    }
-
-    /// A report (object index `report`) runs while a footprint is recorded: it touches everything.
-    pub(crate) fn note_footprint_report(&self, report: usize) {
-        self.note_footprint_everything(|| format!("a report ({})", self.object_id_text(report)));
+    /// A page or a report (`kind`, object index `object`) opens or runs while a footprint is recorded: it touches
+    /// everything.
+    pub(crate) fn note_footprint_object(&self, kind: &str, object: usize) {
+        self.note_footprint_everything(|| format!("a {kind} ({})", self.object_id_text(object)));
     }
 
     /// A .NET call reaches the host (`dotnet/mod.rs` `dotnet_apply`) while a footprint is recorded: it touches
@@ -646,7 +632,7 @@ impl crate::Session {
             let site = if all { self.stack_now() } else { Vec::new() };
             self.note_footprint(|fp| {
                 if all {
-                    fp.touch_everything(format!("builtin {name}"), site);
+                    fp.touch_everything_at(format!("builtin {name}"), site);
                 }
                 if row_version {
                     fp.reads.insert(Lasting::RowVersion);
