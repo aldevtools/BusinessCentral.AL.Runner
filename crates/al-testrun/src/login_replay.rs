@@ -23,11 +23,37 @@
 
 mod difference;
 mod key_parts;
+mod rows_digest;
 
 use al_vm::{Engine, Session};
 pub(crate) use difference::differences;
 use difference::{KINDS, StoredRow, stored_rows};
 use std::sync::{Mutex, PoisonError};
+
+/// Why a session has no key ([`Key::of`]): it then runs its login.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum NoKey {
+    /// The session holds a value with no comparable form (al-vm `NotComparable`), at this path (ids and indexes only).
+    NotComparable(String),
+    /// A row holds a value with no byte form, of this kind (`rows_digest::NoByteForm`).
+    NoByteForm(&'static str),
+}
+
+impl From<rows_digest::NoByteForm> for NoKey {
+    fn from(no: rows_digest::NoByteForm) -> NoKey {
+        NoKey::NoByteForm(no.0)
+    }
+}
+
+impl NoKey {
+    /// The reason as the starts line names it.
+    pub(crate) fn reason(&self) -> String {
+        match self {
+            NoKey::NotComparable(path) => format!("no comparable form: {path}"),
+            NoKey::NoByteForm(kind) => format!("no byte form: {kind}"),
+        }
+    }
+}
 
 /// The inputs the login and its subscribers read when the test session opens the company, as far as the code shows them:
 /// a session state the key does not hold is held in place by the thaw's rule (al-vm `session_fields.rs`, `login_image/fields.rs`), and a
@@ -42,6 +68,9 @@ use std::sync::{Mutex, PoisonError};
 /// SHA-256 digest ([`LinesDigest`]), never a 64-bit hash; and the test codeunit stays a field until a repeat across test
 /// codeunits is measured on a real app. Tests `every_key_field_is_content_or_a_sha256_digest` and
 /// `two_test_codeunits_never_share_a_key`.
+///
+/// The resource texts of the entry (`Engine::resource_overrides`) are not a field: a start is found by the texts its login
+/// read ([`StartKey`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Key {
     /// Every committed row before the login: the install baseline, what install code and an earlier codeunit left.
@@ -63,14 +92,17 @@ pub(crate) struct Key {
     /// moves the clock by another amount under another seed (measured: two requests of one serve daemon, seeds 1 and 2;
     /// alrunner-cli tests/serve.rs `the_login_replay_check_finds_no_difference_across_entries_and_requests`).
     seed: i32,
+    /// The session's clock now (`Session::clock_now_millis`): where the run's clock started (`host::RunClock`, begun
+    /// per run, so per request of a daemon, at one time of day of the day the run began) plus what the session moved
+    /// it. A login that stamps the time it reads hands a session of another start instant another time. The session
+    /// lines hold the clock's day only while no WorkDate is set; install code that set one leaves it to every session
+    /// (`login_start_tests.rs` `a_session_whose_run_clock_began_on_another_day_runs_its_own_login`).
+    clock: i64,
     /// `UserId()`.
     user: String,
     /// The test codeunit the session opens for: `login::decide` reads it, and a replay may not cross codeunits until a
     /// repeat across test codeunits is measured on a real app (the maintainer's second condition, al-runner issue 8211).
     test_codeunit: Option<usize>,
-    /// The resource texts the pass reads in place of the apps' files (a serve entry's `resources`,
-    /// `Engine::resource_overrides`): `NavApp.GetResource` in a subscriber reads them.
-    resources: LinesDigest,
     /// The session has a client (BC's login code runs only then), runs without one (`--no-client`), and runs under
     /// RequiredTestIsolation = Disabled: these choose what the login does (`install::open_test_session_company`).
     client: (bool, bool, bool),
@@ -155,50 +187,38 @@ impl RunSettings {
 impl Key {
     /// The key of `session` before it opens the company; `isolation`: the codeunit's test isolation and whether the hub
     /// runs it; `flags`: the run options the session took; `skipped`: the install code that could not run, whose tables
-    /// the open is watched on. `None` when the session holds a value with no comparable form (al-vm `NotComparable`):
-    /// the key would hold it by its path only, so two sessions with other values there would share a key. Such a
-    /// session runs its login.
+    /// the open is watched on. [`NoKey`] when the session holds a value with no comparable form (al-vm `NotComparable`:
+    /// the key would hold it by its path only, so two sessions with other values there would share a key) or a row holds
+    /// a value with no byte form (`rows_digest.rs`). Such a session runs its login.
     pub(crate) fn of(
         session: &mut Session,
         isolation: (crate::isolation::TestIsolation, bool),
         flags: crate::runtime::session_flags::SessionFlags,
         skipped: &[al_vm::SkippedInstall],
-    ) -> Option<Key> {
+    ) -> Result<Key, NoKey> {
         let state = session.state_lines();
-        if !state.opaque.is_empty() {
-            return None;
+        if let Some(opaque) = state.opaque.first() {
+            return Err(NoKey::NotComparable(opaque.path.clone()));
         }
         let engine = session.engine.clone();
         let store = session.store_mut();
-        let tables = key_parts::store_table_digests(&engine, store);
+        let tables = key_parts::store_table_digests(&engine, store)?;
         let database = key_parts::database_digest(&tables);
-        let uncommitted = store.has_uncommitted().then(|| digest(&current_rows(store)));
-        let backing = BackingKey::of(store.backing_identity());
-        let resources = {
-            let overrides = session
-                .engine
-                .resource_overrides
-                .read()
-                .unwrap_or_else(PoisonError::into_inner);
-            let mut texts: Vec<_> = overrides.iter().collect();
-            texts.sort_by_key(|(app, _)| **app);
-            digest(
-                &texts
-                    .iter()
-                    .map(|(app, files)| format!("{app} {files:?}"))
-                    .collect::<Vec<_>>(),
-            )
+        let uncommitted = match store.has_uncommitted() {
+            true => Some(rows_digest::current_digest(store)?),
+            false => None,
         };
-        Some(Key {
+        let backing = BackingKey::of(store.backing_identity());
+        Ok(Key {
             database,
             uncommitted,
             backing,
             session: session_digest(&state),
             company: session.access_company().to_string(),
             seed: session.run_seed(),
+            clock: session.clock_now_millis(),
             user: session.user_id(),
             test_codeunit: session.test_object,
-            resources,
             client: (
                 session.has_interactive_client(),
                 session.is_clientless_session(),
@@ -213,6 +233,48 @@ impl Key {
             emit_version: EmitKey(engine.emit_version.clone()),
             refused_reads: refused_reads(&engine),
         })
+    }
+}
+
+/// What a login start, and the check's first session of a key, is found by (ADR-073 amendment 2026-11-25, al-runner
+/// issue 8211): the base key, and the resource files the session read up to the end of its login with their texts then
+/// (`al_vm::TextsRead`, as `runtime/install_once.rs` keeps them for install code; `NavApp.ListResources` reads every file
+/// of the app). A later session of the base key finds it only when its texts of those files are the same; a login that
+/// read none is found under any texts. Each text read is held as its SHA-256 digest, so a start's key does not grow
+/// with the texts.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct StartKey {
+    pub(crate) key: Key,
+    read: al_vm::TextsRead,
+}
+
+impl StartKey {
+    /// `key` with what `session` read up to now (after its login).
+    pub(crate) fn of(key: Key, session: &Session) -> StartKey {
+        let read = al_vm::TextsRead::now(session.resource_reads(), &session.engine);
+        StartKey { key, read }
+    }
+
+    /// Whether a session of `key` on `engine` finds this: the same base key, and the texts of the files read the same now.
+    pub(crate) fn fits(&self, key: &Key, engine: &Engine) -> bool {
+        self.key == *key && self.read.same_now(engine)
+    }
+
+    /// `key` of a session that read no resource file: it is found under any texts (tests plant what a key that missed the
+    /// texts would compare).
+    #[cfg(test)]
+    pub(crate) fn reading_nothing(key: Key) -> StartKey {
+        let read = Default::default();
+        StartKey { key, read }
+    }
+
+    /// [`Key::differs_in`], with `resources` when the files read or their texts differ.
+    fn differs_in(&self, other: &StartKey) -> Vec<&'static str> {
+        let mut fields = self.key.differs_in(&other.key);
+        if self.read != other.read {
+            fields.push("resources");
+        }
+        fields
     }
 }
 
@@ -262,9 +324,9 @@ impl Key {
             session,
             company,
             seed,
+            clock,
             user,
             test_codeunit,
-            resources,
             client,
             flags,
             license,
@@ -283,9 +345,9 @@ impl Key {
             (*session != other.session, "session"),
             (*company != other.company, "company"),
             (*seed != other.seed, "seed"),
+            (*clock != other.clock, "clock"),
             (*user != other.user, "user"),
             (*test_codeunit != other.test_codeunit, "test_codeunit"),
-            (*resources != other.resources, "resources"),
             (*client != other.client, "client"),
             (*flags != other.flags, "flags"),
             (*license != other.license, "license"),
@@ -506,7 +568,7 @@ impl ImageTally {
 /// The first state of each key, and the sessions compared with it.
 #[derive(Default)]
 struct Tally {
-    firsts: Vec<(Key, LoginState)>,
+    firsts: Vec<(StartKey, LoginState)>,
     compared: u64,
     differ: u64,
     /// Per kind of [`KINDS`], the compared sessions that differ in it.
@@ -557,14 +619,15 @@ impl NewKeys {
 }
 
 impl Tally {
-    /// Compares `state` with the first state of `key`, or keeps it as that. `true`: the key was new.
-    fn note(&mut self, key: Key, state: LoginState) -> bool {
-        let Some((_, first)) = self.firsts.iter().find(|(k, _)| *k == key) else {
+    /// Compares `state` with the first state that `key` finds on `engine` ([`StartKey::fits`]), or keeps it as that.
+    /// `true`: the key was new.
+    fn note(&mut self, engine: &Engine, key: StartKey, state: LoginState) -> bool {
+        let Some((_, first)) = self.firsts.iter().find(|(k, _)| k.fits(&key.key, engine)) else {
             let nearest = (self.firsts.iter()).min_by_key(|(k, _)| key.differs_in(k).len());
             if let Some((k, _)) = nearest {
                 let entry = self.new_keys_by.entry(key.differs_in(k).join("+")).or_default();
                 entry.n += 1;
-                for part in key.differing_parts(k, &mut self.companies) {
+                for part in key.key.differing_parts(&k.key, &mut self.companies) {
                     *entry.parts.entry(part).or_default() += 1;
                 }
             }
@@ -599,16 +662,19 @@ impl Tally {
 }
 
 impl Check {
-    /// Notes the state of a session of `key` after the raised login. `true`: the key was new.
-    pub(crate) fn note(&self, key: Key, state: LoginState) -> bool {
+    /// Notes the state of a session of `key` on `engine` after the raised login. `true`: the key was new.
+    pub(crate) fn note(&self, engine: &Engine, key: StartKey, state: LoginState) -> bool {
         let mut s = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-        let across = Key {
-            test_codeunit: None,
+        let across = StartKey {
+            key: Key {
+                test_codeunit: None,
+                ..key.key.clone()
+            },
             ..key.clone()
         };
-        let new = s.exact.note(key, state.clone());
+        let new = s.exact.note(engine, key, state.clone());
         if new {
-            s.across_codeunits.note(across, state);
+            s.across_codeunits.note(engine, across, state);
         }
         new
     }
@@ -681,7 +747,7 @@ impl Check {
 
     /// The first state of each key, in the order the keys came.
     #[cfg(test)]
-    pub(crate) fn firsts(&self) -> Vec<(Key, LoginState)> {
+    pub(crate) fn firsts(&self) -> Vec<(StartKey, LoginState)> {
         self.inner
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -842,11 +908,12 @@ pub(crate) fn checked(
     let state = LoginState::of(session, wrote, hits);
     let check = check(engine);
     let starts = crate::login_start::starts(engine);
-    if check.note(key.clone(), state.clone()) {
+    let found = StartKey::of(key.clone(), session);
+    if check.note(engine, found.clone(), state.clone()) {
         let image = check.round_trip(session, base, &state, twin);
         match gate {
             Some(why) => starts.not_taken(why),
-            None => crate::login_start::keep(engine, key, base, || {
+            None => crate::login_start::keep(engine, found, base, || {
                 image.map(|image| crate::login_start::Start {
                     image,
                     wrote: wrote.clone(),
@@ -860,7 +927,7 @@ pub(crate) fn checked(
         starts.not_taken(why);
         return;
     }
-    let Some(start) = starts.take(&key) else { return };
+    let Some(start) = starts.take(&key, engine) else { return };
     match crate::login_start::target_gate(base.target_why(), base.shape(), &start) {
         Some(why) => starts.not_taken(why),
         None => check.replay_vs_run(&start, base, &state, twin),
@@ -892,23 +959,8 @@ pub(crate) fn report(engine: &Engine) -> Option<String> {
     })
 }
 
-/// Every row `store` holds now, the uncommitted changes included, one line each ([`rows`]).
-fn current_rows(store: &al_data::memory::MemStore) -> Vec<String> {
-    rows(&store.export_current())
-}
-
-/// The rows of `tables`, one line each: company, table object and the row with its system fields.
-fn rows(tables: &[al_data::memory::ExportedTable]) -> Vec<String> {
-    let mut out = Vec::new();
-    for t in tables {
-        for (_, row) in &t.rows {
-            out.push(format!("{}|{}|{row:?}", t.company, t.object));
-        }
-    }
-    out
-}
-
-/// A SHA-256 of lines, for a key field: two inputs that differ have other digests (no 64-bit hash collides them).
+/// A SHA-256 for a key field, of lines ([`digest`]) or of rows as bytes (`rows_digest.rs`): two inputs that differ have
+/// other digests (no 64-bit hash collides them).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct LinesDigest([u8; 32]);
 
@@ -985,6 +1037,12 @@ mod tests {
         state_of(&[], &[])
     }
 
+    /// [`Check::note`] of a session of `key` that read no resource file.
+    fn note(check: &Check, key: Key, state: LoginState) -> bool {
+        let engine = Engine::new(al_ir::Program::default(), Vec::new());
+        check.note(&engine, StartKey::reading_nothing(key), state)
+    }
+
     fn key(test_codeunit: usize) -> Key {
         Key {
             database: digest(&["1".into()]),
@@ -993,9 +1051,9 @@ mod tests {
             session: digest(&["2".into()]),
             company: "C".into(),
             seed: 0,
+            clock: 0,
             user: "U".into(),
             test_codeunit: Some(test_codeunit),
-            resources: digest(&["3".into()]),
             client: (true, false, false),
             flags: Default::default(),
             license: None,
@@ -1028,9 +1086,9 @@ mod tests {
             session,
             company,
             seed,
+            clock,
             user,
             test_codeunit,
-            resources,
             client,
             flags,
             license,
@@ -1041,10 +1099,10 @@ mod tests {
             emit_version,
             refused_reads,
         } = &k;
-        let digests: [&LinesDigest; 4] = [database, session, resources, refused_reads];
+        let digests: [&LinesDigest; 3] = [database, session, refused_reads];
         let _: &Option<LinesDigest> = uncommitted;
         let _: &BackingKey = backing;
-        let _: (&String, &i32, &String, &Option<usize>) = (company, seed, user, test_codeunit);
+        let _: (&String, &i32, &i64, &String, &Option<usize>) = (company, seed, clock, user, test_codeunit);
         let _: &(bool, bool, bool) = client;
         let _: &crate::runtime::session_flags::SessionFlags = flags;
         let _: &Option<std::sync::Arc<al_host::license::License>> = license;
@@ -1097,8 +1155,8 @@ mod tests {
     fn two_test_codeunits_never_share_a_key() {
         assert_ne!(key(1), key(2));
         let check = Check::default();
-        check.note(key(1), state(&["r"], &["s"]));
-        check.note(key(2), state(&["other"], &["s"]));
+        note(&check, key(1), state(&["r"], &["s"]));
+        note(&check, key(2), state(&["other"], &["s"]));
         let line = check.line().unwrap();
         assert!(
             line.starts_with(
@@ -1171,9 +1229,9 @@ mod tests {
         let check = Check::default();
         let a = state(&["r"], &["s"]);
         let b = state(&["other"], &["s"]);
-        check.note(key(1), a.clone());
-        check.note(key(1), a.clone());
-        check.note(key(2), b.clone());
+        note(&check, key(1), a.clone());
+        note(&check, key(1), a.clone());
+        note(&check, key(2), b.clone());
         assert_eq!(
             check.line().as_deref(),
             Some(
@@ -1181,7 +1239,7 @@ mod tests {
                  1 differ (not comparable 0, rows 1, session state 0, marks 0, open writes 0; first: row 1 (table object 1): field 1)"
             )
         );
-        check.note(key(1), b);
+        note(&check, key(1), b);
         assert_eq!(
             check.line().as_deref(),
             Some(
@@ -1208,8 +1266,8 @@ mod tests {
         (b.state.opaque).push(not_comparable("codeunit 5 global 1", "Text 'SECRET-VALUE-123'"));
         b.open = "SECRET-VALUE-123".into();
         let check = Check::default();
-        check.note(key(1), a.clone());
-        check.note(key(1), b.clone());
+        note(&check, key(1), a.clone());
+        note(&check, key(1), b.clone());
         let line = check.line().unwrap();
         assert!(!line.contains("SECRET"), "{line}");
         for (_, what) in differences(&a, &b) {
@@ -1255,7 +1313,7 @@ mod tests {
     }
 
     // The maintainer's review of this check (issue 8211): the parts are a detail of `database` and `session`, never a key
-    // field of their own. A store may export a table it holds no row of; `rows` writes no line for it, so `database`
+    // field of their own. A store may export a table it holds no row of; it has no table digest, so `database`
     // does not see it, and the key is the key of the same rows without that table: no new key, no entry with an empty
     // name on the keys line. When the keys differ in other rows, the table without rows is not named among them.
     #[test]
@@ -1265,8 +1323,8 @@ mod tests {
         let with_empty = [table("C", 15, row()), table("C", 18, Vec::new())];
         assert_eq!(key_of_tables(&rows, &[]), key_of_tables(&with_empty, &[]));
         let check = Check::default();
-        check.note(key_of_tables(&rows, &[]), state(&["r"], &["s"]));
-        check.note(key_of_tables(&with_empty, &[]), state(&["r"], &["s"]));
+        note(&check, key_of_tables(&rows, &[]), state(&["r"], &["s"]));
+        note(&check, key_of_tables(&with_empty, &[]), state(&["r"], &["s"]));
         let line = check.keys_line().unwrap();
         assert_eq!(
             line,
@@ -1306,8 +1364,8 @@ mod tests {
             ],
             &b.iter().map(String::as_str).collect::<Vec<_>>(),
         );
-        check.note(first, state(&["r"], &["s"]));
-        check.note(second, state(&["r"], &["s"]));
+        note(&check, first, state(&["r"], &["s"]));
+        note(&check, second, state(&["r"], &["s"]));
         let line = check.keys_line().unwrap();
         assert_eq!(
             line,
@@ -1329,10 +1387,10 @@ mod tests {
         };
         let check = Check::default();
         let s = state(&["r"], &["s"]);
-        check.note(key_of_tables(&tables(&[]), &[]), s.clone());
-        check.note(key_of_tables(&tables(&[1, 2]), &[]), s.clone());
+        note(&check, key_of_tables(&tables(&[]), &[]), s.clone());
+        note(&check, key_of_tables(&tables(&[1, 2]), &[]), s.clone());
         for t in 1..=7 {
-            check.note(key_of_tables(&tables(&[t]), &[]), s.clone());
+            note(&check, key_of_tables(&tables(&[t]), &[]), s.clone());
         }
         assert_eq!(
             check.keys_line().as_deref(),
@@ -1357,9 +1415,9 @@ mod tests {
         };
         let check = Check::default();
         let s = state(&["r"], &["s"]);
-        check.note(key_of_tables(&tables(("", 0)), &[]), s.clone());
+        note(&check, key_of_tables(&tables(("", 0)), &[]), s.clone());
         for changed in [("B", 15), ("A", 15), ("", 18)] {
-            check.note(key_of_tables(&tables(changed), &[]), s.clone());
+            note(&check, key_of_tables(&tables(changed), &[]), s.clone());
         }
         assert_eq!(
             check.keys_line().as_deref(),
@@ -1384,8 +1442,8 @@ mod tests {
         b.state
             .opaque
             .push(not_comparable("codeunit 5 global 1", "Codeunit instance"));
-        check.note(key(1), a);
-        check.note(key(1), b);
+        note(&check, key(1), a);
+        note(&check, key(1), b);
         let line = check.line().unwrap();
         assert!(
             line.contains(
@@ -1402,15 +1460,15 @@ mod tests {
     fn a_new_key_names_the_fields_it_differs_in_from_the_nearest_earlier_key() {
         let check = Check::default();
         let s = state(&["r"], &["s"]);
-        check.note(key(1), s.clone());
-        check.note(key(1), s.clone());
-        check.note(key(2), s.clone());
+        note(&check, key(1), s.clone());
+        note(&check, key(1), s.clone());
+        note(&check, key(2), s.clone());
         let other_rows = Key {
             database: digest(&["9".into()]),
             session: digest(&["8".into()]),
             ..key(1)
         };
-        check.note(other_rows, s);
+        note(&check, other_rows, s);
         assert_eq!(
             check.keys_line().as_deref(),
             Some(

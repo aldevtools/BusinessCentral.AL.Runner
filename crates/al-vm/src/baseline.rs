@@ -549,6 +549,7 @@ impl Session {
         self.isolated_written_in_codeunit.clear();
         self.sequences = b.sequences.clone();
         self.sequences_changed.clear();
+        self.clear_tx_changes();
         self.clear_unmeasured();
         // The install ran on a clock that its own Sleep calls had moved forward (hours, in Business Central's install
         // code); the session starts on the real clock again, and a stamp must not stay ahead of it: a row inserted by the
@@ -586,6 +587,9 @@ impl Session {
 
 #[cfg(test)]
 mod blob_tests;
+
+#[cfg(test)]
+mod install_order_tests;
 
 #[cfg(test)]
 mod tests {
@@ -729,7 +733,7 @@ mod tests {
     }
 
     /// The table `Names` (object 11) of al-data's collation tests: the Text key `Name`, the Code field `Tag`.
-    fn names() -> al_data::TableDef {
+    pub(super) fn names() -> al_data::TableDef {
         let f = |id, name: &str, ty| al_data::FieldDef {
             id,
             name: name.into(),
@@ -834,7 +838,7 @@ mod tests {
     }
 
     /// The rows `--test-data` backs table `Names` with in company `C`: `Alpha`, `ærø` and `Bravo`.
-    struct NameRows;
+    pub(super) struct NameRows;
 
     impl al_data::memory::Backing for NameRows {
         fn company(&self) -> &str {

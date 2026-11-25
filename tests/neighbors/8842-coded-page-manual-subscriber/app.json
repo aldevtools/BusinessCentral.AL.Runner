@@ -1,0 +1,13 @@
+{
+  "id": "e8eabaee-81e7-4382-a665-d3f093f1debd",
+  "name": "Neighbors 8842 a page with code with a manual page subscriber",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "OnPrem",
+  "idRanges": [
+    { "from": 96542, "to": 96579 }
+  ],
+  "dependencies": []
+}

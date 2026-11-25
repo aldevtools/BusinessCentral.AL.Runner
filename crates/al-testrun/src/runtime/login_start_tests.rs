@@ -44,7 +44,7 @@ fn sessions_with(engine: &Arc<Engine>, l: &Lowered, name: &str, n: usize, opts: 
     for _ in 0..n {
         let mut scratch = Scratch {
             flags: SessionFlags::of(opts),
-            ..Default::default()
+            ..Scratch::new(crate::host::RunClock::begin())
         };
         if let Some(tweak) = setup.tweak {
             tweak(&mut scratch);
@@ -248,7 +248,7 @@ fn the_checks_twin_holds_before_its_thaw_what_the_session_held_before_its_login(
     let key = &firsts[0].0;
     for (i, twin) in twins.iter().enumerate() {
         assert!(
-            key.holds_session(twin),
+            key.key.holds_session(twin),
             "twin {i} before its thaw is not the session before its login: {:?}",
             twin.lines
                 .iter()
@@ -589,7 +589,7 @@ fn a_session_with_a_value_of_no_comparable_form_before_its_login_has_no_key() {
     let (engine, _) = compiled_with(&format!("{MAIN}{OPAQUE_INSIDE}{OPAQUE_BEFORE}"));
     let mut session = target(&engine);
     assert!(
-        Key::of(&mut session, Default::default(), SessionFlags::default(), &[]).is_some(),
+        Key::of(&mut session, Default::default(), SessionFlags::default(), &[]).is_ok(),
         "GUARD: a new session has a key"
     );
     assert!(session.run_codeunit_by_id(77490).is_ok());
@@ -598,10 +598,10 @@ fn a_session_with_a_value_of_no_comparable_form_before_its_login_has_no_key() {
         !session.state_lines().opaque.is_empty(),
         "GUARD: the holder has no comparable form"
     );
-    assert_eq!(
+    assert!(matches!(
         Key::of(&mut session, Default::default(), SessionFlags::default(), &[]),
-        None
-    );
+        Err(crate::login_replay::NoKey::NotComparable(_))
+    ));
 }
 
 /// `engine` with its emit version set to `v`, as `set_run_options` sets it for each request on a kept engine.
@@ -822,7 +822,10 @@ fn gated_line(tweak: &dyn Fn(&mut Scratch), observed: bool) -> (u64, Option<Stri
 #[test]
 fn a_session_the_gate_refuses_runs_its_login_and_is_counted() {
     let perturbed = |s: &mut Scratch| s.perturb.library_seed = Some(3);
-    let clocked = |s: &mut Scratch| s.clock_start = Some(1_700_000_000_000);
+    let clocked = |s: &mut Scratch| {
+        s.clock = crate::host::RunClock::At(1_700_000_000_000);
+        s.clock_set = true;
+    };
     let cases: [(&str, (u64, Option<String>)); 3] = [
         ("--explain or an observer", gated_line(&|_| {}, true)),
         ("a stability perturbation", gated_line(&perturbed, false)),
@@ -847,6 +850,11 @@ fn numbered_key(engine: &Arc<Engine>, n: i32) -> Key {
     let mut session = target(engine);
     session.set_work_date(1000 + n);
     Key::of(&mut session, Default::default(), SessionFlags::default(), &[]).expect("a key")
+}
+
+/// [`numbered_key`] as a start is kept under it: by a session that read no resource file.
+fn numbered_start_key(engine: &Arc<Engine>, n: i32) -> crate::login_replay::StartKey {
+    crate::login_replay::StartKey::of(numbered_key(engine, n), &target(engine))
 }
 
 /// A start whose image holds `bytes` of text in a SingleInstance codeunit's global: `kept_bytes` is a little more.
@@ -892,11 +900,11 @@ fn a_recorded_start_is_kept_and_its_bytes_are_counted() {
     let start = start_of_size(&engine, &l, 2 * MIB);
     let bytes = start.image.kept_bytes();
     assert!(bytes > 2 * MIB as u64, "kept_bytes counts the text: {bytes}");
-    st.record(numbered_key(&engine, 0), Ok(start));
+    st.record(numbered_start_key(&engine, 0), Ok(start));
     assert_eq!(st.kept(), 1);
     assert_eq!(st.bytes(), bytes);
-    assert!(st.take(&numbered_key(&engine, 0)).is_some());
-    assert!(st.knows(&numbered_key(&engine, 0)));
+    assert!(st.take(&numbered_key(&engine, 0), &engine).is_some());
+    assert!(st.knows(&numbered_key(&engine, 0), &engine));
 }
 
 // At most eight starts, the least recently used out; a take refreshes.
@@ -905,19 +913,19 @@ fn starts_are_bounded_by_eight_least_recently_used_out() {
     let (engine, l) = big_engine();
     let st = starts(&engine);
     for n in 0..MAX_STARTS as i32 {
-        st.record(numbered_key(&engine, n), Ok(start_of_size(&engine, &l, 1000)));
+        st.record(numbered_start_key(&engine, n), Ok(start_of_size(&engine, &l, 1000)));
     }
     assert_eq!(st.kept(), 8);
     // Key 0 is used again: key 1 is now the least recently used.
-    assert!(st.take(&numbered_key(&engine, 0)).is_some());
-    st.record(numbered_key(&engine, 8), Ok(start_of_size(&engine, &l, 1000)));
+    assert!(st.take(&numbered_key(&engine, 0), &engine).is_some());
+    st.record(numbered_start_key(&engine, 8), Ok(start_of_size(&engine, &l, 1000)));
     assert_eq!(st.kept(), 8, "the ninth start pushes one out");
     assert!(
-        st.take(&numbered_key(&engine, 1)).is_none(),
+        st.take(&numbered_key(&engine, 1), &engine).is_none(),
         "the least recently used is out"
     );
     for n in [0, 2, 3, 4, 5, 6, 7, 8] {
-        assert!(st.take(&numbered_key(&engine, n)).is_some(), "key {n}");
+        assert!(st.take(&numbered_key(&engine, n), &engine).is_some(), "key {n}");
     }
 }
 
@@ -928,20 +936,20 @@ fn starts_are_bounded_by_sixty_four_mb_and_an_eviction_returns_the_bytes() {
     let st = starts(&engine);
     // Seven starts of 9 MiB fit (63 MiB plus their small parts), an eighth does not: the oldest goes.
     for n in 0..7 {
-        st.record(numbered_key(&engine, n), Ok(start_of_size(&engine, &l, 9 * MIB)));
+        st.record(numbered_start_key(&engine, n), Ok(start_of_size(&engine, &l, 9 * MIB)));
     }
     assert_eq!(st.kept(), 7);
     let seven = st.bytes();
     assert!(seven > 63 * MIB as u64 && seven <= MAX_BYTES, "{seven}");
-    st.record(numbered_key(&engine, 7), Ok(start_of_size(&engine, &l, 9 * MIB)));
+    st.record(numbered_start_key(&engine, 7), Ok(start_of_size(&engine, &l, 9 * MIB)));
     assert_eq!(
         st.kept(),
         7,
         "an eighth start of 9 MiB would pass 64 MB: the least recently used is out"
     );
     assert!(st.bytes() <= MAX_BYTES, "{}", st.bytes());
-    assert!(st.take(&numbered_key(&engine, 0)).is_none());
-    assert!(st.take(&numbered_key(&engine, 7)).is_some());
+    assert!(st.take(&numbered_key(&engine, 0), &engine).is_none());
+    assert!(st.take(&numbered_key(&engine, 7), &engine).is_some());
     // The bytes of the one pushed out are not counted any more: 7 starts, not 8.
     assert!(st.bytes() < seven + 100 * 1024, "{} against {seven}", st.bytes());
 }
@@ -951,15 +959,15 @@ fn starts_are_bounded_by_sixty_four_mb_and_an_eviction_returns_the_bytes() {
 fn a_start_over_sixteen_mb_is_not_kept_and_says_too_large() {
     let (engine, l) = big_engine();
     let st = starts(&engine);
-    st.record(numbered_key(&engine, 0), Ok(start_of_size(&engine, &l, 17 * MIB)));
+    st.record(numbered_start_key(&engine, 0), Ok(start_of_size(&engine, &l, 17 * MIB)));
     assert_eq!(st.kept(), 0);
     assert_eq!(st.bytes(), 0);
     let line = st.line().expect("a line");
     assert!(line.contains("too large"), "{line}");
     // The key is remembered as refused: its session is not frozen again.
-    assert!(st.knows(&numbered_key(&engine, 0)));
+    assert!(st.knows(&numbered_key(&engine, 0), &engine));
     // A start of 15 MiB is kept: the bound is on the start, not near it.
-    st.record(numbered_key(&engine, 1), Ok(start_of_size(&engine, &l, 15 * MIB)));
+    st.record(numbered_start_key(&engine, 1), Ok(start_of_size(&engine, &l, 15 * MIB)));
     assert_eq!(st.kept(), 1);
 }
 
@@ -969,10 +977,10 @@ fn a_refused_key_is_remembered_and_never_taken() {
     let (engine, _) = compiled();
     let st = starts(&engine);
     let key = numbered_key(&engine, 0);
-    assert!(!st.knows(&key));
-    st.record(key.clone(), Err(al_vm::NotImaged::Field("tasks")));
-    assert!(st.knows(&key));
-    assert!(st.take(&key).is_none());
+    assert!(!st.knows(&key, &engine));
+    st.record(numbered_start_key(&engine, 0), Err(al_vm::NotImaged::Field("tasks")));
+    assert!(st.knows(&key, &engine));
+    assert!(st.take(&key, &engine).is_none());
     assert_eq!(st.kept(), 0);
     assert!(st.line().is_some_and(|l| l.contains("field tasks")));
 }
@@ -1156,6 +1164,97 @@ fn a_call_count_that_differs_between_real_logins_of_one_key_is_no_difference() {
     assert!(report.contains("replay vs run: 2 checked, 0 differ"), "{report}");
 }
 
+// ---- The key hashes each row's bytes; a row with no byte form gives no key ----
+
+/// A session of `engine` holding a committed row of "Guided Experience Item" whose second field (when it has one) or first is
+/// `v`, and the install baseline captured from it.
+fn baseline_with_value(engine: &Arc<Engine>, id: i32, v: Value) -> al_vm::Baseline {
+    use al_data::Store;
+    let mut session = al_vm::Session::new(engine.clone());
+    let at = (engine.program.objects.iter())
+        .position(|o| o.name == "Guided Experience Item")
+        .unwrap();
+    let t = engine.tables[at].clone().unwrap();
+    let mut row: Vec<Value> = t.fields.iter().map(|f| Value::default_for(&f.ty)).collect();
+    row[0] = Value::Integer(id);
+    *row.last_mut().unwrap() = v;
+    let cx = al_data::AccessContext {
+        company: session.access_company().into(),
+        user: session.user_id().into(),
+    };
+    assert!(session.store_mut().insert(&cx, &t, row).is_ok());
+    session.commit_transaction();
+    session.capture_baseline()
+}
+
+// A committed row that holds a value with no byte form (a SQL counter, a placeholder's size) gives no key: the
+// sessions run their logins (nothing replays) and pass as before. The starts line counts them in a part of its own, `no
+// key`, not among the gate's refusals, and the report prints it with the replay alone (no check line).
+#[test]
+fn a_row_with_no_byte_form_gives_no_key_and_the_session_runs_its_login() {
+    use al_builtins::value::{SqlCount, SqlForm, SqlType};
+    let count = Value::SqlCount(SqlCount {
+        n: 3,
+        form: SqlForm::Delta,
+        ty: SqlType::BigInteger,
+    });
+    let size = Value::PlaceholderSize("mark".into(), SqlType::Integer);
+    for (what, v) in [("SqlCount", count), ("PlaceholderSize", size)] {
+        let (engine, l) = compiled();
+        let baseline = baseline_with_value(&engine, 99, v);
+        let ran = sessions_with(
+            &engine,
+            &l,
+            "RPL Tests A",
+            2,
+            &on(),
+            &Setup {
+                baseline: Some(&baseline),
+                ..Default::default()
+            },
+        );
+        for (i, o) in ran.outcomes.iter().enumerate() {
+            assert_eq!(*o, passes(), "{what}: session {i}");
+        }
+        assert_eq!(starts(&engine).replayed(), 0, "{what}: no key, so no start is taken");
+        let line = format!(
+            "login start: 0 replayed, 0 kept (0.0 MB), 0 not imaged, 0 too large, 0 refused by the gate, 2 no key (2: \
+             no byte form: {what})"
+        );
+        assert_eq!(starts(&engine).line().as_deref(), Some(line.as_str()), "{what}");
+        assert_eq!(
+            crate::login_replay::report(&engine),
+            Some(line),
+            "{what}: the report prints it"
+        );
+    }
+}
+
+// Under the check every session takes a key, also one whose login is not raised: such a session has nothing to replay,
+// so a missing key is not counted for it (the apps under test's own login alone is not raised).
+#[test]
+fn a_session_whose_login_is_not_raised_is_not_counted_as_no_key() {
+    use al_builtins::value::{SqlCount, SqlForm, SqlType};
+    let count = Value::SqlCount(SqlCount {
+        n: 3,
+        form: SqlForm::Delta,
+        ty: SqlType::BigInteger,
+    });
+    let (engine, l) = compiled_with(super::login_replay_tests::OWN_LOGIN);
+    let baseline = baseline_with_value(&engine, 99, count);
+    let check = RunOptions {
+        login_replay_check: true,
+        ..Default::default()
+    };
+    let setup = Setup {
+        baseline: Some(&baseline),
+        ..Default::default()
+    };
+    sessions_with(&engine, &l, "RPL Own Tests", 2, &check, &setup);
+    assert_eq!(starts(&engine).line(), None);
+    assert_eq!(crate::login_replay::report(&engine), None);
+}
+
 /// [`MAIN`] with the Company table, a table of the apps under test whose rows the database holds in company `Other`
 /// ([`OtherCompanyRows`]), a login subscriber that makes company `Other` and deletes it with its rows, and a test that
 /// makes the company again and reads its table there: a company deleted and made again starts empty
@@ -1259,4 +1358,63 @@ fn a_login_that_deletes_a_company_leaves_it_deleted_in_every_session_of_its_key(
     for (i, s) in ran.states.iter().enumerate() {
         assert_eq!(first_difference(s, &real.states[0]), None, "session {i}");
     }
+}
+
+/// An app under test whose subscriber of the raised login (`MAIN`'s) keeps the day it ran on (`Today`) in a SingleInstance
+/// codeunit, an install codeunit that sets WorkDate (which every session then starts with, `InstallLeft`), and a test that
+/// the kept day is the session's own.
+const KEEPS_TODAY: &str = r#"
+codeunit 77400 "RPL Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
+    local procedure RegisterManualSetup()
+    var G: Codeunit "Guided Experience"; Day: Codeunit "RPL Day";
+    begin
+        G.InsertAssistedSetup(77400);
+        Day.Keep(Today);
+    end;
+}
+codeunit 77405 "RPL Day"
+{
+    SingleInstance = true;
+    var Kept: Date;
+    procedure Keep(D: Date) begin Kept := D; end;
+    procedure Kept(): Date begin exit(Kept); end;
+}
+codeunit 77407 "RPL Install Work Date"
+{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany() begin WorkDate(20240101D); end;
+}
+codeunit 77402 "RPL Tests A"
+{
+    Subtype = Test;
+    [Test]
+    procedure SeesTheRow() var Day: Codeunit "RPL Day"; begin if Day.Kept() <> Today then Error('login day %1, today %2', Day.Kept(), Today); end;
+}
+"#;
+
+// The run clock is begun per run (`host::RunClock`, so per request of a daemon): a session whose run began on another
+// UTC day than the session that kept a start holds that other day's clock, and the login it would replay stamped the
+// first day. With no WorkDate set the session lines hold the clock's day (`work_date_day`), but install code that set
+// WorkDate leaves every session that date, so only `Key::clock` holds the day apart: the session runs its own login
+// and sees its own `Today`.
+#[test]
+fn a_session_whose_run_clock_began_on_another_day_runs_its_own_login() {
+    const DAY: i64 = 86_400_000;
+    let (engine, l) = compiled_with(KEEPS_TODAY);
+    let nth = std::cell::Cell::new(0);
+    let next_day = |s: &mut Scratch| {
+        s.clock = crate::host::RunClock::At(1_700_000_000_000 + nth.get() * DAY);
+        nth.set(nth.get() + 1);
+    };
+    let setup = Setup {
+        tweak: Some(&next_day),
+        ..Setup::default()
+    };
+    let ran = sessions_with(&engine, &l, "RPL Tests A", 2, &on(), &setup);
+    for (i, o) in ran.outcomes.iter().enumerate() {
+        assert_eq!(*o, passes(), "session {i} (day {i}) sees the day its own login ran on");
+    }
+    assert_eq!(starts(&engine).replayed(), 0, "a start of another day is never taken");
 }

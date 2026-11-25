@@ -320,6 +320,7 @@ fn webhook_tables_are_stored_tables() {
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     let flagged = |n: &str| hits.iter().any(|(h, m)| h == n && !m.is_empty());
     let get = |n: &str| out.iter().find(|(x, _)| x == n).map(|(_, o)| o.clone()).expect(n);
@@ -2441,6 +2442,7 @@ codeunit 50000 "T" { Subtype = Test;
             &mut Vec::new(),
             &mut hits,
             None,
+            al_testrun::host::RunClock::begin(),
         );
         out.iter()
             .map(|(n, o)| {
@@ -3021,6 +3023,7 @@ fn feature_key_rows_follow_the_platform_build() {
             &mut Vec::new(),
             &mut hits,
             None,
+            al_testrun::host::RunClock::begin(),
         );
         (out, hits)
     };
@@ -4561,6 +4564,7 @@ fn windows_language_primary_language_id_is_the_primary_culture_lcid_on_an_assump
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     let a = al_builtins::assumptions::Assumption::WindowsLanguagePrimaryLanguageId;
     for (n, o) in &out {
@@ -4605,6 +4609,7 @@ codeunit 50000 "T" { Subtype = Test;
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     let flagged = |n: &str| hits.iter().any(|(h, m)| h == n && !m.is_empty());
     let get = |n: &str| out.iter().find(|(x, _)| x == n).map(|(_, o)| o.clone()).expect(n);
@@ -4657,6 +4662,7 @@ fn ext_event_hits(src: &str, dep: Option<&str>) -> Vec<(String, Outcome, Vec<&'s
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     out.into_iter()
         .map(|(n, o)| {

@@ -1210,7 +1210,7 @@ impl Session {
             // As Record.Truncate: every row the filters select goes, with or without the argument
             // (recordref-fieldref/recordref/P92Counts.al:124-186, Truncate_Unfiltered, Truncate_WithFilter,
             // Truncate_WithoutTriggerArgument).
-            "Truncate" => self.record_op(RecordOp::Truncate, &rec, args),
+            "Truncate" => self.recordref_record_op(method, &rec, args),
             // Field(FieldName): the name is matched case-insensitively and as given, never trimmed, and a caption is not a
             // name; an unknown name raises FieldNotFound with the supplied text
             // (recordref-fieldref/P107RecRefNames.al:25-60).
@@ -1456,7 +1456,7 @@ impl Session {
             d.field_descending = s.field_descending;
             // The ReadIsolation passes too (recordref-fieldref/recordref/P92ReadIsolation.al:ReadIsolation_FromRecordAndToRecord).
             d.read_isolation = s.read_isolation;
-            let before = std::mem::replace(&mut d.fields, s.fields.clone());
+            let before = self.replace_record_fields(dst, &mut d, s.fields.clone());
             // The Blobs move as `BlobMove::set_table` says.
             if let Some(how) = BlobMove::set_table(args.len(), share) {
                 self.move_blobs(s.table as usize, &mut d.fields, Some(&before), how, self.holder(&s))?;

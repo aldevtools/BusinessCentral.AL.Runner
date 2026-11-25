@@ -136,7 +136,7 @@ impl Session {
         let reached_timeout = timeout_ms.is_some_and(|t| self.waited_ms - started_at >= t);
         let failed = !matches!(ran, Ok(Value::Boolean(true)));
         if failed && self.store.has_uncommitted() {
-            self.rollback_transaction();
+            self.rollback_failed_run();
         }
         self.background_session = false;
         let committed_row_version = self.tx.committed_row_version;

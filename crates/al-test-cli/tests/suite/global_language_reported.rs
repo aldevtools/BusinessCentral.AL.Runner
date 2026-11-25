@@ -52,6 +52,7 @@ fn run_codeunit(src: &str) -> Vec<(String, String, Vec<Assumption>)> {
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     o.into_iter()
         .map(|(n, r)| {

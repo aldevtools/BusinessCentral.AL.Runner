@@ -468,11 +468,15 @@ What is built:
   is kept only from a session that was a thaw target before its login. At most 8 starts and 64 MB per engine.
 - **The key** (`al-testrun` `login_replay.rs` `Key`) holds the inputs of decision 4 as the code shows them: the
   committed rows and the backing, the session state lines (with every field the thaw writes or keeps from its target,
-  `Session::field_lines`), company, user, run seed, test codeunit, the entry's resource texts, the client, the session
-  flags, the license, the skipped installs, the isolation and the hub, and the process settings a serve request sets.
+  `Session::field_lines`), company, user, run seed, test codeunit, the entry's resource texts (changed by the amendment
+  of 2026-11-25), the client, the session flags, the license, the skipped installs, the isolation and the hub, and the
+  process settings a serve request sets.
   *Built (2026-11-24, after acceptance):* the key also holds the engine's emit version (by its reader) and
   `refused_reads`, one digest of the engine's `unseeded` and `demo_tables`, which a kept engine resets per request and
   the login reads. Every Scratch and "Set by a run" engine field is listed under a test in `login_start/outside.rs`.
+  The key also holds the run clock (`Key::clock`), so a login start kept on one UTC day is never replayed into a run of
+  another day; pull request 8472 (the run clock begins once per run, issue 8457) added it, because the replay (pull
+  request 8665) landed first.
 - **The check** (`ALRUNNER_LOGIN_REPLAY_CHECK=1`) is the state check of the Conformance section: no session takes a
   start; each new key's session is frozen, thawn into a twin and compared (the round trip), and each later session of a
   key is compared with a thaw of the key's start (replay vs run). Its report names where two states differ, never a
@@ -493,3 +497,16 @@ What waits until the replay is on by default:
 - the budget measurement of Phase 1 and the lowering of the temporary limit;
 - the counters of recorded runs, replays and runs not recorded in `work.json`, under the work ratchet (today they are in
   the check's report and in serve's `timings.loginReplays` and `timings.loginStarts`).
+
+### Amendment (Accepted, 2026-11-25): the login key holds the resource texts the login read
+
+Status of this section: Accepted (owner, 2026-11-25), on [al-runner issue 8211](https://github.com/aldevtools/BusinessCentral.AL.Runner/issues/8211).
+
+The login key holds only the resource texts the login read, each as its SHA-256 digest, as install-once holds them
+(`Session::resource_reads`; `NavApp.ListResources` counts as reading every file of its app), in place of every resource
+text of the run. The reads are the session's up to the end of its login, those of install code included when it ran in
+the session. The first session of a base key records them with its start. A later session takes that start only when
+its texts of those names are the same. A login that read none matches any texts. al-vm `TextsRead` (`resource_reads.rs`)
+owns "the texts of what was read are still the same" for both install-once and the login start, and al-testrun
+`login_replay::StartKey` is the base key with the texts its login read; the check finds a session's first state by the
+same rule and keeps comparing across test codeunits. The test codeunit stays in the key (al-runner issue 8211).

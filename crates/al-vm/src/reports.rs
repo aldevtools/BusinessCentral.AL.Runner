@@ -1473,7 +1473,7 @@ impl Session {
                 // A run that raises inside its world does not commit what it wrote
                 // (record/TestTxModelReportRun.al:252-269, Test12).
                 if enters && matches!(e, Signal::Error(_)) {
-                    self.rollback_transaction();
+                    self.rollback_failed_run();
                 }
                 Err(e)
             }

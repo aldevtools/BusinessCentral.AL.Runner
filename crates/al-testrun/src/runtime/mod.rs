@@ -696,8 +696,10 @@ pub(crate) struct Unit {
     /// See `Scratch::order`.
     order: Arc<Vec<usize>>,
     hooks: crate::events::Hooks,
-    /// See `Scratch::clock_start`.
-    clock_start: Option<i64>,
+    /// See `Scratch::clock`.
+    clock: crate::host::RunClock,
+    /// See `Scratch::clock_set`.
+    clock_set: bool,
     /// Note what each test raised and touched (`RunOptions::impact_trace`).
     impact: bool,
     /// See `RunOptions::run_only`.
@@ -745,8 +747,8 @@ pub(crate) struct Unit {
     installs: Arc<install_once::RunInstalls>,
 }
 
-/// What a scratch run or a capture leaves besides outcomes, per test.
-#[derive(Default)]
+/// What a scratch run or a capture leaves besides outcomes, per test. Made with [`Scratch::new`], which takes the run's
+/// clock: there is no default clock, so a scratch never begins one of its own (ADR-045, amendment of 2026-11-22).
 pub(crate) struct Scratch {
     /// What to capture (`RunOptions::capture`).
     capture: al_vm::CaptureConfig,
@@ -756,8 +758,12 @@ pub(crate) struct Scratch {
     messages: Vec<(String, Vec<String>)>,
     /// What the capture saw.
     captured: Vec<(String, crate::events::CapturedAt)>,
-    /// Where the run clock of the codeunit starts, in Unix milliseconds (`RunOptions::clock_starts`); `None`: now.
-    clock_start: Option<i64>,
+    /// The clock of the codeunit's sessions: the run's (`RunOptions::run_clock`), or where `RunOptions::clock_starts`
+    /// starts this codeunit.
+    clock: crate::host::RunClock,
+    /// `RunOptions::clock_starts` set `clock` for this codeunit: the login replay never takes or records a start then
+    /// (`login_start::RunFacts::perturbed`).
+    clock_set: bool,
     /// Note what each test raised and touched (`RunOptions::impact_trace`).
     trace: bool,
     /// What each test raised and touched, as keys (`impact_trace::keys`).
@@ -853,6 +859,53 @@ pub(crate) struct Ends {
 }
 
 impl Scratch {
+    /// A scratch whose sessions read `clock`, the clock of the run it belongs to; every other part starts empty.
+    pub(crate) fn new(clock: crate::host::RunClock) -> Scratch {
+        Scratch {
+            clock,
+            clock_set: false,
+            capture: Default::default(),
+            order: Default::default(),
+            messages: Default::default(),
+            captured: Default::default(),
+            trace: Default::default(),
+            traces: Default::default(),
+            stubbed: Default::default(),
+            ui_answered: Default::default(),
+            cells: Default::default(),
+            slept: Default::default(),
+            skipped: Default::default(),
+            entered: Default::default(),
+            run_only: Default::default(),
+            hub: Default::default(),
+            hub_leg: Default::default(),
+            leak: Default::default(),
+            leak_hits: Default::default(),
+            onrun_carry: Default::default(),
+            driver: Default::default(),
+            read_tables: Default::default(),
+            discovery: Default::default(),
+            on_run_rows: Default::default(),
+            flags: Default::default(),
+            installs: Default::default(),
+            report_unpinned_errors: Default::default(),
+            skip_after_timeout: Default::default(),
+            stop_after_first_failure: Default::default(),
+            perturb: Default::default(),
+            run_seed: Default::default(),
+            runner: Default::default(),
+            watch: Default::default(),
+            singles_past_stop: Default::default(),
+            numbers_unmeasured: Default::default(),
+            singles_out: Default::default(),
+            unfinished_after_start: Default::default(),
+            refused_mid_run: Default::default(),
+            test_panicked: Default::default(),
+            unfinished_at: Default::default(),
+            order_hints: Default::default(),
+        }
+    }
+
     /// Adds the tables `touched` used to `read_tables` under [`TestDriver::watches_reads`], and gives `touched` back.
     pub(crate) fn note_reads(&mut self, touched: al_vm::impact::Touches) -> al_vm::impact::Touches {
         if self.driver.watches_reads() {
@@ -932,7 +985,7 @@ fn run_unit(
     limit: Option<std::time::Duration>,
 ) -> UnitResult {
     let started = std::time::Instant::now();
-    let clock_start = u.clock_start;
+    let clock = u.clock;
     crate::dotnet::take_start_time();
     let baseline = baseline.filter(|_| !u.without_baseline);
     crate::events::install(u.hooks.clone());
@@ -948,7 +1001,7 @@ fn run_unit(
             Vec::new(),
             Vec::new(),
             Vec::new(),
-            Scratch::default(),
+            Scratch::new(clock),
         );
         let result = Ok(not_reached(lowered, u, empty));
         crate::events::uninstall();
@@ -968,7 +1021,6 @@ fn run_unit(
         let mut scratch = Scratch {
             capture: u.capture,
             order: u.order.clone(),
-            clock_start,
             trace: u.impact,
             run_only: u.run_only.clone(),
             hub: u.hub,
@@ -989,7 +1041,8 @@ fn run_unit(
             singles_past_stop: u.singles_past_stop,
             numbers_unmeasured: u.numbers_unmeasured.clone(),
             installs: u.installs.clone(),
-            ..Default::default()
+            clock_set: u.clock_set,
+            ..Scratch::new(clock)
         };
         if u.coverage {
             crate::coverage::begin();
@@ -1098,6 +1151,7 @@ fn scratch_unit(
     opts: &RunOptions,
     order: &Arc<Vec<usize>>,
     hooks: &crate::events::Hooks,
+    clock: crate::host::RunClock,
 ) -> Unit {
     Unit {
         si,
@@ -1110,7 +1164,8 @@ fn scratch_unit(
         capture: opts.capture,
         order: order.clone(),
         hooks: hooks.clone(),
-        clock_start: None,
+        clock,
+        clock_set: false,
         impact: opts.impact_trace,
         run_only: None,
         hub: false,
@@ -1280,6 +1335,8 @@ mod login_image_tests;
 #[cfg(test)]
 mod login_memo_tests;
 #[cfg(test)]
+mod login_reads_tests;
+#[cfg(test)]
 mod login_replay_tests;
 #[cfg(test)]
 mod login_start_tests;
@@ -1295,6 +1352,8 @@ mod order_hint;
 #[cfg(test)]
 mod partner_login_tests;
 mod run;
+#[cfg(test)]
+mod run_clock_tests;
 #[cfg(test)]
 mod run_on_client_reach_tests;
 #[cfg(test)]

@@ -2,11 +2,14 @@
 
 use super::{PResult, ParseError, Parser, Reader};
 
-/// Where a string literal stands: the raw control characters were measured apart for a key and for a value.
+/// Where a string literal stands: the raw control characters were measured apart for a key, a member value, an array
+/// element and a string that is the whole text.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum StringAt {
     Key,
-    Value,
+    Member,
+    Element,
+    Root,
 }
 
 impl Parser<'_> {
@@ -22,8 +25,8 @@ impl Parser<'_> {
     /// corpus pull request 1327): TAB, LF, CR, 1, 8, 12, 27 and 31 in a value in double quotes, for JsonObject, JsonToken,
     /// JsonArray and JsonValue (:440-509 ObjectReadFromRawControlInString .. ValueReadFromRawControlInString); only TAB in a key
     /// (:549 `tok_tab_in_key`) and in a value in single quotes (:550 `tok_tab_single_quoted`). al-runner issue 7812: a raw TAB in
-    /// Microsoft's Sales Lines Suggestions dataset. The other characters, places and readers are not measured.
-    fn raw_control_measured(&self, b: u8, quote: u8, at: StringAt) -> bool {
+    /// Microsoft's Sales Lines Suggestions dataset.
+    fn raw_control_pinned(&self, b: u8, quote: u8, at: StringAt) -> bool {
         if self.reader != Reader::ReadFromText {
             return false;
         }
@@ -31,6 +34,30 @@ impl Parser<'_> {
             return b == 9;
         }
         matches!(b, 1 | 8 | 9 | 10 | 12 | 13 | 27 | 31)
+    }
+
+    /// Whether the raw control character `b` is kept as part of a string under the assumption `json-readfrom-raw-control`
+    /// (al-runner issue 7812): exactly the places tests/al-language/json/JsonReadFromControlChars.al (corpus pull request
+    /// 1582) measured. From a Text, codes 1 to 31 (a Text cannot hold code 0, `Text_CharCodeZero_WhatTextKeeps`) in a
+    /// member value in either quote and a key in double quotes (JsonObject, JsonToken), an element in either quote
+    /// (JsonArray), the whole text in either quote (JsonValue); from an InStream, codes 1 to 31 in double quotes in the
+    /// same value places (`*_ReadFromStream_DoubleQuotedValue_*`; a NUL byte is refused by `stream::read_serialised_text`
+    /// before the parser runs). Each probe text holds one level: a key of the root object
+    /// (depth 1), a member value of the root object or an element of the root array (depth 2), a whole-text string (depth 1).
+    fn raw_control_assumed(&self, b: u8, quote: u8, at: StringAt) -> bool {
+        use super::ReadInto::{Array, Object, Token, Value};
+        use Reader::{ReadFromStream, ReadFromText};
+        use StringAt::{Element, Key, Member, Root};
+        matches!(
+            (self.reader, self.into, at, self.depth, quote, b),
+            (ReadFromText, Some(Object | Token), Member, 2, b'"' | b'\'', 1..=0x1f)
+                | (ReadFromText, Some(Object | Token), Key, 1, b'"', 1..=0x1f)
+                | (ReadFromText, Some(Array), Element, 2, b'"' | b'\'', 1..=0x1f)
+                | (ReadFromText, Some(Value), Root, 1, b'"' | b'\'', 1..=0x1f)
+                | (ReadFromStream, Some(Object | Token), Member, 2, b'"', 1..=0x1f)
+                | (ReadFromStream, Some(Array), Element, 2, b'"', 1..=0x1f)
+                | (ReadFromStream, Some(Value), Root, 1, b'"', 1..=0x1f)
+        )
     }
 
     pub(super) fn string(&mut self, at: StringAt) -> PResult<String> {
@@ -64,7 +91,12 @@ impl Parser<'_> {
                     };
                     units.push(c);
                 }
-                0..=0x1f if self.raw_control_measured(b, quote, at) => {
+                0..=0x1f if self.raw_control_pinned(b, quote, at) => {
+                    units.push(u16::from(b));
+                    self.i += 1;
+                }
+                0..=0x1f if self.raw_control_assumed(b, quote, at) => {
+                    crate::assumptions::assume(crate::assumptions::Assumption::JsonReadfromRawControl);
                     units.push(u16::from(b));
                     self.i += 1;
                 }
@@ -103,27 +135,81 @@ impl Parser<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{parse, parse_read_from};
+    use super::super::{ReadInto, Reader, parse, parse_by, parse_read_from};
     use crate::native::Signal;
 
-    /// The measured raw control characters read as part of the string; the others are refused, not read as false.
+    fn assumed(text: &str, reader: Reader, into: ReadInto) -> bool {
+        crate::assumptions::clear_hits();
+        matches!(parse_by(text, reader, Some(into)), Ok(Some(_)))
+            && crate::assumptions::hit(crate::assumptions::Assumption::JsonReadfromRawControl)
+    }
+
+    fn refused(text: &str, reader: Reader, into: ReadInto) -> bool {
+        matches!(&parse_by(text, reader, Some(into)), Err(Signal::Unsupported(w)) if w.contains("raw control character"))
+    }
+
+    /// The pinned raw control characters read as part of the string; the other codes read under the assumption
+    /// `json-readfrom-raw-control` in exactly the places corpus pull request 1582 measured; every other place, code 0 in a
+    /// Text and the readers other than ReadFrom are refused, not read as false.
     #[test]
     fn a_raw_control_character_reads_only_where_measured() {
         for c in [1u8, 8, 9, 10, 12, 13, 27, 31] {
             let text = format!("{{\"a\":\"x{}y\"}}", c as char);
-            assert!(matches!(parse_read_from(&text), Ok(Some(_))), "{c}");
-            // Only ReadFrom(Text) was measured.
+            assert!(matches!(parse_read_from(&text, Some("object")), Ok(Some(_))), "{c}");
+            // Only ReadFrom was measured.
             assert!(matches!(parse(&text), Err(Signal::Unsupported(_))), "{c}");
         }
-        for c in [2u8, 7, 11, 14, 26, 30] {
-            let text = format!("{{\"a\":\"x{}y\"}}", c as char);
-            assert!(
-                matches!(&parse_read_from(&text), Err(Signal::Unsupported(w)) if w.contains("raw control character")),
-                "{c}"
-            );
+        use ReadInto::{Array, Object, Token, Value};
+        use Reader::{ReadFromStream as S, ReadFromText as T};
+        for c in [2u8, 7, 11, 14, 21, 26, 30] {
+            let c = c as char;
+            for (text, reader, into) in [
+                (format!("{{\"a\":\"x{c}y\"}}"), T, Object),
+                (format!("{{\"a\":\"x{c}y\"}}"), T, Token),
+                (format!("[\"x{c}y\"]"), T, Array),
+                (format!("\"x{c}y\""), T, Value),
+                (format!("{{\"k{c}z\":\"v\"}}"), T, Object),
+                (format!("{{\"k{c}z\":\"v\"}}"), T, Token),
+                (format!("{{'a':'x{c}y'}}"), T, Object),
+                (format!("{{'a':'x{c}y'}}"), T, Token),
+                (format!("['x{c}y']"), T, Array),
+                (format!("'x{c}y'"), T, Value),
+                (format!("{{\"a\":\"x{c}y\"}}"), S, Object),
+                (format!("{{\"a\":\"x{c}y\"}}"), S, Token),
+                (format!("[\"x{c}y\"]"), S, Array),
+                (format!("\"x{c}y\""), S, Value),
+            ] {
+                assert!(assumed(&text, reader, into), "{text:?} {reader:?} {into:?}");
+                assert!(matches!(parse(&text), Err(Signal::Unsupported(_))), "{text:?}");
+            }
+            // Places the probe did not measure.
+            for (text, reader, into) in [
+                (format!("{{'k{c}z':'v'}}"), T, Object),
+                (format!("[{{\"k{c}z\":1}}]"), T, Array),
+                (format!("{{\"a\":[\"x{c}y\"]}}"), T, Object),
+                (format!("{{\"o\":{{\"a\":\"x{c}y\"}}}}"), T, Object),
+                (format!("{{\"o\":{{\"k{c}z\":1}}}}"), T, Token),
+                (format!("[[\"x{c}y\"]]"), S, Array),
+                (format!("[\"x{c}y\"]"), T, Token),
+                (format!("\"x{c}y\""), T, Token),
+                (format!("{{\"a\":\"x{c}y\"}}"), T, Array),
+                (format!("{{\"k{c}z\":\"v\"}}"), S, Object),
+                (format!("{{'a':'x{c}y'}}"), S, Object),
+            ] {
+                assert!(refused(&text, reader, into), "{text:?} {reader:?} {into:?}");
+            }
         }
+        // Code 0: a Text cannot hold it in BC (the probe's `text1_after_c1_0`); a stream's NUL is refused before the parser.
+        assert!(refused("{\"a\":\"x\u{0}y\"}", T, Object));
+        assert!(refused("{\"a\":\"x\u{0}y\"}", S, Object));
         // Between tokens a form feed is a blank and character 1 is not JSON (json/JsonReadFrom.al ReadFromRawControlOtherPlaces).
-        assert!(matches!(parse_read_from("{\"a\":\u{c}\"v\"}"), Ok(Some(_))));
-        assert!(matches!(parse_read_from("{\"a\":\u{1}\"v\"}"), Ok(None)));
+        assert!(matches!(
+            parse_read_from("{\"a\":\u{c}\"v\"}", Some("object")),
+            Ok(Some(_))
+        ));
+        assert!(matches!(
+            parse_read_from("{\"a\":\u{1}\"v\"}", Some("object")),
+            Ok(None)
+        ));
     }
 }
