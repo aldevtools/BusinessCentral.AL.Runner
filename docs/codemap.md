@@ -150,7 +150,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `contract.rs`: The conformance suite every `Store` must pass. Entry: `table`.
 - `lib.rs`: The Store trait and table definitions. Entry: `Store`.
 - `memory.rs`: In-memory store on persistent maps. Entry: `MemStore`.
-- `memory/` (8 files): In-memory store on persistent maps. Entry: `MemStore`. Files: `key.rs`, `held_cols.rs`, `alt_cache.rs`, `band.rs`, `export.rs`, `footprint.rs`, `order_carry.rs`, `source_stamps.rs`
+- `memory/` (9 files): In-memory store on persistent maps. Entry: `MemStore`. Files: `key.rs`, `held_cols.rs`, `alt_cache.rs`, `band.rs`, `export.rs`, `footprint.rs`, `order_carry.rs`, `source_stamps.rs`, `shape.rs`
 
 ### al-deps
 
@@ -289,6 +289,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `login.rs`: The test session's login. Entry: `decide`.
 - `login_replay.rs`: The check that a replay of the raised login would… Entry: `Key::of`.
 - `login_replay/` (2 files): What the login replay check's report names: where two states differ, and the parts a new key differs in, never a value. Entry: `differences`, `KeyParts::of`. Files: `difference.rs`, `key_parts.rs`
+- `login_start.rs`: Replaying the raised login from a kept start (opt-in). Entry: `replay`.
 - `partner_login.rs`: The partner dependency apps' "System… Entry: `subscribers`.
 - `license.rs`: Which BC license a run uses: `--license FILE`. Entry: `LicenseUse`.
 - `isolation.rs`: TestIsolation of the runner codeunit. Entry: `TestIsolation`.
@@ -392,6 +393,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `single_track.rs`: The notes of a session that watches SingleInstance…
 - `single_unmeasured.rs`: SingleInstance codeunits whose state the run found…
 - `var_option.rs`: An Option handed to a `var` parameter whose… Entry: `var_binding`.
+- `var_option/carried.rs`: A memberless `var` Option parameter handed on to one with members: the measured origins, lists and callee uses, and a parameter with members handed to a memberless one that only formats it (assumption var-option-carried-members). Entry: `carried_args`, `hand_on_args`.
 - `session_language.rs`: The session language and its one writer…
 - `state.rs`: Sub-states of `Session`: `TxState` (what ends…
 - `pages.rs`: The page test client: shared helpers.

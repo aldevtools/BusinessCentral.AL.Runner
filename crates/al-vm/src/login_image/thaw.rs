@@ -147,6 +147,9 @@ pub(crate) fn thaw(session: &mut Session, image: &super::LoginImage) {
     session.events.bindings = (bindings.iter())
         .map(|&id| crate::dispatch::Binding {
             instance: Rc::downgrade(&m.instance(id)),
+            // The image does not carry whether the login bound it outside a subscriber; `false` keeps a carried
+            // Option's origin away from its manual subscribers, so such a hand-on refuses instead of running.
+            outside_subscriber: false,
         })
         .collect();
     let fields: Vec<_> = (image.temp_blob_fields.iter())

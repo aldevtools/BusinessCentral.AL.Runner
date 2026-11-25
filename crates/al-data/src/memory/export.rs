@@ -156,18 +156,4 @@ impl MemStore {
         self.commit();
         self
     }
-
-    /// The marks of the committed store besides its rows: the tables a DeleteAll emptied
-    /// ([`MemStore::committed_emptied`]) and the company copies, sorted.
-    #[allow(clippy::type_complexity)]
-    pub fn committed_marks(&self) -> (Vec<(String, u32)>, Vec<(String, String)>) {
-        self.footprint_everything("an export of the store");
-        let mut copies: Vec<(String, String)> = self
-            .committed_copies
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect();
-        copies.sort();
-        (self.committed_emptied(), copies)
-    }
 }
