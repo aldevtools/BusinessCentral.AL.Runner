@@ -38,6 +38,7 @@ codeunit 97719 "BCE R2 Reader"
         Parameters: Dictionary of [Text, Text];
         Results: Dictionary of [Text, Text];
         Row: Record "BCE R2 Row";
+        TempRow: Record "BCE R2 Row" temporary;
         Ref: RecordRef;
         KeyField: FieldRef;
         CountField: FieldRef;
@@ -70,6 +71,22 @@ codeunit 97719 "BCE R2 Reader"
                     Row."No." := G;
                     Row.CalcFields("Line Count");
                     Seen := Format(Row."Line Count");
+                end;
+            'findreader':
+                begin
+                    Row.SetRange("No.", G);
+                    if Row.FindFirst() then;
+                    Row.SetRange("No.");
+                    Row.CalcFields("Line Count");
+                    Seen := Format(Row."Line Count");
+                end;
+            'tempgetreader':
+                begin
+                    TempRow."No." := G;
+                    TempRow.Insert();
+                    if TempRow.Get(G) then;
+                    TempRow.CalcFields("Line Count");
+                    Seen := Format(TempRow."Line Count");
                 end;
             else begin
                 Row."No." := G;
@@ -200,6 +217,20 @@ codeunit 97720 "BCE Review R2 Tests"
     procedure CalcFieldsRecordLoadedByGetRefused()
     begin
         if FirstThenTruncate('getreader') <> '1 / 1' then
+            Error('unexpected answer');
+    end;
+
+    [Test]
+    procedure CalcFieldsRecordLoadedByFindRefused()
+    begin
+        if FirstThenTruncate('findreader') <> '1 / 1' then
+            Error('unexpected answer');
+    end;
+
+    [Test]
+    procedure TemporaryCalcFieldsRecordLoadedByGetRefused()
+    begin
+        if FirstThenTruncate('tempgetreader') <> '1 / 1' then
             Error('unexpected answer');
     end;
 

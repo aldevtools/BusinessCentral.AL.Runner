@@ -26,6 +26,8 @@ review round 1.
 | `Record.Truncate(true)` | REFUSED, not measured | `BCE Review R2 Tests::TruncateResetRefused` |
 | `MarkedOnly(true)`, then `Record.Truncate` | REFUSED, not measured | `BCE Review R2 Tests::MarkedOnlyTruncateRefused` |
 | Worker `CalcFields` of a record `Get` loaded | REFUSED, not measured | `BCE Review R2 Tests::CalcFieldsRecordLoadedByGetRefused` |
+| Worker `CalcFields` of a record `Find` loaded | REFUSED, not measured | `BCE Review R2 Tests::CalcFieldsRecordLoadedByFindRefused` |
+| Worker `CalcFields` of a temporary record `Get` loaded | REFUSED, not measured | `BCE Review R2 Tests::TemporaryCalcFieldsRecordLoadedByGetRefused` |
 
 ## Fact table
 
@@ -45,8 +47,7 @@ equality:
 | Truncate ResetAutoIncrement argument | false: `Truncate()` (:883, :1142-:1144) |
 | entry delta | the number of all Truncate commits equals the number of measured Truncate commits added |
 
-Each test flips exactly one reader, receiver-storage or commit fact. Main refuses every one before the cache can replay a stale answer; head
-must keep that refusal. No difference row is expected for these tests.
+Each test flips exactly one reader, receiver-storage or commit fact. Four of them (Get-loaded database and temporary record, `Truncate(true)`, `MarkedOnly`) were flagged passes on main after PR 8932 and are refused on head: they are listed in `differences.tsv`. The rest are refused on both.
 `WithoutTruncateKeepsMainAnswer` keeps the app runnable when both sides refuse
 the Truncate cells.
 
