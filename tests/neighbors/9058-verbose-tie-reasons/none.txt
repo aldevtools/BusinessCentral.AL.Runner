@@ -1,1 +1,1 @@
-report text only, no AL-visible change
+report text only (--verbose stderr lines and the --timings install-order lines); no AL-visible value, error, row or outcome changes
