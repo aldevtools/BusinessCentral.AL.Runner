@@ -8,13 +8,15 @@
 //!   runtime writes, `session`, `single`, `counters`, ...: its first word). A session that holds a value with no
 //!   comparable form has no key (`Key::of`).
 //!
-//! A table the store exports without rows has no part and no digest ([`store_table_digests`]): `rows` writes no line
-//! for it, so the whole `database` digest does not see it either, and the keys line never names it. Whether a table has
-//! an entry is the replay's base shape (al-vm `BaseShape`), which the start's gate compares apart from the key.
+//! A table the store exports without rows has no part and no digest ([`store_table_digests`]): the key holds rows, and
+//! such an entry holds none, so the whole `database` digest does not see it either, and the keys line never names it.
+//! Whether a table has an entry is the replay's base shape (al-vm `BaseShape`), which the start's gate compares apart
+//! from the key.
 //!
 //! The parts are never compared: a key holds them as [`NotCompared`], so which keys are equal is decided by the key's
 //! fields alone (the maintainer's review of this check, issue 8211).
 
+use super::rows_digest::{NoByteForm, table_digest as rows_table_digest};
 use super::{LinesDigest, digest};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -34,72 +36,72 @@ impl<T> Eq for NotCompared<T> {}
 /// The parts of a key (see the module comment).
 #[derive(Debug, Clone, Default)]
 pub(crate) struct KeyParts {
-    /// Per (company, table object), the digest of its committed row lines.
+    /// Per (company, table object), the digest of its committed rows (`rows_digest::table_digest`).
     database: BTreeMap<(String, u32), LinesDigest>,
     /// Per state line name, the digest of the lines of that name, in their order.
     session: BTreeMap<String, LinesDigest>,
 }
 
-/// The digest of the committed row lines of table `t` (as `rows` writes them).
-fn table_digest(t: &al_data::memory::ExportedTable) -> LinesDigest {
-    digest(&super::rows(std::slice::from_ref(t)))
-}
-
-/// Per (company, table object), [`table_digest`] of each of `tables` that holds a row.
+/// Per (company, table object), the digest of the committed rows of each of `tables` that holds a row
+/// (`rows_digest::table_digest`); every row of `tables` has a byte form.
 #[cfg(test)]
 pub(crate) fn table_digests(tables: &[al_data::memory::ExportedTable]) -> BTreeMap<(String, u32), LinesDigest> {
     (tables.iter().filter(|t| !t.rows.is_empty()))
-        .map(|t| ((t.company.clone(), t.object), table_digest(t)))
+        .map(|t| {
+            let rows = t.rows.iter().map(|(_, row)| row);
+            let d = rows_table_digest(&t.company, t.object, t.rows.len(), rows);
+            ((t.company.clone(), t.object), d.expect("a row without a byte form"))
+        })
         .collect()
 }
 
-/// [`table_digests`] of the committed tables of `store`, each digest made once per state of its table: a table's stamp
-/// names one state of it in every store of the process (al-data `MemStore::committed_stamps`), so a digest kept for a
-/// Stamp is the digest of the rows the table holds at that stamp (the rows were rendered and digested
-/// whole for every test session). A table with no stamp is digested each time. Kept per engine (`Engine::derived`).
-/// A table entry without rows has no digest, as `rows` writes no line for it (the module comment).
+/// Per (company, table object), the digest of the committed rows of each table of `store` that holds a row
+/// (`rows_digest::table_digest`), each made once per state of its table: a table's stamp names one state of it in every
+/// store of the process (al-data `MemStore::committed_rows`), so a digest kept for a stamp is the digest of the rows the
+/// table holds at that stamp, and a later session hashes only the tables that changed. A table with no stamp is hashed
+/// each time. Kept per engine (`Engine::derived`). A table entry without rows has no digest (the module comment).
+/// [`NoByteForm`] when a row holds a value with no byte form (nothing is kept for its table).
 pub(crate) fn store_table_digests(
     engine: &al_vm::Engine,
     store: &al_data::memory::MemStore,
-) -> BTreeMap<(String, u32), LinesDigest> {
+) -> Result<BTreeMap<(String, u32), LinesDigest>, NoByteForm> {
     #[derive(Default)]
     struct Memo(std::sync::Mutex<std::collections::HashMap<(String, u32, u64), LinesDigest>>);
     /// How many table states the memo keeps before it starts again.
     const KEPT: usize = 1 << 16;
     let memo = engine.derived(Memo::default);
     let mut out = BTreeMap::new();
-    for (company, object, stamp) in store.committed_stamps() {
+    for entry in store.committed_rows() {
+        // A table without rows has no digest, so a known stamp is one of a table with rows.
+        if entry.is_empty() {
+            continue;
+        }
+        let (company, object, stamp) = (entry.company, entry.object, entry.stamp);
         let known = (stamp != 0)
             .then(|| {
                 (memo.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
-                    .get(&(company.clone(), object, stamp))
+                    .get(&(company.to_string(), object, stamp))
                     .copied()
             })
             .flatten();
         let d = match known {
             Some(d) => d,
             None => {
-                let Some((table, _)) = store.committed_table(&company, object) else {
-                    continue;
-                };
-                // Only a table with rows is kept in the memo, so a known stamp is one of a table with rows.
-                if table.rows.is_empty() {
-                    continue;
-                }
-                let d = table_digest(&table);
+                // By reference: no copy of the table's rows.
+                let d = rows_table_digest(company, object, entry.len(), entry.rows())?;
                 if stamp != 0 {
                     let mut m = memo.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                     if m.len() >= KEPT {
                         m.clear();
                     }
-                    m.insert((company.clone(), object, stamp), d);
+                    m.insert((company.to_string(), object, stamp), d);
                 }
                 d
             }
         };
-        out.insert((company, object), d);
+        out.insert((company.to_string(), object), d);
     }
-    out
+    Ok(out)
 }
 
 /// The `database` digest of a key: the digest of the per-table digests `tables`, each with its company and table.
@@ -111,7 +113,7 @@ pub(crate) fn database_digest(tables: &BTreeMap<(String, u32), LinesDigest>) -> 
 }
 
 impl KeyParts {
-    /// The parts of the committed rows (per table, [`table_digests`]) and the state `state`.
+    /// The parts of the committed rows (per table, [`store_table_digests`]) and the state `state`.
     pub(crate) fn of(database: BTreeMap<(String, u32), LinesDigest>, state: &al_vm::StateLines) -> KeyParts {
         let mut by_name: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for line in &state.lines {
