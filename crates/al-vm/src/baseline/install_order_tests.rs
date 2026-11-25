@@ -73,14 +73,30 @@ fn a_backed_table_emptied_in_one_order_only_differs() {
 // A DeleteAll without filters on a table with no rows to remove still stands as a mark (`MemStore::emptied`): a read of a
 // platform table whose fresh-tenant rows the runner does not hold refuses in the order without it (al-vm `is_unseeded`).
 #[test]
-fn an_emptied_mark_in_one_order_only_differs() {
+fn an_emptied_mark_in_one_order_only_differs_on_a_platform_unseeded_table() {
     let start = sample();
     let emptied = order(&start, |s| {
         s.delete_all(&al_data::contract::cx("D"), &names(), &[]).unwrap();
     });
     let kept = order(&start, |_| {});
-    let d = differences(&emptied, &kept, &start).expect("tables only");
+    let mut e = engine();
+    std::sync::Arc::get_mut(&mut e).unwrap().platform_unseeded.insert(11);
+    let d = emptied
+        .install_order_differences(&kept, &start, &e, ((0, 0), (0, 0)))
+        .expect("tables only");
     assert!(d.contains_key(&11), "table 11 differs: {d:?}");
+}
+
+// On any other table the mark changes no read (`is_unseeded` reads it for platform unseeded tables only): the same rows
+// in both orders are the same database, as on main.
+#[test]
+fn an_emptied_mark_in_one_order_only_is_the_same_database_on_another_table() {
+    let start = sample();
+    let emptied = order(&start, |s| {
+        s.delete_all(&al_data::contract::cx("D"), &names(), &[]).unwrap();
+    });
+    let kept = order(&start, |_| {});
+    assert_eq!(differences(&emptied, &kept, &start), Some(Default::default()));
 }
 
 // Both orders copy C to E: an untouched table of E reads C's test data rows in both, so the comparison answers.

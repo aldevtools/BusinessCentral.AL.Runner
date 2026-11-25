@@ -102,7 +102,7 @@ impl Baseline {
     /// own order in both captures counts as the same (al-runner issue 6644 b). BC keeps no order between two apps with no
     /// dependency path between them, so no test can depend on which of the two read the clock first; the rows each
     /// order inserts, and every value that is not a reading of the clock, still count. A table counts as differing also
-    /// when its AutoIncrement counter does, or when a DeleteAll without filters emptied it in one order only. A table a
+    /// when its AutoIncrement counter does, or, for a platform unseeded table, when a DeleteAll without filters emptied it in one order only. A table a
     /// store holds no entry for is compared with the rows a read finds there (`MemStore::committed_table_read`).
     /// `None` when something besides the tables differs (isolated storage, number sequences, the companies not known or
     /// copied, the companies copied or deleted when the store has a backing their untouched tables read:
@@ -133,7 +133,9 @@ impl Baseline {
             if a.encoded != b.encoded {
                 out.entry(object).or_default().extend(describe(&a, &b, object, engine));
             }
-            if a.emptied != b.emptied {
+            // The mark's one reader is `is_unseeded`, for the platform tables whose fresh-tenant rows the runner does
+            // not hold; on any other table it changes no read.
+            if a.emptied != b.emptied && engine.platform_unseeded.contains(&(object as usize)) {
                 out.entry(object)
                     .or_default()
                     .push("a DeleteAll without filters emptied the table in one order only".into());
