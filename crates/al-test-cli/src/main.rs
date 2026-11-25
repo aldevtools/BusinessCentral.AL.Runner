@@ -1401,7 +1401,7 @@ fn run_version_inner(
     // Nothing waits for the drop of the runtime after the report is written.
     let rt = runtime::Retiring::new(rt);
     let p = &rt.phases;
-    p.login_replay.report.iter().for_each(|l| eprintln!("{l}")); // ALRUNNER_LOGIN_REPLAY_CHECK (issue 8211)
+    p.login_replay.report.iter().for_each(|l| eprintln!("{l}")); // ALRUNNER_LOGIN_REPLAY(_CHECK) (issue 8211)
     let sidecar_stats = sidecar_host.stats();
     sidecar_host.shutdown();
     let timings = report::Timings {

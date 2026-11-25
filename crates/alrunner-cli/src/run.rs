@@ -1822,7 +1822,7 @@ fn test_inner(
         }
     };
     let p = &rt.phases;
-    p.login_replay.report.iter().for_each(|l| eprintln!("{l}")); // ALRUNNER_LOGIN_REPLAY_CHECK (issue 8211)
+    p.login_replay.report.iter().for_each(|l| eprintln!("{l}")); // ALRUNNER_LOGIN_REPLAY(_CHECK) (issue 8211)
     let d = sidecar_host.stats();
     sidecar_host.shutdown();
 

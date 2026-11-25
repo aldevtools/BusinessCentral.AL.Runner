@@ -436,6 +436,20 @@ fn a_key_that_is_not_imaged_runs_the_login_every_time_and_is_frozen_once() {
     assert!(line.contains(", 1 not imaged"), "one key, frozen once: {line}");
 }
 
+// With the replay alone (no check), the report is the starts line: the keys not imaged, the starts too large and the
+// sessions the gate or a refused thaw kept from a start are counted there and nowhere else (maintainer's review of
+// al-runner PR 8665).
+#[test]
+fn with_the_replay_alone_the_report_is_the_starts_line() {
+    let (engine, l) = compiled_with(&format!("{MAIN}{OPAQUE_INSIDE}"));
+    sessions(&engine, &l, "RPL Tests A", 2, &on());
+    let line = starts(&engine).line().expect("a line once a key was refused");
+    assert!(line.contains(", 1 not imaged"), "{line}");
+    assert_eq!(crate::login_replay::report(&engine), Some(line));
+    let (_, line) = gated_line(&|s| s.perturb.library_seed = Some(3), false);
+    assert!(line.is_some_and(|l| l.starts_with("login start: 0 replayed") && l.contains("refused by the gate")));
+}
+
 /// How many times `open_company` took a session before its login while `run` ran.
 fn bases_taken(run: impl FnOnce()) -> u32 {
     login_start::BASES.with(|b| b.set(0));
@@ -784,7 +798,7 @@ fn the_gate_refuses_a_target_whose_base_has_another_shape() {
 }
 
 /// Runs "RPL Tests A" twice with `tweak` on both runs (and an observer when `observed`): the second session would take
-/// the first's start. Returns the report line of the starts.
+/// the first's start. Returns how many sessions replayed, and the report (the starts line, with the replay alone).
 fn gated_line(tweak: &dyn Fn(&mut Scratch), observed: bool) -> (u64, Option<String>) {
     let (engine, l) = compiled();
     let ran = sessions_with(
@@ -800,7 +814,7 @@ fn gated_line(tweak: &dyn Fn(&mut Scratch), observed: bool) -> (u64, Option<Stri
         },
     );
     assert_one_state(&ran, "gated");
-    (starts(&engine).replayed(), starts(&engine).line())
+    (starts(&engine).replayed(), crate::login_replay::report(&engine))
 }
 
 // At run level: a run that follows the code it runs, a perturbation and a set clock start never take a start, and the

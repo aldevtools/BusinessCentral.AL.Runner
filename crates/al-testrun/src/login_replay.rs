@@ -875,11 +875,14 @@ pub(crate) fn check(engine: &Engine) -> std::sync::Arc<Check> {
     engine.derived(Check::default)
 }
 
-/// The report of `engine`'s check: the check line, the image line when a round trip was tried, then the keys line;
-/// `None` when no session raised the login under the check.
+/// The report of `engine`'s check: the check line, the image line when a round trip was tried, then the keys line, then
+/// the starts line (`login_start::Starts::line`) with the check's replay vs run. Without a check line (the replay alone,
+/// or no session raised the login under the check): the starts line alone. `None` when there is neither.
 pub(crate) fn report(engine: &Engine) -> Option<String> {
     let check = check(engine);
-    let line = check.line()?;
+    let Some(line) = check.line() else {
+        return crate::login_start::starts(engine).line();
+    };
     // The keys line comes after them, so the check line and the image line keep their places; then the starts.
     let mut keys = check.keys_line().map_or(String::new(), |k| format!("\n{k}"));
     if let Some(starts) = crate::login_start::starts(engine).line() {

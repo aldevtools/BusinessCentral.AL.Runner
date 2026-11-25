@@ -44,7 +44,7 @@ const _: fn() = || {
     both::<Start>();
 };
 
-/// Why a session does not take a start, each counted in the report.
+/// Why a session does not take a start, each counted in the report's starts line (`Starts::line`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NotTaken {
     /// The run notes the code it runs: `--explain` or an observer, coverage, the impact trace, the profiler.
