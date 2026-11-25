@@ -771,6 +771,13 @@ fn json_token_read_from_a_stream_that_holds_a_string_and_more_text() {
         "T := Format(K.ReadFrom(I)); exit(T + '|' + Format(K.IsValue()) + '|' + K.AsValue().AsText());",
     );
     assert_eq!(t, "Yes|Yes|text");
+    // The stream holds one whole string: json/json/JsonTokenValueReadFromStream.al:92, :112-115 (`string_json` "s").
+    let t = json_stream_text(
+        "K: JsonToken;",
+        "\"s\"",
+        "T := Format(K.ReadFrom(I)); exit(T + '|' + Format(K.IsValue()) + '|' + K.AsValue().AsText());",
+    );
+    assert_eq!(t, "Yes|Yes|s");
 }
 
 #[test]
@@ -796,14 +803,13 @@ fn json_read_from_a_stream_that_starts_with_a_string_refuses_what_is_not_pinned(
         ),
         other => panic!("{other:?}"),
     }
-    // Not pinned: the JsonValue and JsonToken statement forms, a JsonArray, the JsonObject result used, a JsonToken
-    // string alone and a JsonValue string followed by more text.
+    // Not pinned: the JsonValue and JsonToken statement forms, a JsonArray, the JsonObject result used and a JsonValue
+    // string followed by more text.
     assert!(refused("V: JsonValue;", "\"hello\"", "V.ReadFrom(I); exit('');"));
     assert!(refused("K: JsonToken;", "\"hello\"", "K.ReadFrom(I); exit('');"));
     assert!(refused("A: JsonArray;", "\"hello\"", "A.ReadFrom(I); exit('');"));
     assert!(refused("A: JsonArray;", "\"hello\"", "exit(Format(A.ReadFrom(I)));"));
     assert!(refused("J: JsonObject;", "\"a\":2}", "exit(Format(J.ReadFrom(I)));"));
-    assert!(refused("K: JsonToken;", "\"hello\"", "exit(Format(K.ReadFrom(I)));"));
     assert!(refused("V: JsonValue;", "\"a\":2}", "exit(Format(V.ReadFrom(I)));"));
     // A raw control in a string that a JsonToken reads as the whole stream was not measured.
     assert!(refused("K: JsonToken;", "\"x#y\"", "exit(Format(K.ReadFrom(I)));"));

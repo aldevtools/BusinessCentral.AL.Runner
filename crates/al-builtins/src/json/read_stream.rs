@@ -14,10 +14,12 @@ use crate::value::Value;
 /// - JsonToken, result used, a string followed by more text: read as that value (json/json/P101Streams.al:162-167,
 ///   `text_ok` Yes, `text_isvalue` Yes; `"text"` is written over `{"a":[1,2,{"b":null}]}`, and CreateOutStream does not
 ///   empty a Blob, streams/TestStreamsRuntimeContracts.al:BlobField_CreateOutStream_DoesNotEmptyExistingData, so the stream
-///   holds `"text"1,2,{"b":null}]}`).
+///   holds `"text"1,2,{"b":null}]}`);
+/// - JsonToken, result used, the stream holds one whole string: read as that value (json/json/JsonTokenValueReadFromStream.al:92,
+///   :112-115, `string_json` `"s"`, `string_isValue` Yes).
 ///
-/// Every other shape is refused: a JsonArray, the JsonObject result used, the JsonValue and JsonToken statement forms, a
-/// JsonToken string alone, and a JsonValue string followed by more text.
+/// Every other shape is refused: a JsonArray, the JsonObject result used, the JsonValue and JsonToken statement forms, and
+/// a JsonValue string followed by more text.
 pub(super) fn stream_text(c: &mut dyn Ctx, stream: &mut Value, want: Option<&str>) -> Result<String, Signal> {
     let text = crate::stream::read_serialised_text(stream)?;
     if !text.trim_start().starts_with('"') {
@@ -30,7 +32,7 @@ pub(super) fn stream_text(c: &mut dyn Ctx, stream: &mut Value, want: Option<&str
             "InvalidJsonType",
         )),
         (ReadInto::Value, true) if first_string(&text, into)? == Some(true) => Ok(text),
-        (ReadInto::Token, true) if first_string(&text, into)? == Some(false) => Ok(text),
+        (ReadInto::Token, true) if first_string(&text, into)?.is_some() => Ok(text),
         _ => unsupported(
             "ReadFrom(InStream) on a stream that starts with a string token, for this type, result use or rest of the \
              text (not pinned)",

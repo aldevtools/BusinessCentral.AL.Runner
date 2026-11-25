@@ -114,7 +114,7 @@ codeunit 50330 "Review R1 Token Alone Tests"
 {
     Subtype = Test;
 
-    // A JsonToken, result used, of a stream that holds one string and nothing else: no pin, refused.
+    // A JsonToken, result used, of a stream that holds one string and nothing else: pinned, reads (JsonTokenValueReadFromStream.al:92).
     [Test]
     procedure TokenInStreamStringAlone()
     var

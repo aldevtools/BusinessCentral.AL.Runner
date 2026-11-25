@@ -1,1 +1,9 @@
 # key	entry
+Review R1 Json Pinned Tests::ValueInStreamPlain	PINNED tests/al-language/json/json/P101Streams.al:114
+Review R1 Value Unused Tests::ValueInStreamNakUnused	REFUSED ReadFrom(InStream) on a stream that starts with a string token
+Review R1 Array String Tests::ArrayInStreamString	REFUSED ReadFrom(InStream) on a stream that starts with a string token
+Review R1 Token Unused Tests::TokenInStreamStringUnused	REFUSED ReadFrom(InStream) on a stream that starts with a string token
+Review R1 Zone Origin Tests::Argument_RecordField	ASSUMED zone-datetime-utc-instant (corpus PR 1582)
+Review R1 Zone Origin Tests::Argument_CurrentDateTime	ASSUMED zone-datetime-utc-instant (corpus PR 1582)
+Review R1 Kind Tests::DotNetKindFromAl	REFUSED DotNet System.DateTime.Kind
+Review R1 RoundTrip Tests::DotNetRoundTripFromAl	REFUSED DotNet System.DateTime.ToString
