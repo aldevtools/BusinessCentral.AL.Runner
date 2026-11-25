@@ -279,7 +279,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `report_render.rs`: The report render process. Entry: `RenderHost`.
 - `report_render_pieces.rs`: The `PrepareFn` of a run. Entry: `prepare`.
 - `explain.rs`: --explain: where a test was refused or failed. Entry: `describe`.
-- `host.rs`: The host the command line gives a session (ADR-006). Entry: `SystemClock`.
+- `host.rs`: The host the command line gives a session (ADR-006), and the clock of a run. Entry: `SystemClock`, `RunClock`.
 - `impact_trace.rs`: The impact index's keys, their numbering. Entry: `keys`.
 - `install.rs`: The install code of each app. Entry: `plan`.
 - `install_orders.rs`: The install order of apps with no dependency path: Microsoft's first, partner groups recorded and proven. Entry: `split_microsoft`, `install_partner_apps`.

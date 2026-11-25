@@ -473,6 +473,9 @@ What is built:
   *Built (2026-11-24, after acceptance):* the key also holds the engine's emit version (by its reader) and
   `refused_reads`, one digest of the engine's `unseeded` and `demo_tables`, which a kept engine resets per request and
   the login reads. Every Scratch and "Set by a run" engine field is listed under a test in `login_start/outside.rs`.
+  The key also holds the run clock (`Key::clock`), so a login start kept on one UTC day is never replayed into a run of
+  another day; pull request 8472 (the run clock begins once per run, issue 8457) added it, because the replay (pull
+  request 8665) landed first.
 - **The check** (`ALRUNNER_LOGIN_REPLAY_CHECK=1`) is the state check of the Conformance section: no session takes a
   start; each new key's session is frozen, thawn into a twin and compared (the round trip), and each later session of a
   key is compared with a thaw of the key's start (replay vs run). Its report names where two states differ, never a
