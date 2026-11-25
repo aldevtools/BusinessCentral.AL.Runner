@@ -17,6 +17,7 @@ table 97601 "AS Review Reader Row"
         field(4; Uid; Guid) { }
         field(5; Opt; Option) { OptionMembers = A,B; OptionCaption = 'Alpha,Beta'; }
         field(6; Kind; Enum "AS Review Kind") { }
+        field(7; Dt; Date) { }
     }
     keys { key(PK; "No.") { } }
 }
@@ -32,6 +33,10 @@ table 97602 "AS Review Reader Host"
         field(5; "Guid Count At"; Integer) { FieldClass = FlowField; CalcFormula = count("AS Review Reader Row" where("No." = field("No."), Uid = filter('@'))); }
         field(6; "Option Count At"; Integer) { FieldClass = FlowField; CalcFormula = count("AS Review Reader Row" where("No." = field("No."), Opt = filter('@'))); }
         field(7; "Enum Count At"; Integer) { FieldClass = FlowField; CalcFormula = count("AS Review Reader Row" where("No." = field("No."), Kind = filter('@'))); }
+        field(8; "Date Sum At"; Decimal) { FieldClass = FlowField; CalcFormula = sum("AS Review Reader Row".Amount where("No." = field("No."), Dt = filter('@'))); }
+        field(9; "Date Count At"; Integer) { FieldClass = FlowField; CalcFormula = count("AS Review Reader Row" where("No." = field("No."), Dt = filter('@'))); }
+        field(10; "Date Count Not At"; Integer) { FieldClass = FlowField; CalcFormula = count("AS Review Reader Row" where("No." = field("No."), Dt = filter('<>@'))); }
+        field(11; "Date Min At"; Date) { FieldClass = FlowField; CalcFormula = min("AS Review Reader Row".Dt where("No." = field("No."), Dt = filter('@'))); }
     }
     keys { key(PK; "No.") { } }
 }
@@ -157,5 +162,85 @@ codeunit 97601 "AS Review Reader Tests"
         NewHost(Host);
         GlobalLanguage(1030);
         asserterror Host.CalcFields("Time Count Not At");
+    end;
+
+    [Test]
+    procedure Readers_Language1031_DateSum()
+    var
+        Host: Record "AS Review Reader Host";
+    begin
+        NewHost(Host);
+        GlobalLanguage(1031);
+        Host.CalcFields("Date Sum At");
+    end;
+
+    [Test]
+    procedure Readers_Language1031_DateCount()
+    var
+        Host: Record "AS Review Reader Host";
+    begin
+        NewHost(Host);
+        GlobalLanguage(1031);
+        Host.CalcFields("Date Count At");
+    end;
+
+    [Test]
+    procedure Readers_Language1030_DateSum()
+    var
+        Host: Record "AS Review Reader Host";
+    begin
+        NewHost(Host);
+        GlobalLanguage(1030);
+        Host.CalcFields("Date Sum At");
+    end;
+
+    [Test]
+    procedure Readers_Language1030_DateCount()
+    var
+        Host: Record "AS Review Reader Host";
+    begin
+        NewHost(Host);
+        GlobalLanguage(1030);
+        Host.CalcFields("Date Count At");
+    end;
+
+    [Test]
+    procedure Readers_Language1031_DateCountNotAt()
+    var
+        Host: Record "AS Review Reader Host";
+    begin
+        NewHost(Host);
+        GlobalLanguage(1031);
+        Host.CalcFields("Date Count Not At");
+    end;
+
+    [Test]
+    procedure Readers_Language1031_DateMin()
+    var
+        Host: Record "AS Review Reader Host";
+    begin
+        NewHost(Host);
+        GlobalLanguage(1031);
+        Host.CalcFields("Date Min At");
+    end;
+
+    [Test]
+    procedure Readers_Language1044_DateCount()
+    var
+        Host: Record "AS Review Reader Host";
+    begin
+        NewHost(Host);
+        GlobalLanguage(1044);
+        Host.CalcFields("Date Count At");
+    end;
+
+    [Test]
+    procedure Readers_Language1044_DateSum()
+    var
+        Host: Record "AS Review Reader Host";
+    begin
+        NewHost(Host);
+        GlobalLanguage(1044);
+        Host.CalcFields("Date Sum At");
     end;
 }

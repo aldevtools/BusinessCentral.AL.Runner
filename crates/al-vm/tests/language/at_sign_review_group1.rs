@@ -40,6 +40,29 @@ codeunit 69620 "At Sign Review Group1"
         Row.SetRange(Tag);
     end;
 
+    procedure MainIntegerPrimaryKeySequence()
+    var
+        Row: Record "At Sign Review Group1 Row" temporary;
+    begin
+        Row.FilterGroup(1);
+        Row.SetRange("No.", 1);
+        Row.SetRange("No.");
+    end;
+
+    procedure DatabaseIntegerPrimaryKeyCopy()
+    var
+        Db: Record "At Sign Review Group1 Row";
+        Temp: Record "At Sign Review Group1 Row" temporary;
+    begin
+        Db."No." := 1;
+        Db.Insert();
+        Db.FilterGroup(1);
+        Db.SetRange("No.", 1);
+        Temp.Copy(Db);
+        Temp.FilterGroup(1);
+        Temp.SetRange("No.");
+    end;
+
     procedure ExactSequence()
     var
         Row: Record "At Sign Review Group1 Row" temporary;
@@ -119,6 +142,21 @@ fn a_clear_without_the_temporary_not_at_entry_is_refused() {
 #[test]
 fn the_main_temporary_integer_sequence_keeps_running() {
     assert!(al_testkit::run_in(SRC, "At Sign Review Group1", "MainIntegerSequence").is_ok());
+}
+
+#[test]
+fn the_main_temporary_integer_primary_key_sequence_keeps_running() {
+    assert!(al_testkit::run_in(SRC, "At Sign Review Group1", "MainIntegerPrimaryKeySequence").is_ok());
+}
+
+#[test]
+fn a_temporary_copy_of_a_database_integer_primary_key_entry_keeps_main() {
+    let Err(Signal::Unsupported(why)) =
+        al_testkit::run_in(SRC, "At Sign Review Group1", "DatabaseIntegerPrimaryKeyCopy")
+    else {
+        panic!("expected main's refusal");
+    };
+    assert!(why.contains("another record set"), "{why}");
 }
 
 #[test]

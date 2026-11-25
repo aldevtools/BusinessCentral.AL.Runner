@@ -26,6 +26,17 @@ table 97607 "AS Review Group1 Database Row"
     keys { key(PK; "No.") { } }
 }
 
+table 97608 "AS Review G1 Other Row"
+{
+    fields
+    {
+        field(1; "No."; Integer) { }
+        field(2; Kind; Code[20]) { }
+        field(3; Tag; Integer) { }
+    }
+    keys { key(PK; "No.") { } }
+}
+
 codeunit 97600 "AS Review Group1 Tests"
 {
     Subtype = Test;
@@ -85,6 +96,31 @@ codeunit 97600 "AS Review Group1 Tests"
     end;
 
     [Test]
+    procedure Group1Temp_MainIntegerPrimaryKeySequence()
+    var
+        Row: Record "AS Review Group1 Row" temporary;
+    begin
+        Row.FilterGroup(1);
+        Row.SetRange("No.", 1);
+        Row.SetRange("No.");
+    end;
+
+    [Test]
+    procedure Group1Temp_DatabaseIntegerPrimaryKeyCopy()
+    var
+        Db: Record "AS Review Group1 Row";
+        Temp: Record "AS Review Group1 Row" temporary;
+    begin
+        Db."No." := 1;
+        Db.Insert();
+        Db.FilterGroup(1);
+        Db.SetRange("No.", 1);
+        Temp.Copy(Db);
+        Temp.FilterGroup(1);
+        Temp.SetRange("No.");
+    end;
+
+    [Test]
     procedure Group1Temp_FieldRefSetter()
     var
         Temp: Record "AS Review Group1 Row" temporary;
@@ -129,10 +165,8 @@ codeunit 97600 "AS Review Group1 Tests"
 
     [Test]
     procedure Group1Temp_DifferentFieldClear()
-    var
-        Temp: Record "AS Review Group1 Row" temporary;
+    var Temp: Record "AS Review G1 Other Row" temporary;
     begin
-        Fill(Temp);
         Temp.FilterGroup(1);
         Temp.SetFilter(Kind, '<>@');
         Temp.SetRange(Tag);
