@@ -9,7 +9,9 @@
 //! confirmed on BC 27.5, 28.5 and 29.0) run through the assumption `guarded-run-consistent-end`: a guarded run that fails
 //! drops the marks set inside it (with no Commit since it started; inside another guarded run only from a CommitBehavior
 //! Error procedure, without a record argument, and when that run then fails), a temporary record marks the database
-//! table, a Commit after another variable's `Consistent(true)` raises, and the error names a table by its Caption. Every other shape is refused.
+//! table, a Commit after another variable's `Consistent(true)` raises, and the error names a table by its Caption. The
+//! cells of corpus PR 1586 (errors/ConsistentGuardedRunFail.al, codeunit 88974) beyond those run through
+//! `guarded-run-consistent-fail` (`fail_probe_end`): a mark marked again by another variable, a FieldError. Every other shape is refused.
 //!
 //! Entry points: `Session::set_consistent`; `mark_snapshot`, `refuse_write_and_mark_at_run_start` and
 //! `guarded_run_end_marks` (by `codeunit_run`); `commit_mark_error` (by `commit_builtin`); `inconsistent_error`; `refuse_inconsistent_end` (an unguarded run, a
@@ -31,6 +33,10 @@ pub(crate) enum MarkState {
     Marked,
     /// Another database variable of the table called `Consistent(true)` once, the variable that set it nothing since.
     ReleasedByAnother,
+    /// Another database variable called `Consistent(false)` on it after the setter's mark or another one's
+    /// `Consistent(true)`; a later `Consistent(true)` by a database variable leaves it so (ConsistentGuardedRunFail.al
+    /// steps `fya,fyc`, `fyp,fyp`, `fxa,txb,fxc`, then `txa` or `txc`). Read only by `fail_probe_end`.
+    MarkedAgainByAnother,
     /// Any other sequence of calls by another variable: not measured.
     Unmeasured,
 }
@@ -110,6 +116,41 @@ impl RunEnd<'_> {
 /// GuardedRunId_InnerStartsStateAndTestFieldFails).
 const DROPPED_BY: [&str; 3] = ["Dialog", "DB:RecordNotFound", "TestField"];
 
+/// The run ends of corpus PR 1586 (ConsistentGuardedRunFail.al, codeunit 88974 "GRF Tests", section (2)) that the
+/// shapes of `guarded-run-consistent-end` do not take: `Some(true)` the run raises the inconsistency error naming the
+/// table marked first, `Some(false)` it returns false with the inner error and the marks set inside it are gone, `None`
+/// not measured. Every cell is a run not nested in another guarded run, with no Commit since it started
+/// (`top_level_no_commit`; a Commit under CommitBehavior::Ignore commits nothing), `Codeunit.Run(Id)` without a record
+/// argument, and no mark at its start. The marks it ends with, in the order they were set, equal a cell's (M held by
+/// the setter, R released by another variable, A marked again by another):
+/// - fails with code Dialog (`Error('inner failed')`) with M A (Inner_StartX_MarkYByA_MarkYByC_Fails,
+///   Inner_StartX_InsertY_MarkYByA_MarkYByC_Fails, Inner_StartX_MarkYInProcTwice_Fails), R M
+///   (Inner_StartX_TrueXByB_MarkYByA_Fails, Inner_MarkXByA_TrueXByB_MarkYByA_Fails) or A M
+///   (Inner_MarkXByA_TrueXByB_MarkXByC_MarkYByA_Fails);
+/// - fails with code NCLCSRTS:TableErrorStr (a FieldError) with M (Inner_MarkGlobal_FieldError,
+///   Inner_MarkGlobal_InsertX_FieldError);
+/// - succeeds with M A (Inner_StartX_MarkYByA_MarkYByC_Ends), A M (Inner_MarkXByA_TrueXByB_MarkXByC_MarkYByA_Ends) or
+///   A (Inner_MarkXByA_TrueXByB_MarkXByC_TrueXByA_TrueYByA_Ends, _TrueXByC_TrueYByA_Ends).
+fn fail_probe_end(
+    top_level_no_commit: bool,
+    arg: RunArg,
+    before: &[(u32, MarkState)],
+    after: &[(u32, MarkState)],
+    end: RunEnd,
+) -> Option<bool> {
+    if !(top_level_no_commit && arg == RunArg::None && before.is_empty()) || after.is_empty() {
+        return None;
+    }
+    use MarkState::{Marked as M, MarkedAgainByAnother as A, ReleasedByAnother as R};
+    let states: Vec<MarkState> = after.iter().map(|(_, s)| *s).collect();
+    match (end, states.as_slice()) {
+        (RunEnd::Failed("Dialog"), [M, A] | [R, M] | [A, M]) => Some(false),
+        (RunEnd::Failed("NCLCSRTS:TableErrorStr"), [M]) => Some(false),
+        (RunEnd::Succeeded, [M, A] | [A, M] | [A]) => Some(true),
+        _ => None,
+    }
+}
+
 impl Session {
     /// `Record.Consistent(Value)` on `rec`: marks, lifts or changes the mark of its table for the open transaction
     /// (errors/CuCommitTests.al:382-433). A temporary record marks the database table, and only `Consistent(true)` on
@@ -141,6 +182,10 @@ impl Session {
             }
             (MarkState::Marked, true, false) => {}
             (MarkState::Marked, false, true) if !temporary => mark.state = MarkState::ReleasedByAnother,
+            (MarkState::Marked | MarkState::ReleasedByAnother, false, false) if !temporary => {
+                mark.state = MarkState::MarkedAgainByAnother
+            }
+            (MarkState::MarkedAgainByAnother, _, true) if !temporary => {}
             // Consistent(true) on the database variable that set the mark, after another one's: lifted
             // (ConsistentGuardedRunEnd.al Commit_FalseOnOneVariable_TrueOnAnother_ThenTrueOnFirst).
             (MarkState::ReleasedByAnother, true, true) if !temporary => {
@@ -244,6 +289,10 @@ impl Session {
             }
             return Ok(raised.then(|| self.inconsistent_error(after[0].0 as usize)));
         }
+        if let Some(raises) = fail_probe_end(top_level && no_commit, arg, before, &after, end) {
+            assume(Assumption::GuardedRunConsistentFail);
+            return Ok(raises.then(|| self.inconsistent_error(after[0].0 as usize)));
+        }
         Err(Signal::unsupported(format!(
             "A guarded Codeunit.Run ends while Consistent(false) marks table {} in a shape no probe measured (marks, outcome, \
              record argument, Commit or nesting)",
@@ -302,7 +351,7 @@ impl Session {
         match m.state {
             MarkState::Marked => {}
             MarkState::ReleasedByAnother => assume(Assumption::GuardedRunConsistentEnd),
-            MarkState::Unmeasured => {
+            MarkState::MarkedAgainByAnother | MarkState::Unmeasured => {
                 return Some(Signal::unsupported(format!(
                     "Commit after another variable of table {} called Consistent on its Consistent(false) mark (not measured)",
                     self.table_name(m.table)
