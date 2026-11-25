@@ -7,6 +7,11 @@
 //! The classes:
 //! - `plain`: a value the session's own code sets, held by value; the type is written next to the name, so a wrong one
 //!   does not compile.
+//! - `runner`: set by the runner before the login from the run's plan (al-testrun `enter_test_codeunit`); a session
+//!   image of the login keeps the target's own value.
+//! - `counter`: a count read only as a difference around one call and never by AL code (the readers are cited next to
+//!   each): no input or output of the login, so neither imaged nor rendered nor in the login replay key; a later
+//!   difference around a call is the same.
 //! - `linked`: state that holds handles or is shared between owners (the store, the transaction, the events): a copy of
 //!   it is made by hand.
 //! - `fresh`: caches and scratch with no AL value; a new session's value serves.
@@ -34,6 +39,8 @@
 //! The store, besides its rows:
 //! - emptied marks (`MemStore::committed_marks`): session.
 //! - company copies (`committed_copies`): follows, `restore_baseline` puts them back from `full_copies` (plain).
+//! - deleted companies (`committed_dropped_backed_companies`, in `MemStore::committed_marks`): session; the image takes
+//!   no login that changes them (al-data `committed_row_changes_from`), and the base shape holds them.
 //! - held columns (`unknown_cols`, `accent_cols`, `ae_cols`): follows, `MemStore::from_exported` notes every row
 //!   (test `baseline::tests::a_baseline_read_back_from_bytes_refuses_what_the_captured_one_refuses`).
 //! - stamps, `moves`, `shapes`, the read caches: run (a stamp only says whether a table changed, and the facts that
@@ -93,9 +100,6 @@ macro_rules! session_fields {
             plain {
                 // A caught error of the login stays GetLastErrorText (state_stamp.rs `last error`).
                 last_error: al_builtins::native::AlError,
-                // Counts read as a difference around one call (install_left.rs): by value, so a later difference is the
-                // same.
-                caught_errors: u64,
                 // The object that raised the last error; goes with `last_error`.
                 error_raised_in: Option<usize>,
                 isolated_storage: HashMap<(String, String), (String, bool, bool)>,
@@ -119,7 +123,6 @@ macro_rules! session_fields {
                 randomized_with_seed: bool,
                 rng: al_host::random::NetRandom,
                 random_draws: u64,
-                calls_made: u64,
                 reseeded_in_test: bool,
                 inherited_draws: u64,
                 run_seeded_in_test: bool,
@@ -127,16 +130,9 @@ macro_rules! session_fields {
                 unseeded_randomizes: i32,
                 // Row-version counters (state_stamp.rs `counters`; `install_row_version`: `mark_install_end`).
                 next_row_version: i64,
-                deletes: u64,
-                rollbacks: u64,
                 install_row_version: i64,
                 autoinc: HashMap<(String, u32), i64>,
                 baseline_rows: BTreeSet<u32>,
-                // Set by al-testrun `enter_test_codeunit` before the login.
-                in_test_codeunit: bool,
-                isolation_from_hub: bool,
-                hub_disabled: bool,
-                test_object: Option<usize>,
                 http_policy: Option<&'static str>,
                 tdd_reached: BTreeSet<String>,
                 // A record's own read is current against it (state_render.rs `own_read`).
@@ -157,8 +153,32 @@ macro_rules! session_fields {
                 caption_translations: Vec<(String, i32, String)>,
                 ui_caption_translated: Vec<(String, i32)>,
             }
-            linked {
+            runner {
+                // Set by al-testrun `enter_test_codeunit` before the login, from the run's plan: the number sequences'
+                // refusal mark (al-runner issue 8152) and the codeunit's isolation settings.
                 numbers_unmeasured,
+                in_test_codeunit,
+                isolation_from_hub,
+                hub_disabled,
+                // The login replay key holds it in a field of its own (al-testrun `Key::test_codeunit`), not in the
+                // state lines, so the check can compare the logins of two test codeunits.
+                test_object [own_key_field],
+            }
+            counter {
+                // Read only as a difference around one call, never by AL code: `page_run_close.rs`,
+                // `pages/rows.rs`, `pages/document_handler_error.rs` (written by `caught_errors.rs`).
+                caught_errors,
+                // `records.rs` (`SqlCounters::enter`), `isdirty.rs`, `globaltriggers.rs` (written by `lib.rs`). Real
+                // logins of one key differ in it: the WorkDate step's recorded run (al-testrun `install::LoginMemo`)
+                // answers without the call.
+                calls_made,
+                // `pages.rs` (`write_mark`, compared before and after: `page_run_close.rs`, `pages/next_held_row_read.rs`,
+                // `pages/part_insert_swallowed.rs`, `pages/list_factbox_new_line.rs`, `pages/code_inserted_new_line.rs`).
+                deletes,
+                // `pages/empty_part_rec.rs` (`landing_store_state`).
+                rollbacks,
+            }
+            linked {
                 singletons,
                 store,
                 temps,
@@ -183,7 +203,8 @@ macro_rules! session_fields {
                 adhoc_tables,
                 resource_reads,
                 // Counts and insert stamps al-testrun compares within one test only (`sequence_start.rs`; install_left.rs
-                // keeps none of them either): a test's differences are the same from any start.
+                // keeps none of them either): a test's differences of the counts are the same from any start, and the
+                // insert stamps are asked only for sequences inserted since the test's start, so none from the login.
                 access_notes,
             }
             refuse {
@@ -337,6 +358,8 @@ pub(crate) use session_fields;
 macro_rules! session_classes {
     (
         plain { $($p:ident: $pt:ty,)* }
+        runner { $($n:ident $([$nk:ident])?,)* }
+        counter { $($c:ident,)* }
         linked { $($l:ident,)* }
         fresh { $($f:ident,)* }
         refuse { $($r:ident $([$tag:ident $(=> $ip:expr)?])? => $rp:expr,)* }
@@ -345,7 +368,8 @@ macro_rules! session_classes {
     ) => {
         // Every field in exactly one class, and each `plain` field of the type written next to it.
         const _: fn(&Session) = |session| {
-            let Session { $($p: _,)* $($l: _,)* $($f: _,)* $($r: _,)* $($s: _,)* $($o: _,)* } = session;
+            let Session { $($p: _,)* $($n: _,)* $($c: _,)* $($l: _,)* $($f: _,)* $($r: _,)* $($s: _,)* $($o: _,)* } =
+                session;
             $(let _: &$pt = &session.$p;)*
         };
 

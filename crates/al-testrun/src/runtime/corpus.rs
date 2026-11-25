@@ -1339,7 +1339,7 @@ impl CorpusRuntime {
         }
         memory
             .pool()
-            .share(shared_test_rows_meter(&engine, baseline_engine.as_ref()));
+            .share(shared_bytes_meter(&engine, baseline_engine.as_ref()));
         let baseline_time = started.elapsed();
         let baseline_rows = baseline_run.as_ref().map(|b| b.baseline.rows());
         let mut baseline_run = baseline_run;
@@ -1825,7 +1825,7 @@ impl CorpusRuntime {
             });
         }
         let install_runs = super::install_once::end_run(&engine, &installs);
-        let login_replay = crate::login_replay::report(&engine);
+        let login_replay = crate::login_start::phases(&engine);
         let tests_time = tests_started.elapsed();
         memory.pool().unwatch();
         if let (Some((key, _)), Some(cc), Some((origin, read))) = (
@@ -2208,20 +2208,31 @@ fn kept_engine_key(
     )
 }
 
-/// The engines a warm server kept for runs with `key` (al-runner issue 5856), set for this run as a new engine is:
-/// its .NET host, test data and skipped apps, and nothing of what the last run set (the unseeded and demo tables, the
-/// company refusal, the resources it gave or read). An engine something still holds is not taken.
+/// What the threads of a run share, for the memory pool (`Pool::share`, which counts what it reads beyond its first
+/// reading): the test data rows built once, and the login starts the engine keeps (`login_start.rs`).
 /// ADR-069 decision 10: the test data rows the threads build once count once, in the fixed part of the budget. The first
 /// thread reads them through the tests' engine, the others through the engine that ran the install code; a sibling
 /// engine shares the tests engine's cache (decision 4), which is then counted once.
-fn shared_test_rows_meter(engine: &Arc<Engine>, install: Option<&Arc<Engine>>) -> Arc<dyn Fn() -> u64 + Send + Sync> {
+/// The starts count as what they grew since the meter was made: a kept engine's starts of earlier requests are in the
+/// fixed part already, and when this run evicts them the sum does not fall below that reading, so their eviction never
+/// Hides the test rows' growth (it can count up to the evicted bytes, at most `login_start::MAX_BYTES`,
+/// too much).
+pub(super) fn shared_bytes_meter(
+    engine: &Arc<Engine>,
+    install: Option<&Arc<Engine>>,
+) -> Arc<dyn Fn() -> u64 + Send + Sync> {
     let tests = engine.shared_test_rows_meter();
     let others = install
         .filter(|e| !e.shares_test_rows_with(engine))
         .map(|e| e.shared_test_rows_meter());
-    Arc::new(move || tests() + others.as_ref().map_or(0, |m| m()))
+    let starts = crate::login_start::starts(engine);
+    let starts_at = starts.bytes();
+    Arc::new(move || tests() + others.as_ref().map_or(0, |m| m()) + starts.bytes().saturating_sub(starts_at))
 }
 
+/// The engines a warm server kept for runs with `key` (al-runner issue 5856), set for this run as a new engine is:
+/// its .NET host, test data and skipped apps, and nothing of what the last run set (the unseeded and demo tables, the
+/// company refusal, the resources it gave or read). An engine something still holds is not taken.
 fn take_kept_engines(
     kept: &std::sync::Mutex<Option<KeptEngines>>,
     key: &str,

@@ -262,6 +262,12 @@ pub struct RunOptions {
     /// reports it in `Phases::login_replay` (`login_replay.rs`, al-runner issue 8211; `ALRUNNER_LOGIN_REPLAY_CHECK=1`,
     /// read by the front ends). Outcomes do not depend on it.
     pub login_replay_check: bool,
+    /// A test session takes a login start in place of running its login when it can (`login_start.rs`, al-runner issue
+    /// 8211; `ALRUNNER_LOGIN_REPLAY=1`, read by the front ends). Default `false`: off, until the key costs less than the
+    /// Login on every shape (install code that runs in every session gives every table a new stamp, so
+    /// the key digests every row). Outcomes must not depend on it: every input the login reads is a key field
+    /// (`login_replay::Key`), and the login replay check is its differential test.
+    pub login_replay: bool,
 }
 
 impl RunOptions {
