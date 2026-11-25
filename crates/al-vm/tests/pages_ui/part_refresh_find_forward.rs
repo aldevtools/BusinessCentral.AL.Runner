@@ -98,6 +98,7 @@ codeunit 51605 C
         Line: Record "PG R7820 Line";
         Log: Codeunit "PG R7820 Log";
         P: TestPage "PG R7820 Doc";
+        Answer: Text;
         i: Integer;
     begin
         Header."No." := 'O1';
@@ -115,8 +116,9 @@ codeunit 51605 C
             P.Lines.Next();
         Log.Reset();
         P.Lines.Qty.SetValue(100);
-        exit(Log.Get() + '|' + P.Lines."Line No.".Value() + '|' + P.Lines.Qty.Value());
+        Answer := Log.Get() + '|' + P.Lines."Line No.".Value() + '|' + P.Lines.Qty.Value();
         P.Close();
+        exit(Answer);
     end;
     procedure One(): Text begin exit(Run(1, 0)); end;
     procedure Two(): Text begin exit(Run(2, 0)); end;

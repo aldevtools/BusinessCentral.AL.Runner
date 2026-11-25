@@ -1,7 +1,3 @@
-//! A ListPart that serves its rows from OnFindRecord reads its rows again after its own
-//! `CurrPage.Update(true)` in a control's OnValidate (al-runner issue 7820): the client asks OnFindRecord `=>`, not the `=><`
-//! of an open read.
-//!
 //! A ListPart with OnFindRecord reads again after its own `CurrPage.Update(true)` in
 //! a field's OnValidate (al-runner issue 7820): the read asks `=>`, not the open read's `=><`
 //! (`PageState::part_refind_forward`, taken by `page_first_row` on the first-row cells). Only for the exact original
@@ -180,6 +176,9 @@ impl Session {
     ///   original later-cursor cell exactly 3 rows with the cursor on row 2.
     fn refresh_cell(&mut self, host: &St, c: usize, st: &St) -> Result<Option<RefreshRead>, Signal> {
         use PartStep::{Host, Own};
+        if !self.declares(st, "onfindrecord") {
+            return Ok(None);
+        }
         let steps = Self::part_steps(st);
         let first = matches!(
             steps.as_deref(),
@@ -198,6 +197,9 @@ impl Session {
                 Own(TestCall::Write(TYPED_CONTROL))
             ])
         );
+        if !(first || second) {
+            return Ok(None);
+        }
         let host_opened = Self::part_host_opened(st) == Some((true, PageMode::Edit, false, false));
         let pages = self.part_pages_are(st, &REFRESH_PAGES)?;
         match (host_opened, pages) {

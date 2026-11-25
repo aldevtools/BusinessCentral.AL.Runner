@@ -174,176 +174,6 @@ codeunit 50140 "Repro Refresh Tests"
 }
 "#;
 
-const R7820_STANDALONE: &str = r#"
-table 50100 "Repro Order Header"
-{
-    fields
-    {
-        field(1; "No."; Code[20]) { }
-    }
-    keys
-    {
-        key(PK; "No.") { Clustered = true; }
-    }
-}
-
-table 50101 "Repro Order Line"
-{
-    fields
-    {
-        field(1; "Order No."; Code[20]) { }
-        field(2; "Line No."; Integer) { }
-        field(3; Qty; Integer) { }
-    }
-    keys
-    {
-        key(PK; "Order No.", "Line No.") { Clustered = true; }
-    }
-}
-
-codeunit 50102 "Repro Read Log"
-{
-    SingleInstance = true;
-
-    var
-        Entries: Text;
-
-    procedure Clear()
-    begin
-        Entries := '';
-    end;
-
-    procedure Add(Entry: Text)
-    begin
-        Entries += Entry + ';';
-    end;
-
-    procedure Joined(): Text
-    begin
-        exit(Entries);
-    end;
-}
-
-page 50100 "Repro Order Card"
-{
-    PageType = Document;
-    SourceTable = "Repro Order Header";
-
-    layout
-    {
-        area(Content)
-        {
-            field("No."; Rec."No.") { ApplicationArea = All; }
-            part(Lines; "Repro Order Subform")
-            {
-                ApplicationArea = All;
-                SubPageLink = "Order No." = field("No.");
-            }
-        }
-    }
-}
-
-page 50101 "Repro Order Subform"
-{
-    PageType = ListPart;
-    SourceTable = "Repro Order Line";
-    AutoSplitKey = true;
-
-    layout
-    {
-        area(Content)
-        {
-            repeater(Rows)
-            {
-                field("Line No."; Rec."Line No.")
-                {
-                    ApplicationArea = All;
-                    Editable = false;
-                }
-                field(Qty; Rec.Qty)
-                {
-                    ApplicationArea = All;
-
-                    trigger OnValidate()
-                    begin
-                        CurrPage.Update(true);
-                    end;
-                }
-            }
-        }
-    }
-
-    trigger OnFindRecord(Which: Text): Boolean
-    var
-        ReadLog: Codeunit "Repro Read Log";
-    begin
-        ReadLog.Add('F' + Which);
-        exit(Rec.Find(Which));
-    end;
-
-    trigger OnAfterGetRecord()
-    var
-        ReadLog: Codeunit "Repro Read Log";
-    begin
-        ReadLog.Add('R' + Format(Rec."Line No." div 10000));
-    end;
-
-    trigger OnAfterGetCurrRecord()
-    var
-        ReadLog: Codeunit "Repro Read Log";
-    begin
-        ReadLog.Add('C' + Format(Rec."Line No." div 10000));
-    end;
-}
-
-codeunit 50110 "Repro Refresh Tests"
-{
-    Subtype = Test;
-    TestPermissions = Disabled;
-
-    [Test]
-    procedure OneRowSetValueOnFirst()
-    begin
-        CheckReads(1, 'F=>;R1;F=;R1;C1;');
-    end;
-
-    [Test]
-    procedure FiveRowsSetValueOnFirst()
-    begin
-        CheckReads(5, 'F=>;R1;R2;R3;R4;R5;R1;F=;R1;C1;');
-    end;
-
-    local procedure CheckReads(Rows: Integer; Expected: Text)
-    var
-        Header: Record "Repro Order Header";
-        Line: Record "Repro Order Line";
-        ReadLog: Codeunit "Repro Read Log";
-        OrderCard: TestPage "Repro Order Card";
-        i: Integer;
-    begin
-        Header.DeleteAll();
-        Line.DeleteAll();
-        Header."No." := 'O1';
-        Header.Insert();
-        for i := 1 to Rows do begin
-            Line."Order No." := 'O1';
-            Line."Line No." := i * 10000;
-            Line.Qty := i;
-            Line.Insert();
-        end;
-        OrderCard.OpenEdit();
-        OrderCard.GoToRecord(Header);
-        OrderCard.Lines.First();
-        ReadLog.Clear();
-        OrderCard.Lines.Qty.SetValue(100);
-        if ReadLog.Joined() <> Expected then
-            Error('The part read %1, expected %2.', ReadLog.Joined(), Expected);
-        OrderCard.Lines."Line No.".AssertEquals(10000);
-        OrderCard.Lines.Qty.AssertEquals(100);
-    end;
-}
-"#;
-
 const R7821: &str = r#"
 // A journal line: primary key "Batch Name", "Line No.", as table 83 "Item Journal Line" has
 // "Journal Template Name", "Journal Batch Name", "Line No.".
@@ -663,8 +493,8 @@ fn outcome_of(src: &str, codeunit: &str, test: &str) -> Outcome {
 
 #[test]
 fn r7820_part_refresh_asks_find_forward() {
-    for src in [R7820, R7820_STANDALONE] {
-        let outcomes = al_testkit::outcomes_in(src, "Repro Refresh Tests");
+    for src in [R7820.to_string(), r7820_standalone()] {
+        let outcomes = al_testkit::outcomes_in(&src, "Repro Refresh Tests");
         for test in ["OneRowSetValueOnFirst", "FiveRowsSetValueOnFirst"] {
             let o = outcomes.iter().find(|(name, _)| name == test).expect(test);
             assert!(matches!(&o.1, Outcome::Pass), "{test}: {o:?}");
@@ -713,6 +543,19 @@ fn variants(src: &str, edits: &[(&str, &str)]) -> String {
         .fold(src.to_string(), |s, (from, to)| variant(&s, from, to))
 }
 
+fn r7820_standalone() -> String {
+    variants(
+        R7820,
+        &[
+            ("    ApplicationArea = All;\n    UsageCategory = None;\n", ""),
+            (
+                "    SourceTable = \"Repro Order Line\";\n    ApplicationArea = All;\n    AutoSplitKey = true;",
+                "    SourceTable = \"Repro Order Line\";\n    AutoSplitKey = true;",
+            ),
+        ],
+    )
+}
+
 /// The merged probe's original-property cell under other object names and with its local variable named `Log`.
 fn r7820_merged_probe(rows: usize, moves: usize, expected: &str, line: i32) -> String {
     let src = R7820
@@ -747,14 +590,6 @@ fn r7820_merged_probe(rows: usize, moves: usize, expected: &str, line: i32) -> S
         &src,
         "        OrderCard.Lines.\"Line No.\".AssertEquals(10000);",
         &format!("        OrderCard.Lines.\"Line No.\".AssertEquals({line});"),
-    )
-}
-
-fn r7820_values_only(src: &str) -> String {
-    variant(
-        src,
-        "        if ReadLog.Joined() <> Expected then\n            Error('The part read %1, expected %2.', ReadLog.Joined(), Expected);\n",
-        "",
     )
 }
 
@@ -801,8 +636,8 @@ pub(super) fn outcome_and_marks(
 #[test]
 fn r7820_and_r7821_repros_are_flagged_passes() {
     use al_builtins::assumptions::Assumption::{PartUpdateFirstRowFindForward, PostLeftOtherKeyOnNewLine};
-    for src in [R7820, R7820_STANDALONE] {
-        let (o, marks) = outcome_and_marks(src, "Repro Refresh Tests", "FiveRowsSetValueOnFirst");
+    for src in [R7820.to_string(), r7820_standalone()] {
+        let (o, marks) = outcome_and_marks(&src, "Repro Refresh Tests", "FiveRowsSetValueOnFirst");
         assert!(matches!(o, Outcome::Pass), "{o:?}");
         assert!(marks.contains(&PartUpdateFirstRowFindForward), "{marks:?}");
     }
@@ -896,7 +731,7 @@ fn r7820_neighbors_keep_mains_read() {
         (
             "standalone: another OnFindRecord body",
             variant(
-                R7820_STANDALONE,
+                &r7820_standalone(),
                 "ReadLog.Add('F' + Which);",
                 "ReadLog.Add('X' + Which);",
             ),
@@ -917,8 +752,15 @@ fn r7820_neighbors_keep_mains_read() {
 #[test]
 fn r7820_three_rows_on_the_first_keep_main_values() {
     use al_builtins::assumptions::Assumption::PartUpdateFirstRowFindForward;
-    for src in [R7820, R7820_STANDALONE] {
-        let src = variants(&r7820_values_only(src), &[("CheckReads(5, ", "CheckReads(3, ")]);
+    for src in [R7820.to_string(), r7820_standalone()] {
+        let src = variants(
+            &variant(
+                &src,
+                "        if ReadLog.Joined() <> Expected then\n            Error('The part read %1, expected %2.', ReadLog.Joined(), Expected);\n",
+                "",
+            ),
+            &[("CheckReads(5, ", "CheckReads(3, ")],
+        );
         let (o, marks) = outcome_and_marks(&src, "Repro Refresh Tests", "FiveRowsSetValueOnFirst");
         assert!(matches!(o, Outcome::Pass), "{o:?}");
         assert!(!marks.contains(&PartUpdateFirstRowFindForward), "{marks:?}");
@@ -933,7 +775,11 @@ fn r7820_mixed_page_properties_keep_main_values() {
         "    ApplicationArea = All;\n    AutoSplitKey = true;",
         "    AutoSplitKey = true;",
     );
-    let src = r7820_values_only(&src);
+    let src = variant(
+        &src,
+        "        if ReadLog.Joined() <> Expected then\n            Error('The part read %1, expected %2.', ReadLog.Joined(), Expected);\n",
+        "",
+    );
     let (o, marks) = outcome_and_marks(&src, "Repro Refresh Tests", "OneRowSetValueOnFirst");
     assert!(matches!(o, Outcome::Pass), "{o:?}");
     assert!(!marks.contains(&PartUpdateFirstRowFindForward), "{marks:?}");
@@ -943,9 +789,9 @@ fn r7820_mixed_page_properties_keep_main_values() {
 /// one gave `=>`; main's `=><` there would mix two answers in one test).
 #[test]
 fn r7820_a_second_set_value_is_refused() {
-    for src in [R7820, R7820_STANDALONE] {
+    for src in [R7820.to_string(), r7820_standalone()] {
         let src = variant(
-            src,
+            &src,
             "        OrderCard.Lines.Qty.AssertEquals(100);\n",
             "        OrderCard.Lines.Qty.AssertEquals(100);\n        ReadLog.Clear();\n        \
              OrderCard.Lines.Qty.SetValue(101);\n        Error('second %1', ReadLog.Joined());\n",
