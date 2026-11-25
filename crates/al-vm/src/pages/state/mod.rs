@@ -1153,7 +1153,7 @@ impl PageState {
         self.opened_by_test && self.mode == PageMode::View && !self.modal && self.host.is_none()
     }
 
-    /// The cursor leaves the line `New()` started: `after_new` is taken and `new_line_writes` cleared with it.
+    /// The cursor leaves the line `New()` started: `after_new` is taken and its write marks are cleared with it.
     pub(crate) fn take_after_new(&mut self) -> Option<Vec<Value>> {
         self.new_line_writes = None;
         self.new_line_record_writes = None;
@@ -1265,7 +1265,6 @@ impl PageState {
         self.code_inserted_save = CodeInsertedSave::Off;
         self.code_inserted_extra = false;
         self.coded_line = Default::default();
-        self.new_line_record_writes = None;
     }
 
     /// The page opens: the captions its controls and fields resolved on the last run are gone.

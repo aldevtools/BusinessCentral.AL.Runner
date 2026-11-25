@@ -128,9 +128,9 @@ impl Session {
             .is_some_and(|c| self.write_mark() == (c.writes.0 + 1, c.writes.1));
         // Writes of other tables before the save, or before the control's OnValidate began for the rewritten row (on an empty
         // group only): measured under Page.RunModal (ListNewLineWritesOtherTable.al, `only_other_tables_written`). The rewritten
-        // row is the control's only write of the page's table (`Inserted::Rewritten`); the control may also insert once into
-        // another table, in either order, when only the insert wrote the store before it (:630, :654, follow-up of the review
-        // of #8806); after the table field's insert of another table, the rewrite is the control's only write (:463).
+        // row is the control's only write of the page's table (`Inserted::Rewritten`), with no other-table write or one Insert
+        // of another table, before or after it (:463, :630, :654, follow-up of the review of #8806); a Modify of another table
+        // in that slice is not measured.
         let other_tables = !only_the_insert
             && !rewritten_measured
             && opened == Opened::RunModalOneGroup

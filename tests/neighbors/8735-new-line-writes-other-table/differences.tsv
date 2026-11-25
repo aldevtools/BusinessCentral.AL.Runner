@@ -1,9 +1,9 @@
 # key	entry
 # The control writes another table and rewrites the line through another record before the save, in either order (follow-up
 # of the review of #8806): main refused both at the Update; the effect gate runs them, the save writing Rec over the line.
-# Every other cell and the 10 neighbors give the same on both.
+# Every unlisted cell and neighbor gives the same on both.
 LT NW Tests::NewLine_ControlWritesAnotherTableAndTheLineBeforeSaveRecord_SaveWritesRecOverTheLine	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1536, open: ListNewLineWritesOtherTable.al)
 LT NW Tests::NewLine_ControlWritesTheLineThenAnotherTableBeforeSaveRecord_SaveWritesRecOverTheLine	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1536, open: ListNewLineWritesOtherTable.al)
-# The control writes the page's table twice without another-table evidence; main ran the assumption list-new-line-extra-code
-# on that wider shape, and this gate now refuses it.
-LT NX Tests::NewLine_ControlRewritesTheLineTwiceWithoutAnotherTablesWrite_SaveWritesRecOverTheLine	REFUSED CurrPage.Update on a page that shows no row
+# The table field calls Modify on another table in the rewritten line's slice; the measured cells admit only at most one
+# other-table Insert there.
+LT NX Tests::NewLine_TableFieldModifiesAnotherTableThenControlRewritesTheLine_SaveWritesRecOverTheLine	REFUSED CurrPage.Update on a page that shows no row

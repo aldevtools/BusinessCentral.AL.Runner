@@ -30,6 +30,8 @@ table 97661 "LT NX Line"
                         end;
                     5, 7, 8:
                         AddDetail(Name);
+                    12:
+                        TouchDetails('Old');
                     6:
                         begin
                             AddDetail(Name);
@@ -61,6 +63,17 @@ table 97661 "LT NX Line"
         Detail.Init();
         Detail.Text := NewText;
         Detail.Insert();
+    end;
+
+    local procedure TouchDetails(NewText: Text[30])
+    var
+        Detail: Record "LT NX Detail";
+    begin
+        if Detail.FindSet() then
+            repeat
+                Detail.Text := NewText;
+                Detail.Modify();
+            until Detail.Next() = 0;
     end;
 }
 
@@ -125,7 +138,7 @@ page 97664 "LT NX Lines"
                                 CurrPage.Update(true);
                             5:
                                 begin
-                                    StampRow(Rec."Group Code", Rec."Entry No." - 1);
+                                    StampRow(Rec."Group Code", Rec."Entry No." - 1, 'Stamped');
                                     CurrPage.SaveRecord();
                                     CurrPage.Update(false);
                                 end;
@@ -137,23 +150,29 @@ page 97664 "LT NX Lines"
                                 end;
                             9:
                                 begin
-                                    StampRow(Rec."Group Code", Rec."Entry No.");
+                                    StampRow(Rec."Group Code", Rec."Entry No.", 'Stamped');
                                     AddDetail('ByPage');
-                                    StampRow(Rec."Group Code", Rec."Entry No.");
+                                    StampRow(Rec."Group Code", Rec."Entry No.", 'Restamped');
                                     CurrPage.SaveRecord();
                                     CurrPage.Update(false);
                                 end;
                             10:
                                 begin
-                                    StampRow(Rec."Group Code", Rec."Entry No.");
-                                    StampRow(Rec."Group Code", Rec."Entry No.");
+                                    StampRow(Rec."Group Code", Rec."Entry No.", 'Stamped');
+                                    StampRow(Rec."Group Code", Rec."Entry No.", 'Restamped');
                                     CurrPage.SaveRecord();
                                     CurrPage.Update(false);
                                 end;
                             11:
                                 begin
-                                    StampRow(Rec."Group Code", Rec."Entry No.");
+                                    StampRow(Rec."Group Code", Rec."Entry No.", 'Stamped');
                                     TouchDetails();
+                                    CurrPage.SaveRecord();
+                                    CurrPage.Update(false);
+                                end;
+                            12:
+                                begin
+                                    StampRow(Rec."Group Code", Rec."Entry No.", 'Stamped');
                                     CurrPage.SaveRecord();
                                     CurrPage.Update(false);
                                 end;
@@ -180,12 +199,12 @@ page 97664 "LT NX Lines"
         Detail.Insert();
     end;
 
-    local procedure StampRow(GroupCode: Code[10]; EntryNo: Integer)
+    local procedure StampRow(GroupCode: Code[10]; EntryNo: Integer; NewNote: Text[30])
     var
         Other: Record "LT NX Line";
     begin
         Other.Get(GroupCode, EntryNo);
-        Other.Note := 'Stamped';
+        Other.Note := NewNote;
         Other.Modify();
     end;
 
@@ -365,6 +384,21 @@ codeunit 97666 "LT NX Tests"
         Check('shown after the Value SetValue', 'A//V', ShownAfterValue);
         Check('rows', 'A//V;', Rows());
         Check('details', 'ByPage;', Details());
+    end;
+
+    // The table field calls Modify on one existing other-table row (the value stays Old), then the control rewrites the line
+    // once. The rewritten cells measure an Insert of another table there, not a Modify.
+    [Test]
+    [HandlerFunctions('LinesHandler')]
+    procedure NewLine_TableFieldModifiesAnotherTableThenControlRewritesTheLine_SaveWritesRecOverTheLine()
+    begin
+        Initialize();
+        AddDetail('Old');
+        RunMode(12);
+        Check('shown after the Name SetValue', 'A//', ShownAfterName);
+        Check('shown after the Value SetValue', 'A//V', ShownAfterValue);
+        Check('rows', 'A//V;', Rows());
+        Check('details', 'Old;', Details());
     end;
 
     [ModalPageHandler]

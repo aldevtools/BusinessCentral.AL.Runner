@@ -103,8 +103,8 @@ pub(super) enum View {
 enum Inserted {
     /// The table field's OnValidate inserted it before the control's OnValidate began.
     ByTableField,
-    /// The same, then the control's OnValidate wrote it once through another record, with either no other write or one Insert
-    /// of another table.
+    /// The same, then the control's OnValidate wrote it once through another record, with either no other-table write or one
+    /// Insert of another table.
     Rewritten,
 }
 
@@ -550,8 +550,8 @@ impl Session {
     /// `new_line_writes`, and not above the mark when the control's OnValidate began, `control_onvalidate`). The table has
     /// no table extension and no event subscriber; with `manual_unbound` (the page with code), manual subscribers nobody binds
     /// are allowed (ListNewLineFactboxesCode.al:255-275). `Inserted::Rewritten` for that row when the control's OnValidate then
-    /// wrote it exactly once, with no delete and either no other write or one Insert of another table, before or after it
-    /// (`code_inserted_extra.rs`, ListNewLineExtraCode.al:443; ListNewLineWritesOtherTable.al:630, :654).
+    /// wrote it exactly once, with no delete and either no other-table write or one Insert of another table, before or after
+    /// it (`code_inserted_extra.rs`, ListNewLineExtraCode.al:443; ListNewLineWritesOtherTable.al:630, :654).
     fn inserted_by_table_field(&mut self, st: &St, manual_unbound: bool) -> Result<Option<Inserted>, Signal> {
         let (Some(start), Some((line_mark, _)), Some(line_record_writes), Some(control)) = ({
             let s = st.borrow();
@@ -600,14 +600,18 @@ impl Session {
             return Ok(Some(Inserted::ByTableField));
         }
         // The row the table field inserted when the control's OnValidate began, then one Record Modify of this table and
-        // either no other Record write or one Insert of another table, in either order (:630, :654); no delete ran. Keeping
-        // the exact write sequence here gives the row-version check only the cells it can prove and refuses a repeated rewrite.
+        // either no other-table Record write or one Insert of another table, in either order (:463, :630, :654); no delete ran.
+        // Keeping the exact write sequence here gives the row-version check only the cells it can prove and refuses a repeated
+        // rewrite or a Modify of another table.
         drop(engine);
         let page_table = object as u32;
-        let no_other_write_or_one_insert = |writes: &[crate::state::TxWrite], page_writes: usize| {
-            writes.len() == page_writes
-                || (writes.len() == page_writes + 1
-                    && writes.iter().any(|w| w.kind == crate::state::TxWriteKind::Insert))
+        let at_most_one_other_table_insert = |writes: &[crate::state::TxWrite]| {
+            let mut other = writes.iter().filter(|w| w.table != page_table);
+            match (other.next(), other.next()) {
+                (None, None) => true,
+                (Some(write), None) => write.kind == crate::state::TxWriteKind::Insert,
+                _ => false,
+            }
         };
         let measured_control_writes = self.tx.open.writes.get(control.record_writes..).is_some_and(|writes| {
             let mut page_writes = writes.iter().filter(|w| w.table == page_table);
@@ -615,7 +619,7 @@ impl Session {
                 .next()
                 .is_some_and(|w| w.kind == crate::state::TxWriteKind::Modify)
                 && page_writes.next().is_none();
-            one_page_modify && no_other_write_or_one_insert(writes, 1)
+            one_page_modify && at_most_one_other_table_insert(writes)
         });
         let measured_line_writes = self.tx.open.writes.get(line_record_writes..).is_some_and(|writes| {
             let mut page_writes = writes.iter().filter(|w| w.table == page_table);
@@ -625,11 +629,12 @@ impl Session {
                     if insert.kind == crate::state::TxWriteKind::Insert
                         && modify.kind == crate::state::TxWriteKind::Modify
             );
-            measured_page_writes && no_other_write_or_one_insert(writes, 2)
+            measured_page_writes && at_most_one_other_table_insert(writes)
         });
         let rewritten = control.row_version.is_some_and(by_table_field)
             && version > control_mark
             && self.write_mark().1 == control_deletes
+            && self.writes_all_noted()
             && measured_control_writes
             && measured_line_writes
             && self.coded_rows(st)?.is_some_and(|rows| {
