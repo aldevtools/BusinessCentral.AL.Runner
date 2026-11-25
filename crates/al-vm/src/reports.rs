@@ -2964,7 +2964,10 @@ impl Session {
                 ));
             };
             let rec = match &*h.borrow() {
-                al_builtins::value::LibraryValue::RecordRef(rec) => rec.clone(),
+                al_builtins::value::LibraryValue::RecordRef(rec) => {
+                    Self::by_value_view_handed(rec, || "a report's table view of a RecordRef".into())?;
+                    rec.clone()
+                }
                 _ => {
                     return Ok(Err(
                         "the ObjectPayload of a custom layout merger for a SaveAs with a record that is no RecordRef",

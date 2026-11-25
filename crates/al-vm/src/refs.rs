@@ -1023,6 +1023,7 @@ impl Session {
                     },
                     other => crate::recordref_copy::copy_source_record(other, &dst)?,
                 };
+                Self::by_value_ref_runs("RecordRef", "Copy", &src)?;
                 if src.borrow().table != dst.borrow().table {
                     return unsupported("RecordRef.Copy between two tables (not pinned)");
                 }
@@ -1082,6 +1083,7 @@ impl Session {
             ));
         }
         let rec = Self::open_ref(lib, &format!("RecordRef.{method}"))?;
+        Self::by_value_ref_runs("RecordRef", method, &rec)?;
         let t = self.table(&rec)?;
         match method {
             "Number" => Ok(Value::Integer(crate::object_ids::declared_id(
@@ -1549,6 +1551,7 @@ impl Session {
                 ));
             }
         };
+        Self::by_value_ref_runs("FieldRef", method, &rec)?;
         let t = self.table(&rec)?;
         let field = &t.fields[pos];
         match method {
@@ -2226,12 +2229,13 @@ fn variant_record_into_ref(lib: &Lib, src: &Rc<RefCell<RecordState>>) -> Result<
 
 /// The record a RecordRef takes in `RecordRef.GetTable`, from a Record, a Variant that holds one or a RecordRef: every GetTable
 /// copy is made here. Refused while the source carries a mark whose buffer or view must not be copied
-/// (`records.rs` `copy_refused_mark`, the same rule as an assignment and `Copy`).
+/// (`records.rs` `copy_refused_mark`, the same rule as an assignment and `Copy`); the mark of a by-value copy whose view is not
+/// pinned goes with the copy (`records/by_value_view.rs` `by_value_view_into_ref`).
 pub(crate) fn gettable_record_copy(src: &Rc<RefCell<RecordState>>) -> Result<RecordState, Signal> {
     if let Some(why) = crate::records::copy_refused_mark(src) {
         return unsupported(format!("RecordRef.GetTable of a record: {why}"));
     }
-    crate::Session::by_value_view_handed(src, || "RecordRef.GetTable of a record".into())?;
+    crate::Session::by_value_view_into_ref(src);
     Ok(al_builtins::record_into_recordref::recordref_copy(&src.borrow()))
 }
 

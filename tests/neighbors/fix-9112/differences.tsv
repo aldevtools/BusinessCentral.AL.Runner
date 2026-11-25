@@ -1,0 +1,7 @@
+# key	entry
+GV GetTable Test::Issue9112_VariantGetTable_FieldValue	PINNED tests/al-language/recordref-fieldref/recordref/RfTValues.al:206
+GV GetTable Test::DirectGetTable_FieldValue	PINNED tests/al-language/recordref-fieldref/recordref/RfTValues.al:206
+GV GetTable Test::VariantGetTable_Metadata	PINNED tests/al-language/recordref-fieldref/recordref/RfTValues.al:206
+GV GetTable Test::VariantGetTable_IntoSecondRef_FieldValue	PINNED tests/al-language/recordref-fieldref/recordref/RfTValues.al:206
+GV GetTable Test::VariantGetTable_FieldValueWrite	PINNED tests/al-language/recordref-fieldref/recordref/RfTValues.al:206
+GV GetTable Test::VariantGetTable_IsTemporaryAndRecordId	PINNED tests/al-language/recordref-fieldref/recordref/RfTValues.al:206
