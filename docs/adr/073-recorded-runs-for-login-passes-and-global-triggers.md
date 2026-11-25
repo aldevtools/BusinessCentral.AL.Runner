@@ -497,7 +497,9 @@ What waits until the replay is on by default:
 - the counters of recorded runs, replays and runs not recorded in `work.json`, under the work ratchet (today they are in
   the check's report and in serve's `timings.loginReplays` and `timings.loginStarts`).
 
-### Amendment (Proposed, 2026-11-25): the login key holds the resource texts the login read
+### Amendment (Accepted, 2026-11-25): the login key holds the resource texts the login read
+
+Status of this section: Accepted (owner, 2026-11-25), on [al-runner issue 8211](https://github.com/aldevtools/BusinessCentral.AL.Runner/issues/8211).
 
 The login key holds only the resource texts the login read, by content, as install-once holds them
 (`Session::resource_reads`; `NavApp.ListResources` counts as reading every file of its app), in place of every resource
