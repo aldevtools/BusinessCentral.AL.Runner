@@ -240,7 +240,8 @@ impl Key {
 /// issue 8211): the base key, and the resource files the session read up to the end of its login with their texts then
 /// (`al_vm::TextsRead`, as `runtime/install_once.rs` keeps them for install code; `NavApp.ListResources` reads every file
 /// of the app). A later session of the base key finds it only when its texts of those files are the same; a login that
-/// read none is found under any texts. The texts are held by content.
+/// read none is found under any texts. Each text read is held as its SHA-256 digest, so a start's key does not grow
+/// with the texts.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct StartKey {
     pub(crate) key: Key,

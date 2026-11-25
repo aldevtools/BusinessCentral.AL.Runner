@@ -95,7 +95,7 @@ pub(crate) struct RunInstalls {
 struct Installed {
     /// The engine it ran on (`Engine::uid`) and how the codeunit's session was set up.
     key: Key,
-    /// The resource files it read (`Session::resource_reads`) and their texts when it ran.
+    /// The resource files it read (`Session::resource_reads`) and the digests of their texts when it ran.
     read: al_vm::TextsRead,
     /// What a codeunit's session starts from. `None`: the install code left state a new session does not start from
     /// (`Session::install_left`), or data that cannot be shared between threads (`Baseline::freeze`); each codeunit's session
