@@ -1196,6 +1196,14 @@ codeunit 50899 "P4 Insert In Failed Write"
     [Test] procedure B_InsertsWritesFails() begin NumberSequence.Insert('P4IW', 1, 1); NumberSequence.Next('P4IW'); Rows.Put('IW2'); Error('B deliberate'); end;
     [Test] procedure C_InsertInFailedWriteReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4IW')); end;
 }
+
+codeunit 52748 "P4 InsertCommitFails"
+{
+    Subtype = Test;
+    [Test] procedure A_Passes() begin end;
+    [Test] procedure B_InsertsCommitsFails() begin NumberSequence.Insert('P4IC', 1, 1); Commit(); Error('B deliberate'); end;
+    [Test] procedure C_InsertCommitReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4IC')); end;
+}
 "#;
 
 #[test]
@@ -1224,6 +1232,9 @@ fn on_bc_27_and_28_the_arms_only_pr_1572_measured_are_refused() {
             ("C_WriteThenWriteReads", "'P4WW'"),
             // S2E of PR 1572: an insert in the failed test's own body, then a Record write.
             ("C_InsertInFailedWriteReads", "'P4IW'"),
+            // S2G of PR 1572: the insert, then a Commit() of the failed test's body, then nothing (C3 of PR 1465 commits
+            // before the insert, and keeps).
+            ("C_InsertCommitReads", "'P4IC'"),
         ] {
             assert!(not_run(&row(&o, test).2, key), "BC {major} {test}: {o:?}");
         }

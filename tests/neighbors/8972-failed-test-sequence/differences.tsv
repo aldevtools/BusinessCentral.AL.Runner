@@ -40,6 +40,3 @@ N72 OwnCommitThenWriteFails::C_Reads	REFUSED a test of this codeunit	28
 # N72 HelperExactThenCommit on BC 27 and 28: (the PR 1572 cells are measured on BC 29 only; main's C2 arm answered)
 N72 HelperExactThenCommit::C_Reads	REFUSED a test of this codeunit	27
 N72 HelperExactThenCommit::C_Reads	REFUSED a test of this codeunit	28
-# N72 OwnCommitThenNothingFails on BC 27 and 28: (corpus PR 1465 C3 measures it on 27.5, 28.5 and 29.0: main refused it, head keeps it)
-N72 OwnCommitThenNothingFails::C_Reads	ASSUMED sequence-after-failed-test (corpus PR 1572) S2G: insert, Commit(), nothing since: kept; BC 27 and 28 also pinned by corpus PR 1465 C3	27
-N72 OwnCommitThenNothingFails::C_Reads	ASSUMED sequence-after-failed-test (corpus PR 1572) S2G: insert, Commit(), nothing since: kept; BC 27 and 28 also pinned by corpus PR 1465 C3	28

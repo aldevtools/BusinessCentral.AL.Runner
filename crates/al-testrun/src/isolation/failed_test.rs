@@ -129,7 +129,8 @@ fn leaves_at_failure(reached: Interval, after_own_commit: bool, newest: bool) ->
     match (reached, after_own_commit) {
         (Interval::Untouched | Interval::OpenClose, false) => Some(true),
         (Interval::RecordWrite | Interval::Ref | Interval::FindLast, false) => Some(false),
-        // C3 of PR 1465 (SqCommitFail.al:100, BC 27.5, 28.5 and 29.0): a Commit(), then the insert, then nothing: kept.
+        // C3 of PR 1465 (SqCommitFail.al:100, BC 27.5, 28.5 and 29.0): the Commit() comes before the insert, then
+        // nothing: kept. The reverse order (insert, Commit(), nothing) is S2G of PR 1572, BC 29 alone: [`fate`] refuses it.
         (Interval::Untouched, true) => Some(true),
         (Interval::RecordWrite | Interval::Helper { writes: true }, true) if newest => Some(false),
         _ => None,
@@ -192,7 +193,9 @@ fn fate(log: &[TxPoint], at: usize, failure: usize, outside: OutsideEnd, newest:
                     // SqCommitFail.al:64, C14 :570, the RecordRef cells of PR 1468); an insert in its own body, then a
                     // table access, is S2E of PR 1572 alone.
                     let leaves = leaves_at_failure(reached, end_in_body, newest)?;
-                    return (newest || leaves || at < failed_start).then_some(leaves);
+                    // An end between an insert in the failed body and the failure (`pending`) keeps: S2G, BC 29 alone.
+                    let s2g_only = pending && at > failed_start;
+                    return (newest || (leaves && !s2g_only) || (!leaves && at < failed_start)).then_some(leaves);
                 }
                 Some(by)
                     if (in_body || outside == OutsideEnd::Keeps)
