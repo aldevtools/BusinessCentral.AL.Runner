@@ -600,7 +600,7 @@ codeunit 77404 "RPL Tests C"
 }
 "#;
 
-const OWN_LOGIN: &str = r#"
+pub(super) const OWN_LOGIN: &str = r#"
 codeunit 77408 "RPL Own Registration"
 {
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterAssistedSetup', '', false, false)]
@@ -691,7 +691,7 @@ fn key_with_uncommitted_row(engine: &Arc<Engine>, id: i32) -> (Option<crate::log
     let flags = super::session_flags::SessionFlags::of(&RunOptions::default());
     let opaque = session.state_lines().opaque.iter().map(|o| o.path.clone()).collect();
     (
-        crate::login_replay::Key::of(&mut session, Default::default(), flags, &[]),
+        crate::login_replay::Key::of(&mut session, Default::default(), flags, &[]).ok(),
         opaque,
     )
 }
