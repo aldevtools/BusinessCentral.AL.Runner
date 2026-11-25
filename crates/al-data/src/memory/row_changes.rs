@@ -151,9 +151,9 @@ impl MemStore {
 impl MemStore {
     /// Whether this store's committed company copies and deleted companies are `base`'s: they change what a table's
     /// rows answer, and a row change does not show them (maintainer's review of al-runner PR 8665: a login that deletes a
-    /// company). Every field is named, so a new mark of the store does not compile here until it says what a row
-    /// change does with it.
-    fn same_unshown_marks(&self, base: &MemStore) -> bool {
+    /// company; al-runner issue 9039: an install order that deletes one). Every field is named, so a new mark of the
+    /// store does not compile here until it says what a row change does with it.
+    pub fn same_unshown_marks(&self, base: &MemStore) -> bool {
         let MemStore {
             // The open transaction: a row change reads the committed store only.
             tables: _,
@@ -173,7 +173,8 @@ impl MemStore {
             committed_moves: _,
             committed_source_stamps: _,
             counter: _,
-            // A DeleteAll without filters is a write of its table: the callers read the marks (`committed_marks`).
+            // A DeleteAll without filters is a write of its table: the callers read the marks (`committed_marks`,
+            // `committed_table`).
             committed_emptied: _,
             // What the rows answer besides themselves: compared here.
             committed_copies,

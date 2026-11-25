@@ -102,9 +102,11 @@ impl Baseline {
     /// own order in both captures counts as the same (al-runner issue 6644 b). BC keeps no order between two apps with no
     /// dependency path between them, so no test can depend on which of the two read the clock first; the rows each
     /// order inserts, and every value that is not a reading of the clock, still count. A table counts as differing also
-    /// when its AutoIncrement counter does. `None` when something besides the tables differs (isolated storage, number
-    /// sequences, the companies not known or copied), or a row is not a plain value: the caller cannot name what differs
-    /// by table.
+    /// when its AutoIncrement counter does, or when a DeleteAll without filters emptied it in one order only. A table a
+    /// store holds no entry for is compared with the rows a read finds there (`MemStore::committed_table_read`).
+    /// `None` when something besides the tables differs (isolated storage, number sequences, the companies not known or
+    /// copied, the companies copied or deleted: `MemStore::same_unshown_marks`, al-runner issue 9039), or a row is not
+    /// a plain value: the caller cannot name what differs by table.
     pub fn install_order_differences(
         &self,
         other: &Baseline,
@@ -116,11 +118,12 @@ impl Baseline {
             || self.sequences != other.sequences
             || self.company_unknown != other.company_unknown
             || self.full_copies != other.full_copies
+            || !self.store.same_unshown_marks(&other.store)
         {
             return None;
         }
-        let (mine, my_gone) = self.store.committed_changes_from(&start.store)?;
-        let (theirs, their_gone) = other.store.committed_changes_from(&start.store)?;
+        let (mine, my_gone) = self.store.committed_changes_from(&start.store);
+        let (theirs, their_gone) = other.store.committed_changes_from(&start.store);
         let mut out = OrderDifferences::new();
         let slots: BTreeSet<(String, u32)> = mine.into_iter().chain(theirs).collect();
         for (company, object) in slots {
@@ -128,6 +131,11 @@ impl Baseline {
             let b = table_rows(other, &company, object, engine, clocks.1)?;
             if a.encoded != b.encoded {
                 out.entry(object).or_default().extend(describe(&a, &b, object, engine));
+            }
+            if a.emptied != b.emptied {
+                out.entry(object)
+                    .or_default()
+                    .push("a DeleteAll without filters emptied the table in one order only".into());
             }
         }
         let gone_a: BTreeSet<_> = my_gone.into_iter().collect();
@@ -156,6 +164,8 @@ struct Rows {
     rows: Vec<(Vec<Value>, Vec<Value>)>,
     /// The rows encoded, sorted (two rows whose keys differ only in a clock value may swap places).
     encoded: Vec<(Vec<u8>, Vec<u8>)>,
+    /// Whether a DeleteAll without filters emptied the table (`MemStore::emptied`, read by al-vm `is_unseeded`).
+    emptied: bool,
 }
 
 /// Whether `v` is a value read from the clock inside `window`: a DateTime at an instant of the window, a Time at a time
@@ -187,16 +197,18 @@ fn clock_value(v: &Value, (from, to): ClockWindow) -> bool {
     }
 }
 
-/// The committed rows of `object` in `company`, the system fields and the values read from the clock in `window` blanked;
-/// empty when the store holds none.
+/// The committed rows of `object` in `company` as a read finds them (the backing's when the store holds no entry), the
+/// system fields and the values read from the clock in `window` blanked; empty when there are none.
 fn table_rows(b: &Baseline, company: &str, object: u32, engine: &crate::Engine, window: ClockWindow) -> Option<Rows> {
     let mut out = Rows {
         rows: Vec::new(),
         encoded: Vec::new(),
+        emptied: false,
     };
-    let Some((t, _)) = b.store.committed_table(company, object) else {
+    let Some((t, emptied)) = b.store.committed_table_read(company, object) else {
         return Some(out);
     };
+    out.emptied = emptied;
     let system: Vec<usize> = engine
         .tables
         .get(object as usize)

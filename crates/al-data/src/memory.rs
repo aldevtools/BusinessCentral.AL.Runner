@@ -1183,19 +1183,12 @@ impl MemStore {
     /// The committed tables (company, object) of this store that a write reached since it was `base` (a clone of
     /// `base`, restored, written and committed, as a session's capture of its baseline is): a table whose stamp differs
     /// from `base`'s or that `base` does not hold, and the tables `base` holds that this store does not (second list).
-    /// A write always gives its table a new stamp, so a table with `base`'s stamp holds `base`'s rows. `None` when the
-    /// company copies differ (`MemStore::copy_company`).
+    /// A write always gives its table a new stamp, so a table with `base`'s stamp holds `base`'s rows. What the untouched
+    /// tables answer besides (company copies and deleted companies) is not in the lists: two stores compare it with
+    /// [`MemStore::same_unshown_marks`].
     #[allow(clippy::type_complexity)]
-    pub fn committed_changes_from(&self, base: &MemStore) -> Option<(Vec<(String, u32)>, Vec<(String, u32)>)> {
+    pub fn committed_changes_from(&self, base: &MemStore) -> (Vec<(String, u32)>, Vec<(String, u32)>) {
         self.footprint_everything("a comparison of the store");
-        let same_copies = self.committed_copies.len() == base.committed_copies.len()
-            && self
-                .committed_copies
-                .iter()
-                .all(|(k, v)| base.committed_copies.get(k) == Some(v));
-        if !same_copies {
-            return None;
-        }
         let name = |s: &Slot| (s.0.to_string(), s.1);
         let changed = self
             .committed
@@ -1211,7 +1204,7 @@ impl MemStore {
             .filter(|s| !self.committed.contains_key(*s))
             .map(name)
             .collect();
-        Some((changed, gone))
+        (changed, gone)
     }
 
     /// The committed rows of table `object` in `company` that the store holds, and whether a DeleteAll without filters
@@ -1228,6 +1221,25 @@ impl MemStore {
                 rows: table.iter().map(|(k, r)| (k.0.clone(), r.clone())).collect(),
             },
             self.committed_emptied.contains_key(&slot),
+        ))
+    }
+
+    /// The committed rows of table `object` in `company` as a read finds them, and whether a DeleteAll without filters
+    /// emptied it: the store's entry ([`MemStore::committed_table`]), or the backing's rows when the store holds none (a
+    /// copy reads its source's, a deleted company none: `backing_rows`). `None` when neither holds any.
+    pub fn committed_table_read(&self, company: &str, object: u32) -> Option<(ExportedTable, bool)> {
+        if let Some(entry) = self.committed_table(company, object) {
+            return Some(entry);
+        }
+        let rows = self.backing_rows(company, object)?.0;
+        Some((
+            ExportedTable {
+                company: company.to_string(),
+                object,
+                pk_storage: table_storage(&rows),
+                rows: rows.iter().map(|(k, r)| (k.0.clone(), r.clone())).collect(),
+            },
+            false,
         ))
     }
 
