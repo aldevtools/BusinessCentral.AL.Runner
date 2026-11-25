@@ -6,8 +6,6 @@
 # AtSignAloneMethods.al:507).
 AM Kind Tests::AtSignAloneNegated_FilterGroupOne_Temporary	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneMethods.al:507)
 AN Source Neighbor Tests::AtSignAlone_CountOverDateSource	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:651)
-AN Source Neighbor Tests::AtSignAlone_SumOverCaptionedOptionSource	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:761)
-AN Source Neighbor Tests::AtSignAlone_SumOverIntegerSource_OtherLanguage	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:935)
 AN Source Neighbor Tests::AtSignAlone_SumOverTimeSource	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:785)
 AT Type Tests::AtSignAlone_BigSource_Methods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:857)
 AT Type Tests::AtSignAlone_DaySource_Methods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:651)

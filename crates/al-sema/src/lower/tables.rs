@@ -817,6 +817,69 @@ impl Lowerer<'_> {
         self.rt(&f.ty).unwrap_or(RtType::Variant)
     }
 
+    /// The exact source-field shapes of AtSignAloneTypes.al that may lower `filter('@')` or `filter('<>@')`. Main's sum
+    /// shapes without an OptionCaption keep its path; every added Option/Enum shape is the probe's exact declaration.
+    fn calc_formula_at_sign_measured(
+        &self,
+        source: usize,
+        field: &crate::members::FieldInfo,
+        method: ir::CalcMethod,
+    ) -> bool {
+        let rt = self.field_rt(source, field);
+        if !al_builtins::filter::calc_formula_at_sign_measured(&rt) {
+            return false;
+        }
+        match &field.ty {
+            Ty::Option(names) => {
+                let no_caption = al_builtins::filter::shows_member_names(&field.properties);
+                if method == ir::CalcMethod::Sum && no_caption {
+                    return true;
+                }
+                if names.as_slice() != ["A", "B"] {
+                    return false;
+                }
+                let captions: Vec<&str> = field
+                    .properties
+                    .iter()
+                    .filter_map(|(k, v)| k.eq_ignore_ascii_case("OptionCaption").then_some(v.as_str()))
+                    .collect();
+                let ml = field
+                    .properties
+                    .iter()
+                    .any(|(k, _)| k.eq_ignore_ascii_case("OptionCaptionML"));
+                !ml && match captions.as_slice() {
+                    [] => true,
+                    [text] => text.trim().strip_prefix('\'').and_then(|s| s.strip_suffix('\'')) == Some("Alpha,Beta"),
+                    _ => false,
+                }
+            }
+            Ty::Enum(_) => {
+                let RtType::Enum(e) = rt else { return false };
+                let e = e as usize;
+                if self.ws.is_dependency(e)
+                    || self.ws.objects[e].app != self.ws.objects[source].app
+                    || !self.ws.extensions_of(e).is_empty()
+                {
+                    return false;
+                }
+                let extensible_false = self.ws.object_ast(e).properties().any(|p| {
+                    p.name().eq_ignore_ascii_case("Extensible") && p.value_text().trim().eq_ignore_ascii_case("false")
+                });
+                let members = &self.members[e];
+                extensible_false
+                    && members.enum_values
+                        == [
+                            (0, "None".to_string()),
+                            (1, "Alpha".to_string()),
+                            (2, "Beta".to_string()),
+                        ]
+                    && members.enum_captions == [(1, "First".to_string()), (2, "Second".to_string())]
+                    && members.enum_captions_ml.is_empty()
+            }
+            _ => true,
+        }
+    }
+
     /// `--tdd` (ADR-051 decision 10): why a long write into field `f` of table `oi` is refused, when it is a stub Text or
     /// Code field (`ir::Field::tdd_length_unknown`).
     fn tdd_length_unknown(&self, oi: usize, f: &crate::members::FieldInfo) -> Option<String> {
@@ -1080,12 +1143,13 @@ impl Lowerer<'_> {
                                 raw.trim()
                             ));
                         }
-                        // `'@'` and `'<>@'` run only where the cells measure them (al-builtins
-                        // `filter_at_sign::calc_formula_at_sign_measured`), with any method; everything else is refused here, not
-                        // at run time.
+                        // `'@'` and `'<>@'` run only where the exact source shape and method are measured
+                        // (`calc_formula_at_sign_measured`); the reader is narrowed in flowfields at run time because lowering
+                        // cannot know which reader asks for this FlowField.
                         if inner == "@" || inner == "<>@" {
-                            let rt = self.field_rt(src, &src_fields[pos]);
-                            if !al_builtins::filter::calc_formula_at_sign_measured(&rt) {
+                            let field = &src_fields[pos];
+                            let rt = self.field_rt(src, field);
+                            if !self.calc_formula_at_sign_measured(src, field, f.method) {
                                 use al_builtins::describe::Describe;
                                 return Err(format!(
                                     "CalcFormula filter '{inner}' over a {} field (not measured)",

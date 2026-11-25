@@ -1,8 +1,7 @@
 // Neighbors of a CalcFormula's filter('@') over a source field that is neither Code nor Text, next to the cells of
-// AtSignAloneTypes.al (every method over a Date, Integer, Decimal, Boolean, Option, Time, DateTime, Duration, BigInteger, Guid and
-// Enum field, with and without captions, in languages 1033, 1031 and 1030: :651-:974). A count over a Date field, an Option field
-// with an OptionCaption, a Time field and the Integer error in language 1031 are answered there and run as BC answered them. A
-// DateFormula field and the error in language 1036 are not measured; the runner refuses them, so those tests assert nothing.
+// AtSignAloneTypes.al (every method over the listed types, exact captions and languages :651-:974). A count over a Date field and a
+// sum over Time run as BC answered them. The other captions, a sum in language 1031, a DateFormula field and language 1036 are not
+// measured; the runner refuses them, so those tests assert nothing.
 table 97508 "AN Source Row"
 {
     DataClassification = SystemMetadata;

@@ -10,10 +10,11 @@
 //! al-data `MemStore::at_sign_alone_read` picks the kind of read for the store's `next`, `count` and `delete_all`, for
 //! `row_passes` and for `passes_flow_field_filters` (by the Record call that runs). On a Code field the filter is parsed only at
 //! the places the cells measure ([`parse_filter_both_at_signs_measured`]); `parse_filter_with` refuses it everywhere else. A
-//! CalcFormula's quoted `'@'` or `'<>@'` over a source field that is neither Code nor Text takes BC's rows or error with any
-//! method ([`calc_formula_at_sign_other_source`], applied by al-vm `flowfields::calc_filters`); the al-sema lowering admits the two
-//! literals only where [`calc_formula_at_sign_measured`] holds. [`code_at_sign_alone_named`] names the filter in the refusals of
-//! DataTransfer and FilterPageBuilder.SetView. Entry points: `AtSignRows`, `at_sign_alone_read`,
+//! CalcFormula's quoted `'@'` or `'<>@'` over a source field that is neither Code nor Text takes BC's rows or error through the
+//! direct CalcFields cell or main's old sum readers ([`calc_formula_at_sign_other_source`], applied by al-vm
+//! `flowfields::calc_filters`); al-sema admits only the exact new source shapes where [`calc_formula_at_sign_measured`] holds.
+//! [`code_at_sign_alone_named`] names the filter in the refusals of DataTransfer and FilterPageBuilder.SetView. Entry points:
+//! `AtSignRows`, `at_sign_alone_read`,
 //! `parse_filter_both_at_signs_measured`, `calc_formula_at_sign_other_source`, `calc_formula_at_sign_measured`.
 
 use crate::assumptions::{Assumption, assume};
@@ -78,30 +79,27 @@ pub fn code_at_sign_alone_named(filters: &[FieldFilter]) -> Option<&'static str>
 }
 
 /// What BC answers for a CalcFormula's quoted `filter('@')` or `filter('<>@')` (`text`, as the lowering passes it) over a source
-/// field of type `ty` that is neither Code nor Text, with any method (AtSignAloneTypes.al:651-:905; AtSignAloneMethods.al:395, :430,
-/// :454), whoever reads the FlowField (CalcFields, SetAutoCalcFields and a Find, a filter on the FlowField, a query column, a
-/// temporary host: AtSignAloneMethods.al:657).
+/// field of type `ty` that is neither Code nor Text. Direct CalcFields measures every method and type at AtSignAloneTypes.al:651-905;
+/// main's old sum readers remain at AtSignAloneMethods.al:395, :430, :454 and :657.
 #[derive(Debug, PartialEq, Eq)]
 pub enum OtherSourceAtSign {
     /// A Date field: `@` keeps no row, `<>@` every row (true) (AtSignAloneTypes.al:651).
     Rows(bool),
-    /// Reading the FlowField raises this error, for `@` and `<>@` alike (AtSignAloneTypes.al:673-:905), in a session of a
-    /// language [`MEASURED_LANGUAGES`] lists ([`calc_formula_at_sign_other_source`] refuses it in another).
+    /// Reading the FlowField raises this error, for `@` and `<>@` alike (AtSignAloneTypes.al:673-:905), in language 1033 or
+    /// in the exact Count / `@` cells of 1031 and 1030 (:935, :974).
     Error { message: String, code: &'static str },
 }
 
-/// The session languages the error texts are measured in: 1033, and 1031 and 1030, where a Business Central W1 container gives the
-/// texts of 1033 (AtSignAloneTypes.al:935, :974).
-const MEASURED_LANGUAGES: [i32; 3] = [1033, 1031, 1030];
-
 /// [`OtherSourceAtSign`] for `text` over `ty` in a session of `language`, or None when the text is not `@` alone or `<>@` alone or
-/// no cell measures the type ([`calc_formula_at_sign_measured`]). `captions` gives the captions of an Option or Enum field's members
-/// as the session shows them; it is called only for such a field. An error answer in a language no cell measures is refused before
-/// the assumption is marked. The lowering admits the text only where [`calc_formula_at_sign_measured`] holds.
+/// no cell measures the type ([`calc_formula_at_sign_measured`]). `count` says the method is count. `captions` gives the captions
+/// of an Option or Enum field's members as the session shows them; it is called only for such a field. The 1031 and 1030 cells
+/// each run count with `@` only (AtSignAloneTypes.al:935, :974); every other combination is refused there before the assumption
+/// is marked. The lowering admits only the exact new caption shapes and also keeps the sum shapes main ran.
 pub fn calc_formula_at_sign_other_source(
     text: &str,
     ty: &crate::value::RtType,
     language: i32,
+    count: bool,
     captions: impl FnOnce() -> Result<Vec<String>, Signal>,
 ) -> Result<Option<OtherSourceAtSign>, Signal> {
     let negated = match text {
@@ -112,7 +110,7 @@ pub fn calc_formula_at_sign_other_source(
     let Some(answer) = other_source_answer(negated, ty, captions)? else {
         return Ok(None);
     };
-    if matches!(answer, OtherSourceAtSign::Error { .. }) && !MEASURED_LANGUAGES.contains(&language) {
+    if language != 1033 && !(matches!(language, 1031 | 1030) && count && text == "@") {
         return unsupported(format!(
             "the error of a CalcFormula filter '{text}' in a session of language {language} (not measured)"
         ));
@@ -121,13 +119,34 @@ pub fn calc_formula_at_sign_other_source(
     Ok(Some(answer))
 }
 
-/// Whether the cells measure a CalcFormula's quoted `filter('@')` or `filter('<>@')` over a source field of type `ty`, with any
-/// method: a Code or a Text field (AtSignAloneReads.al:579, :752; AtSignAloneMethods.al:376), and the types of
-/// [`calc_formula_at_sign_other_source`] (AtSignAloneTypes.al:651-:905). The lowering refuses the rest.
+/// Whether the cells measure a CalcFormula's quoted `filter('@')` or `filter('<>@')` over a source field of type `ty`: a Code
+/// or Text field (AtSignAloneReads.al:579, :752; AtSignAloneMethods.al:376), or one of the source types of
+/// AtSignAloneTypes.al:651-:905. The al-sema owner checks method, reader, captions and enum declaration.
 pub fn calc_formula_at_sign_measured(ty: &crate::value::RtType) -> bool {
     use crate::value::RtType;
-    matches!(ty, RtType::Code(_) | RtType::Text(_))
-        || matches!(other_source_answer(false, ty, || Ok(Vec::new())), Ok(Some(_)))
+    matches!(
+        ty,
+        RtType::Code(_)
+            | RtType::Text(_)
+            | RtType::Date
+            | RtType::Integer
+            | RtType::BigInteger
+            | RtType::Decimal
+            | RtType::Boolean
+            | RtType::Time
+            | RtType::DateTime
+            | RtType::Duration
+            | RtType::Guid
+            | RtType::Option(_)
+            | RtType::Enum(_)
+    )
+}
+
+/// Whether an Option field has the no-caption form main ran for a sum before this change.
+pub fn shows_member_names(properties: &[(String, String)]) -> bool {
+    !properties
+        .iter()
+        .any(|(k, _)| k.eq_ignore_ascii_case("OptionCaption") || k.eq_ignore_ascii_case("OptionCaptionML"))
 }
 
 fn other_source_answer(
@@ -155,8 +174,8 @@ fn other_source_answer(
                 .to_string(),
             code: "InvalidFilterExpression:InvalidGuidFormat",
         },
-        // The captions, an OptionCaption's or an Enum value's Caption, the name where there is none (AtSignAloneTypes.al:739,
-        // :761, :905); a blank member is listed as it is (AtSignAloneMethods.al:717).
+        // The captions of the exact new shapes the lowering admitted (AtSignAloneTypes.al:739, :761, :905), or of the
+        // no-caption Option shapes main ran; in particular, AtSignAloneMethods.al:717's blank member stays as main answered.
         RtType::Option(_) | RtType::Enum(_) => OtherSourceAtSign::Error {
             message: format!(
                 "'@' is not an option. The existing options are: {}",

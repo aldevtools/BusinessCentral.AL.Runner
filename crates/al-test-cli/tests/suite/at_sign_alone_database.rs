@@ -186,10 +186,9 @@ fn at_sign_alone_types_cells() {
     }
 }
 
-/// A CalcFormula's `filter('@')` next to the cells of AtSignAloneTypes.al: the neighbors the cells now answer (a count over a Date
-/// source field, a sum over an Option field with an OptionCaption and over a Time field, the Integer error in language 1031) run
-/// as BC answered, flagged; a DateFormula source field, which the lowering refuses before the test runs, and the error in language
-/// 1036, which the run refuses, stay refused.
+/// A CalcFormula's `filter('@')` next to the cells of AtSignAloneTypes.al: the exact cells the branch answers (a count over a
+/// Date field and a sum over Time) run as BC answered, flagged. A caption list outside Alpha,Beta, a sum in language 1031, a
+/// DateFormula source field and language 1036 stay refused.
 #[test]
 fn at_sign_alone_other_source_neighbors() {
     let o = outcomes(SOURCES, "AN Source Neighbor Tests");
@@ -199,6 +198,26 @@ fn at_sign_alone_other_source_neighbors() {
             "AtSignAlone_SumOverIntegerSource_Language1036" => {
                 assert!(
                     matches!(r, Outcome::NotRun(w) if w.contains("in a session of language 1036 (not measured)")),
+                    "{name}: {r:?}"
+                );
+                assert!(
+                    !marks.contains(&Assumption::AtSignAloneDatabaseBlank),
+                    "{name}: {marks:?}"
+                );
+            }
+            "AtSignAlone_SumOverIntegerSource_OtherLanguage" => {
+                assert!(
+                    matches!(r, Outcome::NotRun(w) if w.contains("in a session of language 1031 (not measured)")),
+                    "{name}: {r:?}"
+                );
+                assert!(
+                    !marks.contains(&Assumption::AtSignAloneDatabaseBlank),
+                    "{name}: {marks:?}"
+                );
+            }
+            "AtSignAlone_SumOverCaptionedOptionSource" => {
+                assert!(
+                    matches!(r, Outcome::NotRun(w) if w.contains("over a Option field (not measured)")),
                     "{name}: {r:?}"
                 );
                 assert!(
@@ -289,4 +308,48 @@ codeunit 97591 "AS Fp Tests"
             "{filter}: {r:?}"
         );
     }
+}
+
+/// The clear of filter group 1 in AtSignAloneMethods.al:507 belongs to the sequence in that cell: a temporary record first
+/// sets `<>@` on a stored Code or Text field. A fresh temporary record has no such entry, so SetRange(Field) keeps main's
+/// refusal instead of being accepted because the table currently has no entry.
+#[test]
+fn at_sign_review_group1_clear_without_entry_refused() {
+    let src = r#"
+table 97640 "At Sign Review Group1 Row"
+{
+    fields
+    {
+        field(1; "No."; Integer) { }
+        field(2; Kind; Code[20]) { }
+    }
+    keys { key(PK; "No.") { } }
+}
+codeunit 97640 "At Sign Review Group1 Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure FreshTemporaryClear()
+    var
+        Row: Record "At Sign Review Group1 Row" temporary;
+    begin
+        Row.FilterGroup(1);
+        Row.SetRange(Kind);
+        Row.FilterGroup(0);
+        Row.Count();
+    end;
+}
+"#;
+    let o = outcomes(src, "At Sign Review Group1 Tests");
+    let [(_, result, marks)] = o.as_slice() else {
+        panic!("{o:?}")
+    };
+    assert!(
+        matches!(result, Outcome::NotRun(why) if why.contains(
+            "SetRange in filter group 1 (the global group) on a temporary record (how BC scopes it is not pinned)"
+        )),
+        "{result:?}"
+    );
+    assert!(!marks.contains(&Assumption::AtSignAloneDatabaseBlank), "{marks:?}");
 }

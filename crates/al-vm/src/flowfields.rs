@@ -1048,23 +1048,25 @@ impl Session {
                     parts.push((c.field, FilterExpr::Eq(ops::convert(crate::constant(k), sty)?), false));
                 }
                 ir::CalcValue::Filter(text) => {
-                    // `filter('@')` or `filter('<>@')` over a source field that is neither Code nor Text answers as BC does
-                    // (al-builtins `filter_at_sign::calc_formula_at_sign_other_source`); an Option or Enum field's error lists
-                    // the captions TestField shows (`members_of_field`, which refuses translated ones).
+                    // A new type or method is measured only through direct Record.CalcFields on a stored host
+                    // (AtSignAloneTypes.al:651-:905); main's sum shapes keep their old readers. An Option or Enum field's
+                    // error lists the captions TestField shows (`members_of_field`, which refuses translated ones).
+                    let field = &src[c.field];
+                    let main_reader = calc.method == ir::CalcMethod::Sum
+                        && (matches!(sty, RtType::Date | RtType::Integer | RtType::Decimal | RtType::Boolean)
+                            || matches!(sty, RtType::Option(_))
+                                && al_builtins::filter::shows_member_names(&field.properties));
+                    let direct_calc_fields =
+                        stack.last().is_some_and(|f| f.asked == Asked::CalcFields) && !rec.borrow().temporary;
+                    let other_source = !matches!(sty, RtType::Code(_) | RtType::Text(_));
+                    let at_sign = matches!(text.as_str(), "@" | "<>@");
+                    if at_sign && other_source && !main_reader && !direct_calc_fields {
+                        return unsupported(format!(
+                            "a reader of the CalcFormula filter '{text}' over a {} field that no cell measures (AtSignAloneTypes.al:651-:905; direct Record.CalcFields on a stored host only)",
+                            sty.describe()
+                        ));
+                    }
                     let captions = || {
-                        // No cell measures an enum that an enumextension extends.
-                        if let RtType::Enum(id) = sty {
-                            let base = engine.program.objects[*id as usize].id;
-                            let heads = engine.program.objects.heads();
-                            if heads
-                                .iter()
-                                .any(|o| o.kind == ir::ObjKind::EnumExtension && o.extends_id == base)
-                            {
-                                return unsupported(format!(
-                                    "the error of a CalcFormula filter '{text}' over an Enum field whose enum an enumextension extends (not measured)"
-                                ));
-                            }
-                        }
                         let def = engine.tables[calc.table].clone();
                         let members = match def {
                             Some(t) => self.members_of_field(&t, c.field)?,
@@ -1074,7 +1076,13 @@ impl Session {
                             .map(|(_, m)| m.into_iter().map(|(_, _, caption)| caption).collect())
                             .unwrap_or_default())
                     };
-                    match calc_formula_at_sign_other_source(text, sty, self.global_language(), captions)? {
+                    match calc_formula_at_sign_other_source(
+                        text,
+                        sty,
+                        self.global_language(),
+                        calc.method == ir::CalcMethod::Count,
+                        captions,
+                    )? {
                         Some(OtherSourceAtSign::Rows(true)) => {}
                         Some(OtherSourceAtSign::Rows(false)) => {
                             parts.push((c.field, FilterExpr::Or(Vec::new()), false))
