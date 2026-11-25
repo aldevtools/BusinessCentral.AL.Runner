@@ -104,7 +104,7 @@ fn outcomes_with_baseline(
     let mut engine = Engine::new(l.program.clone(), blocked);
     Arc::get_mut(&mut engine).expect("a new engine").test_data = data.map(al_host::testdata::TestData::new);
     let baseline = run_dependency_baseline
-        .then(|| al_testrun::baseline::run(&engine, &l, None))
+        .then(|| al_testrun::baseline::run(&engine, &l, None, al_testrun::host::RunClock::begin()))
         .flatten();
     assert!(
         !run_dependency_baseline || baseline.is_some(),

@@ -34,7 +34,7 @@ fn outcomes(src: &str, test: u32, runner: Option<u32>, isolation: TestIsolation,
     let mut scratch = Scratch {
         runner: runner.map(index),
         hub,
-        ..Default::default()
+        ..Scratch::new(crate::host::RunClock::begin())
     };
     run::run_codeunit_core(
         &engine,
