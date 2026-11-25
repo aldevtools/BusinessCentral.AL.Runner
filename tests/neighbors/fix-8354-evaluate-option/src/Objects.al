@@ -19,6 +19,9 @@ table 71900 "NB8354 Row"
         field(15; Trio; Option) { OptionMembers = Alpha,Beta,Gamma; OptionCaption = 'Alpha,Beta,Gamma'; }
         field(16; OtherPair; Option) { OptionMembers = One,Two; OptionCaption = 'One,Two'; }
         field(17; Coded; Option) { OptionMembers = A1,B2; OptionCaption = 'A1,B2'; }
+        field(18; MixNoneEmpty; Option) { OptionMembers = None,"",B; OptionCaption = ',Blank1,B cap'; }
+        field(19; SpaceMid; Enum "NB8354 Space Mid") { }
+        field(20; TwoBlank; Enum "NB8354 Two Blank") { }
     }
     keys { key(PK; Code) { Clustered = true; } }
 }

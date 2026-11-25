@@ -146,8 +146,9 @@ pub(super) fn field(c: &mut dyn Ctx, members: &Arc<[String]>, text: &crate::text
 
 /// The shapes measured for `Evaluate` into an Option field whose OptionCaption repeats its member names entry by entry (the
 /// lowering's fifth argument 3): corpus PR 1577 (format-evaluate/EvalOptionBlankCaptions.al OBC_Option_PairOrdinals) and the
-/// reporter's repro of al-runner issue 8355. What every piece of evidence shares: the field named directly, two members whose
-/// names are letters only (so no name reads as a number), no format number, GlobalLanguage 1033, with the result used the texts
+/// reporter's repro of al-runner issue 8355. What every piece of evidence shares: the field named directly, the members `Alpha`
+/// and `Beta` (OBC_Option_PairOrdinals and the reporter's repro both declare these), no format number, GlobalLanguage
+/// 1033, with the result used the texts
 /// `2`, `99`, `+2`, `2147483647`, `-1` and `2147483648`, as a statement `99` and `-1`. On these the field reads as one with
 /// other captions (`evaluate::option_field`), on the assumption [`Assumption::OptionCaptionSameAsNamesOrdinal`]. Every other
 /// shape reads as a field without these captions ([`field`]), as before.
@@ -155,8 +156,7 @@ pub(super) fn same_as_names_measured(c: &dyn Ctx, a: &[Value], direct: bool) -> 
     let Some(text) = crate::native::text_of(&a[1]) else {
         return false;
     };
-    let letters = |m: &String| !m.is_empty() && m.bytes().all(|b| b.is_ascii_alphabetic());
-    let members = matches!(&a[0], Value::Option(_, m) if m.len() == 2 && m.iter().all(letters));
+    let members = matches!(&a[0], Value::Option(_, m) if m[..] == ["Alpha", "Beta"]);
     let text_measured = if c.ret_used() {
         matches!(text.as_str(), "2" | "99" | "+2" | "2147483647" | "-1" | "2147483648")
     } else {

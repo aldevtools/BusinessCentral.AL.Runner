@@ -1617,6 +1617,7 @@ fn option_field(c: &mut dyn Ctx, a: &mut [Value], direct: bool) -> Result<Value,
             direct_plain_caption: direct && a.get(4).is_none(),
             ret_used: c.ret_used(),
             language: c.language(),
+            format_zero: matches!(a.get(2), Some(Value::Integer(0))),
         };
         let caps: Vec<&str> = captions.split(',').collect();
         (option_blank::blank_text(&names, &caps, &call)?, None)
@@ -2431,7 +2432,7 @@ fn evaluate_with_max(
                 None => return unsupported(format!("Evaluate of `{text}` into Version (only a.b.c.d is pinned)")),
             }
         }
-        Value::Enum(id, _) => enum_text::enum_text(c, id, &text, place)?,
+        Value::Enum(id, _) => enum_text::enum_text(c, id, &text, place, number == 0)?,
         Value::Option(_, members) if platform_options::reads(members) => platform_options::read(c, members, &text)?,
         Value::Option(_, members) if variable_option => option_text::variable(c, members, &text)?,
         Value::Option(_, members) => option_text::field(c, members, &text)?,

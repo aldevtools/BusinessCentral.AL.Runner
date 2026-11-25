@@ -9,7 +9,14 @@ use crate::value::Value;
 /// (types/ProbeTypeFormsAndFilters.al:Enum_Evaluate_Forms, BC 27.5; the InitValue of a field reads a name the same way,
 /// types/TestBlankEnumInitTests.Codeunit.al:92). A text that is none of these is rejected. `place`: the target the lowering
 /// chose the id for (an Enum variable of the routine's `var` section, an Enum field named directly, or another place).
-pub(super) fn enum_text(c: &mut dyn Ctx, id: &u32, text: &crate::text::Txt, place: Place) -> Result<Parsed, Signal> {
+/// `format_zero`: the format number is 0.
+pub(super) fn enum_text(
+    c: &mut dyn Ctx,
+    id: &u32,
+    text: &crate::text::Txt,
+    place: Place,
+    format_zero: bool,
+) -> Result<Parsed, Signal> {
     let Some(members) = c.enum_members(*id) else {
         return unsupported("Evaluate into an Enum without its members");
     };
@@ -72,7 +79,9 @@ pub(super) fn enum_text(c: &mut dyn Ctx, id: &u32, text: &crate::text::Txt, plac
                 .map(|(o, _)| *o)
         });
     let found = match found {
-        None if text.is_empty() => named_blank_caption(c, &members, &captions, &original, translated_file, place)?,
+        None if text.is_empty() => {
+            named_blank_caption(c, &members, &captions, &original, translated_file, (place, format_zero))?
+        }
         found => found,
     };
     if found.is_none() && translated_file && !c.ret_used() {
@@ -108,10 +117,11 @@ pub(super) fn enum_text(c: &mut dyn Ctx, id: &u32, text: &crate::text::Txt, plac
 /// A blank text that matched no member name: the member with a name and a blank Caption it names, if any. With no such member it
 /// names none (types/TestBlankEnumInitTests.Codeunit.al: EvaluateMatchesBlankMemberAndRejectsNonMember). With such members, no
 /// member with a blank name, no translation file and every such Caption `' '` or `''`, on the assumption
-/// [`Assumption::EnumBlankTextNamedBlankCaption`]:
-/// - the first of them, under GlobalLanguage 1033, into an Enum variable or field, for the texts `''`, `' '`, `'  '` and a TAB
-///   with the result used and `''` as a statement (corpus PR 1577, format-evaluate/EvalOptionBlankCaptions.al OBC_Enum_Last,
-///   OBC_Enum_SpaceMid, OBC_Enum_TwoBlank, OBC_Enum_EmptyMid, OBC_Enum_Field; al-runner issue 8356);
+/// [`Assumption::EnumBlankTextNamedBlankCaption`], with format number 0:
+/// - the first of them, under GlobalLanguage 1033, into an Enum variable, or into an Enum field when it is the only one and its
+///   Caption is `''`, for the texts `''`, `' '`, `'  '` and a TAB with the result used and `''` as a statement (corpus PR 1577,
+///   format-evaluate/EvalOptionBlankCaptions.al OBC_Enum_Last, OBC_Enum_SpaceMid, OBC_Enum_TwoBlank, OBC_Enum_EmptyMid,
+///   OBC_Enum_Field; al-runner issue 8356);
 /// - the first member when it is the only one, under GlobalLanguage 1033, 1034 or 2067, into an Enum variable, for the texts
 ///   `''`, `' '` and `'  '` with the result used, and as a statement for the Caption `' '` (corpus PR 1306,
 ///   format-evaluate/EvalNamedBlankCaption.al:208-211, :224, :383-385, merged, not yet pinned).
@@ -123,7 +133,7 @@ fn named_blank_caption(
     captions: &[(i32, String)],
     original: &crate::text::Txt,
     translated_file: bool,
-    place: Place,
+    (place, format_zero): (Place, bool),
 ) -> Result<Option<i32>, Signal> {
     let caption = |o: i32| captions.iter().find(|(co, _)| *co == o).map(|(_, cap)| cap.as_str());
     let named: Vec<usize> = (0..members.len())
@@ -136,8 +146,9 @@ fn named_blank_caption(
     let lang = c.language();
     let no_blank_name = members.iter().all(|(_, n)| !n.trim().is_empty());
     let measured_captions = named.iter().all(|&i| matches!(caption(members[i].0), Some(" " | "")));
-    if no_blank_name && measured_captions && !translated_file {
-        let observed = matches!(place, Place::Variable | Place::Field)
+    if no_blank_name && measured_captions && !translated_file && format_zero {
+        let one_empty_caption = named.len() == 1 && caption(members[first].0) == Some("");
+        let observed = (place == Place::Variable || (place == Place::Field && one_empty_caption))
             && lang == 1033
             && matches!(text, "" | " " | "  " | "\t")
             && (c.ret_used() || text.is_empty());

@@ -72,10 +72,22 @@ codeunit 69834 C
         R := Evaluate(Row.Short, '');
         exit(Format(R));
     end;
+
+    procedure ShortFieldRef(): Text
+    var RecRef: RecordRef; FRef: FieldRef; R: Boolean;
+    begin
+        RecRef.Open(Database::"NB G Row");
+        FRef := RecRef.Field(7);
+        R := Evaluate(FRef, '');
+        exit(Format(R));
+    end;
 }
 "#;
 
-fn run(routine: &str, args: Vec<al_builtins::value::Value>) -> Result<al_builtins::value::Value, al_builtins::native::Signal> {
+fn run(
+    routine: &str,
+    args: Vec<al_builtins::value::Value>,
+) -> Result<al_builtins::value::Value, al_builtins::native::Signal> {
     al_testkit::run_with(SRC, "C", routine, args).map(|(v, _)| v)
 }
 
@@ -93,7 +105,10 @@ fn the_statement_error_lists_the_member_name_for_an_empty_caption() {
     match run("NamedEmptyCapStatement", vec![]) {
         Err(al_builtins::native::Signal::Error(e)) => assert_eq!(
             (e.message.as_str(), e.code.as_str()),
-            ("'' is not an option. The existing options are: None,A cap,B cap", "InvalidOptionString")
+            (
+                "'' is not an option. The existing options are: None,A cap,B cap",
+                "InvalidOptionString"
+            )
         ),
         other => panic!("expected the error, got {other:?}"),
     }
@@ -105,8 +120,14 @@ fn the_statement_error_lists_the_member_name_for_an_empty_caption() {
 fn a_blank_text_with_a_format_number_is_refused() {
     use al_builtins::value::Value;
     for n in [2, 9] {
-        assert!(refused("FirstEmptyFormat", vec![Value::Integer(n)]).contains("not pinned"), "{n}");
-        assert!(refused("LastFormat", vec![Value::Integer(n)]).contains("blank caption"), "{n}");
+        assert!(
+            refused("FirstEmptyFormat", vec![Value::Integer(n)]).contains("not pinned"),
+            "{n}"
+        );
+        assert!(
+            refused("LastFormat", vec![Value::Integer(n)]).contains("blank caption"),
+            "{n}"
+        );
     }
     assert_eq!(text(run("FirstEmptyFormat", vec![Value::Integer(0)])), "No");
     assert_eq!(text(run("LastFormat", vec![Value::Integer(0)])), "Yes");
@@ -121,8 +142,12 @@ fn unmeasured_mixes_of_blank_members_are_refused() {
     assert!(refused("TwoField", vec![]).contains("blank caption"));
 }
 
-// An OptionCaption with fewer entries than the field has members is not measured: refused.
+// An OptionCaption with fewer entries than the field has members is not measured. Named directly, the lowering passes no
+// captions and the field reads as one without captions, as on main (al-sema `lower/stmt.rs` `option_field_captions`); through a
+// FieldRef the FieldRef refuses the field before the text is read.
 #[test]
 fn a_blank_text_into_a_field_with_fewer_captions_than_members_is_refused() {
-    assert!(refused("Short", vec![]).contains("not one per member"));
+    assert_eq!(text(run("Short", vec![])), "No");
+    let why = refused("ShortFieldRef", vec![]);
+    assert!(why.contains("as long as the OptionMembers list"), "{why}");
 }

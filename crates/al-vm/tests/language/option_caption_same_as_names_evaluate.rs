@@ -111,13 +111,14 @@ fn a_number_past_the_members_of_a_field_whose_captions_are_its_names_is_stored()
     }
 }
 
-// The facts every piece of evidence shares, not the probe's own member names: two members named by letters only, captions
-// equal to the names. Other names of that shape read the same (al-runner issue 8355).
+// Only the members the evidence declares (`Alpha,Beta`) are measured: other members whose captions are their names read as a
+// field without captions, as on main, and a number past them refuses.
 #[test]
-fn other_letter_names_whose_captions_are_the_names_read_a_number_past_the_members() {
+fn other_letter_names_whose_captions_are_the_names_read_as_a_field_without_captions() {
     use al_builtins::value::Value;
-    for (t, want) in [("2", "Yes|2"), ("99", "Yes|99"), ("-1", "No|0")] {
-        assert_eq!(text(run("Hue", vec![Value::Text(t.into())])), want, "[{t}]");
+    for t in ["2", "99", "-1"] {
+        let why = refusal(run("Hue", vec![Value::Text(t.into())]));
+        assert!(why.contains("neither an ordinal nor a member name"), "[{t}] {why}");
     }
 }
 

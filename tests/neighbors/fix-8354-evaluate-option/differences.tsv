@@ -33,7 +33,7 @@ NB8355 Pair Tests::Pair_PastMaxInteger	ASSUMED option-caption-same-as-names-ordi
 NB8355 Pair Tests::Pair_MinusOneFromBeta	ASSUMED option-caption-same-as-names-ordinal (corpus PR 1577)
 NB8355 Pair Tests::Pair_StatementNinetyNine	ASSUMED option-caption-same-as-names-ordinal (corpus PR 1577)
 NB8355 Pair Tests::Pair_StatementMinusOne	ASSUMED option-caption-same-as-names-ordinal (corpus PR 1577)
-NB8355 Names Tests::OtherPair_Two	ASSUMED option-caption-same-as-names-ordinal (corpus PR 1577)
 Eval Opt Two Test::Two	ASSUMED option-caption-same-as-names-ordinal (corpus PR 1577)
 Eval Opt Two Test::NinetyNine	ASSUMED option-caption-same-as-names-ordinal (corpus PR 1577)
 Eval Opt Two Test::MinusOne	ASSUMED option-caption-same-as-names-ordinal (corpus PR 1577)
+NB8354 R1 Statement::NamedEmptyCap_Statement	ASSUMED option-blank-text-blank-captions (corpus PR 1577)
