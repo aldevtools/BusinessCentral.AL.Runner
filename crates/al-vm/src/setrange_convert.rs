@@ -6,7 +6,8 @@
 //! (recordref-fieldref/fieldref/SrcSetRangeConvert.al, SrcFilterConvertKinds.al, not yet pinned: assumption
 //! setrange-other-type-convert). A value of a pair of types those cells measure is refused in a shape or of a size they do
 //! not measure; a cell that passes on the conversion `setrange_filter` and the filter parser give keeps it in the measured
-//! shape only (through the same assumption), unless a pin or another assumption covers every shape (`Cell::MainEveryShape`). A pair of types they do not
+//! shape only (through the same assumption), unless a pin or another assumption covers every shape (`Cell::MainEveryShape`). False into a
+//! Code or Text field has its own entry (al-runner issue 9026, assumption setrange-false-into-text). A pair of types they do not
 //! measure keeps that conversion.
 
 use crate::Session;
@@ -208,11 +209,11 @@ impl Session {
         };
         match ty {
             // SrcFilterConvertKinds.al:452-686 (Int5_Cod .. DecNeg125_Txt): the Format text, `1,000.5` and `-1.25` too; true is
-            // Yes (BoolTrue_Cod, BoolTrue_Txt: main's answer).
+            // Yes (BoolTrue_Cod, BoolTrue_Txt: main's answer); false has its own evidence (`false_into_text`).
             RtType::Code(_) | RtType::Text(_) => match v {
                 Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_) => Some(number_into_text(v, ty, self)),
                 Value::Boolean(true) => Some(Cell::Main(ENTRY)),
-                Value::Boolean(false) => Some(Cell::Unmeasured),
+                Value::Boolean(false) => Some(false_into_text(ty, at, self.engine.target.as_ref().map(|t| t.bc.major))),
                 _ => None,
             },
             // SrcFilterConvertKinds.al:729-1381 (CodeABC_Int .. TxtEmpty_Dec, Code1000_Int, Code1000_Big); digits (Code123_Int,
@@ -377,6 +378,21 @@ fn number_into_text(v: &Value, ty: &RtType, ctx: &Session) -> Cell {
         Some(Err(e)) => Cell::Convert(Err(e)),
         None => Cell::Unmeasured,
     }
+}
+
+/// False into a Code or Text field `ty`, given to the call `at` on the BC major `major` (`None`: no target, the newest): main's
+/// answer (`NO` in a Code, `No` in a Text) through the entry setrange-false-into-text, on the major, fields and calls its evidence
+/// measures (al-runner issue 9026: the reporter's BC 29.0 repro, FieldRef.SetRange(X) and FieldRef.SetFilter('%1', X) with X
+/// typed, into a Code[20] and a Text[50] field; the probe is corpus PR 1575, SrcFilterBoolIntoText.al); refused on every other
+/// major, field length and call.
+fn false_into_text(ty: &RtType, at: CellAt, major: Option<u16>) -> Cell {
+    let bc29 = matches!(major, Some(29) | None);
+    let field = matches!(ty, RtType::Code(Some(20)) | RtType::Text(Some(50)));
+    let call = matches!(
+        (at.call, at.written, at.values),
+        (Call::FieldRefSetRange | Call::FieldRefSetFilter, Some(Written::Typed), 1)
+    );
+    if bc29 && field && call { Cell::Main(Assumption::SetRangeFalseIntoText) } else { Cell::Unmeasured }
 }
 
 /// A text the probe measures as no number of the field's type: letters, empty, and, into an Integer or BigInteger field, digits

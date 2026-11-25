@@ -457,3 +457,23 @@ fn false_into_a_code_field_is_its_format_text_through_its_own_entry() {
     assert!(hits.contains(&Assumption::SetRangeFalseIntoText), "{hits:?}");
     assert!(!hits.contains(&Assumption::SetRangeOtherTypeConvert), "{hits:?}");
 }
+
+/// The evidence of setrange-false-into-text is the reporter's BC 29.0 repro (al-runner issue 9026): false into a Code field runs on
+/// a BC 29 target and is refused on 27 and 28.
+#[test]
+fn false_into_a_code_field_runs_on_the_measured_major_only() {
+    for (bc, runs) in [("27.5", false), ("28.5", false), ("29.0", true)] {
+        let lowered = al_testkit::compile(SRC);
+        let target = al_version::Target::for_bc(al_version::BcVersion::parse(bc).unwrap());
+        let engine = al_vm::Engine::with_target(lowered.program.clone(), al_testkit::blocked(&lowered), Some(target));
+        let mut b = al_testkit::Built {
+            session: al_vm::Session::new(engine),
+            lowered,
+        };
+        match (b.run_in("T", "FalseIntoCode"), runs) {
+            (Ok(Value::Text(s)), true) => assert_eq!(s.as_str(), "NO", "{bc}"),
+            (Err(Signal::Unsupported(reason)), false) => assert!(reason.contains("in a shape no cell measures"), "{bc}: {reason}"),
+            (other, _) => panic!("{bc}: got {other:?}"),
+        }
+    }
+}

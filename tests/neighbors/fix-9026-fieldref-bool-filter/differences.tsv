@@ -1,0 +1,6 @@
+# key	entry
+FC Code SetRange Bool::Cell	ASSUMED setrange-false-into-text (corpus PR 1575)
+FC Code SetFilter Bool::Cell	ASSUMED setrange-false-into-text (corpus PR 1575)
+FC Text SetRange Bool::Cell	ASSUMED setrange-false-into-text (corpus PR 1575)
+FC Text SetFilter Bool::Cell	ASSUMED setrange-false-into-text (corpus PR 1575)
+BTN Neighbors::FalseLiteralSetRangeCode	ASSUMED setrange-false-into-text (corpus PR 1575)
