@@ -167,6 +167,7 @@ impl crate::Session {
 
     #[inline]
     pub(crate) fn note_page(&self, page: usize) {
+        self.note_footprint_object("page", page);
         if !self.coverage.impact_on {
             return;
         }
@@ -187,6 +188,7 @@ impl crate::Session {
 
     #[inline]
     pub(crate) fn note_report(&self, report: usize) {
+        self.note_footprint_object("report", report);
         if !self.coverage.impact_on {
             return;
         }
