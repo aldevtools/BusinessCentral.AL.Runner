@@ -16,22 +16,22 @@ codeunit 52810 "N6 FunctionIsolationRestart"
     [Test]
     procedure A_FunctionIsolationRestartAsserterrorWritesCommits()
     begin
-        Rows.Put('FunctionIsolationRestartAsserterror-INIT'); Commit();
+        Rows.Put('FnIso-INIT'); Commit();
     end;
 
     [Test]
     
     procedure B_FunctionIsolationRestartAsserterrorStep()
     begin
-        NumberSequence.Restart('P6FunctionIsolationRestartAsserterror', 1002); if NumberSequence.Exists('P6FunctionIsolationRestartAsserterror') then if NumberSequence.Current('P6FunctionIsolationRestartAsserterror') = 0 then; Rows.Put('FunctionIsolationRestartAsserterror-B1'); asserterror Error('inner');
+        NumberSequence.Restart('P6FunctionIsolationRestartAsserterror', 1002); if NumberSequence.Exists('P6FunctionIsolationRestartAsserterror') then if NumberSequence.Current('P6FunctionIsolationRestartAsserterror') = 0 then; Rows.Put('FnIso-B1'); asserterror Error('inner');
     end;
 
     [Test]
     procedure C_FunctionIsolationRestartAsserterrorReads()
     begin
         if not NumberSequence.Exists('P6FunctionIsolationRestartAsserterror', true) then
-            Error('OBS missing row=%1', Rows.Has('FunctionIsolationRestartAsserterror-B1'));
-        Error('OBS cur=%1 row=%2', NumberSequence.Current('P6FunctionIsolationRestartAsserterror', true), Rows.Has('FunctionIsolationRestartAsserterror-B1'));
+            Error('OBS missing row=%1', Rows.Has('FnIso-B1'));
+        Error('OBS cur=%1 row=%2', NumberSequence.Current('P6FunctionIsolationRestartAsserterror', true), Rows.Has('FnIso-B1'));
     end;
 }
 
@@ -51,22 +51,22 @@ codeunit 52811 "N6 DisabledIsolationRestart"
     [Test]
     procedure A_DisabledIsolationRestartAsserterrorWritesCommits()
     begin
-        Rows.Put('DisabledIsolationRestartAsserterror-INIT'); Commit();
+        Rows.Put('DisIso-INIT'); Commit();
     end;
 
     [Test]
     
     procedure B_DisabledIsolationRestartAsserterrorStep()
     begin
-        NumberSequence.Restart('P6DisabledIsolationRestartAsserterror', 1002); if NumberSequence.Exists('P6DisabledIsolationRestartAsserterror') then if NumberSequence.Current('P6DisabledIsolationRestartAsserterror') = 0 then; Rows.Put('DisabledIsolationRestartAsserterror-B1'); asserterror Error('inner');
+        NumberSequence.Restart('P6DisabledIsolationRestartAsserterror', 1002); if NumberSequence.Exists('P6DisabledIsolationRestartAsserterror') then if NumberSequence.Current('P6DisabledIsolationRestartAsserterror') = 0 then; Rows.Put('DisIso-B1'); asserterror Error('inner');
     end;
 
     [Test]
     procedure C_DisabledIsolationRestartAsserterrorReads()
     begin
         if not NumberSequence.Exists('P6DisabledIsolationRestartAsserterror', true) then
-            Error('OBS missing row=%1', Rows.Has('DisabledIsolationRestartAsserterror-B1'));
-        Error('OBS cur=%1 row=%2', NumberSequence.Current('P6DisabledIsolationRestartAsserterror', true), Rows.Has('DisabledIsolationRestartAsserterror-B1'));
+            Error('OBS missing row=%1', Rows.Has('DisIso-B1'));
+        Error('OBS cur=%1 row=%2', NumberSequence.Current('P6DisabledIsolationRestartAsserterror', true), Rows.Has('DisIso-B1'));
     end;
 }
 

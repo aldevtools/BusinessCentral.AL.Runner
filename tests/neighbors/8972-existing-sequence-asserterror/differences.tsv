@@ -1,10 +1,10 @@
 # key	entry
-N6 RE5::C_RE5Reads	ASSUMED existing-sequence-asserterror (corpus PR 1573) RE5: a Record write, then the asserterror undoes the Restart; main kept it (cur=1002, BC 2)
-N6 RE::C_REReads	ASSUMED existing-sequence-asserterror (corpus PR 1573) RE: as RE5, then the test fails
-N6 RE2::C_RE2Reads	ASSUMED existing-sequence-asserterror (corpus PR 1573) RE2: the write inside the asserterror
-N6 DE::C_DEReads	ASSUMED existing-sequence-asserterror (corpus PR 1573) DE: the Delete undone, then the test fails
-N6 RE4::C_RE4Reads	ASSUMED existing-sequence-asserterror (corpus PR 1573) RE4: nothing reached, the asserterror keeps the Restart (main's value, now flagged)
-N6 RE3::C_RE3Reads	ASSUMED existing-sequence-asserterror,sequence-after-failed-test (corpus PR 1573) RE3: the failed test's rollback right after the asserterror keeps the Restart (main's value, now with both ids)
+N6 RE5::C_RE5Reads	ASSUMED existing-sequence-asserterror (corpus PR 1573) RE5: a Record write, then the asserterror undoes the Restart; main kept it (cur=1002, BC 2)	29
+N6 RE::C_REReads	ASSUMED existing-sequence-asserterror (corpus PR 1573) RE: as RE5, then the test fails	29
+N6 RE2::C_RE2Reads	ASSUMED existing-sequence-asserterror (corpus PR 1573) RE2: the write inside the asserterror	29
+N6 DE::C_DEReads	ASSUMED existing-sequence-asserterror (corpus PR 1573) DE: the Delete undone, then the test fails	29
+N6 RE4::C_RE4Reads	ASSUMED existing-sequence-asserterror (corpus PR 1573) RE4: nothing reached, the asserterror keeps the Restart (main's value, now flagged)	29
+N6 RE3::C_RE3Reads	ASSUMED existing-sequence-asserterror,sequence-after-failed-test (corpus PR 1573) RE3: the failed test's rollback right after the asserterror keeps the Restart (main's value, now with both ids)	29
 N6 NextAfterStep::C_NextAfterStepReads	REFUSED number sequence '
 N6 WriteBeforeStep::C_WriteBeforeStepReads	REFUSED number sequence '
 N6 CompanyWide::C_CompanyWideReads	REFUSED number sequence '
@@ -12,7 +12,7 @@ N6 ReadOnly::C_ReadOnlyReads	REFUSED number sequence '
 N6 AutoRollback::C_AutoRollbackReads	REFUSED number sequence '
 N6 LabelError::C_LabelErrorReads	REFUSED number sequence '
 N6 HeldSecondAsserterror::C_HeldSecondAsserterrorReads	REFUSED number sequence '
-N6 DeletePasses::C_DeletePassesReads	REFUSED a test of this codeunit
+N6 DeletePasses::C_DeletePassesReads	REFUSED a test of this codeunit	29
 N6 DeleteNothing::C_DeleteNothingReads	REFUSED number sequence '
 N6 NoEarlierWrite::C_NoEarlierWriteReads	REFUSED number sequence '
 N6 SecondStep::C_SecondStepReads	REFUSED number sequence '
@@ -22,5 +22,32 @@ N6 ReadAfterUndo::B_ReadAfterUndoStep	REFUSED number sequence '
 N6 ReadAfterDeleteUndo::B_ReadAfterDeleteUndoStep	REFUSED number sequence '
 N6 ReadAfterKeep::B_ReadAfterKeepStep	REFUSED number sequence '
 N6 RE3EarlierAsserterror::C_RE3EarlierAsserterrorReads	REFUSED a test of this codeunit
-N6 ReadAfterKeep::C_ReadAfterKeepReads	ASSUMED existing-sequence-asserterror (corpus PR 1573) the step's test is refused at its read; the later test reads the kept Restart as in RE4 (main's value, now flagged)
-N6 ReadAfterUndo::C_ReadAfterUndoReads	ASSUMED existing-sequence-asserterror (corpus PR 1573) the step's test is refused at its read; the later test reads the undone Restart as in RE5
+N6 ReadAfterKeep::C_ReadAfterKeepReads	ASSUMED existing-sequence-asserterror (corpus PR 1573) the step's test is refused at its read; the later test reads the kept Restart as in RE4 (main's value, now flagged)	29
+N6 ReadAfterUndo::C_ReadAfterUndoReads	ASSUMED existing-sequence-asserterror (corpus PR 1573) the step's test is refused at its read; the later test reads the undone Restart as in RE5	29
+# N6 NoReadAfterStep: (no NumberSequence call after the step (the cells read Exists and Current there); main kept cur=1002)
+N6 NoReadAfterStep::C_NoReadAfterStepReads	REFUSED number sequence '
+# N6 CurrentAfterStep: (Current without Exists after the step; main kept cur=1002)
+N6 CurrentAfterStep::C_CurrentAfterStepReads	REFUSED number sequence '
+# N6 ExistsAfterStep: (Exists without Current after the step; main kept cur=1002)
+N6 ExistsAfterStep::C_ExistsAfterStepReads	REFUSED number sequence '
+# N6 TwoSequencesRestarted: (two sequences restarted in the transaction; main kept cur=1002)
+N6 TwoSequencesRestarted::C_TwoSequencesRestartedReads	REFUSED number sequence '
+# N6 TestPageBeforeStep: (a TestPage call before the step; main kept cur=1002)
+N6 TestPageBeforeStep::C_TestPageBeforeStepReads	REFUSED number sequence '
+# N6 TestPageAfterStep: (a TestPage call between the step and the asserterror; main kept cur=1002)
+N6 TestPageAfterStep::C_TestPageAfterStepReads	REFUSED number sequence '
+# N6 RE3 on BC 27 and 28: (the PR 1573 cells are measured on BC 29 only)
+N6 RE3::C_RE3Reads	REFUSED a test of this codeunit	27
+N6 RE3::C_RE3Reads	REFUSED a test of this codeunit	28
+# N6 RE4 on BC 27 and 28: (the PR 1573 cells are measured on BC 29 only)
+N6 RE4::C_RE4Reads	REFUSED number sequence '	27
+N6 RE4::C_RE4Reads	REFUSED number sequence '	28
+# N6 RE5 on BC 27 and 28: (the PR 1573 cells are measured on BC 29 only)
+N6 RE5::C_RE5Reads	REFUSED number sequence '	27
+N6 RE5::C_RE5Reads	REFUSED number sequence '	28
+# N6 ReadAfterKeep on BC 27 and 28: (the PR 1573 cells are measured on BC 29 only)
+N6 ReadAfterKeep::C_ReadAfterKeepReads	REFUSED number sequence '	27
+N6 ReadAfterKeep::C_ReadAfterKeepReads	REFUSED number sequence '	28
+# N6 DeletePasses on BC 27 and 28: (the PR 1573 cells are measured on BC 29 only)
+N6 DeletePasses::C_DeletePassesReads	REFUSED number sequence '	27
+N6 DeletePasses::C_DeletePassesReads	REFUSED number sequence '	28
