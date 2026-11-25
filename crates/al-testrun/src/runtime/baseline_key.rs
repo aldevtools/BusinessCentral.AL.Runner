@@ -108,10 +108,9 @@ pub(crate) fn manifest_digest(m: &Manifest) -> [u8; 32] {
 /// workspace's own install codeunits. It is the same for the same program and the same world around it, which is
 /// everything the key holds: this runtime build, the dependency layers (the key of the top layer holds every app of
 /// them and the target), the source and the manifest of every other app, the test codeunits that were compiled, the BC target, the
-/// environment of the host and the day. The rows carry the time the run began (`SystemClock`), and a test may ask how
-/// old one is. The file therefore holds that instant, and a run that reads the file starts its own clock there, so
-/// the rows and the clock agree as they do in a run that began then and ran the install code. The day only bounds how
-/// far in the past a run may think it began.
+/// environment of the host and the day of the run's start (`clock`). The rows carry the instant the run began, and a
+/// test may ask how old one is. The file therefore holds that instant, and a run takes the file only when it began at
+/// the same instant, so the rows and the clock agree as they do in a run that ran the install code.
 ///
 /// The second text is the frame of the key: all of it but the source of the apps (`KeyBuilder::finish_frame`), what a
 /// warm server's baseline carried over an edit must match (`baseline_cache::carry`).
@@ -128,19 +127,17 @@ pub(super) fn baseline_key(
     target: Option<&al_version::Target>,
     dotnet: &al_vm::dotnet::DotNetConfig,
     opts: &RunOptions,
+    clock: crate::host::RunClock,
 ) -> Option<(String, String)> {
     let (ws, lowered, suites) = (&compiled.ws, &compiled.lowered, &compiled.suites);
     let report = compiled.cache_report.as_ref()?;
     let uncovered = compiled.uncovered.as_deref()?;
     opts.compile_cache.as_ref()?;
-    if opts.trace
-        || opts.execute
-        || suites.iter().any(|s| s.runner.is_some())
-        || crate::host::uses_real_files()
-        || crate::host::real_clock()
-    {
+    if opts.trace || opts.execute || suites.iter().any(|s| s.runner.is_some()) || crate::host::unkeyed().is_some() {
         return None;
     }
+    // The instant the run's clock began. A run on the wall clock has none and keeps nothing (`unkeyed` refused it).
+    let started_at = clock.start()?;
     let mut key = crate::baseline_cache::KeyBuilder::new();
     // A variant of a stability run (ADR-058 section 7) runs the install code under its own host values.
     let host_values = opts.perturb.host_key();
@@ -268,9 +265,9 @@ pub(super) fn baseline_key(
             "no"
         },
     );
-    // Read the wall clock without starting the run clock: a run that finds its baseline starts the clock at the
-    // instant the baseline's run began (`SystemClock::begin_at`).
-    let day = crate::host::SystemClock::wall().div_euclid(86_400_000);
+    // The day of the run's start, not of another wall read: the file holds that start (`run_compiled_kept`), so the
+    // day in the key and the instant in the file agree, also for a run that spans midnight (al-runner issue 8457).
+    let day = started_at.div_euclid(86_400_000);
     key.text("day", &day.to_string());
     // The lowering reads it (ADR-023), so the install code it produces depends on it.
     key.text(

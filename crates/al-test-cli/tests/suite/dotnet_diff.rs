@@ -4,7 +4,7 @@
 //! `ALRT_REQUIRE_DOTNET=1` (CI) a missing .NET fails.
 
 use al_host::dotnet::*;
-use al_host::inproc::{InprocHost, MEMBERS};
+use al_host::inproc::{InprocHost, listed_members};
 use al_test_cli::dotnet::{SidecarConfig, SidecarHost};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -723,12 +723,7 @@ fn the_stand_ins_answer_what_the_sidecar_answers() {
     covered.extend(regex_checks(&mut pair));
 
     // ---- the list of members equals what was covered ----
-    let listed: BTreeSet<String> = MEMBERS
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty() && !l.starts_with('#'))
-        .map(String::from)
-        .collect();
+    let listed: BTreeSet<String> = listed_members().map(String::from).collect();
     let ours: BTreeSet<String> = covered
         .iter()
         .filter(|c| !c.starts_with("(sidecar)"))

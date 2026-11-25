@@ -533,6 +533,25 @@ fn a_write_starts_from_the_backing_rows() {
     assert_eq!(s.count(&cx, &t, &[]).unwrap(), 3);
 }
 
+// al-runner issue 8954: the first write of a backed table copies the backing's rows in; the safety net of an install
+// footprint compares them with the rows the store read before, so only the written row is a change.
+#[test]
+fn the_footprint_safety_net_takes_the_backing_rows_as_the_rows_before() {
+    use super::footprint::{Resource, RowKey};
+    let (mut before, _) = backed();
+    let (t, cx) = (crate::contract::table(), crate::contract::cx("C"));
+    before.commit();
+    let mut after = before.clone();
+    after.insert(&cx, &t, crate::contract::row("D", 4, 3)).unwrap();
+    after.commit();
+    let d = Resource::Row("C".into(), t.object, RowKey::of(&t, vec![Value::Code("D".into())]));
+    assert_eq!(after.unrecorded_writes(&before, &[d].into_iter().collect()), Ok(()));
+    assert!(
+        after.unrecorded_writes(&before, &Default::default()).is_err(),
+        "the new row is a change"
+    );
+}
+
 #[test]
 fn deleting_every_restored_row_leaves_the_table_empty_not_restored_again() {
     let (mut s, _) = backed();
@@ -946,4 +965,28 @@ fn a_deleted_out_backed_table_stays_empty_after_the_way_back() {
     s.commit();
     let back = MemStore::from_exported(s.export_committed().unwrap()).with_backing(b);
     assert_eq!(back.count(&cx, &t, &[]).unwrap(), 0, "not restored again");
+}
+
+// A guard: `committed_rows` gives each committed entry with the rows `committed_table` clones, by reference, in key
+// order, and its stamp. Rows written but not committed are not in it.
+#[test]
+fn committed_rows_are_committed_tables_rows_by_reference_in_key_order() {
+    use crate::contract::{cx, row, table};
+    let (c, t) = (cx("C"), table());
+    let mut s = MemStore::default();
+    for no in ["C", "A", "B"] {
+        s.insert(&c, &t, row(no, 1, 1)).unwrap();
+    }
+    s.commit();
+    s.insert(&c, &t, row("D", 1, 1)).unwrap();
+    let (cloned, _) = s.committed_table("C", 7).unwrap();
+    let entries: Vec<_> = s.committed_rows().collect();
+    assert_eq!(entries.len(), 1, "one entry");
+    let entry = &entries[0];
+    assert_eq!((entry.company, entry.object), ("C", 7));
+    assert_ne!(entry.stamp, 0, "a committed write stamps the entry");
+    let by_ref: Vec<&Row> = entry.rows().collect();
+    let expected: Vec<&Row> = cloned.rows.iter().map(|(_, r)| r).collect();
+    assert_eq!(format!("{by_ref:?}"), format!("{expected:?}"));
+    assert_eq!((by_ref.len(), entry.len()), (3, 3), "the uncommitted row is not in it");
 }

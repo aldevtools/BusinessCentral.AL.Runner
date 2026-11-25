@@ -9,7 +9,7 @@
 //! Which reads see which writes ([`Resource::read_sees_write`]) and which writes collide is decided here, the one owner
 //! of those rules; al-vm `install_footprint.rs` builds the rest of the footprint on them.
 
-use super::{Key, MemStore};
+use super::{BeforeRows, Key, MemStore};
 use crate::{AccessContext, TableDef};
 use al_builtins::value::Value;
 use std::cell::{Cell, RefCell};
@@ -203,9 +203,14 @@ pub(super) enum Touch {
 impl MemStore {
     /// The safety net of a footprint (ADR-079 step 1): `Ok` when every committed row this store holds apart from
     /// `before` (new, changed or gone) is covered by a write of `writes`: a write of that row, of its table's extent in its
-    /// company, or of the whole table. Else the reason, which counts as touching everything: the recorder missed a write.
+    /// company, or of the whole table. Else the reason, which counts as touching everything: the recorder missed a write;
+    /// with the table (object index) whose row changed or that was emptied, when one is known.
     /// Rows are compared by their bytes; a row that is not a plain value counts as changed.
-    pub fn unrecorded_writes(&self, before: &MemStore, writes: &BTreeSet<Resource>) -> Result<(), &'static str> {
+    pub fn unrecorded_writes(
+        &self,
+        before: &MemStore,
+        writes: &BTreeSet<Resource>,
+    ) -> Result<(), (&'static str, Option<u32>)> {
         let (mut x, mut y) = (Vec::new(), Vec::new());
         let mut same = |a: &[Value], b: &[Value]| {
             x.clear();
@@ -214,8 +219,8 @@ impl MemStore {
                 al_builtins::value_codec::encode_row(a, &mut x) && al_builtins::value_codec::encode_row(b, &mut y);
             Some(plain && x == y)
         };
-        let Some(changes) = self.committed_row_changes_from(before, &mut same) else {
-            return Err("the companies copied changed");
+        let Some(changes) = self.committed_row_changes_from(before, BeforeRows::Backing, &mut same) else {
+            return Err(("the companies copied or deleted changed", None));
         };
         let covers_table = |company: &str, object: u32| {
             writes.contains(&Resource::Table(object)) || writes.contains(&Resource::Extent(company.into(), object))
@@ -232,12 +237,12 @@ impl MemStore {
             for k in keys {
                 let key = RowKey(Key::in_table(k.to_vec(), &t.pk_storage));
                 if !writes.contains(&Resource::Row(t.company.as_str().into(), t.object, key)) {
-                    return Err("a row changed that no recorded write names");
+                    return Err(("a row changed that no recorded write names", Some(t.object)));
                 }
             }
         }
-        if changes.gone.iter().any(|(c, o)| !covers_table(c, *o)) {
-            return Err("a table emptied that no recorded write names");
+        if let Some((_, o)) = changes.gone.iter().find(|(c, o)| !covers_table(c, *o)) {
+            return Err(("a table emptied that no recorded write names", Some(*o)));
         }
         Ok(())
     }

@@ -43,7 +43,7 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
 /// What the partner dependency apps' login subscribers left in the test session ([`raise`]).
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(crate) struct PartnerLogin {
     /// The tables they wrote: a test or an OnRun that reads or writes one is not run.
     pub tables: BTreeSet<u32>,
@@ -60,7 +60,7 @@ pub(crate) struct PartnerLogin {
 type Singles = BTreeMap<usize, BTreeSet<usize>>;
 
 /// One login subscriber's change of a SingleInstance codeunit ([`PartnerLogin::changed_by`]).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Change {
     /// The partner subscriber's app; `None` for a subscriber of an app under test.
     app: Option<u32>,
@@ -282,6 +282,7 @@ pub(crate) fn raise(
             }
         }
     }
+    session.mark_declared_form(&change);
     left.group1.extend(before.group1_changed(&after));
     left.watch_after(session);
     Ok(())

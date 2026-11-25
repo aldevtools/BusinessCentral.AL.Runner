@@ -938,6 +938,9 @@ impl Session {
                  table field inserted (not measured)",
             );
         }
+        if st.borrow().coded_objects == super::state::CodedObjects::Extra {
+            self.coded_extra_shape(st)?;
+        }
         if !self.view_kept(st, view)? {
             st.borrow_mut().forget_code_inserted_line();
             return unsupported(

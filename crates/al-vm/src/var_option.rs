@@ -26,8 +26,9 @@
 //! for the places `unheard_publisher_caller` names it returns the arguments whose write-back
 //! `interp.rs::write_backs` skips, and refuses every other place; and a memberless subscriber under a
 //! publisher with members unless the argument is a procedure's `var` parameter its caller handed a
-//! measured variable (`option_hops_of`, kept per frame in `Frame::option_hops`). The static side is
-//! al-sema `lower/var_option_arg.rs`.
+//! measured variable (`option_hops_of`, kept per frame in `Frame::option_hops`). A memberless `var`
+//! parameter handed on to a `var` parameter with members: `carried.rs`. The static side is al-sema
+//! `lower/var_option_arg.rs`.
 
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::builtin_id::{BuiltinId, ids};
@@ -35,6 +36,18 @@ use al_builtins::native::Signal;
 use al_builtins::option_members::memberless;
 use al_builtins::value::{RtType, Value};
 use std::sync::Arc;
+
+mod carried;
+pub(crate) use carried::{Carried, may_keep_carried};
+
+/// Whether routine `r` has a `var` Option parameter declared without members (`memberless_list`) or with members.
+pub(crate) fn has_var_option_param(r: &al_ir::Routine, memberless_list: bool) -> bool {
+    r.locals
+        .iter()
+        .zip(&r.by_var)
+        .take(r.params)
+        .any(|(l, v)| *v && matches!(&l.ty, RtType::Option(m) if memberless(m) == memberless_list))
+}
 
 /// The value a `var` parameter of type `ty` takes when it is handed `v`; `None`: the usual conversion.
 /// - Declared without members, it keeps the members of the value handed in: Format, StrSubstNo and Evaluate in the callee
@@ -88,12 +101,14 @@ pub(crate) fn written_back(v: &Value, declared: &RtType, current: impl FnOnce() 
 /// (`var_param`: the slot is a `var` parameter of the running routine). Declared without members and holding the caller's
 /// members, it keeps them and takes the ordinal of `v`, whatever `v`'s members: an Integer, an Option with other members,
 /// without members or with the same, Evaluate and Clear (OVMW:112, :130, :162, :212, :226, :269;
-/// OptionVarMemberlessEvaluate.al:244). Any other value is stored as it is.
+/// OptionVarMemberlessEvaluate.al:244). Declared with members and holding a value that carries another list or none (only a
+/// binding `carried::Session::carried_args` let through gives it one), it keeps that list: `:=` of an own member gives the
+/// value's member or the number (assumption var-option-carried-members, corpus PR 1569 OptionVarMembersCallee.al
+/// VarHop_Other_* `write inside` `|Third|2`, VarHop_Memberless_* `|2|2`; CalleeOps_VarHop_* Evaluate and `:= 1`), and Clear
+/// the first member of that list (CalleeOps_VarHop_Other `Clear inside` `>First|0`). Any other value is stored as it is.
 pub(crate) fn param_store(v: Value, declared: &RtType, var_param: bool, current: &Value) -> Value {
     match (&v, declared, current) {
-        (Value::Option(o, _), RtType::Option(d), Value::Option(_, own))
-            if var_param && memberless(d) && !memberless(own) =>
-        {
+        (Value::Option(o, _), RtType::Option(d), Value::Option(_, own)) if var_param && own != d => {
             Value::Option(*o, own.clone())
         }
         _ => v,
@@ -337,18 +352,9 @@ impl crate::Session {
         }
     }
 
-    /// The marks `finish_call` left for the frame of a routine with `var` Option parameters with members (`option_hops_of`);
-    /// empty for any other routine.
-    pub(crate) fn take_option_hops(&mut self, wanted: bool) -> Vec<bool> {
-        if wanted {
-            std::mem::take(&mut self.events.next_option_hops)
-        } else {
-            Vec::new()
-        }
-    }
-
-    /// The array `base` of an element store is, for `element_store`.
-    fn array_of(&self, base: &al_ir::Place, f: &crate::Frame) -> ArrayOf {
+    /// The array `base` of an element store is, for `element_store`; also the place a `Clear` names
+    /// (`clear_shared_codeunit`).
+    pub(crate) fn array_of(&self, base: &al_ir::Place, f: &crate::Frame) -> ArrayOf {
         let r = &self.engine.program.objects[f.object].routines[f.routine];
         match base {
             al_ir::Place::Local(s) if *s < r.params && r.by_var.get(*s) == Some(&true) => ArrayOf::VarParameter,
