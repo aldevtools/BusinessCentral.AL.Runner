@@ -1431,10 +1431,9 @@ impl CorpusRuntime {
                     let is_test = is_selected_test(lowered, oi, suite, opts_only);
                     let Some(id) = o.id.filter(|_| is_test) else { continue };
                     let hub_path = hub_path(suite, opts, driver);
-                    let this = unit_runner(lowered, &engine, oi, &isolation, hub_path, opts).and_then(|t| {
-                        let refused = plan.as_ref().and_then(|p| p.refusal(&engine, lowered, oi, id));
-                        refused.map_or(Ok(t), Err)
-                    });
+                    let plan_refused = || plan.as_ref().and_then(|p| p.refusal(&engine, lowered, oi, id));
+                    let this = unit_runner(lowered, &engine, oi, &isolation, hub_path, opts)
+                        .and_then(|t| plan_refused().map_or(Ok(t), Err));
                     match &this {
                         Ok((i, hub, runner)) => units.push(Unit {
                             si,
