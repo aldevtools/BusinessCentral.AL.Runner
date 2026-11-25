@@ -1,0 +1,2 @@
+PN Lifecycle Tests::EmptyProviderBlankKeyAndRecovery	PINNED tests/al-language/testpage/parts/ProviderPartOutsideFactBoxes.al:482
+PN Lifecycle Tests::NewBaseFactBoxReadsAndInsert	PINNED tests/al-language/testpage/parts/ProviderPartOutsideFactBoxes.al:500
