@@ -1,6 +1,6 @@
 //! The influence graph and its units (ADR-079 decision 2).
 
-use super::{Footprints, Graph, tie};
+use super::{Footprints, Graph, everything_lines, tie};
 use al_vm::install_footprint::{InstallFootprint, Lasting};
 use std::collections::BTreeSet;
 
@@ -74,14 +74,43 @@ fn a_cycle_of_four_installs_is_one_unit_and_ordered_apps_have_no_edge() {
 #[test]
 fn an_install_that_touches_everything_ties_every_unordered_install_session() {
     let mut page = InstallFootprint::default();
-    page.everything.insert("a page".into());
+    page.touch_everything("a page", Vec::new());
     let fp: Footprints = [(1, page), (2, InstallFootprint::default())].into_iter().collect();
     let apps = all(&[1, 2, 3]);
     assert_eq!(
         Graph::of(&apps, &fp, |x, y| x != y).units(&apps, no_deps),
         vec![vec![1, 2], vec![3]]
     );
-    assert!(tie(&fp, 2, 1, |a| a.to_string(), |t| t.to_string()).contains("a page"));
+    let lines = everything_lines(&fp, &all(&[1, 2]), |_| String::new(), |a| format!("{a:?}"));
+    assert_eq!(lines, vec!["a page in the install of {1}".to_string()]);
+}
+
+/// al-runner issue 8954: the lines of a refusal name each reason once per place, with every app whose install reached
+/// it there; another place is another line.
+#[test]
+fn the_lines_of_installs_that_touch_everything_group_the_apps_by_reason_and_place() {
+    let at = |object: usize| {
+        let mut f = InstallFootprint::default();
+        let site = vec![al_vm::FaultFrame {
+            object,
+            routine: 0,
+            pos: 0,
+        }];
+        f.touch_everything("a .NET call (X.Y)", site.clone());
+        f.touch_everything("a .NET call (X.Y)", Vec::new());
+        f
+    };
+    let fp: Footprints = [(1, at(7)), (2, at(7)), (3, at(8))].into_iter().collect();
+    let place = |s: &[al_vm::FaultFrame]| s.first().map_or(String::new(), |f| format!(" at {}", f.object));
+    let lines = everything_lines(&fp, &all(&[1, 2, 3]), place, |a| format!("{a:?}"));
+    assert_eq!(
+        lines,
+        vec![
+            "a .NET call (X.Y) at 7 in the install of {1, 2}".to_string(),
+            "a .NET call (X.Y) at 8 in the install of {3}".to_string()
+        ],
+        "the first site of a reason is kept"
+    );
 }
 
 #[test]
@@ -130,7 +159,7 @@ fn the_tie_names_the_table_and_the_kind_of_resource_not_its_debug_form() {
 #[test]
 fn an_app_without_install_code_is_reached_only_by_a_meet() {
     let mut page = InstallFootprint::default();
-    page.everything.insert("a page".into());
+    page.touch_everything("a page", Vec::new());
     let apps = all(&[1, 2]);
     let alone: Footprints = [(1, page.clone())].into_iter().collect();
     assert_eq!(Graph::of(&apps, &alone, |x, y| x != y), Graph::default());

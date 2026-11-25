@@ -1,0 +1,3 @@
+# key	entry
+# No difference: on head A still touches everything and ties B and C, as on main; a tangle of three has all its
+# orders tried. Four such apps stay refused (al-testrun install_partner_order.rs, the Unattributed Install test).

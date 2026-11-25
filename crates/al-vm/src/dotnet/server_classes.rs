@@ -39,10 +39,49 @@ pub const ANSWERS_ONLY: &[(&str, &str)] = &[
     (AL_CONFIG_SETTINGS, "IsSaaS"),
 ];
 
+/// The members, (CLR type, member), whose implementation here answers with a constant or the host identity and keeps
+/// nothing, besides [`ANSWERS_ONLY`]: the getters of the environment, the server settings and the tenant that System
+/// Application's Environment Information, Server Setting and Tenant Information wrappers call (al-runner issue 8954:
+/// partner install code reaches them through Upgrade Tag and Retention Policy). `TryGetStringTenantSetting` also writes
+/// its answer into its `var` argument, a variable of the caller. Read only by the install footprint
+/// ([`keeps_nothing`]); the readers of [`ANSWERS_ONLY`] do not take these. A member is added only with the same
+/// reading of its implementation, which carries the comment that it is listed.
+pub const CONSTANT_ANSWERS: &[(&str, &str)] = &[
+    (TENANT_SETTINGS_HELPER, "IsProduction"),
+    (TENANT_SETTINGS_HELPER, "IsWSKeyAllowed"),
+    (TENANT_SETTINGS_HELPER, "GetEnvironmentName"),
+    (TENANT_SETTINGS_HELPER, "GetApplicationFamily"),
+    (TENANT_SETTINGS_HELPER, "GetRingName"),
+    (TENANT_SETTINGS_HELPER, "GetLinkedPowerPlatformEnvironmentId"),
+    (TENANT_SETTINGS_HELPER, "GetEnvironmentApplicationSetting"),
+    (TENANT_SETTINGS_HELPER, "TryGetStringTenantSetting"),
+    (USER_ACCOUNT_HELPER, "IsAzure"),
+    (TENANT_INFO, "InitialDomain"),
+    (TENANT_INFO, "CountryLetterCode"),
+    (TENANT_INFO, "PreferredLanguage"),
+    (AL_CONFIG_SETTINGS, "EnableSaasExtensionInstallConfigSetting"),
+    (AL_CONFIG_SETTINGS, "IsSaasExcelAddinEnabled"),
+    (AL_CONFIG_SETTINGS, "EnableEntraGroupsOnPrem"),
+    (AL_CONFIG_SETTINGS, "ApiServicesEnabled"),
+    (AL_CONFIG_SETTINGS, "ApiSubscriptionsEnabled"),
+    (AL_CONFIG_SETTINGS, "ApiSubscriptionSendingNotificationTimeout"),
+    (AL_CONFIG_SETTINGS, "ApiSubscriptionMaxNumberOfNotifications"),
+    (AL_CONFIG_SETTINGS, "ApiSubscriptionDelayTime"),
+    (AL_CONFIG_SETTINGS, "TestAutomationEnabled"),
+    (AL_CONFIG_SETTINGS, "UsePermissionsFromExtensions"),
+];
+
 /// Whether `member` of the declared CLR type `clr_type` is one of [`ANSWERS_ONLY`] (both without regard to case, as the
 /// registry matches them).
 pub fn answers_only(clr_type: &str, member: &str) -> bool {
     (ANSWERS_ONLY.iter()).any(|(t, m)| t.eq_ignore_ascii_case(clr_type) && m.eq_ignore_ascii_case(member))
+}
+
+/// Whether `member` of `clr_type` is one of [`ANSWERS_ONLY`] or [`CONSTANT_ANSWERS`] (both without regard to case): its
+/// implementation here keeps nothing (al-vm `install_footprint.rs`).
+pub fn keeps_nothing(clr_type: &str, member: &str) -> bool {
+    answers_only(clr_type, member)
+        || (CONSTANT_ANSWERS.iter()).any(|(t, m)| t.eq_ignore_ascii_case(clr_type) && m.eq_ignore_ascii_case(member))
 }
 
 /// Whether a variable of the declared CLR type `clr_type` can only hold an object of a class served here whose members
@@ -87,6 +126,8 @@ fn al_config_instance(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args)
     }))))
 }
 
+// The flags below are listed in ANSWERS_ONLY or CONSTANT_ANSWERS: each must stay a constant; a write here must remove it
+// from the list.
 // ServerUserSettings attribute defaults (Nav.Types 27.5): EnableSaasExtensionInstall false,
 // ExcelAddInAzureActiveDirectoryClientId "" (no Guid, so false), EnableEntraGroupsOnPrem false,
 // ApiServicesEnabled true, ApiSubscriptionsEnabled true, ApiSubscriptionSendingNotificationTimeout
@@ -143,7 +184,6 @@ config_flag!(
     "ALConfigSettings.UsePermissionsFromExtensions",
     Value::Boolean(true)
 );
-// Listed in ANSWERS_ONLY: must stay read-only; a write here must remove it from the list.
 config_flag!(membership_entitlement, "ALConfigSettings.IsSaaS", Value::Boolean(false));
 
 /// Whether the tenant is a sandbox. The SaaS environment is the oracle tier (probe: `IsSandbox`
@@ -164,6 +204,7 @@ fn is_sandbox(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Resu
 }
 
 /// BC's body is `!IsSandbox()`.
+// Listed in CONSTANT_ANSWERS: must stay read-only; a write here must remove it from the list.
 fn is_production(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "NavTenantSettingsHelper.IsProduction")?;
     Ok(Value::Boolean(!tenant_is_sandbox(s)))
@@ -171,6 +212,7 @@ fn is_production(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> R
 
 /// `IsWSKeyAllowed()`, which Base Application's User Card reads when it opens in SaaS (AL Runner issue 7447). Measured Yes,
 /// also as a condition, on BC 27.5, 28.5 and 29.0 (corpus PR 1330, al-language-onprem-dotnet/dotnet/dotnet/IsWSKeyAllowed.al:34).
+// Listed in CONSTANT_ANSWERS: must stay read-only; a write here must remove it from the list.
 fn is_ws_key_allowed(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "NavTenantSettingsHelper.IsWSKeyAllowed")?;
     Ok(Value::Boolean(true))
@@ -207,6 +249,7 @@ fn set_test_tenant_environment_type(
 /// The wrapper answers 'Sandbox' (probe). Whether the helper returns that or an empty name that
 /// the wrapper turns into 'Sandbox' is not observable through the wrapper; the empty name is the
 /// default of an unset `NavTenantSettings.EnvironmentName`.
+// Listed in CONSTANT_ANSWERS: must stay read-only; a write here must remove it from the list.
 fn environment_name(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     text("NavTenantSettingsHelper.GetEnvironmentName", args, 0, "")
 }
@@ -221,6 +264,7 @@ fn environment_name(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -
 /// and the out value is cleared (al-language-onprem-dotnet/dotnet/dotnet/BbNavHelpers.al:127
 /// TenantSettings_TryGetStringTenantSetting `LTBBNOSUCHSETTING`, and TenantSettings_TryGetStringTenantSetting_SettingNames
 /// at :185; al-runner issue 6925).
+// Listed in CONSTANT_ANSWERS: must stay read-only; a write here must remove it from the list.
 fn try_get_string_tenant_setting(
     s: &mut Session,
     _: Option<&Rc<DotNetObject>>,
@@ -294,6 +338,7 @@ fn platform_version(s: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -
     s.host_static_call(ty, "Parse", &[&text])
 }
 
+// Listed in CONSTANT_ANSWERS: must stay read-only; a write here must remove it from the list.
 fn application_family(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     text("NavTenantSettingsHelper.GetApplicationFamily", args, 0, "W1")
 }
@@ -301,10 +346,12 @@ fn application_family(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args)
 /// `GetRingName()`: an empty text, so `"Environment Information".IsPreview` and `IsEarlyPreview` answer false
 /// (tests/al-language-onprem-dotnet/dotnet/dotnet/BbNavHelpers.al:111-120 `[]`, tests/al-language/types/PVEnvironment.al:50-66;
 /// issue 6675).
+// Listed in CONSTANT_ANSWERS: must stay read-only; a write here must remove it from the list.
 fn ring_name(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     text("NavTenantSettingsHelper.GetRingName", args, 0, "")
 }
 
+// Listed in CONSTANT_ANSWERS: must stay read-only; a write here must remove it from the list.
 fn power_platform_environment_id(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     text(
         "NavTenantSettingsHelper.GetLinkedPowerPlatformEnvironmentId",
@@ -315,6 +362,7 @@ fn power_platform_environment_id(_: &mut Session, _: Option<&Rc<DotNetObject>>, 
 }
 
 /// Every name maps to `GetEnvironmentSetting`, which reads the empty `EnvironmentSettings`.
+// Listed in CONSTANT_ANSWERS: must stay read-only; a write here must remove it from the list.
 fn environment_application_setting(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     text("NavTenantSettingsHelper.GetEnvironmentApplicationSetting", args, 1, "")
 }
@@ -322,6 +370,7 @@ fn environment_application_setting(_: &mut Session, _: Option<&Rc<DotNetObject>>
 /// `!NavEnvironment.Topology.IsServiceRunningInLocalEnvironment`, which is
 /// `Environment Information.IsSaaSInfrastructure`: false on every supported major (corpus
 /// `session-system/TestEnvironmentUserTenantContracts.al:185`).
+// Listed in CONSTANT_ANSWERS: must stay read-only; a write here must remove it from the list.
 fn is_azure(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "NavUserAccountHelper.IsAzure")?;
     Ok(Value::Boolean(false))
@@ -737,6 +786,7 @@ fn graph_tenant_detail(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args
 /// expects '' from `GetAadTenantDomainName`, `GetCountryLetterCode` and `GetPreferredLanguage`.
 const TENANT_INFO_PIN: &str = "session-system/TestEnvironmentUserTenantContracts.al:210-229 (GetAadTenantDomainName, GetCountryLetterCode and GetPreferredLanguage answer '' without an error)";
 
+// Listed in CONSTANT_ANSWERS: must stay read-only; a write here must remove it from the list.
 fn tenant_info_empty_text(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "TenantInfo member")?;
     Ok(Value::Text(String::new().into()))

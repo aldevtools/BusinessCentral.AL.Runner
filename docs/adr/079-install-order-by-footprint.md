@@ -255,6 +255,35 @@ least as strict as the text it clarifies.
 - **Facts, citation.** Fact 3 cites the asserting lines `Y79InstallUnrelated.al:142-143` (before: the header comment).
 - **Conformance.** The neighbor apps run on BC 27, 28 and 29; the pull request shows the table of each.
 
+### Amendment 1 (Proposed, al-runner issue 8954): .NET members that keep nothing
+
+Status: Proposed, awaiting the owner. Until it is accepted, the pull request that builds it stays a draft.
+
+Decision 1 counts every .NET call as touching everything. Outside reporters' suites then tie four to 25 apps through
+installs whose .NET calls cannot reach a lasting resource, and the whole suite is refused. This amendment narrows the
+.NET row of decision 1 to two exact lists; every other .NET call keeps touching everything.
+
+1. **A pure framework member served in process** (al-host `inproc.txt`, ADR-038 section 1), matched by its exact CLR
+   type and member name (case-insensitive member), the constructor as `.ctor`. Such a member reads and writes only .NET
+   objects of the session. By fact 1 no session state, and so no .NET object in a local, a global or a SingleInstance
+   global, carries from one app's install to another's. What install code takes from such an object reaches a lasting
+   resource only through code the recorder sees (a record write, isolated storage, ...).
+2. **A server class member whose answer here is a constant or the host identity** (al-vm `server_classes.rs`
+   `ANSWERS_ONLY` and `CONSTANT_ANSWERS`): the environment, server setting and tenant getters that System Application's
+   Environment Information, Server Setting and Tenant Information wrappers call. Each answer is pinned by its own
+   registry citation; being a constant, it is the same in every install order. `TryGetStringTenantSetting` writes the
+   answer into its `var` argument, a variable of the caller, nothing else. A setter of the same classes
+   (`SetTestTenantEnvironmentType`) is not listed and touches everything.
+
+A .NET call answered before its target is known (a `[RunOnClient]` null receiver, a cleared object, a variable never
+created, a target that cannot be resolved) keeps touching everything.
+
+**Recorder fix in the same pull request (not a change of the decision).** The safety net of step 1 compared a table the
+store before the session held no entry for with no rows; the session's first write copies the test data's rows of that
+table in (`table_mut`), so every such row looked like a write nobody recorded and the install touched everything. It
+now compares with the rows the store before the session read for it (`row_changes.rs`). The refusal of a unit larger
+than three apps names, per reason, the call site, the install that reached it and the apps.
+
 ## Options considered
 
 1. **Try every order for 4 to 5 apps.** 24 or 120 group installs, and still refuses at 23 apps. Rejected.

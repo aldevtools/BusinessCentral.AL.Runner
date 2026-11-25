@@ -1,0 +1,7 @@
+# key	entry
+# Main: the registry members touch everything and the four apps tie; head: their answers are constants here.
+FP Dotnet Server Tests::RowOfAExists	PINNED tests/al-language/record/BfInstallTests.al:125 (fact 1: fresh session state per install session)
+FP Dotnet Server Tests::RowOfBExists	PINNED tests/al-language/record/BfInstallTests.al:125 (fact 1: fresh session state per install session)
+FP Dotnet Server Tests::RowOfCExists	PINNED tests/al-language/record/BfInstallTests.al:125 (fact 1: fresh session state per install session)
+FP Dotnet Server Tests::RowOfDExists	PINNED tests/al-language/record/BfInstallTests.al:125 (fact 1: fresh session state per install session)
+FP Dotnet Server Tests::ControlTouchesNoInstalledTable	PINNED tests/al-language/record/BfInstallTests.al:125 (fact 1: fresh session state per install session)

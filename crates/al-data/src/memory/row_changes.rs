@@ -41,7 +41,7 @@ fn name(s: &Slot) -> (String, u32) {
 impl MemStore {
     /// The committed rows of this store apart from `base`'s, row by row: the tables whose rows differ, with the rows
     /// that are new or changed and the keys of those that are gone, and the tables `base` holds that this store does
-    /// not. A table with `base`'s stamp holds `base`'s rows (stamps are unique in the process) and is skipped; an entry
+    /// not. A table `base` holds no entry for is compared with the backing's rows `base` reads for it. A table with `base`'s stamp holds `base`'s rows (stamps are unique in the process) and is skipped; an entry
     /// both maps share is the same row. `same(a, b)` says whether two rows (or keys) are the same, as their bytes are;
     /// `None` from it (a value that is not plain) gives `None`. `None` too when the company copies differ.
     pub fn committed_row_changes_from(&self, base: &MemStore, same: &mut SameRows<'_>) -> Option<RowChanges> {
@@ -55,13 +55,27 @@ impl MemStore {
         }
         let mut out = RowChanges::default();
         for (slot, table) in self.committed.iter() {
-            let Some(old) = base.committed.get(slot) else {
-                out.tables.push(whole(slot, table));
-                continue;
+            // A table `base` holds no entry for reads the backing's rows there (`backing_rows`); the first write here
+            // copied them in (`table_mut`), so they are the rows to compare with (al-runner issue 8954).
+            let backed;
+            let old = match base.committed.get(slot) {
+                Some(old)
+                    if table.ptr_eq(old) || self.committed_versions.get(slot) == base.committed_versions.get(slot) =>
+                {
+                    continue;
+                }
+                Some(old) => old,
+                None => match base.backing_rows(&slot.0, slot.1) {
+                    Some(rows) => {
+                        backed = rows.0;
+                        &backed
+                    }
+                    None => {
+                        out.tables.push(whole(slot, table));
+                        continue;
+                    }
+                },
             };
-            if table.ptr_eq(old) || self.committed_versions.get(slot) == base.committed_versions.get(slot) {
-                continue;
-            }
             let mut put = Vec::new();
             let mut gone = Vec::new();
             let (mut a, mut b) = (table.iter().peekable(), old.iter().peekable());

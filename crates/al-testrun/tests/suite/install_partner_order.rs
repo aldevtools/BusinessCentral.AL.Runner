@@ -253,6 +253,11 @@ fn manifest(publisher: &str) -> Manifest {
 
 /// Runs the test app (under test) over the dependency apps `deps` (id, name, publisher, dependencies, source).
 fn run(deps: Vec<(&str, &str, &str, Vec<&str>, String)>) -> CorpusRuntime {
+    run_on(deps, Default::default())
+}
+
+/// [`run`] with the .NET host `dotnet`.
+fn run_on(deps: Vec<(&str, &str, &str, Vec<&str>, String)>, dotnet: al_vm::dotnet::DotNetConfig) -> CorpusRuntime {
     let mut apps = Vec::new();
     let mut kinds = Vec::new();
     let mut manifests = Vec::new();
@@ -266,7 +271,7 @@ fn run(deps: Vec<(&str, &str, &str, Vec<&str>, String)>) -> CorpusRuntime {
     apps.push(app(MAIN_ID, "Order Tests", &all, TESTS));
     kinds.push(al_sema::AppKind::Workspace);
     manifests.push(manifest("Partner"));
-    CorpusRuntime::run_for_apps(apps, kinds, &manifests, &Default::default(), None, Default::default())
+    CorpusRuntime::run_for_apps(apps, kinds, &manifests, &Default::default(), None, dotnet)
 }
 
 fn outcome(rt: &CorpusRuntime, test: &str) -> Outcome {
@@ -678,11 +683,92 @@ fn an_install_that_touches_everything_next_to_three_other_installs_is_refused() 
     ]);
     match outcome(&rt, "PartnerInstallRan") {
         Outcome::NotRun(why) => assert!(
-            why.contains("4 apps tied by their installs") && why.contains("touches everything"),
+            why.contains("4 apps tied by their installs")
+                && why.contains("touch everything")
+                // al-runner issue 8954: the reason names the call site and the install that reached it.
+                && why.contains("\"Unattributed Install\".OnInstallAppPerCompany")
+                && why.contains("in the install of Partner N1"),
             "{why}"
         ),
         other => panic!("expected not run, got {other:?}"),
     }
+}
+
+/// A partner install that builds a local `System.Text.StringBuilder` and writes its text into its own JQ Entry row
+/// (`no`); the first (`no` 1) also writes the Install Mark that `PartnerInstallRan` reads.
+fn string_builder(object: u32, name: &str, no: u32) -> String {
+    format!(
+        r#"
+dotnet {{ assembly("mscorlib") {{ type("System.Text.StringBuilder"; "{name} Builder") {{ }} }} }}
+
+codeunit {object} "{name} Install"
+{{
+    Subtype = Install;
+
+    trigger OnInstallAppPerCompany()
+    var
+        B: DotNet "{name} Builder";
+        E: Record "JQ Entry";
+        M: Codeunit "Marks";
+    begin
+        B := B.StringBuilder();
+        B.Append('{name}');
+        E."No." := {no};
+        E.Note := B.ToString();
+        if E.Insert() then;
+        if {no} = 1 then
+            M.Mark('A');
+    end;
+}}
+"#
+    )
+}
+
+/// al-runner issue 8954, the outside reporter's shape: four installs that each build a local StringBuilder through members
+/// served in process touch no lasting resource with it (the objects live no longer than the install session, ADR-079
+/// fact 1); their disjoint rows tie nothing, so the group is proven.
+#[test]
+fn four_installs_with_a_local_string_builder_run() {
+    let rt = run_on(
+        vec![
+            base(),
+            (
+                PA_ID,
+                "Partner S1",
+                "Partner",
+                vec![BASE_ID],
+                string_builder(73400, "S1", 1),
+            ),
+            (
+                PB_ID,
+                "Partner S2",
+                "Partner",
+                vec![BASE_ID],
+                string_builder(74000, "S2", 2),
+            ),
+            (
+                PC_ID,
+                "Partner S3",
+                "Partner",
+                vec![BASE_ID],
+                string_builder(75000, "S3", 3),
+            ),
+            (
+                PD_ID,
+                "Partner S4",
+                "Partner",
+                vec![BASE_ID],
+                string_builder(76000, "S4", 4),
+            ),
+        ],
+        al_vm::dotnet::DotNetConfig {
+            host: std::sync::Arc::new(al_host::inproc::InprocHost::new(
+                super::baseline_cache::with_dotnet().host,
+            )),
+            ..Default::default()
+        },
+    );
+    assert_eq!(outcome(&rt, "PartnerInstallRan"), Outcome::Pass);
 }
 
 /// A partner install that writes JQ Entry 9 with its own note: four of them write the same row.
