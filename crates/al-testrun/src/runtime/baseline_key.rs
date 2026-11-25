@@ -133,12 +133,7 @@ pub(super) fn baseline_key(
     let report = compiled.cache_report.as_ref()?;
     let uncovered = compiled.uncovered.as_deref()?;
     opts.compile_cache.as_ref()?;
-    if opts.trace
-        || opts.execute
-        || suites.iter().any(|s| s.runner.is_some())
-        || crate::host::uses_real_files()
-        || crate::host::real_clock()
-    {
+    if opts.trace || opts.execute || suites.iter().any(|s| s.runner.is_some()) || crate::host::unkeyed().is_some() {
         return None;
     }
     let mut key = crate::baseline_cache::KeyBuilder::new();
