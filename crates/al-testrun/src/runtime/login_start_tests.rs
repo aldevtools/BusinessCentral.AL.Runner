@@ -44,7 +44,7 @@ fn sessions_with(engine: &Arc<Engine>, l: &Lowered, name: &str, n: usize, opts: 
     for _ in 0..n {
         let mut scratch = Scratch {
             flags: SessionFlags::of(opts),
-            ..Default::default()
+            ..Scratch::new(crate::host::RunClock::begin())
         };
         if let Some(tweak) = setup.tweak {
             tweak(&mut scratch);
@@ -822,7 +822,10 @@ fn gated_line(tweak: &dyn Fn(&mut Scratch), observed: bool) -> (u64, Option<Stri
 #[test]
 fn a_session_the_gate_refuses_runs_its_login_and_is_counted() {
     let perturbed = |s: &mut Scratch| s.perturb.library_seed = Some(3);
-    let clocked = |s: &mut Scratch| s.clock_start = Some(1_700_000_000_000);
+    let clocked = |s: &mut Scratch| {
+        s.clock = crate::host::RunClock::At(1_700_000_000_000);
+        s.clock_set = true;
+    };
     let cases: [(&str, (u64, Option<String>)); 3] = [
         ("--explain or an observer", gated_line(&|_| {}, true)),
         ("a stability perturbation", gated_line(&perturbed, false)),
@@ -1350,4 +1353,63 @@ fn a_login_that_deletes_a_company_leaves_it_deleted_in_every_session_of_its_key(
     for (i, s) in ran.states.iter().enumerate() {
         assert_eq!(first_difference(s, &real.states[0]), None, "session {i}");
     }
+}
+
+/// An app under test whose subscriber of the raised login (`MAIN`'s) keeps the day it ran on (`Today`) in a SingleInstance
+/// codeunit, an install codeunit that sets WorkDate (which every session then starts with, `InstallLeft`), and a test that
+/// the kept day is the session's own.
+const KEEPS_TODAY: &str = r#"
+codeunit 77400 "RPL Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
+    local procedure RegisterManualSetup()
+    var G: Codeunit "Guided Experience"; Day: Codeunit "RPL Day";
+    begin
+        G.InsertAssistedSetup(77400);
+        Day.Keep(Today);
+    end;
+}
+codeunit 77405 "RPL Day"
+{
+    SingleInstance = true;
+    var Kept: Date;
+    procedure Keep(D: Date) begin Kept := D; end;
+    procedure Kept(): Date begin exit(Kept); end;
+}
+codeunit 77407 "RPL Install Work Date"
+{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany() begin WorkDate(20240101D); end;
+}
+codeunit 77402 "RPL Tests A"
+{
+    Subtype = Test;
+    [Test]
+    procedure SeesTheRow() var Day: Codeunit "RPL Day"; begin if Day.Kept() <> Today then Error('login day %1, today %2', Day.Kept(), Today); end;
+}
+"#;
+
+// The run clock is begun per run (`host::RunClock`, so per request of a daemon): a session whose run began on another
+// UTC day than the session that kept a start holds that other day's clock, and the login it would replay stamped the
+// first day. With no WorkDate set the session lines hold the clock's day (`work_date_day`), but install code that set
+// WorkDate leaves every session that date, so only `Key::clock` holds the day apart: the session runs its own login
+// and sees its own `Today`.
+#[test]
+fn a_session_whose_run_clock_began_on_another_day_runs_its_own_login() {
+    const DAY: i64 = 86_400_000;
+    let (engine, l) = compiled_with(KEEPS_TODAY);
+    let nth = std::cell::Cell::new(0);
+    let next_day = |s: &mut Scratch| {
+        s.clock = crate::host::RunClock::At(1_700_000_000_000 + nth.get() * DAY);
+        nth.set(nth.get() + 1);
+    };
+    let setup = Setup {
+        tweak: Some(&next_day),
+        ..Setup::default()
+    };
+    let ran = sessions_with(&engine, &l, "RPL Tests A", 2, &on(), &setup);
+    for (i, o) in ran.outcomes.iter().enumerate() {
+        assert_eq!(*o, passes(), "session {i} (day {i}) sees the day its own login ran on");
+    }
+    assert_eq!(starts(&engine).replayed(), 0, "a start of another day is never taken");
 }

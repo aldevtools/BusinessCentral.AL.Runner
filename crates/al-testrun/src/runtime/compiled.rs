@@ -130,10 +130,14 @@ pub struct RunOptions {
     /// Callbacks while the run goes on: a line per test as it finishes, and a flag that stops the run after the
     /// current test (`al-runner serve`).
     pub hooks: crate::events::Hooks,
-    /// Where the run clock of a test codeunit starts (codeunit id to Unix milliseconds), instead of now: the corpus
-    /// oracle recorded values derived from `Today` on the day real BC ran, so the harness starts each codeunit at the
-    /// time of that codeunit's suite in the oracle.
+    /// Where the run clock of a test codeunit starts (codeunit id to Unix milliseconds), instead of the run's clock: the
+    /// corpus oracle recorded values derived from `Today` on the day real BC ran, so the harness starts each codeunit at
+    /// the time of that codeunit's suite in the oracle.
     pub clock_starts: Option<Arc<std::collections::HashMap<u32, i64>>>,
+    /// The clock of the run (`host::RunClock`), when it began before the run phase; `None`: the run phase begins it
+    /// (`CorpusRuntime::run_compiled`), so each request of a server begins its own. Set once for the passes of one run
+    /// ([`RunOptions::with_run_clock`]).
+    pub run_clock: Option<crate::host::RunClock>,
     /// Do not print the `baseline:` detail lines to stderr (`al-runner test` prints them only with `--verbose`). The counts
     /// stay in `Phases::baseline_roots`. Default `false`: print, as the corpus job does.
     pub quiet_baseline: bool,
@@ -264,6 +268,29 @@ pub struct RunOptions {
     /// the key digests every row). Outcomes must not depend on it: every input the login reads is a key field
     /// (`login_replay::Key`), and the login replay check is its differential test.
     pub login_replay: bool,
+}
+
+impl RunOptions {
+    /// These options with the run's clock begun, for a run that runs its program more than once (a second pass, a
+    /// redo, the variants of a stability run): every pass then reads the one clock of the run.
+    pub(crate) fn with_run_clock(&self) -> std::borrow::Cow<'_, RunOptions> {
+        match self.run_clock {
+            Some(_) => std::borrow::Cow::Borrowed(self),
+            None => std::borrow::Cow::Owned(RunOptions {
+                run_clock: Some(crate::host::RunClock::begin()),
+                ..self.clone()
+            }),
+        }
+    }
+
+    /// The clock of test codeunit `id`'s sessions in a run whose clock is `run`: where `clock_starts` starts it, else the
+    /// run's.
+    pub(crate) fn codeunit_clock(&self, id: u32, run: crate::host::RunClock) -> crate::host::RunClock {
+        self.clock_starts
+            .as_ref()
+            .and_then(|m| m.get(&id).copied())
+            .map_or(run, crate::host::RunClock::At)
+    }
 }
 
 /// One entry of a run (`RunOptions::entries`).

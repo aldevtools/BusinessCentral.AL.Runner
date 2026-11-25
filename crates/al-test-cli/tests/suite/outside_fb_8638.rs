@@ -34,6 +34,7 @@ fn outcomes(src: &str, codeunit: &str, isolation: TestIsolation) -> Vec<(String,
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     assert!(!outcomes.is_empty());
     outcomes

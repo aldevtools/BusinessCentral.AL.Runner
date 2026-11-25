@@ -24,6 +24,7 @@ fn run(src: &str, codeunit: &str) -> Run {
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     (out, hits)
 }
