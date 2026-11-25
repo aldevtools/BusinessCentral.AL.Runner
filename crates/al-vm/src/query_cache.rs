@@ -21,8 +21,8 @@
 //!   record's FlowFilters (`calc_key`, :6147-:6255), and `CalcSums` of a Record, keyed like a group read and by its fields
 //!   (:6273-:6285). CalcFields ends with a commit of a formula's source table, not a commit of its row's table
 //!   (`Ends::Sources`). BgTaskCacheEdges.al:958 (merged corpus PR 1558, awaiting pin) measures a database Record after
-//!   Truncate. Its unpublished follow-up f167e990:1178-:1190 measures a temporary Record, the test session first, and
-//!   FieldRef.CalcField of a database RecordRef; that follow-up still needs a replacement corpus PR.
+//!   Truncate. Open corpus PR 1581 at 852fb2b9:1178-:1190 measures a temporary Record, the test session first, and
+//!   FieldRef.CalcField of a database RecordRef.
 //!
 //! A row entry holds until a commit writes that row (:430, :804 against :741, :762, :784; also when no commit held the row
 //! before or after, an insert and a delete each committed: PR 1495 :1207; a commit of a ModifyAll or DeleteAll of another row
@@ -283,7 +283,7 @@ enum Ends<'a> {
     /// DeleteAll (:921) or a Delete (:927) of the row itself, of a Truncate of the table (:958), after the test session's
     /// CalcFields first (:657), and for FieldRef.CalcField of a database RecordRef (:681). Truncate also holds for a
     /// temporary Record (:1178), the test session first (:1184), and FieldRef.CalcField of a database RecordRef (:1190),
-    /// in unpublished follow-up f167e990 (replacement corpus PR required).
+    /// in open corpus PR 1581 at 852fb2b9.
     /// These cells do not measure Rename or Delete followed by reinsert; those keep main's existing behavior.
     Sources(&'a [Arc<TableDef>]),
 }
@@ -653,7 +653,7 @@ impl Session {
     /// ends that table's entries and no other table's (another table's number changes nothing, BgTaskQueryCache.al:6744; an
     /// Enum whose value is the cached table's id ends its row entry, BgTaskCacheEdges.al:452, merged corpus PR 1558); one that
     /// names no table ends none (a Char, a Byte, an Option and an Enum of value 0, :687-:705, and of value 2, :933-:951;
-    /// Integer 0 and 2, :1196 and :1202 in unpublished follow-up f167e990). A Char, a Byte or an Option that names a table is
+    /// Integer 0 and 2, :1196 and :1202 in open corpus PR 1581 at 852fb2b9). A Char, a Byte or an Option that names a table is
     /// refused in a worker: no cell measures one.
     pub(crate) fn note_select_latest_version_of(&mut self, arg: Option<&Value>) -> Result<(), Signal> {
         let (n, measured) = match arg {

@@ -1,4 +1,4 @@
-// Copy of BgTaskCacheEdges.al at unpublished follow-up f167e990 (38 cells); PR 1558 merged the first 33 cells.
+// Copy of BgTaskCacheEdges.al at open corpus PR 1581, commit 852fb2b9 (38 cells); PR 1558 merged the first 33 cells.
 // Citations name the corpus file's lines; this copy has two extra header lines.
 // BC Documentation:
 //   https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/methods-auto/testpage/testpagetestpage-runpagebackgroundtask-method
@@ -984,7 +984,7 @@ table 97710 "BCE Truncate Temp"
     keys { key(PK; "No.") { Clustered = true; } }
 }
 
-table 97711 "BCE Truncate Test First"
+table 97713 "BCE Truncate Test First"
 {
     DataClassification = SystemMetadata;
     ReplicateData = false;

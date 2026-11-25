@@ -1,9 +1,9 @@
 # Cache row commits: review round 1
 
-`src/EdgesProbe.al` is the complete 38-cell corpus file at local commit `f167e990`,
-with two extra header lines. The first 33 cells merged in corpus PR 1558. The five
-appended cells are unpublished: a replacement corpus PR is required before this
-review round can be pushed. They are evidence, not corpus pins.
+`src/EdgesProbe.al` is the complete 38-cell corpus file at open corpus PR 1581,
+commit `852fb2b9`, with two extra header lines. The first 33 cells merged in corpus
+PR 1558. The five appended cells are evidence from the open follow-up, not corpus
+pins yet.
 
 The full file passed three consecutive runs on local BC 29.0. It compiled against
 BC 27, 28 and 29 System symbols; the three existing Enum-to-Integer warnings are
@@ -17,10 +17,10 @@ in the corpus, not the two-line-prefixed copy here.
 | Shape | Corpus line | State |
 |---|---|---|
 | Database Record, key assigned, worker CalcFields first, row table Truncate | 958 | ASSUMED background-task-query-cache; merged PR 1558, awaiting pin |
-| Temporary Record, key assigned, worker CalcFields first, database row table Truncate | 1178 | ASSUMED background-task-query-cache; unpublished f167e990, replacement PR required |
-| Database Record, key assigned, test CalcFields first, row table Truncate | 1184 | ASSUMED background-task-query-cache; unpublished f167e990, replacement PR required |
-| Database RecordRef, key assigned, worker FieldRef.CalcField first, row table Truncate | 1190 | ASSUMED background-task-query-cache; unpublished f167e990, replacement PR required |
-| Integer 0 and Integer 2 naming no table, SelectLatestVersion | 1196, 1202 | Main's behavior; unpublished evidence f167e990 |
+| Temporary Record, key assigned, worker CalcFields first, database row table Truncate | 1178 | ASSUMED background-task-query-cache; open corpus PR 1581 at 852fb2b9 |
+| Database Record, key assigned, test CalcFields first, row table Truncate | 1184 | ASSUMED background-task-query-cache; open corpus PR 1581 at 852fb2b9 |
+| Database RecordRef, key assigned, worker FieldRef.CalcField first, row table Truncate | 1190 | ASSUMED background-task-query-cache; open corpus PR 1581 at 852fb2b9 |
+| Integer 0 and Integer 2 naming no table, SelectLatestVersion | 1196, 1202 | Main's behavior; open corpus PR 1581 at 852fb2b9 |
 | ModifyAll, DeleteAll and Delete commits of the calculated row | 915, 921, 927 | Main's behavior; merged PR 1558, awaiting pin |
 | Rename; Delete followed by reinsert | Not measured by these cells | Main's behavior; no new claim |
 | Char, Byte or Option naming a table in a worker | No cell | REFUSED as on main; existing Rust refusal test |
@@ -54,7 +54,7 @@ The previous full corpus copy moved from
 `outside_fb_8637::issue_1555_cells` now includes this copy and checks all four test
 codeunits (16 + 9 + 8 + 5), including their assumption marks.
 
-After both the merged original and its still-unpublished follow-up are pinned,
+After both the merged original and the open follow-up are pinned,
 remove this copy and the Rust copied-cell test. Keep the independently authored
 neighbor apps. Do not remove the follow-up copy merely because a bump pins the
 original 33 cells.

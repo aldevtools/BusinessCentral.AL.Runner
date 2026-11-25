@@ -1,5 +1,5 @@
 # key	entry
 BCE Row Commit Tests::BgCacheEdges_CalcFieldsAfterACommitOfATruncateOfItsTable_FirstAnswer	ASSUMED background-task-query-cache (merged corpus PR 1558: BgTaskCacheEdges.al:958; awaiting pin)
-BCE Truncate Tests::BgCacheEdges_Truncate_TemporaryCalcFields	ASSUMED background-task-query-cache (unpublished corpus follow-up f167e990: BgTaskCacheEdges.al:1178; replacement PR required)
-BCE Truncate Tests::BgCacheEdges_Truncate_TestCalcFieldsFirst	ASSUMED background-task-query-cache (unpublished corpus follow-up f167e990: BgTaskCacheEdges.al:1184; replacement PR required)
-BCE Truncate Tests::BgCacheEdges_Truncate_FieldRefCalcField	ASSUMED background-task-query-cache (unpublished corpus follow-up f167e990: BgTaskCacheEdges.al:1190; replacement PR required)
+BCE Truncate Tests::BgCacheEdges_Truncate_TemporaryCalcFields	ASSUMED background-task-query-cache (open corpus PR 1581 at 852fb2b9: BgTaskCacheEdges.al:1178)
+BCE Truncate Tests::BgCacheEdges_Truncate_TestCalcFieldsFirst	ASSUMED background-task-query-cache (open corpus PR 1581 at 852fb2b9: BgTaskCacheEdges.al:1184)
+BCE Truncate Tests::BgCacheEdges_Truncate_FieldRefCalcField	ASSUMED background-task-query-cache (open corpus PR 1581 at 852fb2b9: BgTaskCacheEdges.al:1190)
