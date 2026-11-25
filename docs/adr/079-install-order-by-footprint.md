@@ -255,9 +255,9 @@ least as strict as the text it clarifies.
 - **Facts, citation.** Fact 3 cites the asserting lines `Y79InstallUnrelated.al:142-143` (before: the header comment).
 - **Conformance.** The neighbor apps run on BC 27, 28 and 29; the pull request shows the table of each.
 
-### Amendment 1 (Proposed, al-runner issue 8954): .NET members that keep nothing
+### Amendment 1 (Accepted 2026-11-25, al-runner issue 8954): .NET members that keep nothing
 
-Status: Proposed, awaiting the owner. Until it is accepted, the pull request that builds it stays a draft.
+Status: Accepted by the owner on 2026-11-25.
 
 Decision 1 counts every .NET call as touching everything. Outside reporters' suites then tie four to 25 apps through
 installs whose .NET calls cannot reach a lasting resource, and the whole suite is refused. This amendment narrows the
