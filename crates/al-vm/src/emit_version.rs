@@ -35,6 +35,16 @@ impl EmitVersion {
         EmitVersion::from_fn(move || Ok(n))
     }
 
+    /// Whether `other` answers from this reader (a clone of it), or both have none. Two readers made apart, even of one
+    /// build, are not the same: the number is not read to compare them (al-testrun's login key holds the reader).
+    pub fn same_reader(&self, other: &EmitVersion) -> bool {
+        match (&self.0, &other.0) {
+            (None, None) => true,
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
+
     /// The number, or why it is not known.
     pub fn get(&self) -> Result<u32, String> {
         match &self.0 {
@@ -76,5 +86,14 @@ mod tests {
         assert_eq!(calls.load(Ordering::Relaxed), 1);
         assert_eq!(EmitVersion::known(29022).get(), Ok(29022));
         assert!(EmitVersion::default().get().is_err());
+    }
+
+    #[test]
+    fn a_clone_has_the_same_reader_and_a_reader_made_apart_does_not() {
+        let v = EmitVersion::known(29022);
+        assert!(v.same_reader(&v.clone()));
+        assert!(!v.same_reader(&EmitVersion::known(29022)));
+        assert!(!v.same_reader(&EmitVersion::default()));
+        assert!(EmitVersion::default().same_reader(&EmitVersion::default()));
     }
 }

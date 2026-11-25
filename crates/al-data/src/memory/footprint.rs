@@ -220,7 +220,7 @@ impl MemStore {
             Some(plain && x == y)
         };
         let Some(changes) = self.committed_row_changes_from(before, &mut same) else {
-            return Err(("the companies copied changed", None));
+            return Err(("the companies copied or deleted changed", None));
         };
         let covers_table = |company: &str, object: u32| {
             writes.contains(&Resource::Table(object)) || writes.contains(&Resource::Extent(company.into(), object))

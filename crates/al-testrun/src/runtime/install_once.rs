@@ -33,6 +33,32 @@ pub(super) fn run_installs_in(
     skipped
 }
 
+/// What the install step of a codeunit's session ([`installs_for`]) reads of the install baseline the session starts
+/// from. Unlike the baseline, any thread may read it: the login replay check's twin repeats the step on a thread of its
+/// own (`run.rs` `Steps::twin`).
+#[derive(Clone, Copy)]
+pub(super) enum FromBaseline<'a> {
+    /// The session starts from no baseline.
+    NoBaseline,
+    /// The install codeunits ran on the baseline: the routines that could not run (`Baseline::workspace_installs`).
+    Installed(&'a [al_vm::SkippedInstall]),
+    /// A baseline the install codeunits did not run on.
+    NotInstalled,
+}
+
+impl<'a> FromBaseline<'a> {
+    /// What the install step reads of `baseline`.
+    pub(super) fn of(baseline: Option<&'a al_vm::Baseline>) -> FromBaseline<'a> {
+        match baseline {
+            None => FromBaseline::NoBaseline,
+            Some(b) => b
+                .workspace_installs
+                .as_deref()
+                .map_or(FromBaseline::NotInstalled, FromBaseline::Installed),
+        }
+    }
+}
+
 /// What publishing the app does first for a test codeunit's `session`: run its install codeunits, then commit. Returns the
 /// routines that could not run. With an install baseline that ran them, the session started from it; a session that starts
 /// from no baseline takes what they left from their run once per run ([`start_installed`]); one that starts from a
@@ -40,20 +66,18 @@ pub(super) fn run_installs_in(
 pub(super) fn installs_for(
     lowered: &Lowered,
     session: &mut Session,
-    baseline: Option<&al_vm::Baseline>,
+    baseline: FromBaseline,
     scratch: &Scratch,
     execute: bool,
     observed: bool,
     as_made_here: bool,
 ) -> Vec<al_vm::SkippedInstall> {
-    if let Some(skipped) = baseline.and_then(|b| b.workspace_installs.clone()) {
-        return skipped;
+    match baseline {
+        FromBaseline::Installed(skipped) => skipped.to_vec(),
+        FromBaseline::NoBaseline => start_installed(lowered, session, scratch, execute, observed, as_made_here)
+            .unwrap_or_else(|| run_installs_in(lowered, session, &scratch.installs)),
+        FromBaseline::NotInstalled => run_installs_in(lowered, session, &scratch.installs),
     }
-    baseline
-        .is_none()
-        .then(|| start_installed(lowered, session, scratch, execute, observed, as_made_here))
-        .flatten()
-        .unwrap_or_else(|| run_installs_in(lowered, session, &scratch.installs))
 }
 
 /// What the install code left for the codeunits of one run, shared by every test thread of the run ([`start_installed`]).

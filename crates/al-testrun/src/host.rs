@@ -143,6 +143,52 @@ pub fn real_clock() -> bool {
     *ON.get_or_init(read_real_clock_env)
 }
 
+/// A setting of the process that a run reads and no key holds: what the run reads under it can differ from one run to
+/// the next with the same inputs. A run under one keeps no install baseline (`runtime/baseline_key.rs`) and neither
+/// takes nor records a login start (`login_start::run_gate`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Unkeyed {
+    /// The system host reads the wall clock as it goes ([`real_clock`]): a login that stamps the time it reads would
+    /// hand a later session an earlier time.
+    RealClock,
+    /// `File` reads and writes a real directory ([`uses_real_files`]): code that reads a file another session wrote
+    /// reads what no key holds.
+    RealFiles,
+}
+
+impl Unkeyed {
+    /// The setting as a report names it.
+    pub(crate) fn reason(self) -> &'static str {
+        match self {
+            Unkeyed::RealClock => "the real clock (ALRUNNER_REAL_CLOCK)",
+            Unkeyed::RealFiles => "a real files directory (--files-dir)",
+        }
+    }
+}
+
+/// The first setting of the process no key holds ([`Unkeyed`]), the one check of the install baseline cache and the
+/// login starts.
+pub(crate) fn unkeyed() -> Option<Unkeyed> {
+    #[cfg(test)]
+    if let Some(set) = UNKEYED.with(std::cell::Cell::get) {
+        return set;
+    }
+    if real_clock() {
+        Some(Unkeyed::RealClock)
+    } else if uses_real_files() {
+        Some(Unkeyed::RealFiles)
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// While `Some`, [`unkeyed`] answers it on this thread: both settings are read once per process, so a test sets
+    /// them here.
+    pub(crate) static UNKEYED: std::cell::Cell<Option<Option<Unkeyed>>> = const { std::cell::Cell::new(None) };
+}
+
 /// The one read of `ALRUNNER_REAL_CLOCK` from the environment, for [`real_clock`].
 fn read_real_clock_env() -> bool {
     #[cfg(test)]
