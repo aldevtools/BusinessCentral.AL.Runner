@@ -1,6 +1,6 @@
-// al-runner issue 9039: the install-order comparison and the DeleteAll-without-filters mark. These apps have no test
-// data (no backing), so the deleted and copied companies are not compared here (Rust tests in al-vm
-// baseline/install_order_tests.rs cover the backed shapes).
+// al-runner issue 9039: the install-order comparison and the DeleteAll-without-filters mark on user tables. These apps
+// delete and copy no company; the backed company shapes are Rust tests in al-vm baseline/install_order_tests.rs and the
+// neighbor apps fix-9039-copy-sysfields*.
 codeunit 53840 "IO9039 Tests"
 {
     Subtype = Test;

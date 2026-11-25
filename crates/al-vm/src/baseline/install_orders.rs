@@ -5,8 +5,8 @@
 //! What installing partner apps in several orders needs (ADR-046 amendment 7): the pairs the install-order refusals met
 //! (`Session::note_order_unknown_hit`, `take_order_unknown_hits`), `Session::rewind_install` with the session state an
 //! install may change that a capture does not hold (`InstallSessionState`, ADR-079), `Session::set_clock_offset_ms`, and
-//! `Baseline::install_order_differences` (tables whose rows differ, by table, key and field; system fields and values
-//! read from the clock in each order's clock window left out, amendment 8). Entry points: `install_order_differences`.
+//! `Baseline::install_order_differences` (tables whose rows differ, by table, key and field; system fields outside the
+//! companies a copy made and values read from the clock in each order's clock window left out, amendment 8). Entry points: `install_order_differences`.
 
 use super::Baseline;
 use crate::Session;
@@ -14,7 +14,9 @@ use al_builtins::value::Value;
 use std::collections::BTreeSet;
 
 /// The system fields, SystemId (2000000000) to SystemRowVersion (2000000005): BC gives them new values on every install,
-/// whatever the order, so the comparison leaves them out.
+/// whatever the order, so the comparison leaves them out, except in a company a copy made: a copy carries the source
+/// rows' system fields (`MemStore::copy_company`), so there they tell a copied row from one inserted after the copy
+/// (review of al-runner PR 9098).
 const SYSTEM_FIELDS: std::ops::RangeInclusive<u32> = 2_000_000_000..=2_000_000_005;
 
 impl Session {
@@ -98,7 +100,7 @@ pub type OrderDifferences = std::collections::BTreeMap<u32, Vec<String>>;
 impl Baseline {
     /// The tables (object ids) whose committed rows differ between `self` and `other`, two captures of install runs that
     /// both started from `start`, with a line per difference that names the key and the field. Left out: the system
-    /// fields, and values read from the clock (`clock_value`): a field that holds a value inside the clock window of its
+    /// fields outside the companies a copy made in either order, and values read from the clock (`clock_value`): a field that holds a value inside the clock window of its
     /// own order in both captures counts as the same (al-runner issue 6644 b). BC keeps no order between two apps with no
     /// dependency path between them, so no test can depend on which of the two read the clock first; the rows each
     /// order inserts, and every value that is not a reading of the clock, still count. A table counts as differing also
@@ -127,9 +129,13 @@ impl Baseline {
         let (theirs, their_gone) = other.store.committed_changes_from(&start.store);
         let mut out = OrderDifferences::new();
         let slots: BTreeSet<(String, u32)> = mine.into_iter().chain(theirs).collect();
+        let copied: BTreeSet<&str> = (self.store.committed_copy_targets())
+            .chain(other.store.committed_copy_targets())
+            .collect();
         for (company, object) in slots {
-            let a = table_rows(self, &company, object, engine, clocks.0)?;
-            let b = table_rows(other, &company, object, engine, clocks.1)?;
+            let blank_system = !copied.contains(company.as_str());
+            let a = table_rows(self, &company, object, engine, clocks.0, blank_system)?;
+            let b = table_rows(other, &company, object, engine, clocks.1, blank_system)?;
             if a.encoded != b.encoded {
                 out.entry(object).or_default().extend(describe(&a, &b, object, engine));
             }
@@ -161,7 +167,7 @@ impl Baseline {
     }
 }
 
-/// The committed rows of one table, with the system fields and the clock values blanked.
+/// The committed rows of one table, with the clock values (and, outside a company a copy made, the system fields) blanked.
 struct Rows {
     /// The rows, each as (key, row) with the blanked values.
     rows: Vec<(Vec<Value>, Vec<Value>)>,
@@ -201,8 +207,15 @@ fn clock_value(v: &Value, (from, to): ClockWindow) -> bool {
 }
 
 /// The committed rows of `object` in `company` as a read finds them (the backing's when the store holds no entry), the
-/// system fields and the values read from the clock in `window` blanked; empty when there are none.
-fn table_rows(b: &Baseline, company: &str, object: u32, engine: &crate::Engine, window: ClockWindow) -> Option<Rows> {
+/// values read from the clock in `window` blanked, and the system fields when `blank_system`; empty when there are none.
+fn table_rows(
+    b: &Baseline,
+    company: &str,
+    object: u32,
+    engine: &crate::Engine,
+    window: ClockWindow,
+    blank_system: bool,
+) -> Option<Rows> {
     let mut out = Rows {
         rows: Vec::new(),
         encoded: Vec::new(),
@@ -212,9 +225,8 @@ fn table_rows(b: &Baseline, company: &str, object: u32, engine: &crate::Engine, 
         return Some(out);
     };
     out.emptied = emptied;
-    let system: Vec<usize> = engine
-        .tables
-        .get(object as usize)
+    let system: Vec<usize> = (engine.tables.get(object as usize))
+        .filter(|_| blank_system)
         .and_then(|d| d.as_ref())
         .map(|d| {
             d.fields

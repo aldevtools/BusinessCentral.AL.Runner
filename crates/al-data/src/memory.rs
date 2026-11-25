@@ -204,6 +204,11 @@ pub struct MemStore {
     /// nothing wrote to reads the source's backing rows, as the copy took them. Part of the transaction, like `tables`.
     copies: crate::pmap::PMap<std::sync::Arc<str>, std::sync::Arc<str>>,
     committed_copies: crate::pmap::PMap<std::sync::Arc<str>, std::sync::Arc<str>>,
+    /// The companies whose rows a company copy made (`copy_company`, `note_copy`, carried by `rename_company`), with a
+    /// backing or without: their rows carry the system fields of the source's rows. Changes no read; the install-order
+    /// comparison reads it (`committed_copy_targets`). A freeze and an export leave it out. Part of the transaction.
+    copy_targets: crate::pmap::PMap<std::sync::Arc<str>, ()>,
+    committed_copy_targets: crate::pmap::PMap<std::sync::Arc<str>, ()>,
     /// Companies whose untouched rows were removed by deleting their Company row.
     dropped_backed_companies: crate::pmap::PMap<std::sync::Arc<str>, ()>,
     committed_dropped_backed_companies: crate::pmap::PMap<std::sync::Arc<str>, ()>,
@@ -737,6 +742,8 @@ impl MemStore {
         let source = self.copy_source(source);
         self.copies.insert(copy.into(), source.clone());
         self.committed_copies.insert(copy.into(), source);
+        self.copy_targets.insert(copy.into(), ());
+        self.committed_copy_targets.insert(copy.into(), ());
         self.source_changed(copy);
         let copy = std::sync::Arc::from(copy);
         self.dropped_backed_companies.remove(&copy);
@@ -756,6 +763,12 @@ impl MemStore {
     /// companies change no read (`backing_rows`, `has_company_rows`).
     pub fn has_backing(&self) -> bool {
         self.backing.is_some()
+    }
+
+    /// The companies whose committed rows a company copy made ([`MemStore::copy_company`]): their rows carry the system
+    /// fields of the source's rows.
+    pub fn committed_copy_targets(&self) -> impl Iterator<Item = &str> + '_ {
+        self.committed_copy_targets.keys().map(|c| &**c)
     }
 
     /// The identity of the rows the untouched tables read ([`Backing::identity`]): `Some((0, 0))` without a backing,
@@ -1389,6 +1402,9 @@ impl MemStore {
                 self.shapes.insert(target, self.counter);
             }
         }
+        if self.copy_targets.contains_key(&std::sync::Arc::from(old)) {
+            self.copy_targets.insert(new.into(), ());
+        }
         let source = self.copy_source(old);
         self.copies.remove(&std::sync::Arc::from(old));
         if self.backing.is_some() {
@@ -1409,6 +1425,7 @@ impl MemStore {
             let source = self.copy_source(from);
             self.copies.insert(to.into(), source);
         }
+        self.copy_targets.insert(to.into(), ());
         self.dropped_backed_companies.remove(&std::sync::Arc::from(to));
         self.source_changed(to);
         let copied: Vec<(Slot, Table)> = self
@@ -2073,6 +2090,7 @@ impl Store for MemStore {
         self.committed_shapes = self.shapes.clone();
         self.committed_moves = self.moves.clone();
         self.committed_copies = self.copies.clone();
+        self.committed_copy_targets = self.copy_targets.clone();
         self.committed_dropped_backed_companies = self.dropped_backed_companies.clone();
         self.committed_source_stamps = self.source_stamps.clone();
         self.committed_emptied = self.emptied.clone();
@@ -2086,6 +2104,7 @@ impl Store for MemStore {
         self.shapes = self.committed_shapes.clone();
         self.moves = self.committed_moves.clone();
         self.copies = self.committed_copies.clone();
+        self.copy_targets = self.committed_copy_targets.clone();
         self.dropped_backed_companies = self.committed_dropped_backed_companies.clone();
         self.source_stamps = self.committed_source_stamps.clone();
         self.emptied = self.committed_emptied.clone();

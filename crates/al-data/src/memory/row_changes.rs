@@ -176,6 +176,10 @@ impl MemStore {
             // A DeleteAll without filters is a write of its table: the callers read the marks (`committed_marks`,
             // `committed_table`).
             committed_emptied: _,
+            // Which companies a copy made: changes no read (the install-order comparison reads it for the system
+            // fields, `committed_copy_targets`).
+            copy_targets: _,
+            committed_copy_targets: _,
             // What the rows answer besides themselves: compared here.
             committed_copies,
             committed_dropped_backed_companies,
