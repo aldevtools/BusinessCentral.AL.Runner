@@ -13,7 +13,8 @@
 use crate::Session;
 use al_builtins::describe::Describe;
 use al_builtins::filter::{
-    FieldFilter, FilterExpr, OtherSourceAtSign, calc_formula_at_sign_other_source, parse_filter_both_at_signs_measured,
+    FieldFilter, FilterExpr, OtherSourceAtSign, OtherSourceAtSignMethod, calc_formula_at_sign_other_source,
+    parse_filter_both_at_signs_measured,
 };
 use al_builtins::native::{AlError, Signal, text_of, unsupported};
 use al_builtins::ops;
@@ -1077,7 +1078,11 @@ impl Session {
                         text,
                         sty,
                         self.global_language(),
-                        calc.method == ir::CalcMethod::Count,
+                        match calc.method {
+                            ir::CalcMethod::Sum => OtherSourceAtSignMethod::Sum,
+                            ir::CalcMethod::Count => OtherSourceAtSignMethod::Count,
+                            _ => OtherSourceAtSignMethod::Other,
+                        },
                         captions,
                     )? {
                         Some(OtherSourceAtSign::Rows(true)) => {}

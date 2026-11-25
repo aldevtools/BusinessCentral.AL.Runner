@@ -96,6 +96,8 @@ table 69631 "At Sign Review Reader Host"
         field(17; "Caption Ml Enum Count At"; Integer) { FieldClass = FlowField; CalcFormula = count("At Sign Review Reader Row" where("No." = field("No."), "Caption Ml Kind" = filter('@'))); }
         field(18; "Date Sum At"; Decimal) { FieldClass = FlowField; CalcFormula = sum("At Sign Review Reader Row".Amount where("No." = field("No."), Dt = filter('@'))); }
         field(19; "Date Count At"; Integer) { FieldClass = FlowField; CalcFormula = count("At Sign Review Reader Row" where("No." = field("No."), Dt = filter('@'))); }
+        field(20; "Date Count Not At"; Integer) { FieldClass = FlowField; CalcFormula = count("At Sign Review Reader Row" where("No." = field("No."), Dt = filter('<>@'))); }
+        field(21; "Date Min At"; Date) { FieldClass = FlowField; CalcFormula = min("At Sign Review Reader Row".Dt where("No." = field("No."), Dt = filter('@'))); }
     }
     keys { key(PK; "No.") { } }
 }
@@ -217,6 +219,38 @@ codeunit 69630 "At Sign Review Readers"
         NewHost(Host);
         GlobalLanguage(1030);
         Host.CalcFields("Date Count At");
+    end;
+
+    procedure Language1031DateCountNotAt()
+    var Host: Record "At Sign Review Reader Host";
+    begin
+        NewHost(Host);
+        GlobalLanguage(1031);
+        Host.CalcFields("Date Count Not At");
+    end;
+
+    procedure Language1031DateMin()
+    var Host: Record "At Sign Review Reader Host";
+    begin
+        NewHost(Host);
+        GlobalLanguage(1031);
+        Host.CalcFields("Date Min At");
+    end;
+
+    procedure Language1044DateCount()
+    var Host: Record "At Sign Review Reader Host";
+    begin
+        NewHost(Host);
+        GlobalLanguage(1044);
+        Host.CalcFields("Date Count At");
+    end;
+
+    procedure Language1044DateSum()
+    var Host: Record "At Sign Review Reader Host";
+    begin
+        NewHost(Host);
+        GlobalLanguage(1044);
+        Host.CalcFields("Date Sum At");
     end;
 
     procedure LanguageCells()
@@ -369,6 +403,29 @@ fn language_1030_keeps_main_for_a_date_sum() {
 #[test]
 fn language_1030_keeps_main_for_a_date_count() {
     assert!(al_testkit::run_in(SRC, "At Sign Review Readers", "Language1030DateCount").is_ok());
+}
+
+#[test]
+fn language_1031_refuses_a_date_count_not_at() {
+    let why = refused("Language1031DateCountNotAt");
+    assert!(why.contains("session of language 1031"), "{why}");
+}
+
+#[test]
+fn language_1031_refuses_a_date_min() {
+    let why = refused("Language1031DateMin");
+    assert!(why.contains("session of language 1031"), "{why}");
+}
+
+#[test]
+fn language_1044_refuses_a_date_count() {
+    let why = refused("Language1044DateCount");
+    assert!(why.contains("session of language 1044"), "{why}");
+}
+
+#[test]
+fn language_1044_keeps_main_for_a_date_sum() {
+    assert!(al_testkit::run_in(SRC, "At Sign Review Readers", "Language1044DateSum").is_ok());
 }
 
 #[test]
