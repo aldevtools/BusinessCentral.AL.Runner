@@ -129,7 +129,8 @@ fn leaves_at_failure(reached: Interval, after_own_commit: bool, newest: bool) ->
     match (reached, after_own_commit) {
         (Interval::Untouched | Interval::OpenClose, false) => Some(true),
         (Interval::RecordWrite | Interval::Ref | Interval::FindLast, false) => Some(false),
-        (Interval::Untouched, true) if newest => Some(true),
+        // C3 of PR 1465 (SqCommitFail.al:100, BC 27.5, 28.5 and 29.0): a Commit(), then the insert, then nothing: kept.
+        (Interval::Untouched, true) => Some(true),
         (Interval::RecordWrite | Interval::Helper { writes: true }, true) if newest => Some(false),
         _ => None,
     }
