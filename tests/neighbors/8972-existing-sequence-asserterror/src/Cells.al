@@ -714,3 +714,70 @@ codeunit 52820 "N6 ReadAfterUndo"
         Error('OBS cur=%1 row=%2', NumberSequence.Current('P6ReadAfterUndo', true), Rows.Has('ReadAfterUndo-B1'));
     end;
 }
+
+codeunit 52821 "N6 ReadAfterDeleteUndo"
+{
+    Subtype = Test;
+    var
+        Rows: Codeunit "N6 Rows";
+        InnerErr: Label 'inner';
+
+    trigger OnRun()
+    begin
+        if not NumberSequence.Exists('P6ReadAfterDeleteUndo') then begin NumberSequence.Insert('P6ReadAfterDeleteUndo', 1, 1); NumberSequence.Next('P6ReadAfterDeleteUndo'); NumberSequence.Next('P6ReadAfterDeleteUndo'); end;
+    end;
+
+    [Test]
+    procedure A_ReadAfterDeleteUndoWritesCommits()
+    begin
+        Rows.Put('ReadAfterDeleteUndo-INIT'); Commit();
+    end;
+
+    [Test]
+    
+    procedure B_ReadAfterDeleteUndoStep()
+    begin
+        NumberSequence.Delete('P6ReadAfterDeleteUndo'); Rows.Put('ReadAfterDeleteUndo-B1'); asserterror Error('inner'); if not NumberSequence.Exists('P6ReadAfterDeleteUndo') then Error('B missing'); Error('B deliberate');
+    end;
+
+    [Test]
+    procedure C_ReadAfterDeleteUndoReads()
+    begin
+        if not NumberSequence.Exists('P6ReadAfterDeleteUndo', true) then
+            Error('OBS missing row=%1', Rows.Has('ReadAfterDeleteUndo-B1'));
+        Error('OBS cur=%1 row=%2', NumberSequence.Current('P6ReadAfterDeleteUndo', true), Rows.Has('ReadAfterDeleteUndo-B1'));
+    end;
+}
+codeunit 52822 "N6 ReadAfterKeep"
+{
+    Subtype = Test;
+    var
+        Rows: Codeunit "N6 Rows";
+        InnerErr: Label 'inner';
+
+    trigger OnRun()
+    begin
+        if not NumberSequence.Exists('P6ReadAfterKeep') then begin NumberSequence.Insert('P6ReadAfterKeep', 1, 1); NumberSequence.Next('P6ReadAfterKeep'); NumberSequence.Next('P6ReadAfterKeep'); end;
+    end;
+
+    [Test]
+    procedure A_ReadAfterKeepWritesCommits()
+    begin
+        Rows.Put('ReadAfterKeep-INIT'); Commit();
+    end;
+
+    [Test]
+    
+    procedure B_ReadAfterKeepStep()
+    begin
+        NumberSequence.Restart('P6ReadAfterKeep', 1002); asserterror Error('inner'); if NumberSequence.Current('P6ReadAfterKeep') <> 1002 then Error('B read %1', NumberSequence.Current('P6ReadAfterKeep'));
+    end;
+
+    [Test]
+    procedure C_ReadAfterKeepReads()
+    begin
+        if not NumberSequence.Exists('P6ReadAfterKeep', true) then
+            Error('OBS missing row=%1', Rows.Has('ReadAfterKeep-B1'));
+        Error('OBS cur=%1 row=%2', NumberSequence.Current('P6ReadAfterKeep', true), Rows.Has('ReadAfterKeep-B1'));
+    end;
+}
