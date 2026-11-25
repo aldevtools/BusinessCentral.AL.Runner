@@ -1045,6 +1045,7 @@ impl Session {
             None
         };
         self.dotnet.result_ty = site.result_ty;
+        self.dotnet.al_datetime_args = self.al_datetime_args(&site.args, &values, f);
         let r = self.dotnet_apply_closing_entry_streams(site.ty, recv, values, places, &site.op, f);
         let r = match rendered {
             Some(input) => Self::rendered_dotnet_answer(&input, r),

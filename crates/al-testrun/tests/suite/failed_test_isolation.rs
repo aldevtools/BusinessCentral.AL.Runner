@@ -4,7 +4,7 @@
 //! SqBindFailed.al, measured on BC 27.5, 28.5 and 29.0 under runners 61301 and 130450 (assertions in SqReader.al). Until a
 //! corpus bump pins them, a test that reads what such a failure left is a flagged pass.
 
-use super::runner_isolation::{not_run, results};
+use super::runner_isolation::{not_run, results_on};
 use al_sema::workspace::AppSource;
 use al_testrun::Outcome;
 use al_testrun::isolation::TestIsolation;
@@ -29,7 +29,12 @@ codeunit 50739 "P4 Read"
 type Row = (u32, String, Outcome, Vec<&'static str>);
 
 fn cells(src: &str, isolation: TestIsolation) -> Vec<Row> {
-    results(&format!("{READ}\n{src}"), isolation)
+    cells_on(src, isolation, None)
+}
+
+/// [`cells`] on the BC version `target`.
+fn cells_on(src: &str, isolation: TestIsolation, target: Option<&al_version::Target>) -> Vec<Row> {
+    results_on(&format!("{READ}\n{src}"), isolation, target)
 }
 
 fn row<'a>(o: &'a [Row], test: &str) -> &'a Row {
@@ -243,8 +248,9 @@ fn shapes_the_probe_does_not_measure_keep_mains_result() {
     clean(&o, "C_AutoRollbackReads", "OBS missing");
     // IsolatedStorage is not measured in the failed test (only in an earlier one, D4 SqCommitFail.al:878).
     assert!(not_run(&of("B_IsolatedStorageReads"), "'P4IS'"), "{o:?}");
-    // C2 and C14 measured a sequence an earlier test inserted; one the failed test inserted after an earlier Commit() is not.
-    assert!(not_run(&of("C_InsertedInFailedReads"), "'P4IF'"), "{o:?}");
+    // Inserted in the failed test after the last transaction end and then a Record write: gone, as in S2E (corpus PR 1572
+    // SqFailedSeq.al:2031), where that end is the failed test's own Commit().
+    flagged(&o, "C_InsertedInFailedReads", "OBS missing", SEQ);
 }
 
 // A failed test whose table access is not a Record write after an earlier Commit() keeps main's refusal: a Record read
@@ -871,7 +877,7 @@ fn a_failed_test_that_only_ran_record_findlast_after_a_commit_takes_the_sequence
 
 // Neighbors of R14R and R2R that no cell measures (review probe of PR 8512, round 3, cells F03, F06, F08, F09, F12, F17,
 // F19): two FindLast calls, no filter, SetAutoCalcFields, FindLast raising, LockTable, SetLoadFields, FilterGroup. Main's
-// refusal.
+// refusal, except for F08, whose earlier test commits after a Record write.
 const RECORD_READ_NEIGHBORS: &str = r#"
 table 50877 "P4 Calc Line" { fields { field(1; Doc; Code[20]) { } field(2; "Line No."; Integer) { } field(3; Lines; Integer) { FieldClass = FlowField; CalcFormula = count("P4 Calc Line" where(Doc = field(Doc))); } } keys { key(PK; Doc, "Line No.") { Clustered = true; } } }
 codeunit 50878 "P4 F03"
@@ -928,7 +934,10 @@ codeunit 50884 "P4 F19"
 #[test]
 fn record_findlast_shapes_beside_the_cells_keep_mains_refusal() {
     let o = cells(&format!("{REF_LINE}\n{RECORD_READ_NEIGHBORS}"), TestIsolation::Codeunit);
-    for cell in ["F03", "F06", "F08", "F09", "F12", "F17", "F19"] {
+    // F08 inserts after a Record write and commits: the commit keeps the sequence, whatever the failed test does (corpus
+    // PR 1572 S1U SqFailedSeq.al:2166, S1F :662).
+    flagged(&o, "C_F08Reads", "OBS cur=1 next=2", SEQ);
+    for cell in ["F03", "F06", "F09", "F12", "F17", "F19"] {
         let test = format!("C_{cell}Reads");
         assert!(not_run(&row(&o, &test).2, &format!("'P4{cell}'")), "{test}: {o:?}");
     }
@@ -1097,4 +1106,137 @@ fn under_a_function_runner_a_failure_after_a_left_binding_is_still_not_trusted()
     let o = repro_8337(TestIsolation::Function);
     let r = row(&o, "StillBoundInSecond");
     assert!(not_run(&r.2, "left a manual event subscription bound"), "{o:?}");
+}
+
+// Shapes beside the cells of corpus PR 1572 that it does not measure, each answered by main's refusal: the helper's
+// RecordRef calls with another count or isolation level than GetLastEntryNoFromTable makes for a sequence it does not
+// find (SqFailedSeqFixture.al:116, :176, :189); a write in one test and FindFirst with a Commit() in the next (S1J :1118
+// measures a Record write there); an asserterror before the insert; a TestPage after the keeping commit (unmeasured
+// under runners 61301 and 130450). The helper's exact calls keep the sequence (S1V SqFailedSeq.al:2232).
+const PR_1572_NEIGHBORS: &str = r#"
+codeunit 50890 "P4 Helper"
+{
+    procedure LastNo(Lock: Boolean): Integer
+    var RR: RecordRef; KR: KeyRef; FR: FieldRef;
+    begin
+        RR.Open(Database::"Row");
+        if Lock then RR.ReadIsolation(IsolationLevel::UpdLock) else RR.ReadIsolation(IsolationLevel::ReadUncommitted);
+        KR := RR.KeyIndex(1);
+        RR.SetLoadFields(KR.FieldIndex(KR.FieldCount).Number);
+        if RR.FindLast() then begin FR := KR.FieldIndex(KR.FieldCount); exit(StrLen(Format(FR.Value))); end;
+        exit(0);
+    end;
+}
+codeunit 50891 "P4 Helper Exact"
+{
+    Subtype = Test;
+    var H: Codeunit "P4 Helper";
+    [Test] procedure A_HelperCommits() begin if H.LastNo(false) = 0 then; NumberSequence.Insert('P4HX', 1, 1); NumberSequence.Next('P4HX'); if H.LastNo(true) = 0 then; Commit(); end;
+    [Test] procedure B_Fails() var Rows: Codeunit "Rows"; begin Rows.Put('HX'); Error('B deliberate'); end;
+    [Test] procedure C_HelperExactReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4HX')); end;
+}
+codeunit 50892 "P4 Helper Once"
+{
+    Subtype = Test;
+    var H: Codeunit "P4 Helper";
+    [Test] procedure A_HelperCommits() begin NumberSequence.Insert('P4HO', 1, 1); NumberSequence.Next('P4HO'); if H.LastNo(false) = 0 then; Commit(); end;
+    [Test] procedure B_Fails() var Rows: Codeunit "Rows"; begin Rows.Put('HO'); Error('B deliberate'); end;
+    [Test] procedure C_HelperOnceReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4HO')); end;
+}
+codeunit 50893 "P4 Helper Locks Twice"
+{
+    Subtype = Test;
+    var H: Codeunit "P4 Helper";
+    [Test] procedure A_HelperCommits() begin if H.LastNo(true) = 0 then; NumberSequence.Insert('P4HL', 1, 1); NumberSequence.Next('P4HL'); if H.LastNo(true) = 0 then; Commit(); end;
+    [Test] procedure B_Fails() var Rows: Codeunit "Rows"; begin Rows.Put('HL'); Error('B deliberate'); end;
+    [Test] procedure C_HelperLocksTwiceReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4HL')); end;
+}
+codeunit 50894 "P4 Write Then FindFirst"
+{
+    Subtype = Test;
+    var Rows: Codeunit "Rows";
+    [Test] procedure A_InsertsWrites() begin NumberSequence.Insert('P4WF', 1, 1); NumberSequence.Next('P4WF'); Rows.Put('WF'); end;
+    [Test] procedure B_FindsCommitsFails() var Row: Record "Row"; begin if Row.FindFirst() then; Commit(); Error('B deliberate'); end;
+    [Test] procedure C_WriteThenFindFirstReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4WF')); end;
+}
+codeunit 50895 "P4 Write Then Write"
+{
+    Subtype = Test;
+    var Rows: Codeunit "Rows";
+    [Test] procedure A_InsertsWrites() begin NumberSequence.Insert('P4WW', 1, 1); NumberSequence.Next('P4WW'); Rows.Put('WW1'); end;
+    [Test] procedure B_WritesCommitsFails() begin Rows.Put('WW2'); Commit(); Rows.Put('WW3'); Error('B deliberate'); end;
+    [Test] procedure C_WriteThenWriteReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4WW')); end;
+}
+codeunit 50896 "P4 AssertError Before Insert"
+{
+    Subtype = Test;
+    var Rows: Codeunit "Rows";
+    [Test] procedure A_InsertsCommits() begin Rows.Put('AB1'); asserterror Error('x'); NumberSequence.Insert('P4AB', 1, 1); NumberSequence.Next('P4AB'); Commit(); end;
+    [Test] procedure B_Fails() begin Rows.Put('AB2'); Error('B deliberate'); end;
+    [Test] procedure C_AssertErrorBeforeInsertReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4AB')); end;
+}
+page 50897 "P4 Row Card"
+{
+    SourceTable = "Row";
+    layout { area(Content) { field(K; Rec.K) { } } }
+}
+codeunit 50898 "P4 TestPage After Keep"
+{
+    Subtype = Test;
+    var Rows: Codeunit "Rows";
+    [Test] procedure A_InsertsWritesCommits() begin NumberSequence.Insert('P4TK', 1, 1); NumberSequence.Next('P4TK'); Rows.Put('TK1'); Commit(); end;
+    [Test] procedure B_PageFails() var P: TestPage "P4 Row Card"; begin P.OpenView(); P.Close(); Rows.Put('TK2'); Error('B deliberate'); end;
+    [Test] procedure C_TestPageAfterKeepReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4TK')); end;
+}
+codeunit 50899 "P4 Insert In Failed Write"
+{
+    Subtype = Test;
+    var Rows: Codeunit "Rows";
+    [Test] procedure A_WritesCommits() begin Rows.Put('IW1'); Commit(); end;
+    [Test] procedure B_InsertsWritesFails() begin NumberSequence.Insert('P4IW', 1, 1); NumberSequence.Next('P4IW'); Rows.Put('IW2'); Error('B deliberate'); end;
+    [Test] procedure C_InsertInFailedWriteReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4IW')); end;
+}
+
+codeunit 52748 "P4 InsertCommitFails"
+{
+    Subtype = Test;
+    [Test] procedure A_Passes() begin end;
+    [Test] procedure B_InsertsCommitsFails() begin NumberSequence.Insert('P4IC', 1, 1); Commit(); Error('B deliberate'); end;
+    [Test] procedure C_InsertCommitReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4IC')); end;
+}
+"#;
+
+#[test]
+fn shapes_beside_the_cells_of_pr_1572_keep_mains_refusal() {
+    let o = cells(PR_1572_NEIGHBORS, TestIsolation::Codeunit);
+    flagged(&o, "C_HelperExactReads", "OBS cur=1 next=2", SEQ);
+    flagged(&o, "C_WriteThenWriteReads", "OBS cur=1 next=2", SEQ);
+    for (test, key) in [
+        ("C_HelperOnceReads", "'P4HO'"),
+        ("C_HelperLocksTwiceReads", "'P4HL'"),
+        ("C_WriteThenFindFirstReads", "'P4WF'"),
+        ("C_AssertErrorBeforeInsertReads", "'P4AB'"),
+        ("C_TestPageAfterKeepReads", "'P4TK'"),
+    ] {
+        assert!(not_run(&row(&o, test).2, key), "{test}: {o:?}");
+    }
+}
+
+#[test]
+fn on_bc_27_and_28_the_arms_only_pr_1572_measured_are_refused() {
+    for major in [27, 28] {
+        let target = al_version::Target::for_bc(al_version::BcVersion::new(major, 5));
+        let o = cells_on(PR_1572_NEIGHBORS, TestIsolation::Codeunit, Some(&target));
+        for (test, key) in [
+            ("C_HelperExactReads", "'P4HX'"),
+            ("C_WriteThenWriteReads", "'P4WW'"),
+            // S2E of PR 1572: an insert in the failed test's own body, then a Record write.
+            ("C_InsertInFailedWriteReads", "'P4IW'"),
+            // S2G of PR 1572: the insert, then a Commit() of the failed test's body, then nothing (C3 of PR 1465 commits
+            // before the insert, and keeps).
+            ("C_InsertCommitReads", "'P4IC'"),
+        ] {
+            assert!(not_run(&row(&o, test).2, key), "BC {major} {test}: {o:?}");
+        }
+    }
 }
