@@ -22,6 +22,15 @@ codeunit 50702 "Rows"
 "#;
 
 pub(super) fn results(src: &str, isolation: TestIsolation) -> Vec<(u32, String, Outcome, Vec<&'static str>)> {
+    results_on(src, isolation, None)
+}
+
+/// [`results`] on the BC version `target` (`None`: the newest).
+pub(super) fn results_on(
+    src: &str,
+    isolation: TestIsolation,
+    target: Option<&al_version::Target>,
+) -> Vec<(u32, String, Outcome, Vec<&'static str>)> {
     let opts = RunOptions {
         isolation: Some(isolation),
         ..Default::default()
@@ -36,7 +45,7 @@ pub(super) fn results(src: &str, isolation: TestIsolation) -> Vec<(u32, String, 
         vec![al_sema::AppKind::Workspace],
         &[],
         &Default::default(),
-        None,
+        target,
         Default::default(),
         &[SuiteRun::everything()],
         &opts,

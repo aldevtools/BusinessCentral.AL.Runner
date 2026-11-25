@@ -1422,6 +1422,7 @@ fn run_codeunit_inner(
             not_run_after_panic(obj, &mut queue, &mut out);
         }
         session.clear_unmeasured();
+        session.stop_noting_tx_ends();
         ends.set(ends_of(&unfinished, panicked));
         th.end_codeunit(session, lowered, &mut out);
         Ok(out)
@@ -2326,6 +2327,8 @@ fn start_isolation(
     onrun_from: u64,
 ) -> (Option<Checkpoint>, Option<crate::isolation::CodeunitSequences>) {
     let checkpoint = (isolation == TestIsolation::Function).then(|| Checkpoint::take(session));
+    // The transaction ends an earlier codeunit noted for its sequences (CodeunitSequences::begin) end here.
+    session.stop_noting_tx_ends();
     let sequences = (isolation == TestIsolation::Codeunit)
         .then(|| crate::isolation::CodeunitSequences::begin(session, measured_runner));
     session.begin_codeunit_row_locks(isolation == TestIsolation::Codeunit && !execute, onrun_from);

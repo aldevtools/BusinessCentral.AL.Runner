@@ -1,0 +1,5 @@
+# key	entry
+# N6 FunctionIsolationRestart: (RequiredTestIsolation = Function: the asserterror's rollback is not a measured shape; main kept cur=1002)
+N6 FunctionIsolationRestart::C_FunctionIsolationRestartAsserterrorReads	REFUSED number sequence '
+# N6 DisabledIsolationRestart: (RequiredTestIsolation = Disabled: the asserterror's rollback is not a measured shape; main kept cur=1002)
+N6 DisabledIsolationRestart::C_DisabledIsolationRestartAsserterrorReads	REFUSED number sequence '
