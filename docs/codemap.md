@@ -287,7 +287,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `install_subsets.rs`: The runs that prove a group's install independent of order: per order of a unit's apps and per place of its inputs among them. Entry: `Proof::settle`.
 - `impact_static.rs`: Static selection: the graph of routines, objects. Entry: `Graph`.
 - `login.rs`: The test session's login. Entry: `decide`.
-- `login_replay.rs`: The check that a replay of the raised login would… Entry: `Key::of`.
+- `login_replay.rs`: The check that a replay of the raised login would… Entry: `Key::of`, `StartKey` (the key with the texts the login read).
 - `login_replay/` (3 files): What the login replay check's report names: where two states differ, and the parts a new key differs in, never a value. Entry: `differences`, `KeyParts::of`. Files: `difference.rs`, `key_parts.rs`, `rows_digest.rs`
 - `login_start.rs`: Replaying the raised login from a kept start (opt-in). Entry: `replay`.
 - `partner_login.rs`: The partner dependency apps' "System… Entry: `subscribers`.
@@ -437,7 +437,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `install_left.rs`: `install_left/clients.rs`. Entry: `Session::install_left`.
 - `session_fields.rs`: Every `Session` field in one class of one table. Entry: `Session::at_rest_why`.
 - `login_image.rs`: The session image after the raised login, and a new session made to hold it. Entry: `Session::login_image`.
-- `resource_reads.rs`: The resource files of the apps AL code of a session… Entry: `Session::resource_reads`.
+- `resource_reads.rs`: The resource files of the apps AL code of a session read, and the one owner of "their texts are still the same" (install-once, login starts). Entry: `Session::resource_reads`, `TextsRead`.
 - `sqlcount.rs`: The model behind `SqlStatementsExecuted` /… Entry: `SqlCounters::read`.
 - `tasks.rs`: `TaskScheduler.CreateTask`, `TaskExists`, `CancelTask`. Entry: `Session::task_scheduler_op`.
 - `tenant_set_delete.rs`: The Delete or DeleteAll of a stored Tenant… Entry: `tenant_set_delete_one`.

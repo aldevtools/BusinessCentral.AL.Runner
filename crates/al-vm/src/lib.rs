@@ -205,7 +205,7 @@ mod views_cross_enum;
 mod xmlports;
 mod xrec_blobs;
 pub use install_left::InstallLeft;
-pub use resource_reads::{ReadTexts, ResourceReads};
+pub use resource_reads::{ResourceReads, TextsRead};
 pub use transactions::TxModel;
 pub use ui::{UiHandler, UiKind};
 
