@@ -91,16 +91,29 @@ pub enum OtherSourceAtSign {
     Error { message: String, code: &'static str },
 }
 
+/// The part of a CalcFormula method the at-sign cells distinguish.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OtherSourceAtSignMethod {
+    /// A sum: main read this shape before the direct cells.
+    Sum,
+    /// Count, the method the 1031 and 1030 error cells measure.
+    Count,
+    /// Any other method.
+    Other,
+}
+
 /// [`OtherSourceAtSign`] for `text` over `ty` in a session of `language`, or None when the text is not `@` alone or `<>@` alone or
-/// no cell measures the type ([`calc_formula_at_sign_measured`]). `count` says the method is count. `captions` gives the captions
-/// of an Option or Enum field's members as the session shows them; it is called only for such a field. The 1031 and 1030 cells
-/// each run count with `@` only (AtSignAloneTypes.al:935, :974); every other combination is refused there before the assumption
-/// is marked. The lowering admits only the exact new caption shapes and also keeps the sum shapes main ran.
+/// no cell measures the type ([`calc_formula_at_sign_measured`]). `method` distinguishes Sum, Count and the other methods.
+/// `captions` gives the captions
+/// of an Option or Enum field's members as the session shows them; it is called only for such a field. The 1031 and 1030
+/// cells each run Count with `@` only (AtSignAloneTypes.al:935, :974). Outside 1033 a Date row answer is admitted only for
+/// those Count / `@` cells or a Sum that main ran (AtSignAloneMethods.al:395). Every other combination is refused before the
+/// assumption is marked. The lowering admits only the exact new caption shapes and also keeps the sum shapes main ran.
 pub fn calc_formula_at_sign_other_source(
     text: &str,
     ty: &crate::value::RtType,
     language: i32,
-    count: bool,
+    method: OtherSourceAtSignMethod,
     captions: impl FnOnce() -> Result<Vec<String>, Signal>,
 ) -> Result<Option<OtherSourceAtSign>, Signal> {
     let negated = match text {
@@ -111,10 +124,17 @@ pub fn calc_formula_at_sign_other_source(
     let Some(answer) = other_source_answer(negated, ty, captions)? else {
         return Ok(None);
     };
-    if language != 1033 && !(matches!(language, 1031 | 1030) && count && text == "@") {
-        return unsupported(format!(
-            "the error of a CalcFormula filter '{text}' in a session of language {language} (not measured)"
-        ));
+    match (&answer, language, method, text) {
+        (OtherSourceAtSign::Rows(_), 1033, _, _) => {}
+        (OtherSourceAtSign::Rows(_), _, OtherSourceAtSignMethod::Sum, _) => {}
+        (OtherSourceAtSign::Rows(_), 1031 | 1030, OtherSourceAtSignMethod::Count, "@") => {}
+        (OtherSourceAtSign::Error { .. }, 1033, _, _) => {}
+        (OtherSourceAtSign::Error { .. }, 1031 | 1030, OtherSourceAtSignMethod::Count, "@") => {}
+        _ => {
+            return unsupported(format!(
+                "the error of a CalcFormula filter '{text}' in a session of language {language} (not measured)"
+            ));
+        }
     }
     assume(Assumption::AtSignAloneDatabaseBlank);
     Ok(Some(answer))
