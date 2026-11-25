@@ -96,6 +96,8 @@ struct State {
     too_large: u64,
     /// Per reason ([`NotTaken::reason`]), the sessions the gate kept from a start.
     not_taken: BTreeMap<String, u64>,
+    /// Per reason (`login_replay::NoKey::reason`), the sessions of a raised login that had no key ([`no_key`]).
+    no_key: BTreeMap<String, u64>,
 }
 
 impl State {
@@ -179,7 +181,8 @@ impl Starts {
         self.state().kept.len()
     }
 
-    /// The report line, names and counts only: `None` before a start was recorded or refused, or a session gated.
+    /// The report line, names and counts only: `None` before a start was recorded or refused, a session gated, or a
+    /// session of a raised login had no key.
     pub(crate) fn line(&self) -> Option<String> {
         let s = self.state();
         // `N what (n: reason, ...)`: the count, then the reasons when there are any.
@@ -191,17 +194,19 @@ impl Starts {
                 false => format!("{n} {what} ({})", why.join(", ")),
             }
         };
-        if s.kept.is_empty() && s.refused.is_empty() && s.replayed == 0 && s.not_taken.is_empty() {
+        if s.kept.is_empty() && s.refused.is_empty() && s.replayed == 0 && s.not_taken.is_empty() && s.no_key.is_empty()
+        {
             return None;
         }
         Some(format!(
-            "login start: {} replayed, {} kept ({:.1} MB), {}, {} too large, {}",
+            "login start: {} replayed, {} kept ({:.1} MB), {}, {} too large, {}, {}",
             s.replayed,
             s.kept.len(),
             s.bytes() as f64 / 1_048_576.0,
             by("not imaged", &s.not_imaged),
             s.too_large,
             by("refused by the gate", &s.not_taken),
+            by("no key", &s.no_key),
         ))
     }
 }
@@ -246,6 +251,12 @@ pub(crate) fn run_gate(run: RunFacts) -> Option<NotTaken> {
     } else {
         crate::host::unkeyed().map(NotTaken::Unkeyed)
     }
+}
+
+/// Counts a session of `engine` whose login was raised and that had no key (`no_key`): it ran its login. A session whose
+/// login is not raised is not counted (under the check every session takes a key, and only a raised login replays).
+pub(crate) fn no_key(engine: &Engine, no_key: &crate::login_replay::NoKey) {
+    *starts(engine).state().no_key.entry(no_key.reason()).or_default() += 1;
 }
 
 /// Why a session that was `target` (`Session::thaw_target_why`) with a store of shape `shape` before its login cannot take

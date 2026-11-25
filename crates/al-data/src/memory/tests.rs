@@ -966,3 +966,27 @@ fn a_deleted_out_backed_table_stays_empty_after_the_way_back() {
     let back = MemStore::from_exported(s.export_committed().unwrap()).with_backing(b);
     assert_eq!(back.count(&cx, &t, &[]).unwrap(), 0, "not restored again");
 }
+
+// A guard: `committed_rows` gives each committed entry with the rows `committed_table` clones, by reference, in key
+// order, and its stamp. Rows written but not committed are not in it.
+#[test]
+fn committed_rows_are_committed_tables_rows_by_reference_in_key_order() {
+    use crate::contract::{cx, row, table};
+    let (c, t) = (cx("C"), table());
+    let mut s = MemStore::default();
+    for no in ["C", "A", "B"] {
+        s.insert(&c, &t, row(no, 1, 1)).unwrap();
+    }
+    s.commit();
+    s.insert(&c, &t, row("D", 1, 1)).unwrap();
+    let (cloned, _) = s.committed_table("C", 7).unwrap();
+    let entries: Vec<_> = s.committed_rows().collect();
+    assert_eq!(entries.len(), 1, "one entry");
+    let entry = &entries[0];
+    assert_eq!((entry.company, entry.object), ("C", 7));
+    assert_ne!(entry.stamp, 0, "a committed write stamps the entry");
+    let by_ref: Vec<&Row> = entry.rows().collect();
+    let expected: Vec<&Row> = cloned.rows.iter().map(|(_, r)| r).collect();
+    assert_eq!(format!("{by_ref:?}"), format!("{expected:?}"));
+    assert_eq!((by_ref.len(), entry.len()), (3, 3), "the uncommitted row is not in it");
+}

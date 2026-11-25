@@ -23,11 +23,37 @@
 
 mod difference;
 mod key_parts;
+mod rows_digest;
 
 use al_vm::{Engine, Session};
 pub(crate) use difference::differences;
 use difference::{KINDS, StoredRow, stored_rows};
 use std::sync::{Mutex, PoisonError};
+
+/// Why a session has no key ([`Key::of`]): it then runs its login.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum NoKey {
+    /// The session holds a value with no comparable form (al-vm `NotComparable`), at this path (ids and indexes only).
+    NotComparable(String),
+    /// A row holds a value with no byte form, of this kind (`rows_digest::NoByteForm`).
+    NoByteForm(&'static str),
+}
+
+impl From<rows_digest::NoByteForm> for NoKey {
+    fn from(no: rows_digest::NoByteForm) -> NoKey {
+        NoKey::NoByteForm(no.0)
+    }
+}
+
+impl NoKey {
+    /// The reason as the starts line names it.
+    pub(crate) fn reason(&self) -> String {
+        match self {
+            NoKey::NotComparable(path) => format!("no comparable form: {path}"),
+            NoKey::NoByteForm(kind) => format!("no byte form: {kind}"),
+        }
+    }
+}
 
 /// The inputs the login and its subscribers read when the test session opens the company, as far as the code shows them:
 /// a session state the key does not hold is held in place by the thaw's rule (al-vm `session_fields.rs`, `login_image/fields.rs`), and a
@@ -155,24 +181,27 @@ impl RunSettings {
 impl Key {
     /// The key of `session` before it opens the company; `isolation`: the codeunit's test isolation and whether the hub
     /// runs it; `flags`: the run options the session took; `skipped`: the install code that could not run, whose tables
-    /// the open is watched on. `None` when the session holds a value with no comparable form (al-vm `NotComparable`):
-    /// the key would hold it by its path only, so two sessions with other values there would share a key. Such a
-    /// session runs its login.
+    /// the open is watched on. [`NoKey`] when the session holds a value with no comparable form (al-vm `NotComparable`:
+    /// the key would hold it by its path only, so two sessions with other values there would share a key) or a row holds
+    /// a value with no byte form (`rows_digest.rs`). Such a session runs its login.
     pub(crate) fn of(
         session: &mut Session,
         isolation: (crate::isolation::TestIsolation, bool),
         flags: crate::runtime::session_flags::SessionFlags,
         skipped: &[al_vm::SkippedInstall],
-    ) -> Option<Key> {
+    ) -> Result<Key, NoKey> {
         let state = session.state_lines();
-        if !state.opaque.is_empty() {
-            return None;
+        if let Some(opaque) = state.opaque.first() {
+            return Err(NoKey::NotComparable(opaque.path.clone()));
         }
         let engine = session.engine.clone();
         let store = session.store_mut();
-        let tables = key_parts::store_table_digests(&engine, store);
+        let tables = key_parts::store_table_digests(&engine, store)?;
         let database = key_parts::database_digest(&tables);
-        let uncommitted = store.has_uncommitted().then(|| digest(&current_rows(store)));
+        let uncommitted = match store.has_uncommitted() {
+            true => Some(rows_digest::current_digest(store)?),
+            false => None,
+        };
         let backing = BackingKey::of(store.backing_identity());
         let resources = {
             let overrides = session
@@ -189,7 +218,7 @@ impl Key {
                     .collect::<Vec<_>>(),
             )
         };
-        Some(Key {
+        Ok(Key {
             database,
             uncommitted,
             backing,
@@ -892,23 +921,8 @@ pub(crate) fn report(engine: &Engine) -> Option<String> {
     })
 }
 
-/// Every row `store` holds now, the uncommitted changes included, one line each ([`rows`]).
-fn current_rows(store: &al_data::memory::MemStore) -> Vec<String> {
-    rows(&store.export_current())
-}
-
-/// The rows of `tables`, one line each: company, table object and the row with its system fields.
-fn rows(tables: &[al_data::memory::ExportedTable]) -> Vec<String> {
-    let mut out = Vec::new();
-    for t in tables {
-        for (_, row) in &t.rows {
-            out.push(format!("{}|{}|{row:?}", t.company, t.object));
-        }
-    }
-    out
-}
-
-/// A SHA-256 of lines, for a key field: two inputs that differ have other digests (no 64-bit hash collides them).
+/// A SHA-256 for a key field, of lines ([`digest`]) or of rows as bytes (`rows_digest.rs`): two inputs that differ have
+/// other digests (no 64-bit hash collides them).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct LinesDigest([u8; 32]);
 
@@ -1255,7 +1269,7 @@ mod tests {
     }
 
     // The maintainer's review of this check (issue 8211): the parts are a detail of `database` and `session`, never a key
-    // field of their own. A store may export a table it holds no row of; `rows` writes no line for it, so `database`
+    // field of their own. A store may export a table it holds no row of; it has no table digest, so `database`
     // does not see it, and the key is the key of the same rows without that table: no new key, no entry with an empty
     // name on the keys line. When the keys differ in other rows, the table without rows is not named among them.
     #[test]
