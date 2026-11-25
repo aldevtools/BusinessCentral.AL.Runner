@@ -1870,7 +1870,7 @@ impl Session {
                         // Y76StaleBuffers.al Y76_Part1_FindSet_Assign, `assign/*`).
                         let row_origin = src.borrow().row_origin;
                         let mut d = dst.borrow_mut();
-                        d.fields = fields.into();
+                        self.replace_record_fields(&dst, &mut d, fields.into());
                         d.row_origin = row_origin;
                         d.own_read = Default::default();
                         d.rolled_read = Default::default();
@@ -1879,6 +1879,7 @@ impl Session {
                         // The copy holds what the source's buffer held, if that is known.
                         d.load.buffer = load.buffer;
                         d.load.partial = load.partial;
+                        drop(d);
                     }
                     if let ir::Place::Global(i) = p {
                         self.single_written(&f.instance, *i);
