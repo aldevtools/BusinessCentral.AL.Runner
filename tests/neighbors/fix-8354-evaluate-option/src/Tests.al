@@ -198,6 +198,20 @@ codeunit 71912 "NB8354 Option FieldRef"
     Subtype = Test;
 
     [Test]
+    procedure Pair_FieldRef()
+    var
+        R: Record "NB8354 Row";
+        RecRef: RecordRef;
+        FldRef: FieldRef;
+        Ok: Boolean;
+    begin
+        RecRef.GetTable(R);
+        FldRef := RecRef.Field(13);
+        Ok := Evaluate(FldRef, '2');
+        Error('%1|%2', Ok, FldRef.Value);
+    end;
+
+    [Test]
     procedure Reporter_FieldRef()
     var
         R: Record "NB8354 Row";
@@ -307,5 +321,93 @@ codeunit 71918 "NB8354 Enum Parameter"
     begin
         Ok := Evaluate(E, '');
         Error('%1|%2', Ok, E.AsInteger());
+    end;
+}
+
+// Al-runner issue 8355: an Option field whose OptionCaption repeats its member names. The texts, forms and fields of corpus PR
+// 1577 OBC_Option_PairOrdinals, and their neighbors.
+codeunit 71919 "NB8355 Pair Tests"
+{
+    Subtype = Test;
+
+    local procedure Pair(Start: Integer; Word: Text)
+    var
+        R: Record "NB8354 Row";
+        Ok: Boolean;
+        Ord: Integer;
+    begin
+        R.Pair := Start;
+        Ok := Evaluate(R.Pair, Word);
+        Ord := R.Pair;
+        Error('%1|%2', Ok, Ord);
+    end;
+
+    local procedure PairStatement(Start: Integer; Word: Text)
+    var
+        R: Record "NB8354 Row";
+        Ord: Integer;
+    begin
+        R.Pair := Start;
+        Evaluate(R.Pair, Word);
+        Ord := R.Pair;
+        Error('no error|%1', Ord);
+    end;
+
+    [Test] procedure Pair_PlusTwo() begin Pair(0, '+2'); end;
+    [Test] procedure Pair_MaxInteger() begin Pair(0, '2147483647'); end;
+    [Test] procedure Pair_PastMaxInteger() begin Pair(0, '2147483648'); end;
+    [Test] procedure Pair_MinusOneFromBeta() begin Pair(1, '-1'); end;
+    [Test] procedure Pair_StatementNinetyNine() begin PairStatement(0, '99'); end;
+    [Test] procedure Pair_StatementMinusOne() begin PairStatement(1, '-1'); end;
+
+    // Neighbors: texts, forms, members and places the probe did not measure.
+    [Test] procedure Pair_One() begin Pair(0, '1'); end;
+    [Test] procedure Pair_Name() begin Pair(0, 'beta'); end;
+    [Test] procedure Pair_Empty() begin Pair(1, ''); end;
+    [Test] procedure Pair_Three() begin Pair(0, '3'); end;
+    [Test] procedure Pair_SpaceTwo() begin Pair(0, ' 2'); end;
+    [Test] procedure Pair_StatementTwo() begin PairStatement(0, '2'); end;
+
+    [Test]
+    procedure Pair_FormatNumber9()
+    var
+        R: Record "NB8354 Row";
+        Ok: Boolean;
+        Ord: Integer;
+    begin
+        Ok := Evaluate(R.Pair, '2', 9);
+        Ord := R.Pair;
+        Error('%1|%2', Ok, Ord);
+    end;
+
+    [Test]
+    procedure Pair_Language1031()
+    begin
+        GlobalLanguage(1031);
+        Pair(0, '2');
+    end;
+
+    [Test]
+    procedure Trio_Three()
+    var
+        R: Record "NB8354 Row";
+        Ok: Boolean;
+        Ord: Integer;
+    begin
+        Ok := Evaluate(R.Trio, '3');
+        Ord := R.Trio;
+        Error('%1|%2', Ok, Ord);
+    end;
+
+    [Test]
+    procedure OtherPair_Two()
+    var
+        R: Record "NB8354 Row";
+        Ok: Boolean;
+        Ord: Integer;
+    begin
+        Ok := Evaluate(R.OtherPair, '2');
+        Ord := R.OtherPair;
+        Error('%1|%2', Ok, Ord);
     end;
 }

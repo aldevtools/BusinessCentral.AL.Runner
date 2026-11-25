@@ -24,3 +24,12 @@ NB8354 Option Tests::Reporter_TwoSpaces	ASSUMED option-blank-text-blank-captions
 NB8354 Option Tests::SpaceEmptyCap_Empty	ASSUMED option-blank-text-blank-captions (corpus PR 1577)
 NB8354 Option CaptionML::Reporter_CaptionML	REFUSED Evaluate of a blank text into an Option field with this mix of blank member names and captions
 NB8354 Option FieldRef::Reporter_FieldRef	REFUSED Evaluate of a blank text into an Option field with this mix of blank member names and captions
+NB8354 Option Tests::Pair_Two	ASSUMED option-caption-same-as-names-ordinal (corpus PR 1577)
+NB8354 Option Tests::Pair_NinetyNine	ASSUMED option-caption-same-as-names-ordinal (corpus PR 1577)
+NB8354 Option Tests::Pair_MinusOne	ASSUMED option-caption-same-as-names-ordinal (corpus PR 1577)
+NB8355 Pair Tests::Pair_PlusTwo	ASSUMED option-caption-same-as-names-ordinal (corpus PR 1577)
+NB8355 Pair Tests::Pair_MaxInteger	ASSUMED option-caption-same-as-names-ordinal (corpus PR 1577)
+NB8355 Pair Tests::Pair_PastMaxInteger	ASSUMED option-caption-same-as-names-ordinal (corpus PR 1577)
+NB8355 Pair Tests::Pair_MinusOneFromBeta	ASSUMED option-caption-same-as-names-ordinal (corpus PR 1577)
+NB8355 Pair Tests::Pair_StatementNinetyNine	ASSUMED option-caption-same-as-names-ordinal (corpus PR 1577)
+NB8355 Pair Tests::Pair_StatementMinusOne	ASSUMED option-caption-same-as-names-ordinal (corpus PR 1577)

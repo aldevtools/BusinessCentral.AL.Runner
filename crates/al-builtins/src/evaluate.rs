@@ -1566,6 +1566,11 @@ pub fn evaluate_option_field(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Va
 
 /// [`evaluate_option_field`] of a field named directly (`direct`) or through a FieldRef.
 fn option_field(c: &mut dyn Ctx, a: &mut [Value], direct: bool) -> Result<Value, Signal> {
+    // An OptionCaption that repeats the member names (fifth argument 3): the measured shapes read as captions do, every other
+    // shape as a field without these captions (`option_text::same_as_names_measured`).
+    if matches!(a.get(4), Some(Value::Integer(3))) && !option_text::same_as_names_measured(c, a, direct) {
+        return evaluate_with(c, &mut a[..3], false);
+    }
     let (Some(text), Some(Value::Text(captions)), Value::Option(_, names)) =
         (crate::native::text_of(&a[1]), a.get(3).cloned(), a[0].clone())
     else {

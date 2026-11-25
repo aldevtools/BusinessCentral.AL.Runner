@@ -13,6 +13,8 @@ pub(crate) enum OptionCaptions {
     Ml,
     /// The field declares no caption: the member names.
     None,
+    /// The field's OptionCaption repeats its member names entry by entry.
+    SameAsNames,
 }
 
 impl Lowerer<'_> {
@@ -476,8 +478,17 @@ impl Lowerer<'_> {
         };
         let list = crate::members::first_string_literal(text)?;
         let captions: Vec<&str> = list.split(',').collect();
-        (captions.len() == names.len() && captions.iter().zip(names).any(|(c, n)| c != n))
-            .then(|| (list.to_string(), OptionCaptions::Caption))
+        if captions.len() != names.len() {
+            return None;
+        }
+        // Captions equal to the names: al-builtins `evaluate::option_field` reads the shapes corpus PR 1577 measured and the
+        // rest as a field without captions (al-runner issue 8355).
+        let kind = if captions.iter().zip(names).all(|(c, n)| c == n) {
+            OptionCaptions::SameAsNames
+        } else {
+            OptionCaptions::Caption
+        };
+        Some((list.to_string(), kind))
     }
 
     /// Whether `arg` is the Class column of the Field table (2000000041), an Option field with the members of FieldClass.

@@ -1,5 +1,6 @@
 //! `Evaluate` into an Option: a variable (`variable`), a `var` parameter declared without members
-//! (`memberless_var_parameter`, `memberless_var_array_element`) and a field (`field`).
+//! (`memberless_var_parameter`, `memberless_var_array_element`) and a field (`field`), and the measured shapes of a field whose
+//! OptionCaption repeats its member names (`same_as_names_measured`).
 
 use super::{Parsed, unsupported};
 use crate::native::{Ctx, Signal};
@@ -141,4 +142,27 @@ pub(super) fn field(c: &mut dyn Ctx, members: &Arc<[String]>, text: &crate::text
             }
         },
     )
+}
+
+/// The shapes corpus PR 1577 measured for `Evaluate` into an Option field whose OptionCaption repeats its member names (the
+/// lowering's fifth argument 3; al-runner issue 8355, format-evaluate/EvalOptionBlankCaptions.al OBC_Option_PairOrdinals): the
+/// field named directly with the members `Alpha,Beta`, no format number, GlobalLanguage 1033, with the result used the texts
+/// `2`, `99`, `+2`, `2147483647`, `-1` and `2147483648`, as a statement `99` and `-1`. On these the field reads as one with
+/// other captions (`evaluate::option_field`), on the assumption [`Assumption::OptionCaptionSameAsNamesOrdinal`]. Every other
+/// shape reads as a field without these captions ([`field`]), as before.
+pub(super) fn same_as_names_measured(c: &dyn Ctx, a: &[Value], direct: bool) -> bool {
+    let Some(text) = crate::native::text_of(&a[1]) else {
+        return false;
+    };
+    let members = matches!(&a[0], Value::Option(_, m) if m.len() == 2 && m[0] == "Alpha" && m[1] == "Beta");
+    let text_measured = if c.ret_used() {
+        matches!(text.as_str(), "2" | "99" | "+2" | "2147483647" | "-1" | "2147483648")
+    } else {
+        matches!(text.as_str(), "99" | "-1")
+    };
+    let measured = direct && members && matches!(a.get(2), Some(Value::Integer(0))) && c.language() == 1033 && text_measured;
+    if measured {
+        crate::assumptions::assume(crate::assumptions::Assumption::OptionCaptionSameAsNamesOrdinal);
+    }
+    measured
 }

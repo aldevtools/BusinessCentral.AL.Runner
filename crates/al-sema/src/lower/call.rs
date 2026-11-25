@@ -1057,6 +1057,7 @@ impl Lowerer<'_> {
                 // The OptionCaption of an Option field goes along as a fourth argument.
                 // A fifth argument 1: the fourth is the OptionCaptionML property text.
                 // A fifth argument 2: the field declares no caption and the fourth is its member names.
+                // A fifth argument 3: the OptionCaption repeats the member names.
                 if let (true, Some((captions, kind))) = (emit_id == "System.EvaluateOptionField#1", option_captions) {
                     while out.len() < 3 {
                         out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(0))));
@@ -1068,6 +1069,9 @@ impl Lowerer<'_> {
                         }
                         super::stmt::OptionCaptions::None => {
                             out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(2))))
+                        }
+                        super::stmt::OptionCaptions::SameAsNames => {
+                            out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(3))))
                         }
                         super::stmt::OptionCaptions::Caption => {}
                     }

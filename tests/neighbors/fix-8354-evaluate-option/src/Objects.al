@@ -16,6 +16,8 @@ table 71900 "NB8354 Row"
         field(12; ReporterML; Option) { OptionMembers = First,,,Skip; OptionCaptionML = ENU = 'First one,,,Skip it'; }
         field(13; Pair; Option) { OptionMembers = Alpha,Beta; OptionCaption = 'Alpha,Beta'; }
         field(14; Kind; Enum "NB8354 Last") { }
+        field(15; Trio; Option) { OptionMembers = Alpha,Beta,Gamma; OptionCaption = 'Alpha,Beta,Gamma'; }
+        field(16; OtherPair; Option) { OptionMembers = One,Two; OptionCaption = 'One,Two'; }
     }
     keys { key(PK; Code) { Clustered = true; } }
 }
