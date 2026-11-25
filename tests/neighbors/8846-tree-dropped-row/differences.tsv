@@ -1,0 +1,6 @@
+# key	entry
+# The neighbors with CollapseAll and with OnAfterGetCurrRecord (al-runner issue 8882): main raised no error and saved nothing
+# when the filter left the tree's first row out; the head saves the row and raises the filtered-view error, as BC does. Their
+# pages read as pages 97678 and 97679 of corpus PR 1554, whose cells measure the same steps.
+LT TDN Tests::DropTreeCollapsed_FirstRow	ASSUMED tree-validate-view-refresh (corpus PR 1554 :968)
+LT TDN Tests::DropTreeCurr_FirstRow	ASSUMED tree-validate-view-refresh (corpus PR 1554 :996)

@@ -1,4 +1,6 @@
 //! Lossless lexer: the concatenated token texts are exactly the input.
+//!
+//! Entry points: `lex`, `Token`.
 
 use crate::SyntaxKind;
 

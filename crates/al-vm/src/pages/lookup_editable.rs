@@ -1,5 +1,10 @@
 //! What lookup mode makes read-only, by page type (al-runner issues 5012 and 5029). The one owner of that rule: `page_editable`,
 //! `control_editable` and the `Editable()` reads ask here.
+//!
+//! What lookup mode locks by page type (`lookup_lock`, asked by `page_editable` and
+//! `control_editable`), and the plain OK and missing Cancel of a ListPart, CardPart and NavigatePage
+//! in lookup mode (al-runner issue 5029). Entry points: `lookup_lock`, `lookup_reads_plain_ok`,
+//! `lookup_part_without_cancel`.
 
 use super::*;
 

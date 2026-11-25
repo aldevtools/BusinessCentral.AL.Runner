@@ -1,0 +1,3 @@
+# A footprint row key holds the primary key values of a row; the store never changes a key value in place
+# (`al-data` `memory/footprint.rs` `RowKey`), so a set of footprint resources keeps its order.
+ignore-interior-mutability = ["al_data::memory::footprint::RowKey"]

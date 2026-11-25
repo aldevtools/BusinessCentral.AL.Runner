@@ -1,18 +1,5 @@
 # key	entry
-# Page 97498 of corpus PR 1535 (ListValidateViewReads.al), the issue's page with controls of every type: the base ran main's
-# refresh; the head reads the issue's cell and the As* reads, OptionCount, GetOption and IsExpanded at its points as BC does.
-# GetField by a control id after the rule ran refuses (the runner does not know the compiler's control ids); before it, and
-# the tree page 97499, keep main's answer on both, so no row.
-LT RVR Tests::Lines_SetRangeUpdateFalse_ReadsStoredRowAndAppliesFilter	ASSUMED list-validate-view-refresh (corpus PR 1535, open: ListValidateViewReads.al)
-LT RVR Tests::Lines_AsReads_BeforeFirstStep	ASSUMED list-validate-view-refresh (corpus PR 1535, open: ListValidateViewReads.al)
-LT RVR Tests::Lines_AsReads_BetweenSteps	ASSUMED list-validate-view-refresh (corpus PR 1535, open: ListValidateViewReads.al)
-LT RVR Tests::Lines_AsReads_AfterSteps	ASSUMED list-validate-view-refresh (corpus PR 1535, open: ListValidateViewReads.al)
-LT RVR Tests::Lines_OptionsAndTree_BeforeFirstStep	ASSUMED list-validate-view-refresh (corpus PR 1535, open: ListValidateViewReads.al)
-LT RVR Tests::Lines_OptionsAndTree_BetweenSteps	ASSUMED list-validate-view-refresh (corpus PR 1535, open: ListValidateViewReads.al)
-LT RVR Tests::Lines_OptionsAndTree_AfterSteps	ASSUMED list-validate-view-refresh (corpus PR 1535, open: ListValidateViewReads.al)
-LT RVR Tests::Lines_GetFieldById_BetweenSteps	REFUSED a call on a page of ListValidateFilterRefresh.al after the page read its row or the view again
-LT RVR Tests::Lines_GetFieldById_AfterSteps	REFUSED a call on a page of ListValidateFilterRefresh.al after the page read its row or the view again
-# AsInteger on the Text control and AsBoolean on the Decimal one between the SetValues: BC raises Invalid Conversion; the
-# head refuses a read on another type than the read cells measure; the base ran main's refresh and failed earlier.
-LT RFU Neighbor Tests::Wide_AsIntegerOnText_BetweenSteps	REFUSED a call on a page of ListValidateFilterRefresh.al after the page read its row or the view again
-LT RFU Neighbor Tests::Wide_AsBooleanOnDecimal_BetweenSteps	REFUSED a call on a page of ListValidateFilterRefresh.al after the page read its row or the view again
+# No test differs from main. GetField by the Name control's id on page 97498 of corpus PR 1535 (ListValidateViewReads.al) is
+# on main since al-runner issue 8832. On the tree page 97499 GetField finds the control too
+# (LT RVR Tests::Tree_GetFieldById_BeforeFirstStep, Tree_GetFieldById_BetweenSteps, Tree_GetFieldById_AfterSteps), and the
+# tree's refresh keeps main's wrong answer: al-runner issue 8888.

@@ -26,6 +26,25 @@
 //! - `TestPage.Close()` in the handler: an unhandled Confirm of OnClosePage comes out wrapped (`page_close`).
 //!
 //! What the last error is after a dropped error is not pinned: it refuses to be read until the next error replaces it.
+//!
+//! A page AL code opened with a non-modal `Page.Run` (static or a Page variable's) and a PageHandler
+//! answered (al-runner issue 7480, pages/close-errors/CemPageHandlerTests.al). One function decides,
+//! `page_run_cell`: a close takes a path of this module only in a cell of the corpus matrix (`cell`),
+//! with every fact proved: the page's own code and properties, trigger calls that hand values only,
+//! and the run (`pinned_run`: the call form `PageRunCall`, started from codeunit code with no write
+//! pending), the handler's calls (`handler_calls`), the row and whether the close saved it, the error
+//! and its source (`close_error_of`), no other write, no Commit, no other handler bound; an error the
+//! handler caught first changes no cell (assumption `page-handler-caught-error-close`, al-runner
+//! issue 8729). In those cells errors of OnQueryClosePage, OnClosePage and the row save are dropped
+//! at the platform's close after the handler returned or raised; at OK in the handler an OnClosePage
+//! error comes out as `TestWrapped` and an OnQueryClosePage message as
+//! `TestWrapped:MissingUIHandler`. Every other close keeps its path. Entry points: `note_page_run`
+//! (by `run_page_var` and the static `Page.Run`), `note_page_code_call` (by `page_op_inner`, every
+//! call on a Page variable or `CurrPage`), `begin_handled_run` (by `run_page_ui_with`),
+//! `close_page_after_handler_error` (by `answer_page`), `page_run_returned` and
+//! `page_run_save_error_dropped` (by `close_modal_left_open`), `page_run_close`,
+//! `page_run_close_page_error`, `page_run_query_close_error`, `refuse_page_run_save_error_at_action`
+//! (by `close_with`), `page_run_test_close_confirm` (by `page_close`).
 
 use super::pinned_shape::{self, TestCall};
 use super::*;
@@ -271,7 +290,7 @@ fn cell(run: PinnedRun, by: CloseBy, row: RowAtClose, error: Option<CloseError>)
 }
 
 /// `e` is an AL `Error` with a text (the fixtures' form: code Dialog, `ExceptionKind::Dialog`, a text that is not empty).
-fn error_with_text(e: &AlError) -> bool {
+pub(super) fn error_with_text(e: &AlError) -> bool {
     e.code == "Dialog" && e.exception == ExceptionKind::Dialog && !e.message.is_empty()
 }
 

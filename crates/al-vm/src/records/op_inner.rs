@@ -1,4 +1,7 @@
 //! `record_op_inner`: the dispatch of every Record method (moved out of `records.rs`).
+//!
+//! `record_op_inner`, the dispatch of every Record method (moved out of `records.rs`), and
+//! `clear_record` (`Clear` of a record).
 
 use super::*;
 use crate::state::{UnpinnedLock, WriteOfAl};
@@ -1463,7 +1466,8 @@ impl Session {
                 let date_ctx = self.date_filter_context_for(&text);
                 let parse = |text: &str| {
                     al_builtins::filter::with_date_context(date_ctx, || {
-                        al_builtins::filter::parse_filter_at_sign_measured(text, &args[2..], &ty, &enums)
+                        // Record.SetFilter and FieldRef.SetFilter measure `<>@` alone on a Code field too (`filter_at_sign`).
+                        al_builtins::filter::parse_filter_both_at_signs_measured(text, &args[2..], &ty, &enums)
                     })
                 };
                 // A RecordId text (`Format(RecordId)`, alone or after `<>`): see `record_id_filter_text`.
@@ -1595,7 +1599,7 @@ impl Session {
                     }
                     // types/date-time/P143Guid_Filters.al:P143_GuidInvalid, P143Date_FieldRef.al:P143_FieldRefGuid.
                     Err(e) if e.starts_with(al_builtins::filter::INVALID_GUID) => {
-                        let reason = "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.";
+                        let reason = al_builtins::native::INVALID_GUID_FORMAT;
                         return Err(self.filter_error(&t, pos, text.trim(), reason));
                     }
                     // An empty side of `|` in the measured shapes (`setfilter_empty_or_side`); every other text main refused.

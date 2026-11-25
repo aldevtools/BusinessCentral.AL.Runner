@@ -28,6 +28,36 @@
 //!   read of the table (Y7407DuplicateInsertBuffer.al:98-105, :386) or at the Insert that sends the queue (:277, :301); the
 //!   SQL-range kind at a read or a Commit, and every body of record/filters/SqlDateFloor1753.al ends in Error(). Whether the
 //!   leave of the body sends it, so that the asserterror catches it, is not known: refused (`refuse_pending_at_assert_end`).
+//!
+//! the insert queue of a table (al-runner issue 7407; record/duplicate-
+//! insert/Y7407DuplicateInsertBuffer.al): which statement-form Inserts are queued, the 5th row,
+//! Commit and the next access that send it, and where a pending duplicate-key Insert raises. A page
+//! background task's worker does not see the rows the queue holds, and its methods send nothing (al-
+//! runner issue 8491, assumption `bg-task-insert-queue`, corpus pull request 1459, merged, not pinned
+//! yet: `hide_queued_from_worker` and `show_queued_to_test_session` around every record method of a
+//! worker, from `record_op`, `hide_queued_in_view` around a worker's FlowField in `flowfields.rs`,
+//! and `hide_queued_from_query` around a worker's Query in `queries.rs` `query_rows`, each on a view
+//! of the store without the queued rows, al-data `MemStore::without_rows`; a queued Insert puts its
+//! row into the queue at its store write, `queue_stored_row` from `record_op_inner`; a test-session
+//! read outside the record methods sends the queue of its table and company, and a worker's
+//! TableRelation check of such a table is refused, `note_indirect_read_of_queue`; a worker's Get runs
+//! past a deferred Insert error of the measured kinds, `worker_get_past_deferred`, also read by
+//! `record_op_inner`). The deferred Insert error and its kind, a duplicate key or a value its SQL
+//! column cannot hold (`DeferredInsert`, `DeferredKind`, held in `TxState::deferred_insert`). Refuses
+//! a valid row that sends the queue while a duplicate is pending, the end of an `asserterror` body
+//! without an error while an Insert error is deferred: a duplicate key, or a Date or DateTime its SQL
+//! column cannot hold from `records/sql_range.rs` (al-runner issue 8267;
+//! record/filters/SqlDateFloor1753.al), and the reads no case measures while one is deferred:
+//! GetBySystemId, CountApprox, a Query, a FlowField (al-runner issue 8288). One list of the methods
+//! that send the queue (`sends_queue`, also read by `record_op_inner`). Entry points:
+//! `record_op_of_al`, `defer_insert`, `insert_is_queued`, `note_insert_buffer`,
+//! `refuse_pending_at_assert_end` (from `exec/run.rs` `op_assert`),
+//! `refuse_unmeasured_read_while_deferred` (from `recmeta.rs` `get_by_system_id`, `permissions.rs`
+//! `count_approx`, `flowfields.rs` `calc_value_inner`, `queries.rs`
+//! `refuse_query_read_while_deferred`, for the instance and the static Query.SaveAs forms). A leave
+//! of an `asserterror` body by exit, break or continue is refused where it runs: al-sema
+//! `lower/stmt.rs` `refuse_assert_error_leaves` turns it into `Expr::Refused`, and `op_assert`
+//! refuses an `exit` with a value (al-runner issue 8289, `al_ir::ASSERT_ERROR_LEAVE`).
 
 use super::*;
 use crate::state::WriteOfAl;
@@ -148,9 +178,9 @@ impl Session {
             RecordOp::ModifyAll => Some(WriteOfAl::ModifyAll),
             _ => None,
         };
-        let al_read = self.mark_al_record_read(method);
+        let al_read = self.mark_al_record_read(method, false);
         let r = self.record_op(method, rec, args);
-        self.pages.query_cache.al_record_read = al_read;
+        self.unmark_al_record_read(al_read);
         self.tx.write_of_al = None;
         self.tx.get_from_al = false;
         r

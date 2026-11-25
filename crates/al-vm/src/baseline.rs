@@ -4,13 +4,14 @@
 //! the capture is a clone of a root pointer), the counters that must not repeat (system ids,
 //! row versions, AutoIncrement), isolated storage and number sequences. Execution state
 //! (single-instance codeunits, bindings, handlers) starts fresh, as in a new BC session.
+//!
+//! The install baseline (ADR-013 decision 5, ADR-004), with the install routines that could not run
+//! (`SkippedInstall`: `tables`, `assumed`, `why`). Entry points: `Baseline`, `SkippedInstall`.
 
 use crate::Session;
 
 mod install_orders;
-mod row_delta;
 mod shared;
-pub use row_delta::RowDelta;
 pub use shared::{NotShared, SharedBaseline};
 
 /// What a session keeps of the baseline run; see the module comment.
@@ -368,6 +369,17 @@ impl Session {
         self.commit_transaction();
         self.sequences_changed.clear();
         Baseline {
+            company_built: false,
+            install_rows: None,
+            ..self.data_now()
+        }
+    }
+
+    /// The session's data as it is now, as a baseline: its store (an uncommitted change included) and counters, without a
+    /// Commit, with the session's `company_built` and the tables its own baseline gave it (`install_rows`). The login
+    /// image keeps it (al-vm `login_image`); [`Session::capture_baseline`] takes it after its Commit.
+    pub(crate) fn data_now(&self) -> Baseline {
+        Baseline {
             store: self.store.clone().detached(),
             next_guid: self.next_guid,
             next_row_version: self.next_row_version,
@@ -377,7 +389,7 @@ impl Session {
             sequences: self.sequences.clone(),
             last_stamp: self.last_stamp,
             workspace_installs: None,
-            company_built: false,
+            company_built: self.company_built,
             company_unknown: {
                 let mut v: Vec<(String, u32, String)> = self
                     .company_unknown
@@ -389,7 +401,7 @@ impl Session {
             },
             full_copies: self.full_copies.iter().cloned().collect(),
             restamped_rows: self.restamped_rows.clone(),
-            install_rows: None,
+            install_rows: Some(self.baseline_rows.clone()),
             origin: new_origin(),
         }
     }

@@ -1,6 +1,9 @@
 //! The part a list's caption takes from a DataCaptionFields field with a TableRelation (corpus probe
 //! pages/properties/Y45ListCaptionRelation.al, file header lines 6-11, measured on BC 27.5, 28.5, 29.0 and
 //! the BC 29 SaaS sandbox).
+//!
+//! What a list caption adds for a DataCaptionFields field with a TableRelation. Entry points:
+//! `related_caption_parts`.
 
 use super::*;
 

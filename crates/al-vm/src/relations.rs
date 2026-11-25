@@ -5,6 +5,10 @@
 //! first arm whose conditions hold applies, an else arm has none, a condition on a FlowFilter
 //! field is not evaluated, `where(A = field(B))` reads B off the referencing row, and a value the
 //! related table lacks is refused with "... cannot be found in the related table".
+//!
+//! TableRelation: lookups, Validate checks and the error code of a failed check (one rule,
+//! `UNPINNED_ERROR` where the corpus does not pin it). Entry points: `field_relation`,
+//! `validate_relation`, `relation_error_code`.
 
 use crate::Session;
 use crate::records::ValidateSite;

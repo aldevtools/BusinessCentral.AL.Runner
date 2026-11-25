@@ -1,4 +1,6 @@
 //! A computed table whose rows are listed in full once, then scanned like a stored one.
+//!
+//! Entry points: `Entry`, `Mat`.
 
 use al_builtins::filter::{FieldFilter, key_cmp};
 use al_builtins::value::Value;

@@ -1,5 +1,9 @@
 //! What the lowering of an object reads (plain data built once) and the per-object, per-thread state,
 //! with the constants and literal helpers the lowerer uses.
+//!
+//! What the lowering of an object reads (`Shared`) and the per-object state (`Nodes`, `Local`,
+//! `Seq`), `lower_object`, the constants and literal helpers. Entry points: `Shared`, `make_lowerer`,
+//! `lower_object`.
 use super::*;
 
 /// What the lowering of an object reads that is plain data, built once and read by every thread.
@@ -578,6 +582,8 @@ pub(crate) fn lower_object<'a>(
                     let mut slot = ir::Slot::new(n, rt);
                     slot.security_filtering = declared.clone().and_then(Result::ok);
                     slot.security_filtering_not_kept = security_filtering_not_kept(&attrs, &declared);
+                    slot.plain_label = v.type_ref().as_ref().is_some_and(plain_label);
+                    slot.comment_label = v.type_ref().as_ref().is_some_and(comment_label);
                     globals.push(slot);
                 }
                 Err(e) => global_reasons.push(format!("global `{n}`: {e}")),
@@ -780,6 +786,9 @@ pub(crate) fn lower_object<'a>(
     let mut properties = with_profile_target(ws, oi, object_properties(&obj, request_section.as_ref()));
     let handler_props = super::test_handlers::properties(ws, members, oi, &properties);
     properties.extend(handler_props);
+    if o.kind == ObjKind::Codeunit && !o.implements.is_empty() {
+        properties.push((ir::IMPLEMENTS_INTERFACE.into(), "Yes".into()));
+    }
     ext_caption_properties(
         ws,
         extensions.get(&oi).map(Vec::as_slice).unwrap_or_default(),
@@ -1260,14 +1269,9 @@ pub(crate) fn label_maxlength(t: &ast::TypeRef) -> bool {
 /// Whether a declaration is a Label with a text that is not empty and no property (`Label 'text'`) or a TextConst with one
 /// such text, in ENU: the forms the corpus puts into a Variant as a TextConstant (`Lowerer::text_constant_into_variant`).
 pub(crate) fn plain_text_constant(t: &ast::TypeRef) -> bool {
-    let toks: Vec<_> = t
-        .syntax()
-        .descendants_with_tokens()
-        .filter_map(|e| e.into_token())
-        .filter(|k| !k.kind().is_trivia())
-        .collect();
+    let toks = type_tokens(t);
     match toks.as_slice() {
-        [kw, text] => kw.text().eq_ignore_ascii_case("label") && text_not_empty(text),
+        [kw, text] => is_plain_label(kw, text),
         [kw, lang, eq, text] => {
             kw.text().eq_ignore_ascii_case("textconst")
                 && lang.text().eq_ignore_ascii_case("enu")
@@ -1276,6 +1280,35 @@ pub(crate) fn plain_text_constant(t: &ast::TypeRef) -> bool {
         }
         _ => false,
     }
+}
+
+/// Whether a declaration is `Label 'text'` with a text that is not empty and no property (no `Locked`, `Comment` or
+/// `MaxLength`).
+pub(crate) fn plain_label(t: &ast::TypeRef) -> bool {
+    matches!(type_tokens(t).as_slice(), [kw, text] if is_plain_label(kw, text))
+}
+
+/// Whether a declaration is `Label 'text', Comment = 'text'` with two texts that are not empty and no other property.
+pub(crate) fn comment_label(t: &ast::TypeRef) -> bool {
+    matches!(type_tokens(t).as_slice(), [kw, text, comma, comment, eq, note]
+        if is_plain_label(kw, text)
+            && comma.kind() == SyntaxKind::Comma
+            && comment.text().eq_ignore_ascii_case("comment")
+            && eq.kind() == SyntaxKind::Eq
+            && text_not_empty(note))
+}
+
+fn is_plain_label(kw: &al_syntax::SyntaxToken, text: &al_syntax::SyntaxToken) -> bool {
+    kw.text().eq_ignore_ascii_case("label") && text_not_empty(text)
+}
+
+/// The tokens of a type declaration, trivia left out.
+fn type_tokens(t: &ast::TypeRef) -> Vec<al_syntax::SyntaxToken> {
+    t.syntax()
+        .descendants_with_tokens()
+        .filter_map(|e| e.into_token())
+        .filter(|k| !k.kind().is_trivia())
+        .collect()
 }
 
 /// A string literal with at least one character between its quotes (every pinned text has one, `Simple` of VaTTextConst.al:13 among them; the empty text of :16 never goes into a Variant).

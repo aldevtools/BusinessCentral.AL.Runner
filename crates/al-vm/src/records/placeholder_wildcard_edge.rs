@@ -2,6 +2,11 @@
 //! is a wildcard text with a blank at one end, or longer than the Code field (corpus PR 1503, open: record/filters/
 //! PlaceholderWildcardSuffix.al, al-runner issue 8642; assumption `filter-placeholder-wildcard-edges`). The parser refuses these
 //! values in every other caller and shape (`filter::Parser::not_pattern`).
+//!
+//! `<>%1` in that shape with a wildcard text that has a blank at one end or is longer than the Code
+//! field (assumption `filter-placeholder-wildcard-edges`); the filter parser (`Parser::not_pattern`)
+//! refuses those values in every other caller. Entry points: `placeholder_wildcard_edge` (by
+//! `measured_language_filter`).
 
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};

@@ -2,6 +2,11 @@
 //! field `profile` (`{"path": ..., "mode": ..., "intervalUs": ...}`): starts al-testrun's profiler before the run,
 //! then writes the `.alcpuprofile` files and the summary, with `file://` links to the sources of the APPs given as
 //! folders. Manual: `docs/manual/profiling.md`.
+//!
+//! `--profile PATH`, `--profile-mode`, `--profile-interval` (`Flags`, `Request`) and serve `profile`
+//! (`from_json`); `begin`/`end` around a run (`run.rs` `profiled`, from `test` and `test_with`), the
+//! `file://` links for the APPs given as folders (by app id from `app.json`), the files written for
+//! the serve summary (`take_written`). Entry points: `Flags`, `begin`, `end`.
 
 use al_testrun::profiling::{self, Mode, Node, Options};
 use std::cell::RefCell;

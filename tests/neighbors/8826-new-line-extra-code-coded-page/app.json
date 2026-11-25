@@ -1,0 +1,13 @@
+{
+  "id": "d1bd1a18-e2c1-48e6-858f-b0738a277219",
+  "name": "Neighbors 8826 extra code on a code-inserted new line of a page with code and three FactBoxes",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "OnPrem",
+  "idRanges": [
+    { "from": 96843, "to": 96929 }
+  ],
+  "dependencies": []
+}

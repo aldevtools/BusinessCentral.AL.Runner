@@ -1,6 +1,20 @@
 //! A journal page whose Post action emptied its view and left Rec, with `CurrPage.Update(false)`, on a primary key no row has
 //! (the Base Application's codeunit 241 "Item Jnl.-Post" leaves `"Line No." := 1` there): what the list stands on afterwards,
 //! with and without the new-row line (al-runner issues 6027, 6292, 7197, 7821).
+//!
+//! What a list stands on after an action emptied its view and left another primary key in Rec with
+//! `CurrPage.Update(false)` (al-runner issues 6027, 7821): the blank Rec without the new-row line,
+//! the blank line three times with it, in the cells of `new_line_cell`: the reporter's repro (page,
+//! table and trigger bodies line for line under any object names, the one Invoke, an empty table;
+//! assumption `post-left-other-key-on-new-line`; after it only Close) and the cells of the pinned
+//! testpage/R7821JournalPostVariants.al (`VARIANT_CELLS`: a Batch Name field, two and three rows with
+//! their per-major blank-line count, one row in another batch, the file's manual action subscribers
+//! and their binding; the record, its sort and the view when Post starts, `PostStart`; no write to
+//! the store since the open ended and the bound subscriber instances at Post equal to those at the
+//! end of the open and the record handed to Page.Run as the file hands it, `OpenEnd`, stamped by
+//! `note_open_end` from `open_page`; after it `Value()` of Line No. and Batch Name, and Close). Entry
+//! points: `new_line_post_start` (before the action body) and `post_left_other_key_settled` (after
+//! it), both by `action_invoke_body`; the second also says how many blank-line pairs the caller runs.
 
 use super::pinned_body::{Callees, Names, callees_are, page_reads_as, routine_text, table_is};
 use super::pinned_shape::{NextEnd, PinnedEnd, Reads, TestCall};

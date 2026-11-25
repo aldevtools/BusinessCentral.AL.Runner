@@ -1120,10 +1120,14 @@ impl Session {
         Ok(ret)
     }
 
-    /// The steps every builtin call takes on its evaluated operands before the guards: the audits, the record and Blob
-    /// bookkeeping and the TextConstant arguments. Shared by `run_builtin`, `run_plain_builtin` and `run_stream_builtin`.
+    /// The steps every builtin call takes on its evaluated operands before the guards: the install footprint note, the
+    /// audits, the record and Blob bookkeeping and the TextConstant arguments. Shared by `run_builtin`, `run_plain_builtin`
+    /// and `run_stream_builtin`.
     #[inline]
     fn builtin_prologue(&self, site: &BuiltinSite, recv: Option<&Value>, values: &mut [Value]) -> Result<(), Signal> {
+        if self.coverage.footprint_on {
+            self.note_footprint_builtin(site.id);
+        }
         crate::assigned_audit::own_read_end_for_operands(site.id, values);
         crate::records::rolled_read_end_for_operands(values);
         crate::blob_transfer::records_into_builtin(self.blob_sources, site.id, recv, values);
@@ -1391,6 +1395,9 @@ impl Session {
             // `Clear` of a Variant empties it, whatever it holds (types/lt-variant/VaTIs*.al:Is_Empty_Variant `V := 5; Clear(V)`
             // has no type flag left); the native clears a value to the default of its own kind.
             if let Some(ir::Arg::Ref(p)) = site.args.first() {
+                if let Some(v) = values.first_mut() {
+                    self.clear_shared_codeunit(p, v, f)?;
+                }
                 // What Clear does to a row of a multi-dimensional array is not pinned (only a row as an argument is).
                 if let ir::Place::Index(base, idx) = p {
                     if let al_builtins::value::RtType::Array(d, el) = self.place_type(base, f) {

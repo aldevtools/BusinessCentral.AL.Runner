@@ -20,6 +20,11 @@
 //! format is not known for (an object type that has not been measured, a routine
 //! with no source) puts `UNTRACKED_CALL_STACK` in the stack, and no text function reads a text
 //! that holds it.
+//!
+//! The AL call stack of an error (`GetLastErrorCallStack`) and the live stack
+//! (`SessionInformation.Callstack`). Entry points: `add_frame`, `add_leaving_frame` (an error leaving
+//! a routine, by `Session::call_inner`), `add_top_frame`, `live_call_stack`, `set_runner_frames`,
+//! `frame_line`.
 
 use crate::{CallFrame, Session};
 use al_builtins::native::{AlError, UNTRACKED_CALL_STACK};
@@ -115,6 +120,22 @@ impl Session {
         self.add_frame(e, object, frame);
         self.bg_error_left_routine();
     }
+}
+
+/// What a line of an error's stack for routine `routine` of `object` begins with: its frame up to the line number
+/// (`frame_line`). `None` where the format is not known.
+pub(crate) fn frame_head(program: &ir::Program, object: usize, routine: usize) -> Option<String> {
+    let pos = program.objects[object].routines.get(routine)?.pos;
+    let line = frame_line(
+        program,
+        object,
+        CallFrame {
+            event: false,
+            routine,
+            pos,
+        },
+    )?;
+    line.find(" line ").map(|i| line[..i].to_string())
 }
 
 /// The text of one frame; `None` where the format is not known.

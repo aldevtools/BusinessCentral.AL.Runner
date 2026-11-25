@@ -1,5 +1,8 @@
 //! Typed IR (ADR-011): every name resolved, every node typed, conversions
 //! explicit. Plain data, serde-serialisable, no syntax nodes.
+//!
+//! The typed IR (ADR-011): Program, Object, Routine, Stmt, Expr. Plain serde data, no syntax nodes.
+//! Entry points: `Program`, `Object`, `Routine`, `Stmt`, `Expr`, `SrcPos`, `NO_POS`.
 
 pub use al_builtins::builtin_id::BuiltinId;
 use al_builtins::value::RtType;
@@ -546,6 +549,10 @@ pub const EXT_CAPTION_OVER_OWN: &str = "$ExtCaptionOverOwn";
 /// The name of an object property the lowering adds to a `profileextension` (an object of kind `Other`): the name of the
 /// profile it extends. The All Profile rows read the extension's `Enabled` through it.
 pub const EXTENDS_PROFILE: &str = "$ExtendsProfile";
+
+/// The name of an object property the lowering adds to a codeunit that lists an interface after `implements` (value
+/// `Yes`), resolved or not: an Interface, List or Dictionary of an interface can hold an instance of it.
+pub const IMPLEMENTS_INTERFACE: &str = "$ImplementsInterface";
 
 /// The name of an object property the lowering adds to a test codeunit with ITestHandler callbacks (BC 29): its handler
 /// codeunits in call order, `D<id>` for a DefaultTestHandler handler and `O<id>` for one its TestHandlers names, separated
@@ -1494,6 +1501,10 @@ pub struct Control {
     /// Declared in the layout's `area(FactBoxes)`.
     #[serde(default)]
     pub factbox: bool,
+    /// A `fixed` or a `grid`, which lower as a group: `TestPage.GetField` with its control id gives a field whose Value is
+    /// empty, where a group's id finds nothing (corpus pull request 1538, testpage/GetFieldByControlId.al:545, :630).
+    #[serde(default)]
+    pub fixed_or_grid: bool,
 }
 
 /// The action an `actionref` delegates to.
@@ -1557,6 +1568,11 @@ pub struct PartLink {
     /// The `SubPageLink` entries (indices into `entries`) written as a qualified enum value, `const("Enum"::Member)`.
     #[serde(default)]
     pub enum_values: Vec<usize>,
+    /// The entries (indices into `entries`) written `filter(<> '')` on a measured shape (al-sema `not_blank_measured`),
+    /// lowered to the filter `<>''`.
+    /// Applying one runs through the assumption `link-filter-not-blank`.
+    #[serde(default)]
+    pub not_blank: Vec<usize>,
 }
 
 /// One `PartField = field(HostField)` / `const(..)` / `filter(..)` entry of a `SubPageLink`.
@@ -1845,6 +1861,14 @@ pub struct Slot {
     /// `Lowerer::security_filtering_read_refusal`).
     #[serde(default)]
     pub security_filtering_not_kept: bool,
+    /// A global declared `Label 'text'` with a text that is not empty and no property (al-sema `shared::plain_label`): its
+    /// reads lower to its text, and AL code cannot assign or clear it (corpus must-not-compile 0350, 2628).
+    #[serde(default)]
+    pub plain_label: bool,
+    /// A global declared `Label 'text', Comment = 'text'` with two texts that are not empty and no other property (al-sema
+    /// `shared::comment_label`).
+    #[serde(default)]
+    pub comment_label: bool,
 }
 
 impl Slot {
@@ -1855,6 +1879,8 @@ impl Slot {
             ty,
             security_filtering: None,
             security_filtering_not_kept: false,
+            plain_label: false,
+            comment_label: false,
         }
     }
 }

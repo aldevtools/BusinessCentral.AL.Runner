@@ -1,4 +1,6 @@
 //! Variables, types, parameters, procedures, triggers, attributes.
+//!
+//! Entry points: `var_section`, `type_ref`, `property_value`, `attributes`.
 
 use super::expressions::{arg_list, expr, is_reserved};
 use super::statements::block;

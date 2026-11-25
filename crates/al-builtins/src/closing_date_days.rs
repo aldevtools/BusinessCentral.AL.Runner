@@ -1,4 +1,7 @@
 //! A closing date moved by a number of days (`ops::arith` sends a closing date plus or minus a whole number here).
+//!
+//! A closing date plus or minus a whole number (from `ops::arith`): the Integer 1 under 1033 raises
+//! ClosingDateOperation (GlobalLanguageClosingDate.al:349-350); every other shape refuses.
 
 use crate::native::{Signal, closing_date_operation};
 use crate::value::Value;

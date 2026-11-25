@@ -10,6 +10,13 @@
 //! (`compare_total`) puts it after every weighted letter, by code point, and a read whose answer rests on `Æ` or `æ`
 //! there refuses unless it is the assumed shape (`ae_order_measured`). The order of two different accents on the same letter
 //! is not pinned either.
+//!
+//! Text order for `<`, `>`, `<=` and `>=` (`compare`), and the key order of text values
+//! (`compare_key`, `text_key_order`; `text_value_key_order` picks the Text key order, where `Æ` sorts
+//! as `AE`, assumption `text-key-ae-sorts-as-ae`). `ae_order_measured` says which texts with `Æ`/`æ`
+//! that order covers, `ae_decides_order` and `ae_equality_open` whether an order or an equality of
+//! two texts rests on a letter outside it; `fold_accents` reads a text with its accents ignored.
+//! Entry points: `compare`, `text_key_order`, `text_value_key_order`.
 
 use std::cmp::Ordering;
 

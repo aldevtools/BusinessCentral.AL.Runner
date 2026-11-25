@@ -1,4 +1,9 @@
 //! Sub-states of a [`Session`] (ADR-037 item 3): fields that belong together, so `Session` stays readable.
+//!
+//! Sub-states of `Session`: `TxState` (what ends with the open transaction is `OpenTx`, which a
+//! Commit and a rollback reset in one step, `Session::end_open_transaction`; its locks are `TxLocks`;
+//! how far the transaction has started is `transactions::TxPhase`), `UiState`, `PageClients`,
+//! `EventState`, `CoverageState`, `ReportState` (the .NET host state is `dotnet::DotNetState`).
 
 use super::*;
 
@@ -23,6 +28,8 @@ pub(crate) struct TxState {
     pub(crate) type_origin: crate::transaction_type::TypeOrigin,
     /// A test method of this codeunit has ended (`Session::test_method_ended`): the next one starts with the type it left.
     pub(crate) test_ended: bool,
+    /// Reads of the type while it was not known whose value only sets it back (`transaction_type_saved.rs`), innermost last.
+    pub(crate) saved_types: Vec<crate::transaction_type_saved::SavedType>,
     /// The rollback of an asserterror in the code of the test ended the test runner's transaction in a codeunit's first test
     /// method (`OpenTx::runner_tx`) and no Commit came after it: a set of the type then rests on
     /// `first-test-rollback-ends-runner-transaction`.
@@ -284,6 +291,7 @@ impl TxState {
             transaction_type: 0,
             type_origin: Default::default(),
             test_ended: false,
+            saved_types: Vec::new(),
             runner_tx_rolled_back: false,
             lock_timeout: true,
             lock_timeout_duration: 10,
@@ -493,8 +501,22 @@ pub(crate) struct EventState {
     pub(crate) subscriber_stack: Vec<Option<(usize, usize, usize)>>,
     /// Set by `finish_call` just before the call, taken by the callee's frame (`Frame::var_lens`).
     pub(crate) next_var_lens: Vec<Option<i32>>,
+    /// Set by `finish_call` just before the call, taken by the callee's frame (`Frame::var_codeunits`).
+    pub(crate) next_var_codeunits: Vec<Option<crate::clear_shared_codeunit::VarCodeunit>>,
     /// Set by `finish_call` just before the call, taken by the callee's frame (`Frame::option_hops`).
     pub(crate) next_option_hops: Vec<bool>,
+    /// Set by `finish_call` just before the call, taken by the callee's frame (`Frame::hand_on_origins`).
+    pub(crate) next_hand_on_origins: Vec<bool>,
+    /// Set by `finish_call` (by `raise_to_subscribers` for a subscriber) just before the call, taken by the callee's frame
+    /// (`Frame::option_carried`).
+    pub(crate) next_option_carried: Vec<crate::var_option::Carried>,
+    /// A publisher's marks of `var_option::option_carried_of`, set by `finish_call` and taken by `publish` and
+    /// `raise_to_subscribers`, under the measured event contract only.
+    pub(crate) publisher_option_carried: Vec<crate::var_option::Carried>,
+    /// Per parameter: `var_option::carried::carried_args` let a value that carries another list or none through to this `var`
+    /// Option parameter with members, which binds it as it is. Set by `finish_call` just before the call, taken by the
+    /// callee's binding (`lib.rs`), cleared after the call.
+    pub(crate) next_carried_kept: Vec<bool>,
     /// The declared lengths of a publisher's `var` Text and Code arguments (`var_lens_of`), set by `finish_call` just before
     /// the publisher runs and taken by `publish`, which hands them to the subscribers that read them.
     pub(crate) publisher_var_lens: Vec<Option<i32>>,
@@ -554,6 +576,10 @@ pub(crate) struct CoverageState {
     /// `al-runner test --profile`: the session's call tree (`profile.rs`). `None` when off: one branch per statement,
     /// call, builtin return and record method.
     pub(crate) profiler: Option<Box<crate::profile::Profiler>>,
+    /// The footprint of a partner app's install session while one is recorded (`install_footprint.rs`). `None` when off.
+    pub(crate) install_footprint: std::cell::RefCell<Option<Box<crate::install_footprint::Recording>>>,
+    /// `install_footprint` is `Some`: the one branch a builtin call costs when no footprint is recorded.
+    pub(crate) footprint_on: bool,
 }
 
 /// `Language` and `FormatRegion` set on a report variable outside a run.

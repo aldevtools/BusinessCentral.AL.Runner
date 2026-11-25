@@ -52,7 +52,10 @@ fn compile_corpus() -> usize {
         .iter()
         .map(|d| runtime::load_app(d).unwrap())
         .collect();
-    let symbols = al_version::corpus_symbols(27);
+    let symbols = al_version::corpus_symbols(
+        &al_version::BcVersion::new(27, 0),
+        &al_version::ReleasedMinors::NotRecorded,
+    );
     let (_ws, lowered) = al_sema::lower::compile(apps, &symbols);
     lowered.program.objects.len()
 }

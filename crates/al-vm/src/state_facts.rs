@@ -1,6 +1,12 @@
 //! The session facts the login replay check compares besides the SingleInstance globals, the bindings and the counters
 //! of [`Session::state_lines`] (al-testrun `login_replay.rs`, al-runner issue 8211): state the login leaves that a later
 //! test or the runner reads. Each fact is a line that compares across sessions, or a reason why it has none.
+//!
+//! the facts `Session::state_lines` compares besides the globals, bindings and counters, one line
+//! each (al-testrun `login_replay.rs`, al-runner issue 8211): the Global Triggers setups asked, the
+//! event subscriber call counts, the media store, the commits and the last commit's facts, the
+//! committed store's marks (emptied tables, company copies), the SQL counters when inactive and at
+//! rest (else a reason, no form).
 
 use crate::Session;
 use crate::state_render::content;
@@ -8,11 +14,11 @@ use std::collections::BTreeMap;
 
 /// Why the SQL counters have no comparable form: a counter was read, or the record methods since the last Commit left
 /// state that only the session's own log explains (`SqlCounters::left_inactive`).
-const SQL_ACTIVE: &str = "SQL counters (read, or not at rest since the last Commit)";
+const SQL_ACTIVE: &str = "read, or not at rest since the last Commit";
 
 impl Session {
     /// The lines of the facts of this module, in a fixed order; a fact with no comparable form goes to `opaque` with why.
-    pub(crate) fn fact_lines(&self, lines: &mut Vec<String>, opaque: &mut Vec<String>) {
+    pub(crate) fn fact_lines(&self, lines: &mut Vec<String>, opaque: &mut Vec<crate::state_stamp::NotComparable>) {
         lines.push(self.global_setups_line());
         lines.push(self.event_calls_line());
         lines.push(self.media_line());
@@ -20,7 +26,10 @@ impl Session {
         lines.push(self.committed_marks_line());
         match self.sql.left_inactive() {
             Some(left) => lines.push(format!("sql {}", left.line())),
-            None => opaque.push(SQL_ACTIVE.to_string()),
+            None => opaque.push(crate::state_stamp::NotComparable::new(
+                "SQL counters".into(),
+                SQL_ACTIVE,
+            )),
         }
     }
 
@@ -77,10 +86,11 @@ impl Session {
     fn transaction_line(&self) -> String {
         let tx = &self.tx;
         format!(
-            "transaction commits {} last commit wrote {} type {} phase {} lock timeout {} {} rolled back {} changed since {}",
+            "transaction commits {} last commit wrote {} type {} {} phase {} lock timeout {} {} rolled back {} changed since {}",
             self.commits,
             tx.last_commit_wrote,
             tx.transaction_type,
+            content(&tx.type_origin),
             content(&tx.phase),
             tx.lock_timeout,
             tx.lock_timeout_duration,

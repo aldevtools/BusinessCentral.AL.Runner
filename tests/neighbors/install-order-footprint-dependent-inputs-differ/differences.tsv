@@ -1,0 +1,4 @@
+# key	entry
+# Review round 4 of PR 8865, finding R1, control: the same apps, with P writing the count its subscribers gave. L before
+# P gives 1 or 2, L after P gives 0. Main: PRowIsConst not run (rows differ). Head: not run (rows differ), with the
+# skipped subset left out. Another refusal text is no difference: no row.

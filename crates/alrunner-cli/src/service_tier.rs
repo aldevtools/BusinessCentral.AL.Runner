@@ -4,6 +4,11 @@
 //! the folder al-runner fetches the assemblies a DotNet declaration names into, by range from the platform artifact
 //! of the build in use (`al_deps::service_tier`). The fetch runs only when no extracted artifact serves the major,
 //! and only for an assembly the user's folders do not hold.
+//!
+//! The .NET sidecar's probe folders and fetch of a run (ADR-014 section 3, issue 6924): `--dotnet-
+//! assembly-dir`, an extracted BcContainerHelper artifact, then `al_deps::service_tier`'s cache
+//! folder, filled on first use of a type when no extracted artifact serves the major. Entry points:
+//! `dotnet_dirs`.
 use crate::args::TestArgs;
 use al_deps::artifact::{ArtifactUse, HttpCdn};
 use al_deps::service_tier::ServiceTier;

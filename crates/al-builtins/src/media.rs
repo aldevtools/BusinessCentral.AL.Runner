@@ -6,6 +6,8 @@
 //! `MediaStore`, the stand-in for the platform tables "Tenant Media" and "Tenant Media Set"
 //! (ADR-013 gives those tables rows). The field only holds the id once the record is written,
 //! so an import that was not followed by `Modify` is not seen by the next `Get`.
+//!
+//! Entry points: `Id`, `MediaObject`, `MediaStore`.
 
 use crate::describe::Describe;
 use crate::native::{Ctx, NativeFn, Signal, unsupported};

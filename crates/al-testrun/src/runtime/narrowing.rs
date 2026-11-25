@@ -12,6 +12,15 @@
 //!
 //! This module is the one owner of that decision; `CorpusRuntime::try_run_suites_inner` follows it. `Warm::run` compiles
 //! without a selection (al-runner issue 7978), so its compile is `Narrowing::Full` and nothing is redone.
+//!
+//! The one owner of "a selection gives the full run's outcomes" (al-runner issue 6924, ADR-013 note
+//! of 2026-11-11): a run on a compile for a selection (`Lowered::narrowed`) whose tests met a routine
+//! the compile left out (`check::UNSELECTED`, `check::LEFT_OUT`), or whose install code did
+//! (`note_install`, noted on the engine by `install::refuse`; `take_install`), runs again on a
+//! compile that leaves less out, lean, then the selection's, then the full run's (`settle`, used by
+//! `CorpusRuntime::try_run_suites_inner`; `Warm::run` compiles without a selection, so it is never
+//! redone). A run with a debugger or `--files-dir` compiles as the full run does from the start
+//! (`live_effects`). Entry points: `Narrowing`, `Met`, `settle`.
 
 use super::{Compiled, CorpusRuntime, RunOptions};
 use crate::Outcome;

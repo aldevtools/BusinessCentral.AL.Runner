@@ -3,6 +3,11 @@
 //! (tests/al-language/pages/parts/PartSplitKeyInsertTiming.al:1353 Doc_OpenView_New `view|text`, `log` `[]`; :1383
 //! Card_OpenView_New). The measured shape, a direct part of that page, raises that error; every other part below such a
 //! page, at any depth, refuses the `New()`.
+//!
+//! `New()` on a part below a page the test opened with OpenView
+//! (pages/parts/PartSplitKeyInsertTiming.al:1353, :1383): BC's ClientInsertDenied error for the
+//! measured direct part, any other part at any depth refused. Entry points: `part_new_on_view_host`
+//! (by `new_record`); the error text has one builder, `new_denied_error` (`draft.rs`).
 
 use super::pinned_shape::{PartStep, PinnedPart, TestCall};
 use super::*;

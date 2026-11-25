@@ -132,6 +132,7 @@ impl MemStore {
     /// The first value of the committed tables, in table and key order, for which `blocks` says true: where it is and
     /// what it is.
     pub fn first_value_where(&self, blocks: impl Fn(&Value) -> bool) -> Option<NotShareable> {
+        self.footprint_everything("a read of every table");
         self.committed.iter().find_map(|((company, object), rows)| {
             rows.iter().find_map(|(k, r)| {
                 let at = |in_key: bool, vals: &[Value]| {
@@ -267,6 +268,14 @@ impl FrozenStore {
     /// whole run (ADR-069 decision 10). A table held as bytes is each thread's own cost, not counted here.
     pub fn bytes(&self) -> u64 {
         self.tables.values().map(table_bytes).sum()
+    }
+
+    /// [`FrozenStore::bytes`] of the frozen tables whose object index is in `objects`, in every company.
+    pub fn bytes_of(&self, objects: &std::collections::BTreeSet<u32>) -> u64 {
+        (self.tables.iter())
+            .filter(|((_, object), _)| objects.contains(object))
+            .map(|(_, t)| table_bytes(t))
+            .sum()
     }
 }
 

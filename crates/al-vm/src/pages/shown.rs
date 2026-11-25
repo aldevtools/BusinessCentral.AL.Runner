@@ -41,6 +41,11 @@
 //! master). Pinned for a List page with OnAfterGetRecord and no OnFindRecord or OnNextRecord, without parts, that the test
 //! opened with OpenView or caught with Trap() (`row_expr_controls`). Any other call on the page than those and a control's
 //! Value ends it: reads are then computed as above.
+//!
+//! When a page computes its expression controls (al-runner issue 5765): the values kept at the pinned
+//! refresh points, the values a list computes per row as it reads its rows (`row_exprs`), what each
+//! TestPage call does to them, and the reads it refuses. Entry points: `shown_client_call`,
+//! `shown_value`, `shown_opened`, `row_expr_value`.
 
 use super::*;
 use al_builtins::page_op::{PageMethod, PageOp, PageRecv};

@@ -21,6 +21,8 @@
 //! header: id[4], u16 fs-attributes, u16 media-attributes, u64 length, u16 encryption
 //! algorithm, u16 compression algorithm, u16 checksum. Stream data is 4-byte aligned; an
 //! SPAD stream pads to the next block boundary and ends the chain.
+//!
+//! Entry points: `DataRegion`, `MtfFile`.
 
 use crate::error::{Error, Result};
 use crate::io::{ByteSource, le};

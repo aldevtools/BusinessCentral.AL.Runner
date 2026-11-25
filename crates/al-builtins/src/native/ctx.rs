@@ -141,6 +141,11 @@ pub trait Ctx: FormatCtx {
     fn record_validate_variant(&mut self, rec: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
         self.record(crate::record_op::RecordOp::Validate, rec, args)
     }
+    /// `Record.SetRange(Field, V)` with `V` written as a Variant (lowering picks `Record.SetRangeVariant#1`): a value of another
+    /// type than the field's converts as al-vm `setrange_convert` says.
+    fn record_setrange_variant(&mut self, rec: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
+        self.record(crate::record_op::RecordOp::SetRange, rec, args)
+    }
     /// `TestPage` / `TestField` / `TestAction` methods: the VM's test client
     /// implements them (ADR-012). `method` is `Receiver.Name`.
     fn page(

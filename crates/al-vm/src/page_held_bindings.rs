@@ -18,6 +18,14 @@
 //! The runtime's page values form a reference cycle (`CurrPage` in the page's globals holds the page), so a page never
 //! drops by itself: the binding is ended here. Not pinned, and refused when an event would reach the binding: a Page
 //! variable's non-modal `Run` while the variable is still in scope.
+//!
+//! Manual bindings a page's globals hold (al-runner issue 6924; TestEventManualBinding.al Contract 11):
+//! the page values form a reference cycle, so the binding is ended here when the page instance
+//! is gone (a TestPage closed, a page no variable holds closed or left open, a Page variable gone); a
+//! page whose fate is not pinned (a Page variable after its non-modal Run) refuses the event. Entry
+//! points: `note_page_instance` (called by `page_instance`), `note_page_binding` (by `subscription`),
+//! `prune_page_held` (by `mark_closed` and `event_targets`), `refuse_unpinned_page_binding`,
+//! `note_page_var_run` (by the Page variable's `Run`/`RunModal`).
 
 use std::cell::RefCell;
 use std::collections::HashMap;
