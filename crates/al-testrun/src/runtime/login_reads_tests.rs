@@ -7,7 +7,7 @@
 
 use super::login_replay_tests::{MAIN, compiled_with, run_as};
 use super::*;
-use crate::login_start::starts;
+use crate::login_start::{self, starts};
 
 /// The texts of the entry (a serve entry's `resources`, `Engine::resource_overrides`): per app (`main`, `dep`), its
 /// files with their texts.
@@ -111,4 +111,82 @@ fn list_resources_makes_every_text_of_the_app_count() {
         ],
     );
     assert_eq!(starts(&engine).replayed(), 1, "a text of another app does not count");
+}
+
+/// [`MAIN`] whose login subscriber takes the row's id from `RplLen()`, a procedure of its codeunit with the body `body`
+/// (locals `T: Text`, `InS: InStream`, `J: JsonObject`) that reads `rpl.txt` through one path.
+fn reading_by(body: &str) -> String {
+    let len = format!(
+        "local procedure RplLen(): Integer var T: Text; InS: InStream; J: JsonObject; begin {body} end;\n    \
+         [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Guided Experience\", 'OnRegisterManualSetup'"
+    );
+    MAIN.replace("StrLen(NavApp.GetResourceAsText('rpl.txt'))", "RplLen()")
+        .replacen(
+            "[EventSubscriber(ObjectType::Codeunit, Codeunit::\"Guided Experience\", 'OnRegisterManualSetup'",
+            &len,
+            1,
+        )
+}
+
+/// Runs the login of `src` under `rpl.txt` = `first`, then under `second`: the second session runs its own login (no
+/// replay, a start of its own) and holds the row its own text gives (`77400 + ids.1`), not the first's (`77400 + ids.0`).
+fn another_text_runs_its_own_login(src: &str, (first, second): (&str, &str), ids: (u32, u32)) {
+    let (engine, l) = compiled_with(src);
+    login_start::OPENED.with(|o| *o.borrow_mut() = Some(Vec::new()));
+    run_under(&engine, &l, &[("main", "rpl.txt", first)]);
+    run_under(&engine, &l, &[("main", "rpl.txt", second)]);
+    let states = login_start::OPENED.with(|o| o.borrow_mut().take()).unwrap();
+    assert_eq!(
+        starts(&engine).replayed(),
+        0,
+        "another text of rpl.txt is never replayed"
+    );
+    assert_eq!(starts(&engine).kept(), 2, "each text keeps its own start");
+    let holds = |s: usize, id: u32| {
+        states[s]
+            .rows()
+            .iter()
+            .any(|r| r.holds(&format!("Integer({})", 77400 + id)))
+    };
+    assert!(holds(0, ids.0), "the first session reads its text");
+    assert!(
+        holds(1, ids.1) && !holds(1, ids.0),
+        "the second session reads its own text"
+    );
+}
+
+// One test per read path of a resource file (al-runner issue 8211): each path's read is recorded, so the texts the
+// login read hold the second session apart from the first's start. The three GetResource paths share one recording
+// site (al-builtins `resource_bytes`, al-vm `running_app_resource`); ListResources has its own (`running_app_resources`).
+#[test]
+fn a_login_that_reads_by_get_resource_is_not_replayed_under_another_text() {
+    let src = reading_by("NavApp.GetResource('rpl.txt', InS); InS.ReadText(T); exit(StrLen(T));");
+    another_text_runs_its_own_login(&src, ("a", "abcd"), (1, 4));
+}
+
+#[test]
+fn a_login_that_reads_by_get_resource_as_text_is_not_replayed_under_another_text() {
+    let src = reading_by("exit(StrLen(NavApp.GetResourceAsText('rpl.txt')));");
+    another_text_runs_its_own_login(&src, ("a", "abcd"), (1, 4));
+}
+
+#[test]
+fn a_login_that_reads_by_get_resource_as_json_is_not_replayed_under_another_text() {
+    let src = reading_by("J := NavApp.GetResourceAsJson('rpl.txt'); J.WriteTo(T); exit(StrLen(T));");
+    another_text_runs_its_own_login(&src, (r#"{"a":1}"#, r#"{"a":12345}"#), (7, 11));
+}
+
+// ListResources reads the names of the app's files, not their texts, so both sessions hold the same row; that it counts
+// as reading every file (`Session::resource_reads`) keeps the second session from the first's start.
+#[test]
+fn a_login_that_lists_the_resources_is_not_replayed_under_another_text() {
+    let (engine, l) = compiled_with(&reading_by("exit(NavApp.ListResources('*').Count());"));
+    run_under(&engine, &l, &[("main", "rpl.txt", "a")]);
+    run_under(&engine, &l, &[("main", "rpl.txt", "abcd")]);
+    assert_eq!(
+        starts(&engine).replayed(),
+        0,
+        "another text of a listed file is never replayed"
+    );
+    assert_eq!(starts(&engine).kept(), 2, "each text keeps its own start");
 }
