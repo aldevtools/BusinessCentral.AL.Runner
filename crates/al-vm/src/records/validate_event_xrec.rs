@@ -96,8 +96,8 @@ impl Session {
     ///   right above the code that called the Validate (table events put no frame of their own between them); `f` is that
     ///   frame, or, through assumption `xrec-table-proc-routes`, one helper procedure of its codeunit right above it
     ///   (`through_helper`; the subscriber then declares xRec);
-    /// - the subscriber runs an event subscriber of a codeunit that is neither bound manually nor SingleInstance; it declares Rec by `var`,
-    ///   holding `rc`, alone or with xRec by `var` and CurrFieldNo, as the probe's subscribers do;
+    /// - the subscriber runs an event subscriber of a codeunit that is neither bound manually nor SingleInstance; it declares
+    ///   Rec by `var`, holding `rc`, alone or with xRec by `var` and CurrFieldNo, as the probe's subscribers do;
     /// - the validated field is one of the base table with its own OnValidate trigger (`ValidateEvent::field_measured`);
     /// - the Validate is the one Validate of the record that runs, called by the code the cells measured
     ///   (`measured_validate_caller`);

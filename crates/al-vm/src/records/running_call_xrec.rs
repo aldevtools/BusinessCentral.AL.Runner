@@ -13,7 +13,7 @@
 //!
 //! Every chain also needs the facts its cells share (`cell_facts`); the Validate called by other code than a test procedure, and
 //! an event with two subscribers, run through assumption `xrec-table-proc-callers-subscribers` (`callers_assumed`,
-//! `subscribers_measured`).; a record changed after its OnBeforeValidateEvent returned on the two
+//! `subscribers_measured`). A record changed after its OnBeforeValidateEvent returned on the two
 //! chains of al-runner issue 8284 runs through assumption `xrec-table-proc-routes` (al-runner issue 8974).
 //!
 //! The xRec of a procedure of a table or of its table extensions that a codeunit procedure calls on
