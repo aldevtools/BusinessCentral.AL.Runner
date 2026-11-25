@@ -202,7 +202,13 @@ mod tests {
         assert!(assumed("{\"a\":\"x\u{0}y\"}", S, Object));
         assert!(refused("{\"a\":\"x\u{0}y\"}", T, Object));
         // Between tokens a form feed is a blank and character 1 is not JSON (json/JsonReadFrom.al ReadFromRawControlOtherPlaces).
-        assert!(matches!(parse_read_from("{\"a\":\u{c}\"v\"}", Some("object")), Ok(Some(_))));
-        assert!(matches!(parse_read_from("{\"a\":\u{1}\"v\"}", Some("object")), Ok(None)));
+        assert!(matches!(
+            parse_read_from("{\"a\":\u{c}\"v\"}", Some("object")),
+            Ok(Some(_))
+        ));
+        assert!(matches!(
+            parse_read_from("{\"a\":\u{1}\"v\"}", Some("object")),
+            Ok(None)
+        ));
     }
 }

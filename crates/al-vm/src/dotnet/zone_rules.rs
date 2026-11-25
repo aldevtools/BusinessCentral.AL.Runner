@@ -119,10 +119,13 @@ impl Session {
         al_datetime_args: u64,
         wire: &mut [DotNetArg],
     ) -> Result<(), String> {
-        if !clr_type.eq_ignore_ascii_case(ZONE) || !values.iter().any(|v| matches!(v, Value::DateTime(_) | Value::Date(..))) {
+        if !clr_type.eq_ignore_ascii_case(ZONE)
+            || !values.iter().any(|v| matches!(v, Value::DateTime(_) | Value::Date(..)))
+        {
             return Ok(());
         }
-        let reads_moment = member.eq_ignore_ascii_case("GetUtcOffset") || member.eq_ignore_ascii_case("IsDaylightSavingTime");
+        let reads_moment =
+            member.eq_ignore_ascii_case("GetUtcOffset") || member.eq_ignore_ascii_case("IsDaylightSavingTime");
         if let (true, Target::Host(zone, _), [Value::DateTime(_)]) = (reads_moment, target, values) {
             let utc_zone = self
                 .dotnet
@@ -133,7 +136,12 @@ impl Session {
                 return Ok(());
             }
             if al_datetime_args == 1
-                && let [DotNetArg { value: DotNetValue::DateTime(ticks), .. }] = wire
+                && let [
+                    DotNetArg {
+                        value: DotNetValue::DateTime(ticks),
+                        ..
+                    },
+                ] = wire
             {
                 assume(Assumption::ZoneDatetimeUtcInstant);
                 wire[0].value = DotNetValue::DateTimeUtc(*ticks);

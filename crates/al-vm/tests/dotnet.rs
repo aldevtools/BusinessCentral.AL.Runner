@@ -4678,9 +4678,24 @@ fn args_of(host: &Fake, member: &str) -> Vec<DotNetValue> {
 fn an_al_datetime_reaches_a_zone_as_a_utc_moment() {
     let at = "CreateDateTime(DMY2Date(1, 6, 2024), 120000T)";
     for (windows, member, vars, body) in [
-        (true, "GetUtcOffset", ZONE_VARS, format!("D := Z.GetUtcOffset({at}); exit(Format(D));")),
-        (false, "GetUtcOffset", ZONE_VARS, format!("D := Z.GetUtcOffset({at}); exit(Format(D));")),
-        (true, "IsDaylightSavingTime", ZONE_VARS, format!("exit(Format(Z.IsDaylightSavingTime({at})));")),
+        (
+            true,
+            "GetUtcOffset",
+            ZONE_VARS,
+            format!("D := Z.GetUtcOffset({at}); exit(Format(D));"),
+        ),
+        (
+            false,
+            "GetUtcOffset",
+            ZONE_VARS,
+            format!("D := Z.GetUtcOffset({at}); exit(Format(D));"),
+        ),
+        (
+            true,
+            "IsDaylightSavingTime",
+            ZONE_VARS,
+            format!("exit(Format(Z.IsDaylightSavingTime({at})));"),
+        ),
         (
             true,
             "GetUtcOffset",
@@ -4710,9 +4725,21 @@ fn a_zone_refuses_a_datetime_of_unmeasured_kind_on_windows() {
             "Z: DotNet TimeZoneInfo; D: Duration; Dn: DotNet ClrDateTime;",
             format!("Dn := {at}; D := Z.GetUtcOffset(Dn); exit(Format(D));"),
         ),
-        ("GetUtcOffset", ZONE_VARS, "D := Z.GetUtcOffset(DMY2Date(1, 6, 2024)); exit(Format(D));".to_string()),
-        ("IsAmbiguousTime", ZONE_VARS, format!("exit(Format(Z.IsAmbiguousTime({at})));")),
-        ("ConvertTimeFromUtc", ZONE_VARS, format!("exit(Format(Z.ConvertTimeFromUtc({at}, Z)));")),
+        (
+            "GetUtcOffset",
+            ZONE_VARS,
+            "D := Z.GetUtcOffset(DMY2Date(1, 6, 2024)); exit(Format(D));".to_string(),
+        ),
+        (
+            "IsAmbiguousTime",
+            ZONE_VARS,
+            format!("exit(Format(Z.IsAmbiguousTime({at})));"),
+        ),
+        (
+            "ConvertTimeFromUtc",
+            ZONE_VARS,
+            format!("exit(Format(Z.ConvertTimeFromUtc({at}, Z)));"),
+        ),
         (
             "GetUtcOffset",
             ZONE_VARS,
@@ -4722,7 +4749,10 @@ fn a_zone_refuses_a_datetime_of_unmeasured_kind_on_windows() {
         let host = linux_zone_host();
         let r = run_with(zone_cfg(&host, true), vars, &format!("{HAWAII} {body}"), ": Text");
         let why = unsupported(&r);
-        assert!(why.contains(&format!("System.TimeZoneInfo.{member}")) && why.contains("not measured"), "{body}: {why}");
+        assert!(
+            why.contains(&format!("System.TimeZoneInfo.{member}")) && why.contains("not measured"),
+            "{body}: {why}"
+        );
         assert!(!reached(&host, member), "{body}: {:?}", host.calls());
     }
 }
