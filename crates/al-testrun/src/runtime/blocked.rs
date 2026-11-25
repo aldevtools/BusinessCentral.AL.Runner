@@ -22,7 +22,11 @@ use super::*;
 /// A routine a lean compile left out (`Lowered::left_out`) does not run: the compile is lean only for tests that
 /// read no data (`observe.rs`), and BC runs install code in a session of its own, so nothing else of it reaches a test's
 /// session (the install baseline, which runs it once in a session of its own, gives the same).
-pub(crate) fn run_install_codeunits(lowered: &Lowered, session: &mut Session) -> Vec<al_vm::SkippedInstall> {
+/// Returned too: the notes of the install-order proof (`install::run_apps_under_test`).
+pub(crate) fn run_install_codeunits(
+    lowered: &Lowered,
+    session: &mut Session,
+) -> (Vec<al_vm::SkippedInstall>, Vec<String>) {
     crate::install::run_apps_under_test(lowered, session)
 }
 
