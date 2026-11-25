@@ -267,7 +267,10 @@ impl Session {
     /// Whether a fact is only assumed by `xrec-table-proc-callers-subscribers`, and whether by `xrec-table-proc-routes`.
     fn cell_facts(&self, rc: &Rec, cu: usize, trigger: usize, caller: usize, subscriber: bool) -> Option<(bool, bool)> {
         let handle = Rc::as_ptr(rc) as usize;
-        let run = self.validate_sites.iter().find(|v| v.handle == handle && v.depth == trigger)?;
+        let run = self
+            .validate_sites
+            .iter()
+            .find(|v| v.handle == handle && v.depth == trigger)?;
         let untouched = self.untouched_since(run, rc);
         let routes = !untouched && trigger == caller && Self::changed_after_before_event(run, rc);
         if self.engine.object_facts[cu].single_instance || !(untouched || routes) || caller == 0 {
