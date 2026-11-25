@@ -237,6 +237,7 @@ dependencies = [
  "al-version",
  "flate2",
  "rust_decimal",
+ "sha2",
 ]
 
 [[package]]

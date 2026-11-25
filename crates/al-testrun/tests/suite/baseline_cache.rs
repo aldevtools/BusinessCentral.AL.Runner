@@ -226,7 +226,7 @@ impl al_host::dotnet::DotNetHost for HasDotNet {
     }
 }
 
-fn with_dotnet() -> al_vm::dotnet::DotNetConfig {
+pub(crate) fn with_dotnet() -> al_vm::dotnet::DotNetConfig {
     al_vm::dotnet::DotNetConfig {
         host: Arc::new(HasDotNet),
         ..Default::default()

@@ -1,0 +1,11 @@
+{
+  "id": "687f3b50-c830-4586-8963-155500008933",
+  "name": "Neighbors: cache row commits review round 2",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "Cloud",
+  "idRanges": [{"from": 97716, "to": 97720}, {"from": 130000, "to": 130000}],
+  "dependencies": []
+}

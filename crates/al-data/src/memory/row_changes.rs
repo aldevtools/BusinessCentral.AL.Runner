@@ -1,8 +1,9 @@
 //! The committed rows one store holds apart from another, row by row ([`MemStore::committed_row_changes_from`]).
 //!
-//! The reader is the safety net of an install footprint (`footprint.rs` `MemStore::unrecorded_writes`, ADR-079 step 1).
-//! The persistent maps share every entry a session did not touch, so the difference is found by comparing pointers, and
-//! only the rows that differ are compared by value. The lane starts of ADR-066 amendment 5 that replayed the
+//! Two readers, each naming what a table `base` holds no entry for is compared with ([`BeforeRows`]): the safety net of
+//! an install footprint (`footprint.rs` `MemStore::unrecorded_writes`, ADR-079 step 1) and the login image (al-vm
+//! `login_image/rows.rs`). The persistent maps share every entry a session did not touch, so the difference is found by
+//! comparing pointers, and only the rows that differ are compared by value. The lane starts of ADR-066 amendment 5 that replayed the
 //! changes are gone, and the replay with them (ADR-070 step 3).
 
 use super::{MemStore, PkStorage, Row, Slot, Table, table_storage};
@@ -15,8 +16,8 @@ pub struct TableRows {
     pub object: u32,
     /// How the table's primary key fields are stored: the order of its keys (`memory/key.rs`).
     pub pk_storage: PkStorage,
-    /// The rows that are new or hold other values, with their primary keys, in key order. All of its rows when the table
-    /// is new (the other store holds no entry for it) or its keys order otherwise.
+    /// The rows that are new or hold other values, with their primary keys, in key order. All of its rows when its keys
+    /// order otherwise, or when the other store holds no entry for it and the caller asked for [`BeforeRows::Empty`].
     pub put: Vec<(Vec<Value>, Row)>,
     /// The primary keys of the rows that are gone.
     pub gone: Vec<Vec<Value>>,
@@ -31,6 +32,16 @@ pub struct RowChanges {
     pub gone: Vec<(String, u32)>,
 }
 
+/// What a table the other store holds no entry for is compared with ([`MemStore::committed_row_changes_from`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BeforeRows {
+    /// The backing's rows the other store reads for it (when it has some), so only the rows that differ from those are
+    /// put: the install footprint's safety net, which asks which rows a write changed (al-runner issue 8954).
+    Backing,
+    /// No rows, so every row of the table is put: the login image, which replaces such a table whole.
+    Empty,
+}
+
 /// Whether two rows (or keys) are the same; `None` when one holds a value that is not plain.
 pub type SameRows<'a> = dyn FnMut(&[Value], &[Value]) -> Option<bool> + 'a;
 
@@ -41,23 +52,46 @@ fn name(s: &Slot) -> (String, u32) {
 impl MemStore {
     /// The committed rows of this store apart from `base`'s, row by row: the tables whose rows differ, with the rows
     /// that are new or changed and the keys of those that are gone, and the tables `base` holds that this store does
-    /// not. A table with `base`'s stamp holds `base`'s rows (stamps are unique in the process) and is skipped; an entry
-    /// both maps share is the same row. `same(a, b)` says whether two rows (or keys) are the same, as their bytes are;
+    /// not. A table `base` holds no entry for is compared with what `before` names ([`BeforeRows`]). A table with
+    /// `base`'s stamp holds `base`'s rows (stamps are unique in the process) and is skipped; an entry both maps share is
+    /// the same row. `same(a, b)` says whether two rows (or keys) are the same, as their bytes are;
     /// `None` from it (a value that is not plain) gives `None`. `None` too when a committed mark the rows do not show
     /// differs ([`MemStore::same_unshown_marks`]).
-    pub fn committed_row_changes_from(&self, base: &MemStore, same: &mut SameRows<'_>) -> Option<RowChanges> {
+    pub fn committed_row_changes_from(
+        &self,
+        base: &MemStore,
+        before: BeforeRows,
+        same: &mut SameRows<'_>,
+    ) -> Option<RowChanges> {
         if !self.same_unshown_marks(base) {
             return None;
         }
         let mut out = RowChanges::default();
         for (slot, table) in self.committed.iter() {
-            let Some(old) = base.committed.get(slot) else {
-                out.tables.push(whole(slot, table));
-                continue;
+            // A table `base` holds no entry for reads the backing's rows there; the first write here copied them in
+            // (`table_mut`). See [`BeforeRows`].
+            let backed;
+            let old = match base.committed.get(slot) {
+                Some(old)
+                    if table.ptr_eq(old) || self.committed_versions.get(slot) == base.committed_versions.get(slot) =>
+                {
+                    continue;
+                }
+                Some(old) => old,
+                None => match (before == BeforeRows::Backing)
+                    .then(|| base.backing_rows(&slot.0, slot.1))
+                    .flatten()
+                {
+                    Some(rows) => {
+                        backed = rows.0;
+                        &backed
+                    }
+                    None => {
+                        out.tables.push(whole(slot, table));
+                        continue;
+                    }
+                },
             };
-            if table.ptr_eq(old) || self.committed_versions.get(slot) == base.committed_versions.get(slot) {
-                continue;
-            }
             let mut put = Vec::new();
             let mut gone = Vec::new();
             let (mut a, mut b) = (table.iter().peekable(), old.iter().peekable());
@@ -222,7 +256,9 @@ mod tests {
             compared += 1;
             Some(format!("{a:?}") == format!("{b:?}"))
         };
-        let c = later.committed_row_changes_from(&base, &mut same).unwrap();
+        let c = later
+            .committed_row_changes_from(&base, BeforeRows::Empty, &mut same)
+            .unwrap();
         assert!(compared <= 2, "only the changed row: {compared}");
         assert_eq!(c.tables.len(), 1);
         assert_eq!((c.tables[0].put.len(), c.tables[0].gone.len()), (2, 1));
@@ -233,7 +269,7 @@ mod tests {
         let mut never = |_: &[Value], _: &[Value]| -> Option<bool> { panic!("no row compared") };
         assert!(
             base.clone()
-                .committed_row_changes_from(&base, &mut never)
+                .committed_row_changes_from(&base, BeforeRows::Empty, &mut never)
                 .unwrap()
                 .tables
                 .is_empty()
@@ -251,7 +287,14 @@ mod tests {
         later.drop_company("OTHER");
         later.commit();
         let mut same = |a: &[Value], b: &[Value]| Some(format!("{a:?}") == format!("{b:?}"));
-        assert!(later.committed_row_changes_from(&base, &mut same).is_none());
-        assert!(base.committed_row_changes_from(&later, &mut same).is_none());
+        assert!(
+            later
+                .committed_row_changes_from(&base, BeforeRows::Empty, &mut same)
+                .is_none()
+        );
+        assert!(
+            base.committed_row_changes_from(&later, BeforeRows::Empty, &mut same)
+                .is_none()
+        );
     }
 }

@@ -212,7 +212,18 @@ fn compile(
     body: &str,
     ret: &str,
 ) -> (std::sync::Arc<al_ir::Program>, Vec<Vec<Option<String>>>, usize, usize) {
-    let src = format!("{DOTNET}{TABLE}\ncodeunit 50100 C {{ procedure F(){ret} var {vars} begin {body} end; }}");
+    compile_extra(vars, body, ret, "")
+}
+
+/// `compile` with `extra`, more procedures of the codeunit (text after `F`).
+fn compile_extra(
+    vars: &str,
+    body: &str,
+    ret: &str,
+    extra: &str,
+) -> (std::sync::Arc<al_ir::Program>, Vec<Vec<Option<String>>>, usize, usize) {
+    let src =
+        format!("{DOTNET}{TABLE}\ncodeunit 50100 C {{ procedure F(){ret} var {vars} begin {body} end; {extra} }}");
     let (ws, l) = al_sema::lower::compile(
         vec![AppSource {
             id: "a".into(),
@@ -243,7 +254,19 @@ fn run_with(cfg: DotNetConfig, vars: &str, body: &str, ret: &str) -> Ran {
 
 /// As `run_with`, after `setup` has changed the session (for example `in_test_codeunit`).
 fn run_setup(cfg: DotNetConfig, vars: &str, body: &str, ret: &str, setup: impl FnOnce(&mut Session)) -> Ran {
-    let (program, blocked, oi, ri) = compile(vars, body, ret);
+    run_extra(cfg, vars, body, ret, "", setup)
+}
+
+/// `run_setup` with `extra`, more procedures of the codeunit.
+fn run_extra(
+    cfg: DotNetConfig,
+    vars: &str,
+    body: &str,
+    ret: &str,
+    extra: &str,
+    setup: impl FnOnce(&mut Session),
+) -> Ran {
+    let (program, blocked, oi, ri) = compile_extra(vars, body, ret, extra);
     if let Some(Some(r)) = blocked.get(oi).and_then(|o| o.get(ri)) {
         return Ran {
             result: Err(Signal::unsupported(r.clone())),
@@ -793,6 +816,7 @@ fn linux_zone_host() -> Fake {
             reply(DotNetValue::TimeSpan(-34_200 * 10_000_000))
         }
         Req::Invoke(DotNetTarget::Instance(8), m, _) if m == "GetUtcOffset" => reply(DotNetValue::TimeSpan(0)),
+        Req::Invoke(DotNetTarget::Instance(7), m, _) if m == "IsDaylightSavingTime" => reply(DotNetValue::Bool(true)),
         Req::Invoke(DotNetTarget::Instance(7), m, _) if m == "ToString" => {
             reply(DotNetValue::Str("(UTC-10:00) Hawaii-Aleutian Time (Honolulu)".into()))
         }
@@ -854,6 +878,10 @@ fn base_utc_offset_still_reaches_dotnet_off_windows() {
 
 const ZONE_VARS: &str = "Z: DotNet TimeZoneInfo; D: Duration;";
 const HAWAII: &str = "Z := Z.FindSystemTimeZoneById('Hawaiian Standard Time');";
+/// The one origin of an AL DateTime that `GetUtcOffset` runs for (assumption `zone-datetime-utc-instant`): a by-value
+/// DateTime parameter, as in the probe's `DoMember(ZoneId, Dt: DateTime, ...)`.
+const OFFSET_OF_PARAM: &str = "procedure Off(At: DateTime): Text var Z: DotNet TimeZoneInfo; D: Duration; begin \
+    Z := Z.FindSystemTimeZoneById('Hawaiian Standard Time'); D := Z.GetUtcOffset(At); exit(Format(D)); end;";
 
 /// `GetUtcOffset` on `Hawaiian Standard Time` for 1945 (the session clock is in 2024): off Windows the host answers from
 /// the IANA data (DST in 1933-1947), Windows has no DST for the zone. Refused before the host (issue 8012).
@@ -929,8 +957,8 @@ fn a_zone_passed_to_another_member_is_refused_off_windows() {
 #[test]
 fn utc_offset_of_the_session_year_reaches_dotnet_off_windows() {
     let host = linux_zone_host();
-    let body = format!("{HAWAII} D := Z.GetUtcOffset(CreateDateTime(DMY2Date(1, 6, 2024), 120000T)); exit(Format(D));");
-    let r = run_with(zone_cfg(&host, false), ZONE_VARS, &body, ": Text");
+    let body = "exit(Off(CreateDateTime(DMY2Date(1, 6, 2024), 120000T)));";
+    let r = run_extra(zone_cfg(&host, false), "", body, ": Text", OFFSET_OF_PARAM, |_| {});
     assert!(r.result.is_ok(), "{:?}", r.result);
     assert!(reached(&host, "GetUtcOffset"), "{:?}", host.calls());
 }
@@ -977,10 +1005,7 @@ fn utc_offset_of_a_date_is_refused_off_windows() {
 #[test]
 fn every_zone_member_reaches_dotnet_on_windows() {
     for (vars, body) in [
-        (
-            ZONE_VARS,
-            "D := Z.GetUtcOffset(CreateDateTime(DMY2Date(1, 6, 1945), 120000T)); exit(Format(D));",
-        ),
+        ("", "exit(Off(CreateDateTime(DMY2Date(1, 6, 1945), 120000T)));"),
         (
             "Z: DotNet TimeZoneInfo; O: DotNet ClrDateTimeOffset; D: Duration;",
             "O := O.DateTimeOffset(CreateDateTime(DMY2Date(1, 7, 1975), 120000T)); D := Z.GetUtcOffset(O); exit(Format(D));",
@@ -993,7 +1018,12 @@ fn every_zone_member_reaches_dotnet_on_windows() {
         ),
     ] {
         let host = linux_zone_host();
-        let r = run_with(zone_cfg(&host, true), vars, &format!("{HAWAII} {body}"), ": Text");
+        let body = if vars.is_empty() {
+            body.to_string()
+        } else {
+            format!("{HAWAII} {body}")
+        };
+        let r = run_extra(zone_cfg(&host, true), vars, &body, ": Text", OFFSET_OF_PARAM, |_| {});
         assert!(r.result.is_ok(), "{body}: {:?}", r.result);
     }
 }
@@ -4658,4 +4688,163 @@ fn the_members_that_only_answer_are_registered_calls() {
     assert!(!answers_only(helper, "IsProduction"));
     assert!(!answers_only(helper, "SetTestTenantEnvironmentType"));
     assert!(!holds_answering_class("System.Text.StringBuilder"));
+}
+
+/// The wire values of the arguments of the first request of `member`.
+fn args_of(host: &Fake, member: &str) -> Vec<DotNetValue> {
+    host.calls()
+        .iter()
+        .find_map(|c| match c {
+            Req::Invoke(_, m, a) if m == member => Some(a.iter().map(|a| a.value.clone()).collect()),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
+/// Issue 8587: `GetUtcOffset` gets an AL DateTime parameter as a UTC moment (kind Utc on the wire), on a Windows host and, for the
+/// session clock's year, off Windows (assumption `zone-datetime-utc-instant`).
+#[test]
+fn an_al_datetime_parameter_reaches_a_zone_as_a_utc_moment() {
+    let at = "CreateDateTime(DMY2Date(1, 6, 2024), 120000T)";
+    for windows in [true, false] {
+        let host = linux_zone_host();
+        let r = run_extra(
+            zone_cfg(&host, windows),
+            "",
+            &format!("exit(Off({at}));"),
+            ": Text",
+            OFFSET_OF_PARAM,
+            |_| {},
+        );
+        assert!(r.result.is_ok(), "{windows}: {:?}", r.result);
+        assert!(
+            matches!(args_of(&host, "GetUtcOffset").as_slice(), [DotNetValue::DateTimeUtc(_)]),
+            "{windows}: {:?}",
+            host.calls()
+        );
+    }
+}
+
+/// Issue 8587, the shapes the assumption does not cover, on a Windows host where the policy lets every member through: a
+/// DateTime a DotNet variable holds, a Date, and another member that reads a DateTime's kind are refused before the host.
+#[test]
+fn a_zone_refuses_a_datetime_of_unmeasured_kind_on_windows() {
+    let at = "CreateDateTime(DMY2Date(1, 6, 2024), 120000T)";
+    for (member, vars, body) in [
+        (
+            "GetUtcOffset",
+            "Z: DotNet TimeZoneInfo; D: Duration; Dn: DotNet ClrDateTime;",
+            format!("Dn := {at}; D := Z.GetUtcOffset(Dn); exit(Format(D));"),
+        ),
+        (
+            "GetUtcOffset",
+            ZONE_VARS,
+            "D := Z.GetUtcOffset(DMY2Date(1, 6, 2024)); exit(Format(D));".to_string(),
+        ),
+        // Only BC on Linux measured it (corpus pull request 1582); no Windows run yet.
+        (
+            "IsDaylightSavingTime",
+            ZONE_VARS,
+            format!("exit(Format(Z.IsDaylightSavingTime({at})));"),
+        ),
+        (
+            "IsAmbiguousTime",
+            ZONE_VARS,
+            format!("exit(Format(Z.IsAmbiguousTime({at})));"),
+        ),
+        (
+            "ConvertTimeFromUtc",
+            ZONE_VARS,
+            format!("exit(Format(Z.ConvertTimeFromUtc({at}, Z)));"),
+        ),
+        (
+            "GetUtcOffset",
+            ZONE_VARS,
+            format!("D := Z.GetUtcOffset(RoundDateTime({at}, 1000)); exit(Format(D));"),
+        ),
+        // The probe measured a parameter only: every other origin of an AL DateTime is refused.
+        (
+            "GetUtcOffset",
+            ZONE_VARS,
+            format!("D := Z.GetUtcOffset({at}); exit(Format(D));"),
+        ),
+        (
+            "GetUtcOffset",
+            "Z: DotNet TimeZoneInfo; D: Duration; At: DateTime;",
+            format!("At := {at}; D := Z.GetUtcOffset(At); exit(Format(D));"),
+        ),
+        (
+            "GetUtcOffset",
+            ZONE_VARS,
+            "D := Z.GetUtcOffset(CurrentDateTime); exit(Format(D));".to_string(),
+        ),
+    ] {
+        let host = linux_zone_host();
+        let r = run_with(zone_cfg(&host, true), vars, &format!("{HAWAII} {body}"), ": Text");
+        let why = unsupported(&r);
+        assert!(
+            why.contains(&format!("System.TimeZoneInfo.{member}")) && why.contains("not measured"),
+            "{body}: {why}"
+        );
+        assert!(!reached(&host, member), "{body}: {:?}", host.calls());
+    }
+}
+
+/// Issue 9052: BC gives a DotNet DateTime assigned from an AL DateTime the kind Utc (corpus pull request 1582,
+/// `kind_2023-01-15T12:00:00Z`); the runner does not track the kind, so the members that read it are refused before the host.
+#[test]
+fn a_dotnet_datetime_refuses_the_members_that_read_its_kind() {
+    let at = "CreateDateTime(DMY2Date(1, 6, 2024), 120000T)";
+    let vars = "Dn: DotNet ClrDateTime; T: Text;";
+    for (member, body) in [
+        ("Kind", "T := Format(Dn.Kind);"),
+        ("ToString", "T := Dn.ToString('o');"),
+        ("ToString", "T := Dn.ToString('O');"),
+        ("ToString", "T := Dn.ToString('yyyy-MM-ddTHH:mm:ssK');"),
+        ("ToString", "T := Dn.ToString('HH:mm zzz');"),
+        ("ToUniversalTime", "Dn := Dn.ToUniversalTime();"),
+        ("ToLocalTime", "Dn := Dn.ToLocalTime();"),
+    ] {
+        let host = linux_zone_host();
+        let r = run_with(
+            zone_cfg(&host, true),
+            vars,
+            &format!("Dn := {at}; {body} exit(T);"),
+            ": Text",
+        );
+        let why = unsupported(&r);
+        assert!(
+            why.contains(&format!("System.DateTime.{member}")) && why.contains("kind"),
+            "{body}: {why}"
+        );
+        assert!(!reached(&host, member), "{body}: {:?}", host.calls());
+    }
+}
+
+/// Every member of `server_classes::CONSTANT_ANSWERS` is a registered call (al-runner issue 8954), apart from
+/// `ANSWERS_ONLY`; only `TryGetStringTenantSetting` writes an argument back.
+#[test]
+fn the_constant_answers_are_registered_calls() {
+    use al_vm::dotnet::server_classes::{ANSWERS_ONLY, CONSTANT_ANSWERS, answers_only, keeps_nothing};
+    let reg = Registry::builtin();
+    for (clr, member) in CONSTANT_ANSWERS {
+        let t = reg.get(clr).unwrap_or_else(|| panic!("{clr} is not registered"));
+        let m = t
+            .member(member, MemberKind::Call)
+            .unwrap_or_else(|| panic!("{clr}.{member} is not a call"));
+        assert_eq!(m.kind, MemberKind::Call, "{clr}.{member}");
+        assert_eq!(
+            m.call_ref.is_some(),
+            *member == "TryGetStringTenantSetting",
+            "{clr}.{member}"
+        );
+        assert!(!answers_only(clr, member), "{clr}.{member} is in ANSWERS_ONLY");
+        assert!(
+            keeps_nothing(&clr.to_lowercase(), &member.to_uppercase()),
+            "{clr}.{member}"
+        );
+    }
+    assert!(ANSWERS_ONLY.iter().all(|(c, m)| keeps_nothing(c, m)));
+    let helper = al_builtins::dotnet_sigs::TENANT_SETTINGS_HELPER;
+    assert!(!keeps_nothing(helper, "SetTestTenantEnvironmentType"));
 }

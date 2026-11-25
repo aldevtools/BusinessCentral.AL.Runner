@@ -9,17 +9,20 @@
 //!   `Database.LastUsedRowVersion` and `Database.MinimumActiveRowVersion`: one note at each;
 //! - apps met: the objects whose code ran (the impact trace's `entered`, `impact.rs`) and `NavApp.GetModuleInfo`
 //!   (`ctx.rs` `module_by_id`); a read of an app table ([`APP_TABLES`]) meets every app;
-//! - touching everything: .NET, a page, a report (the impact trace), every builtin outside [`KEPT_RECEIVERS`] (HTTP,
-//!   files, StartSession, TaskScheduler and so a Job Queue run, DataTransfer, XMLports), a table served by a provider
-//!   other than the app tables (the store), a whole-store read or a company change (the store).
+//! - touching everything, each reason with the call stack of its first site: a .NET member that is not kept
+//!   ([`dotnet_member_kept`], ADR-079 amendment 1, `dotnet/mod.rs`), a page, a report (`impact.rs`), every builtin
+//!   outside [`KEPT_RECEIVERS`] (HTTP, files, StartSession, TaskScheduler and so a Job Queue run, DataTransfer,
+//!   XMLports), a table served by a provider other than the app tables (the store), a whole-store read or a company
+//!   change (the store).
 //!
 //! - the row version read by the SystemRowVersion field: the routines the session ran (`install_footprint_row_version.rs`).
 //!
 //! A write the recorder missed counts as touching everything: at the end the stores are compared with what they held at
 //! the start, and every change must be a recorded write (`footprint_check`).
 
+use crate::FaultFrame;
 use al_data::memory::{Resource, StoreFootprint};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// A lasting resource an install session can read or write.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -117,18 +120,29 @@ pub struct InstallFootprint {
     /// The session read a table that lists the apps (NAV App Installed App and the other app tables): it observes the
     /// presence of every app.
     pub apps_all: bool,
-    /// Why the session counts as touching everything; empty when it does not.
-    pub everything: BTreeSet<String>,
+    /// Why the session counts as touching everything, each reason with the call stack (outermost first) it was first
+    /// noted from; the stack is empty for a reason found at the end of the session (the store's record, the safety net).
+    /// Empty when the session does not touch everything.
+    pub everything: BTreeMap<String, Vec<FaultFrame>>,
 }
 
 impl InstallFootprint {
     /// A footprint that touches everything, for `why`: what an install session whose footprint was not recorded
     /// counts as.
     pub fn touching_everything(why: &str) -> InstallFootprint {
-        InstallFootprint {
-            everything: BTreeSet::from([why.to_string()]),
-            ..Default::default()
-        }
+        let mut fp = InstallFootprint::default();
+        fp.touch_everything(why);
+        fp
+    }
+
+    /// Marks the session as touching everything for `why`, found at the end of the session (no site).
+    pub fn touch_everything(&mut self, why: impl Into<String>) {
+        self.touch_everything_at(why, Vec::new());
+    }
+
+    /// Marks the session as touching everything for `why`, noted from `site`; the first site of a reason stays.
+    pub fn touch_everything_at(&mut self, why: impl Into<String>, site: Vec<FaultFrame>) {
+        self.everything.entry(why.into()).or_insert(site);
     }
 
     pub fn touches_everything(&self) -> bool {
@@ -172,7 +186,9 @@ impl InstallFootprint {
         self.writes.extend(other.writes);
         self.apps_met.extend(other.apps_met);
         self.apps_all |= other.apps_all;
-        self.everything.extend(other.everything);
+        for (why, site) in other.everything {
+            self.touch_everything_at(why, site);
+        }
     }
 
     /// Adds what the store recorded. A table served by a provider (`served`, object indexes of `engine`) is a read of the
@@ -189,11 +205,13 @@ impl InstallFootprint {
                         Some(n) => format!("a table served by a provider (table {n})"),
                         None => "a table served by a provider".to_string(),
                     };
-                    self.everything.insert(what);
+                    self.touch_everything(what);
                 }
             }
         }
-        self.everything.extend(s.everything.into_iter().map(String::from));
+        for why in s.everything {
+            self.touch_everything(why);
+        }
     }
 }
 
@@ -349,14 +367,24 @@ const KEPT_METHODS: &[(&str, &[&str])] = &[
             "CreateDateTime",
             "CreateGuid",
             "CurrentDateTime",
-            "Date",
-            "DaTi",
-            "DMY",
-            "DT",
-            "DWY",
+            // The date conversions are functions of their arguments and of two session inputs: the clock (the parts
+            // `DMY2Date` leaves out, as `Today`) and the session time zone (`DT2Date`, `DT2Time`, as the kept
+            // `CreateDateTime` and `CurrentDateTime`), which is UTC here (ADR-014 section 9, al-builtins `datefns.rs:5`).
+            // A zone that came from the session (User Personalization) would make these entries record a read. Corpus `tests/al-language/types/date-time/DateTimeFuncs.al:61-72` (DT2Date,
+            // DT2Time), `types/date-time/DateFuncs.al:14-70` (Date2DMY, Date2DWY), `:109-116` (Date2DWY), `:207-216`
+            // (DMY2Date), `:311-316` (DWY2Date), `types/date-time/Arithmetic.al:480-494` (Variant2Date,
+            // Variant2Time). `DaTi2Variant` has no pin and touches everything.
+            "Date2DMY",
+            "Date2DWY",
+            "DMY2Date",
+            "DT2Date",
+            "DT2Time",
+            "DWY2Date",
             "Evaluate",
             "EvaluateBounded",
             "EvaluateDateVariable",
+            "EvaluateEnumField",
+            "EvaluateEnumVariable",
             "EvaluateMemberlessVarOption",
             "EvaluateMemberlessVarOptionElement",
             "EvaluateOptionField",
@@ -393,35 +421,48 @@ const KEPT_METHODS: &[(&str, &[&str])] = &[
             "Time",
             "Today",
             "TranslatedText",
-            "Variant",
+            "Variant2Date",
+            "Variant2Time",
             "WindowsLanguage",
             "WorkDate",
         ],
     ),
 ];
 
+/// Whether .NET member `member` of type `clr_type` (`None`: a constructor) touches no lasting resource while an install
+/// session is recorded (al-runner issue 8954):
+/// - a pure framework member listed in al-host `inproc.txt` (ADR-038 section 1), whichever host serves it. It reads and
+///   writes only .NET objects of the session, which live no longer than the install session (ADR-079 fact 1, corpus
+///   `tests/al-language/record/BfInstallTests.al:125-140`); what install code takes from them reaches a lasting resource
+///   only through code the recorder sees. A member of an object whose runtime type is a `T[]`, an encoding or a hash
+///   algorithm is the member of the type the list names it under (`inproc::listed_type`);
+/// - a server class member whose implementation here answers with a constant or the host identity and keeps nothing
+///   (`server_classes::keeps_nothing`); what it answers does not depend on what an install did.
+///
+/// Every other member touches everything (ADR-079 decision 1), every other server class member included.
+fn dotnet_member_kept(clr_type: &str, member: Option<&str>) -> bool {
+    al_host::inproc::lists(clr_type, member)
+        || member.is_some_and(|m| crate::dotnet::server_classes::keeps_nothing(clr_type, m))
+}
+
+/// The `NavApp` methods kept: the module info reads.
+const NAVAPP_KEPT_METHODS: &[&str] = &["GetModuleInfo", "GetCurrentModuleInfo", "GetCallerModuleInfo"];
+
+/// The `Session` methods that touch everything: they start, stop or look at another session.
+const SESSION_TOUCHING_METHODS: &[&str] = &["StartSession", "StopSession", "IsSessionActive"];
+
 /// Whether builtin `name` (`Receiver.Method#n`) touches everything while an install session is recorded
 /// ([`KEPT_RECEIVERS`], [`KEPT_METHODS`]). Of `NavApp`, the module info reads are kept (`GetModuleInfo` notes the app it
 /// reads); of `Session`, every method but the ones that start, stop or look at another session.
 fn builtin_touches_everything(receiver: &str, method: &str) -> bool {
     match receiver {
-        "NavApp" => !matches!(method, "GetModuleInfo" | "GetCurrentModuleInfo" | "GetCallerModuleInfo"),
-        "Session" => matches!(
-            method,
-            "StartSession" | "StopSession" | "IsSessionActive" | "IsSessionLoggedIn"
-        ),
+        "NavApp" => !NAVAPP_KEPT_METHODS.contains(&method),
+        "Session" => SESSION_TOUCHING_METHODS.contains(&method),
         r => match KEPT_METHODS.iter().find(|(k, _)| *k == r) {
             Some((_, kept)) => !kept.contains(&method),
             None => !KEPT_RECEIVERS.contains(&r),
         },
     }
-}
-
-/// Object ids of a page or report note, ascending, comma separated.
-fn id_list(ids: &std::collections::HashSet<u32>) -> String {
-    let mut v: Vec<u32> = ids.iter().copied().collect();
-    v.sort_unstable();
-    v.iter().map(u32::to_string).collect::<Vec<_>>().join(", ")
 }
 
 /// The recording in progress (`CoverageState::install_footprint`).
@@ -466,10 +507,11 @@ impl crate::Session {
             })
             .collect();
         if self.store.has_uncommitted() {
-            fp.everything
-                .insert("writes not committed at the end of the install session".into());
-        } else if let Err(why) = self.store.unrecorded_writes(&b.store, &store_writes) {
-            fp.everything.insert(why.into());
+            fp.touch_everything("writes not committed at the end of the install session");
+        } else if let Err((why, table)) = self.store.unrecorded_writes(&b.store, &store_writes) {
+            let objects = &self.engine.program.objects;
+            let named = table.and_then(|t| objects.get(t as usize)).map(|o| o.name.as_str());
+            fp.touch_everything(named.map_or_else(|| why.to_string(), |name| format!("{why} (table {name})")));
         }
         fn changed<K: Eq + std::hash::Hash + Clone, V: PartialEq>(
             a: &std::collections::HashMap<K, V>,
@@ -498,11 +540,10 @@ impl crate::Session {
             )
             .filter(|l| !fp.writes.contains(l));
         if unnoted.next().is_some() {
-            fp.everything
-                .insert("a counter, sequence or storage key changed that no recorded write names".into());
+            fp.touch_everything("a counter, sequence or storage key changed that no recorded write names");
         }
         if self.company_unknown != b.company_unknown || self.full_copies != b.full_copies {
-            fp.everything.insert("the companies changed".into());
+            fp.touch_everything("the companies changed");
         }
     }
 }
@@ -528,8 +569,7 @@ impl crate::Session {
         match self.store.footprint_take() {
             Some(s) => fp.add_store(s, &self.engine),
             None => {
-                fp.everything
-                    .insert("the store's record of the install session was lost".into());
+                fp.touch_everything("the store's record of the install session was lost");
             }
         }
         self.footprint_check(&rec.before, &mut fp);
@@ -547,15 +587,6 @@ impl crate::Session {
         let routines = t.routines.iter().copied();
         if crate::install_footprint_row_version::routines_read(&self.engine, routines) {
             fp.reads.insert(Lasting::RowVersion);
-        }
-        if t.dotnet {
-            fp.everything.insert("a .NET call".into());
-        }
-        if !t.pages.is_empty() {
-            fp.everything.insert(format!("a page ({})", id_list(&t.pages)));
-        }
-        if !t.reports.is_empty() {
-            fp.everything.insert(format!("a report ({})", id_list(&t.reports)));
         }
         Some(fp)
     }
@@ -575,6 +606,36 @@ impl crate::Session {
         }
     }
 
+    /// The session touches everything for `why`, noted with the call stack of the code that does it (the diagnostics of
+    /// a refusal name it, al-runner issue 8954).
+    pub(crate) fn note_footprint_everything(&self, why: impl FnOnce() -> String) {
+        if !self.coverage.footprint_on {
+            return;
+        }
+        let site = self.stack_now();
+        self.note_footprint(|fp| fp.touch_everything_at(why(), site));
+    }
+
+    /// A page or a report (`kind`, object index `object`) opens or runs while a footprint is recorded: it touches
+    /// everything.
+    pub(crate) fn note_footprint_object(&self, kind: &str, object: usize) {
+        self.note_footprint_everything(|| format!("a {kind} ({})", self.object_id_text(object)));
+    }
+
+    /// A .NET call reaches the host (`dotnet/mod.rs` `dotnet_apply`) while a footprint is recorded: it touches
+    /// everything unless its member is kept ([`dotnet_member_kept`]). `shown` names the call.
+    pub(crate) fn note_footprint_dotnet(&self, clr_type: &str, member: Option<&str>, shown: &str) {
+        if self.coverage.footprint_on && !dotnet_member_kept(clr_type, member) {
+            self.note_footprint_everything(|| format!("a .NET call ({shown})"));
+        }
+    }
+
+    fn object_id_text(&self, object: usize) -> String {
+        let o = self.engine.program.objects.get(object);
+        o.and_then(|o| o.id)
+            .map_or_else(|| "?".to_string(), |id| id.to_string())
+    }
+
     /// A builtin call while a footprint is recorded (`exec/run.rs` `builtin_prologue`, which every builtin path takes): one
     /// that touches everything marks it.
     pub(crate) fn note_footprint_builtin(&self, id: al_builtins::builtin_id::BuiltinId) {
@@ -584,9 +645,10 @@ impl crate::Session {
         let all = builtin_touches_everything(receiver, method);
         let row_version = crate::install_footprint_row_version::reads_dynamically(receiver, method);
         if all || row_version {
+            let site = if all { self.stack_now() } else { Vec::new() };
             self.note_footprint(|fp| {
                 if all {
-                    fp.everything.insert(format!("builtin {name}"));
+                    fp.touch_everything_at(format!("builtin {name}"), site);
                 }
                 if row_version {
                     fp.reads.insert(Lasting::RowVersion);

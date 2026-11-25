@@ -26,6 +26,7 @@ mod dependency_platform_by_id;
 mod dev_endpoint_ui;
 mod entries;
 mod execute;
+mod existing_sequence_asserterror;
 mod ext_validate_across_apps;
 mod failed_test_isolation;
 mod failure_after_refused_test;

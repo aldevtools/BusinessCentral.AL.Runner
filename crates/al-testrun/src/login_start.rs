@@ -7,13 +7,16 @@
 //! (`ALRUNNER_LOGIN_REPLAY=1`) turns it on; under the login replay check (`ALRUNNER_LOGIN_REPLAY_CHECK=1`) no session
 //! takes a start, and `login_replay.rs` compares each later session of a key with a thaw of its start instead.
 //!
+//! A start is kept under its [`StartKey`]: the base key and the texts of the resource files its login read. A session
+//! takes the start of its key whose texts it has (ADR-073 amendment 2026-11-25); tests: `runtime/login_reads_tests.rs`.
+//!
 //! The starts live on the engine ([`starts`], `Engine::derived`): at most [`MAX_STARTS`] and [`MAX_BYTES`] of
 //! `LoginImage::kept_bytes`, least recently used out; one start over [`MAX_START_BYTES`] is not kept (`too large`). The
 //! memory pool reads [`Starts::bytes`] through the shared-bytes meter (`runtime/corpus.rs`), so an eviction gives its
 //! bytes back.
 
 use crate::install::CompanyOpenWrites;
-use crate::login_replay::Key;
+use crate::login_replay::{Key, StartKey};
 use al_builtins::assumptions::HitBits;
 use al_vm::{BaseShape, Engine, LoginImage, NotImaged, Session};
 use std::collections::BTreeMap;
@@ -87,9 +90,9 @@ pub(crate) struct Starts {
 #[derive(Default)]
 struct State {
     /// The kept starts, the one used last at the end.
-    kept: Vec<(Key, Arc<Start>)>,
+    kept: Vec<(StartKey, Arc<Start>)>,
     /// The keys whose start is not kept, the newest at the end.
-    refused: Vec<Key>,
+    refused: Vec<StartKey>,
     replayed: u64,
     /// Per reason (`NotImaged::reason`), the keys whose session was not imaged.
     not_imaged: BTreeMap<String, u64>,
@@ -105,7 +108,7 @@ impl State {
         self.kept.iter().map(|(_, s)| s.image.kept_bytes()).sum()
     }
 
-    fn refuse(&mut self, key: Key) {
+    fn refuse(&mut self, key: StartKey) {
         if self.refused.len() == MAX_REFUSED {
             self.refused.remove(0);
         }
@@ -118,16 +121,17 @@ impl Starts {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Whether `key` has a start or was refused: its session is then not frozen again.
-    pub(crate) fn knows(&self, key: &Key) -> bool {
+    /// Whether a session of `key` on `engine` finds a start or a refusal ([`StartKey::fits`]): it is then not frozen
+    /// again.
+    pub(crate) fn knows(&self, key: &Key, engine: &Engine) -> bool {
         let s = self.state();
-        s.kept.iter().any(|(k, _)| k == key) || s.refused.contains(key)
+        s.kept.iter().any(|(k, _)| k.fits(key, engine)) || s.refused.iter().any(|k| k.fits(key, engine))
     }
 
-    /// The start of `key`, the one used last from now on.
-    pub(crate) fn take(&self, key: &Key) -> Option<Arc<Start>> {
+    /// The start a session of `key` on `engine` finds ([`StartKey::fits`]), the one used last from now on.
+    pub(crate) fn take(&self, key: &Key, engine: &Engine) -> Option<Arc<Start>> {
         let mut s = self.state();
-        let at = s.kept.iter().position(|(k, _)| k == key)?;
+        let at = s.kept.iter().position(|(k, _)| k.fits(key, engine))?;
         let entry = s.kept.remove(at);
         let start = entry.1.clone();
         s.kept.push(entry);
@@ -136,7 +140,7 @@ impl Starts {
 
     /// Keeps the start of `key` (or why its session has none) within the caps: the first of a key wins; a start over
     /// [`MAX_START_BYTES`] is refused; the least recently used go until [`MAX_STARTS`] and [`MAX_BYTES`] hold.
-    pub(crate) fn record(&self, key: Key, start: Result<Start, NotImaged>) {
+    pub(crate) fn record(&self, key: StartKey, start: Result<Start, NotImaged>) {
         let mut s = self.state();
         if s.kept.iter().any(|(k, _)| *k == key) || s.refused.contains(&key) {
             return;
@@ -290,7 +294,7 @@ pub(crate) fn replay(
         starts.not_taken(why);
         return None;
     }
-    let start = starts.take(key)?;
+    let start = starts.take(key, engine)?;
     if let Some(why) = target_gate(session.thaw_target_why(), &session.base_shape(), &start) {
         starts.not_taken(why);
         return None;
@@ -308,8 +312,8 @@ pub(crate) fn replay(
     Some((start.wrote.clone(), start.hits))
 }
 
-/// After the real login of the first session of `key` (`base`: the session before it), its start, unless the key is known
-/// or `gate` keeps the run from starts.
+/// After the real login of the first session of `key` (`base`: the session before it), its start under the texts the
+/// login read ([`StartKey::of`]), unless the key is known.
 pub(crate) fn record(
     engine: &Engine,
     key: Key,
@@ -318,10 +322,10 @@ pub(crate) fn record(
     wrote: &CompanyOpenWrites,
     hits: HitBits,
 ) {
-    if starts(engine).knows(&key) {
+    if starts(engine).knows(&key, engine) {
         return;
     }
-    keep(engine, key, base, || {
+    keep(engine, StartKey::of(key, session), base, || {
         session.login_image(base).map(|image| Start {
             image,
             wrote: wrote.clone(),
@@ -335,7 +339,7 @@ pub(crate) fn record(
 /// ([`target_gate`]); else the session is counted as refused by the gate, and no start is made.
 pub(crate) fn keep(
     engine: &Engine,
-    key: Key,
+    key: StartKey,
     base: &al_vm::LoginBase,
     start: impl FnOnce() -> Result<Start, NotImaged>,
 ) {

@@ -40,7 +40,7 @@ impl Session {
                 .filter(|_| !st.borrow().ran && st.borrow().host.is_some());
             if let Some(given) = given.filter(|g| g.borrow().table == dst.borrow().table) {
                 let fields = given.borrow().fields.clone();
-                dst.borrow_mut().fields = fields;
+                self.replace_record_fields(dst, &mut dst.borrow_mut(), fields);
                 return Ok(Value::Null);
             }
             let initial = self.initial_fields(dst.borrow().table as usize);
@@ -51,11 +51,11 @@ impl Session {
             // So does an empty temporary Card or NavigatePage handed a record by SetRecord (`empty_temp_card_by_set_record`).
             if st.borrow().handler_set_record || self.empty_temp_card_by_set_record(st, &src)? {
                 let fields = src.borrow().fields.clone();
-                dst.borrow_mut().fields = fields;
+                self.replace_record_fields(dst, &mut dst.borrow_mut(), fields);
                 return Ok(Value::Null);
             }
             if let Some(fields) = self.cancelled_lookup_key_fields(st, &src)? {
-                dst.borrow_mut().fields = fields.into();
+                self.replace_record_fields(dst, &mut dst.borrow_mut(), fields.into());
                 return Ok(Value::Null);
             }
             let pinned_no_row = st.borrow().cursor == Cursor::None && self.plain_list_with_rows(st);
@@ -64,11 +64,11 @@ impl Session {
                     "Page.GetRecord of a page that closed on no row of a table that has rows (not pinned)",
                 );
             }
-            dst.borrow_mut().fields = initial;
+            self.replace_record_fields(dst, &mut dst.borrow_mut(), initial);
             return Ok(Value::Null);
         }
         let fields = src.borrow().fields.clone();
-        dst.borrow_mut().fields = fields;
+        self.replace_record_fields(dst, &mut dst.borrow_mut(), fields);
         Ok(Value::Null)
     }
 

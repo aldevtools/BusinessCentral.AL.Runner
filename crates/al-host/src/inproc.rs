@@ -34,6 +34,37 @@ const LOCAL_BASE: u64 = 1 << 48;
 /// the differential tests).
 pub const MEMBERS: &str = include_str!("inproc.txt");
 
+/// The `Type.Member` lines of [`MEMBERS`], without its comments and blank lines.
+pub fn listed_members() -> impl Iterator<Item = &'static str> {
+    (MEMBERS.lines().map(str::trim)).filter(|l| !l.is_empty() && !l.starts_with('#'))
+}
+
+/// Whether [`MEMBERS`] lists `member` (`None`: the constructor, `.ctor`) for an object of runtime type `clr_type`: under
+/// the type it is listed by ([`listed_type`]) as written, the member without regard to case.
+pub fn lists(clr_type: &str, member: Option<&str>) -> bool {
+    let (clr_type, member) = (listed_type(clr_type), member.unwrap_or(".ctor"));
+    listed_members().any(|l| {
+        (l.strip_prefix(clr_type).and_then(|rest| rest.strip_prefix('.')))
+            .is_some_and(|m| m.eq_ignore_ascii_case(member))
+    })
+}
+
+/// The type [`MEMBERS`] lists the members of an object of runtime type `clr_type` under: `System.Array` for a
+/// one-dimensional array type (`System.Byte[]`, any `T[]`); `System.Text.Encoding` for the encodings `Encoding.UTF8`,
+/// `ASCII` and `Unicode` answer ([`Enc`]); `System.Security.Cryptography.HashAlgorithm` for the algorithms
+/// `HashAlgorithm.Create` answers ([`Algo`]); else the type itself.
+fn listed_type(clr_type: &str) -> &str {
+    if clr_type.strip_suffix("[]").is_some_and(|element| !element.is_empty()) {
+        "System.Array"
+    } else if Enc::ALL.iter().any(|e| e.clr_type() == clr_type) {
+        "System.Text.Encoding"
+    } else if Algo::ALL.iter().any(|a| a.clr_type() == clr_type) {
+        "System.Security.Cryptography.HashAlgorithm"
+    } else {
+        clr_type
+    }
+}
+
 /// The host to give the engine: `host` wrapped with the stand-ins, or `host` itself when `ALRUNNER_NO_INPROC` is set.
 pub fn wrap(host: Arc<dyn DotNetHost>) -> Arc<dyn DotNetHost> {
     if std::env::var_os("ALRUNNER_NO_INPROC").is_some() {
@@ -83,6 +114,8 @@ enum Algo {
 }
 
 impl Algo {
+    const ALL: [Algo; 5] = [Algo::Md5, Algo::Sha1, Algo::Sha256, Algo::Sha384, Algo::Sha512];
+
     fn of(name: &str) -> Option<Algo> {
         Some(match name {
             "MD5" => Algo::Md5,
@@ -124,6 +157,8 @@ impl Algo {
 }
 
 impl Enc {
+    const ALL: [Enc; 3] = [Enc::Utf8, Enc::Ascii, Enc::Unicode];
+
     fn clr_type(self) -> &'static str {
         match self {
             Enc::Utf8 => "System.Text.UTF8Encoding+UTF8EncodingSealed",
@@ -896,12 +931,7 @@ mod tests {
     }
 
     fn listed() -> Vec<String> {
-        MEMBERS
-            .lines()
-            .map(str::trim)
-            .filter(|l| !l.is_empty() && !l.starts_with('#'))
-            .map(String::from)
-            .collect()
+        listed_members().map(String::from).collect()
     }
 
     #[test]

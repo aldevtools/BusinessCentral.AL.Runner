@@ -5,6 +5,7 @@
 //!
 //! Only pairs of apps with no dependency path between them count: the order of the others is the same in every install.
 
+use al_vm::FaultFrame;
 use al_vm::install_footprint::InstallFootprint;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -134,8 +135,8 @@ impl Graph {
     }
 }
 
-/// What ties apps `x` and `y` in the graph, for the note of a refusal: the reason one touches everything, a meet, or a
-/// resource one reads or both write.
+/// What ties apps `x` and `y` in the graph, for the note of a refusal when neither touches everything
+/// ([`everything_lines`]): a meet, or a resource one reads or both write.
 pub(crate) fn tie(
     fp: &Footprints,
     x: u32,
@@ -145,9 +146,6 @@ pub(crate) fn tie(
 ) -> String {
     let none = InstallFootprint::default();
     let (a, b) = (fp.get(&x).unwrap_or(&none), fp.get(&y).unwrap_or(&none));
-    if let Some(why) = a.everything.first().or(b.everything.first()) {
-        return format!("an install that touches everything ({why})");
-    }
     if a.meets(y) {
         return format!("the install of {} meets {}", name(x), name(y));
     }
@@ -161,6 +159,26 @@ pub(crate) fn tie(
         Some(w) => format!("{} and {} both write {}", name(x), name(y), w.describe(&table)),
         None => format!("{} reads from {}", name(x), name(y)),
     }
+}
+
+/// Why the installs of `apps` touch everything, for the note of a refusal (al-runner issue 8954): one line per reason and
+/// place, `<reason><place> in the install of <apps>`, where `place` renders the call stack the reason was noted from
+/// (empty for a reason found at the end of the session). Installs that reach the same code share one line.
+pub(crate) fn everything_lines(
+    fp: &Footprints,
+    apps: &BTreeSet<u32>,
+    place: impl Fn(&[FaultFrame]) -> String,
+    name: impl Fn(&BTreeSet<u32>) -> String,
+) -> Vec<String> {
+    let mut by_place: BTreeMap<(String, String), BTreeSet<u32>> = BTreeMap::new();
+    for &a in apps {
+        for (why, site) in fp.get(&a).map(|f| &f.everything).into_iter().flatten() {
+            by_place.entry((why.clone(), place(site))).or_default().insert(a);
+        }
+    }
+    (by_place.into_iter())
+        .map(|((why, at), who)| format!("{why}{at} in the install of {}", name(&who)))
+        .collect()
 }
 
 #[cfg(test)]

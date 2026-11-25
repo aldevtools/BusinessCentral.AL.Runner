@@ -1,5 +1,6 @@
 //! `@` alone and `<>@` alone answer as BC reads the rows (al-builtins `filter_at_sign`, assumption
-//! `at-sign-alone-database-blank`): BQ Tests 9b and 9c of open corpus pull request 1495
+//! `at-sign-alone-database-blank`): BQ Tests 9b and 9c of corpus pull request 1495 (merged at
+//! 93fa2e44cdc1ccfd94b50bdbef1659f1892f195e, not pinned yet)
 //! (tests/al-language/pages/background-tasks/BgTaskQueryCache.al), its record/filters/AtSignAloneReads.al, and the neighbors. The
 //! AL is the neighbor app's (tests/neighbors/at-sign-alone-database), one copy. Delete this file when the pin is in the corpus.
 
@@ -12,6 +13,7 @@ const NEIGHBORS: &str = include_str!("../../../../tests/neighbors/at-sign-alone-
 const CRM: &str = include_str!("../../../../tests/neighbors/at-sign-alone-database/src/Crm.al");
 const METHODS: &str = include_str!("../../../../tests/neighbors/at-sign-alone-database/src/Methods.al");
 const SOURCES: &str = include_str!("../../../../tests/neighbors/at-sign-alone-database/src/Sources.al");
+const TYPES: &str = include_str!("../../../../tests/neighbors/at-sign-alone-database/src/Types.al");
 
 fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
     let src = format!("{src}\n{}", include_str!("../fixtures/outside-sc/Assert.al"));
@@ -153,21 +155,13 @@ fn at_sign_alone_reads_cells() {
 /// a page (:215, :244, :279, :312, :345), a CalcFormula's `filter('@')` and `filter('<>@')` with every method (:376), and its sum over
 /// a Date source field (:395) and over an Integer, Decimal, Option or Boolean one, with the error's text and code (:430, :454),
 /// `<>@` alone in filter groups 1 and 2 (:489) and `<>@` alone and `@` alone set on a min or max FlowField (:552, :827), the other
-/// readers of a sum over the other source types (:657), an Option source with a blank member (:717) and a Code FlowFilter `<>@`
-/// with every method over Code and Text (:767), flagged. Filter
-/// group 1 of a temporary record (:507) keeps the runner's refusal of any SetFilter there, which is not about `@`.
+/// readers of a sum over the other source types (:657), an Option source with a blank member (:717), a Code FlowFilter `<>@`
+/// with every method over Code and Text (:767) and filter group 1 of a temporary record (:507), flagged.
 #[test]
 fn at_sign_alone_methods_cells() {
     let o = outcomes(METHODS, "AM Kind Tests");
     assert_eq!(o.len(), 16);
     for (name, r, marks) in &o {
-        if name == "AtSignAloneNegated_FilterGroupOne_Temporary" {
-            assert!(
-                matches!(r, Outcome::NotRun(w) if w.contains("filter group 1 (the global group) on a temporary record")),
-                "{name}: {r:?}"
-            );
-            continue;
-        }
         assert_eq!(*r, Outcome::Pass, "{name}");
         assert!(
             marks.contains(&Assumption::AtSignAloneDatabaseBlank),
@@ -176,29 +170,75 @@ fn at_sign_alone_methods_cells() {
     }
 }
 
-/// A CalcFormula's `filter('@')` past the cells of AtSignAloneMethods.al: a count over a Date source field, a sum over an Option
-/// field with an OptionCaption and over a Time field, which the lowering refuses before the test runs, and the error of a sum over
-/// an Integer field in a session of language 1031, which the run refuses (:430 and :454 measure 1033).
+/// The cells of AtSignAloneTypes.al (corpus PR 1495): a CalcFormula's `filter('@')` and `filter('<>@')` with every method over a
+/// Date, Integer, Decimal, Boolean, Option (with and without OptionCaption), Time, DateTime, Duration, BigInteger, Guid and Enum
+/// source field (:651-:905), the errors in languages 1031 and 1030 (:935, :974), and `field(filter())` of a normal field that holds
+/// `@` or `<>@` over a Code and a Text field with every method, for a host in the database and a temporary host (:1027, :1041),
+/// flagged.
 #[test]
-fn at_sign_alone_other_source_neighbors_refused() {
-    let o = outcomes(SOURCES, "AN Source Neighbor Tests");
-    assert_eq!(o.len(), 4);
+fn at_sign_alone_types_cells() {
+    let o = outcomes(TYPES, "AT Type Tests");
+    assert_eq!(o.len(), 16);
     for (name, r, marks) in &o {
-        if name == "AtSignAlone_SumOverIntegerSource_OtherLanguage" {
-            assert!(
-                matches!(r, Outcome::NotRun(w) if w.contains("in a session of language 1031 (not measured)")),
-                "{name}: {r:?}"
-            );
-            assert!(
-                !marks.contains(&Assumption::AtSignAloneDatabaseBlank),
-                "{name}: {marks:?}"
-            );
-            continue;
-        }
+        assert_eq!(*r, Outcome::Pass, "{name}");
         assert!(
-            matches!(r, Outcome::NotRun(w) if w.contains("CalcFormula filter '@' over a") && w.contains("(not measured)")),
-            "{name}: {r:?}"
+            marks.contains(&Assumption::AtSignAloneDatabaseBlank),
+            "{name}: {marks:?}"
         );
+    }
+}
+
+/// A CalcFormula's `filter('@')` next to the cells of AtSignAloneTypes.al: the exact cells the branch answers (a count over a
+/// Date field and a sum over Time) run as BC answered, flagged. A caption list outside Alpha,Beta, a sum in language 1031, a
+/// DateFormula source field and language 1036 stay refused.
+#[test]
+fn at_sign_alone_other_source_neighbors() {
+    let o = outcomes(SOURCES, "AN Source Neighbor Tests");
+    assert_eq!(o.len(), 6);
+    for (name, r, marks) in &o {
+        match name.as_str() {
+            "AtSignAlone_SumOverIntegerSource_Language1036" => {
+                assert!(
+                    matches!(r, Outcome::NotRun(w) if w.contains("in a session of language 1036 (not measured)")),
+                    "{name}: {r:?}"
+                );
+                assert!(
+                    !marks.contains(&Assumption::AtSignAloneDatabaseBlank),
+                    "{name}: {marks:?}"
+                );
+            }
+            "AtSignAlone_SumOverIntegerSource_OtherLanguage" => {
+                assert!(
+                    matches!(r, Outcome::NotRun(w) if w.contains("in a session of language 1031 (not measured)")),
+                    "{name}: {r:?}"
+                );
+                assert!(
+                    !marks.contains(&Assumption::AtSignAloneDatabaseBlank),
+                    "{name}: {marks:?}"
+                );
+            }
+            "AtSignAlone_SumOverCaptionedOptionSource" => {
+                assert!(
+                    matches!(r, Outcome::NotRun(w) if w.contains("over a Option field (not measured)")),
+                    "{name}: {r:?}"
+                );
+                assert!(
+                    !marks.contains(&Assumption::AtSignAloneDatabaseBlank),
+                    "{name}: {marks:?}"
+                );
+            }
+            "AtSignAlone_SumOverDateFormulaSource" => assert!(
+                matches!(r, Outcome::NotRun(w) if w.contains("CalcFormula filter '@' over a DateFormula field (not measured)")),
+                "{name}: {r:?}"
+            ),
+            _ => {
+                assert_eq!(*r, Outcome::Pass, "{name}");
+                assert!(
+                    marks.contains(&Assumption::AtSignAloneDatabaseBlank),
+                    "{name}: {marks:?}"
+                );
+            }
+        }
     }
 }
 
@@ -270,4 +310,48 @@ codeunit 97591 "AS Fp Tests"
             "{filter}: {r:?}"
         );
     }
+}
+
+/// The clear of filter group 1 in AtSignAloneMethods.al:507 belongs to the sequence in that cell: a temporary record first
+/// sets `<>@` on a stored Code or Text field. A fresh temporary record has no such entry, so SetRange(Field) keeps main's
+/// refusal instead of being accepted because the table currently has no entry.
+#[test]
+fn at_sign_review_group1_clear_without_entry_refused() {
+    let src = r#"
+table 97640 "At Sign Review Group1 Row"
+{
+    fields
+    {
+        field(1; "No."; Integer) { }
+        field(2; Kind; Code[20]) { }
+    }
+    keys { key(PK; "No.") { } }
+}
+codeunit 97640 "At Sign Review Group1 Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure FreshTemporaryClear()
+    var
+        Row: Record "At Sign Review Group1 Row" temporary;
+    begin
+        Row.FilterGroup(1);
+        Row.SetRange(Kind);
+        Row.FilterGroup(0);
+        Row.Count();
+    end;
+}
+"#;
+    let o = outcomes(src, "At Sign Review Group1 Tests");
+    let [(_, result, marks)] = o.as_slice() else {
+        panic!("{o:?}")
+    };
+    assert!(
+        matches!(result, Outcome::NotRun(why) if why.contains(
+            "SetRange in filter group 1 (the global group) on a temporary record (how BC scopes it is not pinned)"
+        )),
+        "{result:?}"
+    );
+    assert!(!marks.contains(&Assumption::AtSignAloneDatabaseBlank), "{marks:?}");
 }
