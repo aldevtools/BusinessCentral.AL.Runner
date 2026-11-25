@@ -360,6 +360,7 @@ fn own_area_expression_open_whose_runs_leave_nothing_is_not_flagged() {
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     let (_, got) = outcomes
         .iter()

@@ -257,6 +257,7 @@ fn the_reporters_lookups_mark_no_assumption() {
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     for n in [
         "TwoLinkedFieldsShowThePickedResource",

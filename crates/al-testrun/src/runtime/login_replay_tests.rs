@@ -124,7 +124,7 @@ pub(super) struct Ran {
 pub(super) fn run_as(engine: &Arc<Engine>, l: &al_sema::lower::Lowered, name: &str, opts: RunOptions) -> Ran {
     let mut scratch = Scratch {
         flags: super::session_flags::SessionFlags::of(&opts),
-        ..Default::default()
+        ..Scratch::new(crate::host::RunClock::begin())
     };
     let oi = l.program.objects.iter().position(|o| o.name == name).unwrap();
     let (mut stacks, mut marks) = (Vec::new(), Vec::new());
