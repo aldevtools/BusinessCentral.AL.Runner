@@ -3602,21 +3602,3 @@ fn a_run_counts_its_work() {
     assert_eq!(w.baseline_rows, Some(2), "{w:?}");
     assert_eq!(w.tests_run, 2);
 }
-
-/// `--verbose` lists every reason of every install-order tie, also of the apps under test (issue 9058): the notes of the
-/// proof reach the caller, not only the refusals with their "3 shown + N more" (CLI report text, no corpus pin).
-#[test]
-fn the_install_order_notes_of_the_apps_under_test_reach_the_baseline_report() {
-    use crate::install_orders::AppInstalls;
-    let (_, l) = login_engine("codeunit 60901 C { }");
-    let (plans, mut skipped, mut notes) = (Vec::new(), Vec::new(), Vec::new());
-    let mut inst = crate::install::UnderTestInstalls {
-        lowered: &l,
-        plans: &plans,
-        company: "",
-        skipped: &mut skipped,
-        notes: &mut notes,
-    };
-    inst.note("install order difference: T, field F1".into());
-    assert_eq!(notes, vec!["install order difference: T, field F1".to_string()]);
-}

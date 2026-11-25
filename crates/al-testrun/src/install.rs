@@ -604,12 +604,12 @@ pub(crate) fn run_apps_under_test_noted(
 }
 
 /// The apps under test, for `install_orders::install_partner_apps` and the Microsoft apps before them.
-pub(crate) struct UnderTestInstalls<'a> {
-    pub(crate) lowered: &'a Lowered,
-    pub(crate) plans: &'a [AppInstall],
-    pub(crate) company: &'a str,
-    pub(crate) skipped: &'a mut Vec<al_vm::SkippedInstall>,
-    pub(crate) notes: &'a mut Vec<String>,
+struct UnderTestInstalls<'a> {
+    lowered: &'a Lowered,
+    plans: &'a [AppInstall],
+    company: &'a str,
+    skipped: &'a mut Vec<al_vm::SkippedInstall>,
+    notes: &'a mut Vec<String>,
 }
 
 impl crate::install_orders::AppInstalls for UnderTestInstalls<'_> {

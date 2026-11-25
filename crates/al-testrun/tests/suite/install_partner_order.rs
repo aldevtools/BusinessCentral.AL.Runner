@@ -539,6 +539,22 @@ fn partner_apps_under_test_whose_orders_give_different_databases_are_refused() {
     assert_eq!(outcome(&rt, "PartnerInstallRan"), Outcome::Pass);
 }
 
+/// `--verbose` lists every reason of every install-order tie, also of the apps under test (al-runner issue 9058): the
+/// proof's notes reach the baseline notes, which `--verbose` prints and `--timings` reads (CLI report text, no corpus
+/// pin), not only the refusal with its first differences.
+#[test]
+fn the_install_order_notes_of_partner_apps_under_test_reach_the_baseline_notes() {
+    let rt = run_under_test(vec![
+        (PA_ID, "Partner A", PA.into()),
+        (PB_ID, "Partner B", logging(74000, "PB")),
+    ]);
+    let line = rt.phases.baseline_line().unwrap_or_default();
+    assert!(
+        line.contains("install order: Partner A, Partner B") && line.contains("left different rows in 1 table(s)"),
+        "{line}"
+    );
+}
+
 const PF_ID: &str = "a0000000-0000-0000-0000-000000006644";
 const PG_ID: &str = "b0000000-0000-0000-0000-000000006644";
 
