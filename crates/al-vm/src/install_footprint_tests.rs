@@ -111,7 +111,7 @@ fn the_apps_whose_code_ran_are_met() {
 #[test]
 fn touching_everything_reads_from_and_collides_with_every_session() {
     let mut all = InstallFootprint::default();
-    all.everything.insert("a page".into());
+    all.touch_everything("a page");
     let none = InstallFootprint::default();
     assert!(all.reads_from(&none, 1) && none.reads_from(&all, 1) && all.collides(&none));
     assert!(!none.reads_from(&none, 1) && !none.collides(&none));
@@ -209,7 +209,7 @@ fn a_builtin_that_touches_everything_marks_the_session() {
     let inst = s.codeunit_instance(0);
     let _ = s.call(0, 0, inst, vec![]);
     let fp = s.install_footprint_take().unwrap();
-    assert!(fp.everything.iter().any(|w| w.contains("HttpClient")), "{fp:?}");
+    assert!(fp.everything.keys().any(|w| w.contains("HttpClient")), "{fp:?}");
 }
 
 /// A builtin whose operands are all values runs on the plain path (`run_plain_builtin`), not through `run_builtin`: it
@@ -220,7 +220,7 @@ fn a_plain_builtin_that_touches_everything_marks_the_session() {
         "codeunit 50100 Probe { procedure Run() begin if TaskScheduler.CanCreateTask() then; end; }",
         "Run",
     );
-    assert!(fp.everything.iter().any(|w| w.contains("TaskScheduler")), "{fp:?}");
+    assert!(fp.everything.keys().any(|w| w.contains("TaskScheduler")), "{fp:?}");
 }
 
 const ROW_VERSION_SRC: &str = r#"
@@ -451,4 +451,76 @@ fn indexed_writes_answer_what_the_rules_answer() {
             assert_eq!(x.any_collides_with(&one), collide, "write {r:?} of {set:?}");
         }
     }
+}
+
+/// A pure framework member served in process (al-host `inproc.txt`) and a server class member that keeps nothing touch
+/// no lasting resource; every other .NET member, and a framework member that is not listed, touches everything
+/// (al-runner issue 8954).
+#[test]
+fn the_dotnet_members_that_keep_nothing() {
+    let kept = super::dotnet_member_kept;
+    assert!(kept("System.Text.StringBuilder", None), "constructor");
+    assert!(kept("System.Text.StringBuilder", Some("Append")));
+    assert!(kept("System.Text.StringBuilder", Some("toString")), "case");
+    assert!(kept(
+        "Microsoft.Dynamics.Nav.Types.ALConfigSettings",
+        Some("ApiServicesEnabled")
+    ));
+    assert!(kept(
+        al_builtins::dotnet_sigs::TENANT_SETTINGS_HELPER,
+        Some("TryGetStringTenantSetting")
+    ));
+    assert!(!kept("System.Text.StringBuilder", Some("NoSuchMember")));
+    assert!(
+        !kept("System.Text.StringBuilderX", Some("Append")),
+        "the type matches exactly"
+    );
+    assert!(!kept(
+        al_builtins::dotnet_sigs::TENANT_SETTINGS_HELPER,
+        Some("SetTestTenantEnvironmentType")
+    ));
+    assert!(!kept("System.IO.File", Some("WriteAllText")));
+}
+
+/// A member of a CLR array type (`System.Byte[]`, any `T[]`) is the member of `System.Array` that `inproc.txt` lists
+/// (`Byte[].Length` and `Byte[].GetValue` in Cryptography Management Impl.); a member it does not list, a multi-
+/// dimensional array type and a type that only contains `[]` still touch everything (al-runner issue 8954).
+#[test]
+fn an_array_member_is_the_system_array_member() {
+    let kept = super::dotnet_member_kept;
+    assert!(kept("System.Byte[]", Some("Length")));
+    assert!(kept("System.Byte[]", Some("GetValue")));
+    assert!(kept("System.Byte[]", Some("SetValue")));
+    assert!(kept("System.String[]", Some("GetValue")));
+    assert!(!kept("System.Byte[]", Some("Clone")));
+    assert!(!kept("System.Byte[]", None), "constructor");
+    assert!(!kept("System.Byte[,]", Some("Length")));
+    assert!(!kept("[]", Some("Length")));
+    assert!(!kept(
+        "System.Collections.Generic.List`1[System.Byte[]]",
+        Some("Length")
+    ));
+}
+
+/// An encoding `Encoding.UTF8`, `ASCII` or `Unicode` answers and an algorithm `HashAlgorithm.Create` answers have a
+/// runtime type of their own (`System.Text.UTF8Encoding+UTF8EncodingSealed`, `System.Security.Cryptography.SHA256Managed`);
+/// their members are the `System.Text.Encoding` and `HashAlgorithm` members `inproc.txt` lists. A member it does not list
+/// and another subclass still touch everything (al-runner issue 8954, neighbor app install-order-footprint-dotnet-array).
+#[test]
+fn an_encoding_or_hash_instance_member_is_the_listed_base_member() {
+    let kept = super::dotnet_member_kept;
+    assert!(kept("System.Text.UTF8Encoding+UTF8EncodingSealed", Some("GetBytes")));
+    assert!(kept("System.Text.ASCIIEncoding+ASCIIEncodingSealed", Some("GetString")));
+    assert!(kept("System.Text.UnicodeEncoding", Some("GetByteCount")));
+    assert!(kept("System.Security.Cryptography.SHA256Managed", Some("ComputeHash")));
+    assert!(kept(
+        "System.Security.Cryptography.MD5CryptoServiceProvider",
+        Some("Dispose")
+    ));
+    assert!(!kept(
+        "System.Text.UTF8Encoding+UTF8EncodingSealed",
+        Some("GetPreamble")
+    ));
+    assert!(!kept("System.Text.UTF32Encoding", Some("GetBytes")));
+    assert!(!kept("System.Security.Cryptography.HMACSHA256", Some("ComputeHash")));
 }
