@@ -168,6 +168,18 @@ codeunit 50413 "PX Tests"
     end;
 
     [Test]
+    procedure Plain_CalcSums()
+    begin
+        RunPlain('p-calcsums');
+    end;
+
+    [Test]
+    procedure Plain_BlobStream()
+    begin
+        RunPlain('p-blob');
+    end;
+
+    [Test]
     procedure Plain_PageGetRecord()
     begin
         RunPlain('p-getrecord');

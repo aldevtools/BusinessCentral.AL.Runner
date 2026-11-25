@@ -48,6 +48,7 @@ table 50400 "PX Line"
                 Card: Page "PX Card";
                 RecRef: RecordRef;
                 V: Variant;
+                OS: OutStream;
             begin
                 case Cfg.Get() of
                     'p-ctrl':
@@ -82,6 +83,19 @@ table 50400 "PX Line"
                         end;
                     'p-selfilter':
                         Card.SetSelectionFilter(Rec);
+                    'p-calcsums':
+                        begin
+                            Other.Init();
+                            Other."Entry No." := 2;
+                            Other.Amount := 7;
+                            Other.Insert();
+                            CalcSums(Amount);
+                        end;
+                    'p-blob':
+                        begin
+                            Pic.CreateOutStream(OS);
+                            OS.WriteText('X');
+                        end;
                 end;
                 Worker.CallTableProc(Rec);
             end;
@@ -97,6 +111,9 @@ table 50400 "PX Line"
                     Series := 'TRG';
             end;
         }
+        // Written in the trigger of Plain: by CalcSums (Plain_CalcSums) and by an OutStream (Plain_BlobStream).
+        field(10; Amount; Decimal) { }
+        field(11; Pic; Blob) { }
     }
 
     keys

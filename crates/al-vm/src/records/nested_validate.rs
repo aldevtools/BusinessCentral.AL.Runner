@@ -84,7 +84,8 @@ pub(crate) struct ValidateRun {
     pub(crate) xrec: Rec,
     /// The record's fields when its triggers start, the new value in.
     pub(crate) entered: Vec<Value>,
-    /// A record method that writes the record or reads it again ran on it since (`Session::note_record_op_under_validate`).
+    /// A record method that writes the record or reads it again ran on it since (`Session::note_record_op_under_validate`),
+    /// or a Blob field of it was written (`Session::note_blob_write_under_validate`).
     pub(crate) touched: bool,
     /// The OnBeforeValidateEvent returned with the fields in `entered`, the field having no table extension validate trigger
     /// (`Session::validate_event`).
@@ -201,39 +202,39 @@ impl Session {
     }
 
     /// Notes that record method `method` runs on `rec`: when it writes the record (its buffer or its row) or reads it again,
-    /// each running Validate of it counts as touched (`ValidateRun::touched`). A method that only reads the buffer or the view
-    /// (TestField, GetFilter, FieldCaption) or sets the view (SetRange, SetCurrentKey) does not; one that changes a field
-    /// value (CalcFields) shows in the fields (`ValidateRun::entered`).
+    /// each running Validate of it counts as touched (`ValidateRun::touched`). The match names every method, so a new one
+    /// must choose. A method that only reads the buffer or the view (TestField, GetFilter, FieldCaption), sets the view, the
+    /// key or the fields to load (SetRange, SetCurrentKey, SetLoadFields), or works on the record's links or the table does
+    /// not. CalcFields changes FlowFields only, which shows in the fields (`ValidateRun::entered`); CalcSums writes Normal
+    /// fields, so it touches (review of PR 9063, round 3).
     pub(crate) fn note_record_op_under_validate(&mut self, method: RecordOp, rec: &Rec) {
         use RecordOp::*;
-        let writes_or_reads = matches!(
-            method,
-            Clear
-                | Copy
-                | ChangeCompany
-                | Delete
-                | DeleteAll
-                | Find
-                | FindFirst
-                | FindLast
-                | FindSet
-                | Get
-                | GetBySystemId
-                | Init
-                | Insert
-                | LoadFields
-                | Modify
-                | ModifyAll
-                | Next
-                | Rename
-                | SetPosition
-                | TransferFields
-                | Truncate
-                | Validate
-        );
-        if !writes_or_reads {
-            return;
+        let writes_or_reads = match method {
+            CalcSums | ChangeCompany | Clear | Copy | Delete | DeleteAll | Find | FindFirst | FindLast | FindSet
+            | Get | GetBySystemId | Init | Insert | LoadFields | Modify | ModifyAll | Next | Rename | SetPosition
+            | TransferFields | Truncate | Validate => true,
+            AddLink | AddLoadFields | AreFieldsLoaded | Ascending | CalcFields | ClearMarks | Consistent
+            | CopyFilter | CopyFilters | CopyLinks | Count | CountApprox | CurrentCompany | CurrentKey | DeleteLink
+            | DeleteLinks | FieldActive | FieldCaption | FieldError | FieldName | FieldNo | FilterGroup
+            | GetAscending | GetFilter | GetFilters | GetPosition | GetRangeMax | GetRangeMin | GetView | HasFilter
+            | HasLinks | IsDirty | IsEmpty | IsTemporary | LockTable | Mark | MarkedOnly | ReadConsistency
+            | ReadIsolation | ReadPermission | RecordId | RecordLevelLocking | Relation | Reset | SecurityFiltering
+            | SetAscending | SetAutoCalcFields | SetBaseLoadFields | SetCurrentKey | SetFilter | SetLoadFields
+            | SetRange | SetRecFilter | SetView | TableCaption | TableName | TestField | WritePermission => false,
+        };
+        if writes_or_reads {
+            self.mark_validates_touched(rec);
         }
+    }
+
+    /// Notes a write into a Blob field of `rec` (`Blob.CreateOutStream`, `Blob.Import`, `Clear`; `temp_blob_share_guard`):
+    /// each running Validate of it counts as touched. No cell of assumption `xrec-table-proc-routes` writes a Blob (review of
+    /// PR 9063, round 3).
+    pub(crate) fn note_blob_write_under_validate(&mut self, rec: &Rec) {
+        self.mark_validates_touched(rec);
+    }
+
+    fn mark_validates_touched(&mut self, rec: &Rec) {
         let handle = Rc::as_ptr(rec) as usize;
         for v in self.validate_sites.iter_mut().filter(|v| v.handle == handle) {
             v.touched = true;
