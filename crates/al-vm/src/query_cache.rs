@@ -20,9 +20,11 @@
 //! - a calculation (al-runner issue 8677): `CalcFields` of a Record, keyed by its fields in their order, the row and the
 //!   record's FlowFilters (`calc_key`, :6147-:6255), and `CalcSums` of a Record, keyed like a group read and by its fields
 //!   (:6273-:6285). CalcFields ends with a commit of a formula's source table, not a commit of its row's table
-//!   (`Ends::Sources`). BgTaskCacheEdges.al:958 (merged corpus PR 1558, awaiting pin) measures a database Record after
-//!   Truncate. Open corpus PR 1581 at 852fb2b9:1178-:1190 measures a temporary Record, the test session first, and
-//!   FieldRef.CalcField of a database RecordRef.
+//!   (`Ends::Sources`). BgTaskCacheEdges.al:958 (merged corpus PR 1558, awaiting pin) measures a database Record after an
+//!   unfiltered `Record.Truncate`. Merged corpus PR 1581 at 852fb2b9:1178-:1190 measures a temporary Record, the test
+//!   session first, and `FieldRef.CalcField` of a database RecordRef for that same direct, unfiltered Truncate. A
+//!   FlowFilter on the calculated record, a temporary RecordRef's FieldRef, or a filtered or RecordRef Truncate is not
+//!   measured and keeps main's refusal.
 //!
 //! A row entry holds until a commit writes that row (:430, :804 against :741, :762, :784; also when no commit held the row
 //! before or after, an insert and a delete each committed: PR 1495 :1207; a commit of a ModifyAll or DeleteAll of another row
@@ -63,7 +65,7 @@ use al_builtins::record_op::RecordOp;
 use al_builtins::value::Value;
 use al_data::{AccessContext, Store, TableDef, memory::MemStore};
 use al_version::BulkWrite;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
 
@@ -214,6 +216,18 @@ fn holds(then: Committed, now: Committed, bulk_ends: [Option<bool>; 3]) -> Holds
 struct GroupThen {
     stamps: Vec<Option<u64>>,
     selects: u64,
+    truncates: u64,
+    measured_truncates: u64,
+    truncate_reader: TruncateReader,
+}
+
+/// A reader shape whose CalcFields entry survives a measured Truncate commit.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TruncateReader {
+    DatabaseRecord,
+    TemporaryRecord,
+    DatabaseFieldRef,
+    Other,
 }
 
 #[derive(Clone)]
@@ -278,14 +292,14 @@ enum Ends<'a> {
     /// The read's own table and these: a group read and its FlowField filters' tables (:823, :1907, :3465, :4259), a CalcSums.
     TableAnd(&'a [Arc<TableDef>]),
     /// Only these, the tables a CalcFields' formulas read (:6231, :6261). Measured commits of its row's table: an insert of
-    /// another row or a change of the row, of a temporary record too (BgTaskCacheEdges.al:428-:446, merged
-    /// corpus PR 1558, awaiting pin), of a ModifyAll (:639), a DeleteAll (:645) or a Delete of another row (:651), of a ModifyAll (:915), a
-    /// DeleteAll (:921) or a Delete (:927) of the row itself, of a Truncate of the table (:958), after the test session's
-    /// CalcFields first (:657), and for FieldRef.CalcField of a database RecordRef (:681). Truncate also holds for a
-    /// temporary Record (:1178), the test session first (:1184), and FieldRef.CalcField of a database RecordRef (:1190),
-    /// in open corpus PR 1581 at 852fb2b9.
-    /// These cells do not measure Rename or Delete followed by reinsert; those keep main's existing behavior.
-    Sources(&'a [Arc<TableDef>]),
+    /// another row or a change of the row, of a temporary record too (BgTaskCacheEdges.al:428-:446, merged corpus PR 1558,
+    /// awaiting pin), of a ModifyAll (:639), a DeleteAll (:645) or a Delete of another row (:651), of a ModifyAll (:915), a
+    /// DeleteAll (:921) or a Delete (:927) of the row itself, of an unfiltered Record.Truncate (:958), after the test
+    /// session's CalcFields first (:657), and for FieldRef.CalcField of a database RecordRef (:681). The Truncate cells use
+    /// no record filters and allow a database Record filled by worker or test session, a temporary Record filled by the
+    /// worker, and a database FieldRef filled by the worker (:1178-:1190, merged corpus PR 1581 at 852fb2b9). Rename, Delete
+    /// followed by reinsert, other receivers, a filtered Truncate and RecordRef.Truncate keep main's existing behavior.
+    Sources(&'a [Arc<TableDef>], TruncateReader),
 }
 
 /// Whether `rec` is temporary: declared so, or over a temporary table.
@@ -322,12 +336,16 @@ pub(crate) struct QueryCache {
     test_rows: Entries<Committed>,
     /// The read of AL code running (`mark_al_record_read`): only it reads a group or a calculation through the cache.
     pub(crate) al_record_read: Option<RecordOp>,
+    /// Whether the current `CalcFields` mark came from a `FieldRef.CalcField`.
+    al_record_read_field_ref: bool,
     /// The next load into a partial record loads a row the cache answered with another row than the table holds; set back
     /// at the end of every record method (`Session::end_record_op_for_query_cache`).
     replay_load: bool,
     /// The commits that carried a ModifyAll, a DeleteAll or a Truncate, by table and write
     /// (`Session::note_commit_for_query_cache`).
     bulk_commits: HashMap<(u32, BulkWrite), u64>,
+    /// Commits of an unfiltered `Record.Truncate`, by row table.
+    measured_truncates: HashMap<u32, u64>,
     /// The commits that wrote a row by Insert, Modify or Delete, by row (`Session::note_commit_for_query_cache`).
     row_commits: Entries<u64>,
     /// A worker's SelectLatestVersion calls without a table, and with one, by table (`Session::note_select_latest_version`).
@@ -607,7 +625,7 @@ impl Session {
             return;
         }
         let cache = &mut self.pages.query_cache;
-        let mut tables: HashSet<(u32, BulkWrite)> = HashSet::new();
+        let mut tables: HashMap<(u32, BulkWrite), bool> = HashMap::new();
         let mut rows: Entries<()> = Entries::default();
         for w in &self.tx.open.writes {
             let kind = match w.kind {
@@ -628,8 +646,21 @@ impl Session {
                 }
                 _ => continue,
             };
-            if tables.insert((w.table, kind)) {
-                *cache.bulk_commits.entry((w.table, kind)).or_default() += 1;
+            // The four Truncate cells call Record.Truncate with no record filter
+            // (BgTaskCacheEdges.al:958 and :1178-:1190).
+            let measured = match kind {
+                BulkWrite::Truncate => w.through_recordref == false && w.bulk_filtered == false,
+                BulkWrite::ModifyAll | BulkWrite::DeleteAll => true,
+            };
+            tables
+                .entry((w.table, kind))
+                .and_modify(|all| *all &= measured)
+                .or_insert(measured);
+        }
+        for ((table, kind), measured) in tables {
+            *cache.bulk_commits.entry((table, kind)).or_default() += 1;
+            if kind == BulkWrite::Truncate && measured {
+                *cache.measured_truncates.entry(table).or_default() += 1;
             }
         }
     }
@@ -653,7 +684,7 @@ impl Session {
     /// ends that table's entries and no other table's (another table's number changes nothing, BgTaskQueryCache.al:6744; an
     /// Enum whose value is the cached table's id ends its row entry, BgTaskCacheEdges.al:452, merged corpus PR 1558); one that
     /// names no table ends none (a Char, a Byte, an Option and an Enum of value 0, :687-:705, and of value 2, :933-:951;
-    /// Integer 0 and 2, :1196 and :1202 in open corpus PR 1581 at 852fb2b9). A Char, a Byte or an Option that names a table is
+    /// Integer 0 and 2, :1196 and :1202 in merged corpus PR 1581 at 852fb2b9). A Char, a Byte or an Option that names a table is
     /// refused in a worker: no cell measures one.
     pub(crate) fn note_select_latest_version_of(&mut self, arg: Option<&Value>) -> Result<(), Signal> {
         let (n, measured) = match arg {
@@ -691,19 +722,26 @@ impl Session {
     /// Count or IsEmpty as AL code's read (`group_key`; a page's own reads are not, :2099), a Record's CalcFields and CalcSums
     /// (a RecordRef's are not measured) and a FieldRef's CalcField (BgTaskCalcCache.al:431, open corpus PR 1533); returns the
     /// mark to set back with [`Self::unmark_al_record_read`] when the call returns.
-    pub(crate) fn mark_al_record_read(&mut self, method: RecordOp, field_ref: bool) -> Option<RecordOp> {
+    pub(crate) fn mark_al_record_read(&mut self, method: RecordOp, field_ref: bool) -> (Option<RecordOp>, bool) {
         let read = match method {
             RecordOp::FindFirst | RecordOp::FindLast | RecordOp::Count | RecordOp::IsEmpty => Some(method),
             RecordOp::CalcFields if field_ref => Some(method),
             RecordOp::CalcFields | RecordOp::CalcSums if !self.through_recordref => Some(method),
             _ => None,
         };
-        std::mem::replace(&mut self.pages.query_cache.al_record_read, read)
+        (
+            std::mem::replace(&mut self.pages.query_cache.al_record_read, read),
+            std::mem::replace(
+                &mut self.pages.query_cache.al_record_read_field_ref,
+                read.is_some() && field_ref,
+            ),
+        )
     }
 
     /// Sets back the mark [`Self::mark_al_record_read`] returned.
-    pub(crate) fn unmark_al_record_read(&mut self, prior: Option<RecordOp>) {
-        self.pages.query_cache.al_record_read = prior;
+    pub(crate) fn unmark_al_record_read(&mut self, prior: (Option<RecordOp>, bool)) {
+        self.pages.query_cache.al_record_read = prior.0;
+        self.pages.query_cache.al_record_read_field_ref = prior.1;
     }
 
     fn bulk_ends(&self) -> [Option<bool>; 3] {
@@ -1072,12 +1110,33 @@ impl Session {
             &cx,
             &t,
             values,
-            Ends::Sources(&sources),
+            Ends::Sources(&sources, self.calc_fields_truncate_reader(rec)),
             GroupAnswer::Values(fresh.clone()),
         )? {
             GroupAnswer::Values(v) => Ok(v),
             _ => Ok(fresh),
         }
+    }
+
+    /// The exact CalcFields receiver shapes whose entries the Truncate cells measure.
+    fn calc_fields_truncate_reader(&self, rec: &Rec) -> TruncateReader {
+        let r = rec.borrow();
+        let filter_count = r.filters.len();
+        drop(r);
+        if filter_count == 0 {
+            // BgTaskCacheEdges.al:958/:1184, :1178 and :1190, respectively.
+            return match (
+                temporary(rec),
+                self.pages.query_cache.al_record_read_field_ref,
+                self.in_worker(),
+            ) {
+                (false, false, true) | (false, false, false) => TruncateReader::DatabaseRecord,
+                (true, false, true) => TruncateReader::TemporaryRecord,
+                (false, true, true) => TruncateReader::DatabaseFieldRef,
+                _ => TruncateReader::Other,
+            };
+        }
+        TruncateReader::Other
     }
 
     /// The key of a `CalcFields` of `positions` on `rec` and the tables it reads, when the cells measure it: the number of
@@ -1235,9 +1294,9 @@ impl Session {
         let at = Self::at(rec, t, values);
         let selects = self.selects_of(t.object);
         let store = self.view_store(rec)?;
-        let (own, sources) = match ends {
-            Ends::TableAnd(s) => (Some(t), s),
-            Ends::Sources(s) => (None, s),
+        let (own, sources, truncate_reader) = match ends {
+            Ends::TableAnd(s) => (Some(t), s, TruncateReader::Other),
+            Ends::Sources(s, reader) => (None, s, reader),
         };
         let stamps: Vec<Option<u64>> = own
             .into_iter()
@@ -1247,33 +1306,77 @@ impl Session {
         let written = std::iter::once(t)
             .chain(sources.iter().map(|s| &**s))
             .any(|table| store.written_since_commit(cx, table));
-        let now = GroupThen { stamps, selects };
+        let truncates = match ends {
+            Ends::TableAnd(_) => 0,
+            Ends::Sources(_, _) => self
+                .pages
+                .query_cache
+                .bulk_commits
+                .get(&(t.object, BulkWrite::Truncate))
+                .copied()
+                .unwrap_or(0),
+        };
+        let measured_truncates = match ends {
+            Ends::TableAnd(_) => 0,
+            Ends::Sources(_, _) => self
+                .pages
+                .query_cache
+                .measured_truncates
+                .get(&t.object)
+                .copied()
+                .unwrap_or(0),
+        };
+        let now = GroupThen {
+            stamps,
+            selects,
+            truncates,
+            measured_truncates,
+            truncate_reader,
+        };
         let entry = self
             .pages
             .query_cache
             .groups
             .get(&at)
             .filter(|(then, _)| then.stamps == now.stamps)
-            .map(|(then, a)| (then.selects == now.selects, a.clone()));
+            .map(|(then, a)| {
+                let measured_reader = matches!(
+                    then.truncate_reader,
+                    TruncateReader::DatabaseRecord
+                        | TruncateReader::TemporaryRecord
+                        | TruncateReader::DatabaseFieldRef
+                );
+                let same_truncates = then.truncates == now.truncates
+                    || measured_reader
+                        && then.truncate_reader == now.truncate_reader
+                        && now.truncates - then.truncates == now.measured_truncates - then.measured_truncates;
+                (then.selects == now.selects, same_truncates, a.clone())
+            });
         if !self.in_worker() {
             if written {
                 return Ok(fresh);
             }
-            if entry.as_ref().is_some_and(|(_, a)| !same_group(a, &fresh)) {
+            if entry.as_ref().is_some_and(|(_, _, a)| !same_group(a, &fresh)) {
                 return unsupported(TEST_READ_REFUSAL);
             }
             self.pages.query_cache.groups.insert(&at, (now, fresh.clone()));
             return Ok(fresh);
         }
         let answer = match entry {
-            Some((true, a)) => a,
-            Some((false, a)) if !same_group(&a, &fresh) => {
+            Some((true, true, a)) => a,
+            Some((false, _, a)) if !same_group(&a, &fresh) => {
                 return unsupported(
                     "a group read of a page background task after its SelectLatestVersion, which the query cache would answer \
                      otherwise than the table (not measured)",
                 );
             }
-            Some((false, _)) | None => fresh.clone(),
+            Some((_, false, a)) if !same_group(&a, &fresh) => {
+                return unsupported(
+                    "a CalcFields of a page background task after a commit of a Truncate of its row's table, which the query \
+                     cache would answer otherwise than the table (not measured)",
+                );
+            }
+            Some(_) | None => fresh.clone(),
         };
         self.pages.query_cache.groups.insert(&at, (now, answer.clone()));
         // A FindFirst or FindLast is flagged by `answered`.

@@ -418,7 +418,7 @@ fn issue_8879_follow_up_neighbors() {
     }
 }
 
-/// The cells of merged corpus PR 1558 and open follow-up corpus PR 1581 (BgTaskCacheEdges.al, corpus issue 1555).
+/// The cells of merged corpus PRs 1558 and 1581 (BgTaskCacheEdges.al, corpus issue 1555).
 /// All 38 passed three times on local BC 29.0. The worker answers its
 /// first answer for a CalcFields, a CalcSums and a Count descending first and ascending again (:374-:386) and the test
 /// session's answer after the test session read first (:392, :398); for a count at an inner count with field(filter()) of a
