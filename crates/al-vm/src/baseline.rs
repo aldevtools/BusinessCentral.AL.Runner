@@ -578,6 +578,9 @@ impl Session {
 mod blob_tests;
 
 #[cfg(test)]
+mod install_order_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use al_data::memory::ExportedTable;
@@ -718,7 +721,7 @@ mod tests {
     }
 
     /// The table `Names` (object 11) of al-data's collation tests: the Text key `Name`, the Code field `Tag`.
-    fn names() -> al_data::TableDef {
+    pub(super) fn names() -> al_data::TableDef {
         let f = |id, name: &str, ty| al_data::FieldDef {
             id,
             name: name.into(),
@@ -781,7 +784,7 @@ mod tests {
     }
 
     /// The rows `--test-data` backs table `Names` with in company `C`: `Alpha`, `ærø` and `Bravo`.
-    struct NameRows;
+    pub(super) struct NameRows;
 
     impl al_data::memory::Backing for NameRows {
         fn company(&self) -> &str {
