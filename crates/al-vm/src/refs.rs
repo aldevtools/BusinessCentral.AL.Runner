@@ -1456,7 +1456,7 @@ impl Session {
             d.field_descending = s.field_descending;
             // The ReadIsolation passes too (recordref-fieldref/recordref/P92ReadIsolation.al:ReadIsolation_FromRecordAndToRecord).
             d.read_isolation = s.read_isolation;
-            let before = std::mem::replace(&mut d.fields, s.fields.clone());
+            let before = self.replace_record_fields(dst, &mut d, s.fields.clone());
             // The Blobs move as `BlobMove::set_table` says.
             if let Some(how) = BlobMove::set_table(args.len(), share) {
                 self.move_blobs(s.table as usize, &mut d.fields, Some(&before), how, self.holder(&s))?;
