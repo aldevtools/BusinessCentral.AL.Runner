@@ -186,7 +186,13 @@ fn fate(log: &[TxPoint], at: usize, failure: usize, outside: OutsideEnd, newest:
                 _ => by,
             });
             match by {
-                None if i == failure => return leaves_at_failure(reached, end_in_body, newest),
+                None if i == failure => {
+                    // On BC 27 and 28 a sequence gone at the failure was inserted before the failed test began (C2
+                    // SqCommitFail.al:64, C14 :570, the RecordRef cells of PR 1468); an insert in its own body, then a
+                    // table access, is S2E of PR 1572 alone.
+                    let leaves = leaves_at_failure(reached, end_in_body, newest)?;
+                    return (newest || leaves || at < failed_start).then_some(leaves);
+                }
                 Some(by)
                     if (in_body || outside == OutsideEnd::Keeps)
                         && (newest || (at > failed_start && i > failed_start))

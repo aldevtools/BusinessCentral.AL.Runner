@@ -1188,6 +1188,14 @@ codeunit 50898 "P4 TestPage After Keep"
     [Test] procedure B_PageFails() var P: TestPage "P4 Row Card"; begin P.OpenView(); P.Close(); Rows.Put('TK2'); Error('B deliberate'); end;
     [Test] procedure C_TestPageAfterKeepReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4TK')); end;
 }
+codeunit 50899 "P4 Insert In Failed Write"
+{
+    Subtype = Test;
+    var Rows: Codeunit "Rows";
+    [Test] procedure A_WritesCommits() begin Rows.Put('IW1'); Commit(); end;
+    [Test] procedure B_InsertsWritesFails() begin NumberSequence.Insert('P4IW', 1, 1); NumberSequence.Next('P4IW'); Rows.Put('IW2'); Error('B deliberate'); end;
+    [Test] procedure C_InsertInFailedWriteReads() var R: Codeunit "P4 Read"; begin Error('OBS %1', R.Of('P4IW')); end;
+}
 "#;
 
 #[test]
@@ -1211,7 +1219,12 @@ fn on_bc_27_and_28_the_arms_only_pr_1572_measured_are_refused() {
     for major in [27, 28] {
         let target = al_version::Target::for_bc(al_version::BcVersion::new(major, 5));
         let o = cells_on(PR_1572_NEIGHBORS, TestIsolation::Codeunit, Some(&target));
-        for (test, key) in [("C_HelperExactReads", "'P4HX'"), ("C_WriteThenWriteReads", "'P4WW'")] {
+        for (test, key) in [
+            ("C_HelperExactReads", "'P4HX'"),
+            ("C_WriteThenWriteReads", "'P4WW'"),
+            // S2E of PR 1572: an insert in the failed test's own body, then a Record write.
+            ("C_InsertInFailedWriteReads", "'P4IW'"),
+        ] {
             assert!(not_run(&row(&o, test).2, key), "BC {major} {test}: {o:?}");
         }
     }
