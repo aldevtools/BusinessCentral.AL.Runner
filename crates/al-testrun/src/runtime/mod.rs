@@ -485,8 +485,8 @@ pub struct Phases {
     pub memory: memory::MemoryReport,
     /// The ids of the assumptions the install baseline relied on (a JUnit suite-level property).
     pub baseline_assumptions: Vec<String>,
-    /// The partner dependency apps the install baseline installed in several orders, one line each (ADR-046
-    /// amendment 7, `--timings`).
+    /// The partner apps the install baseline or the install code of the apps under test installed in several orders,
+    /// one line each (ADR-046 amendment 7, `--timings`).
     pub baseline_install_orders: Vec<String>,
     /// Install roots that ran to their end, and how many there were; `None` when no baseline ran.
     pub baseline_roots: Option<(usize, usize)>,

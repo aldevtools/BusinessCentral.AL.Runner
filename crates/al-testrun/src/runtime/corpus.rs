@@ -1824,7 +1824,17 @@ impl CorpusRuntime {
                 wall: pass_started.elapsed(),
             });
         }
-        let install_runs = super::install_once::end_run(&engine, &installs);
+        let (install_runs, install_notes) = super::install_once::end_run(&engine, &installs);
+        // The install code of the apps under test that ran outside the baseline: its install-order notes, as the
+        // baseline's (al-runner issue 9058).
+        if !opts.quiet_baseline {
+            for n in &install_notes {
+                eprintln!("install: {n}");
+            }
+        }
+        baseline_ids
+            .install_orders
+            .extend(crate::baseline::NoteFacts::of(&install_notes).install_orders);
         let login_replay = crate::login_start::phases(&engine);
         let tests_time = tests_started.elapsed();
         memory.pool().unwatch();

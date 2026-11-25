@@ -28,8 +28,15 @@ pub(super) fn run_installs_in(
     }
     installs.runs.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     session.set_install_scope(true);
-    let skipped = run_install_codeunits(lowered, session);
+    let (skipped, notes) = run_install_codeunits(lowered, session);
     session.set_install_scope(false);
+    // Each codeunit that runs the install code meets the same ties; the run reports each note once.
+    let mut kept = installs.notes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    for n in notes {
+        if !kept.contains(&n) {
+            kept.push(n);
+        }
+    }
     skipped
 }
 
@@ -89,6 +96,8 @@ pub(crate) struct RunInstalls {
     kept: std::sync::Mutex<Option<Installed>>,
     /// How many times the install code ran for the run's codeunits (`Phases::install_runs`).
     runs: std::sync::atomic::AtomicUsize,
+    /// The notes of the install-order proof of the apps under test, each once (al-runner issue 9058; [`end_run`]).
+    notes: std::sync::Mutex<Vec<String>>,
 }
 
 /// What the install code left the last time it ran for a run ([`start_installed`]).
@@ -135,12 +144,14 @@ pub(super) fn begin_pass(engine: &Engine, resources: &al_vm::ResourceOverrides) 
 }
 
 /// The end of a run's passes: the resource texts of its entries are not the next run's. Returns how many times the
-/// install code ran for the run's codeunits (`Phases::install_runs`).
-pub(super) fn end_run(engine: &Engine, installs: &RunInstalls) -> usize {
+/// install code ran for the run's codeunits (`Phases::install_runs`) and the notes of its install-order proof, which
+/// `--verbose` prints as the baseline's.
+pub(super) fn end_run(engine: &Engine, installs: &RunInstalls) -> (usize, Vec<String>) {
     if let Ok(mut o) = engine.resource_overrides.write() {
         o.clear();
     }
-    installs.runs.load(std::sync::atomic::Ordering::Relaxed)
+    let notes = std::mem::take(&mut *installs.notes.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+    (installs.runs.load(std::sync::atomic::Ordering::Relaxed), notes)
 }
 
 /// The install code of the apps under test runs once per run, not once per test codeunit (al-runner issue 8144), in a

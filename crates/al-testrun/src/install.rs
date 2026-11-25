@@ -531,14 +531,9 @@ fn print_facts(lowered: &Lowered, events: &al_vm::events::Registry, f: &InstallF
 
 /// Runs the install code of the apps under test, one app after the other in dependency order (decision 3, steps 4a and
 /// 4b; amendment 1, A3 and A4). Returned, per routine that could not run: the tables it touches and why, so tests that
-/// touch them are reported not run. Each routine commits when it ends; one that stops is rolled back.
-pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> Vec<al_vm::SkippedInstall> {
-    run_apps_under_test_noted(lowered, session).0
-}
-
-/// [`run_apps_under_test`] and the notes of the install-order proof, every reason of every tie (`--verbose` prints
-/// them with the baseline notes).
-pub(crate) fn run_apps_under_test_noted(
+/// touch them are reported not run. Each routine commits when it ends; one that stops is rolled back. Returned too: the
+/// notes of the install-order proof, every reason of every tie (al-runner issue 9058; `--verbose` prints them).
+pub(crate) fn run_apps_under_test(
     lowered: &Lowered,
     session: &mut Session,
 ) -> (Vec<al_vm::SkippedInstall>, Vec<String>) {
