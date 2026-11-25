@@ -4,7 +4,7 @@ N6 RE::C_REReads	ASSUMED existing-sequence-asserterror (corpus PR 1573) RE: as R
 N6 RE2::C_RE2Reads	ASSUMED existing-sequence-asserterror (corpus PR 1573) RE2: the write inside the asserterror
 N6 DE::C_DEReads	ASSUMED existing-sequence-asserterror (corpus PR 1573) DE: the Delete undone, then the test fails
 N6 RE4::C_RE4Reads	ASSUMED existing-sequence-asserterror (corpus PR 1573) RE4: nothing reached, the asserterror keeps the Restart (main's value, now flagged)
-N6 RE3::C_RE3Reads	REFUSED a test of this codeunit
+N6 RE3::C_RE3Reads	ASSUMED existing-sequence-asserterror,sequence-after-failed-test (corpus PR 1573) RE3: the failed test's rollback right after the asserterror keeps the Restart (main's value, now with both ids)
 N6 NextAfterStep::C_NextAfterStepReads	REFUSED number sequence '
 N6 WriteBeforeStep::C_WriteBeforeStepReads	REFUSED number sequence '
 N6 CompanyWide::C_CompanyWideReads	REFUSED number sequence '
@@ -21,3 +21,6 @@ N6 ComputedError::C_ComputedErrorReads	REFUSED number sequence '
 N6 ReadAfterUndo::B_ReadAfterUndoStep	REFUSED number sequence '
 N6 ReadAfterDeleteUndo::B_ReadAfterDeleteUndoStep	REFUSED number sequence '
 N6 ReadAfterKeep::B_ReadAfterKeepStep	REFUSED number sequence '
+N6 RE3EarlierAsserterror::C_RE3EarlierAsserterrorReads	REFUSED a test of this codeunit
+N6 ReadAfterKeep::C_ReadAfterKeepReads	ASSUMED existing-sequence-asserterror (corpus PR 1573) the step's test is refused at its read; the later test reads the kept Restart as in RE4 (main's value, now flagged)
+N6 ReadAfterUndo::C_ReadAfterUndoReads	ASSUMED existing-sequence-asserterror (corpus PR 1573) the step's test is refused at its read; the later test reads the undone Restart as in RE5

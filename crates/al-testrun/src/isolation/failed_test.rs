@@ -416,7 +416,7 @@ fn kept_by_asserterror(session: &Session, log: &[TxPoint], at: usize, failure: u
     in_body
         && log[at + 1..failure].iter().map(|p| p.kind).eq([TxPointKind::BodyEnd])
         && Interval::of(&log[at].access, &log[failure].access) == Interval::Untouched
-        && changed == session.sequences_held_at_rollback()
+        && changed == session.sequences_held_at_rollback(failure)
 }
 
 #[cfg(test)]
