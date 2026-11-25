@@ -552,29 +552,36 @@ impl Session {
             (r.temporary, group1_signature(&r))
         };
         let set_range = method == RecordOp::SetRange;
+        if temporary {
+            // The exact temporary Record path of AtSignAloneMethods.al:507: its `<>@` setter and two stored Code/Text
+            // clears. No other temporary shape enters this path.
+            let entry_empty = match entry {
+                None => true,
+                Some(e) => e.signature.is_empty(),
+            };
+            if entry_empty && own.is_empty() && self.not_at_sign_set(rec, method, args) {
+                return Ok(Group1Set::TemporaryNotAtSet);
+            }
+            if let Some(e) = entry.filter(|e| e.temporary_not_at_clears.is_some()) {
+                if self.temporary_not_at_clear(rec, method, args, e) {
+                    return Ok(Group1Set::TemporaryNotAtClear);
+                }
+                return unsupported(format!(
+                    "{} in filter group 1 (the global group) on a temporary record (how BC scopes it is not pinned)",
+                    method.name()
+                ));
+            }
+        }
+        // Every temporary shape outside the measured `<>@` entry keeps main's path, including the Integer
+        // primary-key sequence and a temporary Record that copied an unmeasured database entry.
         let set = match entry {
             // No entry (or one taken back, by a record that holds no group 1 filter).
-            None if !temporary || set_range && self.integer_value(rec, args) => Some(Group1Set::Setter),
-            // A temporary Record sets `<>@` alone on a stored Code or Text field in group 1
-            // (AtSignAloneMethods.al:507).
-            None if self.not_at_sign_set(rec, method, args) => Some(Group1Set::TemporaryNotAtSet),
-            None => None,
+            None => (!temporary || set_range && self.integer_value(rec, args)).then_some(Group1Set::Setter),
             Some(e) if e.signature.is_empty() && own.is_empty() => {
-                if self.temporary_not_at_clear(rec, method, args, e) {
-                    Some(Group1Set::TemporaryNotAtClear)
-                } else if self.not_at_sign_set(rec, method, args) {
-                    Some(Group1Set::TemporaryNotAtSet)
-                } else {
-                    (!temporary || set_range && self.integer_value(rec, args)).then_some(Group1Set::Setter)
-                }
+                (!temporary || set_range && self.integer_value(rec, args)).then_some(Group1Set::Setter)
             }
             Some(e) if !e.signature.is_empty() && own == e.signature => {
-                if self.temporary_not_at_clear(rec, method, args, e) {
-                    Some(Group1Set::TemporaryNotAtClear)
-                } else {
-                    (!temporary || set_range && args.len() == 1 && self.entry_pinned(rec, e))
-                        .then_some(Group1Set::Setter)
-                }
+                (!temporary || set_range && args.len() == 1).then_some(Group1Set::Setter)
             }
             Some(e) if !temporary && own.is_empty() && set_range && args.len() == 1 && self.entry_pinned(rec, e) => {
                 let field = args.first().and_then(|a| match a {
@@ -726,17 +733,23 @@ impl Session {
             )
         };
         let taken_back = entry.signature.is_empty();
+        // The one measured temporary Record owns Count and FindSet while its `<>@` entry is alive. A copy or any
+        // other temporary read of that entry refuses instead of entering main's wider rules.
+        if temporary && entry.temporary_not_at_clears.is_some() {
+            let own_measured_read = own == entry.signature
+                && self.temporary_not_at_entry(rec, entry)
+                && matches!(op, Group1Op::Record(RecordOp::Count | RecordOp::FindSet));
+            if own_measured_read {
+                return Ok(Group1Use::Own);
+            }
+            return self.group1_refusal(taken_back, op);
+        }
         if taken_back && own.is_empty() {
             return Ok(Group1Use::Own);
         }
-        // A temporary record reads its own group 1 filter with Count (FilterGroupOtherVariable.al:825), and its `<>@` alone with
-        // FindSet too (AtSignAloneMethods.al:507, assumption `at-sign-alone-database-blank`).
-        let own_read = !temporary
-            || match op {
-                Group1Op::Record(RecordOp::Count) => true,
-                Group1Op::Record(RecordOp::FindSet) => self.temporary_not_at_entry(rec, entry),
-                _ => false,
-            };
+        // A temporary record outside the measured `<>@` entry keeps main's Count-only own-read path
+        // (FilterGroupOtherVariable.al:825).
+        let own_read = !temporary || matches!(op, Group1Op::Record(RecordOp::Count));
         if !taken_back && own == entry.signature && own_read {
             return Ok(Group1Use::Own);
         }

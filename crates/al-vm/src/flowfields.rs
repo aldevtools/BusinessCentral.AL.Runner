@@ -13,7 +13,8 @@
 use crate::Session;
 use al_builtins::describe::Describe;
 use al_builtins::filter::{
-    FieldFilter, FilterExpr, OtherSourceAtSign, calc_formula_at_sign_other_source, parse_filter_both_at_signs_measured,
+    FieldFilter, FilterExpr, OtherSourceAtSign, OtherSourceAtSignMethod, calc_formula_at_sign_other_source,
+    parse_filter_both_at_signs_measured,
 };
 use al_builtins::native::{AlError, Signal, text_of, unsupported};
 use al_builtins::ops;
@@ -1056,10 +1057,10 @@ impl Session {
                         && (matches!(sty, RtType::Date | RtType::Integer | RtType::Decimal | RtType::Boolean)
                             || matches!(sty, RtType::Option(_))
                                 && al_builtins::filter::shows_member_names(&field.properties));
+                    let at_sign = matches!(text.as_str(), "@" | "<>@");
                     let direct_calc_fields =
                         stack.last().is_some_and(|f| f.asked == Asked::CalcFields) && !rec.borrow().temporary;
                     let other_source = !matches!(sty, RtType::Code(_) | RtType::Text(_));
-                    let at_sign = matches!(text.as_str(), "@" | "<>@");
                     if at_sign && other_source && !main_reader && !direct_calc_fields {
                         return unsupported(format!(
                             "a reader of the CalcFormula filter '{text}' over a {} field that no cell measures (AtSignAloneTypes.al:651-:905; direct Record.CalcFields on a stored host only)",
@@ -1067,11 +1068,8 @@ impl Session {
                         ));
                     }
                     let captions = || {
-                        let def = engine.tables[calc.table].clone();
-                        let members = match def {
-                            Some(t) => self.members_of_field(&t, c.field)?,
-                            None => None,
-                        };
+                        let def = engine.tables[calc.table].clone().expect("table");
+                        let members = self.members_of_field(&def, c.field)?;
                         Ok(members
                             .map(|(_, m)| m.into_iter().map(|(_, _, caption)| caption).collect())
                             .unwrap_or_default())
@@ -1080,7 +1078,11 @@ impl Session {
                         text,
                         sty,
                         self.global_language(),
-                        calc.method == ir::CalcMethod::Count,
+                        match calc.method {
+                            ir::CalcMethod::Sum => OtherSourceAtSignMethod::Sum,
+                            ir::CalcMethod::Count => OtherSourceAtSignMethod::Count,
+                            _ => OtherSourceAtSignMethod::Other,
+                        },
                         captions,
                     )? {
                         Some(OtherSourceAtSign::Rows(true)) => {}
