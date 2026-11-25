@@ -34,9 +34,8 @@ pub(crate) struct ValidateEvent {
     /// The field is one of the base table with its own OnValidate trigger and no OnBeforeValidate or OnAfterValidate of a
     /// table extension, as the probe's Mode field.
     field_measured: bool,
-    /// The record's fields when an OnAfterValidateEvent is raised (`changed_by_field_trigger`); `None` exactly for an
-    /// OnBeforeValidateEvent.
-    raised_with: Option<Vec<Value>>,
+    /// The event is the OnAfterValidateEvent.
+    after: bool,
 }
 
 impl Session {
@@ -66,7 +65,7 @@ impl Session {
             xrec: xrec.clone(),
             depth: self.call_stack.len(),
             field_measured,
-            raised_with: (!before).then(|| rec.borrow().fields.to_vec()),
+            after: !before,
         });
         let r = self.table_event(t, event, rec, Some(xrec), false, Some(&field.name));
         self.validate_events.pop();
@@ -105,8 +104,8 @@ impl Session {
     /// - no record method ran on the record since the Validate started and its fields are as they were then
     ///   (`ValidateRun::touched`, `ValidateRun::entered`), and its buffer came from no TransferFields: the cells hold a record
     ///   after Insert (:633), Get (:935), FindFirst (:1025), its own Modify (:1294), fresh (:952) and temporary (:1011). Or,
-    ///   through assumption `xrec-table-proc-routes`, the fields changed only while the field's OnValidate trigger ran, in
-    ///   an OnAfterValidateEvent (`changed_by_field_trigger`);
+    ///   through assumption `xrec-table-proc-routes`, in an OnAfterValidateEvent, the fields changed only after the
+    ///   OnBeforeValidateEvent returned, by no record method (`changed_after_before_event`);
     /// - no trigger or procedure of the record's table or of its table extensions runs on the record (`running_xrecs`): the
     ///   Validate called from one of them was not measured.
     ///
@@ -141,7 +140,7 @@ impl Session {
                 false,
             ),
             Some(2) => (
-                ev.raised_with.is_some() && declares_xrec && self.through_helper(sub_o, rc, xrec, table, f),
+                ev.after && declares_xrec && self.through_helper(sub_o, rc, xrec, table, f),
                 true,
             ),
             _ => return None,
@@ -163,7 +162,7 @@ impl Session {
             && sub.by_var.first() == Some(&true)
             && calls
             && self.table_or_its_extension(object, table)
-            && (untouched || Self::changed_by_field_trigger(run, ev, rc))
+            && (untouched || (ev.after && Self::changed_after_before_event(run, rc)))
             && self.measured_validate_caller(*handle, *depth, table)
             && self.running_xrecs(table, rc).is_empty();
         if measured && (helper || !untouched) {
@@ -174,18 +173,30 @@ impl Session {
 
     /// Whether frame `f`, right above the subscriber's frame, runs one procedure of the subscriber's codeunit `sub_o` that is
     /// no trigger and has no attributes, called directly (not as an event, not through an interface), whose parameters are the
-    /// record `rc` by `var`, the event's xRec `xrec` by `var` (a record of table `table`), and at most one Boolean by value: the
-    /// reporter's `Helper(var Line; var xLine)` (al-runner issue 8974) and the probe's `Helper(var Line; var xLine; Ext:
-    /// Boolean)` (record/validate/XRecTableProcRoutes.al, corpus PR 1583, assumption `xrec-table-proc-routes`).
+    /// record `rc` by `var`, then optionally the event's xRec `xrec` by `var` (a record of table `table`) and a Boolean by
+    /// value: the reporter's `Helper(var Line; var xLine)` (al-runner issue 8974), the probe's `Helper(var Line; var xLine;
+    /// Ext: Boolean)` and `HelperRecOnly(var Line)` (record/validate/XRecTableProcRoutes.al, corpus PR 1583, assumption
+    /// `xrec-table-proc-routes`).
     fn through_helper(&self, sub_o: usize, rc: &Rec, xrec: &Rec, table: usize, f: &Frame) -> bool {
         let n = self.frames.len();
         let cf = self.call_stack[n - 1];
         let r = &self.engine.program.objects[sub_o].routines[cf.routine];
         let is_rec = |i: usize, of: &Rec| matches!(f.locals.get(i), Some(Value::Record(p)) if Rc::ptr_eq(p, of));
-        let third_measured = r.params == 2
-            || (r.params == 3
-                && r.by_var.get(2) == Some(&false)
-                && matches!(r.locals.get(2).map(|l| &l.ty), Some(RtType::Boolean)));
+        let xrec_param = || {
+            r.by_var.get(1) == Some(&true)
+                && matches!(r.locals.get(1).map(|l| &l.ty), Some(RtType::Record(t, _)) if *t as usize == table)
+                && is_rec(1, xrec)
+        };
+        let params_measured = match r.params {
+            1 => true,
+            2 => xrec_param(),
+            3 => {
+                xrec_param()
+                    && r.by_var.get(2) == Some(&false)
+                    && matches!(r.locals.get(2).map(|l| &l.ty), Some(RtType::Boolean))
+            }
+            _ => false,
+        };
         self.frames[n - 1] == sub_o
             && f.object == sub_o
             && cf.routine == f.routine
@@ -193,28 +204,19 @@ impl Session {
             && !self.iface_frames.contains(&(n - 1))
             && !r.is_trigger
             && r.attributes.is_empty()
-            && third_measured
+            && params_measured
             && r.by_var.first() == Some(&true)
-            && r.by_var.get(1) == Some(&true)
-            && matches!(r.locals.get(1).map(|l| &l.ty), Some(RtType::Record(t, _)) if *t as usize == table)
             && is_rec(0, rc)
-            && is_rec(1, xrec)
     }
 
-    /// Whether the record `rc` changed only while the field's OnValidate trigger of the Validate `run` ran, the OnAfterValidateEvent
-    /// `ev` being raised: the OnBeforeValidateEvent returned with the fields the Validate started with, the fields now are
-    /// those the OnAfterValidateEvent was raised with, no record method ran on the record since the Validate started, and its
-    /// buffer came from no TransferFields (assumption `xrec-table-proc-routes`: record/validate/XRecTableProcRoutes.al,
-    /// corpus PR 1583, the trigger assigning a field itself, in a table procedure it calls and in a codeunit it calls; al-runner issue 8974).
-    fn changed_by_field_trigger(run: &ValidateRun, ev: &ValidateEvent, rc: &Rec) -> bool {
-        let r = rc.borrow();
-        !run.touched
-            && run.kept_by_before_event
-            && ev
-                .raised_with
-                .as_ref()
-                .is_some_and(|at| Self::same_values(&r.fields, at))
-            && r.row_origin.is_none_or(|o| !o.lock_only)
+    /// Whether the record `rc` may hold other fields than the Validate `run` started with, changed only after its
+    /// OnBeforeValidateEvent returned: that event returned with the fields the Validate started with, no record method ran on
+    /// the record since the Validate started, and its buffer came from no TransferFields. The probe changed it by an
+    /// assignment in the field's OnValidate trigger, in a table procedure and in a codeunit that trigger calls, and in the
+    /// subscriber before the call (assumption `xrec-table-proc-routes`: record/validate/XRecTableProcRoutes.al, corpus PR
+    /// 1583; al-runner issue 8974). Also read by `cell_facts` in `running_call_xrec.rs`.
+    pub(super) fn changed_after_before_event(run: &ValidateRun, rc: &Rec) -> bool {
+        !run.touched && run.kept_by_before_event && rc.borrow().row_origin.is_none_or(|o| !o.lock_only)
     }
 
     /// Whether the record `rc` is as the Validate `run` found it: no record method ran on it since, its fields are those it had
