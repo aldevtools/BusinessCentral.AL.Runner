@@ -269,6 +269,14 @@ impl FrozenStore {
     pub fn bytes(&self) -> u64 {
         self.tables.values().map(table_bytes).sum()
     }
+
+    /// [`FrozenStore::bytes`] of the frozen tables whose object index is in `objects`, in every company.
+    pub fn bytes_of(&self, objects: &std::collections::BTreeSet<u32>) -> u64 {
+        (self.tables.iter())
+            .filter(|((_, object), _)| objects.contains(object))
+            .map(|(_, t)| table_bytes(t))
+            .sum()
+    }
 }
 
 /// About how many bytes a table's rows hold: per row its key and row vectors with their values, the text, Blob and other

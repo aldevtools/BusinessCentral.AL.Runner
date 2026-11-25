@@ -151,6 +151,30 @@ impl Group1Filters {
         self.filters.by_table.values().all(|e| e.signature.is_empty())
     }
 
+    /// What a new session holds, every field: no table entry (not even one another record took back, which refuses the
+    /// records that still hold filters), no install shape, no worker state (a table whose filter a worker ended still runs
+    /// through the assumption) and no read with another record's filters. Stricter than [`Self::is_empty`], which install
+    /// code is held to: a session image of the login (issue 8211) carries none of this state, so a thawn session starts
+    /// from a new session's, and any of it left would be lost.
+    pub(crate) fn as_new(&self) -> bool {
+        let Group1Filters {
+            filters,
+            shape,
+            worker_kept_aside,
+            worker_filtered,
+            worker_ended,
+            worker_alone,
+            sharing,
+        } = self;
+        filters.by_table.is_empty()
+            && matches!(shape, Group1InstallShape::Off)
+            && worker_kept_aside.is_empty()
+            && worker_filtered.is_empty()
+            && worker_ended.is_empty()
+            && !worker_alone
+            && !sharing
+    }
+
     /// Some table holds a group 1 filter, or had one another record took back, or a worker runs without the test session's
     /// or set one that ended with it.
     pub(crate) fn has_tables(&self) -> bool {
