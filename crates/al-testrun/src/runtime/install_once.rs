@@ -95,9 +95,8 @@ pub(crate) struct RunInstalls {
 struct Installed {
     /// The engine it ran on (`Engine::uid`) and how the codeunit's session was set up.
     key: Key,
-    /// The resource files it read (`Session::resource_reads`) and their texts when it ran (`ResourceReads::texts`).
-    reads: al_vm::ResourceReads,
-    texts: al_vm::ReadTexts,
+    /// The resource files it read (`Session::resource_reads`) and their texts when it ran.
+    read: al_vm::TextsRead,
     /// What a codeunit's session starts from. `None`: the install code left state a new session does not start from
     /// (`Session::install_left`), or data that cannot be shared between threads (`Baseline::freeze`); each codeunit's session
     /// then runs the install code itself, as on a run without this path. The run keeps that verdict while the key and the
@@ -190,13 +189,7 @@ fn start_installed(
         .kept
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let fits = kept.as_ref().is_some_and(|i| {
-        i.key == key
-            && engine
-                .resource_overrides
-                .read()
-                .is_ok_and(|o| i.reads.texts(&o) == i.texts)
-    });
+    let fits = kept.as_ref().is_some_and(|i| i.key == key && i.read.same_now(&engine));
     if !fits {
         let (made, ran_in) = install(lowered, &engine, scratch, key);
         *kept = Some(made);
@@ -228,8 +221,7 @@ fn install(lowered: &Lowered, engine: &Arc<Engine>, scratch: &Scratch, key: Key)
     if !host.files.in_memory() {
         let none = Installed {
             key,
-            reads: Default::default(),
-            texts: Vec::new(),
+            read: Default::default(),
             left: None,
         };
         return (none, None);
@@ -237,20 +229,10 @@ fn install(lowered: &Lowered, engine: &Arc<Engine>, scratch: &Scratch, key: Key)
     let mut s = Session::with_host(engine.clone(), host);
     scratch.flags.apply(&mut s);
     let skipped = run_installs_in(lowered, &mut s, &scratch.installs);
-    let reads = s.resource_reads();
-    let texts = engine
-        .resource_overrides
-        .read()
-        .map(|o| reads.texts(&o))
-        .unwrap_or_default();
+    let read = al_vm::TextsRead::now(s.resource_reads(), engine);
     // Before the capture, which commits and clears part of what the check reads.
     let Some(rest) = s.install_left() else {
-        let installed = Installed {
-            key,
-            reads,
-            texts,
-            left: None,
-        };
+        let installed = Installed { key, read, left: None };
         return (installed, Some((s, skipped)));
     };
     let mut data = s.capture_baseline();
@@ -260,11 +242,6 @@ fn install(lowered: &Lowered, engine: &Arc<Engine>, scratch: &Scratch, key: Key)
         install_rows: s.install_rows(),
         rest,
     });
-    let installed = Installed {
-        key,
-        reads,
-        texts,
-        left,
-    };
+    let installed = Installed { key, read, left };
     (installed, None)
 }

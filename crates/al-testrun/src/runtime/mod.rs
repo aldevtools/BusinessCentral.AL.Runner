@@ -1335,6 +1335,8 @@ mod login_image_tests;
 #[cfg(test)]
 mod login_memo_tests;
 #[cfg(test)]
+mod login_reads_tests;
+#[cfg(test)]
 mod login_replay_tests;
 #[cfg(test)]
 mod login_start_tests;

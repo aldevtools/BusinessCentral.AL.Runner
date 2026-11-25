@@ -68,6 +68,9 @@ impl NoKey {
 /// SHA-256 digest ([`LinesDigest`]), never a 64-bit hash; and the test codeunit stays a field until a repeat across test
 /// codeunits is measured on a real app. Tests `every_key_field_is_content_or_a_sha256_digest` and
 /// `two_test_codeunits_never_share_a_key`.
+///
+/// The resource texts of the entry (`Engine::resource_overrides`) are not a field: a start is found by the texts its login
+/// read ([`StartKey`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Key {
     /// Every committed row before the login: the install baseline, what install code and an earlier codeunit left.
@@ -100,9 +103,6 @@ pub(crate) struct Key {
     /// The test codeunit the session opens for: `login::decide` reads it, and a replay may not cross codeunits until a
     /// repeat across test codeunits is measured on a real app (the maintainer's second condition, al-runner issue 8211).
     test_codeunit: Option<usize>,
-    /// The resource texts the pass reads in place of the apps' files (a serve entry's `resources`,
-    /// `Engine::resource_overrides`): `NavApp.GetResource` in a subscriber reads them.
-    resources: LinesDigest,
     /// The session has a client (BC's login code runs only then), runs without one (`--no-client`), and runs under
     /// RequiredTestIsolation = Disabled: these choose what the login does (`install::open_test_session_company`).
     client: (bool, bool, bool),
@@ -209,21 +209,6 @@ impl Key {
             false => None,
         };
         let backing = BackingKey::of(store.backing_identity());
-        let resources = {
-            let overrides = session
-                .engine
-                .resource_overrides
-                .read()
-                .unwrap_or_else(PoisonError::into_inner);
-            let mut texts: Vec<_> = overrides.iter().collect();
-            texts.sort_by_key(|(app, _)| **app);
-            digest(
-                &texts
-                    .iter()
-                    .map(|(app, files)| format!("{app} {files:?}"))
-                    .collect::<Vec<_>>(),
-            )
-        };
         Ok(Key {
             database,
             uncommitted,
@@ -234,7 +219,6 @@ impl Key {
             clock: session.clock_now_millis(),
             user: session.user_id(),
             test_codeunit: session.test_object,
-            resources,
             client: (
                 session.has_interactive_client(),
                 session.is_clientless_session(),
@@ -249,6 +233,47 @@ impl Key {
             emit_version: EmitKey(engine.emit_version.clone()),
             refused_reads: refused_reads(&engine),
         })
+    }
+}
+
+/// What a login start, and the check's first session of a key, is found by (ADR-073 amendment 2026-11-25, al-runner
+/// issue 8211): the base key, and the resource files the session read up to the end of its login with their texts then
+/// (`al_vm::TextsRead`, as `runtime/install_once.rs` keeps them for install code; `NavApp.ListResources` reads every file
+/// of the app). A later session of the base key finds it only when its texts of those files are the same; a login that
+/// read none is found under any texts. The texts are held by content.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct StartKey {
+    pub(crate) key: Key,
+    read: al_vm::TextsRead,
+}
+
+impl StartKey {
+    /// `key` with what `session` read up to now (after its login).
+    pub(crate) fn of(key: Key, session: &Session) -> StartKey {
+        let read = al_vm::TextsRead::now(session.resource_reads(), &session.engine);
+        StartKey { key, read }
+    }
+
+    /// Whether a session of `key` on `engine` finds this: the same base key, and the texts of the files read the same now.
+    pub(crate) fn fits(&self, key: &Key, engine: &Engine) -> bool {
+        self.key == *key && self.read.same_now(engine)
+    }
+
+    /// `key` of a session that read no resource file: it is found under any texts (tests plant what a key that missed the
+    /// texts would compare).
+    #[cfg(test)]
+    pub(crate) fn reading_nothing(key: Key) -> StartKey {
+        let read = Default::default();
+        StartKey { key, read }
+    }
+
+    /// [`Key::differs_in`], with `resources` when the files read or their texts differ.
+    fn differs_in(&self, other: &StartKey) -> Vec<&'static str> {
+        let mut fields = self.key.differs_in(&other.key);
+        if self.read != other.read {
+            fields.push("resources");
+        }
+        fields
     }
 }
 
@@ -301,7 +326,6 @@ impl Key {
             clock,
             user,
             test_codeunit,
-            resources,
             client,
             flags,
             license,
@@ -323,7 +347,6 @@ impl Key {
             (*clock != other.clock, "clock"),
             (*user != other.user, "user"),
             (*test_codeunit != other.test_codeunit, "test_codeunit"),
-            (*resources != other.resources, "resources"),
             (*client != other.client, "client"),
             (*flags != other.flags, "flags"),
             (*license != other.license, "license"),
@@ -544,7 +567,7 @@ impl ImageTally {
 /// The first state of each key, and the sessions compared with it.
 #[derive(Default)]
 struct Tally {
-    firsts: Vec<(Key, LoginState)>,
+    firsts: Vec<(StartKey, LoginState)>,
     compared: u64,
     differ: u64,
     /// Per kind of [`KINDS`], the compared sessions that differ in it.
@@ -595,14 +618,15 @@ impl NewKeys {
 }
 
 impl Tally {
-    /// Compares `state` with the first state of `key`, or keeps it as that. `true`: the key was new.
-    fn note(&mut self, key: Key, state: LoginState) -> bool {
-        let Some((_, first)) = self.firsts.iter().find(|(k, _)| *k == key) else {
+    /// Compares `state` with the first state that `key` finds on `engine` ([`StartKey::fits`]), or keeps it as that.
+    /// `true`: the key was new.
+    fn note(&mut self, engine: &Engine, key: StartKey, state: LoginState) -> bool {
+        let Some((_, first)) = self.firsts.iter().find(|(k, _)| k.fits(&key.key, engine)) else {
             let nearest = (self.firsts.iter()).min_by_key(|(k, _)| key.differs_in(k).len());
             if let Some((k, _)) = nearest {
                 let entry = self.new_keys_by.entry(key.differs_in(k).join("+")).or_default();
                 entry.n += 1;
-                for part in key.differing_parts(k, &mut self.companies) {
+                for part in key.key.differing_parts(&k.key, &mut self.companies) {
                     *entry.parts.entry(part).or_default() += 1;
                 }
             }
@@ -637,16 +661,19 @@ impl Tally {
 }
 
 impl Check {
-    /// Notes the state of a session of `key` after the raised login. `true`: the key was new.
-    pub(crate) fn note(&self, key: Key, state: LoginState) -> bool {
+    /// Notes the state of a session of `key` on `engine` after the raised login. `true`: the key was new.
+    pub(crate) fn note(&self, engine: &Engine, key: StartKey, state: LoginState) -> bool {
         let mut s = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-        let across = Key {
-            test_codeunit: None,
+        let across = StartKey {
+            key: Key {
+                test_codeunit: None,
+                ..key.key.clone()
+            },
             ..key.clone()
         };
-        let new = s.exact.note(key, state.clone());
+        let new = s.exact.note(engine, key, state.clone());
         if new {
-            s.across_codeunits.note(across, state);
+            s.across_codeunits.note(engine, across, state);
         }
         new
     }
@@ -719,7 +746,7 @@ impl Check {
 
     /// The first state of each key, in the order the keys came.
     #[cfg(test)]
-    pub(crate) fn firsts(&self) -> Vec<(Key, LoginState)> {
+    pub(crate) fn firsts(&self) -> Vec<(StartKey, LoginState)> {
         self.inner
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -880,11 +907,12 @@ pub(crate) fn checked(
     let state = LoginState::of(session, wrote, hits);
     let check = check(engine);
     let starts = crate::login_start::starts(engine);
-    if check.note(key.clone(), state.clone()) {
+    let found = StartKey::of(key.clone(), session);
+    if check.note(engine, found.clone(), state.clone()) {
         let image = check.round_trip(session, base, &state, twin);
         match gate {
             Some(why) => starts.not_taken(why),
-            None => crate::login_start::keep(engine, key, base, || {
+            None => crate::login_start::keep(engine, found, base, || {
                 image.map(|image| crate::login_start::Start {
                     image,
                     wrote: wrote.clone(),
@@ -898,7 +926,7 @@ pub(crate) fn checked(
         starts.not_taken(why);
         return;
     }
-    let Some(start) = starts.take(&key) else { return };
+    let Some(start) = starts.take(&key, engine) else { return };
     match crate::login_start::target_gate(base.target_why(), base.shape(), &start) {
         Some(why) => starts.not_taken(why),
         None => check.replay_vs_run(&start, base, &state, twin),
@@ -1008,6 +1036,12 @@ mod tests {
         state_of(&[], &[])
     }
 
+    /// [`Check::note`] of a session of `key` that read no resource file.
+    fn note(check: &Check, key: Key, state: LoginState) -> bool {
+        let engine = Engine::new(al_ir::Program::default(), Vec::new());
+        check.note(&engine, StartKey::reading_nothing(key), state)
+    }
+
     fn key(test_codeunit: usize) -> Key {
         Key {
             database: digest(&["1".into()]),
@@ -1019,7 +1053,6 @@ mod tests {
             clock: 0,
             user: "U".into(),
             test_codeunit: Some(test_codeunit),
-            resources: digest(&["3".into()]),
             client: (true, false, false),
             flags: Default::default(),
             license: None,
@@ -1055,7 +1088,6 @@ mod tests {
             clock,
             user,
             test_codeunit,
-            resources,
             client,
             flags,
             license,
@@ -1066,7 +1098,7 @@ mod tests {
             emit_version,
             refused_reads,
         } = &k;
-        let digests: [&LinesDigest; 4] = [database, session, resources, refused_reads];
+        let digests: [&LinesDigest; 3] = [database, session, refused_reads];
         let _: &Option<LinesDigest> = uncommitted;
         let _: &BackingKey = backing;
         let _: (&String, &i32, &i64, &String, &Option<usize>) = (company, seed, clock, user, test_codeunit);
@@ -1122,8 +1154,8 @@ mod tests {
     fn two_test_codeunits_never_share_a_key() {
         assert_ne!(key(1), key(2));
         let check = Check::default();
-        check.note(key(1), state(&["r"], &["s"]));
-        check.note(key(2), state(&["other"], &["s"]));
+        note(&check, key(1), state(&["r"], &["s"]));
+        note(&check, key(2), state(&["other"], &["s"]));
         let line = check.line().unwrap();
         assert!(
             line.starts_with(
@@ -1196,9 +1228,9 @@ mod tests {
         let check = Check::default();
         let a = state(&["r"], &["s"]);
         let b = state(&["other"], &["s"]);
-        check.note(key(1), a.clone());
-        check.note(key(1), a.clone());
-        check.note(key(2), b.clone());
+        note(&check, key(1), a.clone());
+        note(&check, key(1), a.clone());
+        note(&check, key(2), b.clone());
         assert_eq!(
             check.line().as_deref(),
             Some(
@@ -1206,7 +1238,7 @@ mod tests {
                  1 differ (not comparable 0, rows 1, session state 0, marks 0, open writes 0; first: row 1 (table object 1): field 1)"
             )
         );
-        check.note(key(1), b);
+        note(&check, key(1), b);
         assert_eq!(
             check.line().as_deref(),
             Some(
@@ -1233,8 +1265,8 @@ mod tests {
         (b.state.opaque).push(not_comparable("codeunit 5 global 1", "Text 'SECRET-VALUE-123'"));
         b.open = "SECRET-VALUE-123".into();
         let check = Check::default();
-        check.note(key(1), a.clone());
-        check.note(key(1), b.clone());
+        note(&check, key(1), a.clone());
+        note(&check, key(1), b.clone());
         let line = check.line().unwrap();
         assert!(!line.contains("SECRET"), "{line}");
         for (_, what) in differences(&a, &b) {
@@ -1290,8 +1322,8 @@ mod tests {
         let with_empty = [table("C", 15, row()), table("C", 18, Vec::new())];
         assert_eq!(key_of_tables(&rows, &[]), key_of_tables(&with_empty, &[]));
         let check = Check::default();
-        check.note(key_of_tables(&rows, &[]), state(&["r"], &["s"]));
-        check.note(key_of_tables(&with_empty, &[]), state(&["r"], &["s"]));
+        note(&check, key_of_tables(&rows, &[]), state(&["r"], &["s"]));
+        note(&check, key_of_tables(&with_empty, &[]), state(&["r"], &["s"]));
         let line = check.keys_line().unwrap();
         assert_eq!(
             line,
@@ -1331,8 +1363,8 @@ mod tests {
             ],
             &b.iter().map(String::as_str).collect::<Vec<_>>(),
         );
-        check.note(first, state(&["r"], &["s"]));
-        check.note(second, state(&["r"], &["s"]));
+        note(&check, first, state(&["r"], &["s"]));
+        note(&check, second, state(&["r"], &["s"]));
         let line = check.keys_line().unwrap();
         assert_eq!(
             line,
@@ -1354,10 +1386,10 @@ mod tests {
         };
         let check = Check::default();
         let s = state(&["r"], &["s"]);
-        check.note(key_of_tables(&tables(&[]), &[]), s.clone());
-        check.note(key_of_tables(&tables(&[1, 2]), &[]), s.clone());
+        note(&check, key_of_tables(&tables(&[]), &[]), s.clone());
+        note(&check, key_of_tables(&tables(&[1, 2]), &[]), s.clone());
         for t in 1..=7 {
-            check.note(key_of_tables(&tables(&[t]), &[]), s.clone());
+            note(&check, key_of_tables(&tables(&[t]), &[]), s.clone());
         }
         assert_eq!(
             check.keys_line().as_deref(),
@@ -1382,9 +1414,9 @@ mod tests {
         };
         let check = Check::default();
         let s = state(&["r"], &["s"]);
-        check.note(key_of_tables(&tables(("", 0)), &[]), s.clone());
+        note(&check, key_of_tables(&tables(("", 0)), &[]), s.clone());
         for changed in [("B", 15), ("A", 15), ("", 18)] {
-            check.note(key_of_tables(&tables(changed), &[]), s.clone());
+            note(&check, key_of_tables(&tables(changed), &[]), s.clone());
         }
         assert_eq!(
             check.keys_line().as_deref(),
@@ -1409,8 +1441,8 @@ mod tests {
         b.state
             .opaque
             .push(not_comparable("codeunit 5 global 1", "Codeunit instance"));
-        check.note(key(1), a);
-        check.note(key(1), b);
+        note(&check, key(1), a);
+        note(&check, key(1), b);
         let line = check.line().unwrap();
         assert!(
             line.contains(
@@ -1427,15 +1459,15 @@ mod tests {
     fn a_new_key_names_the_fields_it_differs_in_from_the_nearest_earlier_key() {
         let check = Check::default();
         let s = state(&["r"], &["s"]);
-        check.note(key(1), s.clone());
-        check.note(key(1), s.clone());
-        check.note(key(2), s.clone());
+        note(&check, key(1), s.clone());
+        note(&check, key(1), s.clone());
+        note(&check, key(2), s.clone());
         let other_rows = Key {
             database: digest(&["9".into()]),
             session: digest(&["8".into()]),
             ..key(1)
         };
-        check.note(other_rows, s);
+        note(&check, other_rows, s);
         assert_eq!(
             check.keys_line().as_deref(),
             Some(

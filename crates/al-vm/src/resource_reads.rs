@@ -1,13 +1,13 @@
 //! The resource files of the apps that AL code of a session read (`NavApp.GetResource*`, `NavApp.ListResources`), and
-//! the texts it got. al-testrun `install_once.rs` compares them: install code that ran for one entry of a run serves
-//! another entry only when that entry's texts of the files it read are the same (ADR-028 decision 11).
+//! the texts it got. al-testrun compares them: install code that ran for one entry of a run serves another entry only when
+//! that entry's texts of the files it read are the same (`install_once.rs`, ADR-028 decision 11), and a login start is
+//! replayed only into a session whose texts of the files its login read are the same (`login_start.rs`, ADR-073
+//! amendment 2026-11-25).
 //!
-//! The resource files of the apps AL code of a session read (`Ctx::app_resource` notes one file,
-//! `Ctx::app_resources` the whole app) and the run's texts of them (`ResourceReads::texts`), which
-//! al-testrun `install_once.rs` compares between entries. Entry points: `Session::resource_reads`,
-//! `ResourceReads`.
+//! `Ctx::app_resource` notes one file, `Ctx::app_resources` the whole app. [`TextsRead`] owns the rule "the texts of
+//! what was read are still the same". Entry points: `Session::resource_reads`, `ResourceReads`, `TextsRead`.
 
-use crate::{ResourceOverrides, Session};
+use crate::{Engine, ResourceOverrides, Session};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Program app index to the files of that app whose content AL code read, by name; `None`: the whole list of the app's
@@ -16,12 +16,12 @@ use std::collections::{BTreeMap, BTreeSet};
 pub struct ResourceReads(BTreeMap<usize, Option<BTreeSet<String>>>);
 
 /// The entries of a run's `ResourceOverrides` that replace a file AL code read ([`ResourceReads::texts`]).
-pub type ReadTexts = Vec<(usize, Vec<(String, Vec<u8>)>)>;
+type ReadTexts = Vec<(usize, Vec<(String, Vec<u8>)>)>;
 
 impl ResourceReads {
     /// The replaced texts of the files read, under `overrides`. A file that is not replaced is read from the program,
     /// which every entry of a run shares, so equal texts under two runs' overrides give the same reads.
-    pub fn texts(&self, overrides: &ResourceOverrides) -> ReadTexts {
+    fn texts(&self, overrides: &ResourceOverrides) -> ReadTexts {
         self.0
             .iter()
             .map(|(app, names)| {
@@ -35,6 +35,33 @@ impl ResourceReads {
                 (*app, replaced)
             })
             .collect()
+    }
+}
+
+/// The resource files AL code read ([`ResourceReads`]) with their texts under the run's overrides when it read them, by
+/// content. Code that read them leaves the same for an entry whose texts of those files are the same
+/// ([`TextsRead::same_now`]); a file it did not read may have any text, and code that read none leaves the same under
+/// any texts.
+#[derive(Clone, Default, PartialEq, Debug)]
+pub struct TextsRead {
+    reads: ResourceReads,
+    texts: ReadTexts,
+}
+
+impl TextsRead {
+    /// `reads` with their texts under `engine`'s overrides now (`Engine::resource_overrides`); none when the overrides
+    /// cannot be read.
+    pub fn now(reads: ResourceReads, engine: &Engine) -> TextsRead {
+        let texts = (engine.resource_overrides.read())
+            .map(|o| reads.texts(&o))
+            .unwrap_or_default();
+        TextsRead { reads, texts }
+    }
+
+    /// Whether `engine`'s overrides now give the files read the texts they had: `false` when the overrides cannot be
+    /// read.
+    pub fn same_now(&self, engine: &Engine) -> bool {
+        (engine.resource_overrides.read()).is_ok_and(|o| self.reads.texts(&o) == self.texts)
     }
 }
 

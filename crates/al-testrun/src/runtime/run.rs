@@ -261,7 +261,7 @@ fn open_company(
         None => {
             // The session before the login, for a start that will be recorded or for the check: it clones the store.
             let records = |key: &&crate::login_replay::Key| {
-                check || (gate.is_none() && !crate::login_start::starts(&engine).knows(key))
+                check || (gate.is_none() && !crate::login_start::starts(&engine).knows(key, &engine))
             };
             let base = key.as_ref().filter(records).map(|_| session.login_base());
             #[cfg(test)]

@@ -42,9 +42,10 @@
 //!   capture, the runner codeunit, the single instance watch, the carries and the leak are taken after the open; the
 //!   rest chooses, limits or reports the tests).
 //! - `crates/al-vm/src/lib.rs` (`Engine`, "Set by a run"): `field emit_version`: key (`Key::emit_version`).
-//!   `field unseeded`, `field demo_tables`: key (`Key::refused_reads`). `field resource_overrides`: key
-//!   (`Key::resources`). `field test_data`: key (`Key::backing`) and engine. `field license`: key (`Key::license`) and
-//!   engine; `field license_caps`: engine (worked out from the license on first use). `field skipped_apps`,
+//!   `field unseeded`, `field demo_tables`: key (`Key::refused_reads`). `field resource_overrides`: key (the texts of
+//!   the files the login read, `StartKey`). `field test_data`: key (`Key::backing`) and engine. `field license`: key
+//!   (`Key::license`) and engine; `field license_caps`: engine (worked out from the license on first use).
+//!   `field skipped_apps`,
 //!   `field write_in_try_allowed`, `field dependencies_published_global`: engine. `field company_refusal`: after (with
 //!   it no session of the run opens the company, `run_codeunit_inner`). `field resources_read`, `field dotnet_called`:
 //!   after (written by any session that reads a resource file or makes such a `DotNet` call, and read only when the
