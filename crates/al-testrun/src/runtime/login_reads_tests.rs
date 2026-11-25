@@ -190,3 +190,59 @@ fn a_login_that_lists_the_resources_is_not_replayed_under_another_text() {
     );
     assert_eq!(starts(&engine).kept(), 2, "each text keeps its own start");
 }
+
+/// [`MAIN`] whose login also leaves a value with no image (an HttpClient in a SingleInstance codeunit's instance,
+/// `OPAQUE_INSIDE`) when `rpl.txt` is longer than one character.
+fn opaque_when_long() -> String {
+    let opaque = super::login_replay_tests::OPAQUE_INSIDE.replace(
+        "begin Holder.Keep(); end;",
+        "begin if StrLen(NavApp.GetResourceAsText('rpl.txt')) > 1 then Holder.Keep(); end;",
+    );
+    format!("{MAIN}{opaque}")
+}
+
+// Review of al-runner PR 9074: a start refused under one text (not imaged) is remembered with the texts its login read,
+// so a session under another text is not "known" by it: that session records a start of its own, which a third session
+// under its text replays.
+#[test]
+fn a_start_refused_under_one_text_does_not_keep_another_text_from_its_own_start() {
+    let (engine, l) = compiled_with(&opaque_when_long());
+    run_under(&engine, &l, &[("main", "rpl.txt", "abcd")]);
+    assert_eq!(starts(&engine).kept(), 0, "the login under abcd is not imaged");
+    run_under(&engine, &l, &[("main", "rpl.txt", "a")]);
+    assert_eq!(starts(&engine).kept(), 1, "the session under a records its own start");
+    run_under(&engine, &l, &[("main", "rpl.txt", "a")]);
+    assert_eq!(starts(&engine).replayed(), 1, "and a later session under a replays it");
+}
+
+// Review of al-runner PR 9074: the check's keys line names `resources` for a new first state whose base key equals an
+// earlier one and whose login read another text (`StartKey::differs_in`).
+#[test]
+fn the_keys_line_names_resources_for_a_new_first_of_an_equal_base_key() {
+    let (engine, l) = compiled_with(MAIN);
+    for text in ["a", "abcd"] {
+        set_texts(&engine, &l, &[("main", "rpl.txt", text)]);
+        super::login_replay_tests::run(&engine, &l, "RPL Tests A");
+    }
+    assert_eq!(
+        crate::login_replay::check(&engine).keys_line().as_deref(),
+        Some(
+            "login replay keys: 2 keys, 1 new after the first; each differs from its nearest earlier key in: resources 1"
+        )
+    );
+}
+
+// Review of al-runner PR 9074: a file read from the program (no entry replaces it) and the same file replaced by an entry
+// are other texts, whichever comes first: neither session takes the other's start.
+#[test]
+fn the_programs_own_text_and_a_replaced_text_never_share_a_start() {
+    for order in [[None, Some("abcd")], [Some("abcd"), None]] {
+        let (engine, l) = compiled_with(MAIN);
+        for text in order {
+            let texts: Vec<_> = text.map(|t| ("main", "rpl.txt", t)).into_iter().collect();
+            run_under(&engine, &l, &texts);
+        }
+        assert_eq!(starts(&engine).replayed(), 0, "{order:?}");
+        assert_eq!(starts(&engine).kept(), 2, "{order:?}");
+    }
+}
