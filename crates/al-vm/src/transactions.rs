@@ -322,7 +322,7 @@ impl Session {
         if let Some(d) = self.tx.open.deferred_insert.take() {
             return Err(Signal::Error(Box::new(d.error)));
         }
-        self.al_commit();
+        self.commit_as(crate::CommitBy::Statement);
         // A Commit puts LockTimeout back on (session-system/PnBRecordMisc.al:LastUsedRowVersion_AndLockTimeout
         // `lockTimeoutAfterCommit`). The timeout duration is not pinned.
         self.tx.lock_timeout = true;
@@ -915,7 +915,7 @@ impl Session {
                     return Ok(Value::Boolean(false));
                 }
                 if self.pages.bg_worker.is_none() {
-                    self.guarded_run_commit();
+                    self.commit_as(crate::CommitBy::GuardedRun);
                 }
                 Ok(Value::Boolean(true))
             }

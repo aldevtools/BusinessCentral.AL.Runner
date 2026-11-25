@@ -11,6 +11,7 @@
 //! points: `SequenceStart`, `DataAccess`, `data_access`, `sequence_inserted_at`.
 
 use crate::Session;
+use crate::recmeta::{ISOLATION_READ_UNCOMMITTED, ISOLATION_UPDLOCK};
 use crate::sessionops::Sequence;
 use al_builtins::native::Signal;
 use al_builtins::value::{LibraryValue, Value};
@@ -82,8 +83,7 @@ pub(crate) struct Notes {
     table_depth: u32,
     /// Where in `tx_log` each number sequence was last inserted while the log was kept.
     inserted_at: HashMap<Key, usize>,
-    /// What the next commit is the commit of ([`Session::al_commit`], [`Session::guarded_run_commit`],
-    /// [`Session::isolated_event_commit`]).
+    /// What the next commit is the commit of ([`Session::commit_as`]).
     commit_by: Option<CommitBy>,
     /// The transaction ends and test method bodies since [`Session::note_tx_ends`]; `None` while not noted.
     tx_log: Option<Vec<TxPoint>>,
@@ -248,16 +248,15 @@ impl RecordCall {
             RecordOp::FindLast => RecordCall::FindLast,
             RecordOp::FindFirst => RecordCall::FindFirst,
             RecordOp::SetRange => RecordCall::SetRange,
-            RecordOp::ReadIsolation if is_level(args, "UpdLock") => RecordCall::UpdLock,
+            RecordOp::ReadIsolation if is_level(args, ISOLATION_UPDLOCK) => RecordCall::UpdLock,
             _ => RecordCall::Other,
         }
     }
 }
 
-/// `args` is the IsolationLevel member `level`.
-fn is_level(args: &[Value], level: &str) -> bool {
-    matches!(args.first(), Some(Value::Option(i, names))
-        if usize::try_from(*i).ok().and_then(|i| names.get(i)).is_some_and(|n| n.eq_ignore_ascii_case(level)))
+/// `args` is the IsolationLevel member of index `level` (`recmeta::ISOLATION_*`).
+fn is_level(args: &[Value], level: i32) -> bool {
+    matches!(args.first(), Some(Value::Option(i, _)) if *i == level)
 }
 
 impl Session {
@@ -347,10 +346,10 @@ impl Session {
             let load: Option<fn(&mut RefLoads) -> &mut u64> =
                 match crate::setrange_convert::catalog_id(id).0.split('#').next() {
                     Some("RecordRef.SetLoadFields") => Some(|l| &mut l.set_load_fields),
-                    Some("RecordRef.ReadIsolation") if is_level(args, "ReadUncommitted") => {
+                    Some("RecordRef.ReadIsolation") if is_level(args, ISOLATION_READ_UNCOMMITTED) => {
                         Some(|l| &mut l.read_uncommitted)
                     }
-                    Some("RecordRef.ReadIsolation") if is_level(args, "UpdLock") => Some(|l| &mut l.upd_lock),
+                    Some("RecordRef.ReadIsolation") if is_level(args, ISOLATION_UPDLOCK) => Some(|l| &mut l.upd_lock),
                     Some("RecordRef.ReadIsolation") => Some(|l| &mut l.other_isolation),
                     _ => None,
                 };
@@ -471,21 +470,10 @@ impl Session {
         });
     }
 
-    /// The commit of an AL `Commit()` statement.
-    pub(crate) fn al_commit(&mut self) {
-        self.access_notes.commit_by = Some(CommitBy::Statement);
-        self.commit_transaction();
-    }
-
-    /// The commit of a guarded `Codeunit.Run` of the run's own transaction.
-    pub(crate) fn guarded_run_commit(&mut self) {
-        self.access_notes.commit_by = Some(CommitBy::GuardedRun);
-        self.commit_transaction();
-    }
-
-    /// The commit of the own transaction of an isolated event's subscriber.
-    pub(crate) fn isolated_event_commit(&mut self) {
-        self.access_notes.commit_by = Some(CommitBy::IsolatedEvent);
+    /// Commits the open transaction as the commit of `by` (an AL `Commit()`, a guarded `Codeunit.Run`, an isolated
+    /// event's subscriber).
+    pub(crate) fn commit_as(&mut self, by: CommitBy) {
+        self.access_notes.commit_by = Some(by);
         self.commit_transaction();
     }
 
