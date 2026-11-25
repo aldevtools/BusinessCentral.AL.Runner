@@ -475,9 +475,9 @@ impl Session {
         }
         let (_, stamps) = self.filter_stamps(st)?;
         let rec = self.page_rec(st);
-        let changes = stamps.iter().any(|(pos, v)| {
-            !ops::compare(&rec.borrow().fields[*pos], v).is_ok_and(|o| o.is_eq())
-        });
+        let changes = stamps
+            .iter()
+            .any(|(pos, v)| !ops::compare(&rec.borrow().fields[*pos], v).is_ok_and(|o| o.is_eq()));
         if !changes {
             return Ok(false);
         }
@@ -511,16 +511,9 @@ impl Session {
     ) -> Result<bool, Signal> {
         use crate::pages::state::CurrPageSave::{SaveRecord as Save, Update};
         let object = st.borrow().object as usize;
-        let engine = self.engine();
-        let prop = |name: &str| {
-            engine.program.objects[object]
-                .properties
-                .iter()
-                .any(|(k, v)| k.eq_ignore_ascii_case(name) && is_true(v))
-        };
-        let page_ok = engine.object_facts[object].page_type == Some(al_ir::PageType::List)
-            && prop("DelayedInsert")
-            && !prop("AutoSplitKey");
+        let page_ok = self.engine().object_facts[object].page_type == Some(al_ir::PageType::List)
+            && self.page_property_true(st, "DelayedInsert")
+            && !self.page_property_true(st, "AutoSplitKey");
         let declares = [
             "onaftergetcurrrecord",
             "onaftergetrecord",
@@ -542,9 +535,8 @@ impl Session {
             [(pos, _)] => *pos,
             _ => return Ok(false),
         };
-        let one_filter = |filters: &[al_builtins::filter::FieldFilter]| {
-            matches!(filters, [f] if f.field == field && f.group == 0)
-        };
+        let one_filter =
+            |filters: &[al_builtins::filter::FieldFilter]| matches!(filters, [f] if f.field == field && f.group == 0);
         let now = rec.borrow().filters.clone();
         Ok(page_ok
             && declares == [true, false, false, false, false]

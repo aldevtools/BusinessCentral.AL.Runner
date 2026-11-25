@@ -3,4 +3,9 @@ NewLineEmptyRefreshWithoutGetRecord => {
     assumed: "On a List page (DelayedInsert, no AutoSplitKey, over a database table, opened with OpenEdit, no part) that declares OnAfterGetCurrRecord and none of OnAfterGetRecord, OnNewRecord, OnFindRecord and OnNextRecord, standing on its untouched new-row line over an empty view: when the OnValidate of a control bound to a page variable calls CurrPage.SaveRecord(), changes the only filter, a filter in group 0 on an Option field of the primary key, to another single value, and calls CurrPage.Update(false), the view stays empty and the page shows the new-row line again with the field set to the new filter value, as the pinned refresh of a page that declares OnAfterGetRecord and OnAfterGetCurrRecord does. Only that shape: the test's only write is that SetValue, the OnValidate makes no record call that loads or moves Rec and writes nothing. Any other page on its new-row line over an empty view whose filters change a value the line takes from the filters is refused.",
     tests: "Microsoft Tests-SCM 137156 \"SCM Orders IV\": CheckValueOfSalesTypeOnSalesPricesPage, CheckValueOfSalesTypeOnSalesLineDiscounts (pass on Business Central).",
     probe: "Pending (al-runner issue 9121): a single-value filter set by a control's OnValidate (SaveRecord, SetRange, Update(false)) on a list's new-row line over an empty view, with and without OnAfterGetRecord, OnAfterGetCurrRecord and OnNewRecord, filter groups 0, 2 and 4, Option, Enum and Code key fields, a field outside the key, a range and a two-value filter as controls.",
+    awaiting: Awaiting {
+        issues: &[9121],
+        files: &["tests/al-language/pages/triggers/NewLineFilterRefreshWithoutGetRecord.al"],
+        since: "2026-11-26",
+    },
 }
