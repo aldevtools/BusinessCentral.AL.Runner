@@ -357,9 +357,8 @@ fn language_1031_keeps_main_for_a_date_sum() {
 }
 
 #[test]
-fn language_1031_keeps_main_refusal_for_a_date_count() {
-    let why = refused("Language1031DateCount");
-    assert!(why.contains("reader of the CalcFormula filter"), "{why}");
+fn language_1031_keeps_main_for_a_date_count() {
+    assert!(al_testkit::run_in(SRC, "At Sign Review Readers", "Language1031DateCount").is_ok());
 }
 
 #[test]
@@ -368,9 +367,8 @@ fn language_1030_keeps_main_for_a_date_sum() {
 }
 
 #[test]
-fn language_1030_keeps_main_refusal_for_a_date_count() {
-    let why = refused("Language1030DateCount");
-    assert!(why.contains("reader of the CalcFormula filter"), "{why}");
+fn language_1030_keeps_main_for_a_date_count() {
+    assert!(al_testkit::run_in(SRC, "At Sign Review Readers", "Language1030DateCount").is_ok());
 }
 
 #[test]

@@ -1057,10 +1057,8 @@ impl Session {
                             || matches!(sty, RtType::Option(_))
                                 && al_builtins::filter::shows_member_names(&field.properties));
                     let at_sign = matches!(text.as_str(), "@" | "<>@");
-                    let direct_calc_fields = match (sty, calc.method, self.global_language(), at_sign) {
-                        (RtType::Date, ir::CalcMethod::Count, 1031 | 1030, true) => false,
-                        _ => stack.last().is_some_and(|f| f.asked == Asked::CalcFields) && !rec.borrow().temporary,
-                    };
+                    let direct_calc_fields =
+                        stack.last().is_some_and(|f| f.asked == Asked::CalcFields) && !rec.borrow().temporary;
                     let other_source = !matches!(sty, RtType::Code(_) | RtType::Text(_));
                     if at_sign && other_source && !main_reader && !direct_calc_fields {
                         return unsupported(format!(
