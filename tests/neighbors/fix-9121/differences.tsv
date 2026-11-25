@@ -1,0 +1,6 @@
+# key	entry
+N9121 Tests::Key_SaveRecordThenSetRange_InValidate	REFUSED CurrPage.Update in a control's OnValidate that changed a single-value filter on the new-row line of a list over an empty view
+N9121 Tests::Key_SetRange_InValidate	REFUSED CurrPage.Update in a control's OnValidate that changed a single-value filter on the new-row line of a list over an empty view
+N9121 Tests::Key_SaveRecord_ThenTestPageFilter_PageVariable	REFUSED CurrPage.Update in a control's OnValidate that changed a single-value filter on the new-row line of a list over an empty view
+N9121 Cell Tests::Cell_SaveRecordThenSetRange_InValidate	ASSUMED new-line-empty-refresh-without-get-record
+N9121 Cell Tests::Cell_SetValueThenTestPageFilter	ASSUMED new-line-empty-refresh-without-get-record

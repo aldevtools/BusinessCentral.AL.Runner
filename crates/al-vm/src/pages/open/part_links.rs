@@ -216,18 +216,12 @@ impl Session {
         Ok(())
     }
 
-    /// What the client's NewRecord copies onto a fresh buffer of a part: a field whose combined
-    /// filter is a single value, when the field is part of the primary key or the page sets
-    /// PopulateAllFields; then the table's OnValidate runs for each (corpus
-    /// testpage/TestPageSubpagePartFieldLink.al, TestPageSubpagePartConstFilter.al,
-    /// TestPageSubpagePartNewRecordInit.al:New_StampsTheLinkedFieldAndValidatesIt).
-    pub(in crate::pages) fn stamp_from_filters(&mut self, st: &St, validate: bool) -> Result<(), Signal> {
-        if !self.has_source(st) {
-            return Ok(());
-        }
-        let engine = self.engine();
+    /// The values `stamp_from_filters` puts on a fresh buffer of page `st`, in field order, and whether the page sets
+    /// PopulateAllFields: each field whose combined filter is a single value, when the field is part of the primary key or
+    /// the page sets PopulateAllFields.
+    pub(in crate::pages) fn filter_stamps(&mut self, st: &St) -> Result<(bool, Vec<(usize, Value)>), Signal> {
         let object = st.borrow().object as usize;
-        let populate_all = engine.program.objects[object]
+        let populate_all = self.engine().program.objects[object]
             .properties
             .iter()
             .any(|(k, v)| k.eq_ignore_ascii_case("PopulateAllFields") && is_true(v));
@@ -269,6 +263,22 @@ impl Session {
             }
             stamped.push((pos, v.clone()));
         }
+        Ok((populate_all, stamped))
+    }
+
+    /// What the client's NewRecord copies onto a fresh buffer of a part: a field whose combined
+    /// filter is a single value, when the field is part of the primary key or the page sets
+    /// PopulateAllFields; then the table's OnValidate runs for each (corpus
+    /// testpage/TestPageSubpagePartFieldLink.al, TestPageSubpagePartConstFilter.al,
+    /// TestPageSubpagePartNewRecordInit.al:New_StampsTheLinkedFieldAndValidatesIt).
+    pub(in crate::pages) fn stamp_from_filters(&mut self, st: &St, validate: bool) -> Result<(), Signal> {
+        if !self.has_source(st) {
+            return Ok(());
+        }
+        let engine = self.engine();
+        let (populate_all, stamped) = self.filter_stamps(st)?;
+        let rec = self.page_rec(st);
+        let table = self.table(&rec)?;
         // One validated value is pinned: the link field's OnValidate and table relation see the rest of the line as it
         // was, a SourceTableView value of a field outside the key is not stamped (pages/triggers/
         // NewLineStampsFilters.al:214-237, :264-287). With two or more validated values, whether the later ones are on

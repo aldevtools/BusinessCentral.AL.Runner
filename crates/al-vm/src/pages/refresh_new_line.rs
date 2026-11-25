@@ -14,6 +14,7 @@ use super::pinned_shape::TestCall;
 use super::*;
 use crate::pages::state::RecCall;
 use al_builtins::record_op::RecordOp;
+use al_builtins::value::RtType;
 
 /// The record methods that load a row into Rec or move it, recorded while a control's OnValidate runs (`note_page_rec_call`).
 const POSITIONING: [RecordOp; 16] = [
@@ -422,10 +423,7 @@ impl Session {
         let Some(onvalidate) = onvalidate.filter(|_| page_ok && opened) else {
             return Ok(false);
         };
-        let calls: Option<Vec<TestCall>> = Self::test_calls_all_succeeded(st)
-            .map(|calls| calls.into_iter().filter(|c| *c != TestCall::Read).collect());
-        let calls_ok = matches!(calls.as_deref(), Some([TestCall::Write(i)])
-            if matches!(page_of(&self.engine(), st).controls[*i].binding, ir::Binding::Var(_)));
+        let calls_ok = self.only_var_control_written(st);
         let first_save = matches!(onvalidate.saves.as_slice(), [Save, _]);
         let saves_ok = matches!(
             (worksheet, call, onvalidate.saves.as_slice()),
@@ -444,6 +442,123 @@ impl Session {
             && find_first_row
             && self.store.change_counter() == onvalidate.changes
             && self.found_row_first_of_view(st, touch)?)
+    }
+
+    /// The test's calls on page `st` since the open are value reads and one SetValue of a control bound to a page variable, the
+    /// running one, and none of them failed.
+    fn only_var_control_written(&self, st: &St) -> bool {
+        let calls: Option<Vec<TestCall>> = Self::test_calls_all_succeeded(st)
+            .map(|calls| calls.into_iter().filter(|c| *c != TestCall::Read).collect());
+        matches!(calls.as_deref(), Some([TestCall::Write(i)])
+            if matches!(page_of(&self.engine(), st).controls[*i].binding, ir::Binding::Var(_)))
+    }
+
+    /// `CurrPage.Update` in a control's OnValidate that changed the filters, on the untouched new-row line of a list over an
+    /// empty view that stays empty, when the page does not declare both OnAfterGetRecord and OnAfterGetCurrRecord (the
+    /// pinned refresh of `refresh_after_validate_filter` needs both). `false`, main's refresh, when the line's values from the
+    /// filters (`filter_stamps`) do not change. Where they change, the line is shown again with the new values
+    /// (`show_new_line_of_empty_view`) only in the cell of Microsoft's Tests-SCM 137156 (`get_record_free_cell`), through
+    /// Assumption::NewLineEmptyRefreshWithoutGetRecord; every other such page is refused.
+    pub(super) fn empty_new_line_without_get_record(
+        &mut self,
+        st: &St,
+        start: &crate::pages::state::ValidateStart,
+        without_curr: bool,
+        without_parts: bool,
+    ) -> Result<bool, Signal> {
+        let on_line = {
+            let s = st.borrow();
+            s.cursor == Cursor::NewLine && s.placeholder_line && s.new_line
+        };
+        if !on_line || self.view_row_count(st)? != 0 {
+            return Ok(false);
+        }
+        let (_, stamps) = self.filter_stamps(st)?;
+        let rec = self.page_rec(st);
+        let changes = stamps.iter().any(|(pos, v)| {
+            !ops::compare(&rec.borrow().fields[*pos], v).is_ok_and(|o| o.is_eq())
+        });
+        if !changes {
+            return Ok(false);
+        }
+        if !self.get_record_free_cell(st, start, &stamps, without_curr)? {
+            return unsupported(
+                "CurrPage.Update in a control's OnValidate that changed a single-value filter on the new-row line of a list over an empty view, on a page that does not declare both OnAfterGetRecord and OnAfterGetCurrRecord, outside the shape of Microsoft's Tests-SCM 137156 (whether the line takes the new filter value there is not pinned)",
+            );
+        }
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NewLineEmptyRefreshWithoutGetRecord);
+        self.show_new_line_of_empty_view(st, without_parts)?;
+        Ok(true)
+    }
+
+    /// The shape of pages 7002 "Sales Prices" and 7004 "Sales Line Discounts" in Microsoft's Tests-SCM 137156 "SCM Orders IV"
+    /// (CheckValueOfSalesTypeOnSalesPricesPage, CheckValueOfSalesTypeOnSalesLineDiscounts), every fact by equality:
+    /// - the page: PageType List, DelayedInsert true, AutoSplitKey false, over a database table, opened by the test with
+    ///   OpenEdit, no part; it declares OnAfterGetCurrRecord and none of OnAfterGetRecord, OnNewRecord, OnFindRecord and
+    ///   OnNextRecord;
+    /// - the test's calls since the open: value reads and the running SetValue of a control bound to a page variable
+    ///   (`only_var_control_written`); `CurrPage.Update(false)` without OnAfterGetCurrRecord left out (`without_curr` false);
+    /// - that OnValidate called `CurrPage.SaveRecord()` then `CurrPage.Update(false)`, made no record call on Rec that loads
+    ///   or moves a row, and wrote nothing to the store;
+    /// - the filters: one filter in filter group 0 on one field of the primary key, of type Option, before and after the
+    ///   OnValidate, a single value after it, and that field the only value from the filters (`stamps`).
+    fn get_record_free_cell(
+        &mut self,
+        st: &St,
+        start: &crate::pages::state::ValidateStart,
+        stamps: &[(usize, Value)],
+        without_curr: bool,
+    ) -> Result<bool, Signal> {
+        use crate::pages::state::CurrPageSave::{SaveRecord as Save, Update};
+        let object = st.borrow().object as usize;
+        let engine = self.engine();
+        let prop = |name: &str| {
+            engine.program.objects[object]
+                .properties
+                .iter()
+                .any(|(k, v)| k.eq_ignore_ascii_case(name) && is_true(v))
+        };
+        let page_ok = engine.object_facts[object].page_type == Some(al_ir::PageType::List)
+            && prop("DelayedInsert")
+            && !prop("AutoSplitKey");
+        let declares = [
+            "onaftergetcurrrecord",
+            "onaftergetrecord",
+            "onnewrecord",
+            "onfindrecord",
+            "onnextrecord",
+        ]
+        .map(|t| self.declares(st, t));
+        let opened = {
+            let s = st.borrow();
+            s.test_open_edit() && s.parts.is_empty() && s.hidden_parts.is_empty()
+        };
+        let rec = self.page_rec(st);
+        let table = self.table(&rec)?;
+        let Some(onvalidate) = &start.ran else {
+            return Ok(false);
+        };
+        let field = match stamps {
+            [(pos, _)] => *pos,
+            _ => return Ok(false),
+        };
+        let one_filter = |filters: &[al_builtins::filter::FieldFilter]| {
+            matches!(filters, [f] if f.field == field && f.group == 0)
+        };
+        let now = rec.borrow().filters.clone();
+        Ok(page_ok
+            && declares == [true, false, false, false, false]
+            && opened
+            && !rec.borrow().temporary
+            && !without_curr
+            && self.only_var_control_written(st)
+            && matches!(onvalidate.saves.as_slice(), [Save, Update(false)])
+            && onvalidate.positioned.is_none()
+            && self.store.change_counter() == onvalidate.changes
+            && one_filter(&start.filters)
+            && one_filter(&now)
+            && table.keys[0].contains(&field)
+            && matches!(table.fields[field].ty, RtType::Option(_)))
     }
 
     /// Whether page `st`, its source table and the procedures they call read line for line as the probe's (`FOUND_ROW_PAGE` after

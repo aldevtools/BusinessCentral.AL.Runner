@@ -337,6 +337,9 @@ pub struct ValidateStart {
     /// A save in the OnValidate moved a List from its new-row line onto the row page code found, in the cells of
     /// `refresh_new_line.rs` `found_row_cell`: the refresh reads the view as from that line (`validate_refresh_offers_line`).
     pub left_new_line: bool,
+    /// The control's OnValidate as it returned without an error (`run_control_onvalidate`), for the refresh after it
+    /// (`refresh_new_line.rs` `get_record_free_cell`); `None` while it runs and after an error.
+    pub ran: Option<ControlOnValidate>,
 }
 
 impl ValidateStart {
@@ -345,6 +348,7 @@ impl ValidateStart {
         Self {
             filters,
             left_new_line: false,
+            ran: None,
         }
     }
 }
