@@ -3399,6 +3399,144 @@ fn a_start_recorded_with_the_numbers_mark_does_not_refuse_a_later_test() {
     );
 }
 
+/// A guard (green before and after the login key hashes each row's bytes): an app whose install codeunit leaves a wide
+/// table of 200 rows, in two shapes. With `login_row`, a subscriber to the login's setup event adds a row of its own, so
+/// its sessions' logins are raised and write a row and the key's rows matter; without it, the login writes no row. Six
+/// test codeunits, one failing, in three requests of one seed (one key per codeunit).
+fn large_install_base_source(login_row: bool) -> String {
+    let mut src = String::from(
+        r#"table 50110 "Probe Wide"
+{
+    fields
+    {
+        field(1; "No."; Integer) { }
+        field(2; F2; Text[100]) { }
+        field(6; F6; Decimal) { }
+        field(7; F7; Date) { }
+        field(9; F9; Boolean) { }
+        field(10; F10; Text[250]) { }
+    }
+    keys { key(PK; "No.") { Clustered = true; } }
+}
+table 50112 "Probe Login Row" { fields { field(1; Code; Code[20]) { } } keys { key(PK; Code) { Clustered = true; } } }
+codeunit 50111 "Probe Install"
+{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany()
+    var W: Record "Probe Wide"; i: Integer;
+    begin
+        for i := 1 to 200 do begin
+            W.Init(); W."No." := i; W.F2 := 'Some descriptive text for row number ' + Format(i);
+            W.F6 := i * 1.5; W.F7 := 20260101D; W.F9 := (i mod 2) = 0; W.F10 := 'A wide text field'; W.Insert();
+        end;
+    end;
+}
+codeunit 50100 "Probe Logic" { procedure Twice(X: Integer): Integer begin exit(X * 2); end; }
+"#,
+    );
+    if login_row {
+        src.push_str(
+            r#"codeunit 50101 "Probe Registration Row"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
+    local procedure RegisterManualSetup() var R: Record "Probe Login Row";
+    begin R.Code := 'LOGIN'; if R.Insert() then; end;
+}
+"#,
+        );
+    }
+    for n in 50..=55 {
+        let fails = if n == 55 {
+            "Error('rows=%1 login=%2', W.Count(), R.Count());"
+        } else {
+            "if Logic.Twice(1) <> 2 then Error('T');"
+        };
+        src.push_str(&format!(
+            "codeunit 501{n} \"Probe Tests {n}\"\n{{\n    Subtype = Test;\n    var Logic: Codeunit \"Probe Logic\";\n    [Test]\n    procedure T1() var W: Record \"Probe Wide\"; R: Record \"Probe Login Row\";\n    begin\n        {fails}\n    end;\n}}\n"
+        ));
+    }
+    src
+}
+
+/// Three requests of [`large_install_base_source`]: the six codeunits as entries, seed 1.
+fn large_install_base_requests() -> Vec<Value> {
+    let entries: Vec<Value> = (0..6)
+        .map(|i| json!({"id": format!("e{i}"), "test": format!("Codeunit501{}.", 50 + i)}))
+        .collect();
+    vec![json!({"seed": 1, "entries": entries}); 3]
+}
+
+/// The lines of the replay check on `stderr` of a daemon that ran `requests` of `src` under `ALRUNNER_LOGIN_REPLAY_CHECK=1`.
+fn check_lines(src: &str, requests: &[Value]) -> (Vec<Vec<Value>>, Vec<String>) {
+    let d = tempfile::tempdir().unwrap();
+    let (dep, main) = login_probe(d.path());
+    write(&main, "src/T.al", src);
+    let log = d.path().join("stderr.txt");
+    let dep_arg = dep.to_string_lossy().to_string();
+    let mut s = Server::start_with_stderr(
+        &["--no-download", "--no-test-data", "--dep", &dep_arg],
+        &[("ALRUNNER_LOGIN_REPLAY_CHECK", "1")],
+        Stdio::from(std::fs::File::create(&log).unwrap()),
+    );
+    s.line();
+    let mut out = Vec::new();
+    for r in requests {
+        let mut request = r.clone();
+        request["command"] = json!("runTests");
+        request["sourcePaths"] = json!([main]);
+        s.send(request);
+        out.push(s.until_summary());
+    }
+    drop(s.stdin.take());
+    s.child.wait().unwrap();
+    let text = std::fs::read_to_string(&log).unwrap();
+    let checks = (text.lines().filter(|l| l.starts_with("login replay check: ")))
+        .map(String::from)
+        .collect();
+    (out, checks)
+}
+
+/// A guard: the same verdicts with the replay on, off (`ALRUNNER_LOGIN_REPLAY=0`) and under the check, and the check
+/// finds 0 that differ, for both shapes.
+#[test]
+fn a_large_install_base_gives_one_verdict_with_the_replay_on_off_and_under_the_check() {
+    for (shape, login_row) in [("a login that writes a row", true), ("no login row", false)] {
+        let src = large_install_base_source(login_row);
+        let requests = large_install_base_requests();
+        let on = login_app_requests(&src, &requests, &[("ALRUNNER_LOGIN_REPLAY", "1")]);
+        let off = login_app_requests(&src, &requests, &[("ALRUNNER_LOGIN_REPLAY", "0")]);
+        let (checked, check) = check_lines(&src, &requests);
+        for n in 0..requests.len() {
+            assert_eq!(
+                verdicts(&on[n]),
+                verdicts(&off[n]),
+                "{shape} request {n}: on against off"
+            );
+            assert_eq!(
+                verdicts(&checked[n]),
+                verdicts(&off[n]),
+                "{shape} request {n}: check against off"
+            );
+        }
+        let failing: Vec<_> = verdicts(&off[0]).into_iter().filter(|v| v.2 != json!("pass")).collect();
+        assert_eq!(failing.len(), 1, "{shape}: one failing test: {failing:?}");
+        // Without the login row the login is not raised, so it has no key and no check line (nothing to compare); with it,
+        // one per request.
+        let lines = if login_row { requests.len() } else { 0 };
+        assert_eq!(check.len(), lines, "{shape}: check lines: {check:?}");
+        for line in &check {
+            assert!(line.contains(", 0 differ;"), "{shape}: {line}");
+        }
+        let replays = login_replays(&on[2]).unwrap_or(0);
+        assert_eq!(
+            replays >= 1,
+            login_row,
+            "{shape}: a later request replays: {:?}",
+            on[2].last()
+        );
+    }
+}
+
 // ---- Issue 8210: per-entry `stopGroup` for `stopAfterFirstFailure` ----
 
 /// #8484's reason for a test after a failure when no entry has a `stopGroup`, byte for byte.
