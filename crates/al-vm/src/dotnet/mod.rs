@@ -427,7 +427,7 @@ impl Session {
             format!("{clr_type}.{member}")
         };
         let footprint_member = (kind != MemberKind::Construct).then_some(member.as_str());
-        self.note_footprint_dotnet(&clr_type, footprint_member, &shown);
+        self.note_footprint_dotnet(&clr_type, footprint_member, values.len(), &shown);
 
         // 1. The registry: a registered type is served here for all its members.
         let engine = self.engine.clone();
