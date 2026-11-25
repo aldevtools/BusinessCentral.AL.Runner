@@ -1168,9 +1168,10 @@ impl Session {
         }
         self.table_event(t, "onbeforedeleteevent", rec, None, run, None)?;
         if run {
+            // The table's OnDelete gets the buffer as it was before the extensions' OnBeforeDelete ran.
+            let x = Self::xrec_handle(rec, rec.borrow().fields.to_vec());
             self.run_ext_trigger_unmeasured_xrec(t, "OnBeforeDelete", rec)?;
             if let Some(tr) = self.table_trigger(t, "OnDelete") {
-                let x = Self::xrec_handle(rec, rec.borrow().fields.to_vec());
                 self.run_trigger(t.object as usize, tr, rec, Some(&x))?;
             }
             self.run_ext_trigger_unmeasured_xrec(t, "OnDelete", rec)?;

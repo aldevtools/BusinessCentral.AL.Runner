@@ -77,6 +77,23 @@ codeunit 50363 "NX Kept Tests"
         Line.Modify(true);
         Steps.Expect('43');
     end;
+
+    // The extension's OnBeforeDelete changes Rec without reading xRec: the table's own OnDelete keeps main's xRec, the buffer
+    // from before OnBeforeDelete ran.
+    [Test]
+    procedure TableOnDelete_AfterExtOnBeforeDeleteWritesRec()
+    var
+        Line: Record "NX Line";
+        BaseLog: Codeunit "NX Base Log";
+    begin
+        Steps.Seed();
+        Mode.Set('BeforeDelete', 'recwrite');
+        Line.Get(1);
+        Line.Delete(true);
+        Steps.Expect('r');
+        if BaseLog.Get() <> 42 then
+            Error('xRec."Serial No." in table OnDelete was %1, expected 42', BaseLog.Get());
+    end;
 }
 
 codeunit 50360 "NX Refused Tests"

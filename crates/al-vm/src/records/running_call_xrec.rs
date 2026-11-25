@@ -1,7 +1,8 @@
 //! The xRec of a procedure of a table or of one of its table extensions that code other than the table's own calls on a record
 //! while a trigger of the same record runs (`Session::running_call_xrec`, by `table_proc_xrec` in `nested_validate.rs`): the
 //! running field trigger's xRec, shared, in the chains of calls the corpus measured, else a blank xRec marked
-//! `XREC_OF_RUNNING_CALL` whose read refuses.
+//! `XREC_OF_RUNNING_CALL` whose read refuses. While a table extension's insert or delete trigger runs on the record, the
+//! blank xRec carries that trigger's mark instead (`ext_trigger_xrec.rs`, not measured), checked before every chain.
 //!
 //! Each chain starts in a field OnValidate trigger of the table and ends in a codeunit procedure that has the record as a `var`
 //! parameter and calls the procedure on it (al-runner issues 8189 and 8284):

@@ -246,6 +246,11 @@ tableextension 50350 "NX Line Ext" extends "NX Line"
                     xRec."Serial No." := 7;
                     Mode.Add('w');
                 end;
+            'recwrite':
+                begin
+                    Rec."Serial No." := 7;
+                    Mode.Add('r');
+                end;
             'assign':
                 begin
                     xRec := Rec;
