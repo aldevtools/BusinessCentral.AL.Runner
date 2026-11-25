@@ -1,0 +1,4 @@
+# key	entry
+# No difference: MemoryStream(Int32) still touches everything on head; three tied installs have all their orders tried
+# on both sides. Four such installs stay refused (no test runs on either side, so a neighbor app cannot show it; the
+# rule is al-vm install_footprint_tests.rs the_memory_stream_of_generate_hash_keeps_nothing).
