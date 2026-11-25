@@ -219,7 +219,7 @@ impl Session {
                         Some(f) if declared.get(g) == Some(&true) => {
                             let fresh = self.left_fp(f);
                             // Only a codeunit variable's instance counts through its declared form (assumption
-                            // clear-shared-codeunit); a temporary record's fingerprints never compare.
+                            // clear-shared-codeunit); a temporary record compares by its rendered rows (`left_fp`).
                             declared_form |= matches!(v, Value::Codeunit(_)) && fresh != own;
                             fresh
                         }

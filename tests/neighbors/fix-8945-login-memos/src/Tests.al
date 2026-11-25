@@ -208,4 +208,41 @@ codeunit 60953 "LM Login Tests"
         if not M.IsLoaded() then
             Error('memo');
     end;
+
+    [Test]
+    procedure ReadsMemoBehindWrapperWithTemporaryGuard()
+    var
+        M: Codeunit "LMP Memo Behind Temp Guard";
+    begin
+        if not M.IsLoaded() then
+            Error('memo');
+    end;
+
+    [Test]
+    procedure ReadsMemoBehindWrapperWithCompanyGuard()
+    var
+        M: Codeunit "LMP Memo Behind Company Guard";
+    begin
+        if not M.IsLoaded() then
+            Error('memo');
+    end;
+
+    [Test]
+    procedure ReadsMemoWithPublicFieldWriter()
+    var
+        M: Codeunit "LMP Memo Field Writer";
+    begin
+        if not M.IsLoaded() then
+            Error('memo');
+        M.SetSub();
+    end;
+
+    [Test]
+    procedure ReadsMemoThatInsertsIntoRealTable()
+    var
+        M: Codeunit "LMP Memo Real Insert";
+    begin
+        if not M.IsLoaded() then
+            Error('memo');
+    end;
 }

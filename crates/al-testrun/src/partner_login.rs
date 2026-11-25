@@ -384,7 +384,7 @@ enum Kept {
 }
 
 /// What the test session gives a read of a global of SingleInstance codeunit `memo` after a partner subscriber of step
-/// `step`, of app `by.0`, changed its globals `by.1` and `changed` codeunits in all; `earlier` are the changes of the
+/// `step`, of app `by.app`, changed its globals `by.globals` and `changed` codeunits in all; `earlier` are the changes of the
 /// login subscribers that ran before it, partner and own ([`own_step`]). The facts, by equality:
 /// - Pinned (PlXaLoginSingles.al:12-27, the subscriber at :56-62; read at PlLoginSingleTests.al:54-98): the step has one
 ///   subscriber, it changes one SingleInstance codeunit, of its own app, no subscriber changed it before, and that

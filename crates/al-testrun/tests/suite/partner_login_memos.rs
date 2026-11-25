@@ -6,7 +6,7 @@ use al_sema::workspace::AppSource;
 use al_testrun::Outcome;
 use al_testrun::runtime::{CorpusRuntime, Manifest, RunOptions, SuiteRun};
 
-/// The stand-in "Microsoft" app: the login publisher, a setup subscriber that turns on every database event (as Microsoft's
+/// The stand-in "Microsoft" app: the login publisher, GlobalTriggerManagement passing the Global Triggers events on, a setup subscriber that turns on every database event (as Microsoft's
 /// Backup Management of the test libraries does), and memos with the globals of 423, 3702 and 9177.
 const MS: &str = r#"
 codeunit 150 "System Initialization" { procedure Raise() begin OnAfterLogin(); end;
@@ -18,6 +18,15 @@ codeunit 130011 "Backup Stand-in" {
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'GetDatabaseTableTriggerSetup', '', false, false)]
     local procedure S(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean)
     begin OnDatabaseInsert := true; end; }
+codeunit 49 GlobalTriggerManagement {
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'GetDatabaseTableTriggerSetup', '', false, false)]
+    local procedure S(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean)
+    begin OnAfterGetDatabaseTableTriggerSetup(TableId, OnDatabaseInsert, OnDatabaseModify, OnDatabaseDelete, OnDatabaseRename); end;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'OnDatabaseInsert', '', false, false)]
+    local procedure I(RecRef: RecordRef) begin OnAfterOnDatabaseInsert(RecRef); end;
+    [IntegrationEvent(false, false)]
+    procedure OnAfterGetDatabaseTableTriggerSetup(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean) begin end;
+    [IntegrationEvent(false, false)] procedure OnAfterOnDatabaseInsert(RecRef: RecordRef) begin end; }
 table 405 "Change Log Setup" { fields { field(1; "Primary Key"; Code[10]) { } field(2; "Change Log Activated"; Boolean) { } }
     keys { key(PK; "Primary Key") { } } }
 codeunit 423 "Change Log Management" { SingleInstance = true;
@@ -29,7 +38,8 @@ codeunit 423 "Change Log Management" { SingleInstance = true;
 codeunit 3702 "Environment Information Impl." { SingleInstance = true;
     var IsSaasInitialized: Boolean; IsSaaSConfig: Boolean; IsSandboxConfig: Boolean; IsSandboxInitialized: Boolean;
     procedure IsSaaS(): Boolean begin if not IsSaasInitialized then begin IsSaasInitialized := true; IsSaaSConfig := true; end; exit(IsSaaSConfig); end;
-    procedure IsSandbox(): Boolean begin if not IsSandboxInitialized then begin IsSandboxInitialized := true; IsSandboxConfig := true; end; exit(IsSandboxConfig); end; }
+    procedure IsSandbox(): Boolean begin if not IsSandboxInitialized then begin IsSandboxInitialized := true; IsSandboxConfig := true; end; exit(IsSandboxConfig); end;
+    procedure ForgetSaaS() begin IsSaasInitialized := false; end; }
 codeunit 9177 "Application Area Cache" { SingleInstance = true;
     var ApplicationAreaCache: Dictionary of [Text, Text];
     procedure Fill() begin if not ApplicationAreaCache.ContainsKey('User:') then ApplicationAreaCache.Add('User:', '#Basic'); end;
@@ -58,10 +68,10 @@ table 60800 PTab {{ fields {{ field(1; K; Integer) {{ }} }} keys {{ key(PK; K) {
 table 60803 PSetup {{ fields {{ field(1; "Table Id"; Integer) {{ }} }} keys {{ key(PK; "Table Id") {{ }} }} }}
 table 60804 PSub {{ fields {{ field(1; "Code"; Code[20]) {{ }} field(2; "Company Name"; Text[30]) {{ }} }} keys {{ key(PK; "Code", "Company Name") {{ }} }} }}
 codeunit 60810 PWrapper {{
-    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'GetDatabaseTableTriggerSetup', '', false, false)]
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::GlobalTriggerManagement, 'OnAfterGetDatabaseTableTriggerSetup', '', false, false)]
     local procedure S(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean)
     begin OnWrapperSetup(TableId); end;
-    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'OnDatabaseInsert', '', false, false)]
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::GlobalTriggerManagement, 'OnAfterOnDatabaseInsert', '', false, false)]
     local procedure I(RecRef: RecordRef) begin OnWrapperWrite(RecRef.Number); end;
     [IntegrationEvent(false, false)] procedure OnWrapperSetup(TableId: Integer) begin end;
     [IntegrationEvent(false, false)] procedure OnWrapperWrite(TableId: Integer) begin end; }}
@@ -259,4 +269,142 @@ fn load_once_memo_without_a_change_in_the_setup_ask_refuses() {
 fn load_once_memo_with_a_second_insert_boolean_refuses() {
     let src = partner(WRITE, "", "", "Extra := true;").replace("Loaded: Boolean;", "Loaded: Boolean; Extra: Boolean;");
     assert_refused(run(&src, READ_MEMO), "2 Boolean in the insert event");
+}
+
+const WRAPPER_WRITE: &str = "begin OnWrapperWrite(RecRef.Number); end;";
+const WRAPPER_SETUP: &str = "begin OnWrapperSetup(TableId); end;";
+
+// L1's public readers: one copies a temporary global into a local (RawSetupRows of LmXaLoginCaches.al); the copy reads it.
+#[test]
+fn load_once_memo_with_a_public_reader_that_copies_a_temp_is_kept() {
+    let src = partner(WRITE, "", "", "").replace(
+        "procedure IsLoaded()",
+        "procedure Rows(): Integer var C: Record PSetup temporary; begin C.Copy(TempSetup, true); C.Reset(); exit(C.Count()); end;
+        procedure IsLoaded()",
+    );
+    assert_flagged(run(&src, READ_MEMO), "partner-login-load-once-memo");
+}
+
+// The probe's wrapper passes the trigger's arguments on and does nothing else; a guard in it is not measured.
+#[test]
+fn load_once_memo_behind_a_wrapper_with_a_temporary_guard_refuses() {
+    let src = partner(WRITE, "", "", "").replace(
+        WRAPPER_WRITE,
+        "begin if RecRef.IsTemporary then exit; OnWrapperWrite(RecRef.Number); end;",
+    );
+    assert_refused(run(&src, READ_MEMO), "wrapper");
+}
+
+#[test]
+fn load_once_memo_behind_a_wrapper_with_a_company_guard_refuses() {
+    let src = partner(WRITE, "", "", "").replace(
+        WRAPPER_SETUP,
+        "begin if CompanyName() = 'X' then exit; OnWrapperSetup(TableId); end;",
+    );
+    assert_refused(run(&src, READ_MEMO), "wrapper");
+}
+
+// The memo subscribes to the Global Triggers events itself: no wrapper, not the probe's path.
+#[test]
+fn load_once_memo_subscribed_to_global_triggers_directly_refuses() {
+    let src = partner(WRITE, "", "", "")
+        .replace(
+            "[EventSubscriber(ObjectType::Codeunit, Codeunit::PWrapper, 'OnWrapperWrite', '', false, false)]
+    local procedure WW(TableId: Integer)",
+            "[EventSubscriber(ObjectType::Codeunit, Codeunit::\"Global Triggers\", 'OnDatabaseInsert', '', false, false)]
+    local procedure WW(RecRef: RecordRef)",
+        )
+        .replace("TempSetup.Get(TableId)", "TempSetup.Get(RecRef.Number)");
+    assert_refused(run(&src, READ_MEMO), "wrapper");
+}
+
+// A public procedure the test calls writes a field of a temporary global (not a bare global assignment).
+#[test]
+fn load_once_memo_with_a_public_field_writer_refuses() {
+    let src = partner(WRITE, "", "", "").replace(
+        "procedure IsLoaded()",
+        "procedure SetSub() begin TempSub.\"Company Name\" := 'X'; end;
+        procedure IsLoaded()",
+    );
+    assert_refused(
+        run(&src, "if not M.IsLoaded() then Error('memo'); M.SetSub();"),
+        "changes a global",
+    );
+}
+
+// A public procedure moves a temporary global through a record method.
+#[test]
+fn load_once_memo_with_a_public_record_method_on_a_global_refuses() {
+    let src = partner(WRITE, "", "", "").replace(
+        "procedure IsLoaded()",
+        "procedure ResetSub() begin TempSub.Reset(); end;
+        procedure IsLoaded()",
+    );
+    assert_refused(
+        run(&src, "if not M.IsLoaded() then Error('memo'); M.ResetSub();"),
+        "changes a global",
+    );
+}
+
+// A public procedure reaches the local loader.
+#[test]
+fn load_once_memo_with_a_public_caller_of_the_loader_refuses() {
+    let src = partner(WRITE, "", "", "").replace(
+        "procedure IsLoaded()",
+        "procedure Reload() begin LoadTemps(); end;
+        procedure IsLoaded()",
+    );
+    assert_refused(
+        run(&src, "if not M.IsLoaded() then Error('memo'); M.Reload();"),
+        "changes a global",
+    );
+}
+
+// The loader inserts a row into a real table with its trigger: another object's code runs.
+#[test]
+fn load_once_memo_that_inserts_into_a_real_table_refuses() {
+    let src = partner(WRITE, "", "", "").replace(
+        "Clear(TempSub);",
+        "Setup.\"Table Id\" := 7; Setup.Insert(true); Clear(TempSub);",
+    );
+    assert_refused(run(&src, READ_MEMO), "Insert");
+}
+
+// The wrapper subscribes to the Global Triggers events itself, not to GlobalTriggerManagement's as the probe's does.
+#[test]
+fn load_once_memo_behind_a_wrapper_on_global_triggers_refuses() {
+    let src = partner(WRITE, "", "", "")
+        .replace(
+            "Codeunit::GlobalTriggerManagement, 'OnAfterGetDatabaseTableTriggerSetup'",
+            "Codeunit::\"Global Triggers\", 'GetDatabaseTableTriggerSetup'",
+        )
+        .replace(
+            "Codeunit::GlobalTriggerManagement, 'OnAfterOnDatabaseInsert'",
+            "Codeunit::\"Global Triggers\", 'OnDatabaseInsert'",
+        );
+    assert_refused(run(&src, READ_MEMO), "wrapper");
+}
+
+/// A Global Triggers subscriber of the partner app that calls IsSaaS() on the insert event.
+const SAAS_ON_INSERT: &str = "codeunit 60812 PSaaSOnInsert {
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Global Triggers\", 'OnDatabaseInsert', '', false, false)]
+    local procedure I(RecRef: RecordRef) var E: Codeunit \"Environment Information Impl.\"; begin E.IsSaaS(); end; }";
+
+// E1's pair, but the second change is made inside a Global Triggers raise.
+#[test]
+fn env_info_pair_with_a_change_inside_a_raise_refuses() {
+    let src = partner("E.IsSandbox();", WRITE, "", "") + SAAS_ON_INSERT;
+    let got = run(&src, "if not (E.IsSaaS() and E.IsSandbox()) then Error('env');");
+    assert_refused(got, "two subscribers of the same app");
+}
+
+// A third login subscriber of the same app that changes 3702.
+#[test]
+fn env_info_changed_by_a_third_subscriber_refuses() {
+    let third = "codeunit 60813 PLogin60813 {
+        [EventSubscriber(ObjectType::Codeunit, Codeunit::\"System Initialization\", 'OnAfterLogin', '', false, false)]
+        local procedure L() var E: Codeunit \"Environment Information Impl.\"; begin E.ForgetSaaS(); end; }";
+    let src = partner("E.IsSandbox();", "E.IsSaaS();", "", "") + third;
+    let got = run(&src, "if not (E.IsSaaS() and E.IsSandbox()) then Error('env');");
+    assert_refused(got, "subscribers");
 }

@@ -1,6 +1,6 @@
 // Partner app (publisher LM Partner Co): its login subscribers fill the stand-in Microsoft caches and load-once memos
-// reached through the wrapper's events, which pass on the partner table's setup ask and insert only (so the
-// test runner's own writes reach no memo). Each memo below differs from the measured one ("LMP Memo Measured", the shape of
+// reached through the wrapper's events, which pass on GlobalTriggerManagement's setup ask and insert events and do nothing
+// else (the probe's wrapper). Each memo below differs from the measured one ("LMP Memo Measured", the shape of
 // cell L1 of corpus PR 1571) in one fact; its name says which.
 table 60930 "LMP Tab"
 {
@@ -26,18 +26,16 @@ table 60932 "LMP Sub"
 
 codeunit 60933 "LMP Wrapper"
 {
-    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'GetDatabaseTableTriggerSetup', '', false, false)]
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::GlobalTriggerManagement, 'OnAfterGetDatabaseTableTriggerSetup', '', false, false)]
     local procedure Setup(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean)
     begin
-        if TableId = Database::"LMP Tab" then
-            OnWrapperSetup(TableId);
+        OnWrapperSetup(TableId);
     end;
 
-    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'OnDatabaseInsert', '', false, false)]
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::GlobalTriggerManagement, 'OnAfterOnDatabaseInsert', '', false, false)]
     local procedure DatabaseInsert(RecRef: RecordRef)
     begin
-        if RecRef.Number = Database::"LMP Tab" then
-            OnWrapperWrite(RecRef.Number);
+        OnWrapperWrite(RecRef.Number);
     end;
 
     [IntegrationEvent(false, false)]
@@ -777,3 +775,295 @@ codeunit 60939 "LMP Memo Flag Cleared"
     end;
     local procedure Reset() begin Loaded := false; end;
 }
+
+// Review round 1 neighbors: a guard in the wrapper (temporary record, company name), a public writer of a field of a
+// temporary global, and an insert into a real table with its trigger in the load.
+codeunit 60970 "LMP Wrapper Temp Guard"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::GlobalTriggerManagement, 'OnAfterGetDatabaseTableTriggerSetup', '', false, false)]
+    local procedure Setup(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean)
+    begin
+        OnWrapperSetup(TableId);
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::GlobalTriggerManagement, 'OnAfterOnDatabaseInsert', '', false, false)]
+    local procedure DatabaseInsert(RecRef: RecordRef)
+    begin
+        if RecRef.IsTemporary then
+            exit;
+        OnWrapperWrite(RecRef.Number);
+    end;
+
+    [IntegrationEvent(false, false)]
+    procedure OnWrapperSetup(TableId: Integer)
+    begin
+    end;
+
+    [IntegrationEvent(false, false)]
+    procedure OnWrapperWrite(TableId: Integer)
+    begin
+    end;
+}
+
+codeunit 60971 "LMP Memo Behind Temp Guard"
+{
+    SingleInstance = true;
+
+    var
+        TempSetup: Record "LMP Setup" temporary;
+        TempSub: Record "LMP Sub" temporary;
+        Checked: Boolean;
+        Activated: Boolean;
+        Loaded: Boolean;
+        LoadTable: Integer;
+        
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"LMP Wrapper Temp Guard", 'OnWrapperSetup', '', false, false)]
+    local procedure WrapperSetup(TableId: Integer)
+    var
+        Setup: Record "LMP Setup";
+    begin
+        if not Checked then begin Checked := true; Activated := not Setup.IsEmpty(); end;
+        if not Activated then
+            exit;
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"LMP Wrapper Temp Guard", 'OnWrapperWrite', '', false, false)]
+    local procedure WrapperWrite(TableId: Integer)
+    begin
+        
+        if not Loaded then begin
+            Loaded := true;
+            LoadTemps();
+        end;
+        if not TempSetup.Get(TableId) then
+            exit;
+    end;
+
+    local procedure LoadTemps()
+    var
+        Setup: Record "LMP Setup";
+    begin
+        TempSetup.DeleteAll();
+        if Setup.FindSet() then
+            repeat
+                TempSetup := Setup;
+                TempSetup.Insert();
+            until Setup.Next() = 0;
+        Clear(TempSub);
+        TempSub.SetFilter("Company Name", '=%1', '');
+        
+    end;
+
+    procedure IsLoaded(): Boolean
+    begin
+        exit(Loaded);
+    end;
+    
+}
+
+codeunit 60972 "LMP Wrapper Company Guard"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::GlobalTriggerManagement, 'OnAfterGetDatabaseTableTriggerSetup', '', false, false)]
+    local procedure Setup(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean)
+    begin
+        if CompanyName() = 'X' then
+            exit;
+        OnWrapperSetup(TableId);
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::GlobalTriggerManagement, 'OnAfterOnDatabaseInsert', '', false, false)]
+    local procedure DatabaseInsert(RecRef: RecordRef)
+    begin
+        OnWrapperWrite(RecRef.Number);
+    end;
+
+    [IntegrationEvent(false, false)]
+    procedure OnWrapperSetup(TableId: Integer)
+    begin
+    end;
+
+    [IntegrationEvent(false, false)]
+    procedure OnWrapperWrite(TableId: Integer)
+    begin
+    end;
+}
+
+codeunit 60973 "LMP Memo Behind Company Guard"
+{
+    SingleInstance = true;
+
+    var
+        TempSetup: Record "LMP Setup" temporary;
+        TempSub: Record "LMP Sub" temporary;
+        Checked: Boolean;
+        Activated: Boolean;
+        Loaded: Boolean;
+        LoadTable: Integer;
+        
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"LMP Wrapper Company Guard", 'OnWrapperSetup', '', false, false)]
+    local procedure WrapperSetup(TableId: Integer)
+    var
+        Setup: Record "LMP Setup";
+    begin
+        if not Checked then begin Checked := true; Activated := not Setup.IsEmpty(); end;
+        if not Activated then
+            exit;
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"LMP Wrapper Company Guard", 'OnWrapperWrite', '', false, false)]
+    local procedure WrapperWrite(TableId: Integer)
+    begin
+        
+        if not Loaded then begin
+            Loaded := true;
+            LoadTemps();
+        end;
+        if not TempSetup.Get(TableId) then
+            exit;
+    end;
+
+    local procedure LoadTemps()
+    var
+        Setup: Record "LMP Setup";
+    begin
+        TempSetup.DeleteAll();
+        if Setup.FindSet() then
+            repeat
+                TempSetup := Setup;
+                TempSetup.Insert();
+            until Setup.Next() = 0;
+        Clear(TempSub);
+        TempSub.SetFilter("Company Name", '=%1', '');
+        
+    end;
+
+    procedure IsLoaded(): Boolean
+    begin
+        exit(Loaded);
+    end;
+    
+}
+
+codeunit 60974 "LMP Memo Field Writer"
+{
+    SingleInstance = true;
+
+    var
+        TempSetup: Record "LMP Setup" temporary;
+        TempSub: Record "LMP Sub" temporary;
+        Checked: Boolean;
+        Activated: Boolean;
+        Loaded: Boolean;
+        LoadTable: Integer;
+        
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"LMP Wrapper", 'OnWrapperSetup', '', false, false)]
+    local procedure WrapperSetup(TableId: Integer)
+    var
+        Setup: Record "LMP Setup";
+    begin
+        if not Checked then begin Checked := true; Activated := not Setup.IsEmpty(); end;
+        if not Activated then
+            exit;
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"LMP Wrapper", 'OnWrapperWrite', '', false, false)]
+    local procedure WrapperWrite(TableId: Integer)
+    begin
+        
+        if not Loaded then begin
+            Loaded := true;
+            LoadTemps();
+        end;
+        if not TempSetup.Get(TableId) then
+            exit;
+    end;
+
+    local procedure LoadTemps()
+    var
+        Setup: Record "LMP Setup";
+    begin
+        TempSetup.DeleteAll();
+        if Setup.FindSet() then
+            repeat
+                TempSetup := Setup;
+                TempSetup.Insert();
+            until Setup.Next() = 0;
+        Clear(TempSub);
+        TempSub.SetFilter("Company Name", '=%1', '');
+        
+    end;
+
+    procedure SetSub()
+    begin
+        TempSub."Company Name" := 'X';
+    end;
+
+    procedure IsLoaded(): Boolean
+    begin
+        exit(Loaded);
+    end;
+    
+}
+
+codeunit 60975 "LMP Memo Real Insert"
+{
+    SingleInstance = true;
+
+    var
+        TempSetup: Record "LMP Setup" temporary;
+        TempSub: Record "LMP Sub" temporary;
+        Checked: Boolean;
+        Activated: Boolean;
+        Loaded: Boolean;
+        LoadTable: Integer;
+        
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"LMP Wrapper", 'OnWrapperSetup', '', false, false)]
+    local procedure WrapperSetup(TableId: Integer)
+    var
+        Setup: Record "LMP Setup";
+    begin
+        if not Checked then begin Checked := true; Activated := not Setup.IsEmpty(); end;
+        if not Activated then
+            exit;
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"LMP Wrapper", 'OnWrapperWrite', '', false, false)]
+    local procedure WrapperWrite(TableId: Integer)
+    begin
+        
+        if not Loaded then begin
+            Loaded := true;
+            LoadTemps();
+        end;
+        if not TempSetup.Get(TableId) then
+            exit;
+    end;
+
+    local procedure LoadTemps()
+    var
+        Setup: Record "LMP Setup";
+    begin
+        TempSetup.DeleteAll();
+        if Setup.FindSet() then
+            repeat
+                TempSetup := Setup;
+                TempSetup.Insert();
+            until Setup.Next() = 0;
+        Setup."Table Id" := 7;
+        Setup.Insert(true);
+        Clear(TempSub);
+        TempSub.SetFilter("Company Name", '=%1', '');
+        
+    end;
+
+    procedure IsLoaded(): Boolean
+    begin
+        exit(Loaded);
+    end;
+    
+}
+

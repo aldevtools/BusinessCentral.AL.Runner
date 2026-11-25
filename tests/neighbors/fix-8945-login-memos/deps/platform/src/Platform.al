@@ -25,6 +25,32 @@ codeunit 151 "System Initialization Impl."
     end;
 }
 
+// GlobalTriggerManagement passes the Global Triggers events on as its OnAfter events.
+codeunit 49 GlobalTriggerManagement
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'GetDatabaseTableTriggerSetup', '', false, false)]
+    local procedure Setup(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean)
+    begin
+        OnAfterGetDatabaseTableTriggerSetup(TableId, OnDatabaseInsert, OnDatabaseModify, OnDatabaseDelete, OnDatabaseRename);
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'OnDatabaseInsert', '', false, false)]
+    local procedure DatabaseInsert(RecRef: RecordRef)
+    begin
+        OnAfterOnDatabaseInsert(RecRef);
+    end;
+
+    [IntegrationEvent(false, false)]
+    procedure OnAfterGetDatabaseTableTriggerSetup(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean)
+    begin
+    end;
+
+    [IntegrationEvent(false, false)]
+    procedure OnAfterOnDatabaseInsert(RecRef: RecordRef)
+    begin
+    end;
+}
+
 codeunit 130011 "LM Backup Stand-in"
 {
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'GetDatabaseTableTriggerSetup', '', false, false)]
