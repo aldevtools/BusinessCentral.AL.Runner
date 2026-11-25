@@ -1,6 +1,6 @@
 # ADR-045: The test clock moves forward on every read
 
-- Status: Accepted (owner, 2026-10-18). Amendment 2026-11-22 (the run clock begins once per run): Proposed
+- Status: Accepted (owner, 2026-10-18). Amendment 2026-11-22 (the run clock begins once per run): Accepted (owner, 2026-11-22)
 - Date: 2026-10-18
 - Amends: ADR-013 decision 9, item 2 (the clock is frozen by default)
 
@@ -145,7 +145,8 @@ every read, and by n milliseconds on `Sleep(n)`.
    amendment holds: the date stays the wall clock's, the time of day is the same in every run, a kept install baseline
    starts where its run started, and `ALRUNNER_REAL_CLOCK=1` is unchanged. Stepping (1 ms per read, n ms per `Sleep(n)`)
    and the catch-up rules of the later amendments do not change.
-   (The day and the kept baseline's start are replaced by the amendment of 2026-11-22 below, Proposed.)
+   (The day and the kept baseline's start are replaced by the amendment of 2026-11-22 below, Accepted (owner,
+   2026-11-22).)
 2. **Why.** Noon is a value test authors write as a constant. A test that compares `Time` with `120000T` passed in every
    run here, while on BC it passes only when the test runs at noon (al-runner issue 8161, found by mutation testing). A
    time with odd seconds and milliseconds is one no test writes by chance, so such a test now fails here as it does on BC
@@ -159,7 +160,7 @@ every read, and by n milliseconds on `Sleep(n)`.
 
 ## Amendment: the run clock begins once per run (2026-11-22, issue 8457)
 
-### Status: Proposed (needs the owner's acceptance)
+### Status: Accepted (owner, 2026-11-22)
 
 1. **The host instant is 12:34:56.789 UTC of the UTC day the run begins** (`al-testrun` `RunClock::begin`), fixed for
    the whole run: every session of the run, the install baseline's key and its file read that one value. A run is one
