@@ -26,8 +26,9 @@
 //! (`Lowerer::auto_format_writer_guard`) puts before `Format` and StrSubstNo of such a field.
 
 use crate::Session;
+use crate::capture::root_local;
 use crate::events::Unraised;
-use al_ir::{Arg, Expr, Place, Stmt};
+use al_ir::{Expr, Place, Stmt};
 
 /// The events whose result decides the format: the (lower-case codeunit, lower-case event) key of `Registry::unraised`, and the
 /// event's name for the refusal text. Built once, so a check makes no key.
@@ -153,31 +154,6 @@ fn writes_var_parameter(r: &al_ir::Routine) -> bool {
         .any(|slot| {
             let is_slot = |p: &Place| root_local(p) == Some(slot);
             let body = r.body.stmts();
-            !crate::effects::stmts_keep_local(body, &is_slot) || passes_by_var(body, &is_slot)
+            !crate::effects::stmts_keep_local(body, &is_slot) || crate::effects::passes_by_var(body, &is_slot)
         })
-}
-
-/// The local a place is rooted in.
-fn root_local(p: &Place) -> Option<usize> {
-    match p {
-        Place::Local(n) => Some(*n),
-        Place::Index(base, _) | Place::Field(base, _) | Place::RecGlobal(base, ..) => root_local(base),
-        Place::Global(_) | Place::BaseGlobal(_) | Place::ExtGlobal(..) => None,
-    }
-}
-
-/// Whether an argument or a receiver of a call in `body` hands a place `is_slot` names on by `var`.
-fn passes_by_var(body: &[Stmt], is_slot: &dyn Fn(&Place) -> bool) -> bool {
-    let by_var = |a: &Arg| matches!(a, Arg::Ref(p) if is_slot(p));
-    let mut found = false;
-    al_ir::types::for_each_expr_post(body, &mut |e| match e {
-        Expr::Call { args, .. } | Expr::InterfaceCall { args, .. } | Expr::DotNet { args, .. } => {
-            found |= args.iter().any(by_var);
-        }
-        Expr::Builtin { receiver, args, .. } => {
-            found |= receiver.as_deref().is_some_and(by_var) || args.iter().any(by_var);
-        }
-        _ => {}
-    });
-    found
 }

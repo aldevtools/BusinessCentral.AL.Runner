@@ -1,0 +1,21 @@
+# key	entry
+CN ClearAll Tests::LabelHolderSharedAlias	ASSUMED clear-shared-codeunit (corpus PR 1564)
+CN ClearAll Tests::LabelHolderSharedIface	ASSUMED clear-shared-codeunit (corpus PR 1564)
+CN ClearAll Tests::LabelValueParamFurtherOut	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
+CN ClearAll Tests::LabelValueParamInClearingRoutine	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
+CN ClearAll Tests::LabelOnIntStoreShared	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
+CN Owner Tests::LabelSiShared	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
+CN ClearAll Tests::WrapperUnwrittenInnerShared	REFUSED ClearAll of a global codeunit variable whose inner store another variable shares
+CN ClearAll Tests::LabelBetweenArraysWritten	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows
+CN ClearAll Tests::LabelLockedWritten	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows
+CN ClearAll Tests::LabelOnArrStoreWritten	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows
+CN Owner Tests::LabelNormalOwnerWritten	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows
+CN Owner Tests::PageOwnerWritten	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows
+CN Owner Tests::PlusSiWritten	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows
+CN Owner Tests::ReportWithRequestPageWritten	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows
+CN Owner Tests::StoreArraySiWritten	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows
+CN Owner Tests::TableOwnerWritten	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows
+CN Owner Tests::WrapperSiWritten	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows
+CN Test Global Tests::LabelTestGlobalWritten	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows
+CN ClearAll Tests::LabelValueParamWrittenInClearingRoutine	ASSUMED clear-shared-codeunit (corpus PR 1564)
+CN ClearAll Tests::LabelValueParamWrittenFurtherOut	ASSUMED clear-shared-codeunit (corpus PR 1564)

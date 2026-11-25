@@ -241,6 +241,7 @@ Differences a client must adapt to:
    starting them ahead), `affectedMs` (`affectedOnly`: the stored result and the hashes of the inputs), `entriesMs`
    (building the runs of the entries) and `prepareMs` (the rest before the compile: the dependency notes, the hooks and
    the run's options). `--timings` prints the same parts as its `setup:` line.
+   `loginReplays` and `loginStarts` (always present) count, over every request the engine ran, the test sessions that took a kept login start in place of running the login and the login starts kept (al-runner issue 8211). The first test session of a login runs it and keeps a start; later sessions of the same login, company, user and inputs thaw it. The replay is off by default (both 0); `ALRUNNER_LOGIN_REPLAY=1` turns it on. Under `ALRUNNER_LOGIN_REPLAY_CHECK=1` no session takes a start, so `loginReplays` stays 0, but the check keeps the starts it compares later sessions with, so `loginStarts` is not 0.
    `engineKept: true` when the request ran on the engines an earlier request over the same compile kept. Without
    `entries`, `resetMs` is the time the test threads took to set up their own copy of the install baseline (the
    longest of them; 0 with one thread). With `entries`, each `entrySummary` has `timings` with that entry's `resetMs`
@@ -253,6 +254,9 @@ Differences a client must adapt to:
    it read (read again when the app files, the options or a file in a package folder change), the engines and the
    install baseline: a request that reuses the compile costs the tests and little else. What a request starts from is the same as when nothing is
    kept: the rows the install code left, none of an earlier request's writes.
+   The run clock is not kept: each request begins its own, at 12:34:56.789 UTC of the day the request starts, so a
+   server kept past midnight answers `Today` with the new date, as a new server would (ADR-045, amendment of
+   2026-11-22, Accepted (owner, 2026-11-22)).
    What each test codeunit starts from (in every request and every entry; al-runner issue 5862): a new session over
    the post-install database. Reset: table rows, the system id, row version and AutoIncrement counters,
    IsolatedStorage, NumberSequence, SingleInstance codeunits (also those of dependency apps), event bindings, handlers,

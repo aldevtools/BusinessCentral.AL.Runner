@@ -944,6 +944,9 @@ impl Session {
                  table field inserted (not measured)",
             );
         }
+        if st.borrow().coded_objects == super::state::CodedObjects::Extra {
+            self.coded_extra_shape(st)?;
+        }
         // The later SetValue's code on a page of the page-with-code shape may change both the row and Rec after the save: the
         // Update(false) shows the row as stored in every case ListNewLineExtraCodeCodedRecModify.al measures (Rec.Modify()
         // after the save :594, :607; another record's write then Rec read again :618; a field of Rec set after its Modify()

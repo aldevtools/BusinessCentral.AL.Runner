@@ -413,7 +413,7 @@ impl Session {
         let window_end = rows.len().min(at + Self::WINDOW);
         // A part with OnFindRecord runs it with '=>' before its first read and with '=' before its last (R7099PartFindRecordBoth.al
         // PG7099_Doc_Line2_Note `F(=>);R2;R3;R2;R1;R2;F(=);R2;C2`, _Line3_ `F(=>);R3;R2;R1;R3;F(=);R3;C3`, on Document, Card and
-        // ListPlus hosts; `both_later_row` is the only caller with such a part).
+        // ListPlus hosts; `both_later_row` and the exact issue 7820 later-cursor cell call it with such a part).
         let find = part && self.declares(st, "onfindrecord");
         if find {
             self.part_find_on_row(st, &rec, &rows[at], "=>")?;
