@@ -14,9 +14,10 @@
 //! `bg_catch_keeps_last_error` (by `catch_error`), `bg_worker_without_error` (by
 //! `Ctx::session_without_error`, GetLastErrorObject).
 
+use super::pinned_shape::TestCall;
 use super::*;
 use al_builtins::describe::Describe;
-use al_builtins::page_op::PageOp;
+use al_builtins::page_op::{PageMethod, PageOp};
 use al_builtins::value::Value as V;
 
 /// A worker codeunit that is running for a page background task.
@@ -394,6 +395,13 @@ impl Session {
         Ok(())
     }
 
+    /// Whether page `st` belongs to a page of the page-with-code shape with other code (`CodedObjects::Extra`) on its steps.
+    fn coded_extra_task(&self, st: &St) -> bool {
+        let (root, _) = Self::tree_root(st);
+        let r = root.borrow();
+        r.coded_line != super::state::CodedLine::Off && r.coded_objects == super::state::CodedObjects::Extra
+    }
+
     /// Runs the tasks the page enqueued, oldest first, each to its end: the completion trigger gets the
     /// worker's result, the error trigger its error. An error nobody marks as handled in
     /// `OnPageBackgroundTaskError` tears the page down, and what the caller sees is the closed page,
@@ -414,19 +422,34 @@ impl Session {
             // worker counts the rows the table field wrote and BC answers them (`U.DONE(2)`).
             let watch = {
                 let (root, _) = Self::tree_root(st);
-                let r = root.borrow();
-                r.coded_line != super::state::CodedLine::Off && r.coded_objects != super::state::CodedObjects::Extra
-            };
+                root.borrow().coded_line != super::state::CodedLine::Off
+            } && !self.coded_extra_task(st);
+            // On that page the cells' completion and error triggers set what the part shows, and ask no refresh
+            // (ListNewLineExtraCodeCodedTaskError.al:567, :578): a trigger that calls CurrPage.Update is not measured.
+            let extra = self.coded_extra_task(st);
             match self.bg_run_worker(codeunit, params, watch)? {
                 Ok(results) => {
+                    let asked = st.borrow().refresh.asked_by_update();
+                    let next_id = st.borrow().bg_next_id;
                     let r = self.bg_completed(st, id, &results);
+                    if extra {
+                        self.coded_extra_task_end(st, asked, next_id)?;
+                    }
                     self.torn_down_on_error(st, r)?;
                 }
                 // A failing worker under ErrorLevel Ignore: the error trigger runs, and the page stays open even though the
-                // trigger did not mark the error as handled (pages/background-tasks/W2BackgroundTasks.al:455 ErrorLevel_Ignore, `open|ok` = Yes,
-                // `log` = `error(id=n,row=L1,handled_in=false);`).
+                // trigger did not mark the error as handled (pages/background-tasks/W2BackgroundTasks.al:455 ErrorLevel_Ignore,
+                // `open|ok` = Yes, `log` = `error(id=n,row=L1,handled_in=false);`). On the measured Extra shape the same
+                // dispatch as its default-level error arm first refuses a worker or trigger error kind outside the cells
+                // (review of al-runner PR 8840, 19:11Z).
                 Err(e) if level == Some(2) => {
-                    self.bg_error(st, id, &e)?;
+                    if extra {
+                        let asked = st.borrow().refresh.asked_by_update();
+                        let next_id = st.borrow().bg_next_id;
+                        self.coded_extra_error(st, id, &e, asked, next_id)?;
+                    } else {
+                        self.bg_error(st, id, &e)?;
+                    }
                 }
                 // Under Error or Warning given as an argument, what a failing worker does to the page is not pinned
                 // (docs/probes-needed.md).
@@ -436,7 +459,12 @@ impl Session {
                     );
                 }
                 Err(e) => {
-                    let handled = self.bg_error(st, id, &e)?;
+                    let asked = st.borrow().refresh.asked_by_update();
+                    let next_id = st.borrow().bg_next_id;
+                    let handled = match extra {
+                        true => self.coded_extra_error(st, id, &e, asked, next_id)?,
+                        false => self.bg_error(st, id, &e)?,
+                    };
                     // A task a card enqueued while OpenView reads its first row (from OnAfterGetCurrRecord) whose error nobody handles: OpenView
                     // raises the worker's own text, its code with `:TargetInvocation` added (pages/lt-uj-outside-leads/
                     // UjPageExtBgTask.al UJ_PageExt_BgTask_Error_Unhandled_Base and _Ext, corpus branch al-runtime-rs-staging-uj
@@ -452,6 +480,34 @@ impl Session {
                         e.code = format!("{}:TargetInvocation", e.code);
                         return Err(Signal::Error(Box::new(e)));
                     }
+                    if !handled && self.coded_extra_task(st) {
+                        // A page of the page-with-code shape whose part leaves its task's error unhandled at the refresh of the
+                        // first SetValue: the worker's own text reaches the test with the code of the client's abort, and the page
+                        // is gone (ListNewLineExtraCodeCodedTaskError.al:589, `Task failed`, `ClientPageAbort:FormAbort`). A later
+                        // call on it, its close after a handler caught the error, and the error at any other step (the open's
+                        // blank record) are refused (review of al-runner PR 8840, 01:32Z).
+                        st.borrow_mut().bg_tasks.clear();
+                        let (root, _) = Self::tree_root(st);
+                        // The refresh of the landing, not the parts' read of the blank line at the start of the same
+                        // SetValue (review of al-runner PR 8840, 07:30Z).
+                        let landed = root.borrow().coded_line == super::state::CodedLine::Landed;
+                        root.borrow_mut().forget_code_inserted_line();
+                        let first_set_value = landed
+                            && matches!(
+                                Self::test_calls(&root).as_deref(),
+                                Some([TestCall::Page(PageMethod::New), TestCall::Write(_)])
+                            );
+                        if !first_set_value {
+                            return unsupported(
+                                "a page background task's error its part leaves unhandled on a List page of the page-with-code \
+                                 shape, at a step other than the first SetValue (not measured)",
+                            );
+                        }
+                        root.borrow_mut().coded_line = super::state::CodedLine::Failed;
+                        let mut e = e;
+                        e.code = "ClientPageAbort:FormAbort".into();
+                        return Err(Signal::Error(Box::new(e)));
+                    }
                     if !handled {
                         st.borrow_mut().bg_tasks.clear();
                         self.mark_closed(st);
@@ -460,6 +516,59 @@ impl Session {
                 }
             }
         }
+    }
+
+    /// The error trigger of a task on a page of the page-with-code shape with other code (`CodedObjects::Extra`) gets worker
+    /// error `e`: the cells' worker raises an AL `Error` with a text, and their trigger raises none
+    /// (ListNewLineExtraCodeCodedTaskError.al:578, :589). A worker's run-time error and an error the trigger raises itself are
+    /// not measured, and refused (deferred by the review of al-runner PR 8840, 07:30Z; docs/probes-needed.md).
+    fn coded_extra_error(&mut self, st: &St, id: i32, e: &AlError, asked: bool, next_id: i32) -> Result<bool, Signal> {
+        if !super::page_run_close::error_with_text(e) {
+            return self.coded_extra_refused(
+                st,
+                "a page background task whose worker failed with a run-time error, on a List page of the page-with-code shape \
+                 (not measured)",
+            );
+        }
+        let result = self.bg_error(st, id, e);
+        self.coded_extra_task_end(st, asked, next_id)?;
+        match result {
+            Err(Signal::Error(_)) => self.coded_extra_refused(
+                st,
+                "a page background task's error trigger that raised an error of its own, on a List page of the page-with-code \
+                 shape (not measured)",
+            ),
+            r => r,
+        }
+    }
+
+    /// After a task's completion or error trigger on a page of the page-with-code shape with other code: the cells' triggers set
+    /// what the part shows, ask no refresh and enqueue no task (ListNewLineExtraCodeCodedTaskError.al:567, :578). A trigger that
+    /// called CurrPage.Update (not `asked` before it ran), or enqueued a task (the page's next task id moved past `next_id`;
+    /// that task ran at its enqueue, `bg_drain_after_call`), is refused. The drain calls this immediately after each
+    /// completion or error trigger returns, before the trigger's result decides the task outcome.
+    fn coded_extra_task_end(&mut self, st: &St, asked: bool, next_id: i32) -> Result<(), Signal> {
+        if !asked && st.borrow().refresh.asked_by_update() {
+            return self.coded_extra_refused(
+                st,
+                "a page background task's completion or error trigger called CurrPage.Update on a List page of the page-with-code \
+                 shape (not measured)",
+            );
+        }
+        if st.borrow().bg_next_id > next_id {
+            return self.coded_extra_refused(
+                st,
+                "a page background task's completion or error trigger enqueued another task on a List page of the page-with-code \
+                 shape (not measured)",
+            );
+        }
+        Ok(())
+    }
+
+    /// Refuses a step of a page background task on a page of the page-with-code shape, the new line forgotten.
+    fn coded_extra_refused<T>(&self, st: &St, what: &'static str) -> Result<T, Signal> {
+        st.borrow_mut().forget_code_inserted_line();
+        unsupported(what)
     }
 
     /// Whether a page extension of the page declares trigger `name` (lower case).

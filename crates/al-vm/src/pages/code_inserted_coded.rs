@@ -98,13 +98,13 @@ impl Session {
     /// PR 8834, 21:06Z; the repro page :300-409 and the logging page :481-604):
     /// - the page: a List page with no page extension and no subscriber, that declares only PageType, SourceTable,
     ///   AutoSplitKey (as true), ApplicationArea and UsageCategory (`pinned_property`: no SourceTableView, so the view is in
-    ///   the primary key), and exactly the triggers OnOpenPage, OnAfterGetRecord and OnDeleteRecord; a table without
-    ///   OnInsert, OnModify, OnDelete and OnRename (`no_record_trigger`);
+    ///   the primary key), and exactly the triggers OnOpenPage, OnAfterGetRecord and OnDeleteRecord; a table without OnModify
+    ///   and OnRename (`no_save_trigger`; OnInsert and OnDelete measured by ListNewLineExtraCodeCodedTableTriggers.al);
     /// - its controls: a repeater without a property; fields of Rec or of a variable with no property but ApplicationArea and
     ///   Editable as false, and no trigger but OnValidate; actions with no property but ApplicationArea and no trigger but
     ///   OnAction; three part controls (`coded_extra_parts`).
     fn coded_extra_shape(&self, st: &St) -> Result<bool, Signal> {
-        if !(self.is_list_page(st) && self.unextended_unsubscribed(st) && self.no_record_trigger(st)) {
+        if !(self.is_list_page(st) && self.unextended_unsubscribed(st) && self.no_save_trigger(st)) {
             return Ok(false);
         }
         let engine = self.engine();
@@ -158,7 +158,7 @@ impl Session {
     /// only PageType and SourceTable, whose controls are fields with no property but ApplicationArea and no trigger, and
     /// actions with no property but ApplicationArea and no trigger but OnAction; the first part's only trigger
     /// OnAfterGetRecord, the second none, the third OnAfterGetCurrRecord, which enqueues a page background task, and
-    /// OnPageBackgroundTaskCompleted.
+    /// OnPageBackgroundTaskCompleted, and OnPageBackgroundTaskError as well (ListNewLineExtraCodeCodedTaskError.al:135-192).
     fn coded_extra_parts(&self, st: &St) -> Result<bool, Signal> {
         let key = self.table(&self.page_rec(st))?.keys[0].clone();
         let parts = st.borrow().parts.clone();
@@ -215,7 +215,7 @@ impl Session {
                 && Self::is_card_part(&engine, part_object)
                 && properties
                 && part_controls
-                && names == want
+                && (names == want || (want.len() == 2 && names == [want[0], want[1], "onpagebackgroundtaskerror"]))
                 && enqueues)
             {
                 return Ok(false);
@@ -298,8 +298,15 @@ impl Session {
     /// The test's `call` on host `st`, before it runs. After the open of `coded_open_on_empty_view`, the first SetValue of a
     /// control of the host after `New()` lets the parts read the new line first, OnAfterGetCurrRecord on the blank record (:1407
     /// `setname=W.AGCR();T.VN(Station);...`), and the validation must then land (`coded_must_have_landed`); any other call
-    /// ends the steps.
+    /// ends the steps. After a validation error before the landing (`CodedLine::Failed`) every call on the page or its parts is
+    /// refused: the cell's error leaves the handler (ListNewLineExtraCodeCodedTableTriggers.al:746).
     pub(super) fn coded_line_before_set_value(&mut self, st: &St, call: Option<TestCall>) -> Result<(), Signal> {
+        if call.is_some() && Self::tree_root(st).0.borrow().coded_line == CodedLine::Failed {
+            return unsupported(
+                "a call on a List page with code and FactBoxes after the validation of its first SetValue raised an error before \
+                 the landing (not measured)",
+            );
+        }
         if st.borrow().coded_line != CodedLine::EmptyOpen {
             return Ok(());
         }
@@ -391,6 +398,58 @@ impl Session {
             },
         );
         found
+    }
+
+    /// Whether error `e` of the first SetValue's validation on host `st`, a page of the page-with-code shape with other code, came
+    /// out of code the cells measure raising it, by its stack, innermost first: its table's OnInsert at the insert the landing
+    /// control's table field makes in its OnValidate (ListNewLineExtraCodeCodedTableTriggers.al:746, two frames); that table
+    /// field's OnValidate itself, a TestField before the insert or an error after it (:1249, :1259); the landing control's own
+    /// OnValidate before its save (:1269), or with the table field skipping its insert before or after the control's plain
+    /// save (:1674, :1684; `PageState::control_failed_as_measured`, review of al-runner PR 8840, 07:30Z), whatever the control
+    /// wrote before it in the measured cells (:2121-:2231, review of 09:29Z). A control error must be an AL `Error` with a
+    /// text: the other error kinds are not pinned and go through `coded_must_have_landed`. Any other stack keeps main's way
+    /// (review of al-runner PR 8840, 01:32Z and 19:11Z).
+    pub(super) fn coded_error_measured(&self, st: &St, e: &al_builtins::native::AlError) -> bool {
+        let landing = match Self::test_calls(st).as_deref() {
+            Some([TestCall::Page(PageMethod::New), TestCall::Write(landing)]) => *landing,
+            _ => return false,
+        };
+        let engine = self.engine();
+        let Some(control) = page_of(&engine, st).controls.get(landing) else {
+            return false;
+        };
+        let ir::Binding::Field(field) = control.binding else {
+            return false;
+        };
+        let page = st.borrow().object as usize;
+        let control_validate = control
+            .trigger("onvalidate")
+            .and_then(|r| crate::callstack::frame_head(&engine.program, page, r));
+        let table = self.page_rec(st).borrow().table as usize;
+        let routines = &engine.program.objects[table].routines;
+        let head = |found: Option<usize>| found.and_then(|r| crate::callstack::frame_head(&engine.program, table, r));
+        let on_insert = head(
+            routines
+                .iter()
+                .position(|r| r.is_trigger && r.field.is_none() && r.name.eq_ignore_ascii_case("OnInsert")),
+        );
+        let field_validate = head(
+            routines
+                .iter()
+                .position(|r| r.is_trigger && r.field == Some(field) && r.name.eq_ignore_ascii_case("OnValidate")),
+        );
+        let is =
+            |line: &str, head: &Option<String>| head.as_ref().is_some_and(|h| line.starts_with(&format!("{h} line ")));
+        match e.call_stack.lines().collect::<Vec<_>>().as_slice() {
+            [inner, outer] => is(inner, &on_insert) && is(outer, &field_validate),
+            [only] => {
+                is(only, &field_validate)
+                    || (is(only, &control_validate)
+                        && st.borrow().control_failed_as_measured
+                        && super::page_run_close::error_with_text(e))
+            }
+            _ => false,
+        }
     }
 
     /// Whether the validation of the SetValue that let the parts read the new line has landed on its row: before the landing an
