@@ -73,13 +73,27 @@ fn guarded_run_fail_probe_shapes() {
     // A failed run drops its marks: held then marked again (Inner_StartX_MarkYByA_MarkYByC_Fails), released then held
     // (Inner_StartX_TrueXByB_MarkYByA_Fails), marked again then held (Inner_MarkXByA_TrueXByB_MarkXByC_MarkYByA_Fails), a
     // FieldError after a global's mark (Inner_MarkGlobal_FieldError).
-    for name in ["HeldAgainFails", "ReleasedHeldFails", "AgainHeldFails", "FieldErrorFails"] {
+    for name in [
+        "HeldAgainFails",
+        "ReleasedHeldFails",
+        "AgainHeldFails",
+        "FieldErrorFails",
+    ] {
         assert_eq!(get(name), (Outcome::Pass, true), "{name}");
     }
     // A successful run with a mark marked again raises (Inner_StartX_MarkYByA_MarkYByC_Ends,
     // Inner_MarkXByA_TrueXByB_MarkXByC_MarkYByA_Ends, Inner_MarkXByA_TrueXByB_MarkXByC_TrueXByA_TrueYByA_Ends, _TrueXByC_TrueYByA_Ends).
-    for name in ["HeldAgainEnds", "AgainHeldEnds", "AgainLiftedByTrueEnds", "AgainLiftedByAgainTrueEnds"] {
-        assert_eq!(get(name), (Outcome::Fail("DB:TableInConsistent".into()), true), "{name}");
+    for name in [
+        "HeldAgainEnds",
+        "AgainHeldEnds",
+        "AgainLiftedByTrueEnds",
+        "AgainLiftedByAgainTrueEnds",
+    ] {
+        assert_eq!(
+            get(name),
+            (Outcome::Fail("DB:TableInConsistent".into()), true),
+            "{name}"
+        );
     }
     let refused = |name: &str, text: &str| match get(name).0 {
         Outcome::NotRun(why) => assert!(why.contains(text), "{name}: {why}"),
@@ -100,5 +114,8 @@ fn guarded_run_fail_probe_shapes() {
         refused(name, "in a shape no probe measured");
     }
     // A Commit while a mark is marked again: not measured.
-    refused("AgainThenCommit", "called Consistent on its Consistent(false) mark (not measured)");
+    refused(
+        "AgainThenCommit",
+        "called Consistent on its Consistent(false) mark (not measured)",
+    );
 }
