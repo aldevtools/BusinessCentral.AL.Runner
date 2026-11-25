@@ -10,8 +10,8 @@
 //! `Session::install_left` returned; when that is `None` the session the install code ran in becomes
 //! the first codeunit's session and every later codeunit runs the install code itself).
 //! `installs_for` is the install step of `run_codeunit_inner`. `begin_pass` and `end_run` set and
-//! clear the entries' resource texts; `end_run` also reports the install-order notes of the apps under test, each once
-//! per run (al-runner issue 9058). Entry points: `installs_for`, `run_installs_in`, `RunInstalls`,
+//! clear the entries' resource texts; `end_run` also gives the install-order notes of the apps under test, each
+//! codeunit's list once per run (al-runner issue 9058). Entry points: `installs_for`, `run_installs_in`, `RunInstalls`,
 //! `begin_pass`, `end_run`.
 use super::*;
 
@@ -31,12 +31,10 @@ pub(super) fn run_installs_in(
     session.set_install_scope(true);
     let (skipped, notes) = run_install_codeunits(lowered, session);
     session.set_install_scope(false);
-    // Each codeunit that runs the install code meets the same ties; the run reports each note once.
-    let mut kept = installs.notes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    for n in notes {
-        if !kept.contains(&n) {
-            kept.push(n);
-        }
+    // Codeunits that run the install code with the same resource texts meet the same ties: the run keeps each list once.
+    let mut lists = installs.notes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if !notes.is_empty() && !lists.contains(&notes) {
+        lists.push(notes);
     }
     skipped
 }
@@ -97,8 +95,9 @@ pub(crate) struct RunInstalls {
     kept: std::sync::Mutex<Option<Installed>>,
     /// How many times the install code ran for the run's codeunits (`Phases::install_runs`).
     runs: std::sync::atomic::AtomicUsize,
-    /// The notes of the install-order proof of the apps under test, each once (al-runner issue 9058; [`end_run`]).
-    notes: std::sync::Mutex<Vec<String>>,
+    /// The notes of the install-order proof of the apps under test, each codeunit's list once (al-runner issue 9058;
+    /// [`end_run`]).
+    notes: std::sync::Mutex<Vec<Vec<String>>>,
 }
 
 /// What the install code left the last time it ran for a run ([`start_installed`]).
@@ -145,28 +144,17 @@ pub(super) fn begin_pass(engine: &Engine, resources: &al_vm::ResourceOverrides) 
 }
 
 /// The end of a run's passes: the resource texts of its entries are not the next run's. Returns how many times the
-/// install code ran for the run's codeunits (`Phases::install_runs`). Adds the install-order lines of its proof to `facts`
-/// for `--timings` (`NoteFacts::install_orders`); unless `quiet` (no `--verbose`), prints every note of the proof, as the
-/// baseline prints its notes (al-runner issue 9058).
-pub(super) fn end_run(
-    engine: &Engine,
-    installs: &RunInstalls,
-    quiet: bool,
-    facts: &mut crate::baseline::NoteFacts,
-) -> usize {
+/// install code ran for the run's codeunits (`Phases::install_runs`), and the notes of its install-order proof, every
+/// reason of every tie (al-runner issue 9058; `--verbose` prints them as the baseline's).
+pub(super) fn end_run(engine: &Engine, installs: &RunInstalls) -> (usize, Vec<String>) {
     if let Ok(mut o) = engine.resource_overrides.write() {
         o.clear();
     }
-    let notes = std::mem::take(&mut *installs.notes.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
-    if !quiet {
-        for n in &notes {
-            eprintln!("install: {n}");
-        }
-    }
-    facts
-        .install_orders
-        .extend(crate::baseline::NoteFacts::of(&notes).install_orders);
-    installs.runs.load(std::sync::atomic::Ordering::Relaxed)
+    let lists = std::mem::take(&mut *installs.notes.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+    (
+        installs.runs.load(std::sync::atomic::Ordering::Relaxed),
+        lists.into_iter().flatten().collect(),
+    )
 }
 
 /// The install code of the apps under test runs once per run, not once per test codeunit (al-runner issue 8144), in a

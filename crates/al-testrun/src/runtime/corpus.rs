@@ -1237,9 +1237,7 @@ impl CorpusRuntime {
                 if from_cache {
                     eprintln!("baseline: read from the cache of an earlier run of this program");
                 }
-                for n in &b.notes {
-                    eprintln!("baseline: {n}");
-                }
+                crate::baseline::print_notes("baseline", &b.notes, false);
                 for l in b.restored_lines() {
                     eprintln!("baseline: {l}");
                 }
@@ -1824,7 +1822,8 @@ impl CorpusRuntime {
                 wall: pass_started.elapsed(),
             });
         }
-        let install_runs = super::install_once::end_run(&engine, &installs, opts.quiet_baseline, &mut baseline_ids);
+        let (install_runs, install_notes) = super::install_once::end_run(&engine, &installs);
+        baseline_ids.add_printed("install", &install_notes, opts.quiet_baseline);
         let login_replay = crate::login_start::phases(&engine);
         let tests_time = tests_started.elapsed();
         memory.pool().unwatch();
@@ -1876,6 +1875,7 @@ impl CorpusRuntime {
                 memory: memory.report(),
                 baseline_assumptions: baseline_ids.assumptions,
                 baseline_install_orders: baseline_ids.install_orders,
+                install_order_differences: baseline_ids.install_order_differences,
                 baseline_roots,
                 compile: compile_time,
                 baseline: baseline_time,

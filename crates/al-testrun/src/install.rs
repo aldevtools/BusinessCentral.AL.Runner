@@ -608,14 +608,16 @@ struct UnderTestInstalls<'a> {
 }
 
 impl crate::install_orders::AppInstalls for UnderTestInstalls<'_> {
-    type Mark = usize;
+    /// (refusals, notes).
+    type Mark = (usize, usize);
 
-    fn mark(&self) -> usize {
-        self.skipped.len()
+    fn mark(&self) -> (usize, usize) {
+        (self.skipped.len(), self.notes.len())
     }
 
-    fn rewind(&mut self, mark: &usize) {
-        self.skipped.truncate(*mark);
+    fn rewind(&mut self, &(skipped, notes): &(usize, usize)) {
+        self.skipped.truncate(skipped);
+        self.notes.truncate(notes);
     }
 
     fn install(&mut self, session: &mut Session, app: u32) {

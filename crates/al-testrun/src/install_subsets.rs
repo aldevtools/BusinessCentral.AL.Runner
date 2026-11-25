@@ -39,13 +39,38 @@ pub(crate) struct Proof<'p, 'g> {
     /// How many unit runs ran.
     runs: usize,
     /// Every difference a comparison measured, in every round: each is a difference between two real install orders.
-    /// (tables, reason, the apps of the unit whose runs measured it).
     measured: BTreeSet<Measured>,
 }
 
-/// A difference between two install orders: the tables that differ, the reason, and the apps of the unit whose runs
-/// measured it (their own writes were compared in every run, so a read of those tables does not taint them).
-type Measured = (BTreeSet<u32>, String, BTreeSet<u32>);
+/// A difference between two install orders, measured by the runs of one unit.
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct Measured {
+    /// The tables that differ.
+    pub tables: BTreeSet<u32>,
+    /// The refusal text, with the first [`SHOWN_DIFFERENCES`] differences.
+    pub why: String,
+    /// The apps of the unit (their own writes were compared in every run, so a read of those tables does not taint them).
+    pub own: BTreeSet<u32>,
+    /// Every difference, one baseline note each: the refusal's "--verbose lists them" (al-runner issue 9058).
+    pub lines: Vec<String>,
+}
+
+/// Refuses the tables of each of `measured` and notes its every difference, whichever end the proof took
+/// ([`Settled::apply`], [`Unproven::apply`]). Gives the sources for [`tainted`].
+pub(crate) fn refuse_measured<'m>(
+    measured: impl IntoIterator<Item = &'m Measured>,
+    inst: &mut impl AppInstalls,
+) -> Vec<Source> {
+    let mut sources = Vec::new();
+    for m in measured {
+        for l in &m.lines {
+            inst.note(l.clone());
+        }
+        sources.push((m.tables.clone(), m.own.clone()));
+        inst.refuse(m.tables.clone(), m.why.clone());
+    }
+    sources
+}
 
 /// A proven group: what the baseline notes say and which tables differ between the orders.
 #[derive(Default)]
@@ -273,7 +298,8 @@ impl<'p, 'g> Proof<'p, 'g> {
         Ok(UnitProof::Done)
     }
 
-    /// Compares the end databases of one unit's runs and adds the notes and refusals to `out`.
+    /// Compares the end databases of one unit's runs: the summary note goes to `out`, a difference to `measured` (its lines
+    /// with it, so every end of the proof notes them: [`refuse_measured`]).
     fn compare(
         &mut self,
         session: &Session,
@@ -328,8 +354,6 @@ impl<'p, 'g> Proof<'p, 'g> {
                 format!("the orders left different rows in {} table(s)", differ.len())
             }
         ));
-        out.notes
-            .extend(detail.iter().map(|l| format!("{INSTALL_ORDER_DIFFERENCE_NOTE}{l}")));
         if !differ.is_empty() {
             let tables = differ.iter().map(|&t| table_name(t)).collect::<Vec<_>>().join(", ");
             let first: Vec<&str> = detail.iter().take(SHOWN_DIFFERENCES).map(String::as_str).collect();
@@ -338,16 +362,21 @@ impl<'p, 'g> Proof<'p, 'g> {
             } else {
                 String::new()
             };
-            self.measured.insert((
-                differ,
-                format!(
-                    "the install order of apps {} is not known (no dependency path between them), and installing them \
-                     in each order leaves different rows in {tables} (ADR-079 decision 3; {}{more})",
-                    names_of(who),
-                    first.join("; ")
-                ),
-                own.clone(),
-            ));
+            let why = format!(
+                "the install order of apps {} is not known (no dependency path between them), and installing them in \
+                 each order leaves different rows in {tables} (ADR-079 decision 3; {}{more})",
+                names_of(who),
+                first.join("; ")
+            );
+            self.measured.insert(Measured {
+                tables: differ,
+                why,
+                own: own.clone(),
+                lines: detail
+                    .iter()
+                    .map(|l| format!("{INSTALL_ORDER_DIFFERENCE_NOTE}{l}"))
+                    .collect(),
+            });
         }
         Ok(())
     }
@@ -368,11 +397,7 @@ impl Settled {
         for n in self.notes {
             inst.note(n);
         }
-        let mut sources = Vec::new();
-        for (tables, why, own) in self.refusals {
-            sources.push((tables.clone(), own));
-            inst.refuse(tables, why);
-        }
+        let sources = refuse_measured(&self.refusals, inst);
         refuse_tainted(lowered, g, &proof.fp, &sources, inst);
         inst.note(format!(
             "{INSTALL_ORDERS_NOTE}{}: {} unit(s), {} tangle(s), {} subset run(s); proven by footprints (ADR-079)",
@@ -387,9 +412,10 @@ impl Settled {
 impl Unproven {
     /// Notes why the proof stopped. The install ran again with the order not known, so a meet stays refused where it is
     /// reached. Refused besides, since a run with the order not known does not refuse them: every difference a
-    /// comparison measured before the proof stopped; the tables written by every install of the group that reads what
-    /// another unordered app's install wrote, or writes what another writes (every table when one of them touches
-    /// everything or writes a number sequence or isolated storage); and what [`tainted`] adds to those.
+    /// comparison measured before the proof stopped, its lines noted ([`refuse_measured`]); the tables written by every
+    /// install of the group that reads what another unordered app's install wrote, or writes what another writes (every
+    /// table when one of them touches everything or writes a number sequence or isolated storage); and what [`tainted`]
+    /// adds to those.
     pub(crate) fn apply(self, lowered: &Lowered, g: &PartnerGroup, proof: &Proof, inst: &mut impl AppInstalls) {
         let why = format!(
             "{INSTALL_ORDERS_NOTE}{}: the runner cannot prove that every order of the apps with no dependency path \
@@ -398,11 +424,7 @@ impl Unproven {
             self.why
         );
         inst.note(why.clone());
-        let mut sources = Vec::new();
-        for (tables, w, own) in &proof.measured {
-            sources.push((tables.clone(), own.clone()));
-            inst.refuse(tables.clone(), w.clone());
-        }
+        let mut sources = refuse_measured(&proof.measured, inst);
         // The edges a run with the order not known does not refuse: footprints without the meets.
         let data: Footprints = (proof.fp.iter())
             .map(|(&a, f)| {
