@@ -27,6 +27,12 @@ table 50103 TRow
     fields { field(1; Id; Integer) { } field(2; Name; Text[50]) { } }
     keys { key(PK; Id) { } }
 }
+// A second committed table, for what the login does not write (the row delta).
+table 50104 Other
+{
+    fields { field(1; Id; Integer) { } }
+    keys { key(PK; Id) { } }
+}
 codeunit 50101 Peer
 {
     trigger OnRun() begin end;
@@ -69,6 +75,16 @@ codeunit 50100 Keeper
     begin
         exit(Format(T1.Count()) + '|' + T1.GetFilters() + '|' + Format(T1.Ascending()) + '|' + Format(T1.MarkedOnly()) + '|' + Format(T1.Id));
     end;
+    // What a login writes into a base of committed rows: three new rows and one changed row of Row.
+    procedure LoginWrites()
+    var R: Record Row; i: Integer;
+    begin
+        for i := 100001 to 100003 do begin R.Init(); R.Id := i; R.Name := 'login'; R.Insert(); end;
+        if R.Get(1) then begin R.Name := 'changed'; R.Modify(); end;
+        Commit();
+    end;
+    procedure OtherDeleted() var O: Record Other; begin O.Id := 7; O.Insert(); O.Delete(); Commit(); end;
+    procedure OtherEmptied() var O: Record Other; begin O.Id := 7; O.Insert(); O.DeleteAll(); Commit(); end;
     procedure FillDatabase() begin Rec.Id := 1; Rec.Name := 'é'; Rec.Insert(); Commit(); end;
     procedure Uncommitted() begin Rec.Id := 9; Rec.Insert(); end;
     procedure FillCollections() begin Items.Add(10); Items.Add(20); Dict.Add(1, 'a'); Dict.Add(2, 'é'); end;
@@ -129,18 +145,20 @@ struct Fx {
     keeper: usize,
     peer: usize,
     row: usize,
+    other: usize,
 }
 
 fn fx() -> Fx {
     let l = al_testkit::compile(SRC);
     let engine = Engine::new(l.program.clone(), al_testkit::blocked(&l));
     let at = |name: &str| engine.program.objects.iter().position(|o| o.name == name).expect(name);
-    let (keeper, peer, row) = (at("Keeper"), at("Peer"), at("Row"));
+    let (keeper, peer, row, other) = (at("Keeper"), at("Peer"), at("Row"), at("Other"));
     Fx {
         session: Session::new(engine),
         keeper,
         peer,
         row,
+        other,
     }
 }
 
@@ -217,7 +235,7 @@ fn new_session(s: &Session) -> Session {
 /// last store operation being a Commit, `SqlCounters::left_inactive`).
 fn image(s: &mut Session) -> LoginImage {
     s.commit_transaction();
-    s.login_image(0)
+    s.login_image(&crate::LoginBase::before_everything())
         .unwrap_or_else(|why| panic!("no image: {}", why.reason()))
 }
 
@@ -227,11 +245,14 @@ fn thaw(s: &Session, image: &LoginImage) -> Session {
     twin
 }
 
-/// Freezes `s`, thaws into a twin and asserts the twin's state lines equal `s`'s.
+/// Freezes `s`, thaws into a twin and asserts the twin's state lines equal `s`'s, as `s` held them at the freeze: the
+/// thaw puts the login's rows with a Commit on this thread, which moves the thread's store operation count that `s`'s SQL
+/// counters compare with (`SqlCounters::left_inactive`); al-testrun thaws on a thread of its own.
 fn round_trip(s: &mut Session) -> Session {
     let image = image(s);
+    let ours = s.state_lines();
     let mut twin = thaw(s, &image);
-    assert_eq!(s.state_lines(), twin.state_lines());
+    assert_eq!(ours, twin.state_lines());
     twin
 }
 
@@ -252,6 +273,8 @@ fn a_new_session_round_trips_with_no_difference() {
     round_trip(&mut f.session);
 }
 
+// The difference-only counters (`caught_errors`, `calls_made`) are no longer plain: the thaw keeps the target's own
+// (`a_difference_only_counter_is_kept_from_the_target_and_not_rendered`).
 #[test]
 fn every_plain_field_the_login_may_change_comes_back() {
     let mut f = fx();
@@ -265,12 +288,10 @@ fn every_plain_field_the_login_may_change_comes_back() {
     s.isolated_committed
         .insert(("a".into(), "k".into()), ("v".into(), true, false));
     s.autoinc.insert(("t".into(), 3), 17);
-    s.caught_errors = 3;
     s.next_guid = 5;
     s.commits += 7;
     s.application_areas = "#All".into();
     s.next_row_version += 3;
-    s.calls_made = 9;
     s.waited_ms = 1234;
     s.encrypted.insert("plain".into(), "cipher".into());
     s.tdd_reached.insert("stub".into());
@@ -281,12 +302,10 @@ fn every_plain_field_the_login_may_change_comes_back() {
     assert_eq!(twin.isolated_storage, s.isolated_storage);
     assert_eq!(twin.isolated_committed, s.isolated_committed);
     assert_eq!(twin.autoinc, s.autoinc);
-    assert_eq!(twin.caught_errors, 3);
     assert_eq!(twin.next_guid, 5);
     assert_eq!(twin.commits, s.commits);
     assert_eq!(twin.application_areas, "#All");
     assert_eq!(twin.next_row_version, s.next_row_version);
-    assert_eq!(twin.calls_made, 9);
     assert_eq!(twin.waited_ms, 1234);
     assert_eq!(twin.encrypted, s.encrypted);
     assert_eq!(twin.tdd_reached, s.tdd_reached);
@@ -532,6 +551,7 @@ fn media_and_event_counts_are_written_into_the_sessions_own_cells() {
     let image = image(&mut f.session);
     let mut twin = new_session(&f.session);
     let (objects, stats) = (Rc::as_ptr(&twin.media.objects), Rc::as_ptr(&twin.events.event_stats));
+    let ours = f.session.state_lines();
     twin.thaw_login_image(&image).expect("a new session takes the image");
     assert_eq!(Rc::as_ptr(&twin.media.objects), objects, "the session's own cell");
     assert_eq!(Rc::as_ptr(&twin.events.event_stats), stats, "the session's own cell");
@@ -541,7 +561,7 @@ fn media_and_event_counts_are_written_into_the_sessions_own_cells() {
     );
     assert_eq!(twin.events.event_stats.calls.borrow().get(&(0, 0)), Some(&3));
     assert_eq!(twin.events.event_stats.active.borrow().get(&1), Some(&2));
-    assert_eq!(f.session.state_lines(), twin.state_lines());
+    assert_eq!(ours, twin.state_lines());
 }
 
 #[test]
@@ -647,7 +667,7 @@ fn refused(f: &mut Fx) -> NotImaged {
 
 /// [`refused`] without the Commit: what an uncommitted change does to the freeze.
 fn refused_as_it_is(f: &mut Fx) -> NotImaged {
-    match f.session.login_image(0) {
+    match f.session.login_image(&crate::LoginBase::before_everything()) {
         Ok(_) => panic!("an image was made"),
         Err(why) => why,
     }
@@ -689,7 +709,7 @@ fn a_handle_held_outside_the_globals_refuses() {
     assert!(matches!(refused(&mut f), NotImaged::HeldOutside { .. }));
     drop(held);
     f.session
-        .login_image(0)
+        .login_image(&crate::LoginBase::before_everything())
         .unwrap_or_else(|why| panic!("{}", why.reason()));
 }
 
@@ -755,7 +775,7 @@ fn the_size_counts_what_the_image_holds() {
     // T1 and T2 share one table; TB, the temporary record of a table with a Blob field, is a second one (no rows).
     assert_eq!(size.temp_tables, 2);
     assert_eq!(size.temp_rows, 3);
-    assert!(size.rows_own_bytes <= size.rows_bytes);
+    assert!(size.rows_bytes + size.state_bytes <= size.kept_bytes);
     assert!(size.nodes >= size.instances + size.temp_tables);
 }
 
@@ -870,6 +890,232 @@ fn a_committed_row_blob_mark_refuses_in_the_twin_as_in_the_original() {
     assert_eq!(outcome(&mut twin, f.keeper, "ReadUtf16"), ours);
 }
 
+// Al-runner issue 8211: the rows of a start as a delta over the session's own starting store, the base shape, the target
+// rule and the kept bytes.
+
+/// Puts committed rows with ids `ids` into table `object` of `s`: the base a login starts from.
+fn put_rows(s: &mut Session, object: usize, ids: std::ops::Range<i32>) {
+    use al_data::Store;
+    let table = s.engine.tables[object].clone().expect("a table");
+    let cx = al_data::AccessContext {
+        company: s.access_company().into(),
+        user: s.user_id().into(),
+    };
+    for id in ids {
+        let mut row: Vec<Value> = table.fields.iter().map(|f| Value::default_for(&f.ty)).collect();
+        row[0] = Value::Integer(id);
+        assert!(s.store_mut().insert(&cx, &table, row).is_ok());
+    }
+    s.commit_transaction();
+}
+
+/// Every committed row of table `object` of `s`, one line each, in key order.
+fn table_rows(s: &mut Session, object: usize) -> Vec<String> {
+    let tables = s.store_mut().export_committed().expect("plain rows");
+    (tables.iter().filter(|t| t.object as usize == object))
+        .flat_map(|t| &t.rows)
+        .map(|(_, row)| format!("{row:?}"))
+        .collect()
+}
+
+/// The image of `s` after its login, with the store the login started from taken before it as `base`.
+fn image_after(s: &mut Session, base: &crate::LoginBase) -> LoginImage {
+    s.commit_transaction();
+    s.login_image(base)
+        .unwrap_or_else(|why| panic!("no image: {}", why.reason()))
+}
+
+// A guard: a thaw into a session that holds the same starting store as the original
+// did before its login (the replay's target) leaves it equal to the original: the state lines and the rows of the table
+// The login wrote. The thaw puts the row delta over the target's own store.
+#[test]
+fn a_thaw_in_place_into_a_session_before_its_login_equals_the_original() {
+    let mut f = fx();
+    put_rows(&mut f.session, f.row, 1..6);
+    let mut target = new_session(&f.session);
+    put_rows(&mut target, f.row, 1..6);
+    let base = f.session.login_base();
+    f.run("LoginWrites");
+    let image = image_after(&mut f.session, &base);
+    target.thaw_login_image(&image).expect("a new session takes the image");
+    assert_eq!(lines_without_sql(&mut f.session), lines_without_sql(&mut target));
+    let (ours, theirs) = (table_rows(&mut f.session, f.row), table_rows(&mut target, f.row));
+    assert_eq!(ours.len(), 5 + 3, "the base and the login's three new rows");
+    assert_eq!(ours, theirs);
+}
+
+/// The `kept_bytes` of the image of a session whose base holds `n` committed rows of Row and whose login writes the same
+/// three new rows and one changed row (`LoginWrites`) whatever `n` is.
+fn kept_after_login(n: i32) -> u64 {
+    let mut f = fx();
+    put_rows(&mut f.session, f.row, 1..n + 1);
+    let base = f.session.login_base();
+    f.run("LoginWrites");
+    image_after(&mut f.session, &base).kept_bytes()
+}
+
+// What a start keeps of the rows is the login's own, not the whole store: a base of 2,000 rows does not make the image
+// Larger than a base of 20 (the row delta).
+#[test]
+fn the_image_keeps_only_the_rows_the_login_wrote() {
+    let (small, big) = (kept_after_login(20), kept_after_login(2000));
+    assert!(small > 0, "kept_bytes counts what the image holds: {small}");
+    assert!(
+        big.abs_diff(small) < 1024,
+        "a base of 2,000 rows keeps {big} bytes, one of 20 keeps {small}: the rows of the base are not the image's"
+    );
+}
+
+// A row of a table the login did not write stays as the target has it: the target holds a row the original never had, in
+// A table the login did not touch, and the thaw does not remove it (better than the full store where the key is short).
+#[test]
+fn a_thaw_leaves_a_row_the_login_did_not_write_as_the_target_has_it() {
+    let mut f = fx();
+    put_rows(&mut f.session, f.row, 1..6);
+    let mut target = new_session(&f.session);
+    put_rows(&mut target, f.row, 1..6);
+    put_rows(&mut target, f.other, 7..8);
+    let base = f.session.login_base();
+    f.run("LoginWrites");
+    let image = image_after(&mut f.session, &base);
+    target.thaw_login_image(&image).expect("a new session takes the image");
+    assert_eq!(
+        table_rows(&mut target, f.other).len(),
+        1,
+        "the target's row of a table the login did not write"
+    );
+    assert_eq!(table_rows(&mut target, f.row), table_rows(&mut f.session, f.row));
+}
+
+// Two stores that hold the same rows can still differ in what a row delta assumes: an empty table entry is not an absent
+// Table, an emptied mark is a state of its own (`BaseShape`).
+#[test]
+fn the_base_shape_names_an_empty_entry_and_an_emptied_mark() {
+    let mut deleted = fx();
+    deleted.run("OtherDeleted");
+    let mut emptied = fx();
+    emptied.run("OtherEmptied");
+    let absent = fx();
+    assert_ne!(
+        deleted.session.base_shape(),
+        absent.session.base_shape(),
+        "an empty table entry is not an absent table"
+    );
+    assert_ne!(
+        deleted.session.base_shape(),
+        emptied.session.base_shape(),
+        "a table emptied by DeleteAll is marked"
+    );
+    assert!(!emptied.session.base_shape().marks.emptied.is_empty());
+}
+
+// A company deleted with its rows takes the rows the database holds in it (`MemStore::drop_company`), which no row shows:
+// two stores with the same rows differ in it, and a row delta put on the one assumes the other's reads (maintainer's
+// review of al-runner PR 8665).
+#[test]
+fn the_base_shape_names_a_deleted_company() {
+    let mut deleted = fx();
+    deleted.session.store.drop_company("Other");
+    deleted.session.commit_transaction();
+    let fresh = fx();
+    assert_ne!(deleted.session.base_shape(), fresh.session.base_shape());
+}
+
+// The image keeps the shape of the store its login started from, so a replay can compare it with the target's.
+#[test]
+fn the_image_keeps_the_base_shape_it_started_from() {
+    let mut f = fx();
+    put_rows(&mut f.session, f.row, 1..4);
+    let before = f.session.base_shape();
+    assert!(!before.tables.is_empty(), "a base with rows has a shape: {before:?}");
+    let base = f.session.login_base();
+    f.run("LoginWrites");
+    let image = image_after(&mut f.session, &base);
+    assert_eq!(image.base_shape(), &before);
+}
+
+// The thaw's target rule, with the name of what keeps a session from taking a start: the first field of the `at_rest`
+// Rule or of the `refuse` class that does not hold a new session's value.
+#[test]
+fn thaw_target_why_names_what_keeps_a_session_from_a_start() {
+    let f = fx();
+    assert_eq!(f.session.thaw_target_why(), None, "a new session is a target");
+    let mut s = new_session(&f.session);
+    s.enable_coverage();
+    assert_eq!(s.thaw_target_why(), Some("coverage"));
+    let mut s = new_session(&f.session);
+    s.trace_faults(true);
+    assert_eq!(s.thaw_target_why(), Some("fault_trace"));
+    // An uncaught test-ending error: `error_finals`, a field of the `at_rest` rule.
+    let mut s = new_session(&f.session);
+    s.error_finals = Some(Vec::new());
+    assert_eq!(s.thaw_target_why(), Some("error_finals"));
+    let mut s = new_session(&f.session);
+    s.company_build = true;
+    assert_eq!(s.thaw_target_why(), Some("company_build"));
+    // An access watch on the store would see the thaw's writes.
+    let mut s = new_session(&f.session);
+    s.store_mut().watch(std::collections::BTreeSet::from([f.row as u32]));
+    assert!(
+        s.thaw_target_why().is_some(),
+        "a store watch keeps a session from a start"
+    );
+}
+
+// A record node's vectors (its field values, its filters) count in the image's kept bytes, so the number is no longer a
+// Lower bound: a record whose field holds a 10 KB text keeps more than 10,000 bytes.
+#[test]
+fn the_kept_bytes_count_a_record_nodes_vectors() {
+    let mut f = fx();
+    f.keeper_instance();
+    record_of(f.get("Rec")).borrow_mut().fields[1] = Value::Text("x".repeat(10_000).into());
+    let size = image(&mut f.session).size();
+    assert!(size.kept_bytes > 10_000, "kept_bytes {}", size.kept_bytes);
+}
+
+// The size counts the nodes per kind (names from `NODE_KINDS`, no value).
+#[test]
+fn the_size_counts_nodes_per_kind() {
+    let mut f = fx();
+    let p = f.peer();
+    f.set("A", Value::Codeunit(p));
+    f.run("FillTemps");
+    let size = image(&mut f.session).size();
+    let of = |kind: &str| {
+        let at = crate::login_image::NODE_KINDS
+            .iter()
+            .position(|k| *k == kind)
+            .expect(kind);
+        size.kinds[at].count
+    };
+    assert_eq!(of("instance"), size.instances);
+    assert_eq!(of("temporary table"), size.temp_tables);
+    assert!(of("record") >= 2, "T1 and T2 are record nodes: {size:?}");
+    assert_eq!(size.kinds.iter().map(|k| k.count).sum::<usize>(), size.nodes);
+}
+
+// A count read only as a difference around one call (`counter` class: `calls_made`,
+// `caught_errors`, `deletes`, `rollbacks`) is not imaged: the thaw keeps the target's own, and no state line renders it.
+#[test]
+fn a_difference_only_counter_is_kept_from_the_target_and_not_rendered() {
+    let mut f = fx();
+    f.session.calls_made = 9;
+    f.session.deletes = 7;
+    let image = image(&mut f.session);
+    let mut target = new_session(&f.session);
+    target.calls_made = 5;
+    target.deletes = 2;
+    target.thaw_login_image(&image).expect("a new session takes the image");
+    assert_eq!((target.calls_made, target.deletes), (5, 2));
+    let lines = target.state_lines().lines;
+    for name in ["calls_made", "caught_errors", "deletes", "rollbacks"] {
+        assert!(
+            !lines.iter().any(|l| l.starts_with(&format!("field.{name} "))),
+            "{name}"
+        );
+    }
+}
+
 // A thaw into a session that is not a new one at rest (a call runs in it, it holds state the image requires as new, or
 // it is of another engine) is refused, not a panic, and leaves the session as it was: its caller runs the login in it
 // instead (issue 8211).
@@ -911,6 +1157,22 @@ fn a_thaw_into_a_session_that_is_not_new_refuses_and_leaves_it_as_it_was() {
     assert_eq!(other.state_lines().lines, before);
 }
 
+// A target whose store does not hold a table the login changed row by row (another base than the start's; the replay's
+// gate compares the base shapes first) does not take the image: the thaw refuses before it changes anything, and the
+// target runs its login instead (issue 8211).
+#[test]
+fn a_thaw_onto_a_store_without_the_tables_the_login_changed_refuses() {
+    let mut f = fx();
+    put_rows(&mut f.session, f.row, 1..6);
+    let base = f.session.login_base();
+    f.run("LoginWrites");
+    let image = image_after(&mut f.session, &base);
+    let mut target = new_session(&f.session);
+    let before = (lines_without_sql(&mut target), table_rows(&mut target, f.row));
+    assert_eq!(target.thaw_login_image(&image), Err(NotThawed::Rows));
+    assert_eq!((lines_without_sql(&mut target), table_rows(&mut target, f.row)), before);
+}
+
 // A Commit at a type other than Update keeps the type and marks it `commit-keeps-transaction-type`
 // (`Session::keep_type_at_commit`). Code that reads CurrentTransactionType before the first test method starts is flagged
 // through that mark, so the twin must carry it.
@@ -926,7 +1188,7 @@ fn a_login_that_commits_at_snapshot_gives_the_same_type_origin_in_the_twin() {
     let image = image(&mut f.session);
     let mut twin = thaw(&f.session, &image);
     assert_eq!(twin.tx.type_origin, f.session.tx.type_origin);
-    assert_eq!(f.session.state_lines(), twin.state_lines());
+    assert_eq!(lines_without_sql(&mut f.session), lines_without_sql(&mut twin));
 }
 
 // `Record.Copy(x, true)` notes its target on the table's token (al-builtins `TempId::note_copy_target`), and ClearAll of a
