@@ -1,26 +1,2 @@
 # key	entry
-# Against main (#8895 has landed): the cells whose answer this pull request changes. Main refuses a CalcFormula's filter('@')
-# and filter('<>@') with another method than sum or over a Time, DateTime, Duration, BigInteger, Guid, Enum or captioned Option
-# source field, the error results in languages 1031 and 1030, <>@ through field(filter()) of a normal field over a Code field,
-# and <>@ in filter group 1 of a temporary record; the head runs them as BC answered them (corpus PR 1495,
-# AtSignAloneTypes.al and AtSignAloneMethods.al:507). Date Count in the combined language cases is a row result, so the head
-# keeps that result while the new language gate applies only to error-producing fields.
-AM Kind Tests::AtSignAloneNegated_FilterGroupOne_Temporary	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneMethods.al:507)
-AN Source Neighbor Tests::AtSignAlone_CountOverDateSource	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:651)
-AN Source Neighbor Tests::AtSignAlone_SumOverTimeSource	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:785)
-AT Type Tests::AtSignAlone_BigSource_Methods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:857)
-AT Type Tests::AtSignAlone_DaySource_Methods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:651)
-AT Type Tests::AtSignAlone_DecSource_Methods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:695)
-AT Type Tests::AtSignAlone_DurSource_Methods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:833)
-AT Type Tests::AtSignAlone_FieldFilterOfPattern_Methods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:1027)
-AT Type Tests::AtSignAlone_FieldFilterOfPattern_Methods_TemporaryHost	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:1041)
-AT Type Tests::AtSignAlone_FlagSource_Methods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:717)
-AT Type Tests::AtSignAlone_KindSource_Methods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:905)
-AT Type Tests::AtSignAlone_MomentSource_Methods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:809)
-AT Type Tests::AtSignAlone_NumSource_Methods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:673)
-AT Type Tests::AtSignAlone_OptCapSource_Methods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:761)
-AT Type Tests::AtSignAlone_OptSource_Methods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:739)
-AT Type Tests::AtSignAlone_OtherSourceErrors_Language1030	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:974)
-AT Type Tests::AtSignAlone_OtherSourceErrors_Language1031	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:935)
-AT Type Tests::AtSignAlone_TmSource_Methods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:785)
-AT Type Tests::AtSignAlone_UidSource_Methods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:881)
+# The original at-sign paths now also exist on main. This cleanup adds no difference in this app.
