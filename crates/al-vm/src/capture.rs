@@ -164,7 +164,8 @@ fn synthetic(name: &str) -> bool {
     name.is_empty() || name.starts_with("__") || name.starts_with('$')
 }
 
-fn root_local(p: &ir::Place) -> Option<usize> {
+/// The local a place is rooted in.
+pub(crate) fn root_local(p: &ir::Place) -> Option<usize> {
     match p {
         ir::Place::Local(i) => Some(*i),
         ir::Place::Index(b, _) | ir::Place::Field(b, _) | ir::Place::RecGlobal(b, ..) => root_local(b),

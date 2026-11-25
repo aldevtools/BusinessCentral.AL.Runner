@@ -1,0 +1,2 @@
+# key	entry
+IDS Test::SetRangeIntegerOnDate	ASSUMED setrange-other-type-convert (corpus PR 1552, open)

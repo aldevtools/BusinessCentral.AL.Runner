@@ -328,3 +328,26 @@ fn other_accents_in_a_key_keep_mains_order() {
     let s = store(&[("Bravo", "A"), ("émile", "B")], false);
     assert_eq!(name(&first(&s, 0, &[]).unwrap().unwrap()), "Bravo");
 }
+
+/// A store that `with_committed_tables` builds refuses what the store its tables came from refuses: it notes the held
+/// columns of the rows it takes in, as `from_exported` does. The table put on an empty store, and the table put in place
+/// of a base's own table, which held only a row that refuses nothing.
+#[test]
+fn a_store_built_from_committed_tables_refuses_an_order_its_source_refuses() {
+    let mut source = store(&[("Alpha", "A"), ("ærø", "B"), ("Bravo", "C")], true);
+    source.commit();
+    assert!(refused(first(&source, 0, &[])), "the source");
+    let table = source.committed_table("C", names().object).unwrap();
+    let built = MemStore::default()
+        .as_database()
+        .with_committed_tables(vec![table.clone()], &[]);
+    assert!(refused(first(&built, 0, &[])), "the table put on an empty store");
+    let mut base = store(&[("Alpha", "A")], true);
+    base.commit();
+    assert!(!refused(first(&base, 0, &[])), "the base");
+    let replaced = base.with_committed_tables(vec![table], &[]);
+    assert!(
+        refused(first(&replaced, 0, &[])),
+        "the table put in place of the base's"
+    );
+}

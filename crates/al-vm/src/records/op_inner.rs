@@ -1599,7 +1599,7 @@ impl Session {
                     }
                     // types/date-time/P143Guid_Filters.al:P143_GuidInvalid, P143Date_FieldRef.al:P143_FieldRefGuid.
                     Err(e) if e.starts_with(al_builtins::filter::INVALID_GUID) => {
-                        let reason = "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.";
+                        let reason = al_builtins::native::INVALID_GUID_FORMAT;
                         return Err(self.filter_error(&t, pos, text.trim(), reason));
                     }
                     // An empty side of `|` in the measured shapes (`setfilter_empty_or_side`); every other text main refused.

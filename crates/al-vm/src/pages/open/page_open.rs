@@ -198,6 +198,7 @@ impl Session {
         record: Option<Rec>,
         bind: Option<UiKind>,
     ) -> Result<Option<Handler>, Signal> {
+        st.borrow_mut().open_changes = self.store.change_counter();
         let handed = self.data_caption_handed(st, record.as_ref());
         let handed_record = record.as_ref().map(|r| r.borrow().clone());
         let handler = self.open_page_as(st, mode, record, bind, false)?;

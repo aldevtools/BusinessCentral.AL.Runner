@@ -284,10 +284,11 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `install.rs`: The install code of each app. Entry: `plan`.
 - `install_orders.rs`: The install order of apps with no dependency path: Microsoft's first, partner groups recorded and proven. Entry: `split_microsoft`, `install_partner_apps`.
 - `install_proof.rs`: The influence graph of a partner group's installs and its units. Entry: `Graph::of`.
-- `install_subsets.rs`: The subset runs that prove a group's install independent of order. Entry: `Proof::settle`.
+- `install_subsets.rs`: The runs that prove a group's install independent of order: per order of a unit's apps and per place of its inputs among them. Entry: `Proof::settle`.
 - `impact_static.rs`: Static selection: the graph of routines, objects. Entry: `Graph`.
 - `login.rs`: The test session's login. Entry: `decide`.
 - `login_replay.rs`: The check that a replay of the raised login would… Entry: `Key::of`.
+- `login_replay/` (2 files): What the login replay check's report names: where two states differ, and the parts a new key differs in, never a value. Entry: `differences`, `KeyParts::of`. Files: `difference.rs`, `key_parts.rs`
 - `partner_login.rs`: The partner dependency apps' "System… Entry: `subscribers`.
 - `license.rs`: Which BC license a run uses: `--license FILE`. Entry: `LicenseUse`.
 - `isolation.rs`: TestIsolation of the runner codeunit. Entry: `TestIsolation`.
@@ -353,6 +354,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `order_trial.rs`: A subscriber whose install order is not known runs… Entry: `trial_start`.
 - `callstack.rs`: The AL call stack of an error and the live stack. Entry: `add_frame`.
 - `caught_errors.rs`: The count of errors AL code caught: asserterror. Entry: `catch_error`.
+- `clear_shared_codeunit.rs`: Clear and ClearAll of a codeunit variable whose instance another holder shares. Entry: `Session::clear_shared_codeunit`.
 - `crm.rs`: A `TableType = CRM` table through the `@@test@@`… Entry: `connection_check`.
 - `companies.rs`: The company a record works in, ChangeCompany. Entry: `find_company`.
 - `dataset.rs`: The dataset XML `Report.SaveAs` writes: header. Entry: `dataset_name`.
@@ -390,6 +392,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `single_track.rs`: The notes of a session that watches SingleInstance…
 - `single_unmeasured.rs`: SingleInstance codeunits whose state the run found…
 - `var_option.rs`: An Option handed to a `var` parameter whose… Entry: `var_binding`.
+- `var_option/carried.rs`: A memberless `var` Option parameter handed on to one with members: the measured origins, lists and callee uses, and a parameter with members handed to a memberless one that only formats it (assumption var-option-carried-members). Entry: `carried_args`, `hand_on_args`.
 - `session_language.rs`: The session language and its one writer…
 - `state.rs`: Sub-states of `Session`: `TxState` (what ends…
 - `pages.rs`: The page test client: shared helpers.
@@ -425,23 +428,27 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `raise_to.rs`: `Session::raise_to`, an event raised to some…
 - `storage_checkpoint.rs`: The isolated storage and number sequences at a test… Entry: `storage_checkpoint`.
 - `sequence_start.rs`: The number sequences as a test codeunit's tests… Entry: `SequenceStart`.
+- `setrange_convert.rs`: A value of another type than the field's given to SetRange or SetFilter from AL code… Entries: `fieldref_setrange_convert`, `record_setrange_convert`.
 - `state_stamp.rs`: The session language, WorkDate. Entry: `Session::state_stamp`.
 - `state_render.rs`: The one owner of how a value reads… Entry: `Render::new`.
 - `state_facts.rs`: The facts `Session::state_lines` compares besides…
 - `slot_default.rs`: The value a routine's local or an object's global… Entry: `slot_default`.
 - `install_left.rs`: `install_left/clients.rs`. Entry: `Session::install_left`.
 - `session_fields.rs`: Every `Session` field in one class of one table. Entry: `Session::at_rest_why`.
+- `login_image.rs`: The session image after the raised login, and a new session made to hold it. Entry: `Session::login_image`.
 - `resource_reads.rs`: The resource files of the apps AL code of a session… Entry: `Session::resource_reads`.
 - `sqlcount.rs`: The model behind `SqlStatementsExecuted` /… Entry: `SqlCounters::read`.
 - `tasks.rs`: `TaskScheduler.CreateTask`, `TaskExists`, `CancelTask`. Entry: `Session::task_scheduler_op`.
 - `tenant_set_delete.rs`: The Delete or DeleteAll of a stored Tenant… Entry: `tenant_set_delete_one`.
 - `testdata.rs`: Test data: `TestBacking` maps a provider's columns… Entry: `TestBacking`.
 - `transaction_type.rs`: `Database.CurrentTransactionType`. Entry: `current_transaction_type`.
+- `transaction_type_saved.rs`: A `CurrentTransactionType` read while the type is not known whose value only sets it back. Entry: `Session::read_saved_for_set_back`.
 - `transactions.rs`: Transactions as AL code sees them. Entry: `TxModel`.
-- `consistent_marks.rs`: The tables `Record.Consistent` marks. Entry: `Session::set_consistent`.
+- `consistent_marks.rs`: `Record.Consistent` marks and how a run or Commit ends on one. Entry: `Session::set_consistent`.
 - `ui.rs`: Dialogs raised by the code under test and the test… Entry: `UiKind`.
 - `dev_endpoint_ui.rs`: `--dev-endpoint-ui`: the answer of the dev-endpoint…
 - `clientless.rs`: What a dialog does in a session without a client.
 - `variant_copy.rs`: A temporary record going from a Variant into a Variant. Entry: `source_of`.
 - `views.rs`: Filter and view text: SetView, GetFilters. Entry: `parse_filter_text`.
 - `xmlports/mod.rs`: XmlPort import and export (Format = Xml).
+- `xmlports/linked_view.rs`: Import of a linked element whose SourceTableView has one `const`. Entry: `xp_linked_view_entry`.

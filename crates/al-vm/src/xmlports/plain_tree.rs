@@ -260,7 +260,7 @@ impl Session {
             let m = schema.node(child);
             match m.kind {
                 ir::XmlNodeKind::Field => {
-                    let pos = self.xp_assign_field_elem(inst, schema, child, ce)?;
+                    let pos = self.xp_assign_field_elem(inst, schema, child, ce)?.0;
                     assigned.push(pos);
                 }
                 ir::XmlNodeKind::Text if schema.children(child).is_empty() => {
