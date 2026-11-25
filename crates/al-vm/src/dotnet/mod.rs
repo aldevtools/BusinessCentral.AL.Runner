@@ -1440,7 +1440,8 @@ impl Session {
             Value::Decimal(d) => DotNetValue::Decimal(d.to_string()),
             Value::Text(s) | Value::Code(s) => DotNetValue::Str(s.to_string()),
             // A Date or DateTime is a .NET DateTime of unspecified kind, with no time zone shift;
-            // the kind and zone rule is a probe (docs/probes-needed.md).
+            // the kind and zone rule is a probe (docs/probes-needed.md). `zone_rules.rs` `zone_datetime_kind` gives the
+            // TimeZoneInfo members that read the kind their own rule.
             Value::Date(0, _) | Value::DateTime(0) => {
                 return unsupported("an undefined Date or DateTime passed to .NET (what BC sends is not pinned)");
             }

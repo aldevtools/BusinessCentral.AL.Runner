@@ -22,8 +22,8 @@ impl Parser<'_> {
     /// corpus pull request 1327): TAB, LF, CR, 1, 8, 12, 27 and 31 in a value in double quotes, for JsonObject, JsonToken,
     /// JsonArray and JsonValue (:440-509 ObjectReadFromRawControlInString .. ValueReadFromRawControlInString); only TAB in a key
     /// (:549 `tok_tab_in_key`) and in a value in single quotes (:550 `tok_tab_single_quoted`). al-runner issue 7812: a raw TAB in
-    /// Microsoft's Sales Lines Suggestions dataset. The other characters, places and readers are not measured.
-    fn raw_control_measured(&self, b: u8, quote: u8, at: StringAt) -> bool {
+    /// Microsoft's Sales Lines Suggestions dataset.
+    fn raw_control_pinned(&self, b: u8, quote: u8, at: StringAt) -> bool {
         if self.reader != Reader::ReadFromText {
             return false;
         }
@@ -31,6 +31,13 @@ impl Parser<'_> {
             return b == 9;
         }
         matches!(b, 1 | 8 | 9 | 10 | 12 | 13 | 27 | 31)
+    }
+
+    /// Whether the raw control character `b` is kept as part of a string under the assumption `json-readfrom-raw-control`
+    /// (al-runner issue 7812; corpus pull request PROBE_PR): ReadFrom of a Text or of an InStream keeps every code 1 to 31
+    /// in a value and in a key, in double and in single quotes. Code 0 and every other reader are not measured.
+    fn raw_control_assumed(&self, b: u8) -> bool {
+        matches!(self.reader, Reader::ReadFromText | Reader::ReadFromStream) && (1..=0x1f).contains(&b)
     }
 
     pub(super) fn string(&mut self, at: StringAt) -> PResult<String> {
@@ -64,7 +71,12 @@ impl Parser<'_> {
                     };
                     units.push(c);
                 }
-                0..=0x1f if self.raw_control_measured(b, quote, at) => {
+                0..=0x1f if self.raw_control_pinned(b, quote, at) => {
+                    units.push(u16::from(b));
+                    self.i += 1;
+                }
+                0..=0x1f if self.raw_control_assumed(b) => {
+                    crate::assumptions::assume(crate::assumptions::Assumption::JsonReadfromRawControl);
                     units.push(u16::from(b));
                     self.i += 1;
                 }
@@ -106,7 +118,8 @@ mod tests {
     use super::super::{parse, parse_read_from};
     use crate::native::Signal;
 
-    /// The measured raw control characters read as part of the string; the others are refused, not read as false.
+    /// The pinned raw control characters read as part of the string; the other codes 1 to 31 read under the assumption
+    /// `json-readfrom-raw-control`; code 0 and the readers other than ReadFrom are refused, not read as false.
     #[test]
     fn a_raw_control_character_reads_only_where_measured() {
         for c in [1u8, 8, 9, 10, 12, 13, 27, 31] {
@@ -115,13 +128,21 @@ mod tests {
             // Only ReadFrom(Text) was measured.
             assert!(matches!(parse(&text), Err(Signal::Unsupported(_))), "{c}");
         }
-        for c in [2u8, 7, 11, 14, 26, 30] {
-            let text = format!("{{\"a\":\"x{}y\"}}", c as char);
-            assert!(
-                matches!(&parse_read_from(&text), Err(Signal::Unsupported(w)) if w.contains("raw control character")),
-                "{c}"
-            );
+        for c in [2u8, 7, 11, 14, 21, 26, 30] {
+            for text in [
+                format!("{{\"a\":\"x{}y\"}}", c as char),
+                format!("{{\"a{}b\":1}}", c as char),
+                format!("{{'a':'x{}y'}}", c as char),
+            ] {
+                crate::assumptions::clear_hits();
+                assert!(matches!(parse_read_from(&text), Ok(Some(_))), "{c}");
+                assert!(crate::assumptions::hit(crate::assumptions::Assumption::JsonReadfromRawControl), "{c}");
+                assert!(matches!(parse(&text), Err(Signal::Unsupported(_))), "{c}");
+            }
         }
+        assert!(
+            matches!(&parse_read_from("{\"a\":\"x\u{0}y\"}"), Err(Signal::Unsupported(w)) if w.contains("raw control character"))
+        );
         // Between tokens a form feed is a blank and character 1 is not JSON (json/JsonReadFrom.al ReadFromRawControlOtherPlaces).
         assert!(matches!(parse_read_from("{\"a\":\u{c}\"v\"}"), Ok(Some(_))));
         assert!(matches!(parse_read_from("{\"a\":\u{1}\"v\"}"), Ok(None)));

@@ -301,7 +301,9 @@ struct Parser<'a> {
 enum Reader {
     /// `ReadFrom` with a Text argument.
     ReadFromText,
-    /// `ReadFrom(InStream)`, `Evaluate`, the runtime's own reads.
+    /// `ReadFrom` with an InStream argument.
+    ReadFromStream,
+    /// `Evaluate`, the runtime's own reads.
     Other,
 }
 
@@ -1779,7 +1781,7 @@ fn read_from(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value], want: Opti
     };
     let used = c.ret_used();
     let reader = if from_stream {
-        Reader::Other
+        Reader::ReadFromStream
     } else {
         Reader::ReadFromText
     };
