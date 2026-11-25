@@ -1,0 +1,35 @@
+{
+  "id": "6d1f3c20-8102-4c3d-9e8f-810200000001",
+  "name": "Neighbors 8102",
+  "publisher": "AL Runner",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "application": "27.0.0.0",
+  "runtime": "16.0",
+  "idRanges": [
+    {
+      "from": 50100,
+      "to": 50119
+    }
+  ],
+  "dependencies": [
+    {
+      "id": "4d6c453d-e61d-4872-b35d-6c731c0fd93e",
+      "name": "Manufacturing",
+      "publisher": "Microsoft",
+      "version": "27.0.0.0"
+    },
+    {
+      "id": "2fd9cbd8-c94a-46d6-8274-ea6ccb244f12",
+      "name": "Service Management",
+      "publisher": "Microsoft",
+      "version": "27.0.0.0"
+    },
+    {
+      "id": "6d1f3c20-8102-4c3d-9e8f-810200000002",
+      "name": "Neighbors 8102 Empty Other",
+      "publisher": "AL Runner",
+      "version": "1.0.0.0"
+    }
+  ]
+}

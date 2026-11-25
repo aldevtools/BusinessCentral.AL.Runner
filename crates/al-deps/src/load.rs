@@ -1242,6 +1242,59 @@ mod tests {
         }
     }
 
+    /// Microsoft's placeholder apps (Manufacturing, Service Management and others, al-runner issue 8102): a source
+    /// archive with an `app.json`, a logo and translations, no `.al` file. It serves its dependents as an app with no
+    /// files, lazily or not, with no skip and no note. An archive of another publisher without a `.al` file keeps
+    /// main's answer: it is skipped.
+    #[test]
+    fn a_microsoft_source_archive_without_al_files_serves_as_an_empty_app() {
+        let archive = |id: &str, name: &str, publisher: &str| {
+            let json = format!(
+                r#"{{"id":"{id}","name":"{name}","publisher":"{publisher}","version":"28.0.0.0","dependencies":[]}}"#
+            );
+            Builder::new()
+                .add("app.json", json.as_bytes(), true)
+                .add("Directory.App.Props.json", b"{}", true)
+                .add("ExtensionLogo.png", b"png", false)
+                .add(&format!("Translations/{name}.g.xlf"), b"<xliff/>", true)
+                .finish()
+        };
+        for lazy_sources in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::write(
+                dir.path().join("Placeholder.Source.zip"),
+                archive("mfg", "Placeholder", "Microsoft"),
+            )
+            .unwrap();
+            std::fs::write(dir.path().join("Other.Source.zip"), archive("oth", "Other", "P")).unwrap();
+            let loaded = load_dependencies(&Request {
+                project: &project(&[("mfg", "Placeholder", "28.0.0.0"), ("oth", "Other", "28.0.0.0")]),
+                workspace_apps: &[],
+                search_dirs: &[dir.path().to_path_buf()],
+                missing: MissingPolicy::Skip,
+                source_build: None,
+                application_implies_dependencies: false,
+                lazy_sources,
+            })
+            .unwrap();
+            let names: Vec<&str> = loaded.apps.iter().map(|a| a.app.name.as_str()).collect();
+            assert_eq!(names, ["Placeholder"], "lazy {lazy_sources}");
+            assert!(loaded.apps[0].app.files.is_empty());
+            let skipped: Vec<String> = loaded.skipped.iter().map(|e| e.to_string()).collect();
+            assert_eq!(
+                skipped.len(),
+                1,
+                "only the other publisher's archive is skipped: {skipped:?}"
+            );
+            assert!(skipped[0].contains("Other"), "{skipped:?}");
+            assert!(
+                loaded.notes.iter().all(|n| !n.contains("Placeholder")),
+                "{:?}",
+                loaded.notes
+            );
+        }
+    }
+
     /// The owner's case: the symbol package is in the project's `.alpackages`, the source is elsewhere
     /// (a source archive in another search directory): the search goes on and finds it.
     #[test]

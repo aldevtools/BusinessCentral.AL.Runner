@@ -2,10 +2,25 @@
 //! an empty placeholder, al-runner issue 6924). Its AL source is complete, since there is none to carry, so it serves
 //! a dependency as an app with no files, as the `Application` aggregate needs no source. Tooling only (ADR-009): the
 //! dependents compile against the same nothing on BC.
+//!
+//! The second kind of evidence is a Microsoft source archive with no `.al` file (al-runner issue 8102): Manufacturing,
+//! Manufacturing Tests, Service Management, Service Management Tests and Tests-Local on BC 27, 28 and 29, Report Layouts
+//! Tests and `_Exclude_ReportLayouts` on BC 27 and 28. In each of these builds the artifact's compiled package of the
+//! same app (`Microsoft_<name>.app` next to the archive) has a `SymbolReference.json` whose every list is empty: BC
+//! compiled the archive to an app with no objects. The `Application` aggregate keeps its own rule (`select.rs`).
 
 /// The largest `SymbolReference.json` read to find out. A package with objects that has no source (a symbols-only
 /// package such as Base Application's) has a file far larger than this, and is not inflated for the question.
 pub const MAX_SYMBOLS_LEN: usize = 64 * 1024;
+
+/// Whether a package read from a source archive (`source_archive`, its manifest from `app.json`) that holds no `.al`
+/// file is one of Microsoft's apps with no objects: publisher `Microsoft`, as every measured archive above. Another
+/// publisher's archive without a `.al` file, and the `Application` aggregate, keep their answer: not this rule.
+pub fn microsoft_archive_without_al(manifest: &crate::package::Manifest, source_archive: bool) -> bool {
+    source_archive
+        && manifest.publisher == "Microsoft"
+        && !manifest.id.eq_ignore_ascii_case(crate::select::APPLICATION_APP_ID)
+}
 
 /// Whether the bytes of a `SymbolReference.json` show a package with no objects. Only positive evidence counts: the
 /// file is a JSON object that names at least one list of objects (`Tables`, `Codeunits`, ..., or `Namespaces`), and

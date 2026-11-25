@@ -301,15 +301,16 @@ pub fn read_info(app: &[u8]) -> Result<(Manifest, bool), PackageError> {
 
 /// [`read_info`] for a source archive that may hold build variables.
 pub fn read_info_with(app: &[u8], vars: &Vars) -> Result<(Manifest, bool), PackageError> {
-    with_archive(app, 0, vars, &mut |zip, m, _| {
+    with_archive(app, 0, vars, &mut |zip, m, source_zip| {
         if zip.entries.iter().any(|e| is_al(&e.name)) {
             return Ok((m, true));
         }
-        let empty = zip
-            .find("SymbolReference.json")
-            .filter(|e| e.size <= crate::empty::MAX_SYMBOLS_LEN)
-            .and_then(|e| zip.read(e).ok())
-            .is_some_and(|bytes| crate::empty::holds_no_objects(&bytes));
+        let empty = crate::empty::microsoft_archive_without_al(&m, source_zip)
+            || zip
+                .find("SymbolReference.json")
+                .filter(|e| e.size <= crate::empty::MAX_SYMBOLS_LEN)
+                .and_then(|e| zip.read(e).ok())
+                .is_some_and(|bytes| crate::empty::holds_no_objects(&bytes));
         Ok((m, empty))
     })
 }
