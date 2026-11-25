@@ -35,7 +35,7 @@ impl Session {
         }
         let company = rec.borrow().company.clone();
         self.note_row_versions(t.object, &company, kind, pk);
-        self.push_write(t, company, kind, pk, before);
+        self.push_write(t, company, kind, pk, before, false);
     }
 
     /// Notes a Record write for the row locks (`note_row_lock_write`) and appends it to `OpenTx::writes` (`note_write`).
@@ -46,6 +46,7 @@ impl Session {
         kind: crate::state::TxWriteKind,
         pk: &[Value],
         before: u64,
+        bulk_filtered: bool,
     ) {
         self.note_row_lock_write(t.object, &company, kind, pk);
         self.tx.open.writes.push(crate::state::TxWrite {
@@ -57,6 +58,7 @@ impl Session {
             after: self.store.change_counter(),
             bulk: None,
             through_recordref: self.through_recordref,
+            bulk_filtered,
         });
     }
 
@@ -298,7 +300,8 @@ impl Session {
         let now = self.store.change_counter();
         let company = rec.borrow().company.clone();
         self.note_row_versions(t.object, &company, kind, row);
-        self.push_write(t, company, kind, &[], now);
+        let bulk_filtered = !rec.borrow().filters.is_empty();
+        self.push_write(t, company, kind, &[], now, bulk_filtered);
         Some(BulkMark {
             at: self.tx.open.writes.len() - 1,
             before: now,
