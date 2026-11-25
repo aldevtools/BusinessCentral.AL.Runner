@@ -43,16 +43,6 @@ codeunit 50363 "NX Kept Tests"
     end;
 
     [Test]
-    procedure ExtOnAfterInsert_XRecGetThenRead()
-    var
-        Line: Record "NX Line";
-    begin
-        Mode.Set('AfterInsert', 'get');
-        Steps.InsertAfterValidate(Line);
-        Steps.Expect('42');
-    end;
-
-    [Test]
     procedure ExtOnModify_AfterGetAndAssign()
     var
         Line: Record "NX Line";
@@ -238,6 +228,27 @@ codeunit 50360 "NX Refused Tests"
         Steps.InsertAfterValidate(Line);
         if Mode.Take() = '' then
             Error('nothing logged');
+    end;
+
+    // Get and the methods that read only xRec's view (filters, key, table) refuse too: the view is not measured either.
+    [Test]
+    procedure ExtOnAfterInsert_XRecGetThenRead()
+    var
+        Line: Record "NX Line";
+    begin
+        Mode.Set('AfterInsert', 'get');
+        Steps.InsertAfterValidate(Line);
+        Steps.Expect('42');
+    end;
+
+    [Test]
+    procedure ExtOnAfterInsert_XRecCount()
+    var
+        Line: Record "NX Line";
+    begin
+        Mode.Set('AfterInsert', 'count');
+        Steps.InsertAfterValidate(Line);
+        Steps.Expect('1');
     end;
 
     [Test]

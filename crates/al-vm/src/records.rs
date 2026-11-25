@@ -2213,8 +2213,9 @@ impl Session {
         if why == RUN_PAGE_LINK_VARIANT {
             return unsupported(format!("Record.{}(): {RUN_PAGE_LINK_VARIANT}", method.name()));
         }
-        if why == HELD_PART_XREC {
-            return unsupported(format!("Record.{}(): {HELD_PART_XREC}", method.name()));
+        // Neither xRec's buffer nor its view (filters, key, temporary table) is measured: every method refuses.
+        if why == HELD_PART_XREC || why == XREC_OF_EXT_INSERT_DELETE_TRIGGER {
+            return unsupported(format!("Record.{}(): {why}", method.name()));
         }
         if why == HELD_PART_REC {
             if method != RecordOp::Count || !args.is_empty() {

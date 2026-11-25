@@ -7,10 +7,11 @@
 //! (_fixtures/tables/ALTTriggeredOrder.TableExt.al:52-89, :139-176) does not read xRec there. Before this rule `OnAfterInsert` got the
 //! blank xRec of a plain call, and an outside report (al-runner issue 8986) shows BC code that needs xRec to equal Rec there.
 //!
-//! The trigger gets a blank xRec marked [`XREC_OF_EXT_INSERT_DELETE_TRIGGER`] (`RecordState::unpinned_buffer`), so a field read,
-//! `Format`, a copy, a field write and every record method that reads the buffer refuse (`records.rs` `buffer_read_refused`,
-//! `copy_refused_mark`, `held_part_field_write`, `Session::unpinned_buffer_op`); a procedure of the table or of a table extension
-//! called on Rec while the trigger runs gets a blank xRec with the same mark (`running_call_xrec.rs`).
+//! The trigger gets a blank xRec marked [`XREC_OF_EXT_INSERT_DELETE_TRIGGER`] (`RecordState::unpinned_buffer`). Neither its
+//! buffer nor its view (filters, key, temporary table) is measured, so a field read, `Format`, a copy, a field write and every
+//! record method on it refuse, `Get` and the methods that read only the view among them (`records.rs` `buffer_read_refused`,
+//! `copy_refused_mark`, `held_part_field_write`, `Session::unpinned_buffer_op`). A procedure of the table or of a table
+//! extension called on Rec while the trigger runs gets a blank xRec with the same mark (`running_call_xrec.rs`).
 //!
 //! Entry points: `Session::run_ext_trigger_unmeasured_xrec`, `Session::ext_trigger_xrec_mark`.
 

@@ -13,6 +13,8 @@ NX Refused Tests::ExtOnAfterInsert_XRecCopy	REFUSED Record.Copy() from a record:
 NX Refused Tests::ExtOnAfterInsert_XRecTransferFields	REFUSED Record.TransferFields() from a record: xRec in a table extension's insert or delete trigger
 NX Refused Tests::ExtOnAfterInsert_XRecRecordRef	REFUSED RecordRef.GetTable of a record: xRec in a table extension's insert or delete trigger
 NX Refused Tests::ExtOnAfterInsert_XRecFormat	REFUSED Format of a record: xRec in a table extension's insert or delete trigger
+NX Refused Tests::ExtOnAfterInsert_XRecGetThenRead	REFUSED Record.Get(): xRec in a table extension's insert or delete trigger
+NX Refused Tests::ExtOnAfterInsert_XRecCount	REFUSED Record.Count(): xRec in a table extension's insert or delete trigger
 NX Refused Tests::ExtOnAfterInsert_XRecGetFilters	REFUSED xRec in a table extension's insert or delete trigger
 NX Refused Tests::ExtOnAfterInsert_XRecFieldWriteOnly	REFUSED xRec in a table extension's insert or delete trigger
 NX Refused Tests::ExtOnAfterInsert_XRecAssignedFromRecThenRead	REFUSED xRec in a table extension's insert or delete trigger

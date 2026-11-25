@@ -1,6 +1,6 @@
 //! xRec in a table extension's insert and delete triggers is not measured (al-runner issue 8986): every read of it refuses
 //! (`al-vm` `records/ext_trigger_xrec.rs`). Main gave `OnAfterInsert` the blank xRec of a plain call, a wrong value.
-//! Each test reaches one reader of the mark; the triggers that do not read xRec, and the pinned `OnAfterModify`
+//! Each test reaches one reader of the mark (`Get` and `Count` too: xRec's view is not measured either); the triggers that do not read xRec, and the pinned `OnAfterModify`
 //! (table-objects/extensions/TestTableExtensionTableTriggers_Tests.al:183), still run.
 
 use al_testrun::Outcome;
@@ -26,6 +26,8 @@ tableextension 50402 "Z Ext" extends "Z Row"
             'proc': Mode.Add(Format(Rec.BaseX()));
             'copy': begin Other.Copy(xRec); Mode.Add('c'); end;
             'write': begin xRec.Serial := 1; Mode.Add('w'); end;
+            'get': begin xRec.Get(Rec.Id); Mode.Add(Format(xRec.Serial)); end;
+            'count': Mode.Add(Format(xRec.Count()));
         end;
     end;
     trigger OnDelete()
@@ -58,6 +60,8 @@ codeunit 50405 "Z Proc" { Subtype = Test; [Test] procedure T() var S: Codeunit "
 codeunit 50406 "Z Copy" { Subtype = Test; [Test] procedure T() var S: Codeunit "Z Steps"; begin S.Run('copy'); end; }
 codeunit 50407 "Z Write" { Subtype = Test; [Test] procedure T() var S: Codeunit "Z Steps"; begin S.Run('write'); end; }
 codeunit 50408 "Z Delete" { Subtype = Test; [Test] procedure T() var S: Codeunit "Z Steps"; begin S.Run('delete'); end; }
+codeunit 50411 "Z Get" { Subtype = Test; [Test] procedure T() var S: Codeunit "Z Steps"; begin S.Run('get'); end; }
+codeunit 50412 "Z Count" { Subtype = Test; [Test] procedure T() var S: Codeunit "Z Steps"; begin S.Run('count'); end; }
 codeunit 50409 "Z Rec" { Subtype = Test;
     [Test] procedure T() var S: Codeunit "Z Steps"; begin if S.Run('rec') <> '42' then Error('other'); end; }
 codeunit 50410 "Z Modify" { Subtype = Test;
@@ -91,7 +95,7 @@ const MARK: &str = "xRec in a table extension's insert or delete trigger";
 
 #[test]
 fn every_reader_of_the_ext_trigger_xrec_refuses() {
-    for codeunit in ["Z Read", "Z Proc", "Z Copy", "Z Write", "Z Delete"] {
+    for codeunit in ["Z Read", "Z Proc", "Z Copy", "Z Write", "Z Delete", "Z Get", "Z Count"] {
         let o = run(codeunit);
         assert!(
             matches!(o.as_slice(), [(_, Outcome::NotRun(why))] if why.contains(MARK)),

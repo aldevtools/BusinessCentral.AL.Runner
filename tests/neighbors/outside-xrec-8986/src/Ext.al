@@ -234,6 +234,8 @@ tableextension 50350 "NX Line Ext" extends "NX Line"
                 end;
             'format':
                 Mode.Add(Format(xRec));
+            'count':
+                Mode.Add(Format(xRec.Count()));
             'getfilters':
                 Mode.Add('[' + xRec.GetFilters() + ']');
             'get':
