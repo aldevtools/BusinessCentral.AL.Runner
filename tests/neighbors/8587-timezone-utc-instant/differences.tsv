@@ -8,3 +8,4 @@ TZ Utc Instant Tests::WestEurope_Transitions	ASSUMED zone-datetime-utc-instant (
 TZ Utc Instant Tests::WestEurope_Winter	ASSUMED zone-datetime-utc-instant (corpus PR 1582)
 TZ Utc Instant Tests::Argument_DotNetMade	REFUSED DotNet System.TimeZoneInfo.GetUtcOffset: a DateTime that is no AL DateTime
 TZ Utc Instant Tests::Argument_DotNetVariableFromAl	REFUSED DotNet System.TimeZoneInfo.GetUtcOffset: a DateTime that is no AL DateTime
+TZ Other Builtin Tests::Argument_RoundDateTimeResult	REFUSED DotNet System.TimeZoneInfo.GetUtcOffset: a DateTime that is no AL DateTime

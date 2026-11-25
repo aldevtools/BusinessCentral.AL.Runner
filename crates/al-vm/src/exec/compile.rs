@@ -667,10 +667,9 @@ impl<'a> Compiler<'a> {
             }
             E::DotNet { ty, receiver, op, args } => {
                 let recv = receiver.as_deref().map(|r| self.expr_copy(r)).transpose()?;
-                let origins = args.iter().map(crate::dotnet::value_origin).collect();
                 let (arg_regs, site_args) = self.arg_regs(args)?;
                 self.chunk.dotnets.push(DotNetSite {
-                    origins,
+                    origins: args.iter().map(crate::dotnet::value_origin).collect(),
                     ty: *ty,
                     result_ty: None,
                     op: op.clone(),
