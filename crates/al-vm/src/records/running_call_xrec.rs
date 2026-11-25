@@ -272,7 +272,7 @@ impl Session {
             .iter()
             .find(|v| v.handle == handle && v.depth == trigger)?;
         let untouched = self.untouched_since(run, rc);
-        let routes = !untouched && trigger == caller && Self::changed_after_before_event(run, rc);
+        let routes = !untouched && trigger == caller && self.changed_after_before_event(run, rc);
         if self.engine.object_facts[cu].single_instance || !(untouched || routes) || caller == 0 {
             return None;
         }

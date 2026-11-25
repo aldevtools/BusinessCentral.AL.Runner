@@ -40,6 +40,14 @@ table 50420 "NC XRec Line"
         field(3; Series; Code[20]) { }
         field(4; Note; Code[20]) { }
         field(5; Seen; Code[20]) { }
+        field(6; Outer; Integer)
+        {
+            // A Validate the table's own code nests, on a record the inner trigger changes: not measured.
+            trigger OnValidate()
+            begin
+                Validate(Mode, 1);
+            end;
+        }
     }
 
     keys
@@ -177,6 +185,23 @@ codeunit 50426 "NC XRec Chain Tests"
     procedure Codeunit_TriggerAssigns()
     begin
         Run('codeunit', 'direct', false);
+    end;
+
+    [Test]
+    procedure Nested_Codeunit_TriggerAssigns()
+    var
+        Line: Record "NC XRec Line";
+    begin
+        Line.DeleteAll();
+        Line.Init();
+        Line."Entry No." := 1;
+        Line.Series := 'OLD';
+        Line.Insert();
+        Cfg.Set('codeunit', 'direct');
+        Line.Validate(Outer, 1);
+        Cfg.Set('', '');
+        if Line.Seen <> 'OLD' then
+            Error('xRec.Series in the table procedure: ''%1''', Line.Seen);
     end;
 
     [Test]

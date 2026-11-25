@@ -1879,6 +1879,8 @@ impl Session {
                         // The copy holds what the source's buffer held, if that is known.
                         d.load.buffer = load.buffer;
                         d.load.partial = load.partial;
+                        drop(d);
+                        self.note_whole_record_write(&dst);
                     }
                     if let ir::Place::Global(i) = p {
                         self.single_written(&f.instance, *i);

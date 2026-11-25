@@ -85,8 +85,12 @@ pub(crate) struct ValidateRun {
     pub(crate) entered: Vec<Value>,
     /// A record method that writes the record or reads it again ran on it since (`Session::note_record_op_under_validate`).
     pub(crate) touched: bool,
-    /// The OnBeforeValidateEvent returned with the fields in `entered` (`Session::validate_event`).
+    /// The OnBeforeValidateEvent returned with the fields in `entered`, the field having no table extension validate trigger
+    /// (`Session::validate_event`).
     pub(crate) kept_by_before_event: bool,
+    /// Whether a record assignment (`:=`) copied another record's fields into the record since the Validate started
+    /// (`Session::note_whole_record_write`); no cell of assumption `xrec-table-proc-routes` measures that writer.
+    pub(crate) whole_write: bool,
 }
 
 impl Session {
@@ -157,6 +161,7 @@ impl Session {
             entered: rec.borrow().fields.to_vec(),
             touched: false,
             kept_by_before_event: false,
+            whole_write: false,
         });
         let r = hooks(self);
         self.validate_sites.pop();
@@ -230,6 +235,15 @@ impl Session {
         let handle = Rc::as_ptr(rec) as usize;
         for v in self.validate_sites.iter_mut().filter(|v| v.handle == handle) {
             v.touched = true;
+        }
+    }
+
+    /// Notes on every running Validate of `rec` that a record assignment copied another record's fields into it
+    /// (`ValidateRun::whole_write`).
+    pub(crate) fn note_whole_record_write(&mut self, rec: &Rec) {
+        let handle = Rc::as_ptr(rec) as usize;
+        for v in self.validate_sites.iter_mut().filter(|v| v.handle == handle) {
+            v.whole_write = true;
         }
     }
 
