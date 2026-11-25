@@ -258,6 +258,145 @@ page 97205 "Other Trigger Subform"
     end;
 }
 
+page 97206 "PG R7820 Doc"
+{
+    PageType = Document;
+    SourceTable = "Repro Order Header";
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            field("No."; Rec."No.") { ApplicationArea = All; }
+            part(Lines; "PG R7820 Part")
+            {
+                ApplicationArea = All;
+                SubPageLink = "Order No." = field("No.");
+            }
+        }
+    }
+}
+
+page 97207 "PG R7820 Part"
+{
+    PageType = ListPart;
+    SourceTable = "Repro Order Line";
+    ApplicationArea = All;
+    AutoSplitKey = true;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Rows)
+            {
+                field("Line No."; Rec."Line No.") { ApplicationArea = All; Editable = false; }
+                field(Qty; Rec.Qty)
+                {
+                    ApplicationArea = All;
+                    trigger OnValidate()
+                    begin
+                        CurrPage.Update(true);
+                    end;
+                }
+            }
+        }
+    }
+
+    trigger OnFindRecord(Which: Text): Boolean
+    var
+        Log: Codeunit "Repro Read Log";
+    begin
+        Log.Add('F' + Which);
+        exit(Rec.Find(Which));
+    end;
+
+    trigger OnAfterGetRecord()
+    var
+        Log: Codeunit "Repro Read Log";
+    begin
+        Log.Add('R' + Format(Rec."Line No." div 10000));
+    end;
+
+    trigger OnAfterGetCurrRecord()
+    var
+        Log: Codeunit "Repro Read Log";
+    begin
+        Log.Add('C' + Format(Rec."Line No." div 10000));
+    end;
+}
+
+page 97208 "Mixed Properties Card"
+{
+    PageType = Document;
+    SourceTable = "Repro Order Header";
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            field("No."; Rec."No.") { ApplicationArea = All; }
+            part(Lines; "Mixed Properties Subform")
+            {
+                ApplicationArea = All;
+                SubPageLink = "Order No." = field("No.");
+            }
+        }
+    }
+}
+
+page 97209 "Mixed Properties Subform"
+{
+    PageType = ListPart;
+    SourceTable = "Repro Order Line";
+    AutoSplitKey = true;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Rows)
+            {
+                field("Line No."; Rec."Line No.") { ApplicationArea = All; Editable = false; }
+                field(Qty; Rec.Qty)
+                {
+                    ApplicationArea = All;
+                    trigger OnValidate()
+                    begin
+                        CurrPage.Update(true);
+                    end;
+                }
+            }
+        }
+    }
+
+    trigger OnFindRecord(Which: Text): Boolean
+    var
+        ReadLog: Codeunit "Repro Read Log";
+    begin
+        ReadLog.Add('F' + Which);
+        exit(Rec.Find(Which));
+    end;
+
+    trigger OnAfterGetRecord()
+    var
+        ReadLog: Codeunit "Repro Read Log";
+    begin
+        ReadLog.Add('R' + Format(Rec."Line No." div 10000));
+    end;
+
+    trigger OnAfterGetCurrRecord()
+    var
+        ReadLog: Codeunit "Repro Read Log";
+    begin
+        ReadLog.Add('C' + Format(Rec."Line No." div 10000));
+    end;
+}
+
 codeunit 97210 "Neighbor 7820 Tests"
 {
     Subtype = Test;
@@ -288,9 +427,56 @@ codeunit 97210 "Neighbor 7820 Tests"
     end;
 
     [Test]
-    procedure ThreeRows_KeepMainOpenRead()
+    procedure MergedProbe_OneRow_IsAssumed()
     begin
-        CheckStandalone(3, 'F=><;R1;R2;R3;R1;F=;R1;C1;');
+        CheckMergedProbe(1, 0, 'F=>;R1;F=;R1;C1;', 10000);
+    end;
+
+    [Test]
+    procedure MergedProbe_TwoRows_IsAssumed()
+    begin
+        CheckMergedProbe(2, 0, 'F=>;R1;R2;R1;F=;R1;C1;', 10000);
+    end;
+
+    [Test]
+    procedure MergedProbe_FiveRows_IsAssumed()
+    begin
+        CheckMergedProbe(5, 0, 'F=>;R1;R2;R3;R4;R5;R1;F=;R1;C1;', 10000);
+    end;
+
+    [Test]
+    procedure MergedProbe_ThreeRows_Second_IsAssumed()
+    begin
+        CheckMergedProbe(3, 1, 'F=>;R2;R3;R2;R1;R2;F=;R2;C2;', 20000);
+    end;
+
+    [Test]
+    procedure ThreeRowsFirst_KeepsMainValues()
+    begin
+        CheckStandaloneValues(3);
+    end;
+
+    [Test]
+    procedure Standalone_TwoRows_KeepsMainValues()
+    begin
+        CheckStandaloneValues(2);
+    end;
+
+    [Test]
+    procedure MixedProperties_KeepsMainValues()
+    var
+        Header: Record "Repro Order Header";
+        OrderCard: TestPage "Mixed Properties Card";
+    begin
+        SeedRows(1);
+        Header.FindFirst();
+        OrderCard.OpenEdit();
+        OrderCard.GoToRecord(Header);
+        OrderCard.Lines.First();
+        OrderCard.Lines.Qty.SetValue(100);
+        OrderCard.Lines."Line No.".AssertEquals(10000);
+        OrderCard.Lines.Qty.AssertEquals(100);
+        OrderCard.Close();
     end;
 
     [Test]
@@ -363,6 +549,44 @@ codeunit 97210 "Neighbor 7820 Tests"
         ReadLog.Clear();
         OrderCard.Lines.Qty.SetValue(100);
         AssertLog(Expected);
+        OrderCard.Lines."Line No.".AssertEquals(10000);
+        OrderCard.Lines.Qty.AssertEquals(100);
+        OrderCard.Close();
+    end;
+
+    local procedure CheckMergedProbe(Rows: Integer; Moves: Integer; Expected: Text; ExpectedLine: Integer)
+    var
+        Header: Record "Repro Order Header";
+        ReadLog: Codeunit "Repro Read Log";
+        OrderCard: TestPage "PG R7820 Doc";
+        i: Integer;
+    begin
+        SeedRows(Rows);
+        Header.FindFirst();
+        OrderCard.OpenEdit();
+        OrderCard.GoToRecord(Header);
+        OrderCard.Lines.First();
+        for i := 1 to Moves do
+            OrderCard.Lines.Next();
+        ReadLog.Clear();
+        OrderCard.Lines.Qty.SetValue(100);
+        AssertLog(Expected);
+        OrderCard.Lines."Line No.".AssertEquals(ExpectedLine);
+        OrderCard.Lines.Qty.AssertEquals(100);
+        OrderCard.Close();
+    end;
+
+    local procedure CheckStandaloneValues(Rows: Integer)
+    var
+        Header: Record "Repro Order Header";
+        OrderCard: TestPage "Standalone Order Card";
+    begin
+        SeedRows(Rows);
+        Header.FindFirst();
+        OrderCard.OpenEdit();
+        OrderCard.GoToRecord(Header);
+        OrderCard.Lines.First();
+        OrderCard.Lines.Qty.SetValue(100);
         OrderCard.Lines."Line No.".AssertEquals(10000);
         OrderCard.Lines.Qty.AssertEquals(100);
         OrderCard.Close();

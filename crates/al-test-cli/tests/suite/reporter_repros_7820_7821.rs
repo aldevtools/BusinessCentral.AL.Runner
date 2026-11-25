@@ -713,6 +713,51 @@ fn variants(src: &str, edits: &[(&str, &str)]) -> String {
         .fold(src.to_string(), |s, (from, to)| variant(&s, from, to))
 }
 
+/// The merged probe's original-property cell under other object names and with its local variable named `Log`.
+fn r7820_merged_probe(rows: usize, moves: usize, expected: &str, line: i32) -> String {
+    let src = R7820
+        .replace("Repro Order Header", "PG R7820 Header")
+        .replace("Repro Order Line", "PG R7820 Line")
+        .replace("Repro Read Log", "PG R7820 Log")
+        .replace("Repro Order Card", "PG R7820 Doc")
+        .replace("Repro Order Subform", "PG R7820 Part")
+        .replace("ReadLog", "Log");
+    let src = variants(
+        &src,
+        &[(
+            "        CheckReads(1, 'F=>;R1;F=;R1;C1;');",
+            &format!("        CheckReads({rows}, '{expected}');"),
+        )],
+    );
+    let src = if moves == 0 {
+        src
+    } else {
+        variant(
+            &src,
+            "        OrderCard.Lines.First();",
+            &format!(
+                "        OrderCard.Lines.First();\n{}",
+                (0..moves)
+                    .map(|_| "        OrderCard.Lines.Next();")
+                    .collect::<String>()
+            ),
+        )
+    };
+    variant(
+        &src,
+        "        OrderCard.Lines.\"Line No.\".AssertEquals(10000);",
+        &format!("        OrderCard.Lines.\"Line No.\".AssertEquals({line});"),
+    )
+}
+
+fn r7820_values_only(src: &str) -> String {
+    variant(
+        src,
+        "        if ReadLog.Joined() <> Expected then\n            Error('The part read %1, expected %2.', ReadLog.Joined(), Expected);\n",
+        "",
+    )
+}
+
 /// The assumption marks one test of `src` makes, and its outcome.
 pub(super) fn outcome_and_marks(
     src: &str,
@@ -764,6 +809,27 @@ fn r7820_and_r7821_repros_are_flagged_passes() {
     let (o, marks) = outcome_and_marks(R7821, "Journal Post Test", "NewRowPageOpenedWithPageRun");
     assert!(matches!(o, Outcome::Pass), "{o:?}");
     assert!(marks.contains(&PostLeftOtherKeyOnNewLine), "{marks:?}");
+}
+
+/// PR 1333's merged corpus file uses `Log` and these other page/object names. Every measured original cell is flagged.
+#[test]
+fn r7820_merged_probe_cells_are_flagged_passes() {
+    use al_builtins::assumptions::Assumption::PartUpdateFirstRowFindForward;
+    let cases = [
+        (1, 0, "F=>;R1;F=;R1;C1;", 10_000),
+        (2, 0, "F=>;R1;R2;R1;F=;R1;C1;", 10_000),
+        (5, 0, "F=>;R1;R2;R3;R4;R5;R1;F=;R1;C1;", 10_000),
+        (3, 1, "F=>;R2;R3;R2;R1;R2;F=;R2;C2;", 20_000),
+    ];
+    for (rows, moves, expected, line) in cases {
+        let src = r7820_merged_probe(rows, moves, expected, line);
+        let (o, marks) = outcome_and_marks(&src, "Repro Refresh Tests", "OneRowSetValueOnFirst");
+        assert!(matches!(o, Outcome::Pass), "{rows} rows, {moves} moves: {o:?}");
+        assert!(
+            marks.contains(&PartUpdateFirstRowFindForward),
+            "{rows} rows, {moves} moves: {marks:?}"
+        );
+    }
 }
 
 /// The 7820 repro's shape with one fact changed: the pin does not hold, the part keeps main's open read `=><` (the
@@ -824,16 +890,8 @@ fn r7820_neighbors_keep_mains_read() {
             ),
         ),
         (
-            "three rows (not measured)",
-            variant(R7820, "CheckReads(5, ", "CheckReads(3, "),
-        ),
-        (
             "OnFindRecord logs another text",
             variant(R7820, "ReadLog.Add('F' + Which);", "ReadLog.Add('F' + Which + '');"),
-        ),
-        (
-            "standalone: three rows (not measured)",
-            variant(R7820_STANDALONE, "CheckReads(5, ", "CheckReads(3, "),
         ),
         (
             "standalone: another OnFindRecord body",
@@ -845,13 +903,7 @@ fn r7820_neighbors_keep_mains_read() {
         ),
     ];
     for (what, src) in cases {
-        // The row count only changes the five-row test.
-        let tests: &[&str] = if what.contains("three rows") {
-            &["FiveRowsSetValueOnFirst"]
-        } else {
-            &["FiveRowsSetValueOnFirst", "OneRowSetValueOnFirst"]
-        };
-        for test in tests {
+        for test in ["FiveRowsSetValueOnFirst", "OneRowSetValueOnFirst"] {
             let (o, marks) = outcome_and_marks(&src, "Repro Refresh Tests", test);
             assert!(
                 matches!(&o, Outcome::Fail(m) if m.contains("read F=><") || m.contains("read X=><")),
@@ -860,6 +912,31 @@ fn r7820_neighbors_keep_mains_read() {
             assert!(!marks.contains(&PartUpdateFirstRowFindForward), "{what}, {test}");
         }
     }
+}
+
+#[test]
+fn r7820_three_rows_on_the_first_keep_main_values() {
+    use al_builtins::assumptions::Assumption::PartUpdateFirstRowFindForward;
+    for src in [R7820, R7820_STANDALONE] {
+        let src = variants(&r7820_values_only(src), &[("CheckReads(5, ", "CheckReads(3, ")]);
+        let (o, marks) = outcome_and_marks(&src, "Repro Refresh Tests", "FiveRowsSetValueOnFirst");
+        assert!(matches!(o, Outcome::Pass), "{o:?}");
+        assert!(!marks.contains(&PartUpdateFirstRowFindForward), "{marks:?}");
+    }
+}
+
+#[test]
+fn r7820_mixed_page_properties_keep_main_values() {
+    use al_builtins::assumptions::Assumption::PartUpdateFirstRowFindForward;
+    let src = variant(
+        R7820,
+        "    ApplicationArea = All;\n    AutoSplitKey = true;",
+        "    AutoSplitKey = true;",
+    );
+    let src = r7820_values_only(&src);
+    let (o, marks) = outcome_and_marks(&src, "Repro Refresh Tests", "OneRowSetValueOnFirst");
+    assert!(matches!(o, Outcome::Pass), "{o:?}");
+    assert!(!marks.contains(&PartUpdateFirstRowFindForward), "{marks:?}");
 }
 
 /// A second SetValue after the pinned one: what the part asks then is not measured, so the call is refused (the first
