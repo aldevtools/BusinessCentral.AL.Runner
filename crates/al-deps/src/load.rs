@@ -1295,6 +1295,36 @@ mod tests {
         }
     }
 
+    /// An empty Microsoft archive now serves, so a dependency on it is checked against its version: below the declared
+    /// minimum is `BelowMinimum`, which `MissingPolicy::Skip` does not skip (main skipped it as not found; BC cannot
+    /// install the app either). One that meets the minimum loads. Each case changes one fact: the declared minimum.
+    #[test]
+    fn an_empty_microsoft_archive_below_the_declared_minimum_is_refused_and_one_that_meets_it_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let json = r#"{"id":"mfg","name":"Placeholder","publisher":"Microsoft","version":"28.0.0.0","dependencies":[]}"#;
+        std::fs::write(
+            dir.path().join("Placeholder.Source.zip"),
+            Builder::new().add("app.json", json.as_bytes(), true).finish(),
+        )
+        .unwrap();
+        let load = |min: &str| {
+            load_dependencies(&Request {
+                project: &project(&[("mfg", "Placeholder", min)]),
+                workspace_apps: &[],
+                search_dirs: &[dir.path().to_path_buf()],
+                missing: MissingPolicy::Skip,
+                source_build: None,
+                application_implies_dependencies: false,
+                lazy_sources: false,
+            })
+        };
+        let err = load("29.0.0.0").err().expect("below the minimum is an error, not a skip");
+        assert!(err.contains("needs version 29.0.0.0 or higher") && err.contains("28.0.0.0"), "{err}");
+        let loaded = load("28.0.0.0").unwrap();
+        assert_eq!(loaded.apps.len(), 1);
+        assert!(loaded.skipped.is_empty());
+    }
+
     /// The owner's case: the symbol package is in the project's `.alpackages`, the source is elsewhere
     /// (a source archive in another search directory): the search goes on and finds it.
     #[test]
