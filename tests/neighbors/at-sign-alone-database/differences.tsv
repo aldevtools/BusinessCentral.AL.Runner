@@ -1,18 +1,25 @@
 # key	entry
-# Against main (8816 has landed): the cells whose answer this pull request changes. Main refuses <>@ alone on a Code field from a
-# query's SetFilter and DataItemTableFilter and as a FlowFilter CalcFields applies, and a CalcFormula's sum with filter('@') or
-# filter('<>@') over a Date, Integer, Decimal, Option or Boolean source field; the head runs them as BC answered them (corpus PR
-# 1495, AtSignAloneReads.al and AtSignAloneMethods.al).
-AM Kind Tests::AtSignAloneNegated_CodeFlowFilterMethods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneMethods.al:767)
-AM Kind Tests::AtSignAlone_CalcFormulaBlankOptionMember	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneMethods.al:717)
-AM Kind Tests::AtSignAlone_CalcFormulaDateSource	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneMethods.al:395)
-AM Kind Tests::AtSignAlone_CalcFormulaOtherSources	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneMethods.al:430)
-AM Kind Tests::AtSignAlone_CalcFormulaOtherSources_ErrorCode	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneMethods.al:454)
-AM Kind Tests::AtSignAlone_CalcFormulaOtherSources_Readers	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneMethods.al:657)
-AS Kind Tests::AtSignAloneNegated_FlowFilter	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneReads.al:904)
-AS Kind Tests::AtSignAloneNegated_FlowFilterThroughField	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneReads.al:928)
-AS Kind Tests::AtSignAloneNegated_QueryDataItemTableFilter	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneReads.al:871)
-AS Kind Tests::AtSignAloneNegated_QuerySetFilter	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneReads.al:861)
-BQ Not At Neighbor Tests::NotAtSignAlone_CodeField_DataItemTableFilter	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneReads.al:871)
-BQ Not At Neighbor Tests::NotAtSignAlone_CodeField_FlowFilter	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneReads.al:928)
-BQ Not At Neighbor Tests::NotAtSignAlone_CodeField_QuerySetFilter	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneReads.al:861)
+# Against main (#8895 has landed): the cells whose answer this pull request changes. Main refuses a CalcFormula's filter('@')
+# and filter('<>@') with another method than sum or over a Time, DateTime, Duration, BigInteger, Guid, Enum or captioned Option
+# source field, the errors in a language other than 1033, <>@ through field(filter()) of a normal field over a Code field, and
+# <>@ in filter group 1 of a temporary record; the head runs them as BC answered them (corpus PR 1495, AtSignAloneTypes.al and
+# AtSignAloneMethods.al:507).
+AM Kind Tests::AtSignAloneNegated_FilterGroupOne_Temporary	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneMethods.al:507)
+AN Source Neighbor Tests::AtSignAlone_CountOverDateSource	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:651)
+AN Source Neighbor Tests::AtSignAlone_SumOverTimeSource	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:785)
+AT Type Tests::AtSignAlone_BigSource_Methods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:857)
+AT Type Tests::AtSignAlone_DaySource_Methods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:651)
+AT Type Tests::AtSignAlone_DecSource_Methods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:695)
+AT Type Tests::AtSignAlone_DurSource_Methods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:833)
+AT Type Tests::AtSignAlone_FieldFilterOfPattern_Methods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:1027)
+AT Type Tests::AtSignAlone_FieldFilterOfPattern_Methods_TemporaryHost	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:1041)
+AT Type Tests::AtSignAlone_FlagSource_Methods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:717)
+AT Type Tests::AtSignAlone_KindSource_Methods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:905)
+AT Type Tests::AtSignAlone_MomentSource_Methods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:809)
+AT Type Tests::AtSignAlone_NumSource_Methods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:673)
+AT Type Tests::AtSignAlone_OptCapSource_Methods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:761)
+AT Type Tests::AtSignAlone_OptSource_Methods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:739)
+AT Type Tests::AtSignAlone_OtherSourceErrors_Language1030	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:974)
+AT Type Tests::AtSignAlone_OtherSourceErrors_Language1031	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:935)
+AT Type Tests::AtSignAlone_TmSource_Methods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:785)
+AT Type Tests::AtSignAlone_UidSource_Methods	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:881)
