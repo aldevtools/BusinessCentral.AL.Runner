@@ -361,18 +361,26 @@ fn a_form_feed_reads_as_a_blank_only_after_a_colon() {
 }
 
 #[test]
-fn a_raw_control_character_in_a_key_or_single_quoted_string_reads_only_for_tab() {
-    // json/JsonReadFrom.al:549 `tok_tab_in_key`, :550 `tok_tab_single_quoted`, :458-474 TokenReadFromRawControlInString.
-    assert_eq!(text(run("TabInKey")), "Yes");
-    assert_eq!(text(run("TabSingleQuoted")), "Yes");
-    assert_eq!(text(run("OneDoubleQuoted")), "Yes");
-    for routine in ["LfInKey", "OneInKey", "OneSingleQuoted", "LfSingleQuoted"] {
-        refused(routine);
+fn a_raw_control_character_in_a_key_or_single_quoted_string_reads_in_the_measured_cells() {
+    // json/JsonReadFrom.al:549 `tok_tab_in_key`, :550 `tok_tab_single_quoted`, :458-474 TokenReadFromRawControlInString;
+    // the cells of assumption `json-readfrom-raw-control` (corpus pull request 1582): a Text, codes 1-31, a double-quoted
+    // key and a member value in either quote, read by a JsonToken.
+    for routine in [
+        "TabInKey",
+        "TabSingleQuoted",
+        "OneDoubleQuoted",
+        "LfInKey",
+        "OneInKey",
+        "OneSingleQuoted",
+        "LfSingleQuoted",
+    ] {
+        assert_eq!(text(run(routine)), "Yes", "{routine}");
     }
 }
 
 #[test]
-fn readfrom_instream_does_not_take_the_text_forms_raw_controls() {
-    // Only ReadFrom(Text) was measured (json/JsonReadFrom.al:440-509).
-    refused("StreamTab");
+fn readfrom_instream_reads_a_raw_control_in_a_double_quoted_member_value() {
+    // The same assumption, InStream cell: a member value in double quotes, read by a JsonObject (code 9 here).
+    // json/JsonReadFrom.al:440-509 pins ReadFrom(Text) only.
+    assert_eq!(text(run("StreamTab")), "Yes");
 }

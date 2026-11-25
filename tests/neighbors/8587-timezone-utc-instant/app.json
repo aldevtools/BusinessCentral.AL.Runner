@@ -1,0 +1,11 @@
+{
+  "id": "5d2c8e1a-7b3f-4a90-8c21-8587c0de0001",
+  "name": "Neighbors 8587 TimeZoneInfo reads an AL DateTime as a UTC moment",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "29.0.0.0",
+  "runtime": "18.0",
+  "target": "OnPrem",
+  "idRanges": [{ "from": 50310, "to": 50319 }],
+  "dependencies": []
+}
