@@ -78,8 +78,8 @@ became flagged), or another failure message. Another refusal text is not a diffe
 ## Run it
 
 ```
-tools/neighbor-diff.sh --changed                     # what CI runs: the folders your branch changes
-tools/neighbor-diff.sh path/to/app [--bc-version 28]  # any app folder
+bash tools/neighbor-diff.sh --changed                # what CI runs: the folders your branch changes
+bash tools/neighbor-diff.sh path/to/app [--bc-version 28] # any app folder
 ```
 
 Default BC version: 29, and CI runs BC 29 only. A change that a BC version decides (a version guard, a major-gated
