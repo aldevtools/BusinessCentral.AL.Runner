@@ -7,7 +7,8 @@ dotnet
     }
 }
 
-// GetUtcOffset of an AL DateTime from a record field and from CurrentDateTime (assumption zone-datetime-utc-instant).
+// GetUtcOffset of an AL DateTime from a record field and from CurrentDateTime: the entry measured a parameter only, so both are
+// refused. One codeunit each, so a refusal does not stop the other.
 codeunit 50327 "Review R1 Zone Origin Tests"
 {
     Subtype = Test;
@@ -38,6 +39,12 @@ codeunit 50327 "Review R1 Zone Origin Tests"
         if D div 60000 <> 120 then
             Error('field: offset %1 min', D div 60000);
     end;
+
+}
+
+codeunit 50333 "Review R1 Current Tests"
+{
+    Subtype = Test;
 
     [Test]
     procedure Argument_CurrentDateTime()

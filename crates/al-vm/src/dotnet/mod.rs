@@ -35,7 +35,6 @@ mod system_environment;
 mod xml_errors;
 mod zip_entry_streams;
 mod zone_rules;
-pub(crate) use zone_rules::{ValueOrigin, value_origin};
 
 use crate::{Frame, Session};
 use al_builtins::describe::Describe;
@@ -123,7 +122,7 @@ pub struct DotNetState {
     entry_streams: std::collections::HashSet<DotNetHandle>,
     /// `DotNetSite::result_ty` of the call `dotnet_apply` is about to make (taken at its start).
     pub(crate) result_ty: Option<usize>,
-    /// Bit `i` set: argument `i` of the call `dotnet_apply` is about to make is an AL DateTime (`zone_rules.rs`
+    /// Bit `i` set: argument `i` of the call `dotnet_apply` is about to make is a DateTime parameter (`zone_rules.rs`
     /// `al_datetime_args`; taken at its start).
     pub(crate) al_datetime_args: u64,
     /// The last .NET result was a null `string` (ADR-024). Set by the reply of a host call and

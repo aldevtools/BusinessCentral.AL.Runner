@@ -12,9 +12,6 @@ codeunit 50310 "TZ Utc Instant Tests"
 {
     Subtype = Test;
 
-    var
-        GlobalMoment: DateTime;
-
     local procedure Year(): Integer
     begin
         exit(Date2DMY(Today, 3));
@@ -122,43 +119,6 @@ codeunit 50310 "TZ Utc Instant Tests"
     local procedure SpringMoment(): DateTime
     begin
         exit(CreateDateTime(LastSunday(3), 010000T));
-    end;
-
-    // The argument is what an AL procedure returns (Base App TypeHelper passes GetCurrUTCDateTime()).
-    [Test]
-    procedure Argument_ProcedureResult()
-    var
-        Zone: DotNet NbTimeZoneInfo;
-        D: Duration;
-    begin
-        Zone := Zone.FindSystemTimeZoneById('W. Europe Standard Time');
-        D := Zone.GetUtcOffset(SpringMoment());
-        Check(D div 60000, 120, 'procedure result');
-    end;
-
-    // The argument is a global DateTime variable.
-    [Test]
-    procedure Argument_GlobalVariable()
-    var
-        Zone: DotNet NbTimeZoneInfo;
-        D: Duration;
-    begin
-        GlobalMoment := SpringMoment();
-        Zone := Zone.FindSystemTimeZoneById('W. Europe Standard Time');
-        D := Zone.GetUtcOffset(GlobalMoment);
-        Check(D div 60000, 120, 'global');
-    end;
-
-    // The argument is CreateDateTime's result, passed directly: an AL DateTime by its origin.
-    [Test]
-    procedure Argument_BuiltinResult()
-    var
-        Zone: DotNet NbTimeZoneInfo;
-        D: Duration;
-    begin
-        Zone := Zone.FindSystemTimeZoneById('W. Europe Standard Time');
-        D := Zone.GetUtcOffset(CreateDateTime(LastSunday(3), 010000T));
-        Check(D div 60000, 120, 'builtin');
     end;
 
     // A DotNet DateTime variable that got an AL DateTime: BC holds a .NET DateTime whose kind is not measured.
@@ -313,5 +273,107 @@ codeunit 50313 "TZ Date Argument Tests"
         D := Zone.GetUtcOffset(DMY2Date(15, 1, Date2DMY(Today, 3)));
         if D div 60000 <> 60 then
             Error('date: offset %1 min', D div 60000);
+    end;
+}
+
+// Helpers of the refused-origin codeunits below.
+codeunit 50314 "TZ Origin Help"
+{
+    var
+        GlobalMoment: DateTime;
+
+    procedure LastSunday(Month: Integer): Date
+    var
+        D: Date;
+    begin
+        D := CalcDate('<CM>', DMY2Date(1, Month, Date2DMY(Today, 3)));
+        while Date2DWY(D, 1) <> 7 do
+            D := D - 1;
+        exit(D);
+    end;
+
+    procedure SpringMoment(): DateTime
+    begin
+        exit(CreateDateTime(LastSunday(3), 010000T));
+    end;
+
+    procedure SetGlobal()
+    begin
+        GlobalMoment := SpringMoment();
+    end;
+
+    procedure OffsetOfGlobal(): Integer
+    var
+        Zone: DotNet NbTimeZoneInfo;
+        D: Duration;
+    begin
+        Zone := Zone.FindSystemTimeZoneById('W. Europe Standard Time');
+        D := Zone.GetUtcOffset(GlobalMoment);
+        exit(D div 60000);
+    end;
+
+    procedure OffsetOfProcedureResult(): Integer
+    var
+        Zone: DotNet NbTimeZoneInfo;
+        D: Duration;
+    begin
+        Zone := Zone.FindSystemTimeZoneById('W. Europe Standard Time');
+        D := Zone.GetUtcOffset(SpringMoment());
+        exit(D div 60000);
+    end;
+
+    procedure OffsetOfBuiltinResult(): Integer
+    var
+        Zone: DotNet NbTimeZoneInfo;
+        D: Duration;
+    begin
+        Zone := Zone.FindSystemTimeZoneById('W. Europe Standard Time');
+        D := Zone.GetUtcOffset(CreateDateTime(LastSunday(3), 010000T));
+        exit(D div 60000);
+    end;
+}
+
+// A DateTime that is no parameter (a procedure result, a global variable, CreateDateTime passed directly): the entry
+// measured the parameter only, so each is refused. One codeunit per origin, so a refusal does not stop another test.
+codeunit 50315 "TZ Procedure Result Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure Argument_ProcedureResult()
+    var
+        Help: Codeunit "TZ Origin Help";
+    begin
+        if Help.OffsetOfProcedureResult() <> 120 then
+            Error('procedure result');
+    end;
+}
+
+codeunit 50316 "TZ Global Variable Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure Argument_GlobalVariable()
+    var
+        Help: Codeunit "TZ Origin Help";
+    begin
+        Help.SetGlobal();
+        if Help.OffsetOfGlobal() <> 120 then
+            Error('global');
+    end;
+}
+
+codeunit 50317 "TZ Builtin Result Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure Argument_BuiltinResult()
+    var
+        Help: Codeunit "TZ Origin Help";
+    begin
+        if Help.OffsetOfBuiltinResult() <> 120 then
+            Error('builtin');
     end;
 }

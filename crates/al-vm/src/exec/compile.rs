@@ -669,7 +669,6 @@ impl<'a> Compiler<'a> {
                 let recv = receiver.as_deref().map(|r| self.expr_copy(r)).transpose()?;
                 let (arg_regs, site_args) = self.arg_regs(args)?;
                 self.chunk.dotnets.push(DotNetSite {
-                    origins: args.iter().map(crate::dotnet::value_origin).collect(),
                     ty: *ty,
                     result_ty: None,
                     op: op.clone(),

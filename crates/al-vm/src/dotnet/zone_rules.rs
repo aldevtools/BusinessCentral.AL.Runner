@@ -25,7 +25,6 @@ use super::policy::Policy;
 use crate::Session;
 use crate::hostvalues::{day_number_of_unix_millis, unix_millis_of_datetime};
 use al_builtins::assumptions::{Assumption, assume};
-use al_builtins::builtin_id::ids;
 use al_builtins::format::civil_from_day;
 use al_builtins::value::{DotNetKind, RtType, Value};
 use al_host::dotnet::{DotNetArg, DotNetValue};
@@ -72,34 +71,20 @@ impl Session {
         ))
     }
 
-    /// Bit `i` set: argument `i` of a DotNet call holds a DateTime whose AL type is DateTime: a DateTime variable, field or
-    /// parameter (by its declared type), or a value `value_origin` names. A DotNet DateTime variable, a .NET result and any
-    /// other expression leave the bit clear (the call refuses where the kind matters, `zone_datetime_kind`).
-    pub(crate) fn al_datetime_args(
-        &self,
-        args: &[ir::Arg],
-        origins: &[ValueOrigin],
-        values: &[Value],
-        f: &crate::Frame,
-    ) -> u64 {
+    /// Bit `i` set: argument `i` of a DotNet call is a by-value DateTime parameter of the running AL procedure, the one origin
+    /// the probe measured (corpus pull request 1582, DotNetTimeZoneDst.al `DoMember`/`Run`: `Dt: DateTime` handed to
+    /// `GetUtcOffset`). A local variable, global, record field, procedure result, `CreateDateTime`, `CurrentDateTime`, a DotNet
+    /// DateTime and any other expression leave the bit clear (the call refuses where the kind matters, `zone_datetime_kind`).
+    pub(crate) fn al_datetime_args(&self, args: &[ir::Arg], values: &[Value], f: &crate::Frame) -> u64 {
+        let r = &self.engine.program.objects[f.object].routines[f.routine];
         let mut bits = 0u64;
-        for (i, ((a, o), v)) in args.iter().zip(origins).zip(values).enumerate().take(64) {
-            if !matches!(v, Value::DateTime(_)) {
-                continue;
-            }
-            let al = match (a, o) {
-                (ir::Arg::Ref(p), _) => self.place_type(p, f) == RtType::DateTime,
-                (ir::Arg::Value(_), ValueOrigin::AlDateTime) => true,
-                (ir::Arg::Value(_), ValueOrigin::Call { object, routine }) => self
-                    .engine
-                    .program
-                    .objects
-                    .get(*object)
-                    .and_then(|o| o.routines.get(*routine))
-                    .is_some_and(|r| r.ret == Some(RtType::DateTime)),
-                (ir::Arg::Value(_), ValueOrigin::Other) => false,
-            };
-            if al {
+        for (i, (a, v)) in args.iter().zip(values).enumerate().take(64) {
+            let by_value_param = matches!(a, ir::Arg::Ref(ir::Place::Local(l))
+                if *l < r.params && !r.by_var.get(*l).copied().unwrap_or(true));
+            if by_value_param
+                && matches!(v, Value::DateTime(_))
+                && matches!(a, ir::Arg::Ref(p) if self.place_type(p, f) == RtType::DateTime)
+            {
                 bits |= 1 << i;
             }
         }
@@ -189,31 +174,6 @@ impl Session {
     /// The year of the session clock, the one `CurrentDateTime` reads (no read: the clock does not move).
     fn clock_year(&self) -> Option<i32> {
         year_of_day(day_number_of_unix_millis(self.now_millis()))
-    }
-}
-
-/// Where a by-value argument of a DotNet call comes from, read when the call is compiled (the compiled site keeps no
-/// expression of a by-value argument): an AL builtin that returns a DateTime (`CreateDateTime`, `CurrentDateTime`), a
-/// call of an AL procedure (its declared return type is read when the call runs), or anything else.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ValueOrigin {
-    AlDateTime,
-    Call { object: usize, routine: usize },
-    Other,
-}
-
-pub(crate) fn value_origin(a: &ir::Arg) -> ValueOrigin {
-    match a {
-        ir::Arg::Value(ir::Expr::Builtin { id, .. })
-            if *id == ids::SYSTEM_CREATEDATETIME_1 || *id == ids::SYSTEM_CURRENTDATETIME_1 =>
-        {
-            ValueOrigin::AlDateTime
-        }
-        ir::Arg::Value(ir::Expr::Call { object, routine, .. }) => ValueOrigin::Call {
-            object: *object,
-            routine: *routine,
-        },
-        _ => ValueOrigin::Other,
     }
 }
 
