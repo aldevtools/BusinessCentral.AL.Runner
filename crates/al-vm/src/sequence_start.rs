@@ -457,6 +457,7 @@ impl Session {
 
     /// A test method body begins (`start`) or ends: noted while [`Session::note_tx_ends`] notes.
     pub fn note_body(&mut self, start: bool) {
+        self.end_body_refusals();
         self.note_tx_point(match start {
             true => TxPointKind::BodyStart,
             false => TxPointKind::BodyEnd,

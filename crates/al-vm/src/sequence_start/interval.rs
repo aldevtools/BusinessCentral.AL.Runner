@@ -227,20 +227,14 @@ mod tests {
             Reached::Other
         );
         // Open and Close, and a Record call that reached no table.
-        assert_eq!(
-            Reached::of(&from, &by_ref(access(5, 3, 1, 3, 1), 0, 2)),
-            Reached::Other
-        );
+        assert_eq!(Reached::of(&from, &by_ref(access(5, 3, 1, 3, 1), 0, 2)), Reached::Other);
         // Every read through a RecordRef.
         assert_eq!(
             Reached::of(&from, &by_ref(access(9, 7, 1, 2, 1), 4, 3)),
             Reached::RefReads
         );
         // Reads through a RecordRef and through a Record.
-        assert_eq!(
-            Reached::of(&from, &by_ref(access(9, 7, 1, 3, 1), 2, 3)),
-            Reached::Other
-        );
+        assert_eq!(Reached::of(&from, &by_ref(access(9, 7, 1, 3, 1), 2, 3)), Reached::Other);
         // A RecordRef read and a Record write (GetNewRecNo, then Insert).
         assert_eq!(
             Reached::of(&from, &by_ref(access(9, 7, 2, 3, 1), 2, 3)),

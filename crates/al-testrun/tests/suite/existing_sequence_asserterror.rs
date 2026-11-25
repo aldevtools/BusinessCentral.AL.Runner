@@ -102,6 +102,10 @@ fn cells(isolation: TestIsolation) -> Vec<Row> {
         cell(50774, "DP", "NumberSequence.Delete('P5DP'); Rows.Put('DP-B1'); asserterror Error('inner');"),
         // A Delete with nothing reached before the asserterror.
         cell(50775, "DN", "NumberSequence.Delete('P5DN'); asserterror Error('inner');"),
+        // A read of the sequence in the step's test after the asserterror undid the Restart, the Delete, or kept the Restart.
+        cell(50776, "RU", "NumberSequence.Restart('P5RU', 1002); Rows.Put('RU-B1'); asserterror Error('inner'); if NumberSequence.Current('P5RU') = 0 then;"),
+        cell(50777, "DU", "NumberSequence.Delete('P5DU'); Rows.Put('DU-B1'); asserterror Error('inner'); if NumberSequence.Exists('P5DU') then; Error('B deliberate');"),
+        cell(50778, "RK", "NumberSequence.Restart('P5RK', 1002); asserterror Error('inner'); if NumberSequence.Current('P5RK') = 0 then;"),
         "codeunit 50779 \"P5 Fails\" { trigger OnRun() begin Error('fails'); end; }".to_string(),
     ]
     .concat();
@@ -147,6 +151,14 @@ fn asserterror_shapes_beside_the_cells_are_refused() {
 fn under_test_isolation_function_an_asserterror_after_a_restart_is_refused() {
     let o = cells(TestIsolation::Function);
     for (test, key) in [("C_RE5Reads", "'P5RE5'"), ("C_RE4Reads", "'P5RE4'")] {
+        assert!(not_run(&row(&o, test).2, key), "{test}: {o:?}");
+    }
+}
+
+#[test]
+fn a_read_in_the_steps_test_after_the_asserterror_is_refused() {
+    let o = cells(TestIsolation::Codeunit);
+    for (test, key) in [("B_RUStep", "'P5RU'"), ("B_DUStep", "'P5DU'"), ("B_RKStep", "'P5RK'")] {
         assert!(not_run(&row(&o, test).2, key), "{test}: {o:?}");
     }
 }

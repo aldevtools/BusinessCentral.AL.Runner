@@ -147,6 +147,13 @@ impl Session {
                     continue;
                 }
             }
+            // No cell reads the sequence in the step's test after the asserterror.
+            let why = format!(
+                "number sequence '{}' was restarted or deleted, then an asserterror rolled back: corpus PR 1573 measures \
+                 the sequence only in a later test, not in the rest of the test that took the step",
+                key.1
+            );
+            self.refuse_sequence_in_body(&key, why);
             self.assume_sequence(&key, Assumption::ExistingSequenceAsserterror);
         }
     }
@@ -196,6 +203,7 @@ impl Session {
         self.access_notes.tx_changes.clear();
         self.access_notes.held.clear();
         self.access_notes.rollback_by = None;
+        self.end_body_refusals();
     }
 }
 

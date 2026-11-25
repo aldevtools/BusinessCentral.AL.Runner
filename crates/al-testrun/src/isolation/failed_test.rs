@@ -88,7 +88,6 @@ impl Body {
     }
 }
 
-
 /// What a failed test leaves of the sequences, as corpus PRs 1465, 1468 and 1572 measured it.
 #[derive(Debug, PartialEq, Eq)]
 enum Leaves {
@@ -251,7 +250,8 @@ impl CodeunitSequences {
         if !failed {
             for key in deletes_undone {
                 let why = format!(
-                    "a test of this codeunit, {routine}, passed after an asserterror undid the Delete of number sequence                      '{}': what that leaves of the sequence is measured only in a test that fails after the asserterror",
+                    "a test of this codeunit, {routine}, passed after an asserterror undid the Delete of number \
+                     sequence '{}': what that leaves of the sequence is measured only in a test that fails after the asserterror",
                     key.1
                 );
                 session.refuse_unmeasured_sequence(&key, why);

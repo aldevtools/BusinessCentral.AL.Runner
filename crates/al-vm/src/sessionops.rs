@@ -500,7 +500,12 @@ impl Session {
 
     /// Notes `step`, the Restart or Delete of `key` just made (`before`: its state just before): the record of `key`'s
     /// first Restart or Delete in this session, and the change of the open transaction (`sequence_start/tx_changes.rs`).
-    fn note_sequence_change(&mut self, key: (String, String), before: Sequence, step: crate::sequence_start::SequenceStep) {
+    fn note_sequence_change(
+        &mut self,
+        key: (String, String),
+        before: Sequence,
+        step: crate::sequence_start::SequenceStep,
+    ) {
         use crate::sequence_start::SequenceStep;
         let new_in_tx = !self.sequences_changed.contains_key(&key);
         let change = self.sequences_changed.entry(key.clone()).or_insert(SequenceChange {
