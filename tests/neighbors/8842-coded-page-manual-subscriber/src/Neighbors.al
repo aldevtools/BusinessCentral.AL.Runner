@@ -1,6 +1,7 @@
 // Neighbors of ListNewLineExtraCodeCodedPageSubscriber.al (al-runner issue 8842): a manual subscriber to another event of the
-// probe's page, not bound, and the same subscriber bound in the handler after the open, on a copy of the probe's page over its
-// table and parts. Each test holds Business Central's answer, measured on a local BC 29.1 container (3 runs of 3).
+// probe's page, not bound, and binding points just past the reviewed path, on a copy of the probe's page over its table and
+// parts. The first two binding shapes hold Business Central's answer, measured on a local BC 29.1 container (3 runs of 3);
+// the later four are the review of the pull request's refusal boundary.
 
 // The probe's page, copied for its own subscriber.
 page 96576 "LT NU5 Lines"
@@ -22,9 +23,15 @@ page 96576 "LT NU5 Lines"
                     ApplicationArea = All;
 
                     trigger OnValidate()
+                    var
+                        Spy: Codeunit "LT NU5 Spy";
                     begin
+                        if Rec.Name = 'B' then
+                            BindSubscription(Spy);
                         Rec.Note := 'Resolved';
                         CurrPage.SaveRecord();
+                        if Rec.Name = 'C' then
+                            BindSubscription(Spy);
                         StampMark(Rec);
                         CurrPage.Update(false);
                     end;
@@ -173,17 +180,25 @@ codeunit 96579 "LT NU5 Tests"
     end;
 
     [Test]
-    [HandlerFunctions('BindHandler')]
-    procedure NewLine_SubscriberBoundInTheHandlerAfterTheOpen_RunsFromThere()
+    [HandlerFunctions('BoundThenOkHandler')]
+    procedure NewLine_SubscriberBoundThenOnlyOk_KeepsMain()
     var
         Opener: Codeunit "LT NU5 Opener";
-        Spy: Codeunit "LT NU5 Spy";
     begin
         Initialize();
         Opener.Open('G1');
-        Check('shown', 'name=A/Resolved/Stamped//Noted part=Resolved/Stamped/A value=A/Resolved/Stamped/V/Noted part=Resolved/Stamped/A ', Shown);
-        Check('rows', 'A/Resolved/Stamped/V;', Rows());
-        Check('spy', 'AGR(A/Resolved/Stamped/);', Spy.Log());
+        Check('rows', '', Rows());
+    end;
+
+    [Test]
+    [HandlerFunctions('BoundThenUnlandingWriteHandler')]
+    procedure NewLine_SubscriberBoundThenUnlandingWrite_KeepsMain()
+    var
+        Opener: Codeunit "LT NU5 Opener";
+    begin
+        Initialize();
+        Opener.Open('G1');
+        Check('rows', '', Rows());
     end;
 
     [ModalPageHandler]
@@ -193,17 +208,24 @@ codeunit 96579 "LT NU5 Tests"
     end;
 
     [ModalPageHandler]
-    procedure BindHandler(var Lines: TestPage "LT NU5 Lines")
+    procedure BoundThenOkHandler(var Lines: TestPage "LT NU5 Lines")
+    var
+        Spy: Codeunit "LT NU5 Spy";
+    begin
+        BindSubscription(Spy);
+        Lines.OK().Invoke();
+        UnbindSubscription(Spy);
+    end;
+
+    [ModalPageHandler]
+    procedure BoundThenUnlandingWriteHandler(var Lines: TestPage "LT NU5 Lines")
     var
         Spy: Codeunit "LT NU5 Spy";
     begin
         Lines.New();
         BindSubscription(Spy);
-        Lines.Name.SetValue('A');
-        Read(Lines, 'name=');
         Lines.Value.SetValue('V');
-        Read(Lines, 'value=');
-        Lines.OK().Invoke();
+        UnbindSubscription(Spy);
     end;
 
     local procedure Drive(var Lines: TestPage "LT NU5 Lines")
@@ -252,5 +274,124 @@ codeunit 96579 "LT NU5 Tests"
     begin
         if Expected <> Actual then
             Error('%1: expected <%2>, found <%3>.', What, Expected, Actual);
+    end;
+}
+
+codeunit 96580 "LT NU5 Bound Call Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    [HandlerFunctions('BindHandler')]
+    procedure NewLine_SubscriberBoundInTheHandlerAfterTheOpen_RunsFromThere()
+    var
+        Opener: Codeunit "LT NU5 Opener";
+    begin
+        Initialize();
+        Opener.Open('G1');
+        Error('the refused shape reached the test');
+    end;
+
+    [ModalPageHandler]
+    procedure BindHandler(var Lines: TestPage "LT NU5 Lines")
+    var
+        Spy: Codeunit "LT NU5 Spy";
+    begin
+        Lines.New();
+        BindSubscription(Spy);
+        Lines.Name.SetValue('A');
+        Lines.Value.SetValue('V');
+        Lines.OK().Invoke();
+    end;
+
+    local procedure Initialize()
+    var
+        Line: Record "LT NU4 Line";
+        Detail: Record "LT NU4 Detail";
+        Spy: Codeunit "LT NU5 Spy";
+        Probe: Codeunit "LT NU4 Spy";
+    begin
+        Line.DeleteAll();
+        Detail.DeleteAll();
+        Spy.Reset();
+        Probe.Reset();
+        Commit();
+    end;
+}
+
+codeunit 96581 "LT NU5 Bound Before Save Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    [HandlerFunctions('BindBeforeSaveHandler')]
+    procedure NewLine_SubscriberBoundBeforeSave_IsRefused()
+    var
+        Opener: Codeunit "LT NU5 Opener";
+    begin
+        Initialize();
+        Opener.Open('G1');
+        Error('the refused shape reached the test');
+    end;
+
+    [ModalPageHandler]
+    procedure BindBeforeSaveHandler(var Lines: TestPage "LT NU5 Lines")
+    begin
+        Lines.New();
+        Lines.Name.SetValue('B');
+    end;
+
+    local procedure Initialize()
+    var
+        Line: Record "LT NU4 Line";
+        Detail: Record "LT NU4 Detail";
+        Spy: Codeunit "LT NU5 Spy";
+        Probe: Codeunit "LT NU4 Spy";
+    begin
+        Line.DeleteAll();
+        Detail.DeleteAll();
+        Spy.Reset();
+        Probe.Reset();
+        Commit();
+    end;
+}
+
+codeunit 96582 "LT NU5 Bound After Save Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    [HandlerFunctions('BindAfterSaveHandler')]
+    procedure NewLine_SubscriberBoundBetweenSaveAndUpdate_IsRefused()
+    var
+        Opener: Codeunit "LT NU5 Opener";
+    begin
+        Initialize();
+        Opener.Open('G1');
+        Error('the refused shape reached the test');
+    end;
+
+    [ModalPageHandler]
+    procedure BindAfterSaveHandler(var Lines: TestPage "LT NU5 Lines")
+    begin
+        Lines.New();
+        Lines.Name.SetValue('C');
+    end;
+
+    local procedure Initialize()
+    var
+        Line: Record "LT NU4 Line";
+        Detail: Record "LT NU4 Detail";
+        Spy: Codeunit "LT NU5 Spy";
+        Probe: Codeunit "LT NU4 Spy";
+    begin
+        Line.DeleteAll();
+        Detail.DeleteAll();
+        Spy.Reset();
+        Probe.Reset();
+        Commit();
     end;
 }

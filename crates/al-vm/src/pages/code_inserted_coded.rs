@@ -51,8 +51,9 @@
 //! refresh reading the row as stored first and refusing a trigger that writes (:773), its worker's reads through the query
 //! cache (`bg_drain`), then one SetValue of a control without code and `OK()` (`FactboxStep::CodedExtraTyped`). A row before
 //! the line (:821) and a table with record triggers (:839) keep main's way.
-//! Its page may have manual subscribers none of which is bound (issue 8842, corpus pull request 1541); a test call while
-//! one is bound is refused (`coded_line_before_set_value`).
+//! Its page may have manual subscribers none of which is bound (issue 8842, corpus pull request 1541). A subscriber bound
+//! later drops calls that do not continue the measured steps to main's way; a landing call, a later call and SaveRecord or
+//! Update while it remains bound are refused (`coded_line_before_set_value`, `coded_extra_shape`).
 
 use super::pinned_shape::TestCall;
 use super::state::{CodedLine, FactboxStep};
@@ -60,6 +61,9 @@ use super::*;
 use al_builtins::assumptions::assume;
 use al_builtins::builtin_id::ids;
 use al_builtins::page_op::PageMethod;
+
+const CODED_EXTRA_BOUND_SUBSCRIBER: &str =
+    "a call on a List page of the page-with-code shape while a subscriber of the page is bound (not measured)";
 
 /// A step of the page with code `st` runs under the assumption of the objects it showed at its open (`CodedObjects`).
 pub(super) fn coded_assume(st: &St) {
@@ -100,18 +104,32 @@ impl Session {
     /// PR 8834, 21:06Z; the repro page :300-409 and the logging page :481-604):
     /// - the page: a List page with no page extension, and no subscriber but manual ones none of which is bound
     ///   (ListNewLineExtraCodeCodedPageSubscriber.al:492, :507; a bound one, :537, and an automatic one, :523, run at each
-    ///   modify of the page and keep main's way; one bound later is refused, `coded_line_before_set_value`), that declares only PageType, SourceTable,
-    ///   AutoSplitKey (as true), ApplicationArea and UsageCategory (`pinned_property`: no SourceTableView, so the view is in
-    ///   the primary key), and exactly the triggers OnOpenPage, OnAfterGetRecord and OnDeleteRecord; a table without OnModify
-    ///   and OnRename (`no_save_trigger`; OnInsert and OnDelete measured by ListNewLineExtraCodeCodedTableTriggers.al);
+    ///   modify of the page and keep main's way; one bound later refuses only the measured steps it would continue:
+    ///   `coded_line_before_set_value` and this predicate at SaveRecord and Update), that declares only PageType,
+    ///   SourceTable, AutoSplitKey (as true), ApplicationArea and UsageCategory (`pinned_property`: no SourceTableView,
+    ///   so the view is in the primary key), and exactly the triggers OnOpenPage, OnAfterGetRecord and OnDeleteRecord; a
+    ///   table without OnModify and OnRename (`no_save_trigger`; OnInsert and OnDelete measured by
+    ///   ListNewLineExtraCodeCodedTableTriggers.al);
     /// - its controls: a repeater without a property; fields of Rec or of a variable with no property but ApplicationArea and
     ///   Editable as false, and no trigger but OnValidate; actions with no property but ApplicationArea and no trigger but
     ///   OnAction; three part controls (`coded_extra_parts`).
-    fn coded_extra_shape(&self, st: &St) -> Result<bool, Signal> {
+    pub(super) fn coded_extra_shape(&self, st: &St) -> Result<bool, Signal> {
         let page_object = st.borrow().object as usize;
         let unextended = page_of(&self.engine(), st).extensions.is_empty();
-        if !(self.is_list_page(st) && unextended && self.no_active_subscriber(page_object) && self.no_save_trigger(st))
-        {
+        let active = self.has_bound_subscriber(page_object);
+        if active {
+            let s = st.borrow();
+            if s.coded_objects == super::state::CodedObjects::Extra
+                && matches!(
+                    s.coded_line,
+                    CodedLine::EmptyOpen | CodedLine::LineRead | CodedLine::Landed | CodedLine::Failed
+                )
+            {
+                return unsupported(CODED_EXTRA_BOUND_SUBSCRIBER);
+            }
+            return Ok(false);
+        }
+        if !(self.is_list_page(st) && unextended && self.no_save_trigger(st)) {
             return Ok(false);
         }
         let engine = self.engine();
@@ -257,6 +275,14 @@ impl Session {
         subscribers.is_some_and(|objects| objects.iter().all(|&o| !self.is_bound_object(o)))
     }
 
+    /// Whether a manual subscriber of `table` has an instance bound now.
+    fn has_bound_subscriber(&self, table: usize) -> bool {
+        let engine = self.engine();
+        let subscribers = engine.events.manual_subscribers_of(table);
+        drop(engine);
+        subscribers.is_some_and(|objects| objects.iter().any(|&o| self.is_bound_object(o)))
+    }
+
     /// The parts of host `st` as it opens. On the page with code opened as measured on an empty view, they run
     /// OnAfterGetCurrRecord on the blank record (:1407 `open=P.OPEN;W.AGCR();`) and the steps of the page with code begin;
     /// `false` for every other page and open.
@@ -307,31 +333,15 @@ impl Session {
     /// `setname=W.AGCR();T.VN(Station);...`), and the validation must then land (`coded_must_have_landed`); any other call
     /// ends the steps. After a validation error before the landing (`CodedLine::Failed`) every call on the page or its parts is
     /// refused: the cell's error leaves the handler (ListNewLineExtraCodeCodedTableTriggers.al:746). On a page of their shape
-    /// with other code, a call while a subscriber of the page is bound is refused: the cells bind none after the open (a bound
-    /// one runs at each modify of the page, ListNewLineExtraCodeCodedPageSubscriber.al:537).
+    /// with other code, a call that continues the measured steps while a subscriber of the page is bound is refused: the
+    /// cells bind none after the open (one runs at each modify of the page, ListNewLineExtraCodeCodedPageSubscriber.al:537).
+    /// A call that ends the steps, or a first write that cannot land, instead keeps main's way.
     pub(super) fn coded_line_before_set_value(&mut self, st: &St, call: Option<TestCall>) -> Result<(), Signal> {
         if call.is_some() && Self::tree_root(st).0.borrow().coded_line == CodedLine::Failed {
             return unsupported(
                 "a call on a List page with code and FactBoxes after the validation of its first SetValue raised an error before \
                  the landing (not measured)",
             );
-        }
-        let (root, _) = Self::tree_root(st);
-        let bound = call.is_some()
-            && {
-                let r = root.borrow();
-                r.coded_line != CodedLine::Off && r.coded_objects == super::state::CodedObjects::Extra
-            }
-            && !self.no_active_subscriber(root.borrow().object as usize);
-        if bound {
-            root.borrow_mut().forget_code_inserted_line();
-            root.borrow_mut().coded_line = CodedLine::Off;
-            return unsupported(
-                "a call on a List page of the page-with-code shape while a subscriber of the page is bound (not measured)",
-            );
-        }
-        if st.borrow().coded_line != CodedLine::EmptyOpen {
-            return Ok(());
         }
         let Some(call) = call else {
             return Ok(());
@@ -345,19 +355,47 @@ impl Session {
                 let s = st.borrow();
                 s.cursor == Cursor::NewLine && s.draft && !s.dirty && !s.draft_stored && s.new_by_call
             };
+        let landing_write = match call {
+            TestCall::Write(i) if first_write => self.coded_write_may_land(st, i),
+            _ => false,
+        };
+        let (root, _) = Self::tree_root(st);
+        let bound = {
+            let r = root.borrow();
+            matches!(
+                r.coded_line,
+                CodedLine::EmptyOpen | CodedLine::LineRead | CodedLine::Landed | CodedLine::Failed
+            ) && r.coded_objects == super::state::CodedObjects::Extra
+                && self.has_bound_subscriber(r.object as usize)
+        };
+        if bound {
+            let continues = {
+                let line = root.borrow().coded_line;
+                matches!(line, CodedLine::LineRead | CodedLine::Landed)
+                    || (line == CodedLine::EmptyOpen && landing_write)
+            };
+            root.borrow_mut().forget_code_inserted_line();
+            root.borrow_mut().coded_line = CodedLine::Off;
+            if continues {
+                return unsupported(CODED_EXTRA_BOUND_SUBSCRIBER);
+            }
+        }
+        if st.borrow().coded_line != CodedLine::EmptyOpen {
+            return Ok(());
+        }
         match call {
             // On a page of the shape of the page with code, only a write whose validation can land as the cells' do takes the
             // steps: the control's OnValidate calls CurrPage.SaveRecord() and its table field's OnValidate inserts
             // (ListNewLineExtraCodeCodedPage.al:31-36, :318-324). Every other first write keeps main's way (review of al-runner
             // PR 8834, 21:06Z, point 1).
-            TestCall::Write(i) if first_write && !self.coded_write_may_land(st, i) => {
-                st.borrow_mut().coded_line = CodedLine::Off;
-                Ok(())
-            }
-            _ if first_write => {
+            TestCall::Write(_) if first_write && landing_write => {
                 coded_assume(st);
                 st.borrow_mut().coded_line = CodedLine::LineRead;
                 self.with_blank_landing(st, |s| s.sync_parts(st))
+            }
+            TestCall::Write(_) if first_write => {
+                st.borrow_mut().coded_line = CodedLine::Off;
+                Ok(())
             }
             TestCall::Read | TestCall::Page(PageMethod::New) => Ok(()),
             _ => {

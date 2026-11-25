@@ -4,5 +4,11 @@
 LT NU4 Tests::NewLine_ExtraCodeOnPageWithCodeAndUnboundPageSubscriber_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1541, open: ListNewLineExtraCodeCodedPageSubscriber.al)
 LT NU4 Tests::NewLine_PageSubscriberBoundAndUnboundBeforeTheOpen_RunsNothing	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1541, open: ListNewLineExtraCodeCodedPageSubscriber.al)
 LT NU5 Tests::NewLine_UnboundSubscriberToAnotherPageEvent_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1541, open: ListNewLineExtraCodeCodedPageSubscriber.al)
-# One bound in the handler after the open: refused on both, at the next call on the head.
-LT NU5 Tests::NewLine_SubscriberBoundInTheHandlerAfterTheOpen_RunsFromThere	REFUSED a call on a List page of the page-with-code shape while a subscriber of the page is bound
+# A subscriber bound after the open still uses main's result when the steps end or cannot land, but the page was admitted
+# under the open assumption.
+LT NU5 Tests::NewLine_SubscriberBoundThenOnlyOk_KeepsMain	ASSUMED list-new-line-extra-code-coded (the manual-subscriber open, corpus PR 1541)
+LT NU5 Tests::NewLine_SubscriberBoundThenUnlandingWrite_KeepsMain	ASSUMED list-new-line-extra-code-coded (the manual-subscriber open, corpus PR 1541)
+# Continuing steps refuse when the subscriber is bound.
+LT NU5 Bound Call Tests::NewLine_SubscriberBoundInTheHandlerAfterTheOpen_RunsFromThere	REFUSED a call on a List page of the page-with-code shape while a subscriber of the page is bound
+LT NU5 Bound Before Save Tests::NewLine_SubscriberBoundBeforeSave_IsRefused	REFUSED a call on a List page of the page-with-code shape while a subscriber of the page is bound
+LT NU5 Bound After Save Tests::NewLine_SubscriberBoundBetweenSaveAndUpdate_IsRefused	REFUSED a call on a List page of the page-with-code shape while a subscriber of the page is bound
