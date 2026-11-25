@@ -398,6 +398,13 @@ codeunit 71919 "NB8355 Pair Tests"
         Ord := R.Trio;
         Error('%1|%2', Ok, Ord);
     end;
+}
+
+// Other member names of the measured structure, and a member name with a character other than a letter. In a codeunit of
+// their own: a refused test marks the later tests of its codeunit.
+codeunit 71920 "NB8355 Names Tests"
+{
+    Subtype = Test;
 
     [Test]
     procedure OtherPair_Two()
