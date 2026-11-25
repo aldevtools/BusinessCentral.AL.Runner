@@ -25,19 +25,22 @@ codeunit 151 "System Initialization Impl."
     end;
 }
 
-// GlobalTriggerManagement passes the Global Triggers events on as its OnAfter events.
+// GlobalTriggerManagement passes the Global Triggers events of the partner table (60930, "LMP Tab") on as its OnAfter
+// events, so the test runner's own writes reach no partner memo.
 codeunit 49 GlobalTriggerManagement
 {
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'GetDatabaseTableTriggerSetup', '', false, false)]
     local procedure Setup(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean)
     begin
-        OnAfterGetDatabaseTableTriggerSetup(TableId, OnDatabaseInsert, OnDatabaseModify, OnDatabaseDelete, OnDatabaseRename);
+        if TableId = 60930 then
+            OnAfterGetDatabaseTableTriggerSetup(TableId, OnDatabaseInsert, OnDatabaseModify, OnDatabaseDelete, OnDatabaseRename);
     end;
 
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'OnDatabaseInsert', '', false, false)]
     local procedure DatabaseInsert(RecRef: RecordRef)
     begin
-        OnAfterOnDatabaseInsert(RecRef);
+        if RecRef.Number = 60930 then
+            OnAfterOnDatabaseInsert(RecRef);
     end;
 
     [IntegrationEvent(false, false)]
