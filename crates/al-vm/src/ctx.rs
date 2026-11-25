@@ -243,8 +243,7 @@ impl al_builtins::native::Ctx for Session {
             Some(Value::Record(rc)) => {
                 let rc = rc.clone();
                 let kind = crate::sequence_start::TableCall::Record {
-                    find_last: false,
-                    set_range: false,
+                    op: crate::sequence_start::RecordCall::Other,
                     temporary: rc.borrow().temporary,
                 };
                 self.al_table_call(kind, |s| Session::record_validate_variant(s, &rc, args))
@@ -262,6 +261,7 @@ impl al_builtins::native::Ctx for Session {
         recv: Option<&mut Value>,
         args: &mut [Value],
     ) -> Result<Value, Signal> {
+        self.note_page_call();
         self.page_op(method, recv, args)
     }
 
@@ -859,8 +859,7 @@ impl Session {
                     return Err(Signal::unsupported(why));
                 }
                 let kind = crate::sequence_start::TableCall::Record {
-                    find_last: method == al_builtins::record_op::RecordOp::FindLast,
-                    set_range: method == al_builtins::record_op::RecordOp::SetRange,
+                    op: crate::sequence_start::RecordCall::of(method, args),
                     temporary: rc.borrow().temporary,
                 };
                 // A value of another type than the field's (`setrange_convert`), raised where the call's own errors are.

@@ -11,9 +11,9 @@
 //!   (`ctx.rs` `module_by_id`); a read of an app table ([`APP_TABLES`]) meets every app;
 //! - touching everything, each reason with the call stack of its first site: a .NET member that is not kept
 //!   ([`dotnet_member_kept`], ADR-079 amendment 1, `dotnet/mod.rs`), a page, a report (`impact.rs`), every builtin
-//!   outside [`KEPT_RECEIVERS`] (HTTP, files, StartSession, TaskScheduler and so a Job Queue run, DataTransfer, XMLports),
-//!   a table served by a provider other than the app tables (the store), a whole-store read or a company change (the
-//!   store).
+//!   outside [`KEPT_RECEIVERS`] (HTTP, files, StartSession, TaskScheduler and so a Job Queue run, DataTransfer,
+//!   XMLports), a table served by a provider other than the app tables (the store), a whole-store read or a company
+//!   change (the store).
 //!
 //! - the row version read by the SystemRowVersion field: the routines the session ran (`install_footprint_row_version.rs`).
 //!
@@ -367,14 +367,24 @@ const KEPT_METHODS: &[(&str, &[&str])] = &[
             "CreateDateTime",
             "CreateGuid",
             "CurrentDateTime",
-            "Date",
-            "DaTi",
-            "DMY",
-            "DT",
-            "DWY",
+            // The date conversions are functions of their arguments and of two session inputs: the clock (the parts
+            // `DMY2Date` leaves out, as `Today`) and the session time zone (`DT2Date`, `DT2Time`, as the kept
+            // `CreateDateTime` and `CurrentDateTime`), which is UTC here (ADR-014 section 9, al-builtins `datefns.rs:5`).
+            // A zone that came from the session (User Personalization) would make these entries record a read. Corpus `tests/al-language/types/date-time/DateTimeFuncs.al:61-72` (DT2Date,
+            // DT2Time), `types/date-time/DateFuncs.al:14-70` (Date2DMY, Date2DWY), `:109-116` (Date2DWY), `:207-216`
+            // (DMY2Date), `:311-316` (DWY2Date), `types/date-time/Arithmetic.al:480-494` (Variant2Date,
+            // Variant2Time). `DaTi2Variant` has no pin and touches everything.
+            "Date2DMY",
+            "Date2DWY",
+            "DMY2Date",
+            "DT2Date",
+            "DT2Time",
+            "DWY2Date",
             "Evaluate",
             "EvaluateBounded",
             "EvaluateDateVariable",
+            "EvaluateEnumField",
+            "EvaluateEnumVariable",
             "EvaluateMemberlessVarOption",
             "EvaluateMemberlessVarOptionElement",
             "EvaluateOptionField",
@@ -411,7 +421,8 @@ const KEPT_METHODS: &[(&str, &[&str])] = &[
             "Time",
             "Today",
             "TranslatedText",
-            "Variant",
+            "Variant2Date",
+            "Variant2Time",
             "WindowsLanguage",
             "WorkDate",
         ],
@@ -434,16 +445,19 @@ fn dotnet_member_kept(clr_type: &str, member: Option<&str>) -> bool {
         || member.is_some_and(|m| crate::dotnet::server_classes::keeps_nothing(clr_type, m))
 }
 
+/// The `NavApp` methods kept: the module info reads.
+const NAVAPP_KEPT_METHODS: &[&str] = &["GetModuleInfo", "GetCurrentModuleInfo", "GetCallerModuleInfo"];
+
+/// The `Session` methods that touch everything: they start, stop or look at another session.
+const SESSION_TOUCHING_METHODS: &[&str] = &["StartSession", "StopSession", "IsSessionActive"];
+
 /// Whether builtin `name` (`Receiver.Method#n`) touches everything while an install session is recorded
 /// ([`KEPT_RECEIVERS`], [`KEPT_METHODS`]). Of `NavApp`, the module info reads are kept (`GetModuleInfo` notes the app it
 /// reads); of `Session`, every method but the ones that start, stop or look at another session.
 fn builtin_touches_everything(receiver: &str, method: &str) -> bool {
     match receiver {
-        "NavApp" => !matches!(method, "GetModuleInfo" | "GetCurrentModuleInfo" | "GetCallerModuleInfo"),
-        "Session" => matches!(
-            method,
-            "StartSession" | "StopSession" | "IsSessionActive" | "IsSessionLoggedIn"
-        ),
+        "NavApp" => !NAVAPP_KEPT_METHODS.contains(&method),
+        "Session" => SESSION_TOUCHING_METHODS.contains(&method),
         r => match KEPT_METHODS.iter().find(|(k, _)| *k == r) {
             Some((_, kept)) => !kept.contains(&method),
             None => !KEPT_RECEIVERS.contains(&r),

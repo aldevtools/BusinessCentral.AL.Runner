@@ -524,3 +524,61 @@ fn an_encoding_or_hash_instance_member_is_the_listed_base_member() {
     assert!(!kept("System.Text.UTF32Encoding", Some("GetBytes")));
     assert!(!kept("System.Security.Cryptography.HMACSHA256", Some("ComputeHash")));
 }
+
+/// Every method kept by name is the method of a real builtin: an entry no builtin has keeps nothing, and the builtin
+/// it meant still touches everything (issue 9046: `DT2Date` was listed as `DT`).
+#[test]
+fn every_kept_method_names_a_builtin() {
+    let names: Vec<&str> = al_builtins::builtin_id::BuiltinId::all().map(|id| id.name()).collect();
+    for (receiver, methods) in super::KEPT_METHODS {
+        for method in *methods {
+            let prefix = format!("{receiver}.{method}#");
+            assert!(names.iter().any(|n| n.starts_with(&prefix)), "{receiver}.{method}");
+        }
+    }
+    for receiver in super::KEPT_RECEIVERS {
+        let prefix = format!("{receiver}.");
+        assert!(names.iter().any(|n| n.starts_with(&prefix)), "{receiver}");
+    }
+    for method in super::NAVAPP_KEPT_METHODS {
+        let prefix = format!("NavApp.{method}#");
+        assert!(names.iter().any(|n| n.starts_with(&prefix)), "NavApp.{method}");
+    }
+    for method in super::SESSION_TOUCHING_METHODS {
+        let prefix = format!("Session.{method}#");
+        assert!(names.iter().any(|n| n.starts_with(&prefix)), "Session.{method}");
+    }
+}
+
+/// Issue 9046: the date conversions a pinned corpus case measures as functions of their arguments keep nothing. Their
+/// neighbor without a pin (`DaTi2Variant`) and every `TaskScheduler` method still touch everything.
+#[test]
+fn date_conversions_keep_nothing() {
+    let all = |name: &str| {
+        let (r, m) = name.split_once('.').unwrap_or((name, ""));
+        super::builtin_touches_everything(r, m)
+    };
+    for kept in [
+        "System.DT2Date",
+        "System.DT2Time",
+        "System.DMY2Date",
+        "System.DWY2Date",
+        "System.Date2DMY",
+        "System.Date2DWY",
+        "System.Variant2Date",
+        "System.Variant2Time",
+    ] {
+        assert!(!all(kept), "{kept}");
+    }
+    for every in [
+        "System.DaTi2Variant",
+        "TaskScheduler.CanCreateTask",
+        "TaskScheduler.CreateTask",
+        "TaskScheduler.TaskExists",
+        "TaskScheduler.SetTaskReady",
+        "TaskScheduler.CancelTask",
+        "TaskScheduler.SomethingNew",
+    ] {
+        assert!(all(every), "{every}");
+    }
+}

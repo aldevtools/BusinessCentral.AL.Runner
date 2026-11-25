@@ -204,7 +204,9 @@ macro_rules! session_fields {
                 resource_reads,
                 // Counts and insert stamps al-testrun compares within one test only (`sequence_start.rs`; install_left.rs
                 // keeps none of them either): a test's differences of the counts are the same from any start, and the
-                // insert stamps are asked only for sequences inserted since the test's start, so none from the login.
+                // insert stamps are asked only for sequences inserted since the test's start, so none from the login. The
+                // number sequence steps of the open transaction (`sequence_start/tx_changes.rs`) are that session's
+                // transaction's.
                 access_notes,
             }
             refuse {

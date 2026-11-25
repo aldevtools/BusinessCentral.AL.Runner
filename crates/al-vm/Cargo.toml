@@ -13,6 +13,7 @@ al-version.workspace = true
 al-host.workspace = true
 rust_decimal = "1"
 flate2.workspace = true
+sha2 = "0.10"
 
 [dev-dependencies]
 al-sema.workspace = true
