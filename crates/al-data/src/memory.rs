@@ -35,7 +35,6 @@ mod source_stamps_tests;
 #[cfg(test)]
 mod storage_tests;
 pub use frozen::{FrozenRows, FrozenStore, NotShareable, not_shareable, shareable};
-pub use row_changes::{RowChanges, TableRows};
 
 type Table = crate::pmap::PMap<Key, Row>;
 /// A table's place in the store: its company (empty for a table that is not per company) and its object. The company
@@ -1093,6 +1092,13 @@ impl MemStore {
         }
     }
 
+    /// Whether a table of the store holds a row now, read with no footprint and no access counted: a decision of the VM,
+    /// not a read of AL code (al-vm `clear_shared_codeunit.rs`). The backing is not read; a temporary record's own store
+    /// has none.
+    pub fn holds_rows_unobserved(&self) -> bool {
+        self.tables.iter().any(|(_, t)| !t.is_empty())
+    }
+
     /// Whether table object `object` holds a row now (committed or not) in any company.
     pub fn has_rows(&self, object: u32) -> bool {
         self.seen(object);
@@ -1249,6 +1255,9 @@ impl MemStore {
             } else {
                 self.emptied.remove(&slot);
             }
+            // The rows come in without a write of each, so note their held columns as `from_exported` does: the store
+            // then refuses the reads the store the tables came from refuses.
+            self.note_held_rows(t.object, &table);
             self.tables.insert(slot, table);
         }
         self.commit();

@@ -537,7 +537,8 @@ pub struct Phases {
     pub install_snapshot: Option<String>,
     /// A warm server ran the request on the engines an earlier request over the same compile kept.
     pub engine_kept: bool,
-    /// `RunOptions::login_replay_check`: the check's report line (`login_replay.rs`), counted over every request the engine ran.
+    /// `RunOptions::login_replay_check`: the check's report (`login_replay.rs` `report`: the check line, then the keys
+    /// line), counted over every request the engine ran.
     pub login_replay: Option<String>,
     /// What the run did, counted (the work ratchet of `al-test-cli`).
     pub work: RunWork,
@@ -769,10 +770,10 @@ pub(crate) struct Scratch {
     hub: bool,
     /// See `Unit::hub_leg`. Not set (a run outside the corpus routing): runner 130450, as before the hub leg existed.
     hub_leg: bool,
-    /// The tables an earlier codeunit with RequiredTestIsolation = Disabled left rows in; reading one sets `leak_hit`.
+    /// The tables an earlier codeunit with RequiredTestIsolation = Disabled left rows in; reading one notes it in `leak_hits`.
     leak: Option<Arc<std::collections::BTreeSet<u32>>>,
-    /// A test or the `OnRun` trigger read or wrote one of `leak`.
-    leak_hit: bool,
+    /// The tables of `leak` a test or the `OnRun` trigger read or wrote.
+    leak_hits: std::collections::BTreeSet<u32>,
     /// Runner 130450 runs the codeunit and its `OnRun` can write: what OnRun left reaches the later codeunits
     /// (`corpus.rs` `onrun_writes`; run.rs sets CARRIED).
     onrun_carry: bool,
@@ -1183,7 +1184,7 @@ fn test_workers() -> usize {
 }
 
 /// Stack of a test thread: the VM recurses on the native stack per AL call (`MAX_CALL_DEPTH`).
-const TEST_STACK: usize = 256 << 20;
+pub(crate) const TEST_STACK: usize = 256 << 20;
 
 /// Drops `value` on another thread. The process does not wait for it when it ends.
 pub fn retire<T: Send + 'static>(value: T) {
@@ -1261,9 +1262,10 @@ mod install_snapshot;
 #[cfg(test)]
 mod install_unknown_tests;
 mod internals_grant;
-mod lane_starts;
 #[cfg(test)]
 mod login_explain_tests;
+#[cfg(test)]
+mod login_image_tests;
 #[cfg(test)]
 mod login_memo_tests;
 #[cfg(test)]
@@ -1312,7 +1314,7 @@ use self::handlers::*;
 pub use self::order_hint::{NumbersOrder, OrderHint};
 pub use self::run::*;
 pub use self::single_fresh::{CarriedCodeunit, CarriedRead};
-pub use self::single_lane::{LaneReport, RerunSkipped, rerun_skipped_text};
+pub use self::single_lane::LaneReport;
 
 /// The translation files of the app folder `dir`, as the IR keeps them (ADR-053 step 2). A file that cannot be read keeps its
 /// reason, and its language refuses every translated read.

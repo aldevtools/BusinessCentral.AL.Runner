@@ -218,6 +218,7 @@ fn open_company(
         .flags
         .login_replay_check()
         .then(|| crate::login_replay::Key::of(session, disabled, scratch.flags));
+    let before_login = session.store_mut().change_counter();
     // Base Application's login code sets WorkDate when the session opens the company (`install::login_work_date`).
     // It runs before the workspace's own Company Triggers subscribers: the order of the two is not pinned
     // (docs/probes-needed.md, WorkDate row).
@@ -227,7 +228,20 @@ fn open_company(
     let hits = al_builtins::assumptions::take_hit_bits();
     if let Some(key) = replay_key.filter(|_| wrote.raised) {
         let state = crate::login_replay::LoginState::of(session, &wrote, hits);
-        crate::login_replay::check(&engine).note(key, state);
+        let check = crate::login_replay::check(&engine);
+        // The twin is made as `run_codeunit_inner` makes the session: the host of the same scratch, the run's flags.
+        let twin = || {
+            let mut host = crate::host::host_perturbed(scratch.clock_start, perturb);
+            host.run_seed = scratch.run_seed.seed;
+            let mut twin = Session::with_host(engine.clone(), host);
+            scratch.flags.apply(&mut twin);
+            twin
+        };
+        if check.note(key, state.clone()) {
+            check.round_trip(session, before_login, &state, twin);
+        }
+        #[cfg(test)]
+        crate::login_replay::serve_twin(session, before_login, twin);
     }
     // `workDate.offset` of a stability run (ADR-058): the work date the session starts with, after the login code set it;
     // a `WorkDate(d)` of the test still wins.
@@ -626,7 +640,7 @@ fn run_codeunit_inner(
             let timed_out = watchdog.and_then(Watchdog::finish);
             let ran = on_run_time_limit(session, ran, limit, timed_out);
             let hits = session.store_mut().watch_hits();
-            scratch.leak_hit |= !leak.is_disjoint(&hits);
+            scratch.leak_hits.extend(leak.intersection(&hits));
             session.store_mut().watch(Default::default());
             if let Some((_, why)) = skipped_install_hit(&skipped_installs, &hits, Refused) {
                 return Err(on_run_refused(format!("OnRun: {why}")));
@@ -1115,7 +1129,7 @@ fn run_codeunit_inner(
             let drew_carried = session.carried_random_draws() > carried_before;
             // A test that read or wrote, while it ran, a table a Company Triggers subscriber wrote before the first test
             // (al-runner issue 5641), or one a watched login wrote (`login.rs`): what it found there is not pinned.
-            // A read or write of any table an earlier Disabled codeunit left rows in sets `leak_hit`, whatever watched
+            // A read or write of any table an earlier Disabled codeunit left rows in is noted in `leak_hits`, whatever watched
             // table the test touched first (review of al-runner issue 7717, round five, probe p13).
             let touched = session.store_mut().watch_hits();
             let hit = company_open.watch_hit(&touched, began);
@@ -1130,8 +1144,8 @@ fn run_codeunit_inner(
             {
                 Some(why) => Outcome::NotRun(why),
                 None => {
-                    if began && !leak.is_disjoint(&touched) {
-                        scratch.leak_hit = true;
+                    if began {
+                        scratch.leak_hits.extend(leak.intersection(&touched));
                     }
                     outcome
                 }

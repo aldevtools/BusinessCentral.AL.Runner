@@ -122,6 +122,22 @@ impl Session {
     }
 }
 
+/// What a line of an error's stack for routine `routine` of `object` begins with: its frame up to the line number
+/// (`frame_line`). `None` where the format is not known.
+pub(crate) fn frame_head(program: &ir::Program, object: usize, routine: usize) -> Option<String> {
+    let pos = program.objects[object].routines.get(routine)?.pos;
+    let line = frame_line(
+        program,
+        object,
+        CallFrame {
+            event: false,
+            routine,
+            pos,
+        },
+    )?;
+    line.find(" line ").map(|i| line[..i].to_string())
+}
+
 /// The text of one frame; `None` where the format is not known.
 ///
 /// Measured (session-system/TestSessionCallstackSourcesContracts.al:Callstack_FromTablePageReportAndExtensionCode,
