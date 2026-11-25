@@ -1,0 +1,1 @@
+comments only: the host.rs module header and ADR docs, no code change
