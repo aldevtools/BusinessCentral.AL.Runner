@@ -100,7 +100,13 @@ impl Session {
                             Holding::Written => temp_rows_refusal(),
                         });
                     }
-                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ClearSharedCodeunit);
+                    al_builtins::assumptions::assume(
+                        if self.store_kind(rc.borrow().object as usize) == Some(Store::Kinds) {
+                            al_builtins::assumptions::Assumption::ClearAllStoreGlobalKinds
+                        } else {
+                            al_builtins::assumptions::Assumption::ClearSharedCodeunit
+                        },
+                    );
                     self.reset_keeping_rows(rc);
                     kept.push(i);
                 }
@@ -369,14 +375,14 @@ impl Session {
                 Store::TempArray
             }
             [r, i] if array_with(r, 2, temp_record) && array_with(i, 1, integer) => Store::TwoDimArray,
-            _ => return None,
+            _ => return self.kinds_store(object, 0).then_some(Store::Kinds),
         };
         match (store, labels.as_slice()) {
             (_, []) => Some(store),
             // "CLL Store First" (:30), "CLL Store Mid" (:83), "CLL Store Last" (:136): the Label before, between the
             // temporary record and the RecordRef array, after.
             (Store::TempRef, [0 | 1 | 3]) => Some(Store::TempRefLabel),
-            _ => None,
+            _ => self.kinds_store(object, 0).then_some(Store::Kinds),
         }
     }
 
@@ -397,6 +403,42 @@ impl Session {
                     RtType::Codeunit(c)] if self.store_kind_of(*c as usize, false) == Some(Store::Integer))
     }
 
+    /// Whether codeunit `object` is a store of the global kinds ClearSharedCodeunitGlobalKinds.al "CKK Store" (:104-145),
+    /// ClearSharedCodeunitWhseRegister.al (:10-149) and ClearSharedCodeunitLateBinding.al (:12-67) hold (merged corpus PR
+    /// 1587, assumption clear-all-store-global-kinds): a plain codeunit without a TableNo whose every global is a Label with
+    /// text or of a kind [`store_global_kind`] lists, a codeunit global again such a store. The measured stores nest three
+    /// deep ("CKW Register", "CKW WMS", "CKW Tracking", "CKW UOM"); a deeper or cyclic nesting is no such store.
+    fn kinds_store(&self, object: usize, depth: u8) -> bool {
+        let o = &self.engine.program.objects[object];
+        depth <= 3
+            && self.plain_codeunit(object)
+            && o.rec_slot.is_none()
+            && (o.globals.iter())
+                .all(|g| g.plain_label || store_global_kind(&g.ty, &|c| self.kinds_store(c as usize, depth + 1)))
+    }
+
+    /// Whether every codeunit instance kinds store instance `rc` reaches through an Interface global (or a codeunit or an
+    /// array of codeunits that holds one) is itself of a [`Session::kinds_store`] codeunit: the instance an Interface holds
+    /// is reset in place (ClearSharedCodeunitGlobalKinds.al ClearAll_SetterVar_Codeunits :799 'face' 0 and :809 'hf' 0, the
+    /// "CKK Leaf" instance), measured for such an instance only.
+    fn kinds_instances(&self, rc: &Rc<RefCell<Instance>>, depth: u8) -> bool {
+        let inst = rc.borrow();
+        let slots = &self.engine.program.objects[inst.object as usize].globals;
+        depth <= 3
+            && (inst.globals.iter().zip(slots)).all(|(v, slot)| match (v, &slot.ty) {
+                (Value::Codeunit(inner), RtType::Interface(_)) => {
+                    self.kinds_store(inner.borrow().object as usize, depth + 1)
+                        && self.kinds_instances(inner, depth + 1)
+                }
+                (Value::Codeunit(inner), RtType::Codeunit(_)) => self.kinds_instances(inner, depth + 1),
+                (Value::Array(items), RtType::Array(_, e)) if matches!(**e, RtType::Codeunit(_)) => {
+                    (items.borrow().iter())
+                        .all(|e| !matches!(e, Value::Codeunit(i) if !self.kinds_instances(i, depth + 1)))
+                }
+                _ => true,
+            })
+    }
+
     /// Whether `ClearAll()` in `owner` resets store instance `v`, held as `holding` says, in place: the instance is not bound
     /// by BindSubscription (`clear_all_bound_globals` owns those), no routine of its codeunit runs, and (owner, store,
     /// holding) is a cell the corpus measures.
@@ -407,6 +449,7 @@ impl Session {
         };
         measured(o, s, holding, hold)
             && (s != Store::Register || self.register_as_measured(rc))
+            && (s != Store::Kinds || self.kinds_instances(rc, 0))
             // The store with one more Integer that no call made is measured for "CLQ Store Plus" only
             // (ClearSharedCodeunitOwnerKinds.al:183, StorePlus_UnusedAlias :684; ClearSharedCodeunitPlusUncalled.al), which
             // implements no interface: no Interface, List or Dictionary slot can share it.
@@ -469,12 +512,23 @@ impl Session {
         }
         let engine = self.engine.clone();
         let object = rc.borrow().object as usize;
-        let mut fresh = self.slot_defaults(&engine.program.objects[object].globals);
+        let slots = &engine.program.objects[object].globals;
+        let mut fresh = self.slot_defaults(slots);
         let old = rc.borrow().globals.clone();
-        for (old, new) in old.iter().zip(fresh.iter_mut()) {
-            match old {
-                Value::Codeunit(inner) => {
+        for ((old, new), slot) in old.iter().zip(fresh.iter_mut()).zip(slots) {
+            match (old, &slot.ty) {
+                (Value::Codeunit(inner), RtType::Codeunit(_) | RtType::Interface(_)) => {
                     self.reset_keeping_rows(inner);
+                    *new = old.clone();
+                }
+                // Each element of an array of codeunits is reset in place and the variable that shares it sees the reset
+                // (ClearSharedCodeunitGlobalKinds.al ClearAll_SetterVar_Codeunits :800-801 'arr1' 'arr2' 0, :810 'ha' 0).
+                (Value::Array(items), RtType::Array(_, e)) if matches!(**e, RtType::Codeunit(_)) => {
+                    for e in items.borrow().iter() {
+                        if let Value::Codeunit(inner) = e {
+                            self.reset_keeping_rows(inner);
+                        }
+                    }
                     *new = old.clone();
                 }
                 _ => crate::interp::keep_temp_table(old, new),
@@ -777,6 +831,14 @@ fn measured(owner: Owner, store: Store, holding: Holding, hold: TempHold) -> boo
         // Shared only after a call made the instance and wrote; with no call (measured since b77f20dc, not opened yet) or
         // after calls that wrote nothing: refused.
         (Plain, TwoDimArray, Written | Shared) => true,
+        // Merged corpus PR 1587 (assumption clear-all-store-global-kinds). ClearSharedCodeunitGlobalKinds.al: the plain owner
+        // "CKK Owner" with the store written (ClearAll_SetterVar_* :707 to ClearAll_OwnerMadeGetterVar_* :1251), the
+        // owner with a TableNo "CKK TNo Owner" (ClearAll_TableNoOwnerRun_* :1275 to :1393); ClearSharedCodeunitLateBinding.al,
+        // the plain owner. ClearSharedCodeunitWhseRegister.al, the owner with a TableNo: the register written
+        // (WhseRegister_Primed_Run :329, WhseRegister_OneEntry_Run :350, WhseRegister_Primed_DirectCall :384,
+        // WhseRegister_Primed_NestedHandle :405) and never
+        // called (WhseRegister_NeverUsed_Run :363). A store a call made but that wrote nothing is not measured: refused.
+        (Plain, Kinds, Shared) | (TableNo, Kinds, Shared | SharedUncalled) => true,
         _ => false,
     }
 }
@@ -824,6 +886,49 @@ fn temp_ref_kinds(r: &RtType, f: &RtType, i: &RtType) -> bool {
 /// Whether `t` is an array of `dims` dimensions whose element type passes `el`.
 fn array_with(t: &RtType, dims: usize, el: fn(&RtType) -> bool) -> bool {
     matches!(t, RtType::Array(d, e) if d.len() == dims && el(e))
+}
+
+/// Whether `t` is a global kind of the stores of merged corpus PR 1587 ([`Session::kinds_store`]): the scalars of
+/// ClearSharedCodeunitGlobalKinds.al "CKK Store" :107-122 (ClearAll_*_Scalars), a record temporary or not :123-124
+/// (ClearAll_*_Records), RecordRef, FieldRef and KeyRef :125-129 (ClearAll_*_Refs), a codeunit `store` accepts, an
+/// Interface, a Variant and an array of one dimension of such codeunits :130-134 (ClearAll_*_Codeunits), and the
+/// collections :135-144 (ClearAll_*_Collections, an array of one dimension of Integer or Text).
+fn store_global_kind(t: &RtType, store: &dyn Fn(u32) -> bool) -> bool {
+    use al_builtins::library_kind::LibraryKind as L;
+    let key = |t: &RtType| matches!(t, RtType::Integer | RtType::Text(_));
+    match t {
+        RtType::Integer
+        | RtType::BigInteger
+        | RtType::Decimal
+        | RtType::Boolean
+        | RtType::Text(_)
+        | RtType::Code(_)
+        | RtType::Date
+        | RtType::Time
+        | RtType::DateTime
+        | RtType::Guid
+        | RtType::Option(_)
+        | RtType::Enum(_)
+        | RtType::Duration
+        | RtType::Char
+        | RtType::Record(..)
+        | RtType::Interface(_)
+        | RtType::Variant => true,
+        RtType::Library(k) => matches!(
+            k,
+            L::RecordRef | L::FieldRef | L::KeyRef | L::JsonObject | L::JsonArray | L::TextBuilder
+        ),
+        RtType::Codeunit(c) => store(*c),
+        RtType::Array(dims, e) if dims.len() == 1 => match &**e {
+            RtType::Codeunit(c) => store(*c),
+            e => key(e),
+        },
+        RtType::List(e) => key(e) || matches!(**e, RtType::Interface(_)),
+        RtType::Dictionary(k, v) => {
+            matches!(**k, RtType::Integer) && matches!(**v, RtType::Text(_) | RtType::Interface(_))
+        }
+        _ => false,
+    }
 }
 
 fn temp_record(t: &RtType) -> bool {
@@ -884,6 +989,9 @@ enum Store {
     /// "CLV Price Store" (ClearSharedCodeunitStoreShapes.al:1080-1086): exactly, in this order, a temporary record, an
     /// Enum, an Integer and a `Label 'text', Comment = 'text'` ([`ir::Slot::comment_label`]).
     PriceList,
+    /// A store of the global kinds of merged corpus PR 1587 ([`Session::kinds_store`], assumption
+    /// clear-all-store-global-kinds) that no shape above names.
+    Kinds,
 }
 
 /// How the instance of a store global is held when `ClearAll()` runs in its owner.
