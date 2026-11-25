@@ -23,6 +23,22 @@ impl TempBlobImplFields {
         self.0.is_empty()
     }
 
+    /// The records noted that still live, with their field positions, in the order noted: what code can tell of this
+    /// list (the reader upgrades the records and passes over a gone one, `holds`; each note drops them first, `note`). A
+    /// session image (al-vm `login_image`) keeps them.
+    pub(crate) fn live(&self) -> Vec<(Rc<RefCell<RecordState>>, usize)> {
+        (self.0.iter())
+            .filter_map(|(w, pos)| w.upgrade().map(|r| (r, *pos)))
+            .collect()
+    }
+
+    /// Notes `records` (from [`TempBlobImplFields::live`]) as this list's own, after any noted so far.
+    pub(crate) fn note_all(&mut self, records: &[(Rc<RefCell<RecordState>>, usize)]) {
+        for (r, pos) in records {
+            self.note(r, *pos);
+        }
+    }
+
     fn note(&mut self, rec: &Rc<RefCell<RecordState>>, pos: usize) {
         self.0.retain(|(w, _)| w.strong_count() > 0);
         if !self.0.iter().any(|(w, p)| *p == pos && w.as_ptr() == Rc::as_ptr(rec)) {

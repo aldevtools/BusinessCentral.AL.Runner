@@ -29,6 +29,8 @@ pub(crate) struct TxState {
     pub(crate) type_origin: crate::transaction_type::TypeOrigin,
     /// A test method of this codeunit has ended (`Session::test_method_ended`): the next one starts with the type it left.
     pub(crate) test_ended: bool,
+    /// Reads of the type while it was not known whose value only sets it back (`transaction_type_saved.rs`), innermost last.
+    pub(crate) saved_types: Vec<crate::transaction_type_saved::SavedType>,
     /// The rollback of an asserterror in the code of the test ended the test runner's transaction in a codeunit's first test
     /// method (`OpenTx::runner_tx`) and no Commit came after it: a set of the type then rests on
     /// `first-test-rollback-ends-runner-transaction`.
@@ -390,6 +392,7 @@ impl TxState {
             transaction_type: 0,
             type_origin: Default::default(),
             test_ended: false,
+            saved_types: Vec::new(),
             runner_tx_rolled_back: false,
             lock_timeout: true,
             lock_timeout_duration: 10,
@@ -600,6 +603,8 @@ pub(crate) struct EventState {
     pub(crate) subscriber_stack: Vec<Option<(usize, usize, usize)>>,
     /// Set by `finish_call` just before the call, taken by the callee's frame (`Frame::var_lens`).
     pub(crate) next_var_lens: Vec<Option<i32>>,
+    /// Set by `finish_call` just before the call, taken by the callee's frame (`Frame::var_codeunits`).
+    pub(crate) next_var_codeunits: Vec<Option<crate::clear_shared_codeunit::VarCodeunit>>,
     /// Set by `finish_call` just before the call, taken by the callee's frame (`Frame::option_hops`).
     pub(crate) next_option_hops: Vec<bool>,
     /// The declared lengths of a publisher's `var` Text and Code arguments (`var_lens_of`), set by `finish_call` just before

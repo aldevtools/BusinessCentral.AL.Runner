@@ -236,42 +236,7 @@ impl al_builtins::native::Ctx for Session {
         rec: Option<&mut Value>,
         args: &mut [Value],
     ) -> Result<Value, Signal> {
-        match rec {
-            Some(Value::Record(rc)) => {
-                let rc = rc.clone();
-                // A Record write inside a CaptionClass expression whose runs have no pinned number (`pages/caption_runs.rs`).
-                if let Some(why) = self.caption_write_refusal(method) {
-                    return Err(Signal::unsupported(why));
-                }
-                let kind = crate::sequence_start::TableCall::Record {
-                    find_last: method == al_builtins::record_op::RecordOp::FindLast,
-                    set_range: method == al_builtins::record_op::RecordOp::SetRange,
-                    temporary: rc.borrow().temporary,
-                };
-                self.al_table_call(kind, |s| {
-                    if method == al_builtins::record_op::RecordOp::Validate {
-                        // `Record.Validate` in AL code (registry `Record.Validate#1`).
-                        return s.validate_at(crate::records::ValidateSite::AlRecordValidate, &rc, args);
-                    }
-                    // Taken by the SetFilter of `record_op_inner` (`setfilter_empty_or_side`).
-                    s.setfilter_from_al = method == al_builtins::record_op::RecordOp::SetFilter;
-                    // A Record variable's `Insert()` under the test runner's permission sets (`runner_sets_insert.rs`).
-                    if s.runner_permission_sets && method == al_builtins::record_op::RecordOp::Insert && args.is_empty()
-                    {
-                        s.runner_sets_insert(&rc)?;
-                    }
-                    let before = s.begin_al_record_call(method, &rc);
-                    let r = s.record_op_from_al(method, &rc, args);
-                    s.end_al_record_call(before);
-                    s.setfilter_from_al = false;
-                    r
-                })
-            }
-            other => Err(Signal::unsupported(format!(
-                "record method {method} on {}",
-                other.describe()
-            ))),
-        }
+        self.al_record(method, rec, args, None)
     }
     fn record_validate_variant(&mut self, rec: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
         match rec {
@@ -286,6 +251,10 @@ impl al_builtins::native::Ctx for Session {
             }
             other => Err(Signal::unsupported(format!("Record.Validate on {}", other.describe()))),
         }
+    }
+    fn record_setrange_variant(&mut self, rec: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
+        let written = Some(crate::setrange_convert::Written::Variant);
+        self.al_record(al_builtins::record_op::RecordOp::SetRange, rec, args, written)
     }
     fn page(
         &mut self,
@@ -868,6 +837,65 @@ impl Session {
                 .format_region
                 .as_deref()
                 .is_some_and(|r| crate::reports::format_region::language_region_pinned(n, r))
+    }
+}
+
+impl Session {
+    /// A Record method called from AL code (`Ctx::record`); `written` says how the values of `Record.SetRange` are written
+    /// where lowering tells it (al-vm `setrange_convert`).
+    fn al_record(
+        &mut self,
+        method: al_builtins::record_op::RecordOp,
+        rec: Option<&mut Value>,
+        args: &mut [Value],
+        written: Option<crate::setrange_convert::Written>,
+    ) -> Result<Value, Signal> {
+        use crate::setrange_convert::Call;
+        match rec {
+            Some(Value::Record(rc)) => {
+                let rc = rc.clone();
+                // A Record write inside a CaptionClass expression whose runs have no pinned number (`pages/caption_runs.rs`).
+                if let Some(why) = self.caption_write_refusal(method) {
+                    return Err(Signal::unsupported(why));
+                }
+                let kind = crate::sequence_start::TableCall::Record {
+                    find_last: method == al_builtins::record_op::RecordOp::FindLast,
+                    set_range: method == al_builtins::record_op::RecordOp::SetRange,
+                    temporary: rc.borrow().temporary,
+                };
+                // A value of another type than the field's (`setrange_convert`), raised where the call's own errors are.
+                let call = match method {
+                    al_builtins::record_op::RecordOp::SetRange => Some(Call::RecordSetRange),
+                    al_builtins::record_op::RecordOp::SetFilter => Some(Call::RecordSetFilter),
+                    _ => None,
+                };
+                self.al_table_call(kind, |s| {
+                    if let Some(call) = call {
+                        s.record_setrange_convert(call, &rc, args, written)?;
+                    }
+                    if method == al_builtins::record_op::RecordOp::Validate {
+                        // `Record.Validate` in AL code (registry `Record.Validate#1`).
+                        return s.validate_at(crate::records::ValidateSite::AlRecordValidate, &rc, args);
+                    }
+                    // Taken by the SetFilter of `record_op_inner` (`setfilter_empty_or_side`).
+                    s.setfilter_from_al = method == al_builtins::record_op::RecordOp::SetFilter;
+                    // A Record variable's `Insert()` under the test runner's permission sets (`runner_sets_insert.rs`).
+                    if s.runner_permission_sets && method == al_builtins::record_op::RecordOp::Insert && args.is_empty()
+                    {
+                        s.runner_sets_insert(&rc)?;
+                    }
+                    let before = s.begin_al_record_call(method, &rc);
+                    let r = s.record_op_from_al(method, &rc, args);
+                    s.end_al_record_call(before);
+                    s.setfilter_from_al = false;
+                    r
+                })
+            }
+            other => Err(Signal::unsupported(format!(
+                "record method {method} on {}",
+                other.describe()
+            ))),
+        }
     }
 }
 

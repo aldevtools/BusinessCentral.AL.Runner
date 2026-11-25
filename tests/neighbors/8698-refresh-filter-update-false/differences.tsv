@@ -1,10 +1,5 @@
 # key	entry
-# GetField by the Name control's id on page 97498 of corpus PR 1535 (ListValidateViewReads.al), al-runner issue 8832: main
-# did not find the control; the head finds it and reads the issue's cell at each point as BC does. On the tree page 97499
-# GetField finds it too, and the tree keeps main's wrong refresh.
-LT RVR Tests::Lines_GetFieldById_BeforeFirstStep	ASSUMED list-validate-view-refresh,testpage-getfield-control-id (corpus PR 1535, open: ListValidateViewReads.al:598)
-LT RVR Tests::Lines_GetFieldById_BetweenSteps	ASSUMED list-validate-view-refresh,testpage-getfield-control-id (corpus PR 1535, open: ListValidateViewReads.al:615)
-LT RVR Tests::Lines_GetFieldById_AfterSteps	ASSUMED list-validate-view-refresh,testpage-getfield-control-id (corpus PR 1535, open: ListValidateViewReads.al:632)
-LT RVR Tests::Tree_GetFieldById_BeforeFirstStep	ASSUMED testpage-getfield-control-id (corpus PR 1538; the tree's refresh is main's)
-LT RVR Tests::Tree_GetFieldById_BetweenSteps	ASSUMED testpage-getfield-control-id (corpus PR 1538; the tree's refresh is main's)
-LT RVR Tests::Tree_GetFieldById_AfterSteps	ASSUMED testpage-getfield-control-id (corpus PR 1538; the tree's refresh is main's)
+# No test differs from main. GetField by the Name control's id on page 97498 of corpus PR 1535 (ListValidateViewReads.al) is
+# on main since al-runner issue 8832. On the tree page 97499 GetField finds the control too
+# (LT RVR Tests::Tree_GetFieldById_BeforeFirstStep, Tree_GetFieldById_BetweenSteps, Tree_GetFieldById_AfterSteps), and the
+# tree's refresh keeps main's wrong answer: al-runner issue 8888.

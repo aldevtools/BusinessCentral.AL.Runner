@@ -267,6 +267,7 @@ impl Session {
         } else {
             id
         };
+        let (id, setrange) = crate::setrange_convert::catalog_id(id);
         let Some(sig) = catalog().by_id(id) else {
             return unsupported(format!("builtin {id}"));
         };
@@ -284,6 +285,9 @@ impl Session {
             }
             "FieldRef" => {
                 self.fieldref_arg_values(&sig.name, &lib, args)?;
+                if matches!(sig.name.as_str(), "SetRange" | "SetFilter") {
+                    self.fieldref_setrange_convert(&sig.name, &lib, args, setrange)?;
+                }
                 self.fieldref_op(&sig.name, &lib, args)
             }
             "KeyRef" => self.keyref_op(&sig.name, &lib, args),
@@ -1025,7 +1029,7 @@ impl Session {
                 let t = self.table(&dst)?;
                 let mut forwarded = vec![Value::Record(src)];
                 forwarded.extend(args.get(1).cloned());
-                return self.record_meta_op(RecordOp::Copy, &dst, &t, &mut forwarded);
+                return self.record_ref_copy(&dst, &t, &forwarded);
             }
 
             "Number" => match &*lib.borrow() {

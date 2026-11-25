@@ -1,26 +1,102 @@
-//! Consistent(false) marks and a guarded Codeunit.Run (al-runner issue 7586 item 4). The pinned shapes raise the
-//! inconsistency error as the run ends (errors/ConsistentGuardedRun.al); their neighbors refuse: a Commit after another
-//! variable of the table called Consistent(true), an inner codeunit that marks and then fails, two marked tables.
+//! Consistent(false) marks and a guarded Codeunit.Run (al-runner issues 7586 item 4 and 8970). The pinned shapes raise
+//! the inconsistency error as the run ends (errors/ConsistentGuardedRun.al) and are clean passes. The shapes of corpus
+//! PR 1568 (ConsistentGuardedRunEnd.al) pass flagged with `guarded-run-consistent-end`. Every refusal the end-of-run check
+//! and the Commit check have is reached here.
 
-use super::y48_platform_probes::outcomes;
+use super::y48_platform_probes::outcomes_with_hits;
+use al_builtins::assumptions::Assumption;
 use al_test_cli::report::Outcome;
 
 const SRC: &str = r#"
 table 50100 "C Row" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { Clustered = true; } } }
 table 50101 "C Other" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { Clustered = true; } } }
+table 50102 "C Ext" { Caption = 'C Own Caption'; fields { field(1; Id; Integer) { } } keys { key(PK; Id) { Clustered = true; } } }
+tableextension 50100 "C Ext Caption" extends "C Ext" { Caption = 'C Ext Caption Text'; }
 codeunit 50101 "C Nothing" { trigger OnRun() begin end; }
 codeunit 50103 "C Row Run" { TableNo = "C Row"; trigger OnRun() begin Rec.Id := 7; end; }
+codeunit 50105 "C Other Run" { TableNo = "C Other"; trigger OnRun() begin Rec.Id := 7; end; }
 codeunit 50104 "C Refused" { trigger OnRun() begin if TaskScheduler.SetTaskReady(CreateGuid()) then; end; }
 codeunit 50102 "C Mark Fail" { trigger OnRun() var R: Record "C Row"; begin R.Consistent(false); Error('inner failed'); end; }
+codeunit 50106 "C Mark Commit" { trigger OnRun() var R: Record "C Row"; begin R.Consistent(false); Commit(); end; }
+codeunit 50107 "C Mark Divide" { trigger OnRun() var R: Record "C Row"; I: Integer; begin R.Consistent(false); I := 0; I := 1 div I; end; }
+codeunit 50108 "C Nested" { trigger OnRun() var R: Record "C Row"; O: Record "C Other"; Ok: Boolean; begin
+    R.Consistent(false); Ok := Codeunit.Run(Codeunit::"C Other Run", O); end; }
+codeunit 50109 "C Mark Ext" { trigger OnRun() var E: Record "C Ext"; begin E.Consistent(false); end; }
+codeunit 50111 "C Mark Two Fail" { trigger OnRun() var R: Record "C Row"; E: Record "C Ext"; begin
+    R.Consistent(false); E.Consistent(false); Error('inner failed'); end; }
+codeunit 50110 "C Get Fail" { trigger OnRun() var R: Record "C Row"; begin R.Get(99); end; }
+codeunit 50112 "C Drop Then Ok" { trigger OnRun() begin Drop(); end;
+    [CommitBehavior(CommitBehavior::Error)] local procedure Drop() begin if Codeunit.Run(Codeunit::"C Mark Fail") then; end; }
+codeunit 50113 "C Drop Then Fail" { trigger OnRun() begin Drop(); Error(''); end;
+    [CommitBehavior(CommitBehavior::Error)] local procedure Drop() begin if Codeunit.Run(Codeunit::"C Mark Fail") then; end; }
+codeunit 50117 "C Drop Unscoped Fail" { trigger OnRun() begin if Codeunit.Run(Codeunit::"C Mark Fail") then; Error(''); end; }
+codeunit 50118 "C Other Mark Fail" { TableNo = "C Other"; trigger OnRun() var R: Record "C Row"; begin
+    R.Consistent(false); Error('inner failed'); end; }
+codeunit 50119 "C Drop Rec Fail" { trigger OnRun() begin Drop(); Error(''); end;
+    [CommitBehavior(CommitBehavior::Error)] local procedure Drop() var O: Record "C Other"; begin
+    if Codeunit.Run(Codeunit::"C Other Mark Fail", O) then; end; }
+codeunit 50120 "C Drop Unscoped Wrap" { trigger OnRun() var Ok: Boolean; begin Ok := Codeunit.Run(Codeunit::"C Drop Unscoped Fail"); end; }
+codeunit 50114 "C Drop Run Fail" { trigger OnRun() begin Drop(); if Codeunit.Run(Codeunit::"C Nothing") then; Error(''); end;
+    [CommitBehavior(CommitBehavior::Error)] local procedure Drop() begin if Codeunit.Run(Codeunit::"C Mark Fail") then; end; }
+codeunit 50115 "C Commit Mark Fail" { trigger OnRun() var R: Record "C Row"; begin
+    R.Id := 1; R.Insert(); Commit(); R.Consistent(false); Error('inner failed'); end; }
+codeunit 50116 "C Commit Mark Twice" { trigger OnRun() var R: Record "C Row"; O: Record "C Other"; begin
+    R.Id := 2; R.Insert(); Commit(); R.Consistent(false); O.Consistent(false); end; }
 codeunit 50000 T { Subtype = Test;
   [Test] procedure Pinned() var R: Record "C Row"; Ok: Boolean; begin
     Commit(); R.Consistent(false); asserterror Ok := Codeunit.Run(Codeunit::"C Nothing"); Error(GetLastErrorCode()); end;
   [Test] procedure CommitAfterOther() var M: Record "C Row"; U: Record "C Row"; begin
+    M.Consistent(false); U.Consistent(true); asserterror Commit(); Error(GetLastErrorCode()); end;
+  [Test] procedure CommitAfterTemporaryOther() var M: Record "C Row"; U: Record "C Row" temporary; begin
     M.Consistent(false); U.Consistent(true); Commit(); end;
   [Test] procedure InnerMarksAndFails() var Ok: Boolean; begin
-    Commit(); Ok := Codeunit.Run(Codeunit::"C Mark Fail"); end;
-  [Test] procedure WithRecord() var R: Record "C Row"; Row: Record "C Row"; Ok: Boolean; begin
+    Commit(); Ok := Codeunit.Run(Codeunit::"C Mark Fail"); if Ok then Error('run succeeded'); Commit(); end;
+  [Test] procedure InnerMarksAndFailsOtherCode() var Ok: Boolean; begin
+    Commit(); Ok := Codeunit.Run(Codeunit::"C Mark Divide"); end;
+  [Test] procedure InnerMarksAndCommits() var Ok: Boolean; begin
+    Commit(); Ok := Codeunit.Run(Codeunit::"C Mark Commit"); end;
+  [Test] procedure WithRecordOfOtherTable() var R: Record "C Row"; O: Record "C Other"; Ok: Boolean; begin
+    Commit(); R.Consistent(false); asserterror Ok := Codeunit.Run(Codeunit::"C Other Run", O); Error(GetLastErrorCode()); end;
+  [Test] procedure WithRecordOfMarkedTable() var R: Record "C Row"; Row: Record "C Row"; Ok: Boolean; begin
     Commit(); R.Consistent(false); asserterror Ok := Codeunit.Run(Codeunit::"C Row Run", Row); end;
+  [Test] procedure WithTemporaryRecord() var R: Record "C Row"; O: Record "C Other" temporary; Ok: Boolean; begin
+    Commit(); R.Consistent(false); asserterror Ok := Codeunit.Run(Codeunit::"C Other Run", O); end;
+  [Test] procedure NestedRaise() var Ok: Boolean; begin
+    Commit(); Ok := Codeunit.Run(Codeunit::"C Nested"); end;
+  [Test] procedure ExtensionCaption() var Ok: Boolean; begin
+    Commit(); asserterror Ok := Codeunit.Run(Codeunit::"C Mark Ext"); end;
+  [Test] procedure CallerMarksGetFails() var R: Record "C Row"; Ok: Boolean; begin
+    Commit(); R.Consistent(false); asserterror Ok := Codeunit.Run(Codeunit::"C Get Fail"); Error(GetLastErrorCode()); end;
+  [Test] procedure CallerReleasedGetFails() var M: Record "C Row"; U: Record "C Row"; Ok: Boolean; begin
+    Commit(); M.Consistent(false); U.Consistent(true); asserterror Ok := Codeunit.Run(Codeunit::"C Get Fail"); end;
+  [Test] procedure CallerMarksOtherInnerMarksFails() var O: Record "C Other"; Ok: Boolean; begin
+    Commit(); O.Consistent(false); asserterror Ok := Codeunit.Run(Codeunit::"C Mark Fail"); Error(GetLastErrorCode()); end;
+  [Test] procedure CallerMarksOtherInnerMarksDivides() var O: Record "C Other"; Ok: Boolean; begin
+    Commit(); O.Consistent(false); asserterror Ok := Codeunit.Run(Codeunit::"C Mark Divide"); end;
+  [Test] procedure CallerMarksOtherInnerMarksTwoFails() var O: Record "C Other"; Ok: Boolean; begin
+    Commit(); O.Consistent(false); asserterror Ok := Codeunit.Run(Codeunit::"C Mark Two Fail"); end;
+  [Test] procedure CallerWritesNoMark() var R: Record "C Row"; Ok: Boolean; begin
+    Commit(); R.Id := 1; R.Insert(); asserterror Ok := Codeunit.Run(Codeunit::"C Mark Fail"); Error(GetLastErrorCode()); end;
+  [Test] procedure CallerWritesThenMarks() var R: Record "C Row"; Ok: Boolean; begin
+    Commit(); R.Id := 1; R.Insert(); R.Consistent(false); asserterror Ok := Codeunit.Run(Codeunit::"C Mark Fail"); Error(GetLastErrorCode()); end;
+  [Test] procedure NestedDropOuterSucceeds() var Ok: Boolean; begin
+    Commit(); Ok := Codeunit.Run(Codeunit::"C Drop Then Ok"); end;
+  [Test] procedure NestedDropOuterFails() var Ok: Boolean; begin
+    Commit(); Ok := Codeunit.Run(Codeunit::"C Drop Then Fail"); if Ok then Error('run succeeded'); Commit(); end;
+  [Test] procedure NestedDropUnscopedOuterFails() var Ok: Boolean; begin
+    Commit(); Ok := Codeunit.Run(Codeunit::"C Drop Unscoped Fail"); end;
+  [Test] procedure NestedDropRecordArgOuterFails() var Ok: Boolean; begin
+    Commit(); Ok := Codeunit.Run(Codeunit::"C Drop Rec Fail"); end;
+  [Test] [CommitBehavior(CommitBehavior::Error)] procedure NestedDropScopeAboveOuterFails() var Ok: Boolean; begin
+    Ok := Codeunit.Run(Codeunit::"C Drop Unscoped Fail"); end;
+  [Test] [CommitBehavior(CommitBehavior::Error)] procedure NestedDropScopeAboveUnguardedRunFails() begin
+    Codeunit.Run(Codeunit::"C Drop Unscoped Wrap"); end;
+  [Test] procedure NestedDropThenRunOuterFails() var Ok: Boolean; begin
+    Commit(); Ok := Codeunit.Run(Codeunit::"C Drop Run Fail"); end;
+  [Test] procedure InnerCommitsThenMarksFails() var Ok: Boolean; begin
+    Commit(); Ok := Codeunit.Run(Codeunit::"C Commit Mark Fail"); end;
+  [Test] procedure InnerCommitsThenMarksTwoSucceeds() var Ok: Boolean; begin
+    Commit(); Ok := Codeunit.Run(Codeunit::"C Commit Mark Twice"); end;
   [Test] procedure InnerRefused() var R: Record "C Row"; Ok: Boolean; begin
     Commit(); R.Consistent(false); Ok := Codeunit.Run(Codeunit::"C Refused"); end;
   [Test] procedure TwoTables() var R: Record "C Row"; O: Record "C Other"; Ok: Boolean; begin
@@ -30,29 +106,90 @@ codeunit 50000 T { Subtype = Test;
 
 #[test]
 fn guarded_run_with_consistent_marks() {
-    let o = outcomes(SRC);
+    let o = outcomes_with_hits(SRC, "T");
     let get = |name: &str| {
         o.iter()
-            .find(|(n, _)| n == name)
+            .find(|(n, _, _)| n == name)
+            .map(|(_, out, hits)| (out.clone(), hits.contains(&Assumption::GuardedRunConsistentEnd)))
             .unwrap_or_else(|| panic!("{name} in {o:?}"))
-            .1
-            .clone()
     };
-    assert_eq!(get("Pinned"), Outcome::Fail("DB:TableInConsistent".into()));
-    match get("CommitAfterOther") {
-        Outcome::NotRun(why) => assert!(why.contains("another variable"), "{why}"),
-        other => panic!("CommitAfterOther: {other:?}"),
+    // Pinned: a clean failure with the code of the inconsistency error.
+    assert_eq!(get("Pinned"), (Outcome::Fail("DB:TableInConsistent".into()), false));
+    // Assumed: a Commit after another database variable's Consistent(true) raises (Commit_FalseOnOneVariable_TrueOnAnother);
+    // a failed inner run drops its mark (GuardedRunId_InnerMarksLocalWritesNothingAndFails); a record argument of another
+    // table (GuardedRunIdRec_CallerMarks_InnerSucceeds).
+    assert_eq!(
+        get("CommitAfterOther"),
+        (Outcome::Fail("DB:TableInConsistent".into()), true)
+    );
+    assert_eq!(get("InnerMarksAndFails"), (Outcome::Pass, true));
+    // A failed run inside another guarded run that then fails with an empty Error (Preview_OuterGuardedRun_InnerStartsStateAndFails).
+    assert_eq!(get("NestedDropOuterFails"), (Outcome::Pass, true));
+    // A caller mark raises after an inner Get fails (GuardedRunId_CallerMarks_InnerGetFails), and after the inner
+    // codeunit marks another table and fails (GuardedRunId_CallerMarksOther_InnerStartsStateAndFails).
+    assert_eq!(
+        get("CallerMarksGetFails"),
+        (Outcome::Fail("DB:TableInConsistent".into()), true)
+    );
+    assert_eq!(
+        get("CallerMarksOtherInnerMarksFails"),
+        (Outcome::Fail("DB:TableInConsistent".into()), true)
+    );
+    assert_eq!(
+        get("WithRecordOfOtherTable"),
+        (Outcome::Fail("DB:TableInConsistent".into()), true)
+    );
+    let refused = |name: &str, text: &str| match get(name).0 {
+        Outcome::NotRun(why) => assert!(why.contains(text), "{name}: {why}"),
+        other => panic!("{name}: {other:?}"),
+    };
+    refused(
+        "CommitAfterTemporaryOther",
+        "called Consistent on its Consistent(false) mark (not measured)",
+    );
+    for name in [
+        "InnerMarksAndFailsOtherCode",
+        "InnerMarksAndCommits",
+        "CallerReleasedGetFails",
+        "CallerMarksOtherInnerMarksDivides",
+        "CallerMarksOtherInnerMarksTwoFails",
+        "WithRecordOfMarkedTable",
+        "WithTemporaryRecord",
+        "NestedRaise",
+        "TwoTables",
+    ] {
+        refused(name, "in a shape no probe measured");
     }
-    // Codeunit.Run(Id, Rec): the pin runs Codeunit.Run(Id) only (ConsistentGuardedRun.al:180).
-    for name in ["InnerMarksAndFails", "TwoTables", "WithRecord"] {
-        match get(name) {
-            Outcome::NotRun(why) => assert!(why.contains("only Commit() is pinned"), "{name}: {why}"),
-            other => panic!("{name}: {other:?}"),
-        }
+    // A failed run inside another guarded run is measured only when the outer run then fails with no commit since it
+    // started (Preview_OuterGuardedRun_InnerStartsStateAndFails): an outer run that succeeds, or one in which a second
+    // run committed, is refused.
+    for name in ["NestedDropOuterSucceeds", "NestedDropThenRunOuterFails"] {
+        refused(name, "after a guarded run inside it dropped");
     }
+    // The nested run of that cell runs without a record argument inside a [CommitBehavior(CommitBehavior::Error)]
+    // procedure: a nested drop outside such a scope, or with a record argument, is refused where it drops.
+    // The scope must open inside the outer run: one opened above it (also across an unguarded run) is refused.
+    for name in [
+        "NestedDropUnscopedOuterFails",
+        "NestedDropRecordArgOuterFails",
+        "NestedDropScopeAboveOuterFails",
+        "NestedDropScopeAboveUnguardedRunFails",
+    ] {
+        refused(name, "in a shape no probe measured");
+    }
+    // A Commit inside the run before the mark: no cell has it.
+    for name in ["InnerCommitsThenMarksFails", "InnerCommitsThenMarksTwoSucceeds"] {
+        refused(name, "in a shape no probe measured");
+    }
+    refused(
+        "ExtensionCaption",
+        "whose caption a tableextension or a translation sets",
+    );
+    // A guarded run while the caller holds a write and a mark: BC gave the pending-write error or the inconsistency error
+    // between CI runs of corpus PR 1568 (ConsistentGuardedRunEnd.al:965, :983), so it is refused; without a mark main's
+    // pinned error stays.
+    refused("CallerWritesThenMarks", "uncommitted write");
+    assert_eq!(get("CallerWritesNoMark"), (Outcome::Fail("DB:Ok".into()), false));
     // An inner refusal keeps its own reason: the Consistent mark does not replace it.
-    match get("InnerRefused") {
-        Outcome::NotRun(why) => assert!(why.contains("SetTaskReady"), "{why}"),
-        other => panic!("InnerRefused: {other:?}"),
-    }
+    refused("InnerRefused", "SetTaskReady");
 }

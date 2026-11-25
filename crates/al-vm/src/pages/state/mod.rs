@@ -204,6 +204,9 @@ pub enum FactboxStep {
     ExtraLanded,
     /// After that SetValue: reads, then `OK()` (ListNewLineExtraCodeFactbox.al:319-434, :664-837).
     ExtraTyped,
+    /// A page of the shape of the page with code (`CodedObjects::Extra`) after its one SetValue of a control without code:
+    /// reads, then `OK()` (ListNewLineExtraCodeCodedPage.al:762-809).
+    CodedExtraTyped,
     /// The page with code (`code_inserted_coded.rs`) after the landing and `steps` measured SetValues since: reads, a SetValue
     /// whose validation saves and refreshes the row again, or `OK()`.
     Coded { steps: u8 },
@@ -235,6 +238,9 @@ pub enum CodedObjects {
     /// The reporter's repro of al-runner issue 8434, ListNewLineFactboxesRepro.al: assumption
     /// `list-new-line-coded-factboxes-repro`.
     Repro,
+    /// Not either's code, a page of their shape (`code_inserted_coded.rs` `coded_extra_shape`) under the effect gate of
+    /// `code_inserted_extra.rs`: assumption `list-new-line-extra-code-coded` (ListNewLineExtraCodeCodedPage.al).
+    Extra,
 }
 
 impl CodedObjects {
@@ -243,25 +249,30 @@ impl CodedObjects {
         match self {
             Self::Probe => al_builtins::assumptions::Assumption::ListNewLineCodedFactboxes,
             Self::Repro => al_builtins::assumptions::Assumption::ListNewLineCodedFactboxesRepro,
+            Self::Extra => al_builtins::assumptions::Assumption::ListNewLineExtraCodeCoded,
         }
     }
 
     /// Whether a SetValue after the landing and `steps` earlier ones is measured: up to two on the probe's page
     /// (ListNewLineFactboxesCode.al:1407 `setvalue`, :1576 `setvalue2`), the one Value on the repro's
-    /// (ListNewLineFactboxesRepro.al:639-647).
+    /// (ListNewLineFactboxesRepro.al:639-647); on a page of their shape the one SetValue of a control without code instead
+    /// (`refuse_off_factbox_row`).
     pub fn later_set_value(self, steps: u8) -> bool {
         match self {
             Self::Probe => steps < 2,
             Self::Repro => steps == 0,
+            Self::Extra => false,
         }
     }
 
     /// Whether `OK()` after the landing and `steps` later SetValues is measured: after any of them on the probe's page (:1407
-    /// `ok=`), after the one Value on the repro's (:646).
+    /// `ok=`), after the one Value on the repro's (:646); on a page of their shape only after the SetValue of a control without
+    /// code (`FactboxStep::CodedExtraTyped`).
     pub fn ok_after(self, steps: u8) -> bool {
         match self {
             Self::Probe => true,
             Self::Repro => steps == 1,
+            Self::Extra => false,
         }
     }
 }
@@ -1047,6 +1058,9 @@ pub struct PageState {
     pub coded_line: CodedLine,
     /// Whose objects the page with code is, noted at its open (`coded_open_on_empty_view`).
     pub coded_objects: CodedObjects,
+    /// The store's change counter when the page began to open (`open_page`): `coded_open_on_empty_view` tells by it whether
+    /// OnOpenPage or a part's trigger wrote at the open.
+    pub open_changes: u64,
     /// The page control's own OnValidate while it runs (`code_inserted_new_line.rs` `run_control_onvalidate`).
     pub control_onvalidate: Option<ControlOnValidate>,
     /// `CurrPage.SaveRecord()` saved the row page code found from the new-row line through assumption
@@ -1340,12 +1354,13 @@ pub struct ControlRef {
     pub by_id: Option<ById>,
 }
 
-/// What `TestPage.GetField` found by a control id (`get_field.rs`): a field control of the page, one a page extension adds, or
-/// a part, a cuegroup, a fixed or a grid, whose field reads empty.
+/// What `TestPage.GetField` found by a control id (`get_field.rs`): a field control of the page; a field whose Value only the
+/// cells measure (a page extension's field on BC 27, a field control on a Worksheet, a ListPlus or a CardPart a TestPart shows);
+/// or a part, a cuegroup, a fixed or a grid, whose field reads empty.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ById {
     Field,
-    ExtField,
+    ValueOnly,
     Empty,
 }
 

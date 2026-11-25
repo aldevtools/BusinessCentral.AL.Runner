@@ -1419,35 +1419,29 @@ fn text_of(r: Result<Value, Signal>) -> String {
     }
 }
 
-// AutoUpdate on an existing row with a trigger that assigns fields is refused, whichever trigger
-// it is: which value wins (the document's or the trigger's) is not pinned. An OnAfterInitRecord is refused only when its value
-// differs from the stored one.
+// AutoUpdate of an existing row whose OnAfterInitRecord, OnAfterAssignField or OnAfterAssignVariable runs: the save takes
+// the stored row with the fields the document carries, so the init trigger's 'init' in a field the document does not carry is
+// dropped (corpus PR 1550, XpAutoUpdateAssign.al InitTrig_Existing_NameAbsent, FieldTrig_Existing, TextTrig_Existing;
+// assumption `xmlport-autoupdate-assign-triggers`).
 #[test]
-fn auto_update_with_any_assigning_trigger_is_refused() {
-    for id in [60041, 60042, 60043] {
-        // The text element of the last port is not optional, so the document carries it.
+fn auto_update_with_an_assigning_trigger_keeps_the_uncarried_fields() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+    for id in [60041, 60042, 60043, 60026] {
+        // The text element of 60043 is not optional, so the document carries it.
         let note = if id == 60043 { "<Note>n</Note>" } else { "" };
-        let r = refusal(
+        take_hits();
+        let out = text(
             IMPORT_VARS,
             &format!(
                 "H.Row(1, 5, 'Keep', ''); H.Stage(B, InStr, '<Universals><Universal><EntryNo>1</EntryNo><IntegerValue>9</IntegerValue>{note}</Universal></Universals>');
-                 XmlPort.Import({id}, InStr); exit('');"
+                 XmlPort.Import({id}, InStr); U.Get(1); exit(Format(U.\"Integer Field\") + U.\"Text Field\");"
             ),
         );
-        let want = if id == 60041 {
-            "AutoUpdate with an OnAfterInitRecord that assigns fields"
-        } else {
-            "AutoUpdate with triggers that assign fields"
-        };
-        assert!(r.contains(want), "{id}: {r}");
+        assert_eq!(out, "9Keep", "{id}");
+        // 60026 is the trigger-free control: no assumption.
+        let flagged = take_hits().contains(&Assumption::XmlportAutoupdateAssignTriggers);
+        assert_eq!(flagged, id != 60026, "{id}");
     }
-    // The control: the same document through the trigger-free fixture updates the row.
-    let out = text(
-        IMPORT_VARS,
-        "H.Row(1, 5, 'Keep', ''); H.Stage(B, InStr, '<Universals><Universal><EntryNo>1</EntryNo><IntegerValue>9</IntegerValue></Universal></Universals>');
-         XmlPort.Import(60026, InStr); U.Get(1); exit(Format(U.\"Integer Field\") + U.\"Text Field\");",
-    );
-    assert_eq!(out, "9Keep");
 }
 
 // A text element with content inside the root is a group: its children are exported and

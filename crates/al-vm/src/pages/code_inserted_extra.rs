@@ -200,9 +200,43 @@ impl Session {
             .is_some_and(|stored| Self::same_values(&rec.borrow().fields, &stored)))
     }
 
+    /// The SaveRecord cell `leave` on a page of the shape of the page with code but not its code (`CodedObjects::Extra`, the
+    /// steps of `code_inserted_coded.rs`), opened as `opened` with the line in `view`: measured under Page.RunModal on one
+    /// empty group, when only the table field's insert wrote the store, or other tables besides
+    /// (`only_other_tables_written`), before the save (ListNewLineExtraCodeCodedPage.al); otherwise refused.
+    pub(super) fn extra_code_coded_cell(
+        &mut self,
+        st: &St,
+        opened: Opened,
+        view: Option<View>,
+        leave: Leave,
+    ) -> Result<(), Signal> {
+        let measured = (leave, opened, view) == (Leave::SaveRecord, Opened::RunModalOneGroup, Some(View::Alone));
+        let line = st.borrow().new_line_writes;
+        let only_the_insert = line.is_some_and(|(mark, deletes)| self.write_mark() == (mark + 1, deletes));
+        // The cells' control writes nothing before the save (ListNewLineExtraCodeCodedPage.al:762-809); only the table field
+        // wrote other tables.
+        let control_wrote = st
+            .borrow()
+            .control_onvalidate
+            .as_ref()
+            .is_none_or(|c| c.writes != self.write_mark());
+        let written = only_the_insert || self.only_other_tables_written(st, false)?;
+        if !(measured && written && !control_wrote && self.no_record_trigger(st)) {
+            st.borrow_mut().forget_code_inserted_line();
+            return Err(Signal::unsupported(UNMEASURED_CODE));
+        }
+        if !only_the_insert {
+            assume(Assumption::ListNewLineWritesOtherTable);
+        }
+        extra_code_assume();
+        st.borrow_mut().code_inserted_extra = true;
+        Ok(())
+    }
+
     /// Whether the table of page `st` declares none of OnInsert, OnModify, OnDelete and OnRename: no table code runs at the save
     /// or the saves after it (the cells' tables, :19-43, :102-126, :171-199).
-    fn no_record_trigger(&self, st: &St) -> bool {
+    pub(super) fn no_record_trigger(&self, st: &St) -> bool {
         let table = self.page_rec(st).borrow().table as usize;
         let engine = self.engine();
         !engine.program.objects[table].routines.iter().any(|r| {
@@ -365,6 +399,27 @@ impl Session {
         );
         let one_effect = mark == at.writes || (rec_kept && mark.1 == at.writes.1);
         Ok(same_key && same_rows && one_effect && Self::same_view(&rec.borrow(), &at.rec))
+    }
+
+    /// Whether, between the save and `CurrPage.Update(false)` on a page of the shape of the page with code
+    /// (`CodedObjects::Extra`), the validation did only what the cells do there: nothing (ListNewLineExtraCodeCodedPage.al:785)
+    /// or one modify of the row through another record (:773, :797). Rec stays as the save left it, and the store took no
+    /// write, or one that gave the row its row version, and no delete. A field of Rec set, or another table written, there is
+    /// not measured (review of al-runner PR 8834, 21:06Z).
+    pub(super) fn extra_coded_between_kept(&mut self, st: &St, at: &SavedView) -> Result<bool, Signal> {
+        let rec = self.page_rec(st);
+        if !Self::same_values(&rec.borrow().fields, &at.rec.fields) {
+            return Ok(false);
+        }
+        let mark = self.write_mark();
+        if mark == at.writes {
+            return Ok(true);
+        }
+        let Some(stored) = self.stored_row(&rec)? else {
+            return Ok(false);
+        };
+        let table = self.table(&rec)?;
+        Ok(mark == (at.writes.0 + 1, at.writes.1) && crate::stale_rename::row_version(&table, &stored) == Some(mark.0))
     }
 
     /// Whether Rec's fields `rec` and the stored row `stored` changed since the save left both as `saved` as measured: the row

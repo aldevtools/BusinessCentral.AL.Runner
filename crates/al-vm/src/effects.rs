@@ -116,6 +116,7 @@ const PLAIN_RECORD: &[&str] = &[
 
 /// Whether `id` is a builtin from the lists above, or a method of Text, Label or TextConst (they work on values).
 fn plain_builtin(id: al_builtins::builtin_id::BuiltinId) -> bool {
+    let id = id.written_base();
     let name = id.name();
     let (class, _) = name.split_once('.').unwrap_or(("", name));
     let method = id.method();
@@ -740,4 +741,20 @@ pub(crate) fn stmts_keep_local(body: &[Stmt], is_slot: &dyn Fn(&Place) -> bool) 
         } => branches.iter().all(|(_, b)| stmts_keep_local(b, is_slot)) && stmts_keep_local(otherwise, is_slot),
         _ => true,
     })
+}
+
+/// Whether an argument or a receiver of a call in `body` hands a place `is_slot` names on by `var`.
+pub(crate) fn passes_by_var(body: &[Stmt], is_slot: &dyn Fn(&Place) -> bool) -> bool {
+    let by_var = |a: &Arg| matches!(a, Arg::Ref(p) if is_slot(p));
+    let mut found = false;
+    al_ir::types::for_each_expr_post(body, &mut |e| match e {
+        Expr::Call { args, .. } | Expr::InterfaceCall { args, .. } | Expr::DotNet { args, .. } => {
+            found |= args.iter().any(by_var);
+        }
+        Expr::Builtin { receiver, args, .. } => {
+            found |= receiver.as_deref().is_some_and(by_var) || args.iter().any(by_var);
+        }
+        _ => {}
+    });
+    found
 }
