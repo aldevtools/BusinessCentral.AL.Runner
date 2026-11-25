@@ -906,7 +906,7 @@ impl Session {
                     let mut e = Box::new(d.error);
                     self.add_top_frame(&mut e);
                     if self.pages.bg_worker.is_none() {
-                        self.rollback_transaction();
+                        self.rollback_failed_run();
                     }
                     self.catch_error(*e)?;
                     if let Some(c) = caller_rec.take() {

@@ -14,7 +14,12 @@ use crate::Session;
 use crate::sessionops::Sequence;
 use al_builtins::native::Signal;
 use al_builtins::value::{LibraryValue, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
+mod interval;
+mod tx_changes;
+pub use interval::{Interval, Reached};
+pub(crate) use tx_changes::{RollbackBy, SequenceStep};
 
 type Key = (String, String);
 
@@ -82,6 +87,17 @@ pub(crate) struct Notes {
     commit_by: Option<CommitBy>,
     /// The transaction ends and test method bodies since [`Session::note_tx_ends`]; `None` while not noted.
     tx_log: Option<Vec<TxPoint>>,
+    /// The runner is one al-testrun `failed_test_runner_measured` names ([`Session::note_tx_ends`]).
+    measured: bool,
+    /// The Restarts and Deletes of number sequences in the open transaction (`tx_changes.rs`).
+    tx_changes: HashMap<Key, tx_changes::TxChange>,
+    /// What the next rollback inside a run is the rollback of ([`Session::note_rollback_by`]).
+    rollback_by: Option<RollbackBy>,
+    /// Sequences whose step an asserterror kept, until the next commit or rollback outside a run.
+    held: HashSet<Key>,
+    /// Sequences whose Delete an asserterror undid, until al-testrun reads them at the test's end
+    /// ([`Session::take_deletes_undone`]).
+    deletes_undone: Vec<Key>,
 }
 
 /// Calls of the RecordRef methods the helper of corpus PR 1572 makes beside the measured ones ([`DataAccess::ref_loads`]).
@@ -418,15 +434,19 @@ impl Session {
     }
 
     /// From now on every transaction end and test method body is noted ([`Session::tx_log`]), and every
-    /// `NumberSequence.Insert`, until [`Session::stop_noting_tx_ends`].
-    pub fn note_tx_ends(&mut self) {
+    /// `NumberSequence.Insert`, until [`Session::stop_noting_tx_ends`]; `measured`: the runner is one al-testrun
+    /// `failed_test_runner_measured` names.
+    pub fn note_tx_ends(&mut self, measured: bool) {
         self.access_notes.tx_log = Some(Vec::new());
+        self.access_notes.measured = measured;
         self.access_notes.inserted_at.clear();
     }
 
     /// Ends [`Session::note_tx_ends`].
     pub fn stop_noting_tx_ends(&mut self) {
         self.access_notes.tx_log = None;
+        self.access_notes.measured = false;
+        self.access_notes.deletes_undone.clear();
         self.access_notes.inserted_at.clear();
     }
 
@@ -463,6 +483,7 @@ impl Session {
 
     /// A transaction ended (`commit`: by a commit), noted while [`Session::note_tx_ends`] notes.
     pub(crate) fn note_tx_end(&mut self, commit: bool) {
+        self.settle_tx_changes(commit);
         let by = self.access_notes.commit_by.take().unwrap_or(CommitBy::Other);
         self.note_tx_point(match commit {
             true => TxPointKind::Commit(by),

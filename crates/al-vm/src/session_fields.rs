@@ -181,7 +181,8 @@ macro_rules! session_fields {
                 adhoc_tables,
                 resource_reads,
                 // Counts and insert stamps al-testrun compares within one test only (`sequence_start.rs`; install_left.rs
-                // keeps none of them either): a test's differences are the same from any start.
+                // keeps none of them either): a test's differences are the same from any start. The number sequence steps
+                // of the open transaction (`sequence_start/tx_changes.rs`) are that session's transaction's.
                 access_notes,
             }
             refuse {

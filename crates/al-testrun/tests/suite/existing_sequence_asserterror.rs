@@ -30,18 +30,32 @@ fn flagged(o: &[Row], test: &str, seen: &str) {
 /// The fixture of each cell: OnRun makes the sequence when it is missing (Insert(Name, 1, 1), Next twice: Current 2),
 /// test A writes a row and commits, as Initialize does (SqExistingRestart.al:119-131).
 fn cell(id: u32, name: &str, b: &str) -> String {
+    cell_with(id, name, &onrun(name), "", b, true)
+}
+
+/// A cell with its own OnRun, attributes of test B (`b_attr`) and test C reading a company sequence (`company`) or the
+/// CompanyWide one.
+fn cell_with(id: u32, name: &str, onrun: &str, b_attr: &str, b: &str, company: bool) -> String {
     format!(
         r#"
 codeunit {id} "P5 {name}"
 {{
     Subtype = Test;
-    var Rows: Codeunit "Rows";
-    trigger OnRun() begin if not NumberSequence.Exists('P5{name}') then begin NumberSequence.Insert('P5{name}', 1, 1); NumberSequence.Next('P5{name}'); NumberSequence.Next('P5{name}'); end; end;
+    var Rows: Codeunit "Rows"; InnerErr: Label 'inner';
+    trigger OnRun() begin {onrun} end;
     [Test] procedure A_{name}WritesCommits() begin Rows.Put('{name}-INIT'); Commit(); end;
-    [Test] procedure B_{name}Step() begin {b} end;
-    [Test] procedure C_{name}Reads() begin if not NumberSequence.Exists('P5{name}') then Error('OBS missing row=%1', Rows.Has('{name}-B1')); Error('OBS cur=%1 row=%2', NumberSequence.Current('P5{name}'), Rows.Has('{name}-B1')); end;
+    [Test] {b_attr} procedure B_{name}Step() begin {b} end;
+    [Test] procedure C_{name}Reads() begin if not NumberSequence.Exists('P5{name}', {company}) then Error('OBS missing row=%1', Rows.Has('{name}-B1')); Error('OBS cur=%1 row=%2', NumberSequence.Current('P5{name}', {company}), Rows.Has('{name}-B1')); end;
 }}
 "#
+    )
+}
+
+/// The OnRun of [`cell`] for `name`.
+fn onrun(name: &str) -> String {
+    format!(
+        "if not NumberSequence.Exists('P5{name}') then begin NumberSequence.Insert('P5{name}', 1, 1); \
+         NumberSequence.Next('P5{name}'); NumberSequence.Next('P5{name}'); end;"
     )
 }
 
@@ -64,10 +78,31 @@ fn cells(isolation: TestIsolation) -> Vec<Row> {
         cell(50766, "NX", "NumberSequence.Restart('P5NX', 1002); Rows.Put('NX-B1'); NumberSequence.Next('P5NX'); asserterror Error('inner');"),
         // A Record write before the step.
         cell(50767, "WB", "Rows.Put('WB-B1'); NumberSequence.Restart('P5WB', 1002); asserterror Error('inner');"),
-        // A CompanyWide sequence of the same name.
-        cell(50768, "CW", "if not NumberSequence.Exists('P5CW', false) then NumberSequence.Insert('P5CW', 1, 1, false); Commit(); NumberSequence.Restart('P5CW', 1002, false); Rows.Put('CW-B1'); asserterror Error('inner');"),
+        // A CompanyWide sequence: as RE5, with the sequence made CompanyWide in OnRun.
+        cell_with(
+            50768,
+            "CW",
+            "if not NumberSequence.Exists('P5CW', false) then begin NumberSequence.Insert('P5CW', 1, 1, false); \
+             NumberSequence.Next('P5CW', false); NumberSequence.Next('P5CW', false); end;",
+            "",
+            "NumberSequence.Restart('P5CW', 1002, false); Rows.Put('CW-B1'); asserterror Error('inner');",
+            false,
+        ),
         // A Record read and no write before the asserterror.
         cell(50769, "RD", "NumberSequence.Restart('P5RD', 1002); if Rows.Has('RD-INIT') then; asserterror Error('inner');"),
+        // As RE5 in a test with TransactionModel AutoRollback.
+        cell_with(50770, "AR", &onrun("AR"), "[TransactionModel(TransactionModel::AutoRollback)]", "NumberSequence.Restart('P5AR', 1002); Rows.Put('AR-B1'); asserterror Error('inner');", true),
+        // As RE5 with an Error of a Label.
+        cell(50771, "LB", "NumberSequence.Restart('P5LB', 1002); Rows.Put('LB-B1'); asserterror Error(InnerErr);"),
+        // A failed guarded Codeunit.Run after the step and a write, in place of the asserterror.
+        cell(50772, "GR", "NumberSequence.Restart('P5GR', 1002); Rows.Put('GR-B1'); if Codeunit.Run(Codeunit::\"P5 Fails\") then;"),
+        // RE4 (the step kept), then a write and a second asserterror.
+        cell(50773, "HK", "NumberSequence.Restart('P5HK', 1002); asserterror Error('inner'); Rows.Put('HK-B1'); asserterror Error('inner');"),
+        // DE in a test that passes.
+        cell(50774, "DP", "NumberSequence.Delete('P5DP'); Rows.Put('DP-B1'); asserterror Error('inner');"),
+        // A Delete with nothing reached before the asserterror.
+        cell(50775, "DN", "NumberSequence.Delete('P5DN'); asserterror Error('inner');"),
+        "codeunit 50779 \"P5 Fails\" { trigger OnRun() begin Error('fails'); end; }".to_string(),
     ]
     .concat();
     results(&src, isolation)
@@ -97,6 +132,12 @@ fn asserterror_shapes_beside_the_cells_are_refused() {
         ("C_WBReads", "'P5WB'"),
         ("C_CWReads", "'P5CW'"),
         ("C_RDReads", "'P5RD'"),
+        ("C_ARReads", "'P5AR'"),
+        ("C_LBReads", "'P5LB'"),
+        ("C_GRReads", "'P5GR'"),
+        ("C_HKReads", "'P5HK'"),
+        ("C_DPReads", "'P5DP'"),
+        ("C_DNReads", "'P5DN'"),
     ] {
         assert!(not_run(&row(&o, test).2, key), "{test}: {o:?}");
     }
