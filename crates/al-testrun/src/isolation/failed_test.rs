@@ -103,15 +103,16 @@ enum Leaves {
 /// isolated event's subscriber after a Record write, C7 :322.
 /// `pending`: an end since the insert kept nothing; then only an AL Commit() after a Record write keeps it (S1J
 /// :1118, S1I :1034, S1K :1192: inserted without a commit, the runner's commit, then a Record write and a Commit()).
-fn keeps_at(reached: Interval, by: CommitBy, pending: bool) -> bool {
+/// `newest`: the target is BC 29 (`Session::sequence_cells_measured_major`); else only the PR 1465 arms answer.
+fn keeps_at(reached: Interval, by: CommitBy, pending: bool, newest: bool) -> bool {
     if pending {
-        return by == CommitBy::Statement && reached == Interval::RecordWrite;
+        return newest && by == CommitBy::Statement && reached == Interval::RecordWrite;
     }
     match by {
-        CommitBy::Statement => matches!(
-            reached,
-            Interval::RecordWrite | Interval::FindFirst | Interval::Helper { .. }
-        ),
+        CommitBy::Statement => {
+            reached == Interval::RecordWrite
+                || (newest && matches!(reached, Interval::FindFirst | Interval::Helper { .. }))
+        }
         CommitBy::GuardedRun | CommitBy::IsolatedEvent => reached == Interval::RecordWrite,
         CommitBy::Other => false,
     }
@@ -122,12 +123,14 @@ fn keeps_at(reached: Interval, by: CommitBy, pending: bool) -> bool {
 /// gone after a Record write (S1R :1411, S1S :1478, C2 SqCommitFail.al:64, C14 :570), a RecordRef table call (PR
 /// 1468 R14O, R14E, R2O, R14V, R2V, R14P, R2P, R14W, R2W, R14M, R2M) or SetRange and FindLast (R14R, R2R); kept after
 /// nothing (C13 :541, D1-D4 :758-912) or RecordRef.Open and Close (R14N, R2N). After the failed test's own Commit():
-/// gone after a Record write S2F :2098 or the helper and a Record write S2E :2031, kept after nothing S2G :2383.
-fn leaves_at_failure(reached: Interval, after_own_commit: bool) -> Option<bool> {
+/// gone after a Record write S2F :2098 or the helper and a Record write S2E :2031, kept after nothing S2G :2383 (corpus
+/// PR 1572, BC 29 alone: `newest`).
+fn leaves_at_failure(reached: Interval, after_own_commit: bool, newest: bool) -> Option<bool> {
     match (reached, after_own_commit) {
-        (Interval::Untouched, _) | (Interval::OpenClose, false) => Some(true),
-        (Interval::RecordWrite, _) | (Interval::Helper { writes: true }, true) => Some(false),
-        (Interval::Ref | Interval::FindLast, false) => Some(false),
+        (Interval::Untouched | Interval::OpenClose, false) => Some(true),
+        (Interval::RecordWrite | Interval::Ref | Interval::FindLast, false) => Some(false),
+        (Interval::Untouched, true) if newest => Some(true),
+        (Interval::RecordWrite | Interval::Helper { writes: true }, true) if newest => Some(false),
         _ => None,
     }
 }
@@ -147,10 +150,13 @@ enum OutsideEnd {
 /// What the failed test's rollback (`log[failure]`) leaves of the sequence inserted before `log[at]`, inside a test method
 /// body, when the ends outside the bodies act as `outside`: `Some(true)` kept, `Some(false)` gone, `None` not measured.
 /// Only what AL code reached inside the bodies counts: the runner's own steps between them do not keep a sequence (S1R,
-/// where runner 130450's steps before the failed test commit table writes, and the sequence is gone).
-fn fate(log: &[TxPoint], at: usize, failure: usize, outside: OutsideEnd) -> Option<bool> {
+/// where runner 130450's steps before the failed test commit table writes, and the sequence is gone). `newest`: the
+/// target is BC 29; else a commit keeps the sequence only in the failed test's body (C1, C4-C7 of PR 1465), the
+/// earlier tests' commits keep it on BC 29 alone (S1T, S1U, S1X-S1Z, S1A of PR 1572).
+fn fate(log: &[TxPoint], at: usize, failure: usize, outside: OutsideEnd, newest: bool) -> Option<bool> {
     let (mut reached, mut in_body, mut inserted, mut end_in_body) = (Interval::Untouched, false, false, false);
     let mut pending = false;
+    let failed_start = log[..failure].iter().rposition(|p| p.kind == TxPointKind::BodyStart)?;
     for (i, point) in log[..=failure].iter().enumerate() {
         if i > 0 && in_body {
             reached = reached.then(Interval::of(&log[i - 1].access, &point.access));
@@ -180,8 +186,12 @@ fn fate(log: &[TxPoint], at: usize, failure: usize, outside: OutsideEnd) -> Opti
                 _ => by,
             });
             match by {
-                None if i == failure => return leaves_at_failure(reached, end_in_body),
-                Some(by) if (in_body || outside == OutsideEnd::Keeps) && keeps_at(reached, by, pending) => {
+                None if i == failure => return leaves_at_failure(reached, end_in_body, newest),
+                Some(by)
+                    if (in_body || outside == OutsideEnd::Keeps)
+                        && (newest || (at > failed_start && i > failed_start))
+                        && keeps_at(reached, by, pending, newest) =>
+                {
                     return Some(true);
                 }
                 Some(_) if reached == Interval::Untouched => pending = true,
@@ -272,8 +282,9 @@ impl CodeunitSequences {
         }
     }
 
-    /// What corpus PRs 1465, 1468 and 1572 measured a failed test leaves (assumption `sequence-after-failed-test`, BC
-    /// 27.5, 28.5 and 29.0, runners 61301 and 130450). Each cell has one failed test, raised by its body under AutoCommit,
+    /// What corpus PRs 1465, 1468 and 1572 measured a failed test leaves (assumption `sequence-after-failed-test`, runners
+    /// 61301 and 130450; PRs 1465 and 1468 on BC 27.5, 28.5 and 29.0, PR 1572 on BC 29.0 alone, so its arms answer on BC 29
+    /// alone). Each cell has one failed test, raised by its body under AutoCommit,
     /// no sequence an earlier failure left, and no sequence inserted since the tests began that was restarted or deleted
     /// after. `None`: a shape they do not measure, which main's rule answers.
     ///
@@ -341,7 +352,21 @@ impl CodeunitSequences {
         if log[failure].access.page_calls > before_insert.page_calls {
             return None;
         }
-        let kept = match [OutsideEnd::Keeps, OutsideEnd::Resets].map(|o| fate(log, at, failure, o)) {
+        let newest = session.sequence_cells_measured_major();
+        // On BC 27 and 28 the failed test reached what PRs 1465 and 1468 measured, over its whole body (main's arms).
+        let whole_body = matches!(
+            body.reached(),
+            Reached::Nothing
+                | Reached::RefOpenOnly
+                | Reached::RecordReads
+                | Reached::RecordWrites
+                | Reached::RefReads
+                | Reached::RefWrites
+        ) && body.access.0.temporary_record_calls == body.access.1.temporary_record_calls;
+        if !(newest || whole_body) {
+            return None;
+        }
+        let kept = match [OutsideEnd::Keeps, OutsideEnd::Resets].map(|o| fate(log, at, failure, o, newest)) {
             [Some(kept), other] if other == Some(kept) => kept,
             _ => return None,
         };

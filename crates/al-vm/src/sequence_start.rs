@@ -389,11 +389,6 @@ impl Session {
     /// ([`DataAccess::other_calls`]). A call that code of Microsoft's apps makes while a Record call from AL code runs counts
     /// with that Record call instead: the Record writes of corpus PR 1465 ran on BC with Microsoft's apps, whose global
     /// triggers run under a table's first insert (the System Application's, which call CurrentDateTime and CompanyName).
-    /// AL code called a Page or TestPage method ([`DataAccess::page_calls`]).
-    pub(crate) fn note_page_call(&mut self) {
-        self.access_notes.access.page_calls += 1;
-    }
-
     pub(crate) fn note_other_access(&mut self) {
         if self.access_notes.table_depth > 0 && self.running_microsoft_code() {
             return;
@@ -413,6 +408,11 @@ impl Session {
         if !(self.access_notes.table_depth > 0 && self.running_microsoft_code()) {
             self.access_notes.access.company_name_calls += 1;
         }
+    }
+
+    /// AL code called a Page or TestPage method ([`DataAccess::page_calls`]).
+    pub(crate) fn note_page_call(&mut self) {
+        self.access_notes.access.page_calls += 1;
     }
 
     /// The innermost running frame is code of Microsoft's apps ([`Session::of_microsoft_app`]).
@@ -451,6 +451,13 @@ impl Session {
         self.access_notes.deletes_undone.clear();
         self.access_notes.held_at_rollback = None;
         self.access_notes.inserted_at.clear();
+    }
+
+    /// The target is BC 29: corpus PRs 1572 and 1573 measured their cells on BC 29.0 alone (the `probe` texts of the
+    /// assumptions `sequence-after-failed-test` and `existing-sequence-asserterror`), so the arms only they pin answer
+    /// there alone; on BC 27 and 28 those shapes refuse.
+    pub fn sequence_cells_measured_major(&self) -> bool {
+        self.engine.target.as_ref().map_or(29, |t| t.bc.major) == 29
     }
 
     /// Every point noted since [`Session::note_tx_ends`], in order.

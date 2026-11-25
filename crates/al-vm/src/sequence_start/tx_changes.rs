@@ -2,7 +2,7 @@
 //! background session) leaves of the number sequences the open transaction restarted or deleted.
 //!
 //! Corpus PR 1573 (open; assumption `existing-sequence-asserterror`), tests/al-language-isolation-probe/src/
-//! SqExistingRestart.al, measured on BC 29.0 under runners 130450 and 61301: in a test codeunit under TestIsolation =
+//! SqExistingRestart.al, measured on BC 29.0 under runners 130450 and 61301 (so the arms answer on BC 29 alone): in a test codeunit under TestIsolation =
 //! Codeunit, a sequence that existed when the tests began is restarted or deleted by a test whose earlier test wrote a row
 //! and committed. An asserterror of an `Error` with a literal text after a Record write undoes the step at once, also in a
 //! test that passes (RE :892, RE2 :976, RE5 :1224, DE :2487); with nothing reached since the step the asserterror keeps it
@@ -38,6 +38,8 @@ pub(crate) struct TxChange {
     new_in_tx: bool,
     /// The transaction restarted or deleted the sequence more than once.
     repeated: bool,
+    /// The NumberSequence calls since, by method and sequence ([`Session::note_sequence_call`]).
+    calls_after: Vec<(&'static str, Key)>,
 }
 
 /// What rolls back the open transaction inside a run ([`Session::note_rollback_by`]).
@@ -89,13 +91,26 @@ impl Session {
                 after,
                 new_in_tx,
                 repeated,
+                calls_after: Vec::new(),
             },
         );
+    }
+
+    /// AL code called NumberSequence `method` on `key`: noted on every Restart and Delete of the open transaction.
+    pub(crate) fn note_sequence_call(&mut self, method: &'static str, key: &Key) {
+        for c in self.access_notes.tx_changes.values_mut() {
+            c.calls_after.push((method, key.clone()));
+        }
     }
 
     /// The next rollback is one inside a run, by `by` (read by [`Session::settle_tx_changes`]).
     pub(crate) fn note_rollback_by(&mut self, by: RollbackBy) {
         self.access_notes.rollback_by = Some(by);
+    }
+
+    /// The rollback [`Session::note_rollback_by`] announced did not run.
+    pub(crate) fn forget_rollback_by(&mut self) {
+        self.access_notes.rollback_by = None;
     }
 
     /// Rolls back the open transaction of a report, an XMLport import, a background session or a guarded run's deferred
@@ -125,8 +140,13 @@ impl Session {
         keys.sort();
         keys.dedup();
         let keys: Vec<Key> = keys.into_iter().cloned().collect();
+        // Each cell restarts or deletes one sequence.
+        let sole = keys.len() == 1;
         for key in keys {
-            let fate = changes.get(&key).and_then(|c| self.measured_step_fate(&key, c, by));
+            let fate = changes
+                .get(&key)
+                .filter(|_| sole)
+                .and_then(|c| self.measured_step_fate(&key, c, by));
             match fate {
                 Some(Fate::Keep) => {
                     self.access_notes.held.insert(key.clone());
@@ -165,14 +185,22 @@ impl Session {
     }
 
     /// What the rollback `by` does to the sequence `key` after its change `c`, when the shape is one of corpus PR 1573
-    /// (module doc); `None`: not measured. Every fact is read by equality.
+    /// (module doc), the only sequence the transaction changed; `None`: not measured. Every fact is read by equality.
     fn measured_step_fate(&self, key: &Key, c: &TxChange, by: RollbackBy) -> Option<Fate> {
         let notes = &self.access_notes;
         let log = notes.tx_log.as_deref()?;
         // RE, RE2, RE3, RE4, RE5, DE: an asserterror of `Error('inner error')`, in a test with TransactionModel AutoCommit,
-        // under the runners al-testrun `failed_test_runner_measured` names, with the codeunit's tests noted.
-        let measured_run =
-            by == RollbackBy::AssertError { literal: true } && notes.measured && self.tx_model == TxModel::AutoCommit;
+        // under the runners al-testrun `failed_test_runner_measured` names, with the codeunit's tests noted, on BC 29.
+        let measured_run = by == RollbackBy::AssertError { literal: true }
+            && notes.measured
+            && self.tx_model == TxModel::AutoCommit
+            && self.sequence_cells_measured_major();
+        // After the step each cell reads the sequence with `Seq.Rel` (SqExistingRestartFixture.al:69-73): Exists, then
+        // Current when it exists; no other NumberSequence call until the rollback.
+        let reads = match c.step {
+            SequenceStep::Restart => vec![("Exists", key.clone()), ("Current", key.clone())],
+            SequenceStep::Delete => vec![("Exists", key.clone())],
+        };
         // The first and only step of a sequence of the session's company that existed before the transaction and was not
         // inserted while noted, changed by nothing since (no Next, no Insert), no point of the log since, no mark on it.
         let one_step = c.new_in_tx
@@ -182,15 +210,17 @@ impl Session {
             && self.sequences.get(key) == c.after.as_ref()
             && c.at == Some(log.len())
             && self.sequence_unmarked(key);
-        if !(measured_run && one_step && began_after_earlier_write(log)) {
+        if !(measured_run && one_step && c.calls_after == reads && began_after_earlier_write(log)) {
             return None;
         }
-        // Nothing reached from the last point (the step's test body start) to the step.
-        let last = log.last()?;
-        if Interval::of(&last.access, &c.access) != Interval::Untouched {
+        // Nothing reached from the last point (the step's test body start) to the step, and no Page or TestPage call from
+        // there to the rollback (`Interval` does not read page calls).
+        let (last, now) = (log.last()?, self.data_access());
+        let untouched = Interval::of(&last.access, &c.access) == Interval::Untouched;
+        if !(untouched && (last.access.page_calls, c.access.page_calls) == (now.page_calls, now.page_calls)) {
             return None;
         }
-        match (Interval::of(&c.access, &self.data_access()), c.step) {
+        match (Interval::of(&c.access, &now), c.step) {
             (Interval::Untouched, SequenceStep::Restart) => Some(Fate::Keep),
             (Interval::RecordWrite, SequenceStep::Restart | SequenceStep::Delete) => Some(Fate::Undo),
             _ => None,

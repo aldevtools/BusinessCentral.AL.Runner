@@ -6,7 +6,7 @@
 //! step it keeps it (RE3 :1059, RE4 :1142). Until a corpus bump pins them, a test that reads such a sequence is a flagged
 //! pass; every other shape refuses the later calls on the sequence.
 
-use super::runner_isolation::{not_run, results};
+use super::runner_isolation::{not_run, results_on};
 use al_testrun::Outcome;
 use al_testrun::isolation::TestIsolation;
 
@@ -60,24 +60,29 @@ fn onrun(name: &str) -> String {
 }
 
 fn cells(isolation: TestIsolation) -> Vec<Row> {
+    cells_on(isolation, None)
+}
+
+/// [`cells`] on the BC version `target`.
+fn cells_on(isolation: TestIsolation, target: Option<&al_version::Target>) -> Vec<Row> {
     let src = [
         // RE5: Restart, a Record insert, asserterror; the test passes.
-        cell(50760, "RE5", "NumberSequence.Restart('P5RE5', 1002); Rows.Put('RE5-B1'); asserterror Error('inner');"),
+        cell(50760, "RE5", "NumberSequence.Restart('P5RE5', 1002); if NumberSequence.Exists('P5RE5') then if NumberSequence.Current('P5RE5') = 0 then; Rows.Put('RE5-B1'); asserterror Error('inner');"),
         // RE4: Restart, asserterror with nothing reached; the test passes.
-        cell(50761, "RE4", "NumberSequence.Restart('P5RE4', 1002); asserterror Error('inner');"),
+        cell(50761, "RE4", "NumberSequence.Restart('P5RE4', 1002); if NumberSequence.Exists('P5RE4') then if NumberSequence.Current('P5RE4') = 0 then; asserterror Error('inner');"),
         // RE: as RE5, then the test fails.
-        cell(50762, "RE", "NumberSequence.Restart('P5RE', 1002); Rows.Put('RE-B1'); asserterror Error('inner'); Error('B deliberate');"),
+        cell(50762, "RE", "NumberSequence.Restart('P5RE', 1002); if NumberSequence.Exists('P5RE') then if NumberSequence.Current('P5RE') = 0 then; Rows.Put('RE-B1'); asserterror Error('inner'); Error('B deliberate');"),
         // RE2: Restart, asserterror of a Record insert that raises, then the test fails.
-        cell(50763, "RE2", "NumberSequence.Restart('P5RE2', 1002); asserterror begin Rows.Put('RE2-B1'); Error('inner'); end; Error('B deliberate');"),
+        cell(50763, "RE2", "NumberSequence.Restart('P5RE2', 1002); if NumberSequence.Exists('P5RE2') then if NumberSequence.Current('P5RE2') = 0 then; asserterror begin Rows.Put('RE2-B1'); Error('inner'); end; Error('B deliberate');"),
         // DE: Delete, a Record insert, asserterror, then the test fails.
-        cell(50764, "DE", "NumberSequence.Delete('P5DE'); Rows.Put('DE-B1'); asserterror Error('inner'); Error('B deliberate');"),
+        cell(50764, "DE", "NumberSequence.Delete('P5DE'); if NumberSequence.Exists('P5DE') then; Rows.Put('DE-B1'); asserterror Error('inner'); Error('B deliberate');"),
         // RE3: Restart, asserterror with nothing reached, then the test fails at once: the failed test's rollback keeps
         // the step the asserterror kept.
-        cell(50765, "RE3", "NumberSequence.Restart('P5RE3', 1002); asserterror Error('inner'); Error('B deliberate');"),
+        cell(50765, "RE3", "NumberSequence.Restart('P5RE3', 1002); if NumberSequence.Exists('P5RE3') then if NumberSequence.Current('P5RE3') = 0 then; asserterror Error('inner'); Error('B deliberate');"),
         // Beside the cells: a number taken after the step.
-        cell(50766, "NX", "NumberSequence.Restart('P5NX', 1002); Rows.Put('NX-B1'); NumberSequence.Next('P5NX'); asserterror Error('inner');"),
+        cell(50766, "NX", "NumberSequence.Restart('P5NX', 1002); if NumberSequence.Exists('P5NX') then if NumberSequence.Current('P5NX') = 0 then; Rows.Put('NX-B1'); NumberSequence.Next('P5NX'); asserterror Error('inner');"),
         // A Record write before the step.
-        cell(50767, "WB", "Rows.Put('WB-B1'); NumberSequence.Restart('P5WB', 1002); asserterror Error('inner');"),
+        cell(50767, "WB", "Rows.Put('WB-B1'); NumberSequence.Restart('P5WB', 1002); if NumberSequence.Exists('P5WB') then if NumberSequence.Current('P5WB') = 0 then; asserterror Error('inner');"),
         // A CompanyWide sequence: as RE5, with the sequence made CompanyWide in OnRun.
         cell_with(
             50768,
@@ -85,31 +90,45 @@ fn cells(isolation: TestIsolation) -> Vec<Row> {
             "if not NumberSequence.Exists('P5CW', false) then begin NumberSequence.Insert('P5CW', 1, 1, false); \
              NumberSequence.Next('P5CW', false); NumberSequence.Next('P5CW', false); end;",
             "",
-            "NumberSequence.Restart('P5CW', 1002, false); Rows.Put('CW-B1'); asserterror Error('inner');",
+            "NumberSequence.Restart('P5CW', 1002, false); if NumberSequence.Exists('P5CW', false) then if NumberSequence.Current('P5CW', false) = 0 then; Rows.Put('CW-B1'); asserterror Error('inner');",
             false,
         ),
         // A Record read and no write before the asserterror.
-        cell(50769, "RD", "NumberSequence.Restart('P5RD', 1002); if Rows.Has('RD-INIT') then; asserterror Error('inner');"),
+        cell(50769, "RD", "NumberSequence.Restart('P5RD', 1002); if NumberSequence.Exists('P5RD') then if NumberSequence.Current('P5RD') = 0 then; if Rows.Has('RD-INIT') then; asserterror Error('inner');"),
         // As RE5 in a test with TransactionModel AutoRollback.
-        cell_with(50770, "AR", &onrun("AR"), "[TransactionModel(TransactionModel::AutoRollback)]", "NumberSequence.Restart('P5AR', 1002); Rows.Put('AR-B1'); asserterror Error('inner');", true),
+        cell_with(50770, "AR", &onrun("AR"), "[TransactionModel(TransactionModel::AutoRollback)]", "NumberSequence.Restart('P5AR', 1002); if NumberSequence.Exists('P5AR') then if NumberSequence.Current('P5AR') = 0 then; Rows.Put('AR-B1'); asserterror Error('inner');", true),
         // As RE5 with an Error of a Label.
-        cell(50771, "LB", "NumberSequence.Restart('P5LB', 1002); Rows.Put('LB-B1'); asserterror Error(InnerErr);"),
+        cell(50771, "LB", "NumberSequence.Restart('P5LB', 1002); if NumberSequence.Exists('P5LB') then if NumberSequence.Current('P5LB') = 0 then; Rows.Put('LB-B1'); asserterror Error(InnerErr);"),
         // A failed guarded Codeunit.Run after the step and a write, in place of the asserterror.
-        cell(50772, "GR", "NumberSequence.Restart('P5GR', 1002); Rows.Put('GR-B1'); if Codeunit.Run(Codeunit::\"P5 Fails\") then;"),
+        cell(50772, "GR", "NumberSequence.Restart('P5GR', 1002); if NumberSequence.Exists('P5GR') then if NumberSequence.Current('P5GR') = 0 then; Rows.Put('GR-B1'); if Codeunit.Run(Codeunit::\"P5 Fails\") then;"),
         // RE4 (the step kept), then a write and a second asserterror.
-        cell(50773, "HK", "NumberSequence.Restart('P5HK', 1002); asserterror Error('inner'); Rows.Put('HK-B1'); asserterror Error('inner');"),
+        cell(50773, "HK", "NumberSequence.Restart('P5HK', 1002); if NumberSequence.Exists('P5HK') then if NumberSequence.Current('P5HK') = 0 then; asserterror Error('inner'); Rows.Put('HK-B1'); asserterror Error('inner');"),
         // DE in a test that passes.
-        cell(50774, "DP", "NumberSequence.Delete('P5DP'); Rows.Put('DP-B1'); asserterror Error('inner');"),
+        cell(50774, "DP", "NumberSequence.Delete('P5DP'); if NumberSequence.Exists('P5DP') then; Rows.Put('DP-B1'); asserterror Error('inner');"),
         // A Delete with nothing reached before the asserterror.
-        cell(50775, "DN", "NumberSequence.Delete('P5DN'); asserterror Error('inner');"),
+        cell(50775, "DN", "NumberSequence.Delete('P5DN'); if NumberSequence.Exists('P5DN') then; asserterror Error('inner');"),
         // A read of the sequence in the step's test after the asserterror undid the Restart, the Delete, or kept the Restart.
-        cell(50776, "RU", "NumberSequence.Restart('P5RU', 1002); Rows.Put('RU-B1'); asserterror Error('inner'); if NumberSequence.Current('P5RU') = 0 then;"),
-        cell(50777, "DU", "NumberSequence.Delete('P5DU'); Rows.Put('DU-B1'); asserterror Error('inner'); if NumberSequence.Exists('P5DU') then; Error('B deliberate');"),
-        cell(50778, "RK", "NumberSequence.Restart('P5RK', 1002); asserterror Error('inner'); if NumberSequence.Current('P5RK') = 0 then;"),
+        cell(50776, "RU", "NumberSequence.Restart('P5RU', 1002); if NumberSequence.Exists('P5RU') then if NumberSequence.Current('P5RU') = 0 then; Rows.Put('RU-B1'); asserterror Error('inner'); if NumberSequence.Current('P5RU') = 0 then;"),
+        cell(50777, "DU", "NumberSequence.Delete('P5DU'); if NumberSequence.Exists('P5DU') then; Rows.Put('DU-B1'); asserterror Error('inner'); if NumberSequence.Exists('P5DU') then; Error('B deliberate');"),
+        cell(50778, "RK", "NumberSequence.Restart('P5RK', 1002); if NumberSequence.Exists('P5RK') then if NumberSequence.Current('P5RK') = 0 then; asserterror Error('inner'); if NumberSequence.Current('P5RK') = 0 then;"),
+        // The step with no read of the sequence after it (each cell reads it with Exists and Current).
+        cell(50780, "NR", "NumberSequence.Restart('P5NR', 1002); asserterror Error('inner');"),
+        // Current alone after the step.
+        cell(50781, "CO", "NumberSequence.Restart('P5CO', 1002); if NumberSequence.Current('P5CO') = 0 then; asserterror Error('inner');"),
+        // Two sequences restarted in the transaction, the second as the cells (each cell restarts one).
+        cell_with(
+            50782,
+            "TS",
+            &format!("{} {}", onrun("TS"), onrun("TS2")),
+            "",
+            "NumberSequence.Restart('P5TS2', 1002); NumberSequence.Restart('P5TS', 1002); \
+             if NumberSequence.Exists('P5TS') then if NumberSequence.Current('P5TS') = 0 then; asserterror Error('inner');",
+            true,
+        ),
         "codeunit 50779 \"P5 Fails\" { trigger OnRun() begin Error('fails'); end; }".to_string(),
     ]
     .concat();
-    results(&src, isolation)
+    results_on(&src, isolation, target)
 }
 
 #[test]
@@ -149,6 +168,9 @@ fn asserterror_shapes_beside_the_cells_are_refused() {
         ("C_HKReads", "'P5HK'"),
         ("C_DPReads", "'P5DP'"),
         ("C_DNReads", "'P5DN'"),
+        ("C_NRReads", "'P5NR'"),
+        ("C_COReads", "'P5CO'"),
+        ("C_TSReads", "'P5TS'"),
     ] {
         assert!(not_run(&row(&o, test).2, key), "{test}: {o:?}");
     }
@@ -167,5 +189,20 @@ fn a_read_in_the_steps_test_after_the_asserterror_is_refused() {
     let o = cells(TestIsolation::Codeunit);
     for (test, key) in [("B_RUStep", "'P5RU'"), ("B_DUStep", "'P5DU'"), ("B_RKStep", "'P5RK'")] {
         assert!(not_run(&row(&o, test).2, key), "{test}: {o:?}");
+    }
+}
+
+#[test]
+fn on_bc_27_and_28_the_asserterror_cells_are_refused() {
+    for major in [27, 28] {
+        let target = al_version::Target::for_bc(al_version::BcVersion::new(major, 5));
+        let o = cells_on(TestIsolation::Codeunit, Some(&target));
+        for (test, key) in [
+            ("C_RE5Reads", "'P5RE5'"),
+            ("C_RE4Reads", "'P5RE4'"),
+            ("C_DEReads", "'P5DE'"),
+        ] {
+            assert!(not_run(&row(&o, test).2, key), "BC {major} {test}: {o:?}");
+        }
     }
 }

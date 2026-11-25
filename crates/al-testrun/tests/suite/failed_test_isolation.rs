@@ -4,7 +4,7 @@
 //! SqBindFailed.al, measured on BC 27.5, 28.5 and 29.0 under runners 61301 and 130450 (assertions in SqReader.al). Until a
 //! corpus bump pins them, a test that reads what such a failure left is a flagged pass.
 
-use super::runner_isolation::{not_run, results};
+use super::runner_isolation::{not_run, results_on};
 use al_sema::workspace::AppSource;
 use al_testrun::Outcome;
 use al_testrun::isolation::TestIsolation;
@@ -29,7 +29,12 @@ codeunit 50739 "P4 Read"
 type Row = (u32, String, Outcome, Vec<&'static str>);
 
 fn cells(src: &str, isolation: TestIsolation) -> Vec<Row> {
-    results(&format!("{READ}\n{src}"), isolation)
+    cells_on(src, isolation, None)
+}
+
+/// [`cells`] on the BC version `target`.
+fn cells_on(src: &str, isolation: TestIsolation, target: Option<&al_version::Target>) -> Vec<Row> {
+    results_on(&format!("{READ}\n{src}"), isolation, target)
 }
 
 fn row<'a>(o: &'a [Row], test: &str) -> &'a Row {
@@ -1198,5 +1203,16 @@ fn shapes_beside_the_cells_of_pr_1572_keep_mains_refusal() {
         ("C_TestPageAfterKeepReads", "'P4TK'"),
     ] {
         assert!(not_run(&row(&o, test).2, key), "{test}: {o:?}");
+    }
+}
+
+#[test]
+fn on_bc_27_and_28_the_arms_only_pr_1572_measured_are_refused() {
+    for major in [27, 28] {
+        let target = al_version::Target::for_bc(al_version::BcVersion::new(major, 5));
+        let o = cells_on(PR_1572_NEIGHBORS, TestIsolation::Codeunit, Some(&target));
+        for (test, key) in [("C_HelperExactReads", "'P4HX'"), ("C_WriteThenWriteReads", "'P4WW'")] {
+            assert!(not_run(&row(&o, test).2, key), "BC {major} {test}: {o:?}");
+        }
     }
 }
