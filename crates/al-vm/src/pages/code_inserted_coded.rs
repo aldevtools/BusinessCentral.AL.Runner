@@ -56,7 +56,10 @@
 //! After the landing, one SetValue of a control with code of its own (`extra_value_control`, issue 8843) saves and updates
 //! as the probe's Value does (`FactboxStep::CodedTyped`): into a control with a TableRelation only a value stored as typed
 //! (`coded_typed_begins`), its save under the effect gate with Rec's view as the SetValue found it (`extra_code_typed_save` in
-//! `code_inserted_extra.rs`), and Rec as saved at its Update (`update_after_code_inserted_save`).
+//! `code_inserted_extra.rs`). The table field may run an OnValidate of its own first (issue 8848; the page's table checked
+//! from the SetValue's start, `FactboxStep::CodedTyped::writes`), and at its `Update(false)` the row and Rec may both have
+//! changed since the save (issue 8849, `SavedView::rec_free`, corpus pull request 1542); otherwise Rec is as saved at its
+//! Update (`update_after_code_inserted_save`).
 
 use super::pinned_shape::TestCall;
 use super::state::{CodedLine, FactboxStep};
@@ -643,8 +646,9 @@ impl Session {
 
     /// Whether `control`, on a page over `table`, is a field control the later SetValue of
     /// ListNewLineExtraCodeCodedSecondSetValue.al writes (:746; :859 with a TableRelation on the control): over a field of Rec
-    /// outside the primary key, with an OnValidate of its own and no extension trigger, over a table field with no OnValidate
-    /// and no TableRelation.
+    /// outside the primary key, with an OnValidate of its own and no extension trigger, over a table field with no TableRelation
+    /// and no extension trigger. The table field may have an OnValidate of its own (ListNewLineExtraCodeCodedFieldOnValidate.al
+    /// :799, :812): what it writes is the save's gate (`extra_code_typed_save`).
     fn later_value_field(engine: &crate::Engine, control: &ir::Control, table: &al_data::TableDef) -> bool {
         let ir::Binding::Field(f) = control.binding else {
             return false;
@@ -656,12 +660,7 @@ impl Session {
         control.trigger("onvalidate").is_some()
             && control.ext_triggers.is_empty()
             && !table.keys[0].contains(&f)
-            && field.is_some_and(|d| {
-                d.on_validate.is_none()
-                    && d.ext_before_validate.is_empty()
-                    && d.ext_after_validate.is_empty()
-                    && !d.relation
-            })
+            && field.is_some_and(|d| d.ext_before_validate.is_empty() && d.ext_after_validate.is_empty() && !d.relation)
     }
 
     /// Whether control `idx` of host `st` takes a SetValue on the row its new line became (ListNewLineFactboxesCode.al:1407
@@ -736,7 +735,7 @@ impl Session {
             );
         }
         let steps = match st.borrow().code_inserted_row.as_ref().map(|r| r.factbox) {
-            Some(FactboxStep::CodedTyped { steps }) => steps + 1,
+            Some(FactboxStep::CodedTyped { steps, .. }) => steps + 1,
             _ => 0,
         };
         if let Some(row) = st.borrow_mut().code_inserted_row.as_mut() {

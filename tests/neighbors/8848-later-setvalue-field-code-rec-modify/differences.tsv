@@ -1,0 +1,11 @@
+# key	entry
+# The later SetValue on a field with an OnValidate of its own: the base refused it at the SetValue; the head runs it.
+LT NT6 Tests::NewLine_SecondSetValueOnAFieldWithItsOwnOnValidate_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1542, open: ListNewLineExtraCodeCodedFieldOnValidate.al)
+LT NT6 Tests::NewLine_LaterSetValueFieldOnValidateSetsAFieldOnly_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1542, open: ListNewLineExtraCodeCodedFieldOnValidate.al)
+# Rec and the row both changed after the later SetValue's save: the base refused it at the Update(false); the head shows the row
+# as stored.
+LT NY6 Tests::NewLine_SecondSetValueCodeunitModifiesRecAfterTheSave_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1542, open: ListNewLineExtraCodeCodedRecModify.al)
+LT NY6 Tests::NewLine_LaterSetValueModifiesRecAfterTheSave_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1542, open: ListNewLineExtraCodeCodedRecModify.al)
+LT NY6 Tests::NewLine_LaterSetValueReadsRecAgainAfterAnotherRecordsWrite_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1542, open: ListNewLineExtraCodeCodedRecModify.al)
+LT NY6 Tests::NewLine_LaterSetValueChangesRecAfterItsModify_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1542, open: ListNewLineExtraCodeCodedRecModify.al)
+LT NY6 Tests::NewLine_LaterSetValueModifiesRecThenAnotherRecordWrites_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1542, open: ListNewLineExtraCodeCodedRecModify.al)

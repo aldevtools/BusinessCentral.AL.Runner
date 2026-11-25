@@ -297,14 +297,29 @@ impl Session {
         }))
     }
 
+    /// Whether the page-with-code shape with other code runs its later SetValue (`FactboxStep::CodedTyped`, `CodedObjects::Extra`).
+    pub(super) fn extra_code_later_set_value(&self, st: &St) -> bool {
+        let s = st.borrow();
+        s.coded_objects == super::state::CodedObjects::Extra
+            && matches!(
+                s.code_inserted_row.as_ref().map(|r| r.factbox),
+                Some(super::state::FactboxStep::CodedTyped { .. })
+            )
+    }
+
     /// `CurrPage.SaveRecord()` in the OnValidate of the later SetValue on a page of the page-with-code shape with other code
     /// (`FactboxStep::CodedTyped`, `CodedObjects::Extra`), on the row its new line became: measured when Rec is that row, its
     /// view as the SetValue found it (`coded_typed_begins`; a filter set before the save, review of al-runner PR 8847, 01:00Z),
-    /// and the control wrote no row of the page's table since its OnValidate began, other tables only
-    /// (ListNewLineExtraCodeCodedSecondSetValue.al:771); the Update after it and the step end then run under the effect gate
-    /// (`SavedView::extra`: :746, :760, :782 run; a filter set, :793, and a write after the Update, :837, are refused).
+    /// and nothing wrote a row of the page's table since the SetValue began, the table field's OnValidate and the control's,
+    /// other tables only (ListNewLineExtraCodeCodedSecondSetValue.al:771; ListNewLineExtraCodeCodedFieldOnValidate.al:799 the
+    /// field's log; a row of the page's table inserted :823 or the row written through another record :834 by the field,
+    /// refused); the Update after it and the step end then run under the effect gate (`SavedView::extra`: :746, :760, :782 run;
+    /// a filter set, :793, and a write after the Update, :837, are refused).
     pub(super) fn extra_code_typed_save(&mut self, st: &St) -> Result<(), Signal> {
-        let began = st.borrow().control_onvalidate.as_ref().map(|c| c.writes);
+        let began = match st.borrow().code_inserted_row.as_ref().map(|r| r.factbox) {
+            Some(super::state::FactboxStep::CodedTyped { writes, .. }) => Some(writes),
+            _ => None,
+        };
         let rec = self.page_rec(st);
         let key = self.row_key(&rec)?;
         let landed = st
@@ -453,6 +468,7 @@ impl Session {
             writes: self.write_mark(),
             rows: Some(self.extra_code_rows(st)?),
             extra: true,
+            rec_free: false,
         })
     }
 

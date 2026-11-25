@@ -183,6 +183,10 @@ pub struct SavedView {
     /// The save ran code that is not a pinned page's under the effect gate of `code_inserted_extra.rs`: between the save and
     /// `CurrPage.Update(false)` the row may change through another record, or Rec's fields, but not both (`extra_code_kept`).
     pub extra: bool,
+    /// On the later SetValue of a page of the page-with-code shape with other code, at its `CurrPage.Update(false)`: the row and
+    /// Rec may both have changed since the save, the Update reads the row as stored
+    /// (ListNewLineExtraCodeCodedRecModify.al, `update_after_code_inserted_save`).
+    pub rec_free: bool,
 }
 
 /// The calls measured on the FactBox host after the page left its new line for the row (`code_inserted_new_line.rs`).
@@ -210,8 +214,9 @@ pub enum FactboxStep {
     /// The page with code (`code_inserted_coded.rs`) after the landing and `steps` measured SetValues since: reads, a SetValue
     /// whose validation saves and refreshes the row again, or `OK()`.
     Coded { steps: u8 },
-    /// Its SetValue runs: the validation must save the row, then `CurrPage.Update(false)`.
-    CodedTyped { steps: u8 },
+    /// Its SetValue runs: the validation must save the row, then `CurrPage.Update(false)`. `writes` is the store's write mark
+    /// when the SetValue began, before the table field's OnValidate (`extra_code_typed_save`).
+    CodedTyped { steps: u8, writes: (i64, u64) },
     /// After its `OK()`: the `Invoke`.
     CodedOk,
 }

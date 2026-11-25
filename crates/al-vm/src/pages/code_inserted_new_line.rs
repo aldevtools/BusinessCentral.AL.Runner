@@ -754,8 +754,9 @@ impl Session {
                     && self.no_active_subscriber(rec.borrow().table as usize)
                     && self.no_active_subscriber(page_object)
                     && stored.is_some_and(|s| match view.extra {
-                        // The effect gate: the row or Rec changed since the save, not both (`extra_code_kept`).
-                        true => Self::extra_code_kept(&rec.borrow().fields, &s, &view.rec.fields),
+                        // The effect gate: the row or Rec changed since the save, not both (`extra_code_kept`), but at the
+                        // Update(false) of the later SetValue of the page-with-code shape (`SavedView::rec_free`).
+                        true => view.rec_free || Self::extra_code_kept(&rec.borrow().fields, &s, &view.rec.fields),
                         false => Self::same_values(&rec.borrow().fields, &s),
                     })
                     && now.is_some_and(|now| {
@@ -805,6 +806,7 @@ impl Session {
             writes: self.write_mark(),
             rows,
             extra,
+            rec_free: false,
         });
         st.borrow_mut().code_inserted_save = match asked {
             true => CodeInsertedSave::Asked(view),
@@ -898,23 +900,26 @@ impl Session {
         // FactBox it stays refused: BC's answer there is measured 3 of 3 on BC 29.1 only by the neighbor app's
         // tests/neighbors/8734-new-line-extra-code-factbox/src/Neighbors.al:478, which no corpus cell pins; at the landing of
         // the page with code no cell measures it.
-        let typed_extra = {
-            let s = st.borrow();
-            s.coded_objects == super::state::CodedObjects::Extra
-                && matches!(
-                    s.code_inserted_row.as_ref().map(|r| r.factbox),
-                    Some(FactboxStep::CodedTyped { .. })
-                )
-        };
         // The later SetValue's cells keep Rec as the save left it up to the Update (another table written, :746, or the row
-        // modified through another record, :782, at Update(false)), and Update(true) follows the save with nothing written
-        // (:804); a field of Rec set, or a write before Update(true), is not measured (review of al-runner PR 8847, 01:00Z).
-        if typed_extra {
-            let rec_kept = Self::same_values(&self.page_rec(st).borrow().fields, &view.rec.fields);
-            let update_true = matches!(arg, Some(Value::Boolean(true)));
-            let measured = match update_true {
+        // modified through another record, :782), or change it only by writing or reading Rec itself again after the save, at
+        // Update(false) (ListNewLineExtraCodeCodedRecModify.al :594-:651: Rec's SystemRowVersion moves); Update(true) follows
+        // the save with nothing written (:804). Rows of other tables written there are rows inserted (:746). A field of Rec
+        // set without that, a row of another table modified or deleted, or a write before Update(true), is not measured
+        // (reviews of al-runner PR 8847, 01:00Z and 02:55Z).
+        if self.extra_code_later_set_value(st) {
+            let rec = self.page_rec(st);
+            let table = self.table(&rec)?;
+            let rec_kept = Self::same_values(&rec.borrow().fields, &view.rec.fields);
+            let rec_written = matches!(
+                (
+                    crate::stale_rename::row_version(&table, &rec.borrow().fields),
+                    crate::stale_rename::row_version(&table, &view.rec.fields),
+                ),
+                (Some(now), Some(saved)) if now > saved
+            );
+            let measured = match matches!(arg, Some(Value::Boolean(true))) {
                 true => rec_kept && self.write_mark() == view.writes,
-                false => rec_kept && self.extra_typed_other_writes_inserted(st, view)?,
+                false => (rec_kept || rec_written) && self.extra_typed_other_writes_inserted(st, view)?,
             };
             if !measured {
                 st.borrow_mut().forget_code_inserted_line();
@@ -927,7 +932,8 @@ impl Session {
         }
         if view.extra
             && matches!(arg, Some(Value::Boolean(true)))
-            && (typed_extra || matches!(self.code_inserted_page(st)?, Some((Triggers::Quiet, _))))
+            && (self.extra_code_later_set_value(st)
+                || matches!(self.code_inserted_page(st)?, Some((Triggers::Quiet, _))))
         {
             return self.extra_code_update_true(st, view);
         }
@@ -938,7 +944,22 @@ impl Session {
                  table field inserted (not measured)",
             );
         }
-        if !self.view_kept(st, view)? {
+        // The later SetValue's code on a page of the page-with-code shape may change both the row and Rec after the save: the
+        // Update(false) shows the row as stored in every case ListNewLineExtraCodeCodedRecModify.al measures (Rec.Modify()
+        // after the save :594, :607; another record's write then Rec read again :618; a field of Rec set after its Modify()
+        // :629; a copy of Rec modified :640; Rec modified, then another record's write :651).
+        let rec_free = view.extra && self.extra_code_later_set_value(st);
+        let kept = match rec_free {
+            true => self.view_kept(
+                st,
+                &SavedView {
+                    rec_free: true,
+                    ..view.clone()
+                },
+            )?,
+            false => self.view_kept(st, view)?,
+        };
+        if !kept {
             st.borrow_mut().forget_code_inserted_line();
             return unsupported(
                 "the page's record, its view or the table changed between CurrPage.SaveRecord, which moved the page from its new \
@@ -1224,7 +1245,10 @@ impl Session {
             (FactboxStep::Coded { steps }, TestCall::Write(i), None)
                 if root.borrow().coded_objects.later_set_value(steps) && self.coded_later_control(&root, i) =>
             {
-                FactboxStep::CodedTyped { steps }
+                FactboxStep::CodedTyped {
+                    steps,
+                    writes: self.write_mark(),
+                }
             }
             (FactboxStep::Coded { steps }, TestCall::Page(PageMethod::OK), None)
                 if root.borrow().coded_objects.ok_after(steps) =>
