@@ -1,0 +1,1 @@
+Diagnostic only, no answer changes: the login replay check report (behind ALRUNNER_LOGIN_REPLAY_CHECK) is a diagnostic that AL code never sees (it names where two sessions differ and which key fields a new key differs in, the SQL counters reason and the DotNet numbering feed only that report); with the switch off every path is as on main.

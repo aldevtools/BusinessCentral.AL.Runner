@@ -288,6 +288,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `impact_static.rs`: Static selection: the graph of routines, objects. Entry: `Graph`.
 - `login.rs`: The test session's login. Entry: `decide`.
 - `login_replay.rs`: The check that a replay of the raised login would… Entry: `Key::of`.
+- `login_replay/` (2 files): What the login replay check's report names: where two states differ, and the parts a new key differs in, never a value. Entry: `differences`, `KeyParts::of`. Files: `difference.rs`, `key_parts.rs`
 - `partner_login.rs`: The partner dependency apps' "System… Entry: `subscribers`.
 - `license.rs`: Which BC license a run uses: `--license FILE`. Entry: `LicenseUse`.
 - `isolation.rs`: TestIsolation of the runner codeunit. Entry: `TestIsolation`.
@@ -353,6 +354,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `order_trial.rs`: A subscriber whose install order is not known runs… Entry: `trial_start`.
 - `callstack.rs`: The AL call stack of an error and the live stack. Entry: `add_frame`.
 - `caught_errors.rs`: The count of errors AL code caught: asserterror. Entry: `catch_error`.
+- `clear_shared_codeunit.rs`: Clear and ClearAll of a codeunit variable whose instance another holder shares. Entry: `Session::clear_shared_codeunit`.
 - `crm.rs`: A `TableType = CRM` table through the `@@test@@`… Entry: `connection_check`.
 - `companies.rs`: The company a record works in, ChangeCompany. Entry: `find_company`.
 - `dataset.rs`: The dataset XML `Report.SaveAs` writes: header. Entry: `dataset_name`.
@@ -432,14 +434,16 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `slot_default.rs`: The value a routine's local or an object's global… Entry: `slot_default`.
 - `install_left.rs`: `install_left/clients.rs`. Entry: `Session::install_left`.
 - `session_fields.rs`: Every `Session` field in one class of one table. Entry: `Session::at_rest_why`.
+- `login_image.rs`: The session image after the raised login, and a new session made to hold it. Entry: `Session::login_image`.
 - `resource_reads.rs`: The resource files of the apps AL code of a session… Entry: `Session::resource_reads`.
 - `sqlcount.rs`: The model behind `SqlStatementsExecuted` /… Entry: `SqlCounters::read`.
 - `tasks.rs`: `TaskScheduler.CreateTask`, `TaskExists`, `CancelTask`. Entry: `Session::task_scheduler_op`.
 - `tenant_set_delete.rs`: The Delete or DeleteAll of a stored Tenant… Entry: `tenant_set_delete_one`.
 - `testdata.rs`: Test data: `TestBacking` maps a provider's columns… Entry: `TestBacking`.
 - `transaction_type.rs`: `Database.CurrentTransactionType`. Entry: `current_transaction_type`.
+- `transaction_type_saved.rs`: A `CurrentTransactionType` read while the type is not known whose value only sets it back. Entry: `Session::read_saved_for_set_back`.
 - `transactions.rs`: Transactions as AL code sees them. Entry: `TxModel`.
-- `consistent_marks.rs`: The tables `Record.Consistent` marks. Entry: `Session::set_consistent`.
+- `consistent_marks.rs`: `Record.Consistent` marks and how a run or Commit ends on one. Entry: `Session::set_consistent`.
 - `ui.rs`: Dialogs raised by the code under test and the test… Entry: `UiKind`.
 - `dev_endpoint_ui.rs`: `--dev-endpoint-ui`: the answer of the dev-endpoint…
 - `clientless.rs`: What a dialog does in a session without a client.
