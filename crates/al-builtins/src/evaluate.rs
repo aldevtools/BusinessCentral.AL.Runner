@@ -1485,14 +1485,22 @@ pub fn evaluate(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Resu
     evaluate_with(c, a, false)
 }
 
-/// `Evaluate` into a Date or DateTime local variable or parameter: the shapes of `short_us_date`, else [`evaluate`].
-pub fn evaluate_date_variable(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
+/// `Evaluate` into a Date or DateTime local variable or parameter (`System.EvaluateDateVariable#1`: the shapes of
+/// `short_us_date`, else [`evaluate`]) or into an Enum variable of the routine's `var` section
+/// (`System.EvaluateEnumVariable#1`: `enum_text` reads the shapes measured on such a variable).
+pub fn evaluate_variable(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
     evaluate_with_max(c, a, false, None, false, Place::Variable)
 }
 
-/// `Evaluate` into an Enum variable of the routine's `var` section: `enum_text` reads the shapes measured on such a variable.
-pub fn evaluate_enum_variable(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
-    evaluate_with_max(c, a, false, None, false, Place::Variable)
+/// The fifth argument of `System.EvaluateOptionField#1` (al-sema `lower/call.rs`): where the fourth, the captions, comes from.
+/// No fifth argument: the field's plain OptionCaption.
+pub mod option_captions {
+    /// The fourth argument is the OptionCaptionML property text.
+    pub const ML: i32 = 1;
+    /// The field declares no caption and the fourth argument is its member names.
+    pub const NONE: i32 = 2;
+    /// The OptionCaption repeats the member names entry by entry.
+    pub const SAME_AS_NAMES: i32 = 3;
 }
 
 /// `Evaluate` into an Enum record field named directly: `enum_text` reads the shapes measured on such a field.
@@ -1568,7 +1576,9 @@ pub fn evaluate_option_field(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Va
 fn option_field(c: &mut dyn Ctx, a: &mut [Value], direct: bool) -> Result<Value, Signal> {
     // An OptionCaption that repeats the member names (fifth argument 3): the measured shapes read as captions do, every other
     // shape as a field without these captions (`option_text::same_as_names_measured`).
-    if matches!(a.get(4), Some(Value::Integer(3))) && !option_text::same_as_names_measured(c, a, direct) {
+    if matches!(a.get(4), Some(Value::Integer(option_captions::SAME_AS_NAMES)))
+        && !option_text::same_as_names_measured(c, a, direct)
+    {
         return evaluate_with(c, &mut a[..3], false);
     }
     let (Some(text), Some(Value::Text(captions)), Value::Option(_, names)) =
@@ -1579,7 +1589,7 @@ fn option_field(c: &mut dyn Ctx, a: &mut [Value], direct: bool) -> Result<Value,
     if !matches!(a.get(2), Some(Value::Integer(0 | 2 | 9))) {
         return unsupported("Evaluate into an Option field with a format number other than 0, 2 and 9 (not pinned)");
     }
-    let captions: String = if matches!(a.get(4), Some(Value::Integer(1))) {
+    let captions: String = if matches!(a.get(4), Some(Value::Integer(option_captions::ML))) {
         let list = crate::format::ml_text_in_language(captions.as_str(), c.language())
             .map_err(|e| Signal::unsupported(format!("Evaluate into an Option field with OptionCaptionML {e}")))?;
         if list.split(',').count() != names.len() {
@@ -1592,7 +1602,7 @@ fn option_field(c: &mut dyn Ctx, a: &mut [Value], direct: bool) -> Result<Value,
     let t = text.trim();
     // A field without a caption (fifth argument 2, the fourth its member names): an empty or blank text names a member
     // declared as `" "`, not one declared as `""` (format-evaluate/AxFormatOption.al:208-211).
-    let no_caption = matches!(a.get(4), Some(Value::Integer(2)));
+    let no_caption = matches!(a.get(4), Some(Value::Integer(option_captions::NONE)));
     let same = |n: &str| {
         if t.is_empty() {
             !n.is_empty() && n.trim().is_empty()
@@ -1609,10 +1619,7 @@ fn option_field(c: &mut dyn Ctx, a: &mut [Value], direct: bool) -> Result<Value,
             language: c.language(),
         };
         let caps: Vec<&str> = captions.split(',').collect();
-        match option_blank::blank_text(&names, &caps, &call)? {
-            option_blank::BlankText::Member(p) => (Some(p), None),
-            option_blank::BlankText::NoMember => (None, None),
-        }
+        (option_blank::blank_text(&names, &caps, &call)?, None)
     } else {
         (captions.split(',').position(same), names.iter().position(|n| same(n)))
     };

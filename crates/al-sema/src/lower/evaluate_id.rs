@@ -42,11 +42,13 @@ impl Lowerer<'_> {
         // al-builtins `evaluate::enum_text` were measured on these targets only (corpus PR 1306, EvalNamedBlankCaption.al:81-107;
         // corpus PR 1577, EvalOptionBlankCaptions.al OBC_Enum_*; al-runner issue 8356). A global, a parameter, a return value and
         // an array element keep the plain id.
-        if matches!(self.ty_of(a), Ty::Enum(_)) && self.declared_local(a) {
-            return "System.EvaluateEnumVariable#1";
-        }
-        if matches!(self.ty_of(a), Ty::Enum(_)) && matches!(self.res(a), Some(Res::Field { .. })) {
-            return "System.EvaluateEnumField#1";
+        if matches!(self.ty_of(a), Ty::Enum(_)) {
+            if self.declared_local(a) {
+                return "System.EvaluateEnumVariable#1";
+            }
+            if matches!(self.res(a), Some(Res::Field { .. })) {
+                return "System.EvaluateEnumField#1";
+            }
         }
         if matches!(self.ty_of(a), Ty::Text(Some(_)) | Ty::Code(Some(_))) {
             return "System.EvaluateBounded#1";

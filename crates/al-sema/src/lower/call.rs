@@ -1054,25 +1054,23 @@ impl Lowerer<'_> {
                         out.push(ir::Arg::Value(v));
                     }
                 }
-                // The OptionCaption of an Option field goes along as a fourth argument.
-                // A fifth argument 1: the fourth is the OptionCaptionML property text.
-                // A fifth argument 2: the field declares no caption and the fourth is its member names.
-                // A fifth argument 3: the OptionCaption repeats the member names.
+                // The OptionCaption of an Option field goes along as a fourth argument, and where it comes from as a fifth
+                // (al-builtins `evaluate::option_captions`; none for a plain OptionCaption).
                 if let (true, Some((captions, kind))) = (emit_id == "System.EvaluateOptionField#1", option_captions) {
                     while out.len() < 3 {
                         out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(0))));
                     }
                     out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Text(captions))));
                     match kind {
-                        super::stmt::OptionCaptions::Ml => {
-                            out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(1))))
-                        }
-                        super::stmt::OptionCaptions::None => {
-                            out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(2))))
-                        }
-                        super::stmt::OptionCaptions::SameAsNames => {
-                            out.push(ir::Arg::Value(ir::Expr::Const(ir::Const::Integer(3))))
-                        }
+                        super::stmt::OptionCaptions::Ml => out.push(ir::Arg::Value(ir::Expr::Const(
+                            ir::Const::Integer(al_builtins::evaluate::option_captions::ML),
+                        ))),
+                        super::stmt::OptionCaptions::None => out.push(ir::Arg::Value(ir::Expr::Const(
+                            ir::Const::Integer(al_builtins::evaluate::option_captions::NONE),
+                        ))),
+                        super::stmt::OptionCaptions::SameAsNames => out.push(ir::Arg::Value(ir::Expr::Const(
+                            ir::Const::Integer(al_builtins::evaluate::option_captions::SAME_AS_NAMES),
+                        ))),
                         super::stmt::OptionCaptions::Caption => {}
                     }
                 }

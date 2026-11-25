@@ -19,6 +19,7 @@ table 69814 "NB Option Row"
         field(3; Pinned; Option) { OptionMembers = " ",First,Second; OptionCaption = ' ,First cap,Second cap'; }
         field(4; Reporter; Option) { OptionMembers = First,Second,Third,,,Skip; OptionCaption = 'First one,Second one,Third one,,,Skip it'; }
         field(5; Last; Enum "NB E Last") { }
+        field(6; ReporterML; Option) { OptionMembers = First,,,Skip; OptionCaptionML = ENU = 'First one,,,Skip it'; }
     }
     keys { key(PK; Id) { Clustered = true; } }
 }
@@ -182,6 +183,13 @@ codeunit 69810 C
         exit(Format(R));
     end;
 
+    procedure ReporterOptionCaptionML(): Text
+    var Row: Record "NB Option Row"; R: Boolean;
+    begin
+        R := Evaluate(Row.ReporterML, '');
+        exit(Format(R));
+    end;
+
     procedure LastFromEmpty(): Text
     var F: Enum "NB E Last"; R: Boolean;
     begin
@@ -289,7 +297,7 @@ fn blank_text_into_an_option_field_whose_named_member_has_a_space_caption_names_
 
 // Members named "" with caption `''` in the middle (al-runner issue 8354, the reporter's repro, BC 28.4 and 29.0; corpus PR
 // 1577 OBC_Option_Reporter): `''` and `' '` give false and keep the value, `''` as a statement raises the error of the field,
-// on the assumption `option-blank-text-blank-captions`. A FieldRef is not measured: refused.
+// on the assumption `option-blank-text-blank-captions`. A FieldRef and OptionCaptionML are not measured: refused.
 #[test]
 fn blank_text_into_option_members_named_empty_with_empty_captions_is_rejected() {
     for t in ["", " "] {
@@ -313,6 +321,8 @@ fn blank_text_into_option_members_named_empty_with_empty_captions_is_rejected() 
         other => panic!("expected the error, got {other:?}"),
     }
     assert!(refused("ReporterOptionFieldRef").contains("blank member names and captions"));
+    // OptionCaptionML is not measured either (main answered member 1): refused.
+    assert!(refused("ReporterOptionCaptionML").contains("blank member names and captions"));
 }
 
 // A member name still reads (types/ProbeTypeFormsAndFilters.al Enum_Evaluate_Forms; recordref-fieldref/P128EvalBasic.al

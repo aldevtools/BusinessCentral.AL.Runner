@@ -4,14 +4,6 @@ use super::unsupported;
 use crate::assumptions::{Assumption, assume};
 use crate::native::Signal;
 
-/// What a blank text names.
-pub(super) enum BlankText {
-    /// The member at this position.
-    Member(usize),
-    /// No member: the text is rejected.
-    NoMember,
-}
-
 /// The facts of the call that the blank-text shapes read.
 pub(super) struct BlankCall<'a> {
     /// The text as given, before blanks were trimmed.
@@ -24,7 +16,8 @@ pub(super) struct BlankCall<'a> {
     pub language: i32,
 }
 
-/// A blank text (its trimmed form is empty) into an Option field with captions `captions` and members `names`.
+/// A blank text (its trimmed form is empty) into an Option field with captions `captions` and members `names`: the position of
+/// the member it names, `None` when it names none (the text is rejected).
 /// The members with a blank name or a blank caption decide:
 /// - none: rejected (format-evaluate/P131EvalOption.al:146, a field without a blank member rejects `''`);
 /// - the first of them named `" "` with the caption `' '`: that member (P131EvalOption.al:107-108, `''` and `' '`;
@@ -37,7 +30,7 @@ pub(super) struct BlankCall<'a> {
 ///   with the caption `''`, is named. Every such member not named: rejected. One member, named: that member.
 ///
 /// Every other shape refuses.
-pub(super) fn blank_text(names: &[String], captions: &[&str], call: &BlankCall) -> Result<BlankText, Signal> {
+pub(super) fn blank_text(names: &[String], captions: &[&str], call: &BlankCall) -> Result<Option<usize>, Signal> {
     if captions.len() != names.len() {
         return unsupported(
             "Evaluate of a blank text into an Option field whose captions are not one per member (not pinned)",
@@ -47,10 +40,10 @@ pub(super) fn blank_text(names: &[String], captions: &[&str], call: &BlankCall) 
         .filter(|&i| names[i].trim().is_empty() || captions[i].trim().is_empty())
         .collect();
     let Some(&first) = blank.first() else {
-        return Ok(BlankText::NoMember);
+        return Ok(None);
     };
     if names[first] == " " && captions[first] == " " {
-        return Ok(BlankText::Member(first));
+        return Ok(Some(first));
     }
     let observed_call = call.direct_plain_caption
         && call.language == 1033
@@ -61,11 +54,11 @@ pub(super) fn blank_text(names: &[String], captions: &[&str], call: &BlankCall) 
         match named.as_slice() {
             [true] => {
                 assume(Assumption::OptionBlankTextBlankCaptions);
-                return Ok(BlankText::Member(first));
+                return Ok(Some(first));
             }
             all if all.iter().all(|n| !n) => {
                 assume(Assumption::OptionBlankTextBlankCaptions);
-                return Ok(BlankText::NoMember);
+                return Ok(None);
             }
             _ => {}
         }
