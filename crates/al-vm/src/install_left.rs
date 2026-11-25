@@ -361,77 +361,18 @@ impl Session {
             && clients::events_as_new(&self.events)
     }
 
-    /// The transaction state after the install's last Commit, field by field: what a new session holds, except what the
+    /// The transaction state after the install's last Commit: what a new session holds ([`tx_left_as_new`]), except what the
     /// Commit sets (`committed_row_version`, carried in the Baseline; `commit_counter`, the store's change counter, which
     /// [`Session::restore_install_left`] sets again; `last_commit_wrote`, `transaction_type` and `type_origin`, carried).
     fn tx_left_as_after_commit(&self) -> bool {
-        let crate::state::TxState {
-            tx_world,
-            commit_behavior,
-            phase,
-            // Carried in InstallLeft.
-            transaction_type: _,
-            // Carried in InstallLeft.
-            type_origin: _,
-            test_ended,
-            saved_types,
-            runner_tx_rolled_back,
-            lock_timeout,
-            lock_timeout_duration,
-            committed_row_version: _,
-            commit_counter,
-            rolled_back,
-            rollback_unpinned,
-            rollback_kind,
-            last_commit_wrote: _,
-            open,
-            failed_sql_rename,
-            insert_from_al,
-            rename_from_al,
-            get_from_al,
-            write_of_al,
-            deferred_by,
-            queue_pending,
-            queue_counted,
-            deferred_raised,
-            immediate_errors,
-            try_depth,
-            assert_depth,
-            used_tries,
-            guarded_runs,
-            guarded_bodies,
-            xp_export_try_world,
-        } = &self.tx;
         let fresh = crate::state::TxState::fresh();
-        *tx_world == fresh.tx_world
-            && !test_ended
-            && saved_types.is_empty()
-            && !runner_tx_rolled_back
-            && *commit_behavior == fresh.commit_behavior
-            && *phase == fresh.phase
-            && *lock_timeout == fresh.lock_timeout
-            && *lock_timeout_duration == fresh.lock_timeout_duration
-            && *commit_counter == self.store.change_counter()
-            && !rolled_back
-            && rollback_unpinned.is_none()
-            && rollback_kind.is_none()
-            && failed_sql_rename.is_none()
-            && !insert_from_al
-            && !rename_from_al
-            && !get_from_al
-            && write_of_al.is_none()
-            && deferred_by.is_none()
-            && queue_pending.is_none()
-            && queue_counted.is_empty()
-            && *deferred_raised == 0
-            && !immediate_errors
-            && *try_depth == 0
-            && *assert_depth == 0
-            && used_tries.is_empty()
-            && guarded_runs.is_empty()
-            && guarded_bodies.is_empty()
-            && xp_export_try_world.is_none()
-            && open.is_clear()
+        let tx = &self.tx;
+        tx.phase == fresh.phase
+            && tx.lock_timeout == fresh.lock_timeout
+            && tx.lock_timeout_duration == fresh.lock_timeout_duration
+            && tx.commit_counter == self.store.change_counter()
+            && !tx.rolled_back
+            && tx_left_as_new(tx)
     }
 
     /// Starts this new session from what install code left in a session of its own: the clock first (the restore keeps
@@ -456,4 +397,80 @@ impl Session {
             .borrow_mut()
             .clone_from(&left.subscriber_calls);
     }
+}
+
+/// The transaction state field by field: what a new session holds ([`crate::state::TxState::fresh`]), except what a
+/// Commit leaves for a later test to read (`phase`, `transaction_type`, `type_origin`, `lock_timeout`,
+/// `lock_timeout_duration`, `committed_row_version`, `commit_counter`, `rolled_back`, `last_commit_wrote`), which the
+/// callers decide: no transaction is open and no call left anything behind.
+pub(crate) fn tx_left_as_new(tx: &crate::state::TxState) -> bool {
+    tx_not_as_new(tx).is_none()
+}
+
+/// The first field [`tx_left_as_new`] finds not as new, as `tx.<field>`.
+pub(crate) fn tx_not_as_new(tx: &crate::state::TxState) -> Option<&'static str> {
+    let crate::state::TxState {
+        tx_world,
+        commit_behavior,
+        phase: _,
+        transaction_type: _,
+        type_origin: _,
+        test_ended,
+        saved_types,
+        runner_tx_rolled_back,
+        lock_timeout: _,
+        lock_timeout_duration: _,
+        committed_row_version: _,
+        commit_counter: _,
+        rolled_back: _,
+        rollback_unpinned,
+        rollback_kind,
+        last_commit_wrote: _,
+        open,
+        failed_sql_rename,
+        insert_from_al,
+        rename_from_al,
+        get_from_al,
+        write_of_al,
+        deferred_by,
+        queue_pending,
+        queue_counted,
+        deferred_raised,
+        immediate_errors,
+        try_depth,
+        assert_depth,
+        used_tries,
+        guarded_runs,
+        guarded_bodies,
+        xp_export_try_world,
+    } = tx;
+    let fresh = crate::state::TxState::fresh();
+    [
+        (*tx_world == fresh.tx_world, "tx.tx_world"),
+        (!test_ended, "tx.test_ended"),
+        (saved_types.is_empty(), "tx.saved_types"),
+        (!runner_tx_rolled_back, "tx.runner_tx_rolled_back"),
+        (*commit_behavior == fresh.commit_behavior, "tx.commit_behavior"),
+        (rollback_unpinned.is_none(), "tx.rollback_unpinned"),
+        (rollback_kind.is_none(), "tx.rollback_kind"),
+        (failed_sql_rename.is_none(), "tx.failed_sql_rename"),
+        (!insert_from_al, "tx.insert_from_al"),
+        (!rename_from_al, "tx.rename_from_al"),
+        (!get_from_al, "tx.get_from_al"),
+        (write_of_al.is_none(), "tx.write_of_al"),
+        (deferred_by.is_none(), "tx.deferred_by"),
+        (queue_pending.is_none(), "tx.queue_pending"),
+        (queue_counted.is_empty(), "tx.queue_counted"),
+        (*deferred_raised == 0, "tx.deferred_raised"),
+        (!immediate_errors, "tx.immediate_errors"),
+        (*try_depth == 0, "tx.try_depth"),
+        (*assert_depth == 0, "tx.assert_depth"),
+        (used_tries.is_empty(), "tx.used_tries"),
+        (guarded_runs.is_empty(), "tx.guarded_runs"),
+        (guarded_bodies.is_empty(), "tx.guarded_bodies"),
+        (xp_export_try_world.is_none(), "tx.xp_export_try_world"),
+        (open.is_clear(), "tx.open"),
+    ]
+    .into_iter()
+    .find_map(|(holds, field)| (!holds).then_some(field))
 }

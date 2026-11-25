@@ -36,6 +36,10 @@ pub(crate) struct GuardedBody {
     /// The record a static `Codeunit.Run(Id, Rec)` passed (its address); `None` for the instance form or without a record.
     rec: Option<usize>,
     step: Step,
+    /// A guarded run nested in this one failed and dropped its Consistent(false) marks (`consistent_marks.rs`).
+    pub(crate) marks_dropped_inside: bool,
+    /// The CommitBehavior scope in effect when this run started: a scope opened above the run is not the cell's shape.
+    pub(crate) commit_behavior_at_start: crate::transactions::CommitBehavior,
 }
 
 impl Session {
@@ -48,7 +52,12 @@ impl Session {
                 Some(Value::Record(rc)) if static_form && !rc.borrow().temporary => Some(Rc::as_ptr(rc) as usize),
                 _ => None,
             };
-            self.tx.guarded_bodies.push(GuardedBody { rec, step: Step::Start });
+            self.tx.guarded_bodies.push(GuardedBody {
+                rec,
+                step: Step::Start,
+                marks_dropped_inside: false,
+                commit_behavior_at_start: self.tx.commit_behavior,
+            });
         }
     }
 

@@ -435,6 +435,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `slot_default.rs`: The value a routine's local or an object's global… Entry: `slot_default`.
 - `install_left.rs`: `install_left/clients.rs`. Entry: `Session::install_left`.
 - `session_fields.rs`: Every `Session` field in one class of one table. Entry: `Session::at_rest_why`.
+- `login_image.rs`: The session image after the raised login, and a new session made to hold it. Entry: `Session::login_image`.
 - `resource_reads.rs`: The resource files of the apps AL code of a session… Entry: `Session::resource_reads`.
 - `sqlcount.rs`: The model behind `SqlStatementsExecuted` /… Entry: `SqlCounters::read`.
 - `tasks.rs`: `TaskScheduler.CreateTask`, `TaskExists`, `CancelTask`. Entry: `Session::task_scheduler_op`.
@@ -443,7 +444,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `transaction_type.rs`: `Database.CurrentTransactionType`. Entry: `current_transaction_type`.
 - `transaction_type_saved.rs`: A `CurrentTransactionType` read while the type is not known whose value only sets it back. Entry: `Session::read_saved_for_set_back`.
 - `transactions.rs`: Transactions as AL code sees them. Entry: `TxModel`.
-- `consistent_marks.rs`: The tables `Record.Consistent` marks. Entry: `Session::set_consistent`.
+- `consistent_marks.rs`: `Record.Consistent` marks and how a run or Commit ends on one. Entry: `Session::set_consistent`.
 - `ui.rs`: Dialogs raised by the code under test and the test… Entry: `UiKind`.
 - `dev_endpoint_ui.rs`: `--dev-endpoint-ui`: the answer of the dev-endpoint…
 - `clientless.rs`: What a dialog does in a session without a client.
