@@ -14,6 +14,13 @@ table 60931 "LMP Setup"
     keys { key(PK; "Table Id") { Clustered = true; } }
 }
 
+// The real table memo 60975 writes: its own, so the other memos' setup table stays empty, as measured.
+table 60976 "LMP Real"
+{
+    fields { field(1; "Table Id"; Integer) { } }
+    keys { key(PK; "Table Id") { Clustered = true; } }
+}
+
 table 60932 "LMP Sub"
 {
     fields
@@ -1046,6 +1053,7 @@ codeunit 60975 "LMP Memo Real Insert"
     local procedure LoadTemps()
     var
         Setup: Record "LMP Setup";
+        Real: Record "LMP Real";
     begin
         TempSetup.DeleteAll();
         if Setup.FindSet() then
@@ -1053,8 +1061,8 @@ codeunit 60975 "LMP Memo Real Insert"
                 TempSetup := Setup;
                 TempSetup.Insert();
             until Setup.Next() = 0;
-        Setup."Table Id" := 7;
-        Setup.Insert(true);
+        Real."Table Id" := 7;
+        Real.Insert(true);
         Clear(TempSub);
         TempSub.SetFilter("Company Name", '=%1', '');
         
