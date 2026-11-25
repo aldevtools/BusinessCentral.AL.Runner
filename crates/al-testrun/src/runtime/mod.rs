@@ -464,6 +464,18 @@ impl TestResult {
     }
 }
 
+/// What the login starts of the engine did (`login_start.rs`, al-runner issue 8211), over every request it ran.
+#[derive(Debug, Clone, Default)]
+pub struct LoginReplay {
+    /// The report lines (`login_replay::report`): the check's under `RunOptions::login_replay_check`, and the starts line
+    /// with the replay alone; `None` when neither ran.
+    pub report: Option<String>,
+    /// How many test sessions took a login start in place of running the login.
+    pub replays: u64,
+    /// How many login starts the engine keeps.
+    pub starts: usize,
+}
+
 /// Wall time of the phases of a run (`--timings`).
 #[derive(Debug, Clone, Default)]
 pub struct Phases {
@@ -537,8 +549,8 @@ pub struct Phases {
     pub install_snapshot: Option<String>,
     /// A warm server ran the request on the engines an earlier request over the same compile kept.
     pub engine_kept: bool,
-    /// `RunOptions::login_replay_check`: the check's report line (`login_replay.rs`), counted over every request the engine ran.
-    pub login_replay: Option<String>,
+    /// The login starts (`login_start.rs`) and the login replay check, counted over every request the engine ran.
+    pub login_replay: LoginReplay,
     /// What the run did, counted (the work ratchet of `al-test-cli`).
     pub work: RunWork,
 }
@@ -1183,7 +1195,7 @@ fn test_workers() -> usize {
 }
 
 /// Stack of a test thread: the VM recurses on the native stack per AL call (`MAX_CALL_DEPTH`).
-const TEST_STACK: usize = 256 << 20;
+pub(crate) const TEST_STACK: usize = 256 << 20;
 
 /// Drops `value` on another thread. The process does not wait for it when it ends.
 pub fn retire<T: Send + 'static>(value: T) {
@@ -1264,9 +1276,13 @@ mod internals_grant;
 #[cfg(test)]
 mod login_explain_tests;
 #[cfg(test)]
+mod login_image_tests;
+#[cfg(test)]
 mod login_memo_tests;
 #[cfg(test)]
 mod login_replay_tests;
+#[cfg(test)]
+mod login_start_tests;
 #[cfg(test)]
 mod login_tests;
 pub mod memory;

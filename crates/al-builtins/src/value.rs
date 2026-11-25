@@ -408,6 +408,33 @@ struct TempToken {
     /// 8070): every read of its rows and every write refuses (al-vm `Session::store_for`). Set once, never cleared: it ends with
     /// the table.
     rows_unmeasured: std::cell::Cell<bool>,
+    /// The records that got the table as the target of `Record.Copy(x, true)`, each with the record it copied (al-vm
+    /// `clear_shared_codeunit.rs` counts them apart from the table's other sharers).
+    copy_targets: RefCell<Vec<CopyShare>>,
+}
+
+/// A live `target.Copy(source, true)` of a temporary table: the target, and the source while it lives.
+pub type CopyPair = (Rc<RefCell<RecordState>>, Option<Rc<RefCell<RecordState>>>);
+
+/// What [`TempId::image_parts`] reads of a temporary table's token.
+pub struct TempTokenParts {
+    pub id: u64,
+    /// The table was made for a record handed by value ([`TempId::is_by_value_copy`]).
+    pub by_value_copy: bool,
+    /// [`TempId::with_empty_blob_insert_key`].
+    pub empty_blob_insert_key: Option<Vec<Value>>,
+    /// [`TempId::empty_blob_inserter`].
+    pub empty_blob_inserter: Option<Rc<RefCell<RecordState>>>,
+    /// [`TempId::rows_unmeasured`].
+    pub rows_unmeasured: bool,
+    /// The live copy targets that still hold the table ([`TempId::copy_targets`]), as records.
+    pub copy_targets: Vec<CopyPair>,
+}
+
+/// One `target.Copy(source, true)` of a temporary table ([`TempId::note_copy_target`]).
+struct CopyShare {
+    target: std::rc::Weak<RefCell<RecordState>>,
+    source: std::rc::Weak<RefCell<RecordState>>,
 }
 
 impl Drop for TempToken {
@@ -425,6 +452,7 @@ impl TempId {
             empty_blob_insert_key: RefCell::new(None),
             empty_blob_inserter: RefCell::new(None),
             rows_unmeasured: Default::default(),
+            copy_targets: Default::default(),
         }))
     }
 
@@ -437,6 +465,7 @@ impl TempId {
             empty_blob_insert_key: RefCell::new(None),
             empty_blob_inserter: RefCell::new(None),
             rows_unmeasured: Default::default(),
+            copy_targets: Default::default(),
         }))
     }
 
@@ -452,6 +481,16 @@ impl TempId {
     /// Marks the rows of the table as not measured (al-vm `variant_copy.rs`), for every record that shares it.
     pub fn mark_rows_unmeasured(&self) {
         self.0.rows_unmeasured.set(true);
+    }
+
+    /// The record state whose Insert [`TempId::note_empty_blob_insert`] last noted, while it lives (al-vm `login_image`
+    /// keeps the note).
+    pub fn empty_blob_inserter(&self) -> Option<Rc<RefCell<RecordState>>> {
+        self.0
+            .empty_blob_inserter
+            .borrow()
+            .as_ref()
+            .and_then(std::rc::Weak::upgrade)
     }
 
     /// Whether [`TempId::mark_rows_unmeasured`] marked the table.
@@ -495,6 +534,66 @@ impl TempId {
     /// `RecordRef.SetTable` wrote into a record of the table: no record state counts as the inserter any more.
     pub fn forget_empty_blob_inserter(&self) {
         *self.0.empty_blob_inserter.borrow_mut() = None;
+    }
+
+    /// `target.Copy(source, true)` gave `target` the table.
+    pub fn note_copy_target(&self, target: &Rc<RefCell<RecordState>>, source: &Rc<RefCell<RecordState>>) {
+        self.note_copy_target_of(target, Some(source));
+    }
+
+    /// [`TempId::note_copy_target`], also for a share whose source is gone (`None`): a session image (al-vm
+    /// `login_image`) notes again on its thaw what [`TempId::image_parts`] read.
+    pub fn note_copy_target_of(&self, target: &Rc<RefCell<RecordState>>, source: Option<&Rc<RefCell<RecordState>>>) {
+        let mut targets = self.0.copy_targets.borrow_mut();
+        targets.retain(|c| c.target.strong_count() > 0 && !std::ptr::eq(c.target.as_ptr(), Rc::as_ptr(target)));
+        targets.push(CopyShare {
+            target: Rc::downgrade(target),
+            source: source.map_or_else(std::rc::Weak::new, Rc::downgrade),
+        });
+    }
+
+    /// The live records [`TempId::note_copy_target`] noted that still hold this table, by address, each with the address
+    /// of the record it copied while that record lives.
+    pub fn copy_targets(&self) -> Vec<(usize, Option<usize>)> {
+        (self.live_copy_targets().iter())
+            .map(|(t, s)| (Rc::as_ptr(t) as usize, s.as_ref().map(|s| Rc::as_ptr(s) as usize)))
+            .collect()
+    }
+
+    /// The live records [`TempId::note_copy_target`] noted that still hold this table, each with the record it copied while
+    /// that record lives.
+    fn live_copy_targets(&self) -> Vec<CopyPair> {
+        let id = self.0.id;
+        let holds = |r: &Rc<RefCell<RecordState>>| {
+            r.try_borrow()
+                .is_ok_and(|r| r.temp_id.as_ref().is_some_and(|t| t.id() == id))
+        };
+        (self.0.copy_targets.borrow().iter())
+            .filter_map(|c| c.target.upgrade().filter(holds).map(|t| (t, c.source.upgrade())))
+            .collect()
+    }
+
+    /// Everything the token holds, read through one destructure with no `..`, for a session image (al-vm `login_image`):
+    /// a field added to the token fails that image's compile here.
+    pub fn image_parts(&self) -> TempTokenParts {
+        let TempToken {
+            id,
+            // The session's release queue: the thaw makes the table in the thawn session, with that session's queue.
+            release: _,
+            by_value_of,
+            empty_blob_insert_key,
+            empty_blob_inserter,
+            rows_unmeasured,
+            copy_targets: _,
+        } = &*self.0;
+        TempTokenParts {
+            id: *id,
+            by_value_copy: by_value_of.is_some(),
+            empty_blob_insert_key: empty_blob_insert_key.borrow().clone(),
+            empty_blob_inserter: empty_blob_inserter.borrow().as_ref().and_then(std::rc::Weak::upgrade),
+            rows_unmeasured: rows_unmeasured.get(),
+            copy_targets: self.live_copy_targets(),
+        }
     }
 
     /// `f` of the key [`TempId::note_empty_blob_insert`] last noted.
@@ -1045,6 +1144,19 @@ impl TableGlobals {
             Some(d) => d.borrow().xrec.instances(),
             None => Vec::new(),
         }
+    }
+
+    /// The address of the shared set (`None` while unset) and how many strong owners it has: the identity a session image
+    /// (al-vm `login_image`) keys it by, and the count it checks every owner against.
+    pub fn set_address(&self) -> Option<(usize, usize)> {
+        (self.data.borrow().as_ref()).map(|d| (Rc::as_ptr(d) as usize, Rc::strong_count(d)))
+    }
+
+    /// The xRec set of this set, when one was made ([`TableGlobals::xrec`] makes it); `None` makes nothing.
+    pub fn made_xrec(&self) -> Option<TableGlobals> {
+        let data = self.data.borrow();
+        let d = data.as_ref()?.borrow();
+        (!d.xrec.is_unset()).then(|| d.xrec.share())
     }
 
     /// A handle onto `xRec`'s set (created on first use).

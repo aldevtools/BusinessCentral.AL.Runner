@@ -1,0 +1,7 @@
+# key	entry
+R1 Carried Tests::EqualLengthList_Write	ASSUMED var-option-carried-members (corpus PR 1569, VarHop_Other_*): every own member of the callee is a member of the value's list
+R1 Carried Tests::PlainHop_OtherList	ASSUMED var-option-carried-members (corpus PR 1569, VarHop_Other_*)
+R1 Ops Tests::HandOn_CarriedThroughHop	ASSUMED var-option-carried-members (corpus PR 1569, CalleeOps_VarHop_Other `hand on var`)
+R1 Ops Tests::HandOn_MemberlessLocal	ASSUMED var-option-carried-members (corpus PR 1569, CalleeOps_MemberlessLocal `hand on var`)
+R1 Ops Tests::HandOn_OtherListLocal	ASSUMED var-option-carried-members (corpus PR 1569; OptionVarMemberlessWrites.al:372)
+R1 Ops Tests::HandOn_SameListLocal	ASSUMED var-option-carried-members (corpus PR 1569; OptionVarMemberlessWrites.al header: behaves like the local caller)

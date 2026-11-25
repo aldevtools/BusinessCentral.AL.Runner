@@ -1654,6 +1654,7 @@ fn test_inner(
         memory: crate::memory_budget::budget(a.max_memory, warm.is_none() && debug.is_none()), // `--max-memory`
         private_baseline: std::env::var_os("AL_PRIVATE_BASELINE").is_some(), // ADR-069 decision 11
         login_replay_check: std::env::var_os("ALRUNNER_LOGIN_REPLAY_CHECK").is_some(), // issue 8211, internal
+        login_replay: std::env::var_os("ALRUNNER_LOGIN_REPLAY").is_some_and(|v| v == "1"), // issue 8211, internal
         test_driver: driver,
         // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.
         run_only: run_only_picks(a, &selection, &found),
@@ -1776,7 +1777,7 @@ fn test_inner(
         }
     };
     let p = &rt.phases;
-    p.login_replay.iter().for_each(|l| eprintln!("{l}")); // ALRUNNER_LOGIN_REPLAY_CHECK (issue 8211)
+    p.login_replay.report.iter().for_each(|l| eprintln!("{l}")); // ALRUNNER_LOGIN_REPLAY(_CHECK) (issue 8211)
     let d = sidecar_host.stats();
     sidecar_host.shutdown();
 

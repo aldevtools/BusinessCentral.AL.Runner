@@ -3050,20 +3050,17 @@ codeunit 1997 "Checklist Events"
 }
 "#;
 
-/// Al-runner issue 8211: `ALRUNNER_LOGIN_REPLAY_CHECK=1` compares what each test session holds after the raised login with
-/// the first session of the same inputs, across the entries of a request (their `resources`, which the login reads here)
-/// and the requests of one kept daemon (another `seed`). No session of one key holds anything else.
-#[test]
-fn the_login_replay_check_finds_no_difference_across_entries_and_requests() {
-    let d = tempfile::tempdir().unwrap();
-    let dep = d.path().join("login");
+/// The login stand-in app and an app under test whose login subscriber registers a row that depends on its resource
+/// `rpl.txt`: the apps of the login replay check's serve tests. Returns the stand-in's folder and the app's folder.
+fn login_probe(d: &Path) -> (PathBuf, PathBuf) {
+    let dep = d.join("login");
     write(
         &dep,
         "app.json",
         r#"{"id":"82110000-0000-0000-0000-000000000001","name":"Login Stand-in","publisher":"Someone","version":"1.0.0.0","dependencies":[]}"#,
     );
     write(&dep, "src/Login.al", LOGIN_STAND_IN);
-    let main = d.path().join("main");
+    let main = d.join("main");
     write(
         &main,
         "app.json",
@@ -3086,6 +3083,16 @@ codeunit 50821 "Probe Login Tests"
 }
 "#,
     );
+    (dep, main)
+}
+
+/// Al-runner issue 8211: `ALRUNNER_LOGIN_REPLAY_CHECK=1` compares what each test session holds after the raised login with
+/// the first session of the same inputs, across the entries of a request (their `resources`, which the login reads here)
+/// and the requests of one kept daemon (another `seed`). No session of one key holds anything else.
+#[test]
+fn the_login_replay_check_finds_no_difference_across_entries_and_requests() {
+    let d = tempfile::tempdir().unwrap();
+    let (dep, main) = login_probe(d.path());
     let log = d.path().join("stderr.txt");
     let dep_arg = dep.to_string_lossy().to_string();
     let mut s = Server::start_with_stderr(
@@ -3118,6 +3125,316 @@ codeunit 50821 "Probe Login Tests"
     assert_eq!(
         checks[1],
         "login replay check: 6 sessions over 4 keys (a key seen before: 2 sessions, 33%), 2 compared, 0 differ; across test codeunits: 0 compared, 0 differ"
+    );
+}
+
+/// Al-runner issue 8211: under the same check each new key's session is frozen into a session image, thawn into a
+/// twin and compared (`login image:` line, after the check line). Over the same entries and requests as the check's test
+/// above: every key is imaged, every round trip equals, and an image is made once per key, so a key seen before adds none.
+#[test]
+fn the_login_image_round_trips_across_entries_and_requests() {
+    let d = tempfile::tempdir().unwrap();
+    let (dep, main) = login_probe(d.path());
+    let log = d.path().join("stderr.txt");
+    let dep_arg = dep.to_string_lossy().to_string();
+    let mut s = Server::start_with_stderr(
+        &["--no-download", "--no-test-data", "--dep", &dep_arg],
+        &[("ALRUNNER_LOGIN_REPLAY_CHECK", "1")],
+        Stdio::from(std::fs::File::create(&log).unwrap()),
+    );
+    s.line();
+    let entries = json!([
+        {"id": "a", "resources": {"rpl.txt": "a"}, "test": "Codeunit50821."},
+        {"id": "b", "resources": {"rpl.txt": "abcd"}, "test": "Codeunit50821."},
+        {"id": "c", "resources": {"rpl.txt": "a"}, "test": "Codeunit50821."},
+    ]);
+    for seed in [1, 2] {
+        s.send(json!({"command": "runTests", "sourcePaths": [main], "entries": entries, "seed": seed}));
+        let lines = s.until_summary();
+        assert_eq!(lines.last().unwrap()["passed"], json!(3), "{lines:?}");
+    }
+    // Stdin stays open until the last answer.
+    drop(s.stdin.take());
+    s.child.wait().unwrap();
+    let text = std::fs::read_to_string(&log).unwrap();
+    let images: Vec<&str> = text.lines().filter(|l| l.starts_with("login image: ")).collect();
+    assert_eq!(images.len(), 2, "one line per request: {text}");
+    assert!(
+        images[0].starts_with("login image: 2 keys, 2 imaged, 0 not imaged; round trips 2, 0 differ"),
+        "{}",
+        images[0]
+    );
+    assert!(
+        images[1].starts_with("login image: 4 keys, 4 imaged, 0 not imaged; round trips 4, 0 differ"),
+        "{}",
+        images[1]
+    );
+}
+
+/// What a login start must not change about a test line: the entry, the test and its verdict (not the timings).
+fn verdicts(lines: &[Value]) -> Vec<(Value, Value, Value, Value)> {
+    let mut v: Vec<_> = (lines.iter().filter(|l| l["type"] == "test"))
+        .map(|t| {
+            (
+                t["id"].clone(),
+                t["name"].clone(),
+                t["status"].clone(),
+                t["message"].clone(),
+            )
+        })
+        .collect();
+    v.sort_by_key(|t| format!("{t:?}"));
+    v
+}
+
+/// The `loginReplays` of a request's summary (sessions that took a login start in place of their login), if it has one.
+fn login_replays(lines: &[Value]) -> Option<u64> {
+    lines.last().and_then(|s| s["timings"]["loginReplays"].as_u64())
+}
+
+/// Sends the entries of the login probe `rounds` times to one daemon (one seed, so one key per entry whatever the round)
+/// started with `env`; each round's lines up to its summary. `extra`: more entries of the first round only.
+fn login_probe_rounds(
+    env: &[(&str, &str)],
+    rounds: usize,
+    first_round_extra: &[Value],
+    timeout: bool,
+) -> Vec<Vec<Value>> {
+    let d = tempfile::tempdir().unwrap();
+    let (dep, main) = login_probe(d.path());
+    write(
+        &main,
+        "src/Hang.al",
+        r#"codeunit 50822 "Probe Hanger"
+{
+    Subtype = Test;
+    [Test] procedure Hangs() var i: Integer; begin while true do i := (i + 1) mod 7919; end;
+}
+"#,
+    );
+    let dep_arg = dep.to_string_lossy().to_string();
+    let mut s = Server::start_with(&["--no-download", "--no-test-data", "--dep", &dep_arg], env);
+    s.line();
+    let probe = json!([
+        {"id": "a", "resources": {"rpl.txt": "a"}, "test": "Codeunit50821."},
+        {"id": "b", "resources": {"rpl.txt": "abcd"}, "test": "Codeunit50821."},
+        {"id": "c", "resources": {"rpl.txt": "a"}, "test": "Codeunit50821."},
+    ]);
+    let mut out = Vec::new();
+    for round in 0..rounds {
+        let mut entries = probe.as_array().unwrap().clone();
+        if round == 0 {
+            entries.extend(first_round_extra.iter().cloned());
+        }
+        let mut request = json!({"command": "runTests", "sourcePaths": [main], "entries": entries, "seed": 7});
+        if timeout && round == 0 {
+            request["testTimeoutSecs"] = json!(1);
+        }
+        s.send(request);
+        out.push(s.until_summary());
+    }
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+    out
+}
+
+/// Al-runner issue 8211: a session whose login inputs another session of the daemon had takes what that login left
+/// in place of running it. The second request (the same seed, so the same keys) takes a start for each of its three
+/// entries (`timings.loginReplays`), and every test line equals those of the same requests with the replay off.
+#[test]
+fn a_second_request_takes_the_login_starts_of_the_first() {
+    let on = login_probe_rounds(&[("ALRUNNER_LOGIN_REPLAY", "1")], 2, &[], false);
+    let off = login_probe_rounds(&[("ALRUNNER_LOGIN_REPLAY", "0")], 2, &[], false);
+    for round in 0..2 {
+        assert_eq!(on[round].last().unwrap()["passed"], json!(3), "{:?}", on[round]);
+        assert_eq!(verdicts(&on[round]), verdicts(&off[round]), "round {round}");
+    }
+    assert!(
+        login_replays(&on[1]).is_some_and(|n| n >= 3),
+        "the second request takes a start per entry: {:?}",
+        on[1].last()
+    );
+}
+
+/// Al-runner issue 8211: `ALRUNNER_LOGIN_REPLAY=0` turns the replay off: no session takes a start, and the field
+/// says so (0, not absent).
+#[test]
+fn with_the_replay_off_no_session_takes_a_start() {
+    let off = login_probe_rounds(&[("ALRUNNER_LOGIN_REPLAY", "0")], 2, &[], false);
+    for (round, lines) in off.iter().enumerate() {
+        assert_eq!(lines.last().unwrap()["passed"], json!(3), "{lines:?}");
+        assert_eq!(login_replays(lines), Some(0), "round {round}: {:?}", lines.last());
+    }
+}
+
+/// The replay is off unless `ALRUNNER_LOGIN_REPLAY=1` turns it on. On a store a session does not start
+/// from a shared snapshot of (install code that runs in every session), the key's digest of every row costs more than the
+/// Login it saves, so it is opt-in until that cost is gone.
+#[test]
+fn the_replay_is_off_unless_turned_on() {
+    let default = login_probe_rounds(&[], 2, &[], false);
+    for (round, lines) in default.iter().enumerate() {
+        assert_eq!(login_replays(lines), Some(0), "round {round}: {:?}", lines.last());
+    }
+}
+
+/// Al-runner issue 8211: a kept daemon whose first request had a test the time limit stopped answers the next
+/// request as a new daemon does (the same verdicts), and takes the starts of the first request (the stopped test's session
+/// recorded none that could change the answer).
+#[test]
+fn a_kept_daemon_with_login_starts_answers_as_a_fresh_one() {
+    let hanger = json!({"id": "h", "test": "Codeunit50822."});
+    let kept = login_probe_rounds(&[("ALRUNNER_LOGIN_REPLAY", "1")], 2, &[hanger], true);
+    let h = kept[0]
+        .iter()
+        .find(|l| l["type"] == "test" && l["name"].as_str().is_some_and(|n| n.contains("Hangs")));
+    assert!(
+        h.is_some_and(|t| t["notRun"] == true),
+        "the hanger is stopped by the time limit: {:?}",
+        kept[0]
+    );
+    let fresh = login_probe_rounds(&[("ALRUNNER_LOGIN_REPLAY", "1")], 1, &[], false);
+    assert_eq!(verdicts(&kept[1]), verdicts(&fresh[0]));
+    assert_eq!(kept[1].last().unwrap()["passed"], json!(3), "{:?}", kept[1]);
+    assert!(
+        login_replays(&kept[1]).is_some_and(|n| n >= 1),
+        "the kept daemon replays: {:?}",
+        kept[1].last()
+    );
+}
+
+/// The requests `requests` (each a `runTests` request without `command` and `sourcePaths`) over the login stand-in and an
+/// app under test whose sources are `src`, on one daemon started with `env`: each request's lines up to its summary.
+fn login_app_requests(src: &str, requests: &[Value], env: &[(&str, &str)]) -> Vec<Vec<Value>> {
+    let d = tempfile::tempdir().unwrap();
+    let (dep, main) = login_probe(d.path());
+    write(&main, "src/T.al", src);
+    let dep_arg = dep.to_string_lossy().to_string();
+    let mut s = Server::start_with(&["--no-download", "--no-test-data", "--dep", &dep_arg], env);
+    s.line();
+    let mut out = Vec::new();
+    for r in requests {
+        let mut request = r.clone();
+        request["command"] = json!("runTests");
+        request["sourcePaths"] = json!([main]);
+        s.send(request);
+        out.push(s.until_summary());
+    }
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+    out
+}
+
+/// Runs `requests` with the replay on (`ALRUNNER_LOGIN_REPLAY=1`) and off (the default) and asserts every request gives
+/// the same verdicts (entry, test, status, message); returns the replay-on lines.
+fn same_with_and_without_the_replay(src: &str, requests: &[Value]) -> Vec<Vec<Value>> {
+    let on = login_app_requests(src, requests, &[("ALRUNNER_LOGIN_REPLAY", "1")]);
+    let off = login_app_requests(src, requests, &[]);
+    for (n, (a, b)) in on.iter().zip(&off).enumerate() {
+        assert_eq!(verdicts(a), verdicts(b), "request {n}: the replay changed a verdict");
+    }
+    on
+}
+
+/// Al-runner issue 8211: the login reads the request's `serverUrl` (`GetUrl`), so a session of another
+/// URL never takes the start of a login that read another one. Same seed, so every other key field is equal.
+#[test]
+fn a_request_with_another_server_url_takes_no_start_of_the_first() {
+    let src = r#"table 50830 "Probe Url" { fields { field(1; K; Integer) { } field(2; Url; Text[250]) { } } keys { key(PK; K) { } } }
+codeunit 50820 "Probe Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
+    local procedure RegisterManualSetup() var U: Record "Probe Url";
+    begin U.K := 1; U.Url := CopyStr(GetUrl(ClientType::Web), 1, 250); U.Insert(); end;
+}
+codeunit 50821 "Probe Login Tests"
+{
+    Subtype = Test;
+    [Test] procedure SeesTheUrl() var U: Record "Probe Url"; begin U.Get(1); Error('URL=%1', U.Url); end;
+}
+"#;
+    let other = "https://other.example/BC280/";
+    let on = same_with_and_without_the_replay(
+        src,
+        &[
+            json!({"seed": 7}),
+            json!({"seed": 7}),
+            json!({"seed": 7, "serverUrl": other}),
+        ],
+    );
+    let message = |lines: &[Value]| {
+        (lines.iter())
+            .find(|l| l["type"] == "test")
+            .map(|t| t["message"].to_string())
+            .unwrap_or_default()
+    };
+    assert!(message(&on[2]).contains(other), "{:?}", on[2]);
+    assert!(
+        login_replays(&on[1]).is_some_and(|n| n >= 1),
+        "the same URL replays: {:?}",
+        on[1].last()
+    );
+}
+
+/// The app of two probes: a login subscriber adds a row both test codeunits read,
+/// and both take NumberSequence numbers, so under TestIsolation = Function in BC's order the second is refused when the
+/// numbers an earlier codeunit took are not known (al-runner issue 8152, `Scratch::numbers_unmeasured`).
+const NUMBERS_APP: &str = r#"table 50830 "RG Login Row" { fields { field(1; Code; Code[20]) { } field(2; Note; Text[50]) { } } keys { key(PK; Code) { Clustered = true; } } }
+codeunit 50820 "Probe Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
+    local procedure RegisterManualSetup() var Row: Record "RG Login Row";
+    begin Row.Code := 'L'; Row.Note := 'from login'; if Row.Insert() then; end;
+}
+codeunit 50821 "RG Tests W"
+{
+    Subtype = Test;
+    [Test]
+    procedure TakesNumbers() var Row: Record "RG Login Row"; N: BigInteger;
+    begin
+        if not NumberSequence.Exists('RGSEQ') then NumberSequence.Insert('RGSEQ', 1, 1);
+        N := NumberSequence.Next('RGSEQ');
+        Error('W rows=%1 next=%2', Row.Count(), N);
+    end;
+}
+codeunit 50822 "RG Tests K"
+{
+    Subtype = Test;
+    [Test]
+    procedure ReadsNumbers() var Row: Record "RG Login Row"; N: BigInteger;
+    begin
+        if not NumberSequence.Exists('RGSEQ') then NumberSequence.Insert('RGSEQ', 1, 1);
+        N := NumberSequence.Next('RGSEQ');
+        Error('K rows=%1 next=%2', Row.Count(), N);
+    end;
+    [Test] procedure Plain() var Row: Record "RG Login Row"; begin Error('K plain rows=%1', Row.Count()); end;
+}
+"#;
+
+/// A plain request, then one in BC's order under TestIsolation = Function, where the numbers mark
+/// refuses `ReadsNumbers`. A start the plain request recorded without the mark must not run it.
+#[test]
+fn a_start_recorded_without_the_numbers_mark_does_not_run_a_refused_test() {
+    let strict = json!({"seed": 1, "testIsolation": "test", "strictOrder": true});
+    same_with_and_without_the_replay(
+        NUMBERS_APP,
+        &[json!({"seed": 1}), strict.clone(), json!({"seed": 1}), strict],
+    );
+}
+
+/// The strict request first, so a start is recorded with the mark; a later request without it must
+/// not refuse the test.
+#[test]
+fn a_start_recorded_with_the_numbers_mark_does_not_refuse_a_later_test() {
+    let strict = json!({"seed": 1, "testIsolation": "test", "strictOrder": true});
+    same_with_and_without_the_replay(
+        NUMBERS_APP,
+        &[
+            strict.clone(),
+            json!({"seed": 1, "testIsolation": "test"}),
+            json!({"seed": 1}),
+            strict,
+        ],
     );
 }
 
