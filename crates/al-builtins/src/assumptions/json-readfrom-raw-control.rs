@@ -1,11 +1,11 @@
 JsonReadfromRawControl => {
     id: "json-readfrom-raw-control",
-    assumed: "JsonObject, JsonToken, JsonArray and JsonValue ReadFrom, of a Text and of an InStream, keep every raw control character from 1 to 31 inside a JSON string as part of it: in a value and in a key, in double and in single quotes. The codes, places and readers json/JsonReadFrom.al pins run clean; code 0 and the other readers (Evaluate, the runtime's own reads) are refused.",
-    tests: "No Microsoft test: al-runner issue 7812 (the reporter's run on a BC 28.4 server: JsonObject.ReadFrom(Text) returns true for every code 0 to 31 in a double-quoted value; the Sales Lines Suggestions test app's install routine reads a dataset line holding U+0015).",
-    probe: "PROBE_FILE (corpus pull request PROBE_PR): every code 0 to 31 in a value, a key and a single-quoted string, for the four types, from a Text and from an InStream.",
+    assumed: "ReadFrom keeps a raw control character inside a JSON string as part of it, in these places only, each one level deep (a member or key of the root object, an element of the root array, or the whole text). From a Text, codes 1 to 31: in a member value (double or single quotes) and in a key in double quotes when JsonObject or JsonToken reads; in an array element (double or single quotes) when JsonArray reads; in a string that is the whole text (double or single quotes) when JsonValue reads. From an InStream, codes 0 to 31, double quotes only: in a member value when JsonObject or JsonToken reads; in an array element when JsonArray reads; in a string that is the whole text when JsonValue reads. The codes, places and readers json/JsonReadFrom.al pins run clean. Every other place, reader and code is refused: a string nested deeper, a key in single quotes, a key from an InStream, single quotes from an InStream, code 0 in a Text, an element when JsonObject or JsonToken reads, a member when JsonArray reads, a string that is the whole text when JsonToken reads, Evaluate and the runtime's own reads.",
+    tests: "No Microsoft test: al-runner issue 7812 (the reporter's run on a BC 28.4 server: JsonObject.ReadFrom(Text) returns true for every code 0 to 31 in a double-quoted value; the Sales Lines Suggestions test app's install routine reads a dataset line holding U+0015). The probe's observe run on corpus CI gave the same values on BC 27.5, 28.5 and 29.0.",
+    probe: "tests/al-language/json/JsonReadFromControlChars.al (corpus pull request 1582): codes 0 to 31 from a Text in a double-quoted member value, element and whole-text string (JsonObject, JsonToken, JsonArray, JsonValue), in a double-quoted key (JsonObject, JsonToken), in a single-quoted member value, element and whole-text string (the four types); from an InStream in a double-quoted member value, element and whole-text string (the four types). Every one returns true and keeps the code; a Text cannot hold code 0.",
     awaiting: Awaiting {
         issues: &[7812],
-        files: &["PROBE_FILE"],
+        files: &["tests/al-language/json/JsonReadFromControlChars.al"],
         since: "2026-11-25",
     },
 }

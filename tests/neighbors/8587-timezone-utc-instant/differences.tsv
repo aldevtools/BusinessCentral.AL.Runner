@@ -1,0 +1,10 @@
+# key	entry
+TZ Utc Instant Tests::Argument_BuiltinResult	ASSUMED zone-datetime-utc-instant (corpus PR 1582)
+TZ Utc Instant Tests::Argument_GlobalVariable	ASSUMED zone-datetime-utc-instant (corpus PR 1582)
+TZ Utc Instant Tests::Argument_ProcedureResult	ASSUMED zone-datetime-utc-instant (corpus PR 1582)
+TZ Utc Instant Tests::AusEastern_Transitions	ASSUMED zone-datetime-utc-instant (corpus PR 1582)
+TZ Utc Instant Tests::Pacific_Transitions	ASSUMED zone-datetime-utc-instant (corpus PR 1582)
+TZ Utc Instant Tests::WestEurope_Transitions	ASSUMED zone-datetime-utc-instant (corpus PR 1582)
+TZ Utc Instant Tests::WestEurope_Winter	ASSUMED zone-datetime-utc-instant (corpus PR 1582)
+TZ Utc Instant Tests::Argument_DotNetMade	REFUSED DotNet System.TimeZoneInfo.GetUtcOffset: a DateTime that is no AL DateTime
+TZ Utc Instant Tests::Argument_DotNetVariableFromAl	REFUSED DotNet System.TimeZoneInfo.GetUtcOffset: a DateTime that is no AL DateTime

@@ -149,7 +149,7 @@ codeunit 50310 "TZ Utc Instant Tests"
         Check(D div 60000, 120, 'global');
     end;
 
-    // The argument is a builtin's result, passed directly: refused (its origin is not read).
+    // The argument is CreateDateTime's result, passed directly: an AL DateTime by its origin.
     [Test]
     procedure Argument_BuiltinResult()
     var
@@ -272,5 +272,46 @@ codeunit 50311 "TZ Kind Members Tests"
         Zone := Zone.FindSystemTimeZoneById('W. Europe Standard Time');
         if Zone.IsAmbiguousTime(SpringMoment()) then
             Error('ambiguous');
+    end;
+}
+
+// The argument is the result of a builtin other than CreateDateTime and CurrentDateTime: its origin is not read, so
+// refused. Its own codeunit, so the refusal does not stop other tests.
+codeunit 50312 "TZ Other Builtin Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure Argument_RoundDateTimeResult()
+    var
+        Zone: DotNet NbTimeZoneInfo;
+        D: Duration;
+        S: Date;
+    begin
+        S := CalcDate('<CM>', DMY2Date(1, 3, Date2DMY(Today, 3)));
+        while Date2DWY(S, 1) <> 7 do
+            S := S - 1;
+        Zone := Zone.FindSystemTimeZoneById('W. Europe Standard Time');
+        D := Zone.GetUtcOffset(RoundDateTime(CreateDateTime(S, 010000T), 1000));
+        if D div 60000 <> 120 then
+            Error('round: offset %1 min', D div 60000);
+    end;
+}
+
+// The argument is a Date: refused (the kind BC gives it is not measured). Its own codeunit.
+codeunit 50313 "TZ Date Argument Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure Argument_Date()
+    var
+        Zone: DotNet NbTimeZoneInfo;
+        D: Duration;
+    begin
+        Zone := Zone.FindSystemTimeZoneById('W. Europe Standard Time');
+        D := Zone.GetUtcOffset(DMY2Date(15, 1, Date2DMY(Today, 3)));
+        if D div 60000 <> 60 then
+            Error('date: offset %1 min', D div 60000);
     end;
 }

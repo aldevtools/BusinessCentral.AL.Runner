@@ -293,6 +293,29 @@ struct Parser<'a> {
     form_feed: bool,
     /// Who reads the text: the raw control characters and the form feed are measured for `ReadFrom(Text)` only.
     reader: Reader,
+    /// The type whose `ReadFrom` reads the text (`None`: no `ReadFrom`); the raw control characters were measured per type.
+    into: Option<ReadInto>,
+}
+
+/// The type whose `ReadFrom` reads a JSON text.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ReadInto {
+    Object,
+    Token,
+    Array,
+    Value,
+}
+
+impl ReadInto {
+    /// From the `want` of `read_from`: the JsonToken reads any kind (`None`).
+    fn of(want: Option<&str>) -> Self {
+        match want {
+            Some("object") => Self::Object,
+            Some("array") => Self::Array,
+            Some("value") => Self::Value,
+            _ => Self::Token,
+        }
+    }
 }
 
 /// Who reads a JSON text. Only `ReadFrom(Text)` of JsonObject, JsonToken, JsonArray and JsonValue was measured with raw control
@@ -367,7 +390,8 @@ impl Parser<'_> {
         }
     }
 
-    fn value(&mut self) -> PResult<Handle> {
+    /// A value standing at `at`: the root, a member value or an array element (never `StringAt::Key`).
+    fn value(&mut self, at: StringAt) -> PResult<Handle> {
         self.ws();
         self.depth += 1;
         if self.depth > 256 {
@@ -377,7 +401,7 @@ impl Parser<'_> {
             Some(b'{') => self.object()?,
             Some(b'[') => self.array()?,
             Some(b'"' | b'\'') => {
-                let t = self.string(StringAt::Value)?;
+                let t = self.string(at)?;
                 new_handle(JsonNode::Scalar(Scalar::Val(Value::Text(t.into()))))
             }
             Some(b't') if self.lit("true") => new_handle(JsonNode::Scalar(Scalar::Val(Value::Boolean(true)))),
@@ -427,7 +451,7 @@ impl Parser<'_> {
                     return Err(ParseError::Invalid);
                 }
                 self.colon_form_feed();
-                let v = self.value()?;
+                let v = self.value(StringAt::Member)?;
                 if kids.iter().any(|(e, _)| *e == k) {
                     return Err(ParseError::Unsupported("duplicate keys in a JSON object"));
                 }
@@ -453,7 +477,7 @@ impl Parser<'_> {
         self.ws();
         if !self.eat(b']') {
             loop {
-                kids.push(self.value()?);
+                kids.push(self.value(StringAt::Element)?);
                 self.ws();
                 if self.eat(b',') {
                     // `[1,]` is `[1]` (json/JsonReadFrom.al:ArrayReadFromErrors `trailing_comma`).
@@ -568,15 +592,15 @@ impl Parser<'_> {
 
 /// `text` as a reader other than `ReadFrom(Text)` reads it; `Ok(None)`: not valid JSON.
 fn parse(text: &str) -> Result<Option<Handle>, Signal> {
-    parse_by(text, Reader::Other)
+    parse_by(text, Reader::Other, None)
 }
 
-/// `text` as `ReadFrom(Text)` reads it; `Ok(None)`: not valid JSON.
-fn parse_read_from(text: &str) -> Result<Option<Handle>, Signal> {
-    parse_by(text, Reader::ReadFromText)
+/// `text` as `ReadFrom(Text)` of the type `want` names (`read_from`) reads it; `Ok(None)`: not valid JSON.
+fn parse_read_from(text: &str, want: Option<&str>) -> Result<Option<Handle>, Signal> {
+    parse_by(text, Reader::ReadFromText, Some(ReadInto::of(want)))
 }
 
-fn parse_by(text: &str, reader: Reader) -> Result<Option<Handle>, Signal> {
+fn parse_by(text: &str, reader: Reader, into: Option<ReadInto>) -> Result<Option<Handle>, Signal> {
     let mut p = Parser {
         s: text.as_bytes(),
         i: 0,
@@ -584,10 +608,11 @@ fn parse_by(text: &str, reader: Reader) -> Result<Option<Handle>, Signal> {
         line_comment: false,
         form_feed: false,
         reader,
+        into,
     };
     const FORM_FEED: &str =
         "a form feed in JSON text other than right after the colon of a member in ReadFrom(Text) (not pinned)";
-    match p.value() {
+    match p.value(StringAt::Root) {
         Ok(h) => {
             // A form feed after the value is text after it, which is ignored like any other (below).
             let form_feed = p.form_feed;
@@ -1775,7 +1800,7 @@ fn read_from(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value], want: Opti
             // Message Management writes it into a JSON text and reads it back (ParseErrorText; Tests-General Journal, ERM
             // General Journal UT, GeneralJournalNumberOfJournalLines and 65 more). A mark inside a string value only hides
             // that string's text: the parse is exact and the value read keeps the mark. A mark anywhere else is refused.
-            (Value::Text(t) | Value::Code(t), None) if marks_only_in_string_values(t.as_str()) => t.to_string(),
+            (Value::Text(t) | Value::Code(t), None) if marks_only_in_string_values(t.as_str(), want) => t.to_string(),
             _ => return unsupported("ReadFrom with an argument that is not text"),
         }
     };
@@ -1790,7 +1815,7 @@ fn read_from(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value], want: Opti
     // valid JSON token." (InvalidJsonData) is left as the last error without raising it (json/json/JsonObjectUsedReturn.al:594-595;
     // JsonArrayTokenUsedReturn.al:543-544, :606-607, :740-741 for a JsonArray, JsonToken
     // and JsonValue). Only the text argument is pinned: a stream keeps the answer it had.
-    if used && !from_stream && matches!(answer, Value::Boolean(false)) && parse_read_from(&text)?.is_none() {
+    if used && !from_stream && matches!(answer, Value::Boolean(false)) && parse_read_from(&text, want)?.is_none() {
         if let Signal::Error(e) = invalid_json() {
             c.set_last_error(*e);
         }
@@ -1800,7 +1825,7 @@ fn read_from(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value], want: Opti
 
 /// Whether every marker (`CALL_STACK_MARK`, `CARRIED_TEXT_MARK`) of `text` sits inside a JSON string that is a value, not
 /// a key, and the text is JSON. A carried text's mark stands for content that is not known, so it is refused here too.
-fn marks_only_in_string_values(text: &str) -> bool {
+fn marks_only_in_string_values(text: &str, want: Option<&str>) -> bool {
     if text.contains(crate::native::CARRIED_TEXT_MARK) {
         return false;
     }
@@ -1839,7 +1864,7 @@ fn marks_only_in_string_values(text: &str) -> bool {
             }
         }
     }
-    matches!(parse_read_from(text), Ok(Some(_)))
+    matches!(parse_read_from(text, want), Ok(Some(_)))
 }
 
 /// `Evaluate(JsonArray, Text)`: the text is read as `ReadFrom` reads it, and a text that is no array leaves the array as it was
@@ -1881,7 +1906,7 @@ fn read_text_into(
             h = fresh;
         }
     }
-    let syntax = parse_by(text, reader)?;
+    let syntax = parse_by(text, reader, Some(ReadInto::of(want)))?;
     let parsed = syntax.clone().filter(|p| {
         with_node(p, |n| {
             matches!(
