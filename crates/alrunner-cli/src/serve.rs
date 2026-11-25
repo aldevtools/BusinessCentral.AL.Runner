@@ -748,6 +748,9 @@ fn timings_json(t: &run::RequestTimings, wall: std::time::Duration) -> Value {
     if let Some(source) = t.baseline_source {
         v["baselineSource"] = json!(source);
     }
+    if let Some(state) = t.test_data_index {
+        v["testDataIndex"] = json!(state);
+    }
     if t.engine_kept {
         v["engineKept"] = json!(true);
     }
