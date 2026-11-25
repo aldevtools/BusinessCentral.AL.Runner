@@ -453,6 +453,14 @@ impl Session {
         }))
     }
 
+    /// The open record of a RecordRef method that is no early arm of `recordref_op_inner`, past the by-value view gate
+    /// (`records/by_value_view.rs` `by_value_ref_runs`).
+    fn open_ref_by_value(lib: &Lib, method: &str) -> Result<Rec, Signal> {
+        let rec = Self::open_ref(lib, &format!("RecordRef.{method}"))?;
+        Self::by_value_ref_runs("RecordRef", method, &rec)?;
+        Ok(rec)
+    }
+
     fn open_ref(lib: &Lib, what: &str) -> Result<Rec, Signal> {
         match &*lib.borrow() {
             LibraryValue::RecordRef(r)
@@ -1082,8 +1090,7 @@ impl Session {
                 "RecordRef.{method} by this overload on a RecordRef that is not open (not pinned)"
             ));
         }
-        let rec = Self::open_ref(lib, &format!("RecordRef.{method}"))?;
-        Self::by_value_ref_runs("RecordRef", method, &rec)?;
+        let rec = Self::open_ref_by_value(lib, method)?;
         let t = self.table(&rec)?;
         match method {
             "Number" => Ok(Value::Integer(crate::object_ids::declared_id(

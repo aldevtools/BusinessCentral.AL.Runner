@@ -2964,18 +2964,15 @@ impl Session {
                 ));
             };
             let rec = match &*h.borrow() {
-                al_builtins::value::LibraryValue::RecordRef(rec) => {
-                    Self::by_value_view_handed(rec, || "a report's table view of a RecordRef".into())?;
-                    rec.clone()
-                }
+                al_builtins::value::LibraryValue::RecordRef(rec) => rec.clone(),
                 _ => {
                     return Ok(Err(
                         "the ObjectPayload of a custom layout merger for a SaveAs with a record that is no RecordRef",
                     ));
                 }
             };
-            let table = rec.borrow().table as usize;
-            match items.iter().position(|i| i.table == Some(table)) {
+            Self::by_value_view_handed(&rec, || "a report's table view of a RecordRef".into())?;
+            match items.iter().position(|i| i.table == Some(rec.borrow().table as usize)) {
                 Some(at) => given.push((at, rec)),
                 None => {
                     return Ok(Err(

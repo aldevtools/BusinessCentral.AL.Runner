@@ -162,7 +162,9 @@ impl Session {
                             // builder's view, where AddRecord copies a Record (pages/filterpagebuilder/W3FilterPageBuilder.al:
                             // AddRecord_CopiesTheFiltersOfTheRecord, BC 27.5 and 29.0).
                             LibraryValue::RecordRef(r) => {
-                                Self::by_value_view_handed(r, || "FilterPageBuilder.AddRecordRef of a RecordRef".into())?;
+                                Self::by_value_view_handed(r, || {
+                                    "FilterPageBuilder.AddRecordRef of a RecordRef".into()
+                                })?;
                                 (r.borrow().table, r.clone())
                             }
                             other => {
