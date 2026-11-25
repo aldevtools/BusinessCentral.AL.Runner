@@ -30,7 +30,7 @@
 //!   `field installs`: key (what the install code left for the session, `install_once.rs`, is in its rows and state
 //!   before the login: `Key::database`, `Key::session`). `field numbers_unmeasured`: key (the runner sets it on the
 //!   session before the login, `enter_test_codeunit`, and its line is in `Key::session`). `field clock`: key (begun
-//!   per run, `host::RunClock`; its day reaches `Key::session` through the session's WorkDate line). `field clock_set`,
+//!   per run, `host::RunClock`; `Key::clock`, the session's clock before the login). `field clock_set`,
 //!   `field perturb`: gated (`NotTaken::Perturbed`). `field trace`, `field driver`: gated (they turn the impact trace
 //!   on, which `Session::notes_code_run` reads: `NotTaken::NotesCode`). `field capture`, `field order`,
 //!   `field messages`, `field captured`, `field traces`, `field stubbed`, `field ui_answered`, `field cells`,
@@ -71,7 +71,7 @@
 //!   also reaches `Key::company`). `static FILES_DIR`, `static ENVIRONMENT`, `static ON`: run (`OnceLock`s, set once
 //!   per process whatever a later request asks: `--files-dir`, `--environment`, `ALRUNNER_REAL_CLOCK`; a run with a
 //!   files directory or the real clock takes no start, `host::unkeyed`, `NotTaken::Unkeyed`). The run clock is begun
-//!   per run (`RunClock`, `Scratch::clock`), not kept here.
+//!   per run (`RunClock`, `Scratch::clock`), not kept here: `Key::clock` holds it.
 //! - `crates/al-testrun/src/dotnet.rs` `static BUILD`, `static PROCESSES`, `static START_ON_THIS_THREAD`: run (the sidecar
 //!   build lock, a process counter, the start-up time read after each test codeunit; an image needs the DotNet state of a
 //!   new session, so a login that started a sidecar has no start).
