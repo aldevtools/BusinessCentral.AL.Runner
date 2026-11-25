@@ -643,6 +643,9 @@ pub(crate) struct ExecProgram {
     chunks: ChunkTable,
     /// The captured form of a routine (value capture and iteration tracking), built on first use by a capture.
     captured: ChunkTable,
+    /// The form a frame with a carried binding runs (`compile::compile_kept`), built on first use by such a frame. The table
+    /// itself is built on first use too, as for `debug`.
+    kept: OnceLock<ChunkTable>,
     /// The debug form of a routine (ADR-048), built on first use by a session with a debugger. The table itself is
     /// built on first use too, so a run without a debugger does not allocate it.
     debug: OnceLock<ChunkTable>,
@@ -653,6 +656,7 @@ impl ExecProgram {
         ExecProgram {
             chunks: chunk_table(program),
             captured: chunk_table(program),
+            kept: OnceLock::new(),
             debug: OnceLock::new(),
         }
     }
@@ -660,7 +664,26 @@ impl ExecProgram {
     /// The captured form of routine `routine` of object `object` .
     pub(crate) fn captured_chunk(&self, program: &ir::Program, object: usize, routine: usize) -> Option<&Chunk> {
         self.captured[object][routine]
-            .get_or_init(|| compile(&program.objects[object], routine, true).map(Box::new))
+            .get_or_init(|| compile(program, object, routine, true).map(Box::new))
+            .as_deref()
+    }
+
+    /// The chunk a frame of routine `routine` of object `object` runs: the form that keeps carried lists
+    /// (`compile::compile_kept`) when `kept` holds a true (a parameter is bound to a value that carries another list or none),
+    /// else the plain one.
+    pub(crate) fn frame_chunk(
+        &self,
+        program: &ir::Program,
+        object: usize,
+        routine: usize,
+        kept: &[bool],
+    ) -> Option<&Chunk> {
+        if !kept.contains(&true) {
+            return self.chunk(program, object, routine);
+        }
+        let table = self.kept.get_or_init(|| chunk_table(program));
+        table[object][routine]
+            .get_or_init(|| compile::compile_kept(program, object, routine).map(Box::new))
             .as_deref()
     }
 
@@ -668,7 +691,7 @@ impl ExecProgram {
     pub(crate) fn debug_chunk(&self, program: &ir::Program, object: usize, routine: usize) -> Option<&Chunk> {
         let table = self.debug.get_or_init(|| chunk_table(program));
         table[object][routine]
-            .get_or_init(|| compile::compile_debug(&program.objects[object], routine).map(Box::new))
+            .get_or_init(|| compile::compile_debug(program, object, routine).map(Box::new))
             .as_deref()
     }
 
@@ -676,7 +699,7 @@ impl ExecProgram {
     pub(crate) fn chunk(&self, program: &ir::Program, object: usize, routine: usize) -> Option<&Chunk> {
         self.chunks[object][routine]
             .get_or_init(|| {
-                let c = compile(&program.objects[object], routine, false)?;
+                let c = compile(program, object, routine, false)?;
                 STATS.routines.fetch_add(1, Ordering::Relaxed);
                 Some(Box::new(c))
             })
@@ -717,7 +740,7 @@ pub fn report() -> String {
 
 /// The instructions the bytecode compiler emits for a routine, one `Debug` text each (tests of instruction selection).
 pub fn disassemble(program: &ir::Program, object: usize, routine: usize) -> Option<Vec<String>> {
-    let c = compile(&program.objects[object], routine, false)?;
+    let c = compile(program, object, routine, false)?;
     Some(c.code.iter().map(|op| format!("{op:?}")).collect())
 }
 
