@@ -15,7 +15,7 @@ codeunit 71910 "NB8354 Option Tests"
         exit(T);
     end;
 
-    local procedure Opt(FieldNo: Integer; Word: Text)
+    procedure Opt(FieldNo: Integer; Word: Text)
     var
         R: Record "NB8354 Row";
         Ok: Boolean;
@@ -54,21 +54,6 @@ codeunit 71910 "NB8354 Option Tests"
         Error('%1', R.Reporter);
     end;
 
-    [Test]
-    procedure Reporter_FieldRef()
-    var
-        R: Record "NB8354 Row";
-        RecRef: RecordRef;
-        FldRef: FieldRef;
-        Ok: Boolean;
-    begin
-        RecRef.GetTable(R);
-        FldRef := RecRef.Field(2);
-        Ok := FldRef.Evaluate('');
-        Error('%1|%2', Ok, FldRef.Value);
-    end;
-
-    [Test] procedure Reporter_CaptionML() begin Opt(12, ''); end;
     [Test] procedure FirstEmpty_Empty() begin Opt(3, ''); end;
     [Test] procedure EmptyNamedCap_Empty() begin Opt(4, ''); end;
     [Test] procedure SpaceEmptyCap_Empty() begin Opt(5, ''); end;
@@ -88,9 +73,6 @@ codeunit 71911 "NB8354 Enum Tests"
 {
     Subtype = Test;
 
-    var
-        GlobalLast: Enum "NB8354 Last";
-
     local procedure Tab(): Text
     var
         T: Text;
@@ -99,7 +81,7 @@ codeunit 71911 "NB8354 Enum Tests"
         exit(T);
     end;
 
-    local procedure Last(Word: Text)
+    procedure Last(Word: Text)
     var
         E: Enum "NB8354 Last";
         Ok: Boolean;
@@ -125,13 +107,6 @@ codeunit 71911 "NB8354 Enum Tests"
     end;
 
     [Test]
-    procedure Last_Language1034()
-    begin
-        GlobalLanguage(1034);
-        Last('');
-    end;
-
-    [Test]
     procedure Last_Field()
     var
         R: Record "NB8354 Row";
@@ -140,48 +115,6 @@ codeunit 71911 "NB8354 Enum Tests"
         R.Kind := R.Kind::Beta;
         Ok := Evaluate(R.Kind, '');
         Error('%1|%2', Ok, R.Kind.AsInteger());
-    end;
-
-    [Test]
-    procedure Last_FieldRef()
-    var
-        R: Record "NB8354 Row";
-        RecRef: RecordRef;
-        FldRef: FieldRef;
-        Ok: Boolean;
-    begin
-        R.Kind := R.Kind::Beta;
-        RecRef.GetTable(R);
-        FldRef := RecRef.Field(R.FieldNo(Kind));
-        Ok := FldRef.Evaluate('');
-        Error('%1|%2', Ok, Format(FldRef.Value, 0, 9));
-    end;
-
-    [Test]
-    procedure Last_Global()
-    var
-        Ok: Boolean;
-    begin
-        GlobalLast := GlobalLast::Beta;
-        Ok := Evaluate(GlobalLast, '');
-        Error('%1|%2', Ok, GlobalLast.AsInteger());
-    end;
-
-    [Test]
-    procedure Last_Parameter()
-    var
-        E: Enum "NB8354 Last";
-    begin
-        E := E::Beta;
-        EvaluateInto(E);
-    end;
-
-    local procedure EvaluateInto(var E: Enum "NB8354 Last")
-    var
-        Ok: Boolean;
-    begin
-        Ok := Evaluate(E, '');
-        Error('%1|%2', Ok, E.AsInteger());
     end;
 
     [Test]
@@ -239,18 +172,6 @@ codeunit 71911 "NB8354 Enum Tests"
     end;
 
     [Test]
-    procedure FirstSpace_Language1031()
-    var
-        E: Enum "NB8354 First Space";
-        Ok: Boolean;
-    begin
-        GlobalLanguage(1031);
-        E := E::First;
-        Ok := Evaluate(E, '');
-        Error('%1|%2', Ok, E.AsInteger());
-    end;
-
-    [Test]
     procedure FirstEmpty_Space()
     var
         E: Enum "NB8354 First Empty";
@@ -269,5 +190,122 @@ codeunit 71911 "NB8354 Enum Tests"
         E := E::First;
         Evaluate(E, '');
         Error('%1', E.AsInteger());
+    end;
+}
+
+codeunit 71912 "NB8354 Option FieldRef"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure Reporter_FieldRef()
+    var
+        R: Record "NB8354 Row";
+        RecRef: RecordRef;
+        FldRef: FieldRef;
+        Ok: Boolean;
+    begin
+        RecRef.GetTable(R);
+        FldRef := RecRef.Field(2);
+        Ok := Evaluate(FldRef, '');
+        Error('%1|%2', Ok, FldRef.Value);
+    end;
+}
+
+codeunit 71913 "NB8354 Option CaptionML"
+{
+    Subtype = Test;
+
+    [Test] procedure Reporter_CaptionML() var H: Codeunit "NB8354 Option Tests"; begin H.Opt(12, ''); end;
+}
+
+codeunit 71914 "NB8354 Enum Lang 1034"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure Last_Language1034()
+    var
+        H: Codeunit "NB8354 Enum Tests";
+    begin
+        GlobalLanguage(1034);
+        H.Last('');
+    end;
+}
+
+codeunit 71915 "NB8354 Enum Lang 1031"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure FirstSpace_Language1031()
+    var
+        E: Enum "NB8354 First Space";
+        Ok: Boolean;
+    begin
+        GlobalLanguage(1031);
+        E := E::First;
+        Ok := Evaluate(E, '');
+        Error('%1|%2', Ok, E.AsInteger());
+    end;
+}
+
+codeunit 71916 "NB8354 Enum FieldRef"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure Last_FieldRef()
+    var
+        R: Record "NB8354 Row";
+        RecRef: RecordRef;
+        FldRef: FieldRef;
+        Ok: Boolean;
+    begin
+        R.Kind := R.Kind::Beta;
+        RecRef.GetTable(R);
+        FldRef := RecRef.Field(R.FieldNo(Kind));
+        Ok := Evaluate(FldRef, '');
+        Error('%1|%2', Ok, Format(FldRef.Value, 0, 9));
+    end;
+}
+
+codeunit 71917 "NB8354 Enum Global"
+{
+    Subtype = Test;
+
+    var
+        GlobalLast: Enum "NB8354 Last";
+
+    [Test]
+    procedure Last_Global()
+    var
+        Ok: Boolean;
+    begin
+        GlobalLast := GlobalLast::Beta;
+        Ok := Evaluate(GlobalLast, '');
+        Error('%1|%2', Ok, GlobalLast.AsInteger());
+    end;
+}
+
+codeunit 71918 "NB8354 Enum Parameter"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure Last_Parameter()
+    var
+        E: Enum "NB8354 Last";
+    begin
+        E := E::Beta;
+        EvaluateInto(E);
+    end;
+
+    local procedure EvaluateInto(var E: Enum "NB8354 Last")
+    var
+        Ok: Boolean;
+    begin
+        Ok := Evaluate(E, '');
+        Error('%1|%2', Ok, E.AsInteger());
     end;
 }
