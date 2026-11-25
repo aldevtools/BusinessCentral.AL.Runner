@@ -497,19 +497,12 @@ What waits until the replay is on by default:
 - the counters of recorded runs, replays and runs not recorded in `work.json`, under the work ratchet (today they are in
   the check's report and in serve's `timings.loginReplays` and `timings.loginStarts`).
 
-### Amendment (Proposed, 2026-11-25): the login key holds what the login read
+### Amendment (Proposed, 2026-11-25): the login key holds the resource texts the login read
 
-Two fields of the login key change, measured on a real suite (al-runner issue 8211: 109 and 111 comparisons across test codeunits, 0 differ):
-- The key holds the answer of `login::decide` for the test codeunit in place of its id. The session reaches the login code only through that answer, so two codeunits with the same answer run the same login. The check keeps comparing across test codeunits.
-- The key holds the digests of only the resource texts the login read (`Session::resource_reads`, as install-once records them; `NavApp.ListResources` counts as reading every file). The first session of a base key records them with its start. A later session takes that start only when its texts of those names are the same. A login that read none matches any texts.
-
-Every key field stays content or a SHA-256 digest.
-
-*As built on the draft branch (2026-11-25):* only the second change. The texts are held by content, as install-once
-holds them: al-vm `TextsRead` (`resource_reads.rs`) owns "the texts of what was read are still the same" for both, and
-al-testrun `login_replay::StartKey` is the base key with the texts its login read; the check finds a session's first by
-the same rule. The first change is not built: the test codeunit is also read during the company open outside
-`login::decide` (the partner login subscribers' check of what the test codeunit can see, al-testrun `partner_login.rs`
-`seen_by_test`, and al-vm's refusals of unraised subscribers the test codeunit can see: AutoFormat, CaptionClass,
-report run and layout events, and the measured runner-sets insert), so two codeunits with the same answer can run
-another login there.
+The login key holds only the resource texts the login read, by content, as install-once holds them
+(`Session::resource_reads`; `NavApp.ListResources` counts as reading every file of its app), in place of every resource
+text of the run. The first session of a base key records them with its start. A later session takes that start only when
+its texts of those names are the same. A login that read none matches any texts. al-vm `TextsRead` (`resource_reads.rs`)
+owns "the texts of what was read are still the same" for both install-once and the login start, and al-testrun
+`login_replay::StartKey` is the base key with the texts its login read; the check finds a session's first state by the
+same rule and keeps comparing across test codeunits. The test codeunit stays in the key (al-runner issue 8211).
