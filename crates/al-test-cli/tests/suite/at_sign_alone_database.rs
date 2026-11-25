@@ -1,5 +1,6 @@
 //! `@` alone and `<>@` alone answer as BC reads the rows (al-builtins `filter_at_sign`, assumption
-//! `at-sign-alone-database-blank`): BQ Tests 9b and 9c of open corpus pull request 1495
+//! `at-sign-alone-database-blank`): BQ Tests 9b and 9c of corpus pull request 1495 (merged at
+//! 93fa2e44cdc1ccfd94b50bdbef1659f1892f195e, not pinned yet)
 //! (tests/al-language/pages/background-tasks/BgTaskQueryCache.al), its record/filters/AtSignAloneReads.al, and the neighbors. The
 //! AL is the neighbor app's (tests/neighbors/at-sign-alone-database), one copy. Delete this file when the pin is in the corpus.
 

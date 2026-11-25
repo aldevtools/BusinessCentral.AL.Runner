@@ -1,5 +1,6 @@
 //! `@` alone and `<>@` alone (al-runner issue 8637): what a filter of `@` and nothing else keeps rests on how BC reads the rows,
-//! not on the field's type ([`AtSignRows`]). The cells: open corpus PR 1495, pages/background-tasks/BgTaskQueryCache.al (BQ Tests
+//! not on the field's type ([`AtSignRows`]). The cells: corpus PR 1495 (merged, not pinned yet at
+//! 93fa2e44cdc1ccfd94b50bdbef1659f1892f195e), pages/background-tasks/BgTaskQueryCache.al (BQ Tests
 //! 9b and 9c) and record/filters/AtSignAloneReads.al, AtSignAloneMethods.al and AtSignAloneTypes.al. A Text field of a temporary
 //! record is pinned (record/filters/WcInvalidFilterExpr.al:66-111: `@` keeps every row, `<>@` none); every other answer here runs
 //! under the assumption `at-sign-alone-database-blank`. A reader that knows how its rows are read rewrites the filter here; any
