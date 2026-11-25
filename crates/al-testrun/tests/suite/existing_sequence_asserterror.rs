@@ -71,8 +71,8 @@ fn cells(isolation: TestIsolation) -> Vec<Row> {
         cell(50763, "RE2", "NumberSequence.Restart('P5RE2', 1002); asserterror begin Rows.Put('RE2-B1'); Error('inner'); end; Error('B deliberate');"),
         // DE: Delete, a Record insert, asserterror, then the test fails.
         cell(50764, "DE", "NumberSequence.Delete('P5DE'); Rows.Put('DE-B1'); asserterror Error('inner'); Error('B deliberate');"),
-        // RE3: Restart, asserterror with nothing reached, then the test fails: the failed test's rollback after an
-        // asserterror is not covered (PR 1573 measures it only in this shape).
+        // RE3: Restart, asserterror with nothing reached, then the test fails at once: the failed test's rollback keeps
+        // the step the asserterror kept.
         cell(50765, "RE3", "NumberSequence.Restart('P5RE3', 1002); asserterror Error('inner'); Error('B deliberate');"),
         // Beside the cells: a number taken after the step.
         cell(50766, "NX", "NumberSequence.Restart('P5NX', 1002); Rows.Put('NX-B1'); NumberSequence.Next('P5NX'); asserterror Error('inner');"),
@@ -128,10 +128,17 @@ fn an_asserterror_with_nothing_reached_keeps_the_restart() {
 }
 
 #[test]
+fn a_failed_tests_rollback_right_after_the_asserterror_keeps_the_kept_restart() {
+    let o = cells(TestIsolation::Codeunit);
+    flagged(&o, "C_RE3Reads", "OBS cur=1002 row=No");
+    let r = row(&o, "C_RE3Reads");
+    assert!(r.3.contains(&"sequence-after-failed-test"), "{r:?}");
+}
+
+#[test]
 fn asserterror_shapes_beside_the_cells_are_refused() {
     let o = cells(TestIsolation::Codeunit);
     for (test, key) in [
-        ("C_RE3Reads", "'P5RE3'"),
         ("C_NXReads", "'P5NX'"),
         ("C_WBReads", "'P5WB'"),
         ("C_CWReads", "'P5CW'"),

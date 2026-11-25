@@ -95,6 +95,9 @@ pub(crate) struct Notes {
     rollback_by: Option<RollbackBy>,
     /// Sequences whose step an asserterror kept, until the next commit or rollback outside a run.
     held: HashSet<Key>,
+    /// The sequences of `held` when the last transaction end was a rollback outside a run, until the next end
+    /// ([`Session::sequences_held_at_rollback`]).
+    held_at_rollback: Vec<Key>,
     /// Sequences whose Delete an asserterror undid, until al-testrun reads them at the test's end
     /// ([`Session::take_deletes_undone`]).
     deletes_undone: Vec<Key>,
@@ -447,6 +450,7 @@ impl Session {
         self.access_notes.tx_log = None;
         self.access_notes.measured = false;
         self.access_notes.deletes_undone.clear();
+        self.access_notes.held_at_rollback.clear();
         self.access_notes.inserted_at.clear();
     }
 

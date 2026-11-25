@@ -781,3 +781,98 @@ codeunit 52822 "N6 ReadAfterKeep"
         Error('OBS cur=%1 row=%2', NumberSequence.Current('P6ReadAfterKeep', true), Rows.Has('ReadAfterKeep-B1'));
     end;
 }
+// RE3 neighbors: a write between the asserterror and the failure; an asserterror in the earlier test; another
+// sequence restarted in the earlier test.
+codeunit 52823 "N6 RE3WriteAfter"
+{
+    Subtype = Test;
+    var
+        Rows: Codeunit "N6 Rows";
+
+    trigger OnRun()
+    begin
+        if not NumberSequence.Exists('P6RE3WriteAfter') then begin NumberSequence.Insert('P6RE3WriteAfter', 1, 1); NumberSequence.Next('P6RE3WriteAfter'); NumberSequence.Next('P6RE3WriteAfter'); end;
+    end;
+
+    [Test]
+    procedure A_RE3WriteAfterWritesCommits()
+    begin
+        Rows.Put('RE3WriteAfter-INIT'); Commit();
+    end;
+
+    [Test]
+    procedure B_RE3WriteAfterStep()
+    begin
+        NumberSequence.Restart('P6RE3WriteAfter', 1002); asserterror Error('inner'); Rows.Put('RE3WriteAfter-B1'); Error('B deliberate');
+    end;
+
+    [Test]
+    procedure C_RE3WriteAfterReads()
+    begin
+        if not NumberSequence.Exists('P6RE3WriteAfter', true) then
+            Error('OBS missing row=%1', Rows.Has('RE3WriteAfter-B1'));
+        Error('OBS cur=%1 row=%2', NumberSequence.Current('P6RE3WriteAfter', true), Rows.Has('RE3WriteAfter-B1'));
+    end;
+}
+codeunit 52824 "N6 RE3EarlierAsserterror"
+{
+    Subtype = Test;
+    var
+        Rows: Codeunit "N6 Rows";
+
+    trigger OnRun()
+    begin
+        if not NumberSequence.Exists('P6RE3EarlierAsserterror') then begin NumberSequence.Insert('P6RE3EarlierAsserterror', 1, 1); NumberSequence.Next('P6RE3EarlierAsserterror'); NumberSequence.Next('P6RE3EarlierAsserterror'); end;
+    end;
+
+    [Test]
+    procedure A_RE3EarlierAsserterrorWritesCommits()
+    begin
+        Rows.Put('RE3EarlierAsserterror-INIT'); Commit(); asserterror Error('earlier');
+    end;
+
+    [Test]
+    procedure B_RE3EarlierAsserterrorStep()
+    begin
+        NumberSequence.Restart('P6RE3EarlierAsserterror', 1002); asserterror Error('inner'); Error('B deliberate');
+    end;
+
+    [Test]
+    procedure C_RE3EarlierAsserterrorReads()
+    begin
+        if not NumberSequence.Exists('P6RE3EarlierAsserterror', true) then
+            Error('OBS missing row=%1', Rows.Has('RE3EarlierAsserterror-B1'));
+        Error('OBS cur=%1 row=%2', NumberSequence.Current('P6RE3EarlierAsserterror', true), Rows.Has('RE3EarlierAsserterror-B1'));
+    end;
+}
+codeunit 52825 "N6 RE3OtherChanged"
+{
+    Subtype = Test;
+    var
+        Rows: Codeunit "N6 Rows";
+
+    trigger OnRun()
+    begin
+        if not NumberSequence.Exists('P6RE3OtherChanged') then begin NumberSequence.Insert('P6RE3OtherChanged', 1, 1); NumberSequence.Next('P6RE3OtherChanged'); NumberSequence.Next('P6RE3OtherChanged'); end; if not NumberSequence.Exists('P6RE3OtherChangedX') then NumberSequence.Insert('P6RE3OtherChangedX', 1, 1);
+    end;
+
+    [Test]
+    procedure A_RE3OtherChangedWritesCommits()
+    begin
+        NumberSequence.Restart('P6RE3OtherChangedX', 5); Rows.Put('RE3OtherChanged-INIT'); Commit();
+    end;
+
+    [Test]
+    procedure B_RE3OtherChangedStep()
+    begin
+        NumberSequence.Restart('P6RE3OtherChanged', 1002); asserterror Error('inner'); Error('B deliberate');
+    end;
+
+    [Test]
+    procedure C_RE3OtherChangedReads()
+    begin
+        if not NumberSequence.Exists('P6RE3OtherChanged', true) then
+            Error('OBS missing row=%1', Rows.Has('RE3OtherChanged-B1'));
+        Error('OBS cur=%1 row=%2', NumberSequence.Current('P6RE3OtherChanged', true), Rows.Has('RE3OtherChanged-B1'));
+    end;
+}

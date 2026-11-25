@@ -111,8 +111,14 @@ impl Session {
     pub(crate) fn settle_tx_changes(&mut self, commit: bool) {
         let by = self.access_notes.rollback_by.take();
         let changes = std::mem::take(&mut self.access_notes.tx_changes);
+        let notes = &mut self.access_notes;
+        notes.held_at_rollback.clear();
         let (Some(by), false) = (by, commit) else {
-            self.access_notes.held.clear();
+            if !commit {
+                notes.held_at_rollback = notes.held.iter().cloned().collect();
+                notes.held_at_rollback.sort();
+            }
+            notes.held.clear();
             return;
         };
         let mut keys: Vec<&Key> = changes.keys().chain(&self.access_notes.held).collect();
@@ -197,9 +203,16 @@ impl Session {
         std::mem::take(&mut self.access_notes.deletes_undone)
     }
 
+    /// The sequences whose step an asserterror kept until the last transaction end, when that end was a rollback outside a
+    /// run (the runner's rollback of a failed test, al-testrun `isolation::failed_test`); empty after any other end.
+    pub fn sequences_held_at_rollback(&self) -> &[Key] {
+        &self.access_notes.held_at_rollback
+    }
+
     /// The noted Restarts and Deletes end without a transaction end (a baseline put back).
     pub(crate) fn clear_tx_changes(&mut self) {
         self.access_notes.deletes_undone.clear();
+        self.access_notes.held_at_rollback.clear();
         self.access_notes.tx_changes.clear();
         self.access_notes.held.clear();
         self.access_notes.rollback_by = None;

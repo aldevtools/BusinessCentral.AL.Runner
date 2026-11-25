@@ -318,10 +318,14 @@ impl CodeunitSequences {
         let last_body = log.iter().rposition(|p| p.kind == TxPointKind::BodyEnd)?;
         let failure = last_body + log[last_body..].iter().position(|p| p.kind != TxPointKind::BodyEnd)?;
         // The failed test's rollback is the only rollback since the tests began: no cell has an asserterror, a failed
-        // guarded Codeunit.Run or an earlier failed test.
-        if log[failure].kind != TxPointKind::Rollback || log[..failure].iter().any(|p| p.kind == TxPointKind::Rollback)
-        {
+        // guarded Codeunit.Run or an earlier failed test, but RE3 (below).
+        if log[failure].kind != TxPointKind::Rollback {
             return None;
+        }
+        match log[..failure].iter().position(|p| p.kind == TxPointKind::Rollback) {
+            None => {}
+            Some(at) if new.is_empty() && kept_by_asserterror(session, log, at, failure, &changed) => {}
+            Some(_) => return None,
         }
         let Some(first) = new.first() else {
             return Some(Leaves::Kept(changed));
@@ -396,6 +400,23 @@ impl CodeunitSequences {
             session.refuse_unmeasured_sequence(&key, why);
         }
     }
+}
+
+/// RE3 of corpus PR 1573 (tests/al-language-isolation-probe/src/SqExistingRestart.al:1059, assumption
+/// `existing-sequence-asserterror`): the failed test restarted a sequence that existed, an asserterror kept the step
+/// (al-vm `sequence_start/tx_changes.rs`), and its `Error` failed the test at once; the sequence stays as the step left
+/// it. `at`: the asserterror's rollback, the only rollback before `failure` since the tests began, inside the failed
+/// test's body, with only that body's end between them and nothing reached; `changed`: exactly the sequences the
+/// asserterror kept up to the failed test's rollback. `at` is the first rollback since the tests began (the caller).
+fn kept_by_asserterror(session: &Session, log: &[TxPoint], at: usize, failure: usize, changed: &[Key]) -> bool {
+    let body_point = |p: &&TxPoint| matches!(p.kind, TxPointKind::BodyStart | TxPointKind::BodyEnd);
+    let in_body = log[..at].iter().rev().find(body_point).map(|p| p.kind) == Some(TxPointKind::BodyStart);
+    let mut changed = changed.to_vec();
+    changed.sort();
+    in_body
+        && log[at + 1..failure].iter().map(|p| p.kind).eq([TxPointKind::BodyEnd])
+        && Interval::of(&log[at].access, &log[failure].access) == Interval::Untouched
+        && changed == session.sequences_held_at_rollback()
 }
 
 #[cfg(test)]
