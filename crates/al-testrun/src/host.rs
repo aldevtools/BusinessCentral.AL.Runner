@@ -1,9 +1,11 @@
-//! The host the command line gives a session (ADR-006): the real wall clock, and AL Runner's
-//! identity. The core crates read both through `al-host`; only this crate touches the OS.
+//! The host the command line gives a session (ADR-006): the clock of its run (one instant for every
+//! session of the run, or the wall clock under `ALRUNNER_REAL_CLOCK`), and AL Runner's identity. The
+//! core crates read both through `al-host`; only this crate touches the OS.
 //!
 //! Entry points: `SystemClock`, `RunClock` (the clock of a run, ADR-045: begun once per run, so per
 //! request of a server, al-runner issue 8457), `set_files_dir`, `real_clock` (`ALRUNNER_REAL_CLOCK`,
-//! read once per process), `system_host`, `DirFileSystem`.
+//! read once per process), `host_perturbed` and `host_in_company` (a session's host on a given
+//! `RunClock`), `DirFileSystem`.
 
 use al_host::{AlRunnerIdentity, Clock, FileSystem, Host};
 use std::path::{Component, PathBuf};
