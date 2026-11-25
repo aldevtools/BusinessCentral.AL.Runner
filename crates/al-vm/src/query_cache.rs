@@ -649,7 +649,10 @@ impl Session {
             // The four Truncate cells call Record.Truncate with no record filter
             // (BgTaskCacheEdges.al:958 and :1178-:1190).
             let measured = match kind {
-                BulkWrite::Truncate => w.through_recordref == false && w.bulk_filtered == false,
+                BulkWrite::Truncate => match (w.through_recordref, w.bulk_filtered) {
+                    (false, false) => true,
+                    (false, true) | (true, false) | (true, true) => false,
+                },
                 BulkWrite::ModifyAll | BulkWrite::DeleteAll => true,
             };
             tables
