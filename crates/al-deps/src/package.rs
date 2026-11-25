@@ -305,12 +305,9 @@ pub fn read_info_with(app: &[u8], vars: &Vars) -> Result<(Manifest, bool), Packa
         if zip.entries.iter().any(|e| is_al(&e.name)) {
             return Ok((m, true));
         }
-        let empty = crate::empty::microsoft_archive_without_al(&m, source_zip)
-            || zip
-                .find("SymbolReference.json")
-                .filter(|e| e.size <= crate::empty::MAX_SYMBOLS_LEN)
-                .and_then(|e| zip.read(e).ok())
-                .is_some_and(|bytes| crate::empty::holds_no_objects(&bytes));
+        let empty = crate::empty::package_holds_no_objects(&m, source_zip, zip.find("SymbolReference.json"), |e| {
+            zip.read(e).ok()
+        });
         Ok((m, empty))
     })
 }

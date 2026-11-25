@@ -343,11 +343,9 @@ pub fn read_lazy(path: &Path, vars: &Vars) -> Option<LazyPackage> {
     }
     let identity: [u8; 32] = h.finalize().into();
     let no_objects = al.is_empty()
-        && (crate::empty::microsoft_archive_without_al(&manifest, source_zip)
-            || find("SymbolReference.json")
-                .filter(|e| e.size <= crate::empty::MAX_SYMBOLS_LEN)
-                .and_then(|e| entry_bytes(&file, base, e).ok())
-                .is_some_and(|bytes| crate::empty::holds_no_objects(&bytes)));
+        && crate::empty::package_holds_no_objects(&manifest, source_zip, find("SymbolReference.json"), |e| {
+            entry_bytes(&file, base, e).ok()
+        });
     let names: Vec<String> = al.iter().map(|(n, _)| n.clone()).collect();
     let entries: Vec<Entry> = al.into_iter().map(|(_, e)| e.clone()).collect();
     Some(LazyPackage {

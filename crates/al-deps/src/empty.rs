@@ -11,15 +11,26 @@
 
 /// The largest `SymbolReference.json` read to find out. A package with objects that has no source (a symbols-only
 /// package such as Base Application's) has a file far larger than this, and is not inflated for the question.
-pub const MAX_SYMBOLS_LEN: usize = 64 * 1024;
+const MAX_SYMBOLS_LEN: usize = 64 * 1024;
 
-/// Whether a package read from a source archive (`source_archive`, its manifest from `app.json`) that holds no `.al`
-/// file is one of Microsoft's apps with no objects: publisher `Microsoft`, as every measured archive above. Another
-/// publisher's archive without a `.al` file, and the `Application` aggregate, keep their answer: not this rule.
-pub fn microsoft_archive_without_al(manifest: &crate::package::Manifest, source_archive: bool) -> bool {
-    source_archive
+/// Whether a package with no `.al` file holds no objects: one of Microsoft's source archives above (`source_archive`,
+/// its manifest from `app.json`, publisher `Microsoft` as every measured archive), or a package whose
+/// `SymbolReference.json` (`symbols`, read by `read` only when it is small enough) lists none. Another publisher's
+/// archive without a `.al` file, and the `Application` aggregate, are not the first kind.
+pub fn package_holds_no_objects(
+    manifest: &crate::package::Manifest,
+    source_archive: bool,
+    symbols: Option<&crate::zip::Entry>,
+    read: impl FnOnce(&crate::zip::Entry) -> Option<Vec<u8>>,
+) -> bool {
+    let microsoft_archive = source_archive
         && manifest.publisher == "Microsoft"
-        && !manifest.id.eq_ignore_ascii_case(crate::select::APPLICATION_APP_ID)
+        && !manifest.id.eq_ignore_ascii_case(crate::select::APPLICATION_APP_ID);
+    microsoft_archive
+        || symbols
+            .filter(|e| e.size <= MAX_SYMBOLS_LEN)
+            .and_then(read)
+            .is_some_and(|bytes| holds_no_objects(&bytes))
 }
 
 /// Whether the bytes of a `SymbolReference.json` show a package with no objects. Only positive evidence counts: the
@@ -55,7 +66,40 @@ fn no_objects_in(object: &serde_json::Map<String, serde_json::Value>, lists: &mu
 
 #[cfg(test)]
 mod tests {
-    use super::holds_no_objects;
+    use super::{holds_no_objects, package_holds_no_objects};
+    use crate::package::{Vars, manifest_of_source_zip};
+
+    /// A source archive without a `.al` file holds no objects only for publisher `Microsoft`, not for the
+    /// `Application` aggregate (its own rule in `select.rs`), and not when the manifest came from a compiled package.
+    #[test]
+    fn only_a_microsoft_source_archive_without_al_files_holds_no_objects() {
+        let manifest = |id: &str, publisher: &str| {
+            let json = format!(r#"{{"id":"{id}","name":"N","publisher":"{publisher}","version":"1.0.0.0"}}"#);
+            manifest_of_source_zip(&json, &Vars::default()).unwrap()
+        };
+        let none = |_: &crate::zip::Entry| None;
+        assert!(package_holds_no_objects(
+            &manifest("4d6c453d-e61d-4872-b35d-6c731c0fd93e", "Microsoft"),
+            true,
+            None,
+            none
+        ));
+        assert!(!package_holds_no_objects(
+            &manifest("4d6c453d-e61d-4872-b35d-6c731c0fd93e", "Microsoft"),
+            false,
+            None,
+            none
+        ));
+        assert!(!package_holds_no_objects(&manifest("aa", "P"), true, None, none));
+        assert!(!package_holds_no_objects(
+            &manifest("aa", "microsoft"),
+            true,
+            None,
+            none
+        ));
+        let application = manifest(&crate::select::APPLICATION_APP_ID.to_ascii_uppercase(), "Microsoft");
+        assert!(!package_holds_no_objects(&application, true, None, none));
+    }
 
     #[test]
     fn only_symbols_that_list_no_object_show_an_empty_package() {
