@@ -481,14 +481,13 @@ impl Lowerer<'_> {
         if captions.len() != names.len() {
             return None;
         }
-        // Captions equal to the names: al-builtins `evaluate::option_field` reads the shapes corpus PR 1577 measured and the
-        // rest as a field without captions (al-runner issue 8355).
-        let kind = if captions.iter().zip(names).all(|(c, n)| c == n) {
-            OptionCaptions::SameAsNames
-        } else {
-            OptionCaptions::Caption
-        };
-        Some((list.to_string(), kind))
+        // Captions equal to the names, on a field of an app's table: al-builtins `evaluate::option_field` reads the shapes corpus
+        // PR 1577 and the reporter of al-runner issue 8355 measured, and the rest as a field without captions. A platform
+        // table's field with such captions keeps that reading (`None`): no evidence measured one.
+        if captions.iter().zip(names).all(|(c, n)| c == n) {
+            return (!platform).then(|| (list.to_string(), OptionCaptions::SameAsNames));
+        }
+        Some((list.to_string(), OptionCaptions::Caption))
     }
 
     /// Whether `arg` is the Class column of the Field table (2000000041), an Option field with the members of FieldClass.

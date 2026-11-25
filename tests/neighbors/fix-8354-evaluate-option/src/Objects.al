@@ -18,6 +18,7 @@ table 71900 "NB8354 Row"
         field(14; Kind; Enum "NB8354 Last") { }
         field(15; Trio; Option) { OptionMembers = Alpha,Beta,Gamma; OptionCaption = 'Alpha,Beta,Gamma'; }
         field(16; OtherPair; Option) { OptionMembers = One,Two; OptionCaption = 'One,Two'; }
+        field(17; Coded; Option) { OptionMembers = A1,B2; OptionCaption = 'A1,B2'; }
     }
     keys { key(PK; Code) { Clustered = true; } }
 }

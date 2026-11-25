@@ -410,4 +410,17 @@ codeunit 71919 "NB8355 Pair Tests"
         Ord := R.OtherPair;
         Error('%1|%2', Ok, Ord);
     end;
+
+    // A member name with a character other than a letter: no evidence measured one.
+    [Test]
+    procedure Coded_Two()
+    var
+        R: Record "NB8354 Row";
+        Ok: Boolean;
+        Ord: Integer;
+    begin
+        Ok := Evaluate(R.Coded, '2');
+        Ord := R.Coded;
+        Error('%1|%2', Ok, Ord);
+    end;
 }

@@ -1,5 +1,5 @@
 //! Evaluate into an Option field whose OptionCaption repeats its member names (`Alpha,Beta` for `Alpha,Beta`), the shape of
-//! al-runner issue 8355: a number past the members.
+//! al-runner issue 8355: a number past the members, for two members named by letters only.
 
 use al_testkit::text;
 
@@ -12,6 +12,8 @@ table 69820 "NB Pair Row"
         field(1; Id; Integer) { }
         field(2; Pair; Option) { OptionMembers = Alpha,Beta; OptionCaption = 'Alpha,Beta'; }
         field(3; Trio; Option) { OptionMembers = Alpha,Beta,Gamma; OptionCaption = 'Alpha,Beta,Gamma'; }
+        field(4; Hue; Option) { OptionMembers = Red,Green; OptionCaption = 'Red,Green'; }
+        field(5; Coded; Option) { OptionMembers = A1,B2; OptionCaption = 'A1,B2'; }
     }
     keys { key(PK; Id) { Clustered = true; } }
 }
@@ -33,6 +35,22 @@ codeunit 69821 C
         Evaluate(Row.Pair, T);
         Ord := Row.Pair;
         exit(Format(Ord));
+    end;
+
+    procedure Hue(T: Text): Text
+    var Row: Record "NB Pair Row"; R: Boolean; Ord: Integer;
+    begin
+        R := Evaluate(Row.Hue, T);
+        Ord := Row.Hue;
+        exit(Format(R) + '|' + Format(Ord));
+    end;
+
+    procedure Coded(T: Text): Text
+    var Row: Record "NB Pair Row"; R: Boolean; Ord: Integer;
+    begin
+        R := Evaluate(Row.Coded, T);
+        Ord := Row.Coded;
+        exit(Format(R) + '|' + Format(Ord));
     end;
 
     procedure Trio(T: Text): Text
@@ -90,6 +108,76 @@ fn a_number_past_the_members_of_a_field_whose_captions_are_its_names_is_stored()
     }
 }
 
+// The facts every piece of evidence shares, not the probe's own member names: two members named by letters only, captions
+// equal to the names. Other names of that shape read the same (al-runner issue 8355).
+#[test]
+fn other_letter_names_whose_captions_are_the_names_read_a_number_past_the_members() {
+    use al_builtins::value::Value;
+    for (t, want) in [("2", "Yes|2"), ("99", "Yes|99"), ("-1", "No|0")] {
+        assert_eq!(text(run("Hue", vec![Value::Text(t.into())])), want, "[{t}]");
+    }
+}
+
+// The reporter's repro of al-runner issue 8355, unchanged: each test ends in `Error` with the result (BC 28.4 and 29.0:
+// `Yes 2|2`, `Yes 99|99`, `No Alpha|0`).
+const REPORTER: &str = r#"
+table 71810 "Eval Opt Two"
+{
+    fields
+    {
+        field(1; Code; Code[20]) { }
+        field(2; Pair; Option)
+        {
+            OptionMembers = Alpha,Beta;
+            OptionCaption = 'Alpha,Beta';
+        }
+    }
+    keys { key(PK; Code) { Clustered = true; } }
+}
+
+codeunit 71861 "Eval Opt Two Test"
+{
+    Subtype = Test;
+
+    local procedure Try(T: Text)
+    var
+        R: Record "Eval Opt Two";
+        Ok: Boolean;
+    begin
+        Ok := Evaluate(R.Pair, T);
+        Error('%1 %2|%3', Ok, R.Pair, Format(R.Pair, 0, 2));
+    end;
+
+    [Test]
+    procedure Two()
+    begin
+        Try('2');
+    end;
+
+    [Test]
+    procedure NinetyNine()
+    begin
+        Try('99');
+    end;
+
+    [Test]
+    procedure MinusOne()
+    begin
+        Try('-1');
+    end;
+}
+"#;
+
+#[test]
+fn the_reporters_repro_of_issue_8355_gives_bcs_answers() {
+    for (routine, want) in [("Two", "Yes 2|2"), ("NinetyNine", "Yes 99|99"), ("MinusOne", "No Alpha|0")] {
+        match al_testkit::run_with(REPORTER, "Eval Opt Two Test", routine, vec![]) {
+            Err(al_builtins::native::Signal::Error(e)) => assert_eq!(e.message, want, "{routine}"),
+            other => panic!("{routine}: expected the test's Error, got {other:?}"),
+        }
+    }
+}
+
 // The texts main answered keep main's answer: an ordinal of a member, a member name in any case, the empty text.
 #[test]
 fn a_member_of_a_field_whose_captions_are_its_names_reads_as_before() {
@@ -101,7 +189,15 @@ fn a_member_of_a_field_whose_captions_are_its_names_reads_as_before() {
 // Texts, forms and fields corpus PR 1577 did not measure keep main's refusal.
 #[test]
 fn an_unmeasured_number_past_the_members_is_refused() {
-    for r in [pair(0, "3"), pair(0, " 2"), statement(0, "2"), run("Trio", vec![al_builtins::value::Value::Text("3".into())])] {
+    use al_builtins::value::Value;
+    for r in [
+        pair(0, "3"),
+        pair(0, " 2"),
+        statement(0, "2"),
+        run("Trio", vec![Value::Text("3".into())]),
+        // A member name with a character other than a letter: no evidence measured one.
+        run("Coded", vec![Value::Text("2".into())]),
+    ] {
         assert!(refusal(r).contains("neither an ordinal nor a member name"));
     }
 }
