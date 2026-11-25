@@ -867,10 +867,11 @@ impl Session {
                     | "FieldIndex"
                     | "FieldExist"
             ),
-            _ => matches!(
+            "FieldRef" => matches!(
                 method,
                 "Value" | "Number" | "Name" | "Caption" | "Type" | "Class" | "Length"
             ),
+            _ => false,
         };
         if runs {
             return Ok(());

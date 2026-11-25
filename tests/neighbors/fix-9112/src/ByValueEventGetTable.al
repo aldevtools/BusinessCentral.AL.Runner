@@ -96,6 +96,10 @@ codeunit 62910 "GV Copy"
                 end;
             17:
                 exit(RecRef.Field(3).Record().Name());
+            // RecordRef.Get by a RecordId on the ref that took the mark: refused like RecordRef.Get by key values.
+            18:
+                if RecRef.Get(RecRef.RecordId()) then
+                    exit(Format(RecRef.Field(3).Value));
         end;
     end;
 
@@ -348,6 +352,12 @@ codeunit 62911 "GV GetTable Test"
     procedure VariantGetTable_FieldRefRecord()
     begin
         Run(17);
+    end;
+
+    [Test]
+    procedure VariantGetTable_GetByRecordId()
+    begin
+        Run(18);
     end;
 
     [Test]
