@@ -29,6 +29,8 @@ mod key_value_tests;
 mod order_carry;
 mod replace;
 mod row_changes;
+mod shape;
+pub use shape::{CommittedMarks, CommittedRows};
 mod source_stamps;
 #[cfg(test)]
 mod source_stamps_tests;
@@ -1255,26 +1257,13 @@ impl MemStore {
             } else {
                 self.emptied.remove(&slot);
             }
+            // The rows come in without a write of each, so note their held columns as `from_exported` does: the store
+            // then refuses the reads the store the tables came from refuses.
+            self.note_held_rows(t.object, &table);
             self.tables.insert(slot, table);
         }
         self.commit();
         self
-    }
-
-    /// The marks of the committed store an export leaves out ([`MemStore::export_committed`]): the tables a DeleteAll
-    /// emptied and the company copies, sorted.
-    #[allow(clippy::type_complexity)]
-    pub fn committed_marks(&self) -> (Vec<(String, u32)>, Vec<(String, String)>) {
-        self.footprint_everything("an export of the store");
-        let mut emptied: Vec<(String, u32)> = self.committed_emptied.keys().map(|s| (s.0.to_string(), s.1)).collect();
-        emptied.sort();
-        let mut copies: Vec<(String, String)> = self
-            .committed_copies
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect();
-        copies.sort();
-        (emptied, copies)
     }
 
     /// How many committed rows the store holds, over every table and company (a count for the work ratchet of the

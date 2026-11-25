@@ -1740,6 +1740,7 @@ fn run_over_system_with(
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     out.into_iter()
         .map(|(n, o)| {

@@ -194,6 +194,7 @@ pub fn outcomes_and_marks_in(
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     outcomes
         .into_iter()

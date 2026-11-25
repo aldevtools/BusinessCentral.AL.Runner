@@ -505,6 +505,18 @@ pub(crate) struct EventState {
     pub(crate) next_var_codeunits: Vec<Option<crate::clear_shared_codeunit::VarCodeunit>>,
     /// Set by `finish_call` just before the call, taken by the callee's frame (`Frame::option_hops`).
     pub(crate) next_option_hops: Vec<bool>,
+    /// Set by `finish_call` just before the call, taken by the callee's frame (`Frame::hand_on_origins`).
+    pub(crate) next_hand_on_origins: Vec<bool>,
+    /// Set by `finish_call` (by `raise_to_subscribers` for a subscriber) just before the call, taken by the callee's frame
+    /// (`Frame::option_carried`).
+    pub(crate) next_option_carried: Vec<crate::var_option::Carried>,
+    /// A publisher's marks of `var_option::option_carried_of`, set by `finish_call` and taken by `publish` and
+    /// `raise_to_subscribers`, under the measured event contract only.
+    pub(crate) publisher_option_carried: Vec<crate::var_option::Carried>,
+    /// Per parameter: `var_option::carried::carried_args` let a value that carries another list or none through to this `var`
+    /// Option parameter with members, which binds it as it is. Set by `finish_call` just before the call, taken by the
+    /// callee's binding (`lib.rs`), cleared after the call.
+    pub(crate) next_carried_kept: Vec<bool>,
     /// The declared lengths of a publisher's `var` Text and Code arguments (`var_lens_of`), set by `finish_call` just before
     /// the publisher runs and taken by `publish`, which hands them to the subscribers that read them.
     pub(crate) publisher_var_lens: Vec<Option<i32>>,

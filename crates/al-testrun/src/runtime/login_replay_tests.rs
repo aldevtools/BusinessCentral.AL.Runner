@@ -12,7 +12,7 @@ use crate::login_replay::{Check, first_difference};
 /// `RAISE_ONLY`) registers a row whose id depends on the text of the app's resource `rpl.txt`, and keeps a copy in a temporary record of
 /// a SingleInstance codeunit, shared with a second record (`Copy(x, true)`), as Base Application's "Change Log Management"
 /// keeps temporary records after the login on BC 28.5.
-const MAIN: &str = r#"
+pub(super) const MAIN: &str = r#"
 codeunit 77400 "RPL Registration"
 {
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
@@ -53,18 +53,19 @@ codeunit 77403 "RPL Tests B"
 }
 "#;
 
-/// The check line of `engine`'s report: the report's first line (the keys line, `login replay keys: ...`, follows it).
+/// The check line of `engine`'s report: the report's first line (the keys line, `login replay keys: ...`, and the image
+/// line, `login image: ...`, follow it; the tests of `login_image_tests.rs` read the image line).
 fn check_line(engine: &Engine) -> Option<String> {
     crate::login_replay::report(engine).map(|r| r.lines().next().unwrap_or_default().to_string())
 }
 
 /// The compiled apps (the main app has the resource `rpl.txt` holding `a`) and an engine for them.
-fn compiled() -> (Arc<Engine>, al_sema::lower::Lowered) {
+pub(super) fn compiled() -> (Arc<Engine>, al_sema::lower::Lowered) {
     compiled_with(MAIN)
 }
 
 /// [`compiled`] with the app under test's source `main`.
-fn compiled_with(main: &str) -> (Arc<Engine>, al_sema::lower::Lowered) {
+pub(super) fn compiled_with(main: &str) -> (Arc<Engine>, al_sema::lower::Lowered) {
     let (ws, mut l) = al_sema::lower::compile_apps(
         [
             ("main", vec!["dep".to_string()], main),
@@ -93,12 +94,12 @@ fn compiled_with(main: &str) -> (Arc<Engine>, al_sema::lower::Lowered) {
 }
 
 /// Runs test codeunit `name` once on `engine` with the check on; every test must pass.
-fn run(engine: &Arc<Engine>, l: &al_sema::lower::Lowered, name: &str) {
+pub(super) fn run(engine: &Arc<Engine>, l: &al_sema::lower::Lowered, name: &str) {
     run_with(engine, l, name, RunOptions::default());
 }
 
 /// [`run`] with the session flags of `opts` (`SessionFlags::of`).
-fn run_with(engine: &Arc<Engine>, l: &al_sema::lower::Lowered, name: &str, opts: RunOptions) {
+pub(super) fn run_with(engine: &Arc<Engine>, l: &al_sema::lower::Lowered, name: &str, opts: RunOptions) {
     let o = run_as(
         engine,
         l,
@@ -113,17 +114,17 @@ fn run_with(engine: &Arc<Engine>, l: &al_sema::lower::Lowered, name: &str, opts:
 
 /// What a run of a test codeunit gives: each test's outcome, its error stack and its assumption marks.
 #[derive(Debug, PartialEq)]
-struct Ran {
-    outcomes: Vec<(String, Outcome)>,
+pub(super) struct Ran {
+    pub(super) outcomes: Vec<(String, Outcome)>,
     stacks: Vec<(String, String)>,
     marks: Vec<(String, Vec<Assumption>)>,
 }
 
 /// Runs test codeunit `name` once on `engine` under the session flags of `opts`, the check on or off as `opts` says.
-fn run_as(engine: &Arc<Engine>, l: &al_sema::lower::Lowered, name: &str, opts: RunOptions) -> Ran {
+pub(super) fn run_as(engine: &Arc<Engine>, l: &al_sema::lower::Lowered, name: &str, opts: RunOptions) -> Ran {
     let mut scratch = Scratch {
         flags: super::session_flags::SessionFlags::of(&opts),
-        ..Default::default()
+        ..Scratch::new(crate::host::RunClock::begin())
     };
     let oi = l.program.objects.iter().position(|o| o.name == name).unwrap();
     let (mut stacks, mut marks) = (Vec::new(), Vec::new());
@@ -149,7 +150,7 @@ fn run_as(engine: &Arc<Engine>, l: &al_sema::lower::Lowered, name: &str, opts: R
 }
 
 /// The text `rpl.txt` of the main app reads as in this pass (a serve entry's `resources`, `Engine::resource_overrides`).
-fn set_resource(engine: &Engine, l: &al_sema::lower::Lowered, text: Option<&str>) {
+pub(super) fn set_resource(engine: &Engine, l: &al_sema::lower::Lowered, text: Option<&str>) {
     let main = l.program.apps.iter().position(|a| a.name == "main").unwrap();
     let mut o = engine.resource_overrides.write().unwrap();
     o.clear();
@@ -339,7 +340,7 @@ fn codeunit_instances_the_login_leaves_compare_by_identity_and_their_state() {
 
 /// [`MAIN`] with a second login subscriber that leaves, in a SingleInstance codeunit, an instance whose own global holds
 /// an HttpClient with a base address.
-const OPAQUE_INSIDE: &str = r#"
+pub(super) const OPAQUE_INSIDE: &str = r#"
 codeunit 77410 "RPL Deep Registration"
 {
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
@@ -430,7 +431,7 @@ fn arrays_the_login_leaves_compare_element_by_element() {
 /// RecordRef on a temporary table with the record it was taken from, a RecordRef on a real table with a FieldRef that
 /// filters it and a KeyRef, a List and a Dictionary of codeunit instances, Json, a TextBuilder, Xml, a Notification, an
 /// ErrorInfo, a Version and an HttpContent.
-const KINDS_INSIDE: &str = r#"
+pub(super) const KINDS_INSIDE: &str = r#"
 codeunit 77430 "RPL Kinds Registration"
 {
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
@@ -576,7 +577,9 @@ fn two_backings_that_do_not_say_who_they_are_are_never_one_key() {
         let mut s = Session::new(engine.clone());
         let store = std::mem::take(s.store_mut());
         *s.store_mut() = store.with_backing(std::rc::Rc::new(Unnamed));
-        crate::login_replay::Key::of(&mut s, false, Default::default())
+        // At rest, as a test session is before its login: SQL counters not at rest have no comparable form (no key).
+        s.commit_transaction();
+        crate::login_replay::Key::of(&mut s, (TestIsolation::Codeunit, false), Default::default(), &[]).expect("a key")
     };
     assert_ne!(key(), key());
 }
@@ -597,7 +600,7 @@ codeunit 77404 "RPL Tests C"
 }
 "#;
 
-const OWN_LOGIN: &str = r#"
+pub(super) const OWN_LOGIN: &str = r#"
 codeunit 77408 "RPL Own Registration"
 {
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterAssistedSetup', '', false, false)]
@@ -662,10 +665,12 @@ fn the_check_off_and_on_gives_the_same_outcomes_and_marks() {
     );
 }
 
-/// The key of a new session on `engine` that holds, uncommitted, a "Guided Experience Item" row with id `id`.
-fn key_with_uncommitted_row(engine: &Arc<Engine>, id: i32) -> crate::login_replay::Key {
+/// The key of a new session on `engine` that holds, uncommitted, a "Guided Experience Item" row with id `id`, and the
+/// paths of its values with no comparable form.
+fn key_with_uncommitted_row(engine: &Arc<Engine>, id: i32) -> (Option<crate::login_replay::Key>, Vec<String>) {
     use al_data::Store;
     let mut session = al_vm::Session::new(engine.clone());
+    session.commit_transaction();
     let at = engine
         .program
         .objects
@@ -684,27 +689,29 @@ fn key_with_uncommitted_row(engine: &Arc<Engine>, id: i32) -> crate::login_repla
     assert!(session.store_mut().insert(&cx, &t, row).is_ok());
     assert!(session.store_mut().has_uncommitted());
     let flags = super::session_flags::SessionFlags::of(&RunOptions::default());
-    crate::login_replay::Key::of(&mut session, false, flags)
+    let opaque = session.state_lines().opaque.iter().map(|o| o.path.clone()).collect();
+    (
+        crate::login_replay::Key::of(&mut session, Default::default(), flags, &[]).ok(),
+        opaque,
+    )
 }
 
-// The rows a session holds uncommitted before the login are an input of the login (it reads them): two sessions whose
-// uncommitted rows differ have other keys.
+// The rows a session holds uncommitted before the login are an input of the login (it reads them). A write since the
+// last Commit leaves the SQL counters with no comparable form (al-vm `state_facts.rs`), so such a session has no key
+// and runs its login: two sessions whose uncommitted rows differ never share one.
 #[test]
-fn uncommitted_rows_before_the_login_are_part_of_the_key_by_content() {
+fn a_session_with_uncommitted_rows_before_the_login_has_no_key() {
     let (engine, _) = compiled();
-    assert_eq!(
-        key_with_uncommitted_row(&engine, 1),
-        key_with_uncommitted_row(&engine, 1)
-    );
-    assert_ne!(
-        key_with_uncommitted_row(&engine, 1),
-        key_with_uncommitted_row(&engine, 2)
-    );
+    for id in [1, 2] {
+        let (key, opaque) = key_with_uncommitted_row(&engine, id);
+        assert_eq!(opaque, ["SQL counters"], "GUARD: the counters are why");
+        assert_eq!(key, None);
+    }
 }
 
 /// A raised login whose subscriber registers one fixed row and calls `Plant` of codeunit "RPL Gap" (77462) with the length
 /// of the resource text: each test of a state the check must compare adds an "RPL Gap" that plants that state.
-const GAP: &str = r#"
+pub(super) const GAP: &str = r#"
 codeunit 77460 "RPL Gap Registration"
 {
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
@@ -770,7 +777,7 @@ fn assert_planted_state(planted: &[Planted], what: &str) {
 /// "RPL Gap" holds an instance it may call, and binds one of two instances of a manual subscriber (it calls both, so both
 /// are initialized): text length 1 binds the first, 2 also calls the held instance (it is then initialized), 3 binds the
 /// second.
-const GAP_INSTANCES: &str = r#"
+pub(super) const GAP_INSTANCES: &str = r#"
 codeunit 77462 "RPL Gap"
 {
     SingleInstance = true;
@@ -803,7 +810,7 @@ fn an_instance_s_own_facts_and_the_instance_a_binding_holds_are_compared() {
 
 /// "RPL Gap" writes a row of its table; its `GetDatabaseTableTriggerSetup` subscriber enables OnDatabaseModify for the
 /// table when the text is longer than 1 (no Modify follows: only the setup BC asked differs).
-const GAP_GLOBAL_SETUPS: &str = r#"
+pub(super) const GAP_GLOBAL_SETUPS: &str = r#"
 table 77465 "RPL Gap Row" { fields { field(1; K; Integer) { } } keys { key(PK; K) { Clustered = true; } } }
 codeunit 77462 "RPL Gap"
 {
@@ -823,7 +830,7 @@ fn the_global_trigger_setups_asked_are_compared() {
 }
 
 /// "RPL Gap" raises its own event once per character of the text; a subscriber handles it.
-const GAP_EVENT_CALLS: &str = r#"
+pub(super) const GAP_EVENT_CALLS: &str = r#"
 codeunit 77462 "RPL Gap"
 {
     procedure Plant(N: Integer) var I: Integer; begin for I := 1 to N do OnGap(); end;
@@ -844,7 +851,7 @@ fn the_event_subscriber_call_counts_are_compared() {
 
 /// "RPL Gap" imports the text's length, as text, into the Media field of a temporary record: the record is gone after,
 /// the media object stays in the session's media store.
-const GAP_MEDIA: &str = r#"
+pub(super) const GAP_MEDIA: &str = r#"
 table 77466 "RPL Gap Pic"
 {
     fields { field(1; K; Integer) { } field(2; B; Blob) { } field(3; Pic; Media) { } }
@@ -867,7 +874,7 @@ fn the_media_the_login_imports_are_compared() {
 }
 
 /// "RPL Gap" seeds `Random` with the text's length: no number is drawn, the sequence differs.
-const GAP_RANDOM: &str = r#"
+pub(super) const GAP_RANDOM: &str = r#"
 codeunit 77462 "RPL Gap"
 {
     procedure Plant(N: Integer) begin Randomize(N); end;
@@ -882,7 +889,7 @@ fn the_random_sequence_the_login_leaves_is_compared() {
 
 /// "RPL Gap" looks for a row of its empty table when the text is longer than 1: a find that found nothing while the SQL
 /// counters were inactive is kept for a later read of `SessionInformation.SqlStatementsExecuted`.
-const GAP_SQL: &str = r#"
+pub(super) const GAP_SQL: &str = r#"
 table 77465 "RPL Gap Row" { fields { field(1; K; Integer) { } } keys { key(PK; K) { Clustered = true; } } }
 codeunit 77462 "RPL Gap"
 {
@@ -920,7 +927,7 @@ fn sql_counters_the_login_read_are_not_comparable() {
 }
 
 /// "RPL Gap" commits when the text is longer than 1 (it wrote nothing: only the session's count of commits moves).
-const GAP_COMMIT: &str = r#"
+pub(super) const GAP_COMMIT: &str = r#"
 codeunit 77462 "RPL Gap"
 {
     procedure Plant(N: Integer) begin if N > 1 then Commit(); end;
