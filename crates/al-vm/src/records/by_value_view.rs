@@ -830,8 +830,8 @@ impl Session {
     }
 
     /// `RecordRef.GetTable` of `rec`, from a Record or a Variant that holds one (`refs.rs` `gettable_record_copy`): the RecordRef
-    /// takes the record's buffer and filters (recordref-fieldref/recordref/RfTValues.al:206-211,
-    /// recordref-fieldref/CwVariantChangeCompany.al:42), and a copy marked [`BY_VALUE_VIEW`] or [`BY_VALUE_EVENT_READS`] hands
+    /// takes the record's buffer (from a Record: recordref-fieldref/AsGetTableIsDirty.al:19-32; from a Variant:
+    /// recordref-fieldref/recordref/TestRecordRefVariantGetTable.al:78-96), and a copy marked [`BY_VALUE_VIEW`] or [`BY_VALUE_EVENT_READS`] hands
     /// it its mark: the RecordRef answers what reads no view ([`Session::by_value_ref_runs`]) and refuses the rest, as the
     /// copy does. An assumption the view of `rec` runs through is marked here (main's rule: GetTable reads the view).
     pub(crate) fn by_value_view_into_ref(rec: &Rec) {
@@ -842,10 +842,16 @@ impl Session {
 
     /// RecordRef or FieldRef method `method` (`kind`) on a RecordRef whose record `rec` holds the mark of a by-value copy whose
     /// view is not pinned ([`by_value_mark`], handed on by [`Session::by_value_view_into_ref`]). It runs when it reads neither
-    /// the view nor the marks: the table's metadata (Number, Name, Caption, KeyCount, FieldCount), IsTemporary, RecordId (the
-    /// row's primary key, as `Record.RecordId` in [`reads_no_view`]), a FieldRef (Field, FieldIndex, FieldExist), and a
-    /// field's value and metadata (FieldRef Value, Number, Name, Caption, Type, Class, Length, Record). Every other method
-    /// refuses with the mark.
+    /// the view nor the marks: the table's metadata (Number: recordref-fieldref/recordref/TestRecordRefVariantGetTable.al:47;
+    /// Name: recordref-fieldref/P107RecRefNames.al:304; Caption: recordref-fieldref/Y5TestFieldExtCaption.al:110; KeyCount and
+    /// FieldCount: recordref-fieldref/Bn3Key16.al:70-72), IsTemporary (kept by GetTable:
+    /// recordref-fieldref/recordref/SetTableTemporaryToPermanent.al:69-78), RecordId (the buffer's primary key with no Find:
+    /// recordref-fieldref/recordref/RfTWrite.al:443-449), a FieldRef (Field and FieldIndex:
+    /// recordref-fieldref/recordref/TestRecordRefField.al:13-48; FieldExist: recordref-fieldref/P107RecRefNames.al:72), and a
+    /// field's value and metadata (FieldRef Value read and written: TestRecordRefField.al:26-35; Number and Name:
+    /// TestRecordRefField.al:21 and :127; Caption: record/captions/R6985FieldCaptionArea.al:160; Type:
+    /// recordref-fieldref/PnD12_RemovedFieldRecordRef.al:49; Class: recordref-fieldref/recordref/RfTValues.al:198; Length:
+    /// recordref-fieldref/fieldref/FieldRefLengthKinds.al:49). Every other method refuses with the mark.
     pub(crate) fn by_value_ref_runs(kind: &str, method: &str, rec: &Rec) -> Result<(), Signal> {
         let Some(why) = rec.borrow().unpinned_buffer.filter(|w| by_value_mark(w)) else {
             return Ok(());
@@ -864,7 +870,7 @@ impl Session {
                     | "FieldIndex"
                     | "FieldExist"
             ),
-            _ => matches!(method, "Value" | "Number" | "Name" | "Caption" | "Type" | "Class" | "Length" | "Record"),
+            _ => matches!(method, "Value" | "Number" | "Name" | "Caption" | "Type" | "Class" | "Length"),
         };
         if runs {
             return Ok(());

@@ -94,6 +94,8 @@ codeunit 62910 "GV Copy"
                         exit('temporary');
                     exit(KeyOf(RecRef));
                 end;
+            17:
+                exit(RecRef.Field(3).Record().Name());
         end;
     end;
 
@@ -340,6 +342,12 @@ codeunit 62911 "GV GetTable Test"
     procedure VariantGetTable_IsTemporaryAndRecordId()
     begin
         Check('GV Line: 1,10000;GV Line: 1,20000;', Run(16));
+    end;
+
+    [Test]
+    procedure VariantGetTable_FieldRefRecord()
+    begin
+        Run(17);
     end;
 
     [Test]
