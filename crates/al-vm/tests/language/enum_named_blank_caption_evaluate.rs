@@ -60,7 +60,7 @@ codeunit 69810 C
     begin
         RecRef.GetTable(Row);
         FldRef := RecRef.Field(5);
-        R := FldRef.Evaluate('');
+        R := Evaluate(FldRef, '');
         exit(Format(R));
     end;
 
@@ -178,7 +178,7 @@ codeunit 69810 C
     begin
         RecRef.GetTable(Row);
         FldRef := RecRef.Field(4);
-        R := FldRef.Evaluate('');
+        R := Evaluate(FldRef, '');
         exit(Format(R));
     end;
 
