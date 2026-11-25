@@ -290,7 +290,7 @@ fn cell(run: PinnedRun, by: CloseBy, row: RowAtClose, error: Option<CloseError>)
 }
 
 /// `e` is an AL `Error` with a text (the fixtures' form: code Dialog, `ExceptionKind::Dialog`, a text that is not empty).
-fn error_with_text(e: &AlError) -> bool {
+pub(super) fn error_with_text(e: &AlError) -> bool {
     e.code == "Dialog" && e.exception == ExceptionKind::Dialog && !e.message.is_empty()
 }
 

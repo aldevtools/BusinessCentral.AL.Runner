@@ -1391,10 +1391,10 @@ fn stores_into_an_element_without_a_caller_s_members_keep_the_number() {
     assert_eq!(clean("LocalMemberlessElementStores"), "2|2#1|1");
 }
 
-// Shapes of Base Application that Microsoft's tests reach and no probe measures: a memberless `var` parameter handed on to a
-// procedure's parameter with members (batch posting), and a field whose OptionCaption names its members ("Item Entry
-// Relation"). They refuse; the probes measure a memberless caller handed to members only directly
-// (OptionVarMemberLists.al:432), and only fields without OptionCaption. A memberless local handed directly to an event
+// Shapes of Base Application that Microsoft's tests reach: a field whose OptionCaption names its members ("Item Entry
+// Relation") refuses (the probes measure only fields without OptionCaption). A memberless `var` parameter handed on to a
+// procedure's parameter with members (batch posting) is measured since (corpus PR 1569) and runs flagged for the measured
+// origins and callee bodies (var_option_carried.rs). A memberless local handed directly to an event
 // publisher's parameter with members that a subscriber hears (the purchase order page) is measured since
 // (OptionVarMemberlessHeard.al:158, :161): the subscriber reads the publisher's member, the caller takes back its write.
 #[test]
@@ -1404,9 +1404,13 @@ fn base_application_shapes_the_probes_do_not_measure_refuse() {
         "NumericCaptionFieldToPublisher",
         "handed directly to an event publisher's",
     );
-    for routine in ["MemberlessVarParamToMembers", "DirectCallersToMembersPublisher"] {
-        refused(routine, "caller the probe does not measure");
-    }
+    refused("DirectCallersToMembersPublisher", "caller the probe does not measure");
+    // A memberless local through a memberless `var` hop to a parameter with members: the callee reads the value's (no) list
+    // (corpus PR 1569, OptionVarMembersCallee.al VarHop_Memberless_Local), flagged (var_option_carried.rs).
+    assumptions::clear_hits();
+    let out = text(al_testkit::run_in(SRC, "C", "MemberlessVarParamToMembers"));
+    assert_eq!(out, "1|1@2|2");
+    assert!(assumptions::take_hits().contains(&assumptions::Assumption::VarOptionCarriedMembers));
 }
 
 // Not measured, or not carried: a field whose OptionCaption differs from its members (OptionVarMemberlessCallers.al:179,

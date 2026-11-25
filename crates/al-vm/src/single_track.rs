@@ -576,6 +576,8 @@ impl Session {
             })
             .map(|b| crate::dispatch::Binding {
                 instance: b.instance.clone(),
+                // No cell measures a carried Option through a binding moved to another codeunit's session.
+                outside_subscriber: false,
             })
             .collect();
         MovedSingles {
