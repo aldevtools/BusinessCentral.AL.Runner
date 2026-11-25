@@ -63,7 +63,10 @@ codeunit 69821 C
 }
 "#;
 
-fn run(routine: &str, args: Vec<al_builtins::value::Value>) -> Result<al_builtins::value::Value, al_builtins::native::Signal> {
+fn run(
+    routine: &str,
+    args: Vec<al_builtins::value::Value>,
+) -> Result<al_builtins::value::Value, al_builtins::native::Signal> {
     al_testkit::run_with(SRC, "C", routine, args).map(|(v, _)| v)
 }
 
@@ -170,7 +173,11 @@ codeunit 71861 "Eval Opt Two Test"
 
 #[test]
 fn the_reporters_repro_of_issue_8355_gives_bcs_answers() {
-    for (routine, want) in [("Two", "Yes 2|2"), ("NinetyNine", "Yes 99|99"), ("MinusOne", "No Alpha|0")] {
+    for (routine, want) in [
+        ("Two", "Yes 2|2"),
+        ("NinetyNine", "Yes 99|99"),
+        ("MinusOne", "No Alpha|0"),
+    ] {
         match al_testkit::run_with(REPORTER, "Eval Opt Two Test", routine, vec![]) {
             Err(al_builtins::native::Signal::Error(e)) => assert_eq!(e.message, want, "{routine}"),
             other => panic!("{routine}: expected the test's Error, got {other:?}"),

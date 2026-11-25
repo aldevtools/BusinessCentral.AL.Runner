@@ -162,7 +162,8 @@ pub(super) fn same_as_names_measured(c: &dyn Ctx, a: &[Value], direct: bool) -> 
     } else {
         matches!(text.as_str(), "99" | "-1")
     };
-    let measured = direct && members && matches!(a.get(2), Some(Value::Integer(0))) && c.language() == 1033 && text_measured;
+    let measured =
+        direct && members && matches!(a.get(2), Some(Value::Integer(0))) && c.language() == 1033 && text_measured;
     if measured {
         crate::assumptions::assume(crate::assumptions::Assumption::OptionCaptionSameAsNamesOrdinal);
     }
