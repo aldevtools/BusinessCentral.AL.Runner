@@ -814,16 +814,13 @@ impl Session {
 
     /// `rec` handed to code that reads its view (`to` names it): a copy that holds `RecordState::view_assumption` marks the
     /// assumption, one marked [`BY_VALUE_VIEW`] or [`BY_VALUE_EVENT_READS`] refuses. Callers: `by_value_view_marks` (the source of a record method other
-    /// than Copy, CopyFilters and TransferFields), `refs.rs` `gettable_record_copy`, the record a page opens on
-    /// (`pages/open/record_refusals.rs` `page_record_refusal`: Page.Run, RunModal, SetRecord or SetTableView), the view of a
-    /// report (`reports.rs` `report_set_view`) and of an XmlPort (`xmlports/mod.rs` `xp_set_view`), and
-    /// FilterPageBuilder.AddRecord (`filterpage.rs`).
+    /// than Copy, CopyFilters and TransferFields), the record a page opens on (`pages/open/record_refusals.rs`
+    /// `page_record_refusal`: Page.Run, RunModal, SetRecord or SetTableView), the view of a report (`reports.rs`
+    /// `report_set_view` and `custom_layout_filter_views`, `reports/execute_args.rs`) and of an XmlPort (`xmlports/mod.rs`
+    /// `xp_set_view`), FilterPageBuilder.AddRecord and AddRecordRef (`filterpage.rs`) and GetUrl (`geturl.rs`).
     pub(crate) fn by_value_view_handed(rec: &Rec, to: impl FnOnce() -> String) -> Result<(), Signal> {
-        let r = rec.borrow();
-        if let Some(a) = r.view_assumption {
-            assumptions::assume(a);
-        }
-        match r.unpinned_buffer {
+        Self::by_value_view_into_ref(rec);
+        match rec.borrow().unpinned_buffer {
             Some(why) if by_value_mark(why) => unsupported(format!("{}: {why}", to())),
             _ => Ok(()),
         }
