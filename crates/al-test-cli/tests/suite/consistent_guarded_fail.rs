@@ -20,7 +20,7 @@ codeunit 50131 "F Inner" { trigger OnRun() begin DoSteps(); end;
             case Step of
                 'startx': StartX();
                 'fxa': XA.Consistent(false); 'fxc': XC.Consistent(false); 'txa': XA.Consistent(true);
-                'txb': XB.Consistent(true); 'fya': YA.Consistent(false); 'fyc': YC.Consistent(false);
+                'txb': XB.Consistent(true); 'txc': XC.Consistent(true); 'tya': YA.Consistent(true); 'fya': YA.Consistent(false); 'fyc': YC.Consistent(false);
                 'fxg': G.Consistent(false); 'ftmp': T.Consistent(false);
                 'err': Error('inner failed');
                 'div': begin I := 0; I := 1 div I; end;
@@ -45,7 +45,8 @@ codeunit 50000 T { Subtype = Test;
     if GetLastErrorCode() <> 'NCLCSRTS:TableErrorStr' then Error(GetLastErrorCode()); Commit(); end;
   [Test] procedure HeldAgainEnds() begin Ends('startx,fya,fyc'); end;
   [Test] procedure AgainHeldEnds() begin Ends('fxa,txb,fxc,fya'); end;
-  [Test] procedure AgainLiftedByTrueEnds() begin Ends('fxa,txb,fxc,fya,txa'); end;
+  [Test] procedure AgainLiftedByTrueEnds() begin Ends('fxa,txb,fxc,fya,txa,tya'); end;
+  [Test] procedure AgainLiftedByAgainTrueEnds() begin Ends('fxa,txb,fxc,fya,txc,tya'); end;
   [Test] procedure ReleasedAloneFails() begin Fails('startx,txb,err'); end;
   [Test] procedure AgainAloneFails() begin Fails('fya,fyc,err'); end;
   [Test] procedure HeldAgainOtherCode() begin Fails('startx,fya,fyc,div'); end;
@@ -76,8 +77,8 @@ fn guarded_run_fail_probe_shapes() {
         assert_eq!(get(name), (Outcome::Pass, true), "{name}");
     }
     // A successful run with a mark marked again raises (Inner_StartX_MarkYByA_MarkYByC_Ends,
-    // Inner_MarkXByA_TrueXByB_MarkXByC_MarkYByA_Ends, Inner_MarkXByA_TrueXByB_MarkXByC_TrueXByA_TrueYByA_Ends).
-    for name in ["HeldAgainEnds", "AgainHeldEnds", "AgainLiftedByTrueEnds"] {
+    // Inner_MarkXByA_TrueXByB_MarkXByC_MarkYByA_Ends, Inner_MarkXByA_TrueXByB_MarkXByC_TrueXByA_TrueYByA_Ends, _TrueXByC_TrueYByA_Ends).
+    for name in ["HeldAgainEnds", "AgainHeldEnds", "AgainLiftedByTrueEnds", "AgainLiftedByAgainTrueEnds"] {
         assert_eq!(get(name), (Outcome::Fail("DB:TableInConsistent".into()), true), "{name}");
     }
     let refused = |name: &str, text: &str| match get(name).0 {
