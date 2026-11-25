@@ -290,8 +290,8 @@ pub(crate) struct BulkShape {
     pub(crate) filtered: bool,
     /// `MarkedOnly` was set on the record.
     pub(crate) marked_only: bool,
-    /// A Truncate's ResetAutoIncrement argument was true (`Session::note_truncate_write`).
-    pub(crate) reset: bool,
+    /// The Truncate call had an argument, true or false (`Session::note_truncate_write`); the cells call `Truncate()` alone.
+    pub(crate) argument: bool,
 }
 
 impl TxState {

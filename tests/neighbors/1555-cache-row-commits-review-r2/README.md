@@ -26,7 +26,9 @@ review round 1.
 | `Record.Truncate(true)` | REFUSED, not measured | `BCE Review R2 Tests::TruncateResetRefused` |
 | `MarkedOnly(true)`, then `Record.Truncate` | REFUSED, not measured | `BCE Review R2 Tests::MarkedOnlyTruncateRefused` |
 | Worker `CalcFields` of a record `Get` loaded | REFUSED, not measured | `BCE Review R2 Tests::CalcFieldsRecordLoadedByGetRefused` |
-| Worker `CalcFields` of a record `Find` loaded | REFUSED, not measured | `BCE Review R2 Tests::CalcFieldsRecordLoadedByFindRefused` |
+| `Record.Truncate(false)` (explicit argument) | REFUSED, not measured | `BCE Review R2 Tests::ExplicitFalseTruncateRefused` |
+| Worker `CalcFields` of a temporary record after its own Insert | REFUSED, not measured | `BCE Review R2 Tests::TemporaryCalcFieldsAfterOwnInsertRefused` |
+| Worker `CalcFields` of a record `Find` loaded | main's behavior: never cached, answers from the table; does not reach the Truncate gate (al-runner issue 9103) | `BCE Review R2 Tests::CalcFieldsRecordLoadedByFindRefused` |
 | Worker `CalcFields` of a temporary record `Get` loaded | REFUSED, not measured | `BCE Review R2 Tests::TemporaryCalcFieldsRecordLoadedByGetRefused` |
 
 ## Fact table
@@ -39,15 +41,15 @@ equality:
 | AL read | `RecordOp::CalcFields` |
 | receiver | direct Record, database or temporary; or database FieldRef |
 | receiver filters | zero |
-| receiver load | read no row: a new variable (:782, :1039, :1045, :1053), or the test session's record after its own Insert (:1124-:1125, :1137); `position` and `row_origin` equal those |
+| receiver load | read no row: a new variable (:782, :1039, :1045, :1053), or the test session's database record after its own Insert (:1124-:1125, :1137); `position` and `row_origin` equal those, and for the own-Insert shape temporary, FieldRef and worker are all false |
 | initial reader | worker for temporary Record and database FieldRef; worker or test session for database Record |
 | row-table Truncate receiver | direct Record |
 | row-table filters at Truncate | zero |
 | row-table MarkedOnly at Truncate | false (:883, :1142-:1144) |
-| Truncate ResetAutoIncrement argument | false: `Truncate()` (:883, :1142-:1144) |
+| Truncate argument | none given: `Truncate()` (:883, :1142-:1144); `Truncate(false)` and `Truncate(true)` refuse |
 | entry delta | the number of all Truncate commits equals the number of measured Truncate commits added |
 
-Each test flips exactly one reader, receiver-storage or commit fact. Four of them (Get-loaded database and temporary record, `Truncate(true)`, `MarkedOnly`) were flagged passes on main after PR 8932 and are refused on head: they are listed in `differences.tsv`. The rest are refused on both.
+Each test flips exactly one reader, receiver-storage or commit fact. Six of them (Get-loaded database and temporary record, `Truncate(true)`, `Truncate(false)`, `MarkedOnly`, temporary record after its own Insert) were flagged passes on main after PR 8932 and are refused on head: they are listed in `differences.tsv`. The rest are refused on both.
 `WithoutTruncateKeepsMainAnswer` keeps the app runnable when both sides refuse
 the Truncate cells.
 

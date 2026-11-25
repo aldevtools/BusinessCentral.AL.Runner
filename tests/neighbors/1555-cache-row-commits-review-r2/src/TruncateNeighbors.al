@@ -88,6 +88,13 @@ codeunit 97719 "BCE R2 Reader"
                     TempRow.CalcFields("Line Count");
                     Seen := Format(TempRow."Line Count");
                 end;
+            'tempinsertreader':
+                begin
+                    TempRow."No." := G;
+                    TempRow.Insert();
+                    TempRow.CalcFields("Line Count");
+                    Seen := Format(TempRow."Line Count");
+                end;
             else begin
                 Row."No." := G;
                 Row.CalcFields("Line Count");
@@ -155,6 +162,8 @@ codeunit 97720 "BCE Review R2 Tests"
                 end;
             'resettruncate':
                 Row.Truncate(true);
+            'falsetruncate':
+                Row.Truncate(false);
             'markedonlytruncate':
                 begin
                     Row.MarkedOnly(true);
@@ -231,6 +240,20 @@ codeunit 97720 "BCE Review R2 Tests"
     procedure TemporaryCalcFieldsRecordLoadedByGetRefused()
     begin
         if FirstThenTruncate('tempgetreader') <> '1 / 1' then
+            Error('unexpected answer');
+    end;
+
+    [Test]
+    procedure TemporaryCalcFieldsAfterOwnInsertRefused()
+    begin
+        if FirstThenTruncate('tempinsertreader') <> '1 / 1' then
+            Error('unexpected answer');
+    end;
+
+    [Test]
+    procedure ExplicitFalseTruncateRefused()
+    begin
+        if FirstThenTruncate('falsetruncate') <> '1 / 1' then
             Error('unexpected answer');
     end;
 

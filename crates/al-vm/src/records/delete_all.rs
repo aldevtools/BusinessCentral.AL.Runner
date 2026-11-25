@@ -52,9 +52,10 @@ impl Session {
         t: &TableDef,
         rec: &Rec,
         reset: bool,
+        argument: bool,
     ) -> Result<Value, Signal> {
         self.tenant_set_truncate(cx, t, rec)?;
-        self.note_truncate_write(rec, t, reset);
+        self.note_truncate_write(rec, t, argument);
         self.truncate(t, rec, reset)
     }
 

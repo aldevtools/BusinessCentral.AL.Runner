@@ -652,7 +652,7 @@ impl Session {
             let measured = match kind {
                 BulkWrite::Truncate => {
                     let b = w.bulk_shape;
-                    (w.through_recordref, b.filtered, b.marked_only, b.reset) == (false, false, false, false)
+                    (w.through_recordref, b.filtered, b.marked_only, b.argument) == (false, false, false, false)
                 }
                 BulkWrite::ModifyAll | BulkWrite::DeleteAll => true,
             };
@@ -1123,15 +1123,17 @@ impl Session {
     }
 
     /// The exact CalcFields receiver shapes whose entries the Truncate cells measure. Each cell sets the primary key of a record
-    /// that read no row: a new variable (BgTaskCacheEdges.al:782, :1039, :1045, :1053) or the test session's record after its
-    /// own Insert (:1124-:1125, :1137); a record a Get or a Find loaded is not measured.
+    /// that read no row: a new variable (BgTaskCacheEdges.al:782, :1039, :1045, :1053) or the test session's database record
+    /// after its own Insert (:1124-:1125, :1137); a record a Get or a Find loaded is not measured.
     fn calc_fields_truncate_reader(&self, rec: &Rec) -> TruncateReader {
         let r = rec.borrow();
         let filter_count = r.filters.len();
-        let unread = matches!(
-            (&r.position, r.row_origin),
-            (None, None)
-                | (
+        // `Fresh`: the record read no row. `OwnInsert`: its only history is the Insert of the row it holds.
+        let (fresh, own_insert) = (
+            matches!((&r.position, r.row_origin), (None, None)),
+            matches!(
+                (&r.position, r.row_origin),
+                (
                     None,
                     Some(al_builtins::value::RowOrigin {
                         own_write: true,
@@ -1143,22 +1145,26 @@ impl Session {
                         ..
                     })
                 )
+            ),
         );
         drop(r);
-        if (filter_count, unread) == (0, true) {
-            // BgTaskCacheEdges.al:958/:1184, :1178 and :1190, respectively.
-            return match (
-                temporary(rec),
-                self.pages.query_cache.al_record_read_field_ref,
-                self.in_worker(),
-            ) {
-                (false, false, true) | (false, false, false) => TruncateReader::DatabaseRecord,
-                (true, false, true) => TruncateReader::TemporaryRecord,
-                (false, true, true) => TruncateReader::DatabaseFieldRef,
-                _ => TruncateReader::Other,
-            };
+        if filter_count != 0 {
+            return TruncateReader::Other;
         }
-        TruncateReader::Other
+        let shape = (
+            temporary(rec),
+            self.pages.query_cache.al_record_read_field_ref,
+            self.in_worker(),
+        );
+        // BgTaskCacheEdges.al:958/:1184, :1178 and :1190 (a new variable); the own-Insert cells are :1124-:1125 and :1137,
+        // a database Record of the test session alone (a temporary or worker record after its own Insert is not measured).
+        match (fresh, own_insert, shape) {
+            (true, _, (false, false, true) | (false, false, false)) => TruncateReader::DatabaseRecord,
+            (true, _, (true, false, true)) => TruncateReader::TemporaryRecord,
+            (true, _, (false, true, true)) => TruncateReader::DatabaseFieldRef,
+            (_, true, (false, false, false)) => TruncateReader::DatabaseRecord,
+            _ => TruncateReader::Other,
+        }
     }
 
     /// The key of a `CalcFields` of `positions` on `rec` and the tables it reads, when the cells measure it: the number of

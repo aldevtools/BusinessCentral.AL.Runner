@@ -298,8 +298,8 @@ impl Session {
     }
 
     /// `note_bulk_write` of a `Truncate(reset)`.
-    pub(crate) fn note_truncate_write(&mut self, rec: &Rec, t: &TableDef, reset: bool) {
-        self.note_bulk_write_reset(rec, t, crate::state::TxWriteKind::Truncate, &[], reset);
+    pub(crate) fn note_truncate_write(&mut self, rec: &Rec, t: &TableDef, argument: bool) {
+        self.note_bulk_write_reset(rec, t, crate::state::TxWriteKind::Truncate, &[], argument);
     }
 
     fn note_bulk_write_reset(
@@ -308,7 +308,7 @@ impl Session {
         t: &TableDef,
         kind: crate::state::TxWriteKind,
         row: &[Value],
-        reset: bool,
+        argument: bool,
     ) -> Option<BulkMark> {
         if rec.borrow().temporary {
             return None;
@@ -321,7 +321,7 @@ impl Session {
             crate::state::BulkShape {
                 filtered: !r.filters.is_empty(),
                 marked_only: r.marked_only,
-                reset,
+                argument,
             }
         };
         self.push_write(t, company, kind, &[], now, bulk_shape);
