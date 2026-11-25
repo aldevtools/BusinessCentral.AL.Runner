@@ -120,9 +120,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     ("ProductName.Marketing#1", |_, _, _| {
         Ok(Value::Text("Microsoft Dynamics 365 Business Central".into()))
     }),
-    // False in a test: measured on real BC by session-system/TestEnvironmentUserTenantContracts.al:235
-    // (Assert.IsFalse(TaskScheduler.CanCreateTask())).
-    ("TaskScheduler.CanCreateTask#1", |_, _, _| Ok(Value::Boolean(false))),
+    ("TaskScheduler.CanCreateTask#1", can_create_task),
     // CreateTask, TaskExists, CancelTask and SetTaskReady keep the session's tasks: `Ctx::session_op` (al-vm tasks.rs).
     ("Session.StartSession#1", start_session),
     ("Session.StartSession#2", start_session_timeout),

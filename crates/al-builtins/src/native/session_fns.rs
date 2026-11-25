@@ -167,6 +167,17 @@ pub(super) fn start_session_of(c: &mut dyn Ctx, args: &mut [Value], timeout: boo
     unsupported("StartSession outside an install trigger and a test run (a second session is not modelled)")
 }
 
+/// `TaskScheduler.CanCreateTask()`. False in a test (session-system/TestEnvironmentUserTenantContracts.al:235). True in
+/// an app's install session (`Ctx::install_without_client`): corpus PR 1589, install-upgrade/IsInstallSessionTests.al:86,
+/// :91, :135, pin pending (assumption install-session-can-create-task). Everywhere else main's false.
+pub(super) fn can_create_task(c: &mut dyn Ctx, _: Option<&mut Value>, _: &mut [Value]) -> Result<Value, Signal> {
+    if c.install_without_client() {
+        crate::assumptions::assume(crate::assumptions::Assumption::InstallSessionCanCreateTask);
+        return Ok(Value::Boolean(true));
+    }
+    Ok(Value::Boolean(false))
+}
+
 pub(super) fn context_value(c: &dyn Ctx) -> Value {
     let members: std::sync::Arc<[String]> = crate::sysenum::option_members("ExecutionContext")
         .expect("a system option")

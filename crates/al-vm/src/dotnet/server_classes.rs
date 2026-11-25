@@ -56,6 +56,9 @@ pub const CONSTANT_ANSWERS: &[(&str, &str)] = &[
     (TENANT_SETTINGS_HELPER, "GetEnvironmentApplicationSetting"),
     (TENANT_SETTINGS_HELPER, "TryGetStringTenantSetting"),
     (USER_ACCOUNT_HELPER, "IsAzure"),
+    // The service tier's credential type (`credential_type_is`), which Identity Management reads on the login path of
+    // an install session (al-runner issue 9046).
+    (USER_ACCOUNT_HELPER, "IsUserNamePasswordAuthentication"),
     (TENANT_INFO, "InitialDomain"),
     (TENANT_INFO, "CountryLetterCode"),
     (TENANT_INFO, "PreferredLanguage"),
@@ -410,6 +413,7 @@ fn is_user_delegated_helpdesk(_: &mut Session, _: Option<&Rc<DotNetObject>>, arg
 /// app; al-language/permissions/Y5AuthenticationType.al:29-30, a Cloud app). Both of the runner's environments are such a
 /// container (the SaaS-like sandbox is the corpus CI tier). A real SaaS sandbox answers No for user name and password
 /// (Y5AuthenticationType.al:9-10, measured, not asserted); the runner has no environment for it.
+/// `IsUserNamePasswordAuthentication` is listed in CONSTANT_ANSWERS: this must stay a constant.
 fn credential_type_is(_: &mut Session, args: Args, member: &str, user_password: bool) -> Result<Value, Signal> {
     no_args(args, member)?;
     Ok(Value::Boolean(user_password))

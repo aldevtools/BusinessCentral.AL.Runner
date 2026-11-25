@@ -4847,4 +4847,10 @@ fn the_constant_answers_are_registered_calls() {
     assert!(ANSWERS_ONLY.iter().all(|(c, m)| keeps_nothing(c, m)));
     let helper = al_builtins::dotnet_sigs::TENANT_SETTINGS_HELPER;
     assert!(!keeps_nothing(helper, "SetTestTenantEnvironmentType"));
+    // Issue 9046: the credential type Identity Management reads on the login path of an install session; its two
+    // siblings no install footprint showed stay touching everything.
+    let account = al_builtins::dotnet_sigs::USER_ACCOUNT_HELPER;
+    assert!(keeps_nothing(account, "IsUserNamePasswordAuthentication"));
+    assert!(!keeps_nothing(account, "IsWindowsAuthentication"));
+    assert!(!keeps_nothing(account, "IsAccessControlServiceAuthentication"));
 }

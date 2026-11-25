@@ -11,8 +11,8 @@
 //!   (`ctx.rs` `module_by_id`); a read of an app table ([`APP_TABLES`]) meets every app;
 //! - touching everything, each reason with the call stack of its first site: a .NET member that is not kept
 //!   ([`dotnet_member_kept`], ADR-079 amendment 1, `dotnet/mod.rs`), a page, a report (`impact.rs`), every builtin
-//!   outside [`KEPT_RECEIVERS`] (HTTP, files, StartSession, TaskScheduler and so a Job Queue run, DataTransfer,
-//!   XMLports), a table served by a provider other than the app tables (the store), a whole-store read or a company
+//!   outside [`KEPT_RECEIVERS`] (HTTP, files, StartSession, TaskScheduler but CanCreateTask, and so a Job Queue run,
+//!   DataTransfer, XMLports), a table served by a provider other than the app tables (the store), a whole-store read or a company
 //!   change (the store).
 //!
 //! - the row version read by the SystemRowVersion field: the routines the session ran (`install_footprint_row_version.rs`).
@@ -227,9 +227,9 @@ const APP_TABLES: &[al_builtins::platform::Virtual] = &[
 /// The builtin receivers whose calls touch no lasting resource, or one the recorder notes at its own site: values of the
 /// session (text, numbers, collections, JSON, XML, streams, errors), the store's readers and writers (recorded by the
 /// store), the isolated storage, number sequence and row version natives (noted in `sessionops.rs`), and code run
-/// (`Codeunit`: its objects are entered, so its apps are met). `System`, `Database`, `Blob` and `Query` are kept by
-/// method ([`KEPT_METHODS`]). Every other builtin counts as touching everything: HTTP, files, pages, reports, XMLports,
-/// request pages, TaskScheduler, DataTransfer, Media, CompanyProperty, the test page types and every receiver not named
+/// (`Codeunit`: its objects are entered, so its apps are met). `System`, `Database`, `Blob`, `Query` and `TaskScheduler`
+/// are kept by method ([`KEPT_METHODS`]). Every other builtin counts as touching everything: HTTP, files, pages, reports, XMLports,
+/// request pages, every TaskScheduler method but CanCreateTask, DataTransfer, Media, CompanyProperty, the test page types and every receiver not named
 /// here (a new one included).
 const KEPT_RECEIVERS: &[&str] = &[
     "BigInteger",
@@ -427,6 +427,10 @@ const KEPT_METHODS: &[(&str, &[&str])] = &[
             "WorkDate",
         ],
     ),
+    // Its answer is a constant per session kind, so the same in every install order (ADR-079 clarification of
+    // 2026-11-25): false in a test (session-system/TestEnvironmentUserTenantContracts.al:235), true in an app's install
+    // session (al-builtins `can_create_task`, corpus PR 1589). The other TaskScheduler methods touch everything.
+    ("TaskScheduler", &["CanCreateTask"]),
 ];
 
 /// Whether .NET member `member` of type `clr_type` (`None`: a constructor) touches no lasting resource while an install

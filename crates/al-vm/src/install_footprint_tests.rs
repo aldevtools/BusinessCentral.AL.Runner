@@ -217,10 +217,10 @@ fn a_builtin_that_touches_everything_marks_the_session() {
 #[test]
 fn a_plain_builtin_that_touches_everything_marks_the_session() {
     let fp = run_src(
-        "codeunit 50100 Probe { procedure Run() begin if TaskScheduler.CanCreateTask() then; end; }",
+        "codeunit 50100 Probe { procedure Run() begin if Session.IsSessionActive(SessionId()) then; end; }",
         "Run",
     );
-    assert!(fp.everything.keys().any(|w| w.contains("TaskScheduler")), "{fp:?}");
+    assert!(fp.everything.keys().any(|w| w.contains("IsSessionActive")), "{fp:?}");
 }
 
 const ROW_VERSION_SRC: &str = r#"
@@ -550,8 +550,9 @@ fn every_kept_method_names_a_builtin() {
     }
 }
 
-/// Issue 9046: the date conversions a pinned corpus case measures as functions of their arguments keep nothing. Their
-/// neighbor without a pin (`DaTi2Variant`) and every `TaskScheduler` method still touch everything.
+/// Issue 9046: the date conversions a pinned corpus case measures as functions of their arguments keep nothing, and so
+/// does `TaskScheduler.CanCreateTask` (constant per session kind, issue 9082). Their neighbor without a pin
+/// (`DaTi2Variant`) and every other `TaskScheduler` method still touch everything.
 #[test]
 fn date_conversions_keep_nothing() {
     let all = |name: &str| {
@@ -567,12 +568,13 @@ fn date_conversions_keep_nothing() {
         "System.Date2DWY",
         "System.Variant2Date",
         "System.Variant2Time",
+        // Constant per session kind (ADR-079 clarification of 2026-11-25, al-runner issue 9082).
+        "TaskScheduler.CanCreateTask",
     ] {
         assert!(!all(kept), "{kept}");
     }
     for every in [
         "System.DaTi2Variant",
-        "TaskScheduler.CanCreateTask",
         "TaskScheduler.CreateTask",
         "TaskScheduler.TaskExists",
         "TaskScheduler.SetTaskReady",

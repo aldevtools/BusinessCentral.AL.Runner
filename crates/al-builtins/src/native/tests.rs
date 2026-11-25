@@ -35,6 +35,8 @@ fn get_dot_net_type_is_implemented_not_refused_at_lowering() {
 pub(crate) struct TestCtx {
     err: AlError,
     install: bool,
+    /// What `install_without_client` answers: an app's install session.
+    install_session: bool,
     in_test: bool,
     pub(crate) result_ignored: bool,
     /// What `held_by_temp_blob_impl` answers for every buffer.
@@ -71,6 +73,9 @@ impl Ctx for TestCtx {
     }
     fn install_scope(&self) -> bool {
         self.install
+    }
+    fn install_without_client(&self) -> bool {
+        self.install_session
     }
     fn in_test_run(&self) -> bool {
         self.in_test
@@ -140,6 +145,34 @@ fn start_session_answers_false_in_install_and_is_refused_in_a_test_run() {
     assert!(matches!(run(&mut test), Err(Signal::Error(e)) if e.message.contains(
         "can only be started in tests that are run by a TestRunner that has TestIsolation set to Disabled")));
     assert!(matches!(run(&mut TestCtx::default()), Err(Signal::Unsupported(_))));
+}
+
+#[test]
+fn can_create_task_answers_yes_in_an_app_install_session_and_no_elsewhere() {
+    use crate::assumptions::{take_hits, Assumption};
+    let run = |ctx: &mut TestCtx| lookup("TaskScheduler.CanCreateTask#1").unwrap()(ctx, None, &mut []);
+    let _ = take_hits();
+    // Corpus PR 1589, install-upgrade/IsInstallSessionTests.al:86, :91, :135 (pin pending).
+    let mut install = TestCtx {
+        install: true,
+        install_session: true,
+        ..Default::default()
+    };
+    assert!(matches!(run(&mut install), Ok(Value::Boolean(true))));
+    assert!(take_hits().contains(&Assumption::InstallSessionCanCreateTask));
+    // session-system/TestEnvironmentUserTenantContracts.al:235: false in a test.
+    let mut test = TestCtx {
+        in_test: true,
+        ..Default::default()
+    };
+    assert!(matches!(run(&mut test), Ok(Value::Boolean(false))));
+    // Install scope without an app's install session (Company-Initialize, a company build step): main's answer.
+    let mut build = TestCtx {
+        install: true,
+        ..Default::default()
+    };
+    assert!(matches!(run(&mut build), Ok(Value::Boolean(false))));
+    assert!(!take_hits().contains(&Assumption::InstallSessionCanCreateTask));
 }
 
 pub(crate) fn call(id: &str, args: Vec<Value>) -> Result<Value, Signal> {

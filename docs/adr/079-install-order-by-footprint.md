@@ -290,6 +290,22 @@ now compares with the rows the store before the session read for it (`row_change
 the safety net only; the login image keeps taking such a table whole). The refusal of a unit larger
 than three apps names, per reason, the call site, the install that reached it and the apps.
 
+### Clarification of 2026-11-25 (Accepted, al-runner issues 9082 and 9046): a builtin constant per session kind
+
+Status: Accepted by the owner on 2026-11-25, together with its install-trigger corpus cell (corpus PR 1589).
+
+Decision 1 counts every builtin outside the kept receivers and methods as touching everything. A native builtin whose
+answer is a constant for each kind of session (an app's install session, the test session) and that changes nothing
+keeps nothing: every install session of every app gets the same answer, so it cannot depend on install order. Such a
+builtin is kept by method (`install_footprint.rs` `KEPT_METHODS`) only when a corpus case measures its answer inside
+install code, cited at the entry. Measured in a test session only is not enough.
+
+The one builtin kept by this rule: `TaskScheduler.CanCreateTask()`. Corpus PR 1589
+(`install-upgrade/IsInstallSessionTests.al:86`, `:91`, `:135`) measures true in install code, per company and per
+database; the test session's false is pinned (`session-system/TestEnvironmentUserTenantContracts.al:235`). Until the
+runner's corpus pin holds PR 1589, the true answer runs through the assumption `install-session-can-create-task`. The
+other TaskScheduler methods (CreateTask, TaskExists, SetTaskReady, CancelTask) keep touching everything.
+
 ## Options considered
 
 1. **Try every order for 4 to 5 apps.** 24 or 120 group installs, and still refuses at 23 apps. Rejected.
