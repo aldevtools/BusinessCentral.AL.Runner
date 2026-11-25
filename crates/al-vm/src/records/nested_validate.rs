@@ -19,8 +19,9 @@ use crate::records::Rec;
 use crate::{Frame, Session};
 use al_builtins::assumptions::{self, Assumption};
 use al_builtins::native::Signal;
+use al_builtins::record_fields::Fields;
 use al_builtins::record_op::RecordOp;
-use al_builtins::value::Value;
+use al_builtins::value::{RecordState, Value};
 use al_ir::ObjKind;
 use std::rc::Rc;
 
@@ -88,8 +89,9 @@ pub(crate) struct ValidateRun {
     /// The OnBeforeValidateEvent returned with the fields in `entered`, the field having no table extension validate trigger
     /// (`Session::validate_event`).
     pub(crate) kept_by_before_event: bool,
-    /// Whether a record assignment (`:=`) copied another record's fields into the record since the Validate started
-    /// (`Session::note_whole_record_write`); no cell of assumption `xrec-table-proc-routes` measures that writer.
+    /// Whether another record's fields replaced the record's own since the Validate started (`Session::replace_record_fields`:
+    /// an assignment or a write-back, `RecordRef.SetTable`, `Page.GetRecord`, `Page.SetSelectionFilter`); no cell of
+    /// assumption `xrec-table-proc-routes` measures those writers.
     pub(crate) whole_write: bool,
 }
 
@@ -238,13 +240,17 @@ impl Session {
         }
     }
 
-    /// Notes on every running Validate of `rec` that a record assignment copied another record's fields into it
-    /// (`ValidateRun::whole_write`).
-    pub(crate) fn note_whole_record_write(&mut self, rec: &Rec) {
+    /// Puts `fields`, taken from another record, into the record `rec` (its state `d`, borrowed) in place of its own, and notes
+    /// that on every running Validate of `rec` (`ValidateRun::whole_write`). The one owner for each writer of a whole record
+    /// into a record variable that is no record method (those note `Session::note_record_op_under_validate`): an assignment
+    /// and a write-back (`interp.rs` `write_as_general`), `RecordRef.SetTable` (`refs.rs`), `Page.GetRecord`
+    /// (`page_get_record.rs`) and `Page.SetSelectionFilter` (`pageops.rs`). Returns the fields it replaced.
+    pub(crate) fn replace_record_fields(&mut self, rec: &Rec, d: &mut RecordState, fields: Fields) -> Fields {
         let handle = Rc::as_ptr(rec) as usize;
         for v in self.validate_sites.iter_mut().filter(|v| v.handle == handle) {
             v.whole_write = true;
         }
+        std::mem::replace(&mut d.fields, fields)
     }
 
     /// The depth of the call stack the trigger of the one Validate of the record at `handle` runs at, when that Validate is a

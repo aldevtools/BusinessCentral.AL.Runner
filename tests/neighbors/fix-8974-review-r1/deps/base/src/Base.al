@@ -7,35 +7,16 @@ table 50400 "PX Line"
     fields
     {
         field(1; "Entry No."; Integer) { }
+        // Has a table extension OnBeforeValidate (Ext.al): the one unmeasured fact of Chain_ExtOnBeforeValidateAssigns.
         field(2; Mode; Integer)
         {
             trigger OnValidate()
             var
                 Cfg: Codeunit "PX Cfg";
                 Worker: Codeunit "PX Worker";
-                Other: Record "PX Line";
             begin
-                case Cfg.Get() of
-                    'cu-direct':
-                        begin
-                            Series := 'TRG';
-                            Worker.CallTableProc(Rec);
-                        end;
-                    'ext-before':
-                        Worker.CallTableProc(Rec);
-                    'assign-rec':
-                        begin
-                            Other := Rec;
-                            Other.Series := 'RA';
-                            Rec := Other;
-                            Worker.CallTableProc(Rec);
-                        end;
-                    'calc':
-                        begin
-                            CalcFields("Line Count");
-                            Worker.CallTableProc(Rec);
-                        end;
-                end;
+                if Cfg.Get() = 'ext-before' then
+                    Worker.CallTableProc(Rec);
             end;
         }
         field(3; Series; Code[20]) { }
@@ -47,7 +28,7 @@ table 50400 "PX Line"
             var
                 Cfg: Codeunit "PX Cfg";
             begin
-                if Cfg.Get() in ['two-trg', 'fieldref', 'direct'] then
+                if Cfg.Get() = 'two-trg' then
                     Series := 'TRG';
             end;
         }
@@ -55,6 +36,66 @@ table 50400 "PX Line"
         {
             FieldClass = FlowField;
             CalcFormula = count("PX Line");
+        }
+        // No table extension trigger and no subscriber: each test on it has one unmeasured writer.
+        field(8; Plain; Integer)
+        {
+            trigger OnValidate()
+            var
+                Cfg: Codeunit "PX Cfg";
+                Worker: Codeunit "PX Worker";
+                Other: Record "PX Line";
+                Card: Page "PX Card";
+                RecRef: RecordRef;
+                V: Variant;
+            begin
+                case Cfg.Get() of
+                    'p-ctrl':
+                        Series := 'TRG';
+                    'p-assign':
+                        begin
+                            Other := Rec;
+                            Other.Series := 'RA';
+                            Rec := Other;
+                        end;
+                    'p-variant':
+                        begin
+                            Other := Rec;
+                            Other.Series := 'VA';
+                            V := Other;
+                            Rec := V;
+                        end;
+                    'p-calc':
+                        CalcFields("Line Count");
+                    'p-settable':
+                        begin
+                            RecRef.GetTable(Rec);
+                            RecRef.Field(3).Value := 'ST';
+                            RecRef.SetTable(Rec);
+                        end;
+                    'p-getrecord':
+                        begin
+                            Other := Rec;
+                            Other.Series := 'GR';
+                            Card.SetRecord(Other);
+                            Card.GetRecord(Rec);
+                        end;
+                    'p-selfilter':
+                        Card.SetSelectionFilter(Rec);
+                end;
+                Worker.CallTableProc(Rec);
+            end;
+        }
+        // One OnAfterValidateEvent subscriber ("PX Sub C") and no table extension trigger.
+        field(9; Single; Integer)
+        {
+            trigger OnValidate()
+            var
+                Cfg: Codeunit "PX Cfg";
+            begin
+                if Cfg.Get() in ['s-ctrl', 's-fieldref', 's-testpage', 's-action'] then
+                    Series := 'TRG';
+            end;
         }
     }
 
@@ -93,4 +134,33 @@ codeunit 50402 "PX Worker"
     begin
         Line.TableProcRead();
     end;
+}
+
+page 50403 "PX Card"
+{
+    PageType = Card;
+    SourceTable = "PX Line";
+
+    layout
+    {
+        area(Content)
+        {
+            field(Single; Rec.Single) { }
+            field(Seen; Rec.Seen) { }
+        }
+    }
+
+    actions
+    {
+        area(Processing)
+        {
+            action(ValidateSingle)
+            {
+                trigger OnAction()
+                begin
+                    Rec.Validate(Single, 1);
+                end;
+            }
+        }
+    }
 }

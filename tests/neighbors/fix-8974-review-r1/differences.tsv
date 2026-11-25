@@ -1,1 +1,3 @@
 # key	entry
+PX Tests::Plain_Control_TriggerAssigns	ASSUMED xrec-table-proc-routes (corpus PR 1583)
+PX Tests::Single_Control_TriggerAssigns	ASSUMED xrec-table-proc-routes (corpus PR 1583)
