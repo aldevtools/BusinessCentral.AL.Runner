@@ -589,7 +589,7 @@ fn a_session_with_a_value_of_no_comparable_form_before_its_login_has_no_key() {
     let (engine, _) = compiled_with(&format!("{MAIN}{OPAQUE_INSIDE}{OPAQUE_BEFORE}"));
     let mut session = target(&engine);
     assert!(
-        Key::of(&mut session, Default::default(), SessionFlags::default(), &[]).is_some(),
+        Key::of(&mut session, Default::default(), SessionFlags::default(), &[]).is_ok(),
         "GUARD: a new session has a key"
     );
     assert!(session.run_codeunit_by_id(77490).is_ok());
@@ -598,10 +598,10 @@ fn a_session_with_a_value_of_no_comparable_form_before_its_login_has_no_key() {
         !session.state_lines().opaque.is_empty(),
         "GUARD: the holder has no comparable form"
     );
-    assert_eq!(
+    assert!(matches!(
         Key::of(&mut session, Default::default(), SessionFlags::default(), &[]),
-        None
-    );
+        Err(crate::login_replay::NoKey::NotComparable(_))
+    ));
 }
 
 /// `engine` with its emit version set to `v`, as `set_run_options` sets it for each request on a kept engine.
@@ -1154,6 +1154,97 @@ fn a_call_count_that_differs_between_real_logins_of_one_key_is_no_difference() {
     );
     assert!(report.contains("2 compared, 0 differ"), "{report}");
     assert!(report.contains("replay vs run: 2 checked, 0 differ"), "{report}");
+}
+
+// ---- The key hashes each row's bytes; a row with no byte form gives no key ----
+
+/// A session of `engine` holding a committed row of "Guided Experience Item" whose second field (when it has one) or first is
+/// `v`, and the install baseline captured from it.
+fn baseline_with_value(engine: &Arc<Engine>, id: i32, v: Value) -> al_vm::Baseline {
+    use al_data::Store;
+    let mut session = al_vm::Session::new(engine.clone());
+    let at = (engine.program.objects.iter())
+        .position(|o| o.name == "Guided Experience Item")
+        .unwrap();
+    let t = engine.tables[at].clone().unwrap();
+    let mut row: Vec<Value> = t.fields.iter().map(|f| Value::default_for(&f.ty)).collect();
+    row[0] = Value::Integer(id);
+    *row.last_mut().unwrap() = v;
+    let cx = al_data::AccessContext {
+        company: session.access_company().into(),
+        user: session.user_id().into(),
+    };
+    assert!(session.store_mut().insert(&cx, &t, row).is_ok());
+    session.commit_transaction();
+    session.capture_baseline()
+}
+
+// A committed row that holds a value with no byte form (a SQL counter, a placeholder's size) gives no key: the
+// sessions run their logins (nothing replays) and pass as before. The starts line counts them in a part of its own, `no
+// key`, not among the gate's refusals, and the report prints it with the replay alone (no check line).
+#[test]
+fn a_row_with_no_byte_form_gives_no_key_and_the_session_runs_its_login() {
+    use al_builtins::value::{SqlCount, SqlForm, SqlType};
+    let count = Value::SqlCount(SqlCount {
+        n: 3,
+        form: SqlForm::Delta,
+        ty: SqlType::BigInteger,
+    });
+    let size = Value::PlaceholderSize("mark".into(), SqlType::Integer);
+    for (what, v) in [("SqlCount", count), ("PlaceholderSize", size)] {
+        let (engine, l) = compiled();
+        let baseline = baseline_with_value(&engine, 99, v);
+        let ran = sessions_with(
+            &engine,
+            &l,
+            "RPL Tests A",
+            2,
+            &on(),
+            &Setup {
+                baseline: Some(&baseline),
+                ..Default::default()
+            },
+        );
+        for (i, o) in ran.outcomes.iter().enumerate() {
+            assert_eq!(*o, passes(), "{what}: session {i}");
+        }
+        assert_eq!(starts(&engine).replayed(), 0, "{what}: no key, so no start is taken");
+        let line = format!(
+            "login start: 0 replayed, 0 kept (0.0 MB), 0 not imaged, 0 too large, 0 refused by the gate, 2 no key (2: \
+             no byte form: {what})"
+        );
+        assert_eq!(starts(&engine).line().as_deref(), Some(line.as_str()), "{what}");
+        assert_eq!(
+            crate::login_replay::report(&engine),
+            Some(line),
+            "{what}: the report prints it"
+        );
+    }
+}
+
+// Under the check every session takes a key, also one whose login is not raised: such a session has nothing to replay,
+// so a missing key is not counted for it (the apps under test's own login alone is not raised).
+#[test]
+fn a_session_whose_login_is_not_raised_is_not_counted_as_no_key() {
+    use al_builtins::value::{SqlCount, SqlForm, SqlType};
+    let count = Value::SqlCount(SqlCount {
+        n: 3,
+        form: SqlForm::Delta,
+        ty: SqlType::BigInteger,
+    });
+    let (engine, l) = compiled_with(super::login_replay_tests::OWN_LOGIN);
+    let baseline = baseline_with_value(&engine, 99, count);
+    let check = RunOptions {
+        login_replay_check: true,
+        ..Default::default()
+    };
+    let setup = Setup {
+        baseline: Some(&baseline),
+        ..Default::default()
+    };
+    sessions_with(&engine, &l, "RPL Own Tests", 2, &check, &setup);
+    assert_eq!(starts(&engine).line(), None);
+    assert_eq!(crate::login_replay::report(&engine), None);
 }
 
 /// [`MAIN`] with the Company table, a table of the apps under test whose rows the database holds in company `Other`
