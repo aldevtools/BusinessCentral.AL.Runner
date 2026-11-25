@@ -297,6 +297,115 @@ impl Session {
         }))
     }
 
+    /// `CurrPage.SaveRecord()` in the OnValidate of the later SetValue on a page of the page-with-code shape with other code
+    /// (`FactboxStep::CodedTyped`, `CodedObjects::Extra`), on the row its new line became: measured when Rec is that row, its
+    /// view as the SetValue found it (`coded_typed_begins`; a filter set before the save, review of al-runner PR 8847, 01:00Z),
+    /// and the control wrote no row of the page's table since its OnValidate began, and every row of another table written
+    /// since the SetValue began was inserted after it (ListNewLineExtraCodeCodedSecondSetValue.al:771); the Update after it and
+    /// the step end then run under the effect gate
+    /// (`SavedView::extra`: :746, :760, :782 run; a filter set, :793, and a write after the Update, :837, are refused).
+    pub(super) fn extra_code_typed_save(&mut self, st: &St) -> Result<(), Signal> {
+        let began = st.borrow().control_onvalidate.as_ref().map(|c| c.writes);
+        let other_at = st.borrow_mut().coded_typed_begin_at.take();
+        let rec = self.page_rec(st);
+        let key = self.row_key(&rec)?;
+        let landed = st
+            .borrow()
+            .code_inserted_row
+            .as_ref()
+            .is_some_and(|row| Self::same_key(&row.key, &key));
+        let found = st.borrow_mut().coded_typed_view.take();
+        let view_found = found.is_some_and(|v| Self::same_view(&rec.borrow(), &v));
+        let kept = match (began, other_at) {
+            (Some(mark), Some((counter, writes, stamp))) if landed && view_found => {
+                self.page_table_kept_since(st, mark)?
+                    && self.typed_other_writes_inserted_since(st, counter, writes, stamp)?
+            }
+            _ => false,
+        };
+        if !kept {
+            st.borrow_mut().forget_code_inserted_line();
+            return Err(Signal::unsupported(UNMEASURED_CODE));
+        }
+        st.borrow_mut().coded_typed_save_at = Some((self.store.change_counter(), self.last_stamp));
+        extra_code_assume();
+        st.borrow_mut().code_inserted_extra = true;
+        Ok(())
+    }
+
+    /// Whether every row of a table other than the page's that the later SetValue's code wrote after its save is a row it
+    /// inserted there: the cells insert there (ListNewLineExtraCodeCodedSecondSetValue.al:746); a modify or a delete of another
+    /// table's row between the save and the Update is not measured (review of al-runner PR 8847, 02:55Z).
+    pub(super) fn extra_typed_other_writes_inserted(&mut self, st: &St, view: &SavedView) -> Result<bool, Signal> {
+        let Some((counter, stamp)) = st.borrow().coded_typed_save_at else {
+            return Ok(false);
+        };
+        self.typed_other_writes_inserted_since(st, counter, view.writes, stamp)
+    }
+
+    /// Whether every row of a table other than the page's that the later SetValue wrote since `counter`, at write mark
+    /// `writes` and last stamp `stamp`, is a row it inserted there: its SystemCreatedAt is later than that stamp and equal to
+    /// its SystemModifiedAt (stamps only grow, `stamp_millis`), and no row was deleted. The insert before the save is
+    /// ListNewLineExtraCodeCodedSecondSetValue.al:771; the insert after it is :746. A modify or delete before the save is
+    /// refused by this check at `extra_code_typed_save` (review of al-runner PR 8847, 18:55Z); the same shapes after the save
+    /// are refused at `extra_typed_other_writes_inserted`.
+    fn typed_other_writes_inserted_since(
+        &mut self,
+        st: &St,
+        counter: u64,
+        writes: (i64, u64),
+        stamp: i64,
+    ) -> Result<bool, Signal> {
+        if self.write_mark().1 != writes.1 {
+            return Ok(false);
+        }
+        let page_table = self.page_rec(st).borrow().table;
+        let Value::DateTime(after) = crate::hostvalues::datetime_of_unix_millis(stamp) else {
+            return Ok(false);
+        };
+        let cx = self.cx.clone();
+        for table in self.store.tables_changed_since(counter) {
+            if table == page_table {
+                continue;
+            }
+            let Some(def) = self.engine().tables.get(table as usize).cloned().flatten() else {
+                return Ok(false);
+            };
+            let (Some(created), Some(modified)) = (
+                crate::hostvalues::position_of(&def, crate::hostvalues::SYSTEM_CREATED_AT),
+                crate::hostvalues::position_of(&def, crate::hostvalues::SYSTEM_MODIFIED_AT),
+            ) else {
+                return Ok(false);
+            };
+            for row in self.all_rows(&cx, &def)? {
+                let written = crate::stale_rename::row_version(&def, &row).is_some_and(|v| v > writes.0);
+                let inserted = matches!(
+                    (&row[created], &row[modified]),
+                    (Value::DateTime(c), Value::DateTime(m)) if c == m && *c > after
+                );
+                if written && !inserted {
+                    return Ok(false);
+                }
+            }
+        }
+        Ok(true)
+    }
+
+    /// Whether no row of the page's table was written or deleted since the store's write mark was `(mark, deletes)`: every
+    /// stored row's SystemRowVersion is at most the mark, and the delete count is the mark's (`only_other_tables_written`).
+    fn page_table_kept_since(&mut self, st: &St, (mark, deletes): (i64, u64)) -> Result<bool, Signal> {
+        if self.write_mark().1 != deletes {
+            return Ok(false);
+        }
+        let Some(rows) = self.coded_rows(st)? else {
+            return Ok(false);
+        };
+        let table = self.table(&self.page_rec(st))?;
+        Ok(rows
+            .iter()
+            .all(|row| crate::stale_rename::row_version(&table, row).is_some_and(|v| v <= mark)))
+    }
+
     /// `CurrPage.Update(true)` after the save, when the code since kept what `Update(false)` needs kept (`view_kept`): the page
     /// saves Rec again, over the row another record wrote (:476 `A//V`), and asks the refresh; the save after it notes a new
     /// view (`code_inserted_saved`). Otherwise not measured, and refused.

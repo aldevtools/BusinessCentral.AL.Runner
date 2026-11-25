@@ -389,6 +389,7 @@ impl Session {
         self.refuse_after_pinned_end(st, call, Some(&c.target))?;
         self.validate_view_call(st, call, Some(&c.target), args)?;
         self.refuse_off_factbox_row(st, call)?;
+        self.coded_typed_begins(st, call, args)?;
         self.coded_line_before_set_value(st, call)?;
         let control = match c.target {
             ControlTarget::Control(i) => Some(i),

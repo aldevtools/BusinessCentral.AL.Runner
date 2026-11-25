@@ -1,0 +1,18 @@
+# key	entry
+# The later SetValue on a control with code of its own, which saves and updates under the effect gate: the base refused it
+# (only a control without code took a SetValue after the landing); the head runs it.
+LT NV3 Tests::NewLine_SecondSetValueWithCodeOnPageWithCodeAndFactBoxes_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1541, open: ListNewLineExtraCodeCodedSecondSetValue.al)
+LT NV3 Tests::NewLine_SecondSetValueSavesAndUpdates_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1541, open: ListNewLineExtraCodeCodedSecondSetValue.al)
+LT NV3 Tests::NewLine_SecondSetValueWritesAnotherTableBeforeTheSave_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1541, open: ListNewLineExtraCodeCodedSecondSetValue.al)
+LT NV3 Tests::NewLine_SecondSetValueModifiesTheRowThroughAnotherRecordAfterTheSave_ShowsTheOtherWrite	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1541, open: ListNewLineExtraCodeCodedSecondSetValue.al)
+LT NV3 Tests::NewLine_SecondSetValueSavesThenUpdateTrue_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1541, open: ListNewLineExtraCodeCodedSecondSetValue.al)
+LT NV3 Tests::NewLine_SecondSetValueOnAControlWithATableRelation_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1541, open: ListNewLineExtraCodeCodedSecondSetValue.al)
+LT NV3 Tests::NewLine_SecondSetValueAfterTheTestWroteTheRow_SavesThePageRecord	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1541, open: ListNewLineExtraCodeCodedSecondSetValue.al)
+# The review's neighbors (al-runner PR 8847, 01:00Z): a related value typed as stored runs as cell :859 does; the row written
+# by the test between the two SetValues runs as cell :871 does. A related value missing or in another case is refused after
+# the landing, where the base keeps main's refusal of the page with a TableRelation.
+LT NV5 Rel Stored Tests::NewLine_LaterSetValueOfAStoredRelatedValue_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1541, open: ListNewLineExtraCodeCodedSecondSetValue.al)
+LT NV5 Between Tests::NewLine_RowWrittenBetweenTheTwoSetValues_ShowsTheRow	ASSUMED list-new-line-extra-code-coded,list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1541, open: ListNewLineExtraCodeCodedSecondSetValue.al)
+LT NV5 Rel Missing Tests::NewLine_LaterSetValueOfAMissingRelatedValue_SavesItAsTyped	REFUSED a SetValue, after the landing on a List page with code and FactBoxes, into a control with a TableRelation
+LT NV5 Rel Case Tests::NewLine_LaterSetValueOfARelatedValueInAnotherCase_SavesItAsTyped	REFUSED a SetValue, after the landing on a List page with code and FactBoxes, into a control with a TableRelation
+LT NV5 Code Rel Tests::NewLine_LaterSetValueIntoARelationWithACodeKey_ShowsAndSavesTheRow	REFUSED a SetValue, after the landing on a List page with code and FactBoxes, into a control with a TableRelation
