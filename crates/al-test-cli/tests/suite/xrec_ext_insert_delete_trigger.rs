@@ -69,26 +69,7 @@ codeunit 50410 "Z Modify" { Subtype = Test;
 "#;
 
 fn run(codeunit: &str) -> Vec<(String, Outcome)> {
-    let l = al_testkit::compile_apps(vec![al_testkit::app(SRC)]);
-    let engine = al_vm::Engine::new(l.program.clone(), al_testkit::blocked(&l));
-    let oi = l
-        .program
-        .objects
-        .iter()
-        .position(|o| o.name == codeunit)
-        .expect(codeunit);
-    al_testrun::runtime::run_codeunit_full(
-        &engine,
-        &l,
-        oi,
-        None,
-        al_testrun::isolation::TestIsolation::Codeunit,
-        None,
-        &mut Vec::new(),
-        &mut Vec::new(),
-        &mut Vec::new(),
-        None,
-    )
+    al_testkit::outcomes_in(SRC, codeunit)
 }
 
 const MARK: &str = "xRec in a table extension's insert or delete trigger";

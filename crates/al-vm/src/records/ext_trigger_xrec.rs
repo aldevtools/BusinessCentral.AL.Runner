@@ -13,7 +13,7 @@
 //! `copy_refused_mark`, `held_part_field_write`, `Session::unpinned_buffer_op`). A procedure of the table or of a table
 //! extension called on Rec while the trigger runs gets a blank xRec with the same mark (`running_call_xrec.rs`).
 //!
-//! Entry points: `Session::run_ext_trigger_unmeasured_xrec`, `Session::ext_trigger_xrec_mark`.
+//! Entry points: `Session::run_ext_trigger_unmeasured_xrec`, `Session::ext_trigger_xrec_running`.
 
 use crate::Session;
 use crate::records::Rec;
@@ -44,12 +44,11 @@ impl Session {
         self.run_ext_trigger(t, name, rec, Some(&x))
     }
 
-    /// The mark a procedure called on `rc` (a record of table `table`) gives its xRec when a table extension's insert or delete
-    /// trigger runs on `rc` (its xRec carries [`XREC_OF_EXT_INSERT_DELETE_TRIGGER`]).
-    pub(super) fn ext_trigger_xrec_mark(&self, table: usize, rc: &Rec) -> Option<&'static str> {
+    /// Whether a table extension's insert or delete trigger runs on `rc` (a record of table `table`): its xRec carries
+    /// [`XREC_OF_EXT_INSERT_DELETE_TRIGGER`], and so does the xRec of a procedure called on `rc` (`running_call_xrec.rs`).
+    pub(super) fn ext_trigger_xrec_running(&self, table: usize, rc: &Rec) -> bool {
         self.running_xrecs(table, rc)
             .iter()
             .any(|(_, x)| x.borrow().unpinned_buffer == Some(XREC_OF_EXT_INSERT_DELETE_TRIGGER))
-            .then_some(XREC_OF_EXT_INSERT_DELETE_TRIGGER)
     }
 }

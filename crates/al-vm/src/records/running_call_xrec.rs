@@ -79,8 +79,8 @@ impl Session {
     pub(super) fn running_call_xrec(&mut self, object: usize, rc: &Rec, f: &Frame) -> ProcXrec {
         let table = rc.borrow().table as usize;
         // A table extension's insert or delete trigger runs on the record: its xRec is not measured, nor is the procedure's.
-        if let Some(mark) = self.ext_trigger_xrec_mark(table, rc) {
-            return ProcXrec::PlainUnpinned(mark);
+        if self.ext_trigger_xrec_running(table, rc) {
+            return ProcXrec::PlainUnpinned(super::XREC_OF_EXT_INSERT_DELETE_TRIGGER);
         }
         if self.table_or_its_extension(f.object, table) {
             let Some(x) = self.shared_xrec_of_own_procedure(rc, f) else {

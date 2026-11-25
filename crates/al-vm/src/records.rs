@@ -93,13 +93,19 @@ pub(crate) const HELD_PART_REC: &str =
 /// write and every method of it refuse.
 pub(crate) const HELD_PART_XREC: &str = "xRec of a part of a page the test client closed is not measured there";
 
+/// Whether `why` marks an xRec whose buffer and view (filters, key, temporary table) are both not measured, so a field write
+/// and every record method on it refuse: xRec of a held part, and xRec of a table extension's insert or delete trigger
+/// (`ext_trigger_xrec.rs`).
+fn every_method_refuses(why: &str) -> bool {
+    why == HELD_PART_XREC || why == XREC_OF_EXT_INSERT_DELETE_TRIGGER
+}
+
 /// A field write on a record whose buffer is `why`: on Rec of a held part it runs and marks the assumption (not measured); on
-/// its xRec, and on xRec of a table extension's insert or delete trigger (`ext_trigger_xrec.rs`), it refuses. Every other
-/// buffer writes as before.
+/// a mark of [`every_method_refuses`] it refuses. Every other buffer writes as before.
 pub(crate) fn held_part_field_write(why: &str) -> Result<(), Signal> {
     if why == HELD_PART_REC {
         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::HeldPagePartAfterTestPageClose);
-    } else if why == HELD_PART_XREC || why == XREC_OF_EXT_INSERT_DELETE_TRIGGER {
+    } else if every_method_refuses(why) {
         return Err(Signal::unsupported(why));
     }
     Ok(())
@@ -2213,8 +2219,7 @@ impl Session {
         if why == RUN_PAGE_LINK_VARIANT {
             return unsupported(format!("Record.{}(): {RUN_PAGE_LINK_VARIANT}", method.name()));
         }
-        // Neither xRec's buffer nor its view (filters, key, temporary table) is measured: every method refuses.
-        if why == HELD_PART_XREC || why == XREC_OF_EXT_INSERT_DELETE_TRIGGER {
+        if every_method_refuses(why) {
             return unsupported(format!("Record.{}(): {why}", method.name()));
         }
         if why == HELD_PART_REC {
