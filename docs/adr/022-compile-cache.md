@@ -3,7 +3,7 @@
 - Status: Accepted (owner, 2026-10-14; the measurement below amended decisions 2 to 4 and the owner accepted the amendments).
   Amendment 2026-11-15 (cache the compiled workspace apps, changes decision 1): Accepted (owner, 2026-11-19)
   Amendment 2026-11-22 (a kept baseline is taken only at its own instant, changes item 4 of the 2026-10-16
-  amendment): Proposed
+  amendment): Accepted (owner, 2026-11-22)
 - Date: 2026-10-14
 - Amends: ADR-013 (decision 6: its "persistent cache only if the warm start needs it" becomes a design; its
   "lowered IR is not cached" is lifted for dependency apps), ADR-016 (the deferral of persistent dependency
@@ -840,7 +840,8 @@ a folder of its own. The owner allows one persistent cache, so this is the same 
    has started already at another instant, the entry is not used and the install code runs. So every value a test can
    see equals what an uncached run started at that instant would show. The day in the key bounds how far back a
    run's clock can start.
-   (Replaced by the amendment of 2026-11-22 below, Proposed: a run takes the entry only at its own instant.)
+   (Replaced by the amendment of 2026-11-22 below, Accepted (owner, 2026-11-22): a run takes the entry only at its own
+   instant.)
 5. **.NET makes no difference to whether the entry is kept.** A run with a usable .NET host keeps and reads the entry
    like any other. The installed state is a valid result whatever .NET calls happened. The key does hold whether a
    host was usable, because a baseline made without one lacks what the refused calls would have written, and a run
@@ -1345,9 +1346,9 @@ fixed in the compile first; the build is already required to be deterministic (d
 3. The serve field: `cached` keeps its meaning and `workspaceCache` is added (decision 4). The reporter asked for
    `cached: true` on a restarted daemon; that would change what `cached` means for current clients.
 
-## Amendment (Proposed, 2026-11-22): a kept baseline is taken only at its own instant (issue 8457)
+## Amendment (Accepted, owner 2026-11-22): a kept baseline is taken only at its own instant (issue 8457)
 
-Status of this amendment: **Proposed**. It needs the owner's acceptance. It changes item 4 ("The run clock") of the
+Status of this amendment: **Accepted** (owner, 2026-11-22, as written). It changes item 4 ("The run clock") of the
 amendment of 2026-10-16 and goes with the ADR-045 amendment of 2026-11-22 (the run clock begins once per run). It does
 not change the entry's file layout, the other parts of the key or the layer entries.
 
