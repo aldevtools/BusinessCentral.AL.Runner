@@ -84,6 +84,7 @@ pub(crate) fn run_isolated(
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     o.into_iter()
         .map(|(name, outcome)| {

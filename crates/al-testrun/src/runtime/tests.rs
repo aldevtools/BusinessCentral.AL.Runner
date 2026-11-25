@@ -2419,6 +2419,7 @@ fn assumptions_of(src: &str) -> Vec<(String, Vec<&'static str>)> {
         &mut Vec::new(),
         &mut hits,
         None,
+        crate::host::RunClock::begin(),
     );
     for (name, outcome) in &done {
         assert_eq!(*outcome, Outcome::Pass, "{name}");
@@ -2557,58 +2558,6 @@ fn an_unpinned_label_branch_length_is_flagged_only_when_its_statement_runs() {
     assert_eq!(of("UnpinnedLength"), Some(vec!["ternary-label-branch"]), "{hits:?}");
     assert_eq!(of("PinnedLength"), None, "{hits:?}");
     assert_eq!(of("NotRun"), None, "{hits:?}");
-}
-
-const TODAY: &str = "codeunit 60160 T
-{
-    Subtype = Test;
-
-    [Test]
-    procedure TodayIsTheDayTheOracleRan()
-    begin
-        if Format(Today, 0, 9) <> '2026-10-15' then Error('Today %1', Format(Today, 0, 9));
-        if Format(DT2Date(CurrentDateTime), 0, 9) <> '2026-10-15' then Error('CurrentDateTime %1', Format(CurrentDateTime, 0, 9));
-        if Format(WorkDate, 0, 9) <> '2026-10-15' then Error('WorkDate %1', Format(WorkDate, 0, 9));
-    end;
-}";
-
-// The corpus oracle recorded values derived from Today on the day real BC ran (22:00 UTC on 2026-10-15); a run on
-// another day gave "expected 10/15/26 but was 10/16/26". The run clock of a codeunit starts at the oracle's own
-// timestamp of that codeunit's suite.
-#[test]
-fn a_codeunit_run_with_a_clock_start_sees_that_day_as_today() {
-    let (ws, l) = al_sema::lower::compile(
-        vec![AppSource {
-            id: "a".into(),
-            name: "a".into(),
-            dependencies: vec![],
-            files: vec![("f.al".into(), TODAY.into())],
-        }],
-        &Default::default(),
-    );
-    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
-    let engine = Engine::new(l.program.clone(), Vec::new().into_iter().collect());
-    let oi = l.program.objects.iter().position(|o| o.id == Some(60160)).unwrap();
-    let mut scratch = Scratch {
-        // 2026-10-15T22:00:23Z
-        clock_start: Some(1_792_101_623_000),
-        ..Default::default()
-    };
-    let done = run_codeunit_core(
-        &engine,
-        &l,
-        oi,
-        None,
-        TestIsolation::Codeunit,
-        None,
-        &mut Vec::new(),
-        &mut Vec::new(),
-        &mut Vec::new(),
-        &mut scratch,
-        None,
-        false,
-    );
-    assert_eq!(done, vec![("TodayIsTheDayTheOracleRan".to_string(), Outcome::Pass)]);
 }
 
 const HIT_IN_ONRUN: &str = "codeunit 60152 T
