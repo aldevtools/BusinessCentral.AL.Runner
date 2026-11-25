@@ -42,7 +42,9 @@ pub(super) fn stream_text(c: &mut dyn Ctx, stream: &mut Value, want: Option<&str
 /// it (`Some(true)`) or more text (`Some(false)`); `None` when the first value is no string.
 fn first_string(text: &str, into: ReadInto) -> Result<Option<bool>, Signal> {
     Ok(match parse_at(text, Reader::ReadFromStream, Some(into))? {
-        Some((h, whole)) if with_node(&h, |n| matches!(n, JsonNode::Scalar(Scalar::Val(Value::Text(_))))) => Some(whole),
+        Some((h, whole)) if with_node(&h, |n| matches!(n, JsonNode::Scalar(Scalar::Val(Value::Text(_))))) => {
+            Some(whole)
+        }
         _ => None,
     })
 }
