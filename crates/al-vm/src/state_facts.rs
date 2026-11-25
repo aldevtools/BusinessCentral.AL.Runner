@@ -5,7 +5,7 @@
 //! the facts `Session::state_lines` compares besides the globals, bindings and counters, one line
 //! each (al-testrun `login_replay.rs`, al-runner issue 8211): the Global Triggers setups asked, the
 //! event subscriber call counts, the media store, the commits and the last commit's facts, the
-//! committed store's marks (emptied tables, company copies), the SQL counters when inactive and at
+//! committed store's marks (emptied tables, company copies, deleted companies), the SQL counters when inactive and at
 //! rest (else a reason, no form).
 
 use crate::Session;
@@ -73,10 +73,17 @@ impl Session {
     /// The marks of the committed store the committed rows leave out (`MemStore::committed_marks`), sorted: the tables a
     /// DeleteAll without filters emptied (a read of a table whose rows BC holds but the runner does not know answers only
     /// while its table is emptied, records.rs `is_unseeded`) and the company copies (a read in a copy answers with its
-    /// source's backing rows, `MemStore::note_copy`). With either, two sessions with the same rows can answer otherwise.
+    /// source's backing rows, `MemStore::note_copy`) and the deleted companies (a read in a company made again of the name
+    /// answers with no backing row, `MemStore::drop_company`). With any of them, two sessions with the same rows can
+    /// answer otherwise.
     fn committed_marks_line(&self) -> String {
-        let (emptied, copies) = self.store.committed_marks();
-        format!("emptied {} company copies {}", content(&emptied), content(&copies))
+        let m = self.store.committed_marks();
+        format!(
+            "emptied {} company copies {} deleted companies {}",
+            content(&m.emptied),
+            content(&m.copies),
+            content(&m.deleted)
+        )
     }
 
     /// How often the session committed (a record's own read is current against it, `state_render.rs`) and what the last
@@ -117,7 +124,11 @@ mod tests {
         emptied.commit_transaction();
         fresh.commit_transaction();
         let (a, b) = (emptied.state_lines(), fresh.state_lines());
-        let differ: Vec<_> = a.lines.iter().zip(&b.lines).filter(|(x, y)| x != y).collect();
+        // The SQL counters are a line of one session and not of the other (the DeleteAll is a store operation after its
+        // Commit's): the lines without them.
+        let plain = |l: &Vec<String>| l.iter().filter(|l| !l.starts_with("sql ")).cloned().collect::<Vec<_>>();
+        let (a, b) = (plain(&a.lines), plain(&b.lines));
+        let differ: Vec<_> = a.iter().zip(&b).filter(|(x, y)| x != y).collect();
         assert_eq!(differ.len(), 1, "{differ:?}");
         assert!(differ[0].0.starts_with("emptied "), "{differ:?}");
     }
@@ -135,9 +146,40 @@ mod tests {
         copied.store.note_copy("COPY", "CRONUS");
         copied.commit_transaction();
         fresh.commit_transaction();
-        let (a, b) = (copied.state_lines(), fresh.state_lines());
-        let differ: Vec<_> = a.lines.iter().zip(&b.lines).filter(|(x, y)| x != y).collect();
+        // The SQL counters' line depends on the thread's last store operation, which the copy's note is.
+        let lines = |s: &mut crate::Session| -> Vec<String> {
+            (s.state_lines().lines.into_iter())
+                .filter(|l| !l.starts_with("sql "))
+                .collect()
+        };
+        let (a, b) = (lines(&mut copied), lines(&mut fresh));
+        assert_eq!(a.len(), b.len());
+        let differ: Vec<_> = a.iter().zip(&b).filter(|(x, y)| x != y).collect();
         assert_eq!(differ.len(), 1, "{differ:?}");
         assert!(differ[0].0.contains("company copies "), "{differ:?}");
+    }
+
+    // A company deleted with its rows (`MemStore::drop_company`) is a committed mark the committed rows leave out: a
+    // read in a company made again of the name answers with no row of the database's. Two sessions that differ only in
+    // it do not hold the same (maintainer's review of al-runner PR 8665).
+    #[test]
+    fn a_deleted_company_is_a_state_line() {
+        let (_, l) = al_sema::lower::compile(Vec::new(), &Default::default());
+        let engine = crate::Engine::new(l.program, Vec::new());
+        let mut deleted = crate::Session::new(engine.clone());
+        let mut fresh = crate::Session::new(engine);
+        deleted.store.drop_company("Other");
+        deleted.commit_transaction();
+        fresh.commit_transaction();
+        let lines = |s: &mut crate::Session| -> Vec<String> {
+            (s.state_lines().lines.into_iter())
+                .filter(|l| !l.starts_with("sql "))
+                .collect()
+        };
+        let (a, b) = (lines(&mut deleted), lines(&mut fresh));
+        assert_eq!(a.len(), b.len());
+        let differ: Vec<_> = a.iter().zip(&b).filter(|(x, y)| x != y).collect();
+        assert_eq!(differ.len(), 1, "{differ:?}");
+        assert!(differ[0].0.contains("deleted companies "), "{differ:?}");
     }
 }

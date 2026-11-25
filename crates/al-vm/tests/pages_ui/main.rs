@@ -118,6 +118,7 @@ mod part_find_record_both_later_row;
 mod part_host_move;
 mod part_keeps_row_after_update;
 mod part_next_read_only;
+mod part_refresh_find_forward;
 mod part_temp_rec_left_by_host;
 mod part_update_propagation;
 mod part_visible_new_host;

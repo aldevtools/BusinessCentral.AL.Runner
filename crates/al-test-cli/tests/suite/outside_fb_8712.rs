@@ -34,6 +34,7 @@ pub(super) fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<A
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     assert!(!outcomes.is_empty());
     outcomes
