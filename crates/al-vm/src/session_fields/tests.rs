@@ -44,4 +44,25 @@ fn a_refused_field_is_named_and_an_image_only_one_is_not_held_of_install_code() 
     s.sessions_started = 0;
     s.fault_trace = true;
     assert_eq!(s.install_refused_field(), None);
+    assert_eq!(s.image_refused_field(), Some("fault_trace"));
+}
+
+// A group 1 entry a record took back (filter group 1, the global group) leaves no filter, so install code is held to
+// main's rule and passes; the image carries none of the group 1 state, so it refuses the session: the entry still
+// refuses the records that hold a filter in group 1 (`group1_sessions.rs`).
+#[test]
+fn a_taken_back_group_1_entry_refuses_the_image_and_not_install_code() {
+    let l = al_testkit::compile(
+        "table 50100 G1Row { fields { field(1; Id; Integer) { } field(2; Qty; Integer) { } } keys { key(PK; Id) { } } }
+        codeunit 50100 G1 {
+            procedure SetAndTakeBack() var R: Record G1Row; R2: Record G1Row;
+            begin R.FilterGroup(1); R.SetRange(Qty, 5); R2.FilterGroup(1); R2.SetRange(Qty); end; }",
+    );
+    let mut s = Session::new(Engine::new(l.program.clone(), al_testkit::blocked(&l)));
+    let object = s.engine.program.objects.iter().position(|o| o.name == "G1").unwrap();
+    let inst = s.codeunit_instance(object);
+    s.call(object, 0, inst, vec![]).expect("the routine runs");
+    assert!(s.global_group1.is_empty(), "no table holds a group 1 filter");
+    assert_eq!(s.install_refused_field(), None);
+    assert_eq!(s.image_refused_field(), Some("global_group1"));
 }
