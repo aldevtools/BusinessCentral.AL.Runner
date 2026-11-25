@@ -888,6 +888,9 @@ pub struct PageState {
     /// The store's write mark (`Session::write_mark`) when `New()` had started its line (OnNewRecord ran): a later write to the
     /// store before the line is inserted moves it (`split_part_second_control_xrec.rs`). Cleared with `after_new`.
     pub new_line_writes: Option<(i64, u64)>,
+    /// The number of noted Record writes when `New()` started its line; the rewrite gate of a code-inserted line uses the
+    /// exact writes between this and the save. Cleared with `new_line_writes`.
+    pub new_line_record_writes: Option<usize>,
     /// The client call that runs now (or the last one) saved the current row through `CurrPage.Update(true)` in page code;
     /// cleared at the start of every client call on the page except `New()` (al-vm pages/pageops.rs).
     pub saved_by_update: bool,
@@ -1153,6 +1156,7 @@ impl PageState {
     /// The cursor leaves the line `New()` started: `after_new` is taken and `new_line_writes` cleared with it.
     pub(crate) fn take_after_new(&mut self) -> Option<Vec<Value>> {
         self.new_line_writes = None;
+        self.new_line_record_writes = None;
         self.after_new.take()
     }
 
@@ -1261,6 +1265,7 @@ impl PageState {
         self.code_inserted_save = CodeInsertedSave::Off;
         self.code_inserted_extra = false;
         self.coded_line = Default::default();
+        self.new_line_record_writes = None;
     }
 
     /// The page opens: the captions its controls and fields resolved on the last run are gone.

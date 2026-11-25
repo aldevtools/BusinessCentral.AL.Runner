@@ -18,16 +18,21 @@ table 97661 "LT NX Line"
             begin
                 if "Entry No." = 0 then
                     Insert(true);
-                AddDetail(Name);
                 case Mode.Get() of
+                    1, 2:
+                        AddDetail(Name);
                     4:
                         begin
+                            AddDetail(Name);
                             Extra."Group Code" := "Group Code";
                             Extra.Name := 'Extra';
                             Extra.Insert();
                         end;
+                    5, 7, 8:
+                        AddDetail(Name);
                     6:
                         begin
+                            AddDetail(Name);
                             Note := 'Twice';
                             Modify();
                         end;
@@ -138,6 +143,20 @@ page 97664 "LT NX Lines"
                                     CurrPage.SaveRecord();
                                     CurrPage.Update(false);
                                 end;
+                            10:
+                                begin
+                                    StampRow(Rec."Group Code", Rec."Entry No.");
+                                    StampRow(Rec."Group Code", Rec."Entry No.");
+                                    CurrPage.SaveRecord();
+                                    CurrPage.Update(false);
+                                end;
+                            11:
+                                begin
+                                    StampRow(Rec."Group Code", Rec."Entry No.");
+                                    TouchDetails();
+                                    CurrPage.SaveRecord();
+                                    CurrPage.Update(false);
+                                end;
                             else begin
                                 CurrPage.SaveRecord();
                                 CurrPage.Update(false);
@@ -168,6 +187,17 @@ page 97664 "LT NX Lines"
         Other.Get(GroupCode, EntryNo);
         Other.Note := 'Stamped';
         Other.Modify();
+    end;
+
+    local procedure TouchDetails()
+    var
+        Detail: Record "LT NX Detail";
+    begin
+        if Detail.FindSet() then
+            repeat
+                Detail.Text := 'ByPage';
+                Detail.Modify();
+            until Detail.Next() = 0;
     end;
 }
 
@@ -296,8 +326,8 @@ codeunit 97666 "LT NX Tests"
         Check('details', 'A;', Details());
     end;
 
-    // The control writes the line through another record, then another table, then the line again, before the save (follow-up
-    // of the review of the runner pull request 8806: :630 and :654 measure one rewrite).
+    // After the insert alone, the control writes the line through another record, inserts into another table, then writes the
+    // line again, before the save (follow-up of the review of the runner pull request 8806: :630 and :654 measure one rewrite).
     [Test]
     [HandlerFunctions('LinesHandler')]
     procedure NewLine_ControlRewritesTheLineTwiceAroundAnotherTablesWrite_SaveWritesRecOverTheLine()
@@ -307,7 +337,34 @@ codeunit 97666 "LT NX Tests"
         Check('shown after the Name SetValue', 'A//', ShownAfterName);
         Check('shown after the Value SetValue', 'A//V', ShownAfterValue);
         Check('rows', 'A//V;', Rows());
-        Check('details', 'A;ByPage;', Details());
+        Check('details', 'ByPage;', Details());
+    end;
+
+    // After the insert alone, the control writes the line twice through another record and no other table.
+    [Test]
+    [HandlerFunctions('LinesHandler')]
+    procedure NewLine_ControlRewritesTheLineTwiceWithoutAnotherTablesWrite_SaveWritesRecOverTheLine()
+    begin
+        Initialize();
+        RunMode(10);
+        Check('shown after the Name SetValue', 'A//', ShownAfterName);
+        Check('shown after the Value SetValue', 'A//V', ShownAfterValue);
+        Check('rows', 'A//V;', Rows());
+        Check('details', '', Details());
+    end;
+
+    // One rewrite next to a modify of another table is not the insert measured at :630 and :654.
+    [Test]
+    [HandlerFunctions('LinesHandler')]
+    procedure NewLine_ControlRewritesTheLineAndModifiesAnotherTable_SaveWritesRecOverTheLine()
+    begin
+        Initialize();
+        AddDetail('Old');
+        RunMode(11);
+        Check('shown after the Name SetValue', 'A//', ShownAfterName);
+        Check('shown after the Value SetValue', 'A//V', ShownAfterValue);
+        Check('rows', 'A//V;', Rows());
+        Check('details', 'ByPage;', Details());
     end;
 
     [ModalPageHandler]
@@ -353,6 +410,16 @@ codeunit 97666 "LT NX Tests"
         Line."Group Code" := 'G1';
         Line.Name := Name;
         Line.Insert();
+        Commit();
+    end;
+
+    local procedure AddDetail(NewText: Text[30])
+    var
+        Detail: Record "LT NX Detail";
+    begin
+        Detail.Init();
+        Detail.Text := NewText;
+        Detail.Insert();
         Commit();
     end;
 

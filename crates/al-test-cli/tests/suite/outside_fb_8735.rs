@@ -48,13 +48,13 @@ fn issue_8735_probe_cells() {
 /// Writes of another table just past the cells keep the refusal: under TestPage.OpenEdit with a filter, before `Update(true)` with
 /// a row before, with a second row of the page's table inserted, with the row before modified, and with the line modified again
 /// through Rec. The two neighbors of the review of #8806 run as their cells do (:642, :666): the table field and the control both
-/// writing another table before the save, and a FlowField over the written table. After the table field's write of another
-/// table, the control rewriting the line twice around a write of another table keeps the refusal: there the rewrite is measured
-/// as the control's only write (:463), and the control's other writes only after the insert alone (:630, :654).
+/// writing another table before the save, and a FlowField over the written table. After the insert alone, the control rewriting
+/// the line twice, with or without one insert of another table, keeps the refusal: the cells (:630, :654) measure one rewrite.
+/// One rewrite next to a modify of another table keeps it too: those cells measure an insert there.
 #[test]
 fn issue_8735_neighbors_are_refused() {
     let o = super::outside_fb_8712::outcomes(NEIGHBORS, "LT NX Tests");
-    assert_eq!(o.len(), 8);
+    assert_eq!(o.len(), 10);
     let run = [
         "NewLine_TableFieldAndControlWriteAnotherTable_ShowsAndSavesTheRow",
         "NewLine_FlowFieldOverTheWrittenTable_ShowsTheCount",
