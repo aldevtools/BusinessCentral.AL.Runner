@@ -216,15 +216,11 @@ fn a_builtin_that_touches_everything_marks_the_session() {
 /// marks the session all the same (found by the neighbor app `install-order-footprint-everything4`).
 #[test]
 fn a_plain_builtin_that_touches_everything_marks_the_session() {
-    // `Hyperlink` then raises: no UI handler runs here; the call is noted before it runs.
-    let l =
-        al_testkit::compile("codeunit 50100 Probe { procedure Run() begin Hyperlink('https://example.com'); end; }");
-    let mut s = Session::new(Engine::new(l.program.clone(), al_testkit::blocked(&l)));
-    s.install_footprint_start();
-    let inst = s.codeunit_instance(0);
-    let _ = s.call(0, 0, inst, vec![]);
-    let fp = s.install_footprint_take().unwrap();
-    assert!(fp.everything.keys().any(|w| w.contains("Hyperlink")), "{fp:?}");
+    let fp = run_src(
+        "codeunit 50100 Probe { procedure Run() begin if TaskScheduler.CanCreateTask() then; end; }",
+        "Run",
+    );
+    assert!(fp.everything.keys().any(|w| w.contains("TaskScheduler")), "{fp:?}");
 }
 
 const ROW_VERSION_SRC: &str = r#"
@@ -540,13 +536,24 @@ fn every_kept_method_names_a_builtin() {
             assert!(names.iter().any(|n| n.starts_with(&prefix)), "{receiver}.{method}");
         }
     }
+    for receiver in super::KEPT_RECEIVERS {
+        let prefix = format!("{receiver}.");
+        assert!(names.iter().any(|n| n.starts_with(&prefix)), "{receiver}");
+    }
+    for method in super::NAVAPP_KEPT_METHODS {
+        let prefix = format!("NavApp.{method}#");
+        assert!(names.iter().any(|n| n.starts_with(&prefix)), "NavApp.{method}");
+    }
+    for method in super::SESSION_TOUCHING_METHODS {
+        let prefix = format!("Session.{method}#");
+        assert!(names.iter().any(|n| n.starts_with(&prefix)), "Session.{method}");
+    }
 }
 
-/// Issue 9046: the date conversions a pinned corpus case measures as functions of their arguments, and
-/// `TaskScheduler.CanCreateTask`, which the runner answers with a constant, keep nothing. Their neighbors without a pin
-/// (`DaTi2Variant`) and the other `TaskScheduler` methods still touch everything.
+/// Issue 9046: the date conversions a pinned corpus case measures as functions of their arguments keep nothing. Their
+/// neighbor without a pin (`DaTi2Variant`) and every `TaskScheduler` method still touch everything.
 #[test]
-fn date_conversions_and_can_create_task_keep_nothing() {
+fn date_conversions_keep_nothing() {
     let all = |name: &str| {
         let (r, m) = name.split_once('.').unwrap_or((name, ""));
         super::builtin_touches_everything(r, m)
@@ -560,12 +567,12 @@ fn date_conversions_and_can_create_task_keep_nothing() {
         "System.Date2DWY",
         "System.Variant2Date",
         "System.Variant2Time",
-        "TaskScheduler.CanCreateTask",
     ] {
         assert!(!all(kept), "{kept}");
     }
     for every in [
         "System.DaTi2Variant",
+        "TaskScheduler.CanCreateTask",
         "TaskScheduler.CreateTask",
         "TaskScheduler.TaskExists",
         "TaskScheduler.SetTaskReady",

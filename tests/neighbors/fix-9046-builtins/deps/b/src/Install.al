@@ -25,13 +25,13 @@ codeunit 52511 "FP Builtins B Install"
         T := DT2Time(DT);
         D := DMY2Date(15, 1, 2024);
         D := DWY2Date(1, 1, 2024);
+        D := DMY2Date(15);
         V := D;
         D := Variant2Date(V);
         V := T;
         T := Variant2Time(V);
         Row.Code := 'B';
-        Row.Value := Format(D, 0, 9) + Format(T, 0, 9) + Format(Date2DMY(D, 3)) + Format(Date2DWY(D, 2)) +
-            Format(TaskScheduler.CanCreateTask());
+        Row.Value := Format(D, 0, 9) + Format(T, 0, 9) + Format(Date2DMY(D, 3)) + Format(Date2DWY(D, 2));
         Row.Insert();
     end;
 }

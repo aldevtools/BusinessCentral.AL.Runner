@@ -30,8 +30,7 @@ codeunit 52521 "FP Builtins C Install"
         V := T;
         T := Variant2Time(V);
         Row.Code := 'C';
-        Row.Value := Format(D, 0, 9) + Format(T, 0, 9) + Format(Date2DMY(D, 3)) + Format(Date2DWY(D, 2)) +
-            Format(TaskScheduler.CanCreateTask());
+        Row.Value := Format(D, 0, 9) + Format(T, 0, 9) + Format(Date2DMY(D, 3)) + Format(Date2DWY(D, 2));
         Row.Insert();
     end;
 }

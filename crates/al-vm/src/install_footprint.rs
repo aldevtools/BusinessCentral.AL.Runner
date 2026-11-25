@@ -11,9 +11,9 @@
 //!   (`ctx.rs` `module_by_id`); a read of an app table ([`APP_TABLES`]) meets every app;
 //! - touching everything, each reason with the call stack of its first site: a .NET member that is not kept
 //!   ([`dotnet_member_kept`], ADR-079 amendment 1, `dotnet/mod.rs`), a page, a report (`impact.rs`), every builtin
-//!   outside [`KEPT_RECEIVERS`] and [`KEPT_METHODS`] (HTTP, files, StartSession, a TaskScheduler task and so a Job
-//!   Queue run, DataTransfer, XMLports), a table served by a provider other than the app tables (the store), a whole-store read or a company change (the
-//!   store).
+//!   outside [`KEPT_RECEIVERS`] (HTTP, files, StartSession, TaskScheduler and so a Job Queue run, DataTransfer,
+//!   XMLports), a table served by a provider other than the app tables (the store), a whole-store read or a company
+//!   change (the store).
 //!
 //! - the row version read by the SystemRowVersion field: the routines the session ran (`install_footprint_row_version.rs`).
 //!
@@ -227,9 +227,9 @@ const APP_TABLES: &[al_builtins::platform::Virtual] = &[
 /// The builtin receivers whose calls touch no lasting resource, or one the recorder notes at its own site: values of the
 /// session (text, numbers, collections, JSON, XML, streams, errors), the store's readers and writers (recorded by the
 /// store), the isolated storage, number sequence and row version natives (noted in `sessionops.rs`), and code run
-/// (`Codeunit`: its objects are entered, so its apps are met). `System`, `Database`, `Blob`, `Query` and `TaskScheduler`
-/// are kept by method ([`KEPT_METHODS`]). Every other builtin counts as touching everything: HTTP, files, pages, reports,
-/// XMLports, request pages, DataTransfer, Media, CompanyProperty, the test page types and every receiver not named
+/// (`Codeunit`: its objects are entered, so its apps are met). `System`, `Database`, `Blob` and `Query` are kept by
+/// method ([`KEPT_METHODS`]). Every other builtin counts as touching everything: HTTP, files, pages, reports, XMLports,
+/// request pages, TaskScheduler, DataTransfer, Media, CompanyProperty, the test page types and every receiver not named
 /// here (a new one included).
 const KEPT_RECEIVERS: &[&str] = &[
     "BigInteger",
@@ -302,7 +302,7 @@ const KEPT_RECEIVERS: &[&str] = &[
 /// recorder does not classify"): the encryption key and its eight methods, ImportObjects, ExportObjects,
 /// ImportStreamWithUrlAccess, the CodeCoverage methods, Hyperlink, GetDotNetType, CanLoadType; of `Database` the key,
 /// data file, license, password, company copy and table connection methods; `Blob` Import and Export; the `Query`
-/// SaveAs methods; every TaskScheduler method but `CanCreateTask`; and every method not named here (a new one included).
+/// SaveAs methods; and every method not named here (a new one included).
 const KEPT_METHODS: &[(&str, &[&str])] = &[
     (
         "Blob",
@@ -367,8 +367,10 @@ const KEPT_METHODS: &[(&str, &[&str])] = &[
             "CreateDateTime",
             "CreateGuid",
             "CurrentDateTime",
-            // The date conversions are functions of their arguments (and, for the parts `DMY2Date` leaves out, of the
-            // clock, as `Today`): corpus `tests/al-language/types/date-time/DateTimeFuncs.al:61-72` (DT2Date,
+            // The date conversions are functions of their arguments and of two session inputs: the clock (the parts
+            // `DMY2Date` leaves out, as `Today`) and the session time zone (`DT2Date`, `DT2Time`, as the kept
+            // `CreateDateTime` and `CurrentDateTime`), which is UTC here (ADR-014 section 9, al-builtins `datefns.rs:5`).
+            // A zone that came from the session (User Personalization) would make these entries record a read. Corpus `tests/al-language/types/date-time/DateTimeFuncs.al:61-72` (DT2Date,
             // DT2Time), `types/date-time/DateFuncs.al:14-70` (Date2DMY, Date2DWY), `:109-116` (Date2DWY), `:207-216`
             // (DMY2Date), `:311-316` (DWY2Date), `types/date-time/Arithmetic.al:480-494` (Variant2Date,
             // Variant2Time). `DaTi2Variant` has no pin and touches everything.
@@ -423,10 +425,6 @@ const KEPT_METHODS: &[(&str, &[&str])] = &[
             "WorkDate",
         ],
     ),
-    // `CanCreateTask` is answered here with a constant (al-builtins `native/registry.rs`, false in a test, corpus
-    // `tests/al-language/metadata/platform-tables/PlTTaskScheduler.al:26-34`, the same answer twice in a session), so
-    // what it answers does not depend on what an install did. Every other TaskScheduler method touches everything.
-    ("TaskScheduler", &["CanCreateTask"]),
 ];
 
 /// Whether .NET member `member` of type `clr_type` (`None`: a constructor) touches no lasting resource while an install
@@ -445,16 +443,19 @@ fn dotnet_member_kept(clr_type: &str, member: Option<&str>) -> bool {
         || member.is_some_and(|m| crate::dotnet::server_classes::keeps_nothing(clr_type, m))
 }
 
+/// The `NavApp` methods kept: the module info reads.
+const NAVAPP_KEPT_METHODS: &[&str] = &["GetModuleInfo", "GetCurrentModuleInfo", "GetCallerModuleInfo"];
+
+/// The `Session` methods that touch everything: they start, stop or look at another session.
+const SESSION_TOUCHING_METHODS: &[&str] = &["StartSession", "StopSession", "IsSessionActive"];
+
 /// Whether builtin `name` (`Receiver.Method#n`) touches everything while an install session is recorded
 /// ([`KEPT_RECEIVERS`], [`KEPT_METHODS`]). Of `NavApp`, the module info reads are kept (`GetModuleInfo` notes the app it
 /// reads); of `Session`, every method but the ones that start, stop or look at another session.
 fn builtin_touches_everything(receiver: &str, method: &str) -> bool {
     match receiver {
-        "NavApp" => !matches!(method, "GetModuleInfo" | "GetCurrentModuleInfo" | "GetCallerModuleInfo"),
-        "Session" => matches!(
-            method,
-            "StartSession" | "StopSession" | "IsSessionActive" | "IsSessionLoggedIn"
-        ),
+        "NavApp" => !NAVAPP_KEPT_METHODS.contains(&method),
+        "Session" => SESSION_TOUCHING_METHODS.contains(&method),
         r => match KEPT_METHODS.iter().find(|(k, _)| *k == r) {
             Some((_, kept)) => !kept.contains(&method),
             None => !KEPT_RECEIVERS.contains(&r),

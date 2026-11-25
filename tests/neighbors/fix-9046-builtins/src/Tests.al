@@ -1,4 +1,4 @@
-// Issue 9046: each install calls the date conversions and TaskScheduler.CanCreateTask, and writes only its own table.
+// Issue 9046: each install calls the date conversions, and writes only its own table.
 codeunit 52590 "FP Builtins Tests"
 {
     Subtype = Test;
