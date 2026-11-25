@@ -1301,7 +1301,8 @@ mod tests {
     #[test]
     fn an_empty_microsoft_archive_below_the_declared_minimum_is_refused_and_one_that_meets_it_loads() {
         let dir = tempfile::tempdir().unwrap();
-        let json = r#"{"id":"mfg","name":"Placeholder","publisher":"Microsoft","version":"28.0.0.0","dependencies":[]}"#;
+        let json =
+            r#"{"id":"mfg","name":"Placeholder","publisher":"Microsoft","version":"28.0.0.0","dependencies":[]}"#;
         std::fs::write(
             dir.path().join("Placeholder.Source.zip"),
             Builder::new().add("app.json", json.as_bytes(), true).finish(),
@@ -1318,8 +1319,11 @@ mod tests {
                 lazy_sources: false,
             })
         };
-        let err = load("29.0.0.0").err().expect("below the minimum is an error, not a skip");
-        assert!(err.contains("needs version 29.0.0.0 or higher") && err.contains("28.0.0.0"), "{err}");
+        let err = load("29.0.0.0").expect_err("below the minimum is an error, not a skip");
+        assert!(
+            err.contains("needs version 29.0.0.0 or higher") && err.contains("28.0.0.0"),
+            "{err}"
+        );
         let loaded = load("28.0.0.0").unwrap();
         assert_eq!(loaded.apps.len(), 1);
         assert!(loaded.skipped.is_empty());
