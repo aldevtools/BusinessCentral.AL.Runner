@@ -279,6 +279,8 @@ pub(crate) struct TxWrite {
     pub(crate) bulk: Option<BulkEnd>,
     /// The write ran through a RecordRef (`Session::through_recordref`).
     pub(crate) through_recordref: bool,
+    /// A bulk Record write had a record filter (`Session::note_bulk_write`).
+    pub(crate) bulk_filtered: bool,
 }
 
 impl TxState {
