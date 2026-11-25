@@ -434,6 +434,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `slot_default.rs`: The value a routine's local or an object's global… Entry: `slot_default`.
 - `install_left.rs`: `install_left/clients.rs`. Entry: `Session::install_left`.
 - `session_fields.rs`: Every `Session` field in one class of one table. Entry: `Session::at_rest_why`.
+- `login_image.rs`: The session image after the raised login, and a new session made to hold it. Entry: `Session::login_image`.
 - `resource_reads.rs`: The resource files of the apps AL code of a session… Entry: `Session::resource_reads`.
 - `sqlcount.rs`: The model behind `SqlStatementsExecuted` /… Entry: `SqlCounters::read`.
 - `tasks.rs`: `TaskScheduler.CreateTask`, `TaskExists`, `CancelTask`. Entry: `Session::task_scheduler_op`.

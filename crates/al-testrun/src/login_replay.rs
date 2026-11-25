@@ -250,6 +250,17 @@ impl LoginState {
         &self.state
     }
 
+    /// What the thawn `twin` holds now, with the marks and the open writes of `first`, the state of the session it was
+    /// thawn from: those are not session state (al-testrun keeps them next to an image).
+    fn of_twin(twin: &mut Session, first: &LoginState) -> LoginState {
+        LoginState {
+            rows: stored_rows(&twin.store_mut().export_committed().unwrap_or_default()),
+            state: twin.state_lines(),
+            hits: first.hits,
+            open: first.open.clone(),
+        }
+    }
+
     /// What `session` holds now, with the marks `hits` the company open made and what it noted (`wrote`).
     pub(crate) fn of(
         session: &mut Session,
@@ -282,6 +293,86 @@ pub(crate) struct Check {
 struct CheckState {
     exact: Tally,
     across_codeunits: Tally,
+    image: ImageTally,
+}
+
+/// The round trips of the session image (al-vm `login_image`): per new key, whether its session was imaged, why not, its
+/// size, and whether the thawn twin holds what the session holds.
+#[derive(Default)]
+struct ImageTally {
+    keys: u64,
+    /// Per reason (`NotImaged::reason`), the keys whose session was not imaged.
+    not_imaged: std::collections::BTreeMap<String, u64>,
+    /// Per reason (`NotThawed::reason`), the images the twin did not take: no round trip is compared for them.
+    not_thawed: std::collections::BTreeMap<String, u64>,
+    sizes: Vec<al_vm::ImageSize>,
+    differ: u64,
+    /// Per kind of [`KINDS`], the round trips that differ in it.
+    differ_by: [u64; KINDS.len()],
+    first_difference: Option<String>,
+}
+
+impl ImageTally {
+    /// The report line (see [`Check::image_line`]).
+    fn line(&self) -> String {
+        let not: u64 = self.not_imaged.values().sum();
+        let reasons = (!self.not_imaged.is_empty()).then(|| {
+            let by: Vec<String> = (self.not_imaged.iter()).map(|(why, n)| format!("{n}: {why}")).collect();
+            format!(" ({})", by.join(", "))
+        });
+        let refused = (!self.not_thawed.is_empty()).then(|| {
+            let n: u64 = self.not_thawed.values().sum();
+            let by: Vec<String> = (self.not_thawed.iter()).map(|(why, n)| format!("{n}: {why}")).collect();
+            format!(", {n} not thawed ({})", by.join(", "))
+        });
+        let differ = self.first_difference.as_ref().map(|first| {
+            let by: Vec<String> = (KINDS.iter().zip(&self.differ_by))
+                .filter(|(_, n)| **n > 0)
+                .map(|(kind, n)| format!("{kind} {n}"))
+                .collect();
+            format!(" ({}; first: {first})", by.join(", "))
+        });
+        format!(
+            "login image: {} keys, {} imaged, {not} not imaged{}; round trips {}, {} differ{}{}; per key: {}",
+            self.keys,
+            self.sizes.len(),
+            reasons.unwrap_or_default(),
+            self.sizes.len() as u64 - self.not_thawed.values().sum::<u64>(),
+            self.differ,
+            differ.unwrap_or_default(),
+            refused.unwrap_or_default(),
+            self.per_key()
+        )
+    }
+
+    /// The medians of the images' sizes, and the largest image.
+    fn per_key(&self) -> String {
+        if self.sizes.is_empty() {
+            return "none".into();
+        }
+        let median = |f: &dyn Fn(&al_vm::ImageSize) -> u64| {
+            let mut v: Vec<u64> = self.sizes.iter().map(f).collect();
+            v.sort_unstable();
+            v[v.len() / 2]
+        };
+        let mb = |b: u64| format!("{:.1} MB", b as f64 / 1_048_576.0);
+        let largest = (self.sizes.iter())
+            .map(|s| s.rows_bytes + s.state_bytes)
+            .max()
+            .unwrap_or(0);
+        format!(
+            "rows {} (the login's own tables {}), state {}, {} nodes, {} instances, {} temporary tables, {} temporary rows; \
+             largest key {}",
+            mb(median(&|s| s.rows_bytes)),
+            mb(median(&|s| s.rows_own_bytes)),
+            mb(median(&|s| s.state_bytes)),
+            median(&|s| s.nodes as u64),
+            median(&|s| s.instances as u64),
+            median(&|s| s.temp_tables as u64),
+            median(&|s| s.temp_rows as u64),
+            mb(largest)
+        )
+    }
 }
 
 /// The first state of each key, and the sessions compared with it.
@@ -380,16 +471,95 @@ impl Tally {
 }
 
 impl Check {
-    /// Notes the state of a session of `key` after the raised login.
-    pub(crate) fn note(&self, key: Key, state: LoginState) {
+    /// Notes the state of a session of `key` after the raised login. `true`: the key was new.
+    pub(crate) fn note(&self, key: Key, state: LoginState) -> bool {
         let mut s = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         let across = Key {
             test_codeunit: None,
             ..key.clone()
         };
-        if s.exact.note(key, state.clone()) {
+        let new = s.exact.note(key, state.clone());
+        if new {
             s.across_codeunits.note(across, state);
         }
+        new
+    }
+
+    /// A new key's session after the raised login: frozen ([`Session::login_image`]), thawn into `twin` on a thread of
+    /// its own (so nothing of the thaw reaches this thread's state: its store operation count, its assumption marks, its
+    /// instance registry), and the twin's state compared with `state` ([`differences`]). `before_login`: the store's
+    /// change counter before the login. Outcomes do not change: the twin is dropped and `session` is only read. A twin
+    /// that does not take the image (`NotThawed`) is counted, and no round trip is compared for it.
+    pub(crate) fn round_trip(
+        &self,
+        session: &Session,
+        before_login: u64,
+        state: &LoginState,
+        twin: impl FnOnce() -> Session + Send,
+    ) {
+        #[cfg(test)]
+        let (target, plant) = (
+            TWIN_TARGET.with(std::cell::Cell::get),
+            TWIN_PLANT.with(std::cell::Cell::get),
+        );
+        let image = session.login_image(before_login);
+        let thawn = image.as_ref().ok().map(|image| {
+            std::thread::scope(|scope| {
+                // A test thread's stack: the drop of a deep graph recurses on it.
+                std::thread::Builder::new()
+                    .stack_size(crate::runtime::TEST_STACK)
+                    .spawn_scoped(scope, || -> Result<LoginState, al_vm::NotThawed> {
+                        // Declared first, so it drops last: the twin's instances that hold each other are freed.
+                        let _run_end = al_builtins::instance_cycles::RunEnd::new();
+                        let mut twin = twin();
+                        #[cfg(test)]
+                        if let Some(target) = target {
+                            target(&mut twin);
+                        }
+                        twin.thaw_login_image(image)?;
+                        #[cfg(test)]
+                        if let Some(plant) = plant {
+                            plant(&mut twin);
+                        }
+                        Ok(LoginState::of_twin(&mut twin, state))
+                    })
+                    .ok()
+                    .and_then(|thread| thread.join().ok())
+            })
+        });
+        let mut s = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        let t = &mut s.image;
+        t.keys += 1;
+        let (image, thawn) = match (image, thawn) {
+            (Err(why), _) => {
+                *t.not_imaged.entry(why.reason()).or_default() += 1;
+                return;
+            }
+            (Ok(image), Some(thawn)) => (image, thawn),
+            (Ok(_), None) => unreachable!("an image is thawn"),
+        };
+        t.sizes.push(image.size());
+        let differs = match thawn {
+            Some(Ok(twin)) => differences(state, &twin),
+            Some(Err(why)) => {
+                *t.not_thawed.entry(why.reason()).or_default() += 1;
+                return;
+            }
+            None => vec![(0, "not comparable: the thaw did not end".to_string())],
+        };
+        if let Some((_, what)) = differs.first() {
+            t.differ += 1;
+            t.first_difference.get_or_insert(what.clone());
+        }
+        for (k, _) in &differs {
+            t.differ_by[*k] += 1;
+        }
+    }
+
+    /// The image line: `None` before a round trip was tried.
+    fn image_line(&self) -> Option<String> {
+        let s = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        (s.image.keys > 0).then(|| s.image.line())
     }
 
     /// The first state of each key, in the order the keys came.
@@ -443,20 +613,47 @@ impl Check {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Run on the twin after the thaw ([`Check::round_trip`]): a test plants a difference the check must report.
+    pub(crate) static TWIN_PLANT: std::cell::Cell<Option<fn(&mut Session)>> = const { std::cell::Cell::new(None) };
+    /// Run on the twin before the thaw ([`Check::round_trip`]): a test makes it a session the thaw must refuse.
+    pub(crate) static TWIN_TARGET: std::cell::Cell<Option<fn(&mut Session)>> = const { std::cell::Cell::new(None) };
+    /// [`serve_twin`] is on, and how many sessions it replaced.
+    pub(crate) static SERVE_TWIN: std::cell::Cell<(bool, u32)> = const { std::cell::Cell::new((false, 0)) };
+}
+
+/// Under [`SERVE_TWIN`] (tests only), each session after its raised login is replaced by a twin made by `twin` and thawn
+/// from the session's image on this thread, so the codeunit's tests run on the twin: the evidence, at the level of test
+/// results, that a thawn session serves the tests as the session that ran its login does (issue 8211).
+#[cfg(test)]
+pub(crate) fn serve_twin(session: &mut Session, before_login: u64, twin: impl FnOnce() -> Session) {
+    let (on, served) = SERVE_TWIN.with(std::cell::Cell::get);
+    if !on {
+        return;
+    }
+    let image = (session.login_image(before_login)).unwrap_or_else(|why| panic!("no image: {}", why.reason()));
+    let mut twin = twin();
+    twin.thaw_login_image(&image).expect("a new session takes the image");
+    *session = twin;
+    SERVE_TWIN.with(|s| s.set((true, served + 1)));
+}
+
 /// The check of `engine`.
 pub(crate) fn check(engine: &Engine) -> std::sync::Arc<Check> {
     engine.derived(Check::default)
 }
 
-/// The report of `engine`'s check, the check line then the keys line: `None` when no session raised the login under the
-/// check.
+/// The report of `engine`'s check: the check line, the image line when a round trip was tried, then the keys line;
+/// `None` when no session raised the login under the check.
 pub(crate) fn report(engine: &Engine) -> Option<String> {
     let check = check(engine);
     let line = check.line()?;
-    // The keys line comes after the check line, which keeps its place as the first line.
-    Some(match check.keys_line() {
-        Some(keys) => format!("{line}\n{keys}"),
-        None => line,
+    // The keys line comes last, so the check line and the image line keep their places.
+    let keys = check.keys_line().map_or(String::new(), |k| format!("\n{k}"));
+    Some(match check.image_line() {
+        Some(image) => format!("{line}\n{image}{keys}"),
+        None => format!("{line}{keys}"),
     })
 }
 
@@ -707,7 +904,7 @@ mod tests {
 
     // The report never prints a value (the rows are the company's data, issue 8211): a row, a session state line, a value
     // with no comparable form and the open writes that hold a planted value are named by where they differ only, in the
-    // check's line and in each difference it takes its first from.
+    // check's line and in each difference the image line takes its first from.
     #[test]
     fn the_difference_text_names_where_and_never_a_value() {
         let secret = |s: &str| Value::Text(format!("SECRET-VALUE-{s}").as_str().into());

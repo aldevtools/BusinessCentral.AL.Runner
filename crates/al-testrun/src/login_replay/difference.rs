@@ -1,7 +1,7 @@
-//! What differs between the states of two sessions after the login ([`LoginState`]), and the one text the report prints
-//! for it (`login replay check: ... first: ...`): where it differs, never what a row, a session state line or a value
-//! holds. The rows are the company's data (a serve request runs on a customer's database), so a value never reaches the
-//! report (issue 8211).
+//! What differs between the states of two sessions after the login ([`LoginState`]), and the one text both report lines
+//! print for it (`login replay check: ... first: ...` and `login image: ...`): where it differs, never what a row, a
+//! session state line or a value holds. The rows are the company's data (a serve request runs on a customer's
+//! database), so a value never reaches the report (issue 8211).
 //!
 //! The text, per kind of [`KINDS`]:
 //! - `not comparable: codeunit 5 global 1, SQL counters`: per value with no comparable form, the path its producer gives
