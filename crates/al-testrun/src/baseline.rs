@@ -490,7 +490,8 @@ pub fn run_traced_halting(
     }
     // The workspace app's own install codeunits run here, once, so that the data they write is part of what every
     // test codeunit starts from (publishing the app runs them once; they are not re-run for each codeunit).
-    let mut workspace_installs = crate::runtime::run_install_codeunits(lowered, &mut session);
+    let (mut workspace_installs, install_notes) = crate::runtime::run_install_codeunits_noted(lowered, &mut session);
+    notes.extend(install_notes);
     // Tables whose rows depend on the install order of two partner dependency apps (ADR-046 amendment 7): a test that
     // touches one is not run, as for an app under test's install routine that could not run.
     workspace_installs.extend(order_refused);

@@ -533,9 +533,19 @@ fn print_facts(lowered: &Lowered, events: &al_vm::events::Registry, f: &InstallF
 /// 4b; amendment 1, A3 and A4). Returned, per routine that could not run: the tables it touches and why, so tests that
 /// touch them are reported not run. Each routine commits when it ends; one that stops is rolled back.
 pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> Vec<al_vm::SkippedInstall> {
+    run_apps_under_test_noted(lowered, session).0
+}
+
+/// [`run_apps_under_test`] and the notes of the install-order proof, every reason of every tie (`--verbose` prints
+/// them with the baseline notes).
+pub(crate) fn run_apps_under_test_noted(
+    lowered: &Lowered,
+    session: &mut Session,
+) -> (Vec<al_vm::SkippedInstall>, Vec<String>) {
     let engine = session.engine.clone();
     ensure_facts(&engine, lowered);
     let mut skipped = Vec::new();
+    let mut notes = Vec::new();
     let company = session.set_company("");
     session.set_company(&company);
     // BC's install session has no client (`Session::set_install_without_client`).
@@ -558,6 +568,7 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
         plans: &plans,
         company: &company,
         skipped: &mut skipped,
+        notes: &mut notes,
     };
     for app in plans.iter().filter(|a| microsoft.contains(&(a.app as u32))) {
         if app.company.is_empty() && app.database.is_empty() {
@@ -589,15 +600,16 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
     // The test session does not see the SingleInstance state of the install run (PeVTests.al:297, fact 6).
     session.reset_single_instances();
     session.commit_transaction();
-    skipped
+    (skipped, notes)
 }
 
 /// The apps under test, for `install_orders::install_partner_apps` and the Microsoft apps before them.
-struct UnderTestInstalls<'a> {
-    lowered: &'a Lowered,
-    plans: &'a [AppInstall],
-    company: &'a str,
-    skipped: &'a mut Vec<al_vm::SkippedInstall>,
+pub(crate) struct UnderTestInstalls<'a> {
+    pub(crate) lowered: &'a Lowered,
+    pub(crate) plans: &'a [AppInstall],
+    pub(crate) company: &'a str,
+    pub(crate) skipped: &'a mut Vec<al_vm::SkippedInstall>,
+    pub(crate) notes: &'a mut Vec<String>,
 }
 
 impl crate::install_orders::AppInstalls for UnderTestInstalls<'_> {
@@ -621,7 +633,9 @@ impl crate::install_orders::AppInstalls for UnderTestInstalls<'_> {
         self.skipped.push(al_vm::SkippedInstall::new(tables, why));
     }
 
-    fn note(&mut self, _line: String) {}
+    fn note(&mut self, line: String) {
+        self.notes.push(line);
+    }
 }
 
 /// Runs the install code of app under test `app` (`k`: its place in the plan), the session's install view set.

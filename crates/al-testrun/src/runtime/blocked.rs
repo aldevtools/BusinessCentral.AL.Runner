@@ -26,6 +26,14 @@ pub(crate) fn run_install_codeunits(lowered: &Lowered, session: &mut Session) ->
     crate::install::run_apps_under_test(lowered, session)
 }
 
+/// [`run_install_codeunits`] and the install-order notes, for the baseline that prints them.
+pub(crate) fn run_install_codeunits_noted(
+    lowered: &Lowered,
+    session: &mut Session,
+) -> (Vec<al_vm::SkippedInstall>, Vec<String>) {
+    crate::install::run_apps_under_test_noted(lowered, session)
+}
+
 /// The tables of `skipped` (what [`run_install_codeunits`] returns): the install code that could not run touches them, so
 /// the rows they hold are not BC's. Code that reads or writes one, through any path, is not run. The readers, each
 /// watched: a test and the test codeunit's OnRun (`run.rs`, the store's watch next to the static check of their record
