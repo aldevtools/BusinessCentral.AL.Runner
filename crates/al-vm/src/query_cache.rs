@@ -1342,9 +1342,7 @@ impl Session {
             .map(|(then, a)| {
                 let measured_reader = matches!(
                     then.truncate_reader,
-                    TruncateReader::DatabaseRecord
-                        | TruncateReader::TemporaryRecord
-                        | TruncateReader::DatabaseFieldRef
+                    TruncateReader::DatabaseRecord | TruncateReader::TemporaryRecord | TruncateReader::DatabaseFieldRef
                 );
                 let same_truncates = then.truncates == now.truncates
                     || measured_reader
