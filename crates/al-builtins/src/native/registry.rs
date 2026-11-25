@@ -119,7 +119,8 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
         Ok(Value::Text("Microsoft Dynamics 365 Business Central".into()))
     }),
     // False in a test: measured on real BC by session-system/TestEnvironmentUserTenantContracts.al:235
-    // (Assert.IsFalse(TaskScheduler.CanCreateTask())).
+    // (Assert.IsFalse(TaskScheduler.CanCreateTask())). Being a constant, an install's footprint keeps it
+    // (al-vm `install_footprint.rs` `KEPT_METHODS`); an answer that reads state must leave that list.
     ("TaskScheduler.CanCreateTask#1", |_, _, _| Ok(Value::Boolean(false))),
     // CreateTask, TaskExists, CancelTask and SetTaskReady keep the session's tasks: `Ctx::session_op` (al-vm tasks.rs).
     ("Session.StartSession#1", start_session),
