@@ -829,16 +829,18 @@ fn other_places_handed_to_an_unheard_publisher_keep_main_or_refuse() {
     refused("UnheardBaseTableVar", UNHEARD);
 }
 
-// No cell hands an interface method a by-value parameter or an array, or a procedure an element of a global array; a
-// memberless `var` parameter handed to other members and a field whose OptionCaption names its members are not measured
-// either.
+// No cell hands an interface method a by-value parameter or an array, or a procedure an element of a global array; a field
+// whose OptionCaption names its members is not measured either. A memberless `var` parameter handed to other members is
+// measured since (corpus PR 1569, OptionVarMembersCallee.al VarHop_Other_Local: the callee reads the value's list) and
+// runs flagged (var_option_carried.rs).
 #[test]
 fn unmeasured_pairs_of_call_and_caller_refuse() {
     refused("InterfaceByValue", CALLER);
     refused("InterfaceArray", CALLER);
     refused("ProcedureGlobalArrayElement", CALLER);
-    refused("MemberlessVarParamToOtherMembers", CALLER);
     refused("CaptionNamesMembersToProcedure", CALLER);
+    let (out, flagged) = run("MemberlessVarParamToOtherMembers");
+    assert_eq!((out.unwrap(), flagged), ("Second@Second".to_string(), true));
 }
 
 // Neighbors: an element of a local array to a procedure is measured (OptionVarMemberLists.al:491); a field to a parameter

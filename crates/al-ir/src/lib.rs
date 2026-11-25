@@ -550,6 +550,10 @@ pub const EXT_CAPTION_OVER_OWN: &str = "$ExtCaptionOverOwn";
 /// profile it extends. The All Profile rows read the extension's `Enabled` through it.
 pub const EXTENDS_PROFILE: &str = "$ExtendsProfile";
 
+/// The name of an object property the lowering adds to a codeunit that lists an interface after `implements` (value
+/// `Yes`), resolved or not: an Interface, List or Dictionary of an interface can hold an instance of it.
+pub const IMPLEMENTS_INTERFACE: &str = "$ImplementsInterface";
+
 /// The name of an object property the lowering adds to a test codeunit with ITestHandler callbacks (BC 29): its handler
 /// codeunits in call order, `D<id>` for a DefaultTestHandler handler and `O<id>` for one its TestHandlers names, separated
 /// by commas (al-sema `lower/test_handlers.rs`).
@@ -1857,6 +1861,14 @@ pub struct Slot {
     /// `Lowerer::security_filtering_read_refusal`).
     #[serde(default)]
     pub security_filtering_not_kept: bool,
+    /// A global declared `Label 'text'` with a text that is not empty and no property (al-sema `shared::plain_label`): its
+    /// reads lower to its text, and AL code cannot assign or clear it (corpus must-not-compile 0350, 2628).
+    #[serde(default)]
+    pub plain_label: bool,
+    /// A global declared `Label 'text', Comment = 'text'` with two texts that are not empty and no other property (al-sema
+    /// `shared::comment_label`).
+    #[serde(default)]
+    pub comment_label: bool,
 }
 
 impl Slot {
@@ -1867,6 +1879,8 @@ impl Slot {
             ty,
             security_filtering: None,
             security_filtering_not_kept: false,
+            plain_label: false,
+            comment_label: false,
         }
     }
 }

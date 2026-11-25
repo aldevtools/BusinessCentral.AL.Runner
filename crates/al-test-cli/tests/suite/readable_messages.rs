@@ -52,7 +52,7 @@ const KEPT: &[(&str, &str, &str)] = &[
     (
         "al-vm/src/state_render.rs",
         r#"format!("{x:?}")"#,
-        "the content of a session's state for the login replay check (ALRUNNER_LOGIN_REPLAY_CHECK), compared across sessions and shown only in the check's report line",
+        "the content of a session's state for the login replay check (ALRUNNER_LOGIN_REPLAY_CHECK), compared across sessions, never shown: the report names only the place of a differing line",
     ),
     (
         "al-testrun/src/login_replay.rs",
@@ -61,13 +61,13 @@ const KEPT: &[(&str, &str, &str)] = &[
     ),
     (
         "al-testrun/src/login_replay.rs",
-        r#"(a.hits != b.hits).then(|| format!("assumption marks: {:?} | {:?}", a.hits, b.hits)),"#,
-        "the assumption marks two sessions differ in, in the login replay check's report line (ALRUNNER_LOGIN_REPLAY_CHECK), not a message of a test",
+        r#"open: format!("{wrote:?}"),"#,
+        "what the company open noted for the tests, compared across sessions by the login replay check (ALRUNNER_LOGIN_REPLAY_CHECK), never shown",
     ),
     (
-        "al-testrun/src/login_replay.rs",
-        r#"open: format!("{wrote:?}"),"#,
-        "what the company open noted for the tests, compared across sessions by the login replay check (ALRUNNER_LOGIN_REPLAY_CHECK) and shown only in its report line",
+        "al-testrun/src/login_replay/difference.rs",
+        r#"v => Cell::Value(format!("{v:?}")),"#,
+        "a field of a committed row, compared across sessions by the login replay check (ALRUNNER_LOGIN_REPLAY_CHECK), never shown: the report names only where rows differ",
     ),
     (
         "al-testrun/src/runtime/baseline_key.rs",
