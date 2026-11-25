@@ -481,3 +481,46 @@ fn the_dotnet_members_that_keep_nothing() {
     ));
     assert!(!kept("System.IO.File", Some("WriteAllText")));
 }
+
+/// A member of a CLR array type (`System.Byte[]`, any `T[]`) is the member of `System.Array` that `inproc.txt` lists
+/// (`Byte[].Length` and `Byte[].GetValue` in Cryptography Management Impl.); a member it does not list, a multi-
+/// dimensional array type and a type that only contains `[]` still touch everything (al-runner issue 8954).
+#[test]
+fn an_array_member_is_the_system_array_member() {
+    let kept = super::dotnet_member_kept;
+    assert!(kept("System.Byte[]", Some("Length")));
+    assert!(kept("System.Byte[]", Some("GetValue")));
+    assert!(kept("System.Byte[]", Some("SetValue")));
+    assert!(kept("System.String[]", Some("GetValue")));
+    assert!(!kept("System.Byte[]", Some("Clone")));
+    assert!(!kept("System.Byte[]", None), "constructor");
+    assert!(!kept("System.Byte[,]", Some("Length")));
+    assert!(!kept("[]", Some("Length")));
+    assert!(!kept(
+        "System.Collections.Generic.List`1[System.Byte[]]",
+        Some("Length")
+    ));
+}
+
+/// An encoding `Encoding.UTF8`, `ASCII` or `Unicode` answers and an algorithm `HashAlgorithm.Create` answers have a
+/// runtime type of their own (`System.Text.UTF8Encoding+UTF8EncodingSealed`, `System.Security.Cryptography.SHA256Managed`);
+/// their members are the `System.Text.Encoding` and `HashAlgorithm` members `inproc.txt` lists. A member it does not list
+/// and another subclass still touch everything (al-runner issue 8954, neighbor app install-order-footprint-dotnet-array).
+#[test]
+fn an_encoding_or_hash_instance_member_is_the_listed_base_member() {
+    let kept = super::dotnet_member_kept;
+    assert!(kept("System.Text.UTF8Encoding+UTF8EncodingSealed", Some("GetBytes")));
+    assert!(kept("System.Text.ASCIIEncoding+ASCIIEncodingSealed", Some("GetString")));
+    assert!(kept("System.Text.UnicodeEncoding", Some("GetByteCount")));
+    assert!(kept("System.Security.Cryptography.SHA256Managed", Some("ComputeHash")));
+    assert!(kept(
+        "System.Security.Cryptography.MD5CryptoServiceProvider",
+        Some("Dispose")
+    ));
+    assert!(!kept(
+        "System.Text.UTF8Encoding+UTF8EncodingSealed",
+        Some("GetPreamble")
+    ));
+    assert!(!kept("System.Text.UTF32Encoding", Some("GetBytes")));
+    assert!(!kept("System.Security.Cryptography.HMACSHA256", Some("ComputeHash")));
+}

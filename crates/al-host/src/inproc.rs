@@ -49,6 +49,24 @@ pub fn lists(clr_type: &str, member: Option<&str>) -> bool {
     })
 }
 
+/// The type [`MEMBERS`] lists the members of an object of runtime type `clr_type` under: `System.Array` for a
+/// one-dimensional array type (`System.Byte[]`, any `T[]`), whose members are `System.Array`'s; `System.Text.Encoding`
+/// for the encodings `Encoding.UTF8`, `ASCII` and `Unicode` answer ([`Enc`]); `System.Security.Cryptography.HashAlgorithm`
+/// for the algorithms `HashAlgorithm.Create` answers ([`Algo`]); else the type itself.
+pub fn listed_type(clr_type: &str) -> &str {
+    const ENCODINGS: [Enc; 3] = [Enc::Utf8, Enc::Ascii, Enc::Unicode];
+    const ALGORITHMS: [Algo; 5] = [Algo::Md5, Algo::Sha1, Algo::Sha256, Algo::Sha384, Algo::Sha512];
+    if clr_type.strip_suffix("[]").is_some_and(|element| !element.is_empty()) {
+        "System.Array"
+    } else if ENCODINGS.iter().any(|e| e.clr_type() == clr_type) {
+        "System.Text.Encoding"
+    } else if ALGORITHMS.iter().any(|a| a.clr_type() == clr_type) {
+        "System.Security.Cryptography.HashAlgorithm"
+    } else {
+        clr_type
+    }
+}
+
 /// The host to give the engine: `host` wrapped with the stand-ins, or `host` itself when `ALRUNNER_NO_INPROC` is set.
 pub fn wrap(host: Arc<dyn DotNetHost>) -> Arc<dyn DotNetHost> {
     if std::env::var_os("ALRUNNER_NO_INPROC").is_some() {

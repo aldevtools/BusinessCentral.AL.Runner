@@ -420,15 +420,17 @@ const KEPT_METHODS: &[(&str, &[&str])] = &[
 
 /// Whether .NET member `member` of type `clr_type` (`None`: a constructor) touches no lasting resource while an install
 /// session is recorded (al-runner issue 8954):
-/// - one of the pure framework members served in process (al-host `inproc.txt`, ADR-038 section 1). It reads and writes
-///   only .NET objects of the session, which live no longer than the install session (ADR-079 fact 1); what install code
-///   takes from them reaches a lasting resource only through code the recorder sees;
+/// - a pure framework member listed in al-host `inproc.txt` (ADR-038 section 1), whichever host serves it. It reads and
+///   writes only .NET objects of the session, which live no longer than the install session (ADR-079 fact 1, corpus
+///   `tests/al-language/record/BfInstallTests.al:125-140`); what install code takes from them reaches a lasting resource
+///   only through code the recorder sees. A member of an object whose runtime type is a `T[]`, an encoding or a hash
+///   algorithm is the member of the type the list names it under (`inproc::listed_type`);
 /// - a server class member whose implementation here answers with a constant or the host identity and keeps nothing
 ///   (`server_classes::keeps_nothing`); what it answers does not depend on what an install did.
 ///
 /// Every other member touches everything (ADR-079 decision 1), every other server class member included.
 fn dotnet_member_kept(clr_type: &str, member: Option<&str>) -> bool {
-    al_host::inproc::lists(clr_type, member)
+    al_host::inproc::lists(al_host::inproc::listed_type(clr_type), member)
         || member.is_some_and(|m| crate::dotnet::server_classes::keeps_nothing(clr_type, m))
 }
 

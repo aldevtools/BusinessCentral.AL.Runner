@@ -219,7 +219,7 @@ impl MemStore {
                 al_builtins::value_codec::encode_row(a, &mut x) && al_builtins::value_codec::encode_row(b, &mut y);
             Some(plain && x == y)
         };
-        let Some(changes) = self.committed_row_changes_from(before, &mut same) else {
+        let Some(changes) = self.committed_row_changes_from(before, super::BeforeRows::Backing, &mut same) else {
             return Err(("the companies copied or deleted changed", None));
         };
         let covers_table = |company: &str, object: u32| {

@@ -1,3 +1,5 @@
 # key	entry
 # No difference: on head A still touches everything and ties B and C, as on main; a tangle of three has all its
-# orders tried. Four such apps stay refused (al-testrun install_partner_order.rs, the Unattributed Install test).
+# orders tried. Four such apps stay refused (al-testrun install_partner_order.rs,
+# four_installs_tied_by_a_dotnet_member_that_is_not_kept_are_not_run; a neighbor app cannot show it, as no test runs on
+# either side).

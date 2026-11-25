@@ -263,8 +263,12 @@ Decision 1 counts every .NET call as touching everything. Outside reporters' sui
 installs whose .NET calls cannot reach a lasting resource, and the whole suite is refused. This amendment narrows the
 .NET row of decision 1 to two exact lists; every other .NET call keeps touching everything.
 
-1. **A pure framework member served in process** (al-host `inproc.txt`, ADR-038 section 1), matched by its exact CLR
-   type and member name (case-insensitive member), the constructor as `.ctor`. Such a member reads and writes only .NET
+1. **A pure framework member listed in `inproc.txt`** (al-host, ADR-038 section 1), whichever host serves it, matched
+   by its exact CLR type and member name (case-insensitive member), the constructor as `.ctor`. A member called on
+   an object whose runtime type is a subtype the list names by its base is matched as that base's member
+   (`inproc::listed_type`): a one-dimensional array type (`System.Byte[]`, any `T[]`) as `System.Array`, the encodings
+   `Encoding.UTF8`, `ASCII` and `Unicode` answer as `System.Text.Encoding`, the algorithms `HashAlgorithm.Create` answers
+   as `HashAlgorithm`. Such a member reads and writes only .NET
    objects of the session. By fact 1 no session state, and so no .NET object in a local, a global or a SingleInstance
    global, carries from one app's install to another's. What install code takes from such an object reaches a lasting
    resource only through code the recorder sees (a record write, isolated storage, ...).
@@ -281,7 +285,8 @@ created, a target that cannot be resolved) keeps touching everything.
 **Recorder fix in the same pull request (not a change of the decision).** The safety net of step 1 compared a table the
 store before the session held no entry for with no rows; the session's first write copies the test data's rows of that
 table in (`table_mut`), so every such row looked like a write nobody recorded and the install touched everything. It
-now compares with the rows the store before the session read for it (`row_changes.rs`). The refusal of a unit larger
+now compares with the rows the store before the session read for it (`row_changes.rs`, `BeforeRows::Backing`, passed by
+the safety net only; the login image keeps taking such a table whole). The refusal of a unit larger
 than three apps names, per reason, the call site, the install that reached it and the apps.
 
 ## Options considered

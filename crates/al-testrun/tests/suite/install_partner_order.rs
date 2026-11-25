@@ -694,9 +694,10 @@ fn an_install_that_touches_everything_next_to_three_other_installs_is_refused() 
     }
 }
 
-/// A partner install that builds a local `System.Text.StringBuilder` and writes its text into its own JQ Entry row
-/// (`no`); the first (`no` 1) also writes the Install Mark that `PartnerInstallRan` reads.
-fn string_builder(object: u32, name: &str, no: u32) -> String {
+/// A partner install that builds a local `System.Text.StringBuilder`, calls `call` on it (`B.Append('S1')`) and writes
+/// its text into its own JQ Entry row (`no`); the first (`no` 1) also writes the Install Mark that `PartnerInstallRan`
+/// reads.
+fn string_builder(object: u32, name: &str, no: u32, call: &str) -> String {
     format!(
         r#"
 dotnet {{ assembly("mscorlib") {{ type("System.Text.StringBuilder"; "{name} Builder") {{ }} }} }}
@@ -712,7 +713,7 @@ codeunit {object} "{name} Install"
         M: Codeunit "Marks";
     begin
         B := B.StringBuilder();
-        B.Append('{name}');
+        {call};
         E."No." := {no};
         E.Note := B.ToString();
         if E.Insert() then;
@@ -737,28 +738,28 @@ fn four_installs_with_a_local_string_builder_run() {
                 "Partner S1",
                 "Partner",
                 vec![BASE_ID],
-                string_builder(73400, "S1", 1),
+                string_builder(73400, "S1", 1, "B.Append('S1')"),
             ),
             (
                 PB_ID,
                 "Partner S2",
                 "Partner",
                 vec![BASE_ID],
-                string_builder(74000, "S2", 2),
+                string_builder(74000, "S2", 2, "B.Append('S2')"),
             ),
             (
                 PC_ID,
                 "Partner S3",
                 "Partner",
                 vec![BASE_ID],
-                string_builder(75000, "S3", 3),
+                string_builder(75000, "S3", 3, "B.Append('S3')"),
             ),
             (
                 PD_ID,
                 "Partner S4",
                 "Partner",
                 vec![BASE_ID],
-                string_builder(76000, "S4", 4),
+                string_builder(76000, "S4", 4, "B.Append('S4')"),
             ),
         ],
         al_vm::dotnet::DotNetConfig {
@@ -769,6 +770,83 @@ fn four_installs_with_a_local_string_builder_run() {
         },
     );
     assert_eq!(outcome(&rt, "PartnerInstallRan"), Outcome::Pass);
+}
+
+/// A .NET host that answers every construction with a new handle, `ToString` with a text and every other call with the
+/// StringBuilder it was called on.
+struct Answering(u64);
+
+impl al_host::dotnet::DotNetSession for Answering {
+    fn construct(&mut self, ty: &al_host::dotnet::DotNetType, _: Vec<al_host::dotnet::DotNetArg>) -> Answer {
+        self.0 += 1;
+        Ok(al_host::dotnet::DotNetReply::value(
+            al_host::dotnet::DotNetValue::Handle {
+                handle: self.0,
+                ty: ty.name.clone(),
+            },
+        ))
+    }
+    fn invoke(&mut self, t: al_host::dotnet::DotNetTarget, m: &str, _: Vec<al_host::dotnet::DotNetArg>) -> Answer {
+        let value = match (t, m) {
+            (_, "ToString") => al_host::dotnet::DotNetValue::Str("text".into()),
+            (al_host::dotnet::DotNetTarget::Instance(handle), _) => al_host::dotnet::DotNetValue::Handle {
+                handle,
+                ty: "System.Text.StringBuilder".into(),
+            },
+            _ => al_host::dotnet::DotNetValue::Null,
+        };
+        Ok(al_host::dotnet::DotNetReply::value(value))
+    }
+    fn get_property(&mut self, _: al_host::dotnet::DotNetTarget, _: &str) -> Answer {
+        Ok(al_host::dotnet::DotNetReply::value(al_host::dotnet::DotNetValue::Null))
+    }
+    fn set_property(&mut self, _: al_host::dotnet::DotNetTarget, _: &str, _: al_host::dotnet::DotNetValue) -> Answer {
+        Ok(al_host::dotnet::DotNetReply::value(al_host::dotnet::DotNetValue::Null))
+    }
+    fn release(&mut self, _: &[al_host::dotnet::DotNetHandle]) {}
+    fn close(self: Box<Self>) {}
+}
+
+type Answer = Result<al_host::dotnet::DotNetReply, al_host::dotnet::DotNetFailure>;
+
+struct AnsweringHost;
+
+impl al_host::dotnet::DotNetHost for AnsweringHost {
+    fn availability(&self) -> Result<(), al_host::dotnet::DotNetUnavailable> {
+        Ok(())
+    }
+    fn open_session(&self, _: &al_host::dotnet::DotNetSessionConfig) -> Box<dyn al_host::dotnet::DotNetSession> {
+        Box::new(Answering(0))
+    }
+}
+
+/// al-runner issue 8954, ADR-079 amendment 1: `StringBuilder.Insert` is not in `inproc.txt`, so each of four installs
+/// that call it touches everything; the four tie into one unit larger than three, which stays refused as on main
+/// (a neighbor app cannot show it: no test runs on either side).
+#[test]
+fn four_installs_tied_by_a_dotnet_member_that_is_not_kept_are_not_run() {
+    let insert = |o, n: &str, no| string_builder(o, n, no, &format!("B.Insert(0, '{n}')"));
+    let rt = run_on(
+        vec![
+            base(),
+            (PA_ID, "Partner I1", "Partner", vec![BASE_ID], insert(73400, "I1", 1)),
+            (PB_ID, "Partner I2", "Partner", vec![BASE_ID], insert(74000, "I2", 2)),
+            (PC_ID, "Partner I3", "Partner", vec![BASE_ID], insert(75000, "I3", 3)),
+            (PD_ID, "Partner I4", "Partner", vec![BASE_ID], insert(76000, "I4", 4)),
+        ],
+        al_vm::dotnet::DotNetConfig {
+            host: std::sync::Arc::new(al_host::inproc::InprocHost::new(std::sync::Arc::new(AnsweringHost))),
+            ..Default::default()
+        },
+    );
+    match outcome(&rt, "PartnerInstallRan") {
+        Outcome::NotRun(why) => assert!(
+            why.contains("4 apps tied by their installs")
+                && why.contains("a .NET call (System.Text.StringBuilder.Insert)"),
+            "{why}"
+        ),
+        other => panic!("expected not run, got {other:?}"),
+    }
 }
 
 /// A partner install that writes JQ Entry 9 with its own note: four of them write the same row.
