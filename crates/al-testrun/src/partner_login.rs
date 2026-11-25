@@ -282,6 +282,7 @@ pub(crate) fn raise(
             }
         }
     }
+    session.mark_declared_form(&change);
     left.group1.extend(before.group1_changed(&after));
     left.watch_after(session);
     Ok(())
