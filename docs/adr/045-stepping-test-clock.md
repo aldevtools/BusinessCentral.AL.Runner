@@ -1,6 +1,6 @@
 # ADR-045: The test clock moves forward on every read
 
-- Status: Accepted (owner, 2026-10-18)
+- Status: Accepted (owner, 2026-10-18). Amendment 2026-11-22 (the run clock begins once per run): Proposed
 - Date: 2026-10-18
 - Amends: ADR-013 decision 9, item 2 (the clock is frozen by default)
 
@@ -145,6 +145,7 @@ every read, and by n milliseconds on `Sleep(n)`.
    amendment holds: the date stays the wall clock's, the time of day is the same in every run, a kept install baseline
    starts where its run started, and `ALRUNNER_REAL_CLOCK=1` is unchanged. Stepping (1 ms per read, n ms per `Sleep(n)`)
    and the catch-up rules of the later amendments do not change.
+   (The day and the kept baseline's start are replaced by the amendment of 2026-11-22 below, Proposed.)
 2. **Why.** Noon is a value test authors write as a constant. A test that compares `Time` with `120000T` passed in every
    run here, while on BC it passes only when the test runs at noon (al-runner issue 8161, found by mutation testing). A
    time with odd seconds and milliseconds is one no test writes by chance, so such a test now fails here as it does on BC
@@ -155,3 +156,29 @@ every read, and by n milliseconds on `Sleep(n)`.
    changed.
 4. **What does not match BC.** The same as before: BC's `Time` is the wall clock. No corpus case depends on the start
    (the corpus harness starts each oracle codeunit's clock at its suite timestamp).
+
+## Amendment: the run clock begins once per run (2026-11-22, issue 8457)
+
+### Status: Proposed (needs the owner's acceptance)
+
+1. **The host instant is 12:34:56.789 UTC of the UTC day the run begins** (`al-testrun` `RunClock::begin`), fixed for
+   the whole run: every session of the run, the install baseline's key and its file read that one value. A run is one
+   command-line invocation, or one request of `al-runner serve`. A server kept past midnight begins its next request on
+   the new day, as a new server would, and a request that runs across midnight keeps the day it began.
+2. **What this replaces.** "Fixed at the first read of a run" (decision 1), "the UTC day the run first reads the
+   clock" (item 1 of the 2026-10-19 and 2026-11-15 amendments) and "a kept install baseline starts where its run
+   started" (the same items). The start was one value per process, set at the process's first clock read, so a server
+   kept past midnight answered `Today`, `WorkDate` and `CurrentDateTime` with the day of its first request, and a
+   baseline file could carry that day to another process (issue 8457). A run no longer moves its clock to the instant
+   of a kept baseline: it takes the baseline only when the baseline's instant equals its own start (ADR-022, amendment
+   of 2026-11-22).
+3. **Where one run runs its program more than once** (the strict second pass, a narrowing redo, the variants of a
+   stability run), the clock is begun once and passed on, so every pass sees the same start.
+4. **`ALRUNNER_REAL_CLOCK=1`** is read when the run begins, not at each read. Its meaning is unchanged.
+5. **What does not change.** The time of day (`RUN_CLOCK_TIME_OF_DAY`), the date of the wall clock, stepping (1 ms per
+   read, n ms per `Sleep(n)`) and the catch-up rules. Within one UTC day every run starts at the same instant as before;
+   the answers differ only when midnight passes between a process's first clock read and a later run in it, or
+   between the start of a run and its first clock read.
+6. **Tests.** `crates/al-testrun/tests/run_clock_day.rs`: a process whose earlier run began yesterday answers today as a
+   fresh process does; a baseline file a kept process wrote today holds today's instant; three requests of one server,
+   the first begun yesterday.

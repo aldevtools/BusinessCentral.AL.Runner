@@ -7,8 +7,8 @@
 //! (record/filters/P130DateFilters.al:122), so a DateTime column holds the clock's instant only when it lies on that grid,
 //! which the run clock's start (12:34:56.789, ADR-045 amendment 2026-11-15) does not.
 //!
-//! The run clock is read once per process, so the run that writes the file is another process (this test starts
-//! itself with `BASELINE_CLOCK_CHILD` set).
+//! The run that writes the file is another process (this test starts itself with `BASELINE_CLOCK_CHILD` set): the reader
+//! shares nothing with it but the file.
 
 use al_sema::workspace::AppSource;
 use al_testrun::Outcome;

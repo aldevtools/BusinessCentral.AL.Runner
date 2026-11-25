@@ -1,26 +1,17 @@
 //! The host the command line gives a session (ADR-006): the real wall clock, and AL Runner's
 //! identity. The core crates read both through `al-host`; only this crate touches the OS.
 //!
-//! Entry points: `SystemClock`, `set_files_dir`, `real_clock` (`ALRUNNER_REAL_CLOCK`, read once per
-//! process), `system_host`, `DirFileSystem`.
+//! Entry points: `SystemClock`, `RunClock` (the clock of a run, ADR-045: begun once per run, so per
+//! request of a server, al-runner issue 8457), `set_files_dir`, `real_clock` (`ALRUNNER_REAL_CLOCK`,
+//! read once per process), `system_host`, `DirFileSystem`.
 
 use al_host::{AlRunnerIdentity, Clock, FileSystem, Host};
 use std::path::{Component, PathBuf};
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// The system clock, read once: 12:34:56.789 UTC of the day the run first asked for the time ([`run_clock_start`]).
-/// Every later answer is that instant (the session adds 1 ms per read and the time `Sleep` has waited, ADR-045, and
-/// keeps system stamps strictly increasing, see `al-host`). A clock that ran with the wall would make an outcome depend
-/// on the load of the machine: `Item.OnModify` sets "Last Time Modified" to `Time`, and
-/// `Format(xRec) <> Format(Rec)` is then true only when a second passed between the insert and the
-/// modify, which decides whether Base Application's workflow subscriber runs. A clock that started at the wall time
-/// of the first read would make it depend on when the run began (ADR-045 amendment, 2026-10-19). The wall clock is
-/// back with `ALRUNNER_REAL_CLOCK=1`.
+/// The wall clock, read at each read: the clock of [`RunClock::Wall`] (`ALRUNNER_REAL_CLOCK=1`).
 pub struct SystemClock;
-
-/// The instant the run began: set by the first read of [`SystemClock`], or by [`SystemClock::begin_at`] before it.
-static RUN_START: OnceLock<i64> = OnceLock::new();
 
 /// Milliseconds in a day.
 const MS_PER_DAY: i64 = 86_400_000;
@@ -40,7 +31,7 @@ pub fn run_clock_start(wall: i64) -> i64 {
 }
 
 impl SystemClock {
-    /// The wall clock, read now. It does not start the run clock.
+    /// The wall clock, read now.
     pub fn wall() -> i64 {
         match SystemTime::now().duration_since(UNIX_EPOCH) {
             Ok(d) => d.as_millis() as i64,
@@ -52,30 +43,46 @@ impl SystemClock {
 
 impl Clock for SystemClock {
     fn now_utc_millis(&self) -> i64 {
-        if real_clock() {
-            return SystemClock::wall();
-        }
-        *RUN_START.get_or_init(|| run_clock_start(SystemClock::wall()))
+        SystemClock::wall()
     }
 }
 
-impl SystemClock {
-    /// Starts the run clock at `ms` (Unix milliseconds), as if the run had begun then. A run that reads an install
-    /// baseline an earlier run kept does this with the instant that run began: the rows of the baseline carry that
-    /// instant, and a run that began later must not see them stamped with a time it never had. False, and nothing
-    /// changes, when the clock has started already (something read it) or the real clock is on.
-    pub fn begin_at(ms: i64) -> bool {
-        !real_clock() && RUN_START.set(ms).is_ok()
+/// The clock of one run (ADR-045), begun once when the run begins ([`RunClock::begin`]) and read by every session of
+/// the run, by the key of its install baseline and by the baseline's file. A run is one command line, or one request of
+/// a server: a server kept past midnight begins its next request on the new day (al-runner issue 8457), and a request
+/// that runs across midnight keeps the day it began.
+///
+/// The clock does not run with the wall: every session starts at the run's instant (the session adds 1 ms per read and
+/// the time `Sleep` has waited, ADR-045, and keeps system stamps strictly increasing, see `al-host`). A clock that ran
+/// with the wall would make an outcome depend on the load of the machine: `Item.OnModify` sets "Last Time Modified" to
+/// `Time`, and `Format(xRec) <> Format(Rec)` is then true only when a second passed between the insert and the modify,
+/// which decides whether Base Application's workflow subscriber runs. A clock that started at the wall time of the run's
+/// beginning would make it depend on when the run began (ADR-045 amendment, 2026-10-19).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunClock {
+    /// Every session starts at this instant (Unix milliseconds).
+    At(i64),
+    /// `ALRUNNER_REAL_CLOCK=1`: the wall clock, read at each read.
+    Wall,
+}
+
+impl RunClock {
+    /// The clock of a run that begins now: [`run_clock_start`] of the wall clock, or the wall clock itself under
+    /// `ALRUNNER_REAL_CLOCK`.
+    pub fn begin() -> RunClock {
+        if real_clock() {
+            RunClock::Wall
+        } else {
+            RunClock::At(run_clock_start(SystemClock::wall()))
+        }
     }
 
-    /// The instant the run began, which starts the run clock if nothing did.
-    pub fn run_start() -> i64 {
-        SystemClock.now_utc_millis()
-    }
-
-    /// Whether the run clock has started.
-    pub fn started() -> bool {
-        RUN_START.get().is_some()
+    /// The instant every session of the run starts at; `None` on the wall clock.
+    pub fn start(self) -> Option<i64> {
+        match self {
+            RunClock::At(ms) => Some(ms),
+            RunClock::Wall => None,
+        }
     }
 }
 
@@ -136,8 +143,8 @@ pub fn uses_real_files() -> bool {
 }
 
 /// Whether the system host reads the wall clock as it goes (`ALRUNNER_REAL_CLOCK`) instead of standing at the instant
-/// the run began. Read from the environment once per process: the clock asks at every stamped record insert, and each
-/// environment read takes std's environment lock and scans every entry. Nothing sets the variable while a run goes.
+/// the run began. Read from the environment once per process: each environment read takes std's environment lock and
+/// scans every entry, and nothing sets the variable while a run goes.
 pub fn real_clock() -> bool {
     static ON: OnceLock<bool> = OnceLock::new();
     *ON.get_or_init(read_real_clock_env)
@@ -196,17 +203,6 @@ fn read_real_clock_env() -> bool {
     std::env::var_os("ALRUNNER_REAL_CLOCK").is_some()
 }
 
-/// The real clock and AL Runner's identity, on the file system the command line chose: memory,
-/// unless `--files-dir` named a directory, on the environment `--environment` named.
-pub fn system_host() -> Host {
-    host_at(None)
-}
-
-/// [`system_host`] whose clock stands still at `start` (Unix milliseconds), or reads the system clock when `None`.
-pub fn host_at(start: Option<i64>) -> Host {
-    host_in_company(start, company_name().as_deref())
-}
-
 /// The company name the run answers `CompanyName()` with when the run has no restored company (a lane of Microsoft's
 /// recipe names one, for example `Empty Company`). `None` keeps AL Runner's identity.
 static COMPANY_NAME: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
@@ -254,21 +250,23 @@ pub fn companies() -> al_host::Companies {
     COMPANIES.read().map(|r| r.clone()).unwrap_or_default()
 }
 
-/// The run clock under a variant of a stability run (ADR-058 `clock.date`, `clock.timeOfDay`): its date moved and its
+/// The wall clock under a variant of a stability run (ADR-058 `clock.date`, `clock.timeOfDay`): its date moved and its
 /// time of day set; the step per read stays the session's.
 pub struct PerturbedClock(pub crate::stability::Perturb);
 
 impl Clock for PerturbedClock {
     fn now_utc_millis(&self) -> i64 {
-        self.0.clock_ms(SystemClock.now_utc_millis())
+        self.0.clock_ms(SystemClock::wall())
     }
 }
 
-/// [`host_at`] with the host values of a stability variant (ADR-058): clock, seeds, clock step, identity and company.
-/// The default [`Perturb`](crate::stability::Perturb) is [`host_at`].
-pub fn host_perturbed(start: Option<i64>, p: &crate::stability::Perturb) -> Host {
+/// The host of a session of a run whose clock is `clock`: AL Runner's identity, on the file system the command line
+/// chose (memory, unless `--files-dir` named a directory), in the run's company and environment, with the host values of
+/// a stability variant (ADR-058): clock, seeds, clock step, identity and company. The default
+/// [`Perturb`](crate::stability::Perturb) moves nothing.
+pub fn host_perturbed(clock: RunClock, p: &crate::stability::Perturb) -> Host {
     let company = p.company_name.clone().or_else(company_name);
-    let mut host = host_in_company_perturbed(start, company.as_deref(), p);
+    let mut host = host_in_company_perturbed(clock, company.as_deref(), p);
     if p.host_seed.is_some() || p.guid_seed.is_some() {
         // `guid.seed` is its own host value in a variant: moving one seed leaves the other at a normal run's.
         host.random_seed = p.host_seed.unwrap_or(al_host::DEFAULT_RANDOM_SEED);
@@ -280,17 +278,17 @@ pub fn host_perturbed(start: Option<i64>, p: &crate::stability::Perturb) -> Host
     host.with_identity_overrides(p.identity.clone())
 }
 
-/// [`host_at`] with the company name given instead of read from the run setting.
-pub fn host_in_company(start: Option<i64>, company: Option<&str>) -> Host {
-    host_in_company_perturbed(start, company, &Default::default())
+/// [`host_perturbed`] with the company name given instead of read from the run setting.
+pub fn host_in_company(clock: RunClock, company: Option<&str>) -> Host {
+    host_in_company_perturbed(clock, company, &Default::default())
 }
 
-fn host_in_company_perturbed(start: Option<i64>, company: Option<&str>, p: &crate::stability::Perturb) -> Host {
-    let host = match (start, p.moves_clock()) {
-        (Some(ms), false) => Host::new(FixedClock(ms), AlRunnerIdentity),
-        (Some(ms), true) => Host::new(FixedClock(p.clock_ms(ms)), AlRunnerIdentity),
-        (None, false) => Host::new(SystemClock, AlRunnerIdentity),
-        (None, true) => Host::new(PerturbedClock(p.clone()), AlRunnerIdentity),
+fn host_in_company_perturbed(clock: RunClock, company: Option<&str>, p: &crate::stability::Perturb) -> Host {
+    let host = match (clock, p.moves_clock()) {
+        (RunClock::At(ms), false) => Host::new(FixedClock(ms), AlRunnerIdentity),
+        (RunClock::At(ms), true) => Host::new(FixedClock(p.clock_ms(ms)), AlRunnerIdentity),
+        (RunClock::Wall, false) => Host::new(SystemClock, AlRunnerIdentity),
+        (RunClock::Wall, true) => Host::new(PerturbedClock(p.clone()), AlRunnerIdentity),
     };
     let host = match company {
         Some(c) => host.in_company(c),
@@ -395,11 +393,13 @@ mod tests {
     #[test]
     fn a_named_company_is_what_company_name_answers() {
         assert_eq!(
-            host_in_company(None, None).identity.company_name(),
+            host_in_company(RunClock::At(0), None).identity.company_name(),
             "CRONUS International Ltd."
         );
         assert_eq!(
-            host_in_company(None, Some("Empty Company")).identity.company_name(),
+            host_in_company(RunClock::At(0), Some("Empty Company"))
+                .identity
+                .company_name(),
             "Empty Company"
         );
     }
@@ -443,7 +443,8 @@ mod tests {
     /// times than one on a quiet machine.
     #[test]
     fn the_clock_of_a_run_stands_still() {
-        let c = SystemClock;
+        let host = host_in_company(RunClock::begin(), None);
+        let c = &host.clock;
         let a = c.now_utc_millis();
         std::thread::sleep(std::time::Duration::from_millis(30));
         assert_eq!(c.now_utc_millis(), a);
