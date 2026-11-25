@@ -254,6 +254,9 @@ Differences a client must adapt to:
    it read (read again when the app files, the options or a file in a package folder change), the engines and the
    install baseline: a request that reuses the compile costs the tests and little else. What a request starts from is the same as when nothing is
    kept: the rows the install code left, none of an earlier request's writes.
+   The run clock is not kept: each request begins its own, at 12:34:56.789 UTC of the day the request starts, so a
+   server kept past midnight answers `Today` with the new date, as a new server would (ADR-045, amendment of
+   2026-11-22, Accepted (owner, 2026-11-22)).
    What each test codeunit starts from (in every request and every entry; al-runner issue 5862): a new session over
    the post-install database. Reset: table rows, the system id, row version and AutoIncrement counters,
    IsolatedStorage, NumberSequence, SingleInstance codeunits (also those of dependency apps), event bindings, handlers,

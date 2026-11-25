@@ -166,6 +166,7 @@ fn run(codeunit: &str) -> (Vec<(String, Outcome)>, Vec<al_builtins::assumptions:
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     (o, hits.into_iter().flat_map(|(_, h)| h).collect())
 }

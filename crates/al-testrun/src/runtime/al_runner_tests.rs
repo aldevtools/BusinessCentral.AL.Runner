@@ -43,7 +43,7 @@ fn outcomes_through_isolated(
     };
     let mut scratch = Scratch {
         runner: runner.map(index),
-        ..Default::default()
+        ..Scratch::new(crate::host::RunClock::begin())
     };
     run::run_codeunit_core(
         &engine,
