@@ -1,1 +1,8 @@
-# Main refuses these three unmeasured Truncate neighbors; head must refuse them too.
+# Main (after PR 8932) answers these unmeasured shapes from the cache as flagged passes; head refuses them.
+# key	entry
+BCE Review R2 Tests::CalcFieldsRecordLoadedByGetRefused	REFUSED a CalcFields of a page background task after a commit of a Truncate of its row's table, which the query cache would answer otherwise than the table (not measured)
+BCE Review R2 Tests::TemporaryCalcFieldsRecordLoadedByGetRefused	REFUSED a CalcFields of a page background task after a commit of a Truncate of its row's table, which the query cache would answer otherwise than the table (not measured)
+BCE Review R2 Tests::MarkedOnlyTruncateRefused	REFUSED a CalcFields of a page background task after a commit of a Truncate of its row's table, which the query cache would answer otherwise than the table (not measured)
+BCE Review R2 Tests::TruncateResetRefused	REFUSED a CalcFields of a page background task after a commit of a Truncate of its row's table, which the query cache would answer otherwise than the table (not measured)
+BCE Review R2 Tests::TemporaryCalcFieldsAfterOwnInsertRefused	REFUSED a CalcFields of a page background task after a commit of a Truncate of its row's table, which the query cache would answer otherwise than the table (not measured)
+BCE Review R2 Tests::ExplicitFalseTruncateRefused	REFUSED a CalcFields of a page background task after a commit of a Truncate of its row's table, which the query cache would answer otherwise than the table (not measured)
