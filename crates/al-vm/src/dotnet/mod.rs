@@ -358,6 +358,9 @@ impl Session {
         op: &ir::DotNetOp,
         f: &mut Frame,
     ) -> Result<Value, Signal> {
+        // Both are set for this call only (`exec/run.rs`): taken before any early return, so no later call reads them.
+        let result_ty = self.dotnet.result_ty.take();
+        let al_datetime_args = std::mem::take(&mut self.dotnet.al_datetime_args);
         // `[RunOnClient]` bookkeeping, not a .NET call: it leaves the null-string flag of the value it passes on.
         match op {
             ir::DotNetOp::ClientNull => return Ok(run_on_client_null()),
@@ -378,8 +381,7 @@ impl Session {
             }
         };
         let decl = ty.map(declared);
-        let result_decl = self.dotnet.result_ty.take().map(declared);
-        let al_datetime_args = std::mem::take(&mut self.dotnet.al_datetime_args);
+        let result_decl = result_ty.map(declared);
         let (kind, member) = match op {
             ir::DotNetOp::ClientNull | ir::DotNetOp::ClientAssign | ir::DotNetOp::ClientCall(_) => {
                 unreachable!("answered above")
@@ -553,7 +555,9 @@ impl Session {
                 by_ref: places[i].is_some(),
             });
         }
-        if let Err(why) = self.zone_datetime_kind(&target, &clr_type, &member, &values, al_datetime_args, &mut wire) {
+        if let Err(why) = Self::datetime_kind_member(&target, &member, &values)
+            .and_then(|()| self.zone_datetime_kind(&target, &clr_type, &member, &values, al_datetime_args, &mut wire))
+        {
             return unsupported(format!("DotNet {shown}: {why}"));
         }
         self.dotnet_ready(

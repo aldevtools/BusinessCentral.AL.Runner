@@ -4672,8 +4672,8 @@ fn args_of(host: &Fake, member: &str) -> Vec<DotNetValue> {
         .unwrap_or_default()
 }
 
-/// Issue 8587: `GetUtcOffset` and `IsDaylightSavingTime` get an AL DateTime as a UTC moment (kind Utc on the wire), on a
-/// Windows host and, for the session clock's year, off Windows (assumption `zone-datetime-utc-instant`).
+/// Issue 8587: `GetUtcOffset` gets an AL DateTime as a UTC moment (kind Utc on the wire), on a Windows host and, for the
+/// session clock's year, off Windows (assumption `zone-datetime-utc-instant`).
 #[test]
 fn an_al_datetime_reaches_a_zone_as_a_utc_moment() {
     let at = "CreateDateTime(DMY2Date(1, 6, 2024), 120000T)";
@@ -4689,12 +4689,6 @@ fn an_al_datetime_reaches_a_zone_as_a_utc_moment() {
             "GetUtcOffset",
             ZONE_VARS,
             format!("D := Z.GetUtcOffset({at}); exit(Format(D));"),
-        ),
-        (
-            true,
-            "IsDaylightSavingTime",
-            ZONE_VARS,
-            format!("exit(Format(Z.IsDaylightSavingTime({at})));"),
         ),
         (
             true,
@@ -4730,6 +4724,12 @@ fn a_zone_refuses_a_datetime_of_unmeasured_kind_on_windows() {
             ZONE_VARS,
             "D := Z.GetUtcOffset(DMY2Date(1, 6, 2024)); exit(Format(D));".to_string(),
         ),
+        // Only BC on Linux measured it (corpus pull request 1582); no Windows run yet.
+        (
+            "IsDaylightSavingTime",
+            ZONE_VARS,
+            format!("exit(Format(Z.IsDaylightSavingTime({at})));"),
+        ),
         (
             "IsAmbiguousTime",
             ZONE_VARS,
@@ -4751,6 +4751,37 @@ fn a_zone_refuses_a_datetime_of_unmeasured_kind_on_windows() {
         let why = unsupported(&r);
         assert!(
             why.contains(&format!("System.TimeZoneInfo.{member}")) && why.contains("not measured"),
+            "{body}: {why}"
+        );
+        assert!(!reached(&host, member), "{body}: {:?}", host.calls());
+    }
+}
+
+/// Issue 9052: BC gives a DotNet DateTime assigned from an AL DateTime the kind Utc (corpus pull request 1582,
+/// `kind_2023-01-15T12:00:00Z`); the runner does not track the kind, so the members that read it are refused before the host.
+#[test]
+fn a_dotnet_datetime_refuses_the_members_that_read_its_kind() {
+    let at = "CreateDateTime(DMY2Date(1, 6, 2024), 120000T)";
+    let vars = "Dn: DotNet ClrDateTime; T: Text;";
+    for (member, body) in [
+        ("Kind", "T := Format(Dn.Kind);"),
+        ("ToString", "T := Dn.ToString('o');"),
+        ("ToString", "T := Dn.ToString('O');"),
+        ("ToString", "T := Dn.ToString('yyyy-MM-ddTHH:mm:ssK');"),
+        ("ToString", "T := Dn.ToString('HH:mm zzz');"),
+        ("ToUniversalTime", "Dn := Dn.ToUniversalTime();"),
+        ("ToLocalTime", "Dn := Dn.ToLocalTime();"),
+    ] {
+        let host = linux_zone_host();
+        let r = run_with(
+            zone_cfg(&host, true),
+            vars,
+            &format!("Dn := {at}; {body} exit(T);"),
+            ": Text",
+        );
+        let why = unsupported(&r);
+        assert!(
+            why.contains(&format!("System.DateTime.{member}")) && why.contains("kind"),
             "{body}: {why}"
         );
         assert!(!reached(&host, member), "{body}: {:?}", host.calls());

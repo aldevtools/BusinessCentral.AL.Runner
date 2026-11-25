@@ -40,8 +40,9 @@ impl Parser<'_> {
     /// (al-runner issue 7812): exactly the places tests/al-language/json/JsonReadFromControlChars.al (corpus pull request
     /// 1582) measured. From a Text, codes 1 to 31 (a Text cannot hold code 0, `Text_CharCodeZero_WhatTextKeeps`) in a
     /// member value in either quote and a key in double quotes (JsonObject, JsonToken), an element in either quote
-    /// (JsonArray), the whole text in either quote (JsonValue); from an InStream, codes 0 to 31 in double quotes in the
-    /// same value places (`*_ReadFromStream_DoubleQuotedValue_*`). Each probe text holds one level: a key of the root object
+    /// (JsonArray), the whole text in either quote (JsonValue); from an InStream, codes 1 to 31 in double quotes in the
+    /// same value places (`*_ReadFromStream_DoubleQuotedValue_*`; a NUL byte is refused by `stream::read_serialised_text`
+    /// before the parser runs). Each probe text holds one level: a key of the root object
     /// (depth 1), a member value of the root object or an element of the root array (depth 2), a whole-text string (depth 1).
     fn raw_control_assumed(&self, b: u8, quote: u8, at: StringAt) -> bool {
         use super::ReadInto::{Array, Object, Token, Value};
@@ -53,9 +54,9 @@ impl Parser<'_> {
                 | (ReadFromText, Some(Object | Token), Key, 1, b'"', 1..=0x1f)
                 | (ReadFromText, Some(Array), Element, 2, b'"' | b'\'', 1..=0x1f)
                 | (ReadFromText, Some(Value), Root, 1, b'"' | b'\'', 1..=0x1f)
-                | (ReadFromStream, Some(Object | Token), Member, 2, b'"', 0..=0x1f)
-                | (ReadFromStream, Some(Array), Element, 2, b'"', 0..=0x1f)
-                | (ReadFromStream, Some(Value), Root, 1, b'"', 0..=0x1f)
+                | (ReadFromStream, Some(Object | Token), Member, 2, b'"', 1..=0x1f)
+                | (ReadFromStream, Some(Array), Element, 2, b'"', 1..=0x1f)
+                | (ReadFromStream, Some(Value), Root, 1, b'"', 1..=0x1f)
         )
     }
 
@@ -198,9 +199,9 @@ mod tests {
                 assert!(refused(&text, reader, into), "{text:?} {reader:?} {into:?}");
             }
         }
-        // Code 0: kept from an InStream; a Text cannot hold it in BC (the probe's `text1_after_c1_0`), so it is refused.
-        assert!(assumed("{\"a\":\"x\u{0}y\"}", S, Object));
+        // Code 0: a Text cannot hold it in BC (the probe's `text1_after_c1_0`); a stream's NUL is refused before the parser.
         assert!(refused("{\"a\":\"x\u{0}y\"}", T, Object));
+        assert!(refused("{\"a\":\"x\u{0}y\"}", S, Object));
         // Between tokens a form feed is a blank and character 1 is not JSON (json/JsonReadFrom.al ReadFromRawControlOtherPlaces).
         assert!(matches!(
             parse_read_from("{\"a\":\u{c}\"v\"}", Some("object")),

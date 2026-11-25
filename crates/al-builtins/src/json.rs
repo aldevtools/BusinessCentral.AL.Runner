@@ -18,6 +18,7 @@ use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
 mod filter;
+mod read_stream;
 mod read_string;
 use read_string::StringAt;
 mod text_number;
@@ -601,6 +602,11 @@ fn parse_read_from(text: &str, want: Option<&str>) -> Result<Option<Handle>, Sig
 }
 
 fn parse_by(text: &str, reader: Reader, into: Option<ReadInto>) -> Result<Option<Handle>, Signal> {
+    Ok(parse_at(text, reader, into)?.map(|(h, _)| h))
+}
+
+/// `parse_by`, with whether only blanks follow the first value (`true`) or more text (ignored by `parse_by`).
+fn parse_at(text: &str, reader: Reader, into: Option<ReadInto>) -> Result<Option<(Handle, bool)>, Signal> {
     let mut p = Parser {
         s: text.as_bytes(),
         i: 0,
@@ -625,7 +631,7 @@ fn parse_by(text: &str, reader: Reader, into: Option<ReadInto>) -> Result<Option
             }
             // Text after the first value is ignored (json/TestProbeJsonContracts.al:ReadFrom_Invalid_Statement,
             // `trailing_garbage`: `{"a":1} trailing` raises nothing).
-            Ok(Some(h))
+            Ok(Some((h, p.i == p.s.len())))
         }
         Err(ParseError::Invalid) if p.line_comment => unsupported("a // comment in JSON text (not pinned)"),
         Err(ParseError::Invalid) if p.form_feed => unsupported(FORM_FEED),
@@ -1775,24 +1781,7 @@ fn read_from(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value], want: Opti
     // ReadFrom(InStream) reads the rest of the stream and parses it like the text form.
     let from_stream = matches!(&a[0], Value::Library(_, h) if matches!(&*h.borrow(), LibraryValue::InStream(_)));
     let text = if from_stream {
-        let text = crate::stream::read_serialised_text(&mut a[0])?;
-        // A stream whose first token is a string (what is left after a partial read of `{"a":2}`)
-        // is refused by the token reader (streams/ProbeJsonAndInStreamBytes.al:ReadFrom_InStream_AfterPartialRead_ReadsTheRest).
-        // A JsonToken reads a stream that holds one whole string as that value (json/json/P101Streams.al:166-167,
-        // `text_ok` Yes and `text_isvalue` Yes for `"text"`).
-        let whole_string_into_token = want.is_none() && c.ret_used() && parse(&text)?.is_some();
-        if text.trim_start().starts_with('"') && !whole_string_into_token {
-            if c.ret_used() {
-                return unsupported(
-                    "the result of ReadFrom(InStream) on a stream that starts with a string token (not pinned)",
-                );
-            }
-            return Err(error(
-                "JSON tokens of type 'String' are not supported by this implementation.",
-                "InvalidJsonType",
-            ));
-        }
-        text
+        read_stream::stream_text(c, &mut a[0], want)?
     } else {
         match (&a[0], crate::native::text_of(&a[0])) {
             (_, Some(t)) => t.to_string(),

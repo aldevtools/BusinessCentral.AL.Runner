@@ -13,3 +13,5 @@ Raw Control Place Tests::ArraySingleQuotedNak	ASSUMED json-readfrom-raw-control 
 Raw Control Place Tests::TokenKeyNak	ASSUMED json-readfrom-raw-control (corpus PR 1582)
 Raw Control Place Tests::TokenSingleQuotedNak	ASSUMED json-readfrom-raw-control (corpus PR 1582)
 Raw Control Place Tests::ValueSingleQuotedNak	ASSUMED json-readfrom-raw-control (corpus PR 1582)
+Raw Control Place Tests::TokenInStreamNak	ASSUMED json-readfrom-raw-control (corpus PR 1582)
+Raw Control Place Tests::ValueInStreamNak	ASSUMED json-readfrom-raw-control (corpus PR 1582)

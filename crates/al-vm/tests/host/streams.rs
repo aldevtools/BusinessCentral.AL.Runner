@@ -726,3 +726,73 @@ fn read_text_of_utf8_cyrillic_gives_it_back_and_one_at_the_end() {
     );
     assert_eq!(t, "13|Привет|3|ab|1||Yes");
 }
+
+/// Writes `json` (with `#` standing for the character `C`) to the blob and runs `read` on a fresh InStream over it.
+fn json_stream(vars: &str, json: &str, read: &str) -> Result<Value, Signal> {
+    let json = json.replace('#', "' + Format(C) + '");
+    run(
+        &format!("B: Record \"ALT Blob\"; O: OutStream; I: InStream; T: Text; C: Char; {vars}"),
+        &format!("C := 21; B.Data.CreateOutStream(O); O.WriteText('{json}'); B.Data.CreateInStream(I); {read}"),
+    )
+}
+
+fn json_stream_text(vars: &str, json: &str, read: &str) -> String {
+    match json_stream(vars, json, read) {
+        Ok(Value::Text(s)) | Ok(Value::Code(s)) => s.to_string(),
+        other => panic!("{json} {read}: {other:?}"),
+    }
+}
+
+#[test]
+fn json_value_read_from_a_stream_that_holds_one_whole_string() {
+    // json/json/P101Streams.al:71, :114-116: `read_ok` Yes, `read_back` "hello".
+    let t = json_stream_text(
+        "V: JsonValue;",
+        "\"hello\"",
+        "T := Format(V.ReadFrom(I)); exit(T + '|' + V.AsText());",
+    );
+    assert_eq!(t, "Yes|hello");
+    // A raw U+0015 inside it: assumption `json-readfrom-raw-control` (corpus pull request 1582, `val_stream_21`).
+    let t = json_stream_text(
+        "V: JsonValue;",
+        "\"x#y\"",
+        "T := Format(V.ReadFrom(I)); exit(T + '|' + Format(StrLen(V.AsText())));",
+    );
+    assert_eq!(t, "Yes|3");
+}
+
+#[test]
+fn json_token_read_from_a_stream_keeps_a_raw_control_in_a_member_value() {
+    // Assumption `json-readfrom-raw-control` (corpus pull request 1582, `tok_stream_21`, result used).
+    let t = json_stream_text(
+        "K: JsonToken; R: JsonToken;",
+        "{\"a\":\"x#y\"}",
+        "T := Format(K.ReadFrom(I)); K.AsObject().Get('a', R); exit(T + '|' + Format(StrLen(R.AsValue().AsText())));",
+    );
+    assert_eq!(t, "Yes|3");
+}
+
+#[test]
+fn json_read_from_a_stream_that_starts_with_a_string_refuses_what_is_not_pinned() {
+    let refused =
+        |vars: &str, json: &str, read: &str| matches!(json_stream(vars, json, read), Err(Signal::Unsupported(_)));
+    // The JsonObject statement form raises the error (streams/ProbeJsonAndInStreamBytes.al:146-170).
+    match json_stream("J: JsonObject;", "\"a\":2}", "J.ReadFrom(I); exit('');") {
+        Err(Signal::Error(e)) => assert_eq!(
+            e.message,
+            "JSON tokens of type 'String' are not supported by this implementation."
+        ),
+        other => panic!("{other:?}"),
+    }
+    // Not pinned: the JsonValue and JsonToken statement forms, a JsonArray, the JsonObject result used, and a string
+    // followed by more text.
+    assert!(refused("V: JsonValue;", "\"hello\"", "V.ReadFrom(I); exit('');"));
+    assert!(refused("K: JsonToken;", "\"hello\"", "K.ReadFrom(I); exit('');"));
+    assert!(refused("A: JsonArray;", "\"hello\"", "A.ReadFrom(I); exit('');"));
+    assert!(refused("A: JsonArray;", "\"hello\"", "exit(Format(A.ReadFrom(I)));"));
+    assert!(refused("J: JsonObject;", "\"a\":2}", "exit(Format(J.ReadFrom(I)));"));
+    assert!(refused("K: JsonToken;", "\"a\":2}", "exit(Format(K.ReadFrom(I)));"));
+    assert!(refused("V: JsonValue;", "\"a\":2}", "exit(Format(V.ReadFrom(I)));"));
+    // A raw control in a whole string that a JsonToken reads was not measured.
+    assert!(refused("K: JsonToken;", "\"x#y\"", "exit(Format(K.ReadFrom(I)));"));
+}
