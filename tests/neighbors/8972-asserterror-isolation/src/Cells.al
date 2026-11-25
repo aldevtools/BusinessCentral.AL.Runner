@@ -1,6 +1,6 @@
 // Restart of an existing sequence, a Record write and an asserterror (the RE5 shape of corpus PR 1573) in test codeunits
 // with RequiredTestIsolation = Function and Disabled: the asserterror's rollback refuses the later reads there.
-codeunit 52810 "N6 FunctionIsolationRestartAsserterror"
+codeunit 52810 "N6 FunctionIsolationRestart"
 {
     Subtype = Test;
     RequiredTestIsolation = Function;
@@ -35,7 +35,7 @@ codeunit 52810 "N6 FunctionIsolationRestartAsserterror"
     end;
 }
 
-codeunit 52811 "N6 DisabledIsolationRestartAsserterror"
+codeunit 52811 "N6 DisabledIsolationRestart"
 {
     Subtype = Test;
     RequiredTestIsolation = Disabled;
