@@ -23,8 +23,8 @@
 //!   (`Ends::Sources`). BgTaskCacheEdges.al:958 (merged corpus PR 1558, awaiting pin) measures a database Record after an
 //!   unfiltered `Record.Truncate`. Merged corpus PR 1581 at 852fb2b9:1178-:1190 measures a temporary Record, the test
 //!   session first, and `FieldRef.CalcField` of a database RecordRef for that same direct, unfiltered Truncate. A
-//!   FlowFilter on the calculated record, a temporary RecordRef's FieldRef, or a filtered or RecordRef Truncate is not
-//!   measured and keeps main's refusal.
+//!   FlowFilter on the calculated record, a calculated record a Get or a Find loaded, a temporary RecordRef's FieldRef, or a
+//!   filtered, MarkedOnly, `Truncate(true)` or RecordRef Truncate is not measured and keeps main's refusal.
 //!
 //! A row entry holds until a commit writes that row (:430, :804 against :741, :762, :784; also when no commit held the row
 //! before or after, an insert and a delete each committed: PR 1495 :1207; a commit of a ModifyAll or DeleteAll of another row
@@ -298,7 +298,8 @@ enum Ends<'a> {
     /// session's CalcFields first (:657), and for FieldRef.CalcField of a database RecordRef (:681). The Truncate cells use
     /// no record filters and allow a database Record filled by worker or test session, a temporary Record filled by the
     /// worker, and a database FieldRef filled by the worker (:1178-:1190, merged corpus PR 1581 at 852fb2b9). Rename, Delete
-    /// followed by reinsert, other receivers, a filtered Truncate and RecordRef.Truncate keep main's existing behavior.
+    /// followed by reinsert, other receivers (a record a Get or a Find loaded too), a filtered or MarkedOnly Truncate,
+    /// `Truncate(true)` and RecordRef.Truncate keep main's existing behavior.
     Sources(&'a [Arc<TableDef>], TruncateReader),
 }
 
@@ -344,7 +345,7 @@ pub(crate) struct QueryCache {
     /// The commits that carried a ModifyAll, a DeleteAll or a Truncate, by table and write
     /// (`Session::note_commit_for_query_cache`).
     bulk_commits: HashMap<(u32, BulkWrite), u64>,
-    /// Commits of an unfiltered `Record.Truncate`, by row table.
+    /// Commits of a `Record.Truncate()` with no record filter and no MarkedOnly, by row table.
     measured_truncates: HashMap<u32, u64>,
     /// The commits that wrote a row by Insert, Modify or Delete, by row (`Session::note_commit_for_query_cache`).
     row_commits: Entries<u64>,
@@ -646,13 +647,13 @@ impl Session {
                 }
                 _ => continue,
             };
-            // The four Truncate cells call Record.Truncate with no record filter
-            // (BgTaskCacheEdges.al:958 and :1178-:1190).
+            // The four Truncate cells call Record.Truncate() with no record filter and no MarkedOnly
+            // (BgTaskCacheEdges.al:883 for :958, and :1142-:1144 for :1178-:1190).
             let measured = match kind {
-                BulkWrite::Truncate => match (w.through_recordref, w.bulk_filtered) {
-                    (false, false) => true,
-                    (false, true) | (true, false) | (true, true) => false,
-                },
+                BulkWrite::Truncate => {
+                    let b = w.bulk_shape;
+                    (w.through_recordref, b.filtered, b.marked_only, b.reset) == (false, false, false, false)
+                }
                 BulkWrite::ModifyAll | BulkWrite::DeleteAll => true,
             };
             tables
@@ -1121,12 +1122,30 @@ impl Session {
         }
     }
 
-    /// The exact CalcFields receiver shapes whose entries the Truncate cells measure.
+    /// The exact CalcFields receiver shapes whose entries the Truncate cells measure. Each cell sets the primary key of a record
+    /// that read no row: a new variable (BgTaskCacheEdges.al:782, :1039, :1045, :1053) or the test session's record after its
+    /// own Insert (:1124-:1125, :1137); a record a Get or a Find loaded is not measured.
     fn calc_fields_truncate_reader(&self, rec: &Rec) -> TruncateReader {
         let r = rec.borrow();
         let filter_count = r.filters.len();
+        let unread = matches!(
+            (&r.position, r.row_origin),
+            (None, None)
+                | (
+                    None,
+                    Some(al_builtins::value::RowOrigin {
+                        own_write: true,
+                        read_in_write_tx: false,
+                        lock_only: false,
+                        own_modified: false,
+                        from_find: false,
+                        by_get: false,
+                        ..
+                    })
+                )
+        );
         drop(r);
-        if filter_count == 0 {
+        if (filter_count, unread) == (0, true) {
             // BgTaskCacheEdges.al:958/:1184, :1178 and :1190, respectively.
             return match (
                 temporary(rec),

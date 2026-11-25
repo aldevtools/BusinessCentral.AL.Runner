@@ -279,8 +279,19 @@ pub(crate) struct TxWrite {
     pub(crate) bulk: Option<BulkEnd>,
     /// The write ran through a RecordRef (`Session::through_recordref`).
     pub(crate) through_recordref: bool,
-    /// A bulk Record write had a record filter (`Session::note_bulk_write`).
-    pub(crate) bulk_filtered: bool,
+    /// The record facts of a bulk Record write (`Session::note_bulk_write`); all false for other writes.
+    pub(crate) bulk_shape: BulkShape,
+}
+
+/// What a bulk Record write's record carried when it wrote (`Session::note_bulk_write`).
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct BulkShape {
+    /// The record had a record filter.
+    pub(crate) filtered: bool,
+    /// `MarkedOnly` was set on the record.
+    pub(crate) marked_only: bool,
+    /// A Truncate's ResetAutoIncrement argument was true (`Session::note_truncate_write`).
+    pub(crate) reset: bool,
 }
 
 impl TxState {
