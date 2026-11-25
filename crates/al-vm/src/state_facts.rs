@@ -86,10 +86,11 @@ impl Session {
     fn transaction_line(&self) -> String {
         let tx = &self.tx;
         format!(
-            "transaction commits {} last commit wrote {} type {} phase {} lock timeout {} {} rolled back {} changed since {}",
+            "transaction commits {} last commit wrote {} type {} {} phase {} lock timeout {} {} rolled back {} changed since {}",
             self.commits,
             tx.last_commit_wrote,
             tx.transaction_type,
+            content(&tx.type_origin),
             content(&tx.phase),
             tx.lock_timeout,
             tx.lock_timeout_duration,

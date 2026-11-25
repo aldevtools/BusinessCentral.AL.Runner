@@ -10,9 +10,11 @@
 //! - `linked`: state that holds handles or is shared between owners (the store, the transaction, the events): a copy of
 //!   it is made by hand.
 //! - `fresh`: caches and scratch with no AL value; a new session's value serves.
-//! - `refuse`: must hold a new session's value (the predicate next to it). Install code that ran in a session of its own
-//!   is held to the same predicates ([`Session::install_left`]), except those marked `[image_only]`: those a session
-//!   image of the login (issue 8211) requires besides, for the reason next to each.
+//! - `refuse`: must hold a new session's value (the predicate next to it), else a session image of the login (issue
+//!   8211, `login_image.rs`) is not made ([`Session::image_refused_field`]). Install code that ran in a session of its
+//!   own is held to the same predicates ([`Session::install_refused_field`], [`Session::install_left`]), except those
+//!   marked `[image_only]`, which only the image requires, for the reason next to each. One marked `[image => ...]` holds
+//!   install code to its predicate and the image to the stricter one in the brackets besides.
 //! - `rest`: no code runs and nothing of a call is left (the predicate next to it); [`Session::at_rest_why`] names the
 //!   first that does not hold.
 //! - `own`: made from the engine, the host or the run's session flags before any code runs; each session keeps its own.
@@ -213,7 +215,10 @@ macro_rules! session_fields {
                 shadow_lower_bound => |s: &Session| !s.shadow_lower_bound,
                 report_refusal_after_denial => |s: &Session| s.report_refusal_after_denial.is_none(),
                 scratch_messages => |s: &Session| s.scratch_messages.is_none(),
-                global_group1 => |s: &Session| s.global_group1.is_empty(),
+                // Install code leaves no table a group 1 filter (main's rule for it). The image carries none of the group 1
+                // state, so it requires all of it as new: a taken-back entry and the worker's notes change later calls too.
+                global_group1 [image => |s: &Session| s.global_group1.as_new()]
+                    => |s: &Session| s.global_group1.is_empty(),
                 capture => |s: &Session| s.capture.is_none(),
                 form => |s: &Session| s.form == crate::Form::Plain,
                 debug => |s: &Session| s.debug.is_none(),
@@ -325,14 +330,17 @@ macro_rules! session_fields {
     };
 }
 
+/// The table, for a module that makes more of it (`login_image/fields.rs` makes the image's copy of the `plain` fields).
+pub(crate) use session_fields;
+
 /// Makes, from the table: the pattern that names every field, the type check of the `plain` fields,
-/// [`Session::install_refused_field`] and [`Session::at_rest_why`].
+/// [`Session::image_refused_field`], [`Session::install_refused_field`] and [`Session::at_rest_why`].
 macro_rules! session_classes {
     (
         plain { $($p:ident: $pt:ty,)* }
         linked { $($l:ident,)* }
         fresh { $($f:ident,)* }
-        refuse { $($r:ident $([$only:ident])? => $rp:expr,)* }
+        refuse { $($r:ident $([$tag:ident $(=> $ip:expr)?])? => $rp:expr,)* }
         rest { $($s:ident => $sp:expr,)* }
         own { $($o:ident $(=> $op:expr)?,)* }
     ) => {
@@ -343,11 +351,25 @@ macro_rules! session_classes {
         };
 
         impl Session {
+            /// The first field of the `refuse` class, or of the `own` class with a requirement, that does not hold what
+            /// the session image of the login requires (`login_image.rs`); `None` when each does. Each predicate of the
+            /// class, those marked `[image_only]` and the stricter ones of `[image => ...]` included.
+            pub(crate) fn image_refused_field(&self) -> Option<&'static str> {
+                $(image_check!(self, $r $([$tag $(=> $ip)?])? => $rp);)*
+                $($(
+                    let holds: fn(&Session) -> bool = $op;
+                    if !holds(self) {
+                        return Some(stringify!($o));
+                    }
+                )?)*
+                None
+            }
+
             /// The first field of the `refuse` class (those marked `[image_only]` left out), or of the `own` class with
             /// a requirement, that does not hold what a new session holds; `None` when each does. What install code
             /// that ran in a session of its own must leave as a new session holds it (`Session::install_left`).
             pub(crate) fn install_refused_field(&self) -> Option<&'static str> {
-                $(install_check!(self, $r $([$only])? => $rp);)*
+                $(install_check!(self, $r $([$tag $(=> $ip)?])? => $rp);)*
                 $($(
                     let holds: fn(&Session) -> bool = $op;
                     if !holds(self) {
@@ -372,10 +394,33 @@ macro_rules! session_classes {
     };
 }
 
-/// One `refuse` predicate in [`Session::install_refused_field`]: a predicate marked `[image_only]` is only type checked.
+/// One `refuse` predicate in [`Session::install_refused_field`]: a predicate marked `[image_only]`, and the image's one
+/// of `[image => ...]`, is only type checked.
 macro_rules! install_check {
     ($s:expr, $r:ident [image_only] => $rp:expr) => {
         let _: fn(&Session) -> bool = $rp;
+    };
+    ($s:expr, $r:ident [image => $ip:expr] => $rp:expr) => {
+        let _: fn(&Session) -> bool = $ip;
+        install_check!($s, $r => $rp);
+    };
+    ($s:expr, $r:ident => $rp:expr) => {
+        let holds: fn(&Session) -> bool = $rp;
+        if !holds($s) {
+            return Some(stringify!($r));
+        }
+    };
+}
+
+/// One `refuse` entry in [`Session::image_refused_field`]: its predicate, and the stricter one of `[image => ...]` after
+/// it.
+macro_rules! image_check {
+    ($s:expr, $r:ident [image_only] => $rp:expr) => {
+        image_check!($s, $r => $rp);
+    };
+    ($s:expr, $r:ident [image => $ip:expr] => $rp:expr) => {
+        image_check!($s, $r => $rp);
+        image_check!($s, $r => $ip);
     };
     ($s:expr, $r:ident => $rp:expr) => {
         let holds: fn(&Session) -> bool = $rp;
