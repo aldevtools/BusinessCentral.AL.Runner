@@ -846,16 +846,13 @@ pub(crate) fn checked(
         let image = check.round_trip(session, base, &state, twin);
         match gate {
             Some(why) => starts.not_taken(why),
-            None => crate::login_start::keep(
-                engine,
-                key,
-                base,
+            None => crate::login_start::keep(engine, key, base, || {
                 image.map(|image| crate::login_start::Start {
                     image,
                     wrote: wrote.clone(),
                     hits,
-                }),
-            ),
+                })
+            }),
         }
         return;
     }
