@@ -268,7 +268,8 @@ installs whose .NET calls cannot reach a lasting resource, and the whole suite i
    an object whose runtime type is a subtype the list names by its base is matched as that base's member
    (`inproc::listed_type`): a one-dimensional array type (`System.Byte[]`, any `T[]`) as `System.Array`, the encodings
    `Encoding.UTF8`, `ASCII` and `Unicode` answer as `System.Text.Encoding`, the algorithms `HashAlgorithm.Create` answers
-   as `HashAlgorithm`. Such a member reads and writes only .NET
+   as `HashAlgorithm`. The match is by the listed type that declares the member; no member is added to the list
+   (wording change accepted by the owner on 2026-11-25). Such a member reads and writes only .NET
    objects of the session. By fact 1 no session state, and so no .NET object in a local, a global or a SingleInstance
    global, carries from one app's install to another's. What install code takes from such an object reaches a lasting
    resource only through code the recorder sees (a record write, isolated storage, ...).

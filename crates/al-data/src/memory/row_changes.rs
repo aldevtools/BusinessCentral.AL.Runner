@@ -1,9 +1,9 @@
 //! The committed rows one store holds apart from another, row by row ([`MemStore::committed_row_changes_from`]).
 //!
 //! Two readers, each naming what a table `base` holds no entry for is compared with ([`BeforeRows`]): the safety net of
-//! an install footprint (`footprint.rs` `MemStore::unrecorded_writes`, ADR-079 step 1) compares it with the backing's
-//! rows; the login image (al-vm `login_image/rows.rs`) takes it whole. The persistent maps share every entry a session did not touch, so the difference is found by comparing pointers, and
-//! only the rows that differ are compared by value. The lane starts of ADR-066 amendment 5 that replayed the
+//! an install footprint (`footprint.rs` `MemStore::unrecorded_writes`, ADR-079 step 1) and the login image (al-vm
+//! `login_image/rows.rs`). The persistent maps share every entry a session did not touch, so the difference is found by
+//! comparing pointers, and only the rows that differ are compared by value. The lane starts of ADR-066 amendment 5 that replayed the
 //! changes are gone, and the replay with them (ADR-070 step 3).
 
 use super::{MemStore, PkStorage, Row, Slot, Table, table_storage};
@@ -52,8 +52,7 @@ fn name(s: &Slot) -> (String, u32) {
 impl MemStore {
     /// The committed rows of this store apart from `base`'s, row by row: the tables whose rows differ, with the rows
     /// that are new or changed and the keys of those that are gone, and the tables `base` holds that this store does
-    /// not. A table `base` holds no entry for is compared with what `before` names: the backing's rows `base` reads for
-    /// it, or no rows (every row is put, as for a table with no backing rows). A table with
+    /// not. A table `base` holds no entry for is compared with what `before` names ([`BeforeRows`]). A table with
     /// `base`'s stamp holds `base`'s rows (stamps are unique in the process) and is skipped; an entry both maps share is
     /// the same row. `same(a, b)` says whether two rows (or keys) are the same, as their bytes are;
     /// `None` from it (a value that is not plain) gives `None`. `None` too when a committed mark the rows do not show
@@ -69,9 +68,8 @@ impl MemStore {
         }
         let mut out = RowChanges::default();
         for (slot, table) in self.committed.iter() {
-            // A table `base` holds no entry for reads the backing's rows there (`backing_rows`); the first write here
-            // copied them in (`table_mut`), so with `BeforeRows::Backing` they are the rows to compare with (al-runner
-            // issue 8954). With `BeforeRows::Empty` the table is put whole.
+            // A table `base` holds no entry for reads the backing's rows there; the first write here copied them in
+            // (`table_mut`). See [`BeforeRows`].
             let backed;
             let old = match base.committed.get(slot) {
                 Some(old)
@@ -80,12 +78,15 @@ impl MemStore {
                     continue;
                 }
                 Some(old) => old,
-                None => match (before, base.backing_rows(&slot.0, slot.1)) {
-                    (BeforeRows::Backing, Some(rows)) => {
+                None => match (before == BeforeRows::Backing)
+                    .then(|| base.backing_rows(&slot.0, slot.1))
+                    .flatten()
+                {
+                    Some(rows) => {
                         backed = rows.0;
                         &backed
                     }
-                    (BeforeRows::Empty, _) | (BeforeRows::Backing, None) => {
+                    None => {
                         out.tables.push(whole(slot, table));
                         continue;
                     }

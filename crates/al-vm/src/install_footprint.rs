@@ -430,7 +430,7 @@ const KEPT_METHODS: &[(&str, &[&str])] = &[
 ///
 /// Every other member touches everything (ADR-079 decision 1), every other server class member included.
 fn dotnet_member_kept(clr_type: &str, member: Option<&str>) -> bool {
-    al_host::inproc::lists(al_host::inproc::listed_type(clr_type), member)
+    al_host::inproc::lists(clr_type, member)
         || member.is_some_and(|m| crate::dotnet::server_classes::keeps_nothing(clr_type, m))
 }
 

@@ -9,7 +9,7 @@
 //! Which reads see which writes ([`Resource::read_sees_write`]) and which writes collide is decided here, the one owner
 //! of those rules; al-vm `install_footprint.rs` builds the rest of the footprint on them.
 
-use super::{Key, MemStore};
+use super::{BeforeRows, Key, MemStore};
 use crate::{AccessContext, TableDef};
 use al_builtins::value::Value;
 use std::cell::{Cell, RefCell};
@@ -219,7 +219,7 @@ impl MemStore {
                 al_builtins::value_codec::encode_row(a, &mut x) && al_builtins::value_codec::encode_row(b, &mut y);
             Some(plain && x == y)
         };
-        let Some(changes) = self.committed_row_changes_from(before, super::BeforeRows::Backing, &mut same) else {
+        let Some(changes) = self.committed_row_changes_from(before, BeforeRows::Backing, &mut same) else {
             return Err(("the companies copied or deleted changed", None));
         };
         let covers_table = |company: &str, object: u32| {
