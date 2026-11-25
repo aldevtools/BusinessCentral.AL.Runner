@@ -207,25 +207,98 @@ impl Session {
     }
 }
 
-/// The open transaction began at an AL Commit() in an earlier test body after a Record write since that body began, as
-/// Initialize does in each cell of PR 1573 (SqExistingRestart.al:119-131), with only body ends and starts and the
-/// runner's commits since, the last point being the start of the step's test body.
+/// The step's test body is the last point, and the test body before it was the one of Initialize in each cell of PR 1573
+/// (SqExistingRestart.al:119-131): a Record write, then an AL Commit(), then nothing until the body ended. Between that
+/// body's end and the step's body start only the runner committed: an AL Commit() of runner codeunit 130450 or a commit
+/// of al-runner's own runner, which replays its steps (what the runner's steps reach between the bodies is not read).
 fn began_after_earlier_write(log: &[super::TxPoint]) -> bool {
-    let between = |k: TxPointKind| {
+    let runner = |k: TxPointKind| {
         matches!(
             k,
-            TxPointKind::BodyStart | TxPointKind::BodyEnd | TxPointKind::Commit(CommitBy::Other)
+            TxPointKind::Commit(CommitBy::Other) | TxPointKind::Commit(CommitBy::Statement)
         )
     };
-    let Some(commit) = log.iter().rposition(|p| !between(p.kind)) else {
+    let Some((TxPointKind::BodyStart, before)) = log.split_last().map(|(p, b)| (p.kind, b)) else {
         return false;
     };
-    let Some(start) = commit.checked_sub(1) else {
+    let Some(end) = before.iter().rposition(|p| !runner(p.kind)) else {
         return false;
     };
-    log[commit].kind == TxPointKind::Commit(CommitBy::Statement)
-        && log[start].kind == TxPointKind::BodyStart
-        && Interval::of(&log[start].access, &log[commit].access) == Interval::RecordWrite
-        && log[commit + 1..].iter().any(|p| p.kind == TxPointKind::BodyEnd)
-        && log.last().map(|p| p.kind) == Some(TxPointKind::BodyStart)
+    let Some(start) = end.checked_sub(2) else {
+        return false;
+    };
+    let [s, c, e] = &log[start..=end] else {
+        return false;
+    };
+    (s.kind, c.kind, e.kind)
+        == (
+            TxPointKind::BodyStart,
+            TxPointKind::Commit(CommitBy::Statement),
+            TxPointKind::BodyEnd,
+        )
+        && Interval::of(&s.access, &c.access) == Interval::RecordWrite
+        && Interval::of(&c.access, &e.access) == Interval::Untouched
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{CommitBy, DataAccess, TxPoint, TxPointKind};
+    use super::began_after_earlier_write;
+
+    fn access(store: u64, table_store: u64, table_writes: u64, record_calls: u64) -> DataAccess {
+        DataAccess {
+            store,
+            table_store,
+            table_writes,
+            record_calls,
+            ..DataAccess::default()
+        }
+    }
+
+    fn at(kind: TxPointKind, access: DataAccess) -> TxPoint {
+        TxPoint { kind, access }
+    }
+
+    /// The log of a PR 1573 cell up to the step's body start: test A writes a row and commits (Initialize), then the
+    /// runner's points `between`.
+    fn cell_log(between: &[TxPointKind], after_commit: DataAccess) -> Vec<TxPoint> {
+        let (none, wrote) = (access(5, 3, 1, 2), access(9, 7, 2, 4));
+        let mut log = vec![
+            at(TxPointKind::Commit(CommitBy::Other), none),
+            at(TxPointKind::BodyStart, none),
+            at(TxPointKind::Commit(CommitBy::Statement), wrote),
+            at(TxPointKind::BodyEnd, after_commit),
+        ];
+        log.extend(between.iter().map(|k| at(*k, after_commit)));
+        log.push(at(TxPointKind::BodyStart, after_commit));
+        log
+    }
+
+    const OTHER: TxPointKind = TxPointKind::Commit(CommitBy::Other);
+    const STATEMENT: TxPointKind = TxPointKind::Commit(CommitBy::Statement);
+
+    #[test]
+    fn the_runners_commits_between_the_bodies_are_the_cells_shape() {
+        let wrote = access(9, 7, 2, 4);
+        // Al-runner's own runner.
+        assert!(began_after_earlier_write(&cell_log(&[OTHER], wrote)));
+        // Runner codeunit 130450 of the Test Runner app, whose AL code commits between the tests.
+        assert!(began_after_earlier_write(&cell_log(&[OTHER, STATEMENT, OTHER], wrote)));
+    }
+
+    #[test]
+    fn shapes_beside_the_earlier_test_are_not_the_cells_shape() {
+        // A Record write after the earlier test's Commit().
+        assert!(!began_after_earlier_write(&cell_log(&[OTHER], access(12, 9, 3, 5))));
+        // Another test body between the committing one and the step's.
+        let wrote = access(9, 7, 2, 4);
+        let body = [OTHER, TxPointKind::BodyStart, TxPointKind::BodyEnd, OTHER];
+        assert!(!began_after_earlier_write(&cell_log(&body, wrote)));
+        // A rollback between the bodies.
+        assert!(!began_after_earlier_write(&cell_log(&[TxPointKind::Rollback], wrote)));
+        // The last point is not the step's body start.
+        let mut log = cell_log(&[OTHER], wrote);
+        log.pop();
+        assert!(!began_after_earlier_write(&log));
+    }
 }

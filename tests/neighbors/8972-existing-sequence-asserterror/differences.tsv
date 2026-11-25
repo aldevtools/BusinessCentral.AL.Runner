@@ -1,0 +1,23 @@
+# key	entry
+N6 RE5::C_RE5Reads	ASSUMED existing-sequence-asserterror (corpus PR 1573) RE5: a Record write, then the asserterror undoes the Restart; main kept it (cur=1002, BC 2)
+N6 RE::C_REReads	ASSUMED existing-sequence-asserterror (corpus PR 1573) RE: as RE5, then the test fails
+N6 RE2::C_RE2Reads	ASSUMED existing-sequence-asserterror (corpus PR 1573) RE2: the write inside the asserterror
+N6 DE::C_DEReads	ASSUMED existing-sequence-asserterror (corpus PR 1573) DE: the Delete undone, then the test fails
+N6 RE4::C_RE4Reads	ASSUMED existing-sequence-asserterror (corpus PR 1573) RE4: nothing reached, the asserterror keeps the Restart (main's value, now flagged)
+N6 RE3::C_RE3Reads	REFUSED a test of this codeunit
+N6 NextAfterStep::C_NextAfterStepReads	REFUSED number sequence '
+N6 WriteBeforeStep::C_WriteBeforeStepReads	REFUSED number sequence '
+N6 CompanyWide::C_CompanyWideReads	REFUSED number sequence '
+N6 ReadOnly::C_ReadOnlyReads	REFUSED number sequence '
+N6 AutoRollback::C_AutoRollbackReads	REFUSED number sequence '
+N6 LabelError::C_LabelErrorReads	REFUSED number sequence '
+N6 HeldSecondAsserterror::C_HeldSecondAsserterrorReads	REFUSED number sequence '
+N6 DeletePasses::C_DeletePassesReads	REFUSED a test of this codeunit
+N6 DeleteNothing::C_DeleteNothingReads	REFUSED number sequence '
+N6 NoEarlierWrite::C_NoEarlierWriteReads	REFUSED number sequence '
+N6 SecondStep::C_SecondStepReads	REFUSED number sequence '
+N6 CommitInStepBody::C_CommitInStepBodyReads	REFUSED number sequence '
+N6 ComputedError::C_ComputedErrorReads	REFUSED number sequence '
+N6 ReadAfterUndo::B_ReadAfterUndoStep	REFUSED number sequence '
+N6 ReadAfterDeleteUndo::B_ReadAfterDeleteUndoStep	REFUSED number sequence '
+N6 ReadAfterKeep::B_ReadAfterKeepStep	REFUSED number sequence '
