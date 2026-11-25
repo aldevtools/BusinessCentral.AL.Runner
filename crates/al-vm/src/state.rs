@@ -335,7 +335,7 @@ impl TableWrites {
 
 /// [`TxState::write_counts`]: how many writes the session noted, how many of them of a kind no cell of the
 /// failed-Insert check measures after the read (`version_entry::unmeasured_after`), and how many per table and company.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(crate) struct WriteCounts {
     pub(crate) all: u64,
     pub(crate) unmeasured: u64,
