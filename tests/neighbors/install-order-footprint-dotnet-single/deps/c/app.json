@@ -1,0 +1,16 @@
+{
+  "id": "8d1a2b3c-8954-4000-8000-000000020002",
+  "name": "FP Dotnet Single C",
+  "publisher": "Footprint Probe Co",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "15.0",
+  "idRanges": [
+    {
+      "from": 52220,
+      "to": 52229
+    }
+  ],
+  "dependencies": [],
+  "target": "OnPrem"
+}
