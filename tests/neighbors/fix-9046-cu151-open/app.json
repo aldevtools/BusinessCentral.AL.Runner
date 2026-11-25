@@ -7,17 +7,10 @@
   "runtime": "15.0",
   "idRanges": [
     {
-      "from": 52650,
+      "from": 52640,
       "to": 52659
     }
   ],
-  "dependencies": [
-    {
-      "id": "8d1a2b3c-9046-4000-8000-000000041510",
-      "name": "CT Open E",
-      "publisher": "Footprint Probe Co",
-      "version": "1.0.0.0"
-    }
-  ],
+  "dependencies": [],
   "target": "OnPrem"
 }

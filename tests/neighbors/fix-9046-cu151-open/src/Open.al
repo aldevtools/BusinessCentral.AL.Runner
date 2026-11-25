@@ -8,7 +8,7 @@ table 52640 "CT Open TE"
     keys { key(PK; "Code") { Clustered = true; } }
 }
 
-codeunit 52641 "CT Open E Install"
+codeunit 52641 "CT Open Install"
 {
     Subtype = Install;
 
@@ -23,8 +23,10 @@ codeunit 52641 "CT Open E Install"
     end;
 }
 
-codeunit 52642 "CT Open E Subscriber"
+codeunit 52642 "CT Open Subscriber"
 {
+    // The app's own Company Triggers subscriber runs in its install session before its install code
+    // (record/BfInstallTests.al:125-140).
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Company Triggers", 'OnCompanyOpenCompleted', '', false, false)]
     local procedure OpenCompleted()
     var
