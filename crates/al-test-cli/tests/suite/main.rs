@@ -184,6 +184,7 @@ mod outside_fb_repros;
 mod outside_id_repros;
 mod outside_rt_pages;
 mod outside_sc_pins;
+mod outside_truncate_9097;
 mod own_area_caption_open;
 mod page_bare_run_modal;
 mod page_global_binding;
