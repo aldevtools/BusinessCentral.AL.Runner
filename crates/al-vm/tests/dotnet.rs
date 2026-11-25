@@ -4659,3 +4659,31 @@ fn the_members_that_only_answer_are_registered_calls() {
     assert!(!answers_only(helper, "SetTestTenantEnvironmentType"));
     assert!(!holds_answering_class("System.Text.StringBuilder"));
 }
+
+/// Every member of `server_classes::CONSTANT_ANSWERS` is a registered call (al-runner issue 8954), apart from
+/// `ANSWERS_ONLY`; only `TryGetStringTenantSetting` writes an argument back.
+#[test]
+fn the_constant_answers_are_registered_calls() {
+    use al_vm::dotnet::server_classes::{ANSWERS_ONLY, CONSTANT_ANSWERS, answers_only, keeps_nothing};
+    let reg = Registry::builtin();
+    for (clr, member) in CONSTANT_ANSWERS {
+        let t = reg.get(clr).unwrap_or_else(|| panic!("{clr} is not registered"));
+        let m = t
+            .member(member, MemberKind::Call)
+            .unwrap_or_else(|| panic!("{clr}.{member} is not a call"));
+        assert_eq!(m.kind, MemberKind::Call, "{clr}.{member}");
+        assert_eq!(
+            m.call_ref.is_some(),
+            *member == "TryGetStringTenantSetting",
+            "{clr}.{member}"
+        );
+        assert!(!answers_only(clr, member), "{clr}.{member} is in ANSWERS_ONLY");
+        assert!(
+            keeps_nothing(&clr.to_lowercase(), &member.to_uppercase()),
+            "{clr}.{member}"
+        );
+    }
+    assert!(ANSWERS_ONLY.iter().all(|(c, m)| keeps_nothing(c, m)));
+    let helper = al_builtins::dotnet_sigs::TENANT_SETTINGS_HELPER;
+    assert!(!keeps_nothing(helper, "SetTestTenantEnvironmentType"));
+}
