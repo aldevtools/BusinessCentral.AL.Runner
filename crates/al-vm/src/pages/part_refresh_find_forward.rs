@@ -5,6 +5,8 @@
 //! calls, values and rows; names use the measured slots. They run under assumption
 //! `part-update-first-row-find-forward`; after the read the test only reads and closes (`PinnedEnd`). Entry:
 //! `part_refresh_find_forward` (by `part_update_host_unchanged` in `parts.rs`).
+//! Other OnFindRecord parts keep the open read's `=><`: the same rows are read, and Base Application's sales
+//! subforms take this path under Microsoft's tests.
 
 use super::pinned_body::{Callees, Names, callees_are, page_is, table_is};
 use super::pinned_shape::{NextEnd, PartStep, PinnedEnd, PinnedPart, Reads, TestCall};
