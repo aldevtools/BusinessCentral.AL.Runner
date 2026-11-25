@@ -227,6 +227,9 @@ pub enum CodedLine {
     LineRead,
     /// It landed: `code_inserted_row` holds the steps after it, until the page closes.
     Landed,
+    /// The first SetValue's validation raised an error before the landing (`CodedObjects::Extra`): the error reaches the test,
+    /// and any later call on the page is refused.
+    Failed,
 }
 
 /// Whose objects the page with code (`code_inserted_coded.rs`) is, line for line (`code_inserted_pinned.rs` `coded_code`).
@@ -1061,6 +1064,16 @@ pub struct PageState {
     /// The store's change counter when the page began to open (`open_page`): `coded_open_on_empty_view` tells by it whether
     /// OnOpenPage or a part's trigger wrote at the open.
     pub open_changes: u64,
+    /// The control's OnValidate that ran last on the page failed with an AL error in a shape the cells of
+    /// ListNewLineExtraCodeCodedTableTriggers.al measure (`run_control_onvalidate`, read by `coded_error_measured`): before
+    /// any `CurrPage.SaveRecord` or `CurrPage.Update`, after its table field stored the new line (:1269) or skipped its insert
+    /// (:1684); or after one `CurrPage.SaveRecord` that saved a line the table field did not insert (:1674). It does not look
+    /// at what the control wrote before the error: each kind of write is measured, rolled back with the error, the answer
+    /// unchanged (review of al-runner PR 8840, 09:29Z): a row of another table inserted before the save (:2121, :2132) and
+    /// after it (:2143), modified or deleted before it (:2176, :2187) and after it (:2220, :2231); Rec inserted when the table
+    /// field skipped its insert, before the save (:2154) and after it (:2165); and the stored Rec modified or deleted (:2198,
+    /// :2209).
+    pub control_failed_as_measured: bool,
     /// The page control's own OnValidate while it runs (`code_inserted_new_line.rs` `run_control_onvalidate`).
     pub control_onvalidate: Option<ControlOnValidate>,
     /// `CurrPage.SaveRecord()` saved the row page code found from the new-row line through assumption
