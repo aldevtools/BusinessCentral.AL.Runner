@@ -1056,10 +1056,12 @@ impl Session {
                         && (matches!(sty, RtType::Date | RtType::Integer | RtType::Decimal | RtType::Boolean)
                             || matches!(sty, RtType::Option(_))
                                 && al_builtins::filter::shows_member_names(&field.properties));
-                    let direct_calc_fields =
-                        stack.last().is_some_and(|f| f.asked == Asked::CalcFields) && !rec.borrow().temporary;
-                    let other_source = !matches!(sty, RtType::Code(_) | RtType::Text(_));
                     let at_sign = matches!(text.as_str(), "@" | "<>@");
+                    let direct_calc_fields = match (sty, calc.method, self.global_language(), at_sign) {
+                        (RtType::Date, ir::CalcMethod::Count, 1031 | 1030, true) => false,
+                        _ => stack.last().is_some_and(|f| f.asked == Asked::CalcFields) && !rec.borrow().temporary,
+                    };
+                    let other_source = !matches!(sty, RtType::Code(_) | RtType::Text(_));
                     if at_sign && other_source && !main_reader && !direct_calc_fields {
                         return unsupported(format!(
                             "a reader of the CalcFormula filter '{text}' over a {} field that no cell measures (AtSignAloneTypes.al:651-:905; direct Record.CalcFields on a stored host only)",
@@ -1067,11 +1069,8 @@ impl Session {
                         ));
                     }
                     let captions = || {
-                        let def = engine.tables[calc.table].clone();
-                        let members = match def {
-                            Some(t) => self.members_of_field(&t, c.field)?,
-                            None => None,
-                        };
+                        let def = engine.tables[calc.table].clone().expect("table");
+                        let members = self.members_of_field(&def, c.field)?;
                         Ok(members
                             .map(|(_, m)| m.into_iter().map(|(_, _, caption)| caption).collect())
                             .unwrap_or_default())

@@ -93,9 +93,10 @@ pub enum OtherSourceAtSign {
 
 /// [`OtherSourceAtSign`] for `text` over `ty` in a session of `language`, or None when the text is not `@` alone or `<>@` alone or
 /// no cell measures the type ([`calc_formula_at_sign_measured`]). `count` says the method is count. `captions` gives the captions
-/// of an Option or Enum field's members as the session shows them; it is called only for such a field. The 1031 and 1030 cells
-/// each run count with `@` only (AtSignAloneTypes.al:935, :974); every other combination is refused there before the assumption
-/// is marked. The lowering admits only the exact new caption shapes and also keeps the sum shapes main ran.
+/// of an Option or Enum field's members as the session shows them; it is called only for such a field. The 1031 and 1030
+/// error cells each run count with `@` only (AtSignAloneTypes.al:935, :974); every other error combination is refused there
+/// before the assumption is marked. Date returns rows, so its Sum and Count readers keep main in those languages. The lowering
+/// admits only the exact new caption shapes and also keeps the sum shapes main ran.
 pub fn calc_formula_at_sign_other_source(
     text: &str,
     ty: &crate::value::RtType,
@@ -111,10 +112,15 @@ pub fn calc_formula_at_sign_other_source(
     let Some(answer) = other_source_answer(negated, ty, captions)? else {
         return Ok(None);
     };
-    if language != 1033 && !(matches!(language, 1031 | 1030) && count && text == "@") {
-        return unsupported(format!(
-            "the error of a CalcFormula filter '{text}' in a session of language {language} (not measured)"
-        ));
+    match (&answer, language, count, text) {
+        (OtherSourceAtSign::Error { .. }, 1033, _, _) => {}
+        (OtherSourceAtSign::Error { .. }, 1031 | 1030, true, "@") => {}
+        (OtherSourceAtSign::Error { .. }, other, _, _) => {
+            return unsupported(format!(
+                "the error of a CalcFormula filter '{text}' in a session of language {other} (not measured)"
+            ));
+        }
+        (OtherSourceAtSign::Rows(_), _, _, _) => {}
     }
     assume(Assumption::AtSignAloneDatabaseBlank);
     Ok(Some(answer))
