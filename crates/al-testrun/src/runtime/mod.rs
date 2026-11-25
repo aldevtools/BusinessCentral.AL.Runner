@@ -1184,7 +1184,7 @@ fn test_workers() -> usize {
 }
 
 /// Stack of a test thread: the VM recurses on the native stack per AL call (`MAX_CALL_DEPTH`).
-const TEST_STACK: usize = 256 << 20;
+pub(crate) const TEST_STACK: usize = 256 << 20;
 
 /// Drops `value` on another thread. The process does not wait for it when it ends.
 pub fn retire<T: Send + 'static>(value: T) {
@@ -1264,6 +1264,8 @@ mod install_unknown_tests;
 mod internals_grant;
 #[cfg(test)]
 mod login_explain_tests;
+#[cfg(test)]
+mod login_image_tests;
 #[cfg(test)]
 mod login_memo_tests;
 #[cfg(test)]
