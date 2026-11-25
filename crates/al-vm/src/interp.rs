@@ -1420,6 +1420,16 @@ impl Session {
         }
     }
 
+    /// The lengths `var_lens_of` left for the frame of a routine with `var` Text parameters (`RoutineFacts::var_lens`);
+    /// empty for any other routine.
+    pub(crate) fn take_var_lens(&mut self, wanted: bool) -> Vec<Option<i32>> {
+        if wanted {
+            std::mem::take(&mut self.events.next_var_lens)
+        } else {
+            Vec::new()
+        }
+    }
+
     /// For each `var` Text or Code parameter of the callee: the declared length of the variable or field the argument names
     /// (text/text-methods/MaxStrLen.Codeunit.al:91-151, LT_BU_MaxStrLen_TextParameters), `i32::MAX` for one without a
     /// length. A `var` parameter of the caller handed on keeps the length the caller got for it, through any number of hops

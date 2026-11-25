@@ -2654,7 +2654,6 @@ impl Session {
             locals[i] = self.bind_blobs(argument, bound)?;
         }
         self.return_vec(args);
-        let var_lens = (facts.var_lens.then(|| std::mem::take(&mut self.events.next_var_lens))).unwrap_or_default();
         let (option_hops, hand_on_origins, option_carried) = self.take_option_marks(&facts);
         let mut frame = Frame {
             object,
@@ -2662,7 +2661,7 @@ impl Session {
             instance,
             locals,
             aliases,
-            var_lens,
+            var_lens: self.take_var_lens(facts.var_lens),
             option_hops,
             hand_on_origins,
             option_carried,
