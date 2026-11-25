@@ -1065,6 +1065,9 @@ pub struct PageState {
     /// Rec as the later SetValue of a page of the page-with-code shape with other code found it (`coded_typed_begins`): its
     /// save must find Rec's view so (`extra_code_typed_save`).
     pub coded_typed_view: Option<Box<RecordState>>,
+    /// The store's change counter, write mark and last SystemModifiedAt stamp when that later SetValue began
+    /// (`coded_typed_begins`): before its save, only rows of other tables inserted after this mark are measured.
+    pub coded_typed_begin_at: Option<(u64, (i64, u64), i64)>,
     /// The store's change counter and the last SystemModifiedAt stamp when the later SetValue's `CurrPage.SaveRecord()` began
     /// (`extra_code_typed_save`): its Update tells by them which rows of other tables the code wrote since, and whether it
     /// inserted them (`extra_typed_other_writes_inserted`).
@@ -1136,6 +1139,16 @@ impl std::fmt::Debug for PageState {
 }
 
 impl PageState {
+    /// Whether the page-with-code shape with other code is running its later SetValue's validation
+    /// (`ListNewLineExtraCodeCodedSecondSetValue.al`).
+    pub(crate) fn coded_typed_extra(&self) -> bool {
+        self.coded_objects == CodedObjects::Extra
+            && matches!(
+                self.code_inserted_row.as_ref().map(|r| r.factbox),
+                Some(FactboxStep::CodedTyped { .. })
+            )
+    }
+
     /// Sets `empty_list_row_behind` to `behind`, with Rec's fields as the action left them (`empty_list_rec_left`).
     pub(crate) fn set_row_behind(&mut self, behind: bool, rec_left: Vec<Value>, action_pinned: bool) {
         self.empty_list_row_behind = behind;
@@ -1267,6 +1280,7 @@ impl PageState {
         self.code_inserted_extra = false;
         self.coded_line = Default::default();
         self.coded_typed_view = None;
+        self.coded_typed_begin_at = None;
         self.coded_typed_save_at = None;
     }
 

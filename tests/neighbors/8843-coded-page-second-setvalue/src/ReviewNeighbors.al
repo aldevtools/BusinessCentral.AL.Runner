@@ -1,9 +1,9 @@
 // Neighbors of ListNewLineExtraCodeCodedSecondSetValue.al for the reviews of al-runner PR 8847 (01:00Z, 02:55Z): a
 // TableRelation on a control without code; the value typed into the Value control with a TableRelation stored, missing, or
 // stored in another case, and a relation to a Code key; a field of Rec set, the row modified through another record, or a row
-// of another table modified or deleted, between the later save and its Update; a filter set on Rec before the save; Rec moved
-// off the landed row before the save; the row written between the two SetValues. Each test is in its own codeunit and holds
-// Business Central's answer, measured on a local BC 29.1 container (3 runs of 3).
+// of another table modified or deleted, before the later save or between it and its Update; a filter set on Rec before the
+// save; Rec moved off the landed row before the save; the row written between the two SetValues. Each test is in its own
+// codeunit and holds Business Central's answer, measured on a local BC 29.1 container (3 runs of 3).
 
 // The probe's page whose Value control runs the code of the mode (LT NV3 Mode).
 page 96580 "LT NV5 Var Lines"
@@ -103,6 +103,23 @@ page 96580 "LT NV5 Var Lines"
                                     Stamp.FindFirst();
                                     Stamp.Text := 'Changed';
                                     Stamp.Modify();
+                                    CurrPage.Update(false);
+                                end;
+                            9:
+                                begin
+                                    Rec.ApplyValue();
+                                    Stamp.FindFirst();
+                                    Stamp.Text := 'Changed';
+                                    Stamp.Modify();
+                                    CurrPage.SaveRecord();
+                                    CurrPage.Update(false);
+                                end;
+                            10:
+                                begin
+                                    Rec.ApplyValue();
+                                    Stamp.FindFirst();
+                                    Stamp.Delete();
+                                    CurrPage.SaveRecord();
                                     CurrPage.Update(false);
                                 end;
                         end;
@@ -485,7 +502,7 @@ codeunit 96582 "LT NV5 Lib"
             Line.Name := 'Other';
             Line.Insert();
         end;
-        if M in [7, 8] then begin
+        if M in [7, 8, 9, 10] then begin
             Stamp.Init();
             Stamp.Text := 'Before';
             Stamp.Insert();
@@ -953,6 +970,68 @@ codeunit 96597 "LT NV5 Code Rel Tests"
 
     [ModalPageHandler]
     procedure Handler(var Lines: TestPage "LT NV5 Code Rel Lines")
+    begin
+        Lines.New();
+        Lines.Name.SetValue('A');
+        Lines.Value.SetValue('V');
+        Shown += 'value=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + '/' + Lines.Shown.Value() + ' ';
+        Lines.OK().Invoke();
+    end;
+}
+
+// Review of al-runner PR 8847, 18:55Z: a row of another table modified before the save.
+codeunit 96598 "LT NV5 Modify Before Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        Lib: Codeunit "LT NV5 Lib";
+        Shown: Text;
+
+    [Test]
+    [HandlerFunctions('Handler')]
+    procedure NewLine_LaterSetValueModifiesAnotherTablesRowBeforeTheSave_ShowsTheRow()
+    begin
+        Lib.Initialize(9, false);
+        Shown := '';
+        Lib.OpenVar();
+        Lib.Check('all', 'value=A/Resolved/Stamped/V/Value V | rows=G1:A/Resolved/Stamped/V/Value V;| stamps=Changed;', Shown + '| rows=' + Lib.Rows() + '| stamps=' + Lib.Stamps());
+    end;
+
+    [ModalPageHandler]
+    procedure Handler(var Lines: TestPage "LT NV5 Var Lines")
+    begin
+        Lines.New();
+        Lines.Name.SetValue('A');
+        Lines.Value.SetValue('V');
+        Shown += 'value=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + '/' + Lines.Shown.Value() + ' ';
+        Lines.OK().Invoke();
+    end;
+}
+
+// Review of al-runner PR 8847, 18:55Z: a row of another table deleted before the save.
+codeunit 96599 "LT NV5 Delete Before Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        Lib: Codeunit "LT NV5 Lib";
+        Shown: Text;
+
+    [Test]
+    [HandlerFunctions('Handler')]
+    procedure NewLine_LaterSetValueDeletesAnotherTablesRowBeforeTheSave_ShowsTheRow()
+    begin
+        Lib.Initialize(10, false);
+        Shown := '';
+        Lib.OpenVar();
+        Lib.Check('all', 'value=A/Resolved/Stamped/V/Value V | rows=G1:A/Resolved/Stamped/V/Value V;| stamps=', Shown + '| rows=' + Lib.Rows() + '| stamps=' + Lib.Stamps());
+    end;
+
+    [ModalPageHandler]
+    procedure Handler(var Lines: TestPage "LT NV5 Var Lines")
     begin
         Lines.New();
         Lines.Name.SetValue('A');

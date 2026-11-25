@@ -63,8 +63,8 @@ fn issue_8843_neighbors_are_refused() {
 /// A stored related value typed as stored ('V', as cell :859) and the row written by the test between the two SetValues run,
 /// flagged. A control without code with a TableRelation keeps main's way, unflagged. A related value missing ('W') or in another
 /// case ('v'), a field of Rec set after the save, Update(true) after a modify or a field set, a filter set before the save,
-/// and Rec moved off the landed row before it are refused; so are a row of another table modified or deleted between the save
-/// and the Update, and a relation to a Code key (review of 02:55Z).
+/// and Rec moved off the landed row before it are refused; so are a row of another table modified or deleted before the save
+/// or between the save and the Update, and a relation to a Code key (reviews of 02:55Z and 18:55Z).
 #[test]
 fn issue_8847_review_neighbors() {
     let src = format!("{PROBE}\n{REVIEW}");
@@ -79,7 +79,7 @@ fn issue_8847_review_neighbors() {
         })
         .filter(|n| n.ends_with(" Tests"))
         .collect();
-    assert_eq!(codeunits.len(), 13);
+    assert_eq!(codeunits.len(), 15);
     for cu in codeunits {
         let o = super::outside_fb_8712::outcomes(&src, cu);
         assert_eq!(o.len(), 1, "{cu}");

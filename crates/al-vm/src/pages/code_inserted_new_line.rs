@@ -898,14 +898,7 @@ impl Session {
         // FactBox it stays refused: BC's answer there is measured 3 of 3 on BC 29.1 only by the neighbor app's
         // tests/neighbors/8734-new-line-extra-code-factbox/src/Neighbors.al:478, which no corpus cell pins; at the landing of
         // the page with code no cell measures it.
-        let typed_extra = {
-            let s = st.borrow();
-            s.coded_objects == super::state::CodedObjects::Extra
-                && matches!(
-                    s.code_inserted_row.as_ref().map(|r| r.factbox),
-                    Some(FactboxStep::CodedTyped { .. })
-                )
-        };
+        let typed_extra = st.borrow().coded_typed_extra();
         // The later SetValue's cells keep Rec as the save left it up to the Update (another table written, :746, or the row
         // modified through another record, :782, at Update(false)), and Update(true) follows the save with nothing written
         // (:804); a field of Rec set, or a write before Update(true), is not measured (review of al-runner PR 8847, 01:00Z).
@@ -950,11 +943,7 @@ impl Session {
         }
         // At the landing only: the later SetValue of a control with code has its own cells for what it writes between its save
         // and its Update (ListNewLineExtraCodeCodedSecondSetValue.al).
-        let landing = !matches!(
-            st.borrow().code_inserted_row.as_ref().map(|r| r.factbox),
-            Some(FactboxStep::CodedTyped { .. })
-        );
-        let coded_extra = landing
+        let coded_extra = !st.borrow().coded_typed_extra()
             && st.borrow().coded_objects == super::state::CodedObjects::Extra
             && matches!(self.code_inserted_page(st)?, Some((Triggers::Coded, _)));
         if coded_extra && !self.extra_coded_between_kept(st, view)? {
