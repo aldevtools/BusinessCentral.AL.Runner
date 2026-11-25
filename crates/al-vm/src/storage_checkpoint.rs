@@ -158,8 +158,8 @@ impl Session {
     pub(crate) fn sequence_unmarked(&self, key: &Key) -> bool {
         let key = loose(&key.0, &key.1);
         self.numbers_unmeasured.is_none()
-            && self.unmeasured.sequences.get(&key).is_none()
-            && self.unmeasured.assumed.get(&key).is_none()
+            && !self.unmeasured.sequences.contains_key(&key)
+            && !self.unmeasured.assumed.contains_key(&key)
     }
 
     /// The running codeunit's tests ended: the refusals of `refuse_unmeasured_key` and `refuse_unmeasured_sequence`, and

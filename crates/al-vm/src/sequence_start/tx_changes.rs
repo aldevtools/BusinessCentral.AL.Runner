@@ -178,7 +178,7 @@ impl Session {
         let one_step = c.new_in_tx
             && !c.repeated
             && key.0 == *self.cx.company
-            && notes.inserted_at.get(key).is_none()
+            && !notes.inserted_at.contains_key(key)
             && self.sequences.get(key) == c.after.as_ref()
             && c.at == Some(log.len())
             && self.sequence_unmarked(key);
