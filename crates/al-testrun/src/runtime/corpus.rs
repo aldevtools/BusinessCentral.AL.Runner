@@ -1926,6 +1926,7 @@ fn set_run_options(e: &mut Engine, opts: &RunOptions) {
     e.write_in_try_allowed = opts.allow_write_in_try_functions;
     e.dependencies_published_global = opts.dependencies_published_global;
     e.skipped_apps = opts.skipped_dependencies.clone();
+    crate::login_start::starts(e).set_limits(opts.login_replay_limits);
 }
 
 /// What the run did, counted (`Phases::work`, the work ratchet of `al-test-cli`).
@@ -2215,8 +2216,8 @@ fn kept_engine_key(
 /// engine shares the tests engine's cache (decision 4), which is then counted once.
 /// The starts count as what they grew since the meter was made: a kept engine's starts of earlier requests are in the
 /// fixed part already, and when this run evicts them the sum does not fall below that reading, so their eviction never
-/// Hides the test rows' growth (it can count up to the evicted bytes, at most `login_start::MAX_BYTES`,
-/// too much).
+/// hides the test rows' growth (it can count up to the evicted bytes, at most the run's
+/// `LoginReplayLimits::max_bytes`, too much).
 pub(super) fn shared_bytes_meter(
     engine: &Arc<Engine>,
     install: Option<&Arc<Engine>>,

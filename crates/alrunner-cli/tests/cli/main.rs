@@ -9,6 +9,7 @@ mod dependencies;
 mod diagnostics;
 mod isolation;
 mod json_interface;
+mod login_replay_limits;
 mod memory;
 mod onrun_stability;
 mod order_default;

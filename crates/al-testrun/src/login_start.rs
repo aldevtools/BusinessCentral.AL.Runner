@@ -10,8 +10,9 @@
 //! A start is kept under its [`StartKey`]: the base key and the texts of the resource files its login read. A session
 //! takes the start of its key whose texts it has (ADR-073 amendment 2026-11-25); tests: `runtime/login_reads_tests.rs`.
 //!
-//! The starts live on the engine ([`starts`], `Engine::derived`): at most [`MAX_STARTS`] and [`MAX_BYTES`] of
-//! `LoginImage::kept_bytes`, least recently used out; one start over [`MAX_START_BYTES`] is not kept (`too large`). The
+//! The starts live on the engine ([`starts`], `Engine::derived`): at most [`LoginReplayLimits`] (8 starts and 64 MB of
+//! `LoginImage::kept_bytes` unless the run sets others, `login_start/limits.rs`), least recently used out; one start
+//! over [`MAX_START_BYTES`] or the run's bytes is not kept (`too large`). The
 //! memory pool reads [`Starts::bytes`] through the shared-bytes meter (`runtime/corpus.rs`), so an eviction gives its
 //! bytes back.
 
@@ -22,12 +23,13 @@ use al_vm::{BaseShape, Engine, LoginImage, NotImaged, Session};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
+mod limits;
 mod outside;
 
-/// The most starts an engine keeps (ADR-073 Phase 1).
-pub(crate) const MAX_STARTS: usize = 8;
-/// The most bytes (`LoginImage::kept_bytes`) the starts of an engine hold together.
-pub(crate) const MAX_BYTES: u64 = 64 << 20;
+pub use limits::LoginReplayLimits;
+#[cfg(test)]
+pub(crate) use limits::{DEFAULT_BYTES, DEFAULT_STARTS};
+
 /// The most bytes one start may hold: a larger one is not kept (`too large`), so one start never empties the others.
 pub(crate) const MAX_START_BYTES: u64 = 16 << 20;
 /// The most keys an engine remembers as refused (no image, or too large).
@@ -89,6 +91,8 @@ pub(crate) struct Starts {
 
 #[derive(Default)]
 struct State {
+    /// The caps of the kept starts ([`Starts::set_limits`]).
+    limits: LoginReplayLimits,
     /// The kept starts, the one used last at the end.
     kept: Vec<(StartKey, Arc<Start>)>,
     /// The keys whose start is not kept, the newest at the end.
@@ -106,6 +110,14 @@ struct State {
 impl State {
     fn bytes(&self) -> u64 {
         self.kept.iter().map(|(_, s)| s.image.kept_bytes()).sum()
+    }
+
+    /// Drops the least recently used starts until `more` starts of `bytes` together fit beside the rest in the caps.
+    fn evict_for(&mut self, more: usize, bytes: u64) {
+        let LoginReplayLimits { max_starts, max_bytes } = self.limits;
+        while !self.kept.is_empty() && (self.kept.len() + more > max_starts || self.bytes() + bytes > max_bytes) {
+            self.kept.remove(0);
+        }
     }
 
     fn refuse(&mut self, key: StartKey) {
@@ -138,8 +150,17 @@ impl Starts {
         Some(start)
     }
 
+    /// The caps of the kept starts from now on: a run sets those of its options (`runtime/corpus.rs`
+    /// `set_run_options`); the starts a kept engine holds beyond them go, least recently used first.
+    pub(crate) fn set_limits(&self, limits: LoginReplayLimits) {
+        let mut s = self.state();
+        s.limits = limits;
+        s.evict_for(0, 0);
+    }
+
     /// Keeps the start of `key` (or why its session has none) within the caps: the first of a key wins; a start over
-    /// [`MAX_START_BYTES`] is refused; the least recently used go until [`MAX_STARTS`] and [`MAX_BYTES`] hold.
+    /// [`MAX_START_BYTES`] or over the run's bytes is refused; the least recently used go until the run's
+    /// [`LoginReplayLimits`] hold.
     pub(crate) fn record(&self, key: StartKey, start: Result<Start, NotImaged>) {
         let mut s = self.state();
         if s.kept.iter().any(|(k, _)| *k == key) || s.refused.contains(&key) {
@@ -154,14 +175,12 @@ impl Starts {
             }
         };
         let bytes = start.image.kept_bytes();
-        if bytes > MAX_START_BYTES {
+        if bytes > MAX_START_BYTES.min(s.limits.max_bytes) {
             s.too_large += 1;
             s.refuse(key);
             return;
         }
-        while !s.kept.is_empty() && (s.kept.len() >= MAX_STARTS || s.bytes() + bytes > MAX_BYTES) {
-            s.kept.remove(0);
-        }
+        s.evict_for(1, bytes);
         s.kept.push((key, Arc::new(start)));
     }
 

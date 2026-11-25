@@ -11,7 +11,9 @@ use super::login_replay_tests::{MAIN, OPAQUE_INSIDE, compiled, compiled_with};
 use super::session_flags::SessionFlags;
 use super::*;
 use crate::login_replay::{Key, first_difference};
-use crate::login_start::{self, MAX_BYTES, MAX_START_BYTES, MAX_STARTS, NotTaken, Start, starts};
+use crate::login_start::{
+    self, DEFAULT_BYTES, DEFAULT_STARTS, LoginReplayLimits, MAX_START_BYTES, NotTaken, Start, starts,
+};
 use al_builtins::assumptions::HitBits;
 use al_builtins::value::Value;
 
@@ -843,7 +845,7 @@ fn a_session_the_gate_refuses_runs_its_login_and_is_counted() {
     assert!(line.is_some_and(|l| l.contains("refused by the gate")), "coverage");
 }
 
-// ---- the caps: 8 starts, 64 MB, a start of at most 16 MB, least recently used out ----
+// ---- the caps: 8 starts and 64 MB unless the run sets others, a start of at most 16 MB, least recently used out ----
 
 /// The key of a new session of `engine` whose work date is `n` (so every `n` is another key).
 fn numbered_key(engine: &Arc<Engine>, n: i32) -> Key {
@@ -889,7 +891,92 @@ fn big_engine() -> (Arc<Engine>, Lowered) {
 
 #[test]
 fn the_caps_are_eight_starts_sixty_four_mb_and_sixteen_mb_a_start() {
-    assert_eq!((MAX_STARTS, MAX_BYTES, MAX_START_BYTES), (8, 64 << 20, 16 << 20));
+    assert_eq!(
+        (DEFAULT_STARTS, DEFAULT_BYTES, MAX_START_BYTES),
+        (8, 64 << 20, 16 << 20)
+    );
+}
+
+// With nothing set, a run's options and the environment give the default caps, and a new engine's starts hold them.
+#[test]
+fn with_nothing_set_the_run_keeps_eight_starts_and_sixty_four_mb() {
+    let defaults = LoginReplayLimits {
+        max_starts: 8,
+        max_bytes: 64 << 20,
+    };
+    assert_eq!(LoginReplayLimits::default(), defaults);
+    assert_eq!(RunOptions::default().login_replay_limits, defaults);
+    assert_eq!(LoginReplayLimits::read(|_| None), Ok(defaults));
+    let (engine, l) = big_engine();
+    let st = starts(&engine);
+    for n in 0..9 {
+        st.record(numbered_start_key(&engine, n), Ok(start_of_size(&engine, &l, 1000)));
+    }
+    assert_eq!(st.kept(), 8, "the ninth start pushes the first out");
+}
+
+/// The caps `max_starts` starts and `mib` MiB.
+fn limits(max_starts: usize, mib: u64) -> LoginReplayLimits {
+    LoginReplayLimits {
+        max_starts,
+        max_bytes: mib << 20,
+    }
+}
+
+// A run that sets the count keeps exactly that many starts, above the default too, the least recently used out.
+#[test]
+fn a_set_count_keeps_that_many_starts_least_recently_used_out() {
+    let (engine, l) = big_engine();
+    let st = starts(&engine);
+    st.set_limits(limits(12, 64));
+    for n in 0..12 {
+        st.record(numbered_start_key(&engine, n), Ok(start_of_size(&engine, &l, 1000)));
+    }
+    assert_eq!(st.kept(), 12, "twelve starts, beyond the default eight");
+    // Key 0 is used again: key 1 is now the least recently used.
+    assert!(st.take(&numbered_key(&engine, 0), &engine).is_some());
+    st.record(numbered_start_key(&engine, 12), Ok(start_of_size(&engine, &l, 1000)));
+    assert_eq!(st.kept(), 12, "the thirteenth start pushes one out");
+    assert!(
+        st.take(&numbered_key(&engine, 1), &engine).is_none(),
+        "the least recently used is out"
+    );
+    for n in [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] {
+        assert!(st.take(&numbered_key(&engine, n), &engine).is_some(), "key {n}");
+    }
+    // A lower count (a kept engine under the next run's options) drops the least recently used at once: 10, 11, 12 stay.
+    st.set_limits(limits(3, 64));
+    assert_eq!(st.kept(), 3);
+    for n in [10, 11, 12] {
+        assert!(st.take(&numbered_key(&engine, n), &engine).is_some(), "key {n}");
+    }
+}
+
+// A run that sets the megabytes binds the starts by their bytes: once the total would pass it, the least recently used
+// go; one start over it is not kept (`too large`), even below the 16 MB of one start.
+#[test]
+fn set_megabytes_bind_the_starts_by_bytes() {
+    let (engine, l) = big_engine();
+    let st = starts(&engine);
+    st.set_limits(limits(100, 20));
+    // Two starts of 9 MiB fit in 20 MiB (18 MiB and their small parts), a third does not: the oldest goes.
+    for n in 0..2 {
+        st.record(numbered_start_key(&engine, n), Ok(start_of_size(&engine, &l, 9 * MIB)));
+    }
+    assert_eq!(st.kept(), 2);
+    st.record(numbered_start_key(&engine, 2), Ok(start_of_size(&engine, &l, 9 * MIB)));
+    assert_eq!(st.kept(), 2, "a third start of 9 MiB would pass 20 MiB");
+    assert!(st.bytes() <= 20 << 20, "{}", st.bytes());
+    assert!(st.take(&numbered_key(&engine, 0), &engine).is_none());
+    assert!(st.take(&numbered_key(&engine, 2), &engine).is_some());
+    // A start of 12 MiB alone passes 10 MiB: not kept, and the kept ones stay.
+    st.set_limits(limits(100, 10));
+    assert_eq!(st.kept(), 1, "a lower cap drops what passes it at once");
+    st.record(numbered_start_key(&engine, 3), Ok(start_of_size(&engine, &l, 12 * MIB)));
+    assert!(st.take(&numbered_key(&engine, 3), &engine).is_none());
+    assert_eq!(st.kept(), 1);
+    let line = st.line().expect("a line");
+    assert!(line.contains("1 too large"), "{line}");
 }
 
 // A start is kept with its bytes counted.
@@ -912,7 +999,7 @@ fn a_recorded_start_is_kept_and_its_bytes_are_counted() {
 fn starts_are_bounded_by_eight_least_recently_used_out() {
     let (engine, l) = big_engine();
     let st = starts(&engine);
-    for n in 0..MAX_STARTS as i32 {
+    for n in 0..DEFAULT_STARTS as i32 {
         st.record(numbered_start_key(&engine, n), Ok(start_of_size(&engine, &l, 1000)));
     }
     assert_eq!(st.kept(), 8);
@@ -940,14 +1027,14 @@ fn starts_are_bounded_by_sixty_four_mb_and_an_eviction_returns_the_bytes() {
     }
     assert_eq!(st.kept(), 7);
     let seven = st.bytes();
-    assert!(seven > 63 * MIB as u64 && seven <= MAX_BYTES, "{seven}");
+    assert!(seven > 63 * MIB as u64 && seven <= DEFAULT_BYTES, "{seven}");
     st.record(numbered_start_key(&engine, 7), Ok(start_of_size(&engine, &l, 9 * MIB)));
     assert_eq!(
         st.kept(),
         7,
         "an eighth start of 9 MiB would pass 64 MB: the least recently used is out"
     );
-    assert!(st.bytes() <= MAX_BYTES, "{}", st.bytes());
+    assert!(st.bytes() <= DEFAULT_BYTES, "{}", st.bytes());
     assert!(st.take(&numbered_key(&engine, 0), &engine).is_none());
     assert!(st.take(&numbered_key(&engine, 7), &engine).is_some());
     // The bytes of the one pushed out are not counted any more: 7 starts, not 8.
