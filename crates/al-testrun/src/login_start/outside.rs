@@ -10,8 +10,8 @@
 //!   between the recording session's login and a replay (the owner says why).
 //! - **gated**: the state exists only in a run that follows the code it runs (coverage, the profiler); such a run takes no
 //!   start (`login_start::run_gate`, `NotTaken::NotesCode`).
-//! - **key**: a serve request sets it and the login can read it: a field of the login key holds it by content, so a start
-//!   is never taken under another value (the field is named).
+//! - **key**: a serve request sets it and the login can read it: a field of the login key holds it by content or by a
+//!   SHA-256 digest, so a start is never taken under another value (the field is named).
 //! - **run**: one value for the whole process or thread run, set once before any session, not of one session or request
 //!   (a cache of the program, an id counter, a diagnostic, a setting of the process start).
 //!
@@ -42,14 +42,14 @@
 //!   capture, the runner codeunit, the single instance watch, the carries and the leak are taken after the open; the
 //!   rest chooses, limits or reports the tests).
 //! - `crates/al-vm/src/lib.rs` (`Engine`, "Set by a run"): `field emit_version`: key (`Key::emit_version`).
-//!   `field unseeded`, `field demo_tables`: key (`Key::refused_reads`). `field resource_overrides`: key (the texts of
-//!   the files the login read, `StartKey`). `field test_data`: key (`Key::backing`) and engine. `field license`: key
-//!   (`Key::license`) and engine; `field license_caps`: engine (worked out from the license on first use).
-//!   `field skipped_apps`,
-//!   `field write_in_try_allowed`, `field dependencies_published_global`: engine. `field company_refusal`: after (with
-//!   it no session of the run opens the company, `run_codeunit_inner`). `field resources_read`, `field dotnet_called`:
-//!   after (written by any session that reads a resource file or makes such a `DotNet` call, and read only when the
-//!   install baseline is kept, before a test session opens the company; a replayed login writes neither).
+//!   `field unseeded`, `field demo_tables`: key (`Key::refused_reads`). `field resource_overrides`: key (the SHA-256
+//!   digests of the texts of the files the login read, `StartKey`). `field test_data`: key (`Key::backing`) and engine.
+//!   `field license`: key (`Key::license`) and engine; `field license_caps`: engine (worked out from the license on
+//!   first use). `field skipped_apps`, `field write_in_try_allowed`, `field dependencies_published_global`: engine.
+//!   `field company_refusal`: after (with it no session of the run opens the company, `run_codeunit_inner`).
+//!   `field resources_read`, `field dotnet_called`: after (written by any session that reads a resource file or makes
+//!   such a `DotNet` call, and read only when the install baseline is kept, before a test session opens the company; a
+//!   replayed login writes neither).
 //!
 //! Thread-local and process tables:
 //! - `crates/al-testrun/src/events.rs` `static CURRENT`: untouched (the hooks and reported names of the running test; the
