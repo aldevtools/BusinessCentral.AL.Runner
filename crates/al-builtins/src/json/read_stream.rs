@@ -11,11 +11,13 @@ use crate::value::Value;
 ///   `{"a":2}`, streams/ProbeJsonAndInStreamBytes.al:146-170, `ReadFrom_InStream_AfterPartialRead_ReadsTheRest`);
 /// - JsonValue, result used, the stream holds one whole string: read as that value (json/json/P101Streams.al:71,
 ///   :114-116, `read_ok` Yes, `read_back` "hello");
-/// - JsonToken, result used, one whole string: read as that value (json/json/P101Streams.al:166-167, `text_ok` Yes,
-///   `text_isvalue` Yes).
+/// - JsonToken, result used, a string followed by more text: read as that value (json/json/P101Streams.al:162-167,
+///   `text_ok` Yes, `text_isvalue` Yes; `"text"` is written over `{"a":[1,2,{"b":null}]}`, and CreateOutStream does not
+///   empty a Blob, streams/TestStreamsRuntimeContracts.al:BlobField_CreateOutStream_DoesNotEmptyExistingData, so the stream
+///   holds `"text"1,2,{"b":null}]}`).
 ///
-/// Every other shape is refused: a JsonArray, the JsonObject result used, the JsonValue and JsonToken statement forms, and
-/// a string followed by more text.
+/// Every other shape is refused: a JsonArray, the JsonObject result used, the JsonValue and JsonToken statement forms, a
+/// JsonToken string alone, and a JsonValue string followed by more text.
 pub(super) fn stream_text(c: &mut dyn Ctx, stream: &mut Value, want: Option<&str>) -> Result<String, Signal> {
     let text = crate::stream::read_serialised_text(stream)?;
     if !text.trim_start().starts_with('"') {
@@ -27,7 +29,8 @@ pub(super) fn stream_text(c: &mut dyn Ctx, stream: &mut Value, want: Option<&str
             "JSON tokens of type 'String' are not supported by this implementation.",
             "InvalidJsonType",
         )),
-        (ReadInto::Value | ReadInto::Token, true) if whole_string(&text, into)? => Ok(text),
+        (ReadInto::Value, true) if first_string(&text, into)? == Some(true) => Ok(text),
+        (ReadInto::Token, true) if first_string(&text, into)? == Some(false) => Ok(text),
         _ => unsupported(
             "ReadFrom(InStream) on a stream that starts with a string token, for this type, result use or rest of the \
              text (not pinned)",
@@ -35,10 +38,11 @@ pub(super) fn stream_text(c: &mut dyn Ctx, stream: &mut Value, want: Option<&str
     }
 }
 
-/// Whether `text` is one JSON string and blanks only, as `ReadFrom(InStream)` of `into` reads it.
-fn whole_string(text: &str, into: ReadInto) -> Result<bool, Signal> {
+/// For a `text` whose first value is a JSON string, as `ReadFrom(InStream)` of `into` reads it: whether only blanks follow
+/// it (`Some(true)`) or more text (`Some(false)`); `None` when the first value is no string.
+fn first_string(text: &str, into: ReadInto) -> Result<Option<bool>, Signal> {
     Ok(match parse_at(text, Reader::ReadFromStream, Some(into))? {
-        Some((h, true)) => with_node(&h, |n| matches!(n, JsonNode::Scalar(Scalar::Val(Value::Text(_))))),
-        _ => false,
+        Some((h, whole)) if with_node(&h, |n| matches!(n, JsonNode::Scalar(Scalar::Val(Value::Text(_))))) => Some(whole),
+        _ => None,
     })
 }
