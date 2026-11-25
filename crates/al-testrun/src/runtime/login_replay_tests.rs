@@ -124,7 +124,7 @@ pub(super) struct Ran {
 pub(super) fn run_as(engine: &Arc<Engine>, l: &al_sema::lower::Lowered, name: &str, opts: RunOptions) -> Ran {
     let mut scratch = Scratch {
         flags: super::session_flags::SessionFlags::of(&opts),
-        ..Default::default()
+        ..Scratch::new(crate::host::RunClock::begin())
     };
     let oi = l.program.objects.iter().position(|o| o.name == name).unwrap();
     let (mut stacks, mut marks) = (Vec::new(), Vec::new());
@@ -577,7 +577,9 @@ fn two_backings_that_do_not_say_who_they_are_are_never_one_key() {
         let mut s = Session::new(engine.clone());
         let store = std::mem::take(s.store_mut());
         *s.store_mut() = store.with_backing(std::rc::Rc::new(Unnamed));
-        crate::login_replay::Key::of(&mut s, false, Default::default())
+        // At rest, as a test session is before its login: SQL counters not at rest have no comparable form (no key).
+        s.commit_transaction();
+        crate::login_replay::Key::of(&mut s, (TestIsolation::Codeunit, false), Default::default(), &[]).expect("a key")
     };
     assert_ne!(key(), key());
 }
@@ -598,7 +600,7 @@ codeunit 77404 "RPL Tests C"
 }
 "#;
 
-const OWN_LOGIN: &str = r#"
+pub(super) const OWN_LOGIN: &str = r#"
 codeunit 77408 "RPL Own Registration"
 {
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterAssistedSetup', '', false, false)]
@@ -663,10 +665,12 @@ fn the_check_off_and_on_gives_the_same_outcomes_and_marks() {
     );
 }
 
-/// The key of a new session on `engine` that holds, uncommitted, a "Guided Experience Item" row with id `id`.
-fn key_with_uncommitted_row(engine: &Arc<Engine>, id: i32) -> crate::login_replay::Key {
+/// The key of a new session on `engine` that holds, uncommitted, a "Guided Experience Item" row with id `id`, and the
+/// paths of its values with no comparable form.
+fn key_with_uncommitted_row(engine: &Arc<Engine>, id: i32) -> (Option<crate::login_replay::Key>, Vec<String>) {
     use al_data::Store;
     let mut session = al_vm::Session::new(engine.clone());
+    session.commit_transaction();
     let at = engine
         .program
         .objects
@@ -685,22 +689,24 @@ fn key_with_uncommitted_row(engine: &Arc<Engine>, id: i32) -> crate::login_repla
     assert!(session.store_mut().insert(&cx, &t, row).is_ok());
     assert!(session.store_mut().has_uncommitted());
     let flags = super::session_flags::SessionFlags::of(&RunOptions::default());
-    crate::login_replay::Key::of(&mut session, false, flags)
+    let opaque = session.state_lines().opaque.iter().map(|o| o.path.clone()).collect();
+    (
+        crate::login_replay::Key::of(&mut session, Default::default(), flags, &[]).ok(),
+        opaque,
+    )
 }
 
-// The rows a session holds uncommitted before the login are an input of the login (it reads them): two sessions whose
-// uncommitted rows differ have other keys.
+// The rows a session holds uncommitted before the login are an input of the login (it reads them). A write since the
+// last Commit leaves the SQL counters with no comparable form (al-vm `state_facts.rs`), so such a session has no key
+// and runs its login: two sessions whose uncommitted rows differ never share one.
 #[test]
-fn uncommitted_rows_before_the_login_are_part_of_the_key_by_content() {
+fn a_session_with_uncommitted_rows_before_the_login_has_no_key() {
     let (engine, _) = compiled();
-    assert_eq!(
-        key_with_uncommitted_row(&engine, 1),
-        key_with_uncommitted_row(&engine, 1)
-    );
-    assert_ne!(
-        key_with_uncommitted_row(&engine, 1),
-        key_with_uncommitted_row(&engine, 2)
-    );
+    for id in [1, 2] {
+        let (key, opaque) = key_with_uncommitted_row(&engine, id);
+        assert_eq!(opaque, ["SQL counters"], "GUARD: the counters are why");
+        assert_eq!(key, None);
+    }
 }
 
 /// A raised login whose subscriber registers one fixed row and calls `Plant` of codeunit "RPL Gap" (77462) with the length

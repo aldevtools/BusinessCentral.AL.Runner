@@ -1,18 +1,14 @@
-//! The `linked` fields of the session field table (`session_fields.rs`) that are not the object graph or the rows: the session's
-//! sub-states field by field, the SQL counters, WorkDate and the language, the number sequences'
-//! refusal mark and the baseline origin. Each is taken by value and written back through the session's own setter where
-//! one exists, so what it keeps in step follows.
+//! The `linked` fields of the session field table (`session_fields.rs`) that are not the object graph or the rows: the
+//! session's sub-states field by field, the SQL counters, WorkDate and the language, and the baseline origin. Each is
+//! taken by value and written back through the session's own setter where one exists, so what it keeps in step follows.
 
 use super::NotImaged;
 use crate::Session;
 use al_builtins::media::{Id, MediaObject};
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 /// The linked fields by value.
 pub(crate) struct SessionParts {
-    /// `Session::numbers_unmeasured`.
-    numbers_unmeasured: Option<Arc<str>>,
     /// `SqlCounters::left_inactive`.
     sql: crate::sqlcount::SqlLeft,
     /// `Session::baseline_origin()`: the thaw gives it the thawn store's counter.
@@ -81,7 +77,6 @@ impl SessionParts {
             return Err(NotImaged::Field("media_removed"));
         }
         Ok(SessionParts {
-            numbers_unmeasured: s.numbers_unmeasured.as_deref().map(Arc::from),
             sql,
             baseline_origin: s.baseline_origin(),
             carried: crate::CarriedState {
@@ -98,7 +93,6 @@ impl SessionParts {
 
     /// Writes the linked fields into `s`, after its store was thawn (the counters are of the thawn store).
     pub(crate) fn give(&self, s: &mut Session) {
-        s.numbers_unmeasured = self.numbers_unmeasured.as_deref().map(std::rc::Rc::from);
         s.restore_carried(self.carried);
         self.tx.give(s);
         s.sql.restore_left(&self.sql);
