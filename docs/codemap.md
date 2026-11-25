@@ -91,6 +91,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `features.rs`: `catalog/alc-features.txt` (what the AL compiler… Entry: `feature`.
 - `evaluate.rs`: `Evaluate(var Variable, String [, Number])`. Entry: `evaluate`.
 - `evaluate/short_us_date.rs`: `Evaluate` into a Date or DateTime local or parameter. Entry: `measured`.
+- `evaluate/option_blank.rs`: `Evaluate` of a blank text into an Option field with an OptionCaption: which member it names. Entry: `blank_text`.
 - `file.rs`: The `File` data type, on the host file system capability. Entry: `FileState`.
 - `filter.rs`: Record filters as data. Entry: `FilterExpr`.
 - `filter_at_sign.rs`: `@` alone and `<>@` alone answer as BC reads the rows. Entry: `AtSignRows`.
