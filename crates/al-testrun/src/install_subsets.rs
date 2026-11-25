@@ -22,7 +22,7 @@ use crate::install_orders::{
     AppInstalls, INSTALL_ORDER_DIFFERENCE_NOTE, INSTALL_ORDERS_NOTE, MAX_INPUTS, MAX_INTERACTING, MAX_UNIT_RUNS,
     PartnerGroup, SHOWN_DIFFERENCES, names, orders,
 };
-use crate::install_proof::{Footprints, Graph, tie};
+use crate::install_proof::{Footprints, Graph, everything_lines, tie};
 use al_sema::lower::Lowered;
 use al_vm::install_footprint::InstallFootprint;
 use al_vm::install_footprint::Lasting;
@@ -61,6 +61,8 @@ pub(crate) struct Settled {
 pub(crate) struct Unproven {
     apps: BTreeSet<u32>,
     why: String,
+    /// Lines for the baseline notes besides `why`: every line `why` shows only the first of.
+    detail: Vec<String>,
 }
 
 /// The graph of one round of the proof and its units.
@@ -138,6 +140,7 @@ impl<'p, 'g> Proof<'p, 'g> {
     /// Whether the last run added an edge to `graph` ([`next_round`]).
     fn grew(&self, graph: &Graph, hit: Option<(u32, u32)>) -> Result<bool, Unproven> {
         next_round(graph, &self.g.graph(&self.fp), hit).map_err(|(x, y)| Unproven {
+            detail: Vec::new(),
             apps: BTreeSet::from([x, y]),
             why: format!(
                 "the install of {} met {}, whose order the run left unknown, although the proof counted that meet \
@@ -176,6 +179,7 @@ impl<'p, 'g> Proof<'p, 'g> {
 
     fn ruled(&self, apps: BTreeSet<u32>) -> Unproven {
         Unproven {
+            detail: Vec::new(),
             why: format!(
                 "the proof needs {} installed in an order their dependencies rule out",
                 names(self.lowered, &apps)
@@ -187,6 +191,7 @@ impl<'p, 'g> Proof<'p, 'g> {
     /// [`plan`] has up to `n` runs for the unit `own` (with its inputs, `who`), more than [`MAX_UNIT_RUNS`].
     fn too_many(&self, n: usize, own: &BTreeSet<u32>, who: &BTreeSet<u32>) -> Unproven {
         Unproven {
+            detail: Vec::new(),
             apps: who.clone(),
             why: format!(
                 "placing the inputs of {} among its apps takes up to {n} runs, more than the {MAX_UNIT_RUNS} the runner makes \
@@ -219,22 +224,11 @@ impl<'p, 'g> Proof<'p, 'g> {
         let own: BTreeSet<u32> = unit.iter().copied().collect();
         let who: BTreeSet<u32> = own.iter().chain(inputs.iter().copied().flatten()).copied().collect();
         if unit.len() > MAX_INTERACTING {
-            let (x, y) = (graph.reads.iter().chain(&graph.collide))
-                .copied()
-                .find(|(x, y)| own.contains(x) && own.contains(y))
-                .unwrap_or((unit[0], unit[1]));
-            return Err(Unproven {
-                apps: own,
-                why: format!(
-                    "{} apps tied by their installs ({}), more than the {MAX_INTERACTING} whose every order the runner \
-                     tries",
-                    unit.len(),
-                    tie(&self.fp, x, y, |a| self.name(a), |t| self.table_name(t))
-                ),
-            });
+            return Err(self.too_large(graph, unit, own));
         }
         if inputs.len() > MAX_INPUTS {
             return Err(Unproven {
+                detail: Vec::new(),
                 apps: who,
                 why: format!(
                     "the install of {} reads from {} apps or groups of apps, more than the {MAX_INPUTS} the runner \
@@ -288,6 +282,7 @@ impl<'p, 'g> Proof<'p, 'g> {
             let d = e.install_order_differences(&ends[0].0, self.start, &session.engine, (*clock, ends[0].1));
             let Some(d) = d else {
                 return Err(Unproven {
+                    detail: Vec::new(),
                     apps: who.clone(),
                     why: "the orders differ in more than table rows (isolated storage, number sequences or companies)"
                         .into(),
@@ -352,6 +347,52 @@ impl<'p, 'g> Proof<'p, 'g> {
         Ok(())
     }
 
+    /// The refusal of a unit of more than [`MAX_INTERACTING`] apps: what ties them. When installs touch everything, each
+    /// reason with the code it was noted from and the installs that reached it ([`everything_lines`]; the first
+    /// [`SHOWN_DIFFERENCES`] in the reason, every one in the notes), else one tie between two of them.
+    fn too_large(&self, graph: &Graph, unit: &[u32], own: BTreeSet<u32>) -> Unproven {
+        let program = &self.lowered.program;
+        let place = |site: &[al_vm::FaultFrame]| match site {
+            [] => String::new(),
+            [_] => crate::explain::site_suffix(program, site),
+            [first, ..] => {
+                let from = crate::explain::describe(program, first.object, first.routine, first.pos);
+                format!(
+                    "{}, reached from {} at {}",
+                    crate::explain::site_suffix(program, site),
+                    from.who,
+                    from.at
+                )
+            }
+        };
+        let lines = everything_lines(&self.fp, &own, place, |apps| names(self.lowered, apps));
+        let tied = if lines.is_empty() {
+            let (x, y) = (graph.reads.iter().chain(&graph.collide))
+                .copied()
+                .find(|(x, y)| own.contains(x) && own.contains(y))
+                .unwrap_or((unit[0], unit[1]));
+            tie(&self.fp, x, y, |a| self.name(a), |t| self.table_name(t))
+        } else {
+            let more = match lines.len().checked_sub(SHOWN_DIFFERENCES) {
+                Some(n) if n > 0 => format!("; {n} more, --verbose lists them"),
+                _ => String::new(),
+            };
+            let first: Vec<&str> = lines.iter().take(SHOWN_DIFFERENCES).map(String::as_str).collect();
+            format!("installs that touch everything: {}{more}", first.join("; "))
+        };
+        Unproven {
+            why: format!(
+                "{} apps tied by their installs ({tied}), more than the {MAX_INTERACTING} whose every order the runner \
+                 tries",
+                unit.len()
+            ),
+            detail: (lines.into_iter())
+                .map(|l| format!("{INSTALL_ORDERS_NOTE}touches everything: {l}"))
+                .collect(),
+            apps: own,
+        }
+    }
+
     fn table_name(&self, t: u32) -> String {
         (self.lowered.program.objects.get(t as usize)).map_or_else(|| "?".into(), |o| o.name.clone())
     }
@@ -398,6 +439,9 @@ impl Unproven {
             self.why
         );
         inst.note(why.clone());
+        for line in self.detail {
+            inst.note(line);
+        }
         let mut sources = Vec::new();
         for (tables, w, own) in &proof.measured {
             sources.push((tables.clone(), own.clone()));

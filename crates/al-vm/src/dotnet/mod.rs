@@ -394,13 +394,17 @@ impl Session {
             ir::DotNetOp::Get(n) => (MemberKind::Get, n.clone()),
             ir::DotNetOp::Set(n) => (MemberKind::Set, n.clone()),
         };
+        // The answers before the target is known touch everything, as every .NET call did before al-runner issue 8954.
+        let early = |s: &Session| s.note_footprint_everything(|| format!("a .NET call ({member})"));
         if is_run_on_client_null(&recv) {
+            early(self);
             return run_on_client_call(kind, &member, decl.as_ref().map(|d| d.name.as_str()), &values);
         }
         if let Value::DotNet(o) = &recv
             && let DotNetKind::Host { handle, .. } = &o.kind
             && self.dotnet.cleared.contains(handle)
         {
+            early(self);
             return unsupported(format!(
                 "DotNet {member}: the object was cleared through another variable; whether that Clear disposed it is not pinned"
             ));
@@ -408,9 +412,12 @@ impl Session {
         if let (Value::Null, Some(d)) = (&recv, &decl)
             && let Some(r) = self.not_created(kind, &member, values.is_empty(), &d.name, f)
         {
+            early(self);
             return r;
         }
-        let target = self.dotnet_target(kind, &recv, decl.as_ref(), &member)?;
+        let target = self
+            .dotnet_target(kind, &recv, decl.as_ref(), &member)
+            .inspect_err(|_| early(self))?;
         let clr_type = match &target {
             Target::Static(d) => d.name.clone(),
             Target::Host(_, t) | Target::Internal(_, t) | Target::Boxed(_, t) => t.clone(),
@@ -420,6 +427,8 @@ impl Session {
         } else {
             format!("{clr_type}.{member}")
         };
+        let footprint_member = (kind != MemberKind::Construct).then_some(member.as_str());
+        self.note_footprint_dotnet(&clr_type, footprint_member, &shown);
 
         // 1. The registry: a registered type is served here for all its members.
         let engine = self.engine.clone();
