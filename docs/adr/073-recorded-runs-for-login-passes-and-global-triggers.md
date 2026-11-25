@@ -468,8 +468,9 @@ What is built:
   is kept only from a session that was a thaw target before its login. At most 8 starts and 64 MB per engine.
 - **The key** (`al-testrun` `login_replay.rs` `Key`) holds the inputs of decision 4 as the code shows them: the
   committed rows and the backing, the session state lines (with every field the thaw writes or keeps from its target,
-  `Session::field_lines`), company, user, run seed, test codeunit, the entry's resource texts, the client, the session
-  flags, the license, the skipped installs, the isolation and the hub, and the process settings a serve request sets.
+  `Session::field_lines`), company, user, run seed, test codeunit, the entry's resource texts (changed by the amendment
+  of 2026-11-25), the client, the session flags, the license, the skipped installs, the isolation and the hub, and the
+  process settings a serve request sets.
   *Built (2026-11-24, after acceptance):* the key also holds the engine's emit version (by its reader) and
   `refused_reads`, one digest of the engine's `unseeded` and `demo_tables`, which a kept engine resets per request and
   the login reads. Every Scratch and "Set by a run" engine field is listed under a test in `login_start/outside.rs`.
@@ -501,9 +502,10 @@ What waits until the replay is on by default:
 
 Status of this section: Accepted (owner, 2026-11-25), on [al-runner issue 8211](https://github.com/aldevtools/BusinessCentral.AL.Runner/issues/8211).
 
-The login key holds only the resource texts the login read, by content, as install-once holds them
+The login key holds only the resource texts the login read, each as its SHA-256 digest, as install-once holds them
 (`Session::resource_reads`; `NavApp.ListResources` counts as reading every file of its app), in place of every resource
-text of the run. The first session of a base key records them with its start. A later session takes that start only when
+text of the run. The reads are the session's up to the end of its login, those of install code included when it ran in
+the session. The first session of a base key records them with its start. A later session takes that start only when
 its texts of those names are the same. A login that read none matches any texts. al-vm `TextsRead` (`resource_reads.rs`)
 owns "the texts of what was read are still the same" for both install-once and the login start, and al-testrun
 `login_replay::StartKey` is the base key with the texts its login read; the check finds a session's first state by the
