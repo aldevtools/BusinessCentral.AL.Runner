@@ -10,8 +10,10 @@
 //! drops the marks set inside it (with no Commit since it started; inside another guarded run only from a CommitBehavior
 //! Error procedure, without a record argument, and when that run then fails), a temporary record marks the database
 //! table, a Commit after another variable's `Consistent(true)` raises, and the error names a table by its Caption. The
-//! cells of corpus PR 1586 (errors/ConsistentGuardedRunFail.al, codeunit 88974) beyond those run through
-//! `guarded-run-consistent-fail` (`fail_probe_end`): a mark marked again by another variable, a FieldError. Every other shape is refused.
+//! cells of corpus PR 1586 (errors/ConsistentGuardedRunFail.al, codeunit 88974) beyond those, and their record-argument
+//! twins of corpus PR 1590 (errors/ConsistentGuardedRunRecFail.al, codeunit 88983), run through
+//! `guarded-run-consistent-fail` (`fail_probe_end`): a mark marked again by another variable, a FieldError. Every other
+//! shape is refused.
 //!
 //! Entry points: `Session::set_consistent`; `mark_snapshot`, `refuse_write_and_mark_at_run_start` and
 //! `guarded_run_end_marks` (by `codeunit_run`); `commit_mark_error` (by `commit_builtin`); `inconsistent_error`; `refuse_inconsistent_end` (an unguarded run, a
@@ -56,8 +58,12 @@ pub(crate) struct ConsistentMark {
 pub(crate) enum RunArg {
     /// `Codeunit.Run(Id)` or `CodeunitVar.Run()`.
     None,
-    /// A Record of the table with this object index.
-    Record { table: u32, temporary: bool },
+    /// A Record of the table with this object index; `filtered` when it has a filter or shows marked rows only.
+    Record {
+        table: u32,
+        temporary: bool,
+        filtered: bool,
+    },
     /// Any other value the caller passes (for example a Variant that holds a RecordRef).
     Other,
 }
@@ -72,6 +78,7 @@ impl RunArg {
                 RunArg::Record {
                     table: r.table,
                     temporary: r.temporary,
+                    filtered: !r.filters.is_empty() || r.marked_only,
                 }
             }
             Some(_) => RunArg::Other,
@@ -120,8 +127,9 @@ const DROPPED_BY: [&str; 3] = ["Dialog", "DB:RecordNotFound", "TestField"];
 /// shapes of `guarded-run-consistent-end` do not take: `Some(true)` the run raises the inconsistency error naming the
 /// table marked first, `Some(false)` it returns false with the inner error and the marks set inside it are gone, `None`
 /// not measured. Every cell is a run not nested in another guarded run, with no Commit since it started
-/// (`top_level_no_commit`; a Commit under CommitBehavior::Ignore commits nothing), `Codeunit.Run(Id)` without a record
-/// argument, and no mark at its start. The marks it ends with, in the order they were set, equal a cell's (M held by
+/// (`top_level_no_commit`; a Commit under CommitBehavior::Ignore commits nothing), and no mark at its start. The
+/// argument is one of [`FailProbeArg`]: none (ConsistentGuardedRunFail.al), or a record of corpus PR 1590, which gives
+/// every cell of a shape below the same result as without it, except the FieldError, which it does not measure. The marks it ends with, in the order they were set, equal a cell's (M held by
 /// the setter, R released by another variable, A marked again by another):
 /// - fails with code Dialog (`Error('inner failed')`) with M A (Inner_StartX_MarkYByA_MarkYByC_Fails,
 ///   Inner_StartX_InsertY_MarkYByA_MarkYByC_Fails, Inner_StartX_MarkYInProcTwice_Fails), R M
@@ -138,16 +146,60 @@ fn fail_probe_end(
     after: &[(u32, MarkState)],
     end: RunEnd,
 ) -> Option<bool> {
-    if !(top_level_no_commit && arg == RunArg::None && before.is_empty()) || after.is_empty() {
+    if !(top_level_no_commit && before.is_empty()) || after.is_empty() {
         return None;
     }
+    use FailProbeArg::{Database, NoArg, Temporary};
     use MarkState::{Marked as M, MarkedAgainByAnother as A, ReleasedByAnother as R};
+    let arg = FailProbeArg::of(arg, after)?;
     let states: Vec<MarkState> = after.iter().map(|(_, s)| *s).collect();
-    match (end, states.as_slice()) {
-        (RunEnd::Failed("Dialog"), [M, A] | [R, M] | [A, M]) => Some(false),
-        (RunEnd::Failed("NCLCSRTS:TableErrorStr"), [M]) => Some(false),
-        (RunEnd::Succeeded, [M, A] | [A, M] | [A]) => Some(true),
+    match (arg, end, states.as_slice()) {
+        (NoArg | Database, RunEnd::Failed("Dialog"), [M, A] | [R, M] | [A, M]) => Some(false),
+        (Temporary, RunEnd::Failed("Dialog"), [M, A]) => Some(false),
+        (NoArg, RunEnd::Failed("NCLCSRTS:TableErrorStr"), [M]) => Some(false),
+        (NoArg | Database, RunEnd::Succeeded, [M, A] | [A, M] | [A]) => Some(true),
+        (Temporary, RunEnd::Succeeded, [M, A]) => Some(true),
         _ => None,
+    }
+}
+
+/// The arguments of the guarded runs `fail_probe_end` takes. Each record argument of corpus PR 1590
+/// (ConsistentGuardedRunRecFail.al, codeunit 88983 "GRR Tests") is a record without a filter that the caller read or
+/// inserted.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum FailProbeArg {
+    /// `Codeunit.Run(Id)` (ConsistentGuardedRunFail.al).
+    NoArg,
+    /// A database record of a table no mark names (RecZ_StartX_MarkYByA_MarkYByC_Fails :410,
+    /// RecZ_StartX_InsertY_MarkYByA_MarkYByC_Fails :425, RecZ_StartX_MarkYInProcTwice_Fails :440,
+    /// RecZ_StartX_MarkYByA_MarkYByC_Ends :455, RecZ_StartX_TrueXByB_MarkYByA_Fails :470,
+    /// RecZ_MarkXByA_TrueXByB_MarkYByA_Fails :515, RecZ_MarkXByA_TrueXByB_MarkXByC_MarkYByA_Fails :530, _Ends :545,
+    /// RecZ_MarkXByA_TrueXByB_MarkXByC_TrueXByA_TrueYByA_Ends :560, _TrueXByC_TrueYByA_Ends :575), or of the table
+    /// marked first (the RecX_ twins, :697-:862).
+    Database,
+    /// A temporary record of the table marked first (RecTemp_StartX_MarkYByA_MarkYByC_Fails :1168, _Ends :1183).
+    Temporary,
+}
+
+impl FailProbeArg {
+    /// The kind of `arg` when the run ends with the marks `after`; `None` for any other argument.
+    fn of(arg: RunArg, after: &[(u32, MarkState)]) -> Option<FailProbeArg> {
+        let first_marked = |table: u32| after.first().map(|(t, _)| *t) == Some(table);
+        let unmarked = |table: u32| after.iter().all(|(t, _)| *t != table);
+        match arg {
+            RunArg::None => Some(FailProbeArg::NoArg),
+            RunArg::Record {
+                table,
+                temporary: false,
+                filtered: false,
+            } if unmarked(table) || first_marked(table) => Some(FailProbeArg::Database),
+            RunArg::Record {
+                table,
+                temporary: true,
+                filtered: false,
+            } if first_marked(table) => Some(FailProbeArg::Temporary),
+            _ => None,
+        }
     }
 }
 
@@ -250,7 +302,7 @@ impl Session {
         }
         let arg_measured = match arg {
             RunArg::None => true,
-            RunArg::Record { table, temporary } => !temporary && !after.iter().any(|(t, _)| *t == table),
+            RunArg::Record { table, temporary, .. } => !temporary && !after.iter().any(|(t, _)| *t == table),
             RunArg::Other => false,
         };
         let held = |states: &[MarkState]| after.iter().all(|(_, s)| states.contains(s));
