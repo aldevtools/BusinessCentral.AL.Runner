@@ -975,8 +975,9 @@ fn with_string<T>(h: &Rc<RefCell<LibraryValue>>, f: impl FnOnce(&mut crate::text
 /// that needs 1000; P144_Growth_BigAppendAtOnce: 40, 500, then 1000 for the 503 an AppendLine needs).
 fn grow_capacity(h: &Rc<RefCell<LibraryValue>>) {
     let (len, cap) = match &*h.borrow() {
-        LibraryValue::Text(s) => (text_len_over(s, 16), 16i64),
-        LibraryValue::TextCap(s, c) => (text_len_over(s, i64::from(*c)), i64::from(*c)),
+        // The lossy text has the length of the exact one: a lone half and its U+FFFD are one unit each.
+        LibraryValue::Text(s) => (text_len_over(s.audited_str(), 16), 16i64),
+        LibraryValue::TextCap(s, c) => (text_len_over(s.audited_str(), i64::from(*c)), i64::from(*c)),
         _ => return,
     };
     if len > cap {
@@ -1014,7 +1015,11 @@ fn tb_text(a: &[Value], i: usize) -> Result<crate::text::Txt, Signal> {
 
 fn tb_append(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let (h, t) = (string_of(r)?, tb_text(a, 0)?);
-    with_string(&h, |s| s.push_str(&t));
+    // A lone half is appended as it is (LtSurrogateHalves.al Ops_tb_1).
+    with_string(&h, |s| {
+        crate::text::half_kept(&[s, &t]);
+        s.push_txt(&t)
+    });
     grow_capacity(&h);
     Ok(Value::Boolean(true))
 }
@@ -1085,12 +1090,14 @@ pub fn tb_append_field_value(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
 fn tb_append_line(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = string_of(r)?;
     let t = if a.is_empty() {
-        String::new()
+        crate::text::Txt::default()
     } else {
-        tb_text(a, 0)?.to_string()
+        tb_text(a, 0)?
     };
     with_string(&h, |s| {
-        s.push_str(&t);
+        // A lone half is appended as it is (LtSurrogateHalves.al Ops_tb_1).
+        crate::text::half_kept(&[s, &t]);
+        s.push_txt(&t);
         s.push_str("\r\n");
     });
     grow_capacity(&h);
@@ -1103,7 +1110,7 @@ fn tb_to_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResul
     if a.is_empty() {
         return Ok(Value::Text(s.into()));
     }
-    let u = u16s(&s);
+    let u = s.units();
     let (start, count) = (int(a, 0)?, int(a, 1)?);
     // A start of 0 reads from the first character: `ToText(0, 10)` of ten characters is all of them, `ToText(0, 0)` of an empty
     // builder is empty (text/textbuilder-bigtext/TxCTextBuilderEdit.al:312-330, 365-380).
@@ -1121,9 +1128,9 @@ fn tb_to_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResul
         ));
     }
     let from = start as usize - 1;
-    Ok(Value::Text(
-        from_u16(&u[from..from + count as usize], "TextBuilder.ToText")?.into(),
-    ))
+    // A range through a pair keeps the half (LtSurrogateHalves.al Ops_tb_3).
+    crate::text::half_kept(&[&s]);
+    Ok(Value::Text(crate::text::Txt::from_units(&u[from..from + count as usize])))
 }
 
 fn tb_length(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
@@ -1222,7 +1229,8 @@ fn tb_capacity(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
         return Ok(Value::Integer(capacity_of(&h)));
     }
     let n = int(a, 0)?;
-    let len = with_string(&h, |s| Value::text_len(s)) as i64;
+    // The lossy text has the length of the exact one: a lone half and its U+FFFD are one unit each.
+    let len = with_string(&h, |s| Value::text_len(s.audited_str())) as i64;
     if n < len || n > i64::from(i32::MAX) {
         return unsupported("TextBuilder.Capacity set below the length or above the maximum (not pinned)");
     }
@@ -1236,7 +1244,10 @@ fn tb_capacity(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
 fn tb_insert(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = string_of(r)?;
     let (pos, t) = (int(a, 0)?, tb_text(a, 1)?);
-    let u = with_string(&h, |s| u16s(s));
+    let u = with_string(&h, |s| {
+        crate::text::half_kept(&[s, &t]);
+        s.units()
+    });
     if pos < 1 || pos as usize > u.len() + 1 {
         return crate::native::raise::<Value>(
             "An invalid argument was passed to a 'TextBuilder' data type method.".to_string(),
@@ -1245,9 +1256,10 @@ fn tb_insert(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult
     }
     let at = pos as usize - 1;
     let mut out = u[..at].to_vec();
-    out.extend(t.encode_utf16());
+    out.extend(t.units());
     out.extend_from_slice(&u[at..]);
-    let joined = from_u16(&out, "TextBuilder.Insert")?;
+    // A lone half is inserted as it is (LtSurrogateHalves.al Ops_tb_2).
+    let joined = crate::text::Txt::from_units(&out);
     with_string(&h, |s| *s = joined);
     grow_capacity(&h);
     Ok(Value::Boolean(true))
@@ -1315,7 +1327,15 @@ fn tb_replace(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResul
             "Argument",
         );
     }
-    with_string(&h, |s| *s = s.replace(old.as_str(), new.as_str()));
+    with_string(&h, |s| {
+        if s.has_lone() || old.has_lone() || new.has_lone() {
+            // Replace unit by unit keeps a lone half (LtSurrogateHalves.al Ops_tb_2).
+            crate::text::half_kept(&[s, &old, &new]);
+            *s = crate::text::Txt::from_units(&replace_units(&s.units(), &old.units(), &new.units()));
+        } else {
+            *s = s.replace(old.as_str(), new.as_str()).into();
+        }
+    });
     grow_capacity(&h);
     Ok(Value::Boolean(true))
 }

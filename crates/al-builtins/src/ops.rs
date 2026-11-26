@@ -1578,7 +1578,7 @@ pub fn compare(l: &Value, r: &Value) -> Result<Ordering, Signal> {
         }
         // A text with half of a surrogate pair is equal only to the same units, and the empty text comes before any other
         // (ADR-068; `R <> ''` in the corpus's `Codes`, streams/StTEncodings.al:70 on the values of :233-244). Any other order
-        // of it is not audited and refuses (`Txt::cmp`).
+        // is ordinal by UTF-16 unit, a half not paired with its neighbor (LtSurrogateHalves.al Ops_cmp_1..10).
         (V::Text(a) | V::Code(a), V::Text(b) | V::Code(b)) if a.has_lone() || b.has_lone() => {
             if a == b {
                 return Ok(Ordering::Equal);
@@ -1586,7 +1586,10 @@ pub fn compare(l: &Value, r: &Value) -> Result<Ordering, Signal> {
             match (a.utf16_len() == 0, b.utf16_len() == 0) {
                 (true, _) => return Ok(Ordering::Less),
                 (_, true) => return Ok(Ordering::Greater),
-                _ => return Ok(a.cmp(b)),
+                _ => {
+                    crate::text::half_kept(&[a, b]);
+                    return Ok(a.units().cmp(&b.units()));
+                }
             }
         }
         (V::Text(a) | V::Code(a), V::Text(b) | V::Code(b)) if !a.has_marker() && !b.has_marker() => {

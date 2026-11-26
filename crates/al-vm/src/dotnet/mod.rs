@@ -1589,7 +1589,7 @@ impl Session {
             if let Some(content) = content {
                 return Ok(Value::Library(
                     "SecretText".into(),
-                    std::rc::Rc::new(std::cell::RefCell::new(al_builtins::value::LibraryValue::Text(content))),
+                    std::rc::Rc::new(std::cell::RefCell::new(al_builtins::value::LibraryValue::Text(content.into()))),
                 ));
             }
         }
