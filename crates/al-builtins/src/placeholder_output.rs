@@ -23,7 +23,8 @@
 //! `size_read` refuses a platform read of such a field (amendment 2026-11-12b; the store refuses a
 //! filter or sort on it in al-data `MemStore::unknown_read`); a comparison `size_order` refused that
 //! a caller turned into an answer (a page's row compare) is refused at the next builtin call or the
-//! end of the procedure (`UNANSWERED`). Entry points: `mark`, `is_placeholder`, `refusal`, `size`,
+//! end of the procedure (`UNANSWERED`). A file of such bytes that the reading session holds no mark
+//! for gets `outside_mark` when it is opened (al-vm `outside_output_mark`). Entry points: `mark`, `outside_mark`, `is_outside`, `is_placeholder`, `refusal`, `size`,
 //! `size_order`, `size_read`, `size_guard`, `refuse_unanswered`.
 
 use std::cmp::Ordering;
@@ -38,6 +39,21 @@ const PREFIX: &str = "a placeholder ";
 /// The mark of the placeholder `format` (Pdf, Word, Excel, Html) a save of `report` wrote.
 pub fn mark(format: &str, report: &str) -> Arc<str> {
     format!("{PREFIX}{format} of report {report}").into()
+}
+
+/// The mark of a file that holds the placeholder `kind` (a format name, or `rendered_text::WRITTEN_KIND`) and that the session
+/// reading it holds no mark for: an earlier session or another process wrote it (al-vm `Session::outside_output_mark`). It
+/// names no report and no render, so no read of the content answers but the PDF's pinned start ([`pdf_read`]).
+pub fn outside_mark(kind: &str) -> Arc<str> {
+    format!("{PREFIX}{kind}{OUTSIDE}").into()
+}
+
+/// The end of an [`outside_mark`].
+const OUTSIDE: &str = " written outside this session";
+
+/// Whether `mark` is an [`outside_mark`].
+pub fn is_outside(mark: &str) -> bool {
+    mark.starts_with(PREFIX) && mark.ends_with(OUTSIDE)
 }
 
 /// Whether a mark is a placeholder output's.
