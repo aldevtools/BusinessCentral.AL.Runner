@@ -524,23 +524,6 @@ codeunit 61470 "PF Tests"
     end;
 
     [Test]
-    procedure Neighbor_RecZ_Key_ReleasedThenHeld_Ends()
-    var
-        R: Record "PF Z";
-    begin
-        SeedZ();
-        R.Get(1);
-        FilterZ(R, 'Key');
-        Commit();
-        Mode.Set('startx,txb,fya', false);
-        if Codeunit.Run(Codeunit::"PF Inner Z", R) then
-            Error('the run returned true');
-        if GetLastErrorText() <> 'inner failed' then
-            Error('wrong error: %1', GetLastErrorText());
-        Commit();
-    end;
-
-    [Test]
     procedure Neighbor_RecZ_Key_ReleasedThenHeld_ArgChanged()
     var
         R: Record "PF Z";
@@ -680,6 +663,42 @@ codeunit 61470 "PF Tests"
             'Key':
                 R.SetRange(Id, 1);
         end;
+    end;
+
+    var
+        Mode: Codeunit "PF Mode";
+}
+
+// The inner run ends without an error ('err' is not in its steps), a shape the twins do not cover. It has its own
+// codeunit so that its refusal does not skip the tests after it.
+codeunit 61471 "PF Tests Ends"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure Neighbor_RecZ_Key_ReleasedThenHeld_Ends()
+    var
+        R: Record "PF Z";
+    begin
+        SeedZ();
+        R.Get(1);
+        R.SetRange(Id, 1);
+        Commit();
+        Mode.Set('startx,txb,fya', false);
+        if Codeunit.Run(Codeunit::"PF Inner Z", R) then
+            Error('the run returned true');
+        if GetLastErrorText() <> 'inner failed' then
+            Error('wrong error: %1', GetLastErrorText());
+        Commit();
+    end;
+
+    local procedure SeedZ()
+    var
+        R: Record "PF Z";
+    begin
+        R.DeleteAll();
+        R.Init(); R.Id := 1; R.Name := 'caller'; R."Doc Type" := 1; R.Amount := 5; R.Kind := R.Kind::Order; R.Insert();
+        R.Init(); R.Id := 2; R.Name := 'other'; R."Doc Type" := 2; R.Amount := 50; R.Kind := R.Kind::Order; R.Insert();
     end;
 
     var
