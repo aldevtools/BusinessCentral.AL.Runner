@@ -118,7 +118,8 @@ impl Session {
         Ok(refs)
     }
 
-    /// After the row at `old` became `new`: rewrites every referencing row.
+    /// After the row at `old` became `new`: rewrites every referencing row. `statement_from_al`: AL code called the
+    /// statement form of Rename.
     pub(crate) fn propagate_rename(
         &mut self,
         rec: &crate::records::Rec,
@@ -126,6 +127,7 @@ impl Session {
         refs: &[RenameRef],
         old: &[Value],
         new: &[Value],
+        statement_from_al: bool,
     ) -> Result<(), Signal> {
         for r in refs {
             let Some(child) = self.engine.tables[r.table].clone() else {
@@ -153,13 +155,6 @@ impl Session {
             if !self.engine.field_facts[r.table][r.pos].validate_relation {
                 continue;
             }
-            // A field with ObsoleteState = Removed is not on the table (recordref-fieldref/PnD12_RemovedFieldRecordRef.al:90-93:
-            // FieldCount leaves it out, FieldExist is No), and its relation makes Rename raise no error
-            // (record/table-relation/RenameBlankKeyRelation.al:47, cells :2747, :2757). So the rename has nothing to
-            // convert, check or rewrite there (issue 8988: the new key is longer than the removed field).
-            if self.field_removed(&child, r.pos) {
-                continue;
-            }
             let rel = r.related_field(t);
             if rename_equal(&old[rel], &new[rel])? {
                 continue;
@@ -182,8 +177,15 @@ impl Session {
             if !parent_ok {
                 continue;
             }
-            let old_value = ops::convert(old[rel].clone(), &child.fields[r.pos].ty)?;
-            let new_value = ops::convert(new[rel].clone(), &child.fields[r.pos].ty)?;
+            let ty = &child.fields[r.pos].ty;
+            let (old_value, new_value) = match (ops::convert(old[rel].clone(), ty), ops::convert(new[rel].clone(), ty)) {
+                (Ok(o), Ok(n)) => (o, n),
+                _ => {
+                    // Owned by `rename_short_field.rs`: a measured skip, the measured error, or a refusal.
+                    self.rename_unconvertible_reference(&cx, t, &child, r, new, statement_from_al)?;
+                    continue;
+                }
+            };
             // The rows carrying the old value, snapshotted before any is rewritten.
             let filters = [FieldFilter {
                 lang: al_builtins::filter::filter_language(),
