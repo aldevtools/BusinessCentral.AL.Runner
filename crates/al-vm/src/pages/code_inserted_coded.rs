@@ -54,6 +54,11 @@
 //! Its page may have manual subscribers none of which is bound (issue 8842, corpus pull request 1541). A subscriber bound
 //! later drops calls that do not continue the measured steps to main's way; a landing call, a later call and SaveRecord or
 //! Update while it remains bound are refused (`coded_line_before_set_value`, `coded_extra_shape`).
+//! After the landing, one SetValue of a control with code of its own (`extra_value_control`, issue 8843) saves and updates
+//! as the probe's Value does (`FactboxStep::CodedTyped`): into a control with a TableRelation only a value stored as typed
+//! (`coded_typed_begins`), its save under the effect gate with Rec's view as the SetValue found it and only inserted rows of
+//! other tables written since it began (`extra_code_typed_save` in `code_inserted_extra.rs`), and Rec as saved at its Update
+//! (`update_after_code_inserted_save`).
 
 use super::pinned_shape::TestCall;
 use super::state::{CodedLine, FactboxStep};
@@ -110,9 +115,10 @@ impl Session {
     ///   so the view is in the primary key), and exactly the triggers OnOpenPage, OnAfterGetRecord and OnDeleteRecord; a
     ///   table without OnModify and OnRename (`no_save_trigger`; OnInsert and OnDelete measured by
     ///   ListNewLineExtraCodeCodedTableTriggers.al);
-    /// - its controls: a repeater without a property; fields of Rec or of a variable with no property but ApplicationArea and
-    ///   Editable as false, and no trigger but OnValidate; actions with no property but ApplicationArea and no trigger but
-    ///   OnAction; three part controls (`coded_extra_parts`).
+    /// - its controls: a repeater without a property; fields of Rec or of a variable with no property but ApplicationArea,
+    ///   Editable as false and, on a control the later SetValue may write (`later_value_field`), a TableRelation
+    ///   (ListNewLineExtraCodeCodedSecondSetValue.al:859), and no trigger but OnValidate; actions with no property but
+    ///   ApplicationArea and no trigger but OnAction; three part controls (`coded_extra_parts`).
     pub(super) fn coded_extra_shape(&self, st: &St) -> Result<bool, Signal> {
         let page_object = st.borrow().object as usize;
         let unextended = page_of(&self.engine(), st).extensions.is_empty();
@@ -142,6 +148,7 @@ impl Session {
         let mut triggers: Vec<&str> = page.triggers.iter().map(|(n, _)| n.as_str()).collect();
         triggers.sort_unstable();
         let host_triggers = triggers == ["onaftergetrecord", "ondeleterecord", "onopenpage"];
+        let table = self.table(&self.page_rec(st))?;
         let controls = page.controls.iter().all(|c| {
             let props = |allowed: &[&str]| {
                 c.props
@@ -151,12 +158,16 @@ impl Session {
             let triggers = |allowed: &str| c.triggers.iter().all(|(n, _)| n == allowed);
             let own =
                 c.owner.is_none() && c.ext_triggers.is_empty() && c.run_object.is_none() && c.action_ref.is_none();
+            // A TableRelation only on a control the later SetValue may write (ListNewLineExtraCodeCodedSecondSetValue.al:859,
+            // the Rel page; review of al-runner PR 8847, 01:00Z): a control without code keeps main's way.
+            let related = c.prop("tablerelation").is_some();
             own && match c.kind {
                 ir::ControlKind::Repeater => c.props.is_empty() && c.triggers.is_empty(),
                 ir::ControlKind::Field => {
                     matches!(c.binding, ir::Binding::Field(_) | ir::Binding::Var(_))
-                        && props(&["applicationarea", "editable"])
+                        && props(&["applicationarea", "editable", "tablerelation"])
                         && triggers("onvalidate")
+                        && (!related || Self::later_value_field(&engine, c, &table))
                 }
                 ir::ControlKind::Action => props(&["applicationarea"]) && triggers("onaction"),
                 ir::ControlKind::Part => c.triggers.is_empty(),
@@ -421,6 +432,9 @@ impl Session {
         let ir::Binding::Field(field) = control.binding else {
             return false;
         };
+        if control.prop("tablerelation").is_some() {
+            return false;
+        }
         let saves = control
             .triggers
             .iter()
@@ -526,6 +540,87 @@ impl Session {
         )
     }
 
+    /// The test's later SetValue `call` of `args` on a page of the page-with-code shape with other code begins
+    /// (`FactboxStep::CodedTyped`, set by `refuse_off_factbox_row`). Rec's view is noted, and the save must find it so
+    /// (`extra_code_typed_save`: a filter set before the save, review of al-runner PR 8847, 01:00Z). Into a control with a
+    /// TableRelation, only a value a row of the related table holds as its key, in the same case, is measured
+    /// (ListNewLineExtraCodeCodedSecondSetValue.al:859, 'V' stored as 'V'): a missing value or one in another case is refused.
+    pub(super) fn coded_typed_begins(&mut self, st: &St, call: Option<TestCall>, args: &[Value]) -> Result<(), Signal> {
+        let (root, _) = Self::tree_root(st);
+        let begins = root.borrow().coded_typed_extra();
+        let (true, Some(TestCall::Write(idx))) = (begins, call) else {
+            return Ok(());
+        };
+        let view = self.page_rec(&root).borrow().clone();
+        root.borrow_mut().coded_typed_view = Some(Box::new(view));
+        let relation = page_of(&self.engine(), &root)
+            .controls
+            .get(idx)
+            .and_then(|c| c.prop("tablerelation").cloned());
+        let measured = match relation {
+            None => true,
+            Some(ir::PropVal::Lit(text)) => {
+                self.text_field_control(&root, idx) && self.relation_holds_exactly(&text, args.first())?
+            }
+            Some(_) => false,
+        };
+        if measured {
+            root.borrow_mut().coded_typed_begin_at =
+                Some((self.store.change_counter(), self.write_mark(), self.last_stamp));
+            return Ok(());
+        }
+        root.borrow_mut().forget_code_inserted_line();
+        unsupported(
+            "a SetValue, after the landing on a List page with code and FactBoxes, into a control with a TableRelation of a value \
+             no row of the related table holds as its key in the same case, or into a Code field or of a Code key (not measured)",
+        )
+    }
+
+    /// Whether control `idx` of host `st` shows a Text field of Rec: the cell's Value control does (:859).
+    fn text_field_control(&self, st: &St, idx: usize) -> bool {
+        let engine = self.engine();
+        let Some(ir::Binding::Field(f)) = page_of(&engine, st).controls.get(idx).map(|c| c.binding.clone()) else {
+            return false;
+        };
+        self.table(&self.page_rec(st))
+            .is_ok_and(|t| matches!(t.fields.get(f).map(|d| &d.ty), Some(RtType::Text(_))))
+    }
+
+    /// Whether a stored row of the table a plain `TableRelation` `relation` names (`Table` or `Table.Field`, the field its
+    /// primary key's only field, of type Text as the cell's is, :859) holds the text `value` as its key, character for
+    /// character. A Code key or a Code value is not measured (review of al-runner PR 8847, 02:55Z).
+    fn relation_holds_exactly(&mut self, relation: &str, value: Option<&Value>) -> Result<bool, Signal> {
+        let Some(Value::Text(typed)) = value else {
+            return Ok(false);
+        };
+        let Some((name, field)) = super::relation_lookup::simple_relation(relation) else {
+            return Ok(false);
+        };
+        let def = {
+            let engine = self.engine();
+            match super::relation_lookup::tables_named(&engine, &name).as_slice() {
+                [t] => engine.tables[*t].clone(),
+                _ => None,
+            }
+        };
+        let Some(def) = def else {
+            return Ok(false);
+        };
+        let key = match (def.keys.first().map(Vec::as_slice), field) {
+            (Some(&[k]), None) => k,
+            (Some(&[k]), Some(f)) if def.fields[k].name.eq_ignore_ascii_case(&f) => k,
+            _ => return Ok(false),
+        };
+        if !matches!(def.fields[key].ty, RtType::Text(_)) {
+            return Ok(false);
+        }
+        let cx = self.cx.clone();
+        Ok(self
+            .all_rows(&cx, &def)?
+            .iter()
+            .any(|row| matches!(&row[key], Value::Text(s) if s == typed)))
+    }
+
     /// A SetValue on the tree of host `st` ended with `result`. When it was the first SetValue that let the parts read the new
     /// line (`CodedLine::LineRead`), or a SetValue on the landed row (`FactboxStep::CodedTyped`), and it raised an error before
     /// or in its validation, or ended without the landing or the refresh it must ask for, it is not measured, and refused.
@@ -551,6 +646,58 @@ impl Session {
         }
     }
 
+    /// Whether control `idx` of host `st` takes the later SetValue its objects are measured with: the probe's and the repro's
+    /// Value control (`coded_value_control`), or on a page of their shape with other code a control with code of its own
+    /// (`extra_value_control`).
+    pub(super) fn coded_later_control(&self, st: &St, idx: usize) -> bool {
+        match st.borrow().coded_objects {
+            super::state::CodedObjects::Extra => self.extra_value_control(st, idx),
+            _ => self.coded_value_control(st, idx),
+        }
+    }
+
+    /// Whether control `idx` of host `st`, a page of the page-with-code shape with other code, takes the later SetValue
+    /// ListNewLineExtraCodeCodedSecondSetValue.al measures: a control the later SetValue may write (`later_value_field`), other
+    /// than the control whose SetValue landed.
+    fn extra_value_control(&self, st: &St, idx: usize) -> bool {
+        let landing = match Self::test_calls(st).as_deref() {
+            Some([TestCall::Page(PageMethod::New), TestCall::Write(landing), ..]) => *landing,
+            _ => return false,
+        };
+        let Ok(table) = self.table(&self.page_rec(st)) else {
+            return false;
+        };
+        let engine = self.engine();
+        idx != landing
+            && page_of(&engine, st)
+                .controls
+                .get(idx)
+                .is_some_and(|c| Self::later_value_field(&engine, c, &table))
+    }
+
+    /// Whether `control`, on a page over `table`, is a field control the later SetValue of
+    /// ListNewLineExtraCodeCodedSecondSetValue.al writes (:746; :859 with a TableRelation on the control): over a field of Rec
+    /// outside the primary key, with an OnValidate of its own and no extension trigger, over a table field with no OnValidate
+    /// and no TableRelation.
+    fn later_value_field(engine: &crate::Engine, control: &ir::Control, table: &al_data::TableDef) -> bool {
+        let ir::Binding::Field(f) = control.binding else {
+            return false;
+        };
+        let field = engine.program.objects[table.object as usize]
+            .table
+            .as_ref()
+            .and_then(|t| t.fields.get(f));
+        control.trigger("onvalidate").is_some()
+            && control.ext_triggers.is_empty()
+            && !table.keys[0].contains(&f)
+            && field.is_some_and(|d| {
+                d.on_validate.is_none()
+                    && d.ext_before_validate.is_empty()
+                    && d.ext_after_validate.is_empty()
+                    && !d.relation
+            })
+    }
+
     /// Whether control `idx` of host `st` takes a SetValue on the row its new line became (ListNewLineFactboxesCode.al:1407
     /// `setvalue`, :1576 `setvalue2`): a field control over Rec outside the primary key, with a TableRelation and an OnValidate
     /// of its own, other than the control whose SetValue landed.
@@ -568,7 +715,7 @@ impl Session {
         };
         idx != landing
             && control.trigger("onvalidate").is_some()
-            && control.props.iter().any(|(k, _)| k == "tablerelation")
+            && control.prop("tablerelation").is_some()
             && self.table(&self.page_rec(st)).is_ok_and(|t| !t.keys[0].contains(&f))
     }
 

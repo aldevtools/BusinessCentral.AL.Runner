@@ -18,7 +18,7 @@ use al_bcdb::query::{self, BcTable, ReadRequest, plan_read_table_in};
 use al_bcdb::source::BcSource;
 use al_bcdb::symbols::{ci_key, eq_ci, normalize_sql_name};
 use al_bcdb::value::Value;
-use al_host::testdata::{Cell, TableError, TableProvider, TableRequest, TableRows, TestSequence};
+use al_host::testdata::{Cell, IndexState, TableError, TableProvider, TableRequest, TableRows, TestSequence};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -55,8 +55,7 @@ pub struct BackupProvider {
 #[derive(Default)]
 struct Cost {
     open: std::time::Duration,
-    /// "kept map and catalog used", "map and catalog built and kept", or "not kept".
-    index: &'static str,
+    index: IndexState,
     reads: AtomicU64,
     rows: AtomicU64,
     read_nanos: AtomicU64,
@@ -65,7 +64,28 @@ struct Cost {
 /// The page-map index of one backup, kept as a file.
 struct FileIndexStore {
     file: PathBuf,
+    /// `load` returned bytes.
+    loaded: std::sync::atomic::AtomicBool,
+    /// `save` was called: the index was built.
+    built: std::sync::atomic::AtomicBool,
+    /// The index file was written and renamed into place.
     saved: std::sync::atomic::AtomicBool,
+}
+
+impl FileIndexStore {
+    /// Built = built and saved; BuiltUnsaved = built, the save failed; Read = loaded and not built; Off otherwise (a
+    /// `.bacpac` never loads or saves).
+    fn state(&self) -> IndexState {
+        if self.saved.load(Ordering::Relaxed) {
+            IndexState::Built
+        } else if self.built.load(Ordering::Relaxed) {
+            IndexState::BuiltUnsaved
+        } else if self.loaded.load(Ordering::Relaxed) {
+            IndexState::Read
+        } else {
+            IndexState::Off
+        }
+    }
 }
 
 /// The backup file's path, length and modification time: a new download or an edit changes it.
@@ -104,6 +124,8 @@ impl FileIndexStore {
             .map_or_else(|| "backup".to_string(), |s| s.to_string_lossy().into_owned());
         FileIndexStore {
             file: dir.join(format!("{stem}-{h:016x}.pagemap")),
+            loaded: false.into(),
+            built: false.into(),
             saved: false.into(),
         }
     }
@@ -111,12 +133,16 @@ impl FileIndexStore {
 
 impl al_bcdb::pagefile::IndexStore for FileIndexStore {
     fn load(&self) -> Option<Vec<u8>> {
-        std::fs::read(&self.file).ok()
+        let bytes = std::fs::read(&self.file).ok();
+        if bytes.is_some() {
+            self.loaded.store(true, Ordering::Relaxed);
+        }
+        bytes
     }
 
     fn save(&self, bytes: &[u8]) {
-        self.saved.store(true, Ordering::Relaxed);
-        let _ = (|| -> std::io::Result<()> {
+        self.built.store(true, Ordering::Relaxed);
+        let written = (|| -> std::io::Result<()> {
             if let Some(dir) = self.file.parent() {
                 std::fs::create_dir_all(dir)?;
             }
@@ -125,6 +151,7 @@ impl al_bcdb::pagefile::IndexStore for FileIndexStore {
             std::fs::write(&tmp, bytes)?;
             std::fs::rename(&tmp, &self.file)
         })();
+        self.saved.store(written.is_ok(), Ordering::Relaxed);
     }
 }
 
@@ -209,14 +236,9 @@ impl BackupProvider {
             Some(dir) => {
                 let store = FileIndexStore::for_backup(dir, path, &file);
                 let r = al_bcdb::open_indexed(Box::new(file), &store);
-                let state = if store.saved.load(Ordering::Relaxed) {
-                    "kept map and catalog built and saved"
-                } else {
-                    "kept map and catalog used"
-                };
-                (r, state)
+                (r, store.state())
             }
-            None => (al_bcdb::open(Box::new(file)), "map and catalog not kept"),
+            None => (al_bcdb::open(Box::new(file)), IndexState::Off),
         };
         let src = opened.map_err(|e| format!("{}: {e}", path.display()))?;
         let file_name = path
@@ -541,13 +563,22 @@ impl TableProvider for BackupProvider {
         self.identity.clone()
     }
 
+    fn index_state(&self) -> Option<IndexState> {
+        Some(self.cost.index)
+    }
+
     fn cost(&self) -> Option<String> {
         let c = &self.cost;
         let ms = |ns: u64| ns as f64 / 1e6;
         Some(format!(
             "opened in {:.0} ms ({}); {} table read(s), {} rows, {:.0} ms",
             c.open.as_secs_f64() * 1e3,
-            c.index,
+            match c.index {
+                IndexState::Read => "kept map and catalog used",
+                IndexState::Built => "kept map and catalog built and saved",
+                IndexState::BuiltUnsaved => "kept map and catalog built, not saved",
+                IndexState::Off => "map and catalog not kept",
+            },
             c.reads.load(Ordering::Relaxed),
             c.rows.load(Ordering::Relaxed),
             ms(c.read_nanos.load(Ordering::Relaxed))
