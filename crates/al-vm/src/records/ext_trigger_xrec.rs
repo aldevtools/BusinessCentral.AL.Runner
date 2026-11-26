@@ -98,7 +98,12 @@ impl Session {
     pub(crate) fn xrec_after_ext_before(at: AtCall, rec: &Rec) -> Rec {
         let measured = at.measured && {
             let r = rec.borrow();
-            r.filter_group == 0 && r.position == at.position
+            r.filter_group == 0
+                && match (&r.position, &at.position) {
+                    (None, None) => true,
+                    (Some(now), Some(then)) => Rc::ptr_eq(now, then) || Self::same_values(now, then),
+                    _ => false,
+                }
         };
         let x = Self::xrec_handle(rec, at.fields);
         if measured {
