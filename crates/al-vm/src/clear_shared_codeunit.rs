@@ -455,9 +455,10 @@ impl Session {
                 None => "no measured store shape".to_string(),
             },
             (Some(o), Some(s)) if !measured(o, s, holding, hold) => format!(
-                "an instance {} held by {} is not measured for a {s:?} store",
+                "an instance {} held by {} is not measured for {} store",
                 holding.describe(),
-                o.describe()
+                o.describe(),
+                s.describe()
             ),
             (_, Some(Store::Register)) if !self.register_as_measured(rc) => {
                 "the register read or wrote a row, or another variable shares its nested codeunit".to_string()
@@ -1024,7 +1025,7 @@ enum Owner {
 }
 
 /// The store shapes the corpus measures `ClearAll()` on ([`Session::store_kind`]).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Store {
     /// One Integer global ("CLX Store", ClearSharedCodeunit.al codeunit 75580).
     Integer,
@@ -1079,6 +1080,24 @@ impl Owner {
             Owner::Normal => "a Subtype Normal codeunit",
             Owner::TableNo => "a TableNo codeunit",
             Owner::Report => "a report",
+        }
+    }
+}
+
+impl Store {
+    /// The store, as a refusal names it ([`Session::shared_store_refusal`]).
+    fn describe(self) -> &'static str {
+        match self {
+            Store::Integer => "an Integer",
+            Store::TempRef => "a temporary record and RecordRef",
+            Store::TempRefLabel => "a temporary record, RecordRef and Label",
+            Store::TempRefPlus => "a temporary record, RecordRef and Integer",
+            Store::Wrapper => "a wrapper",
+            Store::TempArray => "a temporary record array",
+            Store::TwoDimArray => "a two-dimensional temporary record array",
+            Store::Register => "a register",
+            Store::PriceList => "a price list",
+            Store::Kinds => "a global kinds",
         }
     }
 }
