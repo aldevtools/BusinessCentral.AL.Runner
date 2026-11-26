@@ -993,3 +993,94 @@ codeunit 61471 "PF Tests Ends"
     var
         Mode: Codeunit "PF Mode";
 }
+
+// Tables whose primary key has two fields: the plain PageMix arm must refuse them like main. W: key(PK; Id, Code), the
+// view field Kind outside the key. V: key(PK; Kind, Id), the view field Kind inside the key.
+table 61475 "PF W"
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; "Code"; Code[10]) { }
+        field(3; "Date Filter"; Date) { FieldClass = FlowFilter; }
+        field(4; Kind; Enum "PF Kind") { }
+    }
+    keys { key(PK; Id, "Code") { Clustered = true; } }
+}
+
+table 61476 "PF V"
+{
+    fields
+    {
+        field(1; Kind; Enum "PF Kind") { }
+        field(2; Id; Integer) { }
+        field(3; "Date Filter"; Date) { FieldClass = FlowFilter; }
+    }
+    keys { key(PK; Kind, Id) { Clustered = true; } }
+}
+
+codeunit 61477 "PF Inner W"
+{
+    TableNo = "PF W";
+    trigger OnRun()
+    var
+        Mode: Codeunit "PF Mode";
+    begin
+        Mode.Run();
+    end;
+}
+
+codeunit 61478 "PF Inner V"
+{
+    TableNo = "PF V";
+    trigger OnRun()
+    var
+        Mode: Codeunit "PF Mode";
+    begin
+        Mode.Run();
+    end;
+}
+
+codeunit 61479 "PF Tests Key"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure Neighbor_RecW_PageMix_TwoFieldKey_MarkedAgain()
+    var
+        R: Record "PF W";
+    begin
+        R.DeleteAll();
+        R.Init(); R.Id := 1; R."Code" := 'a'; R.Kind := R.Kind::Order; R.Insert();
+        R.Get(1, 'a');
+        R.FilterGroup(2); R.SetRange(Kind, R.Kind::Order); R.FilterGroup(0); R.SetRange("Date Filter", 0D, WorkDate());
+        Commit();
+        Mode.Set('startx,fya,fyc,err', false);
+        if Codeunit.Run(Codeunit::"PF Inner W", R) then
+            Error('the run returned true');
+        if GetLastErrorText() <> 'inner failed' then
+            Error('wrong error: %1', GetLastErrorText());
+        Commit();
+    end;
+
+    [Test]
+    procedure Neighbor_RecV_PageMix_ViewInKey_MarkedAgain()
+    var
+        R: Record "PF V";
+    begin
+        R.DeleteAll();
+        R.Init(); R.Kind := R.Kind::Order; R.Id := 1; R.Insert();
+        R.Get(R.Kind::Order, 1);
+        R.FilterGroup(2); R.SetRange(Kind, R.Kind::Order); R.FilterGroup(0); R.SetRange("Date Filter", 0D, WorkDate());
+        Commit();
+        Mode.Set('startx,fya,fyc,err', false);
+        if Codeunit.Run(Codeunit::"PF Inner V", R) then
+            Error('the run returned true');
+        if GetLastErrorText() <> 'inner failed' then
+            Error('wrong error: %1', GetLastErrorText());
+        Commit();
+    end;
+
+    var
+        Mode: Codeunit "PF Mode";
+}

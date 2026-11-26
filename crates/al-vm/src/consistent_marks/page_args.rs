@@ -63,7 +63,8 @@ impl ArgFields<'_> {
         self.single_key() == Some(f.field)
     }
 
-    /// The filter is on a field outside a one-field primary key (Name, Doc Type, Amount of the Three cells).
+    /// The filter is on a field outside a one-field primary key (Name, Doc Type, Amount of the Three cells, Kind of the
+    /// PageMix cells); false for a table whose primary key has more than one field.
     fn other_than_key(&self, f: &FieldFilter) -> bool {
         self.single_key().is_some_and(|k| k != f.field)
     }
@@ -95,7 +96,8 @@ pub(super) fn page_shape(r: &RecordState, fields: &ArgFields) -> Option<PageArgS
     if group0.len() + group2.len() != r.filters.len() {
         return None;
     }
-    let view = |f: &FieldFilter| fields.equal(f) && fields.enum_field(f);
+    // The view of both PageMix arms: one value on an Enum field outside a one-field primary key (Kind, key(PK; Id)).
+    let view = |f: &FieldFilter| fields.equal(f) && fields.enum_field(f) && fields.other_than_key(f);
     let extra = |f: &FieldFilter, v: &FieldFilter| fields.equal(f) && fields.key_field(f) && f.field != v.field;
     match (group0.as_slice(), group2.as_slice()) {
         ([a, b, c], []) => {
