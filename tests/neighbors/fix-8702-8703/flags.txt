@@ -1,0 +1,3 @@
+# Run options. Relative paths resolve against a fresh copy of this folder per run (tools/neighbor-diff.sh).
+--files-dir
+files

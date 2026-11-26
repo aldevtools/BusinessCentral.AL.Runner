@@ -162,7 +162,8 @@ fn full_name(_: &mut Session, this: Option<&Rc<DotNetObject>>, args: &[Value]) -
 fn length(s: &mut Session, this: Option<&Rc<DotNetObject>>, args: &[Value]) -> Result<Value, Signal> {
     no_args(args, &format!("{STAGED_FILE_INFO}.Length"))?;
     let path = first_text(this_state(this, STAGED_FILE_INFO)?);
-    match s.host.files.read(&path) {
+    // Through `Ctx::fs_read`, the owner of what a look at a file's bytes may answer.
+    match al_builtins::native::Ctx::fs_read(s, &path)? {
         Some(bytes) => Ok(Value::BigInteger(bytes.len() as i64)),
         None => unsupported(format!("DotNet {STAGED_FILE_INFO}.Length: the staged file is gone")),
     }
