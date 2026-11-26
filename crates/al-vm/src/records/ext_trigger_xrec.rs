@@ -19,8 +19,11 @@
 //! The table's own `OnInsert` and `OnDelete` xRec when a table extension declares `OnBeforeInsert` or `OnBeforeDelete`
 //! (assumption `xrec-after-ext-before-trigger`, corpus PR 1611, record/events/XebXRecAfterExtBeforeTrigger.al:292-874): its
 //! fields are Rec at the `Insert(true)` or `Delete(true)` call, before the `OnBefore...Event` subscribers and the extension's
-//! trigger; its filters and key are Rec's after the extension's trigger. Only the shape the probe measures runs
-//! ([`AtCall`]); every other shape gets that xRec marked [`XREC_AFTER_EXT_BEFORE_UNMEASURED`], read like the mark above.
+//! trigger; its filters and key are Rec's after the extension's trigger. Only the call shape the probe measures runs
+//! ([`AtCall`]); every other call shape keeps main's xRec (the buffer after the subscribers, before the extension's
+//! trigger). In a measured call whose extension trigger moved Rec to another row or left another filter group, that xRec
+//! is marked [`XREC_AFTER_EXT_BEFORE_UNMEASURED`], read like the mark above. A call runs through the assumption only when
+//! code of the table or of its extensions names xRec (`table_code_names_xrec`), so a test that cannot read it stays clean.
 //!
 //! Entry points: `Session::run_ext_trigger_unmeasured_xrec`, `Session::ext_trigger_xrec_running`,
 //! `Session::rec_at_ext_before_call`, `Session::xrec_after_ext_before`.
@@ -45,12 +48,43 @@ pub(crate) fn unmeasured_trigger_xrec(why: &str) -> bool {
     why == XREC_OF_EXT_INSERT_DELETE_TRIGGER || why == XREC_AFTER_EXT_BEFORE_UNMEASURED
 }
 
-/// Rec at an `Insert(true)` or `Delete(true)` call on a table whose extension declares the `OnBefore...` trigger.
+/// Rec at an `Insert(true)` or `Delete(true)` call of the shape XebXRecAfterExtBeforeTrigger.al measures (`Start`,
+/// `RunInsert`, `RunDelete`, :229-290) on a table whose extension declares the `OnBefore...` trigger.
 pub(crate) struct AtCall {
     fields: Vec<Value>,
     position: Option<Rc<[Value]>>,
-    /// The call is of the shape XebXRecAfterExtBeforeTrigger.al measures (`Start`, `RunInsert`, `RunDelete`, :229-290).
-    measured: bool,
+    /// Some code of the table or of one of its extensions names xRec ([`table_code_names_xrec`]): only then can the trigger
+    /// read the served xRec, so only then does the call run through the assumption.
+    xrec_named: bool,
+}
+
+/// Whether a routine of table object `table` or of one of its table extensions names that object's xRec, or passes it to a
+/// `var` parameter. xRec exists only in that code, so when none names it no read of it can happen.
+fn table_code_names_xrec(program: &al_ir::Program, table: usize) -> bool {
+    let objects = &program.objects;
+    let base_slot = objects[table].xrec_slot;
+    let exts = objects[table].table.as_ref().map_or(&[][..], |s| &s.extensions[..]);
+    std::iter::once(table).chain(exts.iter().copied()).any(|o| {
+        let own_slot = objects[o].xrec_slot;
+        let names = |p: &al_ir::Place| crate::pages::validate_xrec::place_names_xrec(p, own_slot, base_slot);
+        objects[o].routines.iter().any(|routine| {
+            let mut found = false;
+            al_ir::types::for_each_expr_post(routine.body.stmts(), &mut |x| {
+                let refs = |args: &[al_ir::Arg]| args.iter().any(|a| matches!(a, al_ir::Arg::Ref(p) if names(p)));
+                found |= match x {
+                    al_ir::Expr::Load(p) => names(p),
+                    al_ir::Expr::Call { args, .. }
+                    | al_ir::Expr::InterfaceCall { args, .. }
+                    | al_ir::Expr::DotNet { args, .. } => refs(args),
+                    al_ir::Expr::Builtin { receiver, args, .. } => {
+                        refs(args) || receiver.as_deref().is_some_and(|a| refs(std::slice::from_ref(a)))
+                    }
+                    _ => false,
+                };
+            });
+            found
+        })
+    })
 }
 
 impl Session {
@@ -61,8 +95,8 @@ impl Session {
             .is_some_and(|s| !s.extensions.is_empty())
     }
 
-    /// Rec at the call, taken before the `OnBefore...Event` subscribers run, when exactly the table's own trigger reads it:
-    /// `None` keeps main's xRec (no extension declares `before`, or the table declares no `own` trigger).
+    /// Rec at the call, taken before the `OnBefore...Event` subscribers run, when the call is of the measured shape: `None`
+    /// keeps main's xRec (no extension declares `before`, the table declares no `own` trigger, or another call shape).
     pub(crate) fn rec_at_ext_before_call(&self, t: &TableDef, before: &str, own: &str, rec: &Rec) -> Option<AtCall> {
         let declared = self.ext_triggers(t, before).len();
         if declared == 0 || self.table_trigger(t, own).is_none() {
@@ -85,10 +119,10 @@ impl Session {
             && r.filter_group == 0
             && r.marks.is_empty()
             && !r.marked_only;
-        Some(AtCall {
+        measured.then(|| AtCall {
             fields: r.fields.to_vec(),
             position: r.position.clone(),
-            measured,
+            xrec_named: table_code_names_xrec(&self.engine.program, t.object as usize),
         })
     }
 
@@ -96,7 +130,7 @@ impl Session {
     /// (XebXRecAfterExtBeforeTrigger.al:590 SetRange, :627 SetCurrentKey, :839). Measured when the trigger left filter group 0
     /// and did not move Rec to another row; else the mark [`XREC_AFTER_EXT_BEFORE_UNMEASURED`].
     pub(crate) fn xrec_after_ext_before(at: AtCall, rec: &Rec) -> Rec {
-        let measured = at.measured && {
+        let measured = {
             let r = rec.borrow();
             r.filter_group == 0
                 && match (&r.position, &at.position) {
@@ -107,7 +141,9 @@ impl Session {
         };
         let x = Self::xrec_handle(rec, at.fields);
         if measured {
-            assume(Assumption::XRecAfterExtBeforeTrigger);
+            if at.xrec_named {
+                assume(Assumption::XRecAfterExtBeforeTrigger);
+            }
         } else {
             x.borrow_mut().unpinned_buffer = Some(XREC_AFTER_EXT_BEFORE_UNMEASURED);
         }

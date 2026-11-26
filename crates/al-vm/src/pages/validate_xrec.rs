@@ -352,7 +352,7 @@ fn reads_xrec(program: &ir::Program, base: usize, e: usize, r: usize) -> bool {
 }
 
 /// Whether place `p` is xRec of the running object (`own`) or of the base page (`base`), or a part of it.
-fn place_names_xrec(p: &ir::Place, own: Option<usize>, base: Option<usize>) -> bool {
+pub(crate) fn place_names_xrec(p: &ir::Place, own: Option<usize>, base: Option<usize>) -> bool {
     match p {
         ir::Place::Global(g) => Some(*g) == own,
         ir::Place::BaseGlobal(g) => Some(*g) == base,
