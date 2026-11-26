@@ -251,7 +251,6 @@ impl Session {
             company_unknown: _,
             full_copies: _,
             restamped_rows: _,
-            install_yes: _,
             run_trigger_unknown: _,
             package_load: _,
             // Carried in InstallLeft.

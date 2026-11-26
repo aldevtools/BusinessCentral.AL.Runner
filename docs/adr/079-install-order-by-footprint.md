@@ -308,13 +308,14 @@ The one builtin kept by this rule: `TaskScheduler.CanCreateTask()`. Corpus PR 15
 subscribers, per company and per database; the test procedure's false is pinned
 (`session-system/TestEnvironmentUserTenantContracts.al:255`). The company-open phase of an install
 session and of the test session (the Company Triggers subscribers and the login they raise) also answers true: corpus
-PR 1592 (`install-upgrade/IcInstallCanCreateTaskTests.al:176`, `:196-198`, `:213-215`) measures it (al-runner issue
-9123). The triggers of a `Subtype = Install` codeunit get the true answer through the same assumption, from one
-install session for both kinds (`record/BfInstallTests.al:142`). Until the runner's corpus pin holds PR 1589 and the
-trigger cell, the true answer runs through the assumption `install-session-can-create-task`. The other TaskScheduler
-methods (CreateTask, TaskExists, SetTaskReady, CancelTask) keep touching everything. What an install session does
-after a true answer (a task it creates, a fallback it skips, isolated storage, a later install that copies a row) is not
-followed: when any install session of a run took the assumption, the whole run is flagged (every test carries it).
+PR 1592 (`install-upgrade/IcInstallCanCreateTaskTests.al:160`, `:180-181`, `:197-199`) measures it (al-runner issue
+9123). PR 1592 also measures true in the triggers of a `Subtype = Install` codeunit (`:124-126`), and that a task
+created there exists and has not run when the test starts (`:99`), with the task scheduler off as in the default
+container. Until the runner's corpus pin holds PRs 1589 and 1592 (both merged), the true answer runs through the
+assumption `install-session-can-create-task`. The other TaskScheduler methods (CreateTask, TaskExists, SetTaskReady,
+CancelTask) keep touching everything. The install session's hits of the assumption are notes of the run, as every
+assumption hit outside a test is (al-testrun `baseline.rs`); a test carries the mark only when it reads a task install
+code created, through its Scheduled Task row (al-vm `tasks.rs` `install_task_rows_assumed`).
 
 ## Options considered
 

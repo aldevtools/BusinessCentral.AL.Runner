@@ -368,9 +368,6 @@ pub trait Ctx: FormatCtx {
     fn company_open_phase(&self) -> bool {
         false
     }
-    /// `TaskScheduler.CanCreateTask` answered Yes on assumption install-session-can-create-task (`session_fns::install_code_yes`):
-    /// in an install session, al-vm marks the whole run, so that every test carries the mark.
-    fn note_install_can_create_task(&mut self) {}
     /// Whether a test codeunit is being run by the test runner (under TestIsolation = Codeunit).
     fn in_test_run(&self) -> bool {
         false

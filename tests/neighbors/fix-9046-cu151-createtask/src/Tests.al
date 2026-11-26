@@ -33,8 +33,9 @@ codeunit 52871 "CTC Task Tests"
         Row: Record "CTC Row A";
     begin
         Row.Get('BRANCH');
-        if TaskScheduler.TaskExists(Row.Task) then
-            Error('the install task exists');
+        // BC: the task exists when the test starts (corpus PR 1592, IcInstallCanCreateTaskTests.al:99).
+        if not TaskScheduler.TaskExists(Row.Task) then
+            Error('the install task does not exist');
     end;
 
     [Test]
@@ -105,5 +106,52 @@ codeunit 52871 "CTC Task Tests"
         Mirror.Get('MIRROR');
         if Mirror.Value <> 'task' then
             Error('mirror: %1', Mirror.Value);
+    end;
+
+    [Test]
+    procedure CancelTaskOfTheInstallTask()
+    var
+        Row: Record "CTC Row A";
+    begin
+        Row.Get('BRANCH');
+        if not TaskScheduler.CancelTask(Row.Task) then
+            Error('cancel answered false');
+        if TaskScheduler.TaskExists(Row.Task) then
+            Error('the task still exists');
+    end;
+
+    [Test]
+    procedure ScheduledTaskGetOfTheInstallTask()
+    var
+        Row: Record "CTC Row A";
+        Task: Record "Scheduled Task";
+    begin
+        Row.Get('BRANCH');
+        Task.Get(Row.Task);
+    end;
+
+    [Test]
+    procedure TaskExistsOfAnUnknownId()
+    begin
+        if TaskScheduler.TaskExists(CreateGuid()) then
+            Error('an unknown task exists');
+    end;
+
+    [Test]
+    procedure TestSessionTaskIsHeldByTheSession()
+    var
+        Id: Guid;
+    begin
+        Id := TaskScheduler.CreateTask(Codeunit::"CTC Try Target D", 0);
+        if not TaskScheduler.TaskExists(Id) then
+            Error('the test task does not exist');
+    end;
+
+    [Test]
+    procedure RowAfterCreateTaskInATryFunction()
+    var
+        Row: Record "CTC Try Row D";
+    begin
+        Row.Get('TRY');
     end;
 }

@@ -29,6 +29,12 @@
       "name": "CTC Task C",
       "publisher": "Footprint Probe Co",
       "version": "1.0.0.0"
+    },
+    {
+      "id": "8d1a2b3c-9046-4000-8000-000000041614",
+      "name": "CTC Task D",
+      "publisher": "Footprint Probe Co",
+      "version": "1.0.0.0"
     }
   ],
   "target": "OnPrem"

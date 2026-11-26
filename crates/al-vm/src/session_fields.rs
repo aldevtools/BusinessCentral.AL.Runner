@@ -141,8 +141,6 @@ macro_rules! session_fields {
                 application_areas: String,
                 company_unknown: HashMap<(String, u32), String>,
                 full_copies: BTreeSet<String>,
-                // Kept until the session's data is replaced (`Baseline::install_yes`).
-                install_yes: bool,
                 // Kept until the session's data is replaced (`crate::state::RestampedRows`).
                 restamped_rows: Vec<crate::state::RestampedRows>,
                 // The clock: offset, last system stamp, key and draws (state_stamp.rs `counters`).

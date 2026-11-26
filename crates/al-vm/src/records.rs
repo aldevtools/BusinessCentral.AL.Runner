@@ -586,11 +586,13 @@ impl Session {
         facts.unknown.get(&(object as usize)).map(String::as_str)
     }
 
-    /// Marks the assumption the install rows of table `object` rely on (`InstallFacts::assumed`), outside install code.
+    /// Marks the assumption the install rows of table `object` rely on (`InstallFacts::assumed`, and the tasks install code
+    /// created: `tasks.rs` `install_task_rows_assumed`), outside install code.
     pub(crate) fn install_assumed(&self, object: u32) {
         if self.install_scope {
             return;
         }
+        self.install_task_rows_assumed(object);
         let Some(facts) = self.engine.install_facts.get() else {
             return;
         };

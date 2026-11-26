@@ -157,7 +157,7 @@ fn can_create_task_answers_yes_in_an_app_install_session_and_no_elsewhere() {
     use crate::assumptions::{Assumption, take_hits};
     let run = |ctx: &mut TestCtx| lookup("TaskScheduler.CanCreateTask#1").unwrap()(ctx, None, &mut []);
     let _ = take_hits();
-    // Corpus PR 1589, install-upgrade/IsInstallSessionTests.al:86, :91, :135 (pin pending).
+    // Corpus PR 1589, install-upgrade/IsInstallSessionTests.al:86, :91, :135 (merged, not pinned).
     let mut install = TestCtx {
         install: true,
         install_session: true,
@@ -179,7 +179,7 @@ fn can_create_task_answers_yes_in_an_app_install_session_and_no_elsewhere() {
     assert!(matches!(run(&mut build), Ok(Value::Boolean(false))));
     assert!(!take_hits().contains(&Assumption::InstallSessionCanCreateTask));
     // The Company Triggers subscribers of the install session and of the test session (and the login they raise): corpus
-    // PR 1592 (install-upgrade/IcInstallCanCreateTaskTests.al:176, :213-214, pin pending).
+    // PR 1592 (install-upgrade/IcInstallCanCreateTaskTests.al:160, :197-198, merged, not pinned).
     for (install, install_session) in [(true, true), (true, false), (false, false)] {
         let mut open = TestCtx {
             install,

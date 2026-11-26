@@ -917,8 +917,6 @@ pub struct Session {
     install_company_open: bool,
     /// The Company Triggers subscribers of the test session run (`set_test_company_open`).
     test_company_open: bool,
-    /// An install session answered Yes on install-session-can-create-task: every test is flagged (`note_install_yes`).
-    pub(crate) install_yes: bool,
     /// The session's data comes from a baseline in which the company data codeunit built the company to its end
     /// (`Baseline::company_built`).
     pub(crate) company_built: bool,
@@ -1515,7 +1513,6 @@ impl Session {
             install_without_client: false,
             install_company_open: false,
             test_company_open: false,
-            install_yes: false,
             company_built: false,
             demo_written: Default::default(),
             gl_setup_written: false,

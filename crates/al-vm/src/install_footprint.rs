@@ -429,9 +429,9 @@ const KEPT_METHODS: &[(&str, &[&str])] = &[
     ),
     // Its answer is a constant per session kind and phase, so the same in every install order (ADR-079 amendment 2):
     // false in a test (session-system/TestEnvironmentUserTenantContracts.al:255), true in an app's install code
-    // (al-builtins `can_create_task`; corpus PR 1589, install-upgrade/IsInstallSessionTests.al:86, :91, :135, pin
-    // pending), true in the company-open and login subscribers of an install session (corpus PR 1592,
-    // install-upgrade/IcInstallCanCreateTaskTests.al, pin pending). The other TaskScheduler methods touch everything.
+    // (al-builtins `can_create_task`; corpus PR 1589, install-upgrade/IsInstallSessionTests.al:86, :91, :135, merged,
+    // not pinned), true in the company-open and login subscribers of an install session (corpus PR 1592,
+    // install-upgrade/IcInstallCanCreateTaskTests.al:160, :180-181, merged, not pinned). The other TaskScheduler methods touch everything.
     ("TaskScheduler", &["CanCreateTask"]),
 ];
 

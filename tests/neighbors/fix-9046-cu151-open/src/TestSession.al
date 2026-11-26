@@ -1,5 +1,5 @@
 // The test session's own Company Triggers subscribers: BC answers Yes there and No in the test procedure (corpus PR
-// 1592, install-upgrade/IcInstallCanCreateTaskTests.al:213-215). The values stay in a SingleInstance codeunit, not a table.
+// 1592, install-upgrade/IcInstallCanCreateTaskTests.al:197-199). The values stay in a SingleInstance codeunit, not a table.
 codeunit 52643 "CT Open Seen"
 {
     SingleInstance = true;

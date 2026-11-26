@@ -42,8 +42,7 @@
 //! (al-testrun `install::login_work_date`) marks it too.
 //!
 //! Also the company-open phases where `TaskScheduler.CanCreateTask` answers true (`set_install_company_open`,
-//! `set_test_company_open`), and the run-wide flag of an install session that answered it on assumption
-//! install-session-can-create-task (`note_install_yes`, kept as `Baseline::install_yes`).
+//! `set_test_company_open`).
 use crate::Session;
 use crate::reports::Schema;
 use crate::ui::UiKind;
@@ -136,7 +135,7 @@ impl Session {
     }
 
     /// The same phase when the test session opens its company (al-testrun `install::test_session_company_open`): true
-    /// there too, while the test procedure keeps false (corpus PR 1592, install-upgrade/IcInstallCanCreateTaskTests.al:213-215).
+    /// there too, while the test procedure keeps false (corpus PR 1592, install-upgrade/IcInstallCanCreateTaskTests.al:197-199).
     pub fn set_test_company_open(&mut self, on: bool) {
         self.test_company_open = on;
     }
@@ -144,23 +143,6 @@ impl Session {
     /// Either company-open phase runs (`Ctx::company_open_phase`).
     pub(crate) fn company_open_phase(&self) -> bool {
         self.install_company_open || self.test_company_open
-    }
-
-    /// `TaskScheduler.CanCreateTask` answered Yes on assumption install-session-can-create-task. In an install session
-    /// (an install routine or its company-open phase), what the session did after the answer is not followed (a task it
-    /// created, a fallback it skipped, isolated storage, a later install that copies a row), so the whole run rests on
-    /// the assumption: the flag is kept with the baseline (`Baseline::install_yes`) and every test carries the mark
-    /// (al-testrun `run.rs` `mark_test_start_assumptions`). The test session's own phase needs no flag: its marks reach
-    /// every test of the session (`company_open_marks`).
-    pub(crate) fn note_install_yes(&mut self) {
-        if self.install_without_client || self.install_company_open {
-            self.install_yes = true;
-        }
-    }
-
-    /// An install session of this run answered Yes on install-session-can-create-task ([`Session::note_install_yes`]).
-    pub fn install_yes(&self) -> bool {
-        self.install_yes
     }
 
     /// Puts [`Session::no_client_test_session`] where the platform providers read it (`EventStats::no_client_test_session`,

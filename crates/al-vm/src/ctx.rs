@@ -544,9 +544,6 @@ impl al_builtins::native::Ctx for Session {
     fn company_open_phase(&self) -> bool {
         Session::company_open_phase(self)
     }
-    fn note_install_can_create_task(&mut self) {
-        self.note_install_yes();
-    }
     fn in_test_run(&self) -> bool {
         self.in_test_codeunit
     }

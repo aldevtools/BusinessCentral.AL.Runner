@@ -23,7 +23,11 @@
 //! column is refused when read (`platform::unknown`).
 //!
 //! A task created in an app's install code gets the same rules, on assumption install-session-can-create-task (al-builtins
-//! `install_code_yes`; what BC does with such a task is not measured).
+//! `install_code_yes`): it exists when the test starts and has not run (corpus PR 1592,
+//! install-upgrade/IcInstallCanCreateTaskTests.al:99, merged, not pinned). The test session does not hold its id, so its
+//! Scheduled Task row stands for it (`install_task_row`), and every read of that table and every TaskExists, CancelTask
+//! and SetTaskReady of such a task carries the mark (`install_task_rows_assumed`). Install code without the table in the
+//! program, and a CreateTask inside a try function in install code (al-runner issue 9134), are refused.
 //!
 //! `TaskScheduler.CreateTask`, `TaskExists`, `CancelTask`, `SetTaskReady`: the tasks of the running
 //! transaction (a rollback drops them; a committed task stays until cancelled and never runs). Entry
@@ -100,7 +104,7 @@ impl Session {
     /// row decides, so a task whose row a rollback of the test runner took back is gone with it.
     fn task_exists(&self, t: [u8; 16]) -> bool {
         if !(self.tasks.open.contains(&t) || self.tasks.committed.contains(&t)) {
-            return false;
+            return self.install_task_row(t);
         }
         let Some(def) = self.table_def(SCHEDULED_TASK) else {
             return true;
@@ -109,6 +113,36 @@ impl Session {
             al_data::Store::get(&self.store, &self.cx, &def, &[Value::Guid(t)]),
             Ok(Some(_))
         )
+    }
+
+    /// Whether `t` is a task install code created, which this session does not hold: its Scheduled Task row, left by the
+    /// install code (`baseline_rows`), is there. It exists when the test starts (corpus PR 1592,
+    /// install-upgrade/IcInstallCanCreateTaskTests.al:99, merged, not pinned), on assumption
+    /// install-session-can-create-task (`install_task_rows_assumed`).
+    fn install_task_row(&self, t: [u8; 16]) -> bool {
+        let Some(def) = self.table_def(SCHEDULED_TASK) else {
+            return false;
+        };
+        if !self.install_task_rows_assumed(SCHEDULED_TASK) {
+            return false;
+        }
+        matches!(
+            al_data::Store::get(&self.store, &self.cx, &def, &[Value::Guid(t)]),
+            Ok(Some(_))
+        )
+    }
+
+    /// Outside install code, table `object` is the Scheduled Task table and install code left rows in it: the tasks it
+    /// created there (`create_task`). Marks assumption install-session-can-create-task and answers true; a test reads
+    /// what install code did after its Yes only through these rows (the install session's own hits are baseline notes,
+    /// al-testrun `baseline.rs`). Read by every record operation on the table (`records.rs` `install_assumed`) and by
+    /// [`Session::install_task_row`].
+    pub(crate) fn install_task_rows_assumed(&self, object: u32) -> bool {
+        let rows = !self.install_scope && object == SCHEDULED_TASK && self.baseline_rows.contains(&SCHEDULED_TASK);
+        if rows {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::InstallSessionCanCreateTask);
+        }
+        rows
     }
 
     /// SetTaskReady(Id): a task of the session answers true and becomes ready (Y43TaskAfterCommit.al:284-288); an unknown
@@ -239,12 +273,26 @@ impl Session {
                 return Err(self.missing_object("CodeUnit", i64::from(*n)));
             }
         }
-        // A task created in install code follows the rules above, which only tasks of a test session pin: assumption
-        // install-session-can-create-task, and the whole run carries the mark (`clientless.rs` `note_install_yes`).
-        al_builtins::native::install_code_yes(self);
+        // A task created in install code follows the rules above: assumption install-session-can-create-task (the module
+        // comment); a test that touches its row carries the mark (`install_task_rows_assumed`).
+        // The test session's own company-open phase holds its tasks as a test does.
+        if al_builtins::native::install_code_yes(self) && (self.install_without_client || self.install_company_open) {
+            if self.tx.try_depth > 0 {
+                // BC fails the install there with an error the corpus does not assert yet (al-runner issue 9134).
+                return unsupported("TaskScheduler.CreateTask inside a try function in install code (al-runner issue 9134)");
+            }
+            if self.table_def(SCHEDULED_TASK).is_none() {
+                // Without its row a test could not see the task, which exists in BC (IcInstallCanCreateTaskTests.al:99).
+                return unsupported("TaskScheduler.CreateTask in install code of a program without the Scheduled Task table");
+            }
+        }
         let id = self.fresh_guid();
         self.tasks.open.insert(id);
         self.write_task_row(id, args)?;
         Ok(Value::Guid(id))
     }
 }
+
+#[cfg(test)]
+#[path = "tasks_tests.rs"]
+mod tests;

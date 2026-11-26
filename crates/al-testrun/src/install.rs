@@ -1313,7 +1313,7 @@ pub(crate) fn test_session_company_open(
 ) -> Result<CompanyOpenWrites, NotOpened> {
     match crate::runtime::watching_skipped_installs(lowered, session, skipped, crate::runtime::Assumed::Marked, |s| {
         // `TaskScheduler.CanCreateTask` answers true while the Company Triggers subscribers and the login run (al-builtins
-        // `can_create_task`; corpus PR 1592, install-upgrade/IcInstallCanCreateTaskTests.al:213-215).
+        // `can_create_task`; corpus PR 1592, install-upgrade/IcInstallCanCreateTaskTests.al:197-199).
         s.set_test_company_open(true);
         let opened = open_test_session_company(lowered, s, disabled, after_refusal);
         s.set_test_company_open(false);
