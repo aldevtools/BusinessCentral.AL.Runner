@@ -109,6 +109,47 @@ codeunit 50363 "NX Kept Tests"
     end;
 }
 
+// The two shapes of the taken-out change (a table trigger after an extension trigger wrote Rec): own codeunit, before every
+// test that refuses, so no refusal leaves them a session state. Main answers both.
+codeunit 50364 "NX Taken Out Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        Mode: Codeunit "NX Mode";
+        Steps: Codeunit "NX Steps";
+
+    // The extension's OnBeforeInsert writes Rec, then the table's OnInsert reads xRec.
+    [Test]
+    procedure TableOnInsert_AfterExtOnBeforeInsertWritesRec()
+    var
+        Line: Record "NX Line";
+    begin
+        Mode.Set('BeforeInsert', 'recwrite');
+        Steps.InsertAfterAssign(Line);
+        Steps.Expect('r');
+        if Line."xRec Serial In Table OnInsert" <> 42 then
+            Error('xRec."Serial No." in table OnInsert was %1, expected 42', Line."xRec Serial In Table OnInsert");
+    end;
+
+    // The extension's OnBeforeDelete changes Rec without reading xRec, then the table's own OnDelete reads xRec.
+    [Test]
+    procedure TableOnDelete_AfterExtOnBeforeDeleteWritesRec()
+    var
+        Line: Record "NX Line";
+        BaseLog: Codeunit "NX Base Log";
+    begin
+        Steps.Seed();
+        Mode.Set('BeforeDelete', 'recwrite');
+        Line.Get(1);
+        Line.Delete(true);
+        Steps.Expect('r');
+        if BaseLog.Get() <> 42 then
+            Error('xRec."Serial No." in table OnDelete was %1, expected 42', BaseLog.Get());
+    end;
+}
+
 codeunit 50360 "NX Refused Tests"
 {
     Subtype = Test;
@@ -410,35 +451,6 @@ codeunit 50360 "NX Refused Tests"
         Mode.Set('AfterInsert', 'basevalidate');
         Steps.InsertAfterValidate(Line);
         Steps.Expect('42');
-    end;
-
-    // The extension's OnBeforeInsert writes Rec, then the table's OnInsert reads xRec.
-    [Test]
-    procedure TableOnInsert_AfterExtOnBeforeInsertWritesRec()
-    var
-        Line: Record "NX Line";
-    begin
-        Mode.Set('BeforeInsert', 'recwrite');
-        Steps.InsertAfterAssign(Line);
-        Steps.Expect('r');
-        if Line."xRec Serial In Table OnInsert" <> 42 then
-            Error('xRec."Serial No." in table OnInsert was %1, expected 42', Line."xRec Serial In Table OnInsert");
-    end;
-
-    // The extension's OnBeforeDelete changes Rec without reading xRec, then the table's own OnDelete reads xRec.
-    [Test]
-    procedure TableOnDelete_AfterExtOnBeforeDeleteWritesRec()
-    var
-        Line: Record "NX Line";
-        BaseLog: Codeunit "NX Base Log";
-    begin
-        Steps.Seed();
-        Mode.Set('BeforeDelete', 'recwrite');
-        Line.Get(1);
-        Line.Delete(true);
-        Steps.Expect('r');
-        if BaseLog.Get() <> 42 then
-            Error('xRec."Serial No." in table OnDelete was %1, expected 42', BaseLog.Get());
     end;
 }
 
