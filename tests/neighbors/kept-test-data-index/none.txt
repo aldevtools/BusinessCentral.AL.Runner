@@ -1,0 +1,1 @@
+No AL-visible change on an undamaged cache: a kept page map that is not byte for byte what was saved is now a miss and is rebuilt, so a read through the kept index gives the rows a fresh open gives; timings.testDataIndex (read, built, built-unsaved, off) is a protocol field no AL code sees.
