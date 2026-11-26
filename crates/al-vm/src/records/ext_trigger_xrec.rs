@@ -77,14 +77,14 @@ impl Session {
             .map_or(0, |s| s.extensions.len());
         let measured = extensions == 1
             && declared == 1
-            && r.temporary == false
+            && !r.temporary
             && r.company.is_none()
             && r.filters.is_empty()
             && r.key == 0
             && r.adhoc.is_none()
             && r.filter_group == 0
             && r.marks.is_empty()
-            && r.marked_only == false;
+            && !r.marked_only;
         Some(AtCall {
             fields: r.fields.to_vec(),
             position: r.position.clone(),
