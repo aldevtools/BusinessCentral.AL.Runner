@@ -1185,7 +1185,7 @@ pub(crate) fn company_open(
     if all.is_empty() {
         return Ok(());
     }
-    // `TaskScheduler.CanCreateTask` keeps main's false while they run (al-builtins `can_create_task`).
+    // `TaskScheduler.CanCreateTask` answers true while they run (al-builtins `can_create_task`).
     session.set_install_company_open(true);
     let ran = watching_skipped(lowered, session, skipped, &all, |s| run_subscribers(lowered, s, &all));
     session.set_install_company_open(false);

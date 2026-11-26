@@ -723,7 +723,19 @@ fn a_task_created_in_install_code_marks_the_reads_of_its_install_sessions_tables
 }
 
 #[test]
-fn the_company_open_phase_keeps_no_and_marks_nothing() {
+fn the_company_open_phase_is_a_session_that_takes_the_yes_and_marks_what_it_wrote() {
     let (_, mut s, cu) = yes_baseline(&["Install"], true);
-    assert!(!marks(&mut s, cu, "ReadYes"));
+    assert!(marks(&mut s, cu, "ReadYes"));
+}
+
+#[test]
+fn a_company_open_phase_outside_an_install_routine_is_a_session_of_its_own() {
+    let (mut s, cu) = yes_session();
+    s.set_install_scope(true);
+    s.set_install_company_open(true);
+    yes_call(&mut s, cu, "Install");
+    s.set_install_company_open(false);
+    s.set_install_scope(false);
+    al_builtins::assumptions::clear_hits();
+    assert!(marks(&mut s, cu, "ReadYes"));
 }

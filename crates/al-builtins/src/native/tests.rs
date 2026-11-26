@@ -178,7 +178,8 @@ fn can_create_task_answers_yes_in_an_app_install_session_and_no_elsewhere() {
     };
     assert!(matches!(run(&mut build), Ok(Value::Boolean(false))));
     assert!(!take_hits().contains(&Assumption::InstallSessionCanCreateTask));
-    // The Company Triggers subscribers of the install session (and the login they raise): not measured, main's false.
+    // The Company Triggers subscribers of the install session (and the login they raise): corpus PR 1592
+    // (install-upgrade/IcInstallCanCreateTaskTests.al, pin pending), with or without an install routine's session.
     for install_session in [true, false] {
         let mut open = TestCtx {
             install: true,
@@ -186,9 +187,9 @@ fn can_create_task_answers_yes_in_an_app_install_session_and_no_elsewhere() {
             company_open: true,
             ..Default::default()
         };
-        assert!(matches!(run(&mut open), Ok(Value::Boolean(false))));
+        assert!(matches!(run(&mut open), Ok(Value::Boolean(true))));
+        assert!(take_hits().contains(&Assumption::InstallSessionCanCreateTask));
     }
-    assert!(!take_hits().contains(&Assumption::InstallSessionCanCreateTask));
 }
 
 pub(crate) fn call(id: &str, args: Vec<Value>) -> Result<Value, Signal> {

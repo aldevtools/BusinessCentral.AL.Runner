@@ -128,9 +128,12 @@ impl Session {
     }
 
     /// The Company Triggers OnCompanyOpen and OnCompanyOpenCompleted subscribers of an install session run (or no longer
-    /// run), and the login they raise: `TaskScheduler.CanCreateTask` keeps main's false, not measured there (al-builtins
-    /// `can_create_task`).
+    /// run), and the login they raise: `TaskScheduler.CanCreateTask` answers true there (al-builtins `can_create_task`),
+    /// and this phase is an install session of its own for the write set unless an install routine's session runs.
     pub fn set_install_company_open(&mut self, on: bool) {
+        if !self.install_without_client {
+            self.install_yes_session_bounds(on);
+        }
         self.install_company_open = on;
     }
 

@@ -7,9 +7,9 @@ codeunit 52652 "CT Open Tests"
     var
         Row: Record "CT Open TE";
     begin
-        // Main's answer, kept until BC's answer there is measured (assumption install-session-can-create-task).
+        // BC answers Yes there (corpus PR 1592, install-upgrade/IcInstallCanCreateTaskTests.al; assumption install-session-can-create-task).
         Row.Get('OPEN');
-        if Row.Value <> 'No' then
+        if Row.Value <> 'Yes' then
             Error('company open in the install session: %1', Row.Value);
     end;
 

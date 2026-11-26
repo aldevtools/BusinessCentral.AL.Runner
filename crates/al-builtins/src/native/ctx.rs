@@ -362,7 +362,8 @@ pub trait Ctx: FormatCtx {
         false
     }
     /// Whether the Company Triggers OnCompanyOpen and OnCompanyOpenCompleted subscribers of an install session run (and
-    /// the login they raise), before the app's install code (al-vm `set_install_company_open`).
+    /// the login they raise), before the app's install code (al-vm `set_install_company_open`). Not a client-less
+    /// session for the rest (GuiAllowed, Message): only `TaskScheduler.CanCreateTask` reads it.
     fn install_company_open(&self) -> bool {
         false
     }
