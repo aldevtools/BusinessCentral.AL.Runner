@@ -1,4 +1,4 @@
-//! A DeleteAll that install code runs on a platform table a fresh tenant fills with rows nothing pins
+//! A DeleteAll or Truncate that install code runs on a platform table a fresh tenant fills with rows nothing pins
 //! (`al_builtins::platform::UNSEEDED_ROWS`: Power BI Blob, Power BI Default Selection). Only the test session's own
 //! DeleteAll is pinned to empty it (al-language-onprem/metadata/PtOnPremTables.al:324 Y17_PowerBIBlob_BlobRoundTrip,
 //! :365-385 Y40 for Power BI Default Selection): whether the demo rows exist yet when an install runs is not. So no
