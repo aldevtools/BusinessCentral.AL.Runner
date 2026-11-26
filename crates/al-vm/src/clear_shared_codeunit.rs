@@ -474,40 +474,45 @@ impl Session {
     /// corpus PR 1587 ([`scalar_kind`]) is admitted too. Each codeunit global is a [`Session::register_nested`] codeunit.
     fn tableno_unpinned(&self, object: usize) -> Option<Unpinned> {
         let nested = |c: u32| self.register_nested(c as usize, object, 1, 4, true);
-        self.tableno_globals_unpinned(object, &nested, &|c| self.kinds_unpinned(c, 1))
+        let kind = |g: &al_ir::Slot| {
+            g.plain_label
+                || g.comment_label
+                || !g.label && (matches!(g.ty, RtType::Record(_, false)) || scalar_kind(&g.ty))
+        };
+        self.tableno_globals_unpinned(object, &kind, &nested, &|c| self.kinds_unpinned(c, 1))
     }
 
     /// The first part of codeunit `object`, which is not SingleInstance and has a TableNo, that makes it no register of
     /// merged corpus PR 1599 ([`Store::TableNoSingle`], assumption clear-all-register-single-instance): `None` when it is
     /// one. ClearSharedCodeunitNestedSingleInstance.al "CKS R D1PU" (:58-65) declares, besides `Rec`, records that are not
-    /// temporary, codeunits, an Integer and a Boolean; the register level admits what [`Session::tableno_unpinned`] admits.
-    /// Each codeunit global is a [`Session::single_nested_unpinned`] codeunit.
+    /// temporary, codeunits, an Integer and a Boolean, and every other register of the probe ("CKS R D1PW" :155 to "CKS R
+    /// KU") declares the same kinds; the register level admits only these. Each codeunit global is a
+    /// [`Session::single_nested_unpinned`] codeunit. A Label or another scalar kind of merged corpus PR 1587 at the
+    /// register level refuses: no probe cell measures it beside a SingleInstance codeunit (al-runner issue 9176).
     fn single_register_unpinned(&self, object: usize) -> Option<Unpinned> {
         let nested = |c: u32| self.single_nested_unpinned(c as usize, 1).is_none();
-        self.tableno_globals_unpinned(object, &nested, &|c| self.single_nested_unpinned(c, 1))
+        let kind =
+            |g: &al_ir::Slot| !g.label && matches!(g.ty, RtType::Record(_, false) | RtType::Integer | RtType::Boolean);
+        self.tableno_globals_unpinned(object, &kind, &nested, &|c| self.single_nested_unpinned(c, 1))
     }
 
     /// The register-level part of [`Session::tableno_unpinned`] and [`Session::single_register_unpinned`]: the first
-    /// global of codeunit `object` that is not `Rec`, a record that is not temporary, a Label without a property or with a
-    /// Comment, a scalar kind or a codeunit `nested` admits. A codeunit global is named by the part `why` gives it, when it
-    /// gives one (a diagnostic only).
+    /// global of codeunit `object` that is not `Rec`, a global `kind` admits or a codeunit `nested` admits. A codeunit
+    /// global is named by the part `why` gives it, when it gives one (a diagnostic only).
     fn tableno_globals_unpinned(
         &self,
         object: usize,
+        kind: &dyn Fn(&al_ir::Slot) -> bool,
         nested: &dyn Fn(u32) -> bool,
         why: &dyn Fn(usize) -> Option<Unpinned>,
     ) -> Option<Unpinned> {
         let o = &self.engine.program.objects[object];
         let admitted = |(i, g): &(usize, &al_ir::Slot)| {
             o.rec_slot == Some(*i)
-                || g.plain_label
-                || g.comment_label
-                || !g.label
-                    && match &g.ty {
-                        RtType::Record(_, false) => true,
-                        RtType::Codeunit(c) => nested(*c),
-                        t => scalar_kind(t),
-                    }
+                || match &g.ty {
+                    RtType::Codeunit(c) if !g.label => nested(*c),
+                    _ => kind(g),
+                }
         };
         let (slot, g) = o.globals.iter().enumerate().find(|e| !admitted(e))?;
         let own = Unpinned::Global { object, slot, depth: 0 };
@@ -524,7 +529,10 @@ impl Session {
     /// [`Session::single_instance_unpinned`]. Any other holds Integers, records (temporary or not, "CKS Trk U" :1369-1371),
     /// `Label 'text', Comment = 'text'` and codeunits of this kind, and one level below the register also `Label 'text'`
     /// ("CKS WMS U" :1403), `Label 'text', Locked = true`, a List of Text and a Dictionary of [Text, Integer] ("CKS Nest U"
-    /// :1683-1688, Kinds_* :2301, :2331).
+    /// :1683-1688, Kinds_* :2301, :2331). Three levels below the register 1599 has only SingleInstance codeunits ("CKS SI
+    /// D3U" :1043), and merged corpus PR 1596 a codeunit of Integers (ClearSharedCodeunitTableNoRegister.al "CKT M3" :30;
+    /// its codeunit global sits four levels deep, which refuses here): any other one holds Integers only, and a record or
+    /// a Label there refuses (al-runner issue 9176).
     fn single_nested_unpinned(&self, object: usize, depth: u8) -> Option<Unpinned> {
         let o = &self.engine.program.objects[object];
         if depth > 3 {
@@ -539,12 +547,14 @@ impl Session {
         let first = depth == 1;
         (o.globals.iter().enumerate()).find_map(|(slot, g)| {
             let own = Some(Unpinned::Global { object, slot, depth });
+            let deepest = depth == 3;
             if g.label {
-                let measured = g.comment_label || first && (g.plain_label || g.locked_label);
+                let measured = !deepest && (g.comment_label || first && (g.plain_label || g.locked_label));
                 return if measured { None } else { own };
             }
             match &g.ty {
-                RtType::Integer | RtType::Record(..) => None,
+                RtType::Integer => None,
+                RtType::Record(..) if !deepest => None,
                 RtType::Codeunit(c) => self.single_nested_unpinned(*c as usize, depth + 1),
                 RtType::List(e) if first && matches!(**e, RtType::Text(_)) => None,
                 RtType::Dictionary(k, v)

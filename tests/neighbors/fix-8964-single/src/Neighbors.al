@@ -900,6 +900,350 @@ codeunit 86410 "NKS O DR"
     end;
 }
 
+// Register-level kinds the 1599 registers do not declare, beside a SingleInstance codeunit (al-runner issue 9176).
+codeunit 86411 "NKS R RCL"
+{
+    TableNo = "CKK Row";
+
+    var
+        Location: Record "CKK Row";
+        Child: Codeunit "CKS SI PU";
+        Entry: Integer;
+        Caption: Label 'Register', Comment = 'Register caption';
+
+    trigger OnRun()
+    begin
+        Entry := Rec."No.";
+    end;
+
+    procedure Prime(V: Integer)
+    begin
+        Location."No." := 1;
+        Child.SetN(V);
+        Entry := 5;
+    end;
+
+    procedure State(): Text
+    begin
+        exit(StrSubstNo('loc=%1 child=%2 entry=%3', Location."No.", Child.State(), Entry));
+    end;
+}
+
+codeunit 86412 "NKS O RCL"
+{
+    TableNo = "CKK Row";
+
+    var
+        Reg: Codeunit "NKS R RCL";
+
+    trigger OnRun()
+    begin
+        ClearAll();
+    end;
+
+    procedure SetReg(var R: Codeunit "NKS R RCL")
+    begin
+        Reg := R;
+    end;
+}
+
+codeunit 86413 "NKS R RPL"
+{
+    TableNo = "CKK Row";
+
+    var
+        Location: Record "CKK Row";
+        Child: Codeunit "CKS SI PU";
+        Entry: Integer;
+        Caption: Label 'Register';
+
+    trigger OnRun()
+    begin
+        Entry := Rec."No.";
+    end;
+
+    procedure Prime(V: Integer)
+    begin
+        Location."No." := 1;
+        Child.SetN(V);
+        Entry := 5;
+    end;
+
+    procedure State(): Text
+    begin
+        exit(StrSubstNo('loc=%1 child=%2 entry=%3', Location."No.", Child.State(), Entry));
+    end;
+}
+
+codeunit 86414 "NKS O RPL"
+{
+    TableNo = "CKK Row";
+
+    var
+        Reg: Codeunit "NKS R RPL";
+
+    trigger OnRun()
+    begin
+        ClearAll();
+    end;
+
+    procedure SetReg(var R: Codeunit "NKS R RPL")
+    begin
+        Reg := R;
+    end;
+}
+
+codeunit 86415 "NKS R RDec"
+{
+    TableNo = "CKK Row";
+
+    var
+        Location: Record "CKK Row";
+        Child: Codeunit "CKS SI PU";
+        Entry: Integer;
+        Amount: Decimal;
+
+    trigger OnRun()
+    begin
+        Entry := Rec."No.";
+    end;
+
+    procedure Prime(V: Integer)
+    begin
+        Location."No." := 1;
+        Child.SetN(V);
+        Entry := 5;
+        Amount := 2.5;
+    end;
+
+    procedure State(): Text
+    begin
+        exit(StrSubstNo('loc=%1 child=%2 entry=%3', Location."No.", Child.State(), Entry));
+    end;
+}
+
+codeunit 86416 "NKS O RDec"
+{
+    TableNo = "CKK Row";
+
+    var
+        Reg: Codeunit "NKS R RDec";
+
+    trigger OnRun()
+    begin
+        ClearAll();
+    end;
+
+    procedure SetReg(var R: Codeunit "NKS R RDec")
+    begin
+        Reg := R;
+    end;
+}
+
+// A codeunit that is not SingleInstance three levels below the register, with a record or a Comment Label
+// (al-runner issue 9176): 1599 has only SingleInstance codeunits at that depth.
+codeunit 86417 "NKS P3 Rec"
+{
+    var
+        Cached: Record "CKK Row";
+        I: Integer;
+
+    procedure SetN(V: Integer)
+    begin
+        I := V;
+        Cached."No." := V;
+    end;
+
+    procedure State(): Text
+    begin
+        exit(Format(I));
+    end;
+}
+
+codeunit 86418 "NKS P3 Rec M2"
+{
+    var
+        Next: Codeunit "NKS P3 Rec";
+        I: Integer;
+
+    procedure SetN(V: Integer)
+    begin
+        I := V;
+        Next.SetN(V + 1);
+    end;
+
+    procedure State(): Text
+    begin
+        exit(StrSubstNo('%1/%2', I, Next.State()));
+    end;
+}
+
+codeunit 86419 "NKS P3 Rec M1"
+{
+    var
+        Next: Codeunit "NKS P3 Rec M2";
+        I: Integer;
+
+    procedure SetN(V: Integer)
+    begin
+        I := V;
+        Next.SetN(V + 1);
+    end;
+
+    procedure State(): Text
+    begin
+        exit(StrSubstNo('%1/%2', I, Next.State()));
+    end;
+}
+
+codeunit 86420 "NKS R P3Rec"
+{
+    TableNo = "CKK Row";
+
+    var
+        Location: Record "CKK Row";
+        Child: Codeunit "CKS SI PU";
+        Entry: Integer;
+        Chain: Codeunit "NKS P3 Rec M1";
+
+    trigger OnRun()
+    begin
+        Entry := Rec."No.";
+    end;
+
+    procedure Prime(V: Integer)
+    begin
+        Location."No." := 1;
+        Child.SetN(V);
+        Entry := 5;
+        Chain.SetN(V);
+    end;
+
+    procedure State(): Text
+    begin
+        exit(StrSubstNo('loc=%1 child=%2 entry=%3', Location."No.", Child.State(), Entry));
+    end;
+}
+
+codeunit 86421 "NKS O P3Rec"
+{
+    TableNo = "CKK Row";
+
+    var
+        Reg: Codeunit "NKS R P3Rec";
+
+    trigger OnRun()
+    begin
+        ClearAll();
+    end;
+
+    procedure SetReg(var R: Codeunit "NKS R P3Rec")
+    begin
+        Reg := R;
+    end;
+}
+
+codeunit 86422 "NKS P3 Lbl"
+{
+    var
+        Caption: Label 'Leaf', Comment = 'Leaf caption';
+        I: Integer;
+
+    procedure SetN(V: Integer)
+    begin
+        I := V;
+        
+    end;
+
+    procedure State(): Text
+    begin
+        exit(Format(I));
+    end;
+}
+
+codeunit 86423 "NKS P3 Lbl M2"
+{
+    var
+        Next: Codeunit "NKS P3 Lbl";
+        I: Integer;
+
+    procedure SetN(V: Integer)
+    begin
+        I := V;
+        Next.SetN(V + 1);
+    end;
+
+    procedure State(): Text
+    begin
+        exit(StrSubstNo('%1/%2', I, Next.State()));
+    end;
+}
+
+codeunit 86424 "NKS P3 Lbl M1"
+{
+    var
+        Next: Codeunit "NKS P3 Lbl M2";
+        I: Integer;
+
+    procedure SetN(V: Integer)
+    begin
+        I := V;
+        Next.SetN(V + 1);
+    end;
+
+    procedure State(): Text
+    begin
+        exit(StrSubstNo('%1/%2', I, Next.State()));
+    end;
+}
+
+codeunit 86425 "NKS R P3Lbl"
+{
+    TableNo = "CKK Row";
+
+    var
+        Location: Record "CKK Row";
+        Child: Codeunit "CKS SI PU";
+        Entry: Integer;
+        Chain: Codeunit "NKS P3 Lbl M1";
+
+    trigger OnRun()
+    begin
+        Entry := Rec."No.";
+    end;
+
+    procedure Prime(V: Integer)
+    begin
+        Location."No." := 1;
+        Child.SetN(V);
+        Entry := 5;
+        Chain.SetN(V);
+    end;
+
+    procedure State(): Text
+    begin
+        exit(StrSubstNo('loc=%1 child=%2 entry=%3', Location."No.", Child.State(), Entry));
+    end;
+}
+
+codeunit 86426 "NKS O P3Lbl"
+{
+    TableNo = "CKK Row";
+
+    var
+        Reg: Codeunit "NKS R P3Lbl";
+
+    trigger OnRun()
+    begin
+        ClearAll();
+    end;
+
+    procedure SetReg(var R: Codeunit "NKS R P3Lbl")
+    begin
+        Reg := R;
+    end;
+}
+
 codeunit 86430 "NKS Neighbor Test"
 {
     Subtype = Test;
@@ -1053,6 +1397,82 @@ codeunit 86430 "NKS Neighbor Test"
     var
         Reg: Codeunit "NKS R DR";
         Owner: Codeunit "NKS O DR";
+        Row: Record "CKK Row";
+    begin
+        Row."No." := 7;
+        Reg.Prime(10);
+        Owner.SetReg(Reg);
+        Owner.Run(Row);
+        Error(Reg.State());
+    end;
+}
+
+// Its own codeunit: a refusal in "NKS Neighbor Test" would keep the later tests there from running.
+codeunit 86429 "NKS Narrow Test"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure NestedSI_RegisterCommentLabel()
+    var
+        Reg: Codeunit "NKS R RCL";
+        Owner: Codeunit "NKS O RCL";
+        Row: Record "CKK Row";
+    begin
+        Row."No." := 7;
+        Reg.Prime(10);
+        Owner.SetReg(Reg);
+        Owner.Run(Row);
+        Error(Reg.State());
+    end;
+
+    [Test]
+    procedure NestedSI_RegisterPlainLabel()
+    var
+        Reg: Codeunit "NKS R RPL";
+        Owner: Codeunit "NKS O RPL";
+        Row: Record "CKK Row";
+    begin
+        Row."No." := 7;
+        Reg.Prime(10);
+        Owner.SetReg(Reg);
+        Owner.Run(Row);
+        Error(Reg.State());
+    end;
+
+    [Test]
+    procedure NestedSI_RegisterDecimal()
+    var
+        Reg: Codeunit "NKS R RDec";
+        Owner: Codeunit "NKS O RDec";
+        Row: Record "CKK Row";
+    begin
+        Row."No." := 7;
+        Reg.Prime(10);
+        Owner.SetReg(Reg);
+        Owner.Run(Row);
+        Error(Reg.State());
+    end;
+
+    [Test]
+    procedure NestedSI_DepthThreePlainWithRecord()
+    var
+        Reg: Codeunit "NKS R P3Rec";
+        Owner: Codeunit "NKS O P3Rec";
+        Row: Record "CKK Row";
+    begin
+        Row."No." := 7;
+        Reg.Prime(10);
+        Owner.SetReg(Reg);
+        Owner.Run(Row);
+        Error(Reg.State());
+    end;
+
+    [Test]
+    procedure NestedSI_DepthThreePlainWithCommentLabel()
+    var
+        Reg: Codeunit "NKS R P3Lbl";
+        Owner: Codeunit "NKS O P3Lbl";
         Row: Record "CKK Row";
     begin
         Row."No." := 7;
