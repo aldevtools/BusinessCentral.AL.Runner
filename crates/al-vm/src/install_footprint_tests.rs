@@ -696,7 +696,7 @@ fn an_install_session_that_said_yes_marks_the_reads_of_its_tables_through_every_
         "a table only a session without the Yes wrote"
     );
     let read_back = crate::Baseline::from_bytes(&b.to_bytes().expect("plain rows")).expect("reads back");
-    let thawed = b.freeze().ok().expect("shareable").thaw(None);
+    let thawed = b.freeze().expect("shareable").thaw(None);
     for (copy, name) in [(b.clone(), "clone"), (read_back, "bytes"), (thawed, "freeze and thaw")] {
         let (mut s, cu) = yes_session();
         assert!(!marks(&mut s, cu, "ReadYes"), "{name}: a new session marks nothing");
