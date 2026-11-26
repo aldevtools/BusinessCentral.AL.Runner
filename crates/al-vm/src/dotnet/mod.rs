@@ -1697,7 +1697,8 @@ pub(crate) fn dotnet_order(l: &Value, r: &Value) -> Result<std::cmp::Ordering, S
                 unsupported("ordering .NET strings whose order is not the same under every reading (not pinned)")
             }
         }
-        _ => ops::compare_operator(l, r, true),
+        // A lone half keeps main's refusal here too: the probe measures no .NET ordering (LtSurrogateHalves.al).
+        _ => ops::compare_operator_or_equal(l, r),
     }
 }
 

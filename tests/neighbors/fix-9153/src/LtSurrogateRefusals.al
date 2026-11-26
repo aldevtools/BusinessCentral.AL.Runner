@@ -1,6 +1,7 @@
 // Neighbors of the lone surrogate half readers: TextBuilder Remove, Length (set) and Capacity, BigText.AddText on a
-// text that holds one half, the comparison of a Code that holds one, and the order of a Text that holds one against a first character or a shape the probe does not measure, and `<=` and `>=` on it. The probe measures none of them. Each must
-// refuse on the head binary (no assumption covers it).
+// text that holds one half, the comparison of a Code that holds one, and the order of a Text that holds one
+// against a first character or a shape the probe does not measure, and `<=` and `>=` on it. The probe measures
+// none of them. Each must refuse on the head binary (no assumption covers it).
 codeunit 75795 "LT SH Refusals"
 {
     Subtype = Test;
@@ -106,5 +107,17 @@ codeunit 75795 "LT SH Refusals"
         T := Hi();
         if not (T >= 'a') then
             Error('not greater or equal');
+    end;
+
+    [Test]
+    procedure Text_Order_LoneHalfVsChar()
+    var
+        T: Text;
+        C: Char;
+    begin
+        T := Hi();
+        C := 65;
+        if T < C then
+            Error('less');
     end;
 }
