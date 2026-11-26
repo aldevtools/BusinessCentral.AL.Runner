@@ -8,7 +8,7 @@ use crate::value::{RtType, Value};
 use rust_decimal::Decimal;
 
 /// Where the assigned variable is declared. Corpus PR 1511 measured the `var` parameter of an Integer or BigInteger, corpus PR 1522
-/// all four slots for a DateTime and the first two for a Date and a Time.
+/// all four slots for a DateTime, a Date and a Time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TemporalSlot {
     /// A `var` parameter of the routine.
@@ -72,7 +72,7 @@ fn in_dec(d: &Decimal, set: &[(i64, u32)]) -> bool {
 /// - an Integer or BigInteger of any value into each target, `VarParam` only (FvcIntegerField.al, FvcBigIntegerField.al, PR 1511);
 /// - into a DateTime, every slot: the Integer, BigInteger, Decimal and Duration values listed above, a Boolean, and the ten digit
 ///   strings of a Text or Code field (FvcDateTimeShapes.al, FvcDateTimeDigits.al);
-/// - into a Date or Time, `VarParam` and `PlainLocal`: the Integer, Decimal and Duration values listed above and the ten digit
+/// - into a Date or Time, every slot: the Integer, Decimal and Duration values listed above and the ten digit
 ///   strings (FvcDateTimeShapesDateTime.al, FvcDateTimeDigits.al).
 ///
 /// Every cell runs in the en-US session only (`format::en_us_session`), the language of an error text changes with it. `None`: any other value, slot or target.
@@ -85,45 +85,33 @@ pub fn fieldref_value_into_temporal(
 ) -> Option<Result<Value, Signal>> {
     let dt = matches!(t, RtType::DateTime);
     let temporal = matches!(t, RtType::DateTime | RtType::Date | RtType::Time);
-    let two = matches!(slot, TemporalSlot::VarParam | TemporalSlot::PlainLocal);
     let var = slot == TemporalSlot::VarParam;
     // The cell's `Nav<Type>` name and its measured text.
     let (nav, text) = match v {
-        Value::Integer(n)
-            if temporal && (var || (dt && INT_DATETIME.contains(n)) || (two && INT_DATE_TIME.contains(n))) =>
-        {
+        Value::Integer(n) if temporal && (var || (dt && INT_DATETIME.contains(n)) || INT_DATE_TIME.contains(n)) => {
             ("NavInteger", n.to_string())
         }
         Value::BigInteger(n) if temporal && (var || (dt && BIG_DATETIME.contains(n))) => {
             ("NavBigInteger", n.to_string())
         }
-        Value::Decimal(d) if (dt && in_dec(d, &DEC_DATETIME)) || (temporal && two && in_dec(d, &DEC_DATE_TIME)) => {
+        Value::Decimal(d) if (dt && in_dec(d, &DEC_DATETIME)) || (temporal && in_dec(d, &DEC_DATE_TIME)) => {
             ("NavDecimal", crate::format::try_format(v, 0, 0, ctx).ok()?)
         }
-        Value::Duration(ms) if (dt && DUR_DATETIME.contains(ms)) || (temporal && two && DUR_DATE_TIME.contains(ms)) => {
+        Value::Duration(ms) if (dt && DUR_DATETIME.contains(ms)) || (temporal && DUR_DATE_TIME.contains(ms)) => {
             ("NavDuration", crate::format::try_format(v, 0, 0, ctx).ok()?)
         }
         Value::Boolean(_) if dt => ("NavBoolean", crate::format::try_format(v, 0, 0, ctx).ok()?),
-        Value::Text(s) if temporal && (dt || two) && DIGITS.contains(&s.as_str()) => ("NavText", s.as_str().to_owned()),
-        Value::Code(s) if temporal && (dt || two) && DIGITS.contains(&s.as_str()) => ("NavCode", s.as_str().to_owned()),
+        Value::Text(s) if temporal && DIGITS.contains(&s.as_str()) => ("NavText", s.as_str().to_owned()),
+        Value::Code(s) if temporal && DIGITS.contains(&s.as_str()) => ("NavCode", s.as_str().to_owned()),
         _ => return None,
     };
     if !crate::format::en_us_session(ctx) {
         return None;
     }
     crate::assumptions::assume(crate::assumptions::Assumption::FieldRefValueTemporalError);
-    if !from28 {
-        return Some(crate::native::raise(
-            format!("Unable to convert from Microsoft.Dynamics.Nav.Runtime.{nav} to System.DateTime."),
-            "Conversion",
-        ));
-    }
-    let message = match t {
-        RtType::Date => crate::fieldref_variant_cells::date_settings_error(&text),
-        RtType::Time => format!("The value \"{text}\" can't be evaluated into type Time."),
-        _ => format!("The value \"{text}\" can't be evaluated into type DateTime."),
-    };
-    Some(crate::native::raise(message, "Evaluate:Conversion"))
+    Some(Err(crate::fieldref_variant_cells::temporal_value_error(
+        nav, &text, t, from28,
+    )))
 }
 
 #[cfg(test)]
@@ -165,8 +153,10 @@ mod tests {
 
     #[test]
     fn a_slot_or_value_off_the_lists_gets_none() {
+        assert!(run(&Value::Integer(1), &RtType::Date, TemporalSlot::ByValueParam, 1033));
+        assert!(run(&Value::Integer(1), &RtType::Time, TemporalSlot::NamedReturn, 1033));
         assert!(!run(
-            &Value::Integer(1),
+            &Value::Integer(2),
             &RtType::Date,
             TemporalSlot::ByValueParam,
             1033

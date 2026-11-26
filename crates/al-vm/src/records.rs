@@ -2,6 +2,9 @@
 //!
 //! Pinned by the corpus or the docs as noted; behaviour neither pins yet
 //! raises `Signal::Unsupported` instead of guessing.
+//!
+//! Record.* on the store: Insert, Modify, Delete, Get, Find, filters, triggers, events. Entry points:
+//! `record_op`, `table_event`, `run_trigger`, `delete_row`, `scan`, `unique_violation`.
 
 use crate::Session;
 use crate::globaltriggers::GlobalOp;
@@ -1693,7 +1696,7 @@ impl Session {
         self.coverage_read(t, temporary)?;
         let key = rec.borrow().key;
         // Filters on FlowFilter fields drop out; those on FlowFields are checked per row.
-        let (filters, flow_field_filters) = self.split_filters(rec);
+        let (filters, flow_field_filters) = self.split_filters(rec)?;
         let marked_only = rec.borrow().marked_only;
         let cx = self.cx_for(rec, t)?;
         let mut after = after;
@@ -1728,8 +1731,12 @@ impl Session {
     /// Whether `row` passes the record's filters (every group), its FlowField filters and
     /// MarkedOnly. A filter answer that rests on the letters `Æ` or `É` is measured only for the rows of the database.
     fn row_passes(&mut self, rec: &Rec, t: &TableDef, row: &[Value]) -> Result<bool, Signal> {
-        let (filters, flow_field_filters) = self.split_filters(rec);
-        let normal_record = self.store_of(rec).0.holds_normal_records();
+        let (filters, flow_field_filters) = self.split_filters(rec)?;
+        let store = self.store_of(rec).0;
+        let normal_record = store.holds_normal_records();
+        // `@` alone as BC checks a row it found against the filters (al-data `MemStore::at_sign_alone_read`; Find('='),
+        // AtSignAloneReads.al:314, :698).
+        let filters = store.at_sign_alone_read(t, &filters, true);
         if !al_builtins::filter::all_match_on(&filters, row, normal_record)? {
             return Ok(false);
         }
@@ -1853,18 +1860,19 @@ impl Session {
             });
             r.load.partial = false;
         }
-        let pk = t.primary_key(&row);
+        let pk = t.primary_key_shared(&row);
         // The record remembers the row as its own only when the row passed its filters when it was read; a filter set later forgets it
         // (record/TestFindSetSortKeyModify.al:OwnFilter_ModifiedOutOfIt_FindStillFindsTheRow against misc/lt-probes-needed-3/
         // PnC02Filters.al:FindEqual_OutsideFilter and record/crud/RcAMisc.al:MarkedOnly_With_Find_Get_And_Order).
         let passes = self.row_passes(rec, &t, &row)?;
         let version = t.fields.iter().position(|f| f.id == 2_000_000_005).map(|i| &row[i]);
         let origin = self.load_origin(version, [via_get, via_sysid, via_find]);
+        let entry = self.load_version_entry(&t, rec, version, [via_get, via_sysid, via_find], &pk);
         let own_read = self.own_read_after_load(&t, rec, &row, via_get && !via_sysid && !via_find && passes);
         let temporary = rec.borrow().temporary;
         if via_get && !temporary && self.tx.open.locked_tables.contains(&t.object) {
             let company = rec.borrow().company.clone();
-            self.tx.open.rows_touched.push((t.object, company, pk.clone()));
+            self.tx.open.rows_touched.push((t.object, company, pk.to_vec()));
         }
         let rolled_read = self.rolled_read_of_load(&row, &pk, via_get && !via_sysid && !via_find, temporary);
         // After the filters saw the row as stored: a Time a database column holds past the day reads 00:00:00 (`sqltime`).
@@ -1877,6 +1885,7 @@ impl Session {
             r.position = passes.then_some(pk);
             r.fields = row.into();
             r.row_origin = origin;
+            r.version_entry = entry;
             r.own_read = own_read;
         }
         self.note_replayed_load(rec);
@@ -1893,13 +1902,14 @@ impl Session {
         }
     }
 
-    /// The Date, Time and DateTime values of a database table's row as its SQL columns hold them (`sqltime`): `Some` error
-    /// for a value the column cannot hold. A temporary table keeps the values as they are.
+    /// The Date, Time and DateTime values of a database table's row as its SQL columns hold them (`sqltime`), and its Decimal
+    /// values (`decimal_column`): `Some` error for a value the column cannot hold. A temporary table keeps the values as they are.
     fn sql_columns(
         &self,
         rec: &Rec,
         t: &TableDef,
         row: &mut [Value],
+        write: crate::decimal_column::Write,
     ) -> Result<Option<crate::sqltime::BadValue>, Signal> {
         if rec.borrow().temporary {
             return Ok(None);
@@ -1908,7 +1918,15 @@ impl Session {
         let engine = self.engine.clone();
         let schema = engine.program.objects[t.object as usize].table.as_ref().expect("table");
         match crate::sqltime::store(t, schema, &|i| self.field_caption(t, i), &caption, row)? {
-            crate::sqltime::Stored::Fits => Ok(None),
+            crate::sqltime::Stored::Fits => {
+                let op = match write {
+                    crate::decimal_column::Write::Insert { .. } => RecordOp::Insert,
+                    crate::decimal_column::Write::Modify { .. } => RecordOp::Modify,
+                    crate::decimal_column::Write::Rename => RecordOp::Rename,
+                };
+                crate::decimal_column::store(t, schema, row, write, self.is_al_record_call(op, rec))?;
+                Ok(None)
+            }
             crate::sqltime::Stored::Bad(bad) => Ok(Some(bad)),
         }
     }

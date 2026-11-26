@@ -102,6 +102,62 @@ codeunit 70951 C
         R.FilterGroup(0);
     end;
 
+    procedure RefNumber(): Text
+    var RR: RecordRef;
+    begin
+        RR.Open(70950);
+        exit(Format(RR.Number()));
+    end;
+
+    procedure RefName(): Text
+    var RR: RecordRef;
+    begin
+        RR.Open(70950);
+        exit(RR.Name());
+    end;
+
+    procedure RefCaption(): Text
+    var RR: RecordRef;
+    begin
+        RR.Open(70950);
+        exit(RR.Caption());
+    end;
+
+    procedure RefFieldCount(): Text
+    var RR: RecordRef;
+    begin
+        RR.Open(70950);
+        exit(Format(RR.FieldCount()));
+    end;
+
+    procedure RefFieldExist(): Text
+    var RR: RecordRef;
+    begin
+        RR.Open(70950);
+        exit(Format(RR.FieldExist(2)));
+    end;
+
+    procedure RefKeyCount(): Text
+    var RR: RecordRef;
+    begin
+        RR.Open(70950);
+        exit(Format(RR.KeyCount()));
+    end;
+
+    procedure RefIsTemporary(): Text
+    var RR: RecordRef;
+    begin
+        RR.Open(70950);
+        exit(Format(RR.IsTemporary()));
+    end;
+
+    procedure RefClose()
+    var RR: RecordRef;
+    begin
+        RR.Open(70950);
+        RR.Close();
+    end;
+
     procedure CountTemporary(): Integer
     var R: Record "LT Glob Row" temporary;
     begin
@@ -340,6 +396,58 @@ codeunit 70963 G
         Setter.FilterGroup(0); B.DeleteAll(); exit(0);
     end;
 
+    procedure RefMetadata(): Text
+    var RR: RecordRef;
+    begin
+        Seed(); SetTag(); RR.Open(Database::"LT G1 Plain");
+        exit(RR.Name() + ' ' + Format(RR.FieldCount()) + ' ' + Format(RR.FieldExist(2)) + ' ' + Format(RR.Count()));
+    end;
+
+    procedure RefFieldExistOtherNumber(): Text
+    var RR: RecordRef;
+    begin
+        Seed(); SetTag(); RR.Open(Database::"LT G1 Plain");
+        exit(Format(RR.FieldExist(1)));
+    end;
+
+    procedure RefCurrentCompany(): Text
+    var RR: RecordRef;
+    begin
+        Seed(); SetTag(); RR.Open(Database::"LT G1 Plain");
+        exit(RR.CurrentCompany());
+    end;
+
+    procedure RefMetadataTemporarySetter(): Text
+    var T: Record "LT G1 Plain" temporary; RR: RecordRef;
+    begin
+        Seed(); T.FilterGroup(1); T.SetRange(Tag, 1); T.FilterGroup(0);
+        RR.Open(Database::"LT G1 Plain");
+        exit(RR.Name());
+    end;
+
+    procedure RefMetadataRecordRefSetter(): Text
+    var Setter: RecordRef; TagRef: FieldRef; RR: RecordRef;
+    begin
+        Seed(); Setter.Open(Database::"LT G1 Plain"); Setter.FilterGroup(1); TagRef := Setter.Field(2); TagRef.SetRange(1);
+        Setter.FilterGroup(0);
+        RR.Open(Database::"LT G1 Plain");
+        exit(RR.Name());
+    end;
+
+    procedure RefMetadataInGroupTwo(): Text
+    var RR: RecordRef;
+    begin
+        Seed(); SetTag(); RR.Open(Database::"LT G1 Plain"); RR.FilterGroup(2);
+        exit(RR.Name());
+    end;
+
+    procedure RefRecordIdAfterFindFirst(): Text
+    var RR: RecordRef;
+    begin
+        Seed(); SetTag(); RR.Open(Database::"LT G1 Plain"); RR.FindFirst();
+        exit(Format(RR.RecordId()));
+    end;
+
     procedure SetInsideFindSetLoop(): Integer
     var B: Record "LT G1 Plain";
     begin
@@ -420,4 +528,70 @@ fn a_setter_and_reader_kind_pair_the_probe_did_not_measure_keeps_main_s_refusal(
 #[test]
 fn next_on_a_reader_whose_find_set_ran_before_the_filter_keeps_main_s_refusal() {
     refused_in_other("SetInsideFindSetLoop");
+}
+
+// A RecordRef metadata call on a table whose filter group 1 was set with SetFilter('>=3'): the probe measured only SetRange of
+// one Integer value on an Integer field outside the primary key (the entry form `group1_sessions.rs` pins), so another filter
+// form keeps main's refusal for every call.
+#[test]
+fn a_record_ref_metadata_call_under_an_unmeasured_filter_form_keeps_main_s_refusal() {
+    // One fresh session per call: each call is the first RecordRef call after the filter is set.
+    for (proc_name, call) in [
+        ("RefNumber", "RecordRef.Number"),
+        ("RefName", "RecordRef.Name"),
+        ("RefCaption", "RecordRef.Caption"),
+        ("RefFieldCount", "RecordRef.FieldCount"),
+        ("RefFieldExist", "RecordRef.FieldExist"),
+        ("RefKeyCount", "RecordRef.KeyCount"),
+        ("RefIsTemporary", "RecordRef.IsTemporary"),
+        ("RefClose", "RecordRef.Close"),
+    ] {
+        let mut b = Built::from_source(SRC);
+        b.run_in("C", "Seed").unwrap();
+        b.run_in("C", "SetGlobal").unwrap();
+        let why = unsupported(b.run_in("C", proc_name));
+        assert!(
+            why.contains(call) && why.contains("filter group 1"),
+            "{proc_name}: {why}"
+        );
+    }
+}
+
+// Corpus pull request 1525, recordref-fieldref/RecordRefMetadataGlobalFilter.al (assumption `recordref-metadata-global-filter`):
+// a RecordRef answers its metadata and reads on a table whose filter group 1 a Record variable set, and the run is flagged.
+#[test]
+fn a_record_ref_answers_the_measured_metadata_calls_flagged_while_a_record_s_global_filter_stands() {
+    let mut b = Built::from_source(OTHER);
+    al_builtins::assumptions::clear_hits();
+    let v = b.run_in("G", "RefMetadata");
+    assert_eq!(al_testkit::text(v), "LT G1 Plain 2 Yes 2");
+    assert!(!al_builtins::assumptions::take_hits().is_empty());
+}
+
+// The calls and the setters the probe did not measure keep main's refusal: FieldExist of a number it did not pass, another
+// RecordRef method, a temporary or RecordRef setter, a RecordRef in another filter group.
+#[test]
+fn a_record_ref_call_the_probe_did_not_measure_keeps_main_s_refusal() {
+    for (p, call) in [
+        ("RefFieldExistOtherNumber", "RecordRef.FieldExist"),
+        ("RefCurrentCompany", "RecordRef.CurrentCompany"),
+        ("RefMetadataTemporarySetter", "RecordRef.Name"),
+        ("RefMetadataRecordRefSetter", "RecordRef.Name"),
+        ("RefMetadataInGroupTwo", "RecordRef.Name"),
+    ] {
+        let mut b = Built::from_source(OTHER);
+        let why = unsupported(b.run_in("G", p));
+        assert!(why.contains(call) && why.contains("filter group 1"), "{p}: {why}");
+    }
+}
+
+// RecordId is measured on a RecordRef that has read no row; after a FindFirst the probe did not measure it.
+#[test]
+fn a_record_ref_record_id_after_a_read_keeps_main_s_refusal() {
+    let mut b = Built::from_source(OTHER);
+    let why = unsupported(b.run_in("G", "RefRecordIdAfterFindFirst"));
+    assert!(
+        why.contains("RecordRef.RecordId") && why.contains("filter group 1"),
+        "{why}"
+    );
 }

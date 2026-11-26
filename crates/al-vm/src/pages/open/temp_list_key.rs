@@ -1,4 +1,8 @@
 //! A List over a temporary source whose OnOpenPage filled it and changed its key (gap G5-19).
+//!
+//! A List over a temporary source whose OnOpenPage changed its key, and a temporary tree Worksheet in
+//! a changed key: the page opens on Rec's row (gaps G5-19, G5-17). Entry points:
+//! `temp_list_key_open`, `temp_tree_worksheet_in_key`.
 
 use super::*;
 use al_builtins::record_op::RecordOp;

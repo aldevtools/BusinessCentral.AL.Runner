@@ -8,6 +8,12 @@
 //! rows are not known) when any of that code modifies or renames its rows, inserts through a parameter, a global or a
 //! `Validate`d record, or when a subscriber of its table events exists (it could change a row while it is inserted).
 //! al-vm `empty_reads.rs` answers a subscriber's reads of such a table from these rows.
+//!
+//! The rows the install code of an app under test may insert into its own app's tables, where
+//! constants show them (al-runner issue 6971, ADR-046 amendment 6 item 9): only for a table no other
+//! app's install code writes and that no code modifies, renames or inserts through a parameter, a
+//! global or `Validate`. Feeds `Session::set_install_rows`, which al-vm `empty_reads.rs` answers
+//! reads from. Entry points: `install_rows`.
 
 use al_builtins::value::RtType;
 use al_ir::{Arg, Expr, Place, Stmt};
@@ -262,7 +268,12 @@ impl Scan<'_> {
                     }
                 }
                 let Some(r) = receiver.as_deref() else { return };
-                let Some(method) = id.name().strip_prefix("Record.").and_then(|m| m.split('#').next()) else {
+                let Some(method) = id
+                    .written_base()
+                    .name()
+                    .strip_prefix("Record.")
+                    .and_then(|m| m.split('#').next())
+                else {
                     return;
                 };
                 let table = Self::arg_place(r).and_then(|p| self.place_table(p));

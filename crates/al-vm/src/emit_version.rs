@@ -2,6 +2,10 @@
 //! missing object (`transactions.rs` `missing_object_from`). The front end reads it from the build's platform artifact
 //! (`al_deps::emit_version`) and hands the reader in: a core crate does no OS access (ADR-006). The reader runs the first
 //! time the number is asked for, so a run that raises no such error never fetches the file it is read from.
+//!
+//! The emit version of the run's build that the missing-object error prints (`transactions.rs`
+//! `missing_object_from`), read once on first ask through a reader the front end hands in. Entry
+//! points: `EmitVersion` (`Engine::emit_version`).
 use std::sync::{Arc, OnceLock};
 
 /// Reads the number, or says why it cannot.
@@ -29,6 +33,16 @@ impl EmitVersion {
     /// A number already known (a test that names it).
     pub fn known(n: u32) -> EmitVersion {
         EmitVersion::from_fn(move || Ok(n))
+    }
+
+    /// Whether `other` answers from this reader (a clone of it), or both have none. Two readers made apart, even of one
+    /// build, are not the same: the number is not read to compare them (al-testrun's login key holds the reader).
+    pub fn same_reader(&self, other: &EmitVersion) -> bool {
+        match (&self.0, &other.0) {
+            (None, None) => true,
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        }
     }
 
     /// The number, or why it is not known.
@@ -72,5 +86,14 @@ mod tests {
         assert_eq!(calls.load(Ordering::Relaxed), 1);
         assert_eq!(EmitVersion::known(29022).get(), Ok(29022));
         assert!(EmitVersion::default().get().is_err());
+    }
+
+    #[test]
+    fn a_clone_has_the_same_reader_and_a_reader_made_apart_does_not() {
+        let v = EmitVersion::known(29022);
+        assert!(v.same_reader(&v.clone()));
+        assert!(!v.same_reader(&EmitVersion::known(29022)));
+        assert!(!v.same_reader(&EmitVersion::default()));
+        assert!(EmitVersion::default().same_reader(&EmitVersion::default()));
     }
 }

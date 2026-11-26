@@ -1,6 +1,12 @@
 //! Storage for AL tables: the AL-shaped `Store` trait (ADR-003), the
 //! `SnapshotStore` extension (ADR-004), an in-memory implementation, and the
 //! contract suite every store must pass.
+//!
+//! The Store trait and table definitions (TableDef, Row, AccessContext). Owns which values may enter
+//! a key: `TableDef::check_key_values` (writes, `Rows::from_rows`) and `check_primary_key` (lookups)
+//! refuse a value `al_builtins::ops::key_orderable` rejects, so the key comparators never meet values
+//! that do not compare (al-runner issue 7644). Entry points: `Store`, `TableDef`, `FieldDef`,
+//! `AccessContext`, `InsertOutcome`.
 
 pub mod code_storage;
 pub mod contract;
@@ -121,7 +127,17 @@ impl TableDef {
     }
 
     pub fn primary_key(&self, row: &[Value]) -> Vec<Value> {
-        self.keys[0].iter().map(|&i| row[i].clone()).collect()
+        self.primary_key_values(row).collect()
+    }
+
+    /// [`TableDef::primary_key`] in one shared allocation, for a key several holders keep (a record's position and its
+    /// row version's stamp).
+    pub fn primary_key_shared(&self, row: &[Value]) -> std::rc::Rc<[Value]> {
+        self.primary_key_values(row).collect()
+    }
+
+    fn primary_key_values<'a>(&'a self, row: &'a [Value]) -> impl ExactSizeIterator<Item = Value> + 'a {
+        self.keys[0].iter().map(|&i| row[i].clone())
     }
 }
 

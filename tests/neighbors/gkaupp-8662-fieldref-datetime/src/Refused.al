@@ -114,27 +114,6 @@ codeunit 61630 "GK Fvt Refused"
     end;
 
     [Test]
-    procedure Refused_IntValueParam_Date()
-    var
-        FR: FieldRef;
-        D: Date;
-    begin
-        Lib.Field(2, 1, FR);
-        asserterror ByValueDate(FR, D);
-        Refused();
-    end;
-
-    [Test]
-    procedure Refused_IntNamedReturn_Time()
-    var
-        FR: FieldRef;
-    begin
-        Lib.Field(2, 1, FR);
-        asserterror NamedTime(FR);
-        Refused();
-    end;
-
-    [Test]
     procedure Refused_BigLocal_Date()
     var
         FR: FieldRef;
@@ -320,16 +299,6 @@ codeunit 61630 "GK Fvt Refused"
         L: Time;
     begin
         L := FR.Value;
-    end;
-
-    local procedure ByValueDate(var FR: FieldRef; R: Date)
-    begin
-        R := FR.Value;
-    end;
-
-    local procedure NamedTime(var FR: FieldRef) R: Time
-    begin
-        R := FR.Value;
     end;
 }
 

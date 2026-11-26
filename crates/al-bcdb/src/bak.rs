@@ -6,13 +6,15 @@
 //! demo database was shrunk after load, which relocates pages without rewriting either).
 //! The IAM bitmap is what SQL Server itself trusts and matched
 //! sys.dm_db_database_page_allocations exactly (bcdb PROVENANCE.md "IAM pages").
+//!
+//! `open_indexed` keeps the page map and catalog between runs.
 
 use crate::catalog::{AllocUnit, Catalog, PhysColumn, read_page_ptr};
 use crate::error::{Error, Result};
 use crate::io::{ByteSource, le};
 use crate::lob::LobReader;
 use crate::mtf::PAGE_SIZE;
-use crate::pagefile::{GAM_INTERVAL_EXTENTS, GAM_INTERVAL_PAGES, PAGES_PER_EXTENT, PageFile, header};
+use crate::pagefile::{GAM_INTERVAL_EXTENTS, GAM_INTERVAL_PAGES, PAGES_PER_EXTENT, PageFile, header, index_hash};
 use crate::records::{self, CdScratch, FixedVar};
 use crate::source::{BcSource, SourceTable};
 use crate::types::{Cell, SysColumn, decode};
@@ -21,28 +23,12 @@ use std::collections::HashSet;
 
 const BLOB_MAGIC: &[u8; 8] = b"ALBXBAK1";
 
-/// A hash that notices truncation and flipped bytes; not a defence against an adversary (the
-/// index lives in the user's own cache).
-fn blob_hash(b: &[u8]) -> u64 {
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325 ^ b.len() as u64;
-    let mut chunks = b.chunks_exact(8);
-    for c in &mut chunks {
-        h = (h ^ u64::from_le_bytes(c.try_into().unwrap()))
-            .wrapping_mul(0x0100_0000_01b3)
-            .rotate_left(29);
-    }
-    for &x in chunks.remainder() {
-        h = (h ^ u64::from(x)).wrapping_mul(0x0100_0000_01b3);
-    }
-    h
-}
-
 fn join_blob(map: &[u8], catalog: &[u8]) -> Vec<u8> {
     let mut b = Vec::with_capacity(40 + map.len() + catalog.len());
     b.extend_from_slice(BLOB_MAGIC);
     b.extend_from_slice(&(map.len() as u64).to_le_bytes());
     b.extend_from_slice(&(catalog.len() as u64).to_le_bytes());
-    b.extend_from_slice(&blob_hash(catalog).to_le_bytes());
+    b.extend_from_slice(&index_hash(catalog).to_le_bytes());
     b.extend_from_slice(map);
     b.extend_from_slice(catalog);
     b
@@ -57,7 +43,7 @@ fn split_blob(b: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
     let hash = u64::from_le_bytes(b.get(24..32)?.try_into().ok()?);
     let map = b.get(32..32usize.checked_add(map_len)?)?;
     let cat = b.get(32 + map_len..32usize.checked_add(map_len)?.checked_add(cat_len)?)?;
-    (32 + map_len + cat_len == b.len() && blob_hash(cat) == hash).then(|| (map.to_vec(), cat.to_vec()))
+    (32 + map_len + cat_len == b.len() && index_hash(cat) == hash).then(|| (map.to_vec(), cat.to_vec()))
 }
 
 struct TableEntry {

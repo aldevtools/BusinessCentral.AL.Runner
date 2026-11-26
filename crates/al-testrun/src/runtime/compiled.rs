@@ -1,4 +1,11 @@
 //! What a compile produces and keeps (`Compiled`), the warm slot (`Warm`), and what a run asks for.
+//!
+//! What a compile produces and keeps (`Compiled`, `into_apps` for another compile of the same run),
+//! the warm slot (`Warm`; the engines a request kept for the next one over the same compile,
+//! `KeptEngines`, issue 5856; the install baseline it read is kept per thread by
+//! `baseline_cache::read_kept`, and across an edit the install code cannot reach by
+//! `baseline_cache::carry`), and what a run asks for. Entry points: `RunOptions`, `Compiled`, `Warm`,
+//! `SuiteRun`.
 use super::*;
 
 /// How the `OnRun` trigger of a test codeunit shows in the results of a run: what Microsoft's test runner reports, which
@@ -93,6 +100,9 @@ pub struct RunOptions {
     /// Use the compile cache of the dependency apps (ADR-022). `None`: the demand-driven compile
     /// of every run, which is the reference path.
     pub compile_cache: Option<crate::compile_cache::CompileCache>,
+    /// Use the workspace layer of the compile cache too (ADR-022 amendment 2026-11-15), with `compile_cache`.
+    /// `None`: off.
+    pub workspace_cache: Option<crate::workspace_cache::WorkspaceCacheOptions>,
     /// A test that runs longer than this is stopped and reported as not run. `None`: no limit.
     pub test_time_limit: Option<std::time::Duration>,
     /// Per app (in the order given to the run): a dependency app whose files hold no text yet, and how
@@ -123,10 +133,14 @@ pub struct RunOptions {
     /// Callbacks while the run goes on: a line per test as it finishes, and a flag that stops the run after the
     /// current test (`al-runner serve`).
     pub hooks: crate::events::Hooks,
-    /// Where the run clock of a test codeunit starts (codeunit id to Unix milliseconds), instead of now: the corpus
-    /// oracle recorded values derived from `Today` on the day real BC ran, so the harness starts each codeunit at the
-    /// time of that codeunit's suite in the oracle.
+    /// Where the run clock of a test codeunit starts (codeunit id to Unix milliseconds), instead of the run's clock: the
+    /// corpus oracle recorded values derived from `Today` on the day real BC ran, so the harness starts each codeunit at
+    /// the time of that codeunit's suite in the oracle.
     pub clock_starts: Option<Arc<std::collections::HashMap<u32, i64>>>,
+    /// The clock of the run (`host::RunClock`), when it began before the run phase; `None`: the run phase begins it
+    /// (`CorpusRuntime::run_compiled`), so each request of a server begins its own. Set once for the passes of one run
+    /// ([`RunOptions::with_run_clock`]).
+    pub run_clock: Option<crate::host::RunClock>,
     /// Do not print the `baseline:` detail lines to stderr (`al-runner test` prints them only with `--verbose`). The counts
     /// stay in `Phases::baseline_roots`. Default `false`: print, as the corpus job does.
     pub quiet_baseline: bool,
@@ -223,37 +237,18 @@ pub struct RunOptions {
     /// The run seed (ADR-061): each test method's `Random` seed and Guid key derive from it. The default is
     /// `al-test-cli`'s fixed seed 1.
     pub run_seed: crate::seed::RunSeed,
-    /// `al-runner test --strict-order` (ADR-066 amendment 12, decision 4): run the test codeunits in BC's order. The
-    /// single instances and the NumberSequence numbers carry from codeunit to codeunit (the carry chain and its walk,
-    /// amendments 8 and 11), and a codeunit that depends on SingleInstance state an earlier one left keeps
-    /// its parallel run (flagged) and runs again serially in BC's order when a test of it failed or was refused while
-    /// it ran there (amendments 4, 5 and 7; `max_replay` applies). Default `false` (amendment 12, decisions 1 to 3):
-    /// every test codeunit starts with fresh single instances and from the install baseline's sequence values, nothing
-    /// runs again, and a failed test that read state another codeunit would have set gets a hint
-    /// (`TestResult::order_hint`). Within one codeunit BC's order is always kept, and Disabled isolation still carries
-    /// its rows.
+    /// `al-runner test --strict-order` (ADR-070): one plain sequential run per BC session (`strict_walk.rs`). Each BC
+    /// session runs all its test codeunits one after the other on one thread in BC's order, the single instances, rows,
+    /// sequence values and storage moving along; BC sessions run in parallel with each other. Default `false` (ADR-070,
+    /// the isolated mode): every test codeunit starts with fresh single instances and from the install baseline's
+    /// sequence values, nothing runs again, and a failed test that read state another codeunit would have set gets a
+    /// hint (`TestResult::order_hint`). Within one codeunit BC's order is always kept, and Disabled isolation and OnRun
+    /// writers still carry their rows.
     pub strict_order: bool,
-    /// ADR-070, migration step 2 (internal, no front end flag; the test CLIs set it from `AL_STRICT_SEQUENTIAL`): with
-    /// `strict_order`, the plain sequential strict run instead of the carry chain and the lane. Each BC session
-    /// (`strict_walk.rs`) runs all its test codeunits one after the other on one thread in BC's order, the single
-    /// instances, rows, sequence values and storage moving along; BC sessions run in parallel with each other. Step 3
-    /// makes this what `--strict-order` does and removes the option.
-    pub strict_sequential: bool,
-    /// With `strict_order`: every dependent codeunit runs again serially in BC's order, not only one with a failure
-    /// (the meaning `--strict-order` had before ADR-066 amendment 12). Set by a stability run with the dimension
-    /// `isolation.singleInstance` for its base variant (ADR-058 amendment 1, decision 3); no front end flag.
-    pub replay_every_dependent: bool,
-    /// Stability mode with the dimension `isolation.singleInstance` (ADR-058 amendment 1, decision 2): each chain member
-    /// that read a carried SingleInstance value also runs once with fresh single instances, from the same database
-    /// start, and the lane keeps the parallel (fresh) run of each dependent codeunit it runs again
-    /// (`ChainReport::carried`). Outcomes of the run itself do not change.
+    /// Stability mode with the dimension `isolation.singleInstance` (ADR-058 amendment 1, decision 2): each codeunit
+    /// of a strict walk that read a carried SingleInstance value also runs once with fresh single instances, from the
+    /// same database start (`ChainReport::carried`). Outcomes of the run itself do not change.
     pub single_fresh_check: bool,
-    /// `al-runner test --max-replay N` (ADR-066 amendment 7, option 2, opt-in since the owner's change of 2026-11-08):
-    /// a serial re-run whose replay chain holds more than `N` test codeunits is skipped; the codeunit keeps its parallel
-    /// run, flagged (`Assumption::SingleInstanceRerunSkipped`). `None` (the default): no cap, every re-run the per-test
-    /// rule asks for is replayed in full. Only has an effect with `strict_order` (ADR-066 amendment 12, decision 4);
-    /// `replay_every_dependent` wins over it.
-    pub max_replay: Option<usize>,
     /// `al-runner test --test-suites FILE` (ADR-066 amendment 6, al-runner issue 6924): each suite is a BC session of
     /// its own for order dependence, the codeunits in the suite's order. No SingleInstance link, serial re-run or
     /// chain crosses a suite; a codeunit in no suite is a session of its own. `None`: the whole run is one session.
@@ -270,12 +265,34 @@ pub struct RunOptions {
     /// reports it in `Phases::login_replay` (`login_replay.rs`, al-runner issue 8211; `ALRUNNER_LOGIN_REPLAY_CHECK=1`,
     /// read by the front ends). Outcomes do not depend on it.
     pub login_replay_check: bool,
+    /// A test session takes a login start in place of running its login when it can (`login_start.rs`, al-runner issue
+    /// 8211; `ALRUNNER_LOGIN_REPLAY=1`, read by the front ends). Default `false`: off, until the key costs less than the
+    /// Login on every shape (install code that runs in every session gives every table a new stamp, so
+    /// the key digests every row). Outcomes must not depend on it: every input the login reads is a key field
+    /// (`login_replay::Key`), and the login replay check is its differential test.
+    pub login_replay: bool,
 }
 
 impl RunOptions {
-    /// ADR-070 step 2: the plain sequential strict run (`strict_order` with `strict_sequential`).
-    pub(crate) fn sequential_strict(&self) -> bool {
-        self.strict_order && self.strict_sequential
+    /// These options with the run's clock begun, for a run that runs its program more than once (a second pass, a
+    /// redo, the variants of a stability run): every pass then reads the one clock of the run.
+    pub(crate) fn with_run_clock(&self) -> std::borrow::Cow<'_, RunOptions> {
+        match self.run_clock {
+            Some(_) => std::borrow::Cow::Borrowed(self),
+            None => std::borrow::Cow::Owned(RunOptions {
+                run_clock: Some(crate::host::RunClock::begin()),
+                ..self.clone()
+            }),
+        }
+    }
+
+    /// The clock of test codeunit `id`'s sessions in a run whose clock is `run`: where `clock_starts` starts it, else the
+    /// run's.
+    pub(crate) fn codeunit_clock(&self, id: u32, run: crate::host::RunClock) -> crate::host::RunClock {
+        self.clock_starts
+            .as_ref()
+            .and_then(|m| m.get(&id).copied())
+            .map_or(run, crate::host::RunClock::At)
     }
 }
 
@@ -418,6 +435,8 @@ pub struct Compiled {
     pub(crate) ws: al_sema::Workspace,
     pub(crate) lowered: Lowered,
     pub(crate) cache_report: Option<crate::compile_cache::CacheReport>,
+    /// What the workspace layer of the compile cache did (ADR-022 amendment 2026-11-15); `None`: the run did not ask for it.
+    pub(crate) workspace_cache: Option<crate::workspace_cache::WorkspaceReport>,
     pub(crate) baseline_wanted: bool,
     pub(crate) baseline: bool,
     pub(crate) baseline_note: Option<String>,
@@ -687,6 +706,11 @@ pub type Resources = [(String, Vec<u8>)];
 pub type ResourceFiles = Vec<(String, Vec<u8>)>;
 
 impl Compiled {
+    /// What the workspace layer of the compile cache did for this compile (ADR-022 amendment 2026-11-15).
+    pub fn workspace_cache(&self) -> Option<&crate::workspace_cache::WorkspaceReport> {
+        self.workspace_cache.as_ref()
+    }
+
     /// The compile of a run that is not edited afterwards (a warm server's is, [`Compiled::update_files`], and keeps its
     /// trees): its workspace drops its parse trees once the program is lowered (`Workspace::drop_trees`). A compile kept
     /// for a later pass that grows it (ADR-063, `grow_kept`) keeps them: that pass reads the trees of most files again
@@ -842,6 +866,8 @@ impl Warm {
                                 let (apps, kinds, manifests) = build.take().expect("built once")();
                                 let compile_opts = RunOptions {
                                     only: None,
+                                    // The reference is a fresh compile: it neither reads nor writes the workspace layer.
+                                    workspace_cache: None,
                                     ..opts.clone()
                                 };
                                 let full = CorpusRuntime::compile_suites(

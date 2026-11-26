@@ -5,6 +5,9 @@
 //! pool has room for one more ([`Pool::try_add`]), and checks again each time it finished a codeunit. A worker other
 //! than the first that finds no room after a codeunit ends ([`Pool::keep`]) and drops its baseline copy; the first one
 //! always goes on, so the run always moves on.
+//!
+//! the worker threads of the parallel part (`run_parallel`), started one at a time through the
+//! `Pool`.
 
 use super::TEST_STACK;
 use super::memory::Pool;

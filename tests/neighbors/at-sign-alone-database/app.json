@@ -1,0 +1,15 @@
+{
+  "id": "b1c6f7a2-5d3e-4f80-9a1b-a75100000001",
+  "name": "Neighbors at sign alone in the database",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "OnPrem",
+  "idRanges": [
+    { "from": 97470, "to": 97472 },
+    { "from": 97500, "to": 97599 },
+    { "from": 130000, "to": 130000 }
+  ],
+  "dependencies": []
+}

@@ -7,6 +7,16 @@
 //! This module owns the scenario (`part_update_unsettled`), the mark it leaves (`PageState::reread_at_close`) and the read at
 //! the close (`reread_part_at_close`, asked again there with the calls up to the close: `unsettled_close_pinned`). Every other
 //! part row keeps the walk of ThPartUpdateCursor.al (`read_part_rows_around`) and reads nothing at the close.
+//!
+//! A new ListPart row on a Document host after a page-variable control's OnValidate ran
+//! `CurrPage.Update()` (al-runner issue 7481): the part reads that row and the row before it only,
+//! and reads the row once more when the host closes, before the save. Owns the host check of
+//! PartNewRowPageVariable.al (`new_row_part_pinned`, also used by `dirty_step.rs` and
+//! `save_record_now`) and the mark `PageState::reread_at_close`. The scenario is the pinned pages
+//! (`PAGES`: AutoSplitKey part, variable control with OnValidate) and the pinned calls up to the
+//! update and up to the close (`unsettled_calls`). Entry points: `part_update_unsettled`,
+//! `read_part_rows_unsettled` (both by `part_keeps_later_row` in `parts.rs`), `reread_part_at_close`
+//! (by `save_parts`).
 
 use super::pinned_shape::{PartStep, PinnedPart, TestCall};
 use super::*;

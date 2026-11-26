@@ -37,6 +37,7 @@ fn run(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     outcomes
         .into_iter()

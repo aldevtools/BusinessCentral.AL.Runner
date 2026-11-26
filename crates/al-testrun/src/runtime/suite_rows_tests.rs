@@ -163,7 +163,7 @@ fn run_from(
 ) -> Vec<(String, Outcome)> {
     let mut scratch = Scratch {
         runner: Some(codeunit(l, 130460)),
-        ..Default::default()
+        ..Scratch::new(crate::host::RunClock::begin())
     };
     run::run_codeunit_core(
         engine,

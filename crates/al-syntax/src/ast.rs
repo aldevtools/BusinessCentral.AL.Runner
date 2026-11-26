@@ -1,5 +1,7 @@
 //! Typed views over the untyped tree. Each wrapper is a cheap handle around a
 //! `SyntaxNode` of one kind; accessors read children on demand.
+//!
+//! Entry points: `routines_in`, `sections_in`, `Routine`.
 
 use crate::{SyntaxKind, SyntaxNode, SyntaxToken};
 

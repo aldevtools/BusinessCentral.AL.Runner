@@ -29,3 +29,5 @@ GK Fvt Refused::Refused_IntVarParam_Language1031	REFUSED conversion of Integer 1
 GK Fvt Refused::Refused_BigVarParam_Language1031	REFUSED conversion of BigInteger 1 to DateTime
 GK Fvt Refused::Refused_DecVarParam_Language1031	REFUSED conversion of Decimal 1.5 to DateTime
 GK Fvt Refused::Refused_BoolVarParam_Language1031	REFUSED conversion of Boolean true to DateTime
+GK Fvt Slots::Measured_IntValueParam_Date	ASSUMED fieldref-value-temporal-error (corpus PR 1522)
+GK Fvt Slots::Measured_IntNamedReturn_Time	ASSUMED fieldref-value-temporal-error (corpus PR 1522)

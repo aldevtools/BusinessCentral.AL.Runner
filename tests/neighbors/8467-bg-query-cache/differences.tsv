@@ -1,4 +1,4 @@
 # key	entry
-# Against main with #8490 merged, only one test differs: its worker reads the table while the test session's insert queue holds a
-# row of it (al-runner PR 8498), so the read runs on the view without the queued rows and is flagged; the outcome is main's.
-BQ Neighbor Tests::RowGoneAgain_AfterCommits	ASSUMED bg-task-insert-queue (corpus PR 1459, merged, not pinned yet, and open PR 1489: BgTaskInsertQueue.al)
+# Against main with the query cache of al-runner PRs 8490, 8656, 8682 and 8808, no test differs: BQ Neighbor Tests 3 (a Blob
+# CalcFields after the test commits) is refused on main and here alike, and BQ Neighbor Tests 4 (SelectLatestVersion() without
+# a table) passes on both.

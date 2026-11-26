@@ -1,4 +1,7 @@
 //! The key of a cache entry: every input of the compile of the dependency set.
+//!
+//! The key of an entry: every input of the compile of the dependency set, hashed without `..`. Entry
+//! points: `Key`, `Key::digest`, `AppKey`, `FORMAT`.
 
 use sha2::{Digest, Sha256};
 
@@ -40,10 +43,7 @@ pub struct Key {
     pub below: [u8; 32],
 }
 
-fn put(h: &mut Sha256, bytes: &[u8]) {
-    h.update((bytes.len() as u64).to_le_bytes());
-    h.update(bytes);
-}
+use crate::digest::put;
 
 fn put_list<S: AsRef<[u8]>>(h: &mut Sha256, items: &[S]) {
     h.update((items.len() as u64).to_le_bytes());
@@ -112,7 +112,7 @@ impl Key {
 
     /// The digest as lower-case hex.
     pub fn hex(&self) -> String {
-        self.digest().iter().map(|b| format!("{b:02x}")).collect()
+        crate::digest::hex(&self.digest())
     }
 
     /// The file name of the entry for this key.

@@ -80,37 +80,13 @@ fn assert_number_order(s: &MemStore, how: &str) {
 fn an_imported_table_keeps_the_number_order_of_its_key() {
     let s = store();
     assert_number_order(&s, "written");
-    let back = MemStore::from_exported(s.export_committed().unwrap());
+    let back = MemStore::from_exported(s.export_committed().unwrap(), &[]);
     assert_number_order(&back, "from_exported");
     let (one, emptied) = s.committed_table("C", 7).unwrap();
     let replaced = MemStore::default().with_committed_tables(vec![(one, emptied)], &[]);
     assert_number_order(&replaced, "with_committed_tables");
     let thawed = FrozenStore::freeze(&back).unwrap().thaw();
     assert_number_order(&thawed, "thaw");
-}
-
-#[test]
-fn a_row_change_replay_keeps_the_number_order_of_the_key() {
-    let t = int_table();
-    let base = MemStore::from_exported(store().export_committed().unwrap());
-    let mut next = base.clone();
-    next.insert(&cx("C"), &t, row("2", 1, 1)).unwrap();
-    next.delete(&cx("C"), &t, &code("9")).unwrap();
-    next.commit();
-    let changes = next
-        .committed_row_changes_from(&base, &mut |a, b| Some(format!("{a:?}") == format!("{b:?}")))
-        .unwrap();
-    let replayed = base.with_committed_row_changes(changes).unwrap();
-    for no in ["1", "2", "10"] {
-        assert!(
-            replayed.committed_get(&cx("C"), &t, &code(no)).is_some(),
-            "committed_get misses {no}"
-        );
-    }
-    assert!(replayed.committed_get(&cx("C"), &t, &code("9")).is_none());
-    let (up, down) = order(&replayed);
-    assert_eq!(up, ["1", "2", "10"]);
-    assert_eq!(down, ["10", "2", "1"]);
 }
 
 /// A view without some rows (`MemStore::without_rows`, the rows the insert queue holds back from a page background task's worker)

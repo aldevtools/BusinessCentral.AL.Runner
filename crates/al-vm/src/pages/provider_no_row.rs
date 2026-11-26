@@ -4,6 +4,12 @@
 //! the runner links it to the blank values instead, which shows the same only while no row holds them. Only the cells of
 //! tests/al-language/testpage/parts/ProviderNoRowFirst.al:192, :240, :259, :278, :301 take this path; every other shape keeps
 //! the refusal in `sync_part` (`NO_ROW_CHAIN_REFUSAL`).
+//!
+//! A Provider chain whose Provider part shows no row, the linked part added by a page extension
+//! outside FactBoxes (al-runner issue 7392) (testpage/parts/ProviderNoRowFirst.al): the entry
+//! condition called from `sync_part` in place of its refusal (`provider_no_row_ext_chain`: the
+//! landing, the blank link selects no stored row), the pages (`probe_chain_pages`), and the calls let
+//! through after the landing (`LANDED_END`, `PinnedEnd::part_moves`).
 
 use super::pinned_shape::{NextEnd, PLAIN_PROPERTIES, PinnedEnd, Reads, TestCall};
 use super::*;

@@ -1,5 +1,10 @@
 //! The error of a Boolean filter value the session language does not accept (al-runner issue 7195), and the Danish filter
 //! texts (al-runner issue 8197, shape 3).
+//!
+//! the error of a Boolean filter word the session language rejects, and the Danish filter texts of
+//! the measured shape (`danish_boolean_filter`, FilterGlobalLanguageDateBool.al:380-434). Entry
+//! points: `boolean_filter_error` (by the SetFilter arm of `records/op_inner.rs`),
+//! `danish_boolean_filter` (by `records/measured_setfilter.rs`).
 
 use super::*;
 

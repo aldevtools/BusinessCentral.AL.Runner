@@ -2,6 +2,11 @@
 //!
 //! The planning (which codeunit gets which company) is `recipe.rs`; the files come from `bcapps.rs`. This file turns a
 //! plan into runs of the ordinary test command and adds the lines that put the lanes together.
+//!
+//! `al-runner test --recipe microsoft`: one run per lane with the lane's company and Microsoft's
+//! disabled tests skipped, then a by-lane summary. The company builds (DemoTool, Contoso) need
+//! `--experimental-company-builds` (off by default, `company_refusal`; the gate for a command line is
+//! `args::company_build_off`). Entry points: `test`, `run_lanes`, `lane_args`.
 
 use crate::args::TestArgs;
 use crate::recipe::{self, AppUnits, Lane, Recipe};
@@ -324,6 +329,9 @@ pub fn run_lanes(a: &TestArgs) -> Result<RecipeRun, String> {
         eprintln!("== lane {}: {n} codeunits, company '{company}'", lane.test_type());
         let mut warm = WarmCtx::default();
         let code = run::test_with(&la, Some(&mut warm))?;
+        // The next lane compiles next: this lane's workspace layer entry is written now, so the compiled objects it holds do
+        // not live on into that lane (ADR-022 amendment 2026-11-15, decision 6).
+        al_testrun::workspace_cache::wait_for_writes();
         let count = |k: &str| {
             warm.report
                 .as_ref()

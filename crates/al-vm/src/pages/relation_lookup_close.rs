@@ -3,6 +3,17 @@
 //! Pinned for a field of a top-level Card and for a field of a ListPart on a Document, in the exact shape of the pins
 //! (`relation_origin`, `pinned_origin`); every other shape keeps the closes and the write-back it had (only `LookupOK`
 //! writes, `TestPage.Close()` in the handler is refused). A veto of the close in the pinned shape is refused.
+//!
+//! How the list page of a TableRelation lookup closes and what the lookup writes back, by where the
+//! control is (al-runner issue 7479, pages/close-errors/CemLookupTests.al): a field of a top-level
+//! Card or of a ListPart on a Document, in the exact shape of the pins (`relation_origin`,
+//! `pinned_origin`; a veto in that shape is refused); the action the page reports from a ListPart
+//! field, `TestPage.Close()` in the handler, the close after a handler error, the errors that come
+//! out wrapped or are swallowed after the platform close, OnClosePage errors at a close by an action
+//! or the platform. Every other place keeps the earlier closes. Entry points: `relation_origin`,
+//! `note_relation_close` (by `close_with`), `relation_close_action` (by `close_action`),
+//! `relation_pick_written`, `relation_lookup_error` (by `lookup_through_page`),
+//! `relation_close_page_error` (by `close_with`), `close_relation_lookup_after_handler_error`.
 
 use super::pinned_shape::{PinnedCode, TestCall};
 use super::*;

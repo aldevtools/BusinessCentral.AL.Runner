@@ -11,7 +11,9 @@ scripts, manifests, `Cargo.lock`, and the files crates include, such as `docs/la
 `tools/dotnet-sidecar/`) adds or changes a folder `tests/neighbors/<topic>/`. A pure rename does not count. `<topic>` is
 the branch name or the issue. The folder holds exactly one of:
 
-- **A neighbor app**: `app.json`, `src/*.al` and `differences.tsv`.
+- **A neighbor app**: `app.json`, `src/*.al` and `differences.tsv`, and optionally `flags.txt`: run options both
+  binaries get, one per line (`#` starts a comment), for example `--strict-order`. Each run starts in a fresh copy of the app
+  folder, so a relative path there (for example `--files-dir files`) names a folder of the app.
 - **`none.txt`**: one line that says why no neighbor app applies, for example "comments only".
   The reviewer checks the reason. A change of comments only, or a tooling change no AL code sees, takes this form.
 
@@ -77,8 +79,8 @@ became flagged), or another failure message. Another refusal text is not a diffe
 ## Run it
 
 ```
-tools/neighbor-diff.sh --changed                     # what CI runs: the folders your branch changes
-tools/neighbor-diff.sh path/to/app [--bc-version 28]  # any app folder
+bash tools/neighbor-diff.sh --changed                # what CI runs: the folders your branch changes
+bash tools/neighbor-diff.sh path/to/app [--bc-version 28] # any app folder
 ```
 
 Default BC version: 29, and CI runs BC 29 only. A change that a BC version decides (a version guard, a major-gated

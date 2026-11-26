@@ -3,16 +3,32 @@
 //! `Page.SetBackgroundTaskResult`. BC's test framework runs the worker synchronously, so the task
 //! has completed, and its trigger has run, when the TestPage call that caused it returns (corpus
 //! testpage/TestPageBgTask_Tests.al, header). Every rule cites the corpus test that pins it.
+//!
+//! Page background tasks under the test client; the worker runs in a child session (own
+//! `SessionId()`, fresh SingleInstance state, no manual bindings, its own filter group 1, last error,
+//! error collection and count of caught errors, assumptions `bg-task-worker-filter-group-one` and
+//! `bg-task-worker-last-error`; al-runner issues 7342, 8670, 8697); a failing worker's error is the
+//! test session's last error once it leaves a routine of the test session. Entry points: `BgWorker`,
+//! `Session::bg_note_last_error_read` (by `Ctx::last_error`), `bg_note_worker_collection` (by
+//! `errorcollect.rs`), `bg_error_left_routine` (by `callstack.rs` `add_leaving_frame`),
+//! `bg_catch_keeps_last_error` (by `catch_error`), `bg_worker_without_error` (by
+//! `Ctx::session_without_error`, GetLastErrorObject).
 
+use super::pinned_shape::TestCall;
 use super::*;
 use al_builtins::describe::Describe;
-use al_builtins::page_op::PageOp;
+use al_builtins::page_op::{PageMethod, PageOp};
 use al_builtins::value::Value as V;
 
 /// A worker codeunit that is running for a page background task.
 pub(crate) struct BgWorker {
     params: V,
     result: Option<V>,
+    /// The test session held a last error when the worker started: what the worker reads of its own last error differs from
+    /// what it read before issue 8697, when it shared the test session's (`Session::bg_note_last_error_read`).
+    test_had_last_error: bool,
+    /// The test session collected errors when the worker started (`Session::bg_note_worker_collection`).
+    test_collecting: bool,
     /// The worker runs for a part of the page with code (`code_inserted_coded.rs`), whose worker is the probe's line for line: a
     /// read of a table the test session changed and has not committed is refused (`bg_watched_read`).
     watch: bool,
@@ -24,6 +40,11 @@ struct ChildParked {
     si_track: Option<Box<crate::single_track::Track>>,
     bindings: Vec<crate::dispatch::Binding>,
     session_id_override: Option<i32>,
+    /// The test session's last error and its collecting scopes (assumption `bg-task-worker-last-error`).
+    last_error: AlError,
+    error_scopes: crate::errorcollect::Scopes,
+    /// The test session's count of caught errors (`caught_errors.rs`): what the worker catches is not counted there.
+    caught_errors: u64,
     /// The test session's group 1 filters, kept aside while the worker runs (`Group1Filters::enter_worker`).
     group1: crate::group1_sessions::Filters,
 }
@@ -151,6 +172,8 @@ impl Session {
         self.pages.bg_worker = Some(BgWorker {
             params,
             result: None,
+            test_had_last_error: false,
+            test_collecting: false,
             watch,
         });
         self.sync_no_client_test_session();
@@ -176,25 +199,112 @@ impl Session {
     /// session (:222, :323): the state is put back before they run. Its filters in filter group 1 start empty and end with it
     /// (`group1_sessions.rs`). The database and the transaction stay as they were:
     /// what the worker reads and may not write is pinned by testpage/TestPageBgTaskTx_Tests.al and TestPageBgTask_Tests.al.
+    ///
+    /// Its last error and its error collection are its own (corpus PR 1516, pages/background-tasks/BgTaskWorkerLastError.al,
+    /// assumption `bg-task-worker-last-error`): it starts with no last error (:266, :280, :292, :426) and outside any
+    /// collecting scope (:409, :451, :472, :481, :510); what it catches or clears stays in it (:303, :320, :333, :394); the test
+    /// session reads its own again after the task (:303, :333, :437), in the completion and error triggers too (:359, :376).
+    /// Its count of caught errors is its own too: a PageHandler whose worker caught an error closes the page as one that
+    /// caught nothing (BgTaskWorkerSessionShapes.al:191, :198, :205).
     fn bg_enter_child_session(&mut self) -> ChildParked {
         self.sessions_started += 1;
         let id = self.session_id().saturating_add(self.sessions_started);
+        let last_error = std::mem::take(&mut self.last_error);
+        let collecting = self.collect_error_if_collecting();
+        if let Some(w) = self.pages.bg_worker.as_mut() {
+            w.test_had_last_error = last_error != AlError::default();
+            w.test_collecting = collecting;
+        }
         ChildParked {
             singletons: std::mem::take(&mut self.singletons),
             si_track: self.si_track.take(),
             bindings: std::mem::take(&mut self.events.bindings),
             session_id_override: self.session_id_override.replace(id),
+            last_error,
+            error_scopes: std::mem::take(&mut self.error_scopes),
+            caught_errors: std::mem::take(&mut self.caught_errors),
             group1: self.global_group1.enter_worker(),
         }
     }
 
-    /// Puts the test session's state back after a worker ran ([`Session::bg_enter_child_session`]).
+    /// Puts the test session's state back after a worker ran ([`Session::bg_enter_child_session`]). Where the worker set a
+    /// last error of its own, the test session read that one before issue 8697: the reads of the test session's own are
+    /// noted.
     fn bg_leave_child_session(&mut self, parked: ChildParked) {
         self.singletons = parked.singletons;
         self.si_track = parked.si_track;
         self.events.bindings = parked.bindings;
         self.session_id_override = parked.session_id_override;
         self.global_group1.leave_worker(parked.group1);
+        self.error_scopes = parked.error_scopes;
+        // A handler's close compares the count from before the handler ran (`caught_errors.rs`); where the worker caught an
+        // error, it takes the cell of a handler that caught none, where the shared count took another path.
+        if std::mem::replace(&mut self.caught_errors, parked.caught_errors) > 0 && self.ui_state.page_handler_depth > 0
+        {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BgTaskWorkerLastError);
+        }
+        let worker_error = std::mem::replace(&mut self.last_error, parked.last_error);
+        if worker_error != AlError::default() && worker_error != self.last_error {
+            *self.pages.bg_kept_last_error.borrow_mut() = Some(self.last_error.clone());
+        }
+    }
+
+    /// A read of the last error (GetLastErrorText, GetLastErrorCode, GetLastErrorCallStack and the rest of
+    /// `Ctx::last_error`) that the worker's own last error decides: a worker's that has set none of its own yet while the test
+    /// session held one, or the test session's after a worker set its own, until it changes (the first read of another
+    /// error ends it). It runs through the assumption.
+    pub(crate) fn bg_note_last_error_read(&self) {
+        let in_worker = (self.pages.bg_worker.as_ref()).is_some_and(|w| w.test_had_last_error)
+            && self.last_error == AlError::default();
+        let kept = self.pages.bg_worker.is_none() && {
+            let mut kept = self.pages.bg_kept_last_error.borrow_mut();
+            let same = kept.as_ref() == Some(&self.last_error);
+            if !same {
+                *kept = None;
+            }
+            same
+        };
+        if in_worker || kept {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BgTaskWorkerLastError);
+        }
+    }
+
+    /// The code runs in a page background task's worker that has had no error of its own: `GetLastErrorObject` answers null,
+    /// as after ClearLastError (BgTaskWorkerLastErrorObject.al:91, :103), where the test session's would refuse. It runs
+    /// through the assumption.
+    pub(crate) fn bg_worker_without_error(&self) -> bool {
+        let fresh = self.pages.bg_worker.is_some() && self.last_error == AlError::default();
+        if fresh {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BgTaskWorkerLastError);
+        }
+        fresh
+    }
+
+    /// An error-collection call of the worker, or a collectible error it raises, while the test session collects: the worker
+    /// is outside any collecting scope, where it shared the test session's before issue 8697. It runs through the
+    /// assumption.
+    pub(crate) fn bg_note_worker_collection(&self) {
+        if self.pages.bg_worker.as_ref().is_some_and(|w| w.test_collecting) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BgTaskWorkerLastError);
+        }
+    }
+
+    /// An error left a routine: a failing worker's error that `RunPageBackgroundTask` raised is the test session's last error
+    /// from here on, as any error is when caught (BgTaskWorkerLastError.al:347, an asserterror around a procedure of the test;
+    /// :551-:611 by kind; a TryFunction around the call, tests/neighbors/8697-bg-worker-last-error).
+    pub(crate) fn bg_error_left_routine(&mut self) {
+        self.pages.bg_task_error_unrecorded = false;
+    }
+
+    /// An asserterror catches a failing worker's error right at the `RunPageBackgroundTask` call, before it left a routine of
+    /// the test session: the test session keeps its last error, text, code and call stack (BgTaskWorkerLastError.al:640), an
+    /// empty one too (:660), whatever the worker's error (:674). It runs through the assumption.
+    pub(crate) fn bg_catch_keeps_last_error(&mut self) -> bool {
+        if !std::mem::take(&mut self.pages.bg_task_error_unrecorded) {
+            return false;
+        }
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BgTaskWorkerLastError);
+        true
     }
 
     /// `TestPage.RunPageBackgroundTask(CodeunitId; [var Parameters]; [RunCompletionTriggers])`: runs the
@@ -231,7 +341,12 @@ impl Session {
                 }
                 return Ok(V::Dictionary(Default::default()));
             }
-            Err(e) => return Err(Signal::Error(Box::new(e))),
+            Err(e) => {
+                // The error is recorded as the test session's last error once it leaves a routine of the test session
+                // (`bg_error_left_routine`), not at an asserterror around this call (`bg_catch_keeps_last_error`).
+                self.pages.bg_task_error_unrecorded = true;
+                return Err(Signal::Error(Box::new(e)));
+            }
         };
         if completion {
             // The task id the completion trigger receives is not pinned: a fresh one (docs/probes-needed.md).
@@ -280,6 +395,13 @@ impl Session {
         Ok(())
     }
 
+    /// Whether page `st` belongs to a page of the page-with-code shape with other code (`CodedObjects::Extra`) on its steps.
+    fn coded_extra_task(&self, st: &St) -> bool {
+        let (root, _) = Self::tree_root(st);
+        let r = root.borrow();
+        r.coded_line != super::state::CodedLine::Off && r.coded_objects == super::state::CodedObjects::Extra
+    }
+
     /// Runs the tasks the page enqueued, oldest first, each to its end: the completion trigger gets the
     /// worker's result, the error trigger its error. An error nobody marks as handled in
     /// `OnPageBackgroundTaskError` tears the page down, and what the caller sees is the closed page,
@@ -295,21 +417,39 @@ impl Session {
             if !st.borrow().open {
                 return unsupported("a background task queued on a page that closed before it ran (not pinned)");
             }
+            // A page of the shape of the page with code runs other code: its worker's reads go through the query cache as every
+            // worker's do (assumption `background-task-query-cache`, BgTaskQueryCache.al); ListNewLineExtraCodeCodedPage.al's
+            // worker counts the rows the table field wrote and BC answers them (`U.DONE(2)`).
             let watch = {
                 let (root, _) = Self::tree_root(st);
-                let r = root.borrow();
-                r.coded_line != super::state::CodedLine::Off
-            };
+                root.borrow().coded_line != super::state::CodedLine::Off
+            } && !self.coded_extra_task(st);
+            // On that page the cells' completion and error triggers set what the part shows, and ask no refresh
+            // (ListNewLineExtraCodeCodedTaskError.al:567, :578): a trigger that calls CurrPage.Update is not measured.
+            let extra = self.coded_extra_task(st);
             match self.bg_run_worker(codeunit, params, watch)? {
                 Ok(results) => {
+                    let asked = st.borrow().refresh.asked_by_update();
+                    let next_id = st.borrow().bg_next_id;
                     let r = self.bg_completed(st, id, &results);
+                    if extra {
+                        self.coded_extra_task_end(st, asked, next_id)?;
+                    }
                     self.torn_down_on_error(st, r)?;
                 }
                 // A failing worker under ErrorLevel Ignore: the error trigger runs, and the page stays open even though the
-                // trigger did not mark the error as handled (pages/background-tasks/W2BackgroundTasks.al:455 ErrorLevel_Ignore, `open|ok` = Yes,
-                // `log` = `error(id=n,row=L1,handled_in=false);`).
+                // trigger did not mark the error as handled (pages/background-tasks/W2BackgroundTasks.al:455 ErrorLevel_Ignore,
+                // `open|ok` = Yes, `log` = `error(id=n,row=L1,handled_in=false);`). On the measured Extra shape the same
+                // dispatch as its default-level error arm first refuses a worker or trigger error kind outside the cells
+                // (review of al-runner PR 8840, 19:11Z).
                 Err(e) if level == Some(2) => {
-                    self.bg_error(st, id, &e)?;
+                    if extra {
+                        let asked = st.borrow().refresh.asked_by_update();
+                        let next_id = st.borrow().bg_next_id;
+                        self.coded_extra_error(st, id, &e, asked, next_id)?;
+                    } else {
+                        self.bg_error(st, id, &e)?;
+                    }
                 }
                 // Under Error or Warning given as an argument, what a failing worker does to the page is not pinned
                 // (docs/probes-needed.md).
@@ -319,7 +459,12 @@ impl Session {
                     );
                 }
                 Err(e) => {
-                    let handled = self.bg_error(st, id, &e)?;
+                    let asked = st.borrow().refresh.asked_by_update();
+                    let next_id = st.borrow().bg_next_id;
+                    let handled = match extra {
+                        true => self.coded_extra_error(st, id, &e, asked, next_id)?,
+                        false => self.bg_error(st, id, &e)?,
+                    };
                     // A task a card enqueued while OpenView reads its first row (from OnAfterGetCurrRecord) whose error nobody handles: OpenView
                     // raises the worker's own text, its code with `:TargetInvocation` added (pages/lt-uj-outside-leads/
                     // UjPageExtBgTask.al UJ_PageExt_BgTask_Error_Unhandled_Base and _Ext, corpus branch al-runtime-rs-staging-uj
@@ -335,6 +480,34 @@ impl Session {
                         e.code = format!("{}:TargetInvocation", e.code);
                         return Err(Signal::Error(Box::new(e)));
                     }
+                    if !handled && self.coded_extra_task(st) {
+                        // A page of the page-with-code shape whose part leaves its task's error unhandled at the refresh of the
+                        // first SetValue: the worker's own text reaches the test with the code of the client's abort, and the page
+                        // is gone (ListNewLineExtraCodeCodedTaskError.al:589, `Task failed`, `ClientPageAbort:FormAbort`). A later
+                        // call on it, its close after a handler caught the error, and the error at any other step (the open's
+                        // blank record) are refused (review of al-runner PR 8840, 01:32Z).
+                        st.borrow_mut().bg_tasks.clear();
+                        let (root, _) = Self::tree_root(st);
+                        // The refresh of the landing, not the parts' read of the blank line at the start of the same
+                        // SetValue (review of al-runner PR 8840, 07:30Z).
+                        let landed = root.borrow().coded_line == super::state::CodedLine::Landed;
+                        root.borrow_mut().forget_code_inserted_line();
+                        let first_set_value = landed
+                            && matches!(
+                                Self::test_calls(&root).as_deref(),
+                                Some([TestCall::Page(PageMethod::New), TestCall::Write(_)])
+                            );
+                        if !first_set_value {
+                            return unsupported(
+                                "a page background task's error its part leaves unhandled on a List page of the page-with-code \
+                                 shape, at a step other than the first SetValue (not measured)",
+                            );
+                        }
+                        root.borrow_mut().coded_line = super::state::CodedLine::Failed;
+                        let mut e = e;
+                        e.code = "ClientPageAbort:FormAbort".into();
+                        return Err(Signal::Error(Box::new(e)));
+                    }
                     if !handled {
                         st.borrow_mut().bg_tasks.clear();
                         self.mark_closed(st);
@@ -343,6 +516,59 @@ impl Session {
                 }
             }
         }
+    }
+
+    /// The error trigger of a task on a page of the page-with-code shape with other code (`CodedObjects::Extra`) gets worker
+    /// error `e`: the cells' worker raises an AL `Error` with a text, and their trigger raises none
+    /// (ListNewLineExtraCodeCodedTaskError.al:578, :589). A worker's run-time error and an error the trigger raises itself are
+    /// not measured, and refused (deferred by the review of al-runner PR 8840, 07:30Z; docs/probes-needed.md).
+    fn coded_extra_error(&mut self, st: &St, id: i32, e: &AlError, asked: bool, next_id: i32) -> Result<bool, Signal> {
+        if !super::page_run_close::error_with_text(e) {
+            return self.coded_extra_refused(
+                st,
+                "a page background task whose worker failed with a run-time error, on a List page of the page-with-code shape \
+                 (not measured)",
+            );
+        }
+        let result = self.bg_error(st, id, e);
+        self.coded_extra_task_end(st, asked, next_id)?;
+        match result {
+            Err(Signal::Error(_)) => self.coded_extra_refused(
+                st,
+                "a page background task's error trigger that raised an error of its own, on a List page of the page-with-code \
+                 shape (not measured)",
+            ),
+            r => r,
+        }
+    }
+
+    /// After a task's completion or error trigger on a page of the page-with-code shape with other code: the cells' triggers set
+    /// what the part shows, ask no refresh and enqueue no task (ListNewLineExtraCodeCodedTaskError.al:567, :578). A trigger that
+    /// called CurrPage.Update (not `asked` before it ran), or enqueued a task (the page's next task id moved past `next_id`;
+    /// that task ran at its enqueue, `bg_drain_after_call`), is refused. The drain calls this immediately after each
+    /// completion or error trigger returns, before the trigger's result decides the task outcome.
+    fn coded_extra_task_end(&mut self, st: &St, asked: bool, next_id: i32) -> Result<(), Signal> {
+        if !asked && st.borrow().refresh.asked_by_update() {
+            return self.coded_extra_refused(
+                st,
+                "a page background task's completion or error trigger called CurrPage.Update on a List page of the page-with-code \
+                 shape (not measured)",
+            );
+        }
+        if st.borrow().bg_next_id > next_id {
+            return self.coded_extra_refused(
+                st,
+                "a page background task's completion or error trigger enqueued another task on a List page of the page-with-code \
+                 shape (not measured)",
+            );
+        }
+        Ok(())
+    }
+
+    /// Refuses a step of a page background task on a page of the page-with-code shape, the new line forgotten.
+    fn coded_extra_refused<T>(&self, st: &St, what: &'static str) -> Result<T, Signal> {
+        st.borrow_mut().forget_code_inserted_line();
+        unsupported(what)
     }
 
     /// Whether a page extension of the page declares trigger `name` (lower case).

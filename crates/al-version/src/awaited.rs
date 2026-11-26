@@ -3,6 +3,10 @@
 //! test fails until the function here becomes a gate. A major that the probe did not measure gets `None` (or `false` where the
 //! function answers whether a major is measured); no target means the newest behavior, as [`crate::has`] does, or `false` where the
 //! newest major is not measured.
+//!
+//! Behavior that differs between BC versions in an open corpus probe, before a bump pins its guard
+//! (not a `Gate`; `tests/gate_completeness.rs` fails at the bump until it becomes one). Entry points:
+//! `journal_temp_part_reads_after_refresh`.
 
 use crate::Target;
 
@@ -25,6 +29,19 @@ pub fn journal_temp_part_reads_after_refresh(target: Option<&Target>) -> Option<
 /// measured (assumption `no-client-session`, al-vm `clientless.rs`).
 pub fn web_service_session_measured(target: Option<&Target>) -> bool {
     matches!(target.map(|t| t.bc.major), Some(28))
+}
+
+/// What a TestPage does with a Card's field control bound to no field of the source table whose own Visible names a field of
+/// the record (`ir::Control::visible_row_field`; open corpus PR 1504, tests/al-language/pages/controls/VisibleExpressionSource.al,
+/// al-runner issue 8660): `Some(true)` on 29, where its Visible reads Yes whatever the row holds; `Some(false)` on 27 and 28,
+/// where a TestPage's OpenEdit, OpenView or OpenNew of the page raises "The identifier '<field>' could not be found."
+/// (the probe's `#if not BC29PLUS` tests); `None` on a major the probe did not measure.
+pub fn visible_names_row_field_reads_yes(target: Option<&Target>) -> Option<bool> {
+    match target.map(|t| t.bc.major) {
+        Some(27 | 28) => Some(false),
+        Some(29) | None => Some(true),
+        Some(_) => None,
+    }
 }
 
 /// A bulk write of a table that a commit carried (al-runner issue 8467, [`bulk_commit_ends_cached_row`]).

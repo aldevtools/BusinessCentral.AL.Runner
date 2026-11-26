@@ -3,6 +3,8 @@
 //! `Query` into the object. Anything the runtime cannot execute exactly is a *reason*: a query
 //! with a reason cannot be declared as a variable (`Lowerer::rt`), so the tests that use it are
 //! reported as not run instead of running with a guessed behaviour (hard rule 4).
+//!
+//! Entry points: `QueryLayout`, `layout`.
 
 use crate::calcformula::{CondValue, parse_conditions};
 use crate::lower::{calc_const, rewrite_quotes, scalar_rt};

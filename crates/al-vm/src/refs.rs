@@ -5,6 +5,8 @@
 //! methods in `records.rs` (triggers included). `FieldRef` and `KeyRef` point
 //! into that buffer by field position and key index. Behaviour the corpus
 //! does not pin raises `Signal::Unsupported` instead of guessing.
+//!
+//! Entry points: `record_ref_value`.
 
 use crate::Session;
 use crate::blob_transfer::{BlobMove, Holder};
@@ -178,6 +180,37 @@ impl Session {
         Ok(Value::Null)
     }
 
+    /// `RecordRef.LockTable`.
+    fn recordref_lock_table(
+        &mut self,
+        rec: &crate::records::Rec,
+        t: &TableDef,
+        args: &[Value],
+    ) -> Result<Value, Signal> {
+        // RecordRef.LockTable(true, true) raises the Wait = FALSE error (recordref-fieldref/recordref/RfTViews.al:314-322).
+        if matches!(args, [Value::Boolean(true), Value::Boolean(true)]) {
+            return Err(crate::recmeta::lock_table_bad_parm(t));
+        }
+        // What a RecordRef's LockTable does to its ReadIsolation is not pinned (only Record's is,
+        // record/CvReadIsolationState.al:47-48).
+        if rec.borrow().read_isolation != 0 && !matches!(args.first(), Some(Value::Boolean(false))) {
+            return unsupported("RecordRef.LockTable after a ReadIsolation was set (not pinned)");
+        }
+        let mut a: Vec<Value> = args.iter().take(1).cloned().collect();
+        let locked = self.tx.open.locks.lock_tx;
+        let r = self.record_meta_op(RecordOp::LockTable, rec, t, &mut a);
+        // On an open database table it starts the write transaction, a read keeps it and a Commit ends it; on a
+        // temporary table it starts none (recordref-fieldref/WcRecordRefLockTable.al:28-87). What else follows from it
+        // (the stale-buffer shapes and the rest that read `lock_tx`) is pinned for Record.LockTable only.
+        let started = !locked && self.tx.open.locks.lock_tx;
+        self.lock_through_recordref(locked, "a RecordRef.LockTable");
+        self.note_recordref_lock(rec, t);
+        if started {
+            self.tx.open.locks.recref_lock_tx = true;
+        }
+        r
+    }
+
     fn lock_through_recordref(&mut self, locked_before: bool, what: &'static str) {
         if !locked_before && self.tx.open.locks.lock_tx {
             self.tx.open.locks.lock_tx = false;
@@ -265,6 +298,7 @@ impl Session {
         } else {
             id
         };
+        let (id, setrange) = crate::setrange_convert::catalog_id(id);
         let Some(sig) = catalog().by_id(id) else {
             return unsupported(format!("builtin {id}"));
         };
@@ -282,6 +316,9 @@ impl Session {
             }
             "FieldRef" => {
                 self.fieldref_arg_values(&sig.name, &lib, args)?;
+                if matches!(sig.name.as_str(), "SetRange" | "SetFilter") {
+                    self.fieldref_setrange_convert(&sig.name, &lib, args, setrange)?;
+                }
                 self.fieldref_op(&sig.name, &lib, args)
             }
             "KeyRef" => self.keyref_op(&sig.name, &lib, args),
@@ -445,6 +482,14 @@ impl Session {
             name: table_name,
             key,
         }))
+    }
+
+    /// The open record of a RecordRef method that is no early arm of `recordref_op_inner`, past the by-value view gate
+    /// (`records/by_value_view.rs` `by_value_ref_runs`).
+    fn open_ref_by_value(lib: &Lib, method: &str) -> Result<Rec, Signal> {
+        let rec = Self::open_ref(lib, &format!("RecordRef.{method}"))?;
+        Self::by_value_ref_runs("RecordRef", method, &rec)?;
+        Ok(rec)
     }
 
     fn open_ref(lib: &Lib, what: &str) -> Result<Rec, Signal> {
@@ -1017,13 +1062,14 @@ impl Session {
                     },
                     other => crate::recordref_copy::copy_source_record(other, &dst)?,
                 };
+                Self::by_value_ref_runs("RecordRef", "Copy", &src)?;
                 if src.borrow().table != dst.borrow().table {
                     return unsupported("RecordRef.Copy between two tables (not pinned)");
                 }
                 let t = self.table(&dst)?;
                 let mut forwarded = vec![Value::Record(src)];
                 forwarded.extend(args.get(1).cloned());
-                return self.record_meta_op(RecordOp::Copy, &dst, &t, &mut forwarded);
+                return self.record_ref_copy(&dst, &t, &forwarded);
             }
 
             "Number" => match &*lib.borrow() {
@@ -1075,7 +1121,7 @@ impl Session {
                 "RecordRef.{method} by this overload on a RecordRef that is not open (not pinned)"
             ));
         }
-        let rec = Self::open_ref(lib, &format!("RecordRef.{method}"))?;
+        let rec = Self::open_ref_by_value(lib, method)?;
         let t = self.table(&rec)?;
         match method {
             "Number" => Ok(Value::Integer(crate::object_ids::declared_id(
@@ -1117,29 +1163,7 @@ impl Session {
             "SetAutoCalcFields" => self.recordref_set_auto_calc_fields(&rec, &t, args),
             // Doc (RecordRef.Duplicate): a new ref with the same table, buffer and filters, independent of the original.
             "RecordId" => self.record_id(&rec, &t),
-            "LockTable" => {
-                // RecordRef.LockTable(true, true) raises the Wait = FALSE error (recordref-fieldref/recordref/RfTViews.al:314-322).
-                if matches!(args, [Value::Boolean(true), Value::Boolean(true)]) {
-                    return Err(crate::recmeta::lock_table_bad_parm(&t));
-                }
-                // What a RecordRef's LockTable does to its ReadIsolation is not pinned (only Record's is,
-                // record/CvReadIsolationState.al:47-48).
-                if rec.borrow().read_isolation != 0 && !matches!(args.first(), Some(Value::Boolean(false))) {
-                    return unsupported("RecordRef.LockTable after a ReadIsolation was set (not pinned)");
-                }
-                let mut a: Vec<Value> = args.iter().take(1).cloned().collect();
-                let locked = self.tx.open.locks.lock_tx;
-                let r = self.record_meta_op(RecordOp::LockTable, &rec, &t, &mut a);
-                // On an open database table it starts the write transaction, a read keeps it and a Commit ends it; on a
-                // temporary table it starts none (recordref-fieldref/WcRecordRefLockTable.al:28-87). What else follows from it
-                // (the stale-buffer shapes and the rest that read `lock_tx`) is pinned for Record.LockTable only.
-                let started = !locked && self.tx.open.locks.lock_tx;
-                self.lock_through_recordref(locked, "a RecordRef.LockTable");
-                if started {
-                    self.tx.open.locks.recref_lock_tx = true;
-                }
-                r
-            }
+            "LockTable" => self.recordref_lock_table(&rec, &t, args),
             "ReadIsolation" => {
                 let locked = self.tx.open.locks.lock_tx;
                 let r = self.record_meta_op(RecordOp::ReadIsolation, &rec, &t, args);
@@ -1204,7 +1228,7 @@ impl Session {
             // As Record.Truncate: every row the filters select goes, with or without the argument
             // (recordref-fieldref/recordref/P92Counts.al:124-186, Truncate_Unfiltered, Truncate_WithFilter,
             // Truncate_WithoutTriggerArgument).
-            "Truncate" => self.record_op(RecordOp::Truncate, &rec, args),
+            "Truncate" => self.recordref_record_op(method, &rec, args),
             // Field(FieldName): the name is matched case-insensitively and as given, never trimmed, and a caption is not a
             // name; an unknown name raises FieldNotFound with the supplied text
             // (recordref-fieldref/P107RecRefNames.al:25-60).
@@ -1450,7 +1474,7 @@ impl Session {
             d.field_descending = s.field_descending;
             // The ReadIsolation passes too (recordref-fieldref/recordref/P92ReadIsolation.al:ReadIsolation_FromRecordAndToRecord).
             d.read_isolation = s.read_isolation;
-            let before = std::mem::replace(&mut d.fields, s.fields.clone());
+            let before = self.replace_record_fields(dst, &mut d, s.fields.clone());
             // The Blobs move as `BlobMove::set_table` says.
             if let Some(how) = BlobMove::set_table(args.len(), share) {
                 self.move_blobs(s.table as usize, &mut d.fields, Some(&before), how, self.holder(&s))?;
@@ -1543,6 +1567,7 @@ impl Session {
                 ));
             }
         };
+        Self::by_value_ref_runs("FieldRef", method, &rec)?;
         let t = self.table(&rec)?;
         let field = &t.fields[pos];
         match method {
@@ -1712,12 +1737,16 @@ impl Session {
                 if stored {
                     return unsupported("FieldRef.CalcField of a field that is not a FlowField (not pinned)");
                 }
-                self.flow_op_asked(
+                // A page background task's repeated FieldRef.CalcField answers from the query cache as Record.CalcFields does.
+                let read = self.mark_al_record_read(RecordOp::CalcFields, true);
+                let r = self.flow_op_asked(
                     RecordOp::CalcFields,
                     &rec,
                     &[Value::Integer(pos as i32)],
                     crate::flowfields::Asked::Other,
-                )
+                );
+                self.unmark_al_record_read(read);
+                r
             }
             // FieldRef.CalcSum sums a stored Decimal or Integer field over the rows the RecordRef's filters pass, a field in
             // no SumIndexFields list as well, puts the sum into the field and answers Yes
@@ -2202,6 +2231,8 @@ fn record_method(method: &str) -> RecordOp {
 /// n=2;rr.get own O3;rr.get O1 O1`). A by-value copy of that Rec put into a Variant some other way is not pinned.
 fn variant_record_into_ref(lib: &Lib, src: &Rc<RefCell<RecordState>>) -> Result<Value, Signal> {
     let mut copy = gettable_record_copy(src)?;
+    // Through a Variant the row version's entry is not measured (`check_failed_insert_stale`).
+    copy.version_entry.now_via(al_builtins::value::VersionVia::Cloned);
     match copy.unpinned_buffer {
         Some(crate::records::RUN_PAGE_LINK_VARIANT) => copy.unpinned_buffer = None,
         Some(w @ (crate::records::RUN_PAGE_LINK_COPY | crate::records::RUN_PAGE_LINK_OPEN_COPY)) => {
@@ -2216,13 +2247,18 @@ fn variant_record_into_ref(lib: &Lib, src: &Rc<RefCell<RecordState>>) -> Result<
 
 /// The record a RecordRef takes in `RecordRef.GetTable`, from a Record, a Variant that holds one or a RecordRef: every GetTable
 /// copy is made here. Refused while the source carries a mark whose buffer or view must not be copied
-/// (`records.rs` `copy_refused_mark`, the same rule as an assignment and `Copy`).
+/// (`records.rs` `copy_refused_mark`, the same rule as an assignment and `Copy`); the mark of a by-value copy whose view is not
+/// pinned goes with the copy (`records/by_value_view.rs` `by_value_view_into_ref`).
 pub(crate) fn gettable_record_copy(src: &Rc<RefCell<RecordState>>) -> Result<RecordState, Signal> {
     if let Some(why) = crate::records::copy_refused_mark(src) {
         return unsupported(format!("RecordRef.GetTable of a record: {why}"));
     }
-    crate::Session::by_value_view_handed(src, || "RecordRef.GetTable of a record".into())?;
-    Ok(al_builtins::record_into_recordref::recordref_copy(&src.borrow()))
+    crate::Session::by_value_view_into_ref(src);
+    let mut copy = al_builtins::record_into_recordref::recordref_copy(&src.borrow());
+    // The ref takes the version as the record had it, carried by the clone (corpus PR 1523,
+    // record/crud/TestRecordFailedInsertMovedKey.al:907 R10).
+    copy.version_entry.now_via(al_builtins::value::VersionVia::GetTable);
+    Ok(copy)
 }
 
 /// The copy `RecordRef.GetTable` takes holds its own buffer of each Blob the record read from the database without

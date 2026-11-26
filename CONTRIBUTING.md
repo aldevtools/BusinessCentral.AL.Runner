@@ -105,15 +105,15 @@ To work on one test: `--explain TestName` shows why a test ends as it does, and 
 or `--test NAME` runs only part of the corpus. `./target/release/al-test-cli --help` lists every
 flag.
 
-Before you push, run `./check.sh` (format, clippy with warnings as errors, all tests and the
-corpus ratchet). It needs bash; on Windows, use Git Bash or WSL. CI runs the same checks, so if
+Before you push, run `bash ./check.sh` (format, clippy with warnings as errors, all tests and the
+corpus ratchet). It needs bash; on Windows, use Git Bash or WSL, and start every `.sh` script with `bash` as written here (in PowerShell a bare `.sh` path can open in an editor instead of running). CI runs the same checks, so if
 you cannot run it locally, say so in the pull request.
 
 If your change touches a file the binary is built from (`tools/binary-inputs.txt`), add a neighbor app: a small
 test app under `tests/neighbors/<topic>/` with one test per shape next to the one you fixed (another caller, type, trigger,
 extension, subscriber, record state or call order), and a `differences.tsv` that says, for each test whose
 outcome changed against `main`, which corpus test pins it, which assumption entry it runs through, or that
-it is refused on purpose. `tools/neighbor-diff.sh --changed` runs it on your build and on a build of
+it is refused on purpose. `bash tools/neighbor-diff.sh --changed` runs it on your build and on a build of
 `main` and prints the table. CI runs the same check first and fails when a difference has no entry. When
 no neighbor app applies, add `tests/neighbors/<topic>/none.txt` with the reason. Details:
 [tests/neighbors/README.md](tests/neighbors/README.md).
@@ -151,7 +151,7 @@ For each pull request:
      refactor or comments only. The reviewer checks the reason.
 
    The format is in [tests/neighbors/README.md](tests/neighbors/README.md).
-3. Run `tools/neighbor-diff.sh --changed` locally. See [tools/neighbor-diff.sh](tools/neighbor-diff.sh).
+3. Run `bash tools/neighbor-diff.sh --changed` locally. See [tools/neighbor-diff.sh](tools/neighbor-diff.sh).
    It runs the check CI runs and prints a table. Paste the table into the pull request description.
 4. Push once when it passes. Draft CI (`test` and "neighbor check") runs on that push.
 5. When draft CI is green, post a comment with the words "ready for review". Keep the pull request a
@@ -161,6 +161,16 @@ Reviews follow the order in which pull requests report ready. If a review alread
 pull request, the next review checks only those findings and the results of the neighbor check.
 
 If the neighbor check does not fit your change, say so on the pull request.
+
+### When a pull request goes quiet
+
+If a review asks you for changes and there is no comment or commit from you for 7 days, a maintainer
+finishes the pull request on a branch of their own. Your commits keep your name. When the linked issue
+has the label `priority: high` or `priority: critical`, the wait is 3 days, because the issue affects many
+users. If you need more time, say so in a comment and the wait starts again.
+
+Issues that an open pull request fixes (`Fixes #N`) carry the label `author: implementing`. Maintainers
+leave those issues to you while the pull request is active.
 
 ## License and contributor agreement
 

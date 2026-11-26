@@ -1,6 +1,10 @@
 //! The table name of the text `Evaluate(RecordId, Text)` reads, beyond the exact name (`Session::evaluate_record_id_text`):
 //! the name in double quotes and a prefix of a table name (recordref-fieldref/N582EvalFieldRefUnused.al:143-169
 //! WA_Evaluate_FieldRef_RecordId_Statement_TableNamePrefix, waldo run 2 of al-runner issue 6924, corpus master 176baa02).
+//!
+//! the table a RecordId text names beyond the exact name: quoted, a prefix, and the bracketed
+//! `[NS.Name]` form of format 9 (al-runner issue 7326). Entry points: `record_id_tables_bracketed`,
+//! `record_id_tables_by_prefix`.
 
 use crate::Session;
 use al_builtins::native::Signal;

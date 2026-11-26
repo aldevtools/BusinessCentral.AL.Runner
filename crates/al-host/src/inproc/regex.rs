@@ -12,6 +12,9 @@
 //!
 //! A case-insensitive pattern without `CultureInvariant` is not proxied: its case table is the culture current when the
 //! object is made, and AL code can change the culture between two constructions.
+//!
+//! Which `Regex` constructions may be built again locally and which members go to the canonical
+//! sidecar object (ADR-038 amendment 2026-11-09). Entry points: `key`, `is_matching`.
 
 use crate::dotnet::DotNetValue;
 

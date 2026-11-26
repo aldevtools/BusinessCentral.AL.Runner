@@ -320,4 +320,39 @@ codeunit 61622 "GK Fvt Slots"
     begin
         R := FR.Value;
     end;
+
+    [Test]
+    procedure Measured_IntValueParam_Date()
+    var
+        FR: FieldRef;
+        Val: Integer;
+        D: Date;
+    begin
+        Val := 1;
+        Lib.Field(2, Val, FR);
+        asserterror ByValueDate(FR, D);
+        Lib.CheckError('Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavInteger to System.DateTime.', 'The format of the Date ''1'' does not match your device''s date settings.\\Make sure that the day, month, and year are in the correct order and use the correct separator (such as - or /). Alternatively, you can always use the format ''yyyy-mm-dd''.');
+    end;
+
+    [Test]
+    procedure Measured_IntNamedReturn_Time()
+    var
+        FR: FieldRef;
+        Val: Integer;
+    begin
+        Val := 1;
+        Lib.Field(2, Val, FR);
+        asserterror NamedTime(FR);
+        Lib.CheckError('Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavInteger to System.DateTime.', 'The value "1" can''t be evaluated into type Time.');
+    end;
+
+    local procedure ByValueDate(var FR: FieldRef; R: Date)
+    begin
+        R := FR.Value;
+    end;
+
+    local procedure NamedTime(var FR: FieldRef) R: Time
+    begin
+        R := FR.Value;
+    end;
 }

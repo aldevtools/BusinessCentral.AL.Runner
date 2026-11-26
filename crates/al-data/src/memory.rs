@@ -1,5 +1,8 @@
 //! In-memory store on persistent maps: a snapshot is a cheap clone (ADR-004).
 //! Scans are linear in the table size; fine for test-sized tables.
+//!
+//! In-memory store on persistent maps; a `Backing` gives untouched tables their restored rows (test
+//! data). Entry points: `MemStore`, `with_virtual_tables`, `detached`, `attached`.
 
 use crate::*;
 use al_builtins::filter::FieldFilter;
@@ -14,6 +17,11 @@ mod alt_cache_tests;
 mod band;
 #[cfg(test)]
 mod collation_read_tests;
+mod export;
+mod footprint;
+#[cfg(test)]
+mod footprint_tests;
+pub use footprint::{Resource, RowKey, StoreFootprint, WriteIndex};
 mod frozen;
 mod held_cols;
 mod key;
@@ -22,13 +30,16 @@ mod key_value_tests;
 mod order_carry;
 mod replace;
 mod row_changes;
+pub use row_changes::BeforeRows;
+mod shape;
+pub use shape::{CommittedMarks, CommittedRows};
 mod source_stamps;
 #[cfg(test)]
 mod source_stamps_tests;
 #[cfg(test)]
 mod storage_tests;
+pub use export::ExportedTable;
 pub use frozen::{FrozenRows, FrozenStore, NotShareable, not_shareable, shareable};
-pub use row_changes::{RowChanges, TableRows};
 
 type Table = crate::pmap::PMap<Key, Row>;
 /// A table's place in the store: its company (empty for a table that is not per company) and its object. The company
@@ -195,6 +206,11 @@ pub struct MemStore {
     /// nothing wrote to reads the source's backing rows, as the copy took them. Part of the transaction, like `tables`.
     copies: crate::pmap::PMap<std::sync::Arc<str>, std::sync::Arc<str>>,
     committed_copies: crate::pmap::PMap<std::sync::Arc<str>, std::sync::Arc<str>>,
+    /// The companies whose rows a company copy made (`copy_company`, `note_copy`, carried by `rename_company`), with a
+    /// backing or without: their rows carry the system fields of the source's rows. Changes no read; the install-order
+    /// comparison reads it (`committed_copy_targets`). A freeze and an export leave it out. Part of the transaction.
+    copy_targets: crate::pmap::PMap<std::sync::Arc<str>, ()>,
+    committed_copy_targets: crate::pmap::PMap<std::sync::Arc<str>, ()>,
     /// Companies whose untouched rows were removed by deleting their Company row.
     dropped_backed_companies: crate::pmap::PMap<std::sync::Arc<str>, ()>,
     committed_dropped_backed_companies: crate::pmap::PMap<std::sync::Arc<str>, ()>,
@@ -229,11 +245,16 @@ pub struct MemStore {
     /// While set, the tables whose access is watched and the first one that was read or written ([`MemStore::watch`]).
     /// Shared by the clones of the store, so a snapshot, a restore or a rollback does not lose it.
     watch: Option<std::rc::Rc<std::cell::RefCell<Watch>>>,
+    /// While set, what the store reads and writes, for an install session's footprint (ADR-079, `footprint.rs`). Shared by
+    /// the clones of the store and kept by a restore.
+    footprint: Option<std::rc::Rc<footprint::Recorder>>,
     /// How many reads and writes of a table the store took ([`MemStore::accesses`], [`MemStore::writes`]). Shared by the
     /// clones of the store, so a snapshot put back does not lower them.
     counts: std::rc::Rc<AccessCounts>,
     /// The store stands for the database ([`MemStore::as_database`]): a Decimal it keeps carries no trailing zeros.
     database: bool,
+    /// The store holds the rows of a table connection ([`MemStore::as_table_connection`]), which BC does not read through SQL.
+    connection: bool,
 }
 
 /// The tables [`MemStore::watch`] watches and the first of them that was read or written, and the window open on top
@@ -245,17 +266,6 @@ struct Watch {
     /// Every watched table that was read or written ([`MemStore::watch_hits`]).
     hits: std::collections::BTreeSet<u32>,
     window: Option<(std::collections::BTreeSet<u32>, Option<u32>)>,
-}
-
-/// One table of an exported store ([`MemStore::export_committed`]): its company (empty for a table that is not per
-/// company), its object, and its rows with their primary keys, in key order.
-#[derive(Debug, Clone)]
-pub struct ExportedTable {
-    pub company: String,
-    pub object: u32,
-    /// How the table's primary key fields are stored: the order of its keys (`memory/key.rs`).
-    pub pk_storage: PkStorage,
-    pub rows: Vec<(Vec<Value>, Row)>,
 }
 
 /// A change to a row the restored company holds, made while recording was on.
@@ -548,9 +558,31 @@ fn same_filters(a: &[FieldFilter], b: &[FieldFilter]) -> bool {
 }
 
 impl MemStore {
-    /// A read that filters a Code field with another SQLDataType than Varchar, Integer, BigInteger or Variant at all, or sorts by one
-    /// whose first key field it is, is refused: the order and the comparison of such a field are not pinned (see [`CodeStorage`]).
-    /// The Writes, Get by exact key and the other keys run.
+    /// The filters of a read with `@` alone or `<>@` alone answered as BC reads this store's rows (al-builtins `filter_at_sign`):
+    /// a read of the database, a row of the database checked against the filters (`row_check`: `AtSignRows::DatabaseRowCheck`),
+    /// or a temporary record. The rows of a table connection (a CRM table) and of a platform table its provider serves are none
+    /// of these: their filters stay as they are, so `@` alone on a Code field refuses (`unpinned_match_read`) and a Text field
+    /// keeps main's answer.
+    pub fn at_sign_alone_read<'a>(
+        &self,
+        t: &TableDef,
+        filters: &'a [FieldFilter],
+        row_check: bool,
+    ) -> std::borrow::Cow<'a, [FieldFilter]> {
+        use al_builtins::filter::AtSignRows;
+        if self.connection || self.is_virtual(t) {
+            return std::borrow::Cow::Borrowed(filters);
+        }
+        let rows = match (self.database, row_check) {
+            (true, false) => AtSignRows::Database,
+            (true, true) => AtSignRows::DatabaseRowCheck,
+            (false, _) => AtSignRows::Temporary,
+        };
+        al_builtins::filter::at_sign_alone_read(filters, rows, |i| {
+            al_builtins::value::Value::default_for(&t.fields[i].ty)
+        })
+    }
+
     /// A read that selects rows through a filter whose matching is not pinned is refused (see `FilterExpr::UnpinnedMatch`).
     fn unpinned_match_read(filters: &[FieldFilter]) -> Result<(), StoreError> {
         match al_builtins::filter::unpinned_match(filters) {
@@ -559,6 +591,9 @@ impl MemStore {
         }
     }
 
+    /// A read that filters a Code field with another SQLDataType than Varchar, Integer, BigInteger or Variant at all, or sorts by one
+    /// whose first key field it is, is refused: the order and the comparison of such a field are not pinned (see [`CodeStorage`]).
+    /// The Writes, Get by exact key and the other keys run.
     fn code_storage_read(t: &TableDef, filters: &[FieldFilter], order: &[usize]) -> Result<(), StoreError> {
         let stored_as = |i: usize| t.fields.get(i).map_or(CodeStorage::Text, |f| f.code_storage);
         if let Some(f) = filters.iter().find(|f| stored_as(f.field) == CodeStorage::Other) {
@@ -592,6 +627,13 @@ impl MemStore {
     /// back from `1.00000` gives `D05 * 1` = `1`). A temporary table stays in memory and keeps the values as written.
     pub fn as_database(mut self) -> MemStore {
         self.database = true;
+        self
+    }
+
+    /// This store as the rows of a table connection (a CRM table's, al-vm `crm.rs`): a read of `@` alone keeps its filters
+    /// ([`MemStore::at_sign_alone_read`]).
+    pub fn as_table_connection(mut self) -> MemStore {
+        self.connection = true;
         self
     }
 
@@ -687,9 +729,12 @@ impl MemStore {
     /// Notes that `copy` holds the backing rows of `source` (a company `copy_company` made, in a store read back from
     /// an export, which holds the tables but not the link) as committed data.
     pub fn note_copy(&mut self, copy: &str, source: &str) {
+        self.footprint_everything("a company copied");
         let source = self.copy_source(source);
         self.copies.insert(copy.into(), source.clone());
         self.committed_copies.insert(copy.into(), source);
+        self.copy_targets.insert(copy.into(), ());
+        self.committed_copy_targets.insert(copy.into(), ());
         self.source_changed(copy);
         let copy = std::sync::Arc::from(copy);
         self.dropped_backed_companies.remove(&copy);
@@ -703,6 +748,18 @@ impl MemStore {
     fn copy_source(&self, company: &str) -> std::sync::Arc<str> {
         let key: std::sync::Arc<str> = company.into();
         self.copies.get(&key).cloned().unwrap_or(key)
+    }
+
+    /// Whether the untouched tables read rows of a backing (ADR-020); without one, the company copies and deleted
+    /// companies change no read (`backing_rows`, `has_company_rows`).
+    pub fn has_backing(&self) -> bool {
+        self.backing.is_some()
+    }
+
+    /// The companies whose committed rows a company copy made ([`MemStore::copy_company`]): their rows carry the system
+    /// fields of the source's rows.
+    pub fn committed_copy_targets(&self) -> impl Iterator<Item = &str> + '_ {
+        self.committed_copy_targets.keys().map(|c| &**c)
     }
 
     /// The identity of the rows the untouched tables read ([`Backing::identity`]): `Some((0, 0))` without a backing,
@@ -878,6 +935,7 @@ impl MemStore {
     /// table nothing wrote to is the backing's.
     pub fn committed_get(&self, cx: &AccessContext, t: &TableDef, pk: &[Value]) -> Option<Row> {
         bump();
+        let _fp = self.footprint_note(cx, t, Some(pk), footprint::Touch::ReadRow);
         let slot = slot(cx, t);
         match self.committed.get(&slot) {
             Some(table) => table.get(&Key::of(t, pk.to_vec())).cloned(),
@@ -891,11 +949,13 @@ impl MemStore {
 
     /// The stamp the last commit left for table `t`: it changes when a commit writes the table, never at a rollback.
     pub fn committed_stamp(&self, cx: &AccessContext, t: &TableDef) -> Option<u64> {
+        let _fp = self.footprint_note(cx, t, None, footprint::Touch::ReadExtent);
         self.committed_versions.get(&slot(cx, t)).copied()
     }
 
     /// Whether a write since the last commit changed table `t` (and no rollback undid it).
     pub fn written_since_commit(&self, cx: &AccessContext, t: &TableDef) -> bool {
+        let _fp = self.footprint_note(cx, t, None, footprint::Touch::ReadExtent);
         let slot = slot(cx, t);
         self.versions.get(&slot) != self.committed_versions.get(&slot)
     }
@@ -903,6 +963,7 @@ impl MemStore {
     /// The table objects (in any company) that a write after the change counter was `counter` changed, and that neither a
     /// commit kept nor a rollback undid: the tables whose rows of those writes a rollback now takes back.
     pub fn tables_rolled_back_since(&self, counter: u64) -> std::collections::BTreeSet<u32> {
+        self.footprint_changes_since(counter);
         self.versions
             .iter()
             .filter(|(slot, v)| **v > counter && self.committed_versions.get(slot) != Some(*v))
@@ -912,6 +973,7 @@ impl MemStore {
 
     /// Whether any write since the last commit or rollback is pending.
     pub fn has_uncommitted(&self) -> bool {
+        self.footprint_pending_read();
         !(self.tables.ptr_eq(&self.committed) || (self.tables.is_empty() && self.committed.is_empty()))
     }
 
@@ -923,6 +985,7 @@ impl MemStore {
     /// The table objects (in any company) whose rows changed after the change counter was `counter`, and whose change a
     /// rollback has not undone (`versions` follows rollback).
     pub fn tables_changed_since(&self, counter: u64) -> std::collections::BTreeSet<u32> {
+        self.footprint_changes_since(counter);
         self.versions
             .iter()
             .filter(|(_, v)| **v > counter)
@@ -995,9 +1058,11 @@ impl MemStore {
         let (ops, accesses, writes) = (store_ops(), self.accesses(), self.writes());
         let mut view = self.clone();
         let (watch, log) = (view.watch.take(), view.restored_log.take());
-        let r = keys
-            .iter()
-            .try_for_each(|k| Store::delete(&mut view, cx, t, k).map(|_| ()));
+        // The copy's deletes are no write of the session; what a reader of the copy reads is the table without them.
+        let _fp = self.footprint_note(cx, t, None, footprint::Touch::ReadExtent);
+        let r = Self::footprint_unrecorded(&mut view, |view| {
+            keys.iter().try_for_each(|k| Store::delete(view, cx, t, k).map(|_| ()))
+        });
         (view.watch, view.restored_log) = (watch, log);
         view.counter = self.counter;
         STORE_OPS.with(|c| c.set(ops));
@@ -1008,6 +1073,7 @@ impl MemStore {
 
     /// Notes an access to table `object` for the watch and the count of [`MemStore::accesses`].
     fn seen(&self, object: u32) {
+        self.footprint_seen(object);
         self.counts.accesses.set(self.counts.accesses.get() + 1);
         if let Some(w) = &self.watch {
             let mut w = w.borrow_mut();
@@ -1025,6 +1091,7 @@ impl MemStore {
 
     /// Notes an access to every watched table (a read of the whole store).
     fn seen_all(&self) {
+        self.footprint_everything("a read of every table");
         self.counts.accesses.set(self.counts.accesses.get() + 1);
         if let Some(w) = &self.watch {
             let mut w = w.borrow_mut();
@@ -1036,6 +1103,13 @@ impl MemStore {
                 *hit = tables.iter().next().copied();
             }
         }
+    }
+
+    /// Whether a table of the store holds a row now, read with no footprint and no access counted: a decision of the VM,
+    /// not a read of AL code (al-vm `clear_shared_codeunit.rs`). The backing is not read; a temporary record's own store
+    /// has none.
+    pub fn holds_rows_unobserved(&self) -> bool {
+        self.tables.iter().any(|(_, t)| !t.is_empty())
     }
 
     /// Whether table object `object` holds a row now (committed or not) in any company.
@@ -1061,74 +1135,15 @@ impl MemStore {
             })
     }
 
-    /// The table objects that hold a committed row in any company.
-    /// The committed rows of every table the store holds an entry for, for a snapshot on disk or for
-    /// another thread (the rows are plain values; [`MemStore::from_exported`] is the way back).
-    /// A store with a backing (test data) exports the tables it holds: those a write reached, which
-    /// carry the backing's rows with the changes, and an emptied one stays empty. The tables it has
-    /// no entry for are the backing's and are not exported; the importer puts the same backing back
-    /// (`with_backing`). The record of changes to restored rows is a log and is not exported.
-    /// Changes that are not committed are not exported.
-    pub fn export_committed(&self) -> Option<Vec<ExportedTable>> {
-        Some(Self::export(&self.committed))
-    }
-
-    /// The tables the store holds now, uncommitted changes included, as [`MemStore::export_committed`] gives the committed
-    /// ones (a temporary table's store, which never commits; al-vm `Session::state_lines`). Counts no store operation.
-    pub fn export_current(&self) -> Vec<ExportedTable> {
-        Self::export(&self.tables)
-    }
-
-    /// Every table of `tables` with its rows in key order ([`MemStore::export_committed`], [`MemStore::export_current`]).
-    fn export(tables: &Tables) -> Vec<ExportedTable> {
-        tables
-            .iter()
-            .map(|((company, object), table)| ExportedTable {
-                company: company.to_string(),
-                object: *object,
-                pk_storage: table_storage(table),
-                rows: table.iter().map(|(k, r)| (k.0.clone(), r.clone())).collect(),
-            })
-            .collect()
-    }
-
-    /// A store whose committed (and current) data is `tables`, with no provider and no backing. Its stamps are new
-    /// ones: a stamp only says whether a table changed, and no cache of this store knows an older one.
-    pub fn from_exported(tables: Vec<ExportedTable>) -> MemStore {
-        let mut s = MemStore::default();
-        for t in tables {
-            let slot: Slot = (std::sync::Arc::from(t.company.as_str()), t.object);
-            let table: Table = t
-                .rows
-                .into_iter()
-                .map(|(k, r)| (Key::in_table(k, &t.pk_storage), r))
-                .collect();
-            s.counter = next_stamp();
-            s.versions.insert(slot.clone(), s.counter);
-            s.shapes.insert(slot.clone(), s.counter);
-            s.tables.insert(slot, table);
-        }
-        s.committed = s.tables.clone();
-        s.committed_versions = s.versions.clone();
-        s.committed_shapes = s.shapes.clone();
-        s.with_held_noted()
-    }
-
     /// The committed tables (company, object) of this store that a write reached since it was `base` (a clone of
     /// `base`, restored, written and committed, as a session's capture of its baseline is): a table whose stamp differs
     /// from `base`'s or that `base` does not hold, and the tables `base` holds that this store does not (second list).
-    /// A write always gives its table a new stamp, so a table with `base`'s stamp holds `base`'s rows. `None` when the
-    /// company copies differ (`MemStore::copy_company`).
+    /// A write always gives its table a new stamp, so a table with `base`'s stamp holds `base`'s rows. What the untouched
+    /// tables answer besides (company copies and deleted companies) is not in the lists: two stores compare it with
+    /// [`MemStore::same_unshown_marks`].
     #[allow(clippy::type_complexity)]
-    pub fn committed_changes_from(&self, base: &MemStore) -> Option<(Vec<(String, u32)>, Vec<(String, u32)>)> {
-        let same_copies = self.committed_copies.len() == base.committed_copies.len()
-            && self
-                .committed_copies
-                .iter()
-                .all(|(k, v)| base.committed_copies.get(k) == Some(v));
-        if !same_copies {
-            return None;
-        }
+    pub fn committed_changes_from(&self, base: &MemStore) -> (Vec<(String, u32)>, Vec<(String, u32)>) {
+        self.footprint_everything("a comparison of the store");
         let name = |s: &Slot| (s.0.to_string(), s.1);
         let changed = self
             .committed
@@ -1144,76 +1159,32 @@ impl MemStore {
             .filter(|s| !self.committed.contains_key(*s))
             .map(name)
             .collect();
-        Some((changed, gone))
+        (changed, gone)
     }
 
-    /// The committed rows of table `object` in `company` that the store holds, and whether a DeleteAll without filters
-    /// emptied it ([`MemStore::emptied`]); `None` when the store holds no entry for it.
-    pub fn committed_table(&self, company: &str, object: u32) -> Option<(ExportedTable, bool)> {
-        let slot: Slot = (std::sync::Arc::from(company), object);
-        let table = self.committed.get(&slot)?;
+    /// The committed rows of table `object` in `company` as a read finds them, and whether a DeleteAll without filters
+    /// emptied it: the store's entry ([`MemStore::committed_table`]), or the backing's rows when the store holds none (a
+    /// copy reads its source's, a deleted company none: `backing_rows`). `None` when neither holds any.
+    pub fn committed_table_read(&self, company: &str, object: u32) -> Option<(ExportedTable, bool)> {
+        if let Some(entry) = self.committed_table(company, object) {
+            return Some(entry);
+        }
+        let rows = self.backing_rows(company, object)?.0;
         Some((
             ExportedTable {
                 company: company.to_string(),
                 object,
-                pk_storage: table_storage(table),
-                rows: table.iter().map(|(k, r)| (k.0.clone(), r.clone())).collect(),
+                pk_storage: table_storage(&rows),
+                rows: rows.iter().map(|(k, r)| (k.0.clone(), r.clone())).collect(),
             },
-            self.committed_emptied.contains_key(&slot),
+            false,
         ))
-    }
-
-    /// This store, with no change open, holding `tables` (each with whether a DeleteAll emptied it) in place of what it
-    /// held for them and nothing for `gone`; the other tables keep their rows and stamps. The replaced tables get new
-    /// stamps, as a write gives them.
-    pub fn with_committed_tables(mut self, tables: Vec<(ExportedTable, bool)>, gone: &[(String, u32)]) -> MemStore {
-        self.rollback();
-        for (company, object) in gone {
-            let slot: Slot = (std::sync::Arc::from(company.as_str()), *object);
-            self.tables.remove(&slot);
-            self.versions.remove(&slot);
-            self.shapes.remove(&slot);
-            self.emptied.remove(&slot);
-        }
-        for (t, emptied) in tables {
-            let slot: Slot = (std::sync::Arc::from(t.company.as_str()), t.object);
-            let table: Table = t
-                .rows
-                .into_iter()
-                .map(|(k, r)| (Key::in_table(k, &t.pk_storage), r))
-                .collect();
-            self.counter = next_stamp();
-            self.versions.insert(slot.clone(), self.counter);
-            self.shapes.insert(slot.clone(), self.counter);
-            if emptied {
-                self.emptied.insert(slot.clone(), ());
-            } else {
-                self.emptied.remove(&slot);
-            }
-            self.tables.insert(slot, table);
-        }
-        self.commit();
-        self
-    }
-
-    /// The marks of the committed store an export leaves out ([`MemStore::export_committed`]): the tables a DeleteAll
-    /// emptied and the company copies, sorted.
-    #[allow(clippy::type_complexity)]
-    pub fn committed_marks(&self) -> (Vec<(String, u32)>, Vec<(String, String)>) {
-        let mut emptied: Vec<(String, u32)> = self.committed_emptied.keys().map(|s| (s.0.to_string(), s.1)).collect();
-        emptied.sort();
-        let mut copies: Vec<(String, String)> = self
-            .committed_copies
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect();
-        copies.sort();
-        (emptied, copies)
     }
 
     /// How many committed rows the store holds, over every table and company (a count for the work ratchet of the
     /// corpus run; it marks nothing as read).
     pub fn committed_row_count(&self) -> usize {
+        self.footprint_everything("a read of every table");
         self.committed.iter().map(|(_, t)| t.len()).sum()
     }
 
@@ -1274,6 +1245,7 @@ impl MemStore {
     /// Removes every row of `company`'s tables, as deleting the company does. Part of the open
     /// transaction: a rollback puts the rows back.
     pub fn drop_company(&mut self, company: &str) {
+        self.footprint_everything("a company removed");
         let doomed: Vec<Slot> = self
             .tables
             .keys()
@@ -1294,6 +1266,7 @@ impl MemStore {
     /// Moves every row of company `old` to company `new`, as renaming the company does
     /// (record/TestChangeCompanyFiltersCopyDeleteContracts.al:170-212). Part of the open transaction.
     pub fn rename_company(&mut self, old: &str, new: &str) {
+        self.footprint_everything("a company renamed");
         let moved: Vec<Slot> = self
             .tables
             .keys()
@@ -1312,6 +1285,9 @@ impl MemStore {
                 self.shapes.insert(target, self.counter);
             }
         }
+        if self.copy_targets.contains_key(&std::sync::Arc::from(old)) {
+            self.copy_targets.insert(new.into(), ());
+        }
         let source = self.copy_source(old);
         self.copies.remove(&std::sync::Arc::from(old));
         if self.backing.is_some() {
@@ -1327,10 +1303,12 @@ impl MemStore {
     /// `Database.CopyCompany` does, the backing's rows of the tables nothing wrote to included. Part of the open
     /// transaction.
     pub fn copy_company(&mut self, from: &str, to: &str) {
+        self.footprint_everything("a company copied");
         if self.backing.is_some() {
             let source = self.copy_source(from);
             self.copies.insert(to.into(), source);
         }
+        self.copy_targets.insert(to.into(), ());
         self.dropped_backed_companies.remove(&std::sync::Arc::from(to));
         self.source_changed(to);
         let copied: Vec<(Slot, Table)> = self
@@ -1349,12 +1327,14 @@ impl MemStore {
 
     /// Whether table `t` changed in the open transaction, in the company of `cx`.
     pub fn table_changed(&self, cx: &AccessContext, t: &TableDef) -> bool {
+        let _fp = self.footprint_note(cx, t, None, footprint::Touch::ReadExtent);
         let slot = slot(cx, t);
         self.versions.get(&slot) != self.committed_versions.get(&slot)
     }
 
     /// Whether a table of `company` changed in the open transaction.
     pub fn company_changed(&self, company: &str) -> bool {
+        self.footprint_everything("a read of whether a company changed");
         self.versions
             .iter()
             .chain(self.committed_versions.iter())
@@ -1365,6 +1345,7 @@ impl MemStore {
     /// A number that changes whenever the rows of table `t` change (a rollback included). Queries
     /// compare it to tell whether their result set is stale (corpus queries/TestQueryReadAfterWrite.al).
     pub fn table_stamp(&self, cx: &AccessContext, t: &TableDef) -> u64 {
+        let _fp = self.footprint_note(cx, t, None, footprint::Touch::ReadExtent);
         if self.virtual_of(t).is_some() {
             return 0;
         }
@@ -1567,6 +1548,7 @@ impl MemStore {
 
     fn table_mut(&mut self, cx: &AccessContext, t: &TableDef) -> &mut Table {
         self.seen(t.object);
+        self.footprint_written(t.object);
         let slot = slot(cx, t);
         if !self.tables.contains_key(&slot) {
             let start = self.backing_rows(&slot.0, slot.1).map_or_else(Table::new, |r| r.0);
@@ -1611,6 +1593,7 @@ pub fn store_ops() -> u64 {
 impl Store for MemStore {
     fn insert(&mut self, cx: &AccessContext, t: &TableDef, row: Row) -> Result<InsertOutcome, StoreError> {
         bump();
+        let _fp = self.footprint_note(cx, t, Some(&t.primary_key(&row)), footprint::Touch::InsertOrDelete);
         let row = self.kept(t, row);
         t.check_key_values(&row)?;
         if let Some(v) = self.virtual_of(t) {
@@ -1639,6 +1622,7 @@ impl Store for MemStore {
 
     fn get(&self, cx: &AccessContext, t: &TableDef, pk: &[Value]) -> Result<Option<Row>, StoreError> {
         bump();
+        let _fp = self.footprint_note(cx, t, Some(pk), footprint::Touch::ReadRow);
         t.check_primary_key(pk)?;
         if let Some(v) = self.virtual_of(t) {
             return v.get(self, cx, t, pk);
@@ -1648,6 +1632,7 @@ impl Store for MemStore {
 
     fn modify(&mut self, cx: &AccessContext, t: &TableDef, row: Row) -> Result<WriteOutcome, StoreError> {
         bump();
+        let _fp = self.footprint_note(cx, t, Some(&t.primary_key(&row)), footprint::Touch::Modify);
         let row = self.kept(t, row);
         t.check_key_values(&row)?;
         if let Some(v) = self.virtual_of(t) {
@@ -1734,6 +1719,7 @@ impl Store for MemStore {
 
     fn delete(&mut self, cx: &AccessContext, t: &TableDef, pk: &[Value]) -> Result<WriteOutcome, StoreError> {
         bump();
+        let _fp = self.footprint_note(cx, t, Some(pk), footprint::Touch::InsertOrDelete);
         t.check_primary_key(pk)?;
         if let Some(v) = self.virtual_of(t) {
             let k = Key::of(t, pk.to_vec());
@@ -1762,6 +1748,10 @@ impl Store for MemStore {
         row: Row,
     ) -> Result<RenameOutcome, StoreError> {
         bump();
+        let _fp = (
+            self.footprint_note(cx, t, Some(old), footprint::Touch::InsertOrDelete),
+            self.footprint_note(cx, t, Some(&t.primary_key(&row)), footprint::Touch::InsertOrDelete),
+        );
         let row = self.kept(t, row);
         t.check_primary_key(old)?;
         t.check_key_values(&row)?;
@@ -1785,12 +1775,18 @@ impl Store for MemStore {
 
     fn next(&self, cx: &AccessContext, t: &TableDef, scan: &Scan) -> Result<Option<Row>, StoreError> {
         bump();
+        let _fp = self.footprint_note(cx, t, None, footprint::Touch::ReadExtent);
         if let Some(at) = scan.after {
             t.check_position(scan.key, at)?;
         }
         if let Some(v) = self.virtual_of(t) {
             return v.next(self, cx, t, scan);
         }
+        let at_sign = self.at_sign_alone_read(t, scan.filters, false);
+        let scan = &Scan {
+            filters: &at_sign,
+            ..scan.clone()
+        };
         self.unknown_read(cx, t, scan.filters, t.keys.get(scan.key).map_or(&[], |k| k.as_slice()))?;
         Self::unpinned_match_read(scan.filters)?;
         Self::code_storage_read(t, scan.filters, t.keys.get(scan.key).map_or(&[], |k| k.as_slice()))?;
@@ -1934,9 +1930,11 @@ impl Store for MemStore {
 
     fn delete_all(&mut self, cx: &AccessContext, t: &TableDef, f: &[FieldFilter]) -> Result<usize, StoreError> {
         bump();
+        let _fp = self.footprint_note(cx, t, None, footprint::Touch::DeleteAll);
         if self.virtual_of(t).is_some() {
             return Err(self.read_only(t, "DeleteAll"));
         }
+        let f = &*self.at_sign_alone_read(t, f, false);
         self.unknown_read(cx, t, f, &[])?;
         Self::unpinned_match_read(f)?;
         Self::code_storage_read(t, f, &[])?;
@@ -1975,6 +1973,7 @@ impl Store for MemStore {
         self.committed_shapes = self.shapes.clone();
         self.committed_moves = self.moves.clone();
         self.committed_copies = self.copies.clone();
+        self.committed_copy_targets = self.copy_targets.clone();
         self.committed_dropped_backed_companies = self.dropped_backed_companies.clone();
         self.committed_source_stamps = self.source_stamps.clone();
         self.committed_emptied = self.emptied.clone();
@@ -1988,6 +1987,7 @@ impl Store for MemStore {
         self.shapes = self.committed_shapes.clone();
         self.moves = self.committed_moves.clone();
         self.copies = self.committed_copies.clone();
+        self.copy_targets = self.committed_copy_targets.clone();
         self.dropped_backed_companies = self.committed_dropped_backed_companies.clone();
         self.source_stamps = self.committed_source_stamps.clone();
         self.emptied = self.committed_emptied.clone();
@@ -1998,6 +1998,7 @@ impl MemStore {
     /// Whether a DeleteAll without filters emptied table `t` and still stands: the rows it held before (rows of the tenant
     /// the store does not hold) are gone, and what it holds now is what was written since.
     pub fn emptied(&self, cx: &AccessContext, t: &TableDef) -> bool {
+        let _fp = self.footprint_note(cx, t, None, footprint::Touch::ReadExtent);
         self.emptied.contains_key(&slot(cx, t))
     }
 
@@ -2008,6 +2009,7 @@ impl MemStore {
 
     /// A virtual table took a change since the last commit (see the field).
     pub fn virtual_write_pending(&self) -> bool {
+        self.footprint_pending_read();
         self.virtual_write_pending
     }
 }
@@ -2020,11 +2022,14 @@ impl SnapshotStore for MemStore {
     fn restore(&mut self, s: MemStore) {
         bump();
         let counter = self.counter.max(s.counter);
-        // Whether the store stands for the database is its role, not part of the rows a snapshot holds.
-        let database = self.database;
+        // Whether the store stands for the database or a table connection is its role, not part of the rows a snapshot holds.
+        let (database, connection) = (self.database, self.connection);
+        let footprint = self.footprint.take();
         *self = s;
+        self.footprint = footprint;
         self.counter = counter;
         self.database = database;
+        self.connection = connection;
     }
 }
 

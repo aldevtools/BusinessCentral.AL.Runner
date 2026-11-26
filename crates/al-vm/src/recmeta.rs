@@ -1,6 +1,14 @@
 //! Record builtins that read table metadata or guard on session state:
 //! `TestField`, `Truncate`, `FieldCaption`, `FieldName`, `FieldNo`,
 //! `TableCaption`, `TableName`.
+//!
+//! Entry points: `string_literal`, `mentions_table`, `is_blank`. `field_caption_class_value` runs a
+//! table field's CaptionClass expression for every reader (FieldCaption, FieldRef.Caption, the page
+//! runs of `pages/caption_runs.rs`) and refuses a read of the field's caption while its own
+//! expression is on the call stack (al-runner issue 8329). TransferFields: `transfer_fields` walks
+//! the target's fields; `transfer_field` decides a field declared ObsoleteState = Removed on either
+//! side (`removed_pair_measured`, assumption `transferfields-removed-field`, corpus PR 1486) and
+//! `move_field` moves a live field.
 
 use crate::Session;
 use crate::blob_transfer::BlobMove;
@@ -568,8 +576,7 @@ impl Session {
         t: &TableDef,
         args: &mut [Value],
     ) -> Result<Value, Signal> {
-        self.connection_check(rec)?;
-        self.crm_method_check(t, rec, method, args)?;
+        self.meta_op_checks(method, rec, t, args)?;
         match method {
             RecordOp::AddLink
             | RecordOp::DeleteLink
@@ -773,6 +780,7 @@ impl Session {
                     self.tx.open.locks.lock_tx = true;
                     let table = rec.borrow().table;
                     self.tx.open.locked_tables.push(table);
+                    self.note_table_locked(rec, table);
                     self.note_row_lock_table(table);
                 }
                 Ok(Value::Null)
@@ -1046,15 +1054,30 @@ impl Session {
                 Ok(Value::Null)
             }
             RecordOp::CopyFilters => Self::copy_filters(rec, args),
-            RecordOp::Copy => self.record_copy(rec, args),
+            RecordOp::Copy => self.record_copy(rec, args, true),
             RecordOp::TestField | RecordOp::FieldError => self.test_field_or_field_error(method, rec, t, args),
             other => unsupported(format!("Record.{other}")),
         }
     }
 
+    /// The checks every record meta method makes first (`record_meta_op`, `record_ref_copy`).
+    fn meta_op_checks(&mut self, method: RecordOp, rec: &Rec, t: &TableDef, args: &[Value]) -> Result<(), Signal> {
+        self.connection_check(rec)?;
+        self.crm_method_check(t, rec, method, args)
+    }
+
+    /// `RecordRef.Copy(From [, ShareTable])` (refs.rs): `Record.Copy`, its target not noted.
+    pub(crate) fn record_ref_copy(&mut self, rec: &Rec, t: &TableDef, args: &[Value]) -> Result<Value, Signal> {
+        self.meta_op_checks(RecordOp::Copy, rec, t, args)?;
+        self.record_copy(rec, args, false)
+    }
+
     /// `Record.Copy(Source [, ShareTable])`. Doc (Record.Copy) and corpus record/TestCopyOntoTemporaryRecord.al:66-110: the
     /// buffer, filters, key and direction come over; a temporary target keeps its own rows and stays temporary.
-    fn record_copy(&self, rec: &Rec, args: &[Value]) -> Result<Value, Signal> {
+    /// `by_record` notes a shared target for ClearAll (`TempId::note_copy_target`): its cells measure `Record.Copy(x, true)`
+    /// only (ClearSharedCodeunitTempArrayShare.al:39), so a `RecordRef.Copy` target (`record_ref_copy`) counts as another
+    /// sharer.
+    fn record_copy(&self, rec: &Rec, args: &[Value], by_record: bool) -> Result<Value, Signal> {
         let Some(Value::Record(src)) = args.first() else {
             return unsupported(format!("Copy from {}", args.first().describe()));
         };
@@ -1087,6 +1110,8 @@ impl Session {
         // The row version the buffer got comes over with the fields, and where it came from (record/crud/
         // Y76StaleBuffers.al Y76_Part1_Copy_TransferFromRecord, `copy/*`).
         (d.fields, d.row_origin) = (s.fields, s.row_origin);
+        // And the version's entry (corpus PR 1523, record/crud/TestRecordFailedInsertMovedKey.al:1078 S3).
+        d.version_entry = s.version_entry.carried(al_builtins::value::VersionVia::Copied);
         // The Blobs move as `BlobMove::RecordCopy` says.
         let table = d.table as usize;
         let how = BlobMove::RecordCopy {
@@ -1123,6 +1148,9 @@ impl Session {
         d.load.partial = s.load.partial;
         if share && s.temporary {
             d.temp_id = s.temp_id.clone();
+            if let Some(id) = d.temp_id.as_ref().filter(|_| by_record) {
+                id.note_copy_target(rec, src);
+            }
         }
         Ok(Value::Null)
     }
@@ -1626,6 +1654,12 @@ impl Session {
         for (dp, v) in updates {
             r.fields[dp] = v;
         }
+        // The row version taken with the key is a copy of a field: the buffer neither read nor wrote that row, so the
+        // Modify after a failed Insert keeps its raise (corpus PR 1523,
+        // record/crud/TestRecordFailedInsertMovedKey.al:844 R8).
+        if init_pk && src_table == t.object as usize {
+            r.version_entry = Default::default();
+        }
         // The row version came over from the source (above), which a Commit may have left behind. Where it came from decides the
         // stale write (record/crud/Y76StaleBuffers.al Y76_Part1_Copy_TransferFromRecord, _GetThenTransferFields,
         // _TransferFromTemp): from a temporary copy never written; from a record read by Get or Find, written only after a LockTable
@@ -2033,7 +2067,7 @@ impl Session {
             return match args.first() {
                 // GetWithTextArgument.al:GetBySystemId_TextAndGuid, `empty_text`, `text_not_a_guid`, `integer`.
                 Some(Value::Text(_) | Value::Code(_)) => Err(crate::transactions::al_error_code(
-                    "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.",
+                    al_builtins::native::INVALID_GUID_FORMAT,
                     "InvalidGuidFormat",
                 )),
                 Some(Value::Integer(_)) => Err(crate::transactions::al_error_code(
@@ -2303,6 +2337,7 @@ impl Session {
                     last_modify: None,
                     failed_insert: None,
                     row_origin: None,
+                    version_entry: Default::default(),
                     own_read: Default::default(),
                     rolled_read: al_builtins::value::RolledRead(rolled_read),
                     probed_source: Default::default(),
@@ -2652,6 +2687,7 @@ impl Session {
 }
 
 /// Member indexes of the IsolationLevel option (`al_builtins::sysenum`, "isolationlevel").
+pub(crate) const ISOLATION_READ_UNCOMMITTED: i32 = 1;
 pub(crate) const ISOLATION_REPEATABLE_READ: i32 = 3;
 pub(crate) const ISOLATION_UPDLOCK: i32 = 4;
 

@@ -9,6 +9,7 @@ mod datetime_forms;
 mod duration;
 mod enum_text;
 use duration::duration;
+mod option_blank;
 mod option_text;
 mod platform_options;
 mod short_us_date;
@@ -1484,9 +1485,39 @@ pub fn evaluate(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Resu
     evaluate_with(c, a, false)
 }
 
-/// `Evaluate` into a Date or DateTime local variable or parameter: the shapes of `short_us_date`, else [`evaluate`].
-pub fn evaluate_date_variable(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
-    evaluate_with_max(c, a, false, None, false, true)
+/// `Evaluate` into a Date or DateTime local variable or parameter (`System.EvaluateDateVariable#1`: the shapes of
+/// `short_us_date`, else [`evaluate`]) or into an Enum variable of the routine's `var` section
+/// (`System.EvaluateEnumVariable#1`: `enum_text` reads the shapes measured on such a variable).
+pub fn evaluate_variable(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
+    evaluate_with_max(c, a, false, None, false, Place::Variable)
+}
+
+/// The fifth argument of `System.EvaluateOptionField#1` (al-sema `lower/call.rs`): where the fourth, the captions, comes from.
+/// No fifth argument: the field's plain OptionCaption.
+pub mod option_captions {
+    /// The fourth argument is the OptionCaptionML property text.
+    pub const ML: i32 = 1;
+    /// The field declares no caption and the fourth argument is its member names.
+    pub const NONE: i32 = 2;
+    /// The OptionCaption repeats the member names entry by entry.
+    pub const SAME_AS_NAMES: i32 = 3;
+}
+
+/// `Evaluate` into an Enum record field named directly: `enum_text` reads the shapes measured on such a field.
+pub fn evaluate_enum_field(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
+    evaluate_with_max(c, a, false, None, false, Place::Field)
+}
+
+/// The place the lowering chose an `Evaluate` id for, where a reader needs it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Place {
+    /// `System.EvaluateDateVariable#1` (a Date or DateTime local or parameter) or `System.EvaluateEnumVariable#1` (an Enum
+    /// variable of the routine's `var` section).
+    Variable,
+    /// `System.EvaluateEnumField#1`: an Enum record field named directly.
+    Field,
+    /// Any other target, and every caller that is no `Evaluate` statement of AL code.
+    Other,
 }
 
 /// `Evaluate` into an Option variable, which has no OptionCaption to name a member by.
@@ -1538,6 +1569,18 @@ pub fn evaluate_memberless_var_option_element(
 ///
 /// A rejected text gives `false` with the result used.
 pub fn evaluate_option_field(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
+    option_field(c, a, true)
+}
+
+/// [`evaluate_option_field`] of a field named directly (`direct`) or through a FieldRef.
+fn option_field(c: &mut dyn Ctx, a: &mut [Value], direct: bool) -> Result<Value, Signal> {
+    // An OptionCaption that repeats the member names (fifth argument 3): the measured shapes read as captions do, every other
+    // shape as a field without these captions (`option_text::same_as_names_measured`).
+    if matches!(a.get(4), Some(Value::Integer(option_captions::SAME_AS_NAMES)))
+        && !option_text::same_as_names_measured(c, a, direct)
+    {
+        return evaluate_with(c, &mut a[..3], false);
+    }
     let (Some(text), Some(Value::Text(captions)), Value::Option(_, names)) =
         (crate::native::text_of(&a[1]), a.get(3).cloned(), a[0].clone())
     else {
@@ -1546,7 +1589,7 @@ pub fn evaluate_option_field(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Va
     if !matches!(a.get(2), Some(Value::Integer(0 | 2 | 9))) {
         return unsupported("Evaluate into an Option field with a format number other than 0, 2 and 9 (not pinned)");
     }
-    let captions: String = if matches!(a.get(4), Some(Value::Integer(1))) {
+    let captions: String = if matches!(a.get(4), Some(Value::Integer(option_captions::ML))) {
         let list = crate::format::ml_text_in_language(captions.as_str(), c.language())
             .map_err(|e| Signal::unsupported(format!("Evaluate into an Option field with OptionCaptionML {e}")))?;
         if list.split(',').count() != names.len() {
@@ -1559,29 +1602,28 @@ pub fn evaluate_option_field(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Va
     let t = text.trim();
     // A field without a caption (fifth argument 2, the fourth its member names): an empty or blank text names a member
     // declared as `" "`, not one declared as `""` (format-evaluate/AxFormatOption.al:208-211).
-    let no_caption = matches!(a.get(4), Some(Value::Integer(2)));
-    // An empty or blank text names a blank member (format-evaluate/P131EvalOption.al:107-108: `''` and `' '` give the
-    // member `" "` of caption `' '`, :146: a field without a blank member rejects `''`).
+    let no_caption = matches!(a.get(4), Some(Value::Integer(option_captions::NONE)));
     let same = |n: &str| {
         if t.is_empty() {
-            n.trim().is_empty() && !(no_caption && n.is_empty())
+            !n.is_empty() && n.trim().is_empty()
         } else {
             n.trim().eq_ignore_ascii_case(t)
         }
     };
-    let by_caption = captions.split(',').position(same);
-    let by_name = names.iter().position(|n| same(n));
-    // A blank text that names a member only by its blank caption, while the member has a name (`OptionMembers = None,First`,
-    // `OptionCaption = ' ,First cap'`): the pins are members named " " or "" (P131EvalOption.al:107-108, FMOptionBlankField.al).
-    // Not pinned, listed by the probe of corpus pull request 1283 (EvalNamedBlankCaption.al:41-58): refused.
-    if t.is_empty()
-        && by_name.is_none()
-        && by_caption.is_some_and(|p| names.get(p).is_some_and(|n| !n.trim().is_empty()))
-    {
-        return unsupported(
-            "Evaluate of a blank text into an Option field whose member has a name and a blank OptionCaption (not pinned)",
-        );
-    }
+    // A blank text into a field with captions: `option_blank` decides from the blank names and captions.
+    let (by_caption, by_name) = if t.is_empty() && !no_caption {
+        let call = option_blank::BlankCall {
+            text: text.as_str(),
+            direct_plain_caption: direct && a.get(4).is_none(),
+            ret_used: c.ret_used(),
+            language: c.language(),
+            format_zero: matches!(a.get(2), Some(Value::Integer(0))),
+        };
+        let caps: Vec<&str> = captions.split(',').collect();
+        (option_blank::blank_text(&names, &caps, &call)?, None)
+    } else {
+        (captions.split(',').position(same), names.iter().position(|n| same(n)))
+    };
     let digits = t.strip_prefix('+').unwrap_or(t);
     let ordinal = (!digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
         .then(|| digits.parse::<i32>().ok())
@@ -1612,11 +1654,11 @@ pub fn evaluate_bounded(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value])
         return unsupported("Evaluate into a bounded text without its length");
     };
     let max = u32::try_from(max).ok();
-    evaluate_with_max(c, &mut a[..3], false, max, false, false)
+    evaluate_with_max(c, &mut a[..3], false, max, false, Place::Other)
 }
 
 fn evaluate_with(c: &mut dyn Ctx, a: &mut [Value], variable_option: bool) -> Result<Value, Signal> {
-    evaluate_with_max(c, a, variable_option, None, false, false)
+    evaluate_with_max(c, a, variable_option, None, false, Place::Other)
 }
 
 /// `Evaluate` into a Text or a Code (corpus recordref-fieldref/P128EvalBasic.al:P128_Evaluate_IntoText,
@@ -1689,7 +1731,7 @@ pub fn evaluate_typed(
         Value::Integer(number as i32),
     ];
     // The caller says the result is used: a rejected text is `false`, not an error.
-    Ok(match evaluate_with_max(c, &mut tmp, false, max, false, false)? {
+    Ok(match evaluate_with_max(c, &mut tmp, false, max, false, Place::Other)? {
         Value::Boolean(true) => Some(tmp.swap_remove(0)),
         _ => None,
     })
@@ -2193,7 +2235,7 @@ fn into_field_ref(c: &mut dyn Ctx, a: &mut [Value], number: i64) -> Result<Value
             Value::Integer(number as i32),
             Value::Text(captions.clone().into()),
         ];
-        let ok = evaluate_option_field(c, None, &mut args)?;
+        let ok = option_field(c, &mut args, false)?;
         if matches!(ok, Value::Boolean(true)) {
             target.rec.borrow_mut().fields[target.pos] = args.swap_remove(0);
         }
@@ -2201,7 +2243,7 @@ fn into_field_ref(c: &mut dyn Ctx, a: &mut [Value], number: i64) -> Result<Value
     }
     let mut tmp = vec![current, a[1].clone(), Value::Integer(number as i32)];
     // A Date field names any text in the date error, letters too (N582EvalFieldRefUnused.al:92, `abc`).
-    let ok = evaluate_with_max(c, &mut tmp, !target.option_caption, max, true, false)?;
+    let ok = evaluate_with_max(c, &mut tmp, !target.option_caption, max, true, Place::Other)?;
     if matches!(ok, Value::Boolean(true)) {
         let v = crate::ops::convert(tmp.swap_remove(0), &target.ty)?;
         target.rec.borrow_mut().fields[target.pos] = v;
@@ -2229,7 +2271,7 @@ pub fn evaluate_key_part(c: &mut dyn Ctx, ty: &crate::value::RtType, text: &str,
         Value::Text(text.to_string().into()),
         Value::Integer(number as i32),
     ];
-    match evaluate_with_max(c, &mut tmp, false, max, true, false)? {
+    match evaluate_with_max(c, &mut tmp, false, max, true, Place::Other)? {
         Value::Boolean(true) => Ok(tmp.swap_remove(0)),
         _ => unsupported(format!(
             "Evaluate of the key part `{text}` into {} (not pinned)",
@@ -2264,13 +2306,14 @@ fn pinned_number(number: i64, target: &Value, variable_option: bool) -> Option<i
     pinned.then_some(number)
 }
 
+/// `place`: the target the lowering chose the id for.
 fn evaluate_with_max(
     c: &mut dyn Ctx,
     a: &mut [Value],
     variable_option: bool,
     max: Option<u32>,
     any_date_text: bool,
-    date_variable: bool,
+    place: Place,
 ) -> Result<Value, Signal> {
     // A Guid source reads as its text `{XXXXXXXX-...}`: into a Text, a Code and a Guid (types/duration/
     // E_Guid.al:224-311). Other sources that are not text are not pinned.
@@ -2320,7 +2363,7 @@ fn evaluate_with_max(
     }
     let parsed = match &a[0] {
         Value::Date(..) | Value::DateTime(_)
-            if date_variable
+            if place == Place::Variable
                 && matches!(a.get(2), None | Some(Value::Integer(0)))
                 && short_us_date::measured(c, matches!(a[0], Value::DateTime(_)), &text) =>
         {
@@ -2389,7 +2432,7 @@ fn evaluate_with_max(
                 None => return unsupported(format!("Evaluate of `{text}` into Version (only a.b.c.d is pinned)")),
             }
         }
-        Value::Enum(id, _) => enum_text::enum_text(c, id, &text)?,
+        Value::Enum(id, _) => enum_text::enum_text(c, id, &text, place, number == 0)?,
         Value::Option(_, members) if platform_options::reads(members) => platform_options::read(c, members, &text)?,
         Value::Option(_, members) if variable_option => option_text::variable(c, members, &text)?,
         Value::Option(_, members) => option_text::field(c, members, &text)?,
@@ -2561,10 +2604,9 @@ fn evaluate_with_max(
             "Evaluate",
         ),
         // GetLastErrorText(true) leaves the text (errors/last-error/LastErrorFlagRuntimeCodes.al:238, :248).
-        Parsed::Rejected if matches!(a[0], Value::Guid(_)) => crate::native::raise_same_text(
-            "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.",
-            "InvalidGuidFormat",
-        ),
+        Parsed::Rejected if matches!(a[0], Value::Guid(_)) => {
+            crate::native::raise_same_text(crate::native::INVALID_GUID_FORMAT, "InvalidGuidFormat")
+        }
         Parsed::Rejected | Parsed::RejectedUsedRefused(_) | Parsed::RejectedUsedCode(_) => unsupported(format!(
             "Evaluate of `{text}` failed with the result unused (error text not pinned yet)"
         )),

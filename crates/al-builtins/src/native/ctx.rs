@@ -73,6 +73,9 @@ pub struct FieldTarget {
     pub option_captions: Option<String>,
 }
 
+/// The bytes `File.Open` opens and the placeholder mark they open with ([`Ctx::fs_read_to_open`]).
+pub type OpenedFile = (Vec<u8>, Option<std::sync::Arc<str>>);
+
 pub trait Ctx: FormatCtx {
     /// Gives `request` to the running test's `[HttpClientHandler]` and answers the response it filled; raises the
     /// policy error without one. No request ever reaches a network.
@@ -108,6 +111,11 @@ pub trait Ctx: FormatCtx {
     }
 
     fn last_error(&self) -> AlError;
+    /// The code runs in a session that started with no error and has had none since, a page background task's worker
+    /// (`GetLastErrorObject` answers null there); a context that does not know answers `false`.
+    fn session_without_error(&self) -> bool {
+        false
+    }
     fn set_last_error(&mut self, e: AlError);
     /// Whether the run has the newer behaviour of `gate` (ADR-015 3.4); a context with no target has every gate.
     fn gate(&self, _gate: al_version::Gate) -> bool {
@@ -135,6 +143,11 @@ pub trait Ctx: FormatCtx {
     /// into the field as `FieldRef.Validate` converts it.
     fn record_validate_variant(&mut self, rec: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
         self.record(crate::record_op::RecordOp::Validate, rec, args)
+    }
+    /// `Record.SetRange(Field, V)` with `V` written as a Variant (lowering picks `Record.SetRangeVariant#1`): a value of another
+    /// type than the field's converts as al-vm `setrange_convert` says.
+    fn record_setrange_variant(&mut self, rec: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
+        self.record(crate::record_op::RecordOp::SetRange, rec, args)
     }
     /// `TestPage` / `TestField` / `TestAction` methods: the VM's test client
     /// implements them (ADR-012). `method` is `Receiver.Name`.
@@ -412,9 +425,19 @@ pub trait Ctx: FormatCtx {
     fn fs_exists(&mut self, _path: &str) -> Result<bool, Signal> {
         Err(Signal::Unsupported("File: this context has no file system".into()))
     }
-    /// The bytes of the file at `path`, `None` if there is none.
+    /// The bytes of the file at `path` for a read of its content, `None` if there is none.
     fn fs_read(&mut self, _path: &str) -> Result<Option<Vec<u8>>, Signal> {
         Err(Signal::Unsupported("File: this context has no file system".into()))
+    }
+    /// The bytes of the file at `path` for `File.Open`, with the placeholder mark they open with when a read of their content
+    /// is refused, `None` if there is no file.
+    fn fs_read_to_open(&mut self, path: &str) -> Result<Option<OpenedFile>, Signal> {
+        Ok(self.fs_read(path)?.map(|bytes| (bytes, None)))
+    }
+    /// The bytes of the file at `path` for a copy that looks at none of them (`File.Copy`, `File.Rename`), `None` if there is
+    /// none.
+    fn fs_read_to_move(&mut self, path: &str) -> Result<Option<Vec<u8>>, Signal> {
+        self.fs_read(path)
     }
     /// Creates the file at `path` or replaces its content; the host's reason if it cannot.
     fn fs_write(&mut self, _path: &str, _bytes: &[u8]) -> Result<(), String> {

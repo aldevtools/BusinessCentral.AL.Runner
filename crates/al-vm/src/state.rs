@@ -1,6 +1,12 @@
 //! Sub-states of a [`Session`] (ADR-037 item 3): fields that belong together, so `Session` stays readable.
+//!
+//! Sub-states of `Session`: `TxState` (what ends with the open transaction is `OpenTx`, which a
+//! Commit and a rollback reset in one step, `Session::end_open_transaction`; its locks are `TxLocks`;
+//! how far the transaction has started is `transactions::TxPhase`), `UiState`, `PageClients`,
+//! `EventState`, `CoverageState`, `ReportState` (the .NET host state is `dotnet::DotNetState`).
 
 use super::*;
+use al_builtins::value::TableWritten;
 
 /// Transactions: the depth of transaction-beginning constructs, and where the open transaction stands.
 pub(crate) struct TxState {
@@ -20,9 +26,15 @@ pub(crate) struct TxState {
     /// What `transaction_type` rests on when no corpus case pins it (`Session::transaction_type_seen`): the assumptions it
     /// went through (a Commit kept it, al-runner issue 8605; a test method before left it, 8606), or that it is not known (a
     /// test method before it did not run to its end and could set it). A set that takes effect clears it.
-    pub(crate) type_origin: crate::transactions::TypeOrigin,
+    pub(crate) type_origin: crate::transaction_type::TypeOrigin,
     /// A test method of this codeunit has ended (`Session::test_method_ended`): the next one starts with the type it left.
     pub(crate) test_ended: bool,
+    /// Reads of the type while it was not known whose value only sets it back (`transaction_type_saved.rs`), innermost last.
+    pub(crate) saved_types: Vec<crate::transaction_type_saved::SavedType>,
+    /// The rollback of an asserterror in the code of the test ended the test runner's transaction in a codeunit's first test
+    /// method (`OpenTx::runner_tx`) and no Commit came after it: a set of the type then rests on
+    /// `first-test-rollback-ends-runner-transaction`.
+    pub(crate) runner_tx_rolled_back: bool,
     /// `Database.LockTimeout`: whether a lock wait ends in a timeout error.
     pub(crate) lock_timeout: bool,
     /// `Database.LockTimeoutDuration` in milliseconds.
@@ -32,6 +44,8 @@ pub(crate) struct TxState {
     /// The database store's change counter when the last Commit or rollback ran: with `writes` it tells whether every write
     /// since was a Record Insert, Modify or Delete (`Session::stale_verdict`, al-runner issue 6028).
     pub(crate) commit_counter: u64,
+    /// The Record writes noted in the whole session, never reset (`version_entry.rs`).
+    pub(crate) write_counts: WriteCounts,
     /// A rollback ran since the last Commit.
     pub(crate) rolled_back: bool,
     /// Why a rollback since the last Commit is not one the stale-buffer rule knows (`Session::note_rollback_for_stale_rule`);
@@ -106,6 +120,9 @@ pub(crate) struct OpenTx {
     pub(crate) locked_tables: Vec<u32>,
     /// The Record writes to the database store since the last Commit or rollback, in order (`Session::stale_verdict`).
     pub(crate) writes: Vec<TxWrite>,
+    /// Per table and company, what those writes and LockTable did to it, kept as each is noted, so a load reads it
+    /// without a scan of `writes` (`Session::load_version_entry`).
+    pub(crate) table_writes: TableWrites,
     /// The database reads (table object, company, the key a Get named; `None` for any other read) since the last rollback, while
     /// the transaction then open began at it (`Session::note_read_after_rollback`).
     pub(crate) reads_after_rollback: Vec<(u32, Option<String>, Option<Vec<Value>>)>,
@@ -133,9 +150,10 @@ pub(crate) struct OpenTx {
     /// CurrentTransactionType set (`transactions.rs`) are noted in it or end it, a Codeunit.Run (`transactions.rs`) and a
     /// report run end it, and so does the end of the transaction.
     pub(crate) moment: Option<crate::reports::transaction_world::Moment>,
-    /// The open transaction is the one the test runner started before the first test method of the codeunit: a
-    /// CurrentTransactionType set to another type has no effect there on BC (corpus pull request 1488,
-    /// session-system/TxTypeNextTestMethod.al TxN01's comment), which no case pins.
+    /// The open transaction may be one the test runner started before the first test method of the codeunit: whether a
+    /// CurrentTransactionType set to another type takes effect there depends on the runner and on what ran before (the
+    /// description of corpus pull request 1520), so such a set is refused. A Commit and the rollback of an asserterror in the
+    /// code of the test end it (`transaction_type.rs`); every other rollback keeps it.
     pub(crate) runner_tx: bool,
 }
 
@@ -253,6 +271,101 @@ pub(crate) struct RestampedRows {
     pub(crate) to: i64,
 }
 
+/// A value per table and company ([`TableWrites`], [`WriteCounts`]), found by a hash of the table and a scan of its
+/// companies (almost always one): a row load looks its table up in both, so the lookup must not grow with the tables the
+/// transaction or the session wrote (al-runner issue 8721). No reader depends on the order.
+#[derive(Debug, Clone)]
+pub(crate) struct ByTableCompany<V>(al_ir::sym::FxMap<u32, Vec<(Option<String>, V)>>);
+
+impl<V> Default for ByTableCompany<V> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
+impl<V: Default> ByTableCompany<V> {
+    /// The value of `table` in `company`, if one was noted.
+    pub(crate) fn get(&self, table: u32, company: &Option<String>) -> Option<&V> {
+        let companies = self.0.get(&table)?;
+        companies.iter().find(|(c, _)| c == company).map(|(_, v)| v)
+    }
+
+    /// The value of `table` in `company`, `V::default()` put in first when there is none.
+    pub(crate) fn entry(&mut self, table: u32, company: &Option<String>) -> &mut V {
+        let companies = self.0.entry(table).or_default();
+        let i = match companies.iter().position(|(c, _)| c == company) {
+            Some(i) => i,
+            None => {
+                companies.push((company.clone(), V::default()));
+                companies.len() - 1
+            }
+        };
+        &mut companies[i].1
+    }
+
+    /// How many tables and companies hold a value.
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.0.values().map(Vec::len).sum()
+    }
+
+    /// Whether no table holds a value (`entry` never leaves a table without a company).
+    pub(crate) fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+/// [`OpenTx::table_writes`]: one entry per table and company the open transaction wrote or locked.
+#[derive(Debug, Default)]
+pub(crate) struct TableWrites(pub(crate) ByTableCompany<TableWritten>);
+
+impl TableWrites {
+    /// Notes a write or lock of `table` in `company` of kind `w`; the verdict only grows (`TableWritten` order, whose
+    /// least value `No` is the default).
+    pub(crate) fn note(&mut self, table: u32, company: &Option<String>, w: TableWritten) {
+        let v = self.0.entry(table, company);
+        *v = (*v).max(w);
+    }
+
+    /// What the open transaction wrote or locked of `table` in `company`.
+    pub(crate) fn of(&self, table: u32, company: &Option<String>) -> TableWritten {
+        self.0.get(table, company).copied().unwrap_or(TableWritten::No)
+    }
+}
+
+/// [`TxState::write_counts`]: how many writes the session noted, how many of them of a kind no cell of the
+/// failed-Insert check measures after the read (`version_entry::unmeasured_after`), and how many per table and company.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct WriteCounts {
+    pub(crate) all: u64,
+    pub(crate) unmeasured: u64,
+    pub(crate) tables: ByTableCompany<u64>,
+    /// `all` at the last Commit.
+    pub(crate) at_commit: u64,
+}
+
+impl WriteCounts {
+    /// Counts one write of `table` in `company`; `unmeasured` when its kind is not measured.
+    pub(crate) fn note(&mut self, table: u32, company: &Option<String>, unmeasured: bool) {
+        self.all += 1;
+        self.unmeasured += u64::from(unmeasured);
+        *self.tables.entry(table, company) += 1;
+    }
+
+    /// Counts one write that is not a Record write (IsolatedStorage), or a Commit whose transaction held a store write
+    /// nothing noted: unmeasured.
+    pub(crate) fn note_unmeasured(&mut self) {
+        self.all += 1;
+        self.unmeasured += 1;
+    }
+
+    /// All writes, the unmeasured ones, and those of `table` in `company`, so far.
+    pub(crate) fn now(&self, table: u32, company: &Option<String>) -> [u64; 3] {
+        let of = self.tables.get(table, company).copied().unwrap_or(0);
+        [self.all, self.unmeasured, of]
+    }
+}
+
 /// One Record write to the database store: the store's change counter before and after it.
 #[derive(Clone, Debug)]
 pub(crate) struct TxWrite {
@@ -267,6 +380,19 @@ pub(crate) struct TxWrite {
     pub(crate) bulk: Option<BulkEnd>,
     /// The write ran through a RecordRef (`Session::through_recordref`).
     pub(crate) through_recordref: bool,
+    /// The record facts of a bulk Record write (`Session::note_bulk_write`); all false for other writes.
+    pub(crate) bulk_shape: BulkShape,
+}
+
+/// What a bulk Record write's record carried when it wrote (`Session::note_bulk_write`).
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct BulkShape {
+    /// The record had a record filter.
+    pub(crate) filtered: bool,
+    /// `MarkedOnly` was set on the record.
+    pub(crate) marked_only: bool,
+    /// The Truncate call had an argument, true or false (`Session::note_truncate_write`); the cells call `Truncate()` alone.
+    pub(crate) argument: bool,
 }
 
 impl TxState {
@@ -279,10 +405,13 @@ impl TxState {
             transaction_type: 0,
             type_origin: Default::default(),
             test_ended: false,
+            saved_types: Vec::new(),
+            runner_tx_rolled_back: false,
             lock_timeout: true,
             lock_timeout_duration: 10,
             committed_row_version: 0,
             commit_counter: 0,
+            write_counts: WriteCounts::default(),
             rolled_back: false,
             rollback_unpinned: None,
             rollback_kind: None,
@@ -350,6 +479,13 @@ pub(crate) struct PageClients {
     pub(crate) scope_unpinned: Vec<Rc<RefCell<crate::pages::PageState>>>,
     /// A page background task worker is running: its parameters and the result it set.
     pub(crate) bg_worker: Option<pages::BgWorker>,
+    /// The test session's last error as a worker's end gave it back, when the worker had set one of its own: until the first
+    /// read of another last error, a read of it differs from the answer before issue 8697, which gave the worker's
+    /// (`Session::bg_note_last_error_read`, which ends it).
+    pub(crate) bg_kept_last_error: std::cell::RefCell<Option<al_builtins::native::AlError>>,
+    /// A failing worker's error left `TestPage.RunPageBackgroundTask` and has not left a routine of the test session yet: an
+    /// asserterror around the call itself keeps the last error (`Session::bg_catch_keeps_last_error`).
+    pub(crate) bg_task_error_unrecorded: bool,
     /// The query cache page background tasks and the test session read through (`query_cache.rs`).
     pub(crate) query_cache: crate::query_cache::QueryCache,
     /// Which dialogs and errors the CaptionClass runs in progress may raise (`Session::caption_dialog_refusal`).
@@ -480,8 +616,22 @@ pub(crate) struct EventState {
     pub(crate) subscriber_stack: Vec<Option<(usize, usize, usize)>>,
     /// Set by `finish_call` just before the call, taken by the callee's frame (`Frame::var_lens`).
     pub(crate) next_var_lens: Vec<Option<i32>>,
+    /// Set by `finish_call` just before the call, taken by the callee's frame (`Frame::var_codeunits`).
+    pub(crate) next_var_codeunits: Vec<Option<crate::clear_shared_codeunit::VarCodeunit>>,
     /// Set by `finish_call` just before the call, taken by the callee's frame (`Frame::option_hops`).
     pub(crate) next_option_hops: Vec<bool>,
+    /// Set by `finish_call` just before the call, taken by the callee's frame (`Frame::hand_on_origins`).
+    pub(crate) next_hand_on_origins: Vec<bool>,
+    /// Set by `finish_call` (by `raise_to_subscribers` for a subscriber) just before the call, taken by the callee's frame
+    /// (`Frame::option_carried`).
+    pub(crate) next_option_carried: Vec<crate::var_option::Carried>,
+    /// A publisher's marks of `var_option::option_carried_of`, set by `finish_call` and taken by `publish` and
+    /// `raise_to_subscribers`, under the measured event contract only.
+    pub(crate) publisher_option_carried: Vec<crate::var_option::Carried>,
+    /// Per parameter: `var_option::carried::carried_args` let a value that carries another list or none through to this `var`
+    /// Option parameter with members, which binds it as it is. Set by `finish_call` just before the call, taken by the
+    /// callee's binding (`lib.rs`), cleared after the call.
+    pub(crate) next_carried_kept: Vec<bool>,
     /// The declared lengths of a publisher's `var` Text and Code arguments (`var_lens_of`), set by `finish_call` just before
     /// the publisher runs and taken by `publish`, which hands them to the subscribers that read them.
     pub(crate) publisher_var_lens: Vec<Option<i32>>,
@@ -541,6 +691,10 @@ pub(crate) struct CoverageState {
     /// `al-runner test --profile`: the session's call tree (`profile.rs`). `None` when off: one branch per statement,
     /// call, builtin return and record method.
     pub(crate) profiler: Option<Box<crate::profile::Profiler>>,
+    /// The footprint of a partner app's install session while one is recorded (`install_footprint.rs`). `None` when off.
+    pub(crate) install_footprint: std::cell::RefCell<Option<Box<crate::install_footprint::Recording>>>,
+    /// `install_footprint` is `Some`: the one branch a builtin call costs when no footprint is recorded.
+    pub(crate) footprint_on: bool,
 }
 
 /// `Language` and `FormatRegion` set on a report variable outside a run.
@@ -638,6 +792,9 @@ pub(crate) struct ReportState {
     /// later record can get the address of one that is gone and read its view (al-runner CI flake of reports/request-page/
     /// RptFilters.al:510 RequestFilterFields_Handler_SetsFilters). The entries of dropped records go on each new SetTableView.
     pub(crate) set_view_filters: Vec<(std::rc::Weak<RefCell<RecordState>>, Vec<ViewFilterKey>)>,
+    /// The filters each `DataItemTableView` gave the record of a data item of the report's own, by record
+    /// (`reports/item_view.rs`).
+    pub(crate) item_views: Vec<crate::reports::item_view::ItemView>,
     /// The dataset a `Report.SaveAs(.., Xml, ..)` run is writing (al-vm reports.rs).
     pub(crate) dataset: Option<crate::dataset::Dataset>,
 }
@@ -674,6 +831,9 @@ pub(crate) struct RunningReport {
     /// one page trigger above them belong to this run (`running_page_answer`).
     pub(crate) depth: usize,
     pub(crate) page_triggers: usize,
+    /// The run entered a transaction world of a TransactionType = Update report: its writes run in that world's
+    /// transaction, whatever the session's type (record/TxTypeUpdateReport.al TxU13 to TxU15 of corpus pull request 1488).
+    pub(crate) update_world: bool,
 }
 
 /// How a running report body was started (`report_preview_pinned`).
@@ -702,6 +862,7 @@ impl OpenTx {
             tables_inserted,
             locked_tables,
             writes,
+            table_writes,
             reads_after_rollback,
             deferred_insert,
             insert_buffer,
@@ -726,6 +887,7 @@ impl OpenTx {
             && tables_inserted.is_empty()
             && locked_tables.is_empty()
             && writes.is_empty()
+            && table_writes.0.is_empty()
             && reads_after_rollback.is_empty()
             && deferred_insert.is_none()
             && insert_buffer.is_empty()
@@ -777,9 +939,184 @@ mod open_tx_tests {
         assert!(tx.open.is_clear());
     }
 
+    /// A load reads the verdict of its table without a scan of the write log (al-runner issue 8721: 20000 Inserts and
+    /// the reads after them were quadratic): however many writes are noted, the store holds one entry per table and
+    /// company.
+    #[test]
+    fn the_table_verdicts_stay_one_entry_per_table_and_company() {
+        use al_builtins::value::TableWritten;
+        let mut w = super::TableWrites::default();
+        for i in 0..20_000u32 {
+            w.note(5 + i % 2, &None, TableWritten::Written);
+        }
+        w.note(5, &Some("Other".into()), TableWritten::Written);
+        w.note(6, &None, TableWritten::Unmeasured);
+        w.note(6, &None, TableWritten::Written);
+        assert_eq!(w.0.len(), 3);
+        assert_eq!(w.of(5, &None), TableWritten::Written);
+        assert_eq!(w.of(6, &None), TableWritten::Unmeasured);
+        assert_eq!(w.of(7, &None), TableWritten::No);
+    }
+
     #[test]
     fn an_unpinned_lock_names_its_cause() {
         assert_eq!(UnpinnedLock::LockingRead.text(), crate::records::UNPINNED_LOCKING_READ);
         assert_eq!(UnpinnedLock::Other("a lock").text(), "a lock");
+    }
+}
+
+/// `ByTableCompany` gives the answers the linear rule it replaced gave (al-runner issue 8721: a load looked its table up
+/// in every table the transaction and the session wrote). The reference below is that rule, kept for this test only.
+#[cfg(test)]
+mod by_table_company_tests {
+    use super::{ByTableCompany, TableWrites, WriteCounts};
+    use al_builtins::value::TableWritten;
+
+    /// The linear rule as it was: find the (table, company) entry, or push one.
+    #[derive(Default)]
+    struct Linear {
+        verdicts: Vec<(u32, Option<String>, TableWritten)>,
+        counts: Vec<(u32, Option<String>, u64)>,
+        all: u64,
+        unmeasured: u64,
+    }
+
+    impl Linear {
+        fn note_verdict(&mut self, table: u32, company: &Option<String>, w: TableWritten) {
+            match self.verdicts.iter_mut().find(|(t, c, _)| *t == table && c == company) {
+                Some((_, _, v)) => *v = (*v).max(w),
+                None => self.verdicts.push((table, company.clone(), w)),
+            }
+        }
+
+        fn of(&self, table: u32, company: &Option<String>) -> TableWritten {
+            let e = self.verdicts.iter().find(|(t, c, _)| *t == table && c == company);
+            e.map_or(TableWritten::No, |(_, _, v)| *v)
+        }
+
+        fn note_count(&mut self, table: u32, company: &Option<String>, unmeasured: bool) {
+            self.all += 1;
+            self.unmeasured += u64::from(unmeasured);
+            match self.counts.iter_mut().find(|(t, c, _)| *t == table && c == company) {
+                Some((_, _, n)) => *n += 1,
+                None => self.counts.push((table, company.clone(), 1)),
+            }
+        }
+
+        fn now(&self, table: u32, company: &Option<String>) -> [u64; 3] {
+            let of = self.counts.iter().find(|(t, c, _)| *t == table && c == company);
+            [self.all, self.unmeasured, of.map_or(0, |(_, _, n)| *n)]
+        }
+    }
+
+    const TABLES: [u32; 5] = [0, 1, 18, 5_000, u32::MAX];
+    const VERDICTS: [TableWritten; 4] = [
+        TableWritten::No,
+        TableWritten::EmptyBulk,
+        TableWritten::Written,
+        TableWritten::Unmeasured,
+    ];
+
+    fn companies() -> [Option<String>; 3] {
+        [None, Some("CRONUS".into()), Some("Other".into())]
+    }
+
+    /// Every table and company of the grid, written or not, gives the reference's answer.
+    fn same_answers(tw: &TableWrites, wc: &WriteCounts, r: &Linear) {
+        for t in TABLES.iter().copied().chain([7, 2_000_000_005]) {
+            for c in &companies() {
+                assert_eq!(tw.of(t, c), r.of(t, c), "verdict of {t} {c:?}");
+                assert_eq!(wc.now(t, c), r.now(t, c), "counts of {t} {c:?}");
+            }
+        }
+        assert_eq!(tw.0.is_empty(), r.verdicts.is_empty());
+        assert_eq!(tw.0.len(), r.verdicts.len());
+        assert_eq!(wc.tables.len(), r.counts.len());
+    }
+
+    #[test]
+    fn the_edge_cases_answer_as_the_linear_rule() {
+        let (mut tw, mut wc, mut r) = (TableWrites::default(), WriteCounts::default(), Linear::default());
+        let [none, cronus, other] = companies();
+        // Nothing noted: the defaults `No` and 0.
+        same_answers(&tw, &wc, &r);
+        assert_eq!(tw.of(18, &none), TableWritten::No);
+        assert_eq!(wc.now(18, &none), [0, 0, 0]);
+        // A first note of `No` is an entry with the default's value.
+        tw.note(18, &none, TableWritten::No);
+        r.note_verdict(18, &none, TableWritten::No);
+        same_answers(&tw, &wc, &r);
+        // Two companies of one table, and the session's own beside them, stay apart.
+        for (c, w) in [(&cronus, TableWritten::Written), (&other, TableWritten::EmptyBulk)] {
+            tw.note(18, c, w);
+            r.note_verdict(18, c, w);
+            wc.note(18, c, false);
+            r.note_count(18, c, false);
+        }
+        same_answers(&tw, &wc, &r);
+        assert_eq!(tw.of(18, &none), TableWritten::No);
+        assert_eq!(tw.of(18, &cronus), TableWritten::Written);
+        // The verdict only grows: a lower one after a higher one keeps the higher.
+        for w in [TableWritten::Unmeasured, TableWritten::EmptyBulk, TableWritten::No] {
+            tw.note(18, &other, w);
+            r.note_verdict(18, &other, w);
+        }
+        same_answers(&tw, &wc, &r);
+        assert_eq!(tw.of(18, &other), TableWritten::Unmeasured);
+        // Each write counts one; unmeasured ones and the non-Record writes count apart.
+        wc.note(18, &none, true);
+        r.note_count(18, &none, true);
+        wc.note_unmeasured();
+        r.all += 1;
+        r.unmeasured += 1;
+        same_answers(&tw, &wc, &r);
+        assert_eq!(wc.now(18, &cronus), [4, 2, 1]);
+        // A reset (a new transaction, a new session) is empty again.
+        (tw, wc, r) = (TableWrites::default(), WriteCounts::default(), Linear::default());
+        same_answers(&tw, &wc, &r);
+    }
+
+    #[test]
+    fn a_long_generated_sequence_answers_as_the_linear_rule() {
+        let (mut tw, mut wc, mut r) = (TableWrites::default(), WriteCounts::default(), Linear::default());
+        let cs = companies();
+        let mut x: u64 = 0x2545_f491_4f6c_dd1d;
+        for step in 0..20_000 {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            let t = TABLES[(x % 5) as usize];
+            let c = &cs[((x >> 8) % 3) as usize];
+            match (x >> 16) % 13 {
+                0..=4 => {
+                    let w = VERDICTS[((x >> 24) % 4) as usize];
+                    tw.note(t, c, w);
+                    r.note_verdict(t, c, w);
+                }
+                5..=9 => {
+                    let unmeasured = (x >> 24) % 3 == 0;
+                    wc.note(t, c, unmeasured);
+                    r.note_count(t, c, unmeasured);
+                }
+                10 => {
+                    wc.note_unmeasured();
+                    r.all += 1;
+                    r.unmeasured += 1;
+                }
+                11 => {
+                    // The open transaction ends: its verdicts go, the session's counts stay.
+                    tw = TableWrites::default();
+                    r.verdicts.clear();
+                }
+                _ => {
+                    let copy: ByTableCompany<u64> = wc.tables.clone();
+                    assert_eq!(copy.get(t, c), wc.tables.get(t, c));
+                }
+            }
+            if step % 97 == 0 {
+                same_answers(&tw, &wc, &r);
+            }
+        }
+        same_answers(&tw, &wc, &r);
     }
 }

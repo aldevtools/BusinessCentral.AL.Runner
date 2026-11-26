@@ -4,6 +4,9 @@
 //! TestAutoIncrementEdges.al and TestTempTableContracts.al; what they leave open is refused.
 //! Truncate (which resets the counter) and guarded `Codeunit.Run` rollbacks (which restore it)
 //! are not implemented, so no code path here has to model them.
+//!
+//! AutoIncrement fields: taking the next value, explicit keys. Entry points: `auto_increment_field`,
+//! `take_auto_increment`.
 
 use crate::Session;
 use al_builtins::native::{AlError, Signal, unsupported};
@@ -73,6 +76,7 @@ impl Session {
             return Ok(false);
         }
         let slot = Self::counter_slot(t, company);
+        self.note_footprint_autoinc(&slot);
         let next = self.counter(t, &slot) + 1;
         // An Integer key past Int32 does not wrap: on BC the Insert ends the transaction and the test fails, which no
         // AL code can catch and no passing test can pin (record/TestAutoIncrementEdges.al:21-22). An AL error here
@@ -93,6 +97,7 @@ impl Session {
     pub(crate) fn note_explicit_key(&mut self, t: &TableDef, field: usize, row: &[Value], company: &str) {
         let Some(k) = number(&row[field]) else { return };
         let slot = Self::counter_slot(t, company);
+        self.note_footprint_autoinc(&slot);
         let cur = self.counter(t, &slot);
         if k > cur {
             self.autoinc.insert(slot, k);
@@ -185,7 +190,7 @@ impl Session {
                 "Truncate is not supported when the OnBeforeDelete and/or OnAfterDelete event is subscribed. Please remove the events subscriptions or use DeleteAll.",
             );
         }
-        let (filters, flow_field_filters) = self.split_filters(rec);
+        let (filters, flow_field_filters) = self.split_filters(rec)?;
         // With OnDatabaseDelete enabled through GetDatabaseTableTriggerSetup, an unfiltered Truncate whose result is not used
         // deletes every row and raises no database or global delete event (corpus events/W4GlobalTriggers.al:397-410
         // Truncate_WithDatabaseDeleteEnabled, on BC 27.5, 28.5 and 29). A filter or a used result is not pinned there.
@@ -205,6 +210,7 @@ impl Session {
         // A filter on a normal field limits what Truncate deletes (corpus
         // record/TestCalcFieldsTruncateUniqueContracts.al:Truncate_WithFilterOnANormalField_RemovesOnlyTheFilteredRows).
         let slot = Self::counter_slot(t, &cx.company);
+        self.note_footprint_autoinc(&slot);
         let counter = self.counter(t, &slot);
         self.truncate_undo.entry(slot.clone()).or_insert(counter);
         if reset {
@@ -212,6 +218,8 @@ impl Session {
         }
         self.deletes += 1;
         al_data::Store::delete_all(&mut self.store, &cx, t, &filters).map_err(store_err)?;
+        // A temporary record was refused above; an install Truncate leaves an unseeded table unseeded, as DeleteAll does.
+        self.forget_install_emptied(&cx, t, false);
         Ok(Value::Boolean(true))
     }
 

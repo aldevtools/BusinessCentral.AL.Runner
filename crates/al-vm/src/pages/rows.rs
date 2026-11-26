@@ -1,3 +1,5 @@
+//! The row window, navigation, `GoToKey`, `Find`, modal answers. Entry points: `populate_window`,
+//! `page_move`, `page_go_to_key`.
 use super::*;
 use al_builtins::page_op::PageMethod;
 use al_builtins::record_op::RecordOp;

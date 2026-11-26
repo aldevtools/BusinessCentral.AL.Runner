@@ -6,6 +6,19 @@
 //! the corpus does not pin, leaves an event publisher called directly to the run (al-vm
 //! `Session::var_option_publisher_args`), and routes `A[i] := x` into an array of memberless Options to the run, marking
 //! `x` when it is a variable of the routine's `var` section.
+//!
+//! The static side of an Option handed to a `var` parameter with another member list (al-runner issue
+//! 8291, pinned by types/enum-option/OptionVar*.al; the run's side is al-vm `var_option.rs`): the
+//! refusal of each pair of call kind (procedure, interface method) and caller the probes do not
+//! measure (`measured_memberless`; an event publisher called directly is left to the run), and the
+//! plain `:=` into an element of an array of memberless Options, lowered unconverted so the run tells
+//! the stored value's members apart, a variable of the routine's `var` section marked as
+//! `ir::Expr::VarSectionValue` (a whole array of Options with members into one without refuses).
+//! A memberless `var` parameter handed to a parameter with members is left to the run, which decides by
+//! the list the value carries (al-vm `var_option::carried_args`).
+//! Entry points: `Lowerer::var_option_arg_refusal` (the `var` argument loops of direct calls in
+//! `lower/call.rs` and of interface calls in `lower/convert.rs`), `memberless_option_array_assign`
+//! (`stmt.rs::assign`), `memberless_var_option_param` (also `evaluate_id.rs`).
 use super::*;
 use al_builtins::option_members::memberless;
 
@@ -119,14 +132,17 @@ impl Lowerer<'_> {
     /// - a parameter with members: a record field or an array element (the usual conversion, as on main); from a procedure
     ///   call, a variable of the `var` section with other members or without members (OVML:398, :432), a parameter passed by
     ///   value (OVMC:131, :215) and a global with members of the running object
-    ///   (OptionVarMemberlessUnheard.al:415, :423).
+    ///   (OptionVarMemberlessUnheard.al:415, :423); from a procedure call or an interface method, a memberless `var`
+    ///   parameter of the routine, which the run lets through or refuses by the list its value carries (al-vm
+    ///   `var_option::carried_args`, assumption var-option-carried-members, corpus PR 1569).
     /// - a procedure's `var` array parameter of memberless Options, the caller an array with members of the `var` section
     ///   or passed by value (OVML:468; OVMC:145).
     ///
     /// Refused: a field whose captions differ from its members (BC shows the caption, OVMC:269, :450, which the value does
-    /// not carry); a `var` parameter with members as the caller of a memberless parameter (after a hop through other members
-    /// a rejected Evaluate leaves the first member, OVMW:387, which the run cannot tell from a direct caller); every other
-    /// pair of call and caller.
+    /// not carry); a `var` parameter with members as the caller of a memberless parameter of an interface method (after a hop
+    /// through other members a rejected Evaluate leaves the first member, OVMW:387, which the run cannot tell from a direct
+    /// caller; from a procedure call the run decides by the callee's body, al-vm `var_option::hand_on_args`, corpus PR 1569);
+    /// every other pair of call and caller.
     pub(super) fn var_option_arg_refusal(
         &mut self,
         target: Option<(usize, usize)>,
@@ -164,6 +180,8 @@ impl Lowerer<'_> {
                         "an Option field whose OptionCaption differs from its members handed to a `var` Option parameter declared without members: the callee reads its captions, which the value does not carry (not pinned)".into(),
                     );
                 }
+                // A procedure call: the run decides by the callee's body (al-vm `var_option::hand_on_args`).
+                Caller::VarParameterWithMembers if call == Call::Procedure => true,
                 Caller::VarParameterWithMembers => {
                     return Some(
                         "a `var` parameter with members handed to a `var` Option parameter declared without members: a rejected Evaluate there is measured to leave the first member (not pinned)".into(),
@@ -173,6 +191,8 @@ impl Lowerer<'_> {
             },
             (false, has_memberless, false) => {
                 matches!(arg, ir::Arg::Ref(ir::Place::Field(..) | ir::Place::Index(..)))
+                    // The run decides by the list the value carries (al-vm `var_option::carried_args`).
+                    || caller == Caller::MemberlessVarParameter
                     || (call == Call::Procedure
                         && matches!(
                             (caller, has_memberless),

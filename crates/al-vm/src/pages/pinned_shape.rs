@@ -7,6 +7,21 @@
 //! on the part in the order the test made them (`part_steps`) and the pages of the pin (`PinnedPart`). A rule pinned for an
 //! outside reporter's repro compares the objects line for line (`pinned_body.rs`). A rule pinned for one repro or one corpus
 //! scenario lets through only the calls the scenario makes after it (`PinnedEnd`).
+//!
+//! The facts an entry predicate of a rule pinned for one corpus scenario compares with that scenario:
+//! the calls the test made on the page since it opened (`note_test_call`, `test_calls`;
+//! `test_calls_all_succeeded` gives them only when every earlier call answered Yes or nothing, raised
+//! no error and the test wrote nothing between two calls), the code the page and its table can run
+//! and the properties the page declares (`page_code_is`), the plain view of Rec (`rec_view_is`); for
+//! a part on a host, the calls on the host and the part in the order the test made them, with the
+//! store's write mark between them (`part_steps`, `test_call_ended`), and the pages, link, views and
+//! filters of the pin (`PinnedPart`, `part_pages_are`); after a rule pinned for one outside repro
+//! ran, the only later calls the repro makes (`PinnedEnd`, `refuse_after_pinned_end`; the value reads
+//! it lets through, `Reads`: none, any, or `Value()` of controls bound to given fields of Rec). Used
+//! by the predicates of `long_view.rs`, `open/temp_ws_preloaded.rs`, `currpage_run_typed_key.rs`,
+//! `split_key_view.rs`, `part_unsettled.rs`, `part_filter_find.rs`, `part_refresh_find_forward.rs`,
+//! `post_left_new_line.rs`, `end_move_no_read.rs`, `hidden_part_journal.rs` and
+//! `list_factbox_new_line.rs`.
 
 use super::*;
 use al_builtins::page_op::{PageMethod, PageOp, PageRecv};
@@ -951,7 +966,7 @@ pub(super) fn open_page_filters_then_find(program: &ir::Program, object: usize, 
         return false;
     };
     let on_rec = |e: &ir::Expr, want: al_builtins::builtin_id::BuiltinId| {
-        matches!(e, ir::Expr::Builtin { id, receiver: Some(receiver), .. } if *id == want
+        matches!(e, ir::Expr::Builtin { id, receiver: Some(receiver), .. } if id.written_base() == want
             && matches!(&**receiver, ir::Arg::Value(ir::Expr::Load(ir::Place::Global(g))) | ir::Arg::Ref(ir::Place::Global(g))
                 if *g == rec))
     };

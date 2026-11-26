@@ -25,6 +25,13 @@
 //!
 //! Whether a test finds the answer it expects when the baseline is missing does not matter: a
 //! pure reach never reads what the baseline holds.
+//!
+//! Whether a selected test can observe the install baseline: a whitelist over the lowered IR (no
+//! record, page, query, `DotNet`, `CreateGuid`, `IsolatedStorage`, `NumberSequence` or event
+//! publisher in the reach); the text pre-check of the demand-driven path; `may_observe_baseline_with`
+//! for the lean compile that leaves Base Application's login code out (al-runner issue 5872: counts
+//! the apps' login code for WorkDate reads, reports `Evaluate` calls). Entry points:
+//! `may_observe_baseline`, `may_observe_baseline_with`, `text_looks_pure`.
 
 use al_builtins::value::RtType;
 use al_ir::{Arg, Const, DotNetOp, Expr, Place, Routine, SetElem, Stmt};

@@ -1,0 +1,3 @@
+# key	entry
+# Against main (with al-runner PRs 8885 and 8897), no test differs: the SelectLatestVersion neighbors of value 0 answer from
+# the cache on main and here alike, as BC does.

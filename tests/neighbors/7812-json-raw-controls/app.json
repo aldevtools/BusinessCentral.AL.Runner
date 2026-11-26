@@ -1,0 +1,11 @@
+{
+  "id": "3b9e7a51-2c4d-4f8e-9a61-7812c0de0001",
+  "name": "Neighbors 7812 raw control characters in JSON strings",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "29.0.0.0",
+  "runtime": "18.0",
+  "target": "Cloud",
+  "idRanges": [{ "from": 50300, "to": 50309 }],
+  "dependencies": []
+}

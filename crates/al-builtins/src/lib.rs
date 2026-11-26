@@ -1,5 +1,7 @@
 //! The AL standard library: builtin signatures (generated from the docs, see
 //! ADR-008) and, later, the value model and native implementations.
+//!
+//! Crate root of the AL standard library: values, builtins, catalog.
 
 mod blob_form;
 mod closing_date_days;
@@ -53,6 +55,7 @@ pub mod fieldref_value_text;
 pub mod fieldref_variant_cells;
 pub mod file;
 pub mod filter;
+mod filter_at_sign;
 pub mod filter_blob;
 pub mod filter_boolean_words;
 mod filter_collation;

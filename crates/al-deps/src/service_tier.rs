@@ -10,6 +10,12 @@
 //! standard library) is skipped. The files come from Microsoft's artifact feed to the user's machine, like the apps;
 //! nothing is committed (hard rule 7). A file is written under a temporary name and renamed, and a file already in
 //! the folder with the size the archive records is not fetched again.
+//!
+//! The BC service-tier assemblies a DotNet type needs (ADR-014 section 3, issue 6924), fetched by
+//! range from the platform artifact into `<cache>/artifacts/<build>/service`: the named assembly and
+//! the service-tier assemblies it references. Entry points: `ServiceTier::ensure`,
+//! `ServiceTier::ensure_set` (a named list of files, for the report render sets),
+//! `ServiceTier::service_file` (one top-level file by name), `service_dir`.
 use crate::artifact::Cdn;
 use crate::build::BuildId;
 use crate::cache::Store;

@@ -1,0 +1,19 @@
+# key	entry
+# Main gave the owner a fresh instance or fresh tables in every ASSUMED row; BC resets in place (corpus PR 1564).
+# The four "Not read" rows run shapes the gate does not tell apart (caller side, holder kind, element, sharer location):
+# flagged; corpus PR 1564 at commit 65262a80 measures each of them more than one way.
+RR ClearAll Tests::RegisterSharedThroughSetter	ASSUMED clear-shared-codeunit (corpus PR 1564)
+RR ClearAll Tests::RegisterCopySharedTable	ASSUMED clear-shared-codeunit (corpus PR 1564)
+RR ClearAll Tests::RegisterCallerSideClearAll	ASSUMED clear-shared-codeunit (corpus PR 1564)
+RR ClearAll Tests::RegisterSharedByLocalAlias	ASSUMED clear-shared-codeunit (corpus PR 1564)
+RR ClearAll Tests::ArrayElement2SharedByCopy	ASSUMED clear-shared-codeunit (corpus PR 1564)
+RR ClearAll Tests::ArraySharerInOtherCodeunitGlobal	ASSUMED clear-shared-codeunit (corpus PR 1564)
+RR ClearAll Tests::RegisterSingleInstanceOwner	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
+RR ClearAll Tests::RegisterRecordReadRow	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
+RR ClearAll Tests::RegisterNestedShared	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
+RR ClearAll Tests::RegisterOwnerHeldByClearingCodeunit	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows
+RR ClearAll Tests::RegisterUnsharedCopySharedTable	REFUSED ClearAll of a global variable that reaches a temporary table that another record shares
+RR ClearAll Tests::TwoDimSharedByCopy	REFUSED ClearAll of a global variable that reaches a temporary table that another record shares
+RR ClearAll Tests::ArrayNormalOwnerShared	REFUSED ClearAll of a global variable that reaches a temporary table that another record shares
+RR ClearAll Tests::ThreeDimWritten	REFUSED ClearAll of a global array of temporary records whose table holds rows
+RR ClearAll Tests::ArraySingleInstanceWritten	REFUSED ClearAll of a global array of temporary records whose table holds rows

@@ -105,7 +105,7 @@ impl Session {
             // A guarded import that fails returns false and loses its writes; the error stays
             // readable (xmlports/TestXmlPortImportWriteTx.al:StaticGuardedImport_FailingSecondElement_ReturnsFalse_AndRollsBackTheFirstRow).
             Err(Signal::Error(e)) if guarded => {
-                self.rollback_transaction();
+                self.rollback_failed_run();
                 self.hold_error(*e)?;
                 Ok(Value::Boolean(false))
             }
@@ -759,7 +759,7 @@ impl Session {
     }
 
     /// Reads the attributes of `elem` into the schema's attribute nodes under `node`.
-    /// `assigned` collects the table fields they set.
+    /// `assigned` collects the table fields they set. Returns whether a field attribute's trigger asked for Skip, Break or BreakUnbound.
     pub(super) fn xp_import_attrs(
         &mut self,
         inst: &Inst,
@@ -767,7 +767,7 @@ impl Session {
         node: usize,
         elem: &Elem,
         mut assigned: Option<&mut Vec<usize>>,
-    ) -> Result<(), Signal> {
+    ) -> Result<bool, Signal> {
         // A field attribute of the schema has to be there (xmlports/import/XpTImportOptions.al:
         // Import_AttributesMissing, Import_AttributesAsElements); the first one the element lacks is named. So has a text
         // attribute declared `Occurrence = Required`, also when its value is empty (xmlports/shapes-properties/
@@ -781,7 +781,7 @@ impl Session {
         // (`text_in_table`; QrXpContainerOccurs.al TO_AttrItem_Trigger_Import `attribute missing`, TO_TextContent_Import
         // `no kind`, on branch al-runtime-rs-staging-pub-to); beside a field attribute it is pinned only in the nested shape
         // (`TextInTable::Nested`; TP_Nested_Import_Shapes `status missing`, on branch al-runtime-rs-staging-pub-tp).
-        let root_text = schema.node(node).parent.is_none() && schema.node(node).kind == ir::XmlNodeKind::Text;
+        let root_text = root_text(schema, node);
         let in_table = text_in_table(schema, node).is_some();
         // Also a text attribute without `Occurrence` of a text element that holds only text attributes and stands below text elements
         // alone (an e-document `Endpoint` below the root): xmlports/shapes-properties/Y83XpMiscTests.al:1088
@@ -864,6 +864,7 @@ impl Session {
                 schema.node(a).xml_name
             )));
         }
+        let mut field_flow = false;
         for (name, value) in &elem.attrs {
             if declares_ns(name, value) {
                 continue;
@@ -881,14 +882,15 @@ impl Session {
                 }
                 ir::XmlNodeKind::TextAttr => self.xp_assign_variable(inst, schema, a, value.clone())?,
                 _ => {
-                    let pos = self.xp_assign_field(inst, schema, a, value)?;
+                    let (pos, flow) = self.xp_assign_field(inst, schema, a, value)?;
+                    field_flow |= flow.is_some();
                     if let Some(list) = assigned.as_deref_mut() {
                         list.push(pos);
                     }
                 }
             }
         }
-        Ok(())
+        Ok(field_flow)
     }
 
     /// Text element or attribute: the text goes into its variable, then `OnAfterAssignVariable`
@@ -976,36 +978,33 @@ impl Session {
     }
 
     /// Field attribute: the text becomes the field's value, then `OnAfterAssignField`.
-    /// Returns the field's position.
-    pub(super) fn xp_assign_field(
+    /// Returns the field's position and what the trigger asked for.
+    fn xp_assign_field(
         &mut self,
         inst: &Inst,
         schema: &Schema,
         node: usize,
         text: &str,
-    ) -> Result<usize, Signal> {
-        Ok(self
-            .xp_assign_field_flow_in(inst, schema, node, text, false, Written::Attribute)?
-            .0)
+    ) -> Result<(usize, Option<Flow>), Signal> {
+        self.xp_assign_field_flow_in(inst, schema, node, text, false, Written::Attribute)
     }
 
     /// `xp_assign_field` for the text of the element `ce`: with PreserveWhiteSpace a CDATA section of white space only is kept.
+    /// Returns the field's position and what `OnAfterAssignField` asked for.
     pub(super) fn xp_assign_field_elem(
         &mut self,
         inst: &Inst,
         schema: &Schema,
         node: usize,
         ce: &Elem,
-    ) -> Result<usize, Signal> {
+    ) -> Result<(usize, Option<Flow>), Signal> {
         let text = ce.text();
         let keep_blank =
             schema.xp().preserve_whitespace && !text.is_empty() && text.trim().is_empty() && Self::xp_blank_cdata(ce)?;
         let written = Written::Element {
             self_closed: ce.self_closed,
         };
-        Ok(self
-            .xp_assign_field_flow_in(inst, schema, node, &text, keep_blank, written)?
-            .0)
+        self.xp_assign_field_flow_in(inst, schema, node, &text, keep_blank, written)
     }
 
     /// Whether the white space only text of `ce` is a CDATA section, which an import with PreserveWhiteSpace keeps

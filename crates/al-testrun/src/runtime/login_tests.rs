@@ -1144,7 +1144,7 @@ fn outcomes_in(
             no_client,
             ..Default::default()
         }),
-        ..Default::default()
+        ..Scratch::new(crate::host::RunClock::begin())
     };
     outcomes_with(main, dep, codeunit, isolation, &mut scratch, &[])
 }
@@ -1904,7 +1904,7 @@ fn a_test_that_touches_an_own_login_table_first_still_notes_the_disabled_codeuni
                 .any(|(_, h)| h.contains(&"login-own-registration-reads-alone")),
             "{codeunit} does not run the login Own: {hits:?}"
         );
-        let mut scratch = Scratch::default();
+        let mut scratch = Scratch::new(crate::host::RunClock::begin());
         let o = outcomes_with(
             OWN_LOGIN_THEN_LEAK,
             DEP,
@@ -1913,7 +1913,7 @@ fn a_test_that_touches_an_own_login_table_first_still_notes_the_disabled_codeuni
             &mut scratch,
             &["M Data"],
         );
-        assert!(scratch.leak_hit, "{codeunit}: {o:?}");
+        assert!(!scratch.leak_hits.is_empty(), "{codeunit}: {o:?}");
     }
 }
 

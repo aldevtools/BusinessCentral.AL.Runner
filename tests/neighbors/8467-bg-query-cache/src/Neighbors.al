@@ -1,6 +1,6 @@
-// Neighbors of al-runner issue 8467 the probe does not measure, on the probe's tables and page. Refused: a group read of a
-// worker after the test session read that group and then wrote the table; a field load into a copy of a record the cache
-// answered; CalcFields of a Blob of a row the cache answered with another row (BC's CalcFields of a Blob in a worker waits on
+// Neighbors of al-runner issue 8467 the probe does not measure, on the probe's tables and page. A group read of a worker after
+// the test session read that group and then wrote the table answers the test's read (BgTaskQueryCache.al:6498; al-runner issue
+// 8637). Refused: a field load into a copy of a record the cache answered; CalcFields of a Blob of a row the cache answered with another row (BC's CalcFields of a Blob in a worker waits on
 // the rows the test codeunit wrote, the comment at corpus PR 1495 BgTaskQueryCache.al:6534). A row read again after commits
 // that wrote it while no commit held it before or after reads the table (BgTaskQueryCache.al:1207). A row read again after a
 // commit of a ModifyAll or a DeleteAll of another row follows the BC version (the cells of BQ Tests 12, :7035 and :7042, need
@@ -16,6 +16,7 @@ codeunit 97512 "BQ Neighbor Reader"
         Row: Record "BQ Row";
         Copy: Record "BQ Row";
         BlobRow: Record "BQ Blob Row";
+        MediaRow: Record "BQ Media Row";
         InS: InStream;
         Content: Text;
         Parameters: Dictionary of [Text, Text];
@@ -39,6 +40,18 @@ codeunit 97512 "BQ Neighbor Reader"
                     Row.Get(Group, 1);
                     Row.Get(Group, 2);
                     Seen := Row.Note;
+                end;
+            'mediadesc', 'slvmediadesc':
+                begin
+                    if Parameters.Get('Mode') = 'slvmediadesc' then
+                        Database.SelectLatestVersion();
+                    MediaRow.Get(Group);
+                    Seen := MediaRow.Description;
+                end;
+            'blobdesc':
+                begin
+                    BlobRow.Get(Group);
+                    Seen := BlobRow.Description;
                 end;
             'blobread':
                 begin
@@ -223,7 +236,7 @@ codeunit 97511 "BQ Neighbor Tests"
         Assert.AreEqual(1, Row.Count(), 'the test''s Count');
         AddRow('NB1', 2, 'b');
         OpenOn(Rows, 'NB1');
-        Assert.AreEqual('2', Run(Rows, Codeunit::"BQ Reader", 'count', 'NB1'), 'Count');
+        Assert.AreEqual('1', Run(Rows, Codeunit::"BQ Reader", 'count', 'NB1'), 'Count');
         Rows.Close();
     end;
 
@@ -391,5 +404,123 @@ codeunit 97513 "BQ Neighbor Tests 2"
     procedure OtherRowTruncateCommitted_ThenChanged()
     begin
         OtherRowBulkCommitted('NB11', 'truncate');
+    end;
+}
+
+// After the test commits a change of a row with a Blob that a worker's earlier read answered from the cache, the worker's Get
+// and CalcFields of the Blob still wait for the row the test codeunit wrote (a local BC 29.1 container, 3 runs), as the
+// worker's CalcFields of BlobTable_ReadAgain_AfterChange does (review of al-runner PR 8490, point 3: the runner keeps refusing
+// it). In a codeunit of its own: BQ Neighbor Tests stops at its refused Blob test.
+codeunit 97514 "BQ Neighbor Tests 3"
+{
+    Subtype = Test;
+
+    var
+        Assert: Codeunit Assert;
+        BqMode: Codeunit "BQ Mode";
+
+    local procedure Run(var Rows: TestPage "BQ Rows"; Mode: Text; Group: Code[20]): Text
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Seen: Text;
+    begin
+        Parameters.Add('Group', Group);
+        Parameters.Add('Mode', Mode);
+        Results := Rows.RunPageBackgroundTask(Codeunit::"BQ Neighbor Reader", Parameters, false);
+        Results.Get('Seen', Seen);
+        exit(Seen);
+    end;
+
+    local procedure WriteBlob(var BlobRow: Record "BQ Blob Row"; Content: Text)
+    var
+        OutS: OutStream;
+    begin
+        BlobRow.Data.CreateOutStream(OutS);
+        OutS.WriteText(Content);
+    end;
+
+    [Test]
+    procedure BlobTable_ChangeCommitted_CalcFieldsWaits()
+    var
+        Rows: TestPage "BQ Rows";
+        Row: Record "BQ Row";
+        BlobRow: Record "BQ Blob Row";
+    begin
+        BqMode.Set('');
+        Row."Group" := 'NBC';
+        Row."Line No." := 1;
+        Row.Description := 'h';
+        Row.Insert();
+        BlobRow."No." := 'NBC1';
+        BlobRow.Description := 'first';
+        WriteBlob(BlobRow, 'b1');
+        BlobRow.Insert();
+        Commit();
+        Rows.OpenView();
+        Rows.Filter.SetFilter("Group", 'NBC');
+        Rows.First();
+        Assert.AreEqual('first', Run(Rows, 'blobdesc', 'NBC1'), 'Get');
+        BlobRow.Get('NBC1');
+        BlobRow.Description := 'second';
+        WriteBlob(BlobRow, 'b2');
+        BlobRow.Modify();
+        Assert.AreEqual('first', Run(Rows, 'blobdesc', 'NBC1'), 'Get again');
+        Commit();
+        asserterror Run(Rows, 'blobread', 'NBC1');
+        Assert.IsTrue(GetLastErrorText().Contains('is being updated in a transaction done by another session'), GetLastErrorText());
+        Rows.Close();
+    end;
+}
+
+// SelectLatestVersion() without a table in a worker ends the query cache's entry of a row of any table: a Get of a row of BQ
+// Media Row, the test changes it, the worker calls SelectLatestVersion() and gets the row again (a local BC 29.1 container,
+// 3 runs; review of al-runner PR 8808: the overload without a table, DATABASE_SELECTLATESTVERSION_1).
+codeunit 97515 "BQ Neighbor Tests 4"
+{
+    Subtype = Test;
+
+    var
+        Assert: Codeunit Assert;
+        BqMode: Codeunit "BQ Mode";
+
+    local procedure Run(var Rows: TestPage "BQ Rows"; Mode: Text; Group: Code[20]): Text
+    var
+        Parameters: Dictionary of [Text, Text];
+        Results: Dictionary of [Text, Text];
+        Seen: Text;
+    begin
+        Parameters.Add('Group', Group);
+        Parameters.Add('Mode', Mode);
+        Results := Rows.RunPageBackgroundTask(Codeunit::"BQ Neighbor Reader", Parameters, false);
+        Results.Get('Seen', Seen);
+        exit(Seen);
+    end;
+
+    [Test]
+    procedure SelectLatestVersionWithoutATable_OtherTableRow_ReadsTheTable()
+    var
+        Rows: TestPage "BQ Rows";
+        Row: Record "BQ Row";
+        MediaRow: Record "BQ Media Row";
+    begin
+        BqMode.Set('');
+        Row."Group" := 'NBS';
+        Row."Line No." := 1;
+        Row.Description := 'h';
+        Row.Insert();
+        MediaRow."No." := 'NBS1';
+        MediaRow.Description := 'first';
+        MediaRow.Insert();
+        Commit();
+        Rows.OpenView();
+        Rows.Filter.SetFilter("Group", 'NBS');
+        Rows.First();
+        Assert.AreEqual('first', Run(Rows, 'mediadesc', 'NBS1'), 'Get');
+        MediaRow.Get('NBS1');
+        MediaRow.Description := 'second';
+        MediaRow.Modify();
+        Assert.AreEqual('second', Run(Rows, 'slvmediadesc', 'NBS1'), 'Get after SelectLatestVersion()');
+        Rows.Close();
     end;
 }

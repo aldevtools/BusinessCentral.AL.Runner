@@ -41,6 +41,7 @@ fn outcomes_on(src: &str, codeunit: &str, bc: Option<&str>) -> Outcomes {
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     assert!(!outcomes.is_empty());
     outcomes
@@ -116,10 +117,9 @@ fn issue_8467_probe_cells() {
 }
 
 /// BQ Tests 3 and 3b of corpus pull request 1495: a Get after commits that inserted and deleted the row reads the table, clean.
-/// FindLast, IsEmpty and FindFirst after a SetFilter, repeated after a change, read the rows as they are and fail: BC answers
-/// them from the cache (BgTaskQueryCache.al:1238, :1255, :1274), which is not modelled here. In BQ Tests 3b, the worker's first
-/// Count after the test counted the group and then inserted (:6498), and a copy of a record a partial Get answered from the
-/// cache (:6518), stay refused.
+/// FindLast, IsEmpty and FindFirst after a SetFilter, repeated after a change, answer their first answer (:1238, :1255, :1274),
+/// and the worker's first Count after the test counted the group and then inserted answers the test's count (:6498), flagged
+/// (al-runner issue 8637). A copy of a record a partial Get answered from the cache (:6518) stays refused.
 #[test]
 fn issue_8467_neighbor_cells() {
     let o = outcomes(PROBE, "BQ Tests 3");
@@ -133,15 +133,10 @@ fn issue_8467_neighbor_cells() {
         "BgQueryCache_Run_IsEmpty_Insert_FirstAnswer",
         "BgQueryCache_Run_SetFilterFindFirst_ChangedRow_FirstAnswer",
     ] {
-        let (_, r, _) = get(&o, name);
-        assert!(matches!(r, Outcome::Fail(_)), "{name}: {r:?}");
+        assert_pass(&o, name, true);
     }
     let o = outcomes(PROBE, "BQ Tests 3b");
-    assert_refused(
-        &o,
-        "BgQueryCache_Run_GroupCount_TestCountThenInsert_FirstRead",
-        "a group read of a page background task after the test session read the group",
-    );
+    assert_pass(&o, "BgQueryCache_Run_GroupCount_TestCountThenInsert_FirstRead", true);
     assert_refused(
         &o,
         "BgQueryCache_Run_PartialGet_Copy_FirstAnswer",
@@ -183,17 +178,41 @@ fn issue_8467_repro() {
 fn issue_8467_unmeasured_neighbors() {
     let src = format!("{PROBE}\n{NEIGHBORS}");
     let o = outcomes(&src, "BQ Neighbor Tests");
-    assert_refused(
-        &o,
-        "GroupRead_AfterTestReadAndWrite",
-        "a group read of a page background task after the test session read the group",
-    );
     assert_refused(&o, "CopyOfReplayed_LoadsOmittedField", "a field SetLoadFields left out");
     assert_refused(&o, "BlobTable_ReadAgain_AfterChange", "CalcFields of a Blob of a row");
     assert_pass(&o, "FetchAfterReplay_LoadsOmittedField", true);
+    assert_pass(&o, "GroupRead_AfterTestReadAndWrite", true);
     for name in ["LongFilterValues_KeepTheirOwnEntries", "RowGoneAgain_AfterCommits"] {
         assert_pass(&o, name, false);
     }
+}
+
+/// A worker's Get and CalcFields of a Blob after the test committed its change of a row the cache answered: BC still waits for
+/// the row the test codeunit wrote (BQ Neighbor Tests 3, a local BC 29.1 container, 3 runs), so the runner keeps refusing the
+/// CalcFields of a row it answered with another row, also once a later read took the row from the table (review of PR 8490,
+/// point 3).
+#[test]
+fn issue_8467_blob_after_commit_neighbor() {
+    let src = format!("{PROBE}\n{NEIGHBORS}");
+    let o = outcomes(&src, "BQ Neighbor Tests 3");
+    assert_refused(
+        &o,
+        "BlobTable_ChangeCommitted_CalcFieldsWaits",
+        "CalcFields of a Blob of a row",
+    );
+}
+
+/// SelectLatestVersion() without a table in a worker ends the entry of a row of another table (BQ Neighbor Tests 4, BC 29.1,
+/// 3 runs): the Get after it reads the table, as BC does.
+#[test]
+fn issue_8467_select_latest_version_without_a_table_neighbor() {
+    let src = format!("{PROBE}\n{NEIGHBORS}");
+    let o = outcomes(&src, "BQ Neighbor Tests 4");
+    assert_pass(
+        &o,
+        "SelectLatestVersionWithoutATable_OtherTableRow_ReadsTheTable",
+        false,
+    );
 }
 
 /// A commit of a ModifyAll, a DeleteAll or a Truncate of another row, then a change of the row: the neighbors assert the

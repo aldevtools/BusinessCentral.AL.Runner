@@ -9,8 +9,18 @@ use al_testrun::isolation::TestIsolation;
 /// Each test of codeunit `codeunit` in `src`, each rolled back on its own: its outcome (debug form) and whether it ran through
 /// an assumption.
 pub(crate) fn run(src: &str, codeunit: &str) -> Vec<(String, String, bool)> {
+    run_with(src, codeunit, |_| {})
+}
+
+/// [`run`], with `setup` applied to the engine first (a BC version's target, for one).
+pub(crate) fn run_with(
+    src: &str,
+    codeunit: &str,
+    setup: impl FnOnce(&mut al_vm::Engine),
+) -> Vec<(String, String, bool)> {
     let l = compile(src);
-    let engine = al_vm::Engine::new(l.program.clone(), blocked(&l));
+    let mut engine = al_vm::Engine::new(l.program.clone(), blocked(&l));
+    setup(std::sync::Arc::get_mut(&mut engine).expect("a fresh engine"));
     let oi = l
         .program
         .objects
@@ -29,6 +39,7 @@ pub(crate) fn run(src: &str, codeunit: &str) -> Vec<(String, String, bool)> {
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     o.into_iter()
         .map(|(name, outcome)| {
@@ -660,9 +671,10 @@ fn issue_8189_neighbors_refuse_a_read_of_xrec_or_keep_main() {
         // Run: a record read by Get or inserted by itself, both stored (XRecTableProcThroughCodeunit.al:337-352).
         ("MeasuredChain_ReadByFindFirst_Refused", XREC_REFUSED, false),
         ("MeasuredChain_Temporary_Refused", XREC_REFUSED, false),
-        // The pinned chain hands the trigger's xRec on whether the procedure reads it or not.
-        ("MeasuredChain_NoXRecRead_Runs", PASS, false),
-        ("NoRunningCall_PlainCall_BlankXRec", PASS, false),
+        // The pinned chain hands the trigger's xRec on whether the procedure reads it or not. Each writes after refused
+        // tests whose reach is not fully known, so the type they left is not known: the write is marked.
+        ("MeasuredChain_NoXRecRead_Runs", PASS, true),
+        ("NoRunningCall_PlainCall_BlankXRec", PASS, true),
     ];
     check(&o, &want);
 }
