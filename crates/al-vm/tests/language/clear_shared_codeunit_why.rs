@@ -21,7 +21,8 @@ codeunit 50905 WyB { var A: Codeunit WyA; T: Text; }
 codeunit 50906 WyKinds { var N: Integer; T: Text;
     procedure Bump() begin N += 1; end;
     procedure Get(): Integer begin exit(N); end; }
-codeunit 50907 WyTableNo { TableNo = WyRow; var N: Integer; T: Text;
+codeunit 50926 WyTnInner { TableNo = WyRow; var N: Integer; trigger OnRun() begin end; }
+codeunit 50907 WyTableNo { TableNo = WyRow; var N: Integer; Inner: Codeunit WyTnInner;
     trigger OnRun() begin end;
     procedure Bump() begin N += 1; end;
     procedure Get(): Integer begin exit(N); end; }
@@ -140,7 +141,7 @@ fn an_unpinned_holding_names_the_cell() {
 
 #[test]
 fn a_tableno_store_is_named() {
-    refused_naming("TableNoShared", &["store \"WyTableNo\"", "has a TableNo"]);
+    refused_naming("TableNoShared", &["store \"WyTableNo\"", "codeunit \"WyTnInner\" has a TableNo", "depth 1"]);
 }
 
 #[test]
