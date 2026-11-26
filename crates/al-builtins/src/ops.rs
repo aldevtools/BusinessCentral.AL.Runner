@@ -1423,26 +1423,33 @@ pub fn compare_operator(l: &Value, r: &Value, ordered: bool) -> Result<Ordering,
     if ordered { compare_order(l, r) } else { compare(l, r) }
 }
 
+/// `<=` and `>=`: as [`compare_operator`], except that two Texts with a lone surrogate half keep main's refusal: the probe
+/// (LtSurrogateHalves.al Ops_cmp_1..10) measures `=`, `<>`, `<` and `>` only.
+pub fn compare_operator_or_equal(l: &Value, r: &Value) -> Result<Ordering, Signal> {
+    match (l, r) {
+        (Value::Text(a), Value::Text(b)) if a.has_lone() || b.has_lone() => Ok(a.cmp(b)),
+        _ => compare_operator(l, r, true),
+    }
+}
+
 /// `=`, `<>`, `<`, `>` of two Texts, one of which holds half of a surrogate pair (LtSurrogateHalves.al Ops_cmp_1..10, the
 /// cells of Op 20-99). Equal only to the same units; the empty text comes first. An order is answered only where one text
 /// is a lone half alone and the other is one other lone half, `a`, `z`, `~` or U+FFFD, or starts with `a` (`abc` and `a`
 /// with a lone half measured): by UTF-16 unit. Any other order refuses (`Txt::cmp`).
 fn lone_half_operator(a: &crate::text::Txt, b: &crate::text::Txt, ordered: bool) -> Result<Ordering, Signal> {
     let (ua, ub) = (a.units(), b.units());
-    if ua == ub {
-        return Ok(Ordering::Equal);
-    }
-    // `=` and `<>` read only whether the units are the same.
-    if !ordered || ua.is_empty() || ub.is_empty() {
-        return Ok(ua.cmp(&ub));
-    }
     let half = |u: &[u16]| u.len() == 1 && (0xD800..=0xDFFF).contains(&u[0]);
     let measured = |u: &[u16]| half(u) || u == [0x61] || u == [0x7A] || u == [0x7E] || u == [0xFFFD] || u[0] == 0x61;
-    if (half(&ua) && measured(&ub)) || (half(&ub) && measured(&ua)) {
-        crate::text::half_kept(&[a, b]);
-        return Ok(ua[0].cmp(&ub[0]));
-    }
-    Ok(a.cmp(b))
+    // `=` and `<>` read only whether the units are the same; the empty text comes first.
+    let answered = if !ordered || ua == ub || ua.is_empty() || ub.is_empty() {
+        ua.cmp(&ub)
+    } else if (half(&ua) && measured(&ub)) || (half(&ub) && measured(&ua)) {
+        ua[0].cmp(&ub[0])
+    } else {
+        return Ok(a.cmp(b));
+    };
+    crate::text::half_kept(&[a, b]);
+    Ok(answered)
 }
 
 /// Ordering for `<`, `<=`, `>` and `>=`: as [`compare`], except that text follows the culture order
