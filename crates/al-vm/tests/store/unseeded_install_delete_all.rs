@@ -50,6 +50,15 @@ codeunit 50990 "UE Code"
         B.DeleteAll();
     end;
 
+    procedure TruncateBlob()
+    var
+        B: Record "Power BI Blob";
+    begin
+        B.Id := CreateGuid(); B.Name := 'UE Before'; B.Insert();
+        B.Truncate();
+        B.Id := CreateGuid(); B.Name := 'UE After'; B.Insert();
+    end;
+
     procedure UndoBlob()
     var
         B: Record "Power BI Blob";
@@ -206,6 +215,16 @@ fn an_install_delete_all_on_power_bi_default_selection_leaves_every_read_refused
     );
 }
 
+// Truncate deletes through the same store DeleteAll as an unfiltered DeleteAll, so it leaves the same mark.
+#[test]
+fn an_install_truncate_on_power_bi_blob_leaves_every_read_refused_on_every_copy() {
+    let answered = answered("TruncateBlob", &BLOB_READS);
+    assert!(
+        answered.is_empty(),
+        "a read of the unseeded table must refuse: {answered:?}"
+    );
+}
+
 // A DeleteAll with a filter marks nothing (al-data `MemStore::delete_all`).
 #[test]
 fn a_filtered_install_delete_all_leaves_every_read_refused_on_every_copy() {
@@ -230,7 +249,7 @@ fn an_install_delete_all_a_failed_codeunit_run_rolled_back_leaves_every_read_ref
 // (PtOnPremTables.al:324-356, :365-385).
 #[test]
 fn a_session_delete_all_answers_on_every_copy_after_any_install_shape() {
-    for install in ["ClearBlob", "ClearSelection", "FilterBlob", "UndoBlob"] {
+    for install in ["ClearBlob", "ClearSelection", "TruncateBlob", "FilterBlob", "UndoBlob"] {
         for (copy, baseline) in baseline_copies(install) {
             for session in ["SessionBlob", "SessionSelection"] {
                 let mut fresh = al_testkit::Built::from_source(SRC);
