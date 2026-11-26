@@ -32,6 +32,14 @@ const NOT_COMPILE: &[(&str, &str)] = &[
     ("ALRUNNER_DEBUG_PANIC_IN", "a test of the debugger"),
     ("ALRUNNER_DOTNET_FRESH", "the .NET sidecar of the run phase"),
     ("ALRUNNER_DOTNET_REUSE", "the .NET sidecar of the run phase"),
+    (
+        "ALRUNNER_LOGIN_REPLAY_MAX_IMAGES",
+        "the run phase: the most login starts an engine keeps",
+    ),
+    (
+        "ALRUNNER_LOGIN_REPLAY_MAX_MB",
+        "the run phase: the most bytes the kept login starts hold",
+    ),
     ("ALRUNNER_NO_CACHE_PRUNE", "the cleanup of the cache folder"),
     ("ALRUNNER_REAL_CLOCK", "the run phase's clock"),
     ("AL_BLOCK_PATH", "a test of the run phase"),

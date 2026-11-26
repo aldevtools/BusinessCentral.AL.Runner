@@ -3766,6 +3766,60 @@ fn a_second_request_takes_the_login_starts_of_the_first() {
     );
 }
 
+/// Al-runner issue 8211, the start check per request: with the replay on, a request whose `maxMemory` is not above
+/// `ALRUNNER_LOGIN_REPLAY_MAX_MB` is an error that names both values, and runs nothing. The kept engine and its starts
+/// stay as they were (none is cut for the smaller limit): the next request that may run takes them.
+#[test]
+fn a_request_whose_max_memory_is_not_above_the_byte_cap_is_an_error_and_the_kept_starts_stay() {
+    let d = tempfile::tempdir().unwrap();
+    let (dep, main) = login_probe(d.path());
+    let dep_arg = dep.to_string_lossy().to_string();
+    let env = [("ALRUNNER_LOGIN_REPLAY", "1"), ("ALRUNNER_LOGIN_REPLAY_MAX_MB", "16")];
+    let mut s = Server::start_with(&["--no-download", "--no-test-data", "--dep", &dep_arg], &env);
+    s.line();
+    let request = |max_memory: Option<&str>| {
+        let entries = json!([
+            {"id": "a", "resources": {"rpl.txt": "a"}, "test": "Codeunit50821."},
+            {"id": "b", "resources": {"rpl.txt": "abcd"}, "test": "Codeunit50821."},
+        ]);
+        let mut r = json!({"command": "runTests", "sourcePaths": [main], "entries": entries, "seed": 7});
+        if let Some(m) = max_memory {
+            r["maxMemory"] = json!(m);
+        }
+        r
+    };
+    s.send(request(None));
+    let first = s.until_summary();
+    assert_eq!(first.last().unwrap()["passed"], json!(2), "{first:?}");
+    let before = login_replays(&first).expect("loginReplays");
+    for limit in ["16M", "8M"] {
+        s.send(request(Some(limit)));
+        let refused = s.until_summary();
+        let error = refused.last().unwrap()["error"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        assert!(
+            error.contains(&format!(
+                "ALRUNNER_LOGIN_REPLAY_MAX_MB is 16 MB, not below the memory limit of {} MB",
+                limit.trim_end_matches('M')
+            )),
+            "{refused:?}"
+        );
+        assert!(!refused.iter().any(|l| l["type"] == "test"), "nothing ran: {refused:?}");
+    }
+    s.send(request(Some("6G")));
+    let after = s.until_summary();
+    assert_eq!(after.last().unwrap()["passed"], json!(2), "{after:?}");
+    assert!(
+        login_replays(&after).is_some_and(|n| n >= before + 2),
+        "the starts of the first request were kept: {before} then {:?}",
+        after.last()
+    );
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+}
+
 /// Al-runner issue 8211: `ALRUNNER_LOGIN_REPLAY=0` turns the replay off: no session takes a start, and the field
 /// says so (0, not absent).
 #[test]
