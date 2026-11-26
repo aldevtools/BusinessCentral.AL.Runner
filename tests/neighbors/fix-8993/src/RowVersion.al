@@ -8,6 +8,19 @@ table 98993 "RV8993 Item"
     keys
     {
         key(PK; Code) { Clustered = true; }
+        key(ByNote; Note) { }
+    }
+}
+
+table 98995 "RV8993 Third"
+{
+    fields
+    {
+        field(1; Code; Code[20]) { }
+    }
+    keys
+    {
+        key(PK; Code) { Clustered = true; }
     }
 }
 

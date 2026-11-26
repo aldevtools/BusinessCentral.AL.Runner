@@ -1,7 +1,7 @@
 //! Rows whose Insert row version is below one an earlier send of another table handed out (al-vm records/stale.rs
 //! `note_read_for_row_versions`): BC gives them their row version when it sends them (corpus PR 1509, merged, not pinned:
 //! session-system/row-version-writes/RowVersionWrites.al:392 InsertTwoTables `row/other` greater), this runtime keeps the
-//! Insert's. A read of their SystemRowVersion gives a value known only to be greater than 0, so `Format` of it is refused, and
+//! Insert's. A read of their SystemRowVersion is refused (outside the shape of assumption `restamped-row-version-insert-value`), and
 //! a find or query that filters or sorts on it is refused; other reads run,
 //! in install code too, and the rows install code left that way are refused to a test. A Delete, Rename or ModifyAll of a
 //! committed row while the table holds an inserted row keeps the refusal of `last_used_row_version`.

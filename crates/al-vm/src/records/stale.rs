@@ -35,6 +35,9 @@ impl Session {
         }
         let company = rec.borrow().company.clone();
         self.note_row_versions(t.object, &company, kind, pk);
+        if kind == crate::state::TxWriteKind::Insert {
+            self.note_row_version_buffer(rec, t.object, &company);
+        }
         self.push_write(t, company, kind, pk, before, Default::default());
     }
 
@@ -93,6 +96,7 @@ impl Session {
         match kind {
             TxWriteKind::Insert if new_versions => {
                 rv.accounted = rv.handed_out;
+                rv.sent_by.insert();
                 let last = rv.last;
                 match rv
                     .pending_inserts
@@ -106,7 +110,22 @@ impl Session {
             TxWriteKind::Modify if new_versions => {
                 // A row the ModifyAll that sent the inserted rows modifies: its row versions count as a Modify's
                 // (`note_bulk_end` ends that ModifyAll).
-                // The Modify sends the inserted rows of its table first.
+                // The Modify sends the inserted rows of its table first. The send corpus PR 1613 measures
+                // (RowVersionReReadShapes.al `Run`, `Other.Insert(); Other.Modify()`): it sends one entry of one row, and
+                // modifies the row that Insert wrote and nothing wrote since.
+                let one_row = matches!(
+                    rv.pending_inserts
+                        .iter()
+                        .filter(|(o, c, _, _)| *o == table && c == company)
+                        .map(|(_, _, first, last)| first == last)
+                        .collect::<Vec<_>>()
+                        .as_slice(),
+                    [true]
+                );
+                let measured = (
+                    one_row,
+                    super::write_notes::inserted_unwritten(&self.tx.open.writes, table, company, row),
+                ) == (true, true);
                 while let Some(at) = self
                     .tx
                     .open
@@ -120,7 +139,7 @@ impl Session {
                 let rv = &mut self.tx.open.row_versions;
                 rv.accounted = rv.handed_out;
                 rv.sent = rv.sent.max(rv.last);
-                rv.sent_by_modify = true;
+                rv.sent_by.raise(measured);
                 // A Modify grows the value while another table holds unsent inserted rows, and those stay unsent
                 // (PlTRowVersionValue.al UK_InsertThenModifyOtherTable).
             }
@@ -156,7 +175,7 @@ impl Session {
                     let v = self.send_pending_insert(at, false);
                     let rv = &mut self.tx.open.row_versions;
                     rv.sent = rv.sent.max(v);
-                    rv.sent_by_modify = false;
+                    rv.sent_by.raise(false);
                 }
             }
             TxWriteKind::Delete
@@ -222,7 +241,7 @@ impl Session {
             rv.write_sends = None;
             rv.accounted = rv.handed_out;
             rv.sent = rv.sent.max(rv.last);
-            rv.sent_by_modify = false;
+            rv.sent_by.raise(false);
         }
     }
 
@@ -261,11 +280,11 @@ impl Session {
         let v = self.send_pending_insert(pos, measured);
         if v > current {
             self.tx.open.row_versions.sent = v;
-            self.tx.open.row_versions.sent_by_modify = false;
+            self.tx.open.row_versions.sent_by.raise(false);
         } else {
             self.next_row_version += 1;
             self.tx.open.row_versions.sent = self.next_row_version;
-            self.tx.open.row_versions.sent_by_modify = false;
+            self.tx.open.row_versions.sent_by.raise(false);
         }
     }
 

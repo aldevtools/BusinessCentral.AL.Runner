@@ -339,7 +339,12 @@ impl Session {
                         | RecordOp::Count
                         | RecordOp::CalcSums
                 );
-            self.note_read_for_row_versions(t.object, &company, sends, self.measured_send_read(method, find_form));
+            self.note_read_for_row_versions(
+                t.object,
+                &company,
+                sends,
+                self.measured_send_read(method, find_form, &rec.borrow()),
+            );
             self.restamped_find(&cx, &t, &rec.borrow(), method)?;
             use crate::recmeta::{ISOLATION_REPEATABLE_READ, ISOLATION_UPDLOCK};
             // The assignment of a locking isolation opened the write transaction (`RecordOp::ReadIsolation`), the read does

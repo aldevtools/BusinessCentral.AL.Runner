@@ -17,3 +17,4 @@ RV8993 ReRead Tests::Measured_othercommit_get	ASSUMED restamped-row-version-inse
 RV8993 ReRead Tests::Measured_othercommit_getrecref	ASSUMED restamped-row-version-insert-value (corpus PR 1613)
 RV8993 ReRead Tests::Measured_othercommit_next	ASSUMED restamped-row-version-insert-value (corpus PR 1613)
 RV8993 ReRead Tests::Measured_othercommit_recref	ASSUMED restamped-row-version-insert-value (corpus PR 1613)
+RV8993 Review Tests::Measured_Other_ReadByDefaultGet	ASSUMED restamped-row-version-insert-value (corpus PR 1613)

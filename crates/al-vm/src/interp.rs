@@ -1660,7 +1660,7 @@ impl Session {
                 {
                     return Err(Signal::unsupported(why));
                 }
-                self.note_insert_value_read(&r, *pos);
+                self.note_insert_value_read(&rc, &r, *pos);
                 if r.load.partial {
                     // A Blob counts as loaded (partial.rs `AreFieldsLoaded`), and a FlowField is no column of the row: their
                     // reads load nothing else (P81LoadFields.al:664-689 CalcFields_OnNotLoadedFlowAndBlob `loaded_qty` No).

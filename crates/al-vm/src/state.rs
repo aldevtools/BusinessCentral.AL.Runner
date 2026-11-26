@@ -77,7 +77,7 @@ pub(crate) struct TxState {
     /// and the platform's own writes do not set it.
     pub(crate) write_of_al: Option<WriteOfAl>,
     /// The record (its address) whose Insert was the last to leave a duplicate key pending: the insert queue asks whether the
-    /// Insert that sends it was itself a duplicate (`Session::note_insert_buffer`).
+    /// Insert that sends it was itself a duplicate (`Session::note_row_version_buffer`).
     pub(crate) deferred_by: Option<usize>,
     /// The record (its address) whose queued Insert runs now, until it writes the store (`Session::queue_stored_row`).
     pub(crate) queue_pending: Option<usize>,
@@ -132,7 +132,7 @@ pub(crate) struct OpenTx {
     /// Record_Insert_DuplicateKey_WithoutBlobField_IsDeferred_AndSurfacesAtTheNextAccess). An Insert of a Date or DateTime its
     /// SQL column cannot hold is deferred the same way (`records/sql_range.rs`).
     pub(crate) deferred_insert: Option<crate::records::DeferredInsert>,
-    /// The rows each table's insert queue holds since it was last sent (`Session::note_insert_buffer`).
+    /// The rows each table's insert queue holds since it was last sent (`Session::note_row_version_buffer`).
     pub(crate) insert_buffer: Vec<crate::records::InsertQueue>,
     /// What `Database.LastUsedRowVersion` reports inside the open transaction (`Session::last_used_row_version`): the
     /// database tables an Insert wrote rows of that nothing has sent to the database yet (table, company, highest row
@@ -242,17 +242,56 @@ pub(crate) struct BulkEnd {
     pub(crate) counter: u64,
 }
 
+/// What raised `RowVersionTx::sent` in the open transaction. Only `Modify` is the send corpus PR 1613 measures
+/// (RowVersionReReadShapes.al `Run`: one Modify of the row the other table's Insert wrote, which sends that row).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum SentBy {
+    /// Nothing raised it.
+    #[default]
+    Nothing,
+    /// That one Modify raised it, and no Insert followed it.
+    Modify,
+    /// Anything else raised it, or a second raise or an Insert followed that Modify. Kept until the transaction ends.
+    Other,
+}
+
+impl SentBy {
+    /// A raise of `sent`; `measured_modify` when it is the Modify `SentBy::Modify` names. Only the first raise can be it.
+    pub(crate) fn raise(&mut self, measured_modify: bool) {
+        *self = if (*self, measured_modify) == (SentBy::Nothing, true) {
+            SentBy::Modify
+        } else {
+            SentBy::Other
+        };
+    }
+
+    /// An Insert that hands out a row version: after the measured Modify, the shape is no longer the measured one.
+    pub(crate) fn insert(&mut self) {
+        if *self == SentBy::Modify {
+            *self = SentBy::Other;
+        }
+    }
+}
+
 /// The row versions of the open transaction as `Database.LastUsedRowVersion` sees them (`OpenTx::row_versions`).
 #[derive(Clone, Debug, Default)]
 pub(crate) struct RowVersionTx {
     /// (table, company, first, last): the row versions the Inserts of rows of that table that nothing sent yet handed out.
     pub(crate) pending_inserts: Vec<(u32, Option<String>, i64, i64)>,
     pub(crate) sent: i64,
-    /// A Modify set `sent` last (`Session::note_row_versions`); every other raise of `sent` clears it
-    /// (`RestampedRows::insert_value_read`).
-    pub(crate) sent_by_modify: bool,
-    /// (table, company, row version): SystemRowVersion read in a Record buffer of a row of `pending_inserts` while no row version
-    /// sent before it was at or above it (`Session::note_insert_value_read`, `RestampedRows::insert_value_read`).
+    /// What raised `sent` in the open transaction (`Session::note_row_versions`, `RestampedRows::insert_value_read`).
+    pub(crate) sent_by: SentBy,
+    /// (table, company, row version, buffer): the Record buffer whose Insert handed out the row version of an entry of
+    /// `pending_inserts` that holds one row (`Session::note_row_version_buffer`), until that entry is sent.
+    pub(crate) insert_buffers: Vec<(
+        u32,
+        Option<String>,
+        i64,
+        std::rc::Weak<std::cell::RefCell<al_builtins::value::RecordState>>,
+    )>,
+    /// (table, company, row version): SystemRowVersion read in the buffer of `insert_buffers` of a row of `pending_inserts`
+    /// while no row version sent before it was at or above it (`Session::note_insert_value_read`,
+    /// `RestampedRows::insert_value_read`).
     pub(crate) insert_values_read: Vec<(u32, Option<String>, i64)>,
     pub(crate) handed_out: u64,
     pub(crate) accounted: u64,

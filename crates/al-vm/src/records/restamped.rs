@@ -17,7 +17,7 @@
 //! `restamped_find`, `restamped_query`).
 
 use super::*;
-use crate::state::RestampedRows;
+use crate::state::{RestampedRows, SentBy};
 use al_builtins::assumptions::{Assumption, assume};
 use al_data::AccessContext;
 
@@ -26,24 +26,28 @@ const ROW_VERSION: u32 = 2_000_000_005;
 
 impl Session {
     /// The re-reads corpus PR 1613 sends the row with (RowVersionReReadShapes.al `ReRead`): Get, FindFirst, FindSet and
-    /// Find('-') through a Record variable, RecordRef.FindFirst (`note_read_for_row_versions`, `send_pending_insert`).
-    pub(crate) fn measured_send_read(&self, method: RecordOp, find_form: Option<&str>) -> bool {
-        matches!(
-            (method, self.through_recordref, find_form),
-            (RecordOp::Get | RecordOp::FindFirst | RecordOp::FindSet, false, _)
-                | (RecordOp::Find, false, Some("-"))
-                | (RecordOp::FindFirst, true, _)
-        )
+    /// Find('-') through a Record variable, RecordRef.FindFirst (`note_read_for_row_versions`, `send_pending_insert`), of a
+    /// buffer `r` with no filter and no mark filter on the primary key, as `ReRead` declares them.
+    pub(crate) fn measured_send_read(&self, method: RecordOp, find_form: Option<&str>, r: &RecordState) -> bool {
+        (r.filters.is_empty(), r.key, r.marked_only) == (true, 0, false)
+            && matches!(
+                (method, self.through_recordref, find_form),
+                (RecordOp::Get | RecordOp::FindFirst | RecordOp::FindSet, false, _)
+                    | (RecordOp::Find, false, Some("-"))
+                    | (RecordOp::FindFirst, true, _)
+            )
     }
 
     /// Takes entry `at` of `RowVersionTx::pending_inserts` out as sent now and returns the last row version its Inserts handed
     /// out. Its rows at or below a row version sent before them (the last Commit's or the open transaction's) are noted in
     /// `restamped_rows`, with `insert_value_read` in the shape corpus PR 1613 measures (RowVersionReReadShapes.al `Run`, sends
-    /// `other`, `othercommit`, `same`): one row, its Insert buffer's SystemRowVersion read (`note_insert_value_read`), a Modify
-    /// sent the higher row version (`RowVersionTx::sent_by_modify`), and a `Commit()` statement or a measured read sends it (`measured`).
+    /// `other`, `othercommit`): one row, its Insert buffer's SystemRowVersion read (`note_insert_value_read`), only the one
+    /// measured Modify raised the row version sent (`SentBy::Modify`), and a `Commit()` statement or a measured read sends it
+    /// (`measured`).
     pub(crate) fn send_pending_insert(&mut self, at: usize, measured: bool) -> i64 {
         let rv = &mut self.tx.open.row_versions;
         let (table, company, first, last) = rv.pending_inserts.remove(at);
+        rv.insert_buffers.retain(|(o, c, _, _)| (*o, c) != (table, &company));
         let to = last.min(self.tx.committed_row_version.max(rv.sent));
         if to >= first {
             let read = rv.insert_values_read.contains(&(table, company, first));
@@ -51,7 +55,7 @@ impl Session {
                 table,
                 from: first - 1,
                 to,
-                insert_value_read: (measured, rv.sent_by_modify, first == last, read) == (true, true, true, true),
+                insert_value_read: (measured, rv.sent_by, first == last, read) == (true, SentBy::Modify, true, true),
             });
         }
         last
@@ -67,10 +71,30 @@ impl Session {
         }
     }
 
-    /// Notes a read of field `pos` of the Record buffer `r` (`interp.rs`) when the field is SystemRowVersion of a row of
-    /// `pending_inserts` whose row version no row version sent before it reaches: the Before read of corpus PR 1613
-    /// (RowVersionReReadShapes.al `Run`, `Before := Row.SystemRowVersion` right after `Row.Insert`).
-    pub(crate) fn note_insert_value_read(&mut self, r: &RecordState, pos: usize) {
+    /// Keeps the Record buffer `rec` whose Insert into `table` handed out the row version of an entry of `pending_inserts` that
+    /// holds that one row (`note_write`; `RowVersionTx::insert_buffers`).
+    pub(crate) fn note_row_version_buffer(
+        &mut self,
+        rec: &Rc<RefCell<RecordState>>,
+        table: u32,
+        company: &Option<String>,
+    ) {
+        let rv = &mut self.tx.open.row_versions;
+        let one = rv
+            .pending_inserts
+            .iter()
+            .any(|(o, c, first, last)| (*o, c, *first, *last) == (table, company, rv.last, rv.last));
+        if one {
+            rv.insert_buffers
+                .push((table, company.clone(), rv.last, Rc::downgrade(rec)));
+        }
+    }
+
+    /// Notes a read of field `pos` of the Record buffer `r` of `rc` (`interp.rs`) when the field is SystemRowVersion of a row
+    /// of `pending_inserts` whose row version no row version sent before it reaches, and `rc` is the buffer whose Insert
+    /// handed it out (`insert_buffers`; a `:=` or Copy copy or a by-value parameter is another buffer): the Before read of
+    /// corpus PR 1613 (RowVersionReReadShapes.al `Run`, `Before := Row.SystemRowVersion` right after `Row.Insert`).
+    pub(crate) fn note_insert_value_read(&mut self, rc: &Rc<RefCell<RecordState>>, r: &RecordState, pos: usize) {
         if r.temporary || self.tx.open.row_versions.pending_inserts.is_empty() {
             return;
         }
@@ -89,7 +113,11 @@ impl Session {
             .pending_inserts
             .iter()
             .any(|(o, c, first, last)| *o == t.object && *c == r.company && *first <= v && v <= *last);
-        if pending && v > current {
+        let own = rv
+            .insert_buffers
+            .iter()
+            .any(|(o, c, at, b)| (*o, c, *at, b.as_ptr()) == (t.object, &r.company, v, Rc::as_ptr(rc)));
+        if (pending, own, v > current) == (true, true, true) {
             let key = (t.object, r.company.clone(), v);
             if !rv.insert_values_read.contains(&key) {
                 rv.insert_values_read.push(key);
