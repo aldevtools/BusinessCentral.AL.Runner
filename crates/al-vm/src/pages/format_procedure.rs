@@ -501,13 +501,13 @@ fn hands_on_to_a_codeunit(objects: &ir::Objects, r: &ir::Routine) -> bool {
         instance: Some(instance),
         args,
         try_call: false,
-    } = unconverted(e)
+    } = e.unconverted()
     else {
         return false;
     };
     let declared_local = matches!(**instance, Expr::Load(Place::Local(n)) if n >= r.params);
     let parameters = args.iter().all(|a| match a {
-        Arg::Value(e) => matches!(unconverted(e), Expr::Load(Place::Local(n)) if *n < r.params),
+        Arg::Value(e) => matches!(e.unconverted(), Expr::Load(Place::Local(n)) if *n < r.params),
         Arg::Ref(_) => false,
     });
     objects[*object].kind == ir::ObjKind::Codeunit
@@ -516,18 +516,10 @@ fn hands_on_to_a_codeunit(objects: &ir::Objects, r: &ir::Routine) -> bool {
         && objects[*object].routines.get(*routine).is_some_and(only_counts)
 }
 
-/// `e` without the conversions around it.
-fn unconverted(mut e: &Expr) -> &Expr {
-    while let Expr::Convert(_, inner) = e {
-        e = inner;
-    }
-    e
-}
-
 /// Routine `r` of a codeunit is the probe's `Next` (AutoFormatProcedureControl.al:161-165, `Calls += 1; exit(FormatText);`): no
 /// attribute, statements that each add a constant to a global of the codeunit, then `exit(<global>)`. It calls nothing.
 fn only_counts(r: &ir::Routine) -> bool {
-    let strip = unconverted;
+    let strip = Expr::unconverted;
     let adds_to = |g: usize, e: &Expr| match strip(e) {
         Expr::Binary(ir::BinOp::Add, a, b) => {
             matches!(strip(a), Expr::Load(Place::Global(h)) if *h == g) && matches!(strip(b), Expr::Const(_))
