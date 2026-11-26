@@ -25,8 +25,7 @@ impl MemStore {
     /// The committed marks the rows leave out ([`CommittedMarks`]).
     pub fn committed_marks(&self) -> CommittedMarks {
         self.footprint_everything("an export of the store");
-        let mut emptied: Vec<(String, u32)> = self.committed_emptied.keys().map(|s| (s.0.to_string(), s.1)).collect();
-        emptied.sort();
+        let emptied = self.committed_emptied();
         let mut copies: Vec<(String, String)> = (self.committed_copies.iter())
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();

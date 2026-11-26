@@ -218,6 +218,8 @@ impl Session {
         }
         self.deletes += 1;
         al_data::Store::delete_all(&mut self.store, &cx, t, &filters).map_err(store_err)?;
+        // A temporary record was refused above; an install Truncate leaves an unseeded table unseeded, as DeleteAll does.
+        self.forget_install_emptied(&cx, t, false);
         Ok(Value::Boolean(true))
     }
 
