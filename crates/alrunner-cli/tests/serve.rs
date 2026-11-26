@@ -2542,6 +2542,45 @@ fn entries_with_resources_take_the_kept_baseline_and_give_what_a_fresh_daemon_gi
     }
 }
 
+/// `timings.testDataIndex` says how the open of the test data got the backup's kept index (al-runner issue 8479).
+#[test]
+fn a_summary_says_how_the_test_data_index_was_obtained() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "idx", MIXED);
+    let cache = d.path().join("cache");
+    let bak = Path::new(env!("CARGO_MANIFEST_DIR")).join("../al-bcdb/tests/fixtures/typeprobe.bak");
+    let (cache, bak) = (cache.to_str().unwrap(), bak.to_str().unwrap());
+    let mut states = Vec::new();
+    for _ in 0..2 {
+        let mut s = Server::start(&[
+            "--no-download",
+            "--cache-dir",
+            cache,
+            "--test-data",
+            bak,
+            "--test-data-company",
+            "TP",
+        ]);
+        assert_eq!(s.line(), json!({"ready": true}));
+        // The first request opens the backup; the second, on the same daemon, repeats what the open did.
+        for _ in 0..2 {
+            s.send(json!({"command": "runTests", "sourcePaths": [a]}));
+            let summary = s.until_summary().pop().unwrap();
+            states.push(summary["timings"]["testDataIndex"].clone());
+        }
+    }
+    assert_eq!(
+        states,
+        [json!("built"), json!("built"), json!("read"), json!("read")],
+        "{states:?}"
+    );
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    s.send(json!({"command": "runTests", "sourcePaths": [a]}));
+    let summary = s.until_summary().pop().unwrap();
+    assert!(summary["timings"].get("testDataIndex").is_none(), "{summary}");
+}
+
 /// Two apps whose test needs the complete compile, so the dependency app is compiled into a layer of the compile cache.
 fn layered_apps(root: &Path) -> (PathBuf, PathBuf) {
     let dep = root.join("dep");
