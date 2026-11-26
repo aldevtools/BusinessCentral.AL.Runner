@@ -1,7 +1,7 @@
 //! xRec in a table extension's insert and delete triggers is not measured (al-runner issue 8986): every read of it refuses
 //! (`al-vm` `records/ext_trigger_xrec.rs`). Main gave `OnAfterInsert` the blank xRec of a plain call, a wrong value.
 //! Each test reaches one reader of the mark (`Get` and `Count` too: xRec's view is not measured either); the triggers that do not read xRec, and the pinned `OnAfterModify`
-//! (table-objects/extensions/TestTableExtensionTableTriggers_Tests.al:183), still run, and so do the methods that read neither its buffer nor its view (`TableCaption`, `FieldNo`).
+//! (table-objects/extensions/TestTableExtensionTableTriggers_Tests.al:183), still run, and so do the methods that read neither its buffer nor its view (`TableCaption`, `FieldNo`, `FieldCaption`).
 
 use al_testrun::Outcome;
 
@@ -31,7 +31,7 @@ tableextension 50402 "Z Ext" extends "Z Row"
             'get': begin xRec.Get(Rec.Id); Mode.Add(Format(xRec.Serial)); end;
             'count': Mode.Add(Format(xRec.Count()));
             'validate': Rec.SetMirror(5);
-            'caption': Mode.Add(xRec.TableCaption() + Format(xRec.FieldNo(Serial)));
+            'caption': Mode.Add(xRec.TableCaption() + Format(xRec.FieldNo(Serial)) + xRec.FieldCaption(Serial));
         end;
     end;
     trigger OnDelete()
@@ -68,7 +68,7 @@ codeunit 50411 "Z Get" { Subtype = Test; [Test] procedure T() var S: Codeunit "Z
 codeunit 50412 "Z Count" { Subtype = Test; [Test] procedure T() var S: Codeunit "Z Steps"; begin S.Run('count'); end; }
 codeunit 50413 "Z Validate" { Subtype = Test; [Test] procedure T() var S: Codeunit "Z Steps"; begin S.Run('validate'); end; }
 codeunit 50414 "Z Caption" { Subtype = Test;
-    [Test] procedure T() var S: Codeunit "Z Steps"; begin if S.Run('caption') <> 'Z Row2' then Error('other'); end; }
+    [Test] procedure T() var S: Codeunit "Z Steps"; begin if S.Run('caption') <> 'Z Row2Serial' then Error('other'); end; }
 codeunit 50409 "Z Rec" { Subtype = Test;
     [Test] procedure T() var S: Codeunit "Z Steps"; begin if S.Run('rec') <> '42' then Error('other'); end; }
 codeunit 50410 "Z Modify" { Subtype = Test;

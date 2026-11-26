@@ -2238,7 +2238,10 @@ impl Session {
             return unsupported(format!("Record.{}(): {RUN_PAGE_LINK_VARIANT}", method.name()));
         }
         // The table's metadata: these read neither the buffer nor the view of the xRec of `ext_trigger_xrec.rs`.
-        let metadata = matches!(method, RecordOp::TableName | RecordOp::TableCaption | RecordOp::FieldNo);
+        let metadata = matches!(
+            method,
+            RecordOp::TableName | RecordOp::TableCaption | RecordOp::FieldNo | RecordOp::FieldCaption
+        );
         if unmeasured_trigger_xrec(why) && metadata {
             return self.record_op_unflagged(method, rec, args);
         }
@@ -2385,7 +2388,11 @@ impl Session {
         let runs = match method {
             RecordOp::GetFilters => rec.borrow().filters.is_empty(),
             RecordOp::Count | RecordOp::Get => why == RUN_PAGE_LINK_COPY && rec.borrow().filters.is_empty(),
-            RecordOp::FieldNo | RecordOp::IsTemporary | RecordOp::TableName | RecordOp::TableCaption => true,
+            RecordOp::FieldNo
+            | RecordOp::IsTemporary
+            | RecordOp::TableName
+            | RecordOp::TableCaption
+            | RecordOp::FieldCaption => true,
             // TestField reads only the copy's own field, and the copy holds Rec's fields (al-runner issue 7444).
             RecordOp::TestField => true,
             _ => false,
