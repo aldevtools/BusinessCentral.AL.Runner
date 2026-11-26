@@ -336,6 +336,7 @@ codeunit 96740 "LT NT7 Tests"
         Line2: Record "LT NY6 Line";
         Detail2: Record "LT NY6 Detail";
         Stamp2: Record "LT NY6 Stamp";
+        Choice: Record "LT NT7 Choice";
     begin
         Line.DeleteAll();
         Detail.DeleteAll();
@@ -344,6 +345,238 @@ codeunit 96740 "LT NT7 Tests"
         Line2.DeleteAll();
         Detail2.DeleteAll();
         Stamp2.DeleteAll();
+        Choice.DeleteAll();
+        Choice.Code := 'V';
+        Choice.Insert();
+        Commit();
+        Shown := '';
+    end;
+
+    local procedure Check(What: Text; Expected: Text; Actual: Text)
+    begin
+        if Expected <> Actual then
+            Error('%1: expected <%2>, found <%3>.', What, Expected, Actual);
+    end;
+}
+
+table 96741 "LT NT7 Choice"
+{
+    DataClassification = CustomerContent;
+
+    fields
+    {
+        field(1; Code; Text[30]) { }
+    }
+
+    keys
+    {
+        key(PK; Code) { Clustered = true; }
+    }
+}
+
+page 96742 "LT NT7 Rel Lines"
+{
+    PageType = List;
+    SourceTable = "LT NT6 Line";
+    AutoSplitKey = true;
+    ApplicationArea = All;
+    UsageCategory = None;
+
+    layout
+    {
+        area(Content)
+        {
+            repeater(Lines)
+            {
+                field(Name; Rec.Name)
+                {
+                    ApplicationArea = All;
+
+                    trigger OnValidate()
+                    begin
+                        Rec.Note := 'Resolved';
+                        CurrPage.SaveRecord();
+                        StampMark(Rec);
+                        CurrPage.Update(false);
+                    end;
+                }
+                field(Note; Rec.Note) { ApplicationArea = All; }
+                field(Mark; Rec.Mark) { ApplicationArea = All; }
+                field(Value; Rec.Value)
+                {
+                    ApplicationArea = All;
+                    TableRelation = "LT NT7 Choice".Code;
+
+                    trigger OnValidate()
+                    var
+                        Stamper: Codeunit "LT NT6 Stamper";
+                    begin
+                        Rec.ApplyValue();
+                        CurrPage.SaveRecord();
+                        Rec.GetBySystemId(Rec.SystemId);
+                        Stamper.Stamp(Rec);
+                        CurrPage.Usage.Page.ClearUsage();
+                        CurrPage.Update(false);
+                    end;
+                }
+                field(Shown; Rec.Shown) { ApplicationArea = All; }
+                field(Kind; Kind) { ApplicationArea = All; Editable = false; }
+            }
+        }
+        area(FactBoxes)
+        {
+            part(Info; "LT NT6 Info")
+            {
+                ApplicationArea = All;
+                SubPageLink = "Group Code" = field("Group Code"), "Entry No." = field("Entry No.");
+            }
+            part(Picture; "LT NT6 Picture")
+            {
+                ApplicationArea = All;
+                SubPageLink = "Group Code" = field("Group Code"), "Entry No." = field("Entry No.");
+            }
+            part(Usage; "LT NT6 Usage")
+            {
+                ApplicationArea = All;
+                SubPageLink = "Group Code" = field("Group Code"), "Entry No." = field("Entry No.");
+            }
+        }
+    }
+
+    actions
+    {
+        area(Processing)
+        {
+            action(MarkLine)
+            {
+                ApplicationArea = All;
+
+                trigger OnAction()
+                begin
+                    StampMark(Rec);
+                    CurrPage.Update(false);
+                end;
+            }
+            action(ClearNote)
+            {
+                ApplicationArea = All;
+
+                trigger OnAction()
+                begin
+                    Rec.Note := '';
+                    CurrPage.Update(true);
+                end;
+            }
+        }
+    }
+
+    trigger OnOpenPage()
+    begin
+        Opened := true;
+    end;
+
+    trigger OnAfterGetRecord()
+    begin
+        Kind := '';
+        if Opened and (Rec.Note <> '') then
+            Kind := 'Noted';
+    end;
+
+    trigger OnDeleteRecord(): Boolean
+    begin
+        exit(true);
+    end;
+
+    local procedure StampMark(Line: Record "LT NT6 Line")
+    var
+        Other: Record "LT NT6 Line";
+    begin
+        Other.Get(Line."Group Code", Line."Entry No.");
+        Other.Mark := 'Stamped';
+        Other.Modify();
+    end;
+
+    var
+        Opened: Boolean;
+        Kind: Text;
+}
+
+codeunit 96743 "LT NT7 Rel Opener"
+{
+    procedure Open(GroupCode: Code[10])
+    var
+        Line: Record "LT NT6 Line";
+    begin
+        Line.SetRange("Group Code", GroupCode);
+        Page.RunModal(Page::"LT NT7 Rel Lines", Line);
+    end;
+}
+
+codeunit 96744 "LT NT7 Rel Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        Shown: Text;
+
+    [Test]
+    [HandlerFunctions('OpenReadOkHandler')]
+    procedure NewLine_TableRelationOnValue_OpenReadOk_KeepsMain()
+    var
+        Opener: Codeunit "LT NT7 Rel Opener";
+        Line: Record "LT NT6 Line";
+    begin
+        Initialize();
+        Opener.Open('G1');
+        if Line.FindFirst() then
+            Shown += ' rows=' + Line.Name + '/' + Line.Note + '/' + Line.Mark + '/' + Line.Value + '/' + Line.Shown;
+        Check('all', 'value=A/Resolved/Stamped// rows=A/Resolved/Stamped//', Shown);
+    end;
+
+    [Test]
+    [HandlerFunctions('LaterSetValueHandler')]
+    procedure NewLine_TableRelationOnValue_LaterSetValue_Refuses()
+    var
+        Opener: Codeunit "LT NT7 Rel Opener";
+    begin
+        Initialize();
+        Opener.Open('G1');
+    end;
+
+    [ModalPageHandler]
+    procedure OpenReadOkHandler(var Lines: TestPage "LT NT7 Rel Lines")
+    begin
+        Lines.New();
+        Lines.Name.SetValue('A');
+        Shown += 'value=' + Lines.Name.Value() + '/' + Lines.Note.Value() + '/' + Lines.Mark.Value() + '/' + Lines.Value.Value() + '/' + Lines.Shown.Value();
+        Lines.OK().Invoke();
+    end;
+
+    [ModalPageHandler]
+    procedure LaterSetValueHandler(var Lines: TestPage "LT NT7 Rel Lines")
+    begin
+        Lines.New();
+        Lines.Name.SetValue('A');
+        Lines.Value.SetValue('V');
+        Lines.OK().Invoke();
+    end;
+
+    local procedure Initialize()
+    var
+        Line: Record "LT NT6 Line";
+        Detail: Record "LT NT6 Detail";
+        Stamp: Record "LT NT6 Stamp";
+        Log: Record "LT NT6 Log";
+        Choice: Record "LT NT7 Choice";
+    begin
+        Line.DeleteAll();
+        Detail.DeleteAll();
+        Stamp.DeleteAll();
+        Log.DeleteAll();
+        Choice.DeleteAll();
+        Choice.Code := 'V';
+        Choice.Insert();
         Commit();
         Shown := '';
     end;

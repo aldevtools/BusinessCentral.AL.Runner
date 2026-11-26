@@ -1,8 +1,9 @@
-//! The corpus probes of al-runner issues 8848 and 8849 (corpus pull request 1542, open: tests/al-language/pages/currpage/
-//! ListNewLineExtraCodeCodedFieldOnValidate.al and ListNewLineExtraCodeCodedRecModify.al, measured on BC 29.1, 11 of 11 green
-//! in 3 runs), run here until a bump pins them: on the page of the page-with-code shape (`al-vm` pages/code_inserted_coded.rs
-//! `CodedObjects::Extra`), the later SetValue on a field with its own OnValidate, and Rec modified after its save. The probes
-//! are read from their copies in the neighbor app. Delete this file when the pin is in the corpus.
+//! The corpus probes of al-runner issues 8848 and 8849 (corpus pull request 1542, merged, not pinned yet:
+//! tests/al-language/pages/currpage/ListNewLineExtraCodeCodedFieldOnValidate.al:799-853 and
+//! ListNewLineExtraCodeCodedRecModify.al:594-658, measured on BC 29.1, 11 of 11 green in 3 runs), run here until a bump pins
+//! them: on the page of the page-with-code shape (`al-vm` pages/code_inserted_coded.rs `CodedObjects::Extra`), the later
+//! SetValue on a field with its own OnValidate, and Rec modified after its save. The probes are read from their copies in the
+//! neighbor app. Delete this file when the pin is in the corpus.
 
 use al_builtins::assumptions::Assumption::{ListNewLineExtraCode, ListNewLineExtraCodeCoded};
 use al_test_cli::report::Outcome;
@@ -61,6 +62,20 @@ fn issue_8849_probe_cells() {
 #[test]
 fn issue_8848_8849_neighbors_are_refused() {
     let o = super::outside_fb_8712::outcomes(&format!("{FIELD_PROBE}\n{REC_PROBE}\n{NEIGHBORS}"), "LT NT7 Tests");
+    assert_eq!(o.len(), 2);
+    let ran: Vec<_> = o
+        .iter()
+        .filter(|(_, r, _)| !matches!(r, Outcome::NotRun(_)))
+        .map(|(name, r, _)| format!("{name}: {r:?}"))
+        .collect();
+    assert!(ran.is_empty(), "{ran:#?}");
+}
+
+/// A later SetValue on a control with its own OnValidate and a TableRelation stays refused; the same page opened, read and
+/// closed with OK keeps main's outcome.
+#[test]
+fn issue_8848_table_relation_neighbors_keep_main_or_refuse() {
+    let o = super::outside_fb_8712::outcomes(&format!("{FIELD_PROBE}\n{REC_PROBE}\n{NEIGHBORS}"), "LT NT7 Rel Tests");
     assert_eq!(o.len(), 2);
     let ran: Vec<_> = o
         .iter()

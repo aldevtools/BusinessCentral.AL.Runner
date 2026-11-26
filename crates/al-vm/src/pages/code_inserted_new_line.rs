@@ -907,11 +907,12 @@ impl Session {
         // the save with nothing written (:804). Rows of other tables written there are rows inserted (:746). A field of Rec
         // set without that, a row of another table modified or deleted, or a write before Update(true), is not measured
         // (reviews of al-runner PR 8847, 01:00Z and 02:55Z).
+        let mut rec_written = false;
         if typed_extra {
             let rec = self.page_rec(st);
             let table = self.table(&rec)?;
             let rec_kept = Self::same_values(&rec.borrow().fields, &view.rec.fields);
-            let rec_written = matches!(
+            rec_written = matches!(
                 (
                     crate::stale_rename::row_version(&table, &rec.borrow().fields),
                     crate::stale_rename::row_version(&table, &view.rec.fields),
@@ -951,7 +952,7 @@ impl Session {
         // Update(false) shows the row as stored in every case ListNewLineExtraCodeCodedRecModify.al measures (Rec.Modify()
         // after the save :594, :607; another record's write then Rec read again :618; a field of Rec set after its Modify()
         // :629; a copy of Rec modified :640; Rec modified, then another record's write :651).
-        let rec_free = view.extra && typed_extra;
+        let rec_free = view.extra && typed_extra && rec_written;
         let kept = match rec_free {
             true => self.view_kept(
                 st,

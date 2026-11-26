@@ -17,4 +17,5 @@ sha2 = "0.10"
 
 [dev-dependencies]
 al-sema.workspace = true
-al-testkit.workspace = true
+al-testkit = { workspace = true, features = ["runner"] }
+al-testrun.workspace = true

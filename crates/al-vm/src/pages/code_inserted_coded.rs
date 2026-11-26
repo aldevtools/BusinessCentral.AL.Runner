@@ -162,7 +162,8 @@ impl Session {
             let own =
                 c.owner.is_none() && c.ext_triggers.is_empty() && c.run_object.is_none() && c.action_ref.is_none();
             // A TableRelation only on a control the later SetValue may write (ListNewLineExtraCodeCodedSecondSetValue.al:859,
-            // the Rel page; review of al-runner PR 8847, 01:00Z): a control without code keeps main's way.
+            // the Rel page; review of al-runner PR 8847, 01:00Z): a control without code keeps main's way, and so does a table
+            // field with an OnValidate of its own (the #8847 final clause).
             let related = c.prop("tablerelation").is_some();
             own && match c.kind {
                 ir::ControlKind::Repeater => c.props.is_empty() && c.triggers.is_empty(),
@@ -170,7 +171,7 @@ impl Session {
                     matches!(c.binding, ir::Binding::Field(_) | ir::Binding::Var(_))
                         && props(&["applicationarea", "editable", "tablerelation"])
                         && triggers("onvalidate")
-                        && (!related || Self::later_value_field(&engine, c, &table))
+                        && (!related || Self::coded_related_value_field(&engine, c, &table))
                 }
                 ir::ControlKind::Action => props(&["applicationarea"]) && triggers("onaction"),
                 ir::ControlKind::Part => c.triggers.is_empty(),
@@ -675,7 +676,20 @@ impl Session {
             && page_of(&engine, st)
                 .controls
                 .get(idx)
-                .is_some_and(|c| Self::later_value_field(&engine, c, &table))
+                .is_some_and(|c| c.prop("tablerelation").is_none() && Self::later_value_field(&engine, c, &table))
+    }
+
+    /// Whether a control with a TableRelation is the measured relation shape of the later SetValue: the same field shape as
+    /// `later_value_field`, and the table field has no OnValidate of its own (`ListNewLineExtraCodeCodedSecondSetValue.al:859`).
+    fn coded_related_value_field(engine: &crate::Engine, control: &ir::Control, table: &al_data::TableDef) -> bool {
+        let ir::Binding::Field(f) = control.binding else {
+            return false;
+        };
+        let field = engine.program.objects[table.object as usize]
+            .table
+            .as_ref()
+            .and_then(|t| t.fields.get(f));
+        field.is_some_and(|d| d.on_validate.is_none()) && Self::later_value_field(engine, control, table)
     }
 
     /// Whether `control`, on a page over `table`, is a field control the later SetValue of
