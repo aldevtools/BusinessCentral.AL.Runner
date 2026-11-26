@@ -180,6 +180,79 @@ codeunit 50413 "PX Tests"
     end;
 
     [Test]
+    procedure Plain_CalcFieldsBlob()
+    begin
+        RunPlain('p-calcblob');
+    end;
+
+    [Test]
+    procedure Plain_MediaImportStream()
+    begin
+        RunPlain('p-media');
+    end;
+
+    [Test]
+    procedure Plain_MediaSetImportStream()
+    begin
+        RunPlain('p-mediaset');
+    end;
+
+    [Test]
+    procedure Plain_EvaluateField()
+    begin
+        RunPlain('p-evaluate');
+    end;
+
+    [Test]
+    procedure Plain_InStreamReadTextField()
+    begin
+        RunPlain('p-readtext');
+    end;
+
+    [Test]
+    procedure Plain_DictionaryGetField()
+    begin
+        RunPlain('p-dictget');
+    end;
+
+    [Test]
+    procedure Plain_ClearMediaField()
+    begin
+        RunPlain('p-clearmedia');
+    end;
+
+    [Test]
+    procedure Plain_ClearTextField()
+    begin
+        RunPlain('p-cleartext');
+    end;
+
+    [Test]
+    procedure Plain_CalcFieldsFlowField()
+    var
+        Line: Record "PX Line";
+    begin
+        // The FlowField is calculated before the Validate, so the trigger's CalcFields leaves every field as it was.
+        Prepare(Line);
+        Line.CalcFields("Line Count");
+        Cfg.Set('p-calcflow');
+        Line.Validate(Plain, 1);
+        Check(Line);
+    end;
+
+    [Test]
+    procedure Plain_MediaSetInsert()
+    begin
+        RunPlain('p-mediasetinsert');
+    end;
+
+    [Test]
+    procedure Plain_MediaSetRemove()
+    begin
+        RunPlain('p-mediasetremove');
+    end;
+
+    [Test]
     procedure Plain_PageGetRecord()
     begin
         RunPlain('p-getrecord');

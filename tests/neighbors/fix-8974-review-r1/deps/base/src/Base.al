@@ -49,6 +49,8 @@ table 50400 "PX Line"
                 RecRef: RecordRef;
                 V: Variant;
                 OS: OutStream;
+                InS: InStream;
+                D: Dictionary of [Text, Code[20]];
             begin
                 case Cfg.Get() of
                     'p-ctrl':
@@ -96,6 +98,53 @@ table 50400 "PX Line"
                             Pic.CreateOutStream(OS);
                             OS.WriteText('X');
                         end;
+                    'p-calcblob':
+                        CalcFields(Pic);
+                    'p-media':
+                        begin
+                            Other.Pic.CreateOutStream(OS);
+                            OS.WriteText('X');
+                            Other.Pic.CreateInStream(InS);
+                            Img.ImportStream(InS, 'x');
+                        end;
+                    'p-mediaset':
+                        begin
+                            Other.Pic.CreateOutStream(OS);
+                            OS.WriteText('X');
+                            Other.Pic.CreateInStream(InS);
+                            Imgs.ImportStream(InS, 'x');
+                        end;
+                    'p-evaluate':
+                        Evaluate(Series, 'EV');
+                    'p-readtext':
+                        begin
+                            Other.Pic.CreateOutStream(OS);
+                            OS.WriteText('RT');
+                            Other.Pic.CreateInStream(InS);
+                            InS.ReadText(Note);
+                        end;
+                    'p-dictget':
+                        begin
+                            D.Add('k', 'DV');
+                            D.Get('k', Note);
+                        end;
+                    'p-clearmedia':
+                        Clear(Img);
+                    'p-cleartext':
+                        Clear(Note);
+                    'p-calcflow':
+                        CalcFields("Line Count");
+                    'p-mediasetinsert', 'p-mediasetremove':
+                        begin
+                            Other.Pic.CreateOutStream(OS);
+                            OS.WriteText('X');
+                            Other.Pic.CreateInStream(InS);
+                            Other.Imgs.ImportStream(InS, 'x');
+                            if Cfg.Get() = 'p-mediasetinsert' then
+                                Imgs.Insert(Other.Imgs.Item(1))
+                            else
+                                Imgs.Remove(Other.Imgs.Item(1));
+                        end;
                 end;
                 Worker.CallTableProc(Rec);
             end;
@@ -114,6 +163,10 @@ table 50400 "PX Line"
         // Written in the trigger of Plain: by CalcSums (Plain_CalcSums) and by an OutStream (Plain_BlobStream).
         field(10; Amount; Decimal) { }
         field(11; Pic; Blob) { }
+        // Written in the trigger of Plain by ImportStream (Plain_MediaImportStream, Plain_MediaSetImportStream), by Clear
+        // (Plain_ClearMediaField) and by MediaSet.Insert and Remove (Plain_MediaSetInsert, Plain_MediaSetRemove).
+        field(12; Img; Media) { }
+        field(13; Imgs; MediaSet) { }
     }
 
     keys
