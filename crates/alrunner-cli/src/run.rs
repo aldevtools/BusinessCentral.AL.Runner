@@ -920,6 +920,16 @@ fn entry_runs(
         .collect()
 }
 
+/// The login replay's settings of a run (al-runner issue 8211, internal and opt-in): `ALRUNNER_LOGIN_REPLAY=1`,
+/// `ALRUNNER_LOGIN_REPLAY_CHECK` and the start caps (`ALRUNNER_LOGIN_REPLAY_MAX_IMAGES`, `ALRUNNER_LOGIN_REPLAY_MAX_MB`),
+/// with the start check of the byte cap against `max_memory` (`--max-memory`, or this serve request's `maxMemory`).
+fn login_replay_options(opts: &mut RunOptions, max_memory: Option<u64>) -> Result<(), String> {
+    opts.login_replay_check = std::env::var_os("ALRUNNER_LOGIN_REPLAY_CHECK").is_some();
+    opts.login_replay = std::env::var_os("ALRUNNER_LOGIN_REPLAY").is_some_and(|v| v == "1");
+    opts.login_replay_limits = al_testrun::runtime::LoginReplayLimits::read(|v| std::env::var_os(v))?;
+    opts.check_login_replay_memory(max_memory)
+}
+
 fn test_inner(
     a: &TestArgs,
     mut warm: Option<&mut WarmCtx>,
@@ -1635,9 +1645,6 @@ fn test_inner(
         test_suites, // `--test-suites FILE` (ADR-066 amendment 6)
         memory: crate::memory_budget::budget(a.max_memory, warm.is_none() && debug.is_none()), // `--max-memory`
         private_baseline: std::env::var_os("AL_PRIVATE_BASELINE").is_some(), // ADR-069 decision 11
-        login_replay_check: std::env::var_os("ALRUNNER_LOGIN_REPLAY_CHECK").is_some(), // issue 8211, internal
-        login_replay: std::env::var_os("ALRUNNER_LOGIN_REPLAY").is_some_and(|v| v == "1"), // issue 8211, internal
-        login_replay_limits: al_testrun::runtime::LoginReplayLimits::read(|v| std::env::var_os(v))?, // issue 8211
         test_driver: driver,
         // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.
         run_only: run_only_picks(a, &selection, &found),
@@ -1648,7 +1655,7 @@ fn test_inner(
         // Left at their defaults: `single_fresh_check` (set per variant in stability mode, ADR-058 amendment 1), `perturb`, `check_baseline_rule`.
         ..Default::default()
     };
-    opts.check_login_replay_memory(a.max_memory)?; // `--max-memory` or this request's `maxMemory` (issue 8211)
+    login_replay_options(&mut opts, a.max_memory)?;
     laps.lap(Part::Prepare);
     if let Some(w) = warm.as_deref() {
         opts.entries = entry_runs(a, w, &entry_selections, &found, &inputs, &opts.hooks);
