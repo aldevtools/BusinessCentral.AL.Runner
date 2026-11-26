@@ -179,7 +179,8 @@ impl Session {
                 continue;
             }
             let ty = &child.fields[r.pos].ty;
-            let (old_value, new_value) = match (ops::convert(old[rel].clone(), ty), ops::convert(new[rel].clone(), ty)) {
+            let (old_value, new_value) = match (ops::convert(old[rel].clone(), ty), ops::convert(new[rel].clone(), ty))
+            {
                 (Ok(o), Ok(n)) => (o, n),
                 (old_value, _) => {
                     // Owned by `rename_short_field.rs`: a measured skip, the measured error, or a refusal.

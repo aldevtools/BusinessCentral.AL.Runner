@@ -97,7 +97,9 @@ impl Session {
         let child_schema = engine.program.objects[child_index].table.as_ref()?;
         let [key] = t.keys.as_slice() else { return None };
         let [k] = key.as_slice() else { return None };
-        let [child_key] = child.keys.as_slice() else { return None };
+        let [child_key] = child.keys.as_slice() else {
+            return None;
+        };
         let [ck] = child_key.as_slice() else { return None };
         let no_trigger = |d: &TableDef| {
             ["OnInsert", "OnModify", "OnDelete", "OnRename"]
