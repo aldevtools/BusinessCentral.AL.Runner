@@ -98,6 +98,28 @@ pub fn constructor_answers_only(clr_type: &str) -> bool {
     answers_only(clr_type, clr_type.rsplit('.').next().unwrap_or(clr_type))
 }
 
+/// The UserInfo collections (member, CLR type of an item) whose read raises on a tier without Entra ID: the UserInfo
+/// is null there (`GetCurrentUser` answers null, `GetUser` and `GetUserByObjectId` raise), so reading one raises
+/// DotNetVariableNotCreated (`not_created.rs`) and the body of a `foreach` over it never runs (corpus PR 1612, open,
+/// Y93GraphNoDirectory.al cell "ServicePlanInfo/RoleInfo/GroupInfo members: not reachable on this tier"; assumption
+/// graph-no-directory-members). No item member is served: a body that runs anyway raises `Signal::Unsupported`.
+const UNRUN_ITEMS: &[(&str, &str)] = &[
+    (
+        "AssignedPlans",
+        "Microsoft.Dynamics.Nav.LicensingService.Model.ServicePlanInfo",
+    ),
+    ("Roles", "Microsoft.Dynamics.Nav.LicensingService.Model.RoleInfo"),
+    ("Groups", "Microsoft.Dynamics.Nav.LicensingService.Model.GroupInfo"),
+];
+
+/// The CLR type of an item of `member` of `clr_type` when that member is one of [`UNRUN_ITEMS`] of [`USER_INFO`]
+/// (both without regard to case): the body of a `foreach` over it never runs on this tier.
+pub fn unrun_item_type(clr_type: &str, member: &str) -> Option<&'static str> {
+    let item = (UNRUN_ITEMS.iter()).find(|(m, _)| m.eq_ignore_ascii_case(member));
+    item.filter(|_| clr_type.eq_ignore_ascii_case(USER_INFO))
+        .map(|(_, t)| *t)
+}
+
 /// Whether `list` holds (`clr_type`, `member`), both without regard to case.
 fn listed(list: &[(&str, &str)], clr_type: &str, member: &str) -> bool {
     (list.iter()).any(|(t, m)| t.eq_ignore_ascii_case(clr_type) && m.eq_ignore_ascii_case(member))

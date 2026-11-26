@@ -2310,6 +2310,40 @@ fn the_graph_members_corpus_pr_1612_measures_are_answer_only() {
     }
 }
 
+// The walk takes the item members of a foreach over AssignedPlans, Roles or Groups of a UserInfo as answer-only because
+// that body never runs on this tier (corpus PR 1612 cell "ServicePlanInfo/RoleInfo/GroupInfo members: not reachable on
+// this tier"; assumption graph-no-directory-members). The runtime is the backstop: no item member is served, so a call
+// that runs anyway is refused, never answered.
+#[test]
+fn the_items_of_the_unrun_user_info_collections_are_refused_when_called() {
+    use al_vm::dotnet::server_classes::unrun_item_type;
+    let ui = al_builtins::dotnet_sigs::USER_INFO;
+    let model = "Microsoft.Dynamics.Nav.LicensingService.Model.";
+    for (m, item) in [
+        ("AssignedPlans", "ServicePlanInfo"),
+        ("Roles", "RoleInfo"),
+        ("Groups", "GroupInfo"),
+    ] {
+        assert_eq!(unrun_item_type(ui, m), Some(format!("{model}{item}").as_str()), "{m}");
+    }
+    assert_eq!(unrun_item_type(ui, "ObjectId"), None);
+    assert_eq!(unrun_item_type(al_builtins::dotnet_sigs::GRAPH_QUERY, "Roles"), None);
+    for body in [
+        "s := Format(P.ServicePlanId());",
+        "s := P.CapabilityStatus();",
+        "s := P.ServicePlanName();",
+    ] {
+        let host = no_host();
+        let r = run(&host, "P: DotNet ServicePlanInfo; s: Text;", body, "");
+        assert!(
+            matches!(r.result, Err(Signal::Unsupported(_))),
+            "{body}: {:?}",
+            r.result
+        );
+        assert_eq!(host.log(), vec![]);
+    }
+}
+
 // GetTenantDetail answers a TenantInfo, not null, whose InitialDomain, CountryLetterCode and PreferredLanguage are
 // empty: Microsoft's Azure AD Tenant Impl. raises "Failed to retrieve ..." for a null TenantInfo, and the corpus
 // test expects '' from all three (session-system/TestEnvironmentUserTenantContracts.al:210-229).

@@ -20,7 +20,7 @@
 use super::*;
 use al_builtins::value::RtType;
 use al_ir::{Arg, Const, Expr, ObjKind, Place, Stmt};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::OnceLock;
 
 /// Session state that lasts from one test of a codeunit to the next, as bits of [`ReachFacts::state_reads`] and
@@ -740,6 +740,15 @@ pub(crate) fn stmt_places(body: &[Stmt], note: &mut dyn FnMut(&Place)) {
 /// Calls `note` on each place expression `e` itself names: a load, a `var` argument, the receiver a builtin takes by
 /// reference (`R.Insert()`). With [`stmt_places`] and a walk of every expression, every place a body names.
 fn expr_places(e: &Expr, note: &mut dyn FnMut(&Place)) {
+    match e {
+        Expr::Load(p) => note(p),
+        _ => expr_refs(e, note),
+    }
+}
+
+/// Calls `note` on each place expression `e` itself passes by reference: a `var` argument, the receiver a builtin
+/// takes by reference (`R.Insert()`).
+fn expr_refs(e: &Expr, note: &mut dyn FnMut(&Place)) {
     fn refs(args: &[Arg], note: &mut dyn FnMut(&Place)) {
         for a in args {
             if let Arg::Ref(p) = a {
@@ -748,7 +757,6 @@ fn expr_places(e: &Expr, note: &mut dyn FnMut(&Place)) {
         }
     }
     match e {
-        Expr::Load(p) => note(p),
         Expr::Call { args, .. } | Expr::InterfaceCall { args, .. } | Expr::DotNet { args, .. } => refs(args, note),
         Expr::Builtin { receiver, args, .. } => {
             refs(args, note);
@@ -871,6 +879,7 @@ pub(crate) fn remainder_reach_facts(
         out: ReachFacts::default(),
         summary: Summary::default(),
         unknown: false,
+        unrun: HashSet::new(),
     };
     for (&(global, i), &(uses, _)) in &named {
         let slot = if global { obj.globals.get(i) } else { rt.locals.get(i) };
@@ -1335,6 +1344,8 @@ struct Rec<'a> {
     out: ReachFacts,
     summary: Summary,
     unknown: bool,
+    /// The addresses of the member expressions [`Rec::unrun_members`] found in a body that never runs.
+    unrun: HashSet<usize>,
 }
 
 impl Rec<'_> {
@@ -1346,6 +1357,7 @@ impl Rec<'_> {
             out: ReachFacts::default(),
             summary: Summary::default(),
             unknown: false,
+            unrun: HashSet::new(),
         };
         rec.routine(o, r);
         rec.finish()
@@ -1558,6 +1570,55 @@ impl Rec<'_> {
         }
     }
 
+    /// Notes the member calls and reads on `var` in `body` when `body` never runs: the body of a `foreach` whose `var`
+    /// holds the item type of a UserInfo collection whose read raises on this tier (al-vm `unrun_item_type`; corpus PR
+    /// 1612, open, Y93GraphNoDirectory.al cell "ServicePlanInfo/RoleInfo/GroupInfo members: not reachable on this
+    /// tier"; assumption graph-no-directory-members), and that assigns `var` nowhere, so each such member is the
+    /// item's. The item from any other source (a `:=`, a parameter, another collection) keeps its members' count.
+    fn unrun_members(&mut self, o: usize, r: usize, var: &Place, collection: &Expr, body: &[Stmt]) {
+        use al_vm::dotnet::server_classes::unrun_item_type;
+        let types = &self.lowered.program.dotnet_types;
+        let type_of = |d: usize| types.get(d).map(|t| t.type_name.as_str());
+        let Expr::DotNet {
+            ty: Some(c),
+            receiver: Some(_),
+            op: al_ir::DotNetOp::Call(m),
+            args,
+        } = collection
+        else {
+            return;
+        };
+        let item = type_of(*c)
+            .and_then(|c| unrun_item_type(c, m))
+            .filter(|_| args.is_empty());
+        let var_ty = match self.slot_ty(o, r, var) {
+            Some(RtType::DotNet(d)) => type_of(d as usize),
+            _ => None,
+        };
+        let Some(_) = item.filter(|i| var_ty.is_some_and(|v| v.eq_ignore_ascii_case(i))) else {
+            return;
+        };
+        let mut assigned = false;
+        stmt_places(body, &mut |p| assigned |= p == var);
+        al_ir::types::for_each_expr_post(body, &mut |e| {
+            expr_refs(e, &mut |p| assigned |= p == var);
+        });
+        if assigned {
+            return;
+        }
+        al_ir::types::for_each_expr_post(body, &mut |e| {
+            if let Expr::DotNet {
+                receiver: Some(rc),
+                op: al_ir::DotNetOp::Call(_) | al_ir::DotNetOp::Get(_),
+                ..
+            } = e
+                && matches!(rc.as_ref(), Expr::Load(p) if p == var)
+            {
+                self.unrun.insert(e as *const Expr as usize);
+            }
+        });
+    }
+
     /// The places statements assign (`:=`, the variable of a `for` or `foreach`). A `foreach` over a `DotNet` variable
     /// enumerates it through members no expression names: code the analysis does not follow.
     fn places(&mut self, o: usize, r: usize, body: &[Stmt]) {
@@ -1572,6 +1633,9 @@ impl Rec<'_> {
                         && matches!(self.slot_ty(o, r, c), Some(RtType::DotNet(_)))
                     {
                         self.out.state_writes |= state::OTHER;
+                    }
+                    if let Stmt::Foreach { collection, .. } = s {
+                        self.unrun_members(o, r, var, collection, body);
                     }
                     self.write_place(o, var);
                     self.places(o, r, body);
@@ -1645,7 +1709,11 @@ impl Rec<'_> {
             } => self.arg_writes(o, args),
             Expr::DotNet { ty, op, args, .. } => {
                 self.arg_writes(o, args);
-                self.out.state_writes |= self.dotnet_member(*ty, op);
+                self.out.state_writes |= if self.unrun.contains(&(e as *const Expr as usize)) {
+                    state::SERVER_ANSWER
+                } else {
+                    self.dotnet_member(*ty, op)
+                };
             }
             Expr::Refused(why) => {
                 let at = format!("{}.{}", objs[o].name, objs[o].routines[r].name);

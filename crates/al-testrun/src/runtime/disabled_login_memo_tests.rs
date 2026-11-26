@@ -24,6 +24,8 @@ dotnet
     {
         type("Microsoft.Dynamics.Nav.LicensingService.Model.UserInfo"; "UserInfo") { }
         type("Microsoft.Dynamics.Nav.LicensingService.Model.ServicePlanInfo"; "ServicePlanInfo") { }
+        type("Microsoft.Dynamics.Nav.LicensingService.Model.RoleInfo"; "RoleInfo") { }
+        type("Microsoft.Dynamics.Nav.LicensingService.Model.GroupInfo"; "GroupInfo") { }
     }
 }
 codeunit 150 "System Initialization" { procedure Raise() begin OnAfterLogin(); end;
@@ -230,15 +232,51 @@ fn a_memo_that_reaches_only_the_measured_graph_members_runs_with_the_subscriber_
     assert!(hits.iter().all(|(_, h)| h.is_empty()), "{hits:?}");
 }
 
-// Neighbors that keep main's refusal: a ServicePlanInfo member (unreachable on that tier, not measured), a GraphQuery
-// member corpus PR 1612 does not measure, and another UserInfo member.
+// Corpus PR 1612 cell "ServicePlanInfo/RoleInfo/GroupInfo members: not reachable on this tier" (assumption
+// graph-no-directory-members): the members of the item of a foreach over AssignedPlans, Roles or Groups of a UserInfo
+// are called only in a body that never runs, as reading the collection raises first. The walk counts them answer-only.
+#[test]
+fn members_of_the_item_of_a_foreach_over_a_user_info_collection_run_with_the_subscriber_alone() {
+    for (vars, more) in [
+        (
+            "P: DotNet ServicePlanInfo;",
+            "foreach P in U.AssignedPlans() do if Format(P.ServicePlanId()) + P.CapabilityStatus() = '' then;",
+        ),
+        (
+            "R: DotNet RoleInfo;",
+            "foreach R in U.Roles() do if R.DisplayName() = '' then;",
+        ),
+        (
+            "I: DotNet GroupInfo;",
+            "foreach I in U.Groups() do if I.DisplayName() = '' then;",
+        ),
+    ] {
+        let graph = GRAPH.replace("{vars}", vars).replace("{more}", more);
+        let (o, hits) = run_graph(&format!("Graph(); {ENV}"), &graph);
+        assert!(o.iter().all(|(_, r)| *r == Outcome::Pass), "{graph}: {o:?}");
+        assert!(hits.iter().all(|(_, h)| h.is_empty()), "{graph}: {hits:?}");
+    }
+}
+
+// Neighbors that keep main's refusal: an item member outside the foreach body, in a body that assigns the item, on an
+// item from `:=` or from GraphQuery.GetGroupInfo, a GraphQuery member corpus PR 1612 does not measure, and another
+// UserInfo member.
 #[test]
 fn a_memo_that_reaches_unmeasured_graph_members_keeps_the_refusal() {
-    let plan = "P: DotNet ServicePlanInfo;";
+    let plan = "P: DotNet ServicePlanInfo; L: DotNet ServicePlanInfo;";
     for (vars, more) in [
         (
             plan,
-            "foreach P in U.AssignedPlans() do if Format(P.ServicePlanId()) = '' then;",
+            "foreach P in U.AssignedPlans() do; if Format(P.ServicePlanId()) = '' then;",
+        ),
+        (
+            plan,
+            "foreach P in U.AssignedPlans() do begin P := L; if Format(P.ServicePlanId()) = '' then; end;",
+        ),
+        (plan, "P := L; if Format(P.ServicePlanId()) = '' then;"),
+        (
+            "I: DotNet GroupInfo;",
+            "I := G.GetGroupInfo('x'); if I.DisplayName() = '' then;",
         ),
         ("", "if G.GetTenantDetail().InitialDomain() = '' then;"),
         ("", "if U.DisplayName() = '' then;"),
