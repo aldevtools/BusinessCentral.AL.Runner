@@ -1947,7 +1947,7 @@ pub fn all_match(filters: &[FieldFilter], row: &[Value]) -> Result<bool, Signal>
 }
 
 pub use crate::filter_at_sign::{
-    AtSignRows, OtherSourceAtSign, at_sign_alone_read, calc_formula_at_sign_measured,
+    AtSignRows, OtherSourceAtSign, OtherSourceAtSignMethod, at_sign_alone_read, calc_formula_at_sign_measured,
     calc_formula_at_sign_other_source, code_at_sign_alone_named, parse_filter_both_at_signs_measured,
     shows_member_names,
 };

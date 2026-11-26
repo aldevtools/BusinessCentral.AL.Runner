@@ -1183,7 +1183,7 @@ impl Session {
                 }
                 dst.borrow_mut().filters.clear();
                 let fields = src.borrow().fields.clone();
-                dst.borrow_mut().fields = fields;
+                self.replace_record_fields(dst, &mut dst.borrow_mut(), fields);
                 // The primary key's fields alone get the filter, whatever the current key: a record with `SetCurrentKey(Grp, Name)` ends
                 // with `Id: 2` only and keeps its key (testpage/P135SelectionFilter.al:
                 // P135_SelFilter_FreshRecord_AndOtherFieldFilters `keyed`).

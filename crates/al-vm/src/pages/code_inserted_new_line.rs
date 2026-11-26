@@ -900,13 +900,14 @@ impl Session {
         // FactBox it stays refused: BC's answer there is measured 3 of 3 on BC 29.1 only by the neighbor app's
         // tests/neighbors/8734-new-line-extra-code-factbox/src/Neighbors.al:478, which no corpus cell pins; at the landing of
         // the page with code no cell measures it.
+        let typed_extra = st.borrow().coded_typed_extra();
         // The later SetValue's cells keep Rec as the save left it up to the Update (another table written, :746, or the row
         // modified through another record, :782), or change it only by writing or reading Rec itself again after the save, at
         // Update(false) (ListNewLineExtraCodeCodedRecModify.al :594-:651: Rec's SystemRowVersion moves); Update(true) follows
         // the save with nothing written (:804). Rows of other tables written there are rows inserted (:746). A field of Rec
         // set without that, a row of another table modified or deleted, or a write before Update(true), is not measured
         // (reviews of al-runner PR 8847, 01:00Z and 02:55Z).
-        if self.extra_code_later_set_value(st) {
+        if typed_extra {
             let rec = self.page_rec(st);
             let table = self.table(&rec)?;
             let rec_kept = Self::same_values(&rec.borrow().fields, &view.rec.fields);
@@ -932,8 +933,7 @@ impl Session {
         }
         if view.extra
             && matches!(arg, Some(Value::Boolean(true)))
-            && (self.extra_code_later_set_value(st)
-                || matches!(self.code_inserted_page(st)?, Some((Triggers::Quiet, _))))
+            && (typed_extra || matches!(self.code_inserted_page(st)?, Some((Triggers::Quiet, _))))
         {
             return self.extra_code_update_true(st, view);
         }
@@ -951,7 +951,7 @@ impl Session {
         // Update(false) shows the row as stored in every case ListNewLineExtraCodeCodedRecModify.al measures (Rec.Modify()
         // after the save :594, :607; another record's write then Rec read again :618; a field of Rec set after its Modify()
         // :629; a copy of Rec modified :640; Rec modified, then another record's write :651).
-        let rec_free = view.extra && self.extra_code_later_set_value(st);
+        let rec_free = view.extra && typed_extra;
         let kept = match rec_free {
             true => self.view_kept(
                 st,
@@ -971,11 +971,7 @@ impl Session {
         }
         // At the landing only: the later SetValue of a control with code has its own cells for what it writes between its save
         // and its Update (ListNewLineExtraCodeCodedSecondSetValue.al).
-        let landing = !matches!(
-            st.borrow().code_inserted_row.as_ref().map(|r| r.factbox),
-            Some(FactboxStep::CodedTyped { .. })
-        );
-        let coded_extra = landing
+        let coded_extra = !typed_extra
             && st.borrow().coded_objects == super::state::CodedObjects::Extra
             && matches!(self.code_inserted_page(st)?, Some((Triggers::Coded, _)));
         if coded_extra && !self.extra_coded_between_kept(st, view)? {
@@ -1248,10 +1244,7 @@ impl Session {
             (FactboxStep::Coded { steps }, TestCall::Write(i), None)
                 if root.borrow().coded_objects.later_set_value(steps) && self.coded_later_control(&root, i) =>
             {
-                FactboxStep::CodedTyped {
-                    steps,
-                    writes: self.write_mark(),
-                }
+                FactboxStep::CodedTyped { steps }
             }
             (FactboxStep::Coded { steps }, TestCall::Page(PageMethod::OK), None)
                 if root.borrow().coded_objects.ok_after(steps) =>

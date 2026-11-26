@@ -458,7 +458,7 @@ fn indexed_writes_answer_what_the_rules_answer() {
 /// (al-runner issue 8954).
 #[test]
 fn the_dotnet_members_that_keep_nothing() {
-    let kept = super::dotnet_member_kept;
+    let kept = |t: &str, m: Option<&str>| super::dotnet_member_kept(t, m, 0);
     assert!(kept("System.Text.StringBuilder", None), "constructor");
     assert!(kept("System.Text.StringBuilder", Some("Append")));
     assert!(kept("System.Text.StringBuilder", Some("toString")), "case");
@@ -487,7 +487,7 @@ fn the_dotnet_members_that_keep_nothing() {
 /// dimensional array type and a type that only contains `[]` still touch everything (al-runner issue 8954).
 #[test]
 fn an_array_member_is_the_system_array_member() {
-    let kept = super::dotnet_member_kept;
+    let kept = |t: &str, m: Option<&str>| super::dotnet_member_kept(t, m, 0);
     assert!(kept("System.Byte[]", Some("Length")));
     assert!(kept("System.Byte[]", Some("GetValue")));
     assert!(kept("System.Byte[]", Some("SetValue")));
@@ -508,7 +508,7 @@ fn an_array_member_is_the_system_array_member() {
 /// and another subclass still touch everything (al-runner issue 8954, neighbor app install-order-footprint-dotnet-array).
 #[test]
 fn an_encoding_or_hash_instance_member_is_the_listed_base_member() {
-    let kept = super::dotnet_member_kept;
+    let kept = |t: &str, m: Option<&str>| super::dotnet_member_kept(t, m, 0);
     assert!(kept("System.Text.UTF8Encoding+UTF8EncodingSealed", Some("GetBytes")));
     assert!(kept("System.Text.ASCIIEncoding+ASCIIEncodingSealed", Some("GetString")));
     assert!(kept("System.Text.UnicodeEncoding", Some("GetByteCount")));
@@ -523,4 +523,88 @@ fn an_encoding_or_hash_instance_member_is_the_listed_base_member() {
     ));
     assert!(!kept("System.Text.UTF32Encoding", Some("GetBytes")));
     assert!(!kept("System.Security.Cryptography.HMACSHA256", Some("ComputeHash")));
+}
+
+/// The `MemoryStream` that Cryptography Management Impl. `GenerateHash(InStream, ...)` makes, copies an InStream into and
+/// reads with `ToArray` keeps nothing: its no-argument constructor and `ToArray` are served in process (al-host
+/// `inproc.txt`). Every other constructor and member of the type still touches everything (al-runner issue 9046).
+#[test]
+fn the_memory_stream_of_generate_hash_keeps_nothing() {
+    let kept = super::dotnet_member_kept;
+    let ms = "System.IO.MemoryStream";
+    assert!(kept(ms, None, 0), "MemoryStream()");
+    assert!(kept(ms, Some("ToArray"), 0));
+    assert!(!kept(ms, None, 1), "MemoryStream(Byte[]) and MemoryStream(Int32)");
+    assert!(!kept(ms, None, 2), "MemoryStream(Byte[], Boolean)");
+    for member in [
+        "WriteTo",
+        "CopyTo",
+        "GetBuffer",
+        "Write",
+        "Position",
+        "Length",
+        "Dispose",
+    ] {
+        assert!(!kept(ms, Some(member), 1), "{member}");
+        assert!(!kept(ms, Some(member), 0), "{member}");
+    }
+    assert!(!kept("System.IO.FileStream", None, 0));
+}
+
+/// Every method kept by name is the method of a real builtin: an entry no builtin has keeps nothing, and the builtin
+/// it meant still touches everything (issue 9046: `DT2Date` was listed as `DT`).
+#[test]
+fn every_kept_method_names_a_builtin() {
+    let names: Vec<&str> = al_builtins::builtin_id::BuiltinId::all().map(|id| id.name()).collect();
+    for (receiver, methods) in super::KEPT_METHODS {
+        for method in *methods {
+            let prefix = format!("{receiver}.{method}#");
+            assert!(names.iter().any(|n| n.starts_with(&prefix)), "{receiver}.{method}");
+        }
+    }
+    for receiver in super::KEPT_RECEIVERS {
+        let prefix = format!("{receiver}.");
+        assert!(names.iter().any(|n| n.starts_with(&prefix)), "{receiver}");
+    }
+    for method in super::NAVAPP_KEPT_METHODS {
+        let prefix = format!("NavApp.{method}#");
+        assert!(names.iter().any(|n| n.starts_with(&prefix)), "NavApp.{method}");
+    }
+    for method in super::SESSION_TOUCHING_METHODS {
+        let prefix = format!("Session.{method}#");
+        assert!(names.iter().any(|n| n.starts_with(&prefix)), "Session.{method}");
+    }
+}
+
+/// Issue 9046: the date conversions a pinned corpus case measures as functions of their arguments keep nothing. Their
+/// neighbor without a pin (`DaTi2Variant`) and every `TaskScheduler` method still touch everything.
+#[test]
+fn date_conversions_keep_nothing() {
+    let all = |name: &str| {
+        let (r, m) = name.split_once('.').unwrap_or((name, ""));
+        super::builtin_touches_everything(r, m)
+    };
+    for kept in [
+        "System.DT2Date",
+        "System.DT2Time",
+        "System.DMY2Date",
+        "System.DWY2Date",
+        "System.Date2DMY",
+        "System.Date2DWY",
+        "System.Variant2Date",
+        "System.Variant2Time",
+    ] {
+        assert!(!all(kept), "{kept}");
+    }
+    for every in [
+        "System.DaTi2Variant",
+        "TaskScheduler.CanCreateTask",
+        "TaskScheduler.CreateTask",
+        "TaskScheduler.TaskExists",
+        "TaskScheduler.SetTaskReady",
+        "TaskScheduler.CancelTask",
+        "TaskScheduler.SomethingNew",
+    ] {
+        assert!(all(every), "{every}");
+    }
 }

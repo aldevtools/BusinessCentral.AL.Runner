@@ -1,0 +1,12 @@
+{
+  "id": "8d2f4a7b-61c3-4e0d-b8f2-9a4e1c7d3b25",
+  "name": "Repro XRec Route Ext",
+  "publisher": "Repro",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "idRanges": [ { "from": 50410, "to": 50439 } ],
+  "dependencies": [
+    { "id": "5b0e6c1e-2f43-4c8e-9a51-3d7c2a8e4f10", "name": "Repro XRec Route Base", "publisher": "Repro", "version": "1.0.0.0" }
+  ]
+}

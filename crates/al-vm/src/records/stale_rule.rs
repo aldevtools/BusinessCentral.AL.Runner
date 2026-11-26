@@ -370,7 +370,12 @@ impl Session {
         let undid_write = !self.tx.open.writes.is_empty() || self.store.change_counter() != self.tx.commit_counter;
         let earlier = self.tx.rollback_kind;
         let ends_runner_tx = kind == TrappedRollback::AssertError && self.asserterror_ends_runner_tx();
-        self.rollback_in_run()?;
+        self.note_rollback_by(crate::sequence_start::RollbackBy::trapped(
+            e,
+            kind == TrappedRollback::AssertError,
+        ));
+        // A rollback that did not run leaves no mark for the runner's next rollback.
+        self.rollback_in_run().inspect_err(|_| self.forget_rollback_by())?;
         if ends_runner_tx {
             self.runner_tx_ended_by_asserterror();
         }

@@ -56,11 +56,12 @@
 //! Update while it remains bound are refused (`coded_line_before_set_value`, `coded_extra_shape`).
 //! After the landing, one SetValue of a control with code of its own (`extra_value_control`, issue 8843) saves and updates
 //! as the probe's Value does (`FactboxStep::CodedTyped`): into a control with a TableRelation only a value stored as typed
-//! (`coded_typed_begins`), its save under the effect gate with Rec's view as the SetValue found it (`extra_code_typed_save` in
-//! `code_inserted_extra.rs`). The table field may run an OnValidate of its own first (issue 8848; the page's table checked
-//! from the SetValue's start, `FactboxStep::CodedTyped::writes`), and at its `Update(false)` the row and Rec may both have
-//! changed since the save (issue 8849, `SavedView::rec_free`, corpus pull request 1542); otherwise Rec is as saved at its
-//! Update (`update_after_code_inserted_save`).
+//! (`coded_typed_begins`), its save under the effect gate with Rec's view as the SetValue found it and only inserted rows of
+//! other tables written since its later-step stamp, whose mark also starts before the table field's OnValidate, and no row of
+//! the page's table written there (`extra_code_typed_save` in `code_inserted_extra.rs`). The field's own OnValidate may
+//! therefore set a field or log into another table, but not write the page's table (issue 8848). At `Update(false)` the row
+//! and Rec may both have changed since the save (issue 8849, `SavedView::rec_free`, corpus pull request 1542); `Update(true)`
+//! keeps Rec and the writes as saved (`update_after_code_inserted_save`).
 
 use super::pinned_shape::TestCall;
 use super::state::{CodedLine, FactboxStep};
@@ -162,7 +163,7 @@ impl Session {
                 c.owner.is_none() && c.ext_triggers.is_empty() && c.run_object.is_none() && c.action_ref.is_none();
             // A TableRelation only on a control the later SetValue may write (ListNewLineExtraCodeCodedSecondSetValue.al:859,
             // the Rel page; review of al-runner PR 8847, 01:00Z): a control without code keeps main's way.
-            let related = c.props.iter().any(|(k, _)| k == "tablerelation");
+            let related = c.prop("tablerelation").is_some();
             own && match c.kind {
                 ir::ControlKind::Repeater => c.props.is_empty() && c.triggers.is_empty(),
                 ir::ControlKind::Field => {
@@ -434,7 +435,7 @@ impl Session {
         let ir::Binding::Field(field) = control.binding else {
             return false;
         };
-        if control.props.iter().any(|(k, _)| k == "tablerelation") {
+        if control.prop("tablerelation").is_some() {
             return false;
         }
         let saves = control
@@ -549,14 +550,7 @@ impl Session {
     /// (ListNewLineExtraCodeCodedSecondSetValue.al:859, 'V' stored as 'V'): a missing value or one in another case is refused.
     pub(super) fn coded_typed_begins(&mut self, st: &St, call: Option<TestCall>, args: &[Value]) -> Result<(), Signal> {
         let (root, _) = Self::tree_root(st);
-        let begins = {
-            let r = root.borrow();
-            r.coded_objects == super::state::CodedObjects::Extra
-                && matches!(
-                    r.code_inserted_row.as_ref().map(|c| c.factbox),
-                    Some(FactboxStep::CodedTyped { .. })
-                )
-        };
+        let begins = root.borrow().coded_typed_extra();
         let (true, Some(TestCall::Write(idx))) = (begins, call) else {
             return Ok(());
         };
@@ -574,6 +568,8 @@ impl Session {
             Some(_) => false,
         };
         if measured {
+            root.borrow_mut().coded_typed_begin_at =
+                Some((self.store.change_counter(), self.write_mark(), self.last_stamp));
             return Ok(());
         }
         root.borrow_mut().forget_code_inserted_line();
@@ -718,7 +714,7 @@ impl Session {
         };
         idx != landing
             && control.trigger("onvalidate").is_some()
-            && control.props.iter().any(|(k, _)| k == "tablerelation")
+            && control.prop("tablerelation").is_some()
             && self.table(&self.page_rec(st)).is_ok_and(|t| !t.keys[0].contains(&f))
     }
 

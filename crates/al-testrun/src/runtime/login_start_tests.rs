@@ -248,7 +248,7 @@ fn the_checks_twin_holds_before_its_thaw_what_the_session_held_before_its_login(
     let key = &firsts[0].0;
     for (i, twin) in twins.iter().enumerate() {
         assert!(
-            key.holds_session(twin),
+            key.key.holds_session(twin),
             "twin {i} before its thaw is not the session before its login: {:?}",
             twin.lines
                 .iter()
@@ -852,6 +852,11 @@ fn numbered_key(engine: &Arc<Engine>, n: i32) -> Key {
     Key::of(&mut session, Default::default(), SessionFlags::default(), &[]).expect("a key")
 }
 
+/// [`numbered_key`] as a start is kept under it: by a session that read no resource file.
+fn numbered_start_key(engine: &Arc<Engine>, n: i32) -> crate::login_replay::StartKey {
+    crate::login_replay::StartKey::of(numbered_key(engine, n), &target(engine))
+}
+
 /// A start whose image holds `bytes` of text in a SingleInstance codeunit's global: `kept_bytes` is a little more.
 fn start_of_size(engine: &Arc<Engine>, l: &Lowered, bytes: usize) -> Start {
     let mut session = al_vm::Session::new(engine.clone());
@@ -895,11 +900,11 @@ fn a_recorded_start_is_kept_and_its_bytes_are_counted() {
     let start = start_of_size(&engine, &l, 2 * MIB);
     let bytes = start.image.kept_bytes();
     assert!(bytes > 2 * MIB as u64, "kept_bytes counts the text: {bytes}");
-    st.record(numbered_key(&engine, 0), Ok(start));
+    st.record(numbered_start_key(&engine, 0), Ok(start));
     assert_eq!(st.kept(), 1);
     assert_eq!(st.bytes(), bytes);
-    assert!(st.take(&numbered_key(&engine, 0)).is_some());
-    assert!(st.knows(&numbered_key(&engine, 0)));
+    assert!(st.take(&numbered_key(&engine, 0), &engine).is_some());
+    assert!(st.knows(&numbered_key(&engine, 0), &engine));
 }
 
 // At most eight starts, the least recently used out; a take refreshes.
@@ -908,19 +913,19 @@ fn starts_are_bounded_by_eight_least_recently_used_out() {
     let (engine, l) = big_engine();
     let st = starts(&engine);
     for n in 0..MAX_STARTS as i32 {
-        st.record(numbered_key(&engine, n), Ok(start_of_size(&engine, &l, 1000)));
+        st.record(numbered_start_key(&engine, n), Ok(start_of_size(&engine, &l, 1000)));
     }
     assert_eq!(st.kept(), 8);
     // Key 0 is used again: key 1 is now the least recently used.
-    assert!(st.take(&numbered_key(&engine, 0)).is_some());
-    st.record(numbered_key(&engine, 8), Ok(start_of_size(&engine, &l, 1000)));
+    assert!(st.take(&numbered_key(&engine, 0), &engine).is_some());
+    st.record(numbered_start_key(&engine, 8), Ok(start_of_size(&engine, &l, 1000)));
     assert_eq!(st.kept(), 8, "the ninth start pushes one out");
     assert!(
-        st.take(&numbered_key(&engine, 1)).is_none(),
+        st.take(&numbered_key(&engine, 1), &engine).is_none(),
         "the least recently used is out"
     );
     for n in [0, 2, 3, 4, 5, 6, 7, 8] {
-        assert!(st.take(&numbered_key(&engine, n)).is_some(), "key {n}");
+        assert!(st.take(&numbered_key(&engine, n), &engine).is_some(), "key {n}");
     }
 }
 
@@ -931,20 +936,20 @@ fn starts_are_bounded_by_sixty_four_mb_and_an_eviction_returns_the_bytes() {
     let st = starts(&engine);
     // Seven starts of 9 MiB fit (63 MiB plus their small parts), an eighth does not: the oldest goes.
     for n in 0..7 {
-        st.record(numbered_key(&engine, n), Ok(start_of_size(&engine, &l, 9 * MIB)));
+        st.record(numbered_start_key(&engine, n), Ok(start_of_size(&engine, &l, 9 * MIB)));
     }
     assert_eq!(st.kept(), 7);
     let seven = st.bytes();
     assert!(seven > 63 * MIB as u64 && seven <= MAX_BYTES, "{seven}");
-    st.record(numbered_key(&engine, 7), Ok(start_of_size(&engine, &l, 9 * MIB)));
+    st.record(numbered_start_key(&engine, 7), Ok(start_of_size(&engine, &l, 9 * MIB)));
     assert_eq!(
         st.kept(),
         7,
         "an eighth start of 9 MiB would pass 64 MB: the least recently used is out"
     );
     assert!(st.bytes() <= MAX_BYTES, "{}", st.bytes());
-    assert!(st.take(&numbered_key(&engine, 0)).is_none());
-    assert!(st.take(&numbered_key(&engine, 7)).is_some());
+    assert!(st.take(&numbered_key(&engine, 0), &engine).is_none());
+    assert!(st.take(&numbered_key(&engine, 7), &engine).is_some());
     // The bytes of the one pushed out are not counted any more: 7 starts, not 8.
     assert!(st.bytes() < seven + 100 * 1024, "{} against {seven}", st.bytes());
 }
@@ -954,15 +959,15 @@ fn starts_are_bounded_by_sixty_four_mb_and_an_eviction_returns_the_bytes() {
 fn a_start_over_sixteen_mb_is_not_kept_and_says_too_large() {
     let (engine, l) = big_engine();
     let st = starts(&engine);
-    st.record(numbered_key(&engine, 0), Ok(start_of_size(&engine, &l, 17 * MIB)));
+    st.record(numbered_start_key(&engine, 0), Ok(start_of_size(&engine, &l, 17 * MIB)));
     assert_eq!(st.kept(), 0);
     assert_eq!(st.bytes(), 0);
     let line = st.line().expect("a line");
     assert!(line.contains("too large"), "{line}");
     // The key is remembered as refused: its session is not frozen again.
-    assert!(st.knows(&numbered_key(&engine, 0)));
+    assert!(st.knows(&numbered_key(&engine, 0), &engine));
     // A start of 15 MiB is kept: the bound is on the start, not near it.
-    st.record(numbered_key(&engine, 1), Ok(start_of_size(&engine, &l, 15 * MIB)));
+    st.record(numbered_start_key(&engine, 1), Ok(start_of_size(&engine, &l, 15 * MIB)));
     assert_eq!(st.kept(), 1);
 }
 
@@ -972,10 +977,10 @@ fn a_refused_key_is_remembered_and_never_taken() {
     let (engine, _) = compiled();
     let st = starts(&engine);
     let key = numbered_key(&engine, 0);
-    assert!(!st.knows(&key));
-    st.record(key.clone(), Err(al_vm::NotImaged::Field("tasks")));
-    assert!(st.knows(&key));
-    assert!(st.take(&key).is_none());
+    assert!(!st.knows(&key, &engine));
+    st.record(numbered_start_key(&engine, 0), Err(al_vm::NotImaged::Field("tasks")));
+    assert!(st.knows(&key, &engine));
+    assert!(st.take(&key, &engine).is_none());
     assert_eq!(st.kept(), 0);
     assert!(st.line().is_some_and(|l| l.contains("field tasks")));
 }

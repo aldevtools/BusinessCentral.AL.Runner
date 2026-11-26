@@ -1,0 +1,3 @@
+# RequiredTestIsolation = Function and Disabled on the test codeunits: the in-run rollback refusal outside TestIsolation = Codeunit.
+--isolation
+required

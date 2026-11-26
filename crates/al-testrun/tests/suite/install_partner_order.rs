@@ -544,6 +544,101 @@ fn partner_apps_under_test_whose_orders_give_different_databases_are_refused() {
     assert_eq!(outcome(&rt, "PartnerInstallRan"), Outcome::Pass);
 }
 
+/// A partner app with no dependency path to A whose subscriber writes five rows: more differences than the refusal shows.
+fn logging_five(object: u32, name: &str) -> String {
+    format!(
+        r#"
+codeunit {object} "{name} Logging Subscriber"
+{{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Loggers", 'OnRegister', '', false, false)]
+    local procedure OnRegister(var Sender: Codeunit "Loggers")
+    var
+        M: Codeunit "Marks";
+        I: Integer;
+    begin
+        for I := 1 to 5 do
+            M.Log('{name} saw a logger ' + Format(I));
+    end;
+}}
+"#
+    )
+}
+
+/// `--verbose` lists every reason of every install-order tie (al-runner issue 9058; CLI report text, no corpus pin): the
+/// refusal of `test` shows the first differences and counts the rest, and every one of them reaches the notes the run
+/// prints (`Phases::install_order_differences`).
+fn assert_every_difference_noted(rt: &CorpusRuntime, test: &str) {
+    let Outcome::NotRun(why) = outcome(rt, test) else {
+        panic!("expected not run, got {:?}", outcome(rt, test));
+    };
+    let more: usize = (why
+        .split("; ")
+        .find_map(|p| p.strip_suffix(" more, --verbose lists them)")))
+    .and_then(|n| n.parse().ok())
+    .unwrap_or_else(|| panic!("no hidden differences: {why}"));
+    let noted = &rt.phases.install_order_differences;
+    let distinct: std::collections::BTreeSet<&String> = noted.iter().collect();
+    assert!(distinct.len() >= 3 + more, "{more} hidden, noted: {noted:#?}\n{why}");
+}
+
+/// The install code of the apps under test runs once per run (`install_once.rs`).
+#[test]
+fn every_install_order_difference_of_partner_apps_under_test_is_noted() {
+    let rt = run_under_test(vec![
+        (PA_ID, "Partner A", PA.into()),
+        (PB_ID, "Partner B", logging_five(74000, "PB")),
+    ]);
+    assert_every_difference_noted(&rt, "ReadsTheLog");
+}
+
+/// Partner dependency apps: the install baseline (`baseline.rs`).
+#[test]
+fn every_install_order_difference_of_partner_dependency_apps_is_noted() {
+    let rt = run(vec![
+        base(),
+        (PA_ID, "Partner A", "Partner", vec![BASE_ID], PA.into()),
+        (PB_ID, "Partner B", "Partner", vec![BASE_ID], logging_five(74000, "PB")),
+    ]);
+    assert_every_difference_noted(&rt, "ReadsTheLog");
+}
+
+/// A reader whose five Install Mark rows depend on whether Order Log has rows.
+const READER_FIVE: &str = r#"
+codeunit 73200 "Reader Install"
+{
+    Subtype = Install;
+
+    trigger OnInstallAppPerCompany()
+    var
+        L: Record "Order Log";
+        M: Codeunit "Marks";
+        I: Integer;
+        Seen: Text;
+    begin
+        if not L.IsEmpty() then
+            Seen := ' saw the log';
+        for I := 1 to 5 do
+            M.Mark('A' + Format(I) + Seen);
+    end;
+}
+"#;
+
+/// The proof stops after a measured difference (`Unproven`: four apps collide on one row): the difference stays refused
+/// and its every line is still noted.
+#[test]
+fn every_install_order_difference_is_noted_when_the_proof_stops() {
+    let rt = run(vec![
+        base(),
+        (PA_ID, "Partner Reader", "Partner", vec![BASE_ID], READER_FIVE.into()),
+        (PB_ID, "Partner W1", "Partner", vec![BASE_ID], writer(74000, "W1")),
+        (PC_ID, "Partner C1", "Partner", vec![BASE_ID], colliding(75000, "C1")),
+        (PD_ID, "Partner C2", "Partner", vec![BASE_ID], colliding(76000, "C2")),
+        (PE_ID, "Partner C3", "Partner", vec![BASE_ID], colliding(77000, "C3")),
+        (PG_ID, "Partner C4", "Partner", vec![BASE_ID], colliding(78000, "C4")),
+    ]);
+    assert_every_difference_noted(&rt, "PartnerInstallRan");
+}
+
 const PF_ID: &str = "a0000000-0000-0000-0000-000000006644";
 const PG_ID: &str = "b0000000-0000-0000-0000-000000006644";
 

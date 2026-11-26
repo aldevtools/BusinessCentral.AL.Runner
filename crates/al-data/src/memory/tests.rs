@@ -250,6 +250,29 @@ fn copying_a_company_copies_its_rows_as_they_are_and_a_rollback_removes_them() {
     assert_eq!(s.count(&cx("C"), &t, &[]).unwrap(), 0);
 }
 
+// Review of al-runner PR 9098: the companies a copy made (`committed_copy_targets`, read by the install-order
+// comparison) are those of committed copies, with a backing or without; a rollback takes a copy back, and a rename moves
+// the mark with the rows.
+#[test]
+fn the_companies_a_copy_made_follow_commit_rollback_and_rename() {
+    let targets = |s: &MemStore| s.committed_copy_targets().map(str::to_string).collect::<Vec<_>>();
+    let mut s = MemStore::default();
+    s.copy_company("A", "C");
+    s.rollback();
+    assert!(targets(&s).is_empty(), "a rolled back copy made no company");
+    s.copy_company("A", "C");
+    assert!(targets(&s).is_empty(), "the copy is not committed yet");
+    s.commit();
+    assert_eq!(targets(&s), ["C"]);
+    s.rename_company("C", "D");
+    s.commit();
+    assert_eq!(
+        targets(&s),
+        ["C", "D"],
+        "the renamed copy keeps the mark; the old name keeps it too"
+    );
+}
+
 #[test]
 fn tells_whether_a_company_changed_in_the_open_transaction() {
     let cx = |c: &str| AccessContext {

@@ -485,9 +485,11 @@ pub struct Phases {
     pub memory: memory::MemoryReport,
     /// The ids of the assumptions the install baseline relied on (a JUnit suite-level property).
     pub baseline_assumptions: Vec<String>,
-    /// The partner dependency apps the install baseline installed in several orders, one line each (ADR-046
-    /// amendment 7, `--timings`).
+    /// The partner apps the install baseline or the install code of the apps under test installed in several orders,
+    /// one line each (ADR-046 amendment 7, `--timings`).
     pub baseline_install_orders: Vec<String>,
+    /// Every difference those orders left, one note each (al-runner issue 9058; `--verbose` prints them).
+    pub install_order_differences: Vec<String>,
     /// Install roots that ran to their end, and how many there were; `None` when no baseline ran.
     pub baseline_roots: Option<(usize, usize)>,
     pub compile: std::time::Duration,
@@ -617,7 +619,8 @@ impl Phases {
     /// One line for `--timings`: whether the install baseline ran, and if the rule that skips it
     /// was tried and said no, the first construct a selected test reaches that could observe it.
     /// `None` when there was nothing to say (no dependency app).
-    /// With partner dependency apps installed in several orders (ADR-046 amendment 7), one more line per group of them.
+    /// With partner apps installed in several orders (ADR-046 amendment 7; by the baseline or by the install code of the
+    /// apps under test, both labeled `install baseline:`), one more line per group of them.
     pub fn baseline_line(&self) -> Option<String> {
         let line = self.baseline_rule_line();
         if self.baseline_install_orders.is_empty() && self.install_snapshot.is_none() {
@@ -1334,6 +1337,8 @@ mod login_explain_tests;
 mod login_image_tests;
 #[cfg(test)]
 mod login_memo_tests;
+#[cfg(test)]
+mod login_reads_tests;
 #[cfg(test)]
 mod login_replay_tests;
 #[cfg(test)]

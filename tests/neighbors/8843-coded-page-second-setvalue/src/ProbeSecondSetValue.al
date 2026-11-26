@@ -1,5 +1,4 @@
 // The corpus probe ListNewLineExtraCodeCodedSecondSetValue.al of corpus pull request 1541 (al-runner issue 8843), whole.
-// BC Documentation: https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/methods-auto/page/page-saverecord-method
 // Scope: in-scope
 // local object: a List page with page code and three CardPart FactBoxes whose third enqueues a page background task, whose
 //   table field's OnValidate inserts the page's new line, and the code around CurrPage.SaveRecord() and CurrPage.Update in

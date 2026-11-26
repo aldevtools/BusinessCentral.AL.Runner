@@ -1,13 +1,22 @@
 //! `Evaluate` into an Enum.
 
-use super::{Parsed, unsupported};
+use super::{Parsed, Place, unsupported};
+use crate::assumptions::{Assumption, assume};
 use crate::native::{Ctx, Signal};
 use crate::value::Value;
 
 /// An enum reads an ordinal (also one no member has), a member name in any case or a caption, with format 0 and with format 9
 /// (types/ProbeTypeFormsAndFilters.al:Enum_Evaluate_Forms, BC 27.5; the InitValue of a field reads a name the same way,
-/// types/TestBlankEnumInitTests.Codeunit.al:92). A text that is none of these is rejected.
-pub(super) fn enum_text(c: &mut dyn Ctx, id: &u32, text: &crate::text::Txt) -> Result<Parsed, Signal> {
+/// types/TestBlankEnumInitTests.Codeunit.al:92). A text that is none of these is rejected. `place`: the target the lowering
+/// chose the id for (an Enum variable of the routine's `var` section, an Enum field named directly, or another place).
+/// `format_zero`: the format number is 0.
+pub(super) fn enum_text(
+    c: &mut dyn Ctx,
+    id: &u32,
+    text: &crate::text::Txt,
+    place: Place,
+    format_zero: bool,
+) -> Result<Parsed, Signal> {
     let Some(members) = c.enum_members(*id) else {
         return unsupported("Evaluate into an Enum without its members");
     };
@@ -69,21 +78,12 @@ pub(super) fn enum_text(c: &mut dyn Ctx, id: &u32, text: &crate::text::Txt) -> R
                 .find(|(_, n)| !text.is_empty() && n.eq_ignore_ascii_case(text))
                 .map(|(o, _)| *o)
         });
-    // A blank text into an enum whose member has a name and a blank or empty caption (`value(0; None) { Caption = ' '; }`,
-    // `value(0; None) { Caption = ''; }`) matched nothing above. Real BC reads the first shape as that member (al-runner issue
-    // 6924, a partner test), but no corpus test pins either shape yet (the pinned blank members are named " " or "":
-    // EvalLanguageBoolean.al WA_BlankEnum1-3, FMOptionBlankEnum.al). Refused until the probe (corpus pull request 1283,
-    // EvalNamedBlankCaption.al:13-39, which lists both) lands.
-    if found.is_none()
-        && text.is_empty()
-        && captions
-            .iter()
-            .any(|(o, cap)| cap.trim().is_empty() && members.iter().any(|(mo, n)| mo == o && !n.trim().is_empty()))
-    {
-        return unsupported(
-            "Evaluate of a blank text into an Enum whose member has a name and a blank caption (not pinned)",
-        );
-    }
+    let found = match found {
+        None if text.is_empty() => {
+            named_blank_caption(c, &members, &captions, &original, translated_file, (place, format_zero))?
+        }
+        found => found,
+    };
     if found.is_none() && translated_file && !c.ret_used() {
         return unsupported(format!(
             "the error of Evaluate of `{text}` into an Enum whose captions a translation file changes (not pinned)"
@@ -112,4 +112,56 @@ pub(super) fn enum_text(c: &mut dyn Ctx, id: &u32, text: &crate::text::Txt) -> R
             );
         }
     })
+}
+
+/// A blank text that matched no member name: the member with a name and a blank Caption it names, if any. With no such member it
+/// names none (types/TestBlankEnumInitTests.Codeunit.al: EvaluateMatchesBlankMemberAndRejectsNonMember). With such members, no
+/// member with a blank name, no translation file and every such Caption `' '` or `''`, on the assumption
+/// [`Assumption::EnumBlankTextNamedBlankCaption`], with format number 0:
+/// - the first of them, under GlobalLanguage 1033, into an Enum variable, or into an Enum field when it is the only one and its
+///   Caption is `''`, for the texts `''`, `' '`, `'  '` and a TAB with the result used and `''` as a statement (corpus PR 1577,
+///   format-evaluate/EvalOptionBlankCaptions.al OBC_Enum_Last, OBC_Enum_SpaceMid, OBC_Enum_TwoBlank, OBC_Enum_EmptyMid,
+///   OBC_Enum_Field; al-runner issue 8356);
+/// - the first member when it is the only one, under GlobalLanguage 1033, 1034 or 2067, into an Enum variable, for the texts
+///   `''`, `' '` and `'  '` with the result used, and as a statement for the Caption `' '` (corpus PR 1306,
+///   format-evaluate/EvalNamedBlankCaption.al:208-211, :224, :383-385, merged, not yet pinned).
+///
+/// Every other shape refuses.
+fn named_blank_caption(
+    c: &dyn Ctx,
+    members: &[(i32, String)],
+    captions: &[(i32, String)],
+    original: &crate::text::Txt,
+    translated_file: bool,
+    (place, format_zero): (Place, bool),
+) -> Result<Option<i32>, Signal> {
+    let caption = |o: i32| captions.iter().find(|(co, _)| *co == o).map(|(_, cap)| cap.as_str());
+    let named: Vec<usize> = (0..members.len())
+        .filter(|&i| !members[i].1.trim().is_empty() && caption(members[i].0).is_some_and(|cap| cap.trim().is_empty()))
+        .collect();
+    let Some(&first) = named.first() else {
+        return Ok(None);
+    };
+    let text = original.as_str();
+    let lang = c.language();
+    let no_blank_name = members.iter().all(|(_, n)| !n.trim().is_empty());
+    let measured_captions = named.iter().all(|&i| matches!(caption(members[i].0), Some(" " | "")));
+    if no_blank_name && measured_captions && !translated_file && format_zero {
+        let one_empty_caption = named.len() == 1 && caption(members[first].0) == Some("");
+        let observed = (place == Place::Variable || (place == Place::Field && one_empty_caption))
+            && lang == 1033
+            && matches!(text, "" | " " | "  " | "\t")
+            && (c.ret_used() || text.is_empty());
+        let only_first = place == Place::Variable
+            && named.len() == 1
+            && first == 0
+            && matches!(lang, 1033 | 1034 | 2067)
+            && matches!(text, "" | " " | "  ")
+            && (c.ret_used() || caption(members[0].0) == Some(" "));
+        if observed || only_first {
+            assume(Assumption::EnumBlankTextNamedBlankCaption);
+            return Ok(Some(members[first].0));
+        }
+    }
+    unsupported("Evaluate of a blank text into an Enum whose member has a name and a blank caption (not pinned)")
 }
