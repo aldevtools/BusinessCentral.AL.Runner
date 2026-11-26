@@ -600,6 +600,9 @@ pub struct WarmCtx {
     pub license: Option<(String, al_testrun::license::LicenseUse)>,
     /// The emit version of the build a request used, by build (`run_emit_version`).
     pub emit_version: Option<(String, al_vm::emit_version::EmitVersion)>,
+    /// The login replay's settings, read once when the server started ([`LoginReplay::read`], al-runner issue 9174).
+    /// `None`: each run reads them from the environment when it starts (a recipe's lanes).
+    pub login_replay: Option<LoginReplay>,
 }
 
 /// The dependency apps a warm server read for a request ([`WarmCtx::dependencies`]).
@@ -922,24 +925,37 @@ fn entry_runs(
 
 /// The login replay's settings of a run (al-runner issue 8211, internal and opt-in): `ALRUNNER_LOGIN_REPLAY=1`,
 /// `ALRUNNER_LOGIN_REPLAY_CHECK` and the start caps (`ALRUNNER_LOGIN_REPLAY_MAX_IMAGES`, `ALRUNNER_LOGIN_REPLAY_MAX_MB`).
-struct LoginReplay {
+#[derive(Debug, Clone, Copy)]
+pub struct LoginReplay {
     check: bool,
     replay: bool,
     limits: al_testrun::runtime::LoginReplayLimits,
 }
 
 impl LoginReplay {
-    /// The settings, read and checked when the run starts, before any app is read or anything is downloaded: a bad cap
-    /// (also with the replay off), and the start check of the byte cap against `max_memory` (`--max-memory`, or this
-    /// serve request's `maxMemory`) when the run keeps starts.
-    fn read(max_memory: Option<u64>) -> Result<Self, String> {
-        let settings = LoginReplay {
+    /// The settings in the environment; a bad cap is an error that names its variable, also with the replay off. A
+    /// one-shot run reads them when it starts ([`LoginReplay::of_run`]); `al-runner serve` reads them once when the
+    /// server starts and exits on a bad cap, since its environment does not change while it runs (al-runner issue
+    /// 9174).
+    pub fn read() -> Result<Self, String> {
+        Ok(LoginReplay {
             check: std::env::var_os("ALRUNNER_LOGIN_REPLAY_CHECK").is_some(),
             replay: std::env::var_os("ALRUNNER_LOGIN_REPLAY").is_some_and(|v| v == "1"),
             limits: al_testrun::runtime::LoginReplayLimits::read(|v| std::env::var_os(v))?,
+        })
+    }
+
+    /// The settings of run `a`, checked when it starts, before any app is read or anything is downloaded: those the
+    /// server read when it started (`WarmCtx::login_replay`), or else the environment's ([`LoginReplay::read`]); and,
+    /// when the run keeps starts, the start check of the starts' most bytes against `a.max_memory` (`--max-memory`, or
+    /// this serve request's `maxMemory`), per run as the limit is.
+    fn of_run(a: &TestArgs, warm: &Option<&mut WarmCtx>) -> Result<Self, String> {
+        let settings = match warm.as_ref().and_then(|w| w.login_replay) {
+            Some(kept) => kept,
+            None => Self::read()?,
         };
         if settings.check || settings.replay {
-            settings.limits.check_memory_limit(max_memory)?;
+            settings.limits.check_memory_limit(a.max_memory)?;
         }
         Ok(settings)
     }
@@ -988,7 +1004,7 @@ fn test_inner(
         // A server request is never colored.
         style::set(warm.is_none() && debug.is_none() && a.color.enabled(terminal, no_color));
     }
-    let (test_timeout, login_replay) = (test_timeout_secs(a)?, LoginReplay::read(a.max_memory)?);
+    let (test_timeout, login_replay) = (test_timeout_secs(a)?, LoginReplay::of_run(a, &warm)?);
     // The country of the run (ADR-020 amendment): only `--country` selects it. An unknown one stops here, before
     // anything is loaded.
     let country = a.country().to_string();
