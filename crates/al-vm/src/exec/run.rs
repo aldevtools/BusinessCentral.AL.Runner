@@ -346,9 +346,9 @@ impl Session {
                     let v = self.convert_op(v, ty)?;
                     set(&mut f.locals[d as usize], v);
                 }
-                Op::ConvertFieldValue { d, a, t } => {
+                Op::ConvertFieldValue { d, a, t, slot } => {
                     let v = take(f, a, nl);
-                    let v = self.convert_field_value(v, &chunk.types[t as usize])?;
+                    let v = self.convert_field_value(v, &chunk.types[t as usize], slot)?;
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::DbgHit { p } => self.debug_hit(p, &f.locals[..nl as usize]),
@@ -1183,13 +1183,17 @@ impl Session {
     /// `FieldRef.Value` into a Text, Code or Blob, or into a local Date, Time or DateTime. A number is its Format text and an Enum its caption, checked against the
     /// variable's or parameter's length (recordref-fieldref/Y13FieldRefValueToText.al:96-153;
     /// text/text-methods/Y49FieldRefIntoText.al:207-353).
-    fn convert_field_value(&self, v: Value, ty: &al_builtins::value::RtType) -> Result<Value, Signal> {
+    fn convert_field_value(
+        &self,
+        v: Value,
+        ty: &al_builtins::value::RtType,
+        slot: Option<al_builtins::fieldref_value_temporal::TemporalSlot>,
+    ) -> Result<Value, Signal> {
         let from28 = self.has(al_version::Gate::FieldRefTextNumberEvaluateErrorFrom28);
         if matches!(ty, RtType::Date | RtType::Time | RtType::DateTime) {
-            let cell = self
-                .supported_major()
-                .then(|| al_builtins::fieldref_value_text::fieldref_value_into_temporal(&v, ty, from28, self))
-                .flatten();
+            let cell = slot.filter(|_| self.supported_major()).and_then(|slot| {
+                al_builtins::fieldref_value_temporal::fieldref_value_into_temporal(&v, ty, slot, from28, self)
+            });
             return cell.unwrap_or_else(|| ops::convert_plain(v, ty));
         }
         match al_builtins::fieldref_value_text::fieldref_value_into_text(&v, ty, self)
