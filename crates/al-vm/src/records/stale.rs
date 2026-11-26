@@ -49,6 +49,10 @@ impl Session {
         bulk_shape: crate::state::BulkShape,
     ) {
         self.note_row_lock_write(t.object, &company, kind, pk);
+        let verdict = crate::version_entry::write_verdict(kind, self.through_recordref);
+        self.tx.open.table_writes.note(t.object, &company, verdict);
+        let unmeasured = crate::version_entry::unmeasured_after(kind, self.through_recordref);
+        self.tx.write_counts.note(t.object, &company, unmeasured);
         self.tx.open.writes.push(crate::state::TxWrite {
             table: t.object,
             company,
@@ -346,6 +350,10 @@ impl Session {
                 entries: len - at - 1,
                 counter,
             });
+            if counter != before {
+                let (table, company) = (w.table, w.company.clone());
+                crate::version_entry::note_bulk_changed(&mut self.tx.open.table_writes, table, &company);
+            }
             self.end_row_version_modify_all(at);
         }
     }

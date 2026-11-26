@@ -21,6 +21,7 @@ impl Session {
         if let Some(c) = cascade {
             self.tenant_set_cascade_apply(cx, t, c)?;
         }
+        crate::version_entry::note_own_delete(rec);
         Ok(deleted)
     }
 
