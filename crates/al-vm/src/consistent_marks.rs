@@ -31,6 +31,8 @@ use al_ir::{FieldClass, FieldFacts};
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
+mod page_args;
+
 /// How the variables of a table have called `Consistent` on its mark.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum MarkState {
@@ -552,6 +554,24 @@ impl Session {
         let probe_end = fail_probe_end(top_level_no_commit, arg, arg_kept, arg_marks, database_set, &after, end);
         if let Some(raises) = probe_end {
             assume(Assumption::GuardedRunConsistentFail);
+            return Ok(raises.then(|| self.inconsistent_error(after[0].0 as usize)));
+        }
+        let page_end = start
+            .arg_record
+            .filter(|_| top_level_no_commit && arg_kept && database_set && arg_marks == ArgMarks::None);
+        let page_end = page_end.and_then(|rec| {
+            let fields = match arg {
+                RunArg::Record { table, .. } => self
+                    .engine
+                    .field_facts
+                    .get(table as usize)
+                    .map_or(&[][..], Vec::as_slice),
+                _ => &[],
+            };
+            page_args::page_probe_end(arg, rec, fields, || self.work_date(), &after, end)
+        });
+        if let Some(raises) = page_end {
+            assume(Assumption::GuardedRunConsistentPage);
             return Ok(raises.then(|| self.inconsistent_error(after[0].0 as usize)));
         }
         Err(Signal::unsupported(format!(
