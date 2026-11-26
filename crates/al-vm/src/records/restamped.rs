@@ -5,11 +5,12 @@
 //! every row version handed out before: corpus PR 1509 (merged, not pinned), session-system/row-version-writes/
 //! RowVersionWrites.al:392 InsertTwoTables, `row/other` greater for Row.Insert; Other.Insert; Other.Get; Row.Get. This runtime
 //! stamps them at the Insert, so a row whose Insert row version is at or below one sent before it holds a lower value than BC's.
-//! `Database.LastUsedRowVersion` still moves as BC's (`Session::note_read_for_row_versions`); a read of the field of such a row,
-//! and a find or query that filters or sorts on it, are refused. Other reads of those rows run, in install code too.
+//! `Database.LastUsedRowVersion` still moves as BC's (`Session::note_read_for_row_versions`); a read of the field of such a row
+//! gives a value known only to be greater than 0 (`restamped_value`), and a find or query that filters or sorts on it is
+//! refused. Other reads of those rows run, in install code too.
 //!
 //! inserted rows sent after a higher row version (`send_pending_insert`, `Session::restamped_rows`,
-//! carried in the Baseline) and the refusals of what shows their SystemRowVersion (`restamped_read`,
+//! carried in the Baseline) and what shows their SystemRowVersion (`restamped_value`, and the refusals
 //! `restamped_find`, `restamped_query`).
 
 use super::*;
@@ -93,9 +94,13 @@ impl Session {
             .any(|row| matches!(row.get(version), Some(Value::BigInteger(v)) if self.restamped(t.object, *v, unsent))))
     }
 
-    /// Why a read of field `pos` of the buffer `r` is refused: the field holds the row version of a row `restamped` notes. Read
-    /// by a Record field (`interp.rs`) and by `FieldRef.Value` (`refs.rs`).
-    pub(crate) fn restamped_read(&self, r: &RecordState, pos: usize) -> Option<String> {
+    /// The value a read of field `pos` of the buffer `r` gives when the field holds the row version of a row `restamped` notes
+    /// (a Record field, `interp.rs`, and `FieldRef.Value`, `refs.rs`): BC's is greater than the row versions sent before the
+    /// row, so greater than this runtime's, which is greater than 0 (LastUsedRowVersion is, metadata/platform-tables/
+    /// PlTDatabase.al:229 LastUsedRowVersion_Relations `positive`). So the read gives a BigInteger known only to be greater than
+    /// 0 (`placeholder_output::positive`): it may be held, passed and returned, a comparison with 0 answers, and every other use
+    /// (another number, Format, a builtin) refuses with the text below (ADR-080).
+    pub(crate) fn restamped_value(&self, r: &RecordState, pos: usize) -> Option<Value> {
         if r.temporary || self.restamped_rows.is_empty() {
             return None;
         }
@@ -105,10 +110,10 @@ impl Session {
             return None;
         };
         (self.restamped(t.object, *v, false) && self.shows_row_version(t, pos)).then(|| {
-            format!(
-                "{} of a row of {} that the open transaction inserted before a row version sent ahead of it: BC gives the row its row version when it sends it, this runtime the Insert's",
+            al_builtins::placeholder_output::positive(format!(
+                "{} of a row of {} that the open transaction inserted before a row version sent ahead of it (BC gives the row its row version when it sends it, this runtime the Insert's)",
                 t.fields[pos].name, t.name
-            )
+            ))
         })
     }
 

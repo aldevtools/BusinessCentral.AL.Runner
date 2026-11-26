@@ -1587,10 +1587,10 @@ impl Session {
                             "FieldRef.Value of the Test ID",
                         ));
                     }
-                    let order = {
+                    let (order, v) = {
                         let r = rec.borrow();
-                        self.install_row_order(r.table, r.temporary, pos, &r.fields)
-                            .or_else(|| self.restamped_read(&r, pos))
+                        let order = self.install_row_order(r.table, r.temporary, pos, &r.fields);
+                        (order, self.restamped_value(&r, pos).unwrap_or(v))
                     };
                     if let Some(why) = order {
                         return unsupported(why);

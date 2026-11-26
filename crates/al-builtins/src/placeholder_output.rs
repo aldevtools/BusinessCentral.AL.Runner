@@ -189,6 +189,24 @@ pub fn size(mark: &Arc<str>) -> Value {
     Value::PlaceholderSize(mark.clone(), crate::value::SqlType::Integer)
 }
 
+/// A BigInteger whose number nothing measures and that is known only to be greater than 0, marked `why` (no placeholder
+/// mark): it follows the rules of a placeholder's size ([`size_order`], [`size_convert`], [`size_guard`]), and its refusals
+/// name `why` ([`size_refusal_text`]). Made by al-vm `restamped_value` (a SystemRowVersion the runtime does not give as BC).
+pub fn positive(why: String) -> Value {
+    SIZE_MADE.store(true, std::sync::atomic::Ordering::Relaxed);
+    Value::PlaceholderSize(why.into(), crate::value::SqlType::BigInteger)
+}
+
+/// What a size-like value (`Value::PlaceholderSize`) of mark `mark` is, for a refusal text: the byte size of a placeholder
+/// output, or the value [`positive`] marked.
+pub fn size_shown(mark: &str) -> String {
+    if is_placeholder(mark) {
+        format!("the byte size of {}", crate::rendered_text::shown(mark))
+    } else {
+        mark.to_string()
+    }
+}
+
 /// Set by [`size`] and never cleared: whether a placeholder's size may exist in this process. A size can be held in a
 /// SingleInstance global or a Variant beyond the session that made it, so the flag is not per session. It only spares the VM
 /// the scan of [`size_guard`] on every builtin call until the first size is made; it decides no answer.
@@ -255,6 +273,9 @@ pub fn size_refusal(mark: &str, what: &str) -> Signal {
 
 /// The text of [`size_refusal`].
 pub fn size_refusal_text(mark: &str, what: &str) -> String {
+    if !is_placeholder(mark) {
+        return format!("{what} of {mark} (only known to be greater than 0: only a comparison with 0 answers)");
+    }
     let mark = crate::rendered_text::shown(mark);
     format!(
         "{what} of the byte size of {mark} (BC's rendering is only known not to be empty: only a comparison of the size with 0 \
@@ -281,6 +302,9 @@ pub fn size_convert(v: Value, t: &RtType) -> Result<Value, Signal> {
     };
     let ty = match t {
         RtType::Variant => return Ok(v),
+        // A value `positive` marked is a BigInteger whose size nothing measures: an Integer or a Decimal may raise on BC.
+        RtType::BigInteger if !is_placeholder(m) => SqlType::BigInteger,
+        _ if !is_placeholder(m) => return Err(size_refusal(m, "a conversion to another type")),
         RtType::Integer => SqlType::Integer,
         RtType::BigInteger => SqlType::BigInteger,
         RtType::Decimal => SqlType::Decimal,
