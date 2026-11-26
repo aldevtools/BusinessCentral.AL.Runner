@@ -27,6 +27,9 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
+/// The type of `Local::Memory`.
+const MEMORY_STREAM: &str = "System.IO.MemoryStream";
+
 /// Handles of objects made in process start here; the sidecar counts from 1.
 const LOCAL_BASE: u64 = 1 << 48;
 
@@ -39,13 +42,19 @@ pub fn listed_members() -> impl Iterator<Item = &'static str> {
     (MEMBERS.lines().map(str::trim)).filter(|l| !l.is_empty() && !l.starts_with('#'))
 }
 
-/// Whether [`MEMBERS`] lists `member` (`None`: the constructor, `.ctor`) for an object of runtime type `clr_type`: under
-/// the type it is listed by ([`listed_type`]) as written, the member without regard to case.
-pub fn lists(clr_type: &str, member: Option<&str>) -> bool {
+/// Whether [`MEMBERS`] lists `member` (`None`: the constructor, `.ctor`) called with `args` arguments for an object of
+/// runtime type `clr_type`: under the type it is listed by ([`listed_type`]) as written, the member without regard to
+/// case. A line that ends in `()` lists only the call without arguments.
+pub fn lists(clr_type: &str, member: Option<&str>, args: usize) -> bool {
     let (clr_type, member) = (listed_type(clr_type), member.unwrap_or(".ctor"));
     listed_members().any(|l| {
-        (l.strip_prefix(clr_type).and_then(|rest| rest.strip_prefix('.')))
-            .is_some_and(|m| m.eq_ignore_ascii_case(member))
+        let Some(m) = l.strip_prefix(clr_type).and_then(|rest| rest.strip_prefix('.')) else {
+            return false;
+        };
+        match m.strip_suffix("()") {
+            Some(m) => args == 0 && m.eq_ignore_ascii_case(member),
+            None => m.eq_ignore_ascii_case(member),
+        }
     })
 }
 
@@ -227,6 +236,10 @@ enum Local {
         args: Vec<DotNetValue>,
         canonical: u64,
     },
+    /// A `MemoryStream` made by its no-argument constructor: the byte runs written into it, in order. Only `stream_write`
+    /// (CopyStream into it) writes, always at the end, so its position is its length and `ToArray` is the runs joined;
+    /// migrating replays the same writes on a new sidecar `MemoryStream`, so position, length and capacity are .NET's.
+    Memory(Vec<Vec<u8>>),
     /// The object moved to the sidecar: its handle there.
     Forward(u64),
 }
@@ -622,6 +635,10 @@ impl InprocSession {
                     ("ToLocalTime", []) => Act::Fresh(offset_of(*clock - *offset, 0)?, "System.DateTimeOffset"),
                     _ => return None,
                 },
+                Local::Memory(writes) => match (member, vals) {
+                    ("ToArray", []) => Act::Bytes(writes.concat()),
+                    _ => return None,
+                },
                 Local::Forward(_) | Local::Regex { .. } => return None,
             }
         };
@@ -670,6 +687,7 @@ impl InprocSession {
             Local::Regex { args, .. } => self
                 .inner
                 .construct(&net_type(regex::REGEX), args.iter().cloned().map(arg).collect()),
+            Local::Memory(_) => self.inner.construct(&net_type(MEMORY_STREAM), vec![]),
         }?;
         let DotNetValue::Handle { handle: r, .. } = made.value else {
             return Err(DotNetFailure::Refused(
@@ -678,6 +696,11 @@ impl InprocSession {
         };
         if matches!(&*cell.borrow(), Local::Hash { disposed: true, .. }) {
             self.inner.invoke(DotNetTarget::Instance(r), "Dispose", vec![])?;
+        }
+        if let Local::Memory(writes) = &*cell.borrow() {
+            for w in writes {
+                self.inner.stream_write(r, w)?;
+            }
         }
         *cell.borrow_mut() = Local::Forward(r);
         Ok(r)
@@ -789,6 +812,9 @@ impl DotNetSession for InprocSession {
         if ty.name == regex::REGEX {
             return self.construct_regex(ty, args);
         }
+        if ty.name == MEMORY_STREAM && args.is_empty() {
+            return self.make(Local::Memory(Vec::new()), MEMORY_STREAM);
+        }
         let args = self.args_out(args)?;
         self.inner.construct(ty, args)
     }
@@ -832,6 +858,17 @@ impl DotNetSession for InprocSession {
     }
 
     fn stream_write(&mut self, handle: DotNetHandle, bytes: &[u8]) -> Result<(), DotNetFailure> {
+        if let Some(cell) = self.local(handle)
+            && let Local::Memory(writes) = &mut *cell.borrow_mut()
+        {
+            // Within .NET's longest MemoryStream (`int.MaxValue` bytes); a longer one goes to the sidecar, whose
+            // exception is .NET's.
+            let len: usize = writes.iter().map(Vec::len).sum::<usize>() + bytes.len();
+            if i32::try_from(len).is_ok() {
+                writes.push(bytes.to_vec());
+                return Ok(());
+            }
+        }
         let h = self.remote_of(handle)?;
         self.inner.stream_write(h, bytes)
     }
@@ -1122,7 +1159,8 @@ mod tests {
     fn members_outside_the_list_go_to_the_sidecar() {
         let (mut s, seen) = session();
         let sb = handle_of(s.construct(&net_type("System.Text.StringBuilder"), vec![]));
-        let _ = s.construct(&net_type("System.IO.MemoryStream"), vec![]);
+        // Only the constructor without arguments is listed for a MemoryStream.
+        let _ = s.construct(&net_type("System.IO.MemoryStream"), vec![arg(DotNetValue::Int32(16))]);
         for m in ["Insert", "Replace", "Remove", "Equals", "GetHashCode", "AppendFormat"] {
             let _ = s.invoke(DotNetTarget::Instance(sb), m, vec![]);
         }
@@ -1176,6 +1214,42 @@ mod tests {
         fn close(self: Box<Self>) {
             self.0.lock().unwrap().push("close".into());
         }
+        fn stream_write(&mut self, h: DotNetHandle, bytes: &[u8]) -> Result<(), DotNetFailure> {
+            self.0.lock().unwrap().push(format!("write {bytes:?} to {h}"));
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_memory_stream_written_and_read_by_to_array_reaches_no_sidecar() {
+        let (mut s, seen) = answering();
+        let ms = handle_of(s.construct(&net_type(MEMORY_STREAM), vec![]));
+        for w in [&[1u8, 2][..], &[], &[3]] {
+            s.stream_write(ms, w).unwrap();
+        }
+        let bytes = handle_of(s.invoke(DotNetTarget::Instance(ms), "ToArray", vec![]));
+        let me = DotNetTarget::Instance(bytes);
+        assert_eq!(
+            s.invoke(me.clone(), "Length", vec![]).unwrap().value,
+            DotNetValue::Int32(3)
+        );
+        let last = s.invoke(me, "GetValue", vec![arg(DotNetValue::Int32(2))]);
+        assert_eq!(last.unwrap().value, DotNetValue::Byte(3));
+        assert!(seen.lock().unwrap().is_empty(), "forwarded: {:?}", seen.lock().unwrap());
+        // Any other member moves it: one construction without arguments, then the same writes in order.
+        let _ = s.get_property(DotNetTarget::Instance(ms), "Position");
+        let seen = seen.lock().unwrap().clone();
+        assert_eq!(
+            seen,
+            [
+                "new System.IO.MemoryStream",
+                "write [1, 2] to 1",
+                "write [] to 1",
+                "write [3] to 1",
+                "get Position on Instance(1)",
+            ],
+            "{seen:?}"
+        );
     }
 
     fn answering() -> (InprocSession, Arc<Mutex<Vec<String>>>) {

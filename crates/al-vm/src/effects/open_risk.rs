@@ -154,6 +154,7 @@ impl Engine {
             top: (object, routine),
             rec_guarded: 0,
             checked_write: None,
+            dialog: None,
         };
         // The page's own instance outlives the run.
         let found = w.routine(object, routine, Inst::Lasting).err();

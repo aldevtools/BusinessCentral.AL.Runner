@@ -636,15 +636,17 @@ impl Session {
         let mut s = st.borrow_mut();
         let inner = std::mem::replace(&mut s.control_onvalidate, outer);
         s.control_failed_as_measured = matches!(result, Err(Signal::Error(_)))
-            && inner.is_some_and(|c| {
+            && inner.as_ref().is_some_and(|c| {
                 matches!(
                     (c.row_version.is_some(), c.saves.as_slice()),
                     (_, []) | (false, [crate::pages::state::CurrPageSave::SaveRecord])
                 )
             });
         // An OnValidate that failed after its save left the new-row line runs no refresh (`ValidateStart::left_new_line`).
-        if let (Err(_), Some(start)) = (&result, s.filters_before_validate.as_mut()) {
-            start.left_new_line = false;
+        match (&result, s.filters_before_validate.as_mut()) {
+            (Err(_), Some(start)) => start.left_new_line = false,
+            (Ok(_), Some(start)) => start.ran = inner,
+            _ => {}
         }
         drop(s);
         result
@@ -869,6 +871,9 @@ impl Session {
             .is_some_and(|r| matches!(r.factbox, FactboxStep::CodedTyped { .. }));
         if typed {
             super::code_inserted_coded::coded_assume(st);
+            if st.borrow().coded_objects == super::state::CodedObjects::Extra {
+                self.extra_code_typed_save(st)?;
+            }
             st.borrow_mut().code_inserted_save = CodeInsertedSave::Pending { asked: false };
             return Ok(());
         }
@@ -890,12 +895,34 @@ impl Session {
         arg: Option<&Value>,
         view: &SavedView,
     ) -> Result<(), Signal> {
-        // Update(true) after the save is measured on the page without triggers only (ListNewLineExtraCode.al:476); on the page
-        // with triggers and a FactBox it stays refused: BC's answer there is measured 3 of 3 on BC 29.1 only by the neighbor
-        // app's tests/neighbors/8734-new-line-extra-code-factbox/src/Neighbors.al:478, which no corpus cell pins.
+        // Update(true) after the save is measured on the page without triggers (ListNewLineExtraCode.al:476) and on the later
+        // SetValue of the page-with-code shape (ListNewLineExtraCodeCodedSecondSetValue.al:804). On the page with triggers and a
+        // FactBox it stays refused: BC's answer there is measured 3 of 3 on BC 29.1 only by the neighbor app's
+        // tests/neighbors/8734-new-line-extra-code-factbox/src/Neighbors.al:478, which no corpus cell pins; at the landing of
+        // the page with code no cell measures it.
+        let typed_extra = st.borrow().coded_typed_extra();
+        // The later SetValue's cells keep Rec as the save left it up to the Update (another table written, :746, or the row
+        // modified through another record, :782, at Update(false)), and Update(true) follows the save with nothing written
+        // (:804); a field of Rec set, or a write before Update(true), is not measured (review of al-runner PR 8847, 01:00Z).
+        if typed_extra {
+            let rec_kept = Self::same_values(&self.page_rec(st).borrow().fields, &view.rec.fields);
+            let update_true = matches!(arg, Some(Value::Boolean(true)));
+            let measured = match update_true {
+                true => rec_kept && self.write_mark() == view.writes,
+                false => rec_kept && self.extra_typed_other_writes_inserted(st, view)?,
+            };
+            if !measured {
+                st.borrow_mut().forget_code_inserted_line();
+                return unsupported(
+                    "a field of Rec set, a row of another table modified or deleted, or a write before CurrPage.Update(true), \
+                     between CurrPage.SaveRecord and the CurrPage.Update after it in the later SetValue on a List page of the \
+                     shape of the page with code (not measured)",
+                );
+            }
+        }
         if view.extra
             && matches!(arg, Some(Value::Boolean(true)))
-            && matches!(self.code_inserted_page(st)?, Some((Triggers::Quiet, _)))
+            && (typed_extra || matches!(self.code_inserted_page(st)?, Some((Triggers::Quiet, _))))
         {
             return self.extra_code_update_true(st, view);
         }
@@ -916,7 +943,10 @@ impl Session {
                  line onto the row the table field inserted, and the CurrPage.Update(false) after it (not measured)",
             );
         }
-        let coded_extra = st.borrow().coded_objects == super::state::CodedObjects::Extra
+        // At the landing only: the later SetValue of a control with code has its own cells for what it writes between its save
+        // and its Update (ListNewLineExtraCodeCodedSecondSetValue.al).
+        let coded_extra = !st.borrow().coded_typed_extra()
+            && st.borrow().coded_objects == super::state::CodedObjects::Extra
             && matches!(self.code_inserted_page(st)?, Some((Triggers::Coded, _)));
         if coded_extra && !self.extra_coded_between_kept(st, view)? {
             st.borrow_mut().forget_code_inserted_line();
@@ -1181,11 +1211,12 @@ impl Session {
             (FactboxStep::ExtraTyped, TestCall::Page(PageMethod::OK), None) => FactboxStep::OkAsked,
             (FactboxStep::CodedExtraTyped, TestCall::Page(PageMethod::OK), None) => FactboxStep::OkAsked,
             (FactboxStep::PreviousNo, TestCall::Page(PageMethod::Next), None) => step,
-            // The page with code: the SetValues of the measured control (`coded_value_control`) its objects are measured with
-            // (`CodedObjects::later_set_value`, ListNewLineFactboxesCode.al:1407 and :1576 `setvalue2`), then OK() and its Invoke
-            // (:1407 `ok=`, `CodedObjects::ok_after`).
+            // The page with code: the SetValues of the measured control (`coded_later_control`) its objects are measured with
+            // (`CodedObjects::later_set_value`, ListNewLineFactboxesCode.al:1407 and :1576 `setvalue2`; on a page of its shape
+            // with other code, ListNewLineExtraCodeCodedSecondSetValue.al:746), then OK() and its Invoke (:1407 `ok=`,
+            // `CodedObjects::ok_after`).
             (FactboxStep::Coded { steps }, TestCall::Write(i), None)
-                if root.borrow().coded_objects.later_set_value(steps) && self.coded_value_control(&root, i) =>
+                if root.borrow().coded_objects.later_set_value(steps) && self.coded_later_control(&root, i) =>
             {
                 FactboxStep::CodedTyped { steps }
             }

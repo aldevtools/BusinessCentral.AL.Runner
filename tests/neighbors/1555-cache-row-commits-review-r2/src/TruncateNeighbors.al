@@ -38,6 +38,7 @@ codeunit 97719 "BCE R2 Reader"
         Parameters: Dictionary of [Text, Text];
         Results: Dictionary of [Text, Text];
         Row: Record "BCE R2 Row";
+        TempRow: Record "BCE R2 Row" temporary;
         Ref: RecordRef;
         KeyField: FieldRef;
         CountField: FieldRef;
@@ -64,12 +65,41 @@ codeunit 97719 "BCE R2 Reader"
                     Seen := Format(CountField.Value);
                     Ref.Close();
                 end;
-            'recordreftruncate':
+            'getreader':
                 begin
+                    if Row.Get(G) then;
                     Row."No." := G;
                     Row.CalcFields("Line Count");
                     Seen := Format(Row."Line Count");
                 end;
+            'findreader':
+                begin
+                    Row.SetRange("No.", G);
+                    if Row.FindFirst() then;
+                    Row.SetRange("No.");
+                    Row.CalcFields("Line Count");
+                    Seen := Format(Row."Line Count");
+                end;
+            'tempgetreader':
+                begin
+                    TempRow."No." := G;
+                    TempRow.Insert();
+                    if TempRow.Get(G) then;
+                    TempRow.CalcFields("Line Count");
+                    Seen := Format(TempRow."Line Count");
+                end;
+            'tempinsertreader':
+                begin
+                    TempRow."No." := G;
+                    TempRow.Insert();
+                    TempRow.CalcFields("Line Count");
+                    Seen := Format(TempRow."Line Count");
+                end;
+            else begin
+                Row."No." := G;
+                Row.CalcFields("Line Count");
+                Seen := Format(Row."Line Count");
+            end;
         end;
         Results.Add('Seen', Seen);
         Page.SetBackgroundTaskResult(Results);
@@ -108,7 +138,6 @@ codeunit 97720 "BCE Review R2 Tests"
         Lines: TestPage "BCE R2 Lines";
         Row: Record "BCE R2 Row";
         Ref: RecordRef;
-        KeyField: FieldRef;
         G: Code[20];
         Seen: Text;
     begin
@@ -119,14 +148,30 @@ codeunit 97720 "BCE Review R2 Tests"
         Commit();
         Lines.OpenView();
         Seen := Read(Lines, Mode, G);
-        if Mode = 'recordreftruncate' then begin
-            Ref.Open(Database::"BCE R2 Row");
-            KeyField := Ref.Field(1);
-            KeyField.SetRange(G);
-            Ref.Truncate();
-            Ref.Close();
-        end else
-            Row.Truncate();
+        case Mode of
+            'recordreftruncate':
+                begin
+                    Ref.Open(Database::"BCE R2 Row");
+                    Ref.Truncate();
+                    Ref.Close();
+                end;
+            'filteredtruncate':
+                begin
+                    Row.SetRange("No.", G);
+                    Row.Truncate();
+                end;
+            'resettruncate':
+                Row.Truncate(true);
+            'falsetruncate':
+                Row.Truncate(false);
+            'markedonlytruncate':
+                begin
+                    Row.MarkedOnly(true);
+                    Row.Truncate();
+                end;
+            else
+                Row.Truncate();
+        end;
         Commit();
         AddLine(G, 0);
         AddLine(G, 3);
@@ -150,9 +195,65 @@ codeunit 97720 "BCE Review R2 Tests"
     end;
 
     [Test]
-    procedure FilteredRecordRefTruncateRefused()
+    procedure FilteredRecordTruncateRefused()
+    begin
+        if FirstThenTruncate('filteredtruncate') <> '1 / 1' then
+            Error('unexpected answer');
+    end;
+
+    [Test]
+    procedure UnfilteredRecordRefTruncateRefused()
     begin
         if FirstThenTruncate('recordreftruncate') <> '1 / 1' then
+            Error('unexpected answer');
+    end;
+
+    [Test]
+    procedure TruncateResetRefused()
+    begin
+        if FirstThenTruncate('resettruncate') <> '1 / 1' then
+            Error('unexpected answer');
+    end;
+
+    [Test]
+    procedure MarkedOnlyTruncateRefused()
+    begin
+        if FirstThenTruncate('markedonlytruncate') <> '1 / 1' then
+            Error('unexpected answer');
+    end;
+
+    [Test]
+    procedure CalcFieldsRecordLoadedByGetRefused()
+    begin
+        if FirstThenTruncate('getreader') <> '1 / 1' then
+            Error('unexpected answer');
+    end;
+
+    [Test]
+    procedure CalcFieldsRecordLoadedByFindRefused()
+    begin
+        if FirstThenTruncate('findreader') <> '1 / 1' then
+            Error('unexpected answer');
+    end;
+
+    [Test]
+    procedure TemporaryCalcFieldsRecordLoadedByGetRefused()
+    begin
+        if FirstThenTruncate('tempgetreader') <> '1 / 1' then
+            Error('unexpected answer');
+    end;
+
+    [Test]
+    procedure TemporaryCalcFieldsAfterOwnInsertRefused()
+    begin
+        if FirstThenTruncate('tempinsertreader') <> '1 / 1' then
+            Error('unexpected answer');
+    end;
+
+    [Test]
+    procedure ExplicitFalseTruncateRefused()
+    begin
+        if FirstThenTruncate('falsetruncate') <> '1 / 1' then
             Error('unexpected answer');
     end;
 
@@ -169,7 +270,7 @@ codeunit 97720 "BCE Review R2 Tests"
         AddLine(G, 1);
         Commit();
         Lines.OpenView();
-        if Read(Lines, 'recordreftruncate', G) <> '1' then
+        if Read(Lines, 'plain', G) <> '1' then
             Error('unexpected answer');
         Lines.Close();
     end;

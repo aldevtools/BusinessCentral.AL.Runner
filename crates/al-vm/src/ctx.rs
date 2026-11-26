@@ -301,6 +301,13 @@ impl al_builtins::native::Ctx for Session {
         Ok(self.host.files.exists(path))
     }
     fn fs_read(&mut self, path: &str) -> Result<Option<Vec<u8>>, Signal> {
+        let bytes = self.fs_read_to_move(path)?;
+        if let Some(mark) = bytes.as_deref().and_then(outside_output_mark) {
+            return Err(al_builtins::stream::render_pending_error(&mark));
+        }
+        Ok(bytes)
+    }
+    fn fs_read_to_move(&mut self, path: &str) -> Result<Option<Vec<u8>>, Signal> {
         self.refuse_pending_file(path)?;
         Ok(self.host.files.read(path))
     }
@@ -355,6 +362,12 @@ impl al_builtins::native::Ctx for Session {
         let mark = self.placeholder_file_mark(path)?;
         let bytes = self.host.files.read(path)?;
         Some((mark, bytes))
+    }
+    fn fs_read_to_open(&mut self, path: &str) -> Result<Option<al_builtins::native::OpenedFile>, Signal> {
+        Ok(self.fs_read_to_move(path)?.map(|bytes| {
+            let mark = outside_output_mark(&bytes);
+            (bytes, mark)
+        }))
     }
     fn fs_opened(&mut self, path: &str) {
         self.placeholder_files.opened(path);
@@ -790,6 +803,23 @@ pub(crate) fn base_slot_missing(slot: usize) -> Signal {
 /// same file is still the file (a superset of what the file system would call equal, which only refuses more).
 pub(crate) fn pending_key(path: &str) -> String {
     path.replace('\\', "/").to_lowercase()
+}
+
+/// The placeholder mark of the bytes of a file this session holds no mark for, when they are a report output the runtime
+/// wrote (al-runner issues 8702, 8703): they start with a placeholder's header (`report_placeholder::outside_format`), or
+/// hold the mark of a rendered text (`al_builtins::rendered_text::bytes_hold`). An earlier session or another process wrote
+/// the file, and its mark lived only there; read without it, the placeholder's markup would answer as BC's rendering and the
+/// mark's bytes would form a rendered text past the checks of `rendered_text::read_whole`. `File.Open` gives the open file
+/// this mark (`fs_read_to_open`), so it opens, its size answers as a placeholder's, a copy carries it, and a read of the content
+/// is refused (`al_builtins::placeholder_output`); every other read of the bytes is refused in `fs_read`. A byte copy
+/// (`fs_read_to_move`) keeps the bytes, so the copy gets the same mark when it is read.
+pub(crate) fn outside_output_mark(bytes: &[u8]) -> Option<Arc<str>> {
+    let kind = match crate::report_placeholder::outside_format(bytes) {
+        Some(f) => f.name(),
+        None if al_builtins::rendered_text::bytes_hold(bytes) => al_builtins::rendered_text::WRITTEN_KIND,
+        None => return None,
+    };
+    Some(al_builtins::placeholder_output::outside_mark(kind))
 }
 
 impl Session {
