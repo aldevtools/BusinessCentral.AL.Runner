@@ -915,11 +915,9 @@ pub struct Session {
     install_without_client: bool,
     /// The Company Triggers subscribers of an install session run (`set_install_company_open`).
     install_company_open: bool,
-    /// The install session that runs now: the store's change counter at its start, and whether it took assumption
-    /// install-session-can-create-task (`install_footprint.rs` `install_session_begins`).
+    /// The running install session: change counter at its start, and whether it took install-session-can-create-task.
     install_yes_session: Option<(u64, bool)>,
-    /// The tables install sessions that took assumption install-session-can-create-task wrote (`Baseline::install_yes_tables`):
-    /// a test that reads or writes one carries the mark (`install_footprint.rs` `install_yes_mark`).
+    /// Tables written by install sessions that took it (`Baseline::install_yes_tables`); readers carry the mark.
     pub(crate) install_yes_tables: std::collections::BTreeSet<u32>,
     /// The session's data comes from a baseline in which the company data codeunit built the company to its end
     /// (`Baseline::company_built`).
