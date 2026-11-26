@@ -1,5 +1,5 @@
 // Guarded Codeunit.Run ends with Consistent(false) marks and a record argument with page-style filters (al-runner issue
-// 8970). The twins of corpus PR 1600 (errors/ConsistentGuardedRunRecPage.al:2591-2799) run flagged on head; the other
+// 8970). The twins of corpus PR 1600 (errors/ConsistentGuardedRunRecPage.al:2591-2813) run flagged on head; the other
 // shapes are neighbors that still refuse on main and on head, so they have no row in differences.tsv.
 
 enum 61460 "PF Kind" { Extensible = false; value(0; " ") { } value(1; Order) { } value(2; Invoice) { } }
@@ -52,11 +52,26 @@ codeunit 61464 "PF Mode"
     var
         Steps: Text;
         ChangeArg: Boolean;
+        ReleaseArg: Boolean;
 
     procedure Set(NewSteps: Text; NewChangeArg: Boolean)
     begin
         Steps := NewSteps;
         ChangeArg := NewChangeArg;
+        ReleaseArg := false;
+    end;
+
+    // argx: the argument itself calls Consistent(true) on GRP X between startx and the remaining steps.
+    procedure SetArgRelease(NewSteps: Text)
+    begin
+        Steps := NewSteps;
+        ChangeArg := false;
+        ReleaseArg := true;
+    end;
+
+    procedure ReleasesArg(): Boolean
+    begin
+        exit(ReleaseArg);
     end;
 
     procedure ChangesArg(): Boolean
@@ -64,9 +79,14 @@ codeunit 61464 "PF Mode"
         exit(ChangeArg);
     end;
 
-    // startx: X held; fya,fyc: Y marked, then marked again by another variable; txb: X released by another variable;
+    // startx: X row 50 inserted, then X held; fya,fyc: Y marked, then marked again by another variable; txb: X released by another variable;
     // fxa,txb,fxc: X marked again after a release; err: Error('inner failed').
     procedure Run()
+    begin
+        RunSteps(Steps);
+    end;
+
+    procedure RunSteps(Which: Text)
     var
         XA: Record "PF X";
         XB: Record "PF X";
@@ -75,9 +95,14 @@ codeunit 61464 "PF Mode"
         YC: Record "PF Y";
         Step: Text;
     begin
-        foreach Step in Steps.Split(',') do
+        foreach Step in Which.Split(',') do
             case Step of
-                'startx', 'fxa':
+                'startx':
+                    begin
+                        XA.Init(); XA.Id := 50; XA.Name := 'state'; XA.Insert();
+                        XA.Consistent(false);
+                    end;
+                'fxa':
                     XA.Consistent(false);
                 'txb':
                     XB.Consistent(true);
@@ -102,6 +127,12 @@ codeunit 61465 "PF Inner X"
     begin
         if Mode.ChangesArg() then
             Rec.SetRange(Amount, 50);
+        if Mode.ReleasesArg() then begin
+            Mode.RunSteps('startx');
+            Rec.Consistent(true);
+            Mode.RunSteps('fya,err');
+            exit;
+        end;
         Mode.Run();
     end;
 }
@@ -214,6 +245,8 @@ codeunit 61470 "PF Tests"
             Error('the run returned true');
         if GetLastErrorText() <> 'inner failed' then
             Error('wrong error: %1', GetLastErrorText());
+        CheckZ(R, 'PageMix');
+        CheckRows();
         Commit();
     end;
 
@@ -231,6 +264,8 @@ codeunit 61470 "PF Tests"
             Error('the run returned true');
         if GetLastErrorText() <> 'inner failed' then
             Error('wrong error: %1', GetLastErrorText());
+        CheckX(R, 'PageMix');
+        CheckRows();
         Commit();
     end;
 
@@ -248,6 +283,8 @@ codeunit 61470 "PF Tests"
             Error('the run returned true');
         if GetLastErrorText() <> 'inner failed' then
             Error('wrong error: %1', GetLastErrorText());
+        CheckZ(R, 'PageMixKey');
+        CheckRows();
         Commit();
     end;
 
@@ -265,6 +302,8 @@ codeunit 61470 "PF Tests"
             Error('the run returned true');
         if GetLastErrorText() <> 'inner failed' then
             Error('wrong error: %1', GetLastErrorText());
+        CheckX(R, 'PageMixKey');
+        CheckRows();
         Commit();
     end;
 
@@ -282,6 +321,8 @@ codeunit 61470 "PF Tests"
             Error('the run returned true');
         if GetLastErrorText() <> 'inner failed' then
             Error('wrong error: %1', GetLastErrorText());
+        CheckZ(R, 'Three');
+        CheckRows();
         Commit();
     end;
 
@@ -299,6 +340,8 @@ codeunit 61470 "PF Tests"
             Error('the run returned true');
         if GetLastErrorText() <> 'inner failed' then
             Error('wrong error: %1', GetLastErrorText());
+        CheckZ(R, 'Three');
+        CheckRows();
         Commit();
     end;
 
@@ -316,6 +359,8 @@ codeunit 61470 "PF Tests"
             Error('the run returned true');
         if GetLastErrorText() <> 'inner failed' then
             Error('wrong error: %1', GetLastErrorText());
+        CheckX(R, 'Three');
+        CheckRows();
         Commit();
     end;
 
@@ -333,6 +378,8 @@ codeunit 61470 "PF Tests"
             Error('the run returned true');
         if GetLastErrorText() <> 'inner failed' then
             Error('wrong error: %1', GetLastErrorText());
+        CheckX(R, 'Three');
+        CheckRows();
         Commit();
     end;
 
@@ -350,6 +397,8 @@ codeunit 61470 "PF Tests"
             Error('the run returned true');
         if GetLastErrorText() <> 'inner failed' then
             Error('wrong error: %1', GetLastErrorText());
+        CheckZ(R, 'Key');
+        CheckRows();
         Commit();
     end;
 
@@ -367,6 +416,8 @@ codeunit 61470 "PF Tests"
             Error('the run returned true');
         if GetLastErrorText() <> 'inner failed' then
             Error('wrong error: %1', GetLastErrorText());
+        CheckZ(R, 'Key');
+        CheckRows();
         Commit();
     end;
 
@@ -384,6 +435,8 @@ codeunit 61470 "PF Tests"
             Error('the run returned true');
         if GetLastErrorText() <> 'inner failed' then
             Error('wrong error: %1', GetLastErrorText());
+        CheckX(R, 'Key');
+        CheckRows();
         Commit();
     end;
 
@@ -401,6 +454,8 @@ codeunit 61470 "PF Tests"
             Error('the run returned true');
         if GetLastErrorText() <> 'inner failed' then
             Error('wrong error: %1', GetLastErrorText());
+        CheckX(R, 'Key');
+        CheckRows();
         Commit();
     end;
 
@@ -418,6 +473,8 @@ codeunit 61470 "PF Tests"
             Error('the run returned true');
         if GetLastErrorText() <> 'inner failed' then
             Error('wrong error: %1', GetLastErrorText());
+        CheckY(R, 'Three');
+        CheckRows();
         Commit();
     end;
 
@@ -435,6 +492,8 @@ codeunit 61470 "PF Tests"
             Error('the run returned true');
         if GetLastErrorText() <> 'inner failed' then
             Error('wrong error: %1', GetLastErrorText());
+        CheckZ(R, 'Key');
+        CheckRows();
         Commit();
     end;
 
@@ -452,6 +511,8 @@ codeunit 61470 "PF Tests"
             Error('the run returned true');
         if GetLastErrorText() <> 'inner failed' then
             Error('wrong error: %1', GetLastErrorText());
+        CheckZ(R, 'PageMix');
+        CheckRows();
         Commit();
     end;
 
@@ -469,6 +530,8 @@ codeunit 61470 "PF Tests"
             Error('the run returned true');
         if GetLastErrorText() <> 'inner failed' then
             Error('wrong error: %1', GetLastErrorText());
+        CheckZ(R, 'Three');
+        CheckRows();
         Commit();
     end;
 
@@ -486,6 +549,8 @@ codeunit 61470 "PF Tests"
             Error('the run returned true');
         if GetLastErrorText() <> 'inner failed' then
             Error('wrong error: %1', GetLastErrorText());
+        CheckZ(R, 'Two');
+        CheckRows();
         Commit();
     end;
 
@@ -503,6 +568,8 @@ codeunit 61470 "PF Tests"
             Error('the run returned true');
         if GetLastErrorText() <> 'inner failed' then
             Error('wrong error: %1', GetLastErrorText());
+        CheckZ(R, 'PageMixOtherDate');
+        CheckRows();
         Commit();
     end;
 
@@ -520,6 +587,8 @@ codeunit 61470 "PF Tests"
             Error('the run returned true');
         if GetLastErrorText() <> 'inner failed' then
             Error('wrong error: %1', GetLastErrorText());
+        CheckZ(R, 'PageMixGroup4');
+        CheckRows();
         Commit();
     end;
 
@@ -537,6 +606,122 @@ codeunit 61470 "PF Tests"
             Error('the run returned true');
         if GetLastErrorText() <> 'inner failed' then
             Error('wrong error: %1', GetLastErrorText());
+        CheckZ(R, 'Key');
+        CheckRows();
+        Commit();
+    end;
+
+    [Test]
+    procedure Neighbor_RecZ_KeyOnName_ReleasedThenHeld()
+    var
+        R: Record "PF Z";
+    begin
+        SeedZ();
+        R.Get(1);
+        FilterZ(R, 'KeyOnName');
+        Commit();
+        Mode.Set('startx,txb,fya,err', false);
+        if Codeunit.Run(Codeunit::"PF Inner Z", R) then
+            Error('the run returned true');
+        if GetLastErrorText() <> 'inner failed' then
+            Error('wrong error: %1', GetLastErrorText());
+        CheckZ(R, 'KeyOnName');
+        CheckRows();
+        Commit();
+    end;
+
+    [Test]
+    procedure Neighbor_RecZ_ThreeWithKey_ReleasedThenHeld()
+    var
+        R: Record "PF Z";
+    begin
+        SeedZ();
+        R.Get(1);
+        FilterZ(R, 'ThreeWithKey');
+        Commit();
+        Mode.Set('startx,txb,fya,err', false);
+        if Codeunit.Run(Codeunit::"PF Inner Z", R) then
+            Error('the run returned true');
+        if GetLastErrorText() <> 'inner failed' then
+            Error('wrong error: %1', GetLastErrorText());
+        CheckZ(R, 'ThreeWithKey');
+        CheckRows();
+        Commit();
+    end;
+
+    [Test]
+    procedure Neighbor_RecZ_PageMixViewDocType_MarkedAgain()
+    var
+        R: Record "PF Z";
+    begin
+        SeedZ();
+        R.Get(1);
+        FilterZ(R, 'PageMixViewDocType');
+        Commit();
+        Mode.Set('startx,fya,fyc,err', false);
+        if Codeunit.Run(Codeunit::"PF Inner Z", R) then
+            Error('the run returned true');
+        if GetLastErrorText() <> 'inner failed' then
+            Error('wrong error: %1', GetLastErrorText());
+        CheckZ(R, 'PageMixViewDocType');
+        CheckRows();
+        Commit();
+    end;
+
+    [Test]
+    procedure Neighbor_RecZ_PageMixSameField_MarkedAgain()
+    var
+        R: Record "PF Z";
+    begin
+        SeedZ();
+        R.Get(1);
+        FilterZ(R, 'PageMixSameField');
+        Commit();
+        Mode.Set('startx,fya,fyc,err', false);
+        if Codeunit.Run(Codeunit::"PF Inner Z", R) then
+            Error('the run returned true');
+        if GetLastErrorText() <> 'inner failed' then
+            Error('wrong error: %1', GetLastErrorText());
+        CheckZ(R, 'PageMixSameField');
+        CheckRows();
+        Commit();
+    end;
+
+    [Test]
+    procedure Neighbor_RecZ_PageMixExtraName_MarkedAgain()
+    var
+        R: Record "PF Z";
+    begin
+        SeedZ();
+        R.Get(1);
+        FilterZ(R, 'PageMixExtraName');
+        Commit();
+        Mode.Set('startx,fya,fyc,err', false);
+        if Codeunit.Run(Codeunit::"PF Inner Z", R) then
+            Error('the run returned true');
+        if GetLastErrorText() <> 'inner failed' then
+            Error('wrong error: %1', GetLastErrorText());
+        CheckZ(R, 'PageMixExtraName');
+        CheckRows();
+        Commit();
+    end;
+
+    [Test]
+    procedure Neighbor_RecX_Key_ArgReleasesThenHeld()
+    var
+        R: Record "PF X";
+    begin
+        SeedX();
+        R.Get(1);
+        FilterX(R, 'Key');
+        Commit();
+        Mode.SetArgRelease('startx,fya,err');
+        if Codeunit.Run(Codeunit::"PF Inner X", R) then
+            Error('the run returned true');
+        if GetLastErrorText() <> 'inner failed' then
+            Error('wrong error: %1', GetLastErrorText());
+        CheckX(R, 'Key');
+        CheckRows();
         Commit();
     end;
 
@@ -556,6 +741,7 @@ codeunit 61470 "PF Tests"
         if StrPos(GetLastErrorText(), 'END') = 0 then
             Error('wrong error: %1', GetLastErrorText());
         TP.Close();
+        CheckRows();
         Commit();
     end;
 
@@ -575,7 +761,80 @@ codeunit 61470 "PF Tests"
         if StrPos(GetLastErrorText(), 'END') = 0 then
             Error('wrong error: %1', GetLastErrorText());
         TP.Close();
+        CheckRows();
         Commit();
+    end;
+
+    // The argument keeps the filters of every group and filter group 0 after the run (corpus cells, 'argstate').
+    local procedure CheckX(var R: Record "PF X"; Shape: Text)
+    var
+        F: Record "PF X";
+        D: Record "PF X";
+        G: Integer;
+    begin
+        if D.Count() <> 2 then
+            Error('PF X rows after the run: %1', D.Count());
+        if R.FilterGroup() <> 0 then
+            Error('filter group after the run: %1', R.FilterGroup());
+        FilterX(F, Shape);
+        for G := 0 to 6 do begin
+            R.FilterGroup(G);
+            F.FilterGroup(G);
+            if R.GetFilters() <> F.GetFilters() then
+                Error('group %1 filters after the run: %2', G, R.GetFilters());
+        end;
+        R.FilterGroup(0);
+    end;
+
+    // The argument keeps the filters of every group and filter group 0 after the run (corpus cells, 'argstate').
+    local procedure CheckY(var R: Record "PF Y"; Shape: Text)
+    var
+        F: Record "PF Y";
+        D: Record "PF Y";
+        G: Integer;
+    begin
+        if D.Count() <> 2 then
+            Error('PF Y rows after the run: %1', D.Count());
+        if R.FilterGroup() <> 0 then
+            Error('filter group after the run: %1', R.FilterGroup());
+        FilterY(F, Shape);
+        for G := 0 to 6 do begin
+            R.FilterGroup(G);
+            F.FilterGroup(G);
+            if R.GetFilters() <> F.GetFilters() then
+                Error('group %1 filters after the run: %2', G, R.GetFilters());
+        end;
+        R.FilterGroup(0);
+    end;
+
+    // The argument keeps the filters of every group and filter group 0 after the run (corpus cells, 'argstate').
+    local procedure CheckZ(var R: Record "PF Z"; Shape: Text)
+    var
+        F: Record "PF Z";
+        D: Record "PF Z";
+        G: Integer;
+    begin
+        if D.Count() <> 2 then
+            Error('PF Z rows after the run: %1', D.Count());
+        if R.FilterGroup() <> 0 then
+            Error('filter group after the run: %1', R.FilterGroup());
+        FilterZ(F, Shape);
+        for G := 0 to 6 do begin
+            R.FilterGroup(G);
+            F.FilterGroup(G);
+            if R.GetFilters() <> F.GetFilters() then
+                Error('group %1 filters after the run: %2', G, R.GetFilters());
+        end;
+        R.FilterGroup(0);
+    end;
+
+    // The inner insert of X row 50 is rolled back (corpus cells, 'durable rows').
+    local procedure CheckRows()
+    var
+        X: Record "PF X";
+    begin
+        if X.Get(50) then
+            Error('X row 50 kept');
     end;
 
     local procedure SeedX()
@@ -602,6 +861,16 @@ codeunit 61470 "PF Tests"
                 begin R.SetRange(Name, 'caller'); R.SetRange("Doc Type", 1); R.SetRange(Amount, 5); end;
             'Two':
                 begin R.SetRange(Name, 'caller'); R.SetRange("Doc Type", 1); end;
+            'KeyOnName':
+                R.SetRange(Name, 'caller');
+            'ThreeWithKey':
+                begin R.SetRange(Id, 1); R.SetRange(Name, 'caller'); R.SetRange(Amount, 5); end;
+            'PageMixViewDocType':
+                begin R.FilterGroup(2); R.SetRange("Doc Type", 1); R.FilterGroup(0); R.SetRange("Date Filter", 0D, WorkDate()); end;
+            'PageMixSameField':
+                begin R.FilterGroup(2); R.SetRange(Kind, R.Kind::Order); R.FilterGroup(0); R.SetRange("Date Filter", 0D, WorkDate()); R.SetRange(Kind, R.Kind::Order); end;
+            'PageMixExtraName':
+                begin R.FilterGroup(2); R.SetRange(Kind, R.Kind::Order); R.FilterGroup(0); R.SetRange("Date Filter", 0D, WorkDate()); R.SetFilter(Name, 'caller'); end;
             'Key':
                 R.SetRange(Id, 1);
         end;
@@ -631,6 +900,16 @@ codeunit 61470 "PF Tests"
                 begin R.SetRange(Name, 'caller'); R.SetRange("Doc Type", 1); R.SetRange(Amount, 5); end;
             'Two':
                 begin R.SetRange(Name, 'caller'); R.SetRange("Doc Type", 1); end;
+            'KeyOnName':
+                R.SetRange(Name, 'caller');
+            'ThreeWithKey':
+                begin R.SetRange(Id, 1); R.SetRange(Name, 'caller'); R.SetRange(Amount, 5); end;
+            'PageMixViewDocType':
+                begin R.FilterGroup(2); R.SetRange("Doc Type", 1); R.FilterGroup(0); R.SetRange("Date Filter", 0D, WorkDate()); end;
+            'PageMixSameField':
+                begin R.FilterGroup(2); R.SetRange(Kind, R.Kind::Order); R.FilterGroup(0); R.SetRange("Date Filter", 0D, WorkDate()); R.SetRange(Kind, R.Kind::Order); end;
+            'PageMixExtraName':
+                begin R.FilterGroup(2); R.SetRange(Kind, R.Kind::Order); R.FilterGroup(0); R.SetRange("Date Filter", 0D, WorkDate()); R.SetFilter(Name, 'caller'); end;
             'Key':
                 R.SetRange(Id, 1);
         end;
@@ -660,6 +939,16 @@ codeunit 61470 "PF Tests"
                 begin R.SetRange(Name, 'caller'); R.SetRange("Doc Type", 1); R.SetRange(Amount, 5); end;
             'Two':
                 begin R.SetRange(Name, 'caller'); R.SetRange("Doc Type", 1); end;
+            'KeyOnName':
+                R.SetRange(Name, 'caller');
+            'ThreeWithKey':
+                begin R.SetRange(Id, 1); R.SetRange(Name, 'caller'); R.SetRange(Amount, 5); end;
+            'PageMixViewDocType':
+                begin R.FilterGroup(2); R.SetRange("Doc Type", 1); R.FilterGroup(0); R.SetRange("Date Filter", 0D, WorkDate()); end;
+            'PageMixSameField':
+                begin R.FilterGroup(2); R.SetRange(Kind, R.Kind::Order); R.FilterGroup(0); R.SetRange("Date Filter", 0D, WorkDate()); R.SetRange(Kind, R.Kind::Order); end;
+            'PageMixExtraName':
+                begin R.FilterGroup(2); R.SetRange(Kind, R.Kind::Order); R.FilterGroup(0); R.SetRange("Date Filter", 0D, WorkDate()); R.SetFilter(Name, 'caller'); end;
             'Key':
                 R.SetRange(Id, 1);
         end;
