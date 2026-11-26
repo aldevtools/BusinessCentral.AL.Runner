@@ -32,16 +32,21 @@ pub struct RequestTimings {
     /// kept index. `None`: no test data, or a source without an index. Describes the open this process did, so a daemon
     /// repeats it.
     pub test_data_index: Option<&'static str>,
+    /// What the workspace layer of the compile cache did, when this request compiled (`read`, `built`, `off`;
+    /// ADR-022 amendment 2026-11-15). `None`: the request used the kept compile, or the run did not ask for the layer.
+    pub workspace_cache: Option<&'static str>,
 }
 
 impl RequestTimings {
     /// The phases of a finished run `p`, with the setup parts and the coverage time the run measured itself, and the
-    /// test data it opened with its backup path (`run/test_data.rs` `open_backup`).
+    /// test data it opened with its backup path (`run/test_data.rs` `open_backup`), and the run's own report of the
+    /// workspace layer (`workspace_layer::own_report`).
     pub fn of(
         setup: SetupParts,
         p: &al_testrun::runtime::Phases,
         coverage: std::time::Duration,
         test_data: Option<&(al_host::testdata::TestData, std::path::PathBuf)>,
+        workspace: Option<&al_testrun::workspace_cache::WorkspaceReport>,
     ) -> RequestTimings {
         RequestTimings {
             setup,
@@ -56,6 +61,7 @@ impl RequestTimings {
             coverage,
             passes: p.passes.clone(),
             test_data_index: test_data.and_then(|(d, _)| d.provider.index_state()).map(|s| s.key()),
+            workspace_cache: workspace.map(|r| r.state.as_str()),
         }
     }
 }
@@ -77,7 +83,7 @@ mod tests {
             tests: ms(8),
             ..Default::default()
         };
-        let t = RequestTimings::of(SetupParts::default(), &p, ms(9), None);
+        let t = RequestTimings::of(SetupParts::default(), &p, ms(9), None, None);
         assert_eq!(
             (t.compile, t.engine, t.baseline, t.tests, t.coverage),
             (ms(5), ms(6), ms(7), ms(8), ms(9))
@@ -87,7 +93,7 @@ mod tests {
         assert_eq!(t.test_data_index, None);
         p.warm_compile = Some(ms(1));
         assert_eq!(
-            RequestTimings::of(SetupParts::default(), &p, ms(9), None).compile,
+            RequestTimings::of(SetupParts::default(), &p, ms(9), None, None).compile,
             ms(1)
         );
     }

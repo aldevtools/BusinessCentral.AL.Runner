@@ -287,6 +287,7 @@ Order when several apply: 2, 6, 1, 8, 7. Exit code 3 means no test ran; the erro
 | `ALRUNNER_SERVER_URL` | The address `--server-url` sets, when it is not given. |
 | `ALRUNNER_SEED`, `AL_RUNNER_SEED` | The run seed when `--seed` is not given. The second is version 2's name. |
 | `ALRUNNER_NO_COMPILE_CACHE=1` | Same as `--no-compile-cache`. |
+| `ALRUNNER_NO_WORKSPACE_CACHE=1` | Do not keep or read the compiled workspace apps (the workspace layer of the compile cache, `.alcw` files in `<cache dir>/compile/`, at most 4 per project); the dependency layers stay. |
 | `ALRUNNER_NO_CACHE_PRUNE=1` | Turn off the automatic cache cleanup. |
 | `ALRUNNER_BCAPPS_URL` | The address `--recipe` fetches BCApps from. |
 | `ALRUNNER_REPORT_UNPINNED_ERRORS=1` | Opt-in: a test that ends on an error whose text is not pinned is failed, its message starting with `[error text not pinned]`, instead of not run. The summary line, `--junit` and `--output-json` say the switch is on. Not a conformance result. See [Reading results](results.md#errors-whose-text-is-not-pinned). |
