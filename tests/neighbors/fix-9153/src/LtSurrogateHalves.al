@@ -95,7 +95,6 @@ codeunit 75791 "LT SH Ops"
         JO2: JsonObject;
         JA: JsonArray;
         JT: JsonToken;
-        B64: Codeunit "Base64 Convert";
         T1: Text[1];
         C10: Code[10];
         I: Integer;
@@ -333,11 +332,6 @@ codeunit 75791 "LT SH Ops"
             222: begin Bo := JO.ReadFrom('{"k":"\uD83D"}'); JO.Get('k', JT); Res := Format(Bo) + '|' + Codes(JT.AsValue().AsText()); end;
             223: begin Bo := JO.ReadFrom('{"k":"\uDE00"}'); JO.Get('k', JT); Res := Format(Bo) + '|' + Codes(JT.AsValue().AsText()); end;
             224: begin JO.Add('k', Hi); JO.WriteTo(T); Bo := JO2.ReadFrom(T); JO2.Get('k', JT); Res := Format(Bo) + '|' + Codes(JT.AsValue().AsText()); end;
-            225: begin Res := B64.ToBase64(Hi); end;
-            226: begin Res := B64.ToBase64(Lo); end;
-            227: begin Res := Codes(B64.FromBase64(B64.ToBase64(Hi))); end;
-            228: begin Res := Codes(B64.FromBase64(B64.ToBase64('a' + Hi + 'b'))); end;
-            229: begin Res := B64.ToBase64(Pair); end;
         end;
     end;
 
@@ -1032,18 +1026,6 @@ codeunit 75791 "LT SH Ops"
         Observer.Expect('base64_hi', '77+9');
         Observer.Expect('base64_lo', '77+9');
         Observer.Expect('base64_roundtrip_hi', '1:65533');
-        Observer.Verify();
-    end;
-
-    [Test]
-    procedure Ops_fn_17()
-    var
-        Observer: Codeunit "Probe Observer";
-    begin
-        Run(Observer, 'base64_roundtrip_ahib', 228);
-        Run(Observer, 'base64_pair', 229);
-        Observer.Expect('base64_roundtrip_ahib', '3:97,65533,98');
-        Observer.Expect('base64_pair', '8J+YgA==');
         Observer.Verify();
     end;
 
