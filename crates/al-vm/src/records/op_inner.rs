@@ -2185,7 +2185,7 @@ impl Session {
                     }
                 }
             }
-            RecordOp::Truncate => self.truncate_all(&cx, &t, rec, arg_bool(args, 0)?),
+            RecordOp::Truncate => self.truncate_all(&cx, &t, rec, arg_bool(args, 0)?, !args.is_empty()),
             // Only the AL call `Record.CalcFields` asks as `Asked::CalcFields` (permission_system_flowfield.rs).
             RecordOp::CalcFields | RecordOp::CalcSums | RecordOp::SetAutoCalcFields => self.flow_op(method, rec, args),
             RecordOp::LoadFields => self.load_fields_row(rec, &t, args),

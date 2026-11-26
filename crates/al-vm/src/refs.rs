@@ -453,6 +453,14 @@ impl Session {
         }))
     }
 
+    /// The open record of a RecordRef method that is no early arm of `recordref_op_inner`, past the by-value view gate
+    /// (`records/by_value_view.rs` `by_value_ref_runs`).
+    fn open_ref_by_value(lib: &Lib, method: &str) -> Result<Rec, Signal> {
+        let rec = Self::open_ref(lib, &format!("RecordRef.{method}"))?;
+        Self::by_value_ref_runs("RecordRef", method, &rec)?;
+        Ok(rec)
+    }
+
     fn open_ref(lib: &Lib, what: &str) -> Result<Rec, Signal> {
         match &*lib.borrow() {
             LibraryValue::RecordRef(r)
@@ -1023,6 +1031,7 @@ impl Session {
                     },
                     other => crate::recordref_copy::copy_source_record(other, &dst)?,
                 };
+                Self::by_value_ref_runs("RecordRef", "Copy", &src)?;
                 if src.borrow().table != dst.borrow().table {
                     return unsupported("RecordRef.Copy between two tables (not pinned)");
                 }
@@ -1081,7 +1090,7 @@ impl Session {
                 "RecordRef.{method} by this overload on a RecordRef that is not open (not pinned)"
             ));
         }
-        let rec = Self::open_ref(lib, &format!("RecordRef.{method}"))?;
+        let rec = Self::open_ref_by_value(lib, method)?;
         let t = self.table(&rec)?;
         match method {
             "Number" => Ok(Value::Integer(crate::object_ids::declared_id(
@@ -1211,7 +1220,7 @@ impl Session {
             // As Record.Truncate: every row the filters select goes, with or without the argument
             // (recordref-fieldref/recordref/P92Counts.al:124-186, Truncate_Unfiltered, Truncate_WithFilter,
             // Truncate_WithoutTriggerArgument).
-            "Truncate" => self.record_op(RecordOp::Truncate, &rec, args),
+            "Truncate" => self.recordref_record_op(method, &rec, args),
             // Field(FieldName): the name is matched case-insensitively and as given, never trimmed, and a caption is not a
             // name; an unknown name raises FieldNotFound with the supplied text
             // (recordref-fieldref/P107RecRefNames.al:25-60).
@@ -1457,7 +1466,7 @@ impl Session {
             d.field_descending = s.field_descending;
             // The ReadIsolation passes too (recordref-fieldref/recordref/P92ReadIsolation.al:ReadIsolation_FromRecordAndToRecord).
             d.read_isolation = s.read_isolation;
-            let before = std::mem::replace(&mut d.fields, s.fields.clone());
+            let before = self.replace_record_fields(dst, &mut d, s.fields.clone());
             // The Blobs move as `BlobMove::set_table` says.
             if let Some(how) = BlobMove::set_table(args.len(), share) {
                 self.move_blobs(s.table as usize, &mut d.fields, Some(&before), how, self.holder(&s))?;
@@ -1550,6 +1559,7 @@ impl Session {
                 ));
             }
         };
+        Self::by_value_ref_runs("FieldRef", method, &rec)?;
         let t = self.table(&rec)?;
         let field = &t.fields[pos];
         match method {
@@ -2229,12 +2239,13 @@ fn variant_record_into_ref(lib: &Lib, src: &Rc<RefCell<RecordState>>) -> Result<
 
 /// The record a RecordRef takes in `RecordRef.GetTable`, from a Record, a Variant that holds one or a RecordRef: every GetTable
 /// copy is made here. Refused while the source carries a mark whose buffer or view must not be copied
-/// (`records.rs` `copy_refused_mark`, the same rule as an assignment and `Copy`).
+/// (`records.rs` `copy_refused_mark`, the same rule as an assignment and `Copy`); the mark of a by-value copy whose view is not
+/// pinned goes with the copy (`records/by_value_view.rs` `by_value_view_into_ref`).
 pub(crate) fn gettable_record_copy(src: &Rc<RefCell<RecordState>>) -> Result<RecordState, Signal> {
     if let Some(why) = crate::records::copy_refused_mark(src) {
         return unsupported(format!("RecordRef.GetTable of a record: {why}"));
     }
-    crate::Session::by_value_view_handed(src, || "RecordRef.GetTable of a record".into())?;
+    crate::Session::by_value_view_into_ref(src);
     let mut copy = al_builtins::record_into_recordref::recordref_copy(&src.borrow());
     // The ref takes the version as the record had it, carried by the clone (corpus PR 1523,
     // record/crud/TestRecordFailedInsertMovedKey.al:907 R10).

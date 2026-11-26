@@ -234,9 +234,11 @@ dependencies = [
  "al-ir",
  "al-sema",
  "al-testkit",
+ "al-testrun",
  "al-version",
  "flate2",
  "rust_decimal",
+ "sha2",
 ]
 
 [[package]]

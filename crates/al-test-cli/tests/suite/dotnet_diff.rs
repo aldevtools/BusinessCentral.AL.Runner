@@ -4,7 +4,7 @@
 //! `ALRT_REQUIRE_DOTNET=1` (CI) a missing .NET fails.
 
 use al_host::dotnet::*;
-use al_host::inproc::{InprocHost, MEMBERS};
+use al_host::inproc::{InprocHost, listed_members};
 use al_test_cli::dotnet::{SidecarConfig, SidecarHost};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -722,13 +722,11 @@ fn the_stand_ins_answer_what_the_sidecar_answers() {
     covered.extend(math_checks(&mut pair, &mut rng));
     covered.extend(regex_checks(&mut pair));
 
+    // ---- MemoryStream() and ToArray (al-runner issue 9046) ----
+    covered.extend(memory_stream_checks(&mut pair, &mut rng));
+
     // ---- the list of members equals what was covered ----
-    let listed: BTreeSet<String> = MEMBERS
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty() && !l.starts_with('#'))
-        .map(String::from)
-        .collect();
+    let listed: BTreeSet<String> = listed_members().map(String::from).collect();
     let ours: BTreeSet<String> = covered
         .iter()
         .filter(|c| !c.starts_with("(sidecar)"))
@@ -1241,6 +1239,59 @@ fn regex_checks(pair: &mut Pair) -> BTreeSet<String> {
         // A timeout outside .NET's range fails in the constructor, every time.
         for _ in 0..2 {
             r.construct(ctor, rx, vec![s("a"), i(0), a(DotNetValue::TimeSpan(-5))]);
+        }
+    }));
+    covered
+}
+
+/// `MemoryStream()`, the writes of `CopyStream` into it (`stream_write`) and `ToArray`: empty, one byte, every byte
+/// value, a large stream and several writes. Then the members the set does not serve, which move the object to the
+/// sidecar, must see the same stream: position, length, capacity, a read back, and `ToArray` after the move.
+fn memory_stream_checks(pair: &mut Pair, rng: &mut Rng) -> BTreeSet<String> {
+    let all: Vec<u8> = (0..=255u8).collect();
+    let runs: Vec<Vec<Vec<u8>>> = vec![
+        vec![],
+        vec![vec![]],
+        vec![vec![0]],
+        vec![all.clone()],
+        vec![rng.bytes(200_000)],
+        vec![rng.bytes(200), rng.bytes(100), vec![], rng.bytes(7)],
+        vec![rng.bytes(256), rng.bytes(1)],
+        (0..40).map(|k| rng.bytes(k * 13)).collect(),
+    ];
+    let mut covered = BTreeSet::new();
+    for writes in &runs {
+        for moved in [false, true] {
+            covered.extend(both(pair, &|r| {
+                let ms = "System.IO.MemoryStream";
+                let Some(m) = r.construct("System.IO.MemoryStream..ctor()", ms, vec![]) else {
+                    return;
+                };
+                for w in writes {
+                    let done = r.session.stream_write(m.0, w);
+                    r.seen.push(format!("stream_write {} => {done:?}", w.len()));
+                }
+                if moved {
+                    for p in ["Position", "Length", "Capacity", "CanWrite"] {
+                        r.get("(sidecar) MemoryStream", DotNetTarget::Instance(m.0), p);
+                    }
+                    let back = r.session.stream_read(m.0, None).map(|b| base64(&b));
+                    r.seen.push(format!("stream_read => {back:?}"));
+                    r.get("(sidecar) MemoryStream", DotNetTarget::Instance(m.0), "Position");
+                }
+                if let Some(arr) = r.inst("System.IO.MemoryStream.ToArray", &m, "ToArray", vec![]) {
+                    r.read_bytes(&arr);
+                }
+                r.inst("System.IO.MemoryStream.ToArray", &m, "ToArray", vec![]);
+            }));
+        }
+    }
+    // The constructors with an argument stay on the sidecar.
+    covered.extend(both(pair, &|r| {
+        let ms = "System.IO.MemoryStream";
+        if let Some(m) = r.construct("(sidecar) MemoryStream(Int32)", ms, vec![i(10)]) {
+            r.get("(sidecar) MemoryStream", DotNetTarget::Instance(m.0), "Capacity");
+            r.inst("System.IO.MemoryStream.ToArray", &m, "ToArray", vec![]);
         }
     }));
     covered

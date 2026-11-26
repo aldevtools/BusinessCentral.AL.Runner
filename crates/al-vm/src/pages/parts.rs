@@ -1890,8 +1890,11 @@ impl Session {
         let later = if both { self.both_later_row(st)? } else { None };
         self.set_xrec(st);
         if !both {
+            if self.part_refresh_find_forward(host, c, st)? {
+                return Ok(true);
+            }
             if !self.part_keeps_later_row(st)? {
-                self.part_reread_from_first_row(host, c, st)?;
+                self.sync_part(host, c, st)?;
             }
             return Ok(true);
         }

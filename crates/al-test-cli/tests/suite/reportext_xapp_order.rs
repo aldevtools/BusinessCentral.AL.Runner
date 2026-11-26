@@ -60,6 +60,7 @@ pub(crate) fn run_marked(apps: &[(&str, &[usize])], names: &[String]) -> (Vec<(S
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     (outcomes, hits)
 }

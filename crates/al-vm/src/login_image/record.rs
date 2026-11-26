@@ -59,6 +59,39 @@ pub(crate) struct RecordNode {
     auto_calc_dropped: bool,
 }
 
+impl RecordNode {
+    /// The heap behind the node's own vectors: its field values, filters, marks, position, dirty bases, last Modify and
+    /// load buffer (`size.rs` counts the node itself).
+    pub(crate) fn heap_bytes(&self) -> usize {
+        use super::size::all;
+        use std::mem::size_of;
+        let opt = |v: &Option<Vec<Frozen>>| v.as_deref().map_or(0, all);
+        let dirty = match &self.is_dirty_base {
+            DirtyNode::Row { base, alt, .. } => all(base) + opt(alt),
+            DirtyNode::Unknown(_) | DirtyNode::Fresh | DirtyNode::Synced => 0,
+        };
+        let load = self.load.request.as_ref().map_or(0, |r| r.len() * size_of::<usize>())
+            + self.load.buffer.as_ref().map_or(0, |b| {
+                b.row.as_ref().map_or(0, String::len) + b.assigned.len() * size_of::<usize>()
+            });
+        all(&self.fields)
+            + self.filters.len() * size_of::<PlainFilter>()
+            + self
+                .marks
+                .iter()
+                .map(|m| size_of::<Vec<Frozen>>() + all(m))
+                .sum::<usize>()
+            + self.company.as_ref().map_or(0, String::len)
+            + opt(&self.position)
+            + opt(&self.dirty_base)
+            + opt(&self.last_modify)
+            + self.auto_calc.len() * size_of::<usize>()
+            + self.adhoc.as_ref().map_or(0, |(_, v)| v.len() * size_of::<usize>())
+            + dirty
+            + load
+    }
+}
+
 /// `DirtyBase`, variant by variant.
 #[derive(Debug)]
 enum DirtyNode {

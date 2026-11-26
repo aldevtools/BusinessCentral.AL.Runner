@@ -29,6 +29,9 @@ mod key_value_tests;
 mod order_carry;
 mod replace;
 mod row_changes;
+pub use row_changes::BeforeRows;
+mod shape;
+pub use shape::{CommittedMarks, CommittedRows};
 mod source_stamps;
 #[cfg(test)]
 mod source_stamps_tests;
@@ -201,6 +204,11 @@ pub struct MemStore {
     /// nothing wrote to reads the source's backing rows, as the copy took them. Part of the transaction, like `tables`.
     copies: crate::pmap::PMap<std::sync::Arc<str>, std::sync::Arc<str>>,
     committed_copies: crate::pmap::PMap<std::sync::Arc<str>, std::sync::Arc<str>>,
+    /// The companies whose rows a company copy made (`copy_company`, `note_copy`, carried by `rename_company`), with a
+    /// backing or without: their rows carry the system fields of the source's rows. Changes no read; the install-order
+    /// comparison reads it (`committed_copy_targets`). A freeze and an export leave it out. Part of the transaction.
+    copy_targets: crate::pmap::PMap<std::sync::Arc<str>, ()>,
+    committed_copy_targets: crate::pmap::PMap<std::sync::Arc<str>, ()>,
     /// Companies whose untouched rows were removed by deleting their Company row.
     dropped_backed_companies: crate::pmap::PMap<std::sync::Arc<str>, ()>,
     committed_dropped_backed_companies: crate::pmap::PMap<std::sync::Arc<str>, ()>,
@@ -734,6 +742,8 @@ impl MemStore {
         let source = self.copy_source(source);
         self.copies.insert(copy.into(), source.clone());
         self.committed_copies.insert(copy.into(), source);
+        self.copy_targets.insert(copy.into(), ());
+        self.committed_copy_targets.insert(copy.into(), ());
         self.source_changed(copy);
         let copy = std::sync::Arc::from(copy);
         self.dropped_backed_companies.remove(&copy);
@@ -747,6 +757,18 @@ impl MemStore {
     fn copy_source(&self, company: &str) -> std::sync::Arc<str> {
         let key: std::sync::Arc<str> = company.into();
         self.copies.get(&key).cloned().unwrap_or(key)
+    }
+
+    /// Whether the untouched tables read rows of a backing (ADR-020); without one, the company copies and deleted
+    /// companies change no read (`backing_rows`, `has_company_rows`).
+    pub fn has_backing(&self) -> bool {
+        self.backing.is_some()
+    }
+
+    /// The companies whose committed rows a company copy made ([`MemStore::copy_company`]): their rows carry the system
+    /// fields of the source's rows.
+    pub fn committed_copy_targets(&self) -> impl Iterator<Item = &str> + '_ {
+        self.committed_copy_targets.keys().map(|c| &**c)
     }
 
     /// The identity of the rows the untouched tables read ([`Backing::identity`]): `Some((0, 0))` without a backing,
@@ -1180,19 +1202,12 @@ impl MemStore {
     /// The committed tables (company, object) of this store that a write reached since it was `base` (a clone of
     /// `base`, restored, written and committed, as a session's capture of its baseline is): a table whose stamp differs
     /// from `base`'s or that `base` does not hold, and the tables `base` holds that this store does not (second list).
-    /// A write always gives its table a new stamp, so a table with `base`'s stamp holds `base`'s rows. `None` when the
-    /// company copies differ (`MemStore::copy_company`).
+    /// A write always gives its table a new stamp, so a table with `base`'s stamp holds `base`'s rows. What the untouched
+    /// tables answer besides (company copies and deleted companies) is not in the lists: two stores compare it with
+    /// [`MemStore::same_unshown_marks`].
     #[allow(clippy::type_complexity)]
-    pub fn committed_changes_from(&self, base: &MemStore) -> Option<(Vec<(String, u32)>, Vec<(String, u32)>)> {
+    pub fn committed_changes_from(&self, base: &MemStore) -> (Vec<(String, u32)>, Vec<(String, u32)>) {
         self.footprint_everything("a comparison of the store");
-        let same_copies = self.committed_copies.len() == base.committed_copies.len()
-            && self
-                .committed_copies
-                .iter()
-                .all(|(k, v)| base.committed_copies.get(k) == Some(v));
-        if !same_copies {
-            return None;
-        }
         let name = |s: &Slot| (s.0.to_string(), s.1);
         let changed = self
             .committed
@@ -1208,7 +1223,7 @@ impl MemStore {
             .filter(|s| !self.committed.contains_key(*s))
             .map(name)
             .collect();
-        Some((changed, gone))
+        (changed, gone)
     }
 
     /// The committed rows of table `object` in `company` that the store holds, and whether a DeleteAll without filters
@@ -1225,6 +1240,25 @@ impl MemStore {
                 rows: table.iter().map(|(k, r)| (k.0.clone(), r.clone())).collect(),
             },
             self.committed_emptied.contains_key(&slot),
+        ))
+    }
+
+    /// The committed rows of table `object` in `company` as a read finds them, and whether a DeleteAll without filters
+    /// emptied it: the store's entry ([`MemStore::committed_table`]), or the backing's rows when the store holds none (a
+    /// copy reads its source's, a deleted company none: `backing_rows`). `None` when neither holds any.
+    pub fn committed_table_read(&self, company: &str, object: u32) -> Option<(ExportedTable, bool)> {
+        if let Some(entry) = self.committed_table(company, object) {
+            return Some(entry);
+        }
+        let rows = self.backing_rows(company, object)?.0;
+        Some((
+            ExportedTable {
+                company: company.to_string(),
+                object,
+                pk_storage: table_storage(&rows),
+                rows: rows.iter().map(|(k, r)| (k.0.clone(), r.clone())).collect(),
+            },
+            false,
         ))
     }
 
@@ -1262,22 +1296,6 @@ impl MemStore {
         }
         self.commit();
         self
-    }
-
-    /// The marks of the committed store an export leaves out ([`MemStore::export_committed`]): the tables a DeleteAll
-    /// emptied and the company copies, sorted.
-    #[allow(clippy::type_complexity)]
-    pub fn committed_marks(&self) -> (Vec<(String, u32)>, Vec<(String, String)>) {
-        self.footprint_everything("an export of the store");
-        let mut emptied: Vec<(String, u32)> = self.committed_emptied.keys().map(|s| (s.0.to_string(), s.1)).collect();
-        emptied.sort();
-        let mut copies: Vec<(String, String)> = self
-            .committed_copies
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect();
-        copies.sort();
-        (emptied, copies)
     }
 
     /// How many committed rows the store holds, over every table and company (a count for the work ratchet of the
@@ -1384,6 +1402,9 @@ impl MemStore {
                 self.shapes.insert(target, self.counter);
             }
         }
+        if self.copy_targets.contains_key(&std::sync::Arc::from(old)) {
+            self.copy_targets.insert(new.into(), ());
+        }
         let source = self.copy_source(old);
         self.copies.remove(&std::sync::Arc::from(old));
         if self.backing.is_some() {
@@ -1404,6 +1425,7 @@ impl MemStore {
             let source = self.copy_source(from);
             self.copies.insert(to.into(), source);
         }
+        self.copy_targets.insert(to.into(), ());
         self.dropped_backed_companies.remove(&std::sync::Arc::from(to));
         self.source_changed(to);
         let copied: Vec<(Slot, Table)> = self
@@ -2068,6 +2090,7 @@ impl Store for MemStore {
         self.committed_shapes = self.shapes.clone();
         self.committed_moves = self.moves.clone();
         self.committed_copies = self.copies.clone();
+        self.committed_copy_targets = self.copy_targets.clone();
         self.committed_dropped_backed_companies = self.dropped_backed_companies.clone();
         self.committed_source_stamps = self.source_stamps.clone();
         self.committed_emptied = self.emptied.clone();
@@ -2081,6 +2104,7 @@ impl Store for MemStore {
         self.shapes = self.committed_shapes.clone();
         self.moves = self.committed_moves.clone();
         self.copies = self.committed_copies.clone();
+        self.copy_targets = self.committed_copy_targets.clone();
         self.dropped_backed_companies = self.committed_dropped_backed_companies.clone();
         self.source_stamps = self.committed_source_stamps.clone();
         self.emptied = self.committed_emptied.clone();

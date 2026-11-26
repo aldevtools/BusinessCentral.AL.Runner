@@ -2687,6 +2687,7 @@ impl Session {
 }
 
 /// Member indexes of the IsolationLevel option (`al_builtins::sysenum`, "isolationlevel").
+pub(crate) const ISOLATION_READ_UNCOMMITTED: i32 = 1;
 pub(crate) const ISOLATION_REPEATABLE_READ: i32 = 3;
 pub(crate) const ISOLATION_UPDLOCK: i32 = 4;
 

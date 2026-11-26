@@ -322,7 +322,7 @@ impl Session {
         if let Some(d) = self.tx.open.deferred_insert.take() {
             return Err(Signal::Error(Box::new(d.error)));
         }
-        self.commit_transaction();
+        self.commit_as(crate::CommitBy::Statement);
         // A Commit puts LockTimeout back on (session-system/PnBRecordMisc.al:LastUsedRowVersion_AndLockTimeout
         // `lockTimeoutAfterCommit`). The timeout duration is not pinned.
         self.tx.lock_timeout = true;
@@ -906,7 +906,7 @@ impl Session {
                     let mut e = Box::new(d.error);
                     self.add_top_frame(&mut e);
                     if self.pages.bg_worker.is_none() {
-                        self.rollback_transaction();
+                        self.rollback_failed_run();
                     }
                     self.catch_error(*e)?;
                     if let Some(c) = caller_rec.take() {
@@ -915,7 +915,7 @@ impl Session {
                     return Ok(Value::Boolean(false));
                 }
                 if self.pages.bg_worker.is_none() {
-                    self.commit_transaction();
+                    self.commit_as(crate::CommitBy::GuardedRun);
                 }
                 Ok(Value::Boolean(true))
             }
@@ -1011,6 +1011,7 @@ impl Session {
         al_data::Store::commit(&mut self.store);
         self.crm_committed();
         self.commits += 1;
+        self.note_tx_end(true);
         self.sql.committed();
         self.truncate_undo.clear();
         // Rows at or below this rowversion are durable: a buffer older than one of them is stale.

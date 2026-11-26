@@ -9,6 +9,7 @@
 //   {"t":"d","v":"1.50"}                   decimal, as text
 //   {"t":"s","v":"text"}                   string
 //   {"t":"dt","v":"638396640000000000"}    DateTime ticks, kind unspecified
+//   {"t":"dtu","v":"638396640000000000"}   DateTime ticks, kind Utc (only sent, never returned)
 //   {"t":"ts","v":"15000000"}              TimeSpan ticks
 //   {"t":"g","v":"01234567-89ab-..."}      Guid, in textual order
 //   {"t":"e","type":"System.X","v":"Name","o":1}   enum value by name and ordinal
@@ -129,6 +130,7 @@ public sealed class Marshaller
             case "d": return decimal.Parse(o["v"]!.GetValue<string>(), NumberStyles.Float, CultureInfo.InvariantCulture);
             case "s": return o["v"]!.GetValue<string>();
             case "dt": return new DateTime(long.Parse(o["v"]!.GetValue<string>(), CultureInfo.InvariantCulture), DateTimeKind.Unspecified);
+            case "dtu": return new DateTime(long.Parse(o["v"]!.GetValue<string>(), CultureInfo.InvariantCulture), DateTimeKind.Utc);
             case "ts": return new TimeSpan(long.Parse(o["v"]!.GetValue<string>(), CultureInfo.InvariantCulture));
             case "g": return Guid.Parse(o["v"]!.GetValue<string>());
             case "e": return Enum.Parse(resolveType(o["type"]!.GetValue<string>()), o["v"]!.GetValue<string>());

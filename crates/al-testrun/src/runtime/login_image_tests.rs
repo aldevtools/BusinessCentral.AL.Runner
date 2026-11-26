@@ -36,7 +36,7 @@ fn outcomes(engine: &Arc<Engine>, l: &al_sema::lower::Lowered, name: &str, check
             login_replay_check: check,
             ..RunOptions::default()
         }),
-        ..Default::default()
+        ..Scratch::new(crate::host::RunClock::begin())
     };
     let oi = l.program.objects.iter().position(|o| o.name == name).unwrap();
     run_codeunit_core(

@@ -4,8 +4,10 @@
 //! the parameter binding of `call_inner` in `lib.rs`, which describes the call in a [`ByValueCall`]; for a subscriber,
 //! `dispatch.rs` `raise_to_subscribers` asks [`Session::event_args`] what was measured of each parameter). What a copy whose view is not pinned
 //! answers afterwards: its own record methods (`Session::by_value_view_runs`, by `record_op_inner`), and every hand-off of it to
-//! code that reads its view (`Session::by_value_view_handed`: a record method with it as the source, `RecordRef.GetTable`, a
-//! page, report, XmlPort or FilterPageBuilder it is handed to); Copy and CopyFilters hand its marks to their target.
+//! code that reads its view (`Session::by_value_view_handed`: a record method with it as the source, a page, report, XmlPort,
+//! FilterPageBuilder or GetUrl it is handed to, as a Record or as a RecordRef); Copy and CopyFilters hand its marks to their
+//! target, and `RecordRef.GetTable` hands the mark to the RecordRef (`Session::by_value_view_into_ref`), whose methods that read
+//! the view refuse (`Session::by_value_ref_runs`, al-runner issue 9112).
 //!
 //! The view a record gets when it is handed by value to a Record parameter of a procedure or an event
 //! subscriber (not temporary): for a codeunit's procedure called by name, or a table's procedure
@@ -42,13 +44,15 @@
 //! publisher parameter is a by-value Record (`EventArg::PublisherByValue`) without the view of a
 //! fresh record (`fresh_view`), gives a copy marked `BY_VALUE_VIEW` whose view reads refuse; a
 //! subscriber copy whose publisher parameter is `var`, or of an event the platform raises
-//! (`EventArg::Main`), keeps main's view. One list of the methods that read no view
-//! (`reads_no_view`). Entry points: `record_param_copy` and `temporary_into_stored_param` (by the
+//! (`EventArg::Main`), keeps main's view. Two lists of the methods that read no view: `reads_no_view` for a
+//! Record copy and `by_value_ref_runs` for a RecordRef that took the mark (narrower: Get, Insert, Modify, Reset, CalcFields,
+//! GetFilters and Count run on the Record copy but refuse on the ref). Entry points: `record_param_copy` and `temporary_into_stored_param` (by the
 //! parameter binding of `call_inner` in `lib.rs`; `exec/run.rs` `run_iface` sets
 //! `Session::next_interface_call`), `by_value_view_marks` and `by_value_view_runs` (by
-//! `record_op_inner`), `by_value_view_handed` (every hand-off that reads the view: `refs.rs`
-//! `gettable_record_copy`, `pages/open/record_refusals.rs`, `reports.rs` `report_set_view`,
-//! `xmlports/mod.rs` `xp_set_view`, `filterpage.rs`).
+//! `record_op_inner`), `by_value_view_handed` (every hand-off that reads the view:
+//! `pages/open/record_refusals.rs`, `reports.rs` `report_set_view` and `custom_layout_filter_views`,
+//! `reports/execute_args.rs`, `xmlports/mod.rs` `xp_set_view`, `filterpage.rs`, `geturl.rs`), `by_value_view_into_ref` (by
+//! `refs.rs` `gettable_record_copy`) and `by_value_ref_runs` (by `refs.rs` `recordref_op_inner`, `fieldref_op` and Copy).
 
 use crate::Session;
 use crate::events::{EventKind, Subscriber};
@@ -819,19 +823,71 @@ impl Session {
 
     /// `rec` handed to code that reads its view (`to` names it): a copy that holds `RecordState::view_assumption` marks the
     /// assumption, one marked [`BY_VALUE_VIEW`] or [`BY_VALUE_EVENT_READS`] refuses. Callers: `by_value_view_marks` (the source of a record method other
-    /// than Copy, CopyFilters and TransferFields), `refs.rs` `gettable_record_copy`, the record a page opens on
-    /// (`pages/open/record_refusals.rs` `page_record_refusal`: Page.Run, RunModal, SetRecord or SetTableView), the view of a
-    /// report (`reports.rs` `report_set_view`) and of an XmlPort (`xmlports/mod.rs` `xp_set_view`), and
-    /// FilterPageBuilder.AddRecord (`filterpage.rs`).
+    /// than Copy, CopyFilters and TransferFields), the record a page opens on (`pages/open/record_refusals.rs`
+    /// `page_record_refusal`: Page.Run, RunModal, SetRecord or SetTableView), the view of a report (`reports.rs`
+    /// `report_set_view` and `custom_layout_filter_views`, `reports/execute_args.rs`) and of an XmlPort (`xmlports/mod.rs`
+    /// `xp_set_view`), FilterPageBuilder.AddRecord and AddRecordRef (`filterpage.rs`) and GetUrl (`geturl.rs`).
     pub(crate) fn by_value_view_handed(rec: &Rec, to: impl FnOnce() -> String) -> Result<(), Signal> {
-        let r = rec.borrow();
-        if let Some(a) = r.view_assumption {
-            assumptions::assume(a);
-        }
-        match r.unpinned_buffer {
+        Self::by_value_view_into_ref(rec);
+        match rec.borrow().unpinned_buffer {
             Some(why) if by_value_mark(why) => unsupported(format!("{}: {why}", to())),
             _ => Ok(()),
         }
+    }
+
+    /// `RecordRef.GetTable` of `rec`, from a Record or a Variant that holds one (`refs.rs` `gettable_record_copy`): the RecordRef
+    /// takes the record's buffer (from a Record: recordref-fieldref/AsGetTableIsDirty.al:19-32; from a Variant:
+    /// recordref-fieldref/recordref/TestRecordRefVariantGetTable.al:78-96), and a copy marked [`BY_VALUE_VIEW`] or [`BY_VALUE_EVENT_READS`] hands
+    /// it its mark: the RecordRef answers what reads no view ([`Session::by_value_ref_runs`]) and refuses the rest, as the
+    /// copy does. An assumption the view of `rec` runs through is marked here (main's rule: GetTable reads the view).
+    pub(crate) fn by_value_view_into_ref(rec: &Rec) {
+        if let Some(a) = rec.borrow().view_assumption {
+            assumptions::assume(a);
+        }
+    }
+
+    /// RecordRef or FieldRef method `method` (`kind`) on a RecordRef whose record `rec` holds the mark of a by-value copy whose
+    /// view is not pinned ([`by_value_mark`], handed on by [`Session::by_value_view_into_ref`]). It runs when it reads neither
+    /// the view nor the marks: the table's metadata (Number: recordref-fieldref/recordref/TestRecordRefVariantGetTable.al:47;
+    /// Name: recordref-fieldref/P107RecRefNames.al:304; Caption: recordref-fieldref/Y5TestFieldExtCaption.al:110; KeyCount and
+    /// FieldCount: recordref-fieldref/Bn3Key16.al:70-72), IsTemporary (kept by GetTable:
+    /// recordref-fieldref/recordref/SetTableTemporaryToPermanent.al:69-78), RecordId (the buffer's primary key with no Find:
+    /// recordref-fieldref/recordref/RfTWrite.al:443-449), a FieldRef (Field and FieldIndex:
+    /// recordref-fieldref/recordref/TestRecordRefField.al:13-48; FieldExist: recordref-fieldref/P107RecRefNames.al:72), and a
+    /// field's value and metadata (FieldRef Value read and written: TestRecordRefField.al:26-35; Number and Name:
+    /// TestRecordRefField.al:21 and :127; Caption: record/captions/R6985FieldCaptionArea.al:160; Type:
+    /// recordref-fieldref/PnD12_RemovedFieldRecordRef.al:49; Class: recordref-fieldref/recordref/RfTValues.al:198; Length:
+    /// recordref-fieldref/fieldref/FieldRefLengthKinds.al:49). Every other method refuses with the mark. That the copy holds the
+    /// caller's row and its fields: record/filters/ByValueRecordView.al:30 (the copy has the primary key and all fields loaded,
+    /// also after a SetLoadFields in the caller) and the field reads of a copy (`records.rs` `buffer_read_refused`).
+    pub(crate) fn by_value_ref_runs(kind: &str, method: &str, rec: &Rec) -> Result<(), Signal> {
+        let Some(why) = rec.borrow().unpinned_buffer.filter(|w| by_value_mark(w)) else {
+            return Ok(());
+        };
+        let runs = match kind {
+            "RecordRef" => matches!(
+                method,
+                "Number"
+                    | "Name"
+                    | "Caption"
+                    | "KeyCount"
+                    | "FieldCount"
+                    | "IsTemporary"
+                    | "RecordId"
+                    | "Field"
+                    | "FieldIndex"
+                    | "FieldExist"
+            ),
+            "FieldRef" => matches!(
+                method,
+                "Value" | "Number" | "Name" | "Caption" | "Type" | "Class" | "Length"
+            ),
+            _ => false,
+        };
+        if runs {
+            return Ok(());
+        }
+        unsupported(format!("{kind}.{method}() of a RecordRef that took {why}"))
     }
 
     /// Whether `method` runs on `rec` with its mark kept, by `record_op_inner`, when `rec` is marked [`BY_VALUE_VIEW`] or

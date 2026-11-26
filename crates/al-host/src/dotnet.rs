@@ -46,6 +46,8 @@ pub enum DotNetValue {
     Str(String),
     /// `System.DateTime` as ticks of 100 ns since 0001-01-01, kind unspecified.
     DateTime(i64),
+    /// `System.DateTime` as ticks, kind `Utc`. Only the VM sends it, for the calls `al-vm` `dotnet/zone_rules.rs` names.
+    DateTimeUtc(i64),
     /// `System.TimeSpan` in ticks of 100 ns.
     TimeSpan(i64),
     Guid([u8; 16]),
