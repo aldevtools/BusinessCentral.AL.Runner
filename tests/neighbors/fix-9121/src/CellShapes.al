@@ -1,5 +1,6 @@
 // Stand-ins written from the facts of the two measured pages (no Microsoft text): an Enum key field with one filter
-// (page 7002), two Option key filters with the key's first field unchanged (page 7004), and their neighbors.
+// (page 7002), two key filters with the key's first field (Enum) unchanged and an Option key field changed (page 7004),
+// and their neighbors.
 enum 97500 "N9121 Kind"
 {
     Extensible = false;
@@ -7,6 +8,14 @@ enum 97500 "N9121 Kind"
     value(1; B) { }
     value(2; C) { }
     value(3; D) { }
+}
+
+enum 97501 "N9121 Line Type"
+{
+    Extensible = false;
+    value(0; Item) { }
+    value(1; Group) { }
+    value(2; None) { }
 }
 
 table 97502 "N9121 Enum Keyed"
@@ -22,6 +31,18 @@ table 97502 "N9121 Enum Keyed"
 
 // As in the measured page's table, the key's first field comes after the other key fields in field order.
 table 97503 "N9121 Two Keyed"
+{
+    fields
+    {
+        field(1; "Code"; Code[20]) { }
+        field(13; "Sales Type"; Option) { OptionMembers = A,B,C,D; }
+        field(21; Type; Enum "N9121 Line Type") { }
+    }
+    keys { key(PK; Type, "Code", "Sales Type") { } }
+}
+
+// Table 97503 with an Option `Type`: both key filters on Option fields.
+table 97506 "N9121 Option Two Keyed"
 {
     fields
     {
@@ -176,7 +197,7 @@ page 97505 "N9121 Two Cell"
 
     var
         SalesTypeFilter: Option A,B,C,D;
-        TypeFilter: Option Item,Group,None;
+        TypeFilter: Enum "N9121 Line Type";
         BothFilter: Boolean;
         AssignFilter: Boolean;
         CodeEditable: Boolean;
@@ -323,4 +344,50 @@ page 97508 "N9121 Two Cell Counts"
     var
         SalesTypeFilter: Option A,B,C,D;
         Runs: Integer;
+}
+
+page 97509 "N9121 Option Two Cell"
+{
+    PageType = List;
+    SourceTable = "N9121 Option Two Keyed";
+    DelayedInsert = true;
+    layout
+    {
+        area(Content)
+        {
+            field(SalesTypeFilter; SalesTypeFilter)
+            {
+                trigger OnValidate()
+                begin
+                    CurrPage.SaveRecord();
+                    SetRecFilters();
+                end;
+            }
+            repeater(Lines)
+            {
+                field(Type; Rec.Type) { }
+                field("Sales Type"; Rec."Sales Type") { }
+            }
+        }
+    }
+    trigger OnOpenPage()
+    begin
+        SetRecFilters();
+    end;
+
+    trigger OnAfterGetCurrRecord()
+    begin
+        CodeEditable := Rec."Sales Type" <> Rec."Sales Type"::C;
+    end;
+
+    local procedure SetRecFilters()
+    begin
+        Rec.SetRange("Sales Type", SalesTypeFilter);
+        Rec.SetRange(Type, Rec.Type::Item);
+        CurrPage.Update(false);
+    end;
+
+    var
+        SalesTypeFilter: Option A,B,C,D;
+        CodeEditable: Boolean;
 }

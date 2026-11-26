@@ -174,7 +174,17 @@ codeunit 97513 "N9121 Measured Cell Tests"
         P.OpenEdit();
         P.SalesTypeFilter.SetValue(2);
         P."Sales Type".AssertEquals(2);
-        P.Type.AssertEquals(0);
+        P.Type.AssertEquals(Format(Enum::"N9121 Line Type"::Item));
+    end;
+
+    [Test]
+    procedure OptionKey_TwoKeyFilters_SecondChanges()
+    var
+        P: TestPage "N9121 Option Two Cell";
+    begin
+        P.OpenEdit();
+        P.SalesTypeFilter.SetValue(2);
+        P."Sales Type".AssertEquals(2);
     end;
 
     [Test]
@@ -185,7 +195,7 @@ codeunit 97513 "N9121 Measured Cell Tests"
         P.OpenEdit();
         P.BothFilter.SetValue(true);
         P."Sales Type".AssertEquals(2);
-        P.Type.AssertEquals(1);
+        P.Type.AssertEquals(Format(Enum::"N9121 Line Type"::Group));
     end;
 
     [Test]

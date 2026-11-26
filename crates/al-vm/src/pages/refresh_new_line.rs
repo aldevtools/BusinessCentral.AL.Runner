@@ -526,8 +526,8 @@ impl Session {
     /// - that OnValidate called `CurrPage.SaveRecord()` then `CurrPage.Update(false)`, made no record call on Rec that loads
     ///   or moves a row, assigned no field of Rec (`ValidateStart::fields`) and wrote nothing to the store;
     /// - the filters (`measured_filter_cell`): page 7002, one single-value filter in group 0 on an Enum field of the primary
-    ///   key, changed; or page 7004, two single-value filters in group 0 on Option fields of the primary key, the one on the
-    ///   key's first field the same before and after and equal to the line's value, the other changed.
+    ///   key, changed; or page 7004, two single-value filters in group 0 on fields of the primary key, the one on the key's
+    ///   first field (an Enum) the same before and after and equal to the line's value, the other (an Option) changed.
     fn get_record_free_cell(
         &mut self,
         st: &St,
@@ -596,8 +596,8 @@ impl Session {
     /// The filters of the two measured pages before (`before`) and after the OnValidate, with the line's values from the
     /// filters after it (`stamps`, field order): page 7002 "Sales Prices", whose source table's "Sales Type" is an Enum
     /// field of the primary key, filtered to one value (one filter, changed); page 7004 "Sales Line Discounts", whose
-    /// OnOpenPage and OnValidate set `Type` (the key's first field, Option) to Item and "Sales Type" (Option, in the key) to
-    /// the chosen value (two filters, `Type` unchanged).
+    /// OnOpenPage and OnValidate set `Type` (the key's first field, an Enum) to Item and "Sales Type" (an Option, in the
+    /// key) to the chosen value (two filters, `Type` unchanged).
     fn measured_filter_cell(
         &mut self,
         rec: &Rec,
@@ -666,7 +666,8 @@ impl Session {
                 let (Some(kb), Some(ka), Some(cb), Some(ca)) = pair else {
                     return Ok(false);
                 };
-                [&kb, &ka, &cb, &ca].iter().all(|f| key_filter(f, false))
+                [&kb, &ka].iter().all(|f| key_filter(f, true))
+                    && [&cb, &ca].iter().all(|f| key_filter(f, false))
                     && kb.expr.identical(&ka.expr)
                     && is_line(kept_field, kept)
                     && !is_line(changed, v)

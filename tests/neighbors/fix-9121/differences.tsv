@@ -8,6 +8,7 @@ N9121 Measured Cell Tests::Cell_OnAfterGetCurrRecordWritesLog	REFUSED CurrPage.U
 N9121 Measured Cell Tests::Cell_RecFieldAssignedInValidate	REFUSED CurrPage.Update in a control's OnValidate that changed a single-value filter on the new-row line of a list over an empty view
 N9121 Measured Cell Tests::EnumKey_TwoFilters	REFUSED CurrPage.Update in a control's OnValidate that changed a single-value filter on the new-row line of a list over an empty view
 N9121 Measured Cell Tests::EnumKey_TwoKeyFilters_SecondChanges	REFUSED CurrPage.Update in a control's OnValidate that changed a single-value filter on the new-row line of a list over an empty view
+N9121 Measured Cell Tests::OptionKey_TwoKeyFilters_SecondChanges	REFUSED CurrPage.Update in a control's OnValidate that changed a single-value filter on the new-row line of a list over an empty view
 N9121 Measured Cell Tests::TwoKeyFilters_BothChange	REFUSED CurrPage.Update in a control's OnValidate that changed a single-value filter on the new-row line of a list over an empty view
 N9121 Measured Cell Tests::Cell_EnumKey_OneFilter	ASSUMED new-line-empty-refresh-without-get-record
 N9121 Measured Cell Tests::Cell_TwoKeyFilters_SecondChanges	ASSUMED new-line-empty-refresh-without-get-record
