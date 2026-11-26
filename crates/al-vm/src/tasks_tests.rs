@@ -63,19 +63,29 @@ fn create_task_in_a_try_function_of_install_code_is_refused() {
     assert!(matches!(&r, Err(Signal::Unsupported(m)) if m.contains("9134")), "{r:?}");
 }
 
-/// Without the table the task's id is lost to the test, which sees it in BC (IcInstallCanCreateTaskTests.al:99).
+/// Without the table a later session cannot see the task through its row, which exists in BC
+/// (IcInstallCanCreateTaskTests.al:99): the CreateTask runs (the session that ran it holds the task, as main does), and a
+/// later session's TaskExists of it is refused.
 #[test]
-fn create_task_in_install_code_without_the_scheduled_task_table_is_refused() {
+fn a_task_install_code_created_without_the_scheduled_task_table_is_refused_when_read_later() {
     let mut s = session(PROBE);
     s.set_install_without_client(true);
-    let r = call(&mut s, "Create", vec![]);
+    let Ok(Value::Guid(id)) = call(&mut s, "Create", vec![]) else {
+        panic!("created")
+    };
+    assert!(matches!(
+        call(&mut s, "Exists", vec![Value::Guid(id)]),
+        Ok(Value::Boolean(true))
+    ));
+    s.set_install_without_client(false);
+    let b = s.capture_baseline();
+    let mut later = Session::new(s.engine.clone());
+    later.restore_baseline(&b);
+    let r = call(&mut later, "Exists", vec![Value::Guid(id)]);
     assert!(
         matches!(&r, Err(Signal::Unsupported(m)) if m.contains("Scheduled Task")),
         "{r:?}"
     );
-    // Outside install code main's rules hold: the task is created.
-    let mut s = session(PROBE);
-    assert!(matches!(call(&mut s, "Create", vec![]), Ok(Value::Guid(_))));
 }
 
 /// A task install code created exists in a later session that starts from the install baseline, through its row, with
