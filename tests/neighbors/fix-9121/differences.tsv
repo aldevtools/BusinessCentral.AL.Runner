@@ -17,3 +17,4 @@ N9121 Measured Cell Tests::Cell_OnAfterGetCurrRecordMessage	REFUSED CurrPage.Upd
 N9121 Measured Cell Tests::Cell_TwoKeyFilters_RecordAndCodeunitGlobals	ASSUMED new-line-empty-refresh-without-get-record
 N9121 Measured Cell Tests::Cell_FunctionControlInHiddenGroup	ASSUMED new-line-empty-refresh-without-get-record
 N9121 Measured Cell Tests::Cell_FunctionControlInVisibleGroup	REFUSED a function control in a shown group
+N9121 Measured Cell Tests::Cell_FunctionControlGroupShownByCurrRecord	REFUSED a function control in a group that OnAfterGetCurrRecord shows

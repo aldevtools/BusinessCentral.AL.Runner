@@ -282,6 +282,17 @@ codeunit 97513 "N9121 Measured Cell Tests"
         P."Sales Type".AssertEquals(2);
     end;
 
+    [Test]
+    procedure Cell_FunctionControlGroupShownByCurrRecord()
+    var
+        P: TestPage "N9121 Two Cell Fn Curr";
+    begin
+        // Corpus PR 1593 :2756: BC evaluates a shown function control after each OnAfterGetCurrRecord run.
+        P.OpenEdit();
+        P.SalesTypeFilter.SetValue(2);
+        P."Sales Type".AssertEquals(2);
+    end;
+
     var
         Calls: Integer;
 

@@ -606,6 +606,66 @@ page 97513 "N9121 Two Cell Fn Shown"
         CodeEditable: Boolean;
 }
 
+// The group is hidden at the open and shown by OnAfterGetCurrRecord from the new key value.
+page 97515 "N9121 Two Cell Fn Curr"
+{
+    PageType = List;
+    SourceTable = "N9121 Two Keyed";
+    DelayedInsert = true;
+    layout
+    {
+        area(Content)
+        {
+            field(SalesTypeFilter; SalesTypeFilter)
+            {
+                trigger OnValidate()
+                begin
+                    CurrPage.SaveRecord();
+                    SetRecFilters();
+                end;
+            }
+            field(SeenFilter; SeenFilter) { Editable = false; }
+            group(Filters)
+            {
+                Visible = ShowFilters;
+                field(FilterText; ReadFilters()) { Editable = false; }
+            }
+            repeater(Lines)
+            {
+                field("Sales Type"; Rec."Sales Type") { }
+            }
+        }
+    }
+    trigger OnOpenPage()
+    begin
+        SetRecFilters();
+    end;
+
+    trigger OnAfterGetCurrRecord()
+    begin
+        ShowFilters := Rec."Sales Type" = Rec."Sales Type"::C;
+    end;
+
+    local procedure SetRecFilters()
+    begin
+        Rec.SetRange("Sales Type", SalesTypeFilter);
+        Rec.SetRange(Type, Rec.Type::Item);
+        CurrPage.Update(false);
+    end;
+
+    local procedure ReadFilters(): Text
+    begin
+        SeenFilter := Rec.GetFilter("Sales Type");
+        exit(SeenFilter);
+    end;
+
+    var
+        SalesTypeFilter: Option A,B,C,D;
+        SeenFilter: Text;
+        ShowFilters: Boolean;
+        CodeEditable: Boolean;
+}
+
 codeunit 97514 "N9121 Helper"
 {
     procedure Touch(): Integer

@@ -494,8 +494,16 @@ impl Session {
                 "a function control in a shown group of a list on its new-row line, at the refresh after CurrPage.Update in a control's OnValidate that changed a single-value filter on a page that does not declare OnAfterGetRecord (BC runs it there; this refresh does not)",
             );
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NewLineEmptyRefreshWithoutGetRecord);
         self.show_new_line_of_empty_view(st, without_parts)?;
+        // BC evaluates a function control's group after each OnAfterGetCurrRecord run (corpus pull request 1593,
+        // NewLineFilterRefreshWithoutGetRecord.al:2756 `Fn C;Curr C//;Fn C;Fn C;Curr C//;Fn C;`), so a trigger that shows the
+        // group makes BC run the control, and this refresh runs none.
+        if !self.function_controls_hidden(st)? {
+            return unsupported(
+                "a function control in a group that OnAfterGetCurrRecord shows, on the new-row line at the refresh after CurrPage.Update in a control's OnValidate that changed a single-value filter on a page that does not declare OnAfterGetRecord (a function control in a shown group BC runs after each OnAfterGetCurrRecord run; this refresh does not)",
+            );
+        }
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NewLineEmptyRefreshWithoutGetRecord);
         Ok(true)
     }
 
