@@ -1347,8 +1347,8 @@ fixed in the compile first; the build is already required to be deterministic (d
 
 ### Test plan as built (2026-11-22)
 
-Status of this section: **Accepted** (owner, 2026-11-22). The owner accepted this test plan as written, with its six
-deviations below (the outcomes leg's four and the serve suite's two), as recorded on al-runner PR 8446 on 2026-11-22.
+Status of this section: **Accepted** (owner, 2026-11-22). The owner accepted this test plan as written, with its
+deviations below (the outcomes leg's and the serve suite's), as recorded on al-runner PR 8446 on 2026-11-22.
 
 - **Corpus equality:** `al-test-cli` test `workspace_cache_equality` (fresh, built, read, read on one thread, fresh on
   one thread; equal canonical dumps), a step of the corpus job on BC 27, 28 and 29. As planned.
