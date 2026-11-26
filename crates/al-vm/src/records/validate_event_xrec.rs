@@ -237,7 +237,8 @@ impl Session {
 
     /// Whether the record `rc` may hold other fields than the Validate `run` started with, changed only after its
     /// OnBeforeValidateEvent returned: that event returned with the fields the Validate started with, no record method ran on
-    /// the record (CalcSums among them) and no Blob field of it was written (`Session::note_blob_write_under_validate`) since
+    /// the record (CalcSums and CalcFields among them) and no builtin wrote into a field of it (a Blob, Media or MediaSet write,
+    /// Evaluate: `Session::note_builtin_field_write`) since
     /// the Validate started, and its buffer came from no TransferFields. The probe changed it by an
     /// assignment in the field's OnValidate trigger, in a table procedure and in a codeunit that trigger calls, and in the
     /// subscriber before the call (assumption `xrec-table-proc-routes`: record/validate/XRecTableProcRoutes.al, corpus PR

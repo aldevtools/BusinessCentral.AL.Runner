@@ -85,7 +85,7 @@ pub(crate) struct ValidateRun {
     /// The record's fields when its triggers start, the new value in.
     pub(crate) entered: Vec<Value>,
     /// A record method that writes the record or reads it again ran on it since (`Session::note_record_op_under_validate`),
-    /// or a Blob field of it was written (`Session::note_blob_write_under_validate`).
+    /// or a builtin wrote into a field of it (a Blob, Media or MediaSet write, Evaluate: `Session::note_builtin_field_write`).
     pub(crate) touched: bool,
     /// The OnBeforeValidateEvent returned with the fields in `entered`, the field having no table extension validate trigger
     /// (`Session::validate_event`).
@@ -227,11 +227,42 @@ impl Session {
         }
     }
 
-    /// Notes a write into a Blob field of `rec` (`Blob.CreateOutStream`, `Blob.Import`, `Clear`; `temp_blob_share_guard`):
-    /// each running Validate of it counts as touched. No cell of assumption `xrec-table-proc-routes` writes a Blob (review of
-    /// PR 9063, round 3).
-    pub(crate) fn note_blob_write_under_validate(&mut self, rec: &Rec) {
-        self.mark_validates_touched(rec);
+    /// Notes a builtin call (`exec/run.rs` `run_builtin`) that writes into a field of a record other than by an assignment:
+    /// each running Validate of that record counts as touched. The calls: `Blob.CreateOutStream`, `Blob.Import` and `Clear`
+    /// of a Blob field (review of PR 9063, round 3); `Media.ImportStream`, `Media.ImportFile`, `MediaSet.ImportStream`,
+    /// `MediaSet.ImportFile`, `MediaSet.Insert`, `MediaSet.Remove` on a field, and `Evaluate` into a field (issue 9161). No
+    /// cell of assumption `xrec-table-proc-routes` writes a field these ways. `first` is the call's first argument.
+    pub(crate) fn note_builtin_field_write(
+        &mut self,
+        site: &crate::exec::BuiltinSite,
+        first: Option<&Value>,
+        f: &mut Frame,
+    ) -> Result<(), Signal> {
+        use al_builtins::builtin_id::ids;
+        use al_ir as ir;
+        let place = match site.id {
+            ids::BLOB_CREATEOUTSTREAM_1
+            | ids::BLOB_IMPORT_1
+            | ids::MEDIA_IMPORTSTREAM_1
+            | ids::MEDIA_IMPORTSTREAM_2
+            | ids::MEDIA_IMPORTFILE_1
+            | ids::MEDIASET_IMPORTSTREAM_1
+            | ids::MEDIASET_IMPORTFILE_1
+            | ids::MEDIASET_INSERT_1
+            | ids::MEDIASET_REMOVE_1 => site.receiver_arg.as_ref(),
+            ids::SYSTEM_CLEAR_1 if matches!(first, Some(Value::Blob(_))) => site.args.first(),
+            ids::SYSTEM_EVALUATE_1
+            | ids::SYSTEM_EVALUATEBOUNDED_1
+            | ids::SYSTEM_EVALUATEENUMFIELD_1
+            | ids::SYSTEM_EVALUATEOPTIONFIELD_1 => site.args.first(),
+            _ => None,
+        };
+        if let Some(ir::Arg::Ref(ir::Place::Field(base, _))) = place
+            && let Value::Record(rc) = self.read(base, f)?
+        {
+            self.mark_validates_touched(&rc);
+        }
+        Ok(())
     }
 
     fn mark_validates_touched(&mut self, rec: &Rec) {
