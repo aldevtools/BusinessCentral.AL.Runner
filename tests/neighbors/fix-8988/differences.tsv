@@ -1,0 +1,20 @@
+# key	entry
+# Removed related field: Rename does not check it; Pending/live Text[4]: the reference-field conversion error (corpus PR 1610, outside report issue 8988).
+N8988 Tests::RemovedText4_NoRows_Reporter	ASSUMED rename-short-related-field (corpus PR 1610)
+N8988 Tests::RemovedText4_NoRows_RecordRefRename	ASSUMED rename-short-related-field (corpus PR 1610)
+N8988 Tests::RemovedText4_NextToLiveFieldWithRow	ASSUMED rename-short-related-field (corpus PR 1610)
+N8988 Tests::RemovedInteger_NoRows	ASSUMED rename-short-related-field (corpus PR 1610)
+N8988 Short Tests::PendingPlain_RaisesMeasuredError	ASSUMED rename-short-related-field (corpus PR 1610)
+N8988 Short Tests::LivePlain_RecordRef_RaisesMeasuredError	ASSUMED rename-short-related-field (corpus PR 1610)
+# Unmeasured shapes of an unconvertible old or new key: refused (old key length or conversion, key length, field type, trigger, where(), return value, table facts).
+N8988 Short Tests::LiveCode4_Refused	REFUSED Rename of
+N8988 Short Tests::LiveInteger_Refused	REFUSED Rename of
+N8988 Short Tests::LivePlain_NineCharKey_Refused	REFUSED Rename of
+N8988 Short Tests::LiveWithOnRename_Refused	REFUSED Rename of
+N8988 Short Tests::RemovedReturnValue_Refused	REFUSED Rename of
+N8988 Short Tests::RemovedWithWhere_Refused	REFUSED Rename of
+N8988 Short Tests::LivePlain_OldKeyLongerThanField_Refused	REFUSED Rename of
+N8988 Short Tests::RemovedText4_OldKeyLongerThanField_Refused	REFUSED Rename of
+N8988 Tests::LiveText4_NoRows	REFUSED Rename of
+N8988 Tests::PendingText4_NoRows	REFUSED Rename of
+N8988 Tests::RemovedInteger_NumericNewKey_Refused	REFUSED Rename of

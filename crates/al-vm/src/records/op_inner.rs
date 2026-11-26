@@ -466,12 +466,12 @@ impl Session {
                 if run {
                     // The extension's triggers bracket the base table's own (tableextensiontrigger/
                     // TestTableExtensionTableTriggers_Tests.al); Insert(false) runs none of them.
-                    self.run_ext_trigger(&t, "OnBeforeInsert", rec, insert_xrec.as_ref())?;
+                    self.run_ext_trigger_unmeasured_xrec(&t, "OnBeforeInsert", rec)?;
                     if let Some(tr) = self.table_trigger(&t, "OnInsert") {
                         self.run_trigger(t.object as usize, tr, rec, insert_xrec.as_ref())?;
                     }
                     self.document_service_insert(&t, rec)?;
-                    self.run_ext_trigger(&t, "OnInsert", rec, insert_xrec.as_ref())?;
+                    self.run_ext_trigger_unmeasured_xrec(&t, "OnInsert", rec)?;
                 }
                 // The SystemId the OnBeforeInsertEvent subscribers and the insert triggers left in the buffer.
                 let mut set_by_code = id_slot.map(|i| rec.borrow().fields[i].clone());
@@ -661,7 +661,7 @@ impl Session {
                             self.user_after_insert(&t, rec)?;
                         }
                         if run {
-                            self.run_ext_trigger(&t, "OnAfterInsert", rec, None)?;
+                            self.run_ext_trigger_unmeasured_xrec(&t, "OnAfterInsert", rec)?;
                         }
                         self.table_event(&t, "onafterinsertevent", rec, None, run, None)?;
                         Ok(Value::Boolean(true))
@@ -726,7 +726,7 @@ impl Session {
                             // DK_AfterEvent_InsertFalse, DK_ExtAfterTrigger_Statement, DK_AfterEvent_ReadInsideSubscriber;
                             // events/binding-senders/DbtEvents.al:347 Insert_DuplicateKey).
                             if run {
-                                self.run_ext_trigger(&t, "OnAfterInsert", rec, None)?;
+                                self.run_ext_trigger_unmeasured_xrec(&t, "OnAfterInsert", rec)?;
                             }
                             self.table_event(&t, "onafterinsertevent", rec, None, run, None)?;
                             return Ok(Value::Boolean(true));
@@ -1919,7 +1919,8 @@ impl Session {
             }
             RecordOp::Rename => {
                 let from_al = std::mem::take(&mut self.tx.rename_from_al);
-                let rename_note = self.rename_note(rec, &t);
+                // The statement form of Rename called from AL code, read before the triggers run.
+                let (statement_from_al, rename_note) = (from_al && !self.ret_used, self.rename_note(rec, &t));
                 let old_key = Self::sql_key(rec, &t, &rec.borrow().fields);
                 self.note_bulk_write(rec, &t, crate::state::TxWriteKind::Other, &old_key);
                 if !rec.borrow().temporary {
@@ -2158,7 +2159,7 @@ impl Session {
                             self.profile_after_rename(&t, &old_fields, &row)?;
                         }
                         if !same_key {
-                            self.propagate_rename(rec, &t, &refs, &old_fields, &row)?;
+                            self.propagate_rename(rec, &t, &refs, &old_fields, &row, statement_from_al)?;
                             // The platform moves the record's links with system rights: a set without any grant on
                             // Record Link renames (corpus record/Y19PermWrites.al
                             // Y19_P1_Rename, rename_rim), so the session's sets do not apply here (ADR-062).
