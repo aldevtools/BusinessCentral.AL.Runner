@@ -74,6 +74,17 @@ xmlport 50116 "RX Skipped"
             fieldelement(CId; Chi.Id) { } }
         trigger OnBeforeInsertRecord() var Other: Record "RX Par"; begin if Other.Get(Par.Id) then currXMLport.Skip(); end; } } }
 }
+xmlport 50191 "RX Skipped Kids"
+{
+    Direction = Import; Format = Xml; UseRequestPage = false;
+    schema { textelement(Root) { tableelement(Par; "RX Par") { XmlName = 'P';
+        fieldelement(Id; Par.Id) { trigger OnAfterAssignField() begin Par.Stamp := 'trig'; end; }
+        fieldelement(Name; Par.Name) { }
+        tableelement(Chi; "RX Chi") { XmlName = 'C'; LinkTable = Par; LinkFields = ParentId = field(Id); MinOccurs = Zero;
+            fieldattribute(CId; Chi.Id) { }
+            trigger OnAfterInitRecord() begin currXMLport.Skip(); end; }
+        trigger OnBeforeInsertRecord() var Other: Record "RX Par"; begin if Other.Get(Par.Id) then currXMLport.Skip(); end; } } }
+}
 xmlport 50190 "RX Unbound"
 {
     Direction = Import; Format = Xml; UseRequestPage = false;
@@ -189,16 +200,26 @@ fn autoupdate_before_modify_changing_the_row_refuses() {
     );
 }
 
-// A skipped first save of a row that exists is not stored again (corpus PR 1550, XpAutoUpdateAssign.al:1062-1076).
+// A skipped first save of a row that exists is not stored again (corpus PR 1550, XpAutoUpdateAssign.al:1062-1076), measured
+// with child rows that each leave themselves out.
 #[test]
 fn skipped_first_save_of_an_existing_row_is_not_stored_again() {
     let (o, marks) = outcome(
-        "H.SeedSkipped(); H.Run(Xmlport::\"RX Skipped\", '<Root><P><Id>1</Id><Name>new</Name><C><CId>10</CId></C></P></Root>'); H.CheckKept();",
+        "H.SeedSkipped(); H.Run(Xmlport::\"RX Skipped Kids\", '<Root><P><Id>1</Id><Name>new</Name><C CId=\"10\"/></P></Root>'); H.CheckKept();",
     );
     assert_eq!(o, Outcome::Pass);
     assert!(
         marks.contains(&Assumption::XmlportSkippedFirstSaveNotStoredAgain),
         "{marks:?}"
+    );
+}
+
+// A child row stored below the skipped row is not measured.
+#[test]
+fn skipped_first_save_with_a_child_row_stored_below_refuses() {
+    refused_with(
+        "H.SeedSkipped(); H.Run(Xmlport::\"RX Skipped\", '<Root><P><Id>1</Id><Name>new</Name><C><CId>10</CId></C></P></Root>');",
+        "XmlPort import of a table element whose first save a Skip in OnBeforeInsertRecord left out, with child rows stored below it",
     );
 }
 

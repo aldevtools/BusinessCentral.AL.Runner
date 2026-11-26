@@ -208,6 +208,9 @@ impl Session {
                     }
                     if save_first && !saved {
                         first = self.xp_save_record(inst, schema, node, &assigned, Save::Once)?;
+                        if first == Stored::SkippedExisting {
+                            inst.borrow_mut().xp_text.retain(|(k, _)| *k != ROW_STORED);
+                        }
                         saved = true;
                         saved_before_tables = true;
                     }
@@ -304,7 +307,13 @@ impl Session {
                 // A row that exists, whose first save a Skip in OnBeforeInsertRecord left out, is not stored again after its
                 // child rows: no OnBeforeModifyRecord, no Modify, the row keeps its values (corpus PR 1550,
                 // XpAutoUpdateAssign.al:1062-1076 Suite_SameAppSameHash_Skips: trace `bi:A/db///Yes/0` without `bm:A`, row
-                // `SA/da/...`). Assumption `xmlport-skipped-first-save-not-stored-again` until the probe is pinned.
+                // `SA/da/...`). Assumption `xmlport-skipped-first-save-not-stored-again` until the probe is pinned. Measured
+                // with child rows that each left themselves out: a child row stored under the skipped row is not.
+                Stored::SkippedExisting if Self::xp_row_stored(inst) => {
+                    return unsupported(
+                        "XmlPort import of a table element whose first save a Skip in OnBeforeInsertRecord left out, with child rows stored below it (not pinned)",
+                    );
+                }
                 Stored::SkippedExisting => {
                     al_builtins::assumptions::assume(
                         al_builtins::assumptions::Assumption::XmlportSkippedFirstSaveNotStoredAgain,
@@ -715,7 +724,18 @@ impl Session {
         if self.xp_site(inst, schema, node, after)? == Some(Flow::Break) {
             Self::xp_stop_import(inst);
         }
-        Ok(if n.auto_save { Stored::Row } else { Stored::Not })
+        if !n.auto_save {
+            return Ok(Stored::Not);
+        }
+        if !Self::xp_row_stored(inst) {
+            inst.borrow_mut().xp_text.push((ROW_STORED, String::new()));
+        }
+        Ok(Stored::Row)
+    }
+
+    /// Whether a row was stored since the last skipped first save of an existing row (`Stored::SkippedExisting`).
+    fn xp_row_stored(inst: &Inst) -> bool {
+        inst.borrow().xp_text.iter().any(|(k, _)| *k == ROW_STORED)
     }
 
     /// Reads the stored row of `rec`'s key into `rec` and puts back the fields the document carried (`assigned`) as `rec`
@@ -738,6 +758,10 @@ impl Session {
 
     // ------------------------------------------------- VariableText, FixedText
 }
+
+/// The `Instance::xp_text` kind set by a save that stored a row (`xp_save_record`), cleared by a skipped first save of an
+/// existing row: read after that row's child rows.
+const ROW_STORED: u8 = 20;
 
 /// What the save of `xp_save_record` did.
 #[derive(Clone, Copy, PartialEq, Eq)]
