@@ -113,7 +113,7 @@ impl Session {
         }
         let mut saved = false;
         let mut saved_before_tables = false;
-        let mut first_stored = false;
+        let mut first = Stored::Row;
         let table_children: Vec<usize> = schema
             .children(node)
             .into_iter()
@@ -207,7 +207,7 @@ impl Session {
                         );
                     }
                     if save_first && !saved {
-                        first_stored = self.xp_save_record(inst, schema, node, &assigned, Save::Once)?;
+                        first = self.xp_save_record(inst, schema, node, &assigned, Save::Once)?;
                         saved = true;
                         saved_before_tables = true;
                     }
@@ -296,8 +296,26 @@ impl Session {
                     "XmlPort import of a table element with AutoUpdate or AutoSave = false after its linked child rows (whether it is stored again is not pinned)",
                 );
             }
-            let first_stored = first_stored && !field_flow;
-            self.xp_save_record(inst, schema, node, &assigned, Save::Again { first_stored })?;
+            match first {
+                Stored::Row => {
+                    let first_stored = !field_flow;
+                    self.xp_save_record(inst, schema, node, &assigned, Save::Again { first_stored })?;
+                }
+                // A row that exists, whose first save a Skip in OnBeforeInsertRecord left out, is not stored again after its
+                // child rows: no OnBeforeModifyRecord, no Modify, the row keeps its values (corpus PR 1550,
+                // XpAutoUpdateAssign.al:1062-1076 Suite_SameAppSameHash_Skips: trace `bi:A/db///Yes/0` without `bm:A`, row
+                // `SA/da/...`). Assumption `xmlport-skipped-first-save-not-stored-again` until the probe is pinned.
+                Stored::SkippedExisting => {
+                    al_builtins::assumptions::assume(
+                        al_builtins::assumptions::Assumption::XmlportSkippedFirstSaveNotStoredAgain,
+                    );
+                }
+                Stored::Not => {
+                    return unsupported(
+                        "XmlPort import of a table element stored again after its linked child rows, whose first save stored no row (not pinned)",
+                    );
+                }
+            }
         }
         self.xp_import_view_after_row(inst, schema, node)
     }
@@ -519,7 +537,7 @@ impl Session {
     /// The `OnBefore...Record` and `OnAfter...Record` triggers bracket it, and `AutoSave = false`
     /// leaves the storing to them (xmlports/TestXmlPortAdvanced.al:XmlPort_AutoSaveFalse_...).
     /// `save`: the only save, or the second save of a row stored before its linked child rows, a Modify (see
-    /// `xp_import_record`). Returns whether the row was stored (inserted or modified).
+    /// `xp_import_record`). Returns whether the row was stored (inserted or modified), and why not.
     pub(super) fn xp_save_record(
         &mut self,
         inst: &Inst,
@@ -527,7 +545,7 @@ impl Session {
         node: usize,
         assigned: &[usize],
         save: Save,
-    ) -> Result<bool, Signal> {
+    ) -> Result<Stored, Signal> {
         let n = schema.node(node);
         let rec = self.xp_record(inst, n)?;
         let t = self.table(&rec)?;
@@ -535,16 +553,14 @@ impl Session {
         let again = matches!(save, Save::Again { .. });
         let has_assign_trigger = schema.children(node).iter().any(|&c| assign_trigger(schema.node(c)));
         let stored_again = stored_again_assigned(schema, node, again, temporary);
-        // A row whose first save stored nothing (Skip, Break or BreakUnbound) is not stored again: corpus PR 1550,
-        // XpAutoUpdateAssign.al:1062-1076 Suite_SameAppSameHash_Skips, trace `bi:A/db///Yes/0` without `bm:A`, row `SA/da/...`.
-        // Measured with a Skip in OnBeforeInsertRecord after one in the key attribute's trigger, the child rows skipped by
-        // theirs; what follows otherwise, and after a request of a field trigger the import does not act on, is not pinned.
+        // A first save that stored the row, after a Skip, Break or BreakUnbound of a field trigger that the import does not act
+        // on (`xp_import_record` decides a first save that stored no row): with triggers that assign fields not pinned.
         if let Save::Again { first_stored: false } = save
             && has_assign_trigger
             && stored_again
         {
             return unsupported(
-                "XmlPort import of a table element stored again after its linked child rows, whose first save stored no row or followed a Skip, Break or BreakUnbound of a field trigger, with triggers that assign fields (not pinned)",
+                "XmlPort import of a table element stored again after its linked child rows, after a Skip, Break or BreakUnbound of a field trigger, with triggers that assign fields (not pinned)",
             );
         }
         if again
@@ -630,10 +646,17 @@ impl Session {
         // Skip and BreakUnbound leave this record out (no insert, no after trigger), Break leaves it out and ends the import
         // (P112_Import_Skip, _Break, _BreakUnbound at beforeIns2).
         match self.xp_site(inst, schema, node, before)? {
-            Some(Flow::Skip | Flow::Unbound) => return Ok(false),
+            // The skipped insert of a row that exists, by a real table element right below the root: what its second save does
+            // is measured (`Stored::SkippedExisting`).
+            Some(Flow::Skip)
+                if before == "onbeforeinsertrecord" && stored.is_some() && !temporary && below_root(schema, node) =>
+            {
+                return Ok(Stored::SkippedExisting);
+            }
+            Some(Flow::Skip | Flow::Unbound) => return Ok(Stored::Not),
             Some(Flow::Break) => {
                 Self::xp_stop_import(inst);
-                return Ok(false);
+                return Ok(Stored::Not);
             }
             _ => {}
         }
@@ -692,7 +715,7 @@ impl Session {
         if self.xp_site(inst, schema, node, after)? == Some(Flow::Break) {
             Self::xp_stop_import(inst);
         }
-        Ok(n.auto_save)
+        Ok(if n.auto_save { Stored::Row } else { Stored::Not })
     }
 
     /// Reads the stored row of `rec`'s key into `rec` and puts back the fields the document carried (`assigned`) as `rec`
@@ -716,13 +739,24 @@ impl Session {
     // ------------------------------------------------- VariableText, FixedText
 }
 
+/// What the save of `xp_save_record` did.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Stored {
+    /// The row was inserted or modified.
+    Row,
+    /// A Skip in OnBeforeInsertRecord left out the insert of a row that exists, of a real table element right below the root.
+    SkippedExisting,
+    /// Nothing stored, in any other way.
+    Not,
+}
+
 /// Which save of a table element `xp_save_record` runs.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Save {
     /// The only save, or the first of a row stored before its linked child rows.
     Once,
-    /// The second save of a row stored before its linked child rows. `first_stored`: the first save stored the row, and no
-    /// trigger of a field attribute or field element of the row asked for Skip, Break or BreakUnbound.
+    /// The second save of a row whose first save stored it. `first_stored`: no trigger of a field attribute or field element
+    /// of the row asked for Skip, Break or BreakUnbound.
     Again { first_stored: bool },
 }
 

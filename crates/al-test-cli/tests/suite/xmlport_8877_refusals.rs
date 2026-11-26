@@ -74,6 +74,16 @@ xmlport 50116 "RX Skipped"
             fieldelement(CId; Chi.Id) { } }
         trigger OnBeforeInsertRecord() var Other: Record "RX Par"; begin if Other.Get(Par.Id) then currXMLport.Skip(); end; } } }
 }
+xmlport 50190 "RX Unbound"
+{
+    Direction = Import; Format = Xml; UseRequestPage = false;
+    schema { textelement(Root) { tableelement(Par; "RX Par") { XmlName = 'P';
+        fieldelement(Id; Par.Id) { trigger OnAfterAssignField() begin Par.Stamp := 'trig'; end; }
+        fieldelement(Name; Par.Name) { }
+        tableelement(Chi; "RX Chi") { XmlName = 'C'; LinkTable = Par; LinkFields = ParentId = field(Id); MinOccurs = Zero;
+            fieldelement(CId; Chi.Id) { } }
+        trigger OnBeforeInsertRecord() var Other: Record "RX Par"; begin if Other.Get(Par.Id) then currXMLport.BreakUnbound(); end; } } }
+}
 xmlport 50117 "RX View Read"
 {
     Direction = Import; Format = Xml; UseRequestPage = false;
@@ -105,6 +115,10 @@ codeunit 50149 H
     procedure SeedSkipped()
     var Par: Record "RX Par";
     begin Par.DeleteAll(); Par.Id := 1; Par.Name := 'old'; Par.Stamp := 'trig'; Par.Insert(); end;
+
+    procedure CheckKept()
+    var Par: Record "RX Par";
+    begin Par.Get(1); if Par.Name <> 'old' then Error('stored again: %1', Par.Name); end;
 }
 "#;
 
@@ -175,10 +189,23 @@ fn autoupdate_before_modify_changing_the_row_refuses() {
     );
 }
 
+// A skipped first save of a row that exists is not stored again (corpus PR 1550, XpAutoUpdateAssign.al:1062-1076).
 #[test]
-fn stored_again_after_a_first_save_that_stored_no_row_refuses() {
+fn skipped_first_save_of_an_existing_row_is_not_stored_again() {
+    let (o, marks) = outcome(
+        "H.SeedSkipped(); H.Run(Xmlport::\"RX Skipped\", '<Root><P><Id>1</Id><Name>new</Name><C><CId>10</CId></C></P></Root>'); H.CheckKept();",
+    );
+    assert_eq!(o, Outcome::Pass);
+    assert!(
+        marks.contains(&Assumption::XmlportSkippedFirstSaveNotStoredAgain),
+        "{marks:?}"
+    );
+}
+
+#[test]
+fn stored_again_after_a_first_save_left_out_by_break_unbound_refuses() {
     refused_with(
-        "H.SeedSkipped(); H.Run(Xmlport::\"RX Skipped\", '<Root><P><Id>1</Id><Name>new</Name><C><CId>10</CId></C></P></Root>');",
+        "H.SeedSkipped(); H.Run(Xmlport::\"RX Unbound\", '<Root><P><Id>1</Id><Name>new</Name><C><CId>10</CId></C></P></Root>');",
         "XmlPort import of a table element stored again after its linked child rows, whose first save stored no row",
     );
 }
