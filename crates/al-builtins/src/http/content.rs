@@ -59,6 +59,8 @@ pub(super) fn read_as_secret(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
     let used = c.ret_used();
     let (data, uninit, shape) = with_content(r, |s| {
         s.read_since_write = true;
+        // `Contains('')` after a read is not measured (`HeaderBag::edited`).
+        s.headers.borrow_mut().edited = true;
         let shape = s.secret_read;
         s.note(if used { Call::SecretUsed } else { Call::SecretStatement });
         (s.data.clone(), s.uninitialized, shape)
@@ -170,6 +172,8 @@ pub(super) fn read_as(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -
     if with_content(r.as_deref_mut(), |s| {
         s.note(Call::Other);
         s.read_since_write = true;
+        // `Contains('')` after a read is not measured (`HeaderBag::edited`).
+        s.headers.borrow_mut().edited = true;
         s.secret
     })? {
         if c.ret_used() {
@@ -267,6 +271,8 @@ pub(super) fn read_as_stream(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
     if with_content(r.as_deref_mut(), |s| {
         s.note(Call::Other);
         s.read_since_write = true;
+        // `Contains('')` after a read is not measured (`HeaderBag::edited`).
+        s.headers.borrow_mut().edited = true;
         s.secret
     })? {
         return unsupported(
