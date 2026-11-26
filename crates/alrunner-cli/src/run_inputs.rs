@@ -1,7 +1,7 @@
 //! The inputs of a run, classified once (al-runner issue 7610). Three keys over the command line options of a run are
 //! made here: the options hash of the `--affected` stored result (ADR-050), the key of the impact index (ADR-043) and
 //! the options part of the key of `al-runner serve`'s kept compile. The other keys still list their inputs by hand
-//! (the kept dependencies of `serve`, the manifest part of `run::warm_key`, `kept_engine_key`); issue 7650 has them.
+//! (the kept dependencies of `serve`, the manifest part of `workspace_layer::warm_key`, `kept_engine_key`); issue 7650 has them.
 //!
 //! [`RunInputs::of`] destructures `TestArgs` without `..`, as `al_cache::Key::digest` does with its key: a field added
 //! to `TestArgs` does not compile until it is put into a class here. The classes:
@@ -9,7 +9,7 @@
 //! - **outcome**: changes what a test answers. In the stored result's hash and in the index key.
 //! - **stored result only**: changes outcomes, but the callers of the impact index set it themselves on one side
 //!   (`impact::side_args`, `impact_index::build_run`), so the index key cannot hold it.
-//! - **compile**: changes what the compile holds beyond the apps, the symbols and the target (`run::warm_key` has
+//! - **compile**: changes what the compile holds beyond the apps, the symbols and the target (`workspace_layer::warm_key` has
 //!   those). In the key of the kept compile.
 //! - **content**: a file or folder whose bytes change outcomes. Hashed by content, named by file name only, so a key
 //!   does not depend on where a checkout is (ADR-050 decision 10) and a file that keeps its name but changes its
@@ -91,10 +91,7 @@ fn hash_tree(path: &Path, rel: &str, h: &mut Sha256) -> Result<(), String> {
     Ok(())
 }
 
-fn put(h: &mut Sha256, bytes: &[u8]) {
-    h.update((bytes.len() as u64).to_le_bytes());
-    h.update(bytes);
-}
+use al_cache::digest::put;
 
 impl RunInputs {
     /// The inputs of the run `a`. Every field of `TestArgs` is named: an input in its class, the rest in an arm that
@@ -106,7 +103,7 @@ impl RunInputs {
             // The apps and their dependencies count by content, not as options: the stored result holds each
             // workspace app's manifest and object hashes and each dependency app's content (`affected::Header`); the
             // index key hashes the test apps' source and the index holds the apps of its compile (`Index::apps`);
-            // `run::warm_key` hashes both for the kept compile.
+            // `workspace_layer::warm_key` hashes both for the kept compile.
             apps: _,
             deps: _,
             package_caches: _,
@@ -122,7 +119,7 @@ impl RunInputs {
             require_compile_cache: _,
             rebuild_compile_cache: _,
             // The selection. `--affected` refuses one; the index key never held it (a lane's index run passes its
-            // codeunits); a kept compile takes a new selection in as an edit (`run::warm_key`).
+            // codeunits); a kept compile takes a new selection in as an edit (`workspace_layer::warm_key`).
             codeunits: _,
             filters: _,
             excludes: _,
@@ -424,18 +421,14 @@ impl RunInputs {
         Ok(h.finalize().into())
     }
 
-    /// The options the compile depends on, as text.
-    fn compile_text(&self) -> String {
+    /// The options the compile depends on, as text: in the key of a kept compile (`workspace_layer::warm_key`) and of the workspace
+    /// layer of the compile cache (`WorkspaceCacheOptions::compile_options`).
+    pub fn compile_text(&self) -> String {
         self.compile
             .iter()
             .map(|(name, value)| format!("{name}={value}"))
             .collect::<Vec<_>>()
             .join(" ")
-    }
-
-    /// The target and the options the compile depends on, for the key of a kept compile (`run::warm_key`).
-    pub fn compile_key(&self, target: &al_version::Target) -> String {
-        format!("{target:?} {}", self.compile_text())
     }
 }
 

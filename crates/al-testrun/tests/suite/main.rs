@@ -127,6 +127,7 @@ mod unknown_reach_reason_stable;
 mod variant_number_into_text;
 mod warm_baseline_edit;
 mod warm_kept;
+mod workspace_cache;
 mod xmlport_encoding;
 mod xmlport_flowfield_export;
 mod xmlport_inlineschema;

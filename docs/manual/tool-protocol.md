@@ -249,7 +249,11 @@ Differences a client must adapt to:
    (building the runs of the entries) and `prepareMs` (the rest before the compile: the dependency notes, the hooks and
    the run's options). `--timings` prints the same parts as its `setup:` line.
    `loginReplays` and `loginStarts` (always present) count, over every request the engine ran, the test sessions that took a kept login start in place of running the login and the login starts kept (al-runner issue 8211). The first test session of a login runs it and keeps a start; later sessions of the same login, company, user and inputs thaw it. The replay is off by default (both 0); `ALRUNNER_LOGIN_REPLAY=1` turns it on. Under `ALRUNNER_LOGIN_REPLAY_CHECK=1` no session takes a start, so `loginReplays` stays 0, but the check keeps the starts it compares later sessions with, so `loginStarts` is not 0.
-   `engineKept: true` when the request ran on the engines an earlier request over the same compile kept. Without
+   `engineKept: true` when the request ran on the engines an earlier request over the same compile kept. On a request
+   that compiled, `workspaceCache` says what the workspace layer of the compile cache did: `read` (the compiled
+   workspace apps were read from the cache folder, not compiled), `built` (compiled, and kept for a later daemon or run;
+   written after the response) or `off` (`ALRUNNER_NO_WORKSPACE_CACHE=1`, or a compile the layer does not cover or
+   does not store; `--timings` says why). Without
    `entries`, `resetMs` is the time the test threads took to set up their own copy of the install baseline (the
    longest of them; 0 with one thread). With `entries`, each `entrySummary` has `timings` with that entry's `resetMs`
    and `wallMs` (its wall time, the reset included). The fields are for reading only: a client must not depend on

@@ -72,6 +72,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `format.rs`: The cache entry file: header, dictionary. Entry: `build`.
 - `index.rs`: The index entry: the scan of the dependency sources. Entry: `build_index`.
 - `key.rs`: The key of an entry: every input of the compile… Entry: `Key`.
+- `workspace.rs`: The workspace layer file. Entry: `build_workspace`, `open_workspace`.
 - `lib.rs`: Crate root of the compile cache format (ADR-022).
 
 ### al-builtins
@@ -210,7 +211,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `calcformula.rs`: The `CalcFormula` property of a FlowField, as syntax. Entry: `Formula`.
 - `check/` (14 files): Resolves names, member access and calls. Entry: `check_with`. Files: `mod.rs`, `tdd.rs`, `tdd_decl.rs`, `posmap.rs`, `object.rs`, `infer.rs`, `calls.rs`, `member.rs`, `protected_member.rs`, `fit.rs`, `conv.rs`, `field_enum.rs`, `diag_index.rs`, `demand.rs`
 - `lib.rs`: Crate root of the semantic model.
-- `lower/` (23 files): Lowers resolved syntax to the typed IR (ADR-011). Entry: `Lowered`. Files: `mod.rs`, `assemble.rs`, `ext_order.rs`, `ext_request_page.rs`, `localize.rs`, `routine_lists.rs`, `shared.rs`, `tables.rs`, `table_no_rec.rs`, `pages.rs`, `page_client_expr.rs`, `convert.rs`, `copy_array.rs`, `conv_matrix.rs`, `stmt.rs`, `expr.rs`, `dotnet.rs`, `with_events.rs`, `call.rs`, `evaluate_id.rs`, `var_option_arg.rs`, `compile.rs`, `extend.rs`
+- `lower/` (24 files): Lowers resolved syntax to the typed IR (ADR-011). Entry: `Lowered`. Files: `mod.rs`, `assemble.rs`, `ext_order.rs`, `ext_request_page.rs`, `localize.rs`, `routine_lists.rs`, `shared.rs`, `tables.rs`, `table_no_rec.rs`, `pages.rs`, `page_client_expr.rs`, `convert.rs`, `copy_array.rs`, `conv_matrix.rs`, `stmt.rs`, `expr.rs`, `dotnet.rs`, `with_events.rs`, `call.rs`, `evaluate_id.rs`, `var_option_arg.rs`, `compile.rs`, `extend.rs`, `stored.rs`
 - `members.rs`: Members of objects: table fields, enum values. Entry: `MemberTable`.
 - `provided.rs`: Dependency objects whose lowered form comes… Entry: `DepSet`.
 - `own_named_page_methods.rs`: A page method named like one of the page's own… Entry: `save_record_names_platform`.
@@ -222,6 +223,8 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `workspace.rs`: A set of apps: parse every file. Entry: `Workspace`.
 - `workspace/moved_tables.rs`: A workspace table kept as the… Entry: `moved_table_of_dependency`.
 - `workspace/subscriber_publisher.rs`: The object an `[EventSubscriber]` names… Entry: `subscriber_publisher`.
+- `workspace/stored.rs`: A stored compile's workspace. Entry: `Workspace::stored`.
+- `workspace/dump.rs`: The workspace layer's equality dump. Entry: `canonical_dump`.
 - `xmlports.rs`: XmlPort objects (Format = Xml). Entry: `RawNode`.
 
 ### al-syntax
@@ -262,6 +265,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `runner.rs`: The seam between the harness and the runtime. Entry: `Runner`.
 - `select.rs`: Test selection: --codeunit, --test, --area, --file. Entry: `Selection`.
 - `strict_order.rs`: The corpus order probes…
+- `workspace_leg.rs`: The workspace layer's outcomes leg. Entry: `say`.
 
 ### al-testrun
 
@@ -271,6 +275,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `company_data.rs`: A company built by a dependency codeunit… Entry: `CompanyData`.
 - `compile_cache.rs`: The OS side of the compile cache: the key of a run. Entry: `CompileCache`.
 - `cache_gc.rs`: Cleanup of the compile cache folder. Entry: `prune`.
+- `workspace_cache.rs`: The compile cache's workspace layer. Entry: `WorkspaceKey`.
 - `crash.rs`: Names the test a crashed process was running. Entry: `install`.
 - `deps.rs`: Dependency apps for a corpus run (ADR-013). Entry: `Dependencies`.
 - `discover.rs`: Finds `Subtype = Test` codeunits and their `[Test]`… Entry: `test_codeunits`.
@@ -305,7 +310,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `stability.rs`: Stability mode: the config (`parse_config`. Entry: `parse_config`.
 - `stopped_state.rs`: What code the runner stopped leaves of the session… Entry: `roll_back_refused_test`.
 - `test_suites.rs`: The `--test-suites` file. Entry: `TestSuites`.
-- `runtime/` (28 files): Runs test codeunits the way BC's test runner does. Entry: `CorpusRuntime`. Files: `mod.rs`, `compiled.rs`, `baseline_key.rs`, `grow.rs`, `corpus.rs`, `chain.rs`, `carry_after.rs`, `discovery.rs`, `chain_walk.rs`, `strict_walk.rs`, `single_lane.rs`, `narrowing.rs`, `not_run_link.rs`, `single_fresh.rs`, `order_hint.rs`, `memory.rs`, `compile_halt.rs`, `threads.rs`, `install_once.rs`, `cache.rs`, `run.rs`, `data_driven.rs`, `test_handlers.rs`, `written.rs`, `runner_reset.rs`, `handlers.rs`, `blocked.rs`, `table_reads.rs`
+- `runtime/` (29 files): Runs test codeunits the way BC's test runner does. Entry: `CorpusRuntime`. Files: `mod.rs`, `compiled.rs`, `baseline_key.rs`, `grow.rs`, `corpus.rs`, `chain.rs`, `carry_after.rs`, `discovery.rs`, `chain_walk.rs`, `strict_walk.rs`, `single_lane.rs`, `narrowing.rs`, `not_run_link.rs`, `single_fresh.rs`, `order_hint.rs`, `memory.rs`, `compile_halt.rs`, `threads.rs`, `install_once.rs`, `cache.rs`, `run.rs`, `data_driven.rs`, `test_handlers.rs`, `written.rs`, `runner_reset.rs`, `handlers.rs`, `blocked.rs`, `table_reads.rs`, `workspace_layer.rs`
 - `target.rs`: Reads the version fields of an app.json. Entry: `build_query`.
 
 ### alrunner-cli
@@ -332,6 +337,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `impact.rs`: `al-runner test --impact-of APP`. Entry: `run`.
 - `impact_index.rs`: The impact index: format, cache key and path. Entry: `Index`.
 - `run_inputs.rs`: The inputs of a run, classified once.
+- `workspace_layer.rs`: The workspace layer's options and report. Entry: `options`.
 - `main.rs`: The `al-runner` binary: runs on a thread… Entry: `main`.
 - `profile.rs`: `--profile PATH`, `--profile-mode`. Entry: `Flags`.
 - `output.rs`: Counts, exit codes, the summary line. Entry: `exit_code`.

@@ -501,6 +501,8 @@ pub struct Phases {
     pub compile_parts: al_sema::lower::CompileTimings,
     /// What the compile cache did, when the run used it.
     pub cache: Option<crate::compile_cache::CacheReport>,
+    /// What the workspace layer of the compile cache did, when the run asked for it.
+    pub workspace_cache: Option<crate::workspace_cache::WorkspaceReport>,
     /// With a compile cache whose objects are decoded on first touch (ADR-054): how many the run decoded.
     pub decoded_on_touch: Option<usize>,
     /// Building the engine from the lowered program.
@@ -1304,7 +1306,7 @@ mod al_runner_tests;
 #[cfg(test)]
 mod app_outcomes_tests;
 mod apply_manifests;
-mod baseline_key;
+pub(crate) mod baseline_key;
 mod blocked;
 mod cache;
 mod carry_after;
@@ -1376,6 +1378,7 @@ mod test_marks;
 #[cfg(test)]
 mod tests;
 mod threads;
+mod workspace_layer;
 pub(crate) mod written;
 
 pub use self::blocked::*;
