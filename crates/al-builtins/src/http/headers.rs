@@ -398,7 +398,7 @@ pub(super) fn headers_get_secret_values(c: &mut dyn Ctx, r: Option<&mut Value>, 
         }
         return Ok(Value::Boolean(false));
     };
-    let secret = |v: String| lib("SecretText", LibraryValue::Text(v));
+    let secret = |v: String| lib("SecretText", LibraryValue::Text(v.into()));
     match a.get(1) {
         Some(Value::Array(arr)) => {
             let mut arr = arr.borrow_mut();

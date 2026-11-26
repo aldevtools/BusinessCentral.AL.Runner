@@ -76,7 +76,7 @@ pub(super) fn read_as_secret(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
     let Ok(t) = String::from_utf8(data) else {
         return unsupported("HttpContent.ReadAs(SecretText) of a body that is not UTF-8 (not pinned)");
     };
-    a[0] = lib("SecretText", LibraryValue::Text(t));
+    a[0] = lib("SecretText", LibraryValue::Text(t.into()));
     Ok(if used { Value::Boolean(true) } else { Value::Null })
 }
 

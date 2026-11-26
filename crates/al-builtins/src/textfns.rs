@@ -893,7 +893,7 @@ fn select_str(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResul
 // ----------------------------------------------------------- SecretText
 
 fn secret(content: String) -> Value {
-    Value::Library("SecretText".into(), Rc::new(RefCell::new(LibraryValue::Text(content))))
+    Value::Library("SecretText".into(), Rc::new(RefCell::new(LibraryValue::Text(content.into()))))
 }
 
 /// The content of a SecretText value; a never-assigned one is empty.
@@ -901,7 +901,7 @@ fn secret_content(v: &Value) -> Result<String, Signal> {
     match v {
         Value::Library(_, h) => match &*h.borrow() {
             LibraryValue::Empty => Ok(String::new()),
-            LibraryValue::Text(s) => Ok(s.clone()),
+            LibraryValue::Text(s) => Ok(s.to_string()),
             _ => unsupported("SecretText holding something else"),
         },
         // A Text or Code variable is taken as its content where a SecretText is expected
@@ -951,7 +951,7 @@ fn string_of(r: Option<&mut Value>) -> Result<Rc<RefCell<LibraryValue>>, Signal>
     match r {
         Some(Value::Library(_, h)) => {
             if matches!(&*h.borrow(), LibraryValue::Empty) {
-                *h.borrow_mut() = LibraryValue::Text(String::new());
+                *h.borrow_mut() = LibraryValue::Text(Default::default());
             }
             if matches!(&*h.borrow(), LibraryValue::Text(_) | LibraryValue::TextCap(..)) {
                 Ok(h.clone())
@@ -963,7 +963,7 @@ fn string_of(r: Option<&mut Value>) -> Result<Rc<RefCell<LibraryValue>>, Signal>
     }
 }
 
-fn with_string<T>(h: &Rc<RefCell<LibraryValue>>, f: impl FnOnce(&mut String) -> T) -> T {
+fn with_string<T>(h: &Rc<RefCell<LibraryValue>>, f: impl FnOnce(&mut crate::text::Txt) -> T) -> T {
     match &mut *h.borrow_mut() {
         LibraryValue::Text(s) | LibraryValue::TextCap(s, _) => f(s),
         _ => unreachable!("checked by string_of"),
@@ -1131,7 +1131,8 @@ fn tb_length(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
         return tb_set_length(ctx, r, a);
     }
     let h = string_of(r)?;
-    Ok(Value::Integer(with_string(&h, |s| Value::text_len(s)) as i32))
+    // The lossy text has the length of the exact one: a lone half and its U+FFFD are one unit each.
+    Ok(Value::Integer(with_string(&h, |s| Value::text_len(s.audited_str())) as i32))
 }
 
 /// `Length(N)` cuts the text to N characters or extends it with NUL characters, and the capacity grows to hold it
@@ -1153,7 +1154,7 @@ fn tb_set_length(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> N
     let mut u = with_string(&h, |s| u16s(s));
     u.resize(n as usize, 0);
     let cut = from_u16(&u, "TextBuilder.Length")?;
-    with_string(&h, |s| *s = cut);
+    with_string(&h, |s| *s = cut.into());
     grow_capacity(&h);
     Ok(Value::Integer(n as i32))
 }
@@ -1190,7 +1191,7 @@ fn tb_replace_range(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -
     let mut out = from_u16(&u[..from], op)?;
     out.push_str(&mid);
     out.push_str(&from_u16(&u[to..], op)?);
-    with_string(&h, |s| *s = out);
+    with_string(&h, |s| *s = out.into());
     grow_capacity(&h);
     Ok(Value::Boolean(true))
 }
@@ -1199,7 +1200,7 @@ fn tb_clear(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult 
     let h = string_of(r)?;
     // Clear keeps the capacity (text/textbuilder-bigtext/TxCTextBuilderBasics.al:Clear_Basics `capKept`).
     let cap = capacity_of(&h);
-    *h.borrow_mut() = LibraryValue::TextCap(String::new(), cap);
+    *h.borrow_mut() = LibraryValue::TextCap(Default::default(), cap);
     Ok(Value::Null)
 }
 
@@ -1267,7 +1268,7 @@ fn tb_remove(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult
     let mut out = u[..from].to_vec();
     out.extend_from_slice(&u[from + count as usize..]);
     let cut = from_u16(&out, "TextBuilder.Remove")?;
-    with_string(&h, |s| *s = cut);
+    with_string(&h, |s| *s = cut.into());
     Ok(Value::Boolean(true))
 }
 
@@ -1326,7 +1327,7 @@ fn bt_add_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
     let h = string_of(r)?;
     let t = match a.first() {
         Some(Value::Library(_, o)) => match &*o.borrow() {
-            LibraryValue::Text(s) | LibraryValue::TextCap(s, _) => s.clone(),
+            LibraryValue::Text(s) | LibraryValue::TextCap(s, _) => s.to_string(),
             LibraryValue::Empty => String::new(),
             _ => return unsupported("BigText.AddText of something that is no BigText"),
         },
@@ -1343,7 +1344,7 @@ fn bt_add_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
         let at = (pos as usize - 1).min(u.len());
         u.splice(at..at, t.encode_utf16());
         let joined = from_u16(&u, "BigText.AddText")?;
-        with_string(&h, |s| *s = joined);
+        with_string(&h, |s| *s = joined.into());
         return Ok(Value::Null);
     }
     with_string(&h, |s| s.push_str(&t));
@@ -1359,7 +1360,7 @@ fn bt_read(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
         Some(read) => read?,
         None => crate::stream::read_all_text(&mut a[0])?,
     };
-    with_string(&h, |s| *s = text);
+    with_string(&h, |s| *s = text.into());
     Ok(Value::Boolean(true))
 }
 
@@ -1428,7 +1429,7 @@ fn bt_get_sub_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> N
                 return unsupported("BigText.GetSubText of nothing into a BigText that holds text (not pinned)");
             }
             if !part.is_empty() {
-                *t.borrow_mut() = LibraryValue::Text(part);
+                *t.borrow_mut() = LibraryValue::Text(part.into());
             }
         }
         v => *v = Value::Text(part.into()),

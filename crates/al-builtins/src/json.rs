@@ -2611,7 +2611,7 @@ fn secret_text(v: &Value) -> Result<String, Signal> {
     match v {
         Value::Library(_, h) => match &*h.borrow() {
             LibraryValue::Empty => Ok(String::new()),
-            LibraryValue::Text(s) => Ok(s.clone()),
+            LibraryValue::Text(s) => Ok(s.to_string()),
             other => unsupported(format!("WriteWithSecretsTo with a secret holding {}", other.describe())),
         },
         other => unsupported(format!("WriteWithSecretsTo with a secret that is {}", other.describe())),
@@ -2706,7 +2706,7 @@ fn write_with_secrets(
     }
     let mut text = String::new();
     write(&copy, &mut text)?;
-    a[out] = Value::Library("SecretText".into(), Rc::new(RefCell::new(LibraryValue::Text(text))));
+    a[out] = Value::Library("SecretText".into(), Rc::new(RefCell::new(LibraryValue::Text(text.into()))));
     Ok(Value::Boolean(true))
 }
 

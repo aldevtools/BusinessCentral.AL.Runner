@@ -254,7 +254,7 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         // A Text (not a literal) assigns into a SecretText (types/TestSecretText.al).
         (Value::Text(s) | Value::Code(s), T::Library(n)) if n.eq_ignore_ascii_case("SecretText") => Value::Library(
             "SecretText".into(),
-            Rc::new(RefCell::new(LibraryValue::Text(s.to_string()))),
+            Rc::new(RefCell::new(LibraryValue::Text(s.to_string().into()))),
         ),
         (v @ Value::Enum(from, _), T::Enum(to)) if from == *to => v,
         // An enum of another type converts by its ordinal; an ordinal the target lacks is kept (Format shows

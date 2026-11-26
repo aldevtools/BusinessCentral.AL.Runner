@@ -47,7 +47,7 @@ fn text_or_secret(a: &[Value], i: usize) -> Result<(String, bool), Signal> {
     match a.get(i) {
         Some(Value::Library(_, h)) => match &*h.borrow() {
             LibraryValue::Empty => Ok((String::new(), true)),
-            LibraryValue::Text(s) => Ok((s.clone(), true)),
+            LibraryValue::Text(s) => Ok((s.to_string(), true)),
             other => unsupported(format!("a SecretText argument, got {}", other.describe())),
         },
         _ => Ok((text(a, i)?, false)),
