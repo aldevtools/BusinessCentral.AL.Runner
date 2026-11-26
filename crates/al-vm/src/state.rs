@@ -248,9 +248,12 @@ pub(crate) struct RowVersionTx {
     /// (table, company, first, last): the row versions the Inserts of rows of that table that nothing sent yet handed out.
     pub(crate) pending_inserts: Vec<(u32, Option<String>, i64, i64)>,
     pub(crate) sent: i64,
-    /// A Get through a Record variable that sent its table's inserted rows set `sent` last (`Session::note_read_for_row_versions`);
-    /// every other raise of `sent` clears it (`RestampedRows::get_after_get`).
-    pub(crate) sent_by_get: bool,
+    /// A Modify set `sent` last (`Session::note_row_versions`); every other raise of `sent` clears it
+    /// (`RestampedRows::insert_value_read`).
+    pub(crate) sent_by_modify: bool,
+    /// (table, company, row version): SystemRowVersion read in a Record buffer of a row of `pending_inserts` while no row version
+    /// sent before it was at or above it (`Session::note_insert_value_read`, `RestampedRows::insert_value_read`).
+    pub(crate) insert_values_read: Vec<(u32, Option<String>, i64)>,
     pub(crate) handed_out: u64,
     pub(crate) accounted: u64,
     pub(crate) last: i64,
@@ -272,10 +275,10 @@ pub(crate) struct RestampedRows {
     pub(crate) table: u32,
     pub(crate) from: i64,
     pub(crate) to: i64,
-    /// A Get of `table` through a Record variable sent them after a Get of another table sent the higher row version, the
-    /// shape the probe measures (RowVersionWrites.al:392 InsertTwoTables: `Other.Get(1)`, then `Row.Get(1)`). False for every
-    /// other send: another read, a write, a Commit (`Session::send_pending_insert`).
-    pub(crate) get_after_get: bool,
+    /// The shape the assumption `restamped-row-version-insert-value` measures (corpus PR 1613): one row, whose Insert buffer's
+    /// SystemRowVersion was read before a Modify sent the higher row version, sent by a Commit or a measured read
+    /// (`Session::send_pending_insert`). A read of its SystemRowVersion gives the Insert's value.
+    pub(crate) insert_value_read: bool,
 }
 
 /// A value per table and company ([`TableWrites`], [`WriteCounts`]), found by a hash of the table and a scan of its

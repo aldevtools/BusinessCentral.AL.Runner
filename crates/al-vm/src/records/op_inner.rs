@@ -341,8 +341,14 @@ impl Session {
                         | RecordOp::Count
                         | RecordOp::CalcSums
                 ),
-                // The send the probe of `restamped-row-version-positive` measures: a Get through a Record variable.
-                matches!((method, self.through_recordref), (RecordOp::Get, false)),
+                // The re-reads corpus PR 1613 sends the row with (RowVersionReReadShapes.al `ReRead`): Get, FindFirst, FindSet
+                // and Find('-') through a Record variable, RecordRef.FindFirst.
+                matches!(
+                    (method, self.through_recordref, find_form),
+                    (RecordOp::Get | RecordOp::FindFirst | RecordOp::FindSet, false, _)
+                        | (RecordOp::Find, false, Some("-"))
+                        | (RecordOp::FindFirst, true, _)
+                ),
             );
             self.restamped_find(&cx, &t, &rec.borrow(), method)?;
             use crate::recmeta::{ISOLATION_REPEATABLE_READ, ISOLATION_UPDLOCK};

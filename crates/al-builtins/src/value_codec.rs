@@ -196,7 +196,7 @@ fn encode_in(v: &Value, out: &mut Vec<u8>) -> bool {
         // compile error here and has to be placed (plain, with a tag, or in this list), never a silent fallback.
         // A counter value is tied to the session whose reads it compares with (`sqlcount`).
         // A TextConst only sits in a Variant, never in a stored row.
-        // A placeholder's size, or a `positive` value (placeholder_output), answers only in the session that made it.
+        // A placeholder's size answers only in the session that wrote the placeholder.
         Value::SqlCount(_)
         | Value::PlaceholderSize(..)
         | Value::TextConst(..)

@@ -36,7 +36,7 @@ impl Describe for Value {
             Value::Null => "an unassigned Variant".into(),
             Value::Unknown(why) => format!("an unknown value ({why})"),
             Value::SqlCount(_) => "a SQL counter value".into(),
-            Value::PlaceholderSize(m, _) => crate::placeholder_output::size_shown(m),
+            Value::PlaceholderSize(m, _) => format!("the byte size of {}", crate::rendered_text::shown(m)),
             Value::Boolean(b) => format!("Boolean {b}"),
             Value::Integer(i) => format!("Integer {i}"),
             Value::BigInteger(i) => format!("BigInteger {i}"),

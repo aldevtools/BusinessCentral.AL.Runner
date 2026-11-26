@@ -1,2 +1,1 @@
 # key	entry
-RV8993 Insert Buffer Tests::GetAfterGet_GreaterThanZero	ASSUMED restamped-row-version-positive (corpus PR 1509, RowVersionWrites.al:392)

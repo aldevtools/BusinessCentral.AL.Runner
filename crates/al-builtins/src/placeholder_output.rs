@@ -189,25 +189,7 @@ pub fn size(mark: &Arc<str>) -> Value {
     Value::PlaceholderSize(mark.clone(), crate::value::SqlType::Integer)
 }
 
-/// A BigInteger whose number nothing measures and that is known only to be greater than 0, marked `why` (no placeholder
-/// mark): it follows the rules of a placeholder's size ([`size_order`], [`size_convert`], [`size_guard`]), and its refusals
-/// name `why` ([`size_refusal_text`]). Made by al-vm `restamped_value` (a SystemRowVersion the runtime does not give as BC).
-pub fn positive(why: String) -> Value {
-    SIZE_MADE.store(true, std::sync::atomic::Ordering::Relaxed);
-    Value::PlaceholderSize(why.into(), crate::value::SqlType::BigInteger)
-}
-
-/// What a size-like value (`Value::PlaceholderSize`) of mark `mark` is, for a refusal text: the byte size of a placeholder
-/// output, or the value [`positive`] marked.
-pub fn size_shown(mark: &str) -> String {
-    if is_placeholder(mark) {
-        format!("the byte size of {}", crate::rendered_text::shown(mark))
-    } else {
-        mark.to_string()
-    }
-}
-
-/// Set by [`size`] and [`positive`] and never cleared: whether a placeholder's size or a `positive` value may exist in this process. A size can be held in a
+/// Set by [`size`] and never cleared: whether a placeholder's size may exist in this process. A size can be held in a
 /// SingleInstance global or a Variant beyond the session that made it, so the flag is not per session. It only spares the VM
 /// the scan of [`size_guard`] on every builtin call until the first size is made; it decides no answer.
 static SIZE_MADE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -244,8 +226,7 @@ pub fn refuse_unanswered(outcome: Result<(), Signal>) -> Result<(), Signal> {
     }
 }
 
-/// Refuses a builtin or a .NET member (`name`, a builtin id name or `DotNet Type.Member`) given a placeholder's size or a
-/// [`positive`] value as its
+/// Refuses a builtin or a .NET member (`name`, a builtin id name or `DotNet Type.Member`) given a placeholder's size as its
 /// receiver or an argument. The callee would compare the size with its own code and not through [`size_order`] (a record
 /// filter counts a value it cannot compare as not passing, a List or Dictionary as not equal) or read its number, so the
 /// answer would be made up. The one allowed use: `Variant.Is*` on a Variant that holds it, which asks only the type of the slot
@@ -267,16 +248,13 @@ pub fn size_guard(name: &str, recv: Option<&Value>, args: &[Value]) -> Result<()
     }
 }
 
-/// The refusal of a use of a placeholder's size or a [`positive`] value other than a comparison with 0.
+/// The refusal of a use of a placeholder's size other than a comparison with 0.
 pub fn size_refusal(mark: &str, what: &str) -> Signal {
     Signal::unsupported(size_refusal_text(mark, what))
 }
 
 /// The text of [`size_refusal`].
 pub fn size_refusal_text(mark: &str, what: &str) -> String {
-    if !is_placeholder(mark) {
-        return format!("{what} of {mark} (only known to be greater than 0: only a comparison with 0 answers)");
-    }
     let mark = crate::rendered_text::shown(mark);
     format!(
         "{what} of the byte size of {mark} (BC's rendering is only known not to be empty: only a comparison of the size with 0 \
@@ -284,7 +262,7 @@ pub fn size_refusal_text(mark: &str, what: &str) -> String {
     )
 }
 
-/// Refuses a platform read of a record field's value `v` (`what`) when the field holds a placeholder's size or a [`positive`] value: a FlowField or
+/// Refuses a platform read of a record field's value `v` (`what`) when the field holds a placeholder's size: a FlowField or
 /// `CalcSums` over it, `Validate` of it, a page control that shows it (ADR-040 amendment 2026-11-12b, point 4). The store
 /// refuses a filter or a sort on such a field itself (al-data `MemStore::unknown_read`), and `format` refuses `Format`.
 pub fn size_read(v: &Value, what: &str) -> Result<(), Signal> {
@@ -303,10 +281,6 @@ pub fn size_convert(v: Value, t: &RtType) -> Result<Value, Signal> {
     };
     let ty = match t {
         RtType::Variant => return Ok(v),
-        // A value `positive` marked is a BigInteger whose number nothing measures: a conversion to Integer may raise on BC, one to
-        // Decimal is not measured for this value.
-        RtType::BigInteger if !is_placeholder(m) => SqlType::BigInteger,
-        _ if !is_placeholder(m) => return Err(size_refusal(m, "a conversion to another type")),
         RtType::Integer => SqlType::Integer,
         RtType::BigInteger => SqlType::BigInteger,
         RtType::Decimal => SqlType::Decimal,
@@ -315,7 +289,7 @@ pub fn size_convert(v: Value, t: &RtType) -> Result<Value, Signal> {
     Ok(Value::PlaceholderSize(m.clone(), ty))
 }
 
-/// The order of `l` and `r` where either is a placeholder's size or a [`positive`] value: greater than the number 0, and refused against anything else.
+/// The order of `l` and `r` where either is a placeholder's size: greater than the number 0, and refused against anything else.
 pub fn size_order(l: &Value, r: &Value) -> Result<Ordering, Signal> {
     let zero = |v: &Value| match v {
         Value::Integer(n) => *n == 0,

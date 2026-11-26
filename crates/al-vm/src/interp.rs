@@ -1654,10 +1654,13 @@ impl Session {
                 if let Value::Unknown(why) = &v {
                     return Err(Signal::unsupported(why.to_string()));
                 }
-                if let Some(why) = self.install_row_order(r.table, r.temporary, *pos, &r.fields) {
+                if let Some(why) = self
+                    .install_row_order(r.table, r.temporary, *pos, &r.fields)
+                    .or_else(|| self.restamped_read(&r, *pos))
+                {
                     return Err(Signal::unsupported(why));
                 }
-                let v = self.restamped_value(&r, *pos)?.unwrap_or(v);
+                self.note_insert_value_read(&r, *pos);
                 if r.load.partial {
                     // A Blob counts as loaded (partial.rs `AreFieldsLoaded`), and a FlowField is no column of the row: their
                     // reads load nothing else (P81LoadFields.al:664-689 CalcFields_OnNotLoadedFlowAndBlob `loaded_qty` No).
@@ -1677,7 +1680,7 @@ impl Session {
                         if let Value::Unknown(why) = &v {
                             return Err(Signal::unsupported(why.to_string()));
                         }
-                        return Ok(self.restamped_value(&rc.borrow(), *pos)?.unwrap_or(v));
+                        return Ok(v);
                     }
                     rc.borrow_mut().load.touch(*pos);
                 }

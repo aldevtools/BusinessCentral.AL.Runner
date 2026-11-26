@@ -55,7 +55,7 @@ codeunit 98996 "RV8993 Insert Buffer Tests"
     end;
 
     [Test]
-    procedure GetAfterGet_GreaterThanZero()
+    procedure Refused_GetAfterGet_ComparedWithZero()
     var
         Item: Record "RV8993 Item";
     begin

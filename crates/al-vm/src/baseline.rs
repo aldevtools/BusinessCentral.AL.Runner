@@ -200,7 +200,7 @@ impl Baseline {
             put_u32(&mut out, r.table);
             put_i64(&mut out, r.from);
             put_i64(&mut out, r.to);
-            out.push(u8::from(r.get_after_get));
+            out.push(u8::from(r.insert_value_read));
         }
         Some(out)
     }
@@ -303,7 +303,7 @@ impl Baseline {
                 table,
                 from,
                 to,
-                get_after_get: r.u8()? == 1,
+                insert_value_read: r.u8()? == 1,
             });
         }
         if !r.is_empty() {
@@ -647,7 +647,7 @@ mod tests {
                 table: 50000,
                 from: 1_000_000_002,
                 to: 1_000_000_004,
-                get_after_get: true,
+                insert_value_read: true,
             }],
             install_rows: None,
             origin: new_origin(),
