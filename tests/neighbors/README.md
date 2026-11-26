@@ -12,7 +12,8 @@ scripts, manifests, `Cargo.lock`, and the files crates include, such as `docs/la
 the branch name or the issue. The folder holds exactly one of:
 
 - **A neighbor app**: `app.json`, `src/*.al` and `differences.tsv`, and optionally `flags.txt`: run options both
-  binaries get, one per line (`#` starts a comment), for example `--strict-order`.
+  binaries get, one per line (`#` starts a comment), for example `--strict-order`. Each run starts in a fresh copy of the app
+  folder, so a relative path there (for example `--files-dir files`) names a folder of the app.
 - **`none.txt`**: one line that says why no neighbor app applies, for example "comments only".
   The reviewer checks the reason. A change of comments only, or a tooling change no AL code sees, takes this form.
 

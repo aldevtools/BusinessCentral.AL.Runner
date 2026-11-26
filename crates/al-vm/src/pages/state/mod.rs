@@ -332,17 +332,25 @@ pub enum ClosedBy {
 pub struct ValidateStart {
     /// The filters of the page's record when the OnValidate began.
     pub filters: Vec<al_builtins::filter::FieldFilter>,
+    /// The field values of the page's record when the OnValidate began (`refresh_new_line.rs` `get_record_free_cell`).
+    pub fields: Vec<Value>,
     /// A save in the OnValidate moved a List from its new-row line onto the row page code found, in the cells of
     /// `refresh_new_line.rs` `found_row_cell`: the refresh reads the view as from that line (`validate_refresh_offers_line`).
     pub left_new_line: bool,
+    /// The control's OnValidate as it returned without an error (`run_control_onvalidate`), for the refresh after it
+    /// (`refresh_new_line.rs` `get_record_free_cell`); `None` while it runs and after an error.
+    pub ran: Option<ControlOnValidate>,
 }
 
 impl ValidateStart {
-    /// The start of an OnValidate with the record's `filters`.
-    pub fn new(filters: Vec<al_builtins::filter::FieldFilter>) -> Self {
+    /// The start of an OnValidate on the page's record `rec`: its filters and field values.
+    pub fn new(rec: &crate::records::Rec) -> Self {
+        let r = rec.borrow();
         Self {
-            filters,
+            filters: r.filters.clone(),
+            fields: r.fields.to_vec(),
             left_new_line: false,
+            ran: None,
         }
     }
 }

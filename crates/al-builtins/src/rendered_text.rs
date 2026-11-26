@@ -158,19 +158,51 @@ pub fn marks(s: &str) -> Option<Vec<(u32, Form)>> {
         if c != RENDERED_TEXT_MARK {
             continue;
         }
-        let n = it.next()? as u32;
-        out.push(match n {
-            n if (WHOLE..WHOLE + MAX_RENDERS).contains(&n) => (n - WHOLE, Form::Whole),
-            n if (CHANGED..CHANGED + MAX_RENDERS).contains(&n) => (n - CHANGED, Form::Changed),
-            _ => return None,
-        });
+        out.push(number(it.next()?)?);
     }
     Some(out)
+}
+
+/// The render number and form the number character `c` after a mark names ([`mark_text`]), `None` for any other character.
+fn number(c: char) -> Option<(u32, Form)> {
+    match c as u32 {
+        n if (WHOLE..WHOLE + MAX_RENDERS).contains(&n) => Some((n - WHOLE, Form::Whole)),
+        n if (CHANGED..CHANGED + MAX_RENDERS).contains(&n) => Some((n - CHANGED, Form::Changed)),
+        _ => None,
+    }
 }
 
 /// Whether `s` holds rendered content.
 pub fn holds(s: &str) -> bool {
     s.contains(RENDERED_TEXT_MARK)
+}
+
+/// Whether bytes hold a mark in the form a rendered text writes it ([`mark_text`]): the mark followed directly by a number
+/// character, as UTF-8 bytes, or in text that is UTF-16 as a whole. The mark's bytes followed by anything else (a binary
+/// file holds them by chance) are no rendered text. The number names a render of the session that wrote it, so a file that
+/// holds a mark and that the reading session holds no mark for gets a placeholder mark (al-vm `outside_output_mark`).
+pub fn bytes_hold(b: &[u8]) -> bool {
+    let mut buf = [0; 4];
+    let mark = RENDERED_TEXT_MARK.encode_utf8(&mut buf).as_bytes();
+    // A number character is above U+FFFF, four bytes in UTF-8.
+    let utf8 = b.windows(mark.len()).enumerate().any(|(i, w)| {
+        w == mark
+            && b.get(i + mark.len()..i + mark.len() + 4)
+                .and_then(|n| std::str::from_utf8(n).ok())
+                .and_then(|n| n.chars().next())
+                .and_then(number)
+                .is_some()
+    });
+    utf8 || b.len() % 2 == 0 && {
+        let units = b.chunks_exact(2).map(|p| u16::from_le_bytes([p[0], p[1]]));
+        let (mut after_mark, mut has) = (false, false);
+        char::decode_utf16(units).all(|c| {
+            let Ok(c) = c else { return false };
+            has |= after_mark && number(c).is_some();
+            after_mark = c == RENDERED_TEXT_MARK;
+            true
+        }) && has
+    }
 }
 
 /// `s` with every mark in the changed form (`Format(BigText)`, P12).

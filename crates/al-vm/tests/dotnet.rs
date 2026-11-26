@@ -2501,6 +2501,11 @@ const ENUMERATE_XML: &str = "DirectoryInfo := DirectoryInfo.DirectoryInfo(Path);
     exit(R);";
 
 fn run_staged_defs(path: &str, pattern: &str, files: bool) -> (Ran, Fake) {
+    let h = al_host::Host::default();
+    run_staged_on(path, pattern, if files { h.with_files(StagedDefs) } else { h })
+}
+
+fn run_staged_on(path: &str, pattern: &str, h: al_host::Host) -> (Ran, Fake) {
     let host = Fake::new(|r| panic!("unexpected request {r:?}"));
     let (program, blocked, oi, ri) = compile(
         "DirectoryInfo: DotNet DirectoryInfo; FileInfo: DotNet FileInfo; Enumerator: DotNet IEnumerator; Path: Text; Pattern: Text; R: Text;",
@@ -2508,8 +2513,7 @@ fn run_staged_defs(path: &str, pattern: &str, files: bool) -> (Ran, Fake) {
         ": Text",
     );
     let engine = Engine::with_dotnet(program, blocked, cfg(&host));
-    let h = al_host::Host::default();
-    let mut s = Session::with_host(engine, if files { h.with_files(StagedDefs) } else { h });
+    let mut s = Session::with_host(engine, h);
     let inst = s.instance(oi);
     let result = s.call(oi, ri, inst, vec![]).map(|(v, _)| v);
     (
@@ -2519,6 +2523,39 @@ fn run_staged_defs(path: &str, pattern: &str, files: bool) -> (Ran, Fake) {
         },
         host,
     )
+}
+
+/// [`StagedDefs`] where `c.xml` holds the start of a placeholder Html page another session wrote (al-runner issues 8702,
+/// 8703).
+struct StagedOutsideOutput;
+
+impl al_host::FileSystem for StagedOutsideOutput {
+    fn read(&self, path: &str) -> Option<Vec<u8>> {
+        match path.rsplit('\\').next()? {
+            "c.xml" => Some(b"<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\"><title></title></head>".to_vec()),
+            _ => StagedDefs.read(path),
+        }
+    }
+    fn write(&mut self, p: &str, b: &[u8]) -> Result<(), String> {
+        StagedDefs.write(p, b)
+    }
+    fn exists(&self, p: &str) -> bool {
+        StagedDefs.exists(p)
+    }
+    fn remove(&mut self, p: &str) -> bool {
+        StagedDefs.remove(p)
+    }
+    fn staged_folder_files(&self, dir: &str) -> Option<Vec<String>> {
+        StagedDefs.staged_folder_files(dir)
+    }
+}
+
+#[test]
+fn file_info_length_of_a_staged_placeholder_another_session_wrote_is_refused() {
+    let (r, host) = run_staged_on(DEFS, "*.xml", al_host::Host::default().with_files(StagedOutsideOutput));
+    let why = unsupported(&r);
+    assert!(why.contains("a placeholder Html written outside this session"), "{why}");
+    assert!(host.calls().is_empty(), "{:?}", host.calls());
 }
 
 #[test]

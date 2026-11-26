@@ -73,6 +73,8 @@
 //!   run (stamps and diagnostic counters).
 //! - `crates/al-vm/src/lib.rs` `static NEXT_ENGINE_UID`, `crates/al-vm/src/baseline.rs` `static NEXT_ORIGIN`,
 //!   `crates/al-vm/src/dotnet/blob_stream.rs` `static NEXT_VIEW`: run (ids handed out once in the process).
+//! - `crates/al-vm/src/report_placeholder/files.rs` `static HEADERS`: run (the constant headers of the placeholder files,
+//!   built once).
 //! - `crates/al-builtins/src/catalog.rs` `static CATALOG`, `crates/al-builtins/src/collation.rs` `static ASCII_WEIGHTS`,
 //!   `crates/al-builtins/src/conv/mod.rs` `static CELLS`, `crates/al-builtins/src/features.rs` `static TABLE`,
 //!   `crates/al-builtins/src/native/registry.rs` `static TABLE`, `crates/al-builtins/src/page_handle.rs`

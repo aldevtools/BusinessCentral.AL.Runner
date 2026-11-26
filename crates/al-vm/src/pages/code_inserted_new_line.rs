@@ -636,15 +636,17 @@ impl Session {
         let mut s = st.borrow_mut();
         let inner = std::mem::replace(&mut s.control_onvalidate, outer);
         s.control_failed_as_measured = matches!(result, Err(Signal::Error(_)))
-            && inner.is_some_and(|c| {
+            && inner.as_ref().is_some_and(|c| {
                 matches!(
                     (c.row_version.is_some(), c.saves.as_slice()),
                     (_, []) | (false, [crate::pages::state::CurrPageSave::SaveRecord])
                 )
             });
         // An OnValidate that failed after its save left the new-row line runs no refresh (`ValidateStart::left_new_line`).
-        if let (Err(_), Some(start)) = (&result, s.filters_before_validate.as_mut()) {
-            start.left_new_line = false;
+        match (&result, s.filters_before_validate.as_mut()) {
+            (Err(_), Some(start)) => start.left_new_line = false,
+            (Ok(_), Some(start)) => start.ran = inner,
+            _ => {}
         }
         drop(s);
         result
