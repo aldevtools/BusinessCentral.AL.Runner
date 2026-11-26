@@ -382,7 +382,7 @@ fn number_into_text(v: &Value, ty: &RtType, ctx: &Session) -> Cell {
 
 /// False into a Code or Text field `ty`: main's answer (`NO` in a Code, `No` in a Text) through the entry
 /// setrange-false-into-text, on the field lengths corpus PR 1575 measures (SrcFilterBoolIntoText.al:178-221, BoolFalse_Cod,
-/// BoolFalse_Txt, BoolFalse_Cod2: `ok: NO` / `ok: No` on every route, the same on Business Central 27.5, 28.5 and 29.0); the
+/// BoolFalse_Txt, BoolFalse_Cod2: `ok: NO` / `ok: No` on every route, the same on the Business Central majors 27, 28 and 29); the
 /// routes are the measured calls (`measured_call`). Refused on every other length (Code[1] and Text[1] raise the string-length
 /// error there, SrcFilterBoolIntoText.al:226-253).
 fn false_into_text(ty: &RtType) -> Cell {
