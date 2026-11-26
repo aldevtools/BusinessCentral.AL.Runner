@@ -1855,6 +1855,14 @@ impl Rec<'_> {
                 "Random" | "Randomize" => self.out.state_writes |= RANDOM,
                 "WorkDate" if has_args => self.out.state_writes |= WORK_DATE,
                 "GlobalLanguage" if has_args => self.out.state_writes |= LANGUAGE,
+                // The text of a DotNet object is its ToString() (al-builtins format_fns.rs `format_1`), a call into the
+                // object that no server-class registry entry answers.
+                "Format"
+                    if matches!(args.first(), Some(Arg::Value(Expr::DotNetOperand(x, _)))
+                        if matches!(&**x, Expr::Load(p) if matches!(self.slot_ty(o, r, p), Some(RtType::DotNet(_))))) =>
+                {
+                    self.out.state_writes |= OTHER
+                }
                 // Clears every global of the object.
                 "ClearAll" => {
                     let obj = &self.lowered.program.objects[o];
