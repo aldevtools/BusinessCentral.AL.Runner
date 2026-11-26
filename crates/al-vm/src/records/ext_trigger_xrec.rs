@@ -13,7 +13,8 @@
 //! `copy_refused_mark`, `held_part_field_write`, `Session::unpinned_buffer_op`). A procedure of the table or of a table
 //! extension called on Rec while the trigger runs gets a blank xRec with the same mark (`running_call_xrec.rs`).
 //!
-//! The methods that read neither its buffer nor its view (`TableName`, `TableCaption`, `FieldNo`) run (`Session::unpinned_buffer_op`).
+//! The methods that read neither its buffer nor its view (`TableName`, `TableCaption`, `FieldNo`, `FieldCaption`) run
+//! (`Session::unpinned_buffer_op`).
 //!
 //! The table's own `OnInsert` and `OnDelete` run after the extensions' `OnBeforeInsert` and `OnBeforeDelete`. The pins measure
 //! their xRec without an extension trigger before them. When an extension's trigger left Rec's buffer as it was, the table
