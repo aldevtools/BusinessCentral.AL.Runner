@@ -21,7 +21,8 @@
 //! fields are Rec at the `Insert(true)` or `Delete(true)` call, before the `OnBefore...Event` subscribers and the extension's
 //! trigger; its filters and key are Rec's after the extension's trigger. Only the call shape the probe measures runs
 //! ([`AtCall`]); every other call shape keeps main's xRec (the buffer after the subscribers, before the extension's
-//! trigger). In a measured call whose extension trigger moved Rec to another row or left another filter group, that xRec
+//! trigger). In a measured call whose extension trigger moved Rec to another row, left another filter group or set a filter in
+//! another group, that xRec
 //! is marked [`XREC_AFTER_EXT_BEFORE_UNMEASURED`], read like the mark above. A call runs through the assumption only when
 //! code of the table or of its extensions names xRec (`table_code_names_xrec`), so a test that cannot read it stays clean.
 //!
@@ -135,12 +136,13 @@ impl Session {
     }
 
     /// xRec of the table's own trigger after the extension's `OnBefore...` trigger ran: the fields of `at`, the view of Rec now
-    /// (XebXRecAfterExtBeforeTrigger.al:590 SetRange, :627 SetCurrentKey, :839). Measured when the trigger left filter group 0
-    /// and did not move Rec to another row; else the mark [`XREC_AFTER_EXT_BEFORE_UNMEASURED`].
+    /// (XebXRecAfterExtBeforeTrigger.al:590 SetRange, :627 SetCurrentKey, :839). Measured when the trigger left filter group 0,
+    /// every filter of Rec is in group 0 and the trigger did not move Rec to another row; else the mark [`XREC_AFTER_EXT_BEFORE_UNMEASURED`].
     pub(crate) fn xrec_after_ext_before(at: AtCall, rec: &Rec) -> Rec {
         let measured = {
             let r = rec.borrow();
             r.filter_group == 0
+                && r.filters.iter().all(|f| f.group == 0)
                 && match (&r.position, &at.position) {
                     (None, None) => true,
                     (Some(now), Some(then)) => Rc::ptr_eq(now, then) || Self::same_values(now, then),

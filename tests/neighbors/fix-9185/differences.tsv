@@ -1,1 +1,14 @@
 # key	entry
+Tests::Delete_BufferChanged_ExtSetsName	ASSUMED xrec-after-ext-before-trigger corpus PR 1611 (open)
+Tests::Delete_ExtSetRange	ASSUMED xrec-after-ext-before-trigger corpus PR 1611 (open)
+Tests::Delete_NothingChanges	ASSUMED xrec-after-ext-before-trigger corpus PR 1611 (open)
+Tests::Delete_SubscriberSetsName	ASSUMED xrec-after-ext-before-trigger corpus PR 1611 (open)
+Tests::Insert_AfterGetOfOtherRow_ExtSetsName	ASSUMED xrec-after-ext-before-trigger corpus PR 1611 (open)
+Tests::Insert_ExtSetCurrentKey	ASSUMED xrec-after-ext-before-trigger corpus PR 1611 (open)
+Tests::Insert_ExtSetRange	ASSUMED xrec-after-ext-before-trigger corpus PR 1611 (open)
+Tests::Insert_ExtSetsName	ASSUMED xrec-after-ext-before-trigger corpus PR 1611 (open)
+Tests::Insert_NothingChanges	ASSUMED xrec-after-ext-before-trigger corpus PR 1611 (open)
+Tests::Insert_SubscriberAndExtSetName	ASSUMED xrec-after-ext-before-trigger corpus PR 1611 (open)
+Tests::Insert_SubscriberSetsName	ASSUMED xrec-after-ext-before-trigger corpus PR 1611 (open)
+Tests::Neighbor_ExtGetsRow	REFUSED xRec in a table's OnInsert or OnDelete after a table extension's OnBeforeInsert or OnBeforeDelete, in a shape the corpus does not measure
+Tests::Neighbor_ExtFilterGroup	REFUSED xRec in a table's OnInsert or OnDelete after a table extension's OnBeforeInsert or OnBeforeDelete, in a shape the corpus does not measure
