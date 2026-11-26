@@ -25,6 +25,17 @@ use al_data::AccessContext;
 const ROW_VERSION: u32 = 2_000_000_005;
 
 impl Session {
+    /// The re-reads corpus PR 1613 sends the row with (RowVersionReReadShapes.al `ReRead`): Get, FindFirst, FindSet and
+    /// Find('-') through a Record variable, RecordRef.FindFirst (`note_read_for_row_versions`, `send_pending_insert`).
+    pub(crate) fn measured_send_read(&self, method: RecordOp, find_form: Option<&str>) -> bool {
+        matches!(
+            (method, self.through_recordref, find_form),
+            (RecordOp::Get | RecordOp::FindFirst | RecordOp::FindSet, false, _)
+                | (RecordOp::Find, false, Some("-"))
+                | (RecordOp::FindFirst, true, _)
+        )
+    }
+
     /// Takes entry `at` of `RowVersionTx::pending_inserts` out as sent now and returns the last row version its Inserts handed
     /// out. Its rows at or below a row version sent before them (the last Commit's or the open transaction's) are noted in
     /// `restamped_rows`, with `insert_value_read` in the shape corpus PR 1613 measures (RowVersionReReadShapes.al `Run`, sends

@@ -328,10 +328,8 @@ impl Session {
                     RecordOp::CalcFields => own_pending,
                     _ => false,
                 };
-            self.note_read_for_row_versions(
-                t.object,
-                &company,
-                more || matches!(
+            let sends = more
+                || matches!(
                     method,
                     RecordOp::Get
                         | RecordOp::FindFirst
@@ -340,16 +338,8 @@ impl Session {
                         | RecordOp::IsEmpty
                         | RecordOp::Count
                         | RecordOp::CalcSums
-                ),
-                // The re-reads corpus PR 1613 sends the row with (RowVersionReReadShapes.al `ReRead`): Get, FindFirst, FindSet
-                // and Find('-') through a Record variable, RecordRef.FindFirst.
-                matches!(
-                    (method, self.through_recordref, find_form),
-                    (RecordOp::Get | RecordOp::FindFirst | RecordOp::FindSet, false, _)
-                        | (RecordOp::Find, false, Some("-"))
-                        | (RecordOp::FindFirst, true, _)
-                ),
-            );
+                );
+            self.note_read_for_row_versions(t.object, &company, sends, self.measured_send_read(method, find_form));
             self.restamped_find(&cx, &t, &rec.borrow(), method)?;
             use crate::recmeta::{ISOLATION_REPEATABLE_READ, ISOLATION_UPDLOCK};
             // The assignment of a locking isolation opened the write transaction (`RecordOp::ReadIsolation`), the read does
