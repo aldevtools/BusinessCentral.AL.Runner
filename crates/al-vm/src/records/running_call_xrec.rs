@@ -1,7 +1,8 @@
 //! The xRec of a procedure of a table or of one of its table extensions that code other than the table's own calls on a record
 //! while a trigger of the same record runs (`Session::running_call_xrec`, by `table_proc_xrec` in `nested_validate.rs`): the
 //! running field trigger's xRec, shared, in the chains of calls the corpus measured, else a blank xRec marked
-//! `XREC_OF_RUNNING_CALL` whose read refuses.
+//! `XREC_OF_RUNNING_CALL` whose read refuses. While a table extension's insert or delete trigger runs on the record, the
+//! blank xRec carries that trigger's mark instead (`ext_trigger_xrec.rs`, not measured), checked before every chain.
 //!
 //! Each chain starts in a field OnValidate trigger of the table and ends in a codeunit procedure that has the record as a `var`
 //! parameter and calls the procedure on it (al-runner issues 8189 and 8284):
@@ -31,7 +32,7 @@
 //! whose reads refuse, also in the triggers of a Validate it calls (`BeforeImage`), and in a
 //! procedure the shared one calls on Rec (`shared_xrec_of_own_procedure`).
 
-use super::nested_validate::{ProcXrec, ValidateRun, ValidateSite};
+use super::nested_validate::{ProcXrec, ValidateRun, ValidateSite, XREC_OF_RUNNING_CALL};
 use crate::records::Rec;
 use crate::{Frame, Session};
 use al_builtins::assumptions::{self, Assumption};
@@ -80,6 +81,10 @@ impl Session {
     /// - Else, and when no call on the record runs: a plain call (record/PWTableGlobals.al:196-260 XRecPlainProc_*).
     pub(super) fn running_call_xrec(&mut self, object: usize, rc: &Rec, f: &Frame) -> ProcXrec {
         let table = rc.borrow().table as usize;
+        // A table extension's insert or delete trigger runs on the record: its xRec is not measured, nor is the procedure's.
+        if self.ext_trigger_xrec_running(table, rc) {
+            return ProcXrec::PlainUnpinned(super::XREC_OF_EXT_INSERT_DELETE_TRIGGER);
+        }
         if self.table_or_its_extension(f.object, table) {
             let Some(x) = self.shared_xrec_of_own_procedure(rc, f) else {
                 return ProcXrec::Plain;
@@ -88,7 +93,7 @@ impl Session {
             return if Self::same_values(&x.borrow().fields, &blank) {
                 ProcXrec::Plain
             } else {
-                ProcXrec::PlainUnpinned
+                ProcXrec::PlainUnpinned(XREC_OF_RUNNING_CALL)
             };
         }
         let blank = self.initial_fields(table);
@@ -112,7 +117,7 @@ impl Session {
                 ProcXrec::Shared(x)
             };
         }
-        ProcXrec::PlainUnpinned
+        ProcXrec::PlainUnpinned(XREC_OF_RUNNING_CALL)
     }
 
     /// The xRec of the procedure in frame `f`, of the table or of one of its table extensions, when it runs on `rc` with an xRec
