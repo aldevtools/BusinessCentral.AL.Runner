@@ -63,6 +63,15 @@ pub(crate) struct ConsistentMark {
     pub(crate) state: MarkState,
 }
 
+/// What the record argument of a guarded run set in the marks: nothing, the first mark (`_MarkRec_Fails`, step `frec`;
+/// no other arm reads it with more than one mark), or the first of two marks whose second a database variable set.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ArgMarks {
+    None,
+    First,
+    FirstThenDatabase,
+}
+
 /// The record a guarded `Codeunit.Run` hands to OnRun, as the end-of-run check reads it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum RunArg {
@@ -253,7 +262,7 @@ fn fail_probe_end(
     top_level_no_commit: bool,
     arg: RunArg,
     arg_kept: bool,
-    marked_by_arg: bool,
+    arg_marks: ArgMarks,
     database_set: bool,
     after: &[(u32, MarkState)],
     end: RunEnd,
@@ -265,8 +274,11 @@ fn fail_probe_end(
     use MarkState::{Marked as M, MarkedAgainByAnother as A, ReleasedByAnother as R};
     let states: Vec<MarkState> = after.iter().map(|(_, s)| *s).collect();
     let filtered = arg_kept && filtered_probe_arg(arg, after);
-    if filtered && marked_by_arg && end == RunEnd::Failed("Dialog") && states == [M] {
-        return Some(false);
+    if filtered && end == RunEnd::Failed("Dialog") {
+        match (arg_marks, states.as_slice()) {
+            (ArgMarks::First, [M]) | (ArgMarks::FirstThenDatabase, [M, M]) => return Some(false),
+            _ => {}
+        }
     }
     if !database_set {
         return None;
@@ -509,7 +521,25 @@ impl Session {
                 .arg_record
                 .is_some_and(|a| w.upgrade().is_some_and(|b| Rc::ptr_eq(&b, &a.rec)))
         };
-        let marked_by_arg = self.tx.open.inconsistent.first().is_some_and(|m| is_arg(&m.by));
+        let marks = &self.tx.open.inconsistent;
+        let arg_marks = match marks.as_slice() {
+            // Corpus errors/ConsistentGuardedRunRecFail.al (corpus 9f7e6bb4) RecZ_ModifyRec_MarkRec_MarkYByA_Fails:1029 and
+            // RecX_ModifyRec_MarkRec_MarkYByA_Fails:1121 (steps `modrec,frec,fya,err`): the argument sets the first mark, which
+            // nobody marks again or releases, and one other database variable (not the argument) sets one more mark. The
+            // session does not track the Modify of the argument before the run: `frec,fya,err` without it runs as the measured
+            // `modrec,frec,fya,err` shape (follow-up).
+            [a, b]
+                if is_arg(&a.by)
+                    && a.state == MarkState::Marked
+                    && b.by_database
+                    && !is_arg(&b.by)
+                    && b.state == MarkState::Marked =>
+            {
+                ArgMarks::FirstThenDatabase
+            }
+            [a, ..] if is_arg(&a.by) => ArgMarks::First,
+            _ => ArgMarks::None,
+        };
         let top_level_no_commit = top_level && no_commit && before.is_empty();
         // Corpus PR 1598 measures the argument as a setter only alone (`_MarkRec_Fails`, step `frec`): no mark of another
         // shape is set or marked again by it.
@@ -519,15 +549,7 @@ impl Session {
             .inconsistent
             .iter()
             .all(|m| m.by_database && !is_arg(&m.by) && !is_arg(&m.again_by));
-        let probe_end = fail_probe_end(
-            top_level_no_commit,
-            arg,
-            arg_kept,
-            marked_by_arg,
-            database_set,
-            &after,
-            end,
-        );
+        let probe_end = fail_probe_end(top_level_no_commit, arg, arg_kept, arg_marks, database_set, &after, end);
         if let Some(raises) = probe_end {
             assume(Assumption::GuardedRunConsistentFail);
             return Ok(raises.then(|| self.inconsistent_error(after[0].0 as usize)));

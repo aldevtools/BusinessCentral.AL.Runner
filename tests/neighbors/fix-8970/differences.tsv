@@ -166,3 +166,6 @@ GRR Tests::RecX_MarkXMarkY_PlainCommit	ASSUMED guarded-run-consistent-fail (corp
 GRR Tests::RecX_MarkYByA_MarkXByA_Ends	ASSUMED guarded-run-consistent-fail (corpus PR 1590, merged)
 GRR Tests::RecZ_MarkRec_Fails	ASSUMED guarded-run-consistent-fail (corpus PR 1590, merged)
 GRR Tests::RecZ_MarkXMarkY_PlainCommit	ASSUMED guarded-run-consistent-fail (corpus PR 1590, merged)
+GRR Tests::RecX_ModifyRec_MarkRec_MarkYByA_Fails	ASSUMED guarded-run-consistent-fail (corpus PR 1590, merged)
+GRR Tests::RecZ_ModifyRec_MarkRec_MarkYByA_Fails	ASSUMED guarded-run-consistent-fail (corpus PR 1590, merged)
+F Neighbor Tests::RecXArgMarksThenHeldFails	ASSUMED guarded-run-consistent-fail (corpus PR 1590, merged)
