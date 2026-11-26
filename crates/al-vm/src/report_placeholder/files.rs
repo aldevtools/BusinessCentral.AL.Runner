@@ -2,6 +2,8 @@
 //! signature a test can tell (reports/layouts-saveas/AMReportOutputTests.al:41-52 `Head`: `%PDF-`, `PK`, `<`) and that it is
 //! not empty. The content is never BC's, and a read of it is refused (`al_builtins::placeholder_output`).
 
+use std::sync::LazyLock;
+
 /// A rendered format a placeholder stands in for.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Format {
@@ -41,6 +43,48 @@ impl Format {
             Format::Html => placeholder_html(),
         }
     }
+}
+
+/// The format of the placeholder whose header `bytes` start with: a file the runtime wrote, whole, cut short after the
+/// header, or with bytes after it (al-runner issues 8702, 8703). The header is the shortest start of the image that the
+/// other files this runtime meets do not share: the html page through its empty `<title></title>` (the start before it is
+/// every HTML5 page's), the PDF through its first object (the catalog, written as this runtime writes it), the zip through
+/// the first entry's name (its DOS date field is 0, which is no valid date). Any other file that starts with a header is
+/// read as that placeholder and its content refused, even one AL code of this session wrote with those bytes. A file
+/// shorter than the header is not told apart from other content.
+pub fn outside_format(bytes: &[u8]) -> Option<Format> {
+    // Built once: the zip images take a CRC each.
+    static HEADERS: LazyLock<Vec<(Format, Vec<u8>)>> = LazyLock::new(|| {
+        [Format::Pdf, Format::Word, Format::Excel, Format::Html]
+            .into_iter()
+            .map(|f| {
+                let mut image = f.bytes();
+                image.truncate(header_len(f, &image));
+                (f, image)
+            })
+            .collect()
+    });
+    HEADERS
+        .iter()
+        .find(|(_, header)| bytes.starts_with(header))
+        .map(|&(f, _)| f)
+}
+
+/// The length of the header of `image`, the placeholder of `f` ([`outside_format`]).
+fn header_len(f: Format, image: &[u8]) -> usize {
+    let end_of = |part: &[u8]| {
+        image
+            .windows(part.len())
+            .position(|w| w == part)
+            .map(|i| i + part.len())
+    };
+    let len = match f {
+        Format::Html => end_of(b"<title></title>"),
+        Format::Pdf => end_of(b"endobj\n"),
+        // The local file header (30 bytes) and the name, whose length is at offset 26.
+        Format::Word | Format::Excel => Some(30 + usize::from(u16::from_le_bytes([image[26], image[27]]))),
+    };
+    len.expect("the placeholder images hold their header")
 }
 
 /// A small valid PDF: the `%PDF-1.4` header, a catalog, a page tree and one blank Letter page, with a correct
@@ -218,6 +262,36 @@ mod tests {
         assert!(bytes.starts_with(b"PK"));
         assert!(entries(&bytes).contains(&"xl/workbook.xml".to_string()));
         assert!(entries(&bytes).contains(&"xl/worksheets/sheet1.xml".to_string()));
+    }
+
+    #[test]
+    fn a_file_that_starts_with_a_placeholder_header_is_that_format() {
+        for f in [Format::Pdf, Format::Word, Format::Excel, Format::Html] {
+            let image = f.bytes();
+            assert_eq!(outside_format(&image), Some(f), "{f:?} whole");
+            let mut longer = image.clone();
+            longer.extend_from_slice(b"more");
+            assert_eq!(outside_format(&longer), Some(f), "{f:?} with bytes after it");
+            let n = header_len(f, &image);
+            assert_eq!(outside_format(&image[..n]), Some(f), "{f:?} header only");
+            assert_eq!(outside_format(&image[..n - 1]), None, "{f:?} shorter than the header");
+        }
+    }
+
+    #[test]
+    fn the_headers_reach_past_what_other_files_share() {
+        // The html header ends after the empty title, the PDF header after its first object, the zip header after the
+        // first entry's name (its date field is 0, which no zip writer writes).
+        let html = placeholder_html();
+        assert!(html[..header_len(Format::Html, &html)].ends_with(b"<title></title>"));
+        let pdf = placeholder_pdf();
+        assert!(pdf[..header_len(Format::Pdf, &pdf)].ends_with(b"endobj\n"));
+        assert_eq!(
+            outside_format(b"<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\"><title>T</title>"),
+            None
+        );
+        assert_eq!(outside_format(b"%PDF-1.4\n"), None);
+        assert_eq!(outside_format(b"PK\x03\x04\x14\0\0\0\0\0\0\0\0\0"), None);
     }
 
     #[test]

@@ -1,4 +1,1 @@
 # key	entry
-Neighbor 7820 Tests::Standalone_OneRow_IsAssumed	ASSUMED part-update-first-row-find-forward (corpus PR 1574, tests/al-language/pages/parts/TestPartUpdateFindRecord.al:143)
-Neighbor 7820 Tests::Standalone_FiveRows_IsAssumed	ASSUMED part-update-first-row-find-forward (corpus PR 1574, tests/al-language/pages/parts/TestPartUpdateFindRecord.al:154)
-Neighbor 7820 Refusal Tests::Standalone_SecondSetValue_IsRefused	REFUSED a call of the test after a part with OnFindRecord read its rows again after its own CurrPage.Update(true)

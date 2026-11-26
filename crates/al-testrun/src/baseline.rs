@@ -125,17 +125,38 @@ pub struct NoteFacts {
     pub assumptions: Vec<String>,
     /// The lines on partner apps installed in several orders (`install_orders::INSTALL_ORDERS_NOTE`, ADR-046 amendment 7).
     pub install_orders: Vec<String>,
+    /// Every difference those orders left (`install_orders::INSTALL_ORDER_DIFFERENCE_NOTE`; al-runner issue 9058).
+    pub install_order_differences: Vec<String>,
 }
 
 impl NoteFacts {
     pub fn of(notes: &[String]) -> NoteFacts {
         NoteFacts {
             assumptions: assumption_ids(notes),
-            install_orders: notes
-                .iter()
-                .filter(|n| n.starts_with(crate::install_orders::INSTALL_ORDERS_NOTE))
-                .cloned()
-                .collect(),
+            install_orders: starting(notes, crate::install_orders::INSTALL_ORDERS_NOTE),
+            install_order_differences: starting(notes, crate::install_orders::INSTALL_ORDER_DIFFERENCE_NOTE),
+        }
+    }
+
+    /// Adds the facts of `notes` and prints them after `label` ([`print_notes`]).
+    pub fn add_printed(&mut self, label: &str, notes: &[String], quiet: bool) {
+        print_notes(label, notes, quiet);
+        let more = NoteFacts::of(notes);
+        self.assumptions.extend(more.assumptions);
+        self.install_orders.extend(more.install_orders);
+        self.install_order_differences.extend(more.install_order_differences);
+    }
+}
+
+fn starting(notes: &[String], prefix: &str) -> Vec<String> {
+    notes.iter().filter(|n| n.starts_with(prefix)).cloned().collect()
+}
+
+/// Prints `notes` to stderr, each after `label` (`--verbose`; `quiet` without it).
+pub fn print_notes(label: &str, notes: &[String], quiet: bool) {
+    if !quiet {
+        for n in notes {
+            eprintln!("{label}: {n}");
         }
     }
 }
@@ -189,9 +210,15 @@ pub(crate) fn step_routine(
     }
 }
 
-/// Runs the baseline on a fresh session of `engine`. `None`: no dependency app has anything to run.
-pub fn run(engine: &Arc<Engine>, lowered: &Lowered, company: Option<&CompanyData>) -> Option<BaselineRun> {
-    run_traced(engine, lowered, false, company, &Default::default())
+/// Runs the baseline on a fresh session of `engine`, on the run clock `clock`. `None`: no dependency app has anything to
+/// run.
+pub fn run(
+    engine: &Arc<Engine>,
+    lowered: &Lowered,
+    company: Option<&CompanyData>,
+    clock: crate::host::RunClock,
+) -> Option<BaselineRun> {
+    run_traced(engine, lowered, false, company, &Default::default(), clock)
 }
 
 /// [`run`], and with `trace` what the install code raised and touched (`BaselineRun::trace`, ADR-043 step 2).
@@ -205,8 +232,9 @@ pub fn run_traced(
     trace: bool,
     company: Option<&CompanyData>,
     perturb: &crate::stability::Perturb,
+    clock: crate::host::RunClock,
 ) -> Option<BaselineRun> {
-    run_traced_halting(engine, lowered, trace, company, perturb, None)
+    run_traced_halting(engine, lowered, trace, company, perturb, clock, None)
 }
 
 /// [`run_traced`] that stops its install code once `halt` is set: the run stopped at its hard memory limit (ADR-066
@@ -217,6 +245,7 @@ pub fn run_traced_halting(
     trace: bool,
     company: Option<&CompanyData>,
     perturb: &crate::stability::Perturb,
+    clock: crate::host::RunClock,
     halt: Option<Arc<std::sync::atomic::AtomicBool>>,
 ) -> Option<BaselineRun> {
     let objs = &lowered.program.objects;
@@ -334,8 +363,8 @@ pub fn run_traced_halting(
 
     crate::install::ensure_facts(engine, lowered);
     // A variant of a stability run (ADR-058 section 7): install code sees the variant's host values (clock, seeds,
-    // identity, company), as the tests do.
-    let host = crate::host::host_perturbed(None, perturb);
+    // identity, company), as the tests do. The run's clock, as the tests' sessions have it (`RunClock`).
+    let host = crate::host::host_perturbed(clock, perturb);
     // The company data codeunit reads its resource files through `File`; the rest of the install code sees them too,
     // as every session of BCApps' CI server does once the files are in the user folder.
     let host = match company.and_then(|c| c.resources.clone()) {
@@ -482,7 +511,8 @@ pub fn run_traced_halting(
     }
     // The workspace app's own install codeunits run here, once, so that the data they write is part of what every
     // test codeunit starts from (publishing the app runs them once; they are not re-run for each codeunit).
-    let mut workspace_installs = crate::runtime::run_install_codeunits(lowered, &mut session);
+    let (mut workspace_installs, install_notes) = crate::runtime::run_install_codeunits(lowered, &mut session);
+    notes.extend(install_notes);
     // Tables whose rows depend on the install order of two partner dependency apps (ADR-046 amendment 7): a test that
     // touches one is not run, as for an app under test's install routine that could not run.
     workspace_installs.extend(order_refused);

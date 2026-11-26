@@ -2,6 +2,8 @@
 
 - Status: Accepted (owner, 2026-10-14; the measurement below amended decisions 2 to 4 and the owner accepted the amendments).
   Amendment 2026-11-15 (cache the compiled workspace apps, changes decision 1): Accepted (owner, 2026-11-19)
+  Amendment 2026-11-22 (a kept baseline is taken only at its own instant, changes item 4 of the 2026-10-16
+  amendment): Accepted (owner, 2026-11-22)
 - Date: 2026-10-14
 - Amends: ADR-013 (decision 6: its "persistent cache only if the warm start needs it" becomes a design; its
   "lowered IR is not cached" is lifted for dependency apps), ADR-016 (the deferral of persistent dependency
@@ -838,6 +840,8 @@ a folder of its own. The owner allows one persistent cache, so this is the same 
    has started already at another instant, the entry is not used and the install code runs. So every value a test can
    see equals what an uncached run started at that instant would show. The day in the key bounds how far back a
    run's clock can start.
+   (Replaced by the amendment of 2026-11-22 below, Accepted (owner, 2026-11-22): a run takes the entry only at its own
+   instant.)
 5. **.NET makes no difference to whether the entry is kept.** A run with a usable .NET host keeps and reads the entry
    like any other. The installed state is a valid result whatever .NET calls happened. The key does hold whether a
    host was usable, because a baseline made without one lacks what the refused calls would have written, and a run
@@ -1403,6 +1407,35 @@ written: the limit of 4 entries, and serve keeps its `cached` field and adds `wo
    `cached: true` on a restarted daemon; that would have changed what `cached` means for current clients.
 
 The test-plan deviations were decided on 2026-11-22 (see "Test plan as built").
+
+## Amendment (Accepted, owner 2026-11-22): a kept baseline is taken only at its own instant (issue 8457)
+
+Status of this amendment: **Accepted** (owner, 2026-11-22, as written). It changes item 4 ("The run clock") of the
+amendment of 2026-10-16 and goes with the ADR-045 amendment of 2026-11-22 (the run clock begins once per run). It does
+not change the entry's file layout, the other parts of the key or the layer entries.
+
+### Why
+
+Item 4 let a run that read an entry start its run clock at the entry's instant. The run clock was one value per
+process, set at its first read, and the day in the key came from a second read of the wall clock. A server kept past
+midnight therefore answered with the day of its first request, and a file written under today's key could hold
+yesterday's instant, which a fresh process then took up (issue 8457).
+
+### Decision
+
+1. **Item 4 reads:** "The rows of a baseline carry the instant the run that made it began (`RunClock`). The entry
+   stores that instant, and the key holds that instant's UTC day. A run takes the entry only when its own clock starts
+   at that instant; otherwise the install code runs and the entry is written again. A run never moves its clock to an
+   entry. So every value a test can see equals what an uncached run would show."
+2. **The day in the key** (item 3, last part) is the UTC day of the run's start, not of another read of the wall clock,
+   so the day in the key and the instant in the file always agree.
+3. **A run on the wall clock** (`ALRUNNER_REAL_CLOCK=1`) keeps and reads no entry, as before: its rows carry no fixed
+   instant.
+
+### Consequences
+
+- Within one UTC day nothing changes: every run starts at the same instant, so it takes the entry as before.
+- After midnight the first run of the new day runs the install code and writes the entry under the new day's key.
 
 ## Consequences
 

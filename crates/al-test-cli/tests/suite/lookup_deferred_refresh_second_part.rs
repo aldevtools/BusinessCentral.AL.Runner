@@ -191,6 +191,7 @@ fn issue_6639_the_second_part_lookups_mark_no_assumption() {
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     for n in [
         "SecondListPartShowsThePickedResource",

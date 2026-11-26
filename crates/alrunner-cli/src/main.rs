@@ -24,6 +24,7 @@ mod path_note;
 mod profile;
 mod recipe;
 mod recipe_run;
+mod request_timings;
 mod run;
 mod run_inputs;
 #[cfg(test)]

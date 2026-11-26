@@ -118,6 +118,7 @@ impl Session {
         };
         let table = match &*h.borrow() {
             al_builtins::value::LibraryValue::RecordRef(rec) => {
+                Self::by_value_view_handed(rec, || "a report run on a RecordRef".into())?;
                 let r = rec.borrow();
                 let filter_shape = r.key == 0
                     && r.adhoc.is_none()

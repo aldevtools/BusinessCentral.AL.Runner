@@ -52,9 +52,10 @@ impl Session {
         t: &TableDef,
         rec: &Rec,
         reset: bool,
+        argument: bool,
     ) -> Result<Value, Signal> {
         self.tenant_set_truncate(cx, t, rec)?;
-        self.note_bulk_write(rec, t, crate::state::TxWriteKind::Truncate, &[]);
+        self.note_truncate_write(rec, t, argument);
         self.truncate(t, rec, reset)
     }
 

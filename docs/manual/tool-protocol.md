@@ -233,6 +233,13 @@ Differences a client must adapt to:
    and the output). `baselineSource` is `ran` (the install code ran), `cache` (read from the compile cache folder) or
    `kept` (the baseline an earlier request over the same compile read), and is absent when no baseline was needed.
    A request with coverage keeps and reads the baseline as one without: the code of the install baseline is not counted (al-runner issue 8244). Without a baseline (no dependency app) the install code of the apps under test runs in each test codeunit's session and is counted, as before.
+   `testDataIndex` is how the open of the test data got the backup's kept page map and catalog: `read` (the kept index
+   was used), `built` (this process built it and saved it in the cache folder), `built-unsaved` (this process built it,
+   but saving it failed, for example in a read-only cache folder, so the next open builds it again) or `off` (nothing
+   is kept: `--no-compile-cache`, or a `.bacpac`);
+   absent without test data or for a source with no index. It describes the open this process did, so a daemon repeats
+   it on every request. `testDataMs` includes the download of the backup and the building of its index when the cache
+   folder did not hold them.
    `setupParts` splits `setupMs` into its parts, which add up to it (al-runner issue 8205): `optionsMs` (the run seed,
    the server address, the output paths), `sourcesMs` (reading the apps' `app.json` and source files), `selectionMs`
    (finding the test codeunits, the disabled tests and test suites, the request's and its entries' selection),
@@ -258,6 +265,9 @@ Differences a client must adapt to:
    it read (read again when the app files, the options or a file in a package folder change), the engines and the
    install baseline: a request that reuses the compile costs the tests and little else. What a request starts from is the same as when nothing is
    kept: the rows the install code left, none of an earlier request's writes.
+   The run clock is not kept: each request begins its own, at 12:34:56.789 UTC of the day the request starts, so a
+   server kept past midnight answers `Today` with the new date, as a new server would (ADR-045, amendment of
+   2026-11-22, Accepted (owner, 2026-11-22)).
    What each test codeunit starts from (in every request and every entry; al-runner issue 5862): a new session over
    the post-install database. Reset: table rows, the system id, row version and AutoIncrement counters,
    IsolatedStorage, NumberSequence, SingleInstance codeunits (also those of dependency apps), event bindings, handlers,

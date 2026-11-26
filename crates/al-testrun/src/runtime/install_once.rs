@@ -10,7 +10,8 @@
 //! `Session::install_left` returned; when that is `None` the session the install code ran in becomes
 //! the first codeunit's session and every later codeunit runs the install code itself).
 //! `installs_for` is the install step of `run_codeunit_inner`. `begin_pass` and `end_run` set and
-//! clear the entries' resource texts. Entry points: `installs_for`, `run_installs_in`, `RunInstalls`,
+//! clear the entries' resource texts; `end_run` also gives the install-order notes of the apps under test, each
+//! codeunit's list once per run (al-runner issue 9058). Entry points: `installs_for`, `run_installs_in`, `RunInstalls`,
 //! `begin_pass`, `end_run`.
 use super::*;
 
@@ -28,8 +29,13 @@ pub(super) fn run_installs_in(
     }
     installs.runs.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     session.set_install_scope(true);
-    let skipped = run_install_codeunits(lowered, session);
+    let (skipped, notes) = run_install_codeunits(lowered, session);
     session.set_install_scope(false);
+    // Codeunits that run the install code with the same resource texts meet the same ties: the run keeps each list once.
+    let mut lists = installs.notes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if !notes.is_empty() && !lists.contains(&notes) {
+        lists.push(notes);
+    }
     skipped
 }
 
@@ -89,15 +95,17 @@ pub(crate) struct RunInstalls {
     kept: std::sync::Mutex<Option<Installed>>,
     /// How many times the install code ran for the run's codeunits (`Phases::install_runs`).
     runs: std::sync::atomic::AtomicUsize,
+    /// The notes of the install-order proof of the apps under test, each codeunit's list once (al-runner issue 9058;
+    /// [`end_run`]).
+    notes: std::sync::Mutex<Vec<Vec<String>>>,
 }
 
 /// What the install code left the last time it ran for a run ([`start_installed`]).
 struct Installed {
     /// The engine it ran on (`Engine::uid`) and how the codeunit's session was set up.
     key: Key,
-    /// The resource files it read (`Session::resource_reads`) and their texts when it ran (`ResourceReads::texts`).
-    reads: al_vm::ResourceReads,
-    texts: al_vm::ReadTexts,
+    /// The resource files it read (`Session::resource_reads`) and the digests of their texts when it ran.
+    read: al_vm::TextsRead,
     /// What a codeunit's session starts from. `None`: the install code left state a new session does not start from
     /// (`Session::install_left`), or data that cannot be shared between threads (`Baseline::freeze`); each codeunit's session
     /// then runs the install code itself, as on a run without this path. The run keeps that verdict while the key and the
@@ -120,7 +128,7 @@ struct Left {
 #[derive(PartialEq)]
 struct Key {
     engine: u64,
-    clock_start: Option<i64>,
+    clock: crate::host::RunClock,
     perturb: crate::stability::Perturb,
     run_seed: crate::seed::RunSeed,
     flags: super::session_flags::SessionFlags,
@@ -135,12 +143,17 @@ pub(super) fn begin_pass(engine: &Engine, resources: &al_vm::ResourceOverrides) 
 }
 
 /// The end of a run's passes: the resource texts of its entries are not the next run's. Returns how many times the
-/// install code ran for the run's codeunits (`Phases::install_runs`).
-pub(super) fn end_run(engine: &Engine, installs: &RunInstalls) -> usize {
+/// install code ran for the run's codeunits (`Phases::install_runs`), and the notes of its install-order proof, every
+/// reason of every tie (al-runner issue 9058; `--verbose` prints them as the baseline's).
+pub(super) fn end_run(engine: &Engine, installs: &RunInstalls) -> (usize, Vec<String>) {
     if let Ok(mut o) = engine.resource_overrides.write() {
         o.clear();
     }
-    installs.runs.load(std::sync::atomic::Ordering::Relaxed)
+    let lists = std::mem::take(&mut *installs.notes.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+    (
+        installs.runs.load(std::sync::atomic::Ordering::Relaxed),
+        lists.into_iter().flatten().collect(),
+    )
 }
 
 /// The install code of the apps under test runs once per run, not once per test codeunit (al-runner issue 8144), in a
@@ -179,7 +192,7 @@ fn start_installed(
     let engine = session.engine.clone();
     let key = Key {
         engine: engine.uid,
-        clock_start: scratch.clock_start,
+        clock: scratch.clock,
         perturb: scratch.perturb.clone(),
         run_seed: scratch.run_seed,
         flags: scratch.flags,
@@ -190,13 +203,7 @@ fn start_installed(
         .kept
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let fits = kept.as_ref().is_some_and(|i| {
-        i.key == key
-            && engine
-                .resource_overrides
-                .read()
-                .is_ok_and(|o| i.reads.texts(&o) == i.texts)
-    });
+    let fits = kept.as_ref().is_some_and(|i| i.key == key && i.read.same_now(&engine));
     if !fits {
         let (made, ran_in) = install(lowered, &engine, scratch, key);
         *kept = Some(made);
@@ -221,15 +228,14 @@ type RanIn = Option<(Session, Vec<al_vm::SkippedInstall>)>;
 
 /// Runs the install code in a session of its own, made as the codeunit's session is (`run.rs` `run_codeunit_inner`).
 fn install(lowered: &Lowered, engine: &Arc<Engine>, scratch: &Scratch, key: Key) -> (Installed, RanIn) {
-    let mut host = crate::host::host_perturbed(scratch.clock_start, &scratch.perturb);
+    let mut host = crate::host::host_perturbed(scratch.clock, &scratch.perturb);
     host.run_seed = scratch.run_seed.seed;
     // Files on a real folder (`--files-dir`) outlive the session: a write of this run would be seen by the codeunits'
     // own install runs, so it runs only on the session's own in-memory files.
     if !host.files.in_memory() {
         let none = Installed {
             key,
-            reads: Default::default(),
-            texts: Vec::new(),
+            read: Default::default(),
             left: None,
         };
         return (none, None);
@@ -237,20 +243,10 @@ fn install(lowered: &Lowered, engine: &Arc<Engine>, scratch: &Scratch, key: Key)
     let mut s = Session::with_host(engine.clone(), host);
     scratch.flags.apply(&mut s);
     let skipped = run_installs_in(lowered, &mut s, &scratch.installs);
-    let reads = s.resource_reads();
-    let texts = engine
-        .resource_overrides
-        .read()
-        .map(|o| reads.texts(&o))
-        .unwrap_or_default();
+    let read = al_vm::TextsRead::now(s.resource_reads(), engine);
     // Before the capture, which commits and clears part of what the check reads.
     let Some(rest) = s.install_left() else {
-        let installed = Installed {
-            key,
-            reads,
-            texts,
-            left: None,
-        };
+        let installed = Installed { key, read, left: None };
         return (installed, Some((s, skipped)));
     };
     let mut data = s.capture_baseline();
@@ -260,11 +256,6 @@ fn install(lowered: &Lowered, engine: &Arc<Engine>, scratch: &Scratch, key: Key)
         install_rows: s.install_rows(),
         rest,
     });
-    let installed = Installed {
-        key,
-        reads,
-        texts,
-        left,
-    };
+    let installed = Installed { key, read, left };
     (installed, None)
 }

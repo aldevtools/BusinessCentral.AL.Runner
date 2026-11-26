@@ -8,16 +8,18 @@
 //! `--refusal-detail`); a refusal is `TestResult::is_refusal` (not run, not left out by a stop
 //! option). A serve request keeps the dependency apps it read (`WarmCtx::dependencies`, checked by
 //! `kept_apps::stamps`) and the apps under test (`WarmCtx::apps`, `kept_apps.rs`) and says where its
-//! time went (`RequestTimings`, the summary's `timings`). Entry: `test`.
+//! time went (`request_timings.rs`, the summary's `timings`). Entry: `test`.
 
 use crate::apps::{self, AppInput};
 use crate::args::{DEFAULT_TOP, TestArgs};
 use crate::capture;
 use crate::coverage;
 use crate::output::{self, Counts};
-use crate::setup_timings::{Laps, Part, SetupParts};
+pub use crate::request_timings::RequestTimings;
+use crate::setup_timings::{Laps, Part};
 use crate::style;
 use crate::testdata;
+use crate::workspace_layer::own_report;
 use al_bcdb_std::BackupProvider;
 use al_deps::load::WorkspaceApp;
 use al_host::dotnet::DotNetHost;
@@ -445,6 +447,19 @@ fn test_timeout_secs(a: &TestArgs) -> Result<u64, String> {
 }
 
 /// The time limit of a test from a number of seconds: `0` is no limit.
+/// The compile cache of a run whose cache is on: under the cache folder of `--cache-dir` or the environment, with the
+/// `--require-compile-cache` and `--rebuild-compile-cache` switches.
+fn compile_cache(a: &TestArgs, country: &str) -> al_testrun::compile_cache::CompileCache {
+    al_testrun::compile_cache::CompileCache {
+        dir: al_testrun::compile_cache::CompileCache::under(&al_deps::cache::cache_root_from_env(
+            a.cache_dir.as_deref(),
+        )),
+        require: a.require_compile_cache,
+        rebuild: a.rebuild_compile_cache,
+        country: country.to_string(),
+    }
+}
+
 fn time_limit(secs: u64) -> Option<std::time::Duration> {
     (secs > 0).then(|| std::time::Duration::from_secs(secs))
 }
@@ -594,62 +609,6 @@ pub struct KeptDependencies {
     /// The files they were chosen from and read from, as they were then (`kept_apps::stamps`).
     stamps: crate::kept_apps::Stamps,
     deps: Arc<deps::Dependencies>,
-}
-
-/// Where a server request spent its time, by phase (al-runner issue 5856).
-#[derive(Debug, Clone, Default)]
-pub struct RequestTimings {
-    /// Before the compile, by part (al-runner issue 8205); `SetupParts::total` is `setupMs`.
-    pub setup: SetupParts,
-    /// Finding the kept compile, updating it, or compiling again.
-    pub compile: std::time::Duration,
-    /// Building the engine the tests run on from the compiled program, or setting up a kept one.
-    pub engine: std::time::Duration,
-    /// The request ran on the engines an earlier request over the same compile kept.
-    pub engine_kept: bool,
-    /// Test sessions that took a login start in place of running the login, and the starts kept (al-runner issue 8211),
-    /// over every request the engine ran.
-    pub login_replays: u64,
-    pub login_starts: usize,
-    /// Setting up the install baseline: running the install code, or reading it.
-    pub baseline: std::time::Duration,
-    /// `ran`, `cache` or `kept` (`Phases::baseline_source`); `None`: no baseline.
-    pub baseline_source: Option<&'static str>,
-    /// Running the test codeunits, every pass.
-    pub tests: std::time::Duration,
-    /// Building the coverage document.
-    pub coverage: std::time::Duration,
-    /// Per pass (one per entry of the request): the threads' baseline copy and the pass's wall time.
-    pub passes: Vec<al_testrun::runtime::PassTime>,
-    /// What the workspace layer of the compile cache did, when this request compiled (`read`, `built`, `off`;
-    /// ADR-022 amendment 2026-11-15). `None`: the request used the kept compile, or the run did not ask for the layer.
-    pub workspace_cache: Option<&'static str>,
-}
-
-impl RequestTimings {
-    /// A request's timings: its setup parts, the run's phases, the time the coverage document took and what the
-    /// workspace layer did (`RequestTimings::workspace_cache`).
-    fn of(
-        setup: SetupParts,
-        p: &al_testrun::runtime::Phases,
-        coverage: Duration,
-        workspace_cache: Option<&'static str>,
-    ) -> RequestTimings {
-        RequestTimings {
-            setup,
-            compile: p.warm_compile.unwrap_or(p.compile),
-            engine: p.engine,
-            engine_kept: p.engine_kept,
-            login_replays: p.login_replay.replays,
-            login_starts: p.login_replay.starts,
-            baseline: p.baseline,
-            baseline_source: p.baseline_source,
-            tests: p.tests,
-            coverage,
-            passes: p.passes.clone(),
-            workspace_cache,
-        }
-    }
 }
 
 /// One entry of a server request (`WarmCtx::entries`).
@@ -1684,14 +1643,7 @@ fn test_inner(
         test_data: test_data.as_ref().map(|(d, _)| d.clone()),
         company_data: company_data.clone(),
         workspace_cache: crate::workspace_layer::options(a, &inputs),
-        compile_cache: compile_cache_on.then(|| al_testrun::compile_cache::CompileCache {
-            dir: al_testrun::compile_cache::CompileCache::under(&al_deps::cache::cache_root_from_env(
-                a.cache_dir.as_deref(),
-            )),
-            require: a.require_compile_cache,
-            rebuild: a.rebuild_compile_cache,
-            country: country.clone(),
-        }),
+        compile_cache: compile_cache_on.then(|| compile_cache(a, &country)),
         // Left at their defaults: `single_fresh_check` (set per variant in stability mode, ADR-058 amendment 1), `perturb`, `check_baseline_rule`.
         ..Default::default()
     };
@@ -1838,7 +1790,7 @@ fn test_inner(
         if a.timings {
             eprintln!("{}", setup.line());
             print_compile_phases(p);
-            print_compile_cache(p, crate::workspace_layer::own_report(p, warm.as_deref()));
+            print_compile_cache(p, own_report(p, warm.as_deref()));
             eprintln!("time: total {}", secs(total_time));
         }
         say!("{why}");
@@ -1971,7 +1923,7 @@ fn test_inner(
         if let Some(cost) = test_data.as_ref().and_then(|(d, _)| d.provider.cost()) {
             eprintln!("test data: {cost}");
         }
-        print_compile_cache(p, crate::workspace_layer::own_report(p, warm.as_deref()));
+        print_compile_cache(p, own_report(p, warm.as_deref()));
         let slowest: Vec<String> = p
             .slowest
             .iter()
@@ -2333,8 +2285,13 @@ fn test_inner(
         })
     );
     if let Some(w) = warm {
-        let workspace_cache = crate::workspace_layer::own_report(p, Some(w)).map(|r| r.state.as_str());
-        w.timings = Some(RequestTimings::of(setup, p, coverage_time, workspace_cache));
+        w.timings = Some(RequestTimings::of(
+            setup,
+            p,
+            coverage_time,
+            test_data.as_ref(),
+            own_report(p, Some(w)),
+        ));
         w.report = Some(Report {
             doc: serde_json::from_str(&crate::unpinned::json(
                 crate::seed::json(
