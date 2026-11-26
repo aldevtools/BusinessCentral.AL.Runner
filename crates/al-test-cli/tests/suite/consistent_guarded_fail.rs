@@ -37,6 +37,7 @@ table 50132 "F Z" { fields { field(1; Id; Integer) { } field(2; "Date Filter"; D
 codeunit 50135 "F Z Inner" { TableNo = "F Z"; trigger OnRun() var I: Codeunit "F Inner"; begin I.DoSteps(); end; }
 codeunit 50137 "F Zf Inner" { TableNo = "F Z"; trigger OnRun() var I: Codeunit "F Inner"; begin Rec.SetRange(Id, 2); I.DoSteps(); end; }
 codeunit 50138 "F Zg Inner" { TableNo = "F Z"; trigger OnRun() var I: Codeunit "F Inner"; begin Rec.FilterGroup(2); I.DoSteps(); end; }
+codeunit 50140 "F X Mark Inner" { TableNo = "F X"; trigger OnRun() var I: Codeunit "F Inner"; begin Rec.Consistent(false); I.DoSteps(); end; }
 codeunit 50136 "F X Inner" { TableNo = "F X"; trigger OnRun() var I: Codeunit "F Inner"; begin I.DoSteps(); end; }
 codeunit 50133 "F Wrap" { trigger OnRun() var St: Codeunit "F Steps"; begin St.Set('startx,fya,fyc,err'); Codeunit.Run(Codeunit::"F Inner"); end; }
 codeunit 50000 T { Subtype = Test;
@@ -69,6 +70,8 @@ codeunit 50000 T { Subtype = Test;
       'ysetrange': begin Y.SetRange(Id, 1); Ok := Codeunit.Run(Codeunit::"F Rec Inner", Y); end;
       'xmarked': begin X.Id := 1; X.Insert(); Commit(); X.Mark(true); X.MarkedOnly(true); Ok := Codeunit.Run(Codeunit::"F X Inner", X); end;
       'x': Ok := Codeunit.Run(Codeunit::"F X Inner", X);
+      'xmark': Ok := Codeunit.Run(Codeunit::"F X Mark Inner", X);
+      'zgroup2nofilter': begin Z.FilterGroup(2); Ok := Codeunit.Run(Codeunit::"F Z Inner", Z); end;
       'tmp': begin TX.Id := 1; TX.Insert(); Ok := Codeunit.Run(Codeunit::"F X Inner", TX); end;
     end;
     if Ok then Error('run succeeded'); Commit(); end;
@@ -123,6 +126,11 @@ codeunit 50000 T { Subtype = Test;
   [Test] procedure RecFlowFilterSingleValueHeldAgainFails() begin RecFails('zflowfilter', 'startx,fya,fyc,err'); end;
   [Test] procedure RecMarkedRowNoMarkedOnlyHeldAgainFails() begin RecFails('zmarked', 'startx,fya,fyc,err'); end;
   [Test] procedure RecFilterGroupLeftByInnerHeldAgainFails() begin RecFails('zinnergroup', 'startx,fya,fyc,err'); end;
+  // Fix round 2: the argument marks its own table and a second mark follows (the probe measures it only alone); the caller's
+  // filter group is 2 with no filter.
+  [Test] procedure RecXArgMarksThenHeldFails() begin RecFails('xmark', 'fya,err'); end;
+  [Test] procedure RecXArgMarksThenHeldAgainFails() begin RecFails('xmark', 'fya,fyc,err'); end;
+  [Test] procedure RecCallerGroupTwoNoFilterHeldAgainFails() begin RecFails('zgroup2nofilter', 'startx,fya,fyc,err'); end;
 }
 // The successful runs of fix round 1, in a codeunit of their own: an earlier refused test of a codeunit turns a later
 // failing one into not run.
@@ -230,6 +238,10 @@ fn guarded_run_fail_probe_shapes() {
         "RecFlowFilterSingleValueHeldAgainFails",
         "RecMarkedRowNoMarkedOnlyHeldAgainFails",
         "RecFilterGroupLeftByInnerHeldAgainFails",
+        // Fix round 2: the argument marks its own table, then a second mark; a caller filter group 2 without a filter.
+        "RecXArgMarksThenHeldFails",
+        "RecXArgMarksThenHeldAgainFails",
+        "RecCallerGroupTwoNoFilterHeldAgainFails",
     ] {
         refused(name, "in a shape no probe measured");
     }

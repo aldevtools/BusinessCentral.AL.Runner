@@ -130,7 +130,9 @@ impl ArgFilter {
             Some(_) => false,
             None => r.filters.is_empty() && r.marked_only && r.marks.len() == 1,
         };
+        // The probe's arguments start in filter group 0 (the prepare codeunits never change it).
         match (r.filters.is_empty() && !r.marked_only && r.marks.is_empty(), measured) {
+            _ if r.filter_group != 0 => ArgFilter::Other,
             (true, _) => ArgFilter::None,
             (false, true) => ArgFilter::Measured,
             (false, false) => ArgFilter::Other,
@@ -245,8 +247,8 @@ const DROPPED_BY: [&str; 3] = ["Dialog", "DB:RecordNotFound", "TestField"];
 /// raises that code: a nested guarded run never raises it, it refuses): the run returns false;
 /// succeeds with M M (`_StartX_MarkYByA_Ends`): the error.
 ///
-/// Every mark comes from a database variable (`database_set`), except the one the argument itself sets: a temporary argument
-/// of the table marked first sets it in `RecTempX_*_MarkRec_Fails`.
+/// Every mark comes from a database variable and none from the argument (`database_set`), except the one the argument itself
+/// sets: a temporary argument of the table marked first sets it in `RecTempX_*_MarkRec_Fails`.
 fn fail_probe_end(
     top_level_no_commit: bool,
     arg: RunArg,
@@ -502,12 +504,21 @@ impl Session {
             return Ok(raised.then(|| self.inconsistent_error(after[0].0 as usize)));
         }
         let arg_kept = start.arg_record.is_none_or(ArgRecord::filters_kept);
-        let marked_by_arg = start.arg_record.is_some_and(|a| {
-            let setter = self.tx.open.inconsistent.first().and_then(|m| m.by.upgrade());
-            setter.is_some_and(|b| Rc::ptr_eq(&b, &a.rec))
-        });
+        let is_arg = |w: &Weak<RefCell<RecordState>>| {
+            start
+                .arg_record
+                .is_some_and(|a| w.upgrade().is_some_and(|b| Rc::ptr_eq(&b, &a.rec)))
+        };
+        let marked_by_arg = self.tx.open.inconsistent.first().is_some_and(|m| is_arg(&m.by));
         let top_level_no_commit = top_level && no_commit && before.is_empty();
-        let database_set = self.tx.open.inconsistent.iter().all(|m| m.by_database);
+        // Corpus PR 1598 measures the argument as a setter only alone (`_MarkRec_Fails`, step `frec`): no mark of another
+        // shape is set or marked again by it.
+        let database_set = self
+            .tx
+            .open
+            .inconsistent
+            .iter()
+            .all(|m| m.by_database && !is_arg(&m.by) && !is_arg(&m.again_by));
         let probe_end = fail_probe_end(
             top_level_no_commit,
             arg,
