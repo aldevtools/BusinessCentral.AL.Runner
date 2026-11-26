@@ -1359,7 +1359,7 @@ impl Session {
             _ => self.temp_blob_share_guard(site, nl, &mut recv, &values, f)?,
         };
         if !self.validate_sites.is_empty() {
-            self.note_builtin_field_write(site, values.first(), f)?;
+            self.note_builtin_field_write(site, f)?;
         }
         if let Some(answer) = self.builtin_guards(site, recv.as_ref(), &values)? {
             return Ok(answer);
