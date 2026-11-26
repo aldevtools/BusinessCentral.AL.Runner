@@ -1,3 +1,7 @@
 # key	entry
 PX Tests::Plain_Control_TriggerAssigns	ASSUMED xrec-table-proc-routes (corpus PR 1583)
 PX Tests::Single_Control_TriggerAssigns	ASSUMED xrec-table-proc-routes (corpus PR 1583)
+PX Tests::Plain_CalcFieldsBlob	REFUSED unmeasured write to a Normal field in the trigger (CalcFields of a Blob), issue 9161
+PX Tests::Plain_EvaluateField	REFUSED unmeasured write to a Normal field in the trigger (Evaluate into a field), issue 9161
+PX Tests::Plain_MediaImportStream	REFUSED unmeasured write to a Normal field in the trigger (Media import), issue 9161
+PX Tests::Plain_MediaSetImportStream	REFUSED unmeasured write to a Normal field in the trigger (MediaSet import), issue 9161
