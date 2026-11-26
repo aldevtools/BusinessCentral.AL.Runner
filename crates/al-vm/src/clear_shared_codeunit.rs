@@ -15,6 +15,7 @@
 
 use super::*;
 use crate::var_option::ArrayOf;
+use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::value::LibraryValue;
 use std::rc::Weak;
 
@@ -99,11 +100,10 @@ impl Session {
                             Holding::Written => temp_rows_refusal(),
                         });
                     }
-                    use al_builtins::assumptions::Assumption as A;
-                    al_builtins::assumptions::assume(match store {
-                        Some(Store::Kinds) => A::ClearAllStoreGlobalKinds,
-                        Some(Store::TableNoKinds) => A::ClearAllTableNoRegister,
-                        _ => A::ClearSharedCodeunit,
+                    assume(match store {
+                        Some(Store::Kinds) => Assumption::ClearAllStoreGlobalKinds,
+                        Some(Store::TableNoKinds) => Assumption::ClearAllTableNoRegister,
+                        _ => Assumption::ClearSharedCodeunit,
                     });
                     self.reset_keeping_rows(rc);
                     kept.push(i);
@@ -357,7 +357,10 @@ impl Session {
             return None;
         }
         if o.rec_slot.is_some() {
-            return match (holder && self.register_kinds(object), holder && self.tableno_unpinned(object).is_none()) {
+            return match (
+                holder && self.register_kinds(object),
+                holder && self.tableno_unpinned(object).is_none(),
+            ) {
                 (true, _) => Some(Store::Register),
                 (false, true) => Some(Store::TableNoKinds),
                 (false, false) => None,
@@ -990,9 +993,8 @@ fn measured(owner: Owner, store: Store, holding: Holding, hold: TempHold) -> boo
         // (TableNoReg_NeverCalled_OwnerRun :683, DeepReg_NeverCalled_OwnerRun :796, CycReg_NeverCalled_OwnerRun :853); the
         // plain owner, written (TableNoReg_Primed_PlainOwner :725, TableNoReg_RunBeforeShare_PlainOwner :753) and never
         // called (TableNoReg_NeverCalled_PlainOwner :739). Only read under the plain owner is not measured: refused.
-        (TableNo, TableNoKinds, Shared | SharedUnwritten | SharedUncalled) | (Plain, TableNoKinds, Shared | SharedUncalled) => {
-            true
-        }
+        (TableNo, TableNoKinds, Shared | SharedUnwritten | SharedUncalled)
+        | (Plain, TableNoKinds, Shared | SharedUncalled) => true,
         _ => false,
     }
 }
