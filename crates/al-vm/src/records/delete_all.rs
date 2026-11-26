@@ -187,7 +187,19 @@ impl Session {
         self.store_for(rec)?
             .delete_all(cx, t, &filters)
             .map_err(|e| Signal::unsupported(format!("{e}")))?;
+        self.forget_install_emptied(cx, t, temporary);
         self.deletes += 1;
         Ok(Value::Null)
+    }
+
+    /// After a store DeleteAll on `t` (a DeleteAll in one step, or `Truncate` in autoinc.rs): in install code, a database
+    /// table of `UNSEEDED_ROWS` does not count as emptied. Only the test session's own DeleteAll is pinned to empty such a
+    /// table (al-language-onprem/metadata/PtOnPremTables.al:324, :345-356; Y40 :365-385). Whether a fresh tenant's rows
+    /// are there yet when install code runs is not, so install code leaves the table unseeded and a later read refuses
+    /// (`Session::is_unseeded`, which reads the mark in `self.store`).
+    pub(crate) fn forget_install_emptied(&mut self, cx: &al_data::AccessContext, t: &TableDef, temporary: bool) {
+        if self.install_scope && !temporary && self.engine.platform_unseeded.contains(&(t.object as usize)) {
+            self.store.forget_emptied(cx, t);
+        }
     }
 }

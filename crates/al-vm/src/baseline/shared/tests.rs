@@ -30,12 +30,15 @@ fn a_thread_starts_from_what_a_copy_from_bytes_holds() {
 fn freeze_refuses_a_value_that_is_not_plain() {
     let mut b = sample();
     let list = Value::List(Default::default());
-    b.store = al_data::memory::MemStore::from_exported(vec![ExportedTable {
-        pk_storage: None,
-        company: "CRONUS".into(),
-        object: 311,
-        rows: vec![(vec![Value::Code("".into())], vec![Value::Code("".into()), list])],
-    }]);
+    b.store = al_data::memory::MemStore::from_exported(
+        vec![ExportedTable {
+            pk_storage: None,
+            company: "CRONUS".into(),
+            object: 311,
+            rows: vec![(vec![Value::Code("".into())], vec![Value::Code("".into()), list])],
+        }],
+        &[],
+    );
     let Err(NotShared::Value(why)) = b.freeze() else {
         panic!("each thread then keeps a copy of its own")
     };
@@ -92,12 +95,15 @@ fn a_baseline_that_cannot_be_written_as_bytes_names_the_value() {
         })),
     );
     let json = Value::Library("JsonObject".into(), Default::default());
-    b.store = al_data::memory::MemStore::from_exported(vec![ExportedTable {
-        pk_storage: None,
-        company: "CRONUS".into(),
-        object: 311,
-        rows: vec![(vec![Value::Code("".into())], vec![Value::Code("".into()), rid, json])],
-    }]);
+    b.store = al_data::memory::MemStore::from_exported(
+        vec![ExportedTable {
+            pk_storage: None,
+            company: "CRONUS".into(),
+            object: 311,
+            rows: vec![(vec![Value::Code("".into())], vec![Value::Code("".into()), rid, json])],
+        }],
+        &[],
+    );
     assert!(
         matches!(b.freeze(), Err(NotShared::Value(ref why)) if why.kind == "JsonObject"),
         "the JsonObject has no plain form; the RecordId has one"
@@ -127,23 +133,26 @@ fn a_baseline_with_a_record_id_and_a_table_filter_is_shared() {
             "Customer: No.=10000".into(),
         ))),
     );
-    b.store = al_data::memory::MemStore::from_exported(vec![
-        ExportedTable {
-            pk_storage: None,
-            company: "CRONUS".into(),
-            object: 311,
-            rows: vec![(
-                vec![Value::Code("".into())],
-                vec![Value::Code("".into()), Value::Integer(1)],
-            )],
-        },
-        ExportedTable {
-            pk_storage: None,
-            company: "CRONUS".into(),
-            object: 472,
-            rows: vec![(vec![Value::Integer(1)], vec![Value::Integer(1), rid, filter])],
-        },
-    ]);
+    b.store = al_data::memory::MemStore::from_exported(
+        vec![
+            ExportedTable {
+                pk_storage: None,
+                company: "CRONUS".into(),
+                object: 311,
+                rows: vec![(
+                    vec![Value::Code("".into())],
+                    vec![Value::Code("".into()), Value::Integer(1)],
+                )],
+            },
+            ExportedTable {
+                pk_storage: None,
+                company: "CRONUS".into(),
+                object: 472,
+                rows: vec![(vec![Value::Integer(1)], vec![Value::Integer(1), rid, filter])],
+            },
+        ],
+        &[],
+    );
     let shared = b.freeze().expect("a RecordId and a TableFilter have a plain form");
     assert_eq!(shared.rows(), 2);
     assert_eq!(shared.held_tables(), vec![("CRONUS".to_string(), 472, 1)]);
