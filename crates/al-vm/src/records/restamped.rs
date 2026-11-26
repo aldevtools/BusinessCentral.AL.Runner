@@ -9,7 +9,8 @@
 //! and a find or query that filters or sorts on it, are refused. Other reads of those rows run, in install code too.
 //! One shape runs: a row whose Insert buffer's SystemRowVersion the code read before the send keeps that value on BC, so a read
 //! of its field gives the Insert's value (`RestampedRows::insert_value_read`, assumption `restamped-row-version-insert-value`,
-//! corpus PR 1613). Both probes hold in this model: 1509 never reads the Insert buffer, 1613 always does.
+//! corpus PR 1613, RowVersionReReadShapes.al `Run`). Without that read BC gives the row its version at the send, above the
+//! other table's rows (1613 :889-:915, :958, :971; 1509 :420): those reads keep the refusal.
 //!
 //! inserted rows sent after a higher row version (`send_pending_insert`, `Session::restamped_rows`,
 //! carried in the Baseline) and the refusals of what shows their SystemRowVersion (`restamped_read`,
@@ -28,7 +29,7 @@ impl Session {
     /// out. Its rows at or below a row version sent before them (the last Commit's or the open transaction's) are noted in
     /// `restamped_rows`, with `insert_value_read` in the shape corpus PR 1613 measures (RowVersionReReadShapes.al `Run`, sends
     /// `other`, `othercommit`, `same`): one row, its Insert buffer's SystemRowVersion read (`note_insert_value_read`), a Modify
-    /// sent the higher row version (`RowVersionTx::sent_by_modify`), and a Commit or a measured read sends it (`measured`).
+    /// sent the higher row version (`RowVersionTx::sent_by_modify`), and a `Commit()` statement or a measured read sends it (`measured`).
     pub(crate) fn send_pending_insert(&mut self, at: usize, measured: bool) -> i64 {
         let rv = &mut self.tx.open.row_versions;
         let (table, company, first, last) = rv.pending_inserts.remove(at);
@@ -45,10 +46,13 @@ impl Session {
         last
     }
 
-    /// A Commit sends every inserted row nothing sent yet (`send_pending_insert`).
+    /// A Commit sends every inserted row nothing sent yet (`send_pending_insert`). Only an AL `Commit()` statement is a
+    /// measured send (corpus PR 1613, RowVersionReReadShapes.al send `othercommit`); a test's end, a TestPage or a
+    /// `Codeunit.Run` commit is not.
     pub(crate) fn send_pending_inserts(&mut self) {
+        let measured = self.access_notes.commit_by == Some(crate::CommitBy::Statement);
         while !self.tx.open.row_versions.pending_inserts.is_empty() {
-            self.send_pending_insert(0, true);
+            self.send_pending_insert(0, measured);
         }
     }
 

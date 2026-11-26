@@ -3,6 +3,7 @@ table 98993 "RV8993 Item"
     fields
     {
         field(1; Code; Code[20]) { }
+        field(2; Note; Text[50]) { }
     }
     keys
     {

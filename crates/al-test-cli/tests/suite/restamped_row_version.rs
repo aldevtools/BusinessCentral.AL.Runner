@@ -220,12 +220,9 @@ fn row_versions_of_rows_sent_after_another_table_are_refused_where_they_show() {
     }
     // The variable's own Insert buffer, never re-read after the send: main's refusal.
     refused("InsertBufferAfterSend", "holds the row version of its own write");
-    // A re-read row compared with 0: the assumption restamped-row-version-positive.
-    assert!(
-        matches!(of("ReReadComparedWithZero"), Outcome::Pass),
-        "{:?}",
-        of("ReReadComparedWithZero")
-    );
+    // A re-read row whose Insert buffer was never read, compared with 0: refused (only the Insert buffer read shape of
+    // assumption restamped-row-version-insert-value runs).
+    refused("ReReadComparedWithZero", "SystemRowVersion of a row");
     for t in ["FilterFind", "KeyFind", "QueryColumn"] {
         refused(t, "on SystemRowVersion of a table");
     }
