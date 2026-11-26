@@ -191,6 +191,8 @@ fi
 [ ${#apps[@]} -gt 0 ] || exit $status
 out="${NEIGHBOR_DIFF_OUT:-$cache/neighbor-diff/$(git rev-parse --short HEAD)}"
 mkdir -p "$out"
+# Absolute: each run changes into its own folder, so a relative $out would no longer name this one.
+out="$(cd "$out" && pwd -P)"
 head_bin="$out/al-runner-head"
 build_head "$head_bin" || { echo "neighbor-diff: the head build failed" >&2; exit 2; }
 main_bin="$(main_binary)" || { echo "neighbor-diff: no main binary for $base" >&2; exit 2; }
@@ -219,8 +221,12 @@ for app in "${apps[@]}"; do
       bin="$main_bin"
       [ $side = head ] && bin="$head_bin"
       rm -f "$out/$name-$v.$side.xml"
-      cap 3G timeout 900 "$bin" test "$run_app" "${dep_args[@]}" "${flag_args[@]}" --bc-version "${build:-$v}" --seed 1 --junit "$out/$name-$v.$side.xml" \
-        > "$out/$name-$v.$side.log" 2>&1
+      # Each run starts in a fresh copy of the app folder: a relative path in flags.txt (such as --files-dir) resolves
+      # against the app, wherever the script runs from, and files a run writes there touch neither the repo nor the other run.
+      cwd="$out/$name-$v.$side.cwd"
+      rm -rf "$cwd" && cp -r "$app" "$cwd" || exit 2
+      (cd "$cwd" && cap 3G timeout 900 "$bin" test "$run_app" "${dep_args[@]}" "${flag_args[@]}" --bc-version "${build:-$v}" \
+        --seed 1 --junit "$out/$name-$v.$side.xml") > "$out/$name-$v.$side.log" 2>&1
       [ -s "$out/$name-$v.$side.xml" ] || { echo "neighbor-diff: no JUnit file, see $out/$name-$v.$side.log" >&2; exit 2; }
     done
     note=()
