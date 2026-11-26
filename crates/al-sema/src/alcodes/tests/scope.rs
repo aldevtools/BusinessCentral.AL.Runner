@@ -55,8 +55,8 @@ fn al0264_kept_for_every_other_shape_of_a_moved_stub() {
     assert!(codeunit.contains(&"AL0264".to_string()), "{}", codeunit.join(","));
 }
 
-// Issue 7914: with the pair compiled, a name that finds both tables resolves to the dependency's, and the program carries
-// the assumption every test of it is flagged with.
+// Issue 7914: with the pair compiled, a name that finds both tables resolves to the dependency's; the stub keeps the live
+// table's fields and keys (the pinned shape, MvXbMovedStub.al:13-22), so the program is not flagged.
 #[test]
 fn the_moved_stub_gives_way_to_the_dependency_table() {
     let apps = vec![
@@ -81,7 +81,7 @@ fn the_moved_stub_gives_way_to_the_dependency_table() {
     let stub_i = ws.objects.iter().position(|o| o.app == 0).expect("stub");
     let live_i = ws.objects.iter().position(|o| o.app == 1).expect("live");
     assert_eq!(ws.moved_table_of_dependency(stub_i), Some(live_i));
-    assert!(ws.has_moved_table_stub());
+    assert!(!ws.has_unmeasured_moved_table_stub());
     let file = ws.objects[stub_i].file;
     assert!(matches!(
         ws.resolve_ref(file, ObjKind::Table, &["Probe Row".to_string()]),
@@ -158,41 +158,90 @@ fn al0185_variable_of_an_unknown_enum_type() {
     assert!(codes(&[src]).is_empty());
 }
 
-// Issue 7914 neighbor: the `MovedTo` app is a second workspace app (compiled from source in the same run), not a loaded
-// dependency package. Not the measured pair: main's AL0264 stays, in either order of the apps.
+/// The stub app `a` (depends on `dep`) and the live app `dep`, loaded with `kinds` (stub app first when `stub_first`); the
+/// AL codes of the check, whether `moved_table_of_dependency` finds the live table, and whether the program is flagged.
+fn moved_pair(
+    stub_src: &str,
+    dep_kind: crate::workspace::AppKind,
+    stub_first: bool,
+) -> (Vec<&'static str>, bool, bool) {
+    let stub_app = AppSource {
+        id: "a".into(),
+        name: "a".into(),
+        dependencies: vec!["dep".into()],
+        files: vec![("f.al".into(), stub_src.to_string())],
+    };
+    let live_app = AppSource {
+        id: "dep".into(),
+        name: "dep".into(),
+        dependencies: vec![],
+        files: vec![("d.al".into(), LIVE.to_string())],
+    };
+    let ws_kind = crate::workspace::AppKind::Workspace;
+    let (apps, kinds) = if stub_first {
+        (vec![stub_app, live_app], vec![ws_kind, dep_kind])
+    } else {
+        (vec![live_app, stub_app], vec![dep_kind, ws_kind])
+    };
+    let ws = Workspace::load_apps(apps, kinds, &Default::default());
+    let stub_i = ws.objects.iter().position(|o| ws.apps[o.app].id == "a").expect("stub");
+    let live_i = ws
+        .objects
+        .iter()
+        .position(|o| ws.apps[o.app].id == "dep")
+        .expect("live");
+    let found = ws.moved_table_of_dependency(stub_i) == Some(live_i);
+    let m = crate::members::build(&ws);
+    let r = crate::check::check(&ws, &m, &Catalog::load());
+    let codes = r
+        .diagnostics
+        .iter()
+        .map(|d| d.code)
+        .filter(|c| c.starts_with("AL"))
+        .collect();
+    (codes, found, ws.has_unmeasured_moved_table_stub())
+}
+
+// Corpus al-language-xapp-b/MvXbMovedStub.al:6-23 (the stub) and al-language-xapp-a/MvXaLiveTable.al:6-19 (the live table):
+// the `MovedTo` app compiles from source in the same run, the stub keeps the live table's fields and keys. It compiles, the
+// name resolves to the live table (al-language/table-objects/moved-tables/MvMovedTableTests.al:18-42), and nothing is flagged.
 #[test]
-fn al0264_kept_when_the_moved_to_app_is_a_workspace_app() {
+fn moved_stub_of_a_workspace_app_table_with_the_same_fields_compiles() {
     for stub_first in [true, false] {
-        let stub_app = AppSource {
-            id: "a".into(),
-            name: "a".into(),
-            dependencies: vec!["dep".into()],
-            files: vec![("f.al".into(), stub(MOVED, "Probe Row"))],
-        };
-        let live_app = AppSource {
-            id: "dep".into(),
-            name: "dep".into(),
-            dependencies: vec![],
-            files: vec![("d.al".into(), LIVE.to_string())],
-        };
-        let apps = if stub_first {
-            vec![stub_app, live_app]
-        } else {
-            vec![live_app, stub_app]
-        };
-        let kinds = vec![crate::workspace::AppKind::Workspace; 2];
-        let ws = Workspace::load_apps(apps, kinds, &Default::default());
-        let stub_i = ws.objects.iter().position(|o| ws.apps[o.app].id == "a").expect("stub");
-        assert_eq!(ws.moved_table_of_dependency(stub_i), None, "stub first: {stub_first}");
-        assert!(!ws.has_moved_table_stub(), "stub first: {stub_first}");
-        let m = crate::members::build(&ws);
-        let r = crate::check::check(&ws, &m, &Catalog::load());
-        let codes: Vec<&str> = r
-            .diagnostics
-            .iter()
-            .map(|d| d.code)
-            .filter(|c| c.starts_with("AL"))
-            .collect();
-        assert_eq!(codes, vec!["AL0264"], "stub first: {stub_first}");
+        let (codes, found, flagged) = moved_pair(
+            &stub(MOVED, "Probe Row"),
+            crate::workspace::AppKind::Workspace,
+            stub_first,
+        );
+        assert!(codes.is_empty(), "stub first: {stub_first}: {codes:?}");
+        assert!(found && !flagged, "stub first: {stub_first}");
+    }
+}
+
+// The same pair with the `MovedTo` app loaded as a dependency package: the pinned shape (in BC every app compiles against
+// the symbols of the apps it depends on), so it is not flagged either.
+#[test]
+fn moved_stub_of_a_package_table_with_the_same_fields_is_not_flagged() {
+    let (codes, found, flagged) = moved_pair(&stub(MOVED, "Probe Row"), crate::workspace::AppKind::Dependency, true);
+    assert!(codes.is_empty() && found && !flagged, "{codes:?}");
+}
+
+// Neighbor: the stub's fields or keys differ from the live table's (not measured). A package `MovedTo` app keeps main's
+// result (compiles, flagged with `moved-table-stub-of-dependency`); a workspace `MovedTo` app keeps main's AL0264.
+#[test]
+fn moved_stub_with_other_fields_or_keys_keeps_main() {
+    let other_field = stub(MOVED, "Probe Row").replace(
+        "field(1; Id; Integer) { }",
+        "field(1; Id; Integer) { } field(2; N; Code[10]) { }",
+    );
+    let other_key = stub(MOVED, "Probe Row").replace("Clustered = true;", "");
+    for src in [&other_field, &other_key] {
+        let (codes, found, flagged) = moved_pair(src, crate::workspace::AppKind::Dependency, true);
+        assert!(codes.is_empty() && found && flagged, "{src}: {codes:?}");
+        for stub_first in [true, false] {
+            let (codes, found, flagged) = moved_pair(src, crate::workspace::AppKind::Workspace, stub_first);
+            assert_eq!(codes, vec!["AL0264"], "{src} stub first: {stub_first}");
+            assert!(!found && !flagged, "{src} stub first: {stub_first}");
+        }
     }
 }

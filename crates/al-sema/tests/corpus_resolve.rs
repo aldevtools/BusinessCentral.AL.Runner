@@ -166,6 +166,11 @@ const KNOWN_GAP_FILES: &[(&str, &str)] = &[
         "format-evaluate/format-matrix/FMEnum.al",
         "the enum `Warehouse Activity Type` is a Base Application enum, outside the workspace this test resolves against (corpus bump e01709f4)",
     ),
+    (
+        "types/enum-option/EnumMemberFieldTypeShapes_Twin.al",
+        "a field whose enum is of the global namespace, named in a file whose namespace has an enum of that name, refuses \
+         (assumption enum-member-of-field-type does not admit it yet; its probe landed in corpus bump to 317272f1)",
+    ),
 ];
 
 /// Milestone 1: every name, member and call in every corpus body resolves,
