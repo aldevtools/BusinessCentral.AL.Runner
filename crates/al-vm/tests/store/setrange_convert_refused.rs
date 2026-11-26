@@ -22,6 +22,8 @@ table 50290 SRC
         field(8; Dec; Decimal) { }
         field(9; DT; DateTime) { }
         field(10; Cod1; Code[1]) { }
+        field(11; Txt2; Text[2]) { }
+        field(12; Cod10; Code[10]) { }
     }
     keys { key(PK; Id) { Clustered = true; } }
 }
@@ -299,6 +301,26 @@ codeunit 50291 T
         exit(F.GetFilter());
     end;
 
+    procedure TrueIntoText2(): Text
+    var R: RecordRef; F: FieldRef; B: Boolean;
+    begin
+        R.Open(Database::SRC);
+        F := R.Field(11);
+        B := true;
+        F.SetRange(B);
+        exit(F.GetFilter());
+    end;
+
+    procedure FalseIntoCode10(): Text
+    var R: RecordRef; F: FieldRef; B: Boolean;
+    begin
+        R.Open(Database::SRC);
+        F := R.Field(12);
+        B := false;
+        F.SetRange(B);
+        exit(F.GetFilter());
+    end;
+
     procedure TrueIntoCode(): Text
     var R: RecordRef; F: FieldRef; B: Boolean;
     begin
@@ -479,24 +501,20 @@ fn false_into_a_code_field_is_its_format_text_through_its_own_entry() {
     assert!(!hits.contains(&Assumption::SetRangeOtherTypeConvert), "{hits:?}");
 }
 
-/// SrcFilterBoolIntoText.al:178-192 (BoolFalse_Cod, corpus PR 1575) measures `ok: NO` on Business Central 27.5, 28.5 and 29.0:
-/// false into a Code field runs on every one of them.
+/// No cell measures true into a Text[2] field or false into a Code[10] field (corpus PR 1575 measures lengths 1, 2, 20 and 50): both
+/// refuse, and the message names the entry setrange-bool-into-text. Main ran true into Text[2] and answered `Yes`.
 #[test]
-fn false_into_a_code_field_runs_on_every_measured_major() {
-    for (bc, runs) in [("27.5", true), ("28.5", true), ("29.0", true)] {
-        let lowered = al_testkit::compile(SRC);
-        let target = al_version::Target::for_bc(al_version::BcVersion::parse(bc).unwrap());
-        let engine = al_vm::Engine::with_target(lowered.program.clone(), al_testkit::blocked(&lowered), Some(target));
-        let mut b = al_testkit::Built {
-            session: al_vm::Session::new(engine),
-            lowered,
-        };
-        match (b.run_in("T", "FalseIntoCode"), runs) {
-            (Ok(Value::Text(s)), true) => assert_eq!(s.as_str(), "NO", "{bc}"),
-            (Err(Signal::Unsupported(reason)), false) => {
-                assert!(reason.contains("in a shape no cell measures"), "{bc}: {reason}")
+fn a_boolean_into_a_length_no_cell_measures_is_refused_naming_its_entry() {
+    for routine in ["TrueIntoText2", "FalseIntoCode10"] {
+        match run_in(SRC, "T", routine) {
+            Err(Signal::Unsupported(reason)) => {
+                assert!(reason.contains("in a shape no cell measures"), "{routine}: {reason}");
+                assert!(
+                    reason.contains("(assumption setrange-bool-into-text)"),
+                    "{routine}: {reason}"
+                );
             }
-            (other, _) => panic!("{bc}: got {other:?}"),
+            other => panic!("{routine}: expected a refusal, got {other:?}"),
         }
     }
 }

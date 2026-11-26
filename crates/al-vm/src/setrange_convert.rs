@@ -79,6 +79,8 @@ enum Cell {
     Raise(Assumption, Signal),
     /// A value of a pair the probe measures, but not this value: refused.
     Unmeasured,
+    /// A value of the pair of this entry that its cells do not measure: refused, the message names this entry.
+    Refused(Assumption),
 }
 
 /// The measured calls: the routes of the probe (a, aLit, c: typed SetRange; b: Variant SetRange; d1, d2: a Variant and a typed
@@ -194,11 +196,23 @@ impl Session {
                     assume(entry);
                     return Err(e);
                 }
-                Some(Cell::Main(_) | Cell::MainPinned | Cell::Convert(_) | Cell::Raise(..) | Cell::Unmeasured) => {
+                Some(
+                    cell @ (Cell::Main(_)
+                    | Cell::MainPinned
+                    | Cell::Convert(_)
+                    | Cell::Raise(..)
+                    | Cell::Unmeasured
+                    | Cell::Refused(_)),
+                ) => {
+                    let entry = match cell {
+                        Cell::Refused(entry) => entry,
+                        _ => ENTRY,
+                    };
                     return Err(Signal::unsupported(format!(
-                        "SetRange or SetFilter of {} into a {} field in a shape no cell measures (assumption setrange-other-type-convert)",
+                        "SetRange or SetFilter of {} into a {} field in a shape no cell measures (assumption {})",
                         v.describe(),
-                        f.ty.describe()
+                        f.ty.describe(),
+                        entry.info().id
                     )));
                 }
             }
@@ -397,20 +411,21 @@ fn number_into_text(v: &Value, ty: &RtType, ctx: &Session) -> Cell {
 fn bool_into_text(b: bool, ty: &RtType) -> Cell {
     let len = match ty {
         RtType::Code(Some(n)) | RtType::Text(Some(n)) => *n,
-        _ => return Cell::Unmeasured,
+        _ => return Cell::Refused(Assumption::SetRangeBoolIntoText),
     };
     let code = matches!(ty, RtType::Code(_));
     let format = if b { "Yes" } else { "No" };
     match (b, code, len) {
         (false, true, 2 | 20) | (false, false, 50) => Cell::Main(Assumption::SetRangeBoolIntoText),
         (false, _, 1) | (true, true, 1 | 2) | (true, false, 1) => {
-            al_builtins::ops::string_length_error::<()>(format, len).map_or_else(
-                |e| Cell::Raise(Assumption::SetRangeBoolIntoText, e),
-                |()| Cell::Unmeasured,
+            // `string_length_error` raises for every length it is given here (the Format text is longer than the field).
+            Cell::Raise(
+                Assumption::SetRangeBoolIntoText,
+                al_builtins::ops::string_length_error::<()>(format, len).unwrap_err(),
             )
         }
         (true, _, 3..) => Cell::Main(ENTRY),
-        _ => Cell::Unmeasured,
+        _ => Cell::Refused(Assumption::SetRangeBoolIntoText),
     }
 }
 
