@@ -28,3 +28,6 @@ NX Refused Tests::ExtOnDelete_AfterGet	REFUSED xRec in a table extension's inser
 NX Refused Tests::ExtOnAfterDelete_AfterGet	REFUSED xRec in a table extension's insert or delete trigger
 NX Page Tests::ExtOnAfterInsert_TestPageNew	REFUSED xRec in a table extension's insert or delete trigger
 NX Duplicate Tests::ExtOnAfterInsert_DuplicateKeyStatement	REFUSED xRec in a table extension's insert or delete trigger
+NX Refused Tests::ExtOnAfterInsert_BaseProcValidatesThenOnValidateReadsXRec	REFUSED xRec in a table extension's insert or delete trigger
+NX Refused Tests::TableOnInsert_AfterExtOnBeforeInsertWritesRec	REFUSED xRec in a table's OnInsert or OnDelete after a table extension's OnBeforeInsert or OnBeforeDelete changed Rec
+NX Refused Tests::TableOnDelete_AfterExtOnBeforeDeleteWritesRec	REFUSED xRec in a table's OnInsert or OnDelete after a table extension's OnBeforeInsert or OnBeforeDelete changed Rec

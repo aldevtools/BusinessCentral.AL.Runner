@@ -195,6 +195,7 @@ tableextension 50350 "NX Line Ext" extends "NX Line"
         VarCaller: Codeunit "NX Var Caller";
         Other: Record "NX Line";
         RecRef: RecordRef;
+        BaseLog: Codeunit "NX Base Log";
     begin
         if not Mode.Active(Name) then
             exit;
@@ -209,6 +210,13 @@ tableextension 50350 "NX Line Ext" extends "NX Line"
                 Mode.Add(Format(Rec.NxExtXSerial()));
             'baseproc':
                 Mode.Add(Format(Rec.NxBaseXSerial()));
+            'basevalidate':
+                begin
+                    Rec.NxValidateMirror(5);
+                    Mode.Add(Format(BaseLog.Get()));
+                end;
+            'caption':
+                Mode.Add(xRec.TableCaption() + Format(xRec.FieldNo("Serial No.")));
             'varcaller':
                 Mode.Add(Format(VarCaller.ViaVarRec(Rec)));
             'byvalue':

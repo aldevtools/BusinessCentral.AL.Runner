@@ -43,6 +43,7 @@ mod nested_validate;
 mod running_call_xrec;
 mod validate_event_xrec;
 pub(crate) use ext_trigger_xrec::XREC_OF_EXT_INSERT_DELETE_TRIGGER;
+use ext_trigger_xrec::unmeasured_trigger_xrec;
 pub(crate) use nested_validate::{BeforeImage, ProcXrec, ValidateRun, ValidateSite, XREC_OF_RUNNING_CALL};
 pub(crate) use running_call_xrec::{XREC_CHANGED_UNDER_NESTED_VALIDATE, XrecView};
 pub(crate) use validate_event_xrec::ValidateEvent;
@@ -94,10 +95,17 @@ pub(crate) const HELD_PART_REC: &str =
 pub(crate) const HELD_PART_XREC: &str = "xRec of a part of a page the test client closed is not measured there";
 
 /// Whether `why` marks an xRec whose buffer and view (filters, key, temporary table) are both not measured, so a field write
-/// and every record method on it refuse: xRec of a held part, and xRec of a table extension's insert or delete trigger
-/// (`ext_trigger_xrec.rs`).
+/// and every record method on it refuse: xRec of a held part, and the xRecs of `ext_trigger_xrec.rs` (the methods that read
+/// neither, in [`Session::unpinned_buffer_op`]).
 fn every_method_refuses(why: &str) -> bool {
-    why == HELD_PART_XREC || why == XREC_OF_EXT_INSERT_DELETE_TRIGGER
+    why == HELD_PART_XREC || unmeasured_trigger_xrec(why)
+}
+
+/// Whether `why` marks an xRec that stands for an xRec the corpus does not measure: the blank xRec of a table procedure called
+/// on a running call's record ([`XREC_OF_RUNNING_CALL`]) and the xRecs of `ext_trigger_xrec.rs`. A copy from it refuses
+/// ([`copy_refused_mark`]), and a Validate in that procedure hands its field triggers the mark (`validate_before_image`).
+pub(crate) fn unmeasured_xrec_mark(why: &str) -> bool {
+    why == XREC_OF_RUNNING_CALL || unmeasured_trigger_xrec(why)
 }
 
 /// A field write on a record whose buffer is `why`: on Rec of a held part it runs and marks the assumption (not measured); on
@@ -145,8 +153,7 @@ pub(crate) fn copy_refused_mark(rec: &Rec) -> Option<&'static str> {
         *w == XP_VIEW_AFTER_EXPORT
             || *w == XP_BUFFER_AFTER_EXPORT
             || *w == al_builtins::stream_cleared::UNCREATED_IMPORT_BUFFER
-            || *w == XREC_OF_RUNNING_CALL
-            || *w == XREC_OF_EXT_INSERT_DELETE_TRIGGER
+            || unmeasured_xrec_mark(w)
     })
 }
 
@@ -1174,9 +1181,10 @@ impl Session {
         }
         self.table_event(t, "onbeforedeleteevent", rec, None, run, None)?;
         if run {
-            // The table's OnDelete gets the buffer as it was before the extensions' OnBeforeDelete ran.
+            // The table's OnDelete gets the buffer as it was before the extensions' OnBeforeDelete ran; marked when that changed
+            // the buffer (`ext_trigger_xrec.rs`).
             let x = Self::xrec_handle(rec, rec.borrow().fields.to_vec());
-            self.run_ext_trigger_unmeasured_xrec(t, "OnBeforeDelete", rec)?;
+            self.run_ext_before_trigger(t, "OnBeforeDelete", "OnDelete", rec, Some(&x))?;
             if let Some(tr) = self.table_trigger(t, "OnDelete") {
                 self.run_trigger(t.object as usize, tr, rec, Some(&x))?;
             }
@@ -2203,6 +2211,14 @@ impl Session {
         }
     }
 
+    /// `method` on `rec` with its `RecordState::unpinned_buffer` mark lifted for the call.
+    fn record_op_unflagged(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
+        let flag = rec.borrow_mut().unpinned_buffer.take();
+        let r = self.record_op_inner(method, rec, args);
+        rec.borrow_mut().unpinned_buffer = flag;
+        r
+    }
+
     /// A record method on a record whose buffer is not pinned (`RecordState::unpinned_buffer`): methods that do not read the
     /// buffer run, a read that fills it again (Get, FindFirst, FindLast, FindSet, Find('-'/'+') answering true) makes it
     /// pinned again, and every other method refuses. Rec in the OnOpenPage of a page an action opens through `RunPageLink`
@@ -2221,6 +2237,11 @@ impl Session {
         if why == RUN_PAGE_LINK_VARIANT {
             return unsupported(format!("Record.{}(): {RUN_PAGE_LINK_VARIANT}", method.name()));
         }
+        // The table's metadata: these read neither the buffer nor the view of the xRec of `ext_trigger_xrec.rs`.
+        let metadata = matches!(method, RecordOp::TableName | RecordOp::TableCaption | RecordOp::FieldNo);
+        if unmeasured_trigger_xrec(why) && metadata {
+            return self.record_op_unflagged(method, rec, args);
+        }
         if every_method_refuses(why) {
             return unsupported(format!("Record.{}(): {why}", method.name()));
         }
@@ -2228,10 +2249,7 @@ impl Session {
             if method != RecordOp::Count || !args.is_empty() {
                 return unsupported(format!("Record.{}(): {HELD_PART_REC}", method.name()));
             }
-            let flag = rec.borrow_mut().unpinned_buffer.take();
-            let r = self.record_op_inner(method, rec, args);
-            rec.borrow_mut().unpinned_buffer = flag;
-            return r;
+            return self.record_op_unflagged(method, rec, args);
         }
         if why == MEDIA_KEY || why == FLOWFIELD_KEY {
             return self.media_key_op(method, rec, args, why);

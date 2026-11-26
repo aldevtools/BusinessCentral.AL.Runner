@@ -458,7 +458,7 @@ impl Session {
                 if run {
                     // The extension's triggers bracket the base table's own (tableextensiontrigger/
                     // TestTableExtensionTableTriggers_Tests.al); Insert(false) runs none of them.
-                    self.run_ext_trigger_unmeasured_xrec(&t, "OnBeforeInsert", rec)?;
+                    self.run_ext_before_trigger(&t, "OnBeforeInsert", "OnInsert", rec, insert_xrec.as_ref())?;
                     if let Some(tr) = self.table_trigger(&t, "OnInsert") {
                         self.run_trigger(t.object as usize, tr, rec, insert_xrec.as_ref())?;
                     }

@@ -8,6 +8,15 @@ table 50300 "NX Line"
         field(1; "Entry No."; Integer) { }
         field(2; "Serial No."; Integer) { }
         field(3; "xRec Serial In Table OnInsert"; Integer) { }
+        field(4; Mirror; Integer)
+        {
+            trigger OnValidate()
+            var
+                BaseLog: Codeunit "NX Base Log";
+            begin
+                BaseLog.Set(xRec."Serial No.");
+            end;
+        }
     }
 
     keys
@@ -25,6 +34,11 @@ table 50300 "NX Line"
         BaseLog: Codeunit "NX Base Log";
     begin
         BaseLog.Set(xRec."Serial No.");
+    end;
+
+    procedure NxValidateMirror(V: Integer)
+    begin
+        Validate(Mirror, V);
     end;
 
     procedure NxBaseXSerial(): Integer

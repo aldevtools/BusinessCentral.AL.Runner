@@ -32,7 +32,7 @@ use std::rc::Rc;
 pub(crate) const XREC_OF_RUNNING_CALL: &str = "xRec in a table procedure called through other code on a record whose trigger or procedure runs: real BC hands it the running call's xRec in the shapes XRecTableProcThroughCodeunit.al and XRecTableProcThroughSubscriber.al pin, this shape is not run";
 
 /// The before-image a Validate hands its triggers as xRec: the field values, and the `RecordState::unpinned_buffer` reason
-/// the xRec gets (`Some(XREC_OF_RUNNING_CALL)` when the values stand for a running call's xRec, `validate_before_image`).
+/// the xRec gets (the procedure xRec's mark when `records.rs` `unmeasured_xrec_mark` holds for it, `validate_before_image`).
 pub(crate) type BeforeImage = (Vec<Value>, Option<&'static str>);
 
 /// The xRec a table procedure called on a record value runs with ([`Session::table_proc_xrec`]).
@@ -445,7 +445,7 @@ impl Session {
             .filter(|(h, d, _)| *h == handle && *d == depth)
         {
             let x = x.2.borrow();
-            let mark = (x.unpinned_buffer == Some(XREC_OF_RUNNING_CALL)).then_some(XREC_OF_RUNNING_CALL);
+            let mark = x.unpinned_buffer.filter(|m| super::unmeasured_xrec_mark(m));
             return Ok((x.fields.to_vec(), mark));
         }
         let before = rec.borrow().fields.clone();

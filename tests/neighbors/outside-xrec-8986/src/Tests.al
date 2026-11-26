@@ -68,21 +68,44 @@ codeunit 50363 "NX Kept Tests"
         Steps.Expect('43');
     end;
 
-    // The extension's OnBeforeDelete changes Rec without reading xRec: the table's own OnDelete keeps main's xRec, the buffer
-    // from before OnBeforeDelete ran.
+    // The extension's OnBeforeInsert leaves Rec as it was: the table's OnInsert reads the pinned xRec.
     [Test]
-    procedure TableOnDelete_AfterExtOnBeforeDeleteWritesRec()
+    procedure TableOnInsert_AfterExtOnBeforeInsertWritesNothing()
+    var
+        Line: Record "NX Line";
+    begin
+        Mode.Set('BeforeInsert', 'none');
+        Steps.InsertAfterAssign(Line);
+        Steps.Expect('42');
+        if Line."xRec Serial In Table OnInsert" <> 42 then
+            Error('xRec."Serial No." in table OnInsert was %1, expected 42', Line."xRec Serial In Table OnInsert");
+    end;
+
+    // The extension's OnBeforeDelete leaves Rec as it was: the table's OnDelete reads the pinned xRec.
+    [Test]
+    procedure TableOnDelete_AfterExtOnBeforeDeleteWritesNothing()
     var
         Line: Record "NX Line";
         BaseLog: Codeunit "NX Base Log";
     begin
         Steps.Seed();
-        Mode.Set('BeforeDelete', 'recwrite');
+        Mode.Set('BeforeDelete', 'none');
         Line.Get(1);
         Line.Delete(true);
-        Steps.Expect('r');
+        Steps.Expect('42');
         if BaseLog.Get() <> 42 then
             Error('xRec."Serial No." in table OnDelete was %1, expected 42', BaseLog.Get());
+    end;
+
+    // TableCaption and FieldNo read neither xRec's buffer nor its view.
+    [Test]
+    procedure ExtOnAfterInsert_XRecTableCaption()
+    var
+        Line: Record "NX Line";
+    begin
+        Mode.Set('AfterInsert', 'caption');
+        Steps.InsertAfterValidate(Line);
+        Steps.Expect('NX Line2');
     end;
 }
 
@@ -377,6 +400,46 @@ codeunit 50360 "NX Refused Tests"
     end;
 
     // The modify triggers of the extension (TestTableExtensionTableTriggers_Tests.al:183 pins OnAfterModify).
+
+    // A table procedure called on Rec runs Validate; the field's OnValidate reads the procedure's xRec.
+    [Test]
+    procedure ExtOnAfterInsert_BaseProcValidatesThenOnValidateReadsXRec()
+    var
+        Line: Record "NX Line";
+    begin
+        Mode.Set('AfterInsert', 'basevalidate');
+        Steps.InsertAfterValidate(Line);
+        Steps.Expect('42');
+    end;
+
+    // The extension's OnBeforeInsert writes Rec, then the table's OnInsert reads xRec.
+    [Test]
+    procedure TableOnInsert_AfterExtOnBeforeInsertWritesRec()
+    var
+        Line: Record "NX Line";
+    begin
+        Mode.Set('BeforeInsert', 'recwrite');
+        Steps.InsertAfterAssign(Line);
+        Steps.Expect('r');
+        if Line."xRec Serial In Table OnInsert" <> 42 then
+            Error('xRec."Serial No." in table OnInsert was %1, expected 42', Line."xRec Serial In Table OnInsert");
+    end;
+
+    // The extension's OnBeforeDelete changes Rec without reading xRec, then the table's own OnDelete reads xRec.
+    [Test]
+    procedure TableOnDelete_AfterExtOnBeforeDeleteWritesRec()
+    var
+        Line: Record "NX Line";
+        BaseLog: Codeunit "NX Base Log";
+    begin
+        Steps.Seed();
+        Mode.Set('BeforeDelete', 'recwrite');
+        Line.Get(1);
+        Line.Delete(true);
+        Steps.Expect('r');
+        if BaseLog.Get() <> 42 then
+            Error('xRec."Serial No." in table OnDelete was %1, expected 42', BaseLog.Get());
+    end;
 }
 
 // A page insert and a duplicate key, each in a codeunit of its own: a refusal in the middle of either leaves no state to the
