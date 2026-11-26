@@ -9,7 +9,7 @@
 //! The page platform tables. Entry points: `source_table`.
 
 use super::mat::Entry;
-use super::objects::{Catalog, ident, member, prop, string_lit, truthy};
+use super::objects::{Catalog, api_version_column, ident, member, prop, split_top, string_lit, truthy};
 use super::{Blank, Providers, option, pos};
 use al_builtins::value::{RtType, Value};
 use al_data::{Row, TableDef};
@@ -78,14 +78,13 @@ fn text_prop(o: &Object, name: &str, max: usize) -> String {
 /// (testpage/CdTestPageLeads.al:890), `order(ascending)`, a Code const and a Decimal `filter(> 0)`
 /// (metadata/platform-tables/AwTests.al:116-117), a Decimal const of a whole number, and the Option, Enum and Code `filter()`
 /// shapes of [`member_filter_text`]. Anything else (a const on another type, another filter) is not pinned.
-/// The second value is the assumption the text rests on, if any.
 fn view_text(
     o: &Object,
     table: Option<&al_ir::ObjectHead>,
     table_objects: &al_ir::Objects,
-) -> Result<(String, Option<al_builtins::assumptions::Assumption>), String> {
+) -> Result<String, String> {
     let Some(v) = prop(o, "SourceTableView") else {
-        return Ok((String::new(), None));
+        return Ok(String::new());
     };
     let not_pinned = || {
         format!(
@@ -132,7 +131,6 @@ fn view_text(
             return Err(not_pinned());
         }
     }
-    let assumed: Option<al_builtins::assumptions::Assumption> = None;
     if let Some(body) = filters {
         let mut conds = Vec::new();
         for cond in split_top(body).ok_or_else(not_pinned)? {
@@ -206,7 +204,7 @@ fn view_text(
         }
         out.push_str(&format!("WHERE({})", conds.join(",")));
     }
-    Ok((out, assumed))
+    Ok(out)
 }
 
 /// The value of a `const(...)` as the view text shows it: an option or enum member by its ordinal
@@ -271,27 +269,6 @@ fn const_text(f: &al_ir::Field, value: &str, table_objects: &al_ir::Objects) -> 
     }
 }
 
-/// `body` split at its top-level commas (outside parentheses and quotes), each part trimmed. `None` for an empty part.
-fn split_top(body: &str) -> Option<Vec<&str>> {
-    let (mut parts, mut start, mut depth, mut quote) = (Vec::new(), 0, 0usize, None::<char>);
-    for (i, c) in body.char_indices() {
-        match (quote, c) {
-            (Some(q), c) if c == q => quote = None,
-            (Some(_), _) => {}
-            (None, '\'' | '"') => quote = Some(c),
-            (None, '(') => depth += 1,
-            (None, ')') => depth = depth.checked_sub(1)?,
-            (None, ',') if depth == 0 => {
-                parts.push(body[start..i].trim());
-                start = i + 1;
-            }
-            _ => {}
-        }
-    }
-    parts.push(body[start..].trim());
-    (!parts.iter().any(|p| p.is_empty())).then_some(parts)
-}
-
 fn objects_enum_ordinal(objects: &al_ir::Objects, enum_object: u32, member: &str) -> Option<i32> {
     objects[enum_object as usize]
         .enum_values
@@ -353,7 +330,7 @@ pub(super) fn page_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
         key[pos(t, 1)] = Value::Integer(id as i32);
         match page_metadata_row(&c, o, t, key.clone()) {
             Ok((r, None)) => out.push(Entry::ok(r)),
-            Ok((r, Some(a))) => out.push(Entry::ok(r).assuming(a)),
+            Ok((r, Some(a))) => out.push(Entry::ok(r).assuming_in(a, vec![pos(t, 11)])),
             Err(why) => out.push(Entry::poisoned(key, why)),
         }
     }
@@ -452,25 +429,19 @@ fn page_metadata_row(
     r[pos(t, 8)] = Value::Boolean(lit_bool(o, "RefreshOnActivate", false));
     r[pos(t, 9)] = Value::Text(text_prop(o, "APIPublisher", 40).into());
     r[pos(t, 10)] = Value::Text(text_prop(o, "APIGroup", 40).into());
-    // APIVersion reads BC's own default `beta` when undeclared (TestPageMetadataProperties.al:94-97).
-    r[pos(t, 11)] = Value::Text(match prop(o, "APIVersion") {
-        None => "beta".into(),
-        Some(v) => string_lit(v).unwrap_or_default().chars().take(250).collect(),
-    });
+    let api_version = api_version_column(o).map_err(|e| format!("page '{}': {e}", o.name));
+    r[pos(t, 11)] = match &api_version {
+        Ok((v, _)) => Value::Text(v.as_str().into()),
+        Err(why) => Value::Unknown(format!("Page Metadata: {why}").into()),
+    };
     r[pos(t, 12)] = Value::Text(text_prop(o, "EntitySetName", 250).into());
     r[pos(t, 13)] = Value::Text(text_prop(o, "EntityName", 250).into());
     r[pos(t, 14)] = Value::Integer(src_id as i32);
     // A view of a shape that is not pinned leaves only this column unknown: a read of it, or a filter on it, is refused,
     // and the rest of the row is served (al-runner issue 6251: Base App's Sales Quote has `filter(Quote)`).
-    let view_assumed = match view_text(o, src, c.full) {
-        Ok((view, assumed)) => {
-            r[pos(t, 15)] = Value::Text(view.into());
-            assumed
-        }
-        Err(why) => {
-            r[pos(t, 15)] = Value::Unknown(format!("Page Metadata: {why}").into());
-            None
-        }
+    r[pos(t, 15)] = match view_text(o, src, c.full) {
+        Ok(view) => Value::Text(view.into()),
+        Err(why) => Value::Unknown(format!("Page Metadata: {why}").into()),
     };
     for (id, name) in [(16, "InsertAllowed"), (17, "ModifyAllowed"), (18, "DeleteAllowed")] {
         r[pos(t, id)] = col(allowed(c, o, name).map(Value::Boolean));
@@ -508,7 +479,7 @@ fn page_metadata_row(
             .collect(),
     );
     r[pos(t, 32)] = Value::Text(o.namespace.clone().unwrap_or_default().into());
-    Ok((r, view_assumed))
+    Ok((r, api_version.ok().and_then(|(_, a)| a)))
 }
 
 // ---- Page Control Field -----------------------------------------------------------------------------

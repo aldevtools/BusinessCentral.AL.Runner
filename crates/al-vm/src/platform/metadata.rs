@@ -6,7 +6,7 @@
 //! pinned by the corpus and are recorded in docs/probes-needed.md.
 
 use super::mat::Entry;
-use super::objects::{Catalog, caption, entries, ident, member, prop, string_lit, truncate, truthy};
+use super::objects::{Catalog, api_version_column, caption, entries, ident, member, prop, string_lit, truncate, truthy};
 use super::{Providers, blank, option, pos};
 use al_builtins::value::Value;
 use al_data::TableDef;
@@ -96,7 +96,8 @@ pub(super) fn xmlport_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
 pub(super) fn query_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let engine = p.engine();
     let c = Catalog::new(&engine);
-    entries(
+    let assumed = std::cell::RefCell::new(Vec::new());
+    let rows = entries(
         &c,
         t,
         |o| match (o.id, o.kind) {
@@ -115,21 +116,31 @@ pub(super) fn query_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
             r[pos(t, 3)] = Value::Text(truncate(&caption(o), 80).into());
             r[pos(t, 4)] = Value::Text(text(o, "APIPublisher", 40).into());
             r[pos(t, 5)] = Value::Text(text(o, "APIGroup", 40).into());
-            // A query that declares no APIVersion reads `beta` (queries/W7QueryFilters.al:
-            // QueryMetadata_NormalQuery_ApiColumnsAreBlank; pages read the same, TestPageMetadataProperties.al:94-97).
-            r[pos(t, 6)] = Value::Text(
-                match prop(o, "APIVersion") {
-                    None => "beta".to_string(),
-                    Some(_) => text(o, "APIVersion", 250),
+            r[pos(t, 6)] = match api_version_column(o) {
+                Ok((v, a)) => {
+                    if a.is_some() {
+                        assumed.borrow_mut().push(o.id);
+                    }
+                    Value::Text(v.into())
                 }
-                .into(),
-            );
+                Err(why) => Value::Unknown(format!("Query Metadata: query '{}': {why}", o.name).into()),
+            };
             r[pos(t, 7)] = Value::Text(text(o, "EntitySetName", 250).into());
             r[pos(t, 8)] = Value::Text(text(o, "EntityName", 250).into());
             r[pos(t, 10)] = Value::Guid(c.owner(o));
             Ok(())
         },
-    )
+    );
+    // A row whose APIVersion lists several versions rests on the assumption (objects.rs `api_version_column`).
+    let assumed = assumed.into_inner();
+    rows.into_iter()
+        .map(|e| match &e.row[pos(t, 1)] {
+            Value::Integer(id) if assumed.contains(&Some(*id as u32)) => {
+                e.assuming_in(al_builtins::assumptions::Assumption::ApiVersionListCommaJoined, vec![pos(t, 6)])
+            }
+            _ => e,
+        })
+        .collect()
 }
 
 // ---- Event Subscription -----------------------------------------------------------------------------

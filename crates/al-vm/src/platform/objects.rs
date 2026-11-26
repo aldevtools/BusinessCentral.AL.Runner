@@ -101,6 +101,57 @@ pub(crate) fn string_lit(v: &str) -> Option<String> {
     None
 }
 
+/// `body` split at its top-level commas (outside parentheses and quotes), each part trimmed. `None` for an empty part.
+pub(super) fn split_top(body: &str) -> Option<Vec<&str>> {
+    let (mut parts, mut start, mut depth, mut quote) = (Vec::new(), 0, 0usize, None::<char>);
+    for (i, c) in body.char_indices() {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '\'' | '"') => quote = Some(c),
+            (None, '(') => depth += 1,
+            (None, ')') => depth = depth.checked_sub(1)?,
+            (None, ',') if depth == 0 => {
+                parts.push(body[start..i].trim());
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(body[start..].trim());
+    (!parts.iter().any(|p| p.is_empty())).then_some(parts)
+}
+
+/// The APIVersion column of Page Metadata and Query Metadata, with the assumption a row that holds it rests on.
+/// Undeclared reads BC's own default `beta` (record/TestPageMetadataProperties.al:94-97, queries/W7QueryFilters.al
+/// QueryMetadata_NormalQuery_ApiColumnsAreBlank); one declared version reads as declared
+/// (pages/properties/PageMetadataApi.al:75, queries/TestQueryMetadataVirtualTable.al). Two or three declared versions read
+/// in declared order joined by `,` under assumption `api-version-list-comma-joined` (corpus PR 1530); another count is not
+/// measured and is refused. A value that is not a list of literals keeps the first literal, as before.
+pub(super) fn api_version_column<O: ObjectInfo + ?Sized>(
+    o: &O,
+) -> Result<(String, Option<al_builtins::assumptions::Assumption>), String> {
+    let Some(v) = prop(o, "APIVersion") else {
+        return Ok(("beta".into(), None));
+    };
+    let is_lit = |p: &&str| p.len() >= 2 && p.starts_with('\'') && p.ends_with('\'');
+    let lits: Option<Vec<String>> = split_top(v)
+        .filter(|parts| parts.iter().all(is_lit))
+        .and_then(|parts| parts.into_iter().map(string_lit).collect());
+    let first = || truncate(&string_lit(v).unwrap_or_default(), 250);
+    match lits.as_deref() {
+        Some([_]) | None => Ok((first(), None)),
+        Some(several @ ([_, _] | [_, _, _])) => Ok((
+            truncate(&several.join(","), 250),
+            Some(al_builtins::assumptions::Assumption::ApiVersionListCommaJoined),
+        )),
+        Some(more) => Err(format!(
+            "APIVersion declares {} versions (what the column holds is measured for two and three)",
+            more.len()
+        )),
+    }
+}
+
 pub(super) fn truthy(v: &str) -> bool {
     v.trim().eq_ignore_ascii_case("true")
 }
