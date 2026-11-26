@@ -39,6 +39,7 @@ mod clear_shared_codeunit;
 mod clear_shared_codeunit_cycle;
 mod clear_shared_codeunit_shapes;
 mod clear_shared_codeunit_share;
+mod clear_shared_codeunit_single;
 mod clear_shared_codeunit_tableno;
 mod clear_shared_codeunit_unused;
 mod clear_shared_codeunit_why;

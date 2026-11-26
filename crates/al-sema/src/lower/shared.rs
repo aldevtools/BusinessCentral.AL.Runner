@@ -584,6 +584,7 @@ pub(crate) fn lower_object<'a>(
                     slot.security_filtering_not_kept = security_filtering_not_kept(&attrs, &declared);
                     slot.plain_label = v.type_ref().as_ref().is_some_and(plain_label);
                     slot.comment_label = v.type_ref().as_ref().is_some_and(comment_label);
+                    slot.locked_label = v.type_ref().as_ref().is_some_and(locked_label);
                     slot.label = label.is_some();
                     globals.push(slot);
                 }
@@ -1297,6 +1298,16 @@ pub(crate) fn comment_label(t: &ast::TypeRef) -> bool {
             && comment.text().eq_ignore_ascii_case("comment")
             && eq.kind() == SyntaxKind::Eq
             && text_not_empty(note))
+}
+
+/// Whether a declaration is `Label 'text', Locked = true` with a text that is not empty and no other property.
+pub(crate) fn locked_label(t: &ast::TypeRef) -> bool {
+    matches!(type_tokens(t).as_slice(), [kw, text, comma, locked, eq, value]
+        if is_plain_label(kw, text)
+            && comma.kind() == SyntaxKind::Comma
+            && locked.text().eq_ignore_ascii_case("locked")
+            && eq.kind() == SyntaxKind::Eq
+            && value.text().eq_ignore_ascii_case("true"))
 }
 
 fn is_plain_label(kw: &al_syntax::SyntaxToken, text: &al_syntax::SyntaxToken) -> bool {
