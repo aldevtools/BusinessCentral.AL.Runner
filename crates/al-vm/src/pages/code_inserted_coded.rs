@@ -661,8 +661,9 @@ impl Session {
     }
 
     /// Whether control `idx` of host `st`, a page of the page-with-code shape with other code, takes the later SetValue
-    /// ListNewLineExtraCodeCodedSecondSetValue.al measures: a control the later SetValue may write (`later_value_field`), other
-    /// than the control whose SetValue landed.
+    /// ListNewLineExtraCodeCodedSecondSetValue.al measures: a control the later SetValue may write, other than the control
+    /// whose SetValue landed: either the own-OnValidate shape without a TableRelation (`later_value_field`), or the measured
+    /// relation shape (`coded_related_value_field`).
     fn extra_value_control(&self, st: &St, idx: usize) -> bool {
         let landing = match Self::test_calls(st).as_deref() {
             Some([TestCall::Page(PageMethod::New), TestCall::Write(landing), ..]) => *landing,
@@ -676,7 +677,10 @@ impl Session {
             && page_of(&engine, st)
                 .controls
                 .get(idx)
-                .is_some_and(|c| c.prop("tablerelation").is_none() && Self::later_value_field(&engine, c, &table))
+                .is_some_and(|c| match c.prop("tablerelation") {
+                    Some(_) => Self::coded_related_value_field(&engine, c, &table),
+                    None => Self::later_value_field(&engine, c, &table),
+                })
     }
 
     /// Whether a control with a TableRelation is the measured relation shape of the later SetValue: the same field shape as
