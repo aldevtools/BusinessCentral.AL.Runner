@@ -205,16 +205,16 @@ impl Session {
     /// each running Validate of it counts as touched (`ValidateRun::touched`). The match names every method, so a new one
     /// must choose. A method that only reads the buffer or the view (TestField, GetFilter, FieldCaption), sets the view, the
     /// key or the fields to load (SetRange, SetCurrentKey, SetLoadFields), or works on the record's links or the table does
-    /// not. CalcFields changes FlowFields only, which shows in the fields (`ValidateRun::entered`); CalcSums writes Normal
-    /// fields, so it touches (review of PR 9063, round 3).
+    /// not. CalcSums writes Normal fields (review of PR 9063, round 3) and CalcFields loads a Blob field, a Normal field,
+    /// from the stored row (`calc_fields_asked`, issue 9161), so both touch.
     pub(crate) fn note_record_op_under_validate(&mut self, method: RecordOp, rec: &Rec) {
         use RecordOp::*;
         let writes_or_reads = match method {
-            CalcSums | ChangeCompany | Clear | Copy | Delete | DeleteAll | Find | FindFirst | FindLast | FindSet
-            | Get | GetBySystemId | Init | Insert | LoadFields | Modify | ModifyAll | Next | Rename | SetPosition
-            | TransferFields | Truncate | Validate => true,
-            AddLink | AddLoadFields | AreFieldsLoaded | Ascending | CalcFields | ClearMarks | Consistent
-            | CopyFilter | CopyFilters | CopyLinks | Count | CountApprox | CurrentCompany | CurrentKey | DeleteLink
+            CalcFields | CalcSums | ChangeCompany | Clear | Copy | Delete | DeleteAll | Find | FindFirst | FindLast
+            | FindSet | Get | GetBySystemId | Init | Insert | LoadFields | Modify | ModifyAll | Next | Rename
+            | SetPosition | TransferFields | Truncate | Validate => true,
+            AddLink | AddLoadFields | AreFieldsLoaded | Ascending | ClearMarks | Consistent | CopyFilter
+            | CopyFilters | CopyLinks | Count | CountApprox | CurrentCompany | CurrentKey | DeleteLink
             | DeleteLinks | FieldActive | FieldCaption | FieldError | FieldName | FieldNo | FilterGroup
             | GetAscending | GetFilter | GetFilters | GetPosition | GetRangeMax | GetRangeMin | GetView | HasFilter
             | HasLinks | IsDirty | IsEmpty | IsTemporary | LockTable | Mark | MarkedOnly | ReadConsistency

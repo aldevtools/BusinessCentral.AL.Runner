@@ -180,6 +180,30 @@ codeunit 50413 "PX Tests"
     end;
 
     [Test]
+    procedure Plain_CalcFieldsBlob()
+    begin
+        RunPlain('p-calcblob');
+    end;
+
+    [Test]
+    procedure Plain_MediaImportStream()
+    begin
+        RunPlain('p-media');
+    end;
+
+    [Test]
+    procedure Plain_MediaSetImportStream()
+    begin
+        RunPlain('p-mediaset');
+    end;
+
+    [Test]
+    procedure Plain_EvaluateField()
+    begin
+        RunPlain('p-evaluate');
+    end;
+
+    [Test]
     procedure Plain_PageGetRecord()
     begin
         RunPlain('p-getrecord');

@@ -49,6 +49,7 @@ table 50400 "PX Line"
                 RecRef: RecordRef;
                 V: Variant;
                 OS: OutStream;
+                InS: InStream;
             begin
                 case Cfg.Get() of
                     'p-ctrl':
@@ -96,6 +97,24 @@ table 50400 "PX Line"
                             Pic.CreateOutStream(OS);
                             OS.WriteText('X');
                         end;
+                    'p-calcblob':
+                        CalcFields(Pic);
+                    'p-media':
+                        begin
+                            Other.Pic.CreateOutStream(OS);
+                            OS.WriteText('X');
+                            Other.Pic.CreateInStream(InS);
+                            Img.ImportStream(InS, 'x');
+                        end;
+                    'p-mediaset':
+                        begin
+                            Other.Pic.CreateOutStream(OS);
+                            OS.WriteText('X');
+                            Other.Pic.CreateInStream(InS);
+                            Imgs.ImportStream(InS, 'x');
+                        end;
+                    'p-evaluate':
+                        Evaluate(Series, 'EV');
                 end;
                 Worker.CallTableProc(Rec);
             end;
@@ -114,6 +133,9 @@ table 50400 "PX Line"
         // Written in the trigger of Plain: by CalcSums (Plain_CalcSums) and by an OutStream (Plain_BlobStream).
         field(10; Amount; Decimal) { }
         field(11; Pic; Blob) { }
+        // Written in the trigger of Plain by ImportStream (Plain_MediaImportStream, Plain_MediaSetImportStream).
+        field(12; Img; Media) { }
+        field(13; Imgs; MediaSet) { }
     }
 
     keys
