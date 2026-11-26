@@ -1,0 +1,5 @@
+# key	entry
+# Main refused the whole install (the orders copy a company, test data on: "the orders differ in more than table rows"). Head
+# compares the copy by table: the three tests that read Company, IO9039S Setup or IO9039S Copied Alike stay not run on both
+# sides, and the test that reads none of them runs.
+IO9039S Tests::NoTableOfTheOrdersRead	PINNED tests/al-language/session-system/TestSessionFunctions.al:25

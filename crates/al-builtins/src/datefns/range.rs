@@ -2,6 +2,10 @@
 //! DateInvalid), and which results from the closing date C9999-12-31 stay closing dates. Each cell is pinned by
 //! tests/al-language/types/date-time/CalcDate.al:458-480 or by tests/al-language/types/date-time/CalcDateOverflow.al:250-534
 //! (cited per cell as CalcDateOverflow.al:LINE). Every other shape at the ends is refused.
+//!
+//! CalcDate at the ends of the date range: the cells that raise DateInvalid (bases 0001-01-01 and
+//! 0001-01-02, a last step past the range) and the closing results from C9999-12-31; every other
+//! shape there refuses. Entry points: `low_base`, `past_edge`, `first_day_result`, `closing_result`.
 
 use super::{LAST_DAY, Term, Unit};
 use crate::native::{Signal, raise, unsupported};

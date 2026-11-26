@@ -6,6 +6,8 @@
 //! another branch does, so an error that was caught earlier does not outlive a later one.
 //! Tracing is off in a normal run: nothing is recorded and the cost is one flag test on the
 //! error path.
+//!
+//! Entry points: `FaultFrame`, `trace_faults`, `fault_site`, `note_fault`.
 
 use crate::Session;
 
@@ -47,18 +49,20 @@ impl Session {
         (!self.fault_site_lost && !self.fault_site.is_empty()).then_some(&self.fault_site[..])
     }
 
-    /// Called by a routine an error or a refusal is leaving, before its frame is popped.
-    pub(crate) fn note_fault(&mut self) {
-        let now: Vec<FaultFrame> = self
-            .frames
-            .iter()
-            .zip(&self.call_stack)
+    /// The call stack now, outermost first.
+    pub(crate) fn stack_now(&self) -> Vec<FaultFrame> {
+        (self.frames.iter().zip(&self.call_stack))
             .map(|(&object, f)| FaultFrame {
                 object,
                 routine: f.routine,
                 pos: f.pos,
             })
-            .collect();
+            .collect()
+    }
+
+    /// Called by a routine an error or a refusal is leaving, before its frame is popped.
+    pub(crate) fn note_fault(&mut self) {
+        let now = self.stack_now();
         let deeper_branch_already_seen = now.len() <= self.fault_site.len() && self.fault_site[..now.len()] == now[..];
         if !deeper_branch_already_seen {
             self.fault_site = now;

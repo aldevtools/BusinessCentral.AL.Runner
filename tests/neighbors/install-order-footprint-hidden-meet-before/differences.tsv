@@ -1,0 +1,4 @@
+# key	entry
+# Control of install-order-footprint-hidden-meet: the met app is named C and sorts before D and X. Main: the three Row
+# tests not run; head (before and after the review-round-2 fix): refused, "installing them in each order leaves
+# different rows in RQ hidden Row". Another refusal text is no difference: no row.

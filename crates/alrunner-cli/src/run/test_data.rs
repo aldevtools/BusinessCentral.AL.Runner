@@ -40,9 +40,8 @@ pub(super) fn open_backup(a: &TestArgs, path: PathBuf) -> Result<(TestData, Path
 pub(super) fn open_backup_fresh(a: &TestArgs, path: PathBuf) -> Result<(TestData, PathBuf), String> {
     // The page map of the backup is kept next to the compile cache, so a cold or a warm open of a
     // 900 MB backup reads the map instead of verifying every extent.
-    let index_dir = (!a.no_compile_cache
-        && !std::env::var("ALRUNNER_NO_COMPILE_CACHE").is_ok_and(|v| !v.is_empty() && v != "0"))
-    .then(|| al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()).join("backup-index"));
+    let index_dir = (!a.no_compile_cache && !al_testrun::switches::on("ALRUNNER_NO_COMPILE_CACHE"))
+        .then(|| al_deps::cache::cache_root_from_env(a.cache_dir.as_deref()).join("backup-index"));
     let all_companies = matches!(a.companies.as_ref(), Some(al_host::Companies::All));
     let additional_companies = if !a.additional_test_data_companies.is_empty() {
         a.additional_test_data_companies.clone()

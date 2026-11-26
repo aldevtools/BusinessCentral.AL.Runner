@@ -1,5 +1,8 @@
 //! A row that page code changes on a page whose ModifyAllowed is false, other than through the client's own save
 //! (testpage/Y61ModifyDeniedSave.al).
+//!
+//! A drill-down whose code changed the row on a list whose ModifyAllowed is false. Entry points:
+//! `navigate_settled`.
 
 use super::*;
 use al_builtins::page_op::PageMethod;

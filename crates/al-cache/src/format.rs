@@ -15,13 +15,16 @@
 //! anywhere is refused at open, before any test runs. A damaged header, index or dictionary is refused at open (a hash
 //! each), as is a file of the wrong length. A block is checked again when it is read (zstd's content checksum, then
 //! the decoder). Nothing in a refused file is used.
+//!
+//! The cache entry file: header, dictionary, per-object blocks, index; open checks the header, the
+//! index and the dictionary, a block is checked when read. Entry points: `build`, `Entry::open`,
+//! `Entry::verify`, `CacheError`.
 
 use crate::Key;
 use al_ir::ObjectHead;
 use al_sema::provided::{DepBlock, DepFacts, DepLayer, DepSet, DepSource, LayerSource};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 const MAGIC: &[u8; 8] = b"ALRCDEP\0";
 const HEADER: usize = 8 + 4 + 32 + 8 + 8 + 8 + 32 + 8 + 32;
@@ -109,9 +112,7 @@ fn chunks<T: Serialize + Sync>(items: &[T], n: usize) -> Vec<(usize, Vec<u8>)> {
         .collect()
 }
 
-fn sha(bytes: &[u8]) -> [u8; 32] {
-    Sha256::digest(bytes).into()
-}
+use crate::digest::sha;
 
 fn zstd_err(e: std::io::Error) -> CacheError {
     CacheError::Damaged(format!("zstd: {e}"))
@@ -448,6 +449,11 @@ impl Entry {
 }
 
 impl Entry {
+    /// The digest of the key the file was opened for (checked at open).
+    pub fn digest(&self) -> [u8; 32] {
+        self.bytes[12..44].try_into().expect("checked at open")
+    }
+
     /// How many objects the layers below this one hold (0 for the first layer).
     pub fn base_len(&self) -> usize {
         self.index.base_len as usize

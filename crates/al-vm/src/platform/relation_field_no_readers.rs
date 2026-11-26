@@ -5,6 +5,16 @@
 //! The readers corpus PR 1477 measured (FieldRelationFieldNoReaders.al, not yet pinned) run under the assumption
 //! `relation-field-no-readers`; every other reader of that 0 is refused. A temporary Field record keeps what AL wrote into
 //! it; a Record variable's reads are not touched here (pinned by FieldRelationFieldNo.al:161-260).
+//!
+//! the readers of that RelationFieldNo 0 other than a Record variable. `relation_field_no_read` is
+//! the allowlist of the readers corpus PR 1477 measured (assumption `relation-field-no-readers`);
+//! every other reader refuses. `RecordRefTraces` (a `Session` field) keeps how each RecordRef buffer
+//! over the database Field table reached its row and which filters on RelationFieldNo
+//! FieldRef.SetRange, FieldRef.SetFilter and SetView set, fed from `recordref_op`. Called from
+//! FieldRef.Value (`refs.rs`), RecordRef finds (`recordref_record_op`), Format (also
+//! `Format(FieldRef, n, 1 | 2 | 9)` through `Ctx::format_fieldref_read`), TestField and FieldError
+//! (`recmeta.rs`), CalcSums (`flowfields.rs`), page controls, TestFilter and the page view at open
+//! (`pages/`); `queries.rs` raises the measured Query.Open error.
 
 use super::pos;
 use al_builtins::assumptions::{Assumption, assume};
@@ -230,6 +240,11 @@ struct Trace {
 }
 
 impl RecordRefTraces {
+    /// No buffer the run traced is alive any more: what a new session holds, as far as code can see.
+    pub(crate) fn as_new(&self) -> bool {
+        self.0.iter().all(|t| t.buffer.strong_count() == 0)
+    }
+
     fn get(&self, rec: &Rec) -> Option<&Trace> {
         self.0.iter().find(|t| std::ptr::eq(t.buffer.as_ptr(), Rc::as_ptr(rec)))
     }

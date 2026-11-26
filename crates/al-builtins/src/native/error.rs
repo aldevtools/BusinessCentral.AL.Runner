@@ -125,6 +125,14 @@ pub fn closing_date_operation<T>() -> Result<T, Signal> {
     )
 }
 
+/// The text of the InvalidGuidFormat error: a text that is no Guid where a Guid is needed (types/W7Scalars.al:46-76).
+pub const INVALID_GUID_FORMAT: &str = "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.";
+
+/// Raises the InvalidGuidFormat error. Each caller cites the pin of its raise site.
+pub fn invalid_guid_format<T>() -> Result<T, Signal> {
+    raise(INVALID_GUID_FORMAT, "InvalidGuidFormat")
+}
+
 /// Raises an AL error with a pinned text and code.
 pub fn raise<T>(message: impl Into<String>, code: &str) -> Result<T, Signal> {
     // A division by zero carries no customer content: the flag leaves its text (P86LastError.al:RuntimeError_Other `div_excl`).

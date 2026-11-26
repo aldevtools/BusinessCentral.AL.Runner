@@ -13,6 +13,20 @@
 //! per-database part runs last, with `CompanyName()` empty (`:138-140`). Inside one app and part the routines run in
 //! ascending codeunit id, across the 65536 id boundary (amendment 3, [`order_of`]); only the order of two subscribers of
 //! one codeunit is not pinned, and every test that can see it is refused (A2).
+//!
+//! The install code of each app (ADR-046 step A): install codeunit triggers and `Extension Triggers`
+//! subscribers per app and part (`plan`), the tables whose install rows tests may not read (`facts`:
+//! decision 4c, amendment 1 A2; `AL_INSTALL_FACTS=1` prints them), and the run of the apps under test
+//! one after the other (`run_apps_under_test`: install session id, SingleInstance reset, the app's
+//! own Company Triggers subscribers; under `--companies` the per-company part once per declared
+//! company, ADR-046 step B, and `refuse` for a routine that stops in another company; in the session
+//! company `skipped_at_home` splits its tables into `tables` and the `assumed` ones only the table-
+//! event subscribers of a table it only reads add). `not_ended_before_first_test` is the one reason
+//! text for code that runs as the test session opens the company (own and partner login subscribers,
+//! Company Triggers subscribers) and did not end: it names the event and, for a refusal, ends with
+//! `explain::site_suffix`; `runtime/run.rs` `observed_not_run` gives each test of the codeunit that
+//! stack under `--explain` (tests: `runtime/login_explain_tests.rs`). Entry points: `plan`, `facts`,
+//! `ensure_facts`, `run_apps_under_test`, `not_ended_before_first_test`.
 
 use al_builtins::describe::Describe;
 use al_builtins::native::Signal;
@@ -517,11 +531,16 @@ fn print_facts(lowered: &Lowered, events: &al_vm::events::Registry, f: &InstallF
 
 /// Runs the install code of the apps under test, one app after the other in dependency order (decision 3, steps 4a and
 /// 4b; amendment 1, A3 and A4). Returned, per routine that could not run: the tables it touches and why, so tests that
-/// touch them are reported not run. Each routine commits when it ends; one that stops is rolled back.
-pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> Vec<al_vm::SkippedInstall> {
+/// touch them are reported not run. Each routine commits when it ends; one that stops is rolled back. Returned too: the
+/// notes of the install-order proof, every reason of every tie (al-runner issue 9058; `--verbose` prints them).
+pub(crate) fn run_apps_under_test(
+    lowered: &Lowered,
+    session: &mut Session,
+) -> (Vec<al_vm::SkippedInstall>, Vec<String>) {
     let engine = session.engine.clone();
     ensure_facts(&engine, lowered);
     let mut skipped = Vec::new();
+    let mut notes = Vec::new();
     let company = session.set_company("");
     session.set_company(&company);
     // BC's install session has no client (`Session::set_install_without_client`).
@@ -544,6 +563,7 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
         plans: &plans,
         company: &company,
         skipped: &mut skipped,
+        notes: &mut notes,
     };
     for app in plans.iter().filter(|a| microsoft.contains(&(a.app as u32))) {
         if app.company.is_empty() && app.database.is_empty() {
@@ -575,7 +595,7 @@ pub(crate) fn run_apps_under_test(lowered: &Lowered, session: &mut Session) -> V
     // The test session does not see the SingleInstance state of the install run (PeVTests.al:297, fact 6).
     session.reset_single_instances();
     session.commit_transaction();
-    skipped
+    (skipped, notes)
 }
 
 /// The apps under test, for `install_orders::install_partner_apps` and the Microsoft apps before them.
@@ -584,17 +604,20 @@ struct UnderTestInstalls<'a> {
     plans: &'a [AppInstall],
     company: &'a str,
     skipped: &'a mut Vec<al_vm::SkippedInstall>,
+    notes: &'a mut Vec<String>,
 }
 
 impl crate::install_orders::AppInstalls for UnderTestInstalls<'_> {
-    type Mark = usize;
+    /// (refusals, notes).
+    type Mark = (usize, usize);
 
-    fn mark(&self) -> usize {
-        self.skipped.len()
+    fn mark(&self) -> (usize, usize) {
+        (self.skipped.len(), self.notes.len())
     }
 
-    fn rewind(&mut self, mark: &usize) {
-        self.skipped.truncate(*mark);
+    fn rewind(&mut self, &(skipped, notes): &(usize, usize)) {
+        self.skipped.truncate(skipped);
+        self.notes.truncate(notes);
     }
 
     fn install(&mut self, session: &mut Session, app: u32) {
@@ -607,7 +630,9 @@ impl crate::install_orders::AppInstalls for UnderTestInstalls<'_> {
         self.skipped.push(al_vm::SkippedInstall::new(tables, why));
     }
 
-    fn note(&mut self, _line: String) {}
+    fn note(&mut self, line: String) {
+        self.notes.push(line);
+    }
 }
 
 /// Runs the install code of app under test `app` (`k`: its place in the plan), the session's install view set.
@@ -962,15 +987,19 @@ impl InstallView {
         }
     }
 
-    /// (not installed, order unknown) while `installing` installs, with `fixed` an install order the runner chose for some apps of `group` with no dependency
-    /// path between them (ADR-046 amendment 7, `install_orders.rs`): between two apps of `fixed`, the one listed first is
-    /// installed while the other installs.
+    /// (not installed, order unknown) while `installing` installs, with `fixed` an install order the runner chose for some
+    /// apps of `group` with no dependency path between them (ADR-046 amendment 7, `install_orders.rs`) and `reads` the
+    /// edges "x's install reads from y's" the proof counted (`install_proof::Graph::reads`). An app of `fixed` listed
+    /// before `installing` is installed. One listed after it is not installed only when `reads` has the edge
+    /// (`installing`, it): then the proof also runs `installing` with it installed first. Every other one stays of
+    /// unknown order, so a meet with it is noted (ADR-079 decision 3, clarification of 2026-11-23, review round 2).
     pub(crate) fn of_ordered(
         &self,
         installing: u32,
         group: &BTreeSet<u32>,
         held: &BTreeSet<u32>,
         fixed: &[u32],
+        reads: &BTreeSet<(u32, u32)>,
     ) -> (BTreeSet<u32>, BTreeSet<u32>) {
         let mut not_installed = held.clone();
         let mut unknown = BTreeSet::new();
@@ -984,8 +1013,11 @@ impl InstallView {
             } else if let (Some(i), Some(j)) = (at(installing), at(g)) {
                 if j < i {
                     not_installed.remove(&g);
-                } else {
+                } else if reads.contains(&(installing, g)) {
                     not_installed.insert(g);
+                } else {
+                    not_installed.remove(&g);
+                    unknown.insert(g);
                 }
             } else if self.listed_order && g > installing {
                 not_installed.insert(g);
@@ -1011,10 +1043,11 @@ impl InstallView {
 
     /// Sets what the session sees while `installing` installs.
     pub(crate) fn apply(&self, session: &mut Session, installing: u32, group: &BTreeSet<u32>, held: &BTreeSet<u32>) {
-        self.apply_ordered(session, installing, group, held, &[]);
+        self.apply_ordered(session, installing, group, held, &[], &BTreeSet::new());
     }
 
-    /// [`InstallView::apply`] with an install order chosen for the apps of `fixed` ([`InstallView::of_ordered`]).
+    /// [`InstallView::apply`] with an install order chosen for the apps of `fixed` and the edges `reads` the proof
+    /// counted ([`InstallView::of_ordered`]).
     pub(crate) fn apply_ordered(
         &self,
         session: &mut Session,
@@ -1022,8 +1055,9 @@ impl InstallView {
         group: &BTreeSet<u32>,
         held: &BTreeSet<u32>,
         fixed: &[u32],
+        reads: &BTreeSet<(u32, u32)>,
     ) {
-        let (not_installed, unknown) = self.of_ordered(installing, group, held, fixed);
+        let (not_installed, unknown) = self.of_ordered(installing, group, held, fixed, reads);
         session.set_apps_not_installed(Some(not_installed));
         session.set_apps_install_order_unknown(Some(unknown));
         session.set_installing_app(Some(installing));
@@ -1163,7 +1197,7 @@ fn run_subscribers(lowered: &Lowered, session: &mut Session, subs: &[(usize, usi
 }
 
 /// The tables the Company Triggers subscribers of the test session wrote ([`test_session_company_open`]).
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(crate) struct CompanyOpenWrites {
     /// The first subscriber that wrote, for the reason text.
     pub who: Option<String>,
@@ -1306,13 +1340,7 @@ fn open_test_session_company(
     // subscribers, in codeunit id order with the apps under test's own, for a test codeunit that can see what the login
     // leaves; else the apps under test's own login subscribers run where the login is raised, watched in a session the
     // pin does not cover (`login::decide`).
-    let watched = if session.is_clientless_session() {
-        Some(crate::login::NO_CLIENT)
-    } else if disabled {
-        Some(crate::login::DISABLED)
-    } else {
-        None
-    };
+    let watched = crate::login::watched(session, disabled);
     let mut decision = session.test_object.map_or(crate::login::Login::None, |t| {
         crate::login::decide(&engine, lowered, t, watched, after_refusal)
     });
@@ -1527,8 +1555,10 @@ fn own_login(
         );
         let at = session.left_stamp();
         call_before_first_test(lowered, session, &what, |s| s.raise_to(po, pr, &step.subscribers))?;
-        let singles = at.changed(&session.left_stamp()).singles;
+        let mut change = at.changed(&session.left_stamp());
+        let singles = std::mem::take(&mut change.singles);
         crate::partner_login::own_step(lowered, session, singles, &mut partner, memo_alone);
+        session.mark_declared_form(&change);
         // On BC the registration events are raised inside Base Application's "Checklist Events" subscriber of the
         // isolated OnAfterLogin, whose own transaction commits before the app's OnAfterLogin subscribers run; an isolated
         // event isolates a subscriber only when nothing is pending (codeunits/TestIsolatedEventSubscriberError.al:5-11,

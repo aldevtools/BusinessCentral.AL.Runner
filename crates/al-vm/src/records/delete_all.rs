@@ -1,6 +1,8 @@
 //! `Delete` of one row with what it takes along (`delete_one`). `DeleteAll`: the rows it deletes, row by row (with delete
 //! events, database triggers, OnDelete for DeleteAll(true), the User table, MarkedOnly) or in one step in the store; a filter
 //! on a FlowField goes to `delete_all_flow`.
+//!
+//! `DeleteAll`, row by row or in one step in the store.
 
 use super::*;
 
@@ -19,6 +21,7 @@ impl Session {
         if let Some(c) = cascade {
             self.tenant_set_cascade_apply(cx, t, c)?;
         }
+        crate::version_entry::note_own_delete(rec);
         Ok(deleted)
     }
 
@@ -50,9 +53,10 @@ impl Session {
         t: &TableDef,
         rec: &Rec,
         reset: bool,
+        argument: bool,
     ) -> Result<Value, Signal> {
         self.tenant_set_truncate(cx, t, rec)?;
-        self.note_bulk_write(rec, t, crate::state::TxWriteKind::Truncate, &[]);
+        self.note_truncate_write(rec, t, argument);
         self.truncate(t, rec, reset)
     }
 
@@ -64,7 +68,7 @@ impl Session {
         cx: &al_data::AccessContext,
         run: bool,
     ) -> Result<Value, Signal> {
-        let (filters, flow_field_filters) = self.split_filters(rec);
+        let (filters, flow_field_filters) = self.split_filters(rec)?;
         if !flow_field_filters.is_empty() {
             return self.delete_all_flow_filtered(t, rec, run);
         }
@@ -184,7 +188,19 @@ impl Session {
         self.store_for(rec)?
             .delete_all(cx, t, &filters)
             .map_err(|e| Signal::unsupported(format!("{e}")))?;
+        self.forget_install_emptied(cx, t, temporary);
         self.deletes += 1;
         Ok(Value::Null)
+    }
+
+    /// After a store DeleteAll on `t` (a DeleteAll in one step, or `Truncate` in autoinc.rs): in install code, a database
+    /// table of `UNSEEDED_ROWS` does not count as emptied. Only the test session's own DeleteAll is pinned to empty such a
+    /// table (al-language-onprem/metadata/PtOnPremTables.al:324, :345-356; Y40 :365-385). Whether a fresh tenant's rows
+    /// are there yet when install code runs is not, so install code leaves the table unseeded and a later read refuses
+    /// (`Session::is_unseeded`, which reads the mark in `self.store`).
+    pub(crate) fn forget_install_emptied(&mut self, cx: &al_data::AccessContext, t: &TableDef, temporary: bool) {
+        if self.install_scope && !temporary && self.engine.platform_unseeded.contains(&(t.object as usize)) {
+            self.store.forget_emptied(cx, t);
+        }
     }
 }

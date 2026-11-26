@@ -117,7 +117,7 @@ One owner module, `al-testrun` `runtime/discovery.rs`:
   `Link::Discovery`, `ChainWhy::Discovery`): it runs the OnRun trigger of every selected test codeunit, in id order,
   in a test session from the install baseline, committing after each. What it leaves (rows, number sequences,
   isolated storage) is where the codeunits of the session start; a codeunit that reads a table it changed runs again
-  from it, as after a Disabled codeunit. Under `--strict-order` the session runs as one walk (`strict_sequential`) and
+  from it, as after a Disabled codeunit. Under `--strict-order` the session runs as one walk (`strict_walk.rs`) and
   the single instances the pass left move into the first codeunit.
 - `TestDriver::run_onrun_carries`: the run's call of OnRun carries no rows (SwOnRunRunner.al:21-23); a codeunit whose
   OnRun can change a number sequence or isolated storage, or whose tests take numbers, stays in the chain, starting the

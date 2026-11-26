@@ -1,8 +1,17 @@
 //! The platform's transaction-world decision for a report run: [`Session::report_enter_world`], and the moments of the open
 //! transaction it is measured at ([`Moment`]).
+//!
+//! whether a report run enters a transaction world (request page, TransactionType against the
+//! session's type, AutoRollback, a pending write), and the moments of the open transaction an Update
+//! report without its request page is measured at (`Moment`: the test method's start or an AL Commit,
+//! the CurrentTransactionType set, reads and runs since). Entry points: `report_enter_world` (from
+//! Run, RunModal, RunRequestPage, Execute and Print). The session's type itself
+//! (`Database.CurrentTransactionType`, kept by a Commit and carried into the next test method) is
+//! `transaction_type.rs`.
 
 use super::Schema;
-use crate::transactions::{TRANSACTION_TYPE_UPDATE_NO_LOCKS as UPDATE_NO_LOCKS, TxModel, TxPhase};
+use crate::transaction_type::TRANSACTION_TYPE_UPDATE_NO_LOCKS as UPDATE_NO_LOCKS;
+use crate::transactions::{TxModel, TxPhase};
 use crate::{Session, Signal};
 use al_builtins::assumptions::{self, Assumption};
 use al_builtins::native::unsupported;
@@ -76,6 +85,11 @@ impl Session {
         *m.depth.get_or_insert(self.depth) == self.depth
     }
 
+    /// A test method starts: the moment its start opens (`transaction_type.rs` `start_test_transaction`).
+    pub(crate) fn moment_at_test_start(&mut self) {
+        self.tx.open.moment = Some(Moment::at(MomentStart::TestStart));
+    }
+
     /// An AL `Commit` ran (`transactions.rs`): it opens a moment in the code of a test, as the cells commit: in the test
     /// method or a codeunit procedure it calls (TxTypeUpdateReport.al TxU01's library codeunit), with nothing between them but
     /// such procedures, so not in a trigger, an event subscriber, a handler, a TryFunction, a Codeunit.Run, a report or a page
@@ -94,7 +108,7 @@ impl Session {
 
     /// The running code is a test method, or codeunit procedures without attributes that it called, with no trigger, event
     /// subscriber, handler or other routine between. The test runner's frames lie below the test method.
-    fn in_test_code(&self) -> bool {
+    pub(crate) fn in_test_code(&self) -> bool {
         let objects = &self.engine.program.objects;
         let frames = || self.frames.iter().zip(&self.call_stack);
         let Some(test) = frames().position(|(&o, f)| self.is_test_method(o, f.routine)) else {

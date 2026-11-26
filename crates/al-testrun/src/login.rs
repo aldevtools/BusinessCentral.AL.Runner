@@ -52,6 +52,22 @@
 //!   leaves out the not-compiled check, whose entries do not say their app).
 //! - Own: an application area a subscriber sets is cleared when the first test starts, as for every test (not pinned
 //!   either way).
+//!
+//! The test session's login (al-runner issues 7343, 7717), and the one list of what it does not
+//! model: for a test codeunit that can see what an app under test's subscriber to "System
+//! Initialization" `OnAfterLogin` or "Guided Experience" `OnRegisterAssistedSetup` leaves (`decide`),
+//! `install::test_session_company_open` also runs the dependency apps' Company Triggers
+//! `OnCompanyOpenCompleted` subscribers, which raise the login (`Login::Raise`); also when those
+//! subscribers read what the dependency apps' login code writes (`reads_microsofts_login`, except
+//! calls of Guided Experience or Checklist keyed on a constant own object), subscribe to
+//! OnRegisterManualSetup or OnRegisterGuidedExperienceItem (`RAISE_ONLY`), or the checklist is set up
+//! (`checklist_set_up`); a test that touches a table the own subscribers wrote marks `login-own-
+//! registration-reads-alone` (`CompanyOpenWrites::watch_hit`); otherwise it raises the two events to
+//! the apps under test's own subscribers only (`Login::Own`, `install::own_login`, al-vm
+//! `Session::raise_to`), watched under `--no-client` and Disabled isolation
+//! (`install::CompanyOpenWrites::watched_login`, al-vm `state_stamp.rs`, `watched_state`);
+//! `state_objects` for the baseline rule. Entry points: `decide`, `Login`, `LOGIN_RAISER`,
+//! `state_objects`.
 
 use crate::runtime::written::{
     JoinedReach, ReachFacts, ReachIndex, global_triggers_reach_facts, login_subscriber_reach_facts,
@@ -62,6 +78,53 @@ use al_vm::Engine;
 use al_vm::events::Registry;
 use std::collections::BTreeSet;
 use std::sync::OnceLock;
+
+/// Why the login of a session is watched ([`decide`]'s `watched`): it has no client ([`NO_CLIENT`]), or runs under
+/// RequiredTestIsolation = Disabled (`disabled`, [`DISABLED`]); `None`: it is not.
+pub(crate) fn watched(session: &al_vm::Session, disabled: bool) -> Option<&'static str> {
+    if session.is_clientless_session() {
+        Some(NO_CLIENT)
+    } else if disabled {
+        Some(DISABLED)
+    } else {
+        None
+    }
+}
+
+/// Whether the login of test codeunit `test` is raised through Microsoft's code in a session `watched` like this, on a
+/// first run or on the run again after a refusal (`after_refusal`): [`decide`] answers [`Login::Raise`] and the session has
+/// a client. The only login a session can replay (`login_start.rs`). Once per engine, codeunit, watch and run. A codeunit
+/// that becomes `Raise` only because the checklist is set up (`install::open_test_session_company`) runs its login.
+pub(crate) fn raises(
+    engine: &Engine,
+    lowered: &Lowered,
+    test: usize,
+    watched: Option<&'static str>,
+    after_refusal: bool,
+) -> bool {
+    type Raises = std::sync::Mutex<std::collections::HashMap<(usize, Option<&'static str>, bool), bool>>;
+    #[derive(Default)]
+    struct Memo(Raises);
+    let memo = engine.derived(Memo::default);
+    if let Some(&known) =
+        memo.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&(test, watched, after_refusal))
+    {
+        return known;
+    }
+    let raised = watched != Some(NO_CLIENT)
+        && matches!(
+            decide(engine, lowered, test, watched, after_refusal),
+            Login::Raise { .. }
+        );
+    memo.0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert((test, watched, after_refusal), raised);
+    raised
+}
 
 /// How the test session of a test codeunit models the login ([`decide`]).
 pub(crate) enum Login {

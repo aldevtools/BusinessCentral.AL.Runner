@@ -1,4 +1,17 @@
 //! What a test cannot run for: install codeunits, tables a test touches, blocked routines.
+//!
+//! What a test cannot run for: install routines that could not run, tables a test touches, blocked
+//! routines. The walk does not enter a page action's OnAction, a report's trigger or a TryFunction
+//! below the root (`refused_when_run`): what they reach is refused when it runs (`Engine::blocked`,
+//! al-runner issues 6014, 6112). It follows `calls_before_run`: a page or report variable reaches the
+//! object's triggers, and a page or report procedure only through a call (issue 6031), so a procedure
+//! only an action calls is refused when the action runs. `Assumed` says what a reader of a table only
+//! `SkippedInstall::assumed` holds gets (a test and the company open run marked, an OnRun and later
+//! install code are refused); `subscribers_reached_reading` is the reach without the table-event
+//! subscribers of a table every routine of the walk only reads (`table_reads.rs`). Entry points:
+//! `blocked_site`, `refused_when_run`, `is_action_trigger`, `calls_before_run`,
+//! `run_install_codeunits`, `skipped_install_hit`, `subscribers_reached_from`,
+//! `subscribers_reached_reading`.
 use super::written::{ReachIndex, report_that_cannot_run};
 use super::*;
 
@@ -9,7 +22,11 @@ use super::*;
 /// A routine a lean compile left out (`Lowered::left_out`) does not run: the compile is lean only for tests that
 /// read no data (`observe.rs`), and BC runs install code in a session of its own, so nothing else of it reaches a test's
 /// session (the install baseline, which runs it once in a session of its own, gives the same).
-pub(crate) fn run_install_codeunits(lowered: &Lowered, session: &mut Session) -> Vec<al_vm::SkippedInstall> {
+/// Returned too: the notes of the install-order proof (`install::run_apps_under_test`).
+pub(crate) fn run_install_codeunits(
+    lowered: &Lowered,
+    session: &mut Session,
+) -> (Vec<al_vm::SkippedInstall>, Vec<String>) {
     crate::install::run_apps_under_test(lowered, session)
 }
 

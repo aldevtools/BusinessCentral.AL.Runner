@@ -5,6 +5,14 @@
 //! subset also runs on pages the repro does not show). Anything the renderer does not know gives `None`: the object is not
 //! the pinned one. A pinned line may hold a name slot (`«T»`, see [`Names`]) where the pins measured the same answer under
 //! other object and variable names; every other character is compared as written.
+//!
+//! An object as a rule pinned for one outside reporter's repro compares it, line for line: a page's
+//! properties, controls and triggers (`page_lines`, `page_is`), a table's fields, keys and code
+//! (`table_lines`, `table_is`), an object's variables and procedures, and a codeunit whole
+//! (`object_code_lines`), a routine body in a plain AL-like form (`routine_text`, loops included) and
+//! the procedures it calls (`callees_are`). A pinned line may hold name slots (`Names`, read back
+//! with `bound`) where the pins measured the same answer under other names. Anything it cannot write
+//! gives `None`, so the object is not the pinned one.
 
 use al_builtins::value::RtType;
 use al_ir as ir;
@@ -501,6 +509,8 @@ fn type_text(program: &ir::Program, ty: &RtType) -> Option<String> {
         RtType::Text(Some(n)) => format!("Text[{n}]"),
         RtType::Code(Some(n)) => format!("Code[{n}]"),
         RtType::Date => "Date".into(),
+        RtType::Time => "Time".into(),
+        RtType::DateTime => "DateTime".into(),
         RtType::Option(members) => format!("Option {}", members.join(",")),
         RtType::Dictionary(k, v) => format!("Dictionary of [{}, {}]", type_text(program, k)?, type_text(program, v)?),
         RtType::Record(t, false) => format!("Record \"{}\"", program.objects.get(*t as usize)?.name),

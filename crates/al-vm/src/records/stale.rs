@@ -1,4 +1,7 @@
 //! Row-version notes and the stale-record verdict (moved out of `records.rs`).
+//!
+//! row-version notes (`note_write`, `note_bulk_write`/`note_bulk_end` for ModifyAll, DeleteAll,
+//! Rename, Truncate), `modify_row_version` and `bump_row_version`.
 
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
@@ -32,7 +35,7 @@ impl Session {
         }
         let company = rec.borrow().company.clone();
         self.note_row_versions(t.object, &company, kind, pk);
-        self.push_write(t, company, kind, pk, before);
+        self.push_write(t, company, kind, pk, before, Default::default());
     }
 
     /// Notes a Record write for the row locks (`note_row_lock_write`) and appends it to `OpenTx::writes` (`note_write`).
@@ -43,8 +46,13 @@ impl Session {
         kind: crate::state::TxWriteKind,
         pk: &[Value],
         before: u64,
+        bulk_shape: crate::state::BulkShape,
     ) {
         self.note_row_lock_write(t.object, &company, kind, pk);
+        let verdict = crate::version_entry::write_verdict(kind, self.through_recordref);
+        self.tx.open.table_writes.note(t.object, &company, verdict);
+        let unmeasured = crate::version_entry::unmeasured_after(kind, self.through_recordref);
+        self.tx.write_counts.note(t.object, &company, unmeasured);
         self.tx.open.writes.push(crate::state::TxWrite {
             table: t.object,
             company,
@@ -54,6 +62,7 @@ impl Session {
             after: self.store.change_counter(),
             bulk: None,
             through_recordref: self.through_recordref,
+            bulk_shape,
         });
     }
 
@@ -289,13 +298,37 @@ impl Session {
         kind: crate::state::TxWriteKind,
         row: &[Value],
     ) -> Option<BulkMark> {
+        self.note_bulk_write_reset(rec, t, kind, row, false)
+    }
+
+    /// `note_bulk_write` of a `Truncate(reset)`.
+    pub(crate) fn note_truncate_write(&mut self, rec: &Rec, t: &TableDef, argument: bool) {
+        self.note_bulk_write_reset(rec, t, crate::state::TxWriteKind::Truncate, &[], argument);
+    }
+
+    fn note_bulk_write_reset(
+        &mut self,
+        rec: &Rec,
+        t: &TableDef,
+        kind: crate::state::TxWriteKind,
+        row: &[Value],
+        argument: bool,
+    ) -> Option<BulkMark> {
         if rec.borrow().temporary {
             return None;
         }
         let now = self.store.change_counter();
         let company = rec.borrow().company.clone();
         self.note_row_versions(t.object, &company, kind, row);
-        self.push_write(t, company, kind, &[], now);
+        let bulk_shape = {
+            let r = rec.borrow();
+            crate::state::BulkShape {
+                filtered: !r.filters.is_empty(),
+                marked_only: r.marked_only,
+                argument,
+            }
+        };
+        self.push_write(t, company, kind, &[], now, bulk_shape);
         Some(BulkMark {
             at: self.tx.open.writes.len() - 1,
             before: now,
@@ -317,6 +350,10 @@ impl Session {
                 entries: len - at - 1,
                 counter,
             });
+            if counter != before {
+                let (table, company) = (w.table, w.company.clone());
+                crate::version_entry::note_bulk_changed(&mut self.tx.open.table_writes, table, &company);
+            }
             self.end_row_version_modify_all(at);
         }
     }

@@ -1,53 +1,5 @@
 # key	entry
-# The probe's cells on the issue's page 97583 and on page 97584: main kept the typed value and read nothing first; the head
-# reads as BC does. The cell that starts with the test's own filter and the List without row triggers keep main's answer on
-# both, so no row.
-LT RFU Tests::IssueList_FirstAfterSetName	ASSUMED list-validate-view-refresh (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::IssueList_FirstThenClose	ASSUMED list-validate-view-refresh (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::IssueList_SetRangeUpdateFalse_ReadsStoredRowAndAppliesFilter	ASSUMED list-validate-view-refresh (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::List_Action_SetRangeDropsRowUpdateFalse	ASSUMED list-validate-view-refresh (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::List_Action_SetRangeKeepsRowNoUpdate	ASSUMED list-validate-view-refresh (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::List_Action_SetRangeKeepsRowUpdateFalse	ASSUMED list-validate-view-refresh (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::List_FirstRow_NoFilterChangeUpdateFalse	ASSUMED list-validate-view-refresh (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::List_FirstRow_SetRangeDropsRowUpdateFalse	ASSUMED list-validate-view-refresh (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::List_MiddleRow_SetRangeKeepsRowUpdateFalse	ASSUMED list-validate-view-refresh (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::List_NoFilterChangeUpdateFalse	ASSUMED list-validate-view-refresh (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::List_NoFilterChangeUpdateTrue	ASSUMED list-validate-view-refresh (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::List_PreviousAfterSetValues	ASSUMED list-validate-view-refresh (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::List_ResetWithoutFilterUpdateFalse	ASSUMED list-validate-view-refresh (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::List_SetFilterKeepsRowUpdateFalse	ASSUMED list-validate-view-refresh (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::List_SetFilterKeepsRowUpdateTrue	ASSUMED list-validate-view-refresh (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::List_SetRangeDropsRowNoUpdate	ASSUMED list-validate-view-refresh (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::List_SetRangeDropsRowUpdateFalse	ASSUMED list-validate-view-refresh (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::List_SetRangeDropsRowUpdateTrue	ASSUMED list-validate-view-refresh (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::List_SetRangeKeepsRowNoUpdate	ASSUMED list-validate-view-refresh (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::List_SetRangeKeepsRowUpdateFalse	ASSUMED list-validate-view-refresh (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::List_SetRangeKeepsRowUpdateTrue	ASSUMED list-validate-view-refresh (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::List_SetRangeThenReset_UpdateFalse	ASSUMED list-validate-view-refresh (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::List_ThirdSetValue	ASSUMED list-validate-view-refresh (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::List_TooLongName_ThenSetRangeKeepsRowUpdateFalse	ASSUMED list-validate-view-refresh (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-# The probe's cells on the List with both row triggers (97585), with OnAfterGetCurrRecord only (97586), on the Card (97588)
-# and on the Card of issue 8717 (97571): main kept the typed value; the head reads the stored row again as BC does.
-LT RFU Tests::ListBoth_Action_SetRangeKeepsRowUpdateFalse	ASSUMED validate-update-false-rereads-row (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::ListBoth_NoFilterChangeUpdateFalse	ASSUMED validate-update-false-rereads-row (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::ListBoth_SetRangeDropsRowUpdateFalse	ASSUMED validate-update-false-rereads-row (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::ListBoth_SetRangeKeepsRowUpdateFalse	ASSUMED validate-update-false-rereads-row (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::ListBoth_SetRangeKeepsRowUpdateTrue	ASSUMED validate-update-false-rereads-row (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::ListCurr_NoFilterChangeUpdateFalse	ASSUMED validate-update-false-rereads-row (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::ListCurr_SetRangeKeepsRowUpdateFalse	ASSUMED validate-update-false-rereads-row (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::Card_Action_SetRangeKeepsRowUpdateFalse	ASSUMED validate-update-false-rereads-row (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::Card_NoFilterChangeUpdateFalse	ASSUMED validate-update-false-rereads-row (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::Card_SetRangeKeepsRowUpdateFalse	ASSUMED validate-update-false-rereads-row (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Tests::Card_SetRangeKeepsRowUpdateTrue	ASSUMED validate-update-false-rereads-row (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-LT RFU Edit Tests::EditCard_UpdateFalseInOnValidate_ReadsTheStoredRowAgain	ASSUMED validate-update-false-rereads-row (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-# The reporter's repro of issue 8698: its page reads as page 97583 line for line.
-Repro Filter Update Tests::SetFilterThenUpdateFalse_ReadsTheStoredRowAndAppliesTheFilter	ASSUMED list-validate-view-refresh (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-# The reporter's repro of issue 8717: its page reads as page 97571 line for line.
-Repro Edit Card Tests::UpdateFalseInOnValidate_ReadsTheStoredRowAgain	ASSUMED validate-update-false-rereads-row (corpus PR 1518, merged, not pinned yet: ListValidateFilterRefresh.al)
-# Neighbors: Next, or the action, after the cell's two SetValues on page 97584 or on page 97585, and a second SetValue on
-# the Card of issue 8717. Main failed at the first SetValue; the head refuses the call the cells do not make. Four rows (on
-# the List and on the Card), two rows and a page with Update(true) keep main's path on both, so no row.
-LT RFU Neighbor Tests::Lines_NextAfterSetValues	REFUSED a call on a page of ListValidateFilterRefresh.al after the page read its row or the view again
-LT RFU Neighbor Tests::Lines_ActionAfterSetValues	REFUSED a call on a page of ListValidateFilterRefresh.al after the page read its row or the view again
-LT RFU Neighbor Tests::Both_NextAfterSetValues	REFUSED a call on a page of ListValidateFilterRefresh.al after the page read its row or the view again
-LT RFU Neighbor Tests::EditCard_SecondSetValue	REFUSED a call on a page of ListValidateFilterRefresh.al after the page read its row or the view again
+# No test differs from main. GetField by the Name control's id on page 97498 of corpus PR 1535 (ListValidateViewReads.al) is
+# on main since al-runner issue 8832. On the tree page 97499 GetField finds the control too
+# (LT RVR Tests::Tree_GetFieldById_BeforeFirstStep, Tree_GetFieldById_BetweenSteps, Tree_GetFieldById_AfterSteps), and the
+# tree's refresh keeps main's wrong answer: al-runner issue 8888.

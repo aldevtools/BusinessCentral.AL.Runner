@@ -1319,7 +1319,7 @@ impl Session {
             let mut fields = Vec::new();
             let mut no_row_chain = false;
             // Pinned by testpage/UjSubPageLink.al (was assumption `subpagelink-const-qualified-enum-value`).
-            for entry in link.entries.iter() {
+            for (at, entry) in link.entries.iter().enumerate() {
                 match entry {
                     ir::LinkEntry::Field(pf, hf) => {
                         fields.push(*pf);
@@ -1396,6 +1396,10 @@ impl Session {
                         }
                     }
                     ir::LinkEntry::Filter(pf, text) => {
+                        // Not blank (assumption link-filter-not-blank, corpus PR 1548).
+                        if link.not_blank.contains(&at) {
+                            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::LinkFilterNotBlank);
+                        }
                         // An empty term selects the rows whose field is blank (testpage/AoTests.al:513-560 RunPageLink, :845-887
                         // SubPageLink).
                         fields.push(*pf);
@@ -1886,8 +1890,11 @@ impl Session {
         let later = if both { self.both_later_row(st)? } else { None };
         self.set_xrec(st);
         if !both {
+            if self.part_refresh_find_forward(host, c, st)? {
+                return Ok(true);
+            }
             if !self.part_keeps_later_row(st)? {
-                self.part_reread_from_first_row(host, c, st)?;
+                self.sync_part(host, c, st)?;
             }
             return Ok(true);
         }

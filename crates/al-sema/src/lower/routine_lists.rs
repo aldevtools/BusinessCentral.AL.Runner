@@ -1,6 +1,10 @@
 //! What `Lowered` holds per object and routine: why a routine is refused and which routines it calls. For an object a
 //! compile cache supplies, both are read from the facts the cache stored (ADR-054), not copied into the compile: a run
 //! on Base Application takes about ten thousand objects from the cache and reads the lists of a few.
+//!
+//! What `Lowered` holds per object and routine, read from the cached facts for an object the compile
+//! cache supplies: `Refusals` (per routine, the `Refusal`s that keep it from running) and `Calls`.
+//! Entry points: `Refusals`, `Calls`.
 
 use crate::provided::DepSource;
 use al_builtins::refusal::Refusal;
@@ -230,5 +234,24 @@ impl std::fmt::Debug for Calls {
 impl serde::Serialize for Calls {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         s.collect_seq((0..self.len()).map(|o| self.of(o)))
+    }
+}
+
+impl Refusals {
+    /// The lists of the objects lowered here (empty for an object the cache supplies), for a stored compile.
+    pub(crate) fn own(&self) -> &[Vec<Vec<Refusal>>] {
+        &self.own
+    }
+}
+
+impl Calls {
+    /// The calls of the objects lowered here (empty for an object the cache supplies), for a stored compile.
+    pub(crate) fn own(&self) -> &[Vec<Vec<(usize, usize)>>] {
+        &self.own
+    }
+
+    /// The counts of direct calls of the objects lowered here (see `ndirect`), for a stored compile.
+    pub(crate) fn own_ndirect(&self) -> &[Vec<u32>] {
+        &self.ndirect
     }
 }

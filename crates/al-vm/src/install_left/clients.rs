@@ -4,27 +4,29 @@
 use crate::state::{CoverageState, EventState, PageClients, ReportState, UiState};
 
 /// The handler functions and notifications of a test method: install code runs outside one.
-pub(super) fn ui_as_new(ui: &UiState) -> bool {
+pub(crate) fn ui_as_new(ui: &UiState) -> bool {
+    ui.sent_notifications.is_empty() && !ui.clientless_login_skipped && ui_left_as_new(ui)
+}
+
+/// [`ui_as_new`] without the notifications a handler took and whether the clientless login was skipped: the UI state a
+/// session image holds besides those (al-vm `login_image`).
+pub(crate) fn ui_left_as_new(ui: &UiState) -> bool {
     let UiState {
         scope,
         page_handler_depth,
-        sent_notifications,
+        sent_notifications: _,
         dev_endpoint,
         // Set from the run's session flags before any code runs (`--no-client`), the same in every session of the run.
         clientless: _,
-        clientless_login_skipped,
+        clientless_login_skipped: _,
     } = ui;
     // `on`: set from the run's session flags, the same in every session of the run.
     let crate::dev_endpoint_ui::DevEndpointUi { on: _, answered } = dev_endpoint;
-    scope.is_none()
-        && *page_handler_depth == 0
-        && sent_notifications.is_empty()
-        && answered.is_empty()
-        && !clientless_login_skipped
+    scope.is_none() && *page_handler_depth == 0 && answered.is_empty()
 }
 
 /// What the TestPage client keeps between calls: install code opened no page whose state lasts.
-pub(super) fn pages_as_new(p: &PageClients) -> bool {
+pub(crate) fn pages_as_new(p: &PageClients) -> bool {
     let PageClients {
         action_tally,
         saved_values,
@@ -34,6 +36,8 @@ pub(super) fn pages_as_new(p: &PageClients) -> bool {
         traps,
         scope_unpinned,
         bg_worker,
+        bg_kept_last_error,
+        bg_task_error_unrecorded,
         // Emptied when the session enters a test codeunit (`Session::reset_query_cache`), so what install code read is not
         // carried.
         query_cache: _,
@@ -72,6 +76,8 @@ pub(super) fn pages_as_new(p: &PageClients) -> bool {
         && traps.is_empty()
         && scope_unpinned.is_empty()
         && bg_worker.is_none()
+        && bg_kept_last_error.borrow().is_none()
+        && !bg_task_error_unrecorded
         && *caption_dialogs == crate::pages::CaptionDialogs::default()
         && caption_write_guard.is_none()
         && bg_drain_after_call.is_none()
@@ -102,9 +108,19 @@ pub(super) fn pages_as_new(p: &PageClients) -> bool {
 
 /// Event subscriptions, what the Event Subscription table reports and the install's own event state. Not checked:
 /// `caption_context_revision`, the language and the calls of `event_stats` (all carried, `InstallLeft`).
-pub(super) fn events_as_new(e: &EventState) -> bool {
+pub(crate) fn events_as_new(e: &EventState) -> bool {
+    e.bindings.is_empty()
+        && e.event_stats.active.borrow().is_empty()
+        && e.global_setups.is_empty()
+        && events_not_as_new(e).is_none()
+}
+
+/// The first field (`events.<field>`) of [`events_as_new`] that does not hold a new session's value, without the manual
+/// bindings, the bound instances per subscriber (`event_stats.active`) and the Global Triggers setups: the event state a
+/// session image holds besides those (al-vm `login_image`).
+pub(crate) fn events_not_as_new(e: &EventState) -> Option<&'static str> {
     let EventState {
-        bindings,
+        bindings: _,
         caption_context_revision: _,
         page_held,
         pages_with_instance,
@@ -123,7 +139,12 @@ pub(super) fn events_as_new(e: &EventState) -> bool {
         next_blob_event,
         subscriber_stack,
         next_var_lens,
+        next_var_codeunits,
         next_option_hops,
+        next_hand_on_origins,
+        next_option_carried,
+        publisher_option_carried,
+        next_carried_kept,
         publisher_var_lens,
         unpinned_event_depth,
         skip_dependency_subscribers,
@@ -135,11 +156,11 @@ pub(super) fn events_as_new(e: &EventState) -> bool {
         setup_no_ops,
         db_setup_table,
         trial,
-        global_setups,
+        global_setups: _,
     } = e;
     let crate::platform::EventStats {
         calls: _,
-        active,
+        active: _,
         language: _,
         install_view,
         // `Session::no_client_test_session`, kept in step by `Session::sync_no_client_test_session`: once install code ended it
@@ -154,49 +175,58 @@ pub(super) fn events_as_new(e: &EventState) -> bool {
         read,
         guarded,
     } = trial;
-    bindings.is_empty()
-        && page_held.is_empty()
-        && pages_with_instance.is_empty()
-        && page_var_runs.is_empty()
-        && active.borrow().is_empty()
-        && *install_view.borrow() == crate::platform::InstallView::default()
-        && !publish_frame
-        && only_targets.is_none()
-        && sender_refused.is_none()
-        && var_origins.is_empty()
-        && next_aliases.is_empty()
-        && !next_is_subscriber
-        && by_value_publisher.is_none()
-        && !raise_arg_var_param
-        && next_event_args.is_empty()
-        && blob_publisher.is_none()
-        && !next_blob_event
-        && subscriber_stack.is_empty()
-        && next_var_lens.is_empty()
-        && next_option_hops.is_empty()
-        && publisher_var_lens.is_empty()
-        && *unpinned_event_depth == 0
-        && !skip_dependency_subscribers
-        && not_installed_apps.is_none()
-        && order_unknown_apps.is_none()
-        && order_unknown_hits.borrow().is_empty()
-        && install_written.is_none()
-        && install_rows.is_none()
-        && setup_no_ops.is_empty()
-        && db_setup_table.is_none()
-        && !allowed
-        && picked.is_empty()
-        && *depth == 0
-        && wrote.is_none()
-        && read.is_empty()
-        && guarded.is_empty()
-        && global_setups.is_empty()
+    [
+        (page_held.is_empty(), "events.page_held"),
+        (pages_with_instance.is_empty(), "events.pages_with_instance"),
+        (page_var_runs.is_empty(), "events.page_var_runs"),
+        (
+            *install_view.borrow() == crate::platform::InstallView::default(),
+            "events.event_stats.install_view",
+        ),
+        (!publish_frame, "events.publish_frame"),
+        (only_targets.is_none(), "events.only_targets"),
+        (sender_refused.is_none(), "events.sender_refused"),
+        (var_origins.is_empty(), "events.var_origins"),
+        (next_aliases.is_empty(), "events.next_aliases"),
+        (!next_is_subscriber, "events.next_is_subscriber"),
+        (by_value_publisher.is_none(), "events.by_value_publisher"),
+        (!raise_arg_var_param, "events.raise_arg_var_param"),
+        (next_event_args.is_empty(), "events.next_event_args"),
+        (blob_publisher.is_none(), "events.blob_publisher"),
+        (!next_blob_event, "events.next_blob_event"),
+        (subscriber_stack.is_empty(), "events.subscriber_stack"),
+        (next_var_lens.is_empty(), "events.next_var_lens"),
+        (next_var_codeunits.is_empty(), "events.next_var_codeunits"),
+        (next_option_hops.is_empty(), "events.next_option_hops"),
+        (next_hand_on_origins.is_empty(), "events.next_hand_on_origins"),
+        (next_option_carried.is_empty(), "events.next_option_carried"),
+        (publisher_option_carried.is_empty(), "events.publisher_option_carried"),
+        (next_carried_kept.is_empty(), "events.next_carried_kept"),
+        (publisher_var_lens.is_empty(), "events.publisher_var_lens"),
+        (*unpinned_event_depth == 0, "events.unpinned_event_depth"),
+        (!skip_dependency_subscribers, "events.skip_dependency_subscribers"),
+        (not_installed_apps.is_none(), "events.not_installed_apps"),
+        (order_unknown_apps.is_none(), "events.order_unknown_apps"),
+        (order_unknown_hits.borrow().is_empty(), "events.order_unknown_hits"),
+        (install_written.is_none(), "events.install_written"),
+        (install_rows.is_none(), "events.install_rows"),
+        (setup_no_ops.is_empty(), "events.setup_no_ops"),
+        (db_setup_table.is_none(), "events.db_setup_table"),
+        (!allowed, "events.trial.allowed"),
+        (picked.is_empty(), "events.trial.picked"),
+        (*depth == 0, "events.trial.depth"),
+        (wrote.is_none(), "events.trial.wrote"),
+        (read.is_empty(), "events.trial.read"),
+        (guarded.is_empty(), "events.trial.guarded"),
+    ]
+    .into_iter()
+    .find_map(|(holds, field)| (!holds).then_some(field))
 }
 
 /// Code coverage, the impact trace, the cell tap and the profiler: all off and nothing recorded. A run with one of them on
 /// keeps the install code in each codeunit's session (al-testrun `install_once.rs`); the cell tap is set from the session
 /// flags, so it fails here.
-pub(super) fn coverage_as_new(c: &CoverageState) -> bool {
+pub(crate) fn coverage_as_new(c: &CoverageState) -> bool {
     let CoverageState {
         code_coverage,
         coverage_counts,
@@ -205,6 +235,8 @@ pub(super) fn coverage_as_new(c: &CoverageState) -> bool {
         impact_on,
         cells,
         profiler,
+        install_footprint,
+        footprint_on,
     } = c;
     !code_coverage
         && coverage_counts.is_none()
@@ -213,10 +245,12 @@ pub(super) fn coverage_as_new(c: &CoverageState) -> bool {
         && !impact_on
         && cells.is_none()
         && profiler.is_none()
+        && install_footprint.borrow().is_none()
+        && !footprint_on
 }
 
 /// The report state: no report ran and nothing it noted lasts.
-pub(super) fn report_as_new(r: &ReportState) -> bool {
+pub(crate) fn report_as_new(r: &ReportState) -> bool {
     let ReportState {
         rebind_after_run,
         curr_report_language,
@@ -252,6 +286,8 @@ pub(super) fn report_as_new(r: &ReportState) -> bool {
         run_bare,
         system_printer,
         set_view_filters,
+        // Read only while its run is the innermost running report, and a new run of the instance replaces it.
+        item_views: _,
         dataset,
     } = r;
     !rebind_after_run

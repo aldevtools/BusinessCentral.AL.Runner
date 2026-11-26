@@ -1,5 +1,9 @@
 //! Tree-walking interpreter over the typed IR (ADR-011). `Engine` is the
 //! immutable program (ADR-001); `Session` holds all mutable state.
+//!
+//! Engine (immutable program) and Session (mutable state, grouped into the sub-states of `state.rs`),
+//! construction and the transaction entry points. The executor is the bytecode in `exec/`;
+//! `interp.rs` holds what both it and the rest of the VM use.
 
 use al_builtins::describe::Describe;
 use al_builtins::native::{AlError, Signal};
@@ -21,6 +25,7 @@ mod blob_copy;
 mod blob_transfer;
 mod clientless;
 mod consistent_marks;
+mod decimal_column;
 mod get_key_value;
 mod package_data;
 mod partial_gone;
@@ -33,7 +38,7 @@ mod state;
 pub(crate) use state::*;
 mod baseline;
 mod sequence_start;
-pub use sequence_start::{DataAccess, SequenceStart};
+pub use sequence_start::{CommitBy, DataAccess, Interval, Reached, RefLoads, SequenceStart, TxPoint, TxPointKind};
 mod storage_checkpoint;
 pub use storage_checkpoint::{StorageCheckpoint, Unkept};
 mod capture;
@@ -42,7 +47,7 @@ mod debug;
 mod exec;
 mod interp;
 mod isolated_storage_reads;
-pub use baseline::{Baseline, NotShared, RowDelta, SharedBaseline, SkippedInstall};
+pub use baseline::{Baseline, NotShared, SharedBaseline, SkippedInstall};
 pub use capture::{CaptureConfig, Captured, ClosedBy, LoopRecord, MAX_RECORDS, MessageRecord, Rendered, ValueRecord};
 pub(crate) use ctx::base_slot_missing;
 pub use debug::{DebugFrame, DebugHook, DebugView, Resume};
@@ -56,12 +61,13 @@ pub use profile::{
     DbStat, PosStat, ProfFrame, ProfNode, ProfileMode, ProfileTree, reaches_database,
     routine_label as profile_routine_label,
 };
-pub use state_stamp::{LeftChange, LeftStamp, StateLines, StateStamp};
+pub use state_stamp::{LeftChange, LeftStamp, NotComparable, StateLines, StateStamp};
 pub use test_runner_host::TestCodeunitHost;
 mod auto_format_writer;
 mod callstack;
 mod caught_errors;
 mod clear_all_page_ext;
+mod clear_shared_codeunit;
 mod code_storage_check;
 mod column_formatter;
 mod companies;
@@ -101,7 +107,13 @@ pub mod group1_sessions;
 mod hostvalues;
 mod http;
 pub mod impact;
+pub mod install_footprint;
+mod install_footprint_row_version;
 mod install_left;
+mod login_image;
+pub use login_image::{
+    BaseShape, ImageSize, KindSize, LoginBase, LoginImage, NODE_KINDS, NotImaged, NotThawed, PortableBase,
+};
 mod interfaces;
 mod isdirty;
 mod license_ceiling;
@@ -151,7 +163,9 @@ mod report_save;
 mod reports;
 mod resource_reads;
 mod run_page_link_open;
+mod session_fields;
 mod sessionops;
+mod setrange_convert;
 mod setup_no_op;
 mod slot_default;
 mod sqlcount;
@@ -172,6 +186,8 @@ mod tenant_set_delete;
 mod test_rows;
 mod test_runner_host;
 mod testdata;
+mod transaction_type;
+mod transaction_type_saved;
 mod transactions;
 mod translations;
 mod ui;
@@ -182,6 +198,7 @@ mod user_password;
 mod usertable;
 mod var_option;
 mod variant_copy;
+mod version_entry;
 mod view_empty;
 mod view_unknown;
 mod views;
@@ -189,7 +206,7 @@ mod views_cross_enum;
 mod xmlports;
 mod xrec_blobs;
 pub use install_left::InstallLeft;
-pub use resource_reads::{ReadTexts, ResourceReads};
+pub use resource_reads::{ResourceReads, TextsRead};
 pub use transactions::TxModel;
 pub use ui::{UiHandler, UiKind};
 
@@ -366,6 +383,10 @@ pub(crate) struct RoutineFacts {
     /// A `var` Option parameter declared with members, of a routine that is no publisher: a call hands it whether its argument
     /// is a variable the probes measure handing on to a publisher (`var_option::option_hops_of`, `Frame::option_hops`).
     pub option_hops: bool,
+    /// A `var` Option parameter declared without members (`var_option::option_carried_of`, `Frame::option_carried`).
+    pub option_carries: bool,
+    /// A `var` Codeunit parameter, of a routine that is no publisher (`Frame::var_codeunits`).
+    pub var_codeunits: bool,
 }
 
 fn routine_facts(r: &ir::Routine, publisher: bool) -> RoutineFacts {
@@ -390,12 +411,10 @@ fn routine_facts(r: &ir::Routine, publisher: bool) -> RoutineFacts {
     }
     f.odd_attributes |= commits > 1 || collects > 1;
     f.var_lens = r.reads_var_max_len && !publisher;
-    f.option_hops = !publisher
-        && r.locals
-            .iter()
-            .zip(&r.by_var)
-            .take(r.params)
-            .any(|(l, v)| *v && matches!(&l.ty, RtType::Option(m) if !al_builtins::option_members::memberless(m)));
+    f.var_codeunits = !publisher
+        && (r.locals.iter().zip(&r.by_var).take(r.params)).any(|(l, v)| *v && matches!(l.ty, RtType::Codeunit(_)));
+    f.option_hops = !publisher && crate::var_option::has_var_option_param(r, false);
+    f.option_carries = crate::var_option::has_var_option_param(r, true);
     f
 }
 
@@ -1574,7 +1593,7 @@ impl Session {
     }
 
     /// What the AL test runner does before each test method: every application area on, and the transaction type of the
-    /// method's start (`start_test_transaction_type`: UpdateNoLocks for the first one of a codeunit, the type the one before
+    /// method's start (`start_test_transaction`: UpdateNoLocks for the first one of a codeunit, the type the one before
     /// left for a later one). What an earlier test wrote to a demo table does not count for this one: the corpus
     /// tests that write setup rows put the demo values back afterwards (record/QkSetupRows.al), which leaves the
     /// runtime with the install-code row (record/captions/QdCaptionClassAreas.al:798 QF_GLSetup_CorpusRow).
@@ -1593,12 +1612,7 @@ impl Session {
         self.isolated_set_in_test.clear();
         self.demo_written.clear();
         self.gl_setup_written = false;
-        self.start_test_transaction_type();
-        self.tx.phase = crate::transactions::TxPhase::Fresh;
-        self.tx.open.locks = Default::default();
-        self.tx.open.moment = Some(crate::reports::transaction_world::Moment::at(
-            crate::reports::transaction_world::MomentStart::TestStart,
-        ));
+        self.start_test_transaction();
         self.pages.test_methods_started += 1;
     }
 
@@ -1655,9 +1669,12 @@ impl Session {
         self.note_rollback_for_stale_rule();
         al_data::Store::rollback(&mut self.store);
         self.rollbacks += 1;
+        self.note_tx_end(false);
         self.crm_rolled_back();
         self.sql.rolled_back();
+        let runner_tx = self.tx.open.runner_tx;
         self.end_open_transaction();
+        self.tx.open.runner_tx = runner_tx;
         self.tx.rolled_back = true;
         self.isolated_storage = self.isolated_committed.clone();
         // What SaveValues pages stored is kept in the database: a rollback takes back what was stored since the last commit. An
@@ -1696,51 +1713,8 @@ impl Session {
             RtType::Record(table, temporary) => {
                 // A table declared `TableType = Temporary` is temporary for every variable
                 // (corpus record 60198 TempOnly_IsTemporary_AlwaysTrue).
-                let temporary = &(*temporary || self.engine.object_facts[*table as usize].temporary());
-                let temp_id = temporary.then(|| self.new_temp_id());
-                Value::Record(Rc::new(RefCell::new(RecordState {
-                    table: *table,
-                    temporary: *temporary,
-                    temp_id,
-                    company: None,
-                    change_company_called: false,
-                    crm: self.engine.object_facts[*table as usize].crm(),
-                    fields: self.initial_fields(*table as usize),
-                    filters: Vec::new(),
-                    filter_group: 0,
-                    marks: Vec::new(),
-                    marked_only: false,
-                    read_isolation: 0,
-                    // A record in a test run is Validated (corpus record/TestSecurityFilteringContracts.al:161-175).
-                    security_filtering: 0,
-                    declared_security_filtering: 0,
-                    declared_security_filtering_unpinned: false,
-                    security_filtering_unpinned: false,
-                    security_filtering_array: false,
-                    key: 0,
-                    adhoc: None,
-                    ascending: true,
-                    field_descending: 0,
-                    position: None,
-                    auto_calc: Vec::new(),
-                    load: Default::default(),
-                    touched: false,
-                    assigned: false,
-                    inserted: false,
-                    dirty_base: None,
-                    is_dirty_base: al_builtins::value::DirtyBase::Fresh,
-                    last_modify: None,
-                    failed_insert: None,
-                    row_origin: None,
-                    own_read: Default::default(),
-                    rolled_read: Default::default(),
-                    probed_source: Default::default(),
-                    globals: Default::default(),
-                    unpinned_buffer: None,
-                    view_assumption: None,
-                    auto_calc_dropped: false,
-                    run_page_link: None,
-                })))
+                let temporary = *temporary || self.engine.object_facts[*table as usize].temporary();
+                Value::Record(Rc::new(RefCell::new(self.fresh_record(*table, temporary))))
             }
             // Each element of an array is a variable of its own: an array of records holds records, not
             // nulls (Tests-ERM "Discount Setup Notifications": `A: array[2] of Record "General Posting Setup"`).
@@ -2487,7 +2461,8 @@ impl Session {
         let r = &engine.program.objects[object].routines[routine];
         // The bytecode, if the mode asks for it. Whether a capture watches the routine is only known once its frame is
         // entered (`cap_enter_frame`); a capture watches the captured form of the bytecode.
-        let chunk = engine.exec.chunk(&engine.program, object, routine);
+        let carried_kept = std::mem::take(&mut self.events.next_carried_kept);
+        let chunk = engine.exec.frame_chunk(&engine.program, object, routine, &carried_kept);
         let mut locals = self.spare_vec(r.locals.len() + chunk.map_or(0, |c| usize::from(c.temps)));
         let passed = args.len().min(r.params);
         for (i, s) in r.locals.iter().enumerate() {
@@ -2632,26 +2607,25 @@ impl Session {
                 // is passed on by value as it is: a routine that never reads it runs, a read is refused where it happens.
                 (a @ Value::Unknown(_), false) => a,
                 // A `var` Option parameter with another member list than the value (`var_option`).
+                (a, true) if carried_kept.get(i) == Some(&true) => a,
                 (a, true) if let Some(v) = crate::var_option::var_binding(&a, &r.locals[i].ty, subscriber) => v?,
                 (a, _) => ops::convert_plain(a, &r.locals[i].ty)?,
             };
             locals[i] = self.bind_blobs(argument, bound)?;
         }
         self.return_vec(args);
-        let var_lens = if facts.var_lens {
-            std::mem::take(&mut self.events.next_var_lens)
-        } else {
-            Vec::new()
-        };
-        let option_hops = self.take_option_hops(facts.option_hops);
+        let (option_hops, hand_on_origins, option_carried) = self.take_option_marks(&facts);
         let mut frame = Frame {
             object,
             routine,
             instance,
             locals,
             aliases,
-            var_lens,
+            var_lens: self.take_var_lens(facts.var_lens),
             option_hops,
+            hand_on_origins,
+            option_carried,
+            var_codeunits: self.take_var_codeunits(facts.var_codeunits),
         };
         let is_try = facts.is_try;
         // [CommitBehavior] governs the whole dynamic extent of the procedure and ends when it
@@ -2719,7 +2693,7 @@ impl Session {
             if e.call_stack.is_empty() {
                 self.error_raised_in = Some(object);
             }
-            self.add_frame(e, object, top);
+            self.add_leaving_frame(e, object, top);
         }
         self.profile_leave();
         self.call_stack.pop();
@@ -2907,6 +2881,12 @@ struct Frame {
     /// Per parameter: the caller handed this `var` Option parameter with members a variable the probes measure handing on
     /// to an event publisher with a memberless subscriber (set by `finish_call`, `var_option::option_hops_of`).
     option_hops: Vec<bool>,
+    /// Per parameter: bound to a value the probe measures handing on to a memberless one (`carried::hand_on_origins_of`).
+    hand_on_origins: Vec<bool>,
+    /// Per parameter: a memberless `var` Option parameter's origin (`var_option::option_carried_of`, `raise_to_subscribers`).
+    option_carried: Vec<crate::var_option::Carried>,
+    /// Per parameter: what a `var` Codeunit parameter got from its caller (set by `finish_call`, `clear_shared_codeunit`).
+    var_codeunits: Vec<Option<clear_shared_codeunit::VarCodeunit>>,
 }
 
 fn int(v: &Value) -> Result<i64, Signal> {

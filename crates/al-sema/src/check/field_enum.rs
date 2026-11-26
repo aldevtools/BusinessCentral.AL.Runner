@@ -2,6 +2,11 @@
 //! 8317; corpus PR 1442, merged, not pinned yet: types/enum-option/EnumMemberFieldType_Tests.al; corpus PR 1480, merged, not
 //! pinned yet: types/enum-option/EnumMemberFieldTypeShapes_Tests.al). `Rec.Field` itself then has the field's enum type (corpus PR 1480,
 //! must-not-compile 3290 to 3293).
+//!
+//! `Field::Member` and `Rec.Field` on an Enum field where the file finds another enum by the enum's
+//! name (al-runner issue 8317): the field's own enum in the measured shapes (assumption `enum-member-
+//! of-field-type`), checker note AR1010 in the others, which refuses the routine. Entry points:
+//! `field_enum_reading`, `field_member_type`.
 use super::*;
 
 /// How a file reads the enum of an Enum field where it does not find the field's enum by its name.

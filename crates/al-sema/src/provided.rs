@@ -11,6 +11,11 @@
 //! embeds (`DepFacts::embeds`). When the workspace extends or implements one of them, the block
 //! is not used: the object is lowered again from source, with the group of objects that extend
 //! each other (`relower_set`).
+//!
+//! Dependency objects whose lowered form comes from a compile cache (ADR-022): `DepFacts`,
+//! `DepBlock`, `DepSource`, layers (`DepLayer`, `LayerSource`, `Stack`), which blocks the workspace
+//! or a layer invalidates (`relower_set`). Entry points: `DepSet`, `relower_set`, `touched`,
+//! `check_identity`.
 
 use crate::workspace::{ObjKind, Workspace};
 use al_ir as ir;

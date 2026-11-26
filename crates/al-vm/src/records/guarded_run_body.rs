@@ -7,6 +7,13 @@
 //! (`TxState::guarded_bodies`) that follows these steps. A record method, a Commit, a `Codeunit.Run` or an asserterror that is
 //! not the next pinned step makes the body `Other`, and the rollback of such a run is one the stale-buffer rule does not
 //! know (`stale_rule.rs` refuses a write through a stale buffer after it, as before the pin).
+//!
+//! what the body of a running guarded `Codeunit.Run` did (al-runner issue 7795;
+//! record/crud/CodeunitRunTableNoWrites.al:69, :205, :267): only a static `Codeunit.Run(Id, Rec)`
+//! whose run did `Rec.Modify()`, `Commit()` and `Error('literal')` is a rollback the stale rule
+//! knows; any other step or form is refused after it. Entry points: `guarded_body_begin`,
+//! `guarded_run_rollback` (by `codeunit_run`), `guarded_body_record_op` (after each record operation,
+//! `records.rs`), `guarded_body_commit` (by `commit_transaction`).
 
 use super::*;
 
@@ -29,6 +36,10 @@ pub(crate) struct GuardedBody {
     /// The record a static `Codeunit.Run(Id, Rec)` passed (its address); `None` for the instance form or without a record.
     rec: Option<usize>,
     step: Step,
+    /// A guarded run nested in this one failed and dropped its Consistent(false) marks (`consistent_marks.rs`).
+    pub(crate) marks_dropped_inside: bool,
+    /// The CommitBehavior scope in effect when this run started: a scope opened above the run is not the cell's shape.
+    pub(crate) commit_behavior_at_start: crate::transactions::CommitBehavior,
 }
 
 impl Session {
@@ -41,7 +52,12 @@ impl Session {
                 Some(Value::Record(rc)) if static_form && !rc.borrow().temporary => Some(Rc::as_ptr(rc) as usize),
                 _ => None,
             };
-            self.tx.guarded_bodies.push(GuardedBody { rec, step: Step::Start });
+            self.tx.guarded_bodies.push(GuardedBody {
+                rec,
+                step: Step::Start,
+                marks_dropped_inside: false,
+                commit_behavior_at_start: self.tx.commit_behavior,
+            });
         }
     }
 

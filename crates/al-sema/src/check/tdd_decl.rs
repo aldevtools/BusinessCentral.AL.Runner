@@ -6,6 +6,21 @@
 //! statement that holds it (`ir::Stmt::TddMark`), so a test that touches one is reported as stubbed.
 //!
 //! This is tooling, not AL semantics: no corpus case pins it, and without `--tdd` nothing here runs.
+//!
+//! The checker notes field sites (`tdd_field`, a `TddKind::Field` site typed by the use) and enum
+//! value sites (`tdd_enum_value`); `needs` turns them, and the codeunits, tables and enums the test
+//! apps name that no app declares, into `TddNeed`s (`Lowered::tdd_needs`). `stub_files` writes the
+//! stub file of each test app (`TDD_FILE`: table and enum extensions, stub objects with the first
+//! free id of the app's `idRanges`), and the apps are compiled again (`lower/compile.rs`
+//! `compile_with_roots`, al-testrun `compile_suites_with`, at most `MAX_RECOMPILES` times). `decls`
+//! reads the declarations back (`CheckResult::tdd_decls`): lowering's `res` notes a use and `stmt`
+//! puts an `ir::Stmt::TddMark` before the statement, a routine with a variable of a stub object
+//! starts with one, a statement that names a global of a stub object gets one
+//! (`Lowerer::tdd_globals`), and a write to a stub Text or Code field is wrapped in
+//! `ir::Expr::TddFit`; a dynamic write (FieldRef, TransferFields, Validate by number) checks
+//! `ir::Field::tdd_length_unknown` (al-vm `recmeta::tdd_fits`). A bare unknown name in a table's or
+//! table extension's own code is a field site too (`tdd_bare_field`). The incremental compile refuses
+//! a compile with stub declarations (a complete compile makes them again).
 use super::tdd::{TddKind, TddRet};
 use super::*;
 
@@ -18,7 +33,7 @@ pub const TDD_FILE: &str = "<tdd>/stubs.al";
 pub const MAX_RECOMPILES: usize = 3;
 
 /// A declaration the next compile needs.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum TddNeed {
     /// Field `name` of table `table` (the object's name), declared with AL type `ty` and shown with type `shown`.
     Field {

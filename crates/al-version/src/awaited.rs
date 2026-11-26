@@ -3,6 +3,10 @@
 //! test fails until the function here becomes a gate. A major that the probe did not measure gets `None` (or `false` where the
 //! function answers whether a major is measured); no target means the newest behavior, as [`crate::has`] does, or `false` where the
 //! newest major is not measured.
+//!
+//! Behavior that differs between BC versions in an open corpus probe, before a bump pins its guard
+//! (not a `Gate`; `tests/gate_completeness.rs` fails at the bump until it becomes one). Entry points:
+//! `journal_temp_part_reads_after_refresh`.
 
 use crate::Target;
 
@@ -28,11 +32,24 @@ pub fn web_service_session_measured(target: Option<&Target>) -> bool {
 }
 
 /// Whether `target` is a minor the HTTP probe of corpus PR 1424 measured: `HttpHeaders.Contains('')`
-/// (tests/al-language/http/HttpHeaders.al:518, :545, :566) and `HttpContent.WriteFrom(InStream)` after the Content-Type
+/// (tests/al-language/http/HttpHeaders.al:531, :558, :579) and `HttpContent.WriteFrom(InStream)` after the Content-Type
 /// changed (tests/al-language/http/content/HttpContent.al:717-793). The writer ran it on local 27.5, 28.5 and 29.1 hosts
-/// and its new cells passed on the 27.5, 28.5 and 29.0 legs; the 27.5 and 28.5 legs are red on an unrelated test (codeunit 72022 LT HtT Headers Errors, InvalidNames) (runner PR 7870). Other minors and no target are not measured.
+/// and corpus CI on 29.0; the PR is merged, not yet pinned (runner PR 7870). Other minors and no target are not measured.
 pub fn http_probe_1424_measured(target: Option<&Target>) -> bool {
     target.is_some_and(|t| matches!((t.bc.major, t.bc.minor), (27, 5) | (28, 5) | (29, 0) | (29, 1)))
+}
+
+/// What a TestPage does with a Card's field control bound to no field of the source table whose own Visible names a field of
+/// the record (`ir::Control::visible_row_field`; open corpus PR 1504, tests/al-language/pages/controls/VisibleExpressionSource.al,
+/// al-runner issue 8660): `Some(true)` on 29, where its Visible reads Yes whatever the row holds; `Some(false)` on 27 and 28,
+/// where a TestPage's OpenEdit, OpenView or OpenNew of the page raises "The identifier '<field>' could not be found."
+/// (the probe's `#if not BC29PLUS` tests); `None` on a major the probe did not measure.
+pub fn visible_names_row_field_reads_yes(target: Option<&Target>) -> Option<bool> {
+    match target.map(|t| t.bc.major) {
+        Some(27 | 28) => Some(false),
+        Some(29) | None => Some(true),
+        Some(_) => None,
+    }
 }
 
 /// A bulk write of a table that a commit carried (al-runner issue 8467, [`bulk_commit_ends_cached_row`]).

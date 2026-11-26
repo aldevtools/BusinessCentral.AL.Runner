@@ -6,9 +6,12 @@
 //! commit" (`MemStore::has_uncommitted`). Every rule below is pinned by a corpus test, cited
 //! where it is applied; what the corpus does not pin is refused (`Signal::Unsupported`) and
 //! listed in docs/probes-needed.md.
+//!
+//! Entry points: `TxModel`, `CommitBehavior`, `codeunit_run`, `commit_transaction` (every commit and
+//! what it ends).
 
+use crate::consistent_marks::{ArgRecord, RunArg, RunEnd, RunStart};
 use crate::{AlError, Session, Signal};
-use al_builtins::assumptions::Assumption;
 use al_builtins::builtin_id::ids;
 use al_builtins::native::unsupported;
 use al_builtins::record_op::RecordOp;
@@ -132,19 +135,6 @@ pub(crate) fn al_error(message: &str) -> Signal {
     al_error_code(message, "")
 }
 
-/// `TxState::transaction_type` of a session's start: the TransactionType member UpdateNoLocks
-/// (session-system/ProbeSystemEnumMembers.al:60-161).
-pub(crate) const TRANSACTION_TYPE_UPDATE_NO_LOCKS: i32 = 0;
-
-/// What the session's transaction type rests on when no corpus case pins it (`TxState::type_origin`). The default: a pinned
-/// value.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub(crate) struct TypeOrigin {
-    /// The assumptions the value went through, every one of them (a carried type a Commit then kept rests on both).
-    marks: al_builtins::assumptions::HitBits,
-    /// A test method before this one did not run to its end and could set the type: the value is not known.
-    unknown: bool,
-}
 /// How far the open transaction has started (`TxState::phase`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub(crate) enum TxPhase {
@@ -324,16 +314,15 @@ impl Session {
         self.gate_used_try_write("COMMIT")?;
         // A table `Consistent(false)` marked fails the Commit (errors/CuCommitTests.al:405-419
         // Consistent_False_ThenCommit); `Consistent(true)` lifts the mark (:422-433).
-        self.refuse_commit_after_other_variable()?;
-        if let Some(m) = self.tx.open.inconsistent.first() {
-            return Err(self.inconsistent_error(m.table as usize));
+        if let Some(e) = self.commit_mark_error() {
+            return Err(e);
         }
         // A deferred duplicate-key Insert comes out here (corpus record/TestRecordRuntimeTextsAndViews.al:
         // Record_Insert_DuplicateKey_WithoutBlobField_IsDeferred_...: "raised by Commit").
-        if let Some((_, e)) = self.tx.open.deferred_insert.take() {
-            return Err(Signal::Error(Box::new(e)));
+        if let Some(d) = self.tx.open.deferred_insert.take() {
+            return Err(Signal::Error(Box::new(d.error)));
         }
-        self.commit_transaction();
+        self.commit_as(crate::CommitBy::Statement);
         // A Commit puts LockTimeout back on (session-system/PnBRecordMisc.al:LastUsedRowVersion_AndLockTimeout
         // `lockTimeoutAfterCommit`). The timeout duration is not pinned.
         self.tx.lock_timeout = true;
@@ -344,183 +333,6 @@ impl Session {
         Ok(())
     }
 
-    /// `Database.CurrentTransactionType`, read with no argument and set with one (session-system/ProbeSystemEnumMembers.al:
-    /// 60-161; TestClearAllTransactionTypeContracts.al:224-253):
-    /// - a test starts as UpdateNoLocks, and a set before any database call takes effect;
-    /// - a Commit keeps the type ([`Self::transaction_type_seen`]), and a set takes effect again;
-    /// - once a write call has run (also a DeleteAll that finds no row) the type stays as it was: a set to Report or
-    ///   Snapshot, or to the type it has, goes through without effect, and a set to Update raises
-    ///   DB:CannotChangeTransactionType;
-    /// - once a read call has run, a set of Report reads back as Update.
-    ///
-    /// Every other set after the transaction has started is not pinned and refused.
-    pub(crate) fn current_transaction_type(&mut self, args: &[Value]) -> Result<Value, Signal> {
-        use al_builtins::describe::Describe;
-        let members: std::sync::Arc<[String]> = al_builtins::sysenum::option_members("TransactionType")
-            .expect("a system option")
-            .into();
-        let new = match args.first() {
-            None | Some(Value::Null) => return Ok(Value::Option(self.transaction_type_seen()?, members)),
-            Some(Value::Option(t, _)) => *t,
-            Some(other) => return unsupported(format!("CurrentTransactionType set to {}", other.describe())),
-        };
-        let (update, snapshot, report) = (1, 2, 4);
-        // After a lock (codeunits/TestCodeunitRunWriteTransaction.al:211-278) the set is not pinned.
-        if self.tx.phase != TxPhase::Write && self.tx.open.locks.any() {
-            return unsupported(
-                "Database.CurrentTransactionType set after a LockTable or a locking ReadIsolation (not pinned)",
-            );
-        }
-        // At the start of a codeunit's first test method the test runner's transaction has started, and BC ignores a set to
-        // another type there (corpus pull request 1488, session-system/TxTypeNextTestMethod.al TxN01's comment): not pinned.
-        if self.tx.open.runner_tx && self.tx.phase == TxPhase::Fresh && new != self.tx.transaction_type {
-            return unsupported(format!(
-                "Database.CurrentTransactionType set to {} at the start of a test codeunit's first test method, where the test \
-                 runner's transaction has already started (not pinned)",
-                members.get(new as usize).cloned().unwrap_or_default()
-            ));
-        }
-        // The set is a step of the moment an Update report is measured at (`OpenTx::moment`).
-        self.moment_type_set(new, self.tx.phase == TxPhase::Fresh);
-        if self.tx.phase == TxPhase::Fresh {
-            (self.tx.transaction_type, self.tx.type_origin) = (new, TypeOrigin::default());
-            return Ok(Value::Null);
-        }
-        // After a database call the rules below are measured from UpdateNoLocks (ProbeSystemEnumMembers.al:93-141), and
-        // from Update after a Commit (TestClearAllTransactionTypeContracts.al:274-286); from another type they are not.
-        let from = self.transaction_type_seen()?;
-        let name = |t: i32| members.get(t as usize).cloned().unwrap_or_default();
-        if !matches!(from, TRANSACTION_TYPE_UPDATE_NO_LOCKS | 1) {
-            return unsupported(format!(
-                "Database.CurrentTransactionType set to {} after a database call while the type is {} (not pinned)",
-                name(new),
-                name(from)
-            ));
-        }
-        match self.tx.phase {
-            TxPhase::Write if new == from => {}
-            TxPhase::Write if new == snapshot || new == report => {}
-            // The text is pinned for a change from UpdateNoLocks only (ProbeSystemEnumMembers.al:114-141).
-            TxPhase::Write if new == update && from == TRANSACTION_TYPE_UPDATE_NO_LOCKS => {
-                return Err(al_error_code(
-                    &format!(
-                        "The transaction type cannot be changed after a transaction has started.\\\\A transaction starts when the first database operation, such as FIND, NEXT, INSERT, DELETE, MODIFY, SUM, or COUNT, is run.\\\\The error occurred because the transaction type was changed from {} to {}.",
-                        name(from),
-                        name(new)
-                    ),
-                    "DB:CannotChangeTransactionType",
-                ));
-            }
-            // From UpdateNoLocks, and from the Update the test before left (ProbeSystemEnumMembers.al:93-111, after :77-91).
-            TxPhase::Read if new == report => {
-                (self.tx.transaction_type, self.tx.type_origin) = (update, TypeOrigin::default())
-            }
-            _ => {
-                return unsupported(format!(
-                    "Database.CurrentTransactionType set to {} after a database call (not pinned)",
-                    name(new)
-                ));
-            }
-        }
-        Ok(Value::Null)
-    }
-
-    /// `TxState::transaction_type` as AL code sees it, through the assumptions it rests on (`TxState::type_origin`): a type a
-    /// Commit kept and a type the test method before left are what the open probe of corpus pull request 1488 measures
-    /// (record/TxTypeUpdateReport.al TxU21 to TxU26 and TxU34 to TxU38, `commit-keeps-transaction-type`;
-    /// session-system/TxTypeNextTestMethod.al TxN01 to TxN12, `transaction-type-carries-to-next-test`).
-    pub(crate) fn transaction_type_seen(&self) -> Result<i32, Signal> {
-        let origin = self.tx.type_origin;
-        if origin.unknown {
-            return unsupported(
-                "Database.CurrentTransactionType after a test method of the codeunit that did not run to its end and could \
-                 set it (the type it left is not known)",
-            );
-        }
-        al_builtins::assumptions::add_hit_bits(origin.marks);
-        Ok(self.tx.transaction_type)
-    }
-
-    /// A test method of the codeunit did not run to its end and its reach can set the type (al-testrun `tx_type_left.rs`):
-    /// the type it would have left on BC, which the next test method starts with, is not known until a set that takes effect.
-    pub fn transaction_type_unknown(&mut self) {
-        self.tx.type_origin.unknown = true;
-    }
-
-    /// Whether the session's transaction type is known ([`Self::transaction_type_unknown`]).
-    pub fn transaction_type_known(&self) -> bool {
-        !self.tx.type_origin.unknown
-    }
-
-    /// A Commit keeps the type. At Update that is pinned (session-system/ProbeSystemEnumMembers.al:94-110, and Update the
-    /// test before left, TestClearAllTransactionTypeContracts.al:274-286), so a carried Update reads clean after it; any
-    /// other type a Commit kept rests on `commit-keeps-transaction-type` as well.
-    fn keep_type_at_commit(&mut self) {
-        let origin = &mut self.tx.type_origin;
-        if origin.unknown {
-            return;
-        }
-        if self.tx.transaction_type == 1 {
-            origin.marks = Default::default();
-        } else {
-            origin.marks = origin.marks.with(Assumption::CommitKeepsTransactionType);
-        }
-    }
-
-    /// The type a test method starts with. The first test method of a codeunit starts at UpdateNoLocks, whatever install
-    /// code left (session-system/TestClearAllTransactionTypeContracts.al:12-13, read at :261). A later one starts with
-    /// the type the one before left: UpdateNoLocks is read at a test's start after every kind of test before it in the corpus;
-    /// any other type, Update too, rests on `transaction-type-carries-to-next-test`.
-    pub(crate) fn start_test_transaction_type(&mut self) {
-        let origin = &mut self.tx.type_origin;
-        if !self.tx.test_ended {
-            self.tx.transaction_type = TRANSACTION_TYPE_UPDATE_NO_LOCKS;
-            *origin = TypeOrigin::default();
-        } else if origin.unknown {
-        } else if self.tx.transaction_type == TRANSACTION_TYPE_UPDATE_NO_LOCKS {
-            *origin = TypeOrigin::default();
-        } else {
-            origin.marks = origin.marks.with(Assumption::TransactionTypeCarriesToNextTest);
-        }
-        // Before the first test method the runner's own transaction has started (`OpenTx::runner_tx`).
-        self.tx.open.runner_tx = !self.tx.test_ended;
-    }
-
-    /// A test method of this codeunit has ended (the test runner, after its step after the method): the next one starts with
-    /// the type it left.
-    pub fn test_method_ended(&mut self) {
-        self.tx.test_ended = true;
-    }
-
-    /// The error of a Commit while `Consistent(false)` marks `table` (errors/CuCommitTests.al:405-419). The
-    /// table is named in the text; only a table whose caption is its name is pinned.
-    pub(crate) fn inconsistent_error(&self, table: usize) -> Signal {
-        let t = &self.engine.program.objects[table];
-        let caption = t
-            .properties
-            .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case("Caption"))
-            .map(|(_, v)| v.trim().trim_matches('\'').to_string());
-        if caption.is_some_and(|c| c != t.name) {
-            return Signal::unsupported(format!(
-                "Commit after Consistent(false) on table {}, which has a caption other than its name (which one the error names is not pinned)",
-                t.name
-            ));
-        }
-        al_error_code(
-            &format!(
-                "The transaction cannot be completed because it will cause inconsistencies in the {} table. Check where and how \
-                 the CONSISTENT function is used in the transaction to find the reason for the error.\\\\Contact your system \
-                 administrator.\\\\Tables can be marked as inconsistent during comprehensive tasks, such as posting. This \
-                 prevents data from being updated incorrectly.",
-                t.name
-            ),
-            "DB:TableInConsistent",
-        )
-    }
-
-    /// The name of a table `Consistent(false)` marks in the open transaction, for the test runner's commit at the end of a
-    /// test (not pinned: refused there).
     /// The table of a duplicate-key `Insert` whose error is still deferred: the next access to the table or a `Commit`
     /// raises it (record/TestRecordRuntimeTextsAndViews.al:180-209). `None` when there is none.
     pub fn deferred_insert_table(&self) -> Option<String> {
@@ -528,32 +340,12 @@ impl Session {
             .open
             .deferred_insert
             .as_ref()
-            .map(|(t, _)| self.engine.program.objects[*t].name.clone())
+            .map(|d| self.engine.program.objects[d.table].name.clone())
     }
 
     /// Takes the error of a duplicate-key `Insert` that is still deferred, for the test runner at the end of a test.
     pub fn take_deferred_insert_error(&mut self) -> Option<AlError> {
-        self.tx.open.deferred_insert.take().map(|(_, e)| e)
-    }
-
-    pub fn inconsistent_table(&self) -> Option<String> {
-        self.tx
-            .open
-            .inconsistent
-            .first()
-            .map(|m| self.engine.program.objects[m.table as usize].name.clone())
-    }
-
-    /// A transaction that ends other than by `Commit()` while `Consistent(false)` marks a table: what BC does is not
-    /// pinned (only `Commit()` is, errors/CuCommitTests.al:405-419), so it is refused.
-    pub(crate) fn refuse_inconsistent_end(&self, how: &str) -> Result<(), Signal> {
-        match self.tx.open.inconsistent.first() {
-            Some(m) => Err(Signal::unsupported(format!(
-                "{how} ends a transaction while Consistent(false) marks table {} (only Commit() is pinned)",
-                self.engine.program.objects[m.table as usize].name
-            ))),
-            None => Ok(()),
-        }
+        self.tx.open.deferred_insert.take().map(|d| d.error)
     }
 
     /// A TryFunction call whose result is used begins: `consumer` is the frame count of the caller that uses the
@@ -1026,7 +818,8 @@ impl Session {
             if self.in_write_transaction()? {
                 // The same refusal under AutoRollback, and inside a TryFunction, which traps it
                 // and returns false (codeunits/TestCodeunitRunErrorTextsAndModels.al:93-160 and
-                // :248-262).
+                // :248-262). With a Consistent(false) mark it is refused (consistent_marks.rs).
+                self.refuse_write_and_mark_at_run_start()?;
                 return Err(transaction_stopped());
             }
         }
@@ -1048,7 +841,10 @@ impl Session {
         // under TransactionModel::None, and the transaction ends with the run
         // (codeunits/TestWriteTxTestBoundary.al:Test10_ARunCodeunitMayWriteUnderNone).
         let began_world = self.tx_model == TxModel::None && self.tx.tx_world == 0;
-        let marks_before = if guarded { self.marks_at_run_start() } else { Vec::new() };
+        let marks_before = if guarded { self.mark_snapshot() } else { Vec::new() };
+        let commits_before = self.commits;
+        let run_arg = RunArg::of(record_arg, &self.engine.field_facts);
+        let arg_record = guarded.then(|| ArgRecord::of(record_arg)).flatten();
         self.tx.tx_world += 1;
         if let Some(t) = self.tx.used_tries.last_mut() {
             t.runs += 1;
@@ -1080,17 +876,18 @@ impl Session {
             t.runs -= 1;
         }
         self.tx.tx_world -= 1;
-        // The pin runs Codeunit.Run(Id) without a record, and an inner error it raises is the one of `Error`
-        // (errors/ConsistentGuardedRun.al:180, :100, :221-236).
-        let pinned_end =
-            record_arg.is_none() && (result.is_ok() || matches!(&result, Err(Signal::Error(e)) if e.code == "Dialog"));
-        if guarded && self.pages.bg_worker.is_none() && pinned_end {
-            if let Some(e) = self.guarded_run_end_marks(&marks_before, result.is_ok())? {
+        // What the run does with Consistent(false) marks as it ends (consistent_marks.rs); an inner refusal keeps its own reason.
+        if let Some(end) = RunEnd::of(&result).filter(|_| guarded && self.pages.bg_worker.is_none()) {
+            let start = RunStart {
+                marks: &marks_before,
+                commits: commits_before,
+                arg: run_arg,
+                arg_record: arg_record.as_ref(),
+                marks_dropped_inside: body.as_ref().is_some_and(|b| b.marks_dropped_inside),
+            };
+            if let Some(e) = self.guarded_run_end_marks(start, end)? {
                 return Err(e);
             }
-        } else if guarded && self.pages.bg_worker.is_none() && matches!(&result, Ok(_) | Err(Signal::Error(_))) {
-            // Every other end of a run that leaves a mark is refused; an inner refusal keeps its own reason.
-            self.refuse_inconsistent_end("A guarded Codeunit.Run")?;
         }
 
         match result {
@@ -1107,11 +904,11 @@ impl Session {
                 // (testpage/TestPageBgTaskTx_Tests.al:RunPageBackgroundTask_WorkerCommitLeavesCallersRowsUncommitted).
                 // A duplicate-key Insert that was deferred comes out of that commit: the run fails with its error
                 // (xmlports/import/XpTImportBasic.al:Import_DuplicateKeyExisting, through a guarded run).
-                if let Some((_, e)) = self.tx.open.deferred_insert.take() {
-                    let mut e = Box::new(e);
+                if let Some(d) = self.tx.open.deferred_insert.take() {
+                    let mut e = Box::new(d.error);
                     self.add_top_frame(&mut e);
                     if self.pages.bg_worker.is_none() {
-                        self.rollback_transaction();
+                        self.rollback_failed_run();
                     }
                     self.catch_error(*e)?;
                     if let Some(c) = caller_rec.take() {
@@ -1120,7 +917,7 @@ impl Session {
                     return Ok(Value::Boolean(false));
                 }
                 if self.pages.bg_worker.is_none() {
-                    self.commit_transaction();
+                    self.commit_as(crate::CommitBy::GuardedRun);
                 }
                 Ok(Value::Boolean(true))
             }
@@ -1208,6 +1005,7 @@ impl Session {
 
     /// Makes every change so far durable (and a Truncate of this transaction final).
     pub fn commit_transaction(&mut self) {
+        self.note_commit_for_version_entries();
         self.note_row_locks_commit();
         self.note_commit_for_query_cache();
         self.guarded_body_commit();
@@ -1215,6 +1013,7 @@ impl Session {
         al_data::Store::commit(&mut self.store);
         self.crm_committed();
         self.commits += 1;
+        self.note_tx_end(true);
         self.sql.committed();
         self.truncate_undo.clear();
         // Rows at or below this rowversion are durable: a buffer older than one of them is stale.
@@ -1222,6 +1021,7 @@ impl Session {
         // A transaction a lock opened counts as one that wrote: MinimumActiveRowVersion after it is not pinned.
         self.tx.last_commit_wrote = self.tx.phase == crate::transactions::TxPhase::Write || self.tx.open.locks.lock_tx;
         self.end_open_transaction();
+        self.tx.runner_tx_rolled_back = false;
         self.tx.rolled_back = false;
         self.tx.rollback_unpinned = None;
         self.tx.rollback_kind = None;

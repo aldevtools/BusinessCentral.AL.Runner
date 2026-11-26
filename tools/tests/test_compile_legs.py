@@ -4,7 +4,9 @@
 Each leg sets the symbols and runtime corpus CI uses (27 -> 16.1, 28 -> 17.1; 29 keeps app.json's), for the corpus app and
 for every fixture app. The compiler pin and the fixture list (app_dirs) come from the "test" job of the corpus ci.yml; a
 missing pin or list is exit 2. An error line (also one without ": " before it), a failing fixture, a missing compiler or a
-bad EXTRA_PACKAGES folder is an error, not "ok". COMPILE_LEGS_TOOL overrides the script under test.
+bad EXTRA_PACKAGES folder is an error, not "ok". The symbols of each leg come from `al-test-cli --print-symbols` (ADR-078
+point 3) for the leg version oracle/oracle.toml names (AL_RUNNER_ROOT, AL_TEST_CLI: a fake here); a failing al-test-cli is
+exit 2. COMPILE_LEGS_TOOL overrides the script under test.
 """
 import json, os, stat, subprocess, tempfile, unittest
 
@@ -32,6 +34,23 @@ for a in "$@"; do case "$a" in /out:*) touch "${a#/out:}";; /packagecachepath:*)
 printf '%s\\n' "$FAKE_OUT"
 exit "${FAKE_EXIT:-0}"
 """
+
+
+# The fake al-test-cli: logs its arguments, prints the symbols FAKE_SYMBOLS gives for the version after --print-symbols
+# (`VERSION=A,B;VERSION=...`), exits 3 for a version it does not know.
+CLI = """#!/usr/bin/env bash
+echo "$@" >> "$FAKE_CLI_LOG"
+while [ $# -gt 0 ]; do [ "$1" = --print-symbols ] && v="$2"; shift; done
+IFS=';' read -ra rows <<< "$FAKE_SYMBOLS"
+for r in "${rows[@]}"; do [ "${r%%=*}" = "$v" ] && { echo "${r#*=}"; exit 0; }; done
+echo "no symbols for $v" >&2; exit 3
+"""
+
+SYMBOLS = "27.5=BC27PLUS;28.5=BC27PLUS,BC28PLUS;29.0=BC27PLUS,BC28PLUS,BC29PLUS"
+
+
+def oracle_toml(legs=("27.5", "28.5", "29.0")):
+    return "".join('[[version]]\nmajor = %s\nbc_version = "%s"\n' % (v.split(".")[0], v) for v in legs)
 
 
 def read(path):
@@ -62,6 +81,17 @@ class T(unittest.TestCase):
         with open(os.path.join(scripts, "install-al-compiler.sh"), "w") as f:
             f.write(f"echo \"$@\" >> {os.path.join(self.d, 'install-args')}\necho AL_TOOL_DIR={tool}\n")
         self.log = os.path.join(self.d, "log")
+        self.root = os.path.join(self.d, "runner")
+        os.makedirs(os.path.join(self.root, "oracle"))
+        self.write_oracle(oracle_toml())
+        self.cli = os.path.join(self.d, "al-test-cli")
+        with open(self.cli, "w") as f:
+            f.write(CLI)
+        os.chmod(self.cli, stat.S_IRWXU)
+
+    def write_oracle(self, text):
+        with open(os.path.join(self.root, "oracle", "oracle.toml"), "w") as f:
+            f.write(text)
 
     def write_ci(self, text):
         wf = os.path.join(self.d, "corpus", ".github", "workflows")
@@ -72,7 +102,8 @@ class T(unittest.TestCase):
     def run_tool(self, out, code=0, fixture_out="", bclinux=None, **extra):
         env = dict(os.environ, CORPUS=os.path.join(self.d, "corpus"), BCLINUX=bclinux or os.path.join(self.d, "bc-linux"),
                    FAKE_LOG=self.log, FAKE_OUT=out, FAKE_FIXTURE_OUT=fixture_out, FAKE_EXIT=str(code),
-                   FAKE_LS=os.path.join(self.d, "ls"))
+                   FAKE_LS=os.path.join(self.d, "ls"), AL_RUNNER_ROOT=self.root, AL_TEST_CLI=self.cli,
+                   FAKE_CLI_LOG=os.path.join(self.d, "cli-log"), FAKE_SYMBOLS=SYMBOLS)
         env.update({"TMPDIR": self.d, **extra})
         return subprocess.run(["bash", TOOL], env=env, capture_output=True, text=True)
 
@@ -91,6 +122,24 @@ class T(unittest.TestCase):
         self.assertEqual([l.split()[2] for l in fx], ["BC27PLUS"] * 8 + ["BC27PLUS,BC28PLUS"] * 8 + ["BC27PLUS,BC28PLUS,BC29PLUS"] * 8)
         app = os.path.join(self.d, "corpus", "tests", "al-language", "app.json")
         self.assertEqual(json.loads(read(app))["runtime"], "18.0")
+
+    def test_the_symbols_of_each_leg_come_from_al_test_cli_for_the_oracle_leg_version(self):
+        self.write_oracle(oracle_toml(("27.5", "28.5", "29.1")))
+        r = self.run_tool("Compilation ended successfully",
+                          FAKE_SYMBOLS=SYMBOLS.replace("29.0=BC27PLUS,BC28PLUS,BC29PLUS", "29.1=BC27PLUS,BC28PLUS,BC29PLUS,BC29_1PLUS"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(read(os.path.join(self.d, "cli-log")).split("\n")[:3],
+                         ["--root %s --print-symbols %s" % (self.root, v) for v in ("27.5", "28.5", "29.1")])
+        main = [l for l in read(self.log).split("\n") if l.startswith("main ")]
+        self.assertEqual(main[2], "main 18.0 BC27PLUS,BC28PLUS,BC29PLUS,BC29_1PLUS")
+        self.assertIn("== BC 29.1 (BC27PLUS,BC28PLUS,BC29PLUS,BC29_1PLUS): ok", r.stdout)
+
+    def test_a_failing_al_test_cli_is_exit_2_before_any_leg(self):
+        r = self.run_tool("Compilation ended successfully", FAKE_SYMBOLS="27.5=BC27PLUS")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("al-test-cli --print-symbols 28.5 failed", r.stdout)
+        self.assertNotIn(": ok", r.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.d, "install-args")))
 
     def test_every_leg_uses_the_compiler_ci_pins(self):
         r = self.run_tool("Compilation ended successfully")

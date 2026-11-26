@@ -1,5 +1,7 @@
 //! Joins the oracle with the runtime's outcomes into the pass-rate report,
 //! (The CI rule over the not-passing lists is `not_passing.rs`, ADR-065.)
+//!
+//! Entry points: `Outcome`, `build`, `build_with`.
 
 use crate::oracle::{CaseId, OracleCase};
 use serde::{Deserialize, Serialize};

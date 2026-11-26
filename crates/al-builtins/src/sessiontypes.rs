@@ -1,6 +1,8 @@
 //! `SessionSettings` and `Notification`: in-memory value objects (corpus session-system/TestSessionSettings.al,
 //! ui-handlers/TestNotificationHandler.al, session-system/TestCalcDateNotificationContracts.al,
 //! session-system/TestMiscTypes.al).
+//!
+//! Entry points: `native_for`.
 
 use crate::describe::Describe;
 use crate::native::{Ctx, NativeFn, Signal, unsupported};

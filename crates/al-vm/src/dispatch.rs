@@ -20,6 +20,9 @@
 //!   session-wide instance, so it is never gone.
 //! - Isolated events: each subscriber is its own transaction when nothing is
 //!   pending (codeunits/TestIsolatedEventSubscriberError.al).
+//!
+//! Event dispatch: publishers run their subscribers; EventCall; isolated events. Entry points:
+//! `publish`, `raise`, `event_targets`, `has_listeners`, `subscription`.
 
 use crate::Session;
 use al_builtins::describe::Describe;
@@ -49,6 +52,9 @@ pub(crate) struct EventCall<'a> {
 /// One manual subscription: a codeunit instance whose manual subscribers receive events.
 pub(crate) struct Binding {
     pub instance: Weak<RefCell<Instance>>,
+    /// Bound by `BindSubscription` with no subscriber running: the only bindings whose manual subscribers take a carried
+    /// Option's origin (`var_option::carried::manual_takes_carried`).
+    pub outside_subscriber: bool,
 }
 
 /// The error of a failed `BindSubscription` statement, code `EventBinding`.
@@ -75,6 +81,20 @@ impl Session {
         let lens = std::mem::take(&mut self.events.publisher_var_lens);
         let engine = self.engine.clone();
         let p = &engine.events.publishers[&(object, routine)];
+        // The origin marks reach the subscribers only under the event contract of OptionVarMembersBatch.al (corpus PR 1569):
+        // a codeunit's `IntegrationEvent(true, false)`, not isolated, and only from a variable with members (`RunBatch`; no
+        // cell raises it with a memberless one) (`var_option::carried::option_carried_of`).
+        let carried = std::mem::take(&mut self.events.publisher_option_carried);
+        let carried = if p.kind == crate::events::EventKind::Integration
+            && p.include_sender
+            && !p.global_var_access
+            && !p.isolated
+            && engine.program.objects[object].kind == al_ir::ObjKind::Codeunit
+        {
+            carried
+        } else {
+            Vec::new()
+        };
         self.note_event(p.object, &p.event, None);
         let r = &engine.program.objects[object].routines[routine];
         let blob_publisher = crate::blob_transfer::measured_publisher(engine.program.objects[object].kind, r);
@@ -187,7 +207,9 @@ impl Session {
         self.events.sender_refused = sender_refused;
         self.events.var_origins = origins;
         self.events.publisher_var_lens = lens;
+        self.events.publisher_option_carried = carried;
         let raised = self.raise(&call, &mut values);
+        self.events.publisher_option_carried.clear();
         self.events.sender_refused = None;
         self.events.publish_frame = false;
         self.profile_leave();
@@ -262,6 +284,7 @@ impl Session {
         // PYC_MaxStrLen_EventSubscriberVarParameter: `direct raise field text100` = 100, `subscriber via var param text30` =
         // 30). An event the platform raises has none: MaxStrLen refuses there when it runs.
         let lens = std::mem::take(&mut self.events.publisher_var_lens);
+        let carried = std::mem::take(&mut self.events.publisher_option_carried);
         // The publisher's global a `var` argument names is the variable itself while the event runs: whoever changes it (a subscriber
         // through its parameter, or through the sender) changes what the next subscriber receives and what the publisher's caller sees.
         let refresh = |args: &mut [Value]| {
@@ -281,6 +304,16 @@ impl Session {
         let trials = std::mem::take(&mut self.events.trial.picked);
         let targets = targets?;
         let subscribers = targets.len();
+        // The bound instances the raise reaches, per manual subscriber codeunit, as it begins (`manual_takes_carried`).
+        let bound_at_raise: Vec<Inst> = if carried.is_empty() {
+            Vec::new()
+        } else {
+            targets
+                .iter()
+                .filter(|(s, _)| s.manual)
+                .map(|(_, i)| i.clone())
+                .collect()
+        };
         for (s, inst) in targets {
             // A manual instance unbound since the raise began. One that unbound itself in an earlier method of this raise
             // is not called again (events/ProbeEventSubscriberOrder.al:253
@@ -354,6 +387,20 @@ impl Session {
                     .map(|m| m.and_then(|j| lens.get(j).copied().flatten()))
                     .collect();
             }
+            // A subscriber of a codeunit takes the publisher's origin marks (`var_option::option_carried_of`): a static one, or a
+            // manual one under the measured binding (`manual_takes_carried`).
+            if engine.routine_facts(s.object, s.routine).option_carries
+                && engine.program.objects[s.object].kind == al_ir::ObjKind::Codeunit
+                && (!s.manual || self.manual_takes_carried(&inst, &bound_at_raise))
+            {
+                self.events.next_option_carried = map
+                    .iter()
+                    .map(|m| match m.and_then(|j| carried.get(j).copied()) {
+                        Some(crate::var_option::Carried::Members) => crate::var_option::Carried::Raised,
+                        _ => crate::var_option::Carried::No,
+                    })
+                    .collect();
+            }
             self.events.next_is_subscriber = true;
             self.events.next_event_args = self.event_args(by_value_publisher.as_ref(), &s, &map, subscribers);
             self.events.next_blob_event = crate::blob_transfer::measured_subscriber(blob_publisher, s.manual);
@@ -371,6 +418,7 @@ impl Session {
             let watch = trial.then(|| self.trial_start());
             let called = self.call(s.object, s.routine, inst, call_args);
             self.events.subscriber_stack.pop();
+            self.events.next_option_carried.clear();
             if let Some(w) = watch {
                 let is_sender: Vec<bool> = map.iter().map(Option::is_none).collect();
                 let after = called.as_ref().ok().map(|(_, f)| f.as_slice());
@@ -421,7 +469,7 @@ impl Session {
                 r => r?,
             };
             if isolate {
-                self.commit_transaction();
+                self.commit_as(crate::CommitBy::IsolatedEvent);
             }
             for (i, m) in map.iter().enumerate() {
                 if let (Some(j), true) = (m, r.by_var[i]) {
@@ -742,12 +790,17 @@ impl Session {
         Ok(self.shared_instance(fresh))
     }
 
-    /// Whether `inst` is bound right now.
-    fn is_bound(&self, inst: &Inst) -> bool {
+    /// The live bindings of `inst`.
+    pub(crate) fn bindings_of<'s>(&'s self, inst: &'s Inst) -> impl Iterator<Item = &'s Binding> + 's {
         self.events
             .bindings
             .iter()
-            .any(|b| b.instance.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)))
+            .filter(move |b| b.instance.upgrade().is_some_and(|i| Rc::ptr_eq(&i, inst)))
+    }
+
+    /// Whether `inst` is bound right now.
+    fn is_bound(&self, inst: &Inst) -> bool {
+        self.bindings_of(inst).next().is_some()
     }
 
     /// Whether `v` (a codeunit, or an array of them) holds an instance bound right now: `ClearAll()` keeps such an
@@ -846,6 +899,7 @@ impl Session {
             self.events.caption_context_revision += 1;
             self.events.bindings.push(Binding {
                 instance: Rc::downgrade(&inst),
+                outside_subscriber: self.events.subscriber_stack.is_empty(),
             });
             self.note_page_binding(&inst);
             self.sync_active_instances();

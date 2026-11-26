@@ -9,6 +9,13 @@
 //! `ChainWalk::sequential` (ADR-070, migration step 2; `strict_walk.rs`): the walk of one BC session of the plain
 //! sequential strict run. Every unit is a member, a unit that leaves nothing leaves the state it was given, every member
 //! keeps the single instances of the one before it, and the members after one that stopped the session are flagged.
+//!
+//! The walk of the carry chain (`ChainWalk::walk`), always serial on the walk's thread (ADR-070 step 1 deleted the
+//! run-ahead helper threads, `chain_runs.rs` and `al-vm` `baseline/delta.rs`). `ChainWalk::sequential` (the
+//! `--strict-order` walk of one BC session, `strict_walk.rs`): the walk moves the single instances from member to
+//! member of a BC session through `run::LANE_SINGLES` (`KeptSingles`; `starts_fresh`: a new suite or hub leg, a refused
+//! link or a member with a test refused mid-run starts fresh); `ChainReport::singles_kept` and `singles_read_carried`
+//! count for `--timings`.
 
 use super::carry_after::After;
 use super::corpus::{observed_detail, refuse_all};
@@ -41,29 +48,18 @@ pub(super) struct ChainWalk<'a> {
     pub limit: Option<std::time::Duration>,
     /// The run's test threads and their memory (`memory.rs`): the walk's own run counts as a running codeunit.
     pub pool: &'a super::memory::Pool,
-    /// ADR-066 amendment 8: the walk keeps the SingleInstance state from member to member of a BC
-    /// session (suite and hub leg), as BC's one test-runner session does (P7: `TestCuP7BReader.al:24-37`), instead of
-    /// starting each member with fresh single instances. The single instances move as in the lane (`run.rs`
-    /// `LANE_SINGLES`).
-    pub keep_singles: bool,
     /// ADR-058 amendment 1, decision 2 (`RunOptions::single_fresh_check`): a member that read a carried
     /// SingleInstance value runs once more with fresh single instances, from the same database start.
     pub fresh_check: bool,
     /// ADR-070 step 2: this is the walk of one BC session of the sequential strict run (`strict_walk.rs`); see the head of
     /// the file. The caller runs it on a thread of its own that already counts as a running codeunit.
     pub sequential: bool,
+    /// The sequential walk's runner 130450 codeunits whose place against some hub-leg writers is not pinned
+    /// (`strict_walk.rs` `groups`).
+    pub unpinned: Option<&'a super::strict_walk::Unpinned>,
 }
 
-/// Runs `f` with the walk's kept single instances set aside (`run::LANE_SINGLES` empty): the session starts with fresh
-/// ones and hands none on, and the kept ones go to the next member that keeps them (ADR-066 amendment 11, option 1).
-fn without_kept_singles<R>(f: impl FnOnce() -> R) -> R {
-    let kept = super::run::LANE_SINGLES.with(|c| c.borrow_mut().take());
-    let r = f();
-    super::run::LANE_SINGLES.with(|c| *c.borrow_mut() = kept);
-    r
-}
-
-/// The single instances the walk keeps from member to member (`ChainWalk::keep_singles`): which BC session they belong
+/// The single instances the walk keeps from member to member (`ChainWalk::sequential`): which BC session they belong
 /// to, the globals the members of that session wrote so far with the member (unit) that wrote each last, and what a
 /// fresh instance holds in each global (ADR-058 amendment 1, decision 4: the reason of a flip names the last writer).
 #[derive(Default)]
@@ -146,27 +142,22 @@ impl ChainWalk<'_> {
         let name_of = |oi: usize| lowered.program.objects[oi].name.clone();
         // Per suite, in id order: the codeunit id and what it left, with the tables of every one before it.
         let mut carried: Vec<Carry> = Vec::new();
-        let keep = self.keep_singles;
+        // The sequential walk keeps the SingleInstance state from member to member of a BC session (suite and hub leg),
+        // as BC's one test-runner session does (P7: `TestCuP7BReader.al:24-37`); `run.rs` `LANE_SINGLES` moves it. The
+        // default walk starts each member with fresh single instances.
+        let keep = self.sequential;
         let mut singles = KeptSingles::default();
         // Sequential: what the members that stopped (a test refused while it ran, a time-limit stop, a codeunit not run as
         // a whole) and the ones flagged after them could have changed: a later member that can read it is flagged
         // (`strict_taint.rs`).
         let mut taint = super::strict_taint::Taint::default();
+        let mut hub_left = super::strict_walk::HubLeft::default();
         super::run::CARRIED.with(|c| c.borrow_mut().take());
         if keep {
             super::run::LANE_SINGLES.with(|c| *c.borrow_mut() = Some(None));
         }
         for (si, leg, id, link) in chain {
-            // ADR-066 amendment 11, option 1: a member in the chain only for the numbers its tests take runs with fresh
-            // single instances and hands none on (`chain::numbers_only`).
-            let keep_member = keep
-                && match &link {
-                    Link::Run(k) => {
-                        self.sequential || !super::chain::numbers_only(units[*k].isolation, units[*k].carry)
-                    }
-                    Link::Refused(..) | Link::Discovery(_) => true,
-                };
-            if keep_member {
+            if keep {
                 singles.enter(match &link {
                     Link::Run(k) => Some((si, units[*k].hub_leg)),
                     Link::Discovery(p) => Some((si, units[p.unit].hub_leg)),
@@ -175,6 +166,11 @@ impl ChainWalk<'_> {
                 });
             }
             let before = carried.iter().rev().find(|(s, _, _, _)| *s == si);
+            let hub_oi = match &link {
+                Link::Run(k) if units[*k].hub_leg => Some(units[*k].oi),
+                Link::Refused(oi, _) => Some(*oi),
+                _ => None,
+            };
             let mut left = match link {
                 Link::Run(k) => {
                     let start = match before {
@@ -194,11 +190,7 @@ impl ChainWalk<'_> {
                     // a thread. The walk's thread never ends for memory.
                     let running = (!self.sequential).then(|| self.pool.enter());
                     let held = self.sequential && super::strict_walk::singles_held();
-                    let mut r = if keep && !keep_member {
-                        without_kept_singles(|| run_unit(engine, lowered, start, &u, trace, self.limit))
-                    } else {
-                        run_unit(engine, lowered, start, &u, trace, self.limit)
-                    };
+                    let mut r = run_unit(engine, lowered, start, &u, trace, self.limit);
                     drop(running);
                     let mut left = super::run::CARRIED.with(|c| c.borrow_mut().take());
                     let plain = self.sequential && super::strict_walk::leaves_nothing(&units[k]);
@@ -211,8 +203,8 @@ impl ChainWalk<'_> {
                             left = Some(super::run::Carried::nothing());
                         }
                     }
-                    let reads = if keep_member {
-                        singles.left(k, &r, self.sequential && super::strict_walk::singles_held(), report)
+                    let reads = if keep {
+                        singles.left(k, &r, super::strict_walk::singles_held(), report)
                     } else {
                         Vec::new()
                     };
@@ -235,8 +227,13 @@ impl ChainWalk<'_> {
                     if let Some(l) = left.as_mut().filter(|l| l.baseline.is_none()) {
                         l.baseline = start.cloned();
                     }
-                    if let Some((_, _, leg, b)) = before {
-                        let why = After::new(engine, lowered, b, units[k].oi, *leg).refusal(&r).cloned();
+                    if let Some((_, _, before_leg, b)) = before {
+                        let after = After::new(engine, lowered, b, units[k].oi, *before_leg);
+                        // Sequential: a 130450 codeunit whose place against some hub-leg writers is not pinned
+                        // (`strict_walk.rs` `groups`) is refused when it read what those writers left.
+                        let unpinned = (self.unpinned.and_then(|u| u.get(&id)))
+                            .and_then(|w| hub_left.refusal(w, lowered, units[k].oi, &r));
+                        let why = after.refusal(&r).cloned().or(unpinned);
                         if let (Some(why), Ok(done)) = (why, &mut r.result) {
                             refuse_all(&mut done.0, &why);
                         }
@@ -269,6 +266,9 @@ impl ChainWalk<'_> {
                     not_run_link(engine, lowered, oi, false, why)
                 }
             };
+            if let (Some(oi), Some(_)) = (hub_oi, self.unpinned) {
+                hub_left.note(id, oi, &left);
+            }
             // A link that leaves the state it was given (`baseline: None`) and has no link before it in its suite
             // leaves the walk's start: the first member that was not run would otherwise hand the later ones no
             // install baseline (tests/suite/refused_chain_link.rs).

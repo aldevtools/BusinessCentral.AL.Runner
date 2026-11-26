@@ -16,6 +16,11 @@
 //! Every input the measured cells did not cover is refused (`OpenTxShape::unknown`), never decided by the rule.
 //! After a locking ReadIsolation read in the open transaction the rule decides one shape only (`read_of_others_only`); the other
 //! measured shapes are single cells (`locking_read_cells.rs`).
+//!
+//! the one rule for a write through a stale buffer (al-runner issue 7657;
+//! record/crud/StaleRuleMatrix.al): committed-read refused, row contact or table contact written,
+//! otherwise DB:RecordChanged; every input no cell measured refused. Also the rollback note it reads.
+//! Entry points: `stale_verdict`, `open_tx_contact`, `trapped_error_rollback`.
 
 use super::*;
 use crate::state::{TxWrite, TxWriteKind};
@@ -266,7 +271,7 @@ impl Session {
 
     /// Whether every write to the database store since the last Commit or rollback is in `tx.open.writes`, a DeleteAll the store did in
     /// one step counting as its own note (`TxWrite::bulk`).
-    fn stale_writes_noted(&self) -> bool {
+    pub(crate) fn stale_writes_noted(&self) -> bool {
         let mut at = self.tx.commit_counter;
         for w in &self.tx.open.writes {
             if w.before != at {
@@ -364,7 +369,16 @@ impl Session {
             || self.tx.open.locks.lock_unpinned.is_some();
         let undid_write = !self.tx.open.writes.is_empty() || self.store.change_counter() != self.tx.commit_counter;
         let earlier = self.tx.rollback_kind;
-        self.rollback_in_run()?;
+        let ends_runner_tx = kind == TrappedRollback::AssertError && self.asserterror_ends_runner_tx();
+        self.note_rollback_by(crate::sequence_start::RollbackBy::trapped(
+            e,
+            kind == TrappedRollback::AssertError,
+        ));
+        // A rollback that did not run leaves no mark for the runner's next rollback.
+        self.rollback_in_run().inspect_err(|_| self.forget_rollback_by())?;
+        if ends_runner_tx {
+            self.runner_tx_ended_by_asserterror();
+        }
         if before.is_some() || held_lock || e.exception != ExceptionKind::Dialog {
             return Ok(());
         }

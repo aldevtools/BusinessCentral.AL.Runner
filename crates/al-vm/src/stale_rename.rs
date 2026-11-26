@@ -9,6 +9,14 @@
 //! The error is raised only in the measured shape (`Session::measured_stale_rename`). Every other Rename through a stale
 //! record that holds a committed row version is refused. Main's rename stays for a record that is not stale and for one
 //! that read a row version written in the open transaction (pinned by record/filters/P68H_StaleModify.al:108-132).
+//!
+//! a Rename through a stale record, whose stored row another variable wrote after this one read a
+//! committed version (al-runner issue 7950, record/table-relation/RenameBlankKeyRelation.al:887,
+//! :2894, :2920). `stale_rename` runs in the Rename arm of `records/op_inner.rs` before
+//! `blank_key_rename`: DB:RecordChanged (`Session::record_changed`) in the measured shape (allowlist
+//! predicates `measured_stale_rename` for the call and transaction, `measured_stale_table` for the
+//! tables and the one relation), a refusal for any other stale record that holds a committed version;
+//! a record that is not stale or read a version written in the open transaction keeps main's rename.
 
 use crate::Session;
 use crate::globaltriggers::GlobalOp;

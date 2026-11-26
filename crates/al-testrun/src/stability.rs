@@ -4,6 +4,15 @@
 //!
 //! A variant is a set of perturbations ([`Perturb`]) the runner applies to the host values and to its own steps
 //! around each test. The base variant ([`Perturb::default`]) is a normal run.
+//!
+//! Stability mode (ADR-058): the config (`parse_config`, preset `microsoft`; its matrix axes
+//! `MatrixAxes`), the registry of dimensions with their class (`DIMENSIONS`: safe, pin first, never;
+//! built or not), the variants of a config (`variants`: oneAtATime, matrix, sample, under a master
+//! seed), replay (`replay`, `parse_values_text`), what a variant changes for the runner (`Perturb`:
+//! method and codeunit order, alone, library seed, work date, clock date and time of day, clock step,
+//! host and Guid seeds, identity, company; `RunOptions::perturb`; `Perturb::host_key` keys the
+//! install baseline; `Perturb::environment` is the cell of the `environment` axis) and the comparison
+//! with the base variant (`changes`). Entry points: `parse_config`, `variants`, `Perturb`, `changes`.
 
 use serde_json::Value as Json;
 
@@ -1331,11 +1340,6 @@ pub struct Seen {
     pub kind: Kind,
     pub message: String,
     pub assumption: bool,
-    /// The test relies on SingleInstance state an earlier test codeunit left (`Assumption::SingleInstanceOrder`).
-    pub order: bool,
-    /// Its codeunit's serial re-run was skipped for the length of its chain (`Assumption::SingleInstanceRerunSkipped`,
-    /// ADR-066 amendment 7).
-    pub rerun_skipped: bool,
 }
 
 /// The changes of each variant against the base variant (`per_variant[0]`). A test missing from a variant is not
@@ -1487,9 +1491,9 @@ mod tests {
         };
         assert!(p.host_key().contains("environment=onprem"), "{}", p.host_key());
         assert!(!p.is_base());
-        let host = crate::host::host_perturbed(Some(0), &p);
+        let host = crate::host::host_perturbed(crate::host::RunClock::At(0), &p);
         assert_eq!(host.identity.environment(), al_host::Environment::OnPrem);
-        let host = crate::host::host_perturbed(Some(0), &Perturb::default());
+        let host = crate::host::host_perturbed(crate::host::RunClock::At(0), &Perturb::default());
         assert_eq!(host.identity.environment(), al_host::Environment::Saas);
     }
 
@@ -1675,8 +1679,6 @@ mod tests {
             kind: k,
             message: String::new(),
             assumption: a,
-            order: false,
-            rerun_skipped: false,
         };
         let runs = vec![
             vec![

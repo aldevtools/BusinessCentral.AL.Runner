@@ -101,6 +101,8 @@ pub fn convert_cell(v: &Value, t: &RtType) -> Option<Result<Value, Signal>> {
     match (v, t) {
         (Value::Byte(b), RtType::Char) => Some(byte_to_char(*b)),
         (Value::Char(c), RtType::Byte) => Some(char_to_byte(*c)),
+        // An Integer in the Byte range is that Byte, what `cast` gives it without the Decimal detour (`B := N` in a byte write loop).
+        (Value::Integer(n), RtType::Byte) if let Ok(b) = u8::try_from(*n) => Some(Ok(Value::Byte(b))),
         _ => {
             let (d, from) = number(v)?;
             let (to, min, max) = target(t)?;

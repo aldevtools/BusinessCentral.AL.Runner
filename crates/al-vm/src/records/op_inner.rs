@@ -1,4 +1,7 @@
 //! `record_op_inner`: the dispatch of every Record method (moved out of `records.rs`).
+//!
+//! `record_op_inner`, the dispatch of every Record method (moved out of `records.rs`), and
+//! `clear_record` (`Clear` of a record).
 
 use super::*;
 use crate::state::{UnpinnedLock, WriteOfAl};
@@ -126,17 +129,19 @@ impl Session {
         }
         // The next access of the table raises a deferred duplicate-key Insert, an Insert of another row not (the buffered inserts
         // stay buffered: record/P146TableExtProtected.al:P146_Triggers_BaseThenExtension, where
-        // `R2.Insert(true)` succeeds and the next Modify raises it).
+        // `R2.Insert(true)` succeeds and the next Modify raises it). A Get of a page background task's worker in the measured
+        // shapes raises nothing (`worker_get_past_deferred`); its other reads are refused before (`hide_queued_from_worker`).
         if insert_buffer::sends_queue(method)
             && !rec.borrow().temporary
+            && !self.worker_get_past_deferred(method, t.object)
             && self
                 .tx
                 .open
                 .deferred_insert
                 .as_ref()
-                .is_some_and(|(o, _)| *o == t.object as usize)
+                .is_some_and(|d| d.table == t.object as usize)
         {
-            let (_, e) = self.tx.open.deferred_insert.take().expect("checked");
+            let e = self.tx.open.deferred_insert.take().expect("checked").error;
             self.tx.deferred_raised += 1;
             return Err(Signal::Error(Box::new(e)));
         }
@@ -242,6 +247,8 @@ impl Session {
         ) && !rec.borrow().temporary
         {
             self.bg_refuse_write(t.object as usize, method.name())?;
+            // At a type that does not write (Snapshot, Browse, Report) the write raises.
+            self.gate_read_only_type(method, &t, rec, args, &cx)?;
             self.gate_write(method)?;
             if matches!(method, RecordOp::Insert | RecordOp::DeleteAll)
                 && let Some(e) = self.read_only_platform_table(&t, rec, method)
@@ -580,7 +587,9 @@ impl Session {
                 }
                 let mut stored = Self::to_store(rec, view);
                 self.webhook_application_id(&t, rec, &mut stored)?;
-                if let Some(bad) = self.sql_columns(rec, &t, &mut stored)? {
+                if let Some(bad) =
+                    self.sql_columns(rec, &t, &mut stored, crate::decimal_column::Write::Insert { run })?
+                {
                     let shape = InsertShape {
                         auto: auto.is_some(),
                         run,
@@ -605,6 +614,7 @@ impl Session {
                             self.sql.pre_inserted(al_data::memory::store_ops());
                         }
                         self.note_insert(rec, &t, before);
+                        self.queue_stored_row(rec, &t);
                         Self::note_empty_blob_insert(rec, &t, empty_blob);
                         Self::clear_blob_written(rec);
                         rec.borrow_mut().inserted = true;
@@ -626,8 +636,7 @@ impl Session {
                             .position(|f| f.id == 2_000_000_005)
                             .map(|i| rec.borrow().fields[i].clone());
                         if let Some(Value::BigInteger(v)) = version {
-                            let commits = self.commits;
-                            rec.borrow_mut().row_origin = Some(al_builtins::value::RowOrigin::new(true, v, commits));
+                            self.set_own_insert_origin(&t, rec, v);
                         }
                         // The Blob content an Insert of a temporary record stored is persisted, as one a Modify stored (see Rename).
                         if rec.borrow().temp_id.is_some() {
@@ -697,7 +706,7 @@ impl Session {
                         {
                             match self.fail(&t, &row, true) {
                                 Err(Signal::Error(e)) => {
-                                    self.defer_insert(rec, t.object, *e);
+                                    self.defer_insert(rec, t.object, *e, insert_buffer::DeferredKind::DuplicateKey);
                                 }
                                 // A key whose format is not pinned stays a refusal.
                                 Err(other) => return Err(other),
@@ -737,7 +746,7 @@ impl Session {
                                 .open
                                 .deferred_insert
                                 .as_ref()
-                                .is_some_and(|(o, _)| *o == t.object as usize)
+                                .is_some_and(|d| d.table == t.object as usize)
                         {
                             let same_key = format!(
                                 "The record in table {} already exists. Identification fields and values: {}",
@@ -749,11 +758,10 @@ impl Session {
                                 .open
                                 .deferred_insert
                                 .as_ref()
-                                .is_some_and(|(_, e)| e.message == same_key)
+                                .is_some_and(|d| d.error.message == same_key)
                             {
                                 // GetLastErrorText then gives the duplicate's text (`guarded`).
-                                let (_, e) = self.tx.open.deferred_insert.take().expect("checked");
-                                self.last_error = e;
+                                self.last_error = self.tx.open.deferred_insert.take().expect("checked").error;
                             }
                         }
                         // The flag hides the key of a duplicate Insert into a table with a Blob field (error-handling/
@@ -890,7 +898,9 @@ impl Session {
                 if let (false, Some(old)) = (rec.borrow().temporary, stored_row.as_deref()) {
                     crate::sqltime::keep_rolled(old, &mut stored, read_rolled)?;
                 }
-                if let Some(bad) = self.sql_columns(rec, &t, &mut stored)? {
+                if let Some(bad) =
+                    self.sql_columns(rec, &t, &mut stored, crate::decimal_column::Write::Modify { run })?
+                {
                     let shape = (caller, stored_row.is_some(), run);
                     return self.fail_modify_sql_range(rec, &t, bad, shape, (old_version, stamped));
                 }
@@ -918,30 +928,8 @@ impl Session {
                             rec.borrow_mut().fields[i] = old[i].clone();
                         }
                         if !rec.borrow().temporary {
-                            let image = rec.borrow().fields.to_vec();
-                            rec.borrow_mut().last_modify = Some(image);
-                            // The variable's own Modify (false or true, the first or a later one) after its own Insert or Get, in that
-                            // transaction, makes the buffer's new version its own write (record/crud/SbStaleOwnModify.al:
-                            // 132-264, :410-448). An own Modify in a later transaction leaves the origin behind, as before.
-                            if let Some((i, was, Some(o))) = version_before
-                                && o.version == was
-                            {
-                                let now = if let Value::BigInteger(n) = &rec.borrow().fields[i] {
-                                    *n
-                                } else {
-                                    0
-                                };
-                                if now != was {
-                                    let keep = o.commits == self.commits;
-                                    rec.borrow_mut().row_origin = keep.then_some(al_builtins::value::RowOrigin {
-                                        own_write: true,
-                                        version: now,
-                                        read_in_write_tx: false,
-                                        own_modified: true,
-                                        ..o
-                                    });
-                                }
-                            }
+                            self.note_own_modify(&t, rec);
+                            self.set_own_modify_origin(rec, version_before);
                             let company = rec.borrow().company.clone();
                             self.tx.open.rows_touched.push((t.object, company, pk.clone()));
                         }
@@ -1200,7 +1188,7 @@ impl Session {
                     other => return unsupported(format!("Find('{other}')")),
                 };
                 crate::platform::unmeasured_find(&self.engine, &t, &mut found, method, &which, args);
-                found = self.cached_find_first(rec, &cx, &t, method, found)?;
+                found = self.cached_find(rec, &cx, &t, method, found)?;
                 match found {
                     Some(row) => {
                         // Every form of Find gives the origin FindFirst gives (record/stale-find/Y89StaleFind.al:256-480,
@@ -1383,7 +1371,8 @@ impl Session {
                 Ok(Value::Integer(if steps < 0 { -moved } else { moved }))
             }
             RecordOp::Count | RecordOp::IsEmpty => {
-                let (filters, flow_field_filters) = self.split_filters(rec);
+                let count_by_al = method == RecordOp::Count && self.is_al_record_call(RecordOp::Count, rec);
+                let (filters, flow_field_filters) = self.split_filters_read(rec, count_by_al)?;
                 let n = if flow_field_filters.is_empty() && !rec.borrow().marked_only {
                     // IsEmpty needs one row: the store stops at it.
                     let limit = if method == RecordOp::IsEmpty { 1 } else { usize::MAX };
@@ -1419,13 +1408,16 @@ impl Session {
                 r.position = None;
                 let group = r.filter_group;
                 r.filters.retain(|f| !(f.field == pos && f.group == group));
+                r.decimal_cut_filters.retain(|f| !(f.field == pos && f.group == group));
                 // A FlowField filter in the OR group is dropped: GetFilters does not show it and no row is filtered by it
                 // (record/PWFilterGroupOr.al:OrGroup_FlowFieldFilter_BQ, `getFilters`, `flowFieldOnly`, `nameOrFlowField`).
                 if group == al_builtins::filter::OR_GROUP && or_flowfield {
                     return Ok(Value::Null);
                 }
                 if let Some(range) = super::setrange_filter::setrange_filter(&ty, &args[1..])? {
-                    r.filters.push(FieldFilter::new(pos, range, group));
+                    let filter = FieldFilter::new(pos, range, group);
+                    self.mark_decimal_cut_filter(rec, &mut r, &t, (RecordOp::SetRange, &filter), None, args);
+                    r.filters.push(filter);
                 }
                 Ok(Value::Null)
             }
@@ -1451,7 +1443,8 @@ impl Session {
                 let date_ctx = self.date_filter_context_for(&text);
                 let parse = |text: &str| {
                     al_builtins::filter::with_date_context(date_ctx, || {
-                        al_builtins::filter::parse_filter_with(text, &args[2..], &ty, &enums)
+                        // Record.SetFilter and FieldRef.SetFilter measure `<>@` alone on a Code field too (`filter_at_sign`).
+                        al_builtins::filter::parse_filter_both_at_signs_measured(text, &args[2..], &ty, &enums)
                     })
                 };
                 // A RecordId text (`Format(RecordId)`, alone or after `<>`): see `record_id_filter_text`.
@@ -1583,7 +1576,7 @@ impl Session {
                     }
                     // types/date-time/P143Guid_Filters.al:P143_GuidInvalid, P143Date_FieldRef.al:P143_FieldRefGuid.
                     Err(e) if e.starts_with(al_builtins::filter::INVALID_GUID) => {
-                        let reason = "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.";
+                        let reason = al_builtins::native::INVALID_GUID_FORMAT;
                         return Err(self.filter_error(&t, pos, text.trim(), reason));
                     }
                     // An empty side of `|` in the measured shapes (`setfilter_empty_or_side`); every other text main refused.
@@ -1604,16 +1597,19 @@ impl Session {
                 let mut r = rec.borrow_mut();
                 let group = r.filter_group;
                 r.filters.retain(|f| !(f.field == pos && f.group == group));
+                r.decimal_cut_filters.retain(|f| !(f.field == pos && f.group == group));
                 // PWFilterGroupOr.al:OrGroup_FlowFieldFilter_BQ (`nameOrFlowField`: SetFilter too).
                 if group == al_builtins::filter::OR_GROUP && or_flowfield {
                     return Ok(Value::Null);
                 }
-                r.filters.push(FieldFilter {
+                let filter = FieldFilter {
                     lang: al_builtins::filter::filter_language(),
                     field: pos,
                     expr,
                     group,
-                });
+                };
+                self.mark_decimal_cut_filter(rec, &mut r, &t, (RecordOp::SetFilter, &filter), Some(text.trim()), args);
+                r.filters.push(filter);
                 Ok(Value::Null)
             }
             RecordOp::Reset => {
@@ -1624,6 +1620,7 @@ impl Session {
                 // SetAutoCalcFields_SurvivesResetAndClear).
                 let mut r = rec.borrow_mut();
                 r.filters.clear();
+                r.decimal_cut_filters.clear();
                 // The filter group goes back to 0 (recordref-fieldref/PnE08RecordMisc.al:RecordRef_FilterGroup `afterReset`).
                 r.filter_group = 0;
                 // Reset drops the marks too (record/crud/RcAMisc.al:ClearMarks_And_Reset `markAfterReset`).
@@ -1914,7 +1911,7 @@ impl Session {
             }
             RecordOp::Rename => {
                 let from_al = std::mem::take(&mut self.tx.rename_from_al);
-                let rename_note = (self.tx.open.writes.len(), self.store.change_counter());
+                let rename_note = self.rename_note(rec, &t);
                 let old_key = Self::sql_key(rec, &t, &rec.borrow().fields);
                 self.note_bulk_write(rec, &t, crate::state::TxWriteKind::Other, &old_key);
                 if !rec.borrow().temporary {
@@ -2047,7 +2044,7 @@ impl Session {
                     }
                 }
                 let mut stored = Self::to_store(rec, self.stored_view(&t, &row));
-                if let Some(bad) = self.sql_columns(rec, &t, &mut stored)? {
+                if let Some(bad) = self.sql_columns(rec, &t, &mut stored, crate::decimal_column::Write::Rename)? {
                     return self.fail_rename_sql_range(rec, &t, bad, (from_al, refs.is_empty()), &old);
                 }
                 Self::refuse_rename_writing_rolled(&stored)?;
@@ -2108,6 +2105,7 @@ impl Session {
                                 r.row_origin = keep.then_some(al_builtins::value::RowOrigin { version: now, ..o });
                             }
                         }
+                        self.note_own_rename(&t, rec, rename_note);
                         // The record itself shows no Blob value after a Rename of a temporary record; the row keeps one only when a write came
                         // after the last Insert or Modify (record/PnABlobAssignRename.al:RenameTemporary_* `A..E-rec-content`).
                         // So does a database record for every Blob field, while the renamed row keeps the bytes
@@ -2187,7 +2185,7 @@ impl Session {
                     }
                 }
             }
-            RecordOp::Truncate => self.truncate_all(&cx, &t, rec, arg_bool(args, 0)?),
+            RecordOp::Truncate => self.truncate_all(&cx, &t, rec, arg_bool(args, 0)?, !args.is_empty()),
             // Only the AL call `Record.CalcFields` asks as `Asked::CalcFields` (permission_system_flowfield.rs).
             RecordOp::CalcFields | RecordOp::CalcSums | RecordOp::SetAutoCalcFields => self.flow_op(method, rec, args),
             RecordOp::LoadFields => self.load_fields_row(rec, &t, args),

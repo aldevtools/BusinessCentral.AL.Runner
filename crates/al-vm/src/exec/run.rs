@@ -895,29 +895,43 @@ impl Session {
         Ok(())
     }
 
-    #[inline(never)]
+    /// The counter of the loop takes its next value: an Integer local here, any other counter in [`Self::for_set_general`].
+    #[inline]
     fn for_set(&mut self, site: &ForSite, f: &mut Frame) -> Result<(), Signal> {
-        let Value::BigInteger(i) = f.locals[site.i as usize] else {
-            return Err(Signal::Unsupported("a for loop counter that is not set".into()));
-        };
-        if let (Some(v), Ok(n)) = (site.int_local, i32::try_from(i)) {
+        if let (Some(v), Value::BigInteger(i)) = (site.int_local, &f.locals[site.i as usize])
+            && let Ok(n) = i32::try_from(*i)
+        {
             set(&mut f.locals[v as usize], Value::Integer(n));
             return Ok(());
         }
+        self.for_set_general(site, f)
+    }
+
+    #[inline(never)]
+    fn for_set_general(&mut self, site: &ForSite, f: &mut Frame) -> Result<(), Signal> {
+        let Value::BigInteger(i) = f.locals[site.i as usize] else {
+            return Err(Signal::Unsupported("a for loop counter that is not set".into()));
+        };
         let slot_ty = self.place_type(&site.var, f);
         let kind = crate::interp::ForKind::of(&slot_ty);
         let counter = Self::for_counter(kind, i, &slot_ty)?;
         self.write(&site.var, counter, f)
     }
 
-    #[inline(never)]
+    /// The step of the loop: from an Integer local here, from any other counter in [`Self::for_next_general`].
+    #[inline]
     fn for_next(&mut self, site: &ForSite, f: &mut Frame) -> Result<(), Signal> {
-        if let Some(v) = site.int_local {
-            if let Value::Integer(n) = f.locals[v as usize] {
-                f.locals[site.i as usize] = Value::BigInteger(i64::from(n) + if site.down { -1 } else { 1 });
-                return Ok(());
-            }
+        if let Some(v) = site.int_local
+            && let Value::Integer(n) = f.locals[v as usize]
+        {
+            f.locals[site.i as usize] = Value::BigInteger(i64::from(n) + if site.down { -1 } else { 1 });
+            return Ok(());
         }
+        self.for_next_general(site, f)
+    }
+
+    #[inline(never)]
+    fn for_next_general(&mut self, site: &ForSite, f: &mut Frame) -> Result<(), Signal> {
         let back = Self::for_bound(self.read(&site.var, f)?);
         if let Value::Date(_, closing) = back {
             return self.for_next_date(site, f, back, closing);
@@ -1031,6 +1045,7 @@ impl Session {
             None
         };
         self.dotnet.result_ty = site.result_ty;
+        self.dotnet.al_datetime_args = self.al_datetime_args(&site.args, &values, f);
         let r = self.dotnet_apply_closing_entry_streams(site.ty, recv, values, places, &site.op, f);
         let r = match rendered {
             Some(input) => Self::rendered_dotnet_answer(&input, r),
@@ -1106,10 +1121,14 @@ impl Session {
         Ok(ret)
     }
 
-    /// The steps every builtin call takes on its evaluated operands before the guards: the audits, the record and Blob
-    /// bookkeeping and the TextConstant arguments. Shared by `run_builtin`, `run_plain_builtin` and `run_stream_builtin`.
+    /// The steps every builtin call takes on its evaluated operands before the guards: the install footprint note, the
+    /// audits, the record and Blob bookkeeping and the TextConstant arguments. Shared by `run_builtin`, `run_plain_builtin`
+    /// and `run_stream_builtin`.
     #[inline]
     fn builtin_prologue(&self, site: &BuiltinSite, recv: Option<&Value>, values: &mut [Value]) -> Result<(), Signal> {
+        if self.coverage.footprint_on {
+            self.note_footprint_builtin(site.id);
+        }
         crate::assigned_audit::own_read_end_for_operands(site.id, values);
         crate::records::rolled_read_end_for_operands(values);
         crate::blob_transfer::records_into_builtin(self.blob_sources, site.id, recv, values);
@@ -1377,6 +1396,9 @@ impl Session {
             // `Clear` of a Variant empties it, whatever it holds (types/lt-variant/VaTIs*.al:Is_Empty_Variant `V := 5; Clear(V)`
             // has no type flag left); the native clears a value to the default of its own kind.
             if let Some(ir::Arg::Ref(p)) = site.args.first() {
+                if let Some(v) = values.first_mut() {
+                    self.clear_shared_codeunit(p, v, f)?;
+                }
                 // What Clear does to a row of a multi-dimensional array is not pinned (only a row as an argument is).
                 if let ir::Place::Index(base, idx) = p {
                     if let al_builtins::value::RtType::Array(d, el) = self.place_type(base, f) {

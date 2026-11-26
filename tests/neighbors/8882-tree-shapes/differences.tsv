@@ -1,0 +1,23 @@
+# key	entry
+# The cells of corpus PR 1554 (TreeValidateFilterShapes.al): main read only the typed row, saved nothing and raised no error
+# when the filter left the row out; the head reads, saves and raises as BC does. The neighbors past the cells keep main's path
+# and do not differ.
+LT TVS Tests::Shape011_SetRangeKeepsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1554 :532)
+LT TVS Tests::Shape012_SetRangeKeepsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1554 :546)
+LT TVS Tests::Shape002_SetRangeKeepsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1554 :561)
+LT TVS Tests::FourRows_SetRangeKeepsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1554 :584)
+LT TVS Tests::ExpandFalseAfterLast_SetRangeKeepsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1554 :608)
+LT TVS Tests::ExpandTrueOnFirstRow_SetRangeKeepsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1554 :632)
+LT TVS Tests::Tree_FirstRowSetRangeDropsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1554 :663)
+LT TVS Tests::Both_FirstRowSetRangeDropsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1554 :696)
+LT TVS Tests::Curr_FirstRowSetRangeDropsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1554 :729)
+LT TVS Tests::Collapsed_FirstRowSetRangeDropsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1554 :762)
+LT TVS Drop Tests::DropCollapsed_FirstRowSetRangeDropsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1554 :968)
+LT TVS Drop Tests::DropCurr_FirstRowSetRangeDropsUpdateFalse	ASSUMED tree-validate-view-refresh (corpus PR 1554 :996)
+# The reviews of 01:31Z and 04:05Z (codeunit 97684, measured on BC 29.1): the runner tells these from a cell only once the
+# OnValidate ran, so they refuse; main read only the typed row, where BC reads and saves more. The neighbors of codeunit 97685
+# refuse on main and on the head alike, and do not differ.
+LT TVS Neighbor Path Tests::Rows002_LastThenValueFirst	REFUSED a call on a tree page of TreeValidateFilterRefresh.al or TreeValidateFilterShapes.al after the page read
+LT TVS Neighbor Path Tests::Rows002_LastNameUpdateTrue	REFUSED a call on a tree page of TreeValidateFilterRefresh.al or TreeValidateFilterShapes.al after the page read
+LT TVS Neighbor Path Tests::ExpandFalse_NameUpdateTrue	REFUSED a call on a tree page of TreeValidateFilterRefresh.al or TreeValidateFilterShapes.al after the page read
+LT TVS Neighbor Path Tests::KeepCell_ThenValueWithoutFirst	REFUSED a call on a tree page of TreeValidateFilterRefresh.al or TreeValidateFilterShapes.al after the page read

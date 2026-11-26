@@ -1,11 +1,20 @@
 //! Where the refresh after a control's OnValidate changed the filters starts (`refresh_after_validate_filter`), including from
 //! the new-row line (gap G5-20).
+//!
+//! Where the refresh after a control's OnValidate changed the filters starts, including from the new-
+//! row line, and Update(true) from that line (gap G5-20). From the line to an empty view the page
+//! shows the new-row line of that view (al-runner issue 6924, assumption `new-line-switch-to-empty-
+//! view`). Entry points: `validate_refresh_start`, `same_filters_on_empty_new_line`,
+//! `show_new_line_of_empty_view`, `save_found_row_from_new_line`, `reread_view_from_row` (the refresh
+//! that reads the view from its first row, for `refresh_after_validate_filter` and
+//! `code_inserted_new_line.rs`, which leaves out the last read of the row on its FactBox host).
 
 use super::pinned_body::{Callees, Names, callees_are, page_is, table_is};
 use super::pinned_shape::TestCall;
 use super::*;
 use crate::pages::state::RecCall;
 use al_builtins::record_op::RecordOp;
+use al_builtins::value::RtType;
 
 /// The record methods that load a row into Rec or move it, recorded while a control's OnValidate runs (`note_page_rec_call`).
 const POSITIONING: [RecordOp; 16] = [
@@ -414,10 +423,7 @@ impl Session {
         let Some(onvalidate) = onvalidate.filter(|_| page_ok && opened) else {
             return Ok(false);
         };
-        let calls: Option<Vec<TestCall>> = Self::test_calls_all_succeeded(st)
-            .map(|calls| calls.into_iter().filter(|c| *c != TestCall::Read).collect());
-        let calls_ok = matches!(calls.as_deref(), Some([TestCall::Write(i)])
-            if matches!(page_of(&self.engine(), st).controls[*i].binding, ir::Binding::Var(_)));
+        let calls_ok = self.only_var_control_written(st);
         let first_save = matches!(onvalidate.saves.as_slice(), [Save, _]);
         let saves_ok = matches!(
             (worksheet, call, onvalidate.saves.as_slice()),
@@ -436,6 +442,262 @@ impl Session {
             && find_first_row
             && self.store.change_counter() == onvalidate.changes
             && self.found_row_first_of_view(st, touch)?)
+    }
+
+    /// The test's calls on page `st` since the open are value reads and one SetValue of a control bound to a page variable, the
+    /// running one, and none of them failed.
+    fn only_var_control_written(&self, st: &St) -> bool {
+        let calls: Option<Vec<TestCall>> = Self::test_calls_all_succeeded(st)
+            .map(|calls| calls.into_iter().filter(|c| *c != TestCall::Read).collect());
+        matches!(calls.as_deref(), Some([TestCall::Write(i)])
+            if matches!(page_of(&self.engine(), st).controls[*i].binding, ir::Binding::Var(_)))
+    }
+
+    /// `CurrPage.Update` in a control's OnValidate that changed the filters, on the untouched new-row line of a list over an
+    /// empty view that stays empty, when the page does not declare both OnAfterGetRecord and OnAfterGetCurrRecord (the
+    /// pinned refresh of `refresh_after_validate_filter` needs both). `false`, main's refresh, when the line's values from the
+    /// filters (`filter_stamps`) do not change. Where they change, the line is shown again with the new values
+    /// (`show_new_line_of_empty_view`) only in the cell of Microsoft's Tests-SCM 137156 (`get_record_free_cell`), through
+    /// Assumption::NewLineEmptyRefreshWithoutGetRecord, when its function controls are hidden (`function_controls_hidden`);
+    /// every other such page is refused. OnAfterGetCurrRecord runs twice there, as on BC (corpus pull request 1593,
+    /// NewLineFilterRefreshWithoutGetRecord.al:1509 EnumCurr_OpenFilter_KindFilterWithSave `log` `Curr C//;Curr C//;`, :2290
+    /// TwoCurr_OpenFilter_SalesTypeFilterWithSave).
+    pub(super) fn empty_new_line_without_get_record(
+        &mut self,
+        st: &St,
+        start: &crate::pages::state::ValidateStart,
+        without_curr: bool,
+        without_parts: bool,
+    ) -> Result<bool, Signal> {
+        let on_line = {
+            let s = st.borrow();
+            s.cursor == Cursor::NewLine && s.placeholder_line && s.new_line
+        };
+        if !on_line || self.view_row_count(st)? != 0 {
+            return Ok(false);
+        }
+        let (_, stamps) = self.filter_stamps(st)?;
+        let rec = self.page_rec(st);
+        let changes = stamps
+            .iter()
+            .any(|(pos, v)| !ops::compare(&rec.borrow().fields[*pos], v).is_ok_and(|o| o.is_eq()));
+        if !changes {
+            return Ok(false);
+        }
+        if !self.get_record_free_cell(st, start, &stamps, without_curr)? {
+            return unsupported(
+                "CurrPage.Update in a control's OnValidate that changed a single-value filter on the new-row line of a list over an empty view, on a page that does not declare both OnAfterGetRecord and OnAfterGetCurrRecord, outside the shape of Microsoft's Tests-SCM 137156 (whether the line takes the new filter value there is not pinned)",
+            );
+        }
+        if !self.function_controls_hidden(st)? {
+            return unsupported(
+                "a function control in a shown group of a list on its new-row line, at the refresh after CurrPage.Update in a control's OnValidate that changed a single-value filter on a page that does not declare OnAfterGetRecord (BC runs it there; this refresh does not)",
+            );
+        }
+        self.show_new_line_of_empty_view(st, without_parts)?;
+        // BC evaluates a function control's group after each OnAfterGetCurrRecord run (corpus pull request 1593,
+        // NewLineFilterRefreshWithoutGetRecord.al:2756 `Fn C;Curr C//;Fn C;Fn C;Curr C//;Fn C;`), so a trigger that shows the
+        // group makes BC run the control, and this refresh runs none.
+        if !self.function_controls_hidden(st)? {
+            return unsupported(
+                "a function control in a group that OnAfterGetCurrRecord shows, on the new-row line at the refresh after CurrPage.Update in a control's OnValidate that changed a single-value filter on a page that does not declare OnAfterGetRecord (a function control in a shown group BC runs after each OnAfterGetCurrRecord run; this refresh does not)",
+            );
+        }
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NewLineEmptyRefreshWithoutGetRecord);
+        Ok(true)
+    }
+
+    /// The shape of pages 7002 "Sales Prices" and 7004 "Sales Line Discounts" in Microsoft's Tests-SCM 137156 "SCM Orders IV"
+    /// (CheckValueOfSalesTypeOnSalesPricesPage, CheckValueOfSalesTypeOnSalesLineDiscounts), every fact by equality:
+    /// - the page: PageType List, DelayedInsert true, AutoSplitKey false, over a database table, opened by the test with
+    ///   OpenEdit, no part; it declares OnAfterGetCurrRecord and none of OnAfterGetRecord, OnNewRecord, OnFindRecord and
+    ///   OnNextRecord; no page extension declares OnAfterGetCurrRecord, nothing subscribes to the page's
+    ///   OnAfterGetCurrRecordEvent, and the trigger's code leaves nothing behind outside the page (`Engine::lasting_effect`:
+    ///   no store write, no dialog, no write to a SingleInstance codeunit, no subscriber that does one);
+    /// - the test's calls since the open: value reads and the running SetValue of a control bound to a page variable
+    ///   (`only_var_control_written`); `CurrPage.Update(false)` without OnAfterGetCurrRecord left out (`without_curr` false);
+    /// - that OnValidate called `CurrPage.SaveRecord()` then `CurrPage.Update(false)`, made no record call on Rec that loads
+    ///   or moves a row, assigned no field of Rec (`ValidateStart::fields`) and wrote nothing to the store;
+    /// - the filters (`measured_filter_cell`): page 7002, one single-value filter in group 0 on an Enum field of the primary
+    ///   key, changed; or page 7004, two single-value filters in group 0 on fields of the primary key, the one on the key's
+    ///   first field (an Enum) the same before and after and equal to the line's value, the other (an Option) changed.
+    fn get_record_free_cell(
+        &mut self,
+        st: &St,
+        start: &crate::pages::state::ValidateStart,
+        stamps: &[(usize, Value)],
+        without_curr: bool,
+    ) -> Result<bool, Signal> {
+        use crate::pages::state::CurrPageSave::{SaveRecord as Save, Update};
+        let object = st.borrow().object as usize;
+        let page_ok = self.engine().object_facts[object].page_type == Some(al_ir::PageType::List)
+            && self.page_property_true(st, "DelayedInsert")
+            && !self.page_property_true(st, "AutoSplitKey");
+        let declares = [
+            "onaftergetcurrrecord",
+            "onaftergetrecord",
+            "onnewrecord",
+            "onfindrecord",
+            "onnextrecord",
+        ]
+        .map(|t| self.declares(st, t));
+        let opened = {
+            let s = st.borrow();
+            s.test_open_edit() && s.parts.is_empty() && s.hidden_parts.is_empty()
+        };
+        let rec = self.page_rec(st);
+        let Some(onvalidate) = &start.ran else {
+            return Ok(false);
+        };
+        let rec_unchanged = Self::same_values(&start.fields, &rec.borrow().fields);
+        Ok(page_ok
+            && declares == [true, false, false, false, false]
+            && self.curr_record_trigger_leaves_nothing(st)
+            && opened
+            && !rec.borrow().temporary
+            && !without_curr
+            && self.only_var_control_written(st)
+            && matches!(onvalidate.saves.as_slice(), [Save, Update(false)])
+            && onvalidate.positioned.is_none()
+            && rec_unchanged
+            && self.store.change_counter() == onvalidate.changes
+            && self.measured_filter_cell(&rec, &start.filters, stamps)?)
+    }
+
+    /// The page's OnAfterGetCurrRecord, which `show_new_line_of_empty_view` runs twice, is its own trigger alone (no page
+    /// extension declares it, nothing subscribes to OnAfterGetCurrRecordEvent) and its code leaves nothing behind outside the
+    /// page (`Engine::lasting_effect` is `None` and no Record write is let through, `caption_checked_write`, no dialog,
+    /// `walked_dialog`).
+    fn curr_record_trigger_leaves_nothing(&self, st: &St) -> bool {
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        let page = page_of(&engine, st);
+        let own: Vec<usize> = page
+            .triggers
+            .iter()
+            .filter(|(n, _)| n == "onaftergetcurrrecord")
+            .map(|(_, r)| *r)
+            .collect();
+        let ext = page.ext_triggers.iter().any(|(n, _, _)| n == "onaftergetcurrrecord");
+        matches!(own.as_slice(), [routine]
+            if !ext
+                && !engine.events.is_subscribed(object, "onaftergetcurrrecordevent")
+                && engine.lasting_effect(object, *routine).is_none()
+                && engine.caption_checked_write(object, *routine).is_none()
+                && engine.walked_dialog(object, *routine).is_none())
+    }
+
+    /// Every function control of the page (an expression control whose routine calls something, `call_free_routine`) is the
+    /// page's own and sits in a group whose Visible is false now. BC does not run such a control at this refresh (corpus pull
+    /// request 1593, NewLineFilterRefreshWithoutGetRecord.al:2648 EnumFnHidden_OpenFilter_KindFilterWithSave_ReadsSeen `seen`
+    /// empty, a group with `Visible = false`), and `show_new_line_of_empty_view` runs none. In a shown group BC runs it (:2756
+    /// EnumFnVisible_OpenFilter_KindFilterWithSave_ReadsSeen `seen` C), so that page is refused.
+    fn function_controls_hidden(&mut self, st: &St) -> Result<bool, Signal> {
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        let page = page_of(&engine, st);
+        for c in &page.controls {
+            let ir::Binding::Expr(r) = c.binding else {
+                continue;
+            };
+            if c.owner.is_none() && super::lookup_refresh::call_free_routine(&engine.program, object, r) {
+                continue;
+            }
+            let mut hidden = false;
+            let mut parent = c.parent;
+            while let Some(p) = parent {
+                hidden |= matches!(page.controls[p].kind, ir::ControlKind::Group)
+                    && !self.prop_bool_now(st, p, "visible", true)?;
+                parent = page.controls[p].parent;
+            }
+            if c.owner.is_some() || !hidden {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    /// The filters of the two measured pages before (`before`) and after the OnValidate, with the line's values from the
+    /// filters after it (`stamps`, field order): page 7002 "Sales Prices", whose source table's "Sales Type" is an Enum
+    /// field of the primary key, filtered to one value (one filter, changed); page 7004 "Sales Line Discounts", whose
+    /// OnOpenPage and OnValidate set `Type` (the key's first field, an Enum) to Item and "Sales Type" (an Option, in the
+    /// key) to the chosen value (two filters, `Type` unchanged).
+    fn measured_filter_cell(
+        &mut self,
+        rec: &Rec,
+        before: &[al_builtins::filter::FieldFilter],
+        stamps: &[(usize, Value)],
+    ) -> Result<bool, Signal> {
+        use al_builtins::filter::{FieldFilter, FilterExpr};
+        let table = self.table(rec)?;
+        let r = rec.borrow();
+        let single = |f: &FieldFilter| match &f.expr {
+            FilterExpr::Eq(v) => Some(v.clone()),
+            FilterExpr::Range(Some(a), Some(b))
+                if Self::same_values(std::slice::from_ref(a), std::slice::from_ref(b)) =>
+            {
+                Some(a.clone())
+            }
+            _ => None,
+        };
+        let key_filter = |f: &FieldFilter, enum_field: bool| {
+            let ty_ok = if enum_field {
+                matches!(table.fields[f.field].ty, RtType::Enum(_))
+            } else {
+                matches!(table.fields[f.field].ty, RtType::Option(_))
+            };
+            f.group == 0 && table.keys[0].contains(&f.field) && ty_ok && single(f).is_some()
+        };
+        let on = |filters: &[FieldFilter], field: usize| -> Option<FieldFilter> {
+            match filters
+                .iter()
+                .filter(|f| f.field == field)
+                .collect::<Vec<_>>()
+                .as_slice()
+            {
+                [f] => Some((*f).clone()),
+                _ => None,
+            }
+        };
+        let is_line = |field: usize, v: &Value| Self::same_values(&r.fields[field..=field], std::slice::from_ref(v));
+        let now = &r.filters;
+        Ok(match (before, now.as_slice(), stamps) {
+            // Page 7002: "Sales Type".
+            ([b], [a], [(field, v)]) => {
+                b.field == *field
+                    && a.field == *field
+                    && key_filter(b, true)
+                    && key_filter(a, true)
+                    && !is_line(*field, v)
+            }
+            // Page 7004: `Type` (the key's first field) unchanged, "Sales Type" changed. `stamps` is in field order, which
+            // need not be key order.
+            ([_, _], [_, _], [(f1, v1), (f2, v2)]) => {
+                let Some(&first) = table.keys[0].first() else {
+                    return Ok(false);
+                };
+                let ((kept_field, kept), (changed, v)) = match (*f1 == first, *f2 == first) {
+                    (true, false) => ((*f1, v1), (*f2, v2)),
+                    (false, true) => ((*f2, v2), (*f1, v1)),
+                    _ => return Ok(false),
+                };
+                let pair = (
+                    on(before, kept_field),
+                    on(now, kept_field),
+                    on(before, changed),
+                    on(now, changed),
+                );
+                let (Some(kb), Some(ka), Some(cb), Some(ca)) = pair else {
+                    return Ok(false);
+                };
+                [&kb, &ka].iter().all(|f| key_filter(f, true))
+                    && [&cb, &ca].iter().all(|f| key_filter(f, false))
+                    && kb.expr.identical(&ka.expr)
+                    && is_line(kept_field, kept)
+                    && !is_line(changed, v)
+            }
+            _ => false,
+        })
     }
 
     /// Whether page `st`, its source table and the procedures they call read line for line as the probe's (`FOUND_ROW_PAGE` after

@@ -4,6 +4,31 @@
 //! OptionVarMemberlessWrites.al (OVMW), OptionVarMemberlessCallers.al (OVMC), OptionVarMemberlessUnheard.al (OVMU, an event
 //! publisher no subscriber hears) and OptionVarMemberlessDirectCallers.al. The callers the corpus does not pin are refused
 //! where the call is lowered (al-sema `lower/var_option_arg.rs`).
+//!
+//! An Option handed to a `var` parameter whose declared member list differs from the value's (al-
+//! runner issues 7994 and 8291, pinned by types/enum-option/OptionVar*.al): a memberless parameter
+//! keeps the caller's members while the call runs and through stores into it, the caller's local or
+//! global gets its own members back after a parameter with other members, an element of an array of
+//! memberless Options that holds a caller's members keeps them or takes the number by the stored
+//! value's kind. Entry points: `var_binding` (the binding in `lib.rs` and `dispatch.rs::publish`),
+//! `written_back` (`interp.rs::write_back`), `param_store` (`Session::option_param_store`, called
+//! from `interp.rs::write_as`), `cleared_array` (`interp.rs::write_native_back`: Clear of a whole
+//! array declared with members gives back the members a memberless store dropped), `element_store`
+//! (`Session::element_value`, from `interp.rs::write_as` for an Index place; the store kind `Store`
+//! comes from the write site: an assignment, one from a `var`-section variable
+//! (`exec/run.rs::store_var_section`), a procedure's or an event publisher's write-back, or a
+//! builtin's). `Session::var_option_publisher_args` (`interp.rs::finish_call`) runs a publisher
+//! called directly with another member list that a subscriber hears only for the event contract
+//! (`heard_contract`) and places (`heard_place`) the probe measured, through `heard_publisher_caller`
+//! (assumption var-option-heard-publisher, al-runner issue 8384; a parameter with members, a number a
+//! subscriber leaves outside it `heard_finals`; the call refuses when it ends in an error,
+//! `heard_publisher_error`), and refuses every other place; one no subscriber hears changes nothing:
+//! for the places `unheard_publisher_caller` names it returns the arguments whose write-back
+//! `interp.rs::write_backs` skips, and refuses every other place; and a memberless subscriber under a
+//! publisher with members unless the argument is a procedure's `var` parameter its caller handed a
+//! measured variable (`option_hops_of`, kept per frame in `Frame::option_hops`). A memberless `var`
+//! parameter handed on to a `var` parameter with members: `carried.rs`. The static side is al-sema
+//! `lower/var_option_arg.rs`.
 
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::builtin_id::{BuiltinId, ids};
@@ -11,6 +36,18 @@ use al_builtins::native::Signal;
 use al_builtins::option_members::memberless;
 use al_builtins::value::{RtType, Value};
 use std::sync::Arc;
+
+mod carried;
+pub(crate) use carried::{Carried, may_keep_carried};
+
+/// Whether routine `r` has a `var` Option parameter declared without members (`memberless_list`) or with members.
+pub(crate) fn has_var_option_param(r: &al_ir::Routine, memberless_list: bool) -> bool {
+    r.locals
+        .iter()
+        .zip(&r.by_var)
+        .take(r.params)
+        .any(|(l, v)| *v && matches!(&l.ty, RtType::Option(m) if memberless(m) == memberless_list))
+}
 
 /// The value a `var` parameter of type `ty` takes when it is handed `v`; `None`: the usual conversion.
 /// - Declared without members, it keeps the members of the value handed in: Format, StrSubstNo and Evaluate in the callee
@@ -64,12 +101,14 @@ pub(crate) fn written_back(v: &Value, declared: &RtType, current: impl FnOnce() 
 /// (`var_param`: the slot is a `var` parameter of the running routine). Declared without members and holding the caller's
 /// members, it keeps them and takes the ordinal of `v`, whatever `v`'s members: an Integer, an Option with other members,
 /// without members or with the same, Evaluate and Clear (OVMW:112, :130, :162, :212, :226, :269;
-/// OptionVarMemberlessEvaluate.al:244). Any other value is stored as it is.
+/// OptionVarMemberlessEvaluate.al:244). Declared with members and holding a value that carries another list or none (only a
+/// binding `carried::Session::carried_args` let through gives it one), it keeps that list: `:=` of an own member gives the
+/// value's member or the number (assumption var-option-carried-members, corpus PR 1569 OptionVarMembersCallee.al
+/// VarHop_Other_* `write inside` `|Third|2`, VarHop_Memberless_* `|2|2`; CalleeOps_VarHop_* Evaluate and `:= 1`), and Clear
+/// the first member of that list (CalleeOps_VarHop_Other `Clear inside` `>First|0`). Any other value is stored as it is.
 pub(crate) fn param_store(v: Value, declared: &RtType, var_param: bool, current: &Value) -> Value {
     match (&v, declared, current) {
-        (Value::Option(o, _), RtType::Option(d), Value::Option(_, own))
-            if var_param && memberless(d) && !memberless(own) =>
-        {
+        (Value::Option(o, _), RtType::Option(d), Value::Option(_, own)) if var_param && own != d => {
             Value::Option(*o, own.clone())
         }
         _ => v,
@@ -313,18 +352,9 @@ impl crate::Session {
         }
     }
 
-    /// The marks `finish_call` left for the frame of a routine with `var` Option parameters with members (`option_hops_of`);
-    /// empty for any other routine.
-    pub(crate) fn take_option_hops(&mut self, wanted: bool) -> Vec<bool> {
-        if wanted {
-            std::mem::take(&mut self.events.next_option_hops)
-        } else {
-            Vec::new()
-        }
-    }
-
-    /// The array `base` of an element store is, for `element_store`.
-    fn array_of(&self, base: &al_ir::Place, f: &crate::Frame) -> ArrayOf {
+    /// The array `base` of an element store is, for `element_store`; also the place a `Clear` names
+    /// (`clear_shared_codeunit`).
+    pub(crate) fn array_of(&self, base: &al_ir::Place, f: &crate::Frame) -> ArrayOf {
         let r = &self.engine.program.objects[f.object].routines[f.routine];
         match base {
             al_ir::Place::Local(s) if *s < r.params && r.by_var.get(*s) == Some(&true) => ArrayOf::VarParameter,

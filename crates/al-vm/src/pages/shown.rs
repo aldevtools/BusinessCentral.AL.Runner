@@ -41,6 +41,11 @@
 //! master). Pinned for a List page with OnAfterGetRecord and no OnFindRecord or OnNextRecord, without parts, that the test
 //! opened with OpenView or caught with Trap() (`row_expr_controls`). Any other call on the page than those and a control's
 //! Value ends it: reads are then computed as above.
+//!
+//! When a page computes its expression controls (al-runner issue 5765): the values kept at the pinned
+//! refresh points, the values a list computes per row as it reads its rows (`row_exprs`), what each
+//! TestPage call does to them, and the reads it refuses. Entry points: `shown_client_call`,
+//! `shown_value`, `shown_opened`, `row_expr_value`.
 
 use super::*;
 use al_builtins::page_op::{PageMethod, PageOp, PageRecv};
@@ -75,6 +80,9 @@ const DOUBT_LOOKUP: u16 = 256;
 /// `FindFirstField` or `FindNextField` on a page without parts that the test opened: its controls of a function call, a string expression and a page
 /// variable OnAfterGetRecord sets show the row the search ended on (testpage/Y13PageTriage.al:150-186, corpus master).
 const DOUBT_FIND_FIELD: u16 = 512;
+/// `TestPage.Last` on a page without parts: whether it refreshes the page is not pinned, except for a control whose source is a Record
+/// method (`Control::rec_method_source`: corpus pages/controls/RecCountControl.al, open PR 1525, assumption `page-control-rec-method-source`).
+const DOUBT_LAST: u16 = 1024;
 /// The kinds after which a control of an expression the page does not keep is read as it is now (module comment).
 const DOUBT_KEPT: u16 = DOUBT_SET_VALUE
     | DOUBT_HOST_SET_VALUE
@@ -235,6 +243,7 @@ impl Session {
                 {
                     0
                 }
+                PageMethod::Last if is_p && on_root && target.is_none() && tree.len() == 1 && r.is_ok() => DOUBT_LAST,
                 _ if method.recv() == PageRecv::TestFilter
                     || matches!(
                         method,
@@ -253,7 +262,7 @@ impl Session {
                 s.shown_current = false;
             }
             s.shown_doubts |= kind;
-            if kind == DOUBT_OTHER && s.shown_doubt_call.is_none() {
+            if (kind == DOUBT_OTHER || kind == DOUBT_LAST) && s.shown_doubt_call.is_none() {
                 s.shown_doubt_call = Some(method.name());
             }
         }
@@ -474,7 +483,13 @@ impl Session {
             // test sees it, so a doubt about a refresh does not matter there (Y15LookupThreeFieldLink.al:1678
             // Y80_Y15_Host_First_NoRegions: First after Last, a Lookup, a move, then the reads).
             let internal = st.borrow().lookup_setting_value;
-            if !internal && doubts & !(DOUBT_KEPT | DOUBT_ASSUMED | DOUBT_LOOKUP) != 0 {
+            // A Record method control (`Control::rec_method_source`) reads as it is now also after `TestPage.Last`.
+            let rec_method = page_of(&self.engine(), st).controls[idx].rec_method_source;
+            if rec_method {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::PageControlRecMethodSource);
+            }
+            let allowed = DOUBT_KEPT | DOUBT_ASSUMED | DOUBT_LOOKUP | if rec_method { DOUBT_LAST } else { 0 };
+            if !internal && doubts & !allowed != 0 {
                 return unsupported(format!(
                     "control {} shows an expression computed when it is read, after {}, whose refresh of the page is not pinned",
                     page_of(&self.engine(), st).controls[idx].name,

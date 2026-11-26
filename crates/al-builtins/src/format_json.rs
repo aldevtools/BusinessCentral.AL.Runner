@@ -1,4 +1,6 @@
 //! `Format` of a JsonObject, JsonArray, JsonValue or JsonToken (moved out of `format::format_value`).
+//!
+//! Entry points: `format_json`.
 
 use crate::format::FormatFail;
 use crate::json::{Handle, JsonNode, Scalar};

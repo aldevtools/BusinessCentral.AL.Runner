@@ -1,0 +1,3 @@
+# key	entry
+# Main installs once and passes; the AutoIncrement counter ties four apps into one unit (ADR-079 decision 5).
+FP autoinc4 Tests::LogHasFourEntries	REFUSED install order: FP AutoInc L1, FP AutoInc L2, FP AutoInc L3, FP AutoInc L4: the runner cannot prove that every order of the apps with no dependency path between them leaves the same database: 4 apps tied by their installs

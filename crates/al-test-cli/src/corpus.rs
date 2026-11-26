@@ -4,6 +4,9 @@
 //! This is a deliberately shallow text scan, good enough to attribute oracle
 //! cases to areas before the real parser exists. It is replaced by `al-syntax`
 //! once the parser covers the corpus.
+//!
+//! Corpus discovery: test codeunits, their area folder and file. Entry points: `discover`,
+//! `CorpusIndex`, `TestCodeunit`.
 
 use rayon::prelude::*;
 use std::collections::BTreeMap;

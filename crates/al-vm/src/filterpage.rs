@@ -2,6 +2,8 @@
 //! Everything up to `RunModal` is an object-graph operation (corpus
 //! pages/filterpagebuilder/TestFilterPageBuilder.al); `RunModal` goes to a bound `[FilterPageHandler]`
 //! (`Session::ui_filter_page`).
+//!
+//! Entry points: `filter_page_builder_op`.
 
 use crate::Session;
 use al_builtins::builtin_id::ids;
@@ -159,7 +161,12 @@ impl Session {
                             // The builder keeps the RecordRef's own buffer: a filter set on the RecordRef afterwards shows in the
                             // builder's view, where AddRecord copies a Record (pages/filterpagebuilder/W3FilterPageBuilder.al:
                             // AddRecord_CopiesTheFiltersOfTheRecord, BC 27.5 and 29.0).
-                            LibraryValue::RecordRef(r) => (r.borrow().table, r.clone()),
+                            LibraryValue::RecordRef(r) => {
+                                Self::by_value_view_handed(r, || {
+                                    "FilterPageBuilder.AddRecordRef of a RecordRef".into()
+                                })?;
+                                (r.borrow().table, r.clone())
+                            }
                             other => {
                                 return unsupported(format!(
                                     "FilterPageBuilder.AddRecordRef with a RecordRef that is not open ({other})",
@@ -293,6 +300,13 @@ impl Session {
                 }
                 let t = self.table(&control.record)?;
                 self.set_view(&control.record, &t, &view)?;
+                // No cell measures `@` alone or `<>@` alone on a Code field in a filter page's view (al-builtins `filter_at_sign`).
+                let named = al_builtins::filter::code_at_sign_alone_named(&control.record.borrow().filters);
+                if let Some(named) = named {
+                    return unsupported(format!(
+                        "FilterPageBuilder.SetView with {named} on a Code field (not measured)"
+                    ));
+                }
                 Ok(Value::Boolean(true))
             }
             ids::FILTERPAGEBUILDER_RUNMODAL_1 => {

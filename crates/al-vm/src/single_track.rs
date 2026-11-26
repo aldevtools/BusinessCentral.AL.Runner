@@ -17,6 +17,15 @@
 //!
 //! A fingerprint is a byte string of the value ([`Fp::Val`]) or, for a value that has no comparable form (a .NET
 //! object, a page, a stream, a temporary record), [`Fp::Opaque`], which never equals anything.
+//!
+//! The notes of a session that watches SingleInstance codeunits (ADR-066 amendment 2): per global the
+//! fingerprint at its first read, after the refill and at the end (`SingleOut`), hooks
+//! `single_read`/`single_wrote`/`single_replaced` (a write in place, amendment 3 R1; the VM emits
+//! `Op::SingleWrite` before such a builtin or `var` argument)/`single_written`/`single_made`, and
+//! `single_test_begins` (numbers the test methods; `SingleOut::read_in` gives the test each global
+//! was first read in, ADR-066 amendment 7), `take_single_instances`/`adopt_single_instances`, which
+//! move the single instances, temporary tables and manual bindings from one codeunit's session to the
+//! next in the serial lane.
 
 use crate::Session;
 use al_builtins::value::{Instance, Value};
@@ -91,7 +100,7 @@ pub(crate) struct Track {
     observed: BTreeMap<GlobalKey, Fp>,
     /// The values a watched instance's globals held when the session made it: a global that was never read or written
     /// through the notes but holds another value at the end was changed some other way.
-    start: HashMap<GlobalKey, Value>,
+    start: HashMap<GlobalKey, Start>,
     /// How many writes of watched globals the session made so far.
     writes: u64,
     /// For each global read first: `writes` at that read (a write of it with the same count follows the read directly).
@@ -107,6 +116,31 @@ pub(crate) struct Track {
     read_in: BTreeMap<GlobalKey, u32>,
     /// `SingleOut::fresh`: taken when an instance is made in this session.
     fresh: BTreeMap<GlobalKey, Fp>,
+}
+
+/// What a watched global held when the session made its instance. A codeunit instance is held weakly: the notes must not
+/// count as a holder that shares it (`clear_shared_codeunit.rs` counts the holders of an instance).
+enum Start {
+    Value(Value),
+    Codeunit(std::rc::Weak<RefCell<Instance>>),
+}
+
+impl Start {
+    fn of(v: &Value) -> Start {
+        match v {
+            Value::Codeunit(rc) => Start::Codeunit(Rc::downgrade(rc)),
+            other => Start::Value(other.clone()),
+        }
+    }
+
+    /// Whether `v` is what the global held at the start ([`same`]; a codeunit: the same instance).
+    fn is(&self, v: &Value) -> bool {
+        match (self, v) {
+            (Start::Codeunit(w), Value::Codeunit(rc)) => std::ptr::eq(w.as_ptr(), Rc::as_ptr(rc)),
+            (Start::Codeunit(_), _) => false,
+            (Start::Value(s), v) => same(s, v),
+        }
+    }
 }
 
 /// Whether `a` and `b` are the same value: equal simple values, or the same handle.
@@ -440,7 +474,7 @@ impl Session {
                         out.wrote.insert(key);
                     }
                     // A plain value that is what it was at the start needs no second fingerprint.
-                    Some(Seen::Read) if plain(v) && t.start.get(&key).is_some_and(|s| same(s, v)) => {
+                    Some(Seen::Read) if plain(v) && t.start.get(&key).is_some_and(|s| s.is(v)) => {
                         if let Some(f) = t.observed.get(&key) {
                             out.ends.insert(key, f.clone());
                         }
@@ -453,7 +487,7 @@ impl Session {
                         out.ends.insert(key, end);
                     }
                     None => {
-                        if t.start.get(&key).is_some_and(|s| !same(s, v)) {
+                        if t.start.get(&key).is_some_and(|s| !s.is(v)) {
                             out.ends.insert(key, fp(v, &self.engine));
                             out.wrote.insert(key);
                         }
@@ -490,7 +524,7 @@ fn note_fresh(t: &mut Track, object: usize, inst: &Rc<RefCell<Instance>>, e: &cr
 
 fn snapshot(t: &mut Track, object: usize, inst: &Rc<RefCell<Instance>>) {
     for (g, v) in inst.borrow().globals.iter().enumerate() {
-        t.start.insert((object, g), v.clone());
+        t.start.insert((object, g), Start::of(v));
     }
 }
 
@@ -542,6 +576,8 @@ impl Session {
             })
             .map(|b| crate::dispatch::Binding {
                 instance: b.instance.clone(),
+                // No cell measures a carried Option through a binding moved to another codeunit's session.
+                outside_subscriber: false,
             })
             .collect();
         MovedSingles {

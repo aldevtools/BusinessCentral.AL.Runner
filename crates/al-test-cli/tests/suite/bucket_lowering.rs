@@ -8,7 +8,10 @@ use al_test_cli::runtime::run_codeunit;
 use al_vm::Engine;
 
 fn outcomes(main: &str) -> Vec<(String, Outcome)> {
-    let symbols = al_version::corpus_symbols(27);
+    let symbols = al_version::corpus_symbols(
+        &al_version::BcVersion::new(27, 0),
+        &al_version::ReleasedMinors::NotRecorded,
+    );
     let (_, l) = al_sema::lower::compile_apps_with(
         vec![AppSource {
             id: "main".into(),

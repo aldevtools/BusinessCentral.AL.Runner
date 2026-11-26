@@ -1,5 +1,12 @@
 //! `--explain TEST`: why one test ended as it did, with the routine and source position where a
 //! refusal or a failure was raised (`Program::positions`, docs/architecture.md "Source positions").
+//!
+//! --explain: where a test was refused or failed, with file and line. `site_suffix` is the one text "
+//! [in <routine> at <app: file:line:col>]" a refusal reason gets for where code the runner ran before
+//! the first test stopped (`baseline_roots.rs`, `install::call_before_first_test` with its
+//! `NotOpened`, install code in `install::run_install_code`, al-runner issue 8142);
+//! `without_site_suffix` takes it off again (`refusals.rs` ranking groups). Entry points: `describe`,
+//! `site_suffix`, `detail`, `render`, `TestDetail`.
 
 use crate::Outcome;
 use al_ir as ir;

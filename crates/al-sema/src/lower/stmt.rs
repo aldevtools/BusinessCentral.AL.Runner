@@ -1,4 +1,6 @@
 //! Lowering of routines and statements.
+//!
+//! Entry points: `routine`, `stmt`, `assign`, `place`.
 use super::*;
 use al_syntax::ast::NodeText;
 
@@ -11,6 +13,8 @@ pub(crate) enum OptionCaptions {
     Ml,
     /// The field declares no caption: the member names.
     None,
+    /// The field's OptionCaption repeats its member names entry by entry.
+    SameAsNames,
 }
 
 impl Lowerer<'_> {
@@ -474,8 +478,16 @@ impl Lowerer<'_> {
         };
         let list = crate::members::first_string_literal(text)?;
         let captions: Vec<&str> = list.split(',').collect();
-        (captions.len() == names.len() && captions.iter().zip(names).any(|(c, n)| c != n))
-            .then(|| (list.to_string(), OptionCaptions::Caption))
+        if captions.len() != names.len() {
+            return None;
+        }
+        // Captions equal to the names, on a field of an app's table: al-builtins `evaluate::option_field` reads the shapes corpus
+        // PR 1577 and the reporter of al-runner issue 8355 measured, and the rest as a field without captions. A platform
+        // table's field with such captions keeps that reading (`None`): no evidence measured one.
+        if captions.iter().zip(names).all(|(c, n)| c == n) {
+            return (!platform).then(|| (list.to_string(), OptionCaptions::SameAsNames));
+        }
+        Some((list.to_string(), OptionCaptions::Caption))
     }
 
     /// Whether `arg` is the Class column of the Field table (2000000041), an Option field with the members of FieldClass.
@@ -1187,8 +1199,7 @@ impl Lowerer<'_> {
             ForStmt => {
                 let down = sig_tokens(n).iter().any(|t| t.text().eq_ignore_ascii_case("downto"));
                 let var = self.place(&kids[0]);
-                let from = self.operand(&kids[1], ir::OperandUse::Value);
-                let to = self.operand(&kids[2], ir::OperandUse::Value);
+                let (from, to) = self.for_bounds(&kids, down);
                 self.loops.push(false);
                 let body = self.stmt_or_empty(kids.get(3));
                 self.loops.pop();

@@ -2,7 +2,7 @@
 
 al-runtime-rs is a Rust-native AL runtime (see `README.md`). Read
 `docs/architecture.md`, `docs/status.md` and `docs/adr/README.md` first, then
-`docs/codemap.md` (which module owns what, and the call chains of the main flows)
+`docs/codemap.md` (one line per module: what it owns and its entry point; the full description is the `//!` header of the file; call chains of the main flows are in `docs/flows.md`)
 before you open a source file.
 
 ## Priorities: correct first, then easy to change
