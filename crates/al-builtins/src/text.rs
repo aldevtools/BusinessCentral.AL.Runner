@@ -370,9 +370,24 @@ impl fmt::Display for Txt {
     }
 }
 
+/// The string's Debug form, a lone half written as its unit (`\u{d83d}`) instead of the U+FFFD that holds its place in the
+/// string: two texts that differ only in a lone half have two forms (the state lines the login replay check compares,
+/// issue 9202). A backslash is written `\\`, so no text without a lone half has that form.
 impl fmt::Debug for Txt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(&self.0.s, f)
+        let Some(lone) = &self.0.lone else {
+            return fmt::Debug::fmt(&self.0.s, f);
+        };
+        let (mut at, mut halves) = (0u32, lone.iter().peekable());
+        f.write_str("\"")?;
+        for c in self.0.s.chars() {
+            match halves.next_if(|(i, _)| *i == at) {
+                Some((_, u)) => write!(f, "\\u{{{u:x}}}")?,
+                None => write!(f, "{}", c.escape_debug())?,
+            }
+            at += c.len_utf16() as u32;
+        }
+        f.write_str("\"")
     }
 }
 
