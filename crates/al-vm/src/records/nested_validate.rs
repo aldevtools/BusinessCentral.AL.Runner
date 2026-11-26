@@ -85,7 +85,8 @@ pub(crate) struct ValidateRun {
     /// The record's fields when its triggers start, the new value in.
     pub(crate) entered: Vec<Value>,
     /// A record method that writes the record or reads it again ran on it since (`Session::note_record_op_under_validate`),
-    /// or a Blob field of it was written (`Session::note_blob_write_under_validate`).
+    /// or a builtin wrote into a field of it (`Session::note_builtin_field_write`, `Session::note_by_ref_write`,
+    /// `Session::note_blob_load_under_validate`).
     pub(crate) touched: bool,
     /// The OnBeforeValidateEvent returned with the fields in `entered`, the field having no table extension validate trigger
     /// (`Session::validate_event`).
@@ -205,8 +206,9 @@ impl Session {
     /// each running Validate of it counts as touched (`ValidateRun::touched`). The match names every method, so a new one
     /// must choose. A method that only reads the buffer or the view (TestField, GetFilter, FieldCaption), sets the view, the
     /// key or the fields to load (SetRange, SetCurrentKey, SetLoadFields), or works on the record's links or the table does
-    /// not. CalcFields changes FlowFields only, which shows in the fields (`ValidateRun::entered`); CalcSums writes Normal
-    /// fields, so it touches (review of PR 9063, round 3).
+    /// not. CalcFields of FlowFields changes FlowFields only, which shows in the fields (`ValidateRun::entered`); its load of a
+    /// Blob field touches (`Session::note_blob_load_under_validate`). CalcSums writes Normal fields, so it touches (review of
+    /// PR 9063, round 3).
     pub(crate) fn note_record_op_under_validate(&mut self, method: RecordOp, rec: &Rec) {
         use RecordOp::*;
         let writes_or_reads = match method {
@@ -227,10 +229,58 @@ impl Session {
         }
     }
 
-    /// Notes a write into a Blob field of `rec` (`Blob.CreateOutStream`, `Blob.Import`, `Clear`; `temp_blob_share_guard`):
-    /// each running Validate of it counts as touched. No cell of assumption `xrec-table-proc-routes` writes a Blob (review of
-    /// PR 9063, round 3).
-    pub(crate) fn note_blob_write_under_validate(&mut self, rec: &Rec) {
+    /// Notes a builtin call (`exec/run.rs` `run_builtin`) that writes into a field of a record through its receiver: each
+    /// running Validate of that record counts as touched. The calls: `Blob.CreateOutStream`, `Blob.Import` (review of PR
+    /// 9063, round 3); `Media.ImportStream`, `Media.ImportFile`, `MediaSet.ImportStream`, `MediaSet.ImportFile`,
+    /// `MediaSet.Insert`, `MediaSet.Remove` (issue 9161). A list, because a receiver is written back after every method, a
+    /// reading one (`HasValue`, `Count`) too. No cell of assumption `xrec-table-proc-routes` writes a field these ways.
+    pub(crate) fn note_builtin_field_write(
+        &mut self,
+        site: &crate::exec::BuiltinSite,
+        f: &mut Frame,
+    ) -> Result<(), Signal> {
+        use al_builtins::builtin_id::ids;
+        let writes = matches!(
+            site.id,
+            ids::BLOB_CREATEOUTSTREAM_1
+                | ids::BLOB_IMPORT_1
+                | ids::MEDIA_IMPORTSTREAM_1
+                | ids::MEDIA_IMPORTSTREAM_2
+                | ids::MEDIA_IMPORTFILE_1
+                | ids::MEDIASET_IMPORTSTREAM_1
+                | ids::MEDIASET_IMPORTFILE_1
+                | ids::MEDIASET_INSERT_1
+                | ids::MEDIASET_REMOVE_1
+        );
+        match &site.receiver_arg {
+            Some(al_ir::Arg::Ref(place)) if writes => self.note_by_ref_write(place, f),
+            _ => Ok(()),
+        }
+    }
+
+    /// Notes a by-reference write into `place` while a Validate runs: when `place` is a field of a record, each running
+    /// Validate of that record counts as touched. The one note for every by-reference write-back of a native call: a
+    /// builtin's operands (`interp.rs` `builtin_write_back`, shared by `run_native` and `run_stream_builtin`: `Evaluate`,
+    /// `Clear`, `InStream.ReadText`, `Dictionary.Get` into a field and the like), a builtin's receiver
+    /// (`note_builtin_field_write`), and a DotNet member's `var` arguments (`dotnet/mod.rs`: a registry member with
+    /// `call_ref` such as `Dictionary.TryGetValue`, and the by-reference values the .NET sidecar returns such as
+    /// `Int32.TryParse`) (issue 9161, reviews of PR 9163). No cell of assumption `xrec-table-proc-routes` writes a field
+    /// through one.
+    pub(crate) fn note_by_ref_write(&mut self, place: &al_ir::Place, f: &mut Frame) -> Result<(), Signal> {
+        if self.validate_sites.is_empty() {
+            return Ok(());
+        }
+        if let al_ir::Place::Field(base, _) = place
+            && let Value::Record(rc) = self.read(base, f)?
+        {
+            self.mark_validates_touched(&rc);
+        }
+        Ok(())
+    }
+
+    /// Notes that `CalcFields` loaded a Blob field of `rec` from its stored row (`flowfields.rs` `calc_fields_asked`): a
+    /// Normal field written, so each running Validate of it counts as touched (issue 9161).
+    pub(crate) fn note_blob_load_under_validate(&mut self, rec: &Rec) {
         self.mark_validates_touched(rec);
     }
 

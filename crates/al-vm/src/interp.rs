@@ -146,6 +146,7 @@ impl Session {
         }
         for (a, slot) in args.iter().zip(values.iter_mut()) {
             if let ir::Arg::Ref(p) = a {
+                self.note_by_ref_write(p, f)?;
                 let v = std::mem::replace(slot, Value::Null);
                 self.native_arg_back(p, v, id, class, f)?;
             }
