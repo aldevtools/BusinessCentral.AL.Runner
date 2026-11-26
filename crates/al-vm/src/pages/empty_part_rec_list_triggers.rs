@@ -10,7 +10,7 @@
 //! SendNotificationHandler with the probe's. Entry points: `host_trigger_cell`,
 //! `notification_handler_measured`.
 
-use super::pinned_shape::{code_stmts, text_log_routine, unconverted, without_pos};
+use super::pinned_shape::{code_stmts, text_log_routine, without_pos};
 use al_builtins::builtin_id::ids;
 use al_builtins::library_kind::LibraryKind;
 use al_builtins::value::RtType;
@@ -119,7 +119,7 @@ fn host_stmt(
     let [ir::Arg::Value(value)] = args.as_slice() else {
         return None;
     };
-    let (t, callee) = setup_call(locals, unconverted(value))?;
+    let (t, callee) = setup_call(locals, value.unconverted())?;
     (*id == ids::PAGE_EDITABLE_1
         && *g == page.curr_page_slot
         && licensed_routine(program, t, callee)
@@ -177,8 +177,7 @@ fn text_log_call(program: &ir::Program, locals: &[ir::Slot], e: &ir::Expr) -> bo
     };
     let codeunit = matches!(&**instance, ir::Expr::Load(ir::Place::Local(l))
         if locals.get(*l).is_some_and(|s| s.ty == RtType::Codeunit(*object as u32)));
-    let text =
-        matches!(args.as_slice(), [ir::Arg::Value(v)] if matches!(unconverted(v), ir::Expr::Const(ir::Const::Text(_))));
+    let text = matches!(args.as_slice(), [ir::Arg::Value(v)] if matches!(v.unconverted(), ir::Expr::Const(ir::Const::Text(_))));
     codeunit && text && text_log_routine(program, *object, *routine)
 }
 
@@ -224,7 +223,7 @@ fn licensed_routine(program: &ir::Program, t: u32, r: usize) -> bool {
                     without_pos(then).as_slice(),
                     [ir::Stmt::Exit(Some(ir::Expr::Const(ir::Const::Boolean(false))))]
                 )
-                && rec_boolean_field(program, t, rec, unconverted(field))
+                && rec_boolean_field(program, t, rec, field.unconverted())
         }
         _ => false,
     };
@@ -256,7 +255,7 @@ fn notify_routine(program: &ir::Program, t: u32, r: usize) -> bool {
         matches!(s, ir::Stmt::Expr(ir::Expr::Builtin { id: i, receiver, args, .. })
         if *i == id && matches!(by_ref(receiver), Some(ir::Place::Local(l)) if notification(l)) && match args.as_slice() {
             [] => false,
-            [ir::Arg::Value(v)] => arg(unconverted(v)),
+            [ir::Arg::Value(v)] => arg(v.unconverted()),
             _ => false,
         })
     };
@@ -272,7 +271,7 @@ fn notify_routine(program: &ir::Program, t: u32, r: usize) -> bool {
     };
     let enabled_exit = |then: &[ir::Stmt]| match without_pos(then).as_slice() {
         [ir::Stmt::If(field, inner, otherwise)] => {
-            rec_boolean_field(program, t, rec, unconverted(field))
+            rec_boolean_field(program, t, rec, field.unconverted())
                 && otherwise.is_empty()
                 && matches!(without_pos(inner).as_slice(), [ir::Stmt::Exit(None)])
         }
@@ -316,7 +315,7 @@ pub(super) fn notification_handler_measured(program: &ir::Program, object: usize
         };
         let global = matches!(&**instance, ir::Expr::Load(ir::Place::Global(g))
             if o.globals.get(*g).is_some_and(|s| s.ty == RtType::Codeunit(*callee as u32)));
-        let text = matches!(args.as_slice(), [ir::Arg::Value(v)] if matches!(unconverted(v), ir::Expr::Const(ir::Const::Text(_))));
+        let text = matches!(args.as_slice(), [ir::Arg::Value(v)] if matches!(v.unconverted(), ir::Expr::Const(ir::Const::Text(_))));
         global && text && text_log_routine(program, *callee, *routine)
     };
     matches!(code_stmts(program, object, r).as_slice(),

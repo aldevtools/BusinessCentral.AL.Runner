@@ -10,7 +10,7 @@
 //! procedure holds only the measured kinds of code (`part_procedure_is`), the Visible expression is
 //! one Boolean variable (`visible_variable`).
 
-use super::pinned_shape::{code_stmts, codeunit_var_call, text_log_routine, unconverted};
+use super::pinned_shape::{code_stmts, codeunit_var_call, text_log_routine};
 use super::*;
 use al_builtins::builtin_id::ids;
 
@@ -66,7 +66,7 @@ impl Calls {
 /// `e` calls a procedure of a codeunit that only appends text to a Text global of its codeunit (`text_log_routine`): `Log.Add`
 /// of the measured pages (HiddenPartJournalShape.al:485-490).
 pub(super) fn log_call(program: &ir::Program, e: &ir::Expr) -> bool {
-    matches!(unconverted(e), ir::Expr::Call { object, routine, .. } if text_log_routine(program, *object, *routine))
+    matches!(e.unconverted(), ir::Expr::Call { object, routine, .. } if text_log_routine(program, *object, *routine))
 }
 
 /// `p` is Rec (global `rec`) or a field of it.
