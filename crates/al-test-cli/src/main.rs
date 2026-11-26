@@ -1314,7 +1314,7 @@ fn run_version_inner(
         v.dedup();
         v
     });
-    let opts = runtime::RunOptions {
+    let mut opts = runtime::RunOptions {
         // ADR-061 section 5: the fixed run seed 1 keeps the ratchet repeatable; `--seed N` is for local checks.
         run_seed: match args.seed {
             Some(n) => al_testrun::seed::RunSeed::new(n, al_testrun::seed::SeedSource::Option),
@@ -1371,6 +1371,7 @@ fn run_version_inner(
         private_baseline: std::env::var_os("AL_PRIVATE_BASELINE").is_some(), // ADR-069 decision 11
         login_replay_check: std::env::var_os("ALRUNNER_LOGIN_REPLAY_CHECK").is_some(), // issue 8211, internal
         login_replay: std::env::var_os("ALRUNNER_LOGIN_REPLAY").is_some_and(|v| v == "1"), // issue 8211, internal
+        login_replay_limits: runtime::LoginReplayLimits::read(|v| std::env::var_os(v))?, // issue 8211
         // Internal: the whole corpus in BC's order (`AL_STRICT_ORDER_ALL`; ADR-070 decision 5).
         strict_order: std::env::var_os("AL_STRICT_ORDER_ALL").is_some(),
         ..Default::default()
@@ -1391,7 +1392,6 @@ fn run_version_inner(
         &suite_cases_all,
     )?;
     // The runtime runs them once more over the compile of the pass (no second compile).
-    let mut opts = opts;
     opts.strict_after = (!strict.only.is_empty()).then_some(runtime::StrictAfter {
         only: strict.only,
         listed: strict.listed,

@@ -1316,9 +1316,7 @@ impl CorpusRuntime {
                 }
             }
         }
-        memory
-            .pool()
-            .share(shared_bytes_meter(&engine, baseline_engine.as_ref()));
+        share_with_pool(memory.pool(), &engine, baseline_engine.as_ref(), opts);
         let baseline_time = started.elapsed();
         let baseline_rows = baseline_run.as_ref().map(|b| b.baseline.rows());
         let mut baseline_run = baseline_run;
@@ -1908,6 +1906,7 @@ fn set_run_options(e: &mut Engine, opts: &RunOptions) {
     e.write_in_try_allowed = opts.allow_write_in_try_functions;
     e.dependencies_published_global = opts.dependencies_published_global;
     e.skipped_apps = opts.skipped_dependencies.clone();
+    crate::login_start::starts(e).set_limits(opts.login_replay_limits);
 }
 
 /// What the run did, counted (`Phases::work`, the work ratchet of `al-test-cli`).
@@ -2190,6 +2189,22 @@ fn kept_engine_key(
     )
 }
 
+/// Hands the memory pool what the run's threads share ([`shared_bytes_meter`]) and, when the run keeps login starts, the
+/// room their byte cap still leaves them (`Pool::reserve`): threads are admitted as if the starts held their cap, so a
+/// raised `ALRUNNER_LOGIN_REPLAY_MAX_MB` shows in the budget (ADR-073 amendment 2026-11-26, al-runner issue 8211).
+pub(super) fn share_with_pool(
+    pool: &super::memory::Pool,
+    engine: &Arc<Engine>,
+    install: Option<&Arc<Engine>>,
+    opts: &RunOptions,
+) {
+    pool.share(shared_bytes_meter(engine, install));
+    if opts.keeps_login_starts() {
+        let (starts, cap) = (crate::login_start::starts(engine), opts.login_replay_limits.max_bytes);
+        pool.reserve(Arc::new(move || cap.saturating_sub(starts.bytes())));
+    }
+}
+
 /// What the threads of a run share, for the memory pool (`Pool::share`, which counts what it reads beyond its first
 /// reading): the test data rows built once, and the login starts the engine keeps (`login_start.rs`).
 /// ADR-069 decision 10: the test data rows the threads build once count once, in the fixed part of the budget. The first
@@ -2197,8 +2212,8 @@ fn kept_engine_key(
 /// engine shares the tests engine's cache (decision 4), which is then counted once.
 /// The starts count as what they grew since the meter was made: a kept engine's starts of earlier requests are in the
 /// fixed part already, and when this run evicts them the sum does not fall below that reading, so their eviction never
-/// Hides the test rows' growth (it can count up to the evicted bytes, at most `login_start::MAX_BYTES`,
-/// too much).
+/// hides the test rows' growth (it can count up to the evicted bytes, at most the run's
+/// `LoginReplayLimits::max_bytes`, too much).
 pub(super) fn shared_bytes_meter(
     engine: &Arc<Engine>,
     install: Option<&Arc<Engine>>,
