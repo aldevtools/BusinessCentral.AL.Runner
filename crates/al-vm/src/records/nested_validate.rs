@@ -85,7 +85,7 @@ pub(crate) struct ValidateRun {
     /// The record's fields when its triggers start, the new value in.
     pub(crate) entered: Vec<Value>,
     /// A record method that writes the record or reads it again ran on it since (`Session::note_record_op_under_validate`),
-    /// or a builtin wrote into a field of it (`Session::note_builtin_field_write`, `Session::note_field_operand_write`,
+    /// or a builtin wrote into a field of it (`Session::note_builtin_field_write`, `Session::note_by_ref_write`,
     /// `Session::note_blob_load_under_validate`).
     pub(crate) touched: bool,
     /// The OnBeforeValidateEvent returned with the fields in `entered`, the field having no table extension validate trigger
@@ -253,17 +253,26 @@ impl Session {
                 | ids::MEDIASET_REMOVE_1
         );
         match &site.receiver_arg {
-            Some(al_ir::Arg::Ref(al_ir::Place::Field(base, _))) if writes => self.note_field_operand_write(base, f),
+            Some(al_ir::Arg::Ref(place)) if writes => self.note_by_ref_write(place, f),
             _ => Ok(()),
         }
     }
 
-    /// Notes the write-back of a builtin's by-reference operand that is a field of the record in `base`
-    /// (`interp.rs` `builtin_write_back`, shared by every native path): each running Validate of that record counts as
-    /// touched. `Evaluate`, `Clear`, `InStream.ReadText`, `Dictionary.Get` into a field and the like (issue 9161, review
-    /// of PR 9163); no cell of assumption `xrec-table-proc-routes` writes a field through one.
-    pub(crate) fn note_field_operand_write(&mut self, base: &al_ir::Place, f: &mut Frame) -> Result<(), Signal> {
-        if let Value::Record(rc) = self.read(base, f)? {
+    /// Notes a by-reference write into `place` while a Validate runs: when `place` is a field of a record, each running
+    /// Validate of that record counts as touched. The one note for every by-reference write-back of a native call: a
+    /// builtin's operands (`interp.rs` `builtin_write_back`, shared by `run_native` and `run_stream_builtin`: `Evaluate`,
+    /// `Clear`, `InStream.ReadText`, `Dictionary.Get` into a field and the like), a builtin's receiver
+    /// (`note_builtin_field_write`), and a DotNet member's `var` arguments (`dotnet/mod.rs`: a registry member with
+    /// `call_ref` such as `Dictionary.TryGetValue`, and the by-reference values the .NET sidecar returns such as
+    /// `Int32.TryParse`) (issue 9161, reviews of PR 9163). No cell of assumption `xrec-table-proc-routes` writes a field
+    /// through one.
+    pub(crate) fn note_by_ref_write(&mut self, place: &al_ir::Place, f: &mut Frame) -> Result<(), Signal> {
+        if self.validate_sites.is_empty() {
+            return Ok(());
+        }
+        if let al_ir::Place::Field(base, _) = place
+            && let Value::Record(rc) = self.read(base, f)?
+        {
             self.mark_validates_touched(&rc);
         }
         Ok(())

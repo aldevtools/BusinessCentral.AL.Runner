@@ -447,6 +447,7 @@ impl Session {
                     let Some(place) = place else { continue };
                     let ty = self.place_type(place, f);
                     let v = fit(values[i].clone(), &ty).map_err(|e| prefix(e, &shown))?;
+                    self.note_by_ref_write(place, f)?;
                     self.write(place, v, f)?;
                 }
                 return Ok(result);
@@ -1435,6 +1436,7 @@ impl Session {
             let v = self.wire_to_value(v).map_err(|e| prefix(e, shown))?;
             let ty = self.place_type(place, f);
             let v = fit(v, &ty).map_err(|e| prefix(e, shown))?;
+            self.note_by_ref_write(place, f)?;
             self.write(place, v, f)?;
         }
         Ok(value)
