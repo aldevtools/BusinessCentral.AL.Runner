@@ -668,7 +668,7 @@ fn yes_after(routine: &str, routine_session: bool, company_open: bool) -> (Sessi
 
 #[test]
 fn an_install_session_that_said_yes_flags_the_run_through_every_copy_of_the_baseline() {
-    let (s, _) = yes_after("Install", true, false);
+    let (mut s, _) = yes_after("Install", true, false);
     assert!(s.install_yes());
     let b = s.capture_baseline();
     let read_back = crate::Baseline::from_bytes(&b.to_bytes().expect("plain rows")).expect("reads back");

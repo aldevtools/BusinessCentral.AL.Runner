@@ -4,4 +4,4 @@ CT Task Tests::ExtensionTriggersSubscriberSeesYes	ASSUMED install-session-can-cr
 CT Task Tests::PerCompanyInstallTriggerSeesYes	ASSUMED install-session-can-create-task (corpus PR 1589)
 CT Task Tests::PerDatabaseInstallTriggerSeesYes	ASSUMED install-session-can-create-task (corpus PR 1589)
 CT Task Tests::SecondPerCompanyInstallTriggerSeesYes	ASSUMED install-session-can-create-task (corpus PR 1589)
-CT Task Tests::TestSessionSeesNo	PINNED tests/al-language/session-system/TestEnvironmentUserTenantContracts.al:255
+CT Task Tests::TestSessionSeesNo	ASSUMED install-session-can-create-task (corpus PR 1589)

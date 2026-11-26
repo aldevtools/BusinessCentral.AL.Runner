@@ -5,3 +5,8 @@ CTC Task Tests::RecordRefReadOfTheBranchRow	ASSUMED install-session-can-create-t
 CTC Task Tests::TaskExistsOfTheInstallTask	ASSUMED install-session-can-create-task (corpus PR 1589)
 CTC Task Tests::WriterRowIsNotThere	ASSUMED install-session-can-create-task (corpus PR 1589)
 CTC Task Tests::ScheduledTaskRowOfTheInstallTask	REFUSED IsEmpty on Scheduled Task: BC holds rows here
+CTC Task Tests::IsolatedStorageOfTheBranch	ASSUMED install-session-can-create-task (corpus PR 1589)
+CTC Task Tests::MirrorInALaterInstall	ASSUMED install-session-can-create-task (corpus PR 1589)
+CTC Task Tests::OwnTableIsClean	ASSUMED install-session-can-create-task (corpus PR 1589)
+CTC Task Tests::TaskCreatedWithoutCheck	REFUSED CTC Row B row not found
+CTC Task Tests::WriterTableOfItsOwnIsEmpty	ASSUMED install-session-can-create-task (corpus PR 1589)
