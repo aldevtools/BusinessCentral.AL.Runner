@@ -361,14 +361,15 @@ pub trait Ctx: FormatCtx {
     fn install_without_client(&self) -> bool {
         false
     }
-    /// Whether the Company Triggers OnCompanyOpen and OnCompanyOpenCompleted subscribers of an install session run (and
-    /// the login they raise), before the app's install code (al-vm `set_install_company_open`). Not a client-less
-    /// session for the rest (GuiAllowed, Message): only `TaskScheduler.CanCreateTask` reads it.
-    fn install_company_open(&self) -> bool {
+    /// Whether the Company Triggers OnCompanyOpen and OnCompanyOpenCompleted subscribers run, and the login they raise,
+    /// in an install session before the app's install code (al-vm `set_install_company_open`) or when the test session
+    /// opens its company (al-vm `set_test_company_open`). Not a client-less session for the rest (GuiAllowed, Message):
+    /// only `TaskScheduler.CanCreateTask` reads it.
+    fn company_open_phase(&self) -> bool {
         false
     }
-    /// The install session took assumption install-session-can-create-task (`session_fns::install_code_yes`): al-vm keeps
-    /// the tables the session writes, and a test that reads one carries the mark (`install_footprint.rs`).
+    /// `TaskScheduler.CanCreateTask` answered Yes on assumption install-session-can-create-task (`session_fns::install_code_yes`):
+    /// in an install session, al-vm marks the whole run, so that every test carries the mark.
     fn note_install_can_create_task(&mut self) {}
     /// Whether a test codeunit is being run by the test runner (under TestIsolation = Codeunit).
     fn in_test_run(&self) -> bool {

@@ -897,7 +897,7 @@ fn run_codeunit_inner(
                         session.store_mut().watch(watched);
                         session.last_error = Default::default();
                         al_builtins::assumptions::clear_hits();
-                        mark_test_start_assumptions(lowered, on_run_shape_assumed, company_open_marks);
+                        mark_test_start_assumptions(session, lowered, on_run_shape_assumed, company_open_marks);
                         assume_kept_bindings(&unfinished, &bound_before);
                         // The runner's steps before the method (runner_reset.rs); what they rely on counts for the test.
                         // Its `LibraryRandom.SetSeed(1)` reseeds the sequence, so draws after it are not inherited.
@@ -2349,13 +2349,19 @@ fn start_min_row_version(session: &mut Session, isolation: TestIsolation, hub: b
 /// The marks every test of the codeunit starts with: the program's own (`ir::Program::assumes`: it compiled only through
 /// them), when the codeunit's OnRun shape is assumed `TestCodeunitOnRunRows`, and `company_open`, the marks of the login
 /// and Company Triggers step that opened the company for this session before its first test (orchestrator decision
-/// 2026-11-15, al-runner issue 8060: every test of the session runs on what that step left).
+/// 2026-11-15, al-runner issue 8060: every test of the session runs on what that step left), and install-session-can-create-task
+/// when an install session of the run took it (al-vm `Session::install_yes`).
 fn mark_test_start_assumptions(
+    session: &Session,
     lowered: &Lowered,
     on_run_shape_assumed: bool,
     company_open: al_builtins::assumptions::HitBits,
 ) {
     al_builtins::assumptions::add_hit_bits(company_open);
+    // An install session of the run answered `TaskScheduler.CanCreateTask` on the assumption: the whole run rests on it.
+    if session.install_yes() {
+        al_builtins::assumptions::assume(Assumption::InstallSessionCanCreateTask);
+    }
     if on_run_shape_assumed {
         al_builtins::assumptions::assume(Assumption::TestCodeunitOnRunRows);
     }

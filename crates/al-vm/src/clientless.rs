@@ -40,6 +40,10 @@
 //! that take a TestPage `ui.rs` `ui_handler` refuses, a bound RequestPageHandler that never ran marks
 //! the assumption in `end_ui_scope`; a read of the WorkDate the skipped login code would have set
 //! (al-testrun `install::login_work_date`) marks it too.
+//!
+//! Also the company-open phases where `TaskScheduler.CanCreateTask` answers true (`set_install_company_open`,
+//! `set_test_company_open`), and the run-wide flag of an install session that answered it on assumption
+//! install-session-can-create-task (`note_install_yes`, kept as `Baseline::install_yes`).
 use crate::Session;
 use crate::reports::Schema;
 use crate::ui::UiKind;
@@ -120,21 +124,43 @@ impl Session {
     /// false, `CurrentClientType()` is SOAP, a `Message` does not stop it, and StrMenu, Confirm and `Page.Run` raise
     /// CallbackNotAllowed (errors/RlInstallUi.al:210-241, metadata/CmInstallLeads.al:54-61).
     /// Not set while the company is built: Company-Initialize and the company data codeunit keep their own rules.
-    /// Each `on` begins an install session, and an `off` ends one (`install_session_begins`).
     pub fn set_install_without_client(&mut self, on: bool) {
-        self.install_yes_session_bounds(on);
         self.install_without_client = on;
         self.sync_no_client_test_session();
     }
 
     /// The Company Triggers OnCompanyOpen and OnCompanyOpenCompleted subscribers of an install session run (or no longer
-    /// run), and the login they raise: `TaskScheduler.CanCreateTask` answers true there (al-builtins `can_create_task`),
-    /// and this phase is an install session of its own for the write set unless an install routine's session runs.
+    /// run), and the login they raise: `TaskScheduler.CanCreateTask` answers true there (al-builtins `can_create_task`).
     pub fn set_install_company_open(&mut self, on: bool) {
-        if !self.install_without_client {
-            self.install_yes_session_bounds(on);
-        }
         self.install_company_open = on;
+    }
+
+    /// The same phase when the test session opens its company (al-testrun `install::test_session_company_open`): true
+    /// there too, while the test procedure keeps false (corpus PR 1592, install-upgrade/IcInstallCanCreateTaskTests.al:213-215).
+    pub fn set_test_company_open(&mut self, on: bool) {
+        self.test_company_open = on;
+    }
+
+    /// Either company-open phase runs (`Ctx::company_open_phase`).
+    pub(crate) fn company_open_phase(&self) -> bool {
+        self.install_company_open || self.test_company_open
+    }
+
+    /// `TaskScheduler.CanCreateTask` answered Yes on assumption install-session-can-create-task. In an install session
+    /// (an install routine or its company-open phase), what the session did after the answer is not followed (a task it
+    /// created, a fallback it skipped, isolated storage, a later install that copies a row), so the whole run rests on
+    /// the assumption: the flag is kept with the baseline (`Baseline::install_yes`) and every test carries the mark
+    /// (al-testrun `run.rs` `mark_test_start_assumptions`). The test session's own phase needs no flag: its marks reach
+    /// every test of the session (`company_open_marks`).
+    pub(crate) fn note_install_yes(&mut self) {
+        if self.install_without_client || self.install_company_open {
+            self.install_yes = true;
+        }
+    }
+
+    /// An install session of this run answered Yes on install-session-can-create-task ([`Session::note_install_yes`]).
+    pub fn install_yes(&self) -> bool {
+        self.install_yes
     }
 
     /// Puts [`Session::no_client_test_session`] where the platform providers read it (`EventStats::no_client_test_session`,

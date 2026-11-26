@@ -24,6 +24,24 @@ codeunit 52652 "CT Open Tests"
     end;
 
     [Test]
+    procedure TestSessionCompanyOpenSubscriberSeesYes()
+    var
+        Seen: Codeunit "CT Open Seen";
+    begin
+        if Seen.Open() <> 'Yes' then
+            Error('OnCompanyOpen of the test session: %1', Seen.Open());
+    end;
+
+    [Test]
+    procedure TestSessionCompanyOpenCompletedSubscriberSeesYes()
+    var
+        Seen: Codeunit "CT Open Seen";
+    begin
+        if Seen.OpenCompleted() <> 'Yes' then
+            Error('OnCompanyOpenCompleted of the test session: %1', Seen.OpenCompleted());
+    end;
+
+    [Test]
     procedure TestSessionCanCreateTaskAfterTheInstall()
     begin
         if TaskScheduler.CanCreateTask() then

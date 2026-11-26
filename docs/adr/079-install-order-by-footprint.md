@@ -298,20 +298,23 @@ one TaskScheduler method no longer touches everything.
 
 Decision 1 counts every builtin outside the kept receivers and methods as touching everything. A native builtin whose
 answer is a constant for each kind of session (an app's install session: true, in the company-open phase and in its
-install code; the test session: false) and that changes nothing keeps nothing: every install session of
+install code; the test session: true in its company-open phase, false in the test code) and that changes nothing keeps nothing: every install session of
 every app gets the same answers, so they cannot depend on install order. Such a builtin is kept by method
 (`install_footprint.rs` `KEPT_METHODS`) only when a corpus case measures its answer inside install code, cited at the
 entry. Measured in a test session only is not enough.
 
 The one builtin kept by this rule: `TaskScheduler.CanCreateTask()`. Corpus PR 1589
 (`install-upgrade/IsInstallSessionTests.al:86`, `:91`, `:135`) measures true in Extension Triggers install
-subscribers, per company and per database; the test session's false is pinned
+subscribers, per company and per database; the test procedure's false is pinned
 (`session-system/TestEnvironmentUserTenantContracts.al:255`). The company-open phase of an install
-session (the Company Triggers subscribers and the login they raise) also answers true: corpus PR 1592
-(`install-upgrade/IcInstallCanCreateTaskTests.al`) measures it (al-runner issue 9123). The triggers of a `Subtype = Install` codeunit get the true answer through the same assumption, from one
+session and of the test session (the Company Triggers subscribers and the login they raise) also answers true: corpus
+PR 1592 (`install-upgrade/IcInstallCanCreateTaskTests.al:176`, `:196-198`, `:213-215`) measures it (al-runner issue
+9123). The triggers of a `Subtype = Install` codeunit get the true answer through the same assumption, from one
 install session for both kinds (`record/BfInstallTests.al:142`). Until the runner's corpus pin holds PR 1589 and the
 trigger cell, the true answer runs through the assumption `install-session-can-create-task`. The other TaskScheduler
-methods (CreateTask, TaskExists, SetTaskReady, CancelTask) keep touching everything.
+methods (CreateTask, TaskExists, SetTaskReady, CancelTask) keep touching everything. What an install session does
+after a true answer (a task it creates, a fallback it skips, isolated storage, a later install that copies a row) is not
+followed: when any install session of a run took the assumption, the whole run is flagged (every test carries it).
 
 ## Options considered
 

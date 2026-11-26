@@ -240,7 +240,7 @@ impl Session {
             }
         }
         // A task created in install code follows the rules above, which only tasks of a test session pin: assumption
-        // install-session-can-create-task, and the install session's tables mark the tests that read them.
+        // install-session-can-create-task, and the whole run carries the mark (`clientless.rs` `note_install_yes`).
         al_builtins::native::install_code_yes(self);
         let id = self.fresh_guid();
         self.tasks.open.insert(id);

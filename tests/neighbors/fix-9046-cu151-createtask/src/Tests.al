@@ -78,4 +78,32 @@ codeunit 52871 "CTC Task Tests"
         Row.Insert();
         Row.Get('X');
     end;
+
+    [Test]
+    procedure WriterTableOfItsOwnIsEmpty()
+    var
+        Row: Record "CTC Writer Row";
+    begin
+        if not Row.IsEmpty() then
+            Error('the fallback writer ran');
+    end;
+
+    [Test]
+    procedure IsolatedStorageOfTheBranch()
+    var
+        Storage: Codeunit "CTC Storage A";
+    begin
+        if Storage.Branch() <> 'task' then
+            Error('isolated storage: %1', Storage.Branch());
+    end;
+
+    [Test]
+    procedure MirrorInALaterInstall()
+    var
+        Mirror: Record "CTC Mirror C";
+    begin
+        Mirror.Get('MIRROR');
+        if Mirror.Value <> 'task' then
+            Error('mirror: %1', Mirror.Value);
+    end;
 }

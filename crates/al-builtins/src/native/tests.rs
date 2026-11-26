@@ -37,7 +37,7 @@ pub(crate) struct TestCtx {
     install: bool,
     /// What `install_without_client` answers: an app's install session.
     install_session: bool,
-    /// What `install_company_open` answers: the Company Triggers subscribers of an install session run.
+    /// What `company_open_phase` answers: the Company Triggers subscribers of an install session or the test session run.
     company_open: bool,
     in_test: bool,
     pub(crate) result_ignored: bool,
@@ -79,7 +79,7 @@ impl Ctx for TestCtx {
     fn install_without_client(&self) -> bool {
         self.install_session
     }
-    fn install_company_open(&self) -> bool {
+    fn company_open_phase(&self) -> bool {
         self.company_open
     }
     fn in_test_run(&self) -> bool {
@@ -178,11 +178,12 @@ fn can_create_task_answers_yes_in_an_app_install_session_and_no_elsewhere() {
     };
     assert!(matches!(run(&mut build), Ok(Value::Boolean(false))));
     assert!(!take_hits().contains(&Assumption::InstallSessionCanCreateTask));
-    // The Company Triggers subscribers of the install session (and the login they raise): corpus PR 1592
-    // (install-upgrade/IcInstallCanCreateTaskTests.al, pin pending), with or without an install routine's session.
-    for install_session in [true, false] {
+    // The Company Triggers subscribers of the install session and of the test session (and the login they raise): corpus
+    // PR 1592 (install-upgrade/IcInstallCanCreateTaskTests.al:176, :213-214, pin pending).
+    for (install, install_session) in [(true, true), (true, false), (false, false)] {
         let mut open = TestCtx {
-            install: true,
+            install,
+            in_test: !install,
             install_session,
             company_open: true,
             ..Default::default()

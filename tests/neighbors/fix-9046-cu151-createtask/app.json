@@ -5,7 +5,31 @@
   "version": "1.0.0.0",
   "platform": "27.0.0.0",
   "runtime": "15.0",
-  "idRanges": [ { "from": 52870, "to": 52879 } ],
-  "dependencies": [ { "id": "8d1a2b3c-9046-4000-8000-000000041610", "name": "CTC Task A", "publisher": "Footprint Probe Co", "version": "1.0.0.0" }, { "id": "8d1a2b3c-9046-4000-8000-000000041611", "name": "CTC Task B", "publisher": "Footprint Probe Co", "version": "1.0.0.0" } ],
+  "idRanges": [
+    {
+      "from": 52870,
+      "to": 52879
+    }
+  ],
+  "dependencies": [
+    {
+      "id": "8d1a2b3c-9046-4000-8000-000000041610",
+      "name": "CTC Task A",
+      "publisher": "Footprint Probe Co",
+      "version": "1.0.0.0"
+    },
+    {
+      "id": "8d1a2b3c-9046-4000-8000-000000041611",
+      "name": "CTC Task B",
+      "publisher": "Footprint Probe Co",
+      "version": "1.0.0.0"
+    },
+    {
+      "id": "8d1a2b3c-9046-4000-8000-000000041613",
+      "name": "CTC Task C",
+      "publisher": "Footprint Probe Co",
+      "version": "1.0.0.0"
+    }
+  ],
   "target": "OnPrem"
 }

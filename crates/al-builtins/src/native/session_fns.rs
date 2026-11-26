@@ -167,21 +167,22 @@ pub(super) fn start_session_of(c: &mut dyn Ctx, args: &mut [Value], timeout: boo
     unsupported("StartSession outside an install trigger and a test run (a second session is not modelled)")
 }
 
-/// `TaskScheduler.CanCreateTask()`. False in a test (session-system/TestEnvironmentUserTenantContracts.al:255). True in
-/// an app's install code (`Ctx::install_without_client`), assumption install-session-can-create-task: Extension Triggers
-/// install subscribers measured by corpus PR 1589 (install-upgrade/IsInstallSessionTests.al:86, :91, :135, pin pending);
-/// the triggers of a Subtype = Install codeunit assumed from one install session (record/BfInstallTests.al:142). Also true
-/// in the Company Triggers and login subscribers of an install session (`Ctx::install_company_open`), measured by corpus
-/// PR 1592 (install-upgrade/IcInstallCanCreateTaskTests.al, pin pending). Everywhere else main's false.
+/// `TaskScheduler.CanCreateTask()`. False in the test procedure (session-system/TestEnvironmentUserTenantContracts.al:255).
+/// True in an app's install code (`Ctx::install_without_client`), assumption install-session-can-create-task: Extension
+/// Triggers install subscribers measured by corpus PR 1589 (install-upgrade/IsInstallSessionTests.al:86, :91, :135, pin
+/// pending); the triggers of a Subtype = Install codeunit assumed from one install session (record/BfInstallTests.al:142).
+/// Also true in the Company Triggers and login subscribers of an install session and of the test session
+/// (`Ctx::company_open_phase`), measured by corpus PR 1592 (install-upgrade/IcInstallCanCreateTaskTests.al:176, :196-198,
+/// :213-215, pin pending). Everywhere else main's false.
 pub(super) fn can_create_task(c: &mut dyn Ctx, _: Option<&mut Value>, _: &mut [Value]) -> Result<Value, Signal> {
     Ok(Value::Boolean(install_code_yes(c)))
 }
 
-/// Whether `TaskScheduler.CanCreateTask()` answers Yes here because an app's install code runs (see [`can_create_task`]).
-/// When it does, the session takes assumption install-session-can-create-task and its tables are kept
+/// Whether `TaskScheduler.CanCreateTask()` answers Yes here (see [`can_create_task`]). When it does, the session takes
+/// assumption install-session-can-create-task, and an install session marks the whole run
 /// (`Ctx::note_install_can_create_task`). Also the gate of a task created in install code (al-vm `tasks.rs`).
 pub fn install_code_yes(c: &mut dyn Ctx) -> bool {
-    if c.install_without_client() || c.install_company_open() {
+    if c.install_without_client() || c.company_open_phase() {
         crate::assumptions::assume(crate::assumptions::Assumption::InstallSessionCanCreateTask);
         c.note_install_can_create_task();
         return true;

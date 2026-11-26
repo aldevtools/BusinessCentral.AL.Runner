@@ -353,7 +353,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `autoinc.rs`: AutoIncrement fields: taking the next value, explicit keys. Entry: `auto_increment_field`.
 - `baseline.rs`: The install baseline, with the install routines… Entry: `Baseline`.
 - `baseline/install_orders.rs`: What installing partner apps in several orders needs. Entry: `install_order_differences`.
-- `install_footprint.rs`: The footprint of a partner app's install session, and the write set of an install session that took install-session-can-create-task. Entry: `Session::install_footprint_start`, `Session::install_yes_session_bounds`.
+- `install_footprint.rs`: The footprint of a partner app's install session. Entry: `Session::install_footprint_start`.
 - `order_trial.rs`: A subscriber whose install order is not known runs… Entry: `trial_start`.
 - `callstack.rs`: The AL call stack of an error and the live stack. Entry: `add_frame`.
 - `caught_errors.rs`: The count of errors AL code caught: asserterror. Entry: `catch_error`.
@@ -450,7 +450,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `consistent_marks.rs`: `Record.Consistent` marks and how a run or Commit ends on one. Entry: `Session::set_consistent`.
 - `ui.rs`: Dialogs raised by the code under test and the test… Entry: `UiKind`.
 - `dev_endpoint_ui.rs`: `--dev-endpoint-ui`: the answer of the dev-endpoint…
-- `clientless.rs`: What a dialog does in a session without a client.
+- `clientless.rs`: What a dialog does in a session without a client, and the company-open phases and run flag of `TaskScheduler.CanCreateTask`.
 - `variant_copy.rs`: A temporary record going from a Variant into a Variant. Entry: `source_of`.
 - `views.rs`: Filter and view text: SetView, GetFilters. Entry: `parse_filter_text`.
 - `xmlports/mod.rs`: XmlPort import and export (Format = Xml).

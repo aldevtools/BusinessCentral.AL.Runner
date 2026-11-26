@@ -42,3 +42,49 @@ codeunit 52852 "CTC Task A Install"
         Row.Insert();
     end;
 }
+
+// Review shapes: the fallback writes a table the install code does not otherwise write, and IsolatedStorage takes the branch.
+table 52853 "CTC Writer Row"
+{
+    fields { field(1; "Code"; Code[20]) { } }
+    keys { key(PK; "Code") { Clustered = true; } }
+}
+
+codeunit 52854 "CTC Own Writer A"
+{
+    trigger OnRun()
+    var
+        Row: Record "CTC Writer Row";
+    begin
+        Row.Code := 'FALLBACK';
+        Row.Insert();
+    end;
+}
+
+codeunit 52855 "CTC Task A2 Install"
+{
+    Subtype = Install;
+
+    trigger OnInstallAppPerCompany()
+    begin
+        if TaskScheduler.CanCreateTask() then begin
+            TaskScheduler.CreateTask(Codeunit::"CTC Own Writer A", 0);
+            IsolatedStorage.Set('CTC BRANCH', 'task', DataScope::Module);
+        end else begin
+            Codeunit.Run(Codeunit::"CTC Own Writer A");
+            IsolatedStorage.Set('CTC BRANCH', 'fallback', DataScope::Module);
+        end;
+    end;
+}
+
+codeunit 52856 "CTC Storage A"
+{
+    procedure Branch(): Text
+    var
+        Value: Text;
+    begin
+        if not IsolatedStorage.Get('CTC BRANCH', DataScope::Module, Value) then
+            exit('none');
+        exit(Value);
+    end;
+}

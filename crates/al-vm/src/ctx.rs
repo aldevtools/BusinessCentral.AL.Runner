@@ -541,8 +541,8 @@ impl al_builtins::native::Ctx for Session {
     fn install_without_client(&self) -> bool {
         self.install_without_client
     }
-    fn install_company_open(&self) -> bool {
-        self.install_company_open
+    fn company_open_phase(&self) -> bool {
+        Session::company_open_phase(self)
     }
     fn note_install_can_create_task(&mut self) {
         self.note_install_yes();

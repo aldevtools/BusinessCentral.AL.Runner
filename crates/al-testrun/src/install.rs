@@ -621,8 +621,6 @@ impl crate::install_orders::AppInstalls for UnderTestInstalls<'_> {
     }
 
     fn install(&mut self, session: &mut Session, app: u32) {
-        // Each app's install session begins here (al-vm `install_yes_session_bounds`).
-        session.set_install_without_client(true);
         if let Some(k) = self.plans.iter().position(|a| a.app as u32 == app) {
             install_app_under_test(self.lowered, session, &self.plans[k], k, self.company, self.skipped);
         }
@@ -1314,7 +1312,11 @@ pub(crate) fn test_session_company_open(
     after_refusal: bool,
 ) -> Result<CompanyOpenWrites, NotOpened> {
     match crate::runtime::watching_skipped_installs(lowered, session, skipped, crate::runtime::Assumed::Marked, |s| {
+        // `TaskScheduler.CanCreateTask` answers true while the Company Triggers subscribers and the login run (al-builtins
+        // `can_create_task`; corpus PR 1592, install-upgrade/IcInstallCanCreateTaskTests.al:213-215).
+        s.set_test_company_open(true);
         let opened = open_test_session_company(lowered, s, disabled, after_refusal);
+        s.set_test_company_open(false);
         // The window the partner dependency apps' login subscribers opened (`partner_login::PartnerLogin::watch_after`)
         // closes on every exit.
         let end = s.store_mut().watch_window_end();

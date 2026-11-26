@@ -915,10 +915,10 @@ pub struct Session {
     install_without_client: bool,
     /// The Company Triggers subscribers of an install session run (`set_install_company_open`).
     install_company_open: bool,
-    /// The running install session: change counter at its start, and whether it took install-session-can-create-task.
-    install_yes_session: Option<(u64, bool)>,
-    /// Tables written by install sessions that took it (`Baseline::install_yes_tables`); readers carry the mark.
-    pub(crate) install_yes_tables: std::collections::BTreeSet<u32>,
+    /// The Company Triggers subscribers of the test session run (`set_test_company_open`).
+    test_company_open: bool,
+    /// An install session answered Yes on install-session-can-create-task: every test is flagged (`note_install_yes`).
+    pub(crate) install_yes: bool,
     /// The session's data comes from a baseline in which the company data codeunit built the company to its end
     /// (`Baseline::company_built`).
     pub(crate) company_built: bool,
@@ -1514,8 +1514,8 @@ impl Session {
             sessions_started: 0,
             install_without_client: false,
             install_company_open: false,
-            install_yes_session: None,
-            install_yes_tables: Default::default(),
+            test_company_open: false,
+            install_yes: false,
             company_built: false,
             demo_written: Default::default(),
             gl_setup_written: false,
