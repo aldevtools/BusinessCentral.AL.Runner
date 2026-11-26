@@ -2706,7 +2706,10 @@ fn write_with_secrets(
     }
     let mut text = String::new();
     write(&copy, &mut text)?;
-    a[out] = Value::Library("SecretText".into(), Rc::new(RefCell::new(LibraryValue::Text(text.into()))));
+    a[out] = Value::Library(
+        "SecretText".into(),
+        Rc::new(RefCell::new(LibraryValue::Text(text.into()))),
+    );
     Ok(Value::Boolean(true))
 }
 

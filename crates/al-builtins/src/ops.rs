@@ -1372,6 +1372,11 @@ pub fn equal_operator(l: &Value, r: &Value) -> Result<bool, Signal> {
 /// `=`, `<>`, `<`, ... on two values in AL code: as [`compare`], except that an undefined date against 0001-01-01 raises
 /// (types/date-time/Arithmetic.al:Date_Comparisons `af72`, `af75`, `af79`).
 pub fn compare_operator(l: &Value, r: &Value, ordered: bool) -> Result<Ordering, Signal> {
+    // A Text with a lone surrogate half answers only against another Text (`lone_half_operator`); against any other operand
+    // (a Char, a Code) every operator keeps main's refusal: the probe compares Texts only (LtSurrogateHalves.al Op 20-99).
+    if let Some(at) = lone_half_beside_other(l, r) {
+        return Err(Signal::unsupported(crate::text::unaudited_reason(at)));
+    }
     // A comparison cell of the conversion matrix (`conv`).
     if let Some(o) = crate::conv::compare_cell(l, r, ordered) {
         return o;
@@ -1423,6 +1428,17 @@ pub fn compare_operator(l: &Value, r: &Value, ordered: bool) -> Result<Ordering,
     if ordered { compare_order(l, r) } else { compare(l, r) }
 }
 
+/// Where a Text with a lone surrogate half meets an operand that is no Text: the caller's site, for the refusal.
+#[track_caller]
+fn lone_half_beside_other(l: &Value, r: &Value) -> Option<&'static std::panic::Location<'static>> {
+    let lone = |v: &Value| matches!(v, Value::Text(t) if t.has_lone());
+    let both_text = matches!((l, r), (Value::Text(_), Value::Text(_)));
+    if (lone(l) || lone(r)) && !both_text {
+        return Some(std::panic::Location::caller());
+    }
+    None
+}
+
 /// `<=` and `>=`: as [`compare_operator`], except that two Texts with a lone surrogate half keep main's refusal: the probe
 /// (LtSurrogateHalves.al Ops_cmp_1..10) measures `=`, `<>`, `<` and `>` only.
 pub fn compare_operator_or_equal(l: &Value, r: &Value) -> Result<Ordering, Signal> {
@@ -1432,24 +1448,39 @@ pub fn compare_operator_or_equal(l: &Value, r: &Value) -> Result<Ordering, Signa
     }
 }
 
+/// The high and the low half of U+1F600, the two lone halves the probe orders (LtSurrogateHalves.al `Hi`, `Lo`).
+const HI: u16 = 0xD83D;
+const LO: u16 = 0xDE00;
+
+/// Whether the probe orders the lone half `h` against `o` (LtSurrogateHalves.al Op 22-99, `<` and `>`): `Hi` against
+/// `'a'`, `'z'`, `''`, `Hi`, `Lo`, U+FFFD, `'abc'` and `'a' + Hi`; `Lo` against `Hi`, `'a'`, U+FFFD, `'abc'` and `'~'`.
+/// The order against a whole pair contradicts the unit order (Ops_cmp_4) and is not in the list.
+fn order_measured(h: &[u16], o: &[u16]) -> bool {
+    const A: u16 = 0x61;
+    match h {
+        [HI] => matches!(
+            o,
+            [A] | [0x7A] | [] | [HI] | [LO] | [0xFFFD] | [A, 0x62, 0x63] | [A, HI]
+        ),
+        [LO] => matches!(o, [HI] | [A] | [0xFFFD] | [A, 0x62, 0x63] | [0x7E]),
+        _ => false,
+    }
+}
+
 /// `=`, `<>`, `<`, `>` of two Texts, one of which holds half of a surrogate pair (LtSurrogateHalves.al Ops_cmp_1..10, the
-/// cells of Op 20-99). Equal only to the same units; the empty text comes first. An order is answered only where one text
-/// is a lone half alone and the other is one other lone half, `a`, `z`, `~` or U+FFFD, or starts with `a` (`abc` and `a`
-/// with a lone half measured): by UTF-16 unit. Any other order refuses (`Txt::cmp`).
+/// cells of Op 20-99). `=` and `<>`: equal only to the same units, as the case-sensitive exact equality of plain Text
+/// (types/TestFormatEvaluateTextContracts.al:171). `<` and
+/// `>`: answered by UTF-16 unit only for a pair [`order_measured`] names, in either order; any other order refuses
+/// (`Txt::cmp`).
 fn lone_half_operator(a: &crate::text::Txt, b: &crate::text::Txt, ordered: bool) -> Result<Ordering, Signal> {
     let (ua, ub) = (a.units(), b.units());
-    let half = |u: &[u16]| u.len() == 1 && (0xD800..=0xDFFF).contains(&u[0]);
-    let measured = |u: &[u16]| half(u) || u == [0x61] || u == [0x7A] || u == [0x7E] || u == [0xFFFD] || u[0] == 0x61;
-    // `=` and `<>` read only whether the units are the same; the empty text comes first.
-    let answered = if !ordered || ua == ub || ua.is_empty() || ub.is_empty() {
-        ua.cmp(&ub)
-    } else if (half(&ua) && measured(&ub)) || (half(&ub) && measured(&ua)) {
-        ua[0].cmp(&ub[0])
+    let answered = !ordered || order_measured(&ua, &ub) || order_measured(&ub, &ua);
+    if answered {
+        crate::text::half_kept(&[a, b]);
+        Ok(ua.cmp(&ub))
     } else {
-        return Ok(a.cmp(b));
-    };
-    crate::text::half_kept(&[a, b]);
-    Ok(answered)
+        Ok(a.cmp(b))
+    }
 }
 
 /// Ordering for `<`, `<=`, `>` and `>=`: as [`compare`], except that text follows the culture order

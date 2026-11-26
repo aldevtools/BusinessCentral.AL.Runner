@@ -7,6 +7,8 @@
 // round trip, and a read back from a table field turn the lone half into 65533. Stream writes without an encoding turn it into 63.
 // The three BC versions agree on every observed value.
 // BC versions: 27, 28, 29
+// Neighbor copy of corpus PR 1605 without the Base64 cells 225-229 and Ops_fn_17 (the Base64 round trip is not part of
+// this change), so Source_CharVariable_SameAsCopyStr loops to 224.
 
 table 75790 "LT SH Rec"
 {
@@ -1044,7 +1046,7 @@ codeunit 75791 "LT SH Ops"
         Id: Integer;
         Differing: Text;
     begin
-        for Id := 1 to 229 do
+        for Id := 1 to 224 do
             if Attempt(Id, 1) <> Attempt(Id, 2) then
                 Differing += ',' + Format(Id);
         Observer.Observe('differing ids', Differing);

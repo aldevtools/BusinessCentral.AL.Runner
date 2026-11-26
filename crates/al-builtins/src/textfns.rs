@@ -1133,12 +1133,19 @@ fn tb_to_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResul
             "the text TextBuilder.ToText(StartIndex, Count) gives outside the text (not pinned)".into(),
         ));
     }
-    let from = start as usize - 1;
-    // A range through a pair keeps the half (LtSurrogateHalves.al Ops_tb_3).
-    crate::text::half_kept(&[&s]);
-    Ok(Value::Text(crate::text::Txt::from_units(
-        &u[from..from + count as usize],
-    )))
+    let (from, to) = (start as usize - 1, (start + count) as usize - 1);
+    // A range of a builder with a lone half keeps the half (LtSurrogateHalves.al Ops_tb_3); a range end inside a whole pair
+    // is not measured and keeps main's refusal.
+    if s.has_lone() && !cuts_pair(&u, from) && !cuts_pair(&u, to) {
+        crate::text::half_kept(&[&s]);
+        return Ok(Value::Text(crate::text::Txt::from_units(&u[from..to])));
+    }
+    Ok(Value::Text(from_u16(&u[from..to], "TextBuilder.ToText")?.into()))
+}
+
+/// Whether unit position `i` of `u` falls between the high and the low half of one whole pair.
+fn cuts_pair(u: &[u16], i: usize) -> bool {
+    i > 0 && i < u.len() && (0xD800..0xDC00).contains(&u[i - 1]) && (0xDC00..0xE000).contains(&u[i])
 }
 
 fn tb_length(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
@@ -1258,9 +1265,9 @@ fn tb_capacity(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
 fn tb_insert(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = string_of(r)?;
     let (pos, t) = (int(a, 0)?, tb_text(a, 1)?);
-    let u = with_string(&h, |s| {
+    let (u, lone) = with_string(&h, |s| {
         crate::text::half_kept(&[s, &t]);
-        s.units()
+        (s.units(), s.has_lone() || t.has_lone())
     });
     if pos < 1 || pos as usize > u.len() + 1 {
         return crate::native::raise::<Value>(
@@ -1272,8 +1279,13 @@ fn tb_insert(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult
     let mut out = u[..at].to_vec();
     out.extend(t.units());
     out.extend_from_slice(&u[at..]);
-    // A lone half is inserted as it is (LtSurrogateHalves.al Ops_tb_2).
-    let joined = crate::text::Txt::from_units(&out);
+    // A lone half is inserted as it is (LtSurrogateHalves.al Ops_tb_2); a position inside a whole pair is not measured and
+    // keeps main's refusal.
+    let joined = if lone && !cuts_pair(&u, at) {
+        crate::text::Txt::from_units(&out)
+    } else {
+        from_u16(&out, "TextBuilder.Insert")?.into()
+    };
     with_string(&h, |s| *s = joined);
     grow_capacity(&h);
     Ok(Value::Boolean(true))
