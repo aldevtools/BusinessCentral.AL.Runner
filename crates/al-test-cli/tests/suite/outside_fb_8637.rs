@@ -16,7 +16,7 @@ const CALC_PROBE: &str = include_str!("../../../../tests/neighbors/8677-bg-cache
 const MORE: &str = include_str!("../../../../tests/neighbors/8637-bg-cache-filtered-reads/src/MoreNeighbors.al");
 const EDGES: &str = include_str!("../../../../tests/neighbors/1555-cache-row-commits-review-r1/src/EdgesProbe.al");
 
-fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
+pub(crate) fn outcomes(src: &str, codeunit: &str) -> Vec<(String, Outcome, Vec<Assumption>)> {
     let src = format!("{src}\n{}", include_str!("../fixtures/outside-sc/Assert.al"));
     let l = al_testkit::compile_apps(vec![al_testkit::app(&src)]);
     let engine = al_vm::Engine::new(l.program.clone(), al_testkit::blocked(&l));

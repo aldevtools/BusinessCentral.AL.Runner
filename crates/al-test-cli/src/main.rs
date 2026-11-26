@@ -653,6 +653,18 @@ fn join_reports(a: &mut report::Report, b: report::Report) {
     }
 }
 
+/// The compile cache of a corpus run (ADR-022): with `--compile-cache`, under the cache root.
+fn corpus_compile_cache(args: &Args) -> Option<al_testrun::compile_cache::CompileCache> {
+    args.compile_cache.then(|| al_testrun::compile_cache::CompileCache {
+        dir: al_testrun::compile_cache::CompileCache::under(&al_deps::cache::cache_root_from_env(
+            args.cache_dir.as_deref(),
+        )),
+        require: args.require_compile_cache,
+        rebuild: false,
+        country: String::new(),
+    })
+}
+
 /// `pass-rate.json` becomes `pass-rate-29.json` when several versions run.
 fn per_version(p: &Path, major: u16, all: bool) -> PathBuf {
     if !all {
@@ -1209,14 +1221,7 @@ fn run_version_inner(
     if args.fetch_deps {
         return fetch_deps_done(args, root, version.major, &chosen.target.bc, bc_build.as_deref());
     }
-    let compile_cache = args.compile_cache.then(|| al_testrun::compile_cache::CompileCache {
-        dir: al_testrun::compile_cache::CompileCache::under(&al_deps::cache::cache_root_from_env(
-            args.cache_dir.as_deref(),
-        )),
-        require: args.require_compile_cache,
-        rebuild: false,
-        country: String::new(),
-    });
+    let compile_cache = corpus_compile_cache(args);
     if args.build_compile_cache {
         let cc = compile_cache
             .as_ref()
@@ -1322,6 +1327,7 @@ fn run_version_inner(
         license: license.license.clone(),
         emit_version,
         company_data: None,
+        workspace_cache: al_test_cli::workspace_leg::options(compile_cache.is_some()),
         compile_cache,
         test_time_limit: None,
         lazy: Vec::new(),
@@ -1401,6 +1407,7 @@ fn run_version_inner(
     // Nothing waits for the drop of the runtime after the report is written.
     let rt = runtime::Retiring::new(rt);
     let p = &rt.phases;
+    al_test_cli::workspace_leg::say(&version.bc_version, &pass.work_name(), p.workspace_cache.as_ref());
     p.login_replay.report.iter().for_each(|l| eprintln!("{l}")); // ALRUNNER_LOGIN_REPLAY(_CHECK) (issue 8211)
     let sidecar_stats = sidecar_host.stats();
     sidecar_host.shutdown();

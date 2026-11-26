@@ -17,6 +17,7 @@ mod alt_cache_tests;
 mod band;
 #[cfg(test)]
 mod collation_read_tests;
+mod export;
 mod footprint;
 #[cfg(test)]
 mod footprint_tests;
@@ -37,6 +38,7 @@ mod source_stamps;
 mod source_stamps_tests;
 #[cfg(test)]
 mod storage_tests;
+pub use export::ExportedTable;
 pub use frozen::{FrozenRows, FrozenStore, NotShareable, not_shareable, shareable};
 
 type Table = crate::pmap::PMap<Key, Row>;
@@ -264,17 +266,6 @@ struct Watch {
     /// Every watched table that was read or written ([`MemStore::watch_hits`]).
     hits: std::collections::BTreeSet<u32>,
     window: Option<(std::collections::BTreeSet<u32>, Option<u32>)>,
-}
-
-/// One table of an exported store ([`MemStore::export_committed`]): its company (empty for a table that is not per
-/// company), its object, and its rows with their primary keys, in key order.
-#[derive(Debug, Clone)]
-pub struct ExportedTable {
-    pub company: String,
-    pub object: u32,
-    /// How the table's primary key fields are stored: the order of its keys (`memory/key.rs`).
-    pub pk_storage: PkStorage,
-    pub rows: Vec<(Vec<Value>, Row)>,
 }
 
 /// A change to a row the restored company holds, made while recording was on.
@@ -1144,61 +1135,6 @@ impl MemStore {
             })
     }
 
-    /// The table objects that hold a committed row in any company.
-    /// The committed rows of every table the store holds an entry for, for a snapshot on disk or for
-    /// another thread (the rows are plain values; [`MemStore::from_exported`] is the way back).
-    /// A store with a backing (test data) exports the tables it holds: those a write reached, which
-    /// carry the backing's rows with the changes, and an emptied one stays empty. The tables it has
-    /// no entry for are the backing's and are not exported; the importer puts the same backing back
-    /// (`with_backing`). The record of changes to restored rows is a log and is not exported.
-    /// Changes that are not committed are not exported.
-    pub fn export_committed(&self) -> Option<Vec<ExportedTable>> {
-        self.footprint_everything("an export of the store");
-        Some(Self::export(&self.committed))
-    }
-
-    /// The tables the store holds now, uncommitted changes included, as [`MemStore::export_committed`] gives the committed
-    /// ones (a temporary table's store, which never commits; al-vm `Session::state_lines`). Counts no store operation.
-    pub fn export_current(&self) -> Vec<ExportedTable> {
-        self.footprint_everything("an export of the store");
-        Self::export(&self.tables)
-    }
-
-    /// Every table of `tables` with its rows in key order ([`MemStore::export_committed`], [`MemStore::export_current`]).
-    fn export(tables: &Tables) -> Vec<ExportedTable> {
-        tables
-            .iter()
-            .map(|((company, object), table)| ExportedTable {
-                company: company.to_string(),
-                object: *object,
-                pk_storage: table_storage(table),
-                rows: table.iter().map(|(k, r)| (k.0.clone(), r.clone())).collect(),
-            })
-            .collect()
-    }
-
-    /// A store whose committed (and current) data is `tables`, with no provider and no backing. Its stamps are new
-    /// ones: a stamp only says whether a table changed, and no cache of this store knows an older one.
-    pub fn from_exported(tables: Vec<ExportedTable>) -> MemStore {
-        let mut s = MemStore::default();
-        for t in tables {
-            let slot: Slot = (std::sync::Arc::from(t.company.as_str()), t.object);
-            let table: Table = t
-                .rows
-                .into_iter()
-                .map(|(k, r)| (Key::in_table(k, &t.pk_storage), r))
-                .collect();
-            s.counter = next_stamp();
-            s.versions.insert(slot.clone(), s.counter);
-            s.shapes.insert(slot.clone(), s.counter);
-            s.tables.insert(slot, table);
-        }
-        s.committed = s.tables.clone();
-        s.committed_versions = s.versions.clone();
-        s.committed_shapes = s.shapes.clone();
-        s.with_held_noted()
-    }
-
     /// The committed tables (company, object) of this store that a write reached since it was `base` (a clone of
     /// `base`, restored, written and committed, as a session's capture of its baseline is): a table whose stamp differs
     /// from `base`'s or that `base` does not hold, and the tables `base` holds that this store does not (second list).
@@ -1226,23 +1162,6 @@ impl MemStore {
         (changed, gone)
     }
 
-    /// The committed rows of table `object` in `company` that the store holds, and whether a DeleteAll without filters
-    /// emptied it ([`MemStore::emptied`]); `None` when the store holds no entry for it.
-    pub fn committed_table(&self, company: &str, object: u32) -> Option<(ExportedTable, bool)> {
-        self.footprint_everything("an export of the store");
-        let slot: Slot = (std::sync::Arc::from(company), object);
-        let table = self.committed.get(&slot)?;
-        Some((
-            ExportedTable {
-                company: company.to_string(),
-                object,
-                pk_storage: table_storage(table),
-                rows: table.iter().map(|(k, r)| (k.0.clone(), r.clone())).collect(),
-            },
-            self.committed_emptied.contains_key(&slot),
-        ))
-    }
-
     /// The committed rows of table `object` in `company` as a read finds them, and whether a DeleteAll without filters
     /// emptied it: the store's entry ([`MemStore::committed_table`]), or the backing's rows when the store holds none (a
     /// copy reads its source's, a deleted company none: `backing_rows`). `None` when neither holds any.
@@ -1260,42 +1179,6 @@ impl MemStore {
             },
             false,
         ))
-    }
-
-    /// This store, with no change open, holding `tables` (each with whether a DeleteAll emptied it) in place of what it
-    /// held for them and nothing for `gone`; the other tables keep their rows and stamps. The replaced tables get new
-    /// stamps, as a write gives them.
-    pub fn with_committed_tables(mut self, tables: Vec<(ExportedTable, bool)>, gone: &[(String, u32)]) -> MemStore {
-        self.rollback();
-        for (company, object) in gone {
-            let slot: Slot = (std::sync::Arc::from(company.as_str()), *object);
-            self.tables.remove(&slot);
-            self.versions.remove(&slot);
-            self.shapes.remove(&slot);
-            self.emptied.remove(&slot);
-        }
-        for (t, emptied) in tables {
-            let slot: Slot = (std::sync::Arc::from(t.company.as_str()), t.object);
-            let table: Table = t
-                .rows
-                .into_iter()
-                .map(|(k, r)| (Key::in_table(k, &t.pk_storage), r))
-                .collect();
-            self.counter = next_stamp();
-            self.versions.insert(slot.clone(), self.counter);
-            self.shapes.insert(slot.clone(), self.counter);
-            if emptied {
-                self.emptied.insert(slot.clone(), ());
-            } else {
-                self.emptied.remove(&slot);
-            }
-            // The rows come in without a write of each, so note their held columns as `from_exported` does: the store
-            // then refuses the reads the store the tables came from refuses.
-            self.note_held_rows(t.object, &table);
-            self.tables.insert(slot, table);
-        }
-        self.commit();
-        self
     }
 
     /// How many committed rows the store holds, over every table and company (a count for the work ratchet of the

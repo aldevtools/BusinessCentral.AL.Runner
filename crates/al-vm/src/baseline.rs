@@ -80,7 +80,7 @@ fn new_origin() -> u64 {
 }
 
 /// The first bytes of a snapshot: what it is and which layout it has. A change of the layout changes the last digit.
-const MAGIC: &[u8; 8] = b"ALBASE\0\x09";
+const MAGIC: &[u8; 8] = b"ALBASE\0\x0a";
 
 /// The order of a table's keys (`al_data::memory::PkStorage`): the count of its key fields (0 for text order), then one
 /// byte per field.
@@ -121,6 +121,12 @@ impl Baseline {
                     return None;
                 }
             }
+        }
+        let emptied = self.store.committed_emptied();
+        put_u32(&mut out, emptied.len() as u32);
+        for (company, object) in &emptied {
+            put_str(&mut out, company);
+            put_u32(&mut out, *object);
         }
         put_u64(&mut out, self.next_guid);
         put_i64(&mut out, self.next_row_version);
@@ -222,6 +228,11 @@ impl Baseline {
                 rows,
             });
         }
+        let mut emptied = Vec::new();
+        for _ in 0..r.u32()? {
+            let company = r.str()?;
+            emptied.push((company, r.u32()?));
+        }
         let next_guid = r.u64()?;
         let next_row_version = r.i64()?;
         let committed_row_version = r.i64()?;
@@ -296,7 +307,7 @@ impl Baseline {
             return None;
         }
         Some(Baseline {
-            store: al_data::memory::MemStore::from_exported(tables),
+            store: al_data::memory::MemStore::from_exported(tables, &emptied),
             next_guid,
             next_row_version,
             committed_row_version,
@@ -599,7 +610,7 @@ mod tests {
             )],
         };
         Baseline {
-            store: al_data::memory::MemStore::from_exported(vec![table]),
+            store: al_data::memory::MemStore::from_exported(vec![table], &[]),
             next_guid: 41,
             next_row_version: 1_000_000_007,
             committed_row_version: 1_000_000_001,
@@ -643,7 +654,8 @@ mod tests {
     fn summary(b: &Baseline) -> String {
         let rows = b.store.export_committed().expect("no backing");
         format!(
-            "{rows:?} {} {} {} {:?} {:?} {:?} {} {:?} {:?} {:?} {:?}",
+            "{rows:?} {:?} {} {} {} {:?} {:?} {:?} {} {:?} {:?} {:?} {:?}",
+            b.store.committed_emptied(),
             b.next_guid,
             b.next_row_version,
             b.committed_row_version,
@@ -781,6 +793,48 @@ mod tests {
         );
         let shared = b.freeze().unwrap().thaw(None);
         assert!(ordered_read_refused(&shared.store.as_database()), "the shared baseline");
+    }
+
+    /// Table `Power BI Blob` (object 2000000144, a platform table of `al_builtins::platform::UNSEEDED_ROWS`), with only its key.
+    fn power_bi_blob() -> al_data::TableDef {
+        al_data::TableDef {
+            object: 2_000_000_144,
+            name: "Power BI Blob".into(),
+            fields: vec![al_data::FieldDef {
+                id: 1,
+                name: "Id".into(),
+                ty: al_builtins::value::RtType::Guid,
+                stored: true,
+                code_storage: Default::default(),
+            }],
+            keys: vec![vec![0]],
+            per_company: false,
+        }
+    }
+
+    // A platform table of `UNSEEDED_ROWS` that the session's own DeleteAll without filters emptied is read
+    // (`Session::is_unseeded`, al-vm records.rs; al-language-onprem/metadata/PtOnPremTables.al Y17_PowerBIBlob_BlobRoundTrip,
+    // corpus master 97c29f86). A baseline read back from its bytes (a thread's own copy, the shared baseline, the baseline
+    // cache) holds what the captured one holds, so it holds the mark too.
+    #[test]
+    fn a_baseline_read_back_from_bytes_keeps_the_tables_a_delete_all_emptied() {
+        use al_data::Store;
+        let cx = al_data::contract::cx("C");
+        let t = power_bi_blob();
+        let mut store = al_data::memory::MemStore::default().as_database();
+        store.delete_all(&cx, &t, &[]).unwrap();
+        store
+            .insert(&cx, &t, vec![al_builtins::value::Value::Guid([7; 16])])
+            .unwrap();
+        store.commit();
+        let mut b = sample();
+        b.store = store;
+        let answer = |s: &al_data::memory::MemStore| (s.emptied(&cx, &t), s.count(&cx, &t, &[]).unwrap());
+        assert_eq!(answer(&b.store), (true, 1), "the captured baseline");
+        let back = Baseline::from_bytes(&b.to_bytes().unwrap()).unwrap();
+        assert_eq!(answer(&back.store.as_database()), (true, 1), "read back from its bytes");
+        let shared = b.freeze().unwrap().thaw(None);
+        assert_eq!(answer(&shared.store.as_database()), (true, 1), "the shared baseline");
     }
 
     /// The rows `--test-data` backs table `Names` with in company `C`: `Alpha`, `ærø` and `Bravo`.

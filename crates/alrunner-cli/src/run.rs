@@ -8,16 +8,18 @@
 //! `--refusal-detail`); a refusal is `TestResult::is_refusal` (not run, not left out by a stop
 //! option). A serve request keeps the dependency apps it read (`WarmCtx::dependencies`, checked by
 //! `kept_apps::stamps`) and the apps under test (`WarmCtx::apps`, `kept_apps.rs`) and says where its
-//! time went (`RequestTimings`, the summary's `timings`). Entry: `test`.
+//! time went (`request_timings.rs`, the summary's `timings`). Entry: `test`.
 
 use crate::apps::{self, AppInput};
 use crate::args::{DEFAULT_TOP, TestArgs};
 use crate::capture;
 use crate::coverage;
 use crate::output::{self, Counts};
-use crate::setup_timings::{Laps, Part, SetupParts};
+pub use crate::request_timings::RequestTimings;
+use crate::setup_timings::{Laps, Part};
 use crate::style;
 use crate::testdata;
+use crate::workspace_layer::own_report;
 use al_bcdb_std::BackupProvider;
 use al_deps::load::WorkspaceApp;
 use al_host::dotnet::DotNetHost;
@@ -284,8 +286,33 @@ fn print_compile_phases(p: &al_testrun::runtime::Phases) {
     }
 }
 
-/// The `--timings` lines of the compile cache.
-fn print_compile_cache(p: &al_testrun::runtime::Phases) {
+/// The `--timings` lines of the compile cache. `workspace`: the run's own report of the workspace layer
+/// (`workspace_layer::own_report`).
+fn print_compile_cache(
+    p: &al_testrun::runtime::Phases,
+    workspace: Option<&al_testrun::workspace_cache::WorkspaceReport>,
+) {
+    // The workspace layer (ADR-022 amendment 2026-11-15): `workspaceCache` of serve's timings.
+    if let Some(w) = workspace {
+        eprintln!(
+            "compile cache: workspace layer {}, {}, open {}, store {}{}{}",
+            w.state.as_str(),
+            // An entry written after the run (decision 6) has no size yet.
+            if w.bytes == 0 && w.state == al_testrun::workspace_cache::WorkspaceState::Built {
+                "written after the run".to_string()
+            } else {
+                format!("{:.1} MB", w.bytes as f64 / 1e6)
+            },
+            secs(w.open),
+            secs(w.store),
+            w.file.as_ref().map_or(String::new(), |f| format!("; {}", f.display())),
+            if w.notes.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", w.notes.join("; "))
+            }
+        );
+    }
     if let Some(c) = &p.cache {
         eprintln!(
             "compile cache: {}; {} {}",
@@ -420,6 +447,19 @@ fn test_timeout_secs(a: &TestArgs) -> Result<u64, String> {
 }
 
 /// The time limit of a test from a number of seconds: `0` is no limit.
+/// The compile cache of a run whose cache is on: under the cache folder of `--cache-dir` or the environment, with the
+/// `--require-compile-cache` and `--rebuild-compile-cache` switches.
+fn compile_cache(a: &TestArgs, country: &str) -> al_testrun::compile_cache::CompileCache {
+    al_testrun::compile_cache::CompileCache {
+        dir: al_testrun::compile_cache::CompileCache::under(&al_deps::cache::cache_root_from_env(
+            a.cache_dir.as_deref(),
+        )),
+        require: a.require_compile_cache,
+        rebuild: a.rebuild_compile_cache,
+        country: country.to_string(),
+    }
+}
+
 fn time_limit(secs: u64) -> Option<std::time::Duration> {
     (secs > 0).then(|| std::time::Duration::from_secs(secs))
 }
@@ -522,7 +562,11 @@ fn with_skipped_dependencies(doc: String, dependencies: &al_testrun::deps::Depen
 /// A run whose selected tests and coverage statements are handed back in `into` (one side of an impact run).
 /// Prints the summary line of the run but no verdict.
 pub fn test_collect(a: &TestArgs, into: &mut Collected) -> Result<u8, String> {
-    test_inner(a, None, Some(into), None, false)
+    let code = test_inner(a, None, Some(into), None, false);
+    // The process makes another run next: this run's workspace layer entry is written now, so the compiled objects it
+    // holds do not live on into that run (ADR-022 amendment 2026-11-15, decision 6).
+    al_testrun::workspace_cache::wait_for_writes();
+    code
 }
 
 /// What the server hears for each test as it finishes: the event, and its capture as JSON.
@@ -565,52 +609,6 @@ pub struct KeptDependencies {
     /// The files they were chosen from and read from, as they were then (`kept_apps::stamps`).
     stamps: crate::kept_apps::Stamps,
     deps: Arc<deps::Dependencies>,
-}
-
-/// Where a server request spent its time, by phase (al-runner issue 5856).
-#[derive(Debug, Clone, Default)]
-pub struct RequestTimings {
-    /// Before the compile, by part (al-runner issue 8205); `SetupParts::total` is `setupMs`.
-    pub setup: SetupParts,
-    /// Finding the kept compile, updating it, or compiling again.
-    pub compile: std::time::Duration,
-    /// Building the engine the tests run on from the compiled program, or setting up a kept one.
-    pub engine: std::time::Duration,
-    /// The request ran on the engines an earlier request over the same compile kept.
-    pub engine_kept: bool,
-    /// Test sessions that took a login start in place of running the login, and the starts kept (al-runner issue 8211),
-    /// over every request the engine ran.
-    pub login_replays: u64,
-    pub login_starts: usize,
-    /// Setting up the install baseline: running the install code, or reading it.
-    pub baseline: std::time::Duration,
-    /// `ran`, `cache` or `kept` (`Phases::baseline_source`); `None`: no baseline.
-    pub baseline_source: Option<&'static str>,
-    /// Running the test codeunits, every pass.
-    pub tests: std::time::Duration,
-    /// Building the coverage document.
-    pub coverage: std::time::Duration,
-    /// Per pass (one per entry of the request): the threads' baseline copy and the pass's wall time.
-    pub passes: Vec<al_testrun::runtime::PassTime>,
-}
-
-impl RequestTimings {
-    /// A request's timings: its setup parts, the run's phases and the time the coverage document took.
-    fn of(setup: SetupParts, p: &al_testrun::runtime::Phases, coverage: Duration) -> RequestTimings {
-        RequestTimings {
-            setup,
-            compile: p.warm_compile.unwrap_or(p.compile),
-            engine: p.engine,
-            engine_kept: p.engine_kept,
-            login_replays: p.login_replay.replays,
-            login_starts: p.login_replay.starts,
-            baseline: p.baseline,
-            baseline_source: p.baseline_source,
-            tests: p.tests,
-            coverage,
-            passes: p.passes.clone(),
-        }
-    }
 }
 
 /// One entry of a server request (`WarmCtx::entries`).
@@ -676,66 +674,6 @@ impl Report {
             warnings: vec![why.to_string()],
         }
     }
-}
-
-/// Everything the compile depends on but the selection and the text of the workspace files: the workspace file names,
-/// the manifests (resources, layout files, `app.json`), the dependency apps, the symbols, the target.
-fn warm_key(
-    inputs: &[AppInput],
-    dependencies: &al_testrun::deps::Dependencies,
-    symbols: &BTreeSet<String>,
-    target: &str,
-) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    for i in inputs {
-        i.source.id.hash(&mut h);
-        i.source.dependencies.hash(&mut h);
-        // The names of the files, not their text: a change of text is the warm compile's to take in.
-        for (path, _) in &i.source.files {
-            path.hash(&mut h);
-        }
-        // What the app's manifest gives the program beside its code: a change to a layout file or `app.json` is a new
-        // key, as the warm compile takes in only source text (issue 5604). The resource files are not: they are
-        // run-time data, which each request hands to the program as they are then (issue 5635).
-        let m = &i.manifest;
-        (
-            &m.publisher,
-            &m.version,
-            m.include_source,
-            &m.target,
-            &m.symbols,
-            &m.layout_files,
-            m.package_data,
-            &m.package_data_files,
-        )
-            .hash(&mut h);
-        i.symbols.hash(&mut h);
-        let j = &i.json;
-        (&j.id, &j.name, &j.publisher, j.version.to_string()).hash(&mut h);
-        (
-            j.platform.as_ref().map(ToString::to_string),
-            j.application.as_ref().map(ToString::to_string),
-        )
-            .hash(&mut h);
-    }
-    for (app, lazy) in dependencies.apps.iter().zip(&dependencies.lazy) {
-        app.id.hash(&mut h);
-        app.files.len().hash(&mut h);
-        match lazy {
-            Some(l) => l.identity.hash(&mut h),
-            None => {
-                for (path, text) in &app.files {
-                    path.hash(&mut h);
-                    text.len().hash(&mut h);
-                }
-            }
-        }
-    }
-    dependencies.summary.hash(&mut h);
-    symbols.hash(&mut h);
-    target.hash(&mut h);
-    format!("{:016x}", h.finish())
 }
 
 pub fn test_with(a: &TestArgs, warm: Option<&mut WarmCtx>) -> Result<u8, String> {
@@ -1554,8 +1492,7 @@ fn test_inner(
             && std::env::var_os("AL_FORCE_BASELINE").is_none()
             && al_testrun::observe::text_looks_pure(&all_apps, &kinds, &symbols, opts_only.as_deref())
     };
-    let compile_cache_on =
-        !a.no_compile_cache && !std::env::var("ALRUNNER_NO_COMPILE_CACHE").is_ok_and(|v| !v.is_empty() && v != "0");
+    let compile_cache_on = !a.no_compile_cache && !al_testrun::switches::on("ALRUNNER_NO_COMPILE_CACHE");
     if !dependencies.apps.is_empty() && !looks_pure {
         // The Microsoft apps call .NET (Media, images). Without the compile cache the compile takes
         // seconds: start the helper processes now so the starts overlap it. With the cache the
@@ -1706,14 +1643,8 @@ fn test_inner(
         run_only: run_only_picks(a, &selection, &found),
         test_data: test_data.as_ref().map(|(d, _)| d.clone()),
         company_data: company_data.clone(),
-        compile_cache: compile_cache_on.then(|| al_testrun::compile_cache::CompileCache {
-            dir: al_testrun::compile_cache::CompileCache::under(&al_deps::cache::cache_root_from_env(
-                a.cache_dir.as_deref(),
-            )),
-            require: a.require_compile_cache,
-            rebuild: a.rebuild_compile_cache,
-            country: country.clone(),
-        }),
+        workspace_cache: crate::workspace_layer::options(a, &inputs),
+        compile_cache: compile_cache_on.then(|| compile_cache(a, &country)),
         // Left at their defaults: `single_fresh_check` (set per variant in stability mode, ADR-058 amendment 1), `perturb`, `check_baseline_rule`.
         ..Default::default()
     };
@@ -1792,9 +1723,7 @@ fn test_inner(
             }
         }
         Some(w) => {
-            // The options that change what the compile holds (`run_inputs.rs`) are part of the key.
-            let target_key = crate::run_inputs::RunInputs::of(a).compile_key(&chosen.target);
-            let key = warm_key(&inputs, &dependencies, &symbols, &target_key);
+            let key = crate::workspace_layer::warm_key(a, &inputs, &dependencies, &symbols, &chosen.target);
             let files: Vec<al_testrun::runtime::FileChange> = inputs
                 .iter()
                 .enumerate()
@@ -1862,7 +1791,7 @@ fn test_inner(
         if a.timings {
             eprintln!("{}", setup.line());
             print_compile_phases(p);
-            print_compile_cache(p);
+            print_compile_cache(p, own_report(p, warm.as_deref()));
             eprintln!("time: total {}", secs(total_time));
         }
         say!("{why}");
@@ -1995,7 +1924,7 @@ fn test_inner(
         if let Some(cost) = test_data.as_ref().and_then(|(d, _)| d.provider.cost()) {
             eprintln!("test data: {cost}");
         }
-        print_compile_cache(p);
+        print_compile_cache(p, own_report(p, warm.as_deref()));
         let slowest: Vec<String> = p
             .slowest
             .iter()
@@ -2357,7 +2286,13 @@ fn test_inner(
         })
     );
     if let Some(w) = warm {
-        w.timings = Some(RequestTimings::of(setup, p, coverage_time));
+        w.timings = Some(RequestTimings::of(
+            setup,
+            p,
+            coverage_time,
+            test_data.as_ref(),
+            own_report(p, Some(w)),
+        ));
         w.report = Some(Report {
             doc: serde_json::from_str(&crate::unpinned::json(
                 crate::seed::json(

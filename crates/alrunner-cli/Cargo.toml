@@ -21,6 +21,7 @@ mimalloc = ["dep:mimalloc"]
 al-bcdb-std = { path = "../al-bcdb-std" }
 al-rapidstart = { path = "../al-rapidstart" }
 al-builtins.workspace = true
+al-cache.workspace = true
 al-deps.workspace = true
 al-host.workspace = true
 al-ir.workspace = true

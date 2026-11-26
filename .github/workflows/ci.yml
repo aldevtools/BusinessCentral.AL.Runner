@@ -657,6 +657,17 @@ jobs:
             echo "::error::al-test-cli --list-changes failed"
             exit 1
           fi
+      # ADR-022 amendment 2026-11-15, "Equality requirement": for each BC major, the corpus apps over the Microsoft apps
+      # compiled fresh and read from the workspace layer of the compile cache, one compile per process over one cache folder
+      # (fresh, built, read, read and fresh with one thread); the canonical dumps must be equal (about 2 min for the three
+      # majors measured locally). Not on a draft pull request, which runs only the job `test` (owner, 2026-11-10): that job
+      # has the debug build and the Microsoft apps of BC 27 only.
+      - name: Workspace layer equality (BC 27, 28, 29)
+        if: ${{ !cancelled() }}
+        env:
+          WORKSPACE_EQUALITY_MAJORS: "27 28 29"
+        run: cargo test --release -p al-test-cli --test workspace_cache_equality -- --ignored --nocapture
+
       - name: Corpus job summary
         if: always()
         run: |

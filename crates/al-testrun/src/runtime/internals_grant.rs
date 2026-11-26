@@ -1,5 +1,6 @@
 //! The apps of a compile that the platform package's `InternalsVisibleTo` grants access to its internal members
-//! (issue 7853), and the workspace load that applies them.
+//! (issue 7853), the symbols each app is compiled with, and the workspace loads (fresh, and from a stored compile of
+//! the workspace layer) that apply both.
 
 use super::Manifest;
 use al_sema::workspace::AppSource;
@@ -24,6 +25,24 @@ pub(crate) fn granted_app_ids(apps: &[AppSource], manifests: &[Manifest]) -> Vec
         .collect()
 }
 
+/// Per app of the program, the symbols it is compiled with: a dependency app's are those of its own app.json, the
+/// project's apps take the project's (`None`; hard rule 6: a project that defines CLEAN25 does not change Base
+/// Application).
+pub(crate) fn dependency_symbols(kinds: &[al_sema::AppKind], manifests: &[Manifest]) -> Vec<Option<BTreeSet<String>>> {
+    kinds
+        .iter()
+        .enumerate()
+        .map(|(i, k)| {
+            (*k == al_sema::AppKind::Dependency).then(|| {
+                manifests
+                    .get(i)
+                    .map(|m| m.symbols.iter().cloned().collect())
+                    .unwrap_or_default()
+            })
+        })
+        .collect()
+}
+
 /// [`al_sema::Workspace::load_apps_symbols`] with the platform package's grants set (see [`granted_app_ids`]).
 pub(crate) fn load_workspace(
     apps: Vec<AppSource>,
@@ -37,6 +56,23 @@ pub(crate) fn load_workspace(
     let mut ws = al_sema::Workspace::load_apps_symbols(apps, kinds, symbols, dep_symbols, lazy);
     ws.set_internals_granted(granted);
     ws
+}
+
+/// [`al_sema::Workspace::load_stored`] with the symbols and the grants [`load_workspace`] gives a fresh load: a read
+/// compile's workspace is the fresh one's (ADR-022 amendment 2026-11-15, "Equality requirement").
+pub(crate) fn load_stored(
+    apps: Vec<AppSource>,
+    kinds: Vec<al_sema::AppKind>,
+    symbols: &BTreeSet<String>,
+    lazy: Vec<Option<al_sema::LazyDep>>,
+    stored: al_sema::StoredWorkspace,
+    manifests: &[Manifest],
+) -> Result<al_sema::Workspace, (Vec<AppSource>, String)> {
+    let dep_symbols = dependency_symbols(&kinds, manifests);
+    let granted = granted_app_ids(&apps, manifests);
+    let mut ws = al_sema::Workspace::load_stored(apps, kinds, symbols, &dep_symbols, lazy, stored)?;
+    ws.set_internals_granted(granted);
+    Ok(ws)
 }
 
 #[cfg(test)]

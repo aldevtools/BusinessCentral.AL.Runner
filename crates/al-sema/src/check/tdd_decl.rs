@@ -33,7 +33,7 @@ pub const TDD_FILE: &str = "<tdd>/stubs.al";
 pub const MAX_RECOMPILES: usize = 3;
 
 /// A declaration the next compile needs.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum TddNeed {
     /// Field `name` of table `table` (the object's name), declared with AL type `ty` and shown with type `shown`.
     Field {

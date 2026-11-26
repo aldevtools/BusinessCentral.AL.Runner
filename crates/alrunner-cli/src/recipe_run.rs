@@ -329,6 +329,9 @@ pub fn run_lanes(a: &TestArgs) -> Result<RecipeRun, String> {
         eprintln!("== lane {}: {n} codeunits, company '{company}'", lane.test_type());
         let mut warm = WarmCtx::default();
         let code = run::test_with(&la, Some(&mut warm))?;
+        // The next lane compiles next: this lane's workspace layer entry is written now, so the compiled objects it holds do
+        // not live on into that lane (ADR-022 amendment 2026-11-15, decision 6).
+        al_testrun::workspace_cache::wait_for_writes();
         let count = |k: &str| {
             warm.report
                 .as_ref()

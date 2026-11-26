@@ -101,6 +101,9 @@ pub struct RunOptions {
     /// Use the compile cache of the dependency apps (ADR-022). `None`: the demand-driven compile
     /// of every run, which is the reference path.
     pub compile_cache: Option<crate::compile_cache::CompileCache>,
+    /// Use the workspace layer of the compile cache too (ADR-022 amendment 2026-11-15), with `compile_cache`.
+    /// `None`: off.
+    pub workspace_cache: Option<crate::workspace_cache::WorkspaceCacheOptions>,
     /// A test that runs longer than this is stopped and reported as not run. `None`: no limit.
     pub test_time_limit: Option<std::time::Duration>,
     /// Per app (in the order given to the run): a dependency app whose files hold no text yet, and how
@@ -437,6 +440,8 @@ pub struct Compiled {
     pub(crate) ws: al_sema::Workspace,
     pub(crate) lowered: Lowered,
     pub(crate) cache_report: Option<crate::compile_cache::CacheReport>,
+    /// What the workspace layer of the compile cache did (ADR-022 amendment 2026-11-15); `None`: the run did not ask for it.
+    pub(crate) workspace_cache: Option<crate::workspace_cache::WorkspaceReport>,
     pub(crate) baseline_wanted: bool,
     pub(crate) baseline: bool,
     pub(crate) baseline_note: Option<String>,
@@ -706,6 +711,11 @@ pub type Resources = [(String, Vec<u8>)];
 pub type ResourceFiles = Vec<(String, Vec<u8>)>;
 
 impl Compiled {
+    /// What the workspace layer of the compile cache did for this compile (ADR-022 amendment 2026-11-15).
+    pub fn workspace_cache(&self) -> Option<&crate::workspace_cache::WorkspaceReport> {
+        self.workspace_cache.as_ref()
+    }
+
     /// The compile of a run that is not edited afterwards (a warm server's is, [`Compiled::update_files`], and keeps its
     /// trees): its workspace drops its parse trees once the program is lowered (`Workspace::drop_trees`). A compile kept
     /// for a later pass that grows it (ADR-063, `grow_kept`) keeps them: that pass reads the trees of most files again
@@ -861,6 +871,8 @@ impl Warm {
                                 let (apps, kinds, manifests) = build.take().expect("built once")();
                                 let compile_opts = RunOptions {
                                     only: None,
+                                    // The reference is a fresh compile: it neither reads nor writes the workspace layer.
+                                    workspace_cache: None,
                                     ..opts.clone()
                                 };
                                 let full = CorpusRuntime::compile_suites(

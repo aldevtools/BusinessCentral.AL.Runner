@@ -214,10 +214,13 @@ dependencies = [
  "al-version",
  "al-vm",
  "libc",
+ "postcard",
  "rayon",
+ "serde",
  "serde_json",
  "sha2",
  "tempfile",
+ "zstd",
 ]
 
 [[package]]
@@ -234,6 +237,7 @@ dependencies = [
  "al-ir",
  "al-sema",
  "al-testkit",
+ "al-testrun",
  "al-version",
  "flate2",
  "rust_decimal",
@@ -246,6 +250,7 @@ version = "3.0.0-alpha.15"
 dependencies = [
  "al-bcdb-std",
  "al-builtins",
+ "al-cache",
  "al-deps",
  "al-host",
  "al-ir",

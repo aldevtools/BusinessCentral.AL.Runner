@@ -1,5 +1,6 @@
 # The members served in process (ADR-038 section 1), one `Type.Member` per line. A test keeps this list equal to the
-# members the code serves and to the members the differential test covers.
+# members the code serves and to the members the differential test covers. A line that ends in `()` lists only the
+# call without arguments.
 System.Text.StringBuilder..ctor
 System.Text.StringBuilder.Append
 System.Text.StringBuilder.AppendLine
@@ -39,3 +40,5 @@ System.Math.Min
 System.Math.Sign
 System.TimeSpan.FromTicks
 System.Text.RegularExpressions.Regex..ctor
+System.IO.MemoryStream..ctor()
+System.IO.MemoryStream.ToArray
