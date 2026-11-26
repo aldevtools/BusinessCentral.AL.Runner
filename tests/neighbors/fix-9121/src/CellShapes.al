@@ -20,13 +20,14 @@ table 97502 "N9121 Enum Keyed"
     keys { key(PK; "Item No.", Kind, "Entry No.") { } }
 }
 
+// As in the measured page's table, the key's first field comes after the other key fields in field order.
 table 97503 "N9121 Two Keyed"
 {
     fields
     {
-        field(1; Type; Option) { OptionMembers = Item,Group,None; }
-        field(2; "Code"; Code[20]) { }
-        field(3; "Sales Type"; Option) { OptionMembers = A,B,C,D; }
+        field(1; "Code"; Code[20]) { }
+        field(13; "Sales Type"; Option) { OptionMembers = A,B,C,D; }
+        field(21; Type; Option) { OptionMembers = Item,Group,None; }
     }
     keys { key(PK; Type, "Code", "Sales Type") { } }
 }

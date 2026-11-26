@@ -343,11 +343,12 @@ pub struct ValidateStart {
 }
 
 impl ValidateStart {
-    /// The start of an OnValidate with the record's `filters` and field values `fields`.
-    pub fn new(filters: Vec<al_builtins::filter::FieldFilter>, fields: Vec<Value>) -> Self {
+    /// The start of an OnValidate on the page's record `rec`: its filters and field values.
+    pub fn new(rec: &crate::records::Rec) -> Self {
+        let r = rec.borrow();
         Self {
-            filters,
-            fields,
+            filters: r.filters.clone(),
+            fields: r.fields.to_vec(),
             left_new_line: false,
             ran: None,
         }

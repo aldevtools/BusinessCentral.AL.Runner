@@ -646,22 +646,30 @@ impl Session {
                     && key_filter(a, true)
                     && !is_line(*field, v)
             }
-            // Page 7004: `Type` (the key's first field) unchanged, "Sales Type" changed.
-            ([_, _], [_, _], [(first, kept), (changed, v)]) => {
+            // Page 7004: `Type` (the key's first field) unchanged, "Sales Type" changed. `stamps` is in field order, which
+            // need not be key order.
+            ([_, _], [_, _], [(f1, v1), (f2, v2)]) => {
+                let Some(&first) = table.keys[0].first() else {
+                    return Ok(false);
+                };
+                let ((kept_field, kept), (changed, v)) = match (*f1 == first, *f2 == first) {
+                    (true, false) => ((*f1, v1), (*f2, v2)),
+                    (false, true) => ((*f2, v2), (*f1, v1)),
+                    _ => return Ok(false),
+                };
                 let pair = (
-                    on(before, *first),
-                    on(now, *first),
-                    on(before, *changed),
-                    on(now, *changed),
+                    on(before, kept_field),
+                    on(now, kept_field),
+                    on(before, changed),
+                    on(now, changed),
                 );
                 let (Some(kb), Some(ka), Some(cb), Some(ca)) = pair else {
                     return Ok(false);
                 };
-                table.keys[0].first() == Some(first)
-                    && [&kb, &ka, &cb, &ca].iter().all(|f| key_filter(f, false))
+                [&kb, &ka, &cb, &ca].iter().all(|f| key_filter(f, false))
                     && kb.expr.identical(&ka.expr)
-                    && is_line(*first, kept)
-                    && !is_line(*changed, v)
+                    && is_line(kept_field, kept)
+                    && !is_line(changed, v)
             }
             _ => false,
         })
