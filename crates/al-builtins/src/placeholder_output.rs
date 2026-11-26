@@ -24,7 +24,7 @@
 //! filter or sort on it in al-data `MemStore::unknown_read`); a comparison `size_order` refused that
 //! a caller turned into an answer (a page's row compare) is refused at the next builtin call or the
 //! end of the procedure (`UNANSWERED`). A file of such bytes that the reading session holds no mark
-//! for gets `outside_mark` when it is opened (al-vm `outside_output_mark`). Entry points: `mark`, `outside_mark`, `is_placeholder`, `refusal`, `size`,
+//! for gets `outside_mark` when it is opened (al-vm `outside_output_mark`). Entry points: `mark`, `outside_mark`, `is_outside`, `is_placeholder`, `refusal`, `size`,
 //! `size_order`, `size_read`, `size_guard`, `refuse_unanswered`.
 
 use std::cmp::Ordering;
@@ -45,7 +45,15 @@ pub fn mark(format: &str, report: &str) -> Arc<str> {
 /// reading it holds no mark for: an earlier session or another process wrote it (al-vm `Session::outside_output_mark`). It
 /// names no report and no render, so no read of the content answers but the PDF's pinned start ([`pdf_read`]).
 pub fn outside_mark(kind: &str) -> Arc<str> {
-    format!("{PREFIX}{kind} written outside this session").into()
+    format!("{PREFIX}{kind}{OUTSIDE}").into()
+}
+
+/// The end of an [`outside_mark`].
+const OUTSIDE: &str = " written outside this session";
+
+/// Whether `mark` is an [`outside_mark`].
+pub fn is_outside(mark: &str) -> bool {
+    mark.starts_with(PREFIX) && mark.ends_with(OUTSIDE)
 }
 
 /// Whether a mark is a placeholder output's.

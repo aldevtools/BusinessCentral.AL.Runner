@@ -2,6 +2,8 @@
 //! signature a test can tell (reports/layouts-saveas/AMReportOutputTests.al:41-52 `Head`: `%PDF-`, `PK`, `<`) and that it is
 //! not empty. The content is never BC's, and a read of it is refused (`al_builtins::placeholder_output`).
 
+use std::sync::LazyLock;
+
 /// A rendered format a placeholder stands in for.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Format {
@@ -44,26 +46,28 @@ impl Format {
 }
 
 /// The format of the placeholder whose header `bytes` start with: a file the runtime wrote, whole, cut short after the
-/// header, or with bytes after it (al-runner issues 8702, 8703). The header is the shortest start of the image that other
-/// files do not share: the html page through its empty `<title></title>` (a page AL code writes names its title or leaves
-/// the element out; the start before it is every HTML5 page's), the PDF through its first object (the catalog, written as
-/// this runtime writes it), the zip through the first entry's name (its DOS date field is 0, which is no valid date, so no
-/// zip writer writes it). A file shorter than the header is not told apart from other content. An image is built only for
-/// bytes that start with its signature (`%PDF-`, `PK`, `<`).
+/// header, or with bytes after it (al-runner issues 8702, 8703). The header is the shortest start of the image that the
+/// other files this runtime meets do not share: the html page through its empty `<title></title>` (the start before it is
+/// every HTML5 page's), the PDF through its first object (the catalog, written as this runtime writes it), the zip through
+/// the first entry's name (its DOS date field is 0, which is no valid date). Any other file that starts with a header is
+/// read as that placeholder and its content refused, even one AL code of this session wrote with those bytes. A file
+/// shorter than the header is not told apart from other content.
 pub fn outside_format(bytes: &[u8]) -> Option<Format> {
-    [Format::Pdf, Format::Word, Format::Excel, Format::Html]
-        .into_iter()
-        .find(|&f| {
-            let signature: &[u8] = match f {
-                Format::Pdf => b"%PDF-",
-                Format::Word | Format::Excel => b"PK",
-                Format::Html => b"<",
-            };
-            bytes.starts_with(signature) && {
-                let image = f.bytes();
-                bytes.starts_with(&image[..header_len(f, &image)])
-            }
-        })
+    // Built once: the zip images take a CRC each.
+    static HEADERS: LazyLock<Vec<(Format, Vec<u8>)>> = LazyLock::new(|| {
+        [Format::Pdf, Format::Word, Format::Excel, Format::Html]
+            .into_iter()
+            .map(|f| {
+                let mut image = f.bytes();
+                image.truncate(header_len(f, &image));
+                (f, image)
+            })
+            .collect()
+    });
+    HEADERS
+        .iter()
+        .find(|(_, header)| bytes.starts_with(header))
+        .map(|&(f, _)| f)
 }
 
 /// The length of the header of `image`, the placeholder of `f` ([`outside_format`]).

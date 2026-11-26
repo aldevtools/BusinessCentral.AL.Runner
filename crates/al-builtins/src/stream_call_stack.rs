@@ -25,12 +25,7 @@ pub(crate) fn holds_mark(t: &str) -> bool {
 /// `Encoding::encode`), or the bytes are UTF-16 text that holds it. Arbitrary binary content is almost never valid UTF-16, so
 /// the length of an image is still answered.
 pub(crate) fn bytes_hold_mark(b: &[u8]) -> bool {
-    bytes_hold_text_mark(b, CALL_STACK_MARK)
-}
-
-/// Whether stream bytes hold the text mark `mark`, as [`bytes_hold_mark`] tells it for the call stack mark.
-pub(crate) fn bytes_hold_text_mark(b: &[u8], mark: char) -> bool {
-    let utf8 = Encoding::Utf8.encode(&mark.to_string());
+    let utf8 = Encoding::Utf8.encode(&CALL_STACK_MARK.to_string());
     if b.windows(utf8.len()).any(|w| w == utf8.as_slice()) {
         return true;
     }
@@ -38,7 +33,7 @@ pub(crate) fn bytes_hold_text_mark(b: &[u8], mark: char) -> bool {
         let units = b.chunks_exact(2).map(|p| u16::from_le_bytes([p[0], p[1]]));
         let mut has = false;
         char::decode_utf16(units).all(|c| {
-            has |= c == Ok(mark);
+            has |= c == Ok(CALL_STACK_MARK);
             c.is_ok()
         }) && has
     }

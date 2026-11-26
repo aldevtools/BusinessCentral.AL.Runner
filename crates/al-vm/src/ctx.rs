@@ -359,15 +359,15 @@ impl al_builtins::native::Ctx for Session {
         Ok(())
     }
     fn fs_placeholder(&mut self, path: &str) -> Option<(Arc<str>, Vec<u8>)> {
-        if let Some(mark) = self.placeholder_file_mark(path) {
-            return Some((mark, self.host.files.read(path)?));
-        }
-        // A pending file is refused by the read that follows (`fs_read`).
-        if self.render_pending_files.contains_key(&pending_key(path)) {
-            return None;
-        }
+        let mark = self.placeholder_file_mark(path)?;
         let bytes = self.host.files.read(path)?;
-        Some((outside_output_mark(&bytes)?, bytes))
+        Some((mark, bytes))
+    }
+    fn fs_read_to_open(&mut self, path: &str) -> Result<Option<al_builtins::native::OpenedFile>, Signal> {
+        Ok(self.fs_read_to_move(path)?.map(|bytes| {
+            let mark = outside_output_mark(&bytes);
+            (bytes, mark)
+        }))
     }
     fn fs_opened(&mut self, path: &str) {
         self.placeholder_files.opened(path);
@@ -810,7 +810,7 @@ pub(crate) fn pending_key(path: &str) -> String {
 /// hold the mark of a rendered text (`al_builtins::rendered_text::bytes_hold`). An earlier session or another process wrote
 /// the file, and its mark lived only there; read without it, the placeholder's markup would answer as BC's rendering and the
 /// mark's bytes would form a rendered text past the checks of `rendered_text::read_whole`. `File.Open` gives the open file
-/// this mark (`fs_placeholder`), so it opens, its size answers as a placeholder's, a copy carries it, and a read of the content
+/// this mark (`fs_read_to_open`), so it opens, its size answers as a placeholder's, a copy carries it, and a read of the content
 /// is refused (`al_builtins::placeholder_output`); every other read of the bytes is refused in `fs_read`. A byte copy
 /// (`fs_read_to_move`) keeps the bytes, so the copy gets the same mark when it is read.
 pub(crate) fn outside_output_mark(bytes: &[u8]) -> Option<Arc<str>> {

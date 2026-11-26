@@ -191,6 +191,8 @@ fi
 [ ${#apps[@]} -gt 0 ] || exit $status
 out="${NEIGHBOR_DIFF_OUT:-$cache/neighbor-diff/$(git rev-parse --short HEAD)}"
 mkdir -p "$out"
+# Absolute: each run changes into its own folder, so a relative $out would no longer name this one.
+out="$(cd "$out" && pwd -P)"
 head_bin="$out/al-runner-head"
 build_head "$head_bin" || { echo "neighbor-diff: the head build failed" >&2; exit 2; }
 main_bin="$(main_binary)" || { echo "neighbor-diff: no main binary for $base" >&2; exit 2; }

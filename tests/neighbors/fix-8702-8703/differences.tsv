@@ -15,3 +15,5 @@ UO Mark_ReadCount::Mark_ReadCount	REFUSED a read of the content of a placeholder
 UO Mark_NotEmpty::Mark_NotEmpty	REFUSED a read of the content of a placeholder text with rendered content written outside this session
 UO Mark_Windows_StrLen::Mark_Windows_StrLen	REFUSED a read of the content of a placeholder text with rendered content written outside this session
 UO Mark_FirstByte::Mark_FirstByte	REFUSED a read of the content of a placeholder text with rendered content written outside this session
+UO Word_MediaImportFile::Word_MediaImportFile	REFUSED a read of the content of a placeholder Word written outside this session
+UO WriteText_Close_Read::WriteText_Close_Read	REFUSED a read of the content of a placeholder Html written outside this session
