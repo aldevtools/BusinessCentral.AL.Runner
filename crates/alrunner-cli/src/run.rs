@@ -921,13 +921,33 @@ fn entry_runs(
 }
 
 /// The login replay's settings of a run (al-runner issue 8211, internal and opt-in): `ALRUNNER_LOGIN_REPLAY=1`,
-/// `ALRUNNER_LOGIN_REPLAY_CHECK` and the start caps (`ALRUNNER_LOGIN_REPLAY_MAX_IMAGES`, `ALRUNNER_LOGIN_REPLAY_MAX_MB`),
-/// with the start check of the byte cap against `max_memory` (`--max-memory`, or this serve request's `maxMemory`).
-fn login_replay_options(opts: &mut RunOptions, max_memory: Option<u64>) -> Result<(), String> {
-    opts.login_replay_check = std::env::var_os("ALRUNNER_LOGIN_REPLAY_CHECK").is_some();
-    opts.login_replay = std::env::var_os("ALRUNNER_LOGIN_REPLAY").is_some_and(|v| v == "1");
-    opts.login_replay_limits = al_testrun::runtime::LoginReplayLimits::read(|v| std::env::var_os(v))?;
-    opts.check_login_replay_memory(max_memory)
+/// `ALRUNNER_LOGIN_REPLAY_CHECK` and the start caps (`ALRUNNER_LOGIN_REPLAY_MAX_IMAGES`, `ALRUNNER_LOGIN_REPLAY_MAX_MB`).
+struct LoginReplay {
+    check: bool,
+    replay: bool,
+    limits: al_testrun::runtime::LoginReplayLimits,
+}
+
+impl LoginReplay {
+    /// The settings, read and checked when the run starts, before any app is read or anything is downloaded: a bad cap
+    /// (also with the replay off), and the start check of the byte cap against `max_memory` (`--max-memory`, or this
+    /// serve request's `maxMemory`) when the run keeps starts.
+    fn read(max_memory: Option<u64>) -> Result<Self, String> {
+        let settings = LoginReplay {
+            check: std::env::var_os("ALRUNNER_LOGIN_REPLAY_CHECK").is_some(),
+            replay: std::env::var_os("ALRUNNER_LOGIN_REPLAY").is_some_and(|v| v == "1"),
+            limits: al_testrun::runtime::LoginReplayLimits::read(|v| std::env::var_os(v))?,
+        };
+        if settings.check || settings.replay {
+            settings.limits.check_memory_limit(max_memory)?;
+        }
+        Ok(settings)
+    }
+
+    /// Sets the settings on the run's options.
+    fn apply(self, opts: &mut RunOptions) {
+        (opts.login_replay_check, opts.login_replay, opts.login_replay_limits) = (self.check, self.replay, self.limits);
+    }
 }
 
 fn test_inner(
@@ -968,7 +988,7 @@ fn test_inner(
         // A server request is never colored.
         style::set(warm.is_none() && debug.is_none() && a.color.enabled(terminal, no_color));
     }
-    let test_timeout = test_timeout_secs(a)?;
+    let (test_timeout, login_replay) = (test_timeout_secs(a)?, LoginReplay::read(a.max_memory)?);
     // The country of the run (ADR-020 amendment): only `--country` selects it. An unknown one stops here, before
     // anything is loaded.
     let country = a.country().to_string();
@@ -1655,7 +1675,7 @@ fn test_inner(
         // Left at their defaults: `single_fresh_check` (set per variant in stability mode, ADR-058 amendment 1), `perturb`, `check_baseline_rule`.
         ..Default::default()
     };
-    login_replay_options(&mut opts, a.max_memory)?;
+    login_replay.apply(&mut opts);
     laps.lap(Part::Prepare);
     if let Some(w) = warm.as_deref() {
         opts.entries = entry_runs(a, w, &entry_selections, &found, &inputs, &opts.hooks);
