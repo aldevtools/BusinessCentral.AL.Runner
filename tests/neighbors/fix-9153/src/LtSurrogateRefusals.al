@@ -1,5 +1,6 @@
-// Neighbors of the lone surrogate half readers: TextBuilder and BigText operations on a text that holds one half, which
-// the probe does not measure. Each must refuse on the head binary (no assumption covers it).
+// Neighbors of the lone surrogate half readers: TextBuilder Remove, Length (set) and Capacity, BigText.AddText on a
+// text that holds one half, and the comparison of a Code that holds one. The probe measures none of them. Each must
+// refuse on the head binary (no assumption covers it).
 codeunit 75795 "LT SH Refusals"
 {
     Subtype = Test;
@@ -45,5 +46,25 @@ codeunit 75795 "LT SH Refusals"
         BT.AddText(Hi());
         if BT.Length() <> 1 then
             Error('length %1', BT.Length());
+    end;
+
+    [Test]
+    procedure Code_Compare_LoneHalf()
+    var
+        C: Code[10];
+    begin
+        C := Hi();
+        if C < 'A' then
+            Error('less');
+    end;
+
+    [Test]
+    procedure TextBuilder_Capacity_LoneHalf()
+    var
+        TB: TextBuilder;
+    begin
+        TB.Append(Hi());
+        if TB.Capacity() <> 16 then
+            Error('capacity %1', TB.Capacity());
     end;
 }

@@ -1415,7 +1415,34 @@ pub fn compare_operator(l: &Value, r: &Value, ordered: bool) -> Result<Ordering,
             return Ok(if a == b { Ordering::Equal } else { a.cmp(b) });
         }
     }
+    if let (Value::Text(a), Value::Text(b)) = (l, r) {
+        if a.has_lone() || b.has_lone() {
+            return lone_half_operator(a, b, ordered);
+        }
+    }
     if ordered { compare_order(l, r) } else { compare(l, r) }
+}
+
+/// `=`, `<>`, `<`, `>` of two Texts, one of which holds half of a surrogate pair (LtSurrogateHalves.al Ops_cmp_1..10, the
+/// cells of Op 20-99). Equal only to the same units; the empty text comes first. An order is answered only where one text
+/// is a lone half alone and the other is one other lone half, `a`, `z`, `~` or U+FFFD, or starts with `a` (`abc` and `a`
+/// with a lone half measured): by UTF-16 unit. Any other order refuses (`Txt::cmp`).
+fn lone_half_operator(a: &crate::text::Txt, b: &crate::text::Txt, ordered: bool) -> Result<Ordering, Signal> {
+    let (ua, ub) = (a.units(), b.units());
+    if ua == ub {
+        return Ok(Ordering::Equal);
+    }
+    // `=` and `<>` read only whether the units are the same.
+    if !ordered || ua.is_empty() || ub.is_empty() {
+        return Ok(ua.cmp(&ub));
+    }
+    let half = |u: &[u16]| u.len() == 1 && (0xD800..=0xDFFF).contains(&u[0]);
+    let measured = |u: &[u16]| half(u) || u == [0x61] || u == [0x7A] || u == [0x7E] || u == [0xFFFD] || u[0] == 0x61;
+    if (half(&ua) && measured(&ub)) || (half(&ub) && measured(&ua)) {
+        crate::text::half_kept(&[a, b]);
+        return Ok(ua[0].cmp(&ub[0]));
+    }
+    Ok(a.cmp(b))
 }
 
 /// Ordering for `<`, `<=`, `>` and `>=`: as [`compare`], except that text follows the culture order
@@ -1578,7 +1605,7 @@ pub fn compare(l: &Value, r: &Value) -> Result<Ordering, Signal> {
         }
         // A text with half of a surrogate pair is equal only to the same units, and the empty text comes before any other
         // (ADR-068; `R <> ''` in the corpus's `Codes`, streams/StTEncodings.al:70 on the values of :233-244). Any other order
-        // is ordinal by UTF-16 unit, a half not paired with its neighbor (LtSurrogateHalves.al Ops_cmp_1..10).
+        // of it is not audited and refuses (`Txt::cmp`).
         (V::Text(a) | V::Code(a), V::Text(b) | V::Code(b)) if a.has_lone() || b.has_lone() => {
             if a == b {
                 return Ok(Ordering::Equal);
@@ -1586,10 +1613,7 @@ pub fn compare(l: &Value, r: &Value) -> Result<Ordering, Signal> {
             match (a.utf16_len() == 0, b.utf16_len() == 0) {
                 (true, _) => return Ok(Ordering::Less),
                 (_, true) => return Ok(Ordering::Greater),
-                _ => {
-                    crate::text::half_kept(&[a, b]);
-                    return Ok(a.units().cmp(&b.units()));
-                }
+                _ => return Ok(a.cmp(b)),
             }
         }
         (V::Text(a) | V::Code(a), V::Text(b) | V::Code(b)) if !a.has_marker() && !b.has_marker() => {

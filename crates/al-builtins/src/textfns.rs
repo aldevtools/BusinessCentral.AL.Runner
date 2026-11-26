@@ -1004,7 +1004,8 @@ fn text_len_over(s: &str, cap: i64) -> i64 {
 /// Append, AppendLine, Insert, both texts of Replace).
 fn tb_text(a: &[Value], i: usize) -> Result<crate::text::Txt, Signal> {
     match a.get(i) {
-        Some(Value::Text(t) | Value::Code(t)) if t.as_str().contains(crate::native::CALL_STACK_MARK) => Ok(t.clone()),
+        // The mark is no surrogate unit, so the lossy text of a lone half answers the same.
+        Some(Value::Text(t) | Value::Code(t)) if t.audited_str().contains(crate::native::CALL_STACK_MARK) => Ok(t.clone()),
         Some(Value::Text(t) | Value::Code(t)) if t.has_marker() && crate::rendered_text::carried(t.audited_str()) => {
             Ok(t.clone())
         }
@@ -1225,12 +1226,16 @@ fn capacity_of(h: &Rc<RefCell<LibraryValue>>) -> i32 {
 /// `Capacity(6)` on six characters reads 6). A capacity below the length is not pinned.
 fn tb_capacity(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = string_of(r)?;
+    // The probe does not read the Capacity of a builder that holds a lone surrogate half: refused.
+    if with_string(&h, |s| s.has_lone()) {
+        let at = std::panic::Location::caller();
+        return Err(Signal::unsupported(crate::text::unaudited_reason(at)));
+    }
     if a.is_empty() {
         return Ok(Value::Integer(capacity_of(&h)));
     }
     let n = int(a, 0)?;
-    // The lossy text has the length of the exact one: a lone half and its U+FFFD are one unit each.
-    let len = with_string(&h, |s| Value::text_len(s.audited_str())) as i64;
+    let len = with_string(&h, |s| Value::text_len(s)) as i64;
     if n < len || n > i64::from(i32::MAX) {
         return unsupported("TextBuilder.Capacity set below the length or above the maximum (not pinned)");
     }
