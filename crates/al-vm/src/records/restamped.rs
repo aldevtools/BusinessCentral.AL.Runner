@@ -16,7 +16,7 @@
 use super::*;
 use crate::state::RestampedRows;
 use al_builtins::assumptions::{Assumption, assume};
-use al_builtins::value::VersionHow;
+use al_builtins::value::{VersionHow, VersionVia};
 use al_data::AccessContext;
 
 /// The field id of SystemRowVersion.
@@ -25,8 +25,8 @@ const ROW_VERSION: u32 = 2_000_000_005;
 impl Session {
     /// Takes entry `at` of `RowVersionTx::pending_inserts` out as sent now and returns the last row version its Inserts handed
     /// out. Its rows at or below a row version sent before them (the last Commit's or the open transaction's) are noted in
-    /// `restamped_rows`.
-    pub(crate) fn send_pending_insert(&mut self, at: usize) -> i64 {
+    /// `restamped_rows`, with `get_after_get` when a Get of their table (`by_get`) sends them after a Get set `sent`.
+    pub(crate) fn send_pending_insert(&mut self, at: usize, by_get: bool) -> i64 {
         let rv = &mut self.tx.open.row_versions;
         let (table, _, first, last) = rv.pending_inserts.remove(at);
         let to = last.min(self.tx.committed_row_version.max(rv.sent));
@@ -35,6 +35,7 @@ impl Session {
                 table,
                 from: first - 1,
                 to,
+                get_after_get: by_get && rv.sent_by_get,
             });
         }
         last
@@ -43,7 +44,7 @@ impl Session {
     /// A Commit sends every inserted row nothing sent yet (`send_pending_insert`).
     pub(crate) fn send_pending_inserts(&mut self) {
         while !self.tx.open.row_versions.pending_inserts.is_empty() {
-            self.send_pending_insert(0);
+            self.send_pending_insert(0, false);
         }
     }
 
@@ -97,11 +98,10 @@ impl Session {
     }
 
     /// The value a read of field `pos` of the buffer `r` gives when the field holds the row version of a row `restamped` notes
-    /// (a Record field, `interp.rs`, and `FieldRef.Value`, `refs.rs`). A buffer a read of the store gave that row version (a Get,
-    /// a Find or Next, a RecordRef read, or a copy of such a buffer: [`re_read`]) gets a BigInteger known only to be greater
-    /// than 0 (`placeholder_output::positive`) on the assumption `restamped-row-version-positive` (corpus PR 1509): it may be
+    /// (a Record field, `interp.rs`, and `FieldRef.Value`, `refs.rs`). A buffer the variable's own Get loaded after a Get sent
+    /// the row (`re_read_by_get`) gets a BigInteger known only to be greater than 0 (`placeholder_output::positive`) on the assumption `restamped-row-version-positive` (corpus PR 1509): it may be
     /// held, passed and returned, a comparison with 0 answers, and every other use (another number, Format, a builtin) refuses
-    /// (ADR-080). Every other buffer, the variable's own Insert or Modify among them, is refused.
+    /// (ADR-080). Every other buffer and send is refused.
     pub(crate) fn restamped_value(&self, r: &RecordState, pos: usize) -> Result<Option<Value>, Signal> {
         if r.temporary || self.restamped_rows.is_empty() {
             return Ok(None);
@@ -122,15 +122,32 @@ impl Session {
             "{} of a row of {} that the open transaction inserted before a row version sent ahead of it",
             t.fields[pos].name, t.name
         );
-        if !re_read(r, v) {
+        if !self.re_read_by_get(t.object, r, v) {
             return unsupported(format!(
-                "{what}, in a buffer that holds the row version of its own write: BC gives the row its row version when it sends it, this runtime the Insert's"
+                "{what}, in a buffer other than one its own Get loaded after a Get sent the row: BC gives the row its row version when it sends it, this runtime the Insert's"
             ));
         }
         assume(Assumption::RestampedRowVersionPositive);
         Ok(Some(al_builtins::placeholder_output::positive(format!(
             "{what} (BC gives the row its row version when it sends it, this runtime the Insert's)"
         ))))
+    }
+
+    /// Whether buffer `r` holds row version `v` of a row of `table` in the one shape corpus PR 1509 measures
+    /// (RowVersionWrites.al:392 InsertTwoTables, `row/other` greater at :420): a Get through a Record variable sent the row
+    /// after a Get of another table sent the higher row version (`RestampedRows::get_after_get`), and the variable's own Get loaded `v` into this buffer (`RecordState::version_entry`,
+    /// `VersionHow::Get`, `VersionVia::Own`). A Find, Next or RecordRef re-read, a copy, and a row a Commit, a write or another
+    /// read sent keep the refusal.
+    fn re_read_by_get(&self, table: u32, r: &RecordState, v: i64) -> bool {
+        let get_after_get = self
+            .restamped_rows
+            .iter()
+            .any(|x| x.table == table && x.from < v && v <= x.to && x.get_after_get);
+        get_after_get
+            && r.version_entry
+                .0
+                .as_ref()
+                .is_some_and(|e| e.source.version == v && e.source.how == VersionHow::Get && e.via == VersionVia::Own)
     }
 
     /// A find of the buffer `r` of table `t` (`t` with the record's ad hoc key), read through `cx`, that filters or sorts on its
@@ -207,13 +224,4 @@ impl Session {
         }
         Ok(())
     }
-}
-
-/// Whether a read of the store gave buffer `r` its row version `v`: a Get, a Find or Next, or another read (a RecordRef read,
-/// GetBySystemId), in the buffer itself or in the one it was copied from (`RecordState::version_entry`, al-vm
-/// `version_entry.rs`). Corpus PR 1509 RowVersionWrites.al:392 InsertTwoTables measures the row re-read by Get.
-fn re_read(r: &RecordState, v: i64) -> bool {
-    r.version_entry.0.as_ref().is_some_and(|e| {
-        e.source.version == v && matches!(e.source.how, VersionHow::Get | VersionHow::Find | VersionHow::OtherRead)
-    })
 }

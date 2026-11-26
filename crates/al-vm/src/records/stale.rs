@@ -115,11 +115,12 @@ impl Session {
                     .iter()
                     .position(|(o, c, _, _)| *o == table && c == company)
                 {
-                    self.send_pending_insert(at);
+                    self.send_pending_insert(at, false);
                 }
                 let rv = &mut self.tx.open.row_versions;
                 rv.accounted = rv.handed_out;
                 rv.sent = rv.sent.max(rv.last);
+                rv.sent_by_get = false;
                 // A Modify grows the value while another table holds unsent inserted rows, and those stay unsent
                 // (PlTRowVersionValue.al UK_InsertThenModifyOtherTable).
             }
@@ -152,9 +153,10 @@ impl Session {
                     rv.write_sends = Some((table, company.clone(), kind));
                 }
                 if let Some(at) = rv.pending_inserts.len().checked_sub(1) {
-                    let v = self.send_pending_insert(at);
+                    let v = self.send_pending_insert(at, false);
                     let rv = &mut self.tx.open.row_versions;
                     rv.sent = rv.sent.max(v);
+                    rv.sent_by_get = false;
                 }
             }
             TxWriteKind::Delete
@@ -220,6 +222,7 @@ impl Session {
             rv.write_sends = None;
             rv.accounted = rv.handed_out;
             rv.sent = rv.sent.max(rv.last);
+            rv.sent_by_get = false;
         }
     }
 
@@ -230,8 +233,9 @@ impl Session {
     /// PlTRowVersionValue.al UK_InsertThenFindSet, _FindFirst, _IsEmpty, _Count, _CalcSums, _ReadOtherTable,
     /// _ReadOtherThenSame, UK_InsertTwoTablesThenGetOne, UK_InsertReadInsertRead, UK_InsertThenModifyOtherTable). The rows
     /// get their row versions at the Insert here, so a read after a Modify handed out a higher one takes a new one to grow
-    /// the value as BC does (UK_InsertThenModifyOtherTable `findfirst` greater). Other reads are not pinned.
-    pub(crate) fn note_read_for_row_versions(&mut self, table: u32, company: &Option<String>, sends: bool) {
+    /// the value as BC does (UK_InsertThenModifyOtherTable `findfirst` greater). Other reads are not pinned. `get`: the read
+    /// is a Get through a Record variable (`RowVersionTx::sent_by_get`, `RestampedRows::get_after_get`).
+    pub(crate) fn note_read_for_row_versions(&mut self, table: u32, company: &Option<String>, sends: bool, get: bool) {
         let rv = &mut self.tx.open.row_versions;
         if rv.pending_inserts.is_empty() {
             return;
@@ -248,12 +252,14 @@ impl Session {
             return;
         };
         let current = self.tx.committed_row_version.max(rv.sent);
-        let v = self.send_pending_insert(pos);
+        let v = self.send_pending_insert(pos, get);
         if v > current {
             self.tx.open.row_versions.sent = v;
+            self.tx.open.row_versions.sent_by_get = get;
         } else {
             self.next_row_version += 1;
             self.tx.open.row_versions.sent = self.next_row_version;
+            self.tx.open.row_versions.sent_by_get = false;
         }
     }
 

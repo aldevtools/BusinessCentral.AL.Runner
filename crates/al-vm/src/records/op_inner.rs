@@ -341,6 +341,8 @@ impl Session {
                         | RecordOp::Count
                         | RecordOp::CalcSums
                 ),
+                // The send the probe of `restamped-row-version-positive` measures: a Get through a Record variable.
+                matches!((method, self.through_recordref), (RecordOp::Get, false)),
             );
             self.restamped_find(&cx, &t, &rec.borrow(), method)?;
             use crate::recmeta::{ISOLATION_REPEATABLE_READ, ISOLATION_UPDLOCK};

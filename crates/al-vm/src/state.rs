@@ -248,6 +248,9 @@ pub(crate) struct RowVersionTx {
     /// (table, company, first, last): the row versions the Inserts of rows of that table that nothing sent yet handed out.
     pub(crate) pending_inserts: Vec<(u32, Option<String>, i64, i64)>,
     pub(crate) sent: i64,
+    /// A Get through a Record variable that sent its table's inserted rows set `sent` last (`Session::note_read_for_row_versions`);
+    /// every other raise of `sent` clears it (`RestampedRows::get_after_get`).
+    pub(crate) sent_by_get: bool,
     pub(crate) handed_out: u64,
     pub(crate) accounted: u64,
     pub(crate) last: i64,
@@ -269,6 +272,10 @@ pub(crate) struct RestampedRows {
     pub(crate) table: u32,
     pub(crate) from: i64,
     pub(crate) to: i64,
+    /// A Get of `table` through a Record variable sent them after a Get of another table sent the higher row version, the
+    /// shape the probe measures (RowVersionWrites.al:392 InsertTwoTables: `Other.Get(1)`, then `Row.Get(1)`). False for every
+    /// other send: another read, a write, a Commit (`Session::send_pending_insert`).
+    pub(crate) get_after_get: bool,
 }
 
 /// A value per table and company ([`TableWrites`], [`WriteCounts`]), found by a hash of the table and a scan of its
