@@ -111,8 +111,8 @@ impl Walker<'_> {
             L::HandedContext => N::HandedContext,
             L::XmlNameTable => N::XmlNameTable,
             L::Text(_) if *kind == LibraryKind::SecretText => return Err(never(path, "SecretText")),
-            L::Text(t) => N::Text(t.clone()),
-            L::TextCap(t, n) => N::TextCap(t.clone(), *n),
+            L::Text(t) => N::Text(t.to_string()),
+            L::TextCap(t, n) => N::TextCap(t.to_string(), *n),
             L::SystemTable(n) => N::SystemTable(*n),
             L::Version(v) => N::Version(*v),
             L::RecordId {
@@ -230,8 +230,8 @@ impl Maker<'_> {
             N::ClosedRecordRef => L::ClosedRecordRef,
             N::HandedContext => L::HandedContext,
             N::XmlNameTable => L::XmlNameTable,
-            N::Text(t) => L::Text(t.clone()),
-            N::TextCap(t, n) => L::TextCap(t.clone(), *n),
+            N::Text(t) => L::Text(t.clone().into()),
+            N::TextCap(t, n) => L::TextCap(t.clone().into(), *n),
             N::SystemTable(n) => L::SystemTable(*n),
             N::Version(v) => L::Version(*v),
             N::RecordId {

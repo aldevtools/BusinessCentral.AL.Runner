@@ -237,11 +237,11 @@ impl Session {
 
     /// Whether the record `rc` may hold other fields than the Validate `run` started with, changed only after its
     /// OnBeforeValidateEvent returned: that event returned with the fields the Validate started with, no record method ran on
-    /// the record (CalcSums among them) and no Blob field of it was written (`Session::note_blob_write_under_validate`) since
-    /// the Validate started, and its buffer came from no TransferFields. The probe changed it by an
-    /// assignment in the field's OnValidate trigger, in a table procedure and in a codeunit that trigger calls, and in the
-    /// subscriber before the call (assumption `xrec-table-proc-routes`: record/validate/XRecTableProcRoutes.al, corpus PR
-    /// 1583; al-runner issue 8974). Writers no cell measures refuse (review of PR 9063, 2026-11-25): a table extension
+    /// the record (CalcSums among them), CalcFields loaded no Blob field of it and no builtin wrote into a field of it (through
+    /// its receiver or a by-reference operand: `ValidateRun::touched`) since the Validate started, and its buffer came from no
+    /// TransferFields. The probe changed it by an assignment in the field's OnValidate trigger, in a table procedure and in a
+    /// codeunit that trigger calls, and in the subscriber before the call (assumption `xrec-table-proc-routes`:
+    /// record/validate/XRecTableProcRoutes.al, corpus PR 1583; al-runner issue 8974). Writers no cell measures refuse (review of PR 9063, 2026-11-25): a table extension
     /// OnBeforeValidate or OnAfterValidate of the field (`kept_by_before_event` is then false), another record's fields put into
     /// the record (`ValidateRun::whole_write`: an assignment, RecordRef.SetTable, Page.GetRecord, Page.SetSelectionFilter), and a change of a field that is no Normal field (CalcFields of a FlowField). Also
     /// read by `cell_facts` in `running_call_xrec.rs`.

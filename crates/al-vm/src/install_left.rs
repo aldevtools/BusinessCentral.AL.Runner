@@ -159,6 +159,7 @@ impl Session {
             validate_site: _,
             validate_sites: _,
             plain_proc_xrec: _,
+            ext_xrec_triggers: _,
             shared_proc_xrec: _,
             iface_frames: _,
             cx: _,

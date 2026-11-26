@@ -7,6 +7,7 @@
 //! `baseline_cache::carry`), and what a run asks for. Entry points: `RunOptions`, `Compiled`, `Warm`,
 //! `SuiteRun`.
 use super::*;
+pub use crate::login_start::LoginReplayLimits;
 
 /// How the `OnRun` trigger of a test codeunit shows in the results of a run: what Microsoft's test runner reports, which
 /// AL code does not see.
@@ -271,9 +272,19 @@ pub struct RunOptions {
     /// the key digests every row). Outcomes must not depend on it: every input the login reads is a key field
     /// (`login_replay::Key`), and the login replay check is its differential test.
     pub login_replay: bool,
+    /// The caps of the login starts an engine keeps (`login_start/limits.rs`; `ALRUNNER_LOGIN_REPLAY_MAX_IMAGES` and
+    /// `ALRUNNER_LOGIN_REPLAY_MAX_MB`, read by the front ends). Default: 8 starts and 64 MB. Only time and memory
+    /// depend on them.
+    pub login_replay_limits: LoginReplayLimits,
 }
 
 impl RunOptions {
+    /// Whether the run keeps login starts: the replay (`login_replay`) or its check (`login_replay_check`), which keeps
+    /// the starts it compares with.
+    pub fn keeps_login_starts(&self) -> bool {
+        self.login_replay || self.login_replay_check
+    }
+
     /// These options with the run's clock begun, for a run that runs its program more than once (a second pass, a
     /// redo, the variants of a stability run): every pass then reads the one clock of the run.
     pub(crate) fn with_run_clock(&self) -> std::borrow::Cow<'_, RunOptions> {

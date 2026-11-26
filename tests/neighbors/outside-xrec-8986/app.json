@@ -1,0 +1,13 @@
+{
+  "id": "6d1f3c20-1a2b-4c3d-9e8f-898600000002",
+  "name": "Neighbors xRec 8986",
+  "publisher": "AL Runner",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "Cloud",
+  "idRanges": [ { "from": 50350, "to": 50399 } ],
+  "dependencies": [
+    { "id": "6d1f3c20-1a2b-4c3d-9e8f-898600000001", "name": "Neighbors xRec 8986 Base", "publisher": "AL Runner", "version": "1.0.0.0" }
+  ]
+}

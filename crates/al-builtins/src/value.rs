@@ -1489,6 +1489,12 @@ pub struct HeaderBag {
     pub unnamed_secret_header: bool,
     /// `HttpRequestMessage.SetCookie` wrote the `Cookie` header of these request headers (http::request_cookies).
     pub set_cookies: bool,
+    /// Something other than the measured calls changed this collection: Add of a text value, TryAddWithoutValidation,
+    /// Remove, Clear, a second WriteFrom(Text), a WriteFrom(InStream) or a SecretText of its content, any ReadAs of its content, or the collection
+    /// came from `HttpContent.Clear`, a content copy (`HttpContentState::deep_copy`) or a client rebuild.
+    /// `HttpHeaders.Contains('')` is measured only on collections without it (`http::headers::contains_empty_measured`).
+    /// Nothing clears it: a collection keeps it while it lives.
+    pub edited: bool,
 }
 
 /// The headers of an `HttpContent`, request, response or client, shared with every `HttpHeaders` handed out.
@@ -1561,6 +1567,12 @@ pub struct HttpContentState {
     /// No method was called on this content yet; it was only assigned, passed by value or handed on otherwise
     /// (`http::content_handed_on`). It stands for the variable main keeps as `LibraryValue::Empty` (`http::content_unused`).
     pub untouched: bool,
+    /// A `ReadAs` ran since the last `WriteFrom` or `Clear`. A stream write after a changed Content-Type is measured only
+    /// without it (`http::content::keep_stream_content_type`).
+    pub read_since_write: bool,
+    /// The content of a response a test handler filled (`http::send`). A stream write after a changed Content-Type is
+    /// measured only on a content the test made (`http::content::keep_stream_content_type`).
+    pub handler_filled: bool,
 }
 
 impl Default for HttpContentState {
@@ -1581,6 +1593,8 @@ impl Default for HttpContentState {
             secret: false,
             secret_read: crate::http::SecretReadShape::Other,
             untouched: false,
+            read_since_write: false,
+            handler_filled: false,
         }
     }
 }
@@ -1866,9 +1880,10 @@ pub enum LibraryValue {
     /// A `TestHandlerContext` the test runner hands to an ITestHandler callback (BC 29): what its members return there, and
     /// the reason of a `Skip` the callback made (`testcontexts.rs`, al-testrun `runtime/test_handlers.rs`).
     HandlerContext(Box<HandlerContext>),
-    Text(String),
+    /// A TextBuilder or BigText: its text, which may hold half of a surrogate pair (ADR-068).
+    Text(crate::text::Txt),
     /// A TextBuilder whose capacity was set or has to be kept: the text and the capacity in characters.
-    TextCap(String, i32),
+    TextCap(crate::text::Txt, i32),
     /// An open `RecordRef`: it owns a record buffer exactly as a `Record`
     /// variable does (fields, filters, key), so record operations are shared.
     RecordRef(Rc<RefCell<RecordState>>),
@@ -1943,9 +1958,7 @@ pub enum LibraryValue {
     XmlNameTable,
     /// An `XmlWriteOptions` that has been set: `PreserveWhitespace`.
     /// An `XmlReadOptions` that has been set: `PreserveWhitespace` (what is read does not depend on it).
-    XmlReadOptions {
-        preserve_whitespace: bool,
-    },
+    XmlReadOptions { preserve_whitespace: bool },
     XmlWriteOptions {
         preserve_whitespace: bool,
         /// Whether a document or element is written without indentation. A setter changes it only when it changes

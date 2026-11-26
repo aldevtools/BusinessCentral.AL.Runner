@@ -418,6 +418,9 @@ impl Session {
             self.check_calc_field(table, p)?;
         }
         self.load_blobs(rec, &blobs)?;
+        if !blobs.is_empty() {
+            self.note_blob_load_under_validate(rec);
+        }
         let mut fresh = Vec::new();
         for &p in positions {
             fresh.push(self.calc_value_in(rec, p, &mut Vec::new(), asked)?);
