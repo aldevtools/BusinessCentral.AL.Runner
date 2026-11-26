@@ -803,7 +803,7 @@ impl Session {
             // A BigText element writes its whole text (xmlports/shapes-properties/XmlPortBigText.al:178, :198).
             Value::Library(al_builtins::library_kind::LibraryKind::BigText, h) => match &*h.borrow() {
                 al_builtins::value::LibraryValue::Empty => String::new(),
-                al_builtins::value::LibraryValue::Text(s) => s.clone(),
+                al_builtins::value::LibraryValue::Text(s) => s.to_string(),
                 _ => return unsupported("XmlPort export of a BigText variable of this kind"),
             },
             other => return unsupported(format!("XmlPort export of the variable {}", other.describe())),

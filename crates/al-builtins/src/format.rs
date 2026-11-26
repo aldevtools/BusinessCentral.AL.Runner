@@ -320,7 +320,7 @@ fn bigtext_text(l: &crate::value::LibraryValue) -> Result<String, String> {
         crate::value::LibraryValue::Text(s) if crate::rendered_text::holds(s) => {
             Ok(crate::rendered_text::to_changed(s))
         }
-        crate::value::LibraryValue::Text(s) => Ok(s.clone()),
+        crate::value::LibraryValue::Text(s) => Ok(s.to_string()),
         _ => Err("Format of a BigText of this kind is not pinned".to_string()),
     }
 }
@@ -594,7 +594,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
             if matches!(&*l.borrow(), crate::value::LibraryValue::Text(_)) =>
         {
             match &*l.borrow() {
-                crate::value::LibraryValue::Text(s) => s.clone(),
+                crate::value::LibraryValue::Text(s) => s.to_string(),
                 _ => unreachable!(),
             }
         }
@@ -609,7 +609,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
             if name == "TableFilter" && matches!(&*l.borrow(), crate::value::LibraryValue::Text(_)) =>
         {
             match &*l.borrow() {
-                crate::value::LibraryValue::Text(s) => s.clone(),
+                crate::value::LibraryValue::Text(s) => s.to_string(),
                 _ => unreachable!(),
             }
         }
@@ -718,7 +718,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         }
         // A BigText formats as its text (streams/StTBigText.al:ConvertTextAndBack `format` direct).
         Value::Library(name, l) if name.as_str() == "BigText" && standard == 0 => match &*l.borrow() {
-            crate::value::LibraryValue::Text(t) => t.clone(),
+            crate::value::LibraryValue::Text(t) => t.to_string(),
             crate::value::LibraryValue::Empty => String::new(),
             _ => return Err("Format of a BigText with a capacity".to_string().into()),
         },
