@@ -5,14 +5,14 @@ codeunit 50130 "F Steps" { SingleInstance = true; var S: Text;
     procedure Get(): Text begin exit(S); end; }
 codeunit 50131 "F Inner" { trigger OnRun() begin DoSteps(); end;
     var G: Record "F X";
-    procedure DoSteps() var St: Codeunit "F Steps"; XA: Record "F X"; XB: Record "F X"; XC: Record "F X";
+    procedure DoSteps() var St: Codeunit "F Steps"; XA: Record "F X"; XB: Record "F X"; XC: Record "F X"; XD: Record "F X";
         YA: Record "F Y"; YC: Record "F Y"; T: Record "F X" temporary; I: Integer; Step: Text;
     begin
         foreach Step in St.Get().Split(',') do
             case Step of
                 'startx': StartX();
                 'fxa': XA.Consistent(false); 'fxc': XC.Consistent(false); 'txa': XA.Consistent(true);
-                'txb': XB.Consistent(true); 'txc': XC.Consistent(true); 'tya': YA.Consistent(true); 'fya': YA.Consistent(false); 'fyc': YC.Consistent(false);
+                'txb': XB.Consistent(true); 'fxb': XB.Consistent(false); 'txd': XD.Consistent(true); 'txc': XC.Consistent(true); 'tya': YA.Consistent(true); 'fya': YA.Consistent(false); 'fyc': YC.Consistent(false);
                 'fxg': G.Consistent(false); 'ftmp': T.Consistent(false);
                 'err': Error('inner failed');
                 'div': begin I := 0; I := 1 div I; end;
@@ -23,9 +23,10 @@ codeunit 50131 "F Inner" { trigger OnRun() begin DoSteps(); end;
     end;
     local procedure StartX() var X: Record "F X"; begin X.Consistent(false); end; }
 codeunit 50132 "F Rec Inner" { TableNo = "F Y"; trigger OnRun() var I: Codeunit "F Inner"; begin I.DoSteps(); end; }
-table 50132 "F Z" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { Clustered = true; } } }
+table 50132 "F Z" { fields { field(1; Id; Integer) { } field(2; "Date Filter"; Date) { FieldClass = FlowFilter; } } keys { key(PK; Id) { Clustered = true; } } }
 codeunit 50135 "F Z Inner" { TableNo = "F Z"; trigger OnRun() var I: Codeunit "F Inner"; begin I.DoSteps(); end; }
 codeunit 50137 "F Zf Inner" { TableNo = "F Z"; trigger OnRun() var I: Codeunit "F Inner"; begin Rec.SetRange(Id, 2); I.DoSteps(); end; }
+codeunit 50138 "F Zg Inner" { TableNo = "F Z"; trigger OnRun() var I: Codeunit "F Inner"; begin Rec.FilterGroup(2); I.DoSteps(); end; }
 codeunit 50136 "F X Inner" { TableNo = "F X"; trigger OnRun() var I: Codeunit "F Inner"; begin I.DoSteps(); end; }
 codeunit 50133 "F Wrap" { trigger OnRun() var St: Codeunit "F Steps"; begin St.Set('startx,fya,fyc,err'); Codeunit.Run(Codeunit::"F Inner"); end; }
 codeunit 50134 "F Neighbor Tests" { Subtype = Test;
@@ -53,6 +54,9 @@ codeunit 50134 "F Neighbor Tests" { Subtype = Test;
       'zgroup2': begin Z.FilterGroup(2); Z.SetRange(Id, 1); Z.FilterGroup(0); Ok := Codeunit.Run(Codeunit::"F Z Inner", Z); end;
       'zor': begin Z.SetFilter(Id, '1|2'); Ok := Codeunit.Run(Codeunit::"F Z Inner", Z); end;
       'zinnerfilter': Ok := Codeunit.Run(Codeunit::"F Zf Inner", Z);
+      'zinnergroup': Ok := Codeunit.Run(Codeunit::"F Zg Inner", Z);
+      'zflowfilter': begin Z.SetRange("Date Filter", 20260101D); Ok := Codeunit.Run(Codeunit::"F Z Inner", Z); end;
+      'zmarked': begin Z.Id := 1; Z.Insert(); Commit(); Z.Mark(true); Ok := Codeunit.Run(Codeunit::"F Z Inner", Z); end;
       'tmpyfilter': begin TY.Id := 1; TY.Insert(); TY.SetRange(Id, 1); Ok := Codeunit.Run(Codeunit::"F Rec Inner", TY); end;
       'x': Ok := Codeunit.Run(Codeunit::"F X Inner", X);
       'tmp': begin TX.Id := 1; TX.Insert(); Ok := Codeunit.Run(Codeunit::"F X Inner", TX); end;
@@ -97,4 +101,22 @@ codeunit 50134 "F Neighbor Tests" { Subtype = Test;
   [Test] procedure RecMarkedByOtherVariableFails() begin RecFails('x', 'fxa,err'); end;
   [Test] procedure RecFilteredFieldError() begin RecFails('zfilter', 'fxg,fielderr'); end;
   [Test] procedure HeldHeldCommitNoRecord() begin Fails('fxa,fya,commit'); end;
+  // Fix round 1: a mark a temporary variable set; the releaser marking again; Consistent(true) on a mark marked again by a
+  // variable other than the setter and the one that marked it again; a FlowFilter range; marked rows without MarkedOnly; a
+  // filter group the inner codeunit leaves changed.
+  [Test] procedure TemporarySetterHeldAgainFails() begin Fails('ftmp,fya,fyc,err'); end;
+  [Test] procedure TemporarySetterMarkedAgainFails() begin Fails('ftmp,fxa,fya,err'); end;
+  [Test] procedure ReleaserMarksAgainFails() begin Fails('fxa,txb,fxb,fya,err'); end;
+  [Test] procedure RecFlowFilterSingleValueHeldAgainFails() begin RecFails('zflowfilter', 'startx,fya,fyc,err'); end;
+  [Test] procedure RecMarkedRowNoMarkedOnlyHeldAgainFails() begin RecFails('zmarked', 'startx,fya,fyc,err'); end;
+  [Test] procedure RecFilterGroupLeftByInnerHeldAgainFails() begin RecFails('zinnergroup', 'startx,fya,fyc,err'); end;
+}
+// The successful runs of fix round 1, in a codeunit of their own: an earlier refused test of a codeunit turns a later
+// failing one into not run.
+codeunit 50139 "F Neighbor Ends Tests" { Subtype = Test;
+  local procedure Ends(Steps: Text) var St: Codeunit "F Steps"; Ok: Boolean; begin
+    Commit(); St.Set(Steps); asserterror Ok := Codeunit.Run(Codeunit::"F Inner"); Error(GetLastErrorCode()); end;
+  [Test] procedure TemporarySetterHeldAgainEnds() begin Ends('ftmp,fya,fyc'); end;
+  [Test] procedure ReleaserTrueOnAgainEnds() begin Ends('fxa,txb,fxc,fya,txb,tya'); end;
+  [Test] procedure OtherTrueOnAgainEnds() begin Ends('fxa,txb,fxc,fya,txd,tya'); end;
 }

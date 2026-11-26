@@ -843,7 +843,7 @@ impl Session {
         let began_world = self.tx_model == TxModel::None && self.tx.tx_world == 0;
         let marks_before = if guarded { self.mark_snapshot() } else { Vec::new() };
         let commits_before = self.commits;
-        let run_arg = RunArg::of(record_arg);
+        let run_arg = RunArg::of(record_arg, &self.engine.field_facts);
         let arg_record = guarded.then(|| ArgRecord::of(record_arg)).flatten();
         self.tx.tx_world += 1;
         if let Some(t) = self.tx.used_tries.last_mut() {
