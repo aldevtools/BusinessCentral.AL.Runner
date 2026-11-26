@@ -199,7 +199,7 @@ mod tests {
                 matches!(got, Err(NoByteForm(kind)) if !kind.is_empty()),
                 "{what}: table {got:?}"
             );
-            let store = al_data::memory::MemStore::from_exported(vec![exported(table)]);
+            let store = al_data::memory::MemStore::from_exported(vec![exported(table)], &[]);
             let got = current_digest(&store);
             assert!(
                 matches!(got, Err(NoByteForm(kind)) if !kind.is_empty()),
@@ -241,8 +241,8 @@ mod tests {
     // A guard: one content built twice, from two stores (other stamps, other pointers), gives one digest.
     #[test]
     fn one_content_built_twice_from_two_stores_gives_one_digest() {
-        let a = al_data::memory::MemStore::from_exported(vec![exported(rows(4))]);
-        let b = al_data::memory::MemStore::from_exported(vec![exported(rows(4))]);
+        let a = al_data::memory::MemStore::from_exported(vec![exported(rows(4))], &[]);
+        let b = al_data::memory::MemStore::from_exported(vec![exported(rows(4))], &[]);
         assert_eq!(current_digest(&a), current_digest(&b), "GUARD");
         assert!(current_digest(&a).is_ok(), "GUARD");
     }
@@ -260,7 +260,7 @@ mod tests {
     #[test]
     fn every_row_of_the_current_digest_is_encoded() {
         counts::reset();
-        let store = al_data::memory::MemStore::from_exported(vec![exported(rows(6))]);
+        let store = al_data::memory::MemStore::from_exported(vec![exported(rows(6))], &[]);
         assert!(current_digest(&store).is_ok());
         assert_eq!(counts::rows(), 6, "current_digest");
     }
@@ -275,8 +275,8 @@ mod tests {
             rows: Vec::new(),
             ..exported(Vec::new())
         };
-        let a = al_data::memory::MemStore::from_exported(vec![exported(rows(2))]);
-        let b = al_data::memory::MemStore::from_exported(vec![exported(rows(2)), rowless]);
+        let a = al_data::memory::MemStore::from_exported(vec![exported(rows(2))], &[]);
+        let b = al_data::memory::MemStore::from_exported(vec![exported(rows(2)), rowless], &[]);
         assert_eq!(b.export_current().len(), 2, "GUARD the store exports the rowless entry");
         assert_eq!(current_digest(&a), current_digest(&b));
     }
@@ -305,7 +305,7 @@ mod tests {
             "GUARD: the Text's length is one byte of the company name"
         );
         let second = format!("\u{7}{}\0\0\0", char::from(tail.len() as u8));
-        let b = al_data::memory::MemStore::from_exported(vec![table("", 7, ints(8)), table(&second, 8, ints(9))]);
+        let b = al_data::memory::MemStore::from_exported(vec![table("", 7, ints(8)), table(&second, 8, ints(9))], &[]);
         let mut joined = ints(8);
         let null = Value::Null;
         let text = Value::Text(String::from_utf8(tail).expect("GUARD: ASCII").as_str().into());
@@ -319,7 +319,7 @@ mod tests {
             null,
             text,
         ]);
-        let a = al_data::memory::MemStore::from_exported(vec![table("", 7, joined)]);
+        let a = al_data::memory::MemStore::from_exported(vec![table("", 7, joined)], &[]);
         assert!(current_digest(&a).is_ok(), "GUARD");
         assert_ne!(current_digest(&a), current_digest(&b));
     }
