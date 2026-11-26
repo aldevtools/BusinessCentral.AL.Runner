@@ -19,6 +19,9 @@
 //!
 //! A write the recorder missed counts as touching everything: at the end the stores are compared with what they held at
 //! the start, and every change must be a recorded write (`footprint_check`).
+//!
+//! Also the write set of every install session that took assumption install-session-can-create-task
+//! ([`Session::install_yes_session_bounds`]): the tables it changed, kept with the baseline, mark the tests that read them.
 
 use crate::FaultFrame;
 use al_data::memory::{Resource, StoreFootprint};
@@ -709,6 +712,44 @@ impl crate::Session {
         self.note_footprint(|fp| {
             fp.apps_met.insert(app);
         });
+    }
+}
+
+/// The write set of an install session that took assumption install-session-can-create-task (`TaskScheduler.CanCreateTask`
+/// answered Yes in install code, or a task was created there: al-builtins `install_code_yes`). Whether BC gives the same
+/// Yes in that shape, and what a task created there does, is not measured (the entry's probe cells), so what such a
+/// session left in the database rests on the assumption: each table it wrote is kept (`Baseline::install_yes_tables`)
+/// and a test that reads or writes one carries the mark ([`Session::install_yes_mark`], from `records.rs`
+/// `install_assumed`). Recorded for every install session, apart from the footprint above, which only partner groups
+/// record: a session is one `set_install_without_client(true)` to the next call of it (al-testrun starts one per
+/// dependency install routine and per app under test), and its write set is the tables whose rows changed since its
+/// start and no rollback undid (`MemStore::tables_changed_since`).
+impl crate::Session {
+    /// Ends the install session that runs (keeping its write set when it took the assumption) and, with `on`, begins
+    /// the next one (`set_install_without_client`).
+    pub(crate) fn install_yes_session_bounds(&mut self, on: bool) {
+        if let Some((from, true)) = self.install_yes_session.take() {
+            let written = self.store.tables_changed_since(from);
+            self.install_yes_tables.extend(written);
+        }
+        if on {
+            self.install_yes_session = Some((self.store.change_counter(), false));
+        }
+    }
+
+    /// The install session that runs took assumption install-session-can-create-task.
+    pub(crate) fn note_install_yes(&mut self) {
+        if let Some((_, took)) = self.install_yes_session.as_mut() {
+            *took = true;
+        }
+    }
+
+    /// Code outside install code read or wrote table `object`: when an install session that took assumption
+    /// install-session-can-create-task wrote it, the test carries the mark.
+    pub(crate) fn install_yes_mark(&self, object: u32) {
+        if self.install_yes_tables.contains(&object) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::InstallSessionCanCreateTask);
+        }
     }
 }
 

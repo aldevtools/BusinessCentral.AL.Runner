@@ -610,3 +610,120 @@ fn date_conversions_keep_nothing() {
         assert!(all(every), "{every}");
     }
 }
+
+// The write set of an install session that took assumption install-session-can-create-task (`install_yes_session_bounds`):
+// kept through every copy of the baseline, it marks a later read of those tables and of no other.
+const YES_SRC: &str = r#"
+table 50110 "Yes Row" { fields { field(1; Id; Integer) { } field(2; Said; Boolean) { } } keys { key(PK; Id) { } } }
+table 50111 "Other Row" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+codeunit 50110 YesInstall
+{
+    procedure Install()
+    var R: Record "Yes Row";
+    begin
+        R.Id := 1; R.Said := TaskScheduler.CanCreateTask(); R.Insert();
+    end;
+    procedure Plain()
+    var O: Record "Other Row";
+    begin
+        O.Id := 1; O.Insert();
+    end;
+    procedure CreateOnly()
+    var O: Record "Other Row";
+    begin
+        TaskScheduler.CreateTask(0, 0); O.Id := 2; O.Insert();
+    end;
+    procedure ReadYes(): Boolean
+    var R: Record "Yes Row";
+    begin
+        exit(R.Get(1));
+    end;
+    procedure ReadOther(): Boolean
+    var O: Record "Other Row";
+    begin
+        exit(O.IsEmpty());
+    end;
+}
+"#;
+
+fn yes_session() -> (Session, usize) {
+    let l = al_testkit::compile(YES_SRC);
+    let engine = Engine::new(l.program.clone(), al_testkit::blocked(&l));
+    let cu = (engine.program.objects.iter())
+        .position(|o| o.name == "YesInstall")
+        .expect("YesInstall");
+    (Session::new(engine), cu)
+}
+
+fn yes_call(s: &mut Session, cu: usize, routine: &str) {
+    let ri = (s.engine.program.objects[cu].routines.iter())
+        .position(|r| r.name == routine)
+        .expect("routine");
+    let inst = s.codeunit_instance(cu);
+    s.call(cu, ri, inst, vec![])
+        .unwrap_or_else(|e| panic!("{routine}: {e:?}"));
+}
+
+/// Runs each routine of `sessions` as install code in an install session of its own, then captures the baseline.
+fn yes_baseline(sessions: &[&str], company_open: bool) -> (crate::Baseline, Session, usize) {
+    let (mut s, cu) = yes_session();
+    s.set_install_scope(true);
+    for routine in sessions {
+        s.set_install_without_client(true);
+        s.set_install_company_open(company_open);
+        yes_call(&mut s, cu, routine);
+        s.set_install_company_open(false);
+        s.set_install_without_client(false);
+    }
+    s.set_install_scope(false);
+    al_builtins::assumptions::clear_hits();
+    (s.capture_baseline(), s, cu)
+}
+
+fn marks(s: &mut Session, cu: usize, routine: &str) -> bool {
+    use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
+    clear_hits();
+    yes_call(s, cu, routine);
+    take_hits().contains(&Assumption::InstallSessionCanCreateTask)
+}
+
+#[test]
+fn an_install_session_that_said_yes_marks_the_reads_of_its_tables_through_every_copy_of_the_baseline() {
+    let (b, mut first, cu) = yes_baseline(&["Install", "Plain"], false);
+    assert!(marks(&mut first, cu, "ReadYes"), "the session that captured");
+    assert!(
+        !marks(&mut first, cu, "ReadOther"),
+        "a table only a session without the Yes wrote"
+    );
+    let read_back = crate::Baseline::from_bytes(&b.to_bytes().expect("plain rows")).expect("reads back");
+    let thawed = b.freeze().ok().expect("shareable").thaw(None);
+    for (copy, name) in [(b.clone(), "clone"), (read_back, "bytes"), (thawed, "freeze and thaw")] {
+        let (mut s, cu) = yes_session();
+        assert!(!marks(&mut s, cu, "ReadYes"), "{name}: a new session marks nothing");
+        s.restore_baseline(&copy);
+        assert!(
+            marks(&mut s, cu, "ReadYes"),
+            "{name}: the table of the session that said Yes"
+        );
+        assert!(!marks(&mut s, cu, "ReadOther"), "{name}: another table");
+        let captured = s.capture_baseline();
+        let (mut t, cu) = yes_session();
+        t.restore_baseline(&captured);
+        assert!(
+            marks(&mut t, cu, "ReadYes"),
+            "{name}: a capture of the restored session"
+        );
+    }
+}
+
+#[test]
+fn a_task_created_in_install_code_marks_the_reads_of_its_install_sessions_tables() {
+    let (_, mut s, cu) = yes_baseline(&["CreateOnly"], false);
+    assert!(marks(&mut s, cu, "ReadOther"));
+}
+
+#[test]
+fn the_company_open_phase_keeps_no_and_marks_nothing() {
+    let (_, mut s, cu) = yes_baseline(&["Install"], true);
+    assert!(!marks(&mut s, cu, "ReadYes"));
+}

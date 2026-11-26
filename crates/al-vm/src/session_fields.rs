@@ -141,6 +141,8 @@ macro_rules! session_fields {
                 application_areas: String,
                 company_unknown: HashMap<(String, u32), String>,
                 full_copies: BTreeSet<String>,
+                // Kept until the session's data is replaced (`Baseline::install_yes_tables`).
+                install_yes_tables: BTreeSet<u32>,
                 // Kept until the session's data is replaced (`crate::state::RestampedRows`).
                 restamped_rows: Vec<crate::state::RestampedRows>,
                 // The clock: offset, last system stamp, key and draws (state_stamp.rs `counters`).
@@ -281,6 +283,7 @@ macro_rules! session_fields {
                 background_session => |s: &Session| !s.background_session,
                 install_without_client => |s: &Session| !s.install_without_client,
                 install_company_open => |s: &Session| !s.install_company_open,
+                install_yes_session => |s: &Session| s.install_yes_session.is_none(),
                 dirty_ops_open => |s: &Session| s.dirty_ops_open == 0,
                 dirty_frames => |s: &Session| s.dirty_frames.is_empty(),
                 live_xrecs => |s: &Session| s.live_xrecs.iter().all(|w| w.strong_count() == 0),

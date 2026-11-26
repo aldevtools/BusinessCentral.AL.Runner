@@ -22,6 +22,9 @@
 //! session-system/CnSessionLeads.al:23-46; Company with a company argument is an assumption (`task_company`); every other
 //! column is refused when read (`platform::unknown`).
 //!
+//! A task created in an app's install code gets the same rules, on assumption install-session-can-create-task (al-builtins
+//! `install_code_yes`; what BC does with such a task is not measured).
+//!
 //! `TaskScheduler.CreateTask`, `TaskExists`, `CancelTask`, `SetTaskReady`: the tasks of the running
 //! transaction (a rollback drops them; a committed task stays until cancelled and never runs). Entry
 //! points: `Session::task_scheduler_op`, `Tasks`.
@@ -236,6 +239,9 @@ impl Session {
                 return Err(self.missing_object("CodeUnit", i64::from(*n)));
             }
         }
+        // A task created in install code follows the rules above, which only tasks of a test session pin: assumption
+        // install-session-can-create-task, and the install session's tables mark the tests that read them.
+        al_builtins::native::install_code_yes(self);
         let id = self.fresh_guid();
         self.tasks.open.insert(id);
         self.write_task_row(id, args)?;

@@ -366,6 +366,9 @@ pub trait Ctx: FormatCtx {
     fn install_company_open(&self) -> bool {
         false
     }
+    /// The install session took assumption install-session-can-create-task (`session_fns::install_code_yes`): al-vm keeps
+    /// the tables the session writes, and a test that reads one carries the mark (`install_footprint.rs`).
+    fn note_install_can_create_task(&mut self) {}
     /// Whether a test codeunit is being run by the test runner (under TestIsolation = Codeunit).
     fn in_test_run(&self) -> bool {
         false

@@ -174,14 +174,22 @@ pub(super) fn start_session_of(c: &mut dyn Ctx, args: &mut [Value], timeout: boo
 /// Company Triggers subscribers of an install session (`Ctx::install_company_open`) main's false, not measured there.
 /// Everywhere else main's false.
 pub(super) fn can_create_task(c: &mut dyn Ctx, _: Option<&mut Value>, _: &mut [Value]) -> Result<Value, Signal> {
+    Ok(Value::Boolean(install_code_yes(c)))
+}
+
+/// Whether `TaskScheduler.CanCreateTask()` answers Yes here because an app's install code runs (see [`can_create_task`]).
+/// When it does, the session takes assumption install-session-can-create-task and its tables are kept
+/// (`Ctx::note_install_can_create_task`). Also the gate of a task created in install code (al-vm `tasks.rs`).
+pub fn install_code_yes(c: &mut dyn Ctx) -> bool {
     if c.install_company_open() {
-        return Ok(Value::Boolean(false));
+        return false;
     }
     if c.install_without_client() {
         crate::assumptions::assume(crate::assumptions::Assumption::InstallSessionCanCreateTask);
-        return Ok(Value::Boolean(true));
+        c.note_install_can_create_task();
+        return true;
     }
-    Ok(Value::Boolean(false))
+    false
 }
 
 pub(super) fn context_value(c: &dyn Ctx) -> Value {

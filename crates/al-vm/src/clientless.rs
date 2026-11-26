@@ -120,7 +120,9 @@ impl Session {
     /// false, `CurrentClientType()` is SOAP, a `Message` does not stop it, and StrMenu, Confirm and `Page.Run` raise
     /// CallbackNotAllowed (errors/RlInstallUi.al:210-241, metadata/CmInstallLeads.al:54-61).
     /// Not set while the company is built: Company-Initialize and the company data codeunit keep their own rules.
+    /// Each `on` begins an install session, and an `off` ends one (`install_session_begins`).
     pub fn set_install_without_client(&mut self, on: bool) {
+        self.install_yes_session_bounds(on);
         self.install_without_client = on;
         self.sync_no_client_test_session();
     }

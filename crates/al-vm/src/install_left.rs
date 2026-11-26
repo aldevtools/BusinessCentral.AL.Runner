@@ -90,6 +90,7 @@ impl Session {
             tasks: _,
             install_scope: _,
             company_build: _,
+            install_yes_session: _,
             // Set from the run's session flags before any code runs, the same in every session of the run.
             no_client: _,
             background_session: _,
@@ -250,6 +251,7 @@ impl Session {
             company_unknown: _,
             full_copies: _,
             restamped_rows: _,
+            install_yes_tables: _,
             run_trigger_unknown: _,
             package_load: _,
             // Carried in InstallLeft.

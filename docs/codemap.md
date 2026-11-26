@@ -352,7 +352,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `autoinc.rs`: AutoIncrement fields: taking the next value, explicit keys. Entry: `auto_increment_field`.
 - `baseline.rs`: The install baseline, with the install routines… Entry: `Baseline`.
 - `baseline/install_orders.rs`: What installing partner apps in several orders needs. Entry: `install_order_differences`.
-- `install_footprint.rs`: The footprint of a partner app's install session. Entry: `Session::install_footprint_start`.
+- `install_footprint.rs`: The footprint of a partner app's install session, and the write set of an install session that took install-session-can-create-task. Entry: `Session::install_footprint_start`, `Session::install_yes_session_bounds`.
 - `order_trial.rs`: A subscriber whose install order is not known runs… Entry: `trial_start`.
 - `callstack.rs`: The AL call stack of an error and the live stack. Entry: `add_frame`.
 - `caught_errors.rs`: The count of errors AL code caught: asserterror. Entry: `catch_error`.

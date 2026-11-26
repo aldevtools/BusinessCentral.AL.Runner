@@ -29,6 +29,7 @@ mod format_fns;
 mod messages;
 mod registry;
 mod session_fns;
+pub use session_fns::install_code_yes;
 mod strings;
 #[cfg(test)]
 pub(crate) mod tests;

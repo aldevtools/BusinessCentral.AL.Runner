@@ -621,6 +621,8 @@ impl crate::install_orders::AppInstalls for UnderTestInstalls<'_> {
     }
 
     fn install(&mut self, session: &mut Session, app: u32) {
+        // Each app's install session begins here (al-vm `install_yes_session_bounds`).
+        session.set_install_without_client(true);
         if let Some(k) = self.plans.iter().position(|a| a.app as u32 == app) {
             install_app_under_test(self.lowered, session, &self.plans[k], k, self.company, self.skipped);
         }

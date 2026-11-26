@@ -1,0 +1,11 @@
+{
+  "id": "8d1a2b3c-9046-4000-8000-000000041610",
+  "name": "CTC Task A",
+  "publisher": "Footprint Probe Co",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "15.0",
+  "idRanges": [ { "from": 52850, "to": 52859 } ],
+  "dependencies": [],
+  "target": "OnPrem"
+}

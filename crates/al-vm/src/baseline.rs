@@ -44,6 +44,9 @@ pub struct Baseline {
     pub full_copies: Vec<String>,
     /// The rows whose SystemRowVersion is the Insert's, not BC's (`Session::restamped_rows`).
     restamped_rows: Vec<crate::state::RestampedRows>,
+    /// The tables install sessions that took assumption install-session-can-create-task wrote
+    /// (`Session::install_yes_tables`, `install_footprint.rs`): a test that reads or writes one carries the mark.
+    install_yes_tables: std::collections::BTreeSet<u32>,
     /// Names what the baseline holds: baselines with the same origin hold the same data. Each baseline made gets a
     /// number of its own; [`Baseline::with_origin`] gives a copy read from another's bytes that one's.
     origin: u64,
@@ -80,7 +83,7 @@ fn new_origin() -> u64 {
 }
 
 /// The first bytes of a snapshot: what it is and which layout it has. A change of the layout changes the last digit.
-const MAGIC: &[u8; 8] = b"ALBASE\0\x09";
+const MAGIC: &[u8; 8] = b"ALBASE\0\x0a";
 
 /// The order of a table's keys (`al_data::memory::PkStorage`): the count of its key fields (0 for text order), then one
 /// byte per field.
@@ -195,6 +198,10 @@ impl Baseline {
             put_i64(&mut out, r.from);
             put_i64(&mut out, r.to);
         }
+        put_u32(&mut out, self.install_yes_tables.len() as u32);
+        for t in &self.install_yes_tables {
+            put_u32(&mut out, *t);
+        }
         Some(out)
     }
 
@@ -292,6 +299,10 @@ impl Baseline {
                 to: r.i64()?,
             });
         }
+        let mut install_yes_tables = std::collections::BTreeSet::new();
+        for _ in 0..r.u32()? {
+            install_yes_tables.insert(r.u32()?);
+        }
         if !r.is_empty() {
             return None;
         }
@@ -309,6 +320,7 @@ impl Baseline {
             company_unknown,
             full_copies,
             restamped_rows,
+            install_yes_tables,
             install_rows: None,
             origin: new_origin(),
         })
@@ -401,6 +413,7 @@ impl Session {
             },
             full_copies: self.full_copies.iter().cloned().collect(),
             restamped_rows: self.restamped_rows.clone(),
+            install_yes_tables: self.install_yes_tables.clone(),
             install_rows: Some(self.baseline_rows.clone()),
             origin: new_origin(),
         }
@@ -440,7 +453,8 @@ impl Session {
     /// Whether a session restored from a capture of this one now ([`Session::capture_baseline`]) would start exactly as one
     /// restored from `start`, the baseline this session was restored from ([`Session::restore_baseline`] reads nothing
     /// else): no table changed since that restore (the store is `start`'s), the counters, AutoIncrement values, isolated
-    /// storage, number sequences, last stamp, unknown company tables, full copies and group 1 flagged tables are `start`'s, and `start` holds no
+    /// storage, number sequences, last stamp, unknown company tables, full copies, group 1 flagged tables and the tables of
+    /// install sessions that took install-session-can-create-task are `start`'s, and `start` holds no
     /// built company (a capture does not keep that mark). The install rows a capture is given are those `start` gave
     /// (`Session::install_rows`), and its workspace installs are the caller's to compare.
     pub fn holds_what_it_started_from(&self, start: &Baseline) -> bool {
@@ -466,6 +480,7 @@ impl Session {
             && unknown == start_unknown
             && self.full_copies.iter().eq(start.full_copies.iter())
             && self.restamped_rows == start.restamped_rows
+            && self.install_yes_tables == start.install_yes_tables
     }
 
     /// Puts into `b` the numbers the session took since `b` from the sequences `b` holds. Under runner 130450 a test's
@@ -554,6 +569,7 @@ impl Session {
             .collect();
         self.full_copies = b.full_copies.iter().cloned().collect();
         self.restamped_rows = b.restamped_rows.clone();
+        self.install_yes_tables = b.install_yes_tables.clone();
         // A store read back from bytes holds the copies' tables but not which restored rows they read (see
         // `MemStore::note_copy`): a full copy is a copy of the session company.
         let session = self.cx.company.to_string();
@@ -634,6 +650,7 @@ mod tests {
                 from: 1_000_000_002,
                 to: 1_000_000_004,
             }],
+            install_yes_tables: [50002_u32, 50003].into_iter().collect(),
             install_rows: None,
             origin: new_origin(),
         }
@@ -643,7 +660,7 @@ mod tests {
     fn summary(b: &Baseline) -> String {
         let rows = b.store.export_committed().expect("no backing");
         format!(
-            "{rows:?} {} {} {} {:?} {:?} {:?} {} {:?} {:?} {:?} {:?}",
+            "{rows:?} {} {} {} {:?} {:?} {:?} {} {:?} {:?} {:?} {:?} {:?}",
             b.next_guid,
             b.next_row_version,
             b.committed_row_version,
@@ -654,7 +671,8 @@ mod tests {
             b.workspace_installs,
             b.company_unknown,
             b.full_copies,
-            b.restamped_rows
+            b.restamped_rows,
+            b.install_yes_tables
         )
     }
 
