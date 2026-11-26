@@ -2190,8 +2190,9 @@ fn kept_engine_key(
 }
 
 /// Hands the memory pool what the run's threads share ([`shared_bytes_meter`]) and, when the run keeps login starts, the
-/// room their byte cap still leaves them (`Pool::reserve`): threads are admitted as if the starts held their cap, so a
-/// raised `ALRUNNER_LOGIN_REPLAY_MAX_MB` shows in the budget (ADR-073 amendment 2026-11-26, al-runner issue 8211).
+/// room their caps still leave them (`Pool::reserve`): threads are admitted as if the starts held the most they can
+/// (`LoginReplayLimits::most_bytes`, al-runner issue 9173), so a raised `ALRUNNER_LOGIN_REPLAY_MAX_MB` shows in the
+/// budget (ADR-073 amendment 2026-11-26, al-runner issue 8211).
 pub(super) fn share_with_pool(
     pool: &super::memory::Pool,
     engine: &Arc<Engine>,
@@ -2200,8 +2201,9 @@ pub(super) fn share_with_pool(
 ) {
     pool.share(shared_bytes_meter(engine, install));
     if opts.keeps_login_starts() {
-        let (starts, cap) = (crate::login_start::starts(engine), opts.login_replay_limits.max_bytes);
-        pool.reserve(Arc::new(move || cap.saturating_sub(starts.bytes())));
+        let starts = crate::login_start::starts(engine);
+        let most = opts.login_replay_limits.most_bytes();
+        pool.reserve(Arc::new(move || most.saturating_sub(starts.bytes())));
     }
 }
 
@@ -2213,7 +2215,7 @@ pub(super) fn share_with_pool(
 /// The starts count as what they grew since the meter was made: a kept engine's starts of earlier requests are in the
 /// fixed part already, and when this run evicts them the sum does not fall below that reading, so their eviction never
 /// hides the test rows' growth (it can count up to the evicted bytes, at most the run's
-/// `LoginReplayLimits::max_bytes`, too much).
+/// `LoginReplayLimits::most_bytes`, too much).
 pub(super) fn shared_bytes_meter(
     engine: &Arc<Engine>,
     install: Option<&Arc<Engine>>,

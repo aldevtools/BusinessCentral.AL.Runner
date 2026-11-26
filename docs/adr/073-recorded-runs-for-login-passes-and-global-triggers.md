@@ -522,11 +522,13 @@ next to `ALRUNNER_LOGIN_REPLAY` and carried in the run options. A value outside 
 stops the run with an error naming the variable, also when the replay is off. The 16 MB limit per start and the 64
 refused keys stay fixed. A start larger than the smaller of 16 MB and the MB setting is not kept (`too large`). The run
 sets the caps on every engine it uses, kept ones included, and starts beyond the caps go at once, least recently used
-first. Kept starts are resident memory. When a memory limit is set (`--max-memory`, or serve's `maxMemory` per request)
-and a run keeps starts, an MB setting that is not below the limit stops the run before it starts, with an error that
-names both values; a refused serve request leaves the kept engine and its starts as they were. The memory pool counts
-the room the MB setting still leaves the kept starts before it admits a test thread, so a raised setting lowers the test
-threads of both serve and a one-shot run. In a one-shot run it only makes a hard stop less likely: the reserve is part
-of the admission check, never of the hard stop. No start is dropped for memory, so the hit rate never depends on timing.
+first. Kept starts are resident memory, and they hold at most the smaller of the MB setting and the count at 16 MB a
+start (al-runner issue 9173). When a memory limit is set (`--max-memory`, or serve's `maxMemory` per request) and a run
+keeps starts, the run stops before it starts when that most is not below the limit, with an error that names the limit
+and the setting that binds; a refused serve request leaves the kept engine and its starts as they were. The memory pool
+counts the room that most still leaves the kept starts before it admits a test thread, so a raised setting lowers the
+test threads of both serve and a one-shot run. In a one-shot run it only makes a hard stop less likely: the reserve is
+part of the admission check, never of the hard stop. No start is dropped for memory, so the hit rate never depends on
+timing.
 Measured on a real suite (al-runner issue 8211): 61% of entries replayed at 8 starts, 87% at 32 and 99% at 128, with 0
 differences in the check and identical answers.
