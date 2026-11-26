@@ -180,6 +180,37 @@ impl Session {
         Ok(Value::Null)
     }
 
+    /// `RecordRef.LockTable`.
+    fn recordref_lock_table(
+        &mut self,
+        rec: &crate::records::Rec,
+        t: &TableDef,
+        args: &[Value],
+    ) -> Result<Value, Signal> {
+        // RecordRef.LockTable(true, true) raises the Wait = FALSE error (recordref-fieldref/recordref/RfTViews.al:314-322).
+        if matches!(args, [Value::Boolean(true), Value::Boolean(true)]) {
+            return Err(crate::recmeta::lock_table_bad_parm(t));
+        }
+        // What a RecordRef's LockTable does to its ReadIsolation is not pinned (only Record's is,
+        // record/CvReadIsolationState.al:47-48).
+        if rec.borrow().read_isolation != 0 && !matches!(args.first(), Some(Value::Boolean(false))) {
+            return unsupported("RecordRef.LockTable after a ReadIsolation was set (not pinned)");
+        }
+        let mut a: Vec<Value> = args.iter().take(1).cloned().collect();
+        let locked = self.tx.open.locks.lock_tx;
+        let r = self.record_meta_op(RecordOp::LockTable, rec, t, &mut a);
+        // On an open database table it starts the write transaction, a read keeps it and a Commit ends it; on a
+        // temporary table it starts none (recordref-fieldref/WcRecordRefLockTable.al:28-87). What else follows from it
+        // (the stale-buffer shapes and the rest that read `lock_tx`) is pinned for Record.LockTable only.
+        let started = !locked && self.tx.open.locks.lock_tx;
+        self.lock_through_recordref(locked, "a RecordRef.LockTable");
+        self.note_recordref_lock(rec, t);
+        if started {
+            self.tx.open.locks.recref_lock_tx = true;
+        }
+        r
+    }
+
     fn lock_through_recordref(&mut self, locked_before: bool, what: &'static str) {
         if !locked_before && self.tx.open.locks.lock_tx {
             self.tx.open.locks.lock_tx = false;
@@ -1132,30 +1163,7 @@ impl Session {
             "SetAutoCalcFields" => self.recordref_set_auto_calc_fields(&rec, &t, args),
             // Doc (RecordRef.Duplicate): a new ref with the same table, buffer and filters, independent of the original.
             "RecordId" => self.record_id(&rec, &t),
-            "LockTable" => {
-                // RecordRef.LockTable(true, true) raises the Wait = FALSE error (recordref-fieldref/recordref/RfTViews.al:314-322).
-                if matches!(args, [Value::Boolean(true), Value::Boolean(true)]) {
-                    return Err(crate::recmeta::lock_table_bad_parm(&t));
-                }
-                // What a RecordRef's LockTable does to its ReadIsolation is not pinned (only Record's is,
-                // record/CvReadIsolationState.al:47-48).
-                if rec.borrow().read_isolation != 0 && !matches!(args.first(), Some(Value::Boolean(false))) {
-                    return unsupported("RecordRef.LockTable after a ReadIsolation was set (not pinned)");
-                }
-                let mut a: Vec<Value> = args.iter().take(1).cloned().collect();
-                let locked = self.tx.open.locks.lock_tx;
-                let r = self.record_meta_op(RecordOp::LockTable, &rec, &t, &mut a);
-                // On an open database table it starts the write transaction, a read keeps it and a Commit ends it; on a
-                // temporary table it starts none (recordref-fieldref/WcRecordRefLockTable.al:28-87). What else follows from it
-                // (the stale-buffer shapes and the rest that read `lock_tx`) is pinned for Record.LockTable only.
-                let started = !locked && self.tx.open.locks.lock_tx;
-                self.lock_through_recordref(locked, "a RecordRef.LockTable");
-                self.note_recordref_lock(&rec, &t);
-                if started {
-                    self.tx.open.locks.recref_lock_tx = true;
-                }
-                r
-            }
+            "LockTable" => self.recordref_lock_table(&rec, &t, args),
             "ReadIsolation" => {
                 let locked = self.tx.open.locks.lock_tx;
                 let r = self.record_meta_op(RecordOp::ReadIsolation, &rec, &t, args);
