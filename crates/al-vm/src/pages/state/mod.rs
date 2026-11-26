@@ -183,6 +183,10 @@ pub struct SavedView {
     /// The save ran code that is not a pinned page's under the effect gate of `code_inserted_extra.rs`: between the save and
     /// `CurrPage.Update(false)` the row may change through another record, or Rec's fields, but not both (`extra_code_kept`).
     pub extra: bool,
+    /// On the later SetValue of a page of the page-with-code shape with other code, at its `CurrPage.Update(false)`: the row and
+    /// Rec may both have changed since the save, the Update reads the row as stored
+    /// (ListNewLineExtraCodeCodedRecModify.al, `update_after_code_inserted_save`).
+    pub rec_free: bool,
 }
 
 /// The calls measured on the FactBox host after the page left its new line for the row (`code_inserted_new_line.rs`).
