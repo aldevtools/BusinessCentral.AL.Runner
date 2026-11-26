@@ -268,3 +268,64 @@ fn a_codeunit_on_a_thawn_twin_gives_the_results_and_marks_of_a_fresh_login() {
         assert!(text.contains(want), "{want}: {text}");
     }
 }
+
+/// A raised login that keeps a database record it loaded (`Get`) in a SingleInstance codeunit: since issue 8721 every
+/// load stamps the buffer with the source of its row version (al-vm `version_entry.rs`), which a later `Modify` of the
+/// buffer reads. `{ROLLBACK}` is a statement the subscriber runs before the `Get`.
+const KEEPS_A_LOADED_RECORD: &str = r#"
+codeunit 77400 "RPL Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
+    local procedure RegisterManualSetup()
+    var G: Codeunit "Guided Experience"; Keep: Codeunit "RPL Loaded Keep";
+    begin
+        G.InsertAssistedSetup(77400);
+        {ROLLBACK}
+        Keep.Keep(77400);
+    end;
+}
+codeunit 77408 "RPL Loaded Keep"
+{
+    SingleInstance = true;
+    var Kept: Record "Guided Experience Item";
+    procedure Keep(Id: Integer) begin Kept.Get(Id); end;
+    procedure Complete() begin Kept.Completed := true; Kept.Modify(); end;
+    procedure Describe(): Text var Row: Record "Guided Experience Item"; begin Row.Get(Kept."Object ID"); exit(Format(Row.Completed)); end;
+}
+codeunit 77409 "RPL Fails" { trigger OnRun() begin Error('fails'); end; }
+codeunit 77402 "RPL Tests A"
+{
+    Subtype = Test;
+    [Test]
+    procedure SeesTheRow() var Keep: Codeunit "RPL Loaded Keep"; begin Keep.Complete(); if Keep.Describe() <> 'Yes' then Error('kept: %1', Keep.Describe()); end;
+}
+"#;
+
+// A record the login loaded and kept holds the source of its row version: the image freezes it with its key and the
+// write counts it is compared against, so the session is imaged, its round trip equals, and a twin thawn from the image
+// gives the outcome of the session that ran its own login (the test modifies the kept record and reads the row back).
+#[test]
+fn a_kept_record_with_its_row_version_source_is_imaged_and_round_trips() {
+    let source = KEEPS_A_LOADED_RECORD.replace("{ROLLBACK}", "");
+    let line = image_line_of(&[&source]);
+    assert!(
+        line.starts_with("login image: 1 keys, 1 imaged, 0 not imaged; round trips 1, 0 differ"),
+        "{line}"
+    );
+    let fresh = ran_on(&source, "RPL Tests A", false);
+    assert_eq!(ran_on(&source, "RPL Tests A", true), fresh);
+}
+
+// The source counts the session's rollbacks, which the thaw does not carry (a new session's count is 0): after a login
+// that rolled back, a record holding one is not imaged, and the reason says so.
+#[test]
+fn a_kept_record_with_its_row_version_source_after_a_rollback_is_not_imaged() {
+    let source =
+        KEEPS_A_LOADED_RECORD.replace("{ROLLBACK}", "Commit(); if Codeunit.Run(Codeunit::\"RPL Fails\") then;");
+    let line = image_line_of(&[&source]);
+    assert!(
+        line.contains(", 1 not imaged (1: ")
+            && line.contains("Record holding the source of its row version after a rollback"),
+        "{line}"
+    );
+}

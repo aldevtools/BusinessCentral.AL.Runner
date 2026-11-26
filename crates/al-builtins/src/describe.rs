@@ -324,6 +324,7 @@ pub(crate) mod tests {
             last_modify: None,
             failed_insert: None,
             row_origin: None,
+            version_entry: Default::default(),
             own_read: Default::default(),
             rolled_read: Default::default(),
             probed_source: Default::default(),
