@@ -201,7 +201,12 @@ impl Session {
                 let from = match args.first() {
                     Some(Value::Record(from)) => from.clone(),
                     Some(Value::Library(_, lib)) => match &*lib.borrow() {
-                        al_builtins::value::LibraryValue::RecordRef(from) => from.clone(),
+                        al_builtins::value::LibraryValue::RecordRef(from) => {
+                            // A RecordRef that took the mark of a by-value copy (al-runner issue 9112) refuses every
+                            // method outside the allowlist of `by_value_ref_runs`, and CopyLinks is not on it.
+                            Self::by_value_ref_runs("RecordRef", "CopyLinks", from)?;
+                            from.clone()
+                        }
                         other => return unsupported(format!("CopyLinks from {}", other.describe())),
                     },
                     other => return unsupported(format!("CopyLinks from {}", other.describe())),
