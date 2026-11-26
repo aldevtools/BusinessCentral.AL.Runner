@@ -109,12 +109,6 @@ pub fn keeps_nothing(clr_type: &str, member: &str) -> bool {
     answers_only(clr_type, member) || listed(CONSTANT_ANSWERS, clr_type, member)
 }
 
-/// Whether a variable of the declared CLR type `clr_type` can only hold an object of a class served here whose members
-/// include one of [`ANSWERS_ONLY`]: the variable itself changes nothing; each member called on it counts on its own.
-pub fn holds_answering_class(clr_type: &str) -> bool {
-    (ANSWERS_ONLY.iter()).any(|(t, _)| t.eq_ignore_ascii_case(clr_type))
-}
-
 fn no_args(args: Args, what: &str) -> Result<(), Signal> {
     if args.is_empty() {
         Ok(())

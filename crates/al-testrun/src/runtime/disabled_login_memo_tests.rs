@@ -231,7 +231,7 @@ fn a_memo_that_reaches_only_the_measured_graph_members_runs_with_the_subscriber_
 }
 
 // Neighbors that keep main's refusal: a ServicePlanInfo member (unreachable on that tier, not measured), a GraphQuery
-// member corpus PR 1612 does not measure, another UserInfo member, and a ServicePlanInfo local alone.
+// member corpus PR 1612 does not measure, and another UserInfo member.
 #[test]
 fn a_memo_that_reaches_unmeasured_graph_members_keeps_the_refusal() {
     let plan = "P: DotNet ServicePlanInfo;";
@@ -242,9 +242,31 @@ fn a_memo_that_reaches_unmeasured_graph_members_keeps_the_refusal() {
         ),
         ("", "if G.GetTenantDetail().InitialDomain() = '' then;"),
         ("", "if U.DisplayName() = '' then;"),
-        (plan, ""),
     ] {
         let graph = GRAPH.replace("{vars}", vars).replace("{more}", more);
         kept_not_run(&run_graph(&format!("Graph(); {ENV}"), &graph), &graph);
     }
+}
+
+// A DotNet local of a class nothing serves, declared and never used, is no state write: a declaration only sets the
+// variable to null (al-builtins `Value::default_for`). The ServicePlanInfo local of Azure AD Plan Impl. alone leaves
+// the walk as it was without it.
+#[test]
+fn a_dotnet_local_that_is_only_declared_does_not_keep_the_refusal() {
+    let graph = GRAPH
+        .replace("{vars}", "P: DotNet ServicePlanInfo;")
+        .replace("{more}", "");
+    let (o, hits) = run_graph(&format!("Graph(); {ENV}"), &graph);
+    assert!(o.iter().all(|(_, r)| *r == Outcome::Pass), "{o:?}");
+    assert!(hits.iter().all(|(_, h)| h.is_empty()), "{hits:?}");
+}
+
+// A foreach over a DotNet variable enumerates it without a member call in the code: the walk keeps it as code it
+// does not follow, as the variable's declaration did before.
+#[test]
+fn a_foreach_over_a_dotnet_variable_keeps_the_refusal() {
+    let graph = GRAPH
+        .replace("{vars}", "P: DotNet ServicePlanInfo; L: DotNet ServicePlanInfo;")
+        .replace("{more}", "foreach P in L do;");
+    kept_not_run(&run_graph(&format!("Graph(); {ENV}"), &graph), &graph);
 }

@@ -909,7 +909,7 @@ pub(crate) fn remainder_reach_facts(
             }
         }
     }
-    rec.places(object, rest);
+    rec.places(object, routine, rest);
     al_ir::types::for_each_expr_post(rest, &mut |e| rec.expr(object, routine, e));
     rec.push(calls);
     rec.push(handlers.iter().map(|&h| (object, h)));
@@ -1466,7 +1466,7 @@ impl Rec<'_> {
                 }
                 self.slot(&s.ty);
             }
-            self.places(o, body);
+            self.places(o, r, body);
             al_ir::types::for_each_expr_post(body, &mut |e| self.expr(o, r, e));
         });
         let mut calls = Vec::new();
@@ -1512,18 +1512,9 @@ impl Rec<'_> {
             // A codeunit, report or xmlport variable: what it runs is in the calls (`Lowered::calls_into`). An
             // xmlport imports into its tables without a record operation in AL.
             RtType::Codeunit(c) if objs[*c as usize].kind == ObjKind::XmlPort => self.note_table_write(None),
-            RtType::DotNet(d) => self.out.state_writes |= self.dotnet_slot(*d),
+            // A `DotNet` variable is null until a constructor or a member call gives it an object
+            // (al-builtins `Value::default_for`); each of those counts where it is ([`Walk::dotnet_member`]).
             _ => {}
-        }
-    }
-
-    /// What a `DotNet` variable declared through alias `d` (`Program::dotnet_types`) changes by being there: nothing
-    /// for a class with a member that only answers ([`state::SERVER_ANSWER`]); else what the analysis does not follow.
-    fn dotnet_slot(&self, d: u32) -> u16 {
-        let decl = self.lowered.program.dotnet_types.get(d as usize);
-        match decl {
-            Some(decl) if al_vm::dotnet::server_classes::holds_answering_class(&decl.type_name) => state::SERVER_ANSWER,
-            _ => state::OTHER,
         }
     }
 
@@ -1567,27 +1558,36 @@ impl Rec<'_> {
         }
     }
 
-    /// The places statements assign (`:=`, the variable of a `for` or `foreach`).
-    fn places(&mut self, o: usize, body: &[Stmt]) {
+    /// The places statements assign (`:=`, the variable of a `for` or `foreach`). A `foreach` over a `DotNet` variable
+    /// enumerates it through members no expression names: code the analysis does not follow.
+    fn places(&mut self, o: usize, r: usize, body: &[Stmt]) {
         for s in body {
             match s {
                 Stmt::Assign(p, _) => self.write_place(o, p),
                 Stmt::For { var, body, .. } | Stmt::Foreach { var, body, .. } => {
+                    if let Stmt::Foreach {
+                        collection: Expr::Load(c),
+                        ..
+                    } = s
+                        && matches!(self.slot_ty(o, r, c), Some(RtType::DotNet(_)))
+                    {
+                        self.out.state_writes |= state::OTHER;
+                    }
                     self.write_place(o, var);
-                    self.places(o, body);
+                    self.places(o, r, body);
                 }
                 Stmt::If(_, a, b) => {
-                    self.places(o, a);
-                    self.places(o, b);
+                    self.places(o, r, a);
+                    self.places(o, r, b);
                 }
-                Stmt::While(_, b) | Stmt::Repeat(b, _) | Stmt::AssertError(b) => self.places(o, b),
+                Stmt::While(_, b) | Stmt::Repeat(b, _) | Stmt::AssertError(b) => self.places(o, r, b),
                 Stmt::Case {
                     branches, otherwise, ..
                 } => {
                     for (_, b) in branches {
-                        self.places(o, b);
+                        self.places(o, r, b);
                     }
-                    self.places(o, otherwise);
+                    self.places(o, r, otherwise);
                 }
                 Stmt::Expr(_)
                 | Stmt::Exit(_)

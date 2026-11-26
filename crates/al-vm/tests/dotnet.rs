@@ -2070,6 +2070,8 @@ fn the_declared_result_types_match_the_registry() {
             | "GetAzureKeyVaultCertificate" => continue,
             // Needs a length and a minimum; tests/host/server_helpers.rs runs it.
             "GeneratePassword" => continue,
+            // Raise the NullReference corpus PR 1612 measures on a tier without Entra ID; the Graph tests here run them.
+            "GetUserByObjectId" | "IsGroupMember" => continue,
             // Need a user's Guid and the User tables; tests/store/user_account_keys.rs runs them.
             "IsPasswordSet"
             | "TryGetAuthenticationKey"
@@ -2272,7 +2274,7 @@ fn other_members_of_a_null_user_info_keep_the_refusal() {
 // members, unreachable on that tier, and other members are not.
 #[test]
 fn the_graph_members_corpus_pr_1612_measures_are_answer_only() {
-    use al_vm::dotnet::server_classes::{answers_only, holds_answering_class};
+    use al_vm::dotnet::server_classes::answers_only;
     let (gq, ui) = (
         al_builtins::dotnet_sigs::GRAPH_QUERY,
         al_builtins::dotnet_sigs::USER_INFO,
@@ -2290,7 +2292,6 @@ fn the_graph_members_corpus_pr_1612_measures_are_answer_only() {
     for m in ["ObjectId", "AssignedPlans", "Roles", "Groups"] {
         assert!(answers_only(ui, m), "{m}");
     }
-    assert!(holds_answering_class(gq) && holds_answering_class(ui));
     for (t, m) in [
         (gq, "GetGroupPage"),
         (gq, "GetTenantDetail"),
@@ -4862,25 +4863,34 @@ fn an_azure_ml_with_events_variable_runs_flagged_in_the_shape_of_codeunit_2001()
 /// write) that writes no argument back.
 #[test]
 fn the_members_that_only_answer_are_registered_calls() {
-    use al_vm::dotnet::server_classes::{ANSWERS_ONLY, answers_only, holds_answering_class};
+    use al_vm::dotnet::server_classes::{ANSWERS_ONLY, answers_only};
     let reg = Registry::builtin();
     for (clr, member) in ANSWERS_ONLY {
+        // The UserInfo members are served only on the null UserInfo, where they raise (`not_created.rs`; the
+        // null-UserInfo tests here run them): the class is not registered.
+        if *clr == al_builtins::dotnet_sigs::USER_INFO {
+            continue;
+        }
         let t = reg.get(clr).unwrap_or_else(|| panic!("{clr} is not registered"));
+        // A constructor is listed by the class's short name (`constructor_answers_only`).
+        let kind = if clr.rsplit('.').next() == Some(*member) {
+            MemberKind::Construct
+        } else {
+            MemberKind::Call
+        };
         let m = t
-            .member(member, MemberKind::Call)
-            .unwrap_or_else(|| panic!("{clr}.{member} is not a call"));
-        assert_eq!(m.kind, MemberKind::Call, "{clr}.{member}");
+            .member(member, kind)
+            .unwrap_or_else(|| panic!("{clr}.{member} is not a {kind:?}"));
+        assert_eq!(m.kind, kind, "{clr}.{member}");
         assert!(m.call_ref.is_none(), "{clr}.{member} writes an argument back");
         assert!(
             answers_only(&clr.to_lowercase(), &member.to_uppercase()),
             "{clr}.{member}"
         );
-        assert!(holds_answering_class(clr), "{clr}");
     }
     let helper = al_builtins::dotnet_sigs::TENANT_SETTINGS_HELPER;
     assert!(!answers_only(helper, "IsProduction"));
     assert!(!answers_only(helper, "SetTestTenantEnvironmentType"));
-    assert!(!holds_answering_class("System.Text.StringBuilder"));
 }
 
 /// The wire values of the arguments of the first request of `member`.
@@ -5022,10 +5032,16 @@ fn the_constant_answers_are_registered_calls() {
     let reg = Registry::builtin();
     for (clr, member) in CONSTANT_ANSWERS {
         let t = reg.get(clr).unwrap_or_else(|| panic!("{clr} is not registered"));
+        // A constructor is listed by the class's short name (`constructor_answers_only`).
+        let kind = if clr.rsplit('.').next() == Some(*member) {
+            MemberKind::Construct
+        } else {
+            MemberKind::Call
+        };
         let m = t
-            .member(member, MemberKind::Call)
-            .unwrap_or_else(|| panic!("{clr}.{member} is not a call"));
-        assert_eq!(m.kind, MemberKind::Call, "{clr}.{member}");
+            .member(member, kind)
+            .unwrap_or_else(|| panic!("{clr}.{member} is not a {kind:?}"));
+        assert_eq!(m.kind, kind, "{clr}.{member}");
         assert_eq!(
             m.call_ref.is_some(),
             *member == "TryGetStringTenantSetting",
