@@ -715,14 +715,6 @@ pub(crate) fn stmt_places(body: &[Stmt], note: &mut dyn FnMut(&Place)) {
     stmt_assigns(body, &mut |p, _| note(p));
 }
 
-/// `e` without the conversions the lowering wraps around an assigned value.
-fn unconverted(mut e: &Expr) -> &Expr {
-    while let Expr::Convert(_, inner) = e {
-        e = inner;
-    }
-    e
-}
-
 /// As [`stmt_places`], with the value a `:=` assigns (`None` for a loop variable).
 fn stmt_assigns(body: &[Stmt], note: &mut dyn FnMut(&Place, Option<&Expr>)) {
     for s in body {
@@ -1662,7 +1654,7 @@ impl Rec<'_> {
             al_ir::types::for_each_expr_post(body, &mut |e| expr_refs(e, &mut |p| by_ref |= p == u));
             let mut sources = Vec::new();
             let mut ok = !by_ref;
-            stmt_assigns(body, &mut |p, e| match (p == u, e.map(unconverted)) {
+            stmt_assigns(body, &mut |p, e| match (p == u, e.map(Expr::unconverted)) {
                 (false, _) => {}
                 (
                     true,
@@ -1682,7 +1674,7 @@ impl Rec<'_> {
                 let mut by_ref = false;
                 al_ir::types::for_each_expr_post(body, &mut |e| expr_refs(e, &mut |p| by_ref |= p == g));
                 let mut built = !by_ref;
-                stmt_assigns(body, &mut |p, e| match (p == g, e.map(unconverted)) {
+                stmt_assigns(body, &mut |p, e| match (p == g, e.map(Expr::unconverted)) {
                     (false, _) => {}
                     (
                         true,
