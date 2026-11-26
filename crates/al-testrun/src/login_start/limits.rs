@@ -4,6 +4,11 @@
 //! (`login_start::MAX_START_BYTES`) and on the refused keys (`login_start::MAX_REFUSED`) stay fixed.
 //!
 //! This crate reads no environment (ADR-006): [`LoginReplayLimits::read`] takes the reader the front end passes.
+//!
+//! The byte cap is a hard limit on what the kept starts hold, so one check at the start keeps them inside a run's
+//! memory limit (ADR-073 amendment 2026-11-26, al-runner issue 8211): [`LoginReplayLimits::check_memory_limit`]. The
+//! memory pool counts the room the cap leaves the starts before it admits a thread (`Pool::reserve`,
+//! `runtime/corpus.rs` `share_with_pool`); no start is dropped for memory.
 
 use std::ffi::{OsStr, OsString};
 
@@ -50,6 +55,30 @@ impl LoginReplayLimits {
             Some(v) => whole(Self::MAX_MB_VAR, &v, u64::MAX >> 20)? << 20,
         };
         Ok(LoginReplayLimits { max_starts, max_bytes })
+    }
+
+    /// Stops a run that keeps starts when a memory limit is set (`limit`, bytes: `--max-memory` or serve's `maxMemory`)
+    /// and the byte cap is not below it, with an error that names both values (al-runner issue 8211, the maintainer's
+    /// start check). Without a set limit there is nothing to compare with.
+    pub fn check_memory_limit(&self, limit: Option<u64>) -> Result<(), String> {
+        match limit {
+            Some(limit) if self.max_bytes >= limit => Err(format!(
+                "{} is {}, not below the memory limit of {} (--max-memory or maxMemory): set it below the limit, or \
+                 raise the limit",
+                Self::MAX_MB_VAR,
+                size(self.max_bytes),
+                size(limit)
+            )),
+            _ => Ok(()),
+        }
+    }
+}
+
+/// `bytes` as the error texts show a size: whole MB when it is one, else bytes.
+fn size(bytes: u64) -> String {
+    match bytes % (1 << 20) {
+        0 => format!("{} MB", bytes >> 20),
+        _ => format!("{bytes} bytes"),
     }
 }
 
@@ -123,5 +152,27 @@ mod tests {
         // A good value of the other variable does not hide a bad one.
         let err = read(&[(IMAGES, "16"), (MB, "zero")]).unwrap_err();
         assert!(err.starts_with(MB), "{err}");
+    }
+
+    #[test]
+    fn a_byte_cap_not_below_a_set_memory_limit_is_an_error_that_names_both_values() {
+        let caps = |mb: &str| read(&[(MB, mb)]).unwrap();
+        assert_eq!(
+            caps("64").check_memory_limit(Some(64 << 20)).unwrap_err(),
+            "ALRUNNER_LOGIN_REPLAY_MAX_MB is 64 MB, not below the memory limit of 64 MB (--max-memory or maxMemory): \
+             set it below the limit, or raise the limit"
+        );
+        let err = caps("512").check_memory_limit(Some(300 << 20)).unwrap_err();
+        assert!(err.contains("is 512 MB, not below the memory limit of 300 MB"), "{err}");
+        // A limit that is not a whole number of MB shows its bytes.
+        let err = caps("1").check_memory_limit(Some(1000)).unwrap_err();
+        assert!(
+            err.contains("is 1 MB, not below the memory limit of 1000 bytes"),
+            "{err}"
+        );
+        // Below the limit, or no limit set: the run goes on.
+        assert_eq!(caps("63").check_memory_limit(Some(64 << 20)), Ok(()));
+        assert_eq!(LoginReplayLimits::default().check_memory_limit(Some(6 << 30)), Ok(()));
+        assert_eq!(caps("4096").check_memory_limit(None), Ok(()));
     }
 }

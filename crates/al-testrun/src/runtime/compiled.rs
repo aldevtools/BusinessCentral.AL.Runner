@@ -279,6 +279,22 @@ pub struct RunOptions {
 }
 
 impl RunOptions {
+    /// Whether the run keeps login starts: the replay (`login_replay`) or its check (`login_replay_check`), which keeps
+    /// the starts it compares with.
+    pub fn keeps_login_starts(&self) -> bool {
+        self.login_replay || self.login_replay_check
+    }
+
+    /// The start check of the login starts' byte cap against a set memory limit (`limit`: `--max-memory` or serve's
+    /// `maxMemory`, per request; `LoginReplayLimits::check_memory_limit`). A run that keeps no start is not checked:
+    /// the cap binds nothing there.
+    pub fn check_login_replay_memory(&self, limit: Option<u64>) -> Result<(), String> {
+        match self.keeps_login_starts() {
+            true => self.login_replay_limits.check_memory_limit(limit),
+            false => Ok(()),
+        }
+    }
+
     /// These options with the run's clock begun, for a run that runs its program more than once (a second pass, a
     /// redo, the variants of a stability run): every pass then reads the one clock of the run.
     pub(crate) fn with_run_clock(&self) -> std::borrow::Cow<'_, RunOptions> {

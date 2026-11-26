@@ -1648,6 +1648,7 @@ fn test_inner(
         // Left at their defaults: `single_fresh_check` (set per variant in stability mode, ADR-058 amendment 1), `perturb`, `check_baseline_rule`.
         ..Default::default()
     };
+    opts.check_login_replay_memory(a.max_memory)?; // `--max-memory` or this request's `maxMemory` (issue 8211)
     laps.lap(Part::Prepare);
     if let Some(w) = warm.as_deref() {
         opts.entries = entry_runs(a, w, &entry_selections, &found, &inputs, &opts.hooks);

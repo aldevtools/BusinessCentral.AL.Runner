@@ -70,3 +70,39 @@ fn a_bad_cap_stops_the_run_with_an_error_that_names_the_variable() {
         assert!(!t.contains("PASS"), "no test ran: {t}");
     }
 }
+
+/// The start check (al-runner issue 8211): with the replay on and `--max-memory` set, a byte cap that is not below the
+/// limit stops the run before it starts, with an error that names both values.
+#[test]
+fn a_byte_cap_not_below_max_memory_stops_the_run_naming_both_values() {
+    let d = tempfile::tempdir().unwrap();
+    let app = cap_app(d.path());
+    let run = |env: &[(&str, &str)], limit: &str| {
+        alrunner_with(
+            &["test", app.to_str().unwrap(), "--no-download", "--max-memory", limit],
+            env,
+        )
+    };
+    let on = ("ALRUNNER_LOGIN_REPLAY", "1");
+    for (env, limit, cap) in [
+        (vec![on], "64M", "64 MB"),
+        (vec![on], "32M", "64 MB"),
+        (vec![on, ("ALRUNNER_LOGIN_REPLAY_MAX_MB", "512")], "300M", "512 MB"),
+        (vec![("ALRUNNER_LOGIN_REPLAY_CHECK", "1")], "32M", "64 MB"),
+    ] {
+        let o = run(&env, limit);
+        let t = text(&o);
+        let want = format!(
+            "ALRUNNER_LOGIN_REPLAY_MAX_MB is {cap}, not below the memory limit of {} MB",
+            limit.trim_end_matches('M')
+        );
+        assert_eq!(code(&o), 2, "{t}");
+        assert!(t.contains(&want), "{want}: {t}");
+        assert!(!t.contains("PASS"), "no test ran: {t}");
+    }
+    // A cap below the limit, or no replay: no such stop (the run may still stop for the limit itself).
+    for env in [vec![on, ("ALRUNNER_LOGIN_REPLAY_MAX_MB", "16")], vec![]] {
+        let t = text(&run(&env, "32M"));
+        assert!(!t.contains("not below the memory limit"), "{t}");
+    }
+}

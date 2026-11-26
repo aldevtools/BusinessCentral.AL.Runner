@@ -1505,3 +1505,58 @@ fn a_session_whose_run_clock_began_on_another_day_runs_its_own_login() {
     }
     assert_eq!(starts(&engine).replayed(), 0, "a start of another day is never taken");
 }
+
+// ---- the memory limit: the serve budget holds the room the byte cap leaves the starts (al-runner issue 8211) ----
+
+/// How many test threads a soft budget (serve's) of 2000 MB admits beside 500 MB resident, at a learned cost of 100 MB
+/// a codeunit, on an engine that keeps one start of 4 MiB under the caps of `opts`.
+fn threads_admitted(opts: &RunOptions) -> usize {
+    use std::sync::atomic::{AtomicU64, Ordering::SeqCst};
+    const MB: u64 = 1 << 20;
+    let (engine, l) = big_engine();
+    starts(&engine).set_limits(opts.login_replay_limits);
+    starts(&engine).record(numbered_start_key(&engine, 0), Ok(start_of_size(&engine, &l, 4 * MIB)));
+    let rss = Arc::new(AtomicU64::new(500 * MB));
+    let read = rss.clone();
+    let budget = super::memory::MemoryBudget {
+        limit: 2000 * MB,
+        source: "maxMemory".into(),
+        rss: Arc::new(move || Some(read.load(SeqCst))),
+        hard: false,
+    };
+    let pool = super::memory::Pool::new(Some(budget), 500 * MB, 8);
+    super::corpus::share_with_pool(&pool, &engine, None, opts);
+    let first = pool.enter();
+    rss.store(600 * MB, SeqCst);
+    drop(first);
+    rss.store(500 * MB, SeqCst);
+    let mut members = Vec::new();
+    while let Some(m) = pool.try_add(0) {
+        members.push(m);
+    }
+    1 + members.len()
+}
+
+// A raised byte cap counts in the soft budget before a thread is admitted: 1020 MB of room the starts may still take
+// leave room for two threads, where the default cap leaves room for the eight the pool may use. No start is dropped.
+#[test]
+fn a_raised_byte_cap_lowers_the_threads_a_soft_budget_admits() {
+    let on = |mib: u64| RunOptions {
+        login_replay: true,
+        login_replay_limits: limits(8, mib),
+        ..Default::default()
+    };
+    assert_eq!(threads_admitted(&on(64)), 8, "60 MB of room fit beside eight threads");
+    assert_eq!(threads_admitted(&on(1024)), 2, "1020 MB of room leave two");
+    // The check keeps starts too; a run that keeps none holds no room.
+    let check = RunOptions {
+        login_replay_check: true,
+        ..on(1024)
+    };
+    assert_eq!(threads_admitted(&check), 2);
+    let off = RunOptions {
+        login_replay: false,
+        ..on(1024)
+    };
+    assert_eq!(threads_admitted(&off), 8, "no start is kept: nothing held");
+}

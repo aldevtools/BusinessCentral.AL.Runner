@@ -1316,9 +1316,7 @@ impl CorpusRuntime {
                 }
             }
         }
-        memory
-            .pool()
-            .share(shared_bytes_meter(&engine, baseline_engine.as_ref()));
+        share_with_pool(memory.pool(), &engine, baseline_engine.as_ref(), opts);
         let baseline_time = started.elapsed();
         let baseline_rows = baseline_run.as_ref().map(|b| b.baseline.rows());
         let mut baseline_run = baseline_run;
@@ -2189,6 +2187,22 @@ fn kept_engine_key(
         opts.allow_write_in_try_functions,
         opts.dependencies_published_global,
     )
+}
+
+/// Hands the memory pool what the run's threads share ([`shared_bytes_meter`]) and, when the run keeps login starts, the
+/// room their byte cap still leaves them (`Pool::reserve`): threads are admitted as if the starts held their cap, so a
+/// raised `ALRUNNER_LOGIN_REPLAY_MAX_MB` shows in the budget (ADR-073 amendment 2026-11-26, al-runner issue 8211).
+pub(super) fn share_with_pool(
+    pool: &super::memory::Pool,
+    engine: &Arc<Engine>,
+    install: Option<&Arc<Engine>>,
+    opts: &RunOptions,
+) {
+    pool.share(shared_bytes_meter(engine, install));
+    if opts.keeps_login_starts() {
+        let (starts, cap) = (crate::login_start::starts(engine), opts.login_replay_limits.max_bytes);
+        pool.reserve(Arc::new(move || cap.saturating_sub(starts.bytes())));
+    }
 }
 
 /// What the threads of a run share, for the memory pool (`Pool::share`, which counts what it reads beyond its first
