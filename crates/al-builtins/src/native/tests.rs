@@ -165,7 +165,7 @@ fn can_create_task_answers_yes_in_an_app_install_session_and_no_elsewhere() {
     };
     assert!(matches!(run(&mut install), Ok(Value::Boolean(true))));
     assert!(take_hits().contains(&Assumption::InstallSessionCanCreateTask));
-    // session-system/TestEnvironmentUserTenantContracts.al:235: false in a test.
+    // session-system/TestEnvironmentUserTenantContracts.al:255: false in a test.
     let mut test = TestCtx {
         in_test: true,
         ..Default::default()

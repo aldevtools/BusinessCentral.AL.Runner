@@ -167,10 +167,12 @@ pub(super) fn start_session_of(c: &mut dyn Ctx, args: &mut [Value], timeout: boo
     unsupported("StartSession outside an install trigger and a test run (a second session is not modelled)")
 }
 
-/// `TaskScheduler.CanCreateTask()`. False in a test (session-system/TestEnvironmentUserTenantContracts.al:235). True in
-/// an app's install code (`Ctx::install_without_client`): corpus PR 1589, install-upgrade/IsInstallSessionTests.al:86,
-/// :91, :135, pin pending (assumption install-session-can-create-task). In the Company Triggers subscribers of an install
-/// session (`Ctx::install_company_open`) main's false, not measured there (the entry's text). Everywhere else main's false.
+/// `TaskScheduler.CanCreateTask()`. False in a test (session-system/TestEnvironmentUserTenantContracts.al:255). True in
+/// an app's install code (`Ctx::install_without_client`), assumption install-session-can-create-task: Extension Triggers
+/// install subscribers measured by corpus PR 1589 (install-upgrade/IsInstallSessionTests.al:86, :91, :135, pin pending);
+/// the triggers of a Subtype = Install codeunit assumed from one install session (record/BfInstallTests.al:142). In the
+/// Company Triggers subscribers of an install session (`Ctx::install_company_open`) main's false, not measured there.
+/// Everywhere else main's false.
 pub(super) fn can_create_task(c: &mut dyn Ctx, _: Option<&mut Value>, _: &mut [Value]) -> Result<Value, Signal> {
     if c.install_company_open() {
         return Ok(Value::Boolean(false));

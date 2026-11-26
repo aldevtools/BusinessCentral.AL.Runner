@@ -4,4 +4,4 @@ CT Task Tests::ExtensionTriggersSubscriberSeesYes	PINNED tests/al-language/insta
 CT Task Tests::PerCompanyInstallTriggerSeesYes	PINNED tests/al-language/install-upgrade/IsInstallSessionTests.al:86
 CT Task Tests::PerDatabaseInstallTriggerSeesYes	PINNED tests/al-language/install-upgrade/IsInstallSessionTests.al:135
 CT Task Tests::SecondPerCompanyInstallTriggerSeesYes	PINNED tests/al-language/install-upgrade/IsInstallSessionTests.al:86
-CT Task Tests::TestSessionSeesNo	PINNED tests/al-language/session-system/TestEnvironmentUserTenantContracts.al:235
+CT Task Tests::TestSessionSeesNo	PINNED tests/al-language/session-system/TestEnvironmentUserTenantContracts.al:255

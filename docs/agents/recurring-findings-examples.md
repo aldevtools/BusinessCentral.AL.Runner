@@ -393,3 +393,12 @@ State the pin's lines (`pinned_body::page_lines`, `table_lines`) and require the
   table as whole. A login that wrote one row of a test-data table left a thawed session with that one row. Fix: an
   explicit argument per caller (`BeforeRows::Backing` for the safety net, `BeforeRows::Empty` for the login image).
 - PR 8665: `same_unshown_marks` was added for the login reader while the footprint reader also uses it.
+
+## 31. An ADR clarification that loosens a decision leaves the decision text unchanged (al-runner PR 9075, PR 9126)
+
+- PR 9126: a "Clarification of 2026-11-25" of ADR-079 kept `TaskScheduler.CanCreateTask` by method, while decision 1
+  (`:84`) still listed `TaskScheduler` as touching everything and the kept-builtins clarification (`:174`) still kept by
+  method only `System`, `Database`, `Blob` and `Query`. The earlier clarifications say each one is at least as strict as
+  the text it clarifies. Fix: amendment 2, with both lines pointing to it.
+- PR 9075: the review of the date conversions found the same TaskScheduler conflict in the ADR text; it needed more than
+  one place changed.

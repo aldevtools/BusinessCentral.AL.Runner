@@ -594,7 +594,7 @@ fn date_conversions_keep_nothing() {
         "System.Date2DWY",
         "System.Variant2Date",
         "System.Variant2Time",
-        // Constant per session kind (ADR-079 clarification of 2026-11-25, al-runner issue 9082).
+        // Constant per session kind (ADR-079 amendment 2, al-runner issue 9082).
         "TaskScheduler.CanCreateTask",
     ] {
         assert!(!all(kept), "{kept}");

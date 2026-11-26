@@ -427,10 +427,11 @@ const KEPT_METHODS: &[(&str, &[&str])] = &[
             "WorkDate",
         ],
     ),
-    // Its answer is a constant per session kind, so the same in every install order (ADR-079 clarification of
-    // 2026-11-25): false in a test (session-system/TestEnvironmentUserTenantContracts.al:235), true in an app's install
-    // code (al-builtins `can_create_task`, corpus PR 1589), false in the company-open subscribers of every install
-    // session (issue 9123). The other TaskScheduler methods touch everything.
+    // Its answer is a constant per session kind and phase, so the same in every install order (ADR-079 amendment 2):
+    // false in a test (session-system/TestEnvironmentUserTenantContracts.al:255), true in an app's install code
+    // (al-builtins `can_create_task`; corpus PR 1589, install-upgrade/IsInstallSessionTests.al:86, :91, :135, pin
+    // pending), false in the company-open subscribers of every install session (issue 9123). The other TaskScheduler
+    // methods touch everything.
     ("TaskScheduler", &["CanCreateTask"]),
 ];
 
