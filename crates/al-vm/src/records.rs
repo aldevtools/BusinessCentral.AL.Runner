@@ -1179,11 +1179,15 @@ impl Session {
                 }
             }
         }
+        let at_call = run
+            .then(|| self.rec_at_ext_before_call(t, "OnBeforeDelete", "OnDelete", rec))
+            .flatten();
         self.table_event(t, "onbeforedeleteevent", rec, None, run, None)?;
         if run {
             // The table's OnDelete gets the buffer as it was before the extensions' OnBeforeDelete ran.
             let x = Self::xrec_handle(rec, rec.borrow().fields.to_vec());
             self.run_ext_trigger_unmeasured_xrec(t, "OnBeforeDelete", rec)?;
+            let x = at_call.map_or(x, |at| Self::xrec_after_ext_before(at, rec));
             if let Some(tr) = self.table_trigger(t, "OnDelete") {
                 self.run_trigger(t.object as usize, tr, rec, Some(&x))?;
             }

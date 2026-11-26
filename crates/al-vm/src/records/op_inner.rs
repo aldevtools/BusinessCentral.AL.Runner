@@ -443,6 +443,9 @@ impl Session {
                     .iter()
                     .position(|f| f.id == 2_000_000_000)
                     .map(|i| rec.borrow().fields[i].clone());
+                let at_call = run
+                    .then(|| self.rec_at_ext_before_call(&t, "OnBeforeInsert", "OnInsert", rec))
+                    .flatten();
                 self.assign_system_id(&t, rec, keep_id);
                 let id_slot = t.fields.iter().position(|f| f.id == 2_000_000_000);
                 // The id the platform gave the row, before any event or trigger could change it.
@@ -459,6 +462,7 @@ impl Session {
                     // The extension's triggers bracket the base table's own (tableextensiontrigger/
                     // TestTableExtensionTableTriggers_Tests.al); Insert(false) runs none of them.
                     self.run_ext_trigger_unmeasured_xrec(&t, "OnBeforeInsert", rec)?;
+                    let insert_xrec = at_call.map(|at| Self::xrec_after_ext_before(at, rec)).or(insert_xrec);
                     if let Some(tr) = self.table_trigger(&t, "OnInsert") {
                         self.run_trigger(t.object as usize, tr, rec, insert_xrec.as_ref())?;
                     }
