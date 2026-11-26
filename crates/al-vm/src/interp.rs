@@ -1869,9 +1869,14 @@ impl Session {
                         // The row version comes over with the fields, and where it came from (record/crud/
                         // Y76StaleBuffers.al Y76_Part1_FindSet_Assign, `assign/*`).
                         let row_origin = src.borrow().row_origin;
+                        let entry = src
+                            .borrow()
+                            .version_entry
+                            .carried(al_builtins::value::VersionVia::Assigned);
                         let mut d = dst.borrow_mut();
                         self.replace_record_fields(&dst, &mut d, fields.into());
                         d.row_origin = row_origin;
+                        d.version_entry = entry;
                         d.own_read = Default::default();
                         d.rolled_read = Default::default();
                         d.probed_source = crate::blob_transfer::assigned(&d, &src.borrow(), self.commits);

@@ -40,6 +40,8 @@ pub enum Why {
     OtherBuild,
     Unused,
     Temp,
+    /// A workspace layer entry beyond the newest `WORKSPACE_ENTRIES` of its project (ADR-022 amendment 2026-11-15, decision 9).
+    OverLimit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -110,7 +112,7 @@ fn classify(name: &str) -> Kind<'_> {
     let ext = name.rsplit_once('.').map(|(_, e)| e).unwrap_or("");
     if name.starts_with('.') && name.contains(".tmp-") || ext.starts_with("tmp") {
         Kind::Temp
-    } else if matches!(ext, "alcc" | "alci") || ext == crate::baseline_cache::EXTENSION {
+    } else if matches!(ext, "alcc" | "alci" | "alcw") || ext == crate::baseline_cache::EXTENSION {
         Kind::Entry(al_cache::tag_of_file_name(name))
     } else {
         Kind::Other
@@ -171,7 +173,51 @@ pub fn prune(dir: &Path, opt: &Options) -> Report {
             });
         }
     }
+    if report.complete {
+        report.removed.extend(limit_workspace_entries(dir, opt.dry_run));
+    }
     report
+}
+
+/// How many workspace layer entries one project keeps (ADR-022 amendment 2026-11-15, decision 9).
+pub const WORKSPACE_ENTRIES: usize = 4;
+
+/// Removes the workspace layer entries (`<tag>-ws-<identity>-<key>.alcw`) beyond the newest [`WORKSPACE_ENTRIES`] by
+/// modification time of each build tag and identity: a project whose sources change at every run keeps four, and one
+/// project never removes another's. Best effort, stat only.
+pub fn limit_workspace_entries(dir: &Path, dry_run: bool) -> Vec<Removed> {
+    let mut groups: BTreeMap<String, Vec<(SystemTime, PathBuf, u64)>> = BTreeMap::new();
+    for e in std::fs::read_dir(dir).into_iter().flatten().filter_map(|e| e.ok()) {
+        let name = e.file_name().to_string_lossy().to_string();
+        let Some(stem) = name.strip_suffix(".alcw") else {
+            continue;
+        };
+        // The group is the name up to the key: `<tag>-ws-<identity>`.
+        let Some((group, _key)) = stem.rsplit_once('-') else {
+            continue;
+        };
+        let Ok(meta) = e.metadata() else { continue };
+        let Ok(modified) = meta.modified() else { continue };
+        groups
+            .entry(group.to_string())
+            .or_default()
+            .push((modified, e.path(), meta.len()));
+    }
+    let mut removed = Vec::new();
+    for mut files in groups.into_values() {
+        // Newest first; a tie by name, so the choice does not depend on the order of the directory.
+        files.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+        for (_, path, bytes) in files.into_iter().skip(WORKSPACE_ENTRIES) {
+            if dry_run || std::fs::remove_file(&path).is_ok() {
+                removed.push(Removed {
+                    path,
+                    bytes,
+                    why: Why::OverLimit,
+                });
+            }
+        }
+    }
+    removed
 }
 
 /// What a folder holds.
@@ -221,7 +267,7 @@ pub fn info(dir: &Path, build: &str) -> Info {
 /// `ALRUNNER_NO_CACHE_PRUNE` is set. `None` when it did not run. A cleanup that ran out of time leaves the stamp
 /// alone, so the next run goes on.
 pub fn auto_prune(dir: &Path, build: &str) -> Option<Report> {
-    if std::env::var(NO_PRUNE_ENV).is_ok_and(|v| !v.is_empty() && v != "0") {
+    if crate::switches::on(NO_PRUNE_ENV) {
         return None;
     }
     let stamp = dir.join(STAMP);
@@ -413,5 +459,30 @@ mod tests {
             .unwrap();
         assert!(auto_prune(&d, ME).is_some());
         assert!(!g.exists());
+    }
+
+    /// ADR-022 amendment 2026-11-15, decision 9: a fifth workspace layer entry of a project removes the project's oldest,
+    /// never another project's or another build's; the prune applies the same limit.
+    #[test]
+    fn a_fifth_workspace_entry_removes_the_oldest_of_its_project_only() {
+        let d = scratch("ws-limit");
+        let mine: Vec<PathBuf> = (0..5)
+            .map(|i| put(&d, &format!("{ME}-ws-1111111111111111-{i:032x}.alcw"), 10, 5 - i as u64))
+            .collect();
+        let other_project = put(&d, &format!("{ME}-ws-2222222222222222-{:032x}.alcw", 9), 10, 20);
+        let other_build = put(&d, &format!("{OLD}-ws-1111111111111111-{:032x}.alcw", 9), 10, 20);
+        let removed = limit_workspace_entries(&d, false);
+        assert_eq!(
+            removed.iter().map(|r| r.path.clone()).collect::<Vec<_>>(),
+            vec![mine[0].clone()],
+            "the oldest of the five"
+        );
+        assert!(removed.iter().all(|r| r.why == Why::OverLimit));
+        assert!(mine[1..].iter().all(|p| p.exists()));
+        assert!(other_project.exists() && other_build.exists());
+        let sixth = put(&d, &format!("{ME}-ws-1111111111111111-{:032x}.alcw", 7), 10, 0);
+        let r = prune(&d, &opt());
+        assert_eq!(r.count_of(Why::OverLimit).0, 1, "{:?}", r.removed);
+        assert!(!mine[1].exists() && sixth.exists());
     }
 }

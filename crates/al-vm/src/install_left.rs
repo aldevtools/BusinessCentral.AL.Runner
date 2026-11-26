@@ -401,8 +401,8 @@ impl Session {
 
 /// The transaction state field by field: what a new session holds ([`crate::state::TxState::fresh`]), except what a
 /// Commit leaves for a later test to read (`phase`, `transaction_type`, `type_origin`, `lock_timeout`,
-/// `lock_timeout_duration`, `committed_row_version`, `commit_counter`, `rolled_back`, `last_commit_wrote`), which the
-/// callers decide: no transaction is open and no call left anything behind.
+/// `lock_timeout_duration`, `committed_row_version`, `commit_counter`, `write_counts`, `rolled_back`,
+/// `last_commit_wrote`), which the callers decide: no transaction is open and no call left anything behind.
 pub(crate) fn tx_left_as_new(tx: &crate::state::TxState) -> bool {
     tx_not_as_new(tx).is_none()
 }
@@ -422,6 +422,7 @@ pub(crate) fn tx_not_as_new(tx: &crate::state::TxState) -> Option<&'static str> 
         lock_timeout_duration: _,
         committed_row_version: _,
         commit_counter: _,
+        write_counts: _,
         rolled_back: _,
         rollback_unpinned,
         rollback_kind,

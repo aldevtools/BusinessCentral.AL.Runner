@@ -16,7 +16,8 @@
 //! index; `stamps`, `tree_at`, which follows a linked folder once). `KeptApps` keeps each app under
 //! test as `apps::load` read it, only when its stamps carry a change time (`unchanged`; elsewhere the
 //! app is read on every request and its files are not walked, `change_times`), with its test
-//! codeunits (`AppInput::test_codeunits`, found once per read), and reads it again when a file under
+//! codeunits and its manifest digest (`AppInput::test_codeunits`, `AppInput::manifest_digest`, found once
+//! per read), and reads it again when a file under
 //! its folder, the record next to it (`<path>.json`) or a file outside it the load read
 //! (`AppInput::outside_reads`, from al-testrun `runtime::load_manifest_reading`: resource folders and
 //! the logo) changed, came or went (al-runner issue 8205). Entry points: `load`, `KeptApps::load`,
@@ -192,7 +193,10 @@ impl KeptApps {
                 .map(|p| apps::load(p, build))
                 .collect::<Result<Vec<_>, _>>()?;
             self.reads += inputs.len();
-            inputs.iter().for_each(|i| _ = i.test_codeunits());
+            for i in &inputs {
+                i.test_codeunits();
+                i.manifest_digest();
+            }
             return Ok(inputs);
         }
         let mut kept = Vec::with_capacity(paths.len());
@@ -223,9 +227,11 @@ impl KeptApps {
             });
         }
         self.apps = kept;
-        // The test codeunits are found once per read and kept with the app (`AppInput::test_codeunits`).
+        // The test codeunits and the manifest digest are found once per read and kept with the app
+        // (`AppInput::test_codeunits`, `AppInput::manifest_digest`): the clones handed out carry them.
         for k in &self.apps {
             k.input.test_codeunits();
+            k.input.manifest_digest();
         }
         Ok(self.apps.iter().map(|k| k.input.clone()).collect())
     }
@@ -270,10 +276,11 @@ mod tests {
         app
     }
 
-    /// The app as a fresh read gives it, its test codeunits found.
+    /// The app as a fresh read gives it, its test codeunits found and its manifest digested.
     fn fresh(app: &Path) -> String {
         let input = apps::load(app, None).unwrap();
         input.test_codeunits();
+        input.manifest_digest();
         format!("{input:?}")
     }
 
@@ -448,6 +455,63 @@ mod tests {
         k.load_at(std::slice::from_ref(&app), None, later).unwrap();
         k.load_at(std::slice::from_ref(&app), None, later).unwrap();
         assert_eq!(k.reads, 3, "kept once the files are older than the margin");
+    }
+
+    /// The key of serve's kept compile, made on every request (`workspace_layer::warm_key`), over no dependency apps.
+    fn warm_key(inputs: &[AppInput]) -> String {
+        let none = al_testrun::deps::Dependencies {
+            apps: Vec::new(),
+            manifests: Vec::new(),
+            summary: Vec::new(),
+            log: Vec::new(),
+            build: None,
+            application_aggregate: Vec::new(),
+            lazy: Vec::new(),
+            paths: Vec::new(),
+            skipped: Vec::new(),
+            skipped_details: Vec::new(),
+        };
+        let target = al_version::Target::for_bc(al_version::BcVersion::new(29, 0));
+        let a = crate::args::TestArgs::default();
+        crate::workspace_layer::warm_key(&a, inputs, &none, &BTreeSet::new(), &target)
+    }
+
+    // The key of serve's kept compile holds each app's manifest digest, which formats and hashes every translation unit.
+    // A kept app is the app as read, so a request on an unchanged app makes no digest; a changed translation file is a new
+    // read and one new digest. The key is the key of a fresh read, before and after the change.
+    // Kept only with stamps that carry a change time (`unchanged`): unix today.
+    #[cfg(unix)]
+    #[test]
+    fn a_kept_app_digests_its_manifest_once_per_read_and_keys_as_a_fresh_read() {
+        let d = tempfile::tempdir().unwrap();
+        let app = workspace(d.path());
+        let mut k = KeptApps::default();
+        let digests = || crate::apps::MANIFEST_DIGESTS.with(std::cell::Cell::get);
+        let start = digests();
+        let mut request = || warm_key(&k.load_at(std::slice::from_ref(&app), None, later()).unwrap());
+        let first = request();
+        assert_eq!(digests() - start, 1, "the first request digests the manifest it read");
+        let second = request();
+        assert_eq!(digests() - start, 1, "a request on the kept app makes no digest");
+        assert_eq!(second, first);
+        assert_eq!(
+            first,
+            warm_key(&[apps::load(&app, None).unwrap()]),
+            "the key of a fresh read"
+        );
+        write(
+            &app.join("Translations/Kept.da-DK.xlf"),
+            r#"<?xml version="1.0" encoding="utf-8"?><xliff version="1.2"><file datatype="xml" source-language="en-US" target-language="da-DK" original="Kept"><body><group id="body"><trans-unit id="Codeunit 1 - Method 2"><source>a</source><target>b</target></trans-unit></group></body></file></xliff>"#,
+        );
+        let before = digests();
+        let edited = request();
+        assert_eq!(digests() - before, 1, "the changed manifest is digested once");
+        assert_ne!(edited, first, "a changed translation file is another key");
+        assert_eq!(
+            edited,
+            warm_key(&[apps::load(&app, None).unwrap()]),
+            "the key of a fresh read"
+        );
     }
 
     // A link back to a folder already walked is stamped, not walked again.
