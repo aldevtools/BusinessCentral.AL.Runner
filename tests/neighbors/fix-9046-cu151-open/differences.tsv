@@ -1,1 +1,3 @@
 # key	entry
+CT Open Tests::CompanyOpenCompletedOfTheInstallSession	ASSUMED install-session-can-create-task (corpus PR 1592)
+CT Open Tests::InstallCodeAfterTheCompanyOpenSubscriber	ASSUMED install-session-can-create-task (corpus PR 1592)

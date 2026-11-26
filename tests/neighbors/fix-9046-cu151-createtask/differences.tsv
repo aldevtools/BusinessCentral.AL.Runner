@@ -1,1 +1,7 @@
 # key	entry
+<baseline>	ASSUMED install-session-can-create-task (corpus PR 1589)
+CTC Task Tests::InstallTookTheTaskBranch	ASSUMED install-session-can-create-task (corpus PR 1589)
+CTC Task Tests::RecordRefReadOfTheBranchRow	ASSUMED install-session-can-create-task (corpus PR 1589)
+CTC Task Tests::TaskExistsOfTheInstallTask	ASSUMED install-session-can-create-task (corpus PR 1589)
+CTC Task Tests::WriterRowIsNotThere	ASSUMED install-session-can-create-task (corpus PR 1589)
+CTC Task Tests::ScheduledTaskRowOfTheInstallTask	REFUSED IsEmpty on Scheduled Task: BC holds rows here
