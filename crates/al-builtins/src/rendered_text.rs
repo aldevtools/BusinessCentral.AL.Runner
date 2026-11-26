@@ -275,7 +275,7 @@ fn value_text(v: &Value) -> Option<String> {
             Some(t.audited_str().to_string())
         }
         Value::Library(_, h) => match &*h.borrow() {
-            LibraryValue::Text(s) | LibraryValue::TextCap(s, _) if holds(s) => Some(s.clone()),
+            LibraryValue::Text(s) | LibraryValue::TextCap(s, _) if holds(s) => Some(s.to_string()),
             _ => None,
         },
         Value::List(l) => l.borrow().iter().find_map(value_text),

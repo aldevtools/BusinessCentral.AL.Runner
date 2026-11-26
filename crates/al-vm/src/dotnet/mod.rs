@@ -443,12 +443,7 @@ impl Session {
             };
             if let Some(call_ref) = m.call_ref {
                 let result = call_ref(self, this, &mut values)?;
-                for (i, place) in places.iter().enumerate() {
-                    let Some(place) = place else { continue };
-                    let ty = self.place_type(place, f);
-                    let v = fit(values[i].clone(), &ty).map_err(|e| prefix(e, &shown))?;
-                    self.write(place, v, f)?;
-                }
+                self.write_back_registry_args(&places, &values, &shown, f)?;
                 return Ok(result);
             }
             return (m.call)(self, this, &values);
@@ -1435,9 +1430,29 @@ impl Session {
             let v = self.wire_to_value(v).map_err(|e| prefix(e, shown))?;
             let ty = self.place_type(place, f);
             let v = fit(v, &ty).map_err(|e| prefix(e, shown))?;
+            self.note_by_ref_write(place, f)?;
             self.write(place, v, f)?;
         }
         Ok(value)
+    }
+
+    /// Writes the `var` arguments of a registry member back to their places, after noting each
+    /// write for the xRec routes gate (`note_by_ref_write`, issue 9161).
+    fn write_back_registry_args(
+        &mut self,
+        places: &[Option<ir::Place>],
+        values: &[Value],
+        shown: &str,
+        f: &mut Frame,
+    ) -> Result<(), Signal> {
+        for (i, place) in places.iter().enumerate() {
+            let Some(place) = place else { continue };
+            let ty = self.place_type(place, f);
+            let v = fit(values[i].clone(), &ty).map_err(|e| prefix(e, shown))?;
+            self.note_by_ref_write(place, f)?;
+            self.write(place, v, f)?;
+        }
+        Ok(())
     }
 
     /// An AL value as a wire value (ADR-014 section 4).
@@ -1589,7 +1604,9 @@ impl Session {
             if let Some(content) = content {
                 return Ok(Value::Library(
                     "SecretText".into(),
-                    std::rc::Rc::new(std::cell::RefCell::new(al_builtins::value::LibraryValue::Text(content))),
+                    std::rc::Rc::new(std::cell::RefCell::new(al_builtins::value::LibraryValue::Text(
+                        content.into(),
+                    ))),
                 ));
             }
         }

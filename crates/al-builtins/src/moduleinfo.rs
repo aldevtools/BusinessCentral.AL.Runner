@@ -325,7 +325,7 @@ fn dependencies(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out 
         .map(|d| {
             Value::Library(
                 "ModuleDependencyInfo".into(),
-                Rc::new(RefCell::new(LibraryValue::Text(plain_guid(d)))),
+                Rc::new(RefCell::new(LibraryValue::Text(plain_guid(d).into()))),
             )
         })
         .collect();

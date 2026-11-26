@@ -248,7 +248,7 @@ pub fn decode(r: &mut Reader) -> Option<Value> {
             }
             let value = match r.u8()? {
                 0 => crate::value::LibraryValue::Empty,
-                2 => crate::value::LibraryValue::Text(r.str()?),
+                2 => crate::value::LibraryValue::Text(r.str()?.into()),
                 1 => crate::value::LibraryValue::RecordId {
                     table: r.u32()?,
                     table_no: r.u32()?,

@@ -2117,7 +2117,7 @@ fn store_table_filter(a: &mut [Value], text: &str) -> Value {
     a[0] = Value::Library(
         crate::library_kind::LibraryKind::from_name("TableFilter"),
         std::rc::Rc::new(std::cell::RefCell::new(crate::value::LibraryValue::Text(
-            text.to_string(),
+            text.to_string().into(),
         ))),
     );
     Value::Boolean(true)

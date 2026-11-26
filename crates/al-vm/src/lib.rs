@@ -1028,6 +1028,8 @@ pub struct Session {
     /// last: the record's handle, the depth of `call_stack` inside the procedure and its blank xRec. A Validate of that
     /// record in the procedure's own body passes this xRec (`RecordOp::Validate`).
     pub(crate) plain_proc_xrec: Vec<(usize, usize, crate::records::Rec)>,
+    /// How many table extension insert or delete triggers run now (`Session::run_ext_trigger_unmeasured_xrec`).
+    pub(crate) ext_xrec_triggers: u32,
     /// The xRecs of the table procedures that run on a record with an xRec they share with their caller or a running call
     /// (`ProcXrec::Shared` and `ProcXrec::SharedReadOnly`), innermost last.
     pub(crate) shared_proc_xrec: Vec<crate::records::Rec>,
@@ -1474,6 +1476,7 @@ impl Session {
             validate_site: None,
             validate_sites: Vec::new(),
             plain_proc_xrec: Vec::new(),
+            ext_xrec_triggers: 0,
             shared_proc_xrec: Vec::new(),
             iface_frames: Vec::new(),
             cx: al_data::AccessContext {

@@ -907,7 +907,9 @@ impl Session {
         inst.borrow_mut().globals[slot] = if schema.node(node).big_text {
             Value::Library(
                 al_builtins::library_kind::LibraryKind::BigText,
-                std::rc::Rc::new(std::cell::RefCell::new(al_builtins::value::LibraryValue::Text(text))),
+                std::rc::Rc::new(std::cell::RefCell::new(al_builtins::value::LibraryValue::Text(
+                    text.into(),
+                ))),
             )
         } else {
             Value::Text(text.into())

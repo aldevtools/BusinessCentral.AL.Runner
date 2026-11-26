@@ -146,6 +146,7 @@ impl Session {
         }
         for (a, slot) in args.iter().zip(values.iter_mut()) {
             if let ir::Arg::Ref(p) = a {
+                self.note_by_ref_write(p, f)?;
                 let v = std::mem::replace(slot, Value::Null);
                 self.native_arg_back(p, v, id, class, f)?;
             }
@@ -621,9 +622,9 @@ impl Session {
             B::Eq => Value::Boolean(ops::equal_operator(l, r)?),
             B::Ne => Value::Boolean(ops::compare_operator(l, r, false)? != Ordering::Equal),
             B::Lt => Value::Boolean(ops::compare_operator(l, r, true)? == Ordering::Less),
-            B::Le => Value::Boolean(ops::compare_operator(l, r, true)? != Ordering::Greater),
+            B::Le => Value::Boolean(ops::compare_operator_or_equal(l, r)? != Ordering::Greater),
             B::Gt => Value::Boolean(ops::compare_operator(l, r, true)? == Ordering::Greater),
-            B::Ge => Value::Boolean(ops::compare_operator(l, r, true)? != Ordering::Less),
+            B::Ge => Value::Boolean(ops::compare_operator_or_equal(l, r)? != Ordering::Less),
             B::DotNetEq => Value::Boolean(dotnet::dotnet_equal(l, r)?),
             B::DotNetNe => Value::Boolean(!dotnet::dotnet_equal(l, r)?),
             B::DotNetLt => Value::Boolean(dotnet::dotnet_order(l, r)? == Ordering::Less),
@@ -827,8 +828,8 @@ impl Session {
                             _ => None,
                         }
                     });
-                    if let (crate::records::ProcXrec::PlainUnpinned, Some(Some(x))) = (&proc_xrec, &plain) {
-                        x.borrow_mut().unpinned_buffer = Some(crate::records::XREC_OF_RUNNING_CALL);
+                    if let (crate::records::ProcXrec::PlainUnpinned(mark), Some(Some(x))) = (&proc_xrec, &plain) {
+                        x.borrow_mut().unpinned_buffer = Some(mark);
                     }
                     let pushed = if let Some(Some(x)) = plain {
                         self.plain_proc_xrec.push((handle, self.call_stack.len() + 1, x));

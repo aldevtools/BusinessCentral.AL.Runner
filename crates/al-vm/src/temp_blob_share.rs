@@ -159,11 +159,6 @@ impl Session {
             },
             _ => return Ok(None),
         };
-        if let (false, ir::Place::Field(base, _)) = (self.validate_sites.is_empty(), place)
-            && let Value::Record(rc) = self.read(base, f)?
-        {
-            self.note_blob_write_under_validate(&rc);
-        }
         let opens = id == ids::BLOB_CREATEOUTSTREAM_1;
         if opens || id == ids::BLOB_IMPORT_1 {
             self.xrec_blob_write_check(place, b, operand, f)?;
