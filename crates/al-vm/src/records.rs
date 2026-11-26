@@ -95,14 +95,14 @@ pub(crate) const HELD_PART_REC: &str =
 pub(crate) const HELD_PART_XREC: &str = "xRec of a part of a page the test client closed is not measured there";
 
 /// Whether `why` marks an xRec whose buffer and view (filters, key, temporary table) are both not measured, so a field write
-/// and every record method on it refuse: xRec of a held part, and the xRecs of `ext_trigger_xrec.rs` (the methods that read
+/// and every record method on it refuse: xRec of a held part, and the xRec of `ext_trigger_xrec.rs` (the methods that read
 /// neither, in [`Session::unpinned_buffer_op`]).
 fn every_method_refuses(why: &str) -> bool {
     why == HELD_PART_XREC || unmeasured_trigger_xrec(why)
 }
 
 /// Whether `why` marks an xRec that stands for an xRec the corpus does not measure: the blank xRec of a table procedure called
-/// on a running call's record ([`XREC_OF_RUNNING_CALL`]) and the xRecs of `ext_trigger_xrec.rs`. A copy from it refuses
+/// on a running call's record ([`XREC_OF_RUNNING_CALL`]) and the xRec of `ext_trigger_xrec.rs`. A copy from it refuses
 /// ([`copy_refused_mark`]), and a Validate in that procedure hands its field triggers the mark (`validate_before_image`).
 pub(crate) fn unmeasured_xrec_mark(why: &str) -> bool {
     why == XREC_OF_RUNNING_CALL || unmeasured_trigger_xrec(why)
@@ -1181,10 +1181,9 @@ impl Session {
         }
         self.table_event(t, "onbeforedeleteevent", rec, None, run, None)?;
         if run {
-            // The table's OnDelete gets the buffer as it was before the extensions' OnBeforeDelete ran; marked when that changed
-            // the buffer (`ext_trigger_xrec.rs`).
+            // The table's OnDelete gets the buffer as it was before the extensions' OnBeforeDelete ran.
             let x = Self::xrec_handle(rec, rec.borrow().fields.to_vec());
-            self.run_ext_before_trigger(t, "OnBeforeDelete", "OnDelete", rec, Some(&x))?;
+            self.run_ext_trigger_unmeasured_xrec(t, "OnBeforeDelete", rec)?;
             if let Some(tr) = self.table_trigger(t, "OnDelete") {
                 self.run_trigger(t.object as usize, tr, rec, Some(&x))?;
             }

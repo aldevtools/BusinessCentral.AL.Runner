@@ -29,5 +29,5 @@ NX Refused Tests::ExtOnAfterDelete_AfterGet	REFUSED xRec in a table extension's 
 NX Page Tests::ExtOnAfterInsert_TestPageNew	REFUSED xRec in a table extension's insert or delete trigger
 NX Duplicate Tests::ExtOnAfterInsert_DuplicateKeyStatement	REFUSED xRec in a table extension's insert or delete trigger
 NX Refused Tests::ExtOnAfterInsert_BaseProcValidatesThenOnValidateReadsXRec	REFUSED xRec in a table extension's insert or delete trigger
-NX Refused Tests::TableOnInsert_AfterExtOnBeforeInsertWritesRec	REFUSED xRec in a table's OnInsert or OnDelete after a table extension's OnBeforeInsert or OnBeforeDelete changed Rec
-NX Refused Tests::TableOnDelete_AfterExtOnBeforeDeleteWritesRec	REFUSED xRec in a table's OnInsert or OnDelete after a table extension's OnBeforeInsert or OnBeforeDelete changed Rec
+NX Refused Tests::TableOnInsert_AfterExtOnBeforeInsertWritesRec	ASSUMED commit-keeps-transaction-type,transaction-type-carries-to-next-test (main's xRec; flags carried from the refused tests before it in this codeunit; MED-2 measurement pending, issue 9185)
+NX Refused Tests::TableOnDelete_AfterExtOnBeforeDeleteWritesRec	ASSUMED commit-keeps-transaction-type,transaction-type-carries-to-next-test (main's xRec; flags carried from the refused tests before it in this codeunit; MED-2 measurement pending, issue 9185)
