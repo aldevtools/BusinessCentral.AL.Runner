@@ -329,6 +329,15 @@ impl Txt {
     }
 }
 
+/// The one gate of every reader that keeps a lone surrogate half unit by unit (TextBuilder, comparison, the text
+/// functions): when any of `texts` holds a half, the run passes the assumption `text-surrogate-half-readers` (corpus PR
+/// 1605, tests/al-language/text/LtSurrogateHalves.al, open).
+pub fn half_kept(texts: &[&Txt]) {
+    if texts.iter().any(|t| t.has_lone()) {
+        crate::assumptions::assume(crate::assumptions::Assumption::TextSurrogateHalfReaders);
+    }
+}
+
 impl Deref for Txt {
     type Target = str;
     #[inline]

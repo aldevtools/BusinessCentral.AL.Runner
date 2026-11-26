@@ -318,7 +318,7 @@ pub(super) fn set_secret_request_uri(c: &mut dyn Ctx, r: Option<&mut Value>, a: 
 /// (xml/xml/P97ReqSecretUri.al:75 `new_secret` Yes, :106 `after_plain_secret` No).
 pub(super) fn get_secret_request_uri(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
     let uri = with_request(r, |s| s.uri.clone())?.unwrap_or_default();
-    Ok(lib("SecretText", LibraryValue::Text(uri)))
+    Ok(lib("SecretText", LibraryValue::Text(uri.into())))
 }
 
 pub(super) fn request_get_headers(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {

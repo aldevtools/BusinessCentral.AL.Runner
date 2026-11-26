@@ -1880,9 +1880,10 @@ pub enum LibraryValue {
     /// A `TestHandlerContext` the test runner hands to an ITestHandler callback (BC 29): what its members return there, and
     /// the reason of a `Skip` the callback made (`testcontexts.rs`, al-testrun `runtime/test_handlers.rs`).
     HandlerContext(Box<HandlerContext>),
-    Text(String),
+    /// A TextBuilder or BigText: its text, which may hold half of a surrogate pair (ADR-068).
+    Text(crate::text::Txt),
     /// A TextBuilder whose capacity was set or has to be kept: the text and the capacity in characters.
-    TextCap(String, i32),
+    TextCap(crate::text::Txt, i32),
     /// An open `RecordRef`: it owns a record buffer exactly as a `Record`
     /// variable does (fields, filters, key), so record operations are shared.
     RecordRef(Rc<RefCell<RecordState>>),
@@ -1957,9 +1958,7 @@ pub enum LibraryValue {
     XmlNameTable,
     /// An `XmlWriteOptions` that has been set: `PreserveWhitespace`.
     /// An `XmlReadOptions` that has been set: `PreserveWhitespace` (what is read does not depend on it).
-    XmlReadOptions {
-        preserve_whitespace: bool,
-    },
+    XmlReadOptions { preserve_whitespace: bool },
     XmlWriteOptions {
         preserve_whitespace: bool,
         /// Whether a document or element is written without indentation. A setter changes it only when it changes

@@ -49,7 +49,7 @@ fn dialog_not_open() -> Signal {
 /// (pages/run-modal/P82Dialog.al:Dialog_EdgeCases `open-reopen`, `open-empty-template`).
 pub(super) fn dialog_open(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Result<Value, Signal> {
     if let (Some(Value::Library(_, h)), Some(t)) = (r, a.first().and_then(text_of)) {
-        *h.borrow_mut() = LibraryValue::Text(t.to_string());
+        *h.borrow_mut() = LibraryValue::Text(t.to_string().into());
     }
     Ok(Value::Null)
 }

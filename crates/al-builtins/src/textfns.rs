@@ -893,7 +893,10 @@ fn select_str(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResul
 // ----------------------------------------------------------- SecretText
 
 fn secret(content: String) -> Value {
-    Value::Library("SecretText".into(), Rc::new(RefCell::new(LibraryValue::Text(content))))
+    Value::Library(
+        "SecretText".into(),
+        Rc::new(RefCell::new(LibraryValue::Text(content.into()))),
+    )
 }
 
 /// The content of a SecretText value; a never-assigned one is empty.
@@ -901,7 +904,7 @@ fn secret_content(v: &Value) -> Result<String, Signal> {
     match v {
         Value::Library(_, h) => match &*h.borrow() {
             LibraryValue::Empty => Ok(String::new()),
-            LibraryValue::Text(s) => Ok(s.clone()),
+            LibraryValue::Text(s) => Ok(s.to_string()),
             _ => unsupported("SecretText holding something else"),
         },
         // A Text or Code variable is taken as its content where a SecretText is expected
@@ -951,7 +954,7 @@ fn string_of(r: Option<&mut Value>) -> Result<Rc<RefCell<LibraryValue>>, Signal>
     match r {
         Some(Value::Library(_, h)) => {
             if matches!(&*h.borrow(), LibraryValue::Empty) {
-                *h.borrow_mut() = LibraryValue::Text(String::new());
+                *h.borrow_mut() = LibraryValue::Text(Default::default());
             }
             if matches!(&*h.borrow(), LibraryValue::Text(_) | LibraryValue::TextCap(..)) {
                 Ok(h.clone())
@@ -963,7 +966,7 @@ fn string_of(r: Option<&mut Value>) -> Result<Rc<RefCell<LibraryValue>>, Signal>
     }
 }
 
-fn with_string<T>(h: &Rc<RefCell<LibraryValue>>, f: impl FnOnce(&mut String) -> T) -> T {
+fn with_string<T>(h: &Rc<RefCell<LibraryValue>>, f: impl FnOnce(&mut crate::text::Txt) -> T) -> T {
     match &mut *h.borrow_mut() {
         LibraryValue::Text(s) | LibraryValue::TextCap(s, _) => f(s),
         _ => unreachable!("checked by string_of"),
@@ -975,8 +978,9 @@ fn with_string<T>(h: &Rc<RefCell<LibraryValue>>, f: impl FnOnce(&mut String) -> 
 /// that needs 1000; P144_Growth_BigAppendAtOnce: 40, 500, then 1000 for the 503 an AppendLine needs).
 fn grow_capacity(h: &Rc<RefCell<LibraryValue>>) {
     let (len, cap) = match &*h.borrow() {
-        LibraryValue::Text(s) => (text_len_over(s, 16), 16i64),
-        LibraryValue::TextCap(s, c) => (text_len_over(s, i64::from(*c)), i64::from(*c)),
+        // The lossy text has the length of the exact one: a lone half and its U+FFFD are one unit each.
+        LibraryValue::Text(s) => (text_len_over(s.audited_str(), 16), 16i64),
+        LibraryValue::TextCap(s, c) => (text_len_over(s.audited_str(), i64::from(*c)), i64::from(*c)),
         _ => return,
     };
     if len > cap {
@@ -1003,7 +1007,10 @@ fn text_len_over(s: &str, cap: i64) -> i64 {
 /// Append, AppendLine, Insert, both texts of Replace).
 fn tb_text(a: &[Value], i: usize) -> Result<crate::text::Txt, Signal> {
     match a.get(i) {
-        Some(Value::Text(t) | Value::Code(t)) if t.as_str().contains(crate::native::CALL_STACK_MARK) => Ok(t.clone()),
+        // The mark is no surrogate unit, so the lossy text of a lone half answers the same.
+        Some(Value::Text(t) | Value::Code(t)) if t.audited_str().contains(crate::native::CALL_STACK_MARK) => {
+            Ok(t.clone())
+        }
         Some(Value::Text(t) | Value::Code(t)) if t.has_marker() && crate::rendered_text::carried(t.audited_str()) => {
             Ok(t.clone())
         }
@@ -1014,7 +1021,11 @@ fn tb_text(a: &[Value], i: usize) -> Result<crate::text::Txt, Signal> {
 
 fn tb_append(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let (h, t) = (string_of(r)?, tb_text(a, 0)?);
-    with_string(&h, |s| s.push_str(&t));
+    // A lone half is appended as it is (LtSurrogateHalves.al Ops_tb_1).
+    with_string(&h, |s| {
+        crate::text::half_kept(&[s, &t]);
+        s.push_txt(&t)
+    });
     grow_capacity(&h);
     Ok(Value::Boolean(true))
 }
@@ -1085,12 +1096,14 @@ pub fn tb_append_field_value(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Va
 fn tb_append_line(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = string_of(r)?;
     let t = if a.is_empty() {
-        String::new()
+        crate::text::Txt::default()
     } else {
-        tb_text(a, 0)?.to_string()
+        tb_text(a, 0)?
     };
     with_string(&h, |s| {
-        s.push_str(&t);
+        // A lone half is appended as it is (LtSurrogateHalves.al Ops_tb_1).
+        crate::text::half_kept(&[s, &t]);
+        s.push_txt(&t);
         s.push_str("\r\n");
     });
     grow_capacity(&h);
@@ -1101,9 +1114,9 @@ fn tb_to_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResul
     let h = string_of(r)?;
     let s = with_string(&h, |s| s.clone());
     if a.is_empty() {
-        return Ok(Value::Text(s.into()));
+        return Ok(Value::Text(s));
     }
-    let u = u16s(&s);
+    let u = s.units();
     let (start, count) = (int(a, 0)?, int(a, 1)?);
     // A start of 0 reads from the first character: `ToText(0, 10)` of ten characters is all of them, `ToText(0, 0)` of an empty
     // builder is empty (text/textbuilder-bigtext/TxCTextBuilderEdit.al:312-330, 365-380).
@@ -1120,10 +1133,19 @@ fn tb_to_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResul
             "the text TextBuilder.ToText(StartIndex, Count) gives outside the text (not pinned)".into(),
         ));
     }
-    let from = start as usize - 1;
-    Ok(Value::Text(
-        from_u16(&u[from..from + count as usize], "TextBuilder.ToText")?.into(),
-    ))
+    let (from, to) = (start as usize - 1, (start + count) as usize - 1);
+    // A range of a builder with a lone half keeps the half (LtSurrogateHalves.al Ops_tb_3); a range end inside a whole pair
+    // is not measured and keeps main's refusal.
+    if s.has_lone() && !cuts_pair(&u, from) && !cuts_pair(&u, to) {
+        crate::text::half_kept(&[&s]);
+        return Ok(Value::Text(crate::text::Txt::from_units(&u[from..to])));
+    }
+    Ok(Value::Text(from_u16(&u[from..to], "TextBuilder.ToText")?.into()))
+}
+
+/// Whether unit position `i` of `u` falls between the high and the low half of one whole pair.
+fn cuts_pair(u: &[u16], i: usize) -> bool {
+    i > 0 && i < u.len() && (0xD800..0xDC00).contains(&u[i - 1]) && (0xDC00..0xE000).contains(&u[i])
 }
 
 fn tb_length(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
@@ -1131,7 +1153,10 @@ fn tb_length(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
         return tb_set_length(ctx, r, a);
     }
     let h = string_of(r)?;
-    Ok(Value::Integer(with_string(&h, |s| Value::text_len(s)) as i32))
+    // The lossy text has the length of the exact one: a lone half and its U+FFFD are one unit each.
+    Ok(Value::Integer(
+        with_string(&h, |s| Value::text_len(s.audited_str())) as i32
+    ))
 }
 
 /// `Length(N)` cuts the text to N characters or extends it with NUL characters, and the capacity grows to hold it
@@ -1153,7 +1178,7 @@ fn tb_set_length(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> N
     let mut u = with_string(&h, |s| u16s(s));
     u.resize(n as usize, 0);
     let cut = from_u16(&u, "TextBuilder.Length")?;
-    with_string(&h, |s| *s = cut);
+    with_string(&h, |s| *s = cut.into());
     grow_capacity(&h);
     Ok(Value::Integer(n as i32))
 }
@@ -1190,7 +1215,7 @@ fn tb_replace_range(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -
     let mut out = from_u16(&u[..from], op)?;
     out.push_str(&mid);
     out.push_str(&from_u16(&u[to..], op)?);
-    with_string(&h, |s| *s = out);
+    with_string(&h, |s| *s = out.into());
     grow_capacity(&h);
     Ok(Value::Boolean(true))
 }
@@ -1199,7 +1224,7 @@ fn tb_clear(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult 
     let h = string_of(r)?;
     // Clear keeps the capacity (text/textbuilder-bigtext/TxCTextBuilderBasics.al:Clear_Basics `capKept`).
     let cap = capacity_of(&h);
-    *h.borrow_mut() = LibraryValue::TextCap(String::new(), cap);
+    *h.borrow_mut() = LibraryValue::TextCap(Default::default(), cap);
     Ok(Value::Null)
 }
 
@@ -1217,6 +1242,11 @@ fn capacity_of(h: &Rc<RefCell<LibraryValue>>) -> i32 {
 /// `Capacity(6)` on six characters reads 6). A capacity below the length is not pinned.
 fn tb_capacity(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = string_of(r)?;
+    // The probe does not read the Capacity of a builder that holds a lone surrogate half: refused.
+    if with_string(&h, |s| s.has_lone()) {
+        let at = std::panic::Location::caller();
+        return Err(Signal::unsupported(crate::text::unaudited_reason(at)));
+    }
     if a.is_empty() {
         return Ok(Value::Integer(capacity_of(&h)));
     }
@@ -1235,7 +1265,10 @@ fn tb_capacity(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
 fn tb_insert(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     let h = string_of(r)?;
     let (pos, t) = (int(a, 0)?, tb_text(a, 1)?);
-    let u = with_string(&h, |s| u16s(s));
+    let (u, lone) = with_string(&h, |s| {
+        crate::text::half_kept(&[s, &t]);
+        (s.units(), s.has_lone() || t.has_lone())
+    });
     if pos < 1 || pos as usize > u.len() + 1 {
         return crate::native::raise::<Value>(
             "An invalid argument was passed to a 'TextBuilder' data type method.".to_string(),
@@ -1244,9 +1277,15 @@ fn tb_insert(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult
     }
     let at = pos as usize - 1;
     let mut out = u[..at].to_vec();
-    out.extend(t.encode_utf16());
+    out.extend(t.units());
     out.extend_from_slice(&u[at..]);
-    let joined = from_u16(&out, "TextBuilder.Insert")?;
+    // A lone half is inserted as it is (LtSurrogateHalves.al Ops_tb_2); a position inside a whole pair is not measured and
+    // keeps main's refusal.
+    let joined = if lone && !cuts_pair(&u, at) {
+        crate::text::Txt::from_units(&out)
+    } else {
+        from_u16(&out, "TextBuilder.Insert")?.into()
+    };
     with_string(&h, |s| *s = joined);
     grow_capacity(&h);
     Ok(Value::Boolean(true))
@@ -1267,7 +1306,7 @@ fn tb_remove(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult
     let mut out = u[..from].to_vec();
     out.extend_from_slice(&u[from + count as usize..]);
     let cut = from_u16(&out, "TextBuilder.Remove")?;
-    with_string(&h, |s| *s = cut);
+    with_string(&h, |s| *s = cut.into());
     Ok(Value::Boolean(true))
 }
 
@@ -1314,7 +1353,15 @@ fn tb_replace(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResul
             "Argument",
         );
     }
-    with_string(&h, |s| *s = s.replace(old.as_str(), new.as_str()));
+    with_string(&h, |s| {
+        if s.has_lone() || old.has_lone() || new.has_lone() {
+            // Replace unit by unit keeps a lone half (LtSurrogateHalves.al Ops_tb_2).
+            crate::text::half_kept(&[s, &old, &new]);
+            *s = crate::text::Txt::from_units(&replace_units(&s.units(), &old.units(), &new.units()));
+        } else {
+            *s = s.replace(old.as_str(), new.as_str()).into();
+        }
+    });
     grow_capacity(&h);
     Ok(Value::Boolean(true))
 }
@@ -1326,7 +1373,7 @@ fn bt_add_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
     let h = string_of(r)?;
     let t = match a.first() {
         Some(Value::Library(_, o)) => match &*o.borrow() {
-            LibraryValue::Text(s) | LibraryValue::TextCap(s, _) => s.clone(),
+            LibraryValue::Text(s) | LibraryValue::TextCap(s, _) => s.to_string(),
             LibraryValue::Empty => String::new(),
             _ => return unsupported("BigText.AddText of something that is no BigText"),
         },
@@ -1343,7 +1390,7 @@ fn bt_add_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
         let at = (pos as usize - 1).min(u.len());
         u.splice(at..at, t.encode_utf16());
         let joined = from_u16(&u, "BigText.AddText")?;
-        with_string(&h, |s| *s = joined);
+        with_string(&h, |s| *s = joined.into());
         return Ok(Value::Null);
     }
     with_string(&h, |s| s.push_str(&t));
@@ -1359,7 +1406,7 @@ fn bt_read(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
         Some(read) => read?,
         None => crate::stream::read_all_text(&mut a[0])?,
     };
-    with_string(&h, |s| *s = text);
+    with_string(&h, |s| *s = text.into());
     Ok(Value::Boolean(true))
 }
 
@@ -1428,7 +1475,7 @@ fn bt_get_sub_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> N
                 return unsupported("BigText.GetSubText of nothing into a BigText that holds text (not pinned)");
             }
             if !part.is_empty() {
-                *t.borrow_mut() = LibraryValue::Text(part);
+                *t.borrow_mut() = LibraryValue::Text(part.into());
             }
         }
         v => *v = Value::Text(part.into()),

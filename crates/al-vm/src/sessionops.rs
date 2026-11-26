@@ -525,7 +525,7 @@ impl Session {
 fn secret_text(s: String) -> Value {
     Value::Library(
         "SecretText".into(),
-        Rc::new(RefCell::new(al_builtins::value::LibraryValue::Text(s))),
+        Rc::new(RefCell::new(al_builtins::value::LibraryValue::Text(s.into()))),
     )
 }
 
