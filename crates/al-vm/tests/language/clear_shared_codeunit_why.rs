@@ -141,7 +141,10 @@ fn an_unpinned_holding_names_the_cell() {
 
 #[test]
 fn a_tableno_store_is_named() {
-    refused_naming("TableNoShared", &["store \"WyTableNo\"", "codeunit \"WyTnInner\" has a TableNo", "depth 1"]);
+    refused_naming(
+        "TableNoShared",
+        &["store \"WyTableNo\"", "codeunit \"WyTnInner\" has a TableNo", "depth 1"],
+    );
 }
 
 #[test]
