@@ -72,7 +72,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `format.rs`: The cache entry file: header, dictionary. Entry: `build`.
 - `index.rs`: The index entry: the scan of the dependency sources. Entry: `build_index`.
 - `key.rs`: The key of an entry: every input of the compile… Entry: `Key`.
-- `workspace.rs`: The workspace layer file (ADR-022 amendment 2026-11-15). Entry: `build_workspace`, `open_workspace`.
+- `workspace.rs`: The workspace layer file. Entry: `build_workspace`, `open_workspace`.
 - `lib.rs`: Crate root of the compile cache format (ADR-022).
 
 ### al-builtins
@@ -223,8 +223,8 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `workspace.rs`: A set of apps: parse every file. Entry: `Workspace`.
 - `workspace/moved_tables.rs`: A workspace table kept as the… Entry: `moved_table_of_dependency`.
 - `workspace/subscriber_publisher.rs`: The object an `[EventSubscriber]` names… Entry: `subscriber_publisher`.
-- `workspace/stored.rs`: A workspace as a stored compile keeps it. Entry: `Workspace::stored`, `Workspace::load_stored`.
-- `workspace/dump.rs`: Every field a run reads after the compile (the workspace layer's equality oracle). Entry: `Workspace::canonical_dump`.
+- `workspace/stored.rs`: A stored compile's workspace. Entry: `Workspace::stored`.
+- `workspace/dump.rs`: The workspace layer's equality dump. Entry: `canonical_dump`.
 - `xmlports.rs`: XmlPort objects (Format = Xml). Entry: `RawNode`.
 
 ### al-syntax
@@ -265,7 +265,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `runner.rs`: The seam between the harness and the runtime. Entry: `Runner`.
 - `select.rs`: Test selection: --codeunit, --test, --area, --file. Entry: `Selection`.
 - `strict_order.rs`: The corpus order probes…
-- `workspace_leg.rs`: The outcomes leg of the workspace layer (`AL_CORPUS_WORKSPACE_CACHE=1`). Entry: `say`.
+- `workspace_leg.rs`: The workspace layer's outcomes leg. Entry: `say`.
 
 ### al-testrun
 
@@ -275,7 +275,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `company_data.rs`: A company built by a dependency codeunit… Entry: `CompanyData`.
 - `compile_cache.rs`: The OS side of the compile cache: the key of a run. Entry: `CompileCache`.
 - `cache_gc.rs`: Cleanup of the compile cache folder. Entry: `prune`.
-- `workspace_cache.rs`: The workspace layer of the compile cache (ADR-022 amendment 2026-11-15). Entry: `WorkspaceKey`.
+- `workspace_cache.rs`: The compile cache's workspace layer. Entry: `WorkspaceKey`.
 - `crash.rs`: Names the test a crashed process was running. Entry: `install`.
 - `deps.rs`: Dependency apps for a corpus run (ADR-013). Entry: `Dependencies`.
 - `discover.rs`: Finds `Subtype = Test` codeunits and their `[Test]`… Entry: `test_codeunits`.
@@ -337,7 +337,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `impact.rs`: `al-runner test --impact-of APP`. Entry: `run`.
 - `impact_index.rs`: The impact index: format, cache key and path. Entry: `Index`.
 - `run_inputs.rs`: The inputs of a run, classified once.
-- `workspace_layer.rs`: What the command line hands the workspace layer and says of it. Entry: `options`, `say`.
+- `workspace_layer.rs`: The workspace layer's options and report. Entry: `options`.
 - `main.rs`: The `al-runner` binary: runs on a thread… Entry: `main`.
 - `profile.rs`: `--profile PATH`, `--profile-mode`. Entry: `Flags`.
 - `output.rs`: Counts, exit codes, the summary line. Entry: `exit_code`.
