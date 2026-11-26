@@ -13,3 +13,4 @@ N9121 Measured Cell Tests::TwoKeyFilters_BothChange	REFUSED CurrPage.Update in a
 N9121 Measured Cell Tests::Cell_EnumKey_OneFilter	ASSUMED new-line-empty-refresh-without-get-record
 N9121 Measured Cell Tests::Cell_TwoKeyFilters_SecondChanges	ASSUMED new-line-empty-refresh-without-get-record
 N9121 Measured Cell Tests::Cell_OnAfterGetCurrRecordCountsRuns	REFUSED OnAfterGetCurrRecord that changes the page or writes to the store
+N9121 Measured Cell Tests::Cell_OnAfterGetCurrRecordMessage	REFUSED CurrPage.Update in a control's OnValidate that changed a single-value filter on the new-row line of a list over an empty view

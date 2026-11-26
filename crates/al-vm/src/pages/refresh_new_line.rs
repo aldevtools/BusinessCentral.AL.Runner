@@ -190,14 +190,15 @@ impl Session {
     /// `show_new_line_of_empty_view`; with `compare`, true when the second landing left the page's variables and Rec's fields
     /// as the first did (false without `compare`).
     fn show_new_line_runs(&mut self, st: &St, without_parts: bool, compare: bool) -> Result<bool, Signal> {
+        // The page's variables and Rec's fields as values; `same_values` answers false for a value `ops::compare` cannot judge.
         let page_state = |s: &Self| {
-            let rec = s.page_rec(st);
             let globals = st
                 .borrow()
                 .instance
                 .as_ref()
-                .map(|i| format!("{:?}", i.borrow().globals));
-            (globals, format!("{:?}", rec.borrow().fields))
+                .map(|i| i.borrow().globals.clone())
+                .unwrap_or_default();
+            (globals, s.page_rec(st).borrow().fields.clone())
         };
         {
             let mut s = st.borrow_mut();
@@ -209,7 +210,10 @@ impl Session {
             self.land_on_new_line(st)?;
             let first = compare.then(|| page_state(self));
             self.land_on_new_line(st)?;
-            Ok(first.is_some_and(|f| f == page_state(self)))
+            Ok(first.is_some_and(|(g, f)| {
+                let (g2, f2) = page_state(self);
+                Self::same_values(&g, &g2) && Self::same_values(&f, &f2)
+            }))
         })();
         let same = self.torn_down_on_error(st, r)?;
         st.borrow_mut().refresh.cancel();
@@ -590,7 +594,8 @@ impl Session {
             if !ext
                 && !engine.events.is_subscribed(object, "onaftergetcurrrecordevent")
                 && engine.lasting_effect(object, *routine).is_none()
-                && engine.caption_checked_write(object, *routine).is_none())
+                && engine.caption_checked_write(object, *routine).is_none()
+                && engine.walked_dialog(object, *routine).is_none())
     }
 
     /// The filters of the two measured pages before (`before`) and after the OnValidate, with the line's values from the

@@ -346,6 +346,51 @@ page 97508 "N9121 Two Cell Counts"
         Runs: Integer;
 }
 
+// The page 7004 stand-in whose OnAfterGetCurrRecord calls Message.
+page 97510 "N9121 Two Cell Message"
+{
+    PageType = List;
+    SourceTable = "N9121 Two Keyed";
+    DelayedInsert = true;
+    layout
+    {
+        area(Content)
+        {
+            field(SalesTypeFilter; SalesTypeFilter)
+            {
+                trigger OnValidate()
+                begin
+                    CurrPage.SaveRecord();
+                    SetRecFilters();
+                end;
+            }
+            repeater(Lines)
+            {
+                field("Sales Type"; Rec."Sales Type") { }
+            }
+        }
+    }
+    trigger OnOpenPage()
+    begin
+        SetRecFilters();
+    end;
+
+    trigger OnAfterGetCurrRecord()
+    begin
+        Message('run');
+    end;
+
+    local procedure SetRecFilters()
+    begin
+        Rec.SetRange("Sales Type", SalesTypeFilter);
+        Rec.SetRange(Type, Rec.Type::Item);
+        CurrPage.Update(false);
+    end;
+
+    var
+        SalesTypeFilter: Option A,B,C,D;
+}
+
 page 97509 "N9121 Option Two Cell"
 {
     PageType = List;

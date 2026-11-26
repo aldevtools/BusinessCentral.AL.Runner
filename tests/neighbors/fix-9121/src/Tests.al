@@ -243,4 +243,24 @@ codeunit 97513 "N9121 Measured Cell Tests"
         P."Sales Type".AssertEquals(2);
         P.Runs.AssertEquals(P.Runs.AsInteger());
     end;
+
+    var
+        Calls: Integer;
+
+    [MessageHandler]
+    procedure CountMessage(Text: Text[1024])
+    begin
+        Calls += 1;
+    end;
+
+    [Test]
+    [HandlerFunctions('CountMessage')]
+    procedure Cell_OnAfterGetCurrRecordMessage()
+    var
+        P: TestPage "N9121 Two Cell Message";
+    begin
+        P.OpenEdit();
+        P.SalesTypeFilter.SetValue(2);
+        P."Sales Type".AssertEquals(2);
+    end;
 }
