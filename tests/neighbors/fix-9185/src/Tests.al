@@ -221,4 +221,18 @@ codeunit 71858 Tests
         R.Insert(true);
         Check(Log.Text(), 'SUB');
     end;
+
+    // Main's behavior: the table's code never names xRec.
+    [Test]
+    procedure Main_TableNeverNamesXRec()
+    var
+        R: Record "N9185 NoXRec";
+    begin
+        R.DeleteAll();
+        R.Id := 'A';
+        R.Name := 'N0';
+        Log.Set(0, 0);
+        R.Insert(true);
+        Check(Log.Text(), 'EXT');
+    end;
 }

@@ -1179,9 +1179,7 @@ impl Session {
                 }
             }
         }
-        let at_call = run
-            .then(|| self.rec_at_ext_before_call(t, "OnBeforeDelete", "OnDelete", rec))
-            .flatten();
+        let at_call = self.rec_at_ext_before_call(t, run, "OnBeforeDelete", "OnDelete", rec);
         self.table_event(t, "onbeforedeleteevent", rec, None, run, None)?;
         if run {
             // The table's OnDelete gets the buffer as it was before the extensions' OnBeforeDelete ran.

@@ -100,6 +100,31 @@ tableextension 71856 "N9185 NoBefore Ext" extends "N9185 NoBefore"
     end;
 }
 
+// A table whose own code never names xRec, with an extension OnBeforeInsert that changes Rec: no xRec read, main's behavior.
+table 71859 "N9185 NoXRec"
+{
+    fields
+    {
+        field(1; Id; Code[10]) { }
+        field(2; Name; Text[30]) { }
+    }
+    keys { key(PK; Id) { Clustered = true; } }
+    trigger OnInsert()
+    var
+        N9185Log: Codeunit "N9185 Log";
+    begin
+        N9185Log.SetText(Rec.Name);
+    end;
+}
+
+tableextension 71860 "N9185 NoXRec Ext" extends "N9185 NoXRec"
+{
+    trigger OnBeforeInsert()
+    begin
+        Rec.Name := 'EXT';
+    end;
+}
+
 codeunit 71857 "N9185 Log"
 {
     SingleInstance = true;

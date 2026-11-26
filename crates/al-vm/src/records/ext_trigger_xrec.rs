@@ -96,10 +96,18 @@ impl Session {
     }
 
     /// Rec at the call, taken before the `OnBefore...Event` subscribers run, when the call is of the measured shape: `None`
-    /// keeps main's xRec (no extension declares `before`, the table declares no `own` trigger, or another call shape).
-    pub(crate) fn rec_at_ext_before_call(&self, t: &TableDef, before: &str, own: &str, rec: &Rec) -> Option<AtCall> {
+    /// keeps main's xRec (a call that runs no trigger (`run` false), no extension declares `before`, the table declares no
+    /// `own` trigger, or another call shape).
+    pub(crate) fn rec_at_ext_before_call(
+        &self,
+        t: &TableDef,
+        run: bool,
+        before: &str,
+        own: &str,
+        rec: &Rec,
+    ) -> Option<AtCall> {
         let declared = self.ext_triggers(t, before).len();
-        if declared == 0 || self.table_trigger(t, own).is_none() {
+        if !run || declared == 0 || self.table_trigger(t, own).is_none() {
             return None;
         }
         let r = rec.borrow();

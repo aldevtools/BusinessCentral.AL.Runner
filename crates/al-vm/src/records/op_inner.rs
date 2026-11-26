@@ -432,10 +432,7 @@ impl Session {
                 // Rec carries its SystemId from the Before event on, the one that is stored (record/TestXRecStampFields.al:80-90;
                 // events/TestProbeEventContracts.al:SystemId_BeforeOnInsert_AndPresetBuffer, `sysid_null=No` in the Before event);
                 // the stamps and the key come below it.
-                let keep_id = match args.get(1) {
-                    Some(v) => ops::truthy(v)?,
-                    None => false,
-                };
+                let keep_id = args.get(1).map(ops::truthy).transpose()?.unwrap_or(false);
                 // xRec in the insert triggers is the buffer as it was before the SystemId is given: the SystemId an
                 // earlier insert left in the variable, else the null Guid (Insert_Events_TriggerFalseAndTrue).
                 let before_id = t
@@ -443,9 +440,7 @@ impl Session {
                     .iter()
                     .position(|f| f.id == 2_000_000_000)
                     .map(|i| rec.borrow().fields[i].clone());
-                let at_call = run
-                    .then(|| self.rec_at_ext_before_call(&t, "OnBeforeInsert", "OnInsert", rec))
-                    .flatten();
+                let at_call = self.rec_at_ext_before_call(&t, run, "OnBeforeInsert", "OnInsert", rec);
                 self.assign_system_id(&t, rec, keep_id);
                 let id_slot = t.fields.iter().position(|f| f.id == 2_000_000_000);
                 // The id the platform gave the row, before any event or trigger could change it.
