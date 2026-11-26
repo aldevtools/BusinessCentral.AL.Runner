@@ -436,3 +436,180 @@ page 97509 "N9121 Option Two Cell"
         SalesTypeFilter: Option A,B,C,D;
         CodeEditable: Boolean;
 }
+
+// The page 7004 stand-in with a Record global and a Codeunit global that OnAfterGetCurrRecord does not touch (pages 7002 and
+// 7004 have both).
+page 97511 "N9121 Two Cell Globals"
+{
+    PageType = List;
+    SourceTable = "N9121 Two Keyed";
+    DelayedInsert = true;
+    layout
+    {
+        area(Content)
+        {
+            field(SalesTypeFilter; SalesTypeFilter)
+            {
+                trigger OnValidate()
+                begin
+                    CurrPage.SaveRecord();
+                    SetRecFilters();
+                end;
+            }
+            repeater(Lines)
+            {
+                field(Type; Rec.Type) { }
+                field("Sales Type"; Rec."Sales Type") { }
+            }
+        }
+    }
+    trigger OnOpenPage()
+    begin
+        SetRecFilters();
+    end;
+
+    trigger OnAfterGetCurrRecord()
+    begin
+        CodeEditable := Rec."Sales Type" <> Rec."Sales Type"::C;
+    end;
+
+    local procedure SetRecFilters()
+    begin
+        Rec.SetRange("Sales Type", SalesTypeFilter);
+        Rec.SetRange(Type, Rec.Type::Item);
+        CurrPage.Update(false);
+    end;
+
+    var
+        Log: Record "N9121 Log";
+        Helper: Codeunit "N9121 Helper";
+        SalesTypeFilter: Option A,B,C,D;
+        CodeEditable: Boolean;
+}
+
+// The page 7004 stand-in with a function control that writes a page variable from Rec.GetFilter, in a group whose Visible
+// is `ShowFilters` (page 7002's FilterDescription in group Filters, Visible = IsOnMobile).
+page 97512 "N9121 Two Cell Fn"
+{
+    PageType = List;
+    SourceTable = "N9121 Two Keyed";
+    DelayedInsert = true;
+    layout
+    {
+        area(Content)
+        {
+            field(SalesTypeFilter; SalesTypeFilter)
+            {
+                trigger OnValidate()
+                begin
+                    CurrPage.SaveRecord();
+                    SetRecFilters();
+                end;
+            }
+            field(SeenFilter; SeenFilter) { Editable = false; }
+            group(Filters)
+            {
+                Visible = ShowFilters;
+                field(FilterText; ReadFilters()) { Editable = false; }
+            }
+            repeater(Lines)
+            {
+                field("Sales Type"; Rec."Sales Type") { }
+            }
+        }
+    }
+    trigger OnOpenPage()
+    begin
+        SetRecFilters();
+    end;
+
+    trigger OnAfterGetCurrRecord()
+    begin
+        CodeEditable := Rec."Sales Type" <> Rec."Sales Type"::C;
+    end;
+
+    local procedure SetRecFilters()
+    begin
+        Rec.SetRange("Sales Type", SalesTypeFilter);
+        Rec.SetRange(Type, Rec.Type::Item);
+        CurrPage.Update(false);
+    end;
+
+    local procedure ReadFilters(): Text
+    begin
+        SeenFilter := Rec.GetFilter("Sales Type");
+        exit(SeenFilter);
+    end;
+
+    var
+        SalesTypeFilter: Option A,B,C,D;
+        SeenFilter: Text;
+        ShowFilters: Boolean;
+        CodeEditable: Boolean;
+}
+
+// The same with the group shown.
+page 97513 "N9121 Two Cell Fn Shown"
+{
+    PageType = List;
+    SourceTable = "N9121 Two Keyed";
+    DelayedInsert = true;
+    layout
+    {
+        area(Content)
+        {
+            field(SalesTypeFilter; SalesTypeFilter)
+            {
+                trigger OnValidate()
+                begin
+                    CurrPage.SaveRecord();
+                    SetRecFilters();
+                end;
+            }
+            field(SeenFilter; SeenFilter) { Editable = false; }
+            group(Filters)
+            {
+                field(FilterText; ReadFilters()) { Editable = false; }
+            }
+            repeater(Lines)
+            {
+                field("Sales Type"; Rec."Sales Type") { }
+            }
+        }
+    }
+    trigger OnOpenPage()
+    begin
+        SetRecFilters();
+    end;
+
+    trigger OnAfterGetCurrRecord()
+    begin
+        CodeEditable := Rec."Sales Type" <> Rec."Sales Type"::C;
+    end;
+
+    local procedure SetRecFilters()
+    begin
+        Rec.SetRange("Sales Type", SalesTypeFilter);
+        Rec.SetRange(Type, Rec.Type::Item);
+        CurrPage.Update(false);
+    end;
+
+    local procedure ReadFilters(): Text
+    begin
+        SeenFilter := Rec.GetFilter("Sales Type");
+        exit(SeenFilter);
+    end;
+
+    var
+        SalesTypeFilter: Option A,B,C,D;
+        SeenFilter: Text;
+        CodeEditable: Boolean;
+}
+
+codeunit 97514 "N9121 Helper"
+{
+    procedure Touch(): Integer
+    begin
+        exit(1);
+    end;
+}

@@ -184,22 +184,6 @@ impl Session {
     /// pages/journal-batch-switch/Y17JournalBatchSwitch.al:485 UpdWs_BatchSwitch_ToEmptyBatch `V:done 20000;N:B3/0 below=Yes;
     /// C:B3/0;N:B3/0 below=Yes;C:B3/0`, :560 without the Find in code).
     pub(super) fn show_new_line_of_empty_view(&mut self, st: &St, without_parts: bool) -> Result<(), Signal> {
-        self.show_new_line_runs(st, without_parts, false).map(|_| ())
-    }
-
-    /// `show_new_line_of_empty_view`; with `compare`, true when the second landing left the page's variables and Rec's fields
-    /// as the first did (false without `compare`).
-    fn show_new_line_runs(&mut self, st: &St, without_parts: bool, compare: bool) -> Result<bool, Signal> {
-        // The page's variables and Rec's fields as values; `same_values` answers false for a value `ops::compare` cannot judge.
-        let page_state = |s: &Self| {
-            let globals = st
-                .borrow()
-                .instance
-                .as_ref()
-                .map(|i| i.borrow().globals.clone())
-                .unwrap_or_default();
-            (globals, s.page_rec(st).borrow().fields.clone())
-        };
         {
             let mut s = st.borrow_mut();
             s.window = Vec::new();
@@ -208,19 +192,14 @@ impl Session {
         }
         let r = (|| {
             self.land_on_new_line(st)?;
-            let first = compare.then(|| page_state(self));
-            self.land_on_new_line(st)?;
-            Ok(first.is_some_and(|(g, f)| {
-                let (g2, f2) = page_state(self);
-                Self::same_values(&g, &g2) && Self::same_values(&f, &f2)
-            }))
+            self.land_on_new_line(st)
         })();
-        let same = self.torn_down_on_error(st, r)?;
+        self.torn_down_on_error(st, r)?;
         st.borrow_mut().refresh.cancel();
         if !without_parts {
             self.sync_parts(st)?;
         }
-        Ok(same)
+        Ok(())
     }
 
     /// The end of a refresh after a control's OnValidate: OnAfterGetCurrRecord unless `without_curr`, then the parts read again
@@ -479,7 +458,10 @@ impl Session {
     /// pinned refresh of `refresh_after_validate_filter` needs both). `false`, main's refresh, when the line's values from the
     /// filters (`filter_stamps`) do not change. Where they change, the line is shown again with the new values
     /// (`show_new_line_of_empty_view`) only in the cell of Microsoft's Tests-SCM 137156 (`get_record_free_cell`), through
-    /// Assumption::NewLineEmptyRefreshWithoutGetRecord; every other such page is refused.
+    /// Assumption::NewLineEmptyRefreshWithoutGetRecord, when its function controls are hidden (`function_controls_hidden`);
+    /// every other such page is refused. OnAfterGetCurrRecord runs twice there, as on BC (corpus pull request 1593,
+    /// NewLineFilterRefreshWithoutGetRecord.al:1509 EnumCurr_OpenFilter_KindFilterWithSave `log` `Curr C//;Curr C//;`, :2290
+    /// TwoCurr_OpenFilter_SalesTypeFilterWithSave).
     pub(super) fn empty_new_line_without_get_record(
         &mut self,
         st: &St,
@@ -507,14 +489,13 @@ impl Session {
                 "CurrPage.Update in a control's OnValidate that changed a single-value filter on the new-row line of a list over an empty view, on a page that does not declare both OnAfterGetRecord and OnAfterGetCurrRecord, outside the shape of Microsoft's Tests-SCM 137156 (whether the line takes the new filter value there is not pinned)",
             );
         }
-        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NewLineEmptyRefreshWithoutGetRecord);
-        let changes = self.store.change_counter();
-        let same_runs = self.show_new_line_runs(st, without_parts, true)?;
-        if !same_runs || self.store.change_counter() != changes {
+        if !self.function_controls_hidden(st)? {
             return unsupported(
-                "OnAfterGetCurrRecord that changes the page or writes to the store, run on the new-row line after CurrPage.Update in a control's OnValidate that changed a single-value filter, on a page that does not declare OnAfterGetRecord (how often it runs there is not pinned)",
+                "a function control in a shown group of a list on its new-row line, at the refresh after CurrPage.Update in a control's OnValidate that changed a single-value filter on a page that does not declare OnAfterGetRecord (BC runs it there; this refresh does not)",
             );
         }
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NewLineEmptyRefreshWithoutGetRecord);
+        self.show_new_line_of_empty_view(st, without_parts)?;
         Ok(true)
     }
 
@@ -577,8 +558,8 @@ impl Session {
 
     /// The page's OnAfterGetCurrRecord, which `show_new_line_of_empty_view` runs twice, is its own trigger alone (no page
     /// extension declares it, nothing subscribes to OnAfterGetCurrRecordEvent) and its code leaves nothing behind outside the
-    /// page (`Engine::lasting_effect` is `None` and no Record write is let through, `caption_checked_write`). What it writes
-    /// to the page is checked when it ran (`empty_new_line_without_get_record`).
+    /// page (`Engine::lasting_effect` is `None` and no Record write is let through, `caption_checked_write`, no dialog,
+    /// `walked_dialog`).
     fn curr_record_trigger_leaves_nothing(&self, st: &St) -> bool {
         let engine = self.engine();
         let object = st.borrow().object as usize;
@@ -596,6 +577,36 @@ impl Session {
                 && engine.lasting_effect(object, *routine).is_none()
                 && engine.caption_checked_write(object, *routine).is_none()
                 && engine.walked_dialog(object, *routine).is_none())
+    }
+
+    /// Every function control of the page (an expression control whose routine calls something, `call_free_routine`) is the
+    /// page's own and sits in a group whose Visible is false now. BC does not run such a control at this refresh (corpus pull
+    /// request 1593, NewLineFilterRefreshWithoutGetRecord.al:2648 EnumFnHidden_OpenFilter_KindFilterWithSave_ReadsSeen `seen`
+    /// empty, a group with `Visible = false`), and `show_new_line_of_empty_view` runs none. In a shown group BC runs it (:2756
+    /// EnumFnVisible_OpenFilter_KindFilterWithSave_ReadsSeen `seen` C), so that page is refused.
+    fn function_controls_hidden(&mut self, st: &St) -> Result<bool, Signal> {
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        let page = page_of(&engine, st);
+        for c in &page.controls {
+            let ir::Binding::Expr(r) = c.binding else {
+                continue;
+            };
+            if c.owner.is_none() && super::lookup_refresh::call_free_routine(&engine.program, object, r) {
+                continue;
+            }
+            let mut hidden = false;
+            let mut parent = c.parent;
+            while let Some(p) = parent {
+                hidden |= matches!(page.controls[p].kind, ir::ControlKind::Group)
+                    && !self.prop_bool_now(st, p, "visible", true)?;
+                parent = page.controls[p].parent;
+            }
+            if c.owner.is_some() || !hidden {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     /// The filters of the two measured pages before (`before`) and after the OnValidate, with the line's values from the

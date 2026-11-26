@@ -238,10 +238,48 @@ codeunit 97513 "N9121 Measured Cell Tests"
     var
         P: TestPage "N9121 Two Cell Counts";
     begin
+        // Corpus PR 1593, NewLineFilterRefreshWithoutGetRecord.al:1509 EnumCurr_OpenFilter_KindFilterWithSave: two runs at the
+        // open, two more at the refresh.
+        P.OpenEdit();
+        // A value read: the gate admits reads before the SetValue, and AssertEquals is not one.
+        if P.Runs.Value <> '2' then
+            Error('Runs after the open: %1', P.Runs.Value);
+        P.SalesTypeFilter.SetValue(2);
+        P."Sales Type".AssertEquals(2);
+        P.Runs.AssertEquals(4);
+    end;
+
+    [Test]
+    procedure Cell_TwoKeyFilters_RecordAndCodeunitGlobals()
+    var
+        P: TestPage "N9121 Two Cell Globals";
+    begin
         P.OpenEdit();
         P.SalesTypeFilter.SetValue(2);
         P."Sales Type".AssertEquals(2);
-        P.Runs.AssertEquals(P.Runs.AsInteger());
+        P.Type.AssertEquals(Format(Enum::"N9121 Line Type"::Item));
+    end;
+
+    [Test]
+    procedure Cell_FunctionControlInHiddenGroup()
+    var
+        P: TestPage "N9121 Two Cell Fn";
+    begin
+        // Corpus PR 1593: a function control in a hidden group is not evaluated, so SeenFilter stays empty.
+        P.OpenEdit();
+        P.SalesTypeFilter.SetValue(2);
+        P."Sales Type".AssertEquals(2);
+        P.SeenFilter.AssertEquals('');
+    end;
+
+    [Test]
+    procedure Cell_FunctionControlInVisibleGroup()
+    var
+        P: TestPage "N9121 Two Cell Fn Shown";
+    begin
+        P.OpenEdit();
+        P.SalesTypeFilter.SetValue(2);
+        P."Sales Type".AssertEquals(2);
     end;
 
     var
