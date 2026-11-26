@@ -100,7 +100,7 @@ pub fn constructor_answers_only(clr_type: &str) -> bool {
 
 /// The UserInfo collections (member, CLR type of an item) whose read raises on a tier without Entra ID: the UserInfo
 /// is null there (`GetCurrentUser` answers null, `GetUser` and `GetUserByObjectId` raise), so reading one raises
-/// DotNetVariableNotCreated (`not_created.rs`) and the body of a `foreach` over it never runs (corpus PR 1612, open,
+/// DotNetVariableNotCreated (`not_created.rs`) and the body of a `foreach` over it never runs (corpus PR 1612, merged, not in the pin,
 /// Y93GraphNoDirectory.al cell "ServicePlanInfo/RoleInfo/GroupInfo members: not reachable on this tier"; assumption
 /// graph-no-directory-members). No item member is served: a body that runs anyway raises `Signal::Unsupported`.
 const UNRUN_ITEMS: &[(&str, &str)] = &[
@@ -766,8 +766,8 @@ fn member_ref(name: &str, pin: Pin, f: MemberRefFn) -> RegistryMember {
 const GRAPH_PIN: &str =
     "probe tests/al-language-onprem/session-system/PXAzureAdGraph.al:1-12,86-109 (corpus branch al-runtime-rs-staging)";
 
-/// The cells of corpus PR 1612 (open, not pinned): every run marks the assumption `graph-no-directory-members`.
-const GRAPH_1612_PIN: &str = "probe tests/al-language-onprem-dotnet/dotnet/graph-mock/Y93GraphNoDirectory.al (corpus PR 1612, open; assumption graph-no-directory-members)";
+/// The cells of corpus PR 1612 (merged on corpus master, not in the pin): every run marks the assumption `graph-no-directory-members`.
+const GRAPH_1612_PIN: &str = "probe tests/al-language-onprem-dotnet/dotnet/graph-mock/Y93GraphNoDirectory.al (corpus PR 1612, merged, not in the pin; assumption graph-no-directory-members)";
 
 fn graph_query_new(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "GraphQuery constructor")?;
@@ -836,7 +836,7 @@ fn tenant_info_empty_text(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: A
     Ok(Value::Text(String::new().into()))
 }
 
-/// Corpus PR 1612 (open), Y93GraphNoDirectory.al cells get_user_by_object_id and get_user_by_object_id_empty: one Text
+/// Corpus PR 1612 (merged, not in the pin), Y93GraphNoDirectory.al cells get_user_by_object_id and get_user_by_object_id_empty: one Text
 /// argument (a guid, or ''); other shapes refuse.
 fn graph_user_by_object_id(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     let [Value::Text(_)] = args else {
@@ -848,7 +848,7 @@ fn graph_user_by_object_id(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: 
     graph_null_reference("GetUserByObjectId")
 }
 
-/// Corpus PR 1612 (open), Y93GraphNoDirectory.al cell is_group_member: two Text arguments; other shapes refuse.
+/// Corpus PR 1612 (merged, not in the pin), Y93GraphNoDirectory.al cell is_group_member: two Text arguments; other shapes refuse.
 fn graph_is_group_member(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     let [Value::Text(_), Value::Text(_)] = args else {
         return Err(Signal::unsupported(

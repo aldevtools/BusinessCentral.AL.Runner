@@ -36,7 +36,7 @@ impl Session {
     /// - `CreateEntry(Path)`, the property `Entries` and `Dispose()` of System.IO.Compression.ZipArchive
     ///   (dotnet/zip-create/Y44ZipCreateMode.al:358-367 Zip_CreateEntry_NoObject, corpus PR 962).
     /// - The property `Uri` of System.Security.Cryptography.Xml.Reference (dotnet/dotnet/ClearSignedXmlReference.al:178-179).
-    /// - `ObjectId()`, `AssignedPlans()`, `Roles()` and `Groups()` of UserInfo (corpus PR 1612, open; assumption
+    /// - `ObjectId()`, `AssignedPlans()`, `Roles()` and `Groups()` of UserInfo (corpus PR 1612, merged, not in the pin; assumption
     ///   graph-no-directory-members).
     ///
     /// The text names the routine and its codeunit; outside a codeunit the object kind's spelling is not pinned.
@@ -73,7 +73,7 @@ impl Session {
                 system_environment::NEW_LINE
             }
             // ObjectId, AssignedPlans, Roles and Groups of a null UserInfo, called with parentheses and no arguments, also as
-            // a foreach collection (corpus PR 1612, open: Y93GraphNoDirectory.al UserInfo_FromGetCurrentUser_Members and
+            // a foreach collection (corpus PR 1612, merged, not in the pin: Y93GraphNoDirectory.al UserInfo_FromGetCurrentUser_Members and
             // UserInfo_Unassigned_Members; assumption graph-no-directory-members).
             (MemberKind::Call, USER_INFO)
                 if no_args && let Some((_, called)) = USER_INFO_MEMBERS.iter().find(|m| is(m.0)) =>

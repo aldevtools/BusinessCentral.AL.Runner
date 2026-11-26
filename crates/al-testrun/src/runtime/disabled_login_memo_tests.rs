@@ -250,6 +250,10 @@ fn members_of_the_item_of_a_foreach_over_a_user_info_collection_run_with_the_sub
             "I: DotNet GroupInfo;",
             "foreach I in U.Groups() do if I.DisplayName() = '' then;",
         ),
+        (
+            "I: DotNet GroupInfo;",
+            "foreach I in U.Groups() do if I.DisplayName().ToUpper() = '' then;",
+        ),
     ] {
         let graph = GRAPH.replace("{vars}", vars).replace("{more}", more);
         let (o, hits) = run_graph(&format!("Graph(); {ENV}"), &graph);
@@ -260,7 +264,7 @@ fn members_of_the_item_of_a_foreach_over_a_user_info_collection_run_with_the_sub
 
 // Neighbors that keep main's refusal: an item member outside the foreach body, in a body that assigns the item, on an
 // item from `:=` or from GraphQuery.GetGroupInfo, a GraphQuery member corpus PR 1612 does not measure, and another
-// UserInfo member, and Format of a DotNet local.
+// UserInfo member, Format of a DotNet local, and a call on an item member's result after the body.
 #[test]
 fn a_memo_that_reaches_unmeasured_graph_members_keeps_the_refusal() {
     let plan = "P: DotNet ServicePlanInfo; L: DotNet ServicePlanInfo;";
@@ -281,6 +285,10 @@ fn a_memo_that_reaches_unmeasured_graph_members_keeps_the_refusal() {
         ("", "if G.GetTenantDetail().InitialDomain() = '' then;"),
         ("", "if U.DisplayName() = '' then;"),
         (plan, "if Format(L) = '' then;"),
+        (
+            "I: DotNet GroupInfo;",
+            "foreach I in U.Groups() do; if I.DisplayName().ToUpper() = '' then;",
+        ),
     ] {
         let graph = GRAPH.replace("{vars}", vars).replace("{more}", more);
         kept_not_run(&run_graph(&format!("Graph(); {ENV}"), &graph), &graph);

@@ -1572,9 +1572,11 @@ impl Rec<'_> {
 
     /// Notes the member calls and reads on `var` in `body` when `body` never runs: the body of a `foreach` whose `var`
     /// holds the item type of a UserInfo collection whose read raises on this tier (al-vm `unrun_item_type`; corpus PR
-    /// 1612, open, Y93GraphNoDirectory.al cell "ServicePlanInfo/RoleInfo/GroupInfo members: not reachable on this
+    /// 1612, merged, not in the pin, Y93GraphNoDirectory.al cell "ServicePlanInfo/RoleInfo/GroupInfo members: not reachable on this
     /// tier"; assumption graph-no-directory-members), and that assigns `var` nowhere, so each such member is the
-    /// item's. The item from any other source (a `:=`, a parameter, another collection) keeps its members' count.
+    /// item's, as is a call or read on the result of a noted member (`X.DisplayName().ToUpper()`: the receiver chain starts
+    /// at `var`; the post-order walk notes the receiver first). The item from any other source (a `:=`, a parameter,
+    /// another collection) keeps its members' count.
     fn unrun_members(&mut self, o: usize, r: usize, var: &Place, collection: &Expr, body: &[Stmt]) {
         use al_vm::dotnet::server_classes::unrun_item_type;
         let types = &self.lowered.program.dotnet_types;
@@ -1612,7 +1614,8 @@ impl Rec<'_> {
                 op: al_ir::DotNetOp::Call(_) | al_ir::DotNetOp::Get(_),
                 ..
             } = e
-                && matches!(rc.as_ref(), Expr::Load(p) if p == var)
+                && (matches!(rc.as_ref(), Expr::Load(p) if p == var)
+                    || self.unrun.contains(&(rc.as_ref() as *const Expr as usize)))
             {
                 self.unrun.insert(e as *const Expr as usize);
             }
