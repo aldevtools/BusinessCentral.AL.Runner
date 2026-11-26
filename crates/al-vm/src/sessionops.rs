@@ -665,6 +665,8 @@ impl Session {
                     al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::IsolatedStorageOverwriteTx);
                 }
                 self.tx.phase = crate::transactions::TxPhase::Write;
+                // Not a Record write: no cell of the failed-Insert check measures it (`version_entry.rs`).
+                self.tx.write_counts.note_unmeasured();
                 self.isolated_set_in_test.insert(slot.clone());
                 self.isolated_written_in_codeunit.insert(slot.clone());
                 self.isolated_storage
@@ -708,6 +710,7 @@ impl Session {
                     Some(_) => {
                         // A Delete opens the write transaction (session-system/CnIsolatedStorageLeads.al:254-255).
                         self.tx.phase = crate::transactions::TxPhase::Write;
+                        self.tx.write_counts.note_unmeasured();
                         Ok(Value::Boolean(true))
                     }
                     // A Delete of a missing key answers false and still opens the write transaction (misc/lt-y76-assumptions/

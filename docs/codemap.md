@@ -422,6 +422,8 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `rename.rs`: Rename propagation to related tables. Entry: `rename_references`.
 - `rename_blank_key.rs`: A Rename of a database record in which a primary…
 - `stale_rename.rs`: A Rename through a stale record.
+- `stale_own_modify.rs`: A Modify through a stale buffer, and the Modify after a failed guarded Insert. Entry: `check_failed_insert_stale`.
+- `version_entry.rs`: Where a buffer's row version came from, for the Modify after a failed Insert (issue 8721). Entry: `version_after_table_write`.
 - `reports.rs`: Report objects at run time: dataset walk, triggers. Entry: `report_builtin`.
 - `reports/` (4 files): Report objects: Run, SaveAs, data items, layouts. Files: `item_view.rs`, `dependency_items.rs`, `transaction_world.rs`, `property_gates.rs`
 - `report_placeholder/`: `mod.rs` writes the output of a rendering save.

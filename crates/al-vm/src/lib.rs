@@ -198,6 +198,7 @@ mod user_password;
 mod usertable;
 mod var_option;
 mod variant_copy;
+mod version_entry;
 mod view_empty;
 mod view_unknown;
 mod views;
@@ -1712,52 +1713,8 @@ impl Session {
             RtType::Record(table, temporary) => {
                 // A table declared `TableType = Temporary` is temporary for every variable
                 // (corpus record 60198 TempOnly_IsTemporary_AlwaysTrue).
-                let temporary = &(*temporary || self.engine.object_facts[*table as usize].temporary());
-                let temp_id = temporary.then(|| self.new_temp_id());
-                Value::Record(Rc::new(RefCell::new(RecordState {
-                    table: *table,
-                    temporary: *temporary,
-                    temp_id,
-                    company: None,
-                    change_company_called: false,
-                    crm: self.engine.object_facts[*table as usize].crm(),
-                    fields: self.initial_fields(*table as usize),
-                    filters: Vec::new(),
-                    decimal_cut_filters: Vec::new(),
-                    filter_group: 0,
-                    marks: Vec::new(),
-                    marked_only: false,
-                    read_isolation: 0,
-                    // A record in a test run is Validated (corpus record/TestSecurityFilteringContracts.al:161-175).
-                    security_filtering: 0,
-                    declared_security_filtering: 0,
-                    declared_security_filtering_unpinned: false,
-                    security_filtering_unpinned: false,
-                    security_filtering_array: false,
-                    key: 0,
-                    adhoc: None,
-                    ascending: true,
-                    field_descending: 0,
-                    position: None,
-                    auto_calc: Vec::new(),
-                    load: Default::default(),
-                    touched: false,
-                    assigned: false,
-                    inserted: false,
-                    dirty_base: None,
-                    is_dirty_base: al_builtins::value::DirtyBase::Fresh,
-                    last_modify: None,
-                    failed_insert: None,
-                    row_origin: None,
-                    own_read: Default::default(),
-                    rolled_read: Default::default(),
-                    probed_source: Default::default(),
-                    globals: Default::default(),
-                    unpinned_buffer: None,
-                    view_assumption: None,
-                    auto_calc_dropped: false,
-                    run_page_link: None,
-                })))
+                let temporary = *temporary || self.engine.object_facts[*table as usize].temporary();
+                Value::Record(Rc::new(RefCell::new(self.fresh_record(*table, temporary))))
             }
             // Each element of an array is a variable of its own: an array of records holds records, not
             // nulls (Tests-ERM "Discount Setup Notifications": `A: array[2] of Record "General Posting Setup"`).
