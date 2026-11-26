@@ -40,6 +40,7 @@ mod clear_shared_codeunit_cycle;
 mod clear_shared_codeunit_shapes;
 mod clear_shared_codeunit_share;
 mod clear_shared_codeunit_unused;
+mod clear_shared_codeunit_why;
 mod clear_version;
 mod code_compare;
 mod codeunit_index;

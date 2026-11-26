@@ -92,10 +92,7 @@ impl Session {
                         return Err(match holding {
                             _ if hold.shared() => shared_table_refusal(),
                             Holding::Shared | Holding::SharedUnwritten | Holding::SharedUncalled => {
-                                Signal::unsupported(
-                                    "ClearAll of a global codeunit variable whose instance another variable shares, in a \
-                                 shape the corpus does not pin",
-                                )
+                                self.shared_store_refusal(owner, v, holding, hold)
                             }
                             Holding::Written => temp_rows_refusal(),
                         });
@@ -409,12 +406,74 @@ impl Session {
     /// text or of a kind [`store_global_kind`] lists, a codeunit global again such a store. The measured stores nest three
     /// deep ("CKW Register", "CKW WMS", "CKW Tracking", "CKW UOM"); a deeper or cyclic nesting is no such store.
     fn kinds_store(&self, object: usize, depth: u8) -> bool {
+        self.kinds_unpinned(object, depth).is_none()
+    }
+
+    /// The first part of codeunit `object`, read at nesting `depth`, that makes it no [`Session::kinds_store`]: `None` when
+    /// it is one. A codeunit global (or array of them) that is no such store gives the part of that codeunit.
+    fn kinds_unpinned(&self, object: usize, depth: u8) -> Option<Unpinned> {
         let o = &self.engine.program.objects[object];
-        depth <= 3
-            && self.plain_codeunit(object)
-            && o.rec_slot.is_none()
-            && (o.globals.iter())
-                .all(|g| g.plain_label || store_global_kind(&g.ty, &|c| self.kinds_store(c as usize, depth + 1)))
+        if depth > 3 {
+            return Some(Unpinned::Deep { object, depth });
+        }
+        if !self.plain_codeunit(object) {
+            return Some(Unpinned::NotPlain { object, depth });
+        }
+        if o.rec_slot.is_some() {
+            return Some(Unpinned::TableNo { object, depth });
+        }
+        let nested = |c: u32| self.kinds_store(c as usize, depth + 1);
+        let (slot, g) =
+            (o.globals.iter().enumerate()).find(|(_, g)| !g.plain_label && !store_global_kind(&g.ty, &nested))?;
+        let inner = match &g.ty {
+            RtType::Array(dims, e) if dims.len() == 1 => match **e {
+                RtType::Codeunit(c) => Some(c),
+                _ => None,
+            },
+            RtType::Codeunit(c) => Some(*c),
+            _ => None,
+        };
+        match inner {
+            Some(c) if !nested(c) => self.kinds_unpinned(c as usize, depth + 1),
+            _ => Some(Unpinned::Global { object, slot, depth }),
+        }
+    }
+
+    /// The refusal of `ClearAll()` in `owner` of store instance `v`, which another variable shares and which
+    /// [`Session::measured_cell`] does not measure: the common text, then the store, the owner and the first reason the
+    /// cell is not measured (a diagnostic only, ADR-009; which shapes refuse is `measured_cell`'s).
+    fn shared_store_refusal(&self, owner: usize, v: &Value, holding: Holding, hold: TempHold) -> Signal {
+        let objects = &self.engine.program.objects;
+        let Value::Codeunit(rc) = v else {
+            unreachable!("a store global holds a codeunit")
+        };
+        let store = rc.borrow().object as usize;
+        let why = match (self.owner_kind(owner), self.store_kind(store)) {
+            (None, _) => "the owner is an object whose ClearAll the corpus does not measure".to_string(),
+            (_, None) => match self.kinds_unpinned(store, 0) {
+                Some(u) => u.describe(objects),
+                None => "no measured store shape".to_string(),
+            },
+            (Some(o), Some(s)) if !measured(o, s, holding, hold) => format!(
+                "an instance {} held by {} is not measured for a {s:?} store",
+                holding.describe(),
+                o.describe()
+            ),
+            (_, Some(Store::Register)) if !self.register_as_measured(rc) => {
+                "the register read or wrote a row, or another variable shares its nested codeunit".to_string()
+            }
+            (_, Some(Store::Kinds)) if !self.kinds_instances(rc, 0) => {
+                "an Interface global holds an instance of a codeunit that is no store of the measured kinds".to_string()
+            }
+            _ if self.holds_bound_codeunit(v) => "the store holds a codeunit bound by BindSubscription".to_string(),
+            _ if self.store_runs(v) => "a routine of the store runs".to_string(),
+            _ => "the store implements an interface, or its table is shared without rows".to_string(),
+        };
+        Signal::unsupported(format!(
+            "ClearAll of a global codeunit variable whose instance another variable shares, in a shape the corpus does not \
+             pin: store \"{}\" (owner \"{}\"): {why}",
+            objects[store].name, objects[owner].name
+        ))
     }
 
     /// Whether every codeunit instance kinds store instance `rc` reaches through an Interface global (or a codeunit or an
@@ -965,7 +1024,7 @@ enum Owner {
 }
 
 /// The store shapes the corpus measures `ClearAll()` on ([`Session::store_kind`]).
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Store {
     /// One Integer global ("CLX Store", ClearSharedCodeunit.al codeunit 75580).
     Integer,
@@ -1008,6 +1067,80 @@ enum Holding {
     /// Nothing else holds it, and its temporary table holds rows now ([`TempHold::Rows`]) or a record outside shares it
     /// ([`TempHold::shared`]).
     Written,
+}
+
+impl Owner {
+    /// The owner, as a refusal names it ([`Session::shared_store_refusal`]).
+    fn describe(self) -> &'static str {
+        match self {
+            Owner::Plain => "a plain codeunit",
+            Owner::SingleInstance => "a SingleInstance codeunit",
+            Owner::Test => "a Test codeunit",
+            Owner::Normal => "a Subtype Normal codeunit",
+            Owner::TableNo => "a TableNo codeunit",
+            Owner::Report => "a report",
+        }
+    }
+}
+
+impl Holding {
+    /// The holding, as a refusal names it ([`Session::shared_store_refusal`]).
+    fn describe(self) -> &'static str {
+        match self {
+            Holding::Shared => "shared, called and written",
+            Holding::SharedUnwritten => "shared, called but nothing written",
+            Holding::SharedUncalled => "shared and never called",
+            Holding::Written => "not shared, with rows",
+        }
+    }
+}
+
+/// The first part of a codeunit that makes it no store of the measured global kinds ([`Session::kinds_unpinned`]), with the
+/// nesting depth it was read at (0: the store itself).
+enum Unpinned {
+    /// Read deeper than the three levels the probe nests: a deeper or cyclic nesting.
+    Deep { object: usize, depth: u8 },
+    /// A SingleInstance codeunit.
+    NotPlain { object: usize, depth: u8 },
+    /// A codeunit with a TableNo that is not the register shape.
+    TableNo { object: usize, depth: u8 },
+    /// A global `slot` of a kind [`store_global_kind`] does not list.
+    Global { object: usize, slot: usize, depth: u8 },
+}
+
+impl Unpinned {
+    /// The part, as a refusal names it ([`Session::shared_store_refusal`]).
+    fn describe(&self, objects: &al_ir::Objects) -> String {
+        match *self {
+            Unpinned::Deep { object, depth } => format!(
+                "codeunit \"{}\" nests deeper than 3 codeunits (depth {depth}), or holds itself",
+                objects[object].name
+            ),
+            Unpinned::NotPlain { object, depth } => {
+                format!(
+                    "codeunit \"{}\" is SingleInstance (depth {depth})",
+                    objects[object].name
+                )
+            }
+            Unpinned::TableNo { object, depth } => format!(
+                "codeunit \"{}\" has a TableNo and is not the measured register (depth {depth})",
+                objects[object].name
+            ),
+            Unpinned::Global { object, slot, depth } => {
+                let g = &objects[object].globals[slot];
+                let dims = match &g.ty {
+                    RtType::Array(d, _) if d.len() > 1 => format!(" of {} dimensions", d.len()),
+                    _ => String::new(),
+                };
+                format!(
+                    "global \"{}\" of \"{}\" is a {}{dims}, a kind the corpus does not pin (depth {depth})",
+                    g.name,
+                    objects[object].name,
+                    al_builtins::describe::Describe::describe(&g.ty)
+                )
+            }
+        }
+    }
 }
 
 /// What the temporary tables a global reaches hold ([`Session::temp_hold`]), in rising order.
