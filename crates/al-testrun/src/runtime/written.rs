@@ -715,6 +715,14 @@ pub(crate) fn stmt_places(body: &[Stmt], note: &mut dyn FnMut(&Place)) {
     stmt_assigns(body, &mut |p, _| note(p));
 }
 
+/// `e` without the conversions the lowering wraps around an assigned value.
+fn unconverted(mut e: &Expr) -> &Expr {
+    while let Expr::Convert(_, inner) = e {
+        e = inner;
+    }
+    e
+}
+
 /// As [`stmt_places`], with the value a `:=` assigns (`None` for a loop variable).
 fn stmt_assigns(body: &[Stmt], note: &mut dyn FnMut(&Place, Option<&Expr>)) {
     for s in body {
@@ -1654,7 +1662,7 @@ impl Rec<'_> {
             al_ir::types::for_each_expr_post(body, &mut |e| expr_refs(e, &mut |p| by_ref |= p == u));
             let mut sources = Vec::new();
             let mut ok = !by_ref;
-            stmt_assigns(body, &mut |p, e| match (p == u, e) {
+            stmt_assigns(body, &mut |p, e| match (p == u, e.map(unconverted)) {
                 (false, _) => {}
                 (
                     true,
@@ -1674,7 +1682,7 @@ impl Rec<'_> {
                 let mut by_ref = false;
                 al_ir::types::for_each_expr_post(body, &mut |e| expr_refs(e, &mut |p| by_ref |= p == g));
                 let mut built = !by_ref;
-                stmt_assigns(body, &mut |p, e| match (p == g, e) {
+                stmt_assigns(body, &mut |p, e| match (p == g, e.map(unconverted)) {
                     (false, _) => {}
                     (
                         true,
@@ -2427,5 +2435,97 @@ mod tests {
         ] {
             assert!(onrun_writes_storage(onrun), "{onrun}");
         }
+    }
+
+    // `Rec::null_user` (assumption graph-no-directory-members): only a declared local UserInfo, assigned from GetCurrentUser
+    // on a GraphQuery local the routine builds with the no-argument constructor, makes the foreach body unrun.
+    fn null_user_of(decls: &str, body: &str, extra: &str) -> bool {
+        let src = format!(
+            "dotnet {{
+                assembly(\"Microsoft.Dynamics.Nav.AzureADGraphClient\") {{
+                    type(\"Microsoft.Dynamics.Nav.AzureADGraphClient.GraphQuery\"; \"GQ\") {{ }} }}
+                assembly(\"Microsoft.Dynamics.Nav.LicensingService.Model\") {{
+                    type(\"Microsoft.Dynamics.Nav.LicensingService.Model.UserInfo\"; \"UI\") {{ }}
+                    type(\"Microsoft.Dynamics.Nav.LicensingService.Model.GroupInfo\"; \"GI\") {{ }} }} }}
+            codeunit 50101 Tests {{ Subtype = Test;
+                var GU: DotNet \"UI\";
+                {extra}
+                [Test] procedure T() {decls} begin {body} end; }}"
+        );
+        let l = lowered(&src);
+        let events = al_vm::events::Registry::build(&l.program);
+        let index = ReachIndex::new(&events, &l);
+        let rec = Rec {
+            events: &events,
+            lowered: &l,
+            index: &index,
+            out: ReachFacts::default(),
+            summary: Summary::default(),
+            unknown: false,
+            unrun: HashSet::new(),
+        };
+        // The foreach is in `T`, or in `P` when the user is a parameter.
+        let (o, r) = routine(&l, "Tests", if extra.contains("procedure P") { "P" } else { "T" });
+        l.program.objects[o].routines[r].body.read(|b| {
+            let u = b
+                .iter()
+                .find_map(|s| match s {
+                    Stmt::Foreach {
+                        collection: Expr::DotNet { receiver: Some(u), .. },
+                        ..
+                    } => Some(u.as_ref()),
+                    _ => None,
+                })
+                .expect("a foreach over a member");
+            rec.null_user(o, r, u)
+        })
+    }
+
+    const LOOP: &str = "foreach I in U.Groups() do if I.DisplayName() = '' then;";
+    const LOCALS: &str = "var G: DotNet \"GQ\"; U: DotNet \"UI\"; I: DotNet \"GI\";";
+
+    #[test]
+    fn null_user_accepts_a_user_from_get_current_user_on_a_constructed_query() {
+        let body = format!("G := G.GraphQuery(); U := G.GetCurrentUser(); {LOOP}");
+        assert!(null_user_of(LOCALS, &body, ""));
+    }
+
+    #[test]
+    fn null_user_refuses_a_parameter() {
+        let extra = format!("procedure P(U: DotNet \"UI\") var I: DotNet \"GI\"; begin {LOOP} end;");
+        assert!(!null_user_of("", "P(GU);", &extra));
+    }
+
+    #[test]
+    fn null_user_refuses_a_global() {
+        let body = LOOP.replace("U.", "GU.");
+        assert!(!null_user_of("var I: DotNet \"GI\";", &body, ""));
+    }
+
+    #[test]
+    fn null_user_refuses_a_constructed_user() {
+        let body = format!("U := U.UserInfo(); {LOOP}");
+        assert!(!null_user_of(LOCALS, &body, ""));
+    }
+
+    #[test]
+    fn null_user_refuses_a_user_passed_by_reference() {
+        let body = format!("G := G.GraphQuery(); U := G.GetCurrentUser(); Q(U); {LOOP}");
+        let extra = "procedure Q(var U: DotNet \"UI\") begin end;";
+        assert!(!null_user_of(LOCALS, &body, extra));
+    }
+
+    #[test]
+    fn null_user_refuses_a_query_that_is_not_only_constructed() {
+        let body = format!("G := G.GraphQuery(); U := G.GetCurrentUser(); G := GG; {LOOP}");
+        let extra = "var GG: DotNet \"GQ\";";
+        assert!(!null_user_of(LOCALS, &body, extra));
+    }
+
+    #[test]
+    fn null_user_refuses_a_query_passed_by_reference() {
+        let body = format!("G := G.GraphQuery(); U := G.GetCurrentUser(); Q(G); {LOOP}");
+        let extra = "procedure Q(var G: DotNet \"GQ\") begin end;";
+        assert!(!null_user_of(LOCALS, &body, extra));
     }
 }
