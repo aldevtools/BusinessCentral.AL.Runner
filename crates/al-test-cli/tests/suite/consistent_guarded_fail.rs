@@ -1,6 +1,7 @@
 //! The guarded Codeunit.Run ends of corpus PR 1586 (ConsistentGuardedRunFail.al, codeunit 88974, section (2); al-runner
 //! issue 8970) and their record-argument twins of corpus PR 1590 (ConsistentGuardedRunRecFail.al) that pass flagged with
-//! `guarded-run-consistent-fail`, and the neighbors of each that stay refused.
+//! `guarded-run-consistent-fail`, the filtered record arguments of corpus PR 1598 (ConsistentGuardedRunRecFiltered.al), and
+//! the neighbors of each that stay refused.
 
 use super::y48_platform_probes::outcomes_with_hits;
 use al_builtins::assumptions::Assumption;
@@ -34,6 +35,7 @@ codeunit 50131 "F Inner" { trigger OnRun() begin DoSteps(); end;
 codeunit 50132 "F Rec Inner" { TableNo = "F Y"; trigger OnRun() var I: Codeunit "F Inner"; begin I.DoSteps(); end; }
 table 50132 "F Z" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { Clustered = true; } } }
 codeunit 50135 "F Z Inner" { TableNo = "F Z"; trigger OnRun() var I: Codeunit "F Inner"; begin I.DoSteps(); end; }
+codeunit 50137 "F Zf Inner" { TableNo = "F Z"; trigger OnRun() var I: Codeunit "F Inner"; begin Rec.SetRange(Id, 2); I.DoSteps(); end; }
 codeunit 50136 "F X Inner" { TableNo = "F X"; trigger OnRun() var I: Codeunit "F Inner"; begin I.DoSteps(); end; }
 codeunit 50133 "F Wrap" { trigger OnRun() var St: Codeunit "F Steps"; begin St.Set('startx,fya,fyc,err'); Codeunit.Run(Codeunit::"F Inner"); end; }
 codeunit 50000 T { Subtype = Test;
@@ -51,11 +53,17 @@ codeunit 50000 T { Subtype = Test;
   [Test] procedure AgainHeldEnds() begin Ends('fxa,txb,fxc,fya'); end;
   [Test] procedure AgainLiftedByTrueEnds() begin Ends('fxa,txb,fxc,fya,txa,tya'); end;
   [Test] procedure AgainLiftedByAgainTrueEnds() begin Ends('fxa,txb,fxc,fya,txc,tya'); end;
-  local procedure RecFails(Kind: Text; Steps: Text) var St: Codeunit "F Steps"; Z: Record "F Z"; X: Record "F X"; TX: Record "F X" temporary; Ok: Boolean; begin
+  local procedure RecFails(Kind: Text; Steps: Text) var St: Codeunit "F Steps"; Z: Record "F Z"; X: Record "F X"; TX: Record "F X" temporary; TY: Record "F Y" temporary; Y: Record "F Y"; Ok: Boolean; begin
     Commit(); St.Set(Steps);
     case Kind of
       'z': Ok := Codeunit.Run(Codeunit::"F Z Inner", Z);
       'zfilter': begin Z.SetRange(Id, 1); Ok := Codeunit.Run(Codeunit::"F Z Inner", Z); end;
+      'zgroup2': begin Z.FilterGroup(2); Z.SetRange(Id, 1); Z.FilterGroup(0); Ok := Codeunit.Run(Codeunit::"F Z Inner", Z); end;
+      'zor': begin Z.SetFilter(Id, '1|2'); Ok := Codeunit.Run(Codeunit::"F Z Inner", Z); end;
+      'zinnerfilter': Ok := Codeunit.Run(Codeunit::"F Zf Inner", Z);
+      'tmpyfilter': begin TY.Id := 1; TY.Insert(); TY.SetRange(Id, 1); Ok := Codeunit.Run(Codeunit::"F Rec Inner", TY); end;
+      'ysetrange': begin Y.SetRange(Id, 1); Ok := Codeunit.Run(Codeunit::"F Rec Inner", Y); end;
+      'xmarked': begin X.Id := 1; X.Insert(); Commit(); X.Mark(true); X.MarkedOnly(true); Ok := Codeunit.Run(Codeunit::"F X Inner", X); end;
       'x': Ok := Codeunit.Run(Codeunit::"F X Inner", X);
       'tmp': begin TX.Id := 1; TX.Insert(); Ok := Codeunit.Run(Codeunit::"F X Inner", TX); end;
     end;
@@ -64,6 +72,7 @@ codeunit 50000 T { Subtype = Test;
     Commit(); St.Set(Steps);
     case Kind of
       'z': asserterror Ok := Codeunit.Run(Codeunit::"F Z Inner", Z);
+      'zfilter': begin Z.SetRange(Id, 1); asserterror Ok := Codeunit.Run(Codeunit::"F Z Inner", Z); end;
       'x': asserterror Ok := Codeunit.Run(Codeunit::"F X Inner", X);
       'tmp': begin TX.Id := 1; TX.Insert(); asserterror Ok := Codeunit.Run(Codeunit::"F X Inner", TX); end;
     end;
@@ -75,6 +84,7 @@ codeunit 50000 T { Subtype = Test;
   [Test] procedure RecMarkedAgainLiftedEnds() begin RecEnds('x', 'fxa,txb,fxc,fya,txa,tya'); end;
   [Test] procedure RecTemporaryHeldAgainFails() begin RecFails('tmp', 'startx,fya,fyc,err'); end;
   [Test] procedure RecTemporaryHeldAgainEnds() begin RecEnds('tmp', 'startx,fya,fyc'); end;
+  [Test] procedure RecFilteredHeldHeldEnds() begin RecEnds('zfilter', 'fxa,fya'); end;
   [Test] procedure ReleasedAloneFails() begin Fails('startx,txb,err'); end;
   [Test] procedure AgainAloneFails() begin Fails('fya,fyc,err'); end;
   [Test] procedure HeldAgainOtherCode() begin Fails('startx,fya,fyc,div'); end;
@@ -89,6 +99,17 @@ codeunit 50000 T { Subtype = Test;
   [Test] procedure RecTemporaryAgainHeldFails() begin RecFails('tmp', 'fxa,txb,fxc,fya,err'); end;
   [Test] procedure RecFilteredHeldAgainFails() begin RecFails('zfilter', 'startx,fya,fyc,err'); end;
   [Test] procedure RecUnmarkedFieldError() begin RecFails('z', 'fxg,fielderr'); end;
+  [Test] procedure RecFilteredHeldHeldFails() begin RecFails('zfilter', 'fxa,fya,err'); end;
+  [Test] procedure RecFilteredHeldHeldCommit() begin RecFails('zfilter', 'fxa,fya,commit'); end;
+  [Test] procedure RecMarkedOnlyHeldAgainFails() begin RecFails('xmarked', 'startx,fya,fyc,err'); end;
+  [Test] procedure RecSecondSetRangeHeldAgainFails() begin RecFails('ysetrange', 'startx,fya,fyc,err'); end;
+  [Test] procedure RecFilterGroup2HeldAgainFails() begin RecFails('zgroup2', 'startx,fya,fyc,err'); end;
+  [Test] procedure RecFilterOrValuesHeldAgainFails() begin RecFails('zor', 'startx,fya,fyc,err'); end;
+  [Test] procedure RecFilterSetByInnerHeldAgainFails() begin RecFails('zinnerfilter', 'startx,fya,fyc,err'); end;
+  [Test] procedure RecFilteredTemporarySecondHeldAgainFails() begin RecFails('tmpyfilter', 'startx,fya,fyc,err'); end;
+  [Test] procedure RecMarkedByOtherVariableFails() begin RecFails('x', 'fxa,err'); end;
+  [Test] procedure RecFilteredFieldError() begin RecFails('zfilter', 'fxg,fielderr'); end;
+  [Test] procedure HeldHeldCommitNoRecord() begin Fails('fxa,fya,commit'); end;
 }
 "#;
 
@@ -115,6 +136,15 @@ fn guarded_run_fail_probe_shapes() {
         "RecMarkedHeldAgainFails",
         "RecMarkedReleasedHeldFails",
         "RecTemporaryHeldAgainFails",
+        // Record arguments of corpus PR 1598 (ConsistentGuardedRunRecFiltered.al): RecY_NoFilter_StartX_MarkYByA_MarkYByC_Fails
+        // (the table marked second), RecZ_SetRangeKey_StartX_MarkYByA_MarkYByC_Fails, RecZ_SetRangeKey_StartX_MarkYByA_Fails,
+        // RecZ_SetRangeKey_MarkXByA_MarkYByA_PlainCommit (a Commit inside the run fails it),
+        // RecX_MarkedOnly_StartX_MarkYByA_MarkYByC_Fails, RecY_SetRangeKey_StartX_MarkYByA_MarkYByC_Fails.
+        "HeldAgainRecordArgument",
+        "RecFilteredHeldAgainFails",
+        "RecFilteredHeldHeldCommit",
+        "RecMarkedOnlyHeldAgainFails",
+        "RecSecondSetRangeHeldAgainFails",
     ] {
         assert_eq!(get(name), (Outcome::Pass, true), "{name}");
     }
@@ -137,13 +167,22 @@ fn guarded_run_fail_probe_shapes() {
             "{name}"
         );
     }
+    // Two held marks and a record argument of a table no mark names, filtered: main's guarded-run-consistent-end shapes, which
+    // corpus PR 1598 now measures with a filter too (RecZ_SetRangeKey_StartX_MarkYByA_Fails, RecZ_SetRangeKey_StartX_MarkYByA_Ends).
+    assert_eq!(get("RecFilteredHeldHeldFails").0, Outcome::Pass);
+    assert_eq!(
+        get("RecFilteredHeldHeldEnds").0,
+        Outcome::Fail("DB:TableInConsistent".into())
+    );
     let refused = |name: &str, text: &str| match get(name).0 {
         Outcome::NotRun(why) => assert!(why.contains(text), "{name}: {why}"),
         other => panic!("{name}: {other:?}"),
     };
-    // One fact flipped from a cell each: the list of marks, the error code, the record argument (of the table marked
-    // second, a temporary record in a shape PR 1590 does not measure with one, a filtered record, a record with the
-    // FieldError), a caller mark, nesting, a temporary variable in the sequence.
+    // One fact flipped from a cell each: the list of marks, the error code, the record argument (a temporary record in a
+    // shape PR 1590 does not measure with one, a record with the FieldError, a filter in filter group 2, another SetFilter
+    // pattern, a filter the inner codeunit sets, a filtered temporary record of the table marked second, a mark on the
+    // argument's table by another variable), a caller mark, nesting, a temporary variable in the sequence, a Commit inside a
+    // run without a record argument.
     for name in [
         "ReleasedAloneFails",
         "AgainAloneFails",
@@ -151,11 +190,16 @@ fn guarded_run_fail_probe_shapes() {
         "FieldErrorTwoMarks",
         "HeldHeldEndsAfterTemporary",
         "HeldAgainNested",
-        "HeldAgainRecordArgument",
         "HeldAgainCallerMark",
         "RecTemporaryAgainHeldFails",
-        "RecFilteredHeldAgainFails",
         "RecUnmarkedFieldError",
+        "RecFilterGroup2HeldAgainFails",
+        "RecFilterOrValuesHeldAgainFails",
+        "RecFilterSetByInnerHeldAgainFails",
+        "RecFilteredTemporarySecondHeldAgainFails",
+        "RecMarkedByOtherVariableFails",
+        "RecFilteredFieldError",
+        "HeldHeldCommitNoRecord",
     ] {
         refused(name, "in a shape no probe measured");
     }

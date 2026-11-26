@@ -10,7 +10,7 @@
 //! Entry points: `TxModel`, `CommitBehavior`, `codeunit_run`, `commit_transaction` (every commit and
 //! what it ends).
 
-use crate::consistent_marks::{RunArg, RunEnd, RunStart};
+use crate::consistent_marks::{ArgRecord, RunArg, RunEnd, RunStart};
 use crate::{AlError, Session, Signal};
 use al_builtins::builtin_id::ids;
 use al_builtins::native::unsupported;
@@ -844,6 +844,7 @@ impl Session {
         let marks_before = if guarded { self.mark_snapshot() } else { Vec::new() };
         let commits_before = self.commits;
         let run_arg = RunArg::of(record_arg);
+        let arg_record = guarded.then(|| ArgRecord::of(record_arg)).flatten();
         self.tx.tx_world += 1;
         if let Some(t) = self.tx.used_tries.last_mut() {
             t.runs += 1;
@@ -881,6 +882,7 @@ impl Session {
                 marks: &marks_before,
                 commits: commits_before,
                 arg: run_arg,
+                arg_record: arg_record.as_ref(),
                 marks_dropped_inside: body.as_ref().is_some_and(|b| b.marks_dropped_inside),
             };
             if let Some(e) = self.guarded_run_end_marks(start, end)? {

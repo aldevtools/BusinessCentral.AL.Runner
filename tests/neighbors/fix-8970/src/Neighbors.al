@@ -25,6 +25,7 @@ codeunit 50131 "F Inner" { trigger OnRun() begin DoSteps(); end;
 codeunit 50132 "F Rec Inner" { TableNo = "F Y"; trigger OnRun() var I: Codeunit "F Inner"; begin I.DoSteps(); end; }
 table 50132 "F Z" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { Clustered = true; } } }
 codeunit 50135 "F Z Inner" { TableNo = "F Z"; trigger OnRun() var I: Codeunit "F Inner"; begin I.DoSteps(); end; }
+codeunit 50137 "F Zf Inner" { TableNo = "F Z"; trigger OnRun() var I: Codeunit "F Inner"; begin Rec.SetRange(Id, 2); I.DoSteps(); end; }
 codeunit 50136 "F X Inner" { TableNo = "F X"; trigger OnRun() var I: Codeunit "F Inner"; begin I.DoSteps(); end; }
 codeunit 50133 "F Wrap" { trigger OnRun() var St: Codeunit "F Steps"; begin St.Set('startx,fya,fyc,err'); Codeunit.Run(Codeunit::"F Inner"); end; }
 codeunit 50134 "F Neighbor Tests" { Subtype = Test;
@@ -44,11 +45,15 @@ codeunit 50134 "F Neighbor Tests" { Subtype = Test;
   [Test] procedure AgainLiftedByAgainTrueEnds() begin Ends('fxa,txb,fxc,fya,txc,tya'); end;
   // Record arguments (ConsistentGuardedRunRecFail.al): a row of a table no mark names, a row of the table marked first, a
   // temporary record of it; and one fact flipped each: a filter, a FieldError, a temporary record in another sequence.
-  local procedure RecFails(Kind: Text; Steps: Text) var St: Codeunit "F Steps"; Z: Record "F Z"; X: Record "F X"; TX: Record "F X" temporary; Ok: Boolean; begin
+  local procedure RecFails(Kind: Text; Steps: Text) var St: Codeunit "F Steps"; Z: Record "F Z"; X: Record "F X"; TX: Record "F X" temporary; TY: Record "F Y" temporary; Ok: Boolean; begin
     Commit(); St.Set(Steps);
     case Kind of
       'z': Ok := Codeunit.Run(Codeunit::"F Z Inner", Z);
       'zfilter': begin Z.SetRange(Id, 1); Ok := Codeunit.Run(Codeunit::"F Z Inner", Z); end;
+      'zgroup2': begin Z.FilterGroup(2); Z.SetRange(Id, 1); Z.FilterGroup(0); Ok := Codeunit.Run(Codeunit::"F Z Inner", Z); end;
+      'zor': begin Z.SetFilter(Id, '1|2'); Ok := Codeunit.Run(Codeunit::"F Z Inner", Z); end;
+      'zinnerfilter': Ok := Codeunit.Run(Codeunit::"F Zf Inner", Z);
+      'tmpyfilter': begin TY.Id := 1; TY.Insert(); TY.SetRange(Id, 1); Ok := Codeunit.Run(Codeunit::"F Rec Inner", TY); end;
       'x': Ok := Codeunit.Run(Codeunit::"F X Inner", X);
       'tmp': begin TX.Id := 1; TX.Insert(); Ok := Codeunit.Run(Codeunit::"F X Inner", TX); end;
     end;
@@ -82,4 +87,14 @@ codeunit 50134 "F Neighbor Tests" { Subtype = Test;
   [Test] procedure RecTemporaryAgainHeldFails() begin RecFails('tmp', 'fxa,txb,fxc,fya,err'); end;
   [Test] procedure RecFilteredHeldAgainFails() begin RecFails('zfilter', 'startx,fya,fyc,err'); end;
   [Test] procedure RecUnmarkedFieldError() begin RecFails('z', 'fxg,fielderr'); end;
+  // Filtered record arguments (ConsistentGuardedRunRecFiltered.al), one fact flipped each: a filter in filter group 2, another
+  // SetFilter pattern, a filter the inner codeunit sets, a filtered temporary record of the table marked second, a mark on
+  // the argument's table set by another variable, a FieldError after a filter, a Commit inside a run without a record.
+  [Test] procedure RecFilterGroup2HeldAgainFails() begin RecFails('zgroup2', 'startx,fya,fyc,err'); end;
+  [Test] procedure RecFilterOrValuesHeldAgainFails() begin RecFails('zor', 'startx,fya,fyc,err'); end;
+  [Test] procedure RecFilterSetByInnerHeldAgainFails() begin RecFails('zinnerfilter', 'startx,fya,fyc,err'); end;
+  [Test] procedure RecFilteredTemporarySecondHeldAgainFails() begin RecFails('tmpyfilter', 'startx,fya,fyc,err'); end;
+  [Test] procedure RecMarkedByOtherVariableFails() begin RecFails('x', 'fxa,err'); end;
+  [Test] procedure RecFilteredFieldError() begin RecFails('zfilter', 'fxg,fielderr'); end;
+  [Test] procedure HeldHeldCommitNoRecord() begin Fails('fxa,fya,commit'); end;
 }
