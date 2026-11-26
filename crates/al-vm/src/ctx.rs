@@ -301,12 +301,15 @@ impl al_builtins::native::Ctx for Session {
         Ok(self.host.files.exists(path))
     }
     fn fs_read(&mut self, path: &str) -> Result<Option<Vec<u8>>, Signal> {
-        self.refuse_pending_file(path)?;
-        let bytes = self.host.files.read(path);
-        if let Some(b) = &bytes {
-            refuse_unmarked_output(path, b)?;
+        let bytes = self.fs_read_to_move(path)?;
+        if let Some(mark) = bytes.as_deref().and_then(outside_output_mark) {
+            return Err(al_builtins::stream::render_pending_error(&mark));
         }
         Ok(bytes)
+    }
+    fn fs_read_to_move(&mut self, path: &str) -> Result<Option<Vec<u8>>, Signal> {
+        self.refuse_pending_file(path)?;
+        Ok(self.host.files.read(path))
     }
     fn fs_write(&mut self, path: &str, bytes: &[u8]) -> Result<(), String> {
         // A write by AL over the path ends the mark: the file is what AL wrote.
@@ -356,9 +359,15 @@ impl al_builtins::native::Ctx for Session {
         Ok(())
     }
     fn fs_placeholder(&mut self, path: &str) -> Option<(Arc<str>, Vec<u8>)> {
-        let mark = self.placeholder_file_mark(path)?;
+        if let Some(mark) = self.placeholder_file_mark(path) {
+            return Some((mark, self.host.files.read(path)?));
+        }
+        // A pending file is refused by the read that follows (`fs_read`).
+        if self.render_pending_files.contains_key(&pending_key(path)) {
+            return None;
+        }
         let bytes = self.host.files.read(path)?;
-        Some((mark, bytes))
+        Some((outside_output_mark(&bytes)?, bytes))
     }
     fn fs_opened(&mut self, path: &str) {
         self.placeholder_files.opened(path);
@@ -796,19 +805,21 @@ pub(crate) fn pending_key(path: &str) -> String {
     path.replace('\\', "/").to_lowercase()
 }
 
-/// Refuses the bytes of a file this session holds no mark for (al-runner issues 8702, 8703) when they are a report output the
-/// runtime wrote: the whole bytes of a placeholder (`report_placeholder::holds_placeholder`), or the mark of a rendered text
-/// (`al_builtins::rendered_text::bytes_hold`). Such a file was written by an earlier session or another process, and its mark
-/// lived only there; read without it, the placeholder's markup would answer as BC's rendering and the mark's bytes would form a
-/// rendered text past the checks of `rendered_text::read_whole`. Every read of a file's bytes passes `Ctx::fs_read`.
-pub(crate) fn refuse_unmarked_output(path: &str, bytes: &[u8]) -> Result<(), Signal> {
-    if crate::report_placeholder::holds_placeholder(bytes) || al_builtins::rendered_text::bytes_hold(bytes) {
-        return Err(Signal::unsupported(format!(
-            "a read of the file {path}, which holds a report output this runtime wrote outside this session (its placeholder \
-             or rendered-content mark is not known here; the runtime has no layout renderer)"
-        )));
-    }
-    Ok(())
+/// The placeholder mark of the bytes of a file this session holds no mark for, when they are a report output the runtime
+/// wrote (al-runner issues 8702, 8703): they start with a placeholder's header (`report_placeholder::outside_format`), or
+/// hold the mark of a rendered text (`al_builtins::rendered_text::bytes_hold`). An earlier session or another process wrote
+/// the file, and its mark lived only there; read without it, the placeholder's markup would answer as BC's rendering and the
+/// mark's bytes would form a rendered text past the checks of `rendered_text::read_whole`. `File.Open` gives the open file
+/// this mark (`fs_placeholder`), so it opens, its size answers as a placeholder's, a copy carries it, and a read of the content
+/// is refused (`al_builtins::placeholder_output`); every other read of the bytes is refused in `fs_read`. A byte copy
+/// (`fs_read_to_move`) keeps the bytes, so the copy gets the same mark when it is read.
+pub(crate) fn outside_output_mark(bytes: &[u8]) -> Option<Arc<str>> {
+    let kind = match crate::report_placeholder::outside_format(bytes) {
+        Some(f) => f.name(),
+        None if al_builtins::rendered_text::bytes_hold(bytes) => al_builtins::rendered_text::WRITTEN_KIND,
+        None => return None,
+    };
+    Some(al_builtins::placeholder_output::outside_mark(kind))
 }
 
 impl Session {

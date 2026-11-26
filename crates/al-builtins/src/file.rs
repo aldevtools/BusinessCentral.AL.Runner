@@ -426,7 +426,7 @@ fn erase(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
 
 fn copy(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let (from, to) = (path(a, 0)?, path(a, 1)?);
-    let Some(bytes) = c.fs_read(&from)? else {
+    let Some(bytes) = c.fs_read_to_move(&from)? else {
         return fs_failure(c, &format!("File.Copy of the missing file {from}"));
     };
     if c.fs_exists(&to)? {
@@ -440,7 +440,7 @@ fn copy(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
 
 fn rename(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let (from, to) = (path(a, 0)?, path(a, 1)?);
-    let Some(bytes) = c.fs_read(&from)? else {
+    let Some(bytes) = c.fs_read_to_move(&from)? else {
         return fs_failure(c, &format!("File.Rename of the missing file {from}"));
     };
     if c.fs_exists(&to)? {

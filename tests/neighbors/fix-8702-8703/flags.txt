@@ -1,3 +1,3 @@
-# The fixtures: files a report save wrote in another process, read here with no mark known.
+# Run options. Relative paths resolve against a fresh copy of this folder per run (tools/neighbor-diff.sh).
 --files-dir
-tests/neighbors/fix-8702-8703/files
+files

@@ -174,8 +174,8 @@ pub fn holds(s: &str) -> bool {
 }
 
 /// Whether bytes hold the mark: its UTF-8 bytes, or UTF-16 text that holds it (`stream_call_stack::bytes_hold_mark`). The number
-/// after it names a render of the session that wrote it, so bytes that hold it and reach no marked buffer are refused where they
-/// are read (al-vm `Session::refuse_unmarked_output`).
+/// after it names a render of the session that wrote it, so a file that holds it and that the reading session holds no mark
+/// for gets a placeholder mark (al-vm `outside_output_mark`).
 pub fn bytes_hold(b: &[u8]) -> bool {
     crate::stream_call_stack::bytes_hold_text_mark(b, RENDERED_TEXT_MARK)
 }

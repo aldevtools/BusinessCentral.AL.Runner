@@ -422,9 +422,14 @@ pub trait Ctx: FormatCtx {
     fn fs_exists(&mut self, _path: &str) -> Result<bool, Signal> {
         Err(Signal::Unsupported("File: this context has no file system".into()))
     }
-    /// The bytes of the file at `path`, `None` if there is none.
+    /// The bytes of the file at `path` for a read of its content, `None` if there is none.
     fn fs_read(&mut self, _path: &str) -> Result<Option<Vec<u8>>, Signal> {
         Err(Signal::Unsupported("File: this context has no file system".into()))
+    }
+    /// The bytes of the file at `path` for a copy that looks at none of them (`File.Copy`, `File.Rename`), `None` if there is
+    /// none.
+    fn fs_read_to_move(&mut self, path: &str) -> Result<Option<Vec<u8>>, Signal> {
+        self.fs_read(path)
     }
     /// Creates the file at `path` or replaces its content; the host's reason if it cannot.
     fn fs_write(&mut self, _path: &str, _bytes: &[u8]) -> Result<(), String> {
