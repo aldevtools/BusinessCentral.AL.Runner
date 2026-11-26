@@ -1869,6 +1869,9 @@ pub struct Slot {
     /// `shared::comment_label`).
     #[serde(default)]
     pub comment_label: bool,
+    /// A global declared `Label` (with or without properties) or `TextConst`: one al-sema `shared::label_text` gives a text.
+    #[serde(default)]
+    pub label: bool,
 }
 
 impl Slot {
@@ -1881,6 +1884,7 @@ impl Slot {
             security_filtering_not_kept: false,
             plain_label: false,
             comment_label: false,
+            label: false,
         }
     }
 }

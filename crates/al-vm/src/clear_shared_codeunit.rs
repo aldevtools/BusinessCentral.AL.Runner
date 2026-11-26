@@ -73,7 +73,7 @@ impl Session {
                     let holding = if shared {
                         if !rc.borrow().initialized {
                             Holding::SharedUncalled
-                        } else if !self.temp_rows_now(v) && !self.wrote_scalar(rc, 0) {
+                        } else if !self.temp_rows_now(v) && !self.wrote_scalar(rc, 0, self.is_kinds_store(rc)) {
                             Holding::SharedUnwritten
                         } else {
                             Holding::Shared
@@ -97,13 +97,11 @@ impl Session {
                             Holding::Written => temp_rows_refusal(),
                         });
                     }
-                    al_builtins::assumptions::assume(
-                        if self.store_kind(rc.borrow().object as usize) == Some(Store::Kinds) {
-                            al_builtins::assumptions::Assumption::ClearAllStoreGlobalKinds
-                        } else {
-                            al_builtins::assumptions::Assumption::ClearSharedCodeunit
-                        },
-                    );
+                    al_builtins::assumptions::assume(if self.is_kinds_store(rc) {
+                        al_builtins::assumptions::Assumption::ClearAllStoreGlobalKinds
+                    } else {
+                        al_builtins::assumptions::Assumption::ClearSharedCodeunit
+                    });
                     self.reset_keeping_rows(rc);
                     kept.push(i);
                 }
@@ -291,8 +289,8 @@ impl Session {
     /// Whether instance `rc`, of a [`Store::Wrapper`], holds a store instance another holder shares (its one own holder is
     /// the wrapper's global): a wrapper never written whose store an alias shares is not measured (the probe's alias wrote).
     fn wrapped_store_shared(&self, rc: &Rc<RefCell<Instance>>) -> bool {
-        self.store_kind(rc.borrow().object as usize) == Some(Store::Wrapper)
-            && rc.borrow().globals.iter().any(|g| self.shared_element(g))
+        rc.borrow().globals.iter().any(|g| self.shared_element(g))
+            && self.store_kind(rc.borrow().object as usize) == Some(Store::Wrapper)
     }
 
     /// Whether a routine of the codeunit of instance `v`, or of a codeunit its globals hold, runs.
@@ -403,7 +401,8 @@ impl Session {
     /// Whether codeunit `object` is a store of the global kinds ClearSharedCodeunitGlobalKinds.al "CKK Store" (:104-145),
     /// ClearSharedCodeunitWhseRegister.al (:10-149) and ClearSharedCodeunitLateBinding.al (:12-67) hold (merged corpus PR
     /// 1587, assumption clear-all-store-global-kinds): a plain codeunit without a TableNo whose every global is a Label with
-    /// text or of a kind [`store_global_kind`] lists, a codeunit global again such a store. The measured stores nest three
+    /// text and no property, or declared no Label or TextConst and of a kind [`store_global_kind`] lists, a codeunit global
+    /// again such a store. The probe stores hold Labels without a property only ("CKW Register" `Text000`, `Text001`). The measured stores nest three
     /// deep ("CKW Register", "CKW WMS", "CKW Tracking", "CKW UOM"); a deeper or cyclic nesting is no such store.
     fn kinds_store(&self, object: usize, depth: u8) -> bool {
         self.kinds_unpinned(object, depth).is_none()
@@ -423,8 +422,8 @@ impl Session {
             return Some(Unpinned::TableNo { object, depth });
         }
         let nested = |c: u32| self.kinds_store(c as usize, depth + 1);
-        let (slot, g) =
-            (o.globals.iter().enumerate()).find(|(_, g)| !g.plain_label && !store_global_kind(&g.ty, &nested))?;
+        let admitted = |g: &al_ir::Slot| g.plain_label || (!g.label && store_global_kind(&g.ty, &nested));
+        let (slot, g) = (o.globals.iter().enumerate()).find(|(_, g)| !admitted(g))?;
         let inner = match &g.ty {
             RtType::Array(dims, e) if dims.len() == 1 => match **e {
                 RtType::Codeunit(c) => Some(c),
@@ -479,7 +478,7 @@ impl Session {
 
     /// Whether every codeunit instance kinds store instance `rc` reaches through an Interface global (or a codeunit or an
     /// array of codeunits that holds one) is itself of a [`Session::kinds_store`] codeunit: the instance an Interface holds
-    /// is reset in place (ClearSharedCodeunitGlobalKinds.al ClearAll_SetterVar_Codeunits :799 'face' 0 and :809 'hf' 0, the
+    /// is reset in place (ClearSharedCodeunitGlobalKinds.al ClearAll_SetterVar_Codeunits :799 'face' 0 and :810 'hf' 0, the
     /// "CKK Leaf" instance), measured for such an instance only.
     fn kinds_instances(&self, rc: &Rc<RefCell<Instance>>, depth: u8) -> bool {
         let inst = rc.borrow();
@@ -526,11 +525,16 @@ impl Session {
         o.properties.iter().all(|(k, _)| k != al_ir::IMPLEMENTS_INTERFACE)
     }
 
+    /// Whether instance `rc` is of a [`Store::Kinds`] codeunit.
+    fn is_kinds_store(&self, rc: &Rc<RefCell<Instance>>) -> bool {
+        self.store_kind(rc.borrow().object as usize) == Some(Store::Kinds)
+    }
+
     /// Whether a global of instance `rc`, or of an instance a codeunit global of it holds, holds a scalar other than its
     /// declared value by its fingerprint (`single_track::fp`): what every shared cell of the wrapper, the 2-D store, the
-    /// register and the price store wrote before the ClearAll. Records and arrays of records are left to
-    /// [`Session::temp_hold`].
-    fn wrote_scalar(&mut self, rc: &Rc<RefCell<Instance>>, depth: u8) -> bool {
+    /// register and the price store wrote before the ClearAll. For a `kinds` store a global counts only by what
+    /// [`kinds_written`] reads. Records and arrays of records are left to [`Session::temp_hold`].
+    fn wrote_scalar(&mut self, rc: &Rc<RefCell<Instance>>, depth: u8, kinds: bool) -> bool {
         if depth > 8 || !rc.borrow().initialized {
             return false;
         }
@@ -540,9 +544,10 @@ impl Session {
         let fresh = self.slot_defaults(slots);
         let held = rc.borrow().globals.clone();
         (held.iter().zip(&fresh).zip(slots)).any(|((v, f), slot)| match (v, &slot.ty) {
-            (Value::Codeunit(inner), _) => self.wrote_scalar(inner, depth + 1),
+            (Value::Codeunit(inner), _) => self.wrote_scalar(inner, depth + 1, kinds),
             (_, RtType::Record(..)) => false,
             (_, RtType::Array(_, e)) if matches!(**e, RtType::Record(..)) => false,
+            _ if kinds => kinds_written(v, f, &engine),
             _ => crate::single_track::fp(v, &engine) != crate::single_track::fp(f, &engine),
         })
     }
@@ -582,7 +587,7 @@ impl Session {
                     *new = old.clone();
                 }
                 // Each element of an array of codeunits is reset in place and the variable that shares it sees the reset
-                // (ClearSharedCodeunitGlobalKinds.al ClearAll_SetterVar_Codeunits :800-801 'arr1' 'arr2' 0, :810 'ha' 0).
+                // (ClearSharedCodeunitGlobalKinds.al ClearAll_SetterVar_Codeunits :801-802 'arr1' 'arr2' 0, :809 'ha' 0).
                 (Value::Array(items), RtType::Array(_, e)) if matches!(**e, RtType::Codeunit(_)) => {
                     for e in items.borrow().iter() {
                         if let Value::Codeunit(inner) = e {
@@ -991,6 +996,37 @@ fn store_global_kind(t: &RtType, store: &dyn Fn(u32) -> bool) -> bool {
     }
 }
 
+/// Whether global `v` of a [`Store::Kinds`] store holds a write AL can read, against `fresh`, its declared value: a scalar
+/// by its value fingerprint, an open RecordRef, a FieldRef or KeyRef that points at a field or key, a JsonObject or
+/// JsonArray with a member, a TextBuilder with text. A value without a comparable form ([`crate::single_track::Fp::Opaque`])
+/// is no proof of a write: such a store a call made but that wrote nothing is not measured (assumption
+/// clear-all-store-global-kinds), so it refuses as main does.
+fn kinds_written(v: &Value, fresh: &Value, engine: &crate::Engine) -> bool {
+    use crate::single_track::{Fp, fp};
+    use al_builtins::json::JsonNode;
+    use al_builtins::library_kind::LibraryKind as L;
+    use al_builtins::value::LibraryValue as V;
+    if let Value::Library(k, l) = v {
+        let Ok(l) = l.try_borrow() else { return false };
+        return match (k, &*l) {
+            (L::RecordRef, V::RecordRef(_))
+            | (L::FieldRef, V::FieldRef(..) | V::KeyFieldRef(..))
+            | (L::KeyRef, V::KeyRef(..)) => true,
+            (L::JsonObject | L::JsonArray, V::Json(c)) => {
+                c.unpinned.is_none()
+                    && match &c.node {
+                        JsonNode::Object(members) => !members.is_empty(),
+                        JsonNode::Array(items) => !items.is_empty(),
+                        JsonNode::Scalar(_) => false,
+                    }
+            }
+            (L::TextBuilder, V::Text(t) | V::TextCap(t, _)) => !t.is_empty(),
+            _ => false,
+        };
+    }
+    matches!((fp(v, engine), fp(fresh, engine)), (Fp::Val(a), Fp::Val(b)) if a != b)
+}
+
 fn temp_record(t: &RtType) -> bool {
     matches!(t, RtType::Record(_, true))
 }
@@ -1151,11 +1187,13 @@ impl Unpinned {
                     RtType::Array(d, _) if d.len() > 1 => format!(" of {} dimensions", d.len()),
                     _ => String::new(),
                 };
+                let kind = match g.label {
+                    true => "Label with a property".to_string(),
+                    false => al_builtins::describe::Describe::describe(&g.ty).to_string(),
+                };
                 format!(
-                    "global \"{}\" of \"{}\" is a {}{dims}, a kind the corpus does not pin (depth {depth})",
-                    g.name,
-                    objects[object].name,
-                    al_builtins::describe::Describe::describe(&g.ty)
+                    "global \"{}\" of \"{}\" is a {kind}{dims}, a kind the corpus does not pin (depth {depth})",
+                    g.name, objects[object].name
                 )
             }
         }

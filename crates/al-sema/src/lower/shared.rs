@@ -584,6 +584,7 @@ pub(crate) fn lower_object<'a>(
                     slot.security_filtering_not_kept = security_filtering_not_kept(&attrs, &declared);
                     slot.plain_label = v.type_ref().as_ref().is_some_and(plain_label);
                     slot.comment_label = v.type_ref().as_ref().is_some_and(comment_label);
+                    slot.label = label.is_some();
                     globals.push(slot);
                 }
                 Err(e) => global_reasons.push(format!("global `{n}`: {e}")),
