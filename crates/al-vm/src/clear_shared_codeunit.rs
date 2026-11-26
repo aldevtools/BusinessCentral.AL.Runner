@@ -748,9 +748,7 @@ impl Session {
     /// ([`Session::nested_as_measured`]).
     fn register_as_measured(&self, rc: &Rc<RefCell<Instance>>) -> bool {
         rc.borrow().globals.iter().all(|g| match g {
-            Value::Record(r) => r
-                .try_borrow()
-                .is_ok_and(|r| r.temporary || crate::state_stamp::no_row_io(&r)),
+            Value::Record(r) => no_row_read(r),
             Value::Codeunit(n) => Rc::strong_count(n) == 1 && self.nested_as_measured(rc, n, 1),
             _ => true,
         })
@@ -775,9 +773,7 @@ impl Session {
                     Rc::strong_count(m) == 1 && !m.borrow().initialized
                 }
                 Value::Codeunit(m) => Rc::strong_count(m) == 1 && self.nested_as_measured(store, m, depth + 1),
-                Value::Record(r) => r
-                    .try_borrow()
-                    .is_ok_and(|r| r.temporary || crate::state_stamp::no_row_io(&r)),
+                Value::Record(r) => no_row_read(r),
                 Value::List(l) => Rc::strong_count(l) == 1,
                 Value::Dictionary(d) => Rc::strong_count(d) == 1,
                 _ => true,
@@ -1047,6 +1043,14 @@ impl Session {
 
 /// The refusal of a `ClearAll` that resets a temporary table a record outside the variable shares, in a cell no probe
 /// measures: a `Record.Copy(x, true)` target outside the measured cells, or any other sharer ([`TempHold::SharedOther`]).
+/// Whether record `r`, held by a register or a codeunit nested in it, is temporary or read or wrote no row
+/// (`state_stamp::no_row_io`): what the registers of ClearSharedCodeunitSetterOwner.al, ClearSharedCodeunitTableNoRegister.al
+/// and ClearSharedCodeunitNestedSingleInstance.al hold before the ClearAll ([`Session::register_as_measured`]).
+fn no_row_read(r: &Rc<RefCell<RecordState>>) -> bool {
+    r.try_borrow()
+        .is_ok_and(|r| r.temporary || crate::state_stamp::no_row_io(&r))
+}
+
 fn shared_table_refusal() -> Signal {
     Signal::unsupported(
         "ClearAll of a global variable that reaches a temporary table that another record shares, in a shape the corpus \
