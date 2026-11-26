@@ -336,6 +336,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `profile.rs`: `--profile PATH`, `--profile-mode`. Entry: `Flags`.
 - `output.rs`: Counts, exit codes, the summary line. Entry: `exit_code`.
 - `run.rs`: `al-runner test`: load APPs, select test codeunits. Entry: `open_backup`.
+- `request_timings.rs`: Where a server request spent its time, by phase. Entry: `RequestTimings::of`.
 - `setup_timings.rs`: The parts of a run's setup before the compile: `Part`. Entry: `Laps::start`.
 - `kept_apps.rs`: What a warm server keeps between requests while… Entry: `load`.
 

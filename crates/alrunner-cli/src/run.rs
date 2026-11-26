@@ -8,14 +8,15 @@
 //! `--refusal-detail`); a refusal is `TestResult::is_refusal` (not run, not left out by a stop
 //! option). A serve request keeps the dependency apps it read (`WarmCtx::dependencies`, checked by
 //! `kept_apps::stamps`) and the apps under test (`WarmCtx::apps`, `kept_apps.rs`) and says where its
-//! time went (`RequestTimings`, the summary's `timings`). Entry: `test`.
+//! time went (`request_timings.rs`, the summary's `timings`). Entry: `test`.
 
 use crate::apps::{self, AppInput};
 use crate::args::{DEFAULT_TOP, TestArgs};
 use crate::capture;
 use crate::coverage;
 use crate::output::{self, Counts};
-use crate::setup_timings::{Laps, Part, SetupParts};
+pub use crate::request_timings::RequestTimings;
+use crate::setup_timings::{Laps, Part};
 use crate::style;
 use crate::testdata;
 use al_bcdb_std::BackupProvider;
@@ -565,52 +566,6 @@ pub struct KeptDependencies {
     /// The files they were chosen from and read from, as they were then (`kept_apps::stamps`).
     stamps: crate::kept_apps::Stamps,
     deps: Arc<deps::Dependencies>,
-}
-
-/// Where a server request spent its time, by phase (al-runner issue 5856).
-#[derive(Debug, Clone, Default)]
-pub struct RequestTimings {
-    /// Before the compile, by part (al-runner issue 8205); `SetupParts::total` is `setupMs`.
-    pub setup: SetupParts,
-    /// Finding the kept compile, updating it, or compiling again.
-    pub compile: std::time::Duration,
-    /// Building the engine the tests run on from the compiled program, or setting up a kept one.
-    pub engine: std::time::Duration,
-    /// The request ran on the engines an earlier request over the same compile kept.
-    pub engine_kept: bool,
-    /// Test sessions that took a login start in place of running the login, and the starts kept (al-runner issue 8211),
-    /// over every request the engine ran.
-    pub login_replays: u64,
-    pub login_starts: usize,
-    /// Setting up the install baseline: running the install code, or reading it.
-    pub baseline: std::time::Duration,
-    /// `ran`, `cache` or `kept` (`Phases::baseline_source`); `None`: no baseline.
-    pub baseline_source: Option<&'static str>,
-    /// Running the test codeunits, every pass.
-    pub tests: std::time::Duration,
-    /// Building the coverage document.
-    pub coverage: std::time::Duration,
-    /// Per pass (one per entry of the request): the threads' baseline copy and the pass's wall time.
-    pub passes: Vec<al_testrun::runtime::PassTime>,
-}
-
-impl RequestTimings {
-    /// A request's timings: its setup parts, the run's phases and the time the coverage document took.
-    fn of(setup: SetupParts, p: &al_testrun::runtime::Phases, coverage: Duration) -> RequestTimings {
-        RequestTimings {
-            setup,
-            compile: p.warm_compile.unwrap_or(p.compile),
-            engine: p.engine,
-            engine_kept: p.engine_kept,
-            login_replays: p.login_replay.replays,
-            login_starts: p.login_replay.starts,
-            baseline: p.baseline,
-            baseline_source: p.baseline_source,
-            tests: p.tests,
-            coverage,
-            passes: p.passes.clone(),
-        }
-    }
 }
 
 /// One entry of a server request (`WarmCtx::entries`).
@@ -2356,7 +2311,7 @@ fn test_inner(
         })
     );
     if let Some(w) = warm {
-        w.timings = Some(RequestTimings::of(setup, p, coverage_time));
+        w.timings = Some(RequestTimings::of(setup, p, coverage_time, test_data.as_ref()));
         w.report = Some(Report {
             doc: serde_json::from_str(&crate::unpinned::json(
                 crate::seed::json(
