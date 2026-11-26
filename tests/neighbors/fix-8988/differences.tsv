@@ -1,0 +1,6 @@
+# key	entry
+# Main checks the new key against a removed related field; BC has no such field (removed child relation: no Rename error).
+N8988 Tests::RemovedText4_NoRows_Reporter	PINNED tests/al-language/record/table-relation/RenameBlankKeyRelation.al:47
+N8988 Tests::RemovedText4_NoRows_RecordRefRename	PINNED tests/al-language/record/table-relation/RenameBlankKeyRelation.al:47
+N8988 Tests::RemovedText4_NextToLiveFieldWithRow	PINNED tests/al-language/record/table-relation/RenameBlankKeyRelation.al:47
+N8988 Tests::RemovedInteger_NoRows	PINNED tests/al-language/record/table-relation/RenameBlankKeyRelation.al:47

@@ -153,6 +153,13 @@ impl Session {
             if !self.engine.field_facts[r.table][r.pos].validate_relation {
                 continue;
             }
+            // A field with ObsoleteState = Removed is not on the table (recordref-fieldref/PnD12_RemovedFieldRecordRef.al:90-93:
+            // FieldCount leaves it out, FieldExist is No), and its relation makes Rename raise no error
+            // (record/table-relation/RenameBlankKeyRelation.al:47, cells :2747, :2757). So the rename has nothing to
+            // convert, check or rewrite there (issue 8988: the new key is longer than the removed field).
+            if self.field_removed(&child, r.pos) {
+                continue;
+            }
             let rel = r.related_field(t);
             if rename_equal(&old[rel], &new[rel])? {
                 continue;
