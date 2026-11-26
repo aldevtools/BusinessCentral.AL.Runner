@@ -68,19 +68,15 @@ impl CorpusRuntime {
             (Ok(compiled), None) => compiled.map(goes_on).map(Ok),
             // Stopped at the limit, or passed it after the compile's last check: the run does not go on, and the
             // workspace layer writes no entry of the compile (its store goes with it, ADR-022 amendment 2026-11-15,
-            // decision 6): the next run of the same inputs compiles as this one did.
+            // decision 6): the next run of the same inputs compiles as this one did. The compile ended, so the memory
+            // report says what the process held after it (`MemoryReport::after_compile`), as a run that goes on does.
             (Ok(compiled), Some(message)) => {
                 if let Ok(c) = compiled {
                     retire(c);
                 }
-                Ok(Err(halted(
-                    tests,
-                    suites,
-                    opts,
-                    watch.reason(),
-                    message,
-                    started.elapsed(),
-                )))
+                let mut rt = halted(tests, suites, opts, watch.reason(), message, started.elapsed());
+                rt.phases.memory.after_compile = opts.memory.as_ref().and_then(|b| (b.rss)());
+                Ok(Err(rt))
             }
             // The stop unwinds the compile (`al_sema::halt::Halted`, or the panic of a scoped thread that carried it).
             (Err(_), Some(message)) => Ok(Err(halted(

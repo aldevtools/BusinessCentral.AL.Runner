@@ -583,21 +583,27 @@ fn a_compile_the_memory_limit_stops_after_its_last_check_stores_no_entry() {
     let i = with_dependency();
     let dir = tempfile::tempdir().unwrap();
     let (plain, _) = outcomes(&i, tempfile::tempdir().unwrap().path(), false);
-    // The watcher's first two reads (when it starts) are under the line. Its next read, on its own thread, waits until
-    // the compile has ended (its entry queued, or two seconds), then reads over the line. The compile has made its
-    // last check by then, and the run stops when the watcher stops (`compile_halt.rs`).
+    // The watcher's first two reads (when it starts) are under the line. Its next read, on its own thread, waits two
+    // seconds, then reads over the line; the compile of these two small apps has ended by then, and the run stops when
+    // the watcher stops (`compile_halt.rs`). A compile the stop reached before its end leaves no `after_compile`
+    // reading, so a slow machine fails the assert below instead of testing a stop during the compile.
     let reads = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let stopped = run_under_limit(&i, dir.path(), move || {
-        if reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < 2 {
+        let n = reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if n < 2 {
             return 100;
         }
-        let started = std::time::Instant::now();
-        while wc::pending_writes() == 0 && started.elapsed() < std::time::Duration::from_secs(2) {
-            std::thread::sleep(std::time::Duration::from_millis(5));
+        if n == 2 {
+            std::thread::sleep(std::time::Duration::from_secs(2));
         }
         990
     });
     assert!(stopped.phases.memory.halted.is_some(), "{:?}", stopped.phases.memory);
+    assert!(
+        stopped.phases.memory.after_compile.is_some(),
+        "the compile ended before the halt: {:?}",
+        stopped.phases.memory
+    );
     assert_eq!(stopped.results().len(), plain.len());
     for r in stopped.results() {
         assert_eq!(
