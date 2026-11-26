@@ -147,6 +147,16 @@ codeunit 50200 "N8988 Tests"
     end;
 
     [Test]
+    procedure RemovedInteger_NumericNewKey_Refused()
+    var
+        Parent: Record "N8988 Parent2";
+    begin
+        Parent.Code := 'AB';
+        Parent.Insert();
+        Parent.Rename('1234567890');
+    end;
+
+    [Test]
     procedure PendingText4_NoRows()
     var
         Parent: Record "N8988 Parent3";

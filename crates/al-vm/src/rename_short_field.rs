@@ -27,10 +27,16 @@ enum Shape {
 
 /// The facts of the Rename call that the measured shapes read.
 pub(crate) struct RenameCall<'a> {
+    /// The record variable the Rename ran on.
+    pub rec: &'a crate::records::Rec,
+    /// The renamed row's old field values.
+    pub old: &'a [Value],
     /// The renamed row's new field values.
     pub new: &'a [Value],
     /// The old key value converts to the related field.
     pub old_converts: bool,
+    /// The new key value converts to the related field.
+    pub new_converts: bool,
     /// AL code called the statement form of Rename.
     pub statement_from_al: bool,
 }
@@ -54,6 +60,9 @@ impl Session {
             }
             Some(Shape::Error) => {
                 assume(Assumption::RenameShortRelatedField);
+                // The record keeps its old key after the error, as on the pinned blank-key Rename error
+                // (`blank_key_rename_raise`, rename_blank_key.rs); a direct cell is issue 9189.
+                call.rec.borrow_mut().fields = call.old.to_vec().into();
                 // RenameShortRelatedField.al:346-429 (the text and GetLastErrorCode of each Pending and live cell).
                 raise(
                     format!(
@@ -135,6 +144,7 @@ impl Session {
                 .all(|p| self.field_property(child, pos, p).is_none()),
             text_len(&call.new[*k]) == Some(10),
             call.old_converts == old_converts,
+            !call.new_converts,
             call.statement_from_al,
         ];
         // Read for the error only. The skip does not read them: the outside report (issue 8988) measured it on

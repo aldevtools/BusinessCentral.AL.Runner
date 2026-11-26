@@ -182,11 +182,14 @@ impl Session {
             let (old_value, new_value) = match (ops::convert(old[rel].clone(), ty), ops::convert(new[rel].clone(), ty))
             {
                 (Ok(o), Ok(n)) => (o, n),
-                (old_value, _) => {
+                (old_value, new_value) => {
                     // Owned by `rename_short_field.rs`: a measured skip, the measured error, or a refusal.
                     let call = RenameCall {
+                        rec,
+                        old,
                         new,
                         old_converts: old_value.is_ok(),
+                        new_converts: new_value.is_ok(),
                         statement_from_al,
                     };
                     self.rename_unconvertible_reference(&cx, t, &child, r, &call)?;

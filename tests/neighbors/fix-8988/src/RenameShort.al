@@ -66,6 +66,8 @@ codeunit 50211 "N8988 Short Tests"
             Error('text: %1', GetLastErrorText());
         if GetLastErrorCode() <> 'InvalidType:StringLengthExceeded' then
             Error('code: %1', GetLastErrorCode());
+        if M.Code <> 'AB' then
+            Error('record key after the error: %1', M.Code);
     end;
 
     [Test]

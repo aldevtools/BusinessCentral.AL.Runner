@@ -17,3 +17,4 @@ N8988 Short Tests::LivePlain_OldKeyLongerThanField_Refused	REFUSED Rename of
 N8988 Short Tests::RemovedText4_OldKeyLongerThanField_Refused	REFUSED Rename of
 N8988 Tests::LiveText4_NoRows	REFUSED Rename of
 N8988 Tests::PendingText4_NoRows	REFUSED Rename of
+N8988 Tests::RemovedInteger_NumericNewKey_Refused	REFUSED Rename of
