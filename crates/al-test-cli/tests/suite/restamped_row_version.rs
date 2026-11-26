@@ -90,6 +90,26 @@ codeunit 69986 T
     end;
 
     [Test]
+    procedure InsertBufferAfterSend()
+    var Row: Record "RS Row"; Other: Record "RS Other"; Row2: Record "RS Row";
+    begin
+        Row.DeleteAll(); Other.DeleteAll(); Commit();
+        Row.Id := 1; Row.Insert();
+        Other.Id := 1; Other.Insert(); Other.Get(1);
+        Row2.FindFirst();
+        if Row.SystemRowVersion > 0 then Error('positive');
+    end;
+
+    [Test]
+    procedure ReReadComparedWithZero()
+    var Row: Record "RS Row";
+    begin
+        TwoTables();
+        Row.Get(1);
+        if not (Row.SystemRowVersion > 0) then Error('not positive');
+    end;
+
+    [Test]
     procedure FilterFind()
     var Row: Record "RS Row";
     begin
@@ -198,6 +218,14 @@ fn row_versions_of_rows_sent_after_another_table_are_refused_where_they_show() {
     for t in ["FieldRead", "FieldRefRead", "InstallRowsRowVersion"] {
         refused(t, "SystemRowVersion of a row");
     }
+    // The variable's own Insert buffer, never re-read after the send: main's refusal.
+    refused("InsertBufferAfterSend", "holds the row version of its own write");
+    // A re-read row compared with 0: the assumption restamped-row-version-positive.
+    assert!(
+        matches!(of("ReReadComparedWithZero"), Outcome::Pass),
+        "{:?}",
+        of("ReReadComparedWithZero")
+    );
     for t in ["FilterFind", "KeyFind", "QueryColumn"] {
         refused(t, "on SystemRowVersion of a table");
     }

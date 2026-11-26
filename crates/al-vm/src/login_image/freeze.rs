@@ -413,7 +413,7 @@ impl<'a> Walker<'a> {
             Value::TestPage(_) => Err(never(path, "TestPage")),
             Value::TestControl(_) => Err(never(path, "TestControl")),
             Value::SqlCount(_) => Err(never(path, "SQL counter value")),
-            Value::PlaceholderSize(..) => Err(never(path, "byte size of a placeholder report output")),
+            Value::PlaceholderSize(m, _) => Err(never(path, &al_builtins::placeholder_output::size_shown(m))),
             Value::Null
             | Value::Boolean(_)
             | Value::Integer(_)

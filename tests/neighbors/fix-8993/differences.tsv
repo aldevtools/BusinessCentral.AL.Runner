@@ -1,4 +1,4 @@
 # key	entry
-RV8993 Tests::Reporter_FieldRefValue_LessOrEqualZero	PINNED tests/al-language/metadata/platform-tables/PlTDatabase.al:229
-RV8993 Tests::RecordField_GreaterThanZero	PINNED tests/al-language/metadata/platform-tables/PlTDatabase.al:229
-RV8993 Tests::StoredInField_ThenComparedWithZero	PINNED tests/al-language/metadata/platform-tables/PlTDatabase.al:229
+RV8993 Tests::Reporter_FieldRefValue_LessOrEqualZero	ASSUMED restamped-row-version-positive (corpus PR 1509, RowVersionWrites.al:392)
+RV8993 Tests::RecordField_GreaterThanZero	ASSUMED restamped-row-version-positive (corpus PR 1509, RowVersionWrites.al:392)
+RV8993 Tests::StoredInField_ThenComparedWithZero	ASSUMED restamped-row-version-positive (corpus PR 1509, RowVersionWrites.al:392)

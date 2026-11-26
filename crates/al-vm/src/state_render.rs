@@ -87,9 +87,10 @@ impl<'a> Render<'a> {
             Value::TestPage(_) => Err("TestPage (a page the test client drives: it lives in its own session)".into()),
             Value::TestControl(_) => Err("TestControl (a control of a page the test client drives)".into()),
             Value::SqlCount(_) => Err("SQL counter value (its number counts the reads of its own session)".into()),
-            Value::PlaceholderSize(..) => {
-                Err("byte size of a placeholder report output (it answers only in the session that wrote it)".into())
-            }
+            Value::PlaceholderSize(m, _) => Err(format!(
+                "{} (it answers only in the session that wrote it)",
+                al_builtins::placeholder_output::size_shown(m)
+            )),
             // Numbered when shared: an object the runtime serves itself holds a state that can change.
             Value::DotNet(d) => {
                 self.shared(

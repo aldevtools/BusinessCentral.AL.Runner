@@ -1587,14 +1587,17 @@ impl Session {
                             "FieldRef.Value of the Test ID",
                         ));
                     }
-                    let (order, v) = {
+                    let (order, restamped) = {
                         let r = rec.borrow();
-                        let order = self.install_row_order(r.table, r.temporary, pos, &r.fields);
-                        (order, self.restamped_value(&r, pos).unwrap_or(v))
+                        (
+                            self.install_row_order(r.table, r.temporary, pos, &r.fields),
+                            self.restamped_value(&r, pos),
+                        )
                     };
                     if let Some(why) = order {
                         return unsupported(why);
                     }
+                    let v = restamped?.unwrap_or(v);
                     // A Blob of a stored row read without CalcFields: a record's own field answers HasValue true and its stream reads
                     // nothing (streams/TestInOutStream.al InOutStream_WriteText_BlobHasValue, streams/TestBlob.al
                     // Blob_Get_WithoutCalcFields_InStreamReadsEmpty), and the value FieldRef.Value hands out is an empty Blob:

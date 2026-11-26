@@ -15,6 +15,8 @@
 
 use super::*;
 use crate::state::RestampedRows;
+use al_builtins::assumptions::{Assumption, assume};
+use al_builtins::value::VersionHow;
 use al_data::AccessContext;
 
 /// The field id of SystemRowVersion.
@@ -95,26 +97,40 @@ impl Session {
     }
 
     /// The value a read of field `pos` of the buffer `r` gives when the field holds the row version of a row `restamped` notes
-    /// (a Record field, `interp.rs`, and `FieldRef.Value`, `refs.rs`): BC's is greater than the row versions sent before the
-    /// row, so greater than this runtime's, which is greater than 0 (LastUsedRowVersion is, metadata/platform-tables/
-    /// PlTDatabase.al:229 LastUsedRowVersion_Relations `positive`). So the read gives a BigInteger known only to be greater than
-    /// 0 (`placeholder_output::positive`): it may be held, passed and returned, a comparison with 0 answers, and every other use
-    /// (another number, Format, a builtin) refuses with the text below (ADR-080).
-    pub(crate) fn restamped_value(&self, r: &RecordState, pos: usize) -> Option<Value> {
+    /// (a Record field, `interp.rs`, and `FieldRef.Value`, `refs.rs`). A buffer a read of the store gave that row version (a Get,
+    /// a Find or Next, a RecordRef read, or a copy of such a buffer: [`re_read`]) gets a BigInteger known only to be greater
+    /// than 0 (`placeholder_output::positive`) on the assumption `restamped-row-version-positive` (corpus PR 1509): it may be
+    /// held, passed and returned, a comparison with 0 answers, and every other use (another number, Format, a builtin) refuses
+    /// (ADR-080). Every other buffer, the variable's own Insert or Modify among them, is refused.
+    pub(crate) fn restamped_value(&self, r: &RecordState, pos: usize) -> Result<Option<Value>, Signal> {
         if r.temporary || self.restamped_rows.is_empty() {
-            return None;
+            return Ok(None);
         }
-        let t = self.engine.tables.get(r.table as usize)?.as_deref()?;
-        let version = t.fields.iter().position(|f| f.id == ROW_VERSION)?;
-        let Some(Value::BigInteger(v)) = r.fields.get(version) else {
-            return None;
+        let Some(t) = self.engine.tables.get(r.table as usize).and_then(|t| t.as_deref()) else {
+            return Ok(None);
         };
-        (self.restamped(t.object, *v, false) && self.shows_row_version(t, pos)).then(|| {
-            al_builtins::placeholder_output::positive(format!(
-                "{} of a row of {} that the open transaction inserted before a row version sent ahead of it (BC gives the row its row version when it sends it, this runtime the Insert's)",
-                t.fields[pos].name, t.name
-            ))
-        })
+        let Some(version) = t.fields.iter().position(|f| f.id == ROW_VERSION) else {
+            return Ok(None);
+        };
+        let Some(&Value::BigInteger(v)) = r.fields.get(version) else {
+            return Ok(None);
+        };
+        if !(self.restamped(t.object, v, false) && self.shows_row_version(t, pos)) {
+            return Ok(None);
+        }
+        let what = format!(
+            "{} of a row of {} that the open transaction inserted before a row version sent ahead of it",
+            t.fields[pos].name, t.name
+        );
+        if !re_read(r, v) {
+            return unsupported(format!(
+                "{what}, in a buffer that holds the row version of its own write: BC gives the row its row version when it sends it, this runtime the Insert's"
+            ));
+        }
+        assume(Assumption::RestampedRowVersionPositive);
+        Ok(Some(al_builtins::placeholder_output::positive(format!(
+            "{what} (BC gives the row its row version when it sends it, this runtime the Insert's)"
+        ))))
     }
 
     /// A find of the buffer `r` of table `t` (`t` with the record's ad hoc key), read through `cx`, that filters or sorts on its
@@ -191,4 +207,13 @@ impl Session {
         }
         Ok(())
     }
+}
+
+/// Whether a read of the store gave buffer `r` its row version `v`: a Get, a Find or Next, or another read (a RecordRef read,
+/// GetBySystemId), in the buffer itself or in the one it was copied from (`RecordState::version_entry`, al-vm
+/// `version_entry.rs`). Corpus PR 1509 RowVersionWrites.al:392 InsertTwoTables measures the row re-read by Get.
+fn re_read(r: &RecordState, v: i64) -> bool {
+    r.version_entry.0.as_ref().is_some_and(|e| {
+        e.source.version == v && matches!(e.source.how, VersionHow::Get | VersionHow::Find | VersionHow::OtherRead)
+    })
 }
