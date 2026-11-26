@@ -144,4 +144,36 @@ codeunit 50211 "N8988 Short Tests"
         if not M.Rename('GU00000039') then
             Error('rename failed');
     end;
+
+    [Test]
+    procedure LivePlain_OldKeyLongerThanField_Refused()
+    var
+        M: Record "N8988 M Live";
+    begin
+        M.Code := 'ABCDEFG';
+        M.Insert();
+        asserterror M.Rename('ABCDEFGHIJ');
+    end;
+
+    [Test]
+    procedure RemovedText4_OldKeyLongerThanField_Refused()
+    var
+        M: Record "N8988 Parent";
+    begin
+        M.Code := 'ABCDEFG';
+        M.Insert();
+        M.Rename('GU00000040');
+        M.Get('GU00000040');
+    end;
+
+    [Test]
+    procedure RemovedInteger_NumericOldKey_Refused()
+    var
+        M: Record "N8988 Parent2";
+    begin
+        M.Code := '12';
+        M.Insert();
+        M.Rename('GU00000041');
+        M.Get('GU00000041');
+    end;
 }

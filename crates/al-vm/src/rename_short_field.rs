@@ -5,8 +5,9 @@
 //! through the assumption `rename-short-related-field`: a related field with ObsoleteState = Removed is not checked (Text[4]
 //! and Integer, Record.Rename and RecordRef.Rename); a related Text[4] field with ObsoleteState = Pending or without
 //! ObsoleteState raises the reference-field conversion error, with or without child rows. Only those shapes run
-//! (`Session::short_related_shape`); any other Rename whose new key does not convert to a related field is refused. A new key
-//! that converts keeps main's rename.
+//! (`Session::short_related_shape`), and only with the old key's measured conversion (old key 'AB', :197: it converts to
+//! the Text[4] field and not to the Integer one); any other Rename whose old or new key does not convert to a related
+//! field is refused. Old and new keys that both convert keep main's rename.
 use crate::Session;
 use crate::globaltriggers::GlobalOp;
 use crate::rename::RenameRef;
@@ -24,20 +25,29 @@ enum Shape {
     Error,
 }
 
+/// The facts of the Rename call that the measured shapes read.
+pub(crate) struct RenameCall<'a> {
+    /// The renamed row's new field values.
+    pub new: &'a [Value],
+    /// The old key value converts to the related field.
+    pub old_converts: bool,
+    /// AL code called the statement form of Rename.
+    pub statement_from_al: bool,
+}
+
 impl Session {
-    /// Rename of `t` from `old` to `new`: the old or the new key value did not convert to the related field `r` of `child`. Returns
-    /// `Ok(())` when Rename does not check the field, the measured error, or a refusal for every unmeasured shape.
+    /// Rename of `t`: the old or the new key value did not convert to the related field `r` of `child`. Returns `Ok(())` when Rename does not check the field, the measured
+    /// error, or a refusal for every unmeasured shape.
     pub(crate) fn rename_unconvertible_reference(
         &self,
         cx: &AccessContext,
         t: &TableDef,
         child: &TableDef,
         r: &RenameRef,
-        new: &[Value],
-        statement_from_al: bool,
+        call: &RenameCall,
     ) -> Result<(), Signal> {
         let (_, pos, _) = r.parts();
-        match self.short_related_shape(cx, t, child, r, new, statement_from_al) {
+        match self.short_related_shape(cx, t, child, r, call) {
             Some(Shape::Skip) => {
                 assume(Assumption::RenameShortRelatedField);
                 Ok(())
@@ -55,8 +65,8 @@ impl Session {
                 )
             }
             None => unsupported(format!(
-                "Rename of {}: the new key value does not convert to the related field {}.{} in a shape corpus PR 1610 \
-                 does not measure",
+                "Rename of {}: the old or new key value does not convert to the related field {}.{} in a shape corpus PR \
+                 1610 does not measure",
                 t.name, child.name, child.fields[pos].name
             )),
         }
@@ -78,8 +88,7 @@ impl Session {
         t: &TableDef,
         child: &TableDef,
         r: &RenameRef,
-        new: &[Value],
-        statement_from_al: bool,
+        call: &RenameCall,
     ) -> Option<Shape> {
         let engine = &self.engine;
         let (child_index, pos, arm) = r.parts();
@@ -98,9 +107,12 @@ impl Session {
         let obsolete = self
             .field_property(child, pos, "ObsoleteState")
             .map(|v| v.trim().to_ascii_lowercase());
-        let shape = match (&child.fields[pos].ty, obsolete.as_deref()) {
-            (RtType::Text(Some(4)), Some("removed")) | (RtType::Integer, Some("removed")) => Shape::Skip,
-            (RtType::Text(Some(4)), Some("pending")) | (RtType::Text(Some(4)), None) => Shape::Error,
+        // The shape, and whether the measured old key 'AB' (:197) converts to the related field: to Text[4] it does, to
+        // Integer it does not.
+        let (shape, old_converts) = match (&child.fields[pos].ty, obsolete.as_deref()) {
+            (RtType::Text(Some(4)), Some("removed")) => (Shape::Skip, true),
+            (RtType::Integer, Some("removed")) => (Shape::Skip, false),
+            (RtType::Text(Some(4)), Some("pending")) | (RtType::Text(Some(4)), None) => (Shape::Error, true),
             _ => return None,
         };
         let text_len = |v: &Value| match v {
@@ -119,8 +131,9 @@ impl Session {
             ["Enabled", "TestTableRelation"]
                 .iter()
                 .all(|p| self.field_property(child, pos, p).is_none()),
-            text_len(&new[*k]) == Some(10),
-            statement_from_al,
+            text_len(&call.new[*k]) == Some(10),
+            call.old_converts == old_converts,
+            call.statement_from_al,
         ];
         // Read for the error only. The skip does not read them: the outside report (issue 8988) measured it on
         // Salesperson/Purchaser, a table with triggers, subscribers and many relations, with `TableRelation = <table>.Code`.

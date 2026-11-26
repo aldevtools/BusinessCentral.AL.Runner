@@ -11,6 +11,7 @@
 //! Rename propagation to related tables. Entry points: `rename_references`, `propagate_rename`.
 
 use crate::Session;
+use crate::rename_short_field::RenameCall;
 use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_builtins::native::{Signal, unsupported};
 use al_builtins::ops;
@@ -180,9 +181,14 @@ impl Session {
             let ty = &child.fields[r.pos].ty;
             let (old_value, new_value) = match (ops::convert(old[rel].clone(), ty), ops::convert(new[rel].clone(), ty)) {
                 (Ok(o), Ok(n)) => (o, n),
-                _ => {
+                (old_value, _) => {
                     // Owned by `rename_short_field.rs`: a measured skip, the measured error, or a refusal.
-                    self.rename_unconvertible_reference(&cx, t, &child, r, new, statement_from_al)?;
+                    let call = RenameCall {
+                        new,
+                        old_converts: old_value.is_ok(),
+                        statement_from_al,
+                    };
+                    self.rename_unconvertible_reference(&cx, t, &child, r, &call)?;
                     continue;
                 }
             };
