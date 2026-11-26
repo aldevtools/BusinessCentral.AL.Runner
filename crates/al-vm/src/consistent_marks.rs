@@ -142,8 +142,9 @@ impl ArgFilter {
             [f] if f.group == 0 && !r.marked_only && r.marks.is_empty() && fields.normal(f) => Some(f),
             _ => None,
         };
+        let one_value = one_filter.filter(|f| fields.one_value(f));
         let measured = match one_filter.map(|f| &f.expr) {
-            _ if one_filter.is_some_and(|f| fields.one_value(f)) => true,
+            _ if one_value.is_some() => true,
             Some(Or(alternatives)) => matches!(
                 alternatives.as_slice(),
                 [Like(pattern, false), Eq(Value::Text(value))] if pattern == "call*" && value.as_str() == "zzz"
@@ -157,7 +158,7 @@ impl ArgFilter {
             _ if r.filter_group != 0 => ArgFilter::Other,
             (true, _) => ArgFilter::None,
             (false, true) => ArgFilter::Measured {
-                key: one_filter.is_some_and(|f| fields.one_value(f) && fields.key_field(f)),
+                key: one_value.is_some_and(|f| fields.key_field(f)),
             },
             (false, false) if unmarked => page_args::page_shape(r, fields).map_or(ArgFilter::Other, ArgFilter::Page),
             (false, false) => ArgFilter::Other,
@@ -576,9 +577,10 @@ impl Session {
         }
         // Every cell of corpus PR 1600 releases through a variable other than the argument (step `txb`, variable XB).
         let released_by_other = self.tx.open.inconsistent.iter().all(|m| !is_arg(&m.released_by));
-        let page_end = (top_level_no_commit && arg_kept && database_set && released_by_other && arg_marks == ArgMarks::None)
-            .then(|| page_args::page_probe_end(arg, || self.work_date(), &after, end))
-            .flatten();
+        let page_end =
+            (top_level_no_commit && arg_kept && database_set && released_by_other && arg_marks == ArgMarks::None)
+                .then(|| page_args::page_probe_end(arg, || self.work_date(), &after, end))
+                .flatten();
         if let Some(raises) = page_end {
             assume(Assumption::GuardedRunConsistentPage);
             return Ok(raises.then(|| self.inconsistent_error(after[0].0 as usize)));

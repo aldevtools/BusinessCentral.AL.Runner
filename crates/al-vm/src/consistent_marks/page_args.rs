@@ -70,13 +70,19 @@ impl ArgFields<'_> {
 
     /// The filter is on a field of an Enum type (`Kind; Enum "GRP Kind"`, :59 and :95, the view of the PageMix cells).
     fn enum_field(&self, f: &FieldFilter) -> bool {
-        matches!(self.table.and_then(|t| t.fields.get(f.field)).map(|d| &d.ty), Some(RtType::Enum(_)))
+        matches!(
+            self.table.and_then(|t| t.fields.get(f.field)).map(|d| &d.ty),
+            Some(RtType::Enum(_))
+        )
     }
 
     /// The date a SetRange from 0D ends at, on a field of FieldClass FlowFilter (`"Date Filter"`, :58 and :94).
     fn date_range_end(&self, f: &FieldFilter) -> Option<i32> {
         match (&f.expr, self.class(f)) {
-            (FilterExpr::Range(Some(Value::Date(0, false)), Some(Value::Date(d, false))), Some(FieldClass::FlowFilter)) => Some(*d),
+            (
+                FilterExpr::Range(Some(Value::Date(0, false)), Some(Value::Date(d, false))),
+                Some(FieldClass::FlowFilter),
+            ) => Some(*d),
             _ => None,
         }
     }
@@ -90,14 +96,16 @@ pub(super) fn page_shape(r: &RecordState, fields: &ArgFields) -> Option<PageArgS
         return None;
     }
     let view = |f: &FieldFilter| fields.equal(f) && fields.enum_field(f);
-    let extra = |f: &FieldFilter, view: &FieldFilter| fields.equal(f) && fields.key_field(f) && f.field != view.field;
+    let extra = |f: &FieldFilter, v: &FieldFilter| fields.equal(f) && fields.key_field(f) && f.field != v.field;
     match (group0.as_slice(), group2.as_slice()) {
         ([a, b, c], []) => {
             let other = |f: &FieldFilter| fields.one_value(f) && fields.other_than_key(f);
             let distinct = a.field != b.field && a.field != c.field && b.field != c.field;
             (other(a) && other(b) && other(c) && distinct).then_some(PageArgShape::Three)
         }
-        ([date], [v]) if view(v) => fields.date_range_end(date).map(|date_end| PageArgShape::PageMix { date_end }),
+        ([date], [v]) if view(v) => fields
+            .date_range_end(date)
+            .map(|date_end| PageArgShape::PageMix { date_end }),
         ([a, b], [v]) if view(v) => {
             let end = match (fields.date_range_end(a), fields.date_range_end(b)) {
                 (Some(d), None) if extra(b, v) => d,
@@ -139,10 +147,14 @@ pub(super) fn page_probe_end(
     if end != RunEnd::Failed("Dialog") || !super::unmarked_or_first(table, after) {
         return None;
     }
-    let states: Vec<MarkState> = after.iter().map(|(_, s)| *s).collect();
-    let measured = match states.as_slice() {
-        [M, A] => matches!(filter, ArgFilter::Page(PageArgShape::PageMix { date_end }) if date_end == work_date()),
-        [R, M] | [A, M] => matches!(filter, ArgFilter::Page(PageArgShape::Three) | ArgFilter::Measured { key: true }),
+    let measured = match after {
+        [(_, M), (_, A)] => {
+            matches!(filter, ArgFilter::Page(PageArgShape::PageMix { date_end }) if date_end == work_date())
+        }
+        [(_, R | A), (_, M)] => matches!(
+            filter,
+            ArgFilter::Page(PageArgShape::Three) | ArgFilter::Measured { key: true }
+        ),
         _ => false,
     };
     measured.then_some(false)
