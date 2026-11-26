@@ -242,6 +242,9 @@ pub(crate) struct BulkEnd {
     pub(crate) counter: u64,
 }
 
+/// The Record buffer an Insert ran on (`RowVersionTx::insert_buffers`).
+pub(crate) type InsertBuffer = std::rc::Weak<std::cell::RefCell<al_builtins::value::RecordState>>;
+
 /// What raised `RowVersionTx::sent` in the open transaction. Only `Modify` is the send corpus PR 1613 measures
 /// (RowVersionReReadShapes.al `Run`: one Modify of the row the other table's Insert wrote, which sends that row).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -283,12 +286,7 @@ pub(crate) struct RowVersionTx {
     pub(crate) sent_by: SentBy,
     /// (table, company, row version, buffer): the Record buffer whose Insert handed out the row version of an entry of
     /// `pending_inserts` that holds one row (`Session::note_row_version_buffer`), until that entry is sent.
-    pub(crate) insert_buffers: Vec<(
-        u32,
-        Option<String>,
-        i64,
-        std::rc::Weak<std::cell::RefCell<al_builtins::value::RecordState>>,
-    )>,
+    pub(crate) insert_buffers: Vec<(u32, Option<String>, i64, InsertBuffer)>,
     /// (table, company, row version): SystemRowVersion read in the buffer of `insert_buffers` of a row of `pending_inserts`
     /// while no row version sent before it was at or above it (`Session::note_insert_value_read`,
     /// `RestampedRows::insert_value_read`).
