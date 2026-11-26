@@ -1,0 +1,10 @@
+# key	entry
+R1 Api Version Tests::QueryTwoVersions	ASSUMED api-version-list-comma-joined (corpus PR 1602, merged on corpus master, not yet pinned: PageMetadataMultiApiVersion.al, measured on BC 27/28/29)
+R1 Api Version Tests::QueryExactFilters	ASSUMED api-version-list-comma-joined (corpus PR 1602, merged on corpus master, not yet pinned: PageMetadataMultiApiVersion.al, measured on BC 27/28/29)
+R1 Api Version Tests::PageWildcardFilters	ASSUMED api-version-list-comma-joined (corpus PR 1602, merged on corpus master, not yet pinned: PageMetadataMultiApiVersion.al, measured on BC 27/28/29)
+R1 Api Version Tests::QueryWildcardFilters	ASSUMED api-version-list-comma-joined (corpus PR 1602, merged on corpus master, not yet pinned: PageMetadataMultiApiVersion.al, measured on BC 27/28/29)
+R1 Api Version Tests::PageRecordRefValue	ASSUMED api-version-list-comma-joined (corpus PR 1602, merged on corpus master, not yet pinned: PageMetadataMultiApiVersion.al, measured on BC 27/28/29)
+R1 Api Version Tests::PageFourVersions	ASSUMED api-version-list-comma-joined (corpus PR 1602, merged on corpus master, not yet pinned: PageMetadataMultiApiVersion.al, measured on BC 27/28/29)
+R1 Api Version Tests::QueryFourVersions	ASSUMED api-version-list-comma-joined (corpus PR 1602, merged on corpus master, not yet pinned: PageMetadataMultiApiVersion.al, measured on BC 27/28/29)
+R1 Api Version Tests::PageFiveVersionsRefuse	REFUSED Page Metadata: page 'R1 Five Api': APIVersion declares 5 versions
+R1 Api Version Tests::QueryFiveVersionsRefuse	REFUSED Query Metadata: query 'R1 Five Query': APIVersion declares 5 versions
