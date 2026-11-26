@@ -27,6 +27,8 @@ codeunit 62910 "GV Copy"
         Second: RecordRef;
         Rec: Record "GV Line";
         V: Variant;
+        FPB: FilterPageBuilder;
+        Url: Text;
     begin
         if not FromRec.IsRecord() then
             exit('');
@@ -100,6 +102,27 @@ codeunit 62910 "GV Copy"
             18:
                 if RecRef.Get(RecRef.RecordId()) then
                     exit(Format(RecRef.Field(3).Value));
+            // The hand-offs of the ref that take its view: each refuses with the mark.
+            19:
+                begin
+                    Rec.CopyLinks(RecRef);
+                    exit('copied');
+                end;
+            20:
+                begin
+                    FPB.AddRecordRef('Lines', RecRef);
+                    exit('added');
+                end;
+            21:
+                begin
+                    Url := GetUrl(ClientType::Web, CompanyName(), ObjectType::Table, 62910, RecRef);
+                    exit('url');
+                end;
+            22:
+                begin
+                    Report.Execute(62913, '<?xml version="1.0" standalone="yes"?><ReportParameters/>', RecRef);
+                    exit('ran');
+                end;
         end;
     end;
 
@@ -147,6 +170,75 @@ codeunit 62910 "GV Copy"
         exit(Result);
     end;
 
+    // A by-value copy handed to a Record parameter of a procedure of a descending order: the view is not measured.
+    procedure HandleLinesByProcedure(TransactionNo: Integer): Text
+    var
+        GVLine: Record "GV Line";
+        Result: Text;
+    begin
+        GVLine.SetRange("Transaction No.", TransactionNo);
+        GVLine.SetAscending("Line No.", false);
+        if GVLine.FindSet() then
+            repeat
+                Result += ReadCopy(GVLine) + ';';
+            until GVLine.Next() = 0;
+        exit(Result);
+    end;
+
+    procedure ReadCopy(GVLine: Record "GV Line"): Text
+    begin
+        exit(ReadByRef(GVLine));
+    end;
+
+    // A SetLoadFields and a FindSet, then the hand-off to a procedure: the ref reads a field the row did not load.
+    procedure HandleLinesLoadFields(TransactionNo: Integer): Text
+    var
+        GVLine: Record "GV Line";
+        Result: Text;
+    begin
+        GVLine.SetRange("Transaction No.", TransactionNo);
+        GVLine.SetLoadFields(Description);
+        GVLine.SetAscending("Line No.", false);
+        if GVLine.FindSet() then
+            repeat
+                Result += ReadLine2ByRef(GVLine) + ';';
+            until GVLine.Next() = 0;
+        exit(Result);
+    end;
+
+    procedure ReadLine2ByRef(GVLine: Record "GV Line"): Text
+    var
+        RecRef: RecordRef;
+        V: Variant;
+    begin
+        V := GVLine;
+        RecRef.GetTable(V);
+        exit(Format(RecRef.Field(2).Value));
+    end;
+
+    // The one-parameter publisher of the measured cell (record/filters/ByValueRecordView.al:286-308).
+    procedure RaiseOne(TransactionNo: Integer): Text
+    var
+        GVLine: Record "GV Line";
+        Result: Text;
+    begin
+        GVLine.SetRange("Transaction No.", TransactionNo);
+        GVLine.FindFirst();
+        OnOne(GVLine, Result);
+        exit(Result);
+    end;
+
+    [IntegrationEvent(false, false)]
+    local procedure OnOne(GVLine: Record "GV Line"; var Result: Text)
+    begin
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"GV Copy", 'OnOne', '', false, false)]
+    local procedure CopyOnOne(GVLine: Record "GV Line"; var Result: Text)
+    begin
+        Result := ReadByRef(GVLine);
+    end;
+
     [IntegrationEvent(false, false)]
     local procedure OnBeforeHandleLine(GVLine: Record "GV Line"; var Result: Text)
     begin
@@ -180,6 +272,12 @@ codeunit 62910 "GV Copy"
     begin
         Result += ReadByRef(GVLine) + ';';
     end;
+}
+
+report 62913 "GV Report"
+{
+    ProcessingOnly = true;
+    dataset { dataitem(L; "GV Line") { } }
 }
 
 // Holds the mode across the instances of "GV Copy" (a subscriber runs on its own instance).
@@ -368,5 +466,78 @@ codeunit 62911 "GV GetTable Test"
         Setup();
         GVCopy.SetMode(0);
         Check('First;Second;', GVCopy.HandleLinesVar(1));
+    end;
+
+    [Test]
+    procedure ProcedureCopy_Descending_VariantGetTable_FieldValue()
+    var
+        GVCopy: Codeunit "GV Copy";
+    begin
+        Setup();
+        GVCopy.SetMode(0);
+        Check('Second;First;', GVCopy.HandleLinesByProcedure(1));
+    end;
+
+    [Test]
+    procedure ProcedureCopy_Descending_GetFilters()
+    var
+        GVCopy: Codeunit "GV Copy";
+    begin
+        Setup();
+        GVCopy.SetMode(1);
+        GVCopy.HandleLinesByProcedure(1);
+    end;
+
+    [Test]
+    procedure LoadFieldsCopy_NotLoadedField_FieldRefValue()
+    var
+        GVCopy: Codeunit "GV Copy";
+    begin
+        Setup();
+        Check('20000;10000;', GVCopy.HandleLinesLoadFields(1));
+    end;
+
+    [Test]
+    procedure OneParameterPublisher_VariantGetTable_FieldValue()
+    var
+        GVCopy: Codeunit "GV Copy";
+    begin
+        Setup();
+        GVCopy.SetMode(0);
+        Check('First', GVCopy.RaiseOne(1));
+    end;
+
+    [Test]
+    procedure OneParameterPublisher_GetFilters()
+    var
+        GVCopy: Codeunit "GV Copy";
+    begin
+        Setup();
+        GVCopy.SetMode(1);
+        GVCopy.RaiseOne(1);
+    end;
+
+    [Test]
+    procedure MarkedRef_CopyLinks()
+    begin
+        Run(19);
+    end;
+
+    [Test]
+    procedure MarkedRef_FilterPageBuilderAddRecordRef()
+    begin
+        Run(20);
+    end;
+
+    [Test]
+    procedure MarkedRef_GetUrl()
+    begin
+        Run(21);
+    end;
+
+    [Test]
+    procedure MarkedRef_ReportExecuteWithParameters()
+    begin
+        Run(22);
     end;
 }

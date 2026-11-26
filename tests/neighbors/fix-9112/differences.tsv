@@ -5,3 +5,6 @@ GV GetTable Test::VariantGetTable_Metadata	PINNED tests/al-language/recordref-fi
 GV GetTable Test::VariantGetTable_IntoSecondRef_FieldValue	PINNED tests/al-language/recordref-fieldref/AsRecRefGetTable.al:23
 GV GetTable Test::VariantGetTable_FieldValueWrite	PINNED tests/al-language/recordref-fieldref/recordref/TestRecordRefField.al:34
 GV GetTable Test::VariantGetTable_IsTemporaryAndRecordId	PINNED tests/al-language/recordref-fieldref/recordref/RfTWrite.al:447
+GV GetTable Test::ProcedureCopy_Descending_VariantGetTable_FieldValue	PINNED tests/al-language/recordref-fieldref/recordref/TestRecordRefVariantGetTable.al:78
+GV GetTable Test::OneParameterPublisher_VariantGetTable_FieldValue	PINNED tests/al-language/recordref-fieldref/recordref/TestRecordRefVariantGetTable.al:78
+GV GetTable Test::LoadFieldsCopy_NotLoadedField_FieldRefValue	PINNED tests/al-language/recordref-fieldref/recordref/TestRecordRefVariantGetTable.al:78

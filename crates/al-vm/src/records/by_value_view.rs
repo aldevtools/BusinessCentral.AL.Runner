@@ -44,8 +44,9 @@
 //! publisher parameter is a by-value Record (`EventArg::PublisherByValue`) without the view of a
 //! fresh record (`fresh_view`), gives a copy marked `BY_VALUE_VIEW` whose view reads refuse; a
 //! subscriber copy whose publisher parameter is `var`, or of an event the platform raises
-//! (`EventArg::Main`), keeps main's view. One list of the methods that read no view
-//! (`reads_no_view`). Entry points: `record_param_copy` and `temporary_into_stored_param` (by the
+//! (`EventArg::Main`), keeps main's view. Two lists of the methods that read no view: `reads_no_view` for a
+//! Record copy and `by_value_ref_runs` for a RecordRef that took the mark (narrower: Get, Insert, Modify, Reset, CalcFields,
+//! GetFilters and Count run on the Record copy but refuse on the ref). Entry points: `record_param_copy` and `temporary_into_stored_param` (by the
 //! parameter binding of `call_inner` in `lib.rs`; `exec/run.rs` `run_iface` sets
 //! `Session::next_interface_call`), `by_value_view_marks` and `by_value_view_runs` (by
 //! `record_op_inner`), `by_value_view_handed` (every hand-off that reads the view:
@@ -848,7 +849,9 @@ impl Session {
     /// field's value and metadata (FieldRef Value read and written: TestRecordRefField.al:26-35; Number and Name:
     /// TestRecordRefField.al:21 and :127; Caption: record/captions/R6985FieldCaptionArea.al:160; Type:
     /// recordref-fieldref/PnD12_RemovedFieldRecordRef.al:49; Class: recordref-fieldref/recordref/RfTValues.al:198; Length:
-    /// recordref-fieldref/fieldref/FieldRefLengthKinds.al:49). Every other method refuses with the mark.
+    /// recordref-fieldref/fieldref/FieldRefLengthKinds.al:49). Every other method refuses with the mark. That the copy holds the
+    /// caller's row and its fields: record/filters/ByValueRecordView.al:30 (the copy has the primary key and all fields loaded,
+    /// also after a SetLoadFields in the caller) and the field reads of a copy (`records.rs` `buffer_read_refused`).
     pub(crate) fn by_value_ref_runs(kind: &str, method: &str, rec: &Rec) -> Result<(), Signal> {
         let Some(why) = rec.borrow().unpinned_buffer.filter(|w| by_value_mark(w)) else {
             return Ok(());
