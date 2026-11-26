@@ -893,7 +893,10 @@ fn select_str(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NResul
 // ----------------------------------------------------------- SecretText
 
 fn secret(content: String) -> Value {
-    Value::Library("SecretText".into(), Rc::new(RefCell::new(LibraryValue::Text(content.into()))))
+    Value::Library(
+        "SecretText".into(),
+        Rc::new(RefCell::new(LibraryValue::Text(content.into()))),
+    )
 }
 
 /// The content of a SecretText value; a never-assigned one is empty.
@@ -1005,7 +1008,9 @@ fn text_len_over(s: &str, cap: i64) -> i64 {
 fn tb_text(a: &[Value], i: usize) -> Result<crate::text::Txt, Signal> {
     match a.get(i) {
         // The mark is no surrogate unit, so the lossy text of a lone half answers the same.
-        Some(Value::Text(t) | Value::Code(t)) if t.audited_str().contains(crate::native::CALL_STACK_MARK) => Ok(t.clone()),
+        Some(Value::Text(t) | Value::Code(t)) if t.audited_str().contains(crate::native::CALL_STACK_MARK) => {
+            Ok(t.clone())
+        }
         Some(Value::Text(t) | Value::Code(t)) if t.has_marker() && crate::rendered_text::carried(t.audited_str()) => {
             Ok(t.clone())
         }
@@ -1109,7 +1114,7 @@ fn tb_to_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResul
     let h = string_of(r)?;
     let s = with_string(&h, |s| s.clone());
     if a.is_empty() {
-        return Ok(Value::Text(s.into()));
+        return Ok(Value::Text(s));
     }
     let u = s.units();
     let (start, count) = (int(a, 0)?, int(a, 1)?);
@@ -1131,7 +1136,9 @@ fn tb_to_text(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResul
     let from = start as usize - 1;
     // A range through a pair keeps the half (LtSurrogateHalves.al Ops_tb_3).
     crate::text::half_kept(&[&s]);
-    Ok(Value::Text(crate::text::Txt::from_units(&u[from..from + count as usize])))
+    Ok(Value::Text(crate::text::Txt::from_units(
+        &u[from..from + count as usize],
+    )))
 }
 
 fn tb_length(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
@@ -1140,7 +1147,9 @@ fn tb_length(ctx: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResu
     }
     let h = string_of(r)?;
     // The lossy text has the length of the exact one: a lone half and its U+FFFD are one unit each.
-    Ok(Value::Integer(with_string(&h, |s| Value::text_len(s.audited_str())) as i32))
+    Ok(Value::Integer(
+        with_string(&h, |s| Value::text_len(s.audited_str())) as i32
+    ))
 }
 
 /// `Length(N)` cuts the text to N characters or extends it with NUL characters, and the capacity grows to hold it
