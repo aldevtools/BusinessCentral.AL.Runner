@@ -374,6 +374,59 @@ mod tests {
     use super::*;
 
     #[test]
+    fn empty_header_name_does_not_bypass_the_receiver_guard() {
+        let mut ctx = crate::native::tests::TestCtx::default();
+        let mut args = [Value::Text(String::new().into())];
+        assert!(matches!(
+            headers::headers_contains(&mut ctx, None, &mut args),
+            Err(Signal::Unsupported(_))
+        ));
+    }
+
+    #[test]
+    fn refused_stream_write_leaves_the_input_stream_untouched() {
+        let mut ctx = crate::native::tests::TestCtx::default();
+        ctx.target = Some(al_version::Target::for_bc(al_version::BcVersion::new(28, 5)));
+        let mut content = new_content();
+        with_content(Some(&mut content), |state| {
+            let mut headers = state.headers.borrow_mut();
+            headers.items.clear();
+            headers.items.push(("X-Unmeasured".into(), vec!["v".into()]));
+        })
+        .unwrap();
+        let stream = crate::stream::InState::of_blob_field(crate::stream::new_blob(), crate::stream::Encoding::Utf8);
+        let mut args = [lib("InStream", LibraryValue::InStream(stream))];
+        assert!(matches!(
+            content::write_from_stream(&mut ctx, Some(&mut content), &mut args),
+            Err(Signal::Unsupported(_))
+        ));
+        let Value::Library(_, cell) = &args[0] else {
+            panic!("expected an InStream");
+        };
+        assert!(matches!(&*cell.borrow(), LibraryValue::InStream(s) if !s.handed_to_content));
+    }
+
+    #[test]
+    fn a_partly_read_stream_after_a_removed_type_is_refused_and_left_untouched() {
+        let mut ctx = crate::native::tests::TestCtx::default();
+        ctx.target = Some(al_version::Target::for_bc(al_version::BcVersion::new(28, 5)));
+        let mut content = new_content();
+        with_content(Some(&mut content), |state| state.headers.borrow_mut().items.clear()).unwrap();
+        let mut stream =
+            crate::stream::InState::of_blob_field(crate::stream::new_blob(), crate::stream::Encoding::Utf8);
+        stream.pos = 3;
+        let mut args = [lib("InStream", LibraryValue::InStream(stream))];
+        assert!(matches!(
+            content::write_from_stream(&mut ctx, Some(&mut content), &mut args),
+            Err(Signal::Unsupported(_))
+        ));
+        let Value::Library(_, cell) = &args[0] else {
+            panic!("expected an InStream");
+        };
+        assert!(matches!(&*cell.borrow(), LibraryValue::InStream(s) if !s.handed_to_content && s.pos == 3));
+    }
+
+    #[test]
     fn uris_take_their_normal_form() {
         // http/HttpRequest.al:SetRequestUriValid, SetRequestUriRelativeAndInvalid, SetRequestUriOtherSchemes.
         let ok = |i: &str, o: &str| assert_eq!(normalize_uri(i).as_deref(), Ok(o), "{i}");

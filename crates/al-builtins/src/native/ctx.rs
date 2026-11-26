@@ -121,6 +121,11 @@ pub trait Ctx: FormatCtx {
     fn gate(&self, _gate: al_version::Gate) -> bool {
         true
     }
+    /// `al_version::http_probe_1424_measured` for the run's target: the minors on which the HTTP shapes of corpus PR 1424
+    /// were measured. Without a target nothing is measured.
+    fn http_probe_1424_measured(&self) -> bool {
+        false
+    }
     /// Record methods (`Record.Insert`, ...) need the store, triggers and
     /// table metadata: the VM implements them. `method` is the catalog name.
     fn record(
