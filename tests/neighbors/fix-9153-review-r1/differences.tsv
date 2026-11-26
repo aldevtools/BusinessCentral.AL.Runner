@@ -1,3 +1,3 @@
 # key	entry
-LT SH Review R1::TextBuilder_Insert_InsidePair_BuilderHasLone	ASSUMED text-surrogate-half-readers (corpus PR 1605: LtSurrogateHalves.al; awaiting pin); refusal reason only
-LT SH Review R1::TextBuilder_ToText_CutsPair_BuilderHasLone	ASSUMED text-surrogate-half-readers (corpus PR 1605: LtSurrogateHalves.al; awaiting pin); refusal reason only
+LT SH Review R1::TextBuilder_Insert_InsidePair_BuilderHasLone	REFUSED TextBuilder.Insert that ends up with half of a surrogate pair
+LT SH Review R1::TextBuilder_ToText_CutsPair_BuilderHasLone	REFUSED TextBuilder.ToText that ends up with half of a surrogate pair

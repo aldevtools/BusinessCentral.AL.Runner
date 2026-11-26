@@ -22,6 +22,14 @@ codeunit 75800 "LT SH Review R1"
     end;
 
     [Test]
+    procedure Control_PlainTextOrder()
+    begin
+        // Control: a plain Text order runs on main and head alike, so the app always has a test that runs.
+        if not ('a' < 'b') then
+            Error('plain order');
+    end;
+
+    [Test]
     procedure Text_LessOrEqual_LoneHalfVsChar()
     var
         C: Char;
