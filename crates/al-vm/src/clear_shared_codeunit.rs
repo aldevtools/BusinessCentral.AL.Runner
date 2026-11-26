@@ -56,7 +56,8 @@ impl Session {
             }
             match v {
                 Value::Codeunit(rc) if self.plain_codeunit(rc.borrow().object as usize) => {
-                    let shared = Rc::strong_count(rc) > 2;
+                    let holders = Rc::strong_count(rc);
+                    let shared = holders > 2;
                     match self.engine.program.objects[owner].globals.get(i).map(|g| &g.ty) {
                         Some(RtType::Codeunit(_)) => {}
                         // BC resets the shared instance in place for another store only (corpus PR 1564
@@ -70,13 +71,19 @@ impl Session {
                         }
                         _ => continue,
                     }
+                    // A register a nested codeunit links back to is shared by that link too; held by nothing outside
+                    // the owner, no cell measures it (1596 always has the caller hold it).
+                    if shared && holders - self.back_links(rc) <= 2 {
+                        return Err(Signal::unsupported(
+                            "ClearAll of a global codeunit variable that only a codeunit nested in it shares, in a \
+                             shape the corpus does not pin",
+                        ));
+                    }
                     let hold = self.temp_hold(v);
-                    let store = self.store_kind(rc.borrow().object as usize);
-                    let kinds = matches!(store, Some(Store::Kinds | Store::TableNoKinds));
                     let holding = if shared {
                         if !rc.borrow().initialized {
                             Holding::SharedUncalled
-                        } else if !self.temp_rows_now(v) && !self.wrote_scalar(rc, 0, kinds) {
+                        } else if !self.temp_rows_now(v) && !self.wrote_scalar(rc, 0, self.kinds_shape(rc)) {
                             Holding::SharedUnwritten
                         } else {
                             Holding::Shared
@@ -100,7 +107,7 @@ impl Session {
                             Holding::Written => temp_rows_refusal(),
                         });
                     }
-                    assume(match store {
+                    assume(match self.store_kind(rc.borrow().object as usize) {
                         Some(Store::Kinds) => Assumption::ClearAllStoreGlobalKinds,
                         Some(Store::TableNoKinds) => Assumption::ClearAllTableNoRegister,
                         _ => Assumption::ClearSharedCodeunit,
@@ -464,7 +471,7 @@ impl Session {
     /// corpus PR 1587 ([`scalar_kind`]) is admitted too. Each codeunit global is a [`Session::register_nested`] codeunit.
     fn tableno_unpinned(&self, object: usize) -> Option<Unpinned> {
         let o = &self.engine.program.objects[object];
-        let nested = |c: u32| self.register_nested(c as usize, object, 1);
+        let nested = |c: u32| self.register_nested(c as usize, object, 1, 4, true);
         let admitted = |(i, g): &(usize, &al_ir::Slot)| {
             o.rec_slot == Some(*i)
                 || g.plain_label
@@ -486,14 +493,13 @@ impl Session {
     }
 
     /// Whether codeunit `object`, held at nesting `depth` below the register `root`, is a nested codeunit the register of
-    /// [`Session::tableno_unpinned`] may hold: a codeunit of the chain ClearSharedCodeunitTableNoRegister.al measures, four
-    /// levels deep at most ("CKT M1" :66 to "CKT Leaf" :14,
-    /// DeepReg_Primed_OwnerRun :767): not SingleInstance, no TableNo, every global an Integer or a codeunit of the same
-    /// kind, or, one level below the register, a codeunit global of the register itself ("CKT Cyc" :179-183,
-    /// CycReg_Primed_OwnerRun :824).
-    fn register_nested(&self, object: usize, root: usize, depth: u8) -> bool {
+    /// [`Session::tableno_unpinned`] may hold: a codeunit of the chain ClearSharedCodeunitTableNoRegister.al measures, `max`
+    /// levels deep at most (four: "CKT M1" :66 to "CKT Leaf" :14, DeepReg_Primed_OwnerRun :767): not SingleInstance, no
+    /// TableNo, every global an Integer or a codeunit of the same kind, or, one level below the register and when `back`, a
+    /// codeunit global of the register itself ("CKT Cyc" :179-183, CycReg_Primed_OwnerRun :824).
+    fn register_nested(&self, object: usize, root: usize, depth: u8, max: u8, back: bool) -> bool {
         let o = &self.engine.program.objects[object];
-        depth <= 4
+        depth <= max
             && self.plain_codeunit(object)
             && o.rec_slot.is_none()
             && o.globals.iter().all(|g| {
@@ -501,11 +507,21 @@ impl Session {
                     && match g.ty {
                         RtType::Integer => true,
                         RtType::Codeunit(c) => {
-                            (c as usize == root && depth == 1) || self.register_nested(c as usize, root, depth + 1)
+                            (back && c as usize == root && depth == 1)
+                                || self.register_nested(c as usize, root, depth + 1, max, back)
                         }
                         _ => false,
                     }
             })
+    }
+
+    /// Whether TableNo register `object` ([`Store::TableNoKinds`]) has the shape the plain owner is measured with:
+    /// ClearSharedCodeunitTableNoRegister.al "CKT Reg" (:95-96, "CKT M3" and "CKT M2"), nested codeunits three levels
+    /// deep at most and none holding the register (TableNoReg_Primed_PlainOwner :725 to TableNoReg_RunBeforeShare_PlainOwner
+    /// :753). The deeper chain and the cycle are measured under the owner with a TableNo only.
+    fn plain_owner_register(&self, object: usize) -> bool {
+        (self.engine.program.objects[object].globals.iter())
+            .all(|g| !matches!(g.ty, RtType::Codeunit(c) if !self.register_nested(c as usize, object, 1, 3, false)))
     }
 
     /// The refusal of `ClearAll()` in `owner` of store instance `v`, which another variable shares and which
@@ -536,7 +552,13 @@ impl Session {
                 s.describe()
             ),
             (_, Some(Store::Register | Store::TableNoKinds)) if !self.register_as_measured(rc) => {
-                "the register read or wrote a row, or another variable shares its nested codeunit".to_string()
+                "the register read or wrote a row, another variable shares one of its nested codeunits, or a back link \
+                 holds another register instance"
+                    .to_string()
+            }
+            (Some(Owner::Plain), Some(Store::TableNoKinds)) if !self.plain_owner_register(store) => {
+                "the plain owner is measured with nested codeunits three levels deep at most and no back link"
+                    .to_string()
             }
             (_, Some(Store::Kinds)) if !self.kinds_instances(rc, 0) => {
                 "an Interface global holds an instance of a codeunit that is no store of the measured kinds".to_string()
@@ -584,6 +606,7 @@ impl Session {
         };
         measured(o, s, holding, hold)
             && (!matches!(s, Store::Register | Store::TableNoKinds) || self.register_as_measured(rc))
+            && ((o, s) != (Owner::Plain, Store::TableNoKinds) || self.plain_owner_register(rc.borrow().object as usize))
             && (s != Store::Kinds || self.kinds_instances(rc, 0))
             // The store with one more Integer that no call made is measured for "CLQ Store Plus" only
             // (ClearSharedCodeunitOwnerKinds.al:183, StorePlus_UnusedAlias :684; ClearSharedCodeunitPlusUncalled.al), which
@@ -627,15 +650,61 @@ impl Session {
     /// the ClearAll (`Mark` :62-70): its record that is not temporary has a filter and field values but read or wrote no row
     /// (`state_stamp::no_row_io`), and its nested codeunit instance no other holder shares. The same for a
     /// [`Store::TableNoKinds`] instance: ClearSharedCodeunitTableNoRegister.al "CKT Reg" `Prime` (:107-118) sets filters and
-    /// field values of its records and reads or writes no row, and only the register holds its nested instances.
+    /// field values of its records and reads or writes no row, and only the register holds its nested instances
+    /// ([`Session::nested_as_measured`]).
     fn register_as_measured(&self, rc: &Rc<RefCell<Instance>>) -> bool {
         rc.borrow().globals.iter().all(|g| match g {
             Value::Record(r) => r
                 .try_borrow()
                 .is_ok_and(|r| r.temporary || crate::state_stamp::no_row_io(&r)),
-            Value::Codeunit(n) => Rc::strong_count(n) == 1,
+            Value::Codeunit(n) => Rc::strong_count(n) == 1 && self.nested_as_measured(rc, n, 1),
             _ => true,
         })
+    }
+
+    /// Whether nested instance `n`, at `depth` below store instance `store`, holds only what
+    /// ClearSharedCodeunitTableNoRegister.al measures: every codeunit instance it holds, at every depth, held by it alone
+    /// ("CKT Reg" and "CKT Deep Reg" `Prime`, :107-118, :154-159), except, one level below the store, a global of the
+    /// store's codeunit, which holds the store instance itself ("CKT Cyc" `Link` :185-189 from "CKT Cyc Reg" `Prime` :211-216, CycReg_Primed_OwnerRun :824)
+    /// or an instance nothing made yet and nothing else holds. The register of [`Store::Register`] holds a nested codeunit
+    /// with no codeunit global ("CLX Store"), so this reads nothing more for it.
+    fn nested_as_measured(&self, store: &Rc<RefCell<Instance>>, n: &Rc<RefCell<Instance>>, depth: u8) -> bool {
+        let object = store.borrow().object;
+        depth <= 4
+            && n.borrow().globals.iter().all(|g| match g {
+                Value::Codeunit(m) if depth == 1 && Rc::ptr_eq(m, store) => true,
+                Value::Codeunit(m) if depth == 1 && m.borrow().object == object => {
+                    Rc::strong_count(m) == 1 && !m.borrow().initialized
+                }
+                Value::Codeunit(m) => Rc::strong_count(m) == 1 && self.nested_as_measured(store, m, depth + 1),
+                _ => true,
+            })
+    }
+
+    /// How many codeunit globals of the instances store instance `rc` holds directly hold `rc` itself: the back links of
+    /// a cycle ("CKT Cyc", ClearSharedCodeunitTableNoRegister.al :179-183), each one more holder of `rc`.
+    fn back_links(&self, rc: &Rc<RefCell<Instance>>) -> usize {
+        let inst = rc.borrow();
+        (inst.globals.iter())
+            .filter_map(|g| match g {
+                Value::Codeunit(n) if !Rc::ptr_eq(n, rc) => Some(n),
+                _ => None,
+            })
+            .map(|n| {
+                (n.borrow().globals.iter())
+                    .filter(|m| matches!(m, Value::Codeunit(m) if Rc::ptr_eq(m, rc)))
+                    .count()
+            })
+            .sum()
+    }
+
+    /// Whether store instance `rc` is of a store whose globals [`kinds_written`] reads ([`Store::Kinds`],
+    /// [`Store::TableNoKinds`]).
+    fn kinds_shape(&self, rc: &Rc<RefCell<Instance>>) -> bool {
+        matches!(
+            self.store_kind(rc.borrow().object as usize),
+            Some(Store::Kinds | Store::TableNoKinds)
+        )
     }
 
     /// Resets instance `rc` in place, as `ClearAll()` in a measured owner does to a store global: its globals go back to
@@ -650,7 +719,7 @@ impl Session {
 
     /// [`Session::reset_keeping_rows`], each instance reset once (`seen`): a codeunit global that holds an instance being
     /// reset already keeps it as it is, so the back link of a cycle stays (ClearSharedCodeunitTableNoRegister.al
-    /// CycReg_Primed_OwnerRun :829, 'cyc=0/1': the nested Integer reset, the caller reads the register through the link;
+    /// CycReg_Primed_OwnerRun :829-832, 'cyc=0/1': the nested Integer reset, the caller reads the register through the link;
     /// assumption clear-all-tableno-register).
     fn reset_once(&mut self, rc: &Rc<RefCell<Instance>>, seen: &mut Vec<*const RefCell<Instance>>) {
         if !rc.borrow().initialized || seen.contains(&Rc::as_ptr(rc)) {

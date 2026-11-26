@@ -1,7 +1,8 @@
 //! `ClearAll()` of a store codeunit with a TableNo that another variable shares (`Session::clear_all_in_place`,
 //! `Store::TableNoKinds`, assumption clear-all-tableno-register, merged corpus PR 1596
 //! ClearSharedCodeunitTableNoRegister.al). The corpus cells themselves run in `tests/neighbors/fix-8964`; these tests hold
-//! the cycle, which would reset forever without the once-per-instance walk, and the nesting edges that refuse.
+//! the cycle, which would reset forever without the once-per-instance walk, and the nesting, sharing and back-link
+//! edges that refuse.
 
 use crate::clear_shared_codeunit::{assert_refused, run_cell};
 
@@ -44,6 +45,20 @@ codeunit 50942 TnByteReg { TableNo = TnRow; var B: Byte; Entry: Integer;
 codeunit 50943 TnByteOwner { TableNo = TnRow; var Reg: Codeunit TnByteReg;
     trigger OnRun() begin ClearAll(); end;
     procedure SetReg(var R: Codeunit TnByteReg) begin Reg := R; end; }
+codeunit 50944 TnPlainOwner { var D4: Codeunit TnDeep4; procedure Set4(var R: Codeunit TnDeep4) begin D4 := R; end;
+    procedure Go() begin ClearAll(); end; }
+codeunit 50945 TnMadeOwner { var Reg: Codeunit TnReg;
+    procedure Go(): Text begin Reg.Prime(Reg); ClearAll(); exit(Reg.State()); end; }
+codeunit 50946 TnMid { var Leaf: Codeunit TnL5; I: Integer;
+    procedure SetN(V: Integer) begin I := V; Leaf.SetN(V); end;
+    procedure Share(var L: Codeunit TnL5) begin L := Leaf; end; }
+codeunit 50947 TnShareReg { TableNo = TnRow; var Mid: Codeunit TnMid; Entry: Integer;
+    trigger OnRun() begin end;
+    procedure Prime() begin Mid.SetN(3); Entry := 5; end;
+    procedure ShareLeaf(var L: Codeunit TnL5) begin Mid.Share(L); end; }
+codeunit 50948 TnShareOwner { TableNo = TnRow; var Reg: Codeunit TnShareReg;
+    trigger OnRun() begin ClearAll(); end;
+    procedure SetReg(var R: Codeunit TnShareReg) begin Reg := R; end; }
 codeunit 50920 T {
     procedure Cycle(): Text var Reg: Codeunit TnReg; O: Codeunit TnOwner; Row: Record TnRow;
     begin Reg.Prime(Reg); O.SetReg(Reg); O.Run(Row); exit(O.GetAfter() + ' | ' + Reg.State()); end;
@@ -51,6 +66,13 @@ codeunit 50920 T {
     begin Reg.Prime(); O.Set4(Reg); O.Run(Row); exit(Format(Reg.Peek())); end;
     procedure Deep5(): Text var Reg: Codeunit TnDeep5; O: Codeunit TnDeepOwner; Row: Record TnRow;
     begin Reg.Prime(); O.Set5(Reg); O.Run(Row); exit(Format(Reg.Peek())); end;
+    procedure OtherBack(): Text var Reg: Codeunit TnReg; Other: Codeunit TnReg; O: Codeunit TnOwner; Row: Record TnRow;
+    begin Other.Bump(); Reg.Prime(Other); O.SetReg(Reg); O.Run(Row); exit(Format(Other.Peek())); end;
+    procedure DepthTwo(): Text var Reg: Codeunit TnShareReg; L: Codeunit TnL5; O: Codeunit TnShareOwner; Row: Record TnRow;
+    begin Reg.Prime(); Reg.ShareLeaf(L); O.SetReg(Reg); O.Run(Row); exit('ran'); end;
+    procedure OwnerMade(): Text var O: Codeunit TnMadeOwner; begin exit(O.Go()); end;
+    procedure PlainDeep(): Text var Reg: Codeunit TnDeep4; O: Codeunit TnPlainOwner;
+    begin Reg.Prime(); O.Set4(Reg); O.Go(); exit(Format(Reg.Peek())); end;
     procedure ByteReg(): Text var Reg: Codeunit TnByteReg; O: Codeunit TnByteOwner; Row: Record TnRow;
     begin Reg.Prime(); O.SetReg(Reg); O.Run(Row); exit(Format(Reg.Peek())); end;
 }";
@@ -83,4 +105,37 @@ fn a_register_global_of_another_kind_refuses_naming_it() {
     let got = run_cell(SOURCE, "ByteReg", vec![]).0;
     assert_refused("ByteReg", &got, REFUSED);
     assert!(got.contains("global \"B\" of \"TnByteReg\""), "{got}");
+}
+
+/// A back link holding another register instance is not the measured cycle (CycReg_Primed_OwnerRun :824 links the store).
+#[test]
+fn a_back_link_to_another_register_refuses() {
+    let got = run_cell(SOURCE, "OtherBack", vec![]).0;
+    assert_refused("OtherBack", &got, REFUSED);
+    assert!(got.contains("a back link holds another register instance"), "{got}");
+}
+
+#[test]
+fn a_nested_instance_shared_two_levels_down_refuses() {
+    let got = run_cell(SOURCE, "DepthTwo", vec![]).0;
+    assert_refused("DepthTwo", &got, REFUSED);
+    assert!(got.contains("shares one of its nested codeunits"), "{got}");
+}
+
+#[test]
+fn a_register_only_its_own_back_link_shares_refuses() {
+    let got = run_cell(SOURCE, "OwnerMade", vec![]).0;
+    assert_refused(
+        "OwnerMade",
+        &got,
+        "ClearAll of a global codeunit variable that only a codeunit nested in it shares",
+    );
+}
+
+/// The plain owner is measured with "CKT Reg" only (TableNoReg_Primed_PlainOwner :725), three levels deep.
+#[test]
+fn a_chain_four_deep_under_the_plain_owner_refuses() {
+    let got = run_cell(SOURCE, "PlainDeep", vec![]).0;
+    assert_refused("PlainDeep", &got, REFUSED);
+    assert!(got.contains("three levels deep at most"), "{got}");
 }
