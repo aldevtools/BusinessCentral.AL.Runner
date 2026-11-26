@@ -89,6 +89,9 @@ struct Entry {
     /// The readers whose FindSet read the filters and found a row, and whose Next calls since then found one: only such a
     /// reader's Next reads the filters (`Fresh*`, FilterGroupOtherVariable.al:169-172).
     find_set_readers: Vec<Weak<RefCell<RecordState>>>,
+    /// The temporary Record that set the measured `<>@` sequence still has this many of its two SetRange clears to run
+    /// (AtSignAloneMethods.al:507 `ClearKinds`); it remains when the first clear empties the entry.
+    temporary_not_at_clears: Option<(Weak<RefCell<RecordState>>, u8)>,
     /// What a page background task's worker may do on the table while it runs without this entry.
     worker: WorkerReads,
 }
@@ -149,6 +152,30 @@ impl Group1Filters {
     /// No table holds a group 1 filter.
     pub(crate) fn is_empty(&self) -> bool {
         self.filters.by_table.values().all(|e| e.signature.is_empty())
+    }
+
+    /// What a new session holds, every field: no table entry (not even one another record took back, which refuses the
+    /// records that still hold filters), no install shape, no worker state (a table whose filter a worker ended still runs
+    /// through the assumption) and no read with another record's filters. Stricter than [`Self::is_empty`], which install
+    /// code is held to: a session image of the login (issue 8211) carries none of this state, so a thawn session starts
+    /// from a new session's, and any of it left would be lost.
+    pub(crate) fn as_new(&self) -> bool {
+        let Group1Filters {
+            filters,
+            shape,
+            worker_kept_aside,
+            worker_filtered,
+            worker_ended,
+            worker_alone,
+            sharing,
+        } = self;
+        filters.by_table.is_empty()
+            && matches!(shape, Group1InstallShape::Off)
+            && worker_kept_aside.is_empty()
+            && worker_filtered.is_empty()
+            && worker_ended.is_empty()
+            && !worker_alone
+            && !sharing
     }
 
     /// Some table holds a group 1 filter, or had one another record took back, or a worker runs without the test session's
@@ -228,9 +255,18 @@ impl Group1Filters {
 impl Session {
     /// Notes what group 1 of table `table` holds now, from `rec`; `by_record`: a Record variable of AL code set it;
     /// `by_another`: a record that held no group 1 filter took the filter back.
-    fn note_group1(&mut self, table: u32, rec: &Rec, by_record: bool, by_another: bool) {
+    fn note_group1(&mut self, table: u32, rec: &Rec, by_record: bool, by_another: bool, set: Group1Set) {
         let signature = group1_signature(&rec.borrow());
-        if signature.is_empty() && !by_another {
+        let old = self.global_group1.filters.by_table.get(&table);
+        let temporary_not_at_clears = match set {
+            Group1Set::TemporaryNotAtSet => Some((Rc::downgrade(rec), 2)),
+            Group1Set::TemporaryNotAtClear => old
+                .and_then(|e| e.temporary_not_at_clears.as_ref())
+                .filter(|(owner, _)| std::ptr::eq(owner.as_ptr(), Rc::as_ptr(rec)))
+                .and_then(|(owner, left)| (*left > 1).then(|| (owner.clone(), left - 1))),
+            _ => None,
+        };
+        if signature.is_empty() && !by_another && temporary_not_at_clears.is_none() {
             self.global_group1.filters.by_table.remove(&table);
             return;
         }
@@ -253,6 +289,7 @@ impl Session {
             ends: if in_shape { Ends::AwaitsRoutine } else { Ends::Never },
             setter,
             find_set_readers: Vec::new(),
+            temporary_not_at_clears,
         };
         self.global_group1.filters.by_table.insert(table, entry);
     }
@@ -466,6 +503,7 @@ pub(crate) enum Group1Use {
 }
 
 /// How a SetFilter or SetRange in filter group 1 changes the session's entry ([`Session::set_global_group_filter`]).
+#[derive(Clone, Copy)]
 enum Group1Set {
     /// A database record with no entry for its table, or that holds the entry's filters: main's path, P145PageRunView.al.
     Setter,
@@ -473,6 +511,10 @@ enum Group1Set {
     /// filters (FilterGroupOtherVariable.al:197-204 `ClearGroup1In3` at :748, `ClearGroup1In4` at :793; then a fresh
     /// variable reads every row, :762 and :797, and an empty group 1, :763).
     ClearByAnother,
+    /// The temporary Record set `<>@` in the measured sequence (AtSignAloneMethods.al:507).
+    TemporaryNotAtSet,
+    /// One of that sequence's two clears of a stored Code or Text field (`ClearKinds` in the cell).
+    TemporaryNotAtClear,
 }
 
 impl Session {
@@ -495,7 +537,10 @@ impl Session {
         let set = self.group1_set(rec, table, method, args)?;
         let by_record = self.is_al_record_call(method, rec);
         let r = self.record_op(method, rec, args)?;
-        self.note_group1(table, rec, by_record, matches!(set, Group1Set::ClearByAnother));
+        if matches!(set, Group1Set::TemporaryNotAtSet) {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::AtSignAloneDatabaseBlank);
+        }
+        self.note_group1(table, rec, by_record, matches!(set, Group1Set::ClearByAnother), set);
         Ok(r)
     }
 
@@ -507,6 +552,28 @@ impl Session {
             (r.temporary, group1_signature(&r))
         };
         let set_range = method == RecordOp::SetRange;
+        if temporary {
+            // The exact temporary Record path of AtSignAloneMethods.al:507: its `<>@` setter and two stored Code/Text
+            // clears. No other temporary shape enters this path.
+            let entry_empty = match entry {
+                None => true,
+                Some(e) => e.signature.is_empty(),
+            };
+            if entry_empty && own.is_empty() && self.not_at_sign_set(rec, method, args) {
+                return Ok(Group1Set::TemporaryNotAtSet);
+            }
+            if let Some(e) = entry.filter(|e| e.temporary_not_at_clears.is_some()) {
+                if self.temporary_not_at_clear(rec, method, args, e) {
+                    return Ok(Group1Set::TemporaryNotAtClear);
+                }
+                return unsupported(format!(
+                    "{} in filter group 1 (the global group) on a temporary record (how BC scopes it is not pinned)",
+                    method.name()
+                ));
+            }
+        }
+        // Every temporary shape outside the measured `<>@` entry keeps main's path, including the Integer
+        // primary-key sequence and a temporary Record that copied an unmeasured database entry.
         let set = match entry {
             // No entry (or one taken back, by a record that holds no group 1 filter).
             None => (!temporary || set_range && self.integer_value(rec, args)).then_some(Group1Set::Setter),
@@ -545,6 +612,71 @@ impl Session {
             if usize::try_from(*p).ok().and_then(|p| t.fields.get(p)).is_some_and(|f| f.ty == RtType::Integer))
     }
 
+    /// A Record call to SetFilter(Field, '<>@') on a stored Code or Text field: the set of the temporary-record sequence
+    /// AtSignAloneMethods.al:507. A FieldRef or RecordRef call and a FlowField are not that set.
+    fn not_at_sign_set(&self, rec: &Rec, method: RecordOp, args: &[Value]) -> bool {
+        let Ok(t) = self.table(rec) else {
+            return false;
+        };
+        rec.borrow().temporary
+            && self.is_al_record_call(method, rec)
+            && method == RecordOp::SetFilter
+            && matches!(args, [Value::Integer(p), v]
+                if al_builtins::native::text_of(v).as_deref() == Some("<>@")
+                    && usize::try_from(*p).ok().and_then(|p| t.fields.get(p))
+                        .is_some_and(|f| f.stored && matches!(f.ty, RtType::Code(_) | RtType::Text(_))))
+    }
+
+    /// One of the two temporary Record SetRange(Field) calls in AtSignAloneMethods.al:507 `ClearKinds`, on a stored Code or
+    /// Text field and by the Record that set `<>@`. The first may clear the entry or leave the other filter; the second leaves
+    /// group 1 empty. A clear has no assumption mark: the set already marked the sequence.
+    fn temporary_not_at_clear(&self, rec: &Rec, method: RecordOp, args: &[Value], entry: &Entry) -> bool {
+        let field = match args {
+            [Value::Integer(p)] if method == RecordOp::SetRange => usize::try_from(*p).ok(),
+            _ => None,
+        };
+        let Some(field) = field else {
+            return false;
+        };
+        let Ok(t) = self.table(rec) else {
+            return false;
+        };
+        self.is_al_record_call(method, rec)
+            && entry
+                .temporary_not_at_clears
+                .as_ref()
+                .is_some_and(|(owner, _)| std::ptr::eq(owner.as_ptr(), Rc::as_ptr(rec)))
+            && t.fields
+                .get(field)
+                .is_some_and(|f| f.stored && matches!(f.ty, RtType::Code(_) | RtType::Text(_)))
+    }
+
+    /// The one nonempty group-1 entry a temporary Record set for `<>@` (AtSignAloneMethods.al:507), not an entry copied
+    /// from a database record or set through a reference.
+    fn temporary_not_at_entry(&self, rec: &Rec, entry: &Entry) -> bool {
+        if entry.setter != Some(VarKind::TemporaryRecord)
+            || entry.filters.is_empty()
+            || !entry
+                .temporary_not_at_clears
+                .as_ref()
+                .is_some_and(|(owner, _)| std::ptr::eq(owner.as_ptr(), Rc::as_ptr(rec)))
+        {
+            return false;
+        }
+        let Ok(t) = self.table(rec) else {
+            return false;
+        };
+        matches!(
+            &entry.filters[..],
+            [f] if t.fields.get(f.field).is_some_and(|field|
+                field.stored && matches!(field.ty, RtType::Code(_) | RtType::Text(_))
+            ) && matches!(
+                f.expr,
+                FilterExpr::AtSignAlone(true) | FilterExpr::AtSignAloneCode(true)
+            )
+        )
+    }
+
     /// The entry form FilterGroupOtherVariable.al measured: one filter, SetRange of one Integer value on an Integer field
     /// outside the primary key ([`one_integer_outside_key`]).
     fn entry_pinned(&self, rec: &Rec, e: &Entry) -> bool {
@@ -572,7 +704,8 @@ impl Session {
 
     /// What `rec`, of table `table`, reads for the call `op` while group 1 of the table holds an entry. A record that holds
     /// the entry's filters (the setter, or a copy of it such as the record of Page.Run(Page, Rec), P145PageRunView.al:232-235)
-    /// reads its own, on a database table; on a temporary one only Count is measured (FilterGroupOtherVariable.al:825). A
+    /// reads its own, on a database table; on a temporary one Count is measured (FilterGroupOtherVariable.al:825), and FindSet for
+    /// `<>@` alone (AtSignAloneMethods.al:507). A
     /// record that holds no group 1 filter reads the entry's filters as well for the calls [`measured_read`] lists, with the
     /// view every measured reader had ([`reader_view_measured`]), a Next only inside the reader's FindSet loop, a write only
     /// when it runs no code ([`Self::shared_write_runs_no_code`]), and the entry in the measured form
@@ -600,10 +733,24 @@ impl Session {
             )
         };
         let taken_back = entry.signature.is_empty();
+        // The one measured temporary Record owns Count and FindSet while its `<>@` entry is alive. A copy or any
+        // other temporary read of that entry refuses instead of entering main's wider rules.
+        if temporary && entry.temporary_not_at_clears.is_some() {
+            let own_measured_read = own == entry.signature
+                && self.temporary_not_at_entry(rec, entry)
+                && matches!(op, Group1Op::Record(RecordOp::Count | RecordOp::FindSet));
+            if own_measured_read {
+                return Ok(Group1Use::Own);
+            }
+            return self.group1_refusal(taken_back, op);
+        }
         if taken_back && own.is_empty() {
             return Ok(Group1Use::Own);
         }
-        if !taken_back && own == entry.signature && (!temporary || matches!(op, Group1Op::Record(RecordOp::Count))) {
+        // A temporary record outside the measured `<>@` entry keeps main's Count-only own-read path
+        // (FilterGroupOtherVariable.al:825).
+        let own_read = !temporary || matches!(op, Group1Op::Record(RecordOp::Count));
+        if !taken_back && own == entry.signature && own_read {
             return Ok(Group1Use::Own);
         }
         let reader = VarKind::of(matches!(op, Group1Op::Record(_)), temporary);

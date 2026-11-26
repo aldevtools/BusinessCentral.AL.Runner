@@ -38,7 +38,7 @@ mod state;
 pub(crate) use state::*;
 mod baseline;
 mod sequence_start;
-pub use sequence_start::{DataAccess, SequenceStart};
+pub use sequence_start::{CommitBy, DataAccess, Interval, Reached, RefLoads, SequenceStart, TxPoint, TxPointKind};
 mod storage_checkpoint;
 pub use storage_checkpoint::{StorageCheckpoint, Unkept};
 mod capture;
@@ -110,6 +110,10 @@ pub mod impact;
 pub mod install_footprint;
 mod install_footprint_row_version;
 mod install_left;
+mod login_image;
+pub use login_image::{
+    BaseShape, ImageSize, KindSize, LoginBase, LoginImage, NODE_KINDS, NotImaged, NotThawed, PortableBase,
+};
 mod interfaces;
 mod isdirty;
 mod license_ceiling;
@@ -149,6 +153,7 @@ mod refs;
 mod relations;
 mod rename;
 mod rename_blank_key;
+mod rename_short_field;
 mod report_handler_unshown;
 mod report_layout_export;
 mod report_layout_streams;
@@ -194,6 +199,7 @@ mod user_password;
 mod usertable;
 mod var_option;
 mod variant_copy;
+mod version_entry;
 mod view_empty;
 mod view_unknown;
 mod views;
@@ -201,7 +207,7 @@ mod views_cross_enum;
 mod xmlports;
 mod xrec_blobs;
 pub use install_left::InstallLeft;
-pub use resource_reads::{ReadTexts, ResourceReads};
+pub use resource_reads::{ResourceReads, TextsRead};
 pub use transactions::TxModel;
 pub use ui::{UiHandler, UiKind};
 
@@ -378,6 +384,8 @@ pub(crate) struct RoutineFacts {
     /// A `var` Option parameter declared with members, of a routine that is no publisher: a call hands it whether its argument
     /// is a variable the probes measure handing on to a publisher (`var_option::option_hops_of`, `Frame::option_hops`).
     pub option_hops: bool,
+    /// A `var` Option parameter declared without members (`var_option::option_carried_of`, `Frame::option_carried`).
+    pub option_carries: bool,
     /// A `var` Codeunit parameter, of a routine that is no publisher (`Frame::var_codeunits`).
     pub var_codeunits: bool,
 }
@@ -406,12 +414,8 @@ fn routine_facts(r: &ir::Routine, publisher: bool) -> RoutineFacts {
     f.var_lens = r.reads_var_max_len && !publisher;
     f.var_codeunits = !publisher
         && (r.locals.iter().zip(&r.by_var).take(r.params)).any(|(l, v)| *v && matches!(l.ty, RtType::Codeunit(_)));
-    f.option_hops = !publisher
-        && r.locals
-            .iter()
-            .zip(&r.by_var)
-            .take(r.params)
-            .any(|(l, v)| *v && matches!(&l.ty, RtType::Option(m) if !al_builtins::option_members::memberless(m)));
+    f.option_hops = !publisher && crate::var_option::has_var_option_param(r, false);
+    f.option_carries = crate::var_option::has_var_option_param(r, true);
     f
 }
 
@@ -1024,6 +1028,8 @@ pub struct Session {
     /// last: the record's handle, the depth of `call_stack` inside the procedure and its blank xRec. A Validate of that
     /// record in the procedure's own body passes this xRec (`RecordOp::Validate`).
     pub(crate) plain_proc_xrec: Vec<(usize, usize, crate::records::Rec)>,
+    /// How many table extension insert or delete triggers run now (`Session::run_ext_trigger_unmeasured_xrec`).
+    pub(crate) ext_xrec_triggers: u32,
     /// The xRecs of the table procedures that run on a record with an xRec they share with their caller or a running call
     /// (`ProcXrec::Shared` and `ProcXrec::SharedReadOnly`), innermost last.
     pub(crate) shared_proc_xrec: Vec<crate::records::Rec>,
@@ -1470,6 +1476,7 @@ impl Session {
             validate_site: None,
             validate_sites: Vec::new(),
             plain_proc_xrec: Vec::new(),
+            ext_xrec_triggers: 0,
             shared_proc_xrec: Vec::new(),
             iface_frames: Vec::new(),
             cx: al_data::AccessContext {
@@ -1666,6 +1673,7 @@ impl Session {
         self.note_rollback_for_stale_rule();
         al_data::Store::rollback(&mut self.store);
         self.rollbacks += 1;
+        self.note_tx_end(false);
         self.crm_rolled_back();
         self.sql.rolled_back();
         let runner_tx = self.tx.open.runner_tx;
@@ -1709,52 +1717,8 @@ impl Session {
             RtType::Record(table, temporary) => {
                 // A table declared `TableType = Temporary` is temporary for every variable
                 // (corpus record 60198 TempOnly_IsTemporary_AlwaysTrue).
-                let temporary = &(*temporary || self.engine.object_facts[*table as usize].temporary());
-                let temp_id = temporary.then(|| self.new_temp_id());
-                Value::Record(Rc::new(RefCell::new(RecordState {
-                    table: *table,
-                    temporary: *temporary,
-                    temp_id,
-                    company: None,
-                    change_company_called: false,
-                    crm: self.engine.object_facts[*table as usize].crm(),
-                    fields: self.initial_fields(*table as usize),
-                    filters: Vec::new(),
-                    decimal_cut_filters: Vec::new(),
-                    filter_group: 0,
-                    marks: Vec::new(),
-                    marked_only: false,
-                    read_isolation: 0,
-                    // A record in a test run is Validated (corpus record/TestSecurityFilteringContracts.al:161-175).
-                    security_filtering: 0,
-                    declared_security_filtering: 0,
-                    declared_security_filtering_unpinned: false,
-                    security_filtering_unpinned: false,
-                    security_filtering_array: false,
-                    key: 0,
-                    adhoc: None,
-                    ascending: true,
-                    field_descending: 0,
-                    position: None,
-                    auto_calc: Vec::new(),
-                    load: Default::default(),
-                    touched: false,
-                    assigned: false,
-                    inserted: false,
-                    dirty_base: None,
-                    is_dirty_base: al_builtins::value::DirtyBase::Fresh,
-                    last_modify: None,
-                    failed_insert: None,
-                    row_origin: None,
-                    own_read: Default::default(),
-                    rolled_read: Default::default(),
-                    probed_source: Default::default(),
-                    globals: Default::default(),
-                    unpinned_buffer: None,
-                    view_assumption: None,
-                    auto_calc_dropped: false,
-                    run_page_link: None,
-                })))
+                let temporary = *temporary || self.engine.object_facts[*table as usize].temporary();
+                Value::Record(Rc::new(RefCell::new(self.fresh_record(*table, temporary))))
             }
             // Each element of an array is a variable of its own: an array of records holds records, not
             // nulls (Tests-ERM "Discount Setup Notifications": `A: array[2] of Record "General Posting Setup"`).
@@ -2501,7 +2465,8 @@ impl Session {
         let r = &engine.program.objects[object].routines[routine];
         // The bytecode, if the mode asks for it. Whether a capture watches the routine is only known once its frame is
         // entered (`cap_enter_frame`); a capture watches the captured form of the bytecode.
-        let chunk = engine.exec.chunk(&engine.program, object, routine);
+        let carried_kept = std::mem::take(&mut self.events.next_carried_kept);
+        let chunk = engine.exec.frame_chunk(&engine.program, object, routine, &carried_kept);
         let mut locals = self.spare_vec(r.locals.len() + chunk.map_or(0, |c| usize::from(c.temps)));
         let passed = args.len().min(r.params);
         for (i, s) in r.locals.iter().enumerate() {
@@ -2646,26 +2611,24 @@ impl Session {
                 // is passed on by value as it is: a routine that never reads it runs, a read is refused where it happens.
                 (a @ Value::Unknown(_), false) => a,
                 // A `var` Option parameter with another member list than the value (`var_option`).
+                (a, true) if carried_kept.get(i) == Some(&true) => a,
                 (a, true) if let Some(v) = crate::var_option::var_binding(&a, &r.locals[i].ty, subscriber) => v?,
                 (a, _) => ops::convert_plain(a, &r.locals[i].ty)?,
             };
             locals[i] = self.bind_blobs(argument, bound)?;
         }
         self.return_vec(args);
-        let var_lens = if facts.var_lens {
-            std::mem::take(&mut self.events.next_var_lens)
-        } else {
-            Vec::new()
-        };
-        let option_hops = self.take_option_hops(facts.option_hops);
+        let (option_hops, hand_on_origins, option_carried) = self.take_option_marks(&facts);
         let mut frame = Frame {
             object,
             routine,
             instance,
             locals,
             aliases,
-            var_lens,
+            var_lens: self.take_var_lens(facts.var_lens),
             option_hops,
+            hand_on_origins,
+            option_carried,
             var_codeunits: self.take_var_codeunits(facts.var_codeunits),
         };
         let is_try = facts.is_try;
@@ -2922,6 +2885,10 @@ struct Frame {
     /// Per parameter: the caller handed this `var` Option parameter with members a variable the probes measure handing on
     /// to an event publisher with a memberless subscriber (set by `finish_call`, `var_option::option_hops_of`).
     option_hops: Vec<bool>,
+    /// Per parameter: bound to a value the probe measures handing on to a memberless one (`carried::hand_on_origins_of`).
+    hand_on_origins: Vec<bool>,
+    /// Per parameter: a memberless `var` Option parameter's origin (`var_option::option_carried_of`, `raise_to_subscribers`).
+    option_carried: Vec<crate::var_option::Carried>,
     /// Per parameter: what a `var` Codeunit parameter got from its caller (set by `finish_call`, `clear_shared_codeunit`).
     var_codeunits: Vec<Option<clear_shared_codeunit::VarCodeunit>>,
 }

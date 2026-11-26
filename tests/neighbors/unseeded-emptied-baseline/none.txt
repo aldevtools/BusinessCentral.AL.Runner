@@ -1,0 +1,1 @@
+main reaches a baseline read back from its bytes or from the cache only by thread or cache chance; the install shapes are pinned by al-vm tests/store/unseeded_install_delete_all.rs (captured, read back, thawed)

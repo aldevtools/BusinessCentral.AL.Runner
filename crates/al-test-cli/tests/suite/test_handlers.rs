@@ -594,6 +594,7 @@ fn hits_of(objects: &str, codeunit: &str) -> Vec<(String, Vec<al_testrun::assump
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     assert!(out.iter().all(|(_, o)| *o == Outcome::Pass), "{out:?}");
     out.into_iter()

@@ -82,7 +82,10 @@ fn record_arg(v: Option<&Value>) -> Result<Rec, Signal> {
     match v {
         Some(Value::Record(r)) => Ok(r.clone()),
         Some(Value::Library(_, l)) => match &*l.borrow() {
-            LibraryValue::RecordRef(r) => Ok(r.clone()),
+            LibraryValue::RecordRef(r) => {
+                crate::Session::by_value_view_handed(r, || "GetUrl with a RecordRef".into())?;
+                Ok(r.clone())
+            }
             // PGetUrl.al:P109_GetUrl_Overload3_ClosedRecordRef
             _ => Err(crate::unopened_refs::record_not_open()),
         },

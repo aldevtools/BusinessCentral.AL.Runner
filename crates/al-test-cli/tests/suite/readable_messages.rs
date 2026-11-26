@@ -304,6 +304,236 @@ const KEPT: &[(&str, &str, &str)] = &[
         r#""PageState(page {}, open {}, mode {:?})","#,
         "the Debug impl of PageState prints facts only; `mode` is a unit enum",
     ),
+    (
+        "al-sema/src/lower/stored.rs",
+        r#"let _ = writeln!(out, "tdd_stubs {tdd_stubs:?}");"#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-sema/src/lower/stored.rs",
+        r#"let _ = writeln!(out, "assumes {assumes:?}");"#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-sema/src/lower/stored.rs",
+        r#""lowered {o} dependency {} provided {} pos {:?} skipped {:?} left_out {:?} hash {:?}","#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-sema/src/lower/stored.rs",
+        r#"let _ = writeln!(out, "  unsupported {:?}", unsupported.get(o));"#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-sema/src/lower/stored.rs",
+        r#"let _ = writeln!(out, "  refusal_at {:?}", refusal_at.get(o));"#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-sema/src/lower/stored.rs",
+        r#"let _ = writeln!(out, "  unresolved_calls {:?}", unresolved_calls.get(o));"#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-sema/src/lower/stored.rs",
+        r#"let _ = writeln!(out, "  calls {:?}", calls.of(o));"#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-sema/src/lower/stored.rs",
+        r#"let _ = writeln!(out, "  calls_into {driven_calls:?}");"#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-sema/src/lower/stored.rs",
+        r#"let _ = writeln!(out, "  direct_and_driven {split:?}");"#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-sema/src/lower/stored.rs",
+        r#"let _ = writeln!(out, "driven {:?}", driven.as_ref().map(StoredDriven::of));"#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-sema/src/lower/stored.rs",
+        r#"let _ = writeln!(out, "drivers {drivers:?}");"#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-sema/src/lower/stored.rs",
+        r#"let _ = writeln!(out, "al_diagnostic {d:?}");"#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-sema/src/lower/stored.rs",
+        r#"let _ = writeln!(out, "checker_diag {d:?}");"#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-sema/src/lower/stored.rs",
+        r#"let _ = writeln!(out, "tdd_sites {tdd_sites:?}");"#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-sema/src/lower/stored.rs",
+        r#"let _ = writeln!(out, "tdd_needs {tdd_needs:?}");"#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-sema/src/workspace/dump.rs",
+        r#"format!("{v:?}")"#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-sema/src/workspace/dump.rs",
+        r#"let _ = writeln!(out, "app {i} {id} {name} {dependencies:?} {:?} {paths:?}", kinds[i]);"#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-sema/src/workspace/dump.rs",
+        r#"let _ = writeln!(out, "app {i} visible {:?} symbols {:?}", visible[i], symbols[i]);"#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-sema/src/workspace/dump.rs",
+        r#""file {fi} {path} app {app} at {file_in_app} lazy {lazy} page {has_page} ns {namespace:?} usings {usings:?} synthetic {synthetic:?} problem {problem:?}""#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-sema/src/workspace/dump.rs",
+        r#"let _ = writeln!(out, "object {oi} {o:?} ext_target {:?}", ext_target.get(oi));"#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-sema/src/workspace/dump.rs",
+        r#"let _ = writeln!(out, "dotnet {} {} {:?}", d.app, d.file, d.decl);"#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-sema/src/workspace/dump.rs",
+        r#"let _ = writeln!(out, "diagnostic {d:?}");"#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-sema/src/workspace/dump.rs",
+        r#"let _ = writeln!(out, "compiled {:?}", compiled.get());"#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-sema/src/workspace/dump.rs",
+        r#"let _ = writeln!(out, "unreached {unreached:?}");"#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-sema/src/workspace/dump.rs",
+        r#""user_name_fields {user_name_fields} internals_granted {internals_granted:?}""#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-testrun/src/runtime/workspace_layer.rs",
+        r#"let suites: Vec<String> = i.suites.iter().map(|s| format!("{s:?}")).collect();"#,
+        "a text of the workspace layer's key, hashed, never shown",
+    ),
+    (
+        "al-testrun/src/runtime/workspace_layer.rs",
+        r#"target: format!("{:?}", i.target),"#,
+        "a text of the workspace layer's key, hashed, never shown",
+    ),
+    (
+        "al-testrun/src/runtime/workspace_layer.rs",
+        r#""try_skip {} weighed {weighed} lean {} baseline_wanted {} n_cached {} suites {suites:?}","#,
+        "a text of the workspace layer's key, hashed, never shown",
+    ),
+    (
+        "al-testrun/src/workspace_cache.rs",
+        r#"put(&mut a, format!("{dependencies:?}").as_bytes());"#,
+        "a text of the workspace layer's key, hashed, never shown",
+    ),
+    (
+        "al-testrun/src/workspace_cache.rs",
+        r#"put(&mut a, format!("{kind:?}").as_bytes());"#,
+        "a text of the workspace layer's key, hashed, never shown",
+    ),
+    (
+        "al-testrun/src/workspace_cache.rs",
+        r#"("symbols", format!("{symbols:?}").into_bytes()),"#,
+        "a text of the workspace layer's key, hashed, never shown",
+    ),
+    (
+        "al-testrun/src/workspace_cache.rs",
+        r#"("env", format!("{env:?}").into_bytes()),"#,
+        "a text of the workspace layer's key, hashed, never shown",
+    ),
+    (
+        "al-testrun/src/workspace_cache.rs",
+        r#"("granted", format!("{granted:?}").into_bytes()),"#,
+        "a text of the workspace layer's key, hashed, never shown",
+    ),
+    (
+        "al-testrun/src/workspace_cache.rs",
+        r#""baseline {baseline} company_data {company_data:?} company_methods {company_methods:?} only_tests {only_tests:?} \"#,
+        "a text of the workspace layer's key, hashed, never shown",
+    ),
+    (
+        "al-testrun/src/workspace_cache.rs",
+        r#"reach_only {reach_only} lean {lean} no_login_root {no_login_root} eager {eager} provided {provided:?} \"#,
+        "a text of the workspace layer's key, hashed, never shown",
+    ),
+    (
+        "al-testrun/src/workspace_cache.rs",
+        r#"provided_queries {provided_queries:?} only_objects {only_objects:?} skipped_before {skipped_before:?} tdd {tdd} \"#,
+        "a text of the workspace layer's key, hashed, never shown",
+    ),
+    (
+        "al-testrun/src/workspace_cache.rs",
+        r#"tdd_id_ranges {tdd_id_ranges:?} object_hashes {object_hashes} app_contexts {app_contexts:?} \"#,
+        "a text of the workspace layer's key, hashed, never shown",
+    ),
+    (
+        "al-testrun/src/workspace_cache.rs",
+        r#"keep_demand {keep_demand} test_runners {test_runners:?} \"#,
+        "a text of the workspace layer's key, hashed, never shown",
+    ),
+    (
+        "al-testrun/src/workspace_cache.rs",
+        r#"company_install_events {company_install_events}""#,
+        "a text of the workspace layer's key, hashed, never shown",
+    ),
+    (
+        "al-testrun/src/workspace_cache.rs",
+        r#"put(&mut h, format!("{summary:?}").as_bytes());"#,
+        "a text of the workspace layer's key, hashed, never shown",
+    ),
+    (
+        "al-testrun/src/workspace_cache.rs",
+        r#""compiled baseline_wanted {baseline_wanted} baseline {baseline} note {baseline_note:?} order {order:?} \"#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-testrun/src/workspace_cache.rs",
+        r#"suites {suites:?} only {opts_only:?} skipped {compile_cache_skipped} source_index {source_index:?} lean {lean:?} \"#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-testrun/src/workspace_cache.rs",
+        r#"grow_kept {} uncovered {uncovered:?}","#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "al-testrun/src/workspace_cache.rs",
+        r#""incr {:?}","#,
+        "a line of the canonical dump of a compile (the workspace layer's equality oracle), compared, never shown",
+    ),
+    (
+        "alrunner-cli/src/workspace_layer.rs",
+        r#"wc::warm_key(&apps, deps, symbols, &format!("{target:?}"), compile_options)"#,
+        "a text of the workspace layer's key, hashed, never shown",
+    ),
+    (
+        "alrunner-cli/src/workspace_layer.rs",
+        r#""id {:?} name {:?} publisher {:?} version {:?} platform {:?} application {:?} symbols {:?}","#,
+        "the app.json facts in the key of a kept compile and of the workspace layer, hashed, never shown",
+    ),
 ];
 
 fn root() -> PathBuf {

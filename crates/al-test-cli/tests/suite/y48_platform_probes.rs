@@ -63,6 +63,7 @@ pub(crate) fn outcomes_with_hits_app(
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     o.into_iter()
         .map(|(name, outcome)| {

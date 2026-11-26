@@ -14,8 +14,9 @@
 //! `refuse_unmeasured_sequence`, `clear_unmeasured`, `mark_numbers_unmeasured`.
 
 use crate::{Session, sessionops};
+use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::native::{Signal, unsupported};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::rc::Rc;
 
 type Key = (String, String);
@@ -43,8 +44,11 @@ pub struct Unkept {
 pub(crate) struct Unmeasured {
     isolated: HashMap<Key, String>,
     sequences: HashMap<Key, String>,
-    /// Number sequences whose state after a failed test runs on an assumption (`assume_sequences_after_failure`).
-    assumed: std::collections::HashSet<Key>,
+    /// Number sequences whose state runs on an assumption, with each assumption (`assume_sequence`): after a failed test
+    /// (`SequenceAfterFailedTest`) or after an asserterror (`ExistingSequenceAsserterror`, `sequence_start/tx_changes.rs`).
+    assumed: HashMap<Key, BTreeSet<Assumption>>,
+    /// Number sequences refused until the running test body ends (`refuse_sequence_in_body`).
+    in_body: HashMap<Key, String>,
 }
 
 impl Unmeasured {
@@ -55,8 +59,9 @@ impl Unmeasured {
             isolated,
             sequences,
             assumed,
+            in_body,
         } = self;
-        isolated.is_empty() && sequences.is_empty() && assumed.is_empty()
+        isolated.is_empty() && sequences.is_empty() && assumed.is_empty() && in_body.is_empty()
     }
 }
 
@@ -113,17 +118,48 @@ impl Session {
         self.unmeasured.sequences.insert(loose(&key.0, &key.1), reason);
     }
 
+    /// Refuses every call on the sequence `key` until the running test body ends ([`Session::end_body_refusals`]).
+    pub(crate) fn refuse_sequence_in_body(&mut self, key: &Key, reason: String) {
+        self.unmeasured.in_body.insert(loose(&key.0, &key.1), reason);
+    }
+
+    /// A test body began or ended: the refusals of [`Session::refuse_sequence_in_body`] end.
+    pub(crate) fn end_body_refusals(&mut self) {
+        self.unmeasured.in_body.clear();
+    }
+
     /// What a failed test of the running codeunit left of number sequences `keys` (company, name) runs on assumption
     /// `SequenceAfterFailedTest` (al-testrun `isolation::after_test`): every later NumberSequence call of the codeunit on
     /// one of them passes through it.
     pub fn assume_sequences_after_failure(&mut self, keys: &[Key]) {
-        self.unmeasured.assumed.extend(keys.iter().map(|k| loose(&k.0, &k.1)));
+        for key in keys {
+            self.assume_sequence(key, Assumption::SequenceAfterFailedTest);
+        }
+    }
+
+    /// Every later NumberSequence call of the running codeunit on number sequence `key` (company, name) passes through
+    /// assumption `a`.
+    pub(crate) fn assume_sequence(&mut self, key: &Key, a: Assumption) {
+        self.unmeasured
+            .assumed
+            .entry(loose(&key.0, &key.1))
+            .or_default()
+            .insert(a);
     }
 
     /// Whether an earlier failed test of the running codeunit left number sequence `key` (company, name) on that
     /// assumption ([`Session::assume_sequences_after_failure`]).
     pub fn sequence_left_by_failure(&self, key: &Key) -> bool {
-        self.unmeasured.assumed.contains(&loose(&key.0, &key.1))
+        (self.unmeasured.assumed.get(&loose(&key.0, &key.1)))
+            .is_some_and(|a| a.contains(&Assumption::SequenceAfterFailedTest))
+    }
+
+    /// No refusal and no assumption is on number sequence `key` (company, name) for the running codeunit.
+    pub(crate) fn sequence_unmarked(&self, key: &Key) -> bool {
+        let key = loose(&key.0, &key.1);
+        self.numbers_unmeasured.is_none()
+            && !self.unmeasured.sequences.contains_key(&key)
+            && !self.unmeasured.assumed.contains_key(&key)
     }
 
     /// The running codeunit's tests ended: the refusals of `refuse_unmeasured_key` and `refuse_unmeasured_sequence`, and
@@ -153,11 +189,16 @@ impl Session {
             return unsupported(reason.to_string());
         }
         let key = loose(&key.0, &key.1);
-        if let Some(reason) = self.unmeasured.sequences.get(&key) {
+        if let Some(reason) = self
+            .unmeasured
+            .sequences
+            .get(&key)
+            .or(self.unmeasured.in_body.get(&key))
+        {
             return unsupported(reason.clone());
         }
-        if self.unmeasured.assumed.contains(&key) {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::SequenceAfterFailedTest);
+        for a in self.unmeasured.assumed.get(&key).into_iter().flatten() {
+            assume(*a);
         }
         Ok(())
     }

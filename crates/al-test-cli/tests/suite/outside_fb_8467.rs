@@ -41,6 +41,7 @@ fn outcomes_on(src: &str, codeunit: &str, bc: Option<&str>) -> Outcomes {
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     assert!(!outcomes.is_empty());
     outcomes

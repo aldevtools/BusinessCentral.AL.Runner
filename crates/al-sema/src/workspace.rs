@@ -17,8 +17,13 @@ use rayon::prelude::*;
 use std::collections::BTreeSet;
 use std::sync::OnceLock;
 
+mod dump;
 mod moved_tables;
+pub(crate) mod stored;
 mod subscriber_publisher;
+
+use stored::GivenFile;
+pub use stored::{StoredFile, StoredWorkspace};
 
 /// Which tiers of a bare name's search `Workspace::resolve_in_scope` takes.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -383,8 +388,25 @@ impl Workspace {
         }
         let loaders: Vec<Option<std::sync::Arc<dyn SourceLoader>>> =
             lazy.iter().map(|l| l.as_ref().map(|l| l.loader.clone())).collect();
-        let indexes: Vec<Option<std::vec::IntoIter<FileIndex>>> =
-            lazy.into_iter().map(|l| l.map(|l| l.index.into_iter())).collect();
+        let indexes: Vec<Option<Vec<GivenFile>>> = lazy
+            .into_iter()
+            .map(|l| l.map(|l| l.index.into_iter().map(GivenFile::scanned).collect()))
+            .collect();
+        Workspace::load_given(apps, kinds, symbols, symbols_of, loaders, indexes, None)
+    }
+
+    /// The load of [`load_apps_symbols`](Self::load_apps_symbols), with the files of some apps given (`indexes`, by app)
+    /// and, with `diagnostics`, the references not resolved again (`stored.rs`).
+    fn load_given(
+        apps: Vec<AppSource>,
+        kinds: Vec<AppKind>,
+        symbols: &BTreeSet<String>,
+        symbols_of: Vec<BTreeSet<String>>,
+        loaders: Vec<Option<std::sync::Arc<dyn SourceLoader>>>,
+        indexes: Vec<Option<Vec<GivenFile>>>,
+        diagnostics: Option<Vec<Diagnostic>>,
+    ) -> Workspace {
+        let indexes = indexes.into_iter().map(|l| l.map(Vec::into_iter)).collect();
         let mut ws = Workspace {
             kinds,
             visible: Vec::new(),
@@ -415,7 +437,7 @@ impl Workspace {
         };
         let all: Vec<&AppSource> = apps.iter().collect();
         ws.visible = (0..apps.len()).map(|i| visible_from(&all, i)).collect();
-        ws.ingest(apps, indexes);
+        ws.ingest(apps, indexes, diagnostics);
         ws
     }
 
@@ -475,7 +497,7 @@ impl Workspace {
         self.loaders.extend((0..apps.len()).map(|_| None));
         self.compiled = OnceLock::new();
         self.unreached = OnceLock::new();
-        self.ingest(apps, (0..self.kinds.len()).map(|_| None).collect());
+        self.ingest(apps, (0..self.kinds.len()).map(|_| None).collect(), None);
         Ok(())
     }
 
@@ -541,8 +563,15 @@ impl Workspace {
     }
 
     /// Reads `apps`, which come after `self.apps` (their kinds, symbols, loaders and visibility are set), and
-    /// indexes their objects. `indexes` holds, per app of the whole workspace, the scan a lazy app comes with.
-    fn ingest(&mut self, apps: Vec<AppSource>, mut indexes: Vec<Option<std::vec::IntoIter<FileIndex>>>) {
+    /// indexes their objects. `indexes` holds, per app of the whole workspace, the scan a lazy app comes with, or what
+    /// the parse of a workspace app's files found when a stored compile gives them (`stored.rs`). With `diagnostics` (a
+    /// stored compile's), the references are not resolved again, which would parse the files: those are the diagnostics.
+    fn ingest(
+        &mut self,
+        apps: Vec<AppSource>,
+        mut indexes: Vec<Option<std::vec::IntoIter<GivenFile>>>,
+        diagnostics: Option<Vec<Diagnostic>>,
+    ) {
         let first_app = self.apps.len();
         let first_object = self.objects.len();
         let first_file = self.files.len();
@@ -565,20 +594,21 @@ impl Workspace {
             })
             .collect();
         ws.loaded_files += inputs.len();
-        // The files of a lazy app come with their scan.
-        let given: Vec<Option<ParsedFile>> = inputs
+        // The files of a lazy app come with their scan, those of a stored compile's workspace app with their parse's.
+        let given: Vec<Option<(ParsedFile, Vec<ByteRange>)>> = inputs
             .iter()
             .map(|&(ai, ..)| {
                 indexes[ai].as_mut().map(|it| {
-                    let f = it.next().expect("one index entry per file");
-                    ParsedFile {
+                    let GivenFile { index: f, synthetic } = it.next().expect("one index entry per file");
+                    let file = ParsedFile {
                         green: None,
                         errors: Vec::new(),
                         namespace: f.namespace,
                         usings: f.usings,
                         objects: f.objects,
                         dotnet: f.dotnet,
-                    }
+                    };
+                    (file, synthetic)
                 })
             })
             .collect();
@@ -587,8 +617,8 @@ impl Workspace {
             .zip(given.into_par_iter())
             .map(|(&(ai, _, lazy, _, src), given)| {
                 crate::halt::check(); // A hard memory limit stops the compile here (`halt.rs`).
-                if let Some(file) = given {
-                    return (file, Vec::new());
+                if let Some(given) = given {
+                    return given;
                 }
                 let symbols = &symbols_of[ai];
                 if lazy {
@@ -670,6 +700,10 @@ impl Workspace {
         ws.usable_cache
             .extend((first_object..ws.objects.len()).map(|_| OnceLock::new()));
         ws.index_extensions_and_subscribers(first_object);
+        if let Some(stored) = diagnostics {
+            ws.diagnostics = stored;
+            return;
+        }
         ws.resolve_references(first_object);
         let mut diagnostics = std::mem::take(&mut ws.diagnostics);
         ws.file_order().sort(&mut diagnostics);
@@ -1025,10 +1059,7 @@ impl Workspace {
             .get_or_init(|| {
                 let (kept, flake) = settle(self.parse_lazy(fi, f, false), || self.parse_lazy(fi, f, true));
                 if let Some(note) = flake {
-                    self.flakes
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .push(format!("{}: {note}", f.path));
+                    self.note_parse_flake(format!("{}: {note}", f.path));
                 }
                 let (green, synthetic) = kept.green;
                 let _ = f.synthetic.set(synthetic);
@@ -1072,6 +1103,10 @@ impl Workspace {
             green: (parsed.green.expect("a parsed file has a tree"), synthetic),
             problem,
         }
+    }
+    /// Records a file whose second parse did not give the result of the first ([`Workspace::parse_flakes`]).
+    pub fn note_parse_flake(&self, note: String) {
+        self.flakes.lock().unwrap_or_else(|e| e.into_inner()).push(note);
     }
 
     /// Files whose second parse did not give the result of the first (a defect: a parse is a function of

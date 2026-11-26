@@ -72,6 +72,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `format.rs`: The cache entry file: header, dictionary. Entry: `build`.
 - `index.rs`: The index entry: the scan of the dependency sources. Entry: `build_index`.
 - `key.rs`: The key of an entry: every input of the compile… Entry: `Key`.
+- `workspace.rs`: The workspace layer file. Entry: `build_workspace`, `open_workspace`.
 - `lib.rs`: Crate root of the compile cache format (ADR-022).
 
 ### al-builtins
@@ -91,6 +92,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `features.rs`: `catalog/alc-features.txt` (what the AL compiler… Entry: `feature`.
 - `evaluate.rs`: `Evaluate(var Variable, String [, Number])`. Entry: `evaluate`.
 - `evaluate/short_us_date.rs`: `Evaluate` into a Date or DateTime local or parameter. Entry: `measured`.
+- `evaluate/option_blank.rs`: `Evaluate` of a blank text into an Option field with an OptionCaption: which member it names. Entry: `blank_text`.
 - `file.rs`: The `File` data type, on the host file system capability. Entry: `FileState`.
 - `filter.rs`: Record filters as data. Entry: `FilterExpr`.
 - `filter_at_sign.rs`: `@` alone and `<>@` alone answer as BC reads the rows. Entry: `AtSignRows`.
@@ -150,7 +152,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `contract.rs`: The conformance suite every `Store` must pass. Entry: `table`.
 - `lib.rs`: The Store trait and table definitions. Entry: `Store`.
 - `memory.rs`: In-memory store on persistent maps. Entry: `MemStore`.
-- `memory/` (7 files): In-memory store on persistent maps. Entry: `MemStore`. Files: `key.rs`, `held_cols.rs`, `alt_cache.rs`, `band.rs`, `footprint.rs`, `order_carry.rs`, `source_stamps.rs`
+- `memory/` (9 files): In-memory store on persistent maps. Entry: `MemStore`. Files: `key.rs`, `held_cols.rs`, `alt_cache.rs`, `band.rs`, `export.rs`, `footprint.rs`, `order_carry.rs`, `source_stamps.rs`, `shape.rs`
 
 ### al-deps
 
@@ -209,7 +211,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `calcformula.rs`: The `CalcFormula` property of a FlowField, as syntax. Entry: `Formula`.
 - `check/` (14 files): Resolves names, member access and calls. Entry: `check_with`. Files: `mod.rs`, `tdd.rs`, `tdd_decl.rs`, `posmap.rs`, `object.rs`, `infer.rs`, `calls.rs`, `member.rs`, `protected_member.rs`, `fit.rs`, `conv.rs`, `field_enum.rs`, `diag_index.rs`, `demand.rs`
 - `lib.rs`: Crate root of the semantic model.
-- `lower/` (23 files): Lowers resolved syntax to the typed IR (ADR-011). Entry: `Lowered`. Files: `mod.rs`, `assemble.rs`, `ext_order.rs`, `ext_request_page.rs`, `localize.rs`, `routine_lists.rs`, `shared.rs`, `tables.rs`, `table_no_rec.rs`, `pages.rs`, `page_client_expr.rs`, `convert.rs`, `copy_array.rs`, `conv_matrix.rs`, `stmt.rs`, `expr.rs`, `dotnet.rs`, `with_events.rs`, `call.rs`, `evaluate_id.rs`, `var_option_arg.rs`, `compile.rs`, `extend.rs`
+- `lower/` (24 files): Lowers resolved syntax to the typed IR (ADR-011). Entry: `Lowered`. Files: `mod.rs`, `assemble.rs`, `ext_order.rs`, `ext_request_page.rs`, `localize.rs`, `routine_lists.rs`, `shared.rs`, `tables.rs`, `table_no_rec.rs`, `pages.rs`, `page_client_expr.rs`, `convert.rs`, `copy_array.rs`, `conv_matrix.rs`, `stmt.rs`, `expr.rs`, `dotnet.rs`, `with_events.rs`, `call.rs`, `evaluate_id.rs`, `var_option_arg.rs`, `compile.rs`, `extend.rs`, `stored.rs`
 - `members.rs`: Members of objects: table fields, enum values. Entry: `MemberTable`.
 - `provided.rs`: Dependency objects whose lowered form comes… Entry: `DepSet`.
 - `own_named_page_methods.rs`: A page method named like one of the page's own… Entry: `save_record_names_platform`.
@@ -221,6 +223,8 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `workspace.rs`: A set of apps: parse every file. Entry: `Workspace`.
 - `workspace/moved_tables.rs`: A workspace table kept as the… Entry: `moved_table_of_dependency`.
 - `workspace/subscriber_publisher.rs`: The object an `[EventSubscriber]` names… Entry: `subscriber_publisher`.
+- `workspace/stored.rs`: A stored compile's workspace. Entry: `Workspace::stored`.
+- `workspace/dump.rs`: The workspace layer's equality dump. Entry: `canonical_dump`.
 - `xmlports.rs`: XmlPort objects (Format = Xml). Entry: `RawNode`.
 
 ### al-syntax
@@ -261,6 +265,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `runner.rs`: The seam between the harness and the runtime. Entry: `Runner`.
 - `select.rs`: Test selection: --codeunit, --test, --area, --file. Entry: `Selection`.
 - `strict_order.rs`: The corpus order probes…
+- `workspace_leg.rs`: The workspace layer's outcomes leg. Entry: `say`.
 
 ### al-testrun
 
@@ -270,6 +275,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `company_data.rs`: A company built by a dependency codeunit… Entry: `CompanyData`.
 - `compile_cache.rs`: The OS side of the compile cache: the key of a run. Entry: `CompileCache`.
 - `cache_gc.rs`: Cleanup of the compile cache folder. Entry: `prune`.
+- `workspace_cache.rs`: The compile cache's workspace layer. Entry: `WorkspaceKey`.
 - `crash.rs`: Names the test a crashed process was running. Entry: `install`.
 - `deps.rs`: Dependency apps for a corpus run (ADR-013). Entry: `Dependencies`.
 - `discover.rs`: Finds `Subtype = Test` codeunits and their `[Test]`… Entry: `test_codeunits`.
@@ -279,16 +285,17 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `report_render.rs`: The report render process. Entry: `RenderHost`.
 - `report_render_pieces.rs`: The `PrepareFn` of a run. Entry: `prepare`.
 - `explain.rs`: --explain: where a test was refused or failed. Entry: `describe`.
-- `host.rs`: The host the command line gives a session (ADR-006). Entry: `SystemClock`.
+- `host.rs`: The host the command line gives a session (ADR-006), and the clock of a run. Entry: `SystemClock`, `RunClock`.
 - `impact_trace.rs`: The impact index's keys, their numbering. Entry: `keys`.
 - `install.rs`: The install code of each app. Entry: `plan`.
-- `install_orders.rs`: The install order of apps with no dependency path: Microsoft's first, partner groups recorded and proven. Entry: `split_microsoft`, `install_partner_apps`.
+- `install_orders.rs`: The install order of apps with no dependency path. Entry: `split_microsoft`, `install_partner_apps`.
 - `install_proof.rs`: The influence graph of a partner group's installs and its units. Entry: `Graph::of`.
-- `install_subsets.rs`: The runs that prove a group's install independent of order: per order of a unit's apps and per place of its inputs among them. Entry: `Proof::settle`.
+- `install_subsets.rs`: The runs that prove a group's install does not depend on order. Entry: `Proof::settle`.
 - `impact_static.rs`: Static selection: the graph of routines, objects. Entry: `Graph`.
 - `login.rs`: The test session's login. Entry: `decide`.
-- `login_replay.rs`: The check that a replay of the raised login would… Entry: `Key::of`.
-- `login_replay/` (2 files): What the login replay check's report names: where two states differ, and the parts a new key differs in, never a value. Entry: `differences`, `KeyParts::of`. Files: `difference.rs`, `key_parts.rs`
+- `login_replay.rs`: The check that a replay of the raised login would… Entry: `Key::of`, `StartKey` (the key with the texts the login read).
+- `login_replay/` (3 files): What the login replay check's report names: where two states differ, and the parts a new key differs in, never a value. Entry: `differences`, `KeyParts::of`. Files: `difference.rs`, `key_parts.rs`, `rows_digest.rs`
+- `login_start.rs`: Replaying the raised login from a kept start (opt-in). Entry: `replay`.
 - `partner_login.rs`: The partner dependency apps' "System… Entry: `subscribers`.
 - `license.rs`: Which BC license a run uses: `--license FILE`. Entry: `LicenseUse`.
 - `isolation.rs`: TestIsolation of the runner codeunit. Entry: `TestIsolation`.
@@ -303,7 +310,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `stability.rs`: Stability mode: the config (`parse_config`. Entry: `parse_config`.
 - `stopped_state.rs`: What code the runner stopped leaves of the session… Entry: `roll_back_refused_test`.
 - `test_suites.rs`: The `--test-suites` file. Entry: `TestSuites`.
-- `runtime/` (28 files): Runs test codeunits the way BC's test runner does. Entry: `CorpusRuntime`. Files: `mod.rs`, `compiled.rs`, `baseline_key.rs`, `grow.rs`, `corpus.rs`, `chain.rs`, `carry_after.rs`, `discovery.rs`, `chain_walk.rs`, `strict_walk.rs`, `single_lane.rs`, `narrowing.rs`, `not_run_link.rs`, `single_fresh.rs`, `order_hint.rs`, `memory.rs`, `compile_halt.rs`, `threads.rs`, `install_once.rs`, `cache.rs`, `run.rs`, `data_driven.rs`, `test_handlers.rs`, `written.rs`, `runner_reset.rs`, `handlers.rs`, `blocked.rs`, `table_reads.rs`
+- `runtime/` (29 files): Runs test codeunits the way BC's test runner does. Entry: `CorpusRuntime`. Files: `mod.rs`, `compiled.rs`, `baseline_key.rs`, `grow.rs`, `corpus.rs`, `chain.rs`, `carry_after.rs`, `discovery.rs`, `chain_walk.rs`, `strict_walk.rs`, `single_lane.rs`, `narrowing.rs`, `not_run_link.rs`, `single_fresh.rs`, `order_hint.rs`, `memory.rs`, `compile_halt.rs`, `threads.rs`, `install_once.rs`, `cache.rs`, `run.rs`, `data_driven.rs`, `test_handlers.rs`, `written.rs`, `runner_reset.rs`, `handlers.rs`, `blocked.rs`, `table_reads.rs`, `workspace_layer.rs`
 - `target.rs`: Reads the version fields of an app.json. Entry: `build_query`.
 
 ### alrunner-cli
@@ -330,10 +337,12 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `impact.rs`: `al-runner test --impact-of APP`. Entry: `run`.
 - `impact_index.rs`: The impact index: format, cache key and path. Entry: `Index`.
 - `run_inputs.rs`: The inputs of a run, classified once.
+- `workspace_layer.rs`: The workspace layer's options and report. Entry: `options`.
 - `main.rs`: The `al-runner` binary: runs on a thread… Entry: `main`.
 - `profile.rs`: `--profile PATH`, `--profile-mode`. Entry: `Flags`.
 - `output.rs`: Counts, exit codes, the summary line. Entry: `exit_code`.
 - `run.rs`: `al-runner test`: load APPs, select test codeunits. Entry: `open_backup`.
+- `request_timings.rs`: Where a server request spent its time, by phase. Entry: `RequestTimings::of`.
 - `setup_timings.rs`: The parts of a run's setup before the compile: `Part`. Entry: `Laps::start`.
 - `kept_apps.rs`: What a warm server keeps between requests while… Entry: `load`.
 
@@ -392,6 +401,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `single_track.rs`: The notes of a session that watches SingleInstance…
 - `single_unmeasured.rs`: SingleInstance codeunits whose state the run found…
 - `var_option.rs`: An Option handed to a `var` parameter whose… Entry: `var_binding`.
+- `var_option/carried.rs`: A `var` Option parameter handed on between memberless and member-carrying parameters. Entry: `carried_args`, `hand_on_args`.
 - `session_language.rs`: The session language and its one writer…
 - `state.rs`: Sub-states of `Session`: `TxState` (what ends…
 - `pages.rs`: The page test client: shared helpers.
@@ -409,7 +419,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `recmeta.rs`: Record builtins that read table metadata or guard… Entry: `string_literal`.
 - `records.rs`: Record.* on the store: Insert, Modify, Delete, Get. Entry: `record_op`.
 - `get_key_value.rs`: The primary key a `Record.Get` looks for (each… Entry: `get_key`.
-- `records/` (24 files): Record operations on the store for `Record.*`. Files: `initial.rs`, `op_inner.rs`, `setfilter_empty_or_side.rs`, `filter_error.rs`, `measured_setfilter.rs`, `placeholder_wildcard_edge.rs`, `option_filter_error.rs`, `boolean_filter_error.rs`, `setrange_filter.rs`, `stale.rs`, `restamped.rs`, `empty_find_origin.rs`, `stale_rule.rs`, `guarded_run_body.rs`, `insert_buffer.rs`, `locking_read_cells.rs`, `sql_range.rs`, `time_rollover.rs`, `delete_all.rs`, `by_value_view.rs`, `nested_validate.rs`, `running_call_xrec.rs`, `validate_event_xrec.rs`, `flowfield_key.rs`
+- `records/` (25 files): Record operations on the store for `Record.*`. Files: `initial.rs`, `op_inner.rs`, `setfilter_empty_or_side.rs`, `filter_error.rs`, `measured_setfilter.rs`, `placeholder_wildcard_edge.rs`, `option_filter_error.rs`, `boolean_filter_error.rs`, `setrange_filter.rs`, `stale.rs`, `restamped.rs`, `empty_find_origin.rs`, `stale_rule.rs`, `guarded_run_body.rs`, `insert_buffer.rs`, `locking_read_cells.rs`, `sql_range.rs`, `time_rollover.rs`, `delete_all.rs`, `by_value_view.rs`, `nested_validate.rs`, `running_call_xrec.rs`, `ext_trigger_xrec.rs`, `validate_event_xrec.rs`, `flowfield_key.rs`
 - `refs.rs`: `RecordRef`, `FieldRef` and `KeyRef` on the VM. Entry: `record_ref_value`.
 - `unopened_refs.rs`: Members of a RecordRef that is not open… Entry: `record_not_open`.
 - `fieldref_media_filter.rs`: The error of FieldRef.SetFilter with an argument… Entry: `media_fieldref_filter_argument`.
@@ -418,6 +428,8 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `rename.rs`: Rename propagation to related tables. Entry: `rename_references`.
 - `rename_blank_key.rs`: A Rename of a database record in which a primary…
 - `stale_rename.rs`: A Rename through a stale record.
+- `stale_own_modify.rs`: A Modify through a stale buffer, and the Modify after a failed guarded Insert. Entry: `check_failed_insert_stale`.
+- `version_entry.rs`: Where a buffer's row version came from, for the Modify after a failed Insert (issue 8721). Entry: `version_after_table_write`.
 - `reports.rs`: Report objects at run time: dataset walk, triggers. Entry: `report_builtin`.
 - `reports/` (4 files): Report objects: Run, SaveAs, data items, layouts. Files: `item_view.rs`, `dependency_items.rs`, `transaction_world.rs`, `property_gates.rs`
 - `report_placeholder/`: `mod.rs` writes the output of a rendering save.
@@ -434,13 +446,14 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `slot_default.rs`: The value a routine's local or an object's global… Entry: `slot_default`.
 - `install_left.rs`: `install_left/clients.rs`. Entry: `Session::install_left`.
 - `session_fields.rs`: Every `Session` field in one class of one table. Entry: `Session::at_rest_why`.
-- `resource_reads.rs`: The resource files of the apps AL code of a session… Entry: `Session::resource_reads`.
+- `login_image.rs`: The session image after the raised login, and a new session made to hold it. Entry: `Session::login_image`.
+- `resource_reads.rs`: The app resource files a session read, and whether their texts are unchanged. Entry: `Session::resource_reads`, `TextsRead`.
 - `sqlcount.rs`: The model behind `SqlStatementsExecuted` /… Entry: `SqlCounters::read`.
 - `tasks.rs`: `TaskScheduler.CreateTask`, `TaskExists`, `CancelTask`. Entry: `Session::task_scheduler_op`.
 - `tenant_set_delete.rs`: The Delete or DeleteAll of a stored Tenant… Entry: `tenant_set_delete_one`.
 - `testdata.rs`: Test data: `TestBacking` maps a provider's columns… Entry: `TestBacking`.
 - `transaction_type.rs`: `Database.CurrentTransactionType`. Entry: `current_transaction_type`.
-- `transaction_type_saved.rs`: A `CurrentTransactionType` read while the type is not known whose value only sets it back. Entry: `Session::read_saved_for_set_back`.
+- `transaction_type_saved.rs`: An unknown `CurrentTransactionType` read only to set it back. Entry: `Session::read_saved_for_set_back`.
 - `transactions.rs`: Transactions as AL code sees them. Entry: `TxModel`.
 - `consistent_marks.rs`: `Record.Consistent` marks and how a run or Commit ends on one. Entry: `Session::set_consistent`.
 - `ui.rs`: Dialogs raised by the code under test and the test… Entry: `UiKind`.

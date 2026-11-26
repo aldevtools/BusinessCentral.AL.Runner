@@ -28,6 +28,21 @@ pub(crate) struct SavedType {
     rollbacks: u64,
 }
 
+#[cfg(test)]
+impl SavedType {
+    /// A read waiting for its set back, of no routine in particular (al-vm `login_image` tests).
+    pub(crate) fn any() -> SavedType {
+        SavedType {
+            depth: 0,
+            object: 0,
+            routine: 0,
+            set_back: 0,
+            origin: TypeOrigin::default(),
+            rollbacks: 0,
+        }
+    }
+}
+
 /// The statements of `routine`'s own body that save the type in a local and set it back, as `(position id of the save,
 /// position id of the set back)`: exactly one save and, after it, exactly one set back, each a statement of the body
 /// itself with its own position; the local is declared in the procedure (not a parameter or the return value), these

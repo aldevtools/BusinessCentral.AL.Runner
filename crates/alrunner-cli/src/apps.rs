@@ -27,6 +27,8 @@ pub struct AppInput {
     pub outside_reads: Vec<PathBuf>,
     /// [`AppInput::test_codeunits`], found once per read.
     test_codeunits: std::sync::OnceLock<Vec<(u32, Vec<String>)>>,
+    /// [`AppInput::manifest_digest`], made once per read.
+    manifest_digest: std::sync::OnceLock<[u8; 32]>,
 }
 
 impl AppInput {
@@ -39,6 +41,24 @@ impl AppInput {
                 .collect()
         })
     }
+
+    /// The digest of the app's manifest as the key of serve's kept compile holds it
+    /// (`al_testrun::workspace_cache::manifest_digest`), made once per read of the app: that key is made on every request
+    /// (`workspace_layer::warm_key`), and the digest formats and hashes every translation unit of the app. A warm server
+    /// keeps it with the app (`kept_apps.rs`), as it keeps the manifest it was made from.
+    pub fn manifest_digest(&self) -> [u8; 32] {
+        *self.manifest_digest.get_or_init(|| {
+            #[cfg(test)]
+            MANIFEST_DIGESTS.with(|n| n.set(n.get() + 1));
+            al_testrun::workspace_cache::manifest_digest(&self.manifest)
+        })
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many manifest digests [`AppInput::manifest_digest`] made on this thread (tests).
+    pub(crate) static MANIFEST_DIGESTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// Reads `path`. `build` is an exact build that fills Microsoft's build variables in a source
@@ -137,6 +157,7 @@ pub fn load(path: &Path, build: Option<&str>) -> Result<AppInput, String> {
         symbols,
         outside_reads,
         test_codeunits: Default::default(),
+        manifest_digest: Default::default(),
     })
 }
 

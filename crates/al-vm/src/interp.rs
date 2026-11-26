@@ -146,6 +146,7 @@ impl Session {
         }
         for (a, slot) in args.iter().zip(values.iter_mut()) {
             if let ir::Arg::Ref(p) = a {
+                self.note_by_ref_write(p, f)?;
                 let v = std::mem::replace(slot, Value::Null);
                 self.native_arg_back(p, v, id, class, f)?;
             }
@@ -621,9 +622,9 @@ impl Session {
             B::Eq => Value::Boolean(ops::equal_operator(l, r)?),
             B::Ne => Value::Boolean(ops::compare_operator(l, r, false)? != Ordering::Equal),
             B::Lt => Value::Boolean(ops::compare_operator(l, r, true)? == Ordering::Less),
-            B::Le => Value::Boolean(ops::compare_operator(l, r, true)? != Ordering::Greater),
+            B::Le => Value::Boolean(ops::compare_operator_or_equal(l, r)? != Ordering::Greater),
             B::Gt => Value::Boolean(ops::compare_operator(l, r, true)? == Ordering::Greater),
-            B::Ge => Value::Boolean(ops::compare_operator(l, r, true)? != Ordering::Less),
+            B::Ge => Value::Boolean(ops::compare_operator_or_equal(l, r)? != Ordering::Less),
             B::DotNetEq => Value::Boolean(dotnet::dotnet_equal(l, r)?),
             B::DotNetNe => Value::Boolean(!dotnet::dotnet_equal(l, r)?),
             B::DotNetLt => Value::Boolean(dotnet::dotnet_order(l, r)? == Ordering::Less),
@@ -827,8 +828,8 @@ impl Session {
                             _ => None,
                         }
                     });
-                    if let (crate::records::ProcXrec::PlainUnpinned, Some(Some(x))) = (&proc_xrec, &plain) {
-                        x.borrow_mut().unpinned_buffer = Some(crate::records::XREC_OF_RUNNING_CALL);
+                    if let (crate::records::ProcXrec::PlainUnpinned(mark), Some(Some(x))) = (&proc_xrec, &plain) {
+                        x.borrow_mut().unpinned_buffer = Some(mark);
                     }
                     let pushed = if let Some(Some(x)) = plain {
                         self.plain_proc_xrec.push((handle, self.call_stack.len() + 1, x));
@@ -907,6 +908,17 @@ impl Session {
         // A publisher's `var` argument that is a global of the caller's instance is that variable itself for its subscribers
         // (events/binding-senders/EventVarThroughSender.al): they alias it, see `Frame::aliases`.
         let facts = self.engine.routine_facts(object, routine);
+        // A memberless `var` Option parameter of the caller handed to one with members (`var_option::carried_args`).
+        let carried_kept = if facts.option_hops {
+            self.carried_args(object, routine, args, &values, f)?
+        } else {
+            Vec::new()
+        };
+        // A `var` Option parameter with members of the caller handed to a memberless one (`var_option::hand_on_args`); a
+        // publisher's is `var_option_publisher_args`'s (OptionVarMemberlessUnheard.al:347, :387).
+        if facts.option_carries && !facts.publisher {
+            self.hand_on_args(object, routine, args, f)?;
+        }
         let mut kept = Vec::new();
         let mut heard = Vec::new();
         if facts.publisher {
@@ -942,6 +954,18 @@ impl Session {
         // handing on to an event publisher (`var_option::option_hops_of`); not through an interface.
         if facts.option_hops && !self.next_interface_call {
             self.events.next_option_hops = self.option_hops_of(object, routine, args, &values, f);
+            self.events.next_hand_on_origins = self.hand_on_origins_of(object, routine, args, f);
+        }
+        // Taken by the callee's binding (`lib.rs`).
+        self.events.next_carried_kept = carried_kept;
+        // The origin marks of a memberless `var` Option parameter (`var_option::option_carried_of`).
+        if facts.option_carries {
+            let carried = self.option_carried_of(object, routine, args, f);
+            if facts.publisher {
+                self.events.publisher_option_carried = carried;
+            } else {
+                self.events.next_option_carried = carried;
+            }
         }
         if facts.var_codeunits {
             self.events.next_var_codeunits = self.var_codeunits_of(object, routine, args, &values, f);
@@ -978,6 +1002,12 @@ impl Session {
         }
         if facts.option_hops {
             self.events.next_option_hops.clear();
+            self.events.next_hand_on_origins.clear();
+            self.events.next_carried_kept.clear();
+        }
+        if facts.option_carries {
+            self.events.next_option_carried.clear();
+            self.events.publisher_option_carried.clear();
         }
         if facts.var_codeunits {
             self.events.next_var_codeunits.clear();
@@ -1388,6 +1418,16 @@ impl Session {
                 _ => None,
             },
             _ => None,
+        }
+    }
+
+    /// The lengths `var_lens_of` left for the frame of a routine with `var` Text parameters (`RoutineFacts::var_lens`);
+    /// empty for any other routine.
+    pub(crate) fn take_var_lens(&mut self, wanted: bool) -> Vec<Option<i32>> {
+        if wanted {
+            std::mem::take(&mut self.events.next_var_lens)
+        } else {
+            Vec::new()
         }
     }
 
@@ -1830,9 +1870,14 @@ impl Session {
                         // The row version comes over with the fields, and where it came from (record/crud/
                         // Y76StaleBuffers.al Y76_Part1_FindSet_Assign, `assign/*`).
                         let row_origin = src.borrow().row_origin;
+                        let entry = src
+                            .borrow()
+                            .version_entry
+                            .carried(al_builtins::value::VersionVia::Assigned);
                         let mut d = dst.borrow_mut();
-                        d.fields = fields.into();
+                        self.replace_record_fields(&dst, &mut d, fields.into());
                         d.row_origin = row_origin;
+                        d.version_entry = entry;
                         d.own_read = Default::default();
                         d.rolled_read = Default::default();
                         d.probed_source = crate::blob_transfer::assigned(&d, &src.borrow(), self.commits);
@@ -1840,6 +1885,7 @@ impl Session {
                         // The copy holds what the source's buffer held, if that is known.
                         d.load.buffer = load.buffer;
                         d.load.partial = load.partial;
+                        drop(d);
                     }
                     if let ir::Place::Global(i) = p {
                         self.single_written(&f.instance, *i);

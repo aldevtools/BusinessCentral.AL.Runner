@@ -146,6 +146,9 @@ impl al_builtins::native::Ctx for Session {
     fn gate(&self, gate: al_version::Gate) -> bool {
         self.has(gate)
     }
+    fn http_probe_1424_measured(&self) -> bool {
+        al_version::http_probe_1424_measured(self.engine.target.as_ref())
+    }
     fn error_text_raise(&self) -> Result<(), Signal> {
         // An Error of a CaptionClass run is measured only where `CaptionDialogs` lets it raise (record/captions/
         // CaptionClassStateFreeCalls.al:919-936, al-runner issue 7391).
@@ -243,8 +246,7 @@ impl al_builtins::native::Ctx for Session {
             Some(Value::Record(rc)) => {
                 let rc = rc.clone();
                 let kind = crate::sequence_start::TableCall::Record {
-                    find_last: false,
-                    set_range: false,
+                    op: crate::sequence_start::RecordCall::Other,
                     temporary: rc.borrow().temporary,
                 };
                 self.al_table_call(kind, |s| Session::record_validate_variant(s, &rc, args))
@@ -262,6 +264,7 @@ impl al_builtins::native::Ctx for Session {
         recv: Option<&mut Value>,
         args: &mut [Value],
     ) -> Result<Value, Signal> {
+        self.note_page_call();
         self.page_op(method, recv, args)
     }
 
@@ -301,6 +304,13 @@ impl al_builtins::native::Ctx for Session {
         Ok(self.host.files.exists(path))
     }
     fn fs_read(&mut self, path: &str) -> Result<Option<Vec<u8>>, Signal> {
+        let bytes = self.fs_read_to_move(path)?;
+        if let Some(mark) = bytes.as_deref().and_then(outside_output_mark) {
+            return Err(al_builtins::stream::render_pending_error(&mark));
+        }
+        Ok(bytes)
+    }
+    fn fs_read_to_move(&mut self, path: &str) -> Result<Option<Vec<u8>>, Signal> {
         self.refuse_pending_file(path)?;
         Ok(self.host.files.read(path))
     }
@@ -355,6 +365,12 @@ impl al_builtins::native::Ctx for Session {
         let mark = self.placeholder_file_mark(path)?;
         let bytes = self.host.files.read(path)?;
         Some((mark, bytes))
+    }
+    fn fs_read_to_open(&mut self, path: &str) -> Result<Option<al_builtins::native::OpenedFile>, Signal> {
+        Ok(self.fs_read_to_move(path)?.map(|bytes| {
+            let mark = outside_output_mark(&bytes);
+            (bytes, mark)
+        }))
     }
     fn fs_opened(&mut self, path: &str) {
         self.placeholder_files.opened(path);
@@ -792,6 +808,23 @@ pub(crate) fn pending_key(path: &str) -> String {
     path.replace('\\', "/").to_lowercase()
 }
 
+/// The placeholder mark of the bytes of a file this session holds no mark for, when they are a report output the runtime
+/// wrote (al-runner issues 8702, 8703): they start with a placeholder's header (`report_placeholder::outside_format`), or
+/// hold the mark of a rendered text (`al_builtins::rendered_text::bytes_hold`). An earlier session or another process wrote
+/// the file, and its mark lived only there; read without it, the placeholder's markup would answer as BC's rendering and the
+/// mark's bytes would form a rendered text past the checks of `rendered_text::read_whole`. `File.Open` gives the open file
+/// this mark (`fs_read_to_open`), so it opens, its size answers as a placeholder's, a copy carries it, and a read of the content
+/// is refused (`al_builtins::placeholder_output`); every other read of the bytes is refused in `fs_read`. A byte copy
+/// (`fs_read_to_move`) keeps the bytes, so the copy gets the same mark when it is read.
+pub(crate) fn outside_output_mark(bytes: &[u8]) -> Option<Arc<str>> {
+    let kind = match crate::report_placeholder::outside_format(bytes) {
+        Some(f) => f.name(),
+        None if al_builtins::rendered_text::bytes_hold(bytes) => al_builtins::rendered_text::WRITTEN_KIND,
+        None => return None,
+    };
+    Some(al_builtins::placeholder_output::outside_mark(kind))
+}
+
 impl Session {
     /// The mark of a file that holds a placeholder report output (`al_builtins::placeholder_output`).
     pub(crate) fn placeholder_file_mark(&self, path: &str) -> Option<Arc<str>> {
@@ -859,8 +892,7 @@ impl Session {
                     return Err(Signal::unsupported(why));
                 }
                 let kind = crate::sequence_start::TableCall::Record {
-                    find_last: method == al_builtins::record_op::RecordOp::FindLast,
-                    set_range: method == al_builtins::record_op::RecordOp::SetRange,
+                    op: crate::sequence_start::RecordCall::of(method, args),
                     temporary: rc.borrow().temporary,
                 };
                 // A value of another type than the field's (`setrange_convert`), raised where the call's own errors are.

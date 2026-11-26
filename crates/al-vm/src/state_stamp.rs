@@ -453,6 +453,7 @@ pub(crate) fn no_row_io(a: &RecordState) -> bool {
         && a.last_modify.is_none()
         && a.failed_insert.is_none()
         && a.row_origin.is_none()
+        && a.version_entry.0.is_none()
 }
 
 /// The session state that [`Session::state_lines`] takes, as lines that compare across sessions.
@@ -573,6 +574,9 @@ impl Session {
         out.lines.push(format!("autoincrement {}", content(&autoinc)));
         out.lines.push(format!("last error {}", content(&self.last_error)));
         self.fact_lines(&mut out.lines, &mut out.opaque);
+        // Every field the login image writes or keeps from its target (`login_image/fields.rs`), last: the lines above
+        // name what AL code reads, so a difference is named by them first.
+        out.lines.extend(self.field_lines());
         out
     }
 }

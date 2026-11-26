@@ -39,6 +39,8 @@ const PLAIN_SYSTEM: &[&str] = &[
     "Evaluate",
     "EvaluateBounded",
     "EvaluateDateVariable",
+    "EvaluateEnumField",
+    "EvaluateEnumVariable",
     "EvaluateMemberlessVarOption",
     "EvaluateMemberlessVarOptionElement",
     "EvaluateOptionField",
@@ -150,6 +152,8 @@ struct Walk<'a> {
     /// The first Record write the walk let through because a run of it is checked (`record_write_checked_at_run_time`), as
     /// `calls Record.<Method>`.
     checked_write: Option<String>,
+    /// The first dialog (`dialog_checked_at_run_time`) the walk let through, as `calls <Dialog.Method>`.
+    dialog: Option<String>,
 }
 
 /// The instance code runs on, for what its writes to the instance's variables do.
@@ -181,6 +185,7 @@ pub(crate) enum Effect {
 pub(crate) struct Walked {
     effect: Option<Effect>,
     checked_write: Option<String>,
+    dialog: Option<String>,
 }
 
 impl Engine {
@@ -198,6 +203,12 @@ impl Engine {
             Some(Effect::Refused(_)) => None,
             _ => walked.checked_write,
         }
+    }
+
+    /// The first dialog (Message, Confirm, Error with a text) the walk of the routine and its callees, subscribers included,
+    /// let through because a run of it is checked on the CaptionClass path; `None` when it meets none.
+    pub(crate) fn walked_dialog(&self, object: usize, routine: usize) -> Option<String> {
+        self.walked(object, routine).dialog
     }
 
     fn walked(&self, object: usize, routine: usize) -> Walked {
@@ -218,6 +229,7 @@ impl Engine {
             top: self.caption_expression_body(object, routine),
             rec_guarded: 0,
             checked_write: None,
+            dialog: None,
         };
         let effect = match w.routine(object, routine, Inst::Transient) {
             Err(why) => Some(Effect::Refused(why)),
@@ -226,6 +238,7 @@ impl Engine {
         let found = Walked {
             effect,
             checked_write: w.checked_write,
+            dialog: w.dialog,
         };
         self.lasting_effects
             .lock()
@@ -568,6 +581,10 @@ impl Walk<'_> {
                 args,
                 ret_used: _,
             } => {
+                if dialog_checked_at_run_time(*id) {
+                    self.dialog
+                        .get_or_insert_with(|| format!("calls {}", id.name().split('#').next().unwrap_or(id.name())));
+                }
                 if !plain_builtin(*id)
                     && !self.on_confined_collection(*id, receiver.as_deref(), at)
                     && !self.as_integer_in_table_or_codeunit(*id, at)

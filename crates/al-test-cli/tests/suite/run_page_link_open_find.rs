@@ -21,6 +21,7 @@ fn run(src: &str, codeunit: &str) -> Vec<(String, Outcome)> {
         &mut Vec::new(),
         &mut Vec::new(),
         None,
+        al_testrun::host::RunClock::begin(),
     )
 }
 

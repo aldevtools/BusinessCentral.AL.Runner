@@ -456,6 +456,8 @@ struct Shared {
     shared: std::sync::OnceLock<(SharedBytes, u64)>,
     /// [`Pool::add_fixed`]: what the run made after the fixed part was read, shared by every thread.
     added: AtomicU64,
+    /// [`Pool::reserve`]: what the run may still take beyond the resident memory, held for it before a thread starts.
+    reserved: std::sync::OnceLock<SharedBytes>,
     /// The most threads the run may use.
     max: usize,
     /// The learned cost of one running codeunit; `learned` once a codeunit ended.
@@ -497,6 +499,7 @@ impl Pool {
                 fixed: AtomicU64::new(fixed),
                 shared: Default::default(),
                 added: AtomicU64::new(0),
+                reserved: Default::default(),
                 max: max.max(1),
                 cost: AtomicU64::new(0),
                 learned: AtomicBool::new(false),
@@ -556,6 +559,19 @@ impl Pool {
         let _ = self.s.shared.set((bytes, at));
     }
 
+    /// Holds what `bytes` reads, bytes the run may still take that are not resident yet, as taken when a thread asks to
+    /// start ([`Pool::try_add`], [`Pool::keep`]): the room the login starts' byte cap leaves them (ADR-073 amendment
+    /// 2026-11-26), so a raised cap lowers the threads before the starts grow. Nothing is dropped for it. Only the
+    /// first call counts.
+    pub fn reserve(&self, bytes: SharedBytes) {
+        let _ = self.s.reserved.set(bytes);
+    }
+
+    /// What [`Pool::reserve`] holds now.
+    fn reserved(&self) -> u64 {
+        self.s.reserved.get().map_or(0, |b| b())
+    }
+
     /// What the threads share and the fixed part counts once beyond what the process held when it was read.
     fn shared(&self) -> u64 {
         self.s.added.load(Ordering::Relaxed) + self.s.shared.get().map_or(0, |(b, at)| b().saturating_sub(*at))
@@ -583,7 +599,9 @@ impl Pool {
         if !self.s.learned.load(Ordering::SeqCst) || self.halted() {
             return false;
         }
-        let (fixed, cost) = (self.fixed(), self.cost());
+        // What the run may still take beyond the resident memory ([`Pool::reserve`]) is held as taken on both sides.
+        let held = self.reserved();
+        let (now, fixed, cost) = (now + held, self.fixed() + held, self.cost());
         let threads = (self.live() + extra) as u64;
         // One codeunit may be a spike (the largest seen, beyond the typical cost the percentile gives): keep room for
         // one beside the typical ones, so a rare large codeunit does not meet a full process and a hard stop.
