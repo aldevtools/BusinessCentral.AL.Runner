@@ -57,8 +57,11 @@
 //! After the landing, one SetValue of a control with code of its own (`extra_value_control`, issue 8843) saves and updates
 //! as the probe's Value does (`FactboxStep::CodedTyped`): into a control with a TableRelation only a value stored as typed
 //! (`coded_typed_begins`), its save under the effect gate with Rec's view as the SetValue found it and only inserted rows of
-//! other tables written since it began (`extra_code_typed_save` in `code_inserted_extra.rs`), and Rec as saved at its Update
-//! (`update_after_code_inserted_save`).
+//! other tables written since its later-step stamp, whose mark also starts before the table field's OnValidate, and no row of
+//! the page's table written there (`extra_code_typed_save` in `code_inserted_extra.rs`). The field's own OnValidate may
+//! therefore set a field or log into another table, but not write the page's table (issue 8848). At `Update(false)` the row
+//! and Rec may both have changed since the save (issue 8849, `SavedView::rec_free`, corpus pull request 1542); `Update(true)`
+//! keeps Rec and the writes as saved (`update_after_code_inserted_save`).
 
 use super::pinned_shape::TestCall;
 use super::state::{CodedLine, FactboxStep};
@@ -159,7 +162,8 @@ impl Session {
             let own =
                 c.owner.is_none() && c.ext_triggers.is_empty() && c.run_object.is_none() && c.action_ref.is_none();
             // A TableRelation only on a control the later SetValue may write (ListNewLineExtraCodeCodedSecondSetValue.al:859,
-            // the Rel page; review of al-runner PR 8847, 01:00Z): a control without code keeps main's way.
+            // the Rel page; review of al-runner PR 8847, 01:00Z): a control without code keeps main's way, and so does a table
+            // field with an OnValidate of its own (the #8847 final clause).
             let related = c.prop("tablerelation").is_some();
             own && match c.kind {
                 ir::ControlKind::Repeater => c.props.is_empty() && c.triggers.is_empty(),
@@ -167,7 +171,7 @@ impl Session {
                     matches!(c.binding, ir::Binding::Field(_) | ir::Binding::Var(_))
                         && props(&["applicationarea", "editable", "tablerelation"])
                         && triggers("onvalidate")
-                        && (!related || Self::later_value_field(&engine, c, &table))
+                        && (!related || Self::coded_related_value_field(&engine, c, &table))
                 }
                 ir::ControlKind::Action => props(&["applicationarea"]) && triggers("onaction"),
                 ir::ControlKind::Part => c.triggers.is_empty(),
@@ -657,8 +661,9 @@ impl Session {
     }
 
     /// Whether control `idx` of host `st`, a page of the page-with-code shape with other code, takes the later SetValue
-    /// ListNewLineExtraCodeCodedSecondSetValue.al measures: a control the later SetValue may write (`later_value_field`), other
-    /// than the control whose SetValue landed.
+    /// ListNewLineExtraCodeCodedSecondSetValue.al measures: a control the later SetValue may write, other than the control
+    /// whose SetValue landed: either the own-OnValidate shape without a TableRelation (`later_value_field`), or the measured
+    /// relation shape (`coded_related_value_field`).
     fn extra_value_control(&self, st: &St, idx: usize) -> bool {
         let landing = match Self::test_calls(st).as_deref() {
             Some([TestCall::Page(PageMethod::New), TestCall::Write(landing), ..]) => *landing,
@@ -672,13 +677,30 @@ impl Session {
             && page_of(&engine, st)
                 .controls
                 .get(idx)
-                .is_some_and(|c| Self::later_value_field(&engine, c, &table))
+                .is_some_and(|c| match c.prop("tablerelation") {
+                    Some(_) => Self::coded_related_value_field(&engine, c, &table),
+                    None => Self::later_value_field(&engine, c, &table),
+                })
+    }
+
+    /// Whether a control with a TableRelation is the measured relation shape of the later SetValue: the same field shape as
+    /// `later_value_field`, and the table field has no OnValidate of its own (`ListNewLineExtraCodeCodedSecondSetValue.al:859`).
+    fn coded_related_value_field(engine: &crate::Engine, control: &ir::Control, table: &al_data::TableDef) -> bool {
+        let ir::Binding::Field(f) = control.binding else {
+            return false;
+        };
+        let field = engine.program.objects[table.object as usize]
+            .table
+            .as_ref()
+            .and_then(|t| t.fields.get(f));
+        field.is_some_and(|d| d.on_validate.is_none()) && Self::later_value_field(engine, control, table)
     }
 
     /// Whether `control`, on a page over `table`, is a field control the later SetValue of
     /// ListNewLineExtraCodeCodedSecondSetValue.al writes (:746; :859 with a TableRelation on the control): over a field of Rec
-    /// outside the primary key, with an OnValidate of its own and no extension trigger, over a table field with no OnValidate
-    /// and no TableRelation.
+    /// outside the primary key, with an OnValidate of its own and no extension trigger, over a table field with no TableRelation
+    /// and no extension trigger. The table field may have an OnValidate of its own (ListNewLineExtraCodeCodedFieldOnValidate.al
+    /// :799, :812): what it writes is the save's gate (`extra_code_typed_save`).
     fn later_value_field(engine: &crate::Engine, control: &ir::Control, table: &al_data::TableDef) -> bool {
         let ir::Binding::Field(f) = control.binding else {
             return false;
@@ -690,12 +712,7 @@ impl Session {
         control.trigger("onvalidate").is_some()
             && control.ext_triggers.is_empty()
             && !table.keys[0].contains(&f)
-            && field.is_some_and(|d| {
-                d.on_validate.is_none()
-                    && d.ext_before_validate.is_empty()
-                    && d.ext_after_validate.is_empty()
-                    && !d.relation
-            })
+            && field.is_some_and(|d| d.ext_before_validate.is_empty() && d.ext_after_validate.is_empty() && !d.relation)
     }
 
     /// Whether control `idx` of host `st` takes a SetValue on the row its new line became (ListNewLineFactboxesCode.al:1407
@@ -770,7 +787,7 @@ impl Session {
             );
         }
         let steps = match st.borrow().code_inserted_row.as_ref().map(|r| r.factbox) {
-            Some(FactboxStep::CodedTyped { steps }) => steps + 1,
+            Some(FactboxStep::CodedTyped { steps, .. }) => steps + 1,
             _ => 0,
         };
         if let Some(row) = st.borrow_mut().code_inserted_row.as_mut() {
