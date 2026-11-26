@@ -209,6 +209,9 @@ pub fn serve(daemon: &[String]) -> Result<(), String> {
             "" => error("a request needs a `command`"),
             other => error(format!("unknown command `{other}`")),
         }
+        // The workspace layer entries of the request's compile are written now, after its response (ADR-022 amendment
+        // 2026-11-15, decision 6).
+        al_testrun::workspace_cache::start_writes();
         n += 1;
         eprintln!("[server] request {n} done");
     }
@@ -741,12 +744,21 @@ fn timings_json(t: &run::RequestTimings, wall: std::time::Duration) -> Value {
         "testsMs": ms(t.tests),
         "coverageMs": ms(t.coverage),
         "otherMs": ms(wall.saturating_sub(known)),
+        // Al-runner issue 8211: sessions that took a login start, and the starts kept, over the requests of the engine.
+        "loginReplays": t.login_replays,
+        "loginStarts": t.login_starts,
     });
     if let Some(source) = t.baseline_source {
         v["baselineSource"] = json!(source);
     }
+    if let Some(state) = t.test_data_index {
+        v["testDataIndex"] = json!(state);
+    }
     if t.engine_kept {
         v["engineKept"] = json!(true);
+    }
+    if let Some(state) = t.workspace_cache {
+        v["workspaceCache"] = json!(state);
     }
     if t.passes.len() == 1 {
         v["resetMs"] = json!(ms(t.passes[0].reset));

@@ -2542,6 +2542,45 @@ fn entries_with_resources_take_the_kept_baseline_and_give_what_a_fresh_daemon_gi
     }
 }
 
+/// `timings.testDataIndex` says how the open of the test data got the backup's kept index (al-runner issue 8479).
+#[test]
+fn a_summary_says_how_the_test_data_index_was_obtained() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "idx", MIXED);
+    let cache = d.path().join("cache");
+    let bak = Path::new(env!("CARGO_MANIFEST_DIR")).join("../al-bcdb/tests/fixtures/typeprobe.bak");
+    let (cache, bak) = (cache.to_str().unwrap(), bak.to_str().unwrap());
+    let mut states = Vec::new();
+    for _ in 0..2 {
+        let mut s = Server::start(&[
+            "--no-download",
+            "--cache-dir",
+            cache,
+            "--test-data",
+            bak,
+            "--test-data-company",
+            "TP",
+        ]);
+        assert_eq!(s.line(), json!({"ready": true}));
+        // The first request opens the backup; the second, on the same daemon, repeats what the open did.
+        for _ in 0..2 {
+            s.send(json!({"command": "runTests", "sourcePaths": [a]}));
+            let summary = s.until_summary().pop().unwrap();
+            states.push(summary["timings"]["testDataIndex"].clone());
+        }
+    }
+    assert_eq!(
+        states,
+        [json!("built"), json!("built"), json!("read"), json!("read")],
+        "{states:?}"
+    );
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    s.line();
+    s.send(json!({"command": "runTests", "sourcePaths": [a]}));
+    let summary = s.until_summary().pop().unwrap();
+    assert!(summary["timings"].get("testDataIndex").is_none(), "{summary}");
+}
+
 /// Two apps whose test needs the complete compile, so the dependency app is compiled into a layer of the compile cache.
 fn layered_apps(root: &Path) -> (PathBuf, PathBuf) {
     let dep = root.join("dep");
@@ -2981,6 +3020,516 @@ fn a_coverage_request_after_one_without_coverage_gives_the_coverage_of_a_first_r
     assert_eq!(s.line(), json!({"status": "shutting down"}));
 }
 
+/// Removes what differs between two runs of the same request on purpose, at any depth (the test lines of an `execute`
+/// answer are nested): the timings, the wall time, `cached` and the fresh seed of each daemon.
+fn without_times(lines: &[Value]) -> Vec<Value> {
+    fn strip(v: &mut Value) {
+        match v {
+            Value::Object(o) => {
+                for k in ["timings", "wallSeconds", "durationMs", "cached", "elapsedMs", "seed"] {
+                    o.remove(k);
+                }
+                o.values_mut().for_each(strip);
+            }
+            Value::Array(a) => a.iter_mut().for_each(strip),
+            _ => {}
+        }
+    }
+    lines
+        .iter()
+        .map(|l| {
+            let mut l = l.clone();
+            strip(&mut l);
+            l
+        })
+        .collect()
+}
+
+/// `request` sent alone to a new daemon over the cache folder `cache`: its answer, to the summary (or the one line of an
+/// `execute`, whose answer has no timings), and what its `--timings` line says the workspace layer did ("read",
+/// "built", "off" or "none" without the line).
+fn answer_of_a_new_daemon(cache: &Path, request: &Value) -> (Vec<Value>, String) {
+    let log = cache.with_extension("stderr.txt");
+    let dir = cache.to_string_lossy().to_string();
+    let err = std::fs::File::create(&log).unwrap();
+    let mut s = Server::start_with_stderr(
+        &["--no-download", "--no-test-data", "--timings", "--cache-dir", &dir],
+        &[],
+        Stdio::from(err),
+    );
+    assert_eq!(s.line(), json!({"ready": true}));
+    s.send(request.clone());
+    let lines = if request["command"] == "execute" {
+        vec![s.line()]
+    } else {
+        s.until_summary()
+    };
+    s.send(json!({"command": "shutdown"}));
+    s.line();
+    s.child.wait().unwrap();
+    let said = std::fs::read_to_string(&log).unwrap();
+    let state = said
+        .lines()
+        .find_map(|l| l.strip_prefix("compile cache: workspace layer "))
+        .and_then(|rest| rest.split(|c: char| !c.is_alphabetic()).next())
+        .unwrap_or("none")
+        .to_string();
+    if let Some(json_state) = lines.last().unwrap()["timings"].get("workspaceCache") {
+        assert_eq!(json_state, &json!(state), "the JSON and the --timings line: {said}");
+    }
+    (lines, state)
+}
+
+/// The apps of two `sourcePaths`: an app and its test app (issue 8143's shape).
+fn lib_and_tests(root: &Path) -> (PathBuf, PathBuf) {
+    let lib = root.join("lib");
+    write(
+        &lib,
+        "app.json",
+        r#"{"id":"22222222-0000-0000-0000-000000000001","name":"Lib","publisher":"Test","version":"1.0.0.0","dependencies":[]}"#,
+    );
+    write(
+        &lib,
+        "src/Lib.al",
+        "codeunit 50300 Lib { procedure Twice(X: Integer): Integer begin exit(X * 2); end; }\n",
+    );
+    let tests = root.join("tests");
+    write(
+        &tests,
+        "app.json",
+        r#"{"id":"22222222-0000-0000-0000-000000000002","name":"LibTests","publisher":"Test","version":"1.0.0.0","dependencies":[{"id":"22222222-0000-0000-0000-000000000001","name":"Lib","publisher":"Test","version":"1.0.0.0"}]}"#,
+    );
+    write(
+        &tests,
+        "src/T.al",
+        &MIXED.replace("Error('boom %1', 5);", "if 0 = 1 then; Error('boom %1', 5);"),
+    );
+    (lib, tests)
+}
+
+/// ADR-022 amendment 2026-11-15, "Equality requirement", serve suite (issue 8143): each request shape of this suite
+/// that compiles sources, sent to a fresh daemon (no entry yet) and then to a new daemon over the same cache folder. The
+/// second daemon reads the entry the first one built (`workspaceCache`: `built`, then `read`; `cached` stays false, as
+/// it means this daemon's kept compile), and the two answers are the same but for the timings.
+#[test]
+fn each_request_shape_answers_the_same_on_a_fresh_and_on_a_reading_daemon() {
+    let d = tempfile::tempdir().unwrap();
+    let mixed = app(d.path(), "mixed", MIXED);
+    let (lib, tests) = lib_and_tests(d.path());
+    let tdd = tdd_app(d.path());
+    let scratch = app(d.path(), "scratch", SCRATCH);
+    let broken = app(
+        d.path(),
+        "broken",
+        "codeunit 50990 Broken { Subtype = Test; [Test] procedure P() begin X := ; end; }\n",
+    );
+    let run = |more: Value| {
+        let mut r = json!({"command": "runTests", "sourcePaths": [mixed]});
+        for (k, v) in more.as_object().unwrap() {
+            r[k] = v.clone();
+        }
+        r
+    };
+    let requests = [
+        run(json!({})),
+        run(json!({"test": "Codeunit50100.Passes"})),
+        run(json!({"test": "Codeunit50100.Passes", "excludeTests": ["Codeunit50100.Fails"]})),
+        run(json!({"testIsolation": "test"})),
+        run(json!({"testRunner": "130450"})),
+        run(json!({"stopAfterFirstFailure": true})),
+        run(json!({"coverage": true, "perTestCoverage": true})),
+        run(json!({"entries": [
+            {"id": "e1", "excludeTestsExact": ["Passes"]},
+            {"id": "e2", "excludeTestsExact": ["Fails"]},
+        ]})),
+        json!({"command": "runTests", "sourcePaths": [lib, tests]}),
+        json!({"command": "runTests", "sourcePaths": [tdd], "tdd": true}),
+        json!({"command": "runTests", "sourcePaths": [broken]}),
+        json!({"command": "execute", "sourcePaths": [scratch]}),
+    ];
+    let mut states = Vec::new();
+    for (n, request) in requests.iter().enumerate() {
+        let cache = d.path().join(format!("cache-{n}"));
+        let (fresh, built) = answer_of_a_new_daemon(&cache, request);
+        let (read, reading) = answer_of_a_new_daemon(&cache, request);
+        states.push((built, reading));
+        assert_ne!(read.last().unwrap()["cached"], json!(true), "{request}");
+        assert_eq!(without_times(&fresh), without_times(&read), "{request}");
+    }
+    let built_then_read = ("built".to_string(), "read".to_string());
+    assert_eq!(
+        states,
+        vec![built_then_read; requests.len()],
+        "per request: {requests:?}"
+    );
+}
+
+/// The `--timings` line of the workspace layer is said for a request that compiled, as its JSON `workspaceCache` is: a
+/// request on the kept compile says none (it did not compile, so the layer did nothing for it).
+#[test]
+fn a_request_on_the_kept_compile_says_no_workspace_layer_line() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "kept", MIXED);
+    let cache = d.path().join("cache").to_string_lossy().to_string();
+    let log = d.path().join("stderr.txt");
+    let err = std::fs::File::create(&log).unwrap();
+    let mut s = Server::start_with_stderr(
+        &["--no-download", "--no-test-data", "--timings", "--cache-dir", &cache],
+        &[],
+        Stdio::from(err),
+    );
+    assert_eq!(s.line(), json!({"ready": true}));
+    let request = json!({"command": "runTests", "sourcePaths": [a]});
+    let mut said = Vec::new();
+    for _ in 0..2 {
+        s.send(request.clone());
+        let summary = s.until_summary().last().unwrap().clone();
+        let lines = std::fs::read_to_string(&log).unwrap();
+        let count = lines
+            .lines()
+            .filter(|l| l.starts_with("compile cache: workspace layer"))
+            .count();
+        said.push((
+            summary["cached"].clone(),
+            summary["timings"].get("workspaceCache").cloned(),
+            count,
+        ));
+    }
+    s.send(json!({"command": "shutdown"}));
+    s.line();
+    s.child.wait().unwrap();
+    assert_eq!(
+        said,
+        vec![(json!(false), Some(json!("built")), 1), (json!(true), None, 1)],
+        "(cached, workspaceCache, workspace layer lines on stderr so far) per request"
+    );
+}
+
+/// ADR-022 amendment 2026-11-15: a one-shot `al-runner test` and a daemon over the same workspace and cache folder share
+/// the workspace layer. The first one-shot run builds the entry (written before the process ends), the second reads it,
+/// and so does a daemon started after them; `ALRUNNER_NO_WORKSPACE_CACHE=1` turns the layer off.
+#[test]
+fn a_one_shot_run_and_a_daemon_share_the_workspace_layer() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "mixed", MIXED);
+    let cache = d.path().join("cache").to_string_lossy().to_string();
+    let one_shot = |env: &[(&str, &str)]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_al-runner"))
+            .args([
+                "test",
+                a.to_str().unwrap(),
+                "--no-download",
+                "--no-test-data",
+                "--timings",
+            ])
+            .args(["--cache-dir", &cache])
+            .envs(env.iter().copied())
+            .output()
+            .unwrap();
+        let err = String::from_utf8_lossy(&out.stderr).to_string();
+        let line = err
+            .lines()
+            .find(|l| l.starts_with("compile cache: workspace layer"))
+            .unwrap_or_default()
+            .to_string();
+        (out.status.code(), line)
+    };
+    let (code, first) = one_shot(&[]);
+    assert!(first.contains("workspace layer built"), "{first}");
+    let (code2, second) = one_shot(&[]);
+    assert_eq!(code, code2);
+    assert!(second.contains("workspace layer read"), "{second}");
+    let (_, off) = one_shot(&[("ALRUNNER_NO_WORKSPACE_CACHE", "1")]);
+    assert!(off.contains("workspace layer off"), "{off}");
+    let mut s = Server::start(&["--no-download", "--no-test-data", "--cache-dir", &cache]);
+    assert_eq!(s.line(), json!({"ready": true}));
+    s.send(json!({"command": "runTests", "sourcePaths": [a]}));
+    let summary = s.until_summary().last().unwrap().clone();
+    assert_eq!(summary["timings"]["workspaceCache"], json!("read"), "{summary}");
+    // A request on the kept compile used no cache: no `workspaceCache`.
+    s.send(json!({"command": "runTests", "sourcePaths": [a]}));
+    let summary = s.until_summary().last().unwrap().clone();
+    assert_eq!(summary["cached"], json!(true), "{summary}");
+    assert!(summary["timings"].get("workspaceCache").is_none(), "{summary}");
+}
+
+/// The page of review probe app9 (HIGH 1): a pageextension sets the base page's protected variable. Whether that runs
+/// depends on `AL_UNPINNED_BASE_ACCESS`, which an empty value sets to "pin nothing".
+const BASE_ACCESS: &str = r#"
+page 50500 "P9 Base"
+{
+    PageType = Card;
+    layout { area(Content) { field(SharedCtl; Shared) { } } }
+    protected var
+        Shared: Integer;
+}
+
+pageextension 50501 "P9 Ext" extends "P9 Base"
+{
+    trigger OnOpenPage()
+    begin
+        Shared := 7;
+    end;
+}
+
+codeunit 50510 "P9 Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure ExtensionSetsTheBaseVariable()
+    var
+        P: TestPage "P9 Base";
+    begin
+        P.OpenView();
+        if P.SharedCtl.AsInteger() <> 7 then
+            Error('shared is %1', P.SharedCtl.AsInteger());
+    end;
+}
+"#;
+
+/// One-shot `al-runner test` of `app` over the cache folder `cache` with `env`: (exit code, the `--timings` line of the
+/// workspace layer, stderr).
+fn one_shot_run(app: &Path, cache: &str, env: &[(&str, &str)]) -> (Option<i32>, String, String) {
+    one_shot_run_with(app, cache, env, &[])
+}
+
+/// [`one_shot_run`] with more arguments.
+fn one_shot_run_with(app: &Path, cache: &str, env: &[(&str, &str)], args: &[&str]) -> (Option<i32>, String, String) {
+    let out = Command::new(env!("CARGO_BIN_EXE_al-runner"))
+        .args([
+            "test",
+            app.to_str().unwrap(),
+            "--no-download",
+            "--no-test-data",
+            "--timings",
+        ])
+        .args(["--cache-dir", cache])
+        .args(args)
+        .env_remove("AL_UNPINNED_BASE_ACCESS")
+        .envs(env.iter().copied())
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&out.stderr).to_string();
+    let line = err
+        .lines()
+        .find(|l| l.starts_with("compile cache: workspace layer"))
+        .unwrap_or_default()
+        .to_string();
+    (out.status.code(), line, err)
+}
+
+/// Review HIGH 1: a run with `AL_UNPINNED_BASE_ACCESS` set but empty and a normal run never read each other's entry
+/// (without dependency layers nothing else in the key tells them apart).
+#[test]
+fn a_switch_set_but_empty_and_unset_do_not_share_a_workspace_entry() {
+    for first_empty in [false, true] {
+        let d = tempfile::tempdir().unwrap();
+        let a = app(d.path(), "p9", BASE_ACCESS);
+        let cache = d.path().join("cache").to_string_lossy().to_string();
+        let empty: &[(&str, &str)] = &[("AL_UNPINNED_BASE_ACCESS", "")];
+        let (first, second) = if first_empty {
+            (empty, &[][..])
+        } else {
+            (&[][..], empty)
+        };
+        let (code1, line1, _) = one_shot_run(&a, &cache, first);
+        let (code2, line2, _) = one_shot_run(&a, &cache, second);
+        let fresh = d.path().join("fresh").to_string_lossy().to_string();
+        let (code2_fresh, _, _) = one_shot_run(&a, &fresh, second);
+        assert!(line1.contains("built"), "{line1}");
+        assert!(
+            line2.contains("built"),
+            "empty first {first_empty}: the second run read the first's entry: {line2}"
+        );
+        assert_eq!(code2, code2_fresh, "empty first {first_empty}: {code1:?}");
+    }
+}
+
+/// ADR-022 amendment decision 10: a damaged entry is removed and the run compiles fresh; the reason goes to stderr with
+/// `--verbose` only (the `--timings` line of the layer names it in its notes either way).
+#[test]
+fn a_damaged_workspace_entry_is_said_on_stderr_with_verbose_only() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "damaged", MIXED);
+    let cache = d.path().join("cache").to_string_lossy().to_string();
+    let damage = || {
+        let dir = d.path().join("cache").join("compile");
+        let entry = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .find(|p| p.extension().is_some_and(|x| x == "alcw"))
+            .expect("an entry was written");
+        let mut bytes = std::fs::read(&entry).unwrap();
+        let at = bytes.len() / 2;
+        bytes[at] ^= 0x41;
+        std::fs::write(&entry, bytes).unwrap();
+    };
+    let said = |err: &str| {
+        err.lines()
+            .any(|l| l.starts_with("workspace cache: ") && l.contains("ignored and removed"))
+    };
+    let (code, line, _) = one_shot_run(&a, &cache, &[]);
+    assert!(line.contains("built"), "{line}");
+    for verbose in [false, true] {
+        damage();
+        let args: &[&str] = if verbose { &["--verbose"] } else { &[] };
+        let (again, line, err) = one_shot_run_with(&a, &cache, &[], args);
+        assert_eq!(again, code, "verbose {verbose}: {err}");
+        assert!(
+            line.contains("built") && line.contains("ignored and removed"),
+            "verbose {verbose}: {line}"
+        );
+        assert_eq!(said(&err), verbose, "verbose {verbose}: {err}");
+    }
+}
+
+/// Review HIGH 2 (probe app8): a dependency file that does not parse is said on stderr (`parse: ...`) by a run that reads
+/// the workspace layer as by the run that built it, for the compile on the dependency layers and for the compile of
+/// selected tests free of data.
+#[test]
+fn a_read_says_which_dependency_files_did_not_parse() {
+    let d = tempfile::tempdir().unwrap();
+    let dep = d.path().join("dep");
+    write(
+        &dep,
+        "app.json",
+        r#"{"id":"88888888-0000-0000-0000-000000000001","name":"P8Dep","publisher":"T","version":"1.0.0.0","dependencies":[]}"#,
+    );
+    write(
+        &dep,
+        "src/good.al",
+        "codeunit 50900 \"P8 Dep Good\"\n{\n    procedure One(): Integer\n    begin\n        exit(1);\n    end;\n}\n",
+    );
+    write(
+        &dep,
+        "src/bad.al",
+        "codeunit 50901 \"P8 Dep Bad\"\n{\n    procedure Two(): Integer\n    begin\n        exit(2 +);\n    end\n}\n",
+    );
+    let ws = d.path().join("ws");
+    write(
+        &ws,
+        "app.json",
+        r#"{"id":"88888888-0000-0000-0000-000000000002","name":"P8Ws","publisher":"T","version":"1.0.0.0","dependencies":[{"id":"88888888-0000-0000-0000-000000000001","name":"P8Dep","publisher":"T","version":"1.0.0.0"}]}"#,
+    );
+    write(
+        &ws,
+        "src/t.al",
+        "codeunit 50910 \"P8 Tests\"\n{\n    Subtype = Test;\n\n    [Test]\n    procedure GoodWorks()\n    var\n        G: Codeunit \"P8 Dep Good\";\n    begin\n        if G.One() <> 1 then\n            Error('wrong');\n    end;\n\n    [Test]\n    procedure BadIsRefused()\n    var\n        B: Codeunit \"P8 Dep Bad\";\n    begin\n        if B.Two() <> 2 then\n            Error('wrong');\n    end;\n}\n",
+    );
+    for extra in [
+        &[][..],
+        &["--test-runner", "builtin"][..],
+        &["--test-runner", "builtin", "--codeunit", "50910"][..],
+    ] {
+        let cache = d
+            .path()
+            .join(format!("cache{}", extra.len()))
+            .to_string_lossy()
+            .to_string();
+        let run = || {
+            let out = Command::new(env!("CARGO_BIN_EXE_al-runner"))
+                .args(["test", ws.to_str().unwrap(), "--dep", dep.to_str().unwrap()])
+                .args(["--no-download", "--no-test-data", "--timings", "--cache-dir", &cache])
+                .args(extra)
+                .output()
+                .unwrap();
+            let err = String::from_utf8_lossy(&out.stderr).to_string();
+            let parse: Vec<String> = err
+                .lines()
+                .filter(|l| l.starts_with("parse:"))
+                .map(String::from)
+                .collect();
+            let state = err
+                .lines()
+                .find(|l| l.starts_with("compile cache: workspace layer"))
+                .unwrap_or_default()
+                .to_string();
+            (out.status.code(), parse, state)
+        };
+        let (code1, parse1, state1) = run();
+        let (code2, parse2, state2) = run();
+        assert!(
+            state1.contains("built") && state2.contains("read"),
+            "{extra:?}: {state1} / {state2}"
+        );
+        assert!(parse1.iter().any(|l| l.contains("bad.al:5")), "{extra:?}: {parse1:?}");
+        assert_eq!((code1, &parse1), (code2, &parse2), "{extra:?}");
+    }
+}
+
+/// Second review MED A: `ALRUNNER_CHECK_INCREMENTAL=1` checks an incremental compile against a complete compile, which
+/// must be a fresh compile: it neither reads the workspace layer nor writes an entry.
+#[test]
+fn the_check_of_an_incremental_compile_does_not_use_the_workspace_layer() {
+    let d = tempfile::tempdir().unwrap();
+    let dep = d.path().join("dep");
+    write(
+        &dep,
+        "app.json",
+        r#"{"id":"66666666-0000-0000-0000-000000000001","name":"ChkDep","publisher":"T","version":"1.0.0.0","dependencies":[]}"#,
+    );
+    write(
+        &dep,
+        "src/dep.al",
+        "table 50601 \"Chk T\" { fields { field(1; K; Integer) { } } keys { key(PK; K) { } } }\ncodeunit 50600 \"Chk Dep\" { procedure One(): Integer begin exit(1); end; }\n",
+    );
+    let ws = d.path().join("ws");
+    write(
+        &ws,
+        "app.json",
+        r#"{"id":"66666666-0000-0000-0000-000000000002","name":"ChkWs","publisher":"T","version":"1.0.0.0","dependencies":[{"id":"66666666-0000-0000-0000-000000000001","name":"ChkDep","publisher":"T","version":"1.0.0.0"}]}"#,
+    );
+    let lib = "codeunit 50610 \"Chk Lib\" { procedure Twice(X: Integer): Integer var D: Codeunit \"Chk Dep\"; begin exit(X * 2 * D.One()); end; }\n";
+    write(&ws, "src/lib.al", lib);
+    write(
+        &ws,
+        "src/tests.al",
+        "codeunit 50620 \"Chk Tests\" { Subtype = Test; [Test] procedure Twice() var L: Codeunit \"Chk Lib\"; R: Record \"Chk T\"; begin R.DeleteAll(); if L.Twice(2) <> 4 then Error('twice'); end; }\n",
+    );
+    let cache = d.path().join("cache");
+    let dep_arg = dep.to_string_lossy().to_string();
+    let cache_arg = cache.to_string_lossy().to_string();
+    let mut s = Server::start_with(
+        &[
+            "--no-download",
+            "--no-test-data",
+            "--dep",
+            &dep_arg,
+            "--cache-dir",
+            &cache_arg,
+        ],
+        &[("ALRUNNER_CHECK_INCREMENTAL", "1")],
+    );
+    assert_eq!(s.line(), json!({"ready": true}));
+    let request = json!({"command": "runTests", "sourcePaths": [ws]});
+    s.send(request.clone());
+    let first = s.until_summary().last().unwrap().clone();
+    assert_eq!(first["timings"]["workspaceCache"], json!("built"), "{first}");
+    write(
+        &ws,
+        "src/lib.al",
+        &lib.replace("exit(X * 2 * D.One())", "exit(X * 3 * D.One())"),
+    );
+    s.send(request);
+    let edited = s.until_summary().last().unwrap().clone();
+    assert_eq!(edited["incremental"], json!(true), "{edited}");
+    s.send(json!({"command": "shutdown"}));
+    s.line();
+    s.child.wait().unwrap();
+    let entries: Vec<_> = std::fs::read_dir(cache.join("compile"))
+        .unwrap()
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "alcw"))
+        .map(|e| e.file_name())
+        .collect();
+    assert_eq!(
+        entries.len(),
+        1,
+        "the check's complete compile wrote an entry: {entries:?}"
+    );
+}
+
 /// A stand-in of Microsoft's login in a dependency app, in the shape of its code (al-testrun `runtime/login_tests.rs`):
 /// Company Triggers `OnCompanyOpenCompleted` raises `OnAfterLogin`, whose subscriber raises the registration events.
 const LOGIN_STAND_IN: &str = r#"
@@ -3011,20 +3560,17 @@ codeunit 1997 "Checklist Events"
 }
 "#;
 
-/// Al-runner issue 8211: `ALRUNNER_LOGIN_REPLAY_CHECK=1` compares what each test session holds after the raised login with
-/// the first session of the same inputs, across the entries of a request (their `resources`, which the login reads here)
-/// and the requests of one kept daemon (another `seed`). No session of one key holds anything else.
-#[test]
-fn the_login_replay_check_finds_no_difference_across_entries_and_requests() {
-    let d = tempfile::tempdir().unwrap();
-    let dep = d.path().join("login");
+/// The login stand-in app and an app under test whose login subscriber registers a row that depends on its resource
+/// `rpl.txt`: the apps of the login replay check's serve tests. Returns the stand-in's folder and the app's folder.
+fn login_probe(d: &Path) -> (PathBuf, PathBuf) {
+    let dep = d.join("login");
     write(
         &dep,
         "app.json",
         r#"{"id":"82110000-0000-0000-0000-000000000001","name":"Login Stand-in","publisher":"Someone","version":"1.0.0.0","dependencies":[]}"#,
     );
     write(&dep, "src/Login.al", LOGIN_STAND_IN);
-    let main = d.path().join("main");
+    let main = d.join("main");
     write(
         &main,
         "app.json",
@@ -3047,6 +3593,16 @@ codeunit 50821 "Probe Login Tests"
 }
 "#,
     );
+    (dep, main)
+}
+
+/// Al-runner issue 8211: `ALRUNNER_LOGIN_REPLAY_CHECK=1` compares what each test session holds after the raised login with
+/// the first session of the same inputs, across the entries of a request (their `resources`, which the login reads here)
+/// and the requests of one kept daemon (another `seed`). No session of one key holds anything else.
+#[test]
+fn the_login_replay_check_finds_no_difference_across_entries_and_requests() {
+    let d = tempfile::tempdir().unwrap();
+    let (dep, main) = login_probe(d.path());
     let log = d.path().join("stderr.txt");
     let dep_arg = dep.to_string_lossy().to_string();
     let mut s = Server::start_with_stderr(
@@ -3080,6 +3636,508 @@ codeunit 50821 "Probe Login Tests"
         checks[1],
         "login replay check: 6 sessions over 4 keys (a key seen before: 2 sessions, 33%), 2 compared, 0 differ; across test codeunits: 0 compared, 0 differ"
     );
+}
+
+/// Al-runner issue 8211: under the same check each new key's session is frozen into a session image, thawn into a
+/// twin and compared (`login image:` line, after the check line). Over the same entries and requests as the check's test
+/// above: every key is imaged, every round trip equals, and an image is made once per key, so a key seen before adds none.
+#[test]
+fn the_login_image_round_trips_across_entries_and_requests() {
+    let d = tempfile::tempdir().unwrap();
+    let (dep, main) = login_probe(d.path());
+    let log = d.path().join("stderr.txt");
+    let dep_arg = dep.to_string_lossy().to_string();
+    let mut s = Server::start_with_stderr(
+        &["--no-download", "--no-test-data", "--dep", &dep_arg],
+        &[("ALRUNNER_LOGIN_REPLAY_CHECK", "1")],
+        Stdio::from(std::fs::File::create(&log).unwrap()),
+    );
+    s.line();
+    let entries = json!([
+        {"id": "a", "resources": {"rpl.txt": "a"}, "test": "Codeunit50821."},
+        {"id": "b", "resources": {"rpl.txt": "abcd"}, "test": "Codeunit50821."},
+        {"id": "c", "resources": {"rpl.txt": "a"}, "test": "Codeunit50821."},
+    ]);
+    for seed in [1, 2] {
+        s.send(json!({"command": "runTests", "sourcePaths": [main], "entries": entries, "seed": seed}));
+        let lines = s.until_summary();
+        assert_eq!(lines.last().unwrap()["passed"], json!(3), "{lines:?}");
+    }
+    // Stdin stays open until the last answer.
+    drop(s.stdin.take());
+    s.child.wait().unwrap();
+    let text = std::fs::read_to_string(&log).unwrap();
+    let images: Vec<&str> = text.lines().filter(|l| l.starts_with("login image: ")).collect();
+    assert_eq!(images.len(), 2, "one line per request: {text}");
+    assert!(
+        images[0].starts_with("login image: 2 keys, 2 imaged, 0 not imaged; round trips 2, 0 differ"),
+        "{}",
+        images[0]
+    );
+    assert!(
+        images[1].starts_with("login image: 4 keys, 4 imaged, 0 not imaged; round trips 4, 0 differ"),
+        "{}",
+        images[1]
+    );
+}
+
+/// What a login start must not change about a test line: the entry, the test and its verdict (not the timings).
+fn verdicts(lines: &[Value]) -> Vec<(Value, Value, Value, Value)> {
+    let mut v: Vec<_> = (lines.iter().filter(|l| l["type"] == "test"))
+        .map(|t| {
+            (
+                t["id"].clone(),
+                t["name"].clone(),
+                t["status"].clone(),
+                t["message"].clone(),
+            )
+        })
+        .collect();
+    v.sort_by_key(|t| format!("{t:?}"));
+    v
+}
+
+/// The `loginReplays` of a request's summary (sessions that took a login start in place of their login), if it has one.
+fn login_replays(lines: &[Value]) -> Option<u64> {
+    lines.last().and_then(|s| s["timings"]["loginReplays"].as_u64())
+}
+
+/// Sends the entries of the login probe `rounds` times to one daemon (one seed, so one key per entry whatever the round)
+/// started with `env`; each round's lines up to its summary. `extra`: more entries of the first round only.
+fn login_probe_rounds(
+    env: &[(&str, &str)],
+    rounds: usize,
+    first_round_extra: &[Value],
+    timeout: bool,
+) -> Vec<Vec<Value>> {
+    let d = tempfile::tempdir().unwrap();
+    let (dep, main) = login_probe(d.path());
+    write(
+        &main,
+        "src/Hang.al",
+        r#"codeunit 50822 "Probe Hanger"
+{
+    Subtype = Test;
+    [Test] procedure Hangs() var i: Integer; begin while true do i := (i + 1) mod 7919; end;
+}
+"#,
+    );
+    let dep_arg = dep.to_string_lossy().to_string();
+    let mut s = Server::start_with(&["--no-download", "--no-test-data", "--dep", &dep_arg], env);
+    s.line();
+    let probe = json!([
+        {"id": "a", "resources": {"rpl.txt": "a"}, "test": "Codeunit50821."},
+        {"id": "b", "resources": {"rpl.txt": "abcd"}, "test": "Codeunit50821."},
+        {"id": "c", "resources": {"rpl.txt": "a"}, "test": "Codeunit50821."},
+    ]);
+    let mut out = Vec::new();
+    for round in 0..rounds {
+        let mut entries = probe.as_array().unwrap().clone();
+        if round == 0 {
+            entries.extend(first_round_extra.iter().cloned());
+        }
+        let mut request = json!({"command": "runTests", "sourcePaths": [main], "entries": entries, "seed": 7});
+        if timeout && round == 0 {
+            request["testTimeoutSecs"] = json!(1);
+        }
+        s.send(request);
+        out.push(s.until_summary());
+    }
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+    out
+}
+
+/// Al-runner issue 8211: a session whose login inputs another session of the daemon had takes what that login left
+/// in place of running it. The second request (the same seed, so the same keys) takes a start for each of its three
+/// entries (`timings.loginReplays`), and every test line equals those of the same requests with the replay off.
+#[test]
+fn a_second_request_takes_the_login_starts_of_the_first() {
+    let on = login_probe_rounds(&[("ALRUNNER_LOGIN_REPLAY", "1")], 2, &[], false);
+    let off = login_probe_rounds(&[("ALRUNNER_LOGIN_REPLAY", "0")], 2, &[], false);
+    for round in 0..2 {
+        assert_eq!(on[round].last().unwrap()["passed"], json!(3), "{:?}", on[round]);
+        assert_eq!(verdicts(&on[round]), verdicts(&off[round]), "round {round}");
+    }
+    assert!(
+        login_replays(&on[1]).is_some_and(|n| n >= 3),
+        "the second request takes a start per entry: {:?}",
+        on[1].last()
+    );
+}
+
+/// Al-runner issue 8211, the start check per request: with the replay on, a request whose `maxMemory` is not above
+/// `ALRUNNER_LOGIN_REPLAY_MAX_MB` is an error that names both values, and runs nothing. The kept engine and its starts
+/// stay as they were (none is cut for the smaller limit): the next request that may run takes them.
+#[test]
+fn a_request_whose_max_memory_is_not_above_the_byte_cap_is_an_error_and_the_kept_starts_stay() {
+    let d = tempfile::tempdir().unwrap();
+    let (dep, main) = login_probe(d.path());
+    let dep_arg = dep.to_string_lossy().to_string();
+    let env = [("ALRUNNER_LOGIN_REPLAY", "1"), ("ALRUNNER_LOGIN_REPLAY_MAX_MB", "16")];
+    let mut s = Server::start_with(&["--no-download", "--no-test-data", "--dep", &dep_arg], &env);
+    s.line();
+    let request = |max_memory: Option<&str>| {
+        let entries = json!([
+            {"id": "a", "resources": {"rpl.txt": "a"}, "test": "Codeunit50821."},
+            {"id": "b", "resources": {"rpl.txt": "abcd"}, "test": "Codeunit50821."},
+        ]);
+        let mut r = json!({"command": "runTests", "sourcePaths": [main], "entries": entries, "seed": 7});
+        if let Some(m) = max_memory {
+            r["maxMemory"] = json!(m);
+        }
+        r
+    };
+    s.send(request(None));
+    let first = s.until_summary();
+    assert_eq!(first.last().unwrap()["passed"], json!(2), "{first:?}");
+    let before = login_replays(&first).expect("loginReplays");
+    for limit in ["16M", "8M"] {
+        s.send(request(Some(limit)));
+        let refused = s.until_summary();
+        let error = refused.last().unwrap()["error"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        assert!(
+            error.contains(&format!(
+                "ALRUNNER_LOGIN_REPLAY_MAX_MB is 16 MB, not below the memory limit of {} MB",
+                limit.trim_end_matches('M')
+            )),
+            "{refused:?}"
+        );
+        assert!(!refused.iter().any(|l| l["type"] == "test"), "nothing ran: {refused:?}");
+    }
+    s.send(request(Some("6G")));
+    let after = s.until_summary();
+    assert_eq!(after.last().unwrap()["passed"], json!(2), "{after:?}");
+    assert!(
+        login_replays(&after).is_some_and(|n| n >= before + 2),
+        "the starts of the first request were kept: {before} then {:?}",
+        after.last()
+    );
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+}
+
+/// Al-runner issue 8211: `ALRUNNER_LOGIN_REPLAY=0` turns the replay off: no session takes a start, and the field
+/// says so (0, not absent).
+#[test]
+fn with_the_replay_off_no_session_takes_a_start() {
+    let off = login_probe_rounds(&[("ALRUNNER_LOGIN_REPLAY", "0")], 2, &[], false);
+    for (round, lines) in off.iter().enumerate() {
+        assert_eq!(lines.last().unwrap()["passed"], json!(3), "{lines:?}");
+        assert_eq!(login_replays(lines), Some(0), "round {round}: {:?}", lines.last());
+    }
+}
+
+/// The replay is off unless `ALRUNNER_LOGIN_REPLAY=1` turns it on. On a store a session does not start
+/// from a shared snapshot of (install code that runs in every session), the key's digest of every row costs more than the
+/// Login it saves, so it is opt-in until that cost is gone.
+#[test]
+fn the_replay_is_off_unless_turned_on() {
+    let default = login_probe_rounds(&[], 2, &[], false);
+    for (round, lines) in default.iter().enumerate() {
+        assert_eq!(login_replays(lines), Some(0), "round {round}: {:?}", lines.last());
+    }
+}
+
+/// Al-runner issue 8211: a kept daemon whose first request had a test the time limit stopped answers the next
+/// request as a new daemon does (the same verdicts), and takes the starts of the first request (the stopped test's session
+/// recorded none that could change the answer).
+#[test]
+fn a_kept_daemon_with_login_starts_answers_as_a_fresh_one() {
+    let hanger = json!({"id": "h", "test": "Codeunit50822."});
+    let kept = login_probe_rounds(&[("ALRUNNER_LOGIN_REPLAY", "1")], 2, &[hanger], true);
+    let h = kept[0]
+        .iter()
+        .find(|l| l["type"] == "test" && l["name"].as_str().is_some_and(|n| n.contains("Hangs")));
+    assert!(
+        h.is_some_and(|t| t["notRun"] == true),
+        "the hanger is stopped by the time limit: {:?}",
+        kept[0]
+    );
+    let fresh = login_probe_rounds(&[("ALRUNNER_LOGIN_REPLAY", "1")], 1, &[], false);
+    assert_eq!(verdicts(&kept[1]), verdicts(&fresh[0]));
+    assert_eq!(kept[1].last().unwrap()["passed"], json!(3), "{:?}", kept[1]);
+    assert!(
+        login_replays(&kept[1]).is_some_and(|n| n >= 1),
+        "the kept daemon replays: {:?}",
+        kept[1].last()
+    );
+}
+
+/// The requests `requests` (each a `runTests` request without `command` and `sourcePaths`) over the login stand-in and an
+/// app under test whose sources are `src`, on one daemon started with `env`: each request's lines up to its summary.
+fn login_app_requests(src: &str, requests: &[Value], env: &[(&str, &str)]) -> Vec<Vec<Value>> {
+    let d = tempfile::tempdir().unwrap();
+    let (dep, main) = login_probe(d.path());
+    write(&main, "src/T.al", src);
+    let dep_arg = dep.to_string_lossy().to_string();
+    let mut s = Server::start_with(&["--no-download", "--no-test-data", "--dep", &dep_arg], env);
+    s.line();
+    let mut out = Vec::new();
+    for r in requests {
+        let mut request = r.clone();
+        request["command"] = json!("runTests");
+        request["sourcePaths"] = json!([main]);
+        s.send(request);
+        out.push(s.until_summary());
+    }
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+    out
+}
+
+/// Runs `requests` with the replay on (`ALRUNNER_LOGIN_REPLAY=1`) and off (the default) and asserts every request gives
+/// the same verdicts (entry, test, status, message); returns the replay-on lines.
+fn same_with_and_without_the_replay(src: &str, requests: &[Value]) -> Vec<Vec<Value>> {
+    let on = login_app_requests(src, requests, &[("ALRUNNER_LOGIN_REPLAY", "1")]);
+    let off = login_app_requests(src, requests, &[]);
+    for (n, (a, b)) in on.iter().zip(&off).enumerate() {
+        assert_eq!(verdicts(a), verdicts(b), "request {n}: the replay changed a verdict");
+    }
+    on
+}
+
+/// Al-runner issue 8211: the login reads the request's `serverUrl` (`GetUrl`), so a session of another
+/// URL never takes the start of a login that read another one. Same seed, so every other key field is equal.
+#[test]
+fn a_request_with_another_server_url_takes_no_start_of_the_first() {
+    let src = r#"table 50830 "Probe Url" { fields { field(1; K; Integer) { } field(2; Url; Text[250]) { } } keys { key(PK; K) { } } }
+codeunit 50820 "Probe Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
+    local procedure RegisterManualSetup() var U: Record "Probe Url";
+    begin U.K := 1; U.Url := CopyStr(GetUrl(ClientType::Web), 1, 250); U.Insert(); end;
+}
+codeunit 50821 "Probe Login Tests"
+{
+    Subtype = Test;
+    [Test] procedure SeesTheUrl() var U: Record "Probe Url"; begin U.Get(1); Error('URL=%1', U.Url); end;
+}
+"#;
+    let other = "https://other.example/BC280/";
+    let on = same_with_and_without_the_replay(
+        src,
+        &[
+            json!({"seed": 7}),
+            json!({"seed": 7}),
+            json!({"seed": 7, "serverUrl": other}),
+        ],
+    );
+    let message = |lines: &[Value]| {
+        (lines.iter())
+            .find(|l| l["type"] == "test")
+            .map(|t| t["message"].to_string())
+            .unwrap_or_default()
+    };
+    assert!(message(&on[2]).contains(other), "{:?}", on[2]);
+    assert!(
+        login_replays(&on[1]).is_some_and(|n| n >= 1),
+        "the same URL replays: {:?}",
+        on[1].last()
+    );
+}
+
+/// The app of two probes: a login subscriber adds a row both test codeunits read,
+/// and both take NumberSequence numbers, so under TestIsolation = Function in BC's order the second is refused when the
+/// numbers an earlier codeunit took are not known (al-runner issue 8152, `Scratch::numbers_unmeasured`).
+const NUMBERS_APP: &str = r#"table 50830 "RG Login Row" { fields { field(1; Code; Code[20]) { } field(2; Note; Text[50]) { } } keys { key(PK; Code) { Clustered = true; } } }
+codeunit 50820 "Probe Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
+    local procedure RegisterManualSetup() var Row: Record "RG Login Row";
+    begin Row.Code := 'L'; Row.Note := 'from login'; if Row.Insert() then; end;
+}
+codeunit 50821 "RG Tests W"
+{
+    Subtype = Test;
+    [Test]
+    procedure TakesNumbers() var Row: Record "RG Login Row"; N: BigInteger;
+    begin
+        if not NumberSequence.Exists('RGSEQ') then NumberSequence.Insert('RGSEQ', 1, 1);
+        N := NumberSequence.Next('RGSEQ');
+        Error('W rows=%1 next=%2', Row.Count(), N);
+    end;
+}
+codeunit 50822 "RG Tests K"
+{
+    Subtype = Test;
+    [Test]
+    procedure ReadsNumbers() var Row: Record "RG Login Row"; N: BigInteger;
+    begin
+        if not NumberSequence.Exists('RGSEQ') then NumberSequence.Insert('RGSEQ', 1, 1);
+        N := NumberSequence.Next('RGSEQ');
+        Error('K rows=%1 next=%2', Row.Count(), N);
+    end;
+    [Test] procedure Plain() var Row: Record "RG Login Row"; begin Error('K plain rows=%1', Row.Count()); end;
+}
+"#;
+
+/// A plain request, then one in BC's order under TestIsolation = Function, where the numbers mark
+/// refuses `ReadsNumbers`. A start the plain request recorded without the mark must not run it.
+#[test]
+fn a_start_recorded_without_the_numbers_mark_does_not_run_a_refused_test() {
+    let strict = json!({"seed": 1, "testIsolation": "test", "strictOrder": true});
+    same_with_and_without_the_replay(
+        NUMBERS_APP,
+        &[json!({"seed": 1}), strict.clone(), json!({"seed": 1}), strict],
+    );
+}
+
+/// The strict request first, so a start is recorded with the mark; a later request without it must
+/// not refuse the test.
+#[test]
+fn a_start_recorded_with_the_numbers_mark_does_not_refuse_a_later_test() {
+    let strict = json!({"seed": 1, "testIsolation": "test", "strictOrder": true});
+    same_with_and_without_the_replay(
+        NUMBERS_APP,
+        &[
+            strict.clone(),
+            json!({"seed": 1, "testIsolation": "test"}),
+            json!({"seed": 1}),
+            strict,
+        ],
+    );
+}
+
+/// A guard (green before and after the login key hashes each row's bytes): an app whose install codeunit leaves a wide
+/// table of 200 rows, in two shapes. With `login_row`, a subscriber to the login's setup event adds a row of its own, so
+/// its sessions' logins are raised and write a row and the key's rows matter; without it, the login writes no row. Six
+/// test codeunits, one failing, in three requests of one seed (one key per codeunit).
+fn large_install_base_source(login_row: bool) -> String {
+    let mut src = String::from(
+        r#"table 50110 "Probe Wide"
+{
+    fields
+    {
+        field(1; "No."; Integer) { }
+        field(2; F2; Text[100]) { }
+        field(6; F6; Decimal) { }
+        field(7; F7; Date) { }
+        field(9; F9; Boolean) { }
+        field(10; F10; Text[250]) { }
+    }
+    keys { key(PK; "No.") { Clustered = true; } }
+}
+table 50112 "Probe Login Row" { fields { field(1; Code; Code[20]) { } } keys { key(PK; Code) { Clustered = true; } } }
+codeunit 50111 "Probe Install"
+{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany()
+    var W: Record "Probe Wide"; i: Integer;
+    begin
+        for i := 1 to 200 do begin
+            W.Init(); W."No." := i; W.F2 := 'Some descriptive text for row number ' + Format(i);
+            W.F6 := i * 1.5; W.F7 := 20260101D; W.F9 := (i mod 2) = 0; W.F10 := 'A wide text field'; W.Insert();
+        end;
+    end;
+}
+codeunit 50100 "Probe Logic" { procedure Twice(X: Integer): Integer begin exit(X * 2); end; }
+"#,
+    );
+    if login_row {
+        src.push_str(
+            r#"codeunit 50101 "Probe Registration Row"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
+    local procedure RegisterManualSetup() var R: Record "Probe Login Row";
+    begin R.Code := 'LOGIN'; if R.Insert() then; end;
+}
+"#,
+        );
+    }
+    for n in 50..=55 {
+        let fails = if n == 55 {
+            "Error('rows=%1 login=%2', W.Count(), R.Count());"
+        } else {
+            "if Logic.Twice(1) <> 2 then Error('T');"
+        };
+        src.push_str(&format!(
+            "codeunit 501{n} \"Probe Tests {n}\"\n{{\n    Subtype = Test;\n    var Logic: Codeunit \"Probe Logic\";\n    [Test]\n    procedure T1() var W: Record \"Probe Wide\"; R: Record \"Probe Login Row\";\n    begin\n        {fails}\n    end;\n}}\n"
+        ));
+    }
+    src
+}
+
+/// Three requests of [`large_install_base_source`]: the six codeunits as entries, seed 1.
+fn large_install_base_requests() -> Vec<Value> {
+    let entries: Vec<Value> = (0..6)
+        .map(|i| json!({"id": format!("e{i}"), "test": format!("Codeunit501{}.", 50 + i)}))
+        .collect();
+    vec![json!({"seed": 1, "entries": entries}); 3]
+}
+
+/// The lines of the replay check on `stderr` of a daemon that ran `requests` of `src` under `ALRUNNER_LOGIN_REPLAY_CHECK=1`.
+fn check_lines(src: &str, requests: &[Value]) -> (Vec<Vec<Value>>, Vec<String>) {
+    let d = tempfile::tempdir().unwrap();
+    let (dep, main) = login_probe(d.path());
+    write(&main, "src/T.al", src);
+    let log = d.path().join("stderr.txt");
+    let dep_arg = dep.to_string_lossy().to_string();
+    let mut s = Server::start_with_stderr(
+        &["--no-download", "--no-test-data", "--dep", &dep_arg],
+        &[("ALRUNNER_LOGIN_REPLAY_CHECK", "1")],
+        Stdio::from(std::fs::File::create(&log).unwrap()),
+    );
+    s.line();
+    let mut out = Vec::new();
+    for r in requests {
+        let mut request = r.clone();
+        request["command"] = json!("runTests");
+        request["sourcePaths"] = json!([main]);
+        s.send(request);
+        out.push(s.until_summary());
+    }
+    drop(s.stdin.take());
+    s.child.wait().unwrap();
+    let text = std::fs::read_to_string(&log).unwrap();
+    let checks = (text.lines().filter(|l| l.starts_with("login replay check: ")))
+        .map(String::from)
+        .collect();
+    (out, checks)
+}
+
+/// A guard: the same verdicts with the replay on, off (`ALRUNNER_LOGIN_REPLAY=0`) and under the check, and the check
+/// finds 0 that differ, for both shapes.
+#[test]
+fn a_large_install_base_gives_one_verdict_with_the_replay_on_off_and_under_the_check() {
+    for (shape, login_row) in [("a login that writes a row", true), ("no login row", false)] {
+        let src = large_install_base_source(login_row);
+        let requests = large_install_base_requests();
+        let on = login_app_requests(&src, &requests, &[("ALRUNNER_LOGIN_REPLAY", "1")]);
+        let off = login_app_requests(&src, &requests, &[("ALRUNNER_LOGIN_REPLAY", "0")]);
+        let (checked, check) = check_lines(&src, &requests);
+        for n in 0..requests.len() {
+            assert_eq!(
+                verdicts(&on[n]),
+                verdicts(&off[n]),
+                "{shape} request {n}: on against off"
+            );
+            assert_eq!(
+                verdicts(&checked[n]),
+                verdicts(&off[n]),
+                "{shape} request {n}: check against off"
+            );
+        }
+        let failing: Vec<_> = verdicts(&off[0]).into_iter().filter(|v| v.2 != json!("pass")).collect();
+        assert_eq!(failing.len(), 1, "{shape}: one failing test: {failing:?}");
+        // Without the login row the login is not raised, so it has no key and no check line (nothing to compare); with it,
+        // one per request.
+        let lines = if login_row { requests.len() } else { 0 };
+        assert_eq!(check.len(), lines, "{shape}: check lines: {check:?}");
+        for line in &check {
+            assert!(line.contains(", 0 differ;"), "{shape}: {line}");
+        }
+        let replays = login_replays(&on[2]).unwrap_or(0);
+        assert_eq!(
+            replays >= 1,
+            login_row,
+            "{shape}: a later request replays: {:?}",
+            on[2].last()
+        );
+    }
 }
 
 // ---- Issue 8210: per-entry `stopGroup` for `stopAfterFirstFailure` ----

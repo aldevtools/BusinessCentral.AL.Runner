@@ -73,6 +73,9 @@ pub struct FieldTarget {
     pub option_captions: Option<String>,
 }
 
+/// The bytes `File.Open` opens and the placeholder mark they open with ([`Ctx::fs_read_to_open`]).
+pub type OpenedFile = (Vec<u8>, Option<std::sync::Arc<str>>);
+
 pub trait Ctx: FormatCtx {
     /// Gives `request` to the running test's `[HttpClientHandler]` and answers the response it filled; raises the
     /// policy error without one. No request ever reaches a network.
@@ -117,6 +120,11 @@ pub trait Ctx: FormatCtx {
     /// Whether the run has the newer behaviour of `gate` (ADR-015 3.4); a context with no target has every gate.
     fn gate(&self, _gate: al_version::Gate) -> bool {
         true
+    }
+    /// `al_version::http_probe_1424_measured` for the run's target: the minors on which the HTTP shapes of corpus PR 1424
+    /// were measured. Without a target nothing is measured.
+    fn http_probe_1424_measured(&self) -> bool {
+        false
     }
     /// Record methods (`Record.Insert`, ...) need the store, triggers and
     /// table metadata: the VM implements them. `method` is the catalog name.
@@ -422,9 +430,19 @@ pub trait Ctx: FormatCtx {
     fn fs_exists(&mut self, _path: &str) -> Result<bool, Signal> {
         Err(Signal::Unsupported("File: this context has no file system".into()))
     }
-    /// The bytes of the file at `path`, `None` if there is none.
+    /// The bytes of the file at `path` for a read of its content, `None` if there is none.
     fn fs_read(&mut self, _path: &str) -> Result<Option<Vec<u8>>, Signal> {
         Err(Signal::Unsupported("File: this context has no file system".into()))
+    }
+    /// The bytes of the file at `path` for `File.Open`, with the placeholder mark they open with when a read of their content
+    /// is refused, `None` if there is no file.
+    fn fs_read_to_open(&mut self, path: &str) -> Result<Option<OpenedFile>, Signal> {
+        Ok(self.fs_read(path)?.map(|bytes| (bytes, None)))
+    }
+    /// The bytes of the file at `path` for a copy that looks at none of them (`File.Copy`, `File.Rename`), `None` if there is
+    /// none.
+    fn fs_read_to_move(&mut self, path: &str) -> Result<Option<Vec<u8>>, Signal> {
+        self.fs_read(path)
     }
     /// Creates the file at `path` or replaces its content; the host's reason if it cannot.
     fn fs_write(&mut self, _path: &str, _bytes: &[u8]) -> Result<(), String> {

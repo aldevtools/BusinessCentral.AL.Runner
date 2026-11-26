@@ -200,12 +200,11 @@ fn open(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     let carried = c.fs_carried_mark(&name);
     // A placeholder report output opens with its bytes and its mark: only a read of the content is refused
     // (`placeholder_output`).
-    let placeholder = c.fs_placeholder(&name);
-    let bytes = match (&carried, &placeholder) {
-        (Some(_), _) => Vec::new(),
-        (None, Some((_, bytes))) => bytes.clone(),
-        (None, None) => match c.fs_read(&name)? {
-            Some(bytes) => bytes,
+    let (bytes, placeholder) = match (&carried, c.fs_placeholder(&name)) {
+        (Some(_), _) => (Vec::new(), None),
+        (None, Some((mark, bytes))) => (bytes, Some(mark)),
+        (None, None) => match c.fs_read_to_open(&name)? {
+            Some(read) => read,
             None => return fs_failure(c, &format!("File.Open of the missing file {name}")),
         },
     };
@@ -219,7 +218,7 @@ fn open(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
         if let Some(mark) = carried {
             crate::stream::mark_carried(&blob, mark);
             blob.borrow_mut().written = false;
-        } else if let Some((mark, _)) = placeholder {
+        } else if let Some(mark) = placeholder {
             blob.borrow_mut().render_pending = Some(mark);
         }
         s.name.clone_from(&name);
@@ -276,20 +275,25 @@ fn close(c: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
             closed,
             (was && s.writable && !s.temp).then(|| {
                 let b = s.blob.borrow();
-                (s.name.clone(), b.bytes.clone(), b.render_pending.clone())
+                (s.name.clone(), b.bytes.clone(), b.render_pending.clone(), b.written)
             }),
         ))
     })?;
     let wrote = match pending {
         // Content carried unread in the company build stays unread in the file it is written to.
-        Some((name, _, Some(mark))) if c.company_build() && crate::stream::is_carried_mark(&mark) => {
+        Some((name, _, Some(mark), _)) if c.company_build() && crate::stream::is_carried_mark(&mark) => {
             c.fs_write_unproduced(&name, &mark).map_err(|e| (name, e))
         }
+        // A file another session wrote, opened for writing, and nothing written to it: its bytes go back as they were,
+        // with no mark, and get the outside mark again when they are read (`Ctx::fs_read_to_open`).
+        Some((name, bytes, Some(mark), false)) if crate::placeholder_output::is_outside(&mark) => {
+            c.fs_write(&name, &bytes).map_err(|e| (name, e))
+        }
         // A placeholder report output copied into the file keeps its mark there.
-        Some((name, bytes, Some(mark))) if crate::placeholder_output::is_placeholder(&mark) => {
+        Some((name, bytes, Some(mark), _)) if crate::placeholder_output::is_placeholder(&mark) => {
             c.fs_write_placeholder(&name, &bytes, mark).map_err(|e| (name, e))
         }
-        Some((name, bytes, _)) => c.fs_write(&name, &bytes).map_err(|e| (name, e)),
+        Some((name, bytes, ..)) => c.fs_write(&name, &bytes).map_err(|e| (name, e)),
         None => Ok(()),
     };
     // After the write, so the context sees the file as this handle left it.
@@ -426,7 +430,7 @@ fn erase(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
 
 fn copy(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let (from, to) = (path(a, 0)?, path(a, 1)?);
-    let Some(bytes) = c.fs_read(&from)? else {
+    let Some(bytes) = c.fs_read_to_move(&from)? else {
         return fs_failure(c, &format!("File.Copy of the missing file {from}"));
     };
     if c.fs_exists(&to)? {
@@ -440,7 +444,7 @@ fn copy(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
 
 fn rename(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let (from, to) = (path(a, 0)?, path(a, 1)?);
-    let Some(bytes) = c.fs_read(&from)? else {
+    let Some(bytes) = c.fs_read_to_move(&from)? else {
         return fs_failure(c, &format!("File.Rename of the missing file {from}"));
     };
     if c.fs_exists(&to)? {

@@ -413,6 +413,24 @@ struct TempToken {
     copy_targets: RefCell<Vec<CopyShare>>,
 }
 
+/// A live `target.Copy(source, true)` of a temporary table: the target, and the source while it lives.
+pub type CopyPair = (Rc<RefCell<RecordState>>, Option<Rc<RefCell<RecordState>>>);
+
+/// What [`TempId::image_parts`] reads of a temporary table's token.
+pub struct TempTokenParts {
+    pub id: u64,
+    /// The table was made for a record handed by value ([`TempId::is_by_value_copy`]).
+    pub by_value_copy: bool,
+    /// [`TempId::with_empty_blob_insert_key`].
+    pub empty_blob_insert_key: Option<Vec<Value>>,
+    /// [`TempId::empty_blob_inserter`].
+    pub empty_blob_inserter: Option<Rc<RefCell<RecordState>>>,
+    /// [`TempId::rows_unmeasured`].
+    pub rows_unmeasured: bool,
+    /// The live copy targets that still hold the table ([`TempId::copy_targets`]), as records.
+    pub copy_targets: Vec<CopyPair>,
+}
+
 /// One `target.Copy(source, true)` of a temporary table ([`TempId::note_copy_target`]).
 struct CopyShare {
     target: std::rc::Weak<RefCell<RecordState>>,
@@ -465,6 +483,16 @@ impl TempId {
         self.0.rows_unmeasured.set(true);
     }
 
+    /// The record state whose Insert [`TempId::note_empty_blob_insert`] last noted, while it lives (al-vm `login_image`
+    /// keeps the note).
+    pub fn empty_blob_inserter(&self) -> Option<Rc<RefCell<RecordState>>> {
+        self.0
+            .empty_blob_inserter
+            .borrow()
+            .as_ref()
+            .and_then(std::rc::Weak::upgrade)
+    }
+
     /// Whether [`TempId::mark_rows_unmeasured`] marked the table.
     pub fn rows_unmeasured(&self) -> bool {
         self.0.rows_unmeasured.get()
@@ -510,17 +538,31 @@ impl TempId {
 
     /// `target.Copy(source, true)` gave `target` the table.
     pub fn note_copy_target(&self, target: &Rc<RefCell<RecordState>>, source: &Rc<RefCell<RecordState>>) {
+        self.note_copy_target_of(target, Some(source));
+    }
+
+    /// [`TempId::note_copy_target`], also for a share whose source is gone (`None`): a session image (al-vm
+    /// `login_image`) notes again on its thaw what [`TempId::image_parts`] read.
+    pub fn note_copy_target_of(&self, target: &Rc<RefCell<RecordState>>, source: Option<&Rc<RefCell<RecordState>>>) {
         let mut targets = self.0.copy_targets.borrow_mut();
         targets.retain(|c| c.target.strong_count() > 0 && !std::ptr::eq(c.target.as_ptr(), Rc::as_ptr(target)));
         targets.push(CopyShare {
             target: Rc::downgrade(target),
-            source: Rc::downgrade(source),
+            source: source.map_or_else(std::rc::Weak::new, Rc::downgrade),
         });
     }
 
     /// The live records [`TempId::note_copy_target`] noted that still hold this table, by address, each with the address
     /// of the record it copied while that record lives.
     pub fn copy_targets(&self) -> Vec<(usize, Option<usize>)> {
+        (self.live_copy_targets().iter())
+            .map(|(t, s)| (Rc::as_ptr(t) as usize, s.as_ref().map(|s| Rc::as_ptr(s) as usize)))
+            .collect()
+    }
+
+    /// The live records [`TempId::note_copy_target`] noted that still hold this table, each with the record it copied while
+    /// that record lives.
+    fn live_copy_targets(&self) -> Vec<CopyPair> {
         let id = self.0.id;
         let holds = |r: &Rc<RefCell<RecordState>>| {
             r.try_borrow()
@@ -528,8 +570,30 @@ impl TempId {
         };
         (self.0.copy_targets.borrow().iter())
             .filter_map(|c| c.target.upgrade().filter(holds).map(|t| (t, c.source.upgrade())))
-            .map(|(t, s)| (Rc::as_ptr(&t) as usize, s.map(|s| Rc::as_ptr(&s) as usize)))
             .collect()
+    }
+
+    /// Everything the token holds, read through one destructure with no `..`, for a session image (al-vm `login_image`):
+    /// a field added to the token fails that image's compile here.
+    pub fn image_parts(&self) -> TempTokenParts {
+        let TempToken {
+            id,
+            // The session's release queue: the thaw makes the table in the thawn session, with that session's queue.
+            release: _,
+            by_value_of,
+            empty_blob_insert_key,
+            empty_blob_inserter,
+            rows_unmeasured,
+            copy_targets: _,
+        } = &*self.0;
+        TempTokenParts {
+            id: *id,
+            by_value_copy: by_value_of.is_some(),
+            empty_blob_insert_key: empty_blob_insert_key.borrow().clone(),
+            empty_blob_inserter: empty_blob_inserter.borrow().as_ref().and_then(std::rc::Weak::upgrade),
+            rows_unmeasured: rows_unmeasured.get(),
+            copy_targets: self.live_copy_targets(),
+        }
     }
 
     /// `f` of the key [`TempId::note_empty_blob_insert`] last noted.
@@ -609,7 +673,7 @@ pub struct RecordState {
     pub field_descending: u32,
     /// The primary key of the row the record last read: `Find` still finds that row after the
     /// record moved it out of its own filter.
-    pub position: Option<Vec<Value>>,
+    pub position: Option<Rc<[Value]>>,
     /// Field positions of `SetAutoCalcFields`: calculated whenever a row is read.
     pub auto_calc: Vec<usize>,
     /// Partial records: `SetLoadFields` and which fields the buffer holds.
@@ -639,6 +703,8 @@ pub struct RecordState {
     /// commits of the session then). A stale buffer from the Insert of the transaction the last Commit closed may still be
     /// written (record/TestRecordStaleBufferWrite.al:395-690, `Session::stale_verdict`).
     pub row_origin: Option<RowOrigin>,
+    /// Where the buffer's row version came from, for the Modify after a failed guarded Insert (see [`VersionEntry`]).
+    pub version_entry: VersionEntry,
     /// The variable's own Insert and its own Get of that row after it (see [`OwnRead`]).
     pub own_read: OwnRead,
     /// The read of a row holding a Time stored past the day that the variable's buffer holds (see [`RolledRead`]).
@@ -734,6 +800,138 @@ pub struct OwnReadAt {
     pub commits: u64,
     /// The change counter of the record's store after the Insert.
     pub store_changes: u64,
+}
+
+/// Where a buffer's row version came from, read only by the Modify after a failed guarded Insert (al-vm
+/// `stale_own_modify.rs` `check_failed_insert_stale`, al-runner issue 8721). A clone of the record state marks it
+/// [`VersionVia::Cloned`]; `:=`, Record.Copy, a by-value parameter and RecordRef.GetTable carry it as themselves
+/// ([`VersionEntry::carried`]). Empty when no read or write of the buffer gave it its version (a TransferFields with
+/// the key copies one: the buffer neither read nor wrote that row).
+#[derive(Debug, Default)]
+pub struct VersionEntry(pub Option<HeldVersion>);
+
+impl Clone for VersionEntry {
+    fn clone(&self) -> Self {
+        self.carried(VersionVia::Cloned)
+    }
+}
+
+impl VersionEntry {
+    /// The entry of a version `source` just gave the variable itself.
+    pub fn own(source: VersionSource) -> VersionEntry {
+        VersionEntry(Some(HeldVersion {
+            source: Rc::new(source),
+            via: VersionVia::Own,
+            failed_inserts: 0,
+            deleted: false,
+        }))
+    }
+
+    /// The entry a copy of the buffer takes, made by `via`: the same source, no failed Insert of its own yet.
+    pub fn carried(&self, via: VersionVia) -> VersionEntry {
+        VersionEntry(self.0.as_ref().map(|h| HeldVersion {
+            source: Rc::clone(&h.source),
+            via,
+            failed_inserts: 0,
+            deleted: h.deleted,
+        }))
+    }
+
+    /// This copy came by `via`: what [`VersionEntry::carried`] gives a copy that is already a clone of the buffer.
+    pub fn now_via(&mut self, via: VersionVia) {
+        if let Some(h) = self.0.as_mut() {
+            h.via = via;
+        }
+    }
+}
+
+/// One copy's hold of a [`VersionSource`]. The source is what the read or write stamped and every copy shares it; the
+/// rest is the copy's own.
+#[derive(Debug, Clone)]
+pub struct HeldVersion {
+    pub source: Rc<VersionSource>,
+    /// Which copy holds it.
+    pub via: VersionVia,
+    /// The guarded Inserts of this copy at this version that answered false.
+    pub failed_inserts: u32,
+    /// The variable deleted its row since.
+    pub deleted: bool,
+}
+
+/// One [`VersionEntry`]'s source: the version, how it reached the buffer, and the open transaction at that moment.
+#[derive(Debug)]
+pub struct VersionSource {
+    /// The row version.
+    pub version: i64,
+    /// The primary key of the row it is the version of, at the read or write (the buffer's key may move since).
+    pub key: Rc<[Value]>,
+    /// The read or the write that gave it.
+    pub how: VersionHow,
+    /// What the open transaction had written to the table then (the buffer's own write included).
+    pub table_written: TableWritten,
+    /// The buffer's company then (`None`: the session's own).
+    pub company: Option<String>,
+    /// The session's test methods started, Commits and rollbacks then.
+    pub tests: u32,
+    pub commits: u64,
+    pub rollbacks: u64,
+    /// The session's noted writes then (al-vm `TxState::write_counts`): all of them, those no cell measures after the
+    /// read, and those of this table and company.
+    pub writes: [u64; 3],
+    /// The length of the open transaction's write log then (al-vm `OpenTx::writes`).
+    pub log: usize,
+}
+
+/// The read or write that gave a buffer its row version ([`VersionSource::how`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VersionHow {
+    /// `Get`.
+    Get,
+    /// FindFirst, FindLast, FindSet, Find or Next.
+    Find,
+    /// Another read: GetBySystemId, a read through a RecordRef, any other load.
+    OtherRead,
+    /// The variable's own Insert, Modify or Rename (a plain Rename that rewrote no related row).
+    OwnInsert,
+    OwnModify,
+    OwnRename,
+    /// Another write of the variable: through a RecordRef, or a Rename that rewrote related rows.
+    OtherWrite,
+}
+
+/// Which copy of the buffer holds a [`VersionSource`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VersionVia {
+    /// The variable whose read or write gave the version.
+    Own,
+    /// A variable that took it by `:=`.
+    Assigned,
+    /// A variable that took it by Record.Copy.
+    Copied,
+    /// A by-value parameter of a procedure called by name.
+    ByValue,
+    /// A RecordRef that took it by GetTable.
+    GetTable,
+    /// Any other copy of the record state.
+    Cloned,
+}
+
+/// What the open transaction had written or locked of a table, in one company, since the last Commit or rollback (al-vm
+/// `OpenTx::table_writes`). `No` is also the answer for a temporary record, whose writes are not in the transaction,
+/// and for a write the runtime did not note: both keep main's raise.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum TableWritten {
+    /// No noted write and no LockTable of the table.
+    #[default]
+    No,
+    /// Only a DeleteAll or ModifyAll that matched no row (no cell measures it alone).
+    EmptyBulk,
+    /// Only writes of kinds a cell measures: a Record variable's Insert, Modify or Delete, a DeleteAll or ModifyAll
+    /// that changed a row, and a Record variable's LockTable (corpus PR 1523,
+    /// record/crud/TestRecordFailedInsertMovedKey.al).
+    Written,
+    /// Also another write: a Rename, a Truncate, a write through a RecordRef.
+    Unmeasured,
 }
 
 /// See [`RecordState::row_origin`]. Two origins are equal when every field but `by_get` is: the stale-buffer rules compare
@@ -1082,6 +1280,19 @@ impl TableGlobals {
         }
     }
 
+    /// The address of the shared set (`None` while unset) and how many strong owners it has: the identity a session image
+    /// (al-vm `login_image`) keys it by, and the count it checks every owner against.
+    pub fn set_address(&self) -> Option<(usize, usize)> {
+        (self.data.borrow().as_ref()).map(|d| (Rc::as_ptr(d) as usize, Rc::strong_count(d)))
+    }
+
+    /// The xRec set of this set, when one was made ([`TableGlobals::xrec`] makes it); `None` makes nothing.
+    pub fn made_xrec(&self) -> Option<TableGlobals> {
+        let data = self.data.borrow();
+        let d = data.as_ref()?.borrow();
+        (!d.xrec.is_unset()).then(|| d.xrec.share())
+    }
+
     /// A handle onto `xRec`'s set (created on first use).
     pub fn xrec(&self) -> TableGlobals {
         let data = self.data();
@@ -1278,6 +1489,12 @@ pub struct HeaderBag {
     pub unnamed_secret_header: bool,
     /// `HttpRequestMessage.SetCookie` wrote the `Cookie` header of these request headers (http::request_cookies).
     pub set_cookies: bool,
+    /// Something other than the measured calls changed this collection: Add of a text value, TryAddWithoutValidation,
+    /// Remove, Clear, a second WriteFrom(Text), a WriteFrom(InStream) or a SecretText of its content, any ReadAs of its content, or the collection
+    /// came from `HttpContent.Clear`, a content copy (`HttpContentState::deep_copy`) or a client rebuild.
+    /// `HttpHeaders.Contains('')` is measured only on collections without it (`http::headers::contains_empty_measured`).
+    /// Nothing clears it: a collection keeps it while it lives.
+    pub edited: bool,
 }
 
 /// The headers of an `HttpContent`, request, response or client, shared with every `HttpHeaders` handed out.
@@ -1350,6 +1567,12 @@ pub struct HttpContentState {
     /// No method was called on this content yet; it was only assigned, passed by value or handed on otherwise
     /// (`http::content_handed_on`). It stands for the variable main keeps as `LibraryValue::Empty` (`http::content_unused`).
     pub untouched: bool,
+    /// A `ReadAs` ran since the last `WriteFrom` or `Clear`. A stream write after a changed Content-Type is measured only
+    /// without it (`http::content::keep_stream_content_type`).
+    pub read_since_write: bool,
+    /// The content of a response a test handler filled (`http::send`). A stream write after a changed Content-Type is
+    /// measured only on a content the test made (`http::content::keep_stream_content_type`).
+    pub handler_filled: bool,
 }
 
 impl Default for HttpContentState {
@@ -1370,6 +1593,8 @@ impl Default for HttpContentState {
             secret: false,
             secret_read: crate::http::SecretReadShape::Other,
             untouched: false,
+            read_since_write: false,
+            handler_filled: false,
         }
     }
 }
@@ -1655,9 +1880,10 @@ pub enum LibraryValue {
     /// A `TestHandlerContext` the test runner hands to an ITestHandler callback (BC 29): what its members return there, and
     /// the reason of a `Skip` the callback made (`testcontexts.rs`, al-testrun `runtime/test_handlers.rs`).
     HandlerContext(Box<HandlerContext>),
-    Text(String),
+    /// A TextBuilder or BigText: its text, which may hold half of a surrogate pair (ADR-068).
+    Text(crate::text::Txt),
     /// A TextBuilder whose capacity was set or has to be kept: the text and the capacity in characters.
-    TextCap(String, i32),
+    TextCap(crate::text::Txt, i32),
     /// An open `RecordRef`: it owns a record buffer exactly as a `Record`
     /// variable does (fields, filters, key), so record operations are shared.
     RecordRef(Rc<RefCell<RecordState>>),
@@ -1732,9 +1958,7 @@ pub enum LibraryValue {
     XmlNameTable,
     /// An `XmlWriteOptions` that has been set: `PreserveWhitespace`.
     /// An `XmlReadOptions` that has been set: `PreserveWhitespace` (what is read does not depend on it).
-    XmlReadOptions {
-        preserve_whitespace: bool,
-    },
+    XmlReadOptions { preserve_whitespace: bool },
     XmlWriteOptions {
         preserve_whitespace: bool,
         /// Whether a document or element is written without indentation. A setter changes it only when it changes
@@ -2180,5 +2404,54 @@ mod identical_tests {
         let x = vec![Value::Integer(1), Value::Text(t("a"))];
         assert!(Value::all_identical(&x, &x.clone()));
         assert!(!Value::all_identical(&x, &x[..1]));
+    }
+}
+
+#[cfg(test)]
+mod version_entry_tests {
+    use super::*;
+
+    /// The entry the variable's own Get gave it, with a failed Insert and a Delete of its own.
+    fn own_entry(key: Vec<Value>) -> VersionEntry {
+        let mut e = VersionEntry::own(VersionSource {
+            version: 7,
+            key: key.into(),
+            how: VersionHow::Get,
+            table_written: TableWritten::Written,
+            company: Some("CRONUS".into()),
+            tests: 1,
+            commits: 2,
+            rollbacks: 3,
+            writes: [4, 5, 6],
+            log: 8,
+        });
+        let h = e.0.as_mut().expect("an entry");
+        (h.failed_inserts, h.deleted) = (1, true);
+        e
+    }
+
+    /// Where the entry's key lives, and what the copy holding it has of its own: how it came, its failed Inserts and
+    /// whether it deleted its row.
+    fn key_at(e: &VersionEntry) -> *const Value {
+        e.0.as_ref().expect("an entry").source.key.as_ptr()
+    }
+    fn per_copy(e: &VersionEntry) -> (VersionVia, u32, bool) {
+        let s = e.0.as_ref().expect("an entry");
+        (s.via, s.failed_inserts, s.deleted)
+    }
+
+    /// A copy of a record (a clone of its state, `:=`, Record.Copy, a by-value parameter, GetTable) shares the source of
+    /// its row version instead of copying its key and company: a by-value Record argument made two copies of both per
+    /// call. What a copy holds of its own is still its own: how it came, no failed Insert yet, and the Delete carried.
+    #[test]
+    fn a_copy_shares_the_row_version_source() {
+        let own = own_entry(vec![Value::Integer(1), Value::Text("K".into())]);
+        let cloned = own.clone();
+        let by_value = own.carried(VersionVia::ByValue);
+        assert_eq!(key_at(&cloned), key_at(&own));
+        assert_eq!(key_at(&by_value), key_at(&own));
+        assert_eq!(per_copy(&own), (VersionVia::Own, 1, true));
+        assert_eq!(per_copy(&cloned), (VersionVia::Cloned, 0, true));
+        assert_eq!(per_copy(&by_value), (VersionVia::ByValue, 0, true));
     }
 }

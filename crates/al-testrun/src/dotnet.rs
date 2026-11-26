@@ -1555,6 +1555,7 @@ pub fn encode(v: &DotNetValue) -> Value {
         DotNetValue::Decimal(s) => json!({"t":"d","v":s}),
         DotNetValue::Str(s) => json!({"t":"s","v":s}),
         DotNetValue::DateTime(t) => json!({"t":"dt","v":t.to_string()}),
+        DotNetValue::DateTimeUtc(t) => json!({"t":"dtu","v":t.to_string()}),
         DotNetValue::TimeSpan(t) => json!({"t":"ts","v":t.to_string()}),
         DotNetValue::Guid(g) => json!({"t":"g","v":guid_text(g)}),
         DotNetValue::Enum { ty, name, ordinal } => json!({"t":"e","type":ty,"v":name,"o":ordinal}),

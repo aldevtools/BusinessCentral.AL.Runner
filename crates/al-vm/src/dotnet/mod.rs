@@ -122,6 +122,9 @@ pub struct DotNetState {
     entry_streams: std::collections::HashSet<DotNetHandle>,
     /// `DotNetSite::result_ty` of the call `dotnet_apply` is about to make (taken at its start).
     pub(crate) result_ty: Option<usize>,
+    /// Bit `i` set: argument `i` of the call `dotnet_apply` is about to make is a DateTime parameter (`zone_rules.rs`
+    /// `al_datetime_args`; taken at its start).
+    pub(crate) al_datetime_args: u64,
     /// The last .NET result was a null `string` (ADR-024). Set by the reply of a host call and
     /// cleared at the start of every `DotNet` member, so a settle step that runs right after
     /// the member reads the declared type of the null it got.
@@ -148,6 +151,7 @@ impl DotNetState {
             cleared,
             entry_streams,
             result_ty,
+            al_datetime_args,
             null_string,
             password_rng,
         } = self;
@@ -163,6 +167,7 @@ impl DotNetState {
             && cleared.is_empty()
             && entry_streams.is_empty()
             && result_ty.is_none()
+            && *al_datetime_args == 0
             && !null_string
             && password_rng.is_none()
     }
@@ -352,6 +357,9 @@ impl Session {
         op: &ir::DotNetOp,
         f: &mut Frame,
     ) -> Result<Value, Signal> {
+        // Both are set for this call only (`exec/run.rs`): taken before any early return, so no later call reads them.
+        let result_ty = self.dotnet.result_ty.take();
+        let al_datetime_args = std::mem::take(&mut self.dotnet.al_datetime_args);
         // `[RunOnClient]` bookkeeping, not a .NET call: it leaves the null-string flag of the value it passes on.
         match op {
             ir::DotNetOp::ClientNull => return Ok(run_on_client_null()),
@@ -372,7 +380,7 @@ impl Session {
             }
         };
         let decl = ty.map(declared);
-        let result_decl = self.dotnet.result_ty.take().map(declared);
+        let result_decl = result_ty.map(declared);
         let (kind, member) = match op {
             ir::DotNetOp::ClientNull | ir::DotNetOp::ClientAssign | ir::DotNetOp::ClientCall(_) => {
                 unreachable!("answered above")
@@ -385,13 +393,17 @@ impl Session {
             ir::DotNetOp::Get(n) => (MemberKind::Get, n.clone()),
             ir::DotNetOp::Set(n) => (MemberKind::Set, n.clone()),
         };
+        // The answers before the target is known touch everything, as every .NET call did before al-runner issue 8954.
+        let early = |s: &Session| s.note_footprint_everything(|| format!("a .NET call ({member})"));
         if is_run_on_client_null(&recv) {
+            early(self);
             return run_on_client_call(kind, &member, decl.as_ref().map(|d| d.name.as_str()), &values);
         }
         if let Value::DotNet(o) = &recv
             && let DotNetKind::Host { handle, .. } = &o.kind
             && self.dotnet.cleared.contains(handle)
         {
+            early(self);
             return unsupported(format!(
                 "DotNet {member}: the object was cleared through another variable; whether that Clear disposed it is not pinned"
             ));
@@ -399,9 +411,12 @@ impl Session {
         if let (Value::Null, Some(d)) = (&recv, &decl)
             && let Some(r) = self.not_created(kind, &member, values.is_empty(), &d.name, f)
         {
+            early(self);
             return r;
         }
-        let target = self.dotnet_target(kind, &recv, decl.as_ref(), &member)?;
+        let target = self
+            .dotnet_target(kind, &recv, decl.as_ref(), &member)
+            .inspect_err(|_| early(self))?;
         let clr_type = match &target {
             Target::Static(d) => d.name.clone(),
             Target::Host(_, t) | Target::Internal(_, t) | Target::Boxed(_, t) => t.clone(),
@@ -411,6 +426,8 @@ impl Session {
         } else {
             format!("{clr_type}.{member}")
         };
+        let footprint_member = (kind != MemberKind::Construct).then_some(member.as_str());
+        self.note_footprint_dotnet(&clr_type, footprint_member, values.len(), &shown);
 
         // 1. The registry: a registered type is served here for all its members.
         let engine = self.engine.clone();
@@ -426,12 +443,7 @@ impl Session {
             };
             if let Some(call_ref) = m.call_ref {
                 let result = call_ref(self, this, &mut values)?;
-                for (i, place) in places.iter().enumerate() {
-                    let Some(place) = place else { continue };
-                    let ty = self.place_type(place, f);
-                    let v = fit(values[i].clone(), &ty).map_err(|e| prefix(e, &shown))?;
-                    self.write(place, v, f)?;
-                }
+                self.write_back_registry_args(&places, &values, &shown, f)?;
                 return Ok(result);
             }
             return (m.call)(self, this, &values);
@@ -545,6 +557,11 @@ impl Session {
                 value: self.value_to_wire(v, i, &mut book).map_err(|e| prefix(e, &shown))?,
                 by_ref: places[i].is_some(),
             });
+        }
+        if let Err(why) = Self::datetime_kind_member(&target, &member, &values)
+            .and_then(|()| self.zone_datetime_kind(&target, &clr_type, &member, &values, al_datetime_args, &mut wire))
+        {
+            return unsupported(format!("DotNet {shown}: {why}"));
         }
         self.dotnet_ready(
             &clr_type,
@@ -1413,9 +1430,29 @@ impl Session {
             let v = self.wire_to_value(v).map_err(|e| prefix(e, shown))?;
             let ty = self.place_type(place, f);
             let v = fit(v, &ty).map_err(|e| prefix(e, shown))?;
+            self.note_by_ref_write(place, f)?;
             self.write(place, v, f)?;
         }
         Ok(value)
+    }
+
+    /// Writes the `var` arguments of a registry member back to their places, after noting each
+    /// write for the xRec routes gate (`note_by_ref_write`, issue 9161).
+    fn write_back_registry_args(
+        &mut self,
+        places: &[Option<ir::Place>],
+        values: &[Value],
+        shown: &str,
+        f: &mut Frame,
+    ) -> Result<(), Signal> {
+        for (i, place) in places.iter().enumerate() {
+            let Some(place) = place else { continue };
+            let ty = self.place_type(place, f);
+            let v = fit(values[i].clone(), &ty).map_err(|e| prefix(e, shown))?;
+            self.note_by_ref_write(place, f)?;
+            self.write(place, v, f)?;
+        }
+        Ok(())
     }
 
     /// An AL value as a wire value (ADR-014 section 4).
@@ -1430,7 +1467,8 @@ impl Session {
             Value::Decimal(d) => DotNetValue::Decimal(d.to_string()),
             Value::Text(s) | Value::Code(s) => DotNetValue::Str(s.to_string()),
             // A Date or DateTime is a .NET DateTime of unspecified kind, with no time zone shift;
-            // the kind and zone rule is a probe (docs/probes-needed.md).
+            // the kind and zone rule is a probe (docs/probes-needed.md). `zone_rules.rs` `zone_datetime_kind` gives the
+            // TimeZoneInfo members that read the kind their own rule.
             Value::Date(0, _) | Value::DateTime(0) => {
                 return unsupported("an undefined Date or DateTime passed to .NET (what BC sends is not pinned)");
             }
@@ -1529,6 +1567,7 @@ impl Session {
             },
             DotNetValue::Str(s) => Value::Text(s.into()),
             DotNetValue::DateTime(ticks) => Value::DateTime(ticks.div_euclid(TICKS_PER_MS) + 1),
+            DotNetValue::DateTimeUtc(_) => return unsupported("the host returned a DateTime of kind Utc"),
             DotNetValue::TimeSpan(ticks) => Value::Duration(ticks.div_euclid(TICKS_PER_MS)),
             DotNetValue::Guid(g) => Value::Guid(g),
             DotNetValue::Enum { ty, name, ordinal } => Value::DotNet(Rc::new(DotNetObject::new(DotNetKind::Enum {
@@ -1565,7 +1604,9 @@ impl Session {
             if let Some(content) = content {
                 return Ok(Value::Library(
                     "SecretText".into(),
-                    std::rc::Rc::new(std::cell::RefCell::new(al_builtins::value::LibraryValue::Text(content))),
+                    std::rc::Rc::new(std::cell::RefCell::new(al_builtins::value::LibraryValue::Text(
+                        content.into(),
+                    ))),
                 ));
             }
         }

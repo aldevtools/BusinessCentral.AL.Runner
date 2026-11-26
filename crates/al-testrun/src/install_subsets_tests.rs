@@ -1,6 +1,6 @@
 //! The end of a round of the proof and the closure of the tables that differ (ADR-079 decisions 3 and 4).
 
-use super::{next_round, plan, tainted};
+use super::{Measured, next_round, plan, refuse_measured, tainted};
 use crate::install_proof::{Footprints, Graph};
 use al_data::memory::Resource;
 use al_vm::install_footprint::{InstallFootprint, Lasting};
@@ -214,4 +214,51 @@ fn a_plan_over_the_limit_stops_before_it_places_every_class() {
     let runs = plan(&orders, &inputs, |a, _| a < 4, needs);
     assert_eq!(runs, Err(6 << 18));
     assert!(asked.get() < 100_000, "{} dependency checks", asked.get());
+}
+
+/// Notes and refusals, for [`refuse_measured`].
+#[derive(Default)]
+struct Noted {
+    notes: Vec<String>,
+    refused: Vec<(BTreeSet<u32>, String)>,
+}
+
+impl crate::install_orders::AppInstalls for Noted {
+    type Mark = ();
+    fn mark(&self) {}
+    fn rewind(&mut self, _: &()) {}
+    fn install(&mut self, _: &mut al_vm::Session, _: u32) {}
+    fn refuse(&mut self, tables: BTreeSet<u32>, why: String) {
+        self.refused.push((tables, why));
+    }
+    fn note(&mut self, line: String) {
+        self.notes.push(line);
+    }
+}
+
+/// Al-runner issue 9058: every end of the proof (`Settled::apply`, `Unproven::apply`, whichever round measured the
+/// difference) refuses a measured difference through `refuse_measured`, which notes its every line with it, also those
+/// past the first `SHOWN_DIFFERENCES` of the refusal text.
+#[test]
+fn a_measured_difference_is_refused_with_every_line_noted() {
+    let measured: Vec<Measured> = (0..2u32)
+        .map(|k| Measured {
+            tables: BTreeSet::from([10 + k]),
+            why: format!("why {k}; 2 more, --verbose lists them"),
+            own: BTreeSet::from([k]),
+            lines: (0..5).map(|i| format!("install order difference: {k}.{i}")).collect(),
+        })
+        .collect();
+    let mut inst = Noted::default();
+    let sources = refuse_measured(&measured, &mut inst);
+    let all: Vec<String> = measured.iter().flat_map(|m| m.lines.clone()).collect();
+    assert_eq!(inst.notes, all);
+    assert_eq!(inst.refused.len(), 2);
+    assert_eq!(
+        sources,
+        vec![
+            (BTreeSet::from([10]), BTreeSet::from([0])),
+            (BTreeSet::from([11]), BTreeSet::from([1]))
+        ]
+    );
 }

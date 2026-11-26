@@ -8,20 +8,35 @@ use types::{DeclaredTypes, ExprTypes, Ty, of_rt};
 
 /// Compiles routine `routine` of object `o`.
 /// `captured`: the form a value capture runs (ADR-030): statement and loop ops that tell the capture
-/// what a statement did.
-pub(crate) fn compile(o: &ir::Object, routine: usize, captured: bool) -> Option<Chunk> {
-    compile_form(o, routine, captured, false)
+/// what a statement did. That form runs every frame of a tracked routine, so it also keeps the carried lists (`compile_kept`).
+pub(crate) fn compile(program: &ir::Program, o: usize, routine: usize, captured: bool) -> Option<Chunk> {
+    compile_form(program, o, routine, captured, false, captured)
+}
+
+/// The form of routine `routine` of object `o` that a frame runs when a `var` Option parameter with members is bound to a
+/// value that carries another list or none (`var_option::carried::carried_args`): the stores of such a parameter go through
+/// `write_as` (`var_option::may_keep_carried`). Every other frame runs the plain form, whose stores are the usual ones.
+pub(crate) fn compile_kept(program: &ir::Program, o: usize, routine: usize) -> Option<Chunk> {
+    compile_form(program, o, routine, false, false, true)
 }
 
 /// The debug form of routine `routine` of object `o` (ADR-048): the plain form with an `Op::DbgHit` after each statement
-/// marker, where a debugger may stop. The ops between two markers are the plain form's, so a debugged test computes what
-/// it computes without one.
-pub(crate) fn compile_debug(o: &ir::Object, routine: usize) -> Option<Chunk> {
-    compile_form(o, routine, false, true)
+/// marker, where a debugger may stop. The ops between two markers are the kept form's (`compile_kept`), whose stores give
+/// the plain form's result in a frame without a carried binding, so a debugged test computes what it computes without one.
+pub(crate) fn compile_debug(program: &ir::Program, o: usize, routine: usize) -> Option<Chunk> {
+    compile_form(program, o, routine, false, true, true)
 }
 
-fn compile_form(o: &ir::Object, routine: usize, captured: bool, debug: bool) -> Option<Chunk> {
-    let r = &o.routines[routine];
+fn compile_form(
+    program: &ir::Program,
+    o: usize,
+    routine: usize,
+    captured: bool,
+    debug: bool,
+    kept: bool,
+) -> Option<Chunk> {
+    let kind = program.objects[o].kind;
+    let r = &program.objects[o].routines[routine];
     let nlocals = u16::try_from(r.locals.len()).ok()?;
     let mut c = Compiler {
         locals_ty: r.locals.iter().map(|l| l.ty.clone()).collect(),
@@ -57,6 +72,15 @@ fn compile_form(o: &ir::Object, routine: usize, captured: bool, debug: bool) -> 
         debug,
         params: r.params,
         by_var: &r.by_var,
+        ret_local: r.ret_local,
+        trigger: r.is_trigger,
+        kept_params: if kept {
+            (0..r.params)
+                .map(|i| crate::var_option::may_keep_carried(program, kind, r, i))
+                .collect()
+        } else {
+            Vec::new()
+        },
     };
     c.block(&r.body).ok()?;
     c.chunk.temps = c.max - nlocals;
@@ -95,6 +119,13 @@ struct Compiler<'a> {
     params: usize,
     /// Which parameters are `var`.
     by_var: &'a [bool],
+    /// The local of the named return value.
+    ret_local: Option<usize>,
+    /// The routine is a trigger.
+    trigger: bool,
+    /// Per parameter: a `var` Option parameter with members that a call may bind to a value carrying another list or none
+    /// (`var_option::may_keep_carried`).
+    kept_params: Vec<bool>,
 }
 
 type R<T> = Result<T, ()>;
@@ -518,7 +549,7 @@ impl<'a> Compiler<'a> {
                 self.chunk.types.push(t.clone());
                 let t = (self.chunk.types.len() - 1) as u32;
                 if field_value {
-                    self.emit(Op::ConvertFieldValue { d, a, t });
+                    self.emit(Op::ConvertFieldValue { d, a, t, slot: None });
                 } else {
                     self.emit(Op::Convert { d, a, t });
                 }
@@ -1341,28 +1372,35 @@ impl<'a> Compiler<'a> {
             return Ok(());
         }
         match p {
-            // `FieldRef.Value` into a `var` parameter of type Date, Time or DateTime (al-builtins `fieldref_value_into_temporal`;
-            // the only slot the probe measured, corpus PR 1511). A by-value parameter, the named return value and a plain
-            // declared local are not measured: they convert as `Op::Convert` does, as does any other place.
+            // `FieldRef.Value` into a local, parameter or named return value of type Date, Time or DateTime (al-builtins
+            // `fieldref_value_temporal`, which owns the measured cells and refuses the rest). A global, a field, an array element,
+            // an argument and an exit value convert as `Op::Convert` does.
             ir::Place::Local(i)
-                if self.by_var.get(*i) == Some(&true)
-                    && let ir::Expr::Convert(t @ (RtType::Date | RtType::Time | RtType::DateTime), inner) = e
-                    && is_fieldref_value(inner) =>
+                if let ir::Expr::Convert(t @ (RtType::Date | RtType::Time | RtType::DateTime), inner) = e
+                    && is_fieldref_value(inner)
+                    && let Some(slot) = self.temporal_slot(*i) =>
             {
                 let i = u16::try_from(*i).map_err(|_| ())?;
                 let a = self.expr_any(inner)?;
                 self.chunk.types.push(t.clone());
                 let t = (self.chunk.types.len() - 1) as u32;
                 let d = self.alloc()?;
-                self.emit(Op::ConvertFieldValue { d, a, t });
+                self.emit(Op::ConvertFieldValue {
+                    d,
+                    a,
+                    t,
+                    slot: Some(slot),
+                });
                 let pi = self.place(p);
                 self.emit(Op::StoreLocal { i, a: d, p: pi });
             }
-            // A `var` Option parameter declared without members may hold its caller's members: its stores go through
-            // `write_as` (`var_option::param_store`).
+            // A `var` Option parameter declared without members may hold its caller's members, one declared with members a
+            // value that carries another list or none (`var_option::may_keep_carried`): its stores go through `write_as`
+            // (`var_option::param_store`).
             ir::Place::Local(i)
                 if self.by_var.get(*i) == Some(&true)
-                    && matches!(self.locals_ty.get(*i), Some(RtType::Option(m)) if al_builtins::option_members::memberless(m)) =>
+                    && matches!(self.locals_ty.get(*i), Some(RtType::Option(m)) if al_builtins::option_members::memberless(m))
+                    || self.kept_params.get(*i) == Some(&true) =>
             {
                 self.store_place(p, e, single)?;
             }
@@ -1393,6 +1431,28 @@ impl<'a> Compiler<'a> {
             _ => self.store_place(p, e, single)?,
         }
         Ok(())
+    }
+
+    /// The slot of local `i` for `fieldref_value_temporal`: a parameter (`var` or by value), the named return value, or a local
+    /// declared in a procedure. A trigger's locals are not measured.
+    fn temporal_slot(&self, i: usize) -> Option<al_builtins::fieldref_value_temporal::TemporalSlot> {
+        use al_builtins::fieldref_value_temporal::TemporalSlot as S;
+        // The probes measured procedures only: a trigger's parameters and locals refuse.
+        if self.trigger {
+            return None;
+        }
+        if i < self.params {
+            return Some(if self.by_var.get(i) == Some(&true) {
+                S::VarParam
+            } else {
+                S::ByValueParam
+            });
+        }
+        Some(if self.ret_local == Some(i) {
+            S::NamedReturn
+        } else {
+            S::PlainLocal
+        })
     }
 
     /// `p := e` through `Op::StorePlace`, which writes through `Session::write_as`.

@@ -1473,7 +1473,7 @@ impl Session {
                 // A run that raises inside its world does not commit what it wrote
                 // (record/TestTxModelReportRun.al:252-269, Test12).
                 if enters && matches!(e, Signal::Error(_)) {
-                    self.rollback_transaction();
+                    self.rollback_failed_run();
                 }
                 Err(e)
             }
@@ -2971,8 +2971,8 @@ impl Session {
                     ));
                 }
             };
-            let table = rec.borrow().table as usize;
-            match items.iter().position(|i| i.table == Some(table)) {
+            Self::by_value_view_handed(&rec, || "a report's table view of a RecordRef".into())?;
+            match items.iter().position(|i| i.table == Some(rec.borrow().table as usize)) {
                 Some(at) => given.push((at, rec)),
                 None => {
                     return Ok(Err(

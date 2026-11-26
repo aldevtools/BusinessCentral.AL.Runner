@@ -2085,13 +2085,11 @@ impl Session {
             s.open && !s.dirty && (!s.draft || s.cursor == Cursor::NewLine) && s.host.is_none()
         };
         let shape = shape && self.validate_refresh_offers_line(st, &start);
-        if !shape
-            || !self.has_source(st)
-            || !self.is_list(st)
-            || !self.declares(st, "onaftergetrecord")
-            || !self.declares(st, "onaftergetcurrrecord")
-        {
+        if !shape || !self.has_source(st) || !self.is_list(st) {
             return Ok(false);
+        }
+        if !self.declares(st, "onaftergetrecord") || !self.declares(st, "onaftergetcurrrecord") {
+            return self.empty_new_line_without_get_record(st, &start, without_curr, without_parts);
         }
         let rec = self.page_rec(st);
         let now = rec.borrow().filters.clone();

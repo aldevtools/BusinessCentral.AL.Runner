@@ -14,7 +14,8 @@
 //!
 //! Every chain also needs the facts its cells share (`cell_facts`); the Validate called by other code than a test procedure, and
 //! an event with two subscribers, run through assumption `xrec-table-proc-callers-subscribers` (`callers_assumed`,
-//! `subscribers_measured`).
+//! `subscribers_measured`). A record changed after its OnBeforeValidateEvent returned on the two
+//! chains of al-runner issue 8284 runs through assumption `xrec-table-proc-routes` (al-runner issue 8974).
 //!
 //! The xRec of a procedure of a table or of its table extensions that a codeunit procedure calls on
 //! its `var` record while a field OnValidate of that record runs: the trigger's xRec, shared, in the
@@ -53,10 +54,12 @@ pub(crate) const XREC_CHANGED_UNDER_NESTED_VALIDATE: &str = "a change to xRec (a
 
 /// The chain of calls `measured_chain` found below a procedure call: when a Validate the table's own code nested runs, that
 /// Validate's xRec (the procedure's xRec is then shared for reading only), and whether a fact of the chain is only measured by
-/// the open probe of assumption `xrec-table-proc-callers-subscribers` (`cell_facts`, `subscribers_measured`).
+/// the open probe of assumption `xrec-table-proc-callers-subscribers` (`cell_facts`, `subscribers_measured`), and whether the
+/// record changed since its Validate started, only by assumption `xrec-table-proc-routes` (`cell_facts`).
 struct Chain {
     nested: Option<Rec>,
     assumed: bool,
+    routes: bool,
 }
 
 impl Session {
@@ -106,6 +109,7 @@ impl Session {
             && let Some(chain) = self.measured_chain(object, table, rc, f)
             && chain.nested.as_ref().is_none_or(|inner| Rc::ptr_eq(inner, &x))
             && (!chain.assumed || assumptions::hit(Assumption::XrecTableProcCallersSubscribers))
+            && (!chain.routes || assumptions::hit(Assumption::XrecTableProcRoutes))
         {
             return if chain.nested.is_some() {
                 ProcXrec::SharedReadOnly(x)
@@ -199,12 +203,17 @@ impl Session {
             return Some(Chain {
                 nested: None,
                 assumed: false,
+                routes: false,
             });
         }
-        let assumed = (!subscriber)
+        let (assumed, routes) = (!subscriber)
             .then(|| self.straight_from_trigger(object, table, rc))
             .flatten()?;
-        Some(Chain { nested: None, assumed })
+        Some(Chain {
+            nested: None,
+            assumed,
+            routes,
+        })
     }
 
     /// The chain record/validate/XRecTableProcThroughCodeunit.al pins (`Way3_*` and `Way4_*`, :365-414): `object` is the table
@@ -232,9 +241,9 @@ impl Session {
     /// table's field OnValidate calls a procedure of the table or of one of its table extensions: the trigger's xRec on a buffer
     /// of `measured_buffer`, the Validate being the one `Record.Validate` AL code called on the record, whose trigger is that
     /// frame (record/validate/XRecTableProcThroughCodeunit.al `CodeunitFromTriggerDirectly_AfterGet`,
-    /// `BaseField_Codeunit_ExtProc`; record/validate/XRecTableProcThroughSubscriber.al:647, :764, :780). Whether a fact is
+    /// `BaseField_Codeunit_ExtProc`; record/validate/XRecTableProcThroughSubscriber.al:647, :764, :780). Which facts are
     /// only assumed (`cell_facts`).
-    fn straight_from_trigger(&self, object: usize, table: usize, rc: &Rec) -> Option<bool> {
+    fn straight_from_trigger(&self, object: usize, table: usize, rc: &Rec) -> Option<(bool, bool)> {
         let n = self.frames.len();
         let shape = self.table_or_its_extension(object, table)
             && !self.iface_frames.contains(&(n - 1))
@@ -251,22 +260,31 @@ impl Session {
     /// - the codeunit in `cu` (the subscriber's or the one the trigger calls) is not SingleInstance;
     /// - the Validate whose trigger runs in frame `trigger` finds the record as it was when its triggers started: no record
     ///   method ran on it since (`ValidateRun::touched`: a Modify, a Get, a Validate of another field), its fields are the same
-    ///   (`ValidateRun::entered`), and its buffer came from no TransferFields;
+    ///   (`ValidateRun::entered`), and its buffer came from no TransferFields. Or, through assumption
+    ///   `xrec-table-proc-routes`, its fields changed only after its OnBeforeValidateEvent returned
+    ///   (`changed_after_before_event`), that Validate being the outermost one (`trigger == caller`) and called by a test
+    ///   codeunit's own procedures (record/validate/XRecTableProcRoutes.al, corpus PR 1583: `Codeunit_TriggerAssigns_TableProc`
+    ///   and `IntegrationEvent_TriggerAssigns`, the trigger assigning a field before it calls the codeunit or raises the event);
     /// - the outermost Validate, whose trigger runs in frame `caller`, was called by a test codeunit's own procedures, as every
     ///   cell's (`ValidateModeAndObserve` and the like): pinned. Or by the callers `callers_assumed` lists (`subscriber`: the
-    ///   subscriber chain's): assumed (`Some(true)`).
-    fn cell_facts(&self, rc: &Rec, cu: usize, trigger: usize, caller: usize, subscriber: bool) -> Option<bool> {
+    ///   subscriber chain's): assumed.
+    ///
+    /// Whether a fact is only assumed by `xrec-table-proc-callers-subscribers`, and whether by `xrec-table-proc-routes`.
+    fn cell_facts(&self, rc: &Rec, cu: usize, trigger: usize, caller: usize, subscriber: bool) -> Option<(bool, bool)> {
         let handle = Rc::as_ptr(rc) as usize;
-        let untouched = |v: &ValidateRun| v.handle == handle && v.depth == trigger && self.untouched_since(v, rc);
-        let facts =
-            !self.engine.object_facts[cu].single_instance && self.validate_sites.iter().any(untouched) && caller > 0;
-        if !facts {
+        let run = self
+            .validate_sites
+            .iter()
+            .find(|v| v.handle == handle && v.depth == trigger)?;
+        let untouched = self.untouched_since(run, rc);
+        let routes = !untouched && trigger == caller && self.changed_after_before_event(run, rc);
+        if self.engine.object_facts[cu].single_instance || !(untouched || routes) || caller == 0 {
             return None;
         }
         if self.only_test_codeunit_frames(0, self.frames.len() - caller) {
-            return Some(false);
+            return Some((false, routes));
         }
-        self.callers_assumed(caller, subscriber).then_some(true)
+        (!routes && self.callers_assumed(caller, subscriber)).then_some((true, false))
     }
 
     /// Whether the frames below frame `caller` (the outermost Validate's trigger) are the callers record/validate/
@@ -407,18 +425,24 @@ impl Session {
         let two_subscribers = self.subscribers_measured(pub_o, publisher)?;
         let handle = Rc::as_ptr(rc) as usize;
         if self.sole_validate_from_al_at(handle, n - 3) {
-            let assumed = self.cell_facts(rc, cu, n - 3, n - 3, true)?;
+            let (assumed, routes) = self.cell_facts(rc, cu, n - 3, n - 3, true)?;
+            // The probe's events with a record changed since the Validate started have one subscriber.
+            if routes && two_subscribers {
+                return None;
+            }
             return Some(Chain {
                 nested: None,
                 assumed: assumed || two_subscribers,
+                routes,
             });
         }
         let (outer, inner) = self.nested_by_own_code(table, handle, n - 3)?;
-        let assumed = self.cell_facts(rc, cu, n - 3, outer.depth, true)?;
+        let (assumed, routes) = self.cell_facts(rc, cu, n - 3, outer.depth, true)?;
         self.nested_xrecs_untouched(handle, &outer.xrec, &inner.xrec)
             .then(|| Chain {
                 nested: Some(inner.xrec.clone()),
                 assumed: assumed || two_subscribers,
+                routes,
             })
     }
 

@@ -117,6 +117,16 @@ impl Layers {
         self.entries.iter().try_for_each(|e| e.verify())
     }
 
+    /// The digest of the top layer's key (what the workspace layer stands on), `None` without a layer.
+    pub fn top_digest(&self) -> Option<[u8; 32]> {
+        self.entries.last().map(|e| e.digest())
+    }
+
+    /// The zstd dictionary of the base layer, which the layers above it share.
+    pub fn base_dictionary(&self) -> Option<&[u8]> {
+        self.entries.first().map(|e| e.dictionary())
+    }
+
     /// The dependency files that did not parse when the layers were built.
     pub fn parse_problems(&self) -> Vec<(String, String)> {
         self.entries
@@ -513,12 +523,17 @@ pub fn read_entry(dir: &Path, key: &Key) -> Result<Option<(Entry, PathBuf)>, Str
 /// Writes `bytes` as the entry for `key`: to a temporary file in the same folder, then renamed, so
 /// a reader sees the whole old file or the whole new one.
 pub fn write_entry(dir: &Path, key: &Key, bytes: &[u8]) -> std::io::Result<PathBuf> {
+    write_named(dir, &key.file_name(), bytes)
+}
+
+/// [`write_entry`] for the file `name` of `dir`.
+pub fn write_named(dir: &Path, name: &str, bytes: &[u8]) -> std::io::Result<PathBuf> {
     std::fs::create_dir_all(dir)?;
-    let path = dir.join(key.file_name());
+    let path = dir.join(name);
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let tmp = dir.join(format!(
         ".{}.tmp-{}-{}",
-        key.file_name(),
+        name,
         std::process::id(),
         COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
@@ -582,7 +597,8 @@ pub fn prune(dir: &Path, keep: &[PathBuf]) -> Vec<PathBuf> {
     removed
 }
 
-/// Removes every entry of the compile cache in `dir`: the layers (`alcc`), the source indexes (`alci`), the install
+/// Removes every entry of the compile cache in `dir`: the layers (`alcc`), the workspace layers (`alcw`), the source
+/// indexes (`alci`), the install
 /// baselines (`albr`) and the temporary files of a write that did not finish. Returns how many files went and
 /// how many bytes they held. Other files in the folder stay.
 pub fn clear(dir: &Path) -> (usize, u64) {
@@ -592,6 +608,7 @@ pub fn clear(dir: &Path) -> (usize, u64) {
         let ours = path.extension().is_some_and(|x| {
             x == "alcc"
                 || x == "alci"
+                || x == WORKSPACE_EXTENSION
                 || x == crate::baseline_cache::EXTENSION
                 || x.to_string_lossy().starts_with("tmp")
         }) || path
@@ -909,6 +926,41 @@ pub fn write_index(dir: &Path, key: &Key, index: &[Vec<al_sema::FileIndex>]) {
     } else {
         prune(dir, &[path]);
     }
+}
+
+/// The extension of a workspace layer entry (ADR-022 amendment 2026-11-15, decision 8).
+pub const WORKSPACE_EXTENSION: &str = "alcw";
+
+/// The bytes of the workspace layer entry `name` in `dir`, touched as used (decision 8). `Ok(None)`: there is none.
+pub fn read_workspace_entry(dir: &Path, name: &str) -> Result<Option<(Vec<u8>, PathBuf)>, String> {
+    let path = dir.join(name);
+    match std::fs::read(&path) {
+        Ok(b) => {
+            touch(&path);
+            Ok(Some((b, path)))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("{}: {e}", path.display())),
+    }
+}
+
+/// Removes an entry that cannot be used. Best effort: a reader that finds it gone treats it as a miss.
+pub fn remove_entry(path: &Path) {
+    let _ = std::fs::remove_file(path);
+}
+
+/// The workspace layer entries in `dir` and their sizes.
+pub fn list_workspace(dir: &Path) -> Vec<(PathBuf, u64)> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut out: Vec<(PathBuf, u64)> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().is_some_and(|x| x == WORKSPACE_EXTENSION))
+        .map(|e| (e.path(), e.metadata().map(|m| m.len()).unwrap_or(0)))
+        .collect();
+    out.sort();
+    out
 }
 
 #[cfg(test)]

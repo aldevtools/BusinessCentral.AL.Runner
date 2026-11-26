@@ -19,8 +19,9 @@ use crate::records::Rec;
 use crate::{Frame, Session};
 use al_builtins::assumptions::{self, Assumption};
 use al_builtins::native::Signal;
+use al_builtins::record_fields::Fields;
 use al_builtins::record_op::RecordOp;
-use al_builtins::value::Value;
+use al_builtins::value::{RecordState, Value};
 use al_ir::ObjKind;
 use std::rc::Rc;
 
@@ -84,8 +85,17 @@ pub(crate) struct ValidateRun {
     pub(crate) xrec: Rec,
     /// The record's fields when its triggers start, the new value in.
     pub(crate) entered: Vec<Value>,
-    /// A record method that writes the record or reads it again ran on it since (`Session::note_record_op_under_validate`).
+    /// A record method that writes the record or reads it again ran on it since (`Session::note_record_op_under_validate`),
+    /// or a builtin wrote into a field of it (`Session::note_builtin_field_write`, `Session::note_by_ref_write`,
+    /// `Session::note_blob_load_under_validate`).
     pub(crate) touched: bool,
+    /// The OnBeforeValidateEvent returned with the fields in `entered`, the field having no table extension validate trigger
+    /// (`Session::validate_event`).
+    pub(crate) kept_by_before_event: bool,
+    /// Whether another record's fields replaced the record's own since the Validate started (`Session::replace_record_fields`:
+    /// an assignment or a write-back, `RecordRef.SetTable`, `Page.GetRecord`, `Page.SetSelectionFilter`); no cell of
+    /// assumption `xrec-table-proc-routes` measures those writers.
+    pub(crate) whole_write: bool,
 }
 
 impl Session {
@@ -155,6 +165,8 @@ impl Session {
             xrec: xrec.clone(),
             entered: rec.borrow().fields.to_vec(),
             touched: false,
+            kept_by_before_event: false,
+            whole_write: false,
         });
         let r = hooks(self);
         self.validate_sites.pop();
@@ -192,43 +204,105 @@ impl Session {
     }
 
     /// Notes that record method `method` runs on `rec`: when it writes the record (its buffer or its row) or reads it again,
-    /// each running Validate of it counts as touched (`ValidateRun::touched`). A method that only reads the buffer or the view
-    /// (TestField, GetFilter, FieldCaption) or sets the view (SetRange, SetCurrentKey) does not; one that changes a field
-    /// value (CalcFields) shows in the fields (`ValidateRun::entered`).
+    /// each running Validate of it counts as touched (`ValidateRun::touched`). The match names every method, so a new one
+    /// must choose. A method that only reads the buffer or the view (TestField, GetFilter, FieldCaption), sets the view, the
+    /// key or the fields to load (SetRange, SetCurrentKey, SetLoadFields), or works on the record's links or the table does
+    /// not. CalcFields of FlowFields changes FlowFields only, which shows in the fields (`ValidateRun::entered`); its load of a
+    /// Blob field touches (`Session::note_blob_load_under_validate`). CalcSums writes Normal fields, so it touches (review of
+    /// PR 9063, round 3).
     pub(crate) fn note_record_op_under_validate(&mut self, method: RecordOp, rec: &Rec) {
         use RecordOp::*;
-        let writes_or_reads = matches!(
-            method,
-            Clear
-                | Copy
-                | ChangeCompany
-                | Delete
-                | DeleteAll
-                | Find
-                | FindFirst
-                | FindLast
-                | FindSet
-                | Get
-                | GetBySystemId
-                | Init
-                | Insert
-                | LoadFields
-                | Modify
-                | ModifyAll
-                | Next
-                | Rename
-                | SetPosition
-                | TransferFields
-                | Truncate
-                | Validate
-        );
-        if !writes_or_reads {
-            return;
+        let writes_or_reads = match method {
+            CalcSums | ChangeCompany | Clear | Copy | Delete | DeleteAll | Find | FindFirst | FindLast | FindSet
+            | Get | GetBySystemId | Init | Insert | LoadFields | Modify | ModifyAll | Next | Rename | SetPosition
+            | TransferFields | Truncate | Validate => true,
+            AddLink | AddLoadFields | AreFieldsLoaded | Ascending | CalcFields | ClearMarks | Consistent
+            | CopyFilter | CopyFilters | CopyLinks | Count | CountApprox | CurrentCompany | CurrentKey | DeleteLink
+            | DeleteLinks | FieldActive | FieldCaption | FieldError | FieldName | FieldNo | FilterGroup
+            | GetAscending | GetFilter | GetFilters | GetPosition | GetRangeMax | GetRangeMin | GetView | HasFilter
+            | HasLinks | IsDirty | IsEmpty | IsTemporary | LockTable | Mark | MarkedOnly | ReadConsistency
+            | ReadIsolation | ReadPermission | RecordId | RecordLevelLocking | Relation | Reset | SecurityFiltering
+            | SetAscending | SetAutoCalcFields | SetBaseLoadFields | SetCurrentKey | SetFilter | SetLoadFields
+            | SetRange | SetRecFilter | SetView | TableCaption | TableName | TestField | WritePermission => false,
+        };
+        if writes_or_reads {
+            self.mark_validates_touched(rec);
         }
+    }
+
+    /// Notes a builtin call (`exec/run.rs` `run_builtin`) that writes into a field of a record through its receiver: each
+    /// running Validate of that record counts as touched. The calls: `Blob.CreateOutStream`, `Blob.Import` (review of PR
+    /// 9063, round 3); `Media.ImportStream`, `Media.ImportFile`, `MediaSet.ImportStream`, `MediaSet.ImportFile`,
+    /// `MediaSet.Insert`, `MediaSet.Remove` (issue 9161). A list, because a receiver is written back after every method, a
+    /// reading one (`HasValue`, `Count`) too. No cell of assumption `xrec-table-proc-routes` writes a field these ways.
+    pub(crate) fn note_builtin_field_write(
+        &mut self,
+        site: &crate::exec::BuiltinSite,
+        f: &mut Frame,
+    ) -> Result<(), Signal> {
+        use al_builtins::builtin_id::ids;
+        let writes = matches!(
+            site.id,
+            ids::BLOB_CREATEOUTSTREAM_1
+                | ids::BLOB_IMPORT_1
+                | ids::MEDIA_IMPORTSTREAM_1
+                | ids::MEDIA_IMPORTSTREAM_2
+                | ids::MEDIA_IMPORTFILE_1
+                | ids::MEDIASET_IMPORTSTREAM_1
+                | ids::MEDIASET_IMPORTFILE_1
+                | ids::MEDIASET_INSERT_1
+                | ids::MEDIASET_REMOVE_1
+        );
+        match &site.receiver_arg {
+            Some(al_ir::Arg::Ref(place)) if writes => self.note_by_ref_write(place, f),
+            _ => Ok(()),
+        }
+    }
+
+    /// Notes a by-reference write into `place` while a Validate runs: when `place` is a field of a record, each running
+    /// Validate of that record counts as touched. The one note for every by-reference write-back of a native call: a
+    /// builtin's operands (`interp.rs` `builtin_write_back`, shared by `run_native` and `run_stream_builtin`: `Evaluate`,
+    /// `Clear`, `InStream.ReadText`, `Dictionary.Get` into a field and the like), a builtin's receiver
+    /// (`note_builtin_field_write`), and a DotNet member's `var` arguments (`dotnet/mod.rs`: a registry member with
+    /// `call_ref` such as `Dictionary.TryGetValue`, and the by-reference values the .NET sidecar returns such as
+    /// `Int32.TryParse`) (issue 9161, reviews of PR 9163). No cell of assumption `xrec-table-proc-routes` writes a field
+    /// through one.
+    pub(crate) fn note_by_ref_write(&mut self, place: &al_ir::Place, f: &mut Frame) -> Result<(), Signal> {
+        if self.validate_sites.is_empty() {
+            return Ok(());
+        }
+        if let al_ir::Place::Field(base, _) = place
+            && let Value::Record(rc) = self.read(base, f)?
+        {
+            self.mark_validates_touched(&rc);
+        }
+        Ok(())
+    }
+
+    /// Notes that `CalcFields` loaded a Blob field of `rec` from its stored row (`flowfields.rs` `calc_fields_asked`): a
+    /// Normal field written, so each running Validate of it counts as touched (issue 9161).
+    pub(crate) fn note_blob_load_under_validate(&mut self, rec: &Rec) {
+        self.mark_validates_touched(rec);
+    }
+
+    fn mark_validates_touched(&mut self, rec: &Rec) {
         let handle = Rc::as_ptr(rec) as usize;
         for v in self.validate_sites.iter_mut().filter(|v| v.handle == handle) {
             v.touched = true;
         }
+    }
+
+    /// Puts `fields`, taken from another record, into the record `rec` (its state `d`, borrowed) in place of its own, and notes
+    /// that on every running Validate of `rec` (`ValidateRun::whole_write`). The one owner for each writer of a whole record
+    /// into a record variable that is no record method (those note `Session::note_record_op_under_validate`): an assignment
+    /// and a write-back (`interp.rs` `write_as_general`), `RecordRef.SetTable` (`refs.rs`), `Page.GetRecord`
+    /// (`page_get_record.rs`) and `Page.SetSelectionFilter` (`pageops.rs`). Returns the fields it replaced.
+    pub(crate) fn replace_record_fields(&mut self, rec: &Rec, d: &mut RecordState, fields: Fields) -> Fields {
+        let handle = Rc::as_ptr(rec) as usize;
+        for v in self.validate_sites.iter_mut().filter(|v| v.handle == handle) {
+            v.whole_write = true;
+        }
+        std::mem::replace(&mut d.fields, fields)
     }
 
     /// The depth of the call stack the trigger of the one Validate of the record at `handle` runs at, when that Validate is a

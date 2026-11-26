@@ -14,7 +14,7 @@ pub(crate) fn text(l: &LibraryValue, standard: i32) -> Result<String, FormatFail
     }
     match l {
         LibraryValue::Empty => Ok(String::new()),
-        LibraryValue::Text(s) | LibraryValue::TextCap(s, _) => Ok(s.clone()),
+        LibraryValue::Text(s) | LibraryValue::TextCap(s, _) => Ok(s.to_string()),
         _ => Err("Format of a TextBuilder of this kind is not pinned".to_string().into()),
     }
 }

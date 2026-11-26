@@ -50,6 +50,7 @@ pub mod evaluate;
 mod evaluate_table_filter_forms;
 mod evaluate_table_filter_member;
 pub mod features;
+pub mod fieldref_value_temporal;
 pub mod fieldref_value_text;
 pub mod fieldref_variant_cells;
 pub mod file;
