@@ -288,9 +288,9 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `host.rs`: The host the command line gives a session (ADR-006), and the clock of a run. Entry: `SystemClock`, `RunClock`.
 - `impact_trace.rs`: The impact index's keys, their numbering. Entry: `keys`.
 - `install.rs`: The install code of each app. Entry: `plan`.
-- `install_orders.rs`: The install order of apps with no dependency path: Microsoft's first, partner groups recorded and proven. Entry: `split_microsoft`, `install_partner_apps`.
+- `install_orders.rs`: The install order of apps with no dependency path. Entry: `split_microsoft`, `install_partner_apps`.
 - `install_proof.rs`: The influence graph of a partner group's installs and its units. Entry: `Graph::of`.
-- `install_subsets.rs`: The runs that prove a group's install independent of order: per order of a unit's apps and per place of its inputs among them. Entry: `Proof::settle`.
+- `install_subsets.rs`: The runs that prove a group's install does not depend on order. Entry: `Proof::settle`.
 - `impact_static.rs`: Static selection: the graph of routines, objects. Entry: `Graph`.
 - `login.rs`: The test session's login. Entry: `decide`.
 - `login_replay.rs`: The check that a replay of the raised login would… Entry: `Key::of`, `StartKey` (the key with the texts the login read).
@@ -401,7 +401,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `single_track.rs`: The notes of a session that watches SingleInstance…
 - `single_unmeasured.rs`: SingleInstance codeunits whose state the run found…
 - `var_option.rs`: An Option handed to a `var` parameter whose… Entry: `var_binding`.
-- `var_option/carried.rs`: A memberless `var` Option parameter handed on to one with members: the measured origins, lists and callee uses, and a parameter with members handed to a memberless one that only formats it (assumption var-option-carried-members). Entry: `carried_args`, `hand_on_args`.
+- `var_option/carried.rs`: A `var` Option parameter handed on between memberless and member-carrying parameters. Entry: `carried_args`, `hand_on_args`.
 - `session_language.rs`: The session language and its one writer…
 - `state.rs`: Sub-states of `Session`: `TxState` (what ends…
 - `pages.rs`: The page test client: shared helpers.
@@ -447,13 +447,13 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `install_left.rs`: `install_left/clients.rs`. Entry: `Session::install_left`.
 - `session_fields.rs`: Every `Session` field in one class of one table. Entry: `Session::at_rest_why`.
 - `login_image.rs`: The session image after the raised login, and a new session made to hold it. Entry: `Session::login_image`.
-- `resource_reads.rs`: The resource files of the apps AL code of a session read, and the one owner of "their texts are still the same" (install-once, login starts). Entry: `Session::resource_reads`, `TextsRead`.
+- `resource_reads.rs`: The app resource files a session read, and whether their texts are unchanged. Entry: `Session::resource_reads`, `TextsRead`.
 - `sqlcount.rs`: The model behind `SqlStatementsExecuted` /… Entry: `SqlCounters::read`.
 - `tasks.rs`: `TaskScheduler.CreateTask`, `TaskExists`, `CancelTask`. Entry: `Session::task_scheduler_op`.
 - `tenant_set_delete.rs`: The Delete or DeleteAll of a stored Tenant… Entry: `tenant_set_delete_one`.
 - `testdata.rs`: Test data: `TestBacking` maps a provider's columns… Entry: `TestBacking`.
 - `transaction_type.rs`: `Database.CurrentTransactionType`. Entry: `current_transaction_type`.
-- `transaction_type_saved.rs`: A `CurrentTransactionType` read while the type is not known whose value only sets it back. Entry: `Session::read_saved_for_set_back`.
+- `transaction_type_saved.rs`: An unknown `CurrentTransactionType` read only to set it back. Entry: `Session::read_saved_for_set_back`.
 - `transactions.rs`: Transactions as AL code sees them. Entry: `TxModel`.
 - `consistent_marks.rs`: `Record.Consistent` marks and how a run or Commit ends on one. Entry: `Session::set_consistent`.
 - `ui.rs`: Dialogs raised by the code under test and the test… Entry: `UiKind`.
