@@ -76,7 +76,7 @@ codeunit 50285 "Probe Api Version Tests"
     end;
 
     [Test]
-    procedure FourVersionsRefuse()
+    procedure FourVersionsRead()
     var
         PageMetadata: Record "Page Metadata";
     begin
@@ -106,7 +106,7 @@ codeunit 50285 "Probe Api Version Tests"
     end;
 
     [Test]
-    procedure QueryFourVersionsRefuse()
+    procedure QueryFourVersionsRead()
     var
         QueryMetadata: Record "Query Metadata";
     begin

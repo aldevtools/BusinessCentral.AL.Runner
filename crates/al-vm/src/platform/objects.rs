@@ -123,11 +123,12 @@ pub(super) fn split_top(body: &str) -> Option<Vec<&str>> {
 }
 
 /// The APIVersion column of Page Metadata and Query Metadata, with the assumption a row that holds it rests on.
-/// Undeclared reads BC's own default `beta` (record/TestPageMetadataProperties.al:94-97, queries/W7QueryFilters.al
+/// Undeclared reads BC's own default `beta` (record/TestPageMetadataProperties.al:156-158, queries/W7QueryFilters.al
 /// QueryMetadata_NormalQuery_ApiColumnsAreBlank); one declared version reads as declared
-/// (pages/properties/PageMetadataApi.al:75, queries/TestQueryMetadataVirtualTable.al). Two or three declared versions read
-/// in declared order joined by `,` under assumption `api-version-list-comma-joined` (corpus PR 1602); another count is not
-/// measured and is refused. A value that is not a list of literals keeps the first literal, as before.
+/// (pages/properties/PageMetadataApi.al:75, queries/TestQueryMetadataVirtualTable.al). Two to four declared versions read
+/// in declared order joined by `,` under assumption `api-version-list-comma-joined` (corpus PR 1602,
+/// pages/properties/PageMetadataMultiApiVersion.al:98-395); five or more are not measured and are refused. A value that
+/// is not a list of literals keeps the first literal, as before.
 pub(super) fn api_version_column<O: ObjectInfo + ?Sized>(
     o: &O,
 ) -> Result<(String, Option<al_builtins::assumptions::Assumption>), String> {
@@ -141,12 +142,12 @@ pub(super) fn api_version_column<O: ObjectInfo + ?Sized>(
     let first = || truncate(&string_lit(v).unwrap_or_default(), 250);
     match lits.as_deref() {
         Some([_]) | None => Ok((first(), None)),
-        Some(several @ ([_, _] | [_, _, _])) => Ok((
+        Some(several @ ([_, _] | [_, _, _] | [_, _, _, _])) => Ok((
             truncate(&several.join(","), 250),
             Some(al_builtins::assumptions::Assumption::ApiVersionListCommaJoined),
         )),
         Some(more) => Err(format!(
-            "APIVersion declares {} versions (what the column holds is measured for two and three)",
+            "APIVersion declares {} versions (what the column holds is measured for two to four)",
             more.len()
         )),
     }
