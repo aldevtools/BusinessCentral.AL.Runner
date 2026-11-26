@@ -2,6 +2,7 @@
 HN Contains Tests::Measured_FreshRequest	ASSUMED http-contains-empty-name (corpus PR 1424)
 HN Contains Tests::Measured_FreshContent	ASSUMED http-contains-empty-name (corpus PR 1424)
 HN Contains Tests::Measured_RequestContentAfterTextWrite	ASSUMED http-contains-empty-name (corpus PR 1424)
+HN Contains Tests::Measured_FreshResponseContent	ASSUMED http-contains-empty-name (corpus PR 1424)
 HN Contains Tests::StandaloneContentAfterTextWrite	REFUSED HttpHeaders.Contains with an empty name on an unmeasured version or header state
 HN Contains Tests::ResponseContentAfterTextWrite	REFUSED HttpHeaders.Contains with an empty name on an unmeasured version or header state
 HN Contains Tests::HandlerWrittenResponseContent	REFUSED HttpHeaders.Contains with an empty name on an unmeasured version or header state
@@ -13,6 +14,10 @@ HN Contains Tests::ContentAfterSecondTextWrite	REFUSED HttpHeaders.Contains with
 HN Contains Tests::ContentAfterStreamWrite	REFUSED HttpHeaders.Contains with an empty name on an unmeasured version or header state
 HN Contains Tests::ContentAfterClear	REFUSED HttpHeaders.Contains with an empty name on an unmeasured version or header state
 HN Contains Tests::CopyOfWrittenContent	REFUSED HttpHeaders.Contains with an empty name on an unmeasured version or header state
+HN Contains Tests::RequestContentAfterReadAsStream	REFUSED HttpHeaders.Contains with an empty name on an unmeasured version or header state
+HN Contains Tests::FreshContentAfterReadAsStream	REFUSED HttpHeaders.Contains with an empty name on an unmeasured version or header state
+HN Contains Tests::ResponseContentAfterReadAsStream	REFUSED HttpHeaders.Contains with an empty name on an unmeasured version or header state
+HN Contains Tests::RequestContentAfterReadAsSecret	REFUSED HttpHeaders.Contains with an empty name on an unmeasured version or header state
 HN Stream Tests::Measured_FreshRemoved	ASSUMED http-stream-write-keeps-removed-content-type (corpus PR 1424)
 HN Stream Tests::Measured_CopyRemoved	ASSUMED http-stream-write-keeps-removed-content-type (corpus PR 1424)
 HN Stream Tests::Measured_JsonReadded	ASSUMED http-stream-write-keeps-removed-content-type (corpus PR 1424); typed value http-typed-header-value-shapes

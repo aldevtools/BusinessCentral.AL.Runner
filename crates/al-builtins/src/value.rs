@@ -1490,7 +1490,7 @@ pub struct HeaderBag {
     /// `HttpRequestMessage.SetCookie` wrote the `Cookie` header of these request headers (http::request_cookies).
     pub set_cookies: bool,
     /// Something other than the measured calls changed this collection: Add of a text value, TryAddWithoutValidation,
-    /// Remove, Clear, a second WriteFrom(Text), a WriteFrom(InStream) or a SecretText of its content, or the collection
+    /// Remove, Clear, a second WriteFrom(Text), a WriteFrom(InStream) or a SecretText of its content, any ReadAs of its content, or the collection
     /// came from `HttpContent.Clear`, a content copy (`HttpContentState::deep_copy`) or a client rebuild.
     /// `HttpHeaders.Contains('')` is measured only on collections without it (`http::headers::contains_empty_measured`).
     /// Nothing clears it: a collection keeps it while it lives.

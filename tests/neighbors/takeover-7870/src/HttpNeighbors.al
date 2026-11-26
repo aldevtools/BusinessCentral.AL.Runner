@@ -209,6 +209,66 @@ codeunit 62701 "HN Contains Tests"
     end;
 
     [Test]
+    procedure Measured_FreshResponseContent()
+    var
+        R: HttpResponseMessage;
+        H: HttpHeaders;
+    begin
+        R.Content.GetHeaders(H);
+        ExpectEmptyNameError(H);
+    end;
+
+    [Test]
+    procedure RequestContentAfterReadAsStream()
+    var
+        R: HttpRequestMessage;
+        H: HttpHeaders;
+        InS: InStream;
+    begin
+        R.Content.WriteFrom('body');
+        R.Content.ReadAs(InS);
+        R.Content.GetHeaders(H);
+        ExpectEmptyNameError(H);
+    end;
+
+    [Test]
+    procedure FreshContentAfterReadAsStream()
+    var
+        C: HttpContent;
+        H: HttpHeaders;
+        InS: InStream;
+    begin
+        C.ReadAs(InS);
+        C.GetHeaders(H);
+        ExpectEmptyNameError(H);
+    end;
+
+    [Test]
+    procedure ResponseContentAfterReadAsStream()
+    var
+        R: HttpResponseMessage;
+        H: HttpHeaders;
+        InS: InStream;
+    begin
+        R.Content.ReadAs(InS);
+        R.Content.GetHeaders(H);
+        ExpectEmptyNameError(H);
+    end;
+
+    [Test]
+    procedure RequestContentAfterReadAsSecret()
+    var
+        R: HttpRequestMessage;
+        H: HttpHeaders;
+        S: SecretText;
+    begin
+        R.Content.WriteFrom('body');
+        if R.Content.ReadAs(S) then;
+        R.Content.GetHeaders(H);
+        ExpectEmptyNameError(H);
+    end;
+
+    [Test]
     procedure NonEmptyNameOnFreshRequest()
     var
         R: HttpRequestMessage;

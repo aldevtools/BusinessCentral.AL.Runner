@@ -268,11 +268,11 @@ pub(super) fn headers_contains(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [
 /// The collections on which corpus PR 1424 measured `Contains('')` raising InvalidHeader:Argument (assumption
 /// http-contains-empty-name), none of them changed by a call the probe did not make (`HeaderBag::edited`):
 /// - request, response or client headers that hold nothing, and an HttpHeaders variable nothing filled, which `with_bag`
-///   makes a request collection (tests/al-language/http/HttpHeaders.al:518-542);
-/// - request headers that hold only `X-Secret` added from a SecretText of `body` (HttpHeaders.al:545-563);
-/// - content headers that hold only `Content-Type: text/plain; charset=utf-8`: a fresh content (:518-542) and the request's own
-///   content after one WriteFrom(Text) (:566-590); a text write on any other content marks it edited (`content::write_from`);
-/// - the fresh content of a response never sent, which holds nothing (:566-590). The response a handler filled is marked
+///   makes a request collection (tests/al-language/http/HttpHeaders.al:531-555);
+/// - request headers that hold only `X-Secret` added from a SecretText of `body` (HttpHeaders.al:558-576);
+/// - content headers that hold only `Content-Type: text/plain; charset=utf-8`: a fresh content (:531-555) and the request's own
+///   content after one WriteFrom(Text) (:579-603); a text write on any other content marks it edited (`content::write_from`);
+/// - the fresh content of a response never sent, which holds nothing (:579-603). The response a handler filled is marked
 ///   edited with its content (`send::send`).
 fn contains_empty_measured(b: &HeaderBag) -> bool {
     let unchanged = !b.edited && !b.set_cookies && !b.unnamed_secret_header;

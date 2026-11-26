@@ -991,6 +991,15 @@ codeunit 50196 C
         exit(Check(H));
     end;
 
+    procedure RespContent(): Text
+    var
+        R: HttpResponseMessage;
+        H: HttpHeaders;
+    begin
+        R.Content.GetHeaders(H);
+        exit(Check(H));
+    end;
+
     procedure Cli(): Text
     var
         Client: HttpClient;
@@ -1094,7 +1103,7 @@ fn measured_versions_contains_with_empty_name_raises_invalid_header_argument() {
 
     for (major, minor) in [(27, 5), (28, 5), (29, 0), (29, 1)] {
         let mut built = built_on(EMPTY_CONTAINS_SRC, major, minor);
-        for routine in ["Fresh", "Req", "Cnt", "Resp", "Cli", "SecretHeader"] {
+        for routine in ["Fresh", "Req", "Cnt", "Resp", "RespContent", "Cli", "SecretHeader"] {
             take_hits();
             assert_eq!(
                 text(built.run(routine)),
@@ -1486,6 +1495,52 @@ codeunit 50198 C
         exit(Contains(H));
     end;
 
+    procedure RequestReadStream(): Boolean
+    var
+        Req: HttpRequestMessage;
+        H: HttpHeaders;
+        InS: InStream;
+    begin
+        Req.Content.WriteFrom('x');
+        Req.Content.ReadAs(InS);
+        Req.Content.GetHeaders(H);
+        exit(Contains(H));
+    end;
+
+    procedure FreshReadStream(): Boolean
+    var
+        C: HttpContent;
+        H: HttpHeaders;
+        InS: InStream;
+    begin
+        C.ReadAs(InS);
+        C.GetHeaders(H);
+        exit(Contains(H));
+    end;
+
+    procedure ResponseReadStream(): Boolean
+    var
+        R: HttpResponseMessage;
+        H: HttpHeaders;
+        InS: InStream;
+    begin
+        R.Content.ReadAs(InS);
+        R.Content.GetHeaders(H);
+        exit(Contains(H));
+    end;
+
+    procedure RequestReadSecret(): Boolean
+    var
+        Req: HttpRequestMessage;
+        H: HttpHeaders;
+        S: SecretText;
+    begin
+        Req.Content.WriteFrom('x');
+        if Req.Content.ReadAs(S) then;
+        Req.Content.GetHeaders(H);
+        exit(Contains(H));
+    end;
+
     procedure StreamAfterReadAs()
     var
         C: HttpContent;
@@ -1531,6 +1586,10 @@ fn empty_name_is_refused_after_a_change_the_probe_did_not_make() {
             "ContentClear",
             "CopyContent",
             "StreamWritten",
+            "RequestReadStream",
+            "FreshReadStream",
+            "ResponseReadStream",
+            "RequestReadSecret",
         ] {
             let result = built.run(routine);
             assert!(
