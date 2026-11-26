@@ -1,0 +1,9 @@
+# key	entry
+Probe Api Version Tests::ApiVersionHoldsEveryVersion	ASSUMED api-version-list-comma-joined (open corpus probe PR 1602: PageMetadataMultiApiVersion.al, CI green on BC 27/28/29)
+Probe Api Version Tests::TwoVersionsKeepDeclaredOrder	ASSUMED api-version-list-comma-joined (open corpus probe PR 1602: PageMetadataMultiApiVersion.al, CI green on BC 27/28/29)
+Probe Api Version Tests::QueryThreeVersions	ASSUMED api-version-list-comma-joined (open corpus probe PR 1602: PageMetadataMultiApiVersion.al, CI green on BC 27/28/29)
+Probe Api Version Tests::FilterOnFullList	ASSUMED api-version-list-comma-joined (open corpus probe PR 1602: PageMetadataMultiApiVersion.al, CI green on BC 27/28/29)
+Probe Api Version Tests::FilterOnFirstVersionOnly	ASSUMED api-version-list-comma-joined (open corpus probe PR 1602: PageMetadataMultiApiVersion.al, CI green on BC 27/28/29)
+Probe Api Version Tests::MultiVersionRowNameOnly	ASSUMED api-version-list-comma-joined (open corpus probe PR 1602: PageMetadataMultiApiVersion.al, CI green on BC 27/28/29)
+Probe Api Version Tests::FourVersionsRefuse	REFUSED Page Metadata: page 'Probe Four Version Api': APIVersion declares 4 versions
+Probe Api Version Tests::QueryFourVersionsRefuse	REFUSED Query Metadata: query 'Probe Four Version Query': APIVersion declares 4 versions

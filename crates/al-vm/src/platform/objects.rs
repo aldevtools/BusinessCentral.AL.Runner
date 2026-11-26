@@ -126,7 +126,7 @@ pub(super) fn split_top(body: &str) -> Option<Vec<&str>> {
 /// Undeclared reads BC's own default `beta` (record/TestPageMetadataProperties.al:94-97, queries/W7QueryFilters.al
 /// QueryMetadata_NormalQuery_ApiColumnsAreBlank); one declared version reads as declared
 /// (pages/properties/PageMetadataApi.al:75, queries/TestQueryMetadataVirtualTable.al). Two or three declared versions read
-/// in declared order joined by `,` under assumption `api-version-list-comma-joined` (corpus PR 1530); another count is not
+/// in declared order joined by `,` under assumption `api-version-list-comma-joined` (corpus PR 1602); another count is not
 /// measured and is refused. A value that is not a list of literals keeps the first literal, as before.
 pub(super) fn api_version_column<O: ObjectInfo + ?Sized>(
     o: &O,

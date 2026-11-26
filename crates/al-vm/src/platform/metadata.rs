@@ -6,7 +6,9 @@
 //! pinned by the corpus and are recorded in docs/probes-needed.md.
 
 use super::mat::Entry;
-use super::objects::{Catalog, api_version_column, caption, entries, ident, member, prop, string_lit, truncate, truthy};
+use super::objects::{
+    Catalog, api_version_column, caption, entries, ident, member, prop, string_lit, truncate, truthy,
+};
 use super::{Providers, blank, option, pos};
 use al_builtins::value::Value;
 use al_data::TableDef;
@@ -135,9 +137,10 @@ pub(super) fn query_metadata_rows(p: &Providers, t: &TableDef) -> Vec<Entry> {
     let assumed = assumed.into_inner();
     rows.into_iter()
         .map(|e| match &e.row[pos(t, 1)] {
-            Value::Integer(id) if assumed.contains(&Some(*id as u32)) => {
-                e.assuming_in(al_builtins::assumptions::Assumption::ApiVersionListCommaJoined, vec![pos(t, 6)])
-            }
+            Value::Integer(id) if assumed.contains(&Some(*id as u32)) => e.assuming_in(
+                al_builtins::assumptions::Assumption::ApiVersionListCommaJoined,
+                vec![pos(t, 6)],
+            ),
             _ => e,
         })
         .collect()

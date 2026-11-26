@@ -78,11 +78,7 @@ fn text_prop(o: &Object, name: &str, max: usize) -> String {
 /// (testpage/CdTestPageLeads.al:890), `order(ascending)`, a Code const and a Decimal `filter(> 0)`
 /// (metadata/platform-tables/AwTests.al:116-117), a Decimal const of a whole number, and the Option, Enum and Code `filter()`
 /// shapes of [`member_filter_text`]. Anything else (a const on another type, another filter) is not pinned.
-fn view_text(
-    o: &Object,
-    table: Option<&al_ir::ObjectHead>,
-    table_objects: &al_ir::Objects,
-) -> Result<String, String> {
+fn view_text(o: &Object, table: Option<&al_ir::ObjectHead>, table_objects: &al_ir::Objects) -> Result<String, String> {
     let Some(v) = prop(o, "SourceTableView") else {
         return Ok(String::new());
     };
