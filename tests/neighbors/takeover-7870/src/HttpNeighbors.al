@@ -106,6 +106,21 @@ codeunit 62701 "HN Contains Tests"
         ExpectEmptyNameError(H);
     end;
 
+    [Test]
+    [HandlerFunctions('PlainHandler')]
+    procedure HandlerResponseContentStreamWrite()
+    var
+        Client: HttpClient;
+        Resp: HttpResponseMessage;
+        B: Record "HN Blob";
+        HNStreams: Codeunit "HN Streams";
+        InS: InStream;
+    begin
+        Client.Get('http://localhost/a', Resp);
+        HNStreams.Fill(B, InS);
+        Resp.Content.WriteFrom(InS);
+    end;
+
     [HttpClientHandler]
     procedure WritingHandler(Request: TestHttpRequestMessage; var Response: TestHttpResponseMessage): Boolean
     begin

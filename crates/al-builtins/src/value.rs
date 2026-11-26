@@ -1570,6 +1570,9 @@ pub struct HttpContentState {
     /// A `ReadAs` ran since the last `WriteFrom` or `Clear`. A stream write after a changed Content-Type is measured only
     /// without it (`http::content::keep_stream_content_type`).
     pub read_since_write: bool,
+    /// The content of a response a test handler filled (`http::send`). A stream write after a changed Content-Type is
+    /// measured only on a content the test made (`http::content::keep_stream_content_type`).
+    pub handler_filled: bool,
 }
 
 impl Default for HttpContentState {
@@ -1591,6 +1594,7 @@ impl Default for HttpContentState {
             secret_read: crate::http::SecretReadShape::Other,
             untouched: false,
             read_since_write: false,
+            handler_filled: false,
         }
     }
 }

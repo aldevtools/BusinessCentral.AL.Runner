@@ -218,10 +218,14 @@ pub(super) fn send(
     // the call raises nothing (al-language-onprem/http/LtDaHttpHandlerOdd.al:119-120, :145-146).
     let success = state.success;
     // The response a handler filled is not the response variable of the probe: `Contains('')` on its headers and on its
-    // content is not measured (assumption http-contains-empty-name).
+    // content is not measured (assumption http-contains-empty-name), nor a stream write on its content (assumption
+    // http-stream-write-keeps-removed-content-type).
     state.headers.borrow_mut().edited = true;
     let mut handed = state.content.clone();
-    with_content(Some(&mut handed), |s| s.headers.borrow_mut().edited = true)?;
+    with_content(Some(&mut handed), |s| {
+        s.headers.borrow_mut().edited = true;
+        s.handler_filled = true;
+    })?;
     *cell.borrow_mut() = LibraryValue::HttpResponse(HttpResponseState {
         status: state.status,
         reason: state.reason,

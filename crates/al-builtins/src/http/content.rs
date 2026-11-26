@@ -117,7 +117,8 @@ pub(super) fn write_from_stream(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut 
 }
 
 /// Whether `WriteFrom(InStream)` keeps the content's Content-Type as it is (assumption
-/// http-stream-write-keeps-removed-content-type) instead of setting the default (`write_body`). A secret content, and a
+/// http-stream-write-keeps-removed-content-type) instead of setting the default (`write_body`). The content of a response
+/// a test handler filled is in no measured state, whatever its headers hold: it refuses, also after a `Clear`. A secret content, and a
 /// Content-Type of exactly `text/plain; charset=utf-8`, take the default as main did (xml/xml/P97ContentSecret.al:167;
 /// http/headers/P87ContentStream.al:44). Every other header state runs only in the states corpus PR 1424 measured
 /// (tests/al-language/http/content/HttpContent.al:717-793), on the minors it measured, else it refuses before the stream is
@@ -127,6 +128,9 @@ pub(super) fn write_from_stream(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut 
 ///   handed out as a stream, and it has no secret header;
 /// - the stream is an InStream of a Blob field, at its start, never read, assigned or handed to a content before.
 fn keep_stream_content_type(c: &dyn Ctx, s: &HttpContentState, stream: Option<&Value>) -> Result<bool, Signal> {
+    if s.handler_filled {
+        return unmeasured_stream_write();
+    }
     if s.secret {
         return Ok(false);
     }
@@ -149,6 +153,10 @@ fn keep_stream_content_type(c: &dyn Ctx, s: &HttpContentState, stream: Option<&V
     if c.http_probe_1424_measured() && measured_type && measured_content && measured_stream {
         return Ok(true);
     }
+    unmeasured_stream_write()
+}
+
+fn unmeasured_stream_write() -> Result<bool, Signal> {
     unsupported(
         "HttpContent.WriteFrom(InStream) with a changed Content-Type in an unmeasured version, header or stream state",
     )
@@ -371,6 +379,7 @@ impl HttpContentState {
             secret_read,
             untouched: false,
             read_since_write: self.read_since_write,
+            handler_filled: self.handler_filled,
         }
     }
 

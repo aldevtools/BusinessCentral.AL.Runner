@@ -26,3 +26,4 @@ HN Stream Tests::PartlyReadStream	REFUSED HttpContent.WriteFrom(InStream) with a
 HN Stream Tests::StreamNotOnBlobField	REFUSED HttpContent.WriteFrom(InStream) with a changed Content-Type in an unmeasured version, header or stream state
 HN Stream Tests::SecondStreamWrite	REFUSED HttpContent.WriteFrom(InStream) with a changed Content-Type in an unmeasured version, header or stream state
 HN Stream Tests::JsonWithCharset	REFUSED HttpContent.WriteFrom(InStream) with a changed Content-Type in an unmeasured version, header or stream state
+HN Contains Tests::HandlerResponseContentStreamWrite	REFUSED HttpContent.WriteFrom(InStream) with a changed Content-Type in an unmeasured version, header or stream state
