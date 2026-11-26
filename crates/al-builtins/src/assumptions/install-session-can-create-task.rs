@@ -4,7 +4,7 @@ InstallSessionCanCreateTask => {
     tests: "No Microsoft test. Corpus PR 1589 (merged at 60d576c88, not in the runner's pin yet), tests/al-language/install-upgrade/IsInstallSessionTests.al:86, :91 (per company: `can create task=Yes`), :135 (per database), :169 (test session: `No`). Corpus PR 1592 (merged at 56021ecef, not in the runner's pin yet; identical on 27.5, 28.5 and 29.0), tests/al-language/install-upgrade/IcInstallCanCreateTaskTests.al: `Yes` in the install triggers of XApp A per company and per database with a task id (:124-126); the three tasks exist and have not run when the test starts (:99); `Yes` in the install session's OnAfterInitialization, OnCompanyOpen, OnAfterLogin and OnCompanyOpenCompleted subscribers (:160) and in another app's subscribers (:180-181); `Yes` in the test session's own subscribers, `No` in the test procedure (:197-199).",
     probe: "Corpus PRs 1589 and 1592 (both merged): the install subscribers and triggers write `Format(TaskScheduler.CanCreateTask())`, and a `Subtype = Install` codeunit runs `if CanCreateTask then CreateTask(...) else Codeunit.Run(...)`; the test reads the branch, `TaskExists` and the Scheduled Task rows. When the pin holds both, the entry is deleted and the code cites the pinned lines. Still to measure: `CreateTask` inside a try function in install code (al-runner issue 9134, refused until then), and the same cells with the task scheduler on (al-runner issue 9144).",
     awaiting: Awaiting {
-        issues: &[9082, 9123],
+        issues: &[9082, 9123, 9134, 9144],
         files: &[
             "tests/al-language/install-upgrade/IsInstallSessionTests.al",
             "tests/al-language/install-upgrade/IcInstallCanCreateTaskTests.al",
