@@ -302,7 +302,11 @@ impl al_builtins::native::Ctx for Session {
     }
     fn fs_read(&mut self, path: &str) -> Result<Option<Vec<u8>>, Signal> {
         self.refuse_pending_file(path)?;
-        Ok(self.host.files.read(path))
+        let bytes = self.host.files.read(path);
+        if let Some(b) = &bytes {
+            refuse_unmarked_output(path, b)?;
+        }
+        Ok(bytes)
     }
     fn fs_write(&mut self, path: &str, bytes: &[u8]) -> Result<(), String> {
         // A write by AL over the path ends the mark: the file is what AL wrote.
@@ -790,6 +794,21 @@ pub(crate) fn base_slot_missing(slot: usize) -> Signal {
 /// same file is still the file (a superset of what the file system would call equal, which only refuses more).
 pub(crate) fn pending_key(path: &str) -> String {
     path.replace('\\', "/").to_lowercase()
+}
+
+/// Refuses the bytes of a file this session holds no mark for (al-runner issues 8702, 8703) when they are a report output the
+/// runtime wrote: the whole bytes of a placeholder (`report_placeholder::holds_placeholder`), or the mark of a rendered text
+/// (`al_builtins::rendered_text::bytes_hold`). Such a file was written by an earlier session or another process, and its mark
+/// lived only there; read without it, the placeholder's markup would answer as BC's rendering and the mark's bytes would form a
+/// rendered text past the checks of `rendered_text::read_whole`. Every read of a file's bytes passes `Ctx::fs_read`.
+pub(crate) fn refuse_unmarked_output(path: &str, bytes: &[u8]) -> Result<(), Signal> {
+    if crate::report_placeholder::holds_placeholder(bytes) || al_builtins::rendered_text::bytes_hold(bytes) {
+        return Err(Signal::unsupported(format!(
+            "a read of the file {path}, which holds a report output this runtime wrote outside this session (its placeholder \
+             or rendered-content mark is not known here; the runtime has no layout renderer)"
+        )));
+    }
+    Ok(())
 }
 
 impl Session {

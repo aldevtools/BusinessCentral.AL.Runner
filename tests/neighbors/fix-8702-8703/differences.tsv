@@ -1,0 +1,14 @@
+# key	entry
+UO Tests::Html_Read_StrLen	REFUSED a read of the file 
+UO Tests::Html_StrPos_EmptyBody	REFUSED a read of the file 
+UO Tests::Html_TrailingByte_Read	REFUSED a read of the file 
+UO Tests::Pdf_ReadText5	REFUSED a read of the file 
+UO Tests::Pdf_FirstByte	REFUSED a read of the file 
+UO Tests::Html_BlobImport	REFUSED a read of the file 
+UO Tests::Html_FileCopy	REFUSED a read of the file 
+UO Tests::Mark_ReadCount	REFUSED a read of the file 
+UO Tests::Mark_NotEmpty	REFUSED a read of the file 
+UO Tests::Mark_Windows_StrLen	REFUSED a read of the file 
+UO Tests::Mark_Utf16_StrLen	REFUSED a read of the file 
+UO Tests::Mark_FirstByte	REFUSED a read of the file 
+UO Word Tests::Word_FirstByte	REFUSED a read of the file 

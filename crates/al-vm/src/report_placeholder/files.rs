@@ -43,6 +43,16 @@ impl Format {
     }
 }
 
+/// Whether `bytes` hold the whole bytes of a placeholder of any format, as a file the runtime wrote holds them. Built once per
+/// process: the images do not change.
+pub fn holds_placeholder(bytes: &[u8]) -> bool {
+    static IMAGES: std::sync::OnceLock<[Vec<u8>; 4]> = std::sync::OnceLock::new();
+    let images = IMAGES.get_or_init(|| [Format::Pdf, Format::Word, Format::Excel, Format::Html].map(Format::bytes));
+    images
+        .iter()
+        .any(|i| bytes.len() >= i.len() && bytes.windows(i.len()).any(|w| w == i.as_slice()))
+}
+
 /// A small valid PDF: the `%PDF-1.4` header, a catalog, a page tree and one blank Letter page, with a correct
 /// cross-reference table.
 pub fn placeholder_pdf() -> Vec<u8> {

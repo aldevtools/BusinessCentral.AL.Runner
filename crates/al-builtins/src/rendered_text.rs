@@ -173,6 +173,13 @@ pub fn holds(s: &str) -> bool {
     s.contains(RENDERED_TEXT_MARK)
 }
 
+/// Whether bytes hold the mark: its UTF-8 bytes, or UTF-16 text that holds it (`stream_call_stack::bytes_hold_mark`). The number
+/// after it names a render of the session that wrote it, so bytes that hold it and reach no marked buffer are refused where they
+/// are read (al-vm `Session::refuse_unmarked_output`).
+pub fn bytes_hold(b: &[u8]) -> bool {
+    crate::stream_call_stack::bytes_hold_text_mark(b, RENDERED_TEXT_MARK)
+}
+
 /// `s` with every mark in the changed form (`Format(BigText)`, P12).
 pub fn to_changed(s: &str) -> String {
     let mut out = String::with_capacity(s.len());

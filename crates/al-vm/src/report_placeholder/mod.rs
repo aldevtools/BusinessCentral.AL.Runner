@@ -27,7 +27,7 @@
 mod files;
 mod run;
 
-pub use files::{Format, placeholder_pdf};
+pub use files::{Format, holds_placeholder, placeholder_pdf};
 
 use crate::report_save::{AfterRun, Plan, Renders};
 use crate::reports::{SaveTarget, Schema};
