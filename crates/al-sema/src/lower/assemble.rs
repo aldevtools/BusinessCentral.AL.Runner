@@ -974,8 +974,9 @@ pub(crate) fn lower_core(
             .collect(),
         uncompiled_subscribers,
         tdd_stubs: tdd_stub_list(checked, &tdd_sites),
-        // `alcodes::duplicate_ids` lets a moved table stub of a dependency's table compile (al-runner issue 7914).
-        assumes: if ws.has_moved_table_stub() {
+        // `alcodes::duplicate_ids` lets a moved table stub of a dependency's table compile (al-runner issue 7914); only
+        // a stub of a dependency package with other fields or keys than the live table's is unmeasured.
+        assumes: if ws.has_unmeasured_moved_table_stub() {
             vec![al_builtins::assumptions::Assumption::MovedTableStubOfDependency]
         } else {
             Vec::new()
