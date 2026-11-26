@@ -2338,6 +2338,17 @@ pub enum Expr {
     VarSectionValue(Box<Expr>),
 }
 
+impl Expr {
+    /// The expression without the type conversions the lowering wraps around it (an assigned value, an argument).
+    pub fn unconverted(&self) -> &Expr {
+        let mut e = self;
+        while let Expr::Convert(_, inner) = e {
+            e = inner;
+        }
+        e
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SetElem {
     One(Expr),
