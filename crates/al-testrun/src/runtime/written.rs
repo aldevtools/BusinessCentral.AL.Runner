@@ -712,25 +712,30 @@ pub(crate) fn root(p: &Place) -> Option<(bool, usize)> {
 /// Calls `note` on every place `body` assigns, its loop variables included (statements only; the places of expressions
 /// are found by walking them).
 pub(crate) fn stmt_places(body: &[Stmt], note: &mut dyn FnMut(&Place)) {
+    stmt_assigns(body, &mut |p, _| note(p));
+}
+
+/// As [`stmt_places`], with the value a `:=` assigns (`None` for a loop variable).
+fn stmt_assigns(body: &[Stmt], note: &mut dyn FnMut(&Place, Option<&Expr>)) {
     for s in body {
         match s {
-            Stmt::Assign(p, _) => note(p),
+            Stmt::Assign(p, e) => note(p, Some(e)),
             Stmt::For { var, body, .. } | Stmt::Foreach { var, body, .. } => {
-                note(var);
-                stmt_places(body, note);
+                note(var, None);
+                stmt_assigns(body, note);
             }
             Stmt::If(_, a, b) => {
-                stmt_places(a, note);
-                stmt_places(b, note);
+                stmt_assigns(a, note);
+                stmt_assigns(b, note);
             }
-            Stmt::While(_, b) | Stmt::Repeat(b, _) | Stmt::AssertError(b) => stmt_places(b, note),
+            Stmt::While(_, b) | Stmt::Repeat(b, _) | Stmt::AssertError(b) => stmt_assigns(b, note),
             Stmt::Case {
                 branches, otherwise, ..
             } => {
                 for (_, b) in branches {
-                    stmt_places(b, note);
+                    stmt_assigns(b, note);
                 }
-                stmt_places(otherwise, note);
+                stmt_assigns(otherwise, note);
             }
             _ => {}
         }
@@ -1572,24 +1577,30 @@ impl Rec<'_> {
 
     /// Notes the member calls and reads on `var` in `body` when `body` never runs: the body of a `foreach` whose `var`
     /// holds the item type of a UserInfo collection whose read raises on this tier (al-vm `unrun_item_type`; corpus PR
-    /// 1612, merged, not in the pin, Y93GraphNoDirectory.al cell "ServicePlanInfo/RoleInfo/GroupInfo members: not reachable on this
-    /// tier"; assumption graph-no-directory-members), and that assigns `var` nowhere, so each such member is the
+    /// 1612, merged, not in the pin, Y93GraphNoDirectory.al header "Facts" line "ServicePlanInfo / RoleInfo / GroupInfo members
+    /// cannot be reached on this tier" and cells foreach_assigned_plans, foreach_roles, foreach_groups; assumption
+    /// graph-no-directory-members), over a UserInfo [`Rec::null_user`] accepts, and that assigns `var` nowhere, so each such member is the
     /// item's, as is a call or read on the result of a noted member (`X.DisplayName().ToUpper()`: the receiver chain starts
     /// at `var`; the post-order walk notes the receiver first). The item from any other source (a `:=`, a parameter,
-    /// another collection) keeps its members' count.
+    /// another collection, a UserInfo `null_user` refuses) keeps its members' count. The `foreach` itself counts as
+    /// code the walk does not follow only over a variable ([`Rec::places`]); over a member's result, that member counts
+    /// where it is ([`Rec::dotnet_member`]).
     fn unrun_members(&mut self, o: usize, r: usize, var: &Place, collection: &Expr, body: &[Stmt]) {
         use al_vm::dotnet::server_classes::unrun_item_type;
         let types = &self.lowered.program.dotnet_types;
         let type_of = |d: usize| types.get(d).map(|t| t.type_name.as_str());
         let Expr::DotNet {
             ty: Some(c),
-            receiver: Some(_),
+            receiver: Some(u),
             op: al_ir::DotNetOp::Call(m),
             args,
         } = collection
         else {
             return;
         };
+        if !self.null_user(o, r, u) {
+            return;
+        }
         let item = type_of(*c)
             .and_then(|c| unrun_item_type(c, m))
             .filter(|_| args.is_empty());
@@ -1620,6 +1631,65 @@ impl Rec<'_> {
                 self.unrun.insert(e as *const Expr as usize);
             }
         });
+    }
+
+    /// Whether `u` is a declared local of routine `r` (not a parameter) whose every assignment in the routine is a call of
+    /// a member that leaves a UserInfo null on this tier (al-vm `null_user_member`) on a local `g` whose every assignment
+    /// is the no-argument constructor of its type (al-vm `null_user_member` names that type), neither passed by
+    /// reference: the sources corpus PR 1612 measures (Y93GraphNoDirectory.al, UserInfo_FromGetCurrentUser_Members and
+    /// UserInfo_Unassigned_Members). A parameter, a global or a UserInfo from anything else (`U.UserInfo()`, a mock
+    /// GraphQuery: Y58MockGraphQuery.al:46-51, 141-158 runs such a body) is not.
+    fn null_user(&self, o: usize, r: usize, u: &Expr) -> bool {
+        use al_vm::dotnet::server_classes::null_user_member;
+        let routine = &self.lowered.program.objects[o].routines[r];
+        let types = &self.lowered.program.dotnet_types;
+        let type_of = |d: &Option<usize>| d.and_then(|d| types.get(d)).map(|t| t.type_name.as_str());
+        let declared_local = |p: &Place| matches!(p, Place::Local(i) if *i >= routine.params);
+        let Expr::Load(u) = u else { return false };
+        if !declared_local(u) {
+            return false;
+        }
+        routine.body.read(|body| {
+            let mut by_ref = false;
+            al_ir::types::for_each_expr_post(body, &mut |e| expr_refs(e, &mut |p| by_ref |= p == u));
+            let mut sources = Vec::new();
+            let mut ok = !by_ref;
+            stmt_assigns(body, &mut |p, e| match (p == u, e) {
+                (false, _) => {}
+                (
+                    true,
+                    Some(Expr::DotNet {
+                        ty,
+                        receiver: Some(g),
+                        op: al_ir::DotNetOp::Call(m),
+                        ..
+                    }),
+                ) if type_of(ty).is_some_and(|t| null_user_member(t, m)) => match g.as_ref() {
+                    Expr::Load(g) if declared_local(g) => sources.push((g.clone(), type_of(ty))),
+                    _ => ok = false,
+                },
+                (true, _) => ok = false,
+            });
+            sources.iter().all(|(g, t)| {
+                let mut by_ref = false;
+                al_ir::types::for_each_expr_post(body, &mut |e| expr_refs(e, &mut |p| by_ref |= p == g));
+                let mut built = !by_ref;
+                stmt_assigns(body, &mut |p, e| match (p == g, e) {
+                    (false, _) => {}
+                    (
+                        true,
+                        Some(Expr::DotNet {
+                            ty,
+                            op: al_ir::DotNetOp::Construct,
+                            args,
+                            ..
+                        }),
+                    ) if args.is_empty() && type_of(ty) == *t => {}
+                    (true, _) => built = false,
+                });
+                built
+            }) && ok
+        })
     }
 
     /// The places statements assign (`:=`, the variable of a `for` or `foreach`). A `foreach` over a `DotNet` variable
@@ -1859,10 +1929,13 @@ impl Rec<'_> {
                 "WorkDate" if has_args => self.out.state_writes |= WORK_DATE,
                 "GlobalLanguage" if has_args => self.out.state_writes |= LANGUAGE,
                 // The text of a DotNet object is its ToString() (al-builtins format_fns.rs `format_1`), a call into the
-                // object that no server-class registry entry answers.
-                "Format"
-                    if matches!(args.first(), Some(Arg::Value(Expr::DotNetOperand(x, _)))
-                        if matches!(&**x, Expr::Load(p) if matches!(self.slot_ty(o, r, p), Some(RtType::DotNet(_))))) =>
+                // object that no server-class registry entry answers: Format, and the %n of StrSubstNo, Message and
+                // Error, which format their arguments the same way.
+                "Format" | "StrSubstNo" | "Message" | "Error"
+                    if args.iter().any(|a| {
+                        matches!(a, Arg::Value(Expr::DotNetOperand(x, _))
+                        if matches!(&**x, Expr::Load(p) if matches!(self.slot_ty(o, r, p), Some(RtType::DotNet(_)))))
+                    }) =>
                 {
                     self.out.state_writes |= OTHER
                 }

@@ -101,8 +101,9 @@ pub fn constructor_answers_only(clr_type: &str) -> bool {
 /// The UserInfo collections (member, CLR type of an item) whose read raises on a tier without Entra ID: the UserInfo
 /// is null there (`GetCurrentUser` answers null, `GetUser` and `GetUserByObjectId` raise), so reading one raises
 /// DotNetVariableNotCreated (`not_created.rs`) and the body of a `foreach` over it never runs (corpus PR 1612, merged, not in the pin,
-/// Y93GraphNoDirectory.al cell "ServicePlanInfo/RoleInfo/GroupInfo members: not reachable on this tier"; assumption
-/// graph-no-directory-members). No item member is served: a body that runs anyway raises `Signal::Unsupported`.
+/// Y93GraphNoDirectory.al header "Facts" line "ServicePlanInfo / RoleInfo / GroupInfo members cannot be reached on this
+/// tier", cells foreach_assigned_plans, foreach_roles, foreach_groups; assumption graph-no-directory-members). No item
+/// member is served: a body that runs anyway raises `Signal::Unsupported`.
 const UNRUN_ITEMS: &[(&str, &str)] = &[
     (
         "AssignedPlans",
@@ -118,6 +119,20 @@ pub fn unrun_item_type(clr_type: &str, member: &str) -> Option<&'static str> {
     let item = (UNRUN_ITEMS.iter()).find(|(m, _)| m.eq_ignore_ascii_case(member));
     item.filter(|_| clr_type.eq_ignore_ascii_case(USER_INFO))
         .map(|(_, t)| *t)
+}
+
+/// The GraphQuery members whose UserInfo is null on this tier, on a GraphQuery the no-argument constructor built:
+/// `GetCurrentUser` answers null, `GetUser` and `GetUserByObjectId` raise (corpus PR 1612, Y93GraphNoDirectory.al cells
+/// get_user_by_object_id, UserInfo_FromGetCurrentUser_Members; assumption graph-no-directory-members).
+const NULL_USER_MEMBERS: &[(&str, &str)] = &[
+    (GRAPH_QUERY, "GetCurrentUser"),
+    (GRAPH_QUERY, "GetUser"),
+    (GRAPH_QUERY, "GetUserByObjectId"),
+];
+
+/// Whether `member` of `clr_type` (both without regard to case) is one of [`NULL_USER_MEMBERS`].
+pub fn null_user_member(clr_type: &str, member: &str) -> bool {
+    listed(NULL_USER_MEMBERS, clr_type, member)
 }
 
 /// Whether `list` holds (`clr_type`, `member`), both without regard to case.
@@ -836,9 +851,22 @@ fn tenant_info_empty_text(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: A
     Ok(Value::Text(String::new().into()))
 }
 
+/// Whether `this` is a GraphQuery that [`graph_query_new`] built: corpus PR 1612 measures its members only on such a
+/// receiver (Y93GraphNoDirectory.al, GraphQuery_Direct_WithoutDirectory calls `GraphQuery.GraphQuery()` first). A null
+/// receiver is not measured and refuses. No other GraphQuery constructor is served, so the type name names that object.
+fn built_graph_query(this: Option<&Rc<DotNetObject>>, member: &str) -> Result<(), Signal> {
+    match this.map(|o| &o.kind) {
+        Some(DotNetKind::Internal { type_name, .. }) if type_name == GRAPH_QUERY => Ok(()),
+        _ => Err(Signal::unsupported(format!(
+            "GraphQuery.{member} on a GraphQuery the no-argument constructor did not build (corpus PR 1612 measures only that receiver)"
+        ))),
+    }
+}
+
 /// Corpus PR 1612 (merged, not in the pin), Y93GraphNoDirectory.al cells get_user_by_object_id and get_user_by_object_id_empty: one Text
-/// argument (a guid, or ''); other shapes refuse.
-fn graph_user_by_object_id(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
+/// argument (a guid, or '') on a GraphQuery [`graph_query_new`] built; other shapes refuse.
+fn graph_user_by_object_id(_: &mut Session, this: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
+    built_graph_query(this, "GetUserByObjectId")?;
     let [Value::Text(_)] = args else {
         return Err(Signal::unsupported(
             "GraphQuery.GetUserByObjectId with arguments other than one Text (corpus PR 1612 measures one Text)",
@@ -848,8 +876,10 @@ fn graph_user_by_object_id(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: 
     graph_null_reference("GetUserByObjectId")
 }
 
-/// Corpus PR 1612 (merged, not in the pin), Y93GraphNoDirectory.al cell is_group_member: two Text arguments; other shapes refuse.
-fn graph_is_group_member(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
+/// Corpus PR 1612 (merged, not in the pin), Y93GraphNoDirectory.al cell is_group_member: two Text arguments on a GraphQuery
+/// [`graph_query_new`] built; other shapes refuse.
+fn graph_is_group_member(_: &mut Session, this: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
+    built_graph_query(this, "IsGroupMember")?;
     let [Value::Text(_), Value::Text(_)] = args else {
         return Err(Signal::unsupported(
             "GraphQuery.IsGroupMember with arguments other than two Text (corpus PR 1612 measures two Text)",

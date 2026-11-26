@@ -77,6 +77,8 @@ codeunit 50302 "GM Tests"
         asserterror U := G.GetUserByObjectId('x');
         if GetLastErrorText() <> 'A call to Microsoft.Dynamics.Nav.AzureADGraphClient.GraphQuery.GetUserByObjectId failed with this message: Object reference not set to an instance of an object.' then
             Error('Unexpected: %1', GetLastErrorText());
+        if GetLastErrorCode() <> 'DotNetInvoke:NullReference' then
+            Error('Unexpected code: %1', GetLastErrorCode());
     end;
 
     [Test]
@@ -88,6 +90,8 @@ codeunit 50302 "GM Tests"
         asserterror if G.IsGroupMember('a', 'b') then;
         if GetLastErrorText() <> 'A call to Microsoft.Dynamics.Nav.AzureADGraphClient.GraphQuery.IsGroupMember failed with this message: Object reference not set to an instance of an object.' then
             Error('Unexpected: %1', GetLastErrorText());
+        if GetLastErrorCode() <> 'DotNetInvoke:NullReference' then
+            Error('Unexpected code: %1', GetLastErrorCode());
     end;
 
     // A UserInfo member the probe does not measure: refused on both binaries.
