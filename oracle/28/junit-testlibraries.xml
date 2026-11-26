@@ -1,104 +1,118 @@
 <?xml version='1.0' encoding='utf-8'?>
-<testsuites name="hybrid" tests="54" failures="0" errors="0" skipped="0" time="22.586" timestamp="2026-11-19T18:11:27Z"><testsuite name="Codeunit 81577" tests="4" failures="0" errors="0" skipped="0" time="2.260" timestamp="2026-11-19T18:11:12Z">
-    <properties><property name="source_run" value="44570648530" /><property name="source_attempt" value="1" /><property name="source_commit" value="8fcde9a6353f2de20e58c951efd0c4862ab1e558" /><property name="bc_build" value="28.5.54976.58543" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81577" name="BiTs_Row1_FlagsLeftAlone" time="0.061" />
-    <testcase classname="Codeunit 81577" name="BiTs_Row2_FalseInGlobalTriggersSubscriber" time="0.677" />
-    <testcase classname="Codeunit 81577" name="BiTs_Row3_FalseInOnAfterSubscriber" time="0.752" />
-    <testcase classname="Codeunit 81577" name="BiTs_Row4_OnlyInsertInGlobalTriggersSubscriber" time="0.770" />
+<testsuites name="hybrid" tests="64" failures="0" errors="0" skipped="0" time="25.361" timestamp="2026-11-26T10:28:33Z"><testsuite name="Codeunit 81577" tests="4" failures="0" errors="0" skipped="0" time="2.853" timestamp="2026-11-26T10:28:15Z">
+    <properties><property name="source_run" value="45795594403" /><property name="source_attempt" value="1" /><property name="source_commit" value="317272f1e15e3261546cdbc7cb38ab884968ac4d" /><property name="bc_build" value="28.5.54976.58977" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81577" name="BiTs_Row1_FlagsLeftAlone" time="0.911" />
+    <testcase classname="Codeunit 81577" name="BiTs_Row2_FalseInGlobalTriggersSubscriber" time="0.974" />
+    <testcase classname="Codeunit 81577" name="BiTs_Row3_FalseInOnAfterSubscriber" time="0.946" />
+    <testcase classname="Codeunit 81577" name="BiTs_Row4_OnlyInsertInGlobalTriggersSubscriber" time="0.022" />
   </testsuite>
-  <testsuite name="Codeunit 81579" tests="2" failures="0" errors="0" skipped="0" time="1.436" timestamp="2026-11-19T18:11:12Z">
-    <properties><property name="source_run" value="44570648530" /><property name="source_attempt" value="1" /><property name="source_commit" value="8fcde9a6353f2de20e58c951efd0c4862ab1e558" /><property name="bc_build" value="28.5.54976.58543" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81579" name="OnRun" time="0.749" />
-    <testcase classname="Codeunit 81579" name="C306_A6_SeesOwnOnRun" time="0.687" />
+  <testsuite name="Codeunit 81579" tests="2" failures="0" errors="0" skipped="0" time="1.648" timestamp="2026-11-26T10:28:16Z">
+    <properties><property name="source_run" value="45795594403" /><property name="source_attempt" value="1" /><property name="source_commit" value="317272f1e15e3261546cdbc7cb38ab884968ac4d" /><property name="bc_build" value="28.5.54976.58977" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81579" name="OnRun" time="0.666" />
+    <testcase classname="Codeunit 81579" name="C306_A6_SeesOwnOnRun" time="0.982" />
   </testsuite>
-  <testsuite name="Codeunit 81586" tests="2" failures="0" errors="0" skipped="0" time="1.716" timestamp="2026-11-19T18:11:13Z">
-    <properties><property name="source_run" value="44570648530" /><property name="source_attempt" value="1" /><property name="source_commit" value="8fcde9a6353f2de20e58c951efd0c4862ab1e558" /><property name="bc_build" value="28.5.54976.58543" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81586" name="C306_B6_OnRunStorage" time="0.855" />
+  <testsuite name="Codeunit 81586" tests="2" failures="0" errors="0" skipped="0" time="1.826" timestamp="2026-11-26T10:28:16Z">
+    <properties><property name="source_run" value="45795594403" /><property name="source_attempt" value="1" /><property name="source_commit" value="317272f1e15e3261546cdbc7cb38ab884968ac4d" /><property name="bc_build" value="28.5.54976.58977" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81586" name="C306_B6_OnRunStorage" time="0.965" />
     <testcase classname="Codeunit 81586" name="C306_B6_OnRunSequences" time="0.861" />
   </testsuite>
-  <testsuite name="Codeunit 81596" tests="3" failures="0" errors="0" skipped="0" time="0.783" timestamp="2026-11-19T18:11:13Z">
-    <properties><property name="source_run" value="44570648530" /><property name="source_attempt" value="1" /><property name="source_commit" value="8fcde9a6353f2de20e58c951efd0c4862ab1e558" /><property name="bc_build" value="28.5.54976.58543" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81596" name="DatabaseTriggerDeleteFalseDeleted" time="0.023" />
-    <testcase classname="Codeunit 81596" name="OnDeleteTriggerDeleteTrueDeleted" time="0.652" />
-    <testcase classname="Codeunit 81596" name="DeleteEventsDeleteFalseDeleted" time="0.108" />
+  <testsuite name="Codeunit 81596" tests="3" failures="0" errors="0" skipped="0" time="1.363" timestamp="2026-11-26T10:28:16Z">
+    <properties><property name="source_run" value="45795594403" /><property name="source_attempt" value="1" /><property name="source_commit" value="317272f1e15e3261546cdbc7cb38ab884968ac4d" /><property name="bc_build" value="28.5.54976.58977" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81596" name="DatabaseTriggerDeleteFalseDeleted" time="0.209" />
+    <testcase classname="Codeunit 81596" name="OnDeleteTriggerDeleteTrueDeleted" time="0.907" />
+    <testcase classname="Codeunit 81596" name="DeleteEventsDeleteFalseDeleted" time="0.247" />
   </testsuite>
-  <testsuite name="Codeunit 81639" tests="2" failures="0" errors="0" skipped="0" time="1.175" timestamp="2026-11-19T18:11:13Z">
-    <properties><property name="source_run" value="44570648530" /><property name="source_attempt" value="1" /><property name="source_commit" value="8fcde9a6353f2de20e58c951efd0c4862ab1e558" /><property name="bc_build" value="28.5.54976.58543" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81639" name="SetupOrder_MicrosoftTestLibrariesAgainstPartnerApps" time="0.563" />
-    <testcase classname="Codeunit 81639" name="SetupOrder_UnrelatedPartnerAppsAroundTestLibraries" time="0.612" />
+  <testsuite name="Codeunit 81597" tests="9" failures="0" errors="0" skipped="0" time="2.542" timestamp="2026-11-26T10:28:16Z">
+    <properties><property name="source_run" value="45795594403" /><property name="source_attempt" value="1" /><property name="source_commit" value="317272f1e15e3261546cdbc7cb38ab884968ac4d" /><property name="bc_build" value="28.5.54976.58977" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81597" name="L1Memo_AfterLogin" time="0.104" />
+    <testcase classname="Codeunit 81597" name="G3Memo_AfterLogin" time="0.258" />
+    <testcase classname="Codeunit 81597" name="EnvInfo_AfterLogin" time="0.667" />
+    <testcase classname="Codeunit 81597" name="AppAreas_AfterLogin" time="0.314" />
+    <testcase classname="Codeunit 81597" name="Profile_AfterLogin" time="0.373" />
+    <testcase classname="Codeunit 81597" name="ChangeLog_AfterLogin" time="0.101" />
+    <testcase classname="Codeunit 81597" name="ApiCache_CountingSubscriber" time="0.125" />
+    <testcase classname="Codeunit 81597" name="ApiCache_AnsweringSubscriber" time="0.466" />
+    <testcase classname="Codeunit 81597" name="L1Memo_TestAddsSetupRow" time="0.134" />
   </testsuite>
-<testsuite name="Codeunit 81552" tests="3" failures="0" errors="0" skipped="0" time="0.454" timestamp="2026-11-19T18:11:20Z">
-    <properties><property name="source_run" value="44570648530" /><property name="source_attempt" value="1" /><property name="source_commit" value="8fcde9a6353f2de20e58c951efd0c4862ab1e558" /><property name="bc_build" value="28.5.54976.58543" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81552" name="BiTpEnv_InstalledFrameworkCodeunits" time="0.437" />
+  <testsuite name="Codeunit 81598" tests="1" failures="0" errors="0" skipped="0" time="0.643" timestamp="2026-11-26T10:28:17Z">
+    <properties><property name="source_run" value="45795594403" /><property name="source_attempt" value="1" /><property name="source_commit" value="317272f1e15e3261546cdbc7cb38ab884968ac4d" /><property name="bc_build" value="28.5.54976.58977" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81598" name="AllCaches_SecondCodeunit" time="0.643" />
+  </testsuite>
+  <testsuite name="Codeunit 81639" tests="2" failures="0" errors="0" skipped="0" time="0.861" timestamp="2026-11-26T10:28:17Z">
+    <properties><property name="source_run" value="45795594403" /><property name="source_attempt" value="1" /><property name="source_commit" value="317272f1e15e3261546cdbc7cb38ab884968ac4d" /><property name="bc_build" value="28.5.54976.58977" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81639" name="SetupOrder_MicrosoftTestLibrariesAgainstPartnerApps" time="0.605" />
+    <testcase classname="Codeunit 81639" name="SetupOrder_UnrelatedPartnerAppsAroundTestLibraries" time="0.256" />
+  </testsuite>
+<testsuite name="Codeunit 81552" tests="3" failures="0" errors="0" skipped="0" time="0.471" timestamp="2026-11-26T10:28:25Z">
+    <properties><property name="source_run" value="45795594403" /><property name="source_attempt" value="1" /><property name="source_commit" value="317272f1e15e3261546cdbc7cb38ab884968ac4d" /><property name="bc_build" value="28.5.54976.58977" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81552" name="BiTpEnv_InstalledFrameworkCodeunits" time="0.454" />
     <testcase classname="Codeunit 81552" name="BiTpEnv_AppArea1_Set" time="0.010" />
     <testcase classname="Codeunit 81552" name="BiTpEnv_AppArea2_SeenByNextTest" time="0.007" />
   </testsuite>
-  <testsuite name="Codeunit 81553" tests="2" failures="0" errors="0" skipped="0" time="0.384" timestamp="2026-11-19T18:11:21Z">
-    <properties><property name="source_run" value="44570648530" /><property name="source_attempt" value="1" /><property name="source_commit" value="8fcde9a6353f2de20e58c951efd0c4862ab1e558" /><property name="bc_build" value="28.5.54976.58543" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81553" name="BiTpDefault_Permissions" time="0.297" />
-    <testcase classname="Codeunit 81553" name="BiTpDefault_Insert" time="0.087" />
+  <testsuite name="Codeunit 81553" tests="2" failures="0" errors="0" skipped="0" time="0.331" timestamp="2026-11-26T10:28:26Z">
+    <properties><property name="source_run" value="45795594403" /><property name="source_attempt" value="1" /><property name="source_commit" value="317272f1e15e3261546cdbc7cb38ab884968ac4d" /><property name="bc_build" value="28.5.54976.58977" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81553" name="BiTpDefault_Permissions" time="0.294" />
+    <testcase classname="Codeunit 81553" name="BiTpDefault_Insert" time="0.037" />
   </testsuite>
-  <testsuite name="Codeunit 81554" tests="2" failures="0" errors="0" skipped="0" time="0.030" timestamp="2026-11-19T18:11:21Z">
-    <properties><property name="source_run" value="44570648530" /><property name="source_attempt" value="1" /><property name="source_commit" value="8fcde9a6353f2de20e58c951efd0c4862ab1e558" /><property name="bc_build" value="28.5.54976.58543" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81554" name="BiTpDisabled_Permissions" time="0.013" />
-    <testcase classname="Codeunit 81554" name="BiTpDisabled_Insert" time="0.017" />
+  <testsuite name="Codeunit 81554" tests="2" failures="0" errors="0" skipped="0" time="0.036" timestamp="2026-11-26T10:28:26Z">
+    <properties><property name="source_run" value="45795594403" /><property name="source_attempt" value="1" /><property name="source_commit" value="317272f1e15e3261546cdbc7cb38ab884968ac4d" /><property name="bc_build" value="28.5.54976.58977" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81554" name="BiTpDisabled_Permissions" time="0.016" />
+    <testcase classname="Codeunit 81554" name="BiTpDisabled_Insert" time="0.020" />
   </testsuite>
-  <testsuite name="Codeunit 81555" tests="2" failures="0" errors="0" skipped="0" time="0.046" timestamp="2026-11-19T18:11:21Z">
-    <properties><property name="source_run" value="44570648530" /><property name="source_attempt" value="1" /><property name="source_commit" value="8fcde9a6353f2de20e58c951efd0c4862ab1e558" /><property name="bc_build" value="28.5.54976.58543" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81555" name="BiTpNonRestr_Permissions" time="0.026" />
-    <testcase classname="Codeunit 81555" name="BiTpNonRestr_Insert" time="0.020" />
+  <testsuite name="Codeunit 81555" tests="2" failures="0" errors="0" skipped="0" time="0.044" timestamp="2026-11-26T10:28:26Z">
+    <properties><property name="source_run" value="45795594403" /><property name="source_attempt" value="1" /><property name="source_commit" value="317272f1e15e3261546cdbc7cb38ab884968ac4d" /><property name="bc_build" value="28.5.54976.58977" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81555" name="BiTpNonRestr_Permissions" time="0.027" />
+    <testcase classname="Codeunit 81555" name="BiTpNonRestr_Insert" time="0.017" />
   </testsuite>
-  <testsuite name="Codeunit 81556" tests="2" failures="0" errors="0" skipped="0" time="0.042" timestamp="2026-11-19T18:11:22Z">
-    <properties><property name="source_run" value="44570648530" /><property name="source_attempt" value="1" /><property name="source_commit" value="8fcde9a6353f2de20e58c951efd0c4862ab1e558" /><property name="bc_build" value="28.5.54976.58543" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81556" name="BiTpRestr_Permissions" time="0.026" />
-    <testcase classname="Codeunit 81556" name="BiTpRestr_Insert" time="0.016" />
+  <testsuite name="Codeunit 81556" tests="2" failures="0" errors="0" skipped="0" time="0.046" timestamp="2026-11-26T10:28:27Z">
+    <properties><property name="source_run" value="45795594403" /><property name="source_attempt" value="1" /><property name="source_commit" value="317272f1e15e3261546cdbc7cb38ab884968ac4d" /><property name="bc_build" value="28.5.54976.58977" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81556" name="BiTpRestr_Permissions" time="0.026" />
+    <testcase classname="Codeunit 81556" name="BiTpRestr_Insert" time="0.020" />
   </testsuite>
-  <testsuite name="Codeunit 81557" tests="2" failures="0" errors="0" skipped="0" time="0.044" timestamp="2026-11-19T18:11:22Z">
-    <properties><property name="source_run" value="44570648530" /><property name="source_attempt" value="1" /><property name="source_commit" value="8fcde9a6353f2de20e58c951efd0c4862ab1e558" /><property name="bc_build" value="28.5.54976.58543" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81557" name="BiTpDisMRestr_Permissions" time="0.027" />
+  <testsuite name="Codeunit 81557" tests="2" failures="0" errors="0" skipped="0" time="0.044" timestamp="2026-11-26T10:28:27Z">
+    <properties><property name="source_run" value="45795594403" /><property name="source_attempt" value="1" /><property name="source_commit" value="317272f1e15e3261546cdbc7cb38ab884968ac4d" /><property name="bc_build" value="28.5.54976.58977" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81557" name="BiTpDisMRestr_Permissions" time="0.027" />
     <testcase classname="Codeunit 81557" name="BiTpDisMRestr_Insert" time="0.017" />
   </testsuite>
-  <testsuite name="Codeunit 81558" tests="2" failures="0" errors="0" skipped="0" time="0.044" timestamp="2026-11-19T18:11:22Z">
-    <properties><property name="source_run" value="44570648530" /><property name="source_attempt" value="1" /><property name="source_commit" value="8fcde9a6353f2de20e58c951efd0c4862ab1e558" /><property name="bc_build" value="28.5.54976.58543" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81558" name="BiTpDisMNonRestr_Permissions" time="0.027" />
-    <testcase classname="Codeunit 81558" name="BiTpDisMNonRestr_Insert" time="0.017" />
+  <testsuite name="Codeunit 81558" tests="2" failures="0" errors="0" skipped="0" time="0.050" timestamp="2026-11-26T10:28:27Z">
+    <properties><property name="source_run" value="45795594403" /><property name="source_attempt" value="1" /><property name="source_commit" value="317272f1e15e3261546cdbc7cb38ab884968ac4d" /><property name="bc_build" value="28.5.54976.58977" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81558" name="BiTpDisMNonRestr_Permissions" time="0.030" />
+    <testcase classname="Codeunit 81558" name="BiTpDisMNonRestr_Insert" time="0.020" />
   </testsuite>
-  <testsuite name="Codeunit 81559" tests="2" failures="0" errors="0" skipped="0" time="0.097" timestamp="2026-11-19T18:11:22Z">
-    <properties><property name="source_run" value="44570648530" /><property name="source_attempt" value="1" /><property name="source_commit" value="8fcde9a6353f2de20e58c951efd0c4862ab1e558" /><property name="bc_build" value="28.5.54976.58543" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81559" name="BiTpRestrMDis_Permissions" time="0.020" />
-    <testcase classname="Codeunit 81559" name="BiTpRestrMDis_Insert" time="0.077" />
+  <testsuite name="Codeunit 81559" tests="2" failures="0" errors="0" skipped="0" time="0.040" timestamp="2026-11-26T10:28:27Z">
+    <properties><property name="source_run" value="45795594403" /><property name="source_attempt" value="1" /><property name="source_commit" value="317272f1e15e3261546cdbc7cb38ab884968ac4d" /><property name="bc_build" value="28.5.54976.58977" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81559" name="BiTpRestrMDis_Permissions" time="0.017" />
+    <testcase classname="Codeunit 81559" name="BiTpRestrMDis_Insert" time="0.023" />
   </testsuite>
-  <testsuite name="Codeunit 81560" tests="2" failures="0" errors="0" skipped="0" time="0.029" timestamp="2026-11-19T18:11:22Z">
-    <properties><property name="source_run" value="44570648530" /><property name="source_attempt" value="1" /><property name="source_commit" value="8fcde9a6353f2de20e58c951efd0c4862ab1e558" /><property name="bc_build" value="28.5.54976.58543" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81560" name="BiTpNoneMDis_Permissions" time="0.016" />
+  <testsuite name="Codeunit 81560" tests="2" failures="0" errors="0" skipped="0" time="0.030" timestamp="2026-11-26T10:28:27Z">
+    <properties><property name="source_run" value="45795594403" /><property name="source_attempt" value="1" /><property name="source_commit" value="317272f1e15e3261546cdbc7cb38ab884968ac4d" /><property name="bc_build" value="28.5.54976.58977" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81560" name="BiTpNoneMDis_Permissions" time="0.017" />
     <testcase classname="Codeunit 81560" name="BiTpNoneMDis_Insert" time="0.013" />
   </testsuite>
-  <testsuite name="Codeunit 81561" tests="2" failures="0" errors="0" skipped="0" time="0.027" timestamp="2026-11-19T18:11:23Z">
-    <properties><property name="source_run" value="44570648530" /><property name="source_attempt" value="1" /><property name="source_commit" value="8fcde9a6353f2de20e58c951efd0c4862ab1e558" /><property name="bc_build" value="28.5.54976.58543" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81561" name="BiTpDisMInherit_Permissions" time="0.013" />
-    <testcase classname="Codeunit 81561" name="BiTpDisMInherit_Insert" time="0.014" />
+  <testsuite name="Codeunit 81561" tests="2" failures="0" errors="0" skipped="0" time="0.032" timestamp="2026-11-26T10:28:27Z">
+    <properties><property name="source_run" value="45795594403" /><property name="source_attempt" value="1" /><property name="source_commit" value="317272f1e15e3261546cdbc7cb38ab884968ac4d" /><property name="bc_build" value="28.5.54976.58977" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81561" name="BiTpDisMInherit_Permissions" time="0.016" />
+    <testcase classname="Codeunit 81561" name="BiTpDisMInherit_Insert" time="0.016" />
   </testsuite>
-  <testsuite name="Codeunit 81564" tests="9" failures="0" errors="0" skipped="0" time="0.199" timestamp="2026-11-19T18:11:23Z">
-    <properties><property name="source_run" value="44570648530" /><property name="source_attempt" value="1" /><property name="source_commit" value="8fcde9a6353f2de20e58c951efd0c4862ab1e558" /><property name="bc_build" value="28.5.54976.58543" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81564" name="BiIp_InsertPlain" time="0.053" />
-    <testcase classname="Codeunit 81564" name="BiIp_InherentI" time="0.023" />
-    <testcase classname="Codeunit 81564" name="BiIp_InherentR" time="0.013" />
-    <testcase classname="Codeunit 81564" name="BiIp_ScopePermissions" time="0.014" />
-    <testcase classname="Codeunit 81564" name="BiIp_ScopeEntitlements" time="0.013" />
-    <testcase classname="Codeunit 81564" name="BiIp_ScopeBoth" time="0.020" />
-    <testcase classname="Codeunit 81564" name="BiIp_InsertInCallee" time="0.013" />
+  <testsuite name="Codeunit 81564" tests="9" failures="0" errors="0" skipped="0" time="0.296" timestamp="2026-11-26T10:28:28Z">
+    <properties><property name="source_run" value="45795594403" /><property name="source_attempt" value="1" /><property name="source_commit" value="317272f1e15e3261546cdbc7cb38ab884968ac4d" /><property name="bc_build" value="28.5.54976.58977" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81564" name="BiIp_InsertPlain" time="0.130" />
+    <testcase classname="Codeunit 81564" name="BiIp_InherentI" time="0.030" />
+    <testcase classname="Codeunit 81564" name="BiIp_InherentR" time="0.017" />
+    <testcase classname="Codeunit 81564" name="BiIp_ScopePermissions" time="0.017" />
+    <testcase classname="Codeunit 81564" name="BiIp_ScopeEntitlements" time="0.017" />
+    <testcase classname="Codeunit 81564" name="BiIp_ScopeBoth" time="0.017" />
+    <testcase classname="Codeunit 81564" name="BiIp_InsertInCallee" time="0.014" />
     <testcase classname="Codeunit 81564" name="BiIp_PermissionFunctions" time="0.020" />
-    <testcase classname="Codeunit 81564" name="BiIp_RequiredPermissionsRaise" time="0.030" />
+    <testcase classname="Codeunit 81564" name="BiIp_RequiredPermissionsRaise" time="0.034" />
   </testsuite>
-  <testsuite name="Codeunit 81566" tests="1" failures="0" errors="0" skipped="0" time="0.017" timestamp="2026-11-19T18:11:23Z">
-    <properties><property name="source_run" value="44570648530" /><property name="source_attempt" value="1" /><property name="source_commit" value="8fcde9a6353f2de20e58c951efd0c4862ab1e558" /><property name="bc_build" value="28.5.54976.58543" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81566" name="C302_A0_Prepared" time="0.017" />
+  <testsuite name="Codeunit 81566" tests="1" failures="0" errors="0" skipped="0" time="0.020" timestamp="2026-11-26T10:28:28Z">
+    <properties><property name="source_run" value="45795594403" /><property name="source_attempt" value="1" /><property name="source_commit" value="317272f1e15e3261546cdbc7cb38ab884968ac4d" /><property name="bc_build" value="28.5.54976.58977" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81566" name="C302_A0_Prepared" time="0.020" />
   </testsuite>
-  <testsuite name="Codeunit 81567" tests="1" failures="0" errors="0" skipped="0" time="0.063" timestamp="2026-11-19T18:11:23Z">
-    <properties><property name="source_run" value="44570648530" /><property name="source_attempt" value="1" /><property name="source_commit" value="8fcde9a6353f2de20e58c951efd0c4862ab1e558" /><property name="bc_build" value="28.5.54976.58543" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81567" name="C301_A1_SeesOwnOnRun" time="0.063" />
+  <testsuite name="Codeunit 81567" tests="1" failures="0" errors="0" skipped="0" time="0.033" timestamp="2026-11-26T10:28:28Z">
+    <properties><property name="source_run" value="45795594403" /><property name="source_attempt" value="1" /><property name="source_commit" value="317272f1e15e3261546cdbc7cb38ab884968ac4d" /><property name="bc_build" value="28.5.54976.58977" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81567" name="C301_A1_SeesOwnOnRun" time="0.033" />
   </testsuite>
-  <testsuite name="Codeunit 81568" tests="3" failures="0" errors="0" skipped="0" time="0.056" timestamp="2026-11-19T18:11:24Z">
-    <properties><property name="source_run" value="44570648530" /><property name="source_attempt" value="1" /><property name="source_commit" value="8fcde9a6353f2de20e58c951efd0c4862ab1e558" /><property name="bc_build" value="28.5.54976.58543" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81568" name="C301_B1_OnRunCommittedStorage" time="0.013" />
-    <testcase classname="Codeunit 81568" name="C301_B1_OnRunSequences" time="0.023" />
+  <testsuite name="Codeunit 81568" tests="3" failures="0" errors="0" skipped="0" time="0.060" timestamp="2026-11-26T10:28:29Z">
+    <properties><property name="source_run" value="45795594403" /><property name="source_attempt" value="1" /><property name="source_commit" value="317272f1e15e3261546cdbc7cb38ab884968ac4d" /><property name="bc_build" value="28.5.54976.58977" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81568" name="C301_B1_OnRunCommittedStorage" time="0.013" />
+    <testcase classname="Codeunit 81568" name="C301_B1_OnRunSequences" time="0.027" />
     <testcase classname="Codeunit 81568" name="C301_B1_OnRunOpenWrites" time="0.020" />
   </testsuite>
-  <testsuite name="Codeunit 81569" tests="1" failures="0" errors="0" skipped="0" time="0.037" timestamp="2026-11-19T18:11:24Z">
-    <properties><property name="source_run" value="44570648530" /><property name="source_attempt" value="1" /><property name="source_commit" value="8fcde9a6353f2de20e58c951efd0c4862ab1e558" /><property name="bc_build" value="28.5.54976.58543" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81569" name="C302_A2_TestWrites" time="0.037" />
+  <testsuite name="Codeunit 81569" tests="1" failures="0" errors="0" skipped="0" time="0.050" timestamp="2026-11-26T10:28:29Z">
+    <properties><property name="source_run" value="45795594403" /><property name="source_attempt" value="1" /><property name="source_commit" value="317272f1e15e3261546cdbc7cb38ab884968ac4d" /><property name="bc_build" value="28.5.54976.58977" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81569" name="C302_A2_TestWrites" time="0.050" />
   </testsuite>
-  <testsuite name="Codeunit 81578" tests="1" failures="0" errors="0" skipped="0" time="0.027" timestamp="2026-11-19T18:11:24Z">
-    <properties><property name="source_run" value="44570648530" /><property name="source_attempt" value="1" /><property name="source_commit" value="8fcde9a6353f2de20e58c951efd0c4862ab1e558" /><property name="bc_build" value="28.5.54976.58543" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81578" name="C302_B2_TestWritesStorage" time="0.027" />
+  <testsuite name="Codeunit 81578" tests="1" failures="0" errors="0" skipped="0" time="0.037" timestamp="2026-11-26T10:28:29Z">
+    <properties><property name="source_run" value="45795594403" /><property name="source_attempt" value="1" /><property name="source_commit" value="317272f1e15e3261546cdbc7cb38ab884968ac4d" /><property name="bc_build" value="28.5.54976.58977" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81578" name="C302_B2_TestWritesStorage" time="0.037" />
   </testsuite>
-  <testsuite name="Codeunit 81641" tests="2" failures="0" errors="0" skipped="0" time="2.363" timestamp="2026-11-19T18:11:24Z">
-    <properties><property name="source_run" value="44570648530" /><property name="source_attempt" value="1" /><property name="source_commit" value="8fcde9a6353f2de20e58c951efd0c4862ab1e558" /><property name="bc_build" value="28.5.54976.58543" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81641" name="Y24_P23_TestTables" time="0.153" />
-    <testcase classname="Codeunit 81641" name="Y24_P24_FullAccess" time="2.210" />
+  <testsuite name="Codeunit 81641" tests="2" failures="0" errors="0" skipped="0" time="2.836" timestamp="2026-11-26T10:28:29Z">
+    <properties><property name="source_run" value="45795594403" /><property name="source_attempt" value="1" /><property name="source_commit" value="317272f1e15e3261546cdbc7cb38ab884968ac4d" /><property name="bc_build" value="28.5.54976.58977" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81641" name="Y24_P23_TestTables" time="0.153" />
+    <testcase classname="Codeunit 81641" name="Y24_P24_FullAccess" time="2.683" />
   </testsuite>
-  <testsuite name="Codeunit 81642" tests="1" failures="0" errors="0" skipped="0" time="0.190" timestamp="2026-11-19T18:11:27Z">
-    <properties><property name="source_run" value="44570648530" /><property name="source_attempt" value="1" /><property name="source_commit" value="8fcde9a6353f2de20e58c951efd0c4862ab1e558" /><property name="bc_build" value="28.5.54976.58543" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81642" name="Y24_P25_Restrictive" time="0.190" />
+  <testsuite name="Codeunit 81642" tests="1" failures="0" errors="0" skipped="0" time="0.263" timestamp="2026-11-26T10:28:32Z">
+    <properties><property name="source_run" value="45795594403" /><property name="source_attempt" value="1" /><property name="source_commit" value="317272f1e15e3261546cdbc7cb38ab884968ac4d" /><property name="bc_build" value="28.5.54976.58977" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81642" name="Y24_P25_Restrictive" time="0.263" />
   </testsuite>
-  <testsuite name="Codeunit 81643" tests="1" failures="0" errors="0" skipped="0" time="0.053" timestamp="2026-11-19T18:11:27Z">
-    <properties><property name="source_run" value="44570648530" /><property name="source_attempt" value="1" /><property name="source_commit" value="8fcde9a6353f2de20e58c951efd0c4862ab1e558" /><property name="bc_build" value="28.5.54976.58543" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81643" name="Y24_P25_Default" time="0.053" />
+  <testsuite name="Codeunit 81643" tests="1" failures="0" errors="0" skipped="0" time="0.060" timestamp="2026-11-26T10:28:33Z">
+    <properties><property name="source_run" value="45795594403" /><property name="source_attempt" value="1" /><property name="source_commit" value="317272f1e15e3261546cdbc7cb38ab884968ac4d" /><property name="bc_build" value="28.5.54976.58977" /><property name="app" value="full" /></properties><testcase classname="Codeunit 81643" name="Y24_P25_Default" time="0.060" />
   </testsuite>
 </testsuites>
