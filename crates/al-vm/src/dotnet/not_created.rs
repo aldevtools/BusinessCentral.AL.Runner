@@ -6,8 +6,26 @@
 use super::registry::MemberKind;
 use super::system_environment;
 use crate::{Frame, Session};
+use al_builtins::dotnet_sigs::USER_INFO;
 use al_builtins::native::Signal;
 use al_builtins::value::Value;
+
+/// The UserInfo members corpus PR 1612 measures on a null UserInfo, with the name the error gives.
+const USER_INFO_MEMBERS: &[(&str, &str)] = &[
+    (
+        "ObjectId",
+        "Microsoft.Dynamics.Nav.LicensingService.Model.UserInfo.ObjectId",
+    ),
+    (
+        "AssignedPlans",
+        "Microsoft.Dynamics.Nav.LicensingService.Model.UserInfo.AssignedPlans",
+    ),
+    ("Roles", "Microsoft.Dynamics.Nav.LicensingService.Model.UserInfo.Roles"),
+    (
+        "Groups",
+        "Microsoft.Dynamics.Nav.LicensingService.Model.UserInfo.Groups",
+    ),
+];
 
 impl Session {
     /// `Some` with the error when the instance member `member` of the declared type `ty`, on a variable that holds no object,
@@ -18,6 +36,8 @@ impl Session {
     /// - `CreateEntry(Path)`, the property `Entries` and `Dispose()` of System.IO.Compression.ZipArchive
     ///   (dotnet/zip-create/Y44ZipCreateMode.al:358-367 Zip_CreateEntry_NoObject, corpus PR 962).
     /// - The property `Uri` of System.Security.Cryptography.Xml.Reference (dotnet/dotnet/ClearSignedXmlReference.al:178-179).
+    /// - `ObjectId()`, `AssignedPlans()`, `Roles()` and `Groups()` of UserInfo (corpus PR 1612, open; assumption
+    ///   graph-no-directory-members).
     ///
     /// The text names the routine and its codeunit; outside a codeunit the object kind's spelling is not pinned.
     pub(super) fn not_created(
@@ -52,6 +72,14 @@ impl Session {
             {
                 system_environment::NEW_LINE
             }
+            // ObjectId, AssignedPlans, Roles and Groups of a null UserInfo, called with parentheses and no arguments, also as
+            // a foreach collection (corpus PR 1612, open: Y93GraphNoDirectory.al UserInfo_FromGetCurrentUser_Members and
+            // UserInfo_Unassigned_Members; assumption graph-no-directory-members).
+            (MemberKind::Call, USER_INFO)
+                if no_args && let Some((_, called)) = USER_INFO_MEMBERS.iter().find(|m| is(m.0)) =>
+            {
+                called
+            }
             _ => return None,
         };
         let o = &self.engine.program.objects[f.object];
@@ -59,6 +87,9 @@ impl Session {
             return Some(Err(Signal::unsupported(format!(
                 "{called} on a DotNet variable that holds no object, outside a codeunit (the object kind's spelling in the error is not pinned)"
             ))));
+        }
+        if ty == USER_INFO {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::GraphNoDirectoryMembers);
         }
         let message = format!(
             "A DotNet variable has not been instantiated. Attempting to call {called} in CodeUnit {}: {}",

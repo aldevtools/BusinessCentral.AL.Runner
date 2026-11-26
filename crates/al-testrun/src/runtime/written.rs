@@ -1528,18 +1528,18 @@ impl Rec<'_> {
     }
 
     /// What a `DotNet` member access through alias `ty` changes: nothing for a call or read of a member that only
-    /// answers ([`state::SERVER_ANSWER`]); else what the analysis does not follow. A receiver whose alias is not known
-    /// (the result of another `DotNet` call), a constructor and a property write are not such a member.
+    /// answers ([`state::SERVER_ANSWER`]), or of a constructor listed as one; else what the analysis does not follow. A
+    /// receiver whose alias is not known (the result of another `DotNet` call) and a property write are not such a member.
     fn dotnet_member(&self, ty: Option<usize>, op: &al_ir::DotNetOp) -> u16 {
-        let decl = ty.and_then(|d| self.lowered.program.dotnet_types.get(d));
-        let member = match op {
-            al_ir::DotNetOp::Call(m) | al_ir::DotNetOp::Get(m) => Some(m),
-            _ => None,
+        use al_vm::dotnet::server_classes::{answers_only, constructor_answers_only};
+        let Some(decl) = ty.and_then(|d| self.lowered.program.dotnet_types.get(d)) else {
+            return state::OTHER;
         };
-        match (decl, member) {
-            (Some(decl), Some(m)) if al_vm::dotnet::server_classes::answers_only(&decl.type_name, m) => {
+        match op {
+            al_ir::DotNetOp::Call(m) | al_ir::DotNetOp::Get(m) if answers_only(&decl.type_name, m) => {
                 state::SERVER_ANSWER
             }
+            al_ir::DotNetOp::Construct if constructor_answers_only(&decl.type_name) => state::SERVER_ANSWER,
             _ => state::OTHER,
         }
     }

@@ -167,6 +167,7 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"Microsoft.Dynamics.Nav.Service.CopilotApi.AL.ALCopilotFunctions\"; \"ALCopilotFunctions\") { }
     type(\"Microsoft.Dynamics.Nav.AzureADGraphClient.GraphQuery\"; \"GraphQuery\") { }
     type(\"Microsoft.Dynamics.Nav.LicensingService.Model.UserInfo\"; \"UserInfo\") { }
+    type(\"Microsoft.Dynamics.Nav.LicensingService.Model.ServicePlanInfo\"; \"ServicePlanInfo\") { }
     type(\"Microsoft.Dynamics.Nav.LicensingService.Model.TenantInfo\"; \"TenantInfo\") { }
   }
   assembly(\"mscorlib\") {
@@ -2151,6 +2152,161 @@ fn graph_get_current_user_returns_null_without_an_error() {
     );
     assert_eq!(text(r), "Yes");
     assert_eq!(host.log(), vec![]);
+}
+
+// GetUserByObjectId (a guid text and '') and IsGroupMember (two guid texts) on a tier without Entra ID raise the
+// NullReference of the other directory calls (corpus PR 1612, Y93GraphNoDirectory.al GraphQuery_Direct_WithoutDirectory,
+// cells get_user_by_object_id, get_user_by_object_id_empty, is_group_member). Not pinned yet: each call marks the entry.
+#[test]
+fn graph_user_by_object_id_and_is_group_member_raise_the_null_reference() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+    let host = no_host();
+    take_hits();
+    let r = run(
+        &host,
+        "G: DotNet GraphQuery; U: DotNet UserInfo; s: Text;",
+        "G := G.GraphQuery();
+         asserterror U := G.GetUserByObjectId('00000000-0000-0000-0000-000000000001'); s := GetLastErrorText() + '#' + GetLastErrorCode();
+         asserterror U := G.GetUserByObjectId(''); s += '|' + GetLastErrorText();
+         asserterror if G.IsGroupMember('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002') then; s += '|' + GetLastErrorText() + '#' + GetLastErrorCode();
+         exit(s);",
+        ": Text",
+    );
+    let m = |name: &str| {
+        format!(
+            "A call to Microsoft.Dynamics.Nav.AzureADGraphClient.GraphQuery.{name} failed with this message: Object reference not set to an instance of an object."
+        )
+    };
+    assert_eq!(
+        text(r),
+        format!(
+            "{}#DotNetInvoke:NullReference|{}|{}#DotNetInvoke:NullReference",
+            m("GetUserByObjectId"),
+            m("GetUserByObjectId"),
+            m("IsGroupMember")
+        )
+    );
+    assert_eq!(take_hits(), vec![Assumption::GraphNoDirectoryMembers]);
+    assert_eq!(host.log(), vec![]);
+}
+
+// Shapes corpus PR 1612 did not measure keep main's refusal: GetUserByObjectId without an argument, IsGroupMember with
+// one.
+#[test]
+fn graph_user_by_object_id_and_is_group_member_refuse_other_argument_shapes() {
+    for body in [
+        "G := G.GraphQuery(); U := G.GetUserByObjectId();",
+        "G := G.GraphQuery(); if G.IsGroupMember('a') then;",
+    ] {
+        let host = no_host();
+        let r = run(&host, "G: DotNet GraphQuery; U: DotNet UserInfo;", body, "");
+        assert!(
+            matches!(r.result, Err(Signal::Unsupported(_))),
+            "{body}: {:?}",
+            r.result
+        );
+    }
+}
+
+// The members ObjectId, AssignedPlans, Roles and Groups of a UserInfo that holds no object (the answer of GetCurrentUser,
+// and a variable never assigned), also as the collection of a foreach, raise DotNetVariableNotCreated naming the member,
+// the codeunit and the procedure (corpus PR 1612, Y93GraphNoDirectory.al UserInfo_FromGetCurrentUser_Members and
+// UserInfo_Unassigned_Members). Not pinned yet: each marks the entry.
+#[test]
+fn members_of_a_null_user_info_raise_variable_not_created() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+    for (init, body) in [
+        (
+            "G := G.GraphQuery(); U := G.GetCurrentUser();",
+            "s := Format(U.ObjectId());",
+        ),
+        ("", "s := Format(U.ObjectId());"),
+        ("", "if IsNull(U.AssignedPlans()) then;"),
+        ("", "if IsNull(U.Roles()) then;"),
+        (
+            "G := G.GraphQuery(); U := G.GetCurrentUser();",
+            "if IsNull(U.Groups()) then;",
+        ),
+        ("", "foreach P in U.AssignedPlans() do;"),
+    ] {
+        let host = no_host();
+        take_hits();
+        let r = run(
+            &host,
+            "G: DotNet GraphQuery; U: DotNet UserInfo; P: DotNet ServicePlanInfo; s: Text;",
+            &format!("{init} asserterror begin {body} end; exit(GetLastErrorText() + '#' + GetLastErrorCode());"),
+            ": Text",
+        );
+        let member = ["ObjectId", "AssignedPlans", "Roles", "Groups"]
+            .into_iter()
+            .find(|m| body.contains(&format!("U.{m}(")))
+            .unwrap();
+        assert_eq!(
+            text(r),
+            format!(
+                "A DotNet variable has not been instantiated. Attempting to call Microsoft.Dynamics.Nav.LicensingService.Model.UserInfo.{member} in CodeUnit C: F#DotNetVariableNotCreated"
+            ),
+            "{body}"
+        );
+        assert_eq!(take_hits(), vec![Assumption::GraphNoDirectoryMembers], "{body}");
+        assert_eq!(host.log(), vec![]);
+    }
+}
+
+// Neighbors: another member of a null UserInfo, and one of the four with an argument, keep main's refusal.
+#[test]
+fn other_members_of_a_null_user_info_keep_the_refusal() {
+    for body in ["s := Format(U.DisplayName());", "if IsNull(U.Roles(1)) then;"] {
+        let host = no_host();
+        let r = run(&host, "U: DotNet UserInfo; s: Text;", body, "");
+        assert!(
+            matches!(r.result, Err(Signal::Unsupported(_))),
+            "{body}: {:?}",
+            r.result
+        );
+    }
+}
+
+// The members the static reach walk takes as answer-only (al-testrun `written.rs`): the GraphQuery members and the
+// UserInfo members corpus PR 1612 measures, and the GraphQuery constructor. ServicePlanInfo, RoleInfo and GroupInfo
+// members, unreachable on that tier, and other members are not.
+#[test]
+fn the_graph_members_corpus_pr_1612_measures_are_answer_only() {
+    use al_vm::dotnet::server_classes::{answers_only, holds_answering_class};
+    let (gq, ui) = (
+        al_builtins::dotnet_sigs::GRAPH_QUERY,
+        al_builtins::dotnet_sigs::USER_INFO,
+    );
+    for m in [
+        "GraphQuery",
+        "GetCurrentUser",
+        "GetUserByObjectId",
+        "GetUser",
+        "IsGroupMember",
+        "GetEnvironmentDirectoryGroup",
+    ] {
+        assert!(answers_only(gq, m), "{m}");
+    }
+    for m in ["ObjectId", "AssignedPlans", "Roles", "Groups"] {
+        assert!(answers_only(ui, m), "{m}");
+    }
+    assert!(holds_answering_class(gq) && holds_answering_class(ui));
+    for (t, m) in [
+        (gq, "GetGroupPage"),
+        (gq, "GetTenantDetail"),
+        (ui, "DisplayName"),
+        (
+            "Microsoft.Dynamics.Nav.LicensingService.Model.ServicePlanInfo",
+            "ServicePlanId",
+        ),
+        (
+            "Microsoft.Dynamics.Nav.LicensingService.Model.RoleInfo",
+            "RoleTemplateId",
+        ),
+        ("Microsoft.Dynamics.Nav.LicensingService.Model.GroupInfo", "DisplayName"),
+    ] {
+        assert!(!answers_only(t, m), "{t}.{m}");
+    }
 }
 
 // GetTenantDetail answers a TenantInfo, not null, whose InitialDomain, CountryLetterCode and PreferredLanguage are

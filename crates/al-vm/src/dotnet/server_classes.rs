@@ -18,7 +18,7 @@ use crate::Session;
 use al_builtins::describe::Describe;
 use al_builtins::dotnet_sigs::{
     AKV_PROVIDER, AL_CONFIG_SETTINGS, COPILOT_FUNCTIONS, ENVIRONMENT, GRAPH_QUERY, PERMISSION_TEST_HELPER, TENANT_INFO,
-    TENANT_SETTINGS_HELPER, TEST_EXECUTION, USER_ACCOUNT_HELPER,
+    TENANT_SETTINGS_HELPER, TEST_EXECUTION, USER_ACCOUNT_HELPER, USER_INFO,
 };
 use al_builtins::native::Signal;
 use al_builtins::value::{DotNetKind, DotNetObject, Value};
@@ -32,11 +32,26 @@ type Args<'a> = &'a [Value];
 /// `ALConfigSettings.IsSaaS` flag). A call of one leaves nothing in the session, the store or another object, so the
 /// static reach analysis (al-testrun `written.rs`) counts it apart from code it does not follow. These are the members
 /// System Application's login memos call (Environment Information Impl.`IsSandbox`, Server Setting
-/// Impl.`GetEnableMembershipEntitlement`); a member is added only with the same reading of its implementation.
+/// Impl.`GetEnableMembershipEntitlement`), and the Graph members System Application's Azure AD Plan Impl. reaches on a
+/// tier without Entra ID (corpus PR 1612, Y93GraphNoDirectory.al): the GraphQuery constructor (a new object that holds
+/// nothing, [`graph_query_new`]), its members that answer a constant or null or raise ([`graph_current_user`],
+/// [`graph_directory_group`], [`graph_user`], [`graph_user_by_object_id`], [`graph_is_group_member`]), and the UserInfo
+/// members that raise on the null UserInfo (`not_created.rs`). A member is added only with the same reading of its
+/// implementation.
 pub const ANSWERS_ONLY: &[(&str, &str)] = &[
     (TENANT_SETTINGS_HELPER, "IsSandbox"),
     (AL_CONFIG_SETTINGS, "Instance"),
     (AL_CONFIG_SETTINGS, "IsSaaS"),
+    (GRAPH_QUERY, "GraphQuery"),
+    (GRAPH_QUERY, "GetCurrentUser"),
+    (GRAPH_QUERY, "GetUserByObjectId"),
+    (GRAPH_QUERY, "GetUser"),
+    (GRAPH_QUERY, "IsGroupMember"),
+    (GRAPH_QUERY, "GetEnvironmentDirectoryGroup"),
+    (USER_INFO, "ObjectId"),
+    (USER_INFO, "AssignedPlans"),
+    (USER_INFO, "Roles"),
+    (USER_INFO, "Groups"),
 ];
 
 /// The members, (CLR type, member), whose implementation here answers with a constant or the host identity and keeps
@@ -75,6 +90,12 @@ pub const CONSTANT_ANSWERS: &[(&str, &str)] = &[
 /// registry matches them).
 pub fn answers_only(clr_type: &str, member: &str) -> bool {
     listed(ANSWERS_ONLY, clr_type, member)
+}
+
+/// Whether the constructor of `clr_type` is one of [`ANSWERS_ONLY`]: the registry names a constructor by the class's
+/// short name (`GraphQuery`).
+pub fn constructor_answers_only(clr_type: &str) -> bool {
+    answers_only(clr_type, clr_type.rsplit('.').next().unwrap_or(clr_type))
 }
 
 /// Whether `list` holds (`clr_type`, `member`), both without regard to case.
@@ -729,6 +750,9 @@ fn member_ref(name: &str, pin: Pin, f: MemberRefFn) -> RegistryMember {
 const GRAPH_PIN: &str =
     "probe tests/al-language-onprem/session-system/PXAzureAdGraph.al:1-12,86-109 (corpus branch al-runtime-rs-staging)";
 
+/// The cells of corpus PR 1612 (open, not pinned): every run marks the assumption `graph-no-directory-members`.
+const GRAPH_1612_PIN: &str = "probe tests/al-language-onprem-dotnet/dotnet/graph-mock/Y93GraphNoDirectory.al (corpus PR 1612, open; assumption graph-no-directory-members)";
+
 fn graph_query_new(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "GraphQuery constructor")?;
     Ok(Value::DotNet(Rc::new(DotNetObject::new(DotNetKind::Internal {
@@ -794,6 +818,29 @@ const TENANT_INFO_PIN: &str = "session-system/TestEnvironmentUserTenantContracts
 fn tenant_info_empty_text(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "TenantInfo member")?;
     Ok(Value::Text(String::new().into()))
+}
+
+/// Corpus PR 1612 (open), Y93GraphNoDirectory.al cells get_user_by_object_id and get_user_by_object_id_empty: one Text
+/// argument (a guid, or ''); other shapes refuse.
+fn graph_user_by_object_id(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
+    let [Value::Text(_)] = args else {
+        return Err(Signal::unsupported(
+            "GraphQuery.GetUserByObjectId with arguments other than one Text (corpus PR 1612 measures one Text)",
+        ));
+    };
+    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::GraphNoDirectoryMembers);
+    graph_null_reference("GetUserByObjectId")
+}
+
+/// Corpus PR 1612 (open), Y93GraphNoDirectory.al cell is_group_member: two Text arguments; other shapes refuse.
+fn graph_is_group_member(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
+    let [Value::Text(_), Value::Text(_)] = args else {
+        return Err(Signal::unsupported(
+            "GraphQuery.IsGroupMember with arguments other than two Text (corpus PR 1612 measures two Text)",
+        ));
+    };
+    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::GraphNoDirectoryMembers);
+    graph_null_reference("IsGroupMember")
 }
 
 fn graph_user(_: &mut Session, _: Option<&Rc<DotNetObject>>, _: Args) -> Result<Value, Signal> {
@@ -1044,6 +1091,12 @@ fn own_types() -> Vec<RegistryType> {
                     g("GetGroupInfo", graph_group_info),
                     g("FindFirstGroupInfoForDisplayName", graph_first_group),
                     g("GetUser", graph_user),
+                    member(
+                        "GetUserByObjectId",
+                        Pin::Probe(GRAPH_1612_PIN.into()),
+                        graph_user_by_object_id,
+                    ),
+                    member("IsGroupMember", Pin::Probe(GRAPH_1612_PIN.into()), graph_is_group_member),
                     member(
                         "GetTenantDetail",
                         Pin::Corpus(TENANT_INFO_PIN.into()),
