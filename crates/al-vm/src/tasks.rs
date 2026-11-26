@@ -104,7 +104,7 @@ impl Session {
     /// row decides, so a task whose row a rollback of the test runner took back is gone with it.
     fn task_exists(&self, t: [u8; 16]) -> bool {
         if !(self.tasks.open.contains(&t) || self.tasks.committed.contains(&t)) {
-            return self.install_task_row(t);
+            return self.install_tasks.contains(&t) && self.install_task_row(t);
         }
         let Some(def) = self.table_def(SCHEDULED_TASK) else {
             return true;
@@ -115,8 +115,8 @@ impl Session {
         )
     }
 
-    /// Whether `t` is a task install code created, which this session does not hold: its Scheduled Task row, left by the
-    /// install code (`baseline_rows`), is there. It exists when the test starts (corpus PR 1592,
+    /// Whether `t`, a task install code created (`install_tasks`), which this session does not hold, still has its
+    /// Scheduled Task row. It exists when the test starts (corpus PR 1592,
     /// install-upgrade/IcInstallCanCreateTaskTests.al:99, merged, not pinned), on assumption
     /// install-session-can-create-task (`install_task_rows_assumed`).
     fn install_task_row(&self, t: [u8; 16]) -> bool {
@@ -132,13 +132,13 @@ impl Session {
         )
     }
 
-    /// Outside install code, table `object` is the Scheduled Task table and install code left rows in it: the tasks it
-    /// created there (`create_task`). Marks assumption install-session-can-create-task and answers true; a test reads
+    /// Outside install code, table `object` is the Scheduled Task table and install code created tasks (`install_tasks`,
+    /// carried by the install baseline; `create_task`), whose rows are in it. Marks assumption install-session-can-create-task and answers true; a test reads
     /// what install code did after its Yes only through these rows (the install session's own hits are baseline notes,
     /// al-testrun `baseline.rs`). Read by every record operation on the table (`records.rs` `install_assumed`) and by
     /// [`Session::install_task_row`].
     pub(crate) fn install_task_rows_assumed(&self, object: u32) -> bool {
-        let rows = !self.install_scope && object == SCHEDULED_TASK && self.baseline_rows.contains(&SCHEDULED_TASK);
+        let rows = !self.install_scope && object == SCHEDULED_TASK && !self.install_tasks.is_empty();
         if rows {
             al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::InstallSessionCanCreateTask);
         }
@@ -276,17 +276,27 @@ impl Session {
         // A task created in install code follows the rules above: assumption install-session-can-create-task (the module
         // comment); a test that touches its row carries the mark (`install_task_rows_assumed`).
         // The test session's own company-open phase holds its tasks as a test does.
-        if al_builtins::native::install_code_yes(self) && (self.install_without_client || self.install_company_open) {
+        let in_install =
+            al_builtins::native::install_code_yes(self) && (self.install_without_client || self.install_company_open);
+        if in_install {
             if self.tx.try_depth > 0 {
                 // BC fails the install there with an error the corpus does not assert yet (al-runner issue 9134).
-                return unsupported("TaskScheduler.CreateTask inside a try function in install code (al-runner issue 9134)");
+                return unsupported(
+                    "TaskScheduler.CreateTask inside a try function in install code (al-runner issue 9134)",
+                );
             }
             if self.table_def(SCHEDULED_TASK).is_none() {
                 // Without its row a test could not see the task, which exists in BC (IcInstallCanCreateTaskTests.al:99).
-                return unsupported("TaskScheduler.CreateTask in install code of a program without the Scheduled Task table");
+                return unsupported(
+                    "TaskScheduler.CreateTask in install code of a program without the Scheduled Task table",
+                );
             }
         }
         let id = self.fresh_guid();
+        if in_install {
+            // The install baseline carries it to the sessions that start from it (`install_task_row`).
+            self.install_tasks.insert(id);
+        }
         self.tasks.open.insert(id);
         self.write_task_row(id, args)?;
         Ok(Value::Guid(id))

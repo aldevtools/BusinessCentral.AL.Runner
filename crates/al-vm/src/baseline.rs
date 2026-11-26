@@ -44,6 +44,8 @@ pub struct Baseline {
     pub full_copies: Vec<String>,
     /// The rows whose SystemRowVersion is the Insert's, not BC's (`Session::restamped_rows`).
     restamped_rows: Vec<crate::state::RestampedRows>,
+    /// The ids of the tasks install code created (`Session::install_tasks`, tasks.rs `create_task`).
+    install_tasks: std::collections::BTreeSet<[u8; 16]>,
     /// Names what the baseline holds: baselines with the same origin hold the same data. Each baseline made gets a
     /// number of its own; [`Baseline::with_origin`] gives a copy read from another's bytes that one's.
     origin: u64,
@@ -80,7 +82,7 @@ fn new_origin() -> u64 {
 }
 
 /// The first bytes of a snapshot: what it is and which layout it has. A change of the layout changes the last digit.
-const MAGIC: &[u8; 8] = b"ALBASE\0\x09";
+const MAGIC: &[u8; 8] = b"ALBASE\0\x0a";
 
 /// The order of a table's keys (`al_data::memory::PkStorage`): the count of its key fields (0 for text order), then one
 /// byte per field.
@@ -195,6 +197,10 @@ impl Baseline {
             put_i64(&mut out, r.from);
             put_i64(&mut out, r.to);
         }
+        put_u32(&mut out, self.install_tasks.len() as u32);
+        for t in &self.install_tasks {
+            put_bytes(&mut out, t);
+        }
         Some(out)
     }
 
@@ -292,6 +298,9 @@ impl Baseline {
                 to: r.i64()?,
             });
         }
+        let install_tasks = (0..r.u32()?)
+            .map(|_| r.bytes()?.try_into().ok())
+            .collect::<Option<std::collections::BTreeSet<[u8; 16]>>>()?;
         if !r.is_empty() {
             return None;
         }
@@ -309,6 +318,7 @@ impl Baseline {
             company_unknown,
             full_copies,
             restamped_rows,
+            install_tasks,
             install_rows: None,
             origin: new_origin(),
         })
@@ -401,6 +411,7 @@ impl Session {
             },
             full_copies: self.full_copies.iter().cloned().collect(),
             restamped_rows: self.restamped_rows.clone(),
+            install_tasks: self.install_tasks.clone(),
             install_rows: Some(self.baseline_rows.clone()),
             origin: new_origin(),
         }
@@ -554,6 +565,7 @@ impl Session {
             .collect();
         self.full_copies = b.full_copies.iter().cloned().collect();
         self.restamped_rows = b.restamped_rows.clone();
+        self.install_tasks = b.install_tasks.clone();
         // A store read back from bytes holds the copies' tables but not which restored rows they read (see
         // `MemStore::note_copy`): a full copy is a copy of the session company.
         let session = self.cx.company.to_string();
@@ -634,6 +646,7 @@ mod tests {
                 from: 1_000_000_002,
                 to: 1_000_000_004,
             }],
+            install_tasks: [[3_u8; 16]].into_iter().collect(),
             install_rows: None,
             origin: new_origin(),
         }
@@ -643,7 +656,7 @@ mod tests {
     fn summary(b: &Baseline) -> String {
         let rows = b.store.export_committed().expect("no backing");
         format!(
-            "{rows:?} {} {} {} {:?} {:?} {:?} {} {:?} {:?} {:?} {:?}",
+            "{rows:?} {} {} {} {:?} {:?} {:?} {} {:?} {:?} {:?} {:?} {:?}",
             b.next_guid,
             b.next_row_version,
             b.committed_row_version,
@@ -654,7 +667,8 @@ mod tests {
             b.workspace_installs,
             b.company_unknown,
             b.full_copies,
-            b.restamped_rows
+            b.restamped_rows,
+            b.install_tasks
         )
     }
 

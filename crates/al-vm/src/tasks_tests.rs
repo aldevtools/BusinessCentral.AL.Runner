@@ -44,7 +44,9 @@ fn session(src: &str) -> Session {
 }
 
 fn call(s: &mut Session, routine: &str, args: Vec<Value>) -> Result<Value, Signal> {
-    let probe = (s.engine.program.objects.iter()).position(|o| o.name == "IT Probe").expect("probe");
+    let probe = (s.engine.program.objects.iter())
+        .position(|o| o.name == "IT Probe")
+        .expect("probe");
     let ri = (s.engine.program.objects[probe].routines.iter())
         .position(|r| r.name == routine)
         .expect("routine");
@@ -67,27 +69,63 @@ fn create_task_in_install_code_without_the_scheduled_task_table_is_refused() {
     let mut s = session(PROBE);
     s.set_install_without_client(true);
     let r = call(&mut s, "Create", vec![]);
-    assert!(matches!(&r, Err(Signal::Unsupported(m)) if m.contains("Scheduled Task")), "{r:?}");
+    assert!(
+        matches!(&r, Err(Signal::Unsupported(m)) if m.contains("Scheduled Task")),
+        "{r:?}"
+    );
     // Outside install code main's rules hold: the task is created.
     let mut s = session(PROBE);
     assert!(matches!(call(&mut s, "Create", vec![]), Ok(Value::Guid(_))));
 }
 
-/// A task install code created exists in a session that does not hold its id, through its row, with the mark; without
-/// install rows in the table, an unknown id keeps main's false and no mark.
+/// A task install code created exists in a later session that starts from the install baseline, through its row, with
+/// the mark (IcInstallCanCreateTaskTests.al:99): the captured baseline, its bytes and its frozen copy carry the task's id.
+/// A task id install code did not create keeps main's false and no mark.
 #[test]
 fn a_task_install_code_created_exists_later_through_its_row_with_the_mark() {
     let mut s = session(&format!("{TABLE}{PROBE}"));
     s.set_install_without_client(true);
     s.set_install_scope(true);
-    let Ok(Value::Guid(id)) = call(&mut s, "Create", vec![]) else { panic!("created") };
+    let Ok(Value::Guid(id)) = call(&mut s, "Create", vec![]) else {
+        panic!("created")
+    };
     s.set_install_without_client(false);
     s.set_install_scope(false);
-    s.tasks = Default::default();
+    let captured = s.capture_baseline();
+    let read_back = crate::Baseline::from_bytes(&captured.to_bytes().expect("bytes")).expect("read back");
+    let thawed = captured.freeze().expect("frozen").thaw(None);
+    for b in [&captured, &read_back, &thawed] {
+        let mut later = Session::new(s.engine.clone());
+        later.restore_baseline(b);
+        let _ = take_hits();
+        assert!(matches!(
+            call(&mut later, "Exists", vec![Value::Guid([7; 16])]),
+            Ok(Value::Boolean(false))
+        ));
+        assert!(!take_hits().contains(&Assumption::InstallSessionCanCreateTask));
+        assert!(matches!(
+            call(&mut later, "Exists", vec![Value::Guid(id)]),
+            Ok(Value::Boolean(true))
+        ));
+        assert!(take_hits().contains(&Assumption::InstallSessionCanCreateTask));
+    }
+}
+
+/// A task a test codeunit's own session created and then forgot (`tasks` cleared) is not one install code created: no
+/// row read stands for it and no mark.
+#[test]
+fn a_task_created_outside_install_code_is_not_carried_as_an_install_task() {
+    let mut s = session(&format!("{TABLE}{PROBE}"));
+    let Ok(Value::Guid(id)) = call(&mut s, "Create", vec![]) else {
+        panic!("created")
+    };
+    let b = s.capture_baseline();
+    let mut later = Session::new(s.engine.clone());
+    later.restore_baseline(&b);
     let _ = take_hits();
-    assert!(matches!(call(&mut s, "Exists", vec![Value::Guid(id)]), Ok(Value::Boolean(false))));
+    assert!(matches!(
+        call(&mut later, "Exists", vec![Value::Guid(id)]),
+        Ok(Value::Boolean(false))
+    ));
     assert!(!take_hits().contains(&Assumption::InstallSessionCanCreateTask));
-    s.baseline_rows.insert(super::SCHEDULED_TASK);
-    assert!(matches!(call(&mut s, "Exists", vec![Value::Guid(id)]), Ok(Value::Boolean(true))));
-    assert!(take_hits().contains(&Assumption::InstallSessionCanCreateTask));
 }

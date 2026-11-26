@@ -135,6 +135,7 @@ macro_rules! session_fields {
                 install_row_version: i64,
                 autoinc: HashMap<(String, u32), i64>,
                 baseline_rows: BTreeSet<u32>,
+                install_tasks: BTreeSet<[u8; 16]>,
                 http_policy: Option<&'static str>,
                 tdd_reached: BTreeSet<String>,
                 // A record's own read is current against it (state_render.rs `own_read`).

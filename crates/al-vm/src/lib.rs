@@ -1039,6 +1039,8 @@ pub struct Session {
     pub(crate) cx: al_data::AccessContext,
     /// The tables that held a row when the install baseline was captured (none without one).
     pub(crate) baseline_rows: std::collections::BTreeSet<u32>,
+    /// The tasks install code created, carried by the install baseline (`Baseline::install_tasks`, tasks.rs).
+    pub(crate) install_tasks: std::collections::BTreeSet<[u8; 16]>,
     /// The origin of the baseline the session restored and the store's change counter right after
     /// (`Session::baseline_origin`).
     pub(crate) baseline_origin: Option<(u64, u64)>,
@@ -1483,6 +1485,7 @@ impl Session {
                 user: user.into(),
             },
             baseline_rows: Default::default(),
+            install_tasks: Default::default(),
             baseline_origin: None,
             seed_refusal: None,
             ret_used: true,
