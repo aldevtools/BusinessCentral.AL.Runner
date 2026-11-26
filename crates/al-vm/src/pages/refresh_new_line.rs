@@ -184,6 +184,21 @@ impl Session {
     /// pages/journal-batch-switch/Y17JournalBatchSwitch.al:485 UpdWs_BatchSwitch_ToEmptyBatch `V:done 20000;N:B3/0 below=Yes;
     /// C:B3/0;N:B3/0 below=Yes;C:B3/0`, :560 without the Find in code).
     pub(super) fn show_new_line_of_empty_view(&mut self, st: &St, without_parts: bool) -> Result<(), Signal> {
+        self.show_new_line_runs(st, without_parts, false).map(|_| ())
+    }
+
+    /// `show_new_line_of_empty_view`; with `compare`, true when the second landing left the page's variables and Rec's fields
+    /// as the first did (false without `compare`).
+    fn show_new_line_runs(&mut self, st: &St, without_parts: bool, compare: bool) -> Result<bool, Signal> {
+        let page_state = |s: &Self| {
+            let rec = s.page_rec(st);
+            let globals = st
+                .borrow()
+                .instance
+                .as_ref()
+                .map(|i| format!("{:?}", i.borrow().globals));
+            (globals, format!("{:?}", rec.borrow().fields))
+        };
         {
             let mut s = st.borrow_mut();
             s.window = Vec::new();
@@ -192,14 +207,16 @@ impl Session {
         }
         let r = (|| {
             self.land_on_new_line(st)?;
-            self.land_on_new_line(st)
+            let first = compare.then(|| page_state(self));
+            self.land_on_new_line(st)?;
+            Ok(first.is_some_and(|f| f == page_state(self)))
         })();
-        self.torn_down_on_error(st, r)?;
+        let same = self.torn_down_on_error(st, r)?;
         st.borrow_mut().refresh.cancel();
         if !without_parts {
             self.sync_parts(st)?;
         }
-        Ok(())
+        Ok(same)
     }
 
     /// The end of a refresh after a control's OnValidate: OnAfterGetCurrRecord unless `without_curr`, then the parts read again
@@ -487,7 +504,13 @@ impl Session {
             );
         }
         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::NewLineEmptyRefreshWithoutGetRecord);
-        self.show_new_line_of_empty_view(st, without_parts)?;
+        let changes = self.store.change_counter();
+        let same_runs = self.show_new_line_runs(st, without_parts, true)?;
+        if !same_runs || self.store.change_counter() != changes {
+            return unsupported(
+                "OnAfterGetCurrRecord that changes the page or writes to the store, run on the new-row line after CurrPage.Update in a control's OnValidate that changed a single-value filter, on a page that does not declare OnAfterGetRecord (how often it runs there is not pinned)",
+            );
+        }
         Ok(true)
     }
 
@@ -495,13 +518,16 @@ impl Session {
     /// (CheckValueOfSalesTypeOnSalesPricesPage, CheckValueOfSalesTypeOnSalesLineDiscounts), every fact by equality:
     /// - the page: PageType List, DelayedInsert true, AutoSplitKey false, over a database table, opened by the test with
     ///   OpenEdit, no part; it declares OnAfterGetCurrRecord and none of OnAfterGetRecord, OnNewRecord, OnFindRecord and
-    ///   OnNextRecord;
+    ///   OnNextRecord; no page extension declares OnAfterGetCurrRecord, nothing subscribes to the page's
+    ///   OnAfterGetCurrRecordEvent, and the trigger's code leaves nothing behind outside the page (`Engine::lasting_effect`:
+    ///   no store write, no dialog, no write to a SingleInstance codeunit, no subscriber that does one);
     /// - the test's calls since the open: value reads and the running SetValue of a control bound to a page variable
     ///   (`only_var_control_written`); `CurrPage.Update(false)` without OnAfterGetCurrRecord left out (`without_curr` false);
     /// - that OnValidate called `CurrPage.SaveRecord()` then `CurrPage.Update(false)`, made no record call on Rec that loads
-    ///   or moves a row, and wrote nothing to the store;
-    /// - the filters: one filter in filter group 0 on one field of the primary key, of type Option, before and after the
-    ///   OnValidate, a single value after it, and that field the only value from the filters (`stamps`).
+    ///   or moves a row, assigned no field of Rec (`ValidateStart::fields`) and wrote nothing to the store;
+    /// - the filters (`measured_filter_cell`): page 7002, one single-value filter in group 0 on an Enum field of the primary
+    ///   key, changed; or page 7004, two single-value filters in group 0 on Option fields of the primary key, the one on the
+    ///   key's first field the same before and after and equal to the line's value, the other changed.
     fn get_record_free_cell(
         &mut self,
         st: &St,
@@ -527,30 +553,118 @@ impl Session {
             s.test_open_edit() && s.parts.is_empty() && s.hidden_parts.is_empty()
         };
         let rec = self.page_rec(st);
-        let table = self.table(&rec)?;
         let Some(onvalidate) = &start.ran else {
             return Ok(false);
         };
-        let field = match stamps {
-            [(pos, _)] => *pos,
-            _ => return Ok(false),
-        };
-        let one_filter =
-            |filters: &[al_builtins::filter::FieldFilter]| matches!(filters, [f] if f.field == field && f.group == 0);
-        let now = rec.borrow().filters.clone();
+        let rec_unchanged = Self::same_values(&start.fields, &rec.borrow().fields);
         Ok(page_ok
             && declares == [true, false, false, false, false]
+            && self.curr_record_trigger_leaves_nothing(st)
             && opened
             && !rec.borrow().temporary
             && !without_curr
             && self.only_var_control_written(st)
             && matches!(onvalidate.saves.as_slice(), [Save, Update(false)])
             && onvalidate.positioned.is_none()
+            && rec_unchanged
             && self.store.change_counter() == onvalidate.changes
-            && one_filter(&start.filters)
-            && one_filter(&now)
-            && table.keys[0].contains(&field)
-            && matches!(table.fields[field].ty, RtType::Option(_)))
+            && self.measured_filter_cell(&rec, &start.filters, stamps)?)
+    }
+
+    /// The page's OnAfterGetCurrRecord, which `show_new_line_of_empty_view` runs twice, is its own trigger alone (no page
+    /// extension declares it, nothing subscribes to OnAfterGetCurrRecordEvent) and its code leaves nothing behind outside the
+    /// page (`Engine::lasting_effect` is `None` and no Record write is let through, `caption_checked_write`). What it writes
+    /// to the page is checked when it ran (`empty_new_line_without_get_record`).
+    fn curr_record_trigger_leaves_nothing(&self, st: &St) -> bool {
+        let engine = self.engine();
+        let object = st.borrow().object as usize;
+        let page = page_of(&engine, st);
+        let own: Vec<usize> = page
+            .triggers
+            .iter()
+            .filter(|(n, _)| n == "onaftergetcurrrecord")
+            .map(|(_, r)| *r)
+            .collect();
+        let ext = page.ext_triggers.iter().any(|(n, _, _)| n == "onaftergetcurrrecord");
+        matches!(own.as_slice(), [routine]
+            if !ext
+                && !engine.events.is_subscribed(object, "onaftergetcurrrecordevent")
+                && engine.lasting_effect(object, *routine).is_none()
+                && engine.caption_checked_write(object, *routine).is_none())
+    }
+
+    /// The filters of the two measured pages before (`before`) and after the OnValidate, with the line's values from the
+    /// filters after it (`stamps`, field order): page 7002 "Sales Prices", whose source table's "Sales Type" is an Enum
+    /// field of the primary key, filtered to one value (one filter, changed); page 7004 "Sales Line Discounts", whose
+    /// OnOpenPage and OnValidate set `Type` (the key's first field, Option) to Item and "Sales Type" (Option, in the key) to
+    /// the chosen value (two filters, `Type` unchanged).
+    fn measured_filter_cell(
+        &mut self,
+        rec: &Rec,
+        before: &[al_builtins::filter::FieldFilter],
+        stamps: &[(usize, Value)],
+    ) -> Result<bool, Signal> {
+        use al_builtins::filter::{FieldFilter, FilterExpr};
+        let table = self.table(rec)?;
+        let r = rec.borrow();
+        let single = |f: &FieldFilter| match &f.expr {
+            FilterExpr::Eq(v) => Some(v.clone()),
+            FilterExpr::Range(Some(a), Some(b))
+                if Self::same_values(std::slice::from_ref(a), std::slice::from_ref(b)) =>
+            {
+                Some(a.clone())
+            }
+            _ => None,
+        };
+        let key_filter = |f: &FieldFilter, enum_field: bool| {
+            let ty_ok = if enum_field {
+                matches!(table.fields[f.field].ty, RtType::Enum(_))
+            } else {
+                matches!(table.fields[f.field].ty, RtType::Option(_))
+            };
+            f.group == 0 && table.keys[0].contains(&f.field) && ty_ok && single(f).is_some()
+        };
+        let on = |filters: &[FieldFilter], field: usize| -> Option<FieldFilter> {
+            match filters
+                .iter()
+                .filter(|f| f.field == field)
+                .collect::<Vec<_>>()
+                .as_slice()
+            {
+                [f] => Some((*f).clone()),
+                _ => None,
+            }
+        };
+        let is_line = |field: usize, v: &Value| Self::same_values(&r.fields[field..=field], std::slice::from_ref(v));
+        let now = &r.filters;
+        Ok(match (before, now.as_slice(), stamps) {
+            // Page 7002: "Sales Type".
+            ([b], [a], [(field, v)]) => {
+                b.field == *field
+                    && a.field == *field
+                    && key_filter(b, true)
+                    && key_filter(a, true)
+                    && !is_line(*field, v)
+            }
+            // Page 7004: `Type` (the key's first field) unchanged, "Sales Type" changed.
+            ([_, _], [_, _], [(first, kept), (changed, v)]) => {
+                let pair = (
+                    on(before, *first),
+                    on(now, *first),
+                    on(before, *changed),
+                    on(now, *changed),
+                );
+                let (Some(kb), Some(ka), Some(cb), Some(ca)) = pair else {
+                    return Ok(false);
+                };
+                table.keys[0].first() == Some(first)
+                    && [&kb, &ka, &cb, &ca].iter().all(|f| key_filter(f, false))
+                    && kb.expr.identical(&ka.expr)
+                    && is_line(*first, kept)
+                    && !is_line(*changed, v)
+            }
+            _ => false,
+        })
     }
 
     /// Whether page `st`, its source table and the procedures they call read line for line as the probe's (`FOUND_ROW_PAGE` after

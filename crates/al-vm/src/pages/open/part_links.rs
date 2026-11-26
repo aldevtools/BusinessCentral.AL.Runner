@@ -281,7 +281,7 @@ impl Session {
         let table = self.table(&rec)?;
         // One validated value is pinned: the link field's OnValidate and table relation see the rest of the line as it
         // was, a SourceTableView value of a field outside the key is not stamped (pages/triggers/
-        // NewLineStampsFilters.al:214-237, :264-287). With two or more validated values, whether the later ones are on
+        // NewLineStampsFilters.al:235-256, :260-281). With two or more validated values, whether the later ones are on
         // the record while the first validates is not pinned. Every value goes on first; when code can see the order (an
         // OnValidate, a table relation, a table extension's validate trigger or a subscriber to the validate events of a
         // stamped field) that runs under Assumption::NewLineStampsAllBeforeValidating (kept, not pinned: refusing it costs
