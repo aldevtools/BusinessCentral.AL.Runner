@@ -120,7 +120,7 @@ impl Session {
     }
 
     /// After the row at `old` became `new`: rewrites every referencing row. `statement_from_al`: AL code called the
-    /// statement form of Rename.
+    /// statement form of Rename (read in the Rename arm before the triggers run).
     pub(crate) fn propagate_rename(
         &mut self,
         rec: &crate::records::Rec,
