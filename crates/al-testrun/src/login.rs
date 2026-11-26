@@ -17,7 +17,8 @@
 //!   code that cannot run here refuses the codeunit. Used for a test codeunit that can see what an app under test's login
 //!   subscriber leaves; when those subscribers read what the dependency apps' login code writes ([`reads_microsofts_login`]:
 //!   the checklist setup, `SystemInitialization.IsInProgress()`, a Guided Experience row other than through a call keyed
-//!   on the app's own object, a memo of System Application's); when an app under test subscribes to `OnRegisterManualSetup` or
+//!   on the app's own object, a memo of System Application's) and the test codeunit can see what they or that code leave
+//!   ([`sees_the_login`]); when an app under test subscribes to `OnRegisterManualSetup` or
 //!   `OnRegisterGuidedExperienceItem`, whose raise at login no corpus test pins ([`RAISE_ONLY`]); and when the checklist is
 //!   already set up, where Microsoft's code does not raise `OnRegisterAssistedSetup` (the pin's header, :10, does not
 //!   measure that case).
@@ -59,7 +60,8 @@
 //! `install::test_session_company_open` also runs the dependency apps' Company Triggers
 //! `OnCompanyOpenCompleted` subscribers, which raise the login (`Login::Raise`); also when those
 //! subscribers read what the dependency apps' login code writes (`reads_microsofts_login`, except
-//! calls of Guided Experience or Checklist keyed on a constant own object), subscribe to
+//! calls of Guided Experience or Checklist keyed on a constant own object) and the test can see what
+//! they or that code leave (`sees_the_login`), subscribe to
 //! OnRegisterManualSetup or OnRegisterGuidedExperienceItem (`RAISE_ONLY`), or the checklist is set up
 //! (`checklist_set_up`); a test that touches a table the own subscribers wrote marks `login-own-
 //! registration-reads-alone` (`CompanyOpenWrites::watch_hit`); otherwise it raises the two events to
@@ -209,8 +211,15 @@ struct LoginLeaves {
     /// The only reads of `reads_microsoft` are of System Application's login memos, read the way
     /// `login_memo::filled_alone` accepts.
     memo_only: bool,
-    /// The tables the dependency apps' login code writes ([`reads_microsofts_login`]).
-    ms_writes: BTreeSet<u32>,
+    /// The tables the dependency apps' login code writes and the codeunit globals it sets ([`reads_microsofts_login`]).
+    ms: MicrosoftsLogin,
+}
+
+/// What the dependency apps' login code writes before the apps under test's login subscribers ([`reads_microsofts_login`]).
+#[derive(Default)]
+struct MicrosoftsLogin {
+    writes: BTreeSet<u32>,
+    globals_written: BTreeSet<(usize, usize)>,
 }
 
 /// The login events an app under test subscribes to automatically, in the order the login raises them, each with its
@@ -305,16 +314,16 @@ pub(crate) fn after_login_publisher(lowered: &Lowered, events: &Registry) -> Opt
 /// login code registers none of the apps' objects. That those calls read alone what they read inside the login is the
 /// registered assumption `login-own-registration-reads-alone`. Also returned: whether the only such reads are of System
 /// Application's login memos (3702, 3703), read the way corpus PR 1490 measured (`login_memo::filled_alone`), and the
-/// tables the dependency apps' login code writes.
+/// tables and globals the dependency apps' login code writes.
 fn reads_microsofts_login(
     events: &Registry,
     lowered: &Lowered,
     index: &ReachIndex,
     subs: &[(usize, usize)],
-) -> (Option<String>, bool, BTreeSet<u32>) {
+) -> (Option<String>, bool, MicrosoftsLogin) {
     let objects = &lowered.program.objects;
     let dependency = |i: usize| lowered.dependency.get(i).copied().unwrap_or(false);
-    let mut ms = ReachFacts::default();
+    let mut ms = MicrosoftsLogin::default();
     let raiser = (objects.heads().iter().enumerate())
         .filter(|(i, o)| dependency(*i) && o.id == Some(LOGIN_RAISER))
         .map(|(i, _)| i);
@@ -358,11 +367,11 @@ fn reads_microsofts_login(
             "they touch table {}, which the dependency apps' login code writes",
             name(*t)
         );
-        return (Some(why), false, ms.writes);
+        return (Some(why), false, ms);
     }
     let set_by_login = |g: &&(usize, usize)| ms.globals_written.contains(g) && single_instance(lowered, g.0);
     let Some(g) = own.globals_read.iter().find(set_by_login) else {
-        return (None, false, ms.writes);
+        return (None, false, ms);
     };
     let why = format!(
         "they read a global of SingleInstance codeunit {} that the dependency apps' login code sets",
@@ -371,7 +380,7 @@ fn reads_microsofts_login(
     let memo = |g: &&(usize, usize)| crate::login_memo::microsoft_login_memo(lowered, g.0);
     let memo_only = own.globals_read.iter().filter(set_by_login).all(|g| memo(&g))
         && crate::login_memo::filled_alone(events, lowered, index, subs, &facades, &visited, &keyed_reads);
-    (Some(why), memo_only, ms.writes)
+    (Some(why), memo_only, ms)
 }
 
 /// The procedures of the codeunits `facades` that the routines `visited` call other than with a constant object id
@@ -469,7 +478,7 @@ fn own_events_of_microsoft(lowered: &Lowered, events: &Registry) -> Vec<(usize, 
 /// reads what it writes is not one the login is modelled for (corpus Y64InstallSubscribers.al reads a table a telemetry
 /// logger subscriber of a cross-app fixture writes, guarded so that the login writes nothing). Every test codeunit gets
 /// the login raised when the subscribers read what the dependency apps' login code writes before them ([`reads_microsofts_login`],
-/// once per engine). Another test codeunit gets the apps' own subscribers (Own); in a watched session it is refused when
+/// once per engine) and it can see what they or that code leave ([`sees_the_login`]). Another test codeunit gets the apps' own subscribers (Own); in a watched session it is refused when
 /// it can see what they leave besides rows ([`watched_state`]).
 ///
 /// When the only such reads are of System Application's login memos ([`LoginLeaves::memo_only`]) and the test codeunit
@@ -502,6 +511,7 @@ pub(crate) fn decide(
             f.globals_read.extend(facts.globals_read);
             f.globals_written.extend(facts.globals_written);
             f.state_writes |= facts.state_writes;
+            f.writes_any |= facts.writes_any;
             if f.unknown.is_none() {
                 f.unknown = facts.unknown;
             }
@@ -510,17 +520,20 @@ pub(crate) fn decide(
             left.state.insert(o);
             left.state.extend(held_codeunits(lowered, o));
         }
-        (left.reads_microsoft, left.memo_only, left.ms_writes) = reads_microsofts_login(events, lowered, &index, subs);
+        (left.reads_microsoft, left.memo_only, left.ms) = reads_microsofts_login(events, lowered, &index, subs);
         left
     });
-    let raise_only = login.own_events.iter().any(|e| RAISE_ONLY.contains(&e.event));
-    if raise_only || (left.reads_microsoft.is_some() && !left.memo_only) {
+    if login.own_events.iter().any(|e| RAISE_ONLY.contains(&e.event)) {
         return Login::Raise { fallback: false };
     }
     let own = own_reach(engine, lowered, &login, &index, test);
     let mine = JoinedReach::new(&own, || database_events_reach(engine, lowered, &login, &index));
+    let reads_microsoft = left.reads_microsoft.is_some() && !left.memo_only;
+    if reads_microsoft && sees_the_login(&left, &mine) {
+        return Login::Raise { fallback: false };
+    }
     let by_reach = by_test_reach(engine, lowered, &login, &left, &index, test, (&own, &mine), watched);
-    if left.reads_microsoft.is_none() {
+    if left.reads_microsoft.is_none() || reads_microsoft {
         return by_reach;
     }
     // Only System Application's login memos made Microsoft's code decide. The own login alone is used only after that
@@ -528,7 +541,7 @@ pub(crate) fn decide(
     // the subscribers of the database events) touch no table that code writes, and whose reach reads the memos only as
     // the probe's test and table trigger did (corpus PR 1490, P2A_06, P2A_11).
     let fallback = matches!(by_reach, Login::Own { .. })
-        && !own.touched.iter().any(|t| left.ms_writes.contains(t))
+        && !own.touched.iter().any(|t| left.ms.writes.contains(t))
         && crate::login_memo::test_reads_measured(events, lowered, &index, &mine);
     match by_reach {
         Login::Own { events, watched, .. } if after_refusal && fallback => Login::Own {
@@ -542,7 +555,32 @@ pub(crate) fn decide(
     }
 }
 
-/// [`decide`] for a test codeunit whose login subscribers read nothing Microsoft's login code writes, or only its memos:
+/// Whether a test codeunit whose whole reach is `mine` may see what the login subscribers leave when they read what
+/// Microsoft's login code writes (so that what they leave differs from what they would leave after that code), or what
+/// that code leaves itself: it touches a table the subscribers touch or write, or one that code writes; it reads a
+/// codeunit global the subscribers or that code write, or one of a codeunit whose state the subscribers keep; it reads
+/// any table through a `RecordRef`; or the reach of either side is not fully known, the subscribers write a table not
+/// known statically, or they change session state (WorkDate, the language, a binding, ...), which no table or global
+/// shows. Such a codeunit gets the login raised (LgnLoginChecklistTests.al:131-148, the Raise the module header
+/// describes); another one sees nothing of the login, and [`by_test_reach`] decides for it as for subscribers that read
+/// nothing of Microsoft's login. The fixture that needs it: corpus al-language-xapp-a/LmXaLoginCaches.al:279-293, a
+/// login subscriber that touches table User, which Base Application's login code writes.
+fn sees_the_login(left: &LoginLeaves, mine: &JoinedReach) -> bool {
+    let f = &left.facts;
+    let tables = f.touched.iter().chain(&f.writes).chain(&left.ms.writes);
+    let globals = f.globals_written.iter().chain(&left.ms.globals_written);
+    f.unknown.is_some()
+        || f.writes_any
+        || f.state_writes != 0
+        || mine.unknown().is_some()
+        || mine.reads_any_table()
+        || tables.copied().any(|t| mine.touches(t))
+        || globals.copied().any(|g| mine.reads_global(g))
+        || left.state.iter().any(|&o| mine.reads_a_global_of(o))
+}
+
+/// [`decide`] for a test codeunit whose login subscribers read nothing Microsoft's login code writes, or only its memos,
+/// or read it but leave nothing the test codeunit can see ([`sees_the_login`]):
 /// `reach` is the test codeunit's reach without the subscribers of the database events and the joined reach.
 #[allow(clippy::too_many_arguments)]
 fn by_test_reach(

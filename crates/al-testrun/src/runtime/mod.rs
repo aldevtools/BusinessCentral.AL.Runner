@@ -1334,6 +1334,8 @@ mod install_snapshot;
 mod install_unknown_tests;
 mod internals_grant;
 #[cfg(test)]
+mod login_decide_tests;
+#[cfg(test)]
 mod login_explain_tests;
 #[cfg(test)]
 mod login_image_tests;

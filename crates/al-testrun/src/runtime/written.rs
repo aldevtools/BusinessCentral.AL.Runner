@@ -589,6 +589,11 @@ impl<'a> JoinedReach<'a> {
         self.parts().any(|f| f.globals_read.contains(&g))
     }
 
+    /// Whether [`ReachFacts::reads_any`] is set in the joined reach.
+    pub fn reads_any_table(&self) -> bool {
+        self.parts().any(|f| f.reads_any)
+    }
+
     /// Whether a global of object `o` is in [`ReachFacts::globals_read`] of the joined reach.
     pub fn reads_a_global_of(&self, o: usize) -> bool {
         self.parts()
