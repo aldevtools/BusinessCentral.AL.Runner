@@ -213,7 +213,7 @@ impl Session {
             RtType::Code(_) | RtType::Text(_) => match v {
                 Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_) => Some(number_into_text(v, ty, self)),
                 Value::Boolean(true) => Some(Cell::Main(ENTRY)),
-                Value::Boolean(false) => Some(false_into_text(ty, at, self.engine.target.as_ref().map(|t| t.bc.major))),
+                Value::Boolean(false) => Some(false_into_text(ty)),
                 _ => None,
             },
             // SrcFilterConvertKinds.al:729-1381 (CodeABC_Int .. TxtEmpty_Dec, Code1000_Int, Code1000_Big); digits (Code123_Int,
@@ -380,19 +380,16 @@ fn number_into_text(v: &Value, ty: &RtType, ctx: &Session) -> Cell {
     }
 }
 
-/// False into a Code or Text field `ty`, given to the call `at` on the BC major `major` (`None`: no target, the newest): main's
-/// answer (`NO` in a Code, `No` in a Text) through the entry setrange-false-into-text, on the major, fields and calls its evidence
-/// measures (al-runner issue 9026: the reporter's BC 29.0 repro, FieldRef.SetRange(X) and FieldRef.SetFilter('%1', X) with X
-/// typed, into a Code[20] and a Text[50] field; the probe is corpus PR 1575, SrcFilterBoolIntoText.al); refused on every other
-/// major, field length and call.
-fn false_into_text(ty: &RtType, at: CellAt, major: Option<u16>) -> Cell {
-    let bc29 = matches!(major, Some(29) | None);
-    let field = matches!(ty, RtType::Code(Some(20)) | RtType::Text(Some(50)));
-    let call = matches!(
-        (at.call, at.written, at.values),
-        (Call::FieldRefSetRange | Call::FieldRefSetFilter, Some(Written::Typed), 1)
-    );
-    if bc29 && field && call { Cell::Main(Assumption::SetRangeFalseIntoText) } else { Cell::Unmeasured }
+/// False into a Code or Text field `ty`: main's answer (`NO` in a Code, `No` in a Text) through the entry
+/// setrange-false-into-text, on the field lengths corpus PR 1575 measures (SrcFilterBoolIntoText.al:178-221, BoolFalse_Cod,
+/// BoolFalse_Txt, BoolFalse_Cod2: `ok: NO` / `ok: No` on every route, the same on Business Central 27.5, 28.5 and 29.0); the
+/// routes are the measured calls (`measured_call`). Refused on every other length (Code[1] and Text[1] raise the string-length
+/// error there, SrcFilterBoolIntoText.al:226-253).
+fn false_into_text(ty: &RtType) -> Cell {
+    match ty {
+        RtType::Code(Some(2 | 20)) | RtType::Text(Some(50)) => Cell::Main(Assumption::SetRangeFalseIntoText),
+        _ => Cell::Unmeasured,
+    }
 }
 
 /// A text the probe measures as no number of the field's type: letters, empty, and, into an Integer or BigInteger field, digits

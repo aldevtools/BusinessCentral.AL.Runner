@@ -21,6 +21,7 @@ table 50290 SRC
         field(7; G; Guid) { }
         field(8; Dec; Decimal) { }
         field(9; DT; DateTime) { }
+        field(10; Cod1; Code[1]) { }
     }
     keys { key(PK; Id) { Clustered = true; } }
 }
@@ -268,6 +269,16 @@ codeunit 50291 T
         exit(F.GetFilter());
     end;
 
+    procedure FalseIntoCode1(): Text
+    var R: RecordRef; F: FieldRef; B: Boolean;
+    begin
+        R.Open(Database::SRC);
+        F := R.Field(10);
+        B := false;
+        F.SetRange(B);
+        exit(F.GetFilter());
+    end;
+
     procedure FalseIntoCodeOnTemporary(): Text
     var R: RecordRef; F: FieldRef; B: Boolean;
     begin
@@ -412,6 +423,8 @@ fn a_cell_of_the_earlier_conversion_in_another_shape_is_refused() {
         "GuidSetFilterTextOnTemporary",
         "TrueIntoCodeOnTemporary",
         "FalseIntoCodeOnTemporary",
+        // SrcFilterBoolIntoText.al:226-241 (BoolFalse_Cod1): BC raises the string-length error; not served.
+        "FalseIntoCode1",
         "DecimalTextIntoDecimalOnTemporary",
         "DateIntoDateTimeOnTemporary",
         "DigitsIntoDecimalOnTemporary",
@@ -446,7 +459,7 @@ fn a_blank_option_member_into_a_date_is_refused() {
     refused("BlankOptionIntoDate");
 }
 
-/// False into a Code field is main's answer, `NO` (SrcFilterBoolIntoText.al BoolFalse_Cod, open corpus PR, al-runner issue 9026),
+/// False into a Code field is main's answer, `NO` (SrcFilterBoolIntoText.al:178-192 BoolFalse_Cod, corpus PR 1575, al-runner issue 9026),
 /// in the measured shape through the entry setrange-false-into-text; refused on a temporary table
 /// (`a_cell_of_the_earlier_conversion_in_another_shape_is_refused`).
 #[test]
@@ -458,11 +471,11 @@ fn false_into_a_code_field_is_its_format_text_through_its_own_entry() {
     assert!(!hits.contains(&Assumption::SetRangeOtherTypeConvert), "{hits:?}");
 }
 
-/// The evidence of setrange-false-into-text is the reporter's BC 29.0 repro (al-runner issue 9026): false into a Code field runs on
-/// a BC 29 target and is refused on 27 and 28.
+/// SrcFilterBoolIntoText.al:178-192 (BoolFalse_Cod, corpus PR 1575) measures `ok: NO` on Business Central 27.5, 28.5 and 29.0:
+/// false into a Code field runs on every one of them.
 #[test]
-fn false_into_a_code_field_runs_on_the_measured_major_only() {
-    for (bc, runs) in [("27.5", false), ("28.5", false), ("29.0", true)] {
+fn false_into_a_code_field_runs_on_every_measured_major() {
+    for (bc, runs) in [("27.5", true), ("28.5", true), ("29.0", true)] {
         let lowered = al_testkit::compile(SRC);
         let target = al_version::Target::for_bc(al_version::BcVersion::parse(bc).unwrap());
         let engine = al_vm::Engine::with_target(lowered.program.clone(), al_testkit::blocked(&lowered), Some(target));
@@ -472,7 +485,9 @@ fn false_into_a_code_field_runs_on_the_measured_major_only() {
         };
         match (b.run_in("T", "FalseIntoCode"), runs) {
             (Ok(Value::Text(s)), true) => assert_eq!(s.as_str(), "NO", "{bc}"),
-            (Err(Signal::Unsupported(reason)), false) => assert!(reason.contains("in a shape no cell measures"), "{bc}: {reason}"),
+            (Err(Signal::Unsupported(reason)), false) => {
+                assert!(reason.contains("in a shape no cell measures"), "{bc}: {reason}")
+            }
             (other, _) => panic!("{bc}: got {other:?}"),
         }
     }
