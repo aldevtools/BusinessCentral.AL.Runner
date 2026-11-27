@@ -49,6 +49,7 @@ use crate::{Session, Signal};
 use al_builtins::native::AlError;
 pub(crate) use cell::Renders;
 use cell::{Answer, Cell, Events};
+pub(crate) use fact_report::adds_columns_only;
 pub(crate) use facts::{AnswerForm, Call};
 use facts::{Facts, Selection, Target};
 

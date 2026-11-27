@@ -780,6 +780,9 @@ pub(crate) struct ReportState {
     /// (`CurrReport.Skip`, `Break`, `Quit`), and the request it made (al-vm reports.rs).
     pub(crate) report_trigger: Option<(usize, crate::reports::TrigKind)>,
     pub(crate) report_flow: Option<crate::reports::Flow>,
+    /// The report trigger whose call ended last, (object index, kind), when it ended in an AL error: what a SaveAs that failed
+    /// reads to tell where its error came from (`reports/save_trigger_error.rs`).
+    pub(crate) failed_trigger: Option<(usize, crate::reports::TrigKind)>,
     /// A `CurrReport.Skip`, `Break` or `Quit` is leaving the procedures down to the report trigger at this depth.
     pub(crate) flow_unwind: Option<usize>,
     /// The request page of a `RunRequestPage` is open: a table write in its handler finds no transaction

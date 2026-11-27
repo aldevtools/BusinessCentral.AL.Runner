@@ -34,19 +34,7 @@ pub(super) fn report_facts(program: &al_ir::Program, schema: &Schema) -> ReportF
     };
     let extensions = match report.extensions.as_slice() {
         [] => Extensions::None,
-        [e] => match program.objects[*e].report_ext.as_ref() {
-            Some(x)
-                if x.on_pre.is_none()
-                    && x.on_post.is_none()
-                    && x.modifies.is_empty()
-                    && x.added.is_empty()
-                    && x.labels.is_empty()
-                    && !x.adds.is_empty() =>
-            {
-                Extensions::OneAddingColumns
-            }
-            _ => Extensions::Other,
-        },
+        [e] if adds_columns_only(program, *e) => Extensions::OneAddingColumns,
         _ => Extensions::Other,
     };
     let triggers = if report.on_post.is_some() {
@@ -84,6 +72,19 @@ pub(super) fn report_facts(program: &al_ir::Program, schema: &Schema) -> ReportF
         extensions,
         triggers,
     }
+}
+
+/// Whether the reportextension (object index) only adds columns to the report's data items: no trigger, data item, label or
+/// `modify`.
+pub(crate) fn adds_columns_only(program: &al_ir::Program, ext: usize) -> bool {
+    program.objects[ext].report_ext.as_ref().is_some_and(|x| {
+        x.on_pre.is_none()
+            && x.on_post.is_none()
+            && x.modifies.is_empty()
+            && x.added.is_empty()
+            && x.labels.is_empty()
+            && !x.adds.is_empty()
+    })
 }
 
 /// Whether every data item is as the false answers measured it (reports/html-email-body/RxdDeclFixtures.al:39-43): it declares
