@@ -12,16 +12,11 @@ use al_ir as ir;
 use super::{MemberKind, unsupported};
 use crate::{Frame, Session, Signal};
 
-/// The declared types the probe measured.
-const MEASURED: &[&str] = &[
-    "System.Byte",
-    "System.Int32",
-    "System.Boolean",
-    "System.DateTime",
-    "System.TimeSpan",
-    // Measured in the Regex constructor only (it raises there); no method call takes it.
-    REGEX_OPTIONS,
-];
+/// A declared type the probe measured: one with a default below, or `RegexOptions`, measured in the Regex constructor
+/// only (it raises there; no method call takes it).
+fn is_measured(t: &str) -> bool {
+    default_of(t).is_some() || t == REGEX_OPTIONS
+}
 
 /// The default value a null of a measured type goes to .NET as in a method call: `DateTime(1)` is .NET's `DateTime.MinValue`
 /// (ticks 0, `value_to_wire`).
@@ -136,7 +131,7 @@ impl Session {
         if let Some(n) = nulls.iter().flatten().find(|n| UNMEASURED.contains(&n.ty.as_str())) {
             return unsupported(format!("DotNet {member}: a null {} argument (not measured)", n.ty));
         }
-        if !nulls.iter().flatten().any(|n| MEASURED.contains(&n.ty.as_str())) {
+        if !nulls.iter().flatten().any(|n| is_measured(&n.ty)) {
             return Ok(());
         }
         let fits = |pattern: &[A]| {
