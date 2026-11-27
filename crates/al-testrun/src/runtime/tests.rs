@@ -905,7 +905,7 @@ fn login_replays(engine: &Engine) -> u64 {
 }
 
 /// The baseline of a session that ran codeunit `seed`'s OnRun.
-fn seeded_baseline(engine: &Arc<Engine>, l: &Lowered, seed: &str) -> al_vm::Baseline {
+pub(super) fn seeded_baseline(engine: &Arc<Engine>, l: &Lowered, seed: &str) -> al_vm::Baseline {
     let mut session = al_vm::Session::new(engine.clone());
     let s = object_named(l, seed);
     let on_run = l.program.objects[s]

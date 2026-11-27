@@ -108,8 +108,9 @@ fn round(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
 }
 
 /// A result that no Decimal holds: a too large result, zero to a negative power, a negative base to a fractional power
-/// (types/TestProbeScalarContracts.al:Round_PrecisionAndPower, `power_2_100`, `power_0_neg1`, `power_neg2_0_5`, `power_2_1000`).
-fn overflow() -> Out {
+/// (types/TestProbeScalarContracts.al:Round_PrecisionAndPower, `power_2_100`, `power_0_neg1`, `power_neg2_0_5`, `power_2_1000`;
+/// a product, `ops/decimal_overflow.rs`).
+pub(crate) fn overflow() -> Out {
     crate::native::raise("Value was either too large or too small for a Decimal.", "AL:Overflow")
 }
 

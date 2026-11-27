@@ -1552,11 +1552,13 @@ fn arg_pure(a: &ir::Arg) -> bool {
     }
 }
 
-/// A conversion of `FieldRef.Value` into a Text, Code or Blob, which runs `Op::ConvertFieldValue` (as does one into a local
-/// Date, Time or DateTime, `Compiler::assign`).
+/// A conversion of `FieldRef.Value` into a Text, Code or Blob, or into a number (which refuses a Date, Time or DateTime,
+/// `Session::convert_field_value`), which runs `Op::ConvertFieldValue` (as does one into a local Date, Time or DateTime,
+/// `Compiler::assign`).
 fn is_field_value_conversion(t: &RtType, inner: &ir::Expr) -> bool {
     (matches!(t, RtType::Text(_) | RtType::Code(_))
-        || matches!(t, RtType::Library(n) if n.eq_ignore_ascii_case("Blob")))
+        || matches!(t, RtType::Library(n) if n.eq_ignore_ascii_case("Blob"))
+        || al_builtins::fieldref_value_temporal::is_number_target(t))
         && is_fieldref_value(inner)
 }
 

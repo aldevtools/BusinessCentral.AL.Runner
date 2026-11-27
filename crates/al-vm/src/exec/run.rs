@@ -1180,9 +1180,11 @@ impl Session {
         matches!(self.engine.target.as_ref().map_or(29, |t| t.bc.major), 27..=29)
     }
 
-    /// `FieldRef.Value` into a Text, Code or Blob, or into a local Date, Time or DateTime. A number is its Format text and an Enum its caption, checked against the
+    /// `FieldRef.Value` into a Text, Code or Blob, into a local Date, Time or DateTime, or into an Integer, BigInteger, Decimal,
+    /// Duration, Option, Boolean, Byte or Char. A number is its Format text and an Enum its caption, checked against the
     /// variable's or parameter's length (recordref-fieldref/Y13FieldRefValueToText.al:96-153;
-    /// text/text-methods/Y49FieldRefIntoText.al:207-353).
+    /// text/text-methods/Y49FieldRefIntoText.al:207-353). A Date, Time or DateTime value into one of those number types is
+    /// refused (`fieldref_value_temporal::temporal_into_number`, issue 9265); any other value converts as an assignment does.
     fn convert_field_value(
         &self,
         v: Value,
@@ -1198,6 +1200,7 @@ impl Session {
         }
         match al_builtins::fieldref_value_text::fieldref_value_into_text(&v, ty, self)
             .or_else(|| al_builtins::fieldref_value_text::fieldref_value_into_blob(&v, ty, self, from28))
+            .or_else(|| al_builtins::fieldref_value_temporal::temporal_into_number(&v, ty))
         {
             Some(r) => r,
             None => ops::convert_plain(v, ty),
