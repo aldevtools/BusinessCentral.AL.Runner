@@ -2,6 +2,17 @@
 // without CalcFields, or a copy of such a record) under a new key. Each test checks BC's answer, so a changed answer and a
 // refusal both show as a difference. One test per codeunit: a refused test makes the later tests of its codeunit not run.
 // Invented names only.
+table 50123 "NB BI Other"
+{
+    DataClassification = SystemMetadata;
+    fields
+    {
+        field(1; "No."; Code[20]) { }
+        field(2; Body; Blob) { }
+    }
+    keys { key(PK; "No.") { Clustered = true; } }
+}
+
 table 50120 "NB BI Row"
 {
     DataClassification = SystemMetadata;
@@ -568,5 +579,90 @@ codeunit 50149 "NB BI Case 20"
         C.Body.CreateInStream(InS);
         InS.ReadText(Txt);
         L.Expect(StrSubstNo('%1 [%2]', C.Body.HasValue(), Txt), 'Yes []');
+    end;
+}
+
+// R1 to R3 of codeunit 73782 (corpus pull request 1631).
+codeunit 50150 "NB BI Case 21"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        L: Codeunit "NB BI Lib";
+
+    // Another variable cleared the row's Blob and modified it; then the first, unloaded buffer is modified on the same key.
+    [Test]
+    procedure ClearedRow_NoCalc_Modify()
+    var
+        Src: Record "NB BI Row";
+        X: Record "NB BI Row";
+    begin
+        L.Seed('H1', 'hello');
+        Src.Get('H1');
+        X.Get('H1');
+        Clear(X.Body);
+        X.Modify();
+        Src.Info := 'n';
+        Src.Modify();
+        L.Expect(L.Stored('H1'), 'nohv:');
+    end;
+}
+
+codeunit 50151 "NB BI Case 22"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        L: Codeunit "NB BI Lib";
+
+    // A Blob field assignment into another table, then Insert.
+    [Test]
+    procedure FieldAssignOtherTable_NoCalc_Insert()
+    var
+        Src: Record "NB BI Row";
+        B: Record "NB BI Other";
+        R: Record "NB BI Other";
+    begin
+        L.Seed('H2', 'hello');
+        Src.Get('H2');
+        B."No." := 'H2C';
+        B.Body := Src.Body;
+        B.Insert();
+        R.Get('H2C');
+        R.CalcFields(Body);
+        L.Expect(Format(R.Body.HasValue()), 'No');
+    end;
+}
+
+codeunit 50152 "NB BI Case 23"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        L: Codeunit "NB BI Lib";
+
+    // A source read in another company, copied with := and inserted without switching back: the row lands in this company.
+    [Test]
+    procedure OtherCompany_NoSwitch_Insert()
+    var
+        O: Record "NB BI Row";
+        C: Record "NB BI Row";
+    begin
+        O.ChangeCompany('NB Other Co');
+        O.DeleteAll();
+        O.Init();
+        O."No." := 'H3';
+        L.W(O, 'there');
+        O.Insert();
+        Clear(O);
+        O.ChangeCompany('NB Other Co');
+        O.Get('H3');
+        C := O;
+        C."No." := 'H3C';
+        C.Insert();
+        L.Expect(L.Stored('H3C'), 'nohv:');
     end;
 }

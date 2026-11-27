@@ -1,10 +1,12 @@
-//! A Blob whose stored content the record never loaded (a read without `CalcFields`, or a copy of such a record) and that
-//! no stream wrote since is never written by Insert or Modify (issue 9286). The open corpus probe (pull request 1631,
-//! record/lt-blob-field-assign/BlobInsertUnloaded.al, measured on BC 29.0, its CI green on BC 27.5, 28.5 and 29.0) gives the
-//! readings: codeunit 73781 the Insert shapes, Insert(true), temporary tables and a Modify onto another row; codeunit 73782
-//! a Modify of the key it was read under, a stale buffer, Insert then Modify, database to temporary and back, a field
-//! assignment, CalcFields right after the Insert and another company's source. Through the assumption
-//! `blob-never-loaded-not-stored`. A loaded Blob (`CalcFields` before the copy or on it) and an empty source store as before.
+//! A Blob whose stored content the record never loaded (a read without `CalcFields`, or a copy of such a record) and
+//! that no stream wrote since is never written by Insert or Modify (issue 9286). The open corpus probe (pull request
+//! 1631, record/lt-blob-field-assign/BlobInsertUnloaded.al, 31 tests measured on BC 29.0; its CI runs codeunit 73781 on
+//! BC 27.5, 28.5 and 29.0 and asserts codeunit 73782 on BC 28.5 and 29.0) gives the readings: codeunit 73781 the Insert
+//! shapes, Insert(true), temporary tables and a Modify onto another row; codeunit 73782 a Modify of the key it was read
+//! under, a stale buffer, Insert then Modify, database to temporary and back, a field assignment (also into another
+//! table), CalcFields right after the Insert, another company's source (also without switching back) and a row another
+//! variable cleared. Through the assumption `blob-never-loaded-not-stored`. A loaded Blob (`CalcFields` before the copy
+//! or on it) and an empty source store as before.
 
 use al_testkit::{run_in, text};
 
@@ -21,6 +23,11 @@ table 50130 "Bi Row"
         CalcFields(Body);
         Note := StrSubstNo('before=%1 after=%2', Before, Body.HasValue());
     end;
+}
+table 50132 "Bi Other"
+{
+    fields { field(1; K; Code[20]) { } field(2; Body; Blob) { } }
+    keys { key(PK; K) { } }
 }
 codeunit 50131 C
 {
@@ -235,6 +242,33 @@ codeunit 50131 C
         exit(Stored('U2'));
     end;
 
+    // R1 and R2 of codeunit 73782.
+    procedure ClearedRowModify(): Text
+    var L: Record "Bi Row"; X: Record "Bi Row";
+    begin
+        Seed('X', 'hello');
+        L.Get('X');
+        X.Get('X');
+        Clear(X.Body);
+        X.Modify();
+        L.Note := 'n';
+        L.Modify();
+        exit(Stored('X'));
+    end;
+
+    procedure FieldAssignOtherTable(): Text
+    var L: Record "Bi Row"; B: Record "Bi Other"; R: Record "Bi Other";
+    begin
+        Seed('Y', 'hello');
+        L.Get('Y');
+        B.K := 'Y2';
+        B.Body := L.Body;
+        B.Insert();
+        R.Get('Y2');
+        R.CalcFields(Body);
+        exit(Format(R.Body.HasValue()));
+    end;
+
     procedure OwnCalcFields(): Text
     var L: Record "Bi Row"; C: Record "Bi Row";
     begin
@@ -350,7 +384,7 @@ fn a_temporary_row_copied_into_a_database_record_stores_no_blob() {
 
 #[test]
 fn a_blob_field_assignment_stores_no_blob() {
-    // I3 (and record/flowfields/BlobCalcFieldsLength.al:404: a field assignment of an unloaded Blob gives an empty one).
+    // I3 (record/flowfields/BlobCalcFieldsLength.al:404: a field assignment of an unloaded Blob gives an empty one).
     assert_eq!(text(run_in(SRC, "C", "FieldAssignment")), "No No[]");
 }
 
@@ -364,4 +398,16 @@ fn a_source_read_after_changecompany_stores_no_blob() {
 fn calcfields_on_the_inserting_record_right_after_the_insert_has_a_value_and_reads_empty() {
     // I4.
     assert_eq!(text(run_in(SRC, "C", "OwnCalcFields")), "Yes[]");
+}
+
+#[test]
+fn a_modify_over_a_row_another_variable_cleared_leaves_it_cleared() {
+    // R1: the unloaded Blob neither restores nor overwrites the row.
+    assert_eq!(text(run_in(SRC, "C", "ClearedRowModify")), "No No[]");
+}
+
+#[test]
+fn a_blob_field_assignment_into_another_table_stores_no_blob() {
+    // R2 (and BlobCalcFieldsLength.al:404: a field assignment of an unloaded Blob gives an empty one, as on main).
+    assert_eq!(text(run_in(SRC, "C", "FieldAssignOtherTable")), "No");
 }
