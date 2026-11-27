@@ -1231,6 +1231,19 @@ mod tests {
                 .0
                 .stop_after_first_failure
         );
+        // Issue 9213: `stopAfterTimeout` is `--stop-after-timeout` for one request; absent or `null`, the server's setting.
+        let stop = |v: Value| run(json!({"sourcePaths": ["/a"], "stopAfterTimeout": v}));
+        assert!(stop(json!(true)).unwrap().0.stop_after_timeout);
+        assert!(!stop(json!(false)).unwrap().0.stop_after_timeout);
+        assert!(!run(json!({"sourcePaths": ["/a"]})).unwrap().0.stop_after_timeout);
+        assert!(stop(json!("yes")).is_err());
+        let started = TestArgs {
+            stop_after_timeout: true,
+            ..base()
+        };
+        let stop_on = |v: Value| request_args(&started, &fields(json!({"sourcePaths": ["/a"], "stopAfterTimeout": v})));
+        assert!(!stop_on(json!(false)).unwrap().0.stop_after_timeout);
+        assert!(stop_on(json!(null)).unwrap().0.stop_after_timeout);
         // ADR-066 amendment 4: `strictOrder` is `--strict-order` for one request.
         assert!(
             run(json!({"sourcePaths": ["/a"], "strictOrder": true}))
@@ -1422,7 +1435,7 @@ mod tests {
         assert_eq!(e[0].stop_group, None);
     }
 
-    /// Issue 8210: groups are all or none, and need the stop.
+    /// Issue 8210: groups are all or none, and need a stop (issue 9213: either of the two).
     #[test]
     fn stop_groups_are_all_or_none_and_need_the_stop() {
         let entry = |g: Option<&str>| run::Entry {
@@ -1432,7 +1445,7 @@ mod tests {
         let none = [entry(None), entry(None)];
         let all = [entry(Some("m1")), entry(Some("m2"))];
         let mixed = [entry(None), entry(Some("m1"))];
-        let needs_the_stop = "`stopGroup` needs `stopAfterFirstFailure` (or a server started with `--stop-after-first-failure`): without the stop a group changes nothing";
+        let needs_the_stop = "`stopGroup` needs `stopAfterFirstFailure` or `stopAfterTimeout` (or a server started with `--stop-after-first-failure` or `--stop-after-timeout`): without a stop a group changes nothing";
         let mix = "some entries have a `stopGroup` and some do not: give every entry one (an entry that stops alone gets a group of its own), or none (a failure then stops the whole request)";
         for stop in [false, true] {
             assert_eq!(stop_groups_checked(&none, stop), Ok(()), "no groups, stop {stop}");

@@ -201,6 +201,9 @@ pub struct TestArgs {
     /// `--stop-after-first-failure` (al-runner issue 8210): once a test fails, the rest of its codeunit and every later
     /// serve entry are not run and end as not run, naming that test; a selection runs only the tests it picks.
     pub stop_after_first_failure: bool,
+    /// `--stop-after-timeout` (al-runner issue 9213): once the time limit stops a test, the rest of its codeunit and every
+    /// later serve entry are not run and end as not run, naming that test; a selection runs only the tests it picks.
+    pub stop_after_timeout: bool,
     pub require_dotnet: bool,
     /// `--require-report-renderer` (ADR-040 amendment 2026-11-15): a save whose real Html needs BC's own merger and converter
     /// refuses when the report renderer is unavailable, instead of keeping the opaque Html.

@@ -212,6 +212,11 @@ pub struct RunOptions {
     /// naming that test (`stop::Stop::after`). Each test codeunit stops on its own; every other test
     /// codeunit of the same entry (or of a request without entries) still runs, also with one thread. Default `false`: every test runs.
     pub stop_after_first_failure: bool,
+    /// `--stop-after-timeout` and serve's `stopAfterTimeout` (al-runner issue 9213, opt-in, tooling): once the time limit
+    /// stops a test (or a test codeunit's OnRun), the later tests of its codeunit and every later entry are not run and
+    /// end as not run, naming that test (`stop::Stop::after`). As `stop_after_first_failure` otherwise, whose scope
+    /// (`EntryRun::stop_group`) it shares. Default `false`: every test runs.
+    pub stop_after_timeout: bool,
     /// `al-runner test --permissions off` (ADR-062 section 5): no access kind is enforced, whatever stages are on by
     /// default. While no stage is on (today) it changes nothing.
     pub permissions_off: bool,
@@ -362,7 +367,7 @@ impl Pass {
                 hooks: memory.hooks(&opts.hooks),
                 resources: Default::default(),
                 limit: opts.test_time_limit,
-                stop: super::stop::Stop::of(opts.stop_after_first_failure, None),
+                stop: super::stop::Stop::of(opts.stop_after_first_failure, opts.stop_after_timeout, None),
             }];
         }
         let resources = |e: &EntryRun| {
@@ -382,7 +387,11 @@ impl Pass {
                 hooks: memory.hooks(&e.hooks),
                 resources: resources(e),
                 limit: e.test_time_limit.unwrap_or(opts.test_time_limit),
-                stop: super::stop::Stop::of(opts.stop_after_first_failure, e.stop_group.as_deref()),
+                stop: super::stop::Stop::of(
+                    opts.stop_after_first_failure,
+                    opts.stop_after_timeout,
+                    e.stop_group.as_deref(),
+                ),
             })
             .collect()
     }
