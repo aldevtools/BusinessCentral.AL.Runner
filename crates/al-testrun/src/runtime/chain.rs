@@ -293,11 +293,14 @@ fn onrun_writes(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> Op
         .routines
         .iter()
         .position(|r| r.is_trigger && r.name.eq_ignore_ascii_case("OnRun"))?;
-    if !crate::baseline::tables_written(lowered, oi, r).is_empty() {
-        return Some(ChainWhy::OnRunWritesTable);
-    }
     let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
     let f = reach_facts(&engine.events, lowered, &index, oi, r);
+    // Every write the reach knows: Insert, Modify, Delete, DeleteAll, ModifyAll and Rename on a record of a known table
+    // (subscribers and called codeunits included), and a write whose table is known only at run time (al-runner issue
+    // 7622).
+    if !f.writes.is_empty() || f.writes_any {
+        return Some(ChainWhy::OnRunWritesTable);
+    }
     (f.state_writes & (state::ISOLATED_STORAGE | state::NUMBER_SEQUENCE) != 0).then_some(ChainWhy::OnRunWritesState)
 }
 
@@ -397,6 +400,39 @@ mod tests {
                 "serial re-runs by reason: 1 read a table a chain codeunit wrote (0.25 s)",
             ]
         );
+    }
+
+    /// What an OnRun trigger writes, by every kind of write the reach knows: a delete and a write through a RecordRef
+    /// leave rows (or their absence) for the later codeunits as an insert does (al-runner issue 7622;
+    /// codeunits/run-onrun/RqIsolationModes.al:357-369 pins that OnRun's writes reach them).
+    #[test]
+    fn an_onrun_that_deletes_or_writes_through_a_recordref_writes_a_table() {
+        let src = "
+            table 50100 T { fields { field(1; K; Integer) { } } }
+            codeunit 50101 Deletes { Subtype = Test; trigger OnRun() var R: Record T; begin R.DeleteAll(); end; }
+            codeunit 50102 OneDelete { Subtype = Test; trigger OnRun() var R: Record T; begin if R.FindFirst() then R.Delete(); end; }
+            codeunit 50103 ByRef { Subtype = Test; trigger OnRun() var RR: RecordRef; begin RR.Open(50100); RR.Init(); RR.Insert(); end; }
+            codeunit 50104 Inserts { Subtype = Test; trigger OnRun() var R: Record T; begin R.K := 1; R.Insert(); end; }
+            codeunit 50105 Reads { Subtype = Test; trigger OnRun() var R: Record T; begin if R.FindFirst() then; end; }";
+        let l = al_sema::lower::compile(
+            vec![al_sema::workspace::AppSource {
+                id: "a".into(),
+                name: "a".into(),
+                dependencies: vec![],
+                files: vec![("f.al".into(), src.into())],
+            }],
+            &Default::default(),
+        )
+        .1;
+        let engine = al_vm::Engine::new(l.program.clone(), Vec::new());
+        let why = |name: &str| {
+            let oi = l.program.objects.heads().iter().position(|o| o.name == name).unwrap();
+            onrun_writes(&engine, &l, oi)
+        };
+        for name in ["Deletes", "OneDelete", "ByRef", "Inserts"] {
+            assert_eq!(why(name), Some(ChainWhy::OnRunWritesTable), "{name}");
+        }
+        assert_eq!(why("Reads"), None);
     }
 
     #[test]
