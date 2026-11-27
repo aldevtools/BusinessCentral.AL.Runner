@@ -115,7 +115,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `native/mod.rs`: Native builtin implementations.
 - `ops.rs`: Value operations: conversion, arithmetic, comparison. Entry: `convert`.
 - `ops/quotient.rs`: The one quotient rule of `/` for a Decimal, an Integer. Entry: `whole_quotient`.
-- `option_members.rs`: Memberless Option lists.
+- `option_members.rs`: Memberless Option lists. Entry: `memberless`.
 - `closing_date_days.rs`: A closing date plus or minus a whole number. Entry: `closing_date_moved`.
 - `date_difference.rs`: The difference of two Dates or DateTimes…
 - `conv/`: Implicit conversions at run time from the run…
@@ -125,7 +125,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `pagebuiltins.rs`: `TestPage`, `TestPart`, `TestField`.
 - `pagefmt.rs`: The text a page control shows for a value, en-US. Entry: `Blank`.
 - `platform.rs`: Native platform tables. Entry: `Provider`.
-- `query_reopen_step.rs`: A query's reopen state.
+- `query_reopen_step.rs`: A query's reopen state. Entry: `ReopenStep`.
 - `querybuiltins.rs`: `Query` variable methods.
 - `refs.rs`: `RecordRef`, `FieldRef` and `KeyRef` methods.
 - `recordref_closed.rs`: A RecordRef that is not open, never opened or closed. Entry: `not_open`.
@@ -384,7 +384,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `geturl.rs`: `GetUrl` for `ClientType::Web`, Default, Windows. Entry: `Session::get_url`.
 - `globaltriggers.rs`: The events of the platform codeunit `Global Triggers`. Entry: `global_setup`.
 - `hostvalues.rs`: Builtins that answer from the host. Entry: `datetime_of_unix_millis`.
-- `assigned_audit.rs`: Assigned audit fields.
+- `assigned_audit.rs`: Assigned audit fields. Entry: `Session::audit_write`.
 - `impact.rs`: The per-test record for the impact index.
 - `observer_tap.rs`: The `Expect` cell tap. Entry: `compare`.
 - `interfaces.rs`: Interface variables: dispatch through… Entry: `interface_test`.
@@ -442,7 +442,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `setrange_convert.rs`: SetRange/SetFilter values of another type. Entries: `fieldref_setrange_convert`, `record_setrange_convert`.
 - `state_stamp.rs`: The session language, WorkDate. Entry: `Session::state_stamp`.
 - `state_render.rs`: The one owner of how a value reads… Entry: `Render::new`.
-- `state_facts.rs`: Login replay session facts.
+- `state_facts.rs`: Login replay session facts. Entry: `Session::fact_lines`.
 - `slot_default.rs`: A variable's start value. Entry: `slot_default`.
 - `install_left.rs`: `install_left/clients.rs`. Entry: `Session::install_left`.
 - `session_fields.rs`: Every `Session` field in one class of one table. Entry: `Session::at_rest_why`.
@@ -457,7 +457,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `transactions.rs`: Transactions as AL code sees them. Entry: `TxModel`.
 - `consistent_marks.rs` (+ `/page_args.rs`): `Record.Consistent` marks; how a run or Commit ends on one. Entry: `Session::set_consistent`.
 - `ui.rs`: Dialogs and test handlers. Entry: `UiKind`.
-- `dev_endpoint_ui.rs`: Dev-endpoint UI answers.
+- `dev_endpoint_ui.rs`: Dev-endpoint UI answers. Entry: `answer`.
 - `clientless.rs`: What a dialog does in a session without a client.
 - `variant_copy.rs`: A temporary record going from a Variant into a Variant. Entry: `source_of`.
 - `views.rs`: Filter and view text: SetView, GetFilters. Entry: `parse_filter_text`.
