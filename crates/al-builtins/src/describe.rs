@@ -327,6 +327,7 @@ pub(crate) mod tests {
             version_entry: Default::default(),
             own_read: Default::default(),
             rolled_read: Default::default(),
+            page_view: Default::default(),
             probed_source: Default::default(),
             globals: Default::default(),
             unpinned_buffer: None,

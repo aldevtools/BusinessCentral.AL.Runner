@@ -163,6 +163,7 @@ impl Session {
             view_assumption: None,
             auto_calc_dropped: false,
             run_page_link: None,
+            page_view: Default::default(),
         }
     }
 

@@ -1123,6 +1123,12 @@ impl Session {
         };
         self.move_blobs(table, &mut d.fields, None, how, holder)?;
         d.filters = s.filters;
+        // The page's view mark comes over with Record.Copy (`R.Copy(PageRec)`, corpus PR 1622 ConsistentGuardedRunPageConst.al
+        // :945-:1020), not with RecordRef.Copy; `s` is a clone, which never carries it (`PageViewMark`).
+        d.page_view = match by_record {
+            true => crate::consistent_marks::page_view_copied(&src.borrow().page_view, rec, &d.page_view),
+            false => Default::default(),
+        };
         // The target keeps its company (above); whether it takes a ChangeCompany call of the source along is not measured, so
         // the mark comes over and the shapes that read it stay refused.
         d.change_company_called |= s.change_company_called;
