@@ -95,6 +95,31 @@ codeunit 50725 "Refused"
     begin
     end;
 }
+table 50727 "Hang Row" { fields { field(1; "No."; Integer) { } } keys { key(PK; "No.") { } } }
+codeunit 50727 "Untrusted Timeout"
+{
+    Subtype = Test;
+    [Test]
+    procedure A_RefusedMidRunWrites()
+    var
+        W: Record "Hang Row";
+    begin
+        Sleep(-1);
+        W.Insert();
+    end;
+    [Test]
+    procedure B_ReadsThenTimesOut()
+    var
+        W: Record "Hang Row";
+    begin
+        if W.IsEmpty() then
+            Sleep(5000);
+    end;
+    [Test]
+    procedure C_Passes()
+    begin
+    end;
+}
 codeunit 50726 "Waits In DotNet"
 {
     Subtype = Test;
@@ -353,6 +378,33 @@ fn with_skip_after_timeout_too_the_codeunit_carries_the_stop_text() {
         all_stopped(&rows[1], "Codeunit50720.B_TimesOut", "a later entry"),
         "{rows:?}"
     );
+}
+
+/// Issue 9213 (review of the pull request): a timeout the judging does not trust, because an earlier test of the codeunit
+/// was refused while it ran and wrote what it reads, still hit the time limit. It stops as a trusted one does, alone and
+/// with the failure stop too: the trigger is the row before the judging, as for `skip_after_timeout`.
+#[test]
+fn an_untrusted_timeout_stops_the_codeunit_and_the_later_entries() {
+    for failure in [false, true] {
+        let rt = run(RunOptions {
+            stop_after_first_failure: failure,
+            ..stop_on(vec![entry(50727), entry(50721)])
+        });
+        let rows = entry_rows(&rt);
+        assert!(
+            matches!(&rows[0][1].1, Outcome::NotRun(m) if m.contains("this timeout is not trusted: the test used more than the time limit")),
+            "failure stop {failure}: {rows:?}"
+        );
+        let named = "Codeunit50727.B_ReadsThenTimesOut";
+        assert!(
+            all_stopped(&rows[0][2..], named, "a later entry"),
+            "failure stop {failure}: {rows:?}"
+        );
+        assert!(
+            all_stopped(&rows[1], named, "a later entry"),
+            "failure stop {failure}: {rows:?}"
+        );
+    }
 }
 
 /// A .NET host whose call `Value()` waits `wait` before it answers, past the wall backstop of the test's time limit:
