@@ -1,0 +1,1 @@
+Speed only: the ordered map keeps a copy of each chunk's first key to find a chunk faster; every lookup, seek and iteration returns the same entries in the same order (pmap_tests checks it against BTreeMap).
