@@ -539,7 +539,7 @@ impl Session {
     /// :1683-1688, Kinds_* :2301, :2331). Three levels below the register 1599 has only SingleInstance codeunits ("CKS SI
     /// D3U" :1043), and merged corpus PR 1596 a codeunit of Integers (ClearSharedCodeunitTableNoRegister.al "CKT M3" :30;
     /// its codeunit global sits four levels deep, which refuses here): any other one holds Integers only, and a record or
-    /// a Label there refuses (al-runner issue 9176), unless `wide`: open corpus PR 1619 (ClearSharedCodeunitWhseStore.al
+    /// a Label there refuses (al-runner issue 9176), unless `wide`: corpus PR 1619 (merged, not pinned) (ClearSharedCodeunitWhseStore.al
     /// "CSW D3" :228-232 below "CSW D2P", Deep_OwnerClearAll :451, assumption clear-all-whse-register-store) measures a
     /// record that is not temporary and a `Label 'text', Comment = 'text'` there too.
     fn single_nested_unpinned(&self, object: usize, depth: u8, wide: bool) -> Option<Unpinned> {
@@ -582,7 +582,7 @@ impl Session {
     /// every global is an Integer, a temporary record, a `Label 'text', Comment = 'text'`, a `Label 'text', Locked = true`
     /// or a codeunit that is not SingleInstance, has no TableNo and holds only Integers ("CKS SI RU" :340-347 with "CKS
     /// Leaf" :20-21; "CKS SI PU" :37-40). Its state, these globals included, survives the owner's ClearAll (D1_Written_OwnerClearAll
-    /// :2025, Chain_Written_OwnerClearAll :2270). When `wide` and two levels below the register, open corpus PR 1619
+    /// :2025, Chain_Written_OwnerClearAll :2270). When `wide` and two levels below the register, corpus PR 1619 (merged, not pinned)
     /// (assumption clear-all-whse-register-store) measures two more codeunit globals that keep their state too: a
     /// SingleInstance codeunit with no TableNo whose globals are Booleans and Integers ("CSW Impl" :14-20 in "CSW Confirm"
     /// :34-40, Whse_OwnerClearAll_EveryLevel :356, Whse_DirectSiWrite_OwnerClearAll :412) and a codeunit that is not
@@ -642,7 +642,7 @@ impl Session {
     }
 
     /// Whether codeunit `object`, `depth` levels below a register (0: the register, with a TableNo, not SingleInstance), is a
-    /// node of the tree open corpus PR 1620 measures (ClearSharedCodeunitWhseTree.al, assumption clear-all-register-tree):
+    /// node of the tree corpus PR 1620 (merged, not pinned) measures (ClearSharedCodeunitWhseTree.al, assumption clear-all-register-tree):
     /// at most three levels deep ("CWT S4" :29 and "CWT P4" :152 below "CWT S2" :520 and "CWT P3" :396), no TableNo below
     /// the register, SingleInstance or not, every global one of [`tree_kind`] or a codeunit global that is such a node
     /// one level deeper ("CWT Reg" :1023-1056, "CWT P1" :767-794, "CWT S1" :894).
@@ -662,13 +662,13 @@ impl Session {
     }
 
     /// The store shape of codeunit `store` held by `owner`: [`Session::store_kind`], else [`Store::Tree`] for the three
-    /// owner and store pairs of open corpus PR 1620 ([`Session::tree_pair`]).
+    /// owner and store pairs of corpus PR 1620 (merged, not pinned) ([`Session::tree_pair`]).
     fn store_kind_in(&self, owner: usize, store: usize) -> Option<Store> {
         self.store_kind(store)
             .or_else(|| self.tree_pair(owner, store).then_some(Store::Tree))
     }
 
-    /// Whether `ClearAll()` in `owner` of its global of codeunit `store` is one of the three cells of open corpus PR 1620
+    /// Whether `ClearAll()` in `owner` of its global of codeunit `store` is one of the three cells of corpus PR 1620 (merged, not pinned)
     /// (ClearSharedCodeunitWhseTree.al): the plain owner whose one global is the register ("CWT Owner" :1171-1174,
     /// Tree_OwnerClearAll_After :1362); the register over a node one level below it ("CWT Reg" holding "CWT P1" and
     /// "CWT S1" :1055-1056, Tree_RegisterClearAll :1780); a plain node that a register declares, over a node one level
@@ -738,6 +738,11 @@ impl Session {
                  codeunits, Lists or Dictionaries, or a back link holds another register instance"
                     .to_string()
             }
+            (_, Some(Store::Tree)) if !self.register_as_measured(rc) || !self.tree_as_measured(rc, 0) => {
+                "a codeunit of the tree read a row, another variable shares one of its nested codeunits, Lists, \
+                 Dictionaries, RecordRefs, FieldRefs, KeyRefs or TextBuilders, or a temporary record read a row"
+                    .to_string()
+            }
             (Some(Owner::Plain), Some(Store::TableNoKinds)) if !self.plain_owner_register(store) => {
                 "the plain owner is measured with nested codeunits three levels deep at most and no back link"
                     .to_string()
@@ -791,6 +796,7 @@ impl Session {
         };
         measured(o, s, holding, hold)
             && (!matches!(s, Store::Register | Store::TableNoKinds | Store::TableNoSingle | Store::TableNoWhse | Store::Tree) || self.register_as_measured(rc))
+            && (s != Store::Tree || self.tree_as_measured(rc, 0))
             && ((o, s) != (Owner::Plain, Store::TableNoKinds) || self.plain_owner_register(rc.borrow().object as usize))
             && (s != Store::Kinds || self.kinds_instances(rc, 0))
             // The store with one more Integer that no call made is measured for "CLQ Store Plus" only
@@ -867,6 +873,36 @@ impl Session {
                 Value::Record(r) => no_row_read(r),
                 Value::List(l) => Rc::strong_count(l) == 1,
                 Value::Dictionary(d) => Rc::strong_count(d) == 1,
+                _ => true,
+            })
+    }
+
+    /// Whether tree instance `rc` ([`Store::Tree`]), `depth` levels below the reset one, and every instance that is not
+    /// SingleInstance it reaches through codeunits that are not SingleInstance, hold only what ClearSharedCodeunitWhseTree.al
+    /// (corpus PR 1620, merged, not pinned) measures before the ClearAll: its nodes only insert into their temporary records,
+    /// only open their RecordRef ("CWT Reg" `SetOwn` :1093-1103), and hand out no List, Dictionary, RecordRef, FieldRef, KeyRef
+    /// or TextBuilder. So a temporary record read no row into its buffer and modified none, a RecordRef read or wrote no
+    /// row (`state_stamp::no_row_io`), and only the instance holds such a value. A SingleInstance codeunit keeps all its
+    /// state ([`Session::reset_once`]), so nothing is read below it. Assumption clear-all-register-tree.
+    fn tree_as_measured(&self, rc: &Rc<RefCell<Instance>>, depth: u8) -> bool {
+        if !self.plain_codeunit(rc.borrow().object as usize) {
+            return true;
+        }
+        depth <= 3
+            && rc.borrow().globals.iter().all(|g| match g {
+                Value::Codeunit(n) => self.tree_as_measured(n, depth + 1),
+                Value::Record(r) => r.try_borrow().is_ok_and(|r| !r.temporary || temp_inserted_only(&r)),
+                Value::List(l) => Rc::strong_count(l) == 1,
+                Value::Dictionary(d) => Rc::strong_count(d) == 1,
+                Value::Library(_, l) => {
+                    Rc::strong_count(l) == 1
+                        && l.try_borrow().is_ok_and(|l| match &*l {
+                            LibraryValue::RecordRef(r) => {
+                                r.try_borrow().is_ok_and(|r| crate::state_stamp::no_row_io(&r))
+                            }
+                            _ => true,
+                        })
+                }
                 _ => true,
             })
     }
@@ -1142,6 +1178,12 @@ fn no_row_read(r: &Rc<RefCell<RecordState>>) -> bool {
         .is_ok_and(|r| r.temporary || crate::state_stamp::no_row_io(&r))
 }
 
+/// Whether temporary record `r` read no row into its buffer and modified none: it only inserted rows, as the temporary
+/// records of ClearSharedCodeunitWhseTree.al do ("CWT Reg" `SetOwn` :1093-1095; [`Session::tree_as_measured`]).
+fn temp_inserted_only(r: &RecordState) -> bool {
+    r.load.buffer.is_none() && r.position.is_none() && r.last_modify.is_none() && r.failed_insert.is_none()
+}
+
 fn shared_table_refusal() -> Signal {
     Signal::unsupported(
         "ClearAll of a global variable that reaches a temporary table that another record shares, in a shape the corpus \
@@ -1275,15 +1317,15 @@ fn measured(owner: Owner, store: Store, holding: Holding, hold: TempHold) -> boo
         // *_WrittenByOtherVar_* cells :1964, :2056, :2148, which write the SingleInstance codeunit through another variable).
         // Only read and the plain owner are not measured: refused.
         (TableNo, TableNoSingle, Shared | SharedUncalled) => true,
-        // Open corpus PR 1619 (assumption clear-all-whse-register-store), ClearSharedCodeunitWhseStore.al: the owner with a
+        // Corpus PR 1619 (merged, not pinned) (assumption clear-all-whse-register-store), ClearSharedCodeunitWhseStore.al: the owner with a
         // TableNo, the register written before the ClearAll (Whse_OwnerClearAll_EveryLevel :356,
         // Whse_OwnerPrimes_OwnerClearAll :386, Whse_DirectSiWrite_OwnerClearAll :412, Kinds_OwnerClearAll :431,
         // Deep_OwnerClearAll :451). Never called, only read and the plain owner are not measured: refused.
         (TableNo, TableNoWhse, Shared) => true,
-        // Open corpus PR 1620 (assumption clear-all-register-tree), ClearSharedCodeunitWhseTree.al: the register "CWT Reg"
+        // Corpus PR 1620 (merged, not pinned) (assumption clear-all-register-tree), ClearSharedCodeunitWhseTree.al: the register "CWT Reg"
         // (:1023-1056) held by the plain owner "CWT Owner" (:1171-1174) alone, holding temporary rows; the owner's ClearAll
         // (Tree_OwnerClearAll_After :1362), the register's own (Tree_RegisterClearAll :1780) and P1's (Tree_PlainHolderOfSiClearAll
-        // :1864). Which owner goes with which store is [`Session::tree_cell`]'s. Shared and never called: refused.
+        // :1864). Which owner goes with which store is [`Session::tree_pair`]'s. Shared and never called: refused.
         (Plain | TableNo, Tree, Written) => true,
         _ => false,
     }
@@ -1362,7 +1404,7 @@ fn store_global_kind(t: &RtType, store: &dyn Fn(u32) -> bool) -> bool {
     }
 }
 
-/// Whether register global `g` is one more kind open corpus PR 1619 (assumption clear-all-whse-register-store) measures at
+/// Whether register global `g` is one more kind corpus PR 1619 (merged, not pinned) (assumption clear-all-whse-register-store) measures at
 /// the level of a [`Store::TableNoWhse`] register: ClearSharedCodeunitWhseStore.al "CSW Reg" :82-83 (a `Label 'text',
 /// Comment = 'text'` and a `Label 'text'` beside a codeunit that holds a SingleInstance codeunit) and "CSW KReg" :165-176
 /// (Text, Text[30], Code[20], Decimal, Date, BigInteger, Option, Char and the three Labels beside a SingleInstance codeunit,
@@ -1384,7 +1426,7 @@ fn whse_register_kind(g: &al_ir::Slot) -> bool {
             )
 }
 
-/// Whether global `g` is of a kind every node of ClearSharedCodeunitWhseTree.al (open corpus PR 1620) declares ("CWT Reg"
+/// Whether global `g` is of a kind every node of ClearSharedCodeunitWhseTree.al (corpus PR 1620 (merged, not pinned)) declares ("CWT Reg"
 /// :1031-1054): a record, temporary or not, Boolean, Integer, Decimal, BigInteger, Text, Code, Date, DateTime, Option,
 /// Enum, a List of Integer, a Dictionary of [Integer, Text], TextBuilder, Guid, RecordRef, FieldRef, KeyRef, or a Label
 /// (plain, Comment, Locked, MaxLength :1051-1054; AL code cannot assign one, corpus must-not-compile 0350, 2628).
@@ -1534,11 +1576,11 @@ enum Store {
     /// ([`Session::single_register_unpinned`], assumption clear-all-register-single-instance), SingleInstance ones among
     /// them, that is no [`Store::TableNoKinds`].
     TableNoSingle,
-    /// A codeunit with a TableNo of [`Session::single_register_unpinned`] when `wide` (open corpus PR 1619, assumption
+    /// A codeunit with a TableNo of [`Session::single_register_unpinned`] when `wide` (corpus PR 1619 (merged, not pinned), assumption
     /// clear-all-whse-register-store, the shape of "Whse. Jnl.-Register Line" with "Confirm Management") that is no
     /// [`Store::TableNoSingle`].
     TableNoWhse,
-    /// A codeunit of the tree of open corpus PR 1620 (assumption clear-all-register-tree) that is no other store, held by an
+    /// A codeunit of the tree of corpus PR 1620 (merged, not pinned) (assumption clear-all-register-tree) that is no other store, held by an
     /// owner of a measured pair ([`Session::tree_pair`]); [`Session::store_kind_in`] alone gives it.
     Tree,
 }
