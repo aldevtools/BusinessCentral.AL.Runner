@@ -100,6 +100,8 @@ mod imp {
 
 #[cfg(windows)]
 mod imp {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
     const CTRL_C_EVENT: u32 = 0;
     const CTRL_BREAK_EVENT: u32 = 1;
 
@@ -108,10 +110,14 @@ mod imp {
         fn SetConsoleCtrlHandler(handler: Option<unsafe extern "system" fn(u32) -> i32>, add: i32) -> i32;
     }
 
+    /// A stop event came already.
+    static STOPPING: AtomicBool = AtomicBool::new(false);
+
     /// Windows calls this on a thread of its own. FALSE hands the event on to the default handler, which ends the
-    /// process as Ctrl-C ends it without a handler.
+    /// process as Ctrl-C ends it without a handler. The first Ctrl-C or Ctrl-Break waits for the pending writes; a
+    /// second one ends the process at once, as on Unix.
     unsafe extern "system" fn on_ctrl(event: u32) -> i32 {
-        if event == CTRL_C_EVENT || event == CTRL_BREAK_EVENT {
+        if (event == CTRL_C_EVENT || event == CTRL_BREAK_EVENT) && !STOPPING.swap(true, Ordering::SeqCst) {
             super::finish_writes("stop signal", "ending without it");
         }
         0
