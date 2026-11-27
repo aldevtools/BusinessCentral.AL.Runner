@@ -38,11 +38,14 @@ impl al_host::testdata::TableProvider for SessionRow {
     }
 }
 
-const BASE: &str = "table 2000000006 Company { DataPerCompany = false;
+const TABLES: &str = "table 2000000006 Company { DataPerCompany = false;
       fields { field(1; Name; Text[30]) { } field(2; \"Evaluation Company\"; Boolean) { } field(3; \"Display Name\"; Text[250]) { } field(8000; Id; Guid) { } } }
-    table 70100 \"DC Row\" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
-    codeunit 70101 \"DC Installer\" { Subtype = Install;
-        trigger OnInstallAppPerDatabase() var Co: Record Company; begin Co.Get('CRONUS International Ltd.'); Co.Rename('Renamed Co'); end; }";
+    table 70100 \"DC Row\" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }";
+
+/// The install codeunit, with `body` as its OnInstallAppPerDatabase trigger after `trigger OnInstallAppPerDatabase()`.
+fn installer(body: &str) -> String {
+    format!("{TABLES}\n    codeunit 70101 \"DC Installer\" {{ Subtype = Install; trigger OnInstallAppPerDatabase() {body} }}")
+}
 
 const TESTS: &str = "codeunit 70104 \"DC Renamed Tests\" { Subtype = Test;
     [Test] procedure ReadsTheRenamedCompany() var R: Record \"DC Row\"; begin
@@ -53,7 +56,22 @@ const TESTS: &str = "codeunit 70104 \"DC Renamed Tests\" { Subtype = Test;
 
 #[test]
 fn install_code_that_renames_the_session_company_is_refused_on_every_baseline_copy() {
-    let apps = [(BASE_APP, vec![], BASE), ("main", vec![BASE_APP.to_string()], TESTS)];
+    refused_on_every_copy(&installer(
+        "var Co: Record Company; begin Co.Get('CRONUS International Ltd.'); Co.Rename('Renamed Co'); end;",
+    ));
+}
+
+/// The same Rename through a RecordRef reaches the same refusal (al-vm records/op_inner.rs, the Rename op).
+#[test]
+fn install_code_that_renames_the_session_company_through_a_recordref_is_refused() {
+    refused_on_every_copy(&installer(
+        "var Co: Record Company; RR: RecordRef; begin Co.Get('CRONUS International Ltd.'); RR.GetTable(Co); \
+         RR.Rename('Renamed Co'); end;",
+    ));
+}
+
+fn refused_on_every_copy(base: &str) {
+    let apps = [(BASE_APP, vec![], base), ("main", vec![BASE_APP.to_string()], TESTS)];
     let (ws, l) = al_sema::lower::compile_apps_with(
         apps.iter()
             .map(|(id, deps, src)| AppSource {
