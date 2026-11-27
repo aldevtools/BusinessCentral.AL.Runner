@@ -2,8 +2,8 @@
 //! (al-testrun `isolation::after_test`, al-runner issue 9250).
 //!
 //! The log of the NumberSequence calls that change a sequence (Insert, Next, Range, Restart, Delete) and of the
-//! transaction ends, from the start of a test codeunit (before its OnRun) to its end (`Session::clear_unmeasured`), and
-//! the decision per sequence a test changed: put back to the checkpoint after OnRun, kept as the test left it, or refused
+//! transaction ends, from the start of a test codeunit (before its OnRun; `Session::clear_earlier_unmeasured` keeps it
+//! when the tests begin) to its end (`Session::clear_unmeasured`), and the decision per sequence a test changed: put back to the checkpoint after OnRun, kept as the test left it, or refused
 //! for the later tests. Only the cells of corpus PR 1580 answer, through the assumption `hub-function-sequence`; every
 //! other shape refuses the later calls on the sequence. Entry points: `begin_hub_sequence_log`,
 //! `hub_test_sequences`, `settle_hub_sequences`.

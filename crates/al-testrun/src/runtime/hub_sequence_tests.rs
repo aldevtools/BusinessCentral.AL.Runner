@@ -28,16 +28,7 @@ fn outcomes_from(src: &str, seed: Option<&str>) -> Vec<(String, Outcome)> {
     let index = (l.program.objects.iter())
         .position(|o| o.id == Some(52504) && o.kind == al_ir::ObjKind::Codeunit)
         .unwrap();
-    let baseline = seed.map(|seed| {
-        let mut session = al_vm::Session::new(engine.clone());
-        let s = (l.program.objects.iter()).position(|o| o.name == seed).unwrap();
-        let on_run = (l.program.objects[s].routines.iter())
-            .position(|r| r.name == "OnRun")
-            .unwrap();
-        let inst = session.instance(s);
-        assert!(session.call(s, on_run, inst, Vec::new()).is_ok());
-        session.capture_baseline()
-    });
+    let baseline = seed.map(|seed| super::tests::seeded_baseline(&engine, &l, seed));
     let mut scratch = Scratch {
         hub: true,
         ..Scratch::new(crate::host::RunClock::begin())
@@ -124,10 +115,8 @@ fn a_sequence_that_existed_before_the_codeunit_began_refuses() {
     end;
 }
 ";
-    let src = codeunit("NumberSequence.Restart('HUBSEQ', 1000, false);", "cur=0").replace(
-        "NumberSequence.Insert('HUBSEQ', 1, 1, false);\n",
-        "",
-    );
+    let src = codeunit("NumberSequence.Restart('HUBSEQ', 1000, false);", "cur=0")
+        .replace("NumberSequence.Insert('HUBSEQ', 1, 1, false);\n", "");
     assert!(!src.contains("Insert"), "{src}");
     let o = outcomes_from(&format!("{seed}{src}"), Some("Seed"));
     assert!(matches!(b(&o), Outcome::NotRun(_)), "{o:?}");
