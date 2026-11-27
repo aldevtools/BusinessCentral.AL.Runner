@@ -1198,6 +1198,7 @@ impl Session {
         }
         match al_builtins::fieldref_value_text::fieldref_value_into_text(&v, ty, self)
             .or_else(|| al_builtins::fieldref_value_text::fieldref_value_into_blob(&v, ty, self, from28))
+            .or_else(|| al_builtins::fieldref_value_temporal::temporal_into_number(&v, ty))
         {
             Some(r) => r,
             None => ops::convert_plain(v, ty),

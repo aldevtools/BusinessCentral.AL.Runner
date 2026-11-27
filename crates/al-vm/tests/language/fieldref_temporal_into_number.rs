@@ -78,11 +78,11 @@ fn a_date_time_or_datetime_from_fieldref_value_into_a_number_is_refused() {
 #[test]
 fn a_date_from_fieldref_value_through_a_variant_into_an_integer_converts_as_pinned() {
     assert_eq!(
-        al_testkit::text(al_testkit::run_in(SRC, "C", "EmptyDateThroughVariant")),
-        "0"
+        al_testkit::int(al_testkit::run_in(SRC, "C", "EmptyDateThroughVariant")),
+        0
     );
     assert_eq!(
-        al_testkit::text(al_testkit::run_in(SRC, "C", "SetDateThroughVariant")),
-        "1479993"
+        al_testkit::int(al_testkit::run_in(SRC, "C", "SetDateThroughVariant")),
+        1479993
     );
 }

@@ -2,6 +2,9 @@
 //!
 //! Every measured cell raises and leaves the variable as it was. This module owns the list of cells; a value, a slot or a
 //! target that is not on it gets `None`, and the caller converts as an assignment does (which refuses).
+//!
+//! The other direction, a Date, Time or DateTime field's value into a number (`temporal_into_number`), is refused: BC 28.4
+//! raises a conversion error where the Variant conversion gives a number (issue 9265), and no corpus case pins it yet.
 
 use crate::native::Signal;
 use crate::value::{RtType, Value};
@@ -112,6 +115,41 @@ pub fn fieldref_value_into_temporal(
     Some(Err(crate::fieldref_variant_cells::temporal_value_error(
         nav, &text, t, from28,
     )))
+}
+
+/// The number types a `FieldRef.Value()` of a Date, Time or DateTime field is refused into (`temporal_into_number`).
+pub fn is_number_target(t: &RtType) -> bool {
+    matches!(
+        t,
+        RtType::Integer
+            | RtType::BigInteger
+            | RtType::Decimal
+            | RtType::Duration
+            | RtType::Option(_)
+            | RtType::Boolean
+            | RtType::Byte
+            | RtType::Char
+    )
+}
+
+/// `FieldRef.Value()` of a Date, Time or DateTime field converted straight into a number `t` (no Variant in between): refused.
+/// BC 28.4 raises `Unable to convert from ...NavDate to System.Int32.` for an Integer local where the Variant conversion
+/// (types/date-time/Y62UndefinedDate.al:292,295) gives 0 or the date's number; issue 9265, not pinned. `None`: any other
+/// value or target, which converts as before.
+pub fn temporal_into_number(v: &Value, t: &RtType) -> Option<Result<Value, Signal>> {
+    let kind = match v {
+        Value::Date(..) => "Date",
+        Value::Time(_) => "Time",
+        Value::DateTime(_) => "DateTime",
+        _ => return None,
+    };
+    if !is_number_target(t) {
+        return None;
+    }
+    Some(Err(Signal::unsupported(format!(
+        "FieldRef.Value() of a {kind} field into {} (not pinned, issue 9265)",
+        crate::describe::Describe::describe(t)
+    ))))
 }
 
 #[cfg(test)]
