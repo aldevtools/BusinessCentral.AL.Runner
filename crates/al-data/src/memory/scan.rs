@@ -1,4 +1,5 @@
-//! How a scan steps through a table in the order of one of its keys (ADR-035), in one place (issue 7671).
+//! How a scan steps through a table in the order of one of its keys (ADR-035), in one place (issue 7671). Entry points:
+//! `KeyOrder`, `MemStore::step` (called by `next`). Unit tests: `memory/tests/scan_tests.rs`, `memory/tests/seek_tests.rs`.
 //!
 //! - [`KeyOrder`] is the order of a key and the direction of a scan: how two rows compare, how a row stands to a
 //!   position, whether a row lies past the scan's position, which of two rows the scan meets first, the first row of a
@@ -6,10 +7,6 @@
 //! - `MemStore::step` picks the path of one step: the band of another key the filters bound (`alt_next`, with the
 //!   lists `alt_cache` keeps), the primary key's order (`pk_step`), the cached order of the scan's key
 //!   (`ordered_step`), or a look at every row of a small table. Each reads its band through `memory/band.rs`.
-//!
-//! One step of a scan (`MemStore::step`, called by `next`) and the order of a key with the scan's
-//! direction (`KeyOrder`), in one place (issue 7671). Entry points: `KeyOrder`, `MemStore::step`.
-//! Unit tests: `memory/tests/scan_tests.rs`, `memory/tests/seek_tests.rs`.
 
 use super::*;
 use std::ops::Range;
