@@ -32,6 +32,9 @@ pub enum ExceptionKind {
     /// A .NET exception of a DotNet call whose text is pinned: NavNCLDotNetInvokeException, the .NET exception as its inner
     /// exception (al-vm `dotnet/invoke_exception.rs`).
     DotNetInvoke,
+    /// The inconsistency error a guarded run end raised for a page-view record argument (al-vm
+    /// `consistent_marks/page_view.rs`): read by the test page's action error code; `GetLastErrorObject` refuses it.
+    ConsistentPageViewEnd,
 }
 
 /// How the text of `Error(Text, ...)` or `FieldError(Field, Text)` is written in the code: the text `GetLastErrorText(true)`

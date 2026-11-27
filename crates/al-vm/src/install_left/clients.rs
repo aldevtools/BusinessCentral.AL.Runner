@@ -69,6 +69,7 @@ pub(crate) fn pages_as_new(p: &PageClients) -> bool {
         shown_frames,
         shown_controls,
         trigger_kinds,
+        page_opens: _,
         client_depth,
         code_close_vetoes,
         open_vetoed,

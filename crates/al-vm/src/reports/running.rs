@@ -88,10 +88,7 @@ impl Session {
             )) if in_run(depth)
         );
         let open_page = self.pages.trigger_kinds.len() == run.page_triggers + 1
-            && matches!(
-                self.pages.trigger_kinds.last(),
-                Some((_, crate::pages::TriggerKind::OpenPage, _))
-            )
+            && (self.pages.trigger_kinds.last()).is_some_and(|t| t.kind == crate::pages::TriggerKind::OpenPage)
             && !self.report.report_trigger.is_some_and(|(depth, _)| in_run(depth));
         (report_trigger || open_page).then_some(run.shows_page)
     }

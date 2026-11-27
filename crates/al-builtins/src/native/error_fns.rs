@@ -90,7 +90,7 @@ pub(super) fn get_last_error_object(
         ExceptionKind::Unknown if e.code == "TestField" => TEST_FIELD_EXCEPTION,
         ExceptionKind::Unknown if e.code == "Evaluate" => NCL_EVALUATE_EXCEPTION,
         ExceptionKind::Unknown if e.code == "DB:RecordNotFound" => RECORD_NOT_FOUND_EXCEPTION,
-        ExceptionKind::Unknown | ExceptionKind::Cleared => {
+        ExceptionKind::Unknown | ExceptionKind::Cleared | ExceptionKind::ConsistentPageViewEnd => {
             return unsupported(format!(
                 "GetLastErrorObject after an error of code '{}' (the .NET exception BC holds for it is not pinned; only Error() with a text, Get without a row and a division by zero are)",
                 if e.code == UNPINNED_ERROR {
