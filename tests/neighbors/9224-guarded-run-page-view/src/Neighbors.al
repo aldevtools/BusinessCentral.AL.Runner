@@ -170,7 +170,7 @@ page 69174 "GPN Open Run"
 
 // A List page over the probe's table whose action builds the argument another way, by GPC Log's extra:
 // 'codeview' a fresh record with the group-2 filter set in code, 'assign' a := copy of Rec, 'reset' Rec.Reset() and the
-// same group-2 filter set again in code.
+// same group-2 filter set again in code, 'clear' the same after Clear(Rec) (the global Clear, not Rec.Reset).
 page 69175 "GPN Variants"
 {
     PageType = List;
@@ -214,6 +214,14 @@ page 69175 "GPN Variants"
                             end;
                         'assign':
                             R := Rec;
+                        'clear':
+                            begin
+                                Clear(Rec);
+                                Rec.FilterGroup(2);
+                                Rec.SetRange("Doc Kind", Rec."Doc Kind"::Order);
+                                Rec.FilterGroup(0);
+                                R.Copy(Rec);
+                            end;
                         'reset':
                             begin
                                 Rec.Reset();
@@ -588,6 +596,26 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'Variants', 'mark,commit', 'reset');
+        Observer.Expect('run end|text', 'END');
+        Observer.Verify();
+    end;
+
+    [Test]
+    procedure ClearThenSameView_Ends()
+    var
+        Observer: Codeunit "Probe Observer";
+    begin
+        Cell(Observer, 'Variants', 'mark', 'clear');
+        Observer.Expect('run end|code', 'TestWrapped:CSide');
+        Observer.Verify();
+    end;
+
+    [Test]
+    procedure ClearThenSameView_PlainCommit()
+    var
+        Observer: Codeunit "Probe Observer";
+    begin
+        Cell(Observer, 'Variants', 'mark,commit', 'clear');
         Observer.Expect('run end|text', 'END');
         Observer.Verify();
     end;
