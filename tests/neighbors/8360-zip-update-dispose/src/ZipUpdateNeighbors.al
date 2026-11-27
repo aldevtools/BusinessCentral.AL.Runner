@@ -37,14 +37,12 @@ codeunit 50361 "NB Zip Update Dispose"
         ZipArchive: DotNet NbZipArchive;
         Mode: DotNet NbZipMode;
         ZipEntry: DotNet NbZipEntry;
-        EntryOut: OutStream;
         ZipOut: OutStream;
     begin
         ZipFile.Content.CreateOutStream(ZipOut);
         ZipArchive := ZipArchive.ZipArchive(ZipOut, Mode.Create);
+        // An entry without content: a .NET Stream stored into an AL OutStream is refused (ADR-014 section 4).
         ZipEntry := ZipArchive.CreateEntry('a.txt');
-        EntryOut := ZipEntry.Open();
-        EntryOut.WriteText('hello');
         ZipArchive.Dispose();
     end;
 
@@ -62,11 +60,8 @@ codeunit 50361 "NB Zip Update Dispose"
     local procedure AddEntry(ZipArchive: DotNet NbZipArchive; Name: Text)
     var
         ZipEntry: DotNet NbZipEntry;
-        EntryOut: OutStream;
     begin
         ZipEntry := ZipArchive.CreateEntry(Name);
-        EntryOut := ZipEntry.Open();
-        EntryOut.WriteText('world');
     end;
 
     local procedure EntryCount(var Buffer: Record "NB Zip File" temporary): Integer
