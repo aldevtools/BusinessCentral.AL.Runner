@@ -14,6 +14,11 @@ table 50100 "NB FDI Row"
         field(6; Target; Integer) { }
         field(7; Dec; Decimal) { }
         field(8; Txt; Text[20]) { }
+        field(9; Bool; Boolean) { }
+        field(10; Opt; Option) { OptionMembers = Alpha,Beta,Gamma; OptionCaption = 'First,Second,Third'; }
+        field(11; Big; BigInteger) { }
+        field(12; Dur; Duration) { }
+        field(13; Cod; Code[20]) { }
     }
     keys { key(PK; K) { Clustered = true; } }
 }
@@ -37,12 +42,32 @@ codeunit 50101 "NB FDI Test"
         exit(I);
     end;
 
-    local procedure ReturnDateAsInt(var FR: FieldRef): Integer
+    local procedure ReturnAsInteger(var FR: FieldRef): Integer
     begin
         exit(FR.Value());
     end;
 
     local procedure ReturnAsDecimal(var FR: FieldRef): Decimal
+    begin
+        exit(FR.Value());
+    end;
+
+    local procedure ReturnAsBoolean(var FR: FieldRef): Boolean
+    begin
+        exit(FR.Value());
+    end;
+
+    local procedure ReturnAsOption(var FR: FieldRef): Option Alpha,Beta,Gamma
+    begin
+        exit(FR.Value());
+    end;
+
+    local procedure ReturnAsBigInteger(var FR: FieldRef): BigInteger
+    begin
+        exit(FR.Value());
+    end;
+
+    local procedure ReturnAsDuration(var FR: FieldRef): Duration
     begin
         exit(FR.Value());
     end;
@@ -356,7 +381,7 @@ codeunit 50101 "NB FDI Test"
         FR: FieldRef;
     begin
         Fr(2, RecRef, FR);
-        ReturnDateAsInt(FR);
+        ReturnAsInteger(FR);
     end;
 
     [Test]
@@ -436,8 +461,8 @@ codeunit 50101 "NB FDI Test"
     begin
         Fr(5, RecRef, FR);
         FR.Value := 7;
-        if ReturnDateAsInt(FR) <> 7 then
-            Error('got %1', ReturnDateAsInt(FR));
+        if ReturnAsInteger(FR) <> 7 then
+            Error('got %1', ReturnAsInteger(FR));
     end;
 
     [Test]
@@ -449,7 +474,7 @@ codeunit 50101 "NB FDI Test"
     begin
         Fr(7, RecRef, FR);
         FR.Value := 2.5;
-        asserterror I := ReturnDateAsInt(FR);
+        asserterror I := ReturnAsInteger(FR);
         Error('got [%1] %2', GetLastErrorText(), I);
     end;
 
@@ -461,7 +486,7 @@ codeunit 50101 "NB FDI Test"
     begin
         Fr(8, RecRef, FR);
         FR.Value := '5';
-        Error('got %1', ReturnDateAsInt(FR));
+        Error('got %1', ReturnAsInteger(FR));
     end;
 
     [Test]
@@ -474,5 +499,99 @@ codeunit 50101 "NB FDI Test"
         FR.Value := 7;
         if ReturnAsDecimal(FR) <> 7 then
             Error('got %1', ReturnAsDecimal(FR));
+    end;
+
+    // Same on both, asked in review: other field types returned through `exit(FR.Value())` from a procedure of their own or
+    // another number type. Each test fails with the value it read, so a changed answer shows as another message.
+    [Test]
+    procedure BooleanFieldExitIntoBoolean()
+    var
+        RecRef: RecordRef;
+        FR: FieldRef;
+    begin
+        Fr(9, RecRef, FR);
+        FR.Value := true;
+        Error('got %1', ReturnAsBoolean(FR));
+    end;
+
+    [Test]
+    procedure OptionFieldExitIntoOptionFormat()
+    var
+        RecRef: RecordRef;
+        FR: FieldRef;
+    begin
+        Fr(10, RecRef, FR);
+        FR.Value := 1;
+        Error('got %1', Format(ReturnAsOption(FR)));
+    end;
+
+    [Test]
+    procedure BigIntegerFieldExitIntoIntegerInRange()
+    var
+        RecRef: RecordRef;
+        FR: FieldRef;
+    begin
+        Fr(11, RecRef, FR);
+        FR.Value := 123456789L;
+        Error('got %1', ReturnAsInteger(FR));
+    end;
+
+    [Test]
+    procedure BigIntegerFieldExitIntoIntegerPastRange()
+    var
+        RecRef: RecordRef;
+        FR: FieldRef;
+        I: Integer;
+    begin
+        Fr(11, RecRef, FR);
+        FR.Value := 3000000000L;
+        asserterror I := ReturnAsInteger(FR);
+        Error('got [%1] %2', GetLastErrorText(), I);
+    end;
+
+    [Test]
+    procedure IntegerFieldExitIntoBigInteger()
+    var
+        RecRef: RecordRef;
+        FR: FieldRef;
+    begin
+        Fr(5, RecRef, FR);
+        FR.Value := 7;
+        Error('got %1', ReturnAsBigInteger(FR));
+    end;
+
+    [Test]
+    procedure IntegerFieldExitIntoDecimalValue()
+    var
+        RecRef: RecordRef;
+        FR: FieldRef;
+    begin
+        Fr(5, RecRef, FR);
+        FR.Value := 7;
+        Error('got %1', ReturnAsDecimal(FR));
+    end;
+
+    [Test]
+    procedure DurationFieldExitIntoDuration()
+    var
+        RecRef: RecordRef;
+        FR: FieldRef;
+        D: Duration;
+    begin
+        Fr(12, RecRef, FR);
+        D := 65000;
+        FR.Value := D;
+        Error('got %1', Format(ReturnAsDuration(FR), 0, 9));
+    end;
+
+    [Test]
+    procedure CodeFieldExitIntoInteger()
+    var
+        RecRef: RecordRef;
+        FR: FieldRef;
+    begin
+        Fr(13, RecRef, FR);
+        FR.Value := '5';
+        Error('got %1', ReturnAsInteger(FR));
     end;
 }
