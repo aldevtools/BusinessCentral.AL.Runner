@@ -145,7 +145,8 @@ fn scan_all(s: &MemStore, t: &TableDef, key: usize, filters: &[FieldFilter], asc
 /// What the scan has to return, without any seek: every row, in the order of the key, that passes.
 fn reference(s: &MemStore, t: &TableDef, key: usize, filters: &[FieldFilter], ascending: bool) -> Vec<Row> {
     let mut rows: Vec<Row> = s.table(&cx(), t).unwrap().values().cloned().collect();
-    rows.sort_by(|a, b| cmp_rows(t, key, a, b));
+    let by = KeyOrder::sorting(t, key);
+    rows.sort_by(|a, b| by.cmp_rows(a, b));
     if !ascending {
         rows.reverse();
     }

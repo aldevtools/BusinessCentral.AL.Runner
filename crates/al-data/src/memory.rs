@@ -9,6 +9,7 @@ use al_builtins::filter::FieldFilter;
 use band::Band;
 pub use key::PkStorage;
 use key::{Key, table_storage};
+use scan::{KeyOrder, search_sorted};
 use std::cmp::Ordering;
 
 mod alt_cache;
@@ -30,6 +31,7 @@ mod key_value_tests;
 mod order_carry;
 mod replace;
 mod row_changes;
+mod scan;
 pub use row_changes::BeforeRows;
 mod shape;
 pub use shape::{CommittedMarks, CommittedRows};
@@ -300,28 +302,6 @@ fn slot(cx: &AccessContext, t: &TableDef) -> Slot {
 fn key_fields_differ(key: &[usize], old: &[Value], new: &[Value]) -> bool {
     key.iter()
         .any(|&i| al_builtins::ops::compare_key_value(&old[i], &new[i]).map_or(true, |o| o != Ordering::Equal))
-}
-
-/// `key_cmp(position(t, key, row), other)` without building the position.
-fn cmp_row_to_position(t: &TableDef, key: usize, row: &[Value], other: &[Value]) -> Ordering {
-    for (&i, x) in t.keys[key].iter().chain(&t.keys[0]).zip(other) {
-        match t.cmp_key_field(i, &row[i], x) {
-            Ordering::Equal => continue,
-            o => return o,
-        }
-    }
-    (t.keys[key].len() + t.keys[0].len()).cmp(&other.len())
-}
-
-/// `key_cmp(position(t, key, a), position(t, key, b))` without building the positions.
-fn cmp_rows(t: &TableDef, key: usize, a: &[Value], b: &[Value]) -> Ordering {
-    for &i in t.keys[key].iter().chain(&t.keys[0]) {
-        match t.cmp_key_field(i, &a[i], &b[i]) {
-            Ordering::Equal => continue,
-            o => return o,
-        }
-    }
-    Ordering::Equal
 }
 
 /// The part of the order of a key that the filters narrow down (ADR-035): the position tuple of the first row a scan
@@ -1400,7 +1380,8 @@ impl MemStore {
         let moved = self.moves.get(&ck).copied().unwrap_or(0);
         ORDER_BUILDS.with(|n| n.set(n.get() + 1));
         let mut rows: Vec<(&Key, &Row)> = table.iter().collect();
-        rows.sort_by(|a, b| cmp_rows(t, key, a.1, b.1));
+        let by = KeyOrder::sorting(t, key);
+        rows.sort_by(|a, b| by.cmp_rows(a.1, b.1));
         let order = std::rc::Rc::new(
             rows.into_iter()
                 .map(|(k, _)| std::rc::Rc::new(k.clone()))
@@ -1452,34 +1433,10 @@ impl MemStore {
         }
         let slot = slot(cx, t);
         let stamp = self.stamp_of(&slot, &self.versions);
-        let fields: Vec<usize> = if scan.key == 0 {
-            t.keys[0].clone()
-        } else {
-            t.keys[scan.key].iter().chain(&t.keys[0]).copied().collect()
-        };
-        // How a row stands to the position `a`.
-        let cmp_after = |r: &[Value], a: &[Value]| -> Ordering {
-            for (&i, x) in fields.iter().zip(a) {
-                match t.cmp_key_field(i, &r[i], x) {
-                    Ordering::Equal => continue,
-                    o => return o,
-                }
-            }
-            Ordering::Equal
-        };
-        let after_ok = |r: &[Value]| {
-            scan.after.is_none_or(|a| {
-                let o = cmp_after(r, a);
-                if scan.ascending {
-                    o == Ordering::Greater
-                } else {
-                    o == Ordering::Less
-                }
-            })
-        };
+        let by = KeyOrder::of(t, scan);
         let calls = match self.alt_step(&slot, t, scan.key, scan.filters, stamp) {
             alt_cache::AltStep::Walk => return None,
-            alt_cache::AltStep::Sorted(keys) => return Some(self.search_sorted(table, &keys, scan, &cmp_after)),
+            alt_cache::AltStep::Sorted(keys) => return Some(search_sorted(table, &keys, scan, by)),
             alt_cache::AltStep::Band(calls) => calls,
         };
         // When `own` is `None` the filters do not bound the scan's key (checked above), so it has no band to leave out.
@@ -1493,57 +1450,21 @@ impl MemStore {
         };
         if calls < 2 {
             // The first step: the best row of the band.
-            let mut best: Option<&Row> = None;
-            for k in &band_keys {
-                let Some(r) = table.get(k) else { continue };
-                if !passes(r, scan.filters) || !after_ok(r) {
-                    continue;
-                }
-                let better = best.is_none_or(|b| {
-                    let o = cmp_rows(t, scan.key, r, b);
-                    if scan.ascending {
-                        o == Ordering::Less
-                    } else {
-                        o == Ordering::Greater
-                    }
-                });
-                if better {
-                    best = Some(r);
-                }
-            }
-            return Some(best.cloned());
+            let rows = band_keys.iter().filter_map(|k| table.get(k));
+            return Some(
+                by.first_of(rows.filter(|r| passes(r, scan.filters)), scan.after)
+                    .cloned(),
+            );
         }
         let mut rows: Vec<(&Key, &Row)> = band_keys
             .iter()
             .filter_map(|k| table.get_key_value(k))
             .filter(|(_, r)| passes(r, scan.filters))
             .collect();
-        rows.sort_by(|a, b| cmp_rows(t, scan.key, a.1, b.1));
+        rows.sort_by(|a, b| by.cmp_rows(a.1, b.1));
         let keys = std::rc::Rc::new(rows.into_iter().map(|(k, _)| k.clone()).collect::<Vec<_>>());
         self.alt_keep(&slot, t, scan.key, scan.filters, Some(keys.clone()));
-        Some(self.search_sorted(table, &keys, scan, &cmp_after))
-    }
-
-    /// The row after the position of `scan` in `keys` (the rows that pass, in the order of the scan's key).
-    fn search_sorted(
-        &self,
-        table: &Table,
-        keys: &[Key],
-        scan: &Scan,
-        cmp_after: &dyn Fn(&[Value], &[Value]) -> Ordering,
-    ) -> Option<Row> {
-        let at = |i: usize| table.get(&keys[i]);
-        if scan.ascending {
-            let start = scan.after.map_or(0, |a| {
-                keys.partition_point(|k| table.get(k).is_some_and(|r| cmp_after(r, a) != Ordering::Greater))
-            });
-            (start < keys.len()).then(|| at(start).cloned()).flatten()
-        } else {
-            let end = scan.after.map_or(keys.len(), |a| {
-                keys.partition_point(|k| table.get(k).is_some_and(|r| cmp_after(r, a) == Ordering::Less))
-            });
-            (end > 0).then(|| at(end - 1).cloned()).flatten()
-        }
+        Some(search_sorted(table, &keys, scan, by))
     }
 
     fn table_mut(&mut self, cx: &AccessContext, t: &TableDef) -> &mut Table {
@@ -1870,58 +1791,17 @@ impl Store for MemStore {
                         }
                     }
                 }
-                let found = if scan.ascending {
-                    let start = scan.after.map_or(0, |a| {
-                        order.partition_point(|k| {
-                            row_at(k).is_some_and(|r| cmp_row_to_position(t, scan.key, r, a) != Ordering::Greater)
-                        })
-                    });
-                    order[start.max(band.start).min(band.end)..band.end]
-                        .iter()
-                        .filter_map(|k| row_at(k))
-                        .find(|r| passes(r, scan.filters))
-                } else {
-                    let end = scan.after.map_or(order.len(), |a| {
-                        order.partition_point(|k| {
-                            row_at(k).is_some_and(|r| cmp_row_to_position(t, scan.key, r, a) == Ordering::Less)
-                        })
-                    });
-                    order[band.start.min(end)..end.min(band.end)]
-                        .iter()
-                        .rev()
-                        .filter_map(|k| row_at(k))
-                        .find(|r| passes(r, scan.filters))
-                };
+                let by = KeyOrder::of(t, scan);
+                let past = by.past_in(&order, scan.after, |k, a| row_at(k).map(|r| by.cmp_to_position(r, a)));
+                let found = by.first_in(&order[scan::meet(past, band)], |k| {
+                    row_at(k).filter(|r| passes(r, scan.filters))
+                });
                 return Ok(found.cloned());
             }
         }
         // A small table in another key: every row is looked at, without building its position (a copy of the key fields).
-        let mut best: Option<&Row> = None;
-        for row in table.values().filter(|r| passes(r, scan.filters)) {
-            let after_ok = scan.after.is_none_or(|a| {
-                let o = cmp_row_to_position(t, scan.key, row, a);
-                if scan.ascending {
-                    o == Ordering::Greater
-                } else {
-                    o == Ordering::Less
-                }
-            });
-            if !after_ok {
-                continue;
-            }
-            let better = best.is_none_or(|b| {
-                let o = cmp_rows(t, scan.key, row, b);
-                if scan.ascending {
-                    o == Ordering::Less
-                } else {
-                    o == Ordering::Greater
-                }
-            });
-            if better {
-                best = Some(row);
-            }
-        }
-        Ok(best.cloned())
+        let rows = table.values().filter(|r| passes(r, scan.filters));
+        Ok(KeyOrder::of(t, scan).first_of(rows, scan.after).cloned())
     }
 
     fn count(&self, cx: &AccessContext, t: &TableDef, f: &[FieldFilter]) -> Result<usize, StoreError> {
