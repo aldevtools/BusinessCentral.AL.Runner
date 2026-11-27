@@ -43,6 +43,8 @@ pub(crate) struct TestCtx {
     pub(crate) target: Option<al_version::Target>,
     /// What `format_composite` answers for a Record or a RecordRef: `None` as without a table schema.
     pub(crate) composite: Option<String>,
+    /// What `codeunit_shape` answers for every id: `None` as the default of a session without a program.
+    pub(crate) codeunit_shape: Option<super::CodeunitShape>,
 }
 impl FormatCtx for TestCtx {
     fn enum_name(&self, _id: u32, o: i32) -> String {
@@ -63,6 +65,9 @@ impl Ctx for TestCtx {
     }
     fn held_by_temp_blob_impl(&self, _b: &crate::stream::BlobRef) -> bool {
         self.temp_blob_impl
+    }
+    fn codeunit_shape(&self, _id: u32) -> super::CodeunitShape {
+        self.codeunit_shape.unwrap_or(super::CodeunitShape::UNKNOWN)
     }
     fn last_error(&self) -> AlError {
         self.err.clone()
