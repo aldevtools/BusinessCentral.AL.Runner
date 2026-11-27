@@ -24,7 +24,7 @@ pub(crate) struct SessionParts {
 }
 
 /// What a Commit leaves in `TxState` for a later test to read (state_facts.rs `transaction`); every other field holds a
-/// new session's value (`install_left::tx_left_as_new`). `commit_counter` equals the store's change counter, a fact the
+/// new session's value (`install_left::tx_not_as_new`). `commit_counter` equals the store's change counter, a fact the
 /// thaw writes again for the thawn store.
 struct TxPart {
     phase: crate::transactions::TxPhase,

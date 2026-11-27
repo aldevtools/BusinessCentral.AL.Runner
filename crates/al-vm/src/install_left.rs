@@ -440,15 +440,11 @@ impl Session {
     }
 }
 
-/// The transaction state field by field: what a new session holds ([`crate::state::TxState::fresh`]), except what a
-/// Commit leaves for a later test to read (`phase`, `transaction_type`, `type_origin`, `lock_timeout`,
-/// `lock_timeout_duration`, `committed_row_version`, `commit_counter`, `write_counts`, `rolled_back`,
-/// `last_commit_wrote`), which the callers decide: no transaction is open and no call left anything behind.
-pub(crate) fn tx_left_as_new(tx: &crate::state::TxState) -> bool {
-    tx_not_as_new(tx).is_none()
-}
-
-/// The first field [`tx_left_as_new`] finds not as new, as `tx.<field>`.
+/// The first field of the transaction state, as `tx.<field>`, that does not hold what a new session holds
+/// ([`crate::state::TxState::fresh`]); `None` when each does. Not checked: what a Commit leaves for a later test to read
+/// (`phase`, `transaction_type`, `type_origin`, `lock_timeout`, `lock_timeout_duration`, `committed_row_version`,
+/// `commit_counter`, `write_counts`, `rolled_back`, `last_commit_wrote`), which the callers decide: no transaction is
+/// open and no call left anything behind.
 pub(crate) fn tx_not_as_new(tx: &crate::state::TxState) -> Option<&'static str> {
     let crate::state::TxState {
         tx_world,
