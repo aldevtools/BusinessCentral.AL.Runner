@@ -109,6 +109,7 @@ mod fieldref_blob_compare_reopen;
 mod fieldref_enum_into_text;
 mod fieldref_length_more_kinds;
 mod fieldref_number_into_text_variable;
+mod fieldref_value_exit_into_text;
 mod fieldref_option_ordinal_arg;
 mod fieldref_temporal_into_number;
 mod fieldref_testfield_number_on_text;
