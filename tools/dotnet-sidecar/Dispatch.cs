@@ -277,6 +277,7 @@ public sealed class Server
                 {
                     var v = Coerce(value, prop.PropertyType) ?? throw new Refusal($"cannot assign {Describe(value)} to {type.FullName}.{name} ({prop.PropertyType.FullName})");
                     prop.SetValue(prop.SetMethod.IsStatic ? null : target, v.Value);
+                    // After the setter, which clears it ([Bridge.AlPositionZero]).
                     if (target is Bridge b && name == "Position" && v.Value is 0L) b.AlPositionZero = true;
                     return Done(null, null, null, null);
                 }
@@ -332,9 +333,12 @@ public sealed class Server
         if (rewrite != null) rewrite.RewriteAllowed = true;
         var cut = target is Bridge cb && m.Name == "SetLength" ? cb : null;
         if (cut != null) cut.AlSetLength = true;
-        // AL calls a write method of the stream itself (WriteByte, Write): not the measured writer ([Bridge.OverwriteMeasured]).
-        var direct = target is Bridge db && m.Name != "SetLength" ? db : null;
-        if (direct != null) direct.AlDirectCall = true;
+        // AL calls Write(Text) or Flush() of the one StreamWriter made with a bridge alone: the measured writer
+        // ([Bridge.OverwriteMeasured]).
+        var writer = target is StreamWriter sw && sw.BaseStream is Bridge wb && ReferenceEquals(wb.PlainWriter, sw)
+            && ((m.Name == "Write" && m.GetParameters() is [{ ParameterType: var pt }] && pt == typeof(string))
+                || (m.Name == "Flush" && m.GetParameters().Length == 0)) ? wb : null;
+        if (writer != null) writer.AlWriterCall = true;
         try { return m.Invoke(m.IsStatic ? null : target, coerced); }
         catch (TargetInvocationException) when (rewrite is { Replaced: true })
         {
@@ -347,7 +351,7 @@ public sealed class Server
         {
             if (rewrite != null) rewrite.RewriteAllowed = false;
             if (cut != null) cut.AlSetLength = false;
-            if (direct != null) direct.AlDirectCall = false;
+            if (writer != null) writer.AlWriterCall = false;
         }
     }
 

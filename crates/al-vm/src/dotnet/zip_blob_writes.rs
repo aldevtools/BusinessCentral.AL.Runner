@@ -9,24 +9,29 @@
 //! Assumed (`zip-blob-writes`, corpus PR 1633, tests/al-language-onprem-dotnet/dotnet/zip-blob-writes/, the same values on
 //! every BC version the corpus runs), each fact by equality:
 //! 1. ZipBlobUpdateFreshOutStream.al:49-223: the archive made by the 2-, 3- or 4-argument constructor (Update; leaveOpen false;
-//!    Encoding.UTF8) over an OutStream `CreateOutStream` made on a loaded Blob with content and nothing written since reads
+//!    Encoding.UTF8) over an OutStream whose `CreateOutStream` is the newest edit of a loaded Blob with content reads
 //!    that content (BC hands .NET the Blob's own stream; the Blob is not cut). Its Dispose, the Blob unchanged since, makes
 //!    the Blob the archive (108 -> 194 bytes). Temporary and stored records alike (:49 with CalcFields; :85 without it the
 //!    Blob is not loaded and the bridge starts empty, as on main).
 //! 2. ZipBlobUpdateBlobChanged.al:48-152, a temporary record (`CreateOutStream` opened the stream on a Blob field of a record
-//!    that is temporary, and no read or Insert gave the record that Blob): the 4-argument archive over an OutStream AL copied a
-//!    zip into; its Dispose makes the Blob the archive also after AL changed the Blob,
-//!    in the measured states only: Clear and a rewrite with as many bytes as the archive read (:48); that rewrite and bytes
-//!    .NET then appended through another stream (:69); Clear only (:98); the Dispose of another archive that read the same
-//!    bytes (:152).
-//! 3. ZipBlobDotNetOverwrite.al:25-96: the helper reports "overwrite" only for a bridge that started empty whose one writer is
-//!    `StreamWriter(OutStream)`, for a write of that StreamWriter after AL set the stream's Position to 0, or while AL calls
-//!    SetLength (AL's own WriteByte on the stream keeps the mark). The Blob then takes the
-//!    whole content (48 x B; 10 x A after SetLength(10); 10 x B + 38 x A) when it held just the bridge's bytes from its start.
+//!    that is temporary, and no read or Insert gave the record that Blob): `ZipArchive(OutStream, Update, false, UTF8)` over an
+//!    OutStream AL copied a zip into; its Dispose makes the Blob the archive also after AL changed the Blob, in the measured
+//!    states only, AL's first change a Clear: Clear, one `CreateOutStream` and one write of as many bytes as the archive read
+//!    (:48); that rewrite and bytes .NET then appended through another stream (:69); Clear only (:98); the Dispose of another
+//!    archive that read the same bytes, no AL change (:152).
+//! 3. ZipBlobDotNetOverwrite.al:25-71, :96-123: the helper reports "overwrite" once per bridge, for a bridge that started empty whose one
+//!    .NET object is `StreamWriter(OutStream)` and that holds just the handed-back bytes: that StreamWriter's write inside AL's
+//!    `Write(Text)` or `Flush()`, from 0 right after AL's `Position := 0` to the stream's end (48 x B), or AL's `SetLength(10)`
+//!    on the stream standing at its end (10 x A) (tools/dotnet-sidecar `Bridge.OverwriteMeasured`). The Blob then takes the
+//!    whole content when it held just the bridge's bytes from its start. The 10 x B write (:73-93) leaves the stream at 10, so a
+//!    later AL write is not measured: it keeps the mark.
 //!
 //! Every other rewrite keeps main's answer: an Update archive's rewrite refuses, an overwrite marks the Blob
 //! (`DOTNET_BRIDGE_OVERWRITTEN`). Not measured, so not served: another ZipArchiveMode over a fresh OutStream, the B states on a
-//! stored table's record not declared temporary (read, inserted or neither), another encoding, a StreamWriter made with more arguments, a .NET append with no AL change before the Dispose.
+//! stored table's record not declared temporary (read, inserted or neither), another encoding or leaveOpen in part 2, an AL
+//! change other than the measured ones, another writer, start, end or length in part 3, a .NET append with no AL change before
+//! the Dispose. A change of the Blob between a fresh archive's constructor and its Dispose refuses: the seed was decided at the
+//! constructor (main passed those shapes with an archive that never read the Blob; al-runner issue 9318).
 use super::{Bridge, Session};
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::stream::{BlobBuf, BlobRef};
@@ -83,14 +88,15 @@ pub(super) fn fresh_update_ctor(clr_type: &str, construct: bool, values: &[Value
 /// The type `Encoding.UTF8` gives on the .NET runtime of the helper.
 const UTF8_ENCODING: &str = "System.Text.UTF8Encoding+UTF8EncodingSealed";
 
-/// Part 1's Blob: loaded, with content, `CreateOutStream` made the stream and nothing wrote since (position 0), no mark, no
-/// .NET stream view.
+/// Part 1's Blob: loaded, with content, a `CreateOutStream` is its newest edit (no write, Import, Clear or read since) and the
+/// position is 0, no mark, no .NET stream view.
 pub(super) fn fresh_update_seed(buf: &BlobBuf) -> bool {
     buf.loaded
         && !buf.first_write_truncates
         && buf.render_pending.is_none()
         && buf.dotnet_view == 0
         && !buf.bytes.is_empty()
+        && buf.line_breaks.opened_last(buf.content_edits)
         && buf.write_pos == 0
 }
 
@@ -143,11 +149,12 @@ impl Session {
         }
     }
 
-    /// Part 2: a Blob of a temporary record (the stream opened on it, no read or Insert gave it the Blob), cleared in place, no
-    /// mark, in one measured state.
+    /// Part 2: the archive `ZipArchive(OutStream, Update, false, Encoding.UTF8)`, a Blob of a temporary record (the stream
+    /// opened on it, no read or Insert gave it the Blob), cleared in place, no mark, in one measured state.
     fn changed_state_measured(&self, bridge: &Bridge, before: usize, buf: &BlobBuf) -> bool {
         let of_no_row = !buf.db_row && !buf.temp_row && !buf.inserted && !buf.temp_inserted;
-        if !(bridge.temp_record
+        if !(bridge.update4_utf8
+            && bridge.temp_record
             && of_no_row
             && buf.render_pending.is_none()
             && al_builtins::native::blob_clears_in_place(self, &bridge.blob))
@@ -160,13 +167,25 @@ impl Session {
             .iter()
             .find(|w| Arc::ptr_eq(&w.blob, &bridge.blob));
         let net_newest = newest.filter(|w| w.edits_after == buf.content_edits);
-        let al_changed = buf.content_edits != bridge.edits;
+        // The first AL change since the bridge was made is a Clear of the Blob (a Clear in place sets `cleared_at` to the edit
+        // count it leaves: al-builtins `native::values`).
+        let lb = &buf.line_breaks;
+        let cleared = lb.cleared_at();
+        let cleared_first = cleared == bridge.edits.wrapping_add(1);
+        // After that Clear, one `CreateOutStream`, then one write (CopyStream is one write) that left `edits` edits.
+        let rewritten = |edits: u32| {
+            lb.out_opens() == 1 && lb.out_open_edits() == cleared.wrapping_add(1) && edits == cleared.wrapping_add(2)
+        };
         match net_newest {
-            // :48 Clear and a rewrite of as many bytes; :98 Clear only. The newest change is AL's.
-            None => al_changed && (buf.bytes.len() == before || buf.bytes.is_empty()),
+            // :98 Clear only; :48 Clear and a rewrite of as many bytes. The newest change is AL's.
+            None => {
+                cleared_first
+                    && ((buf.content_edits == cleared && buf.bytes.is_empty())
+                        || (rewritten(buf.content_edits) && buf.bytes.len() == before))
+            }
             // :69 that rewrite, then a .NET append through another stream.
             Some(w) if !w.replace => {
-                w.len_before == before && w.edits_before != bridge.edits && buf.bytes.len() > before
+                cleared_first && rewritten(w.edits_before) && w.len_before == before && buf.bytes.len() > before
             }
             // :152 another archive that read the same bytes, its Dispose first, no AL change before it.
             Some(w) => w.len_before == before && w.edits_before == bridge.edits,

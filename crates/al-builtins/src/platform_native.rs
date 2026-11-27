@@ -843,7 +843,8 @@ mod tests {
         {
             let mut buf = b.borrow_mut();
             buf.content_edits += 1;
-            buf.line_breaks.note_out_open(Encoding::MsDos, true);
+            let edits = buf.content_edits;
+            buf.line_breaks.note_out_open(Encoding::MsDos, true, edits);
         }
         if !bytes.is_empty() {
             write_bytes(&b, bytes);

@@ -86,6 +86,8 @@ pub struct LineBreakHistory {
     base_edits: u32,
     /// `CreateOutStream` calls on the buffer.
     out_opens: u32,
+    /// [`BlobBuf::content_edits`] right after the newest of them (al-vm `zip_blob_writes`).
+    out_open_edits: u32,
     /// Those of them without an encoding (or `TextEncoding::MSDos`) on an empty buffer.
     empty_default_opens: u32,
     /// `WriteText(Text)` calls through an OutStream of the default encoding on the buffer.
@@ -105,8 +107,10 @@ impl LineBreakHistory {
         }
     }
 
-    pub(crate) fn note_out_open(&mut self, enc: Encoding, empty: bool) {
+    /// A `CreateOutStream` on the buffer, which then had `edits` edits.
+    pub(crate) fn note_out_open(&mut self, enc: Encoding, empty: bool, edits: u32) {
         self.out_opens += 1;
+        self.out_open_edits = edits;
         if (enc, empty) == (Encoding::MsDos, true) {
             self.empty_default_opens += 1;
         }
@@ -124,6 +128,7 @@ impl LineBreakHistory {
         let LineBreakHistory {
             base_edits,
             out_opens,
+            out_open_edits,
             empty_default_opens,
             default_text_writes,
             in_creates,
@@ -132,6 +137,7 @@ impl LineBreakHistory {
         for n in [
             base_edits,
             out_opens,
+            out_open_edits,
             empty_default_opens,
             default_text_writes,
             in_creates,
@@ -146,11 +152,32 @@ impl LineBreakHistory {
         Some(LineBreakHistory {
             base_edits: r.u32()?,
             out_opens: r.u32()?,
+            out_open_edits: r.u32()?,
             empty_default_opens: r.u32()?,
             default_text_writes: r.u32()?,
             in_creates: r.u32()?,
             in_uses: r.u32()?,
         })
+    }
+
+    /// [`BlobBuf::content_edits`] when the buffer was made or cleared.
+    pub fn cleared_at(&self) -> u32 {
+        self.base_edits
+    }
+
+    /// `CreateOutStream` calls on the buffer since it was made or cleared.
+    pub fn out_opens(&self) -> u32 {
+        self.out_opens
+    }
+
+    /// [`BlobBuf::content_edits`] right after the newest `CreateOutStream` on the buffer.
+    pub fn out_open_edits(&self) -> u32 {
+        self.out_open_edits
+    }
+
+    /// Whether a `CreateOutStream` is the newest edit of the buffer, which has `content_edits` edits.
+    pub fn opened_last(&self, content_edits: u32) -> bool {
+        self.out_opens > 0 && self.out_open_edits == content_edits
     }
 
     /// Whether the buffer holds what one `WriteText(Text)` through the one `CreateOutStream` of the default encoding on it empty

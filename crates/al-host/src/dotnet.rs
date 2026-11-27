@@ -78,6 +78,9 @@ pub enum DotNetValue {
     /// stands at their end, so .NET can seek back and read them (BC hands .NET the Blob's own read, write and seek stream;
     /// al-runner issue 6317). Writing over them is refused by the host.
     OutStreamWith(Vec<u8>),
+    /// `OutStreamWith` for the stream of a fresh `CreateOutStream` handed to a ZipArchive in Update mode (al-vm `zip_blob_writes`,
+    /// assumption `zip-blob-writes`): the host may then let the two- and three-argument archive rewrite the bytes.
+    OutStreamFresh(Vec<u8>),
 }
 
 /// An argument: a value plus whether the AL caller passed a variable that .NET may write back.

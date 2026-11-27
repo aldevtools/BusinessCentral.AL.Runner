@@ -101,23 +101,26 @@ const _: fn() = || {
 /// or a reply last wrote into it: an AL write, `Clear`, `CreateOutStream` or `Import` of the Blob since then changes the count.
 /// `fresh`: the bridge started with the bytes of a Blob `CreateOutStream` made the stream on (`zip_blob_writes`);
 /// `origin_empty`: the Blob held no bytes when the bridge was made; `temp_record`: `CreateOutStream` opened the stream on a
-/// Blob field of a temporary record (`zip_blob_writes::opened_on_temp_record`).
+/// Blob field of a temporary record (`zip_blob_writes::opened_on_temp_record`); `update4_utf8`: the bridge is argument 0 of
+/// `ZipArchive(OutStream, Update, false, Encoding.UTF8)` (`zip_blob_writes::fresh_update_ctor`).
 struct Bridge {
     blob: BlobRef,
     edits: u32,
     fresh: bool,
     origin_empty: bool,
     temp_record: bool,
+    update4_utf8: bool,
 }
 
 impl Bridge {
-    fn new(blob: &BlobRef, fresh: bool, temp_record: bool) -> Self {
+    fn new(blob: &BlobRef, fresh: bool, temp_record: bool, update4_utf8: bool) -> Self {
         Bridge {
             blob: blob.clone(),
             edits: blob.borrow().content_edits,
             fresh,
             origin_empty: blob.borrow().bytes.is_empty(),
             temp_record,
+            update4_utf8,
         }
     }
 
@@ -266,6 +269,8 @@ struct StreamBook {
     /// The call may seed a bridge from a fresh `CreateOutStream` (`zip_blob_writes::fresh_update_ctor`), and the arguments it did.
     fresh_ok: bool,
     fresh: Vec<usize>,
+    /// The call is `ZipArchive(OutStream, Update, false, Encoding.UTF8)` (`fresh_ok` with four arguments).
+    update4_utf8: bool,
 }
 
 /// What a `var` parameter gets in place of a `[RunOnClient]` variable (`ir::DotNetOp::ClientNull`).
@@ -602,8 +607,10 @@ impl Session {
         }
 
         // Marshal before the session is borrowed.
+        let fresh_ok = zip_blob_writes::fresh_update_ctor(&clr_type, kind == MemberKind::Construct, &values);
         let mut book = StreamBook {
-            fresh_ok: zip_blob_writes::fresh_update_ctor(&clr_type, kind == MemberKind::Construct, &values),
+            fresh_ok,
+            update4_utf8: fresh_ok && values.len() == 4,
             ..StreamBook::default()
         };
         let mut wire = Vec::with_capacity(values.len());
@@ -1500,9 +1507,10 @@ impl Session {
         }
         for (idx, id) in &reply.streams.bridges {
             if let Some((_, blob, temp)) = book.outs.iter().find(|(i, ..)| i == idx) {
-                self.dotnet
-                    .bridges
-                    .insert(*id, Bridge::new(blob, book.fresh.contains(idx), *temp));
+                self.dotnet.bridges.insert(
+                    *id,
+                    Bridge::new(blob, book.fresh.contains(idx), *temp, book.update4_utf8 && *idx == 0),
+                );
             }
         }
         self.apply_stream_effects(&reply.streams, shown)?;
@@ -1628,7 +1636,7 @@ impl Session {
                     } else if book.fresh_ok && arg == 0 && zip_blob_writes::fresh_update_seed(&buf) {
                         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ZipBlobWrites);
                         book.fresh.push(arg);
-                        DotNetValue::OutStreamWith(buf.bytes.clone())
+                        DotNetValue::OutStreamFresh(buf.bytes.clone())
                     } else {
                         DotNetValue::OutStream
                     }
@@ -1673,7 +1681,8 @@ impl Session {
             DotNetValue::InStream(_)
             | DotNetValue::InStreamAt { .. }
             | DotNetValue::OutStream
-            | DotNetValue::OutStreamWith(_) => {
+            | DotNetValue::OutStreamWith(_)
+            | DotNetValue::OutStreamFresh(_) => {
                 return unsupported("the host returned an AL stream value");
             }
         })

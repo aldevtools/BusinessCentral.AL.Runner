@@ -103,9 +103,10 @@ codeunit 59431 "NB SZ R1 Overwrite 59431"
         Observer.Verify();
     end;
 
-    // H2: Position := 0, then Seek(5, Begin); the write reaches the end (43 bytes).
+    // H2: Position := 0, then ReadByte moves the stream to 1 (an AL call on the stream itself); the write reaches the end
+    // (47 bytes). Seek(5, Begin) does not compile here: `Begin` is an AL keyword.
     [Test]
-    procedure Overwrite_Position0ThenSeek5()
+    procedure Overwrite_Position0ThenReadByte()
     var
         Observer: Codeunit "NB SZ Observer";
         Helper: Codeunit "NB SZ Zip Helper";
@@ -113,13 +114,12 @@ codeunit 59431 "NB SZ R1 Overwrite 59431"
         Buffer: Record "NB SZ Zip File" temporary;
         Writer: DotNet NbSzStreamWriter;
         Base: DotNet NbSzStream;
-        Origin: DotNet NbSzSeekOrigin;
         BufferOut: OutStream;
     begin
         R1.WriteA48(Buffer, BufferOut, Writer, Base);
         Base.Position := 0;
-        Base.Seek(5, Origin.Begin);
-        Writer.Write(PadStr('', 43, 'B'));
+        Base.ReadByte();
+        Writer.Write(PadStr('', 47, 'B'));
         Writer.Flush();
         Observer.Observe('text', Helper.BlobText(Buffer));
         Observer.Verify();
@@ -291,14 +291,20 @@ codeunit 59433 "NB SZ R1 Fresh 59433"
         Buffer: Record "NB SZ Zip File" temporary;
         Seed: Record "NB SZ Zip File" temporary;
         Other: Record "NB SZ Zip File" temporary;
+        ZipFile: File;
         ZipArchive: DotNet NbSzZipArchive;
         Mode: DotNet NbSzZipMode;
         Enc: DotNet NbSzEncoding;
         SeedIn: InStream;
+        OtherIn: InStream;
+        FileOut: OutStream;
         BufferOut: OutStream;
     begin
-        Helper.MakeZip(Other, 'z.txt');
-        Other.Content.Export('nbsz-other.zip');
+        Helper.SeedIn(Other, 'z.txt', OtherIn);
+        ZipFile.Create('nbsz-other.zip');
+        ZipFile.CreateOutStream(FileOut);
+        CopyStream(FileOut, OtherIn);
+        ZipFile.Close();
         Helper.SeedIn(Seed, 'a.txt', SeedIn);
         Buffer.Content.CreateOutStream(BufferOut);
         CopyStream(BufferOut, SeedIn);

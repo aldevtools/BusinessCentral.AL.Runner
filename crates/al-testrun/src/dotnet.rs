@@ -1572,6 +1572,7 @@ pub fn encode(v: &DotNetValue) -> Value {
         DotNetValue::InStreamAt { bytes, at } => json!({"t":"ins","v":base64(bytes),"p":at}),
         DotNetValue::OutStream => json!({"t":"outs"}),
         DotNetValue::OutStreamWith(b) => json!({"t":"outs","v":base64(b)}),
+        DotNetValue::OutStreamFresh(b) => json!({"t":"outs","v":base64(b),"fresh":true}),
     }
 }
 

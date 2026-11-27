@@ -1052,7 +1052,20 @@ fn a_disposed_update_zip_over_a_seeded_bridge_hands_back_its_whole_content_tagge
         (bridge, 22, Some(al_host::dotnet::Rewrite::ZipUpdate4))
     );
     assert!(bytes.starts_with(b"PK\x03\x04") && bytes.len() > 22, "{bytes:?}");
-    let three = vec![DotNetValue::OutStreamWith(empty_zip), update, DotNetValue::Bool(false)];
+    // The two- and three-argument archives rewrite only a bridge seeded from a fresh CreateOutStream; over another seed they
+    // keep the refusal of a write over the bytes the OutStream held.
+    let three = vec![
+        DotNetValue::OutStreamWith(empty_zip.clone()),
+        update.clone(),
+        DotNetValue::Bool(false),
+    ];
+    let (zip, _) = open(&mut sess, three);
+    let why = refused(sess.invoke(DotNetTarget::Instance(zip), "Dispose", vec![]));
+    assert!(
+        why.contains("a .NET write over the bytes an AL OutStream held before the call"),
+        "{why}"
+    );
+    let three = vec![DotNetValue::OutStreamFresh(empty_zip), update, DotNetValue::Bool(false)];
     let (zip, bridge) = open(&mut sess, three);
     let r = sess.invoke(DotNetTarget::Instance(zip), "Dispose", vec![]).unwrap();
     assert_eq!(r.streams.replaced.len(), 1);
@@ -1108,15 +1121,8 @@ fn a_write_over_bytes_a_bridge_already_handed_back_names_the_bridge() {
             vec![arg(DotNetValue::Int64(1))],
         )
         .unwrap();
-    // AL's SetLength on a bridge that started empty, whose one writer is StreamWriter(OutStream), is the measured overwrite
-    // (corpus PR 1633, tests/al-language-onprem-dotnet/dotnet/zip-blob-writes/ZipBlobDotNetOverwrite.al:54-71, assumption
-    // zip-blob-writes): it comes back in `replaced`; the host marks the Blob anyway, as the WriteByte above already marked it.
-    assert!(r.streams.overwritten.is_empty(), "{:?}", r.streams.overwritten);
-    let (id, before, bytes, kind) = &r.streams.replaced[0];
-    assert_eq!(
-        (*id, *before, bytes.len(), *kind),
-        (bridge, 4, 1, Some(al_host::dotnet::Rewrite::Overwrite))
-    );
+    // Not the measured SetLength(10) of a stream holding just the handed-back bytes (`Bridge.OverwriteMeasured`): marked.
+    assert_eq!(r.streams.overwritten, vec![bridge]);
     let r = sess.invoke(DotNetTarget::Instance(base), "Flush", vec![]).unwrap();
     assert!(r.streams.overwritten.is_empty(), "named once");
     sess.close();

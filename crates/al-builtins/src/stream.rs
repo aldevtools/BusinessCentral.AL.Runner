@@ -1150,7 +1150,8 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
         // An InStream created before reads a buffer a new OutStream may write over (`stream_line_breaks`).
         buf.content_edits = buf.content_edits.wrapping_add(1);
         let empty = buf.bytes.is_empty();
-        buf.line_breaks.note_out_open(enc, empty);
+        let edits = buf.content_edits;
+        buf.line_breaks.note_out_open(enc, empty, edits);
         if !buf.loaded && buf.db_row {
             // A record read from the database without CalcFields: the stream replaces the stored content at its first
             // write, and leaves it while nothing is written (BlobCalcFieldsLength.al:222, :350). The Blob stays unloaded
