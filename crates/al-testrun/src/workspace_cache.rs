@@ -713,4 +713,4 @@ mod env_scan_tests;
 mod writes;
 
 pub(crate) use writes::defer_write;
-pub use writes::{pending_writes, start_writes, wait_for_writes};
+pub use writes::{pending_writes, start_writes, wait_for_writes, wait_for_writes_within};

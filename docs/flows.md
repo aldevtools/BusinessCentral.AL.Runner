@@ -110,7 +110,8 @@ functions or methods; the file is in `docs/codemap.md`.
    `Workspace::load_stored`. A miss compiles as above; `Layer::finish` takes the compile's parts before the manifests are
    applied, and once the run goes on with the compile (`Store::go_on`; not after a stop by the memory limit) the entry is
    encoded and written after the run (`workspace_cache::defer_write`): by `al-runner test` after
-   the results are printed (`wait_for_writes` in `main`), by serve on a thread after the response (`start_writes`).
+   the results are printed (`wait_for_writes` in `main`), by serve on a thread after the response (`start_writes`), and
+   its `shutdown` reply and a stop signal wait for them, bounded (`wait_for_writes_within`, `serve_stop.rs`).
 
 ### Record.Insert(true): trigger, events, Global Triggers, store
 

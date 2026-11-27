@@ -3,13 +3,16 @@
 //! ([`wait_for_writes`]), serve starts them on a thread of their own after the response of a request
 //! ([`start_writes`]). A write that does not finish leaves no file (temporary file, then rename).
 
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
+
 /// A write of an entry that waits for the end of the run (decision 6).
 type Job = Box<dyn FnOnce() + Send>;
 
 /// The writes this process deferred, in the order the compiles made them.
 static DEFERRED: std::sync::Mutex<Vec<Job>> = std::sync::Mutex::new(Vec::new());
 /// The writer threads [`start_writes`] started and nothing joined yet.
-static WRITERS: std::sync::Mutex<Vec<std::thread::JoinHandle<()>>> = std::sync::Mutex::new(Vec::new());
+static WRITERS: std::sync::Mutex<Vec<JoinHandle<()>>> = std::sync::Mutex::new(Vec::new());
 
 /// A test of serve's shutdown (issue 9232) sets this to a number of milliseconds: each batch of writes waits that long
 /// before it starts, so a write in flight can be seen without an app large enough to make the encode slow.
@@ -21,7 +24,7 @@ fn run(jobs: Vec<Job>) {
         return;
     }
     if let Some(ms) = std::env::var(TEST_DELAY).ok().and_then(|v| v.parse::<u64>().ok()) {
-        std::thread::sleep(std::time::Duration::from_millis(ms));
+        std::thread::sleep(Duration::from_millis(ms));
     }
     jobs.into_iter().for_each(|job| job());
 }
@@ -43,11 +46,7 @@ pub fn pending_writes() -> usize {
 pub fn start_writes() {
     let jobs: Vec<Job> = std::mem::take(&mut *DEFERRED.lock().unwrap_or_else(|e| e.into_inner()));
     let mut writers = WRITERS.lock().unwrap_or_else(|e| e.into_inner());
-    let (done, running): (Vec<_>, Vec<_>) = std::mem::take(&mut *writers).into_iter().partition(|h| h.is_finished());
-    for h in done {
-        let _ = h.join();
-    }
-    *writers = running;
+    join_finished(&mut writers);
     if jobs.is_empty() {
         return;
     }
@@ -59,13 +58,47 @@ pub fn start_writes() {
     }
 }
 
-/// Runs the deferred writes and waits for every write of this process (`al-runner test` before it exits, after the
-/// results are printed; serve when it shuts down). A write that did not finish leaves no file (temporary file, rename).
-pub fn wait_for_writes() {
-    let jobs: Vec<Job> = std::mem::take(&mut *DEFERRED.lock().unwrap_or_else(|e| e.into_inner()));
-    run(jobs);
-    let writers: Vec<_> = std::mem::take(&mut *WRITERS.lock().unwrap_or_else(|e| e.into_inner()));
-    for h in writers {
+/// Joins the writer threads of `writers` that finished and keeps the others.
+fn join_finished(writers: &mut Vec<JoinHandle<()>>) {
+    let (done, running): (Vec<_>, Vec<_>) = std::mem::take(writers).into_iter().partition(|h| h.is_finished());
+    for h in done {
         let _ = h.join();
     }
+    *writers = running;
+}
+
+/// How often a wait for the writes looks whether they finished.
+const POLL: Duration = Duration::from_millis(10);
+
+/// Starts the deferred writes and waits until every write of this process finished, or until `deadline`: true when
+/// they finished. A writer thread stays listed until it finished, so a second wait (a stop signal while serve's
+/// `shutdown` waits, issue 9232) sees it too.
+fn wait_until(deadline: Option<Instant>) -> bool {
+    start_writes();
+    loop {
+        let mut writers = WRITERS.lock().unwrap_or_else(|e| e.into_inner());
+        join_finished(&mut writers);
+        if writers.is_empty() {
+            return true;
+        }
+        drop(writers);
+        let left = deadline.map_or(POLL, |d| d.saturating_duration_since(Instant::now()));
+        if left.is_zero() {
+            return false;
+        }
+        std::thread::sleep(left.min(POLL));
+    }
+}
+
+/// Runs the deferred writes and waits for every write of this process (`al-runner test` before it exits, after the
+/// results are printed; serve when it ends). A write that did not finish leaves no file (temporary file, rename).
+pub fn wait_for_writes() {
+    wait_until(None);
+}
+
+/// [`wait_for_writes`] for at most `bound` (serve's `shutdown` reply and a stop signal, issue 9232): true when every
+/// write finished, false when the bound passed first. The writes go on; one the process does not live to finish
+/// leaves no file.
+pub fn wait_for_writes_within(bound: Duration) -> bool {
+    wait_until(Some(Instant::now() + bound))
 }
