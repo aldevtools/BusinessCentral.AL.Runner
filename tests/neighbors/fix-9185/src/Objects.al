@@ -143,7 +143,8 @@ codeunit 71857 "N9185 Log"
 
     // 0 nothing, 1 Name := 'EXT', 3 SetRange(Name, 'N0'), 4 SetCurrentKey(Name), 5 Get another row, 6 FilterGroup 2 SetRange,
     // 7 Get the same row, 8 Find('='), 9 Mark(true), 10 MarkedOnly(true), 11 ChangeCompany(CompanyName), 12 Ascending(false),
-    // 13 Rec := Other (the same row read into another variable)
+    // 13 Rec := Other (the same row read into another variable), 14 Other.CopyFilter(Name, Rec.Name) (a filter written into Rec
+    // by another record's method)
     procedure ApplyExt(var Rec: Record "N9185 Row")
     var
         Other: Record "N9185 Row";
@@ -181,6 +182,11 @@ codeunit 71857 "N9185 Log"
                 begin
                     Other.Get(Rec.Id);
                     Rec := Other;
+                end;
+            14:
+                begin
+                    Other.SetRange(Name, 'N0');
+                    Other.CopyFilter(Name, Rec.Name);
                 end;
         end;
     end;

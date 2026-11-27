@@ -169,7 +169,7 @@ impl Session {
     }
 
     /// Notes that a record method `method` ran on `rec` (`Session::record_op`), or a whole record was written into it
-    /// (`method` `None`, `Session::replace_record_fields`): on a call of the measured shape still in its subscribers or the
+    /// (`method` `None`: `Session::replace_record_fields`, or another record's `CopyFilter` into a field of `rec`, `recmeta.rs`): on a call of the measured shape still in its subscribers or the
     /// extension's trigger, every method but `SetRange` and `SetCurrentKey` (XebXRecAfterExtBeforeTrigger.al:590, :627)
     /// sets [`AtCall::touched`].
     pub(crate) fn note_ext_before_touch(&mut self, method: Option<al_builtins::record_op::RecordOp>, rec: &Rec) {
@@ -199,6 +199,10 @@ impl Session {
                 && r.filters.iter().all(|f| f.group == 0)
                 && match (&r.position, &at.position) {
                     (None, None) => true,
+                    // Rec was on a row at the call and the runner's `SetRange` forgot it (op_inner.rs `RecordOp::SetRange`): Get, then
+                    // the extension's SetRange, then Delete(true) is XebXRecAfterExtBeforeTrigger.al:268-290, :839. Every other
+                    // record method and whole-record write on Rec sets `touched`.
+                    (None, Some(_)) => true,
                     (Some(now), Some(then)) => Rc::ptr_eq(now, then) || Self::same_values(now, then),
                     _ => false,
                 }

@@ -31,6 +31,8 @@ codeunit 71858 Tests
         Fresh(R);
         Log.Set(0, 0);
         R.Insert(false);
+        // The 1611 probe reads the row first (XebXRecAfterExtBeforeTrigger.al:268-290).
+        R.Get('A');
         if ChangeBuffer then
             R.Name := 'BUF';
         Log.Set(ExtMode, SubMode);
@@ -278,5 +280,13 @@ codeunit 71858 Tests
     procedure Neighbor_ExtRecAssign()
     begin
         Check(RunDelete(13, 0, true), 'BUF/N0||Id');
+    end;
+
+    // Not measured: a filter written into Rec by another record's CopyFilter in the extension's trigger (1611 measures only
+    // Rec's own SetRange, XebXRecAfterExtBeforeTrigger.al:839).
+    [Test]
+    procedure Neighbor_ExtCopyFilterInto_Delete()
+    begin
+        Check(RunDelete(14, 0, true), 'BUF/BUF||Id');
     end;
 }
