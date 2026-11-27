@@ -1930,7 +1930,9 @@ impl Session {
                 if let Some(v) = new_value {
                     rec.borrow_mut().fields[pos] = v;
                 }
-                let xrec = Self::validate_xrec_handle(rec, &before);
+                let xrec = self
+                    .nested_validate_xrec(handle, entry.1, pos, args.get(1).is_some(), rec)
+                    .unwrap_or_else(|| Self::validate_xrec_handle(rec, &before));
                 let outermost = outer.is_none().then_some(before);
                 self.while_validating(entry, rec, &xrec, outermost, |s| {
                     s.validate_hooks(&t, rec, &xrec, field, snapshot)

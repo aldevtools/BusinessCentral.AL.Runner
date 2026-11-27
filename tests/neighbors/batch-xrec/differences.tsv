@@ -1,0 +1,16 @@
+# key	entry
+# One xRec for both Validates (issue 8312). The shape of :1042 and :1056 without the integration event: the inner trigger reads
+# xRec before it raises the event, and the subscriber's procedures only read it, so the subscriber does not decide these reads.
+NBX T10 OuterAssign_TwoProcs_N::OuterAssign_TwoProcs_NoSubscriber	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:1050
+NBX T11 InnerAssign_TwoProcs_N::InnerAssign_TwoProcs_NoSubscriber	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:1064
+# Rec.CopyFromItem() is the same call as CopyFromItem() for xRec: BC hands Rec.Proc(), this.Proc() and Proc() the trigger's
+# xRec and keeps the procedure's assignment (XRecTableProcCalls.al:191, :202, :213); the runner does not tell them apart.
+NBX T16 OuterAssign_RecDotProc::OuterAssign_RecDotProcedure	PINNED tests/al-language/record/validate/XRecTableProcCalls.al:191
+# A test procedure that also carries [Scope('OnPrem')] (issue 8974): corpus PR 1583, Caller_ScopeOnPremTest_IntegrationEvent and
+# Caller_ScopeOnPremTestWithHandler_Nested.
+NBX T26 ScopeOnPrem_Subscriber::ScopeOnPrem_Subscriber	ASSUMED xrec-table-proc-callers-subscribers (corpus PR 1583)
+NBX T27 ScopeOnPremWithHandler::ScopeOnPremWithHandler_Nested	ASSUMED xrec-table-proc-callers-subscribers (corpus PR 1583)
+# Not here, main's copy on both: no, one or three procedures between the triggers, Validate without a value, the same field,
+# a temporary record, a buffer from Get, a record never inserted, a filter on the record, a filter on xRec before the nested
+# Validate, a third nested Validate, the outer Validate in the test procedure or in a codeunit that is no test codeunit; and
+# [Scope('Cloud')], [Scope('OnPrem')] with another attribute, refused on both.
