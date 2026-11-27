@@ -608,3 +608,93 @@ fn date_conversions_keep_nothing() {
         assert!(all(every), "{every}");
     }
 }
+
+/// Issue 9260: `CompanyProperty.DisplayName` and `CompanyProperty.ID` read the session company's row of the Company
+/// table (corpus `tests/al-language/session-system/company/CompanyRecord.al:15-44`), a read the store records;
+/// `NavApp.GetCallerCallstackModuleInfos` reads the module info of the apps whose code is on the call stack
+/// (`tests/al-language/session-system/TestNavAppCallerCallstackModuleInfos.al:5-7`), apps the session already meets.
+/// The other `CompanyProperty` and `NavApp` methods keep touching everything.
+#[test]
+fn company_property_reads_and_the_caller_callstack_keep_nothing() {
+    let all = |name: &str| {
+        let (r, m) = name.split_once('.').unwrap_or((name, ""));
+        super::builtin_touches_everything(r, m)
+    };
+    for kept in [
+        "CompanyProperty.DisplayName",
+        "CompanyProperty.ID",
+        "NavApp.GetCallerCallstackModuleInfos",
+    ] {
+        assert!(!all(kept), "{kept}");
+    }
+    for every in [
+        "CompanyProperty.UrlName",
+        "CompanyProperty.SomethingNew",
+        "NavApp.IsInstalling",
+        "NavApp.GetArchiveRecordRef",
+    ] {
+        assert!(all(every), "{every}");
+    }
+}
+
+/// The platform table Company as the symbols declare it, and install code that reads the two company properties.
+const COMPANY_SRC: &str = r#"
+table 2000000006 Company
+{
+    DataPerCompany = false;
+    fields
+    {
+        field(1; Name; Text[30]) { }
+        field(2; "Evaluation Company"; Boolean) { }
+        field(3; "Display Name"; Text[250]) { }
+        field(8000; Id; Guid) { }
+        field(8005; "Business Profile Id"; Text[250]) { }
+    }
+    keys { key(PK; Name) { } }
+}
+codeunit 50100 Probe
+{
+    procedure DisplayName(): Text
+    begin
+        exit(CompanyProperty.DisplayName());
+    end;
+    procedure Id(): Guid
+    begin
+        exit(CompanyProperty.ID());
+    end;
+    procedure Callers(): Integer
+    begin
+        exit(Ask().Count());
+    end;
+    local procedure Ask(): List of [ModuleInfo]
+    begin
+        exit(NavApp.GetCallerCallstackModuleInfos());
+    end;
+}
+"#;
+
+/// Issue 9260: each company property reads the session company's row of the Company table, recorded by the store, so an
+/// install that writes that row is read from; the caller call stack reads no lasting resource.
+#[test]
+fn company_property_reads_read_the_company_row() {
+    for routine in ["DisplayName", "Id"] {
+        let fp = run_src(COMPANY_SRC, routine);
+        assert!(!fp.touches_everything() && fp.writes.is_empty(), "{routine}: {fp:?}");
+        // Object 0 of the program: the Company table.
+        let company_row = |r: &Lasting| matches!(r, Lasting::Store(Resource::Row(c, 0, _)) if c.is_empty());
+        assert!(fp.reads.iter().any(company_row), "{routine}: {fp:?}");
+        let writer = InstallFootprint {
+            writes: fp.reads.clone(),
+            ..Default::default()
+        };
+        assert!(
+            fp.reads_from(&writer, 7),
+            "{routine}: a write of the Company row is read"
+        );
+    }
+    let fp = run_src(COMPANY_SRC, "Callers");
+    assert!(
+        !fp.touches_everything() && fp.reads.is_empty() && fp.writes.is_empty(),
+        "{fp:?}"
+    );
+}

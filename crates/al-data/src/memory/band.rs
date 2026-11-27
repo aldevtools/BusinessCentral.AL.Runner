@@ -9,11 +9,68 @@
 //! Unit tests: `memory/tests/count_tests.rs`.
 
 use super::*;
+use std::ops::Range;
 
 /// Where the band of one key is: the primary key's rows between two keys, or a slice of the cached order.
 pub(super) enum Band {
     Pk,
-    Order(std::rc::Rc<Vec<OrderKey>>, std::ops::Range<usize>),
+    Order(std::rc::Rc<Vec<OrderKey>>, Range<usize>),
+}
+
+impl Band {
+    /// The rows of the band, in the order of its key. A row of the band may still fail the filters, so the caller
+    /// checks `passes`.
+    pub(super) fn into_rows<'a>(
+        self,
+        table: &'a Table,
+        t: &TableDef,
+        filters: &[FieldFilter],
+    ) -> Box<dyn Iterator<Item = (&'a Key, &'a Row)> + 'a> {
+        match self {
+            Band::Pk => pk_band(table, t, filters),
+            Band::Order(order, range) => Box::new(range.filter_map(move |i| table.get_key_value(&order[i]))),
+        }
+    }
+}
+
+/// The rows of `table` (in primary key order) that can pass `filters`: those between the bounds the filters on the
+/// leading primary key fields give. A row of the band may still fail them, so the caller checks `passes`.
+pub(super) fn pk_band<'a>(
+    table: &'a Table,
+    t: &TableDef,
+    filters: &[FieldFilter],
+) -> Box<dyn Iterator<Item = (&'a Key, &'a Row)> + 'a> {
+    use std::ops::Bound::{Included, Unbounded};
+    let Some(seek) = Seek::of(t, 0, filters, table.values().next()) else {
+        return Box::new(table.iter());
+    };
+    let lower = if seek.lo.is_empty() {
+        Unbounded
+    } else {
+        Included(Key::of(t, seek.lo.clone()))
+    };
+    Box::new(
+        table
+            .range((lower, Unbounded))
+            .take_while(move |(_, r)| seek.after(r) != Some(true)),
+    )
+}
+
+/// The slice of `order` (a table's rows in the order of the key of `seek`; `row` reads each) between the bounds of
+/// `seek`, found by binary search (ADR-035). `None` when a row the search reads is missing or does not compare with a
+/// bound: the order cannot be trusted there.
+pub(super) fn band<'r, T>(order: &[T], row: impl Fn(&T) -> Option<&'r Row>, seek: &Seek) -> Option<Range<usize>> {
+    let trusted = std::cell::Cell::new(true);
+    let probe = |x: &T, f: &dyn Fn(&[Value]) -> Option<bool>| match row(x).map(|r| f(r)) {
+        Some(Some(b)) => b,
+        _ => {
+            trusted.set(false);
+            false
+        }
+    };
+    let start = order.partition_point(|x| probe(x, &|r| seek.before(r)));
+    let end = order.partition_point(|x| !probe(x, &|r| seek.after(r)));
+    (trusted.get() && start <= end).then_some(start..end)
 }
 
 impl MemStore {
@@ -68,8 +125,8 @@ impl MemStore {
         if table.len() >= INDEX_MIN_ROWS && (1..t.keys.len()).any(|j| Seek::of(t, j, filters, sample).is_some()) {
             let slot = slot(cx, t);
             let own = self.band_of(&slot, 0, t, table, filters, false).map(|(_, n)| n);
-            if let Some(Band::Order(order, range)) = self.narrowest_band(&slot, t, table, filters, 0, own) {
-                return Box::new(range.filter_map(move |i| table.get(&order[i])));
+            if let Some(b @ Band::Order(..)) = self.narrowest_band(&slot, t, table, filters, 0, own) {
+                return Box::new(b.into_rows(table, t, filters).map(|(_, r)| r));
             }
         }
         Box::new(pk_band(table, t, filters).map(|(_, r)| r))
@@ -123,22 +180,11 @@ impl MemStore {
         } else {
             self.cached_order(slot, j, t, table)?
         };
-        if order.len() != table.len() || !order.iter().take(1).all(|k| table.get(k).is_some()) {
+        if !order_fits(&order, table) {
             return None;
         }
-        let trusted = std::cell::Cell::new(true);
-        let probe = |k: &Key, f: &dyn Fn(&[Value]) -> Option<bool>| match table.get(k).map(|r| f(r)) {
-            Some(Some(b)) => b,
-            _ => {
-                trusted.set(false);
-                false
-            }
-        };
-        let start = order.partition_point(|k| probe(k, &|r| seek.before(r)));
-        let end = order.partition_point(|k| !probe(k, &|r| seek.after(r)));
-        (trusted.get() && start <= end).then(|| {
-            let n = end - start;
-            (Band::Order(order, start..end), n)
-        })
+        let range = band(&order, |k| table.get(k), &seek)?;
+        let n = range.len();
+        Some((Band::Order(order, range), n))
     }
 }

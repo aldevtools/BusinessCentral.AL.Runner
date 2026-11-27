@@ -13,7 +13,7 @@
 //! a row, by a binary-search insert instead of a new sort (al-runner issue 6924). Entry points:
 //! `carry_orders`, `carry_moved`.
 
-use super::{Key, MemStore, ORDERS_PER_KEY, OrderEntry, OrderKey, Row, Slot, Table, cmp_rows, slot};
+use super::{Key, KeyOrder, MemStore, ORDERS_PER_KEY, OrderEntry, OrderKey, Row, Slot, Table, slot};
 use crate::{AccessContext, TableDef};
 use std::cmp::Ordering;
 
@@ -192,7 +192,7 @@ fn place(
             table.get(k)
         };
         match r {
-            Some(r) => cmp_rows(t, j, r, row).then_with(|| k.cmp(key)) == Ordering::Less,
+            Some(r) => KeyOrder::sorting(t, j).cmp_rows(r, row).then_with(|| k.cmp(key)) == Ordering::Less,
             None => {
                 missing.set(true);
                 false

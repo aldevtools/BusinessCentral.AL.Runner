@@ -536,6 +536,8 @@ fn a_panic_in_a_test_is_reported_as_an_error_and_the_server_goes_on() {
     assert_eq!(s.until_summary().last().unwrap()["passed"], 1);
 }
 
+// Linux only: reads /proc, for the memory test below.
+#[cfg(target_os = "linux")]
 fn rss_mb(pid: u32) -> u64 {
     let status = std::fs::read_to_string(format!("/proc/{pid}/status")).unwrap();
     let kb: u64 = status
@@ -2582,6 +2584,7 @@ fn a_summary_says_how_the_test_data_index_was_obtained() {
 }
 
 /// Two apps whose test needs the complete compile, so the dependency app is compiled into a layer of the compile cache.
+#[cfg(target_os = "linux")] // its only user, the deleted-executable test below, is Linux only
 fn layered_apps(root: &Path) -> (PathBuf, PathBuf) {
     let dep = root.join("dep");
     write(
@@ -2612,6 +2615,7 @@ codeunit 50950 \"Literal Source\" { procedure Value(): Integer begin exit(41); e
 }
 
 /// The build tags (the first 16 hex of a cache file's name) of the dependency layers in `cache`.
+#[cfg(target_os = "linux")] // its only user, the deleted-executable test below, is Linux only
 fn layer_tags(cache: &Path) -> Vec<String> {
     let mut tags: Vec<String> = std::fs::read_dir(cache.join("compile"))
         .map(|rd| {

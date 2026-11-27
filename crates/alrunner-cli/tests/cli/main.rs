@@ -14,6 +14,8 @@ mod memory;
 mod onrun_stability;
 mod order_default;
 mod package_target_resources;
+// Unix only: each test fakes the other al-runner with a shell script.
+#[cfg(unix)]
 mod path_note;
 mod profile;
 mod run;

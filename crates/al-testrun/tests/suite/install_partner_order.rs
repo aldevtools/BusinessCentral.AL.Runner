@@ -1299,3 +1299,61 @@ fn the_final_install_puts_an_app_after_the_install_it_depends_on() {
         rt.phases.baseline_line().unwrap_or_default()
     );
 }
+
+/// A partner install that reads `read` (a Text expression), writes it into its own JQ Entry row (`no`); the first (`no`
+/// 1) also writes the Install Mark that `PartnerInstallRan` reads.
+fn reading(object: u32, name: &str, no: u32, read: &str) -> String {
+    format!(
+        r#"
+codeunit {object} "{name} Install"
+{{
+    Subtype = Install;
+
+    trigger OnInstallAppPerCompany()
+    var
+        E: Record "JQ Entry";
+        M: Codeunit "Marks";
+    begin
+        E."No." := {no};
+        E.Note := CopyStr({read}, 1, 50);
+        if E.Insert() then;
+        if {no} = 1 then
+            M.Mark('A');
+    end;
+
+    local procedure Callers(): Integer
+    begin
+        exit(NavApp.GetCallerCallstackModuleInfos().Count());
+    end;
+}}
+"#
+    )
+}
+
+/// Issue 9260, the outside reporter's shape: four installs that each read a company property or the module infos of
+/// the caller call stack, and write disjoint rows. The company properties read the Company row, which no install
+/// writes; the call stack names apps whose code the install runs. Nothing ties the four, so the group is proven (BC
+/// 28.4 runs them).
+#[test]
+fn four_installs_that_read_company_properties_or_the_caller_callstack_run() {
+    let not_run: Vec<(&str, Outcome)> = [
+        "CompanyProperty.DisplayName()",
+        "Format(CompanyProperty.ID())",
+        "Format(Callers())",
+    ]
+    .into_iter()
+    .map(|read| {
+        let r = |object, name: &str, no| reading(object, name, no, read);
+        let rt = run(vec![
+            base(),
+            (PA_ID, "Partner R1", "Partner", vec![BASE_ID], r(73400, "R1", 1)),
+            (PB_ID, "Partner R2", "Partner", vec![BASE_ID], r(74000, "R2", 2)),
+            (PC_ID, "Partner R3", "Partner", vec![BASE_ID], r(75000, "R3", 3)),
+            (PD_ID, "Partner R4", "Partner", vec![BASE_ID], r(76000, "R4", 4)),
+        ]);
+        (read, outcome(&rt, "PartnerInstallRan"))
+    })
+    .filter(|(_, o)| *o != Outcome::Pass)
+    .collect();
+    assert!(not_run.is_empty(), "{not_run:#?}");
+}
