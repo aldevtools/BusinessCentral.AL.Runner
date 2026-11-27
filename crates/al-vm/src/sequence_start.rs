@@ -488,6 +488,7 @@ impl Session {
     pub(crate) fn note_tx_end(&mut self, commit: bool) {
         self.settle_tx_changes(commit);
         let by = self.access_notes.commit_by.take().unwrap_or(CommitBy::Other);
+        self.hub_log_tx_end(commit, by);
         self.note_tx_point(match commit {
             true => TxPointKind::Commit(by),
             false => TxPointKind::Rollback,

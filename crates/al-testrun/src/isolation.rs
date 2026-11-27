@@ -163,7 +163,16 @@ pub fn after_test(
 ) {
     if let Some(cp) = checkpoint {
         if !runner_function {
+            // BC's TestRunnerHub: what a test leaves of the number sequences (al-vm `hub_sequences.rs`, issue 9250).
+            let decided = session.hub_test_sequences(failed);
             cp.restore(session);
+            session.settle_hub_sequences(decided, &cp.1, |key| {
+                format!(
+                    "an earlier test of this codeunit, {routine}, changed number sequence '{}': what BC's TestRunnerHub \
+                     under RequiredTestIsolation = Function leaves of it is not measured for this shape",
+                    key.1
+                )
+            });
             return;
         }
         // A new key's IsolatedStorage.Set and a new NumberSequence.Insert are rolled back

@@ -224,7 +224,11 @@ pub fn noting_body<V>(
     body: impl FnOnce(&mut Session) -> Result<V, Signal>,
 ) -> Result<V, Signal> {
     let Some(sequences) = sequences else {
-        return body(session);
+        // The hub's Function isolation reads the body's own NumberSequence calls (al-vm `hub_sequences.rs`).
+        session.hub_log_body(true);
+        let out = body(session);
+        session.hub_log_body(false);
+        return out;
     };
     let before = session.sequences_at_start();
     let (commits, access) = (session.commits, session.data_access());
