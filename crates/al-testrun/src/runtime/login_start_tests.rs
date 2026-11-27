@@ -1539,11 +1539,12 @@ fn threads_admitted(opts: &RunOptions) -> usize {
 
 // A raised byte cap counts in the soft budget before a thread is admitted: 1020 MB of room the starts may still take
 // leave room for two threads, where the default cap leaves room for the eight the pool may use. No start is dropped.
+// The count of 64 starts at 16 MB each (1024 MB) does not bind here.
 #[test]
 fn a_raised_byte_cap_lowers_the_threads_a_soft_budget_admits() {
     let on = |mib: u64| RunOptions {
         login_replay: true,
-        login_replay_limits: limits(8, mib),
+        login_replay_limits: limits(64, mib),
         ..Default::default()
     };
     assert_eq!(threads_admitted(&on(64)), 8, "60 MB of room fit beside eight threads");
@@ -1559,4 +1560,16 @@ fn a_raised_byte_cap_lowers_the_threads_a_soft_budget_admits() {
         ..on(1024)
     };
     assert_eq!(threads_admitted(&off), 8, "no start is kept: nothing held");
+}
+
+// Al-runner issue 9173: two starts of at most 16 MB each hold at most 32 MB, so a 1024 MB setting beside a count of
+// two holds 28 MB of room (32 MB less the 4 MiB start), not 1020 MB: the pool admits its eight threads.
+#[test]
+fn the_room_held_is_the_smaller_of_the_byte_cap_and_the_count_at_sixteen_mb_a_start() {
+    let two = RunOptions {
+        login_replay: true,
+        login_replay_limits: limits(2, 1024),
+        ..Default::default()
+    };
+    assert_eq!(threads_admitted(&two), 8, "28 MB of room fit beside eight threads");
 }

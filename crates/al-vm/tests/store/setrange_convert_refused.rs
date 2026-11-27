@@ -21,6 +21,9 @@ table 50290 SRC
         field(7; G; Guid) { }
         field(8; Dec; Decimal) { }
         field(9; DT; DateTime) { }
+        field(10; Cod1; Code[1]) { }
+        field(11; Txt2; Text[2]) { }
+        field(12; Cod10; Code[10]) { }
     }
     keys { key(PK; Id) { Clustered = true; } }
 }
@@ -258,6 +261,66 @@ codeunit 50291 T
         exit(F.GetFilter());
     end;
 
+    procedure FalseIntoCode(): Text
+    var R: RecordRef; F: FieldRef; B: Boolean;
+    begin
+        R.Open(Database::SRC);
+        F := R.Field(3);
+        B := false;
+        F.SetFilter('%1', B);
+        exit(F.GetFilter());
+    end;
+
+    procedure FalseIntoCode1(): Text
+    var R: RecordRef; F: FieldRef; B: Boolean;
+    begin
+        R.Open(Database::SRC);
+        F := R.Field(10);
+        B := false;
+        F.SetRange(B);
+        exit(F.GetFilter());
+    end;
+
+    procedure TrueIntoCode1(): Text
+    var R: RecordRef; F: FieldRef; B: Boolean;
+    begin
+        R.Open(Database::SRC);
+        F := R.Field(10);
+        B := true;
+        F.SetRange(B);
+        exit(F.GetFilter());
+    end;
+
+    procedure FalseIntoCodeOnTemporary(): Text
+    var R: RecordRef; F: FieldRef; B: Boolean;
+    begin
+        R.Open(Database::SRC, true);
+        F := R.Field(3);
+        B := false;
+        F.SetRange(B);
+        exit(F.GetFilter());
+    end;
+
+    procedure TrueIntoText2(): Text
+    var R: RecordRef; F: FieldRef; B: Boolean;
+    begin
+        R.Open(Database::SRC);
+        F := R.Field(11);
+        B := true;
+        F.SetRange(B);
+        exit(F.GetFilter());
+    end;
+
+    procedure FalseIntoCode10(): Text
+    var R: RecordRef; F: FieldRef; B: Boolean;
+    begin
+        R.Open(Database::SRC);
+        F := R.Field(12);
+        B := false;
+        F.SetRange(B);
+        exit(F.GetFilter());
+    end;
+
     procedure TrueIntoCode(): Text
     var R: RecordRef; F: FieldRef; B: Boolean;
     begin
@@ -391,6 +454,7 @@ fn a_cell_of_the_earlier_conversion_in_another_shape_is_refused() {
     for routine in [
         "GuidSetFilterTextOnTemporary",
         "TrueIntoCodeOnTemporary",
+        "FalseIntoCodeOnTemporary",
         "DecimalTextIntoDecimalOnTemporary",
         "DateIntoDateTimeOnTemporary",
         "DigitsIntoDecimalOnTemporary",
@@ -423,4 +487,66 @@ fn a_cell_of_the_earlier_conversion_in_the_measured_shape_is_flagged_unless_pinn
 #[test]
 fn a_blank_option_member_into_a_date_is_refused() {
     refused("BlankOptionIntoDate");
+}
+
+/// False into a Code field is main's answer, `NO` (SrcFilterBoolIntoText.al:178-192 BoolFalse_Cod, corpus PR 1575, al-runner issue 9026),
+/// in the measured shape through the entry setrange-bool-into-text; refused on a temporary table
+/// (`a_cell_of_the_earlier_conversion_in_another_shape_is_refused`).
+#[test]
+fn false_into_a_code_field_is_its_format_text_through_its_own_entry() {
+    clear_hits();
+    assert_eq!(filter("FalseIntoCode"), "NO");
+    let hits = take_hits();
+    assert!(hits.contains(&Assumption::SetRangeBoolIntoText), "{hits:?}");
+    assert!(!hits.contains(&Assumption::SetRangeOtherTypeConvert), "{hits:?}");
+}
+
+/// No cell measures true into a Text[2] field or false into a Code[10] field (corpus PR 1575 measures lengths 1, 2, 20 and 50): both
+/// refuse, and the message names the entry setrange-bool-into-text. Main ran true into Text[2] and answered `Yes`.
+#[test]
+fn a_boolean_into_a_length_no_cell_measures_is_refused_naming_its_entry() {
+    for routine in ["TrueIntoText2", "FalseIntoCode10"] {
+        match run_in(SRC, "T", routine) {
+            Err(Signal::Unsupported(reason)) => {
+                assert!(reason.contains("in a shape no cell measures"), "{routine}: {reason}");
+                assert!(
+                    reason.contains("(assumption setrange-bool-into-text)"),
+                    "{routine}: {reason}"
+                );
+            }
+            other => panic!("{routine}: expected a refusal, got {other:?}"),
+        }
+    }
+}
+
+/// SrcFilterBoolIntoText.al:226-240 (BoolFalse_Cod1) and 274-288 (BoolTrue_Cod1, corpus PR 1575): a Boolean into a Code[1] field
+/// raises the string-length error with the Format text of the value (`No`, `Yes`, not upper case), through the entry
+/// setrange-bool-into-text.
+#[test]
+fn a_boolean_longer_than_a_code_field_raises_the_length_error_with_its_format_text() {
+    for (routine, message) in [
+        (
+            "FalseIntoCode1",
+            "The length of the string is 2, but it must be less than or equal to 1 characters. Value: No",
+        ),
+        (
+            "TrueIntoCode1",
+            "The length of the string is 3, but it must be less than or equal to 1 characters. Value: Yes",
+        ),
+    ] {
+        clear_hits();
+        match run_in(SRC, "T", routine) {
+            Err(Signal::Error(e)) => {
+                assert_eq!(e.code, "StringLengthExceeded", "{routine}");
+                assert_eq!(e.message, message, "{routine}");
+            }
+            other => panic!("{routine}: expected the length error, got {other:?}"),
+        }
+        let hits = take_hits();
+        assert!(hits.contains(&Assumption::SetRangeBoolIntoText), "{routine}: {hits:?}");
+        assert!(
+            !hits.contains(&Assumption::SetRangeOtherTypeConvert),
+            "{routine}: {hits:?}"
+        );
+    }
 }

@@ -142,6 +142,8 @@ fn reader(flags: Arc<Flags>) -> mpsc::Receiver<Input> {
 
 pub fn serve(daemon: &[String]) -> Result<(), String> {
     let base = daemon_args(daemon)?;
+    // Read once: a bad cap stops the server before it is ready, and every request uses these (al-runner issue 9174).
+    let login_replay = Some(run::LoginReplay::read()?);
     let flags = Arc::new(Flags::default());
     let rx = reader(flags.clone());
     let ids = flags.clone();
@@ -176,6 +178,7 @@ pub fn serve(daemon: &[String]) -> Result<(), String> {
                 }
             })
         }),
+        login_replay,
         ..WarmCtx::default()
     };
     crate::run::keep_backups();

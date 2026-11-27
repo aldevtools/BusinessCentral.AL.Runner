@@ -153,6 +153,7 @@ mod refs;
 mod relations;
 mod rename;
 mod rename_blank_key;
+mod rename_short_field;
 mod report_handler_unshown;
 mod report_layout_export;
 mod report_layout_streams;

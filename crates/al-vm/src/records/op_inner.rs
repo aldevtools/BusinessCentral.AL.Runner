@@ -328,19 +328,12 @@ impl Session {
                     RecordOp::CalcFields => own_pending,
                     _ => false,
                 };
+            let sends = more || super::stale::is_row_version_send_read(method);
             self.note_read_for_row_versions(
                 t.object,
                 &company,
-                more || matches!(
-                    method,
-                    RecordOp::Get
-                        | RecordOp::FindFirst
-                        | RecordOp::FindLast
-                        | RecordOp::FindSet
-                        | RecordOp::IsEmpty
-                        | RecordOp::Count
-                        | RecordOp::CalcSums
-                ),
+                sends,
+                self.measured_send_read(method, find_form, &rec.borrow()),
             );
             self.restamped_find(&cx, &t, &rec.borrow(), method)?;
             use crate::recmeta::{ISOLATION_REPEATABLE_READ, ISOLATION_UPDLOCK};
@@ -1911,7 +1904,8 @@ impl Session {
             }
             RecordOp::Rename => {
                 let from_al = std::mem::take(&mut self.tx.rename_from_al);
-                let rename_note = self.rename_note(rec, &t);
+                // The statement form of Rename called from AL code, read before the triggers run.
+                let (statement_from_al, rename_note) = (from_al && !self.ret_used, self.rename_note(rec, &t));
                 let old_key = Self::sql_key(rec, &t, &rec.borrow().fields);
                 self.note_bulk_write(rec, &t, crate::state::TxWriteKind::Other, &old_key);
                 if !rec.borrow().temporary {
@@ -2150,7 +2144,7 @@ impl Session {
                             self.profile_after_rename(&t, &old_fields, &row)?;
                         }
                         if !same_key {
-                            self.propagate_rename(rec, &t, &refs, &old_fields, &row)?;
+                            self.propagate_rename(rec, &t, &refs, &old_fields, &row, statement_from_al)?;
                             // The platform moves the record's links with system rights: a set without any grant on
                             // Record Link renames (corpus record/Y19PermWrites.al
                             // Y19_P1_Rename, rename_rim), so the session's sets do not apply here (ADR-062).
