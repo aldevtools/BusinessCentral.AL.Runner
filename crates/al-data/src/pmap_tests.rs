@@ -24,6 +24,9 @@ fn bound(r: &mut Rng, space: u64) -> Bound<u64> {
 }
 
 fn same(p: &PMap<u64, u64>, m: &BTreeMap<u64, u64>) {
+    // The fence keys are the chunks' first keys, one per chunk, and no chunk is empty.
+    assert!(p.spine.chunks.iter().all(|c| !c.is_empty()));
+    assert_eq!(p.spine.firsts, chunk_firsts(p));
     assert_eq!(p.len(), m.len());
     assert_eq!(p.is_empty(), m.is_empty());
     assert!(p.iter().eq(m.iter()));
@@ -155,7 +158,7 @@ fn a_clone_shares_until_either_side_writes() {
 
 /// The first key of every chunk: the keys a spine search compares against.
 fn chunk_firsts(p: &PMap<u64, u64>) -> Vec<u64> {
-    p.spine.iter().map(|c| c[0].0).collect()
+    p.spine.chunks.iter().map(|c| c[0].0).collect()
 }
 
 /// Every lookup and every range seek on each key from just below the smallest to just above the largest, and on both
