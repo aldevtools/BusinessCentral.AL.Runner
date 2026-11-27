@@ -3,7 +3,6 @@
 //! Entry points: `run_codeunit`, `run_codeunit_isolated`, `run_codeunit_observed`,
 //! `run_codeunit_core`.
 use super::al_runner::run_unit;
-use super::stop::skipped_after_timeout;
 use super::written::{
     self, ReachFacts, ReachIndex, remainder_reach_facts, settled_flags, test_reach_facts, unfinished_reach_facts,
 };
@@ -726,10 +725,7 @@ fn run_codeunit_inner(
                     }
                 }
                 Err(Signal::Unsupported(r)) if r.starts_with(TIME_LIMIT_REASON) => {
-                    scratch.stop_trigger = scratch
-                        .stop
-                        .as_ref()
-                        .and_then(|s| s.after_on_run_cut(obj.id.unwrap_or(0)));
+                    scratch.on_run_cut(obj.id.unwrap_or(0));
                     return Err(on_run_refused(r.into_reason()));
                 }
                 Err(Signal::Unsupported(r)) => return Err(on_run_refused(format!("OnRun: {r}"))),
@@ -1287,15 +1283,8 @@ fn run_codeunit_inner(
             };
             let ended = ended_of(&outcome, began, untrusted.is_some());
             if stopped.is_none() {
-                // The first row that triggers the pass's stop is kept for the later entries (`stop.rs`).
-                let id = obj.id.unwrap_or(0);
-                scratch.stop_trigger = scratch
-                    .stop
-                    .as_ref()
-                    .and_then(|s| s.after(&outcome, hit_time_limit, id, &name));
-                stopped = (scratch.stop_trigger.clone()).or_else(|| {
-                    (scratch.skip_after_timeout && hit_time_limit).then(|| skipped_after_timeout(&routine.name))
-                });
+                let row = (obj.id.unwrap_or(0), name.as_str(), routine.name.as_str());
+                stopped = scratch.stopped_after(&outcome, hit_time_limit, row);
             }
             note_unfinished(scratch, ended, runner_refused.is_some(), test_no, &name);
             let ended_from = unfinished.len();

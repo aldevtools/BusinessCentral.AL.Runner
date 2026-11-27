@@ -83,6 +83,28 @@ impl Stop {
     }
 }
 
+impl super::Scratch {
+    /// Why the later tests of the codeunit are not run after the row `(codeunit, test, routine)` (judged `outcome`;
+    /// `hit_time_limit`: before the judging it was a time-limit row): the pass's stop, whose reason is kept as the
+    /// codeunit's trigger for the later entries (`stop_trigger`), or else `skip_after_timeout` (issue 7517), which names
+    /// the test's procedure.
+    pub(super) fn stopped_after(
+        &mut self,
+        outcome: &Outcome,
+        hit_time_limit: bool,
+        (codeunit, test, routine): (u32, &str, &str),
+    ) -> Option<String> {
+        self.stop_trigger = (self.stop.as_ref()).and_then(|s| s.after(outcome, hit_time_limit, codeunit, test));
+        let skip = self.skip_after_timeout && hit_time_limit;
+        (self.stop_trigger.clone()).or_else(|| skip.then(|| skipped_after_timeout(routine)))
+    }
+
+    /// The time limit stopped the OnRun trigger of codeunit `codeunit`: the codeunit's trigger, if the stop is on.
+    pub(super) fn on_run_cut(&mut self, codeunit: u32) {
+        self.stop_trigger = (self.stop.as_ref()).and_then(|s| s.after_on_run_cut(codeunit));
+    }
+}
+
 /// What stops the whole request under the stops that are on (`failure`: `RunOptions::stop_after_first_failure`,
 /// `timeout`: `RunOptions::stop_after_timeout`), for serve's refusal of a mix of grouped and ungrouped entries
 /// (issues 8210, 9213). With neither on it is issue 8210's word: that refusal comes before the check of the stop.
