@@ -25,6 +25,34 @@ pub fn fieldref_value_into_text(
     crate::ops::number_into_text_field(v, t, ctx)
 }
 
+/// `exit(FR.Value())` from a procedure that returns a Text or Code (al-vm `Op::ConvertFieldValue` at an exit): an Integer,
+/// BigInteger (the timestamp too), Decimal, Enum, Option, Boolean, Date or Duration is its Format text, upper-cased into a Code,
+/// and StringLengthExceeded past the length, as [`variant_into_text_field`] converts it (corpus PR 1629, recordref-fieldref/
+/// fieldref-value-convert/FvcTimestampField.al ExitValue_NumberFields, _EnumOptionFields, _OtherFields, Field0_InsertedRow;
+/// issue 9285). `None`: another value or target, which converts as every exit value does.
+pub fn fieldref_value_at_exit(
+    v: &Value,
+    t: &RtType,
+    ctx: &dyn crate::format::FormatCtx,
+) -> Option<Result<Value, Signal>> {
+    let measured = matches!(
+        v,
+        Value::Integer(_)
+            | Value::BigInteger(_)
+            | Value::Decimal(_)
+            | Value::Enum(..)
+            | Value::Option(..)
+            | Value::Boolean(_)
+            | Value::Date(..)
+            | Value::Duration(_)
+    );
+    if !measured || !matches!(t, RtType::Text(_) | RtType::Code(_)) {
+        return None;
+    }
+    crate::assumptions::assume(crate::assumptions::Assumption::FieldRefValueExitIntoText);
+    variant_into_text_field(v, t, ctx)
+}
+
 /// A Variant given to `FieldRef.Validate` or `FieldRef.Value :=` of a Text or Code field: a number, an Enum, an Option, a Date
 /// or a Boolean goes in as its Format text (`42`, `12.5`, `1,234.5`, `3000000000`, `01/15/24`, `Yes`, `B`, `Second`), upper-cased
 /// into a Code (`YES`), and a text longer than the field raises StringLengthExceeded (recordref-fieldref/recordref/

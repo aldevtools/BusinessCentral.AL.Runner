@@ -346,9 +346,14 @@ impl Session {
                     let v = self.convert_op(v, ty)?;
                     set(&mut f.locals[d as usize], v);
                 }
-                Op::ConvertFieldValue { d, a, t, slot } => {
+                Op::ConvertFieldValue { d, a, t, slot, at_exit } => {
                     let v = take(f, a, nl);
-                    let v = self.convert_field_value(v, &chunk.types[t as usize], slot)?;
+                    let ty = &chunk.types[t as usize];
+                    let v = if at_exit {
+                        self.convert_field_value_at_exit(v, ty)?
+                    } else {
+                        self.convert_field_value(v, ty, slot)?
+                    };
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::DbgHit { p } => self.debug_hit(p, &f.locals[..nl as usize]),
@@ -1205,6 +1210,17 @@ impl Session {
             Some(r) => r,
             None => ops::convert_plain(v, ty),
         }
+    }
+
+    /// The value of `exit(FR.Value())` into a Text or Code return: the cells corpus PR 1629 measured, in an en-US session of a
+    /// supported major (`fieldref_value_text::fieldref_value_at_exit`); any other value converts as every exit value does.
+    #[cold]
+    #[inline(never)]
+    fn convert_field_value_at_exit(&self, v: Value, ty: &RtType) -> Result<Value, Signal> {
+        let cell = (self.supported_major() && al_builtins::format::en_us_session(self))
+            .then(|| al_builtins::fieldref_value_text::fieldref_value_at_exit(&v, ty, self))
+            .flatten();
+        cell.unwrap_or_else(|| ops::convert_plain(v, ty))
     }
 
     /// A refusal about a text argument names the builtin that refused it.

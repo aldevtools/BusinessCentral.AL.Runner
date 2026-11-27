@@ -97,7 +97,9 @@ codeunit 50742 C
 "#;
 
 fn cells(field: i32) -> String {
-    al_testkit::text(al_testkit::run_with(SRC, "C", "Cells", vec![al_builtins::value::Value::Integer(field)]).map(|r| r.0))
+    al_testkit::text(
+        al_testkit::run_with(SRC, "C", "Cells", vec![al_builtins::value::Value::Integer(field)]).map(|r| r.0),
+    )
 }
 
 fn too_long(len: usize, max: usize, value: &str) -> String {
@@ -112,14 +114,23 @@ fn a_fieldref_value_exited_as_text_or_code_is_its_format_text() {
     assert_eq!(cells(2), "code20=5;text=5;code3=5;");
     assert_eq!(
         cells(3),
-        format!("code20=5000000000;text=5000000000;code3={};", too_long(10, 3, "5000000000"))
+        format!(
+            "code20=5000000000;text=5000000000;code3={};",
+            too_long(10, 3, "5000000000")
+        )
     );
     assert_eq!(cells(4), "code20=1.5;text=1.5;code3=1.5;");
     assert_eq!(
         cells(5),
-        format!("code20=ONE CAPTION;text=One Caption;code3={};", too_long(11, 3, "One Caption"))
+        format!(
+            "code20=ONE CAPTION;text=One Caption;code3={};",
+            too_long(11, 3, "One Caption")
+        )
     );
-    assert_eq!(cells(6), format!("code20=BETA;text=Beta;code3={};", too_long(4, 3, "Beta")));
+    assert_eq!(
+        cells(6),
+        format!("code20=BETA;text=Beta;code3={};", too_long(4, 3, "Beta"))
+    );
     assert_eq!(cells(7), "code20=YES;text=Yes;code3=YES;");
     assert_eq!(
         cells(8),
@@ -133,7 +144,10 @@ fn a_fieldref_value_exited_as_text_or_code_is_its_format_text() {
             too_long(25, 3, "1 second 500 milliseconds")
         )
     );
-    assert_eq!(cells(10), format!("code20=AB-1;text=AB-1;code3={};", too_long(4, 3, "AB-1")));
+    assert_eq!(
+        cells(10),
+        format!("code20=AB-1;text=AB-1;code3={};", too_long(4, 3, "AB-1"))
+    );
 }
 
 /// FvcTimestampField.al Field0_InsertedRow `code_exit`, `code_equals_format` (corpus PR 1629).

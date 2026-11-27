@@ -236,6 +236,8 @@ pub(crate) enum Op {
         t: u32,
         /// The slot of a Date, Time or DateTime variable that takes the value (`fieldref_value_temporal`); None otherwise.
         slot: Option<al_builtins::fieldref_value_temporal::TemporalSlot>,
+        /// The value of `exit(FR.Value())` into a Text or Code return (`fieldref_value_text::fieldref_value_at_exit`).
+        at_exit: bool,
     },
     Jump {
         t: u32,
