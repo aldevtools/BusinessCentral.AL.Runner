@@ -295,10 +295,11 @@ fn onrun_writes(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> Op
         .position(|r| r.is_trigger && r.name.eq_ignore_ascii_case("OnRun"))?;
     let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
     let f = reach_facts(&engine.events, lowered, &index, oi, r);
-    // Every write the reach knows: Insert, Modify, Delete, DeleteAll, ModifyAll and Rename on a record of a known table
-    // (subscribers and called codeunits included), and a write whose table is known only at run time (al-runner issue
-    // 7622).
-    if !f.writes.is_empty() || f.writes_any {
+    // An Insert, Modify, ModifyAll or Rename through a record not declared temporary or through a RecordRef, in the OnRun,
+    // the codeunits it calls or the subscribers it raises (al-runner issue 7622). A temporary record leaves no rows, a
+    // page variable writes nothing by itself, and a delete-only OnRun is not measured yet (al-runner issue 7622): those
+    // stay outside the chain, as on main.
+    if !f.persistent_writes.is_empty() || f.recordref_writes {
         return Some(ChainWhy::OnRunWritesTable);
     }
     (f.state_writes & (state::ISOLATED_STORAGE | state::NUMBER_SEQUENCE) != 0).then_some(ChainWhy::OnRunWritesState)
@@ -402,18 +403,27 @@ mod tests {
         );
     }
 
-    /// What an OnRun trigger writes, by every kind of write the reach knows: a delete and a write through a RecordRef
-    /// leave rows (or their absence) for the later codeunits as an insert does (al-runner issue 7622;
-    /// codeunits/run-onrun/RqIsolationModes.al:357-369 pins that OnRun's writes reach them).
+    /// Which OnRun triggers join the chain by what they write (al-runner issue 7622). An insert, a modify or a rename
+    /// through a record not declared temporary leaves rows for the later codeunits (codeunits/run-onrun/
+    /// RqIsolationModes.al:357-369 pins inserted rows), also through a RecordRef or in a subscriber the OnRun raises. A
+    /// write to a temporary record leaves nothing, a page variable is not a write, and a delete-only OnRun is not
+    /// measured: those keep main's choice (no carry). An OnRun whose only effect is a run by an id known at run time stays
+    /// out of the chain too, as on main.
     #[test]
-    fn an_onrun_that_deletes_or_writes_through_a_recordref_writes_a_table() {
+    fn an_onrun_joins_the_chain_by_its_persistent_writes() {
         let src = "
             table 50100 T { fields { field(1; K; Integer) { } } }
+            page 50120 P { SourceTable = T; }
             codeunit 50101 Deletes { Subtype = Test; trigger OnRun() var R: Record T; begin R.DeleteAll(); end; }
             codeunit 50102 OneDelete { Subtype = Test; trigger OnRun() var R: Record T; begin if R.FindFirst() then R.Delete(); end; }
             codeunit 50103 ByRef { Subtype = Test; trigger OnRun() var RR: RecordRef; begin RR.Open(50100); RR.Init(); RR.Insert(); end; }
             codeunit 50104 Inserts { Subtype = Test; trigger OnRun() var R: Record T; begin R.K := 1; R.Insert(); end; }
-            codeunit 50105 Reads { Subtype = Test; trigger OnRun() var R: Record T; begin if R.FindFirst() then; end; }";
+            codeunit 50105 Reads { Subtype = Test; trigger OnRun() var R: Record T; begin if R.FindFirst() then; end; }
+            codeunit 50106 TempOnly { Subtype = Test; trigger OnRun() var R: Record T temporary; begin R.K := 1; R.Insert(); R.Modify(); R.DeleteAll(); end; }
+            codeunit 50107 PageVar { Subtype = Test; trigger OnRun() var Pg: Page P; begin end; }
+            codeunit 50108 Raises { Subtype = Test; trigger OnRun() begin OnHook(); end; [IntegrationEvent(false, false)] procedure OnHook() begin end; }
+            codeunit 50109 Sub { [EventSubscriber(ObjectType::Codeunit, Codeunit::Raises, 'OnHook', '', false, false)] local procedure H() var R: Record T; begin R.K := 2; R.Insert(); end; }
+            codeunit 50110 ById { Subtype = Test; trigger OnRun() var Id: Integer; begin Id := 50104; Codeunit.Run(Id); end; }";
         let l = al_sema::lower::compile(
             vec![al_sema::workspace::AppSource {
                 id: "a".into(),
@@ -429,10 +439,12 @@ mod tests {
             let oi = l.program.objects.heads().iter().position(|o| o.name == name).unwrap();
             onrun_writes(&engine, &l, oi)
         };
-        for name in ["Deletes", "OneDelete", "ByRef", "Inserts"] {
+        for name in ["ByRef", "Inserts", "Raises"] {
             assert_eq!(why(name), Some(ChainWhy::OnRunWritesTable), "{name}");
         }
-        assert_eq!(why("Reads"), None);
+        for name in ["Reads", "TempOnly", "PageVar", "Deletes", "OneDelete", "ById"] {
+            assert_eq!(why(name), None, "{name}");
+        }
     }
 
     #[test]

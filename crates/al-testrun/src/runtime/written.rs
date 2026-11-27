@@ -95,6 +95,8 @@ mod ops {
     pub const RENAME: u8 = 8;
     pub const VALIDATE: u8 = 16;
     pub const ALL: u8 = INSERT | MODIFY | DELETE | RENAME | VALIDATE;
+    /// The writes that add or change a row (`ReachFacts::persistent_writes`).
+    pub const KEEPS: u8 = INSERT | MODIFY | RENAME;
 
     /// The operations a record method performs that can run triggers.
     pub fn of(method: &str) -> u8 {
@@ -137,6 +139,11 @@ pub(crate) struct ReachFacts {
     pub inserts: BTreeSet<u32>,
     /// A write whose table is not known statically (a `RecordRef`, an xmlport import, media): it may write any table.
     pub writes_any: bool,
+    /// The tables of `writes` a reached routine adds or changes rows of through a record variable not declared
+    /// temporary: Insert, Modify, ModifyAll and Rename. Delete, DeleteAll and a page's source table are left out.
+    pub persistent_writes: BTreeSet<u32>,
+    /// An Insert, Modify, ModifyAll or Rename through a `RecordRef` or `FieldRef` (part of `writes_any`).
+    pub recordref_writes: bool,
     /// A `RecordRef`, `FieldRef` or `KeyRef` is used: it may read any table, which `touched` does not show (the table it
     /// opens is known only at run time).
     pub reads_any: bool,
@@ -164,6 +171,8 @@ impl ReachFacts {
         self.writes.extend(other.writes.iter().copied());
         self.inserts.extend(other.inserts.iter().copied());
         self.writes_any |= other.writes_any;
+        self.persistent_writes.extend(other.persistent_writes.iter().copied());
+        self.recordref_writes |= other.recordref_writes;
         self.reads_any |= other.reads_any;
         self.globals_read.extend(other.globals_read.iter().copied());
         self.globals_written.extend(other.globals_written.iter().copied());
@@ -356,7 +365,8 @@ impl ReachIndex {
         for step in &self.summary(events, lowered, o, r)?.steps {
             match step {
                 Step::Write(Some(t), _) => out.push(*t),
-                Step::Push(..) | Step::Events(_) | Step::TableOps(..) => {}
+                // A persistent write always comes with its `Write` step.
+                Step::Push(..) | Step::Events(_) | Step::TableOps(..) | Step::Persistent(_) => {}
                 Step::Write(None, _) | Step::Run(_) | Step::Unknown(_) => return None,
             }
         }
@@ -1205,6 +1215,17 @@ impl<'a> Walk<'a> {
         }
     }
 
+    /// [`ReachFacts::persistent_writes`] (`Some`) or [`ReachFacts::recordref_writes`] (`None`).
+    fn note_persistent_write(&mut self, table: Option<u32>) {
+        match table {
+            _ if !self.facts => {}
+            Some(t) => {
+                self.out.persistent_writes.insert(t);
+            }
+            None => self.out.recordref_writes = true,
+        }
+    }
+
     fn note_table_write(&mut self, table: Option<u32>, insert: bool) {
         match table {
             _ if !self.facts => {}
@@ -1292,6 +1313,7 @@ impl<'a> Walk<'a> {
                 Step::TableOps(t, ops) => self.table_ops(*t, *ops),
                 Step::Run(x) => self.run_object(*x),
                 Step::Write(t, insert) => self.note_table_write(*t, *insert),
+                Step::Persistent(t) => self.note_persistent_write(*t),
             }
         }
     }
@@ -1329,6 +1351,8 @@ enum Step {
     Run(usize),
     /// [`Walk::note_table_write`]: the table, and whether the write can add a row.
     Write(Option<u32>, bool),
+    /// [`Walk::note_persistent_write`]: the table, or none for a `RecordRef`.
+    Persistent(Option<u32>),
 }
 
 /// Whether a slot of type `ty` holds a Record, also as the elements of an array.
@@ -1424,6 +1448,11 @@ impl Rec<'_> {
 
     fn note_table_write(&mut self, table: Option<u32>) {
         self.step(Step::Write(table, false));
+    }
+
+    /// An Insert, Modify, ModifyAll or Rename through a record not declared temporary (`Some`) or a RecordRef (`None`).
+    fn note_persistent_write(&mut self, table: Option<u32>) {
+        self.step(Step::Persistent(table));
     }
 
     /// A write that can add a row to `table` ([`ReachFacts::inserts`]).
@@ -1851,6 +1880,9 @@ impl Rec<'_> {
                         _ if op != ops::VALIDATE => self.note_table_write(table),
                         _ => {}
                     }
+                    if let (Some(t), false, true) = (table, temporary, op & ops::KEEPS != 0) {
+                        self.note_persistent_write(Some(t));
+                    }
                     if ops::runs_triggers(method, args) {
                         match table {
                             Some(t) => self.table_ops(t as usize, op),
@@ -1865,6 +1897,9 @@ impl Rec<'_> {
                 let op = ops::of(method);
                 if op != 0 && op != ops::VALIDATE {
                     self.note_table_write(None);
+                }
+                if op & ops::KEEPS != 0 {
+                    self.note_persistent_write(None);
                 }
                 if op != 0 && ops::runs_triggers(method, args) {
                     self.unknown(|| format!("{name} runs the triggers of a table that is not known"));
