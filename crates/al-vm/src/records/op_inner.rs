@@ -26,6 +26,32 @@ impl Session {
         )
     }
 
+    /// The `IsEmpty` of G/L Entry the corpus pins in the corpus database's company (`demo_tables` is filled only without
+    /// --test-data and --company-data): "G/L entries exist" is Yes at the start of a test, before any test code ran
+    /// (test-framework/RlWorkDateAtStart.al:40 read, :48 expected, BC 27.5, 28.5, 29.0). `IsEmpty` depends only on the
+    /// stored rows. It answers only while the session's own code has not written to G/L Entry (`demo_written`),
+    /// so no row changed between the login and the test start the pin measures: a read at the login (InitCompany's
+    /// `CompanyActive`) sees the same rows. The pinned shape only: database record, session's own company (no
+    /// ChangeCompany), no filter in any filter group, not MarkedOnly, outside install code. Count, Find and every other
+    /// shape keep the demo-row refusal. The demo-row check skips its refusal for it, and the `IsEmpty` arm answers it after
+    /// every step a database read takes (transaction start, deferred inserts, row versions).
+    fn demo_gl_entry_is_empty(&self, method: RecordOp, t: &TableDef, rec: &Rec) -> bool {
+        let r = rec.borrow();
+        method == RecordOp::IsEmpty
+            && self.engine.demo_tables.contains(&(t.object as usize))
+            && !self.demo_written.contains(&t.object)
+            && self.engine.program.objects[t.object as usize].id == Some(17)
+            && !r.temporary
+            && r.company.is_none()
+            && !r.change_company_called
+            && r.filters.is_empty()
+            && r.decimal_cut_filters.is_empty()
+            && r.run_page_link.is_none()
+            && !r.marked_only
+            && r.view_assumption.is_none()
+            && !self.install_scope
+    }
+
     pub(crate) fn record_op_inner(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
         self.connection_check(rec)?;
         if rec.borrow().unpinned_buffer.is_some() && !self.by_value_view_runs(method, rec)? {
@@ -81,8 +107,9 @@ impl Session {
         // A Count or IsEmpty of a table whose demo rows the corpus database holds, before the session's own code wrote to it:
         // BC counts 1 Company Information row and 36 Accounting Period rows (session-system/company/
         // CompanyInformationValues.al:45 QG_CompanyInformation_CorpusRow, :89 QG_AccountingPeriod_CorpusRows) and holds G/L entries
-        // (test-framework/RlWorkDateAtStart.al:48 `G/L entries exist` Yes); the runtime has
-        // only what install code wrote (ADR-047 rejected). A test that writes its own rows is answered. Media Resources holds
+        // (test-framework/RlWorkDateAtStart.al:40 read, :48 `G/L entries exist` Yes); the runtime has
+        // only what install code wrote (ADR-047 rejected). A test that writes its own rows is answered, and so is the
+        // pinned `IsEmpty` of G/L Entry (`demo_gl_entry_is_empty`). Media Resources holds
         // 46 rows there (metadata/platform-tables/PtCloudTables.al:269 QX_MediaResources_FreshTenantCodes, read with FindSet),
         // so every read of it is refused before the session wrote to it.
         if !rec.borrow().temporary && self.engine.demo_tables.contains(&(t.object as usize)) {
@@ -106,11 +133,13 @@ impl Session {
                     )))
                 && !self.demo_written.contains(&t.object)
             {
-                return unsupported(format!(
-                    "{} on {} before the test wrote to it: the corpus database holds demo rows there that the runtime does not have (ADR-047 rejected)",
-                    method.name(),
-                    t.name
-                ));
+                if !self.demo_gl_entry_is_empty(method, &t, rec) {
+                    return unsupported(format!(
+                        "{} on {} before the test wrote to it: the corpus database holds demo rows there that the runtime does not have (ADR-047 rejected)",
+                        method.name(),
+                        t.name
+                    ));
+                }
             }
         }
         // A write of General Ledger Setup by the test's own code: the captions of areas 1 and 101 read it (`refuse_setup_caption`).
@@ -1362,6 +1391,7 @@ impl Session {
                 }
                 Ok(Value::Integer(if steps < 0 { -moved } else { moved }))
             }
+            RecordOp::IsEmpty if self.demo_gl_entry_is_empty(method, &t, rec) => Ok(Value::Boolean(false)),
             RecordOp::Count | RecordOp::IsEmpty => {
                 let count_by_al = method == RecordOp::Count && self.is_al_record_call(RecordOp::Count, rec);
                 let (filters, flow_field_filters) = self.split_filters_read(rec, count_by_al)?;

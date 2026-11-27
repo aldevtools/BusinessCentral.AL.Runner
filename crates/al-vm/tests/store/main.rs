@@ -28,6 +28,7 @@ mod datetime_filter_empty_text;
 mod decimal_store_truncation;
 mod delete_all_cascade;
 mod delete_all_flowfield_filter;
+mod demo_gl_entry_is_empty;
 mod dupkey_after_event;
 mod duplicate_insert_buffer;
 mod fieldref_blob_unloaded;
