@@ -1,0 +1,1 @@
+A G/L Entry neighbor app needs the Base Application, whose compile exceeds the 3 GB neighbor-diff memory cap on main and head alike (all tests not run); the neighbor shapes are the 6 Rust tests in crates/al-vm/tests/store/demo_gl_entry_is_empty.rs
