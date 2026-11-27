@@ -37,6 +37,17 @@ codeunit 50768 C {
         Dec := RR.Field(4).Value();
         exit(Dec);
     end;
+    local procedure DateAsInteger(var FR: FieldRef): Integer
+    begin
+        exit(FR.Value());
+    end;
+    procedure EmptyDateFromExit(): Integer
+    var RR: RecordRef; FR: FieldRef;
+    begin
+        RR.Open(Database::TemporalRow);
+        FR := RR.Field(2);
+        exit(DateAsInteger(FR));
+    end;
     procedure EmptyDateThroughVariant(): Integer
     var RR: RecordRef; V: Variant; I: Integer;
     begin
@@ -70,6 +81,7 @@ fn a_date_time_or_datetime_from_fieldref_value_into_a_number_is_refused() {
         "SetDateIntoInteger",
         "TimeIntoBigInteger",
         "DateTimeIntoDecimal",
+        "EmptyDateFromExit",
     ] {
         assert!(refused(routine).contains("issue 9265"), "{routine}");
     }

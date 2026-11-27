@@ -5,6 +5,7 @@ NB FDI Test::DateIntoBigIntegerLocal	REFUSED FieldRef.Value() of a Date field in
 NB FDI Test::DateIntoDecimalLocal	REFUSED FieldRef.Value() of a Date field into
 NB FDI Test::DateIntoDurationLocal	REFUSED FieldRef.Value() of a Date field into
 NB FDI Test::DateIntoIntegerArgument	REFUSED FieldRef.Value() of a Date field into
+NB FDI Test::DateIntoIntegerExitValue	REFUSED FieldRef.Value() of a Date field into
 NB FDI Test::DateIntoIntegerGlobal	REFUSED FieldRef.Value() of a Date field into
 NB FDI Test::DateIntoIntegerLocal	REFUSED FieldRef.Value() of a Date field into
 NB FDI Test::DateIntoIntegerLocal_BcText	REFUSED FieldRef.Value() of a Date field into

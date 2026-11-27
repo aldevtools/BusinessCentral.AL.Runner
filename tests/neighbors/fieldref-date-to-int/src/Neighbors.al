@@ -1,8 +1,7 @@
 // Neighbors of al-runner issue 9265: FieldRef.Value() of a Date, Time or DateTime field converted straight into a number.
 // BC 28.4 raises a conversion error for a Date into an Integer local where al-runner gave 0; no corpus case pins it, so
-// head refuses a Date, Time or DateTime value converted into a number (a local, a global, a field, an argument). A Variant
-// in between keeps the pinned conversion; `exit` (which lowers as a Variant) keeps main's; other field types and targets
-// are unchanged.
+// head refuses a Date, Time or DateTime value converted into a number (a local, a global, a field, an argument, an exit
+// value). A Variant in between keeps the pinned conversion; other field types and targets are unchanged.
 table 50100 "NB FDI Row"
 {
     fields
@@ -342,8 +341,7 @@ codeunit 50101 "NB FDI Test"
         TakeInt(FR.Value());
     end;
 
-    // Same on both: `exit(FR.Value())` from an Integer procedure lowers as a Variant into the return type (Variant.Into), not
-    // as the conversion this change refuses, and keeps main's answer.
+    // `exit(FR.Value())` from an Integer procedure: refused as the assignment is.
     [Test]
     procedure DateIntoIntegerExitValue()
     var
