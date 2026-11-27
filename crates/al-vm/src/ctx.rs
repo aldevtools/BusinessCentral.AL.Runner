@@ -530,6 +530,31 @@ impl al_builtins::native::Ctx for Session {
         }
         ModuleLookup::NotInstalled
     }
+    fn codeunit_shape(&self, id: u32) -> al_builtins::native::CodeunitShape {
+        use al_builtins::native::CodeunitShape;
+        let Some(any) = self.engine.codeunit_object(Some(id)) else {
+            return CodeunitShape::Missing;
+        };
+        let Some(o) = self.engine.compiled_codeunit(Some(id)).filter(|&o| o == any) else {
+            return CodeunitShape::Other("a codeunit of a dependency app that was not compiled");
+        };
+        // Corpus PR 1601 (EnTErrorInfoRunAction.al) measures a codeunit of no Subtype with neither OnRun nor TableNo
+        // (73027) and with both (75840); no other shape (assumption errorinfo-add-action-run).
+        let obj = &self.engine.program.objects[o];
+        let on_run = obj
+            .routines
+            .iter()
+            .any(|r| r.is_trigger && r.name.eq_ignore_ascii_case("OnRun"));
+        let table_no = obj.properties.iter().any(|(k, _)| k.eq_ignore_ascii_case("TableNo"));
+        match (
+            crate::transactions::declared_subtype(&obj.properties),
+            on_run == table_no,
+        ) {
+            (None, true) => CodeunitShape::Normal,
+            (None, false) => CodeunitShape::Other("a codeunit with only one of an OnRun trigger and TableNo"),
+            (Some(_), _) => CodeunitShape::Other("a codeunit that declares a Subtype"),
+        }
+    }
     fn workspace_table(&self, number: i32) -> bool {
         self.engine
             .program
