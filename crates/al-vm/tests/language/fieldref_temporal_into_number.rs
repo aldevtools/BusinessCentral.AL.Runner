@@ -1,8 +1,10 @@
-//! `FieldRef.Value()` of a Date, Time or DateTime field converted straight into a number (issues 9265 and 9305): the cells of
-//! corpus PR 1629, recordref-fieldref/fieldref-value-convert/FvcTemporalIntoNumberPlaces.al (assumption
-//! `fieldref-value-temporal-into-number`). Into an Integer, BigInteger, Decimal, Byte or Char the conversion error naming the
-//! .NET type, in every place the probe measured; into a Duration, Option or Boolean the Variant conversion, except a DateTime.
-//! The same value through a Variant converts as pinned (types/date-time/Y62UndefinedDate.al:292,295).
+//! `FieldRef.Value()` of a Date, Time or DateTime field converted straight into a number (issues 9265 and 9305): the
+//! cells of corpus PR 1629 (merged at 778b8fc1),
+//! recordref-fieldref/fieldref-value-convert/FvcTemporalIntoNumberPlaces.al:296-680 (assumption
+//! `fieldref-value-temporal-into-number`). Into an Integer, BigInteger, Decimal, Byte or Char the conversion error
+//! naming the .NET type, in every place the probe measured; into a Duration, Option or Boolean the Variant conversion,
+//! except a DateTime. The same value through a Variant converts as pinned
+//! (types/date-time/Y62UndefinedDate.al:292,295).
 
 const SRC: &str = r#"
 table 50716 TemporalRow { fields { field(1; K; Integer) { } field(2; D; Date) { } field(3; T; Time) { } field(4; Dt; DateTime) { } field(5; IntT; Integer) { } } keys { key(PK; K) { } } }
