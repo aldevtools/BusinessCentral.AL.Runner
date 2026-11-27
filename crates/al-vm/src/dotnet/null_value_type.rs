@@ -138,8 +138,8 @@ const CONSTRUCTORS: &[(&str, Where, &[A])] = &[
 ];
 
 /// A null argument: its declared DotNet type, and the measured place it sits in, if any.
-struct NullArg {
-    ty: String,
+struct NullArg<'a> {
+    ty: &'a str,
     place: Option<Where>,
 }
 
@@ -152,22 +152,17 @@ impl Session {
         Some(self.engine.program.dotnet_types[t as usize].type_name.as_str())
     }
 
-    /// The null argument `i`, when it is a null held by a variable or parameter declared as a DotNet type.
-    fn null_arg(&self, values: &[Value], places: &[Option<ir::Place>], i: usize, f: &Frame) -> Option<NullArg> {
-        if !matches!(values[i], Value::Null) {
+    /// The measured place of the null argument held by `p`, if it sits in one.
+    fn null_place(&self, p: Option<&ir::Place>, f: &Frame) -> Option<Where> {
+        let Some(ir::Place::Local(l)) = p else {
             return None;
-        }
-        let ty = self.dotnet_type_of(places, i, f)?.to_string();
-        let r = &self.engine.program.objects[f.object].routines[f.routine];
-        let is_try = self.engine.routine_facts(f.object, f.routine).is_try;
-        let place = match (&places[i], is_try) {
-            (Some(ir::Place::Local(l)), false) if *l >= r.params => Some(Where::Direct),
-            (Some(ir::Place::Local(l)), true) if *l < r.params && r.by_var.get(*l) == Some(&false) => {
-                Some(Where::TryParam)
-            }
-            _ => None,
         };
-        Some(NullArg { ty, place })
+        let r = &self.engine.program.objects[f.object].routines[f.routine];
+        match self.engine.routine_facts(f.object, f.routine).is_try {
+            false if *l >= r.params => Some(Where::Direct),
+            true if *l < r.params && r.by_var.get(*l) == Some(&false) => Some(Where::TryParam),
+            _ => None,
+        }
     }
 
     /// See the module header: puts the default values in place of the nulls of a measured method call. `Err` raises the
@@ -181,11 +176,21 @@ impl Session {
         places: &[Option<ir::Place>],
         f: &Frame,
     ) -> Result<(), Signal> {
-        let nulls: Vec<Option<NullArg>> = (0..values.len()).map(|i| self.null_arg(values, places, i, f)).collect();
-        if let Some(n) = nulls.iter().flatten().find(|n| UNMEASURED.contains(&n.ty.as_str())) {
+        // The declared DotNet type of each argument held by a variable or parameter, and each null among them.
+        let tys: Vec<Option<&str>> = (0..values.len()).map(|i| self.dotnet_type_of(places, i, f)).collect();
+        let nulls: Vec<Option<NullArg>> = (0..values.len())
+            .map(|i| match (&values[i], tys[i]) {
+                (Value::Null, Some(ty)) => Some(NullArg {
+                    ty,
+                    place: self.null_place(places[i].as_ref(), f),
+                }),
+                _ => None,
+            })
+            .collect();
+        if let Some(n) = nulls.iter().flatten().find(|n| UNMEASURED.contains(&n.ty)) {
             return unsupported(format!("DotNet {member}: a null {} argument (not measured)", n.ty));
         }
-        if !nulls.iter().flatten().any(|n| is_measured(&n.ty)) {
+        if !nulls.iter().flatten().any(|n| is_measured(n.ty)) {
             return Ok(());
         }
         let fits = |place: Where, pattern: &[A]| {
@@ -195,7 +200,7 @@ impl Session {
                     A::Int => matches!(values[i], Value::Integer(_)),
                     A::Text => matches!(values[i], Value::Text(_)),
                     A::DotNet(t) => {
-                        self.dotnet_type_of(places, i, f) == Some(t)
+                        tys[i] == Some(t)
                             && match &values[i] {
                                 Value::DateTime(_) => t == DATE_TIME,
                                 Value::Duration(_) => t == TIME_SPAN,
@@ -221,7 +226,7 @@ impl Session {
         if method {
             assume(Assumption::DotnetNullValueTypeArgument);
             for (v, n) in values.iter_mut().zip(&nulls) {
-                if let Some(d) = n.as_ref().and_then(|n| default_of(&n.ty)) {
+                if let Some(d) = n.as_ref().and_then(|n| default_of(n.ty)) {
                     *v = d;
                 }
             }
