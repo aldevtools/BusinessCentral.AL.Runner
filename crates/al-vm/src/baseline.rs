@@ -841,6 +841,53 @@ mod tests {
         assert_eq!(answer(&shared.store.as_database()), (true, 1), "the shared baseline");
     }
 
+    /// Test data of two companies: table `Names` holds one row in company `D` (and none in `C`).
+    struct TwoCompanyRows;
+
+    impl al_data::memory::Backing for TwoCompanyRows {
+        fn company(&self) -> &str {
+            "C"
+        }
+        fn companies(&self) -> Vec<String> {
+            vec!["C".into(), "D".into()]
+        }
+        fn rows(&self, company: &str, object: u32) -> Option<al_data::memory::Rows> {
+            let row = vec![
+                al_builtins::value::Value::Text("Delta".into()),
+                al_builtins::value::Value::Code("D".into()),
+            ];
+            (company == "D" && object == 11)
+                .then(|| al_data::memory::Rows::from_rows(&names(), vec![row]).ok())
+                .flatten()
+        }
+    }
+
+    // Issue 9233: install code that deletes a company the test data holds rows of (`MemStore::drop_company`) leaves a
+    // company that holds none: a company inserted again under that name starts empty
+    // (record/TestChangeCompanyFiltersCopyDeleteContracts.al:352, :356, :449, :456). A baseline read back from its bytes
+    // and the thawed shared one hold what the captured one holds, so the test data's rows stay gone there too.
+    #[test]
+    fn a_baseline_read_back_from_bytes_keeps_the_companies_install_code_deleted() {
+        use al_data::Store;
+        let backing: std::rc::Rc<dyn al_data::memory::Backing> = std::rc::Rc::new(TwoCompanyRows);
+        let mut store = al_data::memory::MemStore::default()
+            .as_database()
+            .with_backing(backing.clone());
+        let cx = al_data::contract::cx("D");
+        assert_eq!(store.count(&cx, &names(), &[]).unwrap(), 1, "the test data's row");
+        store.drop_company("D");
+        store.commit();
+        let mut b = sample();
+        b.store = store;
+        let answer = |s: &al_data::memory::MemStore| (s.has_company_rows("D"), s.count(&cx, &names(), &[]).unwrap());
+        assert_eq!(answer(&b.store), (false, 0), "the captured baseline");
+        let back = Baseline::from_bytes(&b.to_bytes().unwrap()).unwrap();
+        let read_back = back.store.as_database().with_backing(backing.clone());
+        assert_eq!(answer(&read_back), (false, 0), "read back from its bytes");
+        let thawed = b.freeze().unwrap().thaw(None).store.as_database().with_backing(backing);
+        assert_eq!(answer(&thawed), (false, 0), "the shared baseline");
+    }
+
     /// The rows `--test-data` backs table `Names` with in company `C`: `Alpha`, `ærø` and `Bravo`.
     pub(super) struct NameRows;
 

@@ -63,6 +63,22 @@ fn outcomes_with_baseline(
     data: Option<Arc<dyn al_host::testdata::TableProvider>>,
     run_dependency_baseline: bool,
 ) -> Vec<(String, Outcome)> {
+    let (engine, l, baseline, oi) = compiled(apps, data, run_dependency_baseline);
+    al_testrun::runtime::run_codeunit_from(&engine, &l, oi, baseline.as_ref().map(|b| &b.baseline))
+}
+
+/// `apps` compiled over `data`, with the install baseline of the dependency apps when `run_dependency_baseline`, and the
+/// object index of the test codeunit.
+fn compiled(
+    apps: &[(&str, &[&str], &str)],
+    data: Option<Arc<dyn al_host::testdata::TableProvider>>,
+    run_dependency_baseline: bool,
+) -> (
+    Arc<Engine>,
+    al_sema::lower::Lowered,
+    Option<al_testrun::baseline::BaselineRun>,
+    usize,
+) {
     al_testrun::host::set_companies(al_host::Companies::List(vec![SESSION.into(), OTHER.into()]));
     // The app with id `dep` is a dependency app (ADR-013), the others are under test.
     let roots = al_sema::check::Roots {
@@ -127,7 +143,7 @@ fn outcomes_with_baseline(
                 .any(|(k, v)| k.eq_ignore_ascii_case("Subtype") && v.eq_ignore_ascii_case("Test"))
         })
         .expect("a test codeunit");
-    al_testrun::runtime::run_codeunit_from(&engine, &l, oi, baseline.as_ref().map(|b| &b.baseline))
+    (engine, l, baseline, oi)
 }
 
 fn outcomes(src: &str) -> Vec<(String, Outcome)> {
@@ -719,4 +735,140 @@ fn a_read_of_the_session_company_leaves_the_queue_of_the_other_company() {
     );
     let o = outcomes_of_apps(&[("main", &[], &main)]);
     assert_eq!(o[0].1, Outcome::Pass, "{o:?}");
+}
+
+/// A database whose other company ("My Company") holds one row of table "DC Row".
+struct OtherCompanyRow;
+
+impl al_host::testdata::TableProvider for OtherCompanyRow {
+    fn company(&self) -> &str {
+        SESSION
+    }
+    fn companies(&self) -> Vec<String> {
+        vec![SESSION.into(), OTHER.into()]
+    }
+    fn known_companies(&self) -> Option<Vec<String>> {
+        Some(vec![SESSION.into(), OTHER.into()])
+    }
+    fn source(&self) -> String {
+        "other-row.bak".into()
+    }
+    fn read(
+        &self,
+        t: &al_host::testdata::TableRequest,
+    ) -> Result<Arc<al_host::testdata::TableRows>, al_host::testdata::TableError> {
+        self.read_for_company(SESSION, t)
+    }
+    fn read_for_company(
+        &self,
+        company: &str,
+        t: &al_host::testdata::TableRequest,
+    ) -> Result<Arc<al_host::testdata::TableRows>, al_host::testdata::TableError> {
+        match (t.name.as_str(), company) {
+            ("DC Row", OTHER) => Ok(Arc::new(al_host::testdata::TableRows {
+                columns: vec!["Id".into()],
+                rows: vec![vec![al_host::testdata::Cell::Int(1)]],
+            })),
+            _ => Err(al_host::testdata::TableError::Absent),
+        }
+    }
+}
+
+/// A Base Application with the Company table and table "DC Row", and install code `install` (an install codeunit's body,
+/// or nothing).
+fn deleting_base(install: &str) -> String {
+    format!(
+        "{COMPANY_TABLE}
+        table 70100 \"DC Row\" {{ fields {{ field(1; Id; Integer) {{ }} }} keys {{ key(PK; Id) {{ }} }} }}
+        {install}"
+    )
+}
+
+/// An install codeunit that deletes "My Company" with its Company row.
+const DELETES_MY_COMPANY: &str = "codeunit 70101 \"DC Installer\" { Subtype = Install;
+    trigger OnInstallAppPerDatabase() var Co: Record Company; begin Co.Get('My Company'); Co.Delete(true); end; }";
+
+/// A test codeunit `id` whose tests read "My Company" after the install code deleted it.
+fn deleted_company_tests(id: u32) -> String {
+    format!(
+        "codeunit {id} \"DC Tests {id}\" {{ Subtype = Test;
+            [Test] procedure TheDeletedCompanyIsGone() var Co: Record Company; R: Record \"DC Row\"; begin
+                if Co.Get('My Company') then Error('the Company row is still there');
+                if R.ChangeCompany('My Company') then Error('ChangeCompany answered true');
+            end;
+            [Test] procedure ACompanyMadeAgainStartsEmpty() var Co: Record Company; R: Record \"DC Row\"; begin
+                Co.Name := 'My Company'; Co.Insert();
+                if not R.ChangeCompany('My Company') then Error('ChangeCompany answered false');
+                if R.Count() <> 0 then Error('count=%1', R.Count());
+            end; }}"
+    )
+}
+
+// Issue 9233: install code deletes a company whose rows the restored database holds. BC: ChangeCompany to it answers false,
+// and a company inserted again under its name starts empty (record/TestChangeCompanyFiltersCopyDeleteContracts.al:352,
+// :356, :449, :456). Every copy of the install baseline a test session starts from gives that answer: the captured one (the
+// install thread), the thawed shared one (the other test threads) and the one read back from its bytes (a thread's own
+// copy, the baseline cache).
+#[test]
+fn a_company_install_code_deleted_starts_empty_on_every_baseline_copy() {
+    let (engine, l, run, oi) = compiled(
+        &[
+            (BASE_APP, &[], &deleting_base(DELETES_MY_COMPANY)),
+            ("main", &[BASE_APP], &deleted_company_tests(70102)),
+        ],
+        Some(Arc::new(OtherCompanyRow)),
+        true,
+    );
+    let captured = run.expect("the install baseline").baseline;
+    let thawed = captured.freeze().expect("frozen").thaw(Some(&engine));
+    let bytes = captured.to_bytes().expect("bytes");
+    let read_back = al_vm::Baseline::from_bytes(&bytes)
+        .expect("read back")
+        .backed_by(&engine);
+    for (copy, b) in [("captured", &captured), ("thawed", &thawed), ("read back", &read_back)] {
+        let o = al_testrun::runtime::run_codeunit_from(&engine, &l, oi, Some(b));
+        assert_eq!(o.len(), 2, "{copy}: {o:?}");
+        for (t, x) in &o {
+            assert_eq!(*x, Outcome::Pass, "{copy}: {t}");
+        }
+    }
+}
+
+// Issue 9233, install code of the app under test, run once for the run (al-testrun `install_once.rs`): each test codeunit's
+// session starts from what it left, frozen and thawed, and finds the company it deleted empty when made again
+// (record/TestChangeCompanyFiltersCopyDeleteContracts.al:352, :356, :449, :456).
+#[test]
+fn a_company_install_code_run_once_deleted_starts_empty_in_every_test_codeunit() {
+    al_testrun::host::set_companies(al_host::Companies::List(vec![SESSION.into(), OTHER.into()]));
+    let main = format!(
+        "{DELETES_MY_COMPANY}\n{}\n{}",
+        deleted_company_tests(70102),
+        deleted_company_tests(70103)
+    );
+    let app = |id: &str, deps: &[&str], src: String| AppSource {
+        id: id.into(),
+        name: id.into(),
+        dependencies: deps.iter().map(|d| (*d).to_string()).collect(),
+        files: vec![(format!("{id}.al"), src)],
+    };
+    let rt = al_testrun::runtime::CorpusRuntime::try_run_suites_with(
+        vec![app(BASE_APP, &[], deleting_base("")), app("main", &[BASE_APP], main)],
+        vec![al_sema::AppKind::Dependency, al_sema::AppKind::Workspace],
+        &[],
+        &Default::default(),
+        None,
+        Default::default(),
+        &[al_testrun::runtime::SuiteRun::everything()],
+        &al_testrun::runtime::RunOptions {
+            test_data: Some(al_host::testdata::TestData::new(Arc::new(OtherCompanyRow))),
+            ..Default::default()
+        },
+    )
+    .expect("the run starts");
+    let got: Vec<(u32, String, Outcome)> = (rt.results().iter())
+        .map(|r| (r.codeunit, r.test.clone(), r.outcome.clone()))
+        .collect();
+    assert_eq!(got.len(), 4, "{got:?}");
+    assert!(got.iter().all(|(_, _, o)| *o == Outcome::Pass), "{got:?}");
+    assert_eq!(rt.phases.install_runs, 1, "the install code ran once: {got:?}");
 }
