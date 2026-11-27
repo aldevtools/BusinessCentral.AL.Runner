@@ -1413,6 +1413,7 @@ fn reply_of(v: Value) -> Result<DotNetReply, DotNetFailure> {
             e[0].as_u64().unwrap_or(0),
             e[1].as_u64().unwrap_or(0) as usize,
             unbase64(e[2].as_str().unwrap_or("")),
+            al_host::dotnet::Rewrite::from_tag(e[3].as_str().unwrap_or("")),
         ));
     }
     fx.overwritten = s["overwritten"]

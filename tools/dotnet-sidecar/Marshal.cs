@@ -61,24 +61,40 @@ public sealed class Marshaller
     // Compression makes `ZipArchive(OutStream, ZipArchiveMode.Update, false, Encoding)` over a Blob it copied a zip into, and the
     // archive's Dispose rewrites that zip: the Blob then holds the archive's whole final content (corpus
     // tests/al-language/streams/blob-tempblob/ZipBlobFieldUpdate.al:5-8, lengths 119 and 216 at :7; al-runner issue 8360).
-    // Facts read, each by equality: a ZipArchive made by the four-argument constructor, its Mode Update, its stream a bridge that
-    // started with the Blob's bytes; the call is that archive's Dispose with no argument, written `Dispose()` or `Dispose;` (one
-    // AL call). Every other writer keeps the refusal of [Bridge].
-    readonly System.Runtime.CompilerServices.ConditionalWeakTable<System.IO.Compression.ZipArchive, Bridge> updateArchives = new();
+    // Facts read, each by equality: a ZipArchive made by a constructor of two, three or four arguments, its Mode Update, its
+    // stream a bridge that started with the Blob's bytes; the call is that archive's Dispose with no argument, written
+    // `Dispose()` or `Dispose;` (one AL call). The host decides which of these rewrites it serves ([Bridge.ReplacedKind]: the
+    // pin above is the four-argument one; the two- and three-argument ones only over a fresh CreateOutStream, assumption
+    // zip-blob-writes). Every other writer keeps the refusal of [Bridge].
+    sealed record UpdateOf(Bridge Bridge, int Arity);
+    readonly System.Runtime.CompilerServices.ConditionalWeakTable<System.IO.Compression.ZipArchive, UpdateOf> updateArchives = new();
 
     public void NoteConstructed(object? obj, object?[] coerced)
     {
         if (obj is System.IO.Compression.ZipArchive { Mode: System.IO.Compression.ZipArchiveMode.Update } za
-            && coerced.Length == 4 && coerced[0] is Bridge { Seeded: true } b)
-            updateArchives.AddOrUpdate(za, b);
+            && coerced.Length is 2 or 3 or 4 && coerced[0] is Bridge { Seeded: true } b)
+            updateArchives.AddOrUpdate(za, new UpdateOf(b, coerced.Length));
+        // The writers of a bridge, for [Bridge.OverwriteMeasured]: StreamWriter(OutStream) is the measured one.
+        if (obj is StreamWriter && coerced.Length > 0 && coerced[0] is Bridge w)
+        {
+            if (coerced.Length == 1) w.PlainWriters++;
+            else w.OtherWriters++;
+        }
     }
 
     /// The bridge whose seed this call may rewrite ([Bridge.RewriteAllowed]), or null.
-    public Bridge? RewriteBridge(object? target, string member, int argc) =>
-        target is System.IO.Compression.ZipArchive za && member == "Dispose" && argc == 0
-            && updateArchives.TryGetValue(za, out var b) ? b : null;
+    public Bridge? RewriteBridge(object? target, string member, int argc)
+    {
+        if (target is System.IO.Compression.ZipArchive za && member == "Dispose" && argc == 0
+            && updateArchives.TryGetValue(za, out var u))
+        {
+            u.Bridge.RewriteKind = u.Arity == 4 ? "update4" : "update";
+            return u.Bridge;
+        }
+        return null;
+    }
 
-    /// The bridges a call rewrote ([Bridge.Replaced]), as [[id, bytes the Blob held before, base64 of the whole content], ...].
+    /// The bridges a call rewrote ([Bridge.Replaced]), as [[id, bytes the Blob held before, base64 of the whole content, kind], ...].
     /// Filled by [DrainBridges].
     public JsonArray Replaced { get; } = new();
 
@@ -104,7 +120,7 @@ public sealed class Marshaller
             if (!b.TryGetBuffer(out var buf)) buf = new ArraySegment<byte>(b.ToArray());
             if (b.Replaced)
             {
-                Replaced.Add(new JsonArray(id, b.Drained, Convert.ToBase64String(buf.Array!, buf.Offset, buf.Count)));
+                Replaced.Add(new JsonArray(id, b.Drained, Convert.ToBase64String(buf.Array!, buf.Offset, buf.Count), b.ReplacedKind));
                 b.Drained = buf.Count;
                 b.Replaced = false;
             }
@@ -256,16 +272,24 @@ public sealed class Marshaller
 /// appends only what is written after them. A write over the seed (or a length below it) is refused (al-runner issue 6317). A
 /// write over bytes handed back later, or a length below them, sets [Overwritten]: the call goes on, as in BC
 /// (tests/al-language-onprem-dotnet/dotnet/zip-create/Y44ZipCreateMode.al, Zip_OpenTemporaryNoCopy_SecondCreate), and the host
-/// marks the Blob, as what it then holds is not pinned (al-runner issue 7947). While [RewriteAllowed] (the one pinned writer,
-/// [Marshaller.RewriteBridge]) a write over those bytes sets [Replaced] instead: the host replaces the Blob's bytes with the
-/// whole content.
+/// marks the Blob, as what it then holds is not pinned (al-runner issue 7947), unless [OverwriteMeasured]. While [RewriteAllowed]
+/// (the one pinned writer, [Marshaller.RewriteBridge]) a write over those bytes sets [Replaced] instead: the host replaces the
+/// Blob's bytes with the whole content. [ReplacedKind] says which writer did: "update4" or "update" (a ZipArchive in Update
+/// mode, made with four or with two or three arguments) or "overwrite" ([OverwriteMeasured]); the host gates each.
 public sealed class Bridge : MemoryStream
 {
     readonly int seeded;
     public int Drained;
     public bool Overwritten;
     public bool RewriteAllowed;
+    public string RewriteKind = "update4";
     public bool Replaced;
+    public string ReplacedKind = "update4";
+    public int PlainWriters;
+    public int OtherWriters;
+    /// AL set `Position` of this stream to 0 ([Server] "set"), or AL's `SetLength` call on it runs.
+    public bool AlPositionZero;
+    public bool AlSetLength;
     public bool Seeded => seeded > 0;
 
     public Bridge(byte[] seed)
@@ -275,16 +299,28 @@ public sealed class Bridge : MemoryStream
         Drained = seed.Length;
     }
 
+    // The measured .NET overwrite of handed-back bytes (corpus PR 1633, tests/al-language-onprem-dotnet/dotnet/zip-blob-writes/
+    // ZipBlobDotNetOverwrite.al, al-runner issue 7947; assumption zip-blob-writes): a bridge that started empty, whose one writer
+    // is a StreamWriter made with the stream alone, after AL set its Position to 0 or while AL's SetLength runs. The host hands
+    // the whole content to the Blob only when the Blob held just the bridge's bytes.
+    bool OverwriteMeasured => seeded == 0 && PlainWriters == 1 && OtherWriters == 0 && (AlPositionZero || AlSetLength);
+
     void Check(long at)
     {
         if (RewriteAllowed && at < Drained)
         {
             Replaced = true;
+            ReplacedKind = RewriteKind;
             return;
         }
         if (at < seeded)
             throw new Refusal("a .NET write over the bytes an AL OutStream held before the call (what the Blob then holds is not pinned)");
-        if (at < Drained) Overwritten = true;
+        if (at < Drained && OverwriteMeasured)
+        {
+            Replaced = true;
+            ReplacedKind = "overwrite";
+        }
+        else if (at < Drained) Overwritten = true;
     }
 
     public override void Write(byte[] buffer, int offset, int count) { if (count > 0) Check(Position); base.Write(buffer, offset, count); }

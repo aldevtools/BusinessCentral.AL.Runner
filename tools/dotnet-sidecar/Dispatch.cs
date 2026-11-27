@@ -277,6 +277,7 @@ public sealed class Server
                 {
                     var v = Coerce(value, prop.PropertyType) ?? throw new Refusal($"cannot assign {Describe(value)} to {type.FullName}.{name} ({prop.PropertyType.FullName})");
                     prop.SetValue(prop.SetMethod.IsStatic ? null : target, v.Value);
+                    if (target is Bridge b && name == "Position" && v.Value is 0L) b.AlPositionZero = true;
                     return Done(null, null, null, null);
                 }
                 var field = type.GetField(name, flags);
@@ -329,6 +330,8 @@ public sealed class Server
     {
         var rewrite = marshal.RewriteBridge(target, m.Name, coerced.Length);
         if (rewrite != null) rewrite.RewriteAllowed = true;
+        var cut = target is Bridge cb && m.Name == "SetLength" ? cb : null;
+        if (cut != null) cut.AlSetLength = true;
         try { return m.Invoke(m.IsStatic ? null : target, coerced); }
         catch (TargetInvocationException) when (rewrite is { Replaced: true })
         {
@@ -337,7 +340,11 @@ public sealed class Server
             rewrite.Replaced = false;
             throw new Refusal("a .NET rewrite of the bytes an AL OutStream held, then an exception (not pinned)");
         }
-        finally { if (rewrite != null) rewrite.RewriteAllowed = false; }
+        finally
+        {
+            if (rewrite != null) rewrite.RewriteAllowed = false;
+            if (cut != null) cut.AlSetLength = false;
+        }
     }
 
     static bool PlainParameters(MethodBase m) => m.GetParameters().All(p => p.ParameterType.IsByRef == false);

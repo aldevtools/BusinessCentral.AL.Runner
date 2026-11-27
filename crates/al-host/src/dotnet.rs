@@ -109,11 +109,35 @@ pub struct StreamEffects {
     /// The bridges a .NET write went over bytes they had handed back, or set below them, since the last reply: the VM marks
     /// their Blobs (`al_builtins::stream::DOTNET_BRIDGE_OVERWRITTEN`).
     pub overwritten: Vec<u64>,
-    /// The bridges whose whole content the one pinned writer rewrote (a ZipArchive opened in Update mode, disposed; al-runner
-    /// issue 8360), as (bridge id, bytes the Blob held before the call, the whole new content): the VM replaces the Blob's bytes.
-    pub replaced: Vec<(u64, usize, Vec<u8>)>,
+    /// The bridges whose whole content a writer the helper allows rewrote, as (bridge id, bytes the Blob held before the call,
+    /// the whole new content, which writer, `None` for a tag the VM does not know): the VM replaces the Blob's bytes when its
+    /// gate for that writer holds.
+    pub replaced: Vec<(u64, usize, Vec<u8>, Option<Rewrite>)>,
     /// The helper bound an AL Text argument to a `System.Guid` parameter (assumption `dotnet-text-argument-as-guid`); the VM marks it.
     pub text_converted_to_guid: bool,
+}
+
+/// Which writer rewrote a bridge's handed-back bytes (`StreamEffects::replaced`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rewrite {
+    /// The Dispose of a ZipArchive made in Update mode by the four-argument constructor (al-runner issue 8360).
+    ZipUpdate4,
+    /// The Dispose of a ZipArchive made in Update mode by the two- or three-argument constructor.
+    ZipUpdate,
+    /// A StreamWriter made with the stream alone, after AL set the stream's Position to 0 or called its SetLength.
+    Overwrite,
+}
+
+impl Rewrite {
+    /// The helper's tag: "update4", "update" or "overwrite"; another tag is none of them.
+    pub fn from_tag(tag: &str) -> Option<Rewrite> {
+        match tag {
+            "update4" => Some(Rewrite::ZipUpdate4),
+            "update" => Some(Rewrite::ZipUpdate),
+            "overwrite" => Some(Rewrite::Overwrite),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
