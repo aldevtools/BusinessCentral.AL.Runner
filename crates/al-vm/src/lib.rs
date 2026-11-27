@@ -869,6 +869,10 @@ pub struct Session {
     pub(crate) frames: Vec<usize>,
     /// Set by `exec/run.rs` `run_iface` around an interface call, taken by the callee's frame (`records::ByValueCall`).
     pub(crate) next_interface_call: bool,
+    /// Per argument of the next call, set by `exec/run.rs` `run_call`: a plain local of a procedure of the callee's own
+    /// table or table extension, on the same instance (`Session::own_local_args`); taken by the callee's frame
+    /// (`records::ByValueCall`).
+    pub(crate) next_own_locals: Vec<bool>,
     /// The state of each table element without LinkTable right below another table element at the end of its last pass of the
     /// running export, by (xmlport instance address, node) (`xmlports.rs` `xp_unlinked_pass_start`).
     pub(crate) xp_unlinked_passes: Vec<(usize, usize, xmlports::UnlinkedPass)>,
@@ -1498,6 +1502,7 @@ impl Session {
             var_alias_watch: Vec::new(),
             frames: Vec::new(),
             next_interface_call: false,
+            next_own_locals: Vec::new(),
             call_stack: Vec::new(),
             error_raised_in: None,
             runner_frames: String::new(),
@@ -2458,6 +2463,7 @@ impl Session {
             subscriber,
             std::mem::take(&mut self.next_interface_call),
             std::mem::take(&mut self.events.next_event_args),
+            std::mem::take(&mut self.next_own_locals),
         );
         let measured_event = std::mem::take(&mut self.events.next_blob_event);
         self.note_routine(object, routine);

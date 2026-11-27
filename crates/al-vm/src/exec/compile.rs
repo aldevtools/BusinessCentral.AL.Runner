@@ -589,6 +589,7 @@ impl<'a> Compiler<'a> {
                     args: site_args,
                     try_call: *try_call,
                     field_reads: self.field_reads(args),
+                    local_values: self.local_values(args),
                 });
                 let s = (self.chunk.calls.len() - 1) as u32;
                 self.emit(Op::Call { s, d });
@@ -1526,6 +1527,21 @@ impl<'a> Compiler<'a> {
             .filter_map(|(i, a)| match a {
                 ir::Arg::Value(e) => Some((u16::try_from(i).ok()?, self.blob_field_read(e)?)),
                 ir::Arg::Ref(_) => None,
+            })
+            .collect()
+    }
+
+    /// The by-value arguments of a call that are a plain local of this routine, not a parameter
+    /// (`CallSite::local_values`). A record argument is lowered into its parameter's type (`Convert(Record,
+    /// Load(Local))`).
+    fn local_values(&self, args: &'a [ir::Arg]) -> Box<[u16]> {
+        let local = |e: &ir::Expr| matches!(e, ir::Expr::Load(ir::Place::Local(slot)) if *slot >= self.params);
+        args.iter()
+            .enumerate()
+            .filter_map(|(i, a)| match a {
+                ir::Arg::Value(ir::Expr::Convert(RtType::Record(..), e)) if local(e) => u16::try_from(i).ok(),
+                ir::Arg::Value(e) if local(e) => u16::try_from(i).ok(),
+                _ => None,
             })
             .collect()
     }

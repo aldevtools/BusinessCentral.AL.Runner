@@ -16,7 +16,10 @@
 //! assumption `by-value-table-proc-other-table`, corpus PR 1451), or a report's procedure called by
 //! name from the report itself, a codeunit or a page (al-runner issue 8386, assumption `by-value-
 //! report-procedure`, corpus PR 1450, which also covers a FlowField key with a SetLoadFields before a
-//! read handed from a codeunit) (`measured_callee`, which names the assumption, from the call's
+//! read handed from a codeunit), or a procedure of a table or table extension called without a receiver from a
+//! procedure of the same object with a plain local record of the table (`Proc(Local)`, al-runner issue 8596, assumption
+//! `by-value-own-table-local-copy`, corpus PR 1578; `own_local_args`, set by `exec/run.rs` `run_call`)
+//! (`measured_callee`, which names the assumption, from the call's
 //! `ByValueCall`: callee, instance, and `Dispatch` direct, subscriber or interface), the view of a
 //! fresh record (`primary_view`) when every filter is in group -1, 0, 2 or 4 (or is the data item's
 //! own `DataItemTableView`, handed from its `OnAfterGetRecord` to a codeunit's or its report's
@@ -67,7 +70,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 /// The `RecordState::unpinned_buffer` reason of a by-value copy whose view [`Session::by_value_view`] does not decide.
-pub(crate) const BY_VALUE_VIEW: &str = "a record handed by value whose view the probe did not measure (a filter in filter group 1 or in a group other than -1, 0, 2 and 4, the caller standing in a group other than 0 and 2, a field sorted descending by SetAscending, a SetLoadFields and a read before the hand-off other than from a codeunit to a codeunit's procedure with every filter in group 0, ascending and without marks or an ad hoc key, or with the row cleared, initialized or changed since the read, a SetAutoCalcFields outside the measured shape or ReadIsolation on the record, a call through an interface, a parameter of an object other than a codeunit, of a report procedure called from other than the report, a codeunit or a page, a key on a FlowField with a filter, another order, marks, or a SetLoadFields before a read other than handed from a codeunit to a codeunit's or a report's procedure, or of a table procedure other than Row.Proc(Row) or Buffer.Proc(Entry) of another table from a codeunit or a third table, or an event subscriber's parameter whose publisher parameter is a by-value Record, other than in the one cell record/filters/ByValueRecordView.al:286-308 and :964-978 measures): what the copy's view holds is not pinned";
+pub(crate) const BY_VALUE_VIEW: &str = "a record handed by value whose view the probe did not measure (a filter in filter group 1 or in a group other than -1, 0, 2 and 4, the caller standing in a group other than 0 and 2, a field sorted descending by SetAscending, a SetLoadFields and a read before the hand-off other than from a codeunit to a codeunit's procedure with every filter in group 0, ascending and without marks or an ad hoc key, or with the row cleared, initialized or changed since the read, a SetAutoCalcFields outside the measured shape or ReadIsolation on the record, a call through an interface, a parameter of an object other than a codeunit, of a report procedure called from other than the report, a codeunit or a page, a key on a FlowField with a filter, another order, marks, or a SetLoadFields before a read other than handed from a codeunit to a codeunit's or a report's procedure, or of a table procedure other than Row.Proc(Row) or Buffer.Proc(Entry) of another table from a codeunit or a third table, or Proc(Local) of a local record from a procedure of the same table or table extension, or an event subscriber's parameter whose publisher parameter is a by-value Record, other than in the one cell record/filters/ByValueRecordView.al:286-308 and :964-978 measures): what the copy's view holds is not pinned";
 
 /// The `RecordState::unpinned_buffer` reason of the copy an event subscriber's parameter gets in the cell
 /// record/filters/ByValueRecordView.al:286-308 measures ([`subscriber_view`]): the subscriber reads GetFilters and Count of it
@@ -138,17 +141,21 @@ pub(crate) struct ByValueCall<'a> {
     instance: &'a Rc<RefCell<Instance>>,
     dispatch: Dispatch,
     event_args: Vec<EventArg>,
+    /// Per argument: [`Session::own_local_args`] says it is a plain local of a procedure of the callee's own object.
+    own_locals: Vec<bool>,
 }
 
 impl<'a> ByValueCall<'a> {
     /// `subscriber` and `interface`: the call is an event raise or an interface call; `event_args`: per parameter of a
-    /// subscriber, what [`Session::event_args`] says of it (each taken once, at the call).
+    /// subscriber, what [`Session::event_args`] says of it; `own_locals`: per argument, what
+    /// [`Session::own_local_args`] says of it (each taken once, at the call).
     pub(crate) fn new(
         callee: usize,
         instance: &'a Rc<RefCell<Instance>>,
         subscriber: bool,
         interface: bool,
         event_args: Vec<EventArg>,
+        own_locals: Vec<bool>,
     ) -> Self {
         let dispatch = match (subscriber, interface) {
             (true, _) => Dispatch::Subscriber,
@@ -160,7 +167,14 @@ impl<'a> ByValueCall<'a> {
             instance,
             dispatch,
             event_args,
+            own_locals,
         }
+    }
+
+    /// Whether argument `index` is a plain local of a procedure of the callee's own object
+    /// ([`Session::own_local_args`]).
+    fn own_local(&self, index: usize) -> bool {
+        self.own_locals.get(index).copied().unwrap_or(false)
     }
 
     /// What [`Session::event_args`] says of parameter `index` of a subscriber; [`EventArg::Main`] for one it left out.
@@ -439,6 +453,30 @@ impl Session {
             .collect()
     }
 
+    /// Per argument of the call `site` from frame `f`, whether it is a plain local variable (not a parameter) of the
+    /// calling routine, in the shape corpus PR 1578 measures (record/filters/ByValueOwnTableLocalCopy.al `CallerT`
+    /// :53-62 and `CallerX` :134-143, al-runner issue 8596): the callee is a procedure (not an event publisher) of a
+    /// table or table extension, the caller is a procedure, not a trigger, of the same object, and the call has no
+    /// receiver, so it runs on the caller's own instance (`call_site`). Empty for every other call; set by
+    /// `exec/run.rs` `run_call` into `next_own_locals`, read by [`Session::measured_callee`].
+    pub(crate) fn own_local_args(&self, site: &crate::exec::CallSite, f: &crate::Frame) -> Vec<bool> {
+        let o = &self.engine.program.objects[site.object];
+        let shape = site.instance.is_none()
+            && f.object == site.object
+            && matches!(o.kind, ObjKind::Table | ObjKind::TableExtension)
+            // The caller's routine, of the callee's object (checked above).
+            && !o.routines[f.routine].is_trigger
+            && !self.engine.routine_facts(site.object, site.routine).publisher;
+        if !shape {
+            return Vec::new();
+        }
+        let mut locals = vec![false; site.arg_regs.len()];
+        for &i in &site.local_values {
+            locals[i as usize] = true;
+        }
+        locals
+    }
+
     /// The evidence for `source` handed by value to a Record parameter of type `param` of the procedure of `call`, called by
     /// name; `None` when there is none. An interface call is not measured.
     /// - [`Evidence::Pinned`] (record/filters/ByValueRecordView.al): a codeunit's procedure (`BVV
@@ -466,7 +504,14 @@ impl Session {
     ///   `_FromCodeunit_*` (:1378, :1411-1539), a page action hands a local record in `_FromPageAction` (:1396) and the page's
     ///   own Rec in `_FromPageRec_SourceTableView` (:1620) and `_FromPageRec_UserFilter` (:1636). Base Application's report
     ///   99001026 "Replan Production Order" calls DeleteProdOrders this way (al-runner issue 8386).
-    fn measured_callee(&self, call: &ByValueCall, param: &RtType, source: &Rec) -> Option<Evidence> {
+    /// - `by-value-own-table-local-copy` (corpus PR 1578, record/filters/ByValueOwnTableLocalCopy.al, merged, not
+    ///   pinned yet; al-runner issue 8596): a procedure of the parameter's own table, or of a table extension of it,
+    ///   called without a receiver from a procedure of the same object with a plain local record as argument `index`:
+    ///   `CalleeT(Item, Op)` from `CallerT` (:53-71) and `CalleeX(Item, Op)` from `CallerX` (:134-152), cells :163-303
+    ///   (`before op: No.=A1 Net=60 Count=2 ... GetFilters=[] ... FilterGroup()=0` after a caller view of a FlowFilter
+    ///   or a Normal-field filter) ([`Session::own_local_args`]). Rec, xRec, a global or a parameter as the argument, a
+    ///   call on another record, from a trigger or from another object are not measured.
+    fn measured_callee(&self, call: &ByValueCall, param: &RtType, source: &Rec, index: usize) -> Option<Evidence> {
         let objects = &self.engine.program.objects;
         let callee = &objects[call.callee];
         let RtType::Record(param_table, false) = param else {
@@ -474,7 +519,18 @@ impl Session {
         };
         let caller = self.frames.last().map(|&o| (o, objects[o].kind));
         let from_codeunit = matches!(caller, Some((_, ObjKind::Codeunit)));
+        let own_table = match callee.kind {
+            ObjKind::Table => call.callee == *param_table as usize,
+            // `extends_id` is the base table's object id.
+            ObjKind::TableExtension => objects
+                .get(*param_table as usize)
+                .is_some_and(|t| t.kind == ObjKind::Table && t.id.is_some() && callee.extends_id == t.id),
+            _ => false,
+        };
         match (call.dispatch, callee.kind) {
+            (Dispatch::Direct, ObjKind::Table | ObjKind::TableExtension) if own_table && call.own_local(index) => {
+                Some(Evidence::Assumed(Assumption::ByValueOwnTableLocalCopy))
+            }
             (Dispatch::Direct, ObjKind::Codeunit) => Some(Evidence::Pinned),
             (Dispatch::Direct, ObjKind::Report) => matches!(caller, Some((o, kind))
                 if o == call.callee || matches!(kind, ObjKind::Codeunit | ObjKind::Page))
@@ -539,7 +595,7 @@ impl Session {
             subscriber_view(&s, copy, call.event_arg(index), self.cell_record(&s));
             return;
         }
-        let measured = self.measured_callee(call, param, source);
+        let measured = self.measured_callee(call, param, source, index);
         let callee_kind = self.engine.program.objects[call.callee].kind;
         // A data item that still holds its DataItemTableView, handed from its OnAfterGetRecord to a codeunit's procedure or to
         // its report's own procedure: BC hands none of those filters (corpus PR 1450, record/filters/ByValueRecordView.al
