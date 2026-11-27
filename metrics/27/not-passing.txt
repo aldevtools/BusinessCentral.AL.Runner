@@ -590,7 +590,6 @@
 70535 PW_TriggerError_InPreReport_LastError
 70540 TextOrder_BaseLetterAccentCase
 70540 TextOrder_Punctuation
-70551 Arithmetic_ErrorTexts
 70551 KeyRef_FieldIndexPastKey
 70555 DateFormulaControl_Spellings
 70555 DurationControl_Spellings
