@@ -8,3 +8,5 @@ CWT Test::Tree_OwnerClearAll_Reprimed_P1	ASSUMED clear-all-register-tree (corpus
 CWT Test::Tree_OwnerClearAll_Reprimed_S1	ASSUMED clear-all-register-tree (corpus PR 1620)
 CWT Test::Tree_PlainHolderOfSiClearAll	ASSUMED clear-all-register-tree (corpus PR 1620)
 CWT Test::Tree_RegisterClearAll	ASSUMED clear-all-register-tree (corpus PR 1620)
+CWR Bulk Test::Assumed_RecordRefDeleteAll	ASSUMED clear-all-register-tree (corpus PR 1620)
+CWR Bulk Test::Assumed_TempDeleteAll	ASSUMED clear-all-register-tree (corpus PR 1620)
