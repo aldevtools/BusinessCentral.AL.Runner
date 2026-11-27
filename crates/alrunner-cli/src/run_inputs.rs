@@ -183,7 +183,7 @@ impl RunInputs {
             test_timeout_secs,
             skip_after_timeout,
             stop_after_first_failure,
-            stop_after_timeout: _,
+            stop_after_timeout,
             // Without a usable .NET the run stops: no outcome is stored.
             require_dotnet: _,
             require_report_renderer,
@@ -297,6 +297,8 @@ impl RunInputs {
         // A test after a failure is not run.
         r.outcome
             .push(("stop_after_first_failure", text(stop_after_first_failure)));
+        // A test after a timeout is not run.
+        r.outcome.push(("stop_after_timeout", text(stop_after_timeout)));
         // A save that needs the renderer refuses without it.
         r.outcome
             .push(("require_report_renderer", text(require_report_renderer)));

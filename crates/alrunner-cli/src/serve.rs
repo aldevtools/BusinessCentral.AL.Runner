@@ -46,6 +46,7 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "strictEnvironment",
     "skipAfterTimeout",
     "stopAfterFirstFailure",
+    "stopAfterTimeout",
     "testTimeoutSecs",
     "entries",
     "seed",
@@ -408,6 +409,10 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
     if fields.get("stopAfterFirstFailure").is_some_and(|v| !v.is_null()) {
         a.stop_after_first_failure = flag(fields, "stopAfterFirstFailure")?;
     }
+    // Issue 9213: absent or `null`, the server's `--stop-after-timeout`.
+    if fields.get("stopAfterTimeout").is_some_and(|v| !v.is_null()) {
+        a.stop_after_timeout = flag(fields, "stopAfterTimeout")?;
+    }
     // Issue 8125: absent, the server's `--test-timeout-secs` or environment variable (`run::test_timeout_secs`).
     if let Some(n) = test_timeout_secs(fields)? {
         a.test_timeout_secs = Some(n);
@@ -572,8 +577,8 @@ fn stop_group(e: &Map<String, Value>) -> Result<Option<String>, String> {
 }
 
 /// The `stopGroup`s of `entries` are all or none (issue 8210): a mix is refused, as an entry without a group has more
-/// than one plausible reading there, and a refusal can be lifted later. Groups need the stop after a failure (`stop`:
-/// the request's field, or the server's `--stop-after-first-failure` when it is absent): without the stop a group
+/// than one plausible reading there, and a refusal can be lifted later. Groups need a stop (`stop`: after a failure or,
+/// issue 9213, after a timeout; the request's field, or the server's option when it is absent): without one a group
 /// changes nothing, so it is refused as a likely client mistake. The mix is checked first: it is wrong whatever the
 /// stop.
 fn stop_groups_checked(entries: &[run::Entry], stop: bool) -> Result<(), String> {
@@ -582,7 +587,7 @@ fn stop_groups_checked(entries: &[run::Entry], stop: bool) -> Result<(), String>
         return Err("some entries have a `stopGroup` and some do not: give every entry one (an entry that stops alone gets a group of its own), or none (a failure then stops the whole request)".into());
     }
     if !stop && grouped > 0 {
-        return Err("`stopGroup` needs `stopAfterFirstFailure` (or a server started with `--stop-after-first-failure`): without the stop a group changes nothing".into());
+        return Err("`stopGroup` needs `stopAfterFirstFailure` or `stopAfterTimeout` (or a server started with `--stop-after-first-failure` or `--stop-after-timeout`): without a stop a group changes nothing".into());
     }
     Ok(())
 }
@@ -596,7 +601,7 @@ fn run_tests(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, fl
         Ok(x) => x,
         Err(e) => return error(e),
     };
-    if let Err(e) = stop_groups_checked(&entries, args.stop_after_first_failure) {
+    if let Err(e) = stop_groups_checked(&entries, args.stop_after_first_failure || args.stop_after_timeout) {
         return error(e);
     }
     if let Ok(mut v) = flags.entry_ids.lock() {

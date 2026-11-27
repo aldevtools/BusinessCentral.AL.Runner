@@ -1277,6 +1277,10 @@ OTHER
                          failed test. Each test codeunit stops on its own; every other test codeunit of
                          the same entry, or of a request without entries, still runs. A selection then runs only the tests it picks, as --run-selected-only.
                          `serve`: a start option; a runTests request can set `stopAfterFirstFailure`.
+    --stop-after-timeout  Once the time limit stops a test, do not run the rest of its codeunit nor, in
+                         `serve`, the later entries (with `stopGroup`s, of its group): as
+                         --stop-after-first-failure, for a timeout instead of a failure; with both, the
+                         first. `serve`: a start option; a runTests request can set `stopAfterTimeout`.
     --dotnet-sidecar PATH, --dotnet-assembly-dir DIR, --dotnet-allow-roll-forward,
     --dotnet-timeout-secs N, --require-dotnet     The optional .NET helper (ADR-014).
     --require-report-renderer  A save whose real Html needs BC's own Word merger and converter refuses
@@ -1731,6 +1735,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--test-timeout-secs" | "--test-timeout" => a.test_timeout_secs = Some(number(&flag, &text()?)? as u64),
             "--skip-after-timeout" => a.skip_after_timeout = true,
             "--stop-after-first-failure" => a.stop_after_first_failure = true,
+            "--stop-after-timeout" => a.stop_after_timeout = true,
             "--test-data-company" => {
                 let company = text()?;
                 if a.test_data_company.is_none() {

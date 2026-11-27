@@ -732,10 +732,10 @@ fn no_test_selected(a: &TestArgs, selected: bool, started: Instant, warm: Option
     Ok(6)
 }
 
-/// Of a selected codeunit only the selected tests run: `--run-selected-only` (issue 5611), and `--stop-after-first-failure`
-/// (issue 8210), so a test the selection leaves out cannot stop the run.
+/// Of a selected codeunit only the selected tests run: `--run-selected-only` (issue 5611), `--stop-after-first-failure`
+/// (issue 8210) and `--stop-after-timeout` (issue 9213), so a test the selection leaves out cannot stop the run.
 fn selected_only(a: &TestArgs) -> bool {
-    a.run_selected_only || a.stop_after_first_failure
+    a.run_selected_only || a.stop_after_first_failure || a.stop_after_timeout
 }
 
 /// `--run-selected-only` (issue 5611): the selected tests of the selected codeunits (`RunOptions::run_only`); the rest do
@@ -1669,6 +1669,7 @@ fn test_inner(
         ignore_permission_mock: a.ignore_permission_mock,
         skip_after_timeout: a.skip_after_timeout,
         stop_after_first_failure: a.stop_after_first_failure, // issue 8210
+        stop_after_timeout: a.stop_after_timeout,             // issue 9213
         // `ALRUNNER_REPORT_UNPINNED_ERRORS=1` (issue 6487, opt-in): an unpinned error text fails the test, marked.
         report_unpinned_errors: crate::unpinned::enabled(),
         permissions_off: a.permissions_off, // `--permissions off` (ADR-062 section 5).

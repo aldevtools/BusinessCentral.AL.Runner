@@ -1,6 +1,7 @@
 //! The stops of a run (tooling, ADR-009: no AL code observes them): which rows end the later tests of their codeunit
 //! and the later entries of their scope, and the reason those tests are given. `RunOptions::stop_after_first_failure`
-//! (al-runner issue 8210) stops at a failure. The scope is a pass's `stop_group` (issue 8210). `Pass::stop` holds one
+//! (al-runner issue 8210) stops at a failure, `RunOptions::stop_after_timeout` (issue 9213) at a row the time limit
+//! stopped; with both, at the first row either names. The scope is a pass's `stop_group` (issue 8210). `Pass::stop` holds one
 //! `Stop` per pass; `corpus::pass_stopped` reads it between passes, `run::run_codeunit_inner` after each test.
 
 use crate::Outcome;
@@ -49,8 +50,18 @@ impl Stop {
             Outcome::Fail(_) if self.failure => Some(format!(
                 "the test Codeunit{codeunit}.{test} failed before it, and stopAfterFirstFailure (--stop-after-first-failure) runs no test of its codeunit or of {later} after a failure"
             )),
-            // Not built yet (issue 9213).
-            Outcome::NotRun(_) if self.timeout => None,
+            // Issue 9213: "The trigger is exactly a row whose outcome is a time-limit `notRun`: the CPU limit, the wall
+            // backstop, the Sleep budget, or an OnRun cut." An OnRun cut names the trigger, not a test that did not
+            // cause the timeout (its rows all carry the OnRun reason).
+            Outcome::NotRun(m) if self.timeout && super::run::is_time_limit(m) => {
+                let what = match m.contains(super::run::ON_RUN_PLACE) {
+                    true => format!("the trigger Codeunit{codeunit}.OnRun"),
+                    false => format!("the test Codeunit{codeunit}.{test}"),
+                };
+                Some(format!(
+                    "{what} was stopped at the time limit before it, and stopAfterTimeout (--stop-after-timeout) runs no test of its codeunit or of {later} after a timeout"
+                ))
+            }
             _ => None,
         }
     }

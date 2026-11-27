@@ -1958,6 +1958,9 @@ fn not_run_reason(r: Refusal) -> String {
 /// How the reason of a test the time limit stopped starts (the outputs turn it into `Test exceeded <N>s timeout.`).
 const TIME_LIMIT_REASON: &str = "the test used more than the time limit of ";
 
+/// Where the reason of an OnRun the time limit stopped says it was stopped (`stop.rs` names the trigger by it).
+pub(super) const ON_RUN_PLACE: &str = " in the test codeunit's OnRun trigger, before its tests";
+
 /// Whether `reason` is that of a row the time limit stopped (`TIME_LIMIT_REASON`).
 pub(super) fn is_time_limit(reason: &str) -> bool {
     reason.starts_with(TIME_LIMIT_REASON)
@@ -2282,14 +2285,12 @@ fn on_run_time_limit<T>(
     session.end_sleep_budget();
     match ran {
         Err(Signal::Unsupported(_)) if slept_out => Err(Signal::unsupported(format!(
-            "the test used more than the time limit of {} s and was stopped (--test-timeout-secs) in the test codeunit's OnRun trigger, before its tests: its Sleep calls asked to wait {slept_ms} ms in total (Sleep does not wait here; the time it asks for counts toward the limit)",
+            "{TIME_LIMIT_REASON}{} s and was stopped (--test-timeout-secs){ON_RUN_PLACE}: its Sleep calls asked to wait {slept_ms} ms in total (Sleep does not wait here; the time it asks for counts toward the limit)",
             limit.map_or(0, |l| l.as_secs())
         ))),
-        Err(Signal::Unsupported(_)) if timed_out.is_some() => Err(Signal::unsupported(time_limit_reason(
-            timed_out,
-            limit,
-            " in the test codeunit's OnRun trigger, before its tests",
-        ))),
+        Err(Signal::Unsupported(_)) if timed_out.is_some() => {
+            Err(Signal::unsupported(time_limit_reason(timed_out, limit, ON_RUN_PLACE)))
+        }
         r => r,
     }
 }
