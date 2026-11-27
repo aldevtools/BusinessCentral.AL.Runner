@@ -3,9 +3,9 @@
 use super::*;
 use al_sema::workspace::AppSource;
 
-// BC's TestRunnerHub with RequiredTestIsolation = Function: what a passing test leaves of a number sequence that the
-// codeunit's OnRun inserted (al-vm `hub_sequences.rs`; corpus PR 1580, SeqNextHubFunction.al, assumption
-// `hub-function-sequence`).
+// BC's TestRunnerHub with RequiredTestIsolation = Function: a number sequence the codeunit's OnRun inserted, or one a test
+// changed, is refused in the later tests (al-vm `hub_sequences.rs`; BC reads it as missing now and then, corpus issues
+// 1595 and 1614).
 
 /// The outcomes of test codeunit 52504 of `src` under Function isolation on the hub.
 fn outcomes(src: &str) -> Vec<(String, Outcome)> {
@@ -91,22 +91,64 @@ fn b(outcomes: &[(String, Outcome)]) -> &Outcome {
     &outcomes.iter().find(|(n, _)| n == "B").expect("test B").1
 }
 
-#[test]
-fn a_restart_is_put_back_for_the_next_test() {
-    let o = outcomes(&codeunit("NumberSequence.Restart('HUBSEQ', 1000, false);", "cur=0"));
-    assert!(matches!(b(&o), Outcome::Pass), "{o:?}");
+fn b_not_run(o: &[(String, Outcome)]) {
+    assert!(matches!(b(o), Outcome::NotRun(_)), "{o:?}");
 }
 
 #[test]
-fn a_delete_is_put_back_for_the_next_test() {
-    let o = outcomes(&codeunit("NumberSequence.Delete('HUBSEQ', false);", "cur=0"));
-    assert!(matches!(b(&o), Outcome::Pass), "{o:?}");
+fn a_restart_of_a_sequence_onrun_inserted_refuses() {
+    b_not_run(&outcomes(&codeunit(
+        "NumberSequence.Restart('HUBSEQ', 1000, false);",
+        "cur=0",
+    )));
+}
+
+#[test]
+fn a_delete_of_a_sequence_onrun_inserted_refuses() {
+    b_not_run(&outcomes(&codeunit("NumberSequence.Delete('HUBSEQ', false);", "cur=0")));
+}
+
+#[test]
+fn a_next_of_a_sequence_onrun_inserted_refuses() {
+    // O1 shape: OnRun only inserts it.
+    let fresh = codeunit("if NumberSequence.Next('HUBSEQ', false) = 0 then;", "cur=-1").replace(
+        "        if NumberSequence.Next('HUBSEQ', false) = 0 then;\n        if NumberSequence.Next('HUBSEQ', false) = 0 then;\n    end;",
+        "    end;",
+    );
+    assert_eq!(fresh.matches("Next(").count(), 1, "{fresh}");
+    b_not_run(&outcomes(&fresh));
+    // E3 shape: OnRun inserts it and takes Next twice; the test takes Next and commits.
+    b_not_run(&outcomes(&codeunit(
+        "if NumberSequence.Next('HUBSEQ', false) = 0 then; Commit();",
+        "cur=1",
+    )));
+}
+
+#[test]
+fn a_sequence_onrun_inserted_and_a_test_only_read_refuses() {
+    b_not_run(&outcomes(&codeunit(
+        "if NumberSequence.Exists('HUBSEQ', false) then;",
+        "cur=0",
+    )));
+}
+
+#[test]
+fn a_sequence_inserted_in_a_test_refuses() {
+    let src = codeunit(
+        "NumberSequence.Insert('HUBNEW', 1, 1, false); if NumberSequence.Next('HUBNEW', false) = 0 then;",
+        "cur=0",
+    )
+    .replace(
+        "if NumberSequence.Exists('HUBSEQ'",
+        "if NumberSequence.Next('HUBNEW', false) = 0 then;\n        if NumberSequence.Exists('HUBSEQ'",
+    );
+    b_not_run(&outcomes(&src));
 }
 
 #[test]
 fn a_sequence_that_existed_before_the_codeunit_began_refuses() {
     // The seed inserts HUBSEQ before codeunit 52504 begins; its OnRun then only takes Next twice. Not measured
-    // (hub_test_sequences: "a sequence missing when the codeunit began"): the next test refuses.
+    // (hub_sequences.rs: what a test leaves of a sequence it changed is not measured): the next test refuses.
     let seed = "codeunit 52503 Seed
 {
     trigger OnRun()

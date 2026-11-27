@@ -163,13 +163,13 @@ pub fn after_test(
 ) {
     if let Some(cp) = checkpoint {
         if !runner_function {
-            // BC's TestRunnerHub: what a test leaves of the number sequences (al-vm `hub_sequences.rs`, issue 9250).
-            let decided = session.hub_test_sequences(failed);
             cp.restore(session);
-            session.settle_hub_sequences(decided, &cp.1, |key| {
+            // BC's TestRunnerHub: the number sequences the later tests may not use (al-vm `hub_sequences.rs`, issue 9250).
+            session.refuse_hub_sequences(|key| {
                 format!(
-                    "an earlier test of this codeunit, {routine}, changed number sequence '{}': what BC's TestRunnerHub \
-                     under RequiredTestIsolation = Function leaves of it is not measured for this shape",
+                    "number sequence '{}' was inserted by this codeunit's OnRun or changed by an earlier test of it, \
+                     {routine}: what BC's TestRunnerHub under RequiredTestIsolation = Function leaves of it is not \
+                     stable or not measured (corpus issues 1595 and 1614)",
                     key.1
                 )
             });

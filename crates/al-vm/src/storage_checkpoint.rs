@@ -29,13 +29,6 @@ pub struct StorageCheckpoint {
     sequences: HashMap<Key, sessionops::Sequence>,
 }
 
-impl StorageCheckpoint {
-    /// The number sequence `key` (company, name) at the checkpoint.
-    pub(crate) fn sequence(&self, key: &Key) -> Option<&sessionops::Sequence> {
-        self.sequences.get(key)
-    }
-}
-
 /// What a checkpoint held and a test changed or removed ([`Session::restore_storage_checkpoint`]): isolated storage
 /// slots by (scope, key) and number sequences by (company, name).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

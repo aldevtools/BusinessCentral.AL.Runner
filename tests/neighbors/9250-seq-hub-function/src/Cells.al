@@ -759,3 +759,127 @@ codeunit 52515 "N9 Untouched"
     end;
 }
 
+
+// E2 in the corpus master shape: a Commit at the end of OnRun's Prepare and at the start of test a (Initialize).
+codeunit 52516 "N9 E2 Committed"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    RequiredTestIsolation = Function;
+
+    trigger OnRun()
+    begin
+        Seq.Prepare(Name(), CS());
+        Commit();
+    end;
+
+    var
+        Seq: Codeunit "N9 Seq";
+        IsInitialized: Boolean;
+        Base: BigInteger;
+
+    [Test]
+    procedure A_ChangesAndPasses()
+    begin
+        Initialize();
+        if NumberSequence.Next(Name(), CS()) = 0 then;
+    end;
+
+    [Test]
+    procedure B_Reads()
+    begin
+        Initialize();
+        Seq.Expect(Seq.Rel(Name(), CS(), Base), 'cur=1'); Seq.Expect(Seq.RelNext(Name(), CS(), Base), '2');
+    end;
+
+    local procedure Name(): Text
+    begin
+        exit('N9S52516');
+    end;
+
+    local procedure CS(): Boolean
+    begin
+        exit(true);
+    end;
+
+    local procedure Initialize()
+    begin
+        if IsInitialized then
+            exit;
+        Commit();
+        if NumberSequence.Exists(Name(), CS()) then
+            Base := NumberSequence.Current(Name(), CS());
+        IsInitialized := true;
+    end;
+}
+
+// The sequence is there before the codeunit begins (the install codeunit 52519 makes it); test a takes Next.
+codeunit 52517 "N9 Existing Before Codeunit"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    RequiredTestIsolation = Function;
+
+    var
+        Seq: Codeunit "N9 Seq";
+        IsInitialized: Boolean;
+        Base: BigInteger;
+
+    [Test]
+    procedure A_ChangesAndPasses()
+    begin
+        Initialize();
+        if NumberSequence.Next('N9S52517', false) = 0 then;
+    end;
+
+    [Test]
+    procedure B_Reads()
+    begin
+        Initialize();
+        Seq.Expect(Seq.Rel('N9S52517', false, Base), 'cur=1'); Seq.Expect(Seq.RelNext('N9S52517', false, Base), '2');
+    end;
+
+    local procedure Initialize()
+    begin
+        if IsInitialized then
+            exit;
+        if NumberSequence.Exists('N9S52517', false) then
+            Base := NumberSequence.Current('N9S52517', false);
+        IsInitialized := true;
+    end;
+}
+
+// A sequence inserted in test a (as a No. Series with Allow Gaps set up once in Initialize) and used by test b.
+codeunit 52518 "N9 Inserted In Test"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    RequiredTestIsolation = Function;
+
+    var
+        Seq: Codeunit "N9 Seq";
+
+    [Test]
+    procedure A_ChangesAndPasses()
+    begin
+        NumberSequence.Insert('N9S52518', 1, 1, false);
+        if NumberSequence.Next('N9S52518', false) = 0 then;
+    end;
+
+    [Test]
+    procedure B_Reads()
+    begin
+        Seq.Expect(Seq.RelNext('N9S52518', false, 0), '2');
+    end;
+}
+
+codeunit 52519 "N9 Install Sequence"
+{
+    Subtype = Install;
+
+    trigger OnInstallAppPerCompany()
+    begin
+        if not NumberSequence.Exists('N9S52517', false) then
+            NumberSequence.Insert('N9S52517', 1, 1, false);
+    end;
+}

@@ -1,16 +1,22 @@
 # key	entry
-# REFUSED rows: corpus PR 1580 measures none of these shapes (E1 is observed, not asserted: SeqNextHubFunction.al:151-174).
-N9 E1 Existing Next::B_Reads	REFUSED an earlier test of this codeunit,
-N9 E2 Existing CompanySpecific::B_Reads	ASSUMED hub-function-sequence (corpus PR 1580: SeqNextHubFunction.al:234)
-N9 E3 Existing Next Commit::B_Reads	ASSUMED hub-function-sequence (corpus PR 1580: SeqNextHubFunction.al:320)
-N9 E4 Existing Restart::B_Reads	ASSUMED hub-function-sequence (corpus PR 1580: SeqNextHubFunction.al:407)
-N9 E5 Existing Delete::B_Reads	ASSUMED hub-function-sequence (corpus PR 1580: SeqNextHubFunction.al:499)
-N9 O1 OnRun Next::B_Reads	ASSUMED hub-function-sequence (corpus PR 1580: SeqNextHubFunction.al O1)
-N9 O2 OnRun CompanySpecific::B_Reads	ASSUMED hub-function-sequence (corpus PR 1580: SeqNextHubFunction.al O2)
-N9 Second Test Next::B_Reads	ASSUMED hub-function-sequence (corpus PR 1580: SeqNextHubFunction.al:234, E2 shape)
-N9 Next Then Restart::B_Reads	REFUSED an earlier test of this codeunit,
-N9 Range::B_Reads	REFUSED an earlier test of this codeunit,
-N9 Restart Commit::B_Reads	REFUSED an earlier test of this codeunit,
-N9 Restart CompanySpecific::B_Reads	REFUSED an earlier test of this codeunit,
-N9 Restart Failed::B_Reads	REFUSED an earlier test of this codeunit,
-N9 Second Test Next::C_ReadsAfterSecondNext	REFUSED an earlier test of this codeunit,
+# Every later call on a number sequence the codeunit's OnRun inserted or a test changed refuses (al-vm hub_sequences.rs).
+# OnRun-inserted shapes: BC reads them as missing now and then (corpus issues 1595 and 1614, SeqNextHubFunction.al at
+# corpus master :59-64). The other shapes are not measured under the hub's Function isolation.
+N9 E1 Existing Next::B_Reads	REFUSED number sequence
+N9 E2 Existing CompanySpecific::B_Reads	REFUSED number sequence
+N9 E3 Existing Next Commit::B_Reads	REFUSED number sequence
+N9 E4 Existing Restart::B_Reads	REFUSED number sequence
+N9 E5 Existing Delete::B_Reads	REFUSED number sequence
+N9 O1 OnRun Next::B_Reads	REFUSED number sequence
+N9 O2 OnRun CompanySpecific::B_Reads	REFUSED number sequence
+N9 Second Test Next::B_Reads	REFUSED number sequence
+N9 Next Then Restart::B_Reads	REFUSED number sequence
+N9 Range::B_Reads	REFUSED number sequence
+N9 Restart Commit::B_Reads	REFUSED number sequence
+N9 Restart CompanySpecific::B_Reads	REFUSED number sequence
+N9 Restart Failed::B_Reads	REFUSED number sequence
+N9 Second Test Next::C_ReadsAfterSecondNext	REFUSED number sequence
+N9 Untouched::B_Reads	REFUSED number sequence
+N9 E2 Committed::B_Reads	REFUSED number sequence
+N9 Existing Before Codeunit::B_Reads	REFUSED number sequence
+N9 Inserted In Test::B_Reads	REFUSED number sequence
