@@ -44,7 +44,9 @@ const TABLES: &str = "table 2000000006 Company { DataPerCompany = false;
 
 /// The install codeunit, with `body` as its OnInstallAppPerDatabase trigger after `trigger OnInstallAppPerDatabase()`.
 fn installer(body: &str) -> String {
-    format!("{TABLES}\n    codeunit 70101 \"DC Installer\" {{ Subtype = Install; trigger OnInstallAppPerDatabase() {body} }}")
+    format!(
+        "{TABLES}\n    codeunit 70101 \"DC Installer\" {{ Subtype = Install; trigger OnInstallAppPerDatabase() {body} }}"
+    )
 }
 
 const TESTS: &str = "codeunit 70104 \"DC Renamed Tests\" { Subtype = Test;
