@@ -1,5 +1,6 @@
-// al-runner issue 9267: a positive Decimal times a positive Integer past the largest Decimal raises BC's overflow error
-// (the pinned shape). Each test below flips one fact of that shape; every flipped overflow stays refused.
+// al-runner issue 9267: the largest Decimal times the Integer 10 raises BC's overflow error (the pinned cell). The rule
+// reads the operator and the two values only, so the target variable, a compound assignment and an Integer variable
+// holding 10 run it too. Every other value and every flipped fact stays refused.
 codeunit 61920 "DO Decimal Overflow Tests"
 {
     Subtype = Test;
@@ -26,7 +27,7 @@ codeunit 61920 "DO Decimal Overflow Tests"
     end;
 
     [Test]
-    procedure Pinned_PastMaxIntoOtherVariable()
+    procedure Refused_NearMaxTimesHundredIntoOtherVariable()
     var
         D: Decimal;
         R: Decimal;
@@ -37,13 +38,37 @@ codeunit 61920 "DO Decimal Overflow Tests"
     end;
 
     [Test]
-    procedure Pinned_IntegerVariableOperand()
+    procedure Refused_MaxTimesIntegerVariableTwo()
     var
         D: Decimal;
         N: Integer;
     begin
         D := 79228162514264337593543950335.0;
         N := 2;
+        asserterror D := D * N;
+        ExpectOverflow();
+    end;
+
+    [Test]
+    procedure MaxTimesTenIntoOtherVariable()
+    var
+        D: Decimal;
+        R: Decimal;
+    begin
+        D := 79228162514264337593543950335.0;
+        R := 1;
+        asserterror R := D * 10;
+        ExpectOverflow();
+    end;
+
+    [Test]
+    procedure MaxTimesIntegerVariableTen()
+    var
+        D: Decimal;
+        N: Integer;
+    begin
+        D := 79228162514264337593543950335.0;
+        N := 10;
         asserterror D := D * N;
         ExpectOverflow();
     end;
@@ -58,9 +83,10 @@ codeunit 61920 "DO Decimal Overflow Tests"
         ExpectOverflow();
     end;
 
-    // Both operands have at most 18 significant digits, so no literal is rounded: the product is past the largest Decimal.
+    // Both operands have at most 18 significant digits, so no literal is rounded: the product is past the largest Decimal,
+    // and it is not the pinned value.
     [Test]
-    procedure Pinned_EighteenDigitDecimalTimesHundred()
+    procedure Refused_EighteenDigitDecimalTimesHundred()
     var
         D: Decimal;
     begin

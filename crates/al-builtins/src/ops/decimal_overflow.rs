@@ -2,17 +2,14 @@
 //! Decimal, BC's overflow error for the one pinned shape (issue 9267). Entry points: `sum_difference_product`.
 //!
 //! BC raises `Value was either too large or too small for a Decimal.` (AL:Overflow) for the largest Decimal times the
-//! Integer 10 (errors/PnBErrorsCollections.al:564-566, :585-586 `decimalOverflow`). Only that shape is pinned: a
-//! positive Decimal on the left times a positive Integer on the right. Every other overflow (`+`, `-`, a Decimal on
-//! both sides, the Integer on the left, a negative operand) is not pinned and refuses. So does a product whose whole
-//! part times the Integer is not past the largest Decimal: `checked_mul` fails on some products that fit
-//! (`7922816251426433759354395033.5 * 10` is the largest Decimal), so its failure alone is no overflow.
+//! Integer 10 (errors/PnBErrorsCollections.al:564-566, :585-586 `decimalOverflow`). That one cell is pinned: the
+//! largest Decimal on the left, the Integer 10 on the right. Every other overflow (another value, `+`, `-`, a Decimal
+//! on both sides, the Integer on the left, a negative operand) is not pinned and refuses.
 
 use super::{Arith, keep_18_digits};
 use crate::native::Signal;
 use crate::value::Value;
 use rust_decimal::Decimal;
-use rust_decimal::prelude::ToPrimitive;
 
 /// `l op r` for `+`, `-` or `*` where `l` and `r` (values `a` and `b`) are a Decimal and a Decimal or an Integer: the
 /// fast path of `ops::arith`. The end of `arith_general` gives the same results and refuses every overflow.
@@ -34,22 +31,10 @@ pub(super) fn sum_difference_product(
 }
 
 /// The answer to `l op r` when `checked_mul`, `checked_add` or `checked_sub` found no Decimal for it.
+#[cold]
+#[inline(never)]
 fn past_decimal_range(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
-    // The whole part of the Decimal times the Integer is already past the largest Decimal (below 2^96 times below 2^31,
-    // so it fits a u128).
-    let whole_part_past = |d: &Decimal, n: i32| {
-        let (Some(whole), Some(max)) = (d.trunc().to_u128(), Decimal::MAX.to_u128()) else {
-            return false;
-        };
-        u128::try_from(n)
-            .ok()
-            .and_then(|n| whole.checked_mul(n))
-            .is_some_and(|p| p > max)
-    };
-    let pinned = match (op, l, r) {
-        (Arith::Mul, Value::Decimal(d), Value::Integer(n)) => d.is_sign_positive() && *n > 0 && whole_part_past(d, *n),
-        _ => false,
-    };
+    let pinned = matches!((op, l, r), (Arith::Mul, Value::Decimal(d), Value::Integer(10)) if *d == Decimal::MAX);
     if pinned {
         return crate::mathfns::overflow();
     }
@@ -65,7 +50,7 @@ mod tests {
     }
 
     #[test]
-    fn only_a_positive_decimal_times_a_positive_integer_raises() {
+    fn only_the_pinned_cell_raises_and_each_fact_flipped_refuses() {
         let (max, min) = (Value::Decimal(Decimal::MAX), Value::Decimal(Decimal::MIN));
         let ten = Value::Integer(10);
         match past_decimal_range(Arith::Mul, &max, &ten) {
@@ -86,6 +71,18 @@ mod tests {
         assert!(refused(past_decimal_range(Arith::Mul, &ten, &max)));
         assert!(refused(past_decimal_range(Arith::Mul, &min, &ten)));
         assert!(refused(past_decimal_range(Arith::Mul, &max, &Value::Integer(-10))));
+    }
+
+    #[test]
+    fn only_the_largest_decimal_times_ten_raises() {
+        // The pin runs one value: the largest Decimal times the Integer 10. Other values past the range refuse.
+        let max = Value::Decimal(Decimal::MAX);
+        assert!(refused(past_decimal_range(Arith::Mul, &max, &Value::Integer(2))));
+        assert!(refused(past_decimal_range(Arith::Mul, &max, &Value::Integer(100))));
+        let near = Value::Decimal("7922816251426433759354395033.5".parse().unwrap());
+        assert!(refused(past_decimal_range(Arith::Mul, &near, &Value::Integer(100))));
+        let eighteen = Value::Decimal("792281625142643376000000000".parse().unwrap());
+        assert!(refused(past_decimal_range(Arith::Mul, &eighteen, &Value::Integer(100))));
     }
 
     #[test]
