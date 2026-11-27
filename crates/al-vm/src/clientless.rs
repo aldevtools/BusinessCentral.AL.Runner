@@ -40,6 +40,9 @@
 //! that take a TestPage `ui.rs` `ui_handler` refuses, a bound RequestPageHandler that never ran marks
 //! the assumption in `end_ui_scope`; a read of the WorkDate the skipped login code would have set
 //! (al-testrun `install::login_work_date`) marks it too.
+//!
+//! Also the company-open phases where `TaskScheduler.CanCreateTask` answers true (`set_install_company_open`,
+//! `set_test_company_open`).
 use crate::Session;
 use crate::reports::Schema;
 use crate::ui::UiKind;
@@ -114,6 +117,32 @@ impl Session {
     #[inline]
     pub(crate) fn no_client_test_session(&self) -> bool {
         self.ui_state.clientless && self.pages.bg_worker.is_none() && !self.install_without_client
+    }
+
+    /// An install routine of an app runs (or no longer runs): BC runs it in a session without a client. `GuiAllowed()` is
+    /// false, `CurrentClientType()` is SOAP, a `Message` does not stop it, and StrMenu, Confirm and `Page.Run` raise
+    /// CallbackNotAllowed (errors/RlInstallUi.al:210-241, metadata/CmInstallLeads.al:54-61).
+    /// Not set while the company is built: Company-Initialize and the company data codeunit keep their own rules.
+    pub fn set_install_without_client(&mut self, on: bool) {
+        self.install_without_client = on;
+        self.sync_no_client_test_session();
+    }
+
+    /// The Company Triggers OnCompanyOpen and OnCompanyOpenCompleted subscribers of an install session run (or no longer
+    /// run), and the login they raise: `TaskScheduler.CanCreateTask` answers true there (al-builtins `can_create_task`).
+    pub fn set_install_company_open(&mut self, on: bool) {
+        self.install_company_open = on;
+    }
+
+    /// The same phase when the test session opens its company (al-testrun `install::test_session_company_open`): true
+    /// there too, while the test procedure keeps false (corpus PR 1592, install-upgrade/IcInstallCanCreateTaskTests.al:197-199).
+    pub fn set_test_company_open(&mut self, on: bool) {
+        self.test_company_open = on;
+    }
+
+    /// Either company-open phase runs (`Ctx::company_open_phase`).
+    pub(crate) fn company_open_phase(&self) -> bool {
+        self.install_company_open || self.test_company_open
     }
 
     /// Puts [`Session::no_client_test_session`] where the platform providers read it (`EventStats::no_client_test_session`,

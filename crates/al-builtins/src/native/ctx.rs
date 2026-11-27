@@ -390,6 +390,13 @@ pub trait Ctx: FormatCtx {
     fn install_without_client(&self) -> bool {
         false
     }
+    /// Whether the Company Triggers OnCompanyOpen and OnCompanyOpenCompleted subscribers run, and the login they raise,
+    /// in an install session before the app's install code (al-vm `set_install_company_open`) or when the test session
+    /// opens its company (al-vm `set_test_company_open`). Not a client-less session for the rest (GuiAllowed, Message):
+    /// only `TaskScheduler.CanCreateTask` reads it.
+    fn company_open_phase(&self) -> bool {
+        false
+    }
     /// Whether a test codeunit is being run by the test runner (under TestIsolation = Codeunit).
     fn in_test_run(&self) -> bool {
         false

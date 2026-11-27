@@ -81,7 +81,7 @@ the extent conflicts with a read of the extent. SystemId, the GUID counter, Syst
 are left out as in amendment 7, and clock values as in amendment 8 item 2.
 
 **Anything the runner cannot attribute counts as touching everything:** a page, report or XMLport run, .NET, files,
-HTTP, `StartSession`, `TaskScheduler`, a Job Queue run, the Company table or a company copy, a resource the footprint
+HTTP, `StartSession`, `TaskScheduler` (but `CanCreateTask`, amendment 2), a Job Queue run, the Company table or a company copy, a resource the footprint
 recorder does not classify. A session with such a footprint conflicts with every other session (and then refuses as
 today when the group is larger than three).
 
@@ -171,7 +171,7 @@ least as strict as the text it clarifies.
   `Next`, `Count`, `IsEmpty`, `DeleteAll`) sees every row write of its table, so a filtered read still conflicts with
   every insert, delete and modify of that table (al-data `memory/footprint.rs`, `Resource::read_sees_write`).
 - **Decision 1, kept builtins.** A builtin counts as attributable only when it is on an allowlist by receiver or, for
-  `System`, `Database`, `Blob` and `Query`, by method. Every other method touches everything, the eight encryption key
+  `System`, `Database`, `Blob` and `Query`, by method (amendment 2 adds `TaskScheduler.CanCreateTask`). Every other method touches everything, the eight encryption key
   methods among them. Between two subset runs the runner also puts the encryption key and the encrypted values back.
 - **Decision 1, ties need an install session.** "Conflicts with every other session" means every other app with an
   install session of its own. An app without install code is tied only through a meet. `NavApp.IsInstalling` is not
@@ -275,7 +275,8 @@ installs whose .NET calls cannot reach a lasting resource, and the whole suite i
    resource only through code the recorder sees (a record write, isolated storage, ...).
 2. **A server class member whose answer here is a constant or the host identity** (al-vm `server_classes.rs`
    `ANSWERS_ONLY` and `CONSTANT_ANSWERS`): the environment, server setting and tenant getters that System Application's
-   Environment Information, Server Setting and Tenant Information wrappers call. Each answer is pinned by its own
+   Environment Information, Server Setting and Tenant Information wrappers call, and the credential-type and Azure
+   getters of `NavUserAccountHelper` that Identity Management calls. Each answer is pinned by its own
    registry citation; being a constant, it is the same in every install order. `TryGetStringTenantSetting` writes the
    answer into its `var` argument, a variable of the caller, nothing else. A setter of the same classes
    (`SetTestTenantEnvironmentType`) is not listed and touches everything.
@@ -289,6 +290,32 @@ table in (`table_mut`), so every such row looked like a write nobody recorded an
 now compares with the rows the store before the session read for it (`row_changes.rs`, `BeforeRows::Backing`, passed by
 the safety net only; the login image keeps taking such a table whole). The refusal of a unit larger
 than three apps names, per reason, the call site, the install that reached it and the apps.
+
+### Amendment 2 (Accepted 2026-11-25, al-runner issues 9082 and 9046): `TaskScheduler.CanCreateTask` keeps nothing
+
+Status: Accepted by the owner on 2026-11-25 (asked as "Yes, after install cell"). This amendment loosens decision 1:
+one TaskScheduler method no longer touches everything.
+
+Decision 1 counts every builtin outside the kept receivers and methods as touching everything. A native builtin whose
+answer is a constant for each kind of session (an app's install session: true, in the company-open phase and in its
+install code; the test session: true in its company-open phase, false in the test code) and that changes nothing keeps nothing: every install session of
+every app gets the same answers, so they cannot depend on install order. Such a builtin is kept by method
+(`install_footprint.rs` `KEPT_METHODS`) only when a corpus case measures its answer inside install code, cited at the
+entry. Measured in a test session only is not enough.
+
+The one builtin kept by this rule: `TaskScheduler.CanCreateTask()`. Corpus PR 1589
+(`install-upgrade/IsInstallSessionTests.al:86`, `:91`, `:135`) measures true in Extension Triggers install
+subscribers, per company and per database; the test procedure's false is pinned
+(`session-system/TestEnvironmentUserTenantContracts.al:255`). The company-open phase of an install
+session and of the test session (the Company Triggers subscribers and the login they raise) also answers true: corpus
+PR 1592 (`install-upgrade/IcInstallCanCreateTaskTests.al:160`, `:180-181`, `:197-199`) measures it (al-runner issue
+9123). PR 1592 also measures true in the triggers of a `Subtype = Install` codeunit (`:124-126`), and that a task
+created there exists and has not run when the test starts (`:99`), with the task scheduler off as in the default
+container. Until the runner's corpus pin holds PRs 1589 and 1592 (both merged), the true answer runs through the
+assumption `install-session-can-create-task`. The other TaskScheduler methods (CreateTask, TaskExists, SetTaskReady,
+CancelTask) keep touching everything. The install session's hits of the assumption are notes of the run, as every
+assumption hit outside a test is (al-testrun `baseline.rs`); a test carries the mark only when it reads a task install
+code created, through its Scheduled Task row (al-vm `tasks.rs` `install_task_rows_assumed`).
 
 ## Options considered
 

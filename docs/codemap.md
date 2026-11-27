@@ -458,7 +458,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `consistent_marks.rs` (+ `/page_args.rs`): `Record.Consistent` marks; how a run or Commit ends on one. Entry: `Session::set_consistent`.
 - `ui.rs`: Dialogs raised by the code under test and the test… Entry: `UiKind`.
 - `dev_endpoint_ui.rs`: `--dev-endpoint-ui`: the answer of the dev-endpoint…
-- `clientless.rs`: What a dialog does in a session without a client.
+- `clientless.rs`: Clientless dialogs; install phases with `CanCreateTask` true.
 - `variant_copy.rs`: A temporary record going from a Variant into a Variant. Entry: `source_of`.
 - `views.rs`: Filter and view text: SetView, GetFilters. Entry: `parse_filter_text`.
 - `xmlports/mod.rs`: XmlPort import and export (Format = Xml).

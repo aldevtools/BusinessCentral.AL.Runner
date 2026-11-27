@@ -1183,7 +1183,11 @@ pub(crate) fn company_open(
     if all.is_empty() {
         return Ok(());
     }
-    watching_skipped(lowered, session, skipped, &all, |s| run_subscribers(lowered, s, &all))
+    // `TaskScheduler.CanCreateTask` answers true while they run (al-builtins `can_create_task`).
+    session.set_install_company_open(true);
+    let ran = watching_skipped(lowered, session, skipped, &all, |s| run_subscribers(lowered, s, &all));
+    session.set_install_company_open(false);
+    ran
 }
 
 /// Runs `subs` in order; why the first that cannot run cannot.
@@ -1308,7 +1312,11 @@ pub(crate) fn test_session_company_open(
     after_refusal: bool,
 ) -> Result<CompanyOpenWrites, NotOpened> {
     match crate::runtime::watching_skipped_installs(lowered, session, skipped, crate::runtime::Assumed::Marked, |s| {
+        // `TaskScheduler.CanCreateTask` answers true while the Company Triggers subscribers and the login run (al-builtins
+        // `can_create_task`; corpus PR 1592, install-upgrade/IcInstallCanCreateTaskTests.al:197-199).
+        s.set_test_company_open(true);
         let opened = open_test_session_company(lowered, s, disabled, after_refusal);
+        s.set_test_company_open(false);
         // The window the partner dependency apps' login subscribers opened (`partner_login::PartnerLogin::watch_after`)
         // closes on every exit.
         let end = s.store_mut().watch_window_end();

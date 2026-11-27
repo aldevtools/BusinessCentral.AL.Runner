@@ -136,6 +136,7 @@ macro_rules! session_fields {
                 install_row_version: i64,
                 autoinc: HashMap<(String, u32), i64>,
                 baseline_rows: BTreeSet<u32>,
+                install_tasks: BTreeSet<[u8; 16]>,
                 http_policy: Option<&'static str>,
                 tdd_reached: BTreeSet<String>,
                 // A record's own read is current against it (state_render.rs `own_read`).
@@ -283,6 +284,8 @@ macro_rules! session_fields {
                 company_build => |s: &Session| !s.company_build,
                 background_session => |s: &Session| !s.background_session,
                 install_without_client => |s: &Session| !s.install_without_client,
+                install_company_open => |s: &Session| !s.install_company_open,
+                test_company_open => |s: &Session| !s.test_company_open,
                 dirty_ops_open => |s: &Session| s.dirty_ops_open == 0,
                 dirty_frames => |s: &Session| s.dirty_frames.is_empty(),
                 live_xrecs => |s: &Session| s.live_xrecs.iter().all(|w| w.strong_count() == 0),

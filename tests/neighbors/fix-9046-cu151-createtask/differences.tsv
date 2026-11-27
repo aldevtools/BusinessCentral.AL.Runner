@@ -1,0 +1,10 @@
+# key	entry
+<baseline>	ASSUMED install-session-can-create-task (corpus PR 1589)
+CTC Task Tests::InstallTookTheTaskBranch	ASSUMED install-session-can-create-task (corpus PR 1589)
+CTC Task Tests::TaskExistsOfTheInstallTask	ASSUMED install-session-can-create-task (corpus PR 1592)
+CTC Task Tests::WriterRowIsNotThere	ASSUMED install-session-can-create-task (corpus PR 1589)
+CTC Task Tests::IsolatedStorageOfTheBranch	ASSUMED install-session-can-create-task (corpus PR 1589)
+CTC Task Tests::MirrorInALaterInstall	ASSUMED install-session-can-create-task (corpus PR 1589)
+CTC Task Tests::WriterTableOfItsOwnIsEmpty	ASSUMED install-session-can-create-task (corpus PR 1589)
+CTC Task Tests::RowAfterCreateTaskInATryFunction	REFUSED CTC Try Row D row not found
+CTC Task Tests::CancelTaskOfTheInstallTask	ASSUMED install-session-can-create-task (corpus PR 1592)

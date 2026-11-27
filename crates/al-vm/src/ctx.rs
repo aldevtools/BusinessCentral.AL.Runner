@@ -582,6 +582,9 @@ impl al_builtins::native::Ctx for Session {
     fn install_without_client(&self) -> bool {
         self.install_without_client
     }
+    fn company_open_phase(&self) -> bool {
+        Session::company_open_phase(self)
+    }
     fn in_test_run(&self) -> bool {
         self.in_test_codeunit
     }

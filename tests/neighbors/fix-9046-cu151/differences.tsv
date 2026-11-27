@@ -1,0 +1,7 @@
+# key	entry
+<baseline>	ASSUMED install-session-can-create-task (corpus PR 1589)
+CT Task Tests::ExtensionTriggersSubscriberSeesYes	ASSUMED install-session-can-create-task (corpus PR 1589)
+CT Task Tests::PerCompanyInstallTriggerSeesYes	ASSUMED install-session-can-create-task (corpus PR 1589)
+CT Task Tests::PerDatabaseInstallTriggerSeesYes	ASSUMED install-session-can-create-task (corpus PR 1589)
+CT Task Tests::SecondPerCompanyInstallTriggerSeesYes	ASSUMED install-session-can-create-task (corpus PR 1589)
+CT Task Tests::TestSessionSeesNo	ASSUMED install-session-can-create-task (corpus PR 1589)

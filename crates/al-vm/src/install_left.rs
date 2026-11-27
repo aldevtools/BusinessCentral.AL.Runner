@@ -100,6 +100,8 @@ impl Session {
             background_session: _,
             sessions_started: _,
             install_without_client: _,
+            install_company_open: _,
+            test_company_open: _,
             // Carried: `Baseline::company_built`.
             company_built: _,
             demo_written: _,
@@ -171,6 +173,8 @@ impl Session {
             cx: _,
             // Carried: `Baseline::install_rows` (the session has no baseline, so it is empty).
             baseline_rows: _,
+            // Carried: `Baseline::install_tasks`.
+            install_tasks: _,
             baseline_origin: _,
             seed_refusal: _,
             // Set before each builtin call and each routine return that reads it.

@@ -402,3 +402,12 @@ State the pin's lines (`pinned_body::page_lines`, `table_lines`) and require the
   counted holders of the RecordRef handle; `X := RR` gives `X` a new handle on the same record buffer
   (`recordref_variant::own_copy`), so the count stayed 1. Fix: `tree_ref_as_measured` counts holders of the buffer,
   less the instance's own RecordRef, FieldRef and KeyRef globals, and checks `state_stamp::no_row_io`.
+
+## 32. An ADR clarification that loosens a decision leaves the decision text unchanged (al-runner PR 9075, PR 9126)
+
+- PR 9126: a "Clarification of 2026-11-25" of ADR-079 kept `TaskScheduler.CanCreateTask` by method, while decision 1
+  (`:84`) still listed `TaskScheduler` as touching everything and the kept-builtins clarification (`:174`) still kept by
+  method only `System`, `Database`, `Blob` and `Query`. The earlier clarifications say each one is at least as strict as
+  the text it clarifies. Fix: amendment 2, with both lines pointing to it.
+- PR 9075: the review of the date conversions found the same TaskScheduler conflict in the ADR text; it needed more than
+  one place changed.
