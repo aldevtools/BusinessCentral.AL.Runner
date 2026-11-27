@@ -8,6 +8,9 @@ dotnet
         type("System.Text.Encoding"; NbSzEncoding) { }
         type("System.IO.StreamWriter"; NbSzStreamWriter) { }
         type("System.IO.Stream"; NbSzStream) { }
+        type("System.IO.BinaryWriter"; NbSzBinaryWriter) { }
+        type("System.IO.MemoryStream"; NbSzMemoryStream) { }
+        type("System.IO.SeekOrigin"; NbSzSeekOrigin) { }
     }
 }
 
