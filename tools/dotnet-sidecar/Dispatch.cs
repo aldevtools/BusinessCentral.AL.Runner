@@ -119,6 +119,7 @@ public sealed class Server
                 var (best, coerced, _) = Pick(type.GetConstructors(BindingFlags.Public | BindingFlags.Instance), args, $"new {type.FullName}", textAsGuidFallback: true);
                 bound = PlainParameters(best) ? "constructor" : null;
                 object? obj = ((ConstructorInfo)best).Invoke(coerced);
+                marshal.NoteConstructed(obj, coerced);
                 return Done(obj, best, coerced, args);
             }
             case "invoke":
@@ -239,7 +240,16 @@ public sealed class Server
                 }
                 var (best, coerced, _) = picked;
                 bound = PlainParameters(best) ? "method" : null;
-                object? result = ((MethodInfo)best).Invoke(((MethodInfo)best).IsStatic ? null : target, coerced);
+                var rewrite = marshal.RewriteBridge(target, name, args.Length);
+                if (rewrite != null) rewrite.RewriteAllowed = true;
+                object? result;
+                try { result = ((MethodInfo)best).Invoke(((MethodInfo)best).IsStatic ? null : target, coerced); }
+                catch (TargetInvocationException) when (rewrite is { Replaced: true })
+                {
+                    // A failed request hands back no bytes: a rewrite that then fails would reach the Blob late.
+                    throw new Refusal("a .NET rewrite of the bytes an AL OutStream held, then an exception (not pinned)");
+                }
+                finally { if (rewrite != null) rewrite.RewriteAllowed = false; }
                 return Done(result, best, coerced, args, ((MethodInfo)best).ReturnType);
             }
             case "get":
@@ -388,6 +398,7 @@ public sealed class Server
         var written = marshal.DrainBridges();
         if (written.Count > 0) streams["written"] = written;
         if (marshal.Overwritten.Count > 0) streams["overwritten"] = marshal.Overwritten.DeepClone();
+        if (marshal.Replaced.Count > 0) streams["replaced"] = marshal.Replaced.DeepClone();
         if (streams.Count > 0) reply["streams"] = streams;
         return reply;
     }

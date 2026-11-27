@@ -1387,6 +1387,23 @@ impl Session {
                 None => return unsupported(format!("DotNet {shown}: bytes for an unknown stream bridge {id}")),
             }
         }
+        // The Blob's bytes are the bridge's content only while AL wrote nothing into it since the last reply, as the seed was
+        // its whole bytes with the position at their end (`DotNetValue::OutStreamWith`); else what it then holds is not pinned.
+        for (id, before, bytes) in &streams.replaced {
+            let Some(blob) = self.dotnet.bridges.get(id) else {
+                return unsupported(format!("DotNet {shown}: an unknown stream bridge {id}"));
+            };
+            let held = {
+                let buf = blob.borrow();
+                buf.bytes.len() == *before && buf.write_pos == *before && buf.render_pending.is_none()
+            };
+            if !held {
+                return unsupported(format!(
+                    "DotNet {shown}: a .NET rewrite of an OutStream AL wrote into since the call before (not pinned)"
+                ));
+            }
+            al_builtins::stream::replace_bytes(blob, bytes);
+        }
         for id in &streams.overwritten {
             match self.dotnet.bridges.get(id) {
                 Some(blob) => {
