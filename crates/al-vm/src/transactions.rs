@@ -1029,6 +1029,14 @@ impl Session {
     }
 }
 
+/// The `Subtype` an object with these properties declares, trimmed; `None` when it declares none.
+pub(crate) fn declared_subtype(properties: &[(String, String)]) -> Option<&str> {
+    properties
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("Subtype"))
+        .map(|(_, v)| v.trim())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1076,12 +1084,4 @@ mod tests {
         );
         assert_eq!(CommitBehavior::from_attribute("[CommitBehavior]"), None);
     }
-}
-
-/// The `Subtype` an object with these properties declares, trimmed; `None` when it declares none.
-pub(crate) fn declared_subtype(properties: &[(String, String)]) -> Option<&str> {
-    properties
-        .iter()
-        .find(|(k, _)| k.eq_ignore_ascii_case("Subtype"))
-        .map(|(_, v)| v.trim())
 }
