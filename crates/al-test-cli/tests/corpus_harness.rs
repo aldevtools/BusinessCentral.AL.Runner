@@ -591,7 +591,7 @@ fn in_bcs_order_only_the_strict_list_has_stale_lines_and_pruning_never_writes_a_
     let (code, err) = run_strict(root.path(), default, "", &[]);
     assert_eq!(code, 0, "{err}");
     assert!(
-        err.contains("passes in BC's order") && err.contains("60900 Passes"),
+        err.contains("of the default not-passing list pass in BC's order") && err.contains("60900 Passes"),
         "{err}"
     );
     let strict = "# header\n\n# not run: a reason\n60900 Passes\n";
