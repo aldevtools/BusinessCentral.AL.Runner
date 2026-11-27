@@ -209,9 +209,14 @@ pub struct RunOptions {
     pub skip_after_timeout: bool,
     /// `--stop-after-first-failure` and serve's `stopAfterFirstFailure` (al-runner issue 8210, opt-in, tooling): once a
     /// test fails, the later tests of its codeunit and every later entry (`entries`) are not run and end as not run,
-    /// naming that test (`run::stopped_after_failure`). Each test codeunit stops on its own; every other test
+    /// naming that test (`stop::Stop::after`). Each test codeunit stops on its own; every other test
     /// codeunit of the same entry (or of a request without entries) still runs, also with one thread. Default `false`: every test runs.
     pub stop_after_first_failure: bool,
+    /// `--stop-after-timeout` and serve's `stopAfterTimeout` (al-runner issue 9213, opt-in, tooling): once the time limit
+    /// stops a test (or a test codeunit's OnRun), the later tests of its codeunit and every later entry are not run and
+    /// end as not run, naming that test (`stop::Stop::after`). As `stop_after_first_failure` otherwise, whose scope
+    /// (`EntryRun::stop_group`) it shares. Default `false`: every test runs.
+    pub stop_after_timeout: bool,
     /// `al-runner test --permissions off` (ADR-062 section 5): no access kind is enforced, whatever stages are on by
     /// default. While no stage is on (today) it changes nothing.
     pub permissions_off: bool,
@@ -336,9 +341,9 @@ pub(crate) struct Pass {
     pub(crate) resources: al_vm::ResourceOverrides,
     /// The time limit of the pass's tests (`RunOptions::test_time_limit`, or the entry's own).
     pub(crate) limit: Option<std::time::Duration>,
-    /// The scope of `RunOptions::stop_after_first_failure` for this pass (`pass_stopped` compares scopes by equality, so
-    /// the entries without a group share one); `None`: the stop is off.
-    pub(crate) stop: Option<super::run::StopAfterFailure>,
+    /// The stop of this pass (`stop.rs`; `pass_stopped` compares scopes by equality, so the entries without a group
+    /// share one); `None`: no stop is on.
+    pub(crate) stop: Option<super::stop::Stop>,
 }
 
 impl Pass {
@@ -362,16 +367,9 @@ impl Pass {
                 hooks: memory.hooks(&opts.hooks),
                 resources: Default::default(),
                 limit: opts.test_time_limit,
-                stop: opts
-                    .stop_after_first_failure
-                    .then_some(super::run::StopAfterFailure::Request),
+                stop: super::stop::Stop::of(opts.stop_after_first_failure, opts.stop_after_timeout, None),
             }];
         }
-        let stop = |e: &EntryRun| match &e.stop_group {
-            _ if !opts.stop_after_first_failure => None,
-            None => Some(super::run::StopAfterFailure::Request),
-            Some(g) => Some(super::run::StopAfterFailure::Group(Arc::from(g.as_str()))),
-        };
         let resources = |e: &EntryRun| {
             e.resources
                 .iter()
@@ -389,7 +387,11 @@ impl Pass {
                 hooks: memory.hooks(&e.hooks),
                 resources: resources(e),
                 limit: e.test_time_limit.unwrap_or(opts.test_time_limit),
-                stop: stop(e),
+                stop: super::stop::Stop::of(
+                    opts.stop_after_first_failure,
+                    opts.stop_after_timeout,
+                    e.stop_group.as_deref(),
+                ),
             })
             .collect()
     }

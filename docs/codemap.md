@@ -310,7 +310,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `stability.rs`: Stability mode: the config (`parse_config`. Entry: `parse_config`.
 - `stopped_state.rs`: What code the runner stopped leaves of the session… Entry: `roll_back_refused_test`.
 - `test_suites.rs`: The `--test-suites` file. Entry: `TestSuites`.
-- `runtime/` (29 files): Runs test codeunits the way BC's test runner does. Entry: `CorpusRuntime`. Files: `mod.rs`, `compiled.rs`, `baseline_key.rs`, `grow.rs`, `corpus.rs`, `chain.rs`, `carry_after.rs`, `discovery.rs`, `chain_walk.rs`, `strict_walk.rs`, `single_lane.rs`, `narrowing.rs`, `not_run_link.rs`, `single_fresh.rs`, `order_hint.rs`, `memory.rs`, `compile_halt.rs`, `threads.rs`, `install_once.rs`, `cache.rs`, `run.rs`, `data_driven.rs`, `test_handlers.rs`, `written.rs`, `runner_reset.rs`, `handlers.rs`, `blocked.rs`, `table_reads.rs`, `workspace_layer.rs`
+- `runtime/` (30 files): Runs test codeunits the way BC's test runner does. Entry: `CorpusRuntime`. Files: `mod.rs`, `compiled.rs`, `baseline_key.rs`, `grow.rs`, `corpus.rs`, `chain.rs`, `carry_after.rs`, `discovery.rs`, `chain_walk.rs`, `strict_walk.rs`, `single_lane.rs`, `narrowing.rs`, `not_run_link.rs`, `single_fresh.rs`, `order_hint.rs`, `memory.rs`, `compile_halt.rs`, `threads.rs`, `install_once.rs`, `cache.rs`, `run.rs`, `data_driven.rs`, `test_handlers.rs`, `written.rs`, `runner_reset.rs`, `handlers.rs`, `blocked.rs`, `table_reads.rs`, `workspace_layer.rs`, `stop.rs`
 - `target.rs`: Reads the version fields of an app.json. Entry: `build_query`.
 
 ### alrunner-cli

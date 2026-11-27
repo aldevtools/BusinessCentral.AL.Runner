@@ -201,6 +201,9 @@ pub struct TestArgs {
     /// `--stop-after-first-failure` (al-runner issue 8210): once a test fails, the rest of its codeunit and every later
     /// serve entry are not run and end as not run, naming that test; a selection runs only the tests it picks.
     pub stop_after_first_failure: bool,
+    /// `--stop-after-timeout` (al-runner issue 9213): once the time limit stops a test, the rest of its codeunit and every
+    /// later serve entry are not run and end as not run, naming that test; a selection runs only the tests it picks.
+    pub stop_after_timeout: bool,
     pub require_dotnet: bool,
     /// `--require-report-renderer` (ADR-040 amendment 2026-11-15): a save whose real Html needs BC's own merger and converter
     /// refuses when the report renderer is unavailable, instead of keeping the opaque Html.
@@ -1274,6 +1277,10 @@ OTHER
                          failed test. Each test codeunit stops on its own; every other test codeunit of
                          the same entry, or of a request without entries, still runs. A selection then runs only the tests it picks, as --run-selected-only.
                          `serve`: a start option; a runTests request can set `stopAfterFirstFailure`.
+    --stop-after-timeout  Once the time limit stops a test, do not run the rest of its codeunit nor, in
+                         `serve`, the later entries (with `stopGroup`s, of its group): as
+                         --stop-after-first-failure, for a timeout instead of a failure; with both, the
+                         first. `serve`: a start option; a runTests request can set `stopAfterTimeout`.
     --dotnet-sidecar PATH, --dotnet-assembly-dir DIR, --dotnet-allow-roll-forward,
     --dotnet-timeout-secs N, --require-dotnet     The optional .NET helper (ADR-014).
     --require-report-renderer  A save whose real Html needs BC's own Word merger and converter refuses
@@ -1306,6 +1313,15 @@ fn optional_count(flag: &str, it: &mut std::iter::Peekable<impl Iterator<Item = 
             Ok(n)
         }
         _ => Ok(DEFAULT_TOP),
+    }
+}
+
+/// `--test-data-company NAME`: the first names the company of the test data, each later one another company.
+fn test_data_company(a: &mut TestArgs, company: String) {
+    if a.test_data_company.is_none() {
+        a.test_data_company = Some(company);
+    } else {
+        a.additional_test_data_companies.push(company);
     }
 }
 
@@ -1728,14 +1744,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--test-timeout-secs" | "--test-timeout" => a.test_timeout_secs = Some(number(&flag, &text()?)? as u64),
             "--skip-after-timeout" => a.skip_after_timeout = true,
             "--stop-after-first-failure" => a.stop_after_first_failure = true,
-            "--test-data-company" => {
-                let company = text()?;
-                if a.test_data_company.is_none() {
-                    a.test_data_company = Some(company);
-                } else {
-                    a.additional_test_data_companies.push(company);
-                }
-            }
+            "--stop-after-timeout" => a.stop_after_timeout = true,
+            "--test-data-company" => test_data_company(&mut a, text()?),
             "--country" => {
                 let v = text()?;
                 if v.contains(',') {

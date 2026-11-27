@@ -114,6 +114,7 @@ mod single_instance_test_codeunit;
 mod skip_after_timeout;
 mod start_session_record;
 mod stop_after_first_failure;
+mod stop_after_timeout;
 mod strict_sequential;
 mod test_driver;
 mod testfilter_qualified_field;
