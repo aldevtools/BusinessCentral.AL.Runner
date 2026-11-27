@@ -1,9 +1,10 @@
-//! `exit(FR.Value())` from a procedure that returns a Code[20], a Text or a Code[3], for a field of another type (issue 9285):
-//! the value converts as `T := FR.Value()` does, its Format text, upper-cased into a Code, StringLengthExceeded past the
-//! length. Assumption `fieldref-value-exit-into-text` (corpus PR 1629, merged at 778b8fc1, recordref-fieldref/
-//! fieldref-value-convert/FvcTimestampField.al:443, :466, :485 ExitValue_* and :214 Field0_InsertedRow). A Variant variable
-//! exited into a Code keeps its TypeConversion error (types/variant/VaTCompare.al:Concat_After_Conversion), and the exit into
-//! a number checks the lowered value, so a parenthesized `exit((FR.Value()))` meets the refusal of a Date (issue 9305).
+//! `exit(FR.Value())` from a procedure that returns a Code[20], a Text or a Code[3], for a field of another type (issue
+//! 9285): the value converts as `T := FR.Value()` does, its Format text, upper-cased into a Code, StringLengthExceeded
+//! past the length. Assumption `fieldref-value-exit-into-text` (corpus PR 1629, merged at 778b8fc1, recordref-fieldref/
+//! fieldref-value-convert/FvcTimestampField.al:443, :466, :485 ExitValue_* and :214 Field0_InsertedRow). A Variant
+//! variable exited into a Code keeps its TypeConversion error (types/variant/VaTCompare.al:Concat_After_Conversion),
+//! and the exit into a number checks the lowered value, so a parenthesized `exit((FR.Value()))` meets the refusal of a
+//! Date (issue 9305).
 
 const SRC: &str = r#"
 enum 50740 XKind { Extensible = false; value(0; Zero) { } value(1; One) { Caption = 'One Caption'; } }
@@ -108,7 +109,8 @@ fn too_long(len: usize, max: usize, value: &str) -> String {
     )
 }
 
-/// FvcTimestampField.al:443 ExitValue_NumberFields, :466 ExitValue_EnumOptionFields and :485 ExitValue_OtherFields (corpus PR 1629).
+/// FvcTimestampField.al:443 ExitValue_NumberFields, :466 ExitValue_EnumOptionFields and :485 ExitValue_OtherFields
+/// (corpus PR 1629).
 #[test]
 fn a_fieldref_value_exited_as_text_or_code_is_its_format_text() {
     assert_eq!(cells(2), "code20=5;text=5;code3=5;");

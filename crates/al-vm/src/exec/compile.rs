@@ -1565,8 +1565,8 @@ fn arg_pure(a: &ir::Arg) -> bool {
 }
 
 impl<'a> Compiler<'a> {
-    /// `exit(FR.Value())` from a procedure that returns a Text or Code: `Op::ConvertFieldValue` marked as an exit (al-builtins
-    /// `fieldref_value_text::fieldref_value_at_exit`, issue 9285).
+    /// `exit(FR.Value())` from a procedure that returns a Text or Code: `Op::ConvertFieldValue` marked as an exit
+    /// (al-builtins `fieldref_value_text::fieldref_value_at_exit`, issue 9285).
     fn field_value_exit(&mut self, t: &RtType, inner: &'a ir::Expr) -> R<()> {
         let a = self.expr_any(inner)?;
         self.chunk.types.push(t.clone());

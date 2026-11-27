@@ -1212,8 +1212,9 @@ impl Session {
         }
     }
 
-    /// The value of `exit(FR.Value())` into a Text or Code return: the cells corpus PR 1629 measured, in an en-US session of a
-    /// supported major (`fieldref_value_text::fieldref_value_at_exit`); any other value converts as every exit value does.
+    /// The value of `exit(FR.Value())` into a Text or Code return: the cells corpus PR 1629 measured, in an en-US
+    /// session of a supported major (`fieldref_value_text::fieldref_value_at_exit`); any other value converts as every
+    /// exit value does.
     #[cold]
     #[inline(never)]
     fn convert_field_value_at_exit(&self, v: Value, ty: &RtType) -> Result<Value, Signal> {
