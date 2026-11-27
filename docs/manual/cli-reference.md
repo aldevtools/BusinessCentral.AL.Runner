@@ -298,4 +298,5 @@ Order when several apply: 2, 6, 1, 8, 7. Exit code 3 means no test ran; the erro
 | `ALRUNNER_NO_PATH_NOTE=1` | No note about another `al-runner` on the `PATH`, and no list of them under `--version`. |
 | `ALRUNNER_TEST_TIMEOUT`, `AL_RUNNER_TEST_TIMEOUT_SEC` | The test time limit in seconds when `--test-timeout-secs` is not given (also for Microsoft's recipe). The second is version 2's name. |
 | `AL_CHECK_THREADS`, `AL_LOWER_THREADS`, `AL_TEST_THREADS` | Worker threads of the check, the lowering and the test codeunits. Default: one per core. The memory limit (`--max-memory`) can lower the test threads further, never raise them; a run whose work cannot use more threads uses fewer. |
+| `ALRUNNER_TEST_SLOW_CACHE_WRITE_MS` | Test only, for the tests of al-runner itself: each write of the workspace layer of the compile cache waits this many milliseconds before it starts, so a test can stop `al-runner serve` while a write is pending. Do not set it otherwise. |
 | `NO_COLOR` | No color with `--color auto`. |
