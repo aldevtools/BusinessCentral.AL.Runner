@@ -4,7 +4,7 @@ GuardedRunConsistentTwoKey => {
     tests: "Four of Microsoft's purchase posting preview tests (codeunit 134762): PurchInvoiceListOpensPreview, PurchOrderListOpensPreview, PurchCreditMemoListOpensPreview, PurchReturnOrderListOpensPreview; the other preview tests on Purchase Header still refuse (al-runner issues 8970, 9188).",
     probe: "Corpus PR 1616 (merged, not pinned; branch probe-guarded-run-two-field-key, CI run 45906095704 green on every BC major the corpus runs), tests/al-language/errors/ConsistentGuardedRunRecTwoKey.al: RecZ_PageMix_MarkedAgain :865, RecZ_PageMixKey_MarkedAgain :961, RecX_PageMix_MarkedAgain :2113, RecX_PageMixKey_MarkedAgain :2209.",
     awaiting: Awaiting {
-        issues: &[9188],
+        issues: &[8970, 9188],
         files: &["tests/al-language/errors/ConsistentGuardedRunRecTwoKey.al"],
         since: "2026-11-27",
     },

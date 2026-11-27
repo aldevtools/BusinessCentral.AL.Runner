@@ -192,14 +192,17 @@ pub(super) fn page_probe_end(
     if end != RunEnd::Failed("Dialog") || !super::unmarked_or_first(table, after) {
         return None;
     }
-    use Assumption::{GuardedRunConsistentPage as OneKey, GuardedRunConsistentTwoKey as TwoKey};
     let (entry, date_end) = match (after, filter) {
-        ([(_, M), (_, A)], ArgFilter::Page(PageArgShape::PageMix { date_end })) => (OneKey, date_end),
+        ([(_, M), (_, A)], ArgFilter::Page(PageArgShape::PageMix { date_end })) => {
+            (Assumption::GuardedRunConsistentPage, date_end)
+        }
         // RecZ_PageMix_MarkedAgain :865, RecZ_PageMixKey_MarkedAgain :961, RecX_PageMix_MarkedAgain :2113 and
         // RecX_PageMixKey_MarkedAgain :2209 of corpus PR 1616 (errors/ConsistentGuardedRunRecTwoKey.al).
-        ([(_, M), (_, A)], ArgFilter::Page(PageArgShape::PageMixTwoKey { date_end })) => (TwoKey, date_end),
+        ([(_, M), (_, A)], ArgFilter::Page(PageArgShape::PageMixTwoKey { date_end })) => {
+            (Assumption::GuardedRunConsistentTwoKey, date_end)
+        }
         ([(_, R | A), (_, M)], ArgFilter::Page(PageArgShape::Three) | ArgFilter::Measured { key: true }) => {
-            return Some(OneKey);
+            return Some(Assumption::GuardedRunConsistentPage);
         }
         _ => return None,
     };
