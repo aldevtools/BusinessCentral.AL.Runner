@@ -446,7 +446,6 @@ fn test_timeout_secs(a: &TestArgs) -> Result<u64, String> {
     Ok(DEFAULT_TEST_TIMEOUT_SECS)
 }
 
-/// The time limit of a test from a number of seconds: `0` is no limit.
 /// The compile cache of a run whose cache is on: under the cache folder of `--cache-dir` or the environment, with the
 /// `--require-compile-cache` and `--rebuild-compile-cache` switches.
 fn compile_cache(a: &TestArgs, country: &str) -> al_testrun::compile_cache::CompileCache {
@@ -460,6 +459,7 @@ fn compile_cache(a: &TestArgs, country: &str) -> al_testrun::compile_cache::Comp
     }
 }
 
+/// The time limit of a test from a number of seconds: `0` is no limit.
 fn time_limit(secs: u64) -> Option<std::time::Duration> {
     (secs > 0).then(|| std::time::Duration::from_secs(secs))
 }
