@@ -1126,7 +1126,7 @@ impl Session {
         // The page's view mark comes over with Record.Copy (`R.Copy(PageRec)`, corpus PR 1622 ConsistentGuardedRunPageConst.al
         // :945-:1020), not with RecordRef.Copy; `s` is a clone, which never carries it (`PageViewMark`).
         d.page_view = match by_record {
-            true => al_builtins::value::PageViewMark(src.borrow().page_view.0.clone()),
+            true => crate::consistent_marks::page_view_copied(&src.borrow().page_view, rec, &d.page_view),
             false => Default::default(),
         };
         // The target keeps its company (above); whether it takes a ChangeCompany call of the source along is not measured, so

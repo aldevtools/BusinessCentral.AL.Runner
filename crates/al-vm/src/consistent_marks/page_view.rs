@@ -171,6 +171,17 @@ pub(crate) fn page_view_ended(method: RecordOp, filter_group: i32) -> bool {
     }
 }
 
+/// The mark a `Record.Copy` from a record holding `from` leaves on `target`, which holds `own`: `from`'s mark comes over,
+/// except onto the page's Rec that mark was set on, which keeps its own. A copy made before a Reset, SetView, Clear or
+/// assignment ended the Rec's view does not put the view back (`Saved.Copy(Rec); Rec.Reset(); Rec.Copy(Saved)`): no probe
+/// measured that, so it keeps main's result.
+pub(crate) fn page_view_copied(from: &PageViewMark, target: &Rec, own: &PageViewMark) -> PageViewMark {
+    match &from.0 {
+        Some(m) if std::ptr::eq(m.origin.as_ptr(), Rc::as_ptr(target)) => PageViewMark(own.0.clone()),
+        m => PageViewMark(m.clone()),
+    }
+}
+
 /// The record's filters in filter group 2.
 fn group2(r: &RecordState) -> Vec<FieldFilter> {
     r.filters.iter().filter(|f| f.group == 2).cloned().collect()

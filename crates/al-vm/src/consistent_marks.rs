@@ -33,7 +33,7 @@ use std::rc::{Rc, Weak};
 
 mod page_args;
 mod page_view;
-pub(crate) use page_view::page_view_ended;
+pub(crate) use page_view::{page_view_copied, page_view_ended};
 
 /// How the variables of a table have called `Consistent` on its mark.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

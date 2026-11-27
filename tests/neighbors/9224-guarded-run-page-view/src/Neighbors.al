@@ -434,6 +434,8 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'Worksheet', 'mark', '');
+        Observer.Ignore('run end|text');
+        Observer.Ignore('log');
         Observer.Expect('run end|code', 'TestWrapped:CSide');
         Observer.Verify();
     end;
@@ -444,6 +446,8 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'Worksheet', 'mark,commit', '');
+        Observer.Ignore('run end|code');
+        Observer.Ignore('log');
         Observer.Expect('run end|text', 'END');
         Observer.Verify();
     end;
@@ -454,6 +458,8 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'ListPart', 'mark', '');
+        Observer.Ignore('run end|text');
+        Observer.Ignore('log');
         Observer.Expect('run end|code', 'TestWrapped:CSide');
         Observer.Verify();
     end;
@@ -464,6 +470,8 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'ListPart', 'mark,commit', '');
+        Observer.Ignore('run end|code');
+        Observer.Ignore('log');
         Observer.Expect('run end|text', 'END');
         Observer.Verify();
     end;
@@ -474,6 +482,8 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'Extended', 'mark', '');
+        Observer.Ignore('run end|text');
+        Observer.Ignore('log');
         Observer.Expect('run end|code', 'TestWrapped:CSide');
         Observer.Verify();
     end;
@@ -484,6 +494,8 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'Extended', 'mark,commit', '');
+        Observer.Ignore('run end|code');
+        Observer.Ignore('log');
         Observer.Expect('run end|text', 'END');
         Observer.Verify();
     end;
@@ -494,6 +506,8 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'ExtensionAction', 'mark', '');
+        Observer.Ignore('run end|text');
+        Observer.Ignore('log');
         Observer.Expect('run end|code', 'TestWrapped:CSide');
         Observer.Verify();
     end;
@@ -504,6 +518,8 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'ExtensionAction', 'mark,commit', '');
+        Observer.Ignore('run end|code');
+        Observer.Ignore('log');
         Observer.Expect('run end|text', 'END');
         Observer.Verify();
     end;
@@ -514,6 +530,8 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'OpenRun', 'mark', '');
+        Observer.Ignore('run end|text');
+        Observer.Ignore('log');
         Observer.Expect('run end|code', 'DB:TableInConsistent');
         Observer.Verify();
     end;
@@ -524,6 +542,8 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'OpenRun', 'mark,commit', '');
+        Observer.Ignore('run end|code');
+        Observer.Ignore('log');
         Observer.Expect('run end|text', 'END');
         Observer.Verify();
     end;
@@ -534,6 +554,8 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'CodeKey', 'mark', '');
+        Observer.Ignore('run end|text');
+        Observer.Ignore('log');
         Observer.Expect('run end|code', 'TestWrapped:CSide');
         Observer.Verify();
     end;
@@ -544,6 +566,8 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'CodeKey', 'mark,commit', '');
+        Observer.Ignore('run end|code');
+        Observer.Ignore('log');
         Observer.Expect('run end|text', 'END');
         Observer.Verify();
     end;
@@ -554,6 +578,8 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'Variants', 'mark', 'codeview');
+        Observer.Ignore('run end|text');
+        Observer.Ignore('log');
         Observer.Expect('run end|code', 'TestWrapped:CSide');
         Observer.Verify();
     end;
@@ -564,6 +590,8 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'Variants', 'mark,commit', 'codeview');
+        Observer.Ignore('run end|code');
+        Observer.Ignore('log');
         Observer.Expect('run end|text', 'END');
         Observer.Verify();
     end;
@@ -574,6 +602,8 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'Variants', 'mark', 'assign');
+        Observer.Ignore('run end|text');
+        Observer.Ignore('log');
         Observer.Expect('run end|code', 'TestWrapped:CSide');
         Observer.Verify();
     end;
@@ -584,6 +614,8 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'Variants', 'mark,commit', 'assign');
+        Observer.Ignore('run end|code');
+        Observer.Ignore('log');
         Observer.Expect('run end|text', 'END');
         Observer.Verify();
     end;
@@ -594,6 +626,8 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'Variants', 'mark', 'reset');
+        Observer.Ignore('run end|text');
+        Observer.Ignore('log');
         Observer.Expect('run end|code', 'TestWrapped:CSide');
         Observer.Verify();
     end;
@@ -604,6 +638,8 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'Variants', 'mark,commit', 'reset');
+        Observer.Ignore('run end|code');
+        Observer.Ignore('log');
         Observer.Expect('run end|text', 'END');
         Observer.Verify();
     end;
@@ -614,6 +650,8 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'Variants', 'mark', 'clear');
+        Observer.Ignore('run end|text');
+        Observer.Ignore('log');
         Observer.Expect('run end|code', 'TestWrapped:CSide');
         Observer.Verify();
     end;
@@ -624,6 +662,8 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'Variants', 'mark,commit', 'clear');
+        Observer.Ignore('run end|code');
+        Observer.Ignore('log');
         Observer.Expect('run end|text', 'END');
         Observer.Verify();
     end;
@@ -634,6 +674,8 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'CallShapes', 'mark', 'direct');
+        Observer.Ignore('run end|text');
+        Observer.Ignore('log');
         Observer.Expect('run end|code', 'TestWrapped:CSide');
         Observer.Verify();
     end;
@@ -644,6 +686,8 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'CallShapes', 'mark,commit', 'direct');
+        Observer.Ignore('run end|code');
+        Observer.Ignore('log');
         Observer.Expect('run end|text', 'END');
         Observer.Verify();
     end;
@@ -654,6 +698,8 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'CallShapes', 'mark', 'local');
+        Observer.Ignore('run end|text');
+        Observer.Ignore('log');
         Observer.Expect('run end|code', 'TestWrapped:CSide');
         Observer.Verify();
     end;
@@ -664,6 +710,8 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'CallShapes', 'mark,commit', 'local');
+        Observer.Ignore('run end|code');
+        Observer.Ignore('log');
         Observer.Expect('run end|text', 'END');
         Observer.Verify();
     end;
@@ -674,6 +722,8 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'CallShapes', 'mark', 'method');
+        Observer.Ignore('run end|text');
+        Observer.Ignore('log');
         Observer.Expect('run end|code', 'TestWrapped:CSide');
         Observer.Verify();
     end;
@@ -684,6 +734,8 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'CallShapes', 'mark,commit', 'method');
+        Observer.Ignore('run end|code');
+        Observer.Ignore('log');
         Observer.Expect('run end|text', 'END');
         Observer.Verify();
     end;
@@ -694,6 +746,8 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'CallShapes', 'mark', 'event');
+        Observer.Ignore('run end|text');
+        Observer.Ignore('log');
         Observer.Expect('run end|code', 'TestWrapped:CSide');
         Observer.Verify();
     end;
@@ -704,6 +758,8 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'CallShapes', 'mark,commit', 'event');
+        Observer.Ignore('run end|code');
+        Observer.Ignore('log');
         Observer.Expect('run end|text', 'END');
         Observer.Verify();
     end;
@@ -723,6 +779,8 @@ codeunit 69176 "GPN Param Tests"
         Tests: Codeunit "GPN Tests";
     begin
         Tests.Cell(Observer, 'CallShapes', 'mark', 'param-int');
+        Observer.Ignore('run end|text');
+        Observer.Ignore('log');
         Observer.Expect('run end|code', 'TestWrapped:CSide');
         Observer.Verify();
     end;
@@ -734,6 +792,8 @@ codeunit 69176 "GPN Param Tests"
         Tests: Codeunit "GPN Tests";
     begin
         Tests.Cell(Observer, 'CallShapes', 'mark,commit', 'param-int');
+        Observer.Ignore('run end|code');
+        Observer.Ignore('log');
         Observer.Expect('run end|text', 'END');
         Observer.Verify();
     end;
@@ -745,6 +805,8 @@ codeunit 69176 "GPN Param Tests"
         Tests: Codeunit "GPN Tests";
     begin
         Tests.Cell(Observer, 'CallShapes', 'mark', 'param-other');
+        Observer.Ignore('run end|text');
+        Observer.Ignore('log');
         Observer.Expect('run end|code', 'TestWrapped:CSide');
         Observer.Verify();
     end;
@@ -756,6 +818,8 @@ codeunit 69176 "GPN Param Tests"
         Tests: Codeunit "GPN Tests";
     begin
         Tests.Cell(Observer, 'CallShapes', 'mark,commit', 'param-other');
+        Observer.Ignore('run end|code');
+        Observer.Ignore('log');
         Observer.Expect('run end|text', 'END');
         Observer.Verify();
     end;
@@ -775,6 +839,8 @@ codeunit 69173 "GPN Same Param Tests"
         Tests: Codeunit "GPN Tests";
     begin
         Tests.Cell(Observer, 'CallShapes', 'mark', 'param-same-global');
+        Observer.Ignore('run end|text');
+        Observer.Ignore('log');
         Observer.Expect('run end|code', 'TestWrapped:CSide');
         Observer.Verify();
     end;
@@ -786,6 +852,61 @@ codeunit 69173 "GPN Same Param Tests"
         Tests: Codeunit "GPN Tests";
     begin
         Tests.Cell(Observer, 'CallShapes', 'mark,commit', 'param-same-global');
+        Observer.Ignore('run end|code');
+        Observer.Ignore('log');
+        Observer.Expect('run end|text', 'END');
+        Observer.Verify();
+    end;
+}
+
+// Merge train review of runner PR 9252: the guarded run on the page's Rec after Saved.Copy(Rec), Rec.Reset() and Rec.Copy(Saved).
+codeunit 69185 "GPN Saved Reset Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure SavedReset_Ends()
+    var
+        Observer: Codeunit "Probe Observer";
+        Tests: Codeunit "GPN Tests";
+    begin
+        Tests.Cell(Observer, 'CallShapes', 'mark', 'saved-reset');
+        Observer.Ignore('run end|text');
+        Observer.Ignore('log');
+        Observer.Expect('run end|code', 'TestWrapped:CSide');
+        Observer.Verify();
+    end;
+
+    [Test]
+    procedure SavedReset_PlainCommit()
+    var
+        Observer: Codeunit "Probe Observer";
+        Tests: Codeunit "GPN Tests";
+    begin
+        Tests.Cell(Observer, 'CallShapes', 'mark,commit', 'saved-reset');
+        Observer.Ignore('run end|code');
+        Observer.Ignore('log');
+        Observer.Expect('run end|text', 'END');
+        Observer.Verify();
+    end;
+}
+
+// Merge train review of runner PR 9252: the guarded run on the page's Rec twice: the first run returns false, the second runs on the unchanged record.
+codeunit 69186 "GPN Run Twice Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure RunTwice_PlainCommit()
+    var
+        Observer: Codeunit "Probe Observer";
+        Tests: Codeunit "GPN Tests";
+    begin
+        Tests.Cell(Observer, 'CallShapes', 'mark,commit', 'twice');
+        Observer.Ignore('run end|code');
+        Observer.Ignore('log');
         Observer.Expect('run end|text', 'END');
         Observer.Verify();
     end;

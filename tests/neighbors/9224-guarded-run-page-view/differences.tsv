@@ -3,3 +3,4 @@ GPC Tests::Page_OrderCardDirect_Ends	ASSUMED guarded-run-consistent-page-view (c
 GPC Tests::Page_OrderCardDirect_PlainCommit	ASSUMED guarded-run-consistent-page-view (corpus PR 1622)
 GPC Tests::Page_OrderDirect_Ends	ASSUMED guarded-run-consistent-page-view (corpus PR 1622)
 GPC Tests::Page_OrderDirect_PlainCommit	ASSUMED guarded-run-consistent-page-view (corpus PR 1622)
+GPN Run Twice Tests::RunTwice_PlainCommit	ASSUMED guarded-run-consistent-page-view (corpus PR 1622): the first run is the PlainCommit cell; the second keeps main's refusal

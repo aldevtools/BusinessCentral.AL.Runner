@@ -73,6 +73,10 @@ page 69181 "GPN Call Shapes"
                                 Wrapper.SetRec(Rec);
                                 Wrapper.GoSame(Rec);
                             end;
+                        'saved-reset':
+                            Wrapper.SavedReset(Rec);
+                        'twice':
+                            Wrapper.RunTwice(Rec);
                     end;
                 end;
             }
@@ -137,6 +141,38 @@ codeunit 69182 "GPN Call Wrapper"
         LogCu.Log('code=' + GetLastErrorCode());
     end;
 
+    // Merge train review of runner PR 9252: Reset ends the page's view, and a Copy from a copy made before puts the filters back.
+    procedure SavedReset(var PageRec: Record "GPC Z")
+    var
+        LogCu: Codeunit "GPC Log";
+        Saved: Record "GPC Z";
+        Ok: Boolean;
+    begin
+        Saved.Copy(PageRec);
+        PageRec.Reset();
+        PageRec.Copy(Saved);
+        ClearLastError();
+        Ok := Codeunit.Run(Codeunit::"GPC Inner", PageRec);
+        LogCu.Log('run=' + Format(Ok));
+        LogCu.Log('code=' + GetLastErrorCode());
+    end;
+
+    // Merge train review of runner PR 9252: a guarded run that returns false, then a second run on the same record.
+    procedure RunTwice(var PageRec: Record "GPC Z")
+    var
+        LogCu: Codeunit "GPC Log";
+        Ok: Boolean;
+    begin
+        ClearLastError();
+        Ok := Codeunit.Run(Codeunit::"GPC Inner", PageRec);
+        LogCu.Log('run1=' + Format(Ok));
+        LogCu.Log('code1=' + GetLastErrorCode());
+        ClearLastError();
+        Ok := Codeunit.Run(Codeunit::"GPC Inner", PageRec);
+        LogCu.Log('run2=' + Format(Ok));
+        LogCu.Log('code2=' + GetLastErrorCode());
+    end;
+
     procedure Run(var PageRec: Record "GPC Z")
     var
         Runner: Codeunit "GPC Run";
@@ -158,3 +194,4 @@ codeunit 69182 "GPN Call Wrapper"
         LogCu.Log('code=' + GetLastErrorCode());
     end;
 }
+
