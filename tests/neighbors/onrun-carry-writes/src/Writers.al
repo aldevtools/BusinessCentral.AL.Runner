@@ -243,3 +243,48 @@ codeunit 86914 "OCW RecRef From Temp Refused"
     begin
     end;
 }
+
+codeunit 86916 "OCW RecRef Temp Table"
+{
+    Subtype = Test;
+
+    trigger OnRun()
+    var
+        RecRef: RecordRef;
+        FldRef: FieldRef;
+    begin
+        RecRef.Open(86901);
+        RecRef.Init();
+        FldRef := RecRef.Field(1);
+        FldRef.Value := 'TTB';
+        RecRef.Insert();
+    end;
+
+    [Test]
+    procedure RecRefTempTable_Runs()
+    begin
+    end;
+}
+
+codeunit 86917 "OCW RecRef Temp Table Refused"
+{
+    Subtype = Test;
+
+    trigger OnRun()
+    var
+        RecRef: RecordRef;
+        FldRef: FieldRef;
+    begin
+        RecRef.Open(86901);
+        RecRef.Init();
+        FldRef := RecRef.Field(1);
+        FldRef.Value := 'TTBX';
+        RecRef.Insert();
+        Database.ExportData(true, 'x', '');
+    end;
+
+    [Test]
+    procedure RecRefTempTableRefused_Runs()
+    begin
+    end;
+}

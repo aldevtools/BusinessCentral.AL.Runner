@@ -92,3 +92,19 @@ codeunit 86915 "OCW Reader Temp RecRef"
             Error('too many rows: %1', Row.Count());
     end;
 }
+
+// Runs after the writers on a TableType = Temporary table (86916, 86917): no row of such a table outlives the codeunit,
+// and the OCW Row table is as the earlier codeunits left it.
+codeunit 86918 "OCW Reader Temp Table"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure TempTable_RowTableCount()
+    var
+        Row: Record "OCW Row";
+    begin
+        if Row.Count() > 5 then
+            Error('too many rows: %1', Row.Count());
+    end;
+}

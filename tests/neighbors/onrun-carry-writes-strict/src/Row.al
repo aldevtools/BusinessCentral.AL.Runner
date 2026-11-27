@@ -21,3 +21,17 @@ codeunit 86920 "OCW Subscriber"
         Row.Insert();
     end;
 }
+
+table 86901 "OCW Temp Table Row"
+{
+    TableType = Temporary;
+
+    fields
+    {
+        field(1; "Key"; Code[20]) { }
+    }
+    keys
+    {
+        key(PK; "Key") { Clustered = true; }
+    }
+}

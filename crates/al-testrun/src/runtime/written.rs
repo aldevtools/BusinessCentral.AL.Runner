@@ -143,8 +143,9 @@ pub(crate) struct ReachFacts {
     /// temporary: Insert, Modify, ModifyAll and Rename. Delete, DeleteAll and a page's source table are left out.
     pub persistent_writes: BTreeSet<u32>,
     /// An Insert, Modify, ModifyAll or Rename through a `RecordRef` local of the writing routine that the routine opens
-    /// by `Open(<constant id>)` (alone or with the constant `false`) or by `GetTable` of a local record not declared
-    /// temporary (`Walk::opens_rows`); part of `writes_any`. Any other RecordRef does not count.
+    /// by `Open(<constant id>)` (alone or with the constant `false`; the id names a table whose `TableType` is unstated
+    /// or `Normal`) or by `GetTable` of a local record not declared temporary (`Walk::opens_rows`); part of
+    /// `writes_any`. Any other RecordRef does not count.
     pub recordref_writes: bool,
     /// A `RecordRef`, `FieldRef` or `KeyRef` is used: it may read any table, which `touched` does not show (the table it
     /// opens is known only at run time).
@@ -1858,9 +1859,23 @@ impl Rec<'_> {
         Some(ty.clone())
     }
 
+    /// Whether table `id` is a table object of the program whose `TableType` is unstated or `Normal`: its rows outlive
+    /// the codeunit. `TableType = Temporary` (and every other type, and an id that names no table) does not count.
+    fn normal_table(&self, id: i32) -> bool {
+        let Ok(id) = u32::try_from(id) else { return false };
+        self.index.by_id.get(&(ObjKind::Table, id)).is_some_and(|&t| {
+            let props = &self.lowered.program.objects.heads()[t].properties;
+            matches!(
+                al_ir::ObjectFacts::of_properties(props).table_type,
+                None | Some(al_ir::TableType::Normal)
+            )
+        })
+    }
+
     /// Whether `receiver`, the RecordRef a write of routine `r` goes through, is a local of that routine (not a
     /// parameter) that the routine opens on the rows of a table, and nothing else binds: every `Open` on it takes a
-    /// constant id alone or with the constant `false`, every `GetTable` a local record not declared temporary, at least
+    /// constant id alone or with the constant `false`, the id naming a table of the program whose `TableType` is
+    /// unstated or `Normal` ([`Walk::normal_table`]), every `GetTable` a local record not declared temporary, at least
     /// one of them is there, and the routine neither assigns it, passes it to a call, nor calls `Get` or `Copy` on it.
     /// Every other RecordRef keeps main's choice (al-runner issue 7622).
     fn opens_rows(&self, o: usize, r: usize, receiver: &Place) -> bool {
@@ -1888,14 +1903,14 @@ impl Rec<'_> {
                             matches!(receiver.as_deref(), Some(Arg::Ref(p) | Arg::Value(Expr::Load(p))) if is_rr(p));
                         if on_rr && id.name().starts_with("RecordRef.") {
                             match (id.method(), args.as_slice()) {
-                                ("Open", [Arg::Value(Expr::Const(Const::Integer(_)))])
+                                ("Open", [Arg::Value(Expr::Const(Const::Integer(t)))])
                                 | (
                                     "Open",
                                     [
-                                        Arg::Value(Expr::Const(Const::Integer(_))),
+                                        Arg::Value(Expr::Const(Const::Integer(t))),
                                         Arg::Value(Expr::Const(Const::Boolean(false))),
                                     ],
-                                ) => opened = true,
+                                ) if self.normal_table(*t) => opened = true,
                                 ("GetTable", [a]) if plain_record(a) => opened = true,
                                 ("Open" | "GetTable" | "Get" | "Copy", _) => other = true,
                                 _ => {}
