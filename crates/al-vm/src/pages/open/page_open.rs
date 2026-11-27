@@ -484,7 +484,8 @@ impl Session {
             }
             self.set_view_in(&rec, &table, &view, Some(2), sub_view.is_some(), false, false)?;
             merge_view_filters(&mut rec.borrow_mut(), &enum_consts, kept);
-            let opened_by_test_view = test_open && record.is_none() && sub_view.is_none() && st.borrow().test_open_view();
+            let opened_by_test_view =
+                test_open && record.is_none() && sub_view.is_none() && st.borrow().test_open_view();
             let object = st.borrow().object as usize;
             self.mark_page_view(object, Rc::as_ptr(st) as usize, opened_by_test_view, &rec);
         }

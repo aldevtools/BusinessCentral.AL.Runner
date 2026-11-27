@@ -79,7 +79,11 @@ impl Session {
         };
         let mark = arg.rec.borrow().page_view.0.clone()?;
         let view_kept = mark.group2.len() == group2(&arg.rec.borrow()).len()
-            && mark.group2.iter().zip(group2(&arg.rec.borrow())).all(|(a, b)| same_filter(a, &b));
+            && mark
+                .group2
+                .iter()
+                .zip(group2(&arg.rec.borrow()))
+                .all(|(a, b)| same_filter(a, &b));
         let in_action = self.in_page_action(mark.page_state as *const _) && self.page_view_page(mark.page as usize);
         if !(run_shape && one_mark && view_kept && in_action) {
             return None;
