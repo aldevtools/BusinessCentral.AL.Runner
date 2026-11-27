@@ -226,8 +226,12 @@ impl Session {
             // (stale_buffer_origin.rs:55, assigned_audit.rs:327), a blob (blob_transfer.rs:977), a query (query_reopen.rs:43),
             // a page run (pages/page_run_close.rs:631), the SQL counters (sqlcount.rs:886, reset by `left_inactive`).
             commits: _,
-            // Checked (`not_as_new_why`).
+            // Says only whether a live record of the session may carry a Blob-source mark. The codeunit's session starts
+            // from what install code left with none of its records: `InstallLeft` and the Baseline carry rows and values,
+            // and the test session does not see the install run's SingleInstance state (al-testrun `install.rs`). So the
+            // new session's `Sources::default()` is exact after any install code (issue 9227).
             blob_sources: _,
+            // Checked (`not_as_new_why`).
             error_scopes: _,
             // Caches of what the program defines: the same values in every session.
             initial_cache: _,
@@ -379,7 +383,6 @@ impl Session {
         };
         let owned = || {
             [
-                (self.blob_sources.as_new(), "blob_sources"),
                 (self.variant_refs.as_new(), "variant_refs"),
                 (self.temp_blob_impl_fields.as_new(), "temp_blob_impl_fields"),
             ]
