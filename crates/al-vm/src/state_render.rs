@@ -854,7 +854,8 @@ mod tests {
     #[test]
     fn texts_that_differ_only_in_a_lone_half_render_apart() {
         let (session, _) = session_and_records();
-        let forms: [(&str, fn(Txt) -> Value); 6] = [
+        type Form = fn(Txt) -> Value;
+        let forms: [(&str, Form); 6] = [
             ("Text", Value::Text),
             ("Code", Value::Code),
             ("TextConst", |t| {
