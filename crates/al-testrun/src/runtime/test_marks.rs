@@ -23,7 +23,7 @@ impl Scratch {
         (reached, answered)
     }
 
-    /// The outcome of the test `name` that `skip_after_timeout` or `stop_after_first_failure` leaves out for `why`; the
+    /// The outcome of the test `name` that `skip_after_timeout` or a stop (`stop.rs`) leaves out for `why`; the
     /// test is marked (`TestResult::skipped_by_option`) while its outcome is still that one.
     pub(super) fn skip(&mut self, name: &str, why: &str) -> crate::Outcome {
         self.skipped.push((name.to_string(), why.to_string()));

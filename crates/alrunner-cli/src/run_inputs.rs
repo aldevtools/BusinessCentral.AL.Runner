@@ -183,6 +183,7 @@ impl RunInputs {
             test_timeout_secs,
             skip_after_timeout,
             stop_after_first_failure,
+            stop_after_timeout,
             // Without a usable .NET the run stops: no outcome is stored.
             require_dotnet: _,
             require_report_renderer,
@@ -296,6 +297,8 @@ impl RunInputs {
         // A test after a failure is not run.
         r.outcome
             .push(("stop_after_first_failure", text(stop_after_first_failure)));
+        // A test after a timeout is not run.
+        r.outcome.push(("stop_after_timeout", text(stop_after_timeout)));
         // A save that needs the renderer refuses without it.
         r.outcome
             .push(("require_report_renderer", text(require_report_renderer)));
@@ -439,7 +442,7 @@ mod tests {
     type Change = fn(&mut TestArgs, &Path);
 
     /// One change per outcome input, by the name `RunInputs::of` gives it. The path is a file that exists.
-    const CHANGES: [(&str, Change); 43] = [
+    const CHANGES: [(&str, Change); 44] = [
         ("country", |a, _| a.country = Some("de".into())),
         ("bc_version", |a, _| a.bc_version = Some("27.5".into())),
         ("isolation", |a, _| {
@@ -478,6 +481,7 @@ mod tests {
         ("test_timeout_secs", |a, _| a.test_timeout_secs = Some(5)),
         ("skip_after_timeout", |a, _| a.skip_after_timeout = true),
         ("stop_after_first_failure", |a, _| a.stop_after_first_failure = true),
+        ("stop_after_timeout", |a, _| a.stop_after_timeout = true),
         ("require_report_renderer", |a, _| a.require_report_renderer = true),
         ("files_dir", |a, f| a.files_dir = Some(f.to_path_buf())),
         ("license", |a, f| a.license = Some(f.to_path_buf())),

@@ -36,7 +36,7 @@
 //!   `field messages`, `field captured`, `field traces`, `field stubbed`, `field ui_answered`, `field cells`,
 //!   `field slept`, `field skipped`, `field entered`, `field run_only`, `field hub_leg`, `field leak`,
 //!   `field leak_hits`, `field onrun_carry`, `field read_tables`, `field discovery`, `field on_run_rows`,
-//!   `field report_unpinned_errors`, `field skip_after_timeout`, `field stop_after_first_failure`, `field runner`,
+//!   `field report_unpinned_errors`, `field skip_after_timeout`, `field stop`, `field stop_trigger`, `field runner`,
 //!   `field watch`, `field singles_past_stop`, `field singles_out`, `field unfinished_after_start`,
 //!   `field refused_mid_run`, `field test_panicked`, `field unfinished_at`, `field order_hints`: after (what to
 //!   capture, the runner codeunit, the single instance watch, the carries and the leak are taken after the open; the

@@ -4325,7 +4325,7 @@ fn stop_group_values_and_combinations() {
 
 const STOP_GROUP_MIX: &str = "some entries have a `stopGroup` and some do not: give every entry one (an entry that stops alone gets a group of its own), or none (a failure then stops the whole request)";
 
-const STOP_GROUP_NEEDS_THE_STOP: &str = "`stopGroup` needs `stopAfterFirstFailure` (or a server started with `--stop-after-first-failure`): without the stop a group changes nothing";
+const STOP_GROUP_NEEDS_THE_STOP: &str = "`stopGroup` needs `stopAfterFirstFailure` or `stopAfterTimeout` (or a server started with `--stop-after-first-failure` or `--stop-after-timeout`): without a stop a group changes nothing";
 
 /// E3, kept on its own so that it is easy to flip if a client needs `stopGroup` with the stop off to be ignored.
 #[test]
@@ -4561,6 +4561,221 @@ fn without_stop_groups_the_reason_is_upstreams_text() {
         assert_eq!(r["notRun"], true, "{r}");
         let m = r["message"].as_str().unwrap();
         assert_eq!(m, format!("NotRun: out-of-scope: {UPSTREAM_STOP_TEXT}"));
+    }
+    shut_down(s);
+}
+
+// ---- Issue 9213: `stopAfterTimeout`, a timeout row stops the request (or its `stopGroup`) and the daemon is kept ----
+
+/// 50150: a test the Sleep budget stops between two that pass. 50151: one that passes.
+fn timeout_app(root: &Path) -> PathBuf {
+    app(
+        root,
+        "timeoutstop",
+        "codeunit 50150 \"Timeout Fixture\" { Subtype = Test;
+    [Test] procedure A_Passes() begin end;
+    [Test] procedure B_TimesOut() begin Sleep(5000); end;
+    [Test] procedure C_Passes() begin end; }
+codeunit 50151 \"After Fixture\" { Subtype = Test;
+    [Test] procedure D_Passes() begin end; }",
+    )
+}
+
+/// The `notRun` message of a test the stop did not run after `B_TimesOut`, with `later` the entries it names.
+fn timeout_stop_message(later: &str) -> String {
+    format!(
+        "NotRun: out-of-scope: the test Codeunit50150.B_TimesOut was stopped at the time limit before it, and stopAfterTimeout (--stop-after-timeout) runs no test of its codeunit or of {later} after a timeout"
+    )
+}
+
+fn is_timeout_row(l: &Value) -> bool {
+    l["notRun"] == true && l["message"] == "Test exceeded 1s timeout."
+}
+
+/// The status of each `test` line, or the message of a `notRun` one.
+fn statuses(lines: &[Value]) -> Vec<String> {
+    test_lines(lines)
+        .iter()
+        .map(|l| match l["notRun"] == true {
+            true => l["message"].as_str().unwrap_or_default().to_string(),
+            false => l["status"].as_str().unwrap_or_default().to_string(),
+        })
+        .collect()
+}
+
+/// Issue 9213: "After a timeout row, the rest of its codeunit and the later entries are not run"; with `stopGroup`s
+/// "only the later entries of its own group"; a timeout row stays `notRun` with its clock.
+#[test]
+fn stop_after_timeout_ends_the_request_or_its_group_at_the_first_timeout_row() {
+    let d = tempfile::tempdir().unwrap();
+    let a = timeout_app(d.path());
+    let mut s = one_thread_server(&[]);
+    let (t, after) = ("Codeunit50150.", "Codeunit50151.");
+    let lines = run_request(
+        &mut s,
+        &a,
+        json!({"stopAfterTimeout": true, "testTimeoutSecs": 1,
+            "entries": [{"id": "a", "test": t}, {"id": "b", "test": after}]}),
+    );
+    let tests = test_lines(&lines);
+    assert_eq!(tests.len(), 4, "{lines:?}");
+    assert_eq!(tests[0]["status"], "pass", "{lines:?}");
+    assert!(is_timeout_row(tests[1]) && tests[1]["clock"] == "virtual", "{lines:?}");
+    for r in &tests[2..] {
+        assert_eq!(r["notRun"], true, "{r}");
+        assert_eq!(r["message"], timeout_stop_message("a later entry"), "{r}");
+    }
+    assert_eq!(entry_exit_codes(&lines), [json!(7), json!(7)], "{lines:?}");
+    let grouped = run_request(
+        &mut s,
+        &a,
+        json!({"stopAfterTimeout": true, "testTimeoutSecs": 1, "entries": [
+            {"id": "a", "test": t, "stopGroup": "m1"}, {"id": "b", "test": after, "stopGroup": "m2"},
+            {"id": "c", "test": after, "stopGroup": "m1"}]}),
+    );
+    let in_m1 = timeout_stop_message("a later entry of its stopGroup `m1`");
+    assert_eq!(
+        statuses(&grouped),
+        ["pass", "Test exceeded 1s timeout.", &in_m1, "pass", &in_m1],
+        "{grouped:?}"
+    );
+    shut_down(s);
+}
+
+/// Issue 9213: off by default; a failure does not trigger it, a timeout does not trigger `stopAfterFirstFailure`, and
+/// `skipAfterTimeout` alone is unchanged. With both stops the first triggering row is named; with `skipAfterTimeout`
+/// too, the codeunit's rows carry the one stop text.
+#[test]
+fn stop_after_timeout_alone_and_with_the_other_options() {
+    let d = tempfile::tempdir().unwrap();
+    let a = timeout_app(d.path());
+    let mut s = one_thread_server(&[]);
+    let entries = json!([{"id": "a", "test": "Codeunit50150."}, {"id": "b", "test": "Codeunit50151."}]);
+    let with = |extra: Value| {
+        let mut r = json!({"testTimeoutSecs": 1, "entries": entries.clone()});
+        for (k, v) in extra.as_object().unwrap() {
+            r[k] = v.clone();
+        }
+        r
+    };
+    let timeout = "Test exceeded 1s timeout.";
+    for extra in [
+        json!({}),
+        json!({"stopAfterTimeout": false}),
+        json!({"stopAfterFirstFailure": true}),
+    ] {
+        let lines = run_request(&mut s, &a, with(extra.clone()));
+        assert_eq!(
+            statuses(&lines),
+            ["pass", timeout, "pass", "pass"],
+            "{extra}: {lines:?}"
+        );
+    }
+    let skip = run_request(&mut s, &a, with(json!({"skipAfterTimeout": true})));
+    let skipped = "NotRun: out-of-scope: an earlier test of this codeunit (B_TimesOut) was stopped at the time limit, and --skip-after-timeout does not run the rest of the codeunit";
+    assert_eq!(statuses(&skip), ["pass", timeout, skipped, "pass"], "{skip:?}");
+    let stop = timeout_stop_message("a later entry");
+    for extra in [
+        json!({"stopAfterTimeout": true, "skipAfterTimeout": true}),
+        json!({"stopAfterTimeout": true, "stopAfterFirstFailure": true}),
+    ] {
+        let lines = run_request(&mut s, &a, with(extra.clone()));
+        assert_eq!(statuses(&lines), ["pass", timeout, &stop, &stop], "{extra}: {lines:?}");
+    }
+    let lines = run_request(&mut s, &a, with(json!({"stopAfterTimeout": "yes"})));
+    assert_eq!(
+        lines.last().unwrap()["error"],
+        "`stopAfterTimeout` is true or false",
+        "{lines:?}"
+    );
+    shut_down(s);
+    // A server started with the flag stops without the request field, and takes groups.
+    let mut s = one_thread_server(&["--stop-after-timeout"]);
+    let lines = run_request(
+        &mut s,
+        &a,
+        json!({"testTimeoutSecs": 1, "entries": [
+            {"id": "a", "test": "Codeunit50150.", "stopGroup": "m1"}, {"id": "b", "test": "Codeunit50151.", "stopGroup": "m1"}]}),
+    );
+    let in_m1 = timeout_stop_message("a later entry of its stopGroup `m1`");
+    assert_eq!(statuses(&lines), ["pass", timeout, &in_m1, &in_m1], "{lines:?}");
+    shut_down(s);
+}
+
+/// Issue 9213, "Daemon cleanliness": the stop only removes work. A test that writes rows, WorkDate, a SingleInstance
+/// value, a NumberSequence and an IsolatedStorage key and then spins until the time limit stops it (issue 8334's cut)
+/// stops the reader after it; the next request on the same daemon answers as a new daemon does.
+#[test]
+fn a_daemon_after_a_stop_after_timeout_answers_as_a_new_daemon() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(
+        d.path(),
+        "timeoutstopstate",
+        "table 50152 \"Stop Timeout Row\" { fields { field(1; No; Integer) { } } keys { key(PK; No) { } } }
+codeunit 50153 \"Stop Timeout Single\" { SingleInstance = true; var V: Integer;
+    procedure SetV(N: Integer) begin V := N; end; procedure GetV(): Integer begin exit(V); end; }
+codeunit 50154 \"Stop Hanger\" { Subtype = Test;
+    [Test] procedure WritesThenHangs() var R: Record \"Stop Timeout Row\"; S: Codeunit \"Stop Timeout Single\"; i: Integer; begin
+        R.No := 1; R.Insert(); Commit(); R.No := 2; R.Insert();
+        WorkDate(20010101D); S.SetV(7);
+        NumberSequence.Insert('STATE9213'); IsolatedStorage.Set('state9213', 'x');
+        while true do i := (i + 1) mod 7919; end; }
+codeunit 50155 \"Stop Reader\" { Subtype = Test;
+    [Test] procedure Reports() var R: Record \"Stop Timeout Row\"; S: Codeunit \"Stop Timeout Single\"; begin
+        Error('rows=%1 date=%2 single=%3 sequence=%4 storage=%5', R.Count(), WorkDate(), S.GetV(),
+            NumberSequence.Exists('STATE9213'), IsolatedStorage.Contains('state9213')); end; }",
+    );
+    let mut stopped = one_thread_server(&[]);
+    let first = run_request(
+        &mut stopped,
+        &a,
+        json!({"stopAfterTimeout": true, "testTimeoutSecs": 1, "entries": [
+            {"id": "h", "test": "Codeunit50154."}, {"id": "r", "test": "Codeunit50155."}]}),
+    );
+    let tests = test_lines(&first);
+    assert!(is_timeout_row(tests[0]), "{first:?}");
+    assert!(
+        tests[1]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("Codeunit50154.WritesThenHangs") && m.contains("stopAfterTimeout")),
+        "{first:?}"
+    );
+    let reader = json!({"test": "Codeunit50155."});
+    let after = answer_of(&run_request(&mut stopped, &a, reader.clone()));
+    let mut fresh = one_thread_server(&[]);
+    let want = answer_of(&run_request(&mut fresh, &a, reader));
+    assert_eq!(after, want);
+    shut_down(stopped);
+    shut_down(fresh);
+}
+
+/// Issue 9213: the refusal of a mix of grouped and ungrouped entries names the stop that would stop the whole request:
+/// a failure under `stopAfterFirstFailure` (the text of issue 8210, unchanged), a timeout under `stopAfterTimeout`
+/// alone, either under both.
+#[test]
+fn the_mixed_group_refusal_names_the_stops_that_are_on() {
+    let d = tempfile::tempdir().unwrap();
+    let a = timeout_app(d.path());
+    let mut s = one_thread_server(&[]);
+    let entries = json!([{"test": "Codeunit50151.", "stopGroup": "m1"}, {"test": "Codeunit50151."}]);
+    let mix = |then: &str| {
+        format!(
+            "some entries have a `stopGroup` and some do not: give every entry one (an entry that stops alone gets a group of its own), or none ({then} then stops the whole request)"
+        )
+    };
+    for (stops, then) in [
+        (json!({"stopAfterFirstFailure": true}), "a failure"),
+        (json!({"stopAfterTimeout": true}), "a timeout"),
+        (
+            json!({"stopAfterFirstFailure": true, "stopAfterTimeout": true}),
+            "a failure or a timeout",
+        ),
+    ] {
+        let mut r = stops.clone();
+        r["entries"] = entries.clone();
+        let lines = run_request(&mut s, &a, r);
+        assert_eq!(lines.last().unwrap()["error"], mix(then), "{stops}: {lines:?}");
+        assert_eq!(STOP_GROUP_MIX, mix("a failure"), "issue 8210's text is unchanged");
     }
     shut_down(s);
 }

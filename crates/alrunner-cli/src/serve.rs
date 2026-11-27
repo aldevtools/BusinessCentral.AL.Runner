@@ -46,6 +46,7 @@ const RUN_TESTS_FIELDS: &[&str] = &[
     "strictEnvironment",
     "skipAfterTimeout",
     "stopAfterFirstFailure",
+    "stopAfterTimeout",
     "testTimeoutSecs",
     "entries",
     "seed",
@@ -408,6 +409,10 @@ fn request_args(base: &TestArgs, fields: &Map<String, Value>) -> Result<(TestArg
     if fields.get("stopAfterFirstFailure").is_some_and(|v| !v.is_null()) {
         a.stop_after_first_failure = flag(fields, "stopAfterFirstFailure")?;
     }
+    // Issue 9213: absent or `null`, the server's `--stop-after-timeout`.
+    if fields.get("stopAfterTimeout").is_some_and(|v| !v.is_null()) {
+        a.stop_after_timeout = flag(fields, "stopAfterTimeout")?;
+    }
     // Issue 8125: absent, the server's `--test-timeout-secs` or environment variable (`run::test_timeout_secs`).
     if let Some(n) = test_timeout_secs(fields)? {
         a.test_timeout_secs = Some(n);
@@ -572,17 +577,21 @@ fn stop_group(e: &Map<String, Value>) -> Result<Option<String>, String> {
 }
 
 /// The `stopGroup`s of `entries` are all or none (issue 8210): a mix is refused, as an entry without a group has more
-/// than one plausible reading there, and a refusal can be lifted later. Groups need the stop after a failure (`stop`:
-/// the request's field, or the server's `--stop-after-first-failure` when it is absent): without the stop a group
+/// than one plausible reading there, and a refusal can be lifted later. Groups need a stop (`failure` or, issue 9213,
+/// `timeout`: the request's field, or the server's option when it is absent): without one a group
 /// changes nothing, so it is refused as a likely client mistake. The mix is checked first: it is wrong whatever the
 /// stop.
-fn stop_groups_checked(entries: &[run::Entry], stop: bool) -> Result<(), String> {
+fn stop_groups_checked(entries: &[run::Entry], failure: bool, timeout: bool) -> Result<(), String> {
     let grouped = entries.iter().filter(|e| e.stop_group.is_some()).count();
     if grouped > 0 && grouped < entries.len() {
-        return Err("some entries have a `stopGroup` and some do not: give every entry one (an entry that stops alone gets a group of its own), or none (a failure then stops the whole request)".into());
+        // Issue 9213: the tail names the stops that are on (`stop.rs` owns the words).
+        let then = al_testrun::runtime::stop_triggers(failure, timeout);
+        return Err(format!(
+            "some entries have a `stopGroup` and some do not: give every entry one (an entry that stops alone gets a group of its own), or none ({then} then stops the whole request)"
+        ));
     }
-    if !stop && grouped > 0 {
-        return Err("`stopGroup` needs `stopAfterFirstFailure` (or a server started with `--stop-after-first-failure`): without the stop a group changes nothing".into());
+    if !(failure || timeout) && grouped > 0 {
+        return Err("`stopGroup` needs `stopAfterFirstFailure` or `stopAfterTimeout` (or a server started with `--stop-after-first-failure` or `--stop-after-timeout`): without a stop a group changes nothing".into());
     }
     Ok(())
 }
@@ -596,7 +605,7 @@ fn run_tests(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, fl
         Ok(x) => x,
         Err(e) => return error(e),
     };
-    if let Err(e) = stop_groups_checked(&entries, args.stop_after_first_failure) {
+    if let Err(e) = stop_groups_checked(&entries, args.stop_after_first_failure, args.stop_after_timeout) {
         return error(e);
     }
     if let Ok(mut v) = flags.entry_ids.lock() {
@@ -1231,6 +1240,19 @@ mod tests {
                 .0
                 .stop_after_first_failure
         );
+        // Issue 9213: `stopAfterTimeout` is `--stop-after-timeout` for one request; absent or `null`, the server's setting.
+        let stop = |v: Value| run(json!({"sourcePaths": ["/a"], "stopAfterTimeout": v}));
+        assert!(stop(json!(true)).unwrap().0.stop_after_timeout);
+        assert!(!stop(json!(false)).unwrap().0.stop_after_timeout);
+        assert!(!run(json!({"sourcePaths": ["/a"]})).unwrap().0.stop_after_timeout);
+        assert!(stop(json!("yes")).is_err());
+        let started = TestArgs {
+            stop_after_timeout: true,
+            ..base()
+        };
+        let stop_on = |v: Value| request_args(&started, &fields(json!({"sourcePaths": ["/a"], "stopAfterTimeout": v})));
+        assert!(!stop_on(json!(false)).unwrap().0.stop_after_timeout);
+        assert!(stop_on(json!(null)).unwrap().0.stop_after_timeout);
         // ADR-066 amendment 4: `strictOrder` is `--strict-order` for one request.
         assert!(
             run(json!({"sourcePaths": ["/a"], "strictOrder": true}))
@@ -1422,7 +1444,7 @@ mod tests {
         assert_eq!(e[0].stop_group, None);
     }
 
-    /// Issue 8210: groups are all or none, and need the stop.
+    /// Issue 8210: groups are all or none, and need a stop (issue 9213: either of the two).
     #[test]
     fn stop_groups_are_all_or_none_and_need_the_stop() {
         let entry = |g: Option<&str>| run::Entry {
@@ -1432,17 +1454,32 @@ mod tests {
         let none = [entry(None), entry(None)];
         let all = [entry(Some("m1")), entry(Some("m2"))];
         let mixed = [entry(None), entry(Some("m1"))];
-        let needs_the_stop = "`stopGroup` needs `stopAfterFirstFailure` (or a server started with `--stop-after-first-failure`): without the stop a group changes nothing";
+        let needs_the_stop = "`stopGroup` needs `stopAfterFirstFailure` or `stopAfterTimeout` (or a server started with `--stop-after-first-failure` or `--stop-after-timeout`): without a stop a group changes nothing";
         let mix = "some entries have a `stopGroup` and some do not: give every entry one (an entry that stops alone gets a group of its own), or none (a failure then stops the whole request)";
         for stop in [false, true] {
-            assert_eq!(stop_groups_checked(&none, stop), Ok(()), "no groups, stop {stop}");
+            assert_eq!(
+                stop_groups_checked(&none, stop, false),
+                Ok(()),
+                "no groups, stop {stop}"
+            );
+            assert_eq!(
+                stop_groups_checked(&none, false, stop),
+                Ok(()),
+                "no groups, timeout stop {stop}"
+            );
         }
-        assert_eq!(stop_groups_checked(&all, true), Ok(()));
+        assert_eq!(stop_groups_checked(&all, true, false), Ok(()));
+        assert_eq!(stop_groups_checked(&all, false, true), Ok(()));
         assert_eq!(
-            stop_groups_checked(&mixed, true),
+            stop_groups_checked(&mixed, true, false),
             Err(mix.to_string()),
             "a mix is refused"
         );
-        assert_eq!(stop_groups_checked(&all, false), Err(needs_the_stop.to_string()));
+        assert_eq!(stop_groups_checked(&all, false, false), Err(needs_the_stop.to_string()));
+        assert_eq!(
+            stop_groups_checked(&mixed, false, true),
+            Err(mix.replace("(a failure then", "(a timeout then")),
+            "issue 9213: the tail names the stop that is on"
+        );
     }
 }
