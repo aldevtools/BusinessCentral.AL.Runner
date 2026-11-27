@@ -375,6 +375,14 @@ fn skipped_install_touching<'a>(
 }
 
 /// The object id and name of the test runner codeunit `object`, for isolation::failed_test_runner_measured.
+/// BC's TestRunnerHub under RequiredTestIsolation = Function: the NumberSequence log of the codeunit begins before
+/// OnRun (isolation::after_test, al-vm `hub_sequences.rs`).
+fn begin_hub_log(session: &mut Session, isolation: TestIsolation, hub: bool, execute: bool) {
+    if isolation == TestIsolation::Function && hub && !execute {
+        session.begin_hub_sequence_log();
+    }
+}
+
 fn runner_key(lowered: &Lowered, object: Option<usize>) -> Option<(u32, &str)> {
     object
         .map(|i| &lowered.program.objects[i])
@@ -655,6 +663,7 @@ fn run_codeunit_inner(
                      runner: &super::al_runner::Steps|
      -> Result<super::al_runner::Outcomes, super::al_runner::Outcomes> {
         let instance = session.codeunit_instance(object);
+        begin_hub_log(session, isolation, scratch.hub, execute);
         let measured_bindings = measured_runner.then_some((lowered, &instance));
         // The ITestHandler callbacks (BC 29): OnBeforeTestCodeunitRun comes before OnRun (BiTestHandlerDefault.al:15, :329).
         let th = super::test_handlers::Handlers::begin(session, lowered, object, execute)
@@ -789,7 +798,7 @@ fn run_codeunit_inner(
         let mut panicked = false;
         // The refusals of the keys and sequences an earlier codeunit's tests changed (isolation::after_test) end here: this
         // codeunit runs on what the earlier one left, as main ran it; whether BC leaves the same is not measured.
-        session.clear_unmeasured();
+        session.clear_earlier_unmeasured();
         // Why the later tests of this codeunit are not run: `--skip-after-timeout` (al-runner issue 7517) after the test the
         // time limit stopped, a stop of the pass (`stop.rs`) after the first row that triggers it.
         let mut stopped: Option<String> = None;
