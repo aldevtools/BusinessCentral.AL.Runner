@@ -6,9 +6,10 @@
 
 use crate::*;
 use al_builtins::filter::FieldFilter;
-use band::Band;
+use band::pk_band;
 pub use key::PkStorage;
 use key::{Key, table_storage};
+use scan::{KeyOrder, Placed};
 use std::cmp::Ordering;
 
 mod alt_cache;
@@ -30,6 +31,7 @@ mod key_value_tests;
 mod order_carry;
 mod replace;
 mod row_changes;
+mod scan;
 pub use row_changes::BeforeRows;
 mod shape;
 pub use shape::{CommittedMarks, CommittedRows};
@@ -309,28 +311,6 @@ fn key_fields_differ(key: &[usize], old: &[Value], new: &[Value]) -> bool {
         .any(|&i| al_builtins::ops::compare_key_value(&old[i], &new[i]).map_or(true, |o| o != Ordering::Equal))
 }
 
-/// `key_cmp(position(t, key, row), other)` without building the position.
-fn cmp_row_to_position(t: &TableDef, key: usize, row: &[Value], other: &[Value]) -> Ordering {
-    for (&i, x) in t.keys[key].iter().chain(&t.keys[0]).zip(other) {
-        match t.cmp_key_field(i, &row[i], x) {
-            Ordering::Equal => continue,
-            o => return o,
-        }
-    }
-    (t.keys[key].len() + t.keys[0].len()).cmp(&other.len())
-}
-
-/// `key_cmp(position(t, key, a), position(t, key, b))` without building the positions.
-fn cmp_rows(t: &TableDef, key: usize, a: &[Value], b: &[Value]) -> Ordering {
-    for &i in t.keys[key].iter().chain(&t.keys[0]) {
-        match t.cmp_key_field(i, &a[i], &b[i]) {
-            Ordering::Equal => continue,
-            o => return o,
-        }
-    }
-    Ordering::Equal
-}
-
 /// The part of the order of a key that the filters narrow down (ADR-035): the position tuple of the first row a scan
 /// can return, and of the last, as far as filters on the leading fields of the key say. Either may be empty (open),
 /// and both are prefixes of a position. The full `passes` check still runs on every row between them, so a bound
@@ -399,6 +379,8 @@ impl Seek {
     /// The bounds the filters give for key `key` of `t`; `None` when they give none.
     pub fn of(t: &TableDef, key: usize, filters: &[FieldFilter], sample: Option<&Row>) -> Option<Seek> {
         use al_builtins::filter::{FilterExpr as E, OR_GROUP};
+        #[cfg(test)]
+        SEEKS_WORKED_OUT.with(|c| c.set(c.get() + 1));
         if filters.is_empty() {
             return None;
         }
@@ -526,29 +508,8 @@ impl Seek {
 thread_local! {
     /// How many rows `passes` looked at: the tests of the key seek count what a scan reads.
     static ROWS_LOOKED_AT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-/// The rows of `table` (in primary key order) that can pass `filters`: those between the bounds the filters on the
-/// leading primary key fields give. A row of the band may still fail them, so the caller checks `passes`.
-fn pk_band<'a>(
-    table: &'a Table,
-    t: &TableDef,
-    filters: &[FieldFilter],
-) -> Box<dyn Iterator<Item = (&'a Key, &'a Row)> + 'a> {
-    use std::ops::Bound::{Included, Unbounded};
-    let Some(seek) = Seek::of(t, 0, filters, table.values().next()) else {
-        return Box::new(table.iter());
-    };
-    let lower = if seek.lo.is_empty() {
-        Unbounded
-    } else {
-        Included(Key::of(t, seek.lo.clone()))
-    };
-    Box::new(
-        table
-            .range((lower, Unbounded))
-            .take_while(move |(_, r)| seek.after(r) != Some(true)),
-    )
+    /// How many times `Seek::of` worked out the bounds of a key: the tests of the kept lists count them.
+    static SEEKS_WORKED_OUT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// Every read that checks rows here refused a filter whose matching is not pinned first (`unpinned_match_read`).
@@ -1414,7 +1375,8 @@ impl MemStore {
         let moved = self.moves.get(&ck).copied().unwrap_or(0);
         ORDER_BUILDS.with(|n| n.set(n.get() + 1));
         let mut rows: Vec<(&Key, &Row)> = table.iter().collect();
-        rows.sort_by(|a, b| cmp_rows(t, key, a.1, b.1));
+        let by = KeyOrder::sorting(t, key);
+        rows.sort_by(|a, b| by.cmp_rows(a.1, b.1));
         let order = std::rc::Rc::new(
             rows.into_iter()
                 .map(|(k, _)| std::rc::Rc::new(k.clone()))
@@ -1438,128 +1400,6 @@ impl MemStore {
         order
     }
 
-    /// A scan whose own key is not bounded by the filters, but another key is (an index the filters narrow, as SQL
-    /// picks one): the rows that pass are found in that key's band and put in the order of the scan's key, once
-    /// per table version and set of filters (the cache `alt_cache`). `None`: the caller walks.
-    ///
-    /// The first step of a scan reads the band; the second builds the sorted list; later steps search it. The step
-    /// right after a write walks (a loop that writes in every step must not pay for a band in every step).
-    ///
-    /// `own`: the number of rows of the band of the scan's own key, when the filters bound it (`None`: they do not). Another
-    /// key's band is then read only when it is a clear gain over that band.
-    fn alt_next(
-        &self,
-        cx: &AccessContext,
-        t: &TableDef,
-        scan: &Scan,
-        table: &Table,
-        own: Option<usize>,
-    ) -> Option<Option<Row>> {
-        if scan.filters.is_empty()
-            || (own.is_none() && Seek::of(t, scan.key, scan.filters, table.values().next()).is_some())
-        {
-            return None;
-        }
-        let sample = table.values().next();
-        if !(0..t.keys.len()).any(|j| j != scan.key && Seek::of(t, j, scan.filters, sample).is_some()) {
-            return None;
-        }
-        let slot = slot(cx, t);
-        let stamp = self.stamp_of(&slot, &self.versions);
-        let fields: Vec<usize> = if scan.key == 0 {
-            t.keys[0].clone()
-        } else {
-            t.keys[scan.key].iter().chain(&t.keys[0]).copied().collect()
-        };
-        // How a row stands to the position `a`.
-        let cmp_after = |r: &[Value], a: &[Value]| -> Ordering {
-            for (&i, x) in fields.iter().zip(a) {
-                match t.cmp_key_field(i, &r[i], x) {
-                    Ordering::Equal => continue,
-                    o => return o,
-                }
-            }
-            Ordering::Equal
-        };
-        let after_ok = |r: &[Value]| {
-            scan.after.is_none_or(|a| {
-                let o = cmp_after(r, a);
-                if scan.ascending {
-                    o == Ordering::Greater
-                } else {
-                    o == Ordering::Less
-                }
-            })
-        };
-        let calls = match self.alt_step(&slot, scan.key, scan.filters, stamp) {
-            alt_cache::AltStep::Walk => return None,
-            alt_cache::AltStep::Sorted(keys) => return Some(self.search_sorted(table, &keys, scan, &cmp_after)),
-            alt_cache::AltStep::Band(calls) => calls,
-        };
-        // When `own` is `None` the filters do not bound the scan's key (checked above), so it has no band to leave out.
-        let Some(band) = self.narrowest_band(&slot, t, table, scan.filters, scan.key, own) else {
-            self.alt_keep(&slot, scan.key, scan.filters, None);
-            return None;
-        };
-        let band_keys: Vec<Key> = match &band {
-            Band::Pk => pk_band(table, t, scan.filters).map(|(k, _)| k.clone()).collect(),
-            Band::Order(order, range) => order[range.clone()].iter().map(|k| (**k).clone()).collect(),
-        };
-        if calls < 2 {
-            // The first step: the best row of the band.
-            let mut best: Option<&Row> = None;
-            for k in &band_keys {
-                let Some(r) = table.get(k) else { continue };
-                if !passes(r, scan.filters) || !after_ok(r) {
-                    continue;
-                }
-                let better = best.is_none_or(|b| {
-                    let o = cmp_rows(t, scan.key, r, b);
-                    if scan.ascending {
-                        o == Ordering::Less
-                    } else {
-                        o == Ordering::Greater
-                    }
-                });
-                if better {
-                    best = Some(r);
-                }
-            }
-            return Some(best.cloned());
-        }
-        let mut rows: Vec<(&Key, &Row)> = band_keys
-            .iter()
-            .filter_map(|k| table.get_key_value(k))
-            .filter(|(_, r)| passes(r, scan.filters))
-            .collect();
-        rows.sort_by(|a, b| cmp_rows(t, scan.key, a.1, b.1));
-        let keys = std::rc::Rc::new(rows.into_iter().map(|(k, _)| k.clone()).collect::<Vec<_>>());
-        self.alt_keep(&slot, scan.key, scan.filters, Some(keys.clone()));
-        Some(self.search_sorted(table, &keys, scan, &cmp_after))
-    }
-
-    /// The row after the position of `scan` in `keys` (the rows that pass, in the order of the scan's key).
-    fn search_sorted(
-        &self,
-        table: &Table,
-        keys: &[Key],
-        scan: &Scan,
-        cmp_after: &dyn Fn(&[Value], &[Value]) -> Ordering,
-    ) -> Option<Row> {
-        let at = |i: usize| table.get(&keys[i]);
-        if scan.ascending {
-            let start = scan.after.map_or(0, |a| {
-                keys.partition_point(|k| table.get(k).is_some_and(|r| cmp_after(r, a) != Ordering::Greater))
-            });
-            (start < keys.len()).then(|| at(start).cloned()).flatten()
-        } else {
-            let end = scan.after.map_or(keys.len(), |a| {
-                keys.partition_point(|k| table.get(k).is_some_and(|r| cmp_after(r, a) == Ordering::Less))
-            });
-            (end > 0).then(|| at(end - 1).cloned()).flatten()
-        }
-    }
-
     fn table_mut(&mut self, cx: &AccessContext, t: &TableDef) -> &mut Table {
         self.seen(t.object);
         self.footprint_written(t.object);
@@ -1579,6 +1419,11 @@ impl MemStore {
         );
         table
     }
+}
+
+/// Whether `order` (an order `order_of` gave) holds the rows of `table`: as many, and the first is one of them.
+fn order_fits(order: &[OrderKey], table: &Table) -> bool {
+    order.len() == table.len() && order.iter().take(1).all(|k| table.get(k).is_some())
 }
 
 thread_local! {
@@ -1813,129 +1658,7 @@ impl Store for MemStore {
             filters: &numbers,
             ..scan.clone()
         };
-        if table.len() >= INDEX_MIN_ROWS {
-            if let Some(found) = self.alt_next(cx, t, scan, &table, None) {
-                return Ok(found);
-            }
-        }
-        // In primary key order the table is already in the order of the scan: step to the first row past
-        // the position and look at the rows from there on until one passes the filters.
-        if scan.key == 0 {
-            use std::ops::Bound::{Excluded, Included, Unbounded};
-            let k = t.keys[0].len();
-            let after = scan.after.map(|a| Key::of(t, a[..k.min(a.len())].to_vec()));
-            if scan.ascending {
-                let seek = Seek::of(t, 0, scan.filters, table.values().next());
-                let from = seek
-                    .as_ref()
-                    .filter(|s| !s.lo.is_empty())
-                    .map(|s| Key::of(t, s.lo.clone()));
-                let lower = match (after, from) {
-                    (Some(a), Some(f)) if a.cmp(&f) == Ordering::Less => Included(f),
-                    (Some(a), _) => Excluded(a),
-                    (None, Some(f)) => Included(f),
-                    (None, None) => Unbounded,
-                };
-                return Ok(table
-                    .range((lower, Unbounded))
-                    .map(|(_, r)| r)
-                    // Past the last row the filters allow (a row that does not compare is looked at).
-                    .take_while(|r| seek.as_ref().is_none_or(|s| s.after(r) != Some(true)))
-                    .find(|r| passes(r, scan.filters))
-                    .cloned());
-            }
-            let upper = after.map_or(Unbounded, Excluded);
-            return Ok(table
-                .range((Unbounded, upper))
-                .rev()
-                .map(|(_, r)| r)
-                .find(|r| passes(r, scan.filters))
-                .cloned());
-        }
-        // A big table in another key: step through the table's rows in that key's order.
-        if table.len() >= INDEX_MIN_ROWS {
-            let slot = slot(cx, t);
-            let order = self.order_of(&slot, scan.key, t, &table);
-            let row_at = |k: &Key| table.get(k);
-            if order.len() == table.len() && order.iter().take(1).all(|k| row_at(k).is_some()) {
-                // The slice of the order the filters on the leading fields of the key leave (ADR-035).
-                let seek = Seek::of(t, scan.key, scan.filters, table.values().next());
-                let mut band = 0..order.len();
-                if let Some(sk) = &seek {
-                    let trusted = std::cell::Cell::new(true);
-                    let probe = |k: &Key, f: &dyn Fn(&[Value]) -> Option<bool>| match row_at(k).map(|r| f(r)) {
-                        Some(Some(b)) => b,
-                        _ => {
-                            trusted.set(false);
-                            false
-                        }
-                    };
-                    let start = order.partition_point(|k| probe(k, &|r| sk.before(r)));
-                    let end = order.partition_point(|k| !probe(k, &|r| sk.after(r)));
-                    // Rows that do not compare: the order cannot be trusted, so the whole of it is looked at.
-                    if trusted.get() && start <= end {
-                        band = start..end;
-                    }
-                    // A wide band of this key: another key the filters bound may hold far fewer rows
-                    // (Tests-SCM codeunit 137380 TenThousandSerialNos: "Reservation Entry" by source line and serial number).
-                    if band.len() >= INDEX_MIN_ROWS {
-                        if let Some(found) = self.alt_next(cx, t, scan, &table, Some(band.len())) {
-                            return Ok(found);
-                        }
-                    }
-                }
-                let found = if scan.ascending {
-                    let start = scan.after.map_or(0, |a| {
-                        order.partition_point(|k| {
-                            row_at(k).is_some_and(|r| cmp_row_to_position(t, scan.key, r, a) != Ordering::Greater)
-                        })
-                    });
-                    order[start.max(band.start).min(band.end)..band.end]
-                        .iter()
-                        .filter_map(|k| row_at(k))
-                        .find(|r| passes(r, scan.filters))
-                } else {
-                    let end = scan.after.map_or(order.len(), |a| {
-                        order.partition_point(|k| {
-                            row_at(k).is_some_and(|r| cmp_row_to_position(t, scan.key, r, a) == Ordering::Less)
-                        })
-                    });
-                    order[band.start.min(end)..end.min(band.end)]
-                        .iter()
-                        .rev()
-                        .filter_map(|k| row_at(k))
-                        .find(|r| passes(r, scan.filters))
-                };
-                return Ok(found.cloned());
-            }
-        }
-        // A small table in another key: every row is looked at, without building its position (a copy of the key fields).
-        let mut best: Option<&Row> = None;
-        for row in table.values().filter(|r| passes(r, scan.filters)) {
-            let after_ok = scan.after.is_none_or(|a| {
-                let o = cmp_row_to_position(t, scan.key, row, a);
-                if scan.ascending {
-                    o == Ordering::Greater
-                } else {
-                    o == Ordering::Less
-                }
-            });
-            if !after_ok {
-                continue;
-            }
-            let better = best.is_none_or(|b| {
-                let o = cmp_rows(t, scan.key, row, b);
-                if scan.ascending {
-                    o == Ordering::Less
-                } else {
-                    o == Ordering::Greater
-                }
-            });
-            if better {
-                best = Some(row);
-            }
-        }
-        Ok(best.cloned())
+        Ok(self.step(cx, t, scan, &table))
     }
 
     fn count(&self, cx: &AccessContext, t: &TableDef, f: &[FieldFilter]) -> Result<usize, StoreError> {

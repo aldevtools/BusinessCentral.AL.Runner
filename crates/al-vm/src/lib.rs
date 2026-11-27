@@ -160,6 +160,7 @@ mod report_layout_streams;
 mod report_no_layout_file;
 pub mod report_placeholder;
 mod report_render;
+pub use report_render::WORD_HTML_NEEDS;
 mod report_save;
 mod reports;
 mod resource_reads;
