@@ -1038,7 +1038,10 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // not measured on main alone; CI on the train is the check.
     // Exact runner frames by routing (CallstackRunnerFrames.al, corpus pin c4efa9eb) add the eight
     // CallstackRunnerFrames_Plain_* cases of 69950: a codeunit without handlers has no runner frames from BC 28 on.
-    assert!(out.contains("runtime: 57 case(s) differ between versions"), "{out}");
+    // Branch batch-carried-state makes it 47: the ten RqIsolationModes.al cases of 88512-88515 pass on BC 28 and 29 too.
+    // An OnRun now joins the chain by what its reach inserts (the 130450 codeunits 60161-60194 call ALTFixtureCleanup), so
+    // the last carry before 88512 is a 130450 one; the hub leg runs before the 130450 leg (RqIsolationModes.al:12).
+    assert!(out.contains("runtime: 47 case(s) differ between versions"), "{out}");
     assert!(out.contains("71500 Get_Uses_Primary_Key_Not_Current_Key: 27"), "{out}");
 }
 
