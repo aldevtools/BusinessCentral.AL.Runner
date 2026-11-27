@@ -596,11 +596,9 @@ pub(crate) struct PageClients {
     /// The page triggers running now, innermost last, with their page and, for the OnOpenPage of a page the test opened with
     /// `TestPage.OpenView`, its page object (`pages/code_close_veto.rs`, read by
     /// `permissions/permission_probed/extension_code.rs`).
-    pub(crate) trigger_kinds: Vec<(
-        *const RefCell<crate::pages::PageState>,
-        crate::pages::TriggerKind,
-        Option<usize>,
-    )>,
+    pub(crate) trigger_kinds: Vec<crate::pages::PageTrigger>,
+    /// How many pages opened in the session; each open takes the next id (`consistent_marks/page_view.rs`).
+    pub(crate) page_opens: u64,
     /// How many TestPage calls run now, nested (`pages/code_close_veto.rs`).
     pub(crate) client_depth: u32,
     /// Vetoed `CurrPage.Close()` calls waiting for the end of their TestPage call (`pages/code_close_veto.rs`).
