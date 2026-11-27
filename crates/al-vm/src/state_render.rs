@@ -642,6 +642,7 @@ impl Render<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use al_builtins::text::Txt;
     use al_builtins::value::{SqlCount, SqlForm, SqlType};
 
     /// A session over a table and a codeunit whose globals are a record of the table and a temporary one; the globals of
@@ -843,5 +844,49 @@ mod tests {
         let one = render(Value::DotNet(shared.clone()), Value::DotNet(shared));
         let two = render(Value::DotNet(object()), Value::DotNet(object()));
         assert_ne!(one, two);
+    }
+
+    // Issue 9202: the state lines the login replay check compares (and the replay key digests) wrote a lone surrogate
+    // half as the U+FFFD that holds its place, so a session holding the high half, the low half or U+FFFD itself
+    // rendered the same. Every text value the render takes keeps its exact units: a Text and a Code (the byte form,
+    // `value_codec`), a TextConst, a TextBuilder with and without a capacity and a BigText (the text form, `Txt`'s
+    // Debug).
+    #[test]
+    fn texts_that_differ_only_in_a_lone_half_render_apart() {
+        let (session, _) = session_and_records();
+        type Form = fn(Txt) -> Value;
+        let forms: [(&str, Form); 6] = [
+            ("Text", Value::Text),
+            ("Code", Value::Code),
+            ("TextConst", |t| {
+                Value::TextConst(t, al_builtins::value::TextConstFrom::Label)
+            }),
+            ("TextBuilder", |t| {
+                library(LibraryKind::TextBuilder, LibraryValue::Text(t))
+            }),
+            ("TextBuilder with a capacity", |t| {
+                library(LibraryKind::TextBuilder, LibraryValue::TextCap(t, 32))
+            }),
+            ("BigText", |t| library(LibraryKind::BigText, LibraryValue::Text(t))),
+        ];
+        let texts: [&[u16]; 5] = [
+            &[0x61, 0xD83D],
+            &[0x61, 0xD83E],
+            &[0x61, 0xDE01],
+            &[0x61, 0xFFFD],
+            &[0x61, 0x5C, 0x75],
+        ];
+        for (name, form) in forms {
+            let mut render = Render::new(&session);
+            let mut seen: Vec<(Out, &[u16])> = Vec::new();
+            for units in texts {
+                let out = render.value(&form(Txt::from_units(units)), 0);
+                assert!(out.is_ok(), "{name} {units:x?}: {out:?}");
+                if let Some((_, other)) = seen.iter().find(|(o, _)| *o == out) {
+                    panic!("{name}: {units:x?} renders as {other:x?} does: {out:?}");
+                }
+                seen.push((out, units));
+            }
+        }
     }
 }
