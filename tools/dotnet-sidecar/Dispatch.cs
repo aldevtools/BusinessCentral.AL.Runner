@@ -240,18 +240,7 @@ public sealed class Server
                 }
                 var (best, coerced, _) = picked;
                 bound = PlainParameters(best) ? "method" : null;
-                var rewrite = marshal.RewriteBridge(target, name, args.Length);
-                if (rewrite != null) rewrite.RewriteAllowed = true;
-                object? result;
-                try { result = ((MethodInfo)best).Invoke(((MethodInfo)best).IsStatic ? null : target, coerced); }
-                catch (TargetInvocationException) when (rewrite is { Replaced: true })
-                {
-                    // A failed request hands back no bytes: a rewrite that then fails would reach the Blob late. The flag
-                    // does not outlive the call.
-                    rewrite.Replaced = false;
-                    throw new Refusal("a .NET rewrite of the bytes an AL OutStream held, then an exception (not pinned)");
-                }
-                finally { if (rewrite != null) rewrite.RewriteAllowed = false; }
+                var result = InvokeMethod((MethodInfo)best, target, coerced);
                 return Done(result, best, coerced, args, ((MethodInfo)best).ReturnType);
             }
             case "get":
@@ -274,7 +263,7 @@ public sealed class Server
                 // AL lets a method be called without parentheses.
                 var m = type.GetMethods(flags).Where(x => x.Name == name && x.GetParameters().Length == 0 && !x.IsGenericMethodDefinition).FirstOrDefault();
                 if (m != null)
-                    return Done(m.Invoke(m.IsStatic ? null : target, Array.Empty<object>()), null, null, null, m.ReturnType);
+                    return Done(InvokeMethod(m, target, Array.Empty<object?>()), null, null, null, m.ReturnType);
                 throw new Refusal(NoObjectOrMissing(target, type, name, $"property, field or method '{name}' not found on '{type.FullName}'"));
             }
             case "set":
@@ -333,6 +322,23 @@ public sealed class Server
 
     static string NoObject(Type type, string name) =>
         $"'{type.FullName}.{name}' is an instance member and the variable holds no object";
+
+    /// Invokes a method, with the parentheses or without (AL calls `ZipArchive.Dispose;` as a "get"; al-runner issue 9291): a
+    /// call [Marshaller.RewriteBridge] allows may rewrite its bridge's seed.
+    object? InvokeMethod(MethodInfo m, object? target, object?[] coerced)
+    {
+        var rewrite = marshal.RewriteBridge(target, m.Name, coerced.Length);
+        if (rewrite != null) rewrite.RewriteAllowed = true;
+        try { return m.Invoke(m.IsStatic ? null : target, coerced); }
+        catch (TargetInvocationException) when (rewrite is { Replaced: true })
+        {
+            // A failed request hands back no bytes: a rewrite that then fails would reach the Blob late. The flag
+            // does not outlive the call.
+            rewrite.Replaced = false;
+            throw new Refusal("a .NET rewrite of the bytes an AL OutStream held, then an exception (not pinned)");
+        }
+        finally { if (rewrite != null) rewrite.RewriteAllowed = false; }
+    }
 
     static bool PlainParameters(MethodBase m) => m.GetParameters().All(p => p.ParameterType.IsByRef == false);
 

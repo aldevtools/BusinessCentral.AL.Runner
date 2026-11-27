@@ -19,6 +19,7 @@ pub(crate) mod instream_arg;
 mod invoke_exception;
 mod last_error;
 mod not_created;
+mod null_value_type;
 mod pinned_exceptions;
 pub mod policy;
 mod pure;
@@ -108,6 +109,22 @@ impl Bridge {
             blob: blob.clone(),
             edits: blob.borrow().content_edits,
         }
+    }
+
+    /// Bytes .NET appended through the bridge, written into the Blob. The stamp follows them only when AL did not change the
+    /// Blob since the bridge took it: else a later rewrite would see the AL change as the bridge's own (al-runner issue 9291).
+    fn append(&mut self, bytes: &[u8]) {
+        let unchanged = self.blob.borrow().content_edits == self.edits;
+        al_builtins::stream::write_bytes(&self.blob, bytes);
+        if unchanged {
+            self.edits = self.blob.borrow().content_edits;
+        }
+    }
+
+    /// The whole content .NET rewrote, as the Blob's bytes; the caller checked that the Blob still held the bridge's bytes.
+    fn replace(&mut self, bytes: &[u8]) {
+        al_builtins::stream::replace_bytes(&self.blob, bytes);
+        self.edits = self.blob.borrow().content_edits;
     }
 }
 
@@ -444,6 +461,7 @@ impl Session {
         };
         let footprint_member = (kind != MemberKind::Construct).then_some(member.as_str());
         self.note_footprint_dotnet(&clr_type, footprint_member, values.len(), &shown);
+        self.null_value_type_args(kind, &clr_type, &member, &mut values, &places, f)?;
 
         // 1. The registry: a registered type is served here for all its members.
         let engine = self.engine.clone();
@@ -1399,10 +1417,7 @@ impl Session {
     fn apply_stream_effects(&mut self, streams: &al_host::dotnet::StreamEffects, shown: &str) -> Result<(), Signal> {
         for (id, bytes) in &streams.written {
             match self.dotnet.bridges.get_mut(id) {
-                Some(bridge) => {
-                    al_builtins::stream::write_bytes(&bridge.blob, bytes);
-                    bridge.edits = bridge.blob.borrow().content_edits;
-                }
+                Some(bridge) => bridge.append(bytes),
                 None => return unsupported(format!("DotNet {shown}: bytes for an unknown stream bridge {id}")),
             }
         }
@@ -1430,9 +1445,8 @@ impl Session {
                     "DotNet {shown}: a .NET rewrite of an OutStream AL wrote into since the call before (not pinned)"
                 ));
             }
-            al_builtins::stream::replace_bytes(&blob, bytes);
             if let Some(bridge) = self.dotnet.bridges.get_mut(id) {
-                bridge.edits = blob.borrow().content_edits;
+                bridge.replace(bytes);
             }
         }
         for id in &streams.overwritten {

@@ -1,4 +1,0 @@
-# key	entry
-# Review of PR 8865, finding H1: D's row depends on whether B's subscriber ran; X depends on D and copies D's row.
-# Main refuses both tables (whole-group comparison). Head refuses both too: D's table by the subset runs, X's table by
-# the taint closure (ADR-079 decision 4, clarification of 2026-11-23). Same outcome (not run) on both sides: no row.

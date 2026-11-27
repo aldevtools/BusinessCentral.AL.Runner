@@ -151,6 +151,7 @@ For each pull request:
      refactor or comments only. The reviewer checks the reason.
 
    The format is in [tests/neighbors/README.md](tests/neighbors/README.md).
+   Delete the folder once the fix has merged.
 3. Run `bash tools/neighbor-diff.sh --changed` locally. See [tools/neighbor-diff.sh](tools/neighbor-diff.sh).
    It runs the check CI runs and prints a table. Paste the table into the pull request description.
 4. Push once when it passes. Draft CI (`test` and "neighbor check") runs on that push.

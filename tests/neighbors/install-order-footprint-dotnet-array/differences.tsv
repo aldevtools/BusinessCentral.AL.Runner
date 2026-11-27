@@ -1,8 +1,0 @@
-# key	entry
-# Main and the round-1 head: Byte[].Length and Byte[].GetValue touch everything and the four apps tie; head: they are
-# the System.Array members inproc.txt lists.
-FP Dotnet Array Tests::RowOfAExists	PINNED tests/al-language/record/BfInstallTests.al:125 (fact 1: fresh session state per install session)
-FP Dotnet Array Tests::RowOfBExists	PINNED tests/al-language/record/BfInstallTests.al:125 (fact 1: fresh session state per install session)
-FP Dotnet Array Tests::RowOfCExists	PINNED tests/al-language/record/BfInstallTests.al:125 (fact 1: fresh session state per install session)
-FP Dotnet Array Tests::RowOfDExists	PINNED tests/al-language/record/BfInstallTests.al:125 (fact 1: fresh session state per install session)
-FP Dotnet Array Tests::ControlTouchesNoInstalledTable	PINNED tests/al-language/record/BfInstallTests.al:125 (fact 1: fresh session state per install session)

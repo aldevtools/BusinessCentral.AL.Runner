@@ -1,4 +1,5 @@
-//! How a scan steps through a table in the order of one of its keys (ADR-035), in one place (issue 7671).
+//! How a scan steps through a table in the order of one of its keys (ADR-035), in one place (issue 7671). Entry points:
+//! `KeyOrder`, `MemStore::step` (called by `next`). Unit tests: `memory/tests/scan_tests.rs`, `memory/tests/seek_tests.rs`.
 //!
 //! - [`KeyOrder`] is the order of a key and the direction of a scan: how two rows compare, how a row stands to a
 //!   position, whether a row lies past the scan's position, which of two rows the scan meets first, the first row of a
@@ -6,10 +7,6 @@
 //! - `MemStore::step` picks the path of one step: the band of another key the filters bound (`alt_next`, with the
 //!   lists `alt_cache` keeps), the primary key's order (`pk_step`), the cached order of the scan's key
 //!   (`ordered_step`), or a look at every row of a small table. Each reads its band through `memory/band.rs`.
-//!
-//! One step of a scan (`MemStore::step`, called by `next`) and the order of a key with the scan's
-//! direction (`KeyOrder`), in one place (issue 7671). Entry points: `KeyOrder`, `MemStore::step`.
-//! Unit tests: `memory/tests/scan_tests.rs`, `memory/tests/seek_tests.rs`.
 
 use super::*;
 use std::ops::Range;
@@ -66,6 +63,14 @@ impl<'a> KeyOrder<'a> {
 
     /// How the values of a position in this key (`values`, in the order of its fields) stand to the position `pos`.
     fn cmp_values_to_position<'v>(&self, values: impl Iterator<Item = &'v Value>, pos: &[Value]) -> Ordering {
+        // A shorter position would sort first here, where alt_next's old comparison stopped at its end: every caller
+        // passes a full position (`crate::position`), and a prefix must not change the order unnoticed.
+        debug_assert_eq!(
+            pos.len(),
+            self.t.keys[self.key].len() + self.t.keys[0].len(),
+            "a scan position of key {} that is not a full position",
+            self.key
+        );
         for ((&i, v), x) in self.fields().zip(values).zip(pos) {
             match self.t.cmp_key_field(i, v, x) {
                 Ordering::Equal => continue,

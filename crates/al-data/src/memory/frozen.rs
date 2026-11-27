@@ -23,6 +23,8 @@ pub struct FrozenStore {
     copies: crate::pmap::PMap<std::sync::Arc<str>, std::sync::Arc<str>>,
     source_stamps: crate::pmap::PMap<std::sync::Arc<str>, u64>,
     emptied: crate::pmap::PMap<Slot, ()>,
+    /// The tables marked as written (`MemStore::note_written`), a plain set.
+    written: std::collections::BTreeSet<u32>,
     /// The companies deleted with their rows (`dropped_backed_companies`): the test data's rows of such a company stay
     /// gone on every thread (issue 9233, `MemStore::committed_deleted_companies`).
     dropped_backed_companies: crate::pmap::PMap<std::sync::Arc<str>, ()>,
@@ -208,6 +210,7 @@ impl FrozenStore {
             copies: store.committed_copies.clone(),
             source_stamps: store.committed_source_stamps.clone(),
             emptied: store.committed_emptied.clone(),
+            written: store.written.clone(),
             dropped_backed_companies: store.committed_dropped_backed_companies.clone(),
             unknown_cols: store.unknown_cols.clone(),
             accent_cols: store.accent_cols.clone(),
@@ -247,6 +250,7 @@ impl FrozenStore {
             committed_source_stamps: self.source_stamps.clone(),
             emptied: self.emptied.clone(),
             committed_emptied: self.emptied.clone(),
+            written: self.written.clone(),
             dropped_backed_companies: self.dropped_backed_companies.clone(),
             committed_dropped_backed_companies: self.dropped_backed_companies.clone(),
             unknown_cols: self.unknown_cols.clone(),

@@ -1,4 +1,0 @@
-# key	entry
-NB R1 Clear Only::Update4Arg_ClearOnly_Dispose	REFUSED DotNet System.IO.Compression.ZipArchive.Dispose: a .NET rewrite of an OutStream AL wrote into since the call before
-NB R1 Clear Rewrite::Update4Arg_ClearAndRewriteSameLength_Dispose	REFUSED DotNet System.IO.Compression.ZipArchive.Dispose: a .NET rewrite of an OutStream AL wrote into since the call before
-NB R1 Two Archives::TwoUpdateArchives_SameOutStream_Dispose	REFUSED DotNet System.IO.Compression.ZipArchive.Dispose: a .NET rewrite of an OutStream AL wrote into since the call before

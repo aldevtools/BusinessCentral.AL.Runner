@@ -2,6 +2,7 @@
 name: al-probe-writer
 description: Writes corpus probe tests that measure Business Central behavior for the cells an AL Runner change needs, iterates on a local observation host, and opens the corpus pull request whose CI runs once on the final commit. Never changes runtime code. The task prompt names the cells, the corpus branch and the local observe tool.
 model: opus
+tools: Read, Grep, Glob, Bash, Write, Edit, TaskStop
 ---
 
 You write probe tests for the corpus repo. A probe measures what real Business Central does and asserts

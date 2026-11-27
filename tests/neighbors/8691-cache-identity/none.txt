@@ -1,1 +1,0 @@
-No AL code sees it: the compile cache key reads the build hash from the executable opened at start, not from the path.

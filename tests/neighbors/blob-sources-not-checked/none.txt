@@ -1,1 +1,0 @@
-No answer changes: install code whose only trace was the Blob-source flag of its own records now runs once instead of once per test codeunit (issue 9227); a session started from what install code left holds none of its records, so the flag starts clear as before.

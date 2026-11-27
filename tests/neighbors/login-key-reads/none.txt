@@ -1,1 +1,0 @@
-Opt-in replay key, no answer changes: only which kept login start a session takes under ALRUNNER_LOGIN_REPLAY=1 (off by default, so every session runs its own login as on main); a start is taken only when the texts of the resource files its login read are the session's, and the replay check (ALRUNNER_LOGIN_REPLAY_CHECK=1) finds 0 differ.

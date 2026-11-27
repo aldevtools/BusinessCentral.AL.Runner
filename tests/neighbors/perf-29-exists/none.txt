@@ -1,1 +1,0 @@
-Speed only: Count, IsEmpty and the existence checks stop at the rows they need (1 or 2, or all for Count) and may walk a narrower secondary-key band, after the same refusals; the rows that pass the filters, and so every Count, IsEmpty, Find and relation answer, are the ones main gives.
