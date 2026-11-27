@@ -303,7 +303,7 @@ impl Session {
         for v in self.validate_sites.iter_mut().filter(|v| v.handle == handle) {
             v.whole_write = true;
         }
-        if !self.ext_before_watch.is_empty() {
+        if !self.ext_before_watch.borrow().is_empty() {
             self.note_ext_before_touch(None, rec);
         }
         std::mem::replace(&mut d.fields, fields)

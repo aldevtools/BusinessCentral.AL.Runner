@@ -36,8 +36,13 @@ use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::native::Signal;
 use al_builtins::value::{RecordState, Value};
 use al_data::TableDef;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+
+/// The `touched` flags of the measured calls still in their subscribers or extension trigger, per record handle
+/// (`Session::ext_before_watch`). An [`AtCall`] removes its own entry when it is dropped, so the list is empty outside
+/// such a call.
+pub(crate) type ExtBeforeWatch = Rc<RefCell<Vec<(usize, Rc<Cell<bool>>)>>>;
 
 /// The `RecordState::unpinned_buffer` reason of xRec in a table extension's insert or delete trigger.
 pub(crate) const XREC_OF_EXT_INSERT_DELETE_TRIGGER: &str = "xRec in a table extension's insert or delete trigger (OnBeforeInsert, OnInsert, OnAfterInsert, OnBeforeDelete, OnDelete, OnAfterDelete): the corpus does not measure what it holds";
@@ -61,8 +66,17 @@ pub(crate) struct AtCall {
     xrec_named: bool,
     /// Set when a record method other than `SetRange` and `SetCurrentKey`, or a write of a whole record, ran on Rec between
     /// the call and the end of the extension's trigger ([`Session::note_ext_before_touch`]): the probe measures only field
-    /// assignments, `SetRange` and `SetCurrentKey` there. The session holds it weakly (`Session::ext_before_watch`).
+    /// assignments, `SetRange` and `SetCurrentKey` there.
     touched: Rc<Cell<bool>>,
+    /// The session's watch list, which holds `touched` while this call lives (`Session::ext_before_watch`).
+    watch: ExtBeforeWatch,
+}
+
+/// The measured call ended, by its own trigger or by an error before it: its watch entry goes.
+impl Drop for AtCall {
+    fn drop(&mut self) {
+        self.watch.borrow_mut().retain(|(_, t)| !Rc::ptr_eq(t, &self.touched));
+    }
 }
 
 /// Whether a routine of table object `table` or of one of its table extensions names that object's xRec, or passes it to a
@@ -105,13 +119,15 @@ impl Session {
 
     /// Rec at the call, taken before the `OnBefore...Event` subscribers run, when the call is of the measured shape: `None`
     /// keeps main's xRec (a call that runs no trigger (`run` false), no extension declares `before`, the table declares no
-    /// `own` trigger, or another call shape).
+    /// `own` trigger, or another call shape). `read_first`: the probe measures the call only on a record that was read
+    /// before it (`Delete`: RunDelete at XebXRecAfterExtBeforeTrigger.al:268-290 Gets the row first).
     pub(crate) fn rec_at_ext_before_call(
         &mut self,
         t: &TableDef,
         run: bool,
         before: &str,
         own: &str,
+        read_first: bool,
         rec: &Rec,
     ) -> Option<AtCall> {
         let declared = self.ext_triggers(t, before).len();
@@ -130,7 +146,8 @@ impl Session {
             && view_as_measured(&r)
             && r.filters.is_empty()
             && r.key == 0
-            && r.filter_group == 0;
+            && r.filter_group == 0
+            && (r.position.is_some() || !read_first);
         if !measured {
             return None;
         }
@@ -139,14 +156,15 @@ impl Session {
             .xrec_named
             .get_or_init(|| table_code_names_xrec(program, t.object as usize));
         let touched = Rc::new(Cell::new(false));
-        self.ext_before_watch.retain(|(_, w)| w.strong_count() > 0);
         self.ext_before_watch
-            .push((Rc::as_ptr(rec) as usize, Rc::downgrade(&touched)));
+            .borrow_mut()
+            .push((Rc::as_ptr(rec) as usize, touched.clone()));
         Some(AtCall {
             fields: r.fields.to_vec(),
             position: r.position.clone(),
             xrec_named,
             touched,
+            watch: self.ext_before_watch.clone(),
         })
     }
 
@@ -160,8 +178,8 @@ impl Session {
             return;
         }
         let handle = Rc::as_ptr(rec) as usize;
-        for (h, w) in &self.ext_before_watch {
-            if let Some(touched) = w.upgrade().filter(|_| *h == handle) {
+        for (h, touched) in self.ext_before_watch.borrow().iter() {
+            if *h == handle {
                 touched.set(true);
             }
         }
@@ -172,7 +190,7 @@ impl Session {
     /// `SetCurrentKey` and no whole-record write ran on Rec ([`AtCall::touched`]), the view facts of `view_as_measured` still
     /// hold, the trigger left filter group 0, every filter of Rec is in group 0 and Rec is on the row of the call; else the mark
     /// [`XREC_AFTER_EXT_BEFORE_UNMEASURED`].
-    pub(crate) fn xrec_after_ext_before(at: AtCall, rec: &Rec) -> Rec {
+    pub(crate) fn xrec_after_ext_before(mut at: AtCall, rec: &Rec) -> Rec {
         let measured = {
             let r = rec.borrow();
             !at.touched.get()
@@ -185,7 +203,7 @@ impl Session {
                     _ => false,
                 }
         };
-        let x = Self::xrec_handle(rec, at.fields);
+        let x = Self::xrec_handle(rec, std::mem::take(&mut at.fields));
         if measured {
             if at.xrec_named {
                 assume(Assumption::XRecAfterExtBeforeTrigger);

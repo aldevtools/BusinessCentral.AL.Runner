@@ -440,7 +440,7 @@ impl Session {
                     .iter()
                     .position(|f| f.id == 2_000_000_000)
                     .map(|i| rec.borrow().fields[i].clone());
-                let at_call = self.rec_at_ext_before_call(&t, run, "OnBeforeInsert", "OnInsert", rec);
+                let at_call = self.rec_at_ext_before_call(&t, run, "OnBeforeInsert", "OnInsert", false, rec);
                 self.assign_system_id(&t, rec, keep_id);
                 let id_slot = t.fields.iter().position(|f| f.id == 2_000_000_000);
                 // The id the platform gave the row, before any event or trigger could change it.

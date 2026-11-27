@@ -294,7 +294,7 @@ macro_rules! session_fields {
                 validate_sites => |s: &Session| s.validate_sites.is_empty(),
                 plain_proc_xrec => |s: &Session| s.plain_proc_xrec.is_empty(),
                 ext_xrec_triggers => |s: &Session| s.ext_xrec_triggers == 0,
-                ext_before_watch => |s: &Session| s.ext_before_watch.iter().all(|(_, w)| w.strong_count() == 0),
+                ext_before_watch => |s: &Session| s.ext_before_watch.borrow().is_empty(),
                 shared_proc_xrec => |s: &Session| s.shared_proc_xrec.is_empty(),
                 iface_frames => |s: &Session| s.iface_frames.is_empty(),
                 field_error_form => |s: &Session| s.field_error_form.is_none(),
