@@ -108,6 +108,7 @@ fn cells() -> Vec<Cell> {
     no_row_rows(&mut t);
     super::cells_decl::decl_rows(&mut t);
     super::cells_items::top_level_items_rows(&mut t);
+    super::cells_platform_first::platform_first_rows(&mut t);
     t
 }
 

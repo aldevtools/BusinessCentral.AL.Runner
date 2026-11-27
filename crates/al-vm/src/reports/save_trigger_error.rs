@@ -93,7 +93,8 @@ impl Session {
     /// OutStream)` as Pdf, Word or Xml, as a statement or in the Boolean form ("SAE Cells" :362-424); the report is not
     /// processing-only, has one data item and one layout in its rendering section named by DefaultRenderingLayout: Word
     /// ("SAE Word Rpt" :149, codeunit 77388 SaveAs_Word_*), or Word or RDLC with one report extension that only adds a
-    /// column ("SAE Word Col Ext", "SAE Rdlc Col Ext", codeunit 77395).
+    /// column ("SAE Word Col Ext", "SAE Rdlc Col Ext", codeunit 77395); or, as Xml, one Excel layout and no extension
+    /// ("SAE Excel Rpt", SaveAs_Excel_*: as Pdf and Word the platform's error comes first, `cells_platform_first`).
     ///
     /// Pinned: text/PnBReportSaveAs.al:698 PW_TriggerError_InPreReport_LastError, `Error('literal')` in OnPreReport of a
     /// report without a layout or an extension, `Rep.SaveAs('', Xml, OutStream)` on a variable, the answer used.
@@ -134,7 +135,8 @@ impl Session {
             && report.items.len() == 1
             && matches!(call.format, "Pdf" | "Word" | "Xml")
             && ((own_layout("word") && (report.extensions.is_empty() || column_extension))
-                || (own_layout("rdlc") && column_extension));
+                || (own_layout("rdlc") && column_extension)
+                || (own_layout("excel") && report.extensions.is_empty() && call.format == "Xml"));
         if assumed {
             return Cover::Assumed;
         }

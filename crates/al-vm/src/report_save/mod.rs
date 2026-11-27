@@ -27,6 +27,7 @@ mod cell;
 mod cells;
 mod cells_decl;
 mod cells_items;
+mod cells_platform_first;
 mod errors;
 mod events;
 mod fact_report;
